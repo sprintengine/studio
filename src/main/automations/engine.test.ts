@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { mkdtemp } from 'node:fs/promises'
+import { mkdir, mkdtemp, writeFile } from 'node:fs/promises'
 import { createServer, type Server } from 'node:http'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -13,6 +13,7 @@ import type {
 } from '../../shared/automations/contracts'
 import type { WorkspaceSyncSnapshot } from '../../shared/workspace-sync'
 import { AutomationsEngine, projectFoldersFromWorkspaceSyncSnapshot } from './engine'
+import { runSignalPath } from './run-signal'
 import { AutomationsStore, type AutomationStoreState } from './store'
 import { computeNextRun, validateScheduleTriggerConfig } from './schedule'
 import { executableTriggerProviders } from './provider-registry'
@@ -48,6 +49,12 @@ async function main(): Promise<void> {
   await assertWebhookReceiverRefreshSerializesAndFailsClosed()
   await assertStartupOverdueIsSkippedWithoutCatchup()
   await assertTickWaitsForStartupOverdueSkip()
+  await assertSignalScanFinalizesCompletedRunSilently()
+  await assertSignalScanFinalizesFailedRunAndEmitsEvent()
+  await assertMalformedOrMissingSignalLeavesRunPending()
+  await assertSignalScanIsIdempotentOnRescan()
+  await assertStartupRebuildsRegistryFromStore()
+  await assertManualFinalizeRemovesRunFromRegistry()
 }
 
 function definition(overrides: Partial<AutomationDefinition> = {}): AutomationDefinition {
@@ -440,6 +447,192 @@ async function assertAgentBackedRunStaysRunningUntilFinalize(): Promise<void> {
   assert.equal(again.ok, true)
   assert.equal(prCalls, 1)
   assert.equal(events.length, 1)
+}
+
+// --- Agent-declared run-status signal-file auto-finalize (T4) ---
+
+type AgentEngineHarness = {
+  engine: AutomationsEngine
+  events: AutomationsRunEvent[]
+  removedWorktrees: string[]
+  counters: { prCalls: number }
+  worktreePath: string
+}
+
+async function setupAgentRun(
+  now: number,
+  overrides: Partial<ConstructorParameters<typeof AutomationsEngine>[0]> = {}
+): Promise<{ workspaceRoot: string; store: AutomationsStore } & AgentEngineHarness> {
+  const workspaceRoot = await createWorkspace()
+  const store = new AutomationsStore(workspaceRoot)
+  assert.equal((await store.createDefinition(definition({
+    trigger: { kind: 'schedule', config: intervalConfig(10) },
+    nextRunAt: new Date(now).toISOString(),
+  }))).ok, true)
+  const harness = agentEngine(workspaceRoot, now, overrides)
+  return { workspaceRoot, store, ...harness }
+}
+
+function agentEngine(
+  workspaceRoot: string,
+  now: number,
+  overrides: Partial<ConstructorParameters<typeof AutomationsEngine>[0]> = {}
+): AgentEngineHarness {
+  const events: AutomationsRunEvent[] = []
+  const removedWorktrees: string[] = []
+  const counters = { prCalls: 0 }
+  const worktreePath = `${workspaceRoot}/.multi-code/automations/worktrees/run-agent`
+  const engine = new AutomationsEngine({
+    getProjectFolders: () => [{ workspaceId: 'ws-automations', folderPath: workspaceRoot }],
+    now: () => now,
+    createRunId: () => 'run-agent',
+    onRunEvent: (event) => events.push(event),
+    runAutomation: async () => ({
+      status: 'running',
+      workspaceId: 'ws-automations',
+      agentId: 'agent-1',
+      worktreePath,
+      branch: 'automations/run-agent',
+      summary: 'Launched; working…',
+    }),
+    openRunPullRequest: async () => {
+      counters.prCalls += 1
+      return { ok: true, url: 'https://github.com/acme/repo/pull/9', created: true }
+    },
+    removeRunWorktree: async (input) => {
+      removedWorktrees.push(input.worktreePath)
+    },
+    ...overrides,
+  })
+  return { engine, events, removedWorktrees, counters, worktreePath }
+}
+
+async function writeRunSignal(worktreePath: string, body: string): Promise<void> {
+  await mkdir(worktreePath, { recursive: true })
+  await writeFile(runSignalPath(worktreePath), body, 'utf8')
+}
+
+async function assertSignalScanFinalizesCompletedRunSilently(): Promise<void> {
+  const now = Date.parse('2026-06-17T10:00:00.000Z')
+  const { engine, workspaceRoot, store, events, removedWorktrees, counters, worktreePath } = await setupAgentRun(now)
+
+  const dispatched = await engine.runNow({ workspaceRoot, automationId: 'nightly-review', workspaceId: 'ws-automations' })
+  assert.equal(dispatched.ok, true)
+  assert.equal(dispatched.ok && dispatched.run.status, 'running')
+  assert.equal(events.length, 0)
+
+  await writeRunSignal(worktreePath, JSON.stringify({ status: 'completed', summary: 'Opened PR.' }))
+  await engine.tick()
+
+  const finalized = await store.getRun('nightly-review', 'run-agent')
+  assert.equal(finalized.ok && finalized.value.status, 'completed')
+  assert.equal(finalized.ok && finalized.value.pullRequestUrl, 'https://github.com/acme/repo/pull/9')
+  assert.equal(counters.prCalls, 1, 'PR opened once')
+  assert.equal(removedWorktrees.length, 1, 'worktree torn down')
+  // A timer-driven completed finalize stays silent (no terminal run-event).
+  assert.equal(events.length, 0, 'completed auto-finalize emits no run-event')
+
+  // Re-scan after the run is terminal does nothing (registry already cleared).
+  await engine.tick()
+  assert.equal(counters.prCalls, 1, 'no second PR on re-tick')
+}
+
+async function assertSignalScanFinalizesFailedRunAndEmitsEvent(): Promise<void> {
+  const now = Date.parse('2026-06-17T10:00:00.000Z')
+  const { engine, workspaceRoot, store, events, removedWorktrees, counters, worktreePath } = await setupAgentRun(now)
+
+  assert.equal((await engine.runNow({ workspaceRoot, automationId: 'nightly-review', workspaceId: 'ws-automations' })).ok, true)
+  await writeRunSignal(worktreePath, JSON.stringify({ status: 'failed', summary: 'Could not finish.' }))
+  await engine.tick()
+
+  const finalized = await store.getRun('nightly-review', 'run-agent')
+  assert.equal(finalized.ok && finalized.value.status, 'failed')
+  assert.equal(counters.prCalls, 0, 'failed run opens no PR')
+  assert.equal(removedWorktrees.length, 1, 'worktree torn down on failure')
+  // A timer-driven failed finalize surfaces a failed run-event.
+  assert.equal(events.length, 1)
+  assert.equal(events[0]?.status, 'failed')
+  assert.equal(events[0]?.trigger, 'timer')
+}
+
+async function assertMalformedOrMissingSignalLeavesRunPending(): Promise<void> {
+  const now = Date.parse('2026-06-17T10:00:00.000Z')
+  const { engine, workspaceRoot, store, counters, worktreePath } = await setupAgentRun(now)
+  assert.equal((await engine.runNow({ workspaceRoot, automationId: 'nightly-review', workspaceId: 'ws-automations' })).ok, true)
+
+  // Missing signal file: run stays pending.
+  await engine.tick()
+  assert.equal((await store.getRun('nightly-review', 'run-agent')).value?.status, 'running')
+  assert.equal(counters.prCalls, 0)
+
+  // Malformed / unrecognized signal: still pending, never coerced.
+  await writeRunSignal(worktreePath, '{ not json')
+  await engine.tick()
+  assert.equal((await store.getRun('nightly-review', 'run-agent')).value?.status, 'running')
+  await writeRunSignal(worktreePath, JSON.stringify({ status: 'queued' }))
+  await engine.tick()
+  assert.equal((await store.getRun('nightly-review', 'run-agent')).value?.status, 'running')
+  assert.equal(counters.prCalls, 0, 'no finalize on invalid signal')
+
+  // A valid signal later finalizes it, proving the run was still tracked.
+  await writeRunSignal(worktreePath, JSON.stringify({ status: 'completed' }))
+  await engine.tick()
+  assert.equal((await store.getRun('nightly-review', 'run-agent')).value?.status, 'completed')
+  assert.equal(counters.prCalls, 1)
+}
+
+async function assertSignalScanIsIdempotentOnRescan(): Promise<void> {
+  const now = Date.parse('2026-06-17T10:00:00.000Z')
+  const { engine, workspaceRoot, store, counters, worktreePath } = await setupAgentRun(now)
+  assert.equal((await engine.runNow({ workspaceRoot, automationId: 'nightly-review', workspaceId: 'ws-automations' })).ok, true)
+  await writeRunSignal(worktreePath, JSON.stringify({ status: 'completed' }))
+
+  await engine.tick()
+  await engine.tick()
+  await engine.tick()
+  assert.equal((await store.getRun('nightly-review', 'run-agent')).value?.status, 'completed')
+  assert.equal(counters.prCalls, 1, 'finalize/PR happens exactly once across repeated scans')
+}
+
+async function assertStartupRebuildsRegistryFromStore(): Promise<void> {
+  const now = Date.parse('2026-06-17T10:00:00.000Z')
+  // Engine A dispatches the run and records it as `running` in the store.
+  const { engine: engineA, workspaceRoot, store, worktreePath } = await setupAgentRun(now)
+  assert.equal((await engineA.runNow({ workspaceRoot, automationId: 'nightly-review', workspaceId: 'ws-automations' })).ok, true)
+  assert.equal((await store.getRun('nightly-review', 'run-agent')).value?.status, 'running')
+
+  // Engine B is a fresh instance (empty in-memory registry) simulating a restart.
+  const { engine: engineB, counters: countersB } = agentEngine(workspaceRoot, now)
+  await writeRunSignal(worktreePath, JSON.stringify({ status: 'completed' }))
+  // Startup seeds the registry from disk, then the scan finalizes the run.
+  await engineB.handleStartup()
+  assert.equal((await store.getRun('nightly-review', 'run-agent')).value?.status, 'completed')
+  assert.equal(countersB.prCalls, 1, 'restart-recovered run finalized via startup seed')
+}
+
+async function assertManualFinalizeRemovesRunFromRegistry(): Promise<void> {
+  const now = Date.parse('2026-06-17T10:00:00.000Z')
+  const { engine, workspaceRoot, store, events, counters, worktreePath } = await setupAgentRun(now)
+  assert.equal((await engine.runNow({ workspaceRoot, automationId: 'nightly-review', workspaceId: 'ws-automations' })).ok, true)
+
+  // Manual finalize (IPC button) — emits even on completed, and clears the registry.
+  const manual = await engine.finalizeRun({
+    workspaceRoot,
+    automationId: 'nightly-review',
+    runId: 'run-agent',
+    outcome: 'completed',
+  })
+  assert.equal(manual.ok, true)
+  assert.equal(counters.prCalls, 1)
+  assert.equal(events.length, 1, 'manual completed finalize emits a run-event')
+  assert.equal(events[0]?.trigger, 'manual')
+
+  // A subsequent signal scan must not re-finalize: the run left the registry.
+  await writeRunSignal(worktreePath, JSON.stringify({ status: 'failed' }))
+  await engine.tick()
+  assert.equal((await store.getRun('nightly-review', 'run-agent')).value?.status, 'completed')
+  assert.equal(counters.prCalls, 1, 'scan does not touch a manually finalized run')
+  assert.equal(events.length, 1, 'no extra event from the scan')
 }
 
 async function assertRunEventDeliveryFailuresDoNotMutateRunTruth(): Promise<void> {

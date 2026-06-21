@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto'
+import { readFile } from 'node:fs/promises'
 
 import type {
   AutomationDefinition,
@@ -17,6 +18,7 @@ import { AutomationsStore, type AutomationStoreProblem, type AutomationStoreStat
 import type { AutomationPullRequestResult } from './pull-request'
 import { computeNextRun, validateScheduleTriggerConfig } from './schedule'
 import { evaluatePollingTriggerDefinition } from './polling-trigger-runner'
+import { parseRunSignal, runSignalPath } from './run-signal'
 import { enqueueTriggerEventRun, type TriggerEventRunResult } from './trigger-event-runner'
 
 export type AutomationsProjectFolder = {
@@ -104,6 +106,17 @@ export type AutomationsEngineOptions = {
 
 type EvaluationMode = 'startup' | 'timer'
 
+// An agent-backed run that was dispatched as `running` and is awaiting the
+// agent's terminal outcome, declared via the run-status signal file in its
+// worktree. The per-tick scan reads that file and finalizes the run.
+type PendingAgentRun = {
+  workspaceRoot: string
+  automationId: string
+  runId: string
+  worktreePath: string
+  workspaceId?: string
+}
+
 const DEFAULT_POLL_INTERVAL_MS = 60_000
 
 export class AutomationsEngine {
@@ -121,6 +134,7 @@ export class AutomationsEngine {
   private readonly openRunPullRequest?: AutomationRunPullRequestOpener
   private readonly removeRunWorktree?: AutomationRunWorktreeRemover
   private readonly inFlight = new Set<string>()
+  private readonly pendingAgentRuns = new Map<string, PendingAgentRun>()
   private timer: ReturnType<typeof setInterval> | null = null
   private started = false
   private startupEvaluation: Promise<AutomationsEngineEvaluationResult> | null = null
@@ -294,6 +308,7 @@ export class AutomationsEngine {
         input.workspaceId
         ?? await this.resolveWorkspaceIdForRoot(input.workspaceRoot)
         ?? finalRun.workspaceId
+      this.trackPendingAgentRun(input.workspaceRoot, finalRun, eventWorkspaceId)
       this.emitRunEvent({
         workspaceId: eventWorkspaceId,
         definition,
@@ -429,7 +444,10 @@ export class AutomationsEngine {
       now: this.now,
       createRunId: this.createRunId,
       inFlight: this.inFlight,
-      emitRunEvent: (event) => this.emitRunEvent({ ...event, trigger: 'timer' }),
+      emitRunEvent: (event) => {
+        this.trackPendingAgentRun(input.workspaceRoot, event.run, event.workspaceId ?? workspaceId)
+        this.emitRunEvent({ ...event, trigger: 'timer' })
+      },
       result,
     })
 
@@ -449,7 +467,15 @@ export class AutomationsEngine {
     outcome: 'completed' | 'failed'
     summary?: string
     workspaceId?: string
+    // Routes the terminal run-event. 'manual' (default, IPC button) always emits;
+    // 'timer' (signal-scan auto-finalize) emits only on failure so the completed
+    // happy path stays silent during background ticks.
+    eventTrigger?: AutomationRunEventTrigger
   }): Promise<AutomationsEngineFinalizeResult> {
+    // Drop from the pending registry on any finalize (manual or scan-driven) so a
+    // later tick never re-scans a run that is already being finalized.
+    this.pendingAgentRuns.delete(this.pendingRunKey(input.workspaceRoot, input.automationId, input.runId))
+
     const store = this.createStore(input.workspaceRoot)
     const runResult = await store.getRun(input.automationId, input.runId)
     if (!runResult.ok) {
@@ -505,7 +531,9 @@ export class AutomationsEngine {
       return { ok: false, problem: storeProblem(input.workspaceRoot, recorded.error, input.automationId) }
     }
 
-    if (definitionResult.ok) {
+    const eventTrigger = input.eventTrigger ?? 'manual'
+    const emitTerminalEvent = eventTrigger === 'manual' || finalRun.status === 'failed'
+    if (definitionResult.ok && emitTerminalEvent) {
       const eventWorkspaceId =
         input.workspaceId
         ?? run.workspaceId
@@ -515,7 +543,7 @@ export class AutomationsEngine {
         workspaceId: eventWorkspaceId,
         definition: definitionResult.value,
         run: finalRun,
-        trigger: 'manual',
+        trigger: eventTrigger,
       })
     }
 
@@ -526,6 +554,11 @@ export class AutomationsEngine {
     const result = emptyEvaluationResult()
     const now = this.now()
     const projectFolders = await this.loadProjectFolders(result)
+    // Rebuild the pending-run registry from disk once at startup so agent runs
+    // dispatched before an app restart are still finalized when their signal lands.
+    if (mode === 'startup') {
+      await this.seedPendingAgentRuns(projectFolders)
+    }
     const pollContext = createTriggerPollContext()
     const triggerProvidersByKind = new Map(
       this.getTriggerProviders().map((provider) => [provider.kind, provider])
@@ -535,8 +568,68 @@ export class AutomationsEngine {
       await this.evaluateProject(projectFolder, mode, now, pollContext, triggerProvidersByKind, result)
     }
 
+    await this.scanPendingAgentRuns()
+
     this.onEvaluation?.(result)
     return result
+  }
+
+  // Auto-finalize: read each pending agent run's signal file; a valid signal
+  // finalizes the run (timer-routed) and drops it from the registry, while a
+  // missing or invalid signal leaves the run pending for a later tick.
+  private async scanPendingAgentRuns(): Promise<void> {
+    if (this.pendingAgentRuns.size === 0) return
+    for (const pending of [...this.pendingAgentRuns.values()]) {
+      let raw: string
+      try {
+        raw = await readFile(runSignalPath(pending.worktreePath), 'utf8')
+      } catch {
+        // No signal file yet (or unreadable) — the agent has not declared an
+        // outcome; leave the run pending.
+        continue
+      }
+      const signal = parseRunSignal(raw)
+      if (!signal) continue // malformed/unrecognized — never coerce; stay pending.
+      await this.finalizeRun({
+        workspaceRoot: pending.workspaceRoot,
+        automationId: pending.automationId,
+        runId: pending.runId,
+        outcome: signal.outcome,
+        summary: signal.summary,
+        workspaceId: pending.workspaceId,
+        eventTrigger: 'timer',
+      })
+    }
+  }
+
+  private async seedPendingAgentRuns(projectFolders: AutomationsProjectFolder[]): Promise<void> {
+    for (const projectFolder of projectFolders) {
+      const store = this.createStore(projectFolder.folderPath)
+      const definitions = await store.listDefinitions()
+      if (!definitions.ok) continue
+      for (const definition of definitions.values) {
+        const runs = await store.listRuns(definition.id)
+        if (!runs.ok) continue
+        for (const run of runs.values) {
+          this.trackPendingAgentRun(projectFolder.folderPath, run, projectFolder.workspaceId)
+        }
+      }
+    }
+  }
+
+  private trackPendingAgentRun(workspaceRoot: string, run: AutomationRun, workspaceId?: string): void {
+    if (run.status !== 'running' || !run.worktreePath) return
+    this.pendingAgentRuns.set(this.pendingRunKey(workspaceRoot, run.automationId, run.id), {
+      workspaceRoot,
+      automationId: run.automationId,
+      runId: run.id,
+      worktreePath: run.worktreePath,
+      workspaceId: workspaceId ?? run.workspaceId,
+    })
+  }
+
+  private pendingRunKey(workspaceRoot: string, automationId: string, runId: string): string {
+    return `${normalizeWorkspaceRoot(workspaceRoot)}\u0000${automationId}\u0000${runId}`
   }
 
   private async loadProjectFolders(result: AutomationsEngineEvaluationResult): Promise<AutomationsProjectFolder[]> {
@@ -622,7 +715,10 @@ export class AutomationsEngine {
         now: this.now,
         createRunId: this.createRunId,
         inFlight: this.inFlight,
-        emitRunEvent: (event) => this.emitRunEvent({ ...event, trigger: 'timer' }),
+        emitRunEvent: (event) => {
+          this.trackPendingAgentRun(projectFolder.folderPath, event.run, event.workspaceId ?? projectFolder.workspaceId)
+          this.emitRunEvent({ ...event, trigger: 'timer' })
+        },
         result,
       })
       return
@@ -787,6 +883,7 @@ export class AutomationsEngine {
         result.problems.push(storeProblem(workspaceRoot, completed.error, definition.id))
         return
       }
+      this.trackPendingAgentRun(workspaceRoot, finalRun, projectFolder.workspaceId)
       this.emitRunEvent({
         workspaceId: projectFolder.workspaceId,
         definition,
