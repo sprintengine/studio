@@ -28,8 +28,10 @@ export function runSignalPath(worktreePath: string): string {
  *
  * Returns the validated {@link RunSignal} for a well-formed payload, or `null`
  * (the invalid marker) for malformed JSON, a missing/unrecognized `status`, or a
- * `summary` of the wrong type. Callers must skip finalize on `null` rather than
- * coercing an unrecognized status into an outcome.
+ * non-string `summary`. An empty or whitespace-only `summary` is cosmetic, not a
+ * parse failure: it is treated as absent so a valid terminal declaration still
+ * finalizes. Callers must skip finalize on `null` rather than coercing an
+ * unrecognized status into an outcome.
  */
 export function parseRunSignal(raw: string): RunSignal | null {
   let parsed: unknown
@@ -50,10 +52,12 @@ export function parseRunSignal(raw: string): RunSignal | null {
   }
 
   if ('summary' in record) {
-    if (typeof record.summary !== 'string' || record.summary.length === 0) {
+    if (typeof record.summary !== 'string') {
       return null
     }
-    return { outcome, summary: record.summary }
+    // Empty/whitespace summary == no summary: align with finalizeRun's
+    // input.summary?.trim() so '' and '   ' both finalize, not strand the run.
+    return record.summary.trim().length > 0 ? { outcome, summary: record.summary } : { outcome }
   }
 
   return { outcome }

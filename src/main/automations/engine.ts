@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto'
-import { readFile } from 'node:fs/promises'
+import { readFile, stat } from 'node:fs/promises'
 
 import type {
   AutomationDefinition,
@@ -119,6 +119,11 @@ type PendingAgentRun = {
 
 const DEFAULT_POLL_INTERVAL_MS = 60_000
 
+// The run-status signal is a tiny JSON object ({status, summary}). Cap the
+// per-tick read so a stray/oversize file (a buggy or compromised agent) is
+// treated as malformed and never loaded into memory; the run stays pending.
+const MAX_RUN_SIGNAL_BYTES = 64 * 1024
+
 export class AutomationsEngine {
   private readonly getProjectFolders?: () => AutomationsProjectFolder[] | Promise<AutomationsProjectFolder[]>
   private readonly getWorkspaceSnapshot?: () => WorkspaceSyncSnapshot | Promise<WorkspaceSyncSnapshot>
@@ -135,6 +140,10 @@ export class AutomationsEngine {
   private readonly removeRunWorktree?: AutomationRunWorktreeRemover
   private readonly inFlight = new Set<string>()
   private readonly pendingAgentRuns = new Map<string, PendingAgentRun>()
+  // Per-run finalize lock (pendingRunKey shape). Closes the manual-IPC vs
+  // signal-scan TOCTOU: only the first caller finalizes; a concurrent caller
+  // gets the in-progress/terminal run back instead of double-opening a PR.
+  private readonly finalizingRuns = new Set<string>()
   private timer: ReturnType<typeof setInterval> | null = null
   private started = false
   private startupEvaluation: Promise<AutomationsEngineEvaluationResult> | null = null
@@ -472,11 +481,43 @@ export class AutomationsEngine {
     // happy path stays silent during background ticks.
     eventTrigger?: AutomationRunEventTrigger
   }): Promise<AutomationsEngineFinalizeResult> {
+    const runKey = this.pendingRunKey(input.workspaceRoot, input.automationId, input.runId)
     // Drop from the pending registry on any finalize (manual or scan-driven) so a
     // later tick never re-scans a run that is already being finalized.
-    this.pendingAgentRuns.delete(this.pendingRunKey(input.workspaceRoot, input.automationId, input.runId))
+    this.pendingAgentRuns.delete(runKey)
 
     const store = this.createStore(input.workspaceRoot)
+    // Serialize finalize per run: a concurrent manual IPC finalize and the
+    // per-tick scan must not both pass the 'running' check below and double-open
+    // a PR / double-emit. The first caller holds the lock; a second caller reads
+    // the current run and returns it (in-progress or terminal) without re-running.
+    if (this.finalizingRuns.has(runKey)) {
+      const concurrentRun = await store.getRun(input.automationId, input.runId)
+      if (!concurrentRun.ok) {
+        return { ok: false, problem: storeProblem(input.workspaceRoot, concurrentRun.error, input.automationId) }
+      }
+      return { ok: true, run: concurrentRun.value }
+    }
+    this.finalizingRuns.add(runKey)
+    try {
+      return await this.finalizeRunLocked(input, store)
+    } finally {
+      this.finalizingRuns.delete(runKey)
+    }
+  }
+
+  private async finalizeRunLocked(
+    input: {
+      workspaceRoot: string
+      automationId: string
+      runId: string
+      outcome: 'completed' | 'failed'
+      summary?: string
+      workspaceId?: string
+      eventTrigger?: AutomationRunEventTrigger
+    },
+    store: AutomationsStore
+  ): Promise<AutomationsEngineFinalizeResult> {
     const runResult = await store.getRun(input.automationId, input.runId)
     if (!runResult.ok) {
       return { ok: false, problem: storeProblem(input.workspaceRoot, runResult.error, input.automationId) }
@@ -580,9 +621,15 @@ export class AutomationsEngine {
   private async scanPendingAgentRuns(): Promise<void> {
     if (this.pendingAgentRuns.size === 0) return
     for (const pending of [...this.pendingAgentRuns.values()]) {
+      const signalPath = runSignalPath(pending.worktreePath)
       let raw: string
       try {
-        raw = await readFile(runSignalPath(pending.worktreePath), 'utf8')
+        const stats = await stat(signalPath)
+        if (stats.size > MAX_RUN_SIGNAL_BYTES) {
+          // Oversize signal — treat as malformed (never load it); stay pending.
+          continue
+        }
+        raw = await readFile(signalPath, 'utf8')
       } catch {
         // No signal file yet (or unreadable) — the agent has not declared an
         // outcome; leave the run pending.

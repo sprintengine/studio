@@ -48,7 +48,14 @@ function assertRejectsUnrecognizedStatus(): void {
 function assertRejectsNonStringSummary(): void {
   assert.equal(parseRunSignal('{"status":"completed","summary":123}'), null)
   assert.equal(parseRunSignal('{"status":"completed","summary":null}'), null)
-  assert.equal(parseRunSignal('{"status":"completed","summary":""}'), null)
+}
+
+function assertTreatsEmptySummaryAsAbsent(): void {
+  // An empty/whitespace summary is cosmetic, not a parse failure: the run still
+  // finalizes (regression guard for the stranded-run bug, F1).
+  assert.deepEqual(parseRunSignal('{"status":"completed","summary":""}'), { outcome: 'completed' })
+  assert.deepEqual(parseRunSignal('{"status":"completed","summary":"   "}'), { outcome: 'completed' })
+  assert.deepEqual(parseRunSignal('{"status":"failed","summary":"\\n\\t"}'), { outcome: 'failed' })
 }
 
 function assertRejectsEmptyInput(): void {
@@ -66,6 +73,7 @@ function main(): void {
   assertRejectsMissingStatus()
   assertRejectsUnrecognizedStatus()
   assertRejectsNonStringSummary()
+  assertTreatsEmptySummaryAsAbsent()
   assertRejectsEmptyInput()
   console.log('automations run-signal tests passed')
 }

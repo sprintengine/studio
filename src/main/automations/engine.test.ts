@@ -55,6 +55,9 @@ async function main(): Promise<void> {
   await assertSignalScanIsIdempotentOnRescan()
   await assertStartupRebuildsRegistryFromStore()
   await assertManualFinalizeRemovesRunFromRegistry()
+  await assertEmptySummarySignalAutoFinalizes()
+  await assertConcurrentManualAndScanFinalizeOnce()
+  await assertOversizeSignalStaysPending()
 }
 
 function definition(overrides: Partial<AutomationDefinition> = {}): AutomationDefinition {
@@ -633,6 +636,113 @@ async function assertManualFinalizeRemovesRunFromRegistry(): Promise<void> {
   assert.equal((await store.getRun('nightly-review', 'run-agent')).value?.status, 'completed')
   assert.equal(counters.prCalls, 1, 'scan does not touch a manually finalized run')
   assert.equal(events.length, 1, 'no extra event from the scan')
+}
+
+async function assertEmptySummarySignalAutoFinalizes(): Promise<void> {
+  const now = Date.parse('2026-06-17T10:00:00.000Z')
+  const { engine, workspaceRoot, store, counters, worktreePath } = await setupAgentRun(now)
+  assert.equal((await engine.runNow({ workspaceRoot, automationId: 'nightly-review', workspaceId: 'ws-automations' })).ok, true)
+
+  // A valid completed declaration with an empty summary must still finalize
+  // (regression guard for the stranded-run bug, F1) — not stay 'running' forever.
+  await writeRunSignal(worktreePath, JSON.stringify({ status: 'completed', summary: '' }))
+  await engine.tick()
+
+  const finalized = await store.getRun('nightly-review', 'run-agent')
+  assert.equal(finalized.ok && finalized.value.status, 'completed', 'empty-summary completed signal finalizes')
+  assert.equal(counters.prCalls, 1, 'PR opened for empty-summary completed run')
+}
+
+async function assertConcurrentManualAndScanFinalizeOnce(): Promise<void> {
+  const now = Date.parse('2026-06-17T10:00:00.000Z')
+  const workspaceRoot = await createWorkspace()
+  const store = new AutomationsStore(workspaceRoot)
+  assert.equal((await store.createDefinition(definition({
+    trigger: { kind: 'schedule', config: intervalConfig(10) },
+    nextRunAt: new Date(now).toISOString(),
+  }))).ok, true)
+
+  const events: AutomationsRunEvent[] = []
+  let prCalls = 0
+  let removedWorktrees = 0
+  let markPrStarted: () => void = () => undefined
+  const prStarted = new Promise<void>((resolve) => { markPrStarted = resolve })
+  let releasePr: () => void = () => undefined
+  const prGate = new Promise<void>((resolve) => { releasePr = resolve })
+  const worktreePath = `${workspaceRoot}/.multi-code/automations/worktrees/run-agent`
+  const engine = new AutomationsEngine({
+    getProjectFolders: () => [{ workspaceId: 'ws-automations', folderPath: workspaceRoot }],
+    now: () => now,
+    createRunId: () => 'run-agent',
+    onRunEvent: (event) => events.push(event),
+    runAutomation: async () => ({
+      status: 'running',
+      workspaceId: 'ws-automations',
+      agentId: 'agent-1',
+      worktreePath,
+      branch: 'automations/run-agent',
+      summary: 'Launched; working…',
+    }),
+    openRunPullRequest: async () => {
+      prCalls += 1
+      markPrStarted()
+      await prGate
+      return { ok: true, url: 'https://github.com/acme/repo/pull/9', created: true }
+    },
+    removeRunWorktree: async () => { removedWorktrees += 1 },
+  })
+
+  assert.equal((await engine.runNow({ workspaceRoot, automationId: 'nightly-review', workspaceId: 'ws-automations' })).ok, true)
+
+  // Manual IPC finalize wins the lock and blocks mid-flight inside the PR open.
+  const manual = engine.finalizeRun({
+    workspaceRoot,
+    automationId: 'nightly-review',
+    runId: 'run-agent',
+    outcome: 'completed',
+  })
+  await prStarted
+
+  // Second caller mirrors the per-tick scan's internal finalize for the same run
+  // (eventTrigger 'timer'). It must hit the per-run lock, not re-open a PR.
+  const concurrent = await engine.finalizeRun({
+    workspaceRoot,
+    automationId: 'nightly-review',
+    runId: 'run-agent',
+    outcome: 'completed',
+    eventTrigger: 'timer',
+  })
+  assert.equal(concurrent.ok && concurrent.run.status, 'running', 'concurrent caller gets the in-progress run')
+
+  releasePr()
+  const manualResult = await manual
+  assert.equal(manualResult.ok && manualResult.run.status, 'completed')
+  assert.equal(prCalls, 1, 'exactly one PR-open across interleaved finalize')
+  assert.equal(removedWorktrees, 1, 'worktree torn down once')
+  const terminalEvents = events.filter((event) => event.runId === 'run-agent')
+  assert.equal(terminalEvents.length, 1, 'exactly one terminal run-event')
+  assert.equal((await store.getRun('nightly-review', 'run-agent')).value?.status, 'completed')
+}
+
+async function assertOversizeSignalStaysPending(): Promise<void> {
+  const now = Date.parse('2026-06-17T10:00:00.000Z')
+  const { engine, workspaceRoot, store, counters, worktreePath } = await setupAgentRun(now)
+  assert.equal((await engine.runNow({ workspaceRoot, automationId: 'nightly-review', workspaceId: 'ws-automations' })).ok, true)
+
+  // An oversize signal (> 64 KB) is treated as malformed: never loaded, run stays
+  // pending (F5/L1) — and importantly not dropped from the registry.
+  const oversize = JSON.stringify({ status: 'completed', summary: 'x'.repeat(70 * 1024) })
+  assert.equal(oversize.length > 64 * 1024, true)
+  await writeRunSignal(worktreePath, oversize)
+  await engine.tick()
+  assert.equal((await store.getRun('nightly-review', 'run-agent')).value?.status, 'running', 'oversize signal ignored; run pending')
+  assert.equal(counters.prCalls, 0, 'oversize signal opens no PR')
+
+  // A later in-bound signal still finalizes — proving the run was never dropped.
+  await writeRunSignal(worktreePath, JSON.stringify({ status: 'completed' }))
+  await engine.tick()
+  assert.equal((await store.getRun('nightly-review', 'run-agent')).value?.status, 'completed')
+  assert.equal(counters.prCalls, 1)
 }
 
 async function assertRunEventDeliveryFailuresDoNotMutateRunTruth(): Promise<void> {
