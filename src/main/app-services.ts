@@ -18,7 +18,6 @@ import { GitHubTokenStore } from './github-token-store'
 import { createWorkspaceBackupService } from './workspace-backup'
 import { createWorkspaceSyncRoutingSnapshotStore } from './workspace-sync-routing-snapshot'
 import { createWorkspaceSyncService } from './workspace-sync-service'
-import { recordSwitchboardSessionExit } from './switchboard-files'
 import { writeDiagnosticLog } from './diagnostics-service'
 import { getPluginRegistry } from './plugin-registry-instance'
 
@@ -61,7 +60,6 @@ export function createAppServices(diagnosticsEnabled: boolean) {
     diagnosticsEnabled,
     requireAuthenticatedUser: requireAuthenticatedMulticodeUser,
     logMainPerfEvent,
-    onAgentSessionExit: (input) => input.workspaceRoot ? recordSwitchboardSessionExit(input) : undefined,
     syncMcpConfig: (input) => syncManagedSprintEngineMcpConfig(input, { mcpConfigService, sprintEngineMcpHub }),
     callManagedSprintEngineTool: (input) => sprintEngineMcpHub.callRunTool(input),
     releaseManagedSprintEngineRun: async (input) => {
@@ -85,10 +83,13 @@ export function createAppServices(diagnosticsEnabled: boolean) {
   const githubTokenStore = new GitHubTokenStore()
 
   // The mobile relay bridge (construction + IPC + shutdown) and the Switchboard
-  // session spawner/stopper/inventory wiring moved to their capability modules
-  // (src/main/modules/), registered through the host kernel. multicodeAuth and
-  // terminalRuntime are seeded into the kernel so those modules can build on
-  // them via the service bridge.
+  // session spawner/stopper/inventory/exit-recording wiring moved to their
+  // capability modules (src/main/modules/), registered through the host kernel.
+  // The terminal runtime now exposes only generic agent-session seams
+  // (spawn/kill/inventory + a session-exit listener); modules layer their own
+  // system-specific behavior on top. multicodeAuth and terminalRuntime are
+  // seeded into the kernel so those modules can build on them via the service
+  // bridge.
 
   const workspaceBackupService = createWorkspaceBackupService({
     resolveUserDataDir: () => app.getPath('userData'),

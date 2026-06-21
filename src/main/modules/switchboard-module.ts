@@ -23,6 +23,7 @@ import {
   promoteSwitchboardInboxTask,
   publishSwitchboardTask,
   readAllSwitchboardTasks,
+  recordSwitchboardSessionExit,
   recoverSwitchboardLock,
   requeueSwitchboardTask,
   resumeSwitchboardRunner,
@@ -57,8 +58,20 @@ export const switchboardModule: CapabilityModule = {
 
     configureSwitchboardSessionSpawner(terminalRuntime.spawnAgentSession)
     configureSwitchboardSessionStopper(terminalRuntime.killAgentSession)
-    configureSwitchboardRuntimeInventoryProvider(() => terminalRuntime.getLiveAgentExecutionIds())
+    configureSwitchboardRuntimeInventoryProvider(() =>
+      terminalRuntime
+        .getLiveAgentExecutionIds()
+        .filter((execution) => execution.system === 'switchboard' || execution.system === 'watchtower')
+        .map((execution) => execution.executionId)
+    )
     configureSwitchboardExecutionStopper(terminalRuntime.killAgentSession)
+    // Record switchboard/watchtower session exits through the generic
+    // agent-session exit seam; other systems' exits are ignored here.
+    terminalRuntime.registerAgentSessionExitListener((event) => {
+      if (event.system !== 'switchboard' && event.system !== 'watchtower') return
+      if (!event.workspaceRoot) return
+      return recordSwitchboardSessionExit(event)
+    })
     host.provideService(SwitchboardAutomationFrontDoorsToken, () => ({
       readAllTasks: readAllSwitchboardTasks,
       tickRunner: tickSwitchboardRunner,
