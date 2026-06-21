@@ -230,6 +230,31 @@ expectIncludes(rendererCss, '--shadow-drawer:', 'Canonical drawer elevation toke
 expectIncludes(rendererCss, '.drawer-panel', 'Canonical .drawer-panel slide/elevation class is defined in index.css')
 expectIncludes(rendererCss, 'box-shadow: var(--shadow-drawer)', '.drawer-panel applies the canonical drawer elevation')
 
+// OnboardingFlow — first-run overlay. Hand-rolls the dialog (not the Modal/Drawer
+// primitive) because it renders steps over a real workspace, but it must enforce
+// the same keyboard focus trap so a sighted keyboard user cannot Tab into the
+// obscured workspace on the first-run step (WCAG 2.4.3). The intentional
+// no-Escape / no-backdrop-dismiss behaviour stays: the primary button is the
+// only way forward on a fresh install.
+const onboardingFlow = read('src/renderer/src/components/onboarding/OnboardingFlow.tsx')
+expectIncludes(onboardingFlow, 'role="dialog"', 'OnboardingFlow exposes the dialog role')
+expectIncludes(onboardingFlow, 'aria-modal="true"', 'OnboardingFlow marks the overlay modal')
+expectIncludes(onboardingFlow, 'aria-labelledby={titleId}', 'OnboardingFlow wires aria-labelledby to its step title')
+expectIncludes(onboardingFlow, 'data-focus-sentinel="true"', 'OnboardingFlow installs focus sentinels to trap focus')
+expectIncludes(onboardingFlow, 'trapFocus', 'OnboardingFlow wires the focus-trap helper')
+expectIncludes(onboardingFlow, "onFocus={trapFocus('start')}", 'OnboardingFlow wraps focus to the last control from the leading sentinel')
+expectIncludes(onboardingFlow, "onFocus={trapFocus('end')}", 'OnboardingFlow wraps focus to the first control from the trailing sentinel')
+// The first-run step renders over a real workspace whose terminal autofocuses
+// AFTER the dialog mounts, so sentinels alone cannot keep focus inside. A
+// document focusin guard recovers focus into the dialog when it escapes behind
+// the overlay (WCAG 2.4.3).
+expectIncludes(onboardingFlow, "addEventListener('focusin'", 'OnboardingFlow installs a document focusin guard to recover focus into the dialog')
+expectIncludes(onboardingFlow, 'dialog.contains(target)', 'OnboardingFlow focusin guard only recovers focus when it escapes the dialog')
+assert.ok(
+  !/event\.key === 'Escape'/.test(onboardingFlow),
+  'OnboardingFlow keeps the intentional no-Escape behaviour (no Escape dismiss handler)',
+)
+
 // Toast — tone-driven live region. Polite/assertive split keys off StatusDot tones.
 expectMatches(toast, /neutral:\s*'status'/, 'Toast routes neutral tone to role="status"')
 expectMatches(toast, /good:\s*'status'/, 'Toast routes good tone to role="status"')
@@ -293,6 +318,34 @@ assert.ok(
   !/progress[\s\S]*tabIndex=/.test(panelHeader),
   'PanelHeader.progress does not assign a tabIndex (must not steal keyboard focus)',
 )
+
+// WizardProgress — labeled step indicator with optional back-jump. The
+// role="progressbar" element is a non-interactive status indicator that
+// announces the current step name; the back-jump controls live in a separate
+// role="group" layered over the dashes, and are gated to already-completed
+// steps via the same isDone state that fills the completed dashes.
+const wizardProgress = read('src/renderer/src/components/ui/WizardProgress.tsx')
+expectIncludes(wizardProgress, 'role="progressbar"', 'WizardProgress exposes the progressbar role')
+expectIncludes(wizardProgress, 'aria-label={fullLabel}', 'WizardProgress announces the current step name via the progressbar label')
+expectIncludes(wizardProgress, 'role="group"', 'WizardProgress renders back-jump controls in a separate group, not inside the progressbar')
+expectIncludes(wizardProgress, 'idx < doneCount && !isCurrent', 'WizardProgress derives completed-step state (and jump gating) from doneCount, not the raw active index')
+assert.ok(
+  !/idx < active\b/.test(wizardProgress),
+  'WizardProgress does not expose jump controls via idx < active; it gates on the completed-step state',
+)
+{
+  const progressbarIndex = wizardProgress.indexOf('role="progressbar"')
+  const groupIndex = wizardProgress.indexOf('role="group"')
+  const firstButtonIndex = wizardProgress.indexOf('<button')
+  assert.ok(
+    progressbarIndex >= 0 && groupIndex > progressbarIndex,
+    'WizardProgress declares the progressbar before the interactive back-jump group',
+  )
+  assert.ok(
+    firstButtonIndex > groupIndex,
+    'WizardProgress renders back-jump buttons only inside the group, never inside the progressbar element',
+  )
+}
 
 // KbdChord — purely presentational. Each key is a real <kbd> element wearing
 // the mono token; the wrapper is role="img" with an accessible name so screen

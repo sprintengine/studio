@@ -6,10 +6,12 @@ import CommandPalette from '../CommandPalette'
 import DiagnosticsOverlay from '../diagnostics/DiagnosticsOverlay'
 import { TipStartupModal } from '../learn/TipStartupModal'
 import OnboardingFlow from '../onboarding/OnboardingFlow'
+import { planDeferredAdoption } from '../onboarding/agentConfigAdoption'
 import SettingsOverlay from '../settings/SettingsOverlay'
 import { SuspenseFallback } from '../ui/SuspenseFallback'
 import { useNotificationStore } from '../../store/notificationStore'
 import { useWorkspaceStore } from '../../store/workspaceStore'
+import { shouldOpenStartupTipOnComplete } from '../../store/onboardingState'
 import type { SoloChatSeed } from '../../store/slices/workspacesSlice'
 import { normalizeSelectedCli } from '../../store/slices/settingsSlice'
 import { resolveAvailableAgentCli, resolveSurfaceModel, resolveTemplateAgentCli, selectAgentCliCatalog } from './newWorkspace/cliRuntimeOptions'
@@ -216,6 +218,12 @@ export default function WorkspaceManager() {
   const voiceDictation = useVoiceDictation()
   const onboardingStep = useWorkspaceStore((s) => s.appSettings.onboardingStep)
   const setOnboardingStep = useWorkspaceStore((s) => s.setOnboardingStep)
+  // Deferred first-run config adoption (T3): the essentials step records which
+  // detected MCP servers / skills to adopt; the real adoptAgentConfig IPC runs
+  // here, once, against the newly-created workspace root.
+  const pendingAgentConfigAdoption = useWorkspaceStore((s) => s.appSettings.pendingAgentConfigAdoption)
+  const setPendingAgentConfigAdoption = useWorkspaceStore((s) => s.setPendingAgentConfigAdoption)
+  const setAgentConfigAdoptionResult = useWorkspaceStore((s) => s.setAgentConfigAdoptionResult)
   const setActiveWorkspaceForWindow = useWorkspaceStore((s) => s.setActiveWorkspaceForWindow)
   const registerWorkspaceWindow = useWorkspaceStore((s) => s.registerWorkspaceWindow)
   const updateWorkspaceWindowPlacement = useWorkspaceStore((s) => s.updateWorkspaceWindowPlacement)
@@ -350,6 +358,14 @@ export default function WorkspaceManager() {
   const [newWorkspacePanelInitialState, setNewWorkspacePanelInitialState] = useState<NewWorkspacePanelInitialState | null>(null)
   const [tipModalOpen, setTipModalOpen] = useState(false)
   const tipModalDecidedRef = useRef(false)
+  // True once onboarding has been observed active (any non-complete step) this
+  // session. A user who just walked through first-run onboarding should not be
+  // hit with the one-shot startup tip on top of the activation payoff — it both
+  // piles a second modal on the moment of completion and (because the tip Modal
+  // has no focus trap) lets Tab/Shift+Tab leak to the workspace terminal behind
+  // it. The tip returns to normal on the next launch, where onboardingStep is
+  // already 'complete' from the first render and this ref stays false.
+  const onboardingWasActiveRef = useRef(false)
   const showTipsOnStartup = useWorkspaceStore((s) => s.appSettings.learning?.showTipsOnStartup ?? true)
   const projectKnowledgeRoots = useWorkspaceStore((s) => s.appSettings.projectKnowledgeRoots ?? EMPTY_PROJECT_KNOWLEDGE_ROOTS)
   const [showPalette, setShowPalette] = useState(false)
@@ -647,7 +663,9 @@ export default function WorkspaceManager() {
     closeSettingsOverlay()
     setSpecialistMenuOpen(false)
     setNotificationsOpen(false)
-    if (onboardingStep !== 'complete') setOnboardingStep('complete')
+    // Creating the first workspace during onboarding hands off to the first-run
+    // payoff overlay; the payoff's own CTA finishes onboarding to 'complete'.
+    if (onboardingStep !== 'complete') setOnboardingStep('first-run')
   }, [
     activeWorkspace?.folderPath,
     addWorkspace,
@@ -709,11 +727,30 @@ export default function WorkspaceManager() {
   }
 
   useEffect(() => {
+    // Startup tips must never overlay first-run onboarding. While onboarding is
+    // active (fresh launch or a mid-onboarding reload), keep the tip modal
+    // actively closed — clearing it rather than just deferring guarantees no
+    // lingering open state can sit behind the render gate.
+    if (onboardingStep !== 'complete') {
+      onboardingWasActiveRef.current = true
+      setTipModalOpen(false)
+      return
+    }
     if (tipModalDecidedRef.current) return
     tipModalDecidedRef.current = true
-    if (!showTipsOnStartup) return
+    // A fresh onboarding that just reached 'complete' this session skips the
+    // one-shot tip; existing installs (complete on the first render) still get
+    // it. See shouldOpenStartupTipOnComplete for the rationale.
+    if (
+      !shouldOpenStartupTipOnComplete({
+        onboardingActiveThisSession: onboardingWasActiveRef.current,
+        showTipsOnStartup,
+      })
+    ) {
+      return
+    }
     setTipModalOpen(true)
-  }, [showTipsOnStartup])
+  }, [showTipsOnStartup, onboardingStep])
 
   useEffect(() => {
     registerWorkspaceWindow(
@@ -1067,6 +1104,56 @@ export default function WorkspaceManager() {
     createNewChat()
   }, [createNewChat])
 
+  // Fire the deferred agent-config adoption against the just-created workspace
+  // root. Runs at most once per onboarding: the selection is consumed up front so
+  // a later create can't double-adopt, and the real adoptAgentConfig IPC's
+  // success/failure is surfaced honestly on the first-run overlay.
+  const runDeferredAgentConfigAdoption = useCallback(
+    (workspaceRoot: string | null) => {
+      const plan = planDeferredAdoption({
+        onboardingStep,
+        selection: pendingAgentConfigAdoption,
+        workspaceRoot,
+      })
+      // skip covers onboarding-complete and the no-selection case — including a
+      // user who hit "Skip for now" (their selection was cleared), so adoption
+      // never runs for a skip.
+      if (plan.kind === 'skip') return
+      // Consume the selection up front so a later create can't double-adopt.
+      setPendingAgentConfigAdoption(null)
+      if (plan.kind === 'missing-root') {
+        setAgentConfigAdoptionResult(plan.result)
+        return
+      }
+      setAgentConfigAdoptionResult({ status: 'adopting' })
+      void (async () => {
+        try {
+          const result = await window.api.adoptAgentConfig({
+            workspaceRoot: plan.workspaceRoot,
+            mcpServerKeys: plan.mcpServerKeys,
+            skillKeys: plan.skillKeys,
+          })
+          if (result.ok) {
+            setAgentConfigAdoptionResult({
+              status: 'adopted',
+              mcpServerCount: result.adoptedMcpServers.length,
+              skillCount: result.adoptedSkills.length,
+              warnings: result.warnings,
+            })
+          } else {
+            setAgentConfigAdoptionResult({ status: 'failed', message: result.message })
+          }
+        } catch (error) {
+          setAgentConfigAdoptionResult({
+            status: 'failed',
+            message: error instanceof Error ? error.message : String(error),
+          })
+        }
+      })()
+    },
+    [onboardingStep, pendingAgentConfigAdoption, setPendingAgentConfigAdoption, setAgentConfigAdoptionResult],
+  )
+
   const handleCreate = ({
     template,
     name,
@@ -1097,9 +1184,15 @@ export default function WorkspaceManager() {
     addWorkspace(template, { name, folderPath, sprintEngineState, sprintEngineContext, sprintEngineRoleCliDefaults, sprintEngineAgentCliOverrides, sprintEngineRoleModelOverrides, sprintEngineInitialSpawnRoles, sprintEngineAutoState, guidedBriefState, mode, windowId: workspaceWindowId })
     setShowNewWorkspacePanel(false)
     setNewWorkspacePanelInitialState(null)
-    // Creating the first workspace ends onboarding — jump straight to 'complete'
-    // (not a single advance) so it's correct regardless of the current step.
-    if (onboardingStep !== 'complete') setOnboardingStep('complete')
+    // Creating the first workspace hands off to the first-run payoff overlay —
+    // jump straight to 'first-run' (not a single advance) so it's correct
+    // regardless of the current step. The payoff's CTA finishes to 'complete'.
+    if (onboardingStep !== 'complete') {
+      setOnboardingStep('first-run')
+      // Now that a real workspace root exists, run any deferred config adoption
+      // the user opted into on the essentials step.
+      runDeferredAgentConfigAdoption(folderPath)
+    }
   }
 
   const deleteWorkspaceWithState = useCallback(
@@ -2157,7 +2250,21 @@ export default function WorkspaceManager() {
           )}
         </div>
         <SettingsOverlay />
-        <OnboardingFlow />
+        {/* T6 first-run payoff: supply the real app actions it needs. A CLI is
+            "configured" when at least one catalog entry is confirmed installed;
+            the run reuses createNewChat against the just-created workspace
+            folder, and the no-CLI fallback opens the real command palette. */}
+        <OnboardingFlow
+          hasConfiguredCli={agentCliCatalog.some((option) => option.installed === true)}
+          onLaunchFirstAgent={() => createNewChat(activeWorkspace?.folderPath ?? undefined)}
+          onOpenCommandPalette={() => {
+            // The no-CLI payoff sends the user into the command palette as the
+            // learn-by-doing beat, then finishes onboarding. The startup-tip
+            // effect already skips its one-shot for any onboarding completed this
+            // session (onboardingWasActiveRef), so the palette is never covered.
+            runCommand('commandPalette.open')
+          }}
+        />
       </div>
       </div>
       {showSprintEnginesAside ? (
@@ -2190,7 +2297,7 @@ export default function WorkspaceManager() {
       )}
 
       <TipStartupModal
-        open={tipModalOpen}
+        open={tipModalOpen && onboardingStep === 'complete'}
         context={learningContext}
         onClose={() => setTipModalOpen(false)}
         onOpenLearnCenter={() => {

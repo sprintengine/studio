@@ -1,4 +1,5 @@
 import type { IpcMain } from 'electron'
+import { registerAgentConfigImportIpc } from './ipc/agent-config-import-ipc'
 import { registerAppearanceIpc } from './ipc/appearance-ipc'
 import { registerAuthIpc } from './ipc/auth-ipc'
 import { registerAutomationIpc } from './ipc/automation-ipc'
@@ -72,6 +73,7 @@ export function registerCoreIpc(
   registerAuthIpc(ipcMain, services.multicodeAuth)
   registerBuiltinSkillsIpc(ipcMain, services.builtinSkillManager)
   registerMcpIpc(ipcMain, services.mcpConfigService)
+  registerAgentConfigImportIpc(ipcMain, services.agentConfigImportService)
   registerSkillPackIpc(ipcMain, services.skillPackService)
   registerFilesystemWatchSearchIpc(ipcMain, createFilesystemWatchSearchHandlers())
   registerFilesystemReadIpc(ipcMain, createFilesystemReadHandlers())

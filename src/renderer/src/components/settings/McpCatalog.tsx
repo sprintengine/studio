@@ -9,6 +9,7 @@ import type { McpCatalogServer, McpServerConfig } from '../../types/workspace'
 import { GhostButton, InboxSearchInput, PrimaryButton } from '../ui'
 import { SettingsSectionTitle } from './SettingsAtoms'
 import { filterMcpCatalog } from './mcpCatalogFilter'
+import { mcpMonogram } from './mcpMonogram'
 
 export function mcpServerFromCatalog(server: McpCatalogServer): McpServerConfig {
   return {
@@ -49,15 +50,6 @@ function mcpIconSlug(id: string): string | null {
   if (id === 'openai-docs') return 'openai'
   if (id === 'brave-search') return 'brave'
   return id
-}
-
-function mcpMonogram(name: string): string {
-  return name
-    .split(/\s+/u)
-    .map((piece) => piece[0] ?? '')
-    .join('')
-    .slice(0, 2)
-    .toUpperCase()
 }
 
 export function McpBrandIcon({
