@@ -257,6 +257,8 @@ export default function WorkspaceManager() {
     (s) => s.appSettings.lastSelectedSpecialist ?? SPECIALIST_ACTIONS[0].id
   )
   const setLastSelectedSpecialist = useWorkspaceStore((s) => s.setLastSelectedSpecialist)
+  const lastNewChatAgent = useWorkspaceStore((s) => s.appSettings.lastNewChatAgent)
+  const setLastNewChatAgent = useWorkspaceStore((s) => s.setLastNewChatAgent)
   const lastSelectedMultiloopRole = useWorkspaceStore(
     (s) => s.appSettings.lastSelectedMultiloopRole ?? MULTILOOP_ROLES[0].role
   )
@@ -1556,6 +1558,44 @@ export default function WorkspaceManager() {
     })
   }
 
+  // New-chat picks: each spawns the chosen agent in a fresh chat AND remembers
+  // the choice as the default for a plain "New chat in project" click, so the
+  // sidebar can show what will spawn and repeat it without reopening the picker.
+  // Shared by the sidebar new-chat picker and the top bar's Open-in-new-chat.
+  const pickNewChatTerminal = (folderPath?: string | null) => {
+    setLastNewChatAgent({ kind: 'terminal' })
+    openTerminalInNewChat(folderPath)
+  }
+  const pickNewChatGeneral = (cli?: AgentCli, folderPath?: string | null) => {
+    setLastNewChatAgent({ kind: 'general' })
+    openGeneralInNewChat(cli, folderPath)
+  }
+  const pickNewChatSpecialist = (
+    specialistId: SpecialistActionId,
+    cli?: AgentCli,
+    folderPath?: string | null,
+  ) => {
+    setLastNewChatAgent({ kind: 'specialist', specialistId })
+    openSpecialistInNewChat(specialistId, cli, folderPath)
+  }
+
+  // Plain "New chat in project" replays the last picked agent. CLI/model resolve
+  // from the same remembered defaults the picker uses (passing undefined lets
+  // openSpecialistInNewChat fall back to the per-specialist/last CLI), so the
+  // click reproduces the last pick rather than a fixed general agent.
+  const spawnNewChatForFolder = (folderPath?: string | null) => {
+    const choice = lastNewChatAgent ?? { kind: 'general' }
+    if (choice.kind === 'terminal') {
+      openTerminalInNewChat(folderPath)
+      return
+    }
+    if (choice.kind === 'specialist') {
+      openSpecialistInNewChat(choice.specialistId, undefined, folderPath)
+      return
+    }
+    createNewChat(folderPath)
+  }
+
   // Optional workspaceId targets a single workspace's panel. The mode-scoped
   // panels ignore it, but the Git panel (which can be mounted in several
   // background workspaces at once) uses it so a destructive command like commit
@@ -2105,10 +2145,12 @@ export default function WorkspaceManager() {
         onNewWorkspace={openNewWorkspacePanel}
         onNewWorkspaceInFolder={openNewWorkspacePanelForFolder}
         onNewChat={() => createNewChat()}
-        onNewChatInFolder={(folderPath) => createNewChat(folderPath)}
-        onNewChatTerminal={(folderPath) => openTerminalInNewChat(folderPath)}
-        onNewChatGeneral={(cli, folderPath) => openGeneralInNewChat(cli, folderPath)}
-        onNewChatSpecialist={(specialistId, cli, folderPath) => openSpecialistInNewChat(specialistId, cli, folderPath)}
+        onNewChatInFolder={(folderPath) => spawnNewChatForFolder(folderPath)}
+        onNewChatTerminal={(folderPath) => pickNewChatTerminal(folderPath)}
+        onNewChatGeneral={(cli, folderPath) => pickNewChatGeneral(cli, folderPath)}
+        onNewChatSpecialist={(specialistId, cli, folderPath) => pickNewChatSpecialist(specialistId, cli, folderPath)}
+        newChatAgentChoice={lastNewChatAgent ?? { kind: 'general' }}
+        newChatAgentCli={lastSelectedCli}
         agentSpawnPermissionPreset={agentSpawnPermissionPreset}
         setAgentSpawnPermissionPreset={setAgentSpawnPermissionPreset}
         onRevealFolder={handleRevealFolder}
@@ -2179,10 +2221,10 @@ export default function WorkspaceManager() {
         addNewTerminal={addNewTerminal}
         conversationSpawnAvailable={conversationSpawnAvailable}
         onSpawnConversationAgent={spawnConversationAgent}
-        onOpenTerminalInNewChat={openTerminalInNewChat}
-        onOpenGeneralInNewChat={openGeneralInNewChat}
+        onOpenTerminalInNewChat={pickNewChatTerminal}
+        onOpenGeneralInNewChat={pickNewChatGeneral}
         onOpenConversationInNewChat={openConversationInNewChat}
-        onOpenSpecialistInNewChat={openSpecialistInNewChat}
+        onOpenSpecialistInNewChat={pickNewChatSpecialist}
         openSettings={openSettings}
         settingsOpen={settingsOpen}
         accountOpen={accountOpen}

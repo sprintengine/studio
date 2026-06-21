@@ -38,6 +38,7 @@ import type {
   VoiceDictationSettings,
   CliRuntimeSettings,
   SpecialistActionId,
+  NewChatAgentChoice,
   MultiloopRole,
   AgentExecution,
   WorkspaceWorktreeState,
@@ -199,6 +200,7 @@ export interface WorkspaceStore extends PluginsSlice, CliAvailabilitySlice {
   setLastSelectedCli: (cli: AgentCli) => void
   setLastSelectedConversationModel: (selection: AgentConversationRuntime | null) => void
   setLastSelectedSpecialist: (specialistId: SpecialistActionId) => void
+  setLastNewChatAgent: (choice: NewChatAgentChoice) => void
   setLastSelectedMultiloopRole: (role: MultiloopRole) => void
   setLastAgentSpawnPermissionPreset: (preset: SprintEngineCliPermissionPreset) => void
   setSpecialistCliDefault: (specialistId: SpecialistActionId, cli: AgentCli | null) => void

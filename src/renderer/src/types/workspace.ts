@@ -1399,6 +1399,15 @@ export type AgentCliModelSelection = {
   model: string
 }
 
+// The agent the sidebar's "New chat in project" item spawns on a plain click,
+// remembered from the last pick in the agent picker. Only the kind (and which
+// specialist) is stored — the CLI/model still resolves from lastSelectedCli and
+// the per-specialist defaults at spawn time, so a later CLI switch is honored.
+export type NewChatAgentChoice =
+  | { kind: 'general' }
+  | { kind: 'terminal' }
+  | { kind: 'specialist'; specialistId: SpecialistActionId }
+
 export type AppSettings = {
   cliRuntimes: Record<AgentCli, CliRuntimeSettings>
   keybindings: KeybindingSettings
@@ -1413,6 +1422,12 @@ export type AppSettings = {
    */
   lastSelectedConversationModel: AgentConversationRuntime | null
   lastSelectedSpecialist: SpecialistActionId
+  /**
+   * Agent the sidebar's "New chat in project" item spawns on a plain click.
+   * Updated whenever the user picks an agent from the new-chat picker, so the
+   * next plain click repeats that choice and the menu can show what will spawn.
+   */
+  lastNewChatAgent: NewChatAgentChoice
   lastSelectedMultiloopRole: MultiloopRole
   lastAgentSpawnPermissionPreset: SprintEngineCliPermissionPreset
   specialistCliDefaults: Partial<Record<SpecialistActionId, AgentCli>>

@@ -1,5 +1,8 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { NewChatIcon, WorkspaceTypeIcon, resolveEnabledWorkspaceType } from '../AppIcons'
+import { NewChatIcon, SpecialistActionIcon, WorkspaceTypeIcon, resolveEnabledWorkspaceType } from '../AppIcons'
+import CliIcon from '../CliIcon'
+import { getSpecialistAction } from '../../specialists/specialistActions'
+import { FOCUS_RING_CLASS } from '../ui/tokens'
 import type { ModuleEnablementOverrides } from '../../../../shared/modules/manifest'
 import {
   ContextMenu,
@@ -16,12 +19,13 @@ import {
 } from '../ui'
 import { Modal, ModalBody, ModalButton, ModalFooter, ModalHeader } from '../ui/Modal'
 import PanelRail from './PanelRail'
-import SpawnAgentMenu from './SpawnAgentMenu'
+import SpawnAgentMenu, { TerminalSessionIcon } from './SpawnAgentMenu'
 import { useWorkspaceStore } from '../../store/workspaceStore'
 import type {
   AgentCli,
   HighlightColor,
   LayoutTemplate,
+  NewChatAgentChoice,
   SpecialistActionId,
   SprintEngineCliPermissionPreset,
   Workspace,
@@ -85,6 +89,11 @@ type WorkspaceSidebarProps = {
   onNewChatTerminal: (folderPath?: string | null) => void
   onNewChatGeneral: (cli: AgentCli, folderPath?: string | null) => void
   onNewChatSpecialist: (id: SpecialistActionId, cli: AgentCli, folderPath?: string | null) => void
+  // The agent a plain "New chat in project" click spawns, surfaced as an
+  // indicator on that menu item. `newChatAgentCli` supplies the General-agent
+  // glyph; the specialist/terminal kinds carry their own icon.
+  newChatAgentChoice: NewChatAgentChoice
+  newChatAgentCli: AgentCli
   agentSpawnPermissionPreset: SprintEngineCliPermissionPreset
   setAgentSpawnPermissionPreset: (preset: SprintEngineCliPermissionPreset) => void
   onRevealFolder: (folderPath: string) => void
@@ -358,6 +367,8 @@ export default function WorkspaceSidebar({
   onNewChatTerminal,
   onNewChatGeneral,
   onNewChatSpecialist,
+  newChatAgentChoice,
+  newChatAgentCli,
   agentSpawnPermissionPreset,
   setAgentSpawnPermissionPreset,
   onRevealFolder,
@@ -1381,6 +1392,8 @@ export default function WorkspaceSidebar({
           y={contextMenu.y}
           workspace={workspaceById.get(contextMenu.workspaceId) ?? null}
           isDetachedWindow={isDetachedWindow}
+          newChatAgentChoice={newChatAgentChoice}
+          newChatAgentCli={newChatAgentCli}
           onClose={() => setContextMenu(null)}
           onPickNewChatAgent={(x, y) => {
             const workspace = workspaceById.get(contextMenu.workspaceId)
@@ -1468,6 +1481,8 @@ export default function WorkspaceSidebar({
           x={folderMenu.x}
           y={folderMenu.y}
           group={groups.find((g) => g.key === folderMenu.folderKey) ?? null}
+          newChatAgentChoice={newChatAgentChoice}
+          newChatAgentCli={newChatAgentCli}
           onClose={() => setFolderMenu(null)}
           onPickNewChatAgent={(x, y) => {
             const group = groups.find((g) => g.key === folderMenu.folderKey)
@@ -1682,6 +1697,89 @@ type ContextMenuAction =
   | 'toggle-star'
   | 'clear-color'
 
+// Glyph + label for the agent a plain "New chat in project" click spawns. The
+// specialist kind carries its own roster glyph; general borrows the active
+// CLI's icon; terminal uses the shared terminal glyph.
+function resolveNewChatAgentDescriptor(
+  choice: NewChatAgentChoice,
+  cli: AgentCli,
+): { icon: React.ReactNode; label: string } {
+  if (choice.kind === 'terminal') {
+    return { icon: <TerminalSessionIcon className="icon-sm shrink-0" />, label: 'Terminal' }
+  }
+  if (choice.kind === 'specialist') {
+    const specialist = getSpecialistAction(choice.specialistId)
+    return {
+      icon: <SpecialistActionIcon icon={specialist.icon} className="icon-sm shrink-0" />,
+      label: specialist.shortLabel,
+    }
+  }
+  return { icon: <CliIcon cli={cli} className="icon-sm shrink-0" />, label: 'General agent' }
+}
+
+// "New chat in project" as a split menu item: the left action spawns the
+// remembered agent; the right cluster shows which agent that is and, on click
+// or right-click (either half), opens the full agent picker. Both halves carry
+// data-menu-item so the ContextMenu's arrow-key roving includes them.
+function NewChatMenuItem({
+  agentChoice,
+  agentCli,
+  onSpawn,
+  onPickAgent,
+}: {
+  agentChoice: NewChatAgentChoice
+  agentCli: AgentCli
+  onSpawn: () => void
+  onPickAgent: (x: number, y: number) => void
+}) {
+  const descriptor = resolveNewChatAgentDescriptor(agentChoice, agentCli)
+  const openPicker = (event: React.MouseEvent) => {
+    event.preventDefault()
+    event.stopPropagation()
+    // Keyboard activation (Enter) reports a 0,0 pointer; anchor the picker to
+    // the item's corner in that case so it opens beside the menu, not at the
+    // viewport origin. Mouse clicks open at the pointer.
+    if (event.clientX === 0 && event.clientY === 0) {
+      const rect = event.currentTarget.getBoundingClientRect()
+      onPickAgent(rect.right, rect.bottom)
+    } else {
+      onPickAgent(event.clientX, event.clientY)
+    }
+  }
+  return (
+    <div role="none" className="flex items-stretch gap-px">
+      <button
+        type="button"
+        role="menuitem"
+        data-menu-item="true"
+        tabIndex={-1}
+        onClick={onSpawn}
+        onContextMenu={openPicker}
+        aria-label={`New chat in project with ${descriptor.label}`}
+        className={`flex min-w-0 flex-1 items-center gap-2 rounded-l rounded-r-none px-2.5 py-1.5 text-left text-[color:var(--text-default)] transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)] ${FOCUS_RING_CLASS}`}
+      >
+        <span className="min-w-0 flex-1 truncate">New chat in project</span>
+      </button>
+      <button
+        type="button"
+        role="menuitem"
+        data-menu-item="true"
+        tabIndex={-1}
+        onClick={openPicker}
+        onContextMenu={openPicker}
+        aria-label={`Change new chat agent, currently ${descriptor.label}`}
+        className={`flex shrink-0 items-center gap-1.5 rounded-l-none rounded-r py-1.5 pl-1.5 pr-2 text-[color:var(--text-muted)] transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)] ${FOCUS_RING_CLASS}`}
+      >
+        {descriptor.icon}
+        <span className="max-w-[124px] truncate text-[12px]">{descriptor.label}</span>
+        <svg viewBox="0 0 16 16" fill="none" className="icon-xs shrink-0 text-[color:var(--text-disabled)]" aria-hidden="true">
+          <path d="M4 6L8 10L12 6" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
+        </svg>
+      </button>
+    </div>
+  )
+}
+
 // Workspace-row context menu. Generic menu chrome (surface, clamped
 // positioning, items, dividers, swatch row, dismissal, focus handling) lives
 // in the ui/ContextMenu primitive; only the sidebar's actions stay here.
@@ -1694,6 +1792,8 @@ function WorkspaceContextMenu({
   onSelect,
   onPickColor,
   onPickNewChatAgent,
+  newChatAgentChoice,
+  newChatAgentCli,
 }: {
   x: number
   y: number
@@ -1703,6 +1803,8 @@ function WorkspaceContextMenu({
   onSelect: (action: ContextMenuAction) => void
   onPickColor: (color: HighlightColor) => void
   onPickNewChatAgent: (x: number, y: number) => void
+  newChatAgentChoice: NewChatAgentChoice
+  newChatAgentCli: AgentCli
 }) {
   if (!workspace) return null
   const showDelete = workspaceHasOnDiskState(workspace)
@@ -1723,16 +1825,12 @@ function WorkspaceContextMenu({
         Rename
       </MenuItem>
       {folderPathExists ? (
-        <MenuItem
-          onClick={() => onSelect('new-chat')}
-          onContextMenu={(event) => {
-            event.preventDefault()
-            event.stopPropagation()
-            onPickNewChatAgent(event.clientX, event.clientY)
-          }}
-        >
-          New chat in project
-        </MenuItem>
+        <NewChatMenuItem
+          agentChoice={newChatAgentChoice}
+          agentCli={newChatAgentCli}
+          onSpawn={() => onSelect('new-chat')}
+          onPickAgent={onPickNewChatAgent}
+        />
       ) : null}
       {folderPathExists ? (
         <MenuItem onClick={() => onSelect('new-workspace')}>New workspace in project</MenuItem>
@@ -1783,6 +1881,8 @@ function FolderContextMenu({
   onClose,
   onSelect,
   onPickNewChatAgent,
+  newChatAgentChoice,
+  newChatAgentCli,
 }: {
   x: number
   y: number
@@ -1790,6 +1890,8 @@ function FolderContextMenu({
   onClose: () => void
   onSelect: (action: FolderMenuAction) => void
   onPickNewChatAgent: (x: number, y: number) => void
+  newChatAgentChoice: NewChatAgentChoice
+  newChatAgentCli: AgentCli
 }) {
   if (!group) return null
   const canReveal = Boolean(group.fullPath) && !group.missing
@@ -1805,16 +1907,12 @@ function FolderContextMenu({
       surfaceClassName="min-w-[220px]"
     >
       {canCreateWorkspace ? (
-        <MenuItem
-          onClick={() => onSelect('new-chat')}
-          onContextMenu={(event) => {
-            event.preventDefault()
-            event.stopPropagation()
-            onPickNewChatAgent(event.clientX, event.clientY)
-          }}
-        >
-          New chat in project
-        </MenuItem>
+        <NewChatMenuItem
+          agentChoice={newChatAgentChoice}
+          agentCli={newChatAgentCli}
+          onSpawn={() => onSelect('new-chat')}
+          onPickAgent={onPickNewChatAgent}
+        />
       ) : null}
       {canCreateWorkspace ? (
         <MenuItem onClick={() => onSelect('new-workspace')}>New workspace in project</MenuItem>

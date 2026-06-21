@@ -567,7 +567,7 @@ export interface MobileControlWorkspaceSnapshot {
 }
 
 export type MobileControlBacklogItemStatus = "idea" | "ready" | "in_progress" | "needs_input" | "completed" | "archived";
-export type MobileControlBacklogItemType = "feature" | "bug" | "mockup";
+export type MobileControlBacklogItemType = "feature" | "bug" | "mockup" | "spike";
 export type MobileControlBacklogItemDifficulty = "xs" | "s" | "m" | "l" | "xl";
 export type MobileControlBacklogItemCriticality = "low" | "normal" | "high" | "critical";
 

@@ -1746,7 +1746,7 @@ export type AppMenuAcceleratorUpdate = {
 export type AppMenuAcceleratorUpdateResult = { ok: true }
 
 export type BacklogItemStatusPayload = 'idea' | 'ready' | 'in_progress' | 'needs_input' | 'completed' | 'archived'
-export type BacklogTypePayload = 'feature' | 'bug' | 'mockup'
+export type BacklogTypePayload = 'feature' | 'bug' | 'mockup' | 'spike'
 export type BacklogDifficultyPayload = 'xs' | 's' | 'm' | 'l' | 'xl'
 export type BacklogCriticalityPayload = 'low' | 'normal' | 'high' | 'critical'
 // Declared fresh in shared (no renderer imports); the renderer's HighlightColor
