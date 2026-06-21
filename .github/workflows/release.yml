@@ -119,6 +119,11 @@ jobs:
 
       - name: Upload packaged artifacts
         uses: actions/upload-artifact@v4
+        # Retention-only convenience (mainly for workflow_dispatch publish=false
+        # runs). For tag releases electron-builder already publishes the installers
+        # to the GitHub Release, so a transient/quota upload failure here must not
+        # fail the release.
+        continue-on-error: true
         with:
           name: ${{ matrix.artifactName }}-${{ needs.validate.outputs.version }}
           if-no-files-found: error
