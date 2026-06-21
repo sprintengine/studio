@@ -52,6 +52,7 @@ export function SprintEngineTasksKanbanView({
           ? boardColumns.map((column) => (
             <BoardLane
               key={column.key}
+              surface
               label={column.label}
               // The lane header carries the column's lifecycle glyph once, so the
               // cards below stay clean. Header glyphs never animate — the live

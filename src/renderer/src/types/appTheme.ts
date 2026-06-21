@@ -23,6 +23,7 @@ export type AppTheme =
   | 'system'
   | 'dark'
   | 'light'
+  | 'paper'
   | 'vellum'
   | 'herbarium'
   | 'verdigris'
@@ -85,12 +86,12 @@ export const APP_THEMES: readonly AppThemeDescriptor[] = [
     id: 'dark',
     label: 'Dark',
     resolved: 'dark',
-    description: 'Calm neutral ink',
+    description: 'Calm neutral ink, green accent',
     swatches: {
       bgApp: '#08080c',
       bgSurface: '#0c0c10',
       bgSurfaceRaised: '#101418',
-      accent: '#5c7cfc',
+      accent: '#3f9468',
       textStrong: '#ececec',
     },
   },
@@ -98,13 +99,26 @@ export const APP_THEMES: readonly AppThemeDescriptor[] = [
     id: 'light',
     label: 'Light',
     resolved: 'light',
-    description: 'Cool-neutral paper',
+    description: 'Cool-neutral white, green accent',
     swatches: {
-      bgApp: '#f4f8f8',
+      bgApp: '#eaeef2',
       bgSurface: '#ffffff',
       bgSurfaceRaised: '#ffffff',
-      accent: '#385cfc',
+      accent: '#2f6a4a',
       textStrong: '#202428',
+    },
+  },
+  {
+    id: 'paper',
+    label: 'Paper',
+    resolved: 'paper',
+    description: 'Warm cream and sage, green accent',
+    swatches: {
+      bgApp: '#f4f1e8',
+      bgSurface: '#fbf9f2',
+      bgSurfaceRaised: '#fdfcf7',
+      accent: '#2f6a4a',
+      textStrong: '#191613',
     },
   },
   {

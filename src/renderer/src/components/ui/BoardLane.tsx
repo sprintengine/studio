@@ -59,6 +59,14 @@ type BoardLaneProps = {
   flipKey: string
   /** Drag state. See module header for the four-state matrix. */
   state?: LaneState
+  /** Render the lane as a filled, hairline-bordered panel (fill = --bg-surface,
+   *  7 px radius) and lift the cards inside it one elevation step to
+   *  --bg-surface-raised with an inset hairline. Off by default: Switchboard
+   *  keeps its transparent lanes on the board canvas; Sprint Engine opts in so
+   *  the columns read as discrete panels. The inset card hairline is what keeps
+   *  cards legible in the light theme, where --bg-surface and
+   *  --bg-surface-raised collapse to the same white. */
+  surface?: boolean
   /** DnD plumbing. Pass only when the lane participates in drag-and-drop. */
   dnd?: BoardLaneDnd
   /** Children rendered inside the lane's `<ol>`. Caller composes TaskCards
@@ -92,6 +100,7 @@ export function BoardLane({
   ariaLabel,
   flipKey,
   state = 'default',
+  surface = false,
   dnd,
   children,
 }: BoardLaneProps) {
@@ -100,15 +109,28 @@ export function BoardLane({
 
   const sectionClass = [
     'flex h-full min-w-[260px] flex-1 flex-col transition-colors',
+    surface
+      ? 'rounded-[7px] border border-[color:var(--border-subtle)] bg-[color:var(--bg-surface)]'
+      : '',
     state === 'legal-drop-target' ? 'ring-1 ring-[color:var(--accent-primary)]' : '',
     state === 'dimmed' ? 'opacity-40' : '',
   ]
     .filter(Boolean)
     .join(' ')
 
+  // Custom-property channel consumed by the TaskCard children — cast is the
+  // justified boundary for CSS variables, which React.CSSProperties can't type.
+  const surfaceStyle = surface
+    ? ({
+        '--task-card-bg': 'var(--bg-surface-raised)',
+        '--task-card-shadow': 'inset 0 0 0 1px var(--border-subtle)',
+      } as React.CSSProperties)
+    : undefined
+
   return (
     <section
       className={sectionClass}
+      style={surfaceStyle}
       aria-label={ariaLabel ?? `${label} lane`}
       onDragOver={
         dnd

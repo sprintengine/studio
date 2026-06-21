@@ -823,6 +823,82 @@
   --file-badge-ink-mix: 50%;
 }
 
+/* Paper — the Sprint Engine signature light theme: warm cream canvas, sage
+   panel chrome, single green accent. Coordinated 1:1 with the marketing site
+   (multicode-website globals.css: paper #f4f1e8, sage #d9dec9, accent #2f6a4a).
+   A green-accented, warm-light sibling of Herbarium, but cream-dominant (vs
+   Herbarium's sage-dominant canvas) so the green accent pops on cream rather
+   than muddying on sage. Shares the light-theme legibility overrides below. */
+:root[data-theme="paper"] {
+  --bg-app: #f4f1e8;        /* cream canvas — matches the website body */
+  --bg-surface: #fbf9f2;    /* warm near-white panel/card, elevated above cream */
+  --bg-surface-raised: #fdfcf7;
+  --bg-hover: #ece9dc;
+  --bg-active: #e2e4d2;
+  --bg-selected: #d9dec9;   /* website sage — the grouped/selection tint */
+  --bg-inverted-hover: #191613;
+  --surface-overlay-backdrop: rgba(25, 22, 19, 0.42);
+
+  /* Warm near-black ink flipped from the cream, mirroring the website ink
+     scale (#191613 / #545449 / #67685a). Secondary steps darkened so they
+     clear AA body on the cream surfaces. */
+  --text-strong: #191613;
+  --text-default: #3a382e;
+  --text-muted: #545449;
+  --text-subtle: #67685a;
+  --text-disabled: #8a8b7a;
+  --text-on-accent: #f4f1e8; /* cream label on the green accent, as on the site */
+
+  /* Warm ink-alpha hairlines (rgb 28,32,22), mirroring the website hairlines. */
+  --border-subtle: rgba(28, 32, 22, 0.10);
+  --border-default: rgba(28, 32, 22, 0.18);
+  --border-strong: rgba(28, 32, 22, 0.28);
+  --border-focus: rgba(47, 106, 74, 0.55);
+
+  /* Forest-green accent — the single accent, deep enough to pop on cream. */
+  --accent-primary: #2f6a4a;
+  --accent-primary-hover: #275842;
+  --accent-primary-soft: rgba(47, 106, 74, 0.12);
+  --accent-primary-soft-strong: rgba(47, 106, 74, 0.20);
+
+  /* Semantic tones tuned for the cream surfaces (luminous-on-dark hues wash
+     out here). `good` stays a deeper emerald, kept distinct from the forest
+     accent by brightness; the earned-status rule keeps the two greens apart in
+     practice (done renders no mark). */
+  --tone-neutral: #6c6e5c;
+  --tone-accent: #2f6a4a;
+  --tone-good: #157f37;
+  --tone-warn: #9a6000;
+  --tone-error: #c42424;
+  --tone-error-ink: #ffffff;
+
+  --tone-neutral-soft: rgba(108, 110, 92, 0.16);
+  --tone-accent-soft: rgba(47, 106, 74, 0.14);
+  --tone-good-soft: rgba(21, 127, 55, 0.18);
+  --tone-warn-soft: rgba(154, 96, 0, 0.18);
+  --tone-error-soft: rgba(196, 36, 36, 0.14);
+
+  --scrollbar-thumb: #d2d6c4;
+  --scrollbar-thumb-hover: #bcc0ae;
+  --skeleton-shimmer-low: rgba(28, 32, 22, 0.04);
+  --skeleton-shimmer-high: rgba(28, 32, 22, 0.09);
+
+  --shadow-drawer:
+    0 1px 3px rgba(24, 22, 16, 0.06),
+    0 8px 24px -6px rgba(24, 22, 16, 0.12);
+
+  --terminal-bg: #f0ede2;
+  --terminal-fg: #191613;
+
+  /* Faint green atmosphere leans the graph into the brand accent. */
+  --memory-graph-atmosphere:
+    radial-gradient(circle at 50% 45%, rgba(47, 106, 74, 0.05), transparent 52%);
+
+  /* Darken file-type badge labels toward ink so language hues clear AA on the
+     warm chip surface (same as the other light themes). */
+  --file-badge-ink-mix: 50%;
+}
+
 /* Verdigris — dark sibling of Vellum, drawn from the same antique butterfly
    plate but seen from the dark wing-body instead of the cream paper. The
    surface ramp is the deep forest-green of the moth's body and the dark
@@ -1033,7 +1109,8 @@ samp,
  * surface theme (Light, Vellum). */
 :root[data-theme="light"],
 :root[data-theme="vellum"],
-:root[data-theme="herbarium"] {
+:root[data-theme="herbarium"],
+:root[data-theme="paper"] {
   --git-lane-0: color-mix(in oklab, var(--text-strong) 35%, #5c7cff);
   --git-lane-1: color-mix(in oklab, var(--text-strong) 35%, #a78bfa);
   --git-lane-2: color-mix(in oklab, var(--text-strong) 35%, #30d158);
@@ -1046,27 +1123,35 @@ samp,
 
 :root[data-theme="light"] .git-ref-pill-0,
 :root[data-theme="herbarium"] .git-ref-pill-0,
+:root[data-theme="paper"] .git-ref-pill-0,
 :root[data-theme="vellum"] .git-ref-pill-0 { color: color-mix(in oklab, var(--text-strong) 52%, #5c7cff); }
 :root[data-theme="light"] .git-ref-pill-1,
 :root[data-theme="herbarium"] .git-ref-pill-1,
+:root[data-theme="paper"] .git-ref-pill-1,
 :root[data-theme="vellum"] .git-ref-pill-1 { color: color-mix(in oklab, var(--text-strong) 52%, #a78bfa); }
 :root[data-theme="light"] .git-ref-pill-2,
 :root[data-theme="herbarium"] .git-ref-pill-2,
+:root[data-theme="paper"] .git-ref-pill-2,
 :root[data-theme="vellum"] .git-ref-pill-2 { color: color-mix(in oklab, var(--text-strong) 55%, #30d158); }
 :root[data-theme="light"] .git-ref-pill-3,
 :root[data-theme="herbarium"] .git-ref-pill-3,
+:root[data-theme="paper"] .git-ref-pill-3,
 :root[data-theme="vellum"] .git-ref-pill-3 { color: color-mix(in oklab, var(--text-strong) 55%, #ff8c42); }
 :root[data-theme="light"] .git-ref-pill-4,
 :root[data-theme="herbarium"] .git-ref-pill-4,
+:root[data-theme="paper"] .git-ref-pill-4,
 :root[data-theme="vellum"] .git-ref-pill-4 { color: color-mix(in oklab, var(--text-strong) 55%, #ff7eb3); }
 :root[data-theme="light"] .git-ref-pill-5,
 :root[data-theme="herbarium"] .git-ref-pill-5,
+:root[data-theme="paper"] .git-ref-pill-5,
 :root[data-theme="vellum"] .git-ref-pill-5 { color: color-mix(in oklab, var(--text-strong) 55%, #2dd4bf); }
 :root[data-theme="light"] .git-ref-pill-6,
 :root[data-theme="herbarium"] .git-ref-pill-6,
+:root[data-theme="paper"] .git-ref-pill-6,
 :root[data-theme="vellum"] .git-ref-pill-6 { color: color-mix(in oklab, var(--text-strong) 58%, #ffbf2f); }
 :root[data-theme="light"] .git-ref-pill-7,
 :root[data-theme="herbarium"] .git-ref-pill-7,
+:root[data-theme="paper"] .git-ref-pill-7,
 :root[data-theme="vellum"] .git-ref-pill-7 { color: color-mix(in oklab, var(--text-strong) 55%, #ff5a5f); }
 /* design-tokens-allow-end */
 
@@ -1082,88 +1167,116 @@ samp,
 :root[data-theme="light"] .highlight-text-red,
 :root[data-theme="light"] .flexlayout__tab_button.tab-highlight-red,
 :root[data-theme="herbarium"] .highlight-text-red,
+:root[data-theme="paper"] .highlight-text-red,
 :root[data-theme="vellum"] .highlight-text-red,
 :root[data-theme="herbarium"] .flexlayout__tab_button.tab-highlight-red,
+:root[data-theme="paper"] .flexlayout__tab_button.tab-highlight-red,
 :root[data-theme="vellum"] .flexlayout__tab_button.tab-highlight-red { color: color-mix(in oklab, var(--text-strong) 55%, #ff5a5f); }
 :root[data-theme="light"] .highlight-text-orange,
 :root[data-theme="light"] .flexlayout__tab_button.tab-highlight-orange,
 :root[data-theme="herbarium"] .highlight-text-orange,
+:root[data-theme="paper"] .highlight-text-orange,
 :root[data-theme="vellum"] .highlight-text-orange,
 :root[data-theme="herbarium"] .flexlayout__tab_button.tab-highlight-orange,
+:root[data-theme="paper"] .flexlayout__tab_button.tab-highlight-orange,
 :root[data-theme="vellum"] .flexlayout__tab_button.tab-highlight-orange { color: color-mix(in oklab, var(--text-strong) 55%, #ff8c42); }
 :root[data-theme="light"] .highlight-text-amber,
 :root[data-theme="light"] .flexlayout__tab_button.tab-highlight-amber,
 :root[data-theme="herbarium"] .highlight-text-amber,
+:root[data-theme="paper"] .highlight-text-amber,
 :root[data-theme="vellum"] .highlight-text-amber,
 :root[data-theme="herbarium"] .flexlayout__tab_button.tab-highlight-amber,
+:root[data-theme="paper"] .flexlayout__tab_button.tab-highlight-amber,
 :root[data-theme="vellum"] .flexlayout__tab_button.tab-highlight-amber { color: color-mix(in oklab, var(--text-strong) 55%, #ffbf2f); }
 :root[data-theme="light"] .highlight-text-green,
 :root[data-theme="light"] .flexlayout__tab_button.tab-highlight-green,
 :root[data-theme="herbarium"] .highlight-text-green,
+:root[data-theme="paper"] .highlight-text-green,
 :root[data-theme="vellum"] .highlight-text-green,
 :root[data-theme="herbarium"] .flexlayout__tab_button.tab-highlight-green,
+:root[data-theme="paper"] .flexlayout__tab_button.tab-highlight-green,
 :root[data-theme="vellum"] .flexlayout__tab_button.tab-highlight-green { color: color-mix(in oklab, var(--text-strong) 55%, #30d158); }
 :root[data-theme="light"] .highlight-text-blue,
 :root[data-theme="light"] .flexlayout__tab_button.tab-highlight-blue,
 :root[data-theme="herbarium"] .highlight-text-blue,
+:root[data-theme="paper"] .highlight-text-blue,
 :root[data-theme="vellum"] .highlight-text-blue,
 :root[data-theme="herbarium"] .flexlayout__tab_button.tab-highlight-blue,
+:root[data-theme="paper"] .flexlayout__tab_button.tab-highlight-blue,
 :root[data-theme="vellum"] .flexlayout__tab_button.tab-highlight-blue { color: color-mix(in oklab, var(--text-strong) 52%, #5c7cff); }
 :root[data-theme="light"] .highlight-text-purple,
 :root[data-theme="light"] .flexlayout__tab_button.tab-highlight-purple,
 :root[data-theme="herbarium"] .highlight-text-purple,
+:root[data-theme="paper"] .highlight-text-purple,
 :root[data-theme="vellum"] .highlight-text-purple,
 :root[data-theme="herbarium"] .flexlayout__tab_button.tab-highlight-purple,
+:root[data-theme="paper"] .flexlayout__tab_button.tab-highlight-purple,
 :root[data-theme="vellum"] .flexlayout__tab_button.tab-highlight-purple { color: color-mix(in oklab, var(--text-strong) 52%, #a78bfa); }
 :root[data-theme="light"] .highlight-text-pink,
 :root[data-theme="light"] .flexlayout__tab_button.tab-highlight-pink,
 :root[data-theme="herbarium"] .highlight-text-pink,
+:root[data-theme="paper"] .highlight-text-pink,
 :root[data-theme="vellum"] .highlight-text-pink,
 :root[data-theme="herbarium"] .flexlayout__tab_button.tab-highlight-pink,
+:root[data-theme="paper"] .flexlayout__tab_button.tab-highlight-pink,
 :root[data-theme="vellum"] .flexlayout__tab_button.tab-highlight-pink { color: color-mix(in oklab, var(--text-strong) 55%, #ff7eb3); }
 
 /* Deepen the tab fill/border so the coloured tab itself reads on white. */
 :root[data-theme="light"] .flexlayout__tab_button.tab-highlight-red,
 :root[data-theme="herbarium"] .flexlayout__tab_button.tab-highlight-red,
+:root[data-theme="paper"] .flexlayout__tab_button.tab-highlight-red,
 :root[data-theme="vellum"] .flexlayout__tab_button.tab-highlight-red { background: rgba(255, 90, 95, 0.16); border-color: rgba(255, 90, 95, 0.52); }
 :root[data-theme="light"] .flexlayout__tab_button.tab-highlight-red.flexlayout__tab_button--selected,
 :root[data-theme="herbarium"] .flexlayout__tab_button.tab-highlight-red.flexlayout__tab_button--selected,
+:root[data-theme="paper"] .flexlayout__tab_button.tab-highlight-red.flexlayout__tab_button--selected,
 :root[data-theme="vellum"] .flexlayout__tab_button.tab-highlight-red.flexlayout__tab_button--selected { background: rgba(255, 90, 95, 0.28); }
 :root[data-theme="light"] .flexlayout__tab_button.tab-highlight-orange,
 :root[data-theme="herbarium"] .flexlayout__tab_button.tab-highlight-orange,
+:root[data-theme="paper"] .flexlayout__tab_button.tab-highlight-orange,
 :root[data-theme="vellum"] .flexlayout__tab_button.tab-highlight-orange { background: rgba(255, 140, 66, 0.16); border-color: rgba(255, 140, 66, 0.52); }
 :root[data-theme="light"] .flexlayout__tab_button.tab-highlight-orange.flexlayout__tab_button--selected,
 :root[data-theme="herbarium"] .flexlayout__tab_button.tab-highlight-orange.flexlayout__tab_button--selected,
+:root[data-theme="paper"] .flexlayout__tab_button.tab-highlight-orange.flexlayout__tab_button--selected,
 :root[data-theme="vellum"] .flexlayout__tab_button.tab-highlight-orange.flexlayout__tab_button--selected { background: rgba(255, 140, 66, 0.28); }
 :root[data-theme="light"] .flexlayout__tab_button.tab-highlight-amber,
 :root[data-theme="herbarium"] .flexlayout__tab_button.tab-highlight-amber,
+:root[data-theme="paper"] .flexlayout__tab_button.tab-highlight-amber,
 :root[data-theme="vellum"] .flexlayout__tab_button.tab-highlight-amber { background: rgba(255, 191, 47, 0.18); border-color: rgba(255, 191, 47, 0.52); }
 :root[data-theme="light"] .flexlayout__tab_button.tab-highlight-amber.flexlayout__tab_button--selected,
 :root[data-theme="herbarium"] .flexlayout__tab_button.tab-highlight-amber.flexlayout__tab_button--selected,
+:root[data-theme="paper"] .flexlayout__tab_button.tab-highlight-amber.flexlayout__tab_button--selected,
 :root[data-theme="vellum"] .flexlayout__tab_button.tab-highlight-amber.flexlayout__tab_button--selected { background: rgba(255, 191, 47, 0.30); }
 :root[data-theme="light"] .flexlayout__tab_button.tab-highlight-green,
 :root[data-theme="herbarium"] .flexlayout__tab_button.tab-highlight-green,
+:root[data-theme="paper"] .flexlayout__tab_button.tab-highlight-green,
 :root[data-theme="vellum"] .flexlayout__tab_button.tab-highlight-green { background: rgba(48, 209, 88, 0.16); border-color: rgba(48, 209, 88, 0.52); }
 :root[data-theme="light"] .flexlayout__tab_button.tab-highlight-green.flexlayout__tab_button--selected,
 :root[data-theme="herbarium"] .flexlayout__tab_button.tab-highlight-green.flexlayout__tab_button--selected,
+:root[data-theme="paper"] .flexlayout__tab_button.tab-highlight-green.flexlayout__tab_button--selected,
 :root[data-theme="vellum"] .flexlayout__tab_button.tab-highlight-green.flexlayout__tab_button--selected { background: rgba(48, 209, 88, 0.28); }
 :root[data-theme="light"] .flexlayout__tab_button.tab-highlight-blue,
 :root[data-theme="herbarium"] .flexlayout__tab_button.tab-highlight-blue,
+:root[data-theme="paper"] .flexlayout__tab_button.tab-highlight-blue,
 :root[data-theme="vellum"] .flexlayout__tab_button.tab-highlight-blue { background: rgba(92, 124, 255, 0.16); border-color: rgba(92, 124, 255, 0.55); }
 :root[data-theme="light"] .flexlayout__tab_button.tab-highlight-blue.flexlayout__tab_button--selected,
 :root[data-theme="herbarium"] .flexlayout__tab_button.tab-highlight-blue.flexlayout__tab_button--selected,
+:root[data-theme="paper"] .flexlayout__tab_button.tab-highlight-blue.flexlayout__tab_button--selected,
 :root[data-theme="vellum"] .flexlayout__tab_button.tab-highlight-blue.flexlayout__tab_button--selected { background: rgba(92, 124, 255, 0.28); }
 :root[data-theme="light"] .flexlayout__tab_button.tab-highlight-purple,
 :root[data-theme="herbarium"] .flexlayout__tab_button.tab-highlight-purple,
+:root[data-theme="paper"] .flexlayout__tab_button.tab-highlight-purple,
 :root[data-theme="vellum"] .flexlayout__tab_button.tab-highlight-purple { background: rgba(167, 139, 250, 0.16); border-color: rgba(167, 139, 250, 0.55); }
 :root[data-theme="light"] .flexlayout__tab_button.tab-highlight-purple.flexlayout__tab_button--selected,
 :root[data-theme="herbarium"] .flexlayout__tab_button.tab-highlight-purple.flexlayout__tab_button--selected,
+:root[data-theme="paper"] .flexlayout__tab_button.tab-highlight-purple.flexlayout__tab_button--selected,
 :root[data-theme="vellum"] .flexlayout__tab_button.tab-highlight-purple.flexlayout__tab_button--selected { background: rgba(167, 139, 250, 0.28); }
 :root[data-theme="light"] .flexlayout__tab_button.tab-highlight-pink,
 :root[data-theme="herbarium"] .flexlayout__tab_button.tab-highlight-pink,
+:root[data-theme="paper"] .flexlayout__tab_button.tab-highlight-pink,
 :root[data-theme="vellum"] .flexlayout__tab_button.tab-highlight-pink { background: rgba(255, 126, 179, 0.16); border-color: rgba(255, 126, 179, 0.55); }
 :root[data-theme="light"] .flexlayout__tab_button.tab-highlight-pink.flexlayout__tab_button--selected,
 :root[data-theme="herbarium"] .flexlayout__tab_button.tab-highlight-pink.flexlayout__tab_button--selected,
+:root[data-theme="paper"] .flexlayout__tab_button.tab-highlight-pink.flexlayout__tab_button--selected,
 :root[data-theme="vellum"] .flexlayout__tab_button.tab-highlight-pink.flexlayout__tab_button--selected { background: rgba(255, 126, 179, 0.28); }
 /* design-tokens-allow-end */
 
