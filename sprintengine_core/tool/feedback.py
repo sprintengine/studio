@@ -13,6 +13,16 @@ from sprintengine_core.tool.paths import now_iso
 from sprintengine_core.tool.state import append_event, append_task_activity, find_task
 from sprintengine_core.tool.tasks import ensure_evidence, normalize_scope_expansion
 
+def _record_warning(warnings: Optional[List[str]], exc: SystemExit) -> None:
+    """Best-effort telemetry: capture a validation failure as a warning and drop
+    the offending optional field. When `warnings` is None the caller wants strict
+    behavior, so re-raise. Operational fields (verdict, summary) are validated
+    outside this module and still hard-fail."""
+    if warnings is None:
+        raise exc
+    message = exc.code
+    warnings.append(str(message) if message not in (None, 0) else "feedback field dropped")
+
 def feedback_args_present(args: argparse.Namespace) -> bool:
     for attr in ("review_target_task_id", "review_target_agent_id", "review_target_execution_id"):
         if str(getattr(args, attr, "") or "").strip():
@@ -96,14 +106,20 @@ def normalize_feedback_issue(raw: Any, task_id: str, index: int) -> Dict[str, An
             issue[key] = text
     return issue
 
-def parse_feedback_issue_args(args: argparse.Namespace, task_id: str) -> List[Dict[str, Any]]:
+def parse_feedback_issue_args(
+    args: argparse.Namespace, task_id: str, warnings: Optional[List[str]] = None
+) -> List[Dict[str, Any]]:
     issues: List[Dict[str, Any]] = []
     for index, raw_json in enumerate(getattr(args, "issue_json", None) or []):
         try:
             raw = json.loads(raw_json)
         except json.JSONDecodeError as exc:
-            raise SystemExit(f"--issue-json must be valid JSON: {exc.msg}") from exc
-        issues.append(normalize_feedback_issue(raw, task_id, index))
+            _record_warning(warnings, SystemExit(f"--issue-json must be valid JSON: {exc.msg}"))
+            continue
+        try:
+            issues.append(normalize_feedback_issue(raw, task_id, index))
+        except SystemExit as exc:
+            _record_warning(warnings, exc)
     return issues
 
 def normalize_feedback_finding(raw: Any, task_id: str, index: int) -> Dict[str, Any]:
@@ -132,24 +148,32 @@ def normalize_feedback_finding(raw: Any, task_id: str, index: int) -> Dict[str, 
         "kind": kind,
         "severity": severity,
         "area": area,
-        "title": validate_feedback_issue_text(raw.get("title"), "finding.title", required=True),
-        "detail": validate_feedback_issue_text(raw.get("detail"), "finding.detail", required=True),
         "status": status,
     }
-    for key in ["recommendation", "requirementId", "file"]:
+    # findingJson is categorical telemetry only (kind/area/severity drive the
+    # analytics aggregation). `title` is an optional short label; `detail` and
+    # `recommendation` are accepted for compatibility but no longer solicited —
+    # the actionable text lives in `requiredAction`.
+    for key in ["title", "detail", "recommendation", "requirementId", "file"]:
         text = validate_feedback_issue_text(raw.get(key), f"finding.{key}")
         if text:
             finding[key] = text
     return finding
 
-def parse_feedback_finding_args(args: argparse.Namespace, task_id: str) -> List[Dict[str, Any]]:
+def parse_feedback_finding_args(
+    args: argparse.Namespace, task_id: str, warnings: Optional[List[str]] = None
+) -> List[Dict[str, Any]]:
     findings: List[Dict[str, Any]] = []
     for index, raw_json in enumerate(getattr(args, "finding_json", None) or []):
         try:
             raw = json.loads(raw_json)
         except json.JSONDecodeError as exc:
-            raise SystemExit(f"--finding-json must be valid JSON: {exc.msg}") from exc
-        findings.append(normalize_feedback_finding(raw, task_id, index))
+            _record_warning(warnings, SystemExit(f"--finding-json must be valid JSON: {exc.msg}"))
+            continue
+        try:
+            findings.append(normalize_feedback_finding(raw, task_id, index))
+        except SystemExit as exc:
+            _record_warning(warnings, exc)
     return findings
 
 def parse_scope_expansion_args(args: argparse.Namespace, task_id: str) -> List[Dict[str, Any]]:
@@ -162,14 +186,18 @@ def parse_scope_expansion_args(args: argparse.Namespace, task_id: str) -> List[D
         expansions.append(normalize_scope_expansion(raw, task_id, index))
     return expansions
 
-def parse_feedback_args(args: argparse.Namespace) -> Dict[str, Any]:
+def parse_feedback_args(args: argparse.Namespace, warnings: Optional[List[str]] = None) -> Dict[str, Any]:
     scores: Dict[str, int] = {}
     json_scores: Dict[str, int] = {}
     for attr, state_key, json_key in FEEDBACK_SCORE_FIELDS:
         raw = getattr(args, attr, None)
         if raw is None:
             continue
-        value = validate_feedback_percent(raw, f"--{attr.replace('_', '-')}")
+        try:
+            value = validate_feedback_percent(raw, f"--{attr.replace('_', '-')}")
+        except SystemExit as exc:
+            _record_warning(warnings, exc)
+            continue
         scores[state_key] = value
         json_scores[json_key] = value
 
@@ -179,7 +207,11 @@ def parse_feedback_args(args: argparse.Namespace) -> Dict[str, Any]:
         raw = getattr(args, attr, None)
         if raw is None:
             continue
-        value = validate_feedback_count(raw, f"--{attr.replace('_', '-')}")
+        try:
+            value = validate_feedback_count(raw, f"--{attr.replace('_', '-')}")
+        except SystemExit as exc:
+            _record_warning(warnings, exc)
+            continue
         counts[state_key] = value
         json_counts[json_key] = value
 
@@ -189,7 +221,11 @@ def parse_feedback_args(args: argparse.Namespace) -> Dict[str, Any]:
         raw = str(getattr(args, attr, "") or "")
         if not raw.strip():
             continue
-        text = validate_feedback_text(raw, f"--{attr.replace('_', '-')}")
+        try:
+            text = validate_feedback_text(raw, f"--{attr.replace('_', '-')}")
+        except SystemExit as exc:
+            _record_warning(warnings, exc)
+            continue
         text_fields[state_key] = text
         json_text_fields[json_key] = text
 
@@ -320,6 +356,10 @@ def observed_task_metrics(task: Dict[str, Any]) -> Dict[str, Any]:
     return observed
 
 def feedback_review_target(args: argparse.Namespace, state: Dict[str, Any], default_task: Dict[str, Any]) -> Dict[str, Any]:
+    # This runs only on the self-report path (task.status/artifact). The
+    # gate-verdict path builds its review target inline from gate_context, so
+    # best-effort telemetry never reaches here — partial review-target metadata
+    # is a hard error, matching the strict self-report contract.
     target_task_id = str(getattr(args, "review_target_task_id", "") or "").strip()
     target_agent_id = str(getattr(args, "review_target_agent_id", "") or "").strip()
     target_execution_id = str(getattr(args, "review_target_execution_id", "") or "").strip()
@@ -348,11 +388,17 @@ def build_feedback_payload(
     task: Dict[str, Any],
     actor: str,
     gate_context: Optional[Dict[str, Any]] = None,
+    best_effort: bool = False,
 ) -> Optional[Dict[str, Any]]:
     if not feedback_args_present(args):
         return None
 
-    parsed = parse_feedback_args(args)
+    # Best-effort telemetry (Decision 4) drops invalid optional fields with a
+    # warning instead of rejecting; used on the gate-verdict path so a bad
+    # telemetry sub-field never blocks the operational verdict. Self-report and
+    # artifact paths stay strict (`warnings is None` re-raises).
+    warnings: Optional[List[str]] = [] if best_effort else None
+    parsed = parse_feedback_args(args, warnings)
     now = now_iso()
     if gate_context:
         # Attribute the verdict to the agent who actually implemented the task.
@@ -380,8 +426,8 @@ def build_feedback_payload(
     reviewer_role = str(gate_context.get("role") if gate_context else task.get("role") or "")
     task_id = str(review_target["taskId"])
     team_slug = str(state.get("sprintengine", {}).get("name") or state_path.parent.name)
-    issues = parse_feedback_issue_args(args, task_id)
-    findings = parse_feedback_finding_args(args, task_id)
+    issues = parse_feedback_issue_args(args, task_id, warnings)
+    findings = parse_feedback_finding_args(args, task_id, warnings)
     source = "gate_verdict_assessment" if gate_context else "reviewer_assessment" if review_target["isReviewerAssessment"] else "agent_self_report"
     state_feedback = {
         "schemaVersion": FEEDBACK_SCHEMA_VERSION,
@@ -468,8 +514,8 @@ def build_feedback_payload(
                 "kind": finding["kind"],
                 "severity": finding["severity"],
                 "area": finding["area"],
-                "title": finding["title"],
-                "detail": finding["detail"],
+                "title": finding.get("title"),
+                "detail": finding.get("detail"),
                 "recommendation": finding.get("recommendation"),
                 "requirement_id": finding.get("requirementId"),
                 "file": finding.get("file"),
@@ -482,6 +528,7 @@ def build_feedback_payload(
         "record": record,
         "targetTask": target_task,
         "isReviewerAssessment": review_target["isReviewerAssessment"],
+        "warnings": warnings or [],
     }
 
 def attach_feedback_payload(state: Dict[str, Any], feedback_payload: Dict[str, Any], actor: str) -> None:

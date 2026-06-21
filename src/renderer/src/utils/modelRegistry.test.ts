@@ -2,6 +2,8 @@ import assert from 'node:assert/strict'
 
 import { Model, type IJsonModel } from 'flexlayout-react'
 import {
+  addAgentTabTiled,
+  addTerminalTab,
   focusOrAddFileTab,
   registerModel,
   revealAgentTab,
@@ -12,6 +14,33 @@ import {
 } from './modelRegistry'
 
 const WS = 'modelregistry-test-ws'
+
+// addAgentTabTiled schedules its spawn-flash cleanup via window.setTimeout; node
+// has no window, so provide a no-op shim.
+const globalWithWindow = globalThis as unknown as { window?: { setTimeout: () => number } }
+if (!globalWithWindow.window) globalWithWindow.window = { setTimeout: () => 0 }
+
+// A workspace whose only open panel is the strip-less sidebar nav pane (Backlog
+// here) — the regression case where a terminal/agent used to spawn buried under
+// the sidebar.
+function navOnlyModel(): Model {
+  const json: IJsonModel = {
+    global: { tabSetEnableDrop: true, tabEnableClose: true },
+    borders: [],
+    layout: {
+      type: 'row',
+      children: [
+        {
+          type: 'tabset',
+          weight: 100,
+          enableTabStrip: false,
+          children: [{ type: 'tab', name: 'Backlog', component: 'backlog' }],
+        },
+      ],
+    },
+  }
+  return Model.fromJson(json)
+}
 
 // Minimal layout: a single agent tabset (stands in for the right-hand
 // terminals/agents column the nav pane must never displace).
@@ -329,6 +358,50 @@ function navTabsets(model: Model): TabsetJson[] {
   const fileTab = allTabs(model).find((tab) => tab.component === 'file-editor')
   assert.ok(fileTab)
   assert.equal(fileTab.enableClose, true)
+  unregisterModel(WS)
+}
+
+// A terminal spawned when the sidebar nav pane is the only open panel docks as
+// its own column to the RIGHT, never inside the strip-less nav pane.
+{
+  const model = navOnlyModel()
+  registerModel(WS, model)
+  assert.equal(addTerminalTab(WS, 'term-1', 'Terminal'), true)
+  assert.deepEqual(tabsets(model).map(componentsOf), [['backlog'], ['terminal']])
+  // The nav pane stays a clean, strip-less sidebar — the terminal did not land in it.
+  const nav = navTabsets(model)
+  assert.equal(nav.length, 1)
+  assert.deepEqual(componentsOf(nav[0]), ['backlog'])
+  assert.equal(nav[0].enableTabStrip, false)
+  unregisterModel(WS)
+}
+
+// An agent tiled when the sidebar nav pane is the only open panel docks as its
+// own column to the RIGHT, never inside the nav pane.
+{
+  const model = navOnlyModel()
+  registerModel(WS, model)
+  assert.equal(addAgentTabTiled(WS, 'a-9', 'Spawned agent'), true)
+  assert.deepEqual(tabsets(model).map(componentsOf), [['backlog'], ['agent']])
+  const nav = navTabsets(model)
+  assert.equal(nav.length, 1)
+  assert.deepEqual(componentsOf(nav[0]), ['backlog'])
+  unregisterModel(WS)
+}
+
+// With the sidebar nav pane open AND active over an existing content tabset, a
+// new terminal joins the content tabset rather than the active nav pane.
+{
+  const model = freshModel()
+  registerModel(WS, model)
+  // Opening Git selects the nav pane, making it the active tabset.
+  revealNavRailComponent(WS, 'git', 'Git')
+  assert.equal(addTerminalTab(WS, 'term-2', 'Terminal'), true)
+  assert.deepEqual(tabsets(model).map(componentsOf), [['git'], ['agent', 'terminal']])
+  // The git nav pane was not used as the spawn target.
+  const nav = navTabsets(model)
+  assert.equal(nav.length, 1)
+  assert.deepEqual(componentsOf(nav[0]), ['git'])
   unregisterModel(WS)
 }
 

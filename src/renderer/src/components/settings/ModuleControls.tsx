@@ -16,18 +16,32 @@ const CATEGORY_ORDER: CapabilityCategory[] = [
   'connectivity',
 ]
 
+// Plain-language section headers shown in both Settings → Modules and the
+// first-run chooser (kept here so the two surfaces stay identical). Prefer
+// everyday wording over internal category ids — e.g. "Agents & workflows" rather
+// than the raw "orchestration".
 const CATEGORY_LABEL: Record<string, string> = {
   core: 'Core',
   'dev-tools': 'Dev tools',
   vcs: 'Version control',
-  orchestration: 'Orchestration',
-  insight: 'Insight',
-  connectivity: 'Connectivity',
+  orchestration: 'Agents & workflows',
+  insight: 'Insights',
+  connectivity: 'Connections',
 }
 
 function categoryRank(category: CapabilityCategory | undefined): number {
   const index = CATEGORY_ORDER.indexOf(category ?? 'orchestration')
   return index === -1 ? CATEGORY_ORDER.length : index
+}
+
+// Human-readable section header for a category. Known categories use the curated
+// labels above; an unmapped one (e.g. a third-party module's own category) is
+// title-cased rather than shown as a raw id like "my-tools".
+function categoryLabel(category: CapabilityCategory): string {
+  const mapped = CATEGORY_LABEL[category]
+  if (mapped) return mapped
+  const words = category.replace(/[-_]+/g, ' ').trim()
+  return words ? words.charAt(0).toUpperCase() + words.slice(1) : 'Other'
 }
 
 // Ids of the feature-flagged modules surfaced as read-only "Coming soon" rows.
@@ -84,7 +98,7 @@ export function ModuleToggleList({
       {MODULE_CATEGORY_GROUPS.map(({ category, manifests }) => (
         <div key={category} className="flex flex-col gap-1">
           <div className="text-[11px] font-medium text-[color:var(--text-subtle)]">
-            {CATEGORY_LABEL[category] ?? category}
+            {categoryLabel(category)}
           </div>
           <div className="divide-y divide-[color:var(--border-subtle)]">
             {manifests.map((manifest) =>

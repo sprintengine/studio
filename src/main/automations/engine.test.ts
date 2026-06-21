@@ -39,6 +39,7 @@ async function main(): Promise<void> {
   assertWorkspaceSnapshotFolderExtraction()
   await assertDueAutomationSkipsOverlappingTickAndPreservesSingleFlight()
   await assertRunEventsEmitForTimerAndManualTerminalStatuses()
+  await assertAgentBackedRunStaysRunningUntilFinalize()
   await assertRunEventDeliveryFailuresDoNotMutateRunTruth()
   await assertPollingTriggersUseProviderGetterAtEvaluationTime()
   await assertDeniedTriggerProviderIsInertBeforePolling()
@@ -369,6 +370,76 @@ async function assertRunEventsEmitForTimerAndManualTerminalStatuses(): Promise<v
     status: 'completed',
     trigger: 'manual',
   })
+}
+
+async function assertAgentBackedRunStaysRunningUntilFinalize(): Promise<void> {
+  const now = Date.parse('2026-06-17T10:00:00.000Z')
+  const workspaceRoot = await createWorkspace()
+  const store = new AutomationsStore(workspaceRoot)
+  assert.equal((await store.createDefinition(definition({
+    trigger: { kind: 'schedule', config: intervalConfig(10) },
+    nextRunAt: new Date(now).toISOString(),
+  }))).ok, true)
+
+  const events: AutomationsRunEvent[] = []
+  const removedWorktrees: string[] = []
+  let prCalls = 0
+  const engine = new AutomationsEngine({
+    getProjectFolders: () => [{ workspaceId: 'ws-automations', folderPath: workspaceRoot }],
+    now: () => now,
+    createRunId: () => 'run-agent',
+    onRunEvent: (event) => events.push(event),
+    runAutomation: async () => ({
+      status: 'running',
+      workspaceId: 'ws-automations',
+      agentId: 'agent-1',
+      worktreePath: `${workspaceRoot}/.multi-code/automations/worktrees/run-agent`,
+      branch: 'automations/run-agent',
+      summary: 'Launched; working…',
+    }),
+    openRunPullRequest: async () => {
+      prCalls += 1
+      return { ok: true, url: 'https://github.com/acme/repo/pull/9', created: true }
+    },
+    removeRunWorktree: async (input) => {
+      removedWorktrees.push(input.worktreePath)
+    },
+  })
+
+  const dispatched = await engine.runNow({ workspaceRoot, automationId: 'nightly-review', workspaceId: 'ws-automations' })
+  assert.equal(dispatched.ok, true)
+  if (!dispatched.ok) return
+  // Agent-backed run stays in-progress and emits no terminal event yet.
+  assert.equal(dispatched.run.status, 'running')
+  assert.equal(dispatched.run.completedAt, null)
+  assert.equal(dispatched.run.agentId, 'agent-1')
+  assert.equal(events.length, 0)
+
+  // Finalize → opens PR, tears down worktree, records completed, emits event.
+  const finalized = await engine.finalizeRun({
+    workspaceRoot,
+    automationId: 'nightly-review',
+    runId: 'run-agent',
+    outcome: 'completed',
+  })
+  assert.equal(finalized.ok, true)
+  if (!finalized.ok) return
+  assert.equal(finalized.run.status, 'completed')
+  assert.equal(finalized.run.pullRequestUrl, 'https://github.com/acme/repo/pull/9')
+  assert.equal(removedWorktrees.length, 1)
+  assert.equal(events.length, 1)
+  assert.equal(events[0]?.status, 'completed')
+
+  // Idempotent: a second finalize neither re-opens a PR nor re-emits.
+  const again = await engine.finalizeRun({
+    workspaceRoot,
+    automationId: 'nightly-review',
+    runId: 'run-agent',
+    outcome: 'completed',
+  })
+  assert.equal(again.ok, true)
+  assert.equal(prCalls, 1)
+  assert.equal(events.length, 1)
 }
 
 async function assertRunEventDeliveryFailuresDoNotMutateRunTruth(): Promise<void> {

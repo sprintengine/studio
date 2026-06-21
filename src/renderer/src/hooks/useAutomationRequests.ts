@@ -8,7 +8,7 @@ import { LAYOUT_TEMPLATES } from '../layouts/templates'
 import { useWorkspaceStore } from '../store/workspaceStore'
 import { pickRandomAgentName } from '../utils/agentNames'
 import { getModel, revealAgentTab, type AgentTabRevealTarget } from '../utils/modelRegistry'
-import type { WorkspaceWindowId } from '../types/workspace'
+import type { SpecialistActionId, WorkspaceWindowId } from '../types/workspace'
 
 // Renderer half of the app-automation surface: the main-process MCP server
 // delegates mutations here so they run the exact store actions the UI uses
@@ -93,11 +93,14 @@ async function launchAgent(
   if (!workspace) {
     return { ok: false, code: 'unknown_workspace', message: `Workspace "${request.workspaceId}" does not exist in the renderer registry.` }
   }
-  if (workspace.mode !== 'standard') {
+  // Agent-backed automation runs are owned by the automations control-center
+  // workspace (the agent terminal docks beside the panel). The legacy
+  // automation-server MCP path still launches into standard workspaces.
+  if (workspace.mode !== 'standard' && workspace.mode !== 'automations') {
     return {
       ok: false,
       code: 'unsupported_workspace_mode',
-      message: `Automation agent launch supports standard workspaces; "${workspace.id}" is a ${workspace.mode} workspace.`,
+      message: `Automation agent launch supports standard and automations workspaces; "${workspace.id}" is a ${workspace.mode} workspace.`,
     }
   }
   const cli = request.cli?.trim() || store.appSettings.lastSelectedCli
@@ -125,13 +128,25 @@ async function launchAgent(
   // agent_terminal.assign_session through the sync bus itself.
   const currentAgents = useWorkspaceStore.getState().workspaces.find((candidate) => candidate.id === workspace.id)?.agents ?? {}
   const name = request.name?.trim() || pickRandomAgentName(Object.values(currentAgents).map((agent) => agent.name))
+  // The picker constrains specialistId to the catalog; trust it at this boundary.
+  const specialistId = (request.specialistId?.trim() || undefined) as SpecialistActionId | undefined
   const agentId = `agent-${cli}-${nanoid(6)}`
   const state = useWorkspaceStore.getState()
+  const worktreePath = request.worktreePath?.trim() || undefined
   state.updateAgent(workspace.id, agentId, {
     name,
     cli,
-    kind: 'general',
-    specialistId: undefined,
+    // Persisted so relaunch/resume keep the model and permission the run was
+    // created with (the terminal launch path reads them off AgentState).
+    cliModel: request.cliModel?.trim() || undefined,
+    cliPermissionPreset: request.permissionPreset,
+    kind: specialistId ? 'specialist' : 'general',
+    specialistId,
+    // Route the agent's terminal cwd into the run's isolated worktree when the
+    // executor created one; TerminalView reads execution.cwd at launch.
+    ...(worktreePath
+      ? { execution: { mode: 'worktree' as const, worktreeId: null, cwd: worktreePath } }
+      : {}),
     cliStartupPrompt: request.prompt,
     cliOnboardingPromptSent: false,
     cliHasLaunched: false,

@@ -1028,7 +1028,7 @@ function AgentDetailRow({
                   <ul className="mt-1.5 space-y-1.5">
                     {task.findings.map((finding) => (
                       <FindingItem
-                        key={`${finding.taskId}-${finding.kind}-${finding.area}-${finding.title}`}
+                        key={`${finding.taskId}-${finding.id}`}
                         finding={finding}
                         hideTaskId
                       />
@@ -1175,7 +1175,7 @@ function WhatsLeftSection({
             <ul className="space-y-1.5">
               {openFindings.map((finding) => (
                 <FindingItem
-                  key={`${finding.taskId}-${finding.kind}-${finding.area}-${finding.title}`}
+                  key={`${finding.taskId}-${finding.id}`}
                   finding={finding}
                 />
               ))}

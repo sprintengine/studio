@@ -3,7 +3,9 @@ import { normalizeProjectKnowledgeRoots } from './memorySlice'
 import type {
   AgentCli,
   AgentCliModelSelection,
+  AgentConfigAdoptionResult,
   AppSettings,
+  PendingAgentConfigAdoption,
   CliRuntimeSettings,
   KeybindingSettings,
   LearningSettings,
@@ -733,7 +735,26 @@ export const defaultAppSettings = (): AppSettings => ({
   moduleSettings: {},
   modulesChosen: false,
   onboardingStep: 'welcome',
+  pendingAgentConfigAdoption: null,
 })
+
+// Accept a persisted adoption selection only when it is the expected shape (two
+// string arrays). Anything else — including a half-written or legacy value —
+// normalizes to null so a stale selection can never fabricate an adoption.
+export function normalizePendingAgentConfigAdoption(
+  value: unknown,
+): PendingAgentConfigAdoption | null {
+  if (!value || typeof value !== 'object') return null
+  const candidate = value as Partial<PendingAgentConfigAdoption>
+  const mcpServerKeys = Array.isArray(candidate.mcpServerKeys)
+    ? candidate.mcpServerKeys.filter((key): key is string => typeof key === 'string')
+    : []
+  const skillKeys = Array.isArray(candidate.skillKeys)
+    ? candidate.skillKeys.filter((key): key is string => typeof key === 'string')
+    : []
+  if (mcpServerKeys.length === 0 && skillKeys.length === 0) return null
+  return { mcpServerKeys, skillKeys }
+}
 
 export function normalizeAppSettings(settings: Partial<AppSettings> | undefined, workspaces: Workspace[]): AppSettings {
   const defaults = defaultAppSettings()
@@ -778,6 +799,7 @@ export function normalizeAppSettings(settings: Partial<AppSettings> | undefined,
       modulesChosen: settings?.modulesChosen,
       hasWorkspaces: workspaces.length > 0,
     }),
+    pendingAgentConfigAdoption: normalizePendingAgentConfigAdoption(settings?.pendingAgentConfigAdoption),
   }
 }
 
@@ -800,6 +822,10 @@ export interface SettingsSliceState {
   // Set by user action — popping a tab out turns it on, docking a file back
   // turns it off — and remembered so the next file reuses the last surface.
   openFilesInExternalWindow: boolean
+  // Live outcome of the deferred first-run agent-config adoption, shown on the
+  // first-run overlay. Transient (not persisted via extractSettingsFields) — it
+  // describes an action that ran this session, never a resumed one.
+  agentConfigAdoptionResult: AgentConfigAdoptionResult | null
 }
 
 export interface SettingsSliceActions {
@@ -863,6 +889,12 @@ export interface SettingsSliceActions {
   setOnboardingStep: (step: OnboardingStep) => void
   /** Advance onboarding to the next step (welcome → modules → workspace → complete). */
   advanceOnboarding: () => void
+  /** Record (or clear with `null`) the deferred first-run config-adoption
+   *  selection captured on the essentials step. */
+  setPendingAgentConfigAdoption: (selection: PendingAgentConfigAdoption | null) => void
+  /** Set (or clear with `null`) the live outcome of the deferred adoption,
+   *  surfaced on the first-run overlay. */
+  setAgentConfigAdoptionResult: (result: AgentConfigAdoptionResult | null) => void
   setSearchExcludes: (patterns: string[]) => void
   setUsageTelemetrySettings: (update: Partial<UsageTelemetrySettings>) => void
   setVoiceDictationSettings: (update: Partial<VoiceDictationSettings>) => void
@@ -886,6 +918,7 @@ export function createSettingsSlice(set: SettingsSliceSet): SettingsSlice {
     sidebarCollapsed: false,
     sprintEnginesAsideOpen: false,
     openFilesInExternalWindow: DEFAULT_OPEN_FILES_IN_EXTERNAL_WINDOW,
+    agentConfigAdoptionResult: null,
 
     setSidebarCollapsed: (collapsed) =>
       set((state) => {
@@ -1278,6 +1311,19 @@ export function createSettingsSlice(set: SettingsSliceSet): SettingsSlice {
         // Keep the legacy modulesChosen flag consistent: once onboarding moves
         // past the modules step, the user has made their first-run choice.
         if (next === 'workspace' || next === 'complete') state.appSettings.modulesChosen = true
+      }),
+
+    setPendingAgentConfigAdoption: (selection) =>
+      set((state) => {
+        state.appSettings.pendingAgentConfigAdoption =
+          selection && (selection.mcpServerKeys.length > 0 || selection.skillKeys.length > 0)
+            ? { mcpServerKeys: [...selection.mcpServerKeys], skillKeys: [...selection.skillKeys] }
+            : null
+      }),
+
+    setAgentConfigAdoptionResult: (result) =>
+      set((state) => {
+        state.agentConfigAdoptionResult = result
       }),
 
     setSearchExcludes: (patterns) =>

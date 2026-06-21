@@ -127,7 +127,7 @@ assert.equal(migrated.workspaces[0].folderPath, null)
 assert.ok(migrated.workspaces[0].editorState, 'v1 migration backfills editorState')
 assert.deepEqual(
   migrated.workspaces[0].fileExplorerState,
-  { expandedPaths: [] },
+  { expandedPaths: [], selectedPath: null },
   'migration backfills empty File Explorer expansion state',
 )
 assert.equal(migrated.workspaces[0].mode, 'standard')
@@ -147,11 +147,11 @@ const v58ExplorerState = {
   ],
 }
 const migratedExplorerState = migratePersistedWorkspaceState(v58ExplorerState, 58) as {
-  workspaces: Array<{ fileExplorerState: { expandedPaths: string[] } }>
+  workspaces: Array<{ fileExplorerState: { expandedPaths: string[]; selectedPath: string | null } }>
 }
 assert.deepEqual(
   migratedExplorerState.workspaces[0].fileExplorerState,
-  { expandedPaths: ['/repo/src'] },
+  { expandedPaths: ['/repo/src'], selectedPath: null },
   'migration normalizes persisted File Explorer expansion paths',
 )
 

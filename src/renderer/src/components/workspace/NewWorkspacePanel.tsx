@@ -66,13 +66,13 @@ import type { BacklogItem, BacklogScanResult } from '../../utils/backlog'
 import { slugifySprintEngineName } from '../../utils/sprintengineStateFile'
 import { basename, folderKey, planBasename, markdownTitle, toTitleName, inferSourcePlanKind, workspaceRelativePath } from './newWorkspace/helpers'
 import type { CreationMode, ExistingTeam, GuidedBriefHasUi, ModeCardModel, SprintEnginePath } from './newWorkspace/types'
-import { stepsForMode, type StepId } from './newWorkspace/creationStepFlows'
+import { isAdvancedSetupStep, stepsForMode, type StepId } from './newWorkspace/creationStepFlows'
 import { KnowledgeStep } from './newWorkspace/KnowledgeStep'
 import { shouldShowKnowledgeStep } from './newWorkspace/knowledgeFolders'
 import { normalizeProjectRootKey } from '../../utils/projectKnowledge'
 import { folderHintAutoSelectMode } from './newWorkspace/folderHintMode'
 import { CliPermissionPresetRow, PathRadio, RosterAndRunSettings } from './newWorkspace/WizardControls'
-import { pruneSprintEngineRoleCliDefaults, sprintEngineRosterMatchesTeam } from './newWorkspace/savedTeams'
+import { pruneSprintEngineRoleCliDefaults, resolveInitialSprintEngineRoster, sprintEngineRosterMatchesTeam } from './newWorkspace/savedTeams'
 import {
   resolveAvailableAgentCli,
   selectAgentCliCatalog,
@@ -120,8 +120,8 @@ const STEP_HEADING: Record<StepId, { title: string; subtitle: string }> = {
     subtitle: 'How will you use this workspace?',
   },
   'mcp-servers': {
-    title: 'Pick MCP servers',
-    subtitle: 'Agent tool integrations for this project. Optional — skip and add later from Settings.',
+    title: 'Pick tool integrations',
+    subtitle: 'Connect agent tools for this project. Optional — skip and add later from Settings.',
   },
   'skill-packs': {
     title: 'Pick skill packs',
@@ -218,12 +218,6 @@ const initialSprintEngineRoleCliDefaults: Required<SprintEngineRoleCliDefaults> 
 
 function cloneSprintEngineRoleCounts(roleCounts: SprintEngineRoleCounts): SprintEngineRoleCounts {
   return { ...roleCounts }
-}
-
-function sprintEngineRoleCountsFromSavedRoster(savedRoster: SprintEngineSavedRoster | null | undefined): SprintEngineRoleCounts {
-  return savedRoster?.roleCounts
-    ? cloneSprintEngineRoleCounts(savedRoster.roleCounts)
-    : cloneSprintEngineRoleCounts(initialSprintEngineRoleCounts)
 }
 
 function sprintEngineRoleCliDefaultsFromSavedRoster(
@@ -398,12 +392,15 @@ export default function NewWorkspacePanel({
   const sprintEngineTeams = sprintEngineRoleSettings.savedTeams ?? []
   const savedSprintEngineRoster = sprintEngineRoleSettings.savedRoster ?? null
   // Seed the wizard from the most recently selected team when one exists, else
-  // fall back to the legacy single saved roster.
-  const initialSprintEngineTeam =
-    sprintEngineTeams.find((team) => team.id === sprintEngineRoleSettings.lastSelectedTeamId) ?? null
-  const initialSprintEngineRoster: SprintEngineSavedRoster | null = initialSprintEngineTeam
-    ? { roleCounts: initialSprintEngineTeam.roleCounts, roleCliDefaults: initialSprintEngineTeam.roleCliDefaults }
-    : savedSprintEngineRoster
+  // the legacy single saved roster, else the built-in default — so the roster
+  // step opens pre-selected on a runnable team and is a single Continue.
+  const initialSprintEngineRoster = resolveInitialSprintEngineRoster({
+    savedTeams: sprintEngineTeams,
+    lastSelectedTeamId: sprintEngineRoleSettings.lastSelectedTeamId,
+    savedRoster: savedSprintEngineRoster,
+    defaultRoleCounts: initialSprintEngineRoleCounts,
+    defaultRoleCliDefaults: initialSprintEngineRoleCliDefaults,
+  })
 
   const initialFuturePlan = initialState?.futurePlanSource ?? null
   const initialMode: CreationMode =
@@ -473,14 +470,14 @@ export default function NewWorkspacePanel({
   const [seTeamNameTouched, setSeTeamNameTouched] = useState(Boolean(initialFuturePlan))
   const [seGoal, setSeGoal] = useState(initialFuturePlan?.goal ?? '')
   const [seRoleCounts, setSeRoleCounts] = useState<SprintEngineRoleCounts>(
-    () => sprintEngineRoleCountsFromSavedRoster(initialSprintEngineRoster),
+    () => cloneSprintEngineRoleCounts(initialSprintEngineRoster.roleCounts),
   )
   const [seRoleCliDefaults, setSeRoleCliDefaults] = useState<Required<SprintEngineRoleCliDefaults>>(
-    () => sprintEngineRoleCliDefaultsFromSavedRoster(initialSprintEngineRoster),
+    () => ({ ...initialSprintEngineRoster.roleCliDefaults }),
   )
   // Which saved team is currently loaded; null means a hand-tuned ("Custom") roster.
   const [seSelectedTeamId, setSeSelectedTeamId] = useState<string | null>(
-    () => initialSprintEngineTeam?.id ?? null,
+    () => initialSprintEngineRoster.selectedTeamId,
   )
   const [seAgentCliOverrides, setSeAgentCliOverrides] = useState<Record<AgentId, AgentCli>>({})
   // Explicit per-role launch model (string = explicit id, null = explicit CLI
@@ -580,10 +577,14 @@ export default function NewWorkspacePanel({
   const mcpSettings = useWorkspaceStore((s) => s.appSettings.mcp)
   const upsertMcpServer = useWorkspaceStore((s) => s.upsertMcpServer)
   const removeMcpServer = useWorkspaceStore((s) => s.removeMcpServer)
+  const upsertSkillPack = useWorkspaceStore((s) => s.upsertSkillPack)
   const [integrationsMcpCatalog, setIntegrationsMcpCatalog] = useState<McpCatalogServer[]>([])
   const [integrationsSkillPackCatalog, setIntegrationsSkillPackCatalog] = useState<SkillPackCatalogEntry[]>([])
   const [integrationsMessage] = useState<string | null>(null)
   const [selectedSkillPackIds, setSelectedSkillPackIds] = useState<Set<string>>(new Set())
+  // Surfaced when create-time Advanced setup persistence (MCP sync / skill-pack
+  // install) fails, so the wizard reports the failure instead of closing as success.
+  const [advancedSetupError, setAdvancedSetupError] = useState<string | null>(null)
 
   useEffect(() => {
     let cancelled = false
@@ -672,21 +673,76 @@ export default function NewWorkspacePanel({
     })
   }
 
-  const triggerSelectedSkillPackInstalls = (workspaceRoot: string | null) => {
-    if (!workspaceRoot) return
-    if (typeof window.api.skillPackInstall !== 'function') return
-    const picks = integrationsSkillPackCatalog.filter((pack) => selectedSkillPackIds.has(pack.id))
-    for (const pack of picks) {
-      void window.api
-        .skillPackInstall({
-          workspaceRoot,
-          slug: pack.slug,
-          harnesses: pack.harnesses,
-          installedDirName: pack.installedDirName,
-        })
-        .catch(() => {})
-    }
-  }
+  // Persist the optional Advanced setup selections to the real project on disk:
+  // write the MCP agent config through the same mcp:sync path Settings uses, then
+  // install each selected skill pack, awaiting every result so a failure surfaces
+  // an actionable error instead of a silent fire-and-forget. Returns the failure
+  // message (and sets advancedSetupError) when any selection failed, or null on
+  // success, so callers avoid reporting a half-configured create as success.
+  const persistAdvancedSetup = useCallback(
+    async (workspaceRoot: string | null): Promise<string | null> => {
+      if (!workspaceRoot) return null
+      const failures: string[] = []
+
+      const hasEnabledMcp = Boolean(
+        mcpSettings && Object.values(mcpSettings.servers).some((server) => server.enabled),
+      )
+      if (hasEnabledMcp && mcpSettings && typeof window.api.mcpSync === 'function') {
+        try {
+          const result = await window.api.mcpSync({ workspaceRoot, settings: mcpSettings })
+          if (!result.ok) {
+            failures.push(`Tool integration setup failed: ${result.message}`)
+          } else {
+            const blocking = result.issues.find((issue) => issue.level === 'error')
+            if (blocking) failures.push(`Tool integration setup failed: ${blocking.message}`)
+          }
+        } catch (error) {
+          failures.push(`Tool integration setup failed: ${error instanceof Error ? error.message : 'sync error'}`)
+        }
+      }
+
+      if (selectedSkillPackIds.size > 0 && typeof window.api.skillPackInstall === 'function') {
+        const picks = integrationsSkillPackCatalog.filter((pack) => selectedSkillPackIds.has(pack.id))
+        for (const pack of picks) {
+          try {
+            const result = await window.api.skillPackInstall({
+              workspaceRoot,
+              slug: pack.slug,
+              harnesses: pack.harnesses,
+              installedDirName: pack.installedDirName,
+            })
+            if (result.ok) {
+              upsertSkillPack({
+                ...result.installed,
+                id: pack.id,
+                name: pack.name,
+                category: pack.category,
+                description: pack.description,
+                version: pack.version,
+                sourceUrl: pack.sourceUrl,
+                installedDirName: pack.installedDirName ?? result.installed.installedDirName,
+              })
+            } else {
+              failures.push(`Skill pack ${pack.name} failed: ${result.message}`)
+            }
+          } catch (error) {
+            failures.push(
+              `Skill pack ${pack.name} failed: ${error instanceof Error ? error.message : 'install error'}`,
+            )
+          }
+        }
+      }
+
+      if (failures.length > 0) {
+        const message = failures.join(' ')
+        setAdvancedSetupError(message)
+        return message
+      }
+      setAdvancedSetupError(null)
+      return null
+    },
+    [mcpSettings, selectedSkillPackIds, integrationsSkillPackCatalog, upsertSkillPack],
+  )
 
   const [isCreating, setIsCreating] = useState(false)
 
@@ -716,6 +772,10 @@ export default function NewWorkspacePanel({
   }, [mode, knowledgeStepEligible])
   const stepIndex = Math.max(0, steps.indexOf(step))
   const isLastStep = stepIndex >= steps.length - 1
+  // The optional Advanced setup disclosure rides the flow's final step but never
+  // the 'mode' pivot (see isAdvancedSetupStep): the zero-config quick flows end
+  // at 'mode', and config belongs off that decision screen.
+  const showAdvancedSetup = isAdvancedSetupStep(steps, step)
 
   // Knowledge folder currently stored for the chosen project (case-preserved key,
   // matching the project-keyed store), surfaced to the step and blocking copy.
@@ -1286,6 +1346,7 @@ export default function NewWorkspacePanel({
       setIsCreating(true)
       setGuidedError(null)
       try {
+        if (await persistAdvancedSetup(folderPath)) return
         const { runtimeState } = await runGuidedBriefScaffold(
           {
             folderPath,
@@ -1314,7 +1375,6 @@ export default function NewWorkspacePanel({
             },
           },
         )
-        triggerSelectedSkillPackInstalls(folderPath)
         onCreate({
           template: createGuidedBriefTemplate(),
           name: runtimeState.workspaceName,
@@ -1343,6 +1403,7 @@ export default function NewWorkspacePanel({
       setIsCreating(true)
       setMlError(null)
       try {
+        if (await persistAdvancedSetup(folderPath)) return
         await runMultiloopCreation(
           {
             folderPath,
@@ -1359,7 +1420,6 @@ export default function NewWorkspacePanel({
             createMultiloopTemplate,
           },
         )
-        triggerSelectedSkillPackInstalls(folderPath)
         persistLastPermissionPreset()
         onClose()
       } catch (error) {
@@ -1376,19 +1436,27 @@ export default function NewWorkspacePanel({
 
     if (mode === 'switchboard') {
       if (!folderPath) return
-      const args = buildSwitchboardCreation({ name, folderPath })
-      triggerSelectedSkillPackInstalls(folderPath)
-      onCreate(args)
-      onClose()
+      setIsCreating(true)
+      try {
+        if (await persistAdvancedSetup(folderPath)) return
+        onCreate(buildSwitchboardCreation({ name, folderPath }))
+        onClose()
+      } finally {
+        setIsCreating(false)
+      }
       return
     }
 
     if (mode === 'automations') {
       if (!folderPath) return
-      const args = buildAutomationsCreation({ name, folderPath })
-      triggerSelectedSkillPackInstalls(folderPath)
-      onCreate(args)
-      onClose()
+      setIsCreating(true)
+      try {
+        if (await persistAdvancedSetup(folderPath)) return
+        onCreate(buildAutomationsCreation({ name, folderPath }))
+        onClose()
+      } finally {
+        setIsCreating(false)
+      }
       return
     }
 
@@ -1412,9 +1480,14 @@ export default function NewWorkspacePanel({
           autoApproveArtifacts: seAutoApproveArtifacts,
           cliPermissionPreset,
         })
-        triggerSelectedSkillPackInstalls(folderPath)
-        onCreate(args)
-        persistLastPermissionPreset()
+        setIsCreating(true)
+        try {
+          if (await persistAdvancedSetup(folderPath)) return
+          onCreate(args)
+          persistLastPermissionPreset()
+        } finally {
+          setIsCreating(false)
+        }
         return
       }
 
@@ -1443,6 +1516,7 @@ export default function NewWorkspacePanel({
         }
         setIsCreating(true)
         try {
+          if (await persistAdvancedSetup(folderPath)) return
           await runSprintEnginePlanSourcedCreation(
             {
               folderPath,
@@ -1489,7 +1563,6 @@ export default function NewWorkspacePanel({
               },
             },
           )
-          triggerSelectedSkillPackInstalls(folderPath)
           persistLastPermissionPreset()
           onClose()
         } catch (error) {
@@ -1508,6 +1581,7 @@ export default function NewWorkspacePanel({
 
       setIsCreating(true)
       try {
+        if (await persistAdvancedSetup(folderPath)) return
         const args = await runSprintEngineNewTeamCreation(
           {
             folderPath,
@@ -1529,7 +1603,6 @@ export default function NewWorkspacePanel({
             initializeSprintEngineState: window.api.initializeSprintEngineState,
           },
         )
-        triggerSelectedSkillPackInstalls(folderPath)
         onCreate(args)
         persistLastPermissionPreset()
       } catch (error) {
@@ -1548,8 +1621,13 @@ export default function NewWorkspacePanel({
 
     // Standard
     const args = buildStandardCreation({ layoutId, name, folderPath, userTemplates: userLayoutTemplates })
-    triggerSelectedSkillPackInstalls(folderPath)
-    onCreate(args)
+    setIsCreating(true)
+    try {
+      if (await persistAdvancedSetup(folderPath)) return
+      onCreate(args)
+    } finally {
+      setIsCreating(false)
+    }
   }
 
   const goNext = () => {
@@ -1567,6 +1645,16 @@ export default function NewWorkspacePanel({
     setDirection('backward')
     setStep(steps[stepIndex - 1])
   }
+
+  // Back-jump from the progress bar: only to an already-completed (earlier) step,
+  // and never mid-create. The step-change effect handles focus + scroll reset.
+  const jumpToStep = (index: number) => {
+    if (isCreating) return
+    if (index < 0 || index >= stepIndex) return
+    setDirection('backward')
+    setStep(steps[index])
+  }
+  const stepLabels = useMemo(() => steps.map((id) => STEP_HEADING[id].title), [steps])
 
   const handleSectionKeyDown = (event: React.KeyboardEvent<HTMLElement>) => {
     if (event.key !== 'Enter' || event.isDefaultPrevented()) return
@@ -1636,6 +1724,10 @@ export default function NewWorkspacePanel({
             writeFile: window.api.writefile,
           },
           pathExists: window.api.pathExists,
+          // Fail-closed Advanced setup preflight: the controller awaits this
+          // before writing the handoff or creating the run, so an MCP/skill
+          // failure aborts without leaving a partial Sprint Engine workspace.
+          persistAdvancedSetup,
           readArchitecturePlan: (workspaceRoot, path) =>
             window.api.readfile(joinGuidedWorkspacePath(workspaceRoot, path)),
           readBuildHandoff: (workspaceRoot, path) =>
@@ -1648,7 +1740,6 @@ export default function NewWorkspacePanel({
       }
       throw error instanceof Error ? error : new Error('Could not create the Sprint Engine workspace.')
     }
-    triggerSelectedSkillPackInstalls(runtimeState.workspaceRoot)
     persistLastPermissionPreset()
     onClose()
   }
@@ -1702,7 +1793,13 @@ export default function NewWorkspacePanel({
             New workspace
           </h2>
         </div>
-        <WizardProgress total={steps.length} active={stepIndex} currentStepLabel={stepHeading.title} />
+        <WizardProgress
+          total={steps.length}
+          active={stepIndex}
+          currentStepLabel={stepHeading.title}
+          stepLabels={stepLabels}
+          onStepSelect={jumpToStep}
+        />
         {allowClose ? (
           <CloseIconButton
             size="md"
@@ -1795,27 +1892,12 @@ export default function NewWorkspacePanel({
           ) : null}
 
           {step === 'mode' ? (
-            <div className="flex flex-col gap-6">
-              <ModeStep
-                mode={mode}
-                onSelect={handleSelectMode}
-                folderPath={folderPath}
-                folderHint={folderPath ? folderHints.get(folderPath) ?? null : null}
-              />
-              <AdvancedSetupDisclosure
-                mcpCatalog={integrationsMcpCatalog}
-                mcpSettings={mcpSettings ?? null}
-                onToggleMcp={toggleMcpInWizard}
-                skillPackCatalog={integrationsSkillPackCatalog}
-                selectedSkillPackIds={selectedSkillPackIds}
-                onToggleSkillPack={toggleSkillPackInWizard}
-                integrationsMessage={integrationsMessage}
-                knowledgeProjectRoot={folderPath && knowledgeStepEligible ? folderPath : null}
-                committedKnowledgeRoot={committedKnowledgeRoot}
-                onCommitKnowledge={handleCommitKnowledgeRoot}
-                knowledgeAutoAppliedRef={knowledgeAutoAppliedRef}
-              />
-            </div>
+            <ModeStep
+              mode={mode}
+              onSelect={handleSelectMode}
+              folderPath={folderPath}
+              folderHint={folderPath ? folderHints.get(folderPath) ?? null : null}
+            />
           ) : null}
 
           {step === 'standard-layout' ? (
@@ -1975,6 +2057,31 @@ export default function NewWorkspacePanel({
               onRenameTeam={handleRenameSprintEngineTeam}
               onDeleteTeam={handleDeleteSprintEngineTeam}
             />
+          ) : null}
+
+          {showAdvancedSetup ? (
+            <AdvancedSetupDisclosure
+              mcpCatalog={integrationsMcpCatalog}
+              mcpSettings={mcpSettings ?? null}
+              onToggleMcp={toggleMcpInWizard}
+              skillPackCatalog={integrationsSkillPackCatalog}
+              selectedSkillPackIds={selectedSkillPackIds}
+              onToggleSkillPack={toggleSkillPackInWizard}
+              integrationsMessage={integrationsMessage}
+              knowledgeProjectRoot={folderPath && knowledgeStepEligible ? folderPath : null}
+              committedKnowledgeRoot={committedKnowledgeRoot}
+              onCommitKnowledge={handleCommitKnowledgeRoot}
+              knowledgeAutoAppliedRef={knowledgeAutoAppliedRef}
+            />
+          ) : null}
+
+          {advancedSetupError ? (
+            <div
+              role="alert"
+              className="border-l-2 border-[color:var(--tone-error)] pl-3 text-[12px] leading-5 text-[color:var(--tone-error)]"
+            >
+              {advancedSetupError}
+            </div>
           ) : null}
 
           <div className="flex items-center justify-between gap-3 pt-1">
@@ -2210,9 +2317,10 @@ function ModeStep({
   )
 }
 
-// Opt-in advanced configuration for the mode step. The novice critical path no
-// longer gates on MCP servers / skill packs / knowledge (see creationStepFlows),
-// but power users keep one-place in-wizard access here without seeing the jargon
+// Opt-in advanced configuration on the wizard's final step (never the 'mode'
+// pivot — see showAdvancedSetup). The novice critical path no longer gates on
+// MCP servers / skill packs / knowledge (see creationStepFlows), but power users
+// keep one-place in-wizard access here without seeing the jargon
 // unless they ask for it. Collapsed by default; a selection count surfaces when
 // the user has chosen anything so a returning expander isn't a surprise. Each
 // section reuses the same component the standalone steps used, so behavior and
@@ -2333,7 +2441,7 @@ function McpServersStep({
     <div className="flex flex-col gap-3">
       <div className="flex items-start justify-between gap-3">
         <p className="text-[12px] leading-5 text-[color:var(--text-muted)]">
-          Selected servers are saved to this project and synced to agent configs from Settings.
+          Selected tools are added to this project when you create it. Manage them anytime in Settings.
         </p>
         {mcpCatalog.length > 0 ? (
           <span className="shrink-0 pt-0.5 text-[11px] tabular-nums text-[color:var(--text-subtle)]">
@@ -2342,7 +2450,7 @@ function McpServersStep({
         ) : null}
       </div>
       {mcpCatalog.length === 0 ? (
-        <p className="text-[11px] text-[color:var(--text-subtle)]">Catalog loading…</p>
+        <p className="text-[11px] text-[color:var(--text-subtle)]">Loading…</p>
       ) : (
         <ul className="grid grid-cols-1 gap-2 min-[760px]:grid-cols-2">
           {mcpCatalog.map((server) => {
@@ -2421,8 +2529,7 @@ function SkillPacksStep({
     <div className="flex flex-col gap-3">
       <div className="flex items-start justify-between gap-3">
         <p className="text-[12px] leading-5 text-[color:var(--text-muted)]">
-          Each selected pack runs <code className="font-mono">npx skills add</code> after creation,
-          writing into whichever harness directories already exist.
+          Each selected pack is added to this project when you create it, ready for your agents to use.
         </p>
         {skillPackCatalog.length > 0 ? (
           <span className="shrink-0 pt-0.5 text-[11px] tabular-nums text-[color:var(--text-subtle)]">
@@ -2431,7 +2538,7 @@ function SkillPacksStep({
         ) : null}
       </div>
       {skillPackCatalog.length === 0 ? (
-        <p className="text-[11px] text-[color:var(--text-subtle)]">Catalog loading…</p>
+        <p className="text-[11px] text-[color:var(--text-subtle)]">Loading…</p>
       ) : (
         <ul className="grid grid-cols-1 gap-2 min-[760px]:grid-cols-2">
           {skillPackCatalog.map((pack) => {
@@ -2759,14 +2866,14 @@ function GuidedIdeaStep({
           <div role="radiogroup" aria-label="App surface" className="grid grid-cols-2 gap-2.5">
             <GuidedChoiceCard
               active={hasUi === 'yes'}
-              title="Yes, it has a UI"
+              title="Yes, it has a screen"
               body="App, dashboard, mobile screen, internal tool."
               onSelect={() => onChangeHasUi('yes')}
             />
             <GuidedChoiceCard
               active={hasUi === 'no'}
               title="No, script or service"
-              body="CLI, API, automation — runs in the background."
+              body="Command-line tool, data service, or scheduled job — runs in the background."
               onSelect={() => onChangeHasUi('no')}
             />
           </div>
@@ -2781,7 +2888,7 @@ function GuidedIdeaStep({
               checked
               locked
               title="Frontend engineer"
-              body="Designs UI direction and reviewable mockups."
+              body="Designs the screens and reviewable mockups."
               cli={roleCliDefaults.frontend}
               cliOptions={cliOptions}
               onChangeCli={(cli) => onSetRoleCli('frontend', cli)}
@@ -2811,7 +2918,7 @@ function GuidedIdeaStep({
                 checked={hasUi === 'yes' && wantsFrontendDiscussion}
                 disabled={hasUi !== 'yes'}
                 title="Frontend engineer"
-                body={hasUi === 'yes' ? 'Designs UI direction and reviewable mockups.' : 'Available only for visual apps.'}
+                body={hasUi === 'yes' ? 'Designs the screens and reviewable mockups.' : 'Available only for visual apps.'}
                 cli={roleCliDefaults.frontend}
                 cliOptions={cliOptions}
                 onChangeCli={(cli) => onSetRoleCli('frontend', cli)}
@@ -2881,7 +2988,7 @@ function GuidedRoleToggle({
       </span>
       <span className="flex shrink-0 items-center gap-2">
         <AgentCliPicker
-          ariaLabel={`${title} CLI`}
+          ariaLabel={`${title} agent`}
           value={cli}
           onChange={onChangeCli}
           disabled={disabled || !effectiveChecked}
@@ -3447,7 +3554,7 @@ function SprintEngineRosterStep(props: {
     <div className="flex flex-col gap-5">
       {hasExistingTeam ? (
         <p className="rounded-md border border-[color:var(--tone-warn-soft)] bg-[color:var(--tone-warn-soft)] px-3 py-2 text-[12px] leading-5 text-[color:var(--tone-warn)]">
-          Loading <span className="font-semibold">{existingTeamName}</span> — roster size is read-only; CLI choices can be changed before launch.
+          Loading <span className="font-semibold">{existingTeamName}</span> — team size is read-only; the agent for each role can still be changed before launch.
         </p>
       ) : null}
 
@@ -3541,7 +3648,12 @@ function guidedBriefStartBuildErrorMessage(error: GuidedBriefStartBuildError): s
     case 'missing-architecture-plan':
       return 'Accept the architecture plan before starting the build.'
     case 'missing-ui-direction-or-mockups':
-      return 'Accept the UI direction and mockups before starting the build.'
+      return 'Accept the screen design and mockups before starting the build.'
+    case 'advanced-setup-failed':
+      // Carries the actionable persistAdvancedSetup message verbatim.
+      return error.message && error.message !== error.code
+        ? error.message
+        : 'Advanced setup could not be applied. No workspace was created.'
     case 'team-exists':
       return 'A Sprint Engine team with this name already exists.'
     case 'unknown':
@@ -3656,7 +3768,7 @@ function getStepBlockingMessage(args: {
     case 'mode':
       return `Continue with ${labelFor(mode)}, or pick another.`
     case 'mcp-servers':
-      return 'Pick MCP servers, or skip to add them later from Settings.'
+      return 'Pick tool integrations, or skip to add them later from Settings.'
     case 'skill-packs':
       return 'Pick skill packs, or skip to add them later from Settings.'
     case 'knowledge':
@@ -3683,7 +3795,7 @@ function getStepBlockingMessage(args: {
       return 'Ready to create.'
     case 'guided-idea':
       if (!guidedIdea.trim()) return 'Describe the idea in a sentence or two.'
-      if (guidedHasUi == null) return 'Pick whether the app has a UI.'
+      if (guidedHasUi == null) return 'Pick whether the app has a screen.'
       return 'Ready to capture the idea.'
   }
 }

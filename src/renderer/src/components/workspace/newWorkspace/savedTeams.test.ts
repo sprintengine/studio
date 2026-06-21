@@ -1,9 +1,14 @@
 import assert from 'node:assert/strict'
 
-import type { SprintEngineRosterTeam } from '../../../types/workspace'
+import type {
+  SprintEngineRoleCliDefaults,
+  SprintEngineRoleCounts,
+  SprintEngineRosterTeam,
+} from '../../../types/workspace'
 import {
   activeSprintEngineRoleIds,
   pruneSprintEngineRoleCliDefaults,
+  resolveInitialSprintEngineRoster,
   sprintEngineRosterMatchesTeam,
   sprintEngineTeamNameTaken,
 } from './savedTeams'
@@ -90,5 +95,67 @@ assert.equal(sprintEngineTeamNameTaken(teams, 'Security run'), false, 'a fresh n
 assert.equal(sprintEngineTeamNameTaken(teams, 'Lightweight', 'a'), false, 'a team keeping its own name is not a collision')
 assert.equal(sprintEngineTeamNameTaken(teams, 'Lightweight', 'b'), true, 'another team taking the name is a collision')
 assert.equal(sprintEngineTeamNameTaken(teams, '   '), false, 'a blank name is never taken')
+
+// --- resolveInitialSprintEngineRoster ------------------------------------
+// The wizard's default-selection contract: open pre-selected on a runnable team.
+const DEFAULT_COUNTS: SprintEngineRoleCounts = { architect: 1, developer: 1, code_reviewer: 1 }
+const DEFAULT_CLIS = {
+  architect: 'claude-code',
+  developer: 'claude-code',
+  code_reviewer: 'claude-code',
+} as Required<SprintEngineRoleCliDefaults>
+
+// Fresh install (no saved teams, no saved roster) → built-in default, Custom.
+{
+  const resolved = resolveInitialSprintEngineRoster({
+    savedTeams: [],
+    lastSelectedTeamId: null,
+    savedRoster: null,
+    defaultRoleCounts: DEFAULT_COUNTS,
+    defaultRoleCliDefaults: DEFAULT_CLIS,
+  })
+  assert.deepEqual(resolved.roleCounts, DEFAULT_COUNTS, 'fresh install seeds the default counts')
+  assert.deepEqual(resolved.roleCliDefaults, DEFAULT_CLIS, 'fresh install seeds the default CLI map')
+  assert.equal(resolved.selectedTeamId, null, 'fresh install has no selected team')
+  assert.notEqual(resolved.roleCounts, DEFAULT_COUNTS, 'counts are cloned, not the same reference')
+}
+
+// lastSelectedTeamId resolves to that team, which becomes the selection.
+{
+  const picked = team({ id: 'b', name: 'Reviewers', roleCounts: { architect: 1, developer: 2, code_reviewer: 1 }, roleCliDefaults: { developer: 'codex' } })
+  const resolved = resolveInitialSprintEngineRoster({
+    savedTeams: [team({ id: 'a' }), picked],
+    lastSelectedTeamId: 'b',
+    savedRoster: null,
+    defaultRoleCounts: DEFAULT_COUNTS,
+    defaultRoleCliDefaults: DEFAULT_CLIS,
+  })
+  assert.equal(resolved.selectedTeamId, 'b', 'lastSelectedTeamId selects the matching saved team')
+  assert.deepEqual(resolved.roleCounts, { architect: 1, developer: 2, code_reviewer: 1 }, 'counts come from the selected team')
+  // CLI defaults layer the team subset over the full default map.
+  assert.deepEqual(
+    resolved.roleCliDefaults,
+    { architect: 'claude-code', developer: 'codex', code_reviewer: 'claude-code' },
+    'team CLI subset layers over the default map',
+  )
+}
+
+// lastSelectedTeamId with no match falls back to the legacy single saved roster.
+{
+  const resolved = resolveInitialSprintEngineRoster({
+    savedTeams: [team({ id: 'a' })],
+    lastSelectedTeamId: 'missing',
+    savedRoster: { roleCounts: { architect: 1, developer: 1 }, roleCliDefaults: { architect: 'codex' } },
+    defaultRoleCounts: DEFAULT_COUNTS,
+    defaultRoleCliDefaults: DEFAULT_CLIS,
+  })
+  assert.equal(resolved.selectedTeamId, null, 'an unmatched lastSelectedTeamId is Custom, not a team')
+  assert.deepEqual(resolved.roleCounts, { architect: 1, developer: 1 }, 'falls back to the legacy saved roster counts')
+  assert.deepEqual(
+    resolved.roleCliDefaults,
+    { architect: 'codex', developer: 'claude-code', code_reviewer: 'claude-code' },
+    'legacy roster CLI subset layers over the default map',
+  )
+}
 
 console.log('saved team helper tests passed')

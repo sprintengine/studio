@@ -1,6 +1,7 @@
 import { contextBridge } from 'electron'
 import type { ElectronApi } from '../shared/electron-api'
 import { instrumentApi, snapshotIpcStats } from './ipcStats'
+import { agentConfigImportApi } from './api/agent-config-import'
 import { appMenuApi } from './api/app-menu'
 import { appearanceApi } from './api/appearance'
 import { authApi } from './api/auth'
@@ -40,6 +41,7 @@ const api = {
   isDevelopment: process.env.NODE_ENV === 'development',
   isDiagnosticsEnabled: process.env.MULTICODE_DIAGNOSTICS === '1',
   diagnosticsGetIpcStats: snapshotIpcStats,
+  ...agentConfigImportApi,
   ...windowApi,
   ...appearanceApi,
   ...authApi,

@@ -972,7 +972,7 @@ assert.equal(
 )
 assert.deepEqual(
   partializedRuntime.fileExplorerState,
-  { expandedPaths: ['/Users/example/project/src', '/Users/example/project/docs'] },
+  { expandedPaths: ['/Users/example/project/src', '/Users/example/project/docs'], selectedPath: null },
   'partialize + storage round-trip preserves File Explorer expanded folders without file contents',
 )
 

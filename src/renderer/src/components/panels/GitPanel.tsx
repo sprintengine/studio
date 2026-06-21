@@ -12,6 +12,7 @@ import PlainTerminalPanel from './PlainTerminalPanel'
 import { IconButton, InboxRow, LifecycleGlyph, Select, Skeleton, Tooltip, type LifecycleState } from '../ui'
 import { useConfirmDialog } from '../ui/ConfirmDialog'
 import { GitGraphView, type GitCommitActions, type GitGraphState, type GitMergeTarget } from './GitGraphView'
+import type { GitPanelView } from '../../types/workspace'
 
 // Status is conveyed by colour-coded filename text (see getGitStatusAppearance);
 // this supplies the non-visual equivalent for the row's accessible name, since
@@ -68,8 +69,6 @@ type GitBulkAction = {
 }
 
 type GitScopeKind = 'main' | 'worktree'
-
-type GitPanelView = 'changes' | 'worktrees' | 'log' | 'terminal'
 
 type GitScopeOption = {
   id: string
@@ -271,8 +270,18 @@ export default function GitPanel({ workspaceId }: { workspaceId: string }) {
   const folderPath = workspace?.folderPath ?? null
   const mainGit = useGitStatus(folderPath)
   const mainRepoRoot = mainGit.repoRoot
+  const setGitPanelState = useWorkspaceStore((s) => s.setGitPanelState)
+  const setGitCommitDraft = useWorkspaceStore((s) => s.setGitCommitDraft)
+  const clearGitCommitDraft = useWorkspaceStore((s) => s.clearGitCommitDraft)
+  // Snapshot the persisted Git view state once at mount so the active tab, scope,
+  // and per-scope commit drafts restore after a reload/restart. Read via getState
+  // (not a subscription) so it does not re-render the panel on later writes.
+  const initialGitPanelState = useMemo(
+    () => useWorkspaceStore.getState().workspaces.find((w) => w.id === workspaceId)?.gitPanelState ?? null,
+    [workspaceId],
+  )
   const [scopeOptions, setScopeOptions] = useState<GitScopeOption[]>([])
-  const [activeScopeId, setActiveScopeId] = useState('main')
+  const [activeScopeId, setActiveScopeId] = useState(() => initialGitPanelState?.activeScopeId ?? 'main')
   const activeScope = useMemo(
     () => scopeOptions.find((scope) => scope.id === activeScopeId) ?? scopeOptions[0] ?? null,
     [activeScopeId, scopeOptions]
@@ -283,9 +292,13 @@ export default function GitPanel({ workspaceId }: { workspaceId: string }) {
   const [graph, setGraph] = useState<GitGraphState>({ status: 'loading' })
   const [loadingMoreGraph, setLoadingMoreGraph] = useState(false)
   const [message, setMessage] = useState<GitPanelMessage | null>(null)
-  const [commitMessage, setCommitMessage] = useState('')
+  const [commitMessage, setCommitMessage] = useState(() =>
+    initialGitPanelState
+      ? initialGitPanelState.commitDraftsByScopeId[initialGitPanelState.activeScopeId] ?? ''
+      : '',
+  )
   const [busy, setBusy] = useState<string | null>(null)
-  const [activeView, setActiveView] = useState<GitPanelView>('changes')
+  const [activeView, setActiveView] = useState<GitPanelView>(() => initialGitPanelState?.activeView ?? 'changes')
   const dialog = useConfirmDialog()
   const refreshAllInFlightRef = useRef(false)
   const refreshAllQueuedHistoryLoadingRef = useRef<boolean | null>(null)
@@ -374,6 +387,63 @@ export default function GitPanel({ workspaceId }: { workspaceId: string }) {
     if (!activeScope.missing && !activeScope.locked && !activeScope.prunable) return
     setActiveScopeId('main')
   }, [activeScope])
+
+  // Persist the active tab + scope (low-frequency, written directly). If a
+  // restored scope no longer exists, the reset effects above flip it to 'main'
+  // and this writes the corrected value back. Skip while the state is still the
+  // default and no record exists yet, so merely opening the panel does not write
+  // a default record for an untouched workspace (the normalizers keep absent
+  // state undefined; a no-op mount write would defeat that).
+  useEffect(() => {
+    const isDefault = activeView === 'changes' && activeScopeId === 'main'
+    const hasRecord = Boolean(
+      useWorkspaceStore.getState().workspaces.find((w) => w.id === workspaceId)?.gitPanelState,
+    )
+    if (isDefault && !hasRecord) return
+    setGitPanelState(workspaceId, { activeView, activeScopeId })
+  }, [activeView, activeScopeId, workspaceId, setGitPanelState])
+
+  // Per-scope commit-message drafts. The live `commitMessage` belongs to
+  // `draftScopeRef`; a debounce keeps per-keystroke writes off the registry
+  // serialize path (and still fires on a layer switch, which does not unmount).
+  // Switching scope flushes the outgoing draft and loads the incoming one so a
+  // half-written message never bleeds across worktrees.
+  const commitMessageRef = useRef(commitMessage)
+  commitMessageRef.current = commitMessage
+  const draftScopeRef = useRef(activeScopeId)
+  const commitDraftTimerRef = useRef<number | null>(null)
+  const handleCommitMessageChange = useCallback(
+    (text: string) => {
+      setCommitMessage(text)
+      const scopeId = draftScopeRef.current
+      if (commitDraftTimerRef.current) window.clearTimeout(commitDraftTimerRef.current)
+      commitDraftTimerRef.current = window.setTimeout(() => {
+        setGitCommitDraft(workspaceId, scopeId, text)
+      }, 400)
+    },
+    [workspaceId, setGitCommitDraft],
+  )
+  useEffect(() => {
+    if (draftScopeRef.current === activeScopeId) return
+    // Flush the outgoing scope's text (commitMessage still holds it here), then
+    // swap in the incoming scope's persisted draft.
+    if (commitDraftTimerRef.current) {
+      window.clearTimeout(commitDraftTimerRef.current)
+      commitDraftTimerRef.current = null
+    }
+    setGitCommitDraft(workspaceId, draftScopeRef.current, commitMessageRef.current)
+    const incoming =
+      useWorkspaceStore.getState().workspaces.find((w) => w.id === workspaceId)?.gitPanelState
+        ?.commitDraftsByScopeId[activeScopeId] ?? ''
+    setCommitMessage(incoming)
+    draftScopeRef.current = activeScopeId
+  }, [activeScopeId, workspaceId, setGitCommitDraft])
+  useEffect(() => {
+    return () => {
+      if (commitDraftTimerRef.current) window.clearTimeout(commitDraftTimerRef.current)
+      setGitCommitDraft(workspaceId, draftScopeRef.current, commitMessageRef.current)
+    }
+  }, [workspaceId, setGitCommitDraft])
 
   const refreshBranches = useCallback(async () => {
     if (!repoRoot || typeof window.api.getGitBranches !== 'function') {
@@ -645,7 +715,14 @@ export default function GitPanel({ workspaceId }: { workspaceId: string }) {
       () => window.api.commitGitChanges(repoRoot, commitMessage),
       'Committed changes.'
     )
-    if (result?.ok) setCommitMessage('')
+    if (result?.ok) {
+      if (commitDraftTimerRef.current) {
+        window.clearTimeout(commitDraftTimerRef.current)
+        commitDraftTimerRef.current = null
+      }
+      setCommitMessage('')
+      clearGitCommitDraft(workspaceId, activeScopeId)
+    }
   }
 
   const handlePush = async () => {
@@ -1149,7 +1226,7 @@ export default function GitPanel({ workspaceId }: { workspaceId: string }) {
               readyToCommit={readyToCommit}
               stagedCount={stagedEntries.length}
               onCommit={handleCommit}
-              onCommitMessageChange={setCommitMessage}
+              onCommitMessageChange={handleCommitMessageChange}
               onFetch={handleFetch}
               onPull={handlePull}
               onPush={handlePush}

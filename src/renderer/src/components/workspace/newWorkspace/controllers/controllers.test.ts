@@ -750,6 +750,7 @@ async function testGuidedBriefStartBuildValidation(): Promise<void> {
   const ports: GuidedBriefStartBuildPorts = {
     filesystem: createMemoryFilesystem(),
     pathExists: async () => false,
+    persistAdvancedSetup: async () => null,
     readArchitecturePlan: async () => '',
     readBuildHandoff: async () => '',
   }
@@ -831,6 +832,7 @@ async function testGuidedBriefStartBuildHandoffPath(): Promise<void> {
   const ports: GuidedBriefStartBuildPorts = {
     filesystem: fs,
     pathExists: async () => true, // makes createPlanSourcedSprintEngineWorkspace throw team-exists
+    persistAdvancedSetup: async () => null,
     readArchitecturePlan: async (_workspaceRoot, path) => {
       artifactReads.push(path)
       return `# Artifact\n\n${path}\n`
@@ -936,6 +938,7 @@ async function testGuidedBriefStartBuildDesignPresetHandoff(): Promise<void> {
   const ports: GuidedBriefStartBuildPorts = {
     filesystem: fs,
     pathExists: async () => false,
+    persistAdvancedSetup: async () => null,
     readArchitecturePlan: async (_workspaceRoot, path) => {
       artifactReads.push(path)
       return `# Artifact\n\n${path}\n`
@@ -992,6 +995,88 @@ async function testGuidedBriefStartBuildDesignPresetHandoff(): Promise<void> {
   )
 }
 
+async function testGuidedBriefStartBuildAdvancedSetupFailsClosed(): Promise<void> {
+  // T17 fail-closed: when the Advanced-setup preflight (MCP sync / skill-pack
+  // install) fails, the controller must abort before writing the handoff or
+  // creating the run/workspace, so no partial Sprint Engine workspace remains.
+  const fs = createMemoryFilesystem()
+  let createCalled = false
+  let buildHandoffRead = false
+
+  const runtimeState: GuidedBriefRuntimeState = {
+    workspaceRoot: '/workspace',
+    workspaceName: 'Brief',
+    idea: 'Trade shifts',
+    hasUi: 'yes',
+    wantsProductDiscussion: true,
+    wantsArchitectureDiscussion: true,
+    wantsFrontendDiscussion: true,
+    guidedRoleCliDefaults: { product: 'claude-code', architect: 'claude-code', frontend: 'claude-code' },
+    buildRoleCounts: { architect: 1, product: 1, frontend: 1, developer: 1, code_reviewer: 1, spec_reviewer: 1, performance: 0, cross_platform: 0, tester: 1, security: 0 },
+    buildRoleCliDefaults: { architect: 'claude-code', product: 'claude-code', frontend: 'claude-code', developer: 'claude-code', code_reviewer: 'claude-code', spec_reviewer: 'claude-code', performance: 'claude-code', cross_platform: 'claude-code', tester: 'claude-code', security: 'claude-code' },
+    buildCliPermissionPreset: 'default',
+    buildStartRunner: false,
+    buildAutoApproveArtifacts: false,
+    stage: 'handoff',
+    acceptedProductBrief: { kind: 'product', title: 'Brief', hash: 'h', path: 'product/.versions/h.md' },
+    acceptedArchitecturePlan: { kind: 'product', title: 'Arch', hash: 'a', path: 'product/.versions/a.md' },
+    acceptedUiDirection: { kind: 'product', title: 'UI', hash: 'u', path: 'product/.versions/u.md' },
+    acceptedMockups: [{ kind: 'mockup', title: 'Mock', hash: 'm', path: 'mockups/.versions/m.html' }],
+    activeMockupPath: null,
+    strategistSessionId: null,
+    architectSessionId: null,
+    designerSessionId: null,
+  }
+
+  const ports: GuidedBriefStartBuildPorts = {
+    filesystem: fs,
+    pathExists: async () => false,
+    persistAdvancedSetup: async () => 'Tool integration setup failed: mcp sync error',
+    readArchitecturePlan: async () => '# Artifact\n',
+    readBuildHandoff: async (workspaceRoot, path) => {
+      buildHandoffRead = true
+      return fs.files.get(`${workspaceRoot}/${path}`) ?? ''
+    },
+    createPlanSourcedSprintEngineWorkspace: async () => {
+      createCalled = true
+      return {
+        workspaceId: 'workspace-id',
+        sprintEngineContext: {
+          teamName: 'Brief Build',
+          teamSlug: 'brief-build',
+          teamDirectoryPath: '/workspace/.multi-code/sprintengine/brief-build',
+          statePath: '/workspace/.multi-code/sprintengine/brief-build/run.yaml',
+        },
+        architectAgentId: 'architect-1',
+      }
+    },
+  }
+
+  await assert.rejects(
+    () => runGuidedBriefStartBuild(
+      {
+        runtimeState,
+        runOptions: { startRunner: false, autoApproveArtifacts: false, roleCounts: runtimeState.buildRoleCounts, roleCliDefaults: runtimeState.buildRoleCliDefaults, cliPermissionPreset: 'default' },
+        finalRoleCounts: runtimeState.buildRoleCounts,
+        rosterSummary: [],
+        planningDecisions: [],
+        planningValidationNotes: [],
+        buildHandoffRelativePath: 'product/build-handoff.md',
+      },
+      ports,
+    ),
+    (error) =>
+      error instanceof GuidedBriefStartBuildError
+      && error.code === 'advanced-setup-failed'
+      && error.message === 'Tool integration setup failed: mcp sync error',
+    'advanced-setup preflight failure rejects with the actionable message',
+  )
+
+  assert.equal(createCalled, false, 'no Sprint Engine run/workspace is created when Advanced setup fails')
+  assert.equal(buildHandoffRead, false, 'handoff assembly never runs when Advanced setup fails')
+  assert.equal(fs.files.has('/workspace/product/build-handoff.md'), false, 'no handoff file is written when Advanced setup fails')
+}
+
 async function main(): Promise<void> {
   testBuildStandardCreation()
   testBuildSwitchboardCreation()
@@ -1010,6 +1095,7 @@ async function main(): Promise<void> {
   await testGuidedBriefStartBuildValidation()
   await testGuidedBriefStartBuildHandoffPath()
   await testGuidedBriefStartBuildDesignPresetHandoff()
+  await testGuidedBriefStartBuildAdvancedSetupFailsClosed()
   console.log('newWorkspace controllers.test.ts: ok')
 }
 

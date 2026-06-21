@@ -14,6 +14,7 @@ import type {
 } from '../../shared/automations/contracts'
 import type { WorkspaceSyncSnapshot } from '../../shared/workspace-sync'
 import { AutomationsStore, type AutomationStoreProblem, type AutomationStoreState } from './store'
+import type { AutomationPullRequestResult } from './pull-request'
 import { computeNextRun, validateScheduleTriggerConfig } from './schedule'
 import { evaluatePollingTriggerDefinition } from './polling-trigger-runner'
 import { enqueueTriggerEventRun, type TriggerEventRunResult } from './trigger-event-runner'
@@ -28,6 +29,10 @@ export type AutomationRunExecutionInput = {
   definition: AutomationDefinition
   run: AutomationRun
   triggerPayload: Record<string, unknown>
+  // The owning workspace (the automations control center) an agent-backed run
+  // launches its agent into, so it is not spawned in a freshly created standard
+  // workspace. Undefined for runs with no resolvable owning workspace.
+  workspaceId?: string
 }
 
 export type AutomationRunExecutor = (input: AutomationRunExecutionInput) => Promise<Partial<AutomationRun>>
@@ -62,6 +67,23 @@ export type AutomationsEngineTriggerEventDeliveryResult =
   | { ok: true; definition: AutomationDefinition; delivery: Exclude<TriggerEventRunResult, { status: 'problem' }> }
   | { ok: false; problem: AutomationsEngineProblem }
 
+export type AutomationsEngineFinalizeResult =
+  | { ok: true; run: AutomationRun }
+  | { ok: false; problem: AutomationsEngineProblem }
+
+export type AutomationRunPullRequestOpener = (input: {
+  workspaceRoot: string
+  worktreePath: string
+  branch: string
+  title: string
+  body: string
+}) => Promise<AutomationPullRequestResult>
+
+export type AutomationRunWorktreeRemover = (input: {
+  workspaceRoot: string
+  worktreePath: string
+}) => Promise<void>
+
 export type AutomationsEngineOptions = {
   getProjectFolders?: () => AutomationsProjectFolder[] | Promise<AutomationsProjectFolder[]>
   getWorkspaceSnapshot?: () => WorkspaceSyncSnapshot | Promise<WorkspaceSyncSnapshot>
@@ -75,6 +97,9 @@ export type AutomationsEngineOptions = {
   pollIntervalMs?: number
   onEvaluation?: (result: AutomationsEngineEvaluationResult) => void
   onRunEvent?: (event: AutomationsRunEvent) => void
+  // Agent-backed run finalize collaborators (injected for testability).
+  openRunPullRequest?: AutomationRunPullRequestOpener
+  removeRunWorktree?: AutomationRunWorktreeRemover
 }
 
 type EvaluationMode = 'startup' | 'timer'
@@ -93,6 +118,8 @@ export class AutomationsEngine {
   private readonly pollIntervalMs: number
   private readonly onEvaluation?: (result: AutomationsEngineEvaluationResult) => void
   private readonly onRunEvent?: (event: AutomationsRunEvent) => void
+  private readonly openRunPullRequest?: AutomationRunPullRequestOpener
+  private readonly removeRunWorktree?: AutomationRunWorktreeRemover
   private readonly inFlight = new Set<string>()
   private timer: ReturnType<typeof setInterval> | null = null
   private started = false
@@ -112,6 +139,8 @@ export class AutomationsEngine {
     this.pollIntervalMs = Math.max(1_000, Math.floor(options.pollIntervalMs ?? DEFAULT_POLL_INTERVAL_MS))
     this.onEvaluation = options.onEvaluation
     this.onRunEvent = options.onRunEvent
+    this.openRunPullRequest = options.openRunPullRequest
+    this.removeRunWorktree = options.removeRunWorktree
   }
 
   start(): void {
@@ -244,6 +273,7 @@ export class AutomationsEngine {
           definition,
           run,
           triggerPayload: input.triggerPayload ?? { kind: 'manual', dueAt },
+          workspaceId: input.workspaceId ?? await this.resolveWorkspaceIdForRoot(input.workspaceRoot) ?? undefined,
         })
         const completedAt = patch.completedAt ?? new Date(this.now()).toISOString()
         finalRun = completeRun(run, patch, completedAt)
@@ -405,6 +435,91 @@ export class AutomationsEngine {
 
     if (delivery.status === 'problem') return { ok: false, problem: delivery.problem }
     return { ok: true, definition, delivery }
+  }
+
+  // Records the terminal outcome of an agent-backed run that was dispatched as
+  // `running`. On a `completed` outcome it backstop-commits + opens (or reuses) a
+  // PR for the run's branch; either way it tears down the run's worktree, records
+  // the terminal run, and emits the run-event. Idempotent: a run already in a
+  // terminal state is returned unchanged.
+  async finalizeRun(input: {
+    workspaceRoot: string
+    automationId: string
+    runId: string
+    outcome: 'completed' | 'failed'
+    summary?: string
+    workspaceId?: string
+  }): Promise<AutomationsEngineFinalizeResult> {
+    const store = this.createStore(input.workspaceRoot)
+    const runResult = await store.getRun(input.automationId, input.runId)
+    if (!runResult.ok) {
+      return { ok: false, problem: storeProblem(input.workspaceRoot, runResult.error, input.automationId) }
+    }
+    const run = runResult.value
+    if (run.status !== 'running' && run.status !== 'queued') {
+      // Already finalized — return it unchanged (idempotent re-finalize).
+      return { ok: true, run }
+    }
+
+    const definitionResult = await store.getDefinition(input.automationId)
+    const definitionName = definitionResult.ok ? definitionResult.value.name : input.automationId
+
+    let pullRequestUrl: string | undefined
+    const summaryParts: string[] = []
+    if (input.summary?.trim()) summaryParts.push(input.summary.trim())
+
+    if (input.outcome === 'completed' && run.branch && run.worktreePath && this.openRunPullRequest) {
+      const pr = await this.openRunPullRequest({
+        workspaceRoot: input.workspaceRoot,
+        worktreePath: run.worktreePath,
+        branch: run.branch,
+        title: `Automation: ${definitionName}`,
+        body: `Opened by the "${definitionName}" automation (run ${run.id}).`,
+      })
+      if (pr.ok) {
+        pullRequestUrl = pr.url
+        summaryParts.push(pr.created ? `Opened pull request ${pr.url}.` : `Linked existing pull request ${pr.url}.`)
+      } else {
+        summaryParts.push(`No pull request linked: ${pr.reason}`)
+      }
+    }
+
+    if (run.worktreePath && this.removeRunWorktree) {
+      try {
+        await this.removeRunWorktree({ workspaceRoot: input.workspaceRoot, worktreePath: run.worktreePath })
+      } catch {
+        // Worktree teardown is best-effort; a leftover worktree is swept later
+        // and must not fail the finalize.
+      }
+    }
+
+    const finalRun: AutomationRun = {
+      ...run,
+      status: input.outcome,
+      completedAt: new Date(this.now()).toISOString(),
+      pullRequestUrl,
+      summary: summaryParts.length > 0 ? summaryParts.join(' ') : run.summary,
+    }
+    const recorded = await store.recordRun(finalRun)
+    if (!recorded.ok) {
+      return { ok: false, problem: storeProblem(input.workspaceRoot, recorded.error, input.automationId) }
+    }
+
+    if (definitionResult.ok) {
+      const eventWorkspaceId =
+        input.workspaceId
+        ?? run.workspaceId
+        ?? await this.resolveWorkspaceIdForRoot(input.workspaceRoot)
+        ?? undefined
+      this.emitRunEvent({
+        workspaceId: eventWorkspaceId,
+        definition: definitionResult.value,
+        run: finalRun,
+        trigger: 'manual',
+      })
+    }
+
+    return { ok: true, run: finalRun }
   }
 
   private async evaluate(mode: EvaluationMode): Promise<AutomationsEngineEvaluationResult> {
@@ -663,6 +778,7 @@ export class AutomationsEngine {
         definition,
         run,
         triggerPayload: { kind: 'schedule', dueAt },
+        workspaceId: projectFolder.workspaceId,
       })
       const completedAt = patch.completedAt ?? new Date(this.now()).toISOString()
       const finalRun = completeRun(run, patch, completedAt)
@@ -821,10 +937,15 @@ export function projectFoldersFromWorkspaceSyncSnapshot(snapshot: WorkspaceSyncS
 }
 
 function completeRun(run: AutomationRun, patch: Partial<AutomationRun>, completedAt: string): AutomationRun {
+  const status = patch.status ?? 'completed'
+  // An agent-backed run returns `running`: the action launched a long-lived
+  // agent and the run stays in-progress (linked to its terminal) until
+  // finalizeRun records the real outcome. Non-terminal runs carry no
+  // completedAt and emit no terminal run-event.
   return {
     ...run,
-    status: patch.status ?? 'completed',
-    completedAt,
+    status,
+    completedAt: isTerminalRunStatus(status) ? completedAt : null,
     blockedReason: patch.blockedReason,
     workspaceId: patch.workspaceId,
     agentId: patch.agentId,
@@ -832,7 +953,14 @@ function completeRun(run: AutomationRun, patch: Partial<AutomationRun>, complete
     touchedFiles: patch.touchedFiles,
     commandsRan: patch.commandsRan,
     summary: patch.summary,
+    worktreePath: patch.worktreePath,
+    branch: patch.branch,
+    pullRequestUrl: patch.pullRequestUrl,
   }
+}
+
+function isTerminalRunStatus(status: AutomationRunStatus): boolean {
+  return status === 'completed' || status === 'failed' || status === 'blocked' || status === 'skipped'
 }
 
 function nextRunIso(config: ScheduleTriggerConfig, after: number): string | null {
