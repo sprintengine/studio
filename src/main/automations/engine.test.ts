@@ -13,6 +13,7 @@ import type {
 } from '../../shared/automations/contracts'
 import type { WorkspaceSyncSnapshot } from '../../shared/workspace-sync'
 import { AutomationsEngine, projectFoldersFromWorkspaceSyncSnapshot } from './engine'
+import { openAutomationRunPullRequest, type CommandResult, type PullRequestDeps } from './pull-request'
 import { runSignalPath } from './run-signal'
 import { AutomationsStore, type AutomationStoreState } from './store'
 import { computeNextRun, validateScheduleTriggerConfig } from './schedule'
@@ -58,6 +59,8 @@ async function main(): Promise<void> {
   await assertEmptySummarySignalAutoFinalizes()
   await assertConcurrentManualAndScanFinalizeOnce()
   await assertOversizeSignalStaysPending()
+  await assertReviewOnlyFinalizeWithholdsUnexpectedChanges()
+  await assertAllowChangesFinalizeStillPushesWorkingDiff()
 }
 
 function definition(overrides: Partial<AutomationDefinition> = {}): AutomationDefinition {
@@ -743,6 +746,122 @@ async function assertOversizeSignalStaysPending(): Promise<void> {
   await engine.tick()
   assert.equal((await store.getRun('nightly-review', 'run-agent')).value?.status, 'completed')
   assert.equal(counters.prCalls, 1)
+}
+
+function recordingGitDeps(statusStdout: string): { deps: PullRequestDeps; calls: string[][] } {
+  const calls: string[][] = []
+  const ok = (stdout = ''): CommandResult => ({ ok: true, stdout, stderr: '' })
+  const deps: PullRequestDeps = {
+    runGit: async (_cwd, args) => {
+      calls.push(args)
+      return args[0] === 'status' ? ok(statusStdout) : ok()
+    },
+    runGh: async (_cwd, args) => {
+      calls.push(['gh', ...args])
+      // `pr view` reports no existing PR; `pr create` returns the new URL.
+      return args[0] === 'pr' && args[1] === 'view' ? ok('') : ok('https://github.com/acme/repo/pull/9')
+    },
+  }
+  return { deps, calls }
+}
+
+function realOpenerEngine(input: {
+  workspaceRoot: string
+  worktreePath: string
+  now: number
+  deps: PullRequestDeps
+  events: AutomationsRunEvent[]
+  removed: { count: number }
+}): AutomationsEngine {
+  return new AutomationsEngine({
+    getProjectFolders: () => [{ workspaceId: 'ws-automations', folderPath: input.workspaceRoot }],
+    now: () => input.now,
+    createRunId: () => 'run-agent',
+    onRunEvent: (event) => input.events.push(event),
+    runAutomation: async () => ({
+      status: 'running',
+      workspaceId: 'ws-automations',
+      agentId: 'agent-1',
+      worktreePath: input.worktreePath,
+      branch: 'automations/run-agent',
+      summary: 'Launched; working…',
+    }),
+    openRunPullRequest: (prInput) => openAutomationRunPullRequest({
+      worktreePath: prInput.worktreePath,
+      branch: prInput.branch,
+      title: prInput.title,
+      body: prInput.body,
+      autonomy: prInput.autonomy,
+    }, input.deps),
+    removeRunWorktree: async () => { input.removed.count += 1 },
+  })
+}
+
+async function assertReviewOnlyFinalizeWithholdsUnexpectedChanges(): Promise<void> {
+  const now = Date.parse('2026-06-17T10:00:00.000Z')
+  const workspaceRoot = await createWorkspace()
+  const store = new AutomationsStore(workspaceRoot)
+  assert.equal((await store.createDefinition(definition({
+    trigger: { kind: 'schedule', config: intervalConfig(10) },
+    nextRunAt: new Date(now).toISOString(),
+    autonomyDefault: 'review_only',
+  }))).ok, true)
+
+  // The agent left an extra uncommitted file (the signal file is git-excluded, so
+  // it never appears in `git status --porcelain`).
+  const { deps, calls } = recordingGitDeps(' M src/stray.ts\n')
+  const events: AutomationsRunEvent[] = []
+  const removed = { count: 0 }
+  const worktreePath = `${workspaceRoot}/.multi-code/automations/worktrees/run-agent`
+  const engine = realOpenerEngine({ workspaceRoot, worktreePath, now, deps, events, removed })
+
+  assert.equal((await engine.runNow({ workspaceRoot, automationId: 'nightly-review', workspaceId: 'ws-automations' })).ok, true)
+  await writeRunSignal(worktreePath, JSON.stringify({ status: 'completed', summary: 'Reviewed; suggested a fix.' }))
+  await engine.tick()
+
+  // The stray file is never staged, committed, or pushed, and no PR is opened.
+  const mutating = calls.filter((args) => args[0] === 'add' || args[0] === 'commit' || args[0] === 'push')
+  assert.deepEqual(mutating, [], 'review_only finalize must not stage/commit/push the working diff')
+  assert.deepEqual(calls.filter((args) => args[0] === 'gh'), [], 'review_only finalize opens no PR for unexpected changes')
+
+  // The run still finalizes (not stranded) with a clear withheld-changes reason.
+  const finalized = await store.getRun('nightly-review', 'run-agent')
+  assert.equal(finalized.ok && finalized.value.status, 'completed')
+  assert.equal(finalized.ok && finalized.value.pullRequestUrl, undefined, 'no PR linked for withheld changes')
+  assert.match(finalized.ok ? finalized.value.blockedReason ?? '' : '', /unexpected uncommitted changes/i)
+  assert.match(finalized.ok ? finalized.value.summary ?? '' : '', /No pull request linked/i)
+  assert.equal(removed.count, 1, 'worktree still torn down')
+}
+
+async function assertAllowChangesFinalizeStillPushesWorkingDiff(): Promise<void> {
+  const now = Date.parse('2026-06-17T10:00:00.000Z')
+  const workspaceRoot = await createWorkspace()
+  const store = new AutomationsStore(workspaceRoot)
+  assert.equal((await store.createDefinition(definition({
+    trigger: { kind: 'schedule', config: intervalConfig(10) },
+    nextRunAt: new Date(now).toISOString(),
+    autonomyDefault: 'allow_changes',
+  }))).ok, true)
+
+  // Same dirty working tree, but allow_changes must keep the backstop behavior.
+  const { deps, calls } = recordingGitDeps(' M src/feature.ts\n')
+  const events: AutomationsRunEvent[] = []
+  const removed = { count: 0 }
+  const worktreePath = `${workspaceRoot}/.multi-code/automations/worktrees/run-agent`
+  const engine = realOpenerEngine({ workspaceRoot, worktreePath, now, deps, events, removed })
+
+  assert.equal((await engine.runNow({ workspaceRoot, automationId: 'nightly-review', workspaceId: 'ws-automations' })).ok, true)
+  await writeRunSignal(worktreePath, JSON.stringify({ status: 'completed', summary: 'Implemented the change.' }))
+  await engine.tick()
+
+  // The diff is staged, committed, and pushed; a PR is opened.
+  assert.deepEqual(calls.filter((args) => args[0] === 'add')[0], ['add', '-A'], 'allow_changes still stages the diff')
+  assert.equal(calls.some((args) => args[0] === 'commit'), true, 'allow_changes still commits')
+  assert.equal(calls.some((args) => args[0] === 'push'), true, 'allow_changes still pushes')
+  const finalized = await store.getRun('nightly-review', 'run-agent')
+  assert.equal(finalized.ok && finalized.value.status, 'completed')
+  assert.equal(finalized.ok && finalized.value.pullRequestUrl, 'https://github.com/acme/repo/pull/9', 'allow_changes links a PR')
+  assert.equal(finalized.ok && finalized.value.blockedReason, undefined, 'no withheld-changes reason for allow_changes')
 }
 
 async function assertRunEventDeliveryFailuresDoNotMutateRunTruth(): Promise<void> {
