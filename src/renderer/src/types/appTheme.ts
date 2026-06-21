@@ -23,11 +23,15 @@ export type AppTheme =
   | 'system'
   | 'dark'
   | 'light'
+  | 'paper'
   | 'vellum'
   | 'herbarium'
   | 'verdigris'
   | 'slate'
   | 'conifer'
+  | 'fernery'
+  | 'sage'
+  | 'greenhouse'
   | 'caramel'
   | 'lantern'
   | 'aubergine'
@@ -85,12 +89,12 @@ export const APP_THEMES: readonly AppThemeDescriptor[] = [
     id: 'dark',
     label: 'Dark',
     resolved: 'dark',
-    description: 'Calm neutral ink',
+    description: 'Calm neutral ink, green accent',
     swatches: {
       bgApp: '#08080c',
       bgSurface: '#0c0c10',
       bgSurfaceRaised: '#101418',
-      accent: '#5c7cfc',
+      accent: '#3f9468',
       textStrong: '#ececec',
     },
   },
@@ -98,13 +102,26 @@ export const APP_THEMES: readonly AppThemeDescriptor[] = [
     id: 'light',
     label: 'Light',
     resolved: 'light',
-    description: 'Cool-neutral paper',
+    description: 'Cool-neutral white, green accent',
     swatches: {
-      bgApp: '#f4f8f8',
+      bgApp: '#eaeef2',
       bgSurface: '#ffffff',
       bgSurfaceRaised: '#ffffff',
-      accent: '#385cfc',
+      accent: '#2f6a4a',
       textStrong: '#202428',
+    },
+  },
+  {
+    id: 'paper',
+    label: 'Paper',
+    resolved: 'paper',
+    description: 'Warm cream and sage, green accent',
+    swatches: {
+      bgApp: '#f4f1e8',
+      bgSurface: '#fbf9f2',
+      bgSurfaceRaised: '#fdfcf7',
+      accent: '#2f6a4a',
+      textStrong: '#191613',
     },
   },
   {
@@ -170,6 +187,45 @@ export const APP_THEMES: readonly AppThemeDescriptor[] = [
       bgSurfaceRaised: '#20241c',
       accent: '#c8a458',
       textStrong: '#b4c0b0',
+    },
+  },
+  {
+    id: 'fernery',
+    label: 'Fernery',
+    resolved: 'fernery',
+    description: 'Mid green chrome, terracotta accent',
+    swatches: {
+      bgApp: '#142414',
+      bgSurface: '#1c2c1c',
+      bgSurfaceRaised: '#243424',
+      accent: '#cc5838',
+      textStrong: '#e8ecd8',
+    },
+  },
+  {
+    id: 'sage',
+    label: 'Sage',
+    resolved: 'sage',
+    description: 'Muted gray-green, terracotta accent',
+    swatches: {
+      bgApp: '#20241c',
+      bgSurface: '#282c20',
+      bgSurfaceRaised: '#303428',
+      accent: '#c85838',
+      textStrong: '#e8e8d4',
+    },
+  },
+  {
+    id: 'greenhouse',
+    label: 'Greenhouse',
+    resolved: 'greenhouse',
+    description: 'Cool sage room, warm cards, terracotta',
+    swatches: {
+      bgApp: '#1c2418',
+      bgSurface: '#2c281c',
+      bgSurfaceRaised: '#302c20',
+      accent: '#c85838',
+      textStrong: '#f0ead2',
     },
   },
   {

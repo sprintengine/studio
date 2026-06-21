@@ -92,15 +92,19 @@ export function TaskCard({
     }
   }
 
+  // `--task-card-bg` / `--task-card-shadow` let a containing surface re-home the
+  // card one elevation step up (e.g. BoardLane `surface` lifts cards to
+  // --bg-surface-raised and adds an inset hairline). Both fall back to the
+  // default flat-on-canvas card, so callers that don't set them are unaffected.
   const className = [
-    'group relative flex items-start gap-2 rounded-[5px] border-l-2 px-2.5 py-1.5 text-left transition-colors',
+    'group relative flex items-start gap-2 rounded-[5px] border-l-2 px-2.5 py-1.5 text-left shadow-[var(--task-card-shadow,none)] transition-colors',
     isCard ? 'w-full' : '',
     FOCUS_RING_CLASS,
     draggable ? (dragging ? 'cursor-grabbing opacity-60' : 'cursor-grab') : 'cursor-pointer',
     justMovedClassName ?? '',
     selected
       ? 'border-[color:var(--accent-primary)] bg-[color:var(--accent-primary-soft)] text-[color:var(--text-strong)]'
-      : `border-transparent ${isCard ? 'bg-[color:var(--bg-surface)]' : ''} text-[color:var(--text-default)] hover:bg-[color:var(--bg-hover)]`,
+      : `border-transparent ${isCard ? 'bg-[color:var(--task-card-bg,var(--bg-surface))]' : ''} text-[color:var(--text-default)] hover:bg-[color:var(--bg-hover)]`,
   ]
     .filter(Boolean)
     .join(' ')
