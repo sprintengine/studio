@@ -95,7 +95,7 @@ assert.deepEqual(
 assert.equal(state.workspaces.find((workspace) => workspace.id === firstId)?.name, 'First Workspace')
 assert.deepEqual(
   state.workspaces.find((workspace) => workspace.id === firstId)?.fileExplorerState,
-  { expandedPaths: [] },
+  { expandedPaths: [], selectedPath: null },
   'new workspaces start with empty File Explorer expansion state',
 )
 assert.deepEqual(state.appSettings.recentWorkspaceFolders, [
@@ -143,8 +143,74 @@ assert.deepEqual(state.workspaceWindows[0]?.workspaceIds, [secondId, firstId, so
 useWorkspaceStore.getState().setFileExplorerExpandedPaths(firstId, ['/Users/example/project/src', '/Users/example/project/src', ''])
 assert.deepEqual(
   useWorkspaceStore.getState().workspaces.find((workspace) => workspace.id === firstId)?.fileExplorerState,
-  { expandedPaths: ['/Users/example/project/src'] },
+  { expandedPaths: ['/Users/example/project/src'], selectedPath: null },
   'File Explorer expansion paths are normalized and stored per workspace',
+)
+
+// setFileExplorerSelectedPath records the focused selection without clobbering
+// the expanded set, and setFileExplorerExpandedPaths preserves the selection.
+useWorkspaceStore.getState().setFileExplorerSelectedPath(firstId, '/Users/example/project/src/index.ts')
+assert.deepEqual(
+  useWorkspaceStore.getState().workspaces.find((workspace) => workspace.id === firstId)?.fileExplorerState,
+  { expandedPaths: ['/Users/example/project/src'], selectedPath: '/Users/example/project/src/index.ts' },
+  'Selecting a file keeps the expanded set',
+)
+useWorkspaceStore.getState().setFileExplorerExpandedPaths(firstId, ['/Users/example/project/src', '/Users/example/project/lib'])
+assert.equal(
+  useWorkspaceStore.getState().workspaces.find((workspace) => workspace.id === firstId)?.fileExplorerState?.selectedPath,
+  '/Users/example/project/src/index.ts',
+  'Toggling folders preserves the persisted selection',
+)
+useWorkspaceStore.getState().setFileExplorerSelectedPath(firstId, null)
+assert.equal(
+  useWorkspaceStore.getState().workspaces.find((workspace) => workspace.id === firstId)?.fileExplorerState?.selectedPath,
+  null,
+  'Clearing selection persists null',
+)
+
+// Backlog view state merges partial patches and coerces invalid enums.
+useWorkspaceStore.getState().setBacklogViewState(firstId, { view: 'quick_wins', sort: 'priority' })
+useWorkspaceStore.getState().setBacklogViewState(firstId, { selectedRelativePath: 'backlog/x.md', search: 'auth' })
+assert.deepEqual(
+  useWorkspaceStore.getState().workspaces.find((workspace) => workspace.id === firstId)?.backlogState,
+  { selectedRelativePath: 'backlog/x.md', view: 'quick_wins', sort: 'priority', search: 'auth' },
+  'Backlog view state accumulates partial patches',
+)
+useWorkspaceStore.getState().setBacklogViewState(firstId, { view: 'bogus' as never })
+assert.equal(
+  useWorkspaceStore.getState().workspaces.find((workspace) => workspace.id === firstId)?.backlogState?.view,
+  'all',
+  'An unknown lens is coerced to all',
+)
+
+// Git panel: per-scope drafts set/clear independently and never bleed.
+useWorkspaceStore.getState().setGitPanelState(firstId, { activeView: 'log', activeScopeId: 'worktree-a' })
+useWorkspaceStore.getState().setGitCommitDraft(firstId, 'worktree-a', 'WIP a')
+useWorkspaceStore.getState().setGitCommitDraft(firstId, 'main', 'WIP main')
+assert.deepEqual(
+  useWorkspaceStore.getState().workspaces.find((workspace) => workspace.id === firstId)?.gitPanelState,
+  { activeView: 'log', activeScopeId: 'worktree-a', commitDraftsByScopeId: { 'worktree-a': 'WIP a', main: 'WIP main' } },
+  'Git panel keeps a draft per scope alongside the active view/scope',
+)
+useWorkspaceStore.getState().setGitCommitDraft(firstId, 'worktree-a', '   ')
+assert.deepEqual(
+  useWorkspaceStore.getState().workspaces.find((workspace) => workspace.id === firstId)?.gitPanelState?.commitDraftsByScopeId,
+  { main: 'WIP main' },
+  'A blank draft is dropped, leaving other scopes untouched',
+)
+useWorkspaceStore.getState().clearGitCommitDraft(firstId, 'main')
+assert.deepEqual(
+  useWorkspaceStore.getState().workspaces.find((workspace) => workspace.id === firstId)?.gitPanelState?.commitDraftsByScopeId,
+  {},
+  'Clearing a draft on commit removes it',
+)
+// setGitPanelState must not disturb existing drafts.
+useWorkspaceStore.getState().setGitCommitDraft(firstId, 'main', 'keep me')
+useWorkspaceStore.getState().setGitPanelState(firstId, { activeView: 'changes' })
+assert.deepEqual(
+  useWorkspaceStore.getState().workspaces.find((workspace) => workspace.id === firstId)?.gitPanelState?.commitDraftsByScopeId,
+  { main: 'keep me' },
+  'Changing the active view preserves per-scope drafts',
 )
 
 useWorkspaceStore.getState().registerWorkspaceWindow('detached-test', 'detached')
@@ -203,8 +269,18 @@ state = useWorkspaceStore.getState()
 assert.equal(state.workspaces.find((workspace) => workspace.id === firstId)?.folderPath, '/Users/example/renamed')
 assert.deepEqual(
   state.workspaces.find((workspace) => workspace.id === firstId)?.fileExplorerState,
-  { expandedPaths: [] },
+  { expandedPaths: [], selectedPath: null },
   'changing the workspace folder clears stale File Explorer expansion state',
+)
+assert.equal(
+  state.workspaces.find((workspace) => workspace.id === firstId)?.backlogState,
+  undefined,
+  'changing the workspace folder clears the folder-scoped Backlog selection',
+)
+assert.equal(
+  state.workspaces.find((workspace) => workspace.id === firstId)?.gitPanelState,
+  undefined,
+  'changing the workspace folder clears the repo-scoped Git panel state',
 )
 assert.deepEqual(state.appSettings.recentWorkspaceFolders.slice(0, 2), [
   '/Users/example/renamed',

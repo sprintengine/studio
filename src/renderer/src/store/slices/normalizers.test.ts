@@ -186,4 +186,53 @@ const newerIncomingAutomation = preserveNewerSprintEngineAutomationState(
 assert.equal(newerIncomingAutomation.sprintEngineAutoState?.desiredMode, 'run_agents_and_approve_artifacts')
 assert.equal(newerIncomingAutomation.sprintEngineAutoState?.runtimeState, 'running')
 
+// Backlog + Git panel view state survives partialize, with malformed fields
+// coerced rather than dropped, and absent state stays undefined (no per-workspace
+// bloat).
+const viewStateClean = normalizeWorkspaceForPartialize(baseWorkspace({
+  backlogState: {
+    selectedRelativePath: 'backlog/a.md',
+    view: 'quick_wins',
+    sort: 'priority',
+    search: 'auth',
+  },
+  gitPanelState: {
+    activeView: 'log',
+    activeScopeId: 'worktree-x',
+    commitDraftsByScopeId: { 'worktree-x': 'WIP', main: '   ' },
+  },
+} as unknown as Partial<Workspace>) as unknown as Workspace)
+assert.deepEqual(viewStateClean.backlogState, {
+  selectedRelativePath: 'backlog/a.md',
+  view: 'quick_wins',
+  sort: 'priority',
+  search: 'auth',
+})
+// The blank `main` draft is dropped; the real one is kept.
+assert.deepEqual(viewStateClean.gitPanelState, {
+  activeView: 'log',
+  activeScopeId: 'worktree-x',
+  commitDraftsByScopeId: { 'worktree-x': 'WIP' },
+})
+
+const malformedViewState = normalizeWorkspaceForPartialize(baseWorkspace({
+  backlogState: { view: 'nope', sort: 'nope', search: 5, selectedRelativePath: '  ' },
+  gitPanelState: { activeView: 'nope', activeScopeId: '', commitDraftsByScopeId: 'oops' },
+} as unknown as Partial<Workspace>) as unknown as Workspace)
+assert.deepEqual(malformedViewState.backlogState, {
+  selectedRelativePath: null,
+  view: 'all',
+  sort: 'recent',
+  search: '',
+})
+assert.deepEqual(malformedViewState.gitPanelState, {
+  activeView: 'changes',
+  activeScopeId: 'main',
+  commitDraftsByScopeId: {},
+})
+
+const noViewState = normalizeWorkspaceForPartialize(baseWorkspace())
+assert.equal(noViewState.backlogState, undefined, 'absent backlog state stays undefined')
+assert.equal(noViewState.gitPanelState, undefined, 'absent git panel state stays undefined')
+
 console.log('normalizers.test.ts: ok')

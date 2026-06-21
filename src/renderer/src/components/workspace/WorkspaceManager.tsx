@@ -157,7 +157,6 @@ function workspaceManagerWorkspaceFieldsEqual(left: Workspace, right: Workspace)
     && left.editorState === right.editorState
     && left.fileExplorerState === right.fileExplorerState
     && left.sprintEngineState === right.sprintEngineState
-    && left.sprintEngineCompletionSeenAt === right.sprintEngineCompletionSeenAt
     && left.multiloopState === right.multiloopState
     && left.sprintEngineRoleCliDefaults === right.sprintEngineRoleCliDefaults
     && left.sprintEngineInitialSpawnAgentIds === right.sprintEngineInitialSpawnAgentIds

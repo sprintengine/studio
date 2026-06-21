@@ -21,11 +21,13 @@ import type {
   Workspace,
 } from '../../types/workspace'
 import { resolveAvailableAgentCli, type AgentCliCatalogOption } from './newWorkspace/cliRuntimeOptions'
-import { hasComponentTab, toggleComponentTab } from '../../utils/modelRegistry'
+import { hasComponentTab, revealNavRailComponent, toggleComponentTab } from '../../utils/modelRegistry'
+import { selectModuleEnabled } from '../../modules'
 import { getHighlightSwatch, getWorkspaceAccentHex, isStarred } from '../../utils/highlight'
 import { getSprintEngineRoleAccent } from '../../utils/sprintengine'
 import { NotificationsPopover, type NotificationRowAction } from './topbar/NotificationsPopover'
 import { useWorkspaceStore } from '../../store/workspaceStore'
+import { useGitBranch } from '../../hooks/useGitBranch'
 import {
   getEffectiveKeybindingLabel,
   getSpecialistCommandId,
@@ -511,6 +513,27 @@ export type WorkspaceTopBarProps = {
   logout: () => void | Promise<void>
 }
 
+// Branch-fork glyph for the header identity cluster. Stroke idiom matches the
+// Git panel's local icons (1.3px round strokes on a 16px box) so the two Git
+// surfaces read as one family.
+function GitBranchGlyph({ className }: { className?: string }) {
+  return (
+    <svg viewBox="0 0 16 16" aria-hidden="true" className={className} fill="none">
+      <circle cx="5" cy="3.6" r="1.55" stroke="currentColor" strokeWidth="1.3" />
+      <circle cx="5" cy="12.4" r="1.55" stroke="currentColor" strokeWidth="1.3" />
+      <circle cx="11" cy="4.2" r="1.55" stroke="currentColor" strokeWidth="1.3" />
+      <path d="M5 5.15v5.7" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" />
+      <path
+        d="M11 5.75v.7a3.1 3.1 0 0 1-3.1 3.1H6.5"
+        stroke="currentColor"
+        strokeWidth="1.3"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  )
+}
+
 export default function WorkspaceTopBar({
   workspaces,
   activeWorkspace,
@@ -589,6 +612,19 @@ export default function WorkspaceTopBar({
     () => (activeWorkspace ? resolveEnabledWorkspaceType(activeWorkspace.mode, moduleOverrides)?.topBarViews ?? null : null),
     [activeWorkspace, moduleOverrides],
   )
+  const gitBranch = useGitBranch(activeWorkspace?.folderPath ?? null)
+  // The header identity segments double as panel shortcuts: the folder path
+  // reveals the file explorer and the branch reveals the Git panel — but only
+  // when the owning capability module is enabled, so we never offer a click that
+  // resolves to nothing.
+  const filesPanelEnabled = selectModuleEnabled(moduleOverrides, 'dev-tools')
+  const gitPanelEnabled = selectModuleEnabled(moduleOverrides, 'git')
+  const revealFilesPanel = React.useCallback(() => {
+    if (activeWorkspaceId) revealNavRailComponent(activeWorkspaceId, 'explorer', 'Files')
+  }, [activeWorkspaceId])
+  const revealGitPanel = React.useCallback(() => {
+    if (activeWorkspaceId) revealNavRailComponent(activeWorkspaceId, 'git', 'Git')
+  }, [activeWorkspaceId])
   const keybindingPlatform = platformKeybindingsFromApiPlatform(window.api.platform)
   const shortcutFor = React.useCallback((commandId: string): string | null => (
     getEffectiveKeybindingLabel(commandId, keybindingSettings, keybindingPlatform)
@@ -633,13 +669,63 @@ export default function WorkspaceTopBar({
                   label="Starred workspace"
                 />
               ) : null}
+              {/*
+               * Truncation priority is encoded in flex-shrink factors so the
+               * workspace name — the primary identity — yields last: the folder
+               * path (shrink-100) collapses first, then the branch (shrink-10),
+               * and the name (default shrink-1) keeps its content until the
+               * others are exhausted. Each segment grows to its full content
+               * when the bar has room; cropping only kicks in as the cluster
+               * approaches the right-side controls.
+               */}
               <span className="min-w-0 truncate text-[13px] font-semibold text-[color:var(--text-strong)]">
                 {activeWorkspace.name}
               </span>
               {activeWorkspace.folderPath ? (
-                <span className="hidden min-w-0 truncate text-[12px] text-[color:var(--text-disabled)] md:inline">
-                  · {activeWorkspace.folderPath}
-                </span>
+                filesPanelEnabled ? (
+                  <Tooltip
+                    content={activeWorkspace.folderPath}
+                    placement="bottom"
+                    wrapperClassName="hidden min-w-0 shrink-[100] md:flex"
+                  >
+                    <button
+                      type="button"
+                      onClick={revealFilesPanel}
+                      aria-label={`Open file explorer, ${activeWorkspace.folderPath}`}
+                      className={`interactive min-w-0 truncate text-left text-[12px] text-[color:var(--text-disabled)] hover:text-[color:var(--text-default)] ${FOCUS_RING_CLASS}`}
+                    >
+                      · {activeWorkspace.folderPath}
+                    </button>
+                  </Tooltip>
+                ) : (
+                  <span className="hidden min-w-0 shrink-[100] truncate text-[12px] text-[color:var(--text-disabled)] md:inline">
+                    · {activeWorkspace.folderPath}
+                  </span>
+                )
+              ) : null}
+              {gitBranch.isRepo ? (
+                gitPanelEnabled ? (
+                  <Tooltip
+                    content={gitBranch.branch ?? 'Detached HEAD'}
+                    placement="bottom"
+                    wrapperClassName="hidden min-w-0 shrink-[10] sm:flex"
+                  >
+                    <button
+                      type="button"
+                      onClick={revealGitPanel}
+                      aria-label={gitBranch.branch ? `Open Git panel, branch ${gitBranch.branch}` : 'Open Git panel, detached HEAD'}
+                      className={`interactive flex min-w-0 items-center gap-1 text-[12px] text-[color:var(--text-muted)] hover:text-[color:var(--text-default)] ${FOCUS_RING_CLASS}`}
+                    >
+                      <GitBranchGlyph className="icon-xs shrink-0" />
+                      <span className="min-w-0 truncate">{gitBranch.branch ?? 'detached'}</span>
+                    </button>
+                  </Tooltip>
+                ) : (
+                  <span className="hidden min-w-0 shrink-[10] items-center gap-1 text-[12px] text-[color:var(--text-muted)] sm:inline-flex">
+                    <GitBranchGlyph className="icon-xs shrink-0" />
+                    <span className="min-w-0 truncate">{gitBranch.branch ?? 'detached'}</span>
+                  </span>
+                )
               ) : null}
             </>
           ) : null}

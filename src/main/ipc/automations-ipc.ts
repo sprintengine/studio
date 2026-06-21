@@ -15,6 +15,8 @@ import type {
   AutomationsProvidersResult,
   AutomationsResult,
   AutomationsRunNowResult as AutomationsRunNowIpcResult,
+  AutomationsRunFinalizeInput,
+  AutomationsRunFinalizeResult,
   AutomationsRunsListInput,
   AutomationsRunsListResult,
   AutomationsUpdateInput,
@@ -27,10 +29,11 @@ import {
   AUTOMATIONS_LIST_CHANNEL,
   AUTOMATIONS_PROVIDERS_LIST_CHANNEL,
   AUTOMATIONS_RUN_NOW_CHANNEL,
+  AUTOMATIONS_RUN_FINALIZE_CHANNEL,
   AUTOMATIONS_RUNS_LIST_CHANNEL,
   AUTOMATIONS_UPDATE_CHANNEL,
 } from '../../shared/automations/contracts'
-import { projectFoldersFromWorkspaceSyncSnapshot, type AutomationsEngine, type AutomationsEngineRunNowResult } from '../automations/engine'
+import { projectFoldersFromWorkspaceSyncSnapshot, type AutomationsEngine, type AutomationsEngineFinalizeResult, type AutomationsEngineRunNowResult } from '../automations/engine'
 import {
   allowAutomationProvider,
   automationProviderBlockedReason,
@@ -47,7 +50,7 @@ export type AutomationsIpcHost = {
 }
 
 export type AutomationsIpcDependencies = {
-  engine: Pick<AutomationsEngine, 'runNow'>
+  engine: Pick<AutomationsEngine, 'runNow' | 'finalizeRun'>
   createStore?: (workspaceRoot: string) => AutomationsStore
   triggerProviders?: AutomationTriggerProvider[]
   actionProviders?: AutomationActionProvider[]
@@ -184,6 +187,13 @@ export function registerAutomationsIpc(host: AutomationsIpcHost, deps: Automatio
     if (!parsed.ok) return parsed
     const result = await deps.engine.runNow(parsed.value)
     return engineRunNowResult(result)
+  })
+
+  host.registerIpc(AUTOMATIONS_RUN_FINALIZE_CHANNEL, async (_event, input: unknown): Promise<AutomationsRunFinalizeResult> => {
+    const parsed = parseRunFinalizeInput(input, deps.getWorkspaceSyncSnapshot)
+    if (!parsed.ok) return parsed
+    const result = await deps.engine.finalizeRun(parsed.value)
+    return engineFinalizeResult(result)
   })
 
   host.registerIpc(AUTOMATIONS_RUNS_LIST_CHANNEL, async (_event, input: unknown): Promise<AutomationsRunsListResult> => {
@@ -417,6 +427,26 @@ function parseRunsListInput(
   return parseDefinitionInput(input, getWorkspaceSyncSnapshot)
 }
 
+function parseRunFinalizeInput(
+  input: unknown,
+  getWorkspaceSyncSnapshot: (() => WorkspaceSyncSnapshot) | undefined
+): AutomationsResult<AutomationsRunFinalizeInput> {
+  const base = parseDefinitionInput(input, getWorkspaceSyncSnapshot)
+  if (!base.ok) return base
+  if (!isRecord(input)) return fail('invalid_input', 'Finalize input must be an object.')
+  const runId = trimmedString(input.runId)
+  if (!runId) return fail('invalid_input', 'runId is required.')
+  if (input.outcome !== 'completed' && input.outcome !== 'failed') {
+    return fail('invalid_input', "outcome must be 'completed' or 'failed'.")
+  }
+  return ok({
+    ...base.value,
+    runId,
+    outcome: input.outcome,
+    ...(trimmedString(input.summary) ? { summary: trimmedString(input.summary) } : {}),
+  })
+}
+
 function validateKnownWorkspaceRoot(
   workspaceRoot: string,
   getWorkspaceSyncSnapshot: (() => WorkspaceSyncSnapshot) | undefined
@@ -522,6 +552,11 @@ function parseKindConfig(input: unknown, label: string): AutomationsResult<{ kin
 
 function engineRunNowResult(result: AutomationsEngineRunNowResult): AutomationsRunNowIpcResult {
   if (result.ok) return ok({ definition: definitionForRenderer(result.definition), run: result.run })
+  return fail(result.problem.code, result.problem.message)
+}
+
+function engineFinalizeResult(result: AutomationsEngineFinalizeResult): AutomationsRunFinalizeResult {
+  if (result.ok) return ok(result.run)
   return fail(result.problem.code, result.problem.message)
 }
 

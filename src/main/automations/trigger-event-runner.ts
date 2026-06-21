@@ -66,6 +66,7 @@ export async function enqueueTriggerEventRun(input: TriggerEventRunInput): Promi
         definition,
         run,
         triggerPayload: event.payload,
+        workspaceId: projectFolder.workspaceId,
       })
       const completedAt = patch.completedAt ?? new Date(input.now()).toISOString()
       const finalRun = completeRun(run, patch, completedAt)

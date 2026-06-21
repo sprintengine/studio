@@ -132,6 +132,38 @@ function firstTabset(model: Model): TabSetNode | null {
   return targetTabset
 }
 
+// True when every tab in the tabset is a strip-less nav switch (Files / Git /
+// Backlog / Knowledge Graph) — i.e. this is the left "sidebar" pane. Content
+// tabs (terminals, agents, editors) must never dock into it.
+function isNavRailTabset(tabset: TabSetNode): boolean {
+  const tabs = tabset.getChildren().filter((child): child is TabNode => child instanceof TabNode)
+  if (tabs.length === 0) return false
+  return tabs.every((tab) => {
+    const component = tab.getComponent()
+    return Boolean(component && NAV_RAIL_COMPONENTS.has(component))
+  })
+}
+
+function firstNonNavTabset(model: Model): TabSetNode | null {
+  let found: TabSetNode | null = null
+  model.visitNodes((node) => {
+    if (found || !(node instanceof TabSetNode)) return
+    if (!isNavRailTabset(node)) found = node
+  })
+  return found
+}
+
+// Resolves the tabset that should host a new content tab (terminal, agent,
+// editor): the active tabset when it is real content, otherwise the first
+// non-nav tabset. Never the sidebar's strip-less nav pane — docking content
+// there buries it under the open Files/Git/Backlog panel. Returns null when the
+// only tabset is the nav pane, so callers dock a fresh column on the right edge.
+function activeContentTabset(model: Model): TabSetNode | null {
+  const active = model.getActiveTabset()
+  if (active && !isNavRailTabset(active)) return active
+  return firstNonNavTabset(model)
+}
+
 function agentTileLocation(targetTabset: TabSetNode): DockLocation {
   const rect = targetTabset.getRect()
   if (rect.width > 0 && rect.height > 0 && rect.height > rect.width) {
@@ -204,11 +236,12 @@ export function addAgentTabTiled(
   const model = models.get(workspaceId)
   if (!model) return false
 
-  // Sprint Engine layouts: agent terminals share a right-hand "terminals"
-  // tabset with plain terminals so the SE board keeps its real estate. Stack
-  // into an existing terminal-like tabset when one exists; otherwise dock a
-  // fresh tabset on the right edge of the root.
-  if (modelHasSprintEngineBoard(model)) {
+  // Single-surface control layouts (Sprint Engine board, Automations control
+  // center): agent terminals must never stack into the control panel's tabset.
+  // Share a right-hand "terminals" tabset with plain terminals when one exists;
+  // otherwise dock a fresh tabset on the right edge of the root so the control
+  // panel keeps its real estate and "Open agent" reveals the agent on the right.
+  if (modelDocksAgentsRight(model)) {
     const terminalHost = firstTerminalLikeTabset(model)
     if (terminalHost) {
       model.doAction(
@@ -236,8 +269,23 @@ export function addAgentTabTiled(
     return true
   }
 
-  const targetTabset = model.getActiveTabset() ?? firstTabset(model)
-  if (!targetTabset) return false
+  // Tile beside real content, never inside the sidebar's nav pane. With only the
+  // nav pane present, dock a fresh agent column on the RIGHT edge of the root so
+  // the agent opens to the right of the open Files/Git/Backlog panel.
+  const targetTabset = activeContentTabset(model)
+  if (!targetTabset) {
+    model.doAction(
+      Actions.addNode(
+        agentTabNode(agentId, name, config),
+        model.getRoot().getId(),
+        DockLocation.RIGHT,
+        -1,
+        select
+      )
+    )
+    window.setTimeout(() => clearAgentSpawnFlash(model, agentId), 13200)
+    return true
+  }
 
   model.doAction(
     Actions.addNode(
@@ -393,18 +441,30 @@ export function ensureAgentTabInLayoutModel(
     return model.toJson()
   }
 
-  const targetTabset = model.getActiveTabset() ?? firstTabset(model)
-  if (!targetTabset) return model.toJson()
-
-  model.doAction(
-    Actions.addNode(
-      agentTabNode(agentId, name, undefined, { flash: false }),
-      targetTabset.getId(),
-      agentTileLocation(targetTabset),
-      -1,
-      true
+  // Tile beside real content, never inside the sidebar's nav pane; fall back to
+  // a fresh column on the RIGHT edge of the root when the nav pane is alone.
+  const targetTabset = activeContentTabset(model)
+  if (targetTabset) {
+    model.doAction(
+      Actions.addNode(
+        agentTabNode(agentId, name, undefined, { flash: false }),
+        targetTabset.getId(),
+        agentTileLocation(targetTabset),
+        -1,
+        true
+      )
     )
-  )
+  } else {
+    model.doAction(
+      Actions.addNode(
+        agentTabNode(agentId, name, undefined, { flash: false }),
+        model.getRoot().getId(),
+        DockLocation.RIGHT,
+        -1,
+        true
+      )
+    )
+  }
 
   return model.toJson()
 }
@@ -501,6 +561,23 @@ function modelHasSprintEngineBoard(model: Model): boolean {
   return found
 }
 
+// Layouts whose primary tabset is a fixed single-surface control panel that
+// agent terminals must dock beside (to the right), never stack into: the Sprint
+// Engine board and the Automations control center.
+function modelDocksAgentsRight(model: Model): boolean {
+  let found = false
+  model.visitNodes((node) => {
+    if (found) return
+    if (
+      node instanceof TabNode
+      && (node.getComponent() === 'sprintengine' || node.getComponent() === 'automations-control-center')
+    ) {
+      found = true
+    }
+  })
+  return found
+}
+
 function terminalTabJson(terminalId: string, name: string) {
   return { type: 'tab', name, component: 'terminal', config: { terminalId } }
 }
@@ -543,11 +620,20 @@ export function addTerminalTab(
     return true
   }
 
-  const targetTabset = model.getActiveTabset() ?? firstTabset(model)
-  if (!targetTabset) return false
+  // No terminal tabset yet: dock beside real content, never inside the sidebar's
+  // nav pane (Files/Git/Backlog/Knowledge), which would bury the terminal under
+  // the open panel. When the nav pane is the only tabset, dock a fresh column on
+  // the RIGHT edge of the root so terminals always open to the right of it.
+  const targetTabset = activeContentTabset(model)
+  if (targetTabset) {
+    model.doAction(
+      Actions.addNode(tabJson, targetTabset.getId(), DockLocation.CENTER, -1, true)
+    )
+    return true
+  }
 
   model.doAction(
-    Actions.addNode(tabJson, targetTabset.getId(), DockLocation.CENTER, -1, true)
+    Actions.addNode(tabJson, model.getRoot().getId(), DockLocation.RIGHT, -1, true)
   )
   return true
 }
@@ -867,13 +953,7 @@ function findNavRailTabset(model: Model): TabSetNode | null {
   let found: TabSetNode | null = null
   model.visitNodes((node) => {
     if (found || !(node instanceof TabSetNode)) return
-    const tabs = node.getChildren().filter((child): child is TabNode => child instanceof TabNode)
-    if (tabs.length === 0) return
-    const allNav = tabs.every((tab) => {
-      const component = tab.getComponent()
-      return Boolean(component && NAV_RAIL_COMPONENTS.has(component))
-    })
-    if (allNav) found = node
+    if (isNavRailTabset(node)) found = node
   })
   return found
 }

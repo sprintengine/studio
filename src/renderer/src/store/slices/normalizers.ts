@@ -6,7 +6,12 @@ import {
   normalizeMultiloopAutoState,
   normalizeSprintEngineAutoState,
 } from './runStateSlice'
-import { normalizeWorkspaceFileExplorerState, normalizeWorkspaceMode } from './workspacesSlice'
+import {
+  normalizeWorkspaceBacklogState,
+  normalizeWorkspaceFileExplorerState,
+  normalizeWorkspaceGitPanelState,
+  normalizeWorkspaceMode,
+} from './workspacesSlice'
 import { normalizeWorkspaceWorktreeState } from './worktreesSlice'
 
 export function mapMigrationWorkspaces<T extends { workspaces: Workspace[] }>(
@@ -93,6 +98,8 @@ export function normalizeWorkspaceForPartialize(workspace: Workspace): Workspace
     guidedBriefState: normalizeGuidedBriefState(launchSafeWorkspace.guidedBriefState),
     memory: normalizeWorkspaceMemoryConfig(launchSafeWorkspace.memory),
     fileExplorerState: normalizeWorkspaceFileExplorerState(launchSafeWorkspace.fileExplorerState),
+    backlogState: normalizeWorkspaceBacklogState(launchSafeWorkspace.backlogState),
+    gitPanelState: normalizeWorkspaceGitPanelState(launchSafeWorkspace.gitPanelState),
     sprintEngineAutoState: {
       ...sprintEngineAutoState,
       pendingSpawns: [],

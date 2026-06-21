@@ -1,6 +1,7 @@
 import { BrowserWindow } from 'electron'
 
-import { createLocalAutomationExecutor, defaultWorkspaceDirtyCheck } from '../automations/executor-local'
+import { createLocalAutomationExecutor, defaultRemoveRunWorktree } from '../automations/executor-local'
+import { openAutomationRunPullRequest } from '../automations/pull-request'
 import {
   createAutomationsEngine,
   projectFoldersFromWorkspaceSyncSnapshot,
@@ -105,7 +106,6 @@ export function createAutomationsModule(options: AutomationsModuleOptions = {}):
         delegateToRenderer: (request) => automationDelegate.request(request),
         getWorkspaceSyncSnapshot: () => workspaceSyncService.getSnapshot(),
         isIntegrationAvailable,
-        isWorkspaceDirty: defaultWorkspaceDirtyCheck,
         getActionProviderRegistrations,
         checkProviderPermission,
       })
@@ -116,6 +116,14 @@ export function createAutomationsModule(options: AutomationsModuleOptions = {}):
           isIntegrationAvailable,
           runAutomation,
           onRunEvent: options.deliverRunEvent ?? broadcastAutomationsRunEvent,
+          openRunPullRequest: (input) =>
+            openAutomationRunPullRequest({
+              worktreePath: input.worktreePath,
+              branch: input.branch,
+              title: input.title,
+              body: input.body,
+            }),
+          removeRunWorktree: defaultRemoveRunWorktree,
         })
       )
       const webhookReceiver = createAutomationWebhookReceiver({

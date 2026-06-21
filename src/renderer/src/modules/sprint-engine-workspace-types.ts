@@ -94,39 +94,10 @@ function isManualRunCompleted(workspace: WorkspaceRunGlyphProviderInput): boolea
   return tasks.length > 0 && tasks.every((task) => task.status === 'done')
 }
 
-function parseCompletionTime(value: string | null | undefined): number | null {
-  if (!value) return null
-  const parsed = Date.parse(value)
-  return Number.isFinite(parsed) ? parsed : null
-}
-
-function manualRunCompletionAt(workspace: WorkspaceRunGlyphProviderInput): number | null {
-  if (!isManualRunCompleted(workspace)) return null
-  const completedAt = (workspace.sprintEngineState?.tasks ?? [])
-    .map((task) => parseCompletionTime(task.completedAt))
-    .filter((value): value is number => typeof value === 'number')
-  return completedAt.length > 0 ? Math.max(...completedAt) : 1
-}
-
-function sprintEngineCompletionAt(workspace: WorkspaceRunGlyphProviderInput, rollupState: string | null): number | null {
-  if (rollupState === 'done') {
-    return typeof workspace.sprintEngineAutoState?.changedAt === 'number'
-      && Number.isFinite(workspace.sprintEngineAutoState.changedAt)
-      ? workspace.sprintEngineAutoState.changedAt
-      : 1
-  }
-  return manualRunCompletionAt(workspace)
-}
-
-function completionIsUnseen(workspace: WorkspaceRunGlyphProviderInput, completionAt: number): boolean {
-  return typeof workspace.sprintEngineCompletionSeenAt !== 'number'
-    || !Number.isFinite(workspace.sprintEngineCompletionSeenAt)
-    || workspace.sprintEngineCompletionSeenAt < completionAt
-}
-
-// A completed run wears the done glyph until the user views the workspace after
-// completion. Recency survives in the glyph tooltip and returns once the
-// completion has been acknowledged.
+// A completed run keeps the done glyph for good: a finished sprint reads as
+// "done" in the sidebar, not as a recency timestamp. The run's recency still
+// survives in the glyph tooltip (see WorkspaceSidebar). Only live attention
+// states — busy/failed terminals or a human-routed needs_input — outrank it.
 export function deriveSprintEngineWorkspaceRunGlyph(
   workspace: WorkspaceRunGlyphProviderInput,
   activity: WorkspaceActivityKind,
@@ -140,10 +111,7 @@ export function deriveSprintEngineWorkspaceRunGlyph(
   // completed workspace reads as live again via the caller's fallback.
   if (activity === 'working' || activity === 'failed') return null
   if (rollup?.state === 'done' || isManualRunCompleted(workspace)) {
-    const completionAt = sprintEngineCompletionAt(workspace, rollup?.state ?? null)
-    if (completionAt !== null && completionIsUnseen(workspace, completionAt)) {
-      return { state: 'done', live: false, label: 'Run completed' } as const
-    }
+    return { state: 'done', live: false, label: 'Run completed' } as const
   }
   return null
 }

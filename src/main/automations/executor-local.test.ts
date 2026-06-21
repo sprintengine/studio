@@ -125,16 +125,13 @@ const launchableWatchtowerReviewPresets = new Set<string>(LAUNCHABLE_WATCHTOWER_
 function executorHarness(
   initialWorkspaces: Workspace[] = [],
   options: {
-    isWorkspaceDirty?: LocalAutomationExecutorOptions['isWorkspaceDirty'] | null
     actionProviders?: LocalAutomationExecutorOptions['actionProviders']
     isIntegrationAvailable?: LocalAutomationExecutorOptions['isIntegrationAvailable']
+    createRunWorktree?: LocalAutomationExecutorOptions['createRunWorktree']
   } = {}
 ) {
   const workspaces = [...initialWorkspaces]
   const requests: AutomationRendererRequest[] = []
-  const isWorkspaceDirty = options.isWorkspaceDirty === null
-    ? undefined
-    : options.isWorkspaceDirty ?? (async () => ({ dirty: false }))
   const delegateToRenderer = async (request: AutomationRendererRequest): Promise<AutomationRendererResponse> => {
     requests.push(request)
     if (request.kind === 'workspace.create') {
@@ -180,7 +177,8 @@ function executorHarness(
         }
       })(),
       sleep: async () => undefined,
-      ...(isWorkspaceDirty ? { isWorkspaceDirty } : {}),
+      // Hermetic by default: no real `git worktree` subprocess in unit tests.
+      createRunWorktree: options.createRunWorktree ?? (async () => null),
       ...(options.actionProviders ? { actionProviders: options.actionProviders } : {}),
       ...(options.isIntegrationAvailable ? { isIntegrationAvailable: options.isIntegrationAvailable } : {}),
     }),
@@ -251,7 +249,7 @@ async function assertSpawnAgentCreatesWorkspaceAndLaunchesOnBus(): Promise<void>
     triggerPayload: { kind: 'schedule' },
   })
 
-  assert.equal(result.status, 'completed')
+  assert.equal(result.status, 'running')
   assert.equal(result.workspaceId, 'ws-created')
   assert.equal(result.agentId, 'agent-1')
   assert.equal(typeof result.promptFingerprint, 'string')
@@ -274,7 +272,7 @@ async function assertSpawnAgentUsesExistingStandardWorkspace(): Promise<void> {
     triggerPayload: { kind: 'schedule' },
   })
 
-  assert.equal(result.status, 'completed')
+  assert.equal(result.status, 'running')
   assert.equal(result.workspaceId, 'ws-standard')
   assert.equal(result.agentId, 'agent-1')
   assert.deepEqual(harness.requests.map((request) => request.kind), ['agent.launch'])
@@ -283,7 +281,10 @@ async function assertSpawnAgentUsesExistingStandardWorkspace(): Promise<void> {
   assert.equal(launch.kind === 'agent.launch' ? launch.workspaceId : '', 'ws-standard')
 }
 
-async function assertSpawnAgentCreatesStandardTargetWhenOnlyAutomationsWorkspaceIsOpen(): Promise<void> {
+async function assertOwningAutomationsWorkspaceIsLaunchTarget(): Promise<void> {
+  // The run carries its owning automations control-center workspace; the agent
+  // launches there (one terminal, owned by the panel) instead of creating a
+  // standard workspace and a second solo agent.
   const automationsWorkspace = workspace('ws-automations', '/repo/a', { mode: 'automations' })
   const harness = executorHarness([automationsWorkspace])
   const result = await harness.executor({
@@ -291,32 +292,84 @@ async function assertSpawnAgentCreatesStandardTargetWhenOnlyAutomationsWorkspace
     definition: definition(),
     run: run(),
     triggerPayload: { kind: 'schedule' },
+    workspaceId: 'ws-automations',
   })
 
-  assert.equal(result.status, 'completed')
-  assert.equal(result.workspaceId, 'ws-created')
+  assert.equal(result.status, 'running')
+  assert.equal(result.workspaceId, 'ws-automations')
   assert.equal(result.agentId, 'agent-1')
-  assert.deepEqual(harness.requests.map((request) => request.kind), ['workspace.create', 'agent.launch'])
+  assert.deepEqual(harness.requests.map((request) => request.kind), ['agent.launch'])
 
-  const created = harness.requests[0]
-  assert.equal(created.kind, 'workspace.create')
-  assert.equal(created.kind === 'workspace.create' ? created.folderPath : '', '/repo/a')
-
-  const launch = harness.requests[1]
+  const launch = harness.requests[0]
   assert.equal(launch.kind, 'agent.launch')
-  assert.equal(launch.kind === 'agent.launch' ? launch.workspaceId : '', 'ws-created')
-  assert.equal(Object.keys(automationsWorkspace.agents).length, 0)
-  assert.equal(harness.workspaces.find((candidate) => candidate.id === 'ws-created')?.mode, 'standard')
+  assert.equal(launch.kind === 'agent.launch' ? launch.workspaceId : '', 'ws-automations')
+  assert.equal(Object.keys(automationsWorkspace.agents).length, 1)
+  assert.equal(harness.requests.some((request) => request.kind === 'workspace.create'), false)
 }
 
-async function assertAllowChangesDirtyWorkspaceBlocksBeforeLaunch(): Promise<void> {
-  const dirtyWorkspace = workspace('ws-dirty', '/repo/dirty', {
+async function assertExplicitConfigWorkspaceIdOverridesOwningWorkspace(): Promise<void> {
+  // A definition that names an explicit standard workspaceId still targets it,
+  // even when the run has an owning automations workspace.
+  const automationsWorkspace = workspace('ws-automations', '/repo/a', { mode: 'automations' })
+  const standardWorkspace = workspace('ws-standard', '/repo/a')
+  const harness = executorHarness([automationsWorkspace, standardWorkspace])
+  const result = await harness.executor({
+    workspaceRoot: '/repo/a',
+    definition: definition({
+      action: { kind: 'spawn-agent', config: { workspaceId: 'ws-standard', prompt: 'Review the repo.' } },
+    }),
+    run: run(),
+    triggerPayload: { kind: 'schedule' },
+    workspaceId: 'ws-automations',
+  })
+
+  assert.equal(result.status, 'running')
+  assert.equal(result.workspaceId, 'ws-standard')
+  assert.deepEqual(harness.requests.map((request) => request.kind), ['agent.launch'])
+  assert.equal(Object.keys(automationsWorkspace.agents).length, 0)
+}
+
+async function assertRunWorktreeIsThreadedToLaunchAndPatch(): Promise<void> {
+  // When the executor creates a per-run worktree, the agent launches with that
+  // worktree path and the run patch records worktreePath + branch.
+  const automationsWorkspace = workspace('ws-automations', '/repo/a', { mode: 'automations' })
+  const harness = executorHarness([automationsWorkspace], {
+    createRunWorktree: async (input) => ({
+      worktreePath: `/repo/a/.multi-code/automations/worktrees/${input.runId}`,
+      branch: `automations/${input.runId}`,
+    }),
+  })
+  const result = await harness.executor({
+    workspaceRoot: '/repo/a',
+    definition: definition({ autonomyDefault: 'allow_changes' }),
+    run: run(),
+    triggerPayload: { kind: 'schedule' },
+    workspaceId: 'ws-automations',
+  })
+
+  assert.equal(result.status, 'running')
+  assert.equal(result.worktreePath, '/repo/a/.multi-code/automations/worktrees/run-1')
+  assert.equal(result.branch, 'automations/run-1')
+
+  const launch = harness.requests[0]
+  assert.equal(launch.kind, 'agent.launch')
+  assert.equal(
+    launch.kind === 'agent.launch' ? launch.worktreePath : '',
+    '/repo/a/.multi-code/automations/worktrees/run-1',
+  )
+}
+
+async function assertDirtyWorkspaceNoLongerBlocksLaunch(): Promise<void> {
+  // The dirty-tree gate was removed: agent-backed runs execute in their own
+  // worktree, so uncommitted changes in the checkout must not block a launch.
+  const automationsWorkspace = workspace('ws-automations', '/repo/dirty', {
+    mode: 'automations',
     editorState: {
       activeFilePath: '/repo/dirty/file.ts',
       openFiles: [{ path: '/repo/dirty/file.ts', name: 'file.ts', language: 'ts', isDirty: true }],
     },
   })
-  const harness = executorHarness([dirtyWorkspace], { isWorkspaceDirty: null })
+  const harness = executorHarness([automationsWorkspace])
   const result = await harness.executor({
     workspaceRoot: '/repo/dirty',
     definition: definition({
@@ -325,39 +378,18 @@ async function assertAllowChangesDirtyWorkspaceBlocksBeforeLaunch(): Promise<voi
     }),
     run: run(),
     triggerPayload: { kind: 'schedule' },
+    workspaceId: 'ws-automations',
   })
 
-  assert.equal(result.status, 'blocked')
-  assert.match(result.blockedReason ?? '', /unsaved editor changes/)
-  assert.deepEqual(harness.requests, [], 'dirty allow_changes runs do not delegate a launch')
+  assert.equal(result.status, 'running')
+  assert.equal(result.agentId, 'agent-1')
+  assert.deepEqual(harness.requests.map((request) => request.kind), ['agent.launch'])
 }
 
-async function assertReviewOnlyDirtyWorkspaceBlocksBeforeLaunch(): Promise<void> {
-  const dirtyWorkspace = workspace('ws-review-dirty', '/repo/review-dirty', {
-    editorState: {
-      activeFilePath: '/repo/review-dirty/file.ts',
-      openFiles: [{ path: '/repo/review-dirty/file.ts', name: 'file.ts', language: 'ts', isDirty: true }],
-    },
-  })
-  const harness = executorHarness([dirtyWorkspace], { isWorkspaceDirty: null })
-  const result = await harness.executor({
-    workspaceRoot: '/repo/review-dirty',
-    definition: definition({
-      autonomyDefault: 'review_only',
-      action: { kind: 'spawn-agent', config: { folderPath: '/repo/review-dirty', prompt: 'Write a file named injected.txt.' } },
-    }),
-    run: run(),
-    triggerPayload: { kind: 'schedule' },
-  })
-
-  assert.equal(result.status, 'blocked')
-  assert.match(result.blockedReason ?? '', /unsaved editor changes/)
-  assert.deepEqual(harness.requests, [], 'dirty review_only runs do not delegate a launch')
-}
-
-async function assertAllowChangesNonGitWorkspaceBlocksBeforeLaunch(): Promise<void> {
+async function assertNonGitWorkspaceNoLongerBlocksLaunch(): Promise<void> {
   const folderPath = await mkdtemp(join(tmpdir(), 'multicode-automations-non-git-'))
-  const harness = executorHarness([workspace('ws-non-git', folderPath)], { isWorkspaceDirty: null })
+  const automationsWorkspace = workspace('ws-automations', folderPath, { mode: 'automations' })
+  const harness = executorHarness([automationsWorkspace])
   const result = await harness.executor({
     workspaceRoot: folderPath,
     definition: definition({
@@ -366,75 +398,11 @@ async function assertAllowChangesNonGitWorkspaceBlocksBeforeLaunch(): Promise<vo
     }),
     run: run(),
     triggerPayload: { kind: 'schedule' },
+    workspaceId: 'ws-automations',
   })
 
-  assert.equal(result.status, 'blocked')
-  assert.match(result.blockedReason ?? '', /not inside a Git repository/)
-  assert.deepEqual(harness.requests, [], 'non-git allow_changes runs do not delegate a launch')
-}
-
-async function assertAllowChangesChecksResolvedStandardWorkspaceBeforeLaunch(): Promise<void> {
-  const automationsWorkspace = workspace('ws-automations', '/repo/a', { mode: 'automations' })
-  const dirtyStandardWorkspace = workspace('ws-standard', '/repo/a', {
-    editorState: {
-      activeFilePath: '/repo/a/file.ts',
-      openFiles: [{ path: '/repo/a/file.ts', name: 'file.ts', language: 'ts', isDirty: true }],
-    },
-  })
-  const harness = executorHarness([automationsWorkspace, dirtyStandardWorkspace], { isWorkspaceDirty: null })
-  const result = await harness.executor({
-    workspaceRoot: '/repo/a',
-    definition: definition({
-      autonomyDefault: 'allow_changes',
-      action: { kind: 'spawn-agent', config: { folderPath: '/repo/a', prompt: 'Fix this.' } },
-    }),
-    run: run(),
-    triggerPayload: { kind: 'schedule' },
-  })
-
-  assert.equal(result.status, 'blocked')
-  assert.match(result.blockedReason ?? '', /unsaved editor changes/)
-  assert.deepEqual(harness.requests, [], 'dirty resolved standard workspace blocks before renderer delegation')
-  assert.equal(Object.keys(automationsWorkspace.agents).length, 0)
-  assert.equal(Object.keys(dirtyStandardWorkspace.agents).length, 0)
-}
-
-async function assertAllowChangesWorkspaceIdUsesResolvedWorkspaceForDirtyCheck(): Promise<void> {
-  const targetWorkspace = workspace('ws-target', '/repo/target')
-  const requests: AutomationRendererRequest[] = []
-  const dirtyChecks: Array<{ workspaceId?: string; folderPath: string; workspace: Workspace | null }> = []
-  const executor = createLocalAutomationExecutor({
-    delegateToRenderer: async (request) => {
-      requests.push(request)
-      return { ok: false, code: 'should_not_launch', message: 'should not launch' }
-    },
-    getWorkspaceSyncSnapshot: () => snapshot([targetWorkspace]),
-    isWorkspaceDirty: async (input) => {
-      dirtyChecks.push(input)
-      return input.folderPath === '/repo/target'
-        ? { dirty: true, reason: 'Target workspace repo is dirty.' }
-        : { dirty: false }
-    },
-    sleep: async () => undefined,
-  })
-
-  const result = await executor({
-    workspaceRoot: '/repo/default',
-    definition: definition({
-      autonomyDefault: 'allow_changes',
-      action: { kind: 'spawn-agent', config: { workspaceId: 'ws-target', prompt: 'Fix target.' } },
-    }),
-    run: run(),
-    triggerPayload: { kind: 'schedule' },
-  })
-
-  assert.equal(result.status, 'blocked')
-  assert.match(result.blockedReason ?? '', /Target workspace repo is dirty/)
-  assert.equal(dirtyChecks.length, 1)
-  assert.equal(dirtyChecks[0]?.workspaceId, 'ws-target')
-  assert.equal(dirtyChecks[0]?.folderPath, '/repo/target')
-  assert.equal(dirtyChecks[0]?.workspace?.id, 'ws-target')
-  assert.deepEqual(requests, [], 'workspaceId allow_changes checks the target workspace before launch')
+  assert.equal(result.status, 'running')
+  assert.deepEqual(harness.requests.map((request) => request.kind), ['agent.launch'])
 }
 
 async function assertMissingIntegrationBlocksWithoutFakeSuccess(): Promise<void> {
@@ -636,7 +604,7 @@ async function assertRunSkillLoopIsPresetAndRunCommandIsNotRegistered(): Promise
     triggerPayload: { kind: 'schedule' },
   })
 
-  assert.equal(result.status, 'completed')
+  assert.equal(result.status, 'running')
   const launch = harness.requests[0]
   assert.equal(launch.kind, 'agent.launch')
   assert.match(launch.kind === 'agent.launch' ? launch.prompt ?? '' : '', /^\/loop backlog/m)
@@ -842,12 +810,11 @@ async function main(): Promise<void> {
   assertBuiltInProviderRegistryUsesNamespacedIdsAndRejectsDuplicates()
   await assertSpawnAgentCreatesWorkspaceAndLaunchesOnBus()
   await assertSpawnAgentUsesExistingStandardWorkspace()
-  await assertSpawnAgentCreatesStandardTargetWhenOnlyAutomationsWorkspaceIsOpen()
-  await assertAllowChangesDirtyWorkspaceBlocksBeforeLaunch()
-  await assertReviewOnlyDirtyWorkspaceBlocksBeforeLaunch()
-  await assertAllowChangesNonGitWorkspaceBlocksBeforeLaunch()
-  await assertAllowChangesChecksResolvedStandardWorkspaceBeforeLaunch()
-  await assertAllowChangesWorkspaceIdUsesResolvedWorkspaceForDirtyCheck()
+  await assertOwningAutomationsWorkspaceIsLaunchTarget()
+  await assertExplicitConfigWorkspaceIdOverridesOwningWorkspace()
+  await assertRunWorktreeIsThreadedToLaunchAndPatch()
+  await assertDirtyWorkspaceNoLongerBlocksLaunch()
+  await assertNonGitWorkspaceNoLongerBlocksLaunch()
   await assertMissingIntegrationBlocksWithoutFakeSuccess()
   await assertRequiredIntegrationFailsClosed()
   await assertDeniedKindCollisionUsesBlockedWrapperDispatch()

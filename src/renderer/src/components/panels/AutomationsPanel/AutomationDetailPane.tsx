@@ -33,6 +33,7 @@ export function AutomationDetailPane({
   const [state, setState] = useState<AsyncState>('idle')
   const [error, setError] = useState<string | null>(null)
   const [highlightRunId, setHighlightRunId] = useState<string | null>(null)
+  const [finalizingRunId, setFinalizingRunId] = useState<string | null>(null)
 
   const loadRuns = useCallback(async () => {
     if (!workspaceRoot) return
@@ -55,6 +56,28 @@ export function AutomationDetailPane({
   }, [workspaceRoot, definition.id, definition.lastRunId])
 
   useEffect(() => { void loadRuns() }, [loadRuns])
+
+  // Finalize an in-progress agent-backed run: records the terminal outcome and
+  // (for `completed`) backstop-commits + opens/links a PR for the run's branch.
+  const finalizeRun = useCallback(async (run: AutomationRun, outcome: 'completed' | 'failed') => {
+    if (!workspaceRoot) return
+    setFinalizingRunId(run.id)
+    setError(null)
+    try {
+      const result = await window.api.finalizeAutomationRun({
+        workspaceRoot,
+        automationId: definition.id,
+        runId: run.id,
+        outcome,
+      })
+      if (!result.ok) setError(result.message)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'The automations service did not respond.')
+    } finally {
+      setFinalizingRunId(null)
+      await loadRuns()
+    }
+  }, [workspaceRoot, definition.id, loadRuns])
 
   // Scroll the deep-linked run into view once history has loaded, and highlight
   // it briefly so the eye lands on it. Instant scroll (no smooth behaviour) so
@@ -112,7 +135,15 @@ export function AutomationDetailPane({
         ) : (
           <ol className="flex flex-col">
             {runs.map((run) => (
-              <RunRow key={run.id} run={run} now={now} highlighted={run.id === highlightRunId} onOpenAgent={onOpenAgent} />
+              <RunRow
+                key={run.id}
+                run={run}
+                now={now}
+                highlighted={run.id === highlightRunId}
+                onOpenAgent={onOpenAgent}
+                onFinalize={finalizeRun}
+                finalizing={finalizingRunId === run.id}
+              />
             ))}
           </ol>
         )}
@@ -133,7 +164,14 @@ function Meta({ label, value }: { label: string; value: string }) {
 // Watchtower-style run row: leading lifecycle glyph (shape-coded), identifier in
 // mono, timing in tabular figures, and a trailing "Open agent" when a run
 // launched one.
-function RunRow({ run, now, highlighted, onOpenAgent }: { run: AutomationRun; now: number; highlighted: boolean; onOpenAgent: (workspaceId: string, agentId?: string) => void }) {
+function RunRow({ run, now, highlighted, onOpenAgent, onFinalize, finalizing }: {
+  run: AutomationRun
+  now: number
+  highlighted: boolean
+  onOpenAgent: (workspaceId: string, agentId?: string) => void
+  onFinalize: (run: AutomationRun, outcome: 'completed' | 'failed') => void
+  finalizing: boolean
+}) {
   const dueAt = parseTime(run.dueAt)
   const startedAt = parseTime(run.startedAt)
   const completedAt = parseTime(run.completedAt)
@@ -168,7 +206,7 @@ function RunRow({ run, now, highlighted, onOpenAgent }: { run: AutomationRun; no
         {run.blockedReason ? (
           <p className="mt-0.5 text-[11px] leading-4 text-[color:var(--tone-warn)]">{run.blockedReason}</p>
         ) : null}
-        {(run.workspaceId || run.agentId) ? (
+        {(run.workspaceId || run.agentId || run.pullRequestUrl) ? (
           <div className="mt-1 flex flex-wrap items-center gap-2">
             {run.agentId ? (
               <span className="truncate font-mono text-[10px] text-[color:var(--text-subtle)]">{run.agentId}</span>
@@ -176,6 +214,26 @@ function RunRow({ run, now, highlighted, onOpenAgent }: { run: AutomationRun; no
             {run.workspaceId ? (
               <GhostButton onClick={() => onOpenAgent(run.workspaceId!, run.agentId ?? undefined)} className="h-5 px-1.5 text-[10px]">
                 Open agent
+              </GhostButton>
+            ) : null}
+            {run.pullRequestUrl ? (
+              <a
+                href={run.pullRequestUrl}
+                target="_blank"
+                rel="noreferrer"
+                className="inline-flex h-5 items-center gap-1 rounded px-1.5 text-[10px] font-medium text-[color:var(--accent-primary)] hover:underline"
+                title={run.pullRequestUrl}
+              >
+                Pull request
+              </a>
+            ) : null}
+            {run.status === 'running' ? (
+              <GhostButton
+                onClick={() => onFinalize(run, 'completed')}
+                disabled={finalizing}
+                className="h-5 px-1.5 text-[10px]"
+              >
+                {finalizing ? 'Finalizing…' : 'Finalize & open PR'}
               </GhostButton>
             ) : null}
           </div>

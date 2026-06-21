@@ -117,8 +117,103 @@ async function main(): Promise<void> {
     await assertTerminalReattachUsesReplayChannel(runtimeModule)
     await assertHiddenTerminalOutputSkipsLiveIpcAndReplaysOnAttach(runtimeModule)
     await assertStaleSweepReapsOnlyUnseenHiddenTerminals(runtimeModule)
+    await assertIdleSweepSuspendsRatherThanDisposes(runtimeModule)
   } finally {
     moduleWithLoad._load = originalLoad
+  }
+}
+
+// The in-session memory reaper must SUSPEND idle agents (freeze-the-view), not
+// dispose them: a disposed session loses its painted scrollback and falls
+// through to the renderer's resume-spawn on reopen, silently relaunching the
+// agent. Suspending keeps the session with `suspended = true` so reopening
+// replays the frozen history and only resumes on the first keystroke. Live
+// workspaces (the hot set) are never reaped, so they are untouched.
+async function assertIdleSweepSuspendsRatherThanDisposes(runtimeModule: RuntimeModule): Promise<void> {
+  const workspaceRoot = await mkdtemp(join(tmpdir(), 'multicode-terminal-runtime-idle-suspend-'))
+  mockPty.spawnCalls = []
+  mockSender.sent = []
+
+  const runtime = runtimeModule.createTerminalRuntime({
+    diagnosticsEnabled: false,
+    requireAuthenticatedUser: () => undefined,
+    logMainPerfEvent: () => undefined,
+  })
+
+  const spawnHiddenAgent = async (sessionId: string, agentWorkspaceId: string): Promise<MockPtyProcess> => {
+    const result = await runtime.ipcHandlers.spawnTerminal(mockSender as unknown as WebContents, {
+      sessionId,
+      cols: 120,
+      rows: 30,
+      cwd: workspaceRoot,
+      cli: 'codex',
+      kind: 'agent',
+      shellOnly: false,
+      workspaceId: agentWorkspaceId,
+      agentId: sessionId,
+      visible: false,
+      mcpSettings: { syncEnabled: false, servers: {} } satisfies McpSettings,
+    })
+    assert.equal(result.ok, true, JSON.stringify(result))
+    const spawned = mockPty.spawnCalls[mockPty.spawnCalls.length - 1]?.process
+    assert.ok(spawned, `expected a pty for ${sessionId}`)
+    return spawned
+  }
+
+  try {
+    // The oldest-interacted agent is the one that falls out of the 5-workspace
+    // hot set. Spawn it first, then let the clock advance a touch so the five
+    // fresher agents deterministically own the hot set regardless of tie-break.
+    const oldProcess = await spawnHiddenAgent('session-old', 'ws-old')
+    await delay(10)
+    for (let i = 0; i < 5; i += 1) {
+      await spawnHiddenAgent(`session-h${i}`, `ws-h${i}`)
+    }
+
+    // Fresh sweep leaves everything alive (nothing past the idle threshold yet).
+    assert.deepEqual(
+      runtimeModule.runIdleAgentReapSweep(Date.now()),
+      [],
+      'recently active agents must not be suspended'
+    )
+
+    const wellPastIdle = Date.now() + 2 * 60 * 60 * 1000 + 1_000
+    const reaped = runtimeModule.runIdleAgentReapSweep(wellPastIdle)
+    assert.deepEqual(reaped, ['session-old'], 'only the non-hot idle agent is reaped')
+
+    // Suspend finalizes when the killed pty reports exit.
+    oldProcess.emitExit({ exitCode: 0 })
+    await delay(20)
+
+    assert.equal(oldProcess.killed, true, 'suspending must kill the underlying pty to reclaim RAM')
+
+    const oldStatus = runtime.ipcHandlers.getTerminalStatus('session-old')
+    assert.deepEqual(
+      oldStatus,
+      { processAlive: false, suspended: true },
+      'reaped agent must be suspended (frozen + resumable), not gone'
+    )
+
+    const stillListed = runtime.ipcHandlers.listTerminals().map((session) => session.sessionId)
+    assert.ok(
+      stillListed.includes('session-old'),
+      'suspended session must be retained so its painted scrollback can replay on reopen'
+    )
+
+    assert.equal(
+      mockSender.sent.some((event) => event.channel === 'terminal:exit:session-old'),
+      false,
+      'a suspend is not an exit: the view must stay painted, so no terminal:exit is emitted'
+    )
+
+    // The hot-set agents the user is actively working with stay live.
+    assert.deepEqual(
+      runtime.ipcHandlers.getTerminalStatus('session-h0'),
+      { processAlive: true, suspended: false },
+      'live (hot) workspaces must never be suspended by the reaper'
+    )
+  } finally {
+    await runtime.shutdown()
   }
 }
 

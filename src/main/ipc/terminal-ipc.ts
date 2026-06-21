@@ -43,7 +43,7 @@ type TerminalIpcDependencies = {
   spawnTerminal(sender: WebContents, payload: TerminalSpawnPayload): Promise<TerminalSpawnResult>
   writeTerminal(sessionId: string, data: string): void
   resizeTerminal(sessionId: string, cols: number, rows: number): void
-  getTerminalStatus(sessionId: string): { processAlive: boolean }
+  getTerminalStatus(sessionId: string): { processAlive: boolean; suspended: boolean }
   listTerminals(): TerminalSessionSnapshot[]
   setTerminalVisible(sessionId: string, visible: boolean): void
   suspendTerminal(sessionId: string): void
@@ -72,7 +72,7 @@ export function registerTerminalIpc(ipcMain: IpcMain, deps: TerminalIpcDependenc
     deps.resizeTerminal(sessionId, cols, rows)
   })
 
-  ipcMain.handle('terminal:status', (_, sessionId: string): { processAlive: boolean } => {
+  ipcMain.handle('terminal:status', (_, sessionId: string): { processAlive: boolean; suspended: boolean } => {
     return deps.getTerminalStatus(sessionId)
   })
 
