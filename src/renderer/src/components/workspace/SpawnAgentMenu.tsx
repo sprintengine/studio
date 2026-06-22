@@ -74,7 +74,7 @@ export function SpawnDebugToggle({ active, onChange }: { active: boolean; onChan
     <Tooltip
       content="Debug mode pauses the agent at each state transition for inspection. Works best with the Auto or Bypass permission presets."
       placement="bottom"
-      wrapperClassName="ml-auto"
+      wrapperClassName="ml-auto inline-flex"
     >
       <button
         type="button"
