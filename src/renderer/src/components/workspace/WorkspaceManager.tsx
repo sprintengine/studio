@@ -384,6 +384,10 @@ export default function WorkspaceManager() {
   const selectedAgentPermissionOption = AGENT_SPAWN_PERMISSION_OPTIONS.find(
     (option) => option.value === agentSpawnPermissionPreset
   ) ?? AGENT_SPAWN_PERMISSION_OPTIONS[0]
+  // Debug Mode is intentionally transient and never persisted (unlike the
+  // permission preset): it defaults off and resets off after each spawn, so a
+  // debug agent never silently leaves the next unrelated spawn in debug.
+  const [agentSpawnDebugMode, setAgentSpawnDebugMode] = useState(false)
   const [sessionsOpen, setSessionsOpen] = useState(false)
   const [viewMenuOpen, setViewMenuOpen] = useState(false)
   const [viewMenuTick, setViewMenuTick] = useState(0)
@@ -1351,6 +1355,7 @@ export default function WorkspaceManager() {
       cli: cliForSpawn,
       cliModel: resolveSurfaceModel(cliForSpawn, specialistModelDefaults[specialist.id]),
       cliPermissionPreset: agentSpawnPermissionPreset,
+      debugMode: agentSpawnDebugMode,
       kind: 'specialist',
       specialistId: specialist.id,
       cliStartupPrompt: prependAgentIdentifier(prompt, tabName, specialist.shortLabel),
@@ -1359,6 +1364,7 @@ export default function WorkspaceManager() {
       cliResumeAvailable: false,
     })
     addAgentTabTiled(windowActiveWorkspaceId, newId, tabName)
+    if (agentSpawnDebugMode) setAgentSpawnDebugMode(false)
   }
 
   const addNewMultiloopAgent = async (
@@ -1414,6 +1420,7 @@ export default function WorkspaceManager() {
       cli: cliForSpawn,
       cliModel: resolveSurfaceModel(cliForSpawn, multiloopRoleModelDefaults[soul.role]),
       cliPermissionPreset: agentSpawnPermissionPreset,
+      debugMode: agentSpawnDebugMode,
       kind: 'multiloop',
       specialistId: undefined,
       multiloopRole: soul.role,
@@ -1425,6 +1432,7 @@ export default function WorkspaceManager() {
       cliSessionId: crypto.randomUUID(),
     })
     addAgentTabTiled(windowActiveWorkspaceId, newId, tabName)
+    if (agentSpawnDebugMode) setAgentSpawnDebugMode(false)
   }
 
   const addNewCliAgent = (cli: AgentCli, label: string) => {
@@ -1442,6 +1450,7 @@ export default function WorkspaceManager() {
       name: tabName,
       cli: spawnCli,
       cliPermissionPreset: agentSpawnPermissionPreset,
+      debugMode: agentSpawnDebugMode,
       kind: 'general',
       specialistId: undefined,
       cliStartupPrompt: undefined,
@@ -1450,6 +1459,7 @@ export default function WorkspaceManager() {
       cliResumeAvailable: false,
     })
     addAgentTabTiled(windowActiveWorkspaceId, newId, tabName)
+    if (agentSpawnDebugMode) setAgentSpawnDebugMode(false)
     setSpecialistMenuOpen(false)
   }
 
@@ -1526,6 +1536,7 @@ export default function WorkspaceManager() {
           cli: cliForSpawn,
           cliModel: resolveSurfaceModel(cliForSpawn, specialistModelDefaults[specialist.id]),
           cliPermissionPreset: agentSpawnPermissionPreset,
+          debugMode: agentSpawnDebugMode,
           kind: 'specialist',
           specialistId: specialist.id,
           cliStartupPrompt: prependAgentIdentifier(prompt, tabName, specialist.shortLabel),
@@ -1535,6 +1546,7 @@ export default function WorkspaceManager() {
         },
       },
     })
+    if (agentSpawnDebugMode) setAgentSpawnDebugMode(false)
   }
 
   const openConversationInNewChat = (folderPath?: string | null) => {
@@ -2153,6 +2165,8 @@ export default function WorkspaceManager() {
         newChatAgentCli={lastSelectedCli}
         agentSpawnPermissionPreset={agentSpawnPermissionPreset}
         setAgentSpawnPermissionPreset={setAgentSpawnPermissionPreset}
+        agentSpawnDebugMode={agentSpawnDebugMode}
+        setAgentSpawnDebugMode={setAgentSpawnDebugMode}
         onRevealFolder={handleRevealFolder}
         onSetSidebarCollapsed={setSidebarCollapsed}
       />
@@ -2213,6 +2227,8 @@ export default function WorkspaceManager() {
         multiloopRoleCliDefaults={multiloopRoleCliDefaults}
         agentSpawnPermissionPreset={agentSpawnPermissionPreset}
         setAgentSpawnPermissionPreset={setAgentSpawnPermissionPreset}
+        agentSpawnDebugMode={agentSpawnDebugMode}
+        setAgentSpawnDebugMode={setAgentSpawnDebugMode}
         handleSelectSpecialist={handleSelectSpecialist}
         handleSelectMultiloopRole={handleSelectMultiloopRole}
         addNewSpecialist={(cli) => addNewSpecialist(lastSelectedSpecialist, '', cli)}
