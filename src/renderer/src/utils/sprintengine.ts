@@ -1988,6 +1988,70 @@ export function isSprintEngineArtifactAutoApprovableKind(kind: string): boolean 
   return reviewGateArtifactKinds.has(kind)
 }
 
+// Stored artifact paths are project-relative but recorded in two equivalent
+// forms that resolve to the same file: a bare team-relative path (`plan.md`)
+// and a full-prefix path (`.multi-code/sprintengine/<team>/plan.md`). This
+// mirrors the Python `artifact_absolute_path` resolution (which lands both
+// forms at `<teamDir>/<rest>`) without filesystem access, so renderer and
+// main-process gates agree on which artifacts point at the same file.
+export function normalizeSprintEngineArtifactFileKey(path: string): string {
+  const segments = path
+    .trim()
+    .replace(/\\/g, '/')
+    .split('/')
+    .filter((segment) => segment !== '' && segment !== '.')
+  if (
+    segments[0] === '.multi-code'
+    && segments[1] === 'sprintengine'
+    && segments.length > 3
+  ) {
+    return segments.slice(3).join('/')
+  }
+  return segments.join('/')
+}
+
+export function isSameSprintEngineArtifactFile(left: string, right: string): boolean {
+  const leftKey = normalizeSprintEngineArtifactFileKey(left)
+  return leftKey !== '' && leftKey === normalizeSprintEngineArtifactFileKey(right)
+}
+
+// Blocking review siblings of an auto-approval candidate, mirroring the
+// main-process gate (getArtifactAutoApprovalBlocker): same task, not already
+// approved/superseded, of an auto-approvable kind. A stale same-file duplicate
+// of the candidate is excluded — it is not an independent review gate, so it
+// must not veto approval of its real sibling. The candidate itself stays in the
+// set, keeping the "no blocking artifact waiting" guard meaningful.
+export function getSprintEngineAutoApprovalBlockingSiblings(
+  artifact: SprintEngineArtifact,
+  artifactsForTask: SprintEngineArtifact[]
+): SprintEngineArtifact[] {
+  return artifactsForTask.filter((candidate) =>
+    candidate.status !== 'approved'
+    && candidate.status !== 'superseded'
+    && isSprintEngineArtifactAutoApprovableKind(candidate.kind)
+    && !(candidate.id !== artifact.id && isSameSprintEngineArtifactFile(candidate.path, artifact.path))
+  )
+}
+
+// Review statuses the main-process gate treats as approvable for a blocking
+// sibling (getArtifactAutoApprovalBlocker). Kept local to avoid a circular
+// import with sprintengineAutoRun.ts, which re-exports the same set.
+const sprintEngineApprovableReviewStatuses: ReadonlySet<string> = new Set([
+  'ready_for_review',
+  'changes_requested',
+])
+
+export function sprintEngineAutoApprovalBlockingSiblingsAllReviewable(
+  artifact: SprintEngineArtifact,
+  artifactsForTask: SprintEngineArtifact[]
+): boolean {
+  const blockingArtifacts = getSprintEngineAutoApprovalBlockingSiblings(artifact, artifactsForTask)
+  if (blockingArtifacts.length === 0) return false
+  return blockingArtifacts.every((candidate) =>
+    sprintEngineApprovableReviewStatuses.has(candidate.status) && Boolean(candidate.path.trim())
+  )
+}
+
 export function getSprintEngineArtifactAutoApprovalEligibility(
   artifact: SprintEngineArtifact
 ): SprintEngineArtifactAutoApprovalEligibility {
@@ -2036,17 +2100,12 @@ export function getAutoApprovableReadySprintEngineArtifacts(
     if (!task || task.status !== 'needs_input') return false
 
     // Mirrors the main-process auto-approval gate: only auto-approvable kinds
-    // count as blockers, so an unknown-kind sibling awaiting manual review
-    // does not veto auto-approval of the artifacts this build understands.
-    const blockingArtifacts = (reviewArtifactsByTaskId[task.id] ?? []).filter((candidate) =>
-      candidate.status !== 'approved'
-      && candidate.status !== 'superseded'
-      && isSprintEngineArtifactAutoApprovableKind(candidate.kind)
-    )
-    if (blockingArtifacts.length === 0) return false
-
-    return blockingArtifacts.every((candidate) =>
-      getSprintEngineArtifactAutoApprovalEligibility(candidate).eligible
+    // count as blockers (an unknown-kind sibling awaiting manual review does not
+    // veto), and a stale same-file duplicate of this artifact is excluded so it
+    // cannot deadlock approval of its real sibling.
+    return sprintEngineAutoApprovalBlockingSiblingsAllReviewable(
+      artifact,
+      reviewArtifactsByTaskId[task.id] ?? []
     )
   })
 }

@@ -7,14 +7,16 @@ from typing import Any, Dict
 
 from sprintengine_core.tool.artifacts import (
     append_artifact_history,
+    artifact_absolute_path,
     build_artifact_from_args,
     file_fingerprint,
     find_artifact,
+    find_reusable_artifact,
     mark_task_done_if_artifacts_approved,
     mark_task_needs_input_for_artifact,
     normalize_artifact_path,
     reopen_task_for_artifact_changes,
-    supersede_duplicate_artifacts_for_approved_artifact,
+    supersede_duplicate_artifacts,
 )
 from sprintengine_core.tool.feedback import append_feedback_record, attach_feedback_payload, build_feedback_payload
 from sprintengine_core.tool.paths import now_iso
@@ -30,17 +32,41 @@ from sprintengine_core.tool.tasks import recompute_phase
 
 def cmd_artifact_add(args: argparse.Namespace) -> Dict[str, Any]:
     def run(state: Dict[str, Any]) -> Dict[str, Any]:
-        artifact = build_artifact_from_args(args, state, args.state)
-        state.setdefault("artifacts", []).append(artifact)
+        candidate = build_artifact_from_args(args, state, args.state)
+        # Reuse an existing non-superseded artifact for the same task + kind +
+        # resolved file instead of registering a duplicate that would block
+        # auto-approval (e.g. an init placeholder stored as the full plan path
+        # plus a fresh bare-path registration that resolve to the same file).
+        existing = find_reusable_artifact(
+            state,
+            args.state,
+            str(candidate.get("taskId")),
+            str(candidate.get("kind")),
+            artifact_absolute_path(args.state, str(candidate.get("path"))),
+        )
+        reused = existing is not None
+        if reused:
+            artifact = existing
+            artifact["title"] = candidate["title"]
+            artifact["path"] = candidate["path"]
+            artifact["fingerprint"] = candidate["fingerprint"]
+            artifact["createdBy"] = candidate["createdBy"]
+            artifact["updatedAt"] = candidate["updatedAt"]
+            append_artifact_history(artifact, "registered", args.actor, "Reused existing same-file artifact; no duplicate created.")
+            message = f"{args.actor} reused artifact {artifact['id']} for {artifact['taskId']} (duplicate registration deduplicated)."
+        else:
+            artifact = candidate
+            state.setdefault("artifacts", []).append(artifact)
+            message = f"{args.actor} registered artifact {artifact['id']} for {artifact['taskId']}."
         task = find_task(state, str(artifact.get("taskId")))
-        append_task_activity(task, "artifact", args.actor, f"{args.actor} registered artifact {artifact['id']}.", {"artifactId": artifact["id"], "artifactStatus": artifact["status"]})
-        event = append_event(state, "artifact_added", args.actor, f"{args.actor} registered artifact {artifact['id']} for {artifact['taskId']}.")
+        append_task_activity(task, "artifact", args.actor, message, {"artifactId": artifact["id"], "artifactStatus": artifact["status"]})
+        event = append_event(state, "artifact_added", args.actor, message)
         ready_result = None
         if args.ready:
             ready_result = set_artifact_ready(state, artifact, args.actor, args.state)
             append_event(state, "artifact_ready_for_review", args.actor, f"{args.actor} marked artifact {artifact['id']} ready for review.")
         recompute_phase(state)
-        return {"ok": True, "artifact": artifact, "ready": ready_result, "event": event}
+        return {"ok": True, "artifact": artifact, "ready": ready_result, "event": event, "reused": reused}
 
     return with_locked_state(args.state, run)
 
@@ -89,6 +115,10 @@ def set_artifact_ready(
     artifact.pop("changesRequestedBy", None)
     artifact.pop("changesRequestedAt", None)
     append_artifact_history(artifact, "ready_for_review", actor)
+    # Self-heal at the ready transition: clear stale non-approved same-file
+    # duplicates before the auto-approval gate evaluates blocking siblings, so a
+    # leftover draft placeholder cannot deadlock approval of this artifact.
+    supersede_duplicate_artifacts(state, artifact, state_path, actor)
     mark_task_needs_input_for_artifact(state, task, artifact)
     append_task_activity(task, "artifact", actor, f"{actor} marked artifact {artifact.get('id')} ready for review.", {"artifactId": artifact.get("id"), "artifactStatus": artifact.get("status")})
     return {"taskId": task.get("id"), "taskStatus": task.get("status"), "artifactStatus": artifact.get("status")}
@@ -133,7 +163,7 @@ def cmd_artifact_approve(args: argparse.Namespace) -> Dict[str, Any]:
         artifact["updatedAt"] = artifact["approvedAt"]
         append_artifact_history(artifact, "approved", args.id)
         owner_id = str(task.get("ownerAgentId") or "").strip()
-        superseded_artifact_ids = supersede_duplicate_artifacts_for_approved_artifact(state, artifact, args.state, args.id)
+        superseded_artifact_ids = supersede_duplicate_artifacts(state, artifact, args.state, args.id)
         task_completed = mark_task_done_if_artifacts_approved(state, task)
         append_task_activity(task, "artifact", args.id, f"{args.id} approved artifact {args.artifact_id}.", {"artifactId": args.artifact_id, "artifactStatus": "approved"})
         recompute_phase(state)

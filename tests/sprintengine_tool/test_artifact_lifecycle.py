@@ -117,6 +117,38 @@ def test_artifact_add_ready_approve_and_request_changes_cover_lifecycle_statuses
     ]
 
 
+def _seed_plan_artifact(
+    fixture,
+    artifact_id: str,
+    stored_path: str,
+    status: str,
+    *,
+    created_by: str = "sprintengine",
+) -> None:
+    """Inject an architect_plan artifact straight into state with a chosen
+    stored path string, so tests can reproduce legacy duplicates whose stored
+    paths differ (full-prefix vs bare) but resolve to the same file. Registration
+    now dedups same-file artifacts, so the duplicate cannot be created via add."""
+    state = read_state(fixture.state_path)
+    state.setdefault("artifacts", []).append(
+        {
+            "id": artifact_id,
+            "kind": "architect_plan",
+            "title": "Architect Plan",
+            "path": stored_path,
+            "status": status,
+            "createdBy": created_by,
+            "taskId": "T0",
+            "fingerprint": None,
+            "reviewHistory": [{"action": "created", "actor": created_by, "timestamp": "2026-06-19T00:00:00Z"}],
+            "recommendedTasks": [],
+            "createdAt": "2026-06-19T00:00:00Z",
+            "updatedAt": "2026-06-19T00:00:00Z",
+        }
+    )
+    write_state(fixture.state_path, state)
+
+
 def test_approving_duplicate_same_file_artifact_supersedes_stale_blocker(tmp_path) -> None:
     fixture = create_workspace_team(
         tmp_path,
@@ -126,43 +158,10 @@ def test_approving_duplicate_same_file_artifact_supersedes_stale_blocker(tmp_pat
     )
     write_team_file(fixture, "plan.md", "# Plan\n")
 
-    fixture.cli.run(
-        "artifact",
-        "add",
-        "--actor",
-        "sprintengine",
-        "--artifact-id",
-        "A1",
-        "--task-id",
-        "T0",
-        "--kind",
-        "architect_plan",
-        "--title",
-        "Architect Plan",
-        "--path",
-        ".multi-code/sprintengine/duplicate-plan-artifacts/plan.md",
-        "--created-by",
-        "sprintengine",
-    )
-    fixture.cli.run(
-        "artifact",
-        "add",
-        "--actor",
-        "architect",
-        "--artifact-id",
-        "A2",
-        "--task-id",
-        "T0",
-        "--kind",
-        "architect_plan",
-        "--title",
-        "Architect Plan",
-        "--path",
-        "plan.md",
-        "--created-by",
-        "architect",
-        "--ready",
-    )
+    # Legacy duplicate state: A1 stored as the full-prefix path, A2 stored bare;
+    # both resolve to the same plan.md file.
+    _seed_plan_artifact(fixture, "A1", ".multi-code/sprintengine/duplicate-plan-artifacts/plan.md", "draft")
+    _seed_plan_artifact(fixture, "A2", "plan.md", "ready_for_review", created_by="architect")
 
     approved = fixture.cli.run("artifact", "approve", "--artifact-id", "A2", "--id", "user")
 
@@ -173,6 +172,102 @@ def test_approving_duplicate_same_file_artifact_supersedes_stale_blocker(tmp_pat
     assert_artifact_status(state, "A2", "approved")
     assert_task_status(state, "T0", "done")
     assert get_artifact(state, "A1")["reviewHistory"][-1]["action"] == "superseded"
+
+
+def test_registering_same_file_plan_artifact_reuses_existing_full_prefix_artifact(tmp_path) -> None:
+    import contextlib
+
+    from sprintengine_core.tool.plans import find_architect_plan_gate
+
+    fixture = create_workspace_team(
+        tmp_path,
+        "workspace",
+        "dedup-registration",
+        [task("T0", "Review architect plan artifact", "architect", "in_progress", owner="architect")],
+    )
+    write_team_file(fixture, "plan.md", "# Plan\n")
+
+    # An init-seeded placeholder stored as the full-prefix path.
+    _seed_plan_artifact(fixture, "A1", ".multi-code/sprintengine/dedup-registration/plan.md", "draft")
+
+    # find_architect_plan_gate must resolve the bare plan.md value to the same
+    # file and match the full-prefix stored artifact rather than miss it. Run
+    # from the project root (as the real runtime does) so path resolution roots
+    # at the workspace, not the test runner's worktree.
+    with contextlib.chdir(tmp_path / "workspace"):
+        gate = find_architect_plan_gate(read_state(fixture.state_path), fixture.state_path)
+    assert gate["artifact"]["id"] == "A1"
+
+    # The architect registers the plan with the bare path; registration must
+    # reuse A1 instead of creating a second same-file artifact.
+    added = fixture.cli.run(
+        "artifact",
+        "add",
+        "--actor",
+        "architect",
+        "--task-id",
+        "T0",
+        "--kind",
+        "architect_plan",
+        "--title",
+        "Architect Plan",
+        "--path",
+        "plan.md",
+        "--created-by",
+        "architect",
+    )
+    assert added["reused"] is True
+    assert added["artifact"]["id"] == "A1"
+
+    state = read_state(fixture.state_path)
+    plan_artifacts = [a for a in state["artifacts"] if a["taskId"] == "T0" and a["kind"] == "architect_plan"]
+    assert len(plan_artifacts) == 1
+    assert plan_artifacts[0]["createdBy"] == "architect"
+
+
+def test_marking_ready_supersedes_stale_same_file_duplicate(tmp_path) -> None:
+    fixture = create_workspace_team(
+        tmp_path,
+        "workspace",
+        "ready-self-heal",
+        [task("T0", "Review architect plan artifact", "architect", "in_progress", owner="architect")],
+    )
+    write_team_file(fixture, "plan.md", "# Plan\n")
+
+    # Stale full-prefix draft placeholder plus a bare-path real plan; both
+    # resolve to the same file. Marking the real plan ready must self-heal the
+    # stale duplicate so it cannot deadlock the auto-approval gate.
+    _seed_plan_artifact(fixture, "A1", ".multi-code/sprintengine/ready-self-heal/plan.md", "draft")
+    _seed_plan_artifact(fixture, "A2", "plan.md", "draft", created_by="architect")
+
+    fixture.cli.run("artifact", "ready", "--artifact-id", "A2", "--id", "architect")
+
+    state = read_state(fixture.state_path)
+    assert_artifact_status(state, "A1", "superseded")
+    assert_artifact_status(state, "A2", "ready_for_review")
+    assert get_artifact(state, "A1")["reviewHistory"][-1]["action"] == "superseded"
+
+
+def test_marking_ready_does_not_supersede_duplicate_resolving_to_different_file(tmp_path) -> None:
+    fixture = create_workspace_team(
+        tmp_path,
+        "workspace",
+        "ready-distinct-file",
+        [task("T0", "Review architect plan artifact", "architect", "in_progress", owner="architect")],
+    )
+    write_team_file(fixture, "plan.md", "# Plan\n")
+    write_team_file(fixture, "plan-old.md", "# Old Plan\n")
+
+    # A genuinely different file must not be superseded when a same-task,
+    # same-kind sibling is marked ready.
+    _seed_plan_artifact(fixture, "A1", "plan-old.md", "draft", created_by="architect")
+    _seed_plan_artifact(fixture, "A2", "plan.md", "draft", created_by="architect")
+
+    fixture.cli.run("artifact", "ready", "--artifact-id", "A2", "--id", "architect")
+
+    state = read_state(fixture.state_path)
+    assert_artifact_status(state, "A1", "draft")
+    assert_artifact_status(state, "A2", "ready_for_review")
 
 
 def test_superseded_artifacts_are_not_reviewable_or_approval_blocking(tmp_path) -> None:
