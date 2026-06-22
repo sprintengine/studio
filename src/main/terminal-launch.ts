@@ -790,7 +790,11 @@ function buildNativeAgentLaunchPowerShellScript(
   ].join('\r\n')
 }
 
-function buildCodexLegacyNativeAgentLaunchPowerShellScript(
+// Exported for agent-launch-render.test.ts: this acknowledged-legacy Windows
+// path builds codex args by hand instead of going through renderAgentLaunchArgv,
+// so it needs its own regression coverage for debug-directive injection and the
+// permission-arg orthogonality invariant. Not part of the module's public API.
+export function buildCodexLegacyNativeAgentLaunchPowerShellScript(
   sessionId: string,
   resume: boolean,
   cwd: string,

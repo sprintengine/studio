@@ -13,6 +13,7 @@ import {
 } from './agent-launch-render'
 import { composeSpawnAgentPrompt } from './automations/actions/spawn-agent'
 import { createPluginRegistry } from './plugin-registry'
+import { buildCodexLegacyNativeAgentLaunchPowerShellScript } from './terminal-launch'
 import {
   __resetPluginRegistryForTest,
   __setPluginRegistryForTest,
@@ -42,6 +43,7 @@ async function main(): Promise<void> {
     testApplyDebugDirectiveHelper()
     testDebugModeOrthogonality()
     testDebugDirectiveReachesRenderedArgvAllPaths()
+    testCodexLegacyWindowsDebugInjection()
   })
 
   console.log('agent-launch-render tests passed')
@@ -416,6 +418,90 @@ function testDebugDirectiveReachesRenderedArgvAllPaths(): void {
   assert.ok(shell.includes('You are in DEBUG MODE.'), 'posix/wsl shell command embeds the directive')
   assert.ok(shell.includes('.multi-code/debug/'), 'directive state-file path reaches the shell command')
   assert.ok(shell.includes('--permission-mode bypassPermissions'), 'permission flags unchanged in shell command')
+}
+
+// Decode the base64-wrapped `$arguments = @(...)` line that the Windows-native
+// launch scripts emit, so a test can assert on the real argv the codex CLI
+// receives rather than on the obfuscated script text. Base64 payloads never
+// contain a single quote, so the single-quote delimiter match is unambiguous.
+function decodeWindowsScriptArgs(script: string): string[] {
+  const argsLine = script.split('\r\n').find((line) => line.startsWith('$arguments = @('))
+  assert.ok(argsLine, 'rendered script defines an $arguments array')
+  return [...argsLine.matchAll(/FromBase64String\('([^']*)'\)/g)].map(([, b64]) =>
+    Buffer.from(b64, 'base64').toString('utf8'),
+  )
+}
+
+// Criterion R1: the codex Windows-native LEGACY path (codex builds its argv by
+// hand outside renderAgentLaunchArgv, so the shared debug boundary does not
+// cover it) must (a) carry the verbatim DEBUG_DIRECTIVE into the rendered script
+// when debugMode is on, and (b) keep launch/permission args byte-identical with
+// debug on vs off — the same orthogonality invariant the shared paths hold.
+function testCodexLegacyWindowsDebugInjection(): void {
+  const presets: SprintEngineCliPermissionPreset[] = ['default', 'auto_workspace', 'bypass_all']
+  const cwd = 'C:/work/repo'
+  const runtime = { command: '', useWsl: false }
+  const prompt = 'investigate the crash'
+
+  for (const preset of presets) {
+    const off = buildCodexLegacyNativeAgentLaunchPowerShellScript(
+      'sid_legacy', false, cwd, prompt, runtime, preset, 'gpt-5-codex', false,
+    )
+    const on = buildCodexLegacyNativeAgentLaunchPowerShellScript(
+      'sid_legacy', false, cwd, prompt, runtime, preset, 'gpt-5-codex', true,
+    )
+    const offArgs = decodeWindowsScriptArgs(off)
+    const onArgs = decodeWindowsScriptArgs(on)
+
+    // (b) Orthogonality: the prompt is the trailing arg on this path; everything
+    // ahead of it (permission flags, model, -C cwd) is identical on vs off.
+    assert.deepEqual(
+      onArgs.slice(0, -1),
+      offArgs.slice(0, -1),
+      `codex-legacy/${preset}: permission/launch args identical with debug on vs off`,
+    )
+    // The non-prompt portion of the script (command resolution, npm-shim block)
+    // must be byte-identical too — only the prompt base64 may differ.
+    assert.equal(
+      on.replace(/\$arguments = @\(.*\)/, ''),
+      off.replace(/\$arguments = @\(.*\)/, ''),
+      `codex-legacy/${preset}: script body outside $arguments unchanged by debug`,
+    )
+
+    // (a) Directive present, verbatim, ahead of the original prompt. The legacy
+    // path escapes newlines/double-quotes in the prompt arg but the directive
+    // text contains neither, so it survives intact.
+    assert.equal(offArgs.at(-1), prompt, `codex-legacy/${preset}: debug-off prompt arg unchanged`)
+    assert.ok(
+      onArgs.at(-1)?.startsWith(DEBUG_DIRECTIVE),
+      `codex-legacy/${preset}: debug-on prompt arg leads with the verbatim directive`,
+    )
+    assert.ok(
+      onArgs.at(-1)?.includes(prompt),
+      `codex-legacy/${preset}: original prompt preserved after the directive`,
+    )
+  }
+
+  // Resume carries no prompt arg on this path, so debug on vs off renders an
+  // identical script — the directive only rides an initial prompt.
+  const resumeOff = buildCodexLegacyNativeAgentLaunchPowerShellScript(
+    'sid_legacy', true, cwd, undefined, runtime, 'default', undefined, false,
+  )
+  const resumeOn = buildCodexLegacyNativeAgentLaunchPowerShellScript(
+    'sid_legacy', true, cwd, undefined, runtime, 'default', undefined, true,
+  )
+  assert.equal(resumeOn, resumeOff, 'codex-legacy resume: debug toggle is a no-op without an initial prompt')
+
+  // Debug on with no initial prompt still injects the directive as the sole
+  // prompt arg, matching applyDebugDirective('', true).
+  const noPromptOn = buildCodexLegacyNativeAgentLaunchPowerShellScript(
+    'sid_legacy', false, cwd, '', runtime, 'default', undefined, true,
+  )
+  assert.equal(
+    decodeWindowsScriptArgs(noPromptOn).at(-1),
+    DEBUG_DIRECTIVE,
+    'codex-legacy: debug-on with empty prompt injects the directive alone',
+  )
 }
 
 main().catch((err) => {
