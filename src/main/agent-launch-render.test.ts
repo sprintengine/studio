@@ -1,6 +1,8 @@
 import assert from 'node:assert/strict'
 import { join } from 'node:path'
 
+import { DEBUG_DIRECTIVE, applyDebugDirective } from '../shared/debug-directive'
+import type { SprintEngineCliPermissionPreset } from '../shared/electron-api'
 import {
   argvToPosixShellCommand,
   buildAgentShellCommand,
@@ -9,6 +11,7 @@ import {
   renderAgentLaunchArgv,
   resolveCliRuntimeSettings,
 } from './agent-launch-render'
+import { composeSpawnAgentPrompt } from './automations/actions/spawn-agent'
 import { createPluginRegistry } from './plugin-registry'
 import {
   __resetPluginRegistryForTest,
@@ -36,6 +39,9 @@ async function main(): Promise<void> {
     testBuildAgentShellCommandCodex()
     testRenderArgvIncludesBinaryAsFirstElement()
     testResolveCliRuntimeSettings()
+    testApplyDebugDirectiveHelper()
+    testDebugModeOrthogonality()
+    testDebugDirectiveReachesRenderedArgvAllPaths()
   })
 
   console.log('agent-launch-render tests passed')
@@ -322,6 +328,94 @@ function testBuildAgentShellCommandCodex(): void {
     resumeOut,
     `if ! command -v codex >/dev/null 2>&1; then echo 'Codex CLI was not found. Check the codex command in Multicode Settings.'; else codex resume; fi`
   )
+}
+
+// Criterion: helper returns the prompt unchanged when off and prepends the
+// verbatim directive when on. The pure helper has no plugin/registry deps.
+function testApplyDebugDirectiveHelper(): void {
+  assert.equal(applyDebugDirective('do the thing', false), 'do the thing', 'off → byte-identical input')
+  assert.equal(
+    applyDebugDirective('do the thing', true),
+    `${DEBUG_DIRECTIVE}\n\ndo the thing`,
+    'on → directive prepended ahead of the prompt',
+  )
+  assert.ok(applyDebugDirective('do the thing', true).startsWith(DEBUG_DIRECTIVE), 'directive is first')
+  assert.equal(applyDebugDirective('', true), DEBUG_DIRECTIVE, 'on with no prompt → directive only')
+  assert.equal(applyDebugDirective('', false), '', 'off with no prompt → empty')
+}
+
+// Orthogonality invariant: Debug Mode must change only the prompt token, never
+// the permission/session/model argv, for every CLI × preset. The prompt is
+// always the trailing argv element, so comparing argv.slice(0, -1) isolates the
+// permission surface.
+function testDebugModeOrthogonality(): void {
+  const presets: SprintEngineCliPermissionPreset[] = ['default', 'auto_workspace', 'bypass_all']
+  const prompt = 'investigate the crash'
+  for (const cli of ['claude-code', 'codex'] as const) {
+    for (const preset of presets) {
+      const off = renderAgentLaunchArgv({ cli, sessionId: 'sid_dbg', initialPrompt: prompt, cliPermissionPreset: preset })
+      const on = renderAgentLaunchArgv({
+        cli,
+        sessionId: 'sid_dbg',
+        initialPrompt: prompt,
+        cliPermissionPreset: preset,
+        debugMode: true,
+      })
+      assert.deepEqual(
+        on.argv.slice(0, -1),
+        off.argv.slice(0, -1),
+        `${cli}/${preset}: permission argv identical with debug on vs off`,
+      )
+      assert.equal(off.argv.at(-1), prompt, `${cli}/${preset}: debug-off prompt token unchanged`)
+      assert.equal(
+        on.argv.at(-1),
+        applyDebugDirective(prompt, true),
+        `${cli}/${preset}: debug-on prompt token carries the directive`,
+      )
+    }
+  }
+}
+
+// Criterion: the directive reaches the rendered prompt/argv for all three spawn
+// paths. Interactive, automations, and sprintengine startup all compose an
+// initial prompt and converge on renderAgentLaunchArgv (the launch boundary), so
+// rendering each path's real prompt shape with debugMode proves the directive
+// lands regardless of prompt content. buildAgentShellCommand covers the posix/
+// wsl shell-string output the same boundary feeds.
+function testDebugDirectiveReachesRenderedArgvAllPaths(): void {
+  const interactivePrompt = 'investigate the failing login test'
+  const automationsPrompt = composeSpawnAgentPrompt({
+    userPrompt: 'reproduce the timeout',
+    autonomy: 'allow_changes',
+    automationId: 'auto-1',
+    runId: 'run-1',
+  })
+  // Representative sprintengine startup shape: leading "Name: Role -" identifier
+  // line plus a multiline body (see buildSprintEngineStartupPrompt).
+  const sprintenginePrompt = 'Cian Rea: Developer - Your first action is to run the MCP calls.\n\n## First MCP Calls\nCall help.'
+
+  for (const path of [interactivePrompt, automationsPrompt, sprintenginePrompt]) {
+    for (const cli of ['claude-code', 'codex'] as const) {
+      const out = renderAgentLaunchArgv({ cli, sessionId: 'sid_path', initialPrompt: path, debugMode: true })
+      const promptToken = out.argv.at(-1) ?? ''
+      assert.ok(promptToken.startsWith(DEBUG_DIRECTIVE), `${cli}: directive prepended for path prompt`)
+      assert.ok(promptToken.includes(path), `${cli}: original prompt preserved after the directive`)
+    }
+  }
+
+  const shell = buildAgentShellCommand({
+    cli: 'claude-code',
+    sessionId: 'sid_path',
+    initialPrompt: interactivePrompt,
+    cliPermissionPreset: 'bypass_all',
+    debugMode: true,
+  })
+  // Posix quoting single-quotes the whole prompt token and escapes the
+  // apostrophe in the directive, so assert on a quote-free fragment + the state
+  // file path rather than the raw directive string.
+  assert.ok(shell.includes('You are in DEBUG MODE.'), 'posix/wsl shell command embeds the directive')
+  assert.ok(shell.includes('.multi-code/debug/'), 'directive state-file path reaches the shell command')
+  assert.ok(shell.includes('--permission-mode bypassPermissions'), 'permission flags unchanged in shell command')
 }
 
 main().catch((err) => {
