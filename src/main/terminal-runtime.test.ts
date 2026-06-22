@@ -16,6 +16,10 @@ type ReleaseManagedSprintEngineRun = NonNullable<Parameters<typeof import('./ter
 type ReleaseInput = Parameters<ReleaseManagedSprintEngineRun>[0]
 type CallManagedSprintEngineTool = NonNullable<Parameters<typeof import('./terminal-runtime')['createTerminalRuntime']>[0]['callManagedSprintEngineTool']>
 type ToolCallInput = Parameters<CallManagedSprintEngineTool>[0]
+type TerminalRuntime = ReturnType<RuntimeModule['createTerminalRuntime']>
+type AgentSpawnInput = Parameters<TerminalRuntime['spawnAgentSession']>[0]
+type AgentSpawnDescriptor = AgentSpawnInput['descriptor']
+type AgentSessionExitEvent = Parameters<Parameters<TerminalRuntime['registerAgentSessionExitListener']>[0]>[0]
 
 type SentEvent = {
   channel: string
@@ -118,6 +122,7 @@ async function main(): Promise<void> {
     await assertHiddenTerminalOutputSkipsLiveIpcAndReplaysOnAttach(runtimeModule)
     await assertStaleSweepReapsOnlyUnseenHiddenTerminals(runtimeModule)
     await assertIdleSweepSuspendsRatherThanDisposes(runtimeModule)
+    await assertAgentSessionExitListenerFiresSystemTaggedForAnySystem(runtimeModule)
   } finally {
     moduleWithLoad._load = originalLoad
   }
@@ -213,6 +218,129 @@ async function assertIdleSweepSuspendsRatherThanDisposes(runtimeModule: RuntimeM
       'live (hot) workspaces must never be suspended by the reaper'
     )
   } finally {
+    await runtime.shutdown()
+  }
+}
+
+// T1 decoupled the core runtime from Switchboard: the runtime now fires its
+// agent-session-exit listener for ANY system (filtering moved into the
+// switchboard module) and reports live executions as system-tagged entries.
+// This locks in that generic behavior — the runtime must not special-case
+// switchboard/watchtower, and the exit payload must carry system +
+// workspace identity for every agent session.
+async function assertAgentSessionExitListenerFiresSystemTaggedForAnySystem(
+  runtimeModule: RuntimeModule
+): Promise<void> {
+  const workspaceRoot = await mkdtemp(join(tmpdir(), 'multicode-terminal-runtime-agent-exit-'))
+  mockPty.spawnCalls = []
+  mockSender.sent = []
+
+  const runtime = runtimeModule.createTerminalRuntime({
+    diagnosticsEnabled: false,
+    requireAuthenticatedUser: () => undefined,
+    logMainPerfEvent: () => undefined,
+  })
+
+  const events: AgentSessionExitEvent[] = []
+  const unregister = runtime.registerAgentSessionExitListener((event) => {
+    events.push(event)
+  })
+
+  const spawnAgent = async (
+    overrides: Pick<AgentSpawnDescriptor, 'executionId' | 'system'> & { workspaceId: string }
+  ): Promise<MockPtyProcess> => {
+    const descriptor: AgentSpawnDescriptor = {
+      executionId: overrides.executionId,
+      system: overrides.system,
+      workId: `work-${overrides.executionId}`,
+      role: 'agent',
+      displayName: `Agent ${overrides.executionId}`,
+      command: ['codex'],
+      cwd: workspaceRoot,
+    }
+    const result = await runtime.spawnAgentSession({
+      workspaceId: overrides.workspaceId,
+      workspaceRoot,
+      descriptor,
+      mcpSettings: { syncEnabled: false, servers: {} } satisfies McpSettings,
+    })
+    assert.equal(result.ok, true, JSON.stringify(result))
+    const spawned = mockPty.spawnCalls[mockPty.spawnCalls.length - 1]?.process
+    assert.ok(spawned, `expected a pty for ${overrides.executionId}`)
+    return spawned
+  }
+
+  try {
+    // A switchboard session and a sprintengine session prove the runtime is
+    // system-agnostic: both must surface in the inventory and both must fire
+    // the exit listener. The runtime no longer knows what switchboard is.
+    const switchboardPty = await spawnAgent({
+      executionId: 'exec-switchboard',
+      system: 'switchboard',
+      workspaceId: 'ws-switchboard',
+    })
+    const sprintEnginePty = await spawnAgent({
+      executionId: 'exec-sprintengine',
+      system: 'sprintengine',
+      workspaceId: 'ws-sprintengine',
+    })
+
+    const liveById = new Map(
+      runtime.getLiveAgentExecutionIds().map((execution) => [execution.executionId, execution.system])
+    )
+    assert.deepEqual(
+      liveById,
+      new Map([
+        ['exec-switchboard', 'switchboard'],
+        ['exec-sprintengine', 'sprintengine'],
+      ]),
+      'getLiveAgentExecutionIds must return system-tagged entries for every live agent session, not a switchboard-only id list'
+    )
+
+    switchboardPty.emitExit({ exitCode: 7 })
+    sprintEnginePty.emitExit({ exitCode: 0 })
+    await delay(20)
+
+    const byExecution = new Map(events.map((event) => [event.executionId, event]))
+    assert.deepEqual(
+      byExecution.get('exec-switchboard'),
+      {
+        system: 'switchboard',
+        workspaceRoot,
+        workspaceId: 'ws-switchboard',
+        executionId: 'exec-switchboard',
+        exitCode: 7,
+      },
+      'switchboard session exit must fire the generic listener with the full system-tagged payload'
+    )
+    assert.deepEqual(
+      byExecution.get('exec-sprintengine'),
+      {
+        system: 'sprintengine',
+        workspaceRoot,
+        workspaceId: 'ws-sprintengine',
+        executionId: 'exec-sprintengine',
+        exitCode: 0,
+      },
+      'a non-switchboard session must also fire the listener: filtering is the module’s job, not the runtime’s'
+    )
+
+    // Unregister stops delivery — the registration seam is a real subscription.
+    unregister()
+    const afterUnregister = await spawnAgent({
+      executionId: 'exec-after-unregister',
+      system: 'switchboard',
+      workspaceId: 'ws-switchboard',
+    })
+    afterUnregister.emitExit({ exitCode: 1 })
+    await delay(20)
+    assert.equal(
+      events.some((event) => event.executionId === 'exec-after-unregister'),
+      false,
+      'an unregistered listener must not receive further exit events'
+    )
+  } finally {
+    unregister()
     await runtime.shutdown()
   }
 }

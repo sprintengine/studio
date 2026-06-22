@@ -10,7 +10,11 @@ import type {
   TerminalSessionSnapshot,
   TerminalSpawnResult,
 } from '../shared/electron-api'
-import type { SwitchboardAgentSpawnDescriptor } from '../shared/switchboard'
+import type {
+  AgentSessionExitListener,
+  AgentSpawnDescriptor,
+  LiveAgentExecution,
+} from '../shared/agent-runtime'
 import { createAgentStreamWatcher } from './agent-stream-watcher'
 import type { TerminalSpawnPayload } from './ipc/terminal-ipc'
 import {
@@ -53,12 +57,6 @@ type TerminalRuntimeOptions = {
   diagnosticsEnabled: boolean
   requireAuthenticatedUser(message: string): void
   logMainPerfEvent(scope: string, event: string, payload: Record<string, unknown>): void
-  onAgentSessionExit?(input: {
-    workspaceRoot: string
-    workspaceId?: string
-    executionId: string
-    exitCode: number
-  }): void | Promise<void>
   syncMcpConfig?(input: {
     workspaceRoot: string
     settings: McpSettings
@@ -110,7 +108,8 @@ type TerminalRuntime = {
   commandService: MobileSprintEngineCommandService
   ipcHandlers: TerminalIpcHandlers
   shutdown(): Promise<void>
-  getLiveAgentExecutionIds(): string[]
+  getLiveAgentExecutionIds(): LiveAgentExecution[]
+  registerAgentSessionExitListener(listener: AgentSessionExitListener): () => void
   killAgentSession(input: {
     workspaceRoot: string
     executionId: string
@@ -118,7 +117,7 @@ type TerminalRuntime = {
   spawnAgentSession(input: {
     workspaceId?: string
     workspaceRoot: string
-    descriptor: SwitchboardAgentSpawnDescriptor
+    descriptor: AgentSpawnDescriptor
     mcpSettings?: McpSettings
   }): Promise<TerminalSpawnResult>
 }
@@ -129,7 +128,7 @@ let terminalDiagnostics = createTerminalDiagnostics({
   logMainPerfEvent: () => {},
 })
 let logMainPerfEvent: TerminalRuntimeOptions['logMainPerfEvent'] = () => {}
-let onAgentSessionExit: TerminalRuntimeOptions['onAgentSessionExit']
+const agentSessionExitListeners = new Set<AgentSessionExitListener>()
 let syncMcpConfig: TerminalRuntimeOptions['syncMcpConfig']
 let releaseManagedSprintEngineRun: TerminalRuntimeOptions['releaseManagedSprintEngineRun']
 let callManagedSprintEngineTool: TerminalRuntimeOptions['callManagedSprintEngineTool']
@@ -220,7 +219,7 @@ function sprintEngineRoleForLaunch(role: string | undefined, agentId: string | u
 
 export function createTerminalRuntime(options: TerminalRuntimeOptions): TerminalRuntime {
   requireAuthenticatedUser = options.requireAuthenticatedUser
-  onAgentSessionExit = options.onAgentSessionExit
+  agentSessionExitListeners.clear()
   syncMcpConfig = options.syncMcpConfig
   releaseManagedSprintEngineRun = options.releaseManagedSprintEngineRun
   callManagedSprintEngineTool = options.callManagedSprintEngineTool
@@ -240,6 +239,7 @@ export function createTerminalRuntime(options: TerminalRuntimeOptions): Terminal
     commandService: createMobileCommandService(),
     shutdown: shutdownTerminalRuntime,
     getLiveAgentExecutionIds,
+    registerAgentSessionExitListener,
     killAgentSession: killAgentSessionByExecutionId,
     spawnAgentSession: spawnAgentSessionFromDescriptor,
     ipcHandlers: {
@@ -286,7 +286,7 @@ function descriptorPromptKeystrokes(prompt: string | undefined): string | undefi
 
 function installAgentLifecycleWatcher(
   terminalSession: TerminalSession,
-  descriptor: SwitchboardAgentSpawnDescriptor,
+  descriptor: AgentSpawnDescriptor,
   injectionMode: 'positional-arg' | 'stdin-pipe' | 'send-after-ready'
 ): void {
   const completionMode = descriptor.completion?.mode ?? 'process-exit'
@@ -735,14 +735,20 @@ async function disposeAllTerminals(): Promise<void> {
   sprintEngineMcpRunRefCounts.clear()
 }
 
-function getLiveAgentExecutionIds(): string[] {
+function getLiveAgentExecutionIds(): LiveAgentExecution[] {
   return [...terminals.values()]
-    .filter((session) => (
-      isTerminalProcessAlive(session)
-      && (session.agentSession?.system === 'switchboard' || session.agentSession?.system === 'watchtower')
-    ))
-    .map((session) => session.agentSession?.executionId)
-    .filter((executionId): executionId is string => Boolean(executionId))
+    .filter((session) => isTerminalProcessAlive(session) && Boolean(session.agentSession?.executionId))
+    .map((session) => ({
+      system: session.agentSession!.system,
+      executionId: session.agentSession!.executionId,
+    }))
+}
+
+function registerAgentSessionExitListener(listener: AgentSessionExitListener): () => void {
+  agentSessionExitListeners.add(listener)
+  return () => {
+    agentSessionExitListeners.delete(listener)
+  }
 }
 
 function killAgentSessionByExecutionId(input: { workspaceRoot: string; executionId: string }): void {
@@ -1099,17 +1105,22 @@ function attachTerminalSession(
     terminalOutput.flush(sessionId, 'exit')
     terminalDiagnostics.clear(sessionId)
     setTerminalActivity(terminalSession, { kind: 'exited', at: Date.now(), exitCode: event.exitCode })
-    if (terminalSession.agentSession?.system === 'switchboard' || terminalSession.agentSession?.system === 'watchtower') {
-      const exitRecord = Promise.resolve(onAgentSessionExit?.({
-        workspaceRoot: terminalSession.agentSession.workspaceRoot,
-        workspaceId: terminalSession.agentSession.workspaceId,
-        executionId: terminalSession.agentSession.executionId,
+    const agentSession = terminalSession.agentSession
+    if (agentSession?.executionId && agentSessionExitListeners.size > 0) {
+      const exitEvent = {
+        system: agentSession.system,
+        workspaceRoot: agentSession.workspaceRoot,
+        workspaceId: agentSession.workspaceId,
+        executionId: agentSession.executionId,
         exitCode: event.exitCode,
-      })).catch(() => {})
-      pendingAgentSessionExitRecords.add(exitRecord)
-      void exitRecord.finally(() => {
-        pendingAgentSessionExitRecords.delete(exitRecord)
-      })
+      }
+      for (const listener of agentSessionExitListeners) {
+        const exitRecord = Promise.resolve(listener(exitEvent)).catch(() => {})
+        pendingAgentSessionExitRecords.add(exitRecord)
+        void exitRecord.finally(() => {
+          pendingAgentSessionExitRecords.delete(exitRecord)
+        })
+      }
     }
     if (terminals.get(sessionId) === terminalSession) {
       broadcastTerminalSessionsChanged()
@@ -1128,7 +1139,7 @@ function attachTerminalSession(
 async function spawnAgentSessionFromDescriptor(input: {
   workspaceId?: string
   workspaceRoot: string
-  descriptor: SwitchboardAgentSpawnDescriptor
+  descriptor: AgentSpawnDescriptor
   mcpSettings?: McpSettings
 }): Promise<TerminalSpawnResult> {
   const sender = BrowserWindow.getAllWindows().find((win) => !win.isDestroyed())?.webContents

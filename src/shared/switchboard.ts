@@ -1,4 +1,12 @@
 import type { McpSettings } from './electron-api'
+import type {
+  AgentInjectionMode,
+  AgentReadinessSignal,
+  AgentInjectionSpec,
+  AgentCompletionMode,
+  AgentCompletionSpec,
+  AgentSpawnDescriptor,
+} from './agent-runtime'
 
 export const SWITCHBOARD_TASK_STATUSES = [
   'planning',
@@ -401,48 +409,15 @@ export type SwitchboardExecutionStatus = 'launching' | 'active' | 'missing' | 's
 export type SwitchboardExecutionProviderRef = Record<string, string | number | boolean | null>
 export type SwitchboardRunnerExecutionKind = 'switchboard_task' | 'watchtower_review' | 'watchtower_triage'
 
-export type SwitchboardAgentInjectionMode =
-  | 'positional-arg'
-  | 'stdin-pipe'
-  | 'send-after-ready'
-
-export type SwitchboardAgentReadinessSignal = {
-  type: 'output-match'
-  pattern: string
-  timeoutMs: number
-}
-
-export type SwitchboardAgentInjectionSpec = {
-  mode: SwitchboardAgentInjectionMode
-  readiness?: SwitchboardAgentReadinessSignal
-}
-
-export type SwitchboardAgentCompletionMode = 'process-exit' | 'output-sentinel'
-
-export type SwitchboardAgentCompletionSpec = {
-  mode: SwitchboardAgentCompletionMode
-  sentinel?: string
-}
-
-export type SwitchboardAgentSpawnDescriptor = {
-  executionId: string
-  system: 'switchboard' | 'watchtower'
-  workId: string
-  role: string
-  displayName: string
-  command: string[]
-  cwd: string
-  env?: Record<string, string>
-  prompt?: string
-  cli?: 'codex' | 'claude-code'
-  // Phase 3 (BYO-CLI billing fix): when present, the runtime injects the
-  // prompt via the named mode instead of always using stdin-pipe with EOF.
-  injection?: SwitchboardAgentInjectionSpec
-  // When `completion.mode === 'output-sentinel'`, the runtime watches the
-  // pty output for the sentinel literal and disposes the session as soon
-  // as it sees one, instead of waiting for the process to exit.
-  completion?: SwitchboardAgentCompletionSpec
-}
+// Agent spawn/injection/completion contracts are now generic agent-runtime
+// types (src/shared/agent-runtime.ts). These switchboard-prefixed aliases are
+// kept for compatibility with existing importers.
+export type SwitchboardAgentInjectionMode = AgentInjectionMode
+export type SwitchboardAgentReadinessSignal = AgentReadinessSignal
+export type SwitchboardAgentInjectionSpec = AgentInjectionSpec
+export type SwitchboardAgentCompletionMode = AgentCompletionMode
+export type SwitchboardAgentCompletionSpec = AgentCompletionSpec
+export type SwitchboardAgentSpawnDescriptor = AgentSpawnDescriptor
 
 export type SwitchboardRunnerStartInput = {
   workspaceRoot: string
