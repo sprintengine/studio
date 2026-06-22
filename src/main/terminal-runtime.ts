@@ -600,8 +600,10 @@ export function reapStaleTerminals(now = Date.now()): string[] {
 }
 
 // In-session reaper: suspend idle agent terminals that have fallen out of the
-// recency hot set, so a long session doesn't accumulate dozens of idle agents
-// holding GBs. Driven ONLY by repaint-immune signals — real user input
+// recency hot set — or that have sat idle past the absolute ceiling even while
+// nominally "hot" (so a session left untouched for days after the user walks
+// away is still reclaimed) — so a long session doesn't accumulate dozens of idle
+// agents holding GBs. Driven ONLY by repaint-immune signals — real user input
 // (lastInputAt), visibility, and run-state — so revealing a workspace (which
 // makes its TUIs repaint) can't reset the idle clock or look like activity. The
 // decision lives in the pure policy (terminal-reap-policy); this maps live
