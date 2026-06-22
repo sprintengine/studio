@@ -82,7 +82,7 @@ export function SpawnDebugToggle({ active, onChange }: { active: boolean; onChan
         onClick={() => onChange(!active)}
         className={`rounded px-2 py-0.5 text-[11px] font-medium transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--tone-error)] ${
           active
-            ? 'bg-[color:var(--tone-error)]/12 text-[color:var(--tone-error)]'
+            ? 'bg-[color:var(--tone-error)]/12 text-[color:var(--tone-error-on-tint)]'
             : 'text-[color:var(--text-disabled)] hover:text-[color:var(--text-muted)]'
         }`}
       >
@@ -849,7 +849,7 @@ export default function SpawnAgentMenu({
                 className={`rounded px-2 py-0.5 text-[11px] font-medium transition-colors ${
                   active
                     ? isBypass
-                      ? 'bg-[color:var(--tone-warn)]/12 text-[color:var(--tone-warn)]'
+                      ? 'bg-[color:var(--tone-warn)]/12 text-[color:var(--tone-warn-on-tint)]'
                       : 'bg-[color:var(--accent-primary-soft)] text-[color:var(--text-strong)]'
                     : 'text-[color:var(--text-disabled)] hover:text-[color:var(--text-muted)]'
                 }`}

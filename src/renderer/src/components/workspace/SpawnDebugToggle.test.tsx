@@ -51,7 +51,7 @@ run('active: aria-pressed=true with the error-tone fill', () => {
   const button = buttonOf(tooltipElement(true, () => {}))
   assert.equal(button.props['aria-pressed'], true, 'on state is announced via aria-pressed')
   assert.match(button.props.className, /bg-\[color:var\(--tone-error\)\]\/12/, 'active uses the error-tone soft fill')
-  assert.match(button.props.className, /text-\[color:var\(--tone-error\)\]/, 'active text is error-tone')
+  assert.match(button.props.className, /text-\[color:var\(--tone-error-on-tint\)\]/, 'active label uses the deeper on-tint error ink that clears AA on the soft fill')
 })
 
 run('carries a visible focus ring and a tooltip noting Auto/Bypass work best', () => {
