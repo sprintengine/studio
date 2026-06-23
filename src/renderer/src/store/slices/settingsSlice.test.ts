@@ -200,16 +200,21 @@ assert.equal(normalizeCliPermissionPreset('auto_workspace'), 'auto_workspace')
 assert.equal(normalizeCliPermissionPreset('bypass_all'), 'bypass_all')
 assert.equal(normalizeCliPermissionPreset('bad' as never), 'default')
 
-// New-chat agent choice: terminal and known specialists round-trip; unknown
-// specialist ids, malformed shapes, and missing values fall back to general.
+// New-chat agent choice: terminal and any non-empty specialist id round-trip
+// (bundled or registry-discovered, so a plugged-in specialist can be the
+// default); only malformed shapes and missing values fall back to general.
 assert.deepEqual(normalizeNewChatAgentChoice({ kind: 'terminal' }), { kind: 'terminal' })
 assert.deepEqual(normalizeNewChatAgentChoice({ kind: 'specialist', specialistId: 'frontend-design-review' }), {
   kind: 'specialist',
   specialistId: 'frontend-design-review',
 })
-assert.deepEqual(normalizeNewChatAgentChoice({ kind: 'specialist', specialistId: 'no-such-agent' }), {
-  kind: 'general',
+// A registry-discovered specialist id is preserved; the roster is validated at
+// spawn/render time, not dropped here.
+assert.deepEqual(normalizeNewChatAgentChoice({ kind: 'specialist', specialistId: 'marketer' }), {
+  kind: 'specialist',
+  specialistId: 'marketer',
 })
+assert.deepEqual(normalizeNewChatAgentChoice({ kind: 'specialist', specialistId: '  ' }), { kind: 'general' })
 assert.deepEqual(normalizeNewChatAgentChoice({ kind: 'specialist' }), { kind: 'general' })
 assert.deepEqual(normalizeNewChatAgentChoice({ kind: 'bogus' }), { kind: 'general' })
 assert.deepEqual(normalizeNewChatAgentChoice(undefined), { kind: 'general' })

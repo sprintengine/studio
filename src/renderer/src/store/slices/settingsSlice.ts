@@ -40,7 +40,6 @@ import {
 import { isAppTheme, type AppearanceSettings, type AppTheme } from '../../types/appTheme'
 import { normalizeModuleOverrides } from '../../../../shared/modules/manifest'
 import { collapseDuplicateKeybindings } from '../../commands/keybindings'
-import { SPECIALIST_ACTIONS } from '../../specialists/specialistActions'
 
 export const MAX_RECENT_WORKSPACE_FOLDERS = 50
 
@@ -558,19 +557,19 @@ export function normalizeSpecialistPacks(input: unknown): { disabled: string[] }
   return { disabled }
 }
 
-// Persisted "New chat in project" agent choice. A specialist choice survives
-// only while its id is still in the roster; anything else (including a stale
-// specialist id or a malformed value) falls back to the General agent so a
-// plain New chat can never spawn an unknown agent.
+// Persisted "New chat in project" agent choice. A specialist choice is kept as
+// long as it carries a non-empty id — bundled or registry-discovered (a
+// plugged-in specialist pack) — so a pluggable specialist can be the default.
+// The live roster is validated where the choice is shown and spawned, so a
+// removed pack degrades gracefully there; only malformed shapes (missing id,
+// wrong type) fall back to the General agent here.
 export function normalizeNewChatAgentChoice(input: unknown): NewChatAgentChoice {
   if (!input || typeof input !== 'object') return { kind: 'general' }
   const choice = input as Partial<NewChatAgentChoice>
   if (choice.kind === 'terminal') return { kind: 'terminal' }
   if (choice.kind === 'specialist') {
     const id = typeof choice.specialistId === 'string' ? (choice.specialistId.trim() as SpecialistActionId) : null
-    if (id && SPECIALIST_ACTIONS.some((action) => action.id === id)) {
-      return { kind: 'specialist', specialistId: id }
-    }
+    if (id) return { kind: 'specialist', specialistId: id }
   }
   return { kind: 'general' }
 }
