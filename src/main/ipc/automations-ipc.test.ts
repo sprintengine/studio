@@ -112,7 +112,7 @@ function workspaceSnapshot(workspaceRoots: string[]): WorkspaceSyncSnapshot {
         folderPath,
       })),
     },
-  } as WorkspaceSyncSnapshot
+  } as unknown as WorkspaceSyncSnapshot
 }
 
 function definitionDraft(overrides: Partial<AutomationDefinitionDraft> = {}): AutomationDefinitionDraft {

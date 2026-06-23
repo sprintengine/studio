@@ -13,10 +13,13 @@ import type { SprintEngineToolName } from '../../../shared/sprintengineToolNames
 import {
   buildSprintEngineAgentRosterForState,
   getOpenSprintEngineQualityGates,
+  getReviewableSprintEngineArtifacts,
   getSprintEngineArtifactAutoApprovalEligibility,
+  getSprintEngineArtifactsByTaskId,
   getSprintEngineTaskBoardColumn,
   isSprintEngineArtifactAutoApprovableKind,
   isSprintEngineTaskLaunchable,
+  sprintEngineAutoApprovalBlockingSiblingsAllReviewable,
 } from './sprintengine'
 import { logPerfEvent } from './perfDiagnostics'
 
@@ -165,18 +168,35 @@ export function getArchitectActionableNeedsInputTasks(sprintEngineState: SprintE
 export function getAutoApprovalIntentArtifacts(sprintEngineState: SprintEngineState): SprintEngineArtifact[] {
   const tasksById = new Map(sprintEngineState.tasks.map((task) => [task.id, task]))
   const hasNeedsInputTask = sprintEngineState.tasks.some((task) => task.status === 'needs_input')
+  const reviewArtifactsByTaskId = getSprintEngineArtifactsByTaskId(
+    getReviewableSprintEngineArtifacts(sprintEngineState.artifacts)
+  )
   return sprintEngineState.artifacts.filter((artifact) => {
     const task = tasksById.get(artifact.taskId)
     if (!task) return false
     if (!artifact.createdBy.trim() && !task.ownerAgentId?.trim()) return false
-    if (getSprintEngineArtifactAutoApprovalEligibility(artifact).eligible) return true
-    if (!hasNeedsInputTask) return false
-    // Unknown kinds stay visible for manual review but must not become
-    // approval intents: the main-process auto-approval gate rejects them, so
-    // proposing one here would loop warning -> cooldown -> warning forever.
-    if (!isSprintEngineArtifactAutoApprovableKind(artifact.kind)) return false
-    if (!NEEDS_INPUT_AUTO_APPROVAL_STATUSES.has(artifact.status)) return false
-    return Boolean(artifact.path.trim())
+
+    // The artifact itself must be approvable: either ready-for-review eligible,
+    // or (when a sibling task awaits input) an auto-approvable kind in an
+    // approvable review status with a file. Unknown kinds stay visible for
+    // manual review but must never become intents — the gate rejects them, so
+    // proposing one loops warning -> cooldown -> warning forever.
+    const selfApprovable =
+      getSprintEngineArtifactAutoApprovalEligibility(artifact).eligible
+      || (hasNeedsInputTask
+        && isSprintEngineArtifactAutoApprovableKind(artifact.kind)
+        && NEEDS_INPUT_AUTO_APPROVAL_STATUSES.has(artifact.status)
+        && Boolean(artifact.path.trim()))
+    if (!selfApprovable) return false
+
+    // Agree with the main-process gate: a distinct-file pending sibling that is
+    // not yet approvable still vetoes this intent, but a stale same-file
+    // duplicate of this artifact does not. Without this the supervisor would
+    // propose an artifact the gate rejects (or skip one it would accept).
+    return sprintEngineAutoApprovalBlockingSiblingsAllReviewable(
+      artifact,
+      reviewArtifactsByTaskId[artifact.taskId] ?? []
+    )
   })
 }
 

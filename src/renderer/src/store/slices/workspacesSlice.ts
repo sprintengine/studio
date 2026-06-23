@@ -225,7 +225,7 @@ export interface WorkspacesSliceActions {
   applyWorkspaceCreatedEvent: (apply: WorkspaceCreatedApply) => void
   setWorkspaceHighlight: (id: WorkspaceId, highlight: Partial<WorkspaceHighlight>) => void
   clearWorkspaceHighlight: (id: WorkspaceId) => void
-  recordWorkspaceTerminalActivity: (id: WorkspaceId, lastOutputAt: number) => void
+  recordWorkspaceTerminalActivity: (id: WorkspaceId, lastInputAt: number) => void
   forgetFolder: (folderPath: string) => void
   addWorkspace: (
     template: LayoutTemplate,
@@ -828,15 +828,18 @@ export function createWorkspacesSlice(
         if (ws) ws.highlight = undefined
       }),
 
-    recordWorkspaceTerminalActivity: (id, lastOutputAt) =>
+    // Monotonic: `lastTerminalActivityAt` only moves forward, and is fed from the
+    // user's last terminal input (typing), not terminal output — so reopening a
+    // workspace never advances it. See deriveWorkspaceLastInputAt.
+    recordWorkspaceTerminalActivity: (id, lastInputAt) =>
       set((state) => {
         const ws = state.workspaces.find((w) => w.id === id)
         if (!ws) return
         if (
           typeof ws.lastTerminalActivityAt !== 'number'
-          || ws.lastTerminalActivityAt < lastOutputAt
+          || ws.lastTerminalActivityAt < lastInputAt
         ) {
-          ws.lastTerminalActivityAt = lastOutputAt
+          ws.lastTerminalActivityAt = lastInputAt
         }
       }),
 

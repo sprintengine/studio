@@ -216,17 +216,19 @@ def apply_source_context_to_task(task: Dict[str, Any], state: Dict[str, Any], st
     add_unique_values(task, "implementationNotes", notes)
 
 def find_architect_plan_gate(state: Dict[str, Any], state_path: Path) -> Dict[str, Any]:
-    plan_path_value = plan_path_artifact_value(state_path)
+    plan_resolved_path = artifact_absolute_path(state_path, plan_path_artifact_value(state_path))
     plan_task = None
     plan_artifact = None
 
     for artifact in state.setdefault("artifacts", []):
         if not isinstance(artifact, dict):
             continue
+        candidate_path = str(artifact.get("path") or "")
         if (
             artifact.get("kind") == "architect_plan"
-            and artifact.get("path") == plan_path_value
             and artifact.get("status") != "superseded"
+            and candidate_path
+            and artifact_absolute_path(state_path, candidate_path) == plan_resolved_path
         ):
             plan_artifact = artifact
             plan_task = find_task_by_id(state, artifact.get("taskId"))
@@ -257,6 +259,7 @@ def apply_plan_gate_dependency(task: Dict[str, Any], state: Dict[str, Any], stat
 
 def ensure_product_intake_gate(state: Dict[str, Any], state_path: Path, actor: str = "product") -> Dict[str, Any]:
     requirements_path_value = product_intake_path_artifact_value(state_path)
+    requirements_resolved_path = artifact_absolute_path(state_path, requirements_path_value)
     handover_note = product_intake_handover_note(state_path)
     product_task = None
     product_artifact = None
@@ -265,10 +268,12 @@ def ensure_product_intake_gate(state: Dict[str, Any], state_path: Path, actor: s
     for artifact in state.setdefault("artifacts", []):
         if not isinstance(artifact, dict):
             continue
+        candidate_path = str(artifact.get("path") or "")
         if (
             artifact.get("kind") in {"product_strategy", "requirements"}
-            and artifact.get("path") == requirements_path_value
             and artifact.get("status") != "superseded"
+            and candidate_path
+            and artifact_absolute_path(state_path, candidate_path) == requirements_resolved_path
         ):
             product_artifact = artifact
             product_task = find_task_by_id(state, artifact.get("taskId"))

@@ -145,6 +145,7 @@ export type ModuleNotification = {
 export type IpcInvokeHandler = (event: unknown, ...args: unknown[]) => unknown | Promise<unknown>
 
 export type StartupHook = () => void | Promise<void>
+export type ShutdownBeginHook = () => void | Promise<void>
 export type ShutdownHook = () => void | Promise<void>
 
 /** Typed handle for a service one module provides and others require. */
@@ -180,6 +181,13 @@ export type MainHost = {
   getService<T>(token: ServiceToken<T>): T | undefined
   requireService<T>(token: ServiceToken<T>): T
   onStartup(hook: StartupHook): void
+  /**
+   * Run early, before the host tears down shared infrastructure. Use it to stop
+   * self-scheduled loops and flip a shutting-down flag so no new work is
+   * dispatched during teardown; defer awaiting in-flight work to `onShutdown`.
+   * Begin hooks run in registration order, opposite `onShutdown`.
+   */
+  onShutdownBegin(hook: ShutdownBeginHook): void
   onShutdown(hook: ShutdownHook): void
   registerSidecar(spec: SidecarSpec): void
   /**

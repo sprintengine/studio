@@ -6,6 +6,7 @@ import type {
   AutomationDefinition,
   AutomationRun,
 } from '../../../shared/automations/contracts'
+import { RUN_SIGNAL_FILENAME } from '../run-signal'
 
 const PERMISSION_PRESETS: readonly AutomationCliPermissionPreset[] = ['default', 'auto_workspace', 'bypass_all']
 
@@ -168,7 +169,15 @@ export function composeSpawnAgentPrompt(input: {
         'Automation execution mode: review_only.',
         'Do not edit files, create files, delete files, stage changes, commit, push, install packages, or run commands that mutate the workspace.',
         'Inspect and report findings only. If a fix is needed, describe it instead of applying it.',
+        `Exception: writing the single run-status file ${RUN_SIGNAL_FILENAME} described below is allowed and required; it is the only file you may create under this mode.`,
       ]
+
+  const signalInstruction = [
+    'When you finish, declare your terminal outcome as your final action:',
+    `write the file ${RUN_SIGNAL_FILENAME} in your current working directory with exactly this JSON shape:`,
+    '{ "status": "completed" | "failed", "summary"?: string }',
+    'Use "completed" when you finished the task, or "failed" if you could not complete it. Include a short summary of what you did or why it failed.',
+  ]
 
   return [
     `Automation: ${input.automationId}`,
@@ -176,6 +185,8 @@ export function composeSpawnAgentPrompt(input: {
     ...policy,
     '',
     input.userPrompt.trim(),
+    '',
+    ...signalInstruction,
   ].join('\n')
 }
 

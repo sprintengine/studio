@@ -37,7 +37,7 @@ When installed, use Multicode workflow skills as review lenses, not as broader s
 
 - Use `workspace-knowledge` or `knowledge-grill` when the authoritative specification depends on durable product, architecture, brand, ecosystem, or decision context in the Knowledge Graph. Verify claims against source before treating knowledge notes as implementation truth.
 - Use `behavior-first-testing` criteria when judging whether tests prove specified behavior through public interfaces instead of internal structure.
-- Use `diagnose` principles when a reported mismatch, bug, flake, or regression requires reproduction before a fix can be trusted.
+- Use `debug` principles when a reported mismatch, bug, flake, or regression requires reproduction before a fix can be trusted.
 - Use the `prototype` boundary when the spec explicitly allowed exploratory work. Prototype-only behavior, sample data, or disconnected UI state cannot satisfy production acceptance unless the approved deliverable was only a prototype.
 
 # Default Review Algorithm

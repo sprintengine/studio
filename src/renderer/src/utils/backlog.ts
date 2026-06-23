@@ -18,7 +18,7 @@ export type BacklogScanState = 'missing-folder' | 'empty-folder' | 'ready' | 'pa
 // never required from markdown frontmatter. All fields are optional: a rough
 // capture can stay untyped/unestimated until an architect sizes and prioritizes
 // it, which is a calm neutral state, not a defect.
-export type BacklogType = 'feature' | 'bug' | 'mockup'
+export type BacklogType = 'feature' | 'bug' | 'mockup' | 'spike'
 export type BacklogDifficulty = 'xs' | 's' | 'm' | 'l' | 'xl'
 export type BacklogCriticality = 'low' | 'normal' | 'high' | 'critical'
 
@@ -141,7 +141,7 @@ const SOURCE_EXTENSION_RE = /\.(md|html?)$/i
 const HTML_EXTENSION_RE = /\.html?$/i
 const VALID_KIND = new Set<BacklogItemKind>(['product_plan', 'architect_plan', 'html_mockup', 'unknown'])
 const VALID_STATUS = new Set<BacklogItemStatus>(['idea', 'ready', 'in_progress', 'needs_input', 'completed', 'archived'])
-const VALID_TYPE = new Set<BacklogType>(['feature', 'bug', 'mockup'])
+const VALID_TYPE = new Set<BacklogType>(['feature', 'bug', 'mockup', 'spike'])
 const VALID_DIFFICULTY = new Set<BacklogDifficulty>(['xs', 's', 'm', 'l', 'xl'])
 const VALID_CRITICALITY = new Set<BacklogCriticality>(['low', 'normal', 'high', 'critical'])
 const VALID_HIGHLIGHT_COLOR = new Set<BacklogHighlightColor>(['red', 'orange', 'amber', 'green', 'blue', 'purple', 'pink'])

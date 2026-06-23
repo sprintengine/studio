@@ -67,7 +67,7 @@ may expose `/backlog`, while Codex uses explicit skill mention such as
 
 Triage metadata is lightweight and optional; leave an axis unset rather than guessing:
 
-- `type`: `feature`, `bug`, or `mockup`.
+- `type`: `feature`, `bug`, `mockup`, or `spike` (a time-boxed investigation/decision item — the deliverable is a recommendation, not shipped behaviour).
 - `difficulty`: t-shirt size `xs`, `s`, `m`, `l`, or `xl`.
 - `criticality`: `low`, `normal`, `high`, or `critical`.
 - `status`: `idea`, `ready`, `in_progress`, `needs_input`, `completed`, or `archived`.

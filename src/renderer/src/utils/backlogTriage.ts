@@ -46,6 +46,7 @@ export const TYPE_LABEL: Record<BacklogType, string> = {
   feature: 'Feature',
   bug: 'Bug',
   mockup: 'Mockup',
+  spike: 'Spike',
 }
 
 const DIFFICULTY_RANK: Record<BacklogDifficulty, number> = { xs: 0, s: 1, m: 2, l: 3, xl: 4 }

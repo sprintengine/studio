@@ -5,7 +5,13 @@ import type {
   BacklogObjectStorePayload,
   BacklogReadResult,
 } from '../../../shared/electron-api'
-import type { SprintEngineAutomationEvent, SprintEngineState, Workspace } from '../types/workspace'
+import type {
+  SprintEngineAutoState,
+  SprintEngineAutomationEvent,
+  SprintEngineAutomationRuntimeState,
+  SprintEngineState,
+  Workspace,
+} from '../types/workspace'
 import {
   canStopPollingCompletedSprintEngineProjection,
   refreshSprintEngineWorkspaceProjection,
@@ -125,6 +131,18 @@ function portsFor(input: {
       input.diagnostics?.push(diagnostic.message)
     },
     now: () => 1000,
+  }
+}
+
+function autoState(runtimeState?: SprintEngineAutomationRuntimeState): SprintEngineAutoState {
+  return {
+    desiredMode: 'run_agents',
+    runtimeState,
+    keepDoneAgentTerminals: false,
+    cliPermissionPreset: 'default',
+    maxConcurrentAgents: 1,
+    pendingSpawns: [],
+    deliveredAgentNotificationEventKeys: [],
   }
 }
 
@@ -434,7 +452,7 @@ function testCanStopPollingCompletedProjection(): void {
   // Terminal + hydrated → safe to stop polling.
   assert.equal(
     canStopPollingCompletedSprintEngineProjection({
-      sprintEngineAutoState: { runtimeState: 'complete' },
+      sprintEngineAutoState: autoState('complete'),
       sprintEngineState: state,
     }),
     true,
@@ -443,7 +461,7 @@ function testCanStopPollingCompletedProjection(): void {
   // first read can populate the board/run summary.
   assert.equal(
     canStopPollingCompletedSprintEngineProjection({
-      sprintEngineAutoState: { runtimeState: 'complete' },
+      sprintEngineAutoState: autoState('complete'),
       sprintEngineState: null,
     }),
     false,
@@ -452,7 +470,7 @@ function testCanStopPollingCompletedProjection(): void {
   // promote it to `complete` first.
   assert.equal(
     canStopPollingCompletedSprintEngineProjection({
-      sprintEngineAutoState: { runtimeState: 'paused' },
+      sprintEngineAutoState: autoState('paused'),
       sprintEngineState: state,
     }),
     false,
@@ -460,7 +478,7 @@ function testCanStopPollingCompletedProjection(): void {
   // Active run → keep polling.
   assert.equal(
     canStopPollingCompletedSprintEngineProjection({
-      sprintEngineAutoState: { runtimeState: 'running' },
+      sprintEngineAutoState: autoState('running'),
       sprintEngineState: state,
     }),
     false,
@@ -468,7 +486,7 @@ function testCanStopPollingCompletedProjection(): void {
   // No automation lifecycle yet → keep polling.
   assert.equal(
     canStopPollingCompletedSprintEngineProjection({
-      sprintEngineAutoState: null,
+      sprintEngineAutoState: autoState(),
       sprintEngineState: state,
     }),
     false,

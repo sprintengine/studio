@@ -228,13 +228,18 @@ function RunRow({ run, now, highlighted, onOpenAgent, onFinalize, finalizing }: 
               </a>
             ) : null}
             {run.status === 'running' ? (
-              <GhostButton
-                onClick={() => onFinalize(run, 'completed')}
-                disabled={finalizing}
-                className="h-5 px-1.5 text-[10px]"
-              >
-                {finalizing ? 'Finalizing…' : 'Finalize & open PR'}
-              </GhostButton>
+              <>
+                <GhostButton
+                  onClick={() => onFinalize(run, 'completed')}
+                  disabled={finalizing}
+                  className="h-5 px-1.5 text-[10px]"
+                >
+                  {finalizing ? 'Finalizing…' : 'Finalize & open PR'}
+                </GhostButton>
+                <p className="basis-full text-[10px] leading-4 text-[color:var(--text-subtle)]">
+                  Finalizes automatically when the agent reports done — this manual control is a fallback.
+                </p>
+              </>
             ) : null}
           </div>
         ) : null}

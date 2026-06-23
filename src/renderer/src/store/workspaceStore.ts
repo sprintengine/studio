@@ -38,6 +38,7 @@ import type {
   VoiceDictationSettings,
   CliRuntimeSettings,
   SpecialistActionId,
+  NewChatAgentChoice,
   MultiloopRole,
   AgentExecution,
   WorkspaceWorktreeState,
@@ -186,7 +187,7 @@ export interface WorkspaceStore extends PluginsSlice, CliAvailabilitySlice {
   forgetFolder: (folderPath: string) => void
   setWorkspaceHighlight: (id: WorkspaceId, highlight: Partial<WorkspaceHighlight>) => void
   clearWorkspaceHighlight: (id: WorkspaceId) => void
-  recordWorkspaceTerminalActivity: (id: WorkspaceId, lastOutputAt: number) => void
+  recordWorkspaceTerminalActivity: (id: WorkspaceId, lastInputAt: number) => void
   reconcileWorkspaceAgentLaunchFlags: (sessions: TerminalSessionSnapshot[]) => void
   setAuthState: (authState: MulticodeAuthState) => void
   setCliRuntime: (cli: AgentCli, update: Partial<CliRuntimeSettings>) => void
@@ -199,6 +200,7 @@ export interface WorkspaceStore extends PluginsSlice, CliAvailabilitySlice {
   setLastSelectedCli: (cli: AgentCli) => void
   setLastSelectedConversationModel: (selection: AgentConversationRuntime | null) => void
   setLastSelectedSpecialist: (specialistId: SpecialistActionId) => void
+  setLastNewChatAgent: (choice: NewChatAgentChoice) => void
   setLastSelectedMultiloopRole: (role: MultiloopRole) => void
   setLastAgentSpawnPermissionPreset: (preset: SprintEngineCliPermissionPreset) => void
   setSpecialistCliDefault: (specialistId: SpecialistActionId, cli: AgentCli | null) => void
