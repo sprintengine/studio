@@ -42,6 +42,9 @@ electron.vite.config.*.mjs
 .grok/settings.json
 .mcp.json
 
+# Debug Mode ephemeral state (one scratch file per agent terminal)
+.multi-code/debug/
+
 # Switchboard runtime state
 .multi-code/switchboard/
 

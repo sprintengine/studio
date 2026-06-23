@@ -39,6 +39,22 @@ export function registerMenuDialogIpc(ipcMain: IpcMain): void {
     return result.filePaths[0] ?? null
   })
 
+  // Cold-start default location for a brand-new workspace folder, used only
+  // when the renderer has no selected/recent folder to derive a parent from.
+  // The user's Documents directory is a predictable, cross-platform home for
+  // projects; falling back to the home dir if Documents is unavailable.
+  ipcMain.handle('app:default-workspace-parent', async (): Promise<string | null> => {
+    try {
+      return app.getPath('documents')
+    } catch {
+      try {
+        return app.getPath('home')
+      } catch {
+        return null
+      }
+    }
+  })
+
   ipcMain.handle('fs:dialog:savefile', async (event, options: Electron.SaveDialogOptions) => {
     const win = BrowserWindow.fromWebContents(event.sender)
     const result = await dialog.showSaveDialog(win!, options ?? {})

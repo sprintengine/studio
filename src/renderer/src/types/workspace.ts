@@ -1688,6 +1688,11 @@ export type AgentState = {
   // Sprint Engine auto-run keep the model the agent was created with.
   cliModel?: string
   cliPermissionPreset?: SprintEngineCliPermissionPreset
+  // Orthogonal Debug Mode toggle (SpawnAgentMenu). Set per-spawn from the
+  // transient spawn-UI state; the launch boundary prepends the debug directive
+  // to the initial prompt when true. Not persisted-by-default UI: defaults off
+  // each spawn, but recorded on the agent so the launch path can read it.
+  debugMode?: boolean
   cliStartupPrompt?: string
   kind?: AgentKind
   specialistId?: SpecialistActionId

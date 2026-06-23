@@ -214,3 +214,11 @@ as invalid); re-sign after every manifest change.
 
 In the app, a valid signature shows the module as **signed** with the signer's
 key fingerprint — the user still grants trust explicitly before any code runs.
+
+## License
+
+MIT — see [`LICENSE`](./LICENSE). You are free to build modules against this
+SDK and to distribute or sell those modules, including closed-source. The MIT
+license covers this SDK package only; it does not grant rights to the Multicode
+application itself, and it does not by itself govern distribution through any
+Multicode marketplace (that is covered by separate marketplace terms).

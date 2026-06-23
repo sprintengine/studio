@@ -96,6 +96,9 @@ type WorkspaceSidebarProps = {
   newChatAgentCli: AgentCli
   agentSpawnPermissionPreset: SprintEngineCliPermissionPreset
   setAgentSpawnPermissionPreset: (preset: SprintEngineCliPermissionPreset) => void
+  // Transient Debug Mode toggle, forwarded to the New-chat spawn menu's mode row.
+  agentSpawnDebugMode: boolean
+  setAgentSpawnDebugMode: (next: boolean) => void
   onRevealFolder: (folderPath: string) => void
   onSetSidebarCollapsed: (collapsed: boolean) => void
 }
@@ -371,6 +374,8 @@ export default function WorkspaceSidebar({
   newChatAgentCli,
   agentSpawnPermissionPreset,
   setAgentSpawnPermissionPreset,
+  agentSpawnDebugMode,
+  setAgentSpawnDebugMode,
   onRevealFolder,
   onSetSidebarCollapsed,
 }: WorkspaceSidebarProps) {
@@ -762,7 +767,7 @@ export default function WorkspaceSidebar({
         ? formatRelativeMsAgo(recency.lastFinishedAt, now)
         : null
     const runGlyphLabel = runGlyph
-      ? `${runGlyph.label}${runGlyphRecencyAgo ? ` · last terminal output ${runGlyphRecencyAgo}` : ''}`
+      ? `${runGlyph.label}${runGlyphRecencyAgo ? ` · last typed ${runGlyphRecencyAgo}` : ''}`
       : null
     const showRecencyText =
       !sidebarCollapsed
@@ -946,8 +951,8 @@ export default function WorkspaceSidebar({
                 ) : showRecencyText ? (
                   <span
                     className="text-[10px] tabular-nums text-[color:var(--text-subtle)]"
-                    title={`Last terminal output ${formatRelativeMsAgo(recency!.lastFinishedAt!, now)} (${new Date(recency!.lastFinishedAt!).toLocaleString()})`}
-                    aria-label={`Last terminal output ${formatRelativeMsAgo(recency!.lastFinishedAt!, now)}`}
+                    title={`Last typed ${formatRelativeMsAgo(recency!.lastFinishedAt!, now)} (${new Date(recency!.lastFinishedAt!).toLocaleString()})`}
+                    aria-label={`Last typed ${formatRelativeMsAgo(recency!.lastFinishedAt!, now)}`}
                   >
                     {formatRelativeMs(recency!.lastFinishedAt!, now)}
                   </span>
@@ -1527,6 +1532,8 @@ export default function WorkspaceSidebar({
             conversationSpawnAvailable={false}
             agentSpawnPermissionPreset={agentSpawnPermissionPreset}
             onChangeAgentSpawnPermissionPreset={setAgentSpawnPermissionPreset}
+            agentSpawnDebugMode={agentSpawnDebugMode}
+            onChangeAgentSpawnDebugMode={setAgentSpawnDebugMode}
             onSpawnTerminal={() => onNewChatTerminal(newChatMenu.folderPath)}
             onSpawnGeneral={(cli) => onNewChatGeneral(cli, newChatMenu.folderPath)}
             onSpawnConversation={() => {}}

@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import type { TerminalSessionSnapshot } from '../../../shared/electron-api'
 import {
   deriveWorkspaceDisplayActivity,
-  deriveWorkspaceLastOutputAt,
+  deriveWorkspaceLastInputAt,
   deriveWorkspaceTerminalActivity,
   describeExecutionTerminal,
   findLiveSession,
@@ -21,7 +21,7 @@ async function main(): Promise<void> {
   assertSignatureIgnoresOutputTimingButTracksActivity()
   assertWorkspaceDisplayActivityPriority()
   assertWorkspaceTerminalActivityPriorityAndPersistedRecency()
-  assertTerminalTabRecencyPrefersLastOutputAt()
+  assertTerminalTabRecencyPrefersLastInputAt()
   assertAgentTabRecencyFallbackChain()
   await assertSharedStoreUsesOneUnderlyingSubscription()
   await assertSharedStoreDedupsSemanticUpdatesButKeepsLive()
@@ -151,7 +151,10 @@ function assertWorkspaceTerminalActivityPriorityAndPersistedRecency(): void {
   const idle = session({
     sessionId: 'session_idle',
     activity: { kind: 'idle', since: 400 },
-    lastOutputAt: 450,
+    // Recency keys off lastInputAt (last typed), not lastOutputAt; the high
+    // lastOutputAt must be ignored so revealing a workspace never reads as "now".
+    lastInputAt: 450,
+    lastOutputAt: 9_999,
   })
 
   assert.deepEqual(
@@ -160,12 +163,12 @@ function assertWorkspaceTerminalActivityPriorityAndPersistedRecency(): void {
   )
   assert.deepEqual(
     deriveWorkspaceTerminalActivity('workspace_1', [idle], 500),
-    { kind: 'idle-recency', lastOutputAt: 500 }
+    { kind: 'idle-recency', lastInputAt: 500 }
   )
-  assert.equal(deriveWorkspaceLastOutputAt('workspace_1', [idle], 425), 450)
+  assert.equal(deriveWorkspaceLastInputAt('workspace_1', [idle], 425), 450)
   assert.deepEqual(
     deriveWorkspaceTerminalActivity('workspace_1', [], 500),
-    { kind: 'idle-recency', lastOutputAt: 500 }
+    { kind: 'idle-recency', lastInputAt: 500 }
   )
   assert.deepEqual(
     deriveWorkspaceTerminalActivity('workspace_1', [], null),
@@ -173,39 +176,43 @@ function assertWorkspaceTerminalActivityPriorityAndPersistedRecency(): void {
   )
 }
 
-function assertTerminalTabRecencyPrefersLastOutputAt(): void {
-  const exitedWithOlderOutput = session({
-    sessionId: 'session_exited_with_output',
+function assertTerminalTabRecencyPrefersLastInputAt(): void {
+  const exitedWithOlderInput = session({
+    sessionId: 'session_exited_with_input',
     processAlive: false,
     activity: { kind: 'exited', at: 5_000, exitCode: 0 },
-    lastOutputAt: 1_000,
+    // A high lastOutputAt must not win: recency is "last typed", from lastInputAt.
+    lastInputAt: 1_000,
+    lastOutputAt: 9_999,
     exitedAt: 5_000,
   })
-  const exitedRecency = pickTerminalTabRecency(exitedWithOlderOutput)
-  assert.deepEqual(exitedRecency, { at: 1_000, source: 'output' })
-  assert.equal(tabRecencyLabel(exitedRecency!.source), 'Last output')
+  const exitedRecency = pickTerminalTabRecency(exitedWithOlderInput)
+  assert.deepEqual(exitedRecency, { at: 1_000, source: 'input' })
+  assert.equal(tabRecencyLabel(exitedRecency!.source), 'Last typed')
 
-  const exitedWithoutOutput = session({
-    sessionId: 'session_exited_no_output',
+  const exitedWithoutInput = session({
+    sessionId: 'session_exited_no_input',
     processAlive: false,
     activity: { kind: 'exited', at: 7_000, exitCode: 0 },
-    lastOutputAt: null,
+    lastInputAt: null,
+    lastOutputAt: 6_500,
     exitedAt: 7_000,
   })
-  assert.deepEqual(pickTerminalTabRecency(exitedWithoutOutput), { at: 7_000, source: 'exited' })
+  assert.deepEqual(pickTerminalTabRecency(exitedWithoutInput), { at: 7_000, source: 'exited' })
 
-  const liveIdleWithOutput = session({
+  const liveIdleWithInput = session({
     sessionId: 'session_live_idle',
     processAlive: true,
     activity: { kind: 'idle', since: 2_500 },
-    lastOutputAt: 2_400,
+    lastInputAt: 2_400,
   })
-  assert.deepEqual(pickTerminalTabRecency(liveIdleWithOutput), { at: 2_400, source: 'output' })
+  assert.deepEqual(pickTerminalTabRecency(liveIdleWithInput), { at: 2_400, source: 'input' })
 
   const blankSession = session({
     sessionId: 'session_blank',
     processAlive: true,
     activity: { kind: 'idle', since: 0 },
+    lastInputAt: null,
     lastOutputAt: null,
     exitedAt: null,
   })
@@ -219,35 +226,38 @@ function assertAgentTabRecencyFallbackChain(): void {
     sessionId: 'session_live_agent',
     processAlive: true,
     activity: { kind: 'idle', since: 8_000 },
-    lastOutputAt: 7_950,
+    // High lastOutputAt is ignored; recency comes from lastInputAt (last typed).
+    lastInputAt: 7_950,
+    lastOutputAt: 9_999,
     exitedAt: null,
   })
   assert.deepEqual(
     pickAgentTabRecency(liveAgent, 6_000, 5_000),
-    { at: 7_950, source: 'output' }
+    { at: 7_950, source: 'input' }
   )
 
   const exitedAgent = session({
     sessionId: 'session_exited_agent',
     processAlive: false,
     activity: { kind: 'exited', at: 9_000, exitCode: 0 },
-    lastOutputAt: 4_000,
+    lastInputAt: 4_000,
     exitedAt: 9_000,
   })
   assert.deepEqual(
     pickAgentTabRecency(exitedAgent, null, null),
-    { at: 4_000, source: 'output' }
+    { at: 4_000, source: 'input' }
   )
 
-  const exitedAgentMissingOutput = session({
-    sessionId: 'session_exited_no_output',
+  const exitedAgentMissingInput = session({
+    sessionId: 'session_exited_no_input',
     processAlive: false,
     activity: { kind: 'exited', at: 9_500, exitCode: 0 },
-    lastOutputAt: null,
+    lastInputAt: null,
+    lastOutputAt: 8_000,
     exitedAt: 9_500,
   })
   assert.deepEqual(
-    pickAgentTabRecency(exitedAgentMissingOutput, null, null),
+    pickAgentTabRecency(exitedAgentMissingInput, null, null),
     { at: 9_500, source: 'exited' }
   )
 
@@ -262,7 +272,7 @@ function assertAgentTabRecencyFallbackChain(): void {
   )
 
   assert.equal(pickAgentTabRecency(null, null, null), null)
-  assert.equal(tabRecencyLabel('persisted'), 'Last terminal activity')
+  assert.equal(tabRecencyLabel('persisted'), 'Last activity')
   assert.equal(tabRecencyLabel('exited'), 'Exited')
 }
 

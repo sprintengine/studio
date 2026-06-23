@@ -187,7 +187,7 @@ export interface WorkspaceStore extends PluginsSlice, CliAvailabilitySlice {
   forgetFolder: (folderPath: string) => void
   setWorkspaceHighlight: (id: WorkspaceId, highlight: Partial<WorkspaceHighlight>) => void
   clearWorkspaceHighlight: (id: WorkspaceId) => void
-  recordWorkspaceTerminalActivity: (id: WorkspaceId, lastOutputAt: number) => void
+  recordWorkspaceTerminalActivity: (id: WorkspaceId, lastInputAt: number) => void
   reconcileWorkspaceAgentLaunchFlags: (sessions: TerminalSessionSnapshot[]) => void
   setAuthState: (authState: MulticodeAuthState) => void
   setCliRuntime: (cli: AgentCli, update: Partial<CliRuntimeSettings>) => void

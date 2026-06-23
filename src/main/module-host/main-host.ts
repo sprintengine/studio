@@ -19,6 +19,7 @@ export type IpcInvokeHandler = (
 ) => unknown | Promise<unknown>
 
 export type StartupHook = () => void | Promise<void>
+export type ShutdownBeginHook = () => void | Promise<void>
 export type ShutdownHook = () => void | Promise<void>
 
 /**
@@ -95,6 +96,14 @@ export type MainHost = {
   getService<T>(token: ServiceToken<T>): T | undefined
   requireService<T>(token: ServiceToken<T>): T
   onStartup(hook: StartupHook): void
+  /**
+   * Run early, before the core shell tears down shared infrastructure
+   * (automation, terminal runtime). Use it to stop self-scheduled loops and
+   * flip a shutting-down flag so no new work is dispatched during teardown;
+   * defer awaiting in-flight work to `onShutdown`. Begin hooks run in
+   * registration order, opposite the reverse order of `onShutdown`.
+   */
+  onShutdownBegin(hook: ShutdownBeginHook): void
   onShutdown(hook: ShutdownHook): void
   /**
    * Declare a sidecar process this module owns. With a lifecycle, the kernel
@@ -120,6 +129,7 @@ export type MainKernel = {
   /** channel -> owning module id, for diagnostics and collision reports. */
   ownedChannels(): ReadonlyMap<string, string>
   startupHooks(): ReadonlyArray<StartupHook>
+  shutdownBeginHooks(): ReadonlyArray<ShutdownBeginHook>
   shutdownHooks(): ReadonlyArray<ShutdownHook>
   sidecars(): ReadonlyArray<SidecarSpec>
   /** Live status per registered sidecar, in registration order. */
@@ -128,6 +138,8 @@ export type MainKernel = {
   runStartup(): Promise<void>
   /** Run startup hooks owned by a live-loaded module after the app has started. */
   runStartupForModule(moduleId: string): Promise<void>
+  /** Run all registered shutdown-begin hooks (registration order), isolating failures. */
+  runShutdownBegin(): Promise<void>
   /** Run all registered shutdown hooks (reverse registration order), isolating failures. */
   runShutdown(): Promise<void>
   /** Run a module's shutdown hooks and remove its tracked services, sidecars, and IPC. */
@@ -193,6 +205,7 @@ export function createMainKernel(ipcMain: IpcMain, options: MainKernelOptions = 
   const channels = new Map<string, string>()
   const services = new Map<string, ServiceEntry>()
   let startupHooks: HookEntry<StartupHook>[] = []
+  let shutdownBeginHooks: HookEntry<ShutdownBeginHook>[] = []
   let shutdownHooks: HookEntry<ShutdownHook>[] = []
   const sidecarEntries = new Map<string, SidecarEntry>()
   const now = options.now ?? Date.now
@@ -359,6 +372,9 @@ export function createMainKernel(ipcMain: IpcMain, options: MainKernelOptions = 
       onStartup(hook) {
         startupHooks.push({ moduleId, hook })
       },
+      onShutdownBegin(hook) {
+        shutdownBeginHooks.push({ moduleId, hook })
+      },
       onShutdown(hook) {
         shutdownHooks.push({ moduleId, hook })
       },
@@ -395,7 +411,7 @@ export function createMainKernel(ipcMain: IpcMain, options: MainKernelOptions = 
     }
   }
 
-  async function runHooks(hooks: ReadonlyArray<HookEntry<StartupHook | ShutdownHook>>, failureLabel: string): Promise<void> {
+  async function runHooks(hooks: ReadonlyArray<HookEntry<StartupHook | ShutdownBeginHook | ShutdownHook>>, failureLabel: string): Promise<void> {
     for (const { hook } of hooks) {
       try {
         await hook()
@@ -407,11 +423,16 @@ export function createMainKernel(ipcMain: IpcMain, options: MainKernelOptions = 
 
   async function unregisterModule(moduleId: string): Promise<void> {
     await runHooks(
+      shutdownBeginHooks.filter((entry) => entry.moduleId === moduleId),
+      `shutdown-begin for module "${moduleId}"`
+    )
+    await runHooks(
       [...shutdownHooks].reverse().filter((entry) => entry.moduleId === moduleId),
       `shutdown for module "${moduleId}"`
     )
 
     startupHooks = startupHooks.filter((entry) => entry.moduleId !== moduleId)
+    shutdownBeginHooks = shutdownBeginHooks.filter((entry) => entry.moduleId !== moduleId)
     shutdownHooks = shutdownHooks.filter((entry) => entry.moduleId !== moduleId)
 
     for (const [sidecarId, entry] of [...sidecarEntries]) {
@@ -431,6 +452,7 @@ export function createMainKernel(ipcMain: IpcMain, options: MainKernelOptions = 
     hostFor,
     ownedChannels: () => channels,
     startupHooks: () => startupHooks.map((entry) => entry.hook),
+    shutdownBeginHooks: () => shutdownBeginHooks.map((entry) => entry.hook),
     shutdownHooks: () => shutdownHooks.map((entry) => entry.hook),
     sidecars: () => [...sidecarEntries.values()].map((entry) => entry.spec),
     sidecarStatuses: () => [...sidecarEntries.values()].map(sidecarStatusOf),
@@ -445,6 +467,9 @@ export function createMainKernel(ipcMain: IpcMain, options: MainKernelOptions = 
         startupHooks.filter((entry) => entry.moduleId === moduleId),
         `startup for module "${moduleId}"`
       )
+    },
+    async runShutdownBegin(): Promise<void> {
+      await runHooks(shutdownBeginHooks, 'shutdown-begin')
     },
     async runShutdown(): Promise<void> {
       await runHooks([...shutdownHooks].reverse(), 'shutdown')

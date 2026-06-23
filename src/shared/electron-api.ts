@@ -803,6 +803,11 @@ export type TerminalSpawnMetadata = {
   worktreeId?: string
   worktreePath?: string
   cliPermissionPreset?: SprintEngineCliPermissionPreset
+  // Orthogonal Debug Mode toggle (SpawnAgentMenu). Layers on top of the chosen
+  // permission preset without changing its flags; the launch boundary prepends
+  // the debug directive to the initial prompt when set. Transient per-spawn —
+  // not persisted like cliPermissionPreset.
+  debugMode?: boolean
   // Model id passed to the agent CLI when its plugin declares modelSelection;
   // undefined means the CLI's own default model.
   cliModel?: string
@@ -2028,6 +2033,7 @@ export type ElectronApi = {
   openHtmlFileInBrowser: (targetPath: string) => Promise<void>
   watchPath: (path: string, cb: (event: FileWatchEvent) => void) => Promise<() => Promise<void>>
   openDir: () => Promise<string | null>
+  defaultWorkspaceParentDir: () => Promise<string | null>
   saveFile: (options?: SaveDialogOptions) => Promise<string | null>
   openFile: (options?: OpenDialogOptions) => Promise<string | null>
   showContextMenu: (items: ContextMenuItem[]) => Promise<string | null>

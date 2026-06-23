@@ -6,8 +6,9 @@ import type { Workspace } from '../types/workspace'
 export const WORKSPACE_STALE_THRESHOLD_MS = 5 * 24 * 60 * 60 * 1000 // 5 days
 
 // "Last worked on" is the most recent of when the workspace was created and when
-// its terminals last produced output. Both already live on the workspace record,
-// so the fold needs no new persisted state.
+// the user last typed into one of its terminals (lastTerminalActivityAt, fed from
+// lastInputAt — not terminal output, so reopening a workspace never refreshes it).
+// Both already live on the workspace record, so the fold needs no new persisted state.
 export function workspaceLastWorkedAt(workspace: Workspace): number {
   return Math.max(workspace.createdAt, workspace.lastTerminalActivityAt ?? 0)
 }

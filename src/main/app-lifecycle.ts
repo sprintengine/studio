@@ -1,7 +1,6 @@
 import { app, BrowserWindow, Menu } from 'electron'
 import { createAppMenu } from './app-menu'
 import { createMainWindow, markAppQuitInProgressForWindowClose } from './window-factory'
-import { beginSwitchboardPythonRuntimeShutdown, shutdownSwitchboardPythonRuntime } from './switchboard-runtime-service'
 import { releaseAllWorkspaceRunnerLocks } from './workspace-runner-lock'
 import type { MulticodeUpdateService } from './update-service'
 
@@ -19,11 +18,14 @@ type RegisterAppLifecycleOptions = {
     flushRoutingSnapshot(): Promise<void>
   }
   // Capability-module kernel: runs module startup hooks on ready and shutdown
-  // hooks on quit. Module-owned lifecycle runs here — including kernel-owned
-  // sidecar stops (e.g. the Sprint Engine MCP hub via its module's sidecar
-  // registration), in reverse registration order.
+  // hooks on quit. Module-owned lifecycle runs here — the early begin phase
+  // (runShutdownBegin, registration order) stops self-scheduled loops before
+  // shared infrastructure tears down, and the late phase (runShutdown, reverse
+  // registration order) drains in-flight work and stops kernel-owned sidecars
+  // (e.g. the Sprint Engine MCP hub via its module's sidecar registration).
   moduleKernel?: {
     runStartup(): Promise<void>
+    runShutdownBegin(): Promise<void>
     runShutdown(): Promise<void>
   }
   updateService: MulticodeUpdateService
@@ -99,16 +101,18 @@ export function registerAppLifecycle({
     event.preventDefault()
     isShuttingDown = true
     markAppQuitInProgressForWindowClose()
-    beginSwitchboardPythonRuntimeShutdown()
     const shutdown = async () => {
+      // Module begin hooks run first (registration order): they stop
+      // self-scheduled loops and flip shutting-down flags so no new work is
+      // dispatched while shared infrastructure tears down.
+      await moduleKernel?.runShutdownBegin()
       await automationService?.shutdown()
       await terminalRuntime.shutdown()
       await workspaceSyncService?.flushRoutingSnapshot()
-      await shutdownSwitchboardPythonRuntime()
       await releaseAllWorkspaceRunnerLocks()
-      // Module-owned shutdown runs here: the mobile relay bridge via its
-      // onShutdown hook, and kernel-owned sidecar stops (e.g. the Sprint
-      // Engine MCP hub) in reverse registration order.
+      // Module-owned shutdown runs here via each module's onShutdown hook —
+      // draining in-flight work and stopping kernel-owned sidecars (e.g. the
+      // Sprint Engine MCP hub) in reverse registration order.
       await moduleKernel?.runShutdown()
     }
 

@@ -32,7 +32,7 @@ import {
 import { useRelativeNow } from '../../hooks/useRelativeNow'
 import { formatRelativeMs, formatRelativeMsAgo } from '../../utils/relativeTime'
 import type { FuturePlanWorkspaceSource, HighlightColor, SprintEngineRole, SprintEngineRuntimeAgentStatus, Workspace } from '../../types/workspace'
-import { registerModel, unregisterModel } from '../../utils/modelRegistry'
+import { captureNavRailWidthFraction, deleteTabPreservingNavRail, registerModel, restoreNavRailWidthFraction, unregisterModel } from '../../utils/modelRegistry'
 import { TAB_DRAG_MIME, serializeTabDragPayload } from '../../utils/tabDragPayload'
 import { logPerfEvent } from '../../utils/perfDiagnostics'
 import { applySprintEngineAutomationStopReason } from '../../utils/sprintengineSupervisorNotifications'
@@ -567,7 +567,8 @@ function WorkspaceLayout({ workspaceId, onStartFuturePlan, onNewChat, onNewWorks
               <SprintEngineRunSummaryPanel
                 workspaceId={workspaceId}
                 onClose={() => {
-                  modelRef.current?.doAction(Actions.deleteTab(node.getId()))
+                  const model = modelRef.current
+                  if (model) deleteTabPreservingNavRail(model, node.getId())
                 }}
               />
             ))
@@ -578,7 +579,8 @@ function WorkspaceLayout({ workspaceId, onStartFuturePlan, onNewChat, onNewWorks
               <SprintEnginePlanReaderPanel
                 workspaceId={workspaceId}
                 onClose={() => {
-                  modelRef.current?.doAction(Actions.deleteTab(node.getId()))
+                  const model = modelRef.current
+                  if (model) deleteTabPreservingNavRail(model, node.getId())
                 }}
               />
             ))
@@ -660,6 +662,23 @@ function WorkspaceLayout({ workspaceId, onStartFuturePlan, onNewChat, onNewWorks
 
   const handleAction = useCallback(
     (action: Action) => {
+      // Removing a tabset hands its weight back to flexlayout, which spreads it
+      // across every remaining sibling — including the strip-less Files/Git/
+      // Backlog nav rail, which would otherwise grow when a terminal beside it
+      // is closed. Snapshot the rail's width before the deletion applies, then
+      // re-pin it once the model has settled so the freed space goes to the
+      // editor/terminal siblings instead.
+      if (action.type === Actions.DELETE_TAB || action.type === Actions.DELETE_TABSET) {
+        const model = modelRef.current
+        const navFraction = model ? captureNavRailWidthFraction(model) : null
+        if (navFraction != null) {
+          queueMicrotask(() => {
+            const current = modelRef.current
+            if (current) restoreNavRailWidthFraction(current, navFraction)
+          })
+        }
+      }
+
       if (action.type === Actions.DELETE_TAB) {
         const node = modelRef.current?.getNodeById(action.data.node)
         const nodeId = node?.getId() ?? String(action.data.node ?? '')
@@ -709,7 +728,8 @@ function WorkspaceLayout({ workspaceId, onStartFuturePlan, onNewChat, onNewWorks
 
   const closeTabWithCleanup = useCallback((node: TabNode) => {
     cleanupNode(node)
-    modelRef.current?.doAction(Actions.deleteTab(node.getId()))
+    const model = modelRef.current
+    if (model) deleteTabPreservingNavRail(model, node.getId())
   }, [cleanupNode])
 
   const handleAuxMouseClick = useCallback<NodeMouseEvent>((node, event) => {
@@ -766,7 +786,7 @@ function WorkspaceLayout({ workspaceId, onStartFuturePlan, onNewChat, onNewWorks
     })
     agentNodeIds.forEach((nodeId) => {
       hideTabWithoutCleanupRef.current.add(nodeId)
-      model.doAction(Actions.deleteTab(nodeId))
+      deleteTabPreservingNavRail(model, nodeId)
     })
   }, [])
 
@@ -774,7 +794,8 @@ function WorkspaceLayout({ workspaceId, onStartFuturePlan, onNewChat, onNewWorks
     if (node.getComponent() !== 'agent') return
     hideTabWithoutCleanupRef.current.add(node.getId())
     const parent = node.getParent()
-    modelRef.current?.doAction(Actions.deleteTab(node.getId()))
+    const model = modelRef.current
+    if (model) deleteTabPreservingNavRail(model, node.getId())
 
     // The hide button is removed with the tab, leaving focus on <body>; hand it back to the new active tab.
     if (!(parent instanceof TabSetNode)) return
@@ -943,7 +964,7 @@ function WorkspaceLayout({ workspaceId, onStartFuturePlan, onNewChat, onNewWorks
             if (!filePath) return
             void openExternalFileWindow({ workspaceId, path: filePath, name: node.getName() })
             useWorkspaceStore.getState().setOpenFilesInExternalWindow(true)
-            node.getModel().doAction(Actions.deleteTab(node.getId()))
+            deleteTabPreservingNavRail(node.getModel(), node.getId())
           }
         : undefined
       const tabContent = (
