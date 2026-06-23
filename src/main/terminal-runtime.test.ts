@@ -122,6 +122,7 @@ async function main(): Promise<void> {
     await assertHiddenTerminalOutputSkipsLiveIpcAndReplaysOnAttach(runtimeModule)
     await assertStaleSweepReapsOnlyUnseenHiddenTerminals(runtimeModule)
     await assertIdleSweepSuspendsRatherThanDisposes(runtimeModule)
+    await assertDebugModeEnsureInstallsDebugSkill(runtimeModule)
     await assertAgentSessionExitListenerFiresSystemTaggedForAnySystem(runtimeModule)
   } finally {
     moduleWithLoad._load = originalLoad
@@ -1460,6 +1461,57 @@ function createMockPtyProcess(): MockPtyProcess {
 
 function delay(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms))
+}
+
+// Debug Mode is a guaranteed mode, not a discretionary skill: the spawn path must
+// ensure-install the `debug` skill into the session workspace before launch (so
+// the injected /debug invocation resolves to a present skill), and must NOT touch
+// skills when debug is off. Asserts both the gating and the (workspaceRoot,
+// skillId) the runtime requests.
+async function assertDebugModeEnsureInstallsDebugSkill(runtimeModule: RuntimeModule): Promise<void> {
+  const workspaceRoot = await mkdtemp(join(tmpdir(), 'multicode-terminal-runtime-debug-install-'))
+  mockPty.spawnCalls = []
+  mockSender.sent = []
+  const ensureCalls: Array<{ workspaceRoot: string; skillId: string }> = []
+
+  const runtime = runtimeModule.createTerminalRuntime({
+    diagnosticsEnabled: false,
+    requireAuthenticatedUser: () => undefined,
+    logMainPerfEvent: () => undefined,
+    ensureBuiltinSkillInstalled: async (root, skillId) => {
+      ensureCalls.push({ workspaceRoot: root, skillId })
+    },
+  })
+
+  const spawnAgent = async (sessionId: string, debugMode: boolean): Promise<void> => {
+    const result = await runtime.ipcHandlers.spawnTerminal(mockSender as unknown as WebContents, {
+      sessionId,
+      cols: 120,
+      rows: 30,
+      cwd: workspaceRoot,
+      cli: 'codex',
+      kind: 'agent',
+      shellOnly: false,
+      workspaceId: 'ws-debug',
+      agentId: sessionId,
+      visible: false,
+      debugMode,
+      mcpSettings: { syncEnabled: false, servers: {} } satisfies McpSettings,
+    })
+    assert.equal(result.ok, true, JSON.stringify(result))
+  }
+
+  // Debug off: the spawn must not ensure-install anything.
+  await spawnAgent('session-debug-off', false)
+  assert.deepEqual(ensureCalls, [], 'debug off must not ensure-install any skill')
+
+  // Debug on: ensure-install the debug skill into the session workspace root.
+  await spawnAgent('session-debug-on', true)
+  assert.deepEqual(
+    ensureCalls,
+    [{ workspaceRoot, skillId: 'debug' }],
+    'debug on ensure-installs the debug skill into the session workspace before launch'
+  )
 }
 
 main().catch((error) => {

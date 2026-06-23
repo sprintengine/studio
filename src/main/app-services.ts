@@ -56,12 +56,27 @@ export function createAppServices(diagnosticsEnabled: boolean) {
     }
   }
 
+  // Declared before terminalRuntime so the runtime can ensure-install skills
+  // (Debug Mode) at spawn. Reads loaded CLI plugins to compute native targets.
+  const builtinSkillManager = createBuiltinSkillManager({
+    listPlugins: () => getPluginRegistry().loaded(),
+  })
+
   const terminalRuntime = createTerminalRuntime({
     diagnosticsEnabled,
     requireAuthenticatedUser: requireAuthenticatedMulticodeUser,
     logMainPerfEvent,
     syncMcpConfig: (input) => syncManagedSprintEngineMcpConfig(input, { mcpConfigService, sprintEngineMcpHub }),
     callManagedSprintEngineTool: (input) => sprintEngineMcpHub.callRunTool(input),
+    // Debug Mode: make the `debug` skill present in the session CLI's native
+    // skill dir before launch. Check-first so already-installed workspaces skip
+    // the rewrite; install only fills missing or stale native targets.
+    ensureBuiltinSkillInstalled: async (workspaceRoot, skillId) => {
+      const status = await builtinSkillManager.getStatus(workspaceRoot, skillId)
+      if (status.ok && (status.status === 'missing' || status.status === 'update-available')) {
+        await builtinSkillManager.install(workspaceRoot, skillId)
+      }
+    },
     releaseManagedSprintEngineRun: async (input) => {
       await sprintEngineMcpHub.unregisterRun(input.runId)
       if (input.cleanupMcpConfig) {
@@ -73,9 +88,6 @@ export function createAppServices(diagnosticsEnabled: boolean) {
     },
   })
   const updateService = new MulticodeUpdateService({ writeDiagnosticLog })
-  const builtinSkillManager = createBuiltinSkillManager({
-    listPlugins: () => getPluginRegistry().loaded(),
-  })
   const agentConfigImportService = createAgentConfigImportService({
     mcpConfigService,
     builtinSkillManager,

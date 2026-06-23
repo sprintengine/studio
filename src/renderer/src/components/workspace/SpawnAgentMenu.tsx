@@ -72,7 +72,7 @@ export const AGENT_SPAWN_PERMISSION_OPTIONS: Array<{
 export function SpawnDebugToggle({ active, onChange }: { active: boolean; onChange: (next: boolean) => void }) {
   return (
     <Tooltip
-      content="Debug mode pauses the agent at each state transition for inspection. Works best with the Auto or Bypass permission presets."
+      content="Debug mode drives the agent through a file-backed debugging state machine: reproduce, form hypotheses, instrument, then remove all instrumentation before finishing. Works best with the Auto or Bypass permission presets."
       placement="bottom"
       wrapperClassName="ml-auto inline-flex"
     >

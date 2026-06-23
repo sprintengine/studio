@@ -54,7 +54,11 @@ import {
 import MulticodeMark from '../brand/MulticodeMark'
 import MulticodeWordmark from '../brand/MulticodeWordmark'
 import { CloseIconButton, Field, GhostButton, Select, WizardProgress } from '../ui'
-import { CreateFolderField } from './newWorkspace/CreateFolderField'
+import {
+  analyzeWorkspaceTargetPath,
+  defaultWorkspaceFolderPath,
+  resolveDefaultParentPath,
+} from './newWorkspace/folderCreation'
 import { ModeCard } from './newWorkspace/ModeCard'
 import { RecentFolderRow, isSameFolder } from './newWorkspace/RecentFolderRow'
 import { AgentCliPicker, type SprintEngineCliOption } from './newWorkspace/SprintEngineRosterTable'
@@ -411,6 +415,13 @@ export default function NewWorkspacePanel({
 
   const [mode, setMode] = useState<CreationMode>(initialMode)
   const [folderPath, setFolderPath] = useState<string | null>(initialFolderPath)
+  // Unified folder field: a single editable full path that is created on
+  // continue if it doesn't exist, or opened if it does. `folderPathPinned`
+  // freezes name→path derivation once the user edits the path or browses.
+  const [folderDraftPath, setFolderDraftPath] = useState<string>(initialFolderPath ?? '')
+  const [folderPathPinned, setFolderPathPinned] = useState<boolean>(Boolean(initialFolderPath))
+  const [folderDraftExists, setFolderDraftExists] = useState<boolean | null>(null)
+  const [folderError, setFolderError] = useState<string | null>(null)
   // Whether the knowledge step applies to the chosen folder, snapshotted when the
   // folder is selected. Reading it live would let setting a knowledge folder (which
   // configures the project) drop the step out from under the user mid-step.
@@ -817,6 +828,62 @@ export default function NewWorkspacePanel({
 
   const folderHints = useFolderHints(recentFolders)
 
+  // Cold-start fallback location for "Create new folder" when there's no
+  // selected/recent folder to derive a parent from. Fetched once; the resolver
+  // only uses it when nothing else is known.
+  const [defaultFolderParent, setDefaultFolderParent] = useState<string | null>(null)
+  useEffect(() => {
+    let active = true
+    void window.api.defaultWorkspaceParentDir?.()
+      .then((dir) => {
+        if (active) setDefaultFolderParent(dir)
+      })
+      .catch(() => {})
+    return () => {
+      active = false
+    }
+  }, [])
+
+  // Default parent for a brand-new workspace folder, used to derive the unified
+  // field's proposed path while the user hasn't pinned one.
+  const defaultDraftParent = useMemo(
+    () => resolveDefaultParentPath({ folderPath: null, recentFolders, fallbackParent: defaultFolderParent }),
+    [recentFolders, defaultFolderParent],
+  )
+
+  // While the path isn't pinned, keep it derived from the workspace name +
+  // default location (e.g. ~/Documents/my-app), so the common "new folder named
+  // after my workspace" case needs zero interaction.
+  useEffect(() => {
+    if (folderPathPinned) return
+    const proposed = defaultWorkspaceFolderPath(defaultDraftParent, name)
+    setFolderDraftPath(proposed ?? '')
+  }, [folderPathPinned, defaultDraftParent, name])
+
+  // Existence-aware status for the draft path (display only — folder creation
+  // and detection happen on continue). Debounced so typing stays responsive.
+  useEffect(() => {
+    const target = folderDraftPath.trim()
+    if (!target) {
+      setFolderDraftExists(null)
+      return
+    }
+    let active = true
+    const id = window.setTimeout(() => {
+      void window.api.pathExists(target)
+        .then((exists) => {
+          if (active) setFolderDraftExists(exists)
+        })
+        .catch(() => {
+          if (active) setFolderDraftExists(null)
+        })
+    }, 250)
+    return () => {
+      active = false
+      window.clearTimeout(id)
+    }
+  }, [folderDraftPath])
+
   // Sync initial future-plan option into the scan list once available.
   useEffect(() => {
     if (!initialFuturePlan) return
@@ -952,7 +1019,12 @@ export default function NewWorkspacePanel({
 
   const sprintEngineAccess = getSprintEngineAccessState(authState)
 
-  const workspaceStepReady = Boolean(folderPath?.trim()) && name.trim().length > 0
+  // Ready when the workspace is named and the folder field resolves to a usable
+  // target: an existing folder (opened as-is) or a structurally valid path we
+  // can create. Creation/opening happens on continue (`materializeWorkspaceFolder`).
+  const folderTargetUsable =
+    folderDraftExists === true || analyzeWorkspaceTargetPath(folderDraftPath).ok
+  const workspaceStepReady = folderTargetUsable && name.trim().length > 0
   const standardLayoutStepReady = Boolean(layoutId)
   const multiloopGoalReady = mlGoal.trim().length > 0
   const sePlanReady =
@@ -980,7 +1052,7 @@ export default function NewWorkspacePanel({
   const blockingMessage = getStepBlockingMessage({
     step,
     mode,
-    folderPath,
+    workspaceFolderReady: folderTargetUsable,
     name,
     mlGoal,
     sprintEngineAccess,
@@ -1053,10 +1125,61 @@ export default function NewWorkspacePanel({
     if (!nameTouched && autoMode) handleSelectMode(autoMode)
   }
 
+  // Unified folder field edits. Editing or browsing pins the path so the
+  // name→path derivation stops overriding the user's choice.
+  const handleChangeFolderDraftPath = (value: string) => {
+    setFolderPathPinned(true)
+    setFolderDraftPath(value)
+    setFolderError(null)
+  }
+
   const pickFolder = async () => {
     const dir = await window.api.openDir()
     if (!dir) return
-    handleSelectFolder(dir)
+    setFolderPathPinned(true)
+    setFolderDraftPath(dir)
+    setFolderError(null)
+  }
+
+  const handleSelectRecentFolder = (dir: string) => {
+    setFolderPathPinned(true)
+    setFolderDraftPath(dir)
+    setFolderError(null)
+  }
+
+  // Materialize the unified folder field into a concrete folder before leaving
+  // the workspace step: create it if missing, open it if it exists, then run the
+  // existing detection (`handleSelectFolder`) so `folderPath` is concrete for
+  // every downstream step. Returns false (and surfaces an error) on failure.
+  const materializeWorkspaceFolder = async (): Promise<boolean> => {
+    const target = folderDraftPath.trim()
+    if (!target) {
+      setFolderError('Choose a folder for the workspace.')
+      return false
+    }
+    let exists = false
+    try {
+      exists = await window.api.pathExists(target)
+    } catch {
+      exists = false
+    }
+    if (exists) {
+      handleSelectFolder(target)
+      return true
+    }
+    const analysis = analyzeWorkspaceTargetPath(target)
+    if (!analysis.ok) {
+      setFolderError(analysis.error)
+      return false
+    }
+    try {
+      const created = await window.api.createWorkspaceFolder(analysis.parent, analysis.leaf)
+      handleSelectFolder(created)
+      return true
+    } catch (caught) {
+      setFolderError(caught instanceof Error ? caught.message : 'Could not create that folder.')
+      return false
+    }
   }
 
   const handleSelectExistingTeam = (slug: string) => {
@@ -1636,6 +1759,21 @@ export default function NewWorkspacePanel({
       void handleCreate()
       return
     }
+    // Leaving the workspace step materializes the folder (create-if-missing /
+    // open-if-exists) so `folderPath` is concrete before the mode step renders.
+    if (step === 'workspace') {
+      void (async () => {
+        setIsCreating(true)
+        try {
+          if (!(await materializeWorkspaceFolder())) return
+          setDirection('forward')
+          setStep(steps[stepIndex + 1])
+        } finally {
+          setIsCreating(false)
+        }
+      })()
+      return
+    }
     setDirection('forward')
     setStep(steps[stepIndex + 1])
   }
@@ -1881,10 +2019,12 @@ export default function NewWorkspacePanel({
             <WorkspaceStep
               name={name}
               onChangeName={handleChangeName}
-              folderPath={folderPath}
-              onPickFolder={() => void pickFolder()}
-              onFolderCreated={handleSelectFolder}
-              onSelectRecent={handleSelectFolder}
+              folderDraftPath={folderDraftPath}
+              onChangeFolderDraftPath={handleChangeFolderDraftPath}
+              onBrowseFolder={() => void pickFolder()}
+              folderDraftExists={folderDraftExists}
+              folderError={folderError}
+              onSelectRecent={handleSelectRecentFolder}
               recentFolders={recentFolders}
               folderHints={folderHints}
               inputRef={nameInputRef}
@@ -2142,9 +2282,11 @@ const FieldLabel = Field.Label
 function WorkspaceStep({
   name,
   onChangeName,
-  folderPath,
-  onPickFolder,
-  onFolderCreated,
+  folderDraftPath,
+  onChangeFolderDraftPath,
+  onBrowseFolder,
+  folderDraftExists,
+  folderError,
   onSelectRecent,
   recentFolders,
   folderHints,
@@ -2152,14 +2294,34 @@ function WorkspaceStep({
 }: {
   name: string
   onChangeName: (value: string) => void
-  folderPath: string | null
-  onPickFolder: () => void
-  onFolderCreated: (createdPath: string) => void
+  folderDraftPath: string
+  onChangeFolderDraftPath: (value: string) => void
+  onBrowseFolder: () => void
+  folderDraftExists: boolean | null
+  folderError: string | null
   onSelectRecent: (path: string) => void
   recentFolders: string[]
   folderHints: ReturnType<typeof useFolderHints>
   inputRef: React.MutableRefObject<HTMLInputElement | null>
 }) {
+  const trimmedPath = folderDraftPath.trim()
+  // Existing folders open as-is regardless of leaf naming; otherwise the path
+  // must be structurally valid to be created, so surface that error instead of
+  // implying a folder will be made.
+  const targetError =
+    folderDraftExists === true ? null : trimmedPath ? analyzeWorkspaceTargetPath(folderDraftPath).error : null
+  const status: { tone: 'error' | 'muted'; text: string } | null = folderError
+    ? { tone: 'error', text: folderError }
+    : !trimmedPath
+      ? null
+      : folderDraftExists === true
+        ? { tone: 'muted', text: 'Existing folder — opens as-is.' }
+        : targetError
+          ? { tone: 'muted', text: targetError }
+          : folderDraftExists === false
+            ? { tone: 'muted', text: 'New — this folder will be created on continue.' }
+            : null
+
   return (
     <div className="flex flex-col gap-6">
       <label className="flex flex-col gap-2">
@@ -2180,54 +2342,35 @@ function WorkspaceStep({
 
       <div className="flex flex-col gap-2">
         <FieldLabel>Folder</FieldLabel>
-        <div className="flex flex-col gap-0.5 rounded-md border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] p-1">
-          <button
-            type="button"
-            onClick={onPickFolder}
+        <div className="flex items-center gap-2">
+          <input
+            value={folderDraftPath}
+            onChange={(event) => onChangeFolderDraftPath(event.target.value)}
+            placeholder="/path/to/workspace"
+            spellCheck={false}
+            autoComplete="off"
+            aria-invalid={folderError ? true : undefined}
             className={`
-              group flex w-full min-w-0 items-center gap-3 rounded px-2 py-1.5 text-left
-              transition-colors hover:bg-[color:var(--bg-surface-raised)]
-              focus:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--accent-primary)]
-              ${folderPath ? 'bg-[color:var(--bg-hover)]' : ''}
+              block h-11 w-full min-w-0 flex-1 rounded-md border bg-[color:var(--bg-surface)] px-3.5
+              font-mono text-[12px] text-[color:var(--text-strong)] outline-none transition-colors
+              placeholder:text-[color:var(--text-disabled)]
+              hover:border-[color:var(--color-5)] focus:border-[color:var(--text-strong)]
+              ${folderError ? 'border-[color:var(--tone-error)]' : 'border-[color:var(--border-default)]'}
             `}
-          >
-            <span
-              aria-hidden="true"
-              className={`flex h-7 w-7 shrink-0 items-center justify-center rounded text-[color:var(--text-subtle)] ${
-                folderPath ? 'bg-[color:var(--border-default)] text-[color:var(--text-muted)]' : 'bg-[color:var(--bg-surface-raised)] group-hover:text-[color:var(--text-muted)]'
-              }`}
-            >
-              <svg className="icon-md" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-                <path
-                  d="M3.75 7.5C3.75 6.39543 4.64543 5.5 5.75 5.5H9.5L11.5 7.5H18.25C19.3546 7.5 20.25 8.39543 20.25 9.5V16.25C20.25 17.3546 19.3546 18.25 18.25 18.25H5.75C4.64543 18.25 3.75 17.3546 3.75 16.25V7.5Z"
-                  stroke="currentColor"
-                  strokeWidth="1.7"
-                  strokeLinejoin="round"
-                />
-              </svg>
-            </span>
-            <span className="min-w-0 flex-1">
-              <span className={`block truncate text-[13px] font-medium ${
-                folderPath ? 'text-[color:var(--text-strong)]' : 'text-[color:var(--text-default)]'
-              }`}>
-                {folderPath ? basename(folderPath) || folderPath : 'Browse existing folder'}
-              </span>
-              {folderPath ? (
-                <span className="block truncate font-mono text-[11px] leading-4 text-[color:var(--text-subtle)]">
-                  {folderPath}
-                </span>
-              ) : null}
-            </span>
-            <span className="shrink-0 text-[12px] font-medium text-[color:var(--text-muted)]">
-              {folderPath ? 'Change' : 'Browse'}
-            </span>
-          </button>
-          <CreateFolderField
-            defaultParentPath={folderPath}
-            workspaceName={name}
-            onCreated={onFolderCreated}
           />
+          <GhostButton size="md" onClick={onBrowseFolder}>
+            Browse
+          </GhostButton>
         </div>
+        {status ? (
+          <p
+            className={`px-0.5 text-[11px] leading-4 ${
+              status.tone === 'error' ? 'text-[color:var(--tone-error)]' : 'text-[color:var(--text-muted)]'
+            }`}
+          >
+            {status.text}
+          </p>
+        ) : null}
       </div>
 
       {recentFolders.length > 0 ? (
@@ -2245,7 +2388,7 @@ function WorkspaceStep({
                 <RecentFolderRow
                   key={recent}
                   path={recent}
-                  active={isSameFolder(folderPath, recent)}
+                  active={isSameFolder(folderDraftPath, recent)}
                   hints={hints}
                   onSelect={onSelectRecent}
                 />
@@ -3729,7 +3872,7 @@ function isStepReady(
 function getStepBlockingMessage(args: {
   step: StepId
   mode: CreationMode
-  folderPath: string | null
+  workspaceFolderReady: boolean
   name: string
   mlGoal: string
   sprintEngineAccess: PremiumFeatureAccessState
@@ -3745,7 +3888,7 @@ function getStepBlockingMessage(args: {
   const {
     step,
     mode,
-    folderPath,
+    workspaceFolderReady,
     name,
     mlGoal,
     sprintEngineAccess,
@@ -3761,8 +3904,8 @@ function getStepBlockingMessage(args: {
 
   switch (step) {
     case 'workspace':
-      if (!folderPath && !name.trim()) return 'Add a name and choose a folder.'
-      if (!folderPath) return 'Choose a folder to continue.'
+      if (!workspaceFolderReady && !name.trim()) return 'Add a name and choose a folder.'
+      if (!workspaceFolderReady) return 'Choose a folder to continue.'
       if (!name.trim()) return 'Give the workspace a name.'
       return 'Press Continue to choose a mode.'
     case 'mode':

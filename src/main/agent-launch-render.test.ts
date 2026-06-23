@@ -10,6 +10,7 @@ import {
   quotePosixToken,
   renderAgentLaunchArgv,
   resolveCliRuntimeSettings,
+  resolveDebugSkillInvocation,
 } from './agent-launch-render'
 import { composeSpawnAgentPrompt } from './automations/actions/spawn-agent'
 import { createPluginRegistry } from './plugin-registry'
@@ -17,7 +18,15 @@ import { buildCodexLegacyNativeAgentLaunchPowerShellScript } from './terminal-la
 import {
   __resetPluginRegistryForTest,
   __setPluginRegistryForTest,
+  getPluginById,
 } from './plugin-registry-instance'
+
+// The CLI-native debug skill invocation each bundled manifest declares via
+// skillIntegration.invocation.explicitTemplate, rendered for skillId "debug".
+const DEBUG_INVOCATION: Record<'claude-code' | 'codex', string> = {
+  'claude-code': '/debug',
+  codex: 'Use $debug.',
+}
 
 const BUNDLED_ROOT = join(process.cwd(), 'resources', 'plugins')
 
@@ -41,6 +50,7 @@ async function main(): Promise<void> {
     testRenderArgvIncludesBinaryAsFirstElement()
     testResolveCliRuntimeSettings()
     testApplyDebugDirectiveHelper()
+    testResolveDebugSkillInvocation()
     testDebugModeOrthogonality()
     testDebugDirectiveReachesRenderedArgvAllPaths()
     testCodexLegacyWindowsDebugInjection()
@@ -333,17 +343,54 @@ function testBuildAgentShellCommandCodex(): void {
 }
 
 // Criterion: helper returns the prompt unchanged when off and prepends the
-// verbatim directive when on. The pure helper has no plugin/registry deps.
+// directive when on — led by the CLI-native invocation when one is supplied.
+// The pure helper has no plugin/registry deps.
 function testApplyDebugDirectiveHelper(): void {
   assert.equal(applyDebugDirective('do the thing', false), 'do the thing', 'off → byte-identical input')
   assert.equal(
     applyDebugDirective('do the thing', true),
     `${DEBUG_DIRECTIVE}\n\ndo the thing`,
-    'on → directive prepended ahead of the prompt',
+    'on, no invocation → directive prepended ahead of the prompt',
   )
   assert.ok(applyDebugDirective('do the thing', true).startsWith(DEBUG_DIRECTIVE), 'directive is first')
   assert.equal(applyDebugDirective('', true), DEBUG_DIRECTIVE, 'on with no prompt → directive only')
   assert.equal(applyDebugDirective('', false), '', 'off with no prompt → empty')
+
+  // With a native invocation: it leads, then the directive, then the prompt.
+  assert.equal(
+    applyDebugDirective('do the thing', true, '/debug'),
+    `/debug\n\n${DEBUG_DIRECTIVE}\n\ndo the thing`,
+    'on with invocation → invocation, directive, prompt',
+  )
+  assert.equal(
+    applyDebugDirective('', true, '/debug'),
+    `/debug\n\n${DEBUG_DIRECTIVE}`,
+    'on with invocation and no prompt → invocation + directive only',
+  )
+  assert.equal(applyDebugDirective('x', false, '/debug'), 'x', 'off ignores the native invocation')
+}
+
+// Criterion: the debug skill invocation is resolved from each bundled manifest's
+// skillIntegration.invocation.explicitTemplate, rendered for skillId "debug".
+// CLIs without native skill support resolve to undefined (inline-directive
+// fallback). Runs inside usingBundledRegistry so the real manifests are loaded.
+function testResolveDebugSkillInvocation(): void {
+  const claude = getPluginById('claude-code')
+  const codex = getPluginById('codex')
+  assert.ok(claude && codex, 'bundled claude/codex plugins are loaded')
+  assert.equal(resolveDebugSkillInvocation(claude!), '/debug', 'claude resolves the native slash invocation')
+  assert.equal(resolveDebugSkillInvocation(codex!), 'Use $debug.', 'codex resolves the native mention invocation')
+
+  // Fallback: a CLI whose plugin does not natively support skills resolves no
+  // invocation, so Debug Mode falls back to the inline directive alone. The
+  // bundled generic-shell declares skillIntegration.support: 'unsupported'.
+  const generic = getPluginById('generic-shell')
+  assert.ok(generic, 'bundled generic-shell plugin is loaded')
+  assert.equal(
+    resolveDebugSkillInvocation(generic!),
+    undefined,
+    'a non-native CLI resolves no invocation (inline-directive fallback)',
+  )
 }
 
 // Orthogonality invariant: Debug Mode must change only the prompt token, never
@@ -371,8 +418,8 @@ function testDebugModeOrthogonality(): void {
       assert.equal(off.argv.at(-1), prompt, `${cli}/${preset}: debug-off prompt token unchanged`)
       assert.equal(
         on.argv.at(-1),
-        applyDebugDirective(prompt, true),
-        `${cli}/${preset}: debug-on prompt token carries the directive`,
+        applyDebugDirective(prompt, true, DEBUG_INVOCATION[cli]),
+        `${cli}/${preset}: debug-on prompt token carries the native invocation + directive`,
       )
     }
   }
@@ -400,7 +447,8 @@ function testDebugDirectiveReachesRenderedArgvAllPaths(): void {
     for (const cli of ['claude-code', 'codex'] as const) {
       const out = renderAgentLaunchArgv({ cli, sessionId: 'sid_path', initialPrompt: path, debugMode: true })
       const promptToken = out.argv.at(-1) ?? ''
-      assert.ok(promptToken.startsWith(DEBUG_DIRECTIVE), `${cli}: directive prepended for path prompt`)
+      assert.ok(promptToken.startsWith(DEBUG_INVOCATION[cli]), `${cli}: native invocation leads for path prompt`)
+      assert.ok(promptToken.includes(DEBUG_DIRECTIVE), `${cli}: directive present after the invocation`)
       assert.ok(promptToken.includes(path), `${cli}: original prompt preserved after the directive`)
     }
   }
@@ -468,13 +516,18 @@ function testCodexLegacyWindowsDebugInjection(): void {
       `codex-legacy/${preset}: script body outside $arguments unchanged by debug`,
     )
 
-    // (a) Directive present, verbatim, ahead of the original prompt. The legacy
-    // path escapes newlines/double-quotes in the prompt arg but the directive
-    // text contains neither, so it survives intact.
+    // (a) Codex-native invocation leads, directive follows verbatim, ahead of
+    // the original prompt. The legacy path escapes newlines/double-quotes in the
+    // prompt arg but the invocation and directive text contain neither, so they
+    // survive intact.
     assert.equal(offArgs.at(-1), prompt, `codex-legacy/${preset}: debug-off prompt arg unchanged`)
     assert.ok(
-      onArgs.at(-1)?.startsWith(DEBUG_DIRECTIVE),
-      `codex-legacy/${preset}: debug-on prompt arg leads with the verbatim directive`,
+      onArgs.at(-1)?.startsWith(DEBUG_INVOCATION.codex),
+      `codex-legacy/${preset}: debug-on prompt arg leads with the codex-native invocation`,
+    )
+    assert.ok(
+      onArgs.at(-1)?.includes(DEBUG_DIRECTIVE),
+      `codex-legacy/${preset}: directive present after the invocation`,
     )
     assert.ok(
       onArgs.at(-1)?.includes(prompt),
@@ -492,15 +545,20 @@ function testCodexLegacyWindowsDebugInjection(): void {
   )
   assert.equal(resumeOn, resumeOff, 'codex-legacy resume: debug toggle is a no-op without an initial prompt')
 
-  // Debug on with no initial prompt still injects the directive as the sole
-  // prompt arg, matching applyDebugDirective('', true).
+  // Debug on with no initial prompt still injects the codex invocation +
+  // directive as the sole prompt arg, matching
+  // applyDebugDirective('', true, 'Use $debug.').
   const noPromptOn = buildCodexLegacyNativeAgentLaunchPowerShellScript(
     'sid_legacy', false, cwd, '', runtime, 'default', undefined, true,
   )
+  // This legacy path escapes real newlines to literal "\n" in the codex prompt
+  // arg (nativeWindowsCodexPromptArg), so build the expected value by applying
+  // the same escaping rather than hardcoding the escaped form.
+  const expectedNoPrompt = applyDebugDirective('', true, DEBUG_INVOCATION.codex).replace(/\n/g, '\\n')
   assert.equal(
     decodeWindowsScriptArgs(noPromptOn).at(-1),
-    DEBUG_DIRECTIVE,
-    'codex-legacy: debug-on with empty prompt injects the directive alone',
+    expectedNoPrompt,
+    'codex-legacy: debug-on with empty prompt injects the codex invocation + directive (newlines escaped)',
   )
 }
 

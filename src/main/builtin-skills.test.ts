@@ -164,6 +164,24 @@ async function main(): Promise<void> {
     await readFile(join(workspaceRoot, '.agents', 'skills', 'debug', 'SKILL.md'), 'utf-8'),
     'version one\n'
   )
+  // Debug Mode delivers the full skill to the agent, so `debug` opts into
+  // all-native targets (like backlog): it installs to .agents PLUS every native
+  // CLI harness, not just .agents. This is what lets the spawn-time /debug
+  // invocation resolve to a present skill in the CLI's own skill dir.
+  for (const dir of ['.claude', '.pi']) {
+    assert.equal(
+      await readFile(join(workspaceRoot, dir, 'skills', 'debug', 'SKILL.md'), 'utf-8'),
+      'version one\n',
+      `debug installs to ${dir}/skills/debug`
+    )
+  }
+  const debugTargets = await manager.getStatus(workspaceRoot, 'debug')
+  assert.equal(debugTargets.ok && debugTargets.status, 'installed')
+  assert.equal(
+    debugTargets.ok && debugTargets.targets.length,
+    5,
+    'debug resolves all-native targets (.agents + claude + pi + shim + generic-shell)'
+  )
 
   await writeAllSkillSources(sourceRoot, 'version two\n')
   const updateAvailable = await manager.getStatus(workspaceRoot, 'workspace-knowledge')

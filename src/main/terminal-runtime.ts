@@ -90,6 +90,12 @@ type TerminalRuntimeOptions = {
     toolName: string
     arguments?: Record<string, unknown>
   }): Promise<unknown>
+  // Ensures a built-in skill is installed into the workspace before an agent
+  // launches. Debug Mode uses this to guarantee the `debug` skill is present in
+  // the session CLI's native skill dir so the injected invocation resolves to a
+  // real skill. Best-effort: the caller swallows failures and falls back to the
+  // always-present inline directive.
+  ensureBuiltinSkillInstalled?(workspaceRoot: string, skillId: string): Promise<void>
 }
 
 type TerminalIpcHandlers = {
@@ -132,6 +138,7 @@ const agentSessionExitListeners = new Set<AgentSessionExitListener>()
 let syncMcpConfig: TerminalRuntimeOptions['syncMcpConfig']
 let releaseManagedSprintEngineRun: TerminalRuntimeOptions['releaseManagedSprintEngineRun']
 let callManagedSprintEngineTool: TerminalRuntimeOptions['callManagedSprintEngineTool']
+let ensureBuiltinSkillInstalled: TerminalRuntimeOptions['ensureBuiltinSkillInstalled']
 const sprintEngineMcpRunRefCounts = new Map<string, number>()
 const sprintEngineMcpWorkspaceRefCounts = new Map<string, number>()
 const pendingSprintEngineMcpRunReleases = new Set<Promise<void>>()
@@ -223,6 +230,7 @@ export function createTerminalRuntime(options: TerminalRuntimeOptions): Terminal
   syncMcpConfig = options.syncMcpConfig
   releaseManagedSprintEngineRun = options.releaseManagedSprintEngineRun
   callManagedSprintEngineTool = options.callManagedSprintEngineTool
+  ensureBuiltinSkillInstalled = options.ensureBuiltinSkillInstalled
   sprintEngineMcpRunRefCounts.clear()
   sprintEngineMcpWorkspaceRefCounts.clear()
   pendingSprintEngineMcpRunReleases.clear()
@@ -1764,6 +1772,23 @@ async function spawnTerminalFromIpc(
         sprintEngineMcpEnv = syncResult.runTokenEnv
         retainSprintEngineMcpRunRef(sprintEngineMcpRunId, workingDirectory)
         sprintEngineMcpRunRetained = Boolean(sprintEngineMcpRunId)
+      }
+
+      // Debug Mode delivers the `debug` skill's full state-machine contract by
+      // ensuring it is installed into the session CLI's native skill dir before
+      // launch, so the injected /debug invocation resolves to a present skill.
+      // Best-effort: a failure falls back to the always-present inline directive
+      // rather than blocking the spawn.
+      if (debugMode && !shellOnly && ensureBuiltinSkillInstalled) {
+        try {
+          await ensureBuiltinSkillInstalled(workingDirectory, 'debug')
+        } catch (error) {
+          logMainPerfEvent('TerminalRuntime', 'debug-skill-install-failed', {
+            sessionId,
+            cli,
+            message: getErrorMessage(error),
+          })
+        }
       }
 
       const { command, args, cwd: launchCwd, pathStyle, initialInput, env, startupScriptPath } = shellOnly

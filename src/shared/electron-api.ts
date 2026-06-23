@@ -2033,6 +2033,7 @@ export type ElectronApi = {
   openHtmlFileInBrowser: (targetPath: string) => Promise<void>
   watchPath: (path: string, cb: (event: FileWatchEvent) => void) => Promise<() => Promise<void>>
   openDir: () => Promise<string | null>
+  defaultWorkspaceParentDir: () => Promise<string | null>
   saveFile: (options?: SaveDialogOptions) => Promise<string | null>
   openFile: (options?: OpenDialogOptions) => Promise<string | null>
   showContextMenu: (items: ContextMenuItem[]) => Promise<string | null>

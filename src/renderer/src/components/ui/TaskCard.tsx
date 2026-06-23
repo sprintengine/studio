@@ -12,9 +12,11 @@ import { FOCUS_RING_CLASS, type Tone } from './tokens'
  * - `variant="row"` — single line; identifier and title share a baseline; title
  *   truncates to one line; no glyph slot. Used by Switchboard backlog rows.
  * - `variant="card"` — identifier sits above the title; title clamps to two
- *   lines; optional trailing glyph slot. Used by Sprint Engine kanban cards
- *   where role information is load-bearing and architect-generated titles are
- *   often descriptive sentences.
+ *   lines by default (pass `clampTitle={false}` to wrap fully); optional
+ *   trailing glyph slot. Used by Sprint Engine kanban cards where role
+ *   information is load-bearing and architect-generated titles are often
+ *   descriptive sentences. The Sprint Engine board opts out of the clamp so
+ *   titles wrap in its thin equal-width lanes instead of truncating.
  *
  * The variance is deliberate: detail-pane vs scan-without-selecting workflows
  * have different content shapes. The shared primitive keeps the anatomy locked.
@@ -47,6 +49,11 @@ export type TaskCardProps = {
   selected?: boolean
   /** Variant of the card layout. Defaults to `row`. */
   variant?: TaskCardVariant
+  /** `card` variant only: clamp the title to two lines. Defaults to `true`.
+   *  Pass `false` to let the title wrap to as many lines as it needs — used by
+   *  the Sprint Engine board, whose thin equal-width lanes would otherwise
+   *  truncate descriptive titles. */
+  clampTitle?: boolean
   onSelect?: () => void
   onContextMenu?: (event: React.MouseEvent<HTMLLIElement>) => void
   /** Drag-and-drop opt-in. When provided, the card becomes a drag source. */
@@ -72,6 +79,7 @@ export function TaskCard({
   trailing,
   selected = false,
   variant = 'row',
+  clampTitle = true,
   onSelect,
   onContextMenu,
   draggable = false,
@@ -150,7 +158,11 @@ export function TaskCard({
             <div className="font-mono tabular-nums text-[11px] text-[color:var(--text-muted)]">
               {identifier}
             </div>
-            <div className="mt-0.5 line-clamp-2 text-[12px] font-medium leading-[1.35] text-[color:var(--text-strong)]">
+            <div
+              className={`mt-0.5 text-[12px] font-medium leading-[1.35] text-[color:var(--text-strong)] ${
+                clampTitle ? 'line-clamp-2' : 'break-words [overflow-wrap:anywhere]'
+              }`}
+            >
               {title}
             </div>
             {supporting ? (

@@ -1,4 +1,4 @@
-import { Actions, DockLocation, Model, TabNode, TabSetNode, type IJsonModel } from 'flexlayout-react'
+import { Actions, DockLocation, Model, RowNode, TabNode, TabSetNode, type IJsonModel } from 'flexlayout-react'
 import { basename, pathSeparatorFor } from './paths'
 
 const AGENT_TAB_SPAWN_FLASH_CLASS = 'agent-tab-spawn-flash'
@@ -956,6 +956,62 @@ function findNavRailTabset(model: Model): TabSetNode | null {
     if (isNavRailTabset(node)) found = node
   })
   return found
+}
+
+// Records the nav rail's share of its parent row, as a width fraction, so it can
+// survive a sibling tabset being removed. Returns null when there is no nav rail,
+// it isn't in a horizontal split (fraction would be ~1), or its rect hasn't been
+// laid out yet. Read this BEFORE applying a tab/tabset deletion.
+export function captureNavRailWidthFraction(model: Model): number | null {
+  const nav = findNavRailTabset(model)
+  if (!nav) return null
+  const parent = nav.getParent()
+  if (!(parent instanceof RowNode)) return null
+  const parentWidth = parent.getRect().width
+  const navWidth = nav.getRect().width
+  if (!(parentWidth > 0) || !(navWidth > 0)) return null
+  const fraction = navWidth / parentWidth
+  return fraction > 0 && fraction < 1 ? fraction : null
+}
+
+// Re-pins the nav rail to a previously captured width fraction. flexlayout
+// redistributes a removed tabset's weight across ALL remaining siblings in
+// proportion to their weight — including the strip-less Files/Git/Backlog pane,
+// which then visibly grows when a terminal beside it is closed. Re-pinning the
+// nav rail keeps its pixel width and lets the freed space flow to the editor /
+// terminal siblings instead. Call this AFTER the deletion has been applied (the
+// sibling weights it reads must already reflect the removed tabset).
+export function restoreNavRailWidthFraction(model: Model, fraction: number): void {
+  if (!(fraction > 0) || !(fraction < 1)) return
+  const nav = findNavRailTabset(model)
+  if (!nav) return
+  const parent = nav.getParent()
+  if (!(parent instanceof RowNode)) return
+  const siblings = parent.getChildren().filter((child) => child !== nav)
+  if (siblings.length === 0) return
+  const otherWeight = siblings.reduce((sum, child) => {
+    const weight = child instanceof TabSetNode || child instanceof RowNode ? child.getWeight() : 0
+    return sum + (weight > 0 ? weight : 0)
+  }, 0)
+  if (!(otherWeight > 0)) return
+  // navWeight / (navWeight + otherWeight) === fraction  ⇒  solve for navWeight.
+  const targetWeight = (fraction * otherWeight) / (1 - fraction)
+  if (!Number.isFinite(targetWeight) || targetWeight <= 0) return
+  if (Math.abs(nav.getWeight() - targetWeight) < 0.01) return
+  model.doAction(Actions.updateNodeAttributes(nav.getId(), { weight: targetWeight }))
+}
+
+// Drop-in for `model.doAction(Actions.deleteTab(id))` that keeps the strip-less
+// Files/Git/Backlog nav rail at its current width. App-initiated closes (the tab
+// context menu, middle-click, a panel's own close button) dispatch straight to
+// the model and so never reach the Layout's onAction hook; routing them through
+// here gives them the same width-preserving behaviour as flexlayout's built-in
+// close button. Runs synchronously: the deletion settles the sibling weights
+// before the rail is re-pinned.
+export function deleteTabPreservingNavRail(model: Model, tabId: string): void {
+  const fraction = captureNavRailWidthFraction(model)
+  model.doAction(Actions.deleteTab(tabId))
+  if (fraction != null) restoreNavRailWidthFraction(model, fraction)
 }
 
 // Drops every nav tab except the one just selected, anywhere in the model, so

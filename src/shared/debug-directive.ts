@@ -11,10 +11,19 @@ export const DEBUG_DIRECTIVE =
   'Do not finish until all tagged instrumentation is removed.'
 
 // Pure helper shared by main and renderer. Returns the prompt untouched when
-// debug is off; when on, prepends the verbatim directive (with a blank line
-// before any existing prompt). An empty prompt yields just the directive, so a
-// debug launch with no user prompt still carries the instruction.
-export function applyDebugDirective(initialPrompt: string, debugMode: boolean): string {
+// debug is off. When on, it prepends the directive; when a CLI-native skill
+// invocation is supplied (e.g. "/debug" for Claude Code, "Use $debug." for
+// Codex — resolved from the plugin manifest at the launch boundary), that
+// invocation leads so Debug Mode triggers the skill through the CLI's first-class
+// mechanism, with the directive immediately after as the always-present contract.
+// An empty prompt yields just the directive lead, so a debug launch with no user
+// prompt still carries the instruction.
+export function applyDebugDirective(
+  initialPrompt: string,
+  debugMode: boolean,
+  nativeInvocation?: string
+): string {
   if (!debugMode) return initialPrompt
-  return initialPrompt ? `${DEBUG_DIRECTIVE}\n\n${initialPrompt}` : DEBUG_DIRECTIVE
+  const lead = nativeInvocation ? `${nativeInvocation}\n\n${DEBUG_DIRECTIVE}` : DEBUG_DIRECTIVE
+  return initialPrompt ? `${lead}\n\n${initialPrompt}` : lead
 }

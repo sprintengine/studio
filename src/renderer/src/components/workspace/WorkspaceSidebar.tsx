@@ -767,7 +767,7 @@ export default function WorkspaceSidebar({
         ? formatRelativeMsAgo(recency.lastFinishedAt, now)
         : null
     const runGlyphLabel = runGlyph
-      ? `${runGlyph.label}${runGlyphRecencyAgo ? ` · last terminal output ${runGlyphRecencyAgo}` : ''}`
+      ? `${runGlyph.label}${runGlyphRecencyAgo ? ` · last typed ${runGlyphRecencyAgo}` : ''}`
       : null
     const showRecencyText =
       !sidebarCollapsed
@@ -951,8 +951,8 @@ export default function WorkspaceSidebar({
                 ) : showRecencyText ? (
                   <span
                     className="text-[10px] tabular-nums text-[color:var(--text-subtle)]"
-                    title={`Last terminal output ${formatRelativeMsAgo(recency!.lastFinishedAt!, now)} (${new Date(recency!.lastFinishedAt!).toLocaleString()})`}
-                    aria-label={`Last terminal output ${formatRelativeMsAgo(recency!.lastFinishedAt!, now)}`}
+                    title={`Last typed ${formatRelativeMsAgo(recency!.lastFinishedAt!, now)} (${new Date(recency!.lastFinishedAt!).toLocaleString()})`}
+                    aria-label={`Last typed ${formatRelativeMsAgo(recency!.lastFinishedAt!, now)}`}
                   >
                     {formatRelativeMs(recency!.lastFinishedAt!, now)}
                   </span>

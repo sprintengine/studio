@@ -4,7 +4,8 @@ import { unlink } from 'fs/promises'
 import { join } from 'path'
 import type { AgentCli, CliRuntimeSettings, SprintEngineCliPermissionPreset, TerminalPathStyle } from '../shared/electron-api'
 import { applyDebugDirective } from '../shared/debug-directive'
-import { buildAgentShellCommand, pluginIdForCli, renderAgentLaunchArgv, resolveCliRuntimeSettings } from './agent-launch-render'
+import { buildAgentShellCommand, pluginIdForCli, renderAgentLaunchArgv, resolveCliRuntimeSettings, resolveDebugSkillInvocation } from './agent-launch-render'
+import { getPluginById } from './plugin-registry-instance'
 import { withMulticodeCliPath } from './cli-install'
 import { getColorScheme } from './color-scheme-store'
 import { ensureManagedRuntimeShims, getManagedPython, withManagedRuntimePath } from './managed-runtime'
@@ -809,8 +810,13 @@ export function buildCodexLegacyNativeAgentLaunchPowerShellScript(
   const command = cliRuntime.command || 'codex'
   // This acknowledged-legacy path builds codex args by hand instead of going
   // through renderAgentLaunchArgv, so the shared debug boundary does not cover
-  // it — apply the directive here too. Permission args above stay untouched.
-  const debugPrompt = debugMode ? applyDebugDirective(initialPrompt ?? '', true) : initialPrompt
+  // it — apply the directive here too, including the codex-native skill
+  // invocation pulled from the manifest. Permission args above stay untouched.
+  const codexPlugin = debugMode ? getPluginById('codex') : null
+  const nativeInvocation = codexPlugin ? resolveDebugSkillInvocation(codexPlugin) : undefined
+  const debugPrompt = debugMode
+    ? applyDebugDirective(initialPrompt ?? '', true, nativeInvocation)
+    : initialPrompt
   const promptArg = nativeWindowsCodexPromptArg(debugPrompt)
   // The model flag is hardcoded like the rest of this acknowledged-legacy
   // codex-specific path; the manifest-rendered paths read modelSelection.args.

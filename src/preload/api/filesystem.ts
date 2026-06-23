@@ -82,6 +82,7 @@ export const filesystemApi = {
     }
   },
   openDir: () => ipcRenderer.invoke('fs:dialog:opendir'),
+  defaultWorkspaceParentDir: () => ipcRenderer.invoke('app:default-workspace-parent'),
   saveFile: (options?: SaveDialogOptions) => ipcRenderer.invoke('fs:dialog:savefile', options),
   openFile: (options?: OpenDialogOptions) => ipcRenderer.invoke('fs:dialog:openfile', options),
   showContextMenu: (items: ContextMenuItem[]) => ipcRenderer.invoke('app:show-context-menu', items),
@@ -121,6 +122,7 @@ export const filesystemApi = {
   | 'openHtmlFileInBrowser'
   | 'watchPath'
   | 'openDir'
+  | 'defaultWorkspaceParentDir'
   | 'saveFile'
   | 'openFile'
   | 'showContextMenu'
