@@ -1,11 +1,13 @@
 import assert from 'node:assert/strict'
 
-import { Model, type IJsonModel } from 'flexlayout-react'
+import { Actions, Model, Rect, type IJsonModel } from 'flexlayout-react'
 import {
   addAgentTabTiled,
   addTerminalTab,
+  captureNavRailWidthFraction,
   focusOrAddFileTab,
   registerModel,
+  restoreNavRailWidthFraction,
   revealAgentTab,
   unregisterModel,
   togglePanelRailComponent,
@@ -403,6 +405,108 @@ function navTabsets(model: Model): TabsetJson[] {
   assert.equal(nav.length, 1)
   assert.deepEqual(componentsOf(nav[0]), ['git'])
   unregisterModel(WS)
+}
+
+// --- Nav rail width is preserved when a sibling terminal/agent is closed ---
+
+// solo-dev-shaped layout: strip-less nav rail (Git) + editor + agent, all
+// siblings in the root row. Tabs carry ids so the agent can be deleted by id.
+function navRailDevModel(): Model {
+  const json: IJsonModel = {
+    global: { tabSetEnableDrop: true, tabEnableClose: true },
+    borders: [],
+    layout: {
+      type: 'row',
+      children: [
+        {
+          type: 'tabset',
+          weight: 18,
+          enableTabStrip: false,
+          children: [{ type: 'tab', id: 'nav-git', name: 'Git', component: 'git' }],
+        },
+        { type: 'tabset', weight: 52, children: [{ type: 'tab', id: 'ed', name: 'Editor', component: 'editor' }] },
+        {
+          type: 'tabset',
+          weight: 30,
+          children: [{ type: 'tab', id: 'agent-x', name: 'Agent', component: 'agent', config: { agentId: 'x' } }],
+        },
+      ],
+    },
+  }
+  return Model.fromJson(json)
+}
+
+// Headless models never run the view layout pass, so seed the rects the capture
+// reads: root row 1000px wide, nav rail 180px ⇒ an 18% share.
+function seedNavRailRects(model: Model): void {
+  const navTab = model.getNodeById('nav-git')
+  const navTabset = navTab?.getParent()
+  const rootRow = navTabset?.getParent()
+  assert.ok(navTabset && rootRow, 'expected nav tabset under the root row')
+  rootRow!.setRect(new Rect(0, 0, 1000, 800))
+  navTabset!.setRect(new Rect(0, 0, 180, 800))
+}
+
+// Reads the live weight of the tabset that holds a tab with the given component.
+function tabsetWeight(model: Model, component: string): number {
+  type WeightedTabset = TabsetJson & { weight?: number }
+  let weight = 0
+  const walk = (node: WeightedTabset | undefined) => {
+    if (!node) return
+    if (node.type === 'tabset' && (node.children ?? []).some((c) => c.component === component)) {
+      weight = node.weight ?? 0
+    }
+    node.children?.forEach((child) => walk(child as WeightedTabset))
+  }
+  walk((model.toJson() as unknown as { layout: WeightedTabset }).layout)
+  return weight
+}
+
+// captureNavRailWidthFraction reports the rail's share of its parent row.
+{
+  const model = navRailDevModel()
+  seedNavRailRects(model)
+  const fraction = captureNavRailWidthFraction(model)
+  assert.ok(fraction != null && Math.abs(fraction - 0.18) < 0.001, `expected 0.18, got ${fraction}`)
+}
+
+// Regression: closing the agent WITHOUT re-pinning lets flexlayout spread the
+// freed weight into the nav rail — it grows from 18% to ~26% of the row.
+{
+  const model = navRailDevModel()
+  model.doAction(Actions.deleteTab('agent-x'))
+  const navW = tabsetWeight(model, 'git')
+  const edW = tabsetWeight(model, 'editor')
+  const fraction = navW / (navW + edW)
+  assert.ok(Math.abs(fraction - 18 / 70) < 0.01, `expected the bug's ~0.257, got ${fraction}`)
+}
+
+// Fix: capture the rail before the close, delete the agent, then restore — the
+// rail holds its 18% and the freed space flows to the editor instead.
+{
+  const model = navRailDevModel()
+  seedNavRailRects(model)
+  const fraction = captureNavRailWidthFraction(model)
+  assert.ok(fraction != null)
+  model.doAction(Actions.deleteTab('agent-x'))
+  restoreNavRailWidthFraction(model, fraction!)
+  const navW = tabsetWeight(model, 'git')
+  const edW = tabsetWeight(model, 'editor')
+  const preserved = navW / (navW + edW)
+  assert.ok(Math.abs(preserved - 0.18) < 0.005, `expected the rail pinned at 0.18, got ${preserved}`)
+  // The editor absorbed the closed agent's space (was 52%, now ~82%).
+  assert.ok(edW / (navW + edW) > 0.8, 'editor should absorb the freed space')
+}
+
+// restoreNavRailWidthFraction is a no-op when there are no content siblings left
+// (rail alone fills the row) and ignores out-of-range fractions.
+{
+  const model = navRailDevModel()
+  model.doAction(Actions.deleteTab('agent-x'))
+  model.doAction(Actions.deleteTab('ed'))
+  const before = tabsetWeight(model, 'git')
+  restoreNavRailWidthFraction(model, 0.18)
+  assert.equal(tabsetWeight(model, 'git'), before, 'rail weight unchanged with no siblings')
 }
 
 console.log('modelRegistry.test.ts: ok')

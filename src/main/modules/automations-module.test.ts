@@ -13,7 +13,7 @@ import type {
   AutomationTriggerProvider,
   AutomationsProvidersResult,
 } from '../../shared/automations/contracts'
-import type { AutomationsEngine, AutomationsEngineOptions } from '../automations/engine'
+import type { AutomationsEngine, AutomationsEngineEvaluationResult, AutomationsEngineOptions } from '../automations/engine'
 import { AutomationsStore } from '../automations/store'
 import type { AutomationProviderPermissionChecker } from '../automations/provider-registry'
 import type { CapabilityModule } from '../module-host/load-modules'
@@ -300,10 +300,21 @@ async function closeHttpServer(server: Server): Promise<void> {
   })
 }
 
-type FakeAutomationsEngine = Pick<AutomationsEngine, 'start' | 'stop' | 'isRunning' | 'runNow'> & {
+type FakeAutomationsEngine = Pick<
+  AutomationsEngine,
+  'start' | 'stop' | 'isRunning' | 'handleStartup' | 'tick' | 'runNow' | 'deliverTriggerEvent' | 'finalizeRun'
+> & {
   startCount: number
   stopCount: number
 }
+
+const emptyEvaluation = (): AutomationsEngineEvaluationResult => ({
+  scheduled: [],
+  fired: [],
+  skipped: [],
+  droppedInFlight: [],
+  problems: [],
+})
 
 function createFakeAutomationsEngine(): FakeAutomationsEngine {
   let running = false
@@ -321,10 +332,28 @@ function createFakeAutomationsEngine(): FakeAutomationsEngine {
     isRunning() {
       return running
     },
+    async handleStartup() {
+      return emptyEvaluation()
+    },
+    async tick() {
+      return emptyEvaluation()
+    },
     async runNow() {
       return {
         ok: false as const,
         problem: { code: 'not_used', message: 'runNow is not used by module lifecycle tests.' },
+      }
+    },
+    async deliverTriggerEvent() {
+      return {
+        ok: false as const,
+        problem: { code: 'not_used', message: 'deliverTriggerEvent is not used by module lifecycle tests.' },
+      }
+    },
+    async finalizeRun() {
+      return {
+        ok: false as const,
+        problem: { code: 'not_used', message: 'finalizeRun is not used by module lifecycle tests.' },
       }
     },
   }
@@ -452,7 +481,7 @@ async function testLiveEnablementToggleStopsUnregistersAndRestarts(): Promise<vo
         createEngine: () => {
           const engine = createFakeAutomationsEngine()
           engines.push(engine)
-          return engine as AutomationsEngine
+          return engine as unknown as AutomationsEngine
         },
       }),
     ],
@@ -499,7 +528,8 @@ async function testModuleExecutorDoesNotGateOnDirtyTreeBeforeLaunch(): Promise<v
   // there is no pre-launch dirty/non-git block).
   const folderPath = await mkdtemp(join(tmpdir(), 'multicode-automations-module-non-git-'))
   const launchRequests: AutomationRendererRequest[] = []
-  let capturedRunAutomation: AutomationsEngineOptions['runAutomation'] | null = null
+  let capturedRunAutomation: AutomationsEngineOptions['runAutomation'] | null =
+    null as AutomationsEngineOptions['runAutomation'] | null
 
   loadMainModules({
     ipcMain: createFakeIpcMain().ipcMain,
@@ -514,7 +544,7 @@ async function testModuleExecutorDoesNotGateOnDirtyTreeBeforeLaunch(): Promise<v
       createAutomationsModule({
         createEngine: (options) => {
           capturedRunAutomation = options.runAutomation
-          return createFakeAutomationsEngine() as AutomationsEngine
+          return createFakeAutomationsEngine() as unknown as AutomationsEngine
         },
       }),
     ],
@@ -576,8 +606,10 @@ async function testModuleRegistersFirstPartyActionProviders(): Promise<void> {
 
 async function testThirdPartyAutomationProviderRegistrationUsesLiveRegistry(): Promise<void> {
   const { ipcMain, handlers } = createFakeIpcMain()
-  let capturedEngineOptions: AutomationsEngineOptions | null = null
-  let capturedRunAutomation: AutomationsEngineOptions['runAutomation'] | null = null
+  let capturedEngineOptions: AutomationsEngineOptions | null =
+    null as AutomationsEngineOptions | null
+  let capturedRunAutomation: AutomationsEngineOptions['runAutomation'] | null =
+    null as AutomationsEngineOptions['runAutomation'] | null
   const folderPath = await mkdtemp(join(tmpdir(), 'multicode-automations-module-provider-'))
 
   const moduleLoad = loadMainModules({
@@ -588,7 +620,7 @@ async function testThirdPartyAutomationProviderRegistrationUsesLiveRegistry(): P
         createEngine: (options) => {
           capturedEngineOptions = options
           capturedRunAutomation = options.runAutomation
-          return createFakeAutomationsEngine() as AutomationsEngine
+          return createFakeAutomationsEngine() as unknown as AutomationsEngine
         },
       }),
       fakeThirdPartyAutomationProviderModule(),
@@ -624,8 +656,10 @@ async function testThirdPartyAutomationProviderRegistrationUsesLiveRegistry(): P
 
 async function testThirdPartyAutomationProviderTrustGateBlocksListingAndExecution(): Promise<void> {
   const { ipcMain, handlers } = createFakeIpcMain()
-  let capturedEngineOptions: AutomationsEngineOptions | null = null
-  let capturedRunAutomation: AutomationsEngineOptions['runAutomation'] | null = null
+  let capturedEngineOptions: AutomationsEngineOptions | null =
+    null as AutomationsEngineOptions | null
+  let capturedRunAutomation: AutomationsEngineOptions['runAutomation'] | null =
+    null as AutomationsEngineOptions['runAutomation'] | null
   let weatherDeckTrusted = true
   const folderPath = await mkdtemp(join(tmpdir(), 'multicode-automations-module-provider-blocked-'))
   const checkProviderPermission: AutomationProviderPermissionChecker = (registration) => {
@@ -644,7 +678,7 @@ async function testThirdPartyAutomationProviderTrustGateBlocksListingAndExecutio
         createEngine: (options) => {
           capturedEngineOptions = options
           capturedRunAutomation = options.runAutomation
-          return createFakeAutomationsEngine() as AutomationsEngine
+          return createFakeAutomationsEngine() as unknown as AutomationsEngine
         },
       }),
       fakeThirdPartyAutomationProviderModule(),
@@ -697,7 +731,8 @@ async function testThirdPartyAutomationProviderTrustGateBlocksListingAndExecutio
 
 async function testDeniedThirdPartyActionProviderIsInertAfterRevocation(): Promise<void> {
   const { ipcMain, handlers } = createFakeIpcMain()
-  let capturedRunAutomation: AutomationsEngineOptions['runAutomation'] | null = null
+  let capturedRunAutomation: AutomationsEngineOptions['runAutomation'] | null =
+    null as AutomationsEngineOptions['runAutomation'] | null
   let weatherDeckTrusted = true
   const counters = { getterCalls: 0, runCalls: 0 }
   const folderPath = await mkdtemp(join(tmpdir(), 'multicode-automations-module-provider-getters-'))
@@ -716,7 +751,7 @@ async function testDeniedThirdPartyActionProviderIsInertAfterRevocation(): Promi
         checkProviderPermission,
         createEngine: (options) => {
           capturedRunAutomation = options.runAutomation
-          return createFakeAutomationsEngine() as AutomationsEngine
+          return createFakeAutomationsEngine() as unknown as AutomationsEngine
         },
       }),
       fakeThirdPartyThrowingActionProviderModule(counters),

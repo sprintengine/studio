@@ -40,7 +40,7 @@ async function assertCommitsPushesAndCreatesPr(): Promise<void> {
   })
 
   const result = await openAutomationRunPullRequest(
-    { worktreePath: '/wt', branch: 'automations/run-1', title: 'Automation: Nightly', body: 'body' },
+    { worktreePath: '/wt', branch: 'automations/run-1', title: 'Automation: Nightly', body: 'body', autonomy: 'allow_changes' },
     deps,
   )
 
@@ -62,7 +62,7 @@ async function assertReusesExistingPr(): Promise<void> {
   })
 
   const result = await openAutomationRunPullRequest(
-    { worktreePath: '/wt', branch: 'automations/run-1', title: 't', body: 'b' },
+    { worktreePath: '/wt', branch: 'automations/run-1', title: 't', body: 'b', autonomy: 'allow_changes' },
     deps,
   )
 
@@ -83,7 +83,7 @@ async function assertPushFailureReturnsReasonNotFakeSuccess(): Promise<void> {
   })
 
   const result = await openAutomationRunPullRequest(
-    { worktreePath: '/wt', branch: 'automations/run-1', title: 't', body: 'b' },
+    { worktreePath: '/wt', branch: 'automations/run-1', title: 't', body: 'b', autonomy: 'allow_changes' },
     deps,
   )
 
@@ -102,7 +102,7 @@ async function assertGhCreateFailureReturnsReason(): Promise<void> {
   })
 
   const result = await openAutomationRunPullRequest(
-    { worktreePath: '/wt', branch: 'automations/run-1', title: 't', body: 'b' },
+    { worktreePath: '/wt', branch: 'automations/run-1', title: 't', body: 'b', autonomy: 'allow_changes' },
     deps,
   )
 

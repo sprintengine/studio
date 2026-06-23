@@ -596,7 +596,31 @@ function parseSprintEngineProjectionForArtifactReview(content: string): {
   return { tasks, artifacts }
 }
 
-function getArtifactAutoApprovalBlocker(
+// Stored artifact paths are project-relative but recorded in two equivalent
+// forms that resolve to the same file: a bare team-relative path (`plan.md`)
+// and a full-prefix path (`.multi-code/sprintengine/<team>/plan.md`). Normalize
+// both to the team-relative form so a duplicate stored differently is
+// recognized as the same file. Mirrors Python `artifact_absolute_path` (which
+// resolves both forms to `<teamDir>/<rest>`) and the renderer helper of the
+// same name, keeping all three auto-approval layers in agreement.
+function normalizeSprintEngineArtifactFileKey(path: string): string {
+  const segments = path
+    .trim()
+    .replace(/\\/g, '/')
+    .split('/')
+    .filter((segment) => segment !== '' && segment !== '.')
+  if (segments[0] === '.multi-code' && segments[1] === 'sprintengine' && segments.length > 3) {
+    return segments.slice(3).join('/')
+  }
+  return segments.join('/')
+}
+
+function isSameSprintEngineArtifactFile(left: string, right: string): boolean {
+  const leftKey = normalizeSprintEngineArtifactFileKey(left)
+  return leftKey !== '' && leftKey === normalizeSprintEngineArtifactFileKey(right)
+}
+
+export function getArtifactAutoApprovalBlocker(
   artifact: SprintEngineArtifactRecord,
   tasks: SprintEngineTaskRecord[],
   artifacts: SprintEngineArtifactRecord[]
@@ -617,6 +641,12 @@ function getArtifactAutoApprovalBlocker(
     && candidate.status !== 'approved'
     && candidate.status !== 'superseded'
     && autoApprovableArtifactKinds.has(candidate.kind)
+    // Exclude stale same-file duplicates of the candidate: they are not
+    // independent review gates, so a leftover draft placeholder pointing at the
+    // same file must not veto approval. The candidate itself stays in the set
+    // (it is the same file as itself but not a different artifact), keeping the
+    // guard below meaningful. Distinct-file pending siblings still block.
+    && !(candidate.id !== artifact.id && isSameSprintEngineArtifactFile(candidate.path, artifact.path))
   )
   if (blockingArtifacts.length === 0) return 'No blocking review artifact is waiting for approval.'
 

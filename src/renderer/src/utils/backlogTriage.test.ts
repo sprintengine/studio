@@ -52,6 +52,7 @@ run('type labels use the public backlog vocabulary', () => {
     feature: 'Feature',
     bug: 'Bug',
     mockup: 'Mockup',
+    spike: 'Spike',
   })
 })
 

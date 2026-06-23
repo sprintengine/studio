@@ -52,6 +52,14 @@ export function SprintEngineTasksKanbanView({
           ? boardColumns.map((column) => (
             <BoardLane
               key={column.key}
+              surface
+              // Readable floor for the lanes. They flex to fill the panel and
+              // shrink to this width, then the row scrolls — set at the point
+              // where a card title still wraps to ~3-4 words per line rather
+              // than one word per line. Below ~180px the cards become unreadable
+              // (a maximized window fits the 6-lane set; 9 gate lanes or a narrow
+              // panel scroll past the floor, which is the intended cutoff).
+              minWidth={180}
               label={column.label}
               // The lane header carries the column's lifecycle glyph once, so the
               // cards below stay clean. Header glyphs never animate — the live
@@ -85,6 +93,9 @@ export function SprintEngineTasksKanbanView({
                   <TaskCard
                     key={task.id}
                     variant="card"
+                    // Thin lanes (minWidth 180) would truncate descriptive
+                    // architect titles — let them wrap to full height instead.
+                    clampTitle={false}
                     tone={cardTone}
                     leading={null}
                     identifier={task.id}

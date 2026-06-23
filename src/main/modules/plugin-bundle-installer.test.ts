@@ -177,7 +177,7 @@ function createLocalSkillService(): SkillPackService {
     },
     install: async (input) => {
       const installedDirName = input.installedDirName ?? basename(input.slug)
-      const harnesses = input.harnesses?.length ? input.harnesses : ['agents']
+      const harnesses: SkillPackEntry['harnesses'] = input.harnesses?.length ? input.harnesses : ['agents']
       for (const harness of harnesses) {
         const harnessDir = harness === 'agents' ? '.agents' : `.${harness}`
         await cp(input.slug, join(input.workspaceRoot, harnessDir, 'skills', installedDirName), {

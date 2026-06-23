@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto'
+import { readFile, stat } from 'node:fs/promises'
 
 import type {
   AutomationDefinition,
@@ -17,6 +18,7 @@ import { AutomationsStore, type AutomationStoreProblem, type AutomationStoreStat
 import type { AutomationPullRequestResult } from './pull-request'
 import { computeNextRun, validateScheduleTriggerConfig } from './schedule'
 import { evaluatePollingTriggerDefinition } from './polling-trigger-runner'
+import { parseRunSignal, runSignalPath } from './run-signal'
 import { enqueueTriggerEventRun, type TriggerEventRunResult } from './trigger-event-runner'
 
 export type AutomationsProjectFolder = {
@@ -77,6 +79,9 @@ export type AutomationRunPullRequestOpener = (input: {
   branch: string
   title: string
   body: string
+  // Gates the backstop commit/push: a review_only run refuses to publish an
+  // unexpected working diff (see openAutomationRunPullRequest).
+  autonomy: AutomationDefinition['autonomyDefault']
 }) => Promise<AutomationPullRequestResult>
 
 export type AutomationRunWorktreeRemover = (input: {
@@ -104,7 +109,23 @@ export type AutomationsEngineOptions = {
 
 type EvaluationMode = 'startup' | 'timer'
 
+// An agent-backed run that was dispatched as `running` and is awaiting the
+// agent's terminal outcome, declared via the run-status signal file in its
+// worktree. The per-tick scan reads that file and finalizes the run.
+type PendingAgentRun = {
+  workspaceRoot: string
+  automationId: string
+  runId: string
+  worktreePath: string
+  workspaceId?: string
+}
+
 const DEFAULT_POLL_INTERVAL_MS = 60_000
+
+// The run-status signal is a tiny JSON object ({status, summary}). Cap the
+// per-tick read so a stray/oversize file (a buggy or compromised agent) is
+// treated as malformed and never loaded into memory; the run stays pending.
+const MAX_RUN_SIGNAL_BYTES = 64 * 1024
 
 export class AutomationsEngine {
   private readonly getProjectFolders?: () => AutomationsProjectFolder[] | Promise<AutomationsProjectFolder[]>
@@ -121,6 +142,11 @@ export class AutomationsEngine {
   private readonly openRunPullRequest?: AutomationRunPullRequestOpener
   private readonly removeRunWorktree?: AutomationRunWorktreeRemover
   private readonly inFlight = new Set<string>()
+  private readonly pendingAgentRuns = new Map<string, PendingAgentRun>()
+  // Per-run finalize lock (pendingRunKey shape). Closes the manual-IPC vs
+  // signal-scan TOCTOU: only the first caller finalizes; a concurrent caller
+  // gets the in-progress/terminal run back instead of double-opening a PR.
+  private readonly finalizingRuns = new Set<string>()
   private timer: ReturnType<typeof setInterval> | null = null
   private started = false
   private startupEvaluation: Promise<AutomationsEngineEvaluationResult> | null = null
@@ -294,6 +320,7 @@ export class AutomationsEngine {
         input.workspaceId
         ?? await this.resolveWorkspaceIdForRoot(input.workspaceRoot)
         ?? finalRun.workspaceId
+      this.trackPendingAgentRun(input.workspaceRoot, finalRun, eventWorkspaceId)
       this.emitRunEvent({
         workspaceId: eventWorkspaceId,
         definition,
@@ -429,7 +456,10 @@ export class AutomationsEngine {
       now: this.now,
       createRunId: this.createRunId,
       inFlight: this.inFlight,
-      emitRunEvent: (event) => this.emitRunEvent({ ...event, trigger: 'timer' }),
+      emitRunEvent: (event) => {
+        this.trackPendingAgentRun(input.workspaceRoot, event.run, event.workspaceId ?? workspaceId)
+        this.emitRunEvent({ ...event, trigger: 'timer' })
+      },
       result,
     })
 
@@ -449,8 +479,48 @@ export class AutomationsEngine {
     outcome: 'completed' | 'failed'
     summary?: string
     workspaceId?: string
+    // Routes the terminal run-event. 'manual' (default, IPC button) always emits;
+    // 'timer' (signal-scan auto-finalize) emits only on failure so the completed
+    // happy path stays silent during background ticks.
+    eventTrigger?: AutomationRunEventTrigger
   }): Promise<AutomationsEngineFinalizeResult> {
+    const runKey = this.pendingRunKey(input.workspaceRoot, input.automationId, input.runId)
+    // Drop from the pending registry on any finalize (manual or scan-driven) so a
+    // later tick never re-scans a run that is already being finalized.
+    this.pendingAgentRuns.delete(runKey)
+
     const store = this.createStore(input.workspaceRoot)
+    // Serialize finalize per run: a concurrent manual IPC finalize and the
+    // per-tick scan must not both pass the 'running' check below and double-open
+    // a PR / double-emit. The first caller holds the lock; a second caller reads
+    // the current run and returns it (in-progress or terminal) without re-running.
+    if (this.finalizingRuns.has(runKey)) {
+      const concurrentRun = await store.getRun(input.automationId, input.runId)
+      if (!concurrentRun.ok) {
+        return { ok: false, problem: storeProblem(input.workspaceRoot, concurrentRun.error, input.automationId) }
+      }
+      return { ok: true, run: concurrentRun.value }
+    }
+    this.finalizingRuns.add(runKey)
+    try {
+      return await this.finalizeRunLocked(input, store)
+    } finally {
+      this.finalizingRuns.delete(runKey)
+    }
+  }
+
+  private async finalizeRunLocked(
+    input: {
+      workspaceRoot: string
+      automationId: string
+      runId: string
+      outcome: 'completed' | 'failed'
+      summary?: string
+      workspaceId?: string
+      eventTrigger?: AutomationRunEventTrigger
+    },
+    store: AutomationsStore
+  ): Promise<AutomationsEngineFinalizeResult> {
     const runResult = await store.getRun(input.automationId, input.runId)
     if (!runResult.ok) {
       return { ok: false, problem: storeProblem(input.workspaceRoot, runResult.error, input.automationId) }
@@ -463,8 +533,13 @@ export class AutomationsEngine {
 
     const definitionResult = await store.getDefinition(input.automationId)
     const definitionName = definitionResult.ok ? definitionResult.value.name : input.automationId
+    // When the definition is unreadable we cannot prove review_only, so default to
+    // allow_changes (preserve existing behavior); configured review_only runs have
+    // a readable definition at finalize, which is what the safeguard targets.
+    const autonomy = definitionResult.ok ? definitionResult.value.autonomyDefault : 'allow_changes'
 
     let pullRequestUrl: string | undefined
+    let withheldChangesReason: string | undefined
     const summaryParts: string[] = []
     if (input.summary?.trim()) summaryParts.push(input.summary.trim())
 
@@ -475,12 +550,16 @@ export class AutomationsEngine {
         branch: run.branch,
         title: `Automation: ${definitionName}`,
         body: `Opened by the "${definitionName}" automation (run ${run.id}).`,
+        autonomy,
       })
       if (pr.ok) {
         pullRequestUrl = pr.url
         summaryParts.push(pr.created ? `Opened pull request ${pr.url}.` : `Linked existing pull request ${pr.url}.`)
       } else {
         summaryParts.push(`No pull request linked: ${pr.reason}`)
+        // Surface a withheld review_only diff as a blocked reason so the finalize
+        // is visibly not a clean success (no silent push, no silent success).
+        if (pr.withheldChanges) withheldChangesReason = pr.reason
       }
     }
 
@@ -498,6 +577,7 @@ export class AutomationsEngine {
       status: input.outcome,
       completedAt: new Date(this.now()).toISOString(),
       pullRequestUrl,
+      blockedReason: withheldChangesReason ?? run.blockedReason,
       summary: summaryParts.length > 0 ? summaryParts.join(' ') : run.summary,
     }
     const recorded = await store.recordRun(finalRun)
@@ -505,7 +585,9 @@ export class AutomationsEngine {
       return { ok: false, problem: storeProblem(input.workspaceRoot, recorded.error, input.automationId) }
     }
 
-    if (definitionResult.ok) {
+    const eventTrigger = input.eventTrigger ?? 'manual'
+    const emitTerminalEvent = eventTrigger === 'manual' || finalRun.status === 'failed'
+    if (definitionResult.ok && emitTerminalEvent) {
       const eventWorkspaceId =
         input.workspaceId
         ?? run.workspaceId
@@ -515,7 +597,7 @@ export class AutomationsEngine {
         workspaceId: eventWorkspaceId,
         definition: definitionResult.value,
         run: finalRun,
-        trigger: 'manual',
+        trigger: eventTrigger,
       })
     }
 
@@ -526,6 +608,11 @@ export class AutomationsEngine {
     const result = emptyEvaluationResult()
     const now = this.now()
     const projectFolders = await this.loadProjectFolders(result)
+    // Rebuild the pending-run registry from disk once at startup so agent runs
+    // dispatched before an app restart are still finalized when their signal lands.
+    if (mode === 'startup') {
+      await this.seedPendingAgentRuns(projectFolders)
+    }
     const pollContext = createTriggerPollContext()
     const triggerProvidersByKind = new Map(
       this.getTriggerProviders().map((provider) => [provider.kind, provider])
@@ -535,8 +622,74 @@ export class AutomationsEngine {
       await this.evaluateProject(projectFolder, mode, now, pollContext, triggerProvidersByKind, result)
     }
 
+    await this.scanPendingAgentRuns()
+
     this.onEvaluation?.(result)
     return result
+  }
+
+  // Auto-finalize: read each pending agent run's signal file; a valid signal
+  // finalizes the run (timer-routed) and drops it from the registry, while a
+  // missing or invalid signal leaves the run pending for a later tick.
+  private async scanPendingAgentRuns(): Promise<void> {
+    if (this.pendingAgentRuns.size === 0) return
+    for (const pending of [...this.pendingAgentRuns.values()]) {
+      const signalPath = runSignalPath(pending.worktreePath)
+      let raw: string
+      try {
+        const stats = await stat(signalPath)
+        if (stats.size > MAX_RUN_SIGNAL_BYTES) {
+          // Oversize signal — treat as malformed (never load it); stay pending.
+          continue
+        }
+        raw = await readFile(signalPath, 'utf8')
+      } catch {
+        // No signal file yet (or unreadable) — the agent has not declared an
+        // outcome; leave the run pending.
+        continue
+      }
+      const signal = parseRunSignal(raw)
+      if (!signal) continue // malformed/unrecognized — never coerce; stay pending.
+      await this.finalizeRun({
+        workspaceRoot: pending.workspaceRoot,
+        automationId: pending.automationId,
+        runId: pending.runId,
+        outcome: signal.outcome,
+        summary: signal.summary,
+        workspaceId: pending.workspaceId,
+        eventTrigger: 'timer',
+      })
+    }
+  }
+
+  private async seedPendingAgentRuns(projectFolders: AutomationsProjectFolder[]): Promise<void> {
+    for (const projectFolder of projectFolders) {
+      const store = this.createStore(projectFolder.folderPath)
+      const definitions = await store.listDefinitions()
+      if (!definitions.ok) continue
+      for (const definition of definitions.values) {
+        const runs = await store.listRuns(definition.id)
+        if (!runs.ok) continue
+        for (const run of runs.values) {
+          this.trackPendingAgentRun(projectFolder.folderPath, run, projectFolder.workspaceId)
+        }
+      }
+    }
+  }
+
+  private trackPendingAgentRun(workspaceRoot: string, run: AutomationRun, workspaceId?: string): void {
+    if (run.status !== 'running' || !run.worktreePath) return
+    this.pendingAgentRuns.set(this.pendingRunKey(workspaceRoot, run.automationId, run.id), {
+      workspaceRoot,
+      automationId: run.automationId,
+      runId: run.id,
+      worktreePath: run.worktreePath,
+      workspaceId: workspaceId ?? run.workspaceId,
+    })
+  }
+
+  private pendingRunKey(workspaceRoot: string, automationId: string, runId: string): string {
+    return `${normalizeWorkspaceRoot(workspaceRoot)}\u0000${automationId}\u0000${runId}`
   }
 
   private async loadProjectFolders(result: AutomationsEngineEvaluationResult): Promise<AutomationsProjectFolder[]> {
@@ -622,7 +775,10 @@ export class AutomationsEngine {
         now: this.now,
         createRunId: this.createRunId,
         inFlight: this.inFlight,
-        emitRunEvent: (event) => this.emitRunEvent({ ...event, trigger: 'timer' }),
+        emitRunEvent: (event) => {
+          this.trackPendingAgentRun(projectFolder.folderPath, event.run, event.workspaceId ?? projectFolder.workspaceId)
+          this.emitRunEvent({ ...event, trigger: 'timer' })
+        },
         result,
       })
       return
@@ -787,6 +943,7 @@ export class AutomationsEngine {
         result.problems.push(storeProblem(workspaceRoot, completed.error, definition.id))
         return
       }
+      this.trackPendingAgentRun(workspaceRoot, finalRun, projectFolder.workspaceId)
       this.emitRunEvent({
         workspaceId: projectFolder.workspaceId,
         definition,

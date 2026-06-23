@@ -512,6 +512,9 @@ export type WorkspaceTopBarProps = {
   agentCliOptions: AgentCliCatalogOption[]
   agentSpawnPermissionPreset: SprintEngineCliPermissionPreset
   setAgentSpawnPermissionPreset: (preset: SprintEngineCliPermissionPreset) => void
+  // Transient Debug Mode toggle, forwarded to the spawn menu's mode row.
+  agentSpawnDebugMode: boolean
+  setAgentSpawnDebugMode: (next: boolean) => void
   handleSelectSpecialist: (id: SpecialistActionId, cli: AgentCli) => void
   handleSelectMultiloopRole: (role: MultiloopRole, cli: AgentCli) => void
   addNewSpecialist: (cli: AgentCli) => void | Promise<void>
@@ -609,6 +612,8 @@ export default function WorkspaceTopBar({
   agentCliOptions,
   agentSpawnPermissionPreset,
   setAgentSpawnPermissionPreset,
+  agentSpawnDebugMode,
+  setAgentSpawnDebugMode,
   handleSelectSpecialist,
   handleSelectMultiloopRole,
   addNewSpecialist,
@@ -1087,6 +1092,8 @@ export default function WorkspaceTopBar({
                     conversationSpawnAvailable={conversationSpawnAvailable}
                     agentSpawnPermissionPreset={agentSpawnPermissionPreset}
                     onChangeAgentSpawnPermissionPreset={setAgentSpawnPermissionPreset}
+                    agentSpawnDebugMode={agentSpawnDebugMode}
+                    onChangeAgentSpawnDebugMode={setAgentSpawnDebugMode}
                     onSpawnTerminal={addNewTerminal}
                     onSpawnGeneral={(cli) => addNewCliAgent(cli, 'General Agent')}
                     onSpawnConversation={onSpawnConversationAgent}
