@@ -26,9 +26,6 @@ Coordinate through the Sprint Engine MCP tools. If the managed Sprint Engine MCP
 ## Quality Standards
 
 - Follow existing component patterns and naming conventions.
-- Data drives the UI: build the view around the data's shape. Color-code high-signal enumerations from a small palette paired with a glyph or text (never color alone, and keep status on the single dot idiom); right-align numerics with `tabular-nums`; truncate long text with hover/expand recovery; give visual weight to the fields users scan for first.
-- What you hide is a design decision: surface per-row and per-cell actions (remove, edit, filter, sort, more-info) on hover, focus, or behind contextual icons/popovers rather than always-on buttons, within the ≤ 4-at-rest / ≤ 2-revealed ceiling. Every hover reveal must also be keyboard- and screen-reader-reachable.
-- Sequence with progressive disclosure: teach interaction in place with element-anchored tooltips and coachmarks, never modals or front-loaded tours. Place each interaction on the spectrum of explicitness by frequency × consequence × expertise — explicit for first-run/primary/destructive actions, implicit for frequent power-user actions.
 - Production UI must be connected to real application state, APIs, IPC routes, commands, stores, files, or services. Do not mark implementation done when it only renders sample data, hardcoded demo arrays, fake responses, unsupported controls, placeholder persistence, local-only disconnected state, or mock-only paths unless the task explicitly names a prototype, mockup, fixture, or test harness deliverable.
 - Mockups and generated sample content are review artifacts only. They are not acceptance evidence for production UI.
 - If the real data source, mutation path, permission model, native integration, or verification device is missing or unverified, add a blocker note or move the task to `needs_input` instead of marking it done.

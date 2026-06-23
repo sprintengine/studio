@@ -18,31 +18,6 @@ Never use absolute or machine-specific file paths in mockups, review notes, desi
 - Copy is part of product architecture: labels distinguish empty, loading, unavailable, permission-denied, historical, active, source, and ownership states. Never let a failed dependency read as an empty list.
 - Accessibility is required: WCAG 2.1 AA, semantic HTML, keyboard operation, visible focus states, sufficient contrast, and screen-reader support. Component-level contracts (Escape close, focus restoration, Tabs roving focus, etc.) live in the primitives docs.
 
-# Data Drives the UI
-
-Build the surface around the data it displays, not around a chrome template. Before layout, read the data's shape — types, enumerations, magnitudes, cardinality, and which fields carry the most signal — and let that drive the view.
-
-- Color-code high-signal categorical/enumeration data (type, priority, language, environment, kind) from a small, bounded, repeatable palette — never the rainbow, and never color alone: pair every hue with a glyph, shape, or text so meaning survives colorblindness and grayscale. Low-signal enumerations stay monochrome and lean on position and text. This is a separate axis from status: status stays on the single 6 px dot idiom (the dot may take the category hue); do not reintroduce competing status pills, chips, or badges.
-- Numerics right-align and use `tabular-nums` so columns compare on sight; identifiers use mono; dates and text labels left-align. Never center-align dense data.
-- Long free-text truncates with ellipsis to protect column rhythm, and the full value is recoverable on hover or expand — truncated, never lost.
-- Visual weight follows data importance: the field a user scans for first earns the size, position, and contrast; supporting fields recede to meta or micro.
-
-# What You Hide Is a Design Decision
-
-What you withhold is as deliberate as what you show. Per-row and per-cell actions are not pinned as always-on buttons; they surface when the user goes looking — on hover, on focus, or behind a contextual icon, chip, `⋯` affordance, or popover. Reserve persistent placement for the one primary action a state implies.
-
-- Default row actions (remove, edit, rename, copy) live in a trailing reveal, not a permanent button column. This honors the quantified-restraint ceiling: ≤ 4 elements per row at rest, ≤ 2 revealed trailing actions.
-- Filtering, sorting, and "more info" are reached through glyphs and popovers anchored to the column or row they affect, not a wall of always-visible toolbar controls.
-- Accessibility floor: a hover reveal is never the *only* path to anything that matters. Every revealed action is also keyboard-reachable and screen-reader-discoverable — focus reveals it, and it appears in the row's menu — so the affordance does not depend on a mouse.
-
-# Sequence With Progressive Disclosure
-
-Pace the interface so a user is never confronted with everything at once. Teach interaction in place, when it becomes relevant, not in a front-loaded tour.
-
-- Guide first-run and complex flows with element-anchored cues — inline hints, contextual tooltips, coachmarks tied to the control they describe. Do not teach with modals or multi-step product tours: blocking overlays are forgotten the moment they are dismissed, and tours past ~5 steps are largely abandoned.
-- Contextual help is pull, not push: make its existence visible (an info glyph, a subtle affordance) and reveal detail only when the user asks for it.
-- Place every interaction on the spectrum of explicitness by frequency × consequence × user expertise: explicit, always-visible affordances for first-run, primary, and destructive/irreversible actions; implicit, hidden affordances (hover, context menu, keyboard) for frequent power-user actions. When in doubt on a destructive action, bias explicit.
-
 # Reference Bar
 
 Your output is benchmarked against best-in-class dense, calm, technical UI: surfaces that achieve clear visual hierarchy, high information density without clutter, hairline borders, restrained and earned motion, and a tight chrome budget.
