@@ -64,6 +64,34 @@ export const AGENT_SPAWN_PERMISSION_OPTIONS: Array<{
   },
 ]
 
+// The error-tone Debug Mode toggle in the menu's mode row. An independent on/off
+// control sitting beside the permission-preset group — it does not change the
+// selected preset. Exported so a renderer test can exercise it without mounting
+// the store/window-bound menu. State is signalled by the literal "DEBUG" label
+// and aria-pressed, not by color alone, so it reads for non-color users and AT.
+export function SpawnDebugToggle({ active, onChange }: { active: boolean; onChange: (next: boolean) => void }) {
+  return (
+    <Tooltip
+      content="Debug mode pauses the agent at each state transition for inspection. Works best with the Auto or Bypass permission presets."
+      placement="bottom"
+      wrapperClassName="ml-auto inline-flex"
+    >
+      <button
+        type="button"
+        aria-pressed={active}
+        onClick={() => onChange(!active)}
+        className={`rounded px-2 py-0.5 text-[11px] font-medium transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--tone-error)] ${
+          active
+            ? 'bg-[color:var(--tone-error)]/12 text-[color:var(--tone-error-on-tint)]'
+            : 'text-[color:var(--text-disabled)] hover:text-[color:var(--text-muted)]'
+        }`}
+      >
+        DEBUG
+      </button>
+    </Tooltip>
+  )
+}
+
 // Top item of a spawn row's right-click flyout: opens that row's agent in a fresh
 // workspace instead of the active one. Rendered only where the row's primary click
 // does not already create a new chat (i.e. the top bar, not the sidebar New chat).
@@ -123,6 +151,12 @@ export type SpawnAgentMenuProps = {
   agentSpawnPermissionPreset: SprintEngineCliPermissionPreset
   onChangeAgentSpawnPermissionPreset: (preset: SprintEngineCliPermissionPreset) => void
 
+  // Transient Debug Mode toggle, orthogonal to the permission preset. Owned by
+  // the parent and defaulted off each spawn (never persisted), so spawning a
+  // debug agent never silently debugs the next unrelated spawn.
+  agentSpawnDebugMode: boolean
+  onChangeAgentSpawnDebugMode: (next: boolean) => void
+
   // Primary row actions. The parent decides whether these spawn into the active
   // workspace (top bar) or into a fresh solo chat (sidebar New chat).
   onSpawnTerminal: () => void
@@ -159,6 +193,8 @@ export default function SpawnAgentMenu({
   conversationSpawnAvailable,
   agentSpawnPermissionPreset,
   onChangeAgentSpawnPermissionPreset,
+  agentSpawnDebugMode,
+  onChangeAgentSpawnDebugMode,
   onSpawnTerminal,
   onSpawnGeneral,
   onSpawnConversation,
@@ -813,7 +849,7 @@ export default function SpawnAgentMenu({
                 className={`rounded px-2 py-0.5 text-[11px] font-medium transition-colors ${
                   active
                     ? isBypass
-                      ? 'bg-[color:var(--tone-warn)]/12 text-[color:var(--tone-warn)]'
+                      ? 'bg-[color:var(--tone-warn)]/12 text-[color:var(--tone-warn-on-tint)]'
                       : 'bg-[color:var(--accent-primary-soft)] text-[color:var(--text-strong)]'
                     : 'text-[color:var(--text-disabled)] hover:text-[color:var(--text-muted)]'
                 }`}
@@ -823,6 +859,7 @@ export default function SpawnAgentMenu({
             </Tooltip>
           )
         })}
+        <SpawnDebugToggle active={agentSpawnDebugMode} onChange={onChangeAgentSpawnDebugMode} />
       </div>
     </div>
   )

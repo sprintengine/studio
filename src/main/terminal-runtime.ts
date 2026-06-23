@@ -1578,6 +1578,7 @@ async function spawnTerminalFromIpc(
     worktreeId,
     worktreePath,
     cliPermissionPreset = 'default',
+    debugMode = false,
     cliModel,
     memoryRootPath,
     memoryRelativeRoot,
@@ -1779,7 +1780,8 @@ async function spawnTerminalFromIpc(
           cliModel,
           memoryRootPath,
           memoryRelativeRoot,
-          sprintEngineMcpEnv
+          sprintEngineMcpEnv,
+          debugMode
         )
       const initialSize = getTerminalSize(cols, rows)
       const termProcess = pty.spawn(command, args, {

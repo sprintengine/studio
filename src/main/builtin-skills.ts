@@ -43,10 +43,10 @@ export const BUILTIN_SKILLS: BuiltinSkill[] = [
     description: 'Stress-test plans against workspace knowledge and current code.',
   },
   {
-    id: 'diagnose',
-    name: 'Diagnose',
+    id: 'debug',
+    name: 'Debug',
     version: '1.0.0',
-    description: 'Debug bugs and regressions through reproducible feedback loops.',
+    description: 'Debug bugs and regressions through a file-backed state machine that survives context compaction.',
   },
   {
     id: 'behavior-first-testing',

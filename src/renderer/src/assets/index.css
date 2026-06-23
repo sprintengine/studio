@@ -88,6 +88,19 @@
   --tone-warn-soft: rgba(252, 192, 48, 0.18);
   --tone-error-soft: rgba(252, 120, 124, 0.18);
 
+  /* Label ink for active soft-tint chips (full-strength tone over a 12% fill of
+     the same tone — the DEBUG error chip and the Bypass warn chip), sitting on
+     the popover's --bg-surface-raised. Using the raw tone as the label fails
+     WCAG AA (4.5:1 @ 11px) on many themes: on light surfaces the tone is too
+     light over a near-white fill, and on several dark themes the desaturated
+     tone sits too close to its own dark fill. Mixing the tone toward the
+     theme's --text-strong shifts it the right way per theme (darker ink on
+     light themes, lighter ink on dark themes), so every current and future
+     theme clears AA by construction — verified worst case 4.93:1. The flagship
+     light theme overrides these with a crisper hand-tuned red/amber below. */
+  --tone-error-on-tint: color-mix(in oklab, var(--tone-error) 58%, var(--text-strong));
+  --tone-warn-on-tint: color-mix(in oklab, var(--tone-warn) 58%, var(--text-strong));
+
   /* Ink for solid --tone-error fills (danger buttons). Borrowing
      --text-on-accent broke here: that token is tuned for the blue accent and
      flips to white on some dark themes (e.g. slate), leaving white-on-coral.
@@ -243,6 +256,13 @@
   /* Light theme uses a deeper red than the shared coral, so its danger ink
      flips to white (near-black would be illegible on #d92d2d). */
   --tone-error-ink: #ffffff;
+  /* On-tint chip labels (flagship light): the raw tone over its own 12% fill
+     lands just under AA on near-white (error 4.02:1, warn 4.42:1 at 11px).
+     These crisper hand-tuned inks read better here than the base mix-toward-ink
+     formula and clear AA (error 4.84:1, warn 5.24:1). The fill stays
+     --tone-error/--tone-warn, so only the label darkens. */
+  --tone-error-on-tint: #c42424;
+  --tone-warn-on-tint: #8a5600;
 
   --tone-neutral-soft: rgba(100, 108, 120, 0.14);
   --tone-accent-soft: rgba(47, 106, 74, 0.14);

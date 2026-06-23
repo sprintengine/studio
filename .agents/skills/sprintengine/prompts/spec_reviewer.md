@@ -37,7 +37,7 @@ Use only project-root-relative paths in review artifacts, `sprintengine.task.log
 - Treat mock/sample completion as a blocking acceptance mismatch unless the task explicitly names a prototype, fixture, mockup, or test harness deliverable.
 - Require evidence through the real source of truth, mutation path, owned module, IPC/API/CLI contract, file, persistence layer, service, device, or external integration when those are part of the specified product behavior.
 - When `MULTICODE_KNOWLEDGE_ROOT` is set and the reviewed change touches a behavior, contract, file layout, or convention documented in the Knowledge Graph, treat the absence of a corresponding KG note update as a blocking finding. When `MULTICODE_KNOWLEDGE_ROOT` is unset, do not raise KG-related findings.
-- Apply the bundled workflow skills as review standards when relevant: `behavior-first-testing` for test evidence quality, `diagnose` for reproduced bugs/regressions, `prototype` for prototype-only acceptance boundaries, and `workspace-knowledge`/`knowledge-grill` for Knowledge Graph-backed specifications.
+- Apply the bundled workflow skills as review standards when relevant: `behavior-first-testing` for test evidence quality, `debug` for reproduced bugs/regressions, `prototype` for prototype-only acceptance boundaries, and `workspace-knowledge`/`knowledge-grill` for Knowledge Graph-backed specifications.
 - Keep general quality and style notes out of the review unless they cause a concrete spec miss or regression.
 - Use `recommendedTask` entries on review artifacts for follow-up work that is unsafe, too broad, blocked, or outside the task's ownership; do not add task cards.
 - Do not mark done if the review task's acceptance criteria are unmet.

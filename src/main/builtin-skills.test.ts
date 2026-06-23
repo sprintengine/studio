@@ -136,7 +136,7 @@ async function main(): Promise<void> {
     [
       'workspace-knowledge',
       'knowledge-grill',
-      'diagnose',
+      'debug',
       'behavior-first-testing',
       'prototype',
       'architecture-deepening',
@@ -157,11 +157,11 @@ async function main(): Promise<void> {
   assert.equal(installedStatus.ok, true)
   assert.equal(installedStatus.ok && installedStatus.status, 'installed')
 
-  const diagnoseInstalled = await manager.install(workspaceRoot, 'diagnose')
-  assert.equal(diagnoseInstalled.ok, true)
-  assert.equal(diagnoseInstalled.ok && diagnoseInstalled.status, 'installed')
+  const debugInstalled = await manager.install(workspaceRoot, 'debug')
+  assert.equal(debugInstalled.ok, true)
+  assert.equal(debugInstalled.ok && debugInstalled.status, 'installed')
   assert.equal(
-    await readFile(join(workspaceRoot, '.agents', 'skills', 'diagnose', 'SKILL.md'), 'utf-8'),
+    await readFile(join(workspaceRoot, '.agents', 'skills', 'debug', 'SKILL.md'), 'utf-8'),
     'version one\n'
   )
 
