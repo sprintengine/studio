@@ -1,3 +1,4 @@
+import { applyDebugDirective } from '../shared/debug-directive'
 import type { AgentCli, CliRuntimeSettings, ColorScheme, SprintEngineCliPermissionPreset } from '../shared/electron-api'
 import type { LoadedPlugin, PluginRenderContext } from '../shared/plugin-manifest'
 
@@ -6,6 +7,23 @@ import { renderPluginLaunch, renderPluginResume } from './plugin-render'
 
 export function pluginIdForCli(cli: AgentCli): string {
   return cli
+}
+
+const DEBUG_SKILL_ID = 'debug'
+
+// Resolves the CLI-native explicit invocation for the debug skill from the
+// plugin manifest (e.g. "/debug" for Claude Code, "Use $debug." for Codex), or
+// undefined when the plugin does not natively support skills (so Debug Mode
+// falls back to the inline directive alone). Debug Mode prepends this so the
+// skill is triggered through the CLI's first-class mechanism; the spawn path
+// ensure-installs the skill (see terminal-runtime) so the invocation always
+// resolves to a skill that is actually present.
+export function resolveDebugSkillInvocation(plugin: LoadedPlugin): string | undefined {
+  const integration = plugin.manifest.skillIntegration
+  if (!integration || integration.support !== 'native') return undefined
+  const template = integration.invocation?.explicitTemplate
+  if (!template) return undefined
+  return template.replace(/\{\{\s*skillId\s*\}\}/g, DEBUG_SKILL_ID)
 }
 
 // Resolves the effective command/WSL override for a launch. Uses the plugin-id
@@ -30,6 +48,10 @@ export type AgentLaunchRenderInput = {
   cliRuntime?: CliRuntimeSettings
   cliPermissionPreset?: SprintEngineCliPermissionPreset
   cliModel?: string
+  // Orthogonal Debug Mode flag. When true the launch boundary prepends the debug
+  // directive to the initial prompt; it never affects permission/session/model
+  // flags (the orthogonality invariant). See applyDebugDirective.
+  debugMode?: boolean
   // Host light/dark scheme to launch the CLI matching the app surface. Consumed
   // only by manifests declaring themeSelection (today: Claude Code); undefined
   // leaves the CLI on its own configured theme.
@@ -55,10 +77,18 @@ export function renderAgentLaunchArgv(input: AgentLaunchRenderInput): RenderedAg
   }
 
   const binary = input.cliRuntime?.command?.trim() || plugin.manifest.binary
+  // Debug Mode is applied here, at the single render boundary every spawn path
+  // converges on, so the directive (led by the CLI-native skill invocation when
+  // the plugin supports it) lands in the rendered prompt token for any CLI. Only
+  // touched when debugMode is set, preserving an undefined prompt (and thus the
+  // no-prompt argv shape) for ordinary launches.
+  const prompt = input.debugMode
+    ? applyDebugDirective(input.initialPrompt ?? '', true, resolveDebugSkillInvocation(plugin))
+    : input.initialPrompt
   const context: PluginRenderContext = {
     binary,
     sessionId: input.sessionId,
-    prompt: input.initialPrompt,
+    prompt,
     permissionPreset: input.cliPermissionPreset ?? 'default',
     model: input.cliModel,
     colorScheme: input.colorScheme,

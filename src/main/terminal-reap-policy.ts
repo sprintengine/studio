@@ -17,6 +17,12 @@
 // run-active signal; the rare "streaming with zero input for hours" case is
 // (correctly) reapable and stays readable + resumable via freeze-the-view.
 //
+// The hot set keeps the most-recently-interacted workspaces resident, but only
+// up to an absolute idle ceiling: past it, even a "hot" workspace is reclaimable
+// so a session left untouched for days (e.g. after the user walks away) doesn't
+// stay pinned forever. The ceiling overrides hot-set protection only — never the
+// inActiveRun (managed-run) exemption.
+//
 // Every gate must pass; anything ambiguous keeps the terminal ALIVE.
 
 export const DEFAULT_HOT_WORKSPACE_LIMIT = 5
@@ -24,6 +30,15 @@ export const DEFAULT_HOT_WORKSPACE_LIMIT = 5
 // suspended. Measured from the last keystroke (not output), so revealing a
 // workspace can't reset it. Tunable.
 export const DEFAULT_SUSPEND_IDLE_AFTER_MS = 2 * 60 * 60 * 1000
+// Absolute idle ceiling: past this, an agent is reapable even if its workspace
+// is in the hot set. The hot set keeps the N most-recently-interacted workspaces
+// resident, but "most recent" is relative — with only a handful of workspaces
+// open, a workspace untouched for days is still "hot" and would otherwise never
+// be reclaimed (e.g. after the user walks away). This ceiling overrides the
+// hot-set protection only; the inActiveRun (managed-run) exemption and every
+// other safety gate still hold. Must be >= DEFAULT_SUSPEND_IDLE_AFTER_MS.
+// Tunable.
+export const DEFAULT_ABSOLUTE_IDLE_CEILING_MS = 5 * 60 * 60 * 1000
 
 export type ReapCandidate = {
   sessionId: string
@@ -51,6 +66,7 @@ export type ReapPolicyOptions = {
   now?: number
   hotWorkspaceLimit?: number
   idleThresholdMs?: number
+  absoluteIdleCeilingMs?: number
 }
 
 export type ReapDecision = {
@@ -89,15 +105,22 @@ export function computeHotWorkspaceIds(
 export function isSessionReapable(
   candidate: ReapCandidate,
   hotWorkspaceIds: ReadonlySet<string>,
-  options: { now: number; idleThresholdMs: number }
+  options: { now: number; idleThresholdMs: number; absoluteIdleCeilingMs: number }
 ): boolean {
   if (!candidate.processAlive) return false
   if (candidate.kind !== 'agent') return false
   if (candidate.visible) return false
   if (candidate.inActiveRun) return false
   if (candidate.workspaceId === null) return false
-  if (hotWorkspaceIds.has(candidate.workspaceId)) return false
-  if (options.now - candidate.lastInteractionAt <= options.idleThresholdMs) return false
+  const idleMs = options.now - candidate.lastInteractionAt
+  if (idleMs <= options.idleThresholdMs) return false
+  // Hot-set protection keeps the most-recently-interacted workspaces resident —
+  // but only up to the absolute ceiling. Past it, a walked-away agent is
+  // reclaimed even while its workspace is still nominally "hot". The inActiveRun
+  // exemption (checked above) is unconditional and is NOT overridden here.
+  if (idleMs <= options.absoluteIdleCeilingMs && hotWorkspaceIds.has(candidate.workspaceId)) {
+    return false
+  }
   return true
 }
 
@@ -108,12 +131,15 @@ export function selectReapableSessions(
   const now = options.now ?? Date.now()
   const hotWorkspaceLimit = options.hotWorkspaceLimit ?? DEFAULT_HOT_WORKSPACE_LIMIT
   const idleThresholdMs = options.idleThresholdMs ?? DEFAULT_SUSPEND_IDLE_AFTER_MS
+  const absoluteIdleCeilingMs = options.absoluteIdleCeilingMs ?? DEFAULT_ABSOLUTE_IDLE_CEILING_MS
 
   const hotWorkspaceIds = computeHotWorkspaceIds(candidates, hotWorkspaceLimit)
   const hotSet = new Set(hotWorkspaceIds)
 
   const reapableSessionIds = candidates
-    .filter((candidate) => isSessionReapable(candidate, hotSet, { now, idleThresholdMs }))
+    .filter((candidate) =>
+      isSessionReapable(candidate, hotSet, { now, idleThresholdMs, absoluteIdleCeilingMs })
+    )
     .map((candidate) => candidate.sessionId)
 
   return { hotWorkspaceIds, reapableSessionIds }

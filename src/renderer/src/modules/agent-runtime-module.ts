@@ -14,7 +14,7 @@ import {
 // tried first; if the workspace was just activated and its model isn't mounted
 // yet, the persisted layout model is mutated so the tab is present on mount.
 async function agentBacklogOpenPorts(): Promise<AgentBacklogLinkOpenPorts> {
-  const [{ useWorkspaceStore }, { publishDiagnostic }, { focusOrAddAgentTab, ensureAgentTabInLayoutModel }, { findWorkspaceForAgent }] =
+  const [{ useWorkspaceStore }, { publishDiagnostic }, { focusOrAddAgentTab, ensureAgentTabInLayoutModel }, { findWorkspaceForAgentPreferring }] =
     await Promise.all([
       import('../store/workspaceStore'),
       import('../utils/diagnostics'),
@@ -22,11 +22,12 @@ async function agentBacklogOpenPorts(): Promise<AgentBacklogLinkOpenPorts> {
       import('../utils/agentLocation'),
     ])
   return {
-    focusAgent: ({ agentId, agentName }) => {
+    focusAgent: ({ agentId, agentName, preferredWorkspaceId }) => {
       const store = useWorkspaceStore.getState()
-      // Live lookup: find the workspace that currently holds the agent, so a
-      // moved agent is still reachable from its (stale-workspace) link.
-      const workspace = findWorkspaceForAgent(store.workspaces, agentId)
+      // Live lookup, preferring the workspace the link recorded: a shared id like
+      // `agent-1` must land on its own workspace, not the first other workspace
+      // that also has an `agent-1`. The global scan is the moved-agent fallback.
+      const workspace = findWorkspaceForAgentPreferring(store.workspaces, agentId, preferredWorkspaceId)
       if (!workspace) return false
       store.setActiveWorkspace(workspace.id)
       if (focusOrAddAgentTab(workspace.id, agentId, agentName)) return true

@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Licensed MIT (`LICENSE` added, `license` field set, included in published
+  files). Permits building and selling modules, including closed-source;
+  covers this SDK package only, not the Multicode app or marketplace terms.
 - New Automations provider authoring surface:
   `registerAutomationTrigger`, `registerAutomationAction`, provider/context
   types for trusted modules that declare `dependsOn: ['automations']`.

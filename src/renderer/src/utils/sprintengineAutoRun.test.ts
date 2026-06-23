@@ -39,6 +39,8 @@ import {
   sprintEngineRespawnLedgerKey,
   type AutoRunCandidate,
   type RoleContinuationGrace,
+  type SprintEngineDispatchAttempt,
+  type SprintEngineDispatchPath,
 } from './sprintengineAutoRun'
 import { buildSprintEngineStartupPrompt, getSprintEngineStartupCommandMode } from './agentPrompt'
 import { deriveSprintEngineAutomationMode } from './sprintengineAutomation'
@@ -88,6 +90,7 @@ async function main(): Promise<void> {
   testRunBlockedOnExternalInputKeepsAutoRunWithActiveDispatch()
   testRunBlockedOnExternalInputKeepsAutoRunWithReadyApproval()
   testGetAutoApprovalIntentArtifactsRespectsEligibility()
+  testGetAutoApprovalIntentArtifactsExcludesSameFileDuplicateVeto()
   testGetPendingAgentNotificationEventsFiltersDeliveredAndSent()
   testBootstrapSpawnsArchitectForFreshRunWithoutTasks()
   testBootstrapDeliversUndeliveredArchitectStartupPromptEvenWithTasks()
@@ -2170,13 +2173,13 @@ function testActiveAssignmentRescueStopsAfterTwoPromptsWithDiagnostic(): void {
     now,
     runningAgentIds: new Set(['developer-1']),
     idleAgentIds: new Set<string>(),
-    dispatchLedger: new Map<string, { sentAt: number }>(),
-    paths: new Set(['active_assignment']),
+    dispatchLedger: new Map<string, SprintEngineDispatchAttempt>(),
+    paths: new Set<SprintEngineDispatchPath>(['active_assignment']),
   }
 
   const secondPrompt = planSprintEngineDispatch({
     ...commonInput,
-    continuationLedger: new Map([[key, { sentAt: now - AUTO_RUN_ACTIVE_ASSIGNMENT_INACTIVITY_MS - 1_000, attempts: 1 }]]),
+    continuationLedger: new Map<string, SprintEngineDispatchAttempt>([[key, { sentAt: now - AUTO_RUN_ACTIVE_ASSIGNMENT_INACTIVITY_MS - 1_000, attempts: 1 }]]),
   })
   assert.equal(secondPrompt.pastes.length, 1, 'the second continuation prompt is allowed after another inactive hour')
   assert.equal(secondPrompt.pastes[0].prompt, 'Continue.')
@@ -2184,7 +2187,7 @@ function testActiveAssignmentRescueStopsAfterTwoPromptsWithDiagnostic(): void {
 
   const exhausted = planSprintEngineDispatch({
     ...commonInput,
-    continuationLedger: new Map([[key, { sentAt: now - AUTO_RUN_ACTIVE_ASSIGNMENT_INACTIVITY_MS - 1_000, attempts: AUTO_RUN_ACTIVE_ASSIGNMENT_MAX_PROMPTS }]]),
+    continuationLedger: new Map<string, SprintEngineDispatchAttempt>([[key, { sentAt: now - AUTO_RUN_ACTIVE_ASSIGNMENT_INACTIVITY_MS - 1_000, attempts: AUTO_RUN_ACTIVE_ASSIGNMENT_MAX_PROMPTS }]]),
   })
   assert.equal(exhausted.pastes.length, 0, 'the prompt cap suppresses further continuation pastes')
   assert.equal(exhausted.diagnostics.length, 1, 'exhausting rescue budget surfaces operator attention')
@@ -2193,7 +2196,7 @@ function testActiveAssignmentRescueStopsAfterTwoPromptsWithDiagnostic(): void {
 
   const alreadyReported = planSprintEngineDispatch({
     ...commonInput,
-    continuationLedger: new Map([[key, {
+    continuationLedger: new Map<string, SprintEngineDispatchAttempt>([[key, {
       sentAt: now - AUTO_RUN_ACTIVE_ASSIGNMENT_INACTIVITY_MS - 1_000,
       attempts: AUTO_RUN_ACTIVE_ASSIGNMENT_MAX_PROMPTS,
       exhaustedAt: now - 1_000,
@@ -2233,7 +2236,7 @@ async function testActiveAssignmentExhaustionDiagnosticMarksLedger(): Promise<vo
     },
   })
   const key = sprintEngineActiveAssignmentLedgerKey(workspace, { taskId: 'T-active' }, 'developer-1')
-  const ledger = new Map([[key, {
+  const ledger = new Map<string, SprintEngineDispatchAttempt>([[key, {
     sentAt: now - AUTO_RUN_ACTIVE_ASSIGNMENT_INACTIVITY_MS - 1_000,
     attempts: AUTO_RUN_ACTIVE_ASSIGNMENT_MAX_PROMPTS,
   }]])
@@ -2245,7 +2248,7 @@ async function testActiveAssignmentExhaustionDiagnosticMarksLedger(): Promise<vo
     idleAgentIds: new Set(),
     continuationLedger: ledger,
     dispatchLedger: new Map(),
-    paths: new Set(['active_assignment']),
+    paths: new Set<SprintEngineDispatchPath>(['active_assignment']),
   })
 
   await supervisor.executeSprintEngineDispatchPlan(
@@ -4913,6 +4916,69 @@ function testGetAutoApprovalIntentArtifactsRespectsEligibility(): void {
   assert.ok(!eligibleIds.includes('AR-002'), 'draft artifact is not proposed because Sprint Engine rejects draft approval')
   assert.ok(!eligibleIds.includes('AR-003'), 'orphan artifact without a matching task is not eligible')
   assert.ok(!eligibleIds.includes('AR-004'), 'unknown-kind artifact is never proposed for auto-approval')
+}
+
+function testGetAutoApprovalIntentArtifactsExcludesSameFileDuplicateVeto(): void {
+  // Agreement with the main-process gate (getArtifactAutoApprovalBlocker,
+  // verified in src/main/sprintengine-artifacts.test.ts over the same matrix):
+  // a stale same-file duplicate must NOT veto an intent, while a distinct
+  // pending sibling must. Without agreement the supervisor proposes an artifact
+  // the gate rejects and loops warning -> cooldown forever.
+  const planTask = task({ id: 'T0', ownerAgentId: 'architect', status: 'needs_input', role: 'architect' })
+
+  const readyPlan = {
+    id: 'A2',
+    taskId: 'T0',
+    kind: 'architect_plan',
+    title: 'Plan',
+    status: 'ready_for_review',
+    path: 'plan.md',
+    createdBy: 'architect',
+    createdAt: '2026-06-19T00:00:00Z',
+  } as SprintEngineArtifact
+  // Stale placeholder for the SAME file, stored full-prefix instead of bare.
+  const staleSameFileDuplicate = {
+    id: 'A1',
+    taskId: 'T0',
+    kind: 'architect_plan',
+    title: 'Plan',
+    status: 'draft',
+    path: '.multi-code/sprintengine/team/plan.md',
+    createdBy: 'sprintengine',
+    createdAt: '2026-06-19T00:00:00Z',
+  } as SprintEngineArtifact
+
+  const sameFileState = sprintEngineStateFixture({
+    tasks: [planTask],
+    artifacts: [staleSameFileDuplicate, readyPlan],
+  })
+  assert.deepEqual(
+    getAutoApprovalIntentArtifacts(sameFileState).map((artifact) => artifact.id),
+    ['A2'],
+    'a stale same-file duplicate must not veto the real plan auto-approval intent'
+  )
+
+  // A distinct pending sibling (different file, draft) is an independent review
+  // gate and must suppress the intent so the gate does not later reject it.
+  const distinctPending = {
+    id: 'A3',
+    taskId: 'T0',
+    kind: 'design_notes',
+    title: 'Notes',
+    status: 'draft',
+    path: 'design-notes.md',
+    createdBy: 'architect',
+    createdAt: '2026-06-19T00:00:00Z',
+  } as SprintEngineArtifact
+  const distinctState = sprintEngineStateFixture({
+    tasks: [planTask],
+    artifacts: [readyPlan, distinctPending],
+  })
+  assert.deepEqual(
+    getAutoApprovalIntentArtifacts(distinctState).map((artifact) => artifact.id),
+    [],
+    'a distinct pending sibling must suppress the intent to match the gate veto'
+  )
 }
 
 function testGetPendingAgentNotificationEventsFiltersDeliveredAndSent(): void {

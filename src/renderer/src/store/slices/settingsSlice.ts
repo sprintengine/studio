@@ -12,6 +12,7 @@ import type {
   McpServerConfig,
   McpSettings,
   MultiloopRole,
+  NewChatAgentChoice,
   SprintEngineRoleId,
   AgentConversationRuntime,
   SprintEngineRoleCliDefaults,
@@ -39,6 +40,7 @@ import {
 import { isAppTheme, type AppearanceSettings, type AppTheme } from '../../types/appTheme'
 import { normalizeModuleOverrides } from '../../../../shared/modules/manifest'
 import { collapseDuplicateKeybindings } from '../../commands/keybindings'
+import { SPECIALIST_ACTIONS } from '../../specialists/specialistActions'
 
 export const MAX_RECENT_WORKSPACE_FOLDERS = 50
 
@@ -556,6 +558,23 @@ export function normalizeSpecialistPacks(input: unknown): { disabled: string[] }
   return { disabled }
 }
 
+// Persisted "New chat in project" agent choice. A specialist choice survives
+// only while its id is still in the roster; anything else (including a stale
+// specialist id or a malformed value) falls back to the General agent so a
+// plain New chat can never spawn an unknown agent.
+export function normalizeNewChatAgentChoice(input: unknown): NewChatAgentChoice {
+  if (!input || typeof input !== 'object') return { kind: 'general' }
+  const choice = input as Partial<NewChatAgentChoice>
+  if (choice.kind === 'terminal') return { kind: 'terminal' }
+  if (choice.kind === 'specialist') {
+    const id = typeof choice.specialistId === 'string' ? (choice.specialistId.trim() as SpecialistActionId) : null
+    if (id && SPECIALIST_ACTIONS.some((action) => action.id === id)) {
+      return { kind: 'specialist', specialistId: id }
+    }
+  }
+  return { kind: 'general' }
+}
+
 // Module-contributed settings sections persist their values in a `module:<id>`
 // namespace inside app settings (see AppSettings.moduleSettings). The prefix is
 // the collision guard between module keyspaces and shell settings keys.
@@ -736,6 +755,7 @@ export const defaultAppSettings = (): AppSettings => ({
   lastSelectedCli: 'claude-code',
   lastSelectedConversationModel: null,
   lastSelectedSpecialist: 'architect',
+  lastNewChatAgent: { kind: 'general' },
   lastSelectedMultiloopRole: 'coordinator',
   lastAgentSpawnPermissionPreset: 'default',
   specialistCliDefaults: {},
@@ -789,6 +809,7 @@ export function normalizeAppSettings(settings: Partial<AppSettings> | undefined,
     lastSelectedCli: normalizeSelectedCli(settings?.lastSelectedCli, defaults.lastSelectedCli),
     lastSelectedConversationModel: normalizeConversationModel(settings?.lastSelectedConversationModel),
     lastSelectedSpecialist: settings?.lastSelectedSpecialist ?? defaults.lastSelectedSpecialist,
+    lastNewChatAgent: normalizeNewChatAgentChoice(settings?.lastNewChatAgent),
     lastSelectedMultiloopRole: settings?.lastSelectedMultiloopRole ?? defaults.lastSelectedMultiloopRole,
     lastAgentSpawnPermissionPreset: normalizeCliPermissionPreset(settings?.lastAgentSpawnPermissionPreset),
     specialistCliDefaults: normalizeCliDefaults(settings?.specialistCliDefaults),
@@ -875,6 +896,7 @@ export interface SettingsSliceActions {
   setLastSelectedCli: (cli: AgentCli) => void
   setLastSelectedConversationModel: (selection: AgentConversationRuntime | null) => void
   setLastSelectedSpecialist: (specialistId: SpecialistActionId) => void
+  setLastNewChatAgent: (choice: NewChatAgentChoice) => void
   setLastSelectedMultiloopRole: (role: MultiloopRole) => void
   setLastAgentSpawnPermissionPreset: (preset: SprintEngineCliPermissionPreset) => void
   setSpecialistCliDefault: (specialistId: SpecialistActionId, cli: AgentCli | null) => void
@@ -1085,6 +1107,11 @@ export function createSettingsSlice(set: SettingsSliceSet): SettingsSlice {
     setLastSelectedSpecialist: (specialistId) =>
       set((state) => {
         state.appSettings.lastSelectedSpecialist = specialistId
+      }),
+
+    setLastNewChatAgent: (choice) =>
+      set((state) => {
+        state.appSettings.lastNewChatAgent = normalizeNewChatAgentChoice(choice)
       }),
 
     setLastSelectedMultiloopRole: (role) =>

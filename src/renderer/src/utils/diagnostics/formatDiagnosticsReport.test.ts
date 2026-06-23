@@ -24,6 +24,7 @@ function session(overrides: Partial<TerminalSessionSnapshot> & { sessionId: stri
     processAlive: overrides.processAlive ?? true,
     kind: overrides.kind ?? 'agent',
     visible: overrides.visible ?? false,
+    suspended: overrides.suspended ?? false,
     startedAt: overrides.startedAt ?? NOW,
     lastOutputAt: overrides.lastOutputAt ?? NOW,
     lastInputAt: overrides.lastInputAt ?? null,

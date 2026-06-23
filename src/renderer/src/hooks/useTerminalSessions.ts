@@ -74,22 +74,30 @@ export function useSession(
 export type WorkspaceTerminalActivity =
   | { kind: 'working'; since: number }
   | { kind: 'failed'; at: number; exitCode: number; message?: string }
-  | { kind: 'idle-recency'; lastOutputAt: number }
+  | { kind: 'idle-recency'; lastInputAt: number }
   | { kind: 'quiet' }
 
 export type WorkspaceDisplayActivity = 'needs-input' | 'working' | 'failed' | 'idle'
 
-export function deriveWorkspaceLastOutputAt(
+// Workspace recency is "when the user last typed into one of its terminals", NOT
+// when a terminal last produced output. Output-driven recency made merely opening
+// a workspace look live: re-attaching its terminals replays scrollback and the
+// alt-screen TUI repaints, and that incoming data bumped lastOutputAt to "now".
+// Keying off lastInputAt (genuine keystrokes/paste — see recordTerminalInput in
+// the main process) means revealing a workspace never moves its timestamp; only
+// real interaction does. The live "working" status is tracked separately via
+// session.activity, so an actively-working agent still surfaces as live.
+export function deriveWorkspaceLastInputAt(
   workspaceId: string,
   sessions: TerminalSessionSnapshot[],
-  persistedLastOutputAt?: number | null
+  persistedLastInputAt?: number | null
 ): number | null {
   let max: number | null =
-    typeof persistedLastOutputAt === 'number' ? persistedLastOutputAt : null
+    typeof persistedLastInputAt === 'number' ? persistedLastInputAt : null
   for (const session of sessions) {
     if (session.workspaceId !== workspaceId) continue
-    if (typeof session.lastOutputAt !== 'number') continue
-    if (max === null || session.lastOutputAt > max) max = session.lastOutputAt
+    if (typeof session.lastInputAt !== 'number') continue
+    if (max === null || session.lastInputAt > max) max = session.lastInputAt
   }
   return max
 }
@@ -97,7 +105,7 @@ export function deriveWorkspaceLastOutputAt(
 export function deriveWorkspaceTerminalActivity(
   workspaceId: string,
   sessions: TerminalSessionSnapshot[],
-  persistedLastOutputAt?: number | null
+  persistedLastInputAt?: number | null
 ): WorkspaceTerminalActivity {
   let workingSince: number | null = null
   let failedAt: number | null = null
@@ -122,8 +130,8 @@ export function deriveWorkspaceTerminalActivity(
     return { kind: 'failed', at: failedAt, exitCode: failedDetail.exitCode, message: failedDetail.message }
   }
 
-  const lastOutputAt = deriveWorkspaceLastOutputAt(workspaceId, sessions, persistedLastOutputAt)
-  if (lastOutputAt !== null) return { kind: 'idle-recency', lastOutputAt }
+  const lastInputAt = deriveWorkspaceLastInputAt(workspaceId, sessions, persistedLastInputAt)
+  if (lastInputAt !== null) return { kind: 'idle-recency', lastInputAt }
   return { kind: 'quiet' }
 }
 
@@ -155,19 +163,21 @@ export function findExecutionTerminalSession(
   )
 }
 
-export type TabRecencySource = 'output' | 'persisted' | 'exited'
+export type TabRecencySource = 'input' | 'persisted' | 'exited'
 
 export type TabRecencyDisplay = {
   at: number
   source: TabRecencySource
 }
 
+// Per-tab recency mirrors the sidebar: "last typed into this terminal", from
+// lastInputAt, so revealing a tab never reads as "now". See deriveWorkspaceLastInputAt.
 export function pickTerminalTabRecency(
   session: TerminalSessionSnapshot | null | undefined
 ): TabRecencyDisplay | null {
   if (!session) return null
-  if (typeof session.lastOutputAt === 'number') {
-    return { at: session.lastOutputAt, source: 'output' }
+  if (typeof session.lastInputAt === 'number') {
+    return { at: session.lastInputAt, source: 'input' }
   }
   if (typeof session.exitedAt === 'number') {
     return { at: session.exitedAt, source: 'exited' }
@@ -180,8 +190,8 @@ export function pickAgentTabRecency(
   persistedWorkspaceRecency: number | null | undefined,
   cliLastExitedAt: number | null | undefined
 ): TabRecencyDisplay | null {
-  if (session && typeof session.lastOutputAt === 'number') {
-    return { at: session.lastOutputAt, source: 'output' }
+  if (session && typeof session.lastInputAt === 'number') {
+    return { at: session.lastInputAt, source: 'input' }
   }
   if (typeof persistedWorkspaceRecency === 'number') {
     return { at: persistedWorkspaceRecency, source: 'persisted' }
@@ -196,8 +206,8 @@ export function pickAgentTabRecency(
 }
 
 export function tabRecencyLabel(source: TabRecencySource): string {
-  if (source === 'output') return 'Last output'
-  if (source === 'persisted') return 'Last terminal activity'
+  if (source === 'input') return 'Last typed'
+  if (source === 'persisted') return 'Last activity'
   return 'Exited'
 }
 

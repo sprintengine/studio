@@ -19,7 +19,7 @@ import { subscribePluginCatalogRefreshOnFocus } from '../../store/slices/plugins
 import { getRendererHost, selectModuleEnabled } from '../../modules'
 import type { NotificationActionContext } from '../../modules/renderer-host'
 import {
-  deriveWorkspaceLastOutputAt,
+  deriveWorkspaceLastInputAt,
   deriveWorkspaceTerminalActivity,
   getTerminalSessionsSignature,
   refreshTerminalSessions,
@@ -258,6 +258,8 @@ export default function WorkspaceManager() {
     (s) => s.appSettings.lastSelectedSpecialist ?? SPECIALIST_ACTIONS[0].id
   )
   const setLastSelectedSpecialist = useWorkspaceStore((s) => s.setLastSelectedSpecialist)
+  const lastNewChatAgent = useWorkspaceStore((s) => s.appSettings.lastNewChatAgent)
+  const setLastNewChatAgent = useWorkspaceStore((s) => s.setLastNewChatAgent)
   const lastSelectedMultiloopRole = useWorkspaceStore(
     (s) => s.appSettings.lastSelectedMultiloopRole ?? MULTILOOP_ROLES[0].role
   )
@@ -410,6 +412,10 @@ export default function WorkspaceManager() {
   const selectedAgentPermissionOption = AGENT_SPAWN_PERMISSION_OPTIONS.find(
     (option) => option.value === agentSpawnPermissionPreset
   ) ?? AGENT_SPAWN_PERMISSION_OPTIONS[0]
+  // Debug Mode is intentionally transient and never persisted (unlike the
+  // permission preset): it defaults off and resets off after each spawn, so a
+  // debug agent never silently leaves the next unrelated spawn in debug.
+  const [agentSpawnDebugMode, setAgentSpawnDebugMode] = useState(false)
   const [sessionsOpen, setSessionsOpen] = useState(false)
   const [viewMenuOpen, setViewMenuOpen] = useState(false)
   const [viewMenuTick, setViewMenuTick] = useState(0)
@@ -429,7 +435,7 @@ export default function WorkspaceManager() {
   const notificationsRef = useRef<HTMLDivElement>(null)
   const accountRef = useRef<HTMLDivElement>(null)
   const terminalSessionsSignatureRef = useRef('')
-  const reportedTerminalLastOutputRef = useRef<Map<string, number>>(new Map())
+  const reportedTerminalLastInputRef = useRef<Map<string, number>>(new Map())
   const reconciledLaunchFlagsRef = useRef(false)
   const workspaceLayoutLastFocusedAtRef = useRef<Record<string, number>>({})
   const workspaceLayoutRetentionReasonsRef = useRef<Record<string, WorkspaceLayoutRetentionReason>>({})
@@ -1052,20 +1058,23 @@ export default function WorkspaceManager() {
     const applyTerminalSessions = (sessions: TerminalSessionSnapshot[]) => {
       if (disposed) return
 
-      const lastOutputByWorkspace = new Map<string, number>()
+      // Persist "last typed" recency from lastInputAt, not lastOutputAt: opening a
+      // workspace replays scrollback / triggers a TUI repaint, and counting that
+      // output made every reopened workspace jump to "now". Only genuine input moves it.
+      const lastInputByWorkspace = new Map<string, number>()
       for (const session of sessions) {
         if (typeof session.workspaceId !== 'string') continue
-        if (typeof session.lastOutputAt !== 'number') continue
-        const current = lastOutputByWorkspace.get(session.workspaceId)
-        if (current === undefined || session.lastOutputAt > current) {
-          lastOutputByWorkspace.set(session.workspaceId, session.lastOutputAt)
+        if (typeof session.lastInputAt !== 'number') continue
+        const current = lastInputByWorkspace.get(session.workspaceId)
+        if (current === undefined || session.lastInputAt > current) {
+          lastInputByWorkspace.set(session.workspaceId, session.lastInputAt)
         }
       }
-      for (const [workspaceId, lastOutputAt] of lastOutputByWorkspace) {
-        const lastReported = reportedTerminalLastOutputRef.current.get(workspaceId)
-        if (lastReported !== undefined && lastReported >= lastOutputAt) continue
-        reportedTerminalLastOutputRef.current.set(workspaceId, lastOutputAt)
-        recordWorkspaceTerminalActivity(workspaceId, lastOutputAt)
+      for (const [workspaceId, lastInputAt] of lastInputByWorkspace) {
+        const lastReported = reportedTerminalLastInputRef.current.get(workspaceId)
+        if (lastReported !== undefined && lastReported >= lastInputAt) continue
+        reportedTerminalLastInputRef.current.set(workspaceId, lastInputAt)
+        recordWorkspaceTerminalActivity(workspaceId, lastInputAt)
       }
 
       if (!reconciledLaunchFlagsRef.current) {
@@ -1338,12 +1347,12 @@ export default function WorkspaceManager() {
   const terminalRecencyByWorkspaceId = useMemo(() => {
     const map: Record<string, { hasRunning: boolean; lastFinishedAt: number | null }> = {}
     for (const workspace of workspaces) {
-      const persistedLastOutputAt = typeof workspace.lastTerminalActivityAt === 'number'
+      const persistedLastInputAt = typeof workspace.lastTerminalActivityAt === 'number'
         ? workspace.lastTerminalActivityAt
         : null
-      const activity = deriveWorkspaceTerminalActivity(workspace.id, terminalSessions, persistedLastOutputAt)
+      const activity = deriveWorkspaceTerminalActivity(workspace.id, terminalSessions, persistedLastInputAt)
       const hasRunning = activity.kind === 'working' || activity.kind === 'failed'
-      const lastFinishedAt = deriveWorkspaceLastOutputAt(workspace.id, terminalSessions, persistedLastOutputAt)
+      const lastFinishedAt = deriveWorkspaceLastInputAt(workspace.id, terminalSessions, persistedLastInputAt)
       map[workspace.id] = { hasRunning, lastFinishedAt }
     }
     return map
@@ -1377,6 +1386,7 @@ export default function WorkspaceManager() {
       cli: cliForSpawn,
       cliModel: resolveSurfaceModel(cliForSpawn, specialistModelDefaults[specialist.id]),
       cliPermissionPreset: agentSpawnPermissionPreset,
+      debugMode: agentSpawnDebugMode,
       kind: 'specialist',
       specialistId: specialist.id,
       cliStartupPrompt: prependAgentIdentifier(prompt, tabName, specialist.shortLabel),
@@ -1385,6 +1395,7 @@ export default function WorkspaceManager() {
       cliResumeAvailable: false,
     })
     addAgentTabTiled(windowActiveWorkspaceId, newId, tabName)
+    if (agentSpawnDebugMode) setAgentSpawnDebugMode(false)
   }
 
   const addNewMultiloopAgent = async (
@@ -1440,6 +1451,7 @@ export default function WorkspaceManager() {
       cli: cliForSpawn,
       cliModel: resolveSurfaceModel(cliForSpawn, multiloopRoleModelDefaults[soul.role]),
       cliPermissionPreset: agentSpawnPermissionPreset,
+      debugMode: agentSpawnDebugMode,
       kind: 'multiloop',
       specialistId: undefined,
       multiloopRole: soul.role,
@@ -1451,6 +1463,7 @@ export default function WorkspaceManager() {
       cliSessionId: crypto.randomUUID(),
     })
     addAgentTabTiled(windowActiveWorkspaceId, newId, tabName)
+    if (agentSpawnDebugMode) setAgentSpawnDebugMode(false)
   }
 
   const addNewCliAgent = (cli: AgentCli, label: string) => {
@@ -1468,6 +1481,7 @@ export default function WorkspaceManager() {
       name: tabName,
       cli: spawnCli,
       cliPermissionPreset: agentSpawnPermissionPreset,
+      debugMode: agentSpawnDebugMode,
       kind: 'general',
       specialistId: undefined,
       cliStartupPrompt: undefined,
@@ -1476,6 +1490,7 @@ export default function WorkspaceManager() {
       cliResumeAvailable: false,
     })
     addAgentTabTiled(windowActiveWorkspaceId, newId, tabName)
+    if (agentSpawnDebugMode) setAgentSpawnDebugMode(false)
     setSpecialistMenuOpen(false)
   }
 
@@ -1552,6 +1567,7 @@ export default function WorkspaceManager() {
           cli: cliForSpawn,
           cliModel: resolveSurfaceModel(cliForSpawn, specialistModelDefaults[specialist.id]),
           cliPermissionPreset: agentSpawnPermissionPreset,
+          debugMode: agentSpawnDebugMode,
           kind: 'specialist',
           specialistId: specialist.id,
           cliStartupPrompt: prependAgentIdentifier(prompt, tabName, specialist.shortLabel),
@@ -1561,6 +1577,7 @@ export default function WorkspaceManager() {
         },
       },
     })
+    if (agentSpawnDebugMode) setAgentSpawnDebugMode(false)
   }
 
   const openConversationInNewChat = (folderPath?: string | null) => {
@@ -1582,6 +1599,44 @@ export default function WorkspaceManager() {
       folderPath,
       seedAgent: { terminal: { terminalId: `terminal-${nanoid(6)}` }, tabName: 'Terminal' },
     })
+  }
+
+  // New-chat picks: each spawns the chosen agent in a fresh chat AND remembers
+  // the choice as the default for a plain "New chat in project" click, so the
+  // sidebar can show what will spawn and repeat it without reopening the picker.
+  // Shared by the sidebar new-chat picker and the top bar's Open-in-new-chat.
+  const pickNewChatTerminal = (folderPath?: string | null) => {
+    setLastNewChatAgent({ kind: 'terminal' })
+    openTerminalInNewChat(folderPath)
+  }
+  const pickNewChatGeneral = (cli?: AgentCli, folderPath?: string | null) => {
+    setLastNewChatAgent({ kind: 'general' })
+    openGeneralInNewChat(cli, folderPath)
+  }
+  const pickNewChatSpecialist = (
+    specialistId: SpecialistActionId,
+    cli?: AgentCli,
+    folderPath?: string | null,
+  ) => {
+    setLastNewChatAgent({ kind: 'specialist', specialistId })
+    openSpecialistInNewChat(specialistId, cli, folderPath)
+  }
+
+  // Plain "New chat in project" replays the last picked agent. CLI/model resolve
+  // from the same remembered defaults the picker uses (passing undefined lets
+  // openSpecialistInNewChat fall back to the per-specialist/last CLI), so the
+  // click reproduces the last pick rather than a fixed general agent.
+  const spawnNewChatForFolder = (folderPath?: string | null) => {
+    const choice = lastNewChatAgent ?? { kind: 'general' }
+    if (choice.kind === 'terminal') {
+      openTerminalInNewChat(folderPath)
+      return
+    }
+    if (choice.kind === 'specialist') {
+      openSpecialistInNewChat(choice.specialistId, undefined, folderPath)
+      return
+    }
+    createNewChat(folderPath)
   }
 
   // Optional workspaceId targets a single workspace's panel. The mode-scoped
@@ -2133,12 +2188,16 @@ export default function WorkspaceManager() {
         onNewWorkspace={openNewWorkspacePanel}
         onNewWorkspaceInFolder={openNewWorkspacePanelForFolder}
         onNewChat={() => createNewChat()}
-        onNewChatInFolder={(folderPath) => createNewChat(folderPath)}
-        onNewChatTerminal={(folderPath) => openTerminalInNewChat(folderPath)}
-        onNewChatGeneral={(cli, folderPath) => openGeneralInNewChat(cli, folderPath)}
-        onNewChatSpecialist={(specialistId, cli, folderPath) => openSpecialistInNewChat(specialistId, cli, folderPath)}
+        onNewChatInFolder={(folderPath) => spawnNewChatForFolder(folderPath)}
+        onNewChatTerminal={(folderPath) => pickNewChatTerminal(folderPath)}
+        onNewChatGeneral={(cli, folderPath) => pickNewChatGeneral(cli, folderPath)}
+        onNewChatSpecialist={(specialistId, cli, folderPath) => pickNewChatSpecialist(specialistId, cli, folderPath)}
+        newChatAgentChoice={lastNewChatAgent ?? { kind: 'general' }}
+        newChatAgentCli={lastSelectedCli}
         agentSpawnPermissionPreset={agentSpawnPermissionPreset}
         setAgentSpawnPermissionPreset={setAgentSpawnPermissionPreset}
+        agentSpawnDebugMode={agentSpawnDebugMode}
+        setAgentSpawnDebugMode={setAgentSpawnDebugMode}
         onRevealFolder={handleRevealFolder}
         onSetSidebarCollapsed={setSidebarCollapsed}
       />
@@ -2199,6 +2258,8 @@ export default function WorkspaceManager() {
         multiloopRoleCliDefaults={multiloopRoleCliDefaults}
         agentSpawnPermissionPreset={agentSpawnPermissionPreset}
         setAgentSpawnPermissionPreset={setAgentSpawnPermissionPreset}
+        agentSpawnDebugMode={agentSpawnDebugMode}
+        setAgentSpawnDebugMode={setAgentSpawnDebugMode}
         handleSelectSpecialist={handleSelectSpecialist}
         handleSelectMultiloopRole={handleSelectMultiloopRole}
         addNewSpecialist={(cli) => addNewSpecialist(lastSelectedSpecialist, '', cli)}
@@ -2207,10 +2268,10 @@ export default function WorkspaceManager() {
         addNewTerminal={addNewTerminal}
         conversationSpawnAvailable={conversationSpawnAvailable}
         onSpawnConversationAgent={spawnConversationAgent}
-        onOpenTerminalInNewChat={openTerminalInNewChat}
-        onOpenGeneralInNewChat={openGeneralInNewChat}
+        onOpenTerminalInNewChat={pickNewChatTerminal}
+        onOpenGeneralInNewChat={pickNewChatGeneral}
         onOpenConversationInNewChat={openConversationInNewChat}
-        onOpenSpecialistInNewChat={openSpecialistInNewChat}
+        onOpenSpecialistInNewChat={pickNewChatSpecialist}
         openSettings={openSettings}
         settingsOpen={settingsOpen}
         accountOpen={accountOpen}

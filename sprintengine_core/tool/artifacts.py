@@ -213,24 +213,57 @@ def mark_task_done_if_artifacts_approved(state: Dict[str, Any], task: Dict[str, 
             set_agent_idle(ensure_agent(state, agent_id))
     return True
 
-def supersede_duplicate_artifacts_for_approved_artifact(
+def find_reusable_artifact(
     state: Dict[str, Any],
-    approved_artifact: Dict[str, Any],
+    state_path: Path,
+    task_id: str,
+    kind: str,
+    resolved_path: Path,
+    exclude_id: Optional[str] = None,
+) -> Optional[Dict[str, Any]]:
+    """Return an existing non-superseded artifact for the same task and kind that
+    resolves to the same absolute file, so registration can reuse it instead of
+    creating a second artifact that would deadlock auto-approval. A duplicate
+    resolving to a genuinely different file is not a match."""
+    for artifact in state.get("artifacts", []):
+        if not isinstance(artifact, dict):
+            continue
+        if exclude_id and artifact.get("id") == exclude_id:
+            continue
+        if artifact.get("taskId") != task_id or artifact.get("kind") != kind:
+            continue
+        if artifact.get("status") == "superseded":
+            continue
+        candidate_path = str(artifact.get("path") or "")
+        if not candidate_path:
+            continue
+        if artifact_absolute_path(state_path, candidate_path) == resolved_path:
+            return artifact
+    return None
+
+def supersede_duplicate_artifacts(
+    state: Dict[str, Any],
+    surviving_artifact: Dict[str, Any],
     state_path: Path,
     actor: str,
 ) -> List[str]:
-    task_id = str(approved_artifact.get("taskId") or "")
-    kind = str(approved_artifact.get("kind") or "")
-    path = str(approved_artifact.get("path") or "")
+    """Supersede stale non-approved, non-superseded duplicates that share the
+    surviving artifact's task, kind, and resolved absolute file. Invoked when an
+    artifact transitions to ready_for_review or approved so a stale placeholder
+    cannot keep blocking auto-approval. Approved siblings are never superseded,
+    and a duplicate resolving to a genuinely different file is left untouched."""
+    task_id = str(surviving_artifact.get("taskId") or "")
+    kind = str(surviving_artifact.get("kind") or "")
+    path = str(surviving_artifact.get("path") or "")
     if not task_id or not kind or not path:
         return []
 
-    approved_path = artifact_absolute_path(state_path, path)
+    surviving_path = artifact_absolute_path(state_path, path)
     superseded_ids: List[str] = []
     for artifact in state.get("artifacts", []):
         if not isinstance(artifact, dict):
             continue
-        if artifact.get("id") == approved_artifact.get("id"):
+        if artifact.get("id") == surviving_artifact.get("id"):
             continue
         if artifact.get("taskId") != task_id or artifact.get("kind") != kind:
             continue
@@ -241,7 +274,7 @@ def supersede_duplicate_artifacts_for_approved_artifact(
         candidate_path = str(artifact.get("path") or "")
         if not candidate_path:
             continue
-        if artifact_absolute_path(state_path, candidate_path) != approved_path:
+        if artifact_absolute_path(state_path, candidate_path) != surviving_path:
             continue
 
         artifact["status"] = "superseded"
@@ -250,7 +283,7 @@ def supersede_duplicate_artifacts_for_approved_artifact(
             artifact,
             "superseded",
             actor,
-            f"Superseded by approved duplicate artifact {approved_artifact.get('id')}.",
+            f"Superseded by duplicate artifact {surviving_artifact.get('id')} ({surviving_artifact.get('status')}).",
         )
         superseded_ids.append(str(artifact.get("id") or ""))
     return superseded_ids

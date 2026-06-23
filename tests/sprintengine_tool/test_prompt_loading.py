@@ -299,7 +299,7 @@ def test_spec_reviewer_join_prompt_uses_spec_soul_and_skill_standards(tmp_path) 
             "Build a requirement checklist from the task, plan, requirements artifact, comments, and acceptance criteria",
             "Use `workspace-knowledge` or `knowledge-grill`",
             "Use `behavior-first-testing` criteria",
-            "Use `diagnose` principles",
+            "Use `debug` principles",
             "Use the `prototype` boundary",
             "Apply the bundled workflow skills as review standards when relevant",
             "produce the requested specification conformance review evidence or artifact",

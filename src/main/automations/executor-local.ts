@@ -1,10 +1,13 @@
 import type { AutomationRendererRequest, AutomationRendererResponse } from '../../shared/automation'
 import type { ActionContext, AutomationActionProvider, AutomationCliPermissionPreset, AutomationRun } from '../../shared/automations/contracts'
 import type { WorkspaceSyncSnapshot } from '../../shared/workspace-sync'
-import { join } from 'node:path'
+import { appendFile, mkdir, readFile } from 'node:fs/promises'
+import { dirname, isAbsolute, join, resolve } from 'node:path'
 
 import type { Workspace } from '../../renderer/src/types/workspace'
 import { createGitWorktree, removeGitWorktree } from '../git'
+import { runGitCommand } from '../git-utils'
+import { RUN_SIGNAL_FILENAME } from './run-signal'
 import { createWorkspaceConfirmed } from '../workspace-create'
 import type { AutomationRunExecutionInput, AutomationRunExecutor } from './engine'
 import { runSkillLoopAction } from './actions/run-skill-loop'
@@ -254,7 +257,8 @@ async function ensureRunWorktree(
 }
 
 export async function defaultCreateRunWorktree(
-  input: { workspaceRoot: string; runId: string }
+  input: { workspaceRoot: string; runId: string },
+  excludeSignalFile: (worktreePath: string) => Promise<void> = excludeRunSignalFromWorktree
 ): Promise<RunWorktree | null> {
   const branchName = `automations/${input.runId}`
   const created = await createGitWorktree({
@@ -265,7 +269,50 @@ export async function defaultCreateRunWorktree(
     baseRef: 'HEAD',
   })
   if (!created.ok) return null
+  // Best-effort: keep the agent's run-status signal file out of git so neither the
+  // agent's `git add -A` nor the finalize backstop-commit stages it into the run's
+  // PR. A failure here must not fail the run or change the returned worktree.
+  try {
+    await excludeSignalFile(created.data.path)
+  } catch (error) {
+    console.warn(
+      `[automations] could not exclude run-status signal file in worktree ${created.data.path}:`,
+      error
+    )
+  }
   return { worktreePath: created.data.path, branch: created.data.branch ?? branchName }
+}
+
+/**
+ * Append {@link RUN_SIGNAL_FILENAME} to the worktree's git exclude file so the
+ * signal file is never staged. The exclude path is resolved via
+ * `git rev-parse --git-path info/exclude` — for a linked worktree git reads the
+ * shared common-dir exclude, not a per-worktree one, so resolving it is the only
+ * reliable way to land the entry where git will honor it. Idempotent: a repeat
+ * call does not duplicate the line. Throws if git or the write fails.
+ */
+export async function excludeRunSignalFromWorktree(worktreePath: string): Promise<void> {
+  const resolved = await runGitCommand(worktreePath, ['rev-parse', '--git-path', 'info/exclude'])
+  if (!resolved.ok) {
+    throw new Error(resolved.message ?? 'git rev-parse --git-path info/exclude failed.')
+  }
+  const rawPath = resolved.stdout.trim()
+  if (!rawPath) throw new Error('git returned an empty exclude path.')
+  const excludePath = isAbsolute(rawPath) ? rawPath : resolve(worktreePath, rawPath)
+
+  let existing = ''
+  try {
+    existing = await readFile(excludePath, 'utf8')
+  } catch {
+    // No exclude file yet; appendFile creates it below.
+  }
+  if (existing.split('\n').some((line) => line.trim() === RUN_SIGNAL_FILENAME)) {
+    return
+  }
+
+  await mkdir(dirname(excludePath), { recursive: true })
+  const separator = existing.length > 0 && !existing.endsWith('\n') ? '\n' : ''
+  await appendFile(excludePath, `${separator}${RUN_SIGNAL_FILENAME}\n`, 'utf8')
 }
 
 export async function defaultRemoveRunWorktree(

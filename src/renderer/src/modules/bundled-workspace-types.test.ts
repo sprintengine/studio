@@ -442,6 +442,7 @@ async function runSubscriptionBoundaryTest(): Promise<void> {
 
   const unsubscribe = subscribeAutomationRunNotifications(api, loadResolveFolderPath, (input) => published.push(input))
   assert.ok(captured, 'observer subscribes to onAutomationRunEvent synchronously on mount (no async gap)')
+  const deliver = captured as (event: AutomationsRunEvent) => void
 
   const timerFailed: AutomationsRunEvent = {
     automationId: 'auto-3',
@@ -451,10 +452,10 @@ async function runSubscriptionBoundaryTest(): Promise<void> {
     status: 'failed',
     trigger: 'timer',
   }
-  captured!(timerFailed)
-  captured!({ ...timerFailed, status: 'blocked' })
-  captured!({ ...timerFailed, trigger: 'manual' })
-  captured!({ ...timerFailed, status: 'completed' })
+  deliver(timerFailed)
+  deliver({ ...timerFailed, status: 'blocked' })
+  deliver({ ...timerFailed, trigger: 'manual' })
+  deliver({ ...timerFailed, status: 'completed' })
   // Flush the deferred folder-resolution promise chain each delivered event queued.
   await new Promise((resolve) => setTimeout(resolve, 0))
 

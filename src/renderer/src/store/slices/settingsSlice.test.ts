@@ -14,6 +14,7 @@ import {
   normalizeSprintEngineRunSettings,
   moduleSettingsNamespace,
   normalizeRecentWorkspaceFolders,
+  normalizeNewChatAgentChoice,
   normalizeSearchExcludes,
   normalizeSpecialistOrder,
   sprintEngineRunSettingsKey,
@@ -198,6 +199,22 @@ assert.deepEqual(
 assert.equal(normalizeCliPermissionPreset('auto_workspace'), 'auto_workspace')
 assert.equal(normalizeCliPermissionPreset('bypass_all'), 'bypass_all')
 assert.equal(normalizeCliPermissionPreset('bad' as never), 'default')
+
+// New-chat agent choice: terminal and known specialists round-trip; unknown
+// specialist ids, malformed shapes, and missing values fall back to general.
+assert.deepEqual(normalizeNewChatAgentChoice({ kind: 'terminal' }), { kind: 'terminal' })
+assert.deepEqual(normalizeNewChatAgentChoice({ kind: 'specialist', specialistId: 'frontend-design-review' }), {
+  kind: 'specialist',
+  specialistId: 'frontend-design-review',
+})
+assert.deepEqual(normalizeNewChatAgentChoice({ kind: 'specialist', specialistId: 'no-such-agent' }), {
+  kind: 'general',
+})
+assert.deepEqual(normalizeNewChatAgentChoice({ kind: 'specialist' }), { kind: 'general' })
+assert.deepEqual(normalizeNewChatAgentChoice({ kind: 'bogus' }), { kind: 'general' })
+assert.deepEqual(normalizeNewChatAgentChoice(undefined), { kind: 'general' })
+assert.deepEqual(normalizeNewChatAgentChoice('terminal'), { kind: 'general' })
+assert.deepEqual(defaultAppSettings().lastNewChatAgent, { kind: 'general' })
 assert.equal(
   sprintEngineRunSettingsKey('/Users/example/Project/.multi-code\\sprintengine/run.yaml/'),
   '/users/example/project/.multi-code/sprintengine/run.yaml',
@@ -283,6 +300,7 @@ const carrier = {
   sidebarCollapsed: false,
   sprintEnginesAsideOpen: false,
   openFilesInExternalWindow: true,
+  agentConfigAdoptionResult: null,
 }
 const slice = createSettingsSlice((mutator) => mutator(carrier))
 slice.openSettingsOverlay({ initialTab: 'integrations', checkForUpdates: true })
@@ -343,6 +361,7 @@ const permissionCarrier = {
   sidebarCollapsed: false,
   sprintEnginesAsideOpen: false,
   openFilesInExternalWindow: true,
+  agentConfigAdoptionResult: null,
 }
 const permissionSlice = createSettingsSlice((mutator) => mutator(permissionCarrier))
 permissionSlice.setLastAgentSpawnPermissionPreset('bypass_all')

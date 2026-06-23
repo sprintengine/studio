@@ -1406,6 +1406,15 @@ export type AgentCliModelSelection = {
   model: string
 }
 
+// The agent the sidebar's "New chat in project" item spawns on a plain click,
+// remembered from the last pick in the agent picker. Only the kind (and which
+// specialist) is stored — the CLI/model still resolves from lastSelectedCli and
+// the per-specialist defaults at spawn time, so a later CLI switch is honored.
+export type NewChatAgentChoice =
+  | { kind: 'general' }
+  | { kind: 'terminal' }
+  | { kind: 'specialist'; specialistId: SpecialistActionId }
+
 export type AppSettings = {
   cliRuntimes: Record<AgentCli, CliRuntimeSettings>
   keybindings: KeybindingSettings
@@ -1420,6 +1429,12 @@ export type AppSettings = {
    */
   lastSelectedConversationModel: AgentConversationRuntime | null
   lastSelectedSpecialist: SpecialistActionId
+  /**
+   * Agent the sidebar's "New chat in project" item spawns on a plain click.
+   * Updated whenever the user picks an agent from the new-chat picker, so the
+   * next plain click repeats that choice and the menu can show what will spawn.
+   */
+  lastNewChatAgent: NewChatAgentChoice
   lastSelectedMultiloopRole: MultiloopRole
   lastAgentSpawnPermissionPreset: SprintEngineCliPermissionPreset
   specialistCliDefaults: Partial<Record<SpecialistActionId, AgentCli>>
@@ -1686,6 +1701,11 @@ export type AgentState = {
   // Sprint Engine auto-run keep the model the agent was created with.
   cliModel?: string
   cliPermissionPreset?: SprintEngineCliPermissionPreset
+  // Orthogonal Debug Mode toggle (SpawnAgentMenu). Set per-spawn from the
+  // transient spawn-UI state; the launch boundary prepends the debug directive
+  // to the initial prompt when true. Not persisted-by-default UI: defaults off
+  // each spawn, but recorded on the agent so the launch path can read it.
+  debugMode?: boolean
   cliStartupPrompt?: string
   kind?: AgentKind
   specialistId?: SpecialistActionId

@@ -1,4 +1,0 @@
-interface:
-  display_name: "Diagnose"
-  short_description: "Debug with reproducible feedback loops."
-  default_prompt: "Use $diagnose to debug this with a reproducible feedback loop."

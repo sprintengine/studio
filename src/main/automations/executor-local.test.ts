@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { mkdtemp } from 'node:fs/promises'
+import { mkdtemp, readFile, realpath, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
@@ -14,7 +14,15 @@ import {
   WATCHTOWER_AUTOMATION_INTEGRATION_ID,
   WATCHTOWER_REVIEW_ACTION_KIND,
 } from './actions/switchboard'
-import { createBuiltInAutomationActionProviders, createLocalAutomationExecutor, type LocalAutomationExecutorOptions } from './executor-local'
+import {
+  createBuiltInAutomationActionProviders,
+  createLocalAutomationExecutor,
+  defaultCreateRunWorktree,
+  excludeRunSignalFromWorktree,
+  type LocalAutomationExecutorOptions,
+} from './executor-local'
+import { RUN_SIGNAL_FILENAME } from './run-signal'
+import { runGitCommand } from '../git-utils'
 import {
   AutomationProviderRegistrationError,
   type AutomationProviderPermissionChecker,
@@ -801,6 +809,93 @@ function assertBuiltInProviderRegistryUsesNamespacedIdsAndRejectsDuplicates(): v
   )
 }
 
+async function initSignalTestRepo(): Promise<string> {
+  // realpath resolves the macOS /var -> /private/var symlink so the path matches
+  // git's reported worktree path (createGitWorktree compares them).
+  const repoRoot = await realpath(await mkdtemp(join(tmpdir(), 'automations-signal-')))
+  for (const args of [
+    ['init', '-q'],
+    ['config', 'user.email', 'test@example.com'],
+    ['config', 'user.name', 'Test'],
+    ['config', 'commit.gpgsign', 'false'],
+  ]) {
+    const result = await runGitCommand(repoRoot, args)
+    assert.ok(result.ok, `git ${args.join(' ')} failed: ${result.message ?? ''}`)
+  }
+  await writeFile(join(repoRoot, 'seed.txt'), 'seed\n', 'utf8')
+  assert.ok((await runGitCommand(repoRoot, ['add', 'seed.txt'])).ok)
+  assert.ok((await runGitCommand(repoRoot, ['commit', '-qm', 'seed'])).ok)
+  return repoRoot
+}
+
+async function countSignalExcludeEntries(worktreePath: string): Promise<number> {
+  const resolved = await runGitCommand(worktreePath, ['rev-parse', '--git-path', 'info/exclude'])
+  assert.ok(resolved.ok, 'rev-parse exclude path')
+  const content = await readFile(resolved.stdout.trim(), 'utf8')
+  return content.split('\n').filter((line) => line.trim() === RUN_SIGNAL_FILENAME).length
+}
+
+async function assertSignalFileExcludedInRealWorktree(): Promise<void> {
+  // Real git integration: the signal file in the run's worktree must be invisible
+  // to both `git status` and `git add -A` so it never lands in the run's PR.
+  const repoRoot = await initSignalTestRepo()
+  try {
+    const created = await defaultCreateRunWorktree({ workspaceRoot: repoRoot, runId: 'run-excl' })
+    assert.ok(created, 'worktree created')
+    await writeFile(join(created!.worktreePath, RUN_SIGNAL_FILENAME), '{"status":"completed"}\n', 'utf8')
+
+    const status = await runGitCommand(created!.worktreePath, ['status', '--porcelain'])
+    assert.ok(status.ok)
+    assert.ok(
+      !status.stdout.includes(RUN_SIGNAL_FILENAME),
+      `signal file must not appear in git status, got: ${status.stdout}`
+    )
+
+    const addDryRun = await runGitCommand(created!.worktreePath, ['add', '-A', '-n'])
+    assert.ok(addDryRun.ok)
+    assert.ok(
+      !addDryRun.stdout.includes(RUN_SIGNAL_FILENAME),
+      `signal file must not be staged by git add -A, got: ${addDryRun.stdout}`
+    )
+    assert.equal(await countSignalExcludeEntries(created!.worktreePath), 1, 'exclude written once on creation')
+  } finally {
+    await rm(repoRoot, { recursive: true, force: true })
+  }
+}
+
+async function assertSignalExcludeIsIdempotent(): Promise<void> {
+  const repoRoot = await initSignalTestRepo()
+  try {
+    const created = await defaultCreateRunWorktree({ workspaceRoot: repoRoot, runId: 'run-idem' })
+    assert.ok(created, 'worktree created')
+    assert.equal(await countSignalExcludeEntries(created!.worktreePath), 1, 'one entry after creation')
+    // Re-running the exclude step must not duplicate the entry.
+    await excludeRunSignalFromWorktree(created!.worktreePath)
+    await excludeRunSignalFromWorktree(created!.worktreePath)
+    assert.equal(await countSignalExcludeEntries(created!.worktreePath), 1, 'still one entry after repeats')
+  } finally {
+    await rm(repoRoot, { recursive: true, force: true })
+  }
+}
+
+async function assertWorktreeReturnedWhenExcludeWriteFails(): Promise<void> {
+  // A failed exclude write is best-effort: the run still gets its worktree.
+  const repoRoot = await initSignalTestRepo()
+  try {
+    const created = await defaultCreateRunWorktree(
+      { workspaceRoot: repoRoot, runId: 'run-fail' },
+      async () => {
+        throw new Error('simulated exclude write failure')
+      }
+    )
+    assert.ok(created, 'worktree still returned despite exclude failure')
+    assert.equal(created!.branch, 'automations/run-fail')
+    assert.ok(created!.worktreePath.includes('run-fail'))
+  } finally {
+    await rm(repoRoot, { recursive: true, force: true })
+  }
+}
+
 void main().catch((error) => {
   console.error(error)
   process.exit(1)
@@ -824,4 +919,7 @@ async function main(): Promise<void> {
   await assertFirstPartyActionsInvokeFrontDoors()
   await assertWatchtowerSchemaOnlyAcceptsLaunchablePresets()
   await assertFirstPartyMissingIntegrationBlocksBeforeFrontDoor()
+  await assertSignalFileExcludedInRealWorktree()
+  await assertSignalExcludeIsIdempotent()
+  await assertWorktreeReturnedWhenExcludeWriteFails()
 }

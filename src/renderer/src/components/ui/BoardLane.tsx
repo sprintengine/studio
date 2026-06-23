@@ -2,11 +2,12 @@ import React, { useRef } from 'react'
 import { useFlipReorder } from '../../utils/flipReorder'
 
 // BoardLane — canonical lane chrome for Switchboard, Sprint Engine, and any
-// future board panel that needs a min-260 px column with a header, a
-// FLIP-animated scrollable list, and optional drag-and-drop.
+// future board panel that needs a flexible-width column (260 px floor by
+// default) with a header, a FLIP-animated scrollable list, and optional
+// drag-and-drop.
 //
 // The lane primitive owns:
-//   - The flex column section with `min-w-[260px] flex-1`
+//   - The flex column section (`flex-1` with a caller-set `minWidth` floor)
 //   - The header rhythm (label + optional glyph + count) matching the
 //     Switchboard pattern documented in
 //     knowledge/brand/panel-design-system.md
@@ -59,6 +60,19 @@ type BoardLaneProps = {
   flipKey: string
   /** Drag state. See module header for the four-state matrix. */
   state?: LaneState
+  /** Render the lane as a filled, hairline-bordered panel (fill = --bg-surface,
+   *  7 px radius) and lift the cards inside it one elevation step to
+   *  --bg-surface-raised with an inset hairline. Off by default: Switchboard
+   *  keeps its transparent lanes on the board canvas; Sprint Engine opts in so
+   *  the columns read as discrete panels. The inset card hairline is what keeps
+   *  cards legible in the light theme, where --bg-surface and
+   *  --bg-surface-raised collapse to the same white. */
+  surface?: boolean
+  /** Minimum lane width in px before the board scrolls. Lanes are `flex-1`, so
+   *  they grow to fill the row and shrink to this floor. Defaults to 260
+   *  (Switchboard's comfortable card width). Sprint Engine passes a thinner
+   *  floor so every lane fits the panel and the row only scrolls past it. */
+  minWidth?: number
   /** DnD plumbing. Pass only when the lane participates in drag-and-drop. */
   dnd?: BoardLaneDnd
   /** Children rendered inside the lane's `<ol>`. Caller composes TaskCards
@@ -92,6 +106,8 @@ export function BoardLane({
   ariaLabel,
   flipKey,
   state = 'default',
+  surface = false,
+  minWidth = 260,
   dnd,
   children,
 }: BoardLaneProps) {
@@ -99,16 +115,33 @@ export function BoardLane({
   useFlipReorder(listRef, flipKey)
 
   const sectionClass = [
-    'flex h-full min-w-[260px] flex-1 flex-col transition-colors',
+    'flex h-full flex-1 flex-col transition-colors',
+    surface
+      ? 'rounded-[7px] border border-[color:var(--border-subtle)] bg-[color:var(--bg-surface)]'
+      : '',
     state === 'legal-drop-target' ? 'ring-1 ring-[color:var(--accent-primary)]' : '',
     state === 'dimmed' ? 'opacity-40' : '',
   ]
     .filter(Boolean)
     .join(' ')
 
+  // minWidth is the scroll floor; the surface vars are a custom-property channel
+  // consumed by the TaskCard children. The cast is the justified boundary for
+  // CSS variables, which React.CSSProperties can't type.
+  const laneStyle = {
+    minWidth: `${minWidth}px`,
+    ...(surface
+      ? {
+          '--task-card-bg': 'var(--bg-surface-raised)',
+          '--task-card-shadow': 'inset 0 0 0 1px var(--border-subtle)',
+        }
+      : {}),
+  } as React.CSSProperties
+
   return (
     <section
       className={sectionClass}
+      style={laneStyle}
       aria-label={ariaLabel ?? `${label} lane`}
       onDragOver={
         dnd

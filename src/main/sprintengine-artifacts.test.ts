@@ -6,7 +6,7 @@ import { join } from 'node:path'
 import { registerSprintEngineIpc } from './ipc/sprintengine-ipc'
 import { createPluginRegistry } from './plugin-registry'
 import { __resetPluginRegistryForTest, __setPluginRegistryForTest } from './plugin-registry-instance'
-import { createSprintEngineArtifactHandlers } from './sprintengine-artifacts'
+import { createSprintEngineArtifactHandlers, getArtifactAutoApprovalBlocker } from './sprintengine-artifacts'
 
 type IpcHandler = (_event: unknown, payload: unknown) => Promise<unknown>
 
@@ -16,6 +16,10 @@ async function main(): Promise<void> {
   await testMutationResponsesIncludeProjectionAndEventMetadata()
   await testFailedMutationDoesNotReturnProjectionContent()
   await testAutoRunApprovalEnforcesEligibilityBeforeMcpCall()
+  testGateApprovesWhenOnlyStaleSameFileDuplicateBlocks()
+  testGateStillBlocksDistinctPendingSibling()
+  testGateNormalizesBareVsFullPrefixSameFile()
+  testGateDecisionMatchesAutoApprovalIntentContract()
   await testRequestChangesFailureDiagnostics()
   await testReadRegistryRolesUsesMcpTool()
   await testReadRegistryRolesPassesLoadedPluginSoulsRoots()
@@ -269,6 +273,107 @@ async function testAutoRunApprovalEnforcesEligibilityBeforeMcpCall(): Promise<vo
   if (!blocked.ok) assert.match(blocked.message, /already approved/i)
 
   void workspaceRoot
+}
+
+type GateArtifact = {
+  id: string
+  kind: string
+  title: string
+  path: string
+  status: string
+  createdBy: string
+  taskId: string
+}
+
+function gateArtifact(overrides: Partial<GateArtifact> & Pick<GateArtifact, 'id' | 'path' | 'status'>): GateArtifact {
+  return {
+    kind: 'architect_plan',
+    title: 'Architect Plan',
+    createdBy: 'architect-1',
+    taskId: 'T0',
+    ...overrides,
+  }
+}
+
+const NEEDS_INPUT_TASK = [{ id: 'T0', status: 'needs_input', ownerAgentId: 'architect-1' }]
+
+function testGateApprovesWhenOnlyStaleSameFileDuplicateBlocks(): void {
+  // The real plan is ready; the only other sibling is a stale draft placeholder
+  // pointing at the SAME file (stored full-prefix vs bare). It must not veto.
+  const candidate = gateArtifact({ id: 'A2', path: 'plan.md', status: 'ready_for_review' })
+  const staleDuplicate = gateArtifact({
+    id: 'A1',
+    path: '.multi-code/sprintengine/team/plan.md',
+    status: 'draft',
+    createdBy: 'sprintengine',
+  })
+  const blocker = getArtifactAutoApprovalBlocker(candidate, NEEDS_INPUT_TASK, [staleDuplicate, candidate])
+  assert.equal(blocker, null, `stale same-file duplicate must not block; got: ${blocker}`)
+}
+
+function testGateStillBlocksDistinctPendingSibling(): void {
+  // A genuinely different file that is still pending (draft) is an independent
+  // review gate and must continue to block auto-approval — no regression.
+  const candidate = gateArtifact({ id: 'A2', path: 'plan.md', status: 'ready_for_review' })
+  const distinctPending = gateArtifact({
+    id: 'A3',
+    kind: 'design_notes',
+    path: 'design-notes.md',
+    status: 'draft',
+  })
+  const blocker = getArtifactAutoApprovalBlocker(candidate, NEEDS_INPUT_TASK, [candidate, distinctPending])
+  assert.ok(blocker, 'a distinct pending sibling must still block auto-approval')
+  assert.match(blocker ?? '', /A3/, 'the blocker should name the ineligible distinct sibling')
+}
+
+function testGateNormalizesBareVsFullPrefixSameFile(): void {
+  // Normalization works in both directions and does not over-match by basename:
+  // a duplicate in a different subdirectory is a distinct file and still blocks.
+  const candidate = gateArtifact({
+    id: 'A2',
+    path: '.multi-code/sprintengine/team/plan.md',
+    status: 'ready_for_review',
+  })
+  const bareDuplicate = gateArtifact({ id: 'A1', path: 'plan.md', status: 'draft' })
+  assert.equal(
+    getArtifactAutoApprovalBlocker(candidate, NEEDS_INPUT_TASK, [bareDuplicate, candidate]),
+    null,
+    'full-prefix candidate must match a bare-path same-file duplicate'
+  )
+
+  const differentNestedFile = gateArtifact({ id: 'A4', path: 'archive/plan.md', status: 'draft' })
+  assert.ok(
+    getArtifactAutoApprovalBlocker(candidate, NEEDS_INPUT_TASK, [candidate, differentNestedFile]),
+    'a same-basename file in a different directory is distinct and must still block'
+  )
+}
+
+function testGateDecisionMatchesAutoApprovalIntentContract(): void {
+  // Agreement contract between the main-process gate and the renderer
+  // auto-approval intent selector (getAutoApprovalIntentArtifacts) /
+  // eligibility helpers in src/renderer/src/utils/sprintengine*.ts: the gate
+  // returns approvable (null) exactly when the renderer must propose the
+  // artifact, and returns a blocker exactly when the renderer must not. The
+  // renderer half of this contract is asserted in
+  // testGetAutoApprovalIntentArtifactsExcludesSameFileDuplicateVeto
+  // (src/renderer/src/utils/sprintengineAutoRun.test.ts) over the same matrix.
+  const candidate = gateArtifact({ id: 'A2', path: 'plan.md', status: 'ready_for_review' })
+  const staleSameFile = gateArtifact({
+    id: 'A1',
+    path: '.multi-code/sprintengine/team/plan.md',
+    status: 'draft',
+  })
+  assert.equal(
+    getArtifactAutoApprovalBlocker(candidate, NEEDS_INPUT_TASK, [staleSameFile, candidate]),
+    null,
+    'gate approves the same-file-duplicate case -> intent must propose'
+  )
+
+  const distinctPending = gateArtifact({ id: 'A3', kind: 'design_notes', path: 'notes.md', status: 'draft' })
+  assert.ok(
+    getArtifactAutoApprovalBlocker(candidate, NEEDS_INPUT_TASK, [candidate, distinctPending]),
+    'gate rejects the distinct-pending case -> intent must not propose'
+  )
 }
 
 async function testRequestChangesFailureDiagnostics(): Promise<void> {

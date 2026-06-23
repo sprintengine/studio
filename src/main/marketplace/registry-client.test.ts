@@ -268,6 +268,7 @@ async function testOfflineWithoutCacheIsExplicitFailure(): Promise<void> {
       { ok: result.ok, state: result.state, stale: result.stale },
       { ok: false, state: 'offline', stale: false }
     )
+    if (result.ok) return
     assert.match(result.message, /dns lookup failed/)
   })
 }

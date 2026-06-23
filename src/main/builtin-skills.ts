@@ -43,10 +43,14 @@ export const BUILTIN_SKILLS: BuiltinSkill[] = [
     description: 'Stress-test plans against workspace knowledge and current code.',
   },
   {
-    id: 'diagnose',
-    name: 'Diagnose',
+    id: 'debug',
+    name: 'Debug',
     version: '1.0.0',
-    description: 'Debug bugs and regressions through reproducible feedback loops.',
+    description: 'Debug bugs and regressions through a file-backed state machine that survives context compaction.',
+    // Debug Mode delivers this skill's full contract to the agent, so it must
+    // land in each CLI's native skill dir (e.g. .claude/skills, .codex/skills),
+    // not just .agents/. The spawn path ensure-installs it when Debug Mode is on.
+    targetPolicy: ALL_NATIVE_TARGET_POLICY,
   },
   {
     id: 'behavior-first-testing',

@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { mkdtemp } from 'node:fs/promises'
+import { mkdir, mkdtemp, writeFile } from 'node:fs/promises'
 import { createServer, type Server } from 'node:http'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -13,6 +13,8 @@ import type {
 } from '../../shared/automations/contracts'
 import type { WorkspaceSyncSnapshot } from '../../shared/workspace-sync'
 import { AutomationsEngine, projectFoldersFromWorkspaceSyncSnapshot } from './engine'
+import { openAutomationRunPullRequest, type CommandResult, type PullRequestDeps } from './pull-request'
+import { runSignalPath } from './run-signal'
 import { AutomationsStore, type AutomationStoreState } from './store'
 import { computeNextRun, validateScheduleTriggerConfig } from './schedule'
 import { executableTriggerProviders } from './provider-registry'
@@ -48,6 +50,17 @@ async function main(): Promise<void> {
   await assertWebhookReceiverRefreshSerializesAndFailsClosed()
   await assertStartupOverdueIsSkippedWithoutCatchup()
   await assertTickWaitsForStartupOverdueSkip()
+  await assertSignalScanFinalizesCompletedRunSilently()
+  await assertSignalScanFinalizesFailedRunAndEmitsEvent()
+  await assertMalformedOrMissingSignalLeavesRunPending()
+  await assertSignalScanIsIdempotentOnRescan()
+  await assertStartupRebuildsRegistryFromStore()
+  await assertManualFinalizeRemovesRunFromRegistry()
+  await assertEmptySummarySignalAutoFinalizes()
+  await assertConcurrentManualAndScanFinalizeOnce()
+  await assertOversizeSignalStaysPending()
+  await assertReviewOnlyFinalizeWithholdsUnexpectedChanges()
+  await assertAllowChangesFinalizeStillPushesWorkingDiff()
 }
 
 function definition(overrides: Partial<AutomationDefinition> = {}): AutomationDefinition {
@@ -229,7 +242,7 @@ function assertWorkspaceSnapshotFolderExtraction(): void {
         { id: 'ws-d', folderPath: '/repo/d' },
       ],
     },
-  } as WorkspaceSyncSnapshot
+  } as unknown as WorkspaceSyncSnapshot
 
   assert.deepEqual(projectFoldersFromWorkspaceSyncSnapshot(snapshot), [
     { workspaceId: 'ws-a', folderPath: '/repo/a' },
@@ -440,6 +453,424 @@ async function assertAgentBackedRunStaysRunningUntilFinalize(): Promise<void> {
   assert.equal(again.ok, true)
   assert.equal(prCalls, 1)
   assert.equal(events.length, 1)
+}
+
+// --- Agent-declared run-status signal-file auto-finalize (T4) ---
+
+type AgentEngineHarness = {
+  engine: AutomationsEngine
+  events: AutomationsRunEvent[]
+  removedWorktrees: string[]
+  counters: { prCalls: number }
+  worktreePath: string
+}
+
+async function setupAgentRun(
+  now: number,
+  overrides: Partial<ConstructorParameters<typeof AutomationsEngine>[0]> = {}
+): Promise<{ workspaceRoot: string; store: AutomationsStore } & AgentEngineHarness> {
+  const workspaceRoot = await createWorkspace()
+  const store = new AutomationsStore(workspaceRoot)
+  assert.equal((await store.createDefinition(definition({
+    trigger: { kind: 'schedule', config: intervalConfig(10) },
+    nextRunAt: new Date(now).toISOString(),
+  }))).ok, true)
+  const harness = agentEngine(workspaceRoot, now, overrides)
+  return { workspaceRoot, store, ...harness }
+}
+
+function agentEngine(
+  workspaceRoot: string,
+  now: number,
+  overrides: Partial<ConstructorParameters<typeof AutomationsEngine>[0]> = {}
+): AgentEngineHarness {
+  const events: AutomationsRunEvent[] = []
+  const removedWorktrees: string[] = []
+  const counters = { prCalls: 0 }
+  const worktreePath = `${workspaceRoot}/.multi-code/automations/worktrees/run-agent`
+  const engine = new AutomationsEngine({
+    getProjectFolders: () => [{ workspaceId: 'ws-automations', folderPath: workspaceRoot }],
+    now: () => now,
+    createRunId: () => 'run-agent',
+    onRunEvent: (event) => events.push(event),
+    runAutomation: async () => ({
+      status: 'running',
+      workspaceId: 'ws-automations',
+      agentId: 'agent-1',
+      worktreePath,
+      branch: 'automations/run-agent',
+      summary: 'Launched; working…',
+    }),
+    openRunPullRequest: async () => {
+      counters.prCalls += 1
+      return { ok: true, url: 'https://github.com/acme/repo/pull/9', created: true }
+    },
+    removeRunWorktree: async (input) => {
+      removedWorktrees.push(input.worktreePath)
+    },
+    ...overrides,
+  })
+  return { engine, events, removedWorktrees, counters, worktreePath }
+}
+
+async function writeRunSignal(worktreePath: string, body: string): Promise<void> {
+  await mkdir(worktreePath, { recursive: true })
+  await writeFile(runSignalPath(worktreePath), body, 'utf8')
+}
+
+async function readRunStatus(
+  store: AutomationsStore,
+  automationId: string,
+  runId: string
+): Promise<AutomationRun['status'] | undefined> {
+  const result = await store.getRun(automationId, runId)
+  return result.ok ? result.value.status : undefined
+}
+
+async function assertSignalScanFinalizesCompletedRunSilently(): Promise<void> {
+  const now = Date.parse('2026-06-17T10:00:00.000Z')
+  const { engine, workspaceRoot, store, events, removedWorktrees, counters, worktreePath } = await setupAgentRun(now)
+
+  const dispatched = await engine.runNow({ workspaceRoot, automationId: 'nightly-review', workspaceId: 'ws-automations' })
+  assert.equal(dispatched.ok, true)
+  assert.equal(dispatched.ok && dispatched.run.status, 'running')
+  assert.equal(events.length, 0)
+
+  await writeRunSignal(worktreePath, JSON.stringify({ status: 'completed', summary: 'Opened PR.' }))
+  await engine.tick()
+
+  const finalized = await store.getRun('nightly-review', 'run-agent')
+  assert.equal(finalized.ok && finalized.value.status, 'completed')
+  assert.equal(finalized.ok && finalized.value.pullRequestUrl, 'https://github.com/acme/repo/pull/9')
+  assert.equal(counters.prCalls, 1, 'PR opened once')
+  assert.equal(removedWorktrees.length, 1, 'worktree torn down')
+  // A timer-driven completed finalize stays silent (no terminal run-event).
+  assert.equal(events.length, 0, 'completed auto-finalize emits no run-event')
+
+  // Re-scan after the run is terminal does nothing (registry already cleared).
+  await engine.tick()
+  assert.equal(counters.prCalls, 1, 'no second PR on re-tick')
+}
+
+async function assertSignalScanFinalizesFailedRunAndEmitsEvent(): Promise<void> {
+  const now = Date.parse('2026-06-17T10:00:00.000Z')
+  const { engine, workspaceRoot, store, events, removedWorktrees, counters, worktreePath } = await setupAgentRun(now)
+
+  assert.equal((await engine.runNow({ workspaceRoot, automationId: 'nightly-review', workspaceId: 'ws-automations' })).ok, true)
+  await writeRunSignal(worktreePath, JSON.stringify({ status: 'failed', summary: 'Could not finish.' }))
+  await engine.tick()
+
+  const finalized = await store.getRun('nightly-review', 'run-agent')
+  assert.equal(finalized.ok && finalized.value.status, 'failed')
+  assert.equal(counters.prCalls, 0, 'failed run opens no PR')
+  assert.equal(removedWorktrees.length, 1, 'worktree torn down on failure')
+  // A timer-driven failed finalize surfaces a failed run-event.
+  assert.equal(events.length, 1)
+  assert.equal(events[0]?.status, 'failed')
+  assert.equal(events[0]?.trigger, 'timer')
+}
+
+async function assertMalformedOrMissingSignalLeavesRunPending(): Promise<void> {
+  const now = Date.parse('2026-06-17T10:00:00.000Z')
+  const { engine, workspaceRoot, store, counters, worktreePath } = await setupAgentRun(now)
+  assert.equal((await engine.runNow({ workspaceRoot, automationId: 'nightly-review', workspaceId: 'ws-automations' })).ok, true)
+
+  // Missing signal file: run stays pending.
+  await engine.tick()
+  assert.equal((await readRunStatus(store, 'nightly-review', 'run-agent')), 'running')
+  assert.equal(counters.prCalls, 0)
+
+  // Malformed / unrecognized signal: still pending, never coerced.
+  await writeRunSignal(worktreePath, '{ not json')
+  await engine.tick()
+  assert.equal((await readRunStatus(store, 'nightly-review', 'run-agent')), 'running')
+  await writeRunSignal(worktreePath, JSON.stringify({ status: 'queued' }))
+  await engine.tick()
+  assert.equal((await readRunStatus(store, 'nightly-review', 'run-agent')), 'running')
+  assert.equal(counters.prCalls, 0, 'no finalize on invalid signal')
+
+  // A valid signal later finalizes it, proving the run was still tracked.
+  await writeRunSignal(worktreePath, JSON.stringify({ status: 'completed' }))
+  await engine.tick()
+  assert.equal((await readRunStatus(store, 'nightly-review', 'run-agent')), 'completed')
+  assert.equal(counters.prCalls, 1)
+}
+
+async function assertSignalScanIsIdempotentOnRescan(): Promise<void> {
+  const now = Date.parse('2026-06-17T10:00:00.000Z')
+  const { engine, workspaceRoot, store, counters, worktreePath } = await setupAgentRun(now)
+  assert.equal((await engine.runNow({ workspaceRoot, automationId: 'nightly-review', workspaceId: 'ws-automations' })).ok, true)
+  await writeRunSignal(worktreePath, JSON.stringify({ status: 'completed' }))
+
+  await engine.tick()
+  await engine.tick()
+  await engine.tick()
+  assert.equal((await readRunStatus(store, 'nightly-review', 'run-agent')), 'completed')
+  assert.equal(counters.prCalls, 1, 'finalize/PR happens exactly once across repeated scans')
+}
+
+async function assertStartupRebuildsRegistryFromStore(): Promise<void> {
+  const now = Date.parse('2026-06-17T10:00:00.000Z')
+  // Engine A dispatches the run and records it as `running` in the store.
+  const { engine: engineA, workspaceRoot, store, worktreePath } = await setupAgentRun(now)
+  assert.equal((await engineA.runNow({ workspaceRoot, automationId: 'nightly-review', workspaceId: 'ws-automations' })).ok, true)
+  assert.equal((await readRunStatus(store, 'nightly-review', 'run-agent')), 'running')
+
+  // Engine B is a fresh instance (empty in-memory registry) simulating a restart.
+  const { engine: engineB, counters: countersB } = agentEngine(workspaceRoot, now)
+  await writeRunSignal(worktreePath, JSON.stringify({ status: 'completed' }))
+  // Startup seeds the registry from disk, then the scan finalizes the run.
+  await engineB.handleStartup()
+  assert.equal((await readRunStatus(store, 'nightly-review', 'run-agent')), 'completed')
+  assert.equal(countersB.prCalls, 1, 'restart-recovered run finalized via startup seed')
+}
+
+async function assertManualFinalizeRemovesRunFromRegistry(): Promise<void> {
+  const now = Date.parse('2026-06-17T10:00:00.000Z')
+  const { engine, workspaceRoot, store, events, counters, worktreePath } = await setupAgentRun(now)
+  assert.equal((await engine.runNow({ workspaceRoot, automationId: 'nightly-review', workspaceId: 'ws-automations' })).ok, true)
+
+  // Manual finalize (IPC button) — emits even on completed, and clears the registry.
+  const manual = await engine.finalizeRun({
+    workspaceRoot,
+    automationId: 'nightly-review',
+    runId: 'run-agent',
+    outcome: 'completed',
+  })
+  assert.equal(manual.ok, true)
+  assert.equal(counters.prCalls, 1)
+  assert.equal(events.length, 1, 'manual completed finalize emits a run-event')
+  assert.equal(events[0]?.trigger, 'manual')
+
+  // A subsequent signal scan must not re-finalize: the run left the registry.
+  await writeRunSignal(worktreePath, JSON.stringify({ status: 'failed' }))
+  await engine.tick()
+  assert.equal((await readRunStatus(store, 'nightly-review', 'run-agent')), 'completed')
+  assert.equal(counters.prCalls, 1, 'scan does not touch a manually finalized run')
+  assert.equal(events.length, 1, 'no extra event from the scan')
+}
+
+async function assertEmptySummarySignalAutoFinalizes(): Promise<void> {
+  const now = Date.parse('2026-06-17T10:00:00.000Z')
+  const { engine, workspaceRoot, store, counters, worktreePath } = await setupAgentRun(now)
+  assert.equal((await engine.runNow({ workspaceRoot, automationId: 'nightly-review', workspaceId: 'ws-automations' })).ok, true)
+
+  // A valid completed declaration with an empty summary must still finalize
+  // (regression guard for the stranded-run bug, F1) — not stay 'running' forever.
+  await writeRunSignal(worktreePath, JSON.stringify({ status: 'completed', summary: '' }))
+  await engine.tick()
+
+  const finalized = await store.getRun('nightly-review', 'run-agent')
+  assert.equal(finalized.ok && finalized.value.status, 'completed', 'empty-summary completed signal finalizes')
+  assert.equal(counters.prCalls, 1, 'PR opened for empty-summary completed run')
+}
+
+async function assertConcurrentManualAndScanFinalizeOnce(): Promise<void> {
+  const now = Date.parse('2026-06-17T10:00:00.000Z')
+  const workspaceRoot = await createWorkspace()
+  const store = new AutomationsStore(workspaceRoot)
+  assert.equal((await store.createDefinition(definition({
+    trigger: { kind: 'schedule', config: intervalConfig(10) },
+    nextRunAt: new Date(now).toISOString(),
+  }))).ok, true)
+
+  const events: AutomationsRunEvent[] = []
+  let prCalls = 0
+  let removedWorktrees = 0
+  let markPrStarted: () => void = () => undefined
+  const prStarted = new Promise<void>((resolve) => { markPrStarted = resolve })
+  let releasePr: () => void = () => undefined
+  const prGate = new Promise<void>((resolve) => { releasePr = resolve })
+  const worktreePath = `${workspaceRoot}/.multi-code/automations/worktrees/run-agent`
+  const engine = new AutomationsEngine({
+    getProjectFolders: () => [{ workspaceId: 'ws-automations', folderPath: workspaceRoot }],
+    now: () => now,
+    createRunId: () => 'run-agent',
+    onRunEvent: (event) => events.push(event),
+    runAutomation: async () => ({
+      status: 'running',
+      workspaceId: 'ws-automations',
+      agentId: 'agent-1',
+      worktreePath,
+      branch: 'automations/run-agent',
+      summary: 'Launched; working…',
+    }),
+    openRunPullRequest: async () => {
+      prCalls += 1
+      markPrStarted()
+      await prGate
+      return { ok: true, url: 'https://github.com/acme/repo/pull/9', created: true }
+    },
+    removeRunWorktree: async () => { removedWorktrees += 1 },
+  })
+
+  assert.equal((await engine.runNow({ workspaceRoot, automationId: 'nightly-review', workspaceId: 'ws-automations' })).ok, true)
+
+  // Manual IPC finalize wins the lock and blocks mid-flight inside the PR open.
+  const manual = engine.finalizeRun({
+    workspaceRoot,
+    automationId: 'nightly-review',
+    runId: 'run-agent',
+    outcome: 'completed',
+  })
+  await prStarted
+
+  // Second caller mirrors the per-tick scan's internal finalize for the same run
+  // (eventTrigger 'timer'). It must hit the per-run lock, not re-open a PR.
+  const concurrent = await engine.finalizeRun({
+    workspaceRoot,
+    automationId: 'nightly-review',
+    runId: 'run-agent',
+    outcome: 'completed',
+    eventTrigger: 'timer',
+  })
+  assert.equal(concurrent.ok && concurrent.run.status, 'running', 'concurrent caller gets the in-progress run')
+
+  releasePr()
+  const manualResult = await manual
+  assert.equal(manualResult.ok && manualResult.run.status, 'completed')
+  assert.equal(prCalls, 1, 'exactly one PR-open across interleaved finalize')
+  assert.equal(removedWorktrees, 1, 'worktree torn down once')
+  const terminalEvents = events.filter((event) => event.runId === 'run-agent')
+  assert.equal(terminalEvents.length, 1, 'exactly one terminal run-event')
+  assert.equal((await readRunStatus(store, 'nightly-review', 'run-agent')), 'completed')
+}
+
+async function assertOversizeSignalStaysPending(): Promise<void> {
+  const now = Date.parse('2026-06-17T10:00:00.000Z')
+  const { engine, workspaceRoot, store, counters, worktreePath } = await setupAgentRun(now)
+  assert.equal((await engine.runNow({ workspaceRoot, automationId: 'nightly-review', workspaceId: 'ws-automations' })).ok, true)
+
+  // An oversize signal (> 64 KB) is treated as malformed: never loaded, run stays
+  // pending (F5/L1) — and importantly not dropped from the registry.
+  const oversize = JSON.stringify({ status: 'completed', summary: 'x'.repeat(70 * 1024) })
+  assert.equal(oversize.length > 64 * 1024, true)
+  await writeRunSignal(worktreePath, oversize)
+  await engine.tick()
+  assert.equal((await readRunStatus(store, 'nightly-review', 'run-agent')), 'running', 'oversize signal ignored; run pending')
+  assert.equal(counters.prCalls, 0, 'oversize signal opens no PR')
+
+  // A later in-bound signal still finalizes — proving the run was never dropped.
+  await writeRunSignal(worktreePath, JSON.stringify({ status: 'completed' }))
+  await engine.tick()
+  assert.equal((await readRunStatus(store, 'nightly-review', 'run-agent')), 'completed')
+  assert.equal(counters.prCalls, 1)
+}
+
+function recordingGitDeps(statusStdout: string): { deps: PullRequestDeps; calls: string[][] } {
+  const calls: string[][] = []
+  const ok = (stdout = ''): CommandResult => ({ ok: true, stdout, stderr: '' })
+  const deps: PullRequestDeps = {
+    runGit: async (_cwd, args) => {
+      calls.push(args)
+      return args[0] === 'status' ? ok(statusStdout) : ok()
+    },
+    runGh: async (_cwd, args) => {
+      calls.push(['gh', ...args])
+      // `pr view` reports no existing PR; `pr create` returns the new URL.
+      return args[0] === 'pr' && args[1] === 'view' ? ok('') : ok('https://github.com/acme/repo/pull/9')
+    },
+  }
+  return { deps, calls }
+}
+
+function realOpenerEngine(input: {
+  workspaceRoot: string
+  worktreePath: string
+  now: number
+  deps: PullRequestDeps
+  events: AutomationsRunEvent[]
+  removed: { count: number }
+}): AutomationsEngine {
+  return new AutomationsEngine({
+    getProjectFolders: () => [{ workspaceId: 'ws-automations', folderPath: input.workspaceRoot }],
+    now: () => input.now,
+    createRunId: () => 'run-agent',
+    onRunEvent: (event) => input.events.push(event),
+    runAutomation: async () => ({
+      status: 'running',
+      workspaceId: 'ws-automations',
+      agentId: 'agent-1',
+      worktreePath: input.worktreePath,
+      branch: 'automations/run-agent',
+      summary: 'Launched; working…',
+    }),
+    openRunPullRequest: (prInput) => openAutomationRunPullRequest({
+      worktreePath: prInput.worktreePath,
+      branch: prInput.branch,
+      title: prInput.title,
+      body: prInput.body,
+      autonomy: prInput.autonomy,
+    }, input.deps),
+    removeRunWorktree: async () => { input.removed.count += 1 },
+  })
+}
+
+async function assertReviewOnlyFinalizeWithholdsUnexpectedChanges(): Promise<void> {
+  const now = Date.parse('2026-06-17T10:00:00.000Z')
+  const workspaceRoot = await createWorkspace()
+  const store = new AutomationsStore(workspaceRoot)
+  assert.equal((await store.createDefinition(definition({
+    trigger: { kind: 'schedule', config: intervalConfig(10) },
+    nextRunAt: new Date(now).toISOString(),
+    autonomyDefault: 'review_only',
+  }))).ok, true)
+
+  // The agent left an extra uncommitted file (the signal file is git-excluded, so
+  // it never appears in `git status --porcelain`).
+  const { deps, calls } = recordingGitDeps(' M src/stray.ts\n')
+  const events: AutomationsRunEvent[] = []
+  const removed = { count: 0 }
+  const worktreePath = `${workspaceRoot}/.multi-code/automations/worktrees/run-agent`
+  const engine = realOpenerEngine({ workspaceRoot, worktreePath, now, deps, events, removed })
+
+  assert.equal((await engine.runNow({ workspaceRoot, automationId: 'nightly-review', workspaceId: 'ws-automations' })).ok, true)
+  await writeRunSignal(worktreePath, JSON.stringify({ status: 'completed', summary: 'Reviewed; suggested a fix.' }))
+  await engine.tick()
+
+  // The stray file is never staged, committed, or pushed, and no PR is opened.
+  const mutating = calls.filter((args) => args[0] === 'add' || args[0] === 'commit' || args[0] === 'push')
+  assert.deepEqual(mutating, [], 'review_only finalize must not stage/commit/push the working diff')
+  assert.deepEqual(calls.filter((args) => args[0] === 'gh'), [], 'review_only finalize opens no PR for unexpected changes')
+
+  // The run still finalizes (not stranded) with a clear withheld-changes reason.
+  const finalized = await store.getRun('nightly-review', 'run-agent')
+  assert.equal(finalized.ok && finalized.value.status, 'completed')
+  assert.equal(finalized.ok && finalized.value.pullRequestUrl, undefined, 'no PR linked for withheld changes')
+  assert.match(finalized.ok ? finalized.value.blockedReason ?? '' : '', /unexpected uncommitted changes/i)
+  assert.match(finalized.ok ? finalized.value.summary ?? '' : '', /No pull request linked/i)
+  assert.equal(removed.count, 1, 'worktree still torn down')
+}
+
+async function assertAllowChangesFinalizeStillPushesWorkingDiff(): Promise<void> {
+  const now = Date.parse('2026-06-17T10:00:00.000Z')
+  const workspaceRoot = await createWorkspace()
+  const store = new AutomationsStore(workspaceRoot)
+  assert.equal((await store.createDefinition(definition({
+    trigger: { kind: 'schedule', config: intervalConfig(10) },
+    nextRunAt: new Date(now).toISOString(),
+    autonomyDefault: 'allow_changes',
+  }))).ok, true)
+
+  // Same dirty working tree, but allow_changes must keep the backstop behavior.
+  const { deps, calls } = recordingGitDeps(' M src/feature.ts\n')
+  const events: AutomationsRunEvent[] = []
+  const removed = { count: 0 }
+  const worktreePath = `${workspaceRoot}/.multi-code/automations/worktrees/run-agent`
+  const engine = realOpenerEngine({ workspaceRoot, worktreePath, now, deps, events, removed })
+
+  assert.equal((await engine.runNow({ workspaceRoot, automationId: 'nightly-review', workspaceId: 'ws-automations' })).ok, true)
+  await writeRunSignal(worktreePath, JSON.stringify({ status: 'completed', summary: 'Implemented the change.' }))
+  await engine.tick()
+
+  // The diff is staged, committed, and pushed; a PR is opened.
+  assert.deepEqual(calls.filter((args) => args[0] === 'add')[0], ['add', '-A'], 'allow_changes still stages the diff')
+  assert.equal(calls.some((args) => args[0] === 'commit'), true, 'allow_changes still commits')
+  assert.equal(calls.some((args) => args[0] === 'push'), true, 'allow_changes still pushes')
+  const finalized = await store.getRun('nightly-review', 'run-agent')
+  assert.equal(finalized.ok && finalized.value.status, 'completed')
+  assert.equal(finalized.ok && finalized.value.pullRequestUrl, 'https://github.com/acme/repo/pull/9', 'allow_changes links a PR')
+  assert.equal(finalized.ok && finalized.value.blockedReason, undefined, 'no withheld-changes reason for allow_changes')
 }
 
 async function assertRunEventDeliveryFailuresDoNotMutateRunTruth(): Promise<void> {

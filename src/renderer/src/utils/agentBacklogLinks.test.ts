@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 
-import type { BacklogItem, BacklogItemLink } from './backlog'
+import type { BacklogItem } from './backlog'
 import {
   AGENT_TERMINAL_TARGET_KIND,
   agentLinkForItem,
@@ -15,7 +15,7 @@ import {
   type AgentBacklogLinkOpenPorts,
 } from './agentBacklogLinks'
 import { nextBacklogItemStatusFromLinks } from './backlogLinks'
-import { findWorkspaceIdForAgent } from './agentLocation'
+import { findWorkspaceForAgentPreferring, findWorkspaceIdForAgent } from './agentLocation'
 import type { Workspace } from '../types/workspace'
 
 const workspaceRoot = '/repo'
@@ -52,12 +52,17 @@ function workspaceWithAgent(workspaceId: string, agentId: string): Pick<Workspac
 
 function recordingPorts(overrides: Partial<AgentBacklogLinkOpenPorts> = {}): {
   ports: AgentBacklogLinkOpenPorts
-  calls: { focused: string[]; diagnostics: string[] }
+  calls: { focused: string[]; preferred: Array<string | undefined>; diagnostics: string[] }
 } {
-  const calls = { focused: [] as string[], diagnostics: [] as string[] }
+  const calls = {
+    focused: [] as string[],
+    preferred: [] as Array<string | undefined>,
+    diagnostics: [] as string[],
+  }
   const ports: AgentBacklogLinkOpenPorts = {
-    focusAgent: ({ agentId }) => {
+    focusAgent: ({ agentId, preferredWorkspaceId }) => {
       calls.focused.push(agentId)
+      calls.preferred.push(preferredWorkspaceId)
       return true
     },
     publishDiagnostic: (input) => {
@@ -106,6 +111,37 @@ async function main(): Promise<void> {
     'ws-1',
   )
   assert.equal(findWorkspaceIdForAgent([], 'agent-7'), null)
+
+  // --- findWorkspaceForAgentPreferring: shared-id disambiguation (the agent-1 bug) ---
+  // Two workspaces both host `agent-1`; the recorded workspace must win over the
+  // first-match scan so a Backlog link never lands on an unrelated workspace's
+  // `agent-1`.
+  const sharedIdWorkspaces = [
+    workspaceWithAgent('ws-other', 'agent-1'),
+    workspaceWithAgent('ws-recorded', 'agent-1'),
+  ]
+  assert.equal(
+    findWorkspaceForAgentPreferring(sharedIdWorkspaces, 'agent-1', 'ws-recorded')?.id,
+    'ws-recorded',
+    'the recorded workspace disambiguates a shared agent id',
+  )
+  // Moved agent: recorded workspace no longer hosts the id, so the scan follows it.
+  assert.equal(
+    findWorkspaceForAgentPreferring([workspaceWithAgent('ws-2', 'agent-7')], 'agent-7', 'ws-1')?.id,
+    'ws-2',
+    'a moved agent still self-heals via the scan fallback',
+  )
+  // No preference given: falls back to the plain first-match scan.
+  assert.equal(
+    findWorkspaceForAgentPreferring(sharedIdWorkspaces, 'agent-1', undefined)?.id,
+    'ws-other',
+  )
+  // Recorded workspace is open but no longer hosts the id, and the agent is gone:
+  // returns null rather than forcing the wrong workspace.
+  assert.equal(
+    findWorkspaceForAgentPreferring([workspaceWithAgent('ws-1', 'someone-else')], 'agent-7', 'ws-1'),
+    null,
+  )
 
   // --- resolve: resolvable ---
   const resolvable = resolveAgentBacklogLink({
@@ -167,6 +203,11 @@ async function main(): Promise<void> {
     true,
   )
   assert.deepEqual(ok.calls.focused, ['agent-7'])
+  assert.deepEqual(
+    ok.calls.preferred,
+    ['ws-1'],
+    'open threads the link-recorded workspace so the port can disambiguate a shared id',
+  )
   assert.deepEqual(ok.calls.diagnostics, [])
 
   // --- open: malformed target never focuses, surfaces a diagnostic ---
