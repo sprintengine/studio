@@ -339,7 +339,6 @@ export default function CommandPalette({
             placeholder="Type a command or search..."
             className="flex-1 bg-transparent text-sm text-[color:var(--text-strong)] placeholder-[color:var(--text-disabled)] focus:outline-none"
           />
-          <kbd className="rounded bg-[color:var(--bg-surface-raised)] px-1.5 py-0.5 text-[10px] text-[color:var(--text-disabled)]">Esc</kbd>
         </div>
 
         <div className="max-h-[360px] overflow-y-auto py-1">

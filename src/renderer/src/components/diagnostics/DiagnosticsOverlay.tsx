@@ -74,7 +74,7 @@ export default function DiagnosticsOverlay({ onClose }: Props) {
                 className="rounded px-2 py-1 font-mono text-[12px] text-[color:var(--text-muted)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)] focus:outline-none focus-visible:ring-1 focus-visible:ring-[color:var(--border-strong)]"
                 aria-label="Close diagnostics"
               >
-                Close (Esc)
+                Close
               </button>
             </>
           }

@@ -140,7 +140,7 @@ export default function MemoryPreviewPane({
               Open in editor
             </button>
           ) : null}
-          <Tooltip content="Close (Esc)">
+          <Tooltip content="Close">
             <CloseIconButton size="md" aria-label="Close preview" onClick={onClose} />
           </Tooltip>
         </div>
