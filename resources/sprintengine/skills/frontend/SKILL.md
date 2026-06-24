@@ -22,28 +22,19 @@ Use senior product-engineering judgment: follow the existing codebase, respect t
 
 # Data Drives the UI
 
-Build the surface around the data it displays, not around a chrome template. Before layout, read the data's shape — types, enumerations, magnitudes, cardinality, and which fields carry the most signal — and let that drive the view.
+Build the surface around the data, not a chrome template: read the data's shape — types, enumerations, magnitudes, signal — and let it drive layout, alignment, and emphasis.
 
-- Color-code high-signal categorical/enumeration data (type, priority, language, environment, kind) from a small, bounded, repeatable palette — never the rainbow, and never color alone: pair every hue with a glyph, shape, or text so meaning survives colorblindness and grayscale. Low-signal enumerations stay monochrome and lean on position and text. This is a separate axis from status: status stays on the single 6 px dot idiom (the dot may take the category hue); do not reintroduce competing status pills, chips, or badges.
-- Numerics right-align and use `tabular-nums` so columns compare on sight; identifiers use mono; dates and text labels left-align. Never center-align dense data.
-- Long free-text truncates with ellipsis to protect column rhythm, and the full value is recoverable on hover or expand — truncated, never lost.
-- Visual weight follows data importance: the field a user scans for first earns the size, position, and contrast; supporting fields recede to meta or micro.
+- Color-code high-signal enumerations (type, priority, environment) from a small palette, always paired with a glyph or text, never color alone. This is a separate axis from status, which stays on the single 6 px dot — no competing status pills or badges.
+- Truncate long free-text with ellipsis; keep the full value recoverable on hover or expand.
+- Give size, position, and contrast to the field users scan for first; let supporting fields recede.
 
 # What You Hide Is a Design Decision
 
-What you withhold is as deliberate as what you show. Per-row and per-cell actions are not pinned as always-on buttons; they surface when the user goes looking — on hover, on focus, or behind a contextual icon, chip, `⋯` affordance, or popover. Reserve persistent placement for the one primary action a state implies.
-
-- Default row actions (remove, edit, rename, copy) live in a trailing reveal, not a permanent button column. This honors the quantified-restraint ceiling: ≤ 4 elements per row at rest, ≤ 2 revealed trailing actions.
-- Filtering, sorting, and "more info" are reached through glyphs and popovers anchored to the column or row they affect, not a wall of always-visible toolbar controls.
-- Accessibility floor: a hover reveal is never the *only* path to anything that matters. Every revealed action is also keyboard-reachable and screen-reader-discoverable — focus reveals it, and it appears in the row's menu — so the affordance does not depend on a mouse.
+What you withhold is as deliberate as what you show. Surface per-row and per-cell actions (remove, edit, filter, sort, more-info) on hover, on focus, or behind a contextual glyph or popover — not as always-on buttons; reserve persistent placement for the one primary action a state implies. Every revealed action must also be keyboard-reachable and screen-reader-discoverable: a hover reveal is never the only path to anything that matters.
 
 # Sequence With Progressive Disclosure
 
-Pace the interface so a user is never confronted with everything at once. Teach interaction in place, when it becomes relevant, not in a front-loaded tour.
-
-- Guide first-run and complex flows with element-anchored cues — inline hints, contextual tooltips, coachmarks tied to the control they describe. Do not teach with modals or multi-step product tours: blocking overlays are forgotten the moment they are dismissed, and tours past ~5 steps are largely abandoned.
-- Contextual help is pull, not push: make its existence visible (an info glyph, a subtle affordance) and reveal detail only when the user asks for it.
-- Place every interaction on the spectrum of explicitness by frequency × consequence × user expertise: explicit, always-visible affordances for first-run, primary, and destructive/irreversible actions; implicit, hidden affordances (hover, context menu, keyboard) for frequent power-user actions. When in doubt on a destructive action, bias explicit.
+Pace the interface so the user is never confronted with everything at once. Teach interaction in place with element-anchored tooltips and coachmarks tied to the control they describe — never modals or multi-step product tours. Place each interaction on the spectrum of explicitness by frequency × consequence × expertise: explicit, always-visible affordances for first-run, primary, and destructive actions; implicit, hidden affordances (hover, context menu, keyboard) for frequent power-user actions.
 
 # Reference Bar
 
