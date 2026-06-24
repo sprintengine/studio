@@ -305,6 +305,7 @@ const carrier = {
   sidebarCollapsed: false,
   sprintEnginesAsideOpen: false,
   openFilesInExternalWindow: true,
+  sprintEngineRoleRegistry: null,
   agentConfigAdoptionResult: null,
 }
 const slice = createSettingsSlice((mutator) => mutator(carrier))
@@ -366,6 +367,7 @@ const permissionCarrier = {
   sidebarCollapsed: false,
   sprintEnginesAsideOpen: false,
   openFilesInExternalWindow: true,
+  sprintEngineRoleRegistry: null,
   agentConfigAdoptionResult: null,
 }
 const permissionSlice = createSettingsSlice((mutator) => mutator(permissionCarrier))
