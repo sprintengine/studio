@@ -3,6 +3,13 @@ import { NewChatIcon, SpecialistActionIcon, WorkspaceTypeIcon, resolveEnabledWor
 import CliIcon from '../CliIcon'
 import { getSpecialistAction } from '../../specialists/specialistActions'
 import { FOCUS_RING_CLASS } from '../ui/tokens'
+import {
+  SIDEBAR_COLLAPSED_WIDTH,
+  SIDEBAR_DEFAULT_WIDTH,
+  SIDEBAR_MIN_WIDTH,
+  clampSidebarWidth,
+  resolveSidebarResize,
+} from './sidebarWidth'
 import type { ModuleEnablementOverrides } from '../../../../shared/modules/manifest'
 import {
   ContextMenu,
@@ -101,6 +108,9 @@ type WorkspaceSidebarProps = {
   setAgentSpawnDebugMode: (next: boolean) => void
   onRevealFolder: (folderPath: string) => void
   onSetSidebarCollapsed: (collapsed: boolean) => void
+  // Persisted expanded width (px) and its setter, for drag-to-resize.
+  sidebarWidth: number
+  onSetSidebarWidth: (width: number) => void
 }
 
 type FolderGroup = {
@@ -378,6 +388,8 @@ export default function WorkspaceSidebar({
   setAgentSpawnDebugMode,
   onRevealFolder,
   onSetSidebarCollapsed,
+  sidebarWidth,
+  onSetSidebarWidth,
 }: WorkspaceSidebarProps) {
   const renameWorkspace = useWorkspaceStore((s) => s.renameWorkspace)
   const reorderWorkspaces = useWorkspaceStore((s) => s.reorderWorkspaces)
@@ -409,6 +421,95 @@ export default function WorkspaceSidebar({
 
   const renameInputRef = useRef<HTMLInputElement>(null)
   const sidebarRef = useRef<HTMLElement>(null)
+  // True while the user is dragging the resize handle — suppresses the width
+  // glide so the rail tracks the pointer instead of lagging behind a 150ms
+  // transition.
+  const [isResizingSidebar, setIsResizingSidebar] = useState(false)
+
+  // Drag the right-edge handle to resize the expanded sidebar; drag it close to
+  // the left and the rail collapses to the icon strip. Pointer math is shared
+  // with the store via resolveSidebarResize so the snap threshold is single-
+  // sourced. rAF-coalesced so a fast drag does at most one update per frame.
+  const handleResizePointerDown = useCallback(
+    (event: React.PointerEvent<HTMLDivElement>) => {
+      if (event.button !== 0) return
+      event.preventDefault()
+      const startX = event.clientX
+      const startWidth = sidebarCollapsed ? SIDEBAR_COLLAPSED_WIDTH : sidebarWidth
+      let collapsed = sidebarCollapsed
+      let frame: number | null = null
+      let pendingX = startX
+
+      const apply = () => {
+        frame = null
+        const outcome = resolveSidebarResize(startWidth + (pendingX - startX))
+        if (outcome.kind === 'collapse') {
+          if (!collapsed) {
+            collapsed = true
+            onSetSidebarCollapsed(true)
+          }
+          return
+        }
+        if (collapsed) {
+          collapsed = false
+          onSetSidebarCollapsed(false)
+        }
+        onSetSidebarWidth(outcome.width)
+      }
+      const onMove = (e: PointerEvent) => {
+        pendingX = e.clientX
+        if (frame === null) frame = window.requestAnimationFrame(apply)
+      }
+      const onUp = () => {
+        if (frame !== null) window.cancelAnimationFrame(frame)
+        window.removeEventListener('pointermove', onMove)
+        window.removeEventListener('pointerup', onUp)
+        document.body.style.cursor = ''
+        document.body.style.userSelect = ''
+        setIsResizingSidebar(false)
+      }
+      setIsResizingSidebar(true)
+      document.body.style.cursor = 'col-resize'
+      document.body.style.userSelect = 'none'
+      window.addEventListener('pointermove', onMove)
+      window.addEventListener('pointerup', onUp)
+    },
+    [sidebarCollapsed, sidebarWidth, onSetSidebarCollapsed, onSetSidebarWidth]
+  )
+
+  // Keyboard resizing for the separator handle: arrows nudge width (and cross
+  // the collapse/expand boundary), Home restores the default width.
+  const handleResizeKeyDown = useCallback(
+    (event: React.KeyboardEvent<HTMLDivElement>) => {
+      const STEP = 16
+      if (event.key === 'ArrowLeft') {
+        event.preventDefault()
+        if (sidebarCollapsed) return
+        const next = sidebarWidth - STEP
+        if (next < SIDEBAR_MIN_WIDTH) onSetSidebarCollapsed(true)
+        else onSetSidebarWidth(next)
+      } else if (event.key === 'ArrowRight') {
+        event.preventDefault()
+        if (sidebarCollapsed) {
+          onSetSidebarCollapsed(false)
+          onSetSidebarWidth(SIDEBAR_MIN_WIDTH)
+        } else {
+          onSetSidebarWidth(sidebarWidth + STEP)
+        }
+      } else if (event.key === 'Home') {
+        event.preventDefault()
+        if (sidebarCollapsed) onSetSidebarCollapsed(false)
+        onSetSidebarWidth(SIDEBAR_DEFAULT_WIDTH)
+      }
+    },
+    [sidebarCollapsed, sidebarWidth, onSetSidebarCollapsed, onSetSidebarWidth]
+  )
+
+  // Double-click resets to the default width (and expands if collapsed).
+  const handleResizeDoubleClick = useCallback(() => {
+    if (sidebarCollapsed) onSetSidebarCollapsed(false)
+    onSetSidebarWidth(SIDEBAR_DEFAULT_WIDTH)
+  }, [sidebarCollapsed, onSetSidebarCollapsed, onSetSidebarWidth])
   const dragRef = useRef<
     | { type: 'workspace'; id: WorkspaceId; folderKey: string }
     | { type: 'folder'; folderKey: string }
@@ -1110,10 +1211,32 @@ export default function WorkspaceSidebar({
     <aside
       ref={sidebarRef}
       aria-label="Workspaces"
-      className={`flex shrink-0 flex-col bg-[color:var(--bg-app)] transition-[width] duration-150 ease-out motion-reduce:transition-none ${
-        sidebarCollapsed ? 'w-[44px]' : 'w-[296px]'
-      }`}
+      // Width is class-driven when collapsed (fixed icon rail) and style-driven
+      // when expanded (user-resizable). The width glide is suppressed mid-drag
+      // so the rail tracks the pointer instead of lagging the 150ms transition.
+      style={sidebarCollapsed ? undefined : { width: clampSidebarWidth(sidebarWidth) }}
+      className={`relative flex shrink-0 flex-col bg-[color:var(--bg-app)] ${
+        isResizingSidebar ? '' : 'transition-[width] duration-150 ease-out motion-reduce:transition-none'
+      } ${sidebarCollapsed ? 'w-[44px]' : ''}`}
     >
+      {/* Drag the right edge to resize; drag it close to the left to collapse. */}
+      <div
+        role="separator"
+        aria-orientation="vertical"
+        aria-label="Resize sidebar"
+        tabIndex={0}
+        onPointerDown={handleResizePointerDown}
+        onKeyDown={handleResizeKeyDown}
+        onDoubleClick={handleResizeDoubleClick}
+        className={`group absolute right-0 top-0 z-20 h-full w-1.5 translate-x-1/2 cursor-col-resize focus:outline-none ${FOCUS_RING_CLASS}`}
+      >
+        <span
+          aria-hidden="true"
+          className={`absolute inset-y-0 left-1/2 w-px -translate-x-1/2 bg-[color:var(--accent-primary)] transition-opacity ${
+            isResizingSidebar ? 'opacity-100' : 'opacity-0 group-hover:opacity-60'
+          }`}
+        />
+      </div>
       {/*
        * Top chrome row: Files / Editor / Git / Knowledge Graph switches scoped
        * to the active workspace, plus the collapse toggle pinned to its right

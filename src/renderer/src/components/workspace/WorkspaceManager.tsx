@@ -233,6 +233,8 @@ export default function WorkspaceManager() {
   const addWorkspace = useWorkspaceStore((s) => s.addWorkspace)
   const sidebarCollapsed = useWorkspaceStore((s) => s.sidebarCollapsed)
   const setSidebarCollapsed = useWorkspaceStore((s) => s.setSidebarCollapsed)
+  const sidebarWidth = useWorkspaceStore((s) => s.sidebarWidth)
+  const setSidebarWidth = useWorkspaceStore((s) => s.setSidebarWidth)
   const sprintEnginesAsideOpen = useWorkspaceStore((s) => s.sprintEnginesAsideOpen)
   const setSprintEnginesAsideOpen = useWorkspaceStore((s) => s.setSprintEnginesAsideOpen)
   const settingsOverlayOpen = useWorkspaceStore((s) => s.settingsOverlay.open)
@@ -2171,6 +2173,8 @@ export default function WorkspaceManager() {
         setAgentSpawnDebugMode={setAgentSpawnDebugMode}
         onRevealFolder={handleRevealFolder}
         onSetSidebarCollapsed={setSidebarCollapsed}
+        sidebarWidth={sidebarWidth}
+        onSetSidebarWidth={setSidebarWidth}
       />
       {/* The workspace card: everything inside the rounded surface belongs to
           the active workspace. With the Sprint Engines aside open the card

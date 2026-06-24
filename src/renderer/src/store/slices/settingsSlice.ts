@@ -37,6 +37,7 @@ import {
   type OnboardingStep,
 } from '../onboardingState'
 import { SPECIALIST_ACTIONS } from '../../specialists/specialistActions'
+import { SIDEBAR_DEFAULT_WIDTH, clampSidebarWidth } from '../../components/workspace/sidebarWidth'
 import { isAppTheme, type AppearanceSettings, type AppTheme } from '../../types/appTheme'
 import { normalizeModuleOverrides } from '../../../../shared/modules/manifest'
 import { collapseDuplicateKeybindings } from '../../commands/keybindings'
@@ -833,6 +834,10 @@ export interface SettingsSliceState {
   settingsOverlay: SettingsOverlayState
   runSummaryOverlay: RunSummaryOverlayState
   sidebarCollapsed: boolean
+  // User-resizable expanded width of the workspace sidebar, in px. Persisted so
+  // the rail reopens at the width the user dragged it to. Only meaningful while
+  // expanded; the collapsed rail is a fixed icon width.
+  sidebarWidth: number
   // The global Sprint Engines aside docked on the right of the workspace card.
   // App-level (not per-workspace layout) because the aside surveys every
   // workspace and must survive workspace switches.
@@ -850,6 +855,7 @@ export interface SettingsSliceState {
 
 export interface SettingsSliceActions {
   setSidebarCollapsed: (collapsed: boolean) => void
+  setSidebarWidth: (width: number) => void
   setSprintEnginesAsideOpen: (open: boolean) => void
   setOpenFilesInExternalWindow: (enabled: boolean) => void
   openSettingsOverlay: (opts?: { initialTab?: string | null; checkForUpdates?: boolean }) => void
@@ -937,6 +943,7 @@ export function createSettingsSlice(set: SettingsSliceSet): SettingsSlice {
     settingsOverlay: { open: false, initialTab: null, checkForUpdatesRequestId: null },
     runSummaryOverlay: { open: false, workspaceId: null },
     sidebarCollapsed: false,
+    sidebarWidth: SIDEBAR_DEFAULT_WIDTH,
     sprintEnginesAsideOpen: false,
     openFilesInExternalWindow: DEFAULT_OPEN_FILES_IN_EXTERNAL_WINDOW,
     agentConfigAdoptionResult: null,
@@ -944,6 +951,11 @@ export function createSettingsSlice(set: SettingsSliceSet): SettingsSlice {
     setSidebarCollapsed: (collapsed) =>
       set((state) => {
         state.sidebarCollapsed = collapsed
+      }),
+
+    setSidebarWidth: (width) =>
+      set((state) => {
+        state.sidebarWidth = clampSidebarWidth(width)
       }),
 
     setSprintEnginesAsideOpen: (open) =>
