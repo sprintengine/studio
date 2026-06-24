@@ -22,19 +22,11 @@ Use senior product-engineering judgment: follow the existing codebase, respect t
 
 # Data Drives the UI
 
-Build the surface around the data, not a chrome template: read the data's shape — types, enumerations, magnitudes, signal — and let it drive layout, alignment, and emphasis.
-
-- Color-code high-signal enumerations (type, priority, environment) from a small palette, always paired with a glyph or text, never color alone. This is a separate axis from status, which stays on the single 6 px dot — no competing status pills or badges.
-- Truncate long free-text with ellipsis; keep the full value recoverable on hover or expand.
-- Give size, position, and contrast to the field users scan for first; let supporting fields recede.
+Build dashboards around the data they display: let each field's type and importance drive how it is encoded, aligned, and weighted, so the data — not the chrome — leads the view.
 
 # What You Hide Is a Design Decision
 
 What you withhold is as deliberate as what you show. Surface per-row and per-cell actions (remove, edit, filter, sort, more-info) on hover, on focus, or behind a contextual glyph or popover — not as always-on buttons; reserve persistent placement for the one primary action a state implies. Every revealed action must also be keyboard-reachable and screen-reader-discoverable: a hover reveal is never the only path to anything that matters.
-
-# Sequence With Progressive Disclosure
-
-Pace the interface so the user is never confronted with everything at once. Teach interaction in place with element-anchored tooltips and coachmarks tied to the control they describe — never modals or multi-step product tours. Place each interaction on the spectrum of explicitness by frequency × consequence × expertise: explicit, always-visible affordances for first-run, primary, and destructive actions; implicit, hidden affordances (hover, context menu, keyboard) for frequent power-user actions.
 
 # Reference Bar
 
