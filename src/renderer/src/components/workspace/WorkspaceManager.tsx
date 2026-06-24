@@ -669,9 +669,9 @@ export default function WorkspaceManager() {
     closeSettingsOverlay()
     setSpecialistMenuOpen(false)
     setNotificationsOpen(false)
-    // Creating the first workspace during onboarding hands off to the first-run
-    // payoff overlay; the payoff's own CTA finishes onboarding to 'complete'.
-    if (onboardingStep !== 'complete') setOnboardingStep('first-run')
+    // Creating the first workspace finishes onboarding outright — no payoff
+    // overlay. Jump straight to 'complete' regardless of the current step.
+    if (onboardingStep !== 'complete') setOnboardingStep('complete')
   }, [
     activeWorkspace?.folderPath,
     addWorkspace,
@@ -1193,11 +1193,10 @@ export default function WorkspaceManager() {
     addWorkspace(template, { name, folderPath, sprintEngineState, sprintEngineContext, sprintEngineRoleCliDefaults, sprintEngineAgentCliOverrides, sprintEngineRoleModelOverrides, sprintEngineInitialSpawnRoles, sprintEngineAutoState, guidedBriefState, mode, windowId: workspaceWindowId })
     setShowNewWorkspacePanel(false)
     setNewWorkspacePanelInitialState(null)
-    // Creating the first workspace hands off to the first-run payoff overlay —
-    // jump straight to 'first-run' (not a single advance) so it's correct
-    // regardless of the current step. The payoff's CTA finishes to 'complete'.
+    // Creating the first workspace finishes onboarding outright — no payoff
+    // overlay. Jump straight to 'complete' regardless of the current step.
     if (onboardingStep !== 'complete') {
-      setOnboardingStep('first-run')
+      setOnboardingStep('complete')
       // Now that a real workspace root exists, run any deferred config adoption
       // the user opted into on the essentials step.
       runDeferredAgentConfigAdoption(folderPath)

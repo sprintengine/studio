@@ -426,7 +426,7 @@
     },
     "publish": {
       "provider": "github",
-      "owner": "conal-smith",
+      "owner": "multicodelabs",
       "repo": "multicode"
     }
   },
