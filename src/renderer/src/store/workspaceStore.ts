@@ -55,6 +55,7 @@ import type { CommandId } from '../commands/commandRegistry'
 import { createGuidedBriefSlice } from './slices/guidedBriefSlice'
 import { createAuthSlice } from './slices/authSlice'
 import { createSettingsSlice, normalizeAppSettings } from './slices/settingsSlice'
+import { clampSidebarWidth } from '../components/workspace/sidebarWidth'
 import {
   createWorkspacesSlice,
   type SoloChatSeed,
@@ -150,6 +151,8 @@ export interface WorkspaceStore extends PluginsSlice, CliAvailabilitySlice {
   authState: MulticodeAuthState
   sidebarCollapsed: boolean
   setSidebarCollapsed: (collapsed: boolean) => void
+  sidebarWidth: number
+  setSidebarWidth: (width: number) => void
   sprintEngineRoleRegistry: SprintEngineRoleRegistry | null
   setSprintEngineRoleRegistry: (registry: SprintEngineRoleRegistry | null) => void
   sprintEnginesAsideOpen: boolean
@@ -477,6 +480,7 @@ type RegistryEnvelopeState = {
 type SettingsEnvelopeState = {
   appSettings: unknown
   sidebarCollapsed: unknown
+  sidebarWidth: unknown
   sprintEnginesAsideOpen: unknown
   openFilesInExternalWindow: unknown
 }
@@ -563,6 +567,7 @@ function extractSettingsFields(state: Record<string, unknown>): SettingsEnvelope
   return {
     appSettings: state.appSettings,
     sidebarCollapsed: state.sidebarCollapsed,
+    sidebarWidth: state.sidebarWidth,
     sprintEnginesAsideOpen: state.sprintEnginesAsideOpen,
     openFilesInExternalWindow: state.openFilesInExternalWindow,
   }
@@ -596,6 +601,7 @@ function partializeWorkspaceStoreState(s: WorkspaceStore): ReturnType<typeof par
       return {
         appSettings: s.appSettings,
         sidebarCollapsed: s.sidebarCollapsed,
+        sidebarWidth: s.sidebarWidth,
         sprintEnginesAsideOpen: s.sprintEnginesAsideOpen,
         openFilesInExternalWindow: s.openFilesInExternalWindow,
         workspaces: retainedWorkspaces,
@@ -617,6 +623,7 @@ function partializeWorkspaceStoreState(s: WorkspaceStore): ReturnType<typeof par
   return {
     appSettings: s.appSettings,
     sidebarCollapsed: s.sidebarCollapsed,
+    sidebarWidth: s.sidebarWidth,
     sprintEnginesAsideOpen: s.sprintEnginesAsideOpen,
     openFilesInExternalWindow: s.openFilesInExternalWindow,
     ...partializeRegistryFields(s),
@@ -1127,7 +1134,7 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
         }
       },
       merge: (persisted, current) => {
-        const state = persisted as Partial<WorkspaceMigrationState & { sidebarCollapsed?: boolean; sprintEnginesAsideOpen?: boolean }> | undefined
+        const state = persisted as Partial<WorkspaceMigrationState & { sidebarCollapsed?: boolean; sidebarWidth?: number; sprintEnginesAsideOpen?: boolean }> | undefined
         const rawWorkspaces = state?.workspaces ?? current.workspaces
         const hydrated = hydrateSprintEngineLocalRunSettings(
           rawWorkspaces,
@@ -1152,6 +1159,10 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
             typeof state?.sidebarCollapsed === 'boolean'
               ? state.sidebarCollapsed
               : current.sidebarCollapsed,
+          sidebarWidth:
+            typeof state?.sidebarWidth === 'number'
+              ? clampSidebarWidth(state.sidebarWidth)
+              : current.sidebarWidth,
           sprintEnginesAsideOpen:
             typeof state?.sprintEnginesAsideOpen === 'boolean'
               ? state.sprintEnginesAsideOpen

@@ -28,7 +28,7 @@ type DownloadProgressLike = {
   bytesPerSecond?: number
 }
 
-const RELEASES_URL = 'https://github.com/conal-smith/multicode/releases'
+const RELEASES_URL = 'https://github.com/multicodelabs/multicode/releases'
 
 function getAppVersion(): string {
   return typeof app.getVersion === 'function' ? app.getVersion() : '0.0.0'

@@ -336,12 +336,7 @@ function PanelShell({
             subtitle={subtitle}
             overflow={
               onClose ? (
-                <div className="flex items-center gap-2">
-                  <kbd className="hidden rounded border border-[color:var(--border-default)] px-1.5 py-0.5 text-[10px] font-medium text-[color:var(--text-muted)] sm:inline-block">
-                    Esc
-                  </kbd>
-                  <CloseIconButton onClick={onClose} aria-label="Close run summary" />
-                </div>
+                <CloseIconButton onClick={onClose} aria-label="Close run summary" />
               ) : undefined
             }
           />

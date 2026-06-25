@@ -2647,9 +2647,6 @@ export default function SettingsPanel({
             Settings
           </h2>
           <div className="flex shrink-0 items-center gap-3">
-            <kbd className="hidden font-mono text-[11px] text-[color:var(--text-subtle)] sm:inline">
-              Esc
-            </kbd>
             <CloseIconButton size="md" aria-label="Close settings" onClick={closeSettings} />
           </div>
         </header>
