@@ -276,3 +276,65 @@ def test_validate_fails_migrated_role_with_missing_registry_skill(tmp_path: Path
 
     assert any("missing_tester_skill" in error for error in errors)
     assert any("Role 'tester' cannot render" in error for error in errors)
+
+
+def test_session_plugin_roots_parses_env(monkeypatch) -> None:
+    monkeypatch.setenv(
+        souls_registry.REGISTRY_ROOTS_ENV,
+        json.dumps([
+            {"id": "p", "root": "/tmp/x"},
+            {"root": "/tmp/y"},          # id optional
+            {"bad": 1},                  # no root → skipped
+            {"root": "   "},             # blank root → skipped
+            "nope",                      # not an object → skipped
+        ]),
+    )
+    assert souls_registry._session_plugin_roots() == [
+        {"id": "p", "root": "/tmp/x"},
+        {"root": "/tmp/y"},
+    ]
+
+
+def test_session_plugin_roots_tolerates_garbage(monkeypatch) -> None:
+    monkeypatch.setenv(souls_registry.REGISTRY_ROOTS_ENV, "not json at all")
+    assert souls_registry._session_plugin_roots() == []
+    monkeypatch.setenv(souls_registry.REGISTRY_ROOTS_ENV, json.dumps({"root": "x"}))  # not a list
+    assert souls_registry._session_plugin_roots() == []
+    monkeypatch.delenv(souls_registry.REGISTRY_ROOTS_ENV, raising=False)
+    assert souls_registry._session_plugin_roots() == []
+
+
+def test_effective_plugin_roots_includes_canonical_user_root(monkeypatch) -> None:
+    monkeypatch.delenv(souls_registry.REGISTRY_ROOTS_ENV, raising=False)
+    assert souls_registry._effective_plugin_roots() == [souls_registry.MULTICODE_USER_REGISTRY_ROOT]
+    # Session plugin roots come first, then the canonical user root — matching the
+    # app's menu discovery order.
+    monkeypatch.setenv(souls_registry.REGISTRY_ROOTS_ENV, json.dumps([{"id": "plug", "root": "/tmp/z"}]))
+    assert souls_registry._effective_plugin_roots() == [
+        {"id": "plug", "root": "/tmp/z"},
+        souls_registry.MULTICODE_USER_REGISTRY_ROOT,
+    ]
+
+
+def test_session_plugin_root_specialist_renders_through_souls(tmp_path, monkeypatch) -> None:
+    # A specialist living in a session plugin root (the env channel the app sets
+    # at spawn) resolves through render_soul — the same path `souls get` uses — so
+    # the spawn menu and the spawn agree.
+    plugin = tmp_path / "plugin-roles"
+    (plugin / "roles").mkdir(parents=True)
+    (plugin / "skills" / "growth").mkdir(parents=True)
+    (plugin / "roles" / "growth.json").write_text(
+        json.dumps({"id": "growth", "label": "Growth", "soul": [{"skill": "growth"}]}),
+        encoding="utf-8",
+    )
+    (plugin / "skills" / "growth" / "SKILL.md").write_text(
+        "---\nname: growth\n---\n\n# Growth\n\nDrive {{role}} work.",
+        encoding="utf-8",
+    )
+    monkeypatch.setenv(souls_registry.REGISTRY_ROOTS_ENV, json.dumps([{"id": "growth-plugin", "root": str(plugin)}]))
+    monkeypatch.chdir(tmp_path)
+
+    content = render_soul("growth")
+
+    assert '<skill name="growth">' in content
+    assert "Drive growth work." in content

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import json
 import os
 from pathlib import Path
 
@@ -9,6 +10,55 @@ from sprintengine_core.role_registry import RegistryDiscovery, SoulRenderError, 
 
 SOULS_ROOT = Path(__file__).resolve().parent
 PROMPTS_DIR = SOULS_ROOT / "prompts"
+
+# Canonical Multicode user-level registry root. MUST stay in sync with
+# defaultUserRoleRegistryRoot() in src/main/sprintengine-role-registry.ts
+# (~/.multicode/sprintengine-roles). Discovering it natively here means a
+# user-installed specialist resolves through `souls get` without the app having
+# to inject anything — the spawn menu and the spawn itself look in the same place.
+MULTICODE_USER_REGISTRY_ROOT = Path.home() / ".multicode" / "sprintengine-roles"
+
+# Env var carrying the dynamic plugin registry roots the app discovered for the
+# current session, as JSON: [{"id": "...", "root": "..."}]. Set on agent
+# terminals at spawn (see withSprintEngineEnv in src/main/terminal-launch.ts)
+# from the same resolver the spawn menu uses, so `souls get` resolves exactly the
+# plugin-contributed specialists the menu offered. Plugin roots are dynamic
+# (only the running app knows which plugins are installed), so they must be
+# passed in rather than discovered statically.
+REGISTRY_ROOTS_ENV = "MULTICODE_SPRINTENGINE_REGISTRY_ROOTS"
+
+
+def _session_plugin_roots() -> list[dict[str, str]]:
+    raw = os.environ.get(REGISTRY_ROOTS_ENV, "").strip()
+    if not raw:
+        return []
+    try:
+        parsed = json.loads(raw)
+    except (ValueError, TypeError):
+        return []
+    if not isinstance(parsed, list):
+        return []
+    roots: list[dict[str, str]] = []
+    for entry in parsed:
+        if not isinstance(entry, dict):
+            continue
+        root = entry.get("root")
+        if not isinstance(root, str) or not root.strip():
+            continue
+        item: dict[str, str] = {"root": root.strip()}
+        plugin_id = entry.get("id")
+        if isinstance(plugin_id, str) and plugin_id.strip():
+            item["id"] = plugin_id.strip()
+        roots.append(item)
+    return roots
+
+
+def _effective_plugin_roots() -> list[object]:
+    # Dynamic plugin roots (session env) first, then the canonical user-install
+    # root — matching the order the app's menu discovery uses
+    # (sprintEngineRegistryRootsForRead in src/main/sprintengine-artifacts.ts),
+    # so precedence is identical between the menu and `souls get`.
+    return [*_session_plugin_roots(), MULTICODE_USER_REGISTRY_ROOT]
 
 
 @dataclass(frozen=True)
@@ -44,7 +94,7 @@ MIGRATED_BUNDLED_SOULS = LEGACY_SOULS
 
 
 def _default_discovery() -> RegistryDiscovery:
-    return discover_role_registry(workspace_root=Path.cwd())
+    return discover_role_registry(workspace_root=Path.cwd(), plugin_roots=_effective_plugin_roots())
 
 
 def _soul_from_registry(discovery: RegistryDiscovery, role_or_alias: str) -> Soul:
