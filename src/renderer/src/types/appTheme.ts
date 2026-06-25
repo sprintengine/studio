@@ -259,7 +259,7 @@ export const APP_THEMES: readonly AppThemeDescriptor[] = [
     id: 'aubergine',
     label: 'Aubergine',
     resolved: 'aubergine',
-    description: 'Discord-style purple-grey',
+    description: 'Muted purple-grey',
     swatches: {
       bgApp: '#14141c',
       bgSurface: '#1c1c24',
