@@ -26,7 +26,7 @@ Build dashboards around the data they display: let each field's type and importa
 
 # What You Hide Is a Design Decision
 
-What you withhold is as deliberate as what you show. Surface per-row and per-cell actions (remove, edit, filter, sort, more-info) on hover, on focus, or behind a contextual glyph or popover — not as always-on buttons; reserve persistent placement for the one primary action a state implies. Every revealed action must also be keyboard-reachable and screen-reader-discoverable: a hover reveal is never the only path to anything that matters.
+What you withhold is as deliberate as what you show. Surface per-row and per-cell actions (remove, edit, filter, sort, more-info) on hover, on focus, or behind a contextual glyph or popover — not as always-on buttons; reserve persistent placement for the one primary action a state implies. If a hover reveal is an action's only route, give it a keyboard and screen-reader path too; redundant conveniences like hover-to-copy a visible value need none.
 
 # Sequence With Progressive Disclosure
 
