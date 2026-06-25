@@ -1134,7 +1134,8 @@ export type MultiloopRole =
 export type AgentKind = 'general' | 'specialist' | 'watchtower' | 'sprintengine' | 'multiloop'
 export type AgentExecutionMode = 'current_workspace' | 'worktree'
 export type WorktreeEntryStatus = 'available' | 'assigned' | 'missing' | 'removing' | 'error'
-export type SpecialistActionId =
+// Ids of the built-in specialist actions shipped in SPECIALIST_ACTIONS.
+export type BundledSpecialistActionId =
   | 'architect'
   | 'product-strategist'
   | 'developer'
@@ -1150,6 +1151,12 @@ export type SpecialistActionId =
   | 'code-review'
   | 'nuclear-review'
   | 'spec-review'
+
+// A specialist id is either a bundled action id or a registry-discovered role id
+// (from a workspace / user / plugin specialist pack). The `(string & {})` arm
+// keeps editor autocomplete for the bundled ids while accepting any registry
+// role id, so dropped-in specialist packs round-trip through prefs and spawns.
+export type SpecialistActionId = BundledSpecialistActionId | (string & {})
 
 export type CliRuntimeSettings = {
   command: string
@@ -1446,6 +1453,12 @@ export type AppSettings = {
    * fall back to the canonical roster order. Empty means "use canonical order".
    */
   specialistOrder: SpecialistActionId[]
+  /**
+   * Specialist-pack enablement. Holds the ids of packs the user has switched
+   * off; a pack absent here is enabled. Deselecting the built-in pack removes
+   * its agents from the spawn dropdown (the quick rows always remain).
+   */
+  specialistPacks: { disabled: string[] }
   sprintEngineRoleSettings: SprintEngineRoleSettings
   /**
    * Local operator preferences for an existing Sprint Engine run, keyed by the

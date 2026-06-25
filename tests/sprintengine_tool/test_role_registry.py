@@ -48,10 +48,9 @@ def test_discovers_production_bundled_role_manifest_and_referenced_skill() -> No
     assert ui_ux_reviewer.id == "ui_ux_reviewer"
     assert production_readiness.id == "production_readiness_reviewer"
     assert discovery.role_entry("tester").source.layer.name == "bundled"
-    assert [skill.id for skill in skills][:3] == ["tester", "multicode_backlog", "project_relative_paths"]
-    assert "production_reality_gate" in [skill.id for skill in skills]
-    assert "workspace_knowledge" in [skill.id for skill in skills]
-    assert "sprintengine_workflow" not in [skill.id for skill in skills]
+    # The manifest soul is the portable identity only; host/Sprint Engine layer
+    # skills are composed on at spawn time, not referenced by the manifest.
+    assert [skill.id for skill in skills] == ["tester"]
     assert "principal QA engineer" in skills[0].body
 
 
@@ -314,52 +313,43 @@ def test_rendering_missing_or_malformed_skill_fails_direct_render_without_breaki
 
 
 def test_every_bundled_role_manifest_has_expected_shared_skill_boundary() -> None:
-    """Regression: bundled roles include shared guidance but not Sprint Engine dispatch mechanics.
+    """Regression: bundled role manifests carry only the portable soul identity.
 
-    The KG skill itself is env-var-gated, so adding it to every role's Soul is safe
-    for workspaces with no Knowledge Graph configured. The agent reads the skill,
-    sees that MULTICODE_KNOWLEDGE_ROOT is unset, and no-ops. The point of this
-    test is to stop a future role manifest from silently dropping the skill, which
-    would re-introduce the gap where agents change behavior without updating the
-    KG and reviewers have no canonical basis to flag the drift.
-
-    The Backlog skill is part of base role identity because any specialist may
-    create durable work-intake items from review or discovery work. Sprint Engine
-    workflow mechanics are injected by sprintengine.agent.join, not base Souls,
-    so manual specialist launches do not inherit run-dispatch instructions.
+    Souls are pluggable: a pack ships the agent identity and nothing else. The
+    Multicode product layer (Backlog, Knowledge Graph) and the Sprint Engine
+    layer (quality norms + coordination skills) are composed on top at spawn
+    time via render_soul(extra_skills=...), never referenced by the manifest. A
+    manifest that bakes in a layer skill re-couples the soul to Multicode or
+    Sprint Engine, which this test exists to prevent.
     """
+    from sprintengine_core.skill_layers import SPRINTENGINE_SOUL_EXTRA_SKILLS
+
     roles_dir = Path(__file__).resolve().parents[2] / "resources" / "sprintengine" / "roles"
     manifests = sorted(roles_dir.glob("*.json"))
     assert manifests, f"Expected bundled role manifests under {roles_dir}"
 
-    missing_knowledge: list[str] = []
-    missing_backlog: list[str] = []
+    layer_skills = set(SPRINTENGINE_SOUL_EXTRA_SKILLS)
+    not_identity_only: list[str] = []
     coupled: list[str] = []
     for path in manifests:
         data = json.loads(path.read_text(encoding="utf-8"))
         soul = data.get("soul") or []
         skills = [entry.get("skill") for entry in soul if isinstance(entry, dict)]
-        if "workspace_knowledge" not in skills:
-            missing_knowledge.append(path.name)
-        if "multicode_backlog" not in skills:
-            missing_backlog.append(path.name)
-        if any(str(skill_id).startswith("sprintengine_") for skill_id in skills):
+        if skills != [data.get("id")]:
+            not_identity_only.append(path.name)
+        if layer_skills.intersection(skills) or any(
+            str(skill_id).startswith("sprintengine_") for skill_id in skills
+        ):
             coupled.append(path.name)
 
-    assert not missing_knowledge, (
-        "These role manifests are missing the workspace_knowledge skill: "
-        f"{missing_knowledge}. Every role's Soul must include workspace_knowledge so agents "
-        "receive the env-var-gated KG read/update guidance and reviewers can flag "
-        "documented-behavior drift when a KG is configured."
-    )
-    assert not missing_backlog, (
-        "These role manifests are missing the multicode_backlog skill: "
-        f"{missing_backlog}. Every role's Soul must include multicode_backlog so "
-        "specialists create Backlog items as durable outcome intake, not "
-        "implementation plans."
+    assert not not_identity_only, (
+        "These role manifests do not carry an identity-only soul: "
+        f"{not_identity_only}. A bundled manifest's soul must be exactly "
+        "[{'skill': <role id>}] so the soul stays portable; host and Sprint "
+        "Engine layers are composed on at spawn time."
     )
     assert not coupled, (
-        "These role manifests include Sprint Engine runtime skills: "
-        f"{coupled}. Sprint Engine dispatch mechanics must be injected by "
-        "sprintengine.agent.join, not included in base Souls."
+        "These role manifests bake in a host or Sprint Engine layer skill: "
+        f"{coupled}. Backlog, Knowledge Graph, quality norms, and Sprint Engine "
+        "coordination skills are layered by the host, not the manifest."
     )

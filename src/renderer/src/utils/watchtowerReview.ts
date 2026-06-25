@@ -181,6 +181,9 @@ export function defaultSectorsForSpecialist(specialistId: SpecialistActionId): W
       return ['code_review', 'architecture_quality', 'ai_slop']
     case 'spec-review':
       return ['spec_review']
+    default:
+      // Registry-discovered specialists have no curated default sector set.
+      return []
   }
 }
 

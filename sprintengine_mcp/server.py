@@ -36,6 +36,7 @@ from sprintengine_core.tool.artifacts import release_task_from_owner
 from sprintengine_core.tool.constants import VALID_ARTIFACT_KINDS
 from sprintengine_core.tool.gates import find_active_gate_claim
 from sprintengine_core.tool.plans import plan_path_for_state
+from sprintengine_core.skill_layers import SPRINTENGINE_SOUL_EXTRA_SKILLS
 from sprintengine_core.tool.prompts import compose_prompt, load_sprintengine_coordination_prompt
 from sprintengine_core.tool.state import (
     append_event,
@@ -1235,7 +1236,12 @@ def _run_metadata(run: dict[str, Any], state_path: Path) -> dict[str, Any]:
 
 def _compose_registry_prompt(registry: RegistryDiscovery, role: str, workspace_root: Path, run_id: str) -> str:
     try:
-        soul_prompt = registry.render_soul(role, workspace_root=workspace_root, run_id=run_id).content
+        soul_prompt = registry.render_soul(
+            role,
+            workspace_root=workspace_root,
+            run_id=run_id,
+            extra_skills=SPRINTENGINE_SOUL_EXTRA_SKILLS,
+        ).content
     except (KeyError, SoulRenderError):
         soul_prompt = None
     return compose_prompt(

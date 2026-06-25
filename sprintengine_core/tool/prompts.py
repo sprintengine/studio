@@ -6,6 +6,7 @@ from typing import Optional
 
 from sprintengine_core.tool.paths import PROMPTS_DIR, REPO_ROOT
 from sprintengine_core.role_registry import SoulRenderError, discover_role_registry
+from sprintengine_core.skill_layers import SPRINTENGINE_SOUL_EXTRA_SKILLS
 
 
 SPRINTENGINE_SKILLS_DIR = REPO_ROOT / "resources" / "sprintengine" / "skills"
@@ -13,8 +14,15 @@ SPRINTENGINE_IMPLEMENTATION_ROLES = {"blog_writer", "coordinator", "creative", "
 
 
 def load_soul_prompt(role: str) -> Optional[str]:
+    # Role manifests carry only the portable soul identity. A Sprint Engine
+    # dispatch layers the Multicode product skills and Sprint Engine quality
+    # norms on top so the rendered soul carries the full quality bar.
     try:
-        return discover_role_registry().render_soul(role, workspace_root=REPO_ROOT).content
+        return (
+            discover_role_registry()
+            .render_soul(role, workspace_root=REPO_ROOT, extra_skills=SPRINTENGINE_SOUL_EXTRA_SKILLS)
+            .content
+        )
     except (KeyError, SoulRenderError):
         return None
 
@@ -164,6 +172,12 @@ def compose_prompt(
     soul_prompt: Optional[str],
     priority_text: str,
 ) -> str:
+    # Quality norms (project-relative paths, production reality, fallback
+    # discipline, evidence, self-review) are composed into `soul_prompt` as the
+    # Sprint Engine quality layer (see load_soul_prompt). Only the SE-specific
+    # local-venv guidance, which has no skill equivalent, is inlined here. When
+    # the soul fails to render, fall back to the standalone venv guidance plus
+    # the norm guidance so a degraded dispatch still carries the quality bar.
     if not soul_prompt:
         return "\n\n".join([
             swarm_heading,
@@ -186,11 +200,7 @@ def compose_prompt(
         swarm_heading,
         swarm_prompt,
         "---",
-        project_relative_path_guidance(),
-        "---",
         local_venv_install_guidance(),
-        "---",
-        production_reality_guidance(),
         "---",
         "# Rule Priority",
         priority_text,

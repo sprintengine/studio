@@ -5,7 +5,7 @@ import { join } from 'path'
 import type { AgentCli, CliRuntimeSettings, SprintEngineCliPermissionPreset, TerminalPathStyle } from '../shared/electron-api'
 import { applyDebugDirective } from '../shared/debug-directive'
 import { buildAgentShellCommand, pluginIdForCli, renderAgentLaunchArgv, resolveCliRuntimeSettings, resolveDebugSkillInvocation } from './agent-launch-render'
-import { getPluginById } from './plugin-registry-instance'
+import { getPluginById, getPluginSprintEngineRegistryRoots } from './plugin-registry-instance'
 import { withMulticodeCliPath } from './cli-install'
 import { getColorScheme } from './color-scheme-store'
 import { ensureManagedRuntimeShims, getManagedPython, withManagedRuntimePath } from './managed-runtime'
@@ -79,6 +79,18 @@ export function applyAgentIdentityEnv(
   return { ...next, ...agentIdentityEnv(input) }
 }
 
+// JSON for the dynamic plugin registry roots the souls CLI should also search
+// (consumed by souls/registry.py via MULTICODE_SPRINTENGINE_REGISTRY_ROOTS).
+// Mirrors the plugin roots the spawn menu discovers through
+// sprintEngineRegistryRootsForRead(), so `souls get` resolves the same
+// plugin-contributed specialists the menu offered. The canonical user-install
+// root is discovered natively by the souls CLI, so it is intentionally omitted
+// here. Returns null when no plugin roots are present.
+function sprintEngineRegistryRootsEnvValue(): string | null {
+  const roots = getPluginSprintEngineRegistryRoots()
+  return roots.length ? JSON.stringify(roots) : null
+}
+
 function withSprintEngineEnv(
   env: Record<string, string>,
   cwd: string,
@@ -89,6 +101,7 @@ function withSprintEngineEnv(
 ): Record<string, string> {
   const bundledToolPath = getBundledSprintEngineToolPath()
   const soulsRoot = getBundledSoulsRoot()
+  const registryRootsEnv = sprintEngineRegistryRootsEnvValue()
   // Expose the bundled CPython to the tool shims, but only when we actually have
   // a managed interpreter (bundled runtime or operator override). When we'd fall
   // back to a repo `.venv` or system Python, leave MULTICODE_PYTHON unset so the
@@ -105,6 +118,7 @@ function withSprintEngineEnv(
     ...managedPythonEnv,
     ...(bundledToolPath ? { MULTICODE_SPRINTENGINE_TOOL_PATH: bundledToolPath } : {}),
     ...(soulsRoot ? { MULTICODE_SOULS_ROOT: soulsRoot } : {}),
+    ...(registryRootsEnv ? { MULTICODE_SPRINTENGINE_REGISTRY_ROOTS: registryRootsEnv } : {}),
     ...(sprintEngineStatePath ? { SPRINTENGINE_STATE_PATH: sprintEngineStatePath } : {}),
     ...(managedMcpEnv ?? {}),
     ...(memoryRootPath ? { MULTICODE_KNOWLEDGE_ROOT: memoryRootPath, MULTICODE_MEMORY_ROOT: memoryRootPath } : {}),
@@ -112,6 +126,12 @@ function withSprintEngineEnv(
       ? { MULTICODE_KNOWLEDGE_RELATIVE_ROOT: memoryRelativeRoot, MULTICODE_MEMORY_RELATIVE_ROOT: memoryRelativeRoot }
       : {}),
   }
+
+  // Never let a stale registry-roots value inherited from the base env (e.g. the
+  // app launched from inside an agent shell that had it set) leak into a spawn
+  // that resolved none of its own — otherwise `souls get` would search another
+  // session's plugin roots. Mirrors the AGENT_IDENTITY_ENV_KEYS stripping above.
+  if (!registryRootsEnv) delete nextEnv.MULTICODE_SPRINTENGINE_REGISTRY_ROOTS
 
   if (process.platform !== 'win32') {
     const shimDirectory = ensurePosixToolShimDirectory()
@@ -445,6 +465,11 @@ function buildSprintEngineShellBootstrap(
 
   if (shellSoulsRoot) {
     lines.push(`export MULTICODE_SOULS_ROOT=${quotePosix(shellSoulsRoot)}`)
+  }
+
+  const shellRegistryRootsEnv = sprintEngineRegistryRootsEnvValue()
+  if (shellRegistryRootsEnv) {
+    lines.push(`export MULTICODE_SPRINTENGINE_REGISTRY_ROOTS=${quotePosix(shellRegistryRootsEnv)}`)
   }
 
   lines.push(

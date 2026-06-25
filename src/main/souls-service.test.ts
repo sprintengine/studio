@@ -16,10 +16,13 @@ async function main(): Promise<void> {
 }
 
 async function testUnknownSpecialistIdReturnsStructuredFailure(): Promise<void> {
+  // A non-bundled id is treated as a registry role id (so dropped-in specialist
+  // packs resolve). An id that matches no registry role surfaces the Souls CLI's
+  // structured failure rather than rendering anything.
   const result = await readSpecialistSoul('definitely-not-a-real-specialist' as never)
   assert.equal(result.ok, false)
   if (result.ok) return
-  assert.match(result.message, /Unknown Soul: definitely-not-a-real-specialist/)
+  assert.match(result.message, /definitely-not-a-real-specialist/)
   assert.equal(result.path, null)
 }
 

@@ -38,6 +38,7 @@ import type {
   VoiceDictationSettings,
   CliRuntimeSettings,
   SpecialistActionId,
+  SprintEngineRoleRegistry,
   NewChatAgentChoice,
   MultiloopRole,
   AgentExecution,
@@ -149,6 +150,8 @@ export interface WorkspaceStore extends PluginsSlice, CliAvailabilitySlice {
   authState: MulticodeAuthState
   sidebarCollapsed: boolean
   setSidebarCollapsed: (collapsed: boolean) => void
+  sprintEngineRoleRegistry: SprintEngineRoleRegistry | null
+  setSprintEngineRoleRegistry: (registry: SprintEngineRoleRegistry | null) => void
   sprintEnginesAsideOpen: boolean
   setSprintEnginesAsideOpen: (open: boolean) => void
   openFilesInExternalWindow: boolean
@@ -208,6 +211,7 @@ export interface WorkspaceStore extends PluginsSlice, CliAvailabilitySlice {
   setSpecialistModelDefault: (specialistId: SpecialistActionId, selection: AgentCliModelSelection | null) => void
   setMultiloopRoleModelDefault: (role: MultiloopRole, selection: AgentCliModelSelection | null) => void
   setSpecialistOrder: (order: SpecialistActionId[]) => void
+  setSpecialistPackEnabled: (packId: string, enabled: boolean) => void
   setCommandKeybindings: (commandId: CommandId, keybindings: string[]) => void
   setCommandKeybindingDisabled: (commandId: CommandId, disabled: boolean) => void
   resetCommandKeybindings: (commandId: CommandId) => void

@@ -991,6 +991,9 @@ export type TerminalSpawnResult =
   | { ok: true; sessionId: string }
   | { ok: false; sessionId: string; message: string; exitCode: number }
 
+// Bundled specialist action ids, plus any registry-discovered role id from a
+// dropped-in specialist pack. The `(string & {})` arm preserves autocomplete
+// for the bundled ids while accepting any role id over IPC.
 export type SpecialistActionId =
   | 'architect'
   | 'product-strategist'
@@ -1007,6 +1010,7 @@ export type SpecialistActionId =
   | 'code-review'
   | 'nuclear-review'
   | 'spec-review'
+  | (string & {})
 
 export type SoulPromptResult =
   | { ok: true; prompt: string; path: string }
