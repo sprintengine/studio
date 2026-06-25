@@ -3,8 +3,10 @@
  * Generates app icon files for electron-builder using only Node.js built-ins.
  * Renders the Multicode brand mark: a rounded-square charcoal background with
  * a two-faced angular glyph (light-grey left face, mid-grey right face).
- * Output: resources/icon.png (256px), resources/icon.ico (16+32+256px),
- *         resources/icon.icns (16+32+128+256px).
+ * Edges are anti-aliased via 4× supersampling (premultiplied-alpha downsample),
+ * so no rasterizer dependency is needed.
+ * Output: resources/icon.png (512px), resources/icon.ico (16…256px),
+ *         resources/icon.icns (16…1024px).
  */
 
 'use strict'
@@ -64,6 +66,34 @@ function buildPNG(size, getPixel) {
     pngChunk('IDAT', compressed),
     pngChunk('IEND', Buffer.alloc(0)),
   ])
+}
+
+// Anti-aliased PNG: render the mark at `ss`× resolution and box-downsample,
+// averaging in PREMULTIPLIED alpha so edges against transparency (the rounded
+// corners and the glyph faces over the gradient) stay clean instead of dark-
+// fringed. Pure-Node, no rasterizer dependency — just supersampling.
+function buildPNGAA(size, ss = 4) {
+  const hi = size * ss
+  const px = makeMarkPixel(hi)
+  const samples = ss * ss
+  return buildPNG(size, (x, y) => {
+    let sr = 0, sg = 0, sb = 0, sa = 0
+    for (let sy = 0; sy < ss; sy++) {
+      for (let sx = 0; sx < ss; sx++) {
+        const [r, g, b, a] = px(x * ss + sx, y * ss + sy)
+        const af = a / 255
+        sr += r * af; sg += g * af; sb += b * af; sa += af
+      }
+    }
+    if (sa <= 0) return [0, 0, 0, 0]
+    // Un-premultiply the colour; alpha is the mean coverage.
+    return [
+      Math.round(sr / sa),
+      Math.round(sg / sa),
+      Math.round(sb / sa),
+      Math.round((sa / samples) * 255),
+    ]
+  })
 }
 
 // ── Brand palette ─────────────────────────────────────────────────────────────
@@ -206,29 +236,40 @@ function buildICNS(icons) {
 const outDir = path.join(__dirname, '..', 'resources')
 fs.mkdirSync(outDir, { recursive: true })
 
-process.stdout.write('Generating icons…\n')
+process.stdout.write('Generating icons (anti-aliased, supersampled)…\n')
 
-const png16  = buildPNG(16,  makeMarkPixel(16))
-const png32  = buildPNG(32,  makeMarkPixel(32))
-const png128 = buildPNG(128, makeMarkPixel(128))
-const png256 = buildPNG(256, makeMarkPixel(256))
+// Render each size anti-aliased once, then reuse across the container formats.
+const png = {}
+for (const s of [16, 24, 32, 48, 64, 128, 256, 512, 1024]) {
+  png[s] = buildPNGAA(s)
+}
 
-fs.writeFileSync(path.join(outDir, 'icon.png'), png256)
-process.stdout.write('  ✓ resources/icon.png  (256×256)\n')
+// Linux / generic: a crisp 512px master (electron-builder upsamples from here).
+fs.writeFileSync(path.join(outDir, 'icon.png'), png[512])
+process.stdout.write('  ✓ resources/icon.png  (512×512)\n')
 
+// Windows .ico — PNG-compressed entries; 256 is the format ceiling.
 fs.writeFileSync(path.join(outDir, 'icon.ico'), buildICO([
-  { size: 16,  png: png16  },
-  { size: 32,  png: png32  },
-  { size: 256, png: png256 },
+  { size: 16,  png: png[16]  },
+  { size: 24,  png: png[24]  },
+  { size: 32,  png: png[32]  },
+  { size: 48,  png: png[48]  },
+  { size: 64,  png: png[64]  },
+  { size: 128, png: png[128] },
+  { size: 256, png: png[256] },
 ]))
-process.stdout.write('  ✓ resources/icon.ico  (16, 32, 256px)\n')
+process.stdout.write('  ✓ resources/icon.ico  (16, 24, 32, 48, 64, 128, 256px)\n')
 
+// macOS .icns — full modern ladder up to 1024 so Retina/Finder never upscales.
 fs.writeFileSync(path.join(outDir, 'icon.icns'), buildICNS([
-  { ostype: 'icp4', png: png16  },
-  { ostype: 'icp5', png: png32  },
-  { ostype: 'ic07', png: png128 },
-  { ostype: 'ic08', png: png256 },
+  { ostype: 'icp4', png: png[16]   },
+  { ostype: 'icp5', png: png[32]   },
+  { ostype: 'icp6', png: png[64]   },
+  { ostype: 'ic07', png: png[128]  },
+  { ostype: 'ic08', png: png[256]  },
+  { ostype: 'ic09', png: png[512]  },
+  { ostype: 'ic10', png: png[1024] },
 ]))
-process.stdout.write('  ✓ resources/icon.icns (16, 32, 128, 256px)\n')
+process.stdout.write('  ✓ resources/icon.icns (16, 32, 64, 128, 256, 512, 1024px)\n')
 
 process.stdout.write('Done.\n')
