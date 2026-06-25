@@ -9,6 +9,7 @@ import {
   RoleAvatar,
   SidePane,
   Tooltip,
+  TruncatedText,
   type CliModelListboxOption,
   type LifecycleState,
 } from '../../ui'
@@ -169,13 +170,17 @@ export function SprintEngineRosterView({
                           <RoleAvatar role={agent.role} size="md" className="mt-0.5" ariaLabel="" />
                           <span className="min-w-0 flex-1 space-y-0.5">
                             <span className="flex min-w-0 items-baseline gap-2">
-                              <span className="min-w-0 flex-1 truncate text-[13px] font-medium">
-                                {displayName}
-                              </span>
+                              <TruncatedText
+                                as="span"
+                                text={displayName}
+                                className="min-w-0 flex-1 text-[13px] font-medium"
+                              />
                               {roleSlotLabel ? (
-                                <span className="min-w-0 shrink truncate text-[11px] text-[color:var(--text-muted)]">
-                                  {roleSlotLabel}
-                                </span>
+                                <TruncatedText
+                                  as="span"
+                                  text={roleSlotLabel}
+                                  className="min-w-0 shrink text-[11px] text-[color:var(--text-muted)]"
+                                />
                               ) : null}
                             </span>
                             <span className="flex min-w-0 items-center gap-2 text-[11px] text-[color:var(--text-subtle)]">
@@ -186,7 +191,7 @@ export function SprintEngineRosterView({
                                 </span>
                               ) : null}
                               {runtimeSummary ? (
-                                <span className="shrink-0 truncate text-[color:var(--text-muted)]">{runtimeSummary}</span>
+                                <TruncatedText as="span" text={runtimeSummary} className="shrink-0 text-[color:var(--text-muted)]" />
                               ) : null}
                               {currentTask ? (
                                 <span className="min-w-0 truncate">

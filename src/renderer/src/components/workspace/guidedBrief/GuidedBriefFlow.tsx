@@ -15,7 +15,7 @@ import {
   writeGuidedBriefBuildHandoff,
 } from '../../../utils/guidedBriefWorkspace'
 import { applyUserDisabledSprintEngineRoleCounts } from '../../../utils/sprintengine'
-import { CloseIconButton, LifecycleGlyph, Tabs, Tooltip, type TabItem } from '../../ui'
+import { CloseIconButton, LifecycleGlyph, Tabs, Tooltip, TruncatedText, type TabItem } from '../../ui'
 import { parentPath } from '../../../utils/paths'
 import { RosterAndRunSettings } from '../newWorkspace/WizardControls'
 import { ConversationPane } from './ConversationPane'
@@ -760,13 +760,13 @@ export function GuidedBriefFlow({
                 <DesignerReadinessHint readiness={designer.readiness} />
               ) : null}
               {acceptError ? (
-                <span className="truncate text-[12px] text-[color:var(--tone-error)]">{acceptError}</span>
+                <TruncatedText as="span" text={acceptError} className="text-[12px] text-[color:var(--tone-error)]" />
               ) : null}
               {startBuildError ? (
-                <span className="truncate text-[12px] text-[color:var(--tone-error)]">{startBuildError}</span>
+                <TruncatedText as="span" text={startBuildError} className="text-[12px] text-[color:var(--tone-error)]" />
               ) : null}
               {skipError ? (
-                <span className="truncate text-[12px] text-[color:var(--tone-error)]">{skipError}</span>
+                <TruncatedText as="span" text={skipError} className="text-[12px] text-[color:var(--tone-error)]" />
               ) : null}
             </span>
             <button
@@ -1573,7 +1573,7 @@ function HandoffBody({
                 >
                   <div className="flex min-w-0 flex-col gap-1">
                     <span className="text-[12px] font-medium text-[color:var(--text-default)]">{item.label}</span>
-                    <span className="truncate font-mono text-[11px] text-[color:var(--text-muted)]">{item.path}</span>
+                    <TruncatedText as="span" text={item.path} className="font-mono text-[11px] text-[color:var(--text-muted)]" />
                   </div>
                   {item.hash ? (
                     <span className="shrink-0 font-mono text-[11px] text-[color:var(--text-subtle)]">

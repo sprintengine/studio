@@ -7,7 +7,9 @@ export type MetaTone = 'positive' | 'muted'
  * Canonical settings section heading. One typographic treatment for every
  * section header across the Settings tabs: 14px semibold, sentence case,
  * flush-left, with an optional muted count next to the title and a trailing
- * action slot. Rendered as an h4 so it nests under each tab's h3 page title.
+ * action slot. Rendered as an h3: built-in tabs carry no page-level heading
+ * (the rail orients), so a section title is the top heading in a tab body,
+ * nesting directly under the Settings dialog's h2.
  *
  * Use this for in-tab section headers; do not hand-roll heading typography in a
  * settings tab — that is what drifted the sizes (12–14px) out of sync.
@@ -28,9 +30,9 @@ export function SettingsSectionTitle({
   return (
     <div className={`flex items-center justify-between gap-3 ${className ?? ''}`}>
       <div className="flex min-w-0 items-baseline gap-2">
-        <h4 id={id} className="text-sm font-semibold text-[color:var(--text-strong)]">
+        <h3 id={id} className="text-sm font-semibold text-[color:var(--text-strong)]">
           {children}
-        </h4>
+        </h3>
         {count !== undefined ? (
           <span className="tabular-nums text-[12px] text-[color:var(--text-muted)]">{count}</span>
         ) : null}

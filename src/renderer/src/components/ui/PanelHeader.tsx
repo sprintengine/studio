@@ -1,5 +1,6 @@
 import React from 'react'
 import { TOOL_COLOR_VAR, type ToolIdentity } from './tokens'
+import { TruncatedText } from './TruncatedText'
 
 type ProgressIndicator = {
   /** Completed units, capped to `total` for layout safety. */
@@ -61,12 +62,12 @@ export function PanelHeader({
             style={{ backgroundColor: TOOL_COLOR_VAR[tool] }}
           />
         ) : null}
-        <h2
+        <TruncatedText
+          as="h2"
           id={titleId}
-          className="truncate text-[13px] font-semibold text-[color:var(--text-strong)]"
-        >
-          {title}
-        </h2>
+          text={title}
+          className="text-[13px] font-semibold text-[color:var(--text-strong)]"
+        />
         {count !== undefined ? (
           <span className="tabular-nums text-[12px] text-[color:var(--text-muted)]">{count}</span>
         ) : null}

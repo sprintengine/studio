@@ -4,7 +4,7 @@ import { focusOrAddFileTab } from '../../utils/modelRegistry'
 import { renderMarkdown } from '../../utils/markdown'
 import { TYPE_COLORS, bucketForNode } from './MemoryGraphCanvas'
 import { Tooltip } from '../ui/Tooltip'
-import { CloseIconButton, InlineNotice } from '../ui'
+import { CloseIconButton, InlineNotice, TruncatedText } from '../ui'
 
 type Props = {
   workspaceId: string
@@ -123,12 +123,8 @@ export default function MemoryPreviewPane({
               </span>
             ))}
           </div>
-          <h2 className="mt-2 truncate text-[18px] font-semibold leading-6 tracking-tight text-[color:var(--text-strong)]">
-            {title}
-          </h2>
-          <div className="mt-0.5 truncate font-mono text-[11px] tabular-nums text-[color:var(--text-disabled)]">
-            {path}
-          </div>
+          <TruncatedText as="h2" text={title} className="mt-2 text-[18px] font-semibold leading-6 tracking-tight text-[color:var(--text-strong)]" />
+          <TruncatedText as="div" text={path} className="mt-0.5 font-mono text-[11px] tabular-nums text-[color:var(--text-disabled)]" />
         </div>
         <div className="flex shrink-0 items-center gap-2">
           {canOpen ? (

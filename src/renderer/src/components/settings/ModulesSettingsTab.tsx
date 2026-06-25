@@ -2,10 +2,9 @@ import { useWorkspaceStore } from '../../store/workspaceStore'
 import { ModuleToggleList } from './ModuleControls'
 import { ThirdPartyModuleList } from './ThirdPartyModuleList'
 
-// Capability-module manager: a category-grouped toggle list. Reads/writes the
-// per-module enablement override in appSettings.modules; gating in the panel
-// rail and the layout factory react to the same value. See
-// future-plans/2026-05-28-feature-level-pluggable-architecture.md.
+// Module manager: a category-grouped toggle list. Reads/writes the per-module
+// enablement override in appSettings.modules; gating in the panel rail and the
+// layout factory react to the same value.
 export function ModulesSettingsTab() {
   const overrides = useWorkspaceStore((state) => state.appSettings.modules)
   const setModuleEnabled = useWorkspaceStore((state) => state.setModuleEnabled)
@@ -17,14 +16,6 @@ export function ModulesSettingsTab() {
       aria-labelledby="settings-tab-modules"
       className="space-y-5"
     >
-      <div>
-        <div className="text-sm font-semibold text-[color:var(--text-strong)]">Capability modules</div>
-        <p className="mt-1 text-[12px] leading-5 text-[color:var(--text-disabled)]">
-          Turn features on or off. Disabled modules don&rsquo;t load their panels, keeping the app
-          lighter. Some changes take effect on the next reload.
-        </p>
-      </div>
-
       <ModuleToggleList overrides={overrides} onToggle={setModuleEnabled} />
 
       <ThirdPartyModuleList overrides={overrides} onSetEnabled={setModuleEnabled} />

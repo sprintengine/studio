@@ -2,6 +2,10 @@ import { Actions, DockLocation, Model, RowNode, TabNode, TabSetNode, type IJsonM
 import { basename, pathSeparatorFor } from './paths'
 
 const AGENT_TAB_SPAWN_FLASH_CLASS = 'agent-tab-spawn-flash'
+const AGENT_TAB_SPAWN_FLASH_PANEL_CLASS = 'agent-tab-spawn-flash-panel'
+// Outlasts the 12800ms CSS animation so the classes are stripped only after the
+// green border has fully faded (see assets/index.css).
+const AGENT_TAB_SPAWN_FLASH_CLEAR_MS = 13200
 
 export type AgentTerminalRevealPolicy = 'background' | 'focus-if-open' | 'reveal'
 export type AgentTabRevealTarget = { workspaceId: string; agentId: string; name?: string }
@@ -186,14 +190,16 @@ function agentTabNode(
     ...(flash
       ? {
           className: AGENT_TAB_SPAWN_FLASH_CLASS,
-          contentClassName: 'agent-tab-spawn-flash-panel',
+          contentClassName: AGENT_TAB_SPAWN_FLASH_PANEL_CLASS,
         }
       : {}),
     config: { agentId, ...(config ?? {}) },
   }
 }
 
-function clearAgentSpawnFlash(model: Model, agentId: string): void {
+// Resolves the live tab id hosting `agentId`, or null when the agent has no tab
+// in this model. The shared lookup behind every per-agent tab mutation.
+function findAgentTabId(model: Model, agentId: string): string | null {
   let targetTabId: string | null = null
   model.visitNodes((node) => {
     if (targetTabId || !(node instanceof TabNode) || node.getComponent() !== 'agent') return
@@ -201,26 +207,83 @@ function clearAgentSpawnFlash(model: Model, agentId: string): void {
     const config = node.getConfig() as { agentId?: string } | undefined
     if (config?.agentId === agentId) targetTabId = node.getId()
   })
+  return targetTabId
+}
 
+function withoutClass(className: string | undefined, target: string): string {
+  return (className ?? '')
+    .split(/\s+/u)
+    .filter((entry) => entry && entry !== target)
+    .join(' ')
+}
+
+function withClass(className: string | undefined, target: string): string {
+  const kept = (className ?? '').split(/\s+/u).filter((entry) => entry && entry !== target)
+  kept.push(target)
+  return kept.join(' ')
+}
+
+function clearAgentSpawnFlash(model: Model, agentId: string): void {
+  const targetTabId = findAgentTabId(model, agentId)
   if (!targetTabId) return
   const node = model.getNodeById(targetTabId)
   if (!(node instanceof TabNode)) return
 
-  const nextClassName = (node.getClassName() ?? '')
-    .split(/\s+/u)
-    .filter((className) => className && className !== AGENT_TAB_SPAWN_FLASH_CLASS)
-    .join(' ')
-  const nextContentClassName = (node.getContentClassName() ?? '')
-    .split(/\s+/u)
-    .filter((className) => className && className !== 'agent-tab-spawn-flash-panel')
-    .join(' ')
+  model.doAction(
+    Actions.updateNodeAttributes(targetTabId, {
+      className: withoutClass(node.getClassName(), AGENT_TAB_SPAWN_FLASH_CLASS) || undefined,
+      contentClassName:
+        withoutClass(node.getContentClassName(), AGENT_TAB_SPAWN_FLASH_PANEL_CLASS) || undefined,
+    })
+  )
+}
+
+// Re-applies the spawn flash to an agent tab that already exists. The green
+// border flash is born with a freshly-spawned tab (see addAgentTabTiled); this
+// lets a navigation action — "Open agent" from a Backlog item — call out *which*
+// terminal it revealed when several share a tab strip. Adds the same classes and
+// schedules the same cleanup. A tab already mid-flash stays green (re-adding an
+// unchanged class is a harmless no-op), so the highlight never double-fires.
+function applyAgentSpawnFlash(model: Model, agentId: string): boolean {
+  const targetTabId = findAgentTabId(model, agentId)
+  if (!targetTabId) return false
+  const node = model.getNodeById(targetTabId)
+  if (!(node instanceof TabNode)) return false
 
   model.doAction(
     Actions.updateNodeAttributes(targetTabId, {
-      className: nextClassName || undefined,
-      contentClassName: nextContentClassName || undefined,
+      className: withClass(node.getClassName(), AGENT_TAB_SPAWN_FLASH_CLASS),
+      contentClassName: withClass(node.getContentClassName(), AGENT_TAB_SPAWN_FLASH_PANEL_CLASS),
     })
   )
+  window.setTimeout(() => clearAgentSpawnFlash(model, agentId), AGENT_TAB_SPAWN_FLASH_CLEAR_MS)
+  return true
+}
+
+// "Flash this agent's tab when its workspace next mounts." A cold workspace's
+// layout Model registers a tick after setActiveWorkspace, so a cross-workspace
+// "Open agent" can't flash synchronously. Mirrors backlogReveal's latch: nothing
+// populates this on app restart, so a restored workspace never self-flashes.
+const pendingAgentFlashes = new Map<string, string>()
+
+// Flash the agent's tab now if its workspace Model is mounted; otherwise latch
+// it for consumePendingAgentFlash to apply on mount. Returns whether it flashed
+// synchronously.
+export function flashAgentTab(workspaceId: string, agentId: string): boolean {
+  const model = models.get(workspaceId)
+  if (model && applyAgentSpawnFlash(model, agentId)) return true
+  pendingAgentFlashes.set(workspaceId, agentId)
+  return false
+}
+
+// Drain and apply a pending flash for a workspace whose Model just registered.
+// Called once on WorkspaceLayout mount.
+export function consumePendingAgentFlash(workspaceId: string): void {
+  const agentId = pendingAgentFlashes.get(workspaceId)
+  if (agentId === undefined) return
+  pendingAgentFlashes.delete(workspaceId)
+  const model = models.get(workspaceId)
+  if (model) applyAgentSpawnFlash(model, agentId)
 }
 
 export function addAgentTabTiled(
@@ -253,7 +316,7 @@ export function addAgentTabTiled(
           select
         )
       )
-      window.setTimeout(() => clearAgentSpawnFlash(model, agentId), 13200)
+      window.setTimeout(() => clearAgentSpawnFlash(model, agentId), AGENT_TAB_SPAWN_FLASH_CLEAR_MS)
       return true
     }
     model.doAction(
@@ -265,7 +328,7 @@ export function addAgentTabTiled(
         select
       )
     )
-    window.setTimeout(() => clearAgentSpawnFlash(model, agentId), 13200)
+    window.setTimeout(() => clearAgentSpawnFlash(model, agentId), AGENT_TAB_SPAWN_FLASH_CLEAR_MS)
     return true
   }
 
@@ -283,7 +346,7 @@ export function addAgentTabTiled(
         select
       )
     )
-    window.setTimeout(() => clearAgentSpawnFlash(model, agentId), 13200)
+    window.setTimeout(() => clearAgentSpawnFlash(model, agentId), AGENT_TAB_SPAWN_FLASH_CLEAR_MS)
     return true
   }
 
@@ -296,7 +359,7 @@ export function addAgentTabTiled(
       select
     )
   )
-  window.setTimeout(() => clearAgentSpawnFlash(model, agentId), 13200)
+  window.setTimeout(() => clearAgentSpawnFlash(model, agentId), AGENT_TAB_SPAWN_FLASH_CLEAR_MS)
   return true
 }
 

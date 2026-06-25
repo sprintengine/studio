@@ -1,5 +1,6 @@
 import React from 'react'
 import { CloseIconButton } from './Buttons'
+import { TruncatedText } from './TruncatedText'
 
 // SidePane — pure chrome primitive for the side columns that sit alongside
 // a board or list. Owns the width preset, the single hairline divider, and
@@ -113,12 +114,12 @@ type SidePaneHeaderProps = {
 export function SidePaneHeader({ title, count, onClose, closeLabel, titleId }: SidePaneHeaderProps) {
   return (
     <header className="flex shrink-0 items-center justify-between gap-2 border-b border-[color:var(--border-default)] px-3 py-2">
-      <h3
+      <TruncatedText
+        as="h3"
         id={titleId}
-        className="truncate text-[13px] font-semibold tracking-tight text-[color:var(--text-strong)]"
-      >
-        {title}
-      </h3>
+        text={title}
+        className="text-[13px] font-semibold tracking-tight text-[color:var(--text-strong)]"
+      />
       <div className="flex shrink-0 items-center gap-2 text-[11px] text-[color:var(--text-muted)]">
         {count !== undefined && count !== null ? (
           <span className="tabular-nums">{count}</span>

@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, type KeyboardEvent } from 'react'
+import { TruncatedText } from '../../ui'
 import type { DesignArtifactEntry } from './designArtifacts'
 
 // Per-file lifecycle for a text stage's expected artifacts. Truthful only:
@@ -113,15 +114,15 @@ export function StageArtifactsPane({
                   }
                 `}
               >
-                <span
-                  className={`min-w-0 flex-1 truncate font-mono text-[12px] ${
+                <TruncatedText
+                  as="span"
+                  text={file.entry.name}
+                  className={`min-w-0 flex-1 font-mono text-[12px] ${
                     isSelected
                       ? 'text-[color:var(--text-strong)]'
                       : 'text-[color:var(--text-default)]'
                   }`}
-                >
-                  {file.entry.name}
-                </span>
+                />
                 <span
                   className={`shrink-0 text-[11px] ${
                     file.state === 'missing'

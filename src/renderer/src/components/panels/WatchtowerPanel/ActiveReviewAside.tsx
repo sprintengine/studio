@@ -1,7 +1,7 @@
 import { useMemo } from 'react'
 import { SpecialistActionIcon, SprintEngineRoleIcon } from '../../AppIcons'
 import { ActionStatusChip, type ActionStatus } from '../../ui/ActionFeedback'
-import { DefinitionList, GhostButton, Section, Select, SidePane, SidePaneHeader, StatusDot, type Tone } from '../../ui'
+import { DefinitionList, GhostButton, Section, Select, SidePane, SidePaneHeader, StatusDot, TruncatedText, type Tone } from '../../ui'
 import { describeExecutionTerminal, useTerminalSessions } from '../../../hooks/useTerminalSessions'
 import { getSpecialistAction } from '../../../specialists/specialistActions'
 import type { SpecialistActionId } from '../../../types/workspace'
@@ -216,24 +216,27 @@ export function WatchtowerActiveReviewAside({
                       </span>
                       {hasError ? (
                         <div className="min-w-0 flex-1 space-y-0.5">
-                          <span className="block min-w-0 truncate text-[13px] font-medium text-[color:var(--text-strong)]">
-                            {displayLabel}
-                          </span>
+                          <TruncatedText
+                            as="span"
+                            className="block min-w-0 text-[13px] font-medium text-[color:var(--text-strong)]"
+                            text={displayLabel}
+                          />
                           <div className="flex min-w-0 items-center gap-1.5 text-[11px]">
                             <StatusDot tone={tone.tone} pulse={tone.pulse} />
-                            <span
-                              className="min-w-0 flex-1 truncate text-[color:var(--tone-error)]"
-                              title={agent.errorMessage ?? undefined}
-                            >
-                              {agent.errorMessage}
-                            </span>
+                            <TruncatedText
+                              as="span"
+                              className="min-w-0 flex-1 text-[color:var(--tone-error)]"
+                              text={agent.errorMessage ?? ''}
+                            />
                           </div>
                         </div>
                       ) : (
                         <>
-                          <span className="min-w-0 flex-1 truncate text-[13px] font-medium text-[color:var(--text-strong)]">
-                            {displayLabel}
-                          </span>
+                          <TruncatedText
+                            as="span"
+                            className="min-w-0 flex-1 text-[13px] font-medium text-[color:var(--text-strong)]"
+                            text={displayLabel}
+                          />
                           <StatusDot tone={tone.tone} pulse={tone.pulse} />
                           <span className="shrink-0 text-[11px] text-[color:var(--text-muted)]">
                             {tone.label}
@@ -299,11 +302,13 @@ export function WatchtowerActiveReviewAside({
                         >
                           <StatusDot tone={itemTone} />
                           <span className="shrink-0 text-[color:var(--text-muted)]">{item.status}</span>
-                          <span className="truncate font-mono text-[color:var(--text-default)]">
-                            {item.externalKey ?? item.externalUrl ?? 'unknown source'}
-                          </span>
+                          <TruncatedText
+                            as="span"
+                            className="font-mono text-[color:var(--text-default)]"
+                            text={item.externalKey ?? item.externalUrl ?? 'unknown source'}
+                          />
                           {item.message ? (
-                            <span className="truncate text-[color:var(--text-subtle)]">{item.message}</span>
+                            <TruncatedText as="span" className="text-[color:var(--text-subtle)]" text={item.message ?? ''} />
                           ) : null}
                         </li>
                       )

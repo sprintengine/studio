@@ -1,5 +1,5 @@
 import { Field, Modal, ModalBody, ModalButton, ModalFooter, ModalHeader } from '../../ui/Modal'
-import { Select } from '../../ui'
+import { Select, TruncatedText } from '../../ui'
 import { WATCHTOWER_REVIEW_PRESETS, getWatchtowerReviewSector, type WatchtowerReviewPresetId } from '../../../utils/watchtowerReview'
 import { getSpecialistAction } from '../../../specialists/specialistActions'
 import type { SpecialistActionId } from '../../../types/workspace'
@@ -52,9 +52,11 @@ export function ReviewPresetChooser({
                     <span className="shrink-0 font-medium text-[color:var(--text-strong)]">
                       {specialist.shortLabel}
                     </span>
-                    <span className="min-w-0 truncate text-[color:var(--text-muted)]">
-                      {labels.join(', ') || 'No sectors'}
-                    </span>
+                    <TruncatedText
+                      as="span"
+                      className="min-w-0 text-[color:var(--text-muted)]"
+                      text={labels.join(', ') || 'No sectors'}
+                    />
                   </li>
                 )
               })}

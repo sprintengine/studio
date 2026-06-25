@@ -32,7 +32,7 @@ import {
 import { useRelativeNow } from '../../hooks/useRelativeNow'
 import { formatRelativeMs, formatRelativeMsAgo } from '../../utils/relativeTime'
 import type { FuturePlanWorkspaceSource, HighlightColor, SprintEngineRole, SprintEngineRuntimeAgentStatus, Workspace } from '../../types/workspace'
-import { captureNavRailWidthFraction, deleteTabPreservingNavRail, registerModel, restoreNavRailWidthFraction, unregisterModel } from '../../utils/modelRegistry'
+import { captureNavRailWidthFraction, consumePendingAgentFlash, deleteTabPreservingNavRail, registerModel, restoreNavRailWidthFraction, unregisterModel } from '../../utils/modelRegistry'
 import { TAB_DRAG_MIME, serializeTabDragPayload } from '../../utils/tabDragPayload'
 import { logPerfEvent } from '../../utils/perfDiagnostics'
 import { applySprintEngineAutomationStopReason } from '../../utils/sprintengineSupervisorNotifications'
@@ -356,7 +356,12 @@ function WorkspaceLayout({ workspaceId, onStartFuturePlan, onNewChat, onNewWorks
   }, [workspaceId])
 
   useEffect(() => {
-    if (modelRef.current) registerModel(workspaceId, modelRef.current)
+    if (modelRef.current) {
+      registerModel(workspaceId, modelRef.current)
+      // Drain a flash latched by a cross-workspace "Open agent" before this
+      // workspace's Model existed, now that it is registered.
+      consumePendingAgentFlash(workspaceId)
+    }
     return () => unregisterModel(workspaceId)
   }, [workspaceId])
 

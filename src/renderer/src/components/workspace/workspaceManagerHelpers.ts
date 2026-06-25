@@ -135,22 +135,17 @@ export function getSessionItems(
  * Reproduces the workspace order users see in the left sidebar so the
  * session manager dropdown matches: starred workspaces first, then folder
  * groups in first-occurrence order, with each workspace appearing exactly
- * once. When `isWorkspaceLive` is supplied, both the starred section and each
- * folder's rows are ordered by most-recent activity (live ones first, then by
- * last-worked time) to match the sidebar; otherwise stored order is preserved.
+ * once. Both the starred section and each folder's rows are ordered by
+ * most-recently-worked time (never by live status), matching the sidebar.
  */
 export function buildSidebarWorkspaceOrder(
   workspaces: Workspace[],
-  isWorkspaceLive?: (workspace: Workspace) => boolean,
 ): Map<string, number> {
   const order = new Map<string, number>()
   let index = 0
 
   const starred = workspaces.filter((workspace) => isStarred(workspace.highlight))
-  const orderedStarred = isWorkspaceLive
-    ? sortWorkspacesByActivity(starred, isWorkspaceLive)
-    : starred
-  for (const workspace of orderedStarred) order.set(workspace.id, index++)
+  for (const workspace of sortWorkspacesByActivity(starred)) order.set(workspace.id, index++)
 
   const seenFolders: string[] = []
   const folderBuckets = new Map<string, Workspace[]>()
@@ -168,10 +163,7 @@ export function buildSidebarWorkspaceOrder(
   }
   for (const key of seenFolders) {
     const bucket = folderBuckets.get(key)!
-    const orderedBucket = isWorkspaceLive
-      ? sortWorkspacesByActivity(bucket, isWorkspaceLive)
-      : bucket
-    for (const workspace of orderedBucket) {
+    for (const workspace of sortWorkspacesByActivity(bucket)) {
       order.set(workspace.id, index++)
     }
   }

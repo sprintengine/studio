@@ -6,7 +6,7 @@
 
 import React, { useEffect, useState } from 'react'
 import type { McpCatalogServer, McpServerConfig } from '../../types/workspace'
-import { GhostButton, InboxSearchInput, PrimaryButton } from '../ui'
+import { GhostButton, InboxSearchInput, PrimaryButton, TruncatedText } from '../ui'
 import { SettingsSectionTitle } from './SettingsAtoms'
 import { filterMcpCatalog } from './mcpCatalogFilter'
 import { mcpMonogram } from './mcpMonogram'
@@ -136,12 +136,16 @@ export function McpCatalogTile({
           </span>
         ) : null}
         <div className="w-full min-w-0 pr-6">
-          <div className="truncate text-[13px] font-semibold leading-5 text-[color:var(--text-strong)]">
-            {server.name}
-          </div>
-          <div className="mt-0.5 truncate font-mono text-[10px] leading-3 text-[color:var(--text-subtle)]">
-            {server.transport}
-          </div>
+          <TruncatedText
+            as="div"
+            text={server.name}
+            className="text-[13px] font-semibold leading-5 text-[color:var(--text-strong)]"
+          />
+          <TruncatedText
+            as="div"
+            text={server.transport}
+            className="mt-0.5 font-mono text-[10px] leading-3 text-[color:var(--text-subtle)]"
+          />
         </div>
       </button>
       <button
@@ -196,12 +200,16 @@ export function McpInfoPanel({
         <div className="flex min-w-0 items-center gap-3">
           <McpBrandIcon slug={mcpIconSlug(server.id)} name={server.name} size={32} />
           <div className="min-w-0">
-            <h5 className="truncate text-[14px] font-semibold leading-5 text-[color:var(--text-strong)]">
-              {server.name}
-            </h5>
-            <div className="mt-0.5 truncate font-mono text-[11px] text-[color:var(--text-subtle)]">
-              {server.transport}
-            </div>
+            <TruncatedText
+              as="h5"
+              text={server.name}
+              className="text-[14px] font-semibold leading-5 text-[color:var(--text-strong)]"
+            />
+            <TruncatedText
+              as="div"
+              text={server.transport}
+              className="mt-0.5 font-mono text-[11px] text-[color:var(--text-subtle)]"
+            />
           </div>
         </div>
         <button

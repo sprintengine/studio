@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type KeyboardEvent, type ReactNode } from 'react'
-import { Tooltip } from '../../ui'
+import { Tooltip, TruncatedText } from '../../ui'
 import { formatRelativeTime } from '../../../utils/time'
 import type {
   DesignArtifactEntry,
@@ -197,19 +197,21 @@ export function DesignFilesPane({ index, status, selectedPath, onSelect }: Props
                         `}
                       >
                         <span className="flex min-w-0 flex-1 flex-col leading-tight">
-                          <span
-                            className={`truncate font-mono text-[12px] ${
+                          <TruncatedText
+                            as="span"
+                            text={entry.name}
+                            className={`font-mono text-[12px] ${
                               isSelected
                                 ? 'text-[color:var(--text-strong)]'
                                 : 'text-[color:var(--text-default)]'
                             }`}
-                          >
-                            {entry.name}
-                          </span>
+                          />
                           {nested ? (
-                            <span className="truncate font-mono text-[11px] text-[color:var(--text-subtle)]">
-                              {entry.relativePath}
-                            </span>
+                            <TruncatedText
+                              as="span"
+                              text={entry.relativePath}
+                              className="font-mono text-[11px] text-[color:var(--text-subtle)]"
+                            />
                           ) : null}
                         </span>
                         <span className="flex shrink-0 items-baseline gap-2">

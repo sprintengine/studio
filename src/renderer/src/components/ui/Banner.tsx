@@ -1,6 +1,7 @@
 import React from 'react'
 import { GhostButton } from './Buttons'
 import { StatusDot } from './StatusDot'
+import { TruncatedText } from './TruncatedText'
 
 export type BannerTone = 'error' | 'warn'
 
@@ -25,7 +26,7 @@ export function Banner({ tone, message, onRetry }: BannerProps) {
     >
       <span className="flex min-w-0 items-center gap-2">
         <StatusDot tone={tone} />
-        <span className="min-w-0 truncate">{message}</span>
+        <TruncatedText as="span" text={message} className="min-w-0" />
       </span>
       {onRetry ? <GhostButton onClick={onRetry}>Retry</GhostButton> : null}
     </div>

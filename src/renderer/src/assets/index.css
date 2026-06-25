@@ -1156,6 +1156,79 @@
     radial-gradient(circle at 50% 45%, rgba(60, 172, 124, 0.06), transparent 52%);
 }
 
+/* Herbarium Dark — the dark counterpart of Herbarium. Where Herbarium puts sage
+   in the chrome and a terracotta spark on top, this flips the room: a calm,
+   near-neutral dark slate (a faint sage breath kept by holding G >= R > B, so it
+   reads as the green room with the lights off, not pure grey), with sage green
+   itself promoted to the single accent — the spark on the dark field. The
+   terminal punches in darker than the canvas, near-black. The semantic `good`
+   is pushed to a saturated teal-emerald so it never reads as a second sage next
+   to the muted accent (green lives in the accent + canvas; success separates by
+   saturation + hue). Anti-dither baseline: channel values are multiples of 4. */
+:root[data-theme="herbarium-dark"] {
+  /* Dark sage-slate ramp; faint olive tint preserved by keeping G >= R > B.
+     Calmer and greyer than the saturated Sage/Fernery chrome so the sage accent
+     carries the identity, not the surfaces. App sits a step under the cards. */
+  --bg-app: #181c14;
+  --bg-surface: #1c2018;
+  --bg-surface-raised: #242820;
+  --bg-hover: #30342c;
+  --bg-active: #3c4034;
+  --bg-selected: #484c3c;
+  --surface-overlay-backdrop: rgba(8, 12, 8, 0.72);
+
+  /* Cream-sage ink flipped up from the dark canvas; warm-sage at the muted end. */
+  --text-strong: #e4e8d8;
+  --text-default: #c4ccb4;
+  --text-muted: #9ca48c;
+  --text-subtle: #7c8470;
+  --text-disabled: #5c6450;
+  /* Sage accent carries dark ink (a light label would wash out on it). */
+  --text-on-accent: #181c14;
+
+  /* Cream-ink hairlines so structure reads on the dark sage-slate. */
+  --border-subtle: rgba(228, 232, 216, 0.06);
+  --border-default: rgba(228, 232, 216, 0.10);
+  --border-strong: rgba(228, 232, 216, 0.16);
+  --border-focus: rgba(212, 220, 192, 0.55);
+
+  /* Sage green is the single accent here — Herbarium's exact canvas sage
+     (#d4dcc0) brought forward as the spark on the dark field. Pale enough that
+     it carries dark ink at high contrast; hover brightens further. */
+  --accent-primary: #d4dcc0;
+  --accent-primary-hover: #e0e8cc;
+  --accent-primary-soft: rgba(212, 220, 192, 0.16);
+  --accent-primary-soft-strong: rgba(212, 220, 192, 0.24);
+
+  /* Semantic tones tuned luminous-on-dark. `good` is a saturated teal-emerald,
+     pushed off the pale sage accent in both hue and saturation so the two
+     greens never compete; warn/error stay distinct from both. */
+  --tone-neutral: #909878;
+  --tone-accent: #d4dcc0;
+  --tone-good: #34b48c;
+  --tone-warn: #d8b048;
+  --tone-error: #e46058;
+  --tone-neutral-soft: rgba(144, 152, 120, 0.16);
+  --tone-accent-soft: rgba(212, 220, 192, 0.16);
+  --tone-good-soft: rgba(52, 180, 140, 0.18);
+  --tone-warn-soft: rgba(216, 176, 72, 0.18);
+  --tone-error-soft: rgba(228, 96, 88, 0.18);
+
+  --scrollbar-thumb: #30342c;
+  --scrollbar-thumb-hover: #3c4034;
+  --skeleton-shimmer-low: rgba(228, 232, 216, 0.03);
+  --skeleton-shimmer-high: rgba(228, 232, 216, 0.07);
+
+  /* Terminal punches in near-black, deeper than --bg-app — the dark screen the
+     brief asks for. */
+  --terminal-bg: #080c08;
+  --terminal-fg: #e4e8d8;
+
+  /* Faint sage glow keeps the graph in the green identity against the dark. */
+  --memory-graph-atmosphere:
+    radial-gradient(circle at 50% 45%, rgba(212, 220, 192, 0.06), transparent 50%);
+}
+
 
 * {
   box-sizing: border-box;

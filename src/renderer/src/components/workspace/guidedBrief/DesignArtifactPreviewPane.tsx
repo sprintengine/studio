@@ -1,4 +1,5 @@
 import { useEffect, useState, type ReactNode } from 'react'
+import { TruncatedText } from '../../ui'
 import { parentPath } from '../../../utils/paths'
 import { HtmlArtifactFrame } from './MockupPreviewPane'
 import { RenderedBriefPane } from './RenderedBriefPane'
@@ -58,9 +59,11 @@ function PreviewHeader({
 
   return (
     <div className="flex shrink-0 items-center justify-between gap-3 border-b border-[color:var(--border-subtle)] px-3 py-2">
-      <span className="truncate font-mono text-[11px] text-[color:var(--text-muted)]">
-        {relativePath}
-      </span>
+      <TruncatedText
+        as="span"
+        text={relativePath}
+        className="font-mono text-[11px] text-[color:var(--text-muted)]"
+      />
       <span className="flex shrink-0 items-center gap-2">
         <span className="text-[11px] text-[color:var(--text-muted)]">{typeLabel}</span>
         {onReload ? (

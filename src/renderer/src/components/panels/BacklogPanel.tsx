@@ -13,6 +13,7 @@ import {
   Select,
   Skeleton,
   Tooltip,
+  TruncatedText,
   useConfirmDialog,
   type SelectItem,
 } from '../ui'
@@ -1319,9 +1320,7 @@ function BacklogDetail({
               live={selectedRunGlyph?.live ?? true}
             />
           </Tooltip>
-          <h3 className="truncate text-[14px] font-semibold text-[color:var(--text-strong)]" title={selected.title}>
-            {selected.title}
-          </h3>
+          <TruncatedText as="h3" text={selected.title} className="text-[14px] font-semibold text-[color:var(--text-strong)]" />
         </div>
         <div className="mt-1 flex items-center gap-2 text-[11px] text-[color:var(--text-muted)]">
           {(selectedRunGlyph?.label ?? LIFECYCLE_LABEL[selected.status]) ? (
@@ -1330,9 +1329,7 @@ function BacklogDetail({
               <span aria-hidden="true" className="text-[color:var(--text-disabled)]">·</span>
             </>
           ) : null}
-          <span className="min-w-0 truncate font-mono tabular-nums" title={selected.relativePath}>
-            {selected.relativePath}
-          </span>
+          <TruncatedText as="span" text={selected.relativePath} className="min-w-0 font-mono tabular-nums" />
         </div>
 
         <div className="mt-3 flex flex-wrap items-center gap-1.5">

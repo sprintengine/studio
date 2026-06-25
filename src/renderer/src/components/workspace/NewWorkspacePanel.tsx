@@ -53,7 +53,7 @@ import {
 } from '../../utils/sprintengine'
 import MulticodeMark from '../brand/MulticodeMark'
 import MulticodeWordmark from '../brand/MulticodeWordmark'
-import { CloseIconButton, Field, GhostButton, Select, WizardProgress } from '../ui'
+import { CloseIconButton, Field, GhostButton, Select, TruncatedText, WizardProgress } from '../ui'
 import {
   analyzeWorkspaceTargetPath,
   defaultWorkspaceFolderPath,
@@ -2627,9 +2627,11 @@ function McpServersStep({
                     ) : null}
                   </span>
                   <span className="min-w-0">
-                    <span className="block truncate text-[13px] font-semibold text-[color:var(--text-strong)]">
-                      {server.name}
-                    </span>
+                    <TruncatedText
+                      as="span"
+                      text={server.name}
+                      className="block text-[13px] font-semibold text-[color:var(--text-strong)]"
+                    />
                     <span className="mt-0.5 block truncate font-mono text-[10px] leading-4 text-[color:var(--text-subtle)]">
                       {server.transport} · {server.category ?? 'Other'}
                     </span>
@@ -2715,12 +2717,16 @@ function SkillPacksStep({
                     ) : null}
                   </span>
                   <span className="min-w-0">
-                    <span className="block truncate text-[13px] font-semibold text-[color:var(--text-strong)]">
-                      {pack.name}
-                    </span>
-                    <span className="mt-0.5 block truncate font-mono text-[10px] leading-4 text-[color:var(--text-subtle)]">
-                      {pack.slug}
-                    </span>
+                    <TruncatedText
+                      as="span"
+                      text={pack.name}
+                      className="block text-[13px] font-semibold text-[color:var(--text-strong)]"
+                    />
+                    <TruncatedText
+                      as="span"
+                      text={pack.slug}
+                      className="mt-0.5 block font-mono text-[10px] leading-4 text-[color:var(--text-subtle)]"
+                    />
                   </span>
                   {pack.recommended || pack.version ? (
                     <span className="flex max-w-[92px] flex-col items-end gap-1">
@@ -3468,9 +3474,11 @@ function SprintEngineTeamStep(props: {
                       "
                     >
                       <div className="min-w-0">
-                        <div className="truncate text-[12px] leading-5 text-[color:var(--text-default)]">
-                          {item.sourceRelativePath}
-                        </div>
+                        <TruncatedText
+                          as="div"
+                          text={item.sourceRelativePath}
+                          className="text-[12px] leading-5 text-[color:var(--text-default)]"
+                        />
                         <div className="text-[11px] leading-4 text-[color:var(--text-muted)]">
                           {label}
                         </div>
@@ -3488,9 +3496,11 @@ function SprintEngineTeamStep(props: {
               </div>
             ) : (
               <div className="flex items-center gap-3 rounded-md border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] px-3 py-2">
-                <span className="min-w-0 flex-1 truncate font-mono text-[11px] leading-5 text-[color:var(--text-default)]">
-                  {planRelativePath || planBasename(planPath)}
-                </span>
+                <TruncatedText
+                  as="span"
+                  text={planRelativePath || planBasename(planPath)}
+                  className="min-w-0 flex-1 font-mono text-[11px] leading-5 text-[color:var(--text-default)]"
+                />
                 <button
                   type="button"
                   onClick={onChooseFile}

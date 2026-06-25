@@ -14,7 +14,7 @@ import {
 // tried first; if the workspace was just activated and its model isn't mounted
 // yet, the persisted layout model is mutated so the tab is present on mount.
 async function agentBacklogOpenPorts(): Promise<AgentBacklogLinkOpenPorts> {
-  const [{ useWorkspaceStore }, { publishDiagnostic }, { focusOrAddAgentTab, ensureAgentTabInLayoutModel }, { findWorkspaceForAgentPreferring }] =
+  const [{ useWorkspaceStore }, { publishDiagnostic }, { focusOrAddAgentTab, ensureAgentTabInLayoutModel, flashAgentTab }, { findWorkspaceForAgentPreferring }] =
     await Promise.all([
       import('../store/workspaceStore'),
       import('../utils/diagnostics'),
@@ -30,9 +30,18 @@ async function agentBacklogOpenPorts(): Promise<AgentBacklogLinkOpenPorts> {
       const workspace = findWorkspaceForAgentPreferring(store.workspaces, agentId, preferredWorkspaceId)
       if (!workspace) return false
       store.setActiveWorkspace(workspace.id)
-      if (focusOrAddAgentTab(workspace.id, agentId, agentName)) return true
+      // Flash the green spawn border so the user can see *which* terminal was
+      // revealed when several share a tab strip. focusOrAddAgentTab only selects
+      // an already-open tab (no flash of its own), so we flash explicitly here.
+      if (focusOrAddAgentTab(workspace.id, agentId, agentName)) {
+        flashAgentTab(workspace.id, agentId)
+        return true
+      }
       try {
+        // Workspace was cold: seed the tab into the persisted layout, then latch
+        // a flash that fires once its Model mounts (see consumePendingAgentFlash).
         store.updateLayout(workspace.id, ensureAgentTabInLayoutModel(workspace.layoutModel, agentId, agentName))
+        flashAgentTab(workspace.id, agentId)
         return true
       } catch {
         return false

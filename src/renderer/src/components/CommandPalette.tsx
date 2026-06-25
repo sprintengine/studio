@@ -13,6 +13,7 @@ import {
 import { isCommandEnabled, isCommandIdEnabled, type CommandAvailabilityContext } from '../commands/availability'
 import type { CommandScope } from '../commands/types'
 import { getRendererHost, selectModuleEnabled } from '../modules'
+import { TruncatedText } from './ui'
 
 interface Command {
   id: string
@@ -357,9 +358,9 @@ export default function CommandPalette({
                 }`}
               >
                 <div className="min-w-0">
-                  <div className="truncate text-sm">{command.label}</div>
+                  <TruncatedText as="div" text={command.label} className="text-sm" />
                   {command.description && (
-                    <div className="mt-0.5 truncate text-[10px] text-[color:var(--text-disabled)]">{command.description}</div>
+                    <TruncatedText as="div" text={command.description} className="mt-0.5 text-[10px] text-[color:var(--text-disabled)]" />
                   )}
                 </div>
                 {command.shortcut && (

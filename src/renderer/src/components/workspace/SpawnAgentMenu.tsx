@@ -1,6 +1,6 @@
 import React from 'react'
 import { SpecialistActionIcon } from '../AppIcons'
-import { CliModelListbox, Tooltip } from '../ui'
+import { CliModelListbox, Tooltip, TruncatedText } from '../ui'
 import CliIcon from '../CliIcon'
 import {
   MULTILOOP_ROLES,
@@ -41,6 +41,18 @@ const EMPTY_SPECIALIST_MODEL_DEFAULTS: Partial<Record<SpecialistActionId, AgentC
 const EMPTY_MULTILOOP_ROLE_MODEL_DEFAULTS: Partial<Record<MultiloopRole, AgentCliModelSelection>> = {}
 const EMPTY_SPECIALIST_ORDER: SpecialistActionId[] = []
 const EMPTY_DISABLED_PACKS: string[] = []
+
+// Initial keyboard highlight for the roving roster (specialists, or multiloop
+// roles). Restores the last-used row so reopening the menu returns to the
+// user's last pick instead of snapping back to the first row. Falls back to
+// index 0 when the remembered item is absent — its pack was disabled, the
+// roster is still loading/empty, or it's a cold install before any pick — so
+// the highlight never points at a hidden or out-of-range row. Exported for the
+// renderer test. Pure: no store/DOM access, the caller supplies the roster.
+export function rememberedHighlight<T>(roster: ReadonlyArray<T>, isRemembered: (item: T) => boolean): number {
+  const index = roster.findIndex(isRemembered)
+  return index >= 0 ? index : 0
+}
 
 // Permission preset chips shown in the menu footer. Exported because the top
 // bar's split-button trigger tooltip names the active preset.
@@ -213,6 +225,11 @@ export default function SpawnAgentMenu({
   // is self-contained at every call site.
   const lastSelectedCli = useWorkspaceStore((s) => normalizeSelectedCli(s.appSettings.lastSelectedCli))
   const setLastSelectedCli = useWorkspaceStore((s) => s.setLastSelectedCli)
+  // Last roving pick, used only to seed the initial highlight on open (see the
+  // agentMenuHighlight initializer). Architect/coordinator are the cold-install
+  // defaults; the menu reads whatever is persisted and never reasserts them.
+  const lastSelectedSpecialist = useWorkspaceStore((s) => s.appSettings.lastSelectedSpecialist)
+  const lastSelectedMultiloopRole = useWorkspaceStore((s) => s.appSettings.lastSelectedMultiloopRole)
   const specialistCliDefaults = useWorkspaceStore((s) => s.appSettings.specialistCliDefaults ?? EMPTY_SPECIALIST_CLI_DEFAULTS)
   const multiloopRoleCliDefaults = useWorkspaceStore((s) => s.appSettings.multiloopRoleCliDefaults ?? EMPTY_MULTILOOP_ROLE_CLI_DEFAULTS)
   const setSpecialistCliDefault = useWorkspaceStore((s) => s.setSpecialistCliDefault)
@@ -261,7 +278,16 @@ export default function SpawnAgentMenu({
 
   // Transient UI state for this menu instance.
   const [agentMenuQuery, setAgentMenuQuery] = React.useState('')
-  const [agentMenuHighlight, setAgentMenuHighlight] = React.useState(0)
+  // Seed the roving highlight from the last pick so reopening the menu returns
+  // to it. Lazy initializer (not an effect) because the Popover unmounts the
+  // menu on close, so this re-runs on every open with no row-0 flash. A
+  // remembered item whose pack is now disabled is simply absent from the
+  // roster, so rememberedHighlight falls back to the first row.
+  const [agentMenuHighlight, setAgentMenuHighlight] = React.useState(() =>
+    multiloopLaunchMenu
+      ? rememberedHighlight(MULTILOOP_ROLES, (soul) => soul.role === lastSelectedMultiloopRole)
+      : rememberedHighlight(specialistActions, (action) => action.id === lastSelectedSpecialist),
+  )
   const [chipPopoverForRole, setChipPopoverForRole] = React.useState<ChipPopoverForRole>(null)
   const agentMenuSearchRef = React.useRef<HTMLInputElement>(null)
   // Drag-to-reorder state for the specialist list (paints the drop target only).
@@ -670,7 +696,7 @@ export default function SpawnAgentMenu({
                         icon={soul.icon}
                         className={`h-4 w-4 ${highlighted ? 'text-[color:var(--text-strong)]' : 'text-[color:var(--text-muted)]'}`}
                       />
-                      <span className="truncate text-[13px]">{soul.label}</span>
+                      <TruncatedText as="span" text={soul.label} className="text-[13px]" />
                       <Tooltip placement="bottom" content={`Agent CLI: ${cliWithModelLabel(boundCli, boundModel)} · click to change`}>
                         <span
                           role="button"
@@ -785,7 +811,7 @@ export default function SpawnAgentMenu({
                         icon={action.icon}
                         className={`h-4 w-4 ${highlighted ? 'text-[color:var(--text-strong)]' : 'text-[color:var(--text-muted)]'}`}
                       />
-                      <span className="truncate text-[13px]">{action.shortLabel}</span>
+                      <TruncatedText as="span" text={action.shortLabel} className="text-[13px]" />
                       <Tooltip placement="bottom" content={`Agent CLI: ${cliWithModelLabel(boundCli, boundModel)} · click to change`}>
                         <span
                           role="button"

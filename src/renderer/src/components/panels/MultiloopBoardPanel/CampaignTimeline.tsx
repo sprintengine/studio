@@ -1,5 +1,5 @@
 import { Fragment, forwardRef, useRef, type KeyboardEvent } from 'react'
-import { LifecycleGlyph } from '../../ui'
+import { LifecycleGlyph, TruncatedText } from '../../ui'
 import type { MultiloopMilestone, MultiloopMilestoneStatus } from '../../../types/workspace'
 import { milestoneStatusLabels, milestoneStatusLifecycle } from './helpers'
 
@@ -134,9 +134,12 @@ function TimelineStationImpl(
             </>
           ) : null}
         </div>
-        <div className="line-clamp-2 text-[12px] font-medium leading-[1.3] text-[color:var(--text-strong)]">
-          {milestone.title}
-        </div>
+        <TruncatedText
+          as="div"
+          multiline
+          text={milestone.title}
+          className="line-clamp-2 text-[12px] font-medium leading-[1.3] text-[color:var(--text-strong)]"
+        />
       </div>
     </button>
   )

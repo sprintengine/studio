@@ -1,7 +1,7 @@
 import React, { useMemo, useRef, useState } from 'react'
 import type { GitGraphCommit, GitGraphSnapshot } from '../../../../shared/electron-api'
 import { computeGitGraphLayout, type GitGraphLine } from '../../utils/gitGraphLayout'
-import { GhostButton, InlineNotice, OverflowMenu, Tooltip, type OverflowMenuItem } from '../ui'
+import { GhostButton, InlineNotice, OverflowMenu, Tooltip, TruncatedText, type OverflowMenuItem } from '../ui'
 import { setCommitDropData } from '../../utils/terminalDrop'
 
 export type GitGraphState =
@@ -331,19 +331,18 @@ function GitGraphCommitRow({
                 ))}
               </span>
             ) : null}
-            <span
-              className="min-w-0 truncate text-[color:var(--text-default)] group-hover:text-[color:var(--text-strong)]"
-              title={commit.subject}
-            >
-              {commit.subject}
-            </span>
+            <TruncatedText
+              as="span"
+              text={commit.subject}
+              className="min-w-0 text-[color:var(--text-default)] group-hover:text-[color:var(--text-strong)]"
+            />
           </span>
           <span className="mt-0.5 flex min-w-0 items-center gap-1.5 overflow-hidden text-[10px] tabular-nums text-[color:var(--text-disabled)]">
             <span className="shrink-0 font-mono text-[color:var(--text-muted)]">{commit.shortHash}</span>
             <span aria-hidden="true" className="shrink-0">·</span>
             <span className="shrink-0 whitespace-nowrap">{commit.date}</span>
             <span aria-hidden="true" className="shrink-0">·</span>
-            <span className="min-w-0 truncate">{commit.author}</span>
+            <TruncatedText as="span" text={commit.author} className="min-w-0" />
           </span>
         </span>
       </button>

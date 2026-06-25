@@ -6,7 +6,7 @@
 
 import React, { useMemo, useState } from 'react'
 import type { AppNotification, DiagnosticLevel } from '../../../types/workspace'
-import { LifecycleGlyph, type LifecycleState } from '../../ui'
+import { LifecycleGlyph, TruncatedText, type LifecycleState } from '../../ui'
 
 type RuntimeClipboardApi = {
   clipboardWriteText?: (text: string) => Promise<void>
@@ -260,9 +260,7 @@ export function NotificationsPopover({
                     <NotificationSeverityGlyph level={notification.level} />
                     <div className="min-w-0 flex-1">
                       <div className="flex min-w-0 items-center justify-between gap-3">
-                        <div className="truncate text-[13px] font-semibold text-[color:var(--text-strong)]">
-                          {notification.title}
-                        </div>
+                        <TruncatedText as="div" text={notification.title} className="text-[13px] font-semibold text-[color:var(--text-strong)]" />
                         <div className="shrink-0 tabular-nums text-[11px] text-[color:var(--text-disabled)]">
                           {formatNotificationTime(notification.timestamp)}
                         </div>
@@ -271,11 +269,13 @@ export function NotificationsPopover({
                         {notification.message}
                       </div>
                       {notification.workspaceName || notification.agentId || notification.sessionId ? (
-                        <div className="mt-1 truncate font-mono text-[11px] text-[color:var(--text-disabled)]">
-                          {[notification.workspaceName, notification.agentId, notification.sessionId]
+                        <TruncatedText
+                          as="div"
+                          text={[notification.workspaceName, notification.agentId, notification.sessionId]
                             .filter(Boolean)
                             .join(' / ')}
-                        </div>
+                          className="mt-1 font-mono text-[11px] text-[color:var(--text-disabled)]"
+                        />
                       ) : null}
                       <div className="mt-2 flex items-center gap-1.5">
                         {rowActions.map((action) => (

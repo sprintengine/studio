@@ -1,5 +1,6 @@
 import React, { forwardRef, useEffect, useImperativeHandle, useRef } from 'react'
 import { CloseIconButton } from './Buttons'
+import { TruncatedText } from './TruncatedText'
 
 export type WorkspacePanelHandle = {
   focus: () => void
@@ -61,7 +62,11 @@ export const WorkspacePanel = forwardRef<WorkspacePanelHandle, Props>(function W
             {title}
           </h2>
           {subtitle ? (
-            <p className="mt-0.5 truncate text-[12px] leading-5 text-[color:var(--text-muted)]">{subtitle}</p>
+            <TruncatedText
+              as="p"
+              text={subtitle}
+              className="mt-0.5 text-[12px] leading-5 text-[color:var(--text-muted)]"
+            />
           ) : null}
         </div>
         <div className="flex shrink-0 items-center gap-2">

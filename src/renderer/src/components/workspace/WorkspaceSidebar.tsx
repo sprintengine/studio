@@ -22,6 +22,7 @@ import {
   StarGlyph,
   StatusDot,
   Tooltip,
+  TruncatedText,
   type Tone,
 } from '../ui'
 import { Modal, ModalBody, ModalButton, ModalFooter, ModalHeader } from '../ui/Modal'
@@ -178,54 +179,56 @@ type RowAccent = {
 }
 
 // Mode identity now reads through the canonical tool tokens: the colored
-// 3 px left rail and the icon glyph carry the mode signal, while the active
-// row body collapses onto the shared `--bg-active` surface. The previous
-// per-mode blended backgrounds and decorative inset+glow halos have been
-// dropped in favour of a hairline + identity-rail composition that matches
+// 4 px left rail and the icon glyph carry the mode signal, while the active
+// row body sits on the brighter `--bg-selected` surface — the same canonical
+// selection fill used elsewhere (notifications, file/artifact selection) — so
+// the selected row clears the hover `--bg-surface-raised` fill by a full step.
+// The previous per-mode blended backgrounds and decorative inset+glow halos
+// stay dropped in favour of a hairline + identity-rail composition that matches
 // the audit's one-accent restraint.
 const modeAccents: Record<Workspace['mode'], RowAccent> = {
   sprintengine: {
     border: 'border-l-[color:var(--tool-sprintengine)]',
-    bg: 'bg-[color:var(--bg-active)]',
+    bg: 'bg-[color:var(--bg-selected)]',
     text: 'text-[color:var(--text-strong)]',
-    shadow: '',
-    collapsedShadow: '',
+    shadow: 'shadow-[inset_0_0_0_1px_var(--border-strong)]',
+    collapsedShadow: 'shadow-[inset_0_0_0_1px_var(--border-strong)]',
     chip: 'bg-[color:var(--bg-hover)]',
     glyph: 'text-[color:var(--tool-sprintengine)]',
   },
   switchboard: {
     border: 'border-l-[color:var(--tool-switchboard)]',
-    bg: 'bg-[color:var(--bg-active)]',
+    bg: 'bg-[color:var(--bg-selected)]',
     text: 'text-[color:var(--text-strong)]',
-    shadow: '',
-    collapsedShadow: '',
+    shadow: 'shadow-[inset_0_0_0_1px_var(--border-strong)]',
+    collapsedShadow: 'shadow-[inset_0_0_0_1px_var(--border-strong)]',
     chip: 'bg-[color:var(--bg-hover)]',
     glyph: 'text-[color:var(--tool-switchboard)]',
   },
   multiloop: {
     border: 'border-l-[color:var(--tool-multiloop)]',
-    bg: 'bg-[color:var(--bg-active)]',
+    bg: 'bg-[color:var(--bg-selected)]',
     text: 'text-[color:var(--text-strong)]',
-    shadow: '',
-    collapsedShadow: '',
+    shadow: 'shadow-[inset_0_0_0_1px_var(--border-strong)]',
+    collapsedShadow: 'shadow-[inset_0_0_0_1px_var(--border-strong)]',
     chip: 'bg-[color:var(--bg-hover)]',
     glyph: 'text-[color:var(--tool-multiloop)]',
   },
   'guided-brief': {
     border: 'border-l-[color:var(--accent-primary)]',
-    bg: 'bg-[color:var(--bg-active)]',
+    bg: 'bg-[color:var(--bg-selected)]',
     text: 'text-[color:var(--text-strong)]',
-    shadow: '',
-    collapsedShadow: '',
+    shadow: 'shadow-[inset_0_0_0_1px_var(--border-strong)]',
+    collapsedShadow: 'shadow-[inset_0_0_0_1px_var(--border-strong)]',
     chip: 'bg-[color:var(--bg-hover)]',
     glyph: 'text-[color:var(--accent-primary)]',
   },
   standard: {
     border: 'border-l-[color:var(--border-strong)]',
-    bg: 'bg-[color:var(--bg-active)]',
+    bg: 'bg-[color:var(--bg-selected)]',
     text: 'text-[color:var(--text-strong)]',
-    shadow: '',
-    collapsedShadow: '',
+    shadow: 'shadow-[inset_0_0_0_1px_var(--border-strong)]',
+    collapsedShadow: 'shadow-[inset_0_0_0_1px_var(--border-strong)]',
     chip: 'bg-[color:var(--bg-hover)]',
     glyph: 'text-[color:var(--text-muted)]',
   },
@@ -259,7 +262,7 @@ export function rowAccent(workspace: Workspace, moduleOverrides: ModuleEnablemen
 
 function activeRowClass(workspace: Workspace, moduleOverrides: ModuleEnablementOverrides): string {
   const accent = rowAccent(workspace, moduleOverrides)
-  return `border-l-[3px] ${accent.border} ${accent.bg} ${accent.text} ${accent.shadow}`
+  return `border-l-[4px] ${accent.border} ${accent.bg} ${accent.text} ${accent.shadow}`
 }
 
 function collapsedActiveRowClass(workspace: Workspace, moduleOverrides: ModuleEnablementOverrides): string {
@@ -275,7 +278,7 @@ function collapsedActiveRowClass(workspace: Workspace, moduleOverrides: ModuleEn
 function inactiveHighlightClass(workspace: Workspace): string {
   if (!hasHighlightOverride(workspace.highlight)) return ''
   const swatch = getHighlightSwatch(workspace.highlight!.color!)
-  return `border-l-[3px] ${swatch.border} ${swatch.dimBg}`
+  return `border-l-[4px] ${swatch.border} ${swatch.dimBg}`
 }
 
 // Working rows carry no status dot: a busy agent reads as "now" in the recency
@@ -539,21 +542,15 @@ export default function WorkspaceSidebar({
 
   // A workspace is "live" while it shows a status dot — working, failed, or
   // waiting on input. Live rows sort above idle ones in the activity ordering.
-  const isWorkspaceLive = useCallback(
-    (workspace: Workspace) => (activityByWorkspaceId[workspace.id] ?? 'idle') !== 'idle',
-    [activityByWorkspaceId]
-  )
-
-  // Starred workspaces surface in most-recently-active order: live ones on top,
-  // then the rest by how long ago they were worked on. This supersedes manual
-  // drag position within the Starred section.
+  // Starred workspaces surface in most-recently-worked order — by how long ago
+  // each was worked on, not by live status, so opening one never bumps it. This
+  // supersedes manual drag position within the Starred section.
   const starredWorkspaces = useMemo(
     () =>
       sortWorkspacesByActivity(
-        filteredWorkspaces.filter((workspace) => isStarred(workspace.highlight)),
-        isWorkspaceLive
+        filteredWorkspaces.filter((workspace) => isStarred(workspace.highlight))
       ),
-    [filteredWorkspaces, isWorkspaceLive]
+    [filteredWorkspaces]
   )
 
   const workspaceById = useMemo(() => {
@@ -947,7 +944,7 @@ export default function WorkspaceSidebar({
         className={`group relative mx-1.5 my-[1px] flex h-[30px] cursor-pointer select-none items-center gap-2 rounded-md text-[13px] transition-colors ${
           sidebarCollapsed
             ? 'justify-center px-0'
-            : 'border-l-[3px] border-l-transparent pl-[30px] pr-1.5'
+            : 'border-l-[4px] border-l-transparent pl-[29px] pr-1.5'
         } ${
           active
             ? sidebarCollapsed
@@ -1012,12 +1009,11 @@ export default function WorkspaceSidebar({
                     label="Starred"
                   />
                 ) : null}
-                <span
-                  className={`min-w-0 truncate ${resident ? 'font-semibold text-[color:var(--text-strong)]' : ''}`}
-                  title={workspace.name}
-                >
-                  {workspace.name}
-                </span>
+                <TruncatedText
+                  as="span"
+                  text={workspace.name}
+                  className={`min-w-0 ${resident ? 'font-semibold text-[color:var(--text-strong)]' : ''}`}
+                />
                 {resident ? <span className="sr-only"> (agents resident)</span> : null}
               </span>
             )}
@@ -1407,16 +1403,15 @@ export default function WorkspaceSidebar({
         ) : null}
         {groups.map((group) => {
           const collapsed = collapsedFolders[group.key] === true
-          // Each folder's rows are ordered by most-recent activity, same as the
-          // Starred section: live rows first, then by how long ago each was
-          // worked on. The stale-fold below still partitions by the 5-day
+          // Each folder's rows are ordered by how recently each was worked on,
+          // same as the Starred section — not by live status, so opening a row
+          // never moves it. The stale-fold below still partitions by the 5-day
           // threshold; this only sets the order within the recent and folded
           // groups.
           const visibleWorkspaces = sortWorkspacesByActivity(
             sidebarCollapsed
               ? group.workspaces.filter((workspace) => !isStarred(workspace.highlight))
-              : group.workspaces,
-            isWorkspaceLive
+              : group.workspaces
           )
           if (sidebarCollapsed && visibleWorkspaces.length === 0) return null
           const dropMark =
@@ -1901,7 +1896,7 @@ function NewChatMenuItem({
         className={`flex shrink-0 items-center gap-1.5 rounded-l-none rounded-r py-1.5 pl-1.5 pr-2 text-[color:var(--text-muted)] transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)] ${FOCUS_RING_CLASS}`}
       >
         {descriptor.icon}
-        <span className="max-w-[124px] truncate text-[12px]">{descriptor.label}</span>
+        <TruncatedText as="span" text={descriptor.label} className="max-w-[124px] text-[12px]" />
         <svg viewBox="0 0 16 16" fill="none" className="icon-xs shrink-0 text-[color:var(--text-disabled)]" aria-hidden="true">
           <path d="M4 6L8 10L12 6" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
         </svg>

@@ -43,6 +43,7 @@ import {
   PrimaryButton,
   SidePane,
   StatusDot,
+  TruncatedText,
   type OverflowMenuItem,
 } from '../ui'
 
@@ -759,11 +760,13 @@ export default function WatchtowerPanel({ workspaceId }: { workspaceId: string }
               {isTriageRun(activeRun) ? 'Triage running' : 'Review running'}
             </span>
             <span aria-hidden className="text-[color:var(--text-disabled)]">·</span>
-            <span className="min-w-0 flex-1 truncate text-[color:var(--text-muted)]">
-              {liveRunningAgents.length > 0
+            <TruncatedText
+              as="span"
+              className="min-w-0 flex-1 text-[color:var(--text-muted)]"
+              text={liveRunningAgents.length > 0
                 ? liveRunningAgents.map(specialistShortLabel).join(', ')
                 : 'Architect spinning up…'}
-            </span>
+            />
           </div>
         ) : null}
         {inboxStatus ? (

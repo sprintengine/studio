@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 
-import { GhostButton, InlineNotice, LifecycleGlyph, Section, Spinner } from '../../ui'
+import { GhostButton, InlineNotice, LifecycleGlyph, Section, Spinner, TruncatedText } from '../../ui'
 import type { AutomationDefinition, AutomationRun } from '../../../../../shared/automations/contracts'
 import {
   DEFINITION_LIFECYCLE,
@@ -201,7 +201,12 @@ function RunRow({ run, now, highlighted, onOpenAgent, onFinalize, finalizing }: 
           ) : null}
         </div>
         {run.summary ? (
-          <p className="mt-0.5 line-clamp-2 text-[11px] leading-4 text-[color:var(--text-muted)]">{run.summary}</p>
+          <TruncatedText
+            as="p"
+            multiline
+            text={run.summary}
+            className="mt-0.5 line-clamp-2 text-[11px] leading-4 text-[color:var(--text-muted)]"
+          />
         ) : null}
         {run.blockedReason ? (
           <p className="mt-0.5 text-[11px] leading-4 text-[color:var(--tone-warn)]">{run.blockedReason}</p>

@@ -1,6 +1,6 @@
 import { memo } from 'react'
 
-import { LifecycleGlyph, StarGlyph, Tooltip, type LifecycleState } from '../ui'
+import { LifecycleGlyph, StarGlyph, Tooltip, TruncatedText, type LifecycleState } from '../ui'
 import type {
   BacklogCriticality,
   BacklogDifficulty,
@@ -93,9 +93,11 @@ export const BacklogRowContent = memo(function BacklogRowContent({
           <LifecycleGlyph state={lifecycle} live={live} />
         </Tooltip>
         <span className="flex min-w-0 flex-1 items-center gap-1.5">
-          <span className="min-w-0 truncate text-[12px] font-medium text-[color:var(--text-strong)]">
-            {item.title}
-          </span>
+          <TruncatedText
+            as="span"
+            text={item.title}
+            className="min-w-0 text-[12px] font-medium text-[color:var(--text-strong)]"
+          />
           {/* Earned mark: the star exists only when starred — no placeholder
               outline on idle rows, same rule as the status dot. Matches the
               sidebar's starred-workspace glyph (color, size, name). */}
@@ -111,9 +113,11 @@ export const BacklogRowContent = memo(function BacklogRowContent({
         <CriticalityIndicator criticality={item.criticality} />
       </div>
       <div className="mt-0.5 flex items-center gap-2 pl-[22px] text-[11px]">
-        <span className="min-w-0 flex-1 truncate text-[color:var(--text-disabled)]">
-          {item.excerpt || item.relativePath}
-        </span>
+        <TruncatedText
+          as="span"
+          text={item.excerpt || item.relativePath}
+          className="min-w-0 flex-1 text-[color:var(--text-disabled)]"
+        />
         <span className="shrink-0 tabular-nums text-[color:var(--text-subtle)]">
           {formatRelativeMsAgo(item.modifiedAt, now) || 'unknown'}
         </span>

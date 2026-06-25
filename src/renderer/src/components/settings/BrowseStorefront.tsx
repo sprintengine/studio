@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 
 import type { MarketplacePluginEntry } from '../../../../shared/marketplace/manifest'
 import type { McpServerConfig, McpSettings } from '../../types/workspace'
-import { CloseIconButton, GhostButton, InboxSearchInput, InlineNotice, PrimaryButton, Spinner, StatusDot } from '../ui'
+import { CloseIconButton, GhostButton, InboxSearchInput, InlineNotice, PrimaryButton, Spinner, StatusDot, TruncatedText } from '../ui'
 import { SettingsSectionTitle } from './SettingsAtoms'
 import { mcpMonogram } from './McpCatalog'
 import { PermissionChips } from './ThirdPartyModuleList'
@@ -297,14 +297,19 @@ function PluginCard({
     >
       <PluginIcon iconUrl={resolveIconUrl(registryUrl, plugin.icon)} name={plugin.name} size={36} />
       <div className="w-full min-w-0">
-        <div className="truncate text-[13px] font-semibold leading-5 text-[color:var(--text-strong)]">
-          {plugin.name}
-        </div>
+        <TruncatedText
+          as="div"
+          text={plugin.name}
+          className="text-[13px] font-semibold leading-5 text-[color:var(--text-strong)]"
+        />
         <div className="mt-0.5 flex items-center gap-1.5 text-[11px] leading-4 text-[color:var(--text-subtle)]">
           {/* Decorative: the adjacent label names the trust state. Verified is the
               quiet default — only community plugins surface the dot to earn attention. */}
           {trust.verified ? null : <StatusDot tone={trust.tone} />}
-          <span className="truncate">{trust.verified ? plugin.publisher.name : `${plugin.publisher.name} · ${trust.label}`}</span>
+          <TruncatedText
+            as="span"
+            text={trust.verified ? plugin.publisher.name : `${plugin.publisher.name} · ${trust.label}`}
+          />
         </div>
       </div>
     </button>
@@ -428,9 +433,7 @@ function PluginDetailPanel({
             </h5>
             <div className="mt-0.5 flex items-center gap-1.5 text-[11px] text-[color:var(--text-muted)]">
               <StatusDot tone={trust.tone} />
-              <span className="truncate">
-                {trust.label} · {plugin.publisher.name}
-              </span>
+              <TruncatedText as="span" text={`${trust.label} · ${plugin.publisher.name}`} />
             </div>
           </div>
         </div>
@@ -440,7 +443,7 @@ function PluginDetailPanel({
       <div className="mt-3 flex items-center gap-2 text-[11px] text-[color:var(--text-subtle)]">
         <span className="tabular-nums">Version {plugin.latest}</span>
         <span aria-hidden>·</span>
-        <span className="truncate">{plugin.category}</span>
+        <TruncatedText as="span" text={plugin.category} />
       </div>
 
       <p className="mt-3 text-[12px] leading-5 text-[color:var(--text-muted)]">{plugin.summary}</p>

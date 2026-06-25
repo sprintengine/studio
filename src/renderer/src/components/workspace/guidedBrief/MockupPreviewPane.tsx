@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { Tabs, Tooltip, type TabItem } from '../../ui'
+import { Tabs, Tooltip, TruncatedText, type TabItem } from '../../ui'
 import type { DesignerMockupFile } from './useDesignerSession'
 
 type Props = {
@@ -192,9 +192,11 @@ export function HtmlArtifactFrame({
   return (
     <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-md border border-[color:var(--border-default)] bg-[color:var(--bg-surface)]">
       <div className="flex shrink-0 items-center gap-2 border-b border-[color:var(--border-subtle)] px-3 py-2">
-        <span className="min-w-0 truncate font-mono text-[11px] text-[color:var(--text-muted)]">
-          {relativePath}
-        </span>
+        <TruncatedText
+          as="span"
+          text={relativePath}
+          className="min-w-0 font-mono text-[11px] text-[color:var(--text-muted)]"
+        />
         <span className="ml-auto flex shrink-0 items-center gap-1">
           <span role="group" aria-label="Viewport width" className="flex items-center gap-0.5">
             {PREVIEW_VIEWPORTS.map((option) => (

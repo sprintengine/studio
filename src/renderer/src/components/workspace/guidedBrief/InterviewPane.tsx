@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, type KeyboardEvent } from 'react'
+import { TruncatedText } from '../../ui'
 import type { GuidedInterviewDecision, GuidedInterviewQuestion } from './interviewProtocol'
 
 // Native rendering of the structured specialist interview: resolved decisions
@@ -26,7 +27,7 @@ export function ResolvedDecisionsList({
               {decision.question}
             </span>
           ) : null}
-          <span className="min-w-0 truncate text-[color:var(--text-default)]">{decision.label}</span>
+          <TruncatedText as="span" text={decision.label} className="min-w-0 text-[color:var(--text-default)]" />
         </div>
       ))}
     </div>

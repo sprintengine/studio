@@ -1,6 +1,6 @@
 import React from 'react'
 
-import { GhostButton, IconButton, LifecycleGlyph, PrimaryButton, Spinner } from '../../ui'
+import { GhostButton, IconButton, LifecycleGlyph, PrimaryButton, Spinner, TruncatedText } from '../../ui'
 import type { AutomationDefinition } from '../../../../../shared/automations/contracts'
 import {
   DEFINITION_LIFECYCLE,
@@ -113,7 +113,7 @@ function DefinitionRow({
         )}
         <div className="min-w-0 flex-1">
           <div className="flex items-baseline justify-between gap-2">
-            <span className="truncate text-[12px] font-medium text-[color:var(--text-strong)]">{def.name}</span>
+            <TruncatedText as="span" text={def.name} className="text-[12px] font-medium text-[color:var(--text-strong)]" />
             <span
               className={[
                 'shrink-0 text-[10px]',

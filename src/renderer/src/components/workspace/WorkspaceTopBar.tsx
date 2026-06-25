@@ -1,7 +1,7 @@
 import React from 'react'
 import { SpecialistActionIcon, SprintEngineRoleIcon, WorkspaceTypeIcon, resolveEnabledWorkspaceType } from '../AppIcons'
 import type { ModuleEnablementOverrides } from '../../../../shared/modules/manifest'
-import { ChangePulse, FOCUS_RING_CLASS, Popover, StarGlyph, StatusDot, TONE_COLOR_VAR, TONE_SOFT_VAR, Tooltip } from '../ui'
+import { ChangePulse, FOCUS_RING_CLASS, Popover, StarGlyph, StatusDot, TONE_COLOR_VAR, TONE_SOFT_VAR, Tooltip, TruncatedText } from '../ui'
 import type { SessionUser } from '../../../../shared/electron-api'
 import { hasActiveProPlan } from './workspaceManagerHelpers'
 import CliIcon from '../CliIcon'
@@ -215,7 +215,7 @@ function SessionsPopover({
                   style={{ color: headerColor }}
                 >
                   <WorkspaceTypeIcon mode={group.workspace.mode} className="h-3.5 w-3.5 shrink-0" />
-                  <span className="min-w-0 truncate">{group.workspace.name}</span>
+                  <TruncatedText as="span" text={group.workspace.name} className="min-w-0" />
                   {starred ? (
                     <StarGlyph
                       filled
@@ -263,16 +263,22 @@ function SessionsPopover({
                           </span>
                           <span className="min-w-0">
                             <span className="flex min-w-0 items-center gap-1.5">
-                              <span className="truncate font-medium text-[color:var(--text-strong)]">{item.label}</span>
+                              <TruncatedText
+                                as="span"
+                                text={item.label}
+                                className="min-w-0 font-medium text-[color:var(--text-strong)]"
+                              />
                               <StatusDot
                                 tone={item.status === 'needs-input' ? 'warn' : 'good'}
                                 pulse
                                 label={item.status === 'needs-input' ? 'Needs input' : 'Working'}
                               />
                             </span>
-                            <span className="mt-0.5 block truncate text-[11px] text-[color:var(--text-subtle)]">
-                              {subline}
-                            </span>
+                            <TruncatedText
+                              as="span"
+                              text={subline}
+                              className="mt-0.5 block text-[11px] text-[color:var(--text-subtle)]"
+                            />
                           </span>
                         </div>
 
@@ -420,12 +426,24 @@ function AccountPopover({
   return (
     <div data-account-menu="true" className="w-64 overflow-hidden">
       <div className="px-3 pb-2.5 pt-3">
-        <div className="truncate text-[13px] font-medium text-[color:var(--text-strong)]">{primaryLine}</div>
+        <TruncatedText
+          as="div"
+          text={primaryLine}
+          className="text-[13px] font-medium text-[color:var(--text-strong)]"
+        />
         {email ? (
-          <div className="mt-0.5 truncate text-[12px] text-[color:var(--text-muted)]">{email}</div>
+          <TruncatedText
+            as="div"
+            text={email}
+            className="mt-0.5 text-[12px] text-[color:var(--text-muted)]"
+          />
         ) : null}
         {metaLine ? (
-          <div className="mt-1 truncate text-[11px] text-[color:var(--text-subtle)]">{metaLine}</div>
+          <TruncatedText
+            as="div"
+            text={metaLine}
+            className="mt-1 text-[11px] text-[color:var(--text-subtle)]"
+          />
         ) : null}
       </div>
 
@@ -712,9 +730,12 @@ export default function WorkspaceTopBar({
                * when the bar has room; cropping only kicks in as the cluster
                * approaches the right-side controls.
                */}
-              <span className="min-w-0 truncate text-[13px] font-semibold text-[color:var(--text-strong)]">
-                {activeWorkspace.name}
-              </span>
+              <TruncatedText
+                as="span"
+                text={activeWorkspace.name}
+                placement="bottom"
+                className="min-w-0 text-[13px] font-semibold text-[color:var(--text-strong)]"
+              />
               {activeWorkspace.folderPath ? (
                 filesPanelEnabled ? (
                   <Tooltip
@@ -902,7 +923,7 @@ export default function WorkspaceTopBar({
                             <path d="M4.5 10.5L8 14L15.5 6" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" />
                           </svg>
                         </span>
-                        <span className="min-w-0 flex-1 truncate">{view.name}</span>
+                        <TruncatedText as="span" text={view.name} className="min-w-0 flex-1" />
                       </button>
                     )
                   })}

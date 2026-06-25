@@ -18,6 +18,7 @@ import {
  Section,
  Select,
  Tabs,
+ TruncatedText,
  DefinitionList,
  type LifecycleState,
  type OverflowMenuItem,
@@ -219,9 +220,11 @@ function SprintEngineModelField({
  className="flex h-10 w-full items-center gap-3 rounded-md bg-[color:var(--bg-surface-raised)] px-3 text-left text-sm text-[color:var(--text-strong)] outline-none interactive transition-colors hover:bg-[color:var(--bg-hover)] focus:ring-1 focus:ring-[color:var(--border-strong)]"
  {...triggerProps}
  >
- <span className={`min-w-0 flex-1 truncate ${model && !knownLabel ? 'font-mono text-[13px]' : ''}`}>
- {currentLabel}
- </span>
+ <TruncatedText
+ as="span"
+ text={currentLabel}
+ className={`min-w-0 flex-1 ${model && !knownLabel ? 'font-mono text-[13px]' : ''}`}
+ />
  <svg
  className={`icon-md shrink-0 text-[color:var(--text-disabled)] transition-transform ${open ? 'rotate-180' : ''}`}
  viewBox="0 0 20 20"
@@ -254,7 +257,7 @@ function SprintEngineModelField({
  : 'text-[color:var(--text-default)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]'
  }`}
  >
- <span className="min-w-0 flex-1 truncate">{option.label}</span>
+ <TruncatedText as="span" text={option.label} className="min-w-0 flex-1" />
  {selected ? (
  <svg className="icon-md shrink-0 text-[color:var(--text-muted)]" viewBox="0 0 20 20" fill="none" aria-hidden="true">
  <path d="M4.5 10.5L8 14L15.5 6" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" />
@@ -271,7 +274,7 @@ function SprintEngineModelField({
  onClick={() => setOpen(false)}
  className="flex w-full items-center gap-3 rounded-md bg-[color:var(--bg-hover)] px-3 py-2 text-left font-mono text-[13px] text-[color:var(--text-strong)]"
  >
- <span className="min-w-0 flex-1 truncate">{model}</span>
+ <TruncatedText as="span" text={model} className="min-w-0 flex-1" />
  <svg className="icon-md shrink-0 text-[color:var(--text-muted)]" viewBox="0 0 20 20" fill="none" aria-hidden="true">
  <path d="M4.5 10.5L8 14L15.5 6" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" />
  </svg>
@@ -475,9 +478,11 @@ export function SprintEngineSettingsPopover({
  <span className="shrink-0 font-mono tabular-nums text-[11px] text-[color:var(--text-muted)]">
  {runtimeTask.id}
  </span>
- <span className="min-w-0 flex-1 truncate text-[12px] text-[color:var(--text-strong)]">
- {runtimeTask.title}
- </span>
+ <TruncatedText
+ as="span"
+ text={runtimeTask.title}
+ className="min-w-0 flex-1 text-[12px] text-[color:var(--text-strong)]"
+ />
  </button>
  ) : null}
  </div>
@@ -1043,9 +1048,11 @@ function SprintEngineBoardPanelContent({
  const folderStatusBanner = folderMissing && savedFolderPath ? (
  <div className="border-b border-[color:var(--border-strong)] bg-[color:var(--bg-surface-raised)] px-4 py-2 text-[12px] text-[color:var(--text-muted)]">
  <div className="flex flex-wrap items-center justify-between gap-3">
- <span className="min-w-0 truncate">
- {`Saved folder is missing: ${savedFolderPath}`}
- </span>
+ <TruncatedText
+ as="span"
+ text={`Saved folder is missing: ${savedFolderPath}`}
+ className="min-w-0"
+ />
  <span className="flex shrink-0 items-center gap-2">
  <button
  onClick={() => void recheckFolder()}
@@ -2244,9 +2251,11 @@ function SprintEngineBoardPanelContent({
  <span className="block text-sm font-semibold text-[color:var(--text-strong)]">
  {selectedRecoveryCliOption.label}
  </span>
- <span className="mt-0.5 block truncate text-[12px] text-[color:var(--text-disabled)]">
- {selectedRecoveryCliOption.description}
- </span>
+ <TruncatedText
+ as="span"
+ text={selectedRecoveryCliOption.description}
+ className="mt-0.5 block text-[12px] text-[color:var(--text-disabled)]"
+ />
  </span>
  <svg
  className={`icon-md shrink-0 text-[color:var(--text-disabled)] transition-transform ${cliPickerOpen ? 'rotate-180' : ''}`}
@@ -2291,9 +2300,11 @@ function SprintEngineBoardPanelContent({
  </span>
  <span className="min-w-0 flex-1">
  <span className="block text-sm font-semibold">{option.label}</span>
- <span className="mt-0.5 block truncate text-[12px] text-[color:var(--text-disabled)]">
- {option.description}
- </span>
+ <TruncatedText
+ as="span"
+ text={option.description}
+ className="mt-0.5 block text-[12px] text-[color:var(--text-disabled)]"
+ />
  </span>
  {selected ? (
  <svg className="icon-md shrink-0 text-[color:var(--text-muted)]" viewBox="0 0 20 20" fill="none" aria-hidden="true" xmlns="http://www.w3.org/2000/svg">
@@ -2464,9 +2475,7 @@ function SprintEngineBoardPanelContent({
  <SprintEngineRoleIcon role={role} className="icon-md" />
  </span>
  <div className="min-w-0 flex-1">
- <div className="truncate text-sm font-semibold">
- {option.label}
- </div>
+ <TruncatedText as="div" text={option.label} className="text-sm font-semibold" />
  <p className={`mt-1 text-[12px] leading-5 ${selected ? 'text-[color:var(--accent-primary)]' : 'text-[color:var(--text-muted)]'}`}>
  {option.summary}
  </p>

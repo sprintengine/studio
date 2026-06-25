@@ -50,42 +50,34 @@ export function partitionWorkspacesByRecency(
 // time decide where it sits relative to other older rows.
 export const RECENT_ACTIVITY_TIE_WINDOW_MS = 30 * 60 * 1000 // 30 minutes
 
-// The ordering key. A live row (green dot — working/needs-input/failed) counts as
-// "just now" no matter what its timestamps say, the same as a row worked on
-// inside the tie window; both collapse onto `now` so they compare equal. Idle
-// rows past the window keep their real last-worked time and therefore sort below
-// the recent block, oldest last.
-function activitySortKey(
-  workspace: Workspace,
-  isLive: (workspace: Workspace) => boolean,
-  now: number
-): number {
-  if (isLive(workspace)) return now
+// The ordering key, and deliberately a pure function of *work*: a row worked on
+// inside the tie window collapses onto `now`, while rows worked earlier keep their
+// real last-worked time and sort below, oldest last. Live status has no say here.
+// Opening an idle workspace flips it "live" (its agents come back to life), but
+// that transient blip is not work and must not move the row; only genuine work
+// — creation or terminal input, via workspaceLastWorkedAt — sets position.
+// Liveness still drives the status dot and pins busy rows visible
+// (partitionWorkspacesByRecency); it just never reorders them.
+function activitySortKey(workspace: Workspace, now: number): number {
   const workedAt = workspaceLastWorkedAt(workspace)
   return now - workedAt < RECENT_ACTIVITY_TIE_WINDOW_MS ? now : workedAt
 }
 
-// Orders workspaces by activity rather than by manual position. Live rows (green
-// dot) and idle rows worked on within the last 30 minutes share one "just now"
-// tier and keep their stored order — a green dot, an open, or a transient status
-// blip never bumps a row ahead of its neighbours. Idle rows older than the window
-// sort below that tier by how recently each was worked on, most recent first.
-function compareWorkspacesByActivity(
-  a: Workspace,
-  b: Workspace,
-  isLive: (workspace: Workspace) => boolean,
-  now: number
-): number {
-  return activitySortKey(b, isLive, now) - activitySortKey(a, isLive, now)
+// Orders workspaces by how recently each was worked on rather than by manual
+// position. Rows worked within the last 30 minutes share one "just now" tier and
+// keep their stored order — an open, a green dot, or a transient status blip never
+// bumps a row ahead of its neighbours. Rows older than the window sort below that
+// tier, most recent first.
+function compareWorkspacesByActivity(a: Workspace, b: Workspace, now: number): number {
+  return activitySortKey(b, now) - activitySortKey(a, now)
 }
 
 export function sortWorkspacesByActivity(
   workspaces: Workspace[],
-  isLive: (workspace: Workspace) => boolean,
   now: number = Date.now()
 ): Workspace[] {
-  // Array.prototype.sort is stable, so live rows (and any idle rows that tie on
-  // last-worked time, including everything inside the 30-minute window) keep
-  // their incoming (stored) order.
-  return [...workspaces].sort((a, b) => compareWorkspacesByActivity(a, b, isLive, now))
+  // Array.prototype.sort is stable, so rows that tie on last-worked time
+  // (including everything inside the 30-minute window) keep their incoming
+  // (stored) order.
+  return [...workspaces].sort((a, b) => compareWorkspacesByActivity(a, b, now))
 }

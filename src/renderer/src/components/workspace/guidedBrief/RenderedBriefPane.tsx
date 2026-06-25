@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { TruncatedText } from '../../ui'
 import { renderMarkdown } from '../../../utils/markdown'
 
 type Props = {
@@ -114,9 +115,11 @@ export function RenderedBriefPane({
     <div className="flex h-full min-h-0 flex-col gap-3">
       <header className="flex items-center justify-between gap-3">
         <div className="flex min-w-0 flex-col leading-tight">
-          <span className="truncate text-[13px] font-semibold text-[color:var(--text-strong)]">
-            {title}
-          </span>
+          <TruncatedText
+            as="span"
+            text={title}
+            className="text-[13px] font-semibold text-[color:var(--text-strong)]"
+          />
           <span className="inline-flex items-center gap-1.5 truncate text-[12px] text-[color:var(--text-muted)]">
             {state.kind === 'ready' ? (
               <span className="font-mono">{relativePath}</span>

@@ -5,6 +5,8 @@ import {
   addAgentTabTiled,
   addTerminalTab,
   captureNavRailWidthFraction,
+  consumePendingAgentFlash,
+  flashAgentTab,
   focusOrAddFileTab,
   registerModel,
   restoreNavRailWidthFraction,
@@ -67,7 +69,7 @@ function freshModel(): Model {
 }
 
 type TabsetJson = { type?: string; component?: string; enableTabStrip?: boolean; children?: TabsetJson[] }
-type TabJson = TabsetJson & { name?: string; enableClose?: boolean; config?: { agentId?: string; filePath?: string } }
+type TabJson = TabsetJson & { name?: string; enableClose?: boolean; className?: string; contentClassName?: string; config?: { agentId?: string; filePath?: string } }
 
 function tabsets(model: Model): TabsetJson[] {
   const out: TabsetJson[] = []
@@ -507,6 +509,70 @@ function tabsetWeight(model: Model, component: string): number {
   const before = tabsetWeight(model, 'git')
   restoreNavRailWidthFraction(model, 0.18)
   assert.equal(tabsetWeight(model, 'git'), before, 'rail weight unchanged with no siblings')
+}
+
+// flashAgentTab re-applies the green spawn-flash classes to an agent tab that
+// already exists — the "Open agent" highlight — and reports it flashed live.
+{
+  const model = freshModel()
+  registerModel(WS, model)
+  const agentTab = () => allTabs(model).find((tab) => tab.config?.agentId === 'a-1')
+  assert.equal(agentTab()?.className ?? '', '', 'tab starts without the flash class')
+  assert.equal(flashAgentTab(WS, 'a-1'), true)
+  assert.equal(agentTab()?.className, 'agent-tab-spawn-flash')
+  assert.equal(agentTab()?.contentClassName, 'agent-tab-spawn-flash-panel')
+  unregisterModel(WS)
+}
+
+// A user-colored agent tab keeps its existing class; the flash class is added
+// alongside, not in place of it.
+{
+  const json: IJsonModel = {
+    global: { tabSetEnableDrop: true, tabEnableClose: true },
+    borders: [],
+    layout: {
+      type: 'row',
+      children: [
+        {
+          type: 'tabset',
+          weight: 100,
+          children: [
+            { type: 'tab', name: 'Agent', component: 'agent', className: 'tab-color-violet', config: { agentId: 'a-1' } },
+          ],
+        },
+      ],
+    },
+  }
+  const model = Model.fromJson(json)
+  registerModel(WS, model)
+  assert.equal(flashAgentTab(WS, 'a-1'), true)
+  const className = allTabs(model).find((tab) => tab.config?.agentId === 'a-1')?.className ?? ''
+  assert.ok(className.includes('tab-color-violet'), 'keeps the existing color class')
+  assert.ok(className.includes('agent-tab-spawn-flash'), 'adds the flash class')
+  unregisterModel(WS)
+}
+
+// With no live model, flashAgentTab latches; consumePendingAgentFlash applies it
+// once the workspace's model registers on mount.
+{
+  unregisterModel(WS)
+  assert.equal(flashAgentTab(WS, 'a-1'), false, 'no live model: latches instead of flashing')
+  const model = freshModel()
+  registerModel(WS, model)
+  consumePendingAgentFlash(WS)
+  const className = allTabs(model).find((tab) => tab.config?.agentId === 'a-1')?.className ?? ''
+  assert.equal(className, 'agent-tab-spawn-flash', 'pending flash applied on mount')
+  // The latch is one-shot: a second mount must not re-flash.
+  unregisterModel(WS)
+  const remount = freshModel()
+  registerModel(WS, remount)
+  consumePendingAgentFlash(WS)
+  assert.equal(
+    allTabs(remount).find((tab) => tab.config?.agentId === 'a-1')?.className ?? '',
+    '',
+    'latch is drained after first consume',
+  )
+  unregisterModel(WS)
 }
 
 console.log('modelRegistry.test.ts: ok')

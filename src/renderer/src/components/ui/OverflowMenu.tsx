@@ -1,6 +1,7 @@
 import React, { useCallback, useMemo, useRef, useState } from 'react'
 import { Popover } from './Popover'
 import { FOCUS_RING_CLASS } from './tokens'
+import { TruncatedText } from './TruncatedText'
 
 export type OverflowMenuItem =
   | {
@@ -149,7 +150,7 @@ export function OverflowMenu({ ariaLabel, items, trigger, align = 'end' }: Overf
                 ].join(' ')}
               >
                 {item.icon ? <span className="shrink-0">{item.icon}</span> : null}
-                <span className="min-w-0 flex-1 truncate">{item.label}</span>
+                <TruncatedText as="span" text={item.label} className="min-w-0 flex-1" />
                 {item.shortcut ? (
                   <span className="font-mono text-[11px] text-[color:var(--text-disabled)]">
                     {item.shortcut}

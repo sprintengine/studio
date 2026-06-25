@@ -7,6 +7,7 @@
 //   z-50 — modals and the command palette (always above everything else)
 import React, { useEffect, useRef } from 'react'
 import { CloseIconButton } from './Buttons'
+import { TruncatedText } from './TruncatedText'
 
 type ModalProps = {
   open: boolean
@@ -83,9 +84,12 @@ export function ModalHeader({ title, subtitle, titleId, onClose }: ModalHeaderPr
   return (
     <div className="flex items-start justify-between gap-4 border-b border-[color:var(--border-subtle)] px-5 py-4">
       <div className="min-w-0">
-        <h2 id={titleId} className="truncate text-[15px] font-semibold tracking-tight text-[color:var(--text-strong)]">
-          {title}
-        </h2>
+        <TruncatedText
+          as="h2"
+          id={titleId}
+          text={title}
+          className="text-[15px] font-semibold tracking-tight text-[color:var(--text-strong)]"
+        />
         {subtitle ? (
           <p className="mt-1 text-[12px] leading-5 text-[color:var(--text-muted)]">{subtitle}</p>
         ) : null}

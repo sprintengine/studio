@@ -26,6 +26,7 @@ export type AppTheme =
   | 'paper'
   | 'vellum'
   | 'herbarium'
+  | 'herbarium-dark'
   | 'verdigris'
   | 'slate'
   | 'conifer'
@@ -161,6 +162,19 @@ export const APP_THEMES: readonly AppThemeDescriptor[] = [
       bgSurfaceRaised: '#fcf4e8',
       accent: '#b04428',
       textStrong: '#242818',
+    },
+  },
+  {
+    id: 'herbarium-dark',
+    label: 'Herbarium Dark',
+    resolved: 'herbarium-dark',
+    description: 'Dark slate, sage-green accent',
+    swatches: {
+      bgApp: '#181c14',
+      bgSurface: '#1c2018',
+      bgSurfaceRaised: '#242820',
+      accent: '#d4dcc0',
+      textStrong: '#e4e8d8',
     },
   },
   {

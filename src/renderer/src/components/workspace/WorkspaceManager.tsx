@@ -531,12 +531,8 @@ export default function WorkspaceManager() {
     terminalSessions,
   )
   const sidebarWorkspaceOrder = useMemo(
-    () =>
-      buildSidebarWorkspaceOrder(
-        visibleWorkspaces,
-        (workspace) => getWorkspaceActivity(workspace, terminalSessions) !== 'idle'
-      ),
-    [visibleWorkspaces, terminalSessions]
+    () => buildSidebarWorkspaceOrder(visibleWorkspaces),
+    [visibleWorkspaces]
   )
   // The bell badge is an error counter: only unread errors increment it (and
   // drive the red just-changed pulse), so a flood of info/warning notifications

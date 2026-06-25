@@ -21,7 +21,7 @@ import type { ConversationProviderListEntry, ConversationProviderModel } from '.
 import { useWorkspaceStore } from '../../store/workspaceStore'
 import { publishDiagnosticSync } from '../../utils/diagnostics'
 import { renderMarkdown } from '../../utils/markdown'
-import { GhostButton, Popover, PrimaryButton, StatusDot, Tooltip, type Tone } from '../ui'
+import { GhostButton, Popover, PrimaryButton, StatusDot, Tooltip, TruncatedText, type Tone } from '../ui'
 
 // ── Pure projection ─────────────────────────────────────────────────────────
 
@@ -783,7 +783,7 @@ export default function AgentChatView({ workspaceId, agentId }: Props) {
          */}
         {actionError ? (
           <div className="mb-2 flex items-center justify-between gap-3">
-            <span className="min-w-0 truncate text-[12px] leading-5 text-[color:var(--tone-error)]">{actionError}</span>
+            <TruncatedText as="span" text={actionError} className="min-w-0 text-[12px] leading-5 text-[color:var(--tone-error)]" />
             {showRetry ? (
               <GhostButton
                 size="sm"
@@ -990,7 +990,7 @@ function ModelPickerPill({
           {...triggerProps}
         >
           <ChatGlyph className="icon-sm text-[color:var(--text-muted)]" />
-          <span className="max-w-[200px] truncate">{label}</span>
+          <TruncatedText as="span" text={label} className="max-w-[200px]" />
           <ChevronGlyph className="icon-xs text-[color:var(--text-disabled)]" />
         </button>
       )}
@@ -1040,7 +1040,7 @@ function ModelPickerPill({
                           : 'text-[color:var(--text-default)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]'
                       }`}
                     >
-                      <span className="min-w-0 flex-1 truncate">{model.displayName ?? model.id}</span>
+                      <TruncatedText as="span" text={model.displayName ?? model.id} className="min-w-0 flex-1" />
                       {isCurrent ? <span className="text-[color:var(--accent-primary)]">✓</span> : null}
                     </button>
                   )
@@ -1335,7 +1335,7 @@ function ToolCallRow({ tool }: { tool: Extract<TranscriptEntry, { kind: 'tool' }
           <ToolGlyph className="icon-xs" />
           <span>Tool call</span>
           <span aria-hidden="true">·</span>
-          <span className="truncate font-mono text-[color:var(--text-default)]">{tool.name}</span>
+          <TruncatedText as="span" text={tool.name} className="font-mono text-[color:var(--text-default)]" />
         </span>
         <span className="shrink-0 text-[11px] text-[color:var(--text-subtle)]">{running ? 'running' : 'done'}</span>
       </div>

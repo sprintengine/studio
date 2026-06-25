@@ -2,6 +2,7 @@ import React from 'react'
 import CliIcon from '../CliIcon'
 import { Popover } from './Popover'
 import { Tooltip } from './Tooltip'
+import { TruncatedText } from './TruncatedText'
 import type { AgentCli } from '../../types/workspace'
 import type { PluginModelCatalog } from '../../../../shared/plugin-manifest'
 
@@ -99,18 +100,22 @@ export function CliModelPickerButton({
 }
 
 // One selectable runtime row: CLI brand icon + label, with a check when active.
-// `mono` renders raw model ids (no friendly label) in the mono face.
+// `mono` renders raw model ids (no friendly label) in the mono face. `note` is a
+// muted trailing annotation — used to flag a persisted model id that is no longer
+// in the CLI's model list, so it reads as deliberate rather than a normal choice.
 function CliModelRow({
   icon,
   label,
   selected,
   mono,
+  note,
   onClick,
 }: {
   icon: AgentCli
   label: string
   selected: boolean
   mono?: boolean
+  note?: string
   onClick: () => void
 }) {
   return (
@@ -128,7 +133,10 @@ function CliModelRow({
       }`}
     >
       <CliIcon cli={icon} className="icon-sm shrink-0 text-[color:var(--text-muted)]" />
-      <span className="min-w-0 flex-1 truncate">{label}</span>
+      <TruncatedText as="span" text={label} className="min-w-0 flex-1" />
+      {note ? (
+        <span className="shrink-0 font-sans text-[10px] text-[color:var(--text-muted)]">{note}</span>
+      ) : null}
       {selected ? <span className="shrink-0 text-[color:var(--accent-primary)]">✓</span> : null}
     </button>
   )
@@ -188,13 +196,15 @@ export function CliModelListbox({
               />
             ))}
             {/* A persisted model no longer in the catalog still launches with
-                that id; surface it as the checked entry instead of hiding it. */}
+                that id; surface it as the checked entry, marked "Not listed" so
+                the user knows it is active but not one of the configured ids. */}
             {models && hasStaleModel && effectiveModel ? (
               <CliModelRow
                 icon={option.value}
                 label={effectiveModel}
                 mono
                 selected
+                note="Not listed"
                 onClick={() => onSelectModel(option.value, effectiveModel)}
               />
             ) : null}

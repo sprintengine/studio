@@ -36,6 +36,7 @@ import {
   StatusDot,
   TaskCard,
   Tooltip,
+  TruncatedText,
   type DefinitionItem,
   type OverflowMenuItem,
   type Tone,
@@ -545,11 +546,13 @@ export default function SwitchboardBoardPanel({ workspaceId }: { workspaceId: st
               {runningExecutions.length} task{runningExecutions.length === 1 ? '' : 's'} running
             </span>
             <span aria-hidden className="text-[color:var(--text-disabled)]">·</span>
-            <span className="min-w-0 flex-1 truncate text-[color:var(--text-muted)]">
-              {runningExecutions
+            <TruncatedText
+              as="span"
+              className="min-w-0 flex-1 text-[color:var(--text-muted)]"
+              text={runningExecutions
                 .map((entry) => entry.record ? shortIdentifier(entry.record) : entry.execution.taskId)
                 .join(', ')}
-            </span>
+            />
             <span className="shrink-0 font-medium text-[color:var(--accent-primary)]">
               View
             </span>
@@ -959,9 +962,11 @@ function SwitchboardRunningAgentsAside({
                   <span className="shrink-0 font-mono tabular-nums text-[11px] text-[color:var(--text-muted)]">
                     {identifier}
                   </span>
-                  <span className="min-w-0 flex-1 truncate text-[13px] font-medium text-[color:var(--text-strong)]">
-                    {title}
-                  </span>
+                  <TruncatedText
+                    as="span"
+                    className="min-w-0 flex-1 text-[13px] font-medium text-[color:var(--text-strong)]"
+                    text={title}
+                  />
                 </div>
                 <StatusDot tone="accent" pulse label="Running" />
                 <span className="shrink-0 text-[11px] tabular-nums text-[color:var(--text-muted)]">
@@ -1063,9 +1068,11 @@ function AttemptRow({
       </span>
       <div className="min-w-0 space-y-0.5">
         <div className="flex min-w-0 items-baseline justify-between gap-2">
-          <span className="min-w-0 truncate font-mono text-[12px] text-[color:var(--text-default)]">
-            {attempt.agentId ?? attempt.id}
-          </span>
+          <TruncatedText
+            as="span"
+            className="min-w-0 font-mono text-[12px] text-[color:var(--text-default)]"
+            text={attempt.agentId ?? attempt.id}
+          />
           <span className="shrink-0 text-[11px] text-[color:var(--text-muted)]">
             {EXECUTION_LABELS[status]}
           </span>
@@ -1216,7 +1223,7 @@ function BoardDetailPane({
       items.push({
         term: 'Link',
         description: (
-          <span className="truncate text-[color:var(--accent-primary)]">{task.url}</span>
+          <TruncatedText as="span" className="text-[color:var(--accent-primary)]" text={task.url} />
         ),
       })
     }
@@ -1232,7 +1239,7 @@ function BoardDetailPane({
                 <ExecutionStatusInline status="active" />
               ) : null}
               {task.execution.activeExecutionId ? (
-                <span className="truncate font-mono text-[color:var(--text-muted)]">{task.execution.activeExecutionId}</span>
+                <TruncatedText as="span" className="font-mono text-[color:var(--text-muted)]" text={task.execution.activeExecutionId} />
               ) : null}
             </span>
             {task.execution.activeProvider || task.execution.activeSessionId ? (

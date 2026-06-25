@@ -88,7 +88,6 @@ type UpdateAction = 'check' | 'download' | 'restart'
 
 type GitHubTokenUiStatus = Awaited<ReturnType<typeof window.api.getGitHubTokenStatus>>
 
-const EMPTY_SEARCH_EXCLUDES: string[] = []
 const EMPTY_USER_MODELS: string[] = []
 const EMPTY_PROJECT_KNOWLEDGE_ROOTS: Record<string, string | null> = {}
 const EMPTY_MCP_SETTINGS: McpSettings = { syncEnabled: false, servers: {} }
@@ -134,7 +133,6 @@ type SettingsTabId =
   | 'mcps'
   | 'skill-packs'
   | 'specialist-packs'
-  | 'file-search'
   | 'knowledge-graph'
   | 'learn'
   | 'mobile'
@@ -144,28 +142,30 @@ type SettingsTabId =
 
 // Declared in rail order: the flat order of this array (filtered to visible
 // tabs, then module sections appended) drives index-based roving focus, so it
-// must match the grouped visual order in `settingsTabGroups` below.
-const settingsTabs: Array<{ id: SettingsTabId; label: string; description: string }> = [
-  { id: 'appearance', label: 'Appearance', description: 'Theme and visual style' },
-  { id: 'shortcuts', label: 'Shortcuts', description: 'Keyboard shortcuts' },
-  { id: 'updates', label: 'Updates', description: 'Version and release channel' },
-  { id: 'telemetry', label: 'Telemetry', description: 'Usage and diagnostics' },
-  { id: 'agents', label: 'Agents', description: 'CLI runtime commands' },
-  { id: 'providers', label: 'Providers', description: 'Model and harness API keys' },
-  { id: 'roles', label: 'Roles', description: 'Sprint Engine role registry' },
-  { id: 'mcps', label: 'MCPs', description: 'Agent tool integrations' },
-  { id: 'skill-packs', label: 'Skill packs', description: 'Bundled and ecosystem agent skills' },
-  { id: 'specialist-packs', label: 'Specialist packs', description: 'Toggle bundled specialist agents' },
-  { id: 'github', label: 'GitHub', description: 'Issue import token' },
-  { id: 'file-search', label: 'File search', description: 'Index exclude patterns' },
-  { id: 'knowledge-graph', label: 'Knowledge graph', description: 'Project knowledge' },
-  { id: 'modules', label: 'Modules', description: 'Enable or disable features' },
-  { id: 'mobile', label: 'Mobile', description: 'Phone pairing and relay' },
-  { id: 'voice-dictation', label: 'Voice dictation', description: 'Transcription server and model' },
-  { id: 'learn', label: 'Learn', description: 'Tips and lessons' },
+// must match the grouped visual order in `settingsTabGroups` below. Built-in
+// tabs carry no description — the rail label orients, and each tab body
+// self-titles via its own section headings; only module-contributed sections
+// take a host-supplied page header (see `bodyContent`).
+const settingsTabs: Array<{ id: SettingsTabId; label: string }> = [
+  { id: 'appearance', label: 'Appearance' },
+  { id: 'shortcuts', label: 'Shortcuts' },
+  { id: 'updates', label: 'Updates' },
+  { id: 'telemetry', label: 'Telemetry' },
+  { id: 'agents', label: 'Agents' },
+  { id: 'providers', label: 'Providers' },
+  { id: 'roles', label: 'Roles' },
+  { id: 'mcps', label: 'MCPs' },
+  { id: 'skill-packs', label: 'Skill packs' },
+  { id: 'specialist-packs', label: 'Specialist packs' },
+  { id: 'github', label: 'GitHub' },
+  { id: 'knowledge-graph', label: 'Knowledge graph' },
+  { id: 'modules', label: 'Modules' },
+  { id: 'mobile', label: 'Mobile' },
+  { id: 'voice-dictation', label: 'Voice dictation' },
+  { id: 'learn', label: 'Learn' },
   // Rendered in the trailing "Extensions" rail group (see railGroups), ahead of
   // any module-contributed sections — not in settingsTabGroups.
-  { id: 'extensions', label: 'Extensions', description: 'Installed plugins and extensions' },
+  { id: 'extensions', label: 'Extensions' },
 ]
 
 // Rail groups (sentence-case micro labels). Module-contributed sections render
@@ -173,7 +173,7 @@ const settingsTabs: Array<{ id: SettingsTabId; label: string; description: strin
 const settingsTabGroups: Array<{ label: string; ids: SettingsTabId[] }> = [
   { label: 'App', ids: ['appearance', 'shortcuts', 'updates', 'telemetry'] },
   { label: 'Agents', ids: ['agents', 'providers', 'roles', 'mcps', 'skill-packs', 'specialist-packs'] },
-  { label: 'Workspace', ids: ['github', 'file-search', 'knowledge-graph', 'modules'] },
+  { label: 'Workspace', ids: ['github', 'knowledge-graph', 'modules'] },
   { label: 'Companion', ids: ['mobile', 'voice-dictation', 'learn'] },
 ]
 
@@ -183,7 +183,9 @@ const settingsTabGroups: Array<{ label: string; ids: SettingsTabId[] }> = [
 type SettingsTabDescriptor = {
   id: string
   label: string
-  description: string
+  // Only module-contributed sections carry a description; the host renders it in
+  // the section's page header (built-in tabs self-title and take no header).
+  description?: string
   moduleSection?: RegisteredSettingsSection
 }
 
@@ -206,7 +208,6 @@ function isSettingsTabId(value: unknown): value is SettingsTabId {
     || value === 'mcps'
     || value === 'skill-packs'
     || value === 'specialist-packs'
-    || value === 'file-search'
     || value === 'knowledge-graph'
     || value === 'learn'
     || value === 'mobile'
@@ -231,13 +232,6 @@ function parseEnvNames(value: string): string[] {
 }
 
 
-function parseSearchExcludeText(value: string): string[] {
-  return value
-    .split(/\r?\n|,/u)
-    .map((pattern) => pattern.trim())
-    .filter(Boolean)
-}
-
 const INPUT_CLASS =
   'h-9 w-full rounded-md border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] px-3 font-mono text-sm text-[color:var(--text-strong)] outline-none placeholder:text-[color:var(--text-disabled)] focus:border-[color:var(--accent-primary)] disabled:opacity-45'
 
@@ -250,9 +244,6 @@ const INPUT_CLASS =
  */
 const ROW_INPUT_CLASS =
   'h-8 max-w-full rounded-md border border-[color:var(--border-default)] bg-[color:var(--bg-app)] px-2.5 font-mono text-[12px] text-[color:var(--text-strong)] outline-none placeholder:text-[color:var(--text-disabled)] focus:border-[color:var(--accent-primary)] disabled:opacity-45'
-
-const TEXTAREA_CLASS =
-  'min-h-[96px] w-full resize-y rounded-md border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] px-3 py-2 font-mono text-sm text-[color:var(--text-strong)] outline-none placeholder:text-[color:var(--text-disabled)] focus:border-[color:var(--accent-primary)]'
 
 type MessageTone = 'neutral' | 'accent' | 'warn' | 'error'
 type RoleRegistryStatus = 'idle' | 'loading' | 'ready' | 'unavailable'
@@ -637,7 +628,6 @@ export default function SettingsPanel({
     [pluginCatalogEntries],
   )
   const mcpSettings = useWorkspaceStore((s) => s.appSettings.mcp ?? EMPTY_MCP_SETTINGS)
-  const searchExcludes = useWorkspaceStore((s) => s.appSettings.searchExcludes ?? EMPTY_SEARCH_EXCLUDES)
   const projectKnowledgeRoots = useWorkspaceStore((s) => s.appSettings.projectKnowledgeRoots ?? EMPTY_PROJECT_KNOWLEDGE_ROOTS)
   const usageTelemetry = useWorkspaceStore((s) => s.appSettings.usageTelemetry)
   const sprintEngineRoleSettings = useWorkspaceStore((s) => s.appSettings.sprintEngineRoleSettings)
@@ -682,7 +672,6 @@ export default function SettingsPanel({
   const setSkillPacksInstalled = useWorkspaceStore((s) => s.setSkillPacksInstalled)
   const upsertSkillPack = useWorkspaceStore((s) => s.upsertSkillPack)
   const removeSkillPackFromStore = useWorkspaceStore((s) => s.removeSkillPack)
-  const setSearchExcludes = useWorkspaceStore((s) => s.setSearchExcludes)
   const setUsageTelemetrySettings = useWorkspaceStore((s) => s.setUsageTelemetrySettings)
   const setSprintEngineRoleEnabled = useWorkspaceStore((s) => s.setSprintEngineRoleEnabled)
   const activeKnowledgeConfig = resolveProjectKnowledgeConfig(
@@ -693,7 +682,6 @@ export default function SettingsPanel({
   const activeProjectRoot = activeKnowledgeConfig?.projectRoot ?? activeWorkspace?.folderPath ?? null
   const activeSprintEngineRoot = activeWorkspace?.folderPath ?? null
   const isWindows = window.api.platform === 'win32'
-  const [searchExcludesDraft, setSearchExcludesDraft] = useState(() => searchExcludes.join('\n'))
   const [updateState, setUpdateState] = useState<AppUpdateState | null>(null)
   const [updateActionPending, setUpdateActionPending] = useState(false)
   const [githubTokenStatus, setGithubTokenStatus] = useState<GitHubTokenUiStatus | null>(null)
@@ -778,15 +766,6 @@ export default function SettingsPanel({
   const tabRefs = useRef<Record<string, HTMLButtonElement | null>>({})
   const autoCheckStartedRef = useRef(false)
   const lastUpdateRequestIdRef = useRef<number | null>(null)
-
-  const closeSettings = useCallback(() => {
-    setSearchExcludes(parseSearchExcludeText(searchExcludesDraft))
-    onClose()
-  }, [onClose, searchExcludesDraft, setSearchExcludes])
-
-  useEffect(() => {
-    setSearchExcludesDraft(searchExcludes.join('\n'))
-  }, [searchExcludes])
 
   useEffect(() => {
     let cancelled = false
@@ -1197,7 +1176,6 @@ export default function SettingsPanel({
     : null
   const installedSkillPacks = Object.values(skillPackSettings.installed)
 
-  const searchExcludesDescriptor = getSettingDescriptor('search-excludes')
   const telemetrySendDescriptor = getSettingDescriptor('usage-telemetry-send-data')
   const telemetryLocalDescriptor = getSettingDescriptor('usage-telemetry-local-export')
   const telemetryDiagnosticsDescriptor = getSettingDescriptor('usage-telemetry-export-diagnostics')
@@ -1528,17 +1506,23 @@ export default function SettingsPanel({
 
   const bodyContent = (
     <div className={fullWidthTab ? undefined : 'max-w-[640px]'}>
-      <header className="mb-4 border-b border-[color:var(--border-subtle)] pb-3">
-        <h3 className="flex items-center gap-2 text-[15px] font-semibold text-[color:var(--text-strong)]">
-          {activeTab.moduleSection ? (
+      {/* Built-in tabs self-title via their own section headings and the rail
+          orientation, so they take no page header. Module-contributed sections
+          render a third-party component with no title of its own, so the host
+          supplies the section's heading (icon + label) here. */}
+      {activeTab.moduleSection ? (
+        <header className="mb-4 border-b border-[color:var(--border-subtle)] pb-3">
+          <h3 className="flex items-center gap-2 text-[15px] font-semibold text-[color:var(--text-strong)]">
             <activeTab.moduleSection.icon className="h-4 w-4 shrink-0" aria-hidden="true" />
+            {activeTab.label}
+          </h3>
+          {activeTab.description ? (
+            <p className="mt-1 text-[12px] text-[color:var(--text-muted)]">
+              {activeTab.description}
+            </p>
           ) : null}
-          {activeTab.label}
-        </h3>
-        <p className="mt-1 text-[12px] text-[color:var(--text-muted)]">
-          {activeTab.description}
-        </p>
-      </header>
+        </header>
+      ) : null}
 
       {activeSettingsTab === 'appearance' ? (
         <div
@@ -2387,37 +2371,6 @@ export default function SettingsPanel({
         </div>
       ) : null}
 
-      {activeSettingsTab === 'file-search' ? (
-        <div
-          role="tabpanel"
-          id="settings-panel-file-search"
-          aria-labelledby="settings-tab-file-search"
-          className="space-y-4"
-        >
-          {searchExcludesDescriptor && searchExcludesDescriptor.field.type === 'multiline' ? (
-            <Field
-              label={searchExcludesDescriptor.label}
-              htmlFor="search-excludes-textarea"
-              help={searchExcludesDescriptor.help}
-            >
-              <textarea
-                value={searchExcludesDraft}
-                onChange={(event) => setSearchExcludesDraft(event.target.value)}
-                onBlur={(event) => setSearchExcludes(parseSearchExcludeText(event.target.value))}
-                rows={searchExcludesDescriptor.field.rows ?? 4}
-                placeholder={searchExcludesDescriptor.field.placeholder}
-                className={TEXTAREA_CLASS}
-              />
-            </Field>
-          ) : null}
-          <p className="text-[12px] leading-5 text-[color:var(--text-muted)]">
-            Defaults already exclude <span className="font-mono text-[color:var(--text-default)]">.git</span>,{' '}
-            <span className="font-mono text-[color:var(--text-default)]">node_modules</span>, and{' '}
-            <span className="font-mono text-[color:var(--text-default)]">dist</span>.
-          </p>
-        </div>
-      ) : null}
-
       {activeSettingsTab === 'knowledge-graph' ? (
         <div
           role="tabpanel"
@@ -2628,7 +2581,7 @@ export default function SettingsPanel({
 
       {chrome === 'panel' ? (
         <div className="mt-6 flex justify-end border-t border-[color:var(--border-subtle)] pt-4">
-          <GhostButton size="md" onClick={closeSettings}>
+          <GhostButton size="md" onClick={onClose}>
             Done
           </GhostButton>
         </div>
@@ -2647,7 +2600,7 @@ export default function SettingsPanel({
             Settings
           </h2>
           <div className="flex shrink-0 items-center gap-3">
-            <CloseIconButton size="md" aria-label="Close settings" onClick={closeSettings} />
+            <CloseIconButton size="md" aria-label="Close settings" onClick={onClose} />
           </div>
         </header>
 
@@ -2668,7 +2621,7 @@ export default function SettingsPanel({
       title="Settings"
       subtitle="Configure local CLIs, workspace paths, updates, and telemetry."
       titleId="settings-panel-title"
-      onClose={closeSettings}
+      onClose={onClose}
       closeLabel="Close settings"
       sidebar={sidebarNode}
     >
@@ -2677,10 +2630,10 @@ export default function SettingsPanel({
   )
 }
 
-// Single-line rail item. The tab's description renders once, in the body
-// header, not in the rail.
+// Single-line rail item — the label alone, no subtitle. The rail orients; tab
+// bodies carry their own section headings.
 const SettingsTabButton = React.forwardRef<HTMLButtonElement, {
-  tab: { id: string; label: string; description: string }
+  tab: { id: string; label: string }
   active: boolean
   onClick: () => void
   onKeyDown: (event: React.KeyboardEvent<HTMLButtonElement>) => void

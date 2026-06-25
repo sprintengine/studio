@@ -27,7 +27,7 @@ import {
 } from '../../utils/sprintengine'
 import { formatSprintEngineGoal } from '../../utils/sprintengineRunSummary'
 import { isEditableTarget } from '../../utils/keyboard'
-import { Tooltip } from '../ui'
+import { Tooltip, TruncatedText } from '../ui'
 import {
   buildTaskGraphLayout,
   defaultTaskGraphZoom,
@@ -768,9 +768,12 @@ export function SprintEngineTaskGraphView({
  </svg>
  Goal
  </div>
- <div className="mt-2 line-clamp-3 text-sm font-semibold leading-5 text-[color:var(--tone-good)]">
- {formatSprintEngineGoalPreview(sprintEngineState.goal)}
- </div>
+ <TruncatedText
+ as="div"
+ multiline
+ text={formatSprintEngineGoalPreview(sprintEngineState.goal)}
+ className="mt-2 line-clamp-3 text-sm font-semibold leading-5 text-[color:var(--tone-good)]"
+ />
  <div className="mt-3 text-[10px] text-[color:var(--text-muted)]">
  {terminalCount} final {terminalCount === 1 ? 'chain' : 'chains'}
  </div>
@@ -822,7 +825,7 @@ export function SprintEngineTaskGraphView({
  />
  <div className="flex items-start justify-between gap-3 pl-2">
  <div className="min-w-0">
- <div className="line-clamp-2 text-sm font-semibold leading-5 text-[color:var(--text-strong)]">{task.title}</div>
+ <TruncatedText as="div" multiline text={task.title} className="line-clamp-2 text-sm font-semibold leading-5 text-[color:var(--text-strong)]" />
  <div className="mt-1 flex min-w-0 items-center gap-1.5 text-[10px] text-[color:var(--text-disabled)]">
  <span>{task.id}</span>
  {/* design-tokens-allow: role accent swatch on the task-graph node label — role color is the documented exception. */}
@@ -844,9 +847,12 @@ export function SprintEngineTaskGraphView({
  </span>
  </div>
 
- <p className="mt-3 line-clamp-2 pl-2 text-[12px] leading-5 text-[color:var(--text-muted)]">
- {task.description || 'No description recorded.'}
- </p>
+ <TruncatedText
+ as="p"
+ multiline
+ text={task.description || 'No description recorded.'}
+ className="mt-3 line-clamp-2 pl-2 text-[12px] leading-5 text-[color:var(--text-muted)]"
+ />
 
  <div className="mt-3 flex flex-wrap gap-x-2 gap-y-1 pl-2 text-[10px] text-[color:var(--text-disabled)]">
  <span>

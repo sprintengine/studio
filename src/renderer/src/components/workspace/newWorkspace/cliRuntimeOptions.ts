@@ -45,27 +45,25 @@ const CLAUDE_CODE_PLUGIN_ID = 'claude-code'
 // fallback catalog.
 const AGENT_PICKER_HIDDEN_CLI_IDS = new Set<AgentCli>(['generic-shell'])
 
+// Fallback model catalogs for the bundled CLIs, used only while the plugin
+// registry is loading or errored (legacyCliRuntimeOptions / the `null`-plugins
+// path). The registry path reads each plugin manifest's own `modelSelection`.
+//
+// Policy: ship NO seeded model ids. The CLIs expose no live catalog to query, so
+// any baked-in list is a guess about the user's entitlements — offering a model
+// the account can't run turns selection into a trap (the user picks it and the
+// launch fails or silently falls back). Instead, the bare CLI row launches with
+// the CLI's own default (no `--model` flag) and the user adds the ids they
+// actually have access to via Settings → the model list persists per CLI in
+// `cliRuntimes[id].models` and merges in through mergeModelCatalog. `allowCustomId`
+// stays true so that add-your-own flow (and the picker passthrough) keeps working.
 const BUNDLED_AGENT_MODEL_CATALOGS: Record<AgentCli, PluginModelCatalog> = {
   codex: {
-    options: [
-      { id: 'gpt-5.5', label: 'GPT-5.5' },
-      { id: 'gpt-5.4', label: 'GPT-5.4' },
-      { id: 'gpt-5.4-mini', label: 'GPT-5.4 Mini' },
-      { id: 'gpt-5.3-codex', label: 'GPT-5.3 Codex' },
-    ],
+    options: [],
     allowCustomId: true,
   },
   [CLAUDE_CODE_PLUGIN_ID]: {
-    options: [
-      { id: 'fable', label: 'Fable 5' },
-      { id: 'opus', label: 'Opus' },
-      { id: 'sonnet', label: 'Sonnet' },
-      { id: 'haiku', label: 'Haiku' },
-      { id: 'claude-opus-4-8', label: 'Opus 4.8' },
-      { id: 'claude-opus-4-7', label: 'Opus 4.7' },
-      { id: 'claude-sonnet-4-6', label: 'Sonnet 4.6' },
-      { id: 'claude-haiku-4-5', label: 'Haiku 4.5' },
-    ],
+    options: [],
     allowCustomId: true,
   },
 }

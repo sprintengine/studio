@@ -40,13 +40,18 @@ assert.deepEqual(
   ],
   'catalog orders bundled before user entries, labels from displayName, and dedupes ids',
 )
-assert.ok(
-  buildAgentCliCatalog(plugins).find((option) => option.value === 'codex')?.modelSelection?.options.some((model) => model.id === 'gpt-5.3-codex'),
-  'bundled Codex keeps model metadata even when the registry entry omits it',
+// Bundled CLIs ship NO seeded model ids (no speculative entitlement guesses):
+// the fallback catalog exposes model UI via allowCustomId with an empty options
+// list, so the bare CLI row is the only default and users add their own ids.
+assert.deepEqual(
+  buildAgentCliCatalog(plugins).find((option) => option.value === 'codex')?.modelSelection,
+  { options: [], allowCustomId: true },
+  'bundled Codex exposes the add-your-own model UI with no seeded options',
 )
-assert.ok(
-  buildAgentCliCatalog(plugins).find((option) => option.value === 'claude-code')?.modelSelection?.options.some((model) => model.id === 'sonnet'),
-  'bundled Claude Code keeps model metadata even when the registry entry omits it',
+assert.deepEqual(
+  buildAgentCliCatalog(plugins).find((option) => option.value === 'claude-code')?.modelSelection,
+  { options: [], allowCustomId: true },
+  'bundled Claude Code exposes the add-your-own model UI with no seeded options',
 )
 
 assert.deepEqual(

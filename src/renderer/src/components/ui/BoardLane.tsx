@@ -1,5 +1,6 @@
 import React, { useRef } from 'react'
 import { useFlipReorder } from '../../utils/flipReorder'
+import { TruncatedText } from './TruncatedText'
 
 // BoardLane — canonical lane chrome for Switchboard, Sprint Engine, and any
 // future board panel that needs a flexible-width column (260 px floor by
@@ -174,9 +175,11 @@ export function BoardLane({
       <div className="flex items-center justify-between gap-2 px-3 pb-2 pt-2.5">
         <span className="flex min-w-0 items-center gap-1.5">
           {glyph}
-          <span className="truncate text-[12px] font-semibold text-[color:var(--text-strong)]">
-            {label}
-          </span>
+          <TruncatedText
+            as="span"
+            text={label}
+            className="text-[12px] font-semibold text-[color:var(--text-strong)]"
+          />
         </span>
         <span className="shrink-0 tabular-nums text-[11px] text-[color:var(--text-subtle)]">
           {count}

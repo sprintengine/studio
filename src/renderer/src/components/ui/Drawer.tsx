@@ -13,6 +13,7 @@
 
 import React, { useCallback, useEffect, useId, useRef, useState } from 'react'
 import { CloseIconButton } from './Buttons'
+import { TruncatedText } from './TruncatedText'
 
 type DrawerLifecycle = 'closed' | 'entering' | 'open' | 'closing'
 
@@ -190,12 +191,12 @@ function DrawerRoot({ open, onClose, title, ariaLabel, width = 360, children }: 
         className="drawer-panel absolute inset-y-0 right-0 flex h-full max-w-full flex-col border-l border-[color:var(--border-strong)] bg-[color:var(--bg-surface)] outline-none"
       >
         <header className="flex shrink-0 items-center justify-between gap-3 border-b border-[color:var(--border-default)] px-3 py-2">
-          <h2
+          <TruncatedText
+            as="h2"
             id={titleId}
-            className="truncate text-[length:var(--text-size-md)] font-semibold tracking-tight text-[color:var(--text-strong)]"
-          >
-            {title}
-          </h2>
+            text={title}
+            className="text-[length:var(--text-size-md)] font-semibold tracking-tight text-[color:var(--text-strong)]"
+          />
           <CloseIconButton aria-label="Close" onClick={onClose} />
         </header>
 

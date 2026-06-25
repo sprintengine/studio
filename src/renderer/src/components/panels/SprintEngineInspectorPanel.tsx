@@ -81,6 +81,7 @@ import {
   Spinner,
   TabPanel,
   Tabs,
+  TruncatedText,
   type DefinitionItem,
   type TabItem,
 } from '../ui'
@@ -606,9 +607,11 @@ function SprintEngineArtifactInspector({
               <span>·</span>
               <span className="font-mono text-[color:var(--text-muted)]">{artifact.id}</span>
             </div>
-            <h3 className="mt-2 truncate text-[18px] font-semibold leading-7 text-[color:var(--text-strong)]">
-              {artifact.title}
-            </h3>
+            <TruncatedText
+              as="h3"
+              text={artifact.title}
+              className="mt-2 text-[18px] font-semibold leading-7 text-[color:var(--text-strong)]"
+            />
           </div>
           <InspectorChromeActions
             expanded={isExpanded}
@@ -742,7 +745,7 @@ export function SprintEngineArtifactList({
                 <div className="min-w-0 space-y-0.5">
                   <div className="flex min-w-0 items-baseline gap-2">
                     <span className="shrink-0 font-mono tabular-nums text-[11px] text-[color:var(--text-muted)]">{artifact.id}</span>
-                    <span className="min-w-0 flex-1 truncate text-[13px] font-medium text-[color:var(--text-strong)]">{artifact.title}</span>
+                    <TruncatedText as="span" text={artifact.title} className="min-w-0 flex-1 text-[13px] font-medium text-[color:var(--text-strong)]" />
                     {confidencePct !== null ? (
                       <ConfidenceDial value={confidencePct} label="Agent confidence" />
                     ) : null}
@@ -1049,7 +1052,7 @@ function TaskQualityGates({
           const gateIdentity = (
             <span className="inline-flex min-w-0 items-center gap-1.5">
               <RoleAvatar role={gate.role} size="sm" ariaLabel="" />
-              <span className="truncate">{agent?.label ?? getSprintEngineRoleLabel(gate.role)}</span>
+              <TruncatedText as="span" text={agent?.label ?? getSprintEngineRoleLabel(gate.role)} />
             </span>
           )
           return (
@@ -1094,9 +1097,11 @@ function TaskQualityGates({
                   ) : null}
                 </div>
                 {gate.attempts.length === 0 && gate.focus ? (
-                  <div className="mt-0.5 truncate text-[11px] text-[color:var(--text-muted)]">
-                    {gate.focus}
-                  </div>
+                  <TruncatedText
+                    as="div"
+                    text={gate.focus}
+                    className="mt-0.5 text-[11px] text-[color:var(--text-muted)]"
+                  />
                 ) : null}
               </div>
             </li>
@@ -2330,7 +2335,7 @@ function AgentWorkedOnTasksList({
                   </span>
                 ) : null}
               </div>
-              <div className="mt-0.5 truncate text-sm text-[color:var(--text-strong)]">{task.title}</div>
+              <TruncatedText as="div" text={task.title} className="mt-0.5 text-sm text-[color:var(--text-strong)]" />
             </button>
           </li>
         )
@@ -2519,9 +2524,11 @@ function AgentActivityFeed({
                     >
                       {taskId}
                     </button>
-                    <span className="truncate text-[color:var(--text-disabled)]">
-                      {taskTitle}
-                    </span>
+                    <TruncatedText
+                      as="span"
+                      text={taskTitle}
+                      className="text-[color:var(--text-disabled)]"
+                    />
                     <span>{activityVerb(entry)}</span>
                   </div>
                   {showMessage ? (
@@ -2874,9 +2881,11 @@ export function SprintEngineInspectorPanel({
                   {runtimeStatus}
                 </span>
               </div>
-              <h3 className="mt-2 truncate text-[18px] font-semibold leading-7 text-[color:var(--text-strong)]">
-                {displayName}
-              </h3>
+              <TruncatedText
+                as="h3"
+                text={displayName}
+                className="mt-2 text-[18px] font-semibold leading-7 text-[color:var(--text-strong)]"
+              />
               <div className="mt-1 font-mono text-[11px] text-[color:var(--text-disabled)]">
                 {agent.id}
               </div>
@@ -2919,7 +2928,7 @@ export function SprintEngineInspectorPanel({
                 className="block w-full rounded-md border border-[color:var(--border-default)] px-3 py-2 text-left interactive transition-colors hover:border-[color:var(--border-strong)] hover:bg-[color:var(--bg-surface-raised)]"
               >
                 <div className="font-mono text-[11px] text-[color:var(--tone-warn)]">{currentTask.id}</div>
-                <div className="mt-1 truncate text-sm font-semibold text-[color:var(--text-strong)]">{currentTask.title}</div>
+                <TruncatedText as="div" text={currentTask.title} className="mt-1 text-sm font-semibold text-[color:var(--text-strong)]" />
               </button>
             ) : (
               <div className="text-[color:var(--text-subtle)]">No active task assignment.</div>

@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { Spinner } from '../../ui'
+import { Spinner, TruncatedText } from '../../ui'
 import { GuidedBriefRawTerminal } from './GuidedBriefRawTerminal'
 import { InterviewQuestionCard, ResolvedDecisionsList } from './InterviewPane'
 import type { GuidedInterviewState } from './interviewProtocol'
@@ -75,9 +75,11 @@ export function ConversationPane({
           <span className="truncate text-[13px] font-semibold text-[color:var(--text-strong)]">
             {specialistName}
           </span>
-          <span className="truncate text-[12px] text-[color:var(--text-muted)]">
-            {specialistSubline}
-          </span>
+          <TruncatedText
+            as="span"
+            text={specialistSubline}
+            className="text-[12px] text-[color:var(--text-muted)]"
+          />
         </div>
         {working && session && !errorMessage ? <Spinner size={14} label="Working" /> : null}
       </div>

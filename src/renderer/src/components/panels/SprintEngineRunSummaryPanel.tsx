@@ -9,6 +9,7 @@ import {
   Section,
   StatusDot,
   Tooltip,
+  TruncatedText,
   type LifecycleState,
   type Tone,
 } from '../ui'
@@ -1421,7 +1422,7 @@ function TypeStatCell({ stat }: { stat: SprintEngineTypeStat }) {
       <div className="flex items-center justify-between gap-2">
         <span className="inline-flex items-center gap-1.5 truncate text-[12px] text-[color:var(--text-default)]">
           <RoleGlyph role={stat.key as SprintEngineRoleId} size="sm" />
-          <span className="truncate">{getSprintEngineRoleLabel(stat.key)}</span>
+          <TruncatedText as="span" text={getSprintEngineRoleLabel(stat.key)} />
         </span>
         {stat.clis.length > 0 ? (
           <span className="inline-flex flex-none items-center gap-1">
@@ -1442,9 +1443,11 @@ function TypeStatCell({ stat }: { stat: SprintEngineTypeStat }) {
       <div className="mt-0.5 text-[11px] tabular-nums text-[color:var(--text-disabled)]">
         {stat.issueLoadPerTask === null ? '—' : `${stat.issueLoadPerTask} load/task`} · {issues} · {tasks}
       </div>
-      <div className="mt-0.5 truncate text-[11px] text-[color:var(--text-disabled)]" title={mix}>
-        {mix}
-      </div>
+      <TruncatedText
+        as="div"
+        text={mix}
+        className="mt-0.5 text-[11px] text-[color:var(--text-disabled)]"
+      />
     </div>
   )
 }

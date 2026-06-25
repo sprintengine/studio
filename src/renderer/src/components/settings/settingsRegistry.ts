@@ -187,22 +187,6 @@ export const settingsRegistry: ReadonlyArray<SettingDescriptor> = [
     storeSetter: 'setUsageTelemetrySettings',
   },
 
-  // File search excludes — one pattern per line.
-  {
-    id: 'search-excludes',
-    label: 'File search excludes',
-    help: 'Glob patterns ignored by file search. One pattern per line.',
-    scope: 'app',
-    group: 'file-search',
-    field: {
-      type: 'multiline',
-      rows: 8,
-      placeholder: '**/node_modules\n**/.git\n**/dist',
-    },
-    storePath: 'appSettings.searchExcludes',
-    storeSetter: 'setSearchExcludes',
-  },
-
   // Agent runtime defaults.
   {
     id: 'last-selected-cli',
