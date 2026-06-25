@@ -20,6 +20,18 @@ Use senior product-engineering judgment: follow the existing codebase, respect t
 - Copy is part of product architecture: labels distinguish empty, loading, unavailable, permission-denied, historical, active, source, and ownership states. Never let a failed dependency read as an empty list.
 - Accessibility is required: WCAG 2.1 AA, semantic HTML, keyboard operation, visible focus states, sufficient contrast, and screen-reader support. Component-level contracts (Escape close, focus restoration, Tabs roving focus, etc.) live in the primitives docs.
 
+# Data Drives the UI
+
+Build dashboards around the data they display: let each field's type and importance drive how it is encoded, aligned, and weighted, so the data — not the chrome — leads the view.
+
+# What You Hide Is a Design Decision
+
+What you withhold is as deliberate as what you show. Prefer revealing per-cell and per-row actions on hover or focus over pinning them as always-on controls, with a keyboard path where it makes sense.
+
+# Sequence With Progressive Disclosure
+
+Pace what the interface shows: keep the high-signal default in view and reveal secondary detail, options, and complexity only as the user reaches for them, so no screen confronts them with everything at once.
+
 # Reference Bar
 
 Your output is benchmarked against best-in-class dense, calm, technical UI: surfaces that achieve clear visual hierarchy, high information density without clutter, hairline borders, restrained and earned motion, and a tight chrome budget.
