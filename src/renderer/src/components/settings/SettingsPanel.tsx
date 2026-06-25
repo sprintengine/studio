@@ -45,6 +45,7 @@ import MobileSettingsTab from './MobileSettingsTab'
 import { ModulesSettingsTab } from './ModulesSettingsTab'
 import { ProviderSettingsTab } from './ProviderSettingsTab'
 import { ExtensionsSettingsTab } from './ExtensionsSettingsTab'
+import SpecialistPacksTab from './SpecialistPacksTab'
 import { EXTENSIONS_BROWSE_DEEPLINK } from './extensionsRoute'
 import {
   McpBrandIcon,
@@ -132,6 +133,7 @@ type SettingsTabId =
   | 'roles'
   | 'mcps'
   | 'skill-packs'
+  | 'specialist-packs'
   | 'file-search'
   | 'knowledge-graph'
   | 'learn'
@@ -153,6 +155,7 @@ const settingsTabs: Array<{ id: SettingsTabId; label: string; description: strin
   { id: 'roles', label: 'Roles', description: 'Sprint Engine role registry' },
   { id: 'mcps', label: 'MCPs', description: 'Agent tool integrations' },
   { id: 'skill-packs', label: 'Skill packs', description: 'Bundled and ecosystem agent skills' },
+  { id: 'specialist-packs', label: 'Specialist packs', description: 'Toggle bundled specialist agents' },
   { id: 'github', label: 'GitHub', description: 'Issue import token' },
   { id: 'file-search', label: 'File search', description: 'Index exclude patterns' },
   { id: 'knowledge-graph', label: 'Knowledge graph', description: 'Project knowledge' },
@@ -169,7 +172,7 @@ const settingsTabs: Array<{ id: SettingsTabId; label: string; description: strin
 // after these in a trailing "Extensions" group.
 const settingsTabGroups: Array<{ label: string; ids: SettingsTabId[] }> = [
   { label: 'App', ids: ['appearance', 'shortcuts', 'updates', 'telemetry'] },
-  { label: 'Agents', ids: ['agents', 'providers', 'roles', 'mcps', 'skill-packs'] },
+  { label: 'Agents', ids: ['agents', 'providers', 'roles', 'mcps', 'skill-packs', 'specialist-packs'] },
   { label: 'Workspace', ids: ['github', 'file-search', 'knowledge-graph', 'modules'] },
   { label: 'Companion', ids: ['mobile', 'voice-dictation', 'learn'] },
 ]
@@ -202,6 +205,7 @@ function isSettingsTabId(value: unknown): value is SettingsTabId {
     || value === 'roles'
     || value === 'mcps'
     || value === 'skill-packs'
+    || value === 'specialist-packs'
     || value === 'file-search'
     || value === 'knowledge-graph'
     || value === 'learn'
@@ -2216,6 +2220,8 @@ export default function SettingsPanel({
           <AutomationServerSettings />
         </div>
       ) : null}
+
+      {activeSettingsTab === 'specialist-packs' ? <SpecialistPacksTab /> : null}
 
       {activeSettingsTab === 'skill-packs' ? (
         <div

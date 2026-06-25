@@ -6,6 +6,8 @@ import sys
 from pathlib import Path
 from typing import Any
 
+from sprintengine_core.skill_layers import MULTICODE_LAYER_SKILLS
+
 from .registry import get_soul, list_souls, render_soul, soul_path, validate_souls
 
 
@@ -44,9 +46,13 @@ def cmd_list(args: argparse.Namespace) -> int:
 
 
 def cmd_get(args: argparse.Namespace) -> int:
+    # The portable soul is the role identity only. Multicode-managed spawns layer
+    # the Multicode product skills (Backlog, Knowledge Graph) on top by default;
+    # `--bare` renders the pack-portable soul without any host layer.
+    extra_skills = () if args.bare else MULTICODE_LAYER_SKILLS
     try:
         soul = get_soul(args.role)
-        content = render_soul(args.role)
+        content = render_soul(args.role, extra_skills=extra_skills)
         path = soul_path(args.role)
     except (KeyError, FileNotFoundError) as exc:
         return _fail("soul_not_found", str(exc), args.format)
@@ -113,6 +119,11 @@ def build_parser() -> argparse.ArgumentParser:
     p = sub.add_parser("get", help="Print a Soul prompt.")
     p.add_argument("role", help="Soul role, for example architect, developer, or frontend.")
     p.add_argument("--format", choices=["text", "json"], default="text")
+    p.add_argument(
+        "--bare",
+        action="store_true",
+        help="Render only the portable soul identity, without the Multicode product skill layer.",
+    )
     p.set_defaults(handler=cmd_get)
 
     p = sub.add_parser("path", help="Print the prompt file path for a Soul.")

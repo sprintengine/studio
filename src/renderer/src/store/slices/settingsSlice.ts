@@ -26,6 +26,7 @@ import type {
   SkillPackSettings,
   SpecialistActionId,
   SprintEngineCliPermissionPreset,
+  SprintEngineRoleRegistry,
   UsageTelemetrySettings,
   VoiceDictationModel,
   VoiceDictationSettings,
@@ -36,7 +37,6 @@ import {
   resolveInitialOnboardingStep,
   type OnboardingStep,
 } from '../onboardingState'
-import { SPECIALIST_ACTIONS } from '../../specialists/specialistActions'
 import { SIDEBAR_DEFAULT_WIDTH, clampSidebarWidth } from '../../components/workspace/sidebarWidth'
 import { isAppTheme, type AppearanceSettings, type AppTheme } from '../../types/appTheme'
 import { normalizeModuleOverrides } from '../../../../shared/modules/manifest'
@@ -523,13 +523,15 @@ export function normalizeConversationModel(
 // incomplete or stale list is safe to store.
 export function normalizeSpecialistOrder(input: unknown): SpecialistActionId[] {
   if (!Array.isArray(input)) return []
-  const valid = new Set(SPECIALIST_ACTIONS.map((action) => action.id))
-  const seen = new Set<SpecialistActionId>()
+  // Keep any non-empty id (bundled or registry-discovered role id), de-duped.
+  // The roster resolves order against the live specialist list at render time,
+  // so an id whose pack is absent is simply skipped there.
+  const seen = new Set<string>()
   const result: SpecialistActionId[] = []
   for (const entry of input) {
     if (typeof entry !== 'string') continue
-    const id = entry.trim() as SpecialistActionId
-    if (valid.has(id) && !seen.has(id)) {
+    const id = entry.trim()
+    if (id && !seen.has(id)) {
       seen.add(id)
       result.push(id)
     }
@@ -537,19 +539,38 @@ export function normalizeSpecialistOrder(input: unknown): SpecialistActionId[] {
   return result
 }
 
-// Persisted "New chat in project" agent choice. A specialist choice survives
-// only while its id is still in the roster; anything else (including a stale
-// specialist id or a malformed value) falls back to the General agent so a
-// plain New chat can never spawn an unknown agent.
+// Persisted specialist-pack enablement: the set of pack ids the user switched
+// off. Keeps only non-empty strings and drops duplicates; an unknown id is
+// harmless (it just has no pack to hide).
+export function normalizeSpecialistPacks(input: unknown): { disabled: string[] } {
+  const raw = (input as { disabled?: unknown } | undefined)?.disabled
+  if (!Array.isArray(raw)) return { disabled: [] }
+  const seen = new Set<string>()
+  const disabled: string[] = []
+  for (const entry of raw) {
+    if (typeof entry !== 'string') continue
+    const id = entry.trim()
+    if (id && !seen.has(id)) {
+      seen.add(id)
+      disabled.push(id)
+    }
+  }
+  return { disabled }
+}
+
+// Persisted "New chat in project" agent choice. A specialist choice is kept as
+// long as it carries a non-empty id — bundled or registry-discovered (a
+// plugged-in specialist pack) — so a pluggable specialist can be the default.
+// The live roster is validated where the choice is shown and spawned, so a
+// removed pack degrades gracefully there; only malformed shapes (missing id,
+// wrong type) fall back to the General agent here.
 export function normalizeNewChatAgentChoice(input: unknown): NewChatAgentChoice {
   if (!input || typeof input !== 'object') return { kind: 'general' }
   const choice = input as Partial<NewChatAgentChoice>
   if (choice.kind === 'terminal') return { kind: 'terminal' }
   if (choice.kind === 'specialist') {
     const id = typeof choice.specialistId === 'string' ? (choice.specialistId.trim() as SpecialistActionId) : null
-    if (id && SPECIALIST_ACTIONS.some((action) => action.id === id)) {
-      return { kind: 'specialist', specialistId: id }
-    }
+    if (id) return { kind: 'specialist', specialistId: id }
   }
   return { kind: 'general' }
 }
@@ -742,6 +763,7 @@ export const defaultAppSettings = (): AppSettings => ({
   specialistModelDefaults: {},
   multiloopRoleModelDefaults: {},
   specialistOrder: [],
+  specialistPacks: { disabled: [] },
   sprintEngineRoleSettings: defaultSprintEngineRoleSettings(),
   sprintEngineRunSettings: {},
   searchExcludes: [],
@@ -795,6 +817,7 @@ export function normalizeAppSettings(settings: Partial<AppSettings> | undefined,
     specialistModelDefaults: normalizeCliModelSelections(settings?.specialistModelDefaults),
     multiloopRoleModelDefaults: normalizeCliModelSelections(settings?.multiloopRoleModelDefaults),
     specialistOrder: normalizeSpecialistOrder(settings?.specialistOrder),
+    specialistPacks: normalizeSpecialistPacks(settings?.specialistPacks),
     sprintEngineRoleSettings: normalizeSprintEngineRoleSettings(settings?.sprintEngineRoleSettings),
     sprintEngineRunSettings: normalizeSprintEngineRunSettings(settings?.sprintEngineRunSettings),
     searchExcludes: normalizeSearchExcludes(settings?.searchExcludes),
@@ -847,6 +870,11 @@ export interface SettingsSliceState {
   // Set by user action — popping a tab out turns it on, docking a file back
   // turns it off — and remembered so the next file reuses the last surface.
   openFilesInExternalWindow: boolean
+  // Discovered Sprint Engine role registry for the active workspace (bundled +
+  // workspace/user/plugin layers). In-memory only (re-fetched per workspace,
+  // never persisted); powers the registry-discovered specialist packs in the
+  // spawn dropdown and the Specialist packs settings tab. Null until loaded.
+  sprintEngineRoleRegistry: SprintEngineRoleRegistry | null
   // Live outcome of the deferred first-run agent-config adoption, shown on the
   // first-run overlay. Transient (not persisted via extractSettingsFields) — it
   // describes an action that ran this session, never a resumed one.
@@ -856,6 +884,7 @@ export interface SettingsSliceState {
 export interface SettingsSliceActions {
   setSidebarCollapsed: (collapsed: boolean) => void
   setSidebarWidth: (width: number) => void
+  setSprintEngineRoleRegistry: (registry: SprintEngineRoleRegistry | null) => void
   setSprintEnginesAsideOpen: (open: boolean) => void
   setOpenFilesInExternalWindow: (enabled: boolean) => void
   openSettingsOverlay: (opts?: { initialTab?: string | null; checkForUpdates?: boolean }) => void
@@ -880,6 +909,7 @@ export interface SettingsSliceActions {
   setSpecialistModelDefault: (specialistId: SpecialistActionId, selection: AgentCliModelSelection | null) => void
   setMultiloopRoleModelDefault: (role: MultiloopRole, selection: AgentCliModelSelection | null) => void
   setSpecialistOrder: (order: SpecialistActionId[]) => void
+  setSpecialistPackEnabled: (packId: string, enabled: boolean) => void
   // Command ids are open strings: shell registry ids plus namespaced module
   // command ids (`<moduleId>.<commandId>`). The Shortcuts tab only offers rows
   // the merged registry currently exposes.
@@ -946,7 +976,13 @@ export function createSettingsSlice(set: SettingsSliceSet): SettingsSlice {
     sidebarWidth: SIDEBAR_DEFAULT_WIDTH,
     sprintEnginesAsideOpen: false,
     openFilesInExternalWindow: DEFAULT_OPEN_FILES_IN_EXTERNAL_WINDOW,
+    sprintEngineRoleRegistry: null,
     agentConfigAdoptionResult: null,
+
+    setSprintEngineRoleRegistry: (registry) =>
+      set((state) => {
+        state.sprintEngineRoleRegistry = registry
+      }),
 
     setSidebarCollapsed: (collapsed) =>
       set((state) => {
@@ -1158,6 +1194,20 @@ export function createSettingsSlice(set: SettingsSliceSet): SettingsSlice {
     setSpecialistOrder: (order) =>
       set((state) => {
         state.appSettings.specialistOrder = normalizeSpecialistOrder(order)
+      }),
+
+    setSpecialistPackEnabled: (packId, enabled) =>
+      set((state) => {
+        const id = packId.trim()
+        if (!id) return
+        const current = normalizeSpecialistPacks(state.appSettings.specialistPacks)
+        const disabled = new Set(current.disabled)
+        if (enabled) {
+          disabled.delete(id)
+        } else {
+          disabled.add(id)
+        }
+        state.appSettings.specialistPacks = { disabled: [...disabled] }
       }),
 
     // The setters accept any non-empty command id: the Shortcuts tab only

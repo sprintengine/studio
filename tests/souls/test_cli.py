@@ -8,6 +8,10 @@ from pathlib import Path
 import souls.registry as souls_registry
 from souls.registry import get_soul, render_soul, soul_path, validate_souls
 from sprintengine_core.role_registry import RoleSkillRegistry
+from sprintengine_core.skill_layers import (
+    MULTICODE_LAYER_SKILLS,
+    SPRINTENGINE_SOUL_EXTRA_SKILLS,
+)
 from sprintengine_core.tool.roles import VALID_ROLES
 
 
@@ -80,26 +84,42 @@ def test_souls_get_returns_prompt_for_alias() -> None:
     assert "principal QA engineer" in payload["content"]
 
 
-def test_bundled_souls_are_composed_from_shared_skills() -> None:
+def test_bundled_role_manifests_carry_only_the_portable_soul() -> None:
+    # A pack ships only the agent identity. Host/Sprint Engine layer skills
+    # (Backlog, Knowledge Graph, quality norms) are composed on top at spawn
+    # time, never baked into the manifest, so a soul stays portable.
     registry_root = Path("resources/sprintengine")
     manifests = sorted((registry_root / "roles").glob("*.json"))
-    shared_skill_usage: dict[str, int] = {}
+    assert manifests
 
+    layer_skills = set(SPRINTENGINE_SOUL_EXTRA_SKILLS)
     for manifest_path in manifests:
         manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
         skills = [entry["skill"] for entry in manifest["soul"]]
 
-        assert len(skills) > 1, manifest["id"]
-        assert skills[0] == manifest["id"]
-        for skill_id in skills[1:]:
-            shared_skill_usage[skill_id] = shared_skill_usage.get(skill_id, 0) + 1
-
-    assert shared_skill_usage
-    assert all(count >= 2 for count in shared_skill_usage.values())
+        assert skills == [manifest["id"]], manifest["id"]
+        assert not layer_skills.intersection(skills), manifest["id"]
 
 
-def test_rendered_soul_includes_shared_sections_once() -> None:
+def test_bare_soul_excludes_host_and_sprintengine_layers() -> None:
+    # The portable soul carries the role identity only — none of the host or
+    # Sprint Engine layer content.
     rendered = render_soul("developer")
+
+    for heading in [
+        "# Production Reality Gate",
+        "# Post-Change Self-Review",
+        "# Evidence Quality Assessment",
+    ]:
+        assert heading not in rendered
+    assert "MULTICODE_KNOWLEDGE_ROOT" not in rendered
+    assert "principal software engineer" in rendered
+
+
+def test_layered_soul_includes_each_shared_section_once() -> None:
+    # A Sprint Engine dispatch layers the Multicode product skills and quality
+    # norms on top of the soul; each appears exactly once.
+    rendered = render_soul("developer", extra_skills=SPRINTENGINE_SOUL_EXTRA_SKILLS)
 
     for heading in [
         "# Production Reality Gate",
@@ -108,13 +128,19 @@ def test_rendered_soul_includes_shared_sections_once() -> None:
     ]:
         assert rendered.count(heading) == 1
 
-    assert "# Collaboration Norms" not in rendered
-    assert "# Sprint Engine Workflow" not in rendered
     assert "Do not treat `MVP`, `first pass`, `local`, or `works in UI` as permission" in rendered
-    assert "Ask only when a wrong assumption" not in rendered
-    assert "Respect role boundaries" not in rendered
-    assert "Completion claims must be backed by commands" in rendered
-    assert "run `sprintengine join --role <role> --id <agent-id> --watch`" not in rendered
+    assert "Completion claims must be backed by" in rendered
+    assert "MULTICODE_KNOWLEDGE_ROOT" in rendered
+
+
+def test_standalone_soul_layers_multicode_skills_only() -> None:
+    # The standalone (dropdown) spawn layers Multicode product skills but not
+    # the Sprint Engine quality norms.
+    rendered = render_soul("developer", extra_skills=MULTICODE_LAYER_SKILLS)
+
+    assert "MULTICODE_KNOWLEDGE_ROOT" in rendered
+    assert "# Production Reality Gate" not in rendered
+    assert "# Evidence Quality Assessment" not in rendered
 
 
 def test_bundled_base_souls_do_not_include_sprintengine_runtime_language() -> None:
@@ -250,3 +276,65 @@ def test_validate_fails_migrated_role_with_missing_registry_skill(tmp_path: Path
 
     assert any("missing_tester_skill" in error for error in errors)
     assert any("Role 'tester' cannot render" in error for error in errors)
+
+
+def test_session_plugin_roots_parses_env(monkeypatch) -> None:
+    monkeypatch.setenv(
+        souls_registry.REGISTRY_ROOTS_ENV,
+        json.dumps([
+            {"id": "p", "root": "/tmp/x"},
+            {"root": "/tmp/y"},          # id optional
+            {"bad": 1},                  # no root → skipped
+            {"root": "   "},             # blank root → skipped
+            "nope",                      # not an object → skipped
+        ]),
+    )
+    assert souls_registry._session_plugin_roots() == [
+        {"id": "p", "root": "/tmp/x"},
+        {"root": "/tmp/y"},
+    ]
+
+
+def test_session_plugin_roots_tolerates_garbage(monkeypatch) -> None:
+    monkeypatch.setenv(souls_registry.REGISTRY_ROOTS_ENV, "not json at all")
+    assert souls_registry._session_plugin_roots() == []
+    monkeypatch.setenv(souls_registry.REGISTRY_ROOTS_ENV, json.dumps({"root": "x"}))  # not a list
+    assert souls_registry._session_plugin_roots() == []
+    monkeypatch.delenv(souls_registry.REGISTRY_ROOTS_ENV, raising=False)
+    assert souls_registry._session_plugin_roots() == []
+
+
+def test_effective_plugin_roots_includes_canonical_user_root(monkeypatch) -> None:
+    monkeypatch.delenv(souls_registry.REGISTRY_ROOTS_ENV, raising=False)
+    assert souls_registry._effective_plugin_roots() == [souls_registry.MULTICODE_USER_REGISTRY_ROOT]
+    # Session plugin roots come first, then the canonical user root — matching the
+    # app's menu discovery order.
+    monkeypatch.setenv(souls_registry.REGISTRY_ROOTS_ENV, json.dumps([{"id": "plug", "root": "/tmp/z"}]))
+    assert souls_registry._effective_plugin_roots() == [
+        {"id": "plug", "root": "/tmp/z"},
+        souls_registry.MULTICODE_USER_REGISTRY_ROOT,
+    ]
+
+
+def test_session_plugin_root_specialist_renders_through_souls(tmp_path, monkeypatch) -> None:
+    # A specialist living in a session plugin root (the env channel the app sets
+    # at spawn) resolves through render_soul — the same path `souls get` uses — so
+    # the spawn menu and the spawn agree.
+    plugin = tmp_path / "plugin-roles"
+    (plugin / "roles").mkdir(parents=True)
+    (plugin / "skills" / "growth").mkdir(parents=True)
+    (plugin / "roles" / "growth.json").write_text(
+        json.dumps({"id": "growth", "label": "Growth", "soul": [{"skill": "growth"}]}),
+        encoding="utf-8",
+    )
+    (plugin / "skills" / "growth" / "SKILL.md").write_text(
+        "---\nname: growth\n---\n\n# Growth\n\nDrive {{role}} work.",
+        encoding="utf-8",
+    )
+    monkeypatch.setenv(souls_registry.REGISTRY_ROOTS_ENV, json.dumps([{"id": "growth-plugin", "root": str(plugin)}]))
+    monkeypatch.chdir(tmp_path)
+
+    content = render_soul("growth")
+
+    assert '<skill name="growth">' in content
+    assert "Drive growth work." in content

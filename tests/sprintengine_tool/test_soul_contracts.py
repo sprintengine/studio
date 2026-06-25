@@ -14,6 +14,7 @@ from pathlib import Path
 import pytest
 
 from sprintengine_core.role_registry import BUNDLED_REGISTRY_ROOT, RoleSkillRegistry
+from sprintengine_core.skill_layers import SPRINTENGINE_SOUL_EXTRA_SKILLS
 
 # Anchor phrases per bundled skill. Every skill referenced by a bundled role
 # manifest must have an entry; the registration test below enforces this.
@@ -130,3 +131,23 @@ def test_every_rendered_soul_contains_required_rule_anchors(bundled_discovery, t
                 if anchor not in rendered.content:
                     missing.append(f"{role_id}: [{soul_entry.skill}] {anchor!r}")
     assert not missing, "Rule anchors missing from rendered souls:\n" + "\n".join(missing)
+
+
+def test_layered_render_carries_host_and_sprintengine_anchors(bundled_discovery, tmp_path: Path) -> None:
+    # Backlog, Knowledge Graph, and the quality norms left the manifest soul and
+    # are now layered on at spawn time. Guard their anchors on the layered render
+    # so the host layer cannot silently drop them.
+    missing: list[str] = []
+    for role_id in sorted(bundled_discovery.roles):
+        rendered = bundled_discovery.render_soul(
+            role_id,
+            workspace_root=tmp_path / "workspace",
+            run_id="contract",
+            extra_skills=SPRINTENGINE_SOUL_EXTRA_SKILLS,
+        )
+        for skill_id in SPRINTENGINE_SOUL_EXTRA_SKILLS:
+            assert f'<skill name="{skill_id}">' in rendered.content, f"{role_id}: missing {skill_id} envelope"
+            for anchor in SKILL_ANCHORS.get(skill_id, ()):
+                if anchor not in rendered.content:
+                    missing.append(f"{role_id}: [{skill_id}] {anchor!r}")
+    assert not missing, "Layer anchors missing from rendered souls:\n" + "\n".join(missing)

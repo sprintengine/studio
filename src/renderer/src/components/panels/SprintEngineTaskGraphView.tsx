@@ -183,6 +183,21 @@ export function SprintEngineTaskGraphView({
  const graphScrollRef = useRef<HTMLDivElement | null>(null)
  const lastCenteredKeyRef = useRef<string | null>(null)
  const zoomAnchorRef = useRef<TaskGraphZoomAnchor | null>(null)
+ // Latest zoom mirrored into a ref so the native (non-passive) wheel listener
+ // reads the current value without re-binding on every zoom change.
+ const graphZoomRef = useRef(graphZoom)
+ graphZoomRef.current = graphZoom
+ // Drag-to-pan ("hand") session — tracks the pointer + scroll origin so a
+ // press-and-drag on empty canvas scrolls the viewport, Excalidraw style.
+ const panSessionRef = useRef<{
+ pointerId: number
+ startX: number
+ startY: number
+ startScrollLeft: number
+ startScrollTop: number
+ } | null>(null)
+ const [isPanning, setIsPanning] = useState(false)
+ const hasNodes = graph.nodes.length > 0
 
  const captureZoomAnchor = (viewportX?: number, viewportY?: number): TaskGraphZoomAnchor | null => {
  const scrollEl = graphScrollRef.current
@@ -252,16 +267,87 @@ export function SprintEngineTaskGraphView({
  return () => window.cancelAnimationFrame(frame)
  }, [graphZoom])
 
- const handleGraphWheel = (event: React.WheelEvent<HTMLDivElement>) => {
- if (!event.ctrlKey && !event.metaKey) return
-
- event.preventDefault()
+ // Excalidraw-style navigation: a plain scroll wheel / two-finger trackpad
+ // swipe pans via the browser's native scrolling, while pinch-zoom — which
+ // Chromium delivers as a ctrl/meta + wheel event — zooms toward the cursor.
+ // Bound as a native non-passive listener so preventDefault reliably
+ // suppresses the browser's own pinch-zoom; React attaches wheel passively.
+ useEffect(() => {
  const scrollEl = graphScrollRef.current
  if (!scrollEl) return
 
+ const onWheel = (event: WheelEvent) => {
+ if (graph.nodes.length === 0) return
+ // Let the native overflow scroll pan the canvas for unmodified wheels.
+ if (!event.ctrlKey && !event.metaKey) return
+ event.preventDefault()
+
  const rect = scrollEl.getBoundingClientRect()
- const anchor = captureZoomAnchor(event.clientX - rect.left, event.clientY - rect.top)
- setGraphZoomFromAnchor(getNextTaskGraphZoom(graphZoom, event.deltaY < 0 ? 'in' : 'out'), anchor)
+ const viewportX = event.clientX - rect.left
+ const viewportY = event.clientY - rect.top
+ const currentZoom = graphZoomRef.current
+ const nextZoom = Math.max(
+ minTaskGraphZoom,
+ Math.min(maxTaskGraphZoom, currentZoom * Math.exp(-event.deltaY * 0.0015))
+ )
+ if (Math.abs(nextZoom - currentZoom) < 0.0005) return
+
+ zoomAnchorRef.current = {
+ graphX: (scrollEl.scrollLeft + viewportX) / currentZoom,
+ graphY: (scrollEl.scrollTop + viewportY) / currentZoom,
+ viewportX,
+ viewportY,
+ }
+ setGraphZoom(nextZoom)
+ }
+
+ scrollEl.addEventListener('wheel', onWheel, { passive: false })
+ return () => scrollEl.removeEventListener('wheel', onWheel)
+ }, [graph.nodes.length])
+
+ // Press-and-drag to pan: left button on empty canvas (clicks on task nodes
+ // still select them) or middle button anywhere. Pointer capture keeps the
+ // drag alive even when the cursor leaves the viewport.
+ const handleGraphPointerDown = (event: React.PointerEvent<HTMLDivElement>) => {
+ const scrollEl = graphScrollRef.current
+ if (!scrollEl || graph.nodes.length === 0) return
+
+ const isMiddle = event.button === 1
+ const isLeft = event.button === 0
+ if (!isMiddle && !isLeft) return
+ if (isLeft && (event.target as HTMLElement).closest('[data-task-graph-node]')) return
+
+ panSessionRef.current = {
+ pointerId: event.pointerId,
+ startX: event.clientX,
+ startY: event.clientY,
+ startScrollLeft: scrollEl.scrollLeft,
+ startScrollTop: scrollEl.scrollTop,
+ }
+ scrollEl.setPointerCapture(event.pointerId)
+ setIsPanning(true)
+ if (isMiddle) event.preventDefault()
+ }
+
+ const handleGraphPointerMove = (event: React.PointerEvent<HTMLDivElement>) => {
+ const session = panSessionRef.current
+ const scrollEl = graphScrollRef.current
+ if (!session || !scrollEl || session.pointerId !== event.pointerId) return
+
+ scrollEl.scrollLeft = session.startScrollLeft - (event.clientX - session.startX)
+ scrollEl.scrollTop = session.startScrollTop - (event.clientY - session.startY)
+ }
+
+ const endGraphPan = (event: React.PointerEvent<HTMLDivElement>) => {
+ const session = panSessionRef.current
+ if (!session || session.pointerId !== event.pointerId) return
+
+ panSessionRef.current = null
+ setIsPanning(false)
+ const scrollEl = graphScrollRef.current
+ if (scrollEl?.hasPointerCapture(event.pointerId)) {
+ scrollEl.releasePointerCapture(event.pointerId)
+ }
  }
 
  const terminalCount = graph.terminalTaskIds.length
@@ -584,8 +670,13 @@ export function SprintEngineTaskGraphView({
  <div className="relative min-h-[460px] flex-1">
  <div
  ref={graphScrollRef}
- onWheel={handleGraphWheel}
- className="absolute inset-0 overflow-auto"
+ onPointerDown={handleGraphPointerDown}
+ onPointerMove={handleGraphPointerMove}
+ onPointerUp={endGraphPan}
+ onPointerCancel={endGraphPan}
+ className={`absolute inset-0 overflow-auto ${
+ hasNodes ? `select-none ${isPanning ? 'cursor-grabbing' : 'cursor-grab'}` : ''
+ }`}
  >
  {taskCount === 0 ? (
  <div className="absolute inset-0 flex items-center justify-center p-6 text-center">
@@ -711,7 +802,7 @@ export function SprintEngineTaskGraphView({
  data-task-graph-node={task.id}
  onClick={() => onSelectTask(task.id)}
  aria-pressed={isSelected}
- className={`absolute flex -translate-x-1/2 -translate-y-1/2 flex-col overflow-hidden rounded-lg border p-3 text-left transition-transform hover:scale-[1.01] focus:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--accent-primary-soft)] ${
+ className={`absolute flex -translate-x-1/2 -translate-y-1/2 cursor-pointer flex-col overflow-hidden rounded-lg border p-3 text-left transition-transform hover:scale-[1.01] focus:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--accent-primary-soft)] ${
  isSelected || isFocused ? 'z-10' : 'z-0'
  }`}
  style={{
