@@ -127,6 +127,12 @@ function withSprintEngineEnv(
       : {}),
   }
 
+  // Never let a stale registry-roots value inherited from the base env (e.g. the
+  // app launched from inside an agent shell that had it set) leak into a spawn
+  // that resolved none of its own — otherwise `souls get` would search another
+  // session's plugin roots. Mirrors the AGENT_IDENTITY_ENV_KEYS stripping above.
+  if (!registryRootsEnv) delete nextEnv.MULTICODE_SPRINTENGINE_REGISTRY_ROOTS
+
   if (process.platform !== 'win32') {
     const shimDirectory = ensurePosixToolShimDirectory()
     if (!shimDirectory) return nextEnv
