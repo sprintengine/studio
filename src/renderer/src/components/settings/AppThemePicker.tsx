@@ -1,7 +1,7 @@
 import React, { useCallback, useRef } from 'react'
 import { APP_THEMES, type AppTheme, type ThemeSwatches } from '../../types/appTheme'
 import { FOCUS_RING_CLASS } from '../ui/tokens'
-import { Tooltip } from '../ui'
+import { Tooltip, TruncatedText } from '../ui'
 
 const ANTI_DITHER_TOOLTIP = 'Anti-temporal dithering'
 const LOW_BLUE_TOOLTIP = 'Low blue light'
@@ -118,15 +118,18 @@ export function AppThemePicker({ value, onChange }: AppThemePickerProps) {
             <div className="flex items-start justify-between gap-2">
               <div className="min-w-0 flex-1">
                 <div className="flex items-center gap-1.5">
-                  <span className="truncate text-[13px] font-semibold text-[color:var(--text-strong)]">
-                    {theme.label}
-                  </span>
+                  <TruncatedText
+                    as="span"
+                    text={theme.label}
+                    className="text-[13px] font-semibold text-[color:var(--text-strong)]"
+                  />
                   <ThemeGlyphs lowBlueLight={theme.lowBlueLight} />
                 </div>
                 {theme.description ? (
-                  <p className="mt-0.5 truncate text-[11px] leading-4 text-[color:var(--text-muted)]">
-                    {theme.description}
-                  </p>
+                  <TruncatedText
+                    text={theme.description}
+                    className="mt-0.5 text-[11px] leading-4 text-[color:var(--text-muted)]"
+                  />
                 ) : null}
               </div>
               {isSelected ? <SelectedCheckmark /> : null}

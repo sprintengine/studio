@@ -167,7 +167,7 @@ export const APP_THEMES: readonly AppThemeDescriptor[] = [
     id: 'slate',
     label: 'Slate',
     resolved: 'slate',
-    description: 'VS Code / Cursor IDE grey',
+    description: 'Neutral editor grey',
     swatches: {
       bgApp: '#202020',
       bgSurface: '#242424',
