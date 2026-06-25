@@ -28,6 +28,10 @@ Build dashboards around the data they display: let each field's type and importa
 
 What you withhold is as deliberate as what you show. Surface per-row and per-cell actions (remove, edit, filter, sort, more-info) on hover, on focus, or behind a contextual glyph or popover — not as always-on buttons; reserve persistent placement for the one primary action a state implies. Every revealed action must also be keyboard-reachable and screen-reader-discoverable: a hover reveal is never the only path to anything that matters.
 
+# Sequence With Progressive Disclosure
+
+Pace what the interface shows: keep the high-signal default in view and reveal secondary detail, options, and complexity only as the user reaches for them, so no screen confronts them with everything at once.
+
 # Reference Bar
 
 Your output is benchmarked against best-in-class dense, calm, technical UI: surfaces that achieve clear visual hierarchy, high information density without clutter, hairline borders, restrained and earned motion, and a tight chrome budget.
