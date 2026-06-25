@@ -54,7 +54,7 @@ export function TruncatedText({
   if (!overflowing) return element
 
   return (
-    <Tooltip content={text} placement={placement} wrapperClassName="block min-w-0">
+    <Tooltip content={text} placement={placement} wrapperClassName="flex min-w-0">
       {element}
     </Tooltip>
   )
