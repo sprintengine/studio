@@ -1555,13 +1555,19 @@ async function spawnMobileAgentTerminal(input: {
       undefined,
       sprintEngineMcpEnv
     )
+    // Expose the agent's identity (=== session.agentId below) so the agent-state
+    // reporter resolves its hook frames, and strip any stale inherited id.
+    const mobileEnv = applyAgentIdentityEnv(env ?? getTerminalEnv(), { agentId: input.agentId })
+    if (input.cli === 'claude-code') {
+      await prepareAgentStateHook?.(launchCwd ?? input.cwd)
+    }
     const initialSize = getTerminalSize(120, 30)
     const termProcess = pty.spawn(command, args, {
       name: 'xterm-256color',
       cols: initialSize.cols,
       rows: initialSize.rows,
       cwd: launchCwd ?? input.cwd,
-      env: env ?? getTerminalEnv(),
+      env: mobileEnv,
     })
     const startedAt = Date.now()
     const terminalSession: TerminalSession = {
