@@ -16,7 +16,7 @@ import type {
   LiveAgentExecution,
 } from '../shared/agent-runtime'
 import { createAgentStreamWatcher } from './agent-stream-watcher'
-import { deriveActivityFromPhase, selectAgentStateTarget, type AgentStateFrame } from './agent-state'
+import { deriveActivityFromPhase, evaluateAgentStall, selectAgentStateTarget, type AgentStateFrame } from './agent-state'
 import type { TerminalSpawnPayload } from './ipc/terminal-ipc'
 import {
   cleanupTerminalStartupScript,
@@ -32,6 +32,7 @@ import { MobileSprintEngineCommandService } from './mobile/sprintengine/command'
 import { getPluginRegistryUserRoot, getPluginSprintEngineRegistryRoots } from './plugin-registry-instance'
 import {
   appendTerminalOutput,
+  clearAgentStallTimer,
   clearTerminalIdleTimer,
   createFailedTerminalSession,
   createInitialTerminalActivity,
@@ -853,6 +854,48 @@ function resolveSessionForAgentStateFrame(frame: AgentStateFrame): TerminalSessi
   return selectAgentStateTarget(candidates, frame)
 }
 
+// A hook-reported working agent silent for this long — no follow-up frame and no
+// terminal output — is flagged as (inferred) stalled. Conservative: long but
+// silent legitimate tools (a quiet build) are rare, and the flag is a soft,
+// inference-sourced hint, not an authoritative state.
+const AGENT_STALL_THRESHOLD_MS = 90_000
+
+function scheduleAgentStallCheck(session: TerminalSession): void {
+  clearAgentStallTimer(session)
+  if (!isTerminalProcessAlive(session)) return
+  const state = session.agentState
+  // Only arm for a hook-driven working phase; idle/awaiting/terminal/inferred
+  // phases are not "stuck mid-work".
+  if (!state || state.source !== 'hook') return
+  if (state.phase !== 'thinking' && state.phase !== 'tool_use') return
+  session.agentStallTimer = setTimeout(() => runAgentStallCheck(session), AGENT_STALL_THRESHOLD_MS)
+}
+
+function runAgentStallCheck(session: TerminalSession): void {
+  session.agentStallTimer = undefined
+  if (!isTerminalProcessAlive(session) || !session.agentState) return
+  const decision = evaluateAgentStall({
+    phase: session.agentState.phase,
+    source: session.agentState.source,
+    phaseSince: session.agentState.since,
+    lastOutputAt: session.lastOutputAt,
+    now: Date.now(),
+    thresholdMs: AGENT_STALL_THRESHOLD_MS,
+  })
+  if (decision.action === 'recheck') {
+    // Output advanced since arming (a streaming tool): keep watching.
+    session.agentStallTimer = setTimeout(() => runAgentStallCheck(session), decision.afterMs)
+    return
+  }
+  if (decision.action !== 'stalled') return
+
+  session.agentState = { phase: 'stalled', since: Date.now(), source: 'inferred' }
+  // stalled bridges to idle activity; suppress its broadcast and emit once.
+  const derived = deriveActivityFromPhase('stalled', session.agentState.since)
+  if (derived) setTerminalActivity(session, derived, { broadcast: false })
+  if (terminals.get(session.sessionId) === session) broadcastTerminalSessionsChanged()
+}
+
 function ingestAgentStateFrame(frame: AgentStateFrame): void {
   const session = resolveSessionForAgentStateFrame(frame)
   if (!session || !isTerminalProcessAlive(session)) return
@@ -869,6 +912,10 @@ function ingestAgentStateFrame(frame: AgentStateFrame): void {
   // broadcast; we decide below whether a broadcast is warranted.
   const derived = deriveActivityFromPhase(frame.phase, frame.ts)
   const activityChanged = derived ? setTerminalActivity(session, derived, { broadcast: false }) : false
+
+  // Arm/refresh/clear the stall watch for the new phase: a fresh working frame
+  // resets the clock; a non-working phase disarms it.
+  scheduleAgentStallCheck(session)
 
   // Only broadcast when something a consumer actually renders changed: the
   // bridged activity flipped (working ↔ idle), or the attention state crossed

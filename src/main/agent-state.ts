@@ -1,7 +1,7 @@
 import { existsSync } from 'fs'
 import { copyFile, mkdir, readFile, rm, writeFile } from 'fs/promises'
 import { join, resolve, sep } from 'path'
-import type { AgentPhase, SessionActivity } from '../shared/electron-api'
+import type { AgentPhase, AgentStateSource, SessionActivity } from '../shared/electron-api'
 
 // =============================================================================
 // Authoritative agent state — pure core (no Electron deps, fully unit-testable)
@@ -98,6 +98,38 @@ export function deriveActivityFromPhase(phase: AgentPhase, since: number): Sessi
     default:
       return null
   }
+}
+
+// =============================================================================
+// Stall evaluation (pure; the runtime drives the timer from this decision)
+//
+// A hook-reported working phase (`thinking`/`tool_use`) that goes quiet — no
+// newer frame and no terminal output — past the threshold is treated as stalled.
+// Output advancing `lastOutputAt` (a streaming tool) or a newer frame keeps it
+// alive; the runtime re-checks after the returned delay rather than firing once.
+// =============================================================================
+
+export type StallEvaluation =
+  | { action: 'stalled' }
+  | { action: 'recheck'; afterMs: number }
+  | { action: 'clear' }
+
+export function evaluateAgentStall(input: {
+  phase: AgentPhase
+  source: AgentStateSource
+  phaseSince: number
+  lastOutputAt: number | null
+  now: number
+  thresholdMs: number
+}): StallEvaluation {
+  // Only a hook-driven working phase can stall; anything else means the agent is
+  // responsive (idle/awaiting), already terminal, or running on inference.
+  if (input.source !== 'hook') return { action: 'clear' }
+  if (input.phase !== 'thinking' && input.phase !== 'tool_use') return { action: 'clear' }
+  const lastActivityAt = Math.max(input.phaseSince, input.lastOutputAt ?? 0)
+  const quietForMs = input.now - lastActivityAt
+  if (quietForMs >= input.thresholdMs) return { action: 'stalled' }
+  return { action: 'recheck', afterMs: input.thresholdMs - quietForMs }
 }
 
 // =============================================================================

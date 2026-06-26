@@ -8,6 +8,7 @@ import {
   AGENT_STATE_HOOK_TAG,
   buildAgentStateHookCommand,
   deriveActivityFromPhase,
+  evaluateAgentStall,
   installAgentStateHook,
   mapHookEventToPhase,
   mergeAgentStateHooks,
@@ -110,6 +111,26 @@ async function run(): Promise<void> {
   assert.equal(selectAgentStateTarget([dupA, dupB], { agentId: 'a', workspaceId: null })?.id, 'new')
   // Workspace given but matches none → fall back to most recent across all.
   assert.equal(selectAgentStateTarget([dupA, dupB], { agentId: 'a', workspaceId: 'nope' })?.id, 'new')
+
+  // --- stall evaluation ---------------------------------------------------
+  const stallBase = { phaseSince: 0, lastOutputAt: null, now: 100_000, thresholdMs: 90_000 }
+  // Inferred or non-working phases never stall.
+  assert.deepEqual(evaluateAgentStall({ ...stallBase, phase: 'tool_use', source: 'inferred' }), { action: 'clear' })
+  assert.deepEqual(evaluateAgentStall({ ...stallBase, phase: 'idle', source: 'hook' }), { action: 'clear' })
+  assert.deepEqual(evaluateAgentStall({ ...stallBase, phase: 'awaiting_input', source: 'hook' }), { action: 'clear' })
+  // Working + quiet past the threshold → stalled.
+  assert.deepEqual(evaluateAgentStall({ ...stallBase, phase: 'tool_use', source: 'hook' }), { action: 'stalled' })
+  assert.deepEqual(evaluateAgentStall({ ...stallBase, phase: 'thinking', source: 'hook' }), { action: 'stalled' })
+  // Recent output (streaming tool) keeps it alive — recheck after the remainder.
+  assert.deepEqual(
+    evaluateAgentStall({ phase: 'tool_use', source: 'hook', phaseSince: 0, lastOutputAt: 70_000, now: 100_000, thresholdMs: 90_000 }),
+    { action: 'recheck', afterMs: 60_000 }
+  )
+  // A recent frame (phaseSince) likewise defers.
+  assert.deepEqual(
+    evaluateAgentStall({ phase: 'thinking', source: 'hook', phaseSince: 80_000, lastOutputAt: null, now: 100_000, thresholdMs: 90_000 }),
+    { action: 'recheck', afterMs: 70_000 }
+  )
 
   // --- command builder ----------------------------------------------------
   const cmd = buildAgentStateHookCommand('/tmp/multi code/agent.sock')

@@ -1223,6 +1223,12 @@ async function assertIngestAgentStateFrameUpdatesSession(runtimeModule: RuntimeM
     })
     assert.equal(spawn.ok, true, JSON.stringify(spawn))
 
+    // Before any hook frame, an agent session exposes an inferred AgentState
+    // derived from its activity (spawns working → inferred thinking).
+    const initial = snapshotFor('sess-ingest')
+    assert.equal(initial?.agentState?.source, 'inferred')
+    assert.equal(initial?.agentState?.phase, 'thinking')
+
     const frame = (phase: string, ts: number) => ({
       type: 'agent_state' as const,
       agentId: 'agent-ingest',
