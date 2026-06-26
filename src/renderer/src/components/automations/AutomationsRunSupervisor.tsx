@@ -8,10 +8,10 @@ import { subscribeAutomationRunNotifications } from './runTarget'
 // outcomes the AutomationsPanel can't observe — the panel only sees a terminal
 // status for a manual Run-now (its IPC return, handled by T6).
 //
-// Contributed as the automations workspace-type's `scope:'global'` supervisor
-// (see automations-workspace-types.ts), so the shell's workspace-type supervisor
-// registry mounts it on the primary window whenever the automations module is
-// enabled — even when no automations workspace is open.
+// Mounted directly by the shell (WorkspaceManager) on the primary window
+// whenever the automations module is enabled — Automations is a global screen,
+// not a workspace type, so there is no workspace-type supervisor list to ride.
+// It runs even when the Automations screen is closed.
 //
 // Mounted EAGERLY (not React.lazy): an always-on observer must subscribe as soon
 // as the shell mounts, with no chunk-load gap that could drop an early

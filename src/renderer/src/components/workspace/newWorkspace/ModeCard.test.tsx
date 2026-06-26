@@ -32,11 +32,13 @@ function modeModelsFor(overrides: ModuleEnablementOverrides): ModeCardModel[] {
   ]
 }
 
-// AC1: with all modules enabled the picker shows the same five modes in order.
+// AC1: with all modules enabled the picker shows the registered modes in order.
+// Automations is no longer a workspace type (it is a global screen), so it is
+// not registered and never appears here.
 const allEnabled = modeModelsFor({})
 assert.deepEqual(
   allEnabled.map((model) => model.id),
-  ['standard', 'switchboard', 'sprintengine', 'multiloop', 'automations', 'guided-brief'],
+  ['standard', 'switchboard', 'sprintengine', 'multiloop', 'guided-brief'],
   'mode picker lists standard then the contributed types in pickerOrder',
 )
 
@@ -48,7 +50,6 @@ const EXPECTED_ICON_PATH: Record<string, string> = {
   switchboard: 'M9 5.5V18.5M15 5.5V18.5',
   sprintengine: 'M10.85 8.2L7.65 14.35',
   multiloop: 'M12 4.5 A7.5 7.5 0 0 1 19.5 12',
-  automations: 'M12.6 7.3 9 12.4h2.7',
   'guided-brief': 'M5 6.25C5 5.42',
 }
 
@@ -63,7 +64,7 @@ for (const model of allEnabled) {
 
 // AC1 guard: guided-brief must not regress to the document glyph.
 const guidedHtml = renderToStaticMarkup(
-  <ModeCard model={allEnabled[5]} active={false} onSelect={() => {}} />,
+  <ModeCard model={allEnabled[4]} active={false} onSelect={() => {}} />,
 )
 assert.ok(!guidedHtml.includes('M5 5.5H15.25'), 'guided-brief card is the speech-bubble, not the document glyph')
 
@@ -75,16 +76,18 @@ assert.match(activeHtml, /aria-checked="true"/, 'active card reports checked')
 // guided-brief (guided-brief is registered under the sprint-engine module);
 // disabling multiloop drops multiloop; standard is always present.
 const sprintEngineOff = modeModelsFor({ 'sprint-engine': false }).map((model) => model.id)
-assert.deepEqual(sprintEngineOff, ['standard', 'switchboard', 'multiloop', 'automations'], 'disabling sprint-engine hides sprintengine and guided-brief')
+assert.deepEqual(sprintEngineOff, ['standard', 'switchboard', 'multiloop'], 'disabling sprint-engine hides sprintengine and guided-brief')
 
 const multiloopOff = modeModelsFor({ multiloop: false }).map((model) => model.id)
-assert.deepEqual(multiloopOff, ['standard', 'switchboard', 'sprintengine', 'automations', 'guided-brief'], 'disabling multiloop hides only multiloop')
+assert.deepEqual(multiloopOff, ['standard', 'switchboard', 'sprintengine', 'guided-brief'], 'disabling multiloop hides only multiloop')
 
 const switchboardOff = modeModelsFor({ switchboard: false }).map((model) => model.id)
-assert.deepEqual(switchboardOff, ['standard', 'sprintengine', 'multiloop', 'automations', 'guided-brief'], 'disabling switchboard hides only switchboard')
+assert.deepEqual(switchboardOff, ['standard', 'sprintengine', 'multiloop', 'guided-brief'], 'disabling switchboard hides only switchboard')
 
+// Automations registers no workspace type (it opens as a global screen now), so
+// toggling its module never changes the card list.
 const automationsOff = modeModelsFor({ automations: false }).map((model) => model.id)
-assert.deepEqual(automationsOff, ['standard', 'switchboard', 'sprintengine', 'multiloop', 'guided-brief'], 'disabling automations hides only automations')
+assert.deepEqual(automationsOff, ['standard', 'switchboard', 'sprintengine', 'multiloop', 'guided-brief'], 'automations is screen-only and absent from the picker either way')
 
 // A registry id outside the known card-style set still renders (neutral style
 // fallback) rather than throwing, matching the open WorkspaceMode contract.

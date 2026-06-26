@@ -94,14 +94,14 @@ async function launchAgent(
   if (!workspace) {
     return { ok: false, code: 'unknown_workspace', message: `Workspace "${request.workspaceId}" does not exist in the renderer registry.` }
   }
-  // Agent-backed automation runs are owned by the automations control-center
-  // workspace (the agent terminal docks beside the panel). The legacy
-  // automation-server MCP path still launches into standard workspaces.
-  if (workspace.mode !== 'standard' && workspace.mode !== 'automations') {
+  // Agent-backed automation runs launch into a standard workspace (the executor
+  // creates a fresh one when the run has no explicit target). Automations is a
+  // global screen now, not a workspace type, so 'standard' is the only host.
+  if (workspace.mode !== 'standard') {
     return {
       ok: false,
       code: 'unsupported_workspace_mode',
-      message: `Automation agent launch supports standard and automations workspaces; "${workspace.id}" is a ${workspace.mode} workspace.`,
+      message: `Automation agent launch supports standard workspaces; "${workspace.id}" is a ${workspace.mode} workspace.`,
     }
   }
   const cli = request.cli?.trim() || store.appSettings.lastSelectedCli

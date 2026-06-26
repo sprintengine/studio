@@ -8,6 +8,7 @@ import { TipStartupModal } from '../learn/TipStartupModal'
 import OnboardingFlow from '../onboarding/OnboardingFlow'
 import { planDeferredAdoption } from '../onboarding/agentConfigAdoption'
 import SettingsOverlay from '../settings/SettingsOverlay'
+import AutomationsOverlay from '../automations/AutomationsOverlay'
 import { SuspenseFallback } from '../ui/SuspenseFallback'
 import { useNotificationStore } from '../../store/notificationStore'
 import { useWorkspaceStore } from '../../store/workspaceStore'
@@ -17,7 +18,7 @@ import { normalizeSelectedCli } from '../../store/slices/settingsSlice'
 import { resolveAvailableAgentCli, resolveSurfaceModel, resolveTemplateAgentCli, selectAgentCliCatalog } from './newWorkspace/cliRuntimeOptions'
 import { subscribePluginCatalogRefreshOnFocus } from '../../store/slices/pluginsSlice'
 import { getRendererHost, selectModuleEnabled } from '../../modules'
-import type { NotificationActionContext } from '../../modules/renderer-host'
+import { resolveNotificationActions as resolveNotificationActionsFor } from '../../utils/notificationActions'
 import {
   deriveWorkspaceLastInputAt,
   deriveWorkspaceTerminalActivity,
@@ -62,6 +63,11 @@ import { useConfirmDialog } from '../ui/ConfirmDialog'
 import { type NewWorkspacePanelInitialState } from './NewWorkspacePanel'
 import MultiloopStateSynchronizer from './MultiloopStateSynchronizer'
 import SprintEngineProjectionSupervisor from './SprintEngineProjectionSupervisor'
+// Always-on observer of background automation run events (raises run
+// notifications). Automations is no longer a workspace type, so the shell mounts
+// its global supervisor directly, gated on the automations module + primary
+// window — the same role the workspace-type `supervisors` list used to play.
+import AutomationsRunSupervisor from '../automations/AutomationsRunSupervisor'
 import WorkspaceLayout from './WorkspaceLayout'
 import WorkspaceSidebar from './WorkspaceSidebar'
 import SprintEnginesAside from './SprintEnginesAside'
@@ -214,6 +220,7 @@ export default function WorkspaceManager() {
   const multiloopEnabled = useWorkspaceStore((s) => selectModuleEnabled(s.appSettings.modules, 'multiloop'))
   const sprintEngineEnabled = useWorkspaceStore((s) => selectModuleEnabled(s.appSettings.modules, 'sprint-engine'))
   const mobileRelayEnabled = useWorkspaceStore((s) => selectModuleEnabled(s.appSettings.modules, 'mobile-relay'))
+  const automationsEnabled = useWorkspaceStore((s) => selectModuleEnabled(s.appSettings.modules, 'automations'))
   const voiceDictationEnabled = useWorkspaceStore((s) => selectModuleEnabled(s.appSettings.modules, 'voice-dictation'))
   const voiceDictation = useVoiceDictation()
   const onboardingStep = useWorkspaceStore((s) => s.appSettings.onboardingStep)
@@ -241,6 +248,8 @@ export default function WorkspaceManager() {
   const settingsOverlayOpen = useWorkspaceStore((s) => s.settingsOverlay.open)
   const openSettingsOverlay = useWorkspaceStore((s) => s.openSettingsOverlay)
   const closeSettingsOverlay = useWorkspaceStore((s) => s.closeSettingsOverlay)
+  const openAutomationsOverlay = useWorkspaceStore((s) => s.openAutomationsOverlay)
+  const closeAutomationsOverlay = useWorkspaceStore((s) => s.closeAutomationsOverlay)
   const forgetFolder = useWorkspaceStore((s) => s.forgetFolder)
   const recordWorkspaceTerminalActivity = useWorkspaceStore((s) => s.recordWorkspaceTerminalActivity)
   const reconcileWorkspaceAgentLaunchFlags = useWorkspaceStore((s) => s.reconcileWorkspaceAgentLaunchFlags)
@@ -293,40 +302,22 @@ export default function WorkspaceManager() {
   // Resolve a notification's Open action(s). Two layers (see
   // backlog/2026-06-14-notification-open-action-deep-link.md): the owning
   // module's registered provider can return a deep-focus action (e.g. open the
-  // Sprint Engine task), and the shell guarantees a generic workspace-reveal
-  // fallback for any notification that names a workspace. Open is offered only
-  // when at least that baseline is possible (a workspaceId is present); a
-  // notification with no workspace gets no Open. Provider modules that are
-  // disabled drop out, exactly like Backlog item actions.
+  // Sprint Engine task, or open the Automations screen at a run), and the shell
+  // guarantees a generic workspace-reveal fallback for any notification that
+  // names a workspace. Provider actions are offered whether or not the
+  // notification names a workspace — a provider can deep-link to an app-level
+  // screen that has no backing workspace (Automations). Only the generic
+  // reveal fallback needs a workspaceId. Provider modules that are disabled drop
+  // out, exactly like Backlog item actions.
   const resolveNotificationActions = useCallback(
-    (notification: AppNotification) => {
-      const workspaceId = notification.workspaceId
-      if (!workspaceId) return []
-      const context: NotificationActionContext = {
+    (notification: AppNotification) =>
+      resolveNotificationActionsFor({
         notification,
+        providers: getRendererHost().getNotificationActionProviders((moduleId) =>
+          selectModuleEnabled(moduleEnablement, moduleId),
+        ),
         revealWorkspace: (id) => setActiveWorkspaceForWindow(workspaceWindowId, id),
-      }
-      const providerActions = getRendererHost()
-        .getNotificationActionProviders((moduleId) => selectModuleEnabled(moduleEnablement, moduleId))
-        .filter((provider) => provider.source === notification.source)
-        .flatMap((provider) => provider.resolveActions(context))
-        .filter((action) => (action.isVisible ? action.isVisible(context) : true))
-      const actions =
-        providerActions.length > 0
-          ? providerActions
-          : [
-              {
-                id: 'reveal-workspace',
-                label: 'Open',
-                run: (ctx: NotificationActionContext) => ctx.revealWorkspace(workspaceId),
-              },
-            ]
-      return actions.map((action) => ({
-        id: action.id,
-        label: action.label,
-        run: () => action.run(context),
-      }))
-    },
+      }),
     [moduleEnablement, setActiveWorkspaceForWindow, workspaceWindowId]
   )
 
@@ -496,6 +487,8 @@ export default function WorkspaceManager() {
     // The Sprint Engines aside is app-level chrome, so its toggle tracks the
     // sprint-engine module rather than any active workspace.
     if (selectModuleEnabled(moduleEnablement, 'sprint-engine')) context.sprintEngineEnabled = true
+    // The global Automations screen needs the automations module (its store/IPC).
+    if (selectModuleEnabled(moduleEnablement, 'automations')) context.automationsEnabled = true
     if (activeCommandScopes.includes('panel:sprintengine')) {
       context.sprintengineWorkspace = true
       const sprintEngineState = commandWorkspace?.sprintEngineState ?? null
@@ -579,9 +572,10 @@ export default function WorkspaceManager() {
     setNewWorkspacePanelInitialState(null)
     setShowNewWorkspacePanel(true)
     closeSettingsOverlay()
+    closeAutomationsOverlay()
     setSpecialistMenuOpen(false)
     setNotificationsOpen(false)
-  }, [closeSettingsOverlay])
+  }, [closeSettingsOverlay, closeAutomationsOverlay])
 
   const pickNewChatName = useCallback((folderPath: string | null): string => {
     const folderWorkspaces = workspaces.filter((workspace) => workspace.folderPath === folderPath)
@@ -730,16 +724,31 @@ export default function WorkspaceManager() {
   const openSettings = useCallback((checkForUpdates = false, targetTab: string | null = null) => {
     openSettingsOverlay({ initialTab: targetTab, checkForUpdates })
     setShowNewWorkspacePanel(false)
+    closeAutomationsOverlay()
     setSpecialistMenuOpen(false)
     setSessionsOpen(false)
     setViewMenuOpen(false)
     setNotificationsOpen(false)
     setAccountOpen(false)
-  }, [openSettingsOverlay])
+  }, [openSettingsOverlay, closeAutomationsOverlay])
 
   const openLearnCenter = useCallback(() => {
     openSettings(false, 'learn')
   }, [openSettings])
+
+  // Open the global Automations screen (an app-level route, not a workspace),
+  // scoped to the active workspace's project by default. Closes the other
+  // transient surfaces so it lands clean.
+  const openAutomations = useCallback(() => {
+    openAutomationsOverlay({ projectPath: activeWorkspace?.folderPath ?? null })
+    setShowNewWorkspacePanel(false)
+    closeSettingsOverlay()
+    setSpecialistMenuOpen(false)
+    setSessionsOpen(false)
+    setViewMenuOpen(false)
+    setNotificationsOpen(false)
+    setAccountOpen(false)
+  }, [activeWorkspace?.folderPath, closeSettingsOverlay, openAutomationsOverlay])
 
   const openFuturePlanWorkspace = useCallback((source: FuturePlanWorkspaceSource) => {
     setNewWorkspacePanelInitialState({
@@ -1670,6 +1679,11 @@ export default function WorkspaceManager() {
       openNewWorkspacePanel()
       return true
     }
+    if (commandId === 'app.automations.open') {
+      if (!automationsEnabled) return false
+      openAutomations()
+      return true
+    }
     if (commandId === 'workspace.sidebar.toggle') {
       beginSidebarTransition()
       setSidebarCollapsed(!sidebarCollapsed)
@@ -1836,6 +1850,8 @@ export default function WorkspaceManager() {
   }, [
     openSettings,
     openNewWorkspacePanel,
+    openAutomations,
+    automationsEnabled,
     sidebarCollapsed,
     setSidebarCollapsed,
     sprintEngineEnabled,
@@ -2137,6 +2153,7 @@ export default function WorkspaceManager() {
           <Component />
         </React.Suspense>
       ))}
+      {automationsEnabled && ownsGlobalSupervisors ? <AutomationsRunSupervisor /> : null}
       {multiloopEnabled && visibleWorkspaces.map((workspace) => (
         workspace.id === windowActiveWorkspaceId && (workspace.mode === 'multiloop' || workspace.multiloopContext)
           ? <MultiloopStateSynchronizer key={workspace.id} workspaceId={workspace.id} />
@@ -2184,6 +2201,7 @@ export default function WorkspaceManager() {
         onForgetFolder={handleForgetFolder}
         onNewWorkspace={openNewWorkspacePanel}
         onNewWorkspaceInFolder={openNewWorkspacePanelForFolder}
+        onOpenAutomations={automationsEnabled ? openAutomations : null}
         onNewChat={() => createNewChat()}
         onNewChatInFolder={(folderPath) => spawnNewChatForFolder(folderPath)}
         onNewChatTerminal={(folderPath) => pickNewChatTerminal(folderPath)}
@@ -2338,6 +2356,7 @@ export default function WorkspaceManager() {
           )}
         </div>
         <SettingsOverlay />
+        <AutomationsOverlay />
         {/* T6 first-run payoff: supply the real app actions it needs. A CLI is
             "configured" when at least one catalog entry is confirmed installed;
             the run reuses createNewChat against the just-created workspace

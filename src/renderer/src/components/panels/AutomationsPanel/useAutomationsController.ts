@@ -45,7 +45,7 @@ export type AutomationsController = {
 // Owns the control center's data layer: the list + providers load and every
 // mutation. All reads/writes go through the `window.api` automations bridge —
 // the renderer never touches the on-disk store.
-export function useAutomationsController(input: { folderPath: string | null; workspaceId: string }): AutomationsController {
+export function useAutomationsController(input: { folderPath: string | null; workspaceId?: string | null }): AutomationsController {
   const { folderPath, workspaceId } = input
   const [definitions, setDefinitions] = useState<AutomationDefinition[]>([])
   const [providers, setProviders] = useState<AutomationsProviders | null>(null)
@@ -122,7 +122,15 @@ export function useAutomationsController(input: { folderPath: string | null; wor
   const runNow = useCallback(async (def: AutomationDefinition) => {
     let finishedRun: AutomationRun | null = null
     await mutate(def, async () => {
-      const result = await window.api.runAutomationNow({ workspaceRoot: folderPath!, workspaceId, automationId: def.id })
+      // workspaceId scopes the launch target to the host control center when
+      // present (workspace-hosted panel). The global Automations screen has no
+      // backing workspace, so it omits it — the executor then spins up a fresh
+      // standard workspace to host the launched agent.
+      const result = await window.api.runAutomationNow({
+        workspaceRoot: folderPath!,
+        ...(workspaceId ? { workspaceId } : {}),
+        automationId: def.id,
+      })
       if (result.ok) {
         finishedRun = result.value.run
         setDefinitions((prev) => prev.map((d) => (d.id === result.value.definition.id ? result.value.definition : d)))

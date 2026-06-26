@@ -166,6 +166,7 @@ registerAppLifecycle({
     Boolean(process.env['MULTICODE_USER_DATA_DIR']?.trim()),
   terminalRuntime: services.terminalRuntime,
   automationService: services.automationService,
+  agentStateService: services.agentStateService,
   workspaceSyncService: services.workspaceSyncService,
   moduleKernel: moduleLoad.kernel,
   updateService: services.updateService,

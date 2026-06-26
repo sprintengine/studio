@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { NewChatIcon, SpecialistActionIcon, WorkspaceTypeIcon, resolveEnabledWorkspaceType } from '../AppIcons'
+import { AutomationsWorkspaceTypeIcon, NewChatIcon, SpecialistActionIcon, WorkspaceTypeIcon, resolveEnabledWorkspaceType } from '../AppIcons'
 import CliIcon from '../CliIcon'
 import { getSpecialistAction } from '../../specialists/specialistActions'
 import { FOCUS_RING_CLASS } from '../ui/tokens'
@@ -89,6 +89,9 @@ type WorkspaceSidebarProps = {
   onForgetFolder: (folderPath: string) => void
   onNewWorkspace: () => void
   onNewWorkspaceInFolder: (folderPath: string) => void
+  // Opens the global Automations screen (an app-level route, not a workspace).
+  // Null when the automations module is disabled, which hides the entry point.
+  onOpenAutomations: (() => void) | null
   onNewChat: () => void
   onNewChatInFolder: (folderPath: string) => void
   // New-chat spawn handlers wired to the shared SpawnAgentMenu picker. Each
@@ -378,6 +381,7 @@ export default function WorkspaceSidebar({
   onForgetFolder,
   onNewWorkspace,
   onNewWorkspaceInFolder,
+  onOpenAutomations,
   onNewChat,
   onNewChatInFolder,
   onNewChatTerminal,
@@ -1348,6 +1352,35 @@ export default function WorkspaceSidebar({
             </Tooltip>
           </div>
         )}
+
+        {/* Automations — a quiet app-level nav entry below the creation row
+            (Cursor's Automations/Customizations pattern). Opens the global
+            Automations screen; it is a route, not a workspace. Hidden when the
+            automations module is disabled (onOpenAutomations is null). */}
+        {onOpenAutomations ? (
+          sidebarCollapsed ? (
+            <Tooltip content="Automations" wrapperClassName="flex">
+              <button
+                type="button"
+                onClick={onOpenAutomations}
+                className="flex h-[30px] w-full shrink-0 items-center justify-center rounded-md text-[color:var(--text-default)] transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]"
+                aria-label="Automations"
+              >
+                <AutomationsWorkspaceTypeIcon className="icon-xs pointer-events-none" />
+              </button>
+            </Tooltip>
+          ) : (
+            <button
+              type="button"
+              onClick={onOpenAutomations}
+              className="flex h-[30px] w-full shrink-0 items-center gap-2 rounded-md px-3 text-[12px] font-medium text-[color:var(--text-default)] transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]"
+              aria-label="Automations"
+            >
+              <AutomationsWorkspaceTypeIcon className="icon-xs pointer-events-none shrink-0" />
+              <span className="pointer-events-none truncate">Automations</span>
+            </button>
+          )
+        ) : null}
       </div>
 
       {!sidebarCollapsed ? (

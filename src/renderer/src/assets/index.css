@@ -1807,14 +1807,17 @@ samp,
 /* Full-app Settings route surface. Owns the entrance fade so consumers don't
  * roll their own. Stays inside the "≤ 1 motion treatment animating" budget by
  * using opacity only — no translate to compete with content. */
-.settings-route {
+.settings-route,
+.automations-route {
   opacity: 0;
 }
-.settings-route[data-state="open"] {
+.settings-route[data-state="open"],
+.automations-route[data-state="open"] {
   opacity: 1;
 }
 @media (prefers-reduced-motion: no-preference) {
-  .settings-route {
+  .settings-route,
+  .automations-route {
     transition: opacity var(--motion-normal) var(--motion-ease);
   }
 }

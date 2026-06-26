@@ -825,6 +825,33 @@ export type SessionActivity =
   | { kind: 'exited'; at: number; exitCode: number }
   | { kind: 'failed'; at: number; exitCode: number; message?: string }
 
+// Authoritative agent phase, reported by the agent CLI's own lifecycle hooks
+// (see backlog/2026-06-26-authoritative-agent-state-hooks.md). This is the
+// richer, less ambiguous companion to `SessionActivity`: it can tell
+// `awaiting_input` (blocked on a permission/prompt) apart from `idle` (turn
+// finished) — a distinction output-scraping structurally cannot make.
+export type AgentPhase =
+  | 'starting'
+  | 'thinking'
+  | 'tool_use'
+  | 'awaiting_input'
+  | 'idle'
+  | 'exited'
+  | 'failed'
+  | 'stalled'
+
+// Provenance for an AgentState. `hook` means the phase came from an authoritative
+// lifecycle-hook frame; `inferred` means it was derived from the legacy
+// output-timing heuristic. The UI uses this to signal confidence and we run both
+// detection paths side by side before cutting over.
+export type AgentStateSource = 'hook' | 'inferred'
+
+export type AgentState = {
+  phase: AgentPhase
+  since: number
+  source: AgentStateSource
+}
+
 export type TerminalSessionSnapshot = {
   sessionId: string
   processAlive: boolean
@@ -849,6 +876,10 @@ export type TerminalSessionSnapshot = {
   lastInputAt: number | null
   lastVisibleAt: number | null
   activity: SessionActivity
+  // Authoritative phase from lifecycle hooks, when available. Absent for
+  // sessions whose CLI emits no hooks (the legacy idle-timer `activity` above
+  // remains the floor). `source` distinguishes hook truth from inference.
+  agentState?: AgentState
   exitedAt: number | null
   outputBufferLength: number
   retainedOutputBytes: number

@@ -14,6 +14,12 @@ type RegisterAppLifecycleOptions = {
     initialize(): Promise<unknown>
     shutdown(): Promise<void>
   }
+  // Always-on (no setting gate): the reporter socket must be listening before
+  // any agent launches so the first lifecycle frame is captured.
+  agentStateService?: {
+    initialize(): Promise<void>
+    shutdown(): Promise<void>
+  }
   workspaceSyncService?: {
     flushRoutingSnapshot(): Promise<void>
   }
@@ -37,6 +43,7 @@ export function registerAppLifecycle({
   allowMultipleInstances = false,
   terminalRuntime,
   automationService,
+  agentStateService,
   workspaceSyncService,
   moduleKernel,
   updateService,
@@ -79,6 +86,9 @@ export function registerAppLifecycle({
     // Off by default: initialize() only starts the local automation socket
     // when the persisted setting enables it.
     void automationService?.initialize()
+    // Always-on: start the agent-state reporter socket so launches that follow
+    // can install the hook against a live endpoint.
+    void agentStateService?.initialize()
     void moduleKernel?.runStartup()
     handleAuthCallback(process.argv)
 
@@ -107,6 +117,7 @@ export function registerAppLifecycle({
       // dispatched while shared infrastructure tears down.
       await moduleKernel?.runShutdownBegin()
       await automationService?.shutdown()
+      await agentStateService?.shutdown()
       await terminalRuntime.shutdown()
       await workspaceSyncService?.flushRoutingSnapshot()
       await releaseAllWorkspaceRunnerLocks()

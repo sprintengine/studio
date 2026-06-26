@@ -1,5 +1,11 @@
 #!/usr/bin/env node
-// End-to-end validation for Automations scheduled-run notifications (T13).
+// End-to-end validation for Automations scheduled-run notifications.
+//
+// Covers: a timer failed/blocked run raises a source-'automations' notification
+// (manual + completed runs stay silent), and the notification's Open action
+// opens the global Automations SCREEN overlay (not a workspace — Automations is
+// no longer a workspace type). Re-validate this with a live run after changing
+// the run-notification or Automations-screen wiring.
 //
 // Run after `npm run build`:
 //   tmp=/tmp/multicode-playwright
@@ -156,13 +162,9 @@ async function createStandardWorkspace(page) {
 async function installRendererProbes(page) {
   await page.evaluate(() => {
     window.__t13AutomationRunEvents = []
-    window.__t13RevealTargetEvents = []
     window.__t13UnsubscribeAutomationRunEvents?.()
     window.__t13UnsubscribeAutomationRunEvents = window.api.onAutomationRunEvent((event) => {
       window.__t13AutomationRunEvents.push(event)
-    })
-    window.addEventListener('multicode:reveal-target', (event) => {
-      window.__t13RevealTargetEvents.push(event.detail)
     })
   })
 }
@@ -281,41 +283,23 @@ async function main() {
     await waitForBodyText(page, 'Automation blocked: T13 Nightly QA')
     await domClick(page, page.getByRole('button', { name: /^Open$/i }).first())
 
-    await waitForWorkspace(
-      page,
-      (state, expectedWorkspaceDir) => {
-        const automationWorkspaces = state.workspaces.filter((workspace) =>
-          workspace.mode === 'automations' &&
-          workspace.folderPath === expectedWorkspaceDir
-        )
-        return automationWorkspaces.length === 1 && state.activeWorkspaceId === automationWorkspaces[0].id
-      },
-      'Open action did not create and reveal a single automations workspace',
-      workspaceDir,
-    )
-    await page.waitForFunction(
-      (expectedRunId) => window.__t13RevealTargetEvents.some((detail) => {
-        if (!detail?.target || detail.target.kind !== 'run') return false
-        try {
-          return JSON.parse(detail.target.ref).runId === expectedRunId
-        } catch {
-          return false
-        }
-      }),
-      blockedEvent.runId,
-      { timeout: 10000 },
-    )
-    await waitForBodyText(page, 'Automations')
+    // Automations is now a global SCREEN (overlay), not a workspace. The run
+    // notification's Open opens that overlay dialog scoped to the run's project —
+    // it must NOT create or reveal an automations workspace.
+    const automationsDialog = page.getByRole('dialog').filter({ hasText: 'New automation' })
+    await automationsDialog.waitFor({ state: 'visible', timeout: 10000 })
 
-    await domClick(page, page.getByRole('button', { name: /^Notifications$/i }))
-    await domClick(page, page.getByRole('button', { name: /^Open$/i }).first())
-    await page.waitForTimeout(800)
-    const finalRegistry = await readWorkspaceRegistry(page)
-    const automationWorkspaces = finalRegistry.workspaces.filter((workspace) =>
-      workspace.mode === 'automations' && workspace.folderPath === workspaceDir
+    const afterOpenRegistry = await readWorkspaceRegistry(page)
+    assert.equal(
+      afterOpenRegistry.workspaces.filter((workspace) => workspace.mode === 'automations').length,
+      0,
+      'Open opens the Automations screen overlay and never creates an automations workspace',
     )
-    assert.equal(automationWorkspaces.length, 1, 'repeated Open reuses the existing automations workspace')
-    assert.equal(finalRegistry.activeWorkspaceId, automationWorkspaces[0].id)
+    assert.equal(
+      afterOpenRegistry.activeWorkspaceId,
+      standardWorkspace.id,
+      'the underlying active workspace is unchanged when the overlay opens',
+    )
 
     await page.screenshot({ path: screenshotPath, fullPage: true })
     console.log(JSON.stringify({
@@ -324,10 +308,8 @@ async function main() {
       workspaceDir,
       screenshotPath,
       standardWorkspaceId: standardWorkspace.id,
-      automationsWorkspaceId: automationWorkspaces[0].id,
       automationsNotificationCount: automationNotifications.length,
       observedRunEventCount: await page.evaluate(() => window.__t13AutomationRunEvents.length),
-      observedRevealTargetCount: await page.evaluate(() => window.__t13RevealTargetEvents.length),
     }, null, 2))
   } finally {
     await app.close()

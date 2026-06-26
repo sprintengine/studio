@@ -4,6 +4,7 @@ import type {
   AgentCli,
   AgentExecutionMode,
   AgentSessionIdentity,
+  AgentState,
   SessionActivity,
   TerminalKind,
   TerminalPathStyle,
@@ -62,7 +63,15 @@ export type TerminalSession = {
   suspended?: boolean
   suspending?: boolean
   idleTimer?: ReturnType<typeof setTimeout>
+  // Watches a hook-reported working phase for a stall: a `tool_use`/`thinking`
+  // agent that goes silent (no follow-up frame and no output) past the threshold
+  // is flipped to an inferred `stalled` phase. See scheduleAgentStallCheck.
+  agentStallTimer?: ReturnType<typeof setTimeout>
   activity: SessionActivity
+  // Authoritative phase from the agent's lifecycle hooks, when the session's CLI
+  // reports it. Layered on top of `activity` (which stays the inference floor);
+  // absent until the first hook frame arrives. See agent-state.ts.
+  agentState?: AgentState
   outputChunks: string[]
   outputChunkBytes: number[]
   outputChunkStart: number
@@ -128,6 +137,31 @@ export function clearTerminalIdleTimer(session: TerminalSession): void {
   session.idleTimer = undefined
 }
 
+export function clearAgentStallTimer(session: TerminalSession): void {
+  if (!session.agentStallTimer) return
+  clearTimeout(session.agentStallTimer)
+  session.agentStallTimer = undefined
+}
+
+// Derives an `inferred`-provenance AgentState from the legacy output-timing
+// activity, for agent sessions whose CLI never reported a hook frame. This keeps
+// every agent session exposing an AgentState with honest provenance (the spec's
+// "agents without hook support keep today's behavior, marked inferred"); it can
+// never produce `awaiting_input`, which is exactly why output-scraping needs the
+// hooks. Used as the snapshot fallback when no hook/stall state is present.
+export function inferAgentStateFromActivity(activity: SessionActivity): AgentState {
+  switch (activity.kind) {
+    case 'working':
+      return { phase: 'thinking', since: activity.since, source: 'inferred' }
+    case 'idle':
+      return { phase: 'idle', since: activity.since, source: 'inferred' }
+    case 'exited':
+      return { phase: 'exited', since: activity.at, source: 'inferred' }
+    case 'failed':
+      return { phase: 'failed', since: activity.at, source: 'inferred' }
+  }
+}
+
 export function getTerminalIdleTimeoutMs(session: TerminalSession): number {
   return session.kind === 'agent'
     ? DEFAULT_IDLE_POLICY.agentFlipToIdleAfterMs
@@ -141,6 +175,7 @@ export function createInitialTerminalActivity(startedAt: number): SessionActivit
 export function transitionTerminalActivity(session: TerminalSession, next: SessionActivity): boolean {
   if (next.kind === 'exited' || next.kind === 'failed') {
     clearTerminalIdleTimer(session)
+    clearAgentStallTimer(session)
     session.hasExited = true
     session.exitedAt ??= next.at
     session.exitCode = next.exitCode
@@ -340,6 +375,11 @@ export function getTerminalSnapshot(session: TerminalSession): TerminalSessionSn
     lastInputAt: session.lastInputAt,
     lastVisibleAt: session.lastVisibleAt,
     activity: session.activity,
+    // Hook/stall state when present; otherwise an inferred fallback so every
+    // agent session carries provenance. Plain terminals carry none.
+    agentState:
+      session.agentState
+      ?? (session.kind === 'agent' ? inferAgentStateFromActivity(session.activity) : undefined),
     exitedAt: session.exitedAt,
     outputBufferLength: session.outputLength,
     retainedOutputBytes: session.outputBytes,

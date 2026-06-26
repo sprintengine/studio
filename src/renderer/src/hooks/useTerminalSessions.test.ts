@@ -11,6 +11,7 @@ import {
   pickAgentTabRecency,
   pickTerminalTabRecency,
   tabRecencyLabel,
+  workspaceTerminalAwaitingInput,
 } from './useTerminalSessions'
 import { createTerminalSessionsStore } from './terminalSessionsStore'
 
@@ -20,6 +21,7 @@ async function main(): Promise<void> {
   assertProcessAliveHelpersUseLivenessOnly()
   assertSignatureIgnoresOutputTimingButTracksActivity()
   assertWorkspaceDisplayActivityPriority()
+  assertAwaitingInputHookSurfacesAsNeedsInput()
   assertWorkspaceTerminalActivityPriorityAndPersistedRecency()
   assertTerminalTabRecencyPrefersLastInputAt()
   assertAgentTabRecencyFallbackChain()
@@ -137,6 +139,53 @@ function assertWorkspaceDisplayActivityPriority(): void {
     ], false),
     'idle'
   )
+}
+
+// An agent whose lifecycle hooks report `awaiting_input` must surface as
+// `needs-input` even when SprintEngine's runtime needs-input flag is false and
+// its bridged activity is idle — and it must change the dedupe signature so the
+// sidebar re-renders on the phase flip.
+function assertAwaitingInputHookSurfacesAsNeedsInput(): void {
+  const awaiting = session({
+    sessionId: 'session_awaiting',
+    activity: { kind: 'idle', since: 50 },
+    agentState: { phase: 'awaiting_input', since: 60, source: 'hook' },
+  })
+  assert.equal(workspaceTerminalAwaitingInput('workspace_1', [awaiting]), true)
+  // Wins over the idle activity, with the SprintEngine flag off.
+  assert.equal(deriveWorkspaceDisplayActivity('workspace_1', [awaiting], false), 'needs-input')
+  // Scoped to the workspace: another workspace's awaiting agent does not leak in.
+  assert.equal(workspaceTerminalAwaitingInput('workspace_2', [awaiting]), false)
+  // Non-agent sessions are ignored.
+  const shellAwaiting = session({
+    sessionId: 'session_shell',
+    kind: 'terminal',
+    agentState: { phase: 'awaiting_input', since: 60, source: 'hook' },
+  })
+  assert.equal(workspaceTerminalAwaitingInput('workspace_1', [shellAwaiting]), false)
+
+  // Entering awaiting_input changes the signature so consumers re-render even
+  // though the bridged `activity` (idle) is unchanged.
+  const working = session({
+    sessionId: 'session_phase',
+    activity: { kind: 'idle', since: 50 },
+    agentState: { phase: 'tool_use', since: 55, source: 'hook' },
+  })
+  const flipped = session({
+    sessionId: 'session_phase',
+    activity: { kind: 'idle', since: 50 },
+    agentState: { phase: 'awaiting_input', since: 70, source: 'hook' },
+  })
+  assert.notEqual(getTerminalSessionsSignature([working]), getTerminalSessionsSignature([flipped]))
+
+  // But churn between non-attention phases must NOT change the signature — that
+  // would re-render the sidebar on every tool call for no visible difference.
+  const thinking = session({
+    sessionId: 'session_phase',
+    activity: { kind: 'idle', since: 50 },
+    agentState: { phase: 'thinking', since: 80, source: 'hook' },
+  })
+  assert.equal(getTerminalSessionsSignature([working]), getTerminalSessionsSignature([thinking]))
 }
 
 function assertWorkspaceTerminalActivityPriorityAndPersistedRecency(): void {
@@ -570,6 +619,7 @@ function session(
     lastInputAt: input.lastInputAt ?? null,
     lastVisibleAt: input.lastVisibleAt ?? null,
     activity: input.activity ?? { kind: 'idle', since: 0 },
+    agentState: input.agentState,
     exitedAt: input.exitedAt ?? null,
     outputBufferLength: input.outputBufferLength ?? 0,
     retainedOutputBytes: input.retainedOutputBytes ?? 0,

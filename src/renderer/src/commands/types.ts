@@ -55,6 +55,9 @@ export type CommandAvailability =
   // Dev build or MULTICODE_DIAGNOSTICS=1: the performance diagnostics panel is
   // an engineering tool, so its command is offered only when diagnostics are on.
   | 'diagnosticsEnabled'
+  // The automations capability module is enabled, so the global Automations
+  // screen has a backing store/IPC and can be opened.
+  | 'automationsEnabled'
 
 export type CommandHandlerPath =
   | { kind: 'workspace-manager'; handler: string }

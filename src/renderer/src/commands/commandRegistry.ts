@@ -43,6 +43,14 @@ export const COMMAND_REGISTRY = [
     handlerPath: { kind: 'workspace-manager', handler: 'openNewWorkspacePanel()' },
   }),
   command({
+    id: 'app.automations.open',
+    title: 'Open Automations',
+    category: 'workspace',
+    scopes: ['global'],
+    availability: ['automationsEnabled'],
+    handlerPath: { kind: 'workspace-manager', handler: 'openAutomations()' },
+  }),
+  command({
     id: 'workspace.close',
     title: 'Close Workspace',
     category: 'workspace',
