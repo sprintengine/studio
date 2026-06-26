@@ -132,7 +132,7 @@ export function createAutomationsModule(options: AutomationsModuleOptions = {}):
         deliverTriggerEvent: (input) => engine.deliverTriggerEvent(input),
       })
 
-      host.registerSidecar(
+      const engineSidecar = host.registerSidecar(
         {
           id: 'automations-engine',
           kind: 'scheduler',
@@ -165,6 +165,7 @@ export function createAutomationsModule(options: AutomationsModuleOptions = {}):
         checkProviderPermission,
         isIntegrationAvailable,
         getWorkspaceSyncSnapshot: () => workspaceSyncService.getSnapshot(),
+        getEngineSidecarStatus: () => engineSidecar.status(),
         onDefinitionsChanged: async () => {
           await webhookReceiver.refresh()
         },

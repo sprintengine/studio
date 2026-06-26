@@ -5,6 +5,7 @@ import type {
   AutomationsDefinitionInput,
   AutomationsDefinitionResult,
   AutomationsDeleteResult,
+  AutomationsEngineStatusResult,
   AutomationsListResult,
   AutomationsProvidersResult,
   AutomationsRunEvent,
@@ -19,6 +20,7 @@ import type {
 import {
   AUTOMATIONS_CREATE_CHANNEL,
   AUTOMATIONS_DELETE_CHANNEL,
+  AUTOMATIONS_ENGINE_STATUS_CHANNEL,
   AUTOMATIONS_GET_CHANNEL,
   AUTOMATIONS_LIST_CHANNEL,
   AUTOMATIONS_PROVIDERS_LIST_CHANNEL,
@@ -49,6 +51,7 @@ export function createAutomationsApi(renderer: AutomationsIpcRenderer): Pick<
   | 'listAutomationRuns'
   | 'finalizeAutomationRun'
   | 'listAutomationProviders'
+  | 'getAutomationsEngineStatus'
   | 'onAutomationRunEvent'
 > {
   return {
@@ -70,6 +73,8 @@ export function createAutomationsApi(renderer: AutomationsIpcRenderer): Pick<
       renderer.invoke(AUTOMATIONS_RUN_FINALIZE_CHANNEL, input) as Promise<AutomationsRunFinalizeResult>,
     listAutomationProviders: (): Promise<AutomationsProvidersResult> =>
       renderer.invoke(AUTOMATIONS_PROVIDERS_LIST_CHANNEL) as Promise<AutomationsProvidersResult>,
+    getAutomationsEngineStatus: (): Promise<AutomationsEngineStatusResult> =>
+      renderer.invoke(AUTOMATIONS_ENGINE_STATUS_CHANNEL) as Promise<AutomationsEngineStatusResult>,
     onAutomationRunEvent: (cb: (event: AutomationsRunEvent) => void): (() => void) => {
       const handler = (_event: IpcRendererEvent, payload: unknown) => cb(payload as AutomationsRunEvent)
       renderer.on(AUTOMATIONS_RUN_EVENT_CHANNEL, handler)

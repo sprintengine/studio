@@ -9,6 +9,7 @@ import type {
   AutomationDefinitionDraft,
   AutomationsDefinitionResult,
   AutomationsDeleteResult,
+  AutomationsEngineStatusResult,
   AutomationsListResult,
   AutomationsProvidersResult,
   AutomationsRunEvent,
@@ -18,6 +19,7 @@ import type {
 import {
   AUTOMATIONS_CREATE_CHANNEL,
   AUTOMATIONS_DELETE_CHANNEL,
+  AUTOMATIONS_ENGINE_STATUS_CHANNEL,
   AUTOMATIONS_GET_CHANNEL,
   AUTOMATIONS_LIST_CHANNEL,
   AUTOMATIONS_PROVIDERS_LIST_CHANNEL,
@@ -636,6 +638,58 @@ async function testOutOfWorkspaceRootIsRejectedBeforeStoreOrRunNow(): Promise<vo
   assert.equal(runNowCalled, 0)
 }
 
+async function testEngineStatusChannelReflectsSidecar(): Promise<void> {
+  const engineStatusHandlers = (status: (() => { id: string; moduleId: string; kind: string; state: string; error?: string } | undefined)): HandlerMap => {
+    const handlers: HandlerMap = new Map()
+    registerAutomationsIpc(
+      {
+        registerIpc(channel, handler) {
+          handlers.set(channel, handler)
+        },
+      },
+      {
+        engine: {
+          runNow: async () => ({ ok: false as const, problem: { code: 'not_used', message: 'not used' } }),
+          finalizeRun: async () => ({ ok: false as const, problem: { code: 'not_used', message: 'not used' } }),
+        },
+        getEngineSidecarStatus: status as never,
+        now: () => currentNow,
+      }
+    )
+    return handlers
+  }
+
+  const running = await invoke<AutomationsEngineStatusResult>(
+    engineStatusHandlers(() => ({ id: 'automations-engine', moduleId: 'automations', kind: 'scheduler', state: 'running' })),
+    AUTOMATIONS_ENGINE_STATUS_CHANNEL
+  )
+  assert.equal(running.ok, true)
+  if (!running.ok) return
+  assert.deepEqual(running.value, { state: 'running' })
+
+  const failed = await invoke<AutomationsEngineStatusResult>(
+    engineStatusHandlers(() => ({
+      id: 'automations-engine',
+      moduleId: 'automations',
+      kind: 'scheduler',
+      state: 'failed',
+      error: 'Webhook receiver: port 8787 already in use',
+    })),
+    AUTOMATIONS_ENGINE_STATUS_CHANNEL
+  )
+  assert.equal(failed.ok, true)
+  if (!failed.ok) return
+  assert.deepEqual(failed.value, { state: 'failed', error: 'Webhook receiver: port 8787 already in use' })
+
+  const absent = await invoke<AutomationsEngineStatusResult>(
+    engineStatusHandlers(() => undefined),
+    AUTOMATIONS_ENGINE_STATUS_CHANNEL
+  )
+  assert.equal(absent.ok, true)
+  if (!absent.ok) return
+  assert.deepEqual(absent.value, { state: 'unavailable' })
+}
+
 async function main(): Promise<void> {
   await testProviderList()
   await testProviderListIncludesFirstPartyActionsAndMissingIntegrations()
@@ -644,6 +698,7 @@ async function main(): Promise<void> {
   await testDefinitionWritesNotifyRefreshHook()
   await testDefinitionWriteSurfacesRefreshHookFailure()
   await testOutOfWorkspaceRootIsRejectedBeforeStoreOrRunNow()
+  await testEngineStatusChannelReflectsSidecar()
   console.log('automations-ipc tests passed')
 }
 

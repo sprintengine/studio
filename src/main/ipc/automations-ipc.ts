@@ -10,6 +10,7 @@ import type {
   AutomationsDefinitionInput,
   AutomationsDefinitionResult,
   AutomationsDeleteResult,
+  AutomationsEngineStatusResult,
   AutomationsListResult,
   AutomationsProviderView,
   AutomationsProvidersResult,
@@ -25,6 +26,7 @@ import type { WorkspaceSyncSnapshot } from '../../shared/workspace-sync'
 import {
   AUTOMATIONS_CREATE_CHANNEL,
   AUTOMATIONS_DELETE_CHANNEL,
+  AUTOMATIONS_ENGINE_STATUS_CHANNEL,
   AUTOMATIONS_GET_CHANNEL,
   AUTOMATIONS_LIST_CHANNEL,
   AUTOMATIONS_PROVIDERS_LIST_CHANNEL,
@@ -43,7 +45,7 @@ import {
 import { computeNextRun, validateScheduleTriggerConfig } from '../automations/schedule'
 import { AutomationsStore, type AutomationStoreProblem } from '../automations/store'
 import { WEBHOOK_TRIGGER_KIND } from '../automations/triggers/webhook'
-import type { IpcInvokeHandler } from '../module-host/main-host'
+import type { IpcInvokeHandler, SidecarRuntimeStatus } from '../module-host/main-host'
 
 export type AutomationsIpcHost = {
   registerIpc(channel: string, handler: IpcInvokeHandler): void
@@ -63,6 +65,13 @@ export type AutomationsIpcDependencies = {
   checkProviderPermission?: AutomationProviderPermissionChecker
   isIntegrationAvailable?: (id: string) => boolean | undefined
   getWorkspaceSyncSnapshot?: () => WorkspaceSyncSnapshot
+  /**
+   * Reads the kernel-tracked status of the Automations engine/scheduler sidecar
+   * (kernel.sidecarStatuses() filtered to this module's sidecar, via the handle
+   * registerSidecar returns). Absent/undefined means the sidecar is not wired,
+   * which the engine-status channel reports as 'unavailable'.
+   */
+  getEngineSidecarStatus?: () => SidecarRuntimeStatus | undefined
   onDefinitionsChanged?: (workspaceRoot: string) => void | Promise<void>
   now?: () => number
   createAutomationId?: (draft: AutomationDefinitionDraft) => string
@@ -213,6 +222,12 @@ export function registerAutomationsIpc(host: AutomationsIpcHost, deps: Automatio
         providerView(registration, deps.isIntegrationAvailable, checkProviderPermission)
       ),
     })
+  })
+
+  host.registerIpc(AUTOMATIONS_ENGINE_STATUS_CHANNEL, async (): Promise<AutomationsEngineStatusResult> => {
+    const status = deps.getEngineSidecarStatus?.()
+    if (!status) return ok({ state: 'unavailable' })
+    return ok({ state: status.state, ...(status.error ? { error: status.error } : {}) })
   })
 }
 

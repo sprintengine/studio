@@ -9,6 +9,7 @@ import type {
   AutomationsDefinitionInput,
   AutomationsDefinitionResult,
   AutomationsDeleteResult,
+  AutomationsEngineStatusResult,
   AutomationsListResult,
   AutomationsProvidersResult,
   AutomationsRunEvent,
@@ -1913,6 +1914,9 @@ export type ElectronApi = {
   listAutomationRuns: (input: AutomationsRunsListInput) => Promise<AutomationsRunsListResult>
   finalizeAutomationRun: (input: AutomationsRunFinalizeInput) => Promise<AutomationsRunFinalizeResult>
   listAutomationProviders: () => Promise<AutomationsProvidersResult>
+  // Read-only health of the Automations engine/scheduler sidecar for the control
+  // center indicator. Never mutates; main reads kernel sidecar status (T5).
+  getAutomationsEngineStatus: () => Promise<AutomationsEngineStatusResult>
   onAutomationRunEvent: (cb: (event: AutomationsRunEvent) => void) => () => void
   authGetState: () => Promise<MulticodeAuthState>
   authLogin: (organizationId?: string | null) => Promise<{ state: string; authorizationUrl: string }>

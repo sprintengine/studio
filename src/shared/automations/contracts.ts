@@ -14,6 +14,7 @@ export const AUTOMATIONS_RUN_NOW_CHANNEL = 'automations:run-now'
 export const AUTOMATIONS_RUNS_LIST_CHANNEL = 'automations:runs:list'
 export const AUTOMATIONS_RUN_FINALIZE_CHANNEL = 'automations:run:finalize'
 export const AUTOMATIONS_PROVIDERS_LIST_CHANNEL = 'automations:providers:list'
+export const AUTOMATIONS_ENGINE_STATUS_CHANNEL = 'automations:engine-status'
 export const AUTOMATIONS_RUN_EVENT_CHANNEL = 'automations:run-event'
 
 export type AutomationStatus = 'enabled' | 'paused' | 'blocked'
@@ -201,6 +202,24 @@ export type AutomationsProviders = {
   actions: AutomationsProviderView[]
 }
 
+// Read-only health of the Automations engine/scheduler sidecar, surfaced to the
+// renderer so the control center can show an engine indicator. Mirrors the
+// kernel's SidecarRunState (src/main/module-host/main-host.ts) plus
+// 'unavailable' for when the sidecar is absent (module disabled / not wired).
+export type AutomationsEngineSidecarState =
+  | 'declared'
+  | 'stopped'
+  | 'starting'
+  | 'running'
+  | 'failed'
+  | 'unavailable'
+
+export type AutomationsEngineStatus = {
+  state: AutomationsEngineSidecarState
+  /** Sidecar error when present, e.g. the webhook-receiver failure. */
+  error?: string
+}
+
 export type AutomationsResult<T> =
   | { ok: true; value: T }
   | { ok: false; code: string; message: string }
@@ -215,3 +234,4 @@ export type AutomationsRunNowResult = AutomationsResult<{
 export type AutomationsRunsListResult = AutomationsResult<AutomationRun[]>
 export type AutomationsRunFinalizeResult = AutomationsResult<AutomationRun>
 export type AutomationsProvidersResult = AutomationsResult<AutomationsProviders>
+export type AutomationsEngineStatusResult = AutomationsResult<AutomationsEngineStatus>
