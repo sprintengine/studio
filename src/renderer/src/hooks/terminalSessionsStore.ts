@@ -42,6 +42,11 @@ export function getTerminalSessionsSignature(sessions: TerminalSessionSnapshot[]
       session.agentSession?.sessionId ?? '',
       session.agentSession?.executionId ?? '',
       session.exitedAt ?? null,
+      // Authoritative phase + provenance: a phase change (e.g. tool_use →
+      // awaiting_input) must re-render even when the coarse `activity` is
+      // unchanged. Timing (`since`) is deliberately excluded as high-frequency noise.
+      session.agentState?.phase ?? '',
+      session.agentState?.source ?? '',
     ])
   return JSON.stringify(rows)
 }
