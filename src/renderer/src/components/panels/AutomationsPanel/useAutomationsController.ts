@@ -195,9 +195,12 @@ export function useAutomationsController(input: { folderPath: string | null; wor
       setActionError(errorMessage(error))
       return
     }
-    // Refresh the feed and the definitions (a finalized run updates lastRun*).
-    await Promise.all([loadRunsFeed(), load()])
-  }, [folderPath, loadRunsFeed, load])
+    // Reload only the feed — calling the full load() would flip loadState to
+    // 'loading' and flash the whole panel away. The definitions list's lastRun*
+    // staying briefly stale matches the detail-pane finalize (it only reloads its
+    // own runs too), and refreshes on the next list load.
+    await loadRunsFeed()
+  }, [folderPath, loadRunsFeed])
 
   return {
     definitions,
