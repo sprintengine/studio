@@ -1,0 +1,372 @@
+import { useState } from 'react'
+
+import { Field, GhostButton, InlineNotice, Select, type SelectItem, Switch } from '../../ui'
+import type { AutomationsProviders, TriggerKind } from '../../../../../shared/automations/contracts'
+import {
+  WEBHOOK_ROUTE_PREFIX,
+  WEBHOOK_SIGNATURE_HEADER,
+  WEEKDAY_SHORT,
+  cadenceSummary,
+  generateWebhookSecret,
+  isAuthorableTrigger,
+  providerUnavailableReason,
+  type EditorState,
+  type RepoEventForm,
+  type RepoEventProvider,
+  type RepoEventType,
+  type ScheduleCadenceType,
+  type WebhookForm,
+} from './automationsFormat'
+
+// The trigger families the picker always offers, in priority order. Each is shown
+// even when unavailable (disabled + reason) so a control boundary is never hidden.
+const CANONICAL_FAMILIES: TriggerKind[] = ['schedule', 'repo-event', 'webhook']
+const FAMILY_LABEL: Record<string, string> = {
+  schedule: 'Schedule',
+  'repo-event': 'On event',
+  webhook: 'Webhook',
+}
+
+const INPUT_CLASS =
+  'w-full rounded-md border border-[color:var(--border-strong)] bg-[color:var(--bg-surface)] px-2.5 py-1.5 text-[12px] text-[color:var(--text-default)] outline-none focus-visible:border-[color:var(--accent-primary)]'
+
+export type TriggerFieldsValue = {
+  triggerKind: TriggerKind
+  cadenceType: ScheduleCadenceType
+  everyMinutes: number
+  timeLocal: string
+  daysOfWeek: number[]
+  repoEvent: RepoEventForm
+  webhook: WebhookForm
+}
+
+// Reason a trigger family cannot be authored. schedule/webhook are always
+// registered; repo-event is only registered when the Switchboard module is
+// enabled, so its absence from providers.triggers is surfaced explicitly rather
+// than hiding the family.
+function familyUnavailableReason(kind: TriggerKind, providers: AutomationsProviders | null): string | null {
+  if (!providers) return null
+  const provider = providers.triggers.find((t) => t.kind === kind)
+  if (!provider) {
+    if (kind === 'repo-event') return 'This trigger needs the Switchboard module, which is not enabled.'
+    return null
+  }
+  return providerUnavailableReason(provider, 'trigger')
+}
+
+export function selectedFamilyUnavailableReason(
+  kind: TriggerKind,
+  providers: AutomationsProviders | null,
+): string | null {
+  return familyUnavailableReason(kind, providers)
+}
+
+export function TriggerFields({
+  editor, providers, value, onChange,
+}: {
+  editor: EditorState
+  providers: AutomationsProviders | null
+  value: TriggerFieldsValue
+  onChange: (patch: Partial<TriggerFieldsValue>) => void
+}) {
+  const loaded = editor.mode === 'edit' ? editor.definition.trigger : null
+
+  // A loaded cron schedule or unknown third-party family has no authoring control
+  // (the engine rejects cron); show its read-only summary and round-trip verbatim.
+  if (loaded && !isAuthorableTrigger(loaded)) {
+    return (
+      <fieldset className="flex flex-col gap-3 rounded-md border border-[color:var(--border-subtle)] p-3">
+        <legend className="px-1 text-[11px] font-medium text-[color:var(--text-muted)]">Trigger</legend>
+        <div className="flex flex-col gap-1">
+          <span className="text-[12px] text-[color:var(--text-default)]">{cadenceSummary(loaded)}</span>
+          <span className="text-[11px] text-[color:var(--text-subtle)]">
+            Editing this trigger type isn’t supported yet. Saving keeps the current trigger unchanged.
+          </span>
+        </div>
+      </fieldset>
+    )
+  }
+
+  const familyItems: SelectItem[] = CANONICAL_FAMILIES.map((kind) => {
+    const reason = familyUnavailableReason(kind, providers)
+    return {
+      value: kind,
+      label: reason ? `${FAMILY_LABEL[kind]} — unavailable` : FAMILY_LABEL[kind],
+      disabled: Boolean(reason),
+    }
+  })
+  const selectedReason = familyUnavailableReason(value.triggerKind, providers)
+
+  return (
+    <fieldset className="flex flex-col gap-3 rounded-md border border-[color:var(--border-subtle)] p-3">
+      <legend className="px-1 text-[11px] font-medium text-[color:var(--text-muted)]">Trigger</legend>
+
+      <Field label="When it runs" htmlFor="automation-trigger-family">
+        <Select
+          ariaLabel="Trigger family"
+          value={value.triggerKind}
+          onChange={(kind) => onChange({ triggerKind: kind })}
+          items={familyItems}
+        />
+      </Field>
+
+      {selectedReason ? <InlineNotice tone="warn">{selectedReason}</InlineNotice> : null}
+
+      {value.triggerKind === 'schedule' ? (
+        <ScheduleFields value={value} onChange={onChange} />
+      ) : value.triggerKind === 'repo-event' ? (
+        <RepoEventFields value={value.repoEvent} onChange={(repoEvent) => onChange({ repoEvent })} />
+      ) : value.triggerKind === 'webhook' ? (
+        <WebhookFields value={value.webhook} onChange={(webhook) => onChange({ webhook })} />
+      ) : null}
+    </fieldset>
+  )
+}
+
+function ScheduleFields({
+  value, onChange,
+}: {
+  value: TriggerFieldsValue
+  onChange: (patch: Partial<TriggerFieldsValue>) => void
+}) {
+  return (
+    <>
+      <Field label="Cadence" htmlFor="automation-cadence">
+        <Select<ScheduleCadenceType>
+          ariaLabel="Cadence"
+          value={value.cadenceType}
+          onChange={(cadenceType) => onChange({ cadenceType })}
+          items={[
+            { value: 'interval', label: 'Every N minutes' },
+            { value: 'daily', label: 'Daily' },
+            { value: 'weekly', label: 'Weekly' },
+          ]}
+        />
+      </Field>
+      {value.cadenceType === 'interval' ? (
+        <Field label="Run every (minutes)" htmlFor="automation-interval" help="Minimum 5 minutes.">
+          <input
+            id="automation-interval"
+            type="number"
+            min={5}
+            value={value.everyMinutes}
+            onChange={(e) => onChange({ everyMinutes: Number(e.target.value) || 0 })}
+            className="w-32 rounded-md border border-[color:var(--border-strong)] bg-[color:var(--bg-surface)] px-2.5 py-1.5 text-[12px] tabular-nums text-[color:var(--text-default)] outline-none focus-visible:border-[color:var(--accent-primary)]"
+          />
+        </Field>
+      ) : (
+        <Field label="Time" htmlFor="automation-time" help="Local time, 24-hour (HH:MM).">
+          <input
+            id="automation-time"
+            type="time"
+            value={value.timeLocal}
+            onChange={(e) => onChange({ timeLocal: e.target.value })}
+            className="w-32 rounded-md border border-[color:var(--border-strong)] bg-[color:var(--bg-surface)] px-2.5 py-1.5 text-[12px] tabular-nums text-[color:var(--text-default)] outline-none focus-visible:border-[color:var(--accent-primary)]"
+          />
+        </Field>
+      )}
+      {value.cadenceType === 'weekly' ? (
+        <fieldset>
+          <legend className="mb-1 text-[11px] text-[color:var(--text-subtle)]">Days</legend>
+          <div className="flex flex-wrap gap-1">
+            {WEEKDAY_SHORT.map((label, day) => {
+              const checked = value.daysOfWeek.includes(day)
+              return (
+                <button
+                  key={day}
+                  type="button"
+                  aria-pressed={checked}
+                  onClick={() => onChange({ daysOfWeek: checked ? value.daysOfWeek.filter((d) => d !== day) : [...value.daysOfWeek, day] })}
+                  className={chipClass(checked)}
+                >
+                  {label}
+                </button>
+              )
+            })}
+          </div>
+        </fieldset>
+      ) : null}
+    </>
+  )
+}
+
+const REPO_EVENT_PROVIDERS: { value: RepoEventProvider; label: string }[] = [
+  { value: 'any', label: 'Any source' },
+  { value: 'github', label: 'GitHub' },
+  { value: 'jira', label: 'Jira' },
+]
+const REPO_EVENT_TYPES: { value: RepoEventType; label: string }[] = [
+  { value: 'created', label: 'Created' },
+  { value: 'updated', label: 'Updated' },
+]
+
+function RepoEventFields({
+  value, onChange,
+}: {
+  value: RepoEventForm
+  onChange: (next: RepoEventForm) => void
+}) {
+  return (
+    <>
+      <Field label="Source" htmlFor="automation-repo-provider" help="Which connected source emits the event.">
+        <Select<RepoEventProvider>
+          ariaLabel="Event source"
+          value={value.provider}
+          onChange={(provider) => onChange({ ...value, provider })}
+          items={REPO_EVENT_PROVIDERS}
+        />
+      </Field>
+      <Field label="Event types" htmlFor="automation-repo-events" help="Fire when a matching item is created or updated.">
+        <div className="flex flex-wrap gap-1" role="group" aria-label="Event types">
+          {REPO_EVENT_TYPES.map((event) => {
+            const checked = value.eventTypes.includes(event.value)
+            return (
+              <button
+                key={event.value}
+                type="button"
+                aria-pressed={checked}
+                onClick={() => onChange({
+                  ...value,
+                  eventTypes: checked
+                    ? value.eventTypes.filter((e) => e !== event.value)
+                    : [...value.eventTypes, event.value],
+                })}
+                className={chipClass(checked)}
+              >
+                {event.label}
+              </button>
+            )
+          })}
+        </div>
+      </Field>
+      <Field label="External key" htmlFor="automation-repo-key" help="Optional. Match a specific issue or PR key, e.g. PROJ-12.">
+        <input
+          id="automation-repo-key"
+          type="text"
+          value={value.externalKey}
+          onChange={(e) => onChange({ ...value, externalKey: e.target.value })}
+          className={INPUT_CLASS}
+        />
+      </Field>
+      <Field label="Label" htmlFor="automation-repo-label" help="Optional. A human label for this event source.">
+        <input
+          id="automation-repo-label"
+          type="text"
+          value={value.label}
+          onChange={(e) => onChange({ ...value, label: e.target.value })}
+          className={INPUT_CLASS}
+        />
+      </Field>
+    </>
+  )
+}
+
+function WebhookFields({
+  value, onChange,
+}: {
+  value: WebhookForm
+  onChange: (next: WebhookForm) => void
+}) {
+  const [copied, setCopied] = useState(false)
+
+  const copySecret = async () => {
+    try {
+      await window.api.clipboardWriteText(value.secret)
+      setCopied(true)
+    } catch {
+      setCopied(false)
+    }
+  }
+
+  const regenerate = () => {
+    setCopied(false)
+    onChange({ ...value, secret: generateWebhookSecret() })
+  }
+
+  const deliveryPath = value.path.trim()
+
+  return (
+    <>
+      <label className="flex items-center gap-2 text-[12px] text-[color:var(--text-default)]">
+        <Switch
+          checked={value.enabled}
+          onChange={(enabled) => onChange({ ...value, enabled })}
+          ariaLabel="Enable inbound webhook delivery"
+        />
+        Listen for deliveries
+        <span className="text-[11px] text-[color:var(--text-subtle)]">{value.enabled ? '(receiver active)' : '(paused)'}</span>
+      </label>
+      <Field label="Port" htmlFor="automation-webhook-port" help="Local port the receiver listens on.">
+        <input
+          id="automation-webhook-port"
+          type="number"
+          min={0}
+          max={65535}
+          value={value.port}
+          onChange={(e) => onChange({ ...value, port: e.target.value })}
+          className="w-32 rounded-md border border-[color:var(--border-strong)] bg-[color:var(--bg-surface)] px-2.5 py-1.5 text-[12px] tabular-nums text-[color:var(--text-default)] outline-none focus-visible:border-[color:var(--accent-primary)]"
+        />
+      </Field>
+      <Field label="Path" htmlFor="automation-webhook-path" help="Path segment after the delivery prefix.">
+        <input
+          id="automation-webhook-path"
+          type="text"
+          value={value.path}
+          onChange={(e) => onChange({ ...value, path: e.target.value })}
+          placeholder="deploy"
+          className={INPUT_CLASS}
+        />
+      </Field>
+      <div className="text-[11px] text-[color:var(--text-subtle)]">
+        Delivery URL{' '}
+        <code className="font-mono text-[color:var(--text-muted)]">{WEBHOOK_ROUTE_PREFIX}{deliveryPath || '<path>'}</code>
+      </div>
+
+      <Field label="Secret" htmlFor="automation-webhook-secret" help="Used to sign deliveries. Shown once when generated.">
+        {value.secret ? (
+          <div className="flex flex-col gap-1.5">
+            <div className="flex items-center gap-1.5">
+              <input
+                id="automation-webhook-secret"
+                type="text"
+                readOnly
+                value={value.secret}
+                className={`${INPUT_CLASS} font-mono`}
+              />
+              <GhostButton type="button" onClick={() => void copySecret()} className="h-7 shrink-0 px-2 text-[11px]">
+                {copied ? 'Copied' : 'Copy'}
+              </GhostButton>
+            </div>
+            <span className="text-[11px] text-[color:var(--tone-warn)]">
+              Copy this now — it won’t be shown again after you save.
+            </span>
+          </div>
+        ) : (
+          <div className="flex items-center gap-2">
+            <GhostButton type="button" onClick={regenerate} className="h-7 px-2 text-[11px]">
+              {value.hasSecret ? 'Regenerate secret' : 'Generate secret'}
+            </GhostButton>
+            <span className="text-[11px] text-[color:var(--text-subtle)]">
+              {value.hasSecret ? 'A secret is set. Regenerate to replace it.' : 'No secret yet.'}
+            </span>
+          </div>
+        )}
+      </Field>
+
+      <p className="text-[11px] leading-5 text-[color:var(--text-subtle)]">
+        Sign the raw request body with HMAC-SHA256 using the secret and send it in the{' '}
+        <code className="font-mono text-[color:var(--text-muted)]">{WEBHOOK_SIGNATURE_HEADER}</code> header as{' '}
+        <code className="font-mono text-[color:var(--text-muted)]">sha256=&lt;hex&gt;</code>.
+      </p>
+    </>
+  )
+}
+
+function chipClass(active: boolean): string {
+  return [
+    'h-7 min-w-9 rounded-md border px-2 text-[11px] outline-none focus-visible:ring-1 focus-visible:ring-[color:var(--accent-primary)]',
+    active
+      ? 'border-[color:var(--accent-primary)] bg-[color:var(--accent-primary-soft)] text-[color:var(--text-strong)]'
+      : 'border-[color:var(--border-strong)] text-[color:var(--text-muted)] hover:bg-[color:var(--bg-hover)]',
+  ].join(' ')
+}
