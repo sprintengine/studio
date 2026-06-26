@@ -90,8 +90,38 @@ export function isScheduleConfig(config: unknown): config is ScheduleTriggerConf
   return Boolean(config) && typeof config === 'object' && (config as { kind?: unknown }).kind === 'schedule'
 }
 
+// ---------------------------------------------------------------------------
+// Human-readable copy — actions and non-schedule trigger families read as
+// sentences, not the machine kind strings the providers register under.
+// AutomationsProviderView carries no display copy, so the renderer owns these
+// maps; unknown third-party kinds fall back to their raw kind.
+// ---------------------------------------------------------------------------
+
+export const ACTION_LABEL: Record<string, string> = {
+  'spawn-agent': 'Spawn an agent',
+  'run-skill-loop': 'Run a skill loop',
+  'watchtower-review': 'Run a code review',
+  'sprint-engine-run': 'Run a Sprint Engine pass',
+  'switchboard-runner-tick': 'Advance the Switchboard queue',
+}
+
+// Sentence-case action label for a kind, falling back to the raw kind for
+// unknown third-party actions.
+export function actionLabel(kind: string): string {
+  return ACTION_LABEL[kind] ?? kind
+}
+
+// Summary copy for the non-schedule trigger families (schedule cadences are
+// summarized by cadenceSummary). Unknown families fall back to the raw kind.
+export const TRIGGER_SUMMARY: Record<string, string> = {
+  'repo-event': 'On GitHub/Jira event',
+  webhook: 'On webhook',
+}
+
 export function cadenceSummary(trigger: AutomationDefinition['trigger']): string {
-  if (trigger.kind !== 'schedule' || !isScheduleConfig(trigger.config)) return trigger.kind
+  if (trigger.kind !== 'schedule' || !isScheduleConfig(trigger.config)) {
+    return TRIGGER_SUMMARY[trigger.kind] ?? trigger.kind
+  }
   const cadence = trigger.config.cadence
   switch (cadence.type) {
     case 'interval': {

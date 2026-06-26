@@ -14,6 +14,7 @@ import type {
 } from '../../../../../shared/automations/contracts'
 import {
   WEEKDAY_SHORT,
+  actionLabel,
   automationCliFieldError,
   automationCliSelectItems,
   cadenceSummary,
@@ -245,7 +246,7 @@ export function AutomationEditor({
 
   const actionItems: SelectItem[] = (providers?.actions ?? []).map((a) => ({
     value: a.kind,
-    label: providerUnavailableReason(a) ? `${a.kind} (blocked)` : a.kind,
+    label: providerUnavailableReason(a) ? `${actionLabel(a.kind)} — unavailable` : actionLabel(a.kind),
     disabled: Boolean(providerUnavailableReason(a)),
   }))
 

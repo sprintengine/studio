@@ -37,7 +37,7 @@ const markup = renderToStaticMarkup(
   />,
 )
 
-assert.match(markup, /weather-deck\.refresh-forecast \(blocked\)/, 'blocked provider is labelled in the selector')
+assert.match(markup, /weather-deck\.refresh-forecast — unavailable/, 'blocked provider reads "<label> — unavailable" (unknown kind falls back to the raw kind)')
 assert.match(markup, /Automation action provider/, 'blocked reason is rendered as visible editor feedback')
 assert.match(markup, /weather-deck\.refresh-forecast/, 'blocked reason names the provider')
 assert.match(markup, /not trusted in Settings -&gt; Modules/, 'blocked reason names the trust state')
