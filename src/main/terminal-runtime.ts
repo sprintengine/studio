@@ -506,6 +506,10 @@ export function suspendTerminal(sessionId: string): void {
   // the scrollback can be replayed for the painted view.
   terminalOutput.flush(sessionId, 'dispose')
   clearTerminalIdleTimer(session)
+  // A suspend kills the pty without going through the exited/failed activity
+  // transition (the onExit branch returns early), so clear the stall timer here
+  // too or it lingers armed against a dead process until it self-expires.
+  clearAgentStallTimer(session)
   try {
     session.process.kill()
   } catch {
@@ -923,8 +927,20 @@ function ingestAgentStateFrame(frame: AgentStateFrame): void {
   // Bridge to the legacy activity field so existing consumers (sidebar bolding,
   // reaping, diagnostics) reflect the authoritative phase. Suppress its own
   // broadcast; we decide below whether a broadcast is warranted.
+  //
+  // Within-"working" churn (thinking ↔ tool_use) must NOT re-broadcast: keep the
+  // existing working `since` so the bridged activity compares equal and only a
+  // genuine working↔idle flip (or the awaiting_input boundary below) triggers a
+  // snapshot IPC. Without this every frame bumps `since`, so the activity always
+  // reads "changed" and broadcasts per frame — a storm — and the displayed
+  // "working since" never accumulates. Mirrors the output path, which likewise
+  // never bumps `since` while already working.
   const derived = deriveActivityFromPhase(frame.phase, frame.ts)
-  const activityChanged = derived ? setTerminalActivity(session, derived, { broadcast: false }) : false
+  const bridged =
+    derived && derived.kind === 'working' && session.activity.kind === 'working'
+      ? { kind: 'working' as const, since: session.activity.since }
+      : derived
+  const activityChanged = bridged ? setTerminalActivity(session, bridged, { broadcast: false }) : false
 
   // Arm/refresh/clear the stall watch for the new phase: a fresh working frame
   // resets the clock; a non-working phase disarms it.
@@ -1204,7 +1220,19 @@ function attachTerminalSession(
     const isRepaint = now < (terminalSession.repaintGraceUntil ?? 0)
     appendTerminalOutput(terminalSession, data, now, !isRepaint)
     if (!isRepaint) {
-      if (terminalSession.activity.kind !== 'working') {
+      // For hook-reporting agents the hooks are the SOLE driver of activity:
+      // output must not flip to "working" here, or the prompt/result text that an
+      // authoritative awaiting_input/idle phase prints would override it back to
+      // working (a transient spinner-vs-needs-input fight). This mirrors the idle
+      // guard in scheduleTerminalIdleTransition, making hook agents fully
+      // hook-driven in BOTH directions. lastOutputAt was already advanced by
+      // appendTerminalOutput above and still feeds stall detection, so output
+      // stays a liveness co-signal without owning activity. Non-hook/inferred
+      // sessions keep the output-driven behavior verbatim.
+      if (
+        terminalSession.activity.kind !== 'working'
+        && terminalSession.agentState?.source !== 'hook'
+      ) {
         setTerminalActivity(
           terminalSession,
           { kind: 'working', since: terminalSession.lastOutputAt ?? now }

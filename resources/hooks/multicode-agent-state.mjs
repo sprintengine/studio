@@ -2,8 +2,12 @@
 // Multicode authoritative-agent-state reporter for Claude Code.
 //
 // Registered for the agent lifecycle events (SessionStart, UserPromptSubmit,
-// PreToolUse, PostToolUse, Notification, Stop, SubagentStop, SessionEnd). Reads
-// Claude's hook JSON from stdin, maps `hook_event_name` to an agent phase, and
+// PostToolUse, Notification, Stop, SubagentStop, SessionEnd). The per-tool-call
+// PreToolUse event is intentionally NOT registered (see AGENT_STATE_HOOK_EVENTS
+// in src/main/agent-state.ts); PostToolUse is kept because its → thinking frame
+// clears the awaiting_input state after a permission is answered. The reporter
+// still maps PreToolUse if one ever arrives. Reads Claude's hook JSON from stdin,
+// maps `hook_event_name` to an agent phase, and
 // writes a single newline-delimited JSON frame to the Multicode agent-state
 // socket so the app learns the agent's true phase instead of guessing from
 // output timing. The agent's identity comes from the MULTICODE_* env the app
