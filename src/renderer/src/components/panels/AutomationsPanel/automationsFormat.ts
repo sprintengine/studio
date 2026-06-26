@@ -118,6 +118,20 @@ export const TRIGGER_SUMMARY: Record<string, string> = {
   webhook: 'On webhook',
 }
 
+// Quiet family prefix for the list's supporting line — the most load-bearing
+// dimension, scannable ahead of the cadence/summary ('Schedule · Every 2h',
+// 'Event · On GitHub/Jira event', 'Webhook · On webhook'). Unknown third-party
+// families fall back to their raw kind.
+export const TRIGGER_FAMILY_LABEL: Record<string, string> = {
+  schedule: 'Schedule',
+  'repo-event': 'Event',
+  webhook: 'Webhook',
+}
+
+export function triggerFamilyLabel(trigger: AutomationDefinition['trigger']): string {
+  return TRIGGER_FAMILY_LABEL[trigger.kind] ?? trigger.kind
+}
+
 export function cadenceSummary(trigger: AutomationDefinition['trigger']): string {
   if (trigger.kind !== 'schedule' || !isScheduleConfig(trigger.config)) {
     return TRIGGER_SUMMARY[trigger.kind] ?? trigger.kind

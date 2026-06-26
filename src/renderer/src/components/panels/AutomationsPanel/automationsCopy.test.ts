@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 
-import { actionLabel, cadenceSummary } from './automationsFormat'
+import { actionLabel, cadenceSummary, triggerFamilyLabel } from './automationsFormat'
 import type { AutomationDefinition } from '../../../../../shared/automations/contracts'
 
 let failures = 0
@@ -49,6 +49,18 @@ run('falls back to the raw kind for an unknown non-schedule trigger family', () 
 // for a named family; it falls through to the raw-kind path.
 run('does not apply a family summary to a schedule kind with a non-schedule config', () => {
   assert.equal(cadenceSummary(trigger('schedule', null)), 'schedule')
+})
+
+// --- Trigger family prefix (T3 AC#4) ---------------------------------------
+
+run('labels the trigger family for the list supporting line', () => {
+  assert.equal(triggerFamilyLabel(trigger('schedule', { kind: 'schedule' })), 'Schedule')
+  assert.equal(triggerFamilyLabel(trigger('repo-event')), 'Event')
+  assert.equal(triggerFamilyLabel(trigger('webhook')), 'Webhook')
+})
+
+run('falls back to the raw kind for an unknown trigger family', () => {
+  assert.equal(triggerFamilyLabel(trigger('vendor-x-trigger')), 'vendor-x-trigger')
 })
 
 // --- Schedule cadences still summarize correctly (no regression) -----------

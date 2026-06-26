@@ -1,6 +1,6 @@
 import React from 'react'
 
-import { GhostButton, IconButton, LifecycleGlyph, PrimaryButton, Spinner, TruncatedText } from '../../ui'
+import { GhostButton, LifecycleGlyph, OverflowMenu, type OverflowMenuItem, PrimaryButton, Spinner, TruncatedText } from '../../ui'
 import type { AutomationDefinition } from '../../../../../shared/automations/contracts'
 import {
   DEFINITION_LIFECYCLE,
@@ -10,6 +10,7 @@ import {
   isOverdue,
   parseTime,
   relativeFromNow,
+  triggerFamilyLabel,
 } from './automationsFormat'
 
 type DefinitionListProps = {
@@ -84,6 +85,17 @@ function DefinitionRow({
   const nextAt = parseTime(def.nextRunAt)
   const lastAt = parseTime(def.lastRunAt)
   const statusLabel = def.status === 'enabled' && overdue ? 'Overdue' : DEFINITION_STATUS_LABEL[def.status]
+  // The right-side text label is earned only by exceptions (overdue, paused,
+  // blocked). A healthy enabled row leans on the glyph alone — the live dot
+  // already carries "enabled", so repeating it as text is redundant chrome.
+  const showStatusText = overdue || def.status === 'paused' || def.status === 'blocked'
+
+  const overflowItems: OverflowMenuItem[] = [
+    { id: 'toggle', label: def.status === 'enabled' ? 'Pause' : 'Enable', onSelect: onToggleStatus, disabled: busy },
+    { id: 'edit', label: 'Edit', onSelect: onEdit, disabled: busy },
+    { kind: 'separator', id: 'sep' },
+    { id: 'delete', label: 'Delete', onSelect: onDelete, disabled: busy, destructive: true },
+  ]
 
   return (
     <li
@@ -114,16 +126,20 @@ function DefinitionRow({
         <div className="min-w-0 flex-1">
           <div className="flex items-baseline justify-between gap-2">
             <TruncatedText as="span" text={def.name} className="text-[12px] font-medium text-[color:var(--text-strong)]" />
-            <span
-              className={[
-                'shrink-0 text-[10px]',
-                overdue ? 'text-[color:var(--tone-warn)]' : 'text-[color:var(--text-subtle)]',
-              ].join(' ')}
-            >
-              {statusLabel}
-            </span>
+            {showStatusText ? (
+              <span
+                className={[
+                  'shrink-0 text-[10px]',
+                  overdue ? 'text-[color:var(--tone-warn)]' : 'text-[color:var(--text-subtle)]',
+                ].join(' ')}
+              >
+                {statusLabel}
+              </span>
+            ) : null}
           </div>
           <div className="mt-0.5 truncate text-[11px] text-[color:var(--text-muted)]">
+            <span className="text-[color:var(--text-subtle)]">{triggerFamilyLabel(def.trigger)}</span>
+            <span aria-hidden="true" className="mx-1.5 text-[color:var(--text-disabled)]">·</span>
             {cadenceSummary(def.trigger)}
             <span aria-hidden="true" className="mx-1.5 text-[color:var(--text-disabled)]">·</span>
             {nextAt !== null ? (
@@ -140,10 +156,11 @@ function DefinitionRow({
       </button>
 
       {/* Trailing actions: revealed on hover/focus/selection so a resting row stays calm.
-          Wraps at narrow widths so controls never clip past a squeezed panel column. */}
+          Run now is the one resting affordance; Pause/Enable, Edit and Delete live in the
+          overflow menu so a row never shows more than two trailing controls at rest. */}
       <div
         className={[
-          'mt-1.5 flex flex-wrap items-center gap-1 pl-6 transition-opacity',
+          'mt-1.5 flex items-center gap-1 pl-6 transition-opacity',
           selected ? 'opacity-100' : 'opacity-0 group-hover:opacity-100 group-focus-within:opacity-100',
         ].join(' ')}
       >
@@ -154,30 +171,7 @@ function DefinitionRow({
         >
           Run now
         </GhostButton>
-        <GhostButton
-          onClick={(e) => { e.stopPropagation(); onToggleStatus() }}
-          disabled={busy}
-          className="h-6 px-2 text-[11px]"
-        >
-          {def.status === 'enabled' ? 'Pause' : 'Enable'}
-        </GhostButton>
-        <GhostButton
-          onClick={(e) => { e.stopPropagation(); onEdit() }}
-          disabled={busy}
-          className="h-6 px-2 text-[11px]"
-        >
-          Edit
-        </GhostButton>
-        <IconButton
-          aria-label={`Delete ${def.name}`}
-          onClick={(e) => { e.stopPropagation(); onDelete() }}
-          disabled={busy}
-          className="h-6 w-6"
-        >
-          <svg viewBox="0 0 16 16" className="icon-xs" fill="none" aria-hidden="true">
-            <path d="M3.5 4.5h9M6.5 4.5V3.5h3v1M5 4.5l.5 8h5l.5-8" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round" />
-          </svg>
-        </IconButton>
+        <OverflowMenu ariaLabel={`More actions for ${def.name}`} items={overflowItems} />
       </div>
     </li>
   )
