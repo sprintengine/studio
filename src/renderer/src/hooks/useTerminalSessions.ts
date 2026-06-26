@@ -135,12 +135,30 @@ export function deriveWorkspaceTerminalActivity(
   return { kind: 'quiet' }
 }
 
+// True when any agent terminal in the workspace reports an authoritative
+// `awaiting_input` phase from its lifecycle hooks — the agent is blocked on a
+// prompt/permission and needs the user. This is the hook-based, CLI-agnostic
+// companion to the SprintEngine `needs_input` runtime signal: additive to it, and
+// the reason an awaiting agent surfaces as `needs-input` rather than `idle` (its
+// bridged `activity` is idle while it waits).
+export function workspaceTerminalAwaitingInput(
+  workspaceId: string,
+  sessions: TerminalSessionSnapshot[]
+): boolean {
+  return sessions.some(
+    (session) =>
+      session.kind === 'agent'
+      && session.workspaceId === workspaceId
+      && session.agentState?.phase === 'awaiting_input'
+  )
+}
+
 export function deriveWorkspaceDisplayActivity(
   workspaceId: string,
   sessions: TerminalSessionSnapshot[],
   needsInput: boolean
 ): WorkspaceDisplayActivity {
-  if (needsInput) return 'needs-input'
+  if (needsInput || workspaceTerminalAwaitingInput(workspaceId, sessions)) return 'needs-input'
   const terminalActivity = deriveWorkspaceTerminalActivity(workspaceId, sessions)
   if (terminalActivity.kind === 'working') return 'working'
   if (terminalActivity.kind === 'failed') return 'failed'

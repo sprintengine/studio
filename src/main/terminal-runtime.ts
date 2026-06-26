@@ -16,6 +16,7 @@ import type {
   LiveAgentExecution,
 } from '../shared/agent-runtime'
 import { createAgentStreamWatcher } from './agent-stream-watcher'
+import { deriveActivityFromPhase, evaluateAgentStall, isAuthoritativeWorkingPhase, selectAgentStateTarget, type AgentStateFrame } from './agent-state'
 import type { TerminalSpawnPayload } from './ipc/terminal-ipc'
 import {
   cleanupTerminalStartupScript,
@@ -31,6 +32,7 @@ import { MobileSprintEngineCommandService } from './mobile/sprintengine/command'
 import { getPluginRegistryUserRoot, getPluginSprintEngineRegistryRoots } from './plugin-registry-instance'
 import {
   appendTerminalOutput,
+  clearAgentStallTimer,
   clearTerminalIdleTimer,
   createFailedTerminalSession,
   createInitialTerminalActivity,
@@ -96,6 +98,13 @@ type TerminalRuntimeOptions = {
   // real skill. Best-effort: the caller swallows failures and falls back to the
   // always-present inline directive.
   ensureBuiltinSkillInstalled?(workspaceRoot: string, skillId: string): Promise<void>
+  // Installs the authoritative-agent-state reporter hook into the workspace
+  // before a supported agent (Claude Code / Codex) launches, so the agent's
+  // lifecycle hooks report its true phase over the agent-state socket. The
+  // installer dispatches on `cli`. Strictly best-effort: the implementation
+  // swallows its own failures, so awaiting it never blocks or fails a launch.
+  // Absent in tests / when the feature is unwired (no-op).
+  prepareAgentStateHook?(workspaceRoot: string, cli: string): Promise<void>
 }
 
 type TerminalIpcHandlers = {
@@ -126,6 +135,9 @@ type TerminalRuntime = {
     descriptor: AgentSpawnDescriptor
     mcpSettings?: McpSettings
   }): Promise<TerminalSpawnResult>
+  // Applies an authoritative agent-state frame (from the lifecycle-hook reporter
+  // socket) to the matching live session. Validated upstream by the service.
+  ingestAgentStateFrame(frame: AgentStateFrame): void
 }
 
 let requireAuthenticatedUser = (_message: string): void => {}
@@ -139,6 +151,14 @@ let syncMcpConfig: TerminalRuntimeOptions['syncMcpConfig']
 let releaseManagedSprintEngineRun: TerminalRuntimeOptions['releaseManagedSprintEngineRun']
 let callManagedSprintEngineTool: TerminalRuntimeOptions['callManagedSprintEngineTool']
 let ensureBuiltinSkillInstalled: TerminalRuntimeOptions['ensureBuiltinSkillInstalled']
+let prepareAgentStateHook: TerminalRuntimeOptions['prepareAgentStateHook']
+
+// CLIs whose lifecycle hooks the agent-state reporter can install into. Both
+// emit the same hook payload (hook_event_name/session_id); only the install
+// target differs (handled in the service).
+function agentStateSupportsCli(cli: string | undefined): cli is string {
+  return cli === 'claude-code' || cli === 'codex'
+}
 const sprintEngineMcpRunRefCounts = new Map<string, number>()
 const sprintEngineMcpWorkspaceRefCounts = new Map<string, number>()
 const pendingSprintEngineMcpRunReleases = new Set<Promise<void>>()
@@ -231,6 +251,7 @@ export function createTerminalRuntime(options: TerminalRuntimeOptions): Terminal
   releaseManagedSprintEngineRun = options.releaseManagedSprintEngineRun
   callManagedSprintEngineTool = options.callManagedSprintEngineTool
   ensureBuiltinSkillInstalled = options.ensureBuiltinSkillInstalled
+  prepareAgentStateHook = options.prepareAgentStateHook
   sprintEngineMcpRunRefCounts.clear()
   sprintEngineMcpWorkspaceRefCounts.clear()
   pendingSprintEngineMcpRunReleases.clear()
@@ -250,6 +271,7 @@ export function createTerminalRuntime(options: TerminalRuntimeOptions): Terminal
     registerAgentSessionExitListener,
     killAgentSession: killAgentSessionByExecutionId,
     spawnAgentSession: spawnAgentSessionFromDescriptor,
+    ingestAgentStateFrame,
     ipcHandlers: {
       spawnTerminal: spawnTerminalFromIpc,
       writeTerminal: writeTerminalInput,
@@ -803,6 +825,11 @@ function scheduleTerminalIdleTransition(session: TerminalSession): void {
 
   session.idleTimer = setTimeout(() => {
     session.idleTimer = undefined
+    // Heuristic cutover: when an authoritative hook says the agent is mid-work,
+    // the output idle-timer must not override it to idle — the Stop hook reports
+    // the real idle, and scheduleAgentStallCheck catches a genuine hang. Without
+    // this, a silent-but-working tool call flickers to idle every few seconds.
+    if (isAuthoritativeWorkingPhase(session.agentState)) return
     setTerminalActivity(session, { kind: 'idle', since: Date.now() })
   }, getTerminalIdleTimeoutMs(session))
 }
@@ -821,6 +848,97 @@ function setTerminalActivity(
     broadcastTerminalSessionsChanged()
   }
   return true
+}
+
+// Disposed sessions are excluded here; the alive check happens in the caller so
+// a late frame for a process that has exited is dropped. Matching + workspace
+// disambiguation + most-recent tie-break live in the pure `selectAgentStateTarget`.
+function resolveSessionForAgentStateFrame(frame: AgentStateFrame): TerminalSession | undefined {
+  const candidates = [...terminals.values()]
+    .filter((session) => !session.isDisposed && session.kind === 'agent')
+    .map((session) => ({
+      value: session,
+      agentId: session.agentId,
+      executionId: session.agentSession?.executionId,
+      sessionId: session.sessionId,
+      workspaceId: session.workspaceId,
+      startedAt: session.startedAt,
+    }))
+  return selectAgentStateTarget(candidates, frame)
+}
+
+// A hook-reported working agent silent for this long — no follow-up frame and no
+// terminal output — is flagged as (inferred) stalled. Conservative: long but
+// silent legitimate tools (a quiet build) are rare, and the flag is a soft,
+// inference-sourced hint, not an authoritative state.
+const AGENT_STALL_THRESHOLD_MS = 90_000
+
+function scheduleAgentStallCheck(session: TerminalSession): void {
+  clearAgentStallTimer(session)
+  if (!isTerminalProcessAlive(session)) return
+  const state = session.agentState
+  // Only arm for a hook-driven working phase; idle/awaiting/terminal/inferred
+  // phases are not "stuck mid-work".
+  if (!state || state.source !== 'hook') return
+  if (state.phase !== 'thinking' && state.phase !== 'tool_use') return
+  session.agentStallTimer = setTimeout(() => runAgentStallCheck(session), AGENT_STALL_THRESHOLD_MS)
+}
+
+function runAgentStallCheck(session: TerminalSession): void {
+  session.agentStallTimer = undefined
+  if (!isTerminalProcessAlive(session) || !session.agentState) return
+  const decision = evaluateAgentStall({
+    phase: session.agentState.phase,
+    source: session.agentState.source,
+    phaseSince: session.agentState.since,
+    lastOutputAt: session.lastOutputAt,
+    now: Date.now(),
+    thresholdMs: AGENT_STALL_THRESHOLD_MS,
+  })
+  if (decision.action === 'recheck') {
+    // Output advanced since arming (a streaming tool): keep watching.
+    session.agentStallTimer = setTimeout(() => runAgentStallCheck(session), decision.afterMs)
+    return
+  }
+  if (decision.action !== 'stalled') return
+
+  session.agentState = { phase: 'stalled', since: Date.now(), source: 'inferred' }
+  // stalled bridges to idle activity; suppress its broadcast and emit once.
+  const derived = deriveActivityFromPhase('stalled', session.agentState.since)
+  if (derived) setTerminalActivity(session, derived, { broadcast: false })
+  if (terminals.get(session.sessionId) === session) broadcastTerminalSessionsChanged()
+}
+
+function ingestAgentStateFrame(frame: AgentStateFrame): void {
+  const session = resolveSessionForAgentStateFrame(frame)
+  if (!session || !isTerminalProcessAlive(session)) return
+
+  // A stale frame (older than the phase we already recorded) is ignored so
+  // out-of-order socket delivery can't roll the phase backward.
+  if (session.agentState && session.agentState.since > frame.ts) return
+
+  const previousPhase = session.agentState?.phase
+  session.agentState = { phase: frame.phase, since: frame.ts, source: 'hook' }
+
+  // Bridge to the legacy activity field so existing consumers (sidebar bolding,
+  // reaping, diagnostics) reflect the authoritative phase. Suppress its own
+  // broadcast; we decide below whether a broadcast is warranted.
+  const derived = deriveActivityFromPhase(frame.phase, frame.ts)
+  const activityChanged = derived ? setTerminalActivity(session, derived, { broadcast: false }) : false
+
+  // Arm/refresh/clear the stall watch for the new phase: a fresh working frame
+  // resets the clock; a non-working phase disarms it.
+  scheduleAgentStallCheck(session)
+
+  // Only broadcast when something a consumer actually renders changed: the
+  // bridged activity flipped (working ↔ idle), or the attention state crossed
+  // the awaiting_input boundary. The frequent thinking ↔ tool_use churn within
+  // "working" updates `agentState` in place but does not re-broadcast — matching
+  // the renderer's dedupe signature and avoiding a snapshot IPC per tool call.
+  const attentionChanged = (previousPhase === 'awaiting_input') !== (frame.phase === 'awaiting_input')
+  if ((activityChanged || attentionChanged) && terminals.get(session.sessionId) === session) {
+    broadcastTerminalSessionsChanged()
+  }
 }
 
 function retainFailedTerminalSession(input: {
@@ -1251,15 +1369,29 @@ async function spawnAgentSessionFromDescriptor(input: {
     }
 
     const initialSize = getTerminalSize(120, 30)
+    // Inject the agent's durable identity so the agent-state reporter's hook
+    // frames map back to this session (MULTICODE_AGENT_ID === executionId ===
+    // session.agentId below), and strip any stale id the app process inherited.
+    // Descriptor env wins over the base, identity wins over both.
+    const descriptorEnv = applyAgentIdentityEnv(
+      { ...getTerminalEnv(), ...(input.descriptor.env ?? {}) },
+      {
+        workspaceId: input.workspaceId,
+        agentId: input.descriptor.executionId,
+        agentName: input.descriptor.displayName,
+      }
+    )
+    // Install the reporter before launching a supported agent so its hooks
+    // report phase from the first event. Best-effort; never blocks/fails launch.
+    if (agentStateSupportsCli(input.descriptor.cli)) {
+      await prepareAgentStateHook?.(input.descriptor.cwd || input.workspaceRoot, input.descriptor.cli)
+    }
     const termProcess = pty.spawn(command, args, {
       name: 'xterm-256color',
       cols: initialSize.cols,
       rows: initialSize.rows,
       cwd: input.descriptor.cwd,
-      env: {
-        ...getTerminalEnv(),
-        ...(input.descriptor.env ?? {}),
-      },
+      env: descriptorEnv,
     })
     const startedAt = Date.now()
     const terminalSession: TerminalSession = {
@@ -1491,13 +1623,19 @@ async function spawnMobileAgentTerminal(input: {
       undefined,
       sprintEngineMcpEnv
     )
+    // Expose the agent's identity (=== session.agentId below) so the agent-state
+    // reporter resolves its hook frames, and strip any stale inherited id.
+    const mobileEnv = applyAgentIdentityEnv(env ?? getTerminalEnv(), { agentId: input.agentId })
+    if (agentStateSupportsCli(input.cli)) {
+      await prepareAgentStateHook?.(launchCwd ?? input.cwd, input.cli)
+    }
     const initialSize = getTerminalSize(120, 30)
     const termProcess = pty.spawn(command, args, {
       name: 'xterm-256color',
       cols: initialSize.cols,
       rows: initialSize.rows,
       cwd: launchCwd ?? input.cwd,
-      env: env ?? getTerminalEnv(),
+      env: mobileEnv,
     })
     const startedAt = Date.now()
     const terminalSession: TerminalSession = {
@@ -1808,6 +1946,14 @@ async function spawnTerminalFromIpc(
           sprintEngineMcpEnv,
           debugMode
         )
+      // Install the authoritative-agent-state reporter into the workspace before
+      // launching a supported agent, so its lifecycle hooks report phase the
+      // moment it starts. Awaited so the hooks exist when the CLI reads its
+      // settings; best-effort inside (never throws), so it cannot fail a launch.
+      if (!shellOnly && agentStateSupportsCli(cli)) {
+        await prepareAgentStateHook?.(launchCwd ?? workingDirectory, cli)
+      }
+
       const initialSize = getTerminalSize(cols, rows)
       const termProcess = pty.spawn(command, args, {
         name: 'xterm-256color',

@@ -118,6 +118,8 @@ async function main(): Promise<void> {
     await assertSprintEngineConcurrentSpawnFailureKeepsReservedRun(runtimeModule)
     await assertSprintEngineSpawnDerivesFallbackAgentIdBeforeMcpSync(runtimeModule)
     await assertAgentSpawnExposesAgentIdentityEnv(runtimeModule)
+    await assertDescriptorSpawnExposesAgentIdentityEnv(runtimeModule)
+    await assertIngestAgentStateFrameUpdatesSession(runtimeModule)
     await assertTerminalReattachUsesReplayChannel(runtimeModule)
     await assertHiddenTerminalOutputSkipsLiveIpcAndReplaysOnAttach(runtimeModule)
     await assertStaleSweepReapsOnlyUnseenHiddenTerminals(runtimeModule)
@@ -1181,6 +1183,139 @@ async function assertAgentSpawnExposesAgentIdentityEnv(runtimeModule: RuntimeMod
     const plainEnv = (mockPty.spawnCalls[0]?.options.env ?? {}) as Record<string, string>
     assert.equal(plainEnv.MULTICODE_AGENT_ID, undefined, 'stale inherited identity must not leak into plain terminals')
     assert.equal(plainEnv.MULTICODE_WORKSPACE_ID, undefined)
+  } finally {
+    if (priorAgentId === undefined) delete process.env.MULTICODE_AGENT_ID
+    else process.env.MULTICODE_AGENT_ID = priorAgentId
+    await runtime.shutdown()
+  }
+}
+
+// A reporter frame updates the matching session's authoritative phase, bridges
+// it to the legacy activity field, ignores stale out-of-order frames, and is a
+// safe no-op for an unknown agent id.
+async function assertIngestAgentStateFrameUpdatesSession(runtimeModule: RuntimeModule): Promise<void> {
+  const workspaceRoot = await mkdtemp(join(tmpdir(), 'multicode-terminal-runtime-ingest-'))
+  mockPty.spawnCalls = []
+  mockSender.sent = []
+
+  const runtime = runtimeModule.createTerminalRuntime({
+    diagnosticsEnabled: false,
+    requireAuthenticatedUser: () => undefined,
+    logMainPerfEvent: () => undefined,
+    syncMcpConfig: async (): Promise<SyncResult> => ({ ok: true }),
+  })
+
+  const snapshotFor = (sessionId: string) =>
+    runtime.ipcHandlers.listTerminals().find((session) => session.sessionId === sessionId)
+
+  try {
+    const spawn = await runtime.ipcHandlers.spawnTerminal(mockSender as unknown as WebContents, {
+      sessionId: 'sess-ingest',
+      cols: 120,
+      rows: 30,
+      cwd: workspaceRoot,
+      cli: 'claude-code',
+      kind: 'agent',
+      shellOnly: false,
+      workspaceId: 'ws-ingest',
+      agentId: 'agent-ingest',
+      agentName: 'Ingest',
+    })
+    assert.equal(spawn.ok, true, JSON.stringify(spawn))
+
+    // Before any hook frame, an agent session exposes an inferred AgentState
+    // derived from its activity (spawns working → inferred thinking).
+    const initial = snapshotFor('sess-ingest')
+    assert.equal(initial?.agentState?.source, 'inferred')
+    assert.equal(initial?.agentState?.phase, 'thinking')
+
+    const frame = (phase: string, ts: number) => ({
+      type: 'agent_state' as const,
+      agentId: 'agent-ingest',
+      workspaceId: 'ws-ingest',
+      sessionId: null,
+      phase: phase as Parameters<typeof runtime.ingestAgentStateFrame>[0]['phase'],
+      event: null,
+      ts,
+    })
+
+    // awaiting_input → recorded as hook phase, bridged activity reads idle.
+    runtime.ingestAgentStateFrame(frame('awaiting_input', 1000))
+    let snap = snapshotFor('sess-ingest')
+    assert.equal(snap?.agentState?.phase, 'awaiting_input')
+    assert.equal(snap?.agentState?.source, 'hook')
+    assert.equal(snap?.agentState?.since, 1000)
+    assert.equal(snap?.activity.kind, 'idle')
+
+    // A stale (older-ts) frame must not roll the phase backward.
+    runtime.ingestAgentStateFrame(frame('tool_use', 500))
+    snap = snapshotFor('sess-ingest')
+    assert.equal(snap?.agentState?.phase, 'awaiting_input', 'stale frame rolled the phase back')
+
+    // A newer tool_use frame applies and bridges activity to working.
+    runtime.ingestAgentStateFrame(frame('tool_use', 2000))
+    snap = snapshotFor('sess-ingest')
+    assert.equal(snap?.agentState?.phase, 'tool_use')
+    assert.equal(snap?.activity.kind, 'working')
+
+    // An unknown agent id is a safe no-op (no throw, nothing changed).
+    runtime.ingestAgentStateFrame({
+      type: 'agent_state',
+      agentId: 'no-such-agent',
+      workspaceId: 'ws-ingest',
+      sessionId: null,
+      phase: 'idle',
+      event: null,
+      ts: 3000,
+    })
+    snap = snapshotFor('sess-ingest')
+    assert.equal(snap?.agentState?.phase, 'tool_use', 'unknown-agent frame must not touch other sessions')
+  } finally {
+    await runtime.shutdown()
+  }
+}
+
+// The descriptor (SprintEngine/switchboard) launch path must also expose the
+// agent's identity so the agent-state reporter can map hook frames to the
+// session: MULTICODE_AGENT_ID is set to the executionId (=== session.agentId),
+// and any stale id inherited by the app process is overridden.
+async function assertDescriptorSpawnExposesAgentIdentityEnv(runtimeModule: RuntimeModule): Promise<void> {
+  const workspaceRoot = await mkdtemp(join(tmpdir(), 'multicode-terminal-runtime-descriptor-identity-'))
+  mockPty.spawnCalls = []
+  mockSender.sent = []
+
+  const priorAgentId = process.env.MULTICODE_AGENT_ID
+  process.env.MULTICODE_AGENT_ID = 'stale-leak-from-app-process'
+
+  const runtime = runtimeModule.createTerminalRuntime({
+    diagnosticsEnabled: false,
+    requireAuthenticatedUser: () => undefined,
+    logMainPerfEvent: () => undefined,
+    syncMcpConfig: async (): Promise<SyncResult> => ({ ok: true }),
+  })
+
+  try {
+    const result = await runtime.spawnAgentSession({
+      workspaceId: 'ws-desc',
+      workspaceRoot,
+      descriptor: {
+        executionId: 'exec-desc-1',
+        system: 'sprintengine',
+        workId: 'work-1',
+        role: 'developer',
+        displayName: 'Dev One',
+        command: ['claude'],
+        cwd: workspaceRoot,
+        cli: 'claude-code',
+      },
+      mcpSettings: { syncEnabled: false, servers: {} } satisfies McpSettings,
+    })
+    assert.equal(result.ok, true, JSON.stringify(result))
+    assert.equal(mockPty.spawnCalls.length, 1)
+    const env = (mockPty.spawnCalls[0]?.options.env ?? {}) as Record<string, string>
+    assert.equal(env.MULTICODE_AGENT_ID, 'exec-desc-1', 'descriptor identity equals executionId so reporter frames resolve')
+    assert.equal(env.MULTICODE_WORKSPACE_ID, 'ws-desc')
+    assert.equal(env.MULTICODE_AGENT_NAME, 'Dev One')
   } finally {
     if (priorAgentId === undefined) delete process.env.MULTICODE_AGENT_ID
     else process.env.MULTICODE_AGENT_ID = priorAgentId

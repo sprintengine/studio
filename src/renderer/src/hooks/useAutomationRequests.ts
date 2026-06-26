@@ -136,7 +136,7 @@ async function launchAgent(
   // mapping, so wrap the main-composed directive in the autonomous soul-fetch
   // preamble here; a non-specialist run sends the directive unchanged.
   const cliStartupPrompt = specialistId
-    ? buildSpecialistDirectiveStartupPrompt(getSpecialistAction(specialistId), request.prompt)
+    ? buildSpecialistDirectiveStartupPrompt(getSpecialistAction(specialistId), request.prompt ?? '')
     : request.prompt
   const agentId = `agent-${cli}-${nanoid(6)}`
   const state = useWorkspaceStore.getState()
