@@ -62,8 +62,14 @@ export function registerAutomationsWorkspaceTypes(host: RendererHost): void {
       { Component: AutomationsRunSupervisor, scope: 'global' },
     ],
     // Fixed single-surface layout, so the new-workspace wizard skips the
-    // layout-picker step (same flow shape as Switchboard).
+    // layout-picker step (same flow shape as Switchboard). Retained for the
+    // deep-link reveal path and existing automations workspaces.
     creationStepsId: 'automations',
     pickerOrder: 35,
+    // Automations is now a global screen (opened from the sidebar), not a
+    // workspace you create. Keep the type registered for the always-on run
+    // supervisor and notification deep-links, but drop it from the picker so no
+    // new automations *workspaces* are created.
+    hiddenFromPicker: true,
   })
 }

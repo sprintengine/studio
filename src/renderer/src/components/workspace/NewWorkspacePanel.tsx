@@ -2426,6 +2426,10 @@ function ModeStep({
   const modeModels = useMemo<ModeCardModel[]>(() => {
     const contributed = getRendererHost()
       .getWorkspaceTypes((moduleId) => selectModuleEnabled(moduleOverrides, moduleId))
+      // Types whose primary surface is a global screen (Automations) are
+      // registered for supervisors/deep-links but never offered as a workspace
+      // to create.
+      .filter((definition) => !definition.hiddenFromPicker)
       .map<ModeCardModel>((definition) => ({
         id: definition.id,
         label: definition.label,

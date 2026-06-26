@@ -72,6 +72,11 @@ export type WorkspaceTypeDefinition = {
   supervisors?: WorkspaceTypeSupervisor[]
   creationStepsId?: string
   pickerOrder?: number
+  // When true, the type stays fully registered (supervisors, deep-link reveal,
+  // run-glyph providers) but is omitted from the New-workspace picker. Used by
+  // types whose primary surface is a global app screen rather than a workspace
+  // you create — e.g. Automations, which now opens as a route from the sidebar.
+  hiddenFromPicker?: boolean
 }
 
 export type RegisteredWorkspaceTypeDefinition = WorkspaceTypeDefinition & {

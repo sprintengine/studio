@@ -8,6 +8,7 @@ import { TipStartupModal } from '../learn/TipStartupModal'
 import OnboardingFlow from '../onboarding/OnboardingFlow'
 import { planDeferredAdoption } from '../onboarding/agentConfigAdoption'
 import SettingsOverlay from '../settings/SettingsOverlay'
+import AutomationsOverlay from '../automations/AutomationsOverlay'
 import { SuspenseFallback } from '../ui/SuspenseFallback'
 import { useNotificationStore } from '../../store/notificationStore'
 import { useWorkspaceStore } from '../../store/workspaceStore'
@@ -241,6 +242,8 @@ export default function WorkspaceManager() {
   const settingsOverlayOpen = useWorkspaceStore((s) => s.settingsOverlay.open)
   const openSettingsOverlay = useWorkspaceStore((s) => s.openSettingsOverlay)
   const closeSettingsOverlay = useWorkspaceStore((s) => s.closeSettingsOverlay)
+  const openAutomationsOverlay = useWorkspaceStore((s) => s.openAutomationsOverlay)
+  const closeAutomationsOverlay = useWorkspaceStore((s) => s.closeAutomationsOverlay)
   const forgetFolder = useWorkspaceStore((s) => s.forgetFolder)
   const recordWorkspaceTerminalActivity = useWorkspaceStore((s) => s.recordWorkspaceTerminalActivity)
   const reconcileWorkspaceAgentLaunchFlags = useWorkspaceStore((s) => s.reconcileWorkspaceAgentLaunchFlags)
@@ -579,9 +582,10 @@ export default function WorkspaceManager() {
     setNewWorkspacePanelInitialState(null)
     setShowNewWorkspacePanel(true)
     closeSettingsOverlay()
+    closeAutomationsOverlay()
     setSpecialistMenuOpen(false)
     setNotificationsOpen(false)
-  }, [closeSettingsOverlay])
+  }, [closeSettingsOverlay, closeAutomationsOverlay])
 
   const pickNewChatName = useCallback((folderPath: string | null): string => {
     const folderWorkspaces = workspaces.filter((workspace) => workspace.folderPath === folderPath)
@@ -730,16 +734,31 @@ export default function WorkspaceManager() {
   const openSettings = useCallback((checkForUpdates = false, targetTab: string | null = null) => {
     openSettingsOverlay({ initialTab: targetTab, checkForUpdates })
     setShowNewWorkspacePanel(false)
+    closeAutomationsOverlay()
     setSpecialistMenuOpen(false)
     setSessionsOpen(false)
     setViewMenuOpen(false)
     setNotificationsOpen(false)
     setAccountOpen(false)
-  }, [openSettingsOverlay])
+  }, [openSettingsOverlay, closeAutomationsOverlay])
 
   const openLearnCenter = useCallback(() => {
     openSettings(false, 'learn')
   }, [openSettings])
+
+  // Open the global Automations screen (an app-level route, not a workspace),
+  // scoped to the active workspace's project by default. Closes the other
+  // transient surfaces so it lands clean.
+  const openAutomations = useCallback(() => {
+    openAutomationsOverlay({ projectPath: activeWorkspace?.folderPath ?? null })
+    setShowNewWorkspacePanel(false)
+    closeSettingsOverlay()
+    setSpecialistMenuOpen(false)
+    setSessionsOpen(false)
+    setViewMenuOpen(false)
+    setNotificationsOpen(false)
+    setAccountOpen(false)
+  }, [activeWorkspace?.folderPath, closeSettingsOverlay, openAutomationsOverlay])
 
   const openFuturePlanWorkspace = useCallback((source: FuturePlanWorkspaceSource) => {
     setNewWorkspacePanelInitialState({
@@ -1670,6 +1689,10 @@ export default function WorkspaceManager() {
       openNewWorkspacePanel()
       return true
     }
+    if (commandId === 'app.automations.open') {
+      openAutomations()
+      return true
+    }
     if (commandId === 'workspace.sidebar.toggle') {
       beginSidebarTransition()
       setSidebarCollapsed(!sidebarCollapsed)
@@ -1836,6 +1859,7 @@ export default function WorkspaceManager() {
   }, [
     openSettings,
     openNewWorkspacePanel,
+    openAutomations,
     sidebarCollapsed,
     setSidebarCollapsed,
     sprintEngineEnabled,
@@ -2184,6 +2208,7 @@ export default function WorkspaceManager() {
         onForgetFolder={handleForgetFolder}
         onNewWorkspace={openNewWorkspacePanel}
         onNewWorkspaceInFolder={openNewWorkspacePanelForFolder}
+        onOpenAutomations={openAutomations}
         onNewChat={() => createNewChat()}
         onNewChatInFolder={(folderPath) => spawnNewChatForFolder(folderPath)}
         onNewChatTerminal={(folderPath) => pickNewChatTerminal(folderPath)}
@@ -2338,6 +2363,7 @@ export default function WorkspaceManager() {
           )}
         </div>
         <SettingsOverlay />
+        <AutomationsOverlay />
         {/* T6 first-run payoff: supply the real app actions it needs. A CLI is
             "configured" when at least one catalog entry is confirmed installed;
             the run reuses createNewChat against the just-created workspace
