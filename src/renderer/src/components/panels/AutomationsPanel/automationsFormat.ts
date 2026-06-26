@@ -8,6 +8,7 @@ import type {
   AutomationRunStatus,
   AutomationStatus,
   ScheduleTriggerConfig,
+  TriggerKind,
 } from '../../../../../shared/automations/contracts'
 
 // Shared async + editor state used across the control-center modules.
@@ -105,6 +106,66 @@ export function cadenceSummary(trigger: AutomationDefinition['trigger']): string
     }
     case 'cron':
       return `Cron · ${cadence.expression}`
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Trigger round-trip — build the trigger to persist without rewriting families
+// the editor cannot author yet.
+// ---------------------------------------------------------------------------
+// The schedule editor only authors interval/daily/weekly cadences. A loaded
+// repo-event/webhook trigger (no editor until T4) or a cron schedule (no cron
+// authoring control) must survive an edit verbatim instead of being silently
+// rewritten to an interval schedule. These helpers are pure so the round-trip
+// guarantee is unit-testable without rendering the form.
+
+export type ScheduleCadenceType = 'interval' | 'daily' | 'weekly'
+
+// The cadence sub-state the schedule editor controls. A loaded cron cadence is
+// not represented here — it is preserved verbatim, not edited.
+export type ScheduleCadenceForm = {
+  cadenceType: ScheduleCadenceType
+  everyMinutes: number
+  timeLocal: string
+  daysOfWeek: number[]
+}
+
+// True only when the loaded trigger is a schedule whose cadence the editor can
+// actually author (interval/daily/weekly). Cron, repo-event, webhook, and any
+// other family are read-only here.
+export function isEditableScheduleTrigger(trigger: AutomationDefinition['trigger']): boolean {
+  if (trigger.kind !== 'schedule' || !isScheduleConfig(trigger.config)) return false
+  return trigger.config.cadence.type !== 'cron'
+}
+
+export function buildScheduleCadence(form: ScheduleCadenceForm): ScheduleTriggerConfig['cadence'] {
+  if (form.cadenceType === 'daily') return { type: 'daily', timeLocal: form.timeLocal }
+  if (form.cadenceType === 'weekly') return { type: 'weekly', timeLocal: form.timeLocal, daysOfWeek: form.daysOfWeek }
+  return { type: 'interval', everyMinutes: form.everyMinutes }
+}
+
+// Resolve the trigger to persist from the ACTIVE family. For create or an
+// editable schedule, build a fresh schedule trigger from the cadence form
+// (preserving the loaded timezone on edit). For every other loaded trigger —
+// cron schedule, repo-event, webhook, unknown — return it verbatim so a save
+// never converts a trigger the editor cannot author.
+export function resolveSubmitTrigger(
+  editor: EditorState,
+  form: ScheduleCadenceForm,
+  fallbackTimezone: string,
+): { kind: TriggerKind; config: unknown } {
+  if (editor.mode === 'edit' && !isEditableScheduleTrigger(editor.definition.trigger)) {
+    return editor.definition.trigger
+  }
+  const loaded = editor.mode === 'edit' ? editor.definition.trigger.config : null
+  const timezone = isScheduleConfig(loaded) ? loaded.timezone : fallbackTimezone
+  return {
+    kind: 'schedule',
+    config: {
+      kind: 'schedule',
+      timezone,
+      cadence: buildScheduleCadence(form),
+    } satisfies ScheduleTriggerConfig,
   }
 }
 

@@ -10,24 +10,30 @@ import type {
   AutomationDefinitionDraft,
   AutomationsProviderView,
   AutomationsProviders,
-  ScheduleTriggerConfig,
+  TriggerKind,
 } from '../../../../../shared/automations/contracts'
 import {
   WEEKDAY_SHORT,
   automationCliFieldError,
   automationCliSelectItems,
+  cadenceSummary,
+  isEditableScheduleTrigger,
   isScheduleConfig,
+  resolveSubmitTrigger,
   type EditorState,
+  type ScheduleCadenceType,
 } from './automationsFormat'
-
-type CadenceType = 'interval' | 'daily' | 'weekly'
 
 type EditorFormState = {
   name: string
   enabled: boolean
   autonomy: AutomationDefinition['autonomyDefault']
   actionKind: string
-  cadenceType: CadenceType
+  // Discriminates which trigger family the loaded definition uses. The schedule
+  // editor only authors the cadence sub-state below; other families are
+  // preserved verbatim through save (see resolveSubmitTrigger).
+  triggerKind: TriggerKind
+  cadenceType: ScheduleCadenceType
   everyMinutes: number
   timeLocal: string
   daysOfWeek: number[]
@@ -66,7 +72,7 @@ function schemaRequiredKeys(schema: AutomationsProviderView['configSchema']): Se
 }
 
 const EMPTY_FORM: EditorFormState = {
-  name: '', enabled: true, autonomy: 'review_only', actionKind: '',
+  name: '', enabled: true, autonomy: 'review_only', actionKind: '', triggerKind: 'schedule',
   cadenceType: 'interval', everyMinutes: 30, timeLocal: '09:00', daysOfWeek: [1, 2, 3, 4, 5], config: {},
 }
 
@@ -85,11 +91,15 @@ function initialFormState(editor: EditorState, providers: AutomationsProviders):
       if (!INTERNAL_CONFIG_KEYS.has(key) && typeof value === 'string') config[key] = value
     }
   }
+  // Cadence sub-state seeds the schedule editor; for a cron cadence or a
+  // non-schedule family these stay at their defaults and are never persisted —
+  // resolveSubmitTrigger returns the loaded trigger verbatim instead.
   return {
     name: def.name,
     enabled: def.status !== 'paused',
     autonomy: def.autonomyDefault,
     actionKind: def.action.kind,
+    triggerKind: def.trigger.kind,
     cadenceType: cadence?.type === 'daily' || cadence?.type === 'weekly' ? cadence.type : 'interval',
     everyMinutes: cadence?.type === 'interval' ? cadence.everyMinutes : 30,
     timeLocal: cadence && (cadence.type === 'daily' || cadence.type === 'weekly') ? cadence.timeLocal : '09:00',
@@ -105,12 +115,6 @@ function providerUnavailableReason(provider: AutomationsProviderView | null | un
     return `This action needs ${provider.missingIntegrations.join(', ')}, which is not connected.`
   }
   return null
-}
-
-function buildCadence(form: EditorFormState): ScheduleTriggerConfig['cadence'] {
-  if (form.cadenceType === 'daily') return { type: 'daily', timeLocal: form.timeLocal }
-  if (form.cadenceType === 'weekly') return { type: 'weekly', timeLocal: form.timeLocal, daysOfWeek: form.daysOfWeek }
-  return { type: 'interval', everyMinutes: form.everyMinutes }
 }
 
 // Schema-driven create / edit form. The action's fields are derived from the
@@ -162,6 +166,12 @@ export function AutomationEditor({
   }, [cliCatalog, form.config.cli])
   const showAgentPicker = !actionUnavailableReason && configKeys.includes('cli')
 
+  // The schedule cadence editor only renders for create and for a loaded
+  // schedule whose cadence it can author. A cron schedule or a repo-event /
+  // webhook trigger (authoring lands in T4) is read-only and preserved verbatim.
+  const triggerEditable = editor.mode === 'create' || isEditableScheduleTrigger(editor.definition.trigger)
+  const loadedTrigger = editor.mode === 'edit' ? editor.definition.trigger : null
+
   const update = useCallback(<K extends keyof EditorFormState>(key: K, value: EditorFormState[K]) => {
     setForm((prev) => ({ ...prev, [key]: value }))
   }, [])
@@ -170,8 +180,8 @@ export function AutomationEditor({
     if (!form.name.trim()) return 'Give the automation a name.'
     if (!actionProvider) return 'No action provider is available.'
     if (actionUnavailableReason) return actionUnavailableReason
-    if (form.cadenceType === 'interval' && form.everyMinutes < 5) return 'Interval must be at least 5 minutes.'
-    if (form.cadenceType === 'weekly' && form.daysOfWeek.length === 0) return 'Pick at least one day for a weekly schedule.'
+    if (triggerEditable && form.cadenceType === 'interval' && form.everyMinutes < 5) return 'Interval must be at least 5 minutes.'
+    if (triggerEditable && form.cadenceType === 'weekly' && form.daysOfWeek.length === 0) return 'Pick at least one day for a weekly schedule.'
     if (configKeys.includes('cli')) {
       const cliError = automationCliFieldError(form.config.cli, cliCatalog)
       if (cliError) return cliError
@@ -181,7 +191,7 @@ export function AutomationEditor({
       if (!form.config[key]?.trim()) return `${CONFIG_FIELD_LABEL[key] ?? key} is required.`
     }
     return null
-  }, [form, actionProvider, actionUnavailableReason, requiredKeys, configKeys, cliCatalog])
+  }, [form, actionProvider, actionUnavailableReason, requiredKeys, configKeys, cliCatalog, triggerEditable])
 
   const handleSubmit = useCallback(async () => {
     if (validationError || !workspaceRoot) { setError(validationError); return }
@@ -204,14 +214,9 @@ export function AutomationEditor({
       name: form.name.trim(),
       status: form.enabled ? 'enabled' : 'paused',
       autonomyDefault: form.autonomy,
-      trigger: {
-        kind: 'schedule',
-        config: {
-          kind: 'schedule',
-          timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
-          cadence: buildCadence(form),
-        } satisfies ScheduleTriggerConfig,
-      },
+      // Build the trigger from the active family: the schedule cadence form when
+      // editable, otherwise the loaded trigger unchanged (no data loss).
+      trigger: resolveSubmitTrigger(editor, form, Intl.DateTimeFormat().resolvedOptions().timeZone),
       action: { kind: form.actionKind, config },
     }
     try {
@@ -267,69 +272,86 @@ export function AutomationEditor({
         />
       </Field>
 
-      {/* Schedule (trigger) — the schedule provider's cadence oneOf. */}
+      {/* Trigger — the schedule cadence editor, or a read-only summary for a
+          trigger family the editor cannot author yet (cron, repo-event,
+          webhook). Read-only families are preserved verbatim on save. */}
       <fieldset className="flex flex-col gap-3 rounded-md border border-[color:var(--border-subtle)] p-3">
-        <legend className="px-1 text-[11px] font-medium text-[color:var(--text-muted)]">Schedule</legend>
-        <Field label="Cadence" htmlFor="automation-cadence">
-          <Select<CadenceType>
-            ariaLabel="Cadence"
-            value={form.cadenceType}
-            onChange={(value) => update('cadenceType', value)}
-            items={[
-              { value: 'interval', label: 'Every N minutes' },
-              { value: 'daily', label: 'Daily' },
-              { value: 'weekly', label: 'Weekly' },
-            ]}
-          />
-        </Field>
-        {form.cadenceType === 'interval' ? (
-          <Field label="Run every (minutes)" htmlFor="automation-interval" help="Minimum 5 minutes.">
-            <input
-              id="automation-interval"
-              type="number"
-              min={5}
-              value={form.everyMinutes}
-              onChange={(e) => update('everyMinutes', Number(e.target.value) || 0)}
-              className="w-32 rounded-md border border-[color:var(--border-strong)] bg-[color:var(--bg-surface)] px-2.5 py-1.5 text-[12px] tabular-nums text-[color:var(--text-default)] outline-none focus-visible:border-[color:var(--accent-primary)]"
-            />
-          </Field>
+        <legend className="px-1 text-[11px] font-medium text-[color:var(--text-muted)]">
+          {triggerEditable ? 'Schedule' : 'Trigger'}
+        </legend>
+        {triggerEditable ? (
+          <>
+            <Field label="Cadence" htmlFor="automation-cadence">
+              <Select<ScheduleCadenceType>
+                ariaLabel="Cadence"
+                value={form.cadenceType}
+                onChange={(value) => update('cadenceType', value)}
+                items={[
+                  { value: 'interval', label: 'Every N minutes' },
+                  { value: 'daily', label: 'Daily' },
+                  { value: 'weekly', label: 'Weekly' },
+                ]}
+              />
+            </Field>
+            {form.cadenceType === 'interval' ? (
+              <Field label="Run every (minutes)" htmlFor="automation-interval" help="Minimum 5 minutes.">
+                <input
+                  id="automation-interval"
+                  type="number"
+                  min={5}
+                  value={form.everyMinutes}
+                  onChange={(e) => update('everyMinutes', Number(e.target.value) || 0)}
+                  className="w-32 rounded-md border border-[color:var(--border-strong)] bg-[color:var(--bg-surface)] px-2.5 py-1.5 text-[12px] tabular-nums text-[color:var(--text-default)] outline-none focus-visible:border-[color:var(--accent-primary)]"
+                />
+              </Field>
+            ) : (
+              <Field label="Time" htmlFor="automation-time" help="Local time, 24-hour (HH:MM).">
+                <input
+                  id="automation-time"
+                  type="time"
+                  value={form.timeLocal}
+                  onChange={(e) => update('timeLocal', e.target.value)}
+                  className="w-32 rounded-md border border-[color:var(--border-strong)] bg-[color:var(--bg-surface)] px-2.5 py-1.5 text-[12px] tabular-nums text-[color:var(--text-default)] outline-none focus-visible:border-[color:var(--accent-primary)]"
+                />
+              </Field>
+            )}
+            {form.cadenceType === 'weekly' ? (
+              <fieldset>
+                <legend className="mb-1 text-[11px] text-[color:var(--text-subtle)]">Days</legend>
+                <div className="flex flex-wrap gap-1">
+                  {WEEKDAY_SHORT.map((label, day) => {
+                    const checked = form.daysOfWeek.includes(day)
+                    return (
+                      <button
+                        key={day}
+                        type="button"
+                        aria-pressed={checked}
+                        onClick={() => update('daysOfWeek', checked ? form.daysOfWeek.filter((d) => d !== day) : [...form.daysOfWeek, day])}
+                        className={[
+                          'h-7 w-9 rounded-md border text-[11px] outline-none focus-visible:ring-1 focus-visible:ring-[color:var(--accent-primary)]',
+                          checked
+                            ? 'border-[color:var(--accent-primary)] bg-[color:var(--accent-primary-soft)] text-[color:var(--text-strong)]'
+                            : 'border-[color:var(--border-strong)] text-[color:var(--text-muted)] hover:bg-[color:var(--bg-hover)]',
+                        ].join(' ')}
+                      >
+                        {label}
+                      </button>
+                    )
+                  })}
+                </div>
+              </fieldset>
+            ) : null}
+          </>
         ) : (
-          <Field label="Time" htmlFor="automation-time" help="Local time, 24-hour (HH:MM).">
-            <input
-              id="automation-time"
-              type="time"
-              value={form.timeLocal}
-              onChange={(e) => update('timeLocal', e.target.value)}
-              className="w-32 rounded-md border border-[color:var(--border-strong)] bg-[color:var(--bg-surface)] px-2.5 py-1.5 text-[12px] tabular-nums text-[color:var(--text-default)] outline-none focus-visible:border-[color:var(--accent-primary)]"
-            />
-          </Field>
+          <div className="flex flex-col gap-1">
+            <span className="text-[12px] text-[color:var(--text-default)]">
+              {loadedTrigger ? cadenceSummary(loadedTrigger) : ''}
+            </span>
+            <span className="text-[11px] text-[color:var(--text-subtle)]">
+              Editing this trigger type isn’t supported yet. Saving keeps the current trigger unchanged.
+            </span>
+          </div>
         )}
-        {form.cadenceType === 'weekly' ? (
-          <fieldset>
-            <legend className="mb-1 text-[11px] text-[color:var(--text-subtle)]">Days</legend>
-            <div className="flex flex-wrap gap-1">
-              {WEEKDAY_SHORT.map((label, day) => {
-                const checked = form.daysOfWeek.includes(day)
-                return (
-                  <button
-                    key={day}
-                    type="button"
-                    aria-pressed={checked}
-                    onClick={() => update('daysOfWeek', checked ? form.daysOfWeek.filter((d) => d !== day) : [...form.daysOfWeek, day])}
-                    className={[
-                      'h-7 w-9 rounded-md border text-[11px] outline-none focus-visible:ring-1 focus-visible:ring-[color:var(--accent-primary)]',
-                      checked
-                        ? 'border-[color:var(--accent-primary)] bg-[color:var(--accent-primary-soft)] text-[color:var(--text-strong)]'
-                        : 'border-[color:var(--border-strong)] text-[color:var(--text-muted)] hover:bg-[color:var(--bg-hover)]',
-                    ].join(' ')}
-                  >
-                    {label}
-                  </button>
-                )
-              })}
-            </div>
-          </fieldset>
-        ) : null}
       </fieldset>
 
       {/* Action — schema-driven from providers:list. */}
