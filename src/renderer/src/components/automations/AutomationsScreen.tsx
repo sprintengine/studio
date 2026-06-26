@@ -6,7 +6,7 @@ import { basename } from '../../utils/paths'
 import { publishDiagnosticSync } from '../../utils/diagnostics'
 import { RUN_TARGET_KIND, encodeRunRef } from './runTarget'
 import type { AutomationDefinition } from '../../../../shared/automations/contracts'
-import { GhostButton, InlineNotice, LifecycleGlyph, PrimaryButton, Spinner, useConfirmDialog } from '../ui'
+import { GhostButton, InlineNotice, LifecycleGlyph, PrimaryButton, Select, Spinner, useConfirmDialog } from '../ui'
 import { AutomationsWorkspaceTypeIcon } from '../AppIcons'
 import { AutomationDetailPane } from '../panels/AutomationsPanel/AutomationDetailPane'
 import { AutomationEditor } from '../panels/AutomationsPanel/AutomationEditor'
@@ -245,20 +245,13 @@ export default function AutomationsScreen({
         </div>
 
         {!noProjects ? (
-          <label className="flex items-center gap-2 text-[11px] text-[color:var(--text-muted)]">
-            <span className="sr-only">Project</span>
-            <select
-              value={selectedProject ?? ''}
-              onChange={(event) => setSelectedProject(event.target.value || null)}
-              className="max-w-[220px] rounded-md border border-[color:var(--border-default)] bg-[color:var(--bg-surface-raised)] px-2 py-1 text-[12px] text-[color:var(--text-default)] focus:border-[color:var(--accent-primary)] focus:outline-none"
-            >
-              {projects.map((project) => (
-                <option key={project.path} value={project.path}>
-                  {project.label}
-                </option>
-              ))}
-            </select>
-          </label>
+          <Select
+            ariaLabel="Project"
+            items={projects.map((project) => ({ value: project.path, label: project.label }))}
+            value={selectedProject}
+            onChange={(value) => setSelectedProject(value || null)}
+            className="max-w-[220px]"
+          />
         ) : null}
 
         <PrimaryButton
