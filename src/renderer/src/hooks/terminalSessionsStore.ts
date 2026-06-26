@@ -42,11 +42,12 @@ export function getTerminalSessionsSignature(sessions: TerminalSessionSnapshot[]
       session.agentSession?.sessionId ?? '',
       session.agentSession?.executionId ?? '',
       session.exitedAt ?? null,
-      // Authoritative phase + provenance: a phase change (e.g. tool_use →
-      // awaiting_input) must re-render even when the coarse `activity` is
-      // unchanged. Timing (`since`) is deliberately excluded as high-frequency noise.
-      session.agentState?.phase ?? '',
-      session.agentState?.source ?? '',
+      // The only authoritative-phase distinction the bridged `activity` cannot
+      // express: awaiting_input reads as idle, yet needs attention. Including the
+      // raw phase instead would defeat this signature's purpose — thinking ↔
+      // tool_use flips on every tool call are high-frequency noise, like
+      // lastOutputAt above. Widen this when more phase detail is actually rendered.
+      session.agentState?.phase === 'awaiting_input',
     ])
   return JSON.stringify(rows)
 }

@@ -164,8 +164,8 @@ function assertAwaitingInputHookSurfacesAsNeedsInput(): void {
   })
   assert.equal(workspaceTerminalAwaitingInput('workspace_1', [shellAwaiting]), false)
 
-  // A phase flip (tool_use -> awaiting_input) changes the signature so consumers
-  // re-render even though the coarse `activity` is unchanged.
+  // Entering awaiting_input changes the signature so consumers re-render even
+  // though the bridged `activity` (idle) is unchanged.
   const working = session({
     sessionId: 'session_phase',
     activity: { kind: 'idle', since: 50 },
@@ -177,6 +177,15 @@ function assertAwaitingInputHookSurfacesAsNeedsInput(): void {
     agentState: { phase: 'awaiting_input', since: 70, source: 'hook' },
   })
   assert.notEqual(getTerminalSessionsSignature([working]), getTerminalSessionsSignature([flipped]))
+
+  // But churn between non-attention phases must NOT change the signature — that
+  // would re-render the sidebar on every tool call for no visible difference.
+  const thinking = session({
+    sessionId: 'session_phase',
+    activity: { kind: 'idle', since: 50 },
+    agentState: { phase: 'thinking', since: 80, source: 'hook' },
+  })
+  assert.equal(getTerminalSessionsSignature([working]), getTerminalSessionsSignature([thinking]))
 }
 
 function assertWorkspaceTerminalActivityPriorityAndPersistedRecency(): void {

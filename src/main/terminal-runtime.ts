@@ -861,16 +861,24 @@ function ingestAgentStateFrame(frame: AgentStateFrame): void {
   // out-of-order socket delivery can't roll the phase backward.
   if (session.agentState && session.agentState.since > frame.ts) return
 
+  const previousPhase = session.agentState?.phase
   session.agentState = { phase: frame.phase, since: frame.ts, source: 'hook' }
 
   // Bridge to the legacy activity field so existing consumers (sidebar bolding,
-  // reaping, diagnostics) reflect the authoritative phase. Suppress the
-  // transition's own broadcast and emit once below, so a phase change that does
-  // not change the coarse activity (e.g. thinking → tool_use) still propagates.
+  // reaping, diagnostics) reflect the authoritative phase. Suppress its own
+  // broadcast; we decide below whether a broadcast is warranted.
   const derived = deriveActivityFromPhase(frame.phase, frame.ts)
-  if (derived) setTerminalActivity(session, derived, { broadcast: false })
+  const activityChanged = derived ? setTerminalActivity(session, derived, { broadcast: false }) : false
 
-  if (terminals.get(session.sessionId) === session) broadcastTerminalSessionsChanged()
+  // Only broadcast when something a consumer actually renders changed: the
+  // bridged activity flipped (working ↔ idle), or the attention state crossed
+  // the awaiting_input boundary. The frequent thinking ↔ tool_use churn within
+  // "working" updates `agentState` in place but does not re-broadcast — matching
+  // the renderer's dedupe signature and avoiding a snapshot IPC per tool call.
+  const attentionChanged = (previousPhase === 'awaiting_input') !== (frame.phase === 'awaiting_input')
+  if ((activityChanged || attentionChanged) && terminals.get(session.sessionId) === session) {
+    broadcastTerminalSessionsChanged()
+  }
 }
 
 function retainFailedTerminalSession(input: {

@@ -20,10 +20,10 @@ import type { AgentPhase, SessionActivity } from '../shared/electron-api'
 
 export const AGENT_STATE_HOOK_TAG = 'multicode-agent-state'
 
-// Where the reporter script is copied inside a workspace, and the env var the
-// reporter falls back to when no --socket arg is present.
+// Where the reporter script is copied inside a workspace. The reporter also
+// honours a MULTICODE_AGENT_STATE_SOCKET env fallback (see the .mjs), but the
+// install always passes the socket via --socket, so it is not referenced here.
 export const AGENT_STATE_HOOK_SCRIPT_REL = join('.multicode', 'hooks', 'agent-state.mjs')
-export const AGENT_STATE_SOCKET_ENV_VAR = 'MULTICODE_AGENT_STATE_SOCKET'
 
 const CLAUDE_LOCAL_SETTINGS_REL = join('.claude', 'settings.local.json')
 
@@ -218,11 +218,14 @@ type ClaudeSettings = {
 }
 
 export function buildAgentStateHookCommand(socketPath: string): string {
-  // Quote both arguments so paths with spaces survive the shell; forward slashes
-  // are accepted on every platform Node runs the script on.
+  // The script path is workspace-relative — normalize to forward slashes, which
+  // Node accepts on every platform. The socket path is passed VERBATIM: on
+  // Windows it is a `\\.\pipe\...` named pipe whose backslashes must survive (a
+  // separator rewrite would corrupt it to `//./pipe/...`, which connect() can't
+  // open); on POSIX it has no backslashes, so verbatim is identical. Both are
+  // double-quoted so spaces survive the shell.
   const scriptRel = AGENT_STATE_HOOK_SCRIPT_REL.split(sep).join('/')
-  const socket = socketPath.split(sep).join('/')
-  return `node "${scriptRel}" --socket "${socket}"`
+  return `node "${scriptRel}" --socket "${socketPath}"`
 }
 
 async function readJsonIfExists<T>(path: string): Promise<T | null> {

@@ -114,6 +114,10 @@ async function run(): Promise<void> {
   // --- command builder ----------------------------------------------------
   const cmd = buildAgentStateHookCommand('/tmp/multi code/agent.sock')
   assert.match(cmd, /^node "\.multicode\/hooks\/agent-state\.mjs" --socket "\/tmp\/multi code\/agent\.sock"$/)
+  // A Windows named-pipe path must survive verbatim — a separator rewrite would
+  // corrupt `\\.\pipe\...` into `//./pipe/...`, which connect() cannot open.
+  const winCmd = buildAgentStateHookCommand('\\\\.\\pipe\\multicode-agent-state-abc')
+  assert.ok(winCmd.includes('--socket "\\\\.\\pipe\\multicode-agent-state-abc"'), winCmd)
 
   // --- install / uninstall round-trip ------------------------------------
   const root = await mkdtemp(join(tmpdir(), 'multicode-agent-state-'))

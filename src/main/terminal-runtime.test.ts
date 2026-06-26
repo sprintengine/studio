@@ -119,6 +119,7 @@ async function main(): Promise<void> {
     await assertSprintEngineSpawnDerivesFallbackAgentIdBeforeMcpSync(runtimeModule)
     await assertAgentSpawnExposesAgentIdentityEnv(runtimeModule)
     await assertDescriptorSpawnExposesAgentIdentityEnv(runtimeModule)
+    await assertIngestAgentStateFrameUpdatesSession(runtimeModule)
     await assertTerminalReattachUsesReplayChannel(runtimeModule)
     await assertHiddenTerminalOutputSkipsLiveIpcAndReplaysOnAttach(runtimeModule)
     await assertStaleSweepReapsOnlyUnseenHiddenTerminals(runtimeModule)
@@ -1185,6 +1186,85 @@ async function assertAgentSpawnExposesAgentIdentityEnv(runtimeModule: RuntimeMod
   } finally {
     if (priorAgentId === undefined) delete process.env.MULTICODE_AGENT_ID
     else process.env.MULTICODE_AGENT_ID = priorAgentId
+    await runtime.shutdown()
+  }
+}
+
+// A reporter frame updates the matching session's authoritative phase, bridges
+// it to the legacy activity field, ignores stale out-of-order frames, and is a
+// safe no-op for an unknown agent id.
+async function assertIngestAgentStateFrameUpdatesSession(runtimeModule: RuntimeModule): Promise<void> {
+  const workspaceRoot = await mkdtemp(join(tmpdir(), 'multicode-terminal-runtime-ingest-'))
+  mockPty.spawnCalls = []
+  mockSender.sent = []
+
+  const runtime = runtimeModule.createTerminalRuntime({
+    diagnosticsEnabled: false,
+    requireAuthenticatedUser: () => undefined,
+    logMainPerfEvent: () => undefined,
+    syncMcpConfig: async (): Promise<SyncResult> => ({ ok: true }),
+  })
+
+  const snapshotFor = (sessionId: string) =>
+    runtime.ipcHandlers.listTerminals().find((session) => session.sessionId === sessionId)
+
+  try {
+    const spawn = await runtime.ipcHandlers.spawnTerminal(mockSender as unknown as WebContents, {
+      sessionId: 'sess-ingest',
+      cols: 120,
+      rows: 30,
+      cwd: workspaceRoot,
+      cli: 'claude-code',
+      kind: 'agent',
+      shellOnly: false,
+      workspaceId: 'ws-ingest',
+      agentId: 'agent-ingest',
+      agentName: 'Ingest',
+    })
+    assert.equal(spawn.ok, true, JSON.stringify(spawn))
+
+    const frame = (phase: string, ts: number) => ({
+      type: 'agent_state' as const,
+      agentId: 'agent-ingest',
+      workspaceId: 'ws-ingest',
+      sessionId: null,
+      phase: phase as Parameters<typeof runtime.ingestAgentStateFrame>[0]['phase'],
+      event: null,
+      ts,
+    })
+
+    // awaiting_input → recorded as hook phase, bridged activity reads idle.
+    runtime.ingestAgentStateFrame(frame('awaiting_input', 1000))
+    let snap = snapshotFor('sess-ingest')
+    assert.equal(snap?.agentState?.phase, 'awaiting_input')
+    assert.equal(snap?.agentState?.source, 'hook')
+    assert.equal(snap?.agentState?.since, 1000)
+    assert.equal(snap?.activity.kind, 'idle')
+
+    // A stale (older-ts) frame must not roll the phase backward.
+    runtime.ingestAgentStateFrame(frame('tool_use', 500))
+    snap = snapshotFor('sess-ingest')
+    assert.equal(snap?.agentState?.phase, 'awaiting_input', 'stale frame rolled the phase back')
+
+    // A newer tool_use frame applies and bridges activity to working.
+    runtime.ingestAgentStateFrame(frame('tool_use', 2000))
+    snap = snapshotFor('sess-ingest')
+    assert.equal(snap?.agentState?.phase, 'tool_use')
+    assert.equal(snap?.activity.kind, 'working')
+
+    // An unknown agent id is a safe no-op (no throw, nothing changed).
+    runtime.ingestAgentStateFrame({
+      type: 'agent_state',
+      agentId: 'no-such-agent',
+      workspaceId: 'ws-ingest',
+      sessionId: null,
+      phase: 'idle',
+      event: null,
+      ts: 3000,
+    })
+    snap = snapshotFor('sess-ingest')
+    assert.equal(snap?.agentState?.phase, 'tool_use', 'unknown-agent frame must not touch other sessions')
+  } finally {
     await runtime.shutdown()
   }
 }
