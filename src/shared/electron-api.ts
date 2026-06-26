@@ -1664,6 +1664,7 @@ export type MobileControlCommandType =
   | 'device.revoke'
   | 'backlog.update'
   | 'backlog.startSprintEngine'
+  | 'backlog.create'
 
 export type MobileControlCapability =
   | 'snapshots.read'
@@ -1675,6 +1676,7 @@ export type MobileControlCapability =
   | 'devices.revoke'
   | 'backlog.update'
   | 'backlog.start'
+  | 'backlog.create'
 
 export type MobileControlDevice = {
   protocolVersion: 1

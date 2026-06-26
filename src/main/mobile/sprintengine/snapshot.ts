@@ -33,6 +33,7 @@ const mobileSnapshotCommandTypes = [
   'device.revoke',
   'backlog.update',
   'backlog.startSprintEngine',
+  'backlog.create',
 ] as const satisfies readonly MobileControlCommandType[]
 
 export const defaultMobileSnapshotCommands: readonly MobileControlCommandType[] = mobileSnapshotCommandTypes

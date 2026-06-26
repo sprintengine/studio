@@ -13,6 +13,7 @@ type MobileControlCommandType =
   | 'device.revoke'
   | 'backlog.update'
   | 'backlog.startSprintEngine'
+  | 'backlog.create'
 
 type MobileControlCapability =
   | 'snapshots.read'
@@ -24,6 +25,7 @@ type MobileControlCapability =
   | 'devices.revoke'
   | 'backlog.update'
   | 'backlog.start'
+  | 'backlog.create'
 
 type MobileControlDevice = {
   protocolVersion: 1
@@ -591,6 +593,8 @@ function commandLabel(commandType: MobileControlCommandType): string {
       return 'Backlog item updated'
     case 'backlog.startSprintEngine':
       return 'Sprint Engine started from backlog'
+    case 'backlog.create':
+      return 'Backlog item created'
   }
 }
 

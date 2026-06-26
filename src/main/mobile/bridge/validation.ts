@@ -16,6 +16,7 @@ const MOBILE_CONTROL_CAPABILITIES: MobileControlCapability[] = [
   'devices.revoke',
   'backlog.update',
   'backlog.start',
+  'backlog.create',
 ]
 
 export function isMobileControlDevice(input: unknown): input is MobileControlDevice {

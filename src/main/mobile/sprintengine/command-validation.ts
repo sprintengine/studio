@@ -21,6 +21,7 @@ const commandTypes = new Set<MobileControlCommandType>([
   'device.revoke',
   'backlog.update',
   'backlog.startSprintEngine',
+  'backlog.create',
 ])
 const worktreeIsolationValues = new Set(['required', 'preferred', 'disabled'])
 
@@ -108,6 +109,15 @@ function validateCommandPayload(type: MobileControlCommandType, payload: Record<
       )
     case 'backlog.startSprintEngine':
       return requireString(payload, 'workspacePath') ?? requireString(payload, 'relativePath')
+    case 'backlog.create':
+      return (
+        requireString(payload, 'workspacePath') ??
+        requireString(payload, 'title') ??
+        optionalString(payload, 'description') ??
+        optionalString(payload, 'type') ??
+        optionalString(payload, 'difficulty') ??
+        optionalString(payload, 'criticality')
+      )
   }
 }
 

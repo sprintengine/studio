@@ -23,6 +23,23 @@ const navRailTabset = (weight: number) => ({
   enableTabStrip: false,
   children: [explorerTab],
 })
+// An intentionally empty layout: no tabset, no seeded agent. Creating a
+// workspace from this template lands directly on the WorkspaceLauncher
+// (countOpenTabs === 0), so "New chat" opens the launcher chooser rather than
+// spawning an agent outright. Kept out of LAYOUT_TEMPLATES so it never appears
+// in the New Workspace template picker.
+export const EMPTY_CHAT_TEMPLATE: LayoutTemplate = {
+  id: 'empty-chat',
+  name: 'New chat',
+  description: 'Start from the launcher and choose what to spawn.',
+  previewSlots: [],
+  layout: {
+    global: { tabSetEnableDrop: true, tabEnableClose: true },
+    borders: [],
+    layout: { type: 'row', children: [] },
+  },
+}
+
 export const LAYOUT_TEMPLATES: LayoutTemplate[] = [
   {
     id: 'solo',

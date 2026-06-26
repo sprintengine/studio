@@ -6,6 +6,7 @@ import {
   MobileSprintEngineSnapshotService,
   readSprintEngineSnapshot,
 } from './snapshot'
+import { createBacklogItem } from '../../backlog-service'
 import {
   mobileControlProtocolVersion,
   validateMobileControlSnapshot,
@@ -31,6 +32,7 @@ async function main(): Promise<void> {
   await assertProjectionSnapshotPassesProtocolValidation()
   await assertSnapshotIncludesDesktopWorkspaceEntries()
   await assertSnapshotIncludesWorkspaceBacklog()
+  await assertSnapshotSurfacesCreatedSpikeBacklogItem()
   await assertSnapshotOmitsBacklogWhenWorkspaceHasNone()
   await assertSnapshotOmitsUnavailableWorkspaceKinds()
   await assertMalformedMultiloopStateIsSkipped()
@@ -577,6 +579,49 @@ async function assertSnapshotIncludesWorkspaceBacklog(): Promise<void> {
   assert.equal(item?.criticality, 'high')
   assert.equal(item?.excerpt?.includes('Users need the widget'), true)
   assert.equal(item?.excerpt?.includes('type: feature'), false)
+  service.shutdown()
+}
+
+async function assertSnapshotSurfacesCreatedSpikeBacklogItem(): Promise<void> {
+  const statePath = await writeStateFixture({
+    sprintengine: { name: 'Backlog Sprint Engine', updatedAt: generatedAt },
+    tasks: [task('T1', 'done', [])],
+    artifacts: [],
+  })
+  const workspaceRoot = workspaceRootForStatePath(statePath)
+
+  // Use the real create path the mobile backlog.create command calls.
+  const created = await createBacklogItem({
+    workspaceRoot,
+    title: 'Probe the relay timeout',
+    description: 'Spike how the relay behaves under a 30s stall.',
+    type: 'spike',
+  })
+  assert.equal(created.ok, true)
+
+  const service = new MobileSprintEngineSnapshotService({
+    stateReaders: {
+      readSwitchboardTasks: async () => ({ ok: false, message: 'Switchboard is not initialized.' }),
+      getSwitchboardRunnerState: async () => ({ ok: false, message: 'Runner unavailable.' }),
+      listWatchtowerRuns: async () => ({ ok: true, runs: [] }),
+      readMultiloopStates: async () => [],
+    },
+  })
+
+  const snapshot = await service.readSnapshot({
+    desktopSessionId: 'desktop_1',
+    statePaths: [statePath],
+    generatedAt,
+  })
+
+  assert.equal(snapshot.commands?.includes('backlog.create'), true)
+  const backlogWorkspace = snapshot.backlog?.find((entry) => entry.workspacePath === workspaceRoot)
+  assert.equal(backlogWorkspace?.items.length, 1)
+  const item = backlogWorkspace?.items[0]
+  assert.equal(item?.title, 'Probe the relay timeout')
+  assert.equal(item?.status, 'idea')
+  assert.equal(item?.type, 'spike')
+  assert.equal(item?.excerpt?.includes('30s stall'), true)
   service.shutdown()
 }
 
