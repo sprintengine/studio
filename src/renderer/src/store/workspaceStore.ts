@@ -1006,6 +1006,19 @@ async function attemptBackupRecovery(): Promise<void> {
       return
     }
 
+    // Automations is a global screen now, not a workspace type (store v62). This
+    // backup-recovery path bypasses the migrate ladder, so apply the same drop
+    // here — both in memory and in the write-back below — so we never re-persist
+    // a retired automations workspace. If dropping it empties the list there is
+    // nothing to recover, so honor the clean empty state.
+    envelope.state.workspaces = envelope.state.workspaces.filter(
+      (workspace) => (workspace as { mode?: string }).mode !== 'automations',
+    )
+    if (envelope.state.workspaces.length === 0) {
+      emitHydrationDiagnostic()
+      return
+    }
+
     // App-settings salvage. New backups carry the split settings envelope
     // beside the registry envelope. Older T22-era backups may carry
     // appSettings/sidebarCollapsed inside the recovered registry envelope.
@@ -1020,7 +1033,10 @@ async function attemptBackupRecovery(): Promise<void> {
     const recoveredSettingsState = parseSettingsEnvelopeState(recoveredBackup.settings)
 
     try {
-      window.localStorage.setItem(WORKSPACE_STORAGE_KEY, recovered)
+      // Write back the filtered envelope (automations workspaces already
+      // dropped above), never the raw backup, so the on-disk registry matches
+      // the recovered in-memory state.
+      window.localStorage.setItem(WORKSPACE_STORAGE_KEY, JSON.stringify(envelope))
       if (recoveredBackup.settings && recoveredSettingsState) {
         window.localStorage.setItem(APP_SETTINGS_STORAGE_KEY, recoveredBackup.settings)
       }
@@ -1031,12 +1047,7 @@ async function attemptBackupRecovery(): Promise<void> {
     hydrationContext.persistedWorkspaceCount = envelope.state.workspaces.length
 
     useWorkspaceStore.setState((current) => {
-      // This backup-recovery path reads the raw registry without re-running the
-      // version migrate ladder, so apply the v62 automations-workspace drop here
-      // too (Automations is a global screen now, not a workspace type).
-      const recoveredWorkspaces = (envelope!.state!.workspaces as WorkspaceStore['workspaces']).filter(
-        (ws) => ws.mode !== 'automations',
-      )
+      const recoveredWorkspaces = envelope!.state!.workspaces as WorkspaceStore['workspaces']
       const recoveredAppSettings =
         legacyAppSettings !== undefined
           ? normalizeAppSettings(legacyAppSettings, recoveredWorkspaces as Workspace[])
@@ -1056,12 +1067,17 @@ async function attemptBackupRecovery(): Promise<void> {
         envelope!.state!.primaryWorkspaceWindowId,
         envelope!.state!.activeWorkspaceId ?? current.activeWorkspaceId,
       )
+      // Don't let the recovered active pointer dangle at a dropped automations
+      // workspace; fall back to the first surviving (filtered) workspace.
+      const recoveredActiveId =
+        envelope!.state!.activeWorkspaceId
+        && hydrated.workspaces.some((workspace) => workspace.id === envelope!.state!.activeWorkspaceId)
+          ? envelope!.state!.activeWorkspaceId
+          : hydrated.workspaces[0]?.id ?? current.activeWorkspaceId
       const next: WorkspaceStore = {
         ...current,
         workspaces: hydrated.workspaces,
-        activeWorkspaceId: envelope!.state!.activeWorkspaceId
-          ?? envelope!.state!.workspaces?.[0]?.id
-          ?? current.activeWorkspaceId,
+        activeWorkspaceId: recoveredActiveId,
         workspaceWindows: normalizedWindows.windows,
         primaryWorkspaceWindowId: normalizedWindows.primaryWorkspaceWindowId,
         workspaceRegistryEmptyState: null,

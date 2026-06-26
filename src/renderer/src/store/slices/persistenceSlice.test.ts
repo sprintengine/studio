@@ -342,6 +342,7 @@ const v61AutomationsState = {
 }
 const migratedAutomationsDrop = migratePersistedWorkspaceState(v61AutomationsState, 61) as {
   workspaces: Array<{ id: string; mode: string }>
+  activeWorkspaceId: string | null
 }
 assert.deepEqual(
   migratedAutomationsDrop.workspaces.map((ws) => ws.id),
@@ -353,5 +354,25 @@ assert.equal(
   false,
   'no automations workspace survives the migration',
 )
+// The active pointer was the dropped automations workspace — it must not dangle.
+assert.equal(
+  migratedAutomationsDrop.activeWorkspaceId,
+  'ws-standard',
+  'v62 reconciles a dangling active pointer to a surviving workspace',
+)
+
+// An account whose ONLY workspace was an automations workspace migrates to an
+// empty list with a null active pointer (the dangerous-empty recovery path then
+// honors that, and the backup-recovery filter keeps the on-disk copy clean).
+const v61AutomationsOnly = {
+  workspaces: [{ id: 'ws-automations', mode: 'automations', folderPath: '/repo/app', agents: {} }],
+  activeWorkspaceId: 'ws-automations',
+}
+const migratedAutomationsOnly = migratePersistedWorkspaceState(v61AutomationsOnly, 61) as {
+  workspaces: unknown[]
+  activeWorkspaceId: string | null
+}
+assert.equal(migratedAutomationsOnly.workspaces.length, 0, 'automations-only account migrates to an empty list')
+assert.equal(migratedAutomationsOnly.activeWorkspaceId, null, 'active pointer is cleared when nothing survives')
 
 console.log('persistenceSlice.test.ts: ok')

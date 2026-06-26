@@ -302,15 +302,16 @@ export default function WorkspaceManager() {
   // Resolve a notification's Open action(s). Two layers (see
   // backlog/2026-06-14-notification-open-action-deep-link.md): the owning
   // module's registered provider can return a deep-focus action (e.g. open the
-  // Sprint Engine task), and the shell guarantees a generic workspace-reveal
-  // fallback for any notification that names a workspace. Open is offered only
-  // when at least that baseline is possible (a workspaceId is present); a
-  // notification with no workspace gets no Open. Provider modules that are
-  // disabled drop out, exactly like Backlog item actions.
+  // Sprint Engine task, or open the Automations screen at a run), and the shell
+  // guarantees a generic workspace-reveal fallback for any notification that
+  // names a workspace. Provider actions are offered whether or not the
+  // notification names a workspace — a provider can deep-link to an app-level
+  // screen that has no backing workspace (Automations). Only the generic
+  // reveal fallback needs a workspaceId. Provider modules that are disabled drop
+  // out, exactly like Backlog item actions.
   const resolveNotificationActions = useCallback(
     (notification: AppNotification) => {
       const workspaceId = notification.workspaceId
-      if (!workspaceId) return []
       const context: NotificationActionContext = {
         notification,
         revealWorkspace: (id) => setActiveWorkspaceForWindow(workspaceWindowId, id),
@@ -323,13 +324,15 @@ export default function WorkspaceManager() {
       const actions =
         providerActions.length > 0
           ? providerActions
-          : [
-              {
-                id: 'reveal-workspace',
-                label: 'Open',
-                run: (ctx: NotificationActionContext) => ctx.revealWorkspace(workspaceId),
-              },
-            ]
+          : workspaceId
+            ? [
+                {
+                  id: 'reveal-workspace',
+                  label: 'Open',
+                  run: (ctx: NotificationActionContext) => ctx.revealWorkspace(workspaceId),
+                },
+              ]
+            : []
       return actions.map((action) => ({
         id: action.id,
         label: action.label,

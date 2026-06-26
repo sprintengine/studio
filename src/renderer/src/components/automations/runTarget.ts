@@ -14,7 +14,7 @@ export const RUN_TARGET_KIND = 'run'
 export type RunTargetRef = {
   automationId: string
   runId: string
-  /** The run's project folder, used to resolve/create its control-center workspace. */
+  /** The run's project folder, used to scope the global Automations screen to it. */
   folderPath: string | null
 }
 

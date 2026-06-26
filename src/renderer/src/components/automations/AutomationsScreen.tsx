@@ -37,9 +37,10 @@ function buildProjectOptions(folderKey: string, extras: Array<string | null>): P
 }
 
 // The Automations control center, hosted as a global app screen (not a
-// workspace). Mirrors AutomationsPanel's list/detail/editor body but adds a
-// project switcher and is unbound from any single workspace — runs launch into
-// a fresh standard workspace (the controller omits workspaceId).
+// workspace). Reuses the AutomationsPanel/* list, detail, and editor
+// sub-components but adds a project switcher and is unbound from any single
+// workspace — runs launch into a fresh standard workspace (the controller omits
+// workspaceId).
 export default function AutomationsScreen({
   initialProjectPath,
   initialRunTarget,
@@ -184,11 +185,13 @@ export default function AutomationsScreen({
       const next = ordered[Math.min(index + 1, ordered.length - 1)] ?? ordered[0]
       setSelectedId(next.id)
       setEditor(null)
+      setFocusRunId(null)
     } else if (event.key === 'k' || event.key === 'ArrowUp') {
       event.preventDefault()
       const prev = ordered[Math.max(index - 1, 0)] ?? ordered[0]
       setSelectedId(prev.id)
       setEditor(null)
+      setFocusRunId(null)
     } else if (event.key === 'Escape') {
       setSelectedId(null)
     }

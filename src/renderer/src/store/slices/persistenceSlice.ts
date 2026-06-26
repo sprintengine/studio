@@ -968,6 +968,15 @@ export function migratePersistedWorkspaceState(
     migrationState.workspaces = (migrationState.workspaces ?? []).filter(
       (ws) => ws.mode !== 'automations',
     )
+    // Don't leave the active pointer dangling at a dropped automations workspace.
+    // (Window-level active ids are reconciled by normalizeWorkspaceWindows; this
+    // keeps the top-level pointer honest too.)
+    if (
+      migrationState.activeWorkspaceId
+      && !migrationState.workspaces.some((ws) => ws.id === migrationState.activeWorkspaceId)
+    ) {
+      migrationState.activeWorkspaceId = migrationState.workspaces[0]?.id ?? null
+    }
   }
 
   return state as never

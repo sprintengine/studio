@@ -31,9 +31,10 @@ export type AutomationRunExecutionInput = {
   definition: AutomationDefinition
   run: AutomationRun
   triggerPayload: Record<string, unknown>
-  // The owning workspace (the automations control center) an agent-backed run
-  // launches its agent into, so it is not spawned in a freshly created standard
-  // workspace. Undefined for runs with no resolvable owning workspace.
+  // An explicit workspace an agent-backed run launches its agent into (legacy /
+  // MCP callers), so it is not spawned in a freshly created standard workspace.
+  // Undefined for runs with no explicit target — the common case now that the
+  // Automations surface is a global screen rather than a per-project workspace.
   workspaceId?: string
 }
 
