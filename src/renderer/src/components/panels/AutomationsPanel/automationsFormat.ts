@@ -5,8 +5,10 @@ import {
 } from '../../workspace/newWorkspace/cliRuntimeOptions'
 import type {
   AutomationDefinition,
+  AutomationRun,
   AutomationRunStatus,
   AutomationStatus,
+  AutomationsEngineStatus,
   AutomationsProviderView,
   ScheduleTriggerConfig,
   TriggerKind,
@@ -532,4 +534,85 @@ export function isEditableTarget(target: EventTarget | null): boolean {
   if (!(target instanceof HTMLElement)) return false
   const tag = target.tagName
   return tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || target.isContentEditable
+}
+
+// ---------------------------------------------------------------------------
+// Operational overview (T6) — engine health + the cross-definition runs feed.
+// ---------------------------------------------------------------------------
+
+// A cross-definition run, tagged with its owning definition's identity and
+// trigger family (AutomationRun persists no per-run trigger; the family is the
+// owning definition's). Built client-side by aggregating per-definition runs.
+export type AutomationFeedRun = {
+  run: AutomationRun
+  definitionId: string
+  definitionName: string
+  triggerKind: TriggerKind
+}
+
+// Merge per-definition run lists into one newest-first feed, capped to a bounded
+// window so a busy project never renders thousands of rows.
+export const RUNS_FEED_LIMIT = 50
+
+export function mergeFeedRuns(perDefinition: AutomationFeedRun[][], limit = RUNS_FEED_LIMIT): AutomationFeedRun[] {
+  return perDefinition
+    .flat()
+    .sort((a, b) => (parseTime(b.run.dueAt) ?? 0) - (parseTime(a.run.dueAt) ?? 0))
+    .slice(0, limit)
+}
+
+// Human run duration from started→completed. Null while a run is still running or
+// never started (the feed shows a dash, not a fake zero).
+export function runDuration(run: AutomationRun): string | null {
+  const started = parseTime(run.startedAt)
+  const completed = parseTime(run.completedAt)
+  if (started === null || completed === null) return null
+  const ms = completed - started
+  if (ms < 0) return null
+  const totalSeconds = Math.round(ms / 1000)
+  if (totalSeconds < 60) return `${totalSeconds}s`
+  const minutes = Math.floor(totalSeconds / 60)
+  const seconds = totalSeconds % 60
+  if (minutes < 60) return seconds ? `${minutes}m ${seconds}s` : `${minutes}m`
+  const hours = Math.floor(minutes / 60)
+  const remMinutes = minutes % 60
+  return remMinutes ? `${hours}h ${remMinutes}m` : `${hours}h`
+}
+
+// ---------------------------------------------------------------------------
+// Engine health — a quiet glyph-led indicator over T5's engine-status. The
+// LifecycleGlyph carries the shape; copy distinguishes active from each
+// not-running state, surfacing the sidecar error (e.g. webhook-receiver failure).
+// ---------------------------------------------------------------------------
+
+export type EngineHealth = {
+  glyph: LifecycleState
+  label: string
+  detail: string | null
+  tone: 'default' | 'warn' | 'error'
+}
+
+export function engineHealth(status: AutomationsEngineStatus | null): EngineHealth {
+  switch (status?.state) {
+    case 'running':
+      return { glyph: 'ready', label: 'Scheduler active', detail: null, tone: 'default' }
+    case 'declared':
+    case 'starting':
+      return { glyph: 'in_progress', label: 'Scheduler starting', detail: null, tone: 'default' }
+    case 'failed':
+      return { glyph: 'failed', label: 'Scheduler error', detail: status.error ?? null, tone: 'error' }
+    case 'stopped':
+      return { glyph: 'paused', label: 'Scheduler stopped', detail: status.error ?? null, tone: 'warn' }
+    case 'unavailable':
+      return { glyph: 'archived', label: 'Scheduler unavailable', detail: status.error ?? null, tone: 'warn' }
+    default:
+      // Status not yet loaded / unknown — render nothing rather than alarm.
+      return { glyph: 'todo', label: 'Scheduler status unknown', detail: null, tone: 'default' }
+  }
+}
+
+// True only when we KNOW the engine cannot run automations (loaded + a terminal
+// not-running state). A null/unknown status is not treated as unreachable.
+export function isEngineUnreachable(status: AutomationsEngineStatus | null): boolean {
+  return status?.state === 'unavailable' || status?.state === 'failed' || status?.state === 'stopped'
 }

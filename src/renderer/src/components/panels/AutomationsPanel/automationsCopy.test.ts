@@ -1,7 +1,16 @@
 import assert from 'node:assert/strict'
 
-import { actionLabel, cadenceSummary, triggerFamilyLabel } from './automationsFormat'
-import type { AutomationDefinition } from '../../../../../shared/automations/contracts'
+import {
+  actionLabel,
+  cadenceSummary,
+  engineHealth,
+  isEngineUnreachable,
+  mergeFeedRuns,
+  runDuration,
+  triggerFamilyLabel,
+  type AutomationFeedRun,
+} from './automationsFormat'
+import type { AutomationDefinition, AutomationRun } from '../../../../../shared/automations/contracts'
 
 let failures = 0
 function run(name: string, fn: () => void): void {
@@ -73,6 +82,54 @@ run('still renders schedule cadences for the four cadence types', () => {
   assert.equal(cadenceSummary(schedule({ type: 'daily', timeLocal: '09:00' })), 'Daily at 09:00')
   assert.equal(cadenceSummary(schedule({ type: 'weekly', timeLocal: '08:30', daysOfWeek: [1, 3] })), 'Weekly · Mon, Wed at 08:30')
   assert.equal(cadenceSummary(schedule({ type: 'cron', expression: '0 9 * * 1' })), 'Cron · 0 9 * * 1')
+})
+
+// --- Operational overview (T6): engine health + runs feed -------------------
+
+run('maps engine state to a glyph-led health label, surfacing the sidecar error', () => {
+  assert.equal(engineHealth({ state: 'running' }).label, 'Scheduler active')
+  assert.equal(engineHealth({ state: 'running' }).tone, 'default')
+  const failed = engineHealth({ state: 'failed', error: 'webhook-receiver bind failed' })
+  assert.equal(failed.label, 'Scheduler error')
+  assert.equal(failed.detail, 'webhook-receiver bind failed')
+  assert.equal(failed.tone, 'error')
+  assert.equal(engineHealth({ state: 'unavailable' }).tone, 'warn')
+  assert.equal(engineHealth(null).label, 'Scheduler status unknown')
+})
+
+run('treats only known not-running states as unreachable (null is unknown, not unreachable)', () => {
+  assert.equal(isEngineUnreachable({ state: 'running' }), false)
+  assert.equal(isEngineUnreachable({ state: 'starting' }), false)
+  assert.equal(isEngineUnreachable(null), false)
+  assert.equal(isEngineUnreachable({ state: 'unavailable' }), true)
+  assert.equal(isEngineUnreachable({ state: 'failed' }), true)
+  assert.equal(isEngineUnreachable({ state: 'stopped' }), true)
+})
+
+run('formats run duration from started→completed, null while running or unstarted', () => {
+  const make = (over: Partial<AutomationRun>): AutomationRun => ({
+    id: 'r', automationId: 'a', status: 'completed', dueAt: '2026-01-01T00:00:00Z',
+    startedAt: null, completedAt: null, ...over,
+  })
+  assert.equal(runDuration(make({ startedAt: '2026-01-01T00:00:00Z', completedAt: '2026-01-01T00:00:45Z' })), '45s')
+  assert.equal(runDuration(make({ startedAt: '2026-01-01T00:00:00Z', completedAt: '2026-01-01T00:02:05Z' })), '2m 5s')
+  assert.equal(runDuration(make({ startedAt: '2026-01-01T00:00:00Z', completedAt: '2026-01-01T01:30:00Z' })), '1h 30m')
+  assert.equal(runDuration(make({ startedAt: '2026-01-01T00:00:00Z', completedAt: null })), null)
+  assert.equal(runDuration(make({ startedAt: null, completedAt: null })), null)
+})
+
+run('merges feed runs newest-first and caps to the limit', () => {
+  const feedRun = (id: string, dueAt: string, defId: string): AutomationFeedRun => ({
+    run: { id, automationId: defId, status: 'completed', dueAt, startedAt: null, completedAt: null },
+    definitionId: defId, definitionName: `Def ${defId}`, triggerKind: 'schedule',
+  })
+  const merged = mergeFeedRuns([
+    [feedRun('a', '2026-01-01T00:00:00Z', 'd1'), feedRun('b', '2026-01-03T00:00:00Z', 'd1')],
+    [feedRun('c', '2026-01-02T00:00:00Z', 'd2')],
+  ])
+  assert.deepEqual(merged.map((m) => m.run.id), ['b', 'c', 'a'], 'sorted by dueAt descending across definitions')
+  const many = Array.from({ length: 70 }, (_, i) => feedRun(`r${i}`, `2026-01-01T00:00:${String(i % 60).padStart(2, '0')}Z`, 'd1'))
+  assert.equal(mergeFeedRuns([many]).length, 50, 'capped to the 50-run window')
 })
 
 if (failures > 0) {

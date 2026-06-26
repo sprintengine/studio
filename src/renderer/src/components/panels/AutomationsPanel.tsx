@@ -6,13 +6,16 @@ import { publishDiagnosticSync } from '../../utils/diagnostics'
 import { consumePendingRevealTarget, subscribeRevealTarget } from '../../utils/revealTarget'
 import type { NotificationNavigationTarget } from '../../types/workspace'
 import type { AutomationDefinition } from '../../../../shared/automations/contracts'
-import { GhostButton, InlineNotice, PanelHeader, PrimaryButton, Spinner, useConfirmDialog } from '../ui'
+import { GhostButton, InlineNotice, LifecycleGlyph, PanelHeader, PrimaryButton, Spinner, useConfirmDialog } from '../ui'
 import { AutomationDetailPane } from './AutomationsPanel/AutomationDetailPane'
 import { AutomationEditor } from './AutomationsPanel/AutomationEditor'
 import { DefinitionList, DetailEmptyState } from './AutomationsPanel/AutomationsList'
-import { isEditableTarget, sortDefinitions, type EditorState } from './AutomationsPanel/automationsFormat'
+import { AutomationsRunsFeed } from './AutomationsPanel/AutomationsRunsFeed'
+import { engineHealth, isEditableTarget, isEngineUnreachable, sortDefinitions, type EditorState, type EngineHealth } from './AutomationsPanel/automationsFormat'
 import { useAutomationsController } from './AutomationsPanel/useAutomationsController'
 import { RUN_TARGET_KIND, decodeRunRef, encodeRunRef } from '../automations/runTarget'
+
+type AutomationsView = 'definitions' | 'runs'
 
 // Automations control center: composes the data controller (window.api IPC
 // boundary), the definitions list, the run-history/detail pane, and the
@@ -24,10 +27,12 @@ export default function AutomationsPanel({ workspaceId }: { workspaceId: string 
   const dialog = useConfirmDialog()
 
   const {
-    definitions, providers, loadState, loadError, actionError, busyId,
+    definitions, providers, engineStatus, loadState, loadError, actionError, busyId,
     load, clearActionError, runNow, toggleStatus, remove, applySaved,
+    feedRuns, feedState, feedError, feedPartialCount, loadRunsFeed, finalizeFeedRun,
   } = useAutomationsController({ folderPath, workspaceId })
 
+  const [view, setView] = useState<AutomationsView>('definitions')
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [editor, setEditor] = useState<EditorState | null>(null)
   const [now, setNow] = useState(() => Date.now())
@@ -48,6 +53,15 @@ export default function AutomationsPanel({ workspaceId }: { workspaceId: string 
   }, [])
 
   const ordered = useMemo(() => sortDefinitions(definitions, now), [definitions, now])
+
+  // Aggregate the runs feed on demand — only while the runs view is open, and
+  // refreshed when the definition set changes underneath it.
+  useEffect(() => {
+    if (view === 'runs' && loadState === 'ready') void loadRunsFeed()
+  }, [view, loadState, loadRunsFeed])
+
+  const engine = engineHealth(engineStatus)
+  const engineUnreachable = isEngineUnreachable(engineStatus)
 
   // Keep the selection valid as the list changes.
   useEffect(() => {
@@ -164,13 +178,23 @@ export default function AutomationsPanel({ workspaceId }: { workspaceId: string 
           count={loadState === 'ready' ? definitions.length : undefined}
           primaryAction={
             <PrimaryButton
-              onClick={() => { setEditor({ mode: 'create' }); setSelectedId(null); clearActionError() }}
+              onClick={() => { setView('definitions'); setEditor({ mode: 'create' }); setSelectedId(null); clearActionError() }}
               disabled={loadState !== 'ready'}
             >
               New automation
             </PrimaryButton>
           }
         />
+
+        {loadState === 'ready' ? (
+          <div className="flex items-center justify-between gap-3 border-b border-[color:var(--border-subtle)] px-3 py-1.5">
+            <div role="group" aria-label="Automations view" className="flex items-center gap-1">
+              <ViewTab label="Definitions" active={view === 'definitions'} onClick={() => setView('definitions')} />
+              <ViewTab label="Runs" active={view === 'runs'} onClick={() => setView('runs')} />
+            </div>
+            <EngineHealthIndicator engine={engine} />
+          </div>
+        ) : null}
 
         {actionError ? (
           <div className="px-3 pt-3">
@@ -194,53 +218,114 @@ export default function AutomationsPanel({ workspaceId }: { workspaceId: string 
             <GhostButton onClick={() => void load()}>Retry</GhostButton>
           </div>
         ) : (
-          <div className="flex min-h-0 flex-1 flex-col overflow-y-auto md:flex-row md:overflow-hidden">
-            <DefinitionList
-              ref={listRef}
-              definitions={ordered}
-              selectedId={editor ? null : selectedId}
-              busyId={busyId}
-              now={now}
-              onSelect={(id) => { setSelectedId(id); setEditor(null); setFocusRunId(null) }}
-              onKeyDown={onListKeyDown}
-              onRunNow={handleRunNow}
-              onToggleStatus={toggleStatus}
-              onEdit={(def) => { setEditor({ mode: 'edit', definition: def }); setSelectedId(def.id) }}
-              onDelete={handleDelete}
-              onCreate={() => { setEditor({ mode: 'create' }); setSelectedId(null) }}
-            />
-            <div className="min-h-0 flex-1 border-t border-[color:var(--border-default)] md:overflow-y-auto md:border-l md:border-t-0">
-              {editor ? (
-                <AutomationEditor
-                  key={editor.mode === 'edit' ? editor.definition.id : 'create'}
-                  editor={editor}
-                  providers={providers}
-                  workspaceRoot={folderPath ?? ''}
-                  onCancel={() => setEditor(null)}
-                  onSaved={handleEditorSaved}
-                />
-              ) : selected ? (
-                <AutomationDetailPane
-                  definition={selected}
-                  workspaceRoot={folderPath ?? ''}
+          <div className="flex min-h-0 flex-1 flex-col">
+            {engineUnreachable ? (
+              <div className="px-3 pt-3">
+                <InlineNotice tone={engine.tone === 'error' ? 'error' : 'warn'}>
+                  {engine.label}
+                  {engine.detail ? ` — ${engine.detail}` : ''}. Automations won’t run until the scheduler recovers.
+                </InlineNotice>
+              </div>
+            ) : null}
+            {view === 'runs' ? (
+              <AutomationsRunsFeed
+                feedRuns={feedRuns}
+                state={feedState}
+                error={feedError}
+                partialCount={feedPartialCount}
+                now={now}
+                onReload={() => void loadRunsFeed()}
+                onOpenAgent={(wsId, agentId) => {
+                  if (agentId && revealAutomationAgent({ workspaceId: wsId, agentId })) return
+                  setActiveWorkspace(wsId)
+                }}
+                onFinalize={finalizeFeedRun}
+              />
+            ) : (
+              <div className="flex min-h-0 flex-1 flex-col overflow-y-auto md:flex-row md:overflow-hidden">
+                <DefinitionList
+                  ref={listRef}
+                  definitions={ordered}
+                  selectedId={editor ? null : selectedId}
+                  busyId={busyId}
                   now={now}
-                  focusRunId={selected.id === selectedId ? focusRunId : null}
-                  focusNonce={focusNonce}
-                  onOpenAgent={(wsId, agentId) => {
-                    // Focus the concrete launched agent tab (T10 reveal); fall
-                    // back to activating the workspace when the run carries no
-                    // agentId or the agent/workspace is gone.
-                    if (agentId && revealAutomationAgent({ workspaceId: wsId, agentId })) return
-                    setActiveWorkspace(wsId)
-                  }}
+                  onSelect={(id) => { setSelectedId(id); setEditor(null); setFocusRunId(null) }}
+                  onKeyDown={onListKeyDown}
+                  onRunNow={handleRunNow}
+                  onToggleStatus={toggleStatus}
+                  onEdit={(def) => { setEditor({ mode: 'edit', definition: def }); setSelectedId(def.id) }}
+                  onDelete={handleDelete}
+                  onCreate={() => { setEditor({ mode: 'create' }); setSelectedId(null) }}
                 />
-              ) : (
-                <DetailEmptyState hasDefinitions={definitions.length > 0} />
-              )}
-            </div>
+                <div className="min-h-0 flex-1 border-t border-[color:var(--border-default)] md:overflow-y-auto md:border-l md:border-t-0">
+                  {editor ? (
+                    <AutomationEditor
+                      key={editor.mode === 'edit' ? editor.definition.id : 'create'}
+                      editor={editor}
+                      providers={providers}
+                      workspaceRoot={folderPath ?? ''}
+                      onCancel={() => setEditor(null)}
+                      onSaved={handleEditorSaved}
+                    />
+                  ) : selected ? (
+                    <AutomationDetailPane
+                      definition={selected}
+                      workspaceRoot={folderPath ?? ''}
+                      now={now}
+                      focusRunId={selected.id === selectedId ? focusRunId : null}
+                      focusNonce={focusNonce}
+                      onOpenAgent={(wsId, agentId) => {
+                        // Focus the concrete launched agent tab (T10 reveal); fall
+                        // back to activating the workspace when the run carries no
+                        // agentId or the agent/workspace is gone.
+                        if (agentId && revealAutomationAgent({ workspaceId: wsId, agentId })) return
+                        setActiveWorkspace(wsId)
+                      }}
+                    />
+                  ) : (
+                    <DetailEmptyState hasDefinitions={definitions.length > 0} />
+                  )}
+                </div>
+              </div>
+            )}
           </div>
         )}
       </div>
     </section>
+  )
+}
+
+function ViewTab({ label, active, onClick }: { label: string; active: boolean; onClick: () => void }) {
+  return (
+    <button
+      type="button"
+      aria-pressed={active}
+      onClick={onClick}
+      className={[
+        'h-6 rounded px-2 text-[11px] font-medium outline-none transition-colors focus-visible:ring-1 focus-visible:ring-[color:var(--accent-primary)]',
+        active
+          ? 'bg-[color:var(--accent-primary-soft)] text-[color:var(--text-strong)]'
+          : 'text-[color:var(--text-muted)] hover:bg-[color:var(--bg-hover)]',
+      ].join(' ')}
+    >
+      {label}
+    </button>
+  )
+}
+
+// Quiet, glyph-led engine-health status. The LifecycleGlyph carries the
+// accessible state; the text label is a decorative duplicate for sighted users.
+// No pill — earned chrome only.
+function EngineHealthIndicator({ engine }: { engine: EngineHealth }) {
+  const toneClass = engine.tone === 'error'
+    ? 'text-[color:var(--tone-error)]'
+    : engine.tone === 'warn'
+      ? 'text-[color:var(--tone-warn)]'
+      : 'text-[color:var(--text-muted)]'
+  return (
+    <span className="flex shrink-0 items-center gap-1.5">
+      <LifecycleGlyph state={engine.glyph} label={engine.label} className="translate-y-[0.5px]" />
+      <span aria-hidden="true" className={`text-[11px] ${toneClass}`}>{engine.label}</span>
+    </span>
   )
 }
