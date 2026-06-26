@@ -262,6 +262,32 @@ export function buildSpecialistSoulStartupPrompt(action: SpecialistAction): stri
   ].join('\n')
 }
 
+// Autonomous-run variant of the soul startup prompt. Unlike the interactive
+// build above — which fetches the Soul then waits for a human to hand over a
+// task — an automation agent has no human in the loop, so it must fetch the
+// Soul and then immediately carry out the directive in that role. The directive
+// is the main-process-composed automation prompt (autonomy policy + run-status
+// signal instructions), kept verbatim below so its reporting contract stands.
+export function buildSpecialistDirectiveStartupPrompt(action: SpecialistAction, directive: string): string {
+  return [
+    'Fetch your Soul from the Souls CLI before doing any role-specific work.',
+    '',
+    '```bash',
+    `souls get ${action.soulRole}`,
+    '```',
+    '',
+    'Treat the returned text as your role, judgment, and quality bar.',
+    '',
+    'After loading the Soul, carry out the directive below in this role. Do not wait for further input — this is an autonomous run.',
+    '',
+    'If the `souls` command is unavailable, do not guess the role prompt: treat the run as failed and report that the Souls CLI is unavailable via the run-status reporting described in the directive.',
+    '',
+    '---',
+    '',
+    directive.trim(),
+  ].join('\n')
+}
+
 export type GuidedBriefSpecialistKind = 'strategist' | 'architect' | 'designer'
 
 export type GuidedBriefSpecialistPromptInput =

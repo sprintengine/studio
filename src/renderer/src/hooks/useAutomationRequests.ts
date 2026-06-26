@@ -8,6 +8,7 @@ import { LAYOUT_TEMPLATES } from '../layouts/templates'
 import { useWorkspaceStore } from '../store/workspaceStore'
 import { pickRandomAgentName } from '../utils/agentNames'
 import { getModel, revealAgentTab, type AgentTabRevealTarget } from '../utils/modelRegistry'
+import { buildSpecialistDirectiveStartupPrompt, getSpecialistAction } from '../specialists/specialistActions'
 import type { SpecialistActionId, WorkspaceWindowId } from '../types/workspace'
 
 // Renderer half of the app-automation surface: the main-process MCP server
@@ -130,6 +131,13 @@ async function launchAgent(
   const name = request.name?.trim() || pickRandomAgentName(Object.values(currentAgents).map((agent) => agent.name))
   // The picker constrains specialistId to the catalog; trust it at this boundary.
   const specialistId = (request.specialistId?.trim() || undefined) as SpecialistActionId | undefined
+  // A specialist automation must fetch its Soul before acting, just like an
+  // interactively-spawned specialist. The renderer owns the specialist→soul
+  // mapping, so wrap the main-composed directive in the autonomous soul-fetch
+  // preamble here; a non-specialist run sends the directive unchanged.
+  const cliStartupPrompt = specialistId
+    ? buildSpecialistDirectiveStartupPrompt(getSpecialistAction(specialistId), request.prompt)
+    : request.prompt
   const agentId = `agent-${cli}-${nanoid(6)}`
   const state = useWorkspaceStore.getState()
   const worktreePath = request.worktreePath?.trim() || undefined
@@ -147,7 +155,7 @@ async function launchAgent(
     ...(worktreePath
       ? { execution: { mode: 'worktree' as const, worktreeId: null, cwd: worktreePath } }
       : {}),
-    cliStartupPrompt: request.prompt,
+    cliStartupPrompt,
     cliOnboardingPromptSent: false,
     cliHasLaunched: false,
     cliResumeAvailable: false,

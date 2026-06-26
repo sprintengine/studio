@@ -382,13 +382,19 @@ export function revealAgentTab(
 
   const name = target.name?.trim() || agent.name || target.agentId
   ports.setActiveWorkspace(workspace.id)
-  if (focusOrAddAgentTab(workspace.id, target.agentId, name)) return true
+  // Flash the revealed tab green so "Open agent" calls out which terminal it
+  // surfaced, matching the Backlog "Open agent" action (agent-runtime-module).
+  if (focusOrAddAgentTab(workspace.id, target.agentId, name)) {
+    flashAgentTab(workspace.id, target.agentId)
+    return true
+  }
 
   try {
     ports.updateLayout(
       workspace.id,
       ensureAgentTabInLayoutModel(workspace.layoutModel, target.agentId, name)
     )
+    flashAgentTab(workspace.id, target.agentId)
     return true
   } catch {
     return false
