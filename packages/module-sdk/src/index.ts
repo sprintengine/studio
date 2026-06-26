@@ -572,6 +572,7 @@ export type CommandAvailability =
   | 'gitPanelActive'
   | 'terminalActive'
   | 'diagnosticsEnabled'
+  | 'automationsEnabled'
 
 /**
  * A command contributed by a module. The registered id is namespaced
