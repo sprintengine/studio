@@ -141,6 +141,19 @@ export default function AutomationsPanel({ workspaceId }: { workspaceId: string 
     setPendingRunTarget(null)
   }, [pendingRunTarget, definitions])
 
+  // Drill from a runs-feed row into its owning definition: switch to the
+  // Definitions view, select the definition, and focus the run in its detail
+  // timeline — reusing the same focusRunId/focusNonce plumbing the run
+  // notifications use. The definition is already loaded (the feed is built from
+  // the loaded set), so the target is applied directly rather than latched.
+  const handleOpenRunDefinition = useCallback((automationId: string, runId: string) => {
+    setView('definitions')
+    setEditor(null)
+    setSelectedId(automationId)
+    setFocusRunId(runId)
+    setFocusNonce((n) => n + 1)
+  }, [])
+
   const onListKeyDown = useCallback((event: React.KeyboardEvent) => {
     if (isEditableTarget(event.target) || ordered.length === 0) return
     const index = selectedId ? ordered.findIndex((d) => d.id === selectedId) : -1
@@ -239,6 +252,7 @@ export default function AutomationsPanel({ workspaceId }: { workspaceId: string 
                   if (agentId && revealAutomationAgent({ workspaceId: wsId, agentId })) return
                   setActiveWorkspace(wsId)
                 }}
+                onOpenDefinition={handleOpenRunDefinition}
                 onFinalize={finalizeFeedRun}
               />
             ) : (

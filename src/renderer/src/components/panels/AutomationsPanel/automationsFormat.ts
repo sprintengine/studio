@@ -10,6 +10,7 @@ import type {
   AutomationStatus,
   AutomationsEngineStatus,
   AutomationsProviderView,
+  AutomationsRunsListResult,
   ScheduleTriggerConfig,
   TriggerKind,
 } from '../../../../../shared/automations/contracts'
@@ -154,6 +155,53 @@ export function cadenceSummary(trigger: AutomationDefinition['trigger']): string
     case 'cron':
       return `Cron · ${cadence.expression}`
   }
+}
+
+// Config-specific repo-event detail for the list's supporting line ('GitHub
+// created', 'Jira created, updated', 'Any source'). Null when the config is
+// unreadable so the row falls back to the family label alone.
+const REPO_EVENT_PROVIDER_DETAIL: Record<string, string> = {
+  github: 'GitHub',
+  jira: 'Jira',
+  any: 'Any source',
+}
+
+function repoEventDetail(config: unknown): string | null {
+  if (!config || typeof config !== 'object') return null
+  const record = config as Record<string, unknown>
+  const provider = typeof record.provider === 'string' ? record.provider : 'any'
+  const label = REPO_EVENT_PROVIDER_DETAIL[provider] ?? provider
+  const events = Array.isArray(record.eventTypes)
+    ? record.eventTypes.filter((e): e is string => e === 'created' || e === 'updated')
+    : []
+  return events.length > 0 ? `${label} ${events.join(', ')}` : label
+}
+
+// Webhook detail for the list line — the delivery path ('/deploy'). Null when no
+// path is configured, so the row shows the family alone rather than a redundant
+// restatement of the family.
+function webhookDetail(config: unknown): string | null {
+  if (!config || typeof config !== 'object') return null
+  const path = (config as Record<string, unknown>).path
+  if (typeof path !== 'string' || !path.trim()) return null
+  const trimmed = path.trim()
+  return trimmed.startsWith('/') ? trimmed : `/${trimmed}`
+}
+
+// Supporting-line detail for the definitions list, kept distinct from the family
+// prefix (triggerFamilyLabel) so a non-schedule row never double-says its family
+// ('Event · On GitHub/Jira event'). Schedule rows summarize their cadence;
+// non-schedule rows surface a config-specific fragment (watched source/event, the
+// webhook path) or null when none exists — the caller then shows the family label
+// on its own. cadenceSummary stays the standalone summary used where no family
+// prefix precedes it (the detail pane's Trigger meta).
+export function triggerDetail(trigger: AutomationDefinition['trigger']): string | null {
+  if (trigger.kind === 'schedule') {
+    return isScheduleConfig(trigger.config) ? cadenceSummary(trigger) : null
+  }
+  if (trigger.kind === REPO_EVENT_TRIGGER_KIND) return repoEventDetail(trigger.config)
+  if (trigger.kind === WEBHOOK_TRIGGER_KIND) return webhookDetail(trigger.config)
+  return null
 }
 
 // ---------------------------------------------------------------------------
@@ -554,11 +602,63 @@ export type AutomationFeedRun = {
 // window so a busy project never renders thousands of rows.
 export const RUNS_FEED_LIMIT = 50
 
+// The timestamp a feed row both displays and is ordered by: the run's most
+// progressed real time (completed → started → due). Sorting on this same
+// expression keeps the feed order consistent with the stamp each row shows.
+// Null only when a run carries no parseable timestamp at all (the row then shows
+// no stamp).
+export function feedRunStamp(run: AutomationRun): number | null {
+  return parseTime(run.completedAt) ?? parseTime(run.startedAt) ?? parseTime(run.dueAt)
+}
+
 export function mergeFeedRuns(perDefinition: AutomationFeedRun[][], limit = RUNS_FEED_LIMIT): AutomationFeedRun[] {
   return perDefinition
     .flat()
-    .sort((a, b) => (parseTime(b.run.dueAt) ?? 0) - (parseTime(a.run.dueAt) ?? 0))
+    .sort((a, b) => (feedRunStamp(b.run) ?? 0) - (feedRunStamp(a.run) ?? 0))
     .slice(0, limit)
+}
+
+// The per-definition runs load is raced against this so a single hung IPC (a
+// promise that never settles) cannot strand the whole feed at 'loading'. A
+// timed-out load is skipped-and-counted, exactly like a handled failure.
+export const RUNS_FEED_LOAD_TIMEOUT_MS = 8000
+
+// Distinct identity so a real (even empty) result is never mistaken for a timeout.
+const FEED_LOAD_TIMEOUT = Symbol('runs-feed-load-timeout')
+
+function settleWithTimeout<T>(work: Promise<T>, timeoutMs: number): Promise<T | typeof FEED_LOAD_TIMEOUT> {
+  let timer: ReturnType<typeof setTimeout> | undefined
+  const timeout = new Promise<typeof FEED_LOAD_TIMEOUT>((resolve) => {
+    timer = setTimeout(() => resolve(FEED_LOAD_TIMEOUT), timeoutMs)
+  })
+  return Promise.race([work, timeout]).finally(() => clearTimeout(timer))
+}
+
+// Build the cross-definition feed: one loader call per definition, each settled
+// against a timeout so a single hung, rejected, or failed call is
+// skipped-and-counted rather than failing or stranding the whole feed. The loader
+// is injected (no direct IPC dependency) so the timeout/partial-count behaviour
+// is unit-testable. Returns the merged newest-first runs plus the count of
+// definitions whose runs could not be loaded.
+export async function aggregateFeedRuns(
+  definitions: AutomationDefinition[],
+  loadRuns: (def: AutomationDefinition) => Promise<AutomationsRunsListResult>,
+  timeoutMs = RUNS_FEED_LOAD_TIMEOUT_MS,
+): Promise<{ runs: AutomationFeedRun[]; partialCount: number }> {
+  let partial = 0
+  const perDefinition = await Promise.all(definitions.map(async (def): Promise<AutomationFeedRun[]> => {
+    try {
+      const result = await settleWithTimeout(loadRuns(def), timeoutMs)
+      if (result === FEED_LOAD_TIMEOUT || !result.ok) { partial += 1; return [] }
+      return result.value.map((run) => ({
+        run, definitionId: def.id, definitionName: def.name, triggerKind: def.trigger.kind,
+      }))
+    } catch {
+      partial += 1
+      return []
+    }
+  }))
+  return { runs: mergeFeedRuns(perDefinition), partialCount: partial }
 }
 
 // Human run duration from started→completed. Null while a run is still running or

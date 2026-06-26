@@ -7,7 +7,7 @@ import {
   RUN_STATUS_LABEL,
   TRIGGER_FAMILY_LABEL,
   absoluteTime,
-  parseTime,
+  feedRunStamp,
   relativeFromNow,
   runDuration,
   type AsyncState,
@@ -18,7 +18,7 @@ import {
 // project, newest first. The investigation surface for "what has the engine been
 // doing", complementing the per-definition timeline in the detail pane.
 export function AutomationsRunsFeed({
-  feedRuns, state, error, partialCount, now, onReload, onOpenAgent, onFinalize,
+  feedRuns, state, error, partialCount, now, onReload, onOpenAgent, onOpenDefinition, onFinalize,
 }: {
   feedRuns: AutomationFeedRun[]
   state: AsyncState
@@ -27,6 +27,9 @@ export function AutomationsRunsFeed({
   now: number
   onReload: () => void
   onOpenAgent: (workspaceId: string, agentId?: string) => void
+  /** Drill into a run's owning definition: open the Definitions view, select it,
+   *  and focus the run in its detail timeline. */
+  onOpenDefinition: (automationId: string, runId: string) => void
   onFinalize: (automationId: string, runId: string, outcome: 'completed' | 'failed') => Promise<void>
 }) {
   const [finalizingRunId, setFinalizingRunId] = useState<string | null>(null)
@@ -77,13 +80,14 @@ export function AutomationsRunsFeed({
           </p>
         </div>
       ) : (
-        <ul className="min-h-0 flex-1 overflow-y-auto px-4">
+        <ul aria-label="Recent automation runs" className="min-h-0 flex-1 overflow-y-auto px-4">
           {feedRuns.map((entry) => (
             <FeedRow
               key={`${entry.definitionId}:${entry.run.id}`}
               entry={entry}
               now={now}
               onOpenAgent={onOpenAgent}
+              onOpenDefinition={onOpenDefinition}
               onFinalize={(run, outcome) => void finalize(entry.definitionId, run.id, outcome)}
               finalizing={finalizingRunId === entry.run.id}
             />
@@ -95,18 +99,19 @@ export function AutomationsRunsFeed({
 }
 
 function FeedRow({
-  entry, now, onOpenAgent, onFinalize, finalizing,
+  entry, now, onOpenAgent, onOpenDefinition, onFinalize, finalizing,
 }: {
   entry: AutomationFeedRun
   now: number
   onOpenAgent: (workspaceId: string, agentId?: string) => void
+  onOpenDefinition: (automationId: string, runId: string) => void
   onFinalize: (run: AutomationFeedRun['run'], outcome: 'completed' | 'failed') => void
   finalizing: boolean
 }) {
-  const { run, definitionName, triggerKind } = entry
+  const { run, definitionId, definitionName, triggerKind } = entry
   const family = TRIGGER_FAMILY_LABEL[triggerKind] ?? triggerKind
   const duration = runDuration(run)
-  const stamp = parseTime(run.completedAt) ?? parseTime(run.startedAt) ?? parseTime(run.dueAt)
+  const stamp = feedRunStamp(run)
 
   return (
     <li className="flex items-start gap-2 border-b border-[color:var(--border-subtle)] py-2 last:border-b-0">
@@ -118,7 +123,15 @@ function FeedRow({
       />
       <div className="min-w-0 flex-1">
         <div className="flex items-baseline justify-between gap-2">
-          <TruncatedText as="span" text={definitionName} className="text-[12px] font-medium text-[color:var(--text-strong)]" />
+          {/* The name drills into the owning definition: opens the Definitions
+              view, selects it, and focuses this run in its detail timeline. */}
+          <button
+            type="button"
+            onClick={() => onOpenDefinition(definitionId, run.id)}
+            className="flex min-w-0 rounded-sm text-left outline-none hover:underline focus-visible:ring-1 focus-visible:ring-[color:var(--accent-primary)]"
+          >
+            <TruncatedText as="span" text={definitionName} className="text-[12px] font-medium text-[color:var(--text-strong)]" />
+          </button>
           <span className="shrink-0 tabular-nums text-[10px] text-[color:var(--text-subtle)]">
             {duration ?? '—'}
             {stamp !== null ? (

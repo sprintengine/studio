@@ -7,7 +7,7 @@ import type {
   AutomationsEngineStatus,
   AutomationsProviders,
 } from '../../../../../shared/automations/contracts'
-import { mergeFeedRuns, type AsyncState, type AutomationFeedRun } from './automationsFormat'
+import { aggregateFeedRuns, type AsyncState, type AutomationFeedRun } from './automationsFormat'
 
 // A rejected IPC invoke (channel error, thrown handler) never returns an
 // `{ ok: false }` result, so without this the loading/busy state would hang.
@@ -155,29 +155,22 @@ export function useAutomationsController(input: { folderPath: string | null; wor
   const clearActionError = useCallback(() => setActionError(null), [])
 
   // Build the cross-definition feed by aggregating per-definition run lists (no
-  // new list-all IPC). A definition whose runs fail to load is skipped and
-  // counted rather than failing the whole feed — the count is surfaced so the
-  // gap is explicit, not silent.
+  // new list-all IPC). A definition whose runs fail to load — handled failure,
+  // thrown rejection, or a hung call that never settles — is skipped and counted
+  // rather than failing or stranding the whole feed; the count is surfaced so the
+  // gap is explicit, not silent. The settle-against-timeout/partial-count logic
+  // lives in aggregateFeedRuns so it is unit-testable without the IPC bridge.
   const loadRunsFeed = useCallback(async () => {
     if (!folderPath) return
     setFeedState('loading')
     setFeedError(null)
     try {
-      let partial = 0
-      const perDefinition = await Promise.all(definitions.map(async (def): Promise<AutomationFeedRun[]> => {
-        try {
-          const result = await window.api.listAutomationRuns({ workspaceRoot: folderPath, automationId: def.id })
-          if (!result.ok) { partial += 1; return [] }
-          return result.value.map((run) => ({
-            run, definitionId: def.id, definitionName: def.name, triggerKind: def.trigger.kind,
-          }))
-        } catch {
-          partial += 1
-          return []
-        }
-      }))
-      setFeedRuns(mergeFeedRuns(perDefinition))
-      setFeedPartialCount(partial)
+      const { runs, partialCount } = await aggregateFeedRuns(
+        definitions,
+        (def) => window.api.listAutomationRuns({ workspaceRoot: folderPath, automationId: def.id }),
+      )
+      setFeedRuns(runs)
+      setFeedPartialCount(partialCount)
       setFeedState('ready')
     } catch (error) {
       setFeedState('error')

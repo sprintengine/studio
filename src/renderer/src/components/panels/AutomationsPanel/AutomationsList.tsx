@@ -6,10 +6,10 @@ import {
   DEFINITION_LIFECYCLE,
   DEFINITION_STATUS_LABEL,
   absoluteTime,
-  cadenceSummary,
   isOverdue,
   parseTime,
   relativeFromNow,
+  triggerDetail,
   triggerFamilyLabel,
 } from './automationsFormat'
 
@@ -84,6 +84,10 @@ function DefinitionRow({
   const overdue = isOverdue(def, now)
   const nextAt = parseTime(def.nextRunAt)
   const lastAt = parseTime(def.lastRunAt)
+  // Config-specific detail (cadence, watched source/event, webhook path). Null for
+  // non-schedule families with no distinguishing config — the row then shows the
+  // family label alone rather than restating it.
+  const detail = triggerDetail(def.trigger)
   const statusLabel = def.status === 'enabled' && overdue ? 'Overdue' : DEFINITION_STATUS_LABEL[def.status]
   // The right-side text label is earned only by exceptions (overdue, paused,
   // blocked). A healthy enabled row leans on the glyph alone — the live dot
@@ -139,8 +143,12 @@ function DefinitionRow({
           </div>
           <div className="mt-0.5 truncate text-[11px] text-[color:var(--text-muted)]">
             <span className="text-[color:var(--text-subtle)]">{triggerFamilyLabel(def.trigger)}</span>
-            <span aria-hidden="true" className="mx-1.5 text-[color:var(--text-disabled)]">·</span>
-            {cadenceSummary(def.trigger)}
+            {detail !== null ? (
+              <>
+                <span aria-hidden="true" className="mx-1.5 text-[color:var(--text-disabled)]">·</span>
+                {detail}
+              </>
+            ) : null}
             <span aria-hidden="true" className="mx-1.5 text-[color:var(--text-disabled)]">·</span>
             {nextAt !== null ? (
               <span className="tabular-nums" title={absoluteTime(nextAt)}>
