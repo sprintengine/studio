@@ -1,5 +1,8 @@
 import { app, shell } from 'electron'
+import { existsSync } from 'fs'
+import { join } from 'path'
 import { createAgentConfigImportService } from './agent-config-import'
+import { createAgentStateService } from './agent-state-service'
 import { createAutomationService } from './automation/automation-service'
 import { createAutomationTools } from './automation/automation-tools'
 import { createRendererAutomationDelegate } from './automation/renderer-delegate'
@@ -62,6 +65,19 @@ export function createAppServices(diagnosticsEnabled: boolean) {
     listPlugins: () => getPluginRegistry().loaded(),
   })
 
+  // Authoritative agent state: owns the reporter socket + per-workspace install.
+  // Created before terminalRuntime so the runtime can install the reporter at
+  // launch; `onFrame` resolves to terminalRuntime (declared just below) at
+  // frame time, well after construction.
+  const agentStateService = createAgentStateService({
+    resolveUserDataDir: () => app.getPath('userData'),
+    resolveReporterScriptPath: getBundledAgentStateReporterPath,
+    onFrame: (frame) => terminalRuntime.ingestAgentStateFrame(frame),
+    logDiagnostic: (diagnostic) => {
+      void writeDiagnosticLog({ ...diagnostic, source: 'workspace' })
+    },
+  })
+
   const terminalRuntime = createTerminalRuntime({
     diagnosticsEnabled,
     requireAuthenticatedUser: requireAuthenticatedMulticodeUser,
@@ -86,6 +102,7 @@ export function createAppServices(diagnosticsEnabled: boolean) {
         })
       }
     },
+    prepareAgentStateHook: (workspaceRoot, cli) => agentStateService.installForWorkspace(workspaceRoot, cli),
   })
   const updateService = new MulticodeUpdateService({ writeDiagnosticLog })
   const agentConfigImportService = createAgentConfigImportService({
@@ -148,6 +165,7 @@ export function createAppServices(diagnosticsEnabled: boolean) {
 
   return {
     agentConfigImportService,
+    agentStateService,
     automationDelegate,
     automationService,
     builtinSkillManager,
@@ -168,3 +186,21 @@ export function createAppServices(diagnosticsEnabled: boolean) {
 }
 
 export type AppServices = ReturnType<typeof createAppServices>
+
+// Resolves the bundled agent-state reporter script across packaged and dev
+// layouts. Mirrors memory-activity's resolver: extraResources ships
+// resources/hooks/*.mjs to <resourcesPath>/hooks in packaged builds.
+function getBundledAgentStateReporterPath(): string | null {
+  const filename = 'multicode-agent-state.mjs'
+  if (app.isPackaged) {
+    const packaged = join(process.resourcesPath, 'hooks', filename)
+    return existsSync(packaged) ? packaged : null
+  }
+  const candidates = [
+    join(process.cwd(), 'resources', 'hooks', filename),
+    join(app.getAppPath(), 'resources', 'hooks', filename),
+    join(__dirname, '..', '..', 'resources', 'hooks', filename),
+    join(__dirname, '..', '..', '..', 'resources', 'hooks', filename),
+  ]
+  return candidates.find((candidate) => existsSync(candidate)) ?? null
+}

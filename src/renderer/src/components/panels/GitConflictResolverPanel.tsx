@@ -7,6 +7,7 @@ import {
   replaceGitConflictBlock,
 } from '../../utils/gitConflictMarkers'
 import { MONO_FONT_STACK } from '../../utils/fonts'
+import { useMonacoBaseTheme } from '../../hooks/useAppTheme'
 import { Section } from '../ui'
 import { useConfirmDialog } from '../ui/ConfirmDialog'
 
@@ -52,6 +53,7 @@ function languageForPath(path: string): string | undefined {
 export default function GitConflictResolverPanel({ repoRoot, filePath }: Props) {
   const [state, setState] = useState<ResolverState>({ status: 'loading' })
   const language = languageForPath(filePath)
+  const monacoTheme = useMonacoBaseTheme()
   const dialog = useConfirmDialog()
   const blocks = useMemo(
     () => state.status === 'ready' ? parseGitConflictBlocks(state.content) : [],
@@ -222,7 +224,7 @@ export default function GitConflictResolverPanel({ repoRoot, filePath }: Props) 
               height="100%"
               language={language}
               value={state.content}
-              theme="vs-dark"
+              theme={monacoTheme}
               options={{
                 fontSize: 13,
                 fontFamily: MONO_FONT_STACK,
@@ -251,6 +253,7 @@ function ConflictReadOnlyPane({
   language?: string
   empty: string
 }) {
+  const monacoTheme = useMonacoBaseTheme()
   return (
     <section className="flex min-h-0 flex-col border-r border-[color:var(--border-default)] last:border-r-0">
       <div className="shrink-0 border-b border-[color:var(--border-default)] bg-[color:var(--bg-surface)] px-3 py-1.5 text-[12px] font-semibold text-[color:var(--text-default)]">
@@ -261,7 +264,7 @@ function ConflictReadOnlyPane({
           height="100%"
           language={language}
           value={content}
-          theme="vs-dark"
+          theme={monacoTheme}
           options={{
             readOnly: true,
             fontSize: 12,

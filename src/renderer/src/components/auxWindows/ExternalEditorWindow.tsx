@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useRef, useState } from 'react'
 import MonacoEditor from '@monaco-editor/react'
 import { detectLanguage } from '../../utils/files'
 import { MONO_FONT_STACK } from '../../utils/fonts'
+import { useMonacoBaseTheme } from '../../hooks/useAppTheme'
 import { renderMarkdown } from '../../utils/markdown'
 import { IconButton, Tooltip } from '../ui'
 import {
@@ -42,6 +43,7 @@ function isDirty(buffer: FileBuffer | undefined): boolean {
 
 export default function ExternalEditorWindow({ incoming, nonce }: Props) {
   const isMac = window.api.platform === 'darwin'
+  const monacoTheme = useMonacoBaseTheme()
   const [tabs, setTabs] = useState<FileTab[]>([])
   const [activePath, setActivePath] = useState<string | null>(null)
   const [buffers, setBuffers] = useState<Record<string, FileBuffer>>({})
@@ -272,7 +274,7 @@ export default function ExternalEditorWindow({ incoming, nonce }: Props) {
             </Tooltip>
           </div>
         ) : null}
-        {renderBody(activeTab, activeBuffer, activePath, setBuffers, showPreview)}
+        {renderBody(activeTab, activeBuffer, activePath, setBuffers, showPreview, monacoTheme)}
       </div>
     </div>
   )
@@ -283,7 +285,8 @@ function renderBody(
   buffer: FileBuffer | undefined,
   activePath: string | null,
   setBuffers: React.Dispatch<React.SetStateAction<Record<string, FileBuffer>>>,
-  showPreview: boolean
+  showPreview: boolean,
+  monacoTheme: 'vs' | 'vs-dark'
 ): React.ReactNode {
   if (!activeTab || !activePath) {
     return (
@@ -338,7 +341,7 @@ function renderBody(
     <MonacoEditor
       key={activePath}
       height="100%"
-      theme="vs-dark"
+      theme={monacoTheme}
       language={detectLanguage(activeTab.name)}
       value={buffer.value}
       options={{
