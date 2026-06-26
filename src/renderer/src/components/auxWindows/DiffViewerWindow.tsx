@@ -4,6 +4,7 @@ import type * as Monaco from 'monaco-editor'
 import { useGitStatus, type GitRepoState } from '../../hooks/useGitStatus'
 import { detectLanguage, isImageFile } from '../../utils/files'
 import { MONO_FONT_STACK } from '../../utils/fonts'
+import { useMonacoBaseTheme } from '../../hooks/useAppTheme'
 import {
   buildDiffFileList,
   findDiffFocusIndex,
@@ -135,11 +136,13 @@ function DiffBody({
   repoState,
   currentItem,
   onMount,
+  monacoTheme,
 }: {
   content: DiffContent
   repoState: GitRepoState
   currentItem: DiffFileItem | null
   onMount: DiffOnMount
+  monacoTheme: 'vs' | 'vs-dark'
 }) {
   if (repoState === 'not-git') return <CenteredMessage>Not a Git repository.</CenteredMessage>
   if (!currentItem) {
@@ -154,7 +157,7 @@ function DiffBody({
   return (
     <DiffEditor
       height="100%"
-      theme="vs-dark"
+      theme={monacoTheme}
       original={content.original}
       modified={content.modified}
       language={content.language}
@@ -179,6 +182,7 @@ function DiffBody({
 export default function DiffViewerWindow({ repoRoot, focusPath, focusKind }: Props) {
   const { status, repoState } = useGitStatus(repoRoot)
   const isMac = window.api.platform === 'darwin'
+  const monacoTheme = useMonacoBaseTheme()
 
   const items = useMemo(() => buildDiffFileList(status), [status])
 
@@ -354,7 +358,7 @@ export default function DiffViewerWindow({ repoRoot, focusPath, focusKind }: Pro
       </div>
 
       <div className="relative min-h-0 flex-1">
-        <DiffBody content={content} repoState={repoState} currentItem={currentItem} onMount={handleDiffMount} />
+        <DiffBody content={content} repoState={repoState} currentItem={currentItem} onMount={handleDiffMount} monacoTheme={monacoTheme} />
       </div>
     </div>
   )

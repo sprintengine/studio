@@ -1,5 +1,6 @@
 import React, { Suspense, lazy, useEffect, useState } from 'react'
 import type { AuxWindowKind } from '../../../../shared/electron-api'
+import { useAppTheme } from '../../hooks/useAppTheme'
 import { writeAuxWindowBounds } from './auxWindowPlacement'
 
 // Monaco is heavy and must stay out of the eager boot chunk (enforced by
@@ -36,6 +37,11 @@ function readInitialParams(): { kind: AuxWindowKind; params: AuxWindowParams } |
 }
 
 export default function AuxWindowApp() {
+  // Drive <html data-theme="…"> from the persisted preference, exactly like the
+  // workspace shell. The boot script in index.html applies the initial theme to
+  // avoid a flash; this keeps the attribute (and the CSS variables the chrome
+  // reads) correct for the window's lifetime instead of leaving it frozen.
+  useAppTheme()
   const [descriptor] = useState(readInitialParams)
   const [params, setParams] = useState<AuxWindowParams>(descriptor?.params ?? {})
   // Bumps on every retarget (even a repeat of the same params) so the file
