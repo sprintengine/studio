@@ -314,12 +314,18 @@ export function webhookTriggerError(form: WebhookForm, opts: { sendingTrigger: b
     return 'Webhook path may use letters, numbers, dot, underscore and hyphen, and must start with a letter or number.'
   }
   if (!opts.sendingTrigger) return null
-  if (form.enabled) {
-    if (!form.path.trim()) return 'Add a webhook path to enable delivery.'
-    if (!form.port.trim()) return 'Add a webhook port to enable delivery.'
-    if (!form.secret && !form.hasSecret) return 'Generate a webhook secret to enable delivery.'
-    if (!form.secret && form.hasSecret) return 'Regenerate the webhook secret to save changes to an enabled webhook.'
+  if (form.enabled && !form.path.trim()) return 'Add a webhook path to enable delivery.'
+  if (form.enabled && !form.port.trim()) return 'Add a webhook port to enable delivery.'
+  // A trigger patch is being written. The engine replaces trigger.config wholesale
+  // and the renderer can never read the stored secret, so sending a rebuilt config
+  // without a fresh secret would drop the stored credential. Require regeneration
+  // whenever a stored secret exists and no fresh one was entered — regardless of
+  // form.enabled (a disabled webhook keeps its secret for when it is re-enabled).
+  // Fallback Discipline: fail loudly, never silently wipe the secret.
+  if (form.hasSecret && !form.secret) {
+    return 'Regenerate the webhook secret to save changes to this webhook.'
   }
+  if (form.enabled && !form.secret) return 'Generate a webhook secret to enable delivery.'
   return null
 }
 

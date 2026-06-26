@@ -110,7 +110,7 @@ assert.deepEqual(
 assert.deepEqual(
   buildWebhookConfig({ ...EMPTY_WEBHOOK_FORM, enabled: false, path: 'hook' }),
   { kind: 'webhook', enabled: false, path: 'hook' },
-  'a webhook with no new secret omits the secret field so the stored one is kept',
+  'a webhook with no new secret omits the secret field (the stored one is preserved only when this config is NOT sent — see the omit-trigger path)',
 )
 
 console.log('AutomationEditor config-build tests passed')
@@ -133,6 +133,11 @@ assert.match(
   webhookTriggerError({ ...EMPTY_WEBHOOK_FORM, enabled: true, port: '80', path: 'h', hasSecret: true }, { sendingTrigger: true }) ?? '',
   /Regenerate the webhook secret/,
   'changing an enabled webhook requires regenerating the secret (the stored one is never readable)',
+)
+assert.match(
+  webhookTriggerError({ ...EMPTY_WEBHOOK_FORM, enabled: false, port: '80', path: 'hook', hasSecret: true }, { sendingTrigger: true }) ?? '',
+  /Regenerate the webhook secret/,
+  'editing a DISABLED webhook that has a stored secret also requires regenerating — sending the rebuilt config would otherwise drop the stored credential (Fallback Discipline)',
 )
 assert.equal(
   webhookTriggerError({ ...EMPTY_WEBHOOK_FORM, enabled: true, hasSecret: true }, { sendingTrigger: false }),
