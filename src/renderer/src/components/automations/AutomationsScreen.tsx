@@ -6,18 +6,21 @@ import { basename } from '../../utils/paths'
 import { publishDiagnosticSync } from '../../utils/diagnostics'
 import { RUN_TARGET_KIND, encodeRunRef } from './runTarget'
 import type { AutomationDefinition } from '../../../../shared/automations/contracts'
-import { GhostButton, InlineNotice, PrimaryButton, Spinner, useConfirmDialog } from '../ui'
+import { GhostButton, InlineNotice, LifecycleGlyph, PrimaryButton, Spinner, useConfirmDialog } from '../ui'
 import { AutomationsWorkspaceTypeIcon } from '../AppIcons'
 import { AutomationDetailPane } from '../panels/AutomationsPanel/AutomationDetailPane'
 import { AutomationEditor } from '../panels/AutomationsPanel/AutomationEditor'
 import { DefinitionList, DetailEmptyState } from '../panels/AutomationsPanel/AutomationsList'
-import { isEditableTarget, sortDefinitions, type EditorState } from '../panels/AutomationsPanel/automationsFormat'
+import { AutomationsRunsFeed } from '../panels/AutomationsPanel/AutomationsRunsFeed'
+import { engineHealth, isEditableTarget, isEngineUnreachable, sortDefinitions, type EditorState, type EngineHealth } from '../panels/AutomationsPanel/automationsFormat'
 import { useAutomationsController } from '../panels/AutomationsPanel/useAutomationsController'
 
 type ProjectOption = {
   path: string
   label: string
 }
+
+type AutomationsView = 'definitions' | 'runs'
 
 // Distinct folder-backed projects for the switcher: the open workspaces' folders
 // (a primitive `\n`-joined key, a stable store subscription rather than a fresh
@@ -82,10 +85,12 @@ export default function AutomationsScreen({
   }, [projects, selectedProject])
 
   const {
-    definitions, providers, loadState, loadError, actionError, busyId,
+    definitions, providers, engineStatus, loadState, loadError, actionError, busyId,
     load, clearActionError, runNow, toggleStatus, remove, applySaved,
+    feedRuns, feedState, feedError, feedPartialCount, loadRunsFeed, finalizeFeedRun,
   } = useAutomationsController({ folderPath: selectedProject })
 
+  const [view, setView] = useState<AutomationsView>('definitions')
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [editor, setEditor] = useState<EditorState | null>(null)
   const [now, setNow] = useState(() => Date.now())
@@ -114,13 +119,21 @@ export default function AutomationsScreen({
     if (target && initialProjectPath) setSelectedProject(initialProjectPath)
   }, [initialRunTarget, initialProjectPath])
 
-  // Reset the selection/editor when the project changes — definitions belong to
-  // a single project store.
+  // Reset the selection/editor/view when the project changes — definitions and
+  // the runs feed both belong to a single project store.
   useEffect(() => {
+    setView('definitions')
     setSelectedId(null)
     setEditor(null)
     setFocusRunId(null)
   }, [selectedProject])
+
+  // Aggregate the runs feed on demand — only while the runs view is open, and
+  // refreshed when the definition set changes underneath it (the controller
+  // re-scopes to selectedProject via folderPath).
+  useEffect(() => {
+    if (view === 'runs' && loadState === 'ready') void loadRunsFeed()
+  }, [view, loadState, loadRunsFeed])
 
   // Apply a queued run-target once its definition is present (the list loads
   // async, so the target can arrive before the row exists).
@@ -134,6 +147,9 @@ export default function AutomationsScreen({
   }, [pendingRunTarget, definitions])
 
   const ordered = useMemo(() => sortDefinitions(definitions, now), [definitions, now])
+
+  const engine = engineHealth(engineStatus)
+  const engineUnreachable = isEngineUnreachable(engineStatus)
 
   useEffect(() => {
     if (selectedId && !definitions.some((d) => d.id === selectedId)) setSelectedId(null)
@@ -176,6 +192,19 @@ export default function AutomationsScreen({
       navigationTarget: { kind: RUN_TARGET_KIND, ref: encodeRunRef(def.id, run.id, selectedProject) },
     })
   }, [runNow, selectedProject])
+
+  // Drill from a runs-feed row into its owning definition: switch to the
+  // Definitions view, select the definition, and focus the run in its detail
+  // timeline — reusing the focusRunId/focusNonce plumbing the run notifications
+  // use. The definition is already loaded (the feed is built from the loaded
+  // set), so the target is applied directly rather than latched.
+  const handleOpenRunDefinition = useCallback((automationId: string, runId: string) => {
+    setView('definitions')
+    setEditor(null)
+    setSelectedId(automationId)
+    setFocusRunId(runId)
+    setFocusNonce((n) => n + 1)
+  }, [])
 
   const onListKeyDown = useCallback((event: React.KeyboardEvent) => {
     if (isEditableTarget(event.target) || ordered.length === 0) return
@@ -233,7 +262,7 @@ export default function AutomationsScreen({
         ) : null}
 
         <PrimaryButton
-          onClick={() => { setEditor({ mode: 'create' }); setSelectedId(null); clearActionError() }}
+          onClick={() => { setView('definitions'); setEditor({ mode: 'create' }); setSelectedId(null); clearActionError() }}
           disabled={loadState !== 'ready'}
         >
           New automation
@@ -250,6 +279,16 @@ export default function AutomationsScreen({
           </svg>
         </button>
       </header>
+
+      {loadState === 'ready' ? (
+        <div className="flex items-center justify-between gap-3 border-b border-[color:var(--border-subtle)] px-4 py-1.5">
+          <div role="group" aria-label="Automations view" className="flex items-center gap-1">
+            <ViewTab label="Definitions" active={view === 'definitions'} onClick={() => setView('definitions')} />
+            <ViewTab label="Runs" active={view === 'runs'} onClick={() => setView('runs')} />
+          </div>
+          <EngineHealthIndicator engine={engine} />
+        </div>
+      ) : null}
 
       {actionError ? (
         <div className="px-4 pt-3">
@@ -279,8 +318,36 @@ export default function AutomationsScreen({
           <GhostButton onClick={() => void load()}>Retry</GhostButton>
         </div>
       ) : (
-        <div className="flex min-h-0 flex-1 flex-col overflow-y-auto md:flex-row md:overflow-hidden">
-          <DefinitionList
+        <div className="flex min-h-0 flex-1 flex-col">
+          {engineUnreachable ? (
+            <div className="px-4 pt-3">
+              <InlineNotice tone={engine.tone === 'error' ? 'error' : 'warn'}>
+                {engine.label}
+                {engine.detail ? ` — ${engine.detail}` : ''}. Automations won’t run until the scheduler recovers.
+              </InlineNotice>
+            </div>
+          ) : null}
+          {view === 'runs' ? (
+            <AutomationsRunsFeed
+              feedRuns={feedRuns}
+              state={feedState}
+              error={feedError}
+              partialCount={feedPartialCount}
+              now={now}
+              onReload={() => void loadRunsFeed()}
+              onOpenAgent={(wsId, agentId) => {
+                // Open the launched agent and leave the area so the user arrives
+                // on it (mirrors the detail-pane Open-agent behaviour).
+                if (agentId) revealAutomationAgent({ workspaceId: wsId, agentId })
+                setActiveWorkspace(wsId)
+                onClose()
+              }}
+              onOpenDefinition={handleOpenRunDefinition}
+              onFinalize={finalizeFeedRun}
+            />
+          ) : (
+            <div className="flex min-h-0 flex-1 flex-col overflow-y-auto md:flex-row md:overflow-hidden">
+              <DefinitionList
             ref={listRef}
             definitions={ordered}
             selectedId={editor ? null : selectedId}
@@ -323,8 +390,45 @@ export default function AutomationsScreen({
               <DetailEmptyState hasDefinitions={definitions.length > 0} />
             )}
           </div>
+            </div>
+          )}
         </div>
       )}
     </section>
+  )
+}
+
+function ViewTab({ label, active, onClick }: { label: string; active: boolean; onClick: () => void }) {
+  return (
+    <button
+      type="button"
+      aria-pressed={active}
+      onClick={onClick}
+      className={[
+        'h-6 rounded px-2 text-[11px] font-medium outline-none transition-colors focus-visible:ring-1 focus-visible:ring-[color:var(--accent-primary)]',
+        active
+          ? 'bg-[color:var(--accent-primary-soft)] text-[color:var(--text-strong)]'
+          : 'text-[color:var(--text-muted)] hover:bg-[color:var(--bg-hover)]',
+      ].join(' ')}
+    >
+      {label}
+    </button>
+  )
+}
+
+// Quiet, glyph-led engine-health status. The LifecycleGlyph carries the
+// accessible state; the text label is a decorative duplicate for sighted users.
+// No pill — earned chrome only.
+function EngineHealthIndicator({ engine }: { engine: EngineHealth }) {
+  const toneClass = engine.tone === 'error'
+    ? 'text-[color:var(--tone-error)]'
+    : engine.tone === 'warn'
+      ? 'text-[color:var(--tone-warn)]'
+      : 'text-[color:var(--text-muted)]'
+  return (
+    <span className="flex shrink-0 items-center gap-1.5">
+      <LifecycleGlyph state={engine.glyph} label={engine.label} className="translate-y-[0.5px]" />
+      <span aria-hidden="true" className={`text-[11px] ${toneClass}`}>{engine.label}</span>
+    </span>
   )
 }
