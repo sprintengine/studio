@@ -1,6 +1,11 @@
-import { useEffect } from 'react'
+import { useEffect, useState } from 'react'
 import { useWorkspaceStore } from '../store/workspaceStore'
-import { colorSchemeForResolvedTheme, type AppTheme, type ResolvedAppTheme } from '../types/appTheme'
+import {
+  colorSchemeForResolvedTheme,
+  type AppTheme,
+  type ColorScheme,
+  type ResolvedAppTheme,
+} from '../types/appTheme'
 
 export type { ResolvedAppTheme }
 
@@ -51,4 +56,43 @@ export function useAppTheme(): void {
     media.addListener(onChange)
     return () => media.removeListener(onChange)
   }, [theme])
+}
+
+// Resolved light/dark surface of the active theme, reactive to both an explicit
+// theme change and — under `system` — an OS light/dark switch (the store value
+// stays `'system'`, so the media query is the only signal). Editor surfaces that
+// must pick a matching base theme read this instead of the raw preference.
+export function useResolvedColorScheme(): ColorScheme {
+  const theme = useWorkspaceStore((s) => s.appSettings.appearance.theme)
+  const [scheme, setScheme] = useState<ColorScheme>(() =>
+    colorSchemeForResolvedTheme(resolveTheme(theme))
+  )
+
+  useEffect(() => {
+    setScheme(colorSchemeForResolvedTheme(resolveTheme(theme)))
+
+    if (theme !== 'system') return undefined
+    if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') {
+      return undefined
+    }
+    const media = window.matchMedia(LIGHT_MEDIA_QUERY)
+    const onChange = (): void => setScheme(colorSchemeForResolvedTheme(resolveTheme('system')))
+    if (typeof media.addEventListener === 'function') {
+      media.addEventListener('change', onChange)
+      return () => media.removeEventListener('change', onChange)
+    }
+    // Safari < 14 fallback.
+    media.addListener(onChange)
+    return () => media.removeListener(onChange)
+  }, [theme])
+
+  return scheme
+}
+
+// Monaco ships only a light (`vs`) and dark (`vs-dark`) built-in base theme, so
+// map the active app theme's surface onto the matching one. Without this an
+// editor renders its hard-coded dark canvas inside a light app — the mismatch
+// users see as a "dark panel" spawned from a light window (and the reverse).
+export function useMonacoBaseTheme(): 'vs' | 'vs-dark' {
+  return useResolvedColorScheme() === 'light' ? 'vs' : 'vs-dark'
 }
