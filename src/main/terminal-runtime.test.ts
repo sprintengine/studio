@@ -118,6 +118,7 @@ async function main(): Promise<void> {
     await assertSprintEngineConcurrentSpawnFailureKeepsReservedRun(runtimeModule)
     await assertSprintEngineSpawnDerivesFallbackAgentIdBeforeMcpSync(runtimeModule)
     await assertAgentSpawnExposesAgentIdentityEnv(runtimeModule)
+    await assertDescriptorSpawnExposesAgentIdentityEnv(runtimeModule)
     await assertTerminalReattachUsesReplayChannel(runtimeModule)
     await assertHiddenTerminalOutputSkipsLiveIpcAndReplaysOnAttach(runtimeModule)
     await assertStaleSweepReapsOnlyUnseenHiddenTerminals(runtimeModule)
@@ -1181,6 +1182,54 @@ async function assertAgentSpawnExposesAgentIdentityEnv(runtimeModule: RuntimeMod
     const plainEnv = (mockPty.spawnCalls[0]?.options.env ?? {}) as Record<string, string>
     assert.equal(plainEnv.MULTICODE_AGENT_ID, undefined, 'stale inherited identity must not leak into plain terminals')
     assert.equal(plainEnv.MULTICODE_WORKSPACE_ID, undefined)
+  } finally {
+    if (priorAgentId === undefined) delete process.env.MULTICODE_AGENT_ID
+    else process.env.MULTICODE_AGENT_ID = priorAgentId
+    await runtime.shutdown()
+  }
+}
+
+// The descriptor (SprintEngine/switchboard) launch path must also expose the
+// agent's identity so the agent-state reporter can map hook frames to the
+// session: MULTICODE_AGENT_ID is set to the executionId (=== session.agentId),
+// and any stale id inherited by the app process is overridden.
+async function assertDescriptorSpawnExposesAgentIdentityEnv(runtimeModule: RuntimeModule): Promise<void> {
+  const workspaceRoot = await mkdtemp(join(tmpdir(), 'multicode-terminal-runtime-descriptor-identity-'))
+  mockPty.spawnCalls = []
+  mockSender.sent = []
+
+  const priorAgentId = process.env.MULTICODE_AGENT_ID
+  process.env.MULTICODE_AGENT_ID = 'stale-leak-from-app-process'
+
+  const runtime = runtimeModule.createTerminalRuntime({
+    diagnosticsEnabled: false,
+    requireAuthenticatedUser: () => undefined,
+    logMainPerfEvent: () => undefined,
+    syncMcpConfig: async (): Promise<SyncResult> => ({ ok: true }),
+  })
+
+  try {
+    const result = await runtime.spawnAgentSession({
+      workspaceId: 'ws-desc',
+      workspaceRoot,
+      descriptor: {
+        executionId: 'exec-desc-1',
+        system: 'sprintengine',
+        workId: 'work-1',
+        role: 'developer',
+        displayName: 'Dev One',
+        command: ['claude'],
+        cwd: workspaceRoot,
+        cli: 'claude-code',
+      },
+      mcpSettings: { syncEnabled: false, servers: {} } satisfies McpSettings,
+    })
+    assert.equal(result.ok, true, JSON.stringify(result))
+    assert.equal(mockPty.spawnCalls.length, 1)
+    const env = (mockPty.spawnCalls[0]?.options.env ?? {}) as Record<string, string>
+    assert.equal(env.MULTICODE_AGENT_ID, 'exec-desc-1', 'descriptor identity equals executionId so reporter frames resolve')
+    assert.equal(env.MULTICODE_WORKSPACE_ID, 'ws-desc')
+    assert.equal(env.MULTICODE_AGENT_NAME, 'Dev One')
   } finally {
     if (priorAgentId === undefined) delete process.env.MULTICODE_AGENT_ID
     else process.env.MULTICODE_AGENT_ID = priorAgentId

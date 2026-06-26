@@ -1301,15 +1301,29 @@ async function spawnAgentSessionFromDescriptor(input: {
     }
 
     const initialSize = getTerminalSize(120, 30)
+    // Inject the agent's durable identity so the agent-state reporter's hook
+    // frames map back to this session (MULTICODE_AGENT_ID === executionId ===
+    // session.agentId below), and strip any stale id the app process inherited.
+    // Descriptor env wins over the base, identity wins over both.
+    const descriptorEnv = applyAgentIdentityEnv(
+      { ...getTerminalEnv(), ...(input.descriptor.env ?? {}) },
+      {
+        workspaceId: input.workspaceId,
+        agentId: input.descriptor.executionId,
+        agentName: input.descriptor.displayName,
+      }
+    )
+    // Install the reporter before launching a Claude Code agent so its hooks
+    // report phase from the first event. Best-effort; never blocks/fails launch.
+    if (input.descriptor.cli === 'claude-code') {
+      await prepareAgentStateHook?.(input.descriptor.cwd || input.workspaceRoot)
+    }
     const termProcess = pty.spawn(command, args, {
       name: 'xterm-256color',
       cols: initialSize.cols,
       rows: initialSize.rows,
       cwd: input.descriptor.cwd,
-      env: {
-        ...getTerminalEnv(),
-        ...(input.descriptor.env ?? {}),
-      },
+      env: descriptorEnv,
     })
     const startedAt = Date.now()
     const terminalSession: TerminalSession = {
