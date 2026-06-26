@@ -18,7 +18,7 @@ import { normalizeSelectedCli } from '../../store/slices/settingsSlice'
 import { resolveAvailableAgentCli, resolveSurfaceModel, resolveTemplateAgentCli, selectAgentCliCatalog } from './newWorkspace/cliRuntimeOptions'
 import { subscribePluginCatalogRefreshOnFocus } from '../../store/slices/pluginsSlice'
 import { getRendererHost, selectModuleEnabled } from '../../modules'
-import type { NotificationActionContext } from '../../modules/renderer-host'
+import { resolveNotificationActions as resolveNotificationActionsFor } from '../../utils/notificationActions'
 import {
   deriveWorkspaceLastInputAt,
   deriveWorkspaceTerminalActivity,
@@ -310,35 +310,14 @@ export default function WorkspaceManager() {
   // reveal fallback needs a workspaceId. Provider modules that are disabled drop
   // out, exactly like Backlog item actions.
   const resolveNotificationActions = useCallback(
-    (notification: AppNotification) => {
-      const workspaceId = notification.workspaceId
-      const context: NotificationActionContext = {
+    (notification: AppNotification) =>
+      resolveNotificationActionsFor({
         notification,
+        providers: getRendererHost().getNotificationActionProviders((moduleId) =>
+          selectModuleEnabled(moduleEnablement, moduleId),
+        ),
         revealWorkspace: (id) => setActiveWorkspaceForWindow(workspaceWindowId, id),
-      }
-      const providerActions = getRendererHost()
-        .getNotificationActionProviders((moduleId) => selectModuleEnabled(moduleEnablement, moduleId))
-        .filter((provider) => provider.source === notification.source)
-        .flatMap((provider) => provider.resolveActions(context))
-        .filter((action) => (action.isVisible ? action.isVisible(context) : true))
-      const actions =
-        providerActions.length > 0
-          ? providerActions
-          : workspaceId
-            ? [
-                {
-                  id: 'reveal-workspace',
-                  label: 'Open',
-                  run: (ctx: NotificationActionContext) => ctx.revealWorkspace(workspaceId),
-                },
-              ]
-            : []
-      return actions.map((action) => ({
-        id: action.id,
-        label: action.label,
-        run: () => action.run(context),
-      }))
-    },
+      }),
     [moduleEnablement, setActiveWorkspaceForWindow, workspaceWindowId]
   )
 
