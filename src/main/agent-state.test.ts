@@ -12,6 +12,7 @@ import {
   evaluateAgentStall,
   installAgentStateHook,
   installCodexAgentStateHook,
+  isAuthoritativeWorkingPhase,
   mapHookEventToPhase,
   mergeCodexAgentStateHooks,
   mergeAgentStateHooks,
@@ -136,6 +137,16 @@ async function run(): Promise<void> {
     evaluateAgentStall({ phase: 'thinking', source: 'hook', phaseSince: 80_000, lastOutputAt: null, now: 100_000, thresholdMs: 90_000 }),
     { action: 'recheck', afterMs: 70_000 }
   )
+
+  // --- heuristic cutover guard --------------------------------------------
+  // Only a hook-driven working phase suppresses the legacy idle-timer flip.
+  assert.equal(isAuthoritativeWorkingPhase({ phase: 'tool_use', since: 1, source: 'hook' }), true)
+  assert.equal(isAuthoritativeWorkingPhase({ phase: 'thinking', since: 1, source: 'hook' }), true)
+  assert.equal(isAuthoritativeWorkingPhase({ phase: 'awaiting_input', since: 1, source: 'hook' }), false)
+  assert.equal(isAuthoritativeWorkingPhase({ phase: 'idle', since: 1, source: 'hook' }), false)
+  // Inferred working never suppresses (no hook to trust), nor does absent state.
+  assert.equal(isAuthoritativeWorkingPhase({ phase: 'thinking', since: 1, source: 'inferred' }), false)
+  assert.equal(isAuthoritativeWorkingPhase(undefined), false)
 
   // --- command builder ----------------------------------------------------
   const cmd = buildAgentStateHookCommand('/tmp/multi code/agent.sock')

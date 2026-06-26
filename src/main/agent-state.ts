@@ -1,7 +1,7 @@
 import { existsSync } from 'fs'
 import { copyFile, mkdir, readFile, rm, writeFile } from 'fs/promises'
 import { join, resolve, sep } from 'path'
-import type { AgentPhase, AgentStateSource, SessionActivity } from '../shared/electron-api'
+import type { AgentPhase, AgentState, AgentStateSource, SessionActivity } from '../shared/electron-api'
 
 // =============================================================================
 // Authoritative agent state — pure core (no Electron deps, fully unit-testable)
@@ -81,6 +81,14 @@ export function mapHookEventToPhase(event: string): AgentPhase | null {
 // owned authoritatively by the pty onExit handler, which carries the exit code
 // a hook frame does not — we never synthesize an exit from a hook.
 // =============================================================================
+
+// True when an authoritative hook phase says the agent is actively working, so
+// the legacy output idle-timer must NOT override it to idle — the Stop hook
+// reports the real idle transition and the stall watch catches a genuine hang.
+// Inferred or absent state never qualifies, so non-hook sessions are unaffected.
+export function isAuthoritativeWorkingPhase(state: AgentState | undefined): boolean {
+  return state?.source === 'hook' && (state.phase === 'tool_use' || state.phase === 'thinking')
+}
 
 export function deriveActivityFromPhase(phase: AgentPhase, since: number): SessionActivity | null {
   switch (phase) {

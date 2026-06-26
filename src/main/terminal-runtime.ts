@@ -16,7 +16,7 @@ import type {
   LiveAgentExecution,
 } from '../shared/agent-runtime'
 import { createAgentStreamWatcher } from './agent-stream-watcher'
-import { deriveActivityFromPhase, evaluateAgentStall, selectAgentStateTarget, type AgentStateFrame } from './agent-state'
+import { deriveActivityFromPhase, evaluateAgentStall, isAuthoritativeWorkingPhase, selectAgentStateTarget, type AgentStateFrame } from './agent-state'
 import type { TerminalSpawnPayload } from './ipc/terminal-ipc'
 import {
   cleanupTerminalStartupScript,
@@ -825,6 +825,11 @@ function scheduleTerminalIdleTransition(session: TerminalSession): void {
 
   session.idleTimer = setTimeout(() => {
     session.idleTimer = undefined
+    // Heuristic cutover: when an authoritative hook says the agent is mid-work,
+    // the output idle-timer must not override it to idle — the Stop hook reports
+    // the real idle, and scheduleAgentStallCheck catches a genuine hang. Without
+    // this, a silent-but-working tool call flickers to idle every few seconds.
+    if (isAuthoritativeWorkingPhase(session.agentState)) return
     setTerminalActivity(session, { kind: 'idle', since: Date.now() })
   }, getTerminalIdleTimeoutMs(session))
 }
