@@ -267,17 +267,6 @@ export default function AutomationsScreen({
         >
           New automation
         </PrimaryButton>
-
-        <button
-          type="button"
-          onClick={onClose}
-          aria-label="Close automations"
-          className="ml-1 inline-flex h-7 w-7 items-center justify-center rounded-md text-[color:var(--text-muted)] transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]"
-        >
-          <svg viewBox="0 0 16 16" fill="none" className="icon-sm">
-            <path d="M4 4L12 12M12 4L4 12" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
-          </svg>
-        </button>
       </header>
 
       {loadState === 'ready' ? (

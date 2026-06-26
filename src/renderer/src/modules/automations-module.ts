@@ -6,8 +6,9 @@ import { decodeRunRef } from '../components/automations/runTarget'
 // removes the Automations screen entry points and stops the engine sidecar on
 // the main side.
 //
-// Automations is a global app SCREEN (AutomationsOverlay), not a workspace type
-// — so this module registers no workspace type and no panel. The always-on
+// Automations is a global app SCREEN (a content-area destination rendered by
+// WorkspaceManager in place of workspace content), not a workspace type — so
+// this module registers no workspace type and no panel. The always-on
 // background run observer (AutomationsRunSupervisor) is mounted directly by the
 // shell (WorkspaceManager), gated on this module's enablement.
 export const automationsRendererModule: RendererModule = {

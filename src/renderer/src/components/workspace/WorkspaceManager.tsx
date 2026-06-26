@@ -8,7 +8,6 @@ import { TipStartupModal } from '../learn/TipStartupModal'
 import OnboardingFlow from '../onboarding/OnboardingFlow'
 import { planDeferredAdoption } from '../onboarding/agentConfigAdoption'
 import SettingsOverlay from '../settings/SettingsOverlay'
-import AutomationsOverlay from '../automations/AutomationsOverlay'
 import { SuspenseFallback } from '../ui/SuspenseFallback'
 import { useNotificationStore } from '../../store/notificationStore'
 import { useWorkspaceStore } from '../../store/workspaceStore'
@@ -124,6 +123,11 @@ import { isGlobalShortcutSuppressedTarget } from '../../utils/keyboard'
 // chunk and only fetched when the user opens "new workspace". Rendered only when
 // showNewWorkspacePanel is true.
 const NewWorkspacePanel = React.lazy(() => import('./NewWorkspacePanel'))
+
+// Automations is a content-area destination (not a modal): it renders inside the
+// workspace card in place of workspace content, like the new-workspace panel.
+// Lazy so the control center + schema-driven editor stay out of the boot chunk.
+const AutomationsScreen = React.lazy(() => import('../automations/AutomationsScreen'))
 
 const MENU_BAR_ITEMS = ['File', 'Edit', 'View', 'Window', 'Help'] as const
 const EMPTY_SPECIALIST_CLI_DEFAULTS: Partial<Record<SpecialistActionId, AgentCli>> = {}
@@ -250,6 +254,11 @@ export default function WorkspaceManager() {
   const closeSettingsOverlay = useWorkspaceStore((s) => s.closeSettingsOverlay)
   const openAutomationsOverlay = useWorkspaceStore((s) => s.openAutomationsOverlay)
   const closeAutomationsOverlay = useWorkspaceStore((s) => s.closeAutomationsOverlay)
+  // `automationsOverlay.open` now means "the Automations area is the active
+  // content region" (a destination, not a floating modal).
+  const automationsOpen = useWorkspaceStore((s) => s.automationsOverlay.open)
+  const automationsProjectPath = useWorkspaceStore((s) => s.automationsOverlay.projectPath)
+  const automationsRunTarget = useWorkspaceStore((s) => s.automationsOverlay.runTarget)
   const forgetFolder = useWorkspaceStore((s) => s.forgetFolder)
   const recordWorkspaceTerminalActivity = useWorkspaceStore((s) => s.recordWorkspaceTerminalActivity)
   const reconcileWorkspaceAgentLaunchFlags = useWorkspaceStore((s) => s.reconcileWorkspaceAgentLaunchFlags)
@@ -436,7 +445,7 @@ export default function WorkspaceManager() {
   // effect only fires an IPC call on an actual transition.
   const appliedTerminalVisibilityRef = useRef<Map<string, boolean>>(new Map())
   const collapsedStaleDetachedWindowsRef = useRef(false)
-  const workspaceActionsEnabled = activeWorkspace && !showNewWorkspacePanel
+  const workspaceActionsEnabled = activeWorkspace && !showNewWorkspacePanel && !automationsOpen
   const commandDispatcherRef = useRef(new RendererCommandDispatcher())
   // Per-window visit history backing mouse back/forward workspace navigation.
   // Transient shell state: a ref (not store state) because navigation must not
@@ -749,6 +758,14 @@ export default function WorkspaceManager() {
     setNotificationsOpen(false)
     setAccountOpen(false)
   }, [activeWorkspace?.folderPath, closeSettingsOverlay, openAutomationsOverlay])
+
+  // Automations and the new-workspace panel are mutually exclusive content
+  // regions. The rail button clears the panel directly; this also covers the
+  // deep-link path (a run notification opens the area via the store, which can't
+  // reach this local panel state), so an arriving deep-link always wins.
+  useEffect(() => {
+    if (automationsOpen) setShowNewWorkspacePanel(false)
+  }, [automationsOpen])
 
   const openFuturePlanWorkspace = useCallback((source: FuturePlanWorkspaceSource) => {
     setNewWorkspacePanelInitialState({
@@ -2192,6 +2209,7 @@ export default function WorkspaceManager() {
         terminalRecencyByWorkspaceId={terminalRecencyByWorkspaceId}
         onSelectWorkspace={(id) => {
           setShowNewWorkspacePanel(false)
+          closeAutomationsOverlay()
           setActiveWorkspaceForWindow(workspaceWindowId, id)
         }}
         onMoveWorkspaceToNewWindow={(id, placement) => void moveWorkspaceToNewWindow(id, placement)}
@@ -2202,6 +2220,7 @@ export default function WorkspaceManager() {
         onNewWorkspace={openNewWorkspacePanel}
         onNewWorkspaceInFolder={openNewWorkspacePanelForFolder}
         onOpenAutomations={automationsEnabled ? openAutomations : null}
+        automationsActive={automationsOpen}
         onNewChat={() => createNewChat()}
         onNewChatInFolder={(folderPath) => spawnNewChatForFolder(folderPath)}
         onNewChatTerminal={(folderPath) => pickNewChatTerminal(folderPath)}
@@ -2319,6 +2338,15 @@ export default function WorkspaceManager() {
                 initialState={newWorkspacePanelInitialState}
               />
             </React.Suspense>
+          ) : automationsOpen ? (
+            <React.Suspense fallback={<SuspenseFallback label="Loading automations" />}>
+              <AutomationsScreen
+                initialProjectPath={automationsProjectPath}
+                initialRunTarget={automationsRunTarget}
+                titleId="automations-screen-title"
+                onClose={closeAutomationsOverlay}
+              />
+            </React.Suspense>
           ) : (
             <>
               {visibleWorkspaces.length === 0 && <EmptyState onNew={openNewWorkspacePanel} />}
@@ -2356,7 +2384,6 @@ export default function WorkspaceManager() {
           )}
         </div>
         <SettingsOverlay />
-        <AutomationsOverlay />
         {/* T6 first-run payoff: supply the real app actions it needs. A CLI is
             "configured" when at least one catalog entry is confirmed installed;
             the run reuses createNewChat against the just-created workspace

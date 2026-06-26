@@ -89,9 +89,13 @@ type WorkspaceSidebarProps = {
   onForgetFolder: (folderPath: string) => void
   onNewWorkspace: () => void
   onNewWorkspaceInFolder: (folderPath: string) => void
-  // Opens the global Automations screen (an app-level route, not a workspace).
-  // Null when the automations module is disabled, which hides the entry point.
+  // Opens the global Automations screen (an app-level content-area destination,
+  // not a workspace). Null when the automations module is disabled, which hides
+  // the entry point.
   onOpenAutomations: (() => void) | null
+  // True when the Automations area is the active content region, so the nav
+  // entry renders selected (the destination you're currently on).
+  automationsActive: boolean
   onNewChat: () => void
   onNewChatInFolder: (folderPath: string) => void
   // New-chat spawn handlers wired to the shared SpawnAgentMenu picker. Each
@@ -382,6 +386,7 @@ export default function WorkspaceSidebar({
   onNewWorkspace,
   onNewWorkspaceInFolder,
   onOpenAutomations,
+  automationsActive,
   onNewChat,
   onNewChatInFolder,
   onNewChatTerminal,
@@ -1363,7 +1368,12 @@ export default function WorkspaceSidebar({
               <button
                 type="button"
                 onClick={onOpenAutomations}
-                className="flex h-[30px] w-full shrink-0 items-center justify-center rounded-md text-[color:var(--text-default)] transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]"
+                aria-current={automationsActive ? 'page' : undefined}
+                className={`flex h-[30px] w-full shrink-0 items-center justify-center rounded-md transition-colors ${
+                  automationsActive
+                    ? 'bg-[color:var(--accent-primary-soft)] text-[color:var(--text-strong)]'
+                    : 'text-[color:var(--text-default)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]'
+                }`}
                 aria-label="Automations"
               >
                 <AutomationsWorkspaceTypeIcon className="icon-xs pointer-events-none" />
@@ -1373,7 +1383,12 @@ export default function WorkspaceSidebar({
             <button
               type="button"
               onClick={onOpenAutomations}
-              className="flex h-[30px] w-full shrink-0 items-center gap-2 rounded-md px-3 text-[12px] font-medium text-[color:var(--text-default)] transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]"
+              aria-current={automationsActive ? 'page' : undefined}
+              className={`flex h-[30px] w-full shrink-0 items-center gap-2 rounded-md px-3 text-[12px] font-medium transition-colors ${
+                automationsActive
+                  ? 'bg-[color:var(--accent-primary-soft)] text-[color:var(--text-strong)]'
+                  : 'text-[color:var(--text-default)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]'
+              }`}
               aria-label="Automations"
             >
               <AutomationsWorkspaceTypeIcon className="icon-xs pointer-events-none shrink-0" />

@@ -958,8 +958,8 @@ export function migratePersistedWorkspaceState(
     current.appSettings = hydrated.appSettings
   }
   if (version < 62) {
-    // Automations is now a global app screen (AutomationsOverlay), not a
-    // workspace type. Drop any persisted automations workspaces: their only
+    // Automations is now a global app screen (a content-area destination), not
+    // a workspace type. Drop any persisted automations workspaces: their only
     // content was the locked control-center tab — every automation definition
     // and run history lives on disk under each project's
     // `.multi-code/automations/`, so nothing the user authored is lost. Window
