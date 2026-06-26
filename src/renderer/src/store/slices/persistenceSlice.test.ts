@@ -329,4 +329,29 @@ assert.equal(migratedArchitect.cliRestartNonce, 0)
 assert.equal(migratedArchitect.status, 'idle')
 assert.equal(migratedArchitect.streamBuffer, '')
 
+// v62: Automations became a global screen, not a workspace type. The migration
+// drops persisted automations workspaces (their definitions/run history live on
+// disk, untouched) while leaving every other workspace in place.
+const v61AutomationsState = {
+  workspaces: [
+    { id: 'ws-standard', mode: 'standard', folderPath: '/repo/app', agents: {} },
+    { id: 'ws-automations', mode: 'automations', folderPath: '/repo/app', agents: {} },
+    { id: 'ws-sprint', mode: 'sprintengine', folderPath: '/repo/app', agents: {} },
+  ],
+  activeWorkspaceId: 'ws-automations',
+}
+const migratedAutomationsDrop = migratePersistedWorkspaceState(v61AutomationsState, 61) as {
+  workspaces: Array<{ id: string; mode: string }>
+}
+assert.deepEqual(
+  migratedAutomationsDrop.workspaces.map((ws) => ws.id),
+  ['ws-standard', 'ws-sprint'],
+  'v62 drops automations workspaces and keeps the rest',
+)
+assert.equal(
+  migratedAutomationsDrop.workspaces.some((ws) => ws.mode === 'automations'),
+  false,
+  'no automations workspace survives the migration',
+)
+
 console.log('persistenceSlice.test.ts: ok')

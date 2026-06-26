@@ -3,6 +3,8 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useWorkspaceStore } from '../../store/workspaceStore'
 import { revealAutomationAgent } from '../../hooks/useAutomationRequests'
 import { basename } from '../../utils/paths'
+import { publishDiagnosticSync } from '../../utils/diagnostics'
+import { RUN_TARGET_KIND, encodeRunRef } from './runTarget'
 import type { AutomationDefinition } from '../../../../shared/automations/contracts'
 import { GhostButton, InlineNotice, PrimaryButton, Spinner, useConfirmDialog } from '../ui'
 import { AutomationsWorkspaceTypeIcon } from '../AppIcons'
@@ -17,17 +19,20 @@ type ProjectOption = {
   label: string
 }
 
-// Distinct folder-backed projects known to the app, derived from open
-// workspaces. The global Automations screen is project-scoped (automations live
-// in each project's `.multi-code/automations/`), so this drives the switcher.
-// Built from a primitive `\n`-joined key (a stable store subscription) rather
-// than a fresh array selector, which would resubscribe every render.
-function buildProjectOptions(folderKey: string): ProjectOption[] {
+// Distinct folder-backed projects for the switcher: the open workspaces' folders
+// (a primitive `\n`-joined key, a stable store subscription rather than a fresh
+// array selector) plus any `extra` folders that must be selectable even with no
+// open workspace — the deep-linked project and the current selection. The global
+// Automations screen is project-scoped (automations live in each project's
+// `.multi-code/automations/`), independent of which workspaces are open.
+function buildProjectOptions(folderKey: string, extras: Array<string | null>): ProjectOption[] {
   const seen = new Map<string, ProjectOption>()
-  for (const path of folderKey.split('\n')) {
-    if (!path || seen.has(path)) continue
+  const add = (path: string | null | undefined) => {
+    if (!path || seen.has(path)) return
     seen.set(path, { path, label: basename(path) || path })
   }
+  for (const path of folderKey.split('\n')) add(path)
+  for (const extra of extras) add(extra)
   return [...seen.values()].sort((a, b) => a.label.localeCompare(b.label))
 }
 
@@ -37,24 +42,35 @@ function buildProjectOptions(folderKey: string): ProjectOption[] {
 // a fresh standard workspace (the controller omits workspaceId).
 export default function AutomationsScreen({
   initialProjectPath,
+  initialRunTarget,
   titleId,
   onClose,
 }: {
   initialProjectPath: string | null
+  /** A run-notification deep-link: select this automation and focus the run. */
+  initialRunTarget?: { automationId: string; runId: string } | null
   titleId: string
   onClose: () => void
 }): JSX.Element {
   const folderKey = useWorkspaceStore((s) =>
     s.workspaces.map((w) => (!w.folderPath || w.folderMissing ? '' : w.folderPath)).join('\n'),
   )
-  const projects = useMemo(() => buildProjectOptions(folderKey), [folderKey])
   const setActiveWorkspace = useWorkspaceStore((s) => s.setActiveWorkspace)
   const dialog = useConfirmDialog()
 
   // Default the switcher to the requested project (the active workspace's
-  // folder at open time), falling back to the first known project.
+  // folder at open time, or a deep-link's project), falling back to the first
+  // open-workspace project.
   const [selectedProject, setSelectedProject] = useState<string | null>(
-    () => initialProjectPath ?? projects[0]?.path ?? null,
+    () => initialProjectPath ?? buildProjectOptions(folderKey, [])[0]?.path ?? null,
+  )
+
+  // The deep-linked and currently-selected projects stay selectable even when no
+  // workspace is open for them (a background run can fail in a project nothing is
+  // open for), so the switcher never strands the screen off the run's project.
+  const projects = useMemo(
+    () => buildProjectOptions(folderKey, [initialProjectPath, selectedProject]),
+    [folderKey, initialProjectPath, selectedProject],
   )
 
   // Keep the selection valid as projects come and go; never strand the screen on
@@ -72,6 +88,13 @@ export default function AutomationsScreen({
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [editor, setEditor] = useState<EditorState | null>(null)
   const [now, setNow] = useState(() => Date.now())
+  // A run-notification deep-link to apply once its definition has loaded.
+  const [pendingRunTarget, setPendingRunTarget] = useState(initialRunTarget ?? null)
+  const [focusRunId, setFocusRunId] = useState<string | null>(null)
+  // Bumped each time a target is applied so re-opening the same run re-fires the
+  // detail pane's scroll/highlight even though the run id is unchanged.
+  const [focusNonce, setFocusNonce] = useState(0)
+  const appliedRunTargetRef = useRef(initialRunTarget ?? null)
   const listRef = useRef<HTMLUListElement>(null)
 
   // A slow clock so "in 3h" / "overdue" stay honest without churning the list.
@@ -80,12 +103,34 @@ export default function AutomationsScreen({
     return () => window.clearInterval(id)
   }, [])
 
+  // A deep-link that arrives while the screen is already open (a new overlay
+  // open) re-targets: switch to the run's project and queue the target.
+  useEffect(() => {
+    const target = initialRunTarget ?? null
+    if (target === appliedRunTargetRef.current) return
+    appliedRunTargetRef.current = target
+    setPendingRunTarget(target)
+    if (target && initialProjectPath) setSelectedProject(initialProjectPath)
+  }, [initialRunTarget, initialProjectPath])
+
   // Reset the selection/editor when the project changes — definitions belong to
   // a single project store.
   useEffect(() => {
     setSelectedId(null)
     setEditor(null)
+    setFocusRunId(null)
   }, [selectedProject])
+
+  // Apply a queued run-target once its definition is present (the list loads
+  // async, so the target can arrive before the row exists).
+  useEffect(() => {
+    if (!pendingRunTarget || !definitions.some((d) => d.id === pendingRunTarget.automationId)) return
+    setEditor(null)
+    setSelectedId(pendingRunTarget.automationId)
+    setFocusRunId(pendingRunTarget.runId)
+    setFocusNonce((n) => n + 1)
+    setPendingRunTarget(null)
+  }, [pendingRunTarget, definitions])
 
   const ordered = useMemo(() => sortDefinitions(definitions, now), [definitions, now])
 
@@ -114,9 +159,22 @@ export default function AutomationsScreen({
     if (confirmed) await remove(def)
   }, [dialog, remove])
 
+  // Run now is the only run whose terminal status the screen observes (the IPC
+  // return). On a failed/blocked outcome raise a notification whose Open action
+  // deep-links back to this screen and the originating run; scheduled/background
+  // runs notify via the AutomationsRunSupervisor instead.
   const handleRunNow = useCallback(async (def: AutomationDefinition) => {
-    await runNow(def)
-  }, [runNow])
+    const run = await runNow(def)
+    if (!run || (run.status !== 'failed' && run.status !== 'blocked')) return
+    publishDiagnosticSync({
+      level: run.status === 'failed' ? 'error' : 'warning',
+      source: 'automations',
+      title: `Automation ${run.status}: ${def.name}`,
+      message: run.blockedReason || run.summary || `The run ended ${run.status}.`,
+      workspaceId: run.workspaceId,
+      navigationTarget: { kind: RUN_TARGET_KIND, ref: encodeRunRef(def.id, run.id, selectedProject) },
+    })
+  }, [runNow, selectedProject])
 
   const onListKeyDown = useCallback((event: React.KeyboardEvent) => {
     if (isEditableTarget(event.target) || ordered.length === 0) return
@@ -225,7 +283,7 @@ export default function AutomationsScreen({
             selectedId={editor ? null : selectedId}
             busyId={busyId}
             now={now}
-            onSelect={(id) => { setSelectedId(id); setEditor(null) }}
+            onSelect={(id) => { setSelectedId(id); setEditor(null); setFocusRunId(null) }}
             onKeyDown={onListKeyDown}
             onRunNow={handleRunNow}
             onToggleStatus={toggleStatus}
@@ -248,6 +306,8 @@ export default function AutomationsScreen({
                 definition={selected}
                 workspaceRoot={selectedProject ?? ''}
                 now={now}
+                focusRunId={selected.id === selectedId ? focusRunId : null}
+                focusNonce={focusNonce}
                 onOpenAgent={(wsId, agentId) => {
                   // Launched-agent runs land in a real workspace; reveal it and
                   // dismiss the screen so the user arrives on the agent.

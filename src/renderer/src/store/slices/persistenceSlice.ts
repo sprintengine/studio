@@ -54,7 +54,7 @@ import { clearSprintEngineAgentLaunchState, mapMigrationWorkspaces } from './nor
 
 export const WORKSPACE_STORAGE_KEY = 'multicode-workspaces'
 export const APP_SETTINGS_STORAGE_KEY = 'multicode-app-settings'
-export const WORKSPACE_STORE_VERSION = 61
+export const WORKSPACE_STORE_VERSION = 62
 export const PRIMARY_WORKSPACE_WINDOW_ID: WorkspaceWindowId = 'primary'
 const LEGACY_WORKSPACE_STORAGE_KEY = ['free', 'ai', 'ide', 'workspaces'].join('-')
 
@@ -956,6 +956,18 @@ export function migratePersistedWorkspaceState(
     )
     current.workspaces = hydrated.workspaces
     current.appSettings = hydrated.appSettings
+  }
+  if (version < 62) {
+    // Automations is now a global app screen (AutomationsOverlay), not a
+    // workspace type. Drop any persisted automations workspaces: their only
+    // content was the locked control-center tab — every automation definition
+    // and run history lives on disk under each project's
+    // `.multi-code/automations/`, so nothing the user authored is lost. Window
+    // membership and the active-workspace pointer are reconciled against the
+    // surviving workspaces by normalizeWorkspaceWindows during merge.
+    migrationState.workspaces = (migrationState.workspaces ?? []).filter(
+      (ws) => ws.mode !== 'automations',
+    )
   }
 
   return state as never

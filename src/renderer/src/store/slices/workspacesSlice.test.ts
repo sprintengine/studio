@@ -2,8 +2,6 @@ import assert from 'node:assert/strict'
 
 import type { GuidedBriefRuntimeState, LayoutTemplate, Workspace, WorkspaceWindowState } from '../../types/workspace'
 import { createGuidedBriefTemplate } from '../../modules/sprint-engine-workspace-types'
-import { createAutomationsTemplate } from '../../modules/automations-workspace-types'
-import { resolveAutomationsWorkspaceId } from '../../components/automations/runTarget'
 import { getEditorBuffer } from '../../utils/editorBuffers'
 import { createInitialSprintEngineState } from '../../utils/sprintengine'
 import { useWorkspaceStore } from '../workspaceStore'
@@ -334,50 +332,6 @@ assert.equal(state.workspaces.find((workspace) => workspace.id === switchboardId
 assert.equal(
   state.appSettings.recentWorkspaceFolders.some((folder) => folder.includes('switchboard')),
   false,
-)
-
-// --- Automations control center: notification Open creates then reuses one
-// workspace per project (T13 C12). The source-'automations' Open resolver
-// dedupes by `mode === 'automations'` + folder, so addWorkspace MUST persist the
-// explicit automations mode. If it drops to 'standard', the first Open's
-// workspace is invisible to the resolver and every later Open spawns a duplicate
-// control center. This exercises the real addWorkspace + resolver wiring. -----
-const automationsFolder = '/Users/example/automations-project'
-let automationsOpenCreateCount = 0
-const openAutomationsRun = (folderPath: string): string =>
-  resolveAutomationsWorkspaceId({
-    folderPath,
-    fallbackWorkspaceId: 'unused-fallback',
-    workspaces: useWorkspaceStore.getState().workspaces,
-    createAutomationsWorkspace: (folder) => {
-      automationsOpenCreateCount += 1
-      return useWorkspaceStore.getState().addWorkspace(createAutomationsTemplate(), {
-        name: 'Automations',
-        folderPath: folder,
-        mode: 'automations',
-      })
-    },
-  })
-
-// First Open: nothing for the project is open, so it creates the control center.
-const firstAutomationsOpenId = openAutomationsRun(automationsFolder)
-state = useWorkspaceStore.getState()
-assert.equal(
-  state.workspaces.find((workspace) => workspace.id === firstAutomationsOpenId)?.mode,
-  'automations',
-  'addWorkspace must persist the explicit automations mode, not drop it to standard',
-)
-assert.equal(automationsOpenCreateCount, 1)
-
-// Second Open for the same project reuses that workspace — no duplicate — and a
-// trailing slash still matches (folder-key normalized).
-const reusedAutomationsOpenId = openAutomationsRun(`${automationsFolder}/`)
-state = useWorkspaceStore.getState()
-assert.equal(reusedAutomationsOpenId, firstAutomationsOpenId)
-assert.equal(automationsOpenCreateCount, 1)
-assert.equal(
-  state.workspaces.filter((workspace) => workspace.mode === 'automations').length,
-  1,
 )
 
 const guidedBriefState: GuidedBriefRuntimeState = {

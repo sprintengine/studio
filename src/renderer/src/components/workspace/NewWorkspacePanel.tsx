@@ -90,7 +90,6 @@ import {
   SprintEnginePlanSourcedError,
   buildSprintEngineEffectiveSpawnAtStartRoles,
   buildSprintEngineExistingTeamCreation,
-  buildAutomationsCreation,
   buildStandardCreation,
   buildSwitchboardCreation,
   runGuidedBriefScaffold,
@@ -1071,8 +1070,6 @@ export default function NewWorkspacePanel({
     if (next === 'standard' && !nameTouched) setName(basename(folderPath ?? '') || 'workspace')
     if (next === 'switchboard' && !nameTouched)
       setName(toTitleName(basename(folderPath ?? '')) || 'Switchboard')
-    if (next === 'automations' && !nameTouched)
-      setName(toTitleName(basename(folderPath ?? '')) || 'Automations')
     if (next === 'multiloop')
       setMlName(toTitleName(basename(folderPath ?? '')) || 'Product Loop')
     if (next === 'guided-brief' && !nameTouched)
@@ -1563,19 +1560,6 @@ export default function NewWorkspacePanel({
       try {
         if (await persistAdvancedSetup(folderPath)) return
         onCreate(buildSwitchboardCreation({ name, folderPath }))
-        onClose()
-      } finally {
-        setIsCreating(false)
-      }
-      return
-    }
-
-    if (mode === 'automations') {
-      if (!folderPath) return
-      setIsCreating(true)
-      try {
-        if (await persistAdvancedSetup(folderPath)) return
-        onCreate(buildAutomationsCreation({ name, folderPath }))
         onClose()
       } finally {
         setIsCreating(false)
@@ -2426,10 +2410,6 @@ function ModeStep({
   const modeModels = useMemo<ModeCardModel[]>(() => {
     const contributed = getRendererHost()
       .getWorkspaceTypes((moduleId) => selectModuleEnabled(moduleOverrides, moduleId))
-      // Types whose primary surface is a global screen (Automations) are
-      // registered for supervisors/deep-links but never offered as a workspace
-      // to create.
-      .filter((definition) => !definition.hiddenFromPicker)
       .map<ModeCardModel>((definition) => ({
         id: definition.id,
         label: definition.label,
@@ -3835,8 +3815,6 @@ function createLabelFor(mode: CreationMode, isCreating: boolean, hasExistingTeam
       return 'Create Sprint Engine'
     case 'switchboard':
       return 'Create Switchboard'
-    case 'automations':
-      return 'Create Automations'
     case 'multiloop':
       return 'Create Multiloop'
     case 'guided-brief':

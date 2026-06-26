@@ -169,8 +169,12 @@ export interface WorkspaceStore extends PluginsSlice, CliAvailabilitySlice {
   automationsOverlay: {
     open: boolean
     projectPath: string | null
+    runTarget: { automationId: string; runId: string } | null
   }
-  openAutomationsOverlay: (opts?: { projectPath?: string | null }) => void
+  openAutomationsOverlay: (opts?: {
+    projectPath?: string | null
+    runTarget?: { automationId: string; runId: string } | null
+  }) => void
   closeAutomationsOverlay: () => void
   runSummaryOverlay: {
     open: boolean
@@ -1027,7 +1031,12 @@ async function attemptBackupRecovery(): Promise<void> {
     hydrationContext.persistedWorkspaceCount = envelope.state.workspaces.length
 
     useWorkspaceStore.setState((current) => {
-      const recoveredWorkspaces = envelope!.state!.workspaces as WorkspaceStore['workspaces']
+      // This backup-recovery path reads the raw registry without re-running the
+      // version migrate ladder, so apply the v62 automations-workspace drop here
+      // too (Automations is a global screen now, not a workspace type).
+      const recoveredWorkspaces = (envelope!.state!.workspaces as WorkspaceStore['workspaces']).filter(
+        (ws) => ws.mode !== 'automations',
+      )
       const recoveredAppSettings =
         legacyAppSettings !== undefined
           ? normalizeAppSettings(legacyAppSettings, recoveredWorkspaces as Workspace[])

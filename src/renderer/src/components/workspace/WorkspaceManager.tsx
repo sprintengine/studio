@@ -63,6 +63,11 @@ import { useConfirmDialog } from '../ui/ConfirmDialog'
 import { type NewWorkspacePanelInitialState } from './NewWorkspacePanel'
 import MultiloopStateSynchronizer from './MultiloopStateSynchronizer'
 import SprintEngineProjectionSupervisor from './SprintEngineProjectionSupervisor'
+// Always-on observer of background automation run events (raises run
+// notifications). Automations is no longer a workspace type, so the shell mounts
+// its global supervisor directly, gated on the automations module + primary
+// window — the same role the workspace-type `supervisors` list used to play.
+import AutomationsRunSupervisor from '../automations/AutomationsRunSupervisor'
 import WorkspaceLayout from './WorkspaceLayout'
 import WorkspaceSidebar from './WorkspaceSidebar'
 import SprintEnginesAside from './SprintEnginesAside'
@@ -215,6 +220,7 @@ export default function WorkspaceManager() {
   const multiloopEnabled = useWorkspaceStore((s) => selectModuleEnabled(s.appSettings.modules, 'multiloop'))
   const sprintEngineEnabled = useWorkspaceStore((s) => selectModuleEnabled(s.appSettings.modules, 'sprint-engine'))
   const mobileRelayEnabled = useWorkspaceStore((s) => selectModuleEnabled(s.appSettings.modules, 'mobile-relay'))
+  const automationsEnabled = useWorkspaceStore((s) => selectModuleEnabled(s.appSettings.modules, 'automations'))
   const voiceDictationEnabled = useWorkspaceStore((s) => selectModuleEnabled(s.appSettings.modules, 'voice-dictation'))
   const voiceDictation = useVoiceDictation()
   const onboardingStep = useWorkspaceStore((s) => s.appSettings.onboardingStep)
@@ -499,6 +505,8 @@ export default function WorkspaceManager() {
     // The Sprint Engines aside is app-level chrome, so its toggle tracks the
     // sprint-engine module rather than any active workspace.
     if (selectModuleEnabled(moduleEnablement, 'sprint-engine')) context.sprintEngineEnabled = true
+    // The global Automations screen needs the automations module (its store/IPC).
+    if (selectModuleEnabled(moduleEnablement, 'automations')) context.automationsEnabled = true
     if (activeCommandScopes.includes('panel:sprintengine')) {
       context.sprintengineWorkspace = true
       const sprintEngineState = commandWorkspace?.sprintEngineState ?? null
@@ -1690,6 +1698,7 @@ export default function WorkspaceManager() {
       return true
     }
     if (commandId === 'app.automations.open') {
+      if (!automationsEnabled) return false
       openAutomations()
       return true
     }
@@ -1860,6 +1869,7 @@ export default function WorkspaceManager() {
     openSettings,
     openNewWorkspacePanel,
     openAutomations,
+    automationsEnabled,
     sidebarCollapsed,
     setSidebarCollapsed,
     sprintEngineEnabled,
@@ -2161,6 +2171,7 @@ export default function WorkspaceManager() {
           <Component />
         </React.Suspense>
       ))}
+      {automationsEnabled && ownsGlobalSupervisors ? <AutomationsRunSupervisor /> : null}
       {multiloopEnabled && visibleWorkspaces.map((workspace) => (
         workspace.id === windowActiveWorkspaceId && (workspace.mode === 'multiloop' || workspace.multiloopContext)
           ? <MultiloopStateSynchronizer key={workspace.id} workspaceId={workspace.id} />
@@ -2208,7 +2219,7 @@ export default function WorkspaceManager() {
         onForgetFolder={handleForgetFolder}
         onNewWorkspace={openNewWorkspacePanel}
         onNewWorkspaceInFolder={openNewWorkspacePanelForFolder}
-        onOpenAutomations={openAutomations}
+        onOpenAutomations={automationsEnabled ? openAutomations : null}
         onNewChat={() => createNewChat()}
         onNewChatInFolder={(folderPath) => spawnNewChatForFolder(folderPath)}
         onNewChatTerminal={(folderPath) => pickNewChatTerminal(folderPath)}

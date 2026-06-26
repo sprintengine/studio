@@ -54,9 +54,12 @@ export type SettingsOverlayState = {
 // route — NOT a workspace — so it lives in shell state rather than the workspace
 // registry. `projectPath` is the folder whose automations the screen shows; null
 // means "default to the active workspace's project" (resolved at open time).
+// `runTarget` is set when a run notification's Open deep-links to a specific run:
+// the screen selects that automation and scrolls/focuses the run.
 export type AutomationsOverlayState = {
   open: boolean
   projectPath: string | null
+  runTarget: { automationId: string; runId: string } | null
 }
 
 export type RunSummaryOverlayState = {
@@ -899,7 +902,10 @@ export interface SettingsSliceActions {
   setOpenFilesInExternalWindow: (enabled: boolean) => void
   openSettingsOverlay: (opts?: { initialTab?: string | null; checkForUpdates?: boolean }) => void
   closeSettingsOverlay: () => void
-  openAutomationsOverlay: (opts?: { projectPath?: string | null }) => void
+  openAutomationsOverlay: (opts?: {
+    projectPath?: string | null
+    runTarget?: { automationId: string; runId: string } | null
+  }) => void
   closeAutomationsOverlay: () => void
   openRunSummaryOverlay: (workspaceId: string) => void
   closeRunSummaryOverlay: () => void
@@ -983,7 +989,7 @@ export function createSettingsSlice(set: SettingsSliceSet): SettingsSlice {
   return {
     appSettings: defaultAppSettings(),
     settingsOverlay: { open: false, initialTab: null, checkForUpdatesRequestId: null },
-    automationsOverlay: { open: false, projectPath: null },
+    automationsOverlay: { open: false, projectPath: null, runTarget: null },
     runSummaryOverlay: { open: false, workspaceId: null },
     sidebarCollapsed: false,
     sidebarWidth: SIDEBAR_DEFAULT_WIDTH,
@@ -1035,12 +1041,14 @@ export function createSettingsSlice(set: SettingsSliceSet): SettingsSlice {
       set((state) => {
         state.automationsOverlay.open = true
         state.automationsOverlay.projectPath = opts?.projectPath ?? null
+        state.automationsOverlay.runTarget = opts?.runTarget ?? null
       }),
 
     closeAutomationsOverlay: () =>
       set((state) => {
         state.automationsOverlay.open = false
         state.automationsOverlay.projectPath = null
+        state.automationsOverlay.runTarget = null
       }),
 
     openRunSummaryOverlay: (workspaceId) =>

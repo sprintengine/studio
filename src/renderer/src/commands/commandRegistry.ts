@@ -47,6 +47,7 @@ export const COMMAND_REGISTRY = [
     title: 'Open Automations',
     category: 'workspace',
     scopes: ['global'],
+    availability: ['automationsEnabled'],
     handlerPath: { kind: 'workspace-manager', handler: 'openAutomations()' },
   }),
   command({

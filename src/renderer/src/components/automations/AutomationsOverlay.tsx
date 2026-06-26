@@ -32,24 +32,28 @@ export default function AutomationsOverlay() {
   const exitTimerRef = useRef<number | null>(null)
   const enterFrameRef = useRef<number | null>(null)
   const [lifecycle, setLifecycle] = useState<Lifecycle>('closed')
-  // Latched at open so the screen keeps its project even though the store clears
-  // projectPath on close (during the exit animation the surface is still shown).
+  // Latched at open so the screen keeps its project / run target even though the
+  // store clears them on close (during the exit animation the surface is still
+  // shown).
   const [projectPath, setProjectPath] = useState<string | null>(null)
+  const [runTarget, setRunTarget] = useState<{ automationId: string; runId: string } | null>(null)
   const titleId = useId()
 
   useEffect(() => {
     if (overlay.open) {
+      // Sync the latch on every open (including a deep-link that arrives while
+      // the screen is already open, which re-targets project + run).
+      setProjectPath(overlay.projectPath)
+      setRunTarget(overlay.runTarget)
       if (lifecycle === 'closed') {
         const active = document.activeElement
         restoreFocusRef.current = active instanceof HTMLElement ? active : null
-        setProjectPath(overlay.projectPath)
         setLifecycle('entering')
       } else if (lifecycle === 'closing') {
         if (exitTimerRef.current !== null) {
           window.clearTimeout(exitTimerRef.current)
           exitTimerRef.current = null
         }
-        setProjectPath(overlay.projectPath)
         setLifecycle('open')
       }
       return
@@ -57,7 +61,7 @@ export default function AutomationsOverlay() {
     if (!overlay.open && (lifecycle === 'open' || lifecycle === 'entering')) {
       setLifecycle('closing')
     }
-  }, [overlay.open, overlay.projectPath, lifecycle])
+  }, [overlay.open, overlay.projectPath, overlay.runTarget, lifecycle])
 
   useEffect(() => {
     if (lifecycle !== 'entering') return undefined
@@ -176,6 +180,7 @@ export default function AutomationsOverlay() {
         <Suspense fallback={<SuspenseFallback label="Loading automations" />}>
           <AutomationsScreen
             initialProjectPath={projectPath}
+            initialRunTarget={runTarget}
             titleId={titleId}
             onClose={closeAutomationsOverlay}
           />

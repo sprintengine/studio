@@ -19,7 +19,7 @@ export type StepId =
 // workspace type points at one of these via its creationStepsId; 'standard' is
 // the shell-owned default and the fallback for any mode whose registry entry is
 // missing or names an unknown flow.
-export type CreationStepsId = 'standard' | 'switchboard' | 'automations' | 'multiloop' | 'sprintengine' | 'guided-brief'
+export type CreationStepsId = 'standard' | 'switchboard' | 'multiloop' | 'sprintengine' | 'guided-brief'
 
 // Default flows keep only the steps a person needs to reach the thing they came
 // to make. The developer-configuration steps — 'mcp-servers', 'skill-packs', and
@@ -35,7 +35,6 @@ export type CreationStepsId = 'standard' | 'switchboard' | 'automations' | 'mult
 export const STEPS_BY_MODE: Record<CreationStepsId, StepId[]> = {
   standard: ['workspace', 'mode', 'standard-layout'],
   switchboard: ['workspace', 'mode'],
-  automations: ['workspace', 'mode'],
   multiloop: ['workspace', 'mode', 'multiloop-goal'],
   sprintengine: ['workspace', 'mode', 'sprintengine-team', 'sprintengine-roster'],
   'guided-brief': ['workspace', 'mode', 'guided-idea'],
@@ -57,8 +56,8 @@ export function stepsForMode(mode: CreationMode): StepId[] {
 
 // Whether the optional "Advanced setup" disclosure (MCP servers / skill packs /
 // knowledge) should ride the given step. It rides the flow's final step, but
-// never the 'mode' pivot: the zero-config quick flows (switchboard, automations)
-// end at 'mode', and hanging developer config under the mode-selection cards
+// never the 'mode' pivot: the zero-config quick flow (switchboard) ends at
+// 'mode', and hanging developer config under the mode-selection cards
 // puts it on a decision screen. Those flows defer the config to Settings, so the
 // disclosure simply does not appear in-wizard for them.
 export function isAdvancedSetupStep(steps: StepId[], step: StepId): boolean {

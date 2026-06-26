@@ -23,10 +23,6 @@ function modeModelsFor(overrides: ModuleEnablementOverrides): ModeCardModel[] {
     STANDARD_MODE_MODEL,
     ...getRendererHost()
       .getWorkspaceTypes((moduleId) => selectModuleEnabled(overrides, moduleId))
-      // Automations is registered but hidden from the picker (it opens as a
-      // global screen, not a workspace), so the panel filters it out — mirror
-      // that here for real-path coverage.
-      .filter((definition) => !definition.hiddenFromPicker)
       .map((definition) => ({
         id: definition.id,
         label: definition.label,
@@ -36,13 +32,14 @@ function modeModelsFor(overrides: ModuleEnablementOverrides): ModeCardModel[] {
   ]
 }
 
-// AC1: with all modules enabled the picker shows the visible modes in order.
-// Automations is registered but hidden from the picker, so it is absent here.
+// AC1: with all modules enabled the picker shows the registered modes in order.
+// Automations is no longer a workspace type (it is a global screen), so it is
+// not registered and never appears here.
 const allEnabled = modeModelsFor({})
 assert.deepEqual(
   allEnabled.map((model) => model.id),
   ['standard', 'switchboard', 'sprintengine', 'multiloop', 'guided-brief'],
-  'mode picker lists standard then the contributed (non-hidden) types in pickerOrder',
+  'mode picker lists standard then the contributed types in pickerOrder',
 )
 
 // AC1: icon identity, not just "an svg exists". Each card must render its mode's
@@ -87,8 +84,8 @@ assert.deepEqual(multiloopOff, ['standard', 'switchboard', 'sprintengine', 'guid
 const switchboardOff = modeModelsFor({ switchboard: false }).map((model) => model.id)
 assert.deepEqual(switchboardOff, ['standard', 'sprintengine', 'multiloop', 'guided-brief'], 'disabling switchboard hides only switchboard')
 
-// Automations is hidden from the picker regardless of its module flag (it opens
-// as a global screen now), so toggling the module never changes the card list.
+// Automations registers no workspace type (it opens as a global screen now), so
+// toggling its module never changes the card list.
 const automationsOff = modeModelsFor({ automations: false }).map((model) => model.id)
 assert.deepEqual(automationsOff, ['standard', 'switchboard', 'sprintengine', 'multiloop', 'guided-brief'], 'automations is screen-only and absent from the picker either way')
 

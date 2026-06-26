@@ -632,15 +632,12 @@ function modelHasSprintEngineBoard(model: Model): boolean {
 
 // Layouts whose primary tabset is a fixed single-surface control panel that
 // agent terminals must dock beside (to the right), never stack into: the Sprint
-// Engine board and the Automations control center.
+// Engine board.
 function modelDocksAgentsRight(model: Model): boolean {
   let found = false
   model.visitNodes((node) => {
     if (found) return
-    if (
-      node instanceof TabNode
-      && (node.getComponent() === 'sprintengine' || node.getComponent() === 'automations-control-center')
-    ) {
+    if (node instanceof TabNode && node.getComponent() === 'sprintengine') {
       found = true
     }
   })
