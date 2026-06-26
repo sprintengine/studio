@@ -4,6 +4,7 @@ import type {
   AgentCli,
   AgentExecutionMode,
   AgentSessionIdentity,
+  AgentState,
   SessionActivity,
   TerminalKind,
   TerminalPathStyle,
@@ -63,6 +64,10 @@ export type TerminalSession = {
   suspending?: boolean
   idleTimer?: ReturnType<typeof setTimeout>
   activity: SessionActivity
+  // Authoritative phase from the agent's lifecycle hooks, when the session's CLI
+  // reports it. Layered on top of `activity` (which stays the inference floor);
+  // absent until the first hook frame arrives. See agent-state.ts.
+  agentState?: AgentState
   outputChunks: string[]
   outputChunkBytes: number[]
   outputChunkStart: number
@@ -340,6 +345,7 @@ export function getTerminalSnapshot(session: TerminalSession): TerminalSessionSn
     lastInputAt: session.lastInputAt,
     lastVisibleAt: session.lastVisibleAt,
     activity: session.activity,
+    agentState: session.agentState,
     exitedAt: session.exitedAt,
     outputBufferLength: session.outputLength,
     retainedOutputBytes: session.outputBytes,

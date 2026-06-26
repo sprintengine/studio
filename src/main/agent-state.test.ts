@@ -12,6 +12,7 @@ import {
   mapHookEventToPhase,
   mergeAgentStateHooks,
   parseAgentStateFrame,
+  selectAgentStateTarget,
   uninstallAgentStateHook,
 } from './agent-state'
 
@@ -81,6 +82,34 @@ async function run(): Promise<void> {
   assert.equal(parseAgentStateFrame({ type: 'agent_state', agentId: 'a1', phase: 'nope' }, 1), null)
   assert.equal(parseAgentStateFrame('not-json-object', 1), null)
   assert.equal(parseAgentStateFrame(null, 1), null)
+
+  // --- frame → session resolution ----------------------------------------
+  type Sess = { id: string; agentId?: string; executionId?: string; sessionId?: string; workspaceId?: string; startedAt: number }
+  const cand = (s: Sess) => ({ value: s, agentId: s.agentId, executionId: s.executionId, sessionId: s.sessionId, workspaceId: s.workspaceId, startedAt: s.startedAt })
+  // No match → undefined.
+  assert.equal(selectAgentStateTarget([cand({ id: 'x', agentId: 'a', startedAt: 1 })], { agentId: 'zzz', workspaceId: null }), undefined)
+  // Match by agentId.
+  assert.equal(
+    selectAgentStateTarget([cand({ id: 'x', agentId: 'a', startedAt: 1 })], { agentId: 'a', workspaceId: null })?.id,
+    'x'
+  )
+  // Match by executionId and by sessionId.
+  assert.equal(
+    selectAgentStateTarget([cand({ id: 'x', executionId: 'exec1', startedAt: 1 })], { agentId: 'exec1', workspaceId: null })?.id,
+    'x'
+  )
+  assert.equal(
+    selectAgentStateTarget([cand({ id: 'x', sessionId: 'sess1', startedAt: 1 })], { agentId: 'sess1', workspaceId: null })?.id,
+    'x'
+  )
+  // Two live sessions share an agent id: workspace scoping wins.
+  const dupA = cand({ id: 'old', agentId: 'a', workspaceId: 'w1', startedAt: 1 })
+  const dupB = cand({ id: 'new', agentId: 'a', workspaceId: 'w2', startedAt: 2 })
+  assert.equal(selectAgentStateTarget([dupA, dupB], { agentId: 'a', workspaceId: 'w1' })?.id, 'old')
+  // No workspace on the frame → most recently started wins.
+  assert.equal(selectAgentStateTarget([dupA, dupB], { agentId: 'a', workspaceId: null })?.id, 'new')
+  // Workspace given but matches none → fall back to most recent across all.
+  assert.equal(selectAgentStateTarget([dupA, dupB], { agentId: 'a', workspaceId: 'nope' })?.id, 'new')
 
   // --- command builder ----------------------------------------------------
   const cmd = buildAgentStateHookCommand('/tmp/multi code/agent.sock')

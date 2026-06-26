@@ -157,6 +157,43 @@ export function parseAgentStateFrame(raw: unknown, now: number): AgentStateFrame
 }
 
 // =============================================================================
+// Frame → session resolution (pure; tested independently of the runtime)
+//
+// The reporter frame carries MULTICODE_AGENT_ID — for an interactively-launched
+// agent that equals the session's agentId; we also match the execution and PTY
+// session ids so resolution is robust to launch paths that key identity
+// differently. When more than one live session matches the same id (e.g. a
+// relaunch reusing it), prefer the one in the reported workspace, then the most
+// recently started.
+// =============================================================================
+
+export type AgentStateCandidate<T> = {
+  value: T
+  agentId?: string
+  executionId?: string
+  sessionId?: string
+  workspaceId?: string
+  startedAt: number
+}
+
+function candidateMatchesAgent<T>(candidate: AgentStateCandidate<T>, agentId: string): boolean {
+  return candidate.agentId === agentId || candidate.executionId === agentId || candidate.sessionId === agentId
+}
+
+export function selectAgentStateTarget<T>(
+  candidates: ReadonlyArray<AgentStateCandidate<T>>,
+  frame: { agentId: string; workspaceId: string | null }
+): T | undefined {
+  const matches = candidates.filter((candidate) => candidateMatchesAgent(candidate, frame.agentId))
+  if (matches.length <= 1) return matches[0]?.value
+  const scoped = frame.workspaceId
+    ? matches.filter((candidate) => candidate.workspaceId === frame.workspaceId)
+    : matches
+  const pool = scoped.length > 0 ? scoped : matches
+  return pool.reduce((latest, candidate) => (candidate.startedAt > latest.startedAt ? candidate : latest)).value
+}
+
+// =============================================================================
 // settings.local.json merge / unmerge (idempotent, tagged)
 //
 // Mirrors the proven pattern in memory-activity.ts: preserve every hook the user

@@ -16,6 +16,7 @@ import type {
   LiveAgentExecution,
 } from '../shared/agent-runtime'
 import { createAgentStreamWatcher } from './agent-stream-watcher'
+import { deriveActivityFromPhase, selectAgentStateTarget, type AgentStateFrame } from './agent-state'
 import type { TerminalSpawnPayload } from './ipc/terminal-ipc'
 import {
   cleanupTerminalStartupScript,
@@ -96,6 +97,12 @@ type TerminalRuntimeOptions = {
   // real skill. Best-effort: the caller swallows failures and falls back to the
   // always-present inline directive.
   ensureBuiltinSkillInstalled?(workspaceRoot: string, skillId: string): Promise<void>
+  // Installs the authoritative-agent-state reporter hook into the workspace
+  // before a Claude Code agent launches, so the agent's lifecycle hooks report
+  // its true phase over the agent-state socket. Strictly best-effort: the
+  // implementation swallows its own failures, so awaiting it never blocks or
+  // fails a launch. Absent in tests / when the feature is unwired (no-op).
+  prepareAgentStateHook?(workspaceRoot: string): Promise<void>
 }
 
 type TerminalIpcHandlers = {
@@ -126,6 +133,9 @@ type TerminalRuntime = {
     descriptor: AgentSpawnDescriptor
     mcpSettings?: McpSettings
   }): Promise<TerminalSpawnResult>
+  // Applies an authoritative agent-state frame (from the lifecycle-hook reporter
+  // socket) to the matching live session. Validated upstream by the service.
+  ingestAgentStateFrame(frame: AgentStateFrame): void
 }
 
 let requireAuthenticatedUser = (_message: string): void => {}
@@ -139,6 +149,7 @@ let syncMcpConfig: TerminalRuntimeOptions['syncMcpConfig']
 let releaseManagedSprintEngineRun: TerminalRuntimeOptions['releaseManagedSprintEngineRun']
 let callManagedSprintEngineTool: TerminalRuntimeOptions['callManagedSprintEngineTool']
 let ensureBuiltinSkillInstalled: TerminalRuntimeOptions['ensureBuiltinSkillInstalled']
+let prepareAgentStateHook: TerminalRuntimeOptions['prepareAgentStateHook']
 const sprintEngineMcpRunRefCounts = new Map<string, number>()
 const sprintEngineMcpWorkspaceRefCounts = new Map<string, number>()
 const pendingSprintEngineMcpRunReleases = new Set<Promise<void>>()
@@ -231,6 +242,7 @@ export function createTerminalRuntime(options: TerminalRuntimeOptions): Terminal
   releaseManagedSprintEngineRun = options.releaseManagedSprintEngineRun
   callManagedSprintEngineTool = options.callManagedSprintEngineTool
   ensureBuiltinSkillInstalled = options.ensureBuiltinSkillInstalled
+  prepareAgentStateHook = options.prepareAgentStateHook
   sprintEngineMcpRunRefCounts.clear()
   sprintEngineMcpWorkspaceRefCounts.clear()
   pendingSprintEngineMcpRunReleases.clear()
@@ -250,6 +262,7 @@ export function createTerminalRuntime(options: TerminalRuntimeOptions): Terminal
     registerAgentSessionExitListener,
     killAgentSession: killAgentSessionByExecutionId,
     spawnAgentSession: spawnAgentSessionFromDescriptor,
+    ingestAgentStateFrame,
     ipcHandlers: {
       spawnTerminal: spawnTerminalFromIpc,
       writeTerminal: writeTerminalInput,
@@ -821,6 +834,43 @@ function setTerminalActivity(
     broadcastTerminalSessionsChanged()
   }
   return true
+}
+
+// Disposed sessions are excluded here; the alive check happens in the caller so
+// a late frame for a process that has exited is dropped. Matching + workspace
+// disambiguation + most-recent tie-break live in the pure `selectAgentStateTarget`.
+function resolveSessionForAgentStateFrame(frame: AgentStateFrame): TerminalSession | undefined {
+  const candidates = [...terminals.values()]
+    .filter((session) => !session.isDisposed && session.kind === 'agent')
+    .map((session) => ({
+      value: session,
+      agentId: session.agentId,
+      executionId: session.agentSession?.executionId,
+      sessionId: session.sessionId,
+      workspaceId: session.workspaceId,
+      startedAt: session.startedAt,
+    }))
+  return selectAgentStateTarget(candidates, frame)
+}
+
+function ingestAgentStateFrame(frame: AgentStateFrame): void {
+  const session = resolveSessionForAgentStateFrame(frame)
+  if (!session || !isTerminalProcessAlive(session)) return
+
+  // A stale frame (older than the phase we already recorded) is ignored so
+  // out-of-order socket delivery can't roll the phase backward.
+  if (session.agentState && session.agentState.since > frame.ts) return
+
+  session.agentState = { phase: frame.phase, since: frame.ts, source: 'hook' }
+
+  // Bridge to the legacy activity field so existing consumers (sidebar bolding,
+  // reaping, diagnostics) reflect the authoritative phase. Suppress the
+  // transition's own broadcast and emit once below, so a phase change that does
+  // not change the coarse activity (e.g. thinking → tool_use) still propagates.
+  const derived = deriveActivityFromPhase(frame.phase, frame.ts)
+  if (derived) setTerminalActivity(session, derived, { broadcast: false })
+
+  if (terminals.get(session.sessionId) === session) broadcastTerminalSessionsChanged()
 }
 
 function retainFailedTerminalSession(input: {
@@ -1808,6 +1858,14 @@ async function spawnTerminalFromIpc(
           sprintEngineMcpEnv,
           debugMode
         )
+      // Install the authoritative-agent-state reporter into the workspace before
+      // launching a Claude Code agent, so its lifecycle hooks report phase the
+      // moment it starts. Awaited so the hooks exist when the CLI reads its
+      // settings; best-effort inside (never throws), so it cannot fail a launch.
+      if (!shellOnly && cli === 'claude-code') {
+        await prepareAgentStateHook?.(launchCwd ?? workingDirectory)
+      }
+
       const initialSize = getTerminalSize(cols, rows)
       const termProcess = pty.spawn(command, args, {
         name: 'xterm-256color',

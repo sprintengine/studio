@@ -102,7 +102,7 @@ function writeFrame(socketPath, frame) {
 
 async function main() {
   const args = parseArgs(process.argv.slice(2))
-  const socketPath = args.socket || process.env[/* keep in sync */ 'MULTICODE_AGENT_STATE_SOCKET']
+  const socketPath = args.socket || process.env.MULTICODE_AGENT_STATE_SOCKET
   if (!socketPath) return
 
   const agentId = process.env.MULTICODE_AGENT_ID
