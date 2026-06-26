@@ -306,7 +306,15 @@ export type AutomationRun = {
   touchedFiles?: string[]
   commandsRan?: string[]
   summary?: string
+  /** Git worktree the agent-backed run executes in (per-run isolation). */
+  worktreePath?: string
+  /** Branch the run's worktree is checked out on. */
+  branch?: string
+  /** Pull request opened for the run's branch on completion, when available. */
+  pullRequestUrl?: string
 }
+
+export type AutomationCliPermissionPreset = 'default' | 'auto_workspace' | 'bypass_all'
 
 export type ActionContext = {
   automationId: string
@@ -317,6 +325,10 @@ export type ActionContext = {
     workspaceId?: string
     folderPath: string
     cli?: string
+    cliModel?: string
+    permissionPreset?: AutomationCliPermissionPreset
+    specialistId?: string
+    worktreePath?: string
     name?: string
     prompt: string
   }): Promise<{ workspaceId: string; agentId: string }>
