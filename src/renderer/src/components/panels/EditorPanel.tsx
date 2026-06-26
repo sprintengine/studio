@@ -15,6 +15,7 @@ import {
 } from '../../utils/editorBuffers'
 import { removeFileTabsForPath } from '../../utils/modelRegistry'
 import { MONO_FONT_STACK } from '../../utils/fonts'
+import { useMonacoBaseTheme } from '../../hooks/useAppTheme'
 import { IconButton, Tooltip } from '../ui'
 
 interface Props {
@@ -41,6 +42,7 @@ function readCssVar(name: string): string {
 }
 
 export default function EditorPanel({ workspaceId, filePath }: Props) {
+  const monacoTheme = useMonacoBaseTheme()
   const editorState = useWorkspaceStore(
     (s) => s.workspaces.find((w) => w.id === workspaceId)?.editorState
   )
@@ -527,7 +529,7 @@ export default function EditorPanel({ workspaceId, filePath }: Props) {
               height="100%"
               language={activeFile.language}
               value={activeContent}
-              theme="vs-dark"
+              theme={monacoTheme}
               options={{
                 fontSize: 13,
                 fontFamily: MONO_FONT_STACK,
