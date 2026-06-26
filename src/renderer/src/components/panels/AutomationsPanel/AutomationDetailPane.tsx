@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 
-import { GhostButton, InlineNotice, LifecycleGlyph, Section, Spinner, TruncatedText } from '../../ui'
+import { GhostButton, InlineNotice, LifecycleGlyph, Section, Spinner, Tooltip, TruncatedText } from '../../ui'
 import type { AutomationDefinition, AutomationRun } from '../../../../../shared/automations/contracts'
 import {
   DEFINITION_LIFECYCLE,
@@ -222,15 +222,16 @@ function RunRow({ run, now, highlighted, onOpenAgent, onFinalize, finalizing }: 
               </GhostButton>
             ) : null}
             {run.pullRequestUrl ? (
-              <a
-                href={run.pullRequestUrl}
-                target="_blank"
-                rel="noreferrer"
-                className="inline-flex h-5 items-center gap-1 rounded px-1.5 text-[10px] font-medium text-[color:var(--accent-primary)] hover:underline"
-                title={run.pullRequestUrl}
-              >
-                Pull request
-              </a>
+              <Tooltip content={run.pullRequestUrl}>
+                <a
+                  href={run.pullRequestUrl}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="inline-flex h-5 items-center gap-1 rounded px-1.5 text-[10px] font-medium text-[color:var(--accent-primary)] hover:underline"
+                >
+                  Pull request
+                </a>
+              </Tooltip>
             ) : null}
             {run.status === 'running' ? (
               <>

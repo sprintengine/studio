@@ -1,6 +1,6 @@
 import { useCallback, useMemo, useState } from 'react'
 
-import { Field, GhostButton, InlineNotice, PrimaryButton, Select, type SelectItem, Switch } from '../../ui'
+import { Field, GhostButton, InlineNotice, PrimaryButton, Select, type SelectItem, Switch, Tooltip } from '../../ui'
 import { useWorkspaceStore } from '../../../store/workspaceStore'
 import { selectAgentCliCatalog } from '../../workspace/newWorkspace/cliRuntimeOptions'
 import { orderSpecialistActions } from '../../../specialists/specialistActions'
@@ -432,23 +432,23 @@ export function AutomationEditor({
                   const active = option.value === current
                   const isBypass = option.value === 'bypass_all'
                   return (
-                    <button
-                      key={option.value}
-                      type="button"
-                      title={option.title}
-                      aria-pressed={active}
-                      onClick={() => update('config', { ...form.config, permissionPreset: option.value })}
-                      className={[
-                        'rounded px-2 py-1 text-[11px] font-medium transition-colors',
-                        active
-                          ? isBypass
-                            ? 'bg-[color:var(--tone-warn)]/12 text-[color:var(--tone-warn)]'
-                            : 'bg-[color:var(--accent-primary-soft)] text-[color:var(--text-strong)]'
-                          : 'border border-[color:var(--border-strong)] text-[color:var(--text-muted)] hover:bg-[color:var(--bg-hover)]',
-                      ].join(' ')}
-                    >
-                      {option.label}
-                    </button>
+                    <Tooltip key={option.value} content={option.title}>
+                      <button
+                        type="button"
+                        aria-pressed={active}
+                        onClick={() => update('config', { ...form.config, permissionPreset: option.value })}
+                        className={[
+                          'rounded px-2 py-1 text-[11px] font-medium transition-colors',
+                          active
+                            ? isBypass
+                              ? 'bg-[color:var(--tone-warn)]/12 text-[color:var(--tone-warn)]'
+                              : 'bg-[color:var(--accent-primary-soft)] text-[color:var(--text-strong)]'
+                            : 'border border-[color:var(--border-strong)] text-[color:var(--text-muted)] hover:bg-[color:var(--bg-hover)]',
+                        ].join(' ')}
+                      >
+                        {option.label}
+                      </button>
+                    </Tooltip>
                   )
                 })}
               </div>
