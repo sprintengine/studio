@@ -99,11 +99,12 @@ type TerminalRuntimeOptions = {
   // always-present inline directive.
   ensureBuiltinSkillInstalled?(workspaceRoot: string, skillId: string): Promise<void>
   // Installs the authoritative-agent-state reporter hook into the workspace
-  // before a Claude Code agent launches, so the agent's lifecycle hooks report
-  // its true phase over the agent-state socket. Strictly best-effort: the
-  // implementation swallows its own failures, so awaiting it never blocks or
-  // fails a launch. Absent in tests / when the feature is unwired (no-op).
-  prepareAgentStateHook?(workspaceRoot: string): Promise<void>
+  // before a supported agent (Claude Code / Codex) launches, so the agent's
+  // lifecycle hooks report its true phase over the agent-state socket. The
+  // installer dispatches on `cli`. Strictly best-effort: the implementation
+  // swallows its own failures, so awaiting it never blocks or fails a launch.
+  // Absent in tests / when the feature is unwired (no-op).
+  prepareAgentStateHook?(workspaceRoot: string, cli: string): Promise<void>
 }
 
 type TerminalIpcHandlers = {
@@ -151,6 +152,13 @@ let releaseManagedSprintEngineRun: TerminalRuntimeOptions['releaseManagedSprintE
 let callManagedSprintEngineTool: TerminalRuntimeOptions['callManagedSprintEngineTool']
 let ensureBuiltinSkillInstalled: TerminalRuntimeOptions['ensureBuiltinSkillInstalled']
 let prepareAgentStateHook: TerminalRuntimeOptions['prepareAgentStateHook']
+
+// CLIs whose lifecycle hooks the agent-state reporter can install into. Both
+// emit the same hook payload (hook_event_name/session_id); only the install
+// target differs (handled in the service).
+function agentStateSupportsCli(cli: string | undefined): cli is string {
+  return cli === 'claude-code' || cli === 'codex'
+}
 const sprintEngineMcpRunRefCounts = new Map<string, number>()
 const sprintEngineMcpWorkspaceRefCounts = new Map<string, number>()
 const pendingSprintEngineMcpRunReleases = new Set<Promise<void>>()
@@ -1368,10 +1376,10 @@ async function spawnAgentSessionFromDescriptor(input: {
         agentName: input.descriptor.displayName,
       }
     )
-    // Install the reporter before launching a Claude Code agent so its hooks
+    // Install the reporter before launching a supported agent so its hooks
     // report phase from the first event. Best-effort; never blocks/fails launch.
-    if (input.descriptor.cli === 'claude-code') {
-      await prepareAgentStateHook?.(input.descriptor.cwd || input.workspaceRoot)
+    if (agentStateSupportsCli(input.descriptor.cli)) {
+      await prepareAgentStateHook?.(input.descriptor.cwd || input.workspaceRoot, input.descriptor.cli)
     }
     const termProcess = pty.spawn(command, args, {
       name: 'xterm-256color',
@@ -1613,8 +1621,8 @@ async function spawnMobileAgentTerminal(input: {
     // Expose the agent's identity (=== session.agentId below) so the agent-state
     // reporter resolves its hook frames, and strip any stale inherited id.
     const mobileEnv = applyAgentIdentityEnv(env ?? getTerminalEnv(), { agentId: input.agentId })
-    if (input.cli === 'claude-code') {
-      await prepareAgentStateHook?.(launchCwd ?? input.cwd)
+    if (agentStateSupportsCli(input.cli)) {
+      await prepareAgentStateHook?.(launchCwd ?? input.cwd, input.cli)
     }
     const initialSize = getTerminalSize(120, 30)
     const termProcess = pty.spawn(command, args, {
@@ -1934,11 +1942,11 @@ async function spawnTerminalFromIpc(
           debugMode
         )
       // Install the authoritative-agent-state reporter into the workspace before
-      // launching a Claude Code agent, so its lifecycle hooks report phase the
+      // launching a supported agent, so its lifecycle hooks report phase the
       // moment it starts. Awaited so the hooks exist when the CLI reads its
       // settings; best-effort inside (never throws), so it cannot fail a launch.
-      if (!shellOnly && cli === 'claude-code') {
-        await prepareAgentStateHook?.(launchCwd ?? workingDirectory)
+      if (!shellOnly && agentStateSupportsCli(cli)) {
+        await prepareAgentStateHook?.(launchCwd ?? workingDirectory, cli)
       }
 
       const initialSize = getTerminalSize(cols, rows)

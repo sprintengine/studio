@@ -84,12 +84,15 @@ async function run(): Promise<void> {
     onFrame: () => {},
   })
 
-  // Two concurrent installs for the same workspace must collapse to a single
-  // real install (serialized chain + install-once guard).
-  await Promise.all([installSvc.installForWorkspace(workspaceRoot), installSvc.installForWorkspace(workspaceRoot)])
+  // Two concurrent claude-code installs for the same workspace must collapse to
+  // a single real install (serialized chain + install-once guard).
+  await Promise.all([
+    installSvc.installForWorkspace(workspaceRoot, 'claude-code'),
+    installSvc.installForWorkspace(workspaceRoot, 'claude-code'),
+  ])
   assert.equal(resolveCalls, 1)
-  // A later install is a no-op too.
-  await installSvc.installForWorkspace(workspaceRoot)
+  // A later claude-code install is a no-op too.
+  await installSvc.installForWorkspace(workspaceRoot, 'claude-code')
   assert.equal(resolveCalls, 1)
 
   const settings = JSON.parse(await readFile(join(workspaceRoot, '.claude', 'settings.local.json'), 'utf8')) as {
@@ -98,6 +101,16 @@ async function run(): Promise<void> {
   assert.ok(settings.hooks?.SessionStart, 'reporter hook not installed')
   assert.ok(settings.hooks?.PostToolUse, 'reporter hook not installed for tool events')
 
+  // Codex in the SAME workspace is a distinct install (different file + key),
+  // so it runs once more and writes the TOML target, not the JSON one.
+  await installSvc.installForWorkspace(workspaceRoot, 'codex')
+  assert.equal(resolveCalls, 2)
+  const codexConfig = await readFile(join(workspaceRoot, '.codex', 'config.toml'), 'utf8')
+  assert.ok(codexConfig.includes('[[hooks.SessionStart]]'), 'codex reporter hook not installed')
+  // …and is itself install-once.
+  await installSvc.installForWorkspace(workspaceRoot, 'codex')
+  assert.equal(resolveCalls, 2)
+
   // --- missing reporter script: safe no-op, never throws -----------------
   const noScriptWs = await mkdtemp(join(tmpdir(), 'multicode-agent-state-noscript-'))
   const noScriptSvc = createAgentStateService({
@@ -105,7 +118,7 @@ async function run(): Promise<void> {
     resolveReporterScriptPath: () => null,
     onFrame: () => {},
   })
-  await noScriptSvc.installForWorkspace(noScriptWs) // must not throw
+  await noScriptSvc.installForWorkspace(noScriptWs, 'claude-code') // must not throw
 
   console.log('agent-state-service.test.ts: all assertions passed')
 }

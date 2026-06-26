@@ -4,7 +4,7 @@ import { createServer, type Server, type Socket } from 'net'
 import { tmpdir } from 'os'
 import { join } from 'path'
 import type { AgentStateFrame } from './agent-state'
-import { installAgentStateHook, parseAgentStateFrame } from './agent-state'
+import { installAgentStateHook, installCodexAgentStateHook, parseAgentStateFrame } from './agent-state'
 
 // =============================================================================
 // Agent-state service — the Electron-bound half of authoritative agent state.
@@ -161,13 +161,16 @@ export function createAgentStateService(options: AgentStateServiceOptions) {
     }
   }
 
-  // Install the reporter into a workspace before a Claude Code agent launches.
-  // Serialized per workspace, run once per workspace per app run, and strictly
-  // best-effort: a failure is logged and swallowed so it can never block or
-  // break the agent launch that awaits it.
-  async function installForWorkspace(workspaceRoot: string): Promise<void> {
-    const key = workspaceRoot.trim()
-    if (!key || installed.has(key)) return
+  // Install the reporter into a workspace before an agent launches, dispatching
+  // by CLI: Claude Code writes JSON into .claude/settings.local.json, Codex
+  // writes a TOML managed block into .codex/config.toml. Serialized + run once
+  // per (cli, workspace) per app run, and strictly best-effort: a failure is
+  // logged and swallowed so it can never block or break the launch that awaits it.
+  async function installForWorkspace(workspaceRoot: string, cli: string): Promise<void> {
+    const root = workspaceRoot.trim()
+    if (!root) return
+    const key = `${cli}::${root}`
+    if (installed.has(key)) return
 
     const prior = installChains.get(key) ?? Promise.resolve()
     const next = prior.then(async () => {
@@ -177,7 +180,8 @@ export function createAgentStateService(options: AgentStateServiceOptions) {
         warn('Agent-state reporter missing', 'Reporter script not found in this build; agent state falls back to inference.')
         return
       }
-      const result = await installAgentStateHook(workspaceRoot, {
+      const install = cli === 'codex' ? installCodexAgentStateHook : installAgentStateHook
+      const result = await install(workspaceRoot, {
         sourceScriptPath,
         socketPath: getSocketPath(),
       })

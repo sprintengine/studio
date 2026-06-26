@@ -4,17 +4,22 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
 import {
+  AGENT_STATE_CODEX_HOOK_EVENTS,
   AGENT_STATE_HOOK_EVENTS,
   AGENT_STATE_HOOK_TAG,
   buildAgentStateHookCommand,
   deriveActivityFromPhase,
   evaluateAgentStall,
   installAgentStateHook,
+  installCodexAgentStateHook,
   mapHookEventToPhase,
+  mergeCodexAgentStateHooks,
   mergeAgentStateHooks,
   parseAgentStateFrame,
+  renderCodexAgentStateHooksBlock,
   selectAgentStateTarget,
   uninstallAgentStateHook,
+  uninstallCodexAgentStateHook,
 } from './agent-state'
 
 type Settings = {
@@ -182,6 +187,60 @@ async function run(): Promise<void> {
   assert.ok(settings.hooks?.PostToolUse?.some((b) => b.matcher === 'Read'), 'user hook lost on uninstall')
   // SessionStart had only our entry, so the event key is pruned entirely.
   assert.equal(settings.hooks?.SessionStart, undefined)
+
+  // --- Codex (Phase 2): TOML managed-block install ------------------------
+  // Render: a single tagged block, one entry per Codex event, command quoted as
+  // a TOML basic string, tool events carrying a matcher, and PermissionRequest
+  // (Codex's awaiting-input event) present rather than Claude's Notification.
+  const codexBlock = renderCodexAgentStateHooksBlock('node "/abs/agent-state.mjs" --socket "/abs/agent-state.sock"')
+  assert.ok(codexBlock.startsWith('# >>> multicode agent-state hooks managed'))
+  assert.ok(codexBlock.trimEnd().endsWith('# <<< multicode agent-state hooks managed'))
+  assert.ok(codexBlock.includes('[[hooks.PermissionRequest]]'))
+  assert.ok(codexBlock.includes('[[hooks.PreToolUse]]') && codexBlock.includes('matcher = "*"'))
+  assert.ok(!codexBlock.includes('Notification'))
+  // command is a valid TOML basic string (JSON-escaped quotes).
+  assert.ok(codexBlock.includes('command = "node \\"/abs/agent-state.mjs\\" --socket \\"/abs/agent-state.sock\\""'))
+  // one [[hooks.<Event>]] table per declared event.
+  const tableCount = (codexBlock.match(/^\[\[hooks\.[A-Za-z]+\]\]$/gmu) ?? []).length
+  assert.equal(tableCount, AGENT_STATE_CODEX_HOOK_EVENTS.length)
+
+  // Merge preserves surrounding user config and is idempotent.
+  const userToml = 'model = "gpt-5-codex"\n\n[mcp_servers.foo]\ncommand = "foo"\n'
+  const mergedOnce = mergeCodexAgentStateHooks(userToml, 'node "/x.mjs" --socket "/s.sock"')
+  assert.ok(mergedOnce.includes('model = "gpt-5-codex"'), 'user config dropped')
+  assert.ok(mergedOnce.includes('[mcp_servers.foo]'), 'user MCP block dropped')
+  const mergedTwice = mergeCodexAgentStateHooks(mergedOnce, 'node "/x.mjs" --socket "/s.sock"')
+  assert.equal(
+    (mergedTwice.match(/# >>> multicode agent-state hooks managed/gu) ?? []).length,
+    1,
+    'agent-state block duplicated on re-merge'
+  )
+
+  // Install round-trip on disk: writes .codex/config.toml, copies the reporter,
+  // preserves prior content, and uninstall removes the block but keeps the rest.
+  const codexRoot = await mkdtemp(join(tmpdir(), 'multicode-agent-state-codex-'))
+  const codexReporter = join(codexRoot, 'reporter-src.mjs')
+  await writeFile(codexReporter, '// reporter\n', 'utf8')
+  await mkdir(join(codexRoot, '.codex'), { recursive: true })
+  await writeFile(join(codexRoot, '.codex', 'config.toml'), 'approval_policy = "on-request"\n', 'utf8')
+
+  const codexInstalled = await installCodexAgentStateHook(codexRoot, {
+    sourceScriptPath: codexReporter,
+    socketPath: join(codexRoot, 'agent-state.sock'),
+  })
+  assert.equal(codexInstalled.ok, true)
+  let codexConfig = await readFile(join(codexRoot, '.codex', 'config.toml'), 'utf8')
+  assert.ok(codexConfig.includes('approval_policy = "on-request"'), 'prior codex config lost')
+  assert.ok(codexConfig.includes('[[hooks.SessionStart]]'))
+  // command references the reporter by ABSOLUTE path (Codex hooks have no cwd
+  // guarantee) and the live socket.
+  assert.ok(codexConfig.includes(join(codexRoot, '.multicode', 'hooks', 'agent-state.mjs').split('\\').join('/')))
+
+  const codexRemoved = await uninstallCodexAgentStateHook(codexRoot)
+  assert.equal(codexRemoved.ok, true)
+  codexConfig = await readFile(join(codexRoot, '.codex', 'config.toml'), 'utf8')
+  assert.ok(codexConfig.includes('approval_policy = "on-request"'), 'uninstall dropped user config')
+  assert.ok(!codexConfig.includes('[[hooks.SessionStart]]'), 'uninstall left the hooks block')
 
   console.log('agent-state.test.ts: all assertions passed')
 }

@@ -102,7 +102,7 @@ export function createAppServices(diagnosticsEnabled: boolean) {
         })
       }
     },
-    prepareAgentStateHook: (workspaceRoot) => agentStateService.installForWorkspace(workspaceRoot),
+    prepareAgentStateHook: (workspaceRoot, cli) => agentStateService.installForWorkspace(workspaceRoot, cli),
   })
   const updateService = new MulticodeUpdateService({ writeDiagnosticLog })
   const agentConfigImportService = createAgentConfigImportService({
