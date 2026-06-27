@@ -3,7 +3,13 @@ import { SpecialistActionIcon, SprintEngineRoleIcon, WorkspaceTypeIcon, resolveE
 import type { ModuleEnablementOverrides } from '../../../../shared/modules/manifest'
 import { ChangePulse, FOCUS_RING_CLASS, Popover, StarGlyph, StatusDot, TONE_COLOR_VAR, TONE_SOFT_VAR, Tooltip, TruncatedText } from '../ui'
 import type { SessionUser } from '../../../../shared/electron-api'
-import { hasActiveProPlan } from './workspaceManagerHelpers'
+import {
+  compareSessionItemsByAttention,
+  hasActiveProPlan,
+  sessionsAttentionTone,
+} from './workspaceManagerHelpers'
+import { useRelativeNow } from '../../hooks/useRelativeNow'
+import { formatRelativeMs, formatRelativeMsAgo } from '../../utils/relativeTime'
 import CliIcon from '../CliIcon'
 import SpawnAgentMenu, { AGENT_SPAWN_PERMISSION_OPTIONS, TerminalSessionIcon } from './SpawnAgentMenu'
 import {
@@ -41,7 +47,16 @@ export type SessionItem = {
   terminalId: string | null
   label: string
   cli: AgentCli
-  status: 'needs-input' | 'working'
+  status: 'needs-input' | 'working' | 'idle' | 'failed'
+  // Provenance of `status`: 'hook' = authoritative lifecycle-hook frame,
+  // 'inferred' = output-timing fallback.
+  source: AgentStateSource
+  // When the current status began (ms epoch); drives "active 2m" / "waiting 4m".
+  activitySince: number
+  // Most recent real activity (max of last output/input), for "idle · 12m".
+  lastActivityAt: number | null
+  // Exit code when `status === 'failed'`, else null.
+  exitCode: number | null
   role: NonNullable<Workspace['sprintEngineState']>['sprintEngineAgents'][string]['role'] | null
   specialistId: SpecialistActionId | null
   multiloopRole: MultiloopRole | null
@@ -149,6 +164,46 @@ function GearIcon({ className }: { className?: string }) {
 }
 
 
+// Earned status dot: idle rows get no dot at all — a "working" indicator must be
+// earned, not the default for every live row. Live attention states pulse; a
+// crashed session shows a steady error dot.
+function sessionStatusDot(
+  status: SessionItem['status'],
+): { tone: 'warn' | 'good' | 'error'; pulse: boolean } | null {
+  switch (status) {
+    case 'needs-input':
+      return { tone: 'warn', pulse: true }
+    case 'working':
+      return { tone: 'good', pulse: true }
+    case 'failed':
+      return { tone: 'error', pulse: false }
+    case 'idle':
+      return null
+  }
+}
+
+// Honest status + recency, e.g. "Needs input · waiting 4m", "Working · 2m",
+// "idle · 18m", "Exit 1 · 8m ago". Carries the truth in text so the dot can stay
+// decorative and idle rows can drop it entirely.
+function sessionStatusMeta(item: SessionItem, now: number): string {
+  switch (item.status) {
+    case 'needs-input': {
+      const rel = formatRelativeMs(item.activitySince, now)
+      return rel === 'now' ? 'Needs input' : `Needs input · waiting ${rel}`
+    }
+    case 'working': {
+      const rel = formatRelativeMs(item.activitySince, now)
+      return rel === 'now' ? 'Working' : `Working · ${rel}`
+    }
+    case 'failed':
+      return `Exit ${item.exitCode ?? 1} · ${formatRelativeMsAgo(item.activitySince, now)}`
+    case 'idle': {
+      const rel = formatRelativeMs(item.lastActivityAt ?? item.activitySince, now)
+      return rel === 'now' ? 'idle' : `idle · ${rel}`
+    }
+  }
+}
+
 function SessionsPopover({
   items,
   workspaceOrder,
@@ -164,6 +219,8 @@ function SessionsPopover({
   onStop: (item: SessionItem) => void
   onStopWorkspace: (workspace: Workspace, items: SessionItem[]) => void | Promise<void>
 }) {
+  // Re-render every 30s so relative times ("idle · 12m") stay fresh while open.
+  const now = useRelativeNow(30_000)
   const groups = items
     .reduce<Array<{ workspace: Workspace; items: SessionItem[] }>>((acc, item) => {
       const group = acc.find((candidate) => candidate.workspace.id === item.workspace.id)
@@ -236,7 +293,7 @@ function SessionsPopover({
                   ) : null}
                 </div>
                 <div className="space-y-1">
-                  {group.items.map((item) => {
+                  {group.items.slice().sort(compareSessionItemsByAttention).map((item) => {
                     const chipStyle = item.role
                       ? {
                           borderColor: getSprintEngineRoleAccent(item.role),
@@ -245,10 +302,14 @@ function SessionsPopover({
                         }
                       : undefined
                     const typeLabel = sessionAgentTypeLabel(item)
-                    const sublineParts = item.kind === 'terminal'
+                    const identityParts = item.kind === 'terminal'
                       ? [item.label.toLowerCase()]
                       : [typeLabel, item.taskId, item.cli].filter((value): value is string => Boolean(value))
-                    const subline = sublineParts.join(' · ') || item.cli
+                    // Lead the subline with honest status + recency, then identity.
+                    const subline = [sessionStatusMeta(item, now), ...identityParts]
+                      .filter(Boolean)
+                      .join(' · ') || item.cli
+                    const dot = sessionStatusDot(item.status)
                     return (
                       <div
                         key={`${item.workspace.id}:${item.agentId ?? item.terminalId ?? item.sessionId}`}
@@ -268,11 +329,9 @@ function SessionsPopover({
                                 text={item.label}
                                 className="min-w-0 font-medium text-[color:var(--text-strong)]"
                               />
-                              <StatusDot
-                                tone={item.status === 'needs-input' ? 'warn' : 'good'}
-                                pulse
-                                label={item.status === 'needs-input' ? 'Needs input' : 'Working'}
-                              />
+                              {dot ? (
+                                <StatusDot tone={dot.tone} pulse={dot.pulse} />
+                              ) : null}
                             </span>
                             <TruncatedText
                               as="span"
@@ -291,7 +350,7 @@ function SessionsPopover({
                           Open
                         </button>
 
-                        {item.kind === 'agent' ? (
+                        {item.kind === 'agent' && item.status !== 'failed' ? (
                           <Tooltip content="Pause — suspends the agent to free memory; reopen resumes it">
                             <button
                               type="button"
@@ -304,12 +363,14 @@ function SessionsPopover({
                           </Tooltip>
                         ) : null}
 
-                        <Tooltip content="Stop">
+                        {/* A failed session has no process to stop — the action
+                            disposes the retained crash row, so it reads as "Dismiss". */}
+                        <Tooltip content={item.status === 'failed' ? 'Dismiss' : 'Stop'}>
                           <button
                             type="button"
                             onClick={() => onStop(item)}
                             className="flex h-7 w-7 items-center justify-center rounded border border-[color:var(--bg-selected)] bg-[color:var(--bg-surface-raised)] text-[color:var(--text-muted)] transition-colors hover:border-[color:var(--tone-error-soft)] hover:bg-[color:var(--tone-error-soft)] hover:text-[color:var(--tone-error)]"
-                            aria-label={`Stop ${item.label}`}
+                            aria-label={`${item.status === 'failed' ? 'Dismiss' : 'Stop'} ${item.label}`}
                           >
                             <StopIcon className="icon-sm" />
                           </button>
@@ -810,7 +871,11 @@ export default function WorkspaceTopBar({
                 ariaLabel="Sessions"
                 popupRole="menu"
                 placement="bottom-end"
-                renderTrigger={({ ref, triggerProps, togglePopover }) => (
+                renderTrigger={({ ref, triggerProps, togglePopover }) => {
+                  // Badge tone reflects attention: warn if any session needs the
+                  // user, error if any crashed, else good — never a flat "all fine".
+                  const sessionsTone = sessionsAttentionTone(sessions)
+                  return (
                   <Tooltip content="Sessions" placement="bottom">
                     <button
                       ref={ref}
@@ -824,17 +889,21 @@ export default function WorkspaceTopBar({
                       aria-label="Sessions"
                       {...triggerProps}
                     >
-                      <ChangePulse value={sessions.length} mode="increase" tint="var(--tone-good)" className="inline-flex">
+                      <ChangePulse value={sessions.length} mode="increase" tint={`var(--tone-${sessionsTone})`} className="inline-flex">
                         <SessionsIcon className="h-[18px] w-[18px]" />
                       </ChangePulse>
                       {sessions.length > 0 ? (
-                        <span className="absolute -right-1 -top-1 flex h-4 min-w-4 items-center justify-center rounded-full border border-[color:var(--bg-app)] bg-[color:var(--tone-good)] px-1 text-[10px] font-bold leading-none tabular-nums text-[color:var(--bg-app)]">
+                        <span
+                          className="absolute -right-1 -top-1 flex h-4 min-w-4 items-center justify-center rounded-full border border-[color:var(--bg-app)] px-1 text-[10px] font-bold leading-none tabular-nums text-[color:var(--bg-app)]"
+                          style={{ backgroundColor: `var(--tone-${sessionsTone})` }}
+                        >
                           {sessions.length > 99 ? '99+' : sessions.length}
                         </span>
                       ) : null}
                     </button>
                   </Tooltip>
-                )}
+                  )
+                }}
               >
                 <SessionsPopover
                   items={sessions}

@@ -95,6 +95,9 @@ import type {
   SprintEngineProjectionReadResult as SharedSprintEngineProjectionReadResult,
   SprintEngineCliPermissionPreset as SharedSprintEngineCliPermissionPreset,
   SessionActivity as SharedSessionActivity,
+  AgentPhase as SharedAgentPhase,
+  AgentState as SharedAgentState,
+  AgentStateSource as SharedAgentStateSource,
   TerminalKind as SharedTerminalKind,
   TerminalPathStyle as SharedTerminalPathStyle,
   TerminalSessionSnapshot as SharedTerminalSessionSnapshot,
@@ -148,6 +151,9 @@ declare global {
   type SprintEngineCliPermissionPreset = SharedSprintEngineCliPermissionPreset
   type CliRuntimeSettings = SharedCliRuntimeSettings
   type SessionActivity = SharedSessionActivity
+  type AgentPhase = SharedAgentPhase
+  type AgentState = SharedAgentState
+  type AgentStateSource = SharedAgentStateSource
   type TerminalKind = SharedTerminalKind
   type TerminalPathStyle = SharedTerminalPathStyle
   type TerminalSpawnMetadata = SharedTerminalSpawnMetadata

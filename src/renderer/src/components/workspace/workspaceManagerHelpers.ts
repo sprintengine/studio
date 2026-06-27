@@ -21,7 +21,126 @@ import type { MultiloopRoleDescriptor } from '../../specialists/specialistAction
 import type { SessionItem } from './WorkspaceTopBar'
 
 export type WorkspaceActivity = 'needs-input' | 'working' | 'failed' | 'idle'
-export type SessionStatus = 'needs-input' | 'working'
+export type SessionStatus = 'needs-input' | 'working' | 'idle' | 'failed'
+
+// Honest per-session status for the session manager, merged from the
+// authoritative lifecycle-hook phase (`session.agentState`, when present) with
+// the legacy output-timing heuristic as the floor. See
+// backlog/2026-06-10-truthful-agent-activity.md.
+export type SessionStatusInfo = {
+  status: SessionStatus
+  // Provenance of the signal: 'hook' when an authoritative lifecycle-hook frame
+  // drove it, 'inferred' when it fell back to output-timing recency.
+  source: AgentStateSource
+  // When the current status began (ms epoch) — drives "active 2m" / "waiting 4m".
+  activitySince: number
+  // Most recent real activity (max of last output/input), for "idle · 12m" recency.
+  lastActivityAt: number | null
+  // Exit code when `status === 'failed'`, else null.
+  exitCode: number | null
+}
+
+// Hook phases that mean the agent is actively doing work (not waiting, not done).
+const WORKING_AGENT_PHASES: ReadonlySet<AgentPhase> = new Set([
+  'starting',
+  'thinking',
+  'tool_use',
+])
+
+// Attention-first ordering for session rows: things that need the user come
+// first, idle last.
+const SESSION_STATUS_ORDER: Record<SessionStatus, number> = {
+  'needs-input': 0,
+  failed: 1,
+  working: 2,
+  idle: 3,
+}
+
+function maxTimestamp(a: number | null, b: number | null): number | null {
+  const values = [a, b].filter((value): value is number => typeof value === 'number')
+  return values.length > 0 ? Math.max(...values) : null
+}
+
+function activityStartedAt(activity: SessionActivity): number {
+  return activity.kind === 'working' || activity.kind === 'idle' ? activity.since : activity.at
+}
+
+// Single source of truth for "what is this session doing", prioritizing the
+// authoritative hook phase and degrading gracefully to output recency.
+export function deriveSessionStatus(
+  session: TerminalSessionSnapshot,
+  runtimeNeedsInput: boolean,
+): SessionStatusInfo {
+  const hook = session.agentState
+  const source: AgentStateSource = hook?.source ?? 'inferred'
+  const lastActivityAt = maxTimestamp(session.lastOutputAt, session.lastInputAt)
+  const fallbackSince = activityStartedAt(session.activity)
+
+  // A retained crash is terminal — surface it so it stops silently vanishing.
+  if (session.activity.kind === 'failed') {
+    return {
+      status: 'failed',
+      source,
+      activitySince: session.activity.at,
+      lastActivityAt,
+      exitCode: session.activity.exitCode,
+    }
+  }
+
+  // Needs-input: authoritative hook phase, or a Sprint Engine MCP self-report.
+  // This is the most expensive state to miss, so it outranks working/idle.
+  if (hook?.phase === 'awaiting_input' || runtimeNeedsInput) {
+    return {
+      status: 'needs-input',
+      source,
+      activitySince: hook?.phase === 'awaiting_input' ? hook.since : fallbackSince,
+      lastActivityAt,
+      exitCode: null,
+    }
+  }
+
+  // Working: trust the hook's working phases when present; otherwise fall back to
+  // "produced output recently". `stalled`/`idle`/`exited` hook phases fall through
+  // to idle below.
+  const working = hook
+    ? WORKING_AGENT_PHASES.has(hook.phase)
+    : session.activity.kind === 'working'
+  if (working) {
+    return {
+      status: 'working',
+      source,
+      activitySince: hook ? hook.since : fallbackSince,
+      lastActivityAt,
+      exitCode: null,
+    }
+  }
+
+  return {
+    status: 'idle',
+    source,
+    activitySince: hook ? hook.since : fallbackSince,
+    lastActivityAt,
+    exitCode: null,
+  }
+}
+
+// Attention-first comparator for rows within a workspace group: needs-input →
+// failed → working → idle, then most-recently-active first within a tier.
+export function compareSessionItemsByAttention(a: SessionItem, b: SessionItem): number {
+  const byStatus = SESSION_STATUS_ORDER[a.status] - SESSION_STATUS_ORDER[b.status]
+  if (byStatus !== 0) return byStatus
+  const aRecency = a.lastActivityAt ?? a.activitySince
+  const bRecency = b.lastActivityAt ?? b.activitySince
+  return bRecency - aRecency
+}
+
+// Trigger-badge tone: the badge must not repeat the "everything is fine" lie.
+// Warn when anything needs the user, error when anything crashed, else good.
+export function sessionsAttentionTone(items: SessionItem[]): 'good' | 'warn' | 'error' {
+  if (items.some((item) => item.status === 'needs-input')) return 'warn'
+  if (items.some((item) => item.status === 'failed')) return 'error'
+  return 'good'
+}
 
 export function workspaceNeedsInput(workspace: Workspace): boolean {
   return Object.values(workspace.sprintEngineState?.sprintEngineAgents ?? {}).some(
@@ -67,7 +186,14 @@ export function getSessionItems(
   terminalSessions: TerminalSessionSnapshot[],
 ): SessionItem[] {
   return terminalSessions
-    .filter((session) => isLiveTerminal(session) && typeof session.workspaceId === 'string')
+    .filter(
+      (session) =>
+        typeof session.workspaceId === 'string'
+        // Live sessions, plus retained *failed* agent sessions so a crashed agent
+        // demands attention instead of silently disappearing from the list.
+        && (isLiveTerminal(session)
+          || (session.kind === 'agent' && session.activity.kind === 'failed')),
+    )
     .flatMap((session): SessionItem[] => {
       // Agent terminals can be moved between workspaces after spawn, but the PTY
       // session keeps its spawn-time workspaceId. Resolve an agent's *current*
@@ -86,7 +212,7 @@ export function getSessionItems(
         if (!session.agentId) return []
         const agent = workspace.agents[session.agentId]
         const runtime = workspace.sprintEngineState?.sprintEngineAgents[session.agentId]
-        const status: SessionStatus = runtime?.status === 'needs_input' ? 'needs-input' : 'working'
+        const statusInfo = deriveSessionStatus(session, runtime?.status === 'needs_input')
         const specialistId =
           agent?.kind === 'specialist' || agent?.kind === 'watchtower'
             ? agent.specialistId ?? null
@@ -101,7 +227,11 @@ export function getSessionItems(
             terminalId: null,
             label: agent?.name || session.agentId,
             cli: session.cli ?? agent?.cli ?? '',
-            status,
+            status: statusInfo.status,
+            source: statusInfo.source,
+            activitySince: statusInfo.activitySince,
+            lastActivityAt: statusInfo.lastActivityAt,
+            exitCode: statusInfo.exitCode,
             role: runtime?.role ?? null,
             specialistId,
             multiloopRole,
@@ -112,6 +242,9 @@ export function getSessionItems(
       }
 
       const terminalId = session.terminalId ?? session.sessionId.replace(/^terminal-/, '')
+      // Plain terminals have no lifecycle hooks; their status is honest
+      // output-recency (working while producing output, otherwise idle).
+      const statusInfo = deriveSessionStatus(session, false)
       return [
         {
           workspace,
@@ -120,7 +253,11 @@ export function getSessionItems(
           terminalId,
           label: terminalSessionLabel(terminalId),
           cli: session.cli ?? '',
-          status: 'working' as const,
+          status: statusInfo.status,
+          source: statusInfo.source,
+          activitySince: statusInfo.activitySince,
+          lastActivityAt: statusInfo.lastActivityAt,
+          exitCode: statusInfo.exitCode,
           role: null,
           specialistId: null,
           multiloopRole: null,
