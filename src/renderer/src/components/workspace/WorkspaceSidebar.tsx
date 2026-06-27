@@ -860,7 +860,10 @@ export default function WorkspaceSidebar({
   )
 
   const renderWorkspaceRow = (workspace: Workspace, fKey: string, options?: { keyPrefix?: string }) => {
-    const active = workspace.id === activeWorkspaceId
+    // When the Automations area is the active content region, no workspace row
+    // is "current" — the bottom-rail Automations entry carries aria-current, so
+    // a highlighted row here would be a second, conflicting selected state.
+    const active = workspace.id === activeWorkspaceId && !automationsActive
     const activity = activityByWorkspaceId[workspace.id] ?? 'idle'
     const tone = activityTone(activity)
     const recency = terminalRecencyByWorkspaceId[workspace.id]

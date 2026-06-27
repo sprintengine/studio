@@ -1421,7 +1421,7 @@ export default function WorkspaceManager() {
     requestedName = '',
     selectedCli?: AgentCli
   ) => {
-    if (showNewWorkspacePanel || !windowActiveWorkspaceId) return
+    if (showNewWorkspacePanel || automationsOpen || !windowActiveWorkspaceId) return
     const model = getModel(windowActiveWorkspaceId)
     if (!model) return
 
@@ -1460,7 +1460,7 @@ export default function WorkspaceManager() {
     requestedName = '',
     selectedCli?: AgentCli
   ) => {
-    if (showNewWorkspacePanel || !windowActiveWorkspaceId) return
+    if (showNewWorkspacePanel || automationsOpen || !windowActiveWorkspaceId) return
     const model = getModel(windowActiveWorkspaceId)
     if (!model) return
 
@@ -1524,7 +1524,7 @@ export default function WorkspaceManager() {
   }
 
   const addNewCliAgent = (cli: AgentCli, label: string) => {
-    if (showNewWorkspacePanel || !windowActiveWorkspaceId) return
+    if (showNewWorkspacePanel || automationsOpen || !windowActiveWorkspaceId) return
     const model = getModel(windowActiveWorkspaceId)
     if (!model) return
 
@@ -1557,7 +1557,7 @@ export default function WorkspaceManager() {
   // the chat composer until the first message, so spawning just needs a default
   // pair. Missing-key/unavailable states are handled downstream by AgentChatView.
   const addNewConversationAgent = (providerId: string, modelId: string, modelLabel: string) => {
-    if (showNewWorkspacePanel || !windowActiveWorkspaceId) return
+    if (showNewWorkspacePanel || automationsOpen || !windowActiveWorkspaceId) return
     const model = getModel(windowActiveWorkspaceId)
     if (!model) return
 
@@ -1589,7 +1589,7 @@ export default function WorkspaceManager() {
   }
 
   const addNewTerminal = () => {
-    if (showNewWorkspacePanel || !windowActiveWorkspaceId) return
+    if (showNewWorkspacePanel || automationsOpen || !windowActiveWorkspaceId) return
     const newId = `terminal-${nanoid(6)}`
     addTerminalTab(windowActiveWorkspaceId, newId, 'Terminal')
   }
