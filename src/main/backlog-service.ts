@@ -48,6 +48,61 @@ export async function readBacklogObjectStore(workspaceRoot: string): Promise<Bac
   }
 }
 
+export type BacklogCreateInput = {
+  workspaceRoot: string
+  title: string
+  description?: string
+  type?: string
+  difficulty?: string
+  criticality?: string
+}
+
+export type BacklogCreateResult =
+  | { ok: true; id: string; relativePath: string; store: BacklogObjectStorePayload }
+  | { ok: false; message: string }
+
+// Creates a brand-new Backlog item from the phone: writes the real `.md` file
+// AND upserts the items.json record. Filename mirrors the desktop renderer's
+// `${today}-${slug(title)}.md` convention and dedups against the current store.
+export async function createBacklogItem(input: BacklogCreateInput): Promise<BacklogCreateResult> {
+  const title = input.title.trim()
+  if (!title) return { ok: false, message: 'Enter a title for the new Backlog item.' }
+  try {
+    const workspace = await validateWorkspaceRoot(input.workspaceRoot)
+    const store = await loadStore(workspace)
+    const existingLower = new Set(store.items.map((record) => record.source.relativePath.toLowerCase()))
+    const relativePath = await uniqueBacklogFilePath(workspace, title, existingLower)
+    const target = resolve(join(workspace.root, relativePath))
+    if (!isPathInside(workspace.root, target)) throw new Error('Backlog item path escaped the workspace root.')
+
+    const description = input.description?.trim()
+    const body = description ? `# ${title}\n\n${description}\n` : `# ${title}\n`
+    await mkdir(dirname(target), { recursive: true })
+    // `wx` fails instead of clobbering if a file appears between the uniqueness
+    // check and the write.
+    await writeFile(target, body, { encoding: 'utf-8', flag: 'wx' })
+
+    const now = new Date().toISOString()
+    const record: BacklogObjectRecord = {
+      id: stableBacklogObjectId(relativePath),
+      source: { type: 'file', relativePath },
+      status: 'idea',
+      type: isBacklogType(input.type) ? input.type : undefined,
+      difficulty: isBacklogDifficulty(input.difficulty) ? input.difficulty : undefined,
+      criticality: isBacklogCriticality(input.criticality) ? input.criticality : undefined,
+      metadata: {},
+      links: [],
+      createdAt: now,
+      updatedAt: now,
+    }
+    const nextStore = normalizeStore({ schemaVersion: 1, items: [...store.items, record] })
+    await saveStore(workspace, nextStore)
+    return { ok: true, id: record.id, relativePath, store: nextStore }
+  } catch (error) {
+    return { ok: false, message: errorMessage(error) }
+  }
+}
+
 export async function ensureBacklogObjectRecords(
   workspaceRoot: string,
   items: BacklogItemRecordInput[],
@@ -284,6 +339,40 @@ function validateBacklogRelativePath(value: string): string {
     throw new Error('Backlog item paths must be relative paths under backlog/.')
   }
   return normalized
+}
+
+async function uniqueBacklogFilePath(
+  workspace: ValidWorkspace,
+  title: string,
+  existingLower: Set<string>,
+): Promise<string> {
+  const base = `${backlogTodayPrefix(new Date())}-${slugifyBacklogTitle(title)}`
+  let candidate = `${BACKLOG_PREFIX}${base}.md`
+  let index = 2
+  while (existingLower.has(candidate.toLowerCase()) || (await backlogFileExists(workspace, candidate))) {
+    candidate = `${BACKLOG_PREFIX}${base}-${index}.md`
+    index += 1
+  }
+  return validateBacklogRelativePath(candidate)
+}
+
+async function backlogFileExists(workspace: ValidWorkspace, relativePath: string): Promise<boolean> {
+  try {
+    await stat(join(workspace.root, relativePath))
+    return true
+  } catch (error) {
+    if (isMissingFileError(error)) return false
+    throw error
+  }
+}
+
+function slugifyBacklogTitle(value: string): string {
+  return value.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 60) || 'untitled'
+}
+
+function backlogTodayPrefix(now: Date): string {
+  const pad = (value: number) => String(value).padStart(2, '0')
+  return `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`
 }
 
 function normalizeStore(value: unknown): BacklogObjectStore {

@@ -1257,6 +1257,55 @@ async function assertIngestAgentStateFrameUpdatesSession(runtimeModule: RuntimeM
     snap = snapshotFor('sess-ingest')
     assert.equal(snap?.agentState?.phase, 'tool_use')
     assert.equal(snap?.activity.kind, 'working')
+    assert.equal(
+      snap?.activity.kind === 'working' ? snap.activity.since : -1,
+      2000,
+      'working since anchors to the first working frame',
+    )
+
+    // Broadcast-storm guard: once "working", further within-working frames
+    // (thinking ↔ tool_use) update the phase in place but must NOT re-broadcast,
+    // and must preserve the working `since` so a "working for Xs" reading can
+    // accumulate. The idle→working transition above already broadcast once;
+    // these three churn frames must add zero broadcasts.
+    const broadcastsBefore = mockSender.sent.filter((e) => e.channel === 'terminal:sessions-changed').length
+    runtime.ingestAgentStateFrame(frame('thinking', 2001))
+    runtime.ingestAgentStateFrame(frame('tool_use', 2002))
+    runtime.ingestAgentStateFrame(frame('thinking', 2003))
+    snap = snapshotFor('sess-ingest')
+    assert.equal(snap?.agentState?.phase, 'thinking', 'phase tracks the latest within-working frame')
+    assert.equal(snap?.agentState?.since, 2003)
+    assert.equal(
+      snap?.activity.kind === 'working' ? snap.activity.since : -1,
+      2000,
+      'working since must be preserved across thinking ↔ tool_use churn',
+    )
+    const broadcastsAfter = mockSender.sent.filter((e) => e.channel === 'terminal:sessions-changed').length
+    assert.equal(broadcastsAfter, broadcastsBefore, 'within-working churn must not re-broadcast')
+
+    // Output arbitration: for a hook agent the output path must NOT override an
+    // authoritative awaiting_input phase back to "working" — the permission
+    // prompt's own bytes would otherwise fight the hook. Drive to awaiting_input,
+    // emit output, and assert both the phase and the bridged activity hold.
+    runtime.ingestAgentStateFrame(frame('awaiting_input', 3000))
+    snap = snapshotFor('sess-ingest')
+    assert.equal(snap?.activity.kind, 'idle', 'awaiting_input bridges to idle')
+    const ptyProcess = mockPty.spawnCalls.at(-1)?.process
+    assert.ok(ptyProcess, 'expected a spawned pty for the ingest session')
+    ptyProcess?.emitData('Allow tool? (y/n) ')
+    snap = snapshotFor('sess-ingest')
+    assert.equal(snap?.agentState?.phase, 'awaiting_input', 'output must not change the authoritative phase')
+    assert.equal(snap?.activity.kind, 'idle', 'output must not flip a hook awaiting_input agent to working')
+
+    // …but the working frame that fires when the approved tool completes
+    // (PostToolUse → thinking) DOES clear awaiting_input. This is the only
+    // mid-turn clearer, which is why PostToolUse stays registered (see
+    // AGENT_STATE_HOOK_EVENTS); without it the "needs input" signal would stay
+    // lit until Stop.
+    runtime.ingestAgentStateFrame(frame('thinking', 3001))
+    snap = snapshotFor('sess-ingest')
+    assert.equal(snap?.agentState?.phase, 'thinking', 'a post-approval working frame must clear awaiting_input')
+    assert.equal(snap?.activity.kind, 'working')
 
     // An unknown agent id is a safe no-op (no throw, nothing changed).
     runtime.ingestAgentStateFrame({
@@ -1269,7 +1318,7 @@ async function assertIngestAgentStateFrameUpdatesSession(runtimeModule: RuntimeM
       ts: 3000,
     })
     snap = snapshotFor('sess-ingest')
-    assert.equal(snap?.agentState?.phase, 'tool_use', 'unknown-agent frame must not touch other sessions')
+    assert.equal(snap?.agentState?.phase, 'thinking', 'unknown-agent frame must not touch other sessions')
   } finally {
     await runtime.shutdown()
   }

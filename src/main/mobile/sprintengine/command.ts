@@ -40,6 +40,7 @@ import {
 } from './workspace'
 import { assertBacklogRelativePath, resolveBacklogStartPrompt } from './backlog'
 import {
+  createBacklogItem,
   updateBacklogModuleMetadata,
   updateBacklogStatus,
   updateBacklogTriage,
@@ -69,6 +70,7 @@ export type MobileControlCommandType =
   | 'device.revoke'
   | 'backlog.update'
   | 'backlog.startSprintEngine'
+  | 'backlog.create'
 
 type MobileControlErrorCode =
   | 'unsupported_protocol_version'
@@ -176,10 +178,22 @@ type BacklogStartSprintEngineCommand = MobileControlCommandBase<
   }
 >
 
+type BacklogCreateCommand = MobileControlCommandBase<
+  'backlog.create',
+  {
+    workspacePath: string
+    title: string
+    description?: string
+    type?: string
+    difficulty?: string
+    criticality?: string
+  }
+>
+
 type UnsupportedMobileControlCommand = MobileControlCommandBase<
   Exclude<
     MobileControlCommandType,
-    'sprintengine.create' | 'task.start' | 'agent.followUp' | 'artifact.approve' | 'artifact.requestChanges' | 'backlog.update' | 'backlog.startSprintEngine'
+    'sprintengine.create' | 'task.start' | 'agent.followUp' | 'artifact.approve' | 'artifact.requestChanges' | 'backlog.update' | 'backlog.startSprintEngine' | 'backlog.create'
   >,
   Record<string, unknown>
 >
@@ -192,6 +206,7 @@ export type MobileControlCommand =
   | ArtifactRequestChangesCommand
   | BacklogUpdateCommand
   | BacklogStartSprintEngineCommand
+  | BacklogCreateCommand
   | UnsupportedMobileControlCommand
 
 export type MobileSprintEngineTaskStartRequest = {
@@ -244,6 +259,7 @@ const allowedCommandTypes = new Set<MobileControlCommandType>([
   'artifact.requestChanges',
   'backlog.update',
   'backlog.startSprintEngine',
+  'backlog.create',
 ])
 export type SprintEngineArtifactReviewAction = 'approve' | 'request-changes'
 
@@ -414,6 +430,8 @@ export class MobileSprintEngineCommandService {
         return this.executeBacklogUpdateCommand(command, scope)
       case 'backlog.startSprintEngine':
         return this.executeBacklogStartSprintEngineCommand(command, scope)
+      case 'backlog.create':
+        return this.executeBacklogCreateCommand(command, scope)
       case 'task.start':
         return this.executeTaskStartCommand(command, scope)
       case 'agent.followUp':
@@ -658,6 +676,40 @@ export class MobileSprintEngineCommandService {
     })
 
     return result
+  }
+
+  private async executeBacklogCreateCommand(
+    command: Extract<MobileControlCommand, { type: 'backlog.create' }>,
+    scope: MobileSprintEngineCommandScope
+  ): Promise<MobileSprintEngineCommandResult> {
+    const workspacePath = await validateMobileWorkspacePath({
+      workspacePath: command.payload.workspacePath,
+      allowedWorkspaceRoots: scope.allowedWorkspaceRoots,
+    })
+    const title = command.payload.title.trim()
+    if (!title) {
+      return this.resultRecorder.reject(command, 'invalid_payload', 'Backlog item creation requires a non-empty title.', false, undefined, undefined, workspacePath)
+    }
+
+    const result = await createBacklogItem({
+      workspaceRoot: workspacePath,
+      title,
+      ...(command.payload.description !== undefined ? { description: command.payload.description } : {}),
+      ...(command.payload.type !== undefined ? { type: command.payload.type } : {}),
+      ...(command.payload.difficulty !== undefined ? { difficulty: command.payload.difficulty } : {}),
+      ...(command.payload.criticality !== undefined ? { criticality: command.payload.criticality } : {}),
+    })
+    if (!result.ok) {
+      return this.resultRecorder.reject(command, 'invalid_payload', result.message, false, undefined, undefined, workspacePath)
+    }
+
+    const item = result.store.items.find((record) => record.source.relativePath === result.relativePath) ?? null
+    return this.resultRecorder.acceptWorkspaceCommand(
+      command,
+      { id: result.id, relativePath: result.relativePath, item },
+      workspacePath,
+      'Mobile backlog item was created in the workspace backlog store.'
+    )
   }
 
   private commandScope(options: MobileSprintEngineCommandDispatchOptions): MobileSprintEngineCommandScope {

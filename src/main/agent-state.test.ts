@@ -166,7 +166,14 @@ async function run(): Promise<void> {
   await mkdir(join(root, '.claude'), { recursive: true })
   await writeFile(
     settingsPath,
-    JSON.stringify({ hooks: { PostToolUse: [{ matcher: 'Read', hooks: [{ type: 'command', command: 'echo user' }] }] } }, null, 2),
+    JSON.stringify({ hooks: {
+      // The user's own hook — must survive install + uninstall untouched.
+      PostToolUse: [{ matcher: 'Read', hooks: [{ type: 'command', command: 'echo user' }] }],
+      // A stale Multicode-tagged hook from a prior release that registered the
+      // now-dropped PreToolUse event. Install must migrate it away (and uninstall
+      // must also clean it), not strand it.
+      PreToolUse: [{ matcher: '*', hooks: [{ type: 'command', command: 'old reporter', _multicode: AGENT_STATE_HOOK_TAG }] }],
+    } }, null, 2),
     'utf8'
   )
 
@@ -180,7 +187,12 @@ async function run(): Promise<void> {
   for (const { event } of AGENT_STATE_HOOK_EVENTS) {
     assert.ok(Array.isArray(settings.hooks?.[event]), `missing event ${event}`)
   }
-  // The user's pre-existing hook is untouched.
+  // PreToolUse is dropped; PostToolUse is kept (it clears awaiting_input). So we
+  // add our own PostToolUse '*' block ALONGSIDE the user's 'Read' block (2 blocks
+  // total), and never register PreToolUse.
+  assert.equal(settings.hooks?.PreToolUse, undefined, 'PreToolUse must not be registered')
+  assert.equal(settings.hooks?.PostToolUse?.length, 2, 'our PostToolUse block must coexist with the user block')
+  assert.ok(settings.hooks?.PostToolUse?.some((b) => b.matcher === '*'), 'our PostToolUse * block is missing')
   const userEntry = settings.hooks?.PostToolUse?.find((b) => b.matcher === 'Read')
   assert.ok(userEntry, 'user PostToolUse block dropped')
   assert.equal(userEntry?.hooks?.[0]?.command, 'echo user')
@@ -201,13 +213,16 @@ async function run(): Promise<void> {
 
   // --- Codex (Phase 2): TOML managed-block install ------------------------
   // Render: a single tagged block, one entry per Codex event, command quoted as
-  // a TOML basic string, tool events carrying a matcher, and PermissionRequest
+  // a TOML basic string, PostToolUse carrying a matcher, and PermissionRequest
   // (Codex's awaiting-input event) present rather than Claude's Notification.
+  // PreToolUse is trimmed, so its table is absent.
   const codexBlock = renderCodexAgentStateHooksBlock('node "/abs/agent-state.mjs" --socket "/abs/agent-state.sock"')
   assert.ok(codexBlock.startsWith('# >>> multicode agent-state hooks managed'))
   assert.ok(codexBlock.trimEnd().endsWith('# <<< multicode agent-state hooks managed'))
   assert.ok(codexBlock.includes('[[hooks.PermissionRequest]]'))
-  assert.ok(codexBlock.includes('[[hooks.PreToolUse]]') && codexBlock.includes('matcher = "*"'))
+  assert.ok(codexBlock.includes('[[hooks.Stop]]'))
+  assert.ok(codexBlock.includes('[[hooks.PostToolUse]]') && codexBlock.includes('matcher = "*"'))
+  assert.ok(!codexBlock.includes('[[hooks.PreToolUse]]'))
   assert.ok(!codexBlock.includes('Notification'))
   // command is a valid TOML basic string (JSON-escaped quotes).
   assert.ok(codexBlock.includes('command = "node \\"/abs/agent-state.mjs\\" --socket \\"/abs/agent-state.sock\\""'))

@@ -14,7 +14,8 @@ export type MobileControlCommandType =
   | "agent.followUp"
   | "device.revoke"
   | "backlog.update"
-  | "backlog.startSprintEngine";
+  | "backlog.startSprintEngine"
+  | "backlog.create";
 
 export type MobileControlEventType =
   | "snapshot.updated"
@@ -33,7 +34,8 @@ export type MobileControlCapability =
   | "agents.followUp"
   | "devices.revoke"
   | "backlog.update"
-  | "backlog.start";
+  | "backlog.start"
+  | "backlog.create";
 
 export type MobileControlErrorCode =
   | "unsupported_protocol_version"
@@ -217,6 +219,18 @@ export type BacklogStartSprintEngineCommand = MobileControlCommandBase<
   }
 >;
 
+export type BacklogCreateCommand = MobileControlCommandBase<
+  "backlog.create",
+  {
+    workspacePath: string;
+    title: string;
+    description?: string;
+    type?: MobileControlBacklogItemType;
+    difficulty?: MobileControlBacklogItemDifficulty;
+    criticality?: MobileControlBacklogItemCriticality;
+  }
+>;
+
 export type MobileControlCommand =
   | SnapshotRequestCommand
   | ArtifactReadCommand
@@ -227,7 +241,8 @@ export type MobileControlCommand =
   | AgentFollowUpCommand
   | DeviceRevokeCommand
   | BacklogUpdateCommand
-  | BacklogStartSprintEngineCommand;
+  | BacklogStartSprintEngineCommand
+  | BacklogCreateCommand;
 
 export type MobileControlNeedsInputKind = "architect" | "user" | "owner" | "external_validation";
 
@@ -710,6 +725,7 @@ const commandTypes = [
   "device.revoke",
   "backlog.update",
   "backlog.startSprintEngine",
+  "backlog.create",
 ] as const satisfies readonly MobileControlCommandType[];
 
 const eventTypes = [
@@ -1095,6 +1111,15 @@ function validateCommandPayload(type: MobileControlCommandType, payload: Record<
       );
     case "backlog.startSprintEngine":
       return requireString(payload, "workspacePath") ?? requireString(payload, "relativePath");
+    case "backlog.create":
+      return (
+        requireString(payload, "workspacePath") ??
+        requireString(payload, "title") ??
+        optionalString(payload, "description") ??
+        optionalString(payload, "type") ??
+        optionalString(payload, "difficulty") ??
+        optionalString(payload, "criticality")
+      );
   }
 }
 

@@ -31,13 +31,15 @@ import {
 } from '../../hooks/useTerminalSessions'
 import { useRelativeNow } from '../../hooks/useRelativeNow'
 import { formatRelativeMs, formatRelativeMsAgo } from '../../utils/relativeTime'
-import type { FuturePlanWorkspaceSource, HighlightColor, SprintEngineRole, SprintEngineRuntimeAgentStatus, Workspace } from '../../types/workspace'
+import type { AgentCli, FuturePlanWorkspaceSource, HighlightColor, SprintEngineRole, SprintEngineRuntimeAgentStatus, Workspace } from '../../types/workspace'
 import { captureNavRailWidthFraction, consumePendingAgentFlash, deleteTabPreservingNavRail, registerModel, restoreNavRailWidthFraction, unregisterModel } from '../../utils/modelRegistry'
 import { TAB_DRAG_MIME, serializeTabDragPayload } from '../../utils/tabDragPayload'
 import { logPerfEvent } from '../../utils/perfDiagnostics'
 import { applySprintEngineAutomationStopReason } from '../../utils/sprintengineSupervisorNotifications'
 import { HIGHLIGHT_COLORS, getHighlightSwatch } from '../../utils/highlight'
-import { NewChatIcon, SpecialistActionIcon, SprintEngineRoleIcon, WorkspaceTypeIcon } from '../AppIcons'
+import { SpecialistActionIcon, SprintEngineRoleIcon, WorkspaceTypeIcon } from '../AppIcons'
+import WorkspaceLauncher from './WorkspaceLauncher'
+import type { AgentCliCatalogOption } from './newWorkspace/cliRuntimeOptions'
 import { panelTabAccentClass } from './panelTabAccent'
 import { LifecycleGlyph, type LifecycleState, StatusDot, type Tone } from '../ui'
 import MulticodeSpinner from '../brand/MulticodeSpinner'
@@ -46,7 +48,14 @@ import AgentPanel from '../panels/AgentPanel'
 interface Props {
   workspaceId: string
   onStartFuturePlan?: (source: FuturePlanWorkspaceSource) => void
-  onNewChat?: () => void
+  // Empty-workspace launcher inputs: the CLI quick-launch grid and the two
+  // secondary launch paths (specialist picker, Sprint Engine setup).
+  agentClis?: AgentCliCatalogOption[]
+  onSpawnAgent?: (cli: AgentCli, label: string) => void
+  // Renders the existing SpawnAgentMenu (specialist picker) as Popover content,
+  // anchored to the launcher's row; `close` dismisses the popover after a pick.
+  renderSpecialistPicker?: (close: () => void) => React.ReactNode
+  onStartSprintEngine?: () => void
   onNewWorkspace?: () => void
   onCloseWorkspace?: (workspaceId: string) => void
 }
@@ -61,69 +70,6 @@ function countOpenTabs(model: Model | null): number {
     if (node instanceof TabNode) count += 1
   })
   return count
-}
-
-// Replaces the blank FlexLayout grid when a workspace has no tabs left, so a
-// closed-out workspace reads as an intentional state with a way forward
-// (re-engage via New chat / New workspace) and a way out (Close workspace)
-// rather than a dead canvas.
-function EmptyWorkspaceSurface({
-  onNewChat,
-  onNewWorkspace,
-  onClose,
-}: {
-  onNewChat?: () => void
-  onNewWorkspace?: () => void
-  onClose?: () => void
-}) {
-  const hasSecondaryRow = Boolean(onNewWorkspace || onClose)
-  return (
-    <div className="absolute inset-0 z-10 flex items-center justify-center bg-[color:var(--bg-app)]">
-      <div className="flex flex-col items-center gap-4 text-center">
-        <div className="space-y-1">
-          <p className="text-[13px] font-medium text-[color:var(--text-default)]">No agents open</p>
-          <p className="text-[12px] text-[color:var(--text-disabled)]">
-            Nothing is running in this workspace.
-          </p>
-        </div>
-        {onNewChat ? (
-          <button
-            type="button"
-            onClick={onNewChat}
-            className="inline-flex h-[34px] items-center gap-2 rounded-md border border-[color:var(--border-default)] bg-[color:var(--bg-surface-raised)] px-3 text-[12px] font-medium text-[color:var(--text-strong)] transition-colors hover:border-[color:var(--border-strong)] hover:bg-[color:var(--bg-hover)]"
-          >
-            <NewChatIcon className="icon-xs" />
-            New chat
-          </button>
-        ) : null}
-        {hasSecondaryRow ? (
-          <div className="flex items-center gap-3 text-[12px]">
-            {onNewWorkspace ? (
-              <button
-                type="button"
-                onClick={onNewWorkspace}
-                className="text-[color:var(--text-muted)] transition-colors hover:text-[color:var(--text-default)]"
-              >
-                New workspace
-              </button>
-            ) : null}
-            {onNewWorkspace && onClose ? (
-              <span aria-hidden="true" className="text-[color:var(--text-disabled)]">·</span>
-            ) : null}
-            {onClose ? (
-              <button
-                type="button"
-                onClick={onClose}
-                className="text-[color:var(--text-muted)] transition-colors hover:text-[color:var(--tone-warn)]"
-              >
-                Close workspace
-              </button>
-            ) : null}
-          </div>
-        ) : null}
-      </div>
-    </div>
-  )
 }
 
 // Dev Tools panels. The canonical `editor` and `content-search` panels are
@@ -313,7 +259,7 @@ function renderTerminalRecencyIndicator(
   )
 }
 
-function WorkspaceLayout({ workspaceId, onStartFuturePlan, onNewChat, onNewWorkspace, onCloseWorkspace }: Props) {
+function WorkspaceLayout({ workspaceId, onStartFuturePlan, agentClis, onSpawnAgent, renderSpecialistPicker, onStartSprintEngine, onNewWorkspace, onCloseWorkspace }: Props) {
   const layoutModel = useWorkspaceStore((s) => s.workspaces.find((w) => w.id === workspaceId)?.layoutModel)
   const workspaceAgents = useWorkspaceStore((s) =>
     s.workspaces.find((w) => w.id === workspaceId)?.agents ?? EMPTY_WORKSPACE_AGENTS
@@ -1195,8 +1141,11 @@ function WorkspaceLayout({ workspaceId, onStartFuturePlan, onNewChat, onNewWorks
         }}
       />
       {isEmpty ? (
-        <EmptyWorkspaceSurface
-          onNewChat={onNewChat}
+        <WorkspaceLauncher
+          agentClis={agentClis ?? []}
+          onSpawnAgent={onSpawnAgent ?? (() => {})}
+          renderSpecialistPicker={renderSpecialistPicker}
+          onStartSprintEngine={onStartSprintEngine ?? (() => {})}
           onNewWorkspace={onNewWorkspace}
           onClose={onCloseWorkspace ? () => onCloseWorkspace(workspaceId) : undefined}
         />

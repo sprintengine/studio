@@ -27,15 +27,31 @@ export const AGENT_STATE_HOOK_SCRIPT_REL = join('.multicode', 'hooks', 'agent-st
 
 const CLAUDE_LOCAL_SETTINGS_REL = join('.claude', 'settings.local.json')
 
-// The Claude Code lifecycle events we register the reporter for, with the
-// matcher each event expects. Tool events (`PreToolUse`/`PostToolUse`) take a
-// tool-name matcher; the rest are not tool-scoped and omit it. One reporter
+// The Claude Code lifecycle events we register the reporter for. One reporter
 // command is registered under every event — it reads `hook_event_name` from the
 // hook payload to know which phase to report.
+//
+// `PreToolUse` and `PostToolUse` each fire once per tool call — equal frequency.
+// We drop `PreToolUse` and keep `PostToolUse`, not because one is rarer, but
+// because of what each produces:
+//
+//   - `PreToolUse` is pure overhead here: its only product is the
+//     `thinking ↔ tool_use` distinction, which bridges to the same `working`
+//     activity, is deduped by the renderer, and is surfaced nowhere.
+//   - `PostToolUse` is load-bearing: after the user answers a permission prompt
+//     (`Notification` → awaiting_input), its `→ thinking` frame is the ONLY
+//     signal that clears `awaiting_input` mid-turn — the agent resumes with no
+//     other hook frame until `Stop`, and output never writes `agentState.phase`.
+//     Dropping it leaves the "needs input" indicator falsely lit until turn end.
+//
+// So this halves the per-tool reporter spawns (2 → 1) by dropping the one we
+// don't need; it does NOT eliminate them. The broadcast-storm guard in
+// `ingestAgentStateFrame` keeps the remaining PostToolUse churn from causing
+// snapshot IPCs. Eliminating the last per-tool spawn entirely needs a cheaper
+// reporter (native binary) or an output-based resume signal — separate backlog.
 export const AGENT_STATE_HOOK_EVENTS: ReadonlyArray<{ event: string; matcher?: string }> = [
   { event: 'SessionStart' },
   { event: 'UserPromptSubmit' },
-  { event: 'PreToolUse', matcher: '*' },
   { event: 'PostToolUse', matcher: '*' },
   { event: 'Notification' },
   { event: 'Stop' },
@@ -297,10 +313,34 @@ function ensureMatcherBlock(blocks: ClaudeMatcherBlock[], matcher: string | unde
   return next
 }
 
+// Remove every Multicode-tagged reporter entry from ALL event keys, pruning
+// emptied matcher-blocks and then emptied event keys. Sweeping all keys — rather
+// than only the currently-registered AGENT_STATE_HOOK_EVENTS — self-heals an
+// entry left behind by a prior release that registered an event we have since
+// dropped (e.g. PreToolUse). Without this, that stale hook would keep spawning
+// the reporter on every tool call and uninstall could never reach it.
+function stripAgentStateEntries(hooks: Record<string, ClaudeMatcherBlock[]>): void {
+  for (const event of Object.keys(hooks)) {
+    const blocks = hooks[event]
+    if (!Array.isArray(blocks)) continue
+    for (const block of blocks) {
+      if (!Array.isArray(block.hooks)) continue
+      block.hooks = block.hooks.filter((entry) => !isAgentStateEntry(entry))
+    }
+    const kept = blocks.filter((b) => Array.isArray(b.hooks) && b.hooks.length > 0)
+    if (kept.length === 0) delete hooks[event]
+    else hooks[event] = kept
+  }
+}
+
 export async function mergeAgentStateHooks(settingsPath: string, command: string): Promise<void> {
   const existing = (await readJsonIfExists<ClaudeSettings>(settingsPath)) ?? {}
   const settings: ClaudeSettings = { ...existing }
   if (!settings.hooks || typeof settings.hooks !== 'object') settings.hooks = {}
+
+  // Clean up first (incl. entries for events we no longer register), then add the
+  // current set — so install is both idempotent and a migration for stale hooks.
+  stripAgentStateEntries(settings.hooks)
 
   for (const { event, matcher } of AGENT_STATE_HOOK_EVENTS) {
     if (!Array.isArray(settings.hooks[event])) settings.hooks[event] = []
@@ -320,17 +360,9 @@ export async function unmergeAgentStateHooks(settingsPath: string): Promise<void
   const existing = await readJsonIfExists<ClaudeSettings>(settingsPath)
   if (!existing?.hooks || typeof existing.hooks !== 'object') return
 
-  for (const { event } of AGENT_STATE_HOOK_EVENTS) {
-    const blocks = existing.hooks[event]
-    if (!Array.isArray(blocks)) continue
-    for (const block of blocks) {
-      if (!Array.isArray(block.hooks)) continue
-      block.hooks = block.hooks.filter((entry) => !isAgentStateEntry(entry))
-    }
-    const kept = blocks.filter((b) => Array.isArray(b.hooks) && b.hooks.length > 0)
-    if (kept.length === 0) delete existing.hooks[event]
-    else existing.hooks[event] = kept
-  }
+  // Sweep ALL event keys (not just the currently-registered ones) so uninstall
+  // also removes hooks left by an older release under a since-dropped event.
+  stripAgentStateEntries(existing.hooks)
   if (Object.keys(existing.hooks).length === 0) delete existing.hooks
 
   await writeFile(settingsPath, JSON.stringify(existing, null, 2) + '\n', 'utf8')
@@ -411,10 +443,12 @@ const CODEX_AGENT_STATE_END = '# <<< multicode agent-state hooks managed'
 // Codex uses `PermissionRequest` (not Claude's `Notification`) for the
 // awaiting-input case, and has no `SessionEnd` (process exit is owned by the pty
 // exit listener). The reporter already maps PermissionRequest → awaiting_input.
+// `PreToolUse` is dropped and `PostToolUse` kept for the same reasons as Claude
+// above — see AGENT_STATE_HOOK_EVENTS. PostToolUse → thinking is what clears
+// awaiting_input after a PermissionRequest is answered.
 export const AGENT_STATE_CODEX_HOOK_EVENTS: ReadonlyArray<{ event: string; matcher?: string }> = [
   { event: 'SessionStart' },
   { event: 'UserPromptSubmit' },
-  { event: 'PreToolUse', matcher: '*' },
   { event: 'PostToolUse', matcher: '*' },
   { event: 'PermissionRequest' },
   { event: 'Stop' },

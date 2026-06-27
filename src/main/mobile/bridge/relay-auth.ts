@@ -17,6 +17,7 @@ const SIDE_EFFECTING_COMMANDS = new Set<MobileControlCommandType>([
   'device.revoke',
   'backlog.update',
   'backlog.startSprintEngine',
+  'backlog.create',
 ])
 
 const CAPABILITY_BY_COMMAND: Record<MobileControlCommandType, MobileControlCapability> = {
@@ -30,6 +31,7 @@ const CAPABILITY_BY_COMMAND: Record<MobileControlCommandType, MobileControlCapab
   'device.revoke': 'devices.revoke',
   'backlog.update': 'backlog.update',
   'backlog.startSprintEngine': 'backlog.start',
+  'backlog.create': 'backlog.create',
 }
 
 export type MobileBridgeRelayAuthorizationError = {

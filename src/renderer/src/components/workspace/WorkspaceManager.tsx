@@ -76,7 +76,7 @@ import { AppTitleBar } from './AppTitleBar'
 import WorkspaceTopBar, {
   type SessionItem,
 } from './WorkspaceTopBar'
-import { AGENT_SPAWN_PERMISSION_OPTIONS } from './SpawnAgentMenu'
+import SpawnAgentMenu, { AGENT_SPAWN_PERMISSION_OPTIONS } from './SpawnAgentMenu'
 import {
   buildMultiloopSpawnPrompt,
   buildSidebarWorkspaceOrder,
@@ -108,7 +108,7 @@ import {
 } from './workspaceLayoutRetention'
 import type { ConversationProviderListResult } from '../../../../shared/electron-api'
 import { restoreDetachedWorkspaceWindowsOnStartup } from './workspaceWindowRestore'
-import { LAYOUT_TEMPLATES } from '../../layouts/templates'
+import { EMPTY_CHAT_TEMPLATE, LAYOUT_TEMPLATES } from '../../layouts/templates'
 import { collectWorkspaceTypeSupervisors } from '../../modules/workspace-type-supervisors'
 import { RendererCommandDispatcher } from '../../commands/commandDispatcher'
 import { getCommandDefinition } from '../../commands/commandRegistry'
@@ -722,6 +722,33 @@ export default function WorkspaceManager() {
     if (chosenCli) setLastSelectedCli(chosenCli)
   }, [agentCliCatalog, createSoloChatWorkspace, lastSelectedCli, setLastSelectedCli])
 
+  // "New chat" entry point: create a fresh workspace that opens empty so the
+  // WorkspaceLauncher chooser shows (the user picks an agent / specialist / Sprint
+  // Engine there). `folderPath === undefined` inherits the active workspace's
+  // folder, matching the plain New chat default. No agent is seeded.
+  const createLauncherChat = useCallback((folderPath?: string | null) => {
+    const targetFolderPath = folderPath === undefined ? activeWorkspace?.folderPath ?? null : folderPath
+    addWorkspace(EMPTY_CHAT_TEMPLATE, {
+      name: pickNewChatName(targetFolderPath),
+      folderPath: targetFolderPath,
+      windowId: workspaceWindowId,
+    })
+    setShowNewWorkspacePanel(false)
+    setNewWorkspacePanelInitialState(null)
+    closeSettingsOverlay()
+    setSpecialistMenuOpen(false)
+    setNotificationsOpen(false)
+    if (onboardingStep !== 'complete') setOnboardingStep('complete')
+  }, [
+    activeWorkspace?.folderPath,
+    addWorkspace,
+    closeSettingsOverlay,
+    onboardingStep,
+    pickNewChatName,
+    setOnboardingStep,
+    workspaceWindowId,
+  ])
+
   const openNewWorkspacePanelForFolder = useCallback((folderPath: string) => {
     setNewWorkspacePanelInitialState({ folderPath })
     setShowNewWorkspacePanel(true)
@@ -773,6 +800,16 @@ export default function WorkspaceManager() {
       folderPath: source.folderPath,
       futurePlanSource: source,
     })
+    setShowNewWorkspacePanel(true)
+    closeSettingsOverlay()
+    setSpecialistMenuOpen(false)
+    setNotificationsOpen(false)
+  }, [closeSettingsOverlay])
+
+  // The empty-workspace launcher's Sprint Engine path: open the New Workspace
+  // panel pre-set to the team-setup flow (no source plan — "start a new team").
+  const openSprintEngineSetup = useCallback(() => {
+    setNewWorkspacePanelInitialState({ mode: 'sprintengine' })
     setShowNewWorkspacePanel(true)
     closeSettingsOverlay()
     setSpecialistMenuOpen(false)
@@ -1161,9 +1198,6 @@ export default function WorkspaceManager() {
     },
     [removeWorkspace]
   )
-  const createDefaultNewChat = useCallback(() => {
-    createNewChat()
-  }, [createNewChat])
 
   // Fire the deferred agent-config adoption against the just-created workspace
   // root. Runs at most once per onboarding: the selection is consumed up front so
@@ -2009,6 +2043,29 @@ export default function WorkspaceManager() {
     void addNewMultiloopAgent(role, '', selectedCli)
   }
 
+  // The empty-workspace launcher's "Specialist agent" row renders the existing
+  // SpawnAgentMenu inside a Popover anchored to the row (opens at the click, not
+  // from the top bar). All spawn wiring stays here; the launcher only owns the
+  // anchor and open state and calls this with a close callback. Open-in-new-chat
+  // flyouts are omitted — the launcher already creates a fresh chat workspace.
+  const renderSpecialistPicker = (close: () => void) => (
+    <SpawnAgentMenu
+      multiloopLaunchMenu={multiloopLaunchMenu}
+      conversationSpawnAvailable={conversationSpawnAvailable}
+      agentSpawnPermissionPreset={agentSpawnPermissionPreset}
+      onChangeAgentSpawnPermissionPreset={setAgentSpawnPermissionPreset}
+      agentSpawnDebugMode={agentSpawnDebugMode}
+      onChangeAgentSpawnDebugMode={setAgentSpawnDebugMode}
+      onSpawnTerminal={addNewTerminal}
+      onSpawnGeneral={(cli) => addNewCliAgent(cli, 'General Agent')}
+      onSpawnConversation={spawnConversationAgent}
+      onSpawnSpecialist={handleSelectSpecialist}
+      onSpawnMultiloopRole={handleSelectMultiloopRole}
+      showOpenInNewChat={false}
+      onClose={close}
+    />
+  )
+
   const startLogin = async () => {
     setSessionsOpen(false)
     setSpecialistMenuOpen(false)
@@ -2221,7 +2278,7 @@ export default function WorkspaceManager() {
         onNewWorkspaceInFolder={openNewWorkspacePanelForFolder}
         onOpenAutomations={automationsEnabled ? openAutomations : null}
         automationsActive={automationsOpen}
-        onNewChat={() => createNewChat()}
+        onNewChat={() => createLauncherChat()}
         onNewChatInFolder={(folderPath) => spawnNewChatForFolder(folderPath)}
         onNewChatTerminal={(folderPath) => pickNewChatTerminal(folderPath)}
         onNewChatGeneral={(cli, folderPath) => pickNewChatGeneral(cli, folderPath)}
@@ -2373,7 +2430,10 @@ export default function WorkspaceManager() {
                     <WorkspaceLayout
                       workspaceId={workspaceId}
                       onStartFuturePlan={openFuturePlanWorkspace}
-                      onNewChat={createDefaultNewChat}
+                      agentClis={agentCliCatalog}
+                      onSpawnAgent={addNewCliAgent}
+                      renderSpecialistPicker={renderSpecialistPicker}
+                      onStartSprintEngine={openSprintEngineSetup}
                       onNewWorkspace={openNewWorkspacePanel}
                       onCloseWorkspace={closeWorkspaceById}
                     />
@@ -2420,7 +2480,7 @@ export default function WorkspaceManager() {
         <CommandPalette
           onClose={() => setShowPalette(false)}
           onNewWorkspace={openNewWorkspacePanel}
-          onNewChat={() => createNewChat()}
+          onNewChat={() => createLauncherChat()}
           onSpawnSpecialist={handleSelectSpecialist}
           workspaceWindowId={workspaceWindowId}
           workspaces={visibleWorkspaces}

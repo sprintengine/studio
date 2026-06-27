@@ -40,6 +40,9 @@ async function main(): Promise<void> {
   await assertBacklogUpdateMutatesObjectStore()
   await assertBacklogStartSprintEngineUsesHandoverAndMarksItem()
   await assertBacklogStartRejectsPathOutsideBacklogFolder()
+  await assertBacklogCreateWritesFileAndRecord()
+  await assertBacklogCreateRejectsEmptyTitle()
+  await assertBacklogCreateKeepsGeneratedPathUnderBacklog()
   await assertFilesystemMutationHandlersProtectSprintEngineStateAliases()
 }
 
@@ -848,6 +851,97 @@ async function assertBacklogStartRejectsPathOutsideBacklogFolder(): Promise<void
 
   assert.equal(result.ok, false)
   assert.equal(result.ok === false ? result.error.code : '', 'path_not_allowed')
+}
+
+async function assertBacklogCreateWritesFileAndRecord(): Promise<void> {
+  const workspaceRoot = await mkdtemp(join(tmpdir(), 'multicode-mobile-backlog-create-'))
+  const service = new MobileSprintEngineCommandService({
+    workspaceRoot,
+    now: () => now,
+    execute: async () => {
+      throw new Error('Sprint Engine tool should not run for backlog create')
+    },
+  })
+
+  const result = await service.dispatch(command('backlog.create', {
+    workspacePath: workspaceRoot,
+    title: 'Ship the phone widget',
+    description: 'Users need the widget on the phone.',
+    type: 'spike',
+    difficulty: 'm',
+    criticality: 'high',
+  }, {
+    commandId: 'cmd_backlog_create',
+    idempotencyKey: 'mobile:device_1:backlog-create',
+  }))
+
+  assert.equal(result.ok, true)
+  const data = result.ok ? (result.data as { id: string; relativePath: string }) : null
+  assert.ok(data?.relativePath?.startsWith('backlog/'), 'create returns a backlog/-relative path')
+  assert.match(data!.relativePath, /^backlog\/\d{4}-\d{2}-\d{2}-ship-the-phone-widget\.md$/)
+  assert.ok(data!.id.startsWith('backlog_'), 'create returns a stable backlog id')
+
+  const fileBody = await readFile(join(workspaceRoot, data!.relativePath), 'utf8')
+  assert.equal(fileBody, '# Ship the phone widget\n\nUsers need the widget on the phone.\n')
+
+  const store = JSON.parse(await readFile(join(workspaceRoot, '.multi-code', 'backlog', 'items.json'), 'utf8')) as {
+    items: Array<{ id: string; source: { relativePath: string }; status?: string; type?: string; difficulty?: string; criticality?: string }>
+  }
+  const record = store.items.find((item) => item.source.relativePath === data!.relativePath)
+  assert.ok(record, 'backlog.create should upsert a real items.json record')
+  assert.equal(record?.status, 'idea')
+  assert.equal(record?.type, 'spike')
+  assert.equal(record?.difficulty, 'm')
+  assert.equal(record?.criticality, 'high')
+  assert.equal(record?.id, data!.id)
+}
+
+async function assertBacklogCreateRejectsEmptyTitle(): Promise<void> {
+  const workspaceRoot = await mkdtemp(join(tmpdir(), 'multicode-mobile-backlog-create-empty-'))
+  const service = new MobileSprintEngineCommandService({
+    workspaceRoot,
+    now: () => now,
+    execute: async () => {
+      throw new Error('Sprint Engine tool should not run for rejected backlog create')
+    },
+  })
+
+  const result = await service.dispatch(command('backlog.create', {
+    workspacePath: workspaceRoot,
+    title: '   ',
+  }, {
+    commandId: 'cmd_backlog_create_empty',
+    idempotencyKey: 'mobile:device_1:backlog-create-empty',
+  }))
+
+  assert.equal(result.ok, false)
+  assert.equal(result.ok === false ? result.error.code : '', 'invalid_payload')
+}
+
+async function assertBacklogCreateKeepsGeneratedPathUnderBacklog(): Promise<void> {
+  const workspaceRoot = await mkdtemp(join(tmpdir(), 'multicode-mobile-backlog-create-escape-'))
+  const service = new MobileSprintEngineCommandService({
+    workspaceRoot,
+    now: () => now,
+    execute: async () => {
+      throw new Error('Sprint Engine tool should not run for backlog create')
+    },
+  })
+
+  // A title full of path-traversal characters must not escape backlog/.
+  const result = await service.dispatch(command('backlog.create', {
+    workspacePath: workspaceRoot,
+    title: '../../etc/passwd',
+  }, {
+    commandId: 'cmd_backlog_create_escape',
+    idempotencyKey: 'mobile:device_1:backlog-create-escape',
+  }))
+
+  assert.equal(result.ok, true)
+  const data = result.ok ? (result.data as { relativePath: string }) : null
+  assert.ok(data?.relativePath?.startsWith('backlog/'), 'title traversal is slugified under backlog/')
+  assert.equal(data!.relativePath.includes('..'), false, 'generated path cannot escape the backlog folder')
+  await readFile(join(workspaceRoot, data!.relativePath), 'utf8')
 }
 
 async function assertFilesystemMutationHandlersProtectSprintEngineStateAliases(): Promise<void> {

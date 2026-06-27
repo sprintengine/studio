@@ -99,7 +99,8 @@ async function run(): Promise<void> {
     hooks?: Record<string, unknown>
   }
   assert.ok(settings.hooks?.SessionStart, 'reporter hook not installed')
-  assert.ok(settings.hooks?.PostToolUse, 'reporter hook not installed for tool events')
+  assert.ok(settings.hooks?.PostToolUse, 'PostToolUse hook (awaiting-input clearer) not installed')
+  assert.ok(!settings.hooks?.PreToolUse, 'PreToolUse must not be installed (trimmed)')
 
   // Codex in the SAME workspace is a distinct install (different file + key),
   // so it runs once more and writes the TOML target, not the JSON one.

@@ -56,6 +56,7 @@ export type MobileControlCommandType =
   | 'device.revoke'
   | 'backlog.update'
   | 'backlog.startSprintEngine'
+  | 'backlog.create'
 
 export type MobileControlCapability =
   | 'snapshots.read'
@@ -67,6 +68,7 @@ export type MobileControlCapability =
   | 'devices.revoke'
   | 'backlog.update'
   | 'backlog.start'
+  | 'backlog.create'
 
 export type MobileControlErrorCode =
   | 'unsupported_protocol_version'
@@ -138,6 +140,7 @@ export type MobileRelayScope =
   | 'relay:device:revoke'
   | 'relay:backlog:update'
   | 'relay:backlog:start'
+  | 'relay:backlog:create'
 
 export type RelayCommandType =
   | 'snapshot.request'
@@ -150,6 +153,7 @@ export type RelayCommandType =
   | 'device.revoke'
   | 'backlog.update'
   | 'backlog.startSprintEngine'
+  | 'backlog.create'
 
 export type RelayCommandEnvelope = {
   desktopRelaySessionId: string
@@ -346,6 +350,7 @@ const REQUESTED_SCOPES: MobileControlCapability[] = [
   'devices.revoke',
   'backlog.update',
   'backlog.start',
+  'backlog.create',
 ]
 const REQUESTED_RELAY_SCOPES: MobileRelayScope[] = [
   'relay:snapshot:read',
@@ -357,6 +362,7 @@ const REQUESTED_RELAY_SCOPES: MobileRelayScope[] = [
   'relay:device:revoke',
   'relay:backlog:update',
   'relay:backlog:start',
+  'relay:backlog:create',
 ]
 const SUPPORTED_COMMANDS: MobileControlCommandType[] = [
   'snapshot.request',
@@ -369,6 +375,7 @@ const SUPPORTED_COMMANDS: MobileControlCommandType[] = [
   'device.revoke',
   'backlog.update',
   'backlog.startSprintEngine',
+  'backlog.create',
 ]
 const RELAY_SUPPORTED_COMMANDS: RelayCommandType[] = [
   'snapshot.request',
@@ -381,6 +388,7 @@ const RELAY_SUPPORTED_COMMANDS: RelayCommandType[] = [
   'device.revoke',
   'backlog.update',
   'backlog.startSprintEngine',
+  'backlog.create',
 ]
 
 function normalizeRelayUrlUpdate(value: string | null | undefined): string | null {
@@ -1005,6 +1013,7 @@ export class MobileBridge {
         return this.dispatchSprintEngineMutation(command)
       case 'backlog.update':
       case 'backlog.startSprintEngine':
+      case 'backlog.create':
         return this.dispatchBacklogMutation(command)
     }
   }

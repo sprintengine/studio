@@ -1357,45 +1357,6 @@ export default function WorkspaceSidebar({
             </Tooltip>
           </div>
         )}
-
-        {/* Automations — a quiet app-level nav entry below the creation row
-            (Cursor's Automations/Customizations pattern). Opens the global
-            Automations screen; it is a route, not a workspace. Hidden when the
-            automations module is disabled (onOpenAutomations is null). */}
-        {onOpenAutomations ? (
-          sidebarCollapsed ? (
-            <Tooltip content="Automations" wrapperClassName="flex">
-              <button
-                type="button"
-                onClick={onOpenAutomations}
-                aria-current={automationsActive ? 'page' : undefined}
-                className={`flex h-[30px] w-full shrink-0 items-center justify-center rounded-md transition-colors ${
-                  automationsActive
-                    ? 'bg-[color:var(--accent-primary-soft)] text-[color:var(--text-strong)]'
-                    : 'text-[color:var(--text-default)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]'
-                }`}
-                aria-label="Automations"
-              >
-                <AutomationsWorkspaceTypeIcon className="icon-xs pointer-events-none" />
-              </button>
-            </Tooltip>
-          ) : (
-            <button
-              type="button"
-              onClick={onOpenAutomations}
-              aria-current={automationsActive ? 'page' : undefined}
-              className={`flex h-[30px] w-full shrink-0 items-center gap-2 rounded-md px-3 text-[12px] font-medium transition-colors ${
-                automationsActive
-                  ? 'bg-[color:var(--accent-primary-soft)] text-[color:var(--text-strong)]'
-                  : 'text-[color:var(--text-default)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]'
-              }`}
-              aria-label="Automations"
-            >
-              <AutomationsWorkspaceTypeIcon className="icon-xs pointer-events-none shrink-0" />
-              <span className="pointer-events-none truncate">Automations</span>
-            </button>
-          )
-        ) : null}
       </div>
 
       {!sidebarCollapsed ? (
@@ -1555,6 +1516,55 @@ export default function WorkspaceSidebar({
           </div>
         ) : null}
       </nav>
+
+      {/* Bottom utility rail — app-level destinations pinned below the workspace
+          tree (secondary destinations belong in their own
+          zone, never under the create action). Automations opens a global
+          content-area screen (a Settings-peer destination, not a workspace), so
+          it lives in this quiet utility zone rather than amongst the New
+          workspace / New chat creation actions above. While that destination is
+          active the entry renders selected (aria-current). Hidden when the
+          automations module is disabled. */}
+      {onOpenAutomations ? (
+        <div
+          className={`shrink-0 border-t border-[color:var(--border-subtle)] py-1.5 ${
+            sidebarCollapsed ? 'px-1.5' : 'px-2'
+          }`}
+        >
+          {sidebarCollapsed ? (
+            <Tooltip content="Automations" wrapperClassName="flex">
+              <button
+                type="button"
+                onClick={onOpenAutomations}
+                aria-current={automationsActive ? 'page' : undefined}
+                className={`flex h-[30px] w-full shrink-0 items-center justify-center rounded-md transition-colors ${
+                  automationsActive
+                    ? 'bg-[color:var(--accent-primary-soft)] text-[color:var(--text-strong)]'
+                    : 'text-[color:var(--text-muted)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]'
+                }`}
+                aria-label="Automations"
+              >
+                <AutomationsWorkspaceTypeIcon className="icon-xs pointer-events-none" />
+              </button>
+            </Tooltip>
+          ) : (
+            <button
+              type="button"
+              onClick={onOpenAutomations}
+              aria-current={automationsActive ? 'page' : undefined}
+              className={`flex h-[30px] w-full shrink-0 items-center gap-2 rounded-md px-3 text-[12px] font-medium transition-colors ${
+                automationsActive
+                  ? 'bg-[color:var(--accent-primary-soft)] text-[color:var(--text-strong)]'
+                  : 'text-[color:var(--text-muted)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]'
+              }`}
+              aria-label="Automations"
+            >
+              <AutomationsWorkspaceTypeIcon className="icon-xs pointer-events-none shrink-0" />
+              <span className="pointer-events-none truncate">Automations</span>
+            </button>
+          )}
+        </div>
+      ) : null}
 
       {/* Context menu (workspace row) */}
       {contextMenu ? (
