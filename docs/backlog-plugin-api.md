@@ -9,27 +9,48 @@ registries:
   item.
 
 This document describes the implemented renderer contracts. Related durable
-context lives in [[multicode/backlog]] and [[multicode/sprint-engine]].
+context lives in [[multicode/backlog]] and [[multicode/sprint-engine]]; the item
+field schema (v2 frontmatter + the epic concept-file convention) is in
+[`docs/backlog-item-schema.md`](./backlog-item-schema.md).
 
 ## Service Boundary
 
-Backlog source files stay under `backlog/`. App-owned item metadata lives in
-`.multi-code/backlog/items.json` and is mutated through the named Electron API:
+A Backlog item is split across two stores (see
+[`docs/backlog-item-schema.md`](./backlog-item-schema.md) for the field schema):
+
+- **Frontmatter** in the item's markdown file under `backlog/` is the source of
+  truth for lifecycle and triage — `status`, `type`, `difficulty`,
+  `criticality`, `risk`, and the up-pointing `epic:` slug. The shared writer
+  `serializeBacklogFrontmatterFields` (`src/shared/backlog/frontmatter.ts`)
+  rewrites it while preserving the document body byte-for-byte.
+- **The object store** `.multi-code/backlog/items.json` holds only app-owned
+  churn — links, the star/highlight, module-scoped metadata, and timestamps.
+
+Both are mutated only through the named Electron API; the channel determines
+which store it writes.
+
+Frontmatter writers (rewrite the item `.md`, never `items.json`):
+
+- `updateBacklogStatus(input)`
+- `updateBacklogType(input)`
+- `updateBacklogTriage(input)` — `difficulty`, `criticality`, and `risk`
+- `updateBacklogEpic(input)` — sets/clears the child's `epic:` slug
+- `createBacklogEpic(input)` — writes `backlog/epics/<slug>.md` with `type: epic`
+
+Object-store writers (`.multi-code/backlog/items.json`):
 
 - `readBacklogObjectStore(workspaceRoot)`
 - `ensureBacklogObjectRecords(workspaceRoot, items)`
-- `updateBacklogStatus(input)`
-- `updateBacklogType(input)`
-- `updateBacklogTriage(input)`
+- `updateBacklogHighlight(input)`
 - `addOrUpdateBacklogLink(input)`
 - `updateBacklogModuleMetadata(input)`
 - `moveBacklogObjectSource(input)`
 - `removeBacklogObjectRecord(input)`
 
 Renderer modules should use the action context helpers or `window.api` service
-methods. They must not read or write `.multi-code/backlog/items.json` directly.
-Stored link target paths must stay project-root-relative, for example
-`.multi-code/sprintengine/<team>/run.yaml`.
+methods. They must not read or write `.multi-code/backlog/items.json` or item
+frontmatter directly. Stored link target paths must stay project-root-relative,
+for example `.multi-code/sprintengine/<team>/run.yaml`.
 
 ## Item Actions
 

@@ -8,7 +8,7 @@
 
 Backlog items are durable work records. Capture the outcome in plain language — the what and why, user impact, reproduction notes for bugs, and any reference needed to understand the request.
 
-The Backlog panel reads item status from `.multi-code/backlog/items.json`, so keeping it current is part of the work, not optional bookkeeping. Whenever the real state of your work changes, update the item's `status` and `updatedAt` in the same step:
+The Backlog panel reads item status from each item file's **frontmatter** under `backlog/`, so keeping it current is part of the work, not optional bookkeeping. Whenever the real state of your work changes, set the item's `status` in its frontmatter and save in the same step:
 
 - **Starting**: set `in_progress` before role-specific work begins.
 - **Blocked on the user**: set `needs_input` the moment you stop to wait for a decision, missing information, or help only a human can provide — and state the specific question in your reply. A `needs_input` status with no stated question is incomplete.
@@ -16,7 +16,7 @@ The Backlog panel reads item status from `.multi-code/backlog/items.json`, so ke
 - **Finished**: set `completed` only when the work is genuinely complete and verified. Never for partial work.
 - **Stopping incomplete**: leave the item `in_progress` and report the remaining work — never let it silently look finished or abandoned.
 
-Follow the object-store procedure in the supporting info exactly; never compute ids or timestamps in your head.
+Edit only the frontmatter line you mean to change; leave the document body and every other key untouched.
 
 </what-to-do>
 
@@ -33,30 +33,35 @@ Do not strip detail from an item to keep it "behaviour only". If implementation 
 
 ## Metadata
 
-- `type`: `feature`, `bug`, or `mockup`.
+The item file's frontmatter owns lifecycle and triage as flat top-level scalars; the object store `.multi-code/backlog/items.json` holds only app-owned churn (links, the star/highlight, module metadata, timestamps).
+
+- `type`: `epic`, `feature`, `bug`, `mockup`, or `spike`. `epic` marks a grouping container (see Epics below). An unknown `type:` value is preserved as written and treated as a leaf item.
 - `difficulty`: t-shirt size `xs`, `s`, `m`, `l`, or `xl`.
 - `criticality`: `low`, `normal`, `high`, or `critical`.
+- `risk`: `low`, `normal`, or `high` — likelihood the work goes sideways, a separate axis from effort.
 - `status`: `idea`, `ready`, `in_progress`, `needs_input`, `completed`, or `archived`.
+- `epic`: slug of the epic this item belongs to (see Epics below).
 
 Set an axis only when the current context supports a grounded estimate; leave it unset instead of guessing. Difficulty is normally architect-owned. Criticality follows user or product intent; if you infer it, be conservative and let the user override.
 
-Markdown frontmatter may seed metadata when an agent creates or imports a file, but the object store is the source of truth once it has a value. Do not edit frontmatter just to change status.
+To change any of these, edit the matching `key: value` line in the item's frontmatter and save — add the line to set a field, remove it to clear one — preserving the body and every other key. Legacy aliases (`size` → difficulty, `priority` → criticality, `itemType`/`backlog_type` → type) are still read. There is no `items.json` surgery for a status or triage change.
+
+## Epics
+
+An epic groups related items. It is itself a file at `backlog/epics/<slug>.md` with `type: epic`; `<slug>` is the filename stem and its title is the first `# Heading`. Membership is **stored up, derived down** — the only stored relationship is each child's `epic:` field:
+
+- **Assign**: set `epic: <slug>` in the child item's frontmatter. **Remove**: delete that line.
+- **Create**: write `backlog/epics/<slug>.md` with `type: epic` and a `# Title`, then assign members.
+- **Enumerate children**: `grep -l "^epic: <slug>$" backlog/*.md`.
+- **Completion**: an epic is `completed` only when every one of its children is `completed`.
 
 ## Working A Dropped Backlog Item
 
 When a user drags a `backlog/...` item into a terminal and asks you to work it directly, treat the dragged file as the intake brief:
 
 1. Confirm the path is under `backlog/`, read the item, and derive the project-root-relative source path, for example `backlog/example.md`.
-2. Set the item `in_progress` in `.multi-code/backlog/items.json` before role-specific work begins.
-3. Match records by `source.relativePath` case-insensitively after normalizing slashes. Preserve existing `type`, `difficulty`, `criticality`, `metadata`, `links`, `createdAt`, and any other fields.
-4. If the store or item record is missing, create the minimal schema-v1 record: `schemaVersion: 1`, `items: []` if needed, then an item with `id: stableBacklogObjectId(relativePath)`, `source: { type: "file", relativePath }`, `status: "in_progress"`, `metadata: {}`, `links: []`, `createdAt`, and `updatedAt`. `stableBacklogObjectId` is the FNV-1a hash used by `src/renderer/src/utils/backlog.ts`. Run this command and use its output verbatim:
-
-   ```bash
-   node -e "const p=process.argv[1].replace(/\\\\/g,'/').toLowerCase();let h=2166136261;for(const c of p){h^=c.charCodeAt(0);h=Math.imul(h,16777619)}console.log(JSON.stringify({id:'backlog_'+(h>>>0).toString(36),now:new Date().toISOString()}))" "backlog/<file>"
-   ```
-
-   If `node` is unavailable, apply the same algorithm with any runtime (normalize slashes, lowercase, FNV-1a 32-bit from `2166136261` with multiplier `16777619`, formatted `backlog_${(hash >>> 0).toString(36)}`) — execute it, do not estimate. Use the real current time for timestamps.
-5. Do not edit markdown frontmatter just to change status. The object store is the source of truth for Backlog lifecycle once present.
+2. Set the item `in_progress` by editing the `status:` line in its frontmatter (add it if absent) before role-specific work begins; leave the body and every other key untouched.
+3. Mark it `needs_input` (with the blocking question stated in your reply) whenever you stop to wait on the user, `in_progress` again on resume, and `completed` only once the real work is complete and verified. Stopping incomplete for any other reason leaves it `in_progress` with the remaining work reported.
 
 ## Recording The Working Agent
 
@@ -67,9 +72,9 @@ Do this only when your terminal exposes the agent-identity environment variables
 - `MULTICODE_WORKSPACE_ID` and `MULTICODE_AGENT_ID` — required; the durable identity.
 - `MULTICODE_AGENT_NAME` — optional; the display name for the link label.
 
-If `MULTICODE_AGENT_ID` is empty or unset, skip this entirely (you are not a Multicode-launched agent terminal). Never invent the values.
+If `MULTICODE_AGENT_ID` is empty or unset, skip this entirely (you are not a Multicode-launched agent terminal). Never invent the values, and skip it for worktree-isolated work (a worktree edits its own copy of the object store and would fork the link).
 
-When they are present, at the same moment you set the item `in_progress`, upsert a single link into the item's `links` array in `.multi-code/backlog/items.json`, keyed by its fixed `id` (replace the existing entry if present; leave all other links and fields untouched):
+The working-agent link is the one piece of state that lives in the object store — links are app-owned, not frontmatter. When you set the item `in_progress`, also upsert a single link into the item's `links` array in `.multi-code/backlog/items.json`, keyed by its fixed `id` (replace the existing entry if present; leave all other links and fields untouched):
 
 ```json
 {
@@ -82,6 +87,14 @@ When they are present, at the same moment you set the item `in_progress`, upsert
 }
 ```
 
-The fixed `id` makes this idempotent and most-recent-agent-wins per item. The `agent` link type is lifecycle-neutral: it records who is working the item and never changes item status, so the `status` you set (`in_progress`, later `completed`, …) stays authoritative. Do not add this link for worktree-isolated work — a worktree edits its own copy of the object store and would fork the link.
+If the store or item record is missing, create the minimal schema-v1 record — `schemaVersion: 1`, `items: []` if needed, then an item with `id: stableBacklogObjectId(relativePath)`, `source: { type: "file", relativePath }`, `metadata: {}`, `links: []`, `createdAt`, and `updatedAt`. `stableBacklogObjectId` is the FNV-1a hash used by `src/renderer/src/utils/backlog.ts`. Run this command and use its output verbatim:
+
+```bash
+node -e "const p=process.argv[1].replace(/\\\\/g,'/').toLowerCase();let h=2166136261;for(const c of p){h^=c.charCodeAt(0);h=Math.imul(h,16777619)}console.log(JSON.stringify({id:'backlog_'+(h>>>0).toString(36),now:new Date().toISOString()}))" "backlog/<file>"
+```
+
+If `node` is unavailable, apply the same algorithm with any runtime (normalize slashes, lowercase, FNV-1a 32-bit from `2166136261` with multiplier `16777619`, formatted `backlog_${(hash >>> 0).toString(36)}`) — execute it, do not estimate. Do not write `status` or any triage field into this record; lifecycle lives in the file's frontmatter.
+
+The fixed `id` makes this idempotent and most-recent-agent-wins per item. The `agent` link type is lifecycle-neutral: it records who is working the item and never changes item status, so the `status` you set in frontmatter stays authoritative.
 
 </supporting-info>
