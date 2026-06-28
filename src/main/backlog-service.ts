@@ -99,14 +99,25 @@ export function planBacklogStoreMigration(parsed: unknown): BacklogStoreMigratio
       changed = true
       // Only string values can live in flat frontmatter; non-strings are malformed
       // sidecar data and are simply dropped. Unknown strings (e.g. a custom type)
-      // are preserved so the read model can surface them.
-      if (typeof value === 'string' && value.trim()) updates[field] = value.trim()
+      // are preserved so the read model can surface them. items.json scalars are
+      // untrusted v1 sidecar data, so sanitize before the writer sees them (sec F1,
+      // defense in depth with formatScalar) and drop ones that sanitize to empty.
+      if (typeof value === 'string') {
+        const sanitized = sanitizeMigratedScalar(value)
+        if (sanitized) updates[field] = sanitized
+      }
     }
     slimRecords.push(slim)
     const relativePath = recordRelativePath(raw)
     if (relativePath && Object.keys(updates).length > 0) migrations.push({ relativePath, updates })
   }
   return { migrations, slimRecords, changed }
+}
+
+// Collapse embedded CR/LF in a migration-sourced scalar so a crafted multi-line
+// items.json value cannot serialize into extra frontmatter lines, then trim.
+function sanitizeMigratedScalar(value: string): string {
+  return value.replace(/[\r\n]+/g, ' ').trim()
 }
 
 function recordRelativePath(raw: unknown): string | null {

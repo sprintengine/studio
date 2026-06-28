@@ -160,6 +160,36 @@ run('values needing quoting are quoted; simple slugs and ISO timestamps are not'
   assert.equal(parseBacklogFrontmatter(quoted).fields.title, 'a "quote"')
 })
 
+run('sec F1: a newline-bearing value cannot inject extra frontmatter keys', () => {
+  const injection = 'idea\ntype: epic\norder: -999'
+  const out = serializeBacklogFrontmatterFields('---\ntype: feature\n---\nbody', { status: injection })
+  const fields = parseBacklogFrontmatter(out).fields
+  // Only the intended keys exist; the crafted type/order lines did not become keys.
+  assert.deepEqual(Object.keys(fields).sort(), ['status', 'type'])
+  assert.equal(fields.type, 'feature')
+  // The frontmatter block is a single status line (no spilled physical lines).
+  assert.equal((out.match(/\nstatus:/g) || []).length, 1)
+  assert.ok(!/\norder:/.test(out), 'no injected order line')
+})
+
+run('sec F1: embedded CR/LF round-trip without spilling, value flattened to one line', () => {
+  for (const value of ['a\nb', 'a\r\nb', 'lead\n', '\ntrail']) {
+    const out = serializeBacklogFrontmatterFields('---\ntype: feature\n---\nb', { note: value })
+    const parsed = parseBacklogFrontmatter(out).fields
+    assert.ok(!/[\r\n]/.test(parsed.note), `value still multi-line for ${JSON.stringify(value)}`)
+    // Re-serializing the parsed value is stable (idempotent on already-flat input).
+    const again = serializeBacklogFrontmatterFields('---\ntype: feature\n---\nb', { note: parsed.note })
+    assert.equal(parseBacklogFrontmatter(again).fields.note, parsed.note)
+  }
+})
+
+run('sec F2: an embedded-quote value that needs quoting round-trips exactly', () => {
+  for (const value of ['Fix: "the bug"', '"already quoted"', 'a\\b "c"', 'trailing \\']) {
+    const out = serializeBacklogFrontmatterFields('---\ntype: feature\n---\nb', { title: value })
+    assert.equal(parseBacklogFrontmatter(out).fields.title, value, `no round-trip for ${JSON.stringify(value)}`)
+  }
+})
+
 run('CRLF documents keep CRLF line endings and a byte-identical body', () => {
   const original = '---\r\ntype: feature\r\n---\r\n# Title\r\nBody.'
   const set = serializeBacklogFrontmatterFields(original, { status: 'ready' })

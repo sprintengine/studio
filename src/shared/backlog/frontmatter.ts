@@ -130,20 +130,24 @@ function normalizeUpdates(updates: BacklogFrontmatterUpdates): {
   return { sets, clears }
 }
 
-// Emit a bare scalar matching the existing `key: value` style, quoting only when
-// a bare value would not round-trip through the flat-scalar parser: empty,
-// surrounding whitespace, embedded newlines, a leading YAML indicator, an inline
+// Emit a bare scalar matching the existing `key: value` style. Embedded CR/LF are
+// collapsed to a space first: the parser is line-based, so a quoted multi-line
+// value would still spill onto extra physical lines that re-parse as injected
+// `key: value` frontmatter (sec F1). Flat frontmatter is single-line by
+// construction, so a newline-bearing scalar cannot round-trip regardless. After
+// flattening, quote only when a bare value would not round-trip through the
+// parser: empty, surrounding whitespace, a leading YAML indicator, an inline
 // `: ` or ` #` sequence, or surrounding quotes the parser would strip.
 function formatScalar(value: string): string {
+  const flat = value.replace(/[\r\n]+/g, ' ')
   const needsQuote =
-    value === '' ||
-    value !== value.trim() ||
-    /[\r\n]/.test(value) ||
-    /^[\s"'#&*!|>%@`?:,\-[\]{}]/.test(value) ||
-    /:\s/.test(value) ||
-    /\s#/.test(value)
-  if (!needsQuote) return value
-  return `"${value.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`
+    flat === '' ||
+    flat !== flat.trim() ||
+    /^[\s"'#&*!|>%@`?:,\-[\]{}]/.test(flat) ||
+    /:\s/.test(flat) ||
+    /\s#/.test(flat)
+  if (!needsQuote) return flat
+  return `"${flat.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`
 }
 
 function stripYamlQuotes(value: string): string {
@@ -151,7 +155,10 @@ function stripYamlQuotes(value: string): string {
   if (trimmed.length >= 2) {
     const first = trimmed[0]
     const last = trimmed[trimmed.length - 1]
-    if ((first === '"' && last === '"') || (first === "'" && last === "'")) return trimmed.slice(1, -1)
+    // Double quotes reverse formatScalar's escaping (\" -> ", \\ -> \) so an
+    // embedded-quote value round-trips (sec F2); single quotes are emitted raw.
+    if (first === '"' && last === '"') return trimmed.slice(1, -1).replace(/\\(["\\])/g, '$1')
+    if (first === "'" && last === "'") return trimmed.slice(1, -1)
   }
   return trimmed
 }

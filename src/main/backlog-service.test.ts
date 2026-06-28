@@ -473,6 +473,13 @@ async function assertLazyMigrationMatrix(): Promise<void> {
   assert.deepEqual((plan.slimRecords[0] as { metadata?: unknown }).metadata, { x: 1 })
   // An already-migrated store is a no-op.
   assert.equal(planBacklogStoreMigration({ schemaVersion: 1, items: [{ id: 'a', source: { type: 'file', relativePath: 'backlog/a.md' } }] }).changed, false)
+  // sec F1: a crafted multi-line items.json scalar is flattened before it can
+  // reach the frontmatter writer, so it cannot inject extra keys.
+  const injected = planBacklogStoreMigration({
+    schemaVersion: 1,
+    items: [{ id: 'x', source: { type: 'file', relativePath: 'backlog/x.md' }, status: 'idea\ntype: epic\norder: -999' }],
+  }).migrations.find((m) => m.relativePath === 'backlog/x.md')
+  assert.deepEqual(injected?.updates, { status: 'idea type: epic order: -999' })
 
   // --- On-disk migration via readBacklogObjectStore -------------------------
   const root = await mkdtemp(join(tmpdir(), 'multicode-backlog-migrate-'))
