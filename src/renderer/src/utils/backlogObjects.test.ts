@@ -111,15 +111,22 @@ assert.equal(typed.items[0]?.updatedAt, '2026-06-07T05:30:00.000Z')
 const clearedType = updateBacklogObjectType(typed, item, null, '2026-06-07T05:45:00.000Z')
 assert.equal(clearedType.items[0]?.type, undefined)
 
-// Triage edits set, then clear, an axis; the other axis is untouched.
-const sized = updateBacklogObjectTriage(store, item, { difficulty: 'xl', criticality: 'low' }, '2026-06-07T06:00:00.000Z')
+// Triage edits set, then clear, an axis; the other axes are untouched. Risk is
+// the third axis, plumbed parallel to difficulty/criticality.
+const sized = updateBacklogObjectTriage(store, item, { difficulty: 'xl', criticality: 'low', risk: 'high' }, '2026-06-07T06:00:00.000Z')
 assert.equal(sized.items[0]?.difficulty, 'xl')
 assert.equal(sized.items[0]?.criticality, 'low')
+assert.equal(sized.items[0]?.risk, 'high')
 assert.equal(sized.items[0]?.updatedAt, '2026-06-07T06:00:00.000Z')
 
 const clearedSize = updateBacklogObjectTriage(sized, item, { difficulty: null }, '2026-06-07T07:00:00.000Z')
 assert.equal(clearedSize.items[0]?.difficulty, undefined)
 assert.equal(clearedSize.items[0]?.criticality, 'low')
+// Omitting risk leaves it untouched; passing null clears it.
+assert.equal(clearedSize.items[0]?.risk, 'high')
+const clearedRisk = updateBacklogObjectTriage(sized, item, { risk: null }, '2026-06-07T07:30:00.000Z')
+assert.equal(clearedRisk.items[0]?.risk, undefined)
+assert.equal(clearedRisk.items[0]?.criticality, 'low')
 
 // Invalid persisted triage values are dropped on normalization (here via an
 // unrelated mutation that round-trips the store), while valid ones survive.
@@ -132,6 +139,7 @@ const dirty: BacklogObjectStore = {
       type: 'saga' as unknown as 'feature',
       difficulty: 'huge' as unknown as 'xl',
       criticality: 'high',
+      risk: 'critical' as unknown as 'high',
       highlight: { starred: true, color: 'magenta' as unknown as 'red' },
     },
   ],
@@ -140,6 +148,8 @@ const cleaned = updateBacklogObjectStatus(dirty, item, 'idea', '2026-06-07T08:00
 assert.equal(cleaned.items[0]?.type, undefined)
 assert.equal(cleaned.items[0]?.difficulty, undefined)
 assert.equal(cleaned.items[0]?.criticality, 'high')
+// `critical` is not a valid risk value (low|normal|high) and is dropped.
+assert.equal(cleaned.items[0]?.risk, undefined)
 // Unknown highlight colors are dropped on normalization; the star survives.
 assert.deepEqual(cleaned.items[0]?.highlight, { starred: true, color: null })
 

@@ -25,6 +25,9 @@ export type BacklogScanState = 'missing-folder' | 'empty-folder' | 'ready' | 'pa
 export type BacklogType = 'epic' | 'feature' | 'bug' | 'mockup' | 'spike'
 export type BacklogDifficulty = 'xs' | 's' | 'm' | 'l' | 'xl'
 export type BacklogCriticality = 'low' | 'normal' | 'high' | 'critical'
+// Likelihood the work goes sideways — a separate axis from effort (difficulty)
+// and impact (criticality). Stored in frontmatter, parallel to criticality.
+export type BacklogRisk = 'low' | 'normal' | 'high'
 
 // Star/highlight metadata is owned exclusively by the object store: markdown
 // frontmatter never seeds it. Mirrors the shared BacklogHighlightPayload and
@@ -106,6 +109,7 @@ export type BacklogItem = {
   rawType?: string
   difficulty?: BacklogDifficulty
   criticality?: BacklogCriticality
+  risk?: BacklogRisk
   // Up-pointing slug of the epic this item belongs to (frontmatter `epic:`), and
   // whether this item is itself an epic container (`type === 'epic'`).
   epic?: string
@@ -156,6 +160,7 @@ const VALID_STATUS = new Set<BacklogItemStatus>(['idea', 'ready', 'in_progress',
 const VALID_TYPE = new Set<BacklogType>(['epic', 'feature', 'bug', 'mockup', 'spike'])
 const VALID_DIFFICULTY = new Set<BacklogDifficulty>(['xs', 's', 'm', 'l', 'xl'])
 const VALID_CRITICALITY = new Set<BacklogCriticality>(['low', 'normal', 'high', 'critical'])
+const VALID_RISK = new Set<BacklogRisk>(['low', 'normal', 'high'])
 const VALID_HIGHLIGHT_COLOR = new Set<BacklogHighlightColor>(['red', 'orange', 'amber', 'green', 'blue', 'purple', 'pink'])
 
 export function isBacklogType(value: unknown): value is BacklogType {
@@ -168,6 +173,10 @@ export function isBacklogDifficulty(value: unknown): value is BacklogDifficulty 
 
 export function isBacklogCriticality(value: unknown): value is BacklogCriticality {
   return typeof value === 'string' && VALID_CRITICALITY.has(value as BacklogCriticality)
+}
+
+export function isBacklogRisk(value: unknown): value is BacklogRisk {
+  return typeof value === 'string' && VALID_RISK.has(value as BacklogRisk)
 }
 
 export function isBacklogHighlightColor(value: unknown): value is BacklogHighlightColor {
@@ -283,6 +292,7 @@ export function createBacklogItem(input: {
   const frontmatterType = parseBacklogType(rawType)
   const frontmatterDifficulty = parseBacklogDifficulty(frontmatterValue(fields, 'difficulty', 'size'))
   const frontmatterCriticality = parseBacklogCriticality(frontmatterValue(fields, 'criticality', 'priority'))
+  const frontmatterRisk = parseBacklogRisk(frontmatterValue(fields, 'risk'))
   const epic = frontmatterValue(fields, 'epic')
   const title = inferBacklogTitle(relativePath, body)
   // Lifecycle/triage and epic are frontmatter-sourced (frontmatter is the source
@@ -302,6 +312,7 @@ export function createBacklogItem(input: {
     rawType,
     difficulty: frontmatterDifficulty,
     criticality: frontmatterCriticality,
+    risk: frontmatterRisk,
     epic,
     isEpic: type === 'epic',
     highlight: input.object?.highlight,
@@ -463,6 +474,11 @@ function parseBacklogDifficulty(value: string | undefined): BacklogDifficulty | 
 function parseBacklogCriticality(value: string | undefined): BacklogCriticality | undefined {
   if (!value) return undefined
   return isBacklogCriticality(value) ? value : undefined
+}
+
+function parseBacklogRisk(value: string | undefined): BacklogRisk | undefined {
+  if (!value) return undefined
+  return isBacklogRisk(value) ? value : undefined
 }
 
 // Rough captures default to a calm "idea", regardless of whether a plan kind

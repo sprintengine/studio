@@ -266,6 +266,33 @@ run('epic frontmatter sets the slug and marks containers via isEpic', () => {
   assert.equal(container.epic, undefined)
 })
 
+run('risk is read from frontmatter; invalid or absent risk stays unset', () => {
+  const risky = createBacklogItem({
+    path: '/repo/backlog/migration.md',
+    relativePath: 'backlog/migration.md',
+    sourceContent: '---\ntype: feature\nrisk: high\n---\n# Risky migration',
+    stats: { modifiedAtMs: 20, sizeBytes: 64 },
+  })
+  assert.equal(risky.risk, 'high')
+
+  // `critical` is a criticality value, not a risk value — risk is low|normal|high.
+  const invalid = createBacklogItem({
+    path: '/repo/backlog/bad-risk.md',
+    relativePath: 'backlog/bad-risk.md',
+    sourceContent: '---\nrisk: critical\n---\n# Bad risk',
+    stats: { modifiedAtMs: 20, sizeBytes: 64 },
+  })
+  assert.equal(invalid.risk, undefined)
+
+  const none = createBacklogItem({
+    path: '/repo/backlog/no-risk.md',
+    relativePath: 'backlog/no-risk.md',
+    sourceContent: '# No risk',
+    stats: { modifiedAtMs: 20, sizeBytes: 64 },
+  })
+  assert.equal(none.risk, undefined)
+})
+
 run('an unknown type value is preserved as rawType and treated as a leaf', () => {
   const item = createBacklogItem({
     path: '/repo/backlog/saga.md',

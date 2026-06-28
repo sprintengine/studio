@@ -147,7 +147,9 @@ async function toBacklogItemSnapshot(
     title: body ? extractTitle(body, record.source.relativePath) : titleFromPath(record.source.relativePath),
     ...(body ? { excerpt: extractExcerpt(body) } : {}),
     status: record.status ?? 'idea',
-    ...(record.type ? { type: record.type } : {}),
+    // `epic` is a grouping container, not a mobile leaf type; the mobile protocol
+    // gains epic awareness in a later task (T13), so omit it here for now.
+    ...(record.type && record.type !== 'epic' ? { type: record.type } : {}),
     ...(record.difficulty ? { difficulty: record.difficulty } : {}),
     ...(record.criticality ? { criticality: record.criticality } : {}),
     ...(record.updatedAt ? { updatedAt: record.updatedAt } : {}),

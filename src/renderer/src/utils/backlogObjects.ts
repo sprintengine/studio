@@ -6,12 +6,14 @@ import {
   type BacklogItemLink,
   type BacklogItemObjectMetadata,
   type BacklogItemStatus,
+  type BacklogRisk,
   type BacklogType,
   type BacklogScanResult,
   createBacklogItem,
   isBacklogCriticality,
   isBacklogDifficulty,
   isBacklogHighlightColor,
+  isBacklogRisk,
   isBacklogType,
   normalizeRelativePath,
   stableBacklogObjectId,
@@ -28,6 +30,7 @@ export type BacklogObjectRecord = {
   type?: BacklogType
   difficulty?: BacklogDifficulty
   criticality?: BacklogCriticality
+  risk?: BacklogRisk
   highlight?: BacklogHighlight
   metadata?: Record<string, unknown>
   links?: BacklogItemLink[]
@@ -167,19 +170,25 @@ export function updateBacklogObjectType(
   }), now)
 }
 
-// Sets or clears the triage metadata (size / priority) on a backlog object.
-// Passing `null` for an axis clears it back to unestimated; omitting an axis
-// leaves it untouched, so the Size and Priority editors can update one at a time.
+// Sets or clears the triage metadata (size / priority / risk) on a backlog
+// object. Passing `null` for an axis clears it back to unestimated; omitting an
+// axis leaves it untouched, so the Size, Priority, and Risk editors can update
+// one at a time.
 export function updateBacklogObjectTriage(
   store: BacklogObjectStore,
   item: BacklogItem,
-  triage: { difficulty?: BacklogDifficulty | null; criticality?: BacklogCriticality | null },
+  triage: {
+    difficulty?: BacklogDifficulty | null
+    criticality?: BacklogCriticality | null
+    risk?: BacklogRisk | null
+  },
   now = new Date().toISOString(),
 ): BacklogObjectStore {
   return upsertBacklogObjectRecord(store, item, (record) => {
     const next: BacklogObjectRecord = { ...record, updatedAt: now }
     if ('difficulty' in triage) next.difficulty = triage.difficulty ?? undefined
     if ('criticality' in triage) next.criticality = triage.criticality ?? undefined
+    if ('risk' in triage) next.risk = triage.risk ?? undefined
     return next
   }, now)
 }
@@ -325,6 +334,7 @@ function normalizeBacklogObjectRecord(value: unknown): BacklogObjectRecord | nul
     type?: unknown
     difficulty?: unknown
     criticality?: unknown
+    risk?: unknown
     highlight?: unknown
     metadata?: unknown
     links?: unknown
@@ -344,6 +354,7 @@ function normalizeBacklogObjectRecord(value: unknown): BacklogObjectRecord | nul
     type: isBacklogType(raw.type) ? raw.type : undefined,
     difficulty: isBacklogDifficulty(raw.difficulty) ? raw.difficulty : undefined,
     criticality: isBacklogCriticality(raw.criticality) ? raw.criticality : undefined,
+    risk: isBacklogRisk(raw.risk) ? raw.risk : undefined,
     highlight: normalizeBacklogHighlight(raw.highlight),
     metadata: isPlainRecord(raw.metadata) ? raw.metadata : {},
     links: Array.isArray(raw.links) ? raw.links.filter(isBacklogItemLink) : [],
