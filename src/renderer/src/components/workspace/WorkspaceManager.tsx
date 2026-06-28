@@ -85,6 +85,7 @@ import {
   uniqueAgentName,
   type WorkspaceActivity,
 } from './workspaceManagerHelpers'
+import { attentionQueueBadge, buildAttentionQueueItems } from '../../utils/attentionQueue'
 import { residentAgentWorkspaceIds } from '../../utils/workspaceResidency'
 import {
   EMPTY_WORKSPACE_NAVIGATION_HISTORY,
@@ -419,6 +420,9 @@ export default function WorkspaceManager() {
   // debug agent never silently leaves the next unrelated spawn in debug.
   const [agentSpawnDebugMode, setAgentSpawnDebugMode] = useState(false)
   const [sessionsOpen, setSessionsOpen] = useState(false)
+  // Title-bar Attention Queue open state — a transient popover, so renderer-local
+  // (never persisted), shared with the panel.attention-queue.toggle command.
+  const [attentionQueueOpen, setAttentionQueueOpen] = useState(false)
   const [viewMenuOpen, setViewMenuOpen] = useState(false)
   const [viewMenuTick, setViewMenuTick] = useState(0)
   const [notificationsOpen, setNotificationsOpen] = useState(false)
@@ -536,6 +540,17 @@ export default function WorkspaceManager() {
     () => buildSidebarWorkspaceOrder(visibleWorkspaces),
     [visibleWorkspaces]
   )
+  // Cross-workspace "agents awaiting you" for the title-bar Attention Queue. Rides
+  // the already-subscribed `workspaces` slice (sprintEngineState is dedup-stable
+  // via selectWorkspaceManagerWorkspaces, so an unrelated projection tick leaves
+  // this referentially equal) and the dedup-stable terminalSessions — no new
+  // subscription. Derived over ALL workspaces, not just this window's, so agents
+  // in another window still surface (rendered disabled by the popover).
+  const attentionItems = useMemo(
+    () => buildAttentionQueueItems(workspaces, terminalSessions),
+    [workspaces, terminalSessions]
+  )
+  const attentionBadge = useMemo(() => attentionQueueBadge(attentionItems), [attentionItems])
   // The bell badge is an error counter: only unread errors increment it (and
   // drive the red just-changed pulse), so a flood of info/warning notifications
   // never inflates the count. Warnings/info still appear in the popover list and
@@ -1187,6 +1202,7 @@ export default function WorkspaceManager() {
   useEffect(() => {
     setSpecialistMenuOpen(false)
     setSessionsOpen(false)
+    setAttentionQueueOpen(false)
     setNotificationsOpen(false)
   }, [windowActiveWorkspaceId])
 
@@ -1718,6 +1734,7 @@ export default function WorkspaceManager() {
       setShowNewWorkspacePanel(false)
       setSpecialistMenuOpen(false)
       setSessionsOpen(false)
+      setAttentionQueueOpen(false)
       setViewMenuOpen(false)
       setNotificationsOpen(false)
       return true
@@ -1745,6 +1762,12 @@ export default function WorkspaceManager() {
       // shortcut can't open an aside the disabled module never renders.
       if (!sprintEngineEnabled) return false
       setSprintEnginesAsideOpen(!sprintEnginesAsideOpen)
+      return true
+    }
+    if (commandId === 'panel.attention-queue.toggle') {
+      // Core shell chrome (no module gate) — toggles the same transient popover
+      // open state the title-bar trigger drives.
+      setAttentionQueueOpen((open) => !open)
       return true
     }
     if (commandId === 'workspace.close' && windowActiveWorkspaceId) {
@@ -2247,6 +2270,15 @@ export default function WorkspaceManager() {
               }
             : null
         }
+        attentionQueue={{
+          items: attentionItems,
+          badge: attentionBadge,
+          open: attentionQueueOpen,
+          onOpenChange: setAttentionQueueOpen,
+          windowWorkspaceIds: visibleWorkspaceIdSet,
+          activeWorkspaceId: windowActiveWorkspaceId,
+          onOpenItem: openSession,
+        }}
         onOpenDiagnostics={
           window.api.isDevelopment || window.api.isDiagnosticsEnabled
             ? () => setDiagnosticsOpen(true)

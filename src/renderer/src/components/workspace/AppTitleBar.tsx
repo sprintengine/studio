@@ -13,6 +13,7 @@
 import React from 'react'
 import MulticodeMark from '../brand/MulticodeMark'
 import { Tooltip } from '../ui'
+import { AttentionQueuePopover, type AttentionQueueSurface } from './AttentionQueuePopover'
 import { WindowControls } from './WindowControls'
 
 const TITLE_BAR_HEIGHT = 'h-[36px]'
@@ -33,6 +34,10 @@ type AppTitleBarProps<MenuItem extends string> = {
   onShowMenu: (event: React.MouseEvent<HTMLButtonElement>, label: MenuItem) => void
   // Null when the sprint-engine module is disabled — the toggle hides entirely.
   sprintEnginesToggle: SprintEnginesToggle | null
+  // Cross-workspace "agents awaiting you" surface. Core shell chrome (no module
+  // gate), so always present; WorkspaceManager owns its data + open state and the
+  // title bar only places it — it adds no session/workspace subscription itself.
+  attentionQueue: AttentionQueueSurface
   // Null outside dev/diagnostics builds — the performance panel is an
   // engineering tool, so its title-bar entry only exists when diagnostics are on.
   onOpenDiagnostics: (() => void) | null
@@ -92,6 +97,7 @@ export function AppTitleBar<MenuItem extends string>({
   menuItems,
   onShowMenu,
   sprintEnginesToggle,
+  attentionQueue,
   onOpenDiagnostics,
 }: AppTitleBarProps<MenuItem>) {
   return (
@@ -110,12 +116,11 @@ export function AppTitleBar<MenuItem extends string>({
         <>
           {/* Spacer holds the traffic-light gutter; the centered brand floats above. */}
           <div aria-hidden="true" className={TRAFFIC_LIGHT_INSET} />
-          {sprintEnginesToggle || onOpenDiagnostics ? (
-            <div className="relative z-10 flex items-center gap-0.5 px-1.5">
-              {onOpenDiagnostics ? <DiagnosticsTitleBarButton onOpen={onOpenDiagnostics} /> : null}
-              {sprintEnginesToggle ? <SprintEnginesAsideToggle {...sprintEnginesToggle} /> : null}
-            </div>
-          ) : null}
+          <div className="relative z-10 flex items-center gap-0.5 px-1.5">
+            {onOpenDiagnostics ? <DiagnosticsTitleBarButton onOpen={onOpenDiagnostics} /> : null}
+            <AttentionQueuePopover {...attentionQueue} />
+            {sprintEnginesToggle ? <SprintEnginesAsideToggle {...sprintEnginesToggle} /> : null}
+          </div>
         </>
       ) : (
         <>
@@ -133,12 +138,11 @@ export function AppTitleBar<MenuItem extends string>({
           </div>
 
           <div className="relative z-10 flex items-center">
-            {sprintEnginesToggle || onOpenDiagnostics ? (
-              <div className="flex items-center gap-0.5 px-1">
-                {onOpenDiagnostics ? <DiagnosticsTitleBarButton onOpen={onOpenDiagnostics} /> : null}
-                {sprintEnginesToggle ? <SprintEnginesAsideToggle {...sprintEnginesToggle} /> : null}
-              </div>
-            ) : null}
+            <div className="flex items-center gap-0.5 px-1">
+              {onOpenDiagnostics ? <DiagnosticsTitleBarButton onOpen={onOpenDiagnostics} /> : null}
+              <AttentionQueuePopover {...attentionQueue} />
+              {sprintEnginesToggle ? <SprintEnginesAsideToggle {...sprintEnginesToggle} /> : null}
+            </div>
             <WindowControls isMaximized={isMaximized} />
           </div>
         </>
