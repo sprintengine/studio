@@ -151,7 +151,7 @@ export function deriveBacklogDependencies(items: BacklogItem[]): BacklogDependen
     prerequisitesByItemId.set(item.id, prerequisites)
   }
 
-  const cycleItemIds = detectCycleItemIds(items, blocksByItemId, prerequisitesByItemId, indegree)
+  const cycleItemIds = detectCycleItemIds(items, blocksByItemId)
   const order = topologicalOrder(items, blocksByItemId, indegree)
 
   const nodes: BacklogDependencyNode[] = items.map((item) => {
@@ -211,43 +211,68 @@ function topologicalOrder(
   return [...emitted, ...leftovers]
 }
 
-// Item ids on at least one dependency cycle. Kahn's leftovers also include nodes
-// merely downstream of a cycle, so cycle membership is computed separately by
-// iteratively pruning sources (no remaining prerequisite) and sinks (blocks
-// nothing remaining): a node can only sit on a cycle if it keeps both an
-// incoming and an outgoing edge within the surviving set. Whatever survives is
-// exactly the union of all cycles. Self-references are dropped upstream, so a
-// surviving singleton never occurs.
-function detectCycleItemIds(
-  items: BacklogItem[],
-  blocksByItemId: Map<string, BacklogItem[]>,
-  prerequisitesByItemId: Map<string, BacklogPrerequisite[]>,
-  indegree: Map<string, number>,
-): Set<string> {
-  const alive = new Set(items.map((item) => item.id))
-  const indeg = new Map(indegree)
-  const outdeg = new Map<string, number>()
-  for (const item of items) outdeg.set(item.id, (blocksByItemId.get(item.id) ?? []).length)
+// Item ids on at least one dependency cycle = the members of every strongly
+// connected component of size >= 2. Computed with Tarjan's SCC over the edge
+// graph (node -> the items it blocks). This is *exactly* the union of all cycles:
+// it excludes nodes merely downstream of a cycle and, unlike source/sink pruning,
+// a connector that bridges two disjoint cycles (reachable-from one, able-to-reach
+// the other, but on neither) — it lands in its own singleton SCC. Self-references
+// are dropped upstream, so a size-1 SCC never carries a self-loop and is never a
+// cycle. Iterative (explicit stack) so a deep dependency chain cannot overflow.
+function detectCycleItemIds(items: BacklogItem[], blocksByItemId: Map<string, BacklogItem[]>): Set<string> {
+  const cycleIds = new Set<string>()
+  const index = new Map<string, number>()
+  const lowlink = new Map<string, number>()
+  const onStack = new Set<string>()
+  const sccStack: string[] = []
+  const neighbors = (id: string): string[] => (blocksByItemId.get(id) ?? []).map((item) => item.id)
+  let counter = 0
 
-  let changed = true
-  while (changed) {
-    changed = false
-    for (const id of [...alive]) {
-      if ((indeg.get(id) ?? 0) > 0 && (outdeg.get(id) ?? 0) > 0) continue
-      alive.delete(id)
-      changed = true
-      // Drop this node's outgoing edges (it blocks these dependents).
-      for (const dependent of blocksByItemId.get(id) ?? []) {
-        if (alive.has(dependent.id)) indeg.set(dependent.id, (indeg.get(dependent.id) ?? 0) - 1)
+  for (const root of items) {
+    if (index.has(root.id)) continue
+    // Each frame holds a node and its next-neighbor cursor; a real call stack
+    // would recurse per edge, so we drive the same DFS explicitly.
+    const work: Array<{ id: string; next: number; adj: string[] }> = []
+    const enter = (id: string): void => {
+      index.set(id, counter)
+      lowlink.set(id, counter)
+      counter += 1
+      sccStack.push(id)
+      onStack.add(id)
+      work.push({ id, next: 0, adj: neighbors(id) })
+    }
+    enter(root.id)
+
+    while (work.length > 0) {
+      const frame = work[work.length - 1]
+      if (frame.next < frame.adj.length) {
+        const w = frame.adj[frame.next]
+        frame.next += 1
+        if (!index.has(w)) {
+          enter(w)
+        } else if (onStack.has(w)) {
+          // Back/forward edge into the current SCC: tighten with w's index.
+          lowlink.set(frame.id, Math.min(lowlink.get(frame.id) ?? 0, index.get(w) ?? 0))
+        }
+        continue
       }
-      // Drop this node's incoming edges (its prerequisite targets block it).
-      for (const prerequisite of prerequisitesByItemId.get(id) ?? []) {
-        const target = prerequisite.target
-        if (target && alive.has(target.id)) outdeg.set(target.id, (outdeg.get(target.id) ?? 0) - 1)
+      // Finished frame.id: if it roots an SCC, pop the whole component.
+      if (lowlink.get(frame.id) === index.get(frame.id)) {
+        const component: string[] = []
+        for (;;) {
+          const w = sccStack.pop() as string
+          onStack.delete(w)
+          component.push(w)
+          if (w === frame.id) break
+        }
+        if (component.length > 1) for (const id of component) cycleIds.add(id)
       }
+      work.pop()
+      const parent = work[work.length - 1]
+      if (parent) lowlink.set(parent.id, Math.min(lowlink.get(parent.id) ?? 0, lowlink.get(frame.id) ?? 0))
     }
   }
-  return alive
+  return cycleIds
 }
 
 // Topological order of the items by their dependency edges (plan D4, the

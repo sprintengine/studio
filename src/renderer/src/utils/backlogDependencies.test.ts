@@ -167,6 +167,30 @@ run('a node downstream of a cycle is waiting but NOT a cycle member', () => {
   assert.deepEqual(paths(graph.order).sort(), ['backlog/a.md', 'backlog/b.md', 'backlog/d.md'])
 })
 
+run('two cycles bridged by a connector: the connector is NOT a cycle member', () => {
+  // a<->b and g<->h are independent 2-cycles. c bridges them: c dependsOn a (so a
+  // can reach c) and g dependsOn c (so c can reach g<->h). c is reachable from one
+  // cycle and can reach the other but sits on neither — it must not be flagged.
+  // Source/sink pruning would wrongly keep c; SCC membership lands it in its own
+  // singleton component.
+  const items = [
+    mk('backlog/a.md', { status: 'idea', dependsOn: ['b'] }),
+    mk('backlog/b.md', { status: 'idea', dependsOn: ['a'] }),
+    mk('backlog/g.md', { status: 'idea', dependsOn: ['h', 'c'] }),
+    mk('backlog/h.md', { status: 'idea', dependsOn: ['g'] }),
+    mk('backlog/c.md', { status: 'idea', dependsOn: ['a'] }),
+  ]
+  const graph = deriveBacklogDependencies(items)
+  assert.deepEqual(
+    [...graph.cycleItemIds].sort(),
+    ['backlog/a.md', 'backlog/b.md', 'backlog/g.md', 'backlog/h.md'],
+  )
+  const connector = graph.nodes.find((entry) => entry.item.relativePath === 'backlog/c.md') as BacklogDependencyNode
+  assert.equal(connector.inCycle, false)
+  // c depends on the active cycle member a, so it is still honestly waiting.
+  assert.equal(connector.isWaiting, true)
+})
+
 run('duplicate-stem collision: flagged and resolved last-wins', () => {
   // Two items share the stem `dup`; a dependent referencing `dup` resolves to the
   // last one in scan order.
