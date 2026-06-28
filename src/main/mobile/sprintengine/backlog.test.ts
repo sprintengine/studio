@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 
@@ -34,25 +34,18 @@ function run(name: string, body: () => Promise<void>): void {
   tests.push({ name, body })
 }
 
-run('v2 item: lifecycle/triage/epic come from frontmatter, not the stale sidecar', async () => {
+run('v2 item: lifecycle/triage/epic come from frontmatter; slim sidecar is not migrated over it', async () => {
+  // Real v2 shape: frontmatter is the source of truth and the sidecar record is
+  // slim (id/source only, no lifecycle/triage). The read path must source every
+  // field from frontmatter and leave the file untouched — no lazy migration fires
+  // for a slim record, so authoritative frontmatter is never clobbered.
+  const frontmatter =
+    '---\nstatus: ready\ntype: feature\ndifficulty: m\ncriticality: high\nepic: auth-revamp\n---\n# Checkout\n\nSpeed up checkout.\n'
   const root = await setupWorkspace(
-    {
-      'backlog/checkout.md':
-        '---\nstatus: ready\ntype: feature\ndifficulty: m\ncriticality: high\nepic: auth-revamp\n---\n# Checkout\n\nSpeed up checkout.\n',
-    },
+    { 'backlog/checkout.md': frontmatter },
     {
       schemaVersion: 1,
-      items: [
-        {
-          // Deliberately stale sidecar triage: the snapshot must ignore it.
-          id: 'item_checkout',
-          source: { type: 'file', relativePath: 'backlog/checkout.md' },
-          status: 'idea',
-          type: 'bug',
-          difficulty: 'xs',
-          criticality: 'low',
-        },
-      ],
+      items: [{ id: 'item_checkout', source: { type: 'file', relativePath: 'backlog/checkout.md' } }],
     },
   )
   try {
@@ -64,6 +57,8 @@ run('v2 item: lifecycle/triage/epic come from frontmatter, not the stale sidecar
     assert.equal(item.difficulty, 'm')
     assert.equal(item.criticality, 'high')
     assert.equal(item.epic, 'auth-revamp')
+    // The read is non-mutating for a steady-state v2 record: frontmatter is preserved.
+    assert.equal(await readFile(join(root, 'backlog/checkout.md'), 'utf-8'), frontmatter)
   } finally {
     await rm(root, { force: true, recursive: true })
   }
