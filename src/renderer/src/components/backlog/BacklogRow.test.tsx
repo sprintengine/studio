@@ -382,6 +382,25 @@ run('Dependency order is a whole-list topo branch, not a pairwise comparator', (
   )
 })
 
+run('detail cross-navigation widens the lens so a filtered-out target never dead-clicks', () => {
+  // Prerequisite/Blocks activation routes through navigateToBacklogItem, not the
+  // plain row-select: the detail `selected` resolves only within `filtered`, so a
+  // target hidden by the active lens/search (always for archived — every
+  // non-archived lens hides archived) would be dropped by the validity effect.
+  assert.match(backlogPanelSource, /onNavigate=\{navigateToBacklogItem\}/, 'the detail section navigates through the widening handler')
+  assert.match(
+    backlogPanelSource,
+    /!filtered\.some\(\(item\) => item\.id === id\)/,
+    'it only widens when the target is not already visible (preserves the active lens otherwise)',
+  )
+  assert.match(
+    backlogPanelSource,
+    /setView\(target\.status === 'archived' \? 'archived' : 'all'\)/,
+    'a hidden target widens to its own lens (Archived for archived, else All items)',
+  )
+  assert.match(backlogPanelSource, /setSearch\(''\)/, 'the search is cleared so the navigated row stays visible')
+})
+
 run('the row waiting badge is derived (never persisted) and wired through the list', () => {
   assert.match(backlogPanelSource, /node\.isWaiting/, 'the waiting map reads the derived isWaiting flag')
   assert.match(backlogPanelSource, /isWaiting=\{waitingById\?\.get\(item\.id\)\}/, 'rows receive their derived waiting state')

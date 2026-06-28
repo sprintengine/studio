@@ -608,6 +608,29 @@ export default function BacklogPanel({ workspaceId, onStartFuturePlan }: Workspa
     setShowDetailInSingle(true)
   }, [])
 
+  // Cross-navigation from the detail pane (a prerequisite or a blocked item).
+  // Unlike a list-row click, the target may sit outside the active lens/search —
+  // a resolved prerequisite under an active-only lens, an archived target (every
+  // non-archived lens hides archived), or anything the search query excludes. The
+  // `selected` detail resolves only within `filtered` and the stale-selection
+  // effect drops a selectedId that isn't visible, so selecting blindly would dead
+  // click (blank the pane). Mirror the agent-glyph reveal: when the target isn't
+  // already visible, widen to its own view (Archived for an archived item, else
+  // All items) and clear the search so the row — and its detail — stay in view.
+  const navigateToBacklogItem = useCallback(
+    (id: string) => {
+      const target = items.find((item) => item.id === id)
+      if (!target) return
+      if (!filtered.some((item) => item.id === id)) {
+        setSearch('')
+        setView(target.status === 'archived' ? 'archived' : 'all')
+      }
+      setSelectedId(id)
+      setShowDetailInSingle(true)
+    },
+    [items, filtered],
+  )
+
   // ---- file actions (all via existing window.api fs IPC; never mutate Sprint
   // Engine state). Failures surface as a visible, actionable error and leave
   // selection consistent. ----
@@ -1235,7 +1258,7 @@ export default function BacklogPanel({ workspaceId, onStartFuturePlan }: Workspa
       epicChoices={epicChoices}
       dependencyNode={selected ? dependencyGraph.byItemId.get(selected.id) ?? null : null}
       dependencyChoices={dependencyChoices}
-      onNavigate={handleSelectRow}
+      onNavigate={navigateToBacklogItem}
     />
   )
 
