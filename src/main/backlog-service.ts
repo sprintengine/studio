@@ -1,6 +1,10 @@
 import { mkdir, readFile, realpath, stat, writeFile } from 'node:fs/promises'
 import { dirname, isAbsolute, join, relative, resolve } from 'node:path'
 
+import {
+  serializeBacklogFrontmatterFields,
+  type BacklogFrontmatterUpdates,
+} from '../shared/backlog/frontmatter'
 import type {
   BacklogAddOrUpdateLinkInput,
   BacklogHighlightColorPayload,
@@ -33,9 +37,10 @@ type BacklogObjectRecord = BacklogObjectRecordPayload
 const EMPTY_STORE: BacklogObjectStore = { schemaVersion: 1, items: [] }
 
 const VALID_STATUS = new Set(['idea', 'ready', 'in_progress', 'needs_input', 'completed', 'archived'])
-const VALID_TYPE = new Set(['feature', 'bug', 'mockup', 'spike'])
+const VALID_TYPE = new Set(['epic', 'feature', 'bug', 'mockup', 'spike'])
 const VALID_DIFFICULTY = new Set(['xs', 's', 'm', 'l', 'xl'])
 const VALID_CRITICALITY = new Set(['low', 'normal', 'high', 'critical'])
+const VALID_RISK = new Set(['low', 'normal', 'high'])
 const VALID_HIGHLIGHT_COLOR = new Set(['red', 'orange', 'amber', 'green', 'blue', 'purple', 'pink'])
 
 export async function readBacklogObjectStore(workspaceRoot: string): Promise<BacklogReadResult> {
@@ -132,22 +137,18 @@ export async function ensureBacklogObjectRecords(
   })
 }
 
+// Lifecycle, type, and triage (difficulty/criticality/risk) are frontmatter-
+// sourced: these write the item's markdown frontmatter via the shared helper
+// (body byte-preserved) and never touch items.json. The matching reader is
+// parseBacklogFrontmatter in src/shared/backlog/frontmatter.ts.
 export async function updateBacklogStatus(input: BacklogStatusInput): Promise<BacklogMutationResult> {
   if (!isBacklogStatus(input.status)) return { ok: false, message: 'Enter a valid Backlog item status.' }
-  return mutateItem(input.workspaceRoot, input.relativePath, (record, now) => ({
-    ...record,
-    status: input.status,
-    updatedAt: now,
-  }))
+  return writeBacklogFrontmatter(input.workspaceRoot, input.relativePath, { status: input.status })
 }
 
 export async function updateBacklogType(input: BacklogTypeInput): Promise<BacklogMutationResult> {
   if (input.type !== null && !isBacklogType(input.type)) return { ok: false, message: 'Enter a valid Backlog item type.' }
-  return mutateItem(input.workspaceRoot, input.relativePath, (record, now) => ({
-    ...record,
-    type: input.type ?? undefined,
-    updatedAt: now,
-  }))
+  return writeBacklogFrontmatter(input.workspaceRoot, input.relativePath, { type: input.type })
 }
 
 export async function updateBacklogTriage(input: BacklogTriageInput): Promise<BacklogMutationResult> {
@@ -157,12 +158,16 @@ export async function updateBacklogTriage(input: BacklogTriageInput): Promise<Ba
   if (input.criticality !== undefined && input.criticality !== null && !isBacklogCriticality(input.criticality)) {
     return { ok: false, message: 'Enter a valid Backlog item criticality.' }
   }
-  return mutateItem(input.workspaceRoot, input.relativePath, (record, now) => {
-    const next = { ...record, updatedAt: now }
-    if ('difficulty' in input) next.difficulty = input.difficulty ?? undefined
-    if ('criticality' in input) next.criticality = input.criticality ?? undefined
-    return next
-  })
+  if (input.risk !== undefined && input.risk !== null && !isBacklogRisk(input.risk)) {
+    return { ok: false, message: 'Enter a valid Backlog item risk.' }
+  }
+  // Only axes the caller actually supplied are touched; null clears that key's
+  // frontmatter line, an omitted axis is left exactly as written.
+  const updates: BacklogFrontmatterUpdates = {}
+  if ('difficulty' in input) updates.difficulty = input.difficulty ?? null
+  if ('criticality' in input) updates.criticality = input.criticality ?? null
+  if ('risk' in input) updates.risk = input.risk ?? null
+  return writeBacklogFrontmatter(input.workspaceRoot, input.relativePath, updates)
 }
 
 export async function updateBacklogHighlight(input: BacklogHighlightInput): Promise<BacklogMutationResult> {
@@ -242,6 +247,53 @@ export async function removeBacklogObjectRecord(input: BacklogRemoveRecordInput)
       items: store.items.filter((record) => record.source.relativePath.toLowerCase() !== pathKey),
     }
   })
+}
+
+// Read/modify/write the item's markdown frontmatter through the shared
+// serializer (T1), leaving items.json untouched. This is the seam epic writes
+// (T8) reuse — pass `{ epic: slug }` to point a child, `{ epic: null }` to
+// orphan it. Path and workspace validation mirror the items.json mutators, and
+// every failure returns an explicit `ok:false` rather than a silent fallback.
+async function writeBacklogFrontmatter(
+  workspaceRoot: string,
+  relativePath: string,
+  updates: BacklogFrontmatterUpdates,
+): Promise<BacklogMutationResult> {
+  let normalizedPath: string
+  try {
+    normalizedPath = validateBacklogRelativePath(relativePath)
+  } catch (error) {
+    return { ok: false, message: errorMessage(error) }
+  }
+  try {
+    const workspace = await validateWorkspaceRoot(workspaceRoot)
+    const target = resolve(join(workspace.root, normalizedPath))
+    if (!isPathInside(workspace.root, target)) throw new Error('Backlog item path escaped the workspace root.')
+
+    let content: string
+    try {
+      content = await readFile(target, 'utf-8')
+    } catch (error) {
+      const detail = isMissingFileError(error) ? 'file not found' : errorMessage(error)
+      throw new Error(`Could not read Backlog item: ${detail}`)
+    }
+
+    const next = serializeBacklogFrontmatterFields(content, updates)
+    if (next !== content) {
+      try {
+        await writeFile(target, next, 'utf-8')
+      } catch (error) {
+        throw new Error(`Could not write Backlog item: ${errorMessage(error)}`)
+      }
+    }
+    // Frontmatter is the source of truth for these fields, but the result still
+    // carries the (unchanged) sidecar so the IPC contract and renderer callers
+    // stay identical.
+    const store = await loadStore(workspace)
+    return { ok: true, store }
+  } catch (error) {
+    return { ok: false, message: errorMessage(error) }
+  }
 }
 
 async function mutateItem(
@@ -491,6 +543,10 @@ function isBacklogDifficulty(value: unknown): value is BacklogObjectRecord['diff
 
 function isBacklogCriticality(value: unknown): value is BacklogObjectRecord['criticality'] {
   return typeof value === 'string' && VALID_CRITICALITY.has(value)
+}
+
+function isBacklogRisk(value: unknown): value is BacklogObjectRecord['risk'] {
+  return typeof value === 'string' && VALID_RISK.has(value)
 }
 
 function isBacklogHighlightColor(value: unknown): value is BacklogHighlightColorPayload {
