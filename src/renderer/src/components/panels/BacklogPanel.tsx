@@ -67,6 +67,7 @@ import {
   groupItemsByEpic,
   groupedBacklogRows,
   isBacklogHeaderNavId,
+  planEpicArchive,
   type BacklogEpicGroup,
   type BacklogGroupedRow,
 } from '../../utils/backlogEpics'
@@ -750,33 +751,41 @@ export default function BacklogPanel({ workspaceId, onStartFuturePlan }: Workspa
   )
 
   // Archive-epic rollup: archive every active child, then the epic itself, via
-  // the same archive-move path. Children go first so a mid-batch failure leaves
-  // the epic visible (recoverable) rather than an archived epic with live
-  // children. The archived paths accumulate so batch members never collide with
-  // each other or with existing archived files. In the Archived lens (grouped),
-  // the moved epic keeps its slug (filename stem) and the children keep their
-  // `epic:` frontmatter, so they render as one group.
+  // the same archive-move path. `planEpicArchive` resolves the collision-safe
+  // targets up front and, when a `backlog/archived/<stem>.md` collision renames
+  // the epic, marks each child to be re-pointed to the epic's new stem first —
+  // otherwise the children (keyed on the old stem via their `epic:` frontmatter)
+  // would scatter into "Unknown epic" and the archived epic would be empty,
+  // breaking AC2's single-unit rollup. Children go first so a mid-batch failure
+  // leaves the epic recoverable rather than an archived epic with live children.
   const archiveEpicRollup = useCallback(
     (epic: BacklogItem) =>
       runAction(async () => {
         if (!folderPath || epic.status === 'archived' || !epic.isEpic) return
         const children = childrenOfEpic(items, epicSlug(epic)).filter((child) => child.status !== 'archived')
-        const archivedPaths = archivedRelativePaths()
-        let epicArchivedRel = epic.relativePath
+        const plan = planEpicArchive(epic, children, archivedRelativePaths())
         try {
-          for (const target of [...children, epic]) {
-            const archivedRel = nextArchiveRelativePath(target.relativePath, archivedPaths)
-            await moveItemToArchive(target, archivedRel)
-            archivedPaths.push(archivedRel)
-            if (target === epic) epicArchivedRel = archivedRel
+          for (const move of plan.children) {
+            // Re-point the child to the epic's final (possibly renamed) slug
+            // before the move, so the archived copy carries the matching `epic:`.
+            if (move.repointEpic !== null) {
+              const repointed = await window.api.updateBacklogEpic({
+                workspaceRoot: folderPath,
+                relativePath: move.item.relativePath,
+                epic: move.repointEpic,
+              })
+              assertBacklogMutation(repointed)
+            }
+            await moveItemToArchive(move.item, move.archivedRel)
           }
+          await moveItemToArchive(epic, plan.epicArchivedRel)
         } catch (error) {
           // Some members may have archived before the failure; re-scan so the UI
           // reflects the real on-disk state, then surface the error.
           await runScan()
           throw error
         }
-        await refreshAndSelect(normalizeRelativePath(epicArchivedRel))
+        await refreshAndSelect(normalizeRelativePath(plan.epicArchivedRel))
       }),
     [archivedRelativePaths, folderPath, items, moveItemToArchive, refreshAndSelect, runAction, runScan],
   )

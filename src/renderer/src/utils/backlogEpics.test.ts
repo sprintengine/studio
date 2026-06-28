@@ -9,6 +9,7 @@ import {
   groupItemsByEpic,
   groupedBacklogRows,
   isBacklogHeaderNavId,
+  planEpicArchive,
   type BacklogEpicGroup,
 } from './backlogEpics'
 
@@ -210,6 +211,47 @@ run('archive-epic rollup: an archived epic + its archived children group as one 
   assert.deepEqual(
     groups[0].children.map((child) => child.relativePath),
     ['backlog/archived/checkout.md', 'backlog/archived/login.md'],
+  )
+})
+
+run('planEpicArchive: no collision keeps the slug and re-points nothing', () => {
+  const epic = mk('backlog/epics/auth.md', { type: 'epic', title: 'Auth' })
+  const children = [mk('backlog/a.md', { epic: 'auth' }), mk('backlog/b.md', { epic: 'auth' })]
+  const plan = planEpicArchive(epic, children, [])
+  assert.equal(plan.epicArchivedRel, 'backlog/archived/auth.md')
+  assert.equal(plan.epicArchivedSlug, 'auth')
+  assert.equal(plan.slugChanged, false)
+  assert.deepEqual(plan.children.map((move) => move.repointEpic), [null, null])
+  assert.deepEqual(plan.children.map((move) => move.archivedRel), ['backlog/archived/a.md', 'backlog/archived/b.md'])
+})
+
+run('planEpicArchive: an archived-name collision renames the epic and re-points every child to the new stem', () => {
+  const epic = mk('backlog/epics/auth.md', { type: 'epic', title: 'Auth' })
+  const children = [mk('backlog/a.md', { epic: 'auth' }), mk('backlog/b.md', { epic: 'auth' })]
+  // backlog/archived/auth.md already exists → the epic is renamed to auth-2.
+  const plan = planEpicArchive(epic, children, ['backlog/archived/auth.md'])
+  assert.equal(plan.epicArchivedRel, 'backlog/archived/auth-2.md')
+  assert.equal(plan.epicArchivedSlug, 'auth-2')
+  assert.equal(plan.slugChanged, true)
+  // Both children are re-pointed to the renamed stem so they stay grouped.
+  assert.deepEqual(plan.children.map((move) => move.repointEpic), ['auth-2', 'auth-2'])
+})
+
+run('after a collision-rename + re-point, the archived epic + children still group as one unit (AC2)', () => {
+  // Simulates the on-disk state the plan produces: epic at archived/auth-2.md
+  // (slug auth-2) and children re-pointed to `epic: auth-2`. They must form one
+  // group, not an empty epic + an Unknown-epic scatter.
+  const groups = groupItemsByEpic([
+    mk('backlog/archived/auth-2.md', { type: 'epic', title: 'Auth' }),
+    mk('backlog/archived/a.md', { epic: 'auth-2' }),
+    mk('backlog/archived/b.md', { epic: 'auth-2' }),
+  ])
+  assert.equal(groups.length, 1)
+  assert.equal(groups[0].kind, 'epic')
+  assert.equal(groups[0].slug, 'auth-2')
+  assert.deepEqual(
+    groups[0].children.map((child) => child.relativePath),
+    ['backlog/archived/a.md', 'backlog/archived/b.md'],
   )
 })
 

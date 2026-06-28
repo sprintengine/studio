@@ -13,6 +13,7 @@ import {
   type BacklogHighlightColor,
   type BacklogItem,
   isBacklogHighlightColor,
+  nextArchiveRelativePath,
   normalizeRelativePath,
 } from './backlog'
 
@@ -145,12 +146,68 @@ function buildGroup(
 }
 
 // Slug = the epic file's filename stem (e.g. `backlog/epics/auth-revamp.md` ->
-// `auth-revamp`), independent of its directory. Exported so callers that hold an
-// epic item (e.g. the archive-epic rollup) can resolve its children via
-// `childrenOfEpic(items, epicSlug(epic))` without re-deriving the stem.
-export function epicSlug(epic: BacklogItem): string {
-  const name = normalizeRelativePath(epic.relativePath).split('/').filter(Boolean).at(-1) ?? epic.relativePath
+// `auth-revamp`), independent of its directory. The membership contract keys on
+// this stem (a child's `epic:` frontmatter), so anything that *moves* an epic
+// file (the archive rollup) must keep the stem and the children's pointers in
+// sync — see planEpicArchive.
+export function backlogEpicSlugFromPath(relativePath: string): string {
+  const name = normalizeRelativePath(relativePath).split('/').filter(Boolean).at(-1) ?? relativePath
   return name.replace(/\.md$/i, '')
+}
+
+// Exported so callers that hold an epic item (e.g. the archive-epic rollup) can
+// resolve its children via `childrenOfEpic(items, epicSlug(epic))`.
+export function epicSlug(epic: BacklogItem): string {
+  return backlogEpicSlugFromPath(epic.relativePath)
+}
+
+// One planned file move in an archive-epic rollup.
+export type EpicArchiveMove = {
+  item: BacklogItem
+  // Collision-safe `backlog/archived/<name>.md` target for this item.
+  archivedRel: string
+  // The epic slug to write into this child's `epic:` frontmatter *before* moving
+  // it, or null to leave it unchanged. Non-null only when a name collision
+  // renamed the archived epic, so the child stays grouped under the new stem.
+  repointEpic: string | null
+}
+
+export type EpicArchivePlan = {
+  epicArchivedRel: string
+  epicArchivedSlug: string
+  // True when the archived epic's stem differs from its active slug (a
+  // `backlog/archived/<stem>.md` name collision forced a `-N` rename).
+  slugChanged: boolean
+  children: EpicArchiveMove[]
+}
+
+// Pure plan for archiving an epic and its children: resolve every collision-safe
+// archived target and decide which children must be re-pointed. The epic's
+// target is reserved first (so a child can never steal its name and so its final
+// slug is known up front); each child then gets the next free archived name. The
+// membership key is the epic's filename stem, so when a collision renames the
+// archived epic (`<stem>-2.md`) every child is re-pointed to the new stem —
+// otherwise the archived epic would become an empty group and its children would
+// scatter into "Unknown epic", breaking the single-unit rollup. The panel
+// executes this plan over the real IPC; keeping it pure makes the collision
+// branch unit-testable.
+export function planEpicArchive(
+  epic: BacklogItem,
+  children: BacklogItem[],
+  existingArchivedPaths: string[],
+): EpicArchivePlan {
+  const reserved = [...existingArchivedPaths]
+  const epicArchivedRel = nextArchiveRelativePath(epic.relativePath, reserved)
+  reserved.push(epicArchivedRel)
+  const epicArchivedSlug = backlogEpicSlugFromPath(epicArchivedRel)
+  const slugChanged = epicArchivedSlug !== epicSlug(epic)
+
+  const moves = children.map((child): EpicArchiveMove => {
+    const archivedRel = nextArchiveRelativePath(child.relativePath, reserved)
+    reserved.push(archivedRel)
+    return { item: child, archivedRel, repointEpic: slugChanged ? epicArchivedSlug : null }
+  })
+  return { epicArchivedRel, epicArchivedSlug, slugChanged, children: moves }
 }
 
 // Epic header styling lives in the epic file's frontmatter: optional `color:`

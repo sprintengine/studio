@@ -210,9 +210,10 @@ run('archive epic rolls up children: menu + overflow swap Archive→Archive epic
   )
 })
 
-run('archiveEpicRollup archives every child then the epic via the shared archive-move path', () => {
-  // childrenOfEpic gives the rollup set; each child + the epic move through the
-  // one shared moveItemToArchive helper, accumulating collision-safe paths.
+run('archiveEpicRollup archives children then the epic via the plan + shared archive-move, re-pointing on collision', () => {
+  // childrenOfEpic gives the rollup set; planEpicArchive resolves collision-safe
+  // targets + the re-point decision; each member moves through the one shared
+  // moveItemToArchive helper (no new archive mechanism).
   assert.match(
     backlogPanelSource,
     /childrenOfEpic\(items, epicSlug\(epic\)\)\.filter\(\(child\) => child\.status !== 'archived'\)/,
@@ -220,18 +221,23 @@ run('archiveEpicRollup archives every child then the epic via the shared archive
   )
   assert.match(
     backlogPanelSource,
-    /for \(const target of \[\.\.\.children, epic\]\)/,
-    'children are archived first, then the epic (recoverable on mid-batch failure)',
+    /planEpicArchive\(epic, children, archivedRelativePaths\(\)\)/,
+    'the collision-safe targets + re-point plan come from the pure planner',
   )
   assert.match(
     backlogPanelSource,
-    /await moveItemToArchive\(target, archivedRel\)/,
-    'each member uses the shared archive-move helper (no new archive mechanism)',
+    /if \(move\.repointEpic !== null\)/,
+    'on a collision rename, each child is re-pointed to the epic’s new stem before its move',
   )
   assert.match(
     backlogPanelSource,
-    /nextArchiveRelativePath\(target\.relativePath, archivedPaths\)/,
-    'collision naming dedups batch members against each other + existing archives',
+    /await moveItemToArchive\(move\.item, move\.archivedRel\)/,
+    'each child uses the shared archive-move helper',
+  )
+  assert.match(
+    backlogPanelSource,
+    /await moveItemToArchive\(epic, plan\.epicArchivedRel\)/,
+    'the epic is archived last (children first → recoverable on mid-batch failure)',
   )
   assert.match(backlogPanelSource, /archiveEpic: \(item\) => void archiveEpicRollup\(item\)/, 'archiveEpic sits in shared BacklogActions')
   // In the Archived lens an epic group defaults collapsed so it reads as one
