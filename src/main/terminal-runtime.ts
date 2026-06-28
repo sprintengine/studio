@@ -572,15 +572,19 @@ async function waitForTerminalExit(session: TerminalSession, timeoutMs: number):
   })
 }
 
-export const STALE_TERMINAL_SWEEP_INTERVAL_MS = 15 * 60 * 1000
+// Cadence of the idle-agent reap sweep. Kept well under
+// DEFAULT_SUSPEND_IDLE_AFTER_MS (30m) so a freshly-dormant agent is suspended
+// soon after it crosses the threshold rather than up to a sweep-interval later.
+export const STALE_TERMINAL_SWEEP_INTERVAL_MS = 3 * 60 * 1000
 
 let staleTerminalSweepTimer: ReturnType<typeof setInterval> | undefined
 
 function startStaleTerminalSweep(): void {
   if (staleTerminalSweepTimer) clearInterval(staleTerminalSweepTimer)
   staleTerminalSweepTimer = setInterval(() => {
-    // 24h coarse backstop (catches anything ancient), then the Phase 1 policy
-    // sweep that suspends idle agents outside the hot set within a session.
+    // 24h coarse backstop (catches anything ancient), then the recency policy
+    // sweep that suspends idle agent terminals (hook-state-driven) within a
+    // session.
     reapStaleTerminals()
     runIdleAgentReapSweep()
   }, STALE_TERMINAL_SWEEP_INTERVAL_MS)
@@ -659,9 +663,19 @@ export function runIdleAgentReapSweep(now = Date.now()): string[] {
     workspaceId: session.workspaceId ?? null,
     kind: session.kind,
     cli: session.cli ?? null,
-    visible: session.visible ?? false,
     processAlive: isTerminalProcessAlive(session),
+    // Authoritative hook/stall phase ONLY (never the snapshot's inferred
+    // output-timing fallback): inferred 'working' flips on every alt-screen
+    // repaint, so feeding it to the reaper would reintroduce the repaint
+    // masquerade this policy is built to avoid. When no authoritative phase
+    // exists (hookless CLI, or before the first frame), agentPhase stays null and
+    // the keystroke-recency floor decides. Only an at-rest 'idle' agent is
+    // reapable; working/awaiting_input/stalled are protected.
+    agentPhase: session.agentState?.phase ?? null,
     lastInteractionAt: lastInteractionAt(session),
+    // When the agent went idle — keeps a just-finished agent alive until it has
+    // actually been idle past the threshold.
+    idleSince: session.agentState?.phase === 'idle' ? session.agentState.since : null,
     // Conservatively protect any managed SprintEngine agent (it may be mid-run
     // with no user keystrokes) until authoritative run-active state is wired in.
     inActiveRun: Boolean(session.sprintEngineStatePath),
@@ -680,8 +694,8 @@ export function runIdleAgentReapSweep(now = Date.now()): string[] {
       agentId: session.agentId,
       cli: session.cli,
       lastInteractionAt: lastInteractionAt(session),
+      agentPhase: session.agentState?.phase ?? null,
       idleMs,
-      hotWorkspaceIds: decision.hotWorkspaceIds,
     })
     recordReapEvent({
       reapedAt: now,
@@ -1563,7 +1577,7 @@ async function spawnMobileAgentTerminal(input: {
   }
 
   try {
-    requireAuthenticatedUser('Sign in to launch Sprint Engine specialist workflows from the app.')
+    requireAuthenticatedUser('Sign in to launch sprint workflows from the app.')
   } catch (error) {
     const message = getErrorMessage(error)
     retainFailedTerminalSession({
@@ -1828,7 +1842,7 @@ async function spawnTerminalFromIpc(
     try {
       if (sprintEngineStatePath && (kind ?? (shellOnly ? 'terminal' : 'agent')) === 'agent') {
         try {
-          requireAuthenticatedUser('Sign in to launch Sprint Engine specialist workflows from the app.')
+          requireAuthenticatedUser('Sign in to launch sprint workflows from the app.')
         } catch (error) {
           const message = getErrorMessage(error)
           retainFailedTerminalSession({

@@ -171,11 +171,11 @@ export function readinessLabel(readiness: MultiloopExecutionReadiness): string {
     case 'all_done':
       return 'All done'
     case 'loading_execution':
-      return 'Sprint Engine loading'
+      return 'Sprint loading'
     case 'execution_unavailable':
       return 'Execution unavailable'
     case 'no_tasks':
-      return 'Sprint Engine no tasks'
+      return 'Sprint no tasks'
     case 'multiloop_no_tasks':
       return 'Multiloop no tasks'
     case 'no_active_milestone':
@@ -192,9 +192,9 @@ export function readinessTone(readiness: MultiloopExecutionReadiness): Tone {
 
 export function getOwnershipLabel(milestone: MultiloopMilestone | null, linkedExecutionReadState: LinkedExecutionReadState): string {
   if (!milestone?.sprintEngine) return 'Multiloop'
-  if (linkedExecutionReadState.status === 'loading') return 'Sprint Engine (loading)'
-  if (linkedExecutionReadState.status === 'error') return 'Sprint Engine (unavailable)'
-  return 'Sprint Engine'
+  if (linkedExecutionReadState.status === 'loading') return 'Sprint (loading)'
+  if (linkedExecutionReadState.status === 'error') return 'Sprint (unavailable)'
+  return 'Sprint'
 }
 
 export function ListBlock({ title, items }: { title: string; items: string[] }) {

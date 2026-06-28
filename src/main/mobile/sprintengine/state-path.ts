@@ -9,12 +9,12 @@ export type ValidSprintEngineStatePath = {
 
 export function validateSprintEngineStatePath(input: string): ValidSprintEngineStatePath {
   if (typeof input !== 'string' || !input.trim()) {
-    throw new MobileSprintEngineCommandError('path_not_allowed', 'A Sprint Engine run path is required.', false)
+    throw new MobileSprintEngineCommandError('path_not_allowed', 'A sprint run path is required.', false)
   }
 
   const rawStatePath = input.trim()
   if (!isAbsolute(rawStatePath)) {
-    throw new MobileSprintEngineCommandError('path_not_allowed', 'Sprint Engine run path must be absolute.', false)
+    throw new MobileSprintEngineCommandError('path_not_allowed', 'Sprint run path must be absolute.', false)
   }
 
   const statePath = resolve(rawStatePath)
@@ -29,7 +29,7 @@ export function validateSprintEngineStatePath(input: string): ValidSprintEngineS
     || basename(multiCodeDirectory) !== '.multi-code'
     || workspaceRoot === multiCodeDirectory
   ) {
-    throw new MobileSprintEngineCommandError('path_not_allowed', 'Sprint Engine run path must point to .multi-code/sprintengine/<team>/run.yaml.', false)
+    throw new MobileSprintEngineCommandError('path_not_allowed', 'Sprint run path must point to .multi-code/sprintengine/<team>/run.yaml.', false)
   }
 
   return { statePath, teamDirectory, workspaceRoot }

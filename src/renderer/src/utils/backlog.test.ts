@@ -588,13 +588,13 @@ run('Sprint Engine contributes Start/Open Backlog actions for run-linked items',
   )
   assert.match(
     sprintEngineModuleSource,
-    /id: 'sprint-engine\.start-from-backlog',\s*label: 'Start Sprint Engine'/s,
-    'the module registers the Start Sprint Engine Backlog action',
+    /id: 'sprint-engine\.start-from-backlog',\s*label: 'Run a Sprint'/s,
+    'the module registers the Run a Sprint Backlog action',
   )
   assert.match(
     sprintEngineModuleSource,
-    /id: 'sprint-engine\.open-linked-run',\s*label: 'Open Sprint Engine'/s,
-    'the module registers the Open Sprint Engine Backlog action',
+    /id: 'sprint-engine\.open-linked-run',\s*label: 'Open Sprint'/s,
+    'the module registers the Open Sprint Backlog action',
   )
   assert.match(
     sprintEngineModuleSource,

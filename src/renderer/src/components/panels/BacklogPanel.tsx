@@ -795,7 +795,7 @@ export default function BacklogPanel({ workspaceId, onStartFuturePlan }: Workspa
       runAction(async () => {
         const confirmed = await dialog.confirm({
           title: 'Delete item?',
-          body: `“${item.title}” will be moved to the trash. This affects the file only — no Sprint Engine state changes.`,
+          body: `“${item.title}” will be moved to the trash. This affects the file only — no sprint state changes.`,
           confirmLabel: 'Delete',
           tone: 'danger',
         })

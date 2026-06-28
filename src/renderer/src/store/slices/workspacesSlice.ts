@@ -938,7 +938,7 @@ export function createWorkspacesSlice(
           ? normalizeSprintEngineState(options?.sprintEngineState)
             ?? createInitialSprintEngineState({
               goal: options?.sprintEngineState?.goal ?? 'Launch Sprint Engine mode',
-              name: options?.sprintEngineState?.name ?? options?.name ?? 'Sprint Engine Team',
+              name: options?.sprintEngineState?.name ?? options?.name ?? 'Sprint Roster',
               roleCounts: options?.sprintEngineState?.roleCounts ?? createDefaultSprintEngineRoleCounts(),
             })
           : null

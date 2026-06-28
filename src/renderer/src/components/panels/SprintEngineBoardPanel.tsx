@@ -18,6 +18,7 @@ import {
  Section,
  Select,
  Tabs,
+ Tooltip,
  TruncatedText,
  DefinitionList,
  type LifecycleState,
@@ -408,7 +409,7 @@ export function SprintEngineSettingsPopover({
  return (
  <div
  ref={containerRef}
- aria-label="Sprint Engine run configuration"
+ aria-label="Sprint run configuration"
  tabIndex={-1}
  onKeyDown={onPanelKey}
  className="w-[300px] overflow-hidden py-1"
@@ -512,7 +513,7 @@ export default function SprintEngineBoardPanel(props: Props) {
  if (!workspace?.sprintEngineState) {
  return (
  <div className="flex h-full items-center justify-center bg-[color:var(--bg-app)] text-sm text-[color:var(--text-disabled)]">
- Sprint Engine workspace data is missing.
+ Sprint workspace data is missing.
  </div>
  )
  }
@@ -650,7 +651,7 @@ function SprintEngineBoardPanelContent({
  const [taskCommentActions, setTaskCommentActions] = useState<Record<string, TaskCommentActionState>>({})
  const [syncState, setSyncState] = useState<SyncState>({
  status: 'idle',
- message: 'Waiting for a Sprint Engine workspace folder.',
+ message: 'Waiting for a sprint workspace folder.',
  })
 
  const sprintEngineContext = workspace?.sprintEngineContext ?? null
@@ -765,7 +766,7 @@ function SprintEngineBoardPanelContent({
  status: 'idle',
  message: MULTICODE_DISABLE_SPRINTENGINE_SYNC
  ? 'Auto-sync off (debug). Choose a workspace folder, then refresh the board.'
- : 'Choose a workspace folder to watch agent-managed Sprint Engine state.',
+ : 'Choose a workspace folder to watch agent-managed sprint state.',
  })
  return
  }
@@ -774,7 +775,7 @@ function SprintEngineBoardPanelContent({
  status: folderMissing ? 'error' : 'idle',
  message: folderMissing
  ? `Saved workspace folder is missing: ${savedFolderPath}`
- : 'Checking workspace folder before reading Sprint Engine state.',
+ : 'Checking workspace folder before reading sprint state.',
  })
  return
  }
@@ -987,7 +988,7 @@ function SprintEngineBoardPanelContent({
  if (!folderPath || manualRefreshBusy) return
 
  setManualRefreshBusy(true)
- setSyncState({ status: 'syncing', message: 'Refreshing Sprint Engine state...' })
+ setSyncState({ status: 'syncing', message: 'Refreshing sprint state...' })
  try {
  const result = await refreshSprintEngineWorkspaceProjection({
  workspace,
@@ -998,7 +999,7 @@ function SprintEngineBoardPanelContent({
  if (result.status === 'skipped') throw new Error('No workspace folder is ready.')
  if (result.status === 'error') throw new Error(result.message)
  const parsed = result.state
- if (!parsed) throw new Error('Sprint Engine projection was unavailable.')
+ if (!parsed) throw new Error('Sprint projection was unavailable.')
  setSyncState({
  status: 'live',
  message: `Refreshed ${parsed.tasks.length} tasks from projection.json`,
@@ -1006,7 +1007,7 @@ function SprintEngineBoardPanelContent({
  } catch (error) {
  setSyncState({
  status: 'error',
- message: error instanceof Error ? error.message : 'Failed to refresh Sprint Engine state.',
+ message: error instanceof Error ? error.message : 'Failed to refresh sprint state.',
  })
  } finally {
  setManualRefreshBusy(false)
@@ -1186,7 +1187,7 @@ function SprintEngineBoardPanelContent({
  const panel = renderInspectorPanel()
  if (!panel) return null
  return (
- <SidePane side="right" width="md" expanded={inspectorExpanded} ariaLabel="Sprint Engine inspector">
+ <SidePane side="right" width="md" expanded={inspectorExpanded} ariaLabel="Sprint inspector">
  {panel}
  </SidePane>
  )
@@ -1316,7 +1317,7 @@ function SprintEngineBoardPanelContent({
  if (preset === 'bypass_all') {
  const confirmed = await dialog.confirm({
  title: 'Bypass CLI permissions?',
- body: 'Spawned Sprint Engine agents will run without CLI approval prompts. Use this only in repositories and environments you trust.',
+ body: 'Spawned sprint agents will run without CLI approval prompts. Use this only in repositories and environments you trust.',
  confirmLabel: 'Bypass permissions',
  tone: 'danger',
  })
@@ -1566,7 +1567,7 @@ function SprintEngineBoardPanelContent({
  title: `Kill ${label}'s terminal?`,
  body: ownedTask
  ? `${label} is working on ${ownedTask.id} · ${ownedTask.title}. Killing the terminal releases the claim so the work can be picked up again. The roster member stays on the team.`
- : `${label}'s terminal process will be stopped and its Sprint Engine claims released. The roster member stays on the team.`,
+ : `${label}'s terminal process will be stopped and its sprint claims released. The roster member stays on the team.`,
  confirmLabel: 'Kill terminal',
  tone: 'danger',
  })
@@ -1880,7 +1881,7 @@ function SprintEngineBoardPanelContent({
  <div className="flex min-w-0 items-center gap-2">
  {!fixedView ? (
  <Tabs<SprintEngineView>
- ariaLabel="Sprint Engine view"
+ ariaLabel="Sprint view"
  items={chromeTabItems}
  value={effectiveView}
  onChange={activateView}
@@ -1900,10 +1901,26 @@ function SprintEngineBoardPanelContent({
   <span className="shrink-0 tabular-nums text-[11px] text-[color:var(--text-muted)]">
   {doneCount}/{totalTasks}
   </span>
+  {sprintEngineState.vcs?.pullRequestUrl ? (
+  <Tooltip content={sprintEngineState.vcs.pullRequestUrl}>
+  <a
+  href={sprintEngineState.vcs.pullRequestUrl}
+  target="_blank"
+  rel="noreferrer"
+  aria-label="Open the pull request for this sprint"
+  className="interactive flex h-6 shrink-0 items-center gap-1 rounded-[5px] px-1.5 text-[11px] font-medium text-[color:var(--accent-primary)] transition-colors hover:bg-[color:var(--bg-hover)] focus:outline-none focus-visible:ring-1 focus-visible:ring-[color:var(--accent-primary-soft)]"
+  >
+  <svg className="icon-xs shrink-0" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+  <path d="M5 4.5a1.5 1.5 0 1 1-3 0 1.5 1.5 0 0 1 3 0Zm0 0v5m0 0a1.5 1.5 0 1 0 0 .01M11 6.5v3m0 0a1.5 1.5 0 1 0 0 .01M11 6.5a1.5 1.5 0 1 0 0-.01M11 6.5c0-1.5-.5-2.5-2-2.5H7" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round" />
+  </svg>
+  <span>PR</span>
+  </a>
+  </Tooltip>
+  ) : null}
   <Popover
  open={settingsOpen}
  onOpenChange={setSettingsOpen}
- ariaLabel="Sprint Engine run configuration"
+ ariaLabel="Sprint run configuration"
  popupRole="dialog"
  placement="bottom-end"
  renderTrigger={({ ref, triggerProps, togglePopover }) => (
@@ -1946,7 +1963,7 @@ function SprintEngineBoardPanelContent({
  onClose={() => setSettingsOpen(false)}
  />
  </Popover>
- <OverflowMenu ariaLabel="Sprint Engine overflow" items={chromeOverflowItems} />
+ <OverflowMenu ariaLabel="Sprint overflow" items={chromeOverflowItems} />
  </div>
  </div>
  <div
@@ -2152,7 +2169,7 @@ function SprintEngineBoardPanelContent({
  className={`flex min-h-0 flex-1 flex-col bg-[color:var(--bg-app)] ${effectiveTasksLayout === 'kanban' ? 'focus:outline-none' : ''}`}
  tabIndex={effectiveTasksLayout === 'kanban' ? 0 : -1}
  onKeyDown={effectiveTasksLayout === 'kanban' ? handleKanbanKeyDown : undefined}
- aria-label={effectiveTasksLayout === 'kanban' ? 'Sprint Engine kanban' : undefined}
+ aria-label={effectiveTasksLayout === 'kanban' ? 'Sprint kanban' : undefined}
  >
  {/* Tasks layout (Graph / Kanban) toggle lives beside the view tabs on the */}
  {/* leading edge of the sub-nav row above so we don't stack a second bar. */}
@@ -2370,7 +2387,7 @@ function SprintEngineBoardPanelContent({
  {requestChangesDialog.artifact.title}
  </h3>
  <p className="mt-2 text-[13px] leading-6 text-[color:var(--text-muted)]">
- Sprint Engine records this feedback on the artifact and reopens the owning task for rework.
+ The sprint records this feedback on the artifact and reopens the owning task for rework.
  </p>
  </div>
  <CloseIconButton
@@ -2540,7 +2557,7 @@ function SprintEngineBoardPanelContent({
 
  {sprintEngineState.rosterConfigured ? (
  <p className="border-l border-[color:var(--border-strong)] pl-3 text-[12px] leading-5 text-[color:var(--text-muted)]">
- The member is added to the canonical Sprint Engine roster first.
+ The member is added to the canonical sprint roster first.
  {hasPlannedTasks
  ? ' The architect will be asked to review whether the plan needs revision for this new specialist.'
  : ' No tasks are planned yet, so no architect revision is requested.'}

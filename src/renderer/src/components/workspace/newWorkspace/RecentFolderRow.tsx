@@ -18,7 +18,7 @@ interface RecentFolderRowProps {
 }
 
 const HINT_LABEL: Record<Hint, string> = {
-  sprintengine: 'Sprint Engine',
+  sprintengine: 'Sprint',
   multiloop: 'Multiloop',
 }
 

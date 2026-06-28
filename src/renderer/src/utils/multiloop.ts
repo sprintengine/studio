@@ -324,7 +324,7 @@ export function buildMultiloopLaunchContextLines({
       ? `Current milestone goal: ${boundedMultiloopPromptContext(currentMilestone.goal, 'No milestone goal recorded.')}`
       : null,
     `Multiloop state file: ${commandStatePath}`,
-    sprintEngineStatePath ? `Linked Sprint Engine state file: ${sprintEngineStatePath}` : null,
+    sprintEngineStatePath ? `Linked sprint state file: ${sprintEngineStatePath}` : null,
     'Use the Multiloop CLI for every state mutation; do not edit state.json directly.',
     `Inspect state: scripts/multiloop --state ${commandStatePath} status`,
     ...buildMultiloopRoleCommandLines(role, commandStatePath, safeAgentId, sprintEngineStatePath),
@@ -342,10 +342,10 @@ function buildMultiloopRoleCommandLines(
   if (role === 'coordinator') {
     return [
       `Render current coordinator context: scripts/multiloop --state ${statePath} milestone plan-next`,
-      `Create linked Sprint Engine execution for the active milestone: scripts/multiloop --state ${statePath} milestone start <milestone-id>`,
+      `Create linked sprint execution for the active milestone: scripts/multiloop --state ${statePath} milestone start <milestone-id>`,
       sprintEngineStatePath
-        ? `Create or revise executable milestone tasks with Sprint Engine planning commands against ${sprintEngineStatePath}.`
-        : 'Do not create executable tasks until the active milestone is linked to Sprint Engine.',
+        ? `Create or revise executable milestone tasks with sprint planning commands against ${sprintEngineStatePath}.`
+        : 'Do not create executable tasks until the active milestone is linked to a sprint.',
       `Accept only completed, unblocked milestones: scripts/multiloop --state ${statePath} milestone accept <milestone-id> --id ${agentId}`,
     ]
   }
@@ -374,12 +374,12 @@ function buildMultiloopRoleCommandLines(
         `Then claim your work: call \`sprintengine.task.next\` with ${claimPayload}. If it returns no claim, call \`sprintengine.gate.next\` once with the same payload. Work what the claim returns; if neither returns work, stop.`,
         `Log evidence before handoff: call \`sprintengine.task.log\` with ${logPayload}.`,
         `Publish completion after evidence: call \`sprintengine.task.publish\` with ${publishPayload}.`,
-        'Use the managed Sprint Engine MCP tools for autonomous Sprint Engine work.',
+        'Use the managed Sprint Engine MCP tools for autonomous sprint work.',
       ]
     }
     return [
       `Render read-only Multiloop context: scripts/multiloop --state ${statePath} milestone review --role ${role}`,
-      'No linked Sprint Engine state is available; report that blocker instead of using deprecated Multiloop task commands.',
+      'No linked sprint state is available; report that blocker instead of using deprecated Multiloop task commands.',
     ]
   }
 

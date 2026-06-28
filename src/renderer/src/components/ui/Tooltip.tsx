@@ -40,6 +40,13 @@ type TooltipProps = {
    * drop-target button inside a flex column that should fill the row.
    */
   wrapperClassName?: string
+  /**
+   * Role for the wrapping span. Pass `presentation` when the wrapper sits
+   * between a container and its semantic child (e.g. a `tree` and its
+   * `treeitem`) so it stays transparent in the accessibility tree and does not
+   * break the owned-element relationship.
+   */
+  wrapperRole?: React.AriaRole
 }
 
 // Gap between the trigger and the tooltip, and the minimum margin the tooltip
@@ -117,6 +124,7 @@ export function Tooltip({
   openDelayMs = 200,
   className,
   wrapperClassName,
+  wrapperRole,
 }: TooltipProps) {
   const id = useId()
   const [open, setOpen] = useState(false)
@@ -223,7 +231,7 @@ export function Tooltip({
   })
 
   return (
-    <span ref={triggerWrapRef} className={`relative ${wrapperClassName ?? 'inline-flex'}`}>
+    <span ref={triggerWrapRef} role={wrapperRole} className={`relative ${wrapperClassName ?? 'inline-flex'}`}>
       {trigger}
       {open
         ? createPortal(

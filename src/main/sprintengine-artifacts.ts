@@ -137,12 +137,12 @@ const autoApprovableArtifactKinds = new Set([
 
 function validateSprintEngineStatePath(input: unknown): ValidSprintEngineStatePath {
   if (typeof input !== 'string' || !input.trim()) {
-    throw new Error('A Sprint Engine run path is required.')
+    throw new Error('A sprint run path is required.')
   }
 
   const rawStatePath = input.trim()
   if (!isAbsolute(rawStatePath)) {
-    throw new Error('Sprint Engine run path must be absolute.')
+    throw new Error('Sprint run path must be absolute.')
   }
 
   const statePath = resolve(rawStatePath)
@@ -157,7 +157,7 @@ function validateSprintEngineStatePath(input: unknown): ValidSprintEngineStatePa
     || basename(multiCodeDirectory) !== '.multi-code'
     || workspaceRoot === multiCodeDirectory
   ) {
-    throw new Error('Sprint Engine run path must point to .multi-code/sprintengine/<team>/run.yaml.')
+    throw new Error('Sprint run path must point to .multi-code/sprintengine/<team>/run.yaml.')
   }
 
   return { statePath, teamDirectory, workspaceRoot }
@@ -192,7 +192,7 @@ function resolveArtifactFilePath(state: ValidSprintEngineStatePath, artifactPath
       ].find((candidate) => isPathInsideOrEqual(state.teamDirectory, candidate))
         ?? resolve(state.workspaceRoot, artifactPath)
   if (!isPathInsideOrEqual(state.teamDirectory, fullPath)) {
-    throw new Error('Artifact path must stay inside the Sprint Engine team directory.')
+    throw new Error('Artifact path must stay inside the sprint team directory.')
   }
 
   return fullPath
@@ -370,12 +370,12 @@ function parseSprintEngineCliJsonOutput(stdout: string): unknown {
 
 function resolveInitialSprintEngineStatePayload(payload: SprintEngineStateInitializeInput): SerializableSprintEngineStatePayload {
   return {
-    name: resolveRequiredString(payload?.name, 'Sprint Engine name'),
-    goal: resolveOptionalString(payload?.goal, 'Sprint Engine goal') ?? '',
-    agents: resolveRecord(payload?.agents, 'Sprint Engine agents'),
-    tasks: resolveArray(payload?.tasks, 'Sprint Engine tasks'),
-    events: resolveArray(payload?.events, 'Sprint Engine events'),
-    artifacts: resolveArray(payload?.artifacts, 'Sprint Engine artifacts'),
+    name: resolveRequiredString(payload?.name, 'sprint name'),
+    goal: resolveOptionalString(payload?.goal, 'sprint goal') ?? '',
+    agents: resolveRecord(payload?.agents, 'sprint agents'),
+    tasks: resolveArray(payload?.tasks, 'sprint tasks'),
+    events: resolveArray(payload?.events, 'sprint events'),
+    artifacts: resolveArray(payload?.artifacts, 'sprint artifacts'),
     useWorktrees: payload?.useWorktrees === true,
   }
 }
@@ -671,7 +671,7 @@ async function readSprintEngineProjectionForArtifactReview(state: ValidSprintEng
 async function assertAutoApprovalAllowed(state: ValidSprintEngineStatePath, artifactId: string): Promise<SprintEngineArtifactRecord> {
   const { tasks, artifacts } = await readSprintEngineProjectionForArtifactReview(state)
   const artifact = artifacts.find((candidate) => candidate.id === artifactId)
-  if (!artifact) throw new Error('Requested artifact was not found in the Sprint Engine projection.')
+  if (!artifact) throw new Error('Requested artifact was not found in the sprint projection.')
 
   const blocker = getArtifactAutoApprovalBlocker(artifact, tasks, artifacts)
   if (blocker) throw new Error(blocker)

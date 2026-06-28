@@ -39,6 +39,7 @@ import {
   validateMobileWorkspacePath,
 } from './workspace'
 import { assertBacklogRelativePath, resolveBacklogStartPrompt } from './backlog'
+import { workspaceRootFromStatePath } from './workspace-id'
 import {
   createBacklogItem,
   updateBacklogModuleMetadata,
@@ -555,10 +556,11 @@ export class MobileSprintEngineCommandService {
     const workspacePath = await validateMobileWorkspacePath({
       workspacePath: command.payload.workspacePath,
       allowedWorkspaceRoots: scope.allowedWorkspaceRoots,
+      workspaceRootCandidates: this.workspaceRootCandidates(scope),
     })
     const productPrompt = command.payload.productPrompt.trim()
     if (!productPrompt) {
-      return this.resultRecorder.reject(command, 'invalid_payload', 'Sprint Engine creation requires a product prompt.', false, undefined, undefined, workspacePath)
+      return this.resultRecorder.reject(command, 'invalid_payload', 'Sprint creation requires a product prompt.', false, undefined, undefined, workspacePath)
     }
     if (productPrompt.length > maxProductPromptCharacters) {
       return this.resultRecorder.reject(command, 'invalid_payload', `Product prompt must be ${maxProductPromptCharacters} characters or less.`, false, undefined, undefined, workspacePath)
@@ -587,6 +589,7 @@ export class MobileSprintEngineCommandService {
     const workspacePath = await validateMobileWorkspacePath({
       workspacePath: command.payload.workspacePath,
       allowedWorkspaceRoots: scope.allowedWorkspaceRoots,
+      workspaceRootCandidates: this.workspaceRootCandidates(scope),
     })
     const relativePath = assertBacklogRelativePath(command.payload.relativePath)
     const { status, type, difficulty, criticality } = command.payload
@@ -638,6 +641,7 @@ export class MobileSprintEngineCommandService {
     const workspacePath = await validateMobileWorkspacePath({
       workspacePath: command.payload.workspacePath,
       allowedWorkspaceRoots: scope.allowedWorkspaceRoots,
+      workspaceRootCandidates: this.workspaceRootCandidates(scope),
     })
     const relativePath = assertBacklogRelativePath(command.payload.relativePath)
     const { title, prompt } = await resolveBacklogStartPrompt(workspacePath, relativePath)
@@ -685,6 +689,7 @@ export class MobileSprintEngineCommandService {
     const workspacePath = await validateMobileWorkspacePath({
       workspacePath: command.payload.workspacePath,
       allowedWorkspaceRoots: scope.allowedWorkspaceRoots,
+      workspaceRootCandidates: this.workspaceRootCandidates(scope),
     })
     const title = command.payload.title.trim()
     if (!title) {
@@ -722,6 +727,18 @@ export class MobileSprintEngineCommandService {
     ])
 
     return { allowedWorkspaceRoots, statePaths }
+  }
+
+  // Roots a phone-supplied workspace token may resolve to: the allowed roots plus
+  // the workspace root of every known Sprint Engine state path, so workspaces
+  // nested under a configured parent root still resolve. Token resolution is
+  // still re-validated against allowedWorkspaceRoots, so widening this set does
+  // not relax the security boundary.
+  private workspaceRootCandidates(scope: MobileSprintEngineCommandScope): string[] {
+    return uniqueResolved([
+      ...scope.allowedWorkspaceRoots,
+      ...scope.statePaths.map((statePath) => workspaceRootFromStatePath(statePath)),
+    ])
   }
 
   private async resolveStateForSprintEngine(

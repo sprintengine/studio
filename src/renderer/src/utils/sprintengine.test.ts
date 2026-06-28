@@ -285,6 +285,50 @@ assert.deepEqual(
   { state: 'done', live: false, label: 'Completed' },
 )
 
+// Board-driven rollup: progress is derived from the task board, not terminals,
+// so a manual run (idle runner) still reflects its real state.
+const boardTask = (status: SprintEngineTask['status']): SprintEngineTask => ({ status }) as SprintEngineTask
+const manualIdle = { desiredMode: 'manual' as const, runtimeState: 'idle' as const }
+// An in-flight task → in_progress, static (no live runner asserted on a manual run).
+assert.deepEqual(
+  deriveSprintEngineRunGlyph({ sprintEngineState: { tasks: [boardTask('in_progress')] }, autoState: manualIdle }),
+  { state: 'in_progress', live: false, label: 'In progress' },
+)
+// Quality-gate columns count as in-flight too.
+assert.equal(
+  deriveSprintEngineRunGlyph({ sprintEngineState: { tasks: [boardTask('review')] }, autoState: manualIdle })?.state,
+  'in_progress',
+)
+// Changes requested outranks a plain in-progress task — review churn is not hidden.
+assert.deepEqual(
+  deriveSprintEngineRunGlyph({
+    sprintEngineState: { tasks: [boardTask('changes_requested'), boardTask('in_progress')] },
+    autoState: manualIdle,
+  }),
+  { state: 'changes_requested', live: false, label: 'Changes requested' },
+)
+// Some done + nothing running → paused.
+assert.equal(
+  deriveSprintEngineRunGlyph({ sprintEngineState: { tasks: [boardTask('done'), boardTask('todo')] }, autoState: manualIdle })?.state,
+  'paused',
+)
+// All todo, idle runner → never started, no run signal yet.
+assert.equal(
+  deriveSprintEngineRunGlyph({ sprintEngineState: { tasks: [boardTask('todo'), boardTask('todo')] }, autoState: manualIdle }),
+  null,
+)
+// All done → done, even with an idle manual runner.
+assert.equal(
+  deriveSprintEngineRunGlyph({ sprintEngineState: { tasks: [boardTask('done'), boardTask('done')] }, autoState: manualIdle })?.state,
+  'done',
+)
+// An architect-routed needs_input task (no user question) is in-flight work, not
+// a user prompt — it reads in_progress, not needs_input.
+assert.equal(
+  deriveSprintEngineRunGlyph({ sprintEngineState: { tasks: [boardTask('needs_input')] }, autoState: manualIdle })?.state,
+  'in_progress',
+)
+
 const dispatchState = normalizeSprintEngineProjection(fakeProjection({
   roster: {
     'frontend-3': {

@@ -5,7 +5,7 @@ import type { LayoutTemplate, PreviewSlot, SprintEngineMockConfig } from '../typ
 import { GuidedBriefWorkspaceTypeIcon, SprintEngineWorkspaceTypeIcon } from '../components/AppIcons'
 import { deriveSprintEngineRunGlyph } from '../utils/sprintengine'
 import { isSprintEngineWorkspace } from '../utils/sprintEnginesNav'
-import type { WorkspaceActivityKind, WorkspaceRunGlyphProviderInput } from '../utils/workspaceRunGlyph'
+import type { WorkspaceRunGlyph, WorkspaceRunGlyphProviderInput } from '../utils/workspaceRunGlyph'
 
 const SprintEngineAutoRunSupervisor = React.lazy(
   () => import('../components/workspace/SprintEngineAutoRunSupervisor')
@@ -16,7 +16,7 @@ const editor = (label: string, x: number, y: number, w: number, h: number): Prev
 
 const sprintEngineBoardTab = () => ({
   type: 'tab',
-  name: 'Sprint Engine',
+  name: 'Sprint',
   component: 'sprintengine',
   enableClose: false,
 })
@@ -29,7 +29,7 @@ const guidedBriefTab = () => ({
 })
 
 export const defaultSprintEngineTemplateConfig: SprintEngineMockConfig = {
-  name: 'Sprint Engine',
+  name: 'Sprint Roster',
   goal: '',
   roleCounts: {} as SprintEngineMockConfig['roleCounts'],
 }
@@ -65,10 +65,10 @@ export function createGuidedBriefTemplate(): LayoutTemplate {
 export function createSprintEngineTemplate(_config: SprintEngineMockConfig): LayoutTemplate {
   return {
     id: 'sprintengine-mode',
-    name: 'SprintEngine Mode',
+    name: 'Sprint',
     description: 'Inbox, Roster, and Tasks together in one stable board.',
     previewSlots: [
-      editor('Sprint Engine', 4, 4, 292, 102),
+      editor('Sprint', 4, 4, 292, 102),
     ],
     layout: {
       global: { tabSetEnableDrop: true, tabEnableClose: true },
@@ -87,39 +87,24 @@ export function createSprintEngineTemplate(_config: SprintEngineMockConfig): Lay
   }
 }
 
-// AutoRun never reaches `complete` on a manual run, so a run whose tasks all
-// finished by hand still reads as done.
-function isManualRunCompleted(workspace: WorkspaceRunGlyphProviderInput): boolean {
-  const tasks = workspace.sprintEngineState?.tasks ?? []
-  return tasks.length > 0 && tasks.every((task) => task.status === 'done')
-}
-
-// A completed run keeps the done glyph for good: a finished sprint reads as
-// "done" in the sidebar, not as a recency timestamp. The run's recency still
-// survives in the glyph tooltip (see WorkspaceSidebar). Only live attention
-// states — busy/failed terminals or a human-routed needs_input — outrank it.
+// A sprint's run glyph is a pure function of sprint state — the task board plus
+// the AutoRun runtime (see deriveSprintEngineRunGlyph). Terminals are ephemeral
+// and deliberately excluded: a single agent terminal sitting at a prompt must
+// not light the whole sprint. The rollup already covers a manually-completed run
+// (all tasks done → `done`), so there is nothing terminal-derived to fold in.
 export function deriveSprintEngineWorkspaceRunGlyph(
   workspace: WorkspaceRunGlyphProviderInput,
-  activity: WorkspaceActivityKind,
-) {
-  const rollup = deriveSprintEngineRunGlyph({
+): WorkspaceRunGlyph | null {
+  return deriveSprintEngineRunGlyph({
     sprintEngineState: workspace.sprintEngineState,
     autoState: workspace.sprintEngineAutoState,
   })
-  if (rollup && rollup.state !== 'done') return rollup
-  // Busy or failed terminals outrank a finished run: new activity in a
-  // completed workspace reads as live again via the caller's fallback.
-  if (activity === 'working' || activity === 'failed') return null
-  if (rollup?.state === 'done' || isManualRunCompleted(workspace)) {
-    return { state: 'done', live: false, label: 'Run completed' } as const
-  }
-  return null
 }
 
 export function registerSprintEngineWorkspaceTypes(host: RendererHost): void {
   host.registerWorkspaceType({
     id: 'sprintengine',
-    label: 'Sprint Engine',
+    label: 'Sprint',
     description: 'Specialist roster, architect plan, kanban, and evidence trail.',
     icon: SprintEngineWorkspaceTypeIcon,
     accentToken: '--tool-sprintengine',

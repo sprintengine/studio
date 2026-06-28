@@ -188,7 +188,7 @@ export class MobileSprintEngineActivityPublisher {
     return this.notification({
       category: 'sprintengine.complete',
       sprintEngineId: sprintengine.sprintEngineId,
-      title: 'Sprint Engine complete',
+      title: 'Sprint complete',
       body: `${sprintengine.name} has finished all tasks.`,
       severity: 'info',
       deepLink: `multicode-mobile://sprintengines/${encodeURIComponent(sprintengine.sprintEngineId)}`,

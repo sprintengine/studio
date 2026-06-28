@@ -248,7 +248,7 @@ export default function PlainTerminalPanel({
             details: [
               `Session: ${sessionId}`,
               `Workspace path: ${terminalCwd ?? savedFolderPath ?? 'default app path'}`,
-              sprintEngineStatePath ? `Sprint Engine state: ${sprintEngineStatePath}` : null,
+              sprintEngineStatePath ? `Sprint state: ${sprintEngineStatePath}` : null,
             ].filter(Boolean).join('\n'),
             workspaceId,
             workspaceName,

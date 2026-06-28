@@ -133,7 +133,7 @@ export function useSprintEngineBoardTerminalActions(
         level: 'error',
         source: 'terminal',
         title: `${label} was not started`,
-        message: 'Sprint Engine agent is missing its CLI selection.',
+        message: 'Sprint agent is missing its CLI selection.',
         details: [
           `Workspace ID: ${workspaceId}`,
           `Agent ID: ${agentId}`,

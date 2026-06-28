@@ -133,25 +133,74 @@ const AUTOMATION_RUN_GLYPH: Partial<Record<SprintEngineAutomationRuntimeState, S
   complete: { state: 'done', live: false, label: 'Completed' },
 }
 
-// One run, one glyph. Priority:
-//   1. A task awaiting the *human* (needs_input, kind user)
-//      wins over everything — it's the actionable signal even while other
-//      tasks keep running, so the spinner would otherwise hide it.
-//   2. Otherwise the AutoRun runtime state. `idle` (and a missing autoState)
-//      yields null so each surface keeps its own fallback.
+// Board columns that mean work is genuinely in flight. The quality-gate columns
+// (review/testing/product) count — a reviewer or tester is processing the task.
+// A `needs_input` task that is NOT user-routed also counts as active work (it
+// fell through the user-needs_input check below, so it's blocked on the
+// architect, not the user) and is handled inline rather than via this set.
+const SPRINT_ENGINE_ACTIVE_TASK_STATUSES: ReadonlySet<SprintEngineTaskStatus> = new Set([
+  'in_progress',
+  'review',
+  'testing',
+  'product',
+])
+
+// One run, one glyph, derived purely from sprint state — the task board plus the
+// AutoRun runtime. Terminals are deliberately NOT consulted: an agent terminal
+// sitting at (or stuck at) a prompt is ephemeral and must never make a whole
+// sprint read as "needs input" when no task does. Priority, highest first:
+//   1. needs_input — a task awaiting the *human* (kind user), or a blocked
+//      runner. The actionable signal; wins even while other tasks run.
+//   2. failed — a failed runner.
+//   3. changes_requested — a reviewer asked for rework. Surfaced above
+//      in_progress so review churn is never hidden by the spinner.
+//   4. in_progress — any active-column task, or a running runner. `live`
+//      (spinner) only when the runner is genuinely `running`; a manual run with
+//      active tasks reads in-progress but static (no live runner is asserted).
+//   5. done — every task finished, or a `complete` runner.
+//   6. paused — a paused runner, or a started run (≥1 done) with nothing
+//      currently running.
+//   7. null — not started / no observable run; the surface keeps its own
+//      resting rendering (recency text, or the Backlog item's own status).
 export function deriveSprintEngineRunGlyph(input: {
   sprintEngineState: Pick<SprintEngineState, 'tasks'> | null | undefined
   autoState: Partial<SprintEngineAutoState> | null | undefined
 }): SprintEngineRunGlyph | null {
+  const tasks = input.sprintEngineState?.tasks ?? []
+  const runtimeState = input.autoState
+    ? normalizeSprintEngineAutomationRuntimeState(
+        input.autoState.runtimeState,
+        deriveSprintEngineAutomationDesiredMode(input.autoState),
+      )
+    : null
+
   if (input.sprintEngineState && sprintEngineRunAwaitsHumanInput(input.sprintEngineState)) {
     return { state: 'needs_input', live: false, label: 'Needs input' }
   }
-  if (!input.autoState) return null
-  const runtimeState = normalizeSprintEngineAutomationRuntimeState(
-    input.autoState.runtimeState,
-    deriveSprintEngineAutomationDesiredMode(input.autoState),
+  if (runtimeState === 'blocked') return AUTOMATION_RUN_GLYPH.blocked ?? null
+  if (runtimeState === 'failed') return AUTOMATION_RUN_GLYPH.failed ?? null
+
+  if (tasks.some((task) => task.status === 'changes_requested')) {
+    return { state: 'changes_requested', live: false, label: 'Changes requested' }
+  }
+
+  const hasActiveWork = tasks.some(
+    (task) => SPRINT_ENGINE_ACTIVE_TASK_STATUSES.has(task.status) || task.status === 'needs_input',
   )
-  return AUTOMATION_RUN_GLYPH[runtimeState] ?? null
+  if (runtimeState === 'running') return { state: 'in_progress', live: true, label: 'Running' }
+  if (hasActiveWork) return { state: 'in_progress', live: false, label: 'In progress' }
+
+  const hasTasks = tasks.length > 0
+  if ((hasTasks && tasks.every((task) => task.status === 'done')) || runtimeState === 'complete') {
+    return { state: 'done', live: false, label: 'Completed' }
+  }
+
+  if (runtimeState === 'paused') return AUTOMATION_RUN_GLYPH.paused ?? null
+  if (hasTasks && tasks.some((task) => task.status === 'done')) {
+    return { state: 'paused', live: false, label: 'Paused' }
+  }
+
+  return null
 }
 
 export type SprintEngineAgentRosterItem = {
@@ -1907,7 +1956,7 @@ export function createInitialSprintEngineState(config: SprintEngineMockConfig): 
   const roleCounts = normalizeSprintEngineRoleCounts(config.roleCounts)
   const roster = buildSprintEngineAgentRoster(roleCounts)
   return {
-    name: config.name?.trim() || 'Sprint Engine Team',
+    name: config.name?.trim() || 'Sprint Roster',
     goal: config.goal,
     rosterConfigured: true,
     roleCounts,
@@ -2217,7 +2266,7 @@ export function normalizeSprintEngineState(input: SprintEngineState | null | und
   const roleCounts = normalizeSprintEngineRoleCounts(input.roleCounts)
 
   return {
-    name: input.name?.trim() || 'Sprint Engine Team',
+    name: input.name?.trim() || 'Sprint Roster',
     goal: input.goal ?? '',
     rosterConfigured: Boolean(input.rosterConfigured),
     ...(input.source ? { source: input.source } : {}),
@@ -2415,7 +2464,7 @@ export function normalizeSprintEngineProjection(
   const roleCounts = hasRosterCounts ? fallbackRoleCounts : createDefaultSprintEngineRoleCounts()
 
   const candidate: SprintEngineState = {
-    name: optionalTrimmedString(runRecord.name) ?? fallbackName ?? 'Sprint Engine Team',
+    name: optionalTrimmedString(runRecord.name) ?? fallbackName ?? 'Sprint Roster',
     goal: typeof runRecord.goal === 'string' ? runRecord.goal : '',
     rosterConfigured: Boolean(runRecord.rosterConfigured),
     updatedAt: optionalTrimmedString(runRecord.updatedAt) ?? optionalTrimmedString(record.updatedAt) ?? null,
@@ -2972,7 +3021,7 @@ export function resolveSprintEngineArtifactEditorPath(
     throw new Error('Remote artifact links cannot be opened in the editor.')
   }
   if (artifactPath.split(/[\\/]+/).includes('..')) {
-    throw new Error('Artifact path must stay inside the Sprint Engine team directory.')
+    throw new Error('Artifact path must stay inside the sprint team directory.')
   }
   if (/^[A-Za-z][A-Za-z0-9+.-]*:/i.test(artifactPath) && !isAbsoluteFilePath(artifactPath)) {
     throw new Error('Only workspace artifact file paths can be opened.')
@@ -2989,7 +3038,7 @@ export function resolveSprintEngineArtifactEditorPath(
       ?? joinFilePath(workspaceRoot, artifactPath)
 
   if (!isPathInsideOrEqual(teamDirectory, targetPath)) {
-    throw new Error('Artifact path must stay inside the Sprint Engine team directory.')
+    throw new Error('Artifact path must stay inside the sprint team directory.')
   }
 
   return targetPath

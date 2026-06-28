@@ -13,7 +13,6 @@ import type {
 } from '../types/workspace'
 import type { BacklogItem, BacklogItemLink, BacklogItemStatus, BacklogResolvedLink } from '../utils/backlog'
 import type {
-  WorkspaceActivityKind,
   WorkspaceRunGlyph,
   WorkspaceRunGlyphProviderInput,
 } from '../utils/workspaceRunGlyph'
@@ -68,7 +67,7 @@ export type WorkspaceTypeDefinition = {
     views: WorkspaceTypeTopBarView[]
   }
   isRunGlyphProviderForWorkspace?(workspace: WorkspaceRunGlyphProviderInput): boolean
-  deriveRunGlyph?(workspace: WorkspaceRunGlyphProviderInput, activity: WorkspaceActivityKind): WorkspaceRunGlyph | null
+  deriveRunGlyph?(workspace: WorkspaceRunGlyphProviderInput): WorkspaceRunGlyph | null
   supervisors?: WorkspaceTypeSupervisor[]
   creationStepsId?: string
   pickerOrder?: number

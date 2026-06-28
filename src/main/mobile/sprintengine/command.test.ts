@@ -1173,7 +1173,7 @@ async function importMainProcessIpcHandlers(): Promise<FilesystemMutationHandler
 async function assertRejectsSprintEngineStateMutation(action: () => Promise<unknown>): Promise<void> {
   await assert.rejects(
     action,
-    (error) => error instanceof Error && error.message === 'Sprint Engine run-store files must be updated through the Sprint Engine tool.'
+    (error) => error instanceof Error && error.message === 'Sprint run-store files must be updated through the Sprint Engine tool.'
   )
 }
 

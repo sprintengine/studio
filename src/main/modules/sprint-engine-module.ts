@@ -45,7 +45,7 @@ export const sprintEngineModule: CapabilityModule = {
         id: 'sprintengine-mcp',
         kind: 'python-mcp',
         module: 'sprintengine_mcp',
-        description: 'Shared MCP hub; lazily started on the first managed Sprint Engine run.',
+        description: 'Shared MCP hub; lazily started on the first managed sprint run.',
         startOn: 'demand',
       },
       {

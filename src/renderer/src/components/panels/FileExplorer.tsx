@@ -1596,7 +1596,7 @@ function ExplorerTree({
       ...(canViewGitDiff ? [{ id: 'view-git-diff', label: 'View Git Diff' }] : []),
       ...(canStartFuturePlan
         ? [{
-          label: 'Start Sprint Engine From',
+          label: 'Run a Sprint From',
           submenu: [
             { id: 'create-markdown-sprintengine-product', label: 'Product Plan...' },
             { id: 'create-markdown-sprintengine-architect', label: 'Implementation Plan...' },
@@ -1605,7 +1605,7 @@ function ExplorerTree({
           ],
         }]
         : []),
-      ...(canStartFuturePlanBundle ? [{ id: 'create-source-bundle-sprintengine', label: `Start Sprint Engine From ${contextSelection.length === 1 ? 'Source' : `${contextSelection.length} Sources`}...` }] : []),
+      ...(canStartFuturePlanBundle ? [{ id: 'create-source-bundle-sprintengine', label: `Run a Sprint From ${contextSelection.length === 1 ? 'Source' : `${contextSelection.length} Sources`}...` }] : []),
       ...(hasSourceBundleOutsideBacklog ? [{
         id: 'source-bundle-backlog-only',
         label: 'Source bundles must be under backlog/',

@@ -117,7 +117,7 @@ export function buildSprintEngineStartupPrompt(
 
   const roleBoundary = [
     '## Role Boundaries',
-    `You are assigned role: ${role}. Only claim work whose Sprint Engine \`task.role\` matches \`${role}\`. Do not claim, complete, mark ready, or otherwise advance tasks assigned to any other role. You may read other roles' state via MCP read tools to diagnose blockers.`,
+    `You are assigned role: ${role}. Only claim work whose sprint \`task.role\` matches \`${role}\`. Do not claim, complete, mark ready, or otherwise advance tasks assigned to any other role. You may read other roles' state via MCP read tools to diagnose blockers.`,
     'Sprint Engine work runs through the managed `multicode-sprintengine` MCP server in this terminal. If the managed MCP server cannot be reached, stop and surface the failure.',
   ].join('\n')
 
@@ -128,13 +128,13 @@ export function buildSprintEngineStartupPrompt(
   const context = [
     options.executionCwd ? `Worker cwd: ${options.executionCwd}` : null,
     commandMode === 'init' && options.rosterArgs?.length
-      ? `Selected Sprint Engine roster: ${options.rosterArgs.join(', ')}. The architect must create tasks only for roles present in this roster.`
+      ? `Selected sprint roster: ${options.rosterArgs.join(', ')}. The architect must create tasks only for roles present in this roster.`
       : null,
   ].filter(Boolean)
   const autonomousPlanningOverride = options.autonomousPlanningOverride
     ? [
       '## Autonomous Planning Override',
-      'Sprint Engine automation mode is Run agents + approve artifacts. Treat this as user intent for non-interactive planning and artifact-gate progression.',
+      'Sprint automation mode is Run agents + approve artifacts. Treat this as user intent for non-interactive planning and artifact-gate progression.',
       'Agent automation controls spawning; artifact approval automation is the signal to skip normal grilling.',
       'Use approved artifacts, the Knowledge Graph, current code, tests, and commands to answer discovery questions yourself where possible.',
       'Do not pause for ordinary preference, naming, scope-shaping, or plan-review questions. Proceed with conservative defaults, record them in `plan.md`, and only ask the user if a decision is unsafe to default, destructive, privacy/security-sensitive, legally sensitive, impossible to verify, or blocked by a missing dependency.',

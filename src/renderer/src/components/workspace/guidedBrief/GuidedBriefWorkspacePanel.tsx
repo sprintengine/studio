@@ -83,7 +83,7 @@ export default function GuidedBriefWorkspacePanel({ workspaceId }: Props) {
       await requireFreshSprintEngineAccess(window.api, setAuthState)
     } catch (error) {
       if (!authState.authenticated) await window.api.authLogin(authState.selectedOrganization?.id ?? null)
-      throw new Error(error instanceof Error ? error.message : 'Sprint Engine access could not be verified.')
+      throw new Error(error instanceof Error ? error.message : 'Sprint access could not be verified.')
     }
     if (state.wantsProductDiscussion && !state.acceptedProductBrief) {
       throw new Error('Accept the product brief before starting the build.')
@@ -155,9 +155,9 @@ export default function GuidedBriefWorkspacePanel({ workspaceId }: Props) {
       })
     } catch (error) {
       if (error instanceof PlanSourcedSprintEngineWorkspaceError && error.code === 'team-exists') {
-        throw new Error('A Sprint Engine team with this name already exists.')
+        throw new Error('A sprint roster with this name already exists.')
       }
-      throw error instanceof Error ? error : new Error('Could not create the Sprint Engine workspace.')
+      throw error instanceof Error ? error : new Error('Could not create the sprint workspace.')
     }
   }
 

@@ -24,7 +24,7 @@ export function resolveSprintEngineArtifactFilePath(
         ?? resolve(state.workspaceRoot, artifactPath)
 
   if (!isPathInsideOrEqual(state.teamDirectory, fullPath)) {
-    throw new MobileSprintEngineCommandError('path_not_allowed', 'Artifact path must stay inside the Sprint Engine team directory.', false)
+    throw new MobileSprintEngineCommandError('path_not_allowed', 'Artifact path must stay inside the sprint team directory.', false)
   }
 
   return fullPath

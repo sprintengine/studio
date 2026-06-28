@@ -333,7 +333,7 @@ export function buildGuidedBriefBuildHandoffMarkdown({
     '',
     ...markdownList(mvpScope, 'Implement only the accepted Guided brief artifacts without adding unapproved scope.'),
     '',
-    '## Suggested Sprint Engine Goal',
+    '## Suggested Sprint Goal',
     '',
     goal,
     '',

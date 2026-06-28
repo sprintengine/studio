@@ -65,8 +65,8 @@ export function createSprintEngineRunActionProvider(
       return {
         status: 'completed',
         summary: parsed.role
-          ? `Started Sprint Engine automation for team "${parsed.team}" (${parsed.role}).`
-          : `Started Sprint Engine automation for team "${parsed.team}".`,
+          ? `Started a sprint for team "${parsed.team}" (${parsed.role}).`
+          : `Started a sprint for team "${parsed.team}".`,
       }
     },
   }
@@ -80,13 +80,13 @@ function parseSprintEngineRunConfig(config: unknown): {
   const team = optionalString(config.team)
   if (!team) throw new Error('sprint-engine-run config requires a team.')
   if (!/^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/u.test(team)) {
-    throw new Error('sprint-engine-run team must be a safe Sprint Engine team id.')
+    throw new Error('sprint-engine-run team must be a safe sprint roster id.')
   }
   const role = optionalString(config.role)
   let parsedRole: SprintEngineTaskMutationRole | undefined
   if (role) {
     if (!isSprintEngineAutomationRole(role)) {
-      throw new Error('sprint-engine-run role must be a known Sprint Engine role.')
+      throw new Error('sprint-engine-run role must be a known sprint role.')
     }
     parsedRole = role
   }

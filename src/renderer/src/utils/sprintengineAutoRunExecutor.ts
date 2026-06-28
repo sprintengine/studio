@@ -423,7 +423,7 @@ export async function recordSpawnFailure(
       `Task: ${input.taskId}`,
       `Session: ${input.sessionId}`,
       `Cwd: ${input.executionCwd}`,
-      `Sprint Engine state: ${input.sprintEngineStatePath}`,
+      `Sprint state: ${input.sprintEngineStatePath}`,
     ]
       .filter(Boolean)
       .join('\n'),

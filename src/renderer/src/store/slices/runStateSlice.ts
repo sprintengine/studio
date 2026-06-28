@@ -673,7 +673,7 @@ export function createRunStateSlice(set: RunStateSliceSet): RunStateSlice {
             workspaceId,
             workspaceName: ws.name,
             previousMode,
-            reason: options?.reason ?? 'Sprint Engine automation mode was set to Manual.',
+            reason: options?.reason ?? 'Sprint automation mode was set to Manual.',
             ...(options?.details ? { details: options.details } : {}),
           })
         }
@@ -703,7 +703,7 @@ export function createRunStateSlice(set: RunStateSliceSet): RunStateSlice {
           desiredMode: previousMode,
           previousRuntimeState,
           nextRuntimeState: next.runtimeState,
-          reason: sprintEngineAutomationEventReason(event) ?? next.reasonMessage ?? 'Sprint Engine automation state changed.',
+          reason: sprintEngineAutomationEventReason(event) ?? next.reasonMessage ?? 'Sprint automation state changed.',
           ...(next.reasonTaskId ? { taskId: next.reasonTaskId } : {}),
           ...(next.reasonAgentId ? { agentId: next.reasonAgentId } : {}),
         })

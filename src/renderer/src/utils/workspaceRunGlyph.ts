@@ -30,38 +30,26 @@ function runGlyphProviderForWorkspace(workspace: WorkspaceRunGlyphProviderInput)
   }) ?? null
 }
 
-// The sidebar row's one status slot. Priority mirrors the attention order the
-// dot system had, upgraded to the lifecycle vocabulary:
-//   1. An agent terminal waiting on input (the old pulsing warn dot) — always
-//      the actionable signal, even while the runner reports `running`.
-//   2. The run rollup (human-routed needs_input, runner runtime states).
-//   3. Terminal activity: busy terminals spin, a failed terminal reads as
-//      failed — one idiom, no `now` text on provider-owned rows. This
-//      outranks a finished run: new activity reads as live again.
-//   4. A newly completed run — runner `complete` or a manually-driven run
-//      whose tasks all finished — wears `done` until the user views the
-//      workspace after completion. Recency survives in the tooltip and becomes
-//      the row fallback after acknowledgement.
-// Null means "no run signal": the caller falls back to recency text.
+// The sidebar row's one status slot. The owning module's provider derives the
+// glyph from its own state — for a Sprint Engine run that is a pure function of
+// sprint state (the task board + AutoRun runtime), with terminals deliberately
+// excluded: an ephemeral agent terminal sitting at a prompt must not drive a
+// run's status. A workspace with no provider gets no run glyph (the shell's
+// dot + recency idiom stays its own). Null means "no run signal": the caller
+// falls back to recency text.
 export function deriveWorkspaceRunGlyph(
   workspace: WorkspaceRunGlyphProviderInput,
-  activity: WorkspaceActivityKind,
 ): WorkspaceRunGlyph | null {
   const provider = runGlyphProviderForWorkspace(workspace)
   if (!provider) return null
+  return provider.deriveRunGlyph?.(workspace) ?? null
+}
 
-  if (activity === 'needs-input') {
-    return { state: 'needs_input', live: false, label: 'Needs input' }
-  }
-
-  const providerGlyph = provider.deriveRunGlyph?.(workspace, activity) ?? null
-  if (providerGlyph) return providerGlyph
-
-  if (activity === 'working') {
-    return { state: 'in_progress', live: true, label: 'Agents working' }
-  }
-  if (activity === 'failed') {
-    return { state: 'failed', live: false, label: 'Agent failed' }
-  }
-  return null
+// True when the workspace's mode owns a run-glyph provider — i.e. its status is
+// provider-derived, not terminal-derived. Callers use this to suppress the
+// terminal-driven attention idioms (e.g. the collapsed corner dot) on rows whose
+// status the provider already owns, so a stuck terminal can't light a resting
+// run.
+export function workspaceHasRunGlyphProvider(workspace: WorkspaceRunGlyphProviderInput): boolean {
+  return runGlyphProviderForWorkspace(workspace) !== null
 }
