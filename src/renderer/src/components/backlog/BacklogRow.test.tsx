@@ -95,6 +95,10 @@ const sourcePickerSource = readFileSync(
   join(process.cwd(), 'src/renderer/src/components/workspace/NewWorkspacePanel.tsx'),
   'utf8',
 )
+const contextMenuSource = readFileSync(
+  join(process.cwd(), 'src/renderer/src/components/backlog/BacklogItemContextMenu.tsx'),
+  'utf8',
+)
 
 run('panel rows resolve the stripe color (manual highlight over derived risk) through the shared swatch', () => {
   assert.match(
@@ -153,6 +157,44 @@ run('grouped render and cross-group selection run through the flattened nav orde
     backlogPanelSource,
     /currentRow\?\.kind === 'header'/,
     'Enter/Arrow toggles a header, otherwise opens the leaf detail',
+  )
+})
+
+run('row context menu exposes Move to epic — assign, New epic…, and Remove from epic', () => {
+  // The flyout lists existing epics (assign) and offers create + remove, hidden
+  // on epic rows (no nesting).
+  assert.match(contextMenuSource, /label="Move to epic"/, 'context menu has a Move to epic flyout')
+  assert.match(contextMenuSource, /!item\.isEpic \?/, 'the flyout is hidden on epic rows (no nesting)')
+  assert.match(contextMenuSource, /actions\.setEpic\(item, epic\.slug\)/, 'selecting an epic assigns it by slug')
+  assert.match(contextMenuSource, /actions\.createEpic\(item\)/, 'New epic… routes through the create handler')
+  assert.match(contextMenuSource, /actions\.setEpic\(item, null\)/, 'Remove from epic clears the field')
+  assert.match(contextMenuSource, /item\.epic \?/, 'Remove from epic shows only when the item has an epic')
+})
+
+run('epic assignment mutates only the child frontmatter via update/create-epic, not items.json', () => {
+  // setEpic → backlog:update-epic (frontmatter only); create → create-epic writer
+  // then assign. items.json is never written for epic membership.
+  assert.match(backlogPanelSource, /window\.api\.updateBacklogEpic\(\{/, 'setEpic mutates through the update-epic IPC')
+  assert.match(backlogPanelSource, /window\.api\.createBacklogEpic\(\{ workspaceRoot: folderPath, title \}\)/, 'New epic uses the create-epic writer')
+  assert.match(
+    backlogPanelSource,
+    /epic: created\.slug/,
+    'a freshly created epic is then assigned to the item by its returned slug',
+  )
+  assert.match(
+    backlogPanelSource,
+    /setEpic: \(item, slug\) => void setItemEpic\(item, slug\)/,
+    'setEpic sits in BacklogActions so the menu and detail share one path',
+  )
+})
+
+run('detail triage exposes an Epic control wired to the same assign/create/remove handlers', () => {
+  assert.match(backlogPanelSource, /ariaLabel="Move to epic"/, 'detail pane has an Epic select')
+  assert.match(backlogPanelSource, /value === EPIC_NEW_SENTINEL/, 'the New epic… sentinel opens the create flow')
+  assert.match(
+    backlogPanelSource,
+    /actions\.setEpic\(item, value === EPIC_NONE_VALUE \? null : value\)/,
+    'No epic clears the field; an epic value assigns it',
   )
 })
 

@@ -74,6 +74,7 @@ import {
   DIFFICULTY_EDIT_ITEMS,
   RISK_EDIT_ITEMS,
   type BacklogActions,
+  type BacklogEpicChoice,
 } from '../backlog/BacklogItemContextMenu'
 import { BacklogCreateDialog, type BacklogDraft } from './BacklogCreateDialog'
 import {
@@ -302,6 +303,18 @@ export default function BacklogPanel({ workspaceId, onStartFuturePlan }: Workspa
     if (groupedRows) for (const row of groupedRows) map.set(row.navId, row)
     return map
   }, [groupedRows])
+
+  // Assignable epics for the "Move to epic" affordances: every epic concept file
+  // with its slug + title, drawn from the full scan (not the filtered view) so
+  // assignment is possible regardless of the active lens. Ordered like the epic
+  // groups (epic `order:` then title). Reuses the T7 grouping, not a re-scan.
+  const epicChoices = useMemo<BacklogEpicChoice[]>(
+    () =>
+      groupItemsByEpic(items)
+        .filter((group) => group.kind === 'epic' && group.slug != null)
+        .map((group) => ({ slug: group.slug as string, title: group.title })),
+    [items],
+  )
 
   const toggleGroupCollapsed = useCallback((epicGroup: BacklogEpicGroup) => {
     setCollapsedGroups((prev) => {
@@ -810,6 +823,53 @@ export default function BacklogPanel({ workspaceId, onStartFuturePlan }: Workspa
     [folderPath, runAction, runScan],
   )
 
+  // Epic membership is the child's `epic:` frontmatter only (backlog:update-epic
+  // rewrites the markdown; items.json is untouched). slug assigns, null clears
+  // back into the No-epic group.
+  const setItemEpic = useCallback(
+    (item: BacklogItem, slug: string | null) =>
+      runAction(async () => {
+        if (!folderPath || item.epic === (slug ?? undefined)) return
+        const updated = await window.api.updateBacklogEpic({
+          workspaceRoot: folderPath,
+          relativePath: item.relativePath,
+          epic: slug,
+        })
+        assertBacklogMutation(updated)
+        await runScan()
+      }),
+    [folderPath, runAction, runScan],
+  )
+
+  // "New epic…": prompt for a title, write backlog/epics/<slug>.md via the
+  // create-epic writer, then assign this item to the freshly created slug. A
+  // cancelled prompt or a create failure leaves the item untouched.
+  const createEpicForItem = useCallback(
+    (item: BacklogItem) =>
+      runAction(async () => {
+        if (!folderPath) return
+        const title = (
+          await dialog.prompt({
+            title: 'New epic',
+            inputLabel: 'Epic title',
+            confirmLabel: 'Create',
+            required: true,
+          })
+        )?.trim()
+        if (!title) return
+        const created = await window.api.createBacklogEpic({ workspaceRoot: folderPath, title })
+        if (!created.ok) throw new Error(created.message)
+        const assigned = await window.api.updateBacklogEpic({
+          workspaceRoot: folderPath,
+          relativePath: item.relativePath,
+          epic: created.slug,
+        })
+        assertBacklogMutation(assigned)
+        await runScan()
+      }),
+    [dialog, folderPath, runAction, runScan],
+  )
+
   const refreshButton = (
     <Tooltip content="Refresh backlog">
       <IconButton aria-label="Refresh backlog" onClick={() => void runScan()} disabled={loading || !folderPath}>
@@ -839,6 +899,8 @@ export default function BacklogPanel({ workspaceId, onStartFuturePlan }: Workspa
     setDifficulty: (item, value) => setItemTriage(item, { difficulty: value === 'unset' ? null : value }),
     setCriticality: (item, value) => setItemTriage(item, { criticality: value === 'unset' ? null : value }),
     setRisk: (item, value) => setItemTriage(item, { risk: value === 'unset' ? null : value }),
+    setEpic: (item, slug) => void setItemEpic(item, slug),
+    createEpic: (item) => void createEpicForItem(item),
     setHighlight: (item, highlight) => void setItemHighlight(item, highlight),
   }
 
@@ -1047,6 +1109,7 @@ export default function BacklogPanel({ workspaceId, onStartFuturePlan }: Workspa
       showBack={!isSplit}
       onBack={() => setShowDetailInSingle(false)}
       actions={actions}
+      epicChoices={epicChoices}
     />
   )
 
@@ -1156,6 +1219,7 @@ export default function BacklogPanel({ workspaceId, onStartFuturePlan }: Workspa
           y={rowMenu.y}
           item={menuItem}
           actions={actions}
+          epicChoices={epicChoices}
           agentTargets={agentTargets}
           agentSessions={agentSessions}
           onFlyoutOpen={refreshAgentSessions}
@@ -1451,6 +1515,7 @@ function BacklogDetail({
   showBack,
   onBack,
   actions,
+  epicChoices,
 }: {
   scan: BacklogScanResult | null
   loading: boolean
@@ -1465,6 +1530,7 @@ function BacklogDetail({
   showBack: boolean
   onBack: () => void
   actions: BacklogActions
+  epicChoices: ReadonlyArray<BacklogEpicChoice>
 }): JSX.Element {
   if (!folderPath) {
     return (
@@ -1625,7 +1691,7 @@ function BacklogDetail({
         excludeLinkId={primaryRunLinkId}
       />
 
-      <BacklogTriage item={selected} actions={actions} />
+      <BacklogTriage item={selected} actions={actions} epicChoices={epicChoices} />
 
       <div className="min-h-0 flex-1 overflow-auto px-4 py-3">
         <BacklogPreviewBody item={selected} />
@@ -1675,11 +1741,36 @@ function DetailState({
   )
 }
 
-// Triage editor: size + priority + risk are lightweight owned metadata.
-// Selecting "Unestimated" / "No priority" / "No risk set" clears the axis back
-// to neutral. Risk is the likelihood the work goes sideways — distinct from
-// effort and impact — and feeds the Best sort and the row's derived heat color.
-function BacklogTriage({ item, actions }: { item: BacklogItem; actions: BacklogActions }): JSX.Element {
+// Sentinel + cleared values for the detail-pane Epic Select. '' clears the
+// `epic:` field (No epic); the sentinel opens the create-epic prompt.
+const EPIC_NEW_SENTINEL = '__new_epic__'
+const EPIC_NONE_VALUE = ''
+
+// Triage editor: size + priority + risk + epic are owned organization metadata.
+// Selecting "Unestimated" / "No priority" / "No risk set" / "No epic" clears the
+// axis back to neutral. Risk is the likelihood the work goes sideways — distinct
+// from effort and impact — and feeds the Best sort and the row's derived heat
+// color. The Epic control is the detail-pane peer of the row menu's "Move to
+// epic"; it is hidden for epic items, which cannot nest inside another epic.
+function BacklogTriage({
+  item,
+  actions,
+  epicChoices,
+}: {
+  item: BacklogItem
+  actions: BacklogActions
+  epicChoices: ReadonlyArray<BacklogEpicChoice>
+}): JSX.Element {
+  const epicItems: SelectItem<string>[] = [
+    { value: EPIC_NONE_VALUE, label: 'No epic' },
+    ...epicChoices.map((epic) => ({ value: epic.slug, label: epic.title })),
+    // A dangling slug (its concept file is missing) stays a visible option so the
+    // control reflects the item's real frontmatter instead of silently blanking.
+    ...(item.epic && !epicChoices.some((epic) => epic.slug === item.epic)
+      ? [{ value: item.epic, label: `${item.epic} (missing)` }]
+      : []),
+    { value: EPIC_NEW_SENTINEL, label: 'New epic…' },
+  ]
   return (
     <Section title="Triage" level={4} inset className="shrink-0 border-b border-[color:var(--border-subtle)] pb-3">
       <div className="grid grid-cols-[3.5rem_minmax(0,16rem)] items-center gap-x-3 gap-y-2 px-3">
@@ -1704,6 +1795,20 @@ function BacklogTriage({ item, actions }: { item: BacklogItem; actions: BacklogA
           value={item.risk ?? 'unset'}
           onChange={(value) => actions.setRisk(item, value)}
         />
+        {!item.isEpic ? (
+          <>
+            <span className="text-[11px] text-[color:var(--text-muted)]">Epic</span>
+            <Select
+              ariaLabel="Move to epic"
+              items={epicItems}
+              value={item.epic ?? EPIC_NONE_VALUE}
+              onChange={(value) => {
+                if (value === EPIC_NEW_SENTINEL) actions.createEpic(item)
+                else actions.setEpic(item, value === EPIC_NONE_VALUE ? null : value)
+              }}
+            />
+          </>
+        ) : null}
       </div>
     </Section>
   )

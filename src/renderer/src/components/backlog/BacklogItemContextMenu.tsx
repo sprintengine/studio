@@ -27,6 +27,10 @@ export type DifficultyChoice = BacklogDifficulty | 'unset'
 export type CriticalityChoice = BacklogCriticality | 'unset'
 export type RiskChoice = BacklogRisk | 'unset'
 
+// One assignable epic for the "Move to epic" affordances: the epic file's slug
+// (the updateBacklogEpic target) plus its display title.
+export type BacklogEpicChoice = { slug: string; title: string }
+
 export type BacklogActions = {
   createFolder: () => void
   createPlan: () => void
@@ -39,6 +43,10 @@ export type BacklogActions = {
   setDifficulty: (item: BacklogItem, value: DifficultyChoice) => void
   setCriticality: (item: BacklogItem, value: CriticalityChoice) => void
   setRisk: (item: BacklogItem, value: RiskChoice) => void
+  // Assign the item to an epic (slug) or clear its `epic:` frontmatter (null).
+  setEpic: (item: BacklogItem, slug: string | null) => void
+  // Prompt for a title, create `backlog/epics/<slug>.md`, then assign the item.
+  createEpic: (item: BacklogItem) => void
   setHighlight: (item: BacklogItem, highlight: BacklogHighlight) => void
 }
 
@@ -101,6 +109,7 @@ export function BacklogItemContextMenu({
   y,
   item,
   actions,
+  epicChoices,
   agentTargets,
   agentSessions,
   onFlyoutOpen,
@@ -111,6 +120,8 @@ export function BacklogItemContextMenu({
   y: number
   item: BacklogItem
   actions: BacklogActions
+  // Existing epics this item can be moved into (excludes the item itself).
+  epicChoices: ReadonlyArray<BacklogEpicChoice>
   agentTargets: Array<AgentState & { cliSessionId: string }>
   agentSessions: TerminalSessionSnapshot[] | null
   onFlyoutOpen: () => void
@@ -251,6 +262,50 @@ export function BacklogItemContextMenu({
           </MenuItem>
         ))}
       </MenuFlyoutItem>
+      {/* Epic membership is the child's `epic:` frontmatter; an epic can't nest
+          inside another epic, so the affordance is hidden on epic rows. */}
+      {!item.isEpic ? (
+        <MenuFlyoutItem label="Move to epic" ariaLabel="Move to epic" surfaceClassName="min-w-[200px]">
+          {epicChoices.length === 0 ? (
+            <MenuItem disabled onClick={() => {}}>
+              No epics yet
+            </MenuItem>
+          ) : (
+            epicChoices.map((epic) => (
+              <MenuItem
+                key={epic.slug}
+                checked={item.epic === epic.slug}
+                icon={<MenuCheckGlyph visible={item.epic === epic.slug} />}
+                onClick={() => {
+                  actions.setEpic(item, epic.slug)
+                  onClose()
+                }}
+              >
+                {epic.title}
+              </MenuItem>
+            ))
+          )}
+          <MenuDivider />
+          <MenuItem
+            onClick={() => {
+              actions.createEpic(item)
+              onClose()
+            }}
+          >
+            New epic…
+          </MenuItem>
+          {item.epic ? (
+            <MenuItem
+              onClick={() => {
+                actions.setEpic(item, null)
+                onClose()
+              }}
+            >
+              Remove from epic
+            </MenuItem>
+          ) : null}
+        </MenuFlyoutItem>
+      ) : null}
       <MenuDivider />
       <MenuItem
         onClick={() => {
