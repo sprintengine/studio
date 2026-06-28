@@ -71,6 +71,7 @@ import WorkspaceLayout from './WorkspaceLayout'
 import WorkspaceSidebar from './WorkspaceSidebar'
 import SprintEnginesAside from './SprintEnginesAside'
 import { beginSidebarTransition } from '../../utils/sidebarTransition'
+import { isHiddenFromRail } from '../../utils/workspaceVisibility'
 import { WORKSPACE_LAYER_REVEAL_EVENT } from '../../utils/terminalFitScheduler'
 import { AppTitleBar } from './AppTitleBar'
 import WorkspaceTopBar, {
@@ -347,10 +348,27 @@ export default function WorkspaceManager() {
     () => workspaces.filter((workspace) => visibleWorkspaceIdSet.has(workspace.id)),
     [visibleWorkspaceIdSet, workspaces]
   )
+  // Rail-navigable subset of this window's workspaces: the background Automations
+  // host stays assigned and mounted (it is in `visibleWorkspaces`) but is never a
+  // rail row, a switch target, or counted toward "has a workspace". Navigation,
+  // keyboard switching, and the empty-state derive from this list so a lone
+  // hidden host never strands the user on a blank rail.
+  const railWorkspaces = useMemo(
+    () => visibleWorkspaces.filter((workspace) => !isHiddenFromRail(workspace)),
+    [visibleWorkspaces]
+  )
+  const railWorkspaceIdSet = useMemo(
+    () => new Set(railWorkspaces.map((workspace) => workspace.id)),
+    [railWorkspaces]
+  )
   const windowActiveWorkspaceId =
     currentWorkspaceWindow?.activeWorkspaceId && visibleWorkspaceIdSet.has(currentWorkspaceWindow.activeWorkspaceId)
+      // An explicitly-activated workspace is honored even when it is a hidden
+      // host (the T5 reveal path sets it). Only the implicit fallback refuses to
+      // auto-activate a hidden host, so a lone host yields a null active id and
+      // the "no workspaces" empty state instead of stranding the user on it.
       ? currentWorkspaceWindow.activeWorkspaceId
-      : visibleWorkspaces[0]?.id ?? null
+      : railWorkspaces[0]?.id ?? null
   const activeWorkspace = visibleWorkspaces.find((workspace) => workspace.id === windowActiveWorkspaceId) ?? null
   // Load the Sprint Engine role registry for the active workspace so the spawn
   // dropdown and Specialist packs settings tab can surface registry-discovered
@@ -537,8 +555,8 @@ export default function WorkspaceManager() {
     terminalSessions,
   )
   const sidebarWorkspaceOrder = useMemo(
-    () => buildSidebarWorkspaceOrder(visibleWorkspaces),
-    [visibleWorkspaces]
+    () => buildSidebarWorkspaceOrder(railWorkspaces),
+    [railWorkspaces]
   )
   // Cross-workspace "agents awaiting you" for the title-bar Attention Queue. Rides
   // the already-subscribed `workspaces` slice (sprintEngineState is dedup-stable
@@ -1091,10 +1109,10 @@ export default function WorkspaceManager() {
     // Auto-open the new-workspace panel when there are no workspaces — but during
     // onboarding hold off until the flow reaches its workspace step, so the panel
     // doesn't pop behind the welcome/modules overlay.
-    if (visibleWorkspaces.length === 0 && (onboardingStep === 'workspace' || onboardingStep === 'complete')) {
+    if (railWorkspaces.length === 0 && (onboardingStep === 'workspace' || onboardingStep === 'complete')) {
       setShowNewWorkspacePanel(true)
     }
-  }, [visibleWorkspaces.length, onboardingStep])
+  }, [railWorkspaces.length, onboardingStep])
 
   useEffect(() => {
     let disposed = false
@@ -1782,7 +1800,7 @@ export default function WorkspaceManager() {
       const step = stepWorkspaceHistory(
         workspaceNavigationHistoryRef.current,
         commandId === 'workspace.history.back' ? -1 : 1,
-        (workspaceId) => workspaceId !== windowActiveWorkspaceId && visibleWorkspaceIdSet.has(workspaceId),
+        (workspaceId) => workspaceId !== windowActiveWorkspaceId && railWorkspaceIdSet.has(workspaceId),
       )
       if (!step) return false
       workspaceNavigationHistoryRef.current = step.history
@@ -1792,7 +1810,7 @@ export default function WorkspaceManager() {
     }
     if (commandId === 'workspace.switch.next' || commandId === 'workspace.switch.previous') {
       const nextWorkspaceId = getNextWorkspaceId(
-        visibleWorkspaces,
+        railWorkspaces,
         windowActiveWorkspaceId,
         commandId === 'workspace.switch.previous' ? -1 : 1,
       )
@@ -1803,7 +1821,7 @@ export default function WorkspaceManager() {
     }
     if (commandId.startsWith('workspace.switch.')) {
       const workspaceIndex = Number(commandId.slice('workspace.switch.'.length)) - 1
-      const workspace = visibleWorkspaces[workspaceIndex]
+      const workspace = railWorkspaces[workspaceIndex]
       if (!workspace) return false
       setShowNewWorkspacePanel(false)
       setActiveWorkspaceForWindow(workspaceWindowId, workspace.id)
@@ -1815,7 +1833,7 @@ export default function WorkspaceManager() {
     }
     if (commandId === 'layout.tab.close') {
       if (showNewWorkspacePanel) {
-        if (visibleWorkspaces.length > 0) setShowNewWorkspacePanel(false)
+        if (railWorkspaces.length > 0) setShowNewWorkspacePanel(false)
         return true
       }
       if (!windowActiveWorkspaceId) return false
@@ -1933,8 +1951,8 @@ export default function WorkspaceManager() {
     setSprintEnginesAsideOpen,
     windowActiveWorkspaceId,
     closeWorkspaceById,
-    visibleWorkspaces,
-    visibleWorkspaceIdSet,
+    railWorkspaces,
+    railWorkspaceIdSet,
     setActiveWorkspaceForWindow,
     workspaceWindowId,
     showNewWorkspacePanel,
@@ -2423,7 +2441,7 @@ export default function WorkspaceManager() {
                   setNewWorkspacePanelInitialState(null)
                 }}
                 workspaceWindowId={workspaceWindowId}
-                allowClose={visibleWorkspaces.length > 0}
+                allowClose={railWorkspaces.length > 0}
                 initialState={newWorkspacePanelInitialState}
               />
             </React.Suspense>
@@ -2438,7 +2456,7 @@ export default function WorkspaceManager() {
             </React.Suspense>
           ) : (
             <>
-              {visibleWorkspaces.length === 0 && <EmptyState onNew={openNewWorkspacePanel} />}
+              {railWorkspaces.length === 0 && !activeWorkspace && <EmptyState onNew={openNewWorkspacePanel} />}
               {renderedWorkspaceIds.map((workspaceId) => {
                 const active = workspaceId === windowActiveWorkspaceId
                 // Cold = retained but neither active nor warm. Cold layers keep
