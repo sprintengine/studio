@@ -1,8 +1,10 @@
 import type {
   BacklogCriticality,
   BacklogDifficulty,
+  BacklogHighlightColor,
   BacklogItem,
   BacklogItemStatus,
+  BacklogRisk,
   BacklogType,
 } from './backlog'
 import type { BacklogView, BacklogSort } from '../types/workspace'
@@ -42,6 +44,12 @@ export const CRITICALITY_LABEL: Record<BacklogCriticality, string> = {
   critical: 'Critical',
 }
 
+export const RISK_LABEL: Record<BacklogRisk, string> = {
+  low: 'Low',
+  normal: 'Normal',
+  high: 'High',
+}
+
 export const TYPE_LABEL: Record<BacklogType, string> = {
   epic: 'Epic',
   feature: 'Feature',
@@ -52,6 +60,7 @@ export const TYPE_LABEL: Record<BacklogType, string> = {
 
 const DIFFICULTY_RANK: Record<BacklogDifficulty, number> = { xs: 0, s: 1, m: 2, l: 3, xl: 4 }
 const CRITICALITY_RANK: Record<BacklogCriticality, number> = { low: 0, normal: 1, high: 2, critical: 3 }
+const RISK_RANK: Record<BacklogRisk, number> = { low: 0, normal: 1, high: 2 }
 
 // Worklist urgency order for the status sort: items waiting on a human decision
 // surface first, then work that is actively running, then ready-to-start, then
@@ -70,7 +79,10 @@ const SMALL: ReadonlySet<BacklogDifficulty> = new Set<BacklogDifficulty>(['xs', 
 const LARGE: ReadonlySet<BacklogDifficulty> = new Set<BacklogDifficulty>(['l', 'xl'])
 const URGENT: ReadonlySet<BacklogCriticality> = new Set<BacklogCriticality>(['high', 'critical'])
 
-type Triageable = Pick<BacklogItem, 'difficulty' | 'criticality' | 'status' | 'modifiedAt'>
+type Triageable = Pick<
+  BacklogItem,
+  'difficulty' | 'criticality' | 'risk' | 'status' | 'modifiedAt' | 'relativePath'
+>
 
 // Missing either axis is the "unestimated" signal — a calm prompt to size or
 // prioritise, never an error.
@@ -138,8 +150,60 @@ export function compareBacklogItems(a: Triageable, b: Triageable, sort: BacklogS
       if (da !== db) return sort === 'largest' ? db - da : da - db
       return b.modifiedAt - a.modifiedAt
     }
+    case 'best': {
+      // The composite "what should I pick up" order: impact first (criticality
+      // desc), then risk (lowest first — a sure thing beats a gamble at equal
+      // impact), then effort (smallest difficulty first — cheaper wins surface
+      // sooner). A missing axis sinks below estimated peers *within its tier*,
+      // never masquerading as the best value. The final tiebreak is the stable
+      // path order so the list is deterministic across scans (not recency).
+      const ca = a.criticality ? CRITICALITY_RANK[a.criticality] : -1
+      const cb = b.criticality ? CRITICALITY_RANK[b.criticality] : -1
+      if (ca !== cb) return cb - ca
+      const ra = a.risk ? RISK_RANK[a.risk] : Number.POSITIVE_INFINITY
+      const rb = b.risk ? RISK_RANK[b.risk] : Number.POSITIVE_INFINITY
+      if (ra !== rb) return ra - rb
+      const da = a.difficulty ? DIFFICULTY_RANK[a.difficulty] : Number.POSITIVE_INFINITY
+      const db = b.difficulty ? DIFFICULTY_RANK[b.difficulty] : Number.POSITIVE_INFINITY
+      if (da !== db) return da - db
+      return a.relativePath.localeCompare(b.relativePath)
+    }
     case 'recent':
     default:
       return b.modifiedAt - a.modifiedAt
   }
+}
+
+// Risk × effort → a calm heat hint reusing the highlight palette. Read as a
+// gradient from a confident quick win (easy + low risk → green) to a costly
+// gamble (hard + high risk → red); the unremarkable middle stays uncolored so
+// the row list never lights up wholesale. Only the warm ramp (green → amber →
+// orange → red) is used: the cool palette colors (blue/purple/pink) carry no
+// risk meaning and stay reserved for the user's manual highlight. Ordering of
+// the encoded heat is green < (uncolored) < amber < orange < red, monotonic in
+// both axes. Pure + render-time only — no persisted field (Decision F7).
+const RISK_COLOR_GRID: Record<BacklogRisk, Record<BacklogDifficulty, BacklogHighlightColor | null>> = {
+  low: { xs: 'green', s: 'green', m: null, l: null, xl: 'amber' },
+  normal: { xs: 'green', s: null, m: null, l: 'amber', xl: 'orange' },
+  high: { xs: 'amber', s: 'amber', m: 'orange', l: 'orange', xl: 'red' },
+}
+
+// One palette color (or null) for a risk×difficulty pair. Either axis missing is
+// the unestimated signal: no derived color, so an unsized item stays calm rather
+// than guessing a heat it can't justify.
+export function deriveRiskColor(
+  risk?: BacklogRisk,
+  difficulty?: BacklogDifficulty,
+): BacklogHighlightColor | null {
+  if (!risk || !difficulty) return null
+  return RISK_COLOR_GRID[risk][difficulty]
+}
+
+// The row stripe's effective color: the user's manual highlight always wins; the
+// derived risk heat is only an ambient fallback when no color was set by hand.
+// Kept here (pure) so the override precedence is unit-testable without a DOM.
+export function resolveBacklogStripeColor(
+  item: Pick<BacklogItem, 'highlight' | 'risk' | 'difficulty'>,
+): BacklogHighlightColor | null {
+  return item.highlight?.color ?? deriveRiskColor(item.risk, item.difficulty)
 }

@@ -15,8 +15,9 @@ import type {
   BacklogHighlight,
   BacklogItem,
   BacklogItemStatus,
+  BacklogRisk,
 } from '../../utils/backlog'
-import { CRITICALITY_LABEL, DIFFICULTY_WORD } from '../../utils/backlogTriage'
+import { CRITICALITY_LABEL, DIFFICULTY_WORD, RISK_LABEL } from '../../utils/backlogTriage'
 import { BACKLOG_STATUS_LABEL } from './BacklogRow'
 
 // Row-level Backlog actions, owned by the panel (the handlers persist through
@@ -24,6 +25,7 @@ import { BACKLOG_STATUS_LABEL } from './BacklogRow'
 // through this one vocabulary so the two surfaces cannot drift.
 export type DifficultyChoice = BacklogDifficulty | 'unset'
 export type CriticalityChoice = BacklogCriticality | 'unset'
+export type RiskChoice = BacklogRisk | 'unset'
 
 export type BacklogActions = {
   createFolder: () => void
@@ -36,6 +38,7 @@ export type BacklogActions = {
   setStatus: (item: BacklogItem, status: BacklogItemStatus) => void
   setDifficulty: (item: BacklogItem, value: DifficultyChoice) => void
   setCriticality: (item: BacklogItem, value: CriticalityChoice) => void
+  setRisk: (item: BacklogItem, value: RiskChoice) => void
   setHighlight: (item: BacklogItem, highlight: BacklogHighlight) => void
 }
 
@@ -56,6 +59,15 @@ export const CRITICALITY_EDIT_ITEMS: SelectItem<CriticalityChoice>[] = [
   { value: 'normal', label: CRITICALITY_LABEL.normal },
   { value: 'high', label: CRITICALITY_LABEL.high },
   { value: 'critical', label: CRITICALITY_LABEL.critical },
+]
+
+// Risk = likelihood the work goes sideways, distinct from effort and impact.
+// Cleared leads (one-click reset), same idiom as size/priority.
+export const RISK_EDIT_ITEMS: SelectItem<RiskChoice>[] = [
+  { value: 'unset', label: 'No risk set' },
+  { value: 'low', label: RISK_LABEL.low },
+  { value: 'normal', label: RISK_LABEL.normal },
+  { value: 'high', label: RISK_LABEL.high },
 ]
 
 // Status submenu choices: lifecycle states the user sets directly. Archived is
@@ -217,6 +229,21 @@ export function BacklogItemContextMenu({
             icon={<MenuCheckGlyph visible={(item.difficulty ?? 'unset') === value} />}
             onClick={() => {
               actions.setDifficulty(item, value)
+              onClose()
+            }}
+          >
+            {label}
+          </MenuItem>
+        ))}
+      </MenuFlyoutItem>
+      <MenuFlyoutItem label="Risk" ariaLabel="Set risk" surfaceClassName="min-w-[180px]">
+        {RISK_EDIT_ITEMS.map(({ value, label }) => (
+          <MenuItem
+            key={value}
+            checked={(item.risk ?? 'unset') === value}
+            icon={<MenuCheckGlyph visible={(item.risk ?? 'unset') === value} />}
+            onClick={() => {
+              actions.setRisk(item, value)
               onClose()
             }}
           >

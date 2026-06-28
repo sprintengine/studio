@@ -40,6 +40,7 @@ import {
   type BacklogHighlight,
   type BacklogItem,
   type BacklogItemStatus,
+  type BacklogRisk,
   type BacklogScanResult,
 } from '../../utils/backlog'
 import { getHighlightSwatch } from '../../utils/highlight'
@@ -54,6 +55,7 @@ import { BacklogFilterMenu } from '../backlog/BacklogFilterMenu'
 import {
   compareBacklogItems,
   matchesBacklogView,
+  resolveBacklogStripeColor,
   type BacklogSort,
   type BacklogView,
 } from '../../utils/backlogTriage'
@@ -61,6 +63,7 @@ import {
   BacklogItemContextMenu,
   CRITICALITY_EDIT_ITEMS,
   DIFFICULTY_EDIT_ITEMS,
+  RISK_EDIT_ITEMS,
   type BacklogActions,
 } from '../backlog/BacklogItemContextMenu'
 import { BacklogCreateDialog, type BacklogDraft } from './BacklogCreateDialog'
@@ -113,6 +116,7 @@ const VIEW_ITEMS: SelectItem<BacklogView>[] = [
 ]
 
 const SORT_ITEMS: SelectItem<BacklogSort>[] = [
+  { value: 'best', label: 'Best' },
   { value: 'recent', label: 'Recently updated' },
   { value: 'status', label: 'Status' },
   { value: 'priority', label: 'Priority' },
@@ -655,7 +659,14 @@ export default function BacklogPanel({ workspaceId, onStartFuturePlan }: Workspa
   // so size/priority are real owned metadata — never markdown frontmatter and
   // never disconnected UI state.
   const setItemTriage = useCallback(
-    (item: BacklogItem, triage: { difficulty?: BacklogDifficulty | null; criticality?: BacklogCriticality | null }) =>
+    (
+      item: BacklogItem,
+      triage: {
+        difficulty?: BacklogDifficulty | null
+        criticality?: BacklogCriticality | null
+        risk?: BacklogRisk | null
+      },
+    ) =>
       runAction(async () => {
         if (!folderPath) return
         const updated = await window.api.updateBacklogTriage({
@@ -732,6 +743,7 @@ export default function BacklogPanel({ workspaceId, onStartFuturePlan }: Workspa
     setStatus: (item, status) => void setItemStatus(item, status),
     setDifficulty: (item, value) => setItemTriage(item, { difficulty: value === 'unset' ? null : value }),
     setCriticality: (item, value) => setItemTriage(item, { criticality: value === 'unset' ? null : value }),
+    setRisk: (item, value) => setItemTriage(item, { risk: value === 'unset' ? null : value }),
     setHighlight: (item, highlight) => void setItemHighlight(item, highlight),
   }
 
@@ -1162,10 +1174,16 @@ function BacklogList({
       {items.map((item, index) => {
         const active = item.id === selectedId
         const archived = item.status === 'archived'
-        // Highlight color owns the row's left-edge stripe; on the selected row
-        // it also replaces the accent soft-bg, mirroring the sidebar rowAccent
-        // override. Marks are visual only — order and padding never change.
-        const swatch = item.highlight?.color ? getHighlightSwatch(item.highlight.color) : null
+        // The row's left-edge stripe resolves to the manual highlight color, or
+        // — when none is set — the derived risk×effort heat (nothing persisted).
+        // A hand-set highlight earns the full lit treatment (stripe + soft bg,
+        // mirroring the sidebar rowAccent override); a derived color tints the
+        // stripe alone so the ambient heat never competes with selection. Marks
+        // are visual only — order and padding never change.
+        const manualColor = item.highlight?.color ?? null
+        const stripeColor = resolveBacklogStripeColor(item)
+        const swatch = stripeColor ? getHighlightSwatch(stripeColor) : null
+        const litFill = manualColor !== null
         return (
           <li
             key={item.id}
@@ -1179,8 +1197,8 @@ function BacklogList({
             title={item.relativePath}
             className={`cursor-pointer border-l-[3px] px-3 py-1.5 transition-colors ${
               active
-                ? `${swatch ? `${swatch.border} ${swatch.bg}` : 'border-l-[color:var(--accent-primary)] bg-[color:var(--accent-primary-soft)]'} pl-[9px]`
-                : `${swatch ? `${swatch.border} ${swatch.dimBg}` : 'border-l-transparent'} hover:bg-[color:var(--bg-hover)]`
+                ? `${swatch ? swatch.border : 'border-l-[color:var(--accent-primary)]'} ${litFill && swatch ? swatch.bg : 'bg-[color:var(--accent-primary-soft)]'} pl-[9px]`
+                : `${swatch ? `${swatch.border}${litFill ? ` ${swatch.dimBg}` : ''}` : 'border-l-transparent'} hover:bg-[color:var(--bg-hover)]`
             } ${archived ? 'opacity-70' : ''}`}
           >
             <BacklogRowContent item={item} now={now} runGlyph={runGlyphById?.get(item.id)} />
@@ -1431,9 +1449,10 @@ function DetailState({
   )
 }
 
-// Triage editor: type + size + priority are lightweight owned metadata.
-// Selecting "Untyped" / "Unestimated" / "No priority" clears the axis back to
-// neutral. These persist to the backlog object store, not markdown frontmatter.
+// Triage editor: size + priority + risk are lightweight owned metadata.
+// Selecting "Unestimated" / "No priority" / "No risk set" clears the axis back
+// to neutral. Risk is the likelihood the work goes sideways — distinct from
+// effort and impact — and feeds the Best sort and the row's derived heat color.
 function BacklogTriage({ item, actions }: { item: BacklogItem; actions: BacklogActions }): JSX.Element {
   return (
     <Section title="Triage" level={4} inset className="shrink-0 border-b border-[color:var(--border-subtle)] pb-3">
@@ -1451,6 +1470,13 @@ function BacklogTriage({ item, actions }: { item: BacklogItem; actions: BacklogA
           items={CRITICALITY_EDIT_ITEMS}
           value={item.criticality ?? 'unset'}
           onChange={(value) => actions.setCriticality(item, value)}
+        />
+        <span className="text-[11px] text-[color:var(--text-muted)]">Risk</span>
+        <Select
+          ariaLabel="Set risk"
+          items={RISK_EDIT_ITEMS}
+          value={item.risk ?? 'unset'}
+          onChange={(value) => actions.setRisk(item, value)}
         />
       </div>
     </Section>

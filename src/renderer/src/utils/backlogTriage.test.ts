@@ -1,8 +1,10 @@
 import assert from 'node:assert/strict'
 
-import type { BacklogCriticality, BacklogDifficulty, BacklogItemStatus } from './backlog'
+import type { BacklogCriticality, BacklogDifficulty, BacklogItemStatus, BacklogRisk } from './backlog'
 import {
   compareBacklogItems,
+  deriveRiskColor,
+  resolveBacklogStripeColor,
   TYPE_LABEL,
   isBacklogUnestimated,
   matchesBacklogView,
@@ -13,21 +15,27 @@ import {
 type Triage = {
   difficulty?: BacklogDifficulty
   criticality?: BacklogCriticality
+  risk?: BacklogRisk
   status?: BacklogItemStatus
   modifiedAt?: number
+  relativePath?: string
 }
 
 function mk(triage: Triage): {
   difficulty?: BacklogDifficulty
   criticality?: BacklogCriticality
+  risk?: BacklogRisk
   status: BacklogItemStatus
   modifiedAt: number
+  relativePath: string
 } {
   return {
     difficulty: triage.difficulty,
     criticality: triage.criticality,
+    risk: triage.risk,
     status: triage.status ?? 'idea',
     modifiedAt: triage.modifiedAt ?? 0,
+    relativePath: triage.relativePath ?? 'backlog/item.md',
   }
 }
 
@@ -157,6 +165,65 @@ for (const { sort, expected } of sizeCases) {
     assert.deepEqual(ids(sorted, (item) => item.difficulty ?? 'none'), expected)
   })
 }
+
+run('best sort orders impact desc → risk asc → effort asc, unestimated last per tier', () => {
+  const a = mk({ criticality: 'critical', risk: 'low', difficulty: 's', relativePath: 'backlog/a.md' })
+  const b = mk({ criticality: 'critical', risk: 'low', difficulty: 'l', relativePath: 'backlog/b.md' })
+  const c = mk({ criticality: 'critical', risk: 'high', difficulty: 'xs', relativePath: 'backlog/c.md' })
+  const e = mk({ criticality: 'critical', difficulty: 'xs', relativePath: 'backlog/e.md' }) // risk unset
+  const d = mk({ criticality: 'high', risk: 'low', difficulty: 'xs', relativePath: 'backlog/d.md' })
+  const sorted = [e, d, c, b, a].sort((x, y) => compareBacklogItems(x, y, 'best'))
+  assert.deepEqual(ids(sorted, (item) => item.relativePath), [
+    'backlog/a.md', // critical, low risk, small effort — the best pick
+    'backlog/b.md', // critical, low risk, larger effort
+    'backlog/c.md', // critical, higher risk
+    'backlog/e.md', // critical, risk unestimated — after risk-estimated peers
+    'backlog/d.md', // lower impact sinks regardless of how easy/safe it is
+  ])
+})
+
+run('best sort breaks exact ties by stable path order, not recency', () => {
+  const later = mk({ criticality: 'high', risk: 'normal', difficulty: 'm', modifiedAt: 100, relativePath: 'backlog/z-late.md' })
+  const earlier = mk({ criticality: 'high', risk: 'normal', difficulty: 'm', modifiedAt: 1, relativePath: 'backlog/a-early.md' })
+  const sorted = [later, earlier].sort((x, y) => compareBacklogItems(x, y, 'best'))
+  assert.deepEqual(ids(sorted, (item) => item.relativePath), ['backlog/a-early.md', 'backlog/z-late.md'])
+})
+
+run('deriveRiskColor pins the grid corners and stays null when an axis is unset', () => {
+  assert.equal(deriveRiskColor('low', 'xs'), 'green') // easy + safe → confident pick
+  assert.equal(deriveRiskColor('high', 'xl'), 'red') // hard + risky → costly gamble
+  assert.equal(deriveRiskColor('low', 'xl'), 'amber') // safe but large
+  assert.equal(deriveRiskColor('high', 'xs'), 'amber') // small but risky
+  assert.equal(deriveRiskColor('normal', 'm'), null) // calm middle → no stripe
+  assert.equal(deriveRiskColor(undefined, 'xs'), null) // unestimated → no derived color
+  assert.equal(deriveRiskColor('high', undefined), null)
+})
+
+run('deriveRiskColor maps the full risk×difficulty grid to the warm heat ramp', () => {
+  const grid = (['low', 'normal', 'high'] as const).map((risk) =>
+    (['xs', 's', 'm', 'l', 'xl'] as const).map((difficulty) => deriveRiskColor(risk, difficulty)),
+  )
+  assert.deepEqual(grid, [
+    ['green', 'green', null, null, 'amber'],
+    ['green', null, null, 'amber', 'orange'],
+    ['amber', 'amber', 'orange', 'orange', 'red'],
+  ])
+})
+
+run('resolveBacklogStripeColor lets the manual highlight color override the derived heat', () => {
+  // Derived would be red (high + xl); the hand-set blue always wins.
+  assert.equal(
+    resolveBacklogStripeColor({ highlight: { starred: false, color: 'blue' }, risk: 'high', difficulty: 'xl' }),
+    'blue',
+  )
+  // Starred but no color set → the derived heat still shows through the stripe.
+  assert.equal(
+    resolveBacklogStripeColor({ highlight: { starred: true, color: null }, risk: 'high', difficulty: 'xl' }),
+    'red',
+  )
+  // No highlight and nothing to derive from → no stripe at all.
+  assert.equal(resolveBacklogStripeColor({ risk: 'high' }), null)
+})
 
 // Keep the example views from the brief honest: each lens partitions a mixed set
 // the way the product direction describes.

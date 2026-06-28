@@ -1774,7 +1774,7 @@ export type BacklogView =
   | 'unestimated'
   | 'archived'
 
-export type BacklogSort = 'recent' | 'status' | 'priority' | 'largest' | 'smallest'
+export type BacklogSort = 'best' | 'recent' | 'status' | 'priority' | 'largest' | 'smallest'
 
 // The Backlog panel's per-workspace navigation/view state, persisted so a
 // reload/restart restores the item the user was reading plus the lens, sort, and

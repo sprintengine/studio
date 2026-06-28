@@ -132,6 +132,7 @@ const BACKLOG_VIEW_VALUES = {
 } satisfies Record<WorkspaceBacklogState['view'], true>
 
 const BACKLOG_SORT_VALUES = {
+  best: true,
   recent: true,
   status: true,
   priority: true,

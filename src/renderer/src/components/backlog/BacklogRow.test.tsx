@@ -96,16 +96,21 @@ const sourcePickerSource = readFileSync(
   'utf8',
 )
 
-run('panel rows draw the highlight stripe from the shared swatch, overriding the accent when selected', () => {
+run('panel rows resolve the stripe color (manual highlight over derived risk) through the shared swatch', () => {
   assert.match(
     backlogPanelSource,
-    /getHighlightSwatch\(item\.highlight\.color\)/,
+    /resolveBacklogStripeColor\(item\)/,
+    'stripe color resolves via the shared helper so a manual highlight wins over the derived risk heat',
+  )
+  assert.match(
+    backlogPanelSource,
+    /getHighlightSwatch\(stripeColor\)/,
     'stripe classes come from utils/highlight, not duplicated hexes',
   )
   assert.match(
     backlogPanelSource,
-    /\$\{swatch\.border\} \$\{swatch\.bg\}/,
-    'a selected colored row uses the swatch stripe + soft bg in place of --accent-primary',
+    /litFill && swatch \? swatch\.bg/,
+    'only a hand-set highlight (litFill) lights the full row; a derived risk color tints the stripe alone',
   )
 })
 
