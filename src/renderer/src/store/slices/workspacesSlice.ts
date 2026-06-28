@@ -116,7 +116,7 @@ export function normalizeWorkspaceFileExplorerState(input: unknown): WorkspaceFi
 }
 
 export function defaultWorkspaceBacklogState(): WorkspaceBacklogState {
-  return { selectedRelativePath: null, view: 'all', sort: 'recent', search: '' }
+  return { selectedRelativePath: null, view: 'all', sort: 'recent', group: 'none', search: '' }
 }
 
 // Runtime guards for the persisted enums, exhaustiveness-checked against the
@@ -140,6 +140,11 @@ const BACKLOG_SORT_VALUES = {
   smallest: true,
 } satisfies Record<WorkspaceBacklogState['sort'], true>
 
+const BACKLOG_GROUP_VALUES = {
+  none: true,
+  by_epic: true,
+} satisfies Record<WorkspaceBacklogState['group'], true>
+
 const MAX_BACKLOG_SEARCH_LENGTH = 200
 
 // Returns undefined for absent state so the persisted registry is not bloated
@@ -152,12 +157,14 @@ export function normalizeWorkspaceBacklogState(input: unknown): WorkspaceBacklog
     typeof raw.view === 'string' && raw.view in BACKLOG_VIEW_VALUES ? (raw.view as WorkspaceBacklogState['view']) : 'all'
   const sort =
     typeof raw.sort === 'string' && raw.sort in BACKLOG_SORT_VALUES ? (raw.sort as WorkspaceBacklogState['sort']) : 'recent'
+  const group =
+    typeof raw.group === 'string' && raw.group in BACKLOG_GROUP_VALUES ? (raw.group as WorkspaceBacklogState['group']) : 'none'
   const selectedRelativePath =
     typeof raw.selectedRelativePath === 'string' && raw.selectedRelativePath.trim().length > 0
       ? raw.selectedRelativePath
       : null
   const search = typeof raw.search === 'string' ? raw.search.slice(0, MAX_BACKLOG_SEARCH_LENGTH) : ''
-  return { selectedRelativePath, view, sort, search }
+  return { selectedRelativePath, view, sort, group, search }
 }
 
 export function defaultWorkspaceGitPanelState(): WorkspaceGitPanelState {

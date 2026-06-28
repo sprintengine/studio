@@ -206,6 +206,7 @@ assert.deepEqual(viewStateClean.backlogState, {
   selectedRelativePath: 'backlog/a.md',
   view: 'quick_wins',
   sort: 'priority',
+  group: 'none',
   search: 'auth',
 })
 // The blank `main` draft is dropped; the real one is kept.
@@ -223,6 +224,7 @@ assert.deepEqual(malformedViewState.backlogState, {
   selectedRelativePath: null,
   view: 'all',
   sort: 'recent',
+  group: 'none',
   search: '',
 })
 assert.deepEqual(malformedViewState.gitPanelState, {

@@ -89,6 +89,48 @@ export function groupItemsByEpic(items: BacklogItem[]): BacklogEpicGroup[] {
   return groups
 }
 
+// Stable per-group key for collapse state and synthetic header ids. Epic and
+// unknown groups key off their slug; the single 'none' bucket uses a sentinel.
+export function epicGroupKey(group: Pick<BacklogEpicGroup, 'kind' | 'slug'>): string {
+  if (group.kind === 'none') return '__none__'
+  return `${group.kind}:${group.slug ?? ''}`
+}
+
+// A flattened, collapse-aware render row: a group header followed (when expanded)
+// by its children, in group order. The panel maps each row to one `role="option"`
+// `<li>`; `navId` is the row's stable identity for selection + `aria-activedescendant`.
+// An epic header borrows the epic item's id (so cursoring it opens the epic's
+// detail); unknown/no-epic headers carry no item, so they get a synthetic id.
+export type BacklogGroupedRow =
+  | { kind: 'header'; group: BacklogEpicGroup; navId: string; collapsed: boolean }
+  | { kind: 'item'; item: BacklogItem; navId: string }
+
+const HEADER_NAV_PREFIX = '__hdr__:'
+
+export function backlogHeaderNavId(group: BacklogEpicGroup): string {
+  if (group.kind === 'epic' && group.epic) return group.epic.id
+  return `${HEADER_NAV_PREFIX}${epicGroupKey(group)}`
+}
+
+export function isBacklogHeaderNavId(navId: string): boolean {
+  return navId.startsWith(HEADER_NAV_PREFIX)
+}
+
+export function groupedBacklogRows(
+  groups: BacklogEpicGroup[],
+  isCollapsed: (group: BacklogEpicGroup) => boolean,
+): BacklogGroupedRow[] {
+  const rows: BacklogGroupedRow[] = []
+  for (const group of groups) {
+    const collapsed = isCollapsed(group)
+    rows.push({ kind: 'header', group, navId: backlogHeaderNavId(group), collapsed })
+    if (!collapsed) {
+      for (const item of group.children) rows.push({ kind: 'item', item, navId: item.id })
+    }
+  }
+  return rows
+}
+
 function buildGroup(
   kind: BacklogEpicGroupKind,
   epic: BacklogItem | null,

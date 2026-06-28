@@ -7,7 +7,7 @@ import type {
   BacklogRisk,
   BacklogType,
 } from './backlog'
-import type { BacklogView, BacklogSort } from '../types/workspace'
+import type { BacklogView, BacklogSort, BacklogGroup } from '../types/workspace'
 
 // Triage view + sort logic for the Backlog panel, kept pure so the filtering
 // and ordering rules can be unit-tested without a DOM. The panel owns the
@@ -19,7 +19,7 @@ import type { BacklogView, BacklogSort } from '../types/workspace'
 // Canonical union definitions live in `types/workspace.ts` so the persisted
 // WorkspaceBacklogState can reference them; this module owns their behavior and
 // re-exports the types for the panel and its controls.
-export type { BacklogView, BacklogSort }
+export type { BacklogView, BacklogSort, BacklogGroup }
 
 export const DIFFICULTY_LABEL: Record<BacklogDifficulty, string> = {
   xs: 'XS',

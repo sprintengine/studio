@@ -56,9 +56,18 @@ import {
   compareBacklogItems,
   matchesBacklogView,
   resolveBacklogStripeColor,
+  type BacklogGroup,
   type BacklogSort,
   type BacklogView,
 } from '../../utils/backlogTriage'
+import {
+  epicGroupKey,
+  groupItemsByEpic,
+  groupedBacklogRows,
+  isBacklogHeaderNavId,
+  type BacklogEpicGroup,
+  type BacklogGroupedRow,
+} from '../../utils/backlogEpics'
 import {
   BacklogItemContextMenu,
   CRITICALITY_EDIT_ITEMS,
@@ -68,6 +77,7 @@ import {
 } from '../backlog/BacklogItemContextMenu'
 import { BacklogCreateDialog, type BacklogDraft } from './BacklogCreateDialog'
 import {
+  BacklogEpicHeaderContent,
   BacklogRowContent,
   BACKLOG_STATUS_LABEL,
   backlogStatusToLifecycle,
@@ -122,6 +132,13 @@ const SORT_ITEMS: SelectItem<BacklogSort>[] = [
   { value: 'priority', label: 'Priority' },
   { value: 'largest', label: 'Largest first' },
   { value: 'smallest', label: 'Smallest first' },
+]
+
+// Grouping is orthogonal to view/sort: None is today's flat list, By epic nests
+// items under collapsible epic headers (T9).
+const GROUP_ITEMS: SelectItem<BacklogGroup>[] = [
+  { value: 'none', label: 'None' },
+  { value: 'by_epic', label: 'By epic' },
 ]
 
 // Scope word shown next to the header count when a lens narrows the list, so a
@@ -195,6 +212,10 @@ export default function BacklogPanel({ workspaceId, onStartFuturePlan }: Workspa
   const [search, setSearch] = useState(() => initialBacklogState?.search ?? '')
   const [view, setView] = useState<BacklogView>(() => initialBacklogState?.view ?? 'all')
   const [sort, setSort] = useState<BacklogSort>(() => initialBacklogState?.sort ?? 'recent')
+  const [group, setGroup] = useState<BacklogGroup>(() => initialBacklogState?.group ?? 'none')
+  // Collapsed epic groups, keyed by epicGroupKey. Session-only (not persisted):
+  // grouping itself persists, the open/closed state of each header does not.
+  const [collapsedGroups, setCollapsedGroups] = useState<ReadonlySet<string>>(() => new Set())
   // Single-column (narrow) mode: which face is showing.
   const [showDetailInSingle, setShowDetailInSingle] = useState(false)
   // The structured "New item" capture dialog (title, description, type, size,
@@ -247,6 +268,51 @@ export default function BacklogPanel({ workspaceId, onStartFuturePlan }: Workspa
       .sort((a, b) => compareBacklogItems(a, b, sort))
   }, [items, search, view, sort])
 
+  // Epic grouping is an orthogonal axis layered over the filtered+sorted list.
+  // `none` keeps the flat list untouched (groupedRows stays null → the panel
+  // renders today's path); `by_epic` partitions into ordered epic/unknown/no-epic
+  // groups and flattens them (headers + visible children) into the render +
+  // keyboard order. Children keep the active sort because `filtered` is already
+  // sorted and groupItemsByEpic preserves input order.
+  const isGroupCollapsed = useCallback(
+    (epicGroup: BacklogEpicGroup) => collapsedGroups.has(epicGroupKey(epicGroup)),
+    [collapsedGroups],
+  )
+  const groupedRows = useMemo<BacklogGroupedRow[] | null>(() => {
+    if (group !== 'by_epic') return null
+    return groupedBacklogRows(groupItemsByEpic(filtered), isGroupCollapsed)
+  }, [group, filtered, isGroupCollapsed])
+
+  // The flattened selection order drives j/k navigation and aria-activedescendant
+  // for both modes: grouped uses the header+child row order, flat is the filtered
+  // list itself. navIndexById gives each selectable row its stable option index
+  // (`backlog-opt-<n>`); in flat mode it equals the list index, so the rendered
+  // markup is byte-identical to today.
+  const navOrder = useMemo<string[]>(
+    () => (groupedRows ? groupedRows.map((row) => row.navId) : filtered.map((item) => item.id)),
+    [groupedRows, filtered],
+  )
+  const navIndexById = useMemo(() => {
+    const map = new Map<string, number>()
+    navOrder.forEach((id, index) => map.set(id, index))
+    return map
+  }, [navOrder])
+  const rowByNavId = useMemo(() => {
+    const map = new Map<string, BacklogGroupedRow>()
+    if (groupedRows) for (const row of groupedRows) map.set(row.navId, row)
+    return map
+  }, [groupedRows])
+
+  const toggleGroupCollapsed = useCallback((epicGroup: BacklogEpicGroup) => {
+    setCollapsedGroups((prev) => {
+      const key = epicGroupKey(epicGroup)
+      const next = new Set(prev)
+      if (next.has(key)) next.delete(key)
+      else next.add(key)
+      return next
+    })
+  }, [])
+
   // Live run glyph per visible item, for items linked to an observable Sprint
   // Engine run. The rollup (`deriveSprintEngineRunGlyph`) is shared with the
   // workspace sidebar: a human-routed needs_input wins over everything, then
@@ -272,14 +338,21 @@ export default function BacklogPanel({ workspaceId, onStartFuturePlan }: Workspa
     return map
   }, [filtered, sprintEngineWorkspaces, folderPath])
 
-  // Keep selection valid across rescans/filters; select-by-id is preserved when
-  // the item survives, otherwise selection clears.
+  // Keep selection valid across rescans/filters/grouping. A real item cursor
+  // survives as long as the item is still in `filtered` — a collapsed group hides
+  // its row but must not drop the selection. A synthetic group-header cursor is
+  // only valid while that header is still in the nav order (its group exists and
+  // grouping is on), so it clears when grouping turns off or the group vanishes.
   useEffect(() => {
-    if (selectedId && !filtered.some((item) => item.id === selectedId)) {
+    if (!selectedId) return
+    const stillValid = isBacklogHeaderNavId(selectedId)
+      ? navIndexById.has(selectedId)
+      : filtered.some((item) => item.id === selectedId)
+    if (!stillValid) {
       setSelectedId(null)
       setShowDetailInSingle(false)
     }
-  }, [filtered, selectedId])
+  }, [filtered, navIndexById, selectedId])
 
   const selected = useMemo(
     () => filtered.find((item) => item.id === selectedId) ?? null,
@@ -372,6 +445,7 @@ export default function BacklogPanel({ workspaceId, onStartFuturePlan }: Workspa
     selectedRelativePath: null as string | null,
     view,
     sort,
+    group,
     search,
     restorePending,
   })
@@ -379,6 +453,7 @@ export default function BacklogPanel({ workspaceId, onStartFuturePlan }: Workspa
     selectedRelativePath: selected?.relativePath ?? null,
     view,
     sort,
+    group,
     search,
     restorePending,
   }
@@ -389,7 +464,11 @@ export default function BacklogPanel({ workspaceId, onStartFuturePlan }: Workspa
     // workspace; only persist once there is something non-default to remember (or
     // a record already exists).
     const isDefault =
-      !snapshot.selectedRelativePath && snapshot.view === 'all' && snapshot.sort === 'recent' && snapshot.search === ''
+      !snapshot.selectedRelativePath &&
+      snapshot.view === 'all' &&
+      snapshot.sort === 'recent' &&
+      snapshot.group === 'none' &&
+      snapshot.search === ''
     const hasRecord = Boolean(
       useWorkspaceStore.getState().workspaces.find((w) => w.id === workspaceId)?.backlogState,
     )
@@ -398,6 +477,7 @@ export default function BacklogPanel({ workspaceId, onStartFuturePlan }: Workspa
       selectedRelativePath: snapshot.selectedRelativePath,
       view: snapshot.view,
       sort: snapshot.sort,
+      group: snapshot.group,
       search: snapshot.search,
     })
   }, [workspaceId, setBacklogViewState])
@@ -405,41 +485,56 @@ export default function BacklogPanel({ workspaceId, onStartFuturePlan }: Workspa
     if (restorePending != null) return
     const handle = window.setTimeout(persistBacklogViewState, 300)
     return () => window.clearTimeout(handle)
-  }, [restorePending, selectedId, view, sort, search, persistBacklogViewState])
+  }, [restorePending, selectedId, view, sort, group, search, persistBacklogViewState])
   useEffect(() => {
     return () => persistBacklogViewState()
   }, [persistBacklogViewState])
 
+  // Navigation runs over the flattened nav order (header + child rows when
+  // grouped, the filtered list when flat), so j/k cross group boundaries exactly
+  // like a flat list.
   const selectAt = useCallback(
     (index: number) => {
-      const next = filtered[index]
-      if (!next) return
-      setSelectedId(next.id)
+      const nextId = navOrder[index]
+      if (nextId == null) return
+      setSelectedId(nextId)
     },
-    [filtered],
+    [navOrder],
   )
 
   const handleListKeyDown = useCallback(
     (event: React.KeyboardEvent<HTMLUListElement>) => {
       if (isEditableTarget(event.target)) return
-      const currentIndex = filtered.findIndex((item) => item.id === selectedId)
+      const currentIndex = selectedId ? navOrder.indexOf(selectedId) : -1
+      const currentRow = selectedId ? rowByNavId.get(selectedId) : undefined
       if (event.key === 'j' || event.key === 'ArrowDown') {
         event.preventDefault()
-        selectAt(currentIndex < 0 ? 0 : Math.min(currentIndex + 1, filtered.length - 1))
+        selectAt(currentIndex < 0 ? 0 : Math.min(currentIndex + 1, navOrder.length - 1))
       } else if (event.key === 'k' || event.key === 'ArrowUp') {
         event.preventDefault()
         selectAt(currentIndex < 0 ? 0 : Math.max(currentIndex - 1, 0))
       } else if (event.key === 'Enter' || event.key === 'ArrowRight') {
-        if (selectedId) {
+        // On a group header the primary action is collapse/expand; on a leaf it
+        // opens the detail (single-column mode). Flat mode has no header rows, so
+        // this stays today's "open detail" behavior.
+        if (currentRow?.kind === 'header') {
+          event.preventDefault()
+          toggleGroupCollapsed(currentRow.group)
+        } else if (selectedId) {
           event.preventDefault()
           setShowDetailInSingle(true)
+        }
+      } else if (event.key === 'ArrowLeft') {
+        if (currentRow?.kind === 'header' && !currentRow.collapsed) {
+          event.preventDefault()
+          toggleGroupCollapsed(currentRow.group)
         }
       } else if (event.key === 'Escape') {
         event.preventDefault()
         setSelectedId(null)
       }
     },
-    [filtered, selectAt, selectedId],
+    [navOrder, rowByNavId, selectAt, selectedId, toggleGroupCollapsed],
   )
 
   const handleSelectRow = useCallback((id: string) => {
@@ -920,8 +1015,11 @@ export default function BacklogPanel({ workspaceId, onStartFuturePlan }: Workspa
   const listPane = (
     <BacklogList
       items={filtered}
+      groupedRows={groupedRows}
+      navIndexById={navIndexById}
       selectedId={selectedId}
       onSelect={handleSelectRow}
+      onToggleCollapse={toggleGroupCollapsed}
       onKeyDown={handleListKeyDown}
       onItemDragStart={folderPath ? handleRowDragStart : undefined}
       onItemContextMenu={folderPath ? handleRowContextMenu : undefined}
@@ -988,10 +1086,13 @@ export default function BacklogPanel({ workspaceId, onStartFuturePlan }: Workspa
         <BacklogFilterMenu
           view={view}
           sort={sort}
+          group={group}
           viewItems={VIEW_ITEMS}
           sortItems={SORT_ITEMS}
+          groupItems={GROUP_ITEMS}
           onViewChange={setView}
           onSortChange={setSort}
+          onGroupChange={setGroup}
           className="shrink-0"
         />
       </div>
@@ -1115,8 +1216,11 @@ function BacklogListSkeleton(): JSX.Element {
 
 function BacklogList({
   items,
+  groupedRows,
+  navIndexById,
   selectedId,
   onSelect,
+  onToggleCollapse,
   onKeyDown,
   onItemDragStart,
   onItemContextMenu,
@@ -1126,8 +1230,13 @@ function BacklogList({
   runGlyphById,
 }: {
   items: BacklogItem[]
+  // Non-null when grouping by epic: the flattened header+child render order.
+  // Null keeps the flat list path (byte-identical to the ungrouped default).
+  groupedRows: BacklogGroupedRow[] | null
+  navIndexById: ReadonlyMap<string, number>
   selectedId: string | null
   onSelect: (id: string) => void
+  onToggleCollapse: (group: BacklogEpicGroup) => void
   onKeyDown: (event: React.KeyboardEvent<HTMLUListElement>) => void
   onItemDragStart?: (event: React.DragEvent<HTMLLIElement>, item: BacklogItem) => void
   onItemContextMenu?: (event: React.MouseEvent, item: BacklogItem) => void
@@ -1157,7 +1266,9 @@ function BacklogList({
     )
   }
 
-  const activeIndex = items.findIndex((item) => item.id === selectedId)
+  // The option index is the row's position in the flattened nav order; it equals
+  // the list index in flat mode, so `backlog-opt-<n>` ids stay byte-identical.
+  const activeIndex = selectedId != null ? navIndexById.get(selectedId) ?? -1 : -1
 
   return (
     <ul
@@ -1171,41 +1282,156 @@ function BacklogList({
       aria-activedescendant={activeIndex >= 0 ? `backlog-opt-${activeIndex}` : undefined}
       className="min-h-0 flex-1 overflow-auto py-1 outline-none focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[color:var(--border-focus)]"
     >
-      {items.map((item, index) => {
-        const active = item.id === selectedId
-        const archived = item.status === 'archived'
-        // The row's left-edge stripe resolves to the manual highlight color, or
-        // — when none is set — the derived risk×effort heat (nothing persisted).
-        // A hand-set highlight earns the full lit treatment (stripe + soft bg,
-        // mirroring the sidebar rowAccent override); a derived color tints the
-        // stripe alone so the ambient heat never competes with selection. Marks
-        // are visual only — order and padding never change.
-        const manualColor = item.highlight?.color ?? null
-        const stripeColor = resolveBacklogStripeColor(item)
-        const swatch = stripeColor ? getHighlightSwatch(stripeColor) : null
-        const litFill = manualColor !== null
-        return (
-          <li
-            key={item.id}
-            id={`backlog-opt-${index}`}
-            role="option"
-            aria-selected={active}
-            draggable={Boolean(onItemDragStart)}
-            onDragStart={onItemDragStart ? (event) => onItemDragStart(event, item) : undefined}
-            onContextMenu={onItemContextMenu ? (event) => onItemContextMenu(event, item) : undefined}
-            onClick={() => onSelect(item.id)}
-            title={item.relativePath}
-            className={`cursor-pointer border-l-[3px] px-3 py-1.5 transition-colors ${
-              active
-                ? `${swatch ? swatch.border : 'border-l-[color:var(--accent-primary)]'} ${litFill && swatch ? swatch.bg : 'bg-[color:var(--accent-primary-soft)]'} pl-[9px]`
-                : `${swatch ? `${swatch.border}${litFill ? ` ${swatch.dimBg}` : ''}` : 'border-l-transparent'} hover:bg-[color:var(--bg-hover)]`
-            } ${archived ? 'opacity-70' : ''}`}
-          >
-            <BacklogRowContent item={item} now={now} runGlyph={runGlyphById?.get(item.id)} />
-          </li>
-        )
-      })}
+      {groupedRows
+        ? groupedRows.map((row) =>
+            row.kind === 'header' ? (
+              <BacklogGroupHeaderRow
+                key={row.navId}
+                row={row}
+                optionIndex={navIndexById.get(row.navId) ?? -1}
+                selected={row.navId === selectedId}
+                onSelect={onSelect}
+                onToggleCollapse={onToggleCollapse}
+                onItemDragStart={onItemDragStart}
+                onItemContextMenu={onItemContextMenu}
+              />
+            ) : (
+              <BacklogOptionRow
+                key={row.item.id}
+                item={row.item}
+                optionIndex={navIndexById.get(row.item.id) ?? -1}
+                selected={row.item.id === selectedId}
+                indented
+                onSelect={onSelect}
+                onItemDragStart={onItemDragStart}
+                onItemContextMenu={onItemContextMenu}
+                now={now}
+                runGlyph={runGlyphById?.get(row.item.id)}
+              />
+            ),
+          )
+        : items.map((item) => (
+            <BacklogOptionRow
+              key={item.id}
+              item={item}
+              optionIndex={navIndexById.get(item.id) ?? -1}
+              selected={item.id === selectedId}
+              onSelect={onSelect}
+              onItemDragStart={onItemDragStart}
+              onItemContextMenu={onItemContextMenu}
+              now={now}
+              runGlyph={runGlyphById?.get(item.id)}
+            />
+          ))}
     </ul>
+  )
+}
+
+// One selectable backlog row (`role="option"`). Shared by the flat list and the
+// grouped list's children so the stripe/selection treatment can't drift. The
+// left-edge stripe resolves to the manual highlight color, or — when none is set
+// — the derived risk×effort heat (nothing persisted). A hand-set highlight earns
+// the full lit treatment (stripe + soft bg, mirroring the sidebar rowAccent
+// override); a derived color tints the stripe alone so the ambient heat never
+// competes with selection. `indented` nests the row under a group header; at the
+// default (false) the class string is byte-identical to the pre-grouping row.
+function BacklogOptionRow({
+  item,
+  optionIndex,
+  selected,
+  indented = false,
+  onSelect,
+  onItemDragStart,
+  onItemContextMenu,
+  now,
+  runGlyph,
+}: {
+  item: BacklogItem
+  optionIndex: number
+  selected: boolean
+  indented?: boolean
+  onSelect: (id: string) => void
+  onItemDragStart?: (event: React.DragEvent<HTMLLIElement>, item: BacklogItem) => void
+  onItemContextMenu?: (event: React.MouseEvent, item: BacklogItem) => void
+  now: number
+  runGlyph?: BacklogRunGlyph
+}): JSX.Element {
+  const archived = item.status === 'archived'
+  const manualColor = item.highlight?.color ?? null
+  const stripeColor = resolveBacklogStripeColor(item)
+  const swatch = stripeColor ? getHighlightSwatch(stripeColor) : null
+  const litFill = manualColor !== null
+  return (
+    <li
+      id={`backlog-opt-${optionIndex}`}
+      role="option"
+      aria-selected={selected}
+      draggable={Boolean(onItemDragStart)}
+      onDragStart={onItemDragStart ? (event) => onItemDragStart(event, item) : undefined}
+      onContextMenu={onItemContextMenu ? (event) => onItemContextMenu(event, item) : undefined}
+      onClick={() => onSelect(item.id)}
+      title={item.relativePath}
+      className={`cursor-pointer border-l-[3px] ${indented ? 'pl-6 pr-3' : 'px-3'} py-1.5 transition-colors ${
+        selected
+          ? `${swatch ? swatch.border : 'border-l-[color:var(--accent-primary)]'} ${litFill && swatch ? swatch.bg : 'bg-[color:var(--accent-primary-soft)]'} ${indented ? 'pl-[21px]' : 'pl-[9px]'}`
+          : `${swatch ? `${swatch.border}${litFill ? ` ${swatch.dimBg}` : ''}` : 'border-l-transparent'} hover:bg-[color:var(--bg-hover)]`
+      } ${archived ? 'opacity-70' : ''}`}
+    >
+      <BacklogRowContent item={item} now={now} runGlyph={runGlyph} />
+    </li>
+  )
+}
+
+// An epic/unknown/no-epic group header row. It is a navigable `role="option"` so
+// j/k can reach it and Enter can collapse it. An epic header borrows the epic
+// item's identity — clicking it (away from the chevron) selects the epic and can
+// be dragged / right-clicked like any item; unknown and no-epic headers carry no
+// item, so the whole row toggles collapse. The left stripe uses the epic's
+// `color:` frontmatter when set.
+function BacklogGroupHeaderRow({
+  row,
+  optionIndex,
+  selected,
+  onSelect,
+  onToggleCollapse,
+  onItemDragStart,
+  onItemContextMenu,
+}: {
+  row: Extract<BacklogGroupedRow, { kind: 'header' }>
+  optionIndex: number
+  selected: boolean
+  onSelect: (id: string) => void
+  onToggleCollapse: (group: BacklogEpicGroup) => void
+  onItemDragStart?: (event: React.DragEvent<HTMLLIElement>, item: BacklogItem) => void
+  onItemContextMenu?: (event: React.MouseEvent, item: BacklogItem) => void
+}): JSX.Element {
+  const { group } = row
+  const epic = group.kind === 'epic' ? group.epic : null
+  const swatch = group.color ? getHighlightSwatch(group.color) : null
+  return (
+    <li
+      id={`backlog-opt-${optionIndex}`}
+      role="option"
+      aria-selected={selected}
+      draggable={Boolean(epic && onItemDragStart)}
+      onDragStart={epic && onItemDragStart ? (event) => onItemDragStart(event, epic) : undefined}
+      onContextMenu={epic && onItemContextMenu ? (event) => onItemContextMenu(event, epic) : undefined}
+      // Clicking an epic header selects the epic (its detail); a header with no
+      // item has nothing to select, so the row click collapses it instead.
+      onClick={() => (epic ? onSelect(epic.id) : onToggleCollapse(group))}
+      title={epic ? epic.relativePath : group.title}
+      className={`cursor-pointer border-l-[3px] px-3 py-1.5 transition-colors ${
+        selected
+          ? `${swatch ? swatch.border : 'border-l-[color:var(--accent-primary)]'} bg-[color:var(--accent-primary-soft)] pl-[9px]`
+          : `${swatch ? swatch.border : 'border-l-transparent'} hover:bg-[color:var(--bg-hover)]`
+      }`}
+    >
+      <BacklogEpicHeaderContent
+        group={group}
+        collapsed={row.collapsed}
+        onToggleCollapse={() => onToggleCollapse(group)}
+      />
+    </li>
   )
 }
 

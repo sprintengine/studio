@@ -114,6 +114,48 @@ run('panel rows resolve the stripe color (manual highlight over derived risk) th
   )
 })
 
+run('the Group axis is wired to the filter menu and persisted, defaulting to a flat no-op', () => {
+  // The Group control rides the same FilterMenu plumbing as view/sort.
+  assert.match(backlogPanelSource, /group=\{group\}/, 'filter menu receives the group axis')
+  assert.match(backlogPanelSource, /groupItems=\{GROUP_ITEMS\}/, 'filter menu receives the group options')
+  assert.match(backlogPanelSource, /onGroupChange=\{setGroup\}/, 'changing the group updates panel state')
+  // group is persisted alongside view/sort, and 'none' is part of the default
+  // baseline so an untouched panel never writes a record.
+  assert.match(backlogPanelSource, /group: snapshot\.group/, 'group is persisted in the view-state record')
+  assert.match(backlogPanelSource, /snapshot\.group === 'none'/, "default baseline keeps group at 'none'")
+  // Grouping off ⇒ groupedRows is null ⇒ the flat list path renders unchanged.
+  assert.match(
+    backlogPanelSource,
+    /if \(group !== 'by_epic'\) return null/,
+    'group=none short-circuits to the flat (byte-identical) list',
+  )
+})
+
+run('grouped render and cross-group selection run through the flattened nav order', () => {
+  // The list branches to the grouped render only when groupedRows is present.
+  assert.match(backlogPanelSource, /groupedRows\s*\n?\s*\?\s*groupedRows\.map/, 'grouped branch renders the flattened rows')
+  assert.match(backlogPanelSource, /<BacklogGroupHeaderRow/, 'group headers render as their own rows')
+  assert.match(backlogPanelSource, /indented\b/, 'grouped children render the shared option row, indented')
+  // One nav order drives both j/k and aria-activedescendant across groups.
+  assert.match(
+    backlogPanelSource,
+    /navOrder\.indexOf\(selectedId\)/,
+    'keyboard navigation indexes the flattened header+child order',
+  )
+  assert.match(
+    backlogPanelSource,
+    /backlog-opt-\$\{activeIndex\}/,
+    'aria-activedescendant points at the active option in the flattened order',
+  )
+  // Enter on a header collapses; on a leaf it opens detail — selection crosses
+  // group boundaries without special-casing the leaves.
+  assert.match(
+    backlogPanelSource,
+    /currentRow\?\.kind === 'header'/,
+    'Enter/Arrow toggles a header, otherwise opens the leaf detail',
+  )
+})
+
 run('detail overflow menu carries Star/Unstar through the persisted highlight handler', () => {
   assert.match(
     backlogPanelSource,

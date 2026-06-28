@@ -171,7 +171,7 @@ useWorkspaceStore.getState().setBacklogViewState(firstId, { view: 'quick_wins', 
 useWorkspaceStore.getState().setBacklogViewState(firstId, { selectedRelativePath: 'backlog/x.md', search: 'auth' })
 assert.deepEqual(
   useWorkspaceStore.getState().workspaces.find((workspace) => workspace.id === firstId)?.backlogState,
-  { selectedRelativePath: 'backlog/x.md', view: 'quick_wins', sort: 'priority', search: 'auth' },
+  { selectedRelativePath: 'backlog/x.md', view: 'quick_wins', sort: 'priority', group: 'none', search: 'auth' },
   'Backlog view state accumulates partial patches',
 )
 useWorkspaceStore.getState().setBacklogViewState(firstId, { view: 'bogus' as never })

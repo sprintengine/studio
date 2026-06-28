@@ -7,6 +7,7 @@ import type {
   BacklogItem,
   BacklogItemStatus,
 } from '../../utils/backlog'
+import type { BacklogEpicGroup } from '../../utils/backlogEpics'
 import type { SprintEngineRunGlyph } from '../../utils/sprintengine'
 import {
   CRITICALITY_LABEL,
@@ -204,6 +205,76 @@ function CriticalityGlyph({ criticality }: { criticality: BacklogCriticality }):
           className={index < filled ? '' : 'opacity-30'}
         />
       ))}
+    </svg>
+  )
+}
+
+// Interior of an epic-group header row (the panel owns the selectable <li> and
+// its left color stripe). A disclosure chevron toggles the group; the title sits
+// in heavier weight than a leaf row so headers read as structure, and the
+// `done/total` rollup is tabular so the column scans straight down. Unknown
+// groups surface their dangling slug so an orphaned `epic:` is identifiable.
+export function BacklogEpicHeaderContent({
+  group,
+  collapsed,
+  onToggleCollapse,
+}: {
+  group: BacklogEpicGroup
+  collapsed: boolean
+  onToggleCollapse: () => void
+}): JSX.Element {
+  const { done, total } = group.progress
+  return (
+    <div className="flex items-center gap-1.5">
+      <button
+        type="button"
+        // The listbox owns roving focus via aria-activedescendant, so the chevron
+        // stays out of the tab order; keyboard collapse runs through the list's
+        // Enter/Arrow handler. stopPropagation keeps a click here from also
+        // selecting the row.
+        tabIndex={-1}
+        aria-label={collapsed ? `Expand ${group.title}` : `Collapse ${group.title}`}
+        aria-expanded={!collapsed}
+        onClick={(event) => {
+          event.stopPropagation()
+          onToggleCollapse()
+        }}
+        className="interactive -ml-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded-[3px] text-[color:var(--text-subtle)] hover:text-[color:var(--text-strong)]"
+      >
+        <DisclosureChevron expanded={!collapsed} />
+      </button>
+      <TruncatedText
+        as="span"
+        text={group.title}
+        className="min-w-0 flex-1 text-[12px] font-semibold text-[color:var(--text-strong)]"
+      />
+      {group.kind === 'unknown' && group.slug ? (
+        <TruncatedText
+          as="span"
+          text={group.slug}
+          className="max-w-[10rem] shrink-0 font-mono text-[11px] text-[color:var(--text-disabled)]"
+        />
+      ) : null}
+      <span
+        className="shrink-0 tabular-nums text-[11px] text-[color:var(--text-subtle)]"
+        aria-label={`${done} of ${total} complete`}
+      >
+        {done}/{total}
+      </span>
+    </div>
+  )
+}
+
+// Right-pointing at rest, rotating down when the group is expanded.
+function DisclosureChevron({ expanded }: { expanded: boolean }): JSX.Element {
+  return (
+    <svg
+      viewBox="0 0 16 16"
+      fill="none"
+      className={`icon-xs shrink-0 transition-transform ${expanded ? 'rotate-90' : ''}`}
+      aria-hidden="true"
+    >
+      <path d="M6 4l4 4-4 4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
     </svg>
   )
 }
