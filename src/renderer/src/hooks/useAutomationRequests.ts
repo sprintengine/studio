@@ -82,6 +82,9 @@ function createWorkspace(
     name: request.name,
     folderPath: request.folderPath ?? null,
     windowId: 'primary',
+    // An explicit mode (e.g. the automations executor's hidden 'automations-host'
+    // host) wins over standard-derivation; omitted falls through to standard.
+    mode: request.mode,
   })
   return { ok: true, workspaceId }
 }

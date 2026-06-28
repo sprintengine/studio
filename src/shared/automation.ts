@@ -1,4 +1,5 @@
 import type { SprintEngineCliPermissionPreset } from './electron-api'
+import type { WorkspaceMode } from '../renderer/src/types/workspace'
 
 // Multicode app-automation surface: shared contracts between the main-process
 // MCP server, the preload bridge, and the renderer delegate.
@@ -29,6 +30,9 @@ export type AutomationRendererRequest =
       name?: string
       folderPath?: string
       templateId?: string
+      /** Explicit workspace mode (e.g. 'automations-host' for the hidden
+       *  background host). Omitted means standard-derivation at creation. */
+      mode?: WorkspaceMode
     }
   | {
       kind: 'agent.launch'
