@@ -96,8 +96,9 @@ export function AttentionQueuePopover({
   onOpenItem,
 }: AttentionQueueSurface) {
   // Re-render every 30s so the relative status meta ("waiting 4m") stays fresh
-  // while the popover is open.
-  const now = useRelativeNow(30_000)
+  // while the popover is open. Gated on `open` so the always-mounted trigger
+  // doesn't run an idle tick while the popover is closed.
+  const now = useRelativeNow(30_000, open)
   const groups = useMemo(() => groupByWorkspace(items), [items])
 
   return (
