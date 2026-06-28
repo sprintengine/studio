@@ -61,7 +61,9 @@ import {
   type BacklogView,
 } from '../../utils/backlogTriage'
 import {
+  childrenOfEpic,
   epicGroupKey,
+  epicSlug,
   groupItemsByEpic,
   groupedBacklogRows,
   isBacklogHeaderNavId,
@@ -275,9 +277,18 @@ export default function BacklogPanel({ workspaceId, onStartFuturePlan }: Workspa
   // groups and flattens them (headers + visible children) into the render +
   // keyboard order. Children keep the active sort because `filtered` is already
   // sorted and groupItemsByEpic preserves input order.
+  // A group's collapse state = its default flipped by any explicit user toggle.
+  // Default: expanded — except an epic group in the Archived lens, which defaults
+  // collapsed so an archived epic reads as one rolled-up unit, not N loose
+  // child rows (T11). `collapsedGroups` records the groups the user flipped away
+  // from their default, so the chevron toggle works the same in both lenses.
   const isGroupCollapsed = useCallback(
-    (epicGroup: BacklogEpicGroup) => collapsedGroups.has(epicGroupKey(epicGroup)),
-    [collapsedGroups],
+    (epicGroup: BacklogEpicGroup) => {
+      const defaultCollapsed = view === 'archived' && epicGroup.kind === 'epic'
+      const flipped = collapsedGroups.has(epicGroupKey(epicGroup))
+      return flipped ? !defaultCollapsed : defaultCollapsed
+    },
+    [collapsedGroups, view],
   )
   const groupedRows = useMemo<BacklogGroupedRow[] | null>(() => {
     if (group !== 'by_epic') return null
@@ -686,50 +697,88 @@ export default function BacklogPanel({ workspaceId, onStartFuturePlan }: Workspa
     [dialog, folderPath, refreshAndSelect, remapOpenFiles, runAction, workspaceId],
   )
 
+  // Snapshot of the relative paths already under backlog/archived/, the dedup
+  // baseline for nextArchiveRelativePath (so a new archive never reuses a name).
+  const archivedRelativePaths = useCallback(
+    () => (scan?.items ?? []).filter((i) => i.status === 'archived').map((i) => i.relativePath),
+    [scan],
+  )
+
+  // Archive one item to a pre-resolved collision-safe `backlog/archived/<name>`
+  // path: move the live on-disk file (read → write into the new target → trash
+  // the source), re-point open editor tabs, then update the items.json record.
+  // Throws on any step so the caller can surface the failure; on a partial write
+  // it cleans up the archived copy so archive never leaves a duplicate. Shared by
+  // the single-item Archive and the epic rollup so they cannot drift.
+  const moveItemToArchive = useCallback(
+    async (item: BacklogItem, archivedRel: string): Promise<void> => {
+      if (!folderPath) return
+      const archivedName = archivedRel.slice(archivedRel.lastIndexOf('/') + 1)
+      const content = await window.api.readfile(item.path)
+      const archivedDir = await window.api.ensureDir(backlogRootPath(folderPath), 'archived')
+      const newPath = await window.api.createFile(archivedDir, archivedName)
+      try {
+        await window.api.writefile(newPath, content)
+        await window.api.deletePath(item.path)
+      } catch (error) {
+        await window.api.deletePath(newPath).catch(() => {})
+        throw error
+      }
+      if (workspaceId) {
+        remapOpenFiles(workspaceId, item.path, newPath)
+        remapFileTabsForPath(workspaceId, item.path, newPath)
+      }
+      const moved = await window.api.moveBacklogObjectSource({
+        workspaceRoot: folderPath,
+        relativePath: item.relativePath,
+        nextRelativePath: archivedRel,
+      })
+      assertBacklogMutation(moved)
+    },
+    [folderPath, remapOpenFiles, workspaceId],
+  )
+
   const archiveItem = useCallback(
     (item: BacklogItem) =>
       runAction(async () => {
         if (!folderPath || item.status === 'archived') return
-        const archivedRel = nextArchiveRelativePath(
-          item.relativePath,
-          (scan?.items ?? []).filter((i) => i.status === 'archived').map((i) => i.relativePath),
-        )
-        const archivedName = archivedRel.slice(archivedRel.lastIndexOf('/') + 1)
-        // Move the live file: re-read the current on-disk content now so a plan
-        // edited after the last scan is archived faithfully rather than from the
-        // stale preview snapshot. If the source can't be read, abort before
-        // creating anything so archive never leaves a partial copy.
-        const content = await window.api.readfile(item.path)
-        // Move = write the current content into the collision-safe archived
-        // target, then trash the source. createFile's wx flag guards the name.
-        const archivedDir = await window.api.ensureDir(backlogRootPath(folderPath), 'archived')
-        const newPath = await window.api.createFile(archivedDir, archivedName)
-        try {
-          await window.api.writefile(newPath, content)
-          await window.api.deletePath(item.path)
-        } catch (error) {
-          // Partial failure (write or trash failed after the archived target was
-          // created): clean up the archived copy so archive never silently
-          // leaves a duplicate, then surface the original error. The cleanup is
-          // best-effort and must not mask the failure the user needs to see.
-          await window.api.deletePath(newPath).catch(() => {})
-          throw error
-        }
-        // Archive is a move: re-point any open editor tab / open-file entry from
-        // the source to the archived path so editor state never goes stale.
-        if (workspaceId) {
-          remapOpenFiles(workspaceId, item.path, newPath)
-          remapFileTabsForPath(workspaceId, item.path, newPath)
-        }
-        const moved = await window.api.moveBacklogObjectSource({
-          workspaceRoot: folderPath,
-          relativePath: item.relativePath,
-          nextRelativePath: archivedRel,
-        })
-        assertBacklogMutation(moved)
+        const archivedRel = nextArchiveRelativePath(item.relativePath, archivedRelativePaths())
+        await moveItemToArchive(item, archivedRel)
         await refreshAndSelect(normalizeRelativePath(archivedRel))
       }),
-    [folderPath, refreshAndSelect, remapOpenFiles, runAction, scan, workspaceId],
+    [archivedRelativePaths, folderPath, moveItemToArchive, refreshAndSelect, runAction],
+  )
+
+  // Archive-epic rollup: archive every active child, then the epic itself, via
+  // the same archive-move path. Children go first so a mid-batch failure leaves
+  // the epic visible (recoverable) rather than an archived epic with live
+  // children. The archived paths accumulate so batch members never collide with
+  // each other or with existing archived files. In the Archived lens (grouped),
+  // the moved epic keeps its slug (filename stem) and the children keep their
+  // `epic:` frontmatter, so they render as one group.
+  const archiveEpicRollup = useCallback(
+    (epic: BacklogItem) =>
+      runAction(async () => {
+        if (!folderPath || epic.status === 'archived' || !epic.isEpic) return
+        const children = childrenOfEpic(items, epicSlug(epic)).filter((child) => child.status !== 'archived')
+        const archivedPaths = archivedRelativePaths()
+        let epicArchivedRel = epic.relativePath
+        try {
+          for (const target of [...children, epic]) {
+            const archivedRel = nextArchiveRelativePath(target.relativePath, archivedPaths)
+            await moveItemToArchive(target, archivedRel)
+            archivedPaths.push(archivedRel)
+            if (target === epic) epicArchivedRel = archivedRel
+          }
+        } catch (error) {
+          // Some members may have archived before the failure; re-scan so the UI
+          // reflects the real on-disk state, then surface the error.
+          await runScan()
+          throw error
+        }
+        await refreshAndSelect(normalizeRelativePath(epicArchivedRel))
+      }),
+    [archivedRelativePaths, folderPath, items, moveItemToArchive, refreshAndSelect, runAction, runScan],
   )
 
   const deleteItem = useCallback(
@@ -894,6 +943,7 @@ export default function BacklogPanel({ workspaceId, onStartFuturePlan }: Workspa
     revealInFiles: (item) => void revealInFiles(item),
     rename: (item) => void renameItem(item),
     archive: (item) => void archiveItem(item),
+    archiveEpic: (item) => void archiveEpicRollup(item),
     remove: (item) => void deleteItem(item),
     setStatus: (item, status) => void setItemStatus(item, status),
     setDifficulty: (item, value) => setItemTriage(item, { difficulty: value === 'unset' ? null : value }),
@@ -1675,7 +1725,9 @@ function BacklogDetail({
               { id: 'rename', label: 'Rename…', onSelect: () => actions.rename(selected) },
               ...(selected.status === 'archived'
                 ? []
-                : [{ id: 'archive', label: 'Archive', onSelect: () => actions.archive(selected) }]),
+                : selected.isEpic
+                  ? [{ id: 'archive-epic', label: 'Archive epic', onSelect: () => actions.archiveEpic(selected) }]
+                  : [{ id: 'archive', label: 'Archive', onSelect: () => actions.archive(selected) }]),
               { kind: 'separator' as const, id: 'sep' },
               { id: 'delete', label: 'Delete…', destructive: true, onSelect: () => actions.remove(selected) },
             ]}

@@ -198,6 +198,51 @@ run('detail triage exposes an Epic control wired to the same assign/create/remov
   )
 })
 
+run('archive epic rolls up children: menu + overflow swap Archive→Archive epic for epic items', () => {
+  // Context menu: epic rows get "Archive epic", leaves keep "Archive".
+  assert.match(contextMenuSource, /item\.isEpic \? \(/, 'the Archive item branches on isEpic')
+  assert.match(contextMenuSource, /actions\.archiveEpic\(item\)/, 'epic rows archive via the rollup handler')
+  // Detail overflow: same epic-aware swap.
+  assert.match(
+    backlogPanelSource,
+    /selected\.isEpic\s*\n?\s*\?\s*\[\{ id: 'archive-epic', label: 'Archive epic'/,
+    'detail overflow offers Archive epic for an epic',
+  )
+})
+
+run('archiveEpicRollup archives every child then the epic via the shared archive-move path', () => {
+  // childrenOfEpic gives the rollup set; each child + the epic move through the
+  // one shared moveItemToArchive helper, accumulating collision-safe paths.
+  assert.match(
+    backlogPanelSource,
+    /childrenOfEpic\(items, epicSlug\(epic\)\)\.filter\(\(child\) => child\.status !== 'archived'\)/,
+    'the rollup set is the epic’s active children',
+  )
+  assert.match(
+    backlogPanelSource,
+    /for \(const target of \[\.\.\.children, epic\]\)/,
+    'children are archived first, then the epic (recoverable on mid-batch failure)',
+  )
+  assert.match(
+    backlogPanelSource,
+    /await moveItemToArchive\(target, archivedRel\)/,
+    'each member uses the shared archive-move helper (no new archive mechanism)',
+  )
+  assert.match(
+    backlogPanelSource,
+    /nextArchiveRelativePath\(target\.relativePath, archivedPaths\)/,
+    'collision naming dedups batch members against each other + existing archives',
+  )
+  assert.match(backlogPanelSource, /archiveEpic: \(item\) => void archiveEpicRollup\(item\)/, 'archiveEpic sits in shared BacklogActions')
+  // In the Archived lens an epic group defaults collapsed so it reads as one
+  // rolled-up unit, not N loose archived child rows.
+  assert.match(
+    backlogPanelSource,
+    /view === 'archived' && epicGroup\.kind === 'epic'/,
+    'archived epic groups roll up collapsed by default',
+  )
+})
+
 run('detail overflow menu carries Star/Unstar through the persisted highlight handler', () => {
   assert.match(
     backlogPanelSource,

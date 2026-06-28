@@ -5,6 +5,7 @@ import {
   backlogHeaderNavId,
   childrenOfEpic,
   epicGroupKey,
+  epicSlug,
   groupItemsByEpic,
   groupedBacklogRows,
   isBacklogHeaderNavId,
@@ -184,6 +185,32 @@ run('header nav ids: epic borrows the epic id, none/unknown are synthetic + stab
   assert.equal(isBacklogHeaderNavId(backlogHeaderNavId(byKind('unknown'))), true)
   assert.equal(isBacklogHeaderNavId(backlogHeaderNavId(byKind('none'))), true)
   assert.equal(epicGroupKey({ kind: 'none', slug: null }), '__none__')
+})
+
+run('epicSlug derives the filename stem regardless of directory (active or archived)', () => {
+  assert.equal(epicSlug(mk('backlog/epics/auth-revamp.md', { type: 'epic' })), 'auth-revamp')
+  // After the archive-epic rollup moves the file, the stem (slug) is preserved.
+  assert.equal(epicSlug(mk('backlog/archived/auth-revamp.md', { type: 'epic' })), 'auth-revamp')
+})
+
+run('archive-epic rollup: an archived epic + its archived children group as one unit', () => {
+  // The rollup moves the epic and children under backlog/archived/. The epic keeps
+  // its slug (stem) and the children keep their `epic:` frontmatter, so the
+  // Archived lens groups them as a single epic unit, not loose rows.
+  const epic = mk('backlog/archived/auth-revamp.md', { type: 'epic', title: 'Auth revamp' })
+  const groups = groupItemsByEpic([
+    epic,
+    mk('backlog/archived/checkout.md', { epic: 'auth-revamp' }),
+    mk('backlog/archived/login.md', { epic: 'auth-revamp' }),
+  ])
+  assert.equal(groups.length, 1)
+  assert.equal(groups[0].kind, 'epic')
+  assert.equal(groups[0].slug, 'auth-revamp')
+  assert.equal(groups[0].epic, epic)
+  assert.deepEqual(
+    groups[0].children.map((child) => child.relativePath),
+    ['backlog/archived/checkout.md', 'backlog/archived/login.md'],
+  )
 })
 
 function main(): void {

@@ -38,6 +38,9 @@ export type BacklogActions = {
   revealInFiles: (item: BacklogItem) => void
   rename: (item: BacklogItem) => void
   archive: (item: BacklogItem) => void
+  // Archive an epic and roll up its children (each archived, then the epic) so
+  // the Archived lens shows the epic as a single grouped unit.
+  archiveEpic: (item: BacklogItem) => void
   remove: (item: BacklogItem) => void
   setStatus: (item: BacklogItem, status: BacklogItemStatus) => void
   setDifficulty: (item: BacklogItem, value: DifficultyChoice) => void
@@ -332,14 +335,27 @@ export function BacklogItemContextMenu({
         Rename…
       </MenuItem>
       {!archived ? (
-        <MenuItem
-          onClick={() => {
-            actions.archive(item)
-            onClose()
-          }}
-        >
-          Archive
-        </MenuItem>
+        item.isEpic ? (
+          // Archiving an epic rolls up its children (archive each, then the epic)
+          // so the Archived lens shows the epic as one unit, not N loose rows.
+          <MenuItem
+            onClick={() => {
+              actions.archiveEpic(item)
+              onClose()
+            }}
+          >
+            Archive epic
+          </MenuItem>
+        ) : (
+          <MenuItem
+            onClick={() => {
+              actions.archive(item)
+              onClose()
+            }}
+          >
+            Archive
+          </MenuItem>
+        )
       ) : null}
       <MenuItem
         variant="danger"

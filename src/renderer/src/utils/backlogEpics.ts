@@ -145,8 +145,10 @@ function buildGroup(
 }
 
 // Slug = the epic file's filename stem (e.g. `backlog/epics/auth-revamp.md` ->
-// `auth-revamp`), independent of its directory.
-function epicSlug(epic: BacklogItem): string {
+// `auth-revamp`), independent of its directory. Exported so callers that hold an
+// epic item (e.g. the archive-epic rollup) can resolve its children via
+// `childrenOfEpic(items, epicSlug(epic))` without re-deriving the stem.
+export function epicSlug(epic: BacklogItem): string {
   const name = normalizeRelativePath(epic.relativePath).split('/').filter(Boolean).at(-1) ?? epic.relativePath
   return name.replace(/\.md$/i, '')
 }
