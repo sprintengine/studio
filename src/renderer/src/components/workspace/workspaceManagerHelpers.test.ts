@@ -26,9 +26,11 @@ function snap(partial: {
   agentState?: AgentState
   lastOutputAt?: number | null
   lastInputAt?: number | null
+  processAlive?: boolean
 }): TerminalSessionSnapshot {
   return {
     kind: partial.kind ?? 'agent',
+    processAlive: partial.processAlive ?? true,
     activity: partial.activity,
     agentState: partial.agentState,
     lastOutputAt: partial.lastOutputAt ?? null,
@@ -49,6 +51,28 @@ function assertHookPhaseDrivesStatus(): void {
   assert.equal(awaiting.status, 'needs-input')
   assert.equal(awaiting.source, 'hook')
   assert.equal(awaiting.activitySince, 500, 'needs-input since comes from the hook frame')
+
+  // A dead agent's stale awaiting_input is not a live attention request: the hook
+  // disjunct is gated on processAlive, so it falls through to idle.
+  const deadAwaiting = deriveSessionStatus(
+    snap({
+      processAlive: false,
+      activity: { kind: 'exited', at: 700, exitCode: 0 },
+      agentState: { phase: 'awaiting_input', since: 500, source: 'hook' },
+    }),
+    false,
+  )
+  assert.notEqual(deadAwaiting.status, 'needs-input', 'dead awaiting_input does not surface as needs-input')
+  // But the Sprint Engine self-report stays ungated even when the pty is dead.
+  const deadButRuntime = deriveSessionStatus(
+    snap({
+      processAlive: false,
+      activity: { kind: 'exited', at: 700, exitCode: 0 },
+      agentState: { phase: 'awaiting_input', since: 500, source: 'hook' },
+    }),
+    true,
+  )
+  assert.equal(deadButRuntime.status, 'needs-input', 'runtimeNeedsInput is not gated on liveness')
 
   for (const phase of ['starting', 'thinking', 'tool_use'] as const) {
     const working = deriveSessionStatus(

@@ -63,7 +63,26 @@ export const AGENT_STATE_HOOK_EVENTS: ReadonlyArray<{ event: string; matcher?: s
 // Event → phase mapping keeps runtime events in one shared vocabulary
 // =============================================================================
 
-export function mapHookEventToPhase(event: string): AgentPhase | null {
+// Claude Code's `Notification` event is overloaded: it fires for a real
+// permission/elicitation prompt (the agent is genuinely blocked on the user) AND
+// for purely informational reasons — most importantly the `idle_prompt` "waiting
+// for your input" nudge that fires ~60s after the agent already Stopped (→ idle).
+// The documented, stable `notification_type` field distinguishes them
+// (https://code.claude.com/docs/en/hooks.md). Mapping every Notification to
+// `awaiting_input` lit the attention glyph for an idle agent with nothing left to
+// clear it (no further PostToolUse/Stop), leaving the engine falsely "needs
+// input". We deny-list the known informational types rather than allow-list the
+// attention ones, so an unknown/absent `notification_type` (older Claude builds,
+// future types) conservatively stays `awaiting_input` and a real prompt is never
+// suppressed. The reporters (.mjs) MUST mirror this set.
+export const INFORMATIONAL_NOTIFICATION_TYPES: ReadonlySet<string> = new Set([
+  'idle_prompt',
+  'auth_success',
+  'elicitation_complete',
+  'elicitation_response',
+])
+
+export function mapHookEventToPhase(event: string, notificationType?: string | null): AgentPhase | null {
   switch (event) {
     case 'SessionStart':
       return 'starting'
@@ -76,6 +95,10 @@ export function mapHookEventToPhase(event: string): AgentPhase | null {
       // finishing and the next PreToolUse/Stop is the model thinking.
       return 'thinking'
     case 'Notification':
+      // Informational notifications (incl. the idle "waiting for input" nudge)
+      // are not an attention request — drop them so the prior phase stands.
+      if (notificationType && INFORMATIONAL_NOTIFICATION_TYPES.has(notificationType)) return null
+      return 'awaiting_input'
     case 'PermissionRequest':
       return 'awaiting_input'
     case 'Stop':

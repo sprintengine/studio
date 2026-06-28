@@ -210,6 +210,24 @@ export function planEpicArchive(
   return { epicArchivedRel, epicArchivedSlug, slugChanged, children: moves }
 }
 
+// One epic's display identity for the surfaces that render a member without the
+// group header in view: its title and its optional `color:` (null when unset).
+export type BacklogEpicMeta = { title: string; color: BacklogHighlightColor | null }
+
+// slug -> { title, color } for every epic concept file in the scan. The flat
+// list (member epic chip), the option-C row tint, the child detail crumb, and
+// the epic detail colour picker all resolve an epic's identity through this one
+// map, so they can never disagree about a slug's colour or title. Like
+// groupItemsByEpic this derives down from the live scan and stores nothing.
+export function epicMetaBySlug(items: BacklogItem[]): Map<string, BacklogEpicMeta> {
+  const map = new Map<string, BacklogEpicMeta>()
+  for (const item of items) {
+    if (!item.isEpic) continue
+    map.set(epicSlug(item), { title: item.title, color: parseEpicMeta(item).color })
+  }
+  return map
+}
+
 // Epic header styling lives in the epic file's frontmatter: optional `color:`
 // (one of the 7 highlight colors) and `order:` (sort key among epic groups).
 function parseEpicMeta(epic: BacklogItem): { color: BacklogHighlightColor | null; order: number } {

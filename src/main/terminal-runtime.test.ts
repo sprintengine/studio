@@ -1335,6 +1335,17 @@ async function assertIngestAgentStateFrameUpdatesSession(runtimeModule: RuntimeM
     })
     snap = snapshotFor('sess-ingest')
     assert.equal(snap?.agentState?.phase, 'thinking', 'unknown-agent frame must not touch other sessions')
+
+    // On a real process exit the hook phase is cleared, so a stale working /
+    // awaiting_input phase cannot outlive the pty and keep the attention glyph
+    // lit. The snapshot then infers `exited` from the exit activity (source
+    // 'inferred', not a stranded 'hook' awaiting_input).
+    ptyProcess?.emitExit({ exitCode: 0 })
+    snap = snapshotFor('sess-ingest')
+    assert.equal(snap?.processAlive, false, 'exit marks the session not alive')
+    assert.equal(snap?.activity.kind, 'exited', 'exit sets exited activity')
+    assert.equal(snap?.agentState?.phase, 'exited', 'exit clears the hook phase to inferred exited')
+    assert.equal(snap?.agentState?.source, 'inferred', 'post-exit phase is inferred from activity, not a stale hook')
   } finally {
     await runtime.shutdown()
   }

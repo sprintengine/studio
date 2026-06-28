@@ -56,6 +56,22 @@ async function run(): Promise<void> {
   assert.equal(mapHookEventToPhase('SessionEnd'), 'exited')
   assert.equal(mapHookEventToPhase('NotAnEvent'), null)
 
+  // --- Notification notification_type discrimination ----------------------
+  // Informational notifications (esp. the idle "waiting for your input" nudge)
+  // must NOT report awaiting_input — that was the false attention-glyph bug.
+  assert.equal(mapHookEventToPhase('Notification', 'idle_prompt'), null)
+  assert.equal(mapHookEventToPhase('Notification', 'auth_success'), null)
+  assert.equal(mapHookEventToPhase('Notification', 'elicitation_complete'), null)
+  assert.equal(mapHookEventToPhase('Notification', 'elicitation_response'), null)
+  // Real prompts (and unknown/absent types, conservatively) stay awaiting_input.
+  assert.equal(mapHookEventToPhase('Notification', 'permission_prompt'), 'awaiting_input')
+  assert.equal(mapHookEventToPhase('Notification', 'elicitation_dialog'), 'awaiting_input')
+  assert.equal(mapHookEventToPhase('Notification', 'some_future_type'), 'awaiting_input')
+  assert.equal(mapHookEventToPhase('Notification', null), 'awaiting_input')
+  assert.equal(mapHookEventToPhase('Notification', undefined), 'awaiting_input')
+  // notification_type is only consulted for Notification.
+  assert.equal(mapHookEventToPhase('PermissionRequest', 'idle_prompt'), 'awaiting_input')
+
   // --- phase → activity bridge -------------------------------------------
   assert.deepEqual(deriveActivityFromPhase('thinking', 5), { kind: 'working', since: 5 })
   assert.deepEqual(deriveActivityFromPhase('tool_use', 5), { kind: 'working', since: 5 })

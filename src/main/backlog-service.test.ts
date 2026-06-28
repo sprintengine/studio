@@ -11,6 +11,7 @@ import {
   planBacklogStoreMigration,
   readBacklogObjectStore,
   updateBacklogEpic,
+  updateBacklogEpicColor,
   updateBacklogHighlight,
   updateBacklogModuleMetadata,
   updateBacklogStatus,
@@ -200,6 +201,36 @@ async function main(): Promise<void> {
     })
     assert.equal(rejectedEpicPath.ok, false)
     assert.match(rejectedEpicPath.ok ? '' : rejectedEpicPath.message, /under backlog/)
+
+    // Epic identity colour: the epic file's `color:` frontmatter, set and cleared
+    // through the same shared helper (body preserved), validated against the
+    // colour vocabulary so a bad payload can't land an unknown hue.
+    const colorSet = await updateBacklogEpicColor({
+      workspaceRoot: tempRoot,
+      relativePath: 'backlog/checkout.md',
+      color: 'blue',
+    })
+    assert.equal(colorSet.ok, true)
+    assert.equal((await readItem()).fields.color, 'blue')
+    assert.equal((await readItem()).body, body, 'epic colour write must preserve the body byte-for-byte')
+
+    const colorCleared = await updateBacklogEpicColor({
+      workspaceRoot: tempRoot,
+      relativePath: 'backlog/checkout.md',
+      color: null,
+    })
+    assert.equal(colorCleared.ok, true)
+    assert.equal('color' in (await readItem()).fields, false, 'clearing the epic colour must remove the frontmatter line')
+
+    const beforeBadColor = await readFile(itemPath, 'utf-8')
+    const rejectedEpicColor = await updateBacklogEpicColor({
+      workspaceRoot: tempRoot,
+      relativePath: 'backlog/checkout.md',
+      color: 'magenta' as unknown as 'red',
+    })
+    assert.equal(rejectedEpicColor.ok, false)
+    assert.match(rejectedEpicColor.ok ? '' : rejectedEpicColor.message, /colour/)
+    assert.equal(await readFile(itemPath, 'utf-8'), beforeBadColor, 'a rejected epic colour must not mutate the item file')
 
     // All lifecycle/type/triage/epic work so far must have stayed off the sidecar.
     await assert.rejects(() => stat(storePath), /ENOENT/, 'frontmatter mutations must never create items.json')

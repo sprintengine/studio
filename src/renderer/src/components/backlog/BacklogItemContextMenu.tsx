@@ -13,6 +13,7 @@ import type {
   BacklogCriticality,
   BacklogDifficulty,
   BacklogHighlight,
+  BacklogHighlightColor,
   BacklogItem,
   BacklogItemStatus,
   BacklogRisk,
@@ -50,6 +51,9 @@ export type BacklogActions = {
   setEpic: (item: BacklogItem, slug: string | null) => void
   // Prompt for a title, create `backlog/epics/<slug>.md`, then assign the item.
   createEpic: (item: BacklogItem) => void
+  // Set (or clear) an epic's identity colour — writes the epic file's `color:`
+  // frontmatter. Epic-only; ignored for leaf items by the surfaces that call it.
+  setEpicColor: (item: BacklogItem, color: BacklogHighlightColor | null) => void
   setHighlight: (item: BacklogItem, highlight: BacklogHighlight) => void
 }
 

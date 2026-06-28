@@ -164,6 +164,18 @@ function assertAwaitingInputHookSurfacesAsNeedsInput(): void {
   })
   assert.equal(workspaceTerminalAwaitingInput('workspace_1', [shellAwaiting]), false)
 
+  // A dead agent's stale awaiting_input must not keep the glyph lit: `onExit`
+  // clears agentState, but a dead session is still snapshotted, and only a live
+  // agent can actually be waiting on the user.
+  const deadAwaiting = session({
+    sessionId: 'session_dead',
+    processAlive: false,
+    activity: { kind: 'exited', at: 90, exitCode: 0 },
+    agentState: { phase: 'awaiting_input', since: 60, source: 'hook' },
+  })
+  assert.equal(workspaceTerminalAwaitingInput('workspace_1', [deadAwaiting]), false)
+  assert.equal(deriveWorkspaceDisplayActivity('workspace_1', [deadAwaiting], false), 'idle')
+
   // Entering awaiting_input changes the signature so consumers re-render even
   // though the bridged `activity` (idle) is unchanged.
   const working = session({

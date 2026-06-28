@@ -48,8 +48,19 @@ function parseArgs(argv) {
   return args
 }
 
+// Must mirror INFORMATIONAL_NOTIFICATION_TYPES in src/main/agent-state.ts.
+// Claude Code's `Notification` fires for both real prompts and informational
+// nudges (e.g. `idle_prompt` "waiting for your input"); only the latter set is
+// dropped so an idle agent does not falsely read as awaiting_input.
+const INFORMATIONAL_NOTIFICATION_TYPES = new Set([
+  'idle_prompt',
+  'auth_success',
+  'elicitation_complete',
+  'elicitation_response',
+])
+
 // Must mirror mapHookEventToPhase in src/main/agent-state.ts.
-function mapEventToPhase(event) {
+function mapEventToPhase(event, notificationType) {
   switch (event) {
     case 'SessionStart':
       return 'starting'
@@ -60,6 +71,8 @@ function mapEventToPhase(event) {
     case 'PostToolUse':
       return 'thinking'
     case 'Notification':
+      if (notificationType && INFORMATIONAL_NOTIFICATION_TYPES.has(notificationType)) return null
+      return 'awaiting_input'
     case 'PermissionRequest':
       return 'awaiting_input'
     case 'Stop':
@@ -125,7 +138,8 @@ async function main() {
   }
 
   const event = typeof payload?.hook_event_name === 'string' ? payload.hook_event_name : null
-  const phase = event ? mapEventToPhase(event) : null
+  const notificationType = typeof payload?.notification_type === 'string' ? payload.notification_type : null
+  const phase = event ? mapEventToPhase(event, notificationType) : null
   if (!phase) return
 
   const frame = {

@@ -4,10 +4,12 @@ import { LifecycleGlyph, StarGlyph, Tooltip, TruncatedText, type LifecycleState 
 import type {
   BacklogCriticality,
   BacklogDifficulty,
+  BacklogHighlightColor,
   BacklogItem,
   BacklogItemStatus,
 } from '../../utils/backlog'
-import type { BacklogEpicGroup } from '../../utils/backlogEpics'
+import type { BacklogEpicGroup, BacklogEpicMeta } from '../../utils/backlogEpics'
+import { getHighlightSwatch } from '../../utils/highlight'
 import type { SprintEngineRunGlyph } from '../../utils/sprintengine'
 import {
   CRITICALITY_LABEL,
@@ -71,16 +73,51 @@ export type BacklogRunGlyph = SprintEngineRunGlyph
 // between scans, `now` ticks every 30s, and `runGlyph` is undefined for the
 // common no-run-link row — so the default shallow comparison lets unchanged
 // rows skip rendering entirely. See backlog item Task 2.
+// A small dot in an epic's identity colour (or a dashed neutral ring when the
+// epic has no `color:` set). Shared by the row's member chip, the detail crumb,
+// and the children roll-up so the epic always reads the same. The hex comes from
+// the shared swatch helper (inline style — the same pattern the highlight
+// swatch picker uses — so it never trips the design-token hex-in-className lint).
+export function EpicColorDot({
+  color,
+  size = 6,
+}: {
+  color: BacklogHighlightColor | null
+  size?: number
+}): JSX.Element {
+  const dimension = { width: size, height: size }
+  if (!color) {
+    return (
+      <span
+        aria-hidden="true"
+        className="shrink-0 rounded-full border border-dashed border-[color:var(--text-disabled)]"
+        style={dimension}
+      />
+    )
+  }
+  return (
+    <span
+      aria-hidden="true"
+      className="shrink-0 rounded-full"
+      style={{ ...dimension, backgroundColor: getHighlightSwatch(color).hex }}
+    />
+  )
+}
+
 export const BacklogRowContent = memo(function BacklogRowContent({
   item,
   now,
   runGlyph,
+  epicChip,
 }: {
   item: BacklogItem
   now: number
   /** Live Sprint Engine run state, when this item is linked to an observable
    *  run. Overrides the item-status glyph so the row reflects the runner. */
   runGlyph?: BacklogRunGlyph
+  /** The row's epic identity (dot + name), shown on the supporting line in the
+   *  flat list only — the grouped list names the epic on its header instead. */
+  epicChip?: BacklogEpicMeta
 }): JSX.Element {
   const lifecycle = runGlyph?.state ?? backlogStatusToLifecycle(item.status)
   const statusLabel = runGlyph?.label ?? BACKLOG_STATUS_LABEL[item.status]
@@ -114,6 +151,13 @@ export const BacklogRowContent = memo(function BacklogRowContent({
         <CriticalityIndicator criticality={item.criticality} />
       </div>
       <div className="mt-0.5 flex items-center gap-2 pl-[22px] text-[11px]">
+        {epicChip ? (
+          <span className="flex min-w-0 shrink items-center gap-1 text-[color:var(--text-subtle)]">
+            <EpicColorDot color={epicChip.color} />
+            <TruncatedText as="span" text={epicChip.title} className="min-w-0 max-w-[12rem]" />
+            <span aria-hidden="true" className="text-[color:var(--text-disabled)]">·</span>
+          </span>
+        ) : null}
         <TruncatedText
           as="span"
           text={item.excerpt || item.relativePath}

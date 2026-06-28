@@ -10,6 +10,7 @@ import type {
   RelayCommandEnvelope,
 } from './index'
 import { relayCommandTypeToMobile } from './relay-command'
+import { deepRedactLocalPaths } from '../sprintengine/relay-path-safety'
 
 const mobileControlProtocolVersion = 1 as const
 export const relayResultSummaryMaxBytes = 256 * 1024
@@ -116,5 +117,9 @@ function sanitizeResultData(data: unknown): unknown {
   if (relaySummaryByteLength(data) > relayResultSummaryMaxBytes) {
     return { truncated: true }
   }
-  return data
+  // Universal backstop: every command result posted to the relay flows through
+  // here, so redact any absolute local path the relay would otherwise reject.
+  // Snapshot results are already tokenized upstream (sanitizeMobileSnapshotForRelay),
+  // so this only ever strips stray display paths, never round-trip identifiers.
+  return deepRedactLocalPaths(data)
 }

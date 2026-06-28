@@ -141,6 +141,11 @@ export function deriveWorkspaceTerminalActivity(
 // companion to the SprintEngine `needs_input` runtime signal: additive to it, and
 // the reason an awaiting agent surfaces as `needs-input` rather than `idle` (its
 // bridged `activity` is idle while it waits).
+//
+// Gated on `processAlive`: `onExit` clears `agentState`, but a dead session is
+// still snapshotted, and only a live agent can actually be waiting on the user —
+// a stale `awaiting_input` from an exited/crashed agent must not keep the glyph
+// lit.
 export function workspaceTerminalAwaitingInput(
   workspaceId: string,
   sessions: TerminalSessionSnapshot[]
@@ -149,6 +154,7 @@ export function workspaceTerminalAwaitingInput(
     (session) =>
       session.kind === 'agent'
       && session.workspaceId === workspaceId
+      && session.processAlive
       && session.agentState?.phase === 'awaiting_input'
   )
 }

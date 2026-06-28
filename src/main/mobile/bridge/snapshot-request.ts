@@ -1,6 +1,6 @@
 import { basename, dirname } from 'path'
 import type { MobileControlCommand, MobileSprintEngineCommandResult } from '../sprintengine/command'
-import { MobileSprintEngineSnapshotService, type MobileControlSnapshot } from '../sprintengine/snapshot'
+import { MobileSprintEngineSnapshotService, sanitizeMobileSnapshotForRelay, type MobileControlSnapshot } from '../sprintengine/snapshot'
 import {
   acceptedBridgeCommand,
   relayResultSummaryMaxBytes,
@@ -25,11 +25,15 @@ export async function dispatchSnapshotRequest(input: {
   const statePaths = requestedSprintEngineId
     ? allStatePaths.filter((statePath) => basename(dirname(statePath)) === requestedSprintEngineId)
     : allStatePaths
-  const snapshot = await snapshotService.readSnapshot({
+  // readSnapshot() returns the internal snapshot with real local paths; the
+  // on-demand command-result path (workspace open / backlog refresh) does not go
+  // through the publish emit() chokepoint, so sanitize here too or the relay
+  // rejects the result for carrying local paths.
+  const snapshot = sanitizeMobileSnapshotForRelay(await snapshotService.readSnapshot({
     desktopSessionId,
     statePaths,
     workspaceRoots: workspaceRootsProvider ? await workspaceRootsProvider() : undefined,
-  })
+  }))
   return acceptedBridgeCommand(command, relaySizedSnapshot(command, snapshot, requestedSprintEngineId !== null))
 }
 

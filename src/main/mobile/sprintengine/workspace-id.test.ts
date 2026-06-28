@@ -10,6 +10,8 @@ import {
 } from './workspace-id'
 import { sanitizeMobileSnapshotForRelay, type MobileControlSnapshot } from './snapshot'
 import { validateMobileWorkspacePath } from './workspace'
+import { dispatchSnapshotRequest } from '../bridge/snapshot-request'
+import { validateMobileControlSnapshot } from '../../../shared/mobile-control/protocol'
 
 // Mirrors the relay's containsLocalPath guard (multiauth src/relay/result-summary.ts):
 // the sanitized snapshot must contain none of these.
@@ -22,33 +24,13 @@ async function main(): Promise<void> {
   assertTokenRoundTrips()
   assertStateRootDerivation()
   assertSanitizerStripsLocalPaths()
+  await assertOnDemandSnapshotIsSanitized()
   await assertValidateResolvesToken()
   console.log('workspace-id regression: all assertions passed')
 }
 
-function assertTokenRoundTrips(): void {
-  const root = '/Users/example/workspace/projA'
-  const token = deriveWorkspaceId(root)
-  assert.equal(isWorkspaceIdToken(token), true)
-  assert.equal(isWorkspaceIdToken(root), false)
-  assert.equal(localPathProbe.test(token), false, 'token must be relay-safe')
-  assert.equal(resolveWorkspaceIdToRoot(token, [root]), resolve(root))
-  // Stable: same root always hashes to the same token.
-  assert.equal(deriveWorkspaceId(root), token)
-  // Fail closed when no candidate matches.
-  assert.equal(resolveWorkspaceIdToRoot(token, ['/Users/example/workspace/projB']), null)
-  assert.equal(resolveWorkspaceIdToRoot('ws_notarealtoken', [root]), null)
-}
-
-function assertStateRootDerivation(): void {
-  const root = '/Users/example/workspace/projA'
-  const statePath = join(root, '.multi-code', 'sprintengine', 'team-1', 'run.yaml')
-  assert.equal(workspaceRootFromStatePath(statePath), resolve(root))
-}
-
-function assertSanitizerStripsLocalPaths(): void {
-  const root = '/Users/example/workspace/projA'
-  const snapshot = {
+function buildSnapshotFixture(root: string): MobileControlSnapshot {
+  return {
     protocolVersion: 1,
     generatedAt: '2026-06-27T00:00:00.000Z',
     desktopSessionId: 'sess',
@@ -92,16 +74,47 @@ function assertSanitizerStripsLocalPaths(): void {
       },
     ],
   } as unknown as MobileControlSnapshot
+}
 
-  const safe = sanitizeMobileSnapshotForRelay(snapshot)
+function assertTokenRoundTrips(): void {
+  const root = '/Users/example/workspace/projA'
+  const token = deriveWorkspaceId(root)
+  assert.equal(isWorkspaceIdToken(token), true)
+  assert.equal(isWorkspaceIdToken(root), false)
+  assert.equal(localPathProbe.test(token), false, 'token must be relay-safe')
+  assert.equal(resolveWorkspaceIdToRoot(token, [root]), resolve(root))
+  // Stable: same root always hashes to the same token.
+  assert.equal(deriveWorkspaceId(root), token)
+  // Fail closed when no candidate matches.
+  assert.equal(resolveWorkspaceIdToRoot(token, ['/Users/example/workspace/projB']), null)
+  assert.equal(resolveWorkspaceIdToRoot('ws_notarealtoken', [root]), null)
+}
+
+function assertStateRootDerivation(): void {
+  const root = '/Users/example/workspace/projA'
+  const statePath = join(root, '.multi-code', 'sprintengine', 'team-1', 'run.yaml')
+  assert.equal(workspaceRootFromStatePath(statePath), resolve(root))
+}
+
+function assertSanitizerStripsLocalPaths(): void {
+  const root = '/Users/example/workspace/projA'
+  const safe = sanitizeMobileSnapshotForRelay(buildSnapshotFixture(root))
 
   // The whole payload must be free of local paths — this is exactly what the
   // relay rejects.
   assert.equal(localPathProbe.test(JSON.stringify(safe)), false, 'sanitized snapshot must contain no local path')
 
-  // Sprint Engine paths are display-only / server-resolved.
+  // The sanitized snapshot must still pass the same validator the phone runs on
+  // receipt (e.g. workspacePath/statePath must be non-empty). This is the guard
+  // that catches over-aggressive blanking.
+  const validation = validateMobileControlSnapshot(safe)
+  assert.equal(validation.ok, true, validation.ok === false ? validation.error.message : undefined)
+
+  // Sprint Engine paths are display-only / server-resolved, but must stay
+  // non-empty and relay-safe.
   assert.equal(safe.sprintEngines[0].workspacePath, 'projA', 'board name comes from the folder basename')
-  assert.equal(safe.sprintEngines[0].statePath, '')
+  assert.equal(isWorkspaceIdToken(safe.sprintEngines[0].statePath), true, 'statePath redacted to a non-empty relay-safe token')
+  assert.equal(localPathProbe.test(safe.sprintEngines[0].statePath), false)
 
   // Backlog workspacePath round-trips for create/start, so it must be a
   // resolvable token, and resolve back to the original root.
@@ -109,6 +122,26 @@ function assertSanitizerStripsLocalPaths(): void {
   assert.equal(isWorkspaceIdToken(backlogToken ?? ''), true)
   assert.equal(resolveWorkspaceIdToRoot(backlogToken ?? '', [root]), resolve(root))
   assert.equal(safe.backlog?.[0]?.workspaceName, 'projA', 'display name preserved')
+}
+
+// Guards the on-demand path (workspace open / backlog refresh -> snapshot.request
+// command) which builds its result outside the publish emit() chokepoint. This is
+// the exact path that surfaced "must not include local paths at
+// summary.data.sprintEngines[0].workspacePath".
+async function assertOnDemandSnapshotIsSanitized(): Promise<void> {
+  const root = '/Users/example/workspace/projC'
+  const fixture = buildSnapshotFixture(root)
+  const result = await dispatchSnapshotRequest({
+    command: { type: 'snapshot.request', commandId: 'c1', deviceId: 'd1', payload: {} } as never,
+    snapshotService: { readSnapshot: async () => fixture } as never,
+    desktopSessionId: 'sess',
+    statePathsProvider: async () => [],
+  })
+  assert.equal(
+    localPathProbe.test(JSON.stringify(result)),
+    false,
+    'on-demand snapshot.request result must contain no local path'
+  )
 }
 
 async function assertValidateResolvesToken(): Promise<void> {

@@ -88,12 +88,16 @@ export function deriveSessionStatus(
   }
 
   // Needs-input: authoritative hook phase, or a Sprint Engine MCP self-report.
-  // This is the most expensive state to miss, so it outranks working/idle.
-  if (hook?.phase === 'awaiting_input' || runtimeNeedsInput) {
+  // This is the most expensive state to miss, so it outranks working/idle. The
+  // hook disjunct is gated on `processAlive` — a dead agent's stale
+  // `awaiting_input` is not a live attention request — while the Sprint Engine
+  // self-report (`runtimeNeedsInput`) is a separate signal, not tied to pty
+  // liveness, so it stays ungated.
+  if ((hook?.phase === 'awaiting_input' && session.processAlive) || runtimeNeedsInput) {
     return {
       status: 'needs-input',
       source,
-      activitySince: hook?.phase === 'awaiting_input' ? hook.since : fallbackSince,
+      activitySince: hook?.phase === 'awaiting_input' && session.processAlive ? hook.since : fallbackSince,
       lastActivityAt,
       exitCode: null,
     }

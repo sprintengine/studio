@@ -4,6 +4,7 @@ import type { BacklogCriticality, BacklogDifficulty, BacklogItemStatus, BacklogR
 import {
   compareBacklogItems,
   deriveRiskColor,
+  resolveBacklogRowColor,
   resolveBacklogStripeColor,
   TYPE_LABEL,
   isBacklogUnestimated,
@@ -223,6 +224,29 @@ run('resolveBacklogStripeColor lets the manual highlight color override the deri
   )
   // No highlight and nothing to derive from → no stripe at all.
   assert.equal(resolveBacklogStripeColor({ risk: 'high' }), null)
+})
+
+run('resolveBacklogRowColor ranks highlight over epic colour over derived heat', () => {
+  // 1. Hand-set highlight wins over both the epic colour and the derived heat,
+  //    and earns the full-width lit fill.
+  assert.deepEqual(
+    resolveBacklogRowColor({ highlight: { starred: false, color: 'blue' }, risk: 'high', difficulty: 'xl' }, 'purple'),
+    { color: 'blue', litFill: true },
+  )
+  // 2. No highlight → the epic identity colour fills the whole member row
+  //    (option C), overriding what the risk heat would have shown.
+  assert.deepEqual(
+    resolveBacklogRowColor({ risk: 'high', difficulty: 'xl' }, 'purple'),
+    { color: 'purple', litFill: true },
+  )
+  // 3. No highlight and no epic colour → derived risk heat tints the stripe only
+  //    (no fill), exactly as before epics carried a colour.
+  assert.deepEqual(
+    resolveBacklogRowColor({ risk: 'high', difficulty: 'xl' }, null),
+    { color: 'red', litFill: false },
+  )
+  // 4. Nothing anywhere → no colour, no fill.
+  assert.deepEqual(resolveBacklogRowColor({}, null), { color: null, litFill: false })
 })
 
 // Keep the example views from the brief honest: each lens partitions a mixed set

@@ -207,3 +207,22 @@ export function resolveBacklogStripeColor(
 ): BacklogHighlightColor | null {
   return item.highlight?.color ?? deriveRiskColor(item.risk, item.difficulty)
 }
+
+// A backlog row's effective colour treatment, factoring in its epic's identity
+// hue (option C — the epic colour fills the whole member row). Precedence, most
+// specific first:
+//   1. a hand-set highlight — the user's explicit per-item mark — fills the row;
+//   2. else the epic identity colour fills the row, so members read as one unit;
+//   3. else the derived risk heat tints the stripe alone (ambient, never a fill).
+// `litFill` is true for cases 1 and 2 (full-width fill earned), false for case 3
+// (stripe only) and when there is no colour at all. `epicColor` is the resolved
+// `color:` of the row's epic (null when it has no epic or the epic set no
+// colour). Pure so the precedence is unit-testable without a DOM.
+export function resolveBacklogRowColor(
+  item: Pick<BacklogItem, 'highlight' | 'risk' | 'difficulty'>,
+  epicColor: BacklogHighlightColor | null,
+): { color: BacklogHighlightColor | null; litFill: boolean } {
+  const fill = item.highlight?.color ?? epicColor
+  if (fill) return { color: fill, litFill: true }
+  return { color: deriveRiskColor(item.risk, item.difficulty), litFill: false }
+}

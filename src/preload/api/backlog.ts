@@ -3,6 +3,7 @@ import type {
   BacklogAddOrUpdateLinkInput,
   BacklogCreateEpicInput,
   BacklogCreateEpicResult,
+  BacklogEpicColorInput,
   BacklogEpicInput,
   BacklogHighlightInput,
   BacklogItemRecordInput,
@@ -29,6 +30,7 @@ type BacklogIpcRenderer = {
   invoke(channel: 'backlog:move-object-source', input: BacklogMoveSourceInput): Promise<BacklogMutationResult>
   invoke(channel: 'backlog:remove-object-record', input: BacklogRemoveRecordInput): Promise<BacklogMutationResult>
   invoke(channel: 'backlog:update-epic', input: BacklogEpicInput): Promise<BacklogMutationResult>
+  invoke(channel: 'backlog:update-epic-color', input: BacklogEpicColorInput): Promise<BacklogMutationResult>
   invoke(channel: 'backlog:create-epic', input: BacklogCreateEpicInput): Promise<BacklogCreateEpicResult>
 }
 
@@ -56,6 +58,8 @@ export function createBacklogApi(renderer: BacklogIpcRenderer) {
       renderer.invoke('backlog:remove-object-record', input),
     updateBacklogEpic: (input: BacklogEpicInput): Promise<BacklogMutationResult> =>
       renderer.invoke('backlog:update-epic', input),
+    updateBacklogEpicColor: (input: BacklogEpicColorInput): Promise<BacklogMutationResult> =>
+      renderer.invoke('backlog:update-epic-color', input),
     createBacklogEpic: (input: BacklogCreateEpicInput): Promise<BacklogCreateEpicResult> =>
       renderer.invoke('backlog:create-epic', input),
   } satisfies Pick<
@@ -71,6 +75,7 @@ export function createBacklogApi(renderer: BacklogIpcRenderer) {
     | 'moveBacklogObjectSource'
     | 'removeBacklogObjectRecord'
     | 'updateBacklogEpic'
+    | 'updateBacklogEpicColor'
     | 'createBacklogEpic'
   >
 }

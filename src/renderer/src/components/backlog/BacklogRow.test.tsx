@@ -100,11 +100,11 @@ const contextMenuSource = readFileSync(
   'utf8',
 )
 
-run('panel rows resolve the stripe color (manual highlight over derived risk) through the shared swatch', () => {
+run('panel rows resolve the row color (highlight ▸ epic ▸ derived risk) through the shared swatch', () => {
   assert.match(
     backlogPanelSource,
-    /resolveBacklogStripeColor\(item\)/,
-    'stripe color resolves via the shared helper so a manual highlight wins over the derived risk heat',
+    /resolveBacklogRowColor\(item, epicMeta\?\.color \?\? null\)/,
+    'row color resolves via the shared helper, factoring the epic identity colour between the manual highlight and the derived risk heat',
   )
   assert.match(
     backlogPanelSource,
@@ -114,7 +114,7 @@ run('panel rows resolve the stripe color (manual highlight over derived risk) th
   assert.match(
     backlogPanelSource,
     /litFill && swatch \? swatch\.bg/,
-    'only a hand-set highlight (litFill) lights the full row; a derived risk color tints the stripe alone',
+    'a hand-set highlight or an epic colour (litFill) lights the full row; a derived risk color tints the stripe alone',
   )
 })
 

@@ -38,12 +38,13 @@ import {
   type BacklogCriticality,
   type BacklogDifficulty,
   type BacklogHighlight,
+  type BacklogHighlightColor,
   type BacklogItem,
   type BacklogItemStatus,
   type BacklogRisk,
   type BacklogScanResult,
 } from '../../utils/backlog'
-import { getHighlightSwatch } from '../../utils/highlight'
+import { getHighlightSwatch, HIGHLIGHT_COLORS } from '../../utils/highlight'
 import { providerForBacklogLink } from '../../utils/backlogLinks'
 import {
   matchWorkspaceForBacklogRunLink,
@@ -55,7 +56,7 @@ import { BacklogFilterMenu } from '../backlog/BacklogFilterMenu'
 import {
   compareBacklogItems,
   matchesBacklogView,
-  resolveBacklogStripeColor,
+  resolveBacklogRowColor,
   type BacklogGroup,
   type BacklogSort,
   type BacklogView,
@@ -63,12 +64,14 @@ import {
 import {
   childrenOfEpic,
   epicGroupKey,
+  epicMetaBySlug,
   epicSlug,
   groupItemsByEpic,
   groupedBacklogRows,
   isBacklogHeaderNavId,
   planEpicArchive,
   type BacklogEpicGroup,
+  type BacklogEpicMeta,
   type BacklogGroupedRow,
 } from '../../utils/backlogEpics'
 import {
@@ -85,6 +88,9 @@ import {
   BacklogRowContent,
   BACKLOG_STATUS_LABEL,
   backlogStatusToLifecycle,
+  CriticalityIndicator,
+  DifficultyIndicator,
+  EpicColorDot,
   type BacklogRunGlyph,
 } from '../backlog/BacklogRow'
 import { getRendererHost, selectModuleEnabled } from '../../modules'
@@ -327,6 +333,12 @@ export default function BacklogPanel({ workspaceId, onStartFuturePlan }: Workspa
         .map((group) => ({ slug: group.slug as string, title: group.title })),
     [items],
   )
+
+  // slug -> { title, color } for every epic, so a member row can resolve its
+  // epic's identity colour (the option-C tint) and name (the flat-view chip),
+  // and the detail pane can render the colour picker, children roll-up, and the
+  // child's parent-epic crumb — all from one derived map (never persisted).
+  const epicMeta = useMemo(() => epicMetaBySlug(items), [items])
 
   const toggleGroupCollapsed = useCallback((epicGroup: BacklogEpicGroup) => {
     setCollapsedGroups((prev) => {
@@ -929,6 +941,27 @@ export default function BacklogPanel({ workspaceId, onStartFuturePlan }: Workspa
     [dialog, folderPath, runAction, runScan],
   )
 
+  // Set (or clear) an epic's identity colour. Writes the epic file's `color:`
+  // frontmatter via backlog:update-epic-color — distinct from the per-item
+  // `highlight` (items.json), so the epic's members can derive a shared hue at
+  // scan time. A no-op write is skipped so re-picking the current colour is free.
+  const setEpicColorForItem = useCallback(
+    (item: BacklogItem, color: BacklogHighlightColor | null) =>
+      runAction(async () => {
+        if (!folderPath) return
+        const current = epicMeta.get(epicSlug(item))?.color ?? null
+        if (current === color) return
+        const updated = await window.api.updateBacklogEpicColor({
+          workspaceRoot: folderPath,
+          relativePath: item.relativePath,
+          color,
+        })
+        assertBacklogMutation(updated)
+        await runScan()
+      }),
+    [epicMeta, folderPath, runAction, runScan],
+  )
+
   const refreshButton = (
     <Tooltip content="Refresh backlog">
       <IconButton aria-label="Refresh backlog" onClick={() => void runScan()} disabled={loading || !folderPath}>
@@ -961,6 +994,7 @@ export default function BacklogPanel({ workspaceId, onStartFuturePlan }: Workspa
     setRisk: (item, value) => setItemTriage(item, { risk: value === 'unset' ? null : value }),
     setEpic: (item, slug) => void setItemEpic(item, slug),
     createEpic: (item) => void createEpicForItem(item),
+    setEpicColor: (item, color) => void setEpicColorForItem(item, color),
     setHighlight: (item, highlight) => void setItemHighlight(item, highlight),
   }
 
@@ -1151,6 +1185,7 @@ export default function BacklogPanel({ workspaceId, onStartFuturePlan }: Workspa
       emptyHint={listEmptyHint(scan, items.length, filtered.length, loading)}
       now={now}
       runGlyphById={runGlyphById}
+      epicMetaBySlug={epicMeta}
     />
   )
 
@@ -1170,6 +1205,9 @@ export default function BacklogPanel({ workspaceId, onStartFuturePlan }: Workspa
       onBack={() => setShowDetailInSingle(false)}
       actions={actions}
       epicChoices={epicChoices}
+      items={items}
+      epicMetaBySlug={epicMeta}
+      onSelectItem={handleSelectRow}
     />
   )
 
@@ -1352,6 +1390,7 @@ function BacklogList({
   emptyHint,
   now,
   runGlyphById,
+  epicMetaBySlug,
 }: {
   items: BacklogItem[]
   // Non-null when grouping by epic: the flattened header+child render order.
@@ -1368,6 +1407,8 @@ function BacklogList({
   emptyHint: string | null
   now: number
   runGlyphById?: ReadonlyMap<string, BacklogRunGlyph>
+  // slug -> epic identity, for the row tint + the flat-view member chip.
+  epicMetaBySlug: ReadonlyMap<string, BacklogEpicMeta>
 }): JSX.Element {
   const listRef = useRef<HTMLUListElement | null>(null)
 
@@ -1431,6 +1472,7 @@ function BacklogList({
                 onItemContextMenu={onItemContextMenu}
                 now={now}
                 runGlyph={runGlyphById?.get(row.item.id)}
+                epicMeta={row.item.epic ? epicMetaBySlug.get(row.item.epic) : undefined}
               />
             ),
           )
@@ -1445,6 +1487,7 @@ function BacklogList({
               onItemContextMenu={onItemContextMenu}
               now={now}
               runGlyph={runGlyphById?.get(item.id)}
+              epicMeta={item.epic ? epicMetaBySlug.get(item.epic) : undefined}
             />
           ))}
     </ul>
@@ -1469,6 +1512,7 @@ function BacklogOptionRow({
   onItemContextMenu,
   now,
   runGlyph,
+  epicMeta,
 }: {
   item: BacklogItem
   optionIndex: number
@@ -1479,12 +1523,18 @@ function BacklogOptionRow({
   onItemContextMenu?: (event: React.MouseEvent, item: BacklogItem) => void
   now: number
   runGlyph?: BacklogRunGlyph
+  // The row's epic identity, when it belongs to a real epic. Drives the option-C
+  // full-row tint and, in the flat (ungrouped) list, the member's epic chip.
+  epicMeta?: BacklogEpicMeta
 }): JSX.Element {
   const archived = item.status === 'archived'
-  const manualColor = item.highlight?.color ?? null
-  const stripeColor = resolveBacklogStripeColor(item)
+  // Option C: the epic identity colour fills the whole member row (below a
+  // hand-set highlight, above the ambient risk heat — see resolveBacklogRowColor).
+  const { color: stripeColor, litFill } = resolveBacklogRowColor(item, epicMeta?.color ?? null)
   const swatch = stripeColor ? getHighlightSwatch(stripeColor) : null
-  const litFill = manualColor !== null
+  // The grouped list already names the epic on its header, so the per-row chip is
+  // only earned in the flat list (when this row is not nested under a header).
+  const epicChip = !indented && item.epic && epicMeta ? epicMeta : undefined
   return (
     <li
       id={`backlog-opt-${optionIndex}`}
@@ -1501,7 +1551,7 @@ function BacklogOptionRow({
           : `${swatch ? `${swatch.border}${litFill ? ` ${swatch.dimBg}` : ''}` : 'border-l-transparent'} hover:bg-[color:var(--bg-hover)]`
       } ${archived ? 'opacity-70' : ''}`}
     >
-      <BacklogRowContent item={item} now={now} runGlyph={runGlyph} />
+      <BacklogRowContent item={item} now={now} runGlyph={runGlyph} epicChip={epicChip} />
     </li>
   )
 }
@@ -1576,6 +1626,9 @@ function BacklogDetail({
   onBack,
   actions,
   epicChoices,
+  items,
+  epicMetaBySlug,
+  onSelectItem,
 }: {
   scan: BacklogScanResult | null
   loading: boolean
@@ -1591,6 +1644,12 @@ function BacklogDetail({
   onBack: () => void
   actions: BacklogActions
   epicChoices: ReadonlyArray<BacklogEpicChoice>
+  // The full scan, so an epic's detail can roll up its children and a child's
+  // detail can resolve its parent epic for the crumb (both derived, never stored).
+  items: BacklogItem[]
+  epicMetaBySlug: ReadonlyMap<string, BacklogEpicMeta>
+  // Navigate the list selection to another item (epic -> child, child -> epic).
+  onSelectItem: (id: string) => void
 }): JSX.Element {
   if (!folderPath) {
     return (
@@ -1658,6 +1717,19 @@ function BacklogDetail({
       ? primaryRunLink.id
       : null
 
+  // Epic ⇄ child traversal, both derived from the live scan (never stored):
+  //  - parentEpic: a child's epic, resolved to its concept item so the crumb can
+  //    navigate up (null for epics and for orphan/dangling-slug items);
+  //  - epicChildren: an epic's members, for the roll-up that navigates down;
+  //  - currentEpicColor: the epic's `color:` for the picker's selected swatch.
+  const isEpic = selected.isEpic
+  const parentEpic = !isEpic && selected.epic
+    ? items.find((candidate) => candidate.isEpic && epicSlug(candidate) === selected.epic) ?? null
+    : null
+  const parentEpicColor = parentEpic && selected.epic ? epicMetaBySlug.get(selected.epic)?.color ?? null : null
+  const epicChildren = isEpic ? childrenOfEpic(items, epicSlug(selected)) : []
+  const currentEpicColor = isEpic ? epicMetaBySlug.get(epicSlug(selected))?.color ?? null : null
+
   return (
     <div className="flex h-full min-h-0 flex-col">
       <header className="shrink-0 border-b border-[color:var(--border-default)] px-4 py-3">
@@ -1683,6 +1755,22 @@ function BacklogDetail({
             {formatRelativeMsAgo(selected.modifiedAt, now) || 'unknown'}
           </span>
         </div>
+        {/* Child -> epic crumb: a member links back up to its epic. Carries the
+            epic's identity colour so the relationship reads at a glance. */}
+        {parentEpic ? (
+          <button
+            type="button"
+            onClick={() => onSelectItem(parentEpic.id)}
+            aria-label={`Open epic ${parentEpic.title}`}
+            className="interactive mt-2 -ml-1.5 inline-flex max-w-full items-center gap-1.5 rounded px-1.5 py-0.5 text-[11.5px] font-medium text-[color:var(--text-muted)] transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]"
+          >
+            <svg viewBox="0 0 16 16" fill="none" className="icon-xs shrink-0" aria-hidden="true">
+              <path d="M10 4L6 8l4 4" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
+            </svg>
+            <EpicColorDot color={parentEpicColor} size={7} />
+            <TruncatedText as="span" text={parentEpic.title} className="min-w-0" />
+          </button>
+        ) : null}
         <div className="mt-2 flex min-w-0 items-center gap-2">
           <Tooltip content={selectedRunGlyph?.label ?? BACKLOG_STATUS_LABEL[selected.status]} placement="top">
             <LifecycleGlyph
@@ -1744,6 +1832,20 @@ function BacklogDetail({
           />
         </div>
       </header>
+
+      {/* Epic-only: identity colour + the navigable children roll-up lead the
+          detail, since they are the epic's primary content. The shared Links +
+          Triage sections still follow for every item (Triage hides its Epic
+          select for an epic — epics do not nest). */}
+      {isEpic ? (
+        <>
+          <BacklogEpicColorPicker
+            current={currentEpicColor}
+            onPick={(color) => actions.setEpicColor(selected, color)}
+          />
+          <BacklogEpicChildren members={epicChildren} color={currentEpicColor} onSelectItem={onSelectItem} />
+        </>
+      ) : null}
 
       <BacklogLinksSection
         item={selected}
@@ -1809,6 +1911,133 @@ const EPIC_NEW_SENTINEL = '__new_epic__'
 const EPIC_NONE_VALUE = ''
 
 // Triage editor: size + priority + risk + epic are owned organization metadata.
+// Epic identity colour picker (epic detail only): the clear control plus the
+// seven canonical swatches as a radio group, writing the epic's `color:`
+// frontmatter through actions.setEpicColor. Distinct from the per-item highlight
+// picker in the row context menu — this colour is the epic's, inherited by its
+// members (the option-C row tint). Swatch hexes come from the shared swatch
+// helper via inline style, the same lint-safe pattern as MenuSwatchRow.
+function BacklogEpicColorPicker({
+  current,
+  onPick,
+}: {
+  current: BacklogHighlightColor | null
+  onPick: (color: BacklogHighlightColor | null) => void
+}): JSX.Element {
+  return (
+    <Section title="Epic colour" level={4} inset className="shrink-0 border-b border-[color:var(--border-subtle)] pb-3">
+      <div role="radiogroup" aria-label="Epic colour" className="flex items-center gap-2 px-3">
+        <Tooltip content="No colour">
+          <button
+            type="button"
+            role="radio"
+            aria-checked={current === null}
+            aria-label="No epic colour"
+            onClick={() => onPick(null)}
+            className={`interactive flex h-[18px] w-[18px] items-center justify-center rounded-full border border-dashed border-[color:var(--text-disabled)] text-[color:var(--text-disabled)] transition-colors hover:border-[color:var(--text-muted)] hover:text-[color:var(--text-muted)] ${
+              current === null ? 'ring-1 ring-[color:var(--text-default)]' : ''
+            }`}
+          >
+            <svg viewBox="0 0 16 16" fill="none" className="icon-xs" aria-hidden="true">
+              <path d="M4 12L12 4" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
+            </svg>
+          </button>
+        </Tooltip>
+        {HIGHLIGHT_COLORS.map((color) => {
+          const swatch = getHighlightSwatch(color)
+          const selected = current === color
+          return (
+            <Tooltip key={color} content={swatch.label}>
+              <button
+                type="button"
+                role="radio"
+                aria-checked={selected}
+                aria-label={`Epic colour ${swatch.label}`}
+                onClick={() => onPick(color)}
+                className={`interactive h-[18px] w-[18px] rounded-full transition-transform hover:scale-110 ${
+                  selected ? 'ring-2 ring-offset-1 ring-offset-[color:var(--bg-surface)]' : ''
+                }`}
+                style={{ backgroundColor: swatch.hex, ['--tw-ring-color' as never]: swatch.hex }}
+              />
+            </Tooltip>
+          )
+        })}
+      </div>
+    </Section>
+  )
+}
+
+// Epic -> children roll-up (epic detail only): a flat done/total progress track
+// in the epic's identity colour, then each member as a navigable row (status
+// glyph + title + size + priority). Selecting a row drives onSelectItem so the
+// list moves to that child — the inverse of the child's parent-epic crumb. The
+// children query is derived from the live scan on every render, never stored.
+function BacklogEpicChildren({
+  members,
+  color,
+  onSelectItem,
+}: {
+  members: BacklogItem[]
+  color: BacklogHighlightColor | null
+  onSelectItem: (id: string) => void
+}): JSX.Element {
+  const total = members.length
+  const done = members.reduce((count, child) => (child.status === 'completed' ? count + 1 : count), 0)
+  const fillColor = color ? getHighlightSwatch(color).hex : 'var(--accent-primary)'
+  return (
+    <Section
+      title="Children"
+      level={4}
+      inset
+      count={total > 0 ? total : undefined}
+      className="shrink-0 border-b border-[color:var(--border-subtle)] pb-3"
+    >
+      {total === 0 ? (
+        <p className="px-3 text-[12px] text-[color:var(--text-disabled)]">
+          No items in this epic yet. Assign items from their “Move to epic” menu.
+        </p>
+      ) : (
+        <div className="px-3">
+          <div className="mb-2 flex items-center justify-between text-[11px] text-[color:var(--text-muted)]">
+            <span className="tabular-nums">{done} of {total} done</span>
+          </div>
+          <div className="mb-2.5 h-[3px] overflow-hidden rounded-full bg-[color:var(--bg-active)]" role="presentation">
+            <span
+              className="block h-full rounded-full"
+              style={{ width: `${total > 0 ? Math.round((done / total) * 100) : 0}%`, backgroundColor: fillColor }}
+            />
+          </div>
+          <ul className="flex flex-col">
+            {members.map((child) => (
+              <li key={child.id}>
+                <button
+                  type="button"
+                  onClick={() => onSelectItem(child.id)}
+                  title={child.relativePath}
+                  className="interactive flex w-full items-center gap-2 rounded-md px-1.5 py-1.5 text-left transition-colors hover:bg-[color:var(--bg-hover)]"
+                >
+                  <Tooltip content={BACKLOG_STATUS_LABEL[child.status]} placement="top">
+                    <LifecycleGlyph state={backlogStatusToLifecycle(child.status)} live={child.status === 'in_progress'} />
+                  </Tooltip>
+                  <TruncatedText
+                    as="span"
+                    text={child.title}
+                    className={`min-w-0 flex-1 text-[12px] ${
+                      child.status === 'completed' ? 'text-[color:var(--text-muted)]' : 'text-[color:var(--text-default)]'
+                    }`}
+                  />
+                  <DifficultyIndicator difficulty={child.difficulty} />
+                  <CriticalityIndicator criticality={child.criticality} />
+                </button>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+    </Section>
+  )
+}
+
 // Selecting "Unestimated" / "No priority" / "No risk set" / "No epic" clears the
 // axis back to neutral. Risk is the likelihood the work goes sideways — distinct
 // from effort and impact — and feeds the Best sort and the row's derived heat

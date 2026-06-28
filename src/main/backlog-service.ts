@@ -10,6 +10,7 @@ import type {
   BacklogAddOrUpdateLinkInput,
   BacklogCreateEpicInput,
   BacklogCreateEpicResult,
+  BacklogEpicColorInput,
   BacklogEpicInput,
   BacklogHighlightColorPayload,
   BacklogHighlightInput,
@@ -356,6 +357,17 @@ export async function updateBacklogEpic(input: BacklogEpicInput): Promise<Backlo
     return { ok: false, message: 'Enter a valid epic slug.' }
   }
   return writeBacklogFrontmatter(input.workspaceRoot, input.relativePath, { epic: input.epic })
+}
+
+// Epic identity colour: write (or clear) the epic file's `color:` frontmatter so
+// its members can derive a shared hue at scan time. Like the other frontmatter
+// writers this never touches items.json; the value is validated against the
+// seven-colour highlight vocabulary so a bad payload can't land an unknown hue.
+export async function updateBacklogEpicColor(input: BacklogEpicColorInput): Promise<BacklogMutationResult> {
+  if (input.color !== null && !isBacklogHighlightColor(input.color)) {
+    return { ok: false, message: 'Enter a valid epic colour.' }
+  }
+  return writeBacklogFrontmatter(input.workspaceRoot, input.relativePath, { color: input.color })
 }
 
 export async function updateBacklogHighlight(input: BacklogHighlightInput): Promise<BacklogMutationResult> {

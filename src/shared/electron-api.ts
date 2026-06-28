@@ -1925,6 +1925,16 @@ export type BacklogCreateEpicInput = {
   title: string
 }
 
+// Epic identity colour is an epic-only write: one of the seven highlight colours
+// to set on the epic file's `color:` frontmatter, or null to clear it. Unlike the
+// per-item `highlight` (owned by items.json) this lives in the epic's markdown,
+// so its members can derive the colour at scan time.
+export type BacklogEpicColorInput = {
+  workspaceRoot: string
+  relativePath: string
+  color: BacklogHighlightColorPayload | null
+}
+
 export type BacklogCreateEpicResult =
   | { ok: true; slug: string; relativePath: string }
   | { ok: false; message: string }
@@ -2286,5 +2296,6 @@ export type ElectronApi = {
   moveBacklogObjectSource: (input: BacklogMoveSourceInput) => Promise<BacklogMutationResult>
   removeBacklogObjectRecord: (input: BacklogRemoveRecordInput) => Promise<BacklogMutationResult>
   updateBacklogEpic: (input: BacklogEpicInput) => Promise<BacklogMutationResult>
+  updateBacklogEpicColor: (input: BacklogEpicColorInput) => Promise<BacklogMutationResult>
   createBacklogEpic: (input: BacklogCreateEpicInput) => Promise<BacklogCreateEpicResult>
 }

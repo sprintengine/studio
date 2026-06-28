@@ -1274,6 +1274,11 @@ function attachTerminalSession(
     cleanupTerminalStartupScript(terminalSession.startupScriptPath)
     terminalOutput.flush(sessionId, 'exit')
     terminalDiagnostics.clear(sessionId)
+    // Clear the hook phase so a stale `awaiting_input` (or any working phase) does
+    // not outlive the process — the snapshot then infers `exited` from activity.
+    // Only on a real exit: the suspend branch above returns early so a frozen,
+    // resumable view keeps its phase.
+    terminalSession.agentState = undefined
     setTerminalActivity(terminalSession, { kind: 'exited', at: Date.now(), exitCode: event.exitCode })
     const agentSession = terminalSession.agentSession
     if (agentSession?.executionId && agentSessionExitListeners.size > 0) {

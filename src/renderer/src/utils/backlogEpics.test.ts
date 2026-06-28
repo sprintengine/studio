@@ -5,6 +5,7 @@ import {
   backlogHeaderNavId,
   childrenOfEpic,
   epicGroupKey,
+  epicMetaBySlug,
   epicSlug,
   groupItemsByEpic,
   groupedBacklogRows,
@@ -53,6 +54,20 @@ function mk(
 
 run('no items yields no groups', () => {
   assert.deepEqual(groupItemsByEpic([]), [])
+})
+
+run('epicMetaBySlug maps each epic slug to its title and frontmatter colour', () => {
+  const meta = epicMetaBySlug([
+    mk('backlog/epics/auth-revamp.md', { type: 'epic', title: 'Auth revamp', color: 'blue' }),
+    mk('backlog/epics/onboarding.md', { type: 'epic', title: 'Onboarding polish' }),
+    // A leaf pointing at the epic must not appear in the map (epics only).
+    mk('backlog/x.md', { epic: 'auth-revamp', color: 'red' }),
+  ])
+  assert.equal(meta.size, 2)
+  assert.deepEqual(meta.get('auth-revamp'), { title: 'Auth revamp', color: 'blue' })
+  // An epic with no `color:` carries a null colour (title still resolves).
+  assert.deepEqual(meta.get('onboarding'), { title: 'Onboarding polish', color: null })
+  assert.equal(meta.has('backlog/x'), false)
 })
 
 run('items with no epic collapse into a single trailing No epic group', () => {

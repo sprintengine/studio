@@ -17,6 +17,7 @@ import {
 import type { MobileControlBacklogWorkspaceSnapshot, MobileControlCommandType } from '../../../shared/mobile-control/protocol'
 import { readMobileBacklogWorkspaceSnapshot } from './backlog'
 import { deriveWorkspaceId } from './workspace-id'
+import { containsLocalPath, deepRedactLocalPaths } from './relay-path-safety'
 
 const mobileControlProtocolVersion = 1 as const
 const mobileControlWorkspaceSnapshotVersion = 2 as const
@@ -358,40 +359,6 @@ export type MobileSprintEngineSnapshotRequest = {
 
 type MobileSprintEngineSnapshotListener = (snapshot: MobileControlSnapshot) => void
 
-const localPathPatterns = [
-  /\/(?:Users|home|private|var\/folders|Volumes|Applications|Library|opt|srv|mnt|tmp)\/[^\s"'=:()]*/gu,
-  /[A-Za-z]:\\[^\s"'=:()]*/gu,
-  /\\\\[^\\\s"'=:()]+\\[^\s"'=:()]*/gu,
-]
-
-function redactLocalPaths(value: string): string {
-  return localPathPatterns.reduce((acc, pattern) => acc.replace(pattern, '[redacted-path]'), value)
-}
-
-function containsLocalPath(value: string): boolean {
-  return localPathPatterns.some((pattern) => {
-    pattern.lastIndex = 0
-    return pattern.test(value)
-  })
-}
-
-function deepRedactLocalPaths<T>(value: T): T {
-  if (typeof value === 'string') {
-    return redactLocalPaths(value) as unknown as T
-  }
-  if (Array.isArray(value)) {
-    return value.map((item) => deepRedactLocalPaths(item)) as unknown as T
-  }
-  if (value && typeof value === 'object') {
-    const out: Record<string, unknown> = {}
-    for (const [key, item] of Object.entries(value as Record<string, unknown>)) {
-      out[key] = deepRedactLocalPaths(item)
-    }
-    return out as unknown as T
-  }
-  return value
-}
-
 // Replace embedded workspace roots in a kind-scoped workspaceId (e.g.
 // `switchboard:/Users/...`) with the relay-safe token while preserving the kind
 // prefix. Ids that carry no local path (multiloop:<loopId>, a bare
@@ -414,9 +381,11 @@ export function sanitizeMobileSnapshotForRelay(snapshot: MobileControlSnapshot):
     ...sprintEngine,
     // Display-only on the phone: the board derives the name via lastPathSegment.
     workspacePath: basename(sprintEngine.workspacePath),
-    // statePath/planPath are resolved server-side from sprintEngineId and never
-    // round-tripped by the phone, so drop the absolute paths entirely.
-    statePath: '',
+    // statePath is resolved server-side from sprintEngineId and never round-tripped
+    // by the phone, but the mobile snapshot validator requires it to be a
+    // non-empty string, so replace the absolute path with a relay-safe token
+    // rather than blanking it. planPath is optional, so drop it.
+    statePath: deriveWorkspaceId(sprintEngine.statePath),
     planPath: undefined,
   }))
 
