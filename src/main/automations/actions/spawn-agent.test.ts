@@ -21,10 +21,16 @@ function assertSignalInstructionInBothModes(): void {
       `${autonomy}: prompt anchors the signal file to cwd`,
     )
     assert.ok(
-      prompt.includes('{ "status": "completed" | "failed", "summary"?: string }'),
+      prompt.includes('{ "status": "completed" | "failed", "summary"?: string, "reports"?: string[] }'),
       `${autonomy}: prompt states the exact signal JSON shape`,
     )
     assert.ok(prompt.includes('"completed"') && prompt.includes('"failed"'), `${autonomy}: both outcomes named`)
+    // The reports field must be documented as project-relative paths under reports/.
+    assert.ok(prompt.includes('"reports"'), `${autonomy}: prompt names the reports field`)
+    assert.ok(
+      prompt.includes('under reports/'),
+      `${autonomy}: prompt anchors report paths under reports/`,
+    )
     // The "final action" instruction must come after the user task (the filename
     // itself may also appear earlier in the review_only carve-out).
     assert.ok(
