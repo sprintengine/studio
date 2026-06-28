@@ -1774,7 +1774,11 @@ export type BacklogView =
   | 'unestimated'
   | 'archived'
 
-export type BacklogSort = 'best' | 'recent' | 'status' | 'priority' | 'largest' | 'smallest'
+// `dependency` is "Dependency order": a whole-list topological transform
+// (prerequisites before dependents, unblocked frontier first) the panel applies
+// via orderItemsByDependencies, branching around the pairwise compareBacklogItems
+// the other sorts use.
+export type BacklogSort = 'best' | 'recent' | 'status' | 'priority' | 'largest' | 'smallest' | 'dependency'
 
 // Backlog grouping axis, orthogonal to view/sort. `none` is the flat list;
 // `by_epic` renders collapsible epic headers with their children nested.

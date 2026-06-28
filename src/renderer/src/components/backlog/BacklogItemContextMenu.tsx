@@ -31,6 +31,20 @@ export type RiskChoice = BacklogRisk | 'unset'
 // (the updateBacklogEpic target) plus its display title.
 export type BacklogEpicChoice = { slug: string; title: string }
 
+// One candidate prerequisite for the "Depends on…" affordances: an item's id
+// (to exclude self), its slug (the dependsOn target, = filename stem), and its
+// display title. The full candidate set is shared; each surface drops the
+// current item by id.
+export type BacklogDependencyChoice = { id: string; slug: string; title: string }
+
+// Toggle one prerequisite slug in an item's `dependsOn` set (add if absent,
+// remove if present), preserving order. Both the context menu and the detail
+// editor route through this so the two surfaces compute the next set identically.
+export function toggleDependencySlug(current: readonly string[] | undefined, slug: string): string[] {
+  const set = current ?? []
+  return set.includes(slug) ? set.filter((existing) => existing !== slug) : [...set, slug]
+}
+
 export type BacklogActions = {
   createFolder: () => void
   createPlan: () => void
@@ -48,6 +62,9 @@ export type BacklogActions = {
   setRisk: (item: BacklogItem, value: RiskChoice) => void
   // Assign the item to an epic (slug) or clear its `epic:` frontmatter (null).
   setEpic: (item: BacklogItem, slug: string | null) => void
+  // Rewrite the item's full `dependsOn:` slug list (null clears the line). The
+  // menu and detail editor compute the next set with toggleDependencySlug.
+  setDependencies: (item: BacklogItem, slugs: string[] | null) => void
   // Prompt for a title, create `backlog/epics/<slug>.md`, then assign the item.
   createEpic: (item: BacklogItem) => void
   setHighlight: (item: BacklogItem, highlight: BacklogHighlight) => void
@@ -113,6 +130,7 @@ export function BacklogItemContextMenu({
   item,
   actions,
   epicChoices,
+  dependencyChoices,
   agentTargets,
   agentSessions,
   onFlyoutOpen,
@@ -125,6 +143,8 @@ export function BacklogItemContextMenu({
   actions: BacklogActions
   // Existing epics this item can be moved into (excludes the item itself).
   epicChoices: ReadonlyArray<BacklogEpicChoice>
+  // Items this one can declare as prerequisites (self filtered out below).
+  dependencyChoices: ReadonlyArray<BacklogDependencyChoice>
   agentTargets: Array<AgentState & { cliSessionId: string }>
   agentSessions: TerminalSessionSnapshot[] | null
   onFlyoutOpen: () => void
@@ -134,6 +154,10 @@ export function BacklogItemContextMenu({
   const starred = item.highlight?.starred === true
   const currentColor = item.highlight?.color ?? null
   const archived = item.status === 'archived'
+  // Prerequisite editing: the item's current `dependsOn` slugs (for the checks)
+  // and the candidate items it may depend on (every other non-epic item).
+  const dependsOn = item.dependsOn ?? []
+  const dependencyCandidates = dependencyChoices.filter((candidate) => candidate.id !== item.id)
 
   return (
     <ContextMenu
@@ -306,6 +330,50 @@ export function BacklogItemContextMenu({
             >
               Remove from epic
             </MenuItem>
+          ) : null}
+        </MenuFlyoutItem>
+      ) : null}
+      {/* Prerequisites are the dependent-side `dependsOn:` frontmatter. The
+          flyout is a multi-select: each row toggles one slug and the menu stays
+          open (like the highlight swatches) so several can be set in a row;
+          checks reflect the current set. Hidden on epics, mirroring Move to
+          epic. */}
+      {!item.isEpic ? (
+        <MenuFlyoutItem label="Depends on…" ariaLabel="Set prerequisites" surfaceClassName="min-w-[220px]">
+          {dependencyCandidates.length === 0 ? (
+            <MenuItem disabled onClick={() => {}}>
+              No other items
+            </MenuItem>
+          ) : (
+            dependencyCandidates.map((candidate) => {
+              const checked = dependsOn.includes(candidate.slug)
+              return (
+                <MenuItem
+                  key={candidate.id}
+                  checked={checked}
+                  icon={<MenuCheckGlyph visible={checked} />}
+                  onClick={() => {
+                    const next = toggleDependencySlug(dependsOn, candidate.slug)
+                    actions.setDependencies(item, next.length > 0 ? next : null)
+                  }}
+                >
+                  {candidate.title}
+                </MenuItem>
+              )
+            })
+          )}
+          {dependsOn.length > 0 ? (
+            <>
+              <MenuDivider />
+              <MenuItem
+                onClick={() => {
+                  actions.setDependencies(item, null)
+                  onClose()
+                }}
+              >
+                Clear prerequisites
+              </MenuItem>
+            </>
           ) : null}
         </MenuFlyoutItem>
       ) : null}
