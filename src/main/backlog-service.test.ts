@@ -6,7 +6,9 @@ import { join } from 'node:path'
 import { parseBacklogFrontmatter } from '../shared/backlog/frontmatter'
 import {
   addOrUpdateBacklogLink,
+  createBacklogEpic,
   readBacklogObjectStore,
+  updateBacklogEpic,
   updateBacklogHighlight,
   updateBacklogModuleMetadata,
   updateBacklogStatus,
@@ -157,7 +159,47 @@ async function main(): Promise<void> {
     assert.match(rejectedType.ok ? '' : rejectedType.message, /type/)
     assert.equal(await readFile(itemPath, 'utf-8'), beforeInvalid, 'rejected values must not mutate the item file')
 
-    // All lifecycle/type/triage work so far must have stayed off the sidecar.
+    // Epic membership is the child-side write: the `epic:` frontmatter slug, set
+    // and cleared via the shared helper, body preserved, sidecar untouched.
+    const epicAssigned = await updateBacklogEpic({
+      workspaceRoot: tempRoot,
+      relativePath: 'backlog/checkout.md',
+      epic: 'auth-revamp',
+    })
+    assert.equal(epicAssigned.ok, true)
+    const afterEpicAssign = await readItem()
+    assert.equal(afterEpicAssign.fields.epic, 'auth-revamp')
+    assert.equal(afterEpicAssign.body, body, 'epic assign must preserve the document body byte-for-byte')
+
+    const epicCleared = await updateBacklogEpic({
+      workspaceRoot: tempRoot,
+      relativePath: 'backlog/checkout.md',
+      epic: null,
+    })
+    assert.equal(epicCleared.ok, true)
+    assert.equal('epic' in (await readItem()).fields, false, 'clearing epic must remove the frontmatter line')
+
+    // An invalid epic slug (whitespace/separators) is rejected and mutates nothing.
+    const beforeBadEpic = await readFile(itemPath, 'utf-8')
+    const rejectedEpic = await updateBacklogEpic({
+      workspaceRoot: tempRoot,
+      relativePath: 'backlog/checkout.md',
+      epic: 'has spaces' as string,
+    })
+    assert.equal(rejectedEpic.ok, false)
+    assert.match(rejectedEpic.ok ? '' : rejectedEpic.message, /epic slug/)
+    assert.equal(await readFile(itemPath, 'utf-8'), beforeBadEpic, 'a rejected epic slug must not mutate the item file')
+
+    // Epic assignment against a path outside backlog/ is rejected explicitly.
+    const rejectedEpicPath = await updateBacklogEpic({
+      workspaceRoot: tempRoot,
+      relativePath: 'notes/checkout.md',
+      epic: 'auth-revamp',
+    })
+    assert.equal(rejectedEpicPath.ok, false)
+    assert.match(rejectedEpicPath.ok ? '' : rejectedEpicPath.message, /under backlog/)
+
+    // All lifecycle/type/triage/epic work so far must have stayed off the sidecar.
     await assert.rejects(() => stat(storePath), /ENOENT/, 'frontmatter mutations must never create items.json')
 
     // Module metadata is app-owned churn and still writes the sidecar store.
@@ -265,6 +307,29 @@ async function main(): Promise<void> {
       items: Array<{ source: { relativePath: string } }>
     }
     assert.equal(persisted.items[0]?.source.relativePath, 'backlog/checkout.md')
+
+    // Create-epic writes a new concept file under backlog/epics/ with type: epic
+    // and the title heading; it never adds an items.json membership record.
+    const storeBeforeEpicCreate = await readFile(storePath, 'utf-8')
+    const createdEpic = await createBacklogEpic({ workspaceRoot: tempRoot, title: 'Auth Revamp' })
+    assert.equal(createdEpic.ok, true)
+    assert.equal(createdEpic.ok ? createdEpic.slug : '', 'auth-revamp')
+    assert.equal(createdEpic.ok ? createdEpic.relativePath : '', 'backlog/epics/auth-revamp.md')
+    const epicFile = parseBacklogFrontmatter(await readFile(join(tempRoot, 'backlog', 'epics', 'auth-revamp.md'), 'utf-8'))
+    assert.equal(epicFile.fields.type, 'epic')
+    assert.match(epicFile.body, /^# Auth Revamp$/m)
+    assert.equal(await readFile(storePath, 'utf-8'), storeBeforeEpicCreate, 'creating an epic must not touch items.json')
+
+    // A second epic with the same title gets a collision-safe slug, not a clobber.
+    const createdEpic2 = await createBacklogEpic({ workspaceRoot: tempRoot, title: 'Auth Revamp' })
+    assert.equal(createdEpic2.ok, true)
+    assert.equal(createdEpic2.ok ? createdEpic2.slug : '', 'auth-revamp-2')
+    assert.equal(createdEpic2.ok ? createdEpic2.relativePath : '', 'backlog/epics/auth-revamp-2.md')
+
+    // An empty title is rejected rather than producing an untitled epic file.
+    const rejectedEpicTitle = await createBacklogEpic({ workspaceRoot: tempRoot, title: '   ' })
+    assert.equal(rejectedEpicTitle.ok, false)
+    assert.match(rejectedEpicTitle.ok ? '' : rejectedEpicTitle.message, /title/)
 
     // Path validation: absolute item paths are rejected and mutate nothing.
     const beforeAbsoluteFile = await readFile(itemPath, 'utf-8')

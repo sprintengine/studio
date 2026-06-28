@@ -1911,6 +1911,24 @@ export type BacklogRemoveRecordInput = {
   relativePath: string
 }
 
+// Epic membership is the child-side write: `epic` is the up-pointing slug to set
+// on the child item's frontmatter, or null to remove it from its epic. The
+// down-direction (epic -> children) stays derived, never stored.
+export type BacklogEpicInput = {
+  workspaceRoot: string
+  relativePath: string
+  epic: string | null
+}
+
+export type BacklogCreateEpicInput = {
+  workspaceRoot: string
+  title: string
+}
+
+export type BacklogCreateEpicResult =
+  | { ok: true; slug: string; relativePath: string }
+  | { ok: false; message: string }
+
 export type ElectronApi = {
   platform: string
   isDevelopment: boolean
@@ -2267,4 +2285,6 @@ export type ElectronApi = {
   updateBacklogModuleMetadata: (input: BacklogModuleMetadataInput) => Promise<BacklogMutationResult>
   moveBacklogObjectSource: (input: BacklogMoveSourceInput) => Promise<BacklogMutationResult>
   removeBacklogObjectRecord: (input: BacklogRemoveRecordInput) => Promise<BacklogMutationResult>
+  updateBacklogEpic: (input: BacklogEpicInput) => Promise<BacklogMutationResult>
+  createBacklogEpic: (input: BacklogCreateEpicInput) => Promise<BacklogCreateEpicResult>
 }

@@ -7,6 +7,9 @@ import {
 } from '../shared/backlog/frontmatter'
 import type {
   BacklogAddOrUpdateLinkInput,
+  BacklogCreateEpicInput,
+  BacklogCreateEpicResult,
+  BacklogEpicInput,
   BacklogHighlightColorPayload,
   BacklogHighlightInput,
   BacklogItemLinkPayload,
@@ -25,6 +28,7 @@ import type {
 
 const STORE_PATH = ['.multi-code', 'backlog', 'items.json'] as const
 const BACKLOG_PREFIX = 'backlog/'
+const EPICS_PREFIX = 'backlog/epics/'
 
 type ValidWorkspace = {
   root: string
@@ -108,6 +112,34 @@ export async function createBacklogItem(input: BacklogCreateInput): Promise<Back
   }
 }
 
+// Creates a new epic concept file `backlog/epics/<slug>.md` (`type: epic` + the
+// title heading). Epics are surfaced from the filesystem, so this writes only the
+// markdown file — never an items.json membership record. The slug is the title
+// slug, made collision-safe against existing files the same way item creation is.
+export async function createBacklogEpic(input: BacklogCreateEpicInput): Promise<BacklogCreateEpicResult> {
+  const title = input.title.trim()
+  if (!title) return { ok: false, message: 'Enter a title for the new epic.' }
+  try {
+    const workspace = await validateWorkspaceRoot(input.workspaceRoot)
+    const store = await loadStore(workspace)
+    const existingLower = new Set(store.items.map((record) => record.source.relativePath.toLowerCase()))
+    const relativePath = await uniqueEpicFilePath(workspace, slugifyBacklogTitle(title), existingLower)
+    const target = resolve(join(workspace.root, relativePath))
+    if (!isPathInside(workspace.root, target)) throw new Error('Backlog item path escaped the workspace root.')
+
+    const content = `---\ntype: epic\n---\n# ${title}\n`
+    await mkdir(dirname(target), { recursive: true })
+    // `wx` fails instead of clobbering if a file appears between the uniqueness
+    // check and the write.
+    await writeFile(target, content, { encoding: 'utf-8', flag: 'wx' })
+
+    const slug = relativePath.slice(EPICS_PREFIX.length).replace(/\.md$/i, '')
+    return { ok: true, slug, relativePath }
+  } catch (error) {
+    return { ok: false, message: errorMessage(error) }
+  }
+}
+
 export async function ensureBacklogObjectRecords(
   workspaceRoot: string,
   items: BacklogItemRecordInput[],
@@ -168,6 +200,18 @@ export async function updateBacklogTriage(input: BacklogTriageInput): Promise<Ba
   if ('criticality' in input) updates.criticality = input.criticality ?? null
   if ('risk' in input) updates.risk = input.risk ?? null
   return writeBacklogFrontmatter(input.workspaceRoot, input.relativePath, updates)
+}
+
+// Epic membership is the child-side write: set the child's `epic:` frontmatter
+// slug, or null to remove it from its epic. The down-direction (epic -> children)
+// stays a derived query (see backlogEpics.ts), never stored, so there is nothing
+// to keep in sync. Like the other lifecycle writers this targets the markdown
+// frontmatter, never items.json.
+export async function updateBacklogEpic(input: BacklogEpicInput): Promise<BacklogMutationResult> {
+  if (input.epic !== null && !isValidEpicSlug(input.epic)) {
+    return { ok: false, message: 'Enter a valid epic slug.' }
+  }
+  return writeBacklogFrontmatter(input.workspaceRoot, input.relativePath, { epic: input.epic })
 }
 
 export async function updateBacklogHighlight(input: BacklogHighlightInput): Promise<BacklogMutationResult> {
@@ -408,6 +452,20 @@ async function uniqueBacklogFilePath(
   return validateBacklogRelativePath(candidate)
 }
 
+async function uniqueEpicFilePath(
+  workspace: ValidWorkspace,
+  slug: string,
+  existingLower: Set<string>,
+): Promise<string> {
+  let candidate = `${EPICS_PREFIX}${slug}.md`
+  let index = 2
+  while (existingLower.has(candidate.toLowerCase()) || (await backlogFileExists(workspace, candidate))) {
+    candidate = `${EPICS_PREFIX}${slug}-${index}.md`
+    index += 1
+  }
+  return validateBacklogRelativePath(candidate)
+}
+
 async function backlogFileExists(workspace: ValidWorkspace, relativePath: string): Promise<boolean> {
   try {
     await stat(join(workspace.root, relativePath))
@@ -547,6 +605,13 @@ function isBacklogCriticality(value: unknown): value is BacklogObjectRecord['cri
 
 function isBacklogRisk(value: unknown): value is BacklogObjectRecord['risk'] {
   return typeof value === 'string' && VALID_RISK.has(value)
+}
+
+// An epic slug is a single filename-stem token (it must match an epic file's
+// stem at read time), so reject whitespace, separators, and other characters
+// that could never name `backlog/epics/<slug>.md`.
+function isValidEpicSlug(value: unknown): value is string {
+  return typeof value === 'string' && /^[A-Za-z0-9._-]+$/.test(value) && value !== '.' && value !== '..'
 }
 
 function isBacklogHighlightColor(value: unknown): value is BacklogHighlightColorPayload {
