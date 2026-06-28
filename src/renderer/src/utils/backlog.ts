@@ -1,4 +1,5 @@
 import type { BacklogHighlightColorPayload, FileSystemStat } from '../../../shared/electron-api'
+import { parseBacklogFrontmatter } from '../../../shared/backlog/frontmatter'
 import type { HighlightColor, SprintEngineSourcePlanKind } from '../types/workspace'
 import {
   inferSourcePlanKind,
@@ -123,11 +124,6 @@ export type BacklogFilesystemAdapter = {
   readdir(path: string): Promise<Array<{ name: string; isDir: boolean }>>
   readfile(path: string): Promise<string>
   statPath(path: string): Promise<FileSystemStat>
-}
-
-type ParsedBacklogFrontmatter = {
-  body: string
-  data: Record<string, string>
 }
 
 const BACKLOG_FOLDER = 'backlog'
@@ -262,14 +258,14 @@ export function createBacklogItem(input: {
   object?: BacklogItemObjectMetadata
 }): BacklogItem {
   const relativePath = normalizeRelativePath(input.relativePath)
-  const { body, data } = parseBacklogFrontmatter(input.sourceContent)
-  const frontmatterKind = parseBacklogKind(frontmatterValue(data, 'kind', 'planKind', 'plan_kind', 'sourcePlanKind', 'source_plan_kind'))
+  const { body, fields } = parseBacklogFrontmatter(input.sourceContent)
+  const frontmatterKind = parseBacklogKind(frontmatterValue(fields, 'kind', 'planKind', 'plan_kind', 'sourcePlanKind', 'source_plan_kind'))
   const inferredKind = inferBacklogKind(relativePath, body)
   const archived = isArchivedBacklogPath(relativePath)
-  const frontmatterStatus = parseBacklogStatus(frontmatterValue(data, 'status'))
-  const frontmatterType = parseBacklogType(frontmatterValue(data, 'type', 'itemType', 'item_type', 'backlogType', 'backlog_type'))
-  const frontmatterDifficulty = parseBacklogDifficulty(frontmatterValue(data, 'difficulty', 'size'))
-  const frontmatterCriticality = parseBacklogCriticality(frontmatterValue(data, 'criticality', 'priority'))
+  const frontmatterStatus = parseBacklogStatus(frontmatterValue(fields, 'status'))
+  const frontmatterType = parseBacklogType(frontmatterValue(fields, 'type', 'itemType', 'item_type', 'backlogType', 'backlog_type'))
+  const frontmatterDifficulty = parseBacklogDifficulty(frontmatterValue(fields, 'difficulty', 'size'))
+  const frontmatterCriticality = parseBacklogCriticality(frontmatterValue(fields, 'criticality', 'priority'))
   const title = inferBacklogTitle(relativePath, body)
 
   return {
@@ -394,43 +390,12 @@ export function nextArchiveRelativePath(
   return candidate
 }
 
-function parseBacklogFrontmatter(content: string): ParsedBacklogFrontmatter {
-  const match = FRONTMATTER_RE.exec(content)
-  if (!match) return { body: content, data: {} }
-
-  const data: Record<string, string> = {}
-  let currentSection: string | null = null
-  for (const rawLine of match[1].split(/\r?\n/)) {
-    const trimmed = rawLine.trim()
-    if (!trimmed || trimmed.startsWith('#')) continue
-
-    const section = /^([A-Za-z0-9_-]+)\s*:\s*$/.exec(rawLine)
-    if (section) {
-      currentSection = section[1].toLowerCase()
-      continue
-    }
-
-    const kv = /^(\s*)([A-Za-z0-9_-]+)\s*:\s*(.+)$/.exec(rawLine)
-    if (!kv) continue
-    const indent = kv[1].length
-    const key = kv[2].toLowerCase()
-    const value = stripYamlQuotes(kv[3])
-    if (indent > 0 && currentSection) {
-      data[`${currentSection}.${key}`] = value
-    } else {
-      currentSection = null
-      data[key] = value
-    }
-  }
-  return { body: content.slice(match[0].length), data }
-}
-
-function frontmatterValue(data: Record<string, string>, ...keys: string[]): string | undefined {
+function frontmatterValue(fields: Record<string, string>, ...keys: string[]): string | undefined {
   for (const key of keys) {
     const normalized = key.toLowerCase()
-    const flat = data[normalized]
+    const flat = fields[normalized]
     if (flat) return flat
-    const nested = data[`backlog.${normalized}`]
+    const nested = fields[`backlog.${normalized}`]
     if (nested) return nested
   }
   return undefined
@@ -493,16 +458,6 @@ function htmlHeadingTitle(content: string): string | null {
 function cleanHtmlTitle(value: string | undefined): string | null {
   const cleaned = (value ?? '').replace(/<[^>]+>/g, '').replace(/\s+/g, ' ').trim()
   return cleaned || null
-}
-
-function stripYamlQuotes(value: string): string {
-  const trimmed = value.trim()
-  if (trimmed.length >= 2) {
-    const first = trimmed[0]
-    const last = trimmed[trimmed.length - 1]
-    if ((first === '"' && last === '"') || (first === "'" && last === "'")) return trimmed.slice(1, -1)
-  }
-  return trimmed
 }
 
 function errorMessage(error: unknown): string {
