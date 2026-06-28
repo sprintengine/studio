@@ -11,6 +11,7 @@ import {
   type MobileSprintEngineSessionOrchestrator,
 } from './command'
 import { readSprintEngineSnapshot } from './snapshot'
+import { parseBacklogFrontmatter } from '../../../shared/backlog/frontmatter'
 
 const now = new Date('2026-04-28T19:45:00.000Z')
 
@@ -37,7 +38,7 @@ async function main(): Promise<void> {
   await assertFollowUpUsesAuthorizedDiscoveredStateOutsideServiceCwd()
   await assertFollowUpRejectsTerminalControlCharacters()
   await assertUnsupportedCommandIsRejected()
-  await assertBacklogUpdateMutatesObjectStore()
+  await assertBacklogUpdateWritesFrontmatter()
   await assertBacklogStartSprintEngineUsesHandoverAndMarksItem()
   await assertBacklogStartRejectsPathOutsideBacklogFolder()
   await assertBacklogCreateWritesFileAndRecord()
@@ -741,10 +742,11 @@ async function assertUnsupportedCommandIsRejected(): Promise<void> {
   assert.equal(result.ok === false ? result.error.code : '', 'command_not_supported')
 }
 
-async function assertBacklogUpdateMutatesObjectStore(): Promise<void> {
+async function assertBacklogUpdateWritesFrontmatter(): Promise<void> {
   const workspaceRoot = await mkdtemp(join(tmpdir(), 'multicode-mobile-backlog-update-'))
   await mkdir(join(workspaceRoot, 'backlog'), { recursive: true })
-  await writeFile(join(workspaceRoot, 'backlog', 'idea.md'), '# A rough idea\n\nDo the thing.\n', 'utf8')
+  const body = '# A rough idea\n\nDo the thing.\n'
+  await writeFile(join(workspaceRoot, 'backlog', 'idea.md'), body, 'utf8')
   const service = new MobileSprintEngineCommandService({
     workspaceRoot,
     now: () => now,
@@ -765,14 +767,18 @@ async function assertBacklogUpdateMutatesObjectStore(): Promise<void> {
   }))
 
   assert.equal(result.ok, true)
-  const store = JSON.parse(await readFile(join(workspaceRoot, '.multi-code', 'backlog', 'items.json'), 'utf8')) as {
-    items: Array<{ source: { relativePath: string }; status?: string; difficulty?: string; criticality?: string }>
-  }
-  const record = store.items.find((item) => item.source.relativePath === 'backlog/idea.md')
-  assert.ok(record, 'backlog.update should upsert the item record')
-  assert.equal(record?.status, 'ready')
-  assert.equal(record?.difficulty, 'm')
-  assert.equal(record?.criticality, 'high')
+  // Lifecycle/triage now live in the item's markdown frontmatter (v2), not the
+  // sidecar; the body is preserved byte-for-byte and items.json is never created.
+  const updated = parseBacklogFrontmatter(await readFile(join(workspaceRoot, 'backlog', 'idea.md'), 'utf8'))
+  assert.equal(updated.fields.status, 'ready')
+  assert.equal(updated.fields.difficulty, 'm')
+  assert.equal(updated.fields.criticality, 'high')
+  assert.equal(updated.body, body, 'backlog.update must preserve the document body')
+  await assert.rejects(
+    () => readFile(join(workspaceRoot, '.multi-code', 'backlog', 'items.json'), 'utf8'),
+    /ENOENT/,
+    'backlog.update must not write the sidecar for lifecycle/triage',
+  )
 
   const invalid = await service.dispatch(command('backlog.update', {
     workspacePath: workspaceRoot,
@@ -822,11 +828,14 @@ async function assertBacklogStartSprintEngineUsesHandoverAndMarksItem(): Promise
   assert.equal(invocations[0].args[handoverIndex + 1].includes('Users need the widget.'), true)
   assert.equal(invocations[0].args[handoverIndex + 1].includes('type: feature'), false)
 
+  // Status moves to the item's frontmatter (v2), while module metadata stays
+  // app-owned churn in the sidecar.
+  const marked = parseBacklogFrontmatter(await readFile(join(workspaceRoot, 'backlog', 'feature.md'), 'utf8'))
+  assert.equal(marked.fields.status, 'in_progress')
   const store = JSON.parse(await readFile(join(workspaceRoot, '.multi-code', 'backlog', 'items.json'), 'utf8')) as {
     items: Array<{ source: { relativePath: string }; status?: string; metadata?: Record<string, unknown> }>
   }
   const record = store.items.find((item) => item.source.relativePath === 'backlog/feature.md')
-  assert.equal(record?.status, 'in_progress')
   const moduleMetadata = record?.metadata?.['mobile-companion'] as Record<string, unknown> | undefined
   assert.equal(moduleMetadata?.['teamName'], 'backlog-cmd_backlog_start')
 }

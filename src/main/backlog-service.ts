@@ -2,6 +2,7 @@ import { mkdir, readFile, realpath, stat, writeFile } from 'node:fs/promises'
 import { dirname, isAbsolute, join, relative, resolve } from 'node:path'
 
 import {
+  parseBacklogFrontmatter,
   serializeBacklogFrontmatterFields,
   type BacklogFrontmatterUpdates,
 } from '../shared/backlog/frontmatter'
@@ -54,6 +55,32 @@ export async function readBacklogObjectStore(workspaceRoot: string): Promise<Bac
     return { ok: true, store }
   } catch (error) {
     return { ok: false, message: errorMessage(error) }
+  }
+}
+
+// Frontmatter-sourced lifecycle/triage/epic for an item's markdown content. This
+// is the v2 read shape non-panel readers (the mobile bridge, Sprint Engine) use
+// so they see the same source of truth the renderer does, instead of the now-stale
+// sidecar fields. Unknown/invalid values are dropped; callers fall back to a
+// sidecar record only for not-yet-migrated items (mixed-version tolerance).
+export type BacklogFrontmatterFields = {
+  status?: BacklogObjectRecord['status']
+  type?: BacklogObjectRecord['type']
+  difficulty?: BacklogObjectRecord['difficulty']
+  criticality?: BacklogObjectRecord['criticality']
+  risk?: BacklogObjectRecord['risk']
+  epic?: string
+}
+
+export function readBacklogFrontmatterFields(content: string): BacklogFrontmatterFields {
+  const { fields } = parseBacklogFrontmatter(content)
+  return {
+    status: isBacklogStatus(fields.status) ? fields.status : undefined,
+    type: isBacklogType(fields.type) ? fields.type : undefined,
+    difficulty: isBacklogDifficulty(fields.difficulty) ? fields.difficulty : undefined,
+    criticality: isBacklogCriticality(fields.criticality) ? fields.criticality : undefined,
+    risk: isBacklogRisk(fields.risk) ? fields.risk : undefined,
+    epic: isValidEpicSlug(fields.epic) ? fields.epic : undefined,
   }
 }
 

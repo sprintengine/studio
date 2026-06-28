@@ -582,7 +582,7 @@ export interface MobileControlWorkspaceSnapshot {
 }
 
 export type MobileControlBacklogItemStatus = "idea" | "ready" | "in_progress" | "needs_input" | "completed" | "archived";
-export type MobileControlBacklogItemType = "feature" | "bug" | "mockup" | "spike";
+export type MobileControlBacklogItemType = "epic" | "feature" | "bug" | "mockup" | "spike";
 export type MobileControlBacklogItemDifficulty = "xs" | "s" | "m" | "l" | "xl";
 export type MobileControlBacklogItemCriticality = "low" | "normal" | "high" | "critical";
 
@@ -595,6 +595,9 @@ export interface MobileControlBacklogItemSnapshot {
   type?: MobileControlBacklogItemType;
   difficulty?: MobileControlBacklogItemDifficulty;
   criticality?: MobileControlBacklogItemCriticality;
+  // The up-pointing epic slug (frontmatter `epic:`) when this item belongs to an
+  // epic; absent otherwise. The epic -> children direction stays a derived query.
+  epic?: string;
   updatedAt?: string;
 }
 
