@@ -20,27 +20,34 @@ function run(name: string, body: () => void): void {
   }
 }
 
-// Every bundled mode and whether the rail should hide it. Keep this exhaustive:
-// adding a bundled mode without a row here is a compile error via the typed map.
-const VISIBLE_MODES: BundledWorkspaceMode[] = [
-  STANDARD_WORKSPACE_MODE,
-  SPRINT_ENGINE_WORKSPACE_MODE,
-  SWITCHBOARD_WORKSPACE_MODE,
-  MULTILOOP_WORKSPACE_MODE,
-  GUIDED_BRIEF_WORKSPACE_MODE,
-]
+// Expected rail-hidden state for every bundled mode. Typed as a
+// `Record<BundledWorkspaceMode, boolean>` so adding a member to the union
+// without a row here is a compile error — the exhaustiveness guard is real, not
+// just asserted by a comment.
+const EXPECTED_HIDDEN: Record<BundledWorkspaceMode, boolean> = {
+  [STANDARD_WORKSPACE_MODE]: false,
+  [SPRINT_ENGINE_WORKSPACE_MODE]: false,
+  [SWITCHBOARD_WORKSPACE_MODE]: false,
+  [MULTILOOP_WORKSPACE_MODE]: false,
+  [GUIDED_BRIEF_WORKSPACE_MODE]: false,
+  [AUTOMATIONS_HOST_WORKSPACE_MODE]: true,
+}
+
+const BUNDLED_MODES = Object.keys(EXPECTED_HIDDEN) as BundledWorkspaceMode[]
 
 run('isAutomationsHostWorkspace is true only for the automations-host mode', () => {
-  assert.equal(isAutomationsHostWorkspace({ mode: AUTOMATIONS_HOST_WORKSPACE_MODE }), true)
-  for (const mode of VISIBLE_MODES) {
-    assert.equal(isAutomationsHostWorkspace({ mode }), false, `expected ${mode} not to be automations-host`)
+  for (const mode of BUNDLED_MODES) {
+    assert.equal(
+      isAutomationsHostWorkspace({ mode }),
+      mode === AUTOMATIONS_HOST_WORKSPACE_MODE,
+      `unexpected isAutomationsHostWorkspace for ${mode}`,
+    )
   }
 })
 
-run('isHiddenFromRail hides only the automations-host mode', () => {
-  assert.equal(isHiddenFromRail({ mode: AUTOMATIONS_HOST_WORKSPACE_MODE }), true)
-  for (const mode of VISIBLE_MODES) {
-    assert.equal(isHiddenFromRail({ mode }), false, `expected ${mode} to stay visible in the rail`)
+run('isHiddenFromRail hides exactly the modes flagged hidden', () => {
+  for (const mode of BUNDLED_MODES) {
+    assert.equal(isHiddenFromRail({ mode }), EXPECTED_HIDDEN[mode], `unexpected isHiddenFromRail for ${mode}`)
   }
 })
 
