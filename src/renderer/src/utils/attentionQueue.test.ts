@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import type { AgentState, SessionActivity, TerminalSessionSnapshot } from '../../../../shared/electron-api'
+import type { AgentState, SessionActivity, TerminalSessionSnapshot } from '../../../shared/electron-api'
 import type { Workspace } from '../types/workspace'
 import { attentionQueueBadge, buildAttentionQueueItems } from './attentionQueue'
 
