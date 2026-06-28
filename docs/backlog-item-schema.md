@@ -29,6 +29,7 @@ difficulty: m        # xs | s | m | l | xl   (effort to build)
 criticality: high    # low | normal | high | critical   (impact if missing)
 risk: normal         # low | normal | high   (likelihood it breaks; not effort)
 epic: auth-revamp    # optional; slug of the epic this item belongs to
+dependsOn: a-item, b-item   # optional; comma-separated slugs of prerequisite items
 updated: 2026-06-26T10:00:00Z   # optional; drives the "recently updated" sort
 ---
 ```
@@ -47,6 +48,14 @@ updated: 2026-06-26T10:00:00Z   # optional; drives the "recently updated" sort
   nothing is persisted, and a manual highlight color always wins.
 - **epic**: optional up-pointing slug naming the epic this item belongs to. The
   slug is the epic file's name stem (see below).
+- **dependsOn**: optional prerequisite list — a single **flat comma-separated
+  scalar** (the frontmatter has no array support), e.g. `dependsOn: a-item, b-item`.
+  Each entry is an item **slug = the prerequisite file's name stem** (the same
+  identifier `epic:` uses). Read trims, dedupes, and drops the item's own slug, so
+  an item can never depend on itself. Like `epic`, dependencies are **stored up,
+  derived down**: only the dependent stores the edge; the reverse "blocks" edges
+  and the derived "waiting" signal (an active item with an unresolved
+  prerequisite) are recomputed on every scan and never persisted to `items.json`.
 - **updated**: optional ISO-8601 timestamp powering the "recently updated" sort.
 
 Set an axis only when the current context supports a grounded estimate; leave it

@@ -110,6 +110,42 @@ export function serializeBacklogFrontmatterFields(
   return `---${eol}${resultLines.join(eol)}${eol}---${closeTrailing}${body}`
 }
 
+// Backlog identifiers — the `epic:` pointer and each `dependsOn:` prerequisite —
+// reference an item by its filename stem, so a valid slug is one filename-stem
+// token: letters, digits, dot, underscore, hyphen, never whitespace, a path
+// separator, or the `.`/`..` directory names. Mirrors the service-side epic-slug
+// check so the read model and the write path agree on what a slug may contain.
+const BACKLOG_SLUG_RE = /^[A-Za-z0-9._-]+$/
+
+export function isValidBacklogSlug(value: unknown): value is string {
+  return typeof value === 'string' && BACKLOG_SLUG_RE.test(value) && value !== '.' && value !== '..'
+}
+
+// Parse a flat comma-separated scalar — the frontmatter format has no array
+// support, so list fields like `dependsOn:` are authored as a single
+// `a-item, b-item` line — into a clean list: split on commas, trim, drop
+// empties, and dedupe keeping first-seen order. `formatBacklogCsvList` is its
+// inverse for any already-clean list.
+export function parseBacklogCsvList(value: string | null | undefined): string[] {
+  if (!value) return []
+  const items: string[] = []
+  const seen = new Set<string>()
+  for (const part of value.split(',')) {
+    const slug = part.trim()
+    if (!slug || seen.has(slug)) continue
+    seen.add(slug)
+    items.push(slug)
+  }
+  return items
+}
+
+// Serialize a list back to the single comma-separated scalar one frontmatter
+// line holds. Inverse of parseBacklogCsvList for a clean list (trimmed,
+// non-empty, deduped); an empty list yields '' so the write path clears the line.
+export function formatBacklogCsvList(values: string[]): string {
+  return values.join(', ')
+}
+
 function normalizeUpdates(updates: BacklogFrontmatterUpdates): {
   sets: Map<string, string>
   clears: Set<string>

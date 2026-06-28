@@ -12,9 +12,9 @@ import {
   type BacklogDifficulty,
   type BacklogHighlightColor,
   type BacklogItem,
+  backlogItemSlugFromPath,
   isBacklogHighlightColor,
   nextArchiveRelativePath,
-  normalizeRelativePath,
 } from './backlog'
 
 export const NO_EPIC_TITLE = 'No epic'
@@ -149,10 +149,10 @@ function buildGroup(
 // `auth-revamp`), independent of its directory. The membership contract keys on
 // this stem (a child's `epic:` frontmatter), so anything that *moves* an epic
 // file (the archive rollup) must keep the stem and the children's pointers in
-// sync — see planEpicArchive.
+// sync — see planEpicArchive. Delegates to the generalized item-slug helper so
+// epics and the new `dependsOn:` axis share one definition of "the slug".
 export function backlogEpicSlugFromPath(relativePath: string): string {
-  const name = normalizeRelativePath(relativePath).split('/').filter(Boolean).at(-1) ?? relativePath
-  return name.replace(/\.md$/i, '')
+  return backlogItemSlugFromPath(relativePath)
 }
 
 // Exported so callers that hold an epic item (e.g. the archive-epic rollup) can

@@ -2,6 +2,9 @@ import assert from 'node:assert/strict'
 import { type Dirent, readFileSync, readdirSync } from 'node:fs'
 import { join } from 'node:path'
 import {
+  formatBacklogCsvList,
+  isValidBacklogSlug,
+  parseBacklogCsvList,
   parseBacklogFrontmatter,
   serializeBacklogFrontmatterFields,
 } from './frontmatter'
@@ -71,6 +74,50 @@ run('property: writing a field preserves the body and unknown keys + order', () 
     assert.equal(bodyOf(updated), beforeBody, `body changed for ${path}`)
     const afterKeys = topLevelKeyOrder(updated).filter((key) => key !== PROBE_KEY)
     assert.deepEqual(afterKeys, beforeKeys, `unknown-key order changed for ${path}`)
+  }
+})
+
+run('property: a dependsOn line set then cleared is byte-identical and preserves body + keys', () => {
+  for (const path of fixtureFiles) {
+    const original = readFileSync(path, 'utf8')
+    const fields = parseBacklogFrontmatter(original).fields
+    assert.ok(!('dependson' in fields), `${path} unexpectedly already defines dependsOn`)
+    const beforeBody = bodyOf(original)
+    const beforeKeys = topLevelKeyOrder(original)
+    const csv = formatBacklogCsvList(['alpha-item', 'beta-item'])
+    const set = serializeBacklogFrontmatterFields(original, { dependsOn: csv })
+    // Body byte-preserved and the parsed CSV round-trips while the line is present.
+    assert.equal(bodyOf(set), beforeBody, `body changed for ${path}`)
+    assert.deepEqual(parseBacklogCsvList(parseBacklogFrontmatter(set).fields.dependson), ['alpha-item', 'beta-item'])
+    const afterKeys = topLevelKeyOrder(set).filter((key) => key !== 'dependson')
+    assert.deepEqual(afterKeys, beforeKeys, `unknown-key order changed for ${path}`)
+    const cleared = serializeBacklogFrontmatterFields(set, { dependsOn: null })
+    assert.equal(cleared, original, `dependsOn set→clear not byte-identical for ${path}`)
+  }
+})
+
+run('parseBacklogCsvList trims, drops empties, and dedupes keeping first-seen order', () => {
+  assert.deepEqual(parseBacklogCsvList('a-item, b-item'), ['a-item', 'b-item'])
+  assert.deepEqual(parseBacklogCsvList('  a-item ,  b-item  '), ['a-item', 'b-item'])
+  assert.deepEqual(parseBacklogCsvList('a, , a, b, '), ['a', 'b'])
+  assert.deepEqual(parseBacklogCsvList(''), [])
+  assert.deepEqual(parseBacklogCsvList(undefined), [])
+  assert.deepEqual(parseBacklogCsvList(null), [])
+})
+
+run('formatBacklogCsvList is the inverse of parse for a clean list; empty yields an empty string', () => {
+  const clean = ['a-item', 'b-item', 'c-item']
+  assert.equal(formatBacklogCsvList(clean), 'a-item, b-item, c-item')
+  assert.deepEqual(parseBacklogCsvList(formatBacklogCsvList(clean)), clean)
+  assert.equal(formatBacklogCsvList([]), '')
+})
+
+run('isValidBacklogSlug accepts filename-stem tokens and rejects separators/dots/empty', () => {
+  for (const slug of ['auth-revamp', 'a_b.c', 'Item-2', '2026-06-27-thing']) {
+    assert.ok(isValidBacklogSlug(slug), `expected ${slug} valid`)
+  }
+  for (const slug of ['', 'a b', 'a/b', 'a,b', '.', '..', 42, null, undefined]) {
+    assert.ok(!isValidBacklogSlug(slug as unknown), `expected ${String(slug)} invalid`)
   }
 })
 

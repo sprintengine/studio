@@ -1,5 +1,5 @@
 import type { BacklogHighlightColorPayload, FileSystemStat } from '../../../shared/electron-api'
-import { parseBacklogFrontmatter } from '../../../shared/backlog/frontmatter'
+import { parseBacklogCsvList, parseBacklogFrontmatter } from '../../../shared/backlog/frontmatter'
 import type { HighlightColor, SprintEngineSourcePlanKind } from '../types/workspace'
 import {
   inferSourcePlanKind,
@@ -114,6 +114,12 @@ export type BacklogItem = {
   // whether this item is itself an epic container (`type === 'epic'`).
   epic?: string
   isEpic: boolean
+  // Prerequisite item slugs from the frontmatter `dependsOn:` comma-separated
+  // scalar — trimmed, deduped, with this item's own slug dropped. `undefined`
+  // when the field is absent or names nothing but self. Stored up on the
+  // dependent; reverse "blocks" edges and the waiting signal are derived (T2),
+  // never persisted to items.json (mirrors the epic axis).
+  dependsOn?: string[]
   highlight?: BacklogHighlight
   metadata: Record<string, unknown>
   links: BacklogItemLink[]
@@ -294,6 +300,7 @@ export function createBacklogItem(input: {
   const frontmatterCriticality = parseBacklogCriticality(frontmatterValue(fields, 'criticality', 'priority'))
   const frontmatterRisk = parseBacklogRisk(frontmatterValue(fields, 'risk'))
   const epic = frontmatterValue(fields, 'epic')
+  const dependsOn = parseBacklogDependsOn(frontmatterValue(fields, 'dependsOn'), backlogItemSlugFromPath(relativePath))
   const title = inferBacklogTitle(relativePath, body)
   // Lifecycle/triage and epic are frontmatter-sourced (frontmatter is the source
   // of truth); the sidecar object only contributes identity, links, metadata,
@@ -315,6 +322,7 @@ export function createBacklogItem(input: {
     risk: frontmatterRisk,
     epic,
     isEpic: type === 'epic',
+    dependsOn,
     highlight: input.object?.highlight,
     metadata: input.object?.metadata ?? {},
     links: input.object?.links ?? [],
@@ -418,6 +426,16 @@ export function stableBacklogObjectId(relativePath: string): string {
   return `backlog_${(hash >>> 0).toString(36)}`
 }
 
+// Stable per-item slug = the file's name stem, independent of its directory
+// (e.g. `backlog/epics/auth-revamp.md` -> `auth-revamp`,
+// `backlog/checkout.html` -> `checkout`). This is the identifier the `epic:`
+// pointer and each `dependsOn:` prerequisite reference, so epic slug derivation
+// (backlogEpicSlugFromPath) reuses it — keeping one definition of "the slug".
+export function backlogItemSlugFromPath(relativePath: string): string {
+  const name = normalizeRelativePath(relativePath).split('/').filter(Boolean).at(-1) ?? relativePath
+  return name.replace(SOURCE_EXTENSION_RE, '')
+}
+
 export function nextArchiveRelativePath(
   sourceRelativePath: string,
   existingRelativePaths: Iterable<string>,
@@ -479,6 +497,19 @@ function parseBacklogCriticality(value: string | undefined): BacklogCriticality 
 function parseBacklogRisk(value: string | undefined): BacklogRisk | undefined {
   if (!value) return undefined
   return isBacklogRisk(value) ? value : undefined
+}
+
+// Parse the `dependsOn:` prerequisite list: a flat comma-separated scalar of item
+// slugs, cleaned (trim/dedupe) by the shared helper, with this item's own slug
+// dropped so a self-reference can never make an item block itself. Tolerant on
+// read like an unknown `type:` — dangling or malformed slugs are preserved here
+// and surfaced as "unknown prerequisite" during derivation (T2), not filtered
+// out silently. Returns undefined when the field is absent or names only self,
+// so dependsOn is always either a non-empty list or undefined.
+function parseBacklogDependsOn(value: string | undefined, selfSlug: string): string[] | undefined {
+  if (!value) return undefined
+  const slugs = parseBacklogCsvList(value).filter((slug) => slug !== selfSlug)
+  return slugs.length > 0 ? slugs : undefined
 }
 
 // Rough captures default to a calm "idea", regardless of whether a plan kind
