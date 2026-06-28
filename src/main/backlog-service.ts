@@ -419,10 +419,16 @@ export async function moveBacklogObjectSource(input: BacklogMoveSourceInput): Pr
   } catch (error) {
     return { ok: false, message: errorMessage(error) }
   }
+  // v2: archived-ness is path-derived by the reader (isArchivedBacklogPath in
+  // src/renderer/src/utils/backlog.ts), so the move only rewrites the sidecar
+  // source path. Writing status:'archived' here would orphan a lifecycle field
+  // the reader never consults, and — since status is migratable under sidecar-
+  // wins precedence — a later loadMigratedStore pass would push it back into the
+  // archived file's frontmatter, clobbering its true pre-archive status. Mirror
+  // the mutateItem pattern that deliberately never seeds lifecycle into items.json.
   return mutateItem(input.workspaceRoot, input.relativePath, (record, now) => ({
     ...record,
     source: { type: 'file', relativePath: nextRelativePath },
-    status: nextRelativePath.toLowerCase().startsWith('backlog/archived/') ? 'archived' : record.status,
     updatedAt: now,
   }))
 }

@@ -7,6 +7,7 @@ import { parseBacklogFrontmatter } from '../shared/backlog/frontmatter'
 import {
   addOrUpdateBacklogLink,
   createBacklogEpic,
+  moveBacklogObjectSource,
   planBacklogStoreMigration,
   readBacklogObjectStore,
   updateBacklogEpic,
@@ -445,6 +446,65 @@ async function main(): Promise<void> {
   }
 
   await assertLazyMigrationMatrix()
+  await assertArchiveLeavesSidecarLifecycleFree()
+}
+
+// Archiving an item is a pure source-path move: it must never write a lifecycle
+// field (status/type/difficulty/criticality/risk/epic) into the sidecar record.
+// Archived-ness is path-derived by the reader (isArchivedBacklogPath), so a
+// sidecar status would be orphaned data — and since status is migratable under
+// sidecar-wins precedence, a later readBacklogObjectStore pass would clobber the
+// archived file's true pre-archive frontmatter status with 'archived'. Regression
+// guard for T23 (T21 live-verification F-1).
+async function assertArchiveLeavesSidecarLifecycleFree(): Promise<void> {
+  const root = await mkdtemp(join(tmpdir(), 'multicode-backlog-archive-'))
+  const storePath = join(root, '.multi-code', 'backlog', 'items.json')
+  const lifecycleKeys = ['status', 'type', 'difficulty', 'criticality', 'risk', 'epic']
+  try {
+    // The file has already been moved on disk to its archived path, carrying its
+    // true pre-archive frontmatter status: ready.
+    const body = '# Checkout\n\nSpeed up checkout.\n'
+    const archivedFile = '---\nstatus: ready\n---\n' + body
+    await mkdir(join(root, 'backlog', 'archived'), { recursive: true })
+    await writeFile(join(root, 'backlog', 'archived', 'checkout.md'), archivedFile, 'utf-8')
+
+    // Re-point the sidecar source from the live path to the archived path.
+    const moved = await moveBacklogObjectSource({
+      workspaceRoot: root,
+      relativePath: 'backlog/checkout.md',
+      nextRelativePath: 'backlog/archived/checkout.md',
+    })
+    assert.equal(moved.ok, true)
+    const movedRecord = moved.ok ? moved.store.items[0] : null
+    assert.equal(movedRecord?.source.relativePath, 'backlog/archived/checkout.md', 'archive must rewrite the sidecar source path')
+    // The normalized in-memory record carries lifecycle keys as `undefined`;
+    // JSON.stringify drops them, so the value (not key presence) is the invariant.
+    for (const key of lifecycleKeys) {
+      assert.equal((movedRecord as Record<string, unknown>)[key], undefined, `archive must not write ${key} into the sidecar record`)
+    }
+    const persisted = JSON.parse(await readFile(storePath, 'utf-8')) as { items: Array<Record<string, unknown>> }
+    for (const key of lifecycleKeys) {
+      assert.equal(key in persisted.items[0], false, `persisted sidecar must not carry ${key} after archive`)
+    }
+
+    // A subsequent lazy-migration pass must inject nothing: with no lifecycle key
+    // in the sidecar there is nothing to migrate, so the archived file's true
+    // status survives instead of being overwritten with 'archived'.
+    const fileBefore = await readFile(join(root, 'backlog', 'archived', 'checkout.md'), 'utf-8')
+    const read = await readBacklogObjectStore(root)
+    assert.equal(read.ok, true)
+    const reloaded = read.ok ? read.store.items[0] : null
+    assert.equal(reloaded?.status as unknown, undefined, 'migration must not synthesize a sidecar status for an archived record')
+    const afterMigrate = parseBacklogFrontmatter(await readFile(join(root, 'backlog', 'archived', 'checkout.md'), 'utf-8'))
+    assert.equal(afterMigrate.fields.status, 'ready', 'archive must not clobber the archived file frontmatter status')
+    assert.equal(
+      await readFile(join(root, 'backlog', 'archived', 'checkout.md'), 'utf-8'),
+      fileBefore,
+      'a migration pass over an archived record must not rewrite the item file',
+    )
+  } finally {
+    await rm(root, { force: true, recursive: true })
+  }
 }
 
 // Lazy v1 -> v2 migration: the pure planner plus the on-disk migration that

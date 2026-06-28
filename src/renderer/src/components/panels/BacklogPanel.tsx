@@ -821,9 +821,10 @@ export default function BacklogPanel({ workspaceId, onStartFuturePlan }: Workspa
     [dialog, folderPath, removeOpenFilesForPath, runAction, runScan, workspaceId],
   )
 
-  // Triage edits persist to the backlog object store (items.json) and re-scan,
-  // so size/priority are real owned metadata — never markdown frontmatter and
-  // never disconnected UI state.
+  // Triage edits (difficulty/criticality/risk) route through updateBacklogTriage
+  // to the item's markdown frontmatter under schema-v2 — frontmatter is the
+  // source of truth for these axes, not items.json — then re-scan, so they are
+  // real persisted metadata and never disconnected UI state.
   const setItemTriage = useCallback(
     (
       item: BacklogItem,
