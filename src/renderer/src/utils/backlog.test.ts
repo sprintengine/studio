@@ -4,6 +4,7 @@ import { join } from 'node:path'
 import type { FileSystemStat } from '../../../shared/electron-api'
 import {
   backlogExcerpt,
+  backlogItemSlugFromPath,
   backlogPreviewMarkdown,
   createBacklogItem,
   inferBacklogKind,
@@ -264,6 +265,53 @@ run('epic frontmatter sets the slug and marks containers via isEpic', () => {
   assert.equal(container.type, 'epic')
   assert.equal(container.isEpic, true)
   assert.equal(container.epic, undefined)
+})
+
+run('dependsOn parses a multi-slug CSV scalar, trimmed and deduped', () => {
+  const item = createBacklogItem({
+    path: '/repo/backlog/checkout.md',
+    relativePath: 'backlog/checkout.md',
+    sourceContent: '---\ntype: feature\ndependsOn:  auth-revamp ,  payments , auth-revamp \n---\n# Checkout',
+    stats: { modifiedAtMs: 20, sizeBytes: 64 },
+  })
+  assert.deepEqual(item.dependsOn, ['auth-revamp', 'payments'])
+})
+
+run('dependsOn drops empties and the item\'s own slug (no self-dependency)', () => {
+  const item = createBacklogItem({
+    path: '/repo/backlog/checkout.md',
+    relativePath: 'backlog/checkout.md',
+    sourceContent: '---\ndependsOn: checkout, , auth-revamp,checkout\n---\n# Checkout',
+    stats: { modifiedAtMs: 20, sizeBytes: 64 },
+  })
+  // Own slug (filename stem `checkout`) and the empty token are removed.
+  assert.deepEqual(item.dependsOn, ['auth-revamp'])
+})
+
+run('dependsOn is undefined when the field is absent or names only self', () => {
+  const absent = createBacklogItem({
+    path: '/repo/backlog/standalone.md',
+    relativePath: 'backlog/standalone.md',
+    sourceContent: '---\ntype: feature\n---\n# Standalone',
+    stats: { modifiedAtMs: 20, sizeBytes: 64 },
+  })
+  assert.equal(absent.dependsOn, undefined)
+
+  const selfOnly = createBacklogItem({
+    path: '/repo/backlog/standalone.md',
+    relativePath: 'backlog/standalone.md',
+    sourceContent: '---\ndependsOn: standalone\n---\n# Standalone',
+    stats: { modifiedAtMs: 20, sizeBytes: 64 },
+  })
+  assert.equal(selfOnly.dependsOn, undefined)
+})
+
+run('backlogItemSlugFromPath returns the filename stem for md and html items', () => {
+  assert.equal(backlogItemSlugFromPath('backlog/epics/auth-revamp.md'), 'auth-revamp')
+  assert.equal(backlogItemSlugFromPath('backlog/checkout.html'), 'checkout')
+  assert.equal(backlogItemSlugFromPath('backlog/prototype.htm'), 'prototype')
+  // Windows separators normalize the same way the read model does.
+  assert.equal(backlogItemSlugFromPath('backlog\\nested\\thing.md'), 'thing')
 })
 
 run('risk is read from frontmatter; invalid or absent risk stays unset', () => {

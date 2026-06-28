@@ -5,8 +5,11 @@ import { join } from 'node:path'
 import { renderToStaticMarkup } from 'react-dom/server'
 
 import { BacklogRowContent } from './BacklogRow'
-import { createBacklogItem, type BacklogHighlight } from '../../utils/backlog'
+import { BacklogDependenciesSection } from './BacklogDependenciesSection'
+import type { BacklogActions } from './BacklogItemContextMenu'
+import { createBacklogItem, type BacklogHighlight, type BacklogItem } from '../../utils/backlog'
 import { compareBacklogItems, type BacklogSort } from '../../utils/backlogTriage'
+import { deriveBacklogDependencies } from '../../utils/backlogDependencies'
 
 let failures = 0
 function run(name: string, fn: () => void): void {
@@ -85,6 +88,101 @@ run('star and color never affect list order — comparator ignores highlight for
   }
 })
 
+// ---- Waiting badge + detail dependencies (T4) ------------------------------
+
+run('a waiting row renders the non-color-only "Waiting" badge with one accessible name', () => {
+  const markup = renderToStaticMarkup(<BacklogRowContent item={itemWith()} now={NOW} isWaiting />)
+  // The word — not color — carries the meaning, and the whole token reads as one
+  // accessible name (so a screen reader announces it, not a bare glyph).
+  assert.match(markup, /aria-label="Waiting on prerequisites"/, 'the badge carries one accessible name')
+  assert.match(markup, />Waiting<\/span>|Waiting/, 'the visible word "Waiting" is present')
+})
+
+run('a non-waiting row renders no Waiting badge — the marker is earned', () => {
+  const markup = renderToStaticMarkup(<BacklogRowContent item={itemWith()} now={NOW} />)
+  assert.ok(!markup.includes('Waiting on prerequisites'), 'no badge when isWaiting is unset')
+})
+
+// Build a real BacklogItem with status + dependsOn frontmatter so the detail
+// section is exercised against the same derivation the panel uses.
+function depItem(relativePath: string, opts: { status?: string; dependsOn?: string[] } = {}): BacklogItem {
+  const lines: string[] = []
+  if (opts.status) lines.push(`status: ${opts.status}`)
+  if (opts.dependsOn?.length) lines.push(`dependsOn: ${opts.dependsOn.join(', ')}`)
+  const front = lines.length ? `---\n${lines.join('\n')}\n---\n` : ''
+  return createBacklogItem({
+    path: `/repo/${relativePath}`,
+    relativePath,
+    sourceContent: `${front}# ${relativePath}`,
+    stats: { modifiedAtMs: 1, sizeBytes: 1 },
+  })
+}
+
+const noopActions = {} as BacklogActions
+
+function depSection(items: BacklogItem[], selectedPath: string): string {
+  const graph = deriveBacklogDependencies(items)
+  const selected = items.find((item) => item.relativePath === selectedPath)
+  if (!selected) throw new Error(`no item ${selectedPath}`)
+  return renderToStaticMarkup(
+    <BacklogDependenciesSection
+      item={selected}
+      node={graph.byItemId.get(selected.id) ?? null}
+      dependencyChoices={items.map((item) => ({ id: item.id, slug: item.relativePath.replace(/^.*\//, '').replace(/\.md$/, ''), title: item.title }))}
+      actions={noopActions}
+      onNavigate={() => {}}
+    />,
+  )
+}
+
+run('detail Prerequisites: an unresolved prerequisite renders its title + status word and is navigable', () => {
+  const items = [
+    depItem('backlog/a.md', { status: 'in_progress' }),
+    depItem('backlog/b.md', { status: 'idea', dependsOn: ['a'] }),
+  ]
+  const markup = depSection(items, 'backlog/b.md')
+  assert.match(markup, /Prerequisites/, 'the Prerequisites subsection renders')
+  assert.match(markup, /backlog\/a\.md/, 'the prerequisite target title shows')
+  assert.match(markup, /In progress/, 'the prerequisite status word shows')
+  assert.match(markup, /<button[^>]*>/, 'the prerequisite is a navigable control')
+})
+
+run('detail Blocks: an item shows the items it blocks (reverse edge)', () => {
+  const items = [
+    depItem('backlog/a.md', { status: 'idea' }),
+    depItem('backlog/b.md', { status: 'idea', dependsOn: ['a'] }),
+  ]
+  const markup = depSection(items, 'backlog/a.md')
+  assert.match(markup, /Blocks/, 'the Blocks subsection renders')
+  assert.match(markup, /backlog\/b\.md/, 'the blocked dependent shows')
+})
+
+run('detail dangling prerequisite renders as an Unknown note, not silently dropped', () => {
+  const items = [depItem('backlog/b.md', { status: 'idea', dependsOn: ['ghost'] })]
+  const markup = depSection(items, 'backlog/b.md')
+  assert.match(markup, /ghost/, 'the dangling slug is shown')
+  assert.match(markup, /Unknown/, 'the dangling prerequisite reads as Unknown')
+  assert.match(markup, /role="note"/, 'a dangling slug is a non-actionable note')
+})
+
+run('detail cycle warning shows when the selected item is in a dependency cycle', () => {
+  const items = [
+    depItem('backlog/a.md', { status: 'idea', dependsOn: ['b'] }),
+    depItem('backlog/b.md', { status: 'idea', dependsOn: ['a'] }),
+  ]
+  const markup = depSection(items, 'backlog/a.md')
+  assert.match(markup, /dependency cycle/, 'a non-fatal cycle warning renders')
+})
+
+run('detail dependency editor offers a "Depends on…" control', () => {
+  const items = [
+    depItem('backlog/a.md', { status: 'idea' }),
+    depItem('backlog/b.md', { status: 'idea' }),
+  ]
+  const markup = depSection(items, 'backlog/b.md')
+  assert.match(markup, /Depends on…/, 'the add/remove editor is reachable from the detail pane')
+})
+
 // Source contracts, in the spirit of backlog.test.ts: the panel-side wiring the
 // static render above cannot reach (store-bound list + detail surfaces).
 const backlogPanelSource = readFileSync(
@@ -97,6 +195,10 @@ const sourcePickerSource = readFileSync(
 )
 const contextMenuSource = readFileSync(
   join(process.cwd(), 'src/renderer/src/components/backlog/BacklogItemContextMenu.tsx'),
+  'utf8',
+)
+const dependenciesSectionSource = readFileSync(
+  join(process.cwd(), 'src/renderer/src/components/backlog/BacklogDependenciesSection.tsx'),
   'utf8',
 )
 
@@ -265,6 +367,69 @@ run('detail overflow menu carries Star/Unstar through the persisted highlight ha
     /setHighlight: \(item, highlight\) => void setItemHighlight\(item, highlight\)/,
     'setHighlight sits in BacklogActions so the context-menu task can reuse it',
   )
+})
+
+run('Dependency order is a whole-list topo branch, not a pairwise comparator', () => {
+  // The sort option exists and the filtered memo branches around
+  // compareBacklogItems to the full-graph topo order, restricted to visible rows.
+  assert.match(backlogPanelSource, /value: 'dependency', label: 'Dependency order'/, 'the sort control gains Dependency order')
+  assert.match(backlogPanelSource, /deriveBacklogDependencies\(items\)/, 'the graph derives over the full scan, not the filtered view')
+  assert.match(backlogPanelSource, /if \(sort === 'dependency'\)/, 'the panel branches on the dependency sort')
+  assert.match(
+    backlogPanelSource,
+    /dependencyGraph\.order\.filter\(\(item\) => visible\.has\(item\.id\)\)/,
+    'dependency order is the topo order kept to the visible rows',
+  )
+})
+
+run('detail cross-navigation widens the lens so a filtered-out target never dead-clicks', () => {
+  // Prerequisite/Blocks activation routes through navigateToBacklogItem, not the
+  // plain row-select: the detail `selected` resolves only within `filtered`, so a
+  // target hidden by the active lens/search (always for archived — every
+  // non-archived lens hides archived) would be dropped by the validity effect.
+  assert.match(backlogPanelSource, /onNavigate=\{navigateToBacklogItem\}/, 'the detail section navigates through the widening handler')
+  assert.match(
+    backlogPanelSource,
+    /!filtered\.some\(\(item\) => item\.id === id\)/,
+    'it only widens when the target is not already visible (preserves the active lens otherwise)',
+  )
+  assert.match(
+    backlogPanelSource,
+    /setView\(target\.status === 'archived' \? 'archived' : 'all'\)/,
+    'a hidden target widens to its own lens (Archived for archived, else All items)',
+  )
+  assert.match(backlogPanelSource, /setSearch\(''\)/, 'the search is cleared so the navigated row stays visible')
+})
+
+run('the row waiting badge is derived (never persisted) and wired through the list', () => {
+  assert.match(backlogPanelSource, /node\.isWaiting/, 'the waiting map reads the derived isWaiting flag')
+  assert.match(backlogPanelSource, /isWaiting=\{waitingById\?\.get\(item\.id\)\}/, 'rows receive their derived waiting state')
+  // Never a frontmatter/object field — purely derived, like runGlyphById.
+  assert.ok(!/updateBacklog\w*[Ww]aiting/.test(backlogPanelSource), 'waiting is never persisted')
+})
+
+run('prerequisites persist only through the dependsOn frontmatter IPC, never items.json', () => {
+  assert.match(backlogPanelSource, /window\.api\.updateBacklogDependencies\(\{/, 'setDependencies mutates through the update-dependencies IPC')
+  assert.match(
+    backlogPanelSource,
+    /setDependencies: \(item, slugs\) => void setItemDependencies\(item, slugs\)/,
+    'setDependencies sits in BacklogActions so the menu and detail share one path',
+  )
+})
+
+run('context menu exposes a multi-select "Depends on…" flyout with checkmarks, excluding self', () => {
+  assert.match(contextMenuSource, /label="Depends on…"/, 'context menu has a Depends on… flyout')
+  assert.match(contextMenuSource, /candidate\.id !== item\.id/, 'the item itself is excluded from candidates')
+  assert.match(contextMenuSource, /toggleDependencySlug\(dependsOn, candidate\.slug\)/, 'each row toggles one slug in the set')
+  assert.match(contextMenuSource, /MenuCheckGlyph visible=\{checked\}/, 'current prerequisites show checkmarks, mirroring Move to epic')
+})
+
+run('detail dependencies section reflects current prerequisites with checks and excludes self', () => {
+  assert.match(dependenciesSectionSource, /Depends on…/, 'the detail editor mirrors the menu affordance')
+  assert.match(dependenciesSectionSource, /candidate\.id !== item\.id/, 'the editor excludes the item itself')
+  assert.match(dependenciesSectionSource, /aria-checked=\{checked\}/, 'the editor reflects current prerequisites with checks')
+  assert.match(dependenciesSectionSource, /const \{ prerequisites, blocks, inCycle \} = node/, 'the section renders the derived prerequisites, blocks, and cycle flag')
+  assert.match(dependenciesSectionSource, /dependency cycle/, 'a non-fatal cycle warning is rendered from inCycle')
 })
 
 run('the new-workspace source picker renders the same shared row interior', () => {

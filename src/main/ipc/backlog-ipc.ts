@@ -5,6 +5,7 @@ import type {
   BacklogCreateEpicInput,
   BacklogCreateEpicResult,
   BacklogEpicColorInput,
+  BacklogDependenciesInput,
   BacklogEpicInput,
   BacklogHighlightInput,
   BacklogItemRecordInput,
@@ -24,6 +25,7 @@ import {
   moveBacklogObjectSource,
   readBacklogObjectStore,
   removeBacklogObjectRecord,
+  updateBacklogDependencies,
   updateBacklogEpic,
   updateBacklogEpicColor,
   updateBacklogHighlight,
@@ -83,6 +85,10 @@ export function registerBacklogIpc(ipcMain: IpcMain): void {
 
   ipcMain.handle('backlog:update-epic-color', (_event, input: BacklogEpicColorInput): Promise<BacklogMutationResult> => {
     return updateBacklogEpicColor(input)
+  })
+
+  ipcMain.handle('backlog:update-dependencies', (_event, input: BacklogDependenciesInput): Promise<BacklogMutationResult> => {
+    return updateBacklogDependencies(input)
   })
 
   ipcMain.handle('backlog:create-epic', (_event, input: BacklogCreateEpicInput): Promise<BacklogCreateEpicResult> => {

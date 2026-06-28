@@ -109,6 +109,7 @@ export const BacklogRowContent = memo(function BacklogRowContent({
   now,
   runGlyph,
   epicChip,
+  isWaiting = false,
 }: {
   item: BacklogItem
   now: number
@@ -118,6 +119,10 @@ export const BacklogRowContent = memo(function BacklogRowContent({
   /** The row's epic identity (dot + name), shown on the supporting line in the
    *  flat list only — the grouped list names the epic on its header instead. */
   epicChip?: BacklogEpicMeta
+  /** Derived (never persisted): the item is active and has ≥1 unresolved
+   *  prerequisite, so it earns the "Waiting" badge. Off for done/non-blocked
+   *  items and for the source picker, which passes no dependency graph. */
+  isWaiting?: boolean
 }): JSX.Element {
   const lifecycle = runGlyph?.state ?? backlogStatusToLifecycle(item.status)
   const statusLabel = runGlyph?.label ?? BACKLOG_STATUS_LABEL[item.status]
@@ -147,6 +152,7 @@ export const BacklogRowContent = memo(function BacklogRowContent({
             />
           ) : null}
         </span>
+        {isWaiting ? <WaitingBadge /> : null}
         <DifficultyIndicator difficulty={item.difficulty} />
         <CriticalityIndicator criticality={item.criticality} />
       </div>
@@ -170,6 +176,34 @@ export const BacklogRowContent = memo(function BacklogRowContent({
     </>
   )
 })
+
+// Derived "waiting" marker: this item is active and at least one prerequisite is
+// unresolved (see backlogDependencies). The word carries the meaning — never
+// color alone — and an hourglass glyph shape-codes it; the whole token is one
+// accessible name so a screen reader reads "Waiting on prerequisites" rather
+// than a bare icon. Calm muted tone, no tinted pill: it is metadata beside the
+// size/priority tokens, not a second status dot competing with the lifecycle
+// glyph. Rendered only on waiting rows (earned, like the star).
+function WaitingBadge(): JSX.Element {
+  return (
+    <span
+      role="img"
+      aria-label="Waiting on prerequisites"
+      className="inline-flex shrink-0 items-center gap-1 text-[11px] font-medium text-[color:var(--text-muted)]"
+    >
+      <svg viewBox="0 0 16 16" fill="none" className="icon-xs shrink-0" aria-hidden="true">
+        <path
+          d="M4.5 3h7M4.5 13h7M5.5 3v1.6c0 1 .8 1.9 2.5 3.4 1.7-1.5 2.5-2.4 2.5-3.4V3M5.5 13v-1.6c0-1 .8-1.9 2.5-3.4 1.7 1.5 2.5 2.4 2.5 3.4V13"
+          stroke="currentColor"
+          strokeWidth="1.2"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        />
+      </svg>
+      Waiting
+    </span>
+  )
+}
 
 // Size reads as the t-shirt token itself (XS/S/M/L/XL) — text is the signal, so
 // it never depends on color. Right-aligned, fixed-width, tabular so the column

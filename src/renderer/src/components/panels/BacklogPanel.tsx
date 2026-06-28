@@ -30,6 +30,7 @@ import { sendFileDropToTerminal, setFileDropData, type FileDropPayload } from '.
 import { recordBacklogAgentHandoff } from '../../utils/backlogAgentHandoff'
 import { consumePendingBacklogReveal, subscribeBacklogReveal } from '../../utils/backlogReveal'
 import {
+  backlogItemSlugFromPath,
   backlogPreviewMarkdown,
   backlogRootPath,
   nextArchiveRelativePath,
@@ -52,6 +53,7 @@ import {
 } from '../../utils/sprintengineBacklogLinks'
 import { deriveSprintEngineRunGlyph } from '../../utils/sprintengine'
 import { BacklogLinksSection } from '../backlog/BacklogLinksSection'
+import { BacklogDependenciesSection } from '../backlog/BacklogDependenciesSection'
 import { BacklogFilterMenu } from '../backlog/BacklogFilterMenu'
 import {
   compareBacklogItems,
@@ -74,12 +76,14 @@ import {
   type BacklogEpicMeta,
   type BacklogGroupedRow,
 } from '../../utils/backlogEpics'
+import { deriveBacklogDependencies, type BacklogDependencyNode } from '../../utils/backlogDependencies'
 import {
   BacklogItemContextMenu,
   CRITICALITY_EDIT_ITEMS,
   DIFFICULTY_EDIT_ITEMS,
   RISK_EDIT_ITEMS,
   type BacklogActions,
+  type BacklogDependencyChoice,
   type BacklogEpicChoice,
 } from '../backlog/BacklogItemContextMenu'
 import { BacklogCreateDialog, type BacklogDraft } from './BacklogCreateDialog'
@@ -142,6 +146,7 @@ const SORT_ITEMS: SelectItem<BacklogSort>[] = [
   { value: 'priority', label: 'Priority' },
   { value: 'largest', label: 'Largest first' },
   { value: 'smallest', label: 'Smallest first' },
+  { value: 'dependency', label: 'Dependency order' },
 ]
 
 // Grouping is orthogonal to view/sort: None is today's flat list, By epic nests
@@ -263,20 +268,39 @@ export default function BacklogPanel({ workspaceId, onStartFuturePlan }: Workspa
 
   const items = scan?.items ?? []
 
+  // The dependency graph (T2) is derived once over the FULL item set — never the
+  // filtered view — so prerequisite resolution and the waiting signal stay
+  // accurate regardless of the active lens (a prerequisite hidden by a filter
+  // still resolves to its real status). Recomputed only when the scan changes,
+  // like runGlyphById. Feeds the waiting badges, the detail Prerequisites/Blocks
+  // section, and the "Dependency order" sort.
+  const dependencyGraph = useMemo(() => deriveBacklogDependencies(items), [items])
+  const waitingById = useMemo(() => {
+    const map = new Map<string, true>()
+    for (const node of dependencyGraph.nodes) if (node.isWaiting) map.set(node.item.id, true)
+    return map
+  }, [dependencyGraph])
+
   const filtered = useMemo(() => {
     const query = search.trim().toLowerCase()
-    return items
-      .filter((item) => {
-        // The view lens owns archived visibility (its own option) and the
-        // difficulty/criticality triage ranges; search narrows within it.
-        if (!matchesBacklogView(item, view)) return false
-        if (query && !matchesQuery(item, query)) return false
-        return true
-      })
-      // Stable sort keeps scanBacklog's deterministic path order as the tiebreak
-      // when two items share the sorted key.
-      .sort((a, b) => compareBacklogItems(a, b, sort))
-  }, [items, search, view, sort])
+    const matched = items.filter((item) => {
+      // The view lens owns archived visibility (its own option) and the
+      // difficulty/criticality triage ranges; search narrows within it.
+      if (!matchesBacklogView(item, view)) return false
+      if (query && !matchesQuery(item, query)) return false
+      return true
+    })
+    // "Dependency order" is a whole-list topological transform, not a pairwise
+    // key, so it branches around compareBacklogItems: take the full-graph topo
+    // order (prerequisites before dependents, unblocked frontier first) and keep
+    // only the visible rows, preserving that order. Every other sort keeps the
+    // stable pairwise comparator (path order as the deterministic tiebreak).
+    if (sort === 'dependency') {
+      const visible = new Set(matched.map((item) => item.id))
+      return dependencyGraph.order.filter((item) => visible.has(item.id))
+    }
+    return matched.sort((a, b) => compareBacklogItems(a, b, sort))
+  }, [items, search, view, sort, dependencyGraph])
 
   // Epic grouping is an orthogonal axis layered over the filtered+sorted list.
   // `none` keeps the flat list untouched (groupedRows stays null → the panel
@@ -339,6 +363,22 @@ export default function BacklogPanel({ workspaceId, onStartFuturePlan }: Workspa
   // and the detail pane can render the colour picker, children roll-up, and the
   // child's parent-epic crumb — all from one derived map (never persisted).
   const epicMeta = useMemo(() => epicMetaBySlug(items), [items])
+  // Candidate prerequisites for the "Depends on…" affordances: every non-epic
+  // item by id + slug (filename stem, the `dependsOn` target) + title. Drawn from
+  // the full scan so a prerequisite can be set regardless of the active lens; the
+  // menu and detail editor drop the current item by id. Epics are grouping
+  // containers, never prerequisites, so they are excluded.
+  const dependencyChoices = useMemo<BacklogDependencyChoice[]>(
+    () =>
+      items
+        .filter((item) => !item.isEpic)
+        .map((item) => ({
+          id: item.id,
+          slug: backlogItemSlugFromPath(item.relativePath),
+          title: item.title,
+        })),
+    [items],
+  )
 
   const toggleGroupCollapsed = useCallback((epicGroup: BacklogEpicGroup) => {
     setCollapsedGroups((prev) => {
@@ -578,6 +618,29 @@ export default function BacklogPanel({ workspaceId, onStartFuturePlan }: Workspa
     setSelectedId(id)
     setShowDetailInSingle(true)
   }, [])
+
+  // Cross-navigation from the detail pane (a prerequisite or a blocked item).
+  // Unlike a list-row click, the target may sit outside the active lens/search —
+  // a resolved prerequisite under an active-only lens, an archived target (every
+  // non-archived lens hides archived), or anything the search query excludes. The
+  // `selected` detail resolves only within `filtered` and the stale-selection
+  // effect drops a selectedId that isn't visible, so selecting blindly would dead
+  // click (blank the pane). Mirror the agent-glyph reveal: when the target isn't
+  // already visible, widen to its own view (Archived for an archived item, else
+  // All items) and clear the search so the row — and its detail — stay in view.
+  const navigateToBacklogItem = useCallback(
+    (id: string) => {
+      const target = items.find((item) => item.id === id)
+      if (!target) return
+      if (!filtered.some((item) => item.id === id)) {
+        setSearch('')
+        setView(target.status === 'archived' ? 'archived' : 'all')
+      }
+      setSelectedId(id)
+      setShowDetailInSingle(true)
+    },
+    [items, filtered],
+  )
 
   // ---- file actions (all via existing window.api fs IPC; never mutate Sprint
   // Engine state). Failures surface as a visible, actionable error and leave
@@ -912,6 +975,26 @@ export default function BacklogPanel({ workspaceId, onStartFuturePlan }: Workspa
     [folderPath, runAction, runScan],
   )
 
+  // Prerequisites are the dependent's `dependsOn:` frontmatter only
+  // (backlog:update-dependencies rewrites the markdown via the shared serializer;
+  // items.json is untouched). The full slug list is rewritten each time; null /
+  // empty clears the line. The service de-dupes/validates and drops self, so the
+  // UI just sends the toggled set and re-scans.
+  const setItemDependencies = useCallback(
+    (item: BacklogItem, slugs: string[] | null) =>
+      runAction(async () => {
+        if (!folderPath) return
+        const updated = await window.api.updateBacklogDependencies({
+          workspaceRoot: folderPath,
+          relativePath: item.relativePath,
+          dependsOn: slugs,
+        })
+        assertBacklogMutation(updated)
+        await runScan()
+      }),
+    [folderPath, runAction, runScan],
+  )
+
   // "New epic…": prompt for a title, write backlog/epics/<slug>.md via the
   // create-epic writer, then assign this item to the freshly created slug. A
   // cancelled prompt or a create failure leaves the item untouched.
@@ -993,6 +1076,7 @@ export default function BacklogPanel({ workspaceId, onStartFuturePlan }: Workspa
     setCriticality: (item, value) => setItemTriage(item, { criticality: value === 'unset' ? null : value }),
     setRisk: (item, value) => setItemTriage(item, { risk: value === 'unset' ? null : value }),
     setEpic: (item, slug) => void setItemEpic(item, slug),
+    setDependencies: (item, slugs) => void setItemDependencies(item, slugs),
     createEpic: (item) => void createEpicForItem(item),
     setEpicColor: (item, color) => void setEpicColorForItem(item, color),
     setHighlight: (item, highlight) => void setItemHighlight(item, highlight),
@@ -1186,6 +1270,7 @@ export default function BacklogPanel({ workspaceId, onStartFuturePlan }: Workspa
       now={now}
       runGlyphById={runGlyphById}
       epicMetaBySlug={epicMeta}
+      waitingById={waitingById}
     />
   )
 
@@ -1208,6 +1293,9 @@ export default function BacklogPanel({ workspaceId, onStartFuturePlan }: Workspa
       items={items}
       epicMetaBySlug={epicMeta}
       onSelectItem={handleSelectRow}
+      dependencyNode={selected ? dependencyGraph.byItemId.get(selected.id) ?? null : null}
+      dependencyChoices={dependencyChoices}
+      onNavigate={navigateToBacklogItem}
     />
   )
 
@@ -1318,6 +1406,7 @@ export default function BacklogPanel({ workspaceId, onStartFuturePlan }: Workspa
           item={menuItem}
           actions={actions}
           epicChoices={epicChoices}
+          dependencyChoices={dependencyChoices}
           agentTargets={agentTargets}
           agentSessions={agentSessions}
           onFlyoutOpen={refreshAgentSessions}
@@ -1391,6 +1480,7 @@ function BacklogList({
   now,
   runGlyphById,
   epicMetaBySlug,
+  waitingById,
 }: {
   items: BacklogItem[]
   // Non-null when grouping by epic: the flattened header+child render order.
@@ -1409,6 +1499,9 @@ function BacklogList({
   runGlyphById?: ReadonlyMap<string, BacklogRunGlyph>
   // slug -> epic identity, for the row tint + the flat-view member chip.
   epicMetaBySlug: ReadonlyMap<string, BacklogEpicMeta>
+  // Derived "waiting" rows (active + ≥1 unresolved prerequisite). Absent entry =
+  // not waiting; the source picker passes none.
+  waitingById?: ReadonlyMap<string, true>
 }): JSX.Element {
   const listRef = useRef<HTMLUListElement | null>(null)
 
@@ -1473,6 +1566,7 @@ function BacklogList({
                 now={now}
                 runGlyph={runGlyphById?.get(row.item.id)}
                 epicMeta={row.item.epic ? epicMetaBySlug.get(row.item.epic) : undefined}
+                isWaiting={waitingById?.get(row.item.id)}
               />
             ),
           )
@@ -1488,6 +1582,7 @@ function BacklogList({
               now={now}
               runGlyph={runGlyphById?.get(item.id)}
               epicMeta={item.epic ? epicMetaBySlug.get(item.epic) : undefined}
+              isWaiting={waitingById?.get(item.id)}
             />
           ))}
     </ul>
@@ -1513,6 +1608,7 @@ function BacklogOptionRow({
   now,
   runGlyph,
   epicMeta,
+  isWaiting,
 }: {
   item: BacklogItem
   optionIndex: number
@@ -1526,6 +1622,7 @@ function BacklogOptionRow({
   // The row's epic identity, when it belongs to a real epic. Drives the option-C
   // full-row tint and, in the flat (ungrouped) list, the member's epic chip.
   epicMeta?: BacklogEpicMeta
+  isWaiting?: boolean
 }): JSX.Element {
   const archived = item.status === 'archived'
   // Option C: the epic identity colour fills the whole member row (below a
@@ -1551,7 +1648,7 @@ function BacklogOptionRow({
           : `${swatch ? `${swatch.border}${litFill ? ` ${swatch.dimBg}` : ''}` : 'border-l-transparent'} hover:bg-[color:var(--bg-hover)]`
       } ${archived ? 'opacity-70' : ''}`}
     >
-      <BacklogRowContent item={item} now={now} runGlyph={runGlyph} epicChip={epicChip} />
+      <BacklogRowContent item={item} now={now} runGlyph={runGlyph} epicChip={epicChip} isWaiting={isWaiting} />
     </li>
   )
 }
@@ -1629,6 +1726,9 @@ function BacklogDetail({
   items,
   epicMetaBySlug,
   onSelectItem,
+  dependencyNode,
+  dependencyChoices,
+  onNavigate,
 }: {
   scan: BacklogScanResult | null
   loading: boolean
@@ -1650,6 +1750,11 @@ function BacklogDetail({
   epicMetaBySlug: ReadonlyMap<string, BacklogEpicMeta>
   // Navigate the list selection to another item (epic -> child, child -> epic).
   onSelectItem: (id: string) => void
+  // The selected item's derived dependency record (T2), or null for an epic /
+  // no selection. Drives the Prerequisites/Blocks section + cycle warning.
+  dependencyNode: BacklogDependencyNode | null
+  dependencyChoices: ReadonlyArray<BacklogDependencyChoice>
+  onNavigate: (itemId: string) => void
 }): JSX.Element {
   if (!folderPath) {
     return (
@@ -1856,6 +1961,16 @@ function BacklogDetail({
       />
 
       <BacklogTriage item={selected} actions={actions} epicChoices={epicChoices} />
+
+      {!selected.isEpic ? (
+        <BacklogDependenciesSection
+          item={selected}
+          node={dependencyNode}
+          dependencyChoices={dependencyChoices}
+          actions={actions}
+          onNavigate={onNavigate}
+        />
+      ) : null}
 
       <div className="min-h-0 flex-1 overflow-auto px-4 py-3">
         <BacklogPreviewBody item={selected} />

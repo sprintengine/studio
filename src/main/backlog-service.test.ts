@@ -10,6 +10,7 @@ import {
   moveBacklogObjectSource,
   planBacklogStoreMigration,
   readBacklogObjectStore,
+  updateBacklogDependencies,
   updateBacklogEpic,
   updateBacklogEpicColor,
   updateBacklogHighlight,
@@ -232,7 +233,65 @@ async function main(): Promise<void> {
     assert.match(rejectedEpicColor.ok ? '' : rejectedEpicColor.message, /colour/)
     assert.equal(await readFile(itemPath, 'utf-8'), beforeBadColor, 'a rejected epic colour must not mutate the item file')
 
-    // All lifecycle/type/triage/epic work so far must have stayed off the sidecar.
+    // Prerequisites are the dependent-side write: the single comma-separated
+    // `dependsOn:` frontmatter line, set/cleared via the shared CSV + slug
+    // helpers, body + unrelated keys preserved, sidecar untouched. A dedicated
+    // file with an unknown key proves the round-trip independent of the churn above.
+    const depsPath = join(tempRoot, 'backlog', 'deps.md')
+    const depsBody = '# Deps\n\nBody stays put.\n'
+    const depsOriginal = `---\nstatus: idea\ncustom: keep-me\n---\n${depsBody}`
+    await writeFile(depsPath, depsOriginal, 'utf-8')
+    const readDeps = async (): Promise<ReturnType<typeof parseBacklogFrontmatter>> =>
+      parseBacklogFrontmatter(await readFile(depsPath, 'utf-8'))
+
+    // Set a list: surrounding whitespace is trimmed and duplicates dropped,
+    // first-seen order kept, so the stored line matches what the reader parses.
+    const depsSet = await updateBacklogDependencies({
+      workspaceRoot: tempRoot,
+      relativePath: 'backlog/deps.md',
+      dependsOn: ['alpha', ' beta ', 'alpha'],
+    })
+    assert.equal(depsSet.ok, true)
+    const afterDepsSet = await readDeps()
+    assert.equal(afterDepsSet.fields.dependson, 'alpha, beta')
+    assert.equal(afterDepsSet.fields.custom, 'keep-me', 'an unrelated frontmatter key must be preserved')
+    assert.equal(afterDepsSet.body, depsBody, 'dependsOn write must preserve the document body byte-for-byte')
+
+    // An invalid slug rejects the whole write and mutates nothing.
+    const beforeBadDeps = await readFile(depsPath, 'utf-8')
+    const rejectedDeps = await updateBacklogDependencies({
+      workspaceRoot: tempRoot,
+      relativePath: 'backlog/deps.md',
+      dependsOn: ['ok', 'has spaces'],
+    })
+    assert.equal(rejectedDeps.ok, false)
+    assert.match(rejectedDeps.ok ? '' : rejectedDeps.message, /prerequisite/)
+    assert.equal(await readFile(depsPath, 'utf-8'), beforeBadDeps, 'a rejected slug must not mutate the item file')
+
+    // Clearing with an empty list removes the line and round-trips to the original bytes.
+    const depsCleared = await updateBacklogDependencies({
+      workspaceRoot: tempRoot,
+      relativePath: 'backlog/deps.md',
+      dependsOn: [],
+    })
+    assert.equal(depsCleared.ok, true)
+    assert.equal('dependson' in (await readDeps()).fields, false, 'clearing dependsOn must remove the frontmatter line')
+    assert.equal(await readFile(depsPath, 'utf-8'), depsOriginal, 'set then clear is a byte-for-byte round-trip')
+
+    // null clears too (the serializer treats an empty string as a set, so the
+    // service must pass null, not '').
+    await updateBacklogDependencies({ workspaceRoot: tempRoot, relativePath: 'backlog/deps.md', dependsOn: ['gamma'] })
+    const nullCleared = await updateBacklogDependencies({
+      workspaceRoot: tempRoot,
+      relativePath: 'backlog/deps.md',
+      dependsOn: null,
+    })
+    assert.equal(nullCleared.ok, true)
+    assert.equal(await readFile(depsPath, 'utf-8'), depsOriginal, 'null clears the line, restoring the original bytes')
+
+    await rm(depsPath)
+
+    // All lifecycle/type/triage/epic/dependsOn work so far must have stayed off the sidecar.
     await assert.rejects(() => stat(storePath), /ENOENT/, 'frontmatter mutations must never create items.json')
 
     // Module metadata is app-owned churn and still writes the sidecar store.
