@@ -292,8 +292,8 @@ export default function AgentPanel({
             {sprintEngineTerminalBlocked ? (
               <div className="max-w-sm text-[12px] leading-5 text-[color:var(--text-muted)]">
                 {MULTICODE_SAFE_MODE
-                  ? 'Safe mode is active. Sprint Engine agent terminals are not auto-mounted.'
-                  : 'Sprint Engine agent terminals are disabled for this diagnostic run.'}
+                  ? 'Safe mode is active. Sprint agent terminals are not auto-mounted.'
+                  : 'Sprint agent terminals are disabled for this diagnostic run.'}
               </div>
             ) : null}
             {agentCliUnavailable ? (

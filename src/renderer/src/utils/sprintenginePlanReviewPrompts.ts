@@ -48,11 +48,11 @@ export function buildSprintEngineRosterRevisionPrompt(
   const { role, agentId, teamSlug, registry } = input
   const label = getSprintEngineRoleLabel(role, registry ?? null)
   return [
-    'Revise this Sprint Engine plan for a newly added roster member.',
+    'Revise this sprint plan for a newly added roster member.',
     `Team: \`${teamSlug}\``,
     `New roster member: ${label} (\`${role}\`) with agent id \`${agentId}\`.`,
     '',
-    'First add the member to the canonical Sprint Engine roster:',
+    'First add the member to the canonical sprint roster:',
     '',
     '```shell',
     `sprintengine roster add --role ${role} --id ${agentId} --actor architect`,
@@ -60,7 +60,7 @@ export function buildSprintEngineRosterRevisionPrompt(
     '',
     'Then inspect the current plan, task graph, completed evidence, and open risks. If this new specialist should do work, add only the needed task cards with normal `Sprint Engine plan add-task` commands and correct dependencies. If no task is needed, record a concise rationale in the architect terminal and stop.',
     '',
-    'Do not implement work yourself. Do not create tasks for unrelated roles. Do not edit Sprint Engine run-store files directly.',
+    'Do not implement work yourself. Do not create tasks for unrelated roles. Do not edit sprint run-store files directly.',
   ].join('\n')
 }
 
@@ -73,12 +73,12 @@ export function buildSprintEnginePlanRevisionForNewMemberPrompt(
   const { role, agentId, teamSlug, registry } = input
   const label = getSprintEngineRoleLabel(role, registry ?? null)
   return [
-    'A new roster member was just added to this Sprint Engine run; review whether the plan needs revision for them.',
+    'A new roster member was just added to this sprint run; review whether the plan needs revision for them.',
     `Team: \`${teamSlug}\``,
     `New roster member: ${label} (\`${role}\`) with agent id \`${agentId}\` — already on the canonical roster; do not add them again.`,
     '',
     'Inspect the current plan, task graph, completed evidence, and open risks. If this new specialist should do work, add only the needed task cards with normal `Sprint Engine plan add-task` commands and correct dependencies. If no task is needed, record a concise rationale in the architect terminal and stop.',
     '',
-    'Do not implement work yourself. Do not create tasks for unrelated roles. Do not edit Sprint Engine run-store files directly.',
+    'Do not implement work yourself. Do not create tasks for unrelated roles. Do not edit sprint run-store files directly.',
   ].join('\n')
 }

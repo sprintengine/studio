@@ -130,7 +130,7 @@ function TimelineStationImpl(
           {milestone.sprintEngine ? (
             <>
               <span>·</span>
-              <span>Sprint Engine</span>
+              <span>Sprint</span>
             </>
           ) : null}
         </div>

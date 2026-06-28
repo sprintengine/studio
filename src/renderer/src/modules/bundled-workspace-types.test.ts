@@ -25,10 +25,10 @@ const sprintEngineConfig: SprintEngineMockConfig = {
 const expectedTemplates: Record<string, LayoutTemplate> = {
   sprintengine: {
     id: 'sprintengine-mode',
-    name: 'SprintEngine Mode',
+    name: 'Sprint',
     description: 'Inbox, Roster, and Tasks together in one stable board.',
     previewSlots: [
-      { label: 'Sprint Engine', x: 4, y: 4, w: 292, h: 102, type: 'editor' },
+      { label: 'Sprint', x: 4, y: 4, w: 292, h: 102, type: 'editor' },
     ],
     layout: {
       global: { tabSetEnableDrop: true, tabEnableClose: true },
@@ -40,7 +40,7 @@ const expectedTemplates: Record<string, LayoutTemplate> = {
             type: 'tabset',
             weight: 100,
             children: [
-              { type: 'tab', name: 'Sprint Engine', component: 'sprintengine', enableClose: false },
+              { type: 'tab', name: 'Sprint', component: 'sprintengine', enableClose: false },
             ],
           },
         ],
@@ -188,7 +188,7 @@ assert.deepEqual(
     {
       id: 'sprintengine',
       moduleId: 'sprint-engine',
-      label: 'Sprint Engine',
+      label: 'Sprint',
       description: 'Specialist roster, architect plan, kanban, and evidence trail.',
       accentToken: '--tool-sprintengine',
       creationStepsId: 'sprintengine',

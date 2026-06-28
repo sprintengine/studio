@@ -56,7 +56,7 @@ import {
 } from '../../utils/tabDragPayload'
 import { useRelativeNow } from '../../hooks/useRelativeNow'
 import { formatRelativeMs, formatRelativeMsAgo } from '../../utils/relativeTime'
-import { deriveWorkspaceRunGlyph } from '../../utils/workspaceRunGlyph'
+import { deriveWorkspaceRunGlyph, workspaceHasRunGlyphProvider } from '../../utils/workspaceRunGlyph'
 import { partitionWorkspacesByRecency, sortWorkspacesByActivity } from '../../utils/workspaceRecency'
 import { beginSidebarTransition } from '../../utils/sidebarTransition'
 import { filterWorkspacesBySearchQuery, normalizeWorkspaceSearchQuery } from '../../utils/workspaceSearch'
@@ -871,7 +871,7 @@ export default function WorkspaceSidebar({
     // instead of the dot + recency idiom: the run state (spinner / needs input
     // / paused / failed / done) is the signal a sprint workspace wants.
     // Recency still drives ordering and survives in the glyph's tooltip.
-    const runGlyph = deriveWorkspaceRunGlyph(workspace, activity)
+    const runGlyph = deriveWorkspaceRunGlyph(workspace)
     const runGlyphRecencyAgo =
       runGlyph && typeof recency?.lastFinishedAt === 'number'
         ? formatRelativeMsAgo(recency.lastFinishedAt, now)
@@ -898,7 +898,13 @@ export default function WorkspaceSidebar({
         : runGlyph.state === 'failed'
           ? { tone: 'error' as Tone, pulse: false }
           : null
-      : tone
+      : // A run-glyph-owning row (a Sprint Engine run) with no glyph is genuinely
+        // resting: its provider already decided "no run signal" from sprint state,
+        // so the terminal-derived tone must not relight it. Provider-less rows keep
+        // the terminal dot idiom.
+        workspaceHasRunGlyphProvider(workspace)
+        ? null
+        : tone
     const folderMissing = workspace.folderMissing === true
     const starred = isStarred(workspace.highlight)
     // "Hot": at least one resident (live-PTY) agent — instant to switch into.
@@ -912,10 +918,16 @@ export default function WorkspaceSidebar({
         : null
     const isTabDropTarget =
       tabDropTarget?.kind === 'workspace' && tabDropTarget.id === workspace.id
+    const rowKey = `${options?.keyPrefix ?? ''}${workspace.id}`
+    // Collapsed rows hide the name text, so it has to live somewhere reachable:
+    // as the row's accessible name (aria-label) and as the hover tooltip below.
+    const collapsedLabel = `${workspace.name}${
+      workspace.folderPath ? ` · ${folderDisplayName(workspace.folderPath)}` : ''
+    }`
 
-    return (
+    const row = (
       <div
-        key={`${options?.keyPrefix ?? ''}${workspace.id}`}
+        key={rowKey}
         draggable={!renamingId}
         onDragStart={(event) => handleRowDragStart(event, workspace, fKey)}
         onDragOver={(event) => {
@@ -952,7 +964,7 @@ export default function WorkspaceSidebar({
           event.preventDefault()
           setContextMenu({ workspaceId: workspace.id, x: event.clientX, y: event.clientY })
         }}
-        title={sidebarCollapsed ? `${workspace.name}${workspace.folderPath ? ` · ${folderDisplayName(workspace.folderPath)}` : ''}` : undefined}
+        aria-label={sidebarCollapsed ? collapsedLabel : undefined}
         className={`group relative mx-1.5 my-[1px] flex h-[30px] cursor-pointer select-none items-center gap-2 rounded-md text-[13px] transition-colors ${
           sidebarCollapsed
             ? 'justify-center px-0'
@@ -1132,6 +1144,25 @@ export default function WorkspaceSidebar({
         ) : null}
       </div>
     )
+
+    // Collapsed: the name isn't visible inline, so a styled tooltip surfaces it
+    // on hover. `right` keeps it clear of the narrow rail; the presentation-role
+    // wrapper keeps the tree → treeitem relationship intact.
+    if (sidebarCollapsed) {
+      return (
+        <Tooltip
+          key={rowKey}
+          content={collapsedLabel}
+          placement="right"
+          wrapperClassName="block"
+          wrapperRole="presentation"
+        >
+          {row}
+        </Tooltip>
+      )
+    }
+
+    return row
   }
 
   // Renders a folder's workspace rows. In the collapsed icon rail every row is

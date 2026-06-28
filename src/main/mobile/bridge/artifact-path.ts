@@ -15,7 +15,7 @@ export function resolveArtifactPathForRead(teamDirectory: string, workspacePath:
         ?? resolve(workspacePath, artifactPath)
 
   if (!isPathInsideOrEqual(teamDirectory, fullPath)) {
-    throw new Error('Artifact path must stay inside the Sprint Engine team directory.')
+    throw new Error('Artifact path must stay inside the sprint team directory.')
   }
 
   return fullPath

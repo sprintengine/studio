@@ -41,7 +41,7 @@ export function SprintConsole({
   const isActive = milestone.id === activeMilestoneId
   const tone = readinessTone(readiness)
   const sprintLabel = `${isActive ? 'Active sprint' : 'Sprint'} M${milestoneIndex + 1}`
-  const sourceLabel = milestone.sprintEngine ? 'Sprint Engine' : 'Multiloop'
+  const sourceLabel = milestone.sprintEngine ? 'Sprint' : 'Multiloop'
   const linkedRelativePath = milestone.sprintEngine
     ? toProjectRelativePath(milestone.sprintEngine.statePath, workspaceRoot)
     : null
@@ -144,7 +144,7 @@ export function ExecutionUnavailable({
         <StatusDot tone="error" className="mt-1" />
         <div className="min-w-0 flex-1">
           <p className="text-[12px] leading-[1.5] text-[color:var(--text-default)]">
-            Sprint Engine state for {link.teamSlug} is not readable.
+            Sprint state for {link.teamSlug} is not readable.
           </p>
           <p className="mt-1 break-all font-mono text-[11px] leading-[1.4] text-[color:var(--tone-error)]">
             {toProjectRelativePath(readState.path || link.statePath, workspaceRoot)}

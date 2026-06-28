@@ -113,7 +113,7 @@ export function buildSprintEngineNewTeamCreation(
   input: SprintEngineNewTeamInput,
 ): OnCreateArgs {
   const sprintEngineConfig = {
-    name: input.teamName.trim() || 'Sprint Engine Team',
+    name: input.teamName.trim() || 'Sprint Roster',
     goal: input.goal.trim(),
     roleCounts: input.visibleRoleCounts,
   }
@@ -187,7 +187,7 @@ export async function runSprintEngineNewTeamCreation(
     })
     if (!initResult.ok) {
       const wrapped = new SprintEngineNewTeamCreationError('init-failed')
-      wrapped.message = initResult.message || 'Could not initialize Sprint Engine run state.'
+      wrapped.message = initResult.message || 'Could not initialize sprint run state.'
       throw wrapped
     }
 

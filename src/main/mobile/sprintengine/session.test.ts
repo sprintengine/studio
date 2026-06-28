@@ -81,7 +81,7 @@ async function assertTaskStartRejectsTerminalLimit(): Promise<void> {
 
   await assert.rejects(
     () => orchestrator.startTask(taskStartRequest(fixture)),
-    /live Sprint Engine terminal limit/
+    /live sprint terminal limit/
   )
 }
 

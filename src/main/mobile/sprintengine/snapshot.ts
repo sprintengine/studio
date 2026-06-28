@@ -16,6 +16,7 @@ import {
 } from '../../switchboard-files'
 import type { MobileControlBacklogWorkspaceSnapshot, MobileControlCommandType } from '../../../shared/mobile-control/protocol'
 import { readMobileBacklogWorkspaceSnapshot } from './backlog'
+import { deriveWorkspaceId } from './workspace-id'
 
 const mobileControlProtocolVersion = 1 as const
 const mobileControlWorkspaceSnapshotVersion = 2 as const
@@ -357,6 +358,99 @@ export type MobileSprintEngineSnapshotRequest = {
 
 type MobileSprintEngineSnapshotListener = (snapshot: MobileControlSnapshot) => void
 
+const localPathPatterns = [
+  /\/(?:Users|home|private|var\/folders|Volumes|Applications|Library|opt|srv|mnt|tmp)\/[^\s"'=:()]*/gu,
+  /[A-Za-z]:\\[^\s"'=:()]*/gu,
+  /\\\\[^\\\s"'=:()]+\\[^\s"'=:()]*/gu,
+]
+
+function redactLocalPaths(value: string): string {
+  return localPathPatterns.reduce((acc, pattern) => acc.replace(pattern, '[redacted-path]'), value)
+}
+
+function containsLocalPath(value: string): boolean {
+  return localPathPatterns.some((pattern) => {
+    pattern.lastIndex = 0
+    return pattern.test(value)
+  })
+}
+
+function deepRedactLocalPaths<T>(value: T): T {
+  if (typeof value === 'string') {
+    return redactLocalPaths(value) as unknown as T
+  }
+  if (Array.isArray(value)) {
+    return value.map((item) => deepRedactLocalPaths(item)) as unknown as T
+  }
+  if (value && typeof value === 'object') {
+    const out: Record<string, unknown> = {}
+    for (const [key, item] of Object.entries(value as Record<string, unknown>)) {
+      out[key] = deepRedactLocalPaths(item)
+    }
+    return out as unknown as T
+  }
+  return value
+}
+
+// Replace embedded workspace roots in a kind-scoped workspaceId (e.g.
+// `switchboard:/Users/...`) with the relay-safe token while preserving the kind
+// prefix. Ids that carry no local path (multiloop:<loopId>, a bare
+// sprintEngineId) are already safe and left untouched.
+function relaySafeWorkspaceId(workspaceId: string, token: string): string {
+  if (!containsLocalPath(workspaceId)) return workspaceId
+  const separator = workspaceId.indexOf(':')
+  return separator === -1 ? token : `${workspaceId.slice(0, separator)}:${token}`
+}
+
+// Make an outbound snapshot relay-safe: the relay rejects any summary containing
+// an absolute local path (multiauth src/relay/result-summary.ts). Round-trip
+// critical workspace roots become resolvable tokens (deriveWorkspaceId);
+// display-only path fields become the folder name or are dropped; any remaining
+// absolute path anywhere in the payload is redacted as a defensive backstop.
+// Applied only to the copy emitted to the phone — readSnapshot() keeps the real
+// paths for server-side resolution (e.g. artifact.read).
+export function sanitizeMobileSnapshotForRelay(snapshot: MobileControlSnapshot): MobileControlSnapshot {
+  const sprintEngines = snapshot.sprintEngines.map((sprintEngine) => ({
+    ...sprintEngine,
+    // Display-only on the phone: the board derives the name via lastPathSegment.
+    workspacePath: basename(sprintEngine.workspacePath),
+    // statePath/planPath are resolved server-side from sprintEngineId and never
+    // round-tripped by the phone, so drop the absolute paths entirely.
+    statePath: '',
+    planPath: undefined,
+  }))
+
+  const workspaces = snapshot.workspaces?.map((workspace) => {
+    const token = workspace.workspacePath ? deriveWorkspaceId(workspace.workspacePath) : undefined
+    return {
+      ...workspace,
+      workspaceId: token ? relaySafeWorkspaceId(workspace.workspaceId, token) : workspace.workspaceId,
+      // Optional on the wire and display-only (the card already shows `name`).
+      workspacePath: undefined,
+      statePath: undefined,
+    }
+  })
+
+  const backlog = snapshot.backlog?.map((workspace) => {
+    const token = deriveWorkspaceId(workspace.workspacePath)
+    return {
+      ...workspace,
+      // Round-trips back for backlog.create/.update/.startSprintEngine, so it has
+      // to be a resolvable token rather than a display string. The phone shows
+      // workspaceName, not this field.
+      workspaceId: `backlog:${token}`,
+      workspacePath: token,
+    }
+  })
+
+  return deepRedactLocalPaths({
+    ...snapshot,
+    sprintEngines,
+    ...(workspaces ? { workspaces } : {}),
+    ...(backlog ? { backlog } : {}),
+  })
+}
+
 type MobileSprintEngineSnapshotServiceOptions = {
   publishThrottleMs?: number
   supportedCommands?: readonly MobileControlCommandType[]
@@ -527,8 +621,9 @@ export class MobileSprintEngineSnapshotService {
   }
 
   private emit(snapshot: MobileControlSnapshot): void {
+    const safe = sanitizeMobileSnapshotForRelay(snapshot)
     for (const listener of this.listeners) {
-      listener(snapshot)
+      listener(safe)
     }
   }
 
@@ -567,7 +662,7 @@ async function readBacklogWorkspaceSnapshots(
 export async function readSprintEngineSnapshot(statePathInput: string): Promise<MobileSprintEngineSnapshot> {
   const statePath = resolve(statePathInput)
   if (basename(statePath) !== 'run.yaml') {
-    throw new Error('Sprint Engine snapshot path must point to a run.yaml file.')
+    throw new Error('Sprint snapshot path must point to a run.yaml file.')
   }
 
   const teamDirectory = dirname(statePath)

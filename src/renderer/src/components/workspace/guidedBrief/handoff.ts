@@ -74,7 +74,7 @@ export function guidedBriefPlanningValidationNotes(state: GuidedBriefRuntimeStat
   }
   if (state.hasUi === 'yes' && (!state.acceptedUiDirection || state.acceptedMockups.length === 0)) {
     notes.push(
-      'Create or validate UI direction during Sprint Engine planning because the guided frontend stage was skipped.',
+      'Create or validate UI direction during sprint planning because the guided frontend stage was skipped.',
     )
   }
 

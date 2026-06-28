@@ -63,7 +63,7 @@ export const CATEGORY_LABELS: Record<CommandCategory, string> = {
   specialist: 'Specialists',
   voice: 'Voice',
   editor: 'Editor',
-  sprintengine: 'Sprint Engine',
+  sprintengine: 'Sprint',
   multiloop: 'Multiloop',
   watchtower: 'Watchtower',
   switchboard: 'Switchboard',

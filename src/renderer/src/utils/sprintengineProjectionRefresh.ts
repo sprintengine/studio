@@ -11,7 +11,11 @@ import type { SprintEngineAutomationEvent } from '../types/workspace'
 import { publishDiagnostic } from './diagnostics'
 import { logPerfEvent } from './perfDiagnostics'
 import { normalizeSprintEngineProjection } from './sprintengine'
-import { sprintEngineStatePathForBacklogLink } from './sprintengineBacklogLinks'
+import {
+  buildSprintEnginePullRequestLink,
+  sprintEngineStatePathForBacklogLink,
+  SPRINT_ENGINE_PR_LINK_ID,
+} from './sprintengineBacklogLinks'
 
 export type SprintEngineProjectionRefreshCause = 'supervisor' | 'auto-run' | 'manual' | 'mutation'
 
@@ -98,7 +102,7 @@ export async function refreshSprintEngineWorkspaceProjection(input: {
       projectionResult.data,
       workspace.sprintEngineContext.teamSlug,
     )
-    if (!parsedState) throw new Error('Sprint Engine projection was malformed.')
+    if (!parsedState) throw new Error('Sprint projection was malformed.')
 
     // Record the new token so the next poll can short-circuit when nothing
     // changed. If the reader did not return one, drop any stale token so we
@@ -128,7 +132,7 @@ export async function refreshSprintEngineWorkspaceProjection(input: {
     await ports.publishDiagnostic?.({
       level: 'warning',
       source: 'sprintengine',
-      title: 'Sprint Engine projection refresh failed',
+      title: 'Sprint projection refresh failed',
       message,
       workspaceId: workspace.id,
       workspaceName: workspace.name,
@@ -186,7 +190,10 @@ function normalizedPathKey(path: string): string {
   return path.replace(/\\/g, '/').replace(/\/+$/u, '').toLowerCase()
 }
 
-function isCompletedSprintEngineRun(state: SprintEngineState): boolean {
+// Canonical "this run is finished" signal: every task is done. This is the same
+// signal the auto-run supervisor's hard completion gate uses, so a completed run
+// can never auto-spawn — see SprintEngineAutoRunSupervisor.superviseWorkspace.
+export function isCompletedSprintEngineRun(state: SprintEngineState): boolean {
   return state.tasks.length > 0 && state.tasks.every((task) => task.status === 'done')
 }
 
@@ -214,11 +221,14 @@ async function refreshBacklogSprintEngineRunLinks(input: {
   }
 
   const targetStatePathKey = normalizedPathKey(workspace.sprintEngineContext.statePath)
+  const pullRequestUrl = state.vcs?.pullRequestUrl?.trim() || null
   for (const record of storeResult.store.items) {
+    let matchedThisRun = false
     for (const link of record.links ?? []) {
       if (link.type !== 'execution') continue
       const linkStatePath = sprintEngineStatePathForBacklogLink(workspace.folderPath, link)
       if (!linkStatePath || normalizedPathKey(linkStatePath) !== targetStatePathKey) continue
+      matchedThisRun = true
       if (link.status === 'completed' && record.status === 'completed') continue
 
       const result = await ports.addOrUpdateBacklogLink({
@@ -236,6 +246,32 @@ async function refreshBacklogSprintEngineRunLinks(input: {
           workspaceId: workspace.id,
           workspaceName: workspace.name,
         })
+      }
+    }
+
+    // Attach the completed sprint's pull request to its originating item. Only
+    // when this record links to the current run and a PR exists; skipped when
+    // the same URL is already linked so the per-tick reconcile does not churn
+    // the store. `external` is lifecycle-neutral, so no item-status change.
+    if (matchedThisRun && pullRequestUrl) {
+      const existingPr = (record.links ?? []).find((link) => link.id === SPRINT_ENGINE_PR_LINK_ID)
+      if (existingPr?.target.url !== pullRequestUrl) {
+        const now = new Date(ports.now?.() ?? Date.now()).toISOString()
+        const prResult = await ports.addOrUpdateBacklogLink({
+          workspaceRoot: workspace.folderPath,
+          relativePath: record.source.relativePath,
+          link: buildSprintEnginePullRequestLink({ pullRequestUrl, updatedAt: now }),
+        })
+        if (!prResult.ok) {
+          await ports.publishDiagnostic?.({
+            level: 'warning',
+            source: 'sprintengine',
+            title: 'Backlog link refresh failed',
+            message: prResult.message,
+            workspaceId: workspace.id,
+            workspaceName: workspace.name,
+          })
+        }
       }
     }
   }

@@ -1110,7 +1110,7 @@ export default function NewWorkspacePanel({
     setSePlanError(null)
     setMlError(null)
     if (!nameTouched) setName(folderName || 'workspace')
-    if (!seTeamNameTouched) setSeTeamName(toTitleName(folderName) || 'Sprint Engine Team')
+    if (!seTeamNameTouched) setSeTeamName(toTitleName(folderName) || 'Sprint Roster')
     setMlName(toTitleName(folderName) || 'Product Loop')
 
     // Don't auto-select a mode whose module the user disabled, and only seed a
@@ -1372,7 +1372,7 @@ export default function NewWorkspacePanel({
 
   const sprintEngineConfig = useMemo<SprintEngineMockConfig>(
     () => ({
-      name: seTeamName.trim() || 'Sprint Engine Team',
+      name: seTeamName.trim() || 'Sprint Roster',
       goal: seGoal.trim(),
       roleCounts: visibleSprintEngineRoleCounts,
     }),
@@ -1571,7 +1571,7 @@ export default function NewWorkspacePanel({
       try {
         await requireFreshSprintEngineAccess(window.api, setAuthState)
       } catch (error) {
-        setSePlanError(error instanceof Error ? error.message : 'Sprint Engine access could not be verified.')
+        setSePlanError(error instanceof Error ? error.message : 'Sprint access could not be verified.')
         return
       }
 
@@ -1656,7 +1656,7 @@ export default function NewWorkspacePanel({
                     id: `sprint-engine:${teamSlug}`,
                     moduleId: 'sprint-engine',
                     type: 'execution',
-                    label: 'Sprint Engine run',
+                    label: 'Sprint',
                     target: {
                       kind: 'sprintengine.run',
                       id: teamSlug,
@@ -1677,7 +1677,7 @@ export default function NewWorkspacePanel({
             setSePlanError(planSourcedErrorMessage(error))
           } else {
             setSePlanError(
-              error instanceof Error ? error.message : 'Could not create the Sprint Engine workspace.',
+              error instanceof Error ? error.message : 'Could not create the sprint workspace.',
             )
           }
         } finally {
@@ -1717,7 +1717,7 @@ export default function NewWorkspacePanel({
           setSePlanError(newTeamCreationErrorMessage(error))
         } else {
           setSePlanError(
-            error instanceof Error ? error.message : 'Could not create the Sprint Engine workspace.',
+            error instanceof Error ? error.message : 'Could not create the sprint workspace.',
           )
         }
       } finally {
@@ -1821,7 +1821,7 @@ export default function NewWorkspacePanel({
       await requireFreshSprintEngineAccess(window.api, setAuthState)
     } catch (error) {
       if (!authState.authenticated) await startLogin()
-      throw new Error(error instanceof Error ? error.message : 'Sprint Engine access could not be verified.')
+      throw new Error(error instanceof Error ? error.message : 'Sprint access could not be verified.')
     }
     const finalRoleCounts = applyUserDisabledSprintEngineRoleCounts(
       runOptions.roleCounts,
@@ -1860,7 +1860,7 @@ export default function NewWorkspacePanel({
       if (error instanceof GuidedBriefStartBuildError) {
         throw new Error(guidedBriefStartBuildErrorMessage(error))
       }
-      throw error instanceof Error ? error : new Error('Could not create the Sprint Engine workspace.')
+      throw error instanceof Error ? error : new Error('Could not create the sprint workspace.')
     }
     persistLastPermissionPreset()
     onClose()
@@ -3371,7 +3371,7 @@ function SprintEngineTeamStep(props: {
     <div className="flex flex-col gap-5">
       <div
         role="radiogroup"
-        aria-label="Sprint Engine starting point"
+        aria-label="Sprint starting point"
         className="flex flex-col gap-1.5"
       >
         <PathRadio
@@ -3751,30 +3751,30 @@ function planSourcedErrorMessage(error: SprintEnginePlanSourcedError): string {
     case 'plan-not-on-disk':
       return 'Selected source file is not available.'
     case 'team-exists':
-      return 'A Sprint Engine team with this name already exists.'
+      return 'A sprint roster with this name already exists.'
     case 'unknown':
       return error.message && error.message !== error.code
         ? error.message
-        : 'Could not create the Sprint Engine workspace.'
+        : 'Could not create the sprint workspace.'
   }
 }
 
 function newTeamCreationErrorMessage(error: SprintEngineNewTeamCreationError): string {
   switch (error.code) {
     case 'missing-folder':
-      return 'Pick a folder before creating the Sprint Engine workspace.'
+      return 'Pick a folder before creating the sprint workspace.'
     case 'team-exists':
-      return 'A Sprint Engine team with this name already exists.'
+      return 'A sprint roster with this name already exists.'
     case 'init-failed':
       return error.message && error.message !== error.code
         ? error.message
-        : 'Could not initialize the Sprint Engine run state.'
+        : 'Could not initialize the sprint run state.'
     case 'invalid-projection':
-      return 'Sprint Engine initialized but did not return a readable run projection.'
+      return 'The sprint initialized but did not return a readable run projection.'
     case 'unknown':
       return error.message && error.message !== error.code
         ? error.message
-        : 'Could not create the Sprint Engine workspace.'
+        : 'Could not create the sprint workspace.'
   }
 }
 
@@ -3792,11 +3792,11 @@ function guidedBriefStartBuildErrorMessage(error: GuidedBriefStartBuildError): s
         ? error.message
         : 'Advanced setup could not be applied. No workspace was created.'
     case 'team-exists':
-      return 'A Sprint Engine team with this name already exists.'
+      return 'A sprint roster with this name already exists.'
     case 'unknown':
       return error.message && error.message !== error.code
         ? error.message
-        : 'Could not create the Sprint Engine workspace.'
+        : 'Could not create the sprint workspace.'
   }
 }
 
@@ -3812,7 +3812,7 @@ function createLabelFor(mode: CreationMode, isCreating: boolean, hasExistingTeam
   if (mode === 'sprintengine' && hasExistingTeam) return 'Load team'
   switch (mode) {
     case 'sprintengine':
-      return 'Create Sprint Engine'
+      return 'Run a Sprint'
     case 'switchboard':
       return 'Create Switchboard'
     case 'multiloop':
@@ -3916,7 +3916,7 @@ function getStepBlockingMessage(args: {
       if (!mlGoal.trim()) return 'Describe the loop goal to create.'
       return 'Ready to create the loop.'
     case 'sprintengine-team':
-      if (!sprintEngineAccess.allowed) return 'Sign in to use Sprint Engine mode.'
+      if (!sprintEngineAccess.allowed) return 'Sign in to run sprints.'
       if (sePath === 'plan' && !sePlanReady) return 'Select a backlog item or source file.'
       if (seExistingTeam) return 'Existing team loaded — continue.'
       if (!seTeamDetailsReady) {
@@ -3924,7 +3924,7 @@ function getStepBlockingMessage(args: {
       }
       return 'Continue to the roster.'
     case 'sprintengine-roster':
-      if (!sprintEngineAccess.allowed) return 'Sign in to use Sprint Engine mode.'
+      if (!sprintEngineAccess.allowed) return 'Sign in to run sprints.'
       if (seExistingTeam) return 'Ready to load team.'
       if (totalAgents === 0) return 'Add at least one specialist.'
       return 'Ready to create.'

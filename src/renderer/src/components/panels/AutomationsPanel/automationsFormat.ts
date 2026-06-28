@@ -105,7 +105,7 @@ export const ACTION_LABEL: Record<string, string> = {
   'spawn-agent': 'Spawn an agent',
   'run-skill-loop': 'Run a skill loop',
   'watchtower-review': 'Run a code review',
-  'sprint-engine-run': 'Run a Sprint Engine pass',
+  'sprint-engine-run': 'Run a sprint',
   'switchboard-runner-tick': 'Advance the Switchboard queue',
 }
 

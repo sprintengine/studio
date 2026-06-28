@@ -53,7 +53,7 @@ export const LEARNING_CATEGORY_LABELS: Record<LearningCategory, string> = {
   workspace: 'Workspaces',
   agents: 'Agents',
   'guided-brief': 'Design Wizard',
-  sprintengine: 'Sprint Engine',
+  sprintengine: 'Sprint',
   switchboard: 'Switchboard',
   git: 'Git',
   knowledge: 'Knowledge Graph',

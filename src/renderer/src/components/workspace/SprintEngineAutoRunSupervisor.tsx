@@ -71,6 +71,7 @@ import { MULTICODE_DISABLE_SPRINTENGINE_AUTORUN } from '../../utils/runtimeFlags
 import { resolveProjectKnowledgeConfig } from '../../utils/projectKnowledge'
 import { isAgentTabVisible, type AgentTerminalRevealPolicy } from '../../utils/modelRegistry'
 import {
+  isCompletedSprintEngineRun,
   refreshSprintEngineWorkspaceProjection,
 } from '../../utils/sprintengineProjectionRefresh'
 import { registerTimer } from '../../utils/diagnostics/timerRegistry'
@@ -249,7 +250,7 @@ async function publishArtifactApprovalWarning(
     message,
     details: [
       `Workspace: ${workspace.name}`,
-      `Sprint Engine state: ${workspace.sprintEngineContext?.statePath ?? 'Unavailable'}`,
+      `Sprint state: ${workspace.sprintEngineContext?.statePath ?? 'Unavailable'}`,
       `Artifact: ${artifact.id} - ${artifact.title}`,
       `Artifact kind: ${artifact.kind}`,
       `Artifact status: ${artifact.status}`,
@@ -292,7 +293,7 @@ async function publishAutoApprovalDiagnostic(
     message: input.message,
     details: [
       `Workspace: ${workspace.name}`,
-      `Sprint Engine state: ${workspace.sprintEngineContext?.statePath ?? 'Unavailable'}`,
+      `Sprint state: ${workspace.sprintEngineContext?.statePath ?? 'Unavailable'}`,
       ...(input.details ?? []),
     ].join('\n'),
     workspaceId: workspace.id,
@@ -330,7 +331,7 @@ async function findRunningAgentSession(
       level: 'error',
       source: 'terminal',
       title: 'Roster runner could not attach terminal',
-      message: 'Running Sprint Engine terminal is missing its CLI selection.',
+      message: 'Running sprint terminal is missing its CLI selection.',
       workspaceId: workspace.id,
       workspaceName: workspace.name,
       agentId,
@@ -452,7 +453,7 @@ export async function sendApprovalToNextEligibleArtifactProducer(
       await publishArtifactApprovalWarning(
         workspace,
         artifact,
-        result.message || 'Sprint Engine rejected the auto-approval.'
+        result.message || 'The sprint rejected the auto-approval.'
       )
       return 'none'
     }
@@ -466,7 +467,7 @@ export async function sendApprovalToNextEligibleArtifactProducer(
         await publishArtifactApprovalWarning(
           workspace,
           artifact,
-          'Could not refresh Sprint Engine state after auto-approving the artifact.'
+          'Could not refresh sprint state after auto-approving the artifact.'
         )
         return 'failed'
       }
@@ -478,8 +479,8 @@ export async function sendApprovalToNextEligibleArtifactProducer(
       `${approvalKey}:approved`,
       {
         level: 'info',
-        title: 'Artifact auto-approved through Sprint Engine',
-        message: 'Sprint Engine recorded the approval and refreshed projection state.',
+        title: 'Artifact auto-approved through the sprint',
+        message: 'The sprint recorded the approval and refreshed projection state.',
         details: [
           `Artifact: ${artifact.id} - ${artifact.title}`,
           `Task: ${artifact.taskId}`,
@@ -1216,7 +1217,7 @@ export async function spawnAutoRunCandidate(
       level: 'error',
       source: 'terminal',
       title: 'Roster runner skipped agent',
-      message: 'Sprint Engine agent is missing its CLI selection.',
+      message: 'Sprint agent is missing its CLI selection.',
       details: [
         `Workspace: ${workspace.name}`,
         `Agent: ${nextRun.agentId}`,
@@ -1756,6 +1757,32 @@ async function superviseWorkspace(
   const approvalActive = automationMode === 'run_agents_and_approve_artifacts' && runtimeState === 'running'
   if ((!runnerActive && !approvalActive) || !workspace.folderPath || !sprintEngineState || !workspace.sprintEngineContext) return
 
+  // Hard completion gate. A finished run (every task done) must never auto-spawn
+  // agents — even when it was last left in an automation mode and the persisted
+  // runtimeState defaulted back to 'running' on reopen. Deriving completion from
+  // the live state here (rather than relying solely on the reactive projection
+  // reconcile) closes the race where this 4s poll fires before
+  // refreshSprintEngineWorkspaceProjection marks the run complete. We also fire
+  // `runner_complete` so the runtime flips to the terminal 'complete' state
+  // (leaving desiredMode untouched — no swap to manual), which makes subsequent
+  // ticks skip the workspace entirely (isSprintEngineRunnerActive then returns
+  // false), so this fires at most once. Manual, user-initiated agent spawns go
+  // through a separate path and are unaffected by this gate. We only reach here
+  // with runtimeState === 'running' (the early return above guarantees it).
+  if (isCompletedSprintEngineRun(sprintEngineState)) {
+    useWorkspaceStore.getState().applySprintEngineAutomationEvent(workspace.id, {
+      type: 'runner_complete',
+      message: 'All tasks are complete.',
+    })
+    logPerfEvent('SprintEngineAutoRun', 'supervise-stop', {
+      workspaceId: workspace.id,
+      workspaceName: workspace.name,
+      reason: 'run-complete',
+      elapsedMs: Math.round(performance.now() - superviseStartedAt),
+    })
+    return
+  }
+
   logPerfEvent('SprintEngineAutoRun', 'supervise-start', {
     workspaceId: workspace.id,
     workspaceName: workspace.name,
@@ -2198,11 +2225,11 @@ async function closeCompletedRunAgentTerminals(workspace: Workspace): Promise<vo
     level: 'info',
     source: 'sprintengine',
     title: 'Sprint complete — agent terminals closed',
-    message: `All tasks are done, so ${result.closedSessionIds.length === 1 ? 'the remaining agent terminal was' : `${result.closedSessionIds.length} agent terminals were`} closed. The Sprint Engine board and run summary stay available.`,
+    message: `All tasks are done, so ${result.closedSessionIds.length === 1 ? 'the remaining agent terminal was' : `${result.closedSessionIds.length} agent terminals were`} closed. The sprint board and run summary stay available.`,
     details: [
       `Workspace: ${workspace.name}`,
       `Closed sessions: ${result.closedSessionIds.join(', ')}`,
-      'Keep terminals open after a run via the Sprint Engine "keep done agent terminals" setting.',
+      'Keep terminals open after a run via the sprint "keep done agent terminals" setting.',
     ].join('\n'),
     workspaceId: workspace.id,
     workspaceName: workspace.name,

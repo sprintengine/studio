@@ -138,10 +138,10 @@ export function MultiloopSettingsPopover({
                   const loading = launchState.status === 'loading' && launchState.role === role
                   const disabledReason = isLinkedWorker && !linkedSprintEngineState
                     ? linkedExecutionReadState.status === 'error'
-                      ? 'Sprint Engine state is unreadable.'
-                      : 'Sprint Engine state is still loading.'
+                      ? 'Sprint state is unreadable.'
+                      : 'Sprint state is still loading.'
                     : null
-                  const terminalKind = isLinkedWorker ? 'Sprint Engine' : 'Multiloop'
+                  const terminalKind = isLinkedWorker ? 'Sprint' : 'Multiloop'
                   const tooltipContent = disabledReason ?? `${exists ? 'Focus' : 'Create'} ${terminalKind} ${soul.label} role terminal`
                   return (
                     <Tooltip key={role} content={tooltipContent}>

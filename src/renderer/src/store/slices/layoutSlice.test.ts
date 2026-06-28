@@ -123,7 +123,7 @@ const sprintEngineLayoutForStripMigration: IJsonModel = {
         type: 'tabset',
         weight: 58,
         children: [
-          { type: 'tab', name: 'Sprint Engine', component: 'sprintengine', enableClose: false },
+          { type: 'tab', name: 'Sprint', component: 'sprintengine', enableClose: false },
         ],
       },
       {

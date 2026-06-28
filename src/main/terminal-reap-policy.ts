@@ -1,44 +1,45 @@
+import type { AgentPhase } from '../shared/electron-api'
+
 // Memory-bounded agent lifecycle: decide which idle agent terminals are safe to
 // SUSPEND (kill the process, preserve resume) so a long session doesn't
 // accumulate dozens of idle agents holding GBs.
 //
-// This module is PURE and side-effect free. It is deliberately driven only by
-// REPAINT-IMMUNE signals, because alt-screen TUIs (Claude/Codex) repaint on
-// resize/reveal and that repaint output would otherwise masquerade as agent
-// activity:
-//   * `lastInteractionAt` — real user input (keystrokes), which a repaint never
-//     generates. This is the idle clock. (NOT last *output*, which repaints bump.)
-//   * `visible` — whether the terminal is on screen right now.
+// This module is PURE and side-effect free. Reaping is driven by RECENCY plus
+// the AUTHORITATIVE agent phase reported by the CLI's lifecycle hooks
+// (`agentPhase`). The phase is what lets us reclaim a terminal that is on screen
+// but dormant while never touching one that is mid-work or waiting on the user:
+//   * `agentPhase` — 'idle' (turn finished, at rest) is the only reapable state.
+//     'starting'/'thinking'/'tool_use' (working) and 'stalled' (claims working,
+//     went quiet — may be a long in-flight tool call) are NEVER reaped: killing
+//     them would abort a real command. 'awaiting_input' is NEVER reaped: it needs
+//     the user, so freezing it is wrong. When no phase is known (a CLI with no
+//     hooks and no inferred state), we fall back to the recency floor below.
+//   * `lastInteractionAt` — real user input (keystrokes), repaint-immune. Combined
+//     with `idleSince` it forms the idle clock. (NOT last *output*, which alt-screen
+//     TUIs bump on every repaint.)
+//   * `idleSince` — when the agent entered its current 'idle' phase. Stops a
+//     freshly-idle agent (which may have worked for a long time with zero
+//     keystrokes) from being reaped the instant it finishes its turn.
+//   * `inActiveRun` — caller-supplied; protects managed runs (e.g. SprintEngine).
 //   * `processAlive` — the pty lifecycle.
-//   * `inActiveRun` — caller-supplied; protects managed runs.
-// We deliberately do NOT gate on `activity === 'idle'` or a live-child probe:
-// both were output-/heuristic-derived and unreliable (the activity flag flips to
-// "working" on a repaint). A genuinely busy agent is caught by user input or the
-// run-active signal; the rare "streaming with zero input for hours" case is
-// (correctly) reapable and stays readable + resumable via freeze-the-view.
 //
-// The hot set keeps the most-recently-interacted workspaces resident, but only
-// up to an absolute idle ceiling: past it, even a "hot" workspace is reclaimable
-// so a session left untouched for days (e.g. after the user walks away) doesn't
-// stay pinned forever. The ceiling overrides hot-set protection only — never the
-// inActiveRun (managed-run) exemption.
+// Note: there is deliberately NO `visible` gate. "On screen" is not "in use" — a
+// user with a dozen tiled terminals has many visible yet dormant. Visibility is
+// not a reap signal; agent phase is. Freeze-the-view keeps a reaped terminal's
+// painted scrollback readable and resumes it on the next keystroke, so suspending
+// a visible-but-idle agent is non-destructive.
 //
 // Every gate must pass; anything ambiguous keeps the terminal ALIVE.
 
-export const DEFAULT_HOT_WORKSPACE_LIMIT = 5
-// How long an agent must sit without real user interaction before it's
-// suspended. Measured from the last keystroke (not output), so revealing a
-// workspace can't reset it. Tunable.
-export const DEFAULT_SUSPEND_IDLE_AFTER_MS = 2 * 60 * 60 * 1000
-// Absolute idle ceiling: past this, an agent is reapable even if its workspace
-// is in the hot set. The hot set keeps the N most-recently-interacted workspaces
-// resident, but "most recent" is relative — with only a handful of workspaces
-// open, a workspace untouched for days is still "hot" and would otherwise never
-// be reclaimed (e.g. after the user walks away). This ceiling overrides the
-// hot-set protection only; the inActiveRun (managed-run) exemption and every
-// other safety gate still hold. Must be >= DEFAULT_SUSPEND_IDLE_AFTER_MS.
-// Tunable.
-export const DEFAULT_ABSOLUTE_IDLE_CEILING_MS = 5 * 60 * 60 * 1000
+// How long an agent must sit IDLE (no work, no user interaction) before it's
+// suspended. Measured from the last keystroke or the moment it went idle,
+// whichever is later — so revealing a workspace can't reset it, and a
+// just-finished agent isn't reaped on the spot. Tunable.
+export const DEFAULT_SUSPEND_IDLE_AFTER_MS = 30 * 60 * 1000
+
+// Phases in which the agent is actively doing work. Reaping one would kill an
+// in-flight command, so these are never reapable.
+const WORKING_PHASES: ReadonlySet<AgentPhase> = new Set(['starting', 'thinking', 'tool_use'])
 
 export type ReapCandidate = {
   sessionId: string
@@ -46,17 +47,23 @@ export type ReapCandidate = {
   // 'agent' terminals are the only suspend targets. Plain shells are cheap and
   // may hold a foreground command, so they are never suspended here.
   kind: string
-  // Informational only (carried into the reap audit log). The policy no longer
-  // gates on the cli: any idle agent is reapable regardless of which CLI it runs.
+  // Informational only (carried into the reap audit log). The policy does not
+  // gate on the cli: any idle agent is reapable regardless of which CLI it runs.
   // Reaping kills the PTY; reopen relaunches via the plugin's resume command
   // where one is declared (exact for claude-code; codex reattaches its own
   // latest session). A cli with no resume support would relaunch fresh.
   cli: string | null
-  visible: boolean
   processAlive: boolean
+  // Authoritative (or inferred) agent phase from lifecycle hooks. `null` when no
+  // agent state exists at all — then only the recency floor applies.
+  agentPhase: AgentPhase | null
   // Max of started/lastInput — "when the user last interacted with this
-  // terminal". Repaint-immune (real keystrokes only); drives the idle clock.
+  // terminal". Repaint-immune (real keystrokes only).
   lastInteractionAt: number
+  // When the agent entered its current 'idle' phase (`agentState.since` when the
+  // phase is idle), else null. Pushes the idle clock forward for an agent that
+  // worked silently then just went idle.
+  idleSince: number | null
   // Caller-supplied: the terminal belongs to an active managed run (e.g. a
   // SprintEngine agent). Defaults to the SAFE value (true) when unsure.
   inActiveRun: boolean
@@ -64,64 +71,40 @@ export type ReapCandidate = {
 
 export type ReapPolicyOptions = {
   now?: number
-  hotWorkspaceLimit?: number
   idleThresholdMs?: number
-  absoluteIdleCeilingMs?: number
 }
 
 export type ReapDecision = {
-  // The most-recently-interacted workspaces kept fully resident (never
-  // suspended), ranked by their freshest session.
-  hotWorkspaceIds: string[]
   // Sessions safe to suspend now.
   reapableSessionIds: string[]
-}
-
-// The N most-recently-interacted workspaces, ranked by their freshest ALIVE
-// session's last interaction. Only live sessions contribute. Ties break by
-// workspace id for determinism.
-export function computeHotWorkspaceIds(
-  candidates: readonly ReapCandidate[],
-  limit: number
-): string[] {
-  if (limit <= 0) return []
-  const freshestByWorkspace = new Map<string, number>()
-  for (const candidate of candidates) {
-    if (!candidate.processAlive) continue
-    if (candidate.workspaceId === null) continue
-    const current = freshestByWorkspace.get(candidate.workspaceId)
-    if (current === undefined || candidate.lastInteractionAt > current) {
-      freshestByWorkspace.set(candidate.workspaceId, candidate.lastInteractionAt)
-    }
-  }
-  return [...freshestByWorkspace.entries()]
-    .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
-    .slice(0, limit)
-    .map(([workspaceId]) => workspaceId)
 }
 
 // True only when EVERY gate passes. Order is cheap-checks-first, but the result
 // is the conjunction either way.
 export function isSessionReapable(
   candidate: ReapCandidate,
-  hotWorkspaceIds: ReadonlySet<string>,
-  options: { now: number; idleThresholdMs: number; absoluteIdleCeilingMs: number }
+  options: { now: number; idleThresholdMs: number }
 ): boolean {
   if (!candidate.processAlive) return false
   if (candidate.kind !== 'agent') return false
-  if (candidate.visible) return false
-  if (candidate.inActiveRun) return false
   if (candidate.workspaceId === null) return false
-  const idleMs = options.now - candidate.lastInteractionAt
-  if (idleMs <= options.idleThresholdMs) return false
-  // Hot-set protection keeps the most-recently-interacted workspaces resident —
-  // but only up to the absolute ceiling. Past it, a walked-away agent is
-  // reclaimed even while its workspace is still nominally "hot". The inActiveRun
-  // exemption (checked above) is unconditional and is NOT overridden here.
-  if (idleMs <= options.absoluteIdleCeilingMs && hotWorkspaceIds.has(candidate.workspaceId)) {
-    return false
+  if (candidate.inActiveRun) return false
+
+  const phase = candidate.agentPhase
+  if (phase !== null) {
+    // Never reap an agent waiting on the user, stalled mid-tool-call, or
+    // actively working. Only an at-rest ('idle') agent is reapable. exited/failed
+    // are dead and already excluded by processAlive, but guard explicitly.
+    if (phase === 'awaiting_input') return false
+    if (phase === 'stalled') return false
+    if (WORKING_PHASES.has(phase)) return false
+    if (phase !== 'idle') return false
   }
-  return true
+
+  // Idle clock: time since the user last interacted OR the agent went idle,
+  // whichever is more recent.
+  const restingSince = Math.max(candidate.lastInteractionAt, candidate.idleSince ?? 0)
+  return options.now - restingSince > options.idleThresholdMs
 }
 
 export function selectReapableSessions(
@@ -129,18 +112,11 @@ export function selectReapableSessions(
   options: ReapPolicyOptions = {}
 ): ReapDecision {
   const now = options.now ?? Date.now()
-  const hotWorkspaceLimit = options.hotWorkspaceLimit ?? DEFAULT_HOT_WORKSPACE_LIMIT
   const idleThresholdMs = options.idleThresholdMs ?? DEFAULT_SUSPEND_IDLE_AFTER_MS
-  const absoluteIdleCeilingMs = options.absoluteIdleCeilingMs ?? DEFAULT_ABSOLUTE_IDLE_CEILING_MS
-
-  const hotWorkspaceIds = computeHotWorkspaceIds(candidates, hotWorkspaceLimit)
-  const hotSet = new Set(hotWorkspaceIds)
 
   const reapableSessionIds = candidates
-    .filter((candidate) =>
-      isSessionReapable(candidate, hotSet, { now, idleThresholdMs, absoluteIdleCeilingMs })
-    )
+    .filter((candidate) => isSessionReapable(candidate, { now, idleThresholdMs }))
     .map((candidate) => candidate.sessionId)
 
-  return { hotWorkspaceIds, reapableSessionIds }
+  return { reapableSessionIds }
 }

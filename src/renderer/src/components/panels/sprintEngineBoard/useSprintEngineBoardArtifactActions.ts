@@ -199,7 +199,7 @@ export function useSprintEngineBoardArtifactActions(
     if (!statePath) {
       setSyncState({
         status: 'error',
-        message: 'This Sprint Engine workspace is missing its selected team context.',
+        message: 'This sprint workspace is missing its selected team context.',
       })
       return null
     }
@@ -304,7 +304,7 @@ export function useSprintEngineBoardArtifactActions(
           setArtifactAction(artifact.id, {
             kind: 'approve',
             status: 'error',
-            message: result.message || 'Sprint Engine rejected the approval.',
+            message: result.message || 'The sprint rejected the approval.',
           })
           return
         }
@@ -312,7 +312,7 @@ export function useSprintEngineBoardArtifactActions(
         setArtifactAction(artifact.id, {
           kind: 'approve',
           status: 'success',
-          message: 'Approved through Sprint Engine.',
+          message: 'Approved through the sprint.',
         })
       } catch (error) {
         const message = error instanceof Error ? error.message : 'Failed to approve artifact.'
@@ -348,7 +348,7 @@ export function useSprintEngineBoardArtifactActions(
     if (!ensuredStatePath) {
       setRequestChangesDialog((current) =>
         current
-          ? { ...current, error: 'This Sprint Engine workspace is missing its selected team context.' }
+          ? { ...current, error: 'This sprint workspace is missing its selected team context.' }
           : current,
       )
       return
@@ -364,7 +364,7 @@ export function useSprintEngineBoardArtifactActions(
     try {
       const result = await api.requestSprintEngineArtifactChanges(ensuredStatePath, artifact.id, feedback)
       if (!result.ok) {
-        const message = result.message || 'Sprint Engine rejected the change request.'
+        const message = result.message || 'The sprint rejected the change request.'
         setRequestChangesDialog((current) =>
           current ? { ...current, submitting: false, error: message } : current,
         )
@@ -379,7 +379,7 @@ export function useSprintEngineBoardArtifactActions(
       setArtifactAction(artifact.id, {
         kind: 'requestChanges',
         status: 'success',
-        message: 'Changes requested through Sprint Engine.',
+        message: 'Changes requested through the sprint.',
       })
       setRequestChangesDialog(null)
     } catch (error) {
@@ -420,7 +420,7 @@ export function useSprintEngineBoardArtifactActions(
       if (!ensuredStatePath) {
         setTaskInputAction(taskId, {
           status: 'error',
-          message: 'This Sprint Engine workspace is missing its selected team context.',
+          message: 'This sprint workspace is missing its selected team context.',
         })
         return false
       }
@@ -439,7 +439,7 @@ export function useSprintEngineBoardArtifactActions(
         if (!result.ok) {
           setTaskInputAction(taskId, {
             status: 'error',
-            message: result.message || 'Sprint Engine rejected the response.',
+            message: result.message || 'The sprint rejected the response.',
           })
           return false
         }
@@ -478,7 +478,7 @@ export function useSprintEngineBoardArtifactActions(
       if (!ensuredStatePath) {
         setTaskCommentAction(taskId, {
           status: 'error',
-          message: 'This Sprint Engine workspace is missing its selected team context.',
+          message: 'This sprint workspace is missing its selected team context.',
         })
         return false
       }
@@ -496,7 +496,7 @@ export function useSprintEngineBoardArtifactActions(
         if (!commentResult.ok) {
           setTaskCommentAction(taskId, {
             status: 'error',
-            message: commentResult.message || 'Sprint Engine rejected the comment.',
+            message: commentResult.message || 'The sprint rejected the comment.',
           })
           return false
         }
@@ -513,7 +513,7 @@ export function useSprintEngineBoardArtifactActions(
             setTaskCommentAction(taskId, {
               status: 'error',
               message: `Comment posted, but sending back for rework failed: ${
-                statusResult.message || 'Sprint Engine rejected the status change.'
+                statusResult.message || 'The sprint rejected the status change.'
               }`,
             })
             return false

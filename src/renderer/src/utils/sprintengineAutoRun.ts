@@ -1250,14 +1250,14 @@ export function planSprintEngineDispatch(input: {
             },
             diagnostic: {
               level: 'warning',
-              title: 'Sprint Engine agent needs operator attention',
-              message: 'A live assigned agent has not recorded Sprint Engine activity after two continuation prompts. Automatic rescue has stopped for this assignment.',
+              title: 'Sprint agent needs operator attention',
+              message: 'A live assigned agent has not recorded sprint activity after two continuation prompts. Automatic rescue has stopped for this assignment.',
               details: [
                 `Workspace: ${workspace.name}`,
                 `Agent: ${assignment.agentId} (${assignment.role})`,
                 `Task: ${assignment.task.id} - ${assignment.task.title}`,
                 gateId ? `Gate: ${gateId}` : null,
-                `Last Sprint Engine activity: ${new Date(activityAt).toISOString()}`,
+                `Last sprint activity: ${new Date(activityAt).toISOString()}`,
                 `Continuation prompts attempted: ${previous?.attempts ?? 0}`,
               ].filter((line): line is string => Boolean(line)).join('\n'),
               taskId: assignment.task.id,
@@ -1315,7 +1315,7 @@ export function planSprintEngineDispatch(input: {
         key,
         data: { agentId, role: runtimeAgent.role, taskId: task.id, attempts: previous.attempts ?? 0 },
         diagnostic: {
-          title: 'Restarted a stalled Sprint Engine agent',
+          title: 'Restarted a stalled sprint agent',
           message: `${runtimeAgent.role} had ready work on ${task.id} but its terminal stayed idle and stopped responding to wake prompts. Restarting it so the work can be claimed.`,
           details: [
             `Workspace: ${workspace.name}`,
@@ -1409,7 +1409,7 @@ export function planSprintEngineDispatch(input: {
         key,
         data: respawnData,
         diagnostic: {
-          title: 'Respawned a Sprint Engine agent for claimed work',
+          title: 'Respawned a sprint agent for claimed work',
           message: claim.gateId
             ? `${claim.role} holds gate ${claim.gateId} on ${claim.taskId} but its terminal is not running. Respawning the terminal so the claim can resume.`
             : `${claim.role} owns in-progress task ${claim.taskId} but its terminal is not running. Respawning the terminal so the claim can resume.`,
@@ -1472,7 +1472,7 @@ export function planSprintEngineDispatch(input: {
         agentId,
         data: { agentId, role: runtimeAgent.role, idleMs: now - since },
         diagnostic: {
-          title: 'Retired an idle Sprint Engine terminal',
+          title: 'Retired an idle sprint terminal',
           message: `${runtimeAgent.role} had no claimable work for ${idleMinutes} minute${idleMinutes === 1 ? '' : 's'}, so its terminal was closed. The role respawns automatically when work is ready.`,
           details: [
             `Workspace: ${workspace.name}`,
@@ -1630,7 +1630,7 @@ function buildCompactAgentNotificationMessage(event: SprintEngineEvent): string 
     case 'task_resume_requested':
       return 'Input was resolved for this task. Re-read the task card before continuing.'
     case 'task_completed_after_input_resolution':
-      return 'Input was resolved and this Sprint Engine task is complete.'
+      return 'Input was resolved and this sprint task is complete.'
     case 'task_released_from_owner':
       return 'This task was released from its previous owner. Re-read the task card before continuing.'
     case 'task_changes_requested_after_artifact_review':
@@ -1639,8 +1639,8 @@ function buildCompactAgentNotificationMessage(event: SprintEngineEvent): string 
         : 'Changes were requested after artifact review.'
     case 'task_completed_after_artifact_approval':
       return event.artifactId
-        ? `Artifact ${event.artifactId} was approved and this Sprint Engine task is complete.`
-        : 'The linked artifact was approved and this Sprint Engine task is complete.'
+        ? `Artifact ${event.artifactId} was approved and this sprint task is complete.`
+        : 'The linked artifact was approved and this sprint task is complete.'
     default:
       return compactNotificationMessage(event.message) || 'Review the current task card for details.'
   }
@@ -1654,7 +1654,7 @@ export function buildAgentNotificationPrompt(
   const taskReadCall = !isCompletion && event.taskId
     ? `Re-read the current task card via \`sprintengine.task.get\` with \`{ taskId: "${event.taskId}" }\`, then review its feedback comments, notes, acceptance criteria, and evidence before continuing. Do not claim a new task.`
     : isCompletion
-      ? 'Your Sprint Engine task is complete. Do not claim another task in this terminal unless explicitly instructed.'
+      ? 'Your sprint task is complete. Do not claim another task in this terminal unless explicitly instructed.'
       : 'Re-read the current task card via `sprintengine.task.get`, then review its feedback comments, notes, acceptance criteria, and evidence before continuing. Do not claim a new task.'
   const reconcileBlock = !isCompletion && options.agentId && options.role
     ? [
@@ -1664,7 +1664,7 @@ export function buildAgentNotificationPrompt(
     : null
 
   return [
-    'Sprint Engine notification.',
+    'Sprint notification.',
     event.taskId ? `Task: ${event.taskId}` : null,
     event.artifactId ? `Artifact: ${event.artifactId}` : null,
     event.notificationKind ? `Type: ${event.notificationKind}` : null,

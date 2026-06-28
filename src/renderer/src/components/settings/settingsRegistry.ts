@@ -201,7 +201,7 @@ export const settingsRegistry: ReadonlyArray<SettingDescriptor> = [
   {
     id: 'last-agent-spawn-permission-preset',
     label: 'Default agent permission preset',
-    help: 'Permission mode used for new agent spawns and as the initial default for Sprint Engine runs without a local override.',
+    help: 'Permission mode used for new agent spawns and as the initial default for sprint runs without a local override.',
     scope: 'app',
     group: 'agents',
     field: { type: 'select', items: PERMISSION_PRESET_OPTIONS },

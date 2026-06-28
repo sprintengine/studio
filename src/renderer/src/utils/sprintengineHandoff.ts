@@ -57,7 +57,7 @@ function sourceTypeGuidance(
   if (sourcePlanKind === 'architect_plan') {
     return 'Source plan type: implementation plan. `sprintengine.init` should seed plan.md for architect review. The architect should review it against the current codebase, update stale details, then create task cards.'
   }
-  return 'Source plan type: generic handoff. Sprint Engine should use the normal product intake and architect planning gates.'
+  return 'Source plan type: generic handoff. The sprint should use the normal product intake and architect planning gates.'
 }
 
 export function buildPlanFileSprintEngineHandoffPrompt({
@@ -132,11 +132,11 @@ export function buildPlanFileSprintEngineHandoffPrompt({
     `Source snapshot: ${contentLines} total text line${contentLines === 1 ? '' : 's'} selected by the user.`,
     'The renderer has only created local workspace metadata and this startup prompt. Canonical Sprint Engine files must be created by the managed `multicode-sprintengine` MCP server, which resolves run and workspace routing from its registered HTTP run context. Do not pass server-owned routing fields in autonomous MCP tool payloads. Do not write run-store files, `handover.md`, task state, or artifact state directly.',
     handoverCalls,
-    'Only after `sprintengine.handover` succeeds, initialize the Sprint Engine state for this managed session:',
+    'Only after `sprintengine.handover` succeeds, initialize the sprint state for this managed session:',
     '`sprintengine.init`',
     jsonBlock(initPayload),
     rosterArgs.length > 0
-      ? `Roster constraint: the architect must create tasks only for these selected Sprint Engine agents: ${rosterArgs.join(', ')}. If a specialist role is absent from this roster, do not create tasks for that role.`
+      ? `Roster constraint: the architect must create tasks only for these selected sprint agents: ${rosterArgs.join(', ')}. If a specialist role is absent from this roster, do not create tasks for that role.`
       : null,
     sourceTypeGuidance(hasExplicitSourceBundle, bundle, sourcePlanKind),
     autoRunRequested

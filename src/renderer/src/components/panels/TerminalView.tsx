@@ -700,7 +700,7 @@ export default function TerminalView({ workspaceId, agentId, sessionId: attached
         launchContext.cliPermissionPreset ? `CLI permissions: ${launchContext.cliPermissionPreset}` : null,
         `Workspace path: ${folderReadyPath ?? launchContext.savedFolderPath ?? 'default app path'}`,
         executionRoot.worktreePath ? `Worktree path: ${executionRoot.worktreePath}` : null,
-        sprintEngineStatePath ? `Sprint Engine state: ${sprintEngineStatePath}` : null,
+        sprintEngineStatePath ? `Sprint state: ${sprintEngineStatePath}` : null,
       ].filter(Boolean).join('\n')
       const memoryContext = await resolveMemoryLaunchContext(
         launchContext.memoryConfig?.projectRoot ?? folderReadyPath ?? null,

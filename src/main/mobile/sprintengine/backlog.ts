@@ -86,7 +86,7 @@ export async function resolveBacklogStartPrompt(
   if (!body) {
     throw new MobileSprintEngineCommandError(
       'invalid_payload',
-      `Backlog item ${normalized} is empty; add content before starting a Sprint Engine from it.`,
+      `Backlog item ${normalized} is empty; add content before starting a sprint from it.`,
       false,
     )
   }

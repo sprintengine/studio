@@ -3,8 +3,6 @@ import { useShallow } from 'zustand/react/shallow'
 
 import { CloseIconButton, InboxRow, LifecycleGlyph, PanelHeader } from '../ui'
 import { useWorkspaceStore } from '../../store/workspaceStore'
-import { useTerminalSessions } from '../../hooks/useTerminalSessions'
-import { getWorkspaceActivity } from './workspaceManagerHelpers'
 import { deriveWorkspaceRunGlyph } from '../../utils/workspaceRunGlyph'
 import { buildSprintEngineNavRows, isSprintEngineWorkspace } from '../../utils/sprintEnginesNav'
 import type { WorkspaceId } from '../../types/workspace'
@@ -42,43 +40,39 @@ export default function SprintEnginesAside({
   // those (the same useShallow pattern as BacklogPanel Task 1). With Task 3's
   // no-op guard keeping unchanged workspace refs stable, an unrelated workspace's
   // projection tick — or any non-Sprint-Engine change — leaves this slice
-  // shallow-equal and does not re-render the global aside. terminalSessions is
-  // already dedup-stable (useTerminalSessions Task 9), so output-timing churn
-  // alone no longer re-renders it either.
+  // shallow-equal and does not re-render the global aside. The run glyph is a
+  // pure function of sprint state (deriveWorkspaceRunGlyph → the Sprint Engine
+  // provider), so terminal-session churn no longer touches this surface at all.
   const sprintEngineWorkspaces = useWorkspaceStore(
     useShallow((state) => state.workspaces.filter((workspace) => isSprintEngineWorkspace(workspace))),
   )
-  const terminalSessions = useTerminalSessions()
 
   const rows = useMemo(
-    () =>
-      buildSprintEngineNavRows(sprintEngineWorkspaces, (workspace) =>
-        deriveWorkspaceRunGlyph(workspace, getWorkspaceActivity(workspace, terminalSessions)),
-      ),
-    [sprintEngineWorkspaces, terminalSessions],
+    () => buildSprintEngineNavRows(sprintEngineWorkspaces, (workspace) => deriveWorkspaceRunGlyph(workspace)),
+    [sprintEngineWorkspaces],
   )
 
   return (
     <aside
-      aria-label="Sprint engines"
+      aria-label="Sprints"
       className="flex h-full w-[296px] shrink-0 flex-col bg-[color:var(--bg-app)]"
     >
       <PanelHeader
         tool="sprintengine"
-        title="Sprint Engines"
+        title="Sprints"
         subtitle="All workspaces"
         count={rows.length > 0 ? rows.length : undefined}
-        primaryAction={<CloseIconButton aria-label="Close Sprint Engines" onClick={onClose} />}
+        primaryAction={<CloseIconButton aria-label="Close Sprints" onClick={onClose} />}
       />
       {rows.length === 0 ? (
         <div className="flex flex-1 items-center justify-center px-6 text-center">
           <div className="max-w-xs">
             <div className="text-[13px] font-semibold text-[color:var(--text-strong)]">
-              No sprint engines yet
+              No sprints running yet
             </div>
             <p className="mt-2 text-[12px] leading-5 text-[color:var(--text-muted)]">
-              Sprint Engine workspaces appear here with their live run state. Start one from a
-              Backlog item with &ldquo;Start Sprint Engine&rdquo;, or create a Sprint Engine
+              Sprints appear here with their live run state. Start one from a
+              Backlog item with &ldquo;Run a Sprint&rdquo;, or create a sprint
               workspace.
             </p>
           </div>

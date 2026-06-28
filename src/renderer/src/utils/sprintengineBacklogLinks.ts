@@ -5,6 +5,11 @@ import type { Workspace } from '../types/workspace'
 
 export const SPRINT_ENGINE_MODULE_ID = 'sprint-engine'
 export const SPRINT_ENGINE_RUN_TARGET_KIND = 'sprintengine.run'
+export const SPRINT_ENGINE_PR_TARGET_KIND = 'sprintengine.pullRequest'
+// Fixed id so the PR link is idempotent per item: re-running a sprint replaces
+// the link rather than accumulating stale ones (mirrors the agent-runtime
+// `agent-runtime:working-agent` most-recent-wins convention).
+export const SPRINT_ENGINE_PR_LINK_ID = 'sprint-engine:pull-request'
 
 export type SprintEngineProjectionRead = {
   ok: boolean
@@ -122,7 +127,7 @@ export async function resolveSprintEngineBacklogLink(
 ): Promise<BacklogResolvedLink> {
   const statePath = sprintEngineStatePathForBacklogLink(input.workspaceRoot, input.link)
   if (!statePath) {
-    return unavailableLink(input.link, 'Sprint Engine run link is missing a project-relative run.yaml target.')
+    return unavailableLink(input.link, 'Sprint run link is missing a project-relative run.yaml target.')
   }
 
   let projection: SprintEngineProjectionRead
@@ -133,12 +138,12 @@ export async function resolveSprintEngineBacklogLink(
   }
 
   if (!projection.ok) {
-    return unavailableLink(input.link, projection.message || 'Sprint Engine projection is unavailable.')
+    return unavailableLink(input.link, projection.message || 'Sprint projection is unavailable.')
   }
 
   const state = normalizeSprintEngineProjection(projection.data, teamSlugFromStatePath(statePath))
   if (!state) {
-    return unavailableLink(input.link, 'Sprint Engine projection is malformed.')
+    return unavailableLink(input.link, 'Sprint projection is malformed.')
   }
 
   const status = state.tasks.length > 0 && state.tasks.every((task) => task.status === 'done')
@@ -159,8 +164,8 @@ export async function openSprintEngineBacklogLink(
     await input.ports.publishDiagnostic?.({
       level: 'warning',
       source: 'sprintengine',
-      title: 'Sprint Engine run unavailable',
-      message: 'This Backlog link does not include a project-relative Sprint Engine run target.',
+      title: 'Sprint run unavailable',
+      message: 'This Backlog link does not include a project-relative sprint run target.',
       workspaceId: input.workspaceId,
     })
     return false
@@ -184,8 +189,8 @@ export async function openSprintEngineBacklogLink(
       await input.ports.publishDiagnostic?.({
         level: 'warning',
         source: 'sprintengine',
-        title: 'Sprint Engine run unavailable',
-        message: 'Could not mount this Sprint Engine run as a workspace.',
+        title: 'Sprint run unavailable',
+        message: 'Could not mount this sprint run as a workspace.',
         details: [
           statePath,
           error instanceof Error ? error.message : String(error),
@@ -200,8 +205,8 @@ export async function openSprintEngineBacklogLink(
     await input.ports.publishDiagnostic?.({
       level: 'warning',
       source: 'sprintengine',
-      title: 'Sprint Engine run unavailable',
-      message: 'No open workspace is mounted for this Sprint Engine run.',
+      title: 'Sprint run unavailable',
+      message: 'No open workspace is mounted for this sprint run.',
       details: statePath,
       workspaceId: input.workspaceId,
     })
@@ -211,4 +216,44 @@ export async function openSprintEngineBacklogLink(
   input.ports.setActiveWorkspace(workspace.id)
   input.ports.openRunSummaryOverlay(workspace.id)
   return true
+}
+
+// Build the idempotent PR link for a completed sprint. `external` is
+// lifecycle-neutral, so attaching it never moves the item's status. The fixed
+// id makes re-runs replace the link instead of stacking duplicates.
+export function buildSprintEnginePullRequestLink(input: {
+  pullRequestUrl: string
+  updatedAt: string
+}): BacklogItemLink {
+  return {
+    id: SPRINT_ENGINE_PR_LINK_ID,
+    moduleId: SPRINT_ENGINE_MODULE_ID,
+    type: 'external',
+    label: 'Pull request',
+    target: {
+      kind: SPRINT_ENGINE_PR_TARGET_KIND,
+      id: input.pullRequestUrl,
+      url: input.pullRequestUrl,
+    },
+    status: 'active',
+    updatedAt: input.updatedAt,
+  }
+}
+
+// Resolve the PR link: openable whenever it carries a URL. The PR is an opened
+// GitHub artifact, not a local run store, so there is nothing to mount — the
+// link just points at the URL.
+export function resolveSprintEnginePullRequestLink(
+  input: BacklogLinkProviderInput,
+): BacklogResolvedLink {
+  const url = input.link.target.url?.trim()
+  if (!url) {
+    return {
+      ...input.link,
+      status: 'unknown',
+      canOpen: false,
+      unavailableReason: 'This pull request link has no URL.',
+    }
+  }
+  return { ...input.link, status: 'active', canOpen: true }
 }

@@ -267,10 +267,10 @@ export function RosterAndRunSettings({
             <div>
               <span className="block text-[13px] font-semibold text-[color:var(--text-strong)]">Automation</span>
               <span className="mt-0.5 block text-[11px] leading-4 text-[color:var(--text-muted)]">
-                How Sprint Engine should continue after this workspace opens.
+                How the sprint should continue after this workspace opens.
               </span>
             </div>
-            <div className="grid gap-2" role="radiogroup" aria-label="Sprint Engine automation mode">
+            <div className="grid gap-2" role="radiogroup" aria-label="Sprint automation mode">
               {sprintEngineAutomationModeOptions.map((option) => (
                 <PathRadio
                   key={option.value}
