@@ -33,7 +33,9 @@ export function backlogRecordInput(item: BacklogItem): BacklogItemRecordInput {
   return {
     relativePath: item.relativePath,
     status: item.status,
-    type: item.type,
+    // `epic` is not part of the sidecar payload union (epic-ness lives in
+    // frontmatter and is re-derived every scan), so it never seeds items.json.
+    type: item.type === 'epic' ? undefined : item.type,
     difficulty: item.difficulty,
     criticality: item.criticality,
   }

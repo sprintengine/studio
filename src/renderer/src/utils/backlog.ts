@@ -19,7 +19,10 @@ export type BacklogScanState = 'missing-folder' | 'empty-folder' | 'ready' | 'pa
 // never required from markdown frontmatter. All fields are optional: a rough
 // capture can stay untyped/unestimated until an architect sizes and prioritizes
 // it, which is a calm neutral state, not a defect.
-export type BacklogType = 'feature' | 'bug' | 'mockup' | 'spike'
+// `epic` is a grouping container (see docs/backlog-item-schema.md); every other
+// type is a leaf. An unknown `type:` value is tolerated per OKF: it is preserved
+// on the item as `rawType` and treated as a leaf, never coerced into this union.
+export type BacklogType = 'epic' | 'feature' | 'bug' | 'mockup' | 'spike'
 export type BacklogDifficulty = 'xs' | 's' | 'm' | 'l' | 'xl'
 export type BacklogCriticality = 'low' | 'normal' | 'high' | 'critical'
 
@@ -75,13 +78,15 @@ export type BacklogResolvedLink = BacklogItemLink & {
   canOpen?: boolean
 }
 
+// App-owned churn merged over a scanned item by hydrateBacklogScanResult. It
+// carries only what the sidecar still owns: identity, module metadata, links,
+// the star/highlight, and its own churn timestamp. Lifecycle/triage (status,
+// type, difficulty, criticality) and epic now live in frontmatter and win on
+// every scan, so they are deliberately absent here.
 export type BacklogItemObjectMetadata = {
   objectId: string
   metadata: Record<string, unknown>
   links: BacklogItemLink[]
-  type?: BacklogType
-  difficulty?: BacklogDifficulty
-  criticality?: BacklogCriticality
   highlight?: BacklogHighlight
   updatedAt?: string
 }
@@ -95,13 +100,24 @@ export type BacklogItem = {
   kind: BacklogItemKind
   status: BacklogItemStatus
   type?: BacklogType
+  // The literal frontmatter `type:` value, preserved even when it is not a known
+  // BacklogType (OKF unknown-type tolerance). Equal to `type` for known values;
+  // set without a matching `type` for unknown ones; undefined when no `type:`.
+  rawType?: string
   difficulty?: BacklogDifficulty
   criticality?: BacklogCriticality
+  // Up-pointing slug of the epic this item belongs to (frontmatter `epic:`), and
+  // whether this item is itself an epic container (`type === 'epic'`).
+  epic?: string
+  isEpic: boolean
   highlight?: BacklogHighlight
   metadata: Record<string, unknown>
   links: BacklogItemLink[]
   objectUpdatedAt?: string
   excerpt: string
+  // Effective recency in epoch ms: frontmatter `updated` (ISO) when present and
+  // parseable, else the file mtime. Drives the recently-updated sort and the
+  // row's relative-time label.
   modifiedAt: number
   size: number
   sourceContent: string
@@ -137,7 +153,7 @@ const SOURCE_EXTENSION_RE = /\.(md|html?)$/i
 const HTML_EXTENSION_RE = /\.html?$/i
 const VALID_KIND = new Set<BacklogItemKind>(['product_plan', 'architect_plan', 'html_mockup', 'unknown'])
 const VALID_STATUS = new Set<BacklogItemStatus>(['idea', 'ready', 'in_progress', 'needs_input', 'completed', 'archived'])
-const VALID_TYPE = new Set<BacklogType>(['feature', 'bug', 'mockup', 'spike'])
+const VALID_TYPE = new Set<BacklogType>(['epic', 'feature', 'bug', 'mockup', 'spike'])
 const VALID_DIFFICULTY = new Set<BacklogDifficulty>(['xs', 's', 'm', 'l', 'xl'])
 const VALID_CRITICALITY = new Set<BacklogCriticality>(['low', 'normal', 'high', 'critical'])
 const VALID_HIGHLIGHT_COLOR = new Set<BacklogHighlightColor>(['red', 'orange', 'amber', 'green', 'blue', 'purple', 'pink'])
@@ -263,10 +279,16 @@ export function createBacklogItem(input: {
   const inferredKind = inferBacklogKind(relativePath, body)
   const archived = isArchivedBacklogPath(relativePath)
   const frontmatterStatus = parseBacklogStatus(frontmatterValue(fields, 'status'))
-  const frontmatterType = parseBacklogType(frontmatterValue(fields, 'type', 'itemType', 'item_type', 'backlogType', 'backlog_type'))
+  const rawType = frontmatterValue(fields, 'type', 'itemType', 'item_type', 'backlogType', 'backlog_type')
+  const frontmatterType = parseBacklogType(rawType)
   const frontmatterDifficulty = parseBacklogDifficulty(frontmatterValue(fields, 'difficulty', 'size'))
   const frontmatterCriticality = parseBacklogCriticality(frontmatterValue(fields, 'criticality', 'priority'))
+  const epic = frontmatterValue(fields, 'epic')
   const title = inferBacklogTitle(relativePath, body)
+  // Lifecycle/triage and epic are frontmatter-sourced (frontmatter is the source
+  // of truth); the sidecar object only contributes identity, links, metadata,
+  // and highlight.
+  const type = frontmatterType ?? defaultBacklogType(frontmatterKind ?? inferredKind)
 
   return {
     id: relativePath,
@@ -276,18 +298,32 @@ export function createBacklogItem(input: {
     title,
     kind: frontmatterKind ?? inferredKind,
     status: archived ? 'archived' : frontmatterStatus ?? defaultBacklogStatus(),
-    type: input.object?.type ?? frontmatterType ?? defaultBacklogType(frontmatterKind ?? inferredKind),
-    difficulty: input.object?.difficulty ?? frontmatterDifficulty,
-    criticality: input.object?.criticality ?? frontmatterCriticality,
+    type,
+    rawType,
+    difficulty: frontmatterDifficulty,
+    criticality: frontmatterCriticality,
+    epic,
+    isEpic: type === 'epic',
     highlight: input.object?.highlight,
     metadata: input.object?.metadata ?? {},
     links: input.object?.links ?? [],
     objectUpdatedAt: input.object?.updatedAt,
     excerpt: backlogExcerpt(body, title),
-    modifiedAt: input.stats.modifiedAtMs,
+    modifiedAt: resolveBacklogRecencyMs(frontmatterValue(fields, 'updated'), input.stats.modifiedAtMs),
     size: input.stats.sizeBytes,
     sourceContent: input.sourceContent,
   }
+}
+
+// Recently-updated recency: the frontmatter `updated` timestamp when present and
+// parseable as a date, else the file mtime. Keeps the sort and the row's
+// relative-time anchored to the authored "updated" field when authors set it.
+function resolveBacklogRecencyMs(updated: string | undefined, mtimeMs: number): number {
+  if (updated) {
+    const parsed = Date.parse(updated)
+    if (!Number.isNaN(parsed)) return parsed
+  }
+  return mtimeMs
 }
 
 export function inferBacklogKind(relativePath: string, content: string): BacklogItemKind {

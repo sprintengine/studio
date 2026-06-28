@@ -43,6 +43,7 @@ export const CRITICALITY_LABEL: Record<BacklogCriticality, string> = {
 }
 
 export const TYPE_LABEL: Record<BacklogType, string> = {
+  epic: 'Epic',
   feature: 'Feature',
   bug: 'Bug',
   mockup: 'Mockup',

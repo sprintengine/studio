@@ -89,26 +89,24 @@ export function hydrateBacklogScanResult(
   const items = scan.items.map((item) => {
     const record = byPath.get(item.relativePath.toLowerCase())
     if (!record) return item
+    // The sidecar owns only app churn: links, module metadata, the star/highlight,
+    // and its own timestamp. Lifecycle/triage (status, type, difficulty,
+    // criticality) and epic now live in frontmatter and win on every scan, so a
+    // stale sidecar value can never shadow what the file says.
     const object: BacklogItemObjectMetadata = {
       objectId: record.id,
       metadata: record.metadata ?? {},
       links: record.links ?? [],
-      type: record.type,
-      difficulty: record.difficulty,
-      criticality: record.criticality,
       highlight: record.highlight,
       updatedAt: record.updatedAt,
     }
-    return {
-      ...createBacklogItem({
-        path: item.path,
-        relativePath: item.relativePath,
-        sourceContent: item.sourceContent,
-        stats: { modifiedAtMs: item.modifiedAt, sizeBytes: item.size },
-        object,
-      }),
-      status: item.status === 'archived' ? 'archived' : record.status ?? item.status,
-    }
+    return createBacklogItem({
+      path: item.path,
+      relativePath: item.relativePath,
+      sourceContent: item.sourceContent,
+      stats: { modifiedAtMs: item.modifiedAt, sizeBytes: item.size },
+      object,
+    })
   })
   return { ...scan, items } as BacklogScanResult
 }

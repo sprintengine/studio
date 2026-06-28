@@ -49,6 +49,7 @@ run('isBacklogUnestimated is true when either axis is missing', () => {
 
 run('type labels use the public backlog vocabulary', () => {
   assert.deepEqual(TYPE_LABEL, {
+    epic: 'Epic',
     feature: 'Feature',
     bug: 'Bug',
     mockup: 'Mockup',

@@ -28,6 +28,7 @@ const baseItem: BacklogItem = {
   title: 'Item',
   kind: 'unknown',
   status: 'in_progress',
+  isEpic: false,
   metadata: {},
   links: [],
   excerpt: '',
