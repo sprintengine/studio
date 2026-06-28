@@ -19,7 +19,7 @@ const sprintEngineAgentTab = (id: string, name: string) => ({
 // FlexLayout tab so the workspace nav stays stable.
 const sprintEngineBoardTab = () => ({
   type: 'tab',
-  name: 'Sprint Engine',
+  name: 'Sprint',
   component: 'sprintengine',
   enableClose: false,
 })

@@ -15,8 +15,9 @@ import type {
   BacklogHighlight,
   BacklogItem,
   BacklogItemStatus,
+  BacklogRisk,
 } from '../../utils/backlog'
-import { CRITICALITY_LABEL, DIFFICULTY_WORD } from '../../utils/backlogTriage'
+import { CRITICALITY_LABEL, DIFFICULTY_WORD, RISK_LABEL } from '../../utils/backlogTriage'
 import { BACKLOG_STATUS_LABEL } from './BacklogRow'
 
 // Row-level Backlog actions, owned by the panel (the handlers persist through
@@ -24,6 +25,11 @@ import { BACKLOG_STATUS_LABEL } from './BacklogRow'
 // through this one vocabulary so the two surfaces cannot drift.
 export type DifficultyChoice = BacklogDifficulty | 'unset'
 export type CriticalityChoice = BacklogCriticality | 'unset'
+export type RiskChoice = BacklogRisk | 'unset'
+
+// One assignable epic for the "Move to epic" affordances: the epic file's slug
+// (the updateBacklogEpic target) plus its display title.
+export type BacklogEpicChoice = { slug: string; title: string }
 
 export type BacklogActions = {
   createFolder: () => void
@@ -32,10 +38,18 @@ export type BacklogActions = {
   revealInFiles: (item: BacklogItem) => void
   rename: (item: BacklogItem) => void
   archive: (item: BacklogItem) => void
+  // Archive an epic and roll up its children (each archived, then the epic) so
+  // the Archived lens shows the epic as a single grouped unit.
+  archiveEpic: (item: BacklogItem) => void
   remove: (item: BacklogItem) => void
   setStatus: (item: BacklogItem, status: BacklogItemStatus) => void
   setDifficulty: (item: BacklogItem, value: DifficultyChoice) => void
   setCriticality: (item: BacklogItem, value: CriticalityChoice) => void
+  setRisk: (item: BacklogItem, value: RiskChoice) => void
+  // Assign the item to an epic (slug) or clear its `epic:` frontmatter (null).
+  setEpic: (item: BacklogItem, slug: string | null) => void
+  // Prompt for a title, create `backlog/epics/<slug>.md`, then assign the item.
+  createEpic: (item: BacklogItem) => void
   setHighlight: (item: BacklogItem, highlight: BacklogHighlight) => void
 }
 
@@ -56,6 +70,15 @@ export const CRITICALITY_EDIT_ITEMS: SelectItem<CriticalityChoice>[] = [
   { value: 'normal', label: CRITICALITY_LABEL.normal },
   { value: 'high', label: CRITICALITY_LABEL.high },
   { value: 'critical', label: CRITICALITY_LABEL.critical },
+]
+
+// Risk = likelihood the work goes sideways, distinct from effort and impact.
+// Cleared leads (one-click reset), same idiom as size/priority.
+export const RISK_EDIT_ITEMS: SelectItem<RiskChoice>[] = [
+  { value: 'unset', label: 'No risk set' },
+  { value: 'low', label: RISK_LABEL.low },
+  { value: 'normal', label: RISK_LABEL.normal },
+  { value: 'high', label: RISK_LABEL.high },
 ]
 
 // Status submenu choices: lifecycle states the user sets directly. Archived is
@@ -89,6 +112,7 @@ export function BacklogItemContextMenu({
   y,
   item,
   actions,
+  epicChoices,
   agentTargets,
   agentSessions,
   onFlyoutOpen,
@@ -99,6 +123,8 @@ export function BacklogItemContextMenu({
   y: number
   item: BacklogItem
   actions: BacklogActions
+  // Existing epics this item can be moved into (excludes the item itself).
+  epicChoices: ReadonlyArray<BacklogEpicChoice>
   agentTargets: Array<AgentState & { cliSessionId: string }>
   agentSessions: TerminalSessionSnapshot[] | null
   onFlyoutOpen: () => void
@@ -224,6 +250,65 @@ export function BacklogItemContextMenu({
           </MenuItem>
         ))}
       </MenuFlyoutItem>
+      <MenuFlyoutItem label="Risk" ariaLabel="Set risk" surfaceClassName="min-w-[180px]">
+        {RISK_EDIT_ITEMS.map(({ value, label }) => (
+          <MenuItem
+            key={value}
+            checked={(item.risk ?? 'unset') === value}
+            icon={<MenuCheckGlyph visible={(item.risk ?? 'unset') === value} />}
+            onClick={() => {
+              actions.setRisk(item, value)
+              onClose()
+            }}
+          >
+            {label}
+          </MenuItem>
+        ))}
+      </MenuFlyoutItem>
+      {/* Epic membership is the child's `epic:` frontmatter; an epic can't nest
+          inside another epic, so the affordance is hidden on epic rows. */}
+      {!item.isEpic ? (
+        <MenuFlyoutItem label="Move to epic" ariaLabel="Move to epic" surfaceClassName="min-w-[200px]">
+          {epicChoices.length === 0 ? (
+            <MenuItem disabled onClick={() => {}}>
+              No epics yet
+            </MenuItem>
+          ) : (
+            epicChoices.map((epic) => (
+              <MenuItem
+                key={epic.slug}
+                checked={item.epic === epic.slug}
+                icon={<MenuCheckGlyph visible={item.epic === epic.slug} />}
+                onClick={() => {
+                  actions.setEpic(item, epic.slug)
+                  onClose()
+                }}
+              >
+                {epic.title}
+              </MenuItem>
+            ))
+          )}
+          <MenuDivider />
+          <MenuItem
+            onClick={() => {
+              actions.createEpic(item)
+              onClose()
+            }}
+          >
+            New epic…
+          </MenuItem>
+          {item.epic ? (
+            <MenuItem
+              onClick={() => {
+                actions.setEpic(item, null)
+                onClose()
+              }}
+            >
+              Remove from epic
+            </MenuItem>
+          ) : null}
+        </MenuFlyoutItem>
+      ) : null}
       <MenuDivider />
       <MenuItem
         onClick={() => {
@@ -250,14 +335,27 @@ export function BacklogItemContextMenu({
         Rename…
       </MenuItem>
       {!archived ? (
-        <MenuItem
-          onClick={() => {
-            actions.archive(item)
-            onClose()
-          }}
-        >
-          Archive
-        </MenuItem>
+        item.isEpic ? (
+          // Archiving an epic rolls up its children (archive each, then the epic)
+          // so the Archived lens shows the epic as one unit, not N loose rows.
+          <MenuItem
+            onClick={() => {
+              actions.archiveEpic(item)
+              onClose()
+            }}
+          >
+            Archive epic
+          </MenuItem>
+        ) : (
+          <MenuItem
+            onClick={() => {
+              actions.archive(item)
+              onClose()
+            }}
+          >
+            Archive
+          </MenuItem>
+        )
       ) : null}
       <MenuItem
         variant="danger"

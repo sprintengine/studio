@@ -49,21 +49,63 @@ const store: BacklogObjectStore = {
 
 const hydrated = hydrateBacklogScanResult({ state: 'ready', items: [item], errors: [] }, store)
 assert.equal(hydrated.items[0]?.objectId, 'item_checkout')
-assert.equal(hydrated.items[0]?.status, 'in_progress')
+// Frontmatter is the source of truth for lifecycle/triage: the sidecar record's
+// stale status/type/difficulty/criticality no longer override the file. The
+// checkout fixture has no frontmatter, so these resolve to their file defaults.
+assert.equal(hydrated.items[0]?.status, 'idea')
+assert.equal(hydrated.items[0]?.type, undefined)
+assert.equal(hydrated.items[0]?.difficulty, undefined)
+assert.equal(hydrated.items[0]?.criticality, undefined)
+// App churn still merges from the sidecar: links, module metadata, and highlight.
 assert.equal(hydrated.items[0]?.links[0]?.target.path, '.multi-code/sprintengine/checkout/run.yaml')
-// Triage metadata is surfaced from the object record onto the hydrated item.
-assert.equal(hydrated.items[0]?.type, 'feature')
-assert.equal(hydrated.items[0]?.difficulty, 'm')
-assert.equal(hydrated.items[0]?.criticality, 'high')
-// Highlight rides along from the object record; items without one stay unset.
+assert.deepEqual(hydrated.items[0]?.metadata, { 'sprint-engine': { lastRunId: 'checkout' } })
 assert.equal(item.highlight, undefined)
 assert.deepEqual(hydrated.items[0]?.highlight, { starred: true, color: 'amber' })
+
+// Frontmatter wins even when a stale sidecar record disagrees on every axis, and
+// epic/isEpic + unknown-type tolerance read straight from frontmatter.
+const frontmatterItem = createBacklogItem({
+  path: '/repo/backlog/payments.md',
+  relativePath: 'backlog/payments.md',
+  sourceContent: '---\nstatus: ready\ntype: feature\ndifficulty: s\ncriticality: low\nepic: payments-revamp\n---\n# Payments',
+  stats: { modifiedAtMs: 10, sizeBytes: 20 },
+})
+const staleStore: BacklogObjectStore = {
+  schemaVersion: 1,
+  items: [
+    {
+      id: 'item_payments',
+      source: { type: 'file', relativePath: 'backlog/payments.md' },
+      status: 'completed',
+      type: 'bug',
+      difficulty: 'xl',
+      criticality: 'critical',
+      metadata: {},
+      links: [],
+      updatedAt: '2026-06-01T00:00:00.000Z',
+    },
+  ],
+}
+const frontmatterHydrated = hydrateBacklogScanResult(
+  { state: 'ready', items: [frontmatterItem], errors: [] },
+  staleStore,
+)
+assert.equal(frontmatterHydrated.items[0]?.status, 'ready')
+assert.equal(frontmatterHydrated.items[0]?.type, 'feature')
+assert.equal(frontmatterHydrated.items[0]?.difficulty, 's')
+assert.equal(frontmatterHydrated.items[0]?.criticality, 'low')
+assert.equal(frontmatterHydrated.items[0]?.epic, 'payments-revamp')
+assert.equal(frontmatterHydrated.items[0]?.isEpic, false)
+assert.equal(frontmatterHydrated.items[0]?.objectId, 'item_payments')
 
 const ensured = ensureBacklogObjectRecords({ schemaVersion: 1, items: [] }, [item], '2026-06-07T01:00:00.000Z')
 assert.equal(ensured.changed, true)
 assert.equal(ensured.store.items[0]?.source.relativePath, 'backlog/checkout.md')
-// New records adopt the item's calm default status, not a needs_structure flag.
-assert.equal(ensured.store.items[0]?.status, 'idea')
+// v2: a freshly registered record carries no lifecycle/triage — those live in
+// frontmatter, so the sidecar record is seeded slim (status stays unset).
+assert.equal(ensured.store.items[0]?.status, undefined)
+assert.equal(ensured.store.items[0]?.type, undefined)
+assert.equal(ensured.store.items[0]?.metadata && Object.keys(ensured.store.items[0].metadata).length, 0)
 
 const typed = updateBacklogObjectType(store, item, 'bug', '2026-06-07T05:30:00.000Z')
 assert.equal(typed.items[0]?.type, 'bug')
@@ -72,15 +114,22 @@ assert.equal(typed.items[0]?.updatedAt, '2026-06-07T05:30:00.000Z')
 const clearedType = updateBacklogObjectType(typed, item, null, '2026-06-07T05:45:00.000Z')
 assert.equal(clearedType.items[0]?.type, undefined)
 
-// Triage edits set, then clear, an axis; the other axis is untouched.
-const sized = updateBacklogObjectTriage(store, item, { difficulty: 'xl', criticality: 'low' }, '2026-06-07T06:00:00.000Z')
+// Triage edits set, then clear, an axis; the other axes are untouched. Risk is
+// the third axis, plumbed parallel to difficulty/criticality.
+const sized = updateBacklogObjectTriage(store, item, { difficulty: 'xl', criticality: 'low', risk: 'high' }, '2026-06-07T06:00:00.000Z')
 assert.equal(sized.items[0]?.difficulty, 'xl')
 assert.equal(sized.items[0]?.criticality, 'low')
+assert.equal(sized.items[0]?.risk, 'high')
 assert.equal(sized.items[0]?.updatedAt, '2026-06-07T06:00:00.000Z')
 
 const clearedSize = updateBacklogObjectTriage(sized, item, { difficulty: null }, '2026-06-07T07:00:00.000Z')
 assert.equal(clearedSize.items[0]?.difficulty, undefined)
 assert.equal(clearedSize.items[0]?.criticality, 'low')
+// Omitting risk leaves it untouched; passing null clears it.
+assert.equal(clearedSize.items[0]?.risk, 'high')
+const clearedRisk = updateBacklogObjectTriage(sized, item, { risk: null }, '2026-06-07T07:30:00.000Z')
+assert.equal(clearedRisk.items[0]?.risk, undefined)
+assert.equal(clearedRisk.items[0]?.criticality, 'low')
 
 // Invalid persisted triage values are dropped on normalization (here via an
 // unrelated mutation that round-trips the store), while valid ones survive.
@@ -90,9 +139,10 @@ const dirty: BacklogObjectStore = {
     {
       id: 'item_dirty',
       source: { type: 'file', relativePath: 'backlog/checkout.md' },
-      type: 'epic' as unknown as 'feature',
+      type: 'saga' as unknown as 'feature',
       difficulty: 'huge' as unknown as 'xl',
       criticality: 'high',
+      risk: 'critical' as unknown as 'high',
       highlight: { starred: true, color: 'magenta' as unknown as 'red' },
     },
   ],
@@ -101,6 +151,8 @@ const cleaned = updateBacklogObjectStatus(dirty, item, 'idea', '2026-06-07T08:00
 assert.equal(cleaned.items[0]?.type, undefined)
 assert.equal(cleaned.items[0]?.difficulty, undefined)
 assert.equal(cleaned.items[0]?.criticality, 'high')
+// `critical` is not a valid risk value (low|normal|high) and is dropped.
+assert.equal(cleaned.items[0]?.risk, undefined)
 // Unknown highlight colors are dropped on normalization; the star survives.
 assert.deepEqual(cleaned.items[0]?.highlight, { starred: true, color: null })
 

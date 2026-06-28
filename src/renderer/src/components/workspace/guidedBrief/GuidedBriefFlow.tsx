@@ -1558,7 +1558,7 @@ function HandoffBody({
             Ready to build
           </h3>
           <p className="text-[13px] leading-5 text-[color:var(--text-muted)]">
-            The generated handoff becomes the plan source for the new Sprint Engine team.
+            The generated handoff becomes the plan source for the new sprint roster.
           </p>
         </header>
 

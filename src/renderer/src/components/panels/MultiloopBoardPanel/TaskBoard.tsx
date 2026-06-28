@@ -22,7 +22,7 @@ export function TaskBoard({
   readiness: MultiloopExecutionReadiness
   onPlanExecution: () => void
 }) {
-  const sourceLabel = source === 'sprintengine' ? 'Sprint Engine' : 'Multiloop'
+  const sourceLabel = source === 'sprintengine' ? 'Sprint' : 'Multiloop'
 
   if (tasks.length === 0) {
     return (

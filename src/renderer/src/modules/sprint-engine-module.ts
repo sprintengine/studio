@@ -11,9 +11,11 @@ import {
   hasSprintEngineRunLink,
   openSprintEngineBacklogLink,
   resolveSprintEngineBacklogLink,
+  resolveSprintEnginePullRequestLink,
   sprintEngineRunLinkForItem,
   SPRINT_ENGINE_MODULE_ID,
   SPRINT_ENGINE_RUN_TARGET_KIND,
+  SPRINT_ENGINE_PR_TARGET_KIND,
 } from '../utils/sprintengineBacklogLinks'
 import type { SprintEngineBacklogLinkOpenPorts } from '../utils/sprintengineBacklogLinks'
 import type { SprintEngineRoleCliDefaults, SprintEngineRoleId, SprintEngineState, Workspace } from '../types/workspace'
@@ -74,11 +76,11 @@ async function sprintEngineBacklogOpenPorts(): Promise<SprintEngineBacklogLinkOp
 
       const projection = await window.api.readSprintEngineProjection(statePath)
       if (!projection.ok) {
-        throw new Error(projection.message || 'Sprint Engine projection is unavailable.')
+        throw new Error(projection.message || 'Sprint projection is unavailable.')
       }
       const sprintEngineState = normalizeSprintEngineProjection(projection.data, teamSlug)
       if (!sprintEngineState) {
-        throw new Error('Sprint Engine projection is malformed.')
+        throw new Error('Sprint projection is malformed.')
       }
 
       const teamName = sprintEngineState.name.trim() || teamSlug
@@ -135,7 +137,7 @@ export const sprintEngineRendererModule: RendererModule = {
     publisher: 'multicode',
     category: 'orchestration',
     summary:
-      'Autonomous multi-agent sprint board with quality gates. Disabling hides the board, the Sprint Engine and Design Wizard workspace modes, and stops the auto-run supervisor.',
+      'Autonomous multi-agent sprint board with quality gates. Disabling hides the board, the Sprint and Design Wizard workspace modes, and stops the auto-run supervisor.',
     defaultEnabled: true,
     dependsOn: ['agent-runtime'],
   },
@@ -153,6 +155,20 @@ export const sprintEngineRendererModule: RendererModule = {
         ...input,
         ports: await sprintEngineBacklogOpenPorts(),
       }),
+    })
+    // The pull request a completed sprint opened. A separate provider because a
+    // PR is an opened GitHub artifact (open it in the browser), not a local run
+    // store to mount/focus like a `sprintengine.run` link.
+    host.registerBacklogLinkProvider({
+      moduleId: SPRINT_ENGINE_MODULE_ID,
+      targetKinds: [SPRINT_ENGINE_PR_TARGET_KIND],
+      resolveLinkStatus: (input) => Promise.resolve(resolveSprintEnginePullRequestLink(input)),
+      openLink: async (input) => {
+        const url = input.link.target.url?.trim()
+        if (!url) return false
+        const result = await window.api.openExternal(url)
+        return result.ok !== false
+      },
     })
     // Deep-link from a Sprint Engine notification to the task it is about. The
     // shell already reveals the workspace (its generic fallback); this provider
@@ -180,7 +196,7 @@ export const sprintEngineRendererModule: RendererModule = {
     })
     host.registerBacklogItemAction({
       id: 'sprint-engine.start-from-backlog',
-      label: 'Start Sprint Engine',
+      label: 'Run a Sprint',
       category: 'execute',
       order: 10,
       isVisible: ({ item }) => item.status !== 'archived' && item.status !== 'completed' && !hasSprintEngineRunLink(item),
@@ -203,7 +219,7 @@ export const sprintEngineRendererModule: RendererModule = {
     })
     host.registerBacklogItemAction({
       id: 'sprint-engine.open-linked-run',
-      label: 'Open Sprint Engine',
+      label: 'Open Sprint',
       category: 'execute',
       order: 10,
       isVisible: ({ item }) => item.status !== 'archived' && hasSprintEngineRunLink(item),

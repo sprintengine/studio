@@ -21,6 +21,7 @@ const baseItem: BacklogItem = {
   title: 'Run',
   kind: 'unknown',
   status: 'idea',
+  isEpic: false,
   metadata: {},
   links: [],
   excerpt: '',

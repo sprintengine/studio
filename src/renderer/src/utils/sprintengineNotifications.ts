@@ -44,7 +44,7 @@ export function publishSprintEngineAutomationModeNotification(input: {
     level: input.level ?? 'info',
     source: 'sprintengine',
     title: SPRINT_ENGINE_AUTOMATION_NOTIFICATION_TITLE,
-    message: input.reason ? `${modeLabel}: ${input.reason}` : `Sprint Engine automation is now ${modeLabel}.`,
+    message: input.reason ? `${modeLabel}: ${input.reason}` : `Sprint automation is now ${modeLabel}.`,
     ...(input.details ? { details: input.details } : {}),
     workspaceId: input.workspaceId,
     ...(input.workspaceName ? { workspaceName: input.workspaceName } : {}),

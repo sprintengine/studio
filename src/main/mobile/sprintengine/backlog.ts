@@ -1,7 +1,8 @@
 import { basename, isAbsolute, join, resolve } from 'path'
 import { readdir, readFile } from 'fs/promises'
 
-import { ensureBacklogObjectRecords, readBacklogObjectStore } from '../../backlog-service'
+import { ensureBacklogObjectRecords, readBacklogFrontmatterFields, readBacklogObjectStore } from '../../backlog-service'
+import type { BacklogFrontmatterFields } from '../../backlog-service'
 import type { BacklogObjectRecordPayload } from '../../../shared/electron-api'
 import type {
   MobileControlBacklogItemSnapshot,
@@ -25,6 +26,39 @@ export async function readMobileBacklogWorkspaceSnapshot(
   generatedAt: string,
 ): Promise<MobileControlBacklogWorkspaceSnapshot | null> {
   const root = resolve(workspaceRoot)
+  const { items, present } = await readActiveBacklogItems(root)
+  if (!present) return null
+  if (items.length === 0) return emptyBacklogWorkspaceSnapshot(root, generatedAt)
+
+  return {
+    workspaceId: `backlog:${root}`,
+    workspacePath: root,
+    workspaceName: basename(root) || root,
+    updatedAt: latestTimestamp(items) ?? generatedAt,
+    items: items.slice(0, maxBacklogItemsPerWorkspace),
+  }
+}
+
+// childrenOfEpic for non-panel consumers (Sprint Engine / mobile): the derived
+// epic -> children query over the same read path, so callers enumerate an epic's
+// members without re-parsing the backlog folder themselves. Membership is read
+// from each child's frontmatter `epic:` slug (never a stored children list), and
+// the result is the active (non-archived) children, ordered like the snapshot.
+export async function readBacklogEpicChildren(
+  workspaceRoot: string,
+  slug: string,
+): Promise<MobileControlBacklogItemSnapshot[]> {
+  const { items } = await readActiveBacklogItems(resolve(workspaceRoot))
+  return items.filter((item) => item.epic === slug)
+}
+
+// Shared read pass for the snapshot and childrenOfEpic: merges scanned backlog
+// markdown with the items.json records, then builds active, frontmatter-sourced
+// item snapshots. `present` is false only when the workspace has neither a
+// backlog folder nor any sidecar record (a calm absence, not an error).
+async function readActiveBacklogItems(
+  root: string,
+): Promise<{ items: MobileControlBacklogItemSnapshot[]; present: boolean }> {
   const scannedPaths = await scanBacklogMarkdownPaths(root)
   const storeResult = await readBacklogObjectStore(root)
   let records: BacklogObjectRecordPayload[] = storeResult.ok ? storeResult.store.items : []
@@ -41,25 +75,15 @@ export async function readMobileBacklogWorkspaceSnapshot(
     }
   }
 
-  const activeRecords = records.filter(
-    (record) => record.status !== 'archived' && !record.source.relativePath.toLowerCase().startsWith(ARCHIVED_PREFIX),
-  )
-  if (activeRecords.length === 0) {
-    return scannedPaths.length === 0 && records.length === 0
-      ? null
-      : emptyBacklogWorkspaceSnapshot(root, generatedAt)
-  }
-
-  const items = await Promise.all(activeRecords.map((record) => toBacklogItemSnapshot(root, record)))
-  items.sort(compareBacklogItems)
-
-  return {
-    workspaceId: `backlog:${root}`,
-    workspacePath: root,
-    workspaceName: basename(root) || root,
-    updatedAt: latestTimestamp(items) ?? generatedAt,
-    items: items.slice(0, maxBacklogItemsPerWorkspace),
-  }
+  const present = !(scannedPaths.length === 0 && records.length === 0)
+  // Build every record into a frontmatter-sourced snapshot first, then drop
+  // archived ones by their *frontmatter* status (the sidecar status is stale
+  // after the v2 migration) and by the archived/ path convention.
+  const snapshots = await Promise.all(records.map((record) => toBacklogItemSnapshot(root, record)))
+  const items = snapshots
+    .filter((item) => item.status !== 'archived' && !item.relativePath.toLowerCase().startsWith(ARCHIVED_PREFIX))
+    .sort(compareBacklogItems)
+  return { items, present }
 }
 
 // Resolves a backlog item into the product prompt used for a Sprint Engine
@@ -86,7 +110,7 @@ export async function resolveBacklogStartPrompt(
   if (!body) {
     throw new MobileSprintEngineCommandError(
       'invalid_payload',
-      `Backlog item ${normalized} is empty; add content before starting a Sprint Engine from it.`,
+      `Backlog item ${normalized} is empty; add content before starting a sprint from it.`,
       false,
     )
   }
@@ -134,22 +158,31 @@ async function toBacklogItemSnapshot(
   root: string,
   record: BacklogObjectRecordPayload,
 ): Promise<MobileControlBacklogItemSnapshot> {
-  let body: string | null = null
+  let raw: string | null = null
   try {
-    body = stripFrontmatter(await readFile(join(root, record.source.relativePath), 'utf-8'))
+    raw = await readFile(join(root, record.source.relativePath), 'utf-8')
   } catch {
-    body = null
+    raw = null
   }
+  const body = raw !== null ? stripFrontmatter(raw) : null
+  // Frontmatter is the v2 source of truth for lifecycle/triage/epic; fall back to
+  // the sidecar record only for items not yet migrated to frontmatter.
+  const fields: BacklogFrontmatterFields = raw !== null ? readBacklogFrontmatterFields(raw) : {}
+  const status = fields.status ?? record.status ?? 'idea'
+  const type = fields.type ?? record.type
+  const difficulty = fields.difficulty ?? record.difficulty
+  const criticality = fields.criticality ?? record.criticality
 
   return {
     itemId: record.id,
     relativePath: record.source.relativePath,
     title: body ? extractTitle(body, record.source.relativePath) : titleFromPath(record.source.relativePath),
     ...(body ? { excerpt: extractExcerpt(body) } : {}),
-    status: record.status ?? 'idea',
-    ...(record.type ? { type: record.type } : {}),
-    ...(record.difficulty ? { difficulty: record.difficulty } : {}),
-    ...(record.criticality ? { criticality: record.criticality } : {}),
+    status,
+    ...(type ? { type } : {}),
+    ...(difficulty ? { difficulty } : {}),
+    ...(criticality ? { criticality } : {}),
+    ...(fields.epic ? { epic: fields.epic } : {}),
     ...(record.updatedAt ? { updatedAt: record.updatedAt } : {}),
   }
 }

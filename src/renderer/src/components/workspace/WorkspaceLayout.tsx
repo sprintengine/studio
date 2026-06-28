@@ -159,7 +159,7 @@ function agentTabStatusDot(
   return null
 }
 
-// Sprint Engine agents are supervised by a run, so their tab shows persistent
+// sprint agents are supervised by a run, so their tab shows persistent
 // run status (in progress / blocked / complete) — NOT terminal recency, which is
 // meaningless for a managed agent. Maps the runtime status to a LifecycleGlyph
 // state; `live` animates the spinner only while genuinely running.
@@ -918,9 +918,29 @@ function WorkspaceLayout({ workspaceId, onStartFuturePlan, agentClis, onSpawnAge
             deleteTabPreservingNavRail(node.getModel(), node.getId())
           }
         : undefined
+      // A live PTY bolds the tab name, mirroring the sidebar's resident-workspace
+      // bolding (font-semibold) so suspended/exited terminals read as the quieter
+      // state. Covers plain terminals and agent terminals; editors and panels have
+      // no liveness and stay normal weight. Uses the same session lookup the status
+      // dot below uses, so weight and dot never disagree.
+      const tabComponentId = node.getComponent()
+      let liveTabSession: TerminalSessionSnapshot | undefined
+      if (tabComponentId === 'terminal') {
+        const cfg = node.getConfig() as { terminalId?: string } | undefined
+        liveTabSession = terminalSessions.find(
+          (s) => s.sessionId === `terminal-${cfg?.terminalId ?? node.getId()}`
+        )
+      } else if (tabComponentId === 'agent') {
+        const cfg = node.getConfig() as { agentId?: string; sessionId?: string } | undefined
+        const aId = cfg?.agentId ?? node.getId()
+        const sId = cfg?.sessionId ?? workspaceAgents[aId]?.cliSessionId
+        liveTabSession = sId ? terminalSessions.find((s) => s.sessionId === sId) : undefined
+      }
+      const isLiveTab = Boolean(liveTabSession?.processAlive)
+
       const tabContent = (
         <span
-          className="min-w-0 truncate"
+          className={`min-w-0 truncate ${isLiveTab ? 'font-semibold' : ''}`}
           draggable={canDragOut}
           onDragStart={handleTabDragStart}
           onDragEnd={handleTabDragEnd}
@@ -991,8 +1011,8 @@ function WorkspaceLayout({ workspaceId, onStartFuturePlan, agentClis, onSpawnAge
           renderValues.leading = (
             <span
               className={`flex h-4 w-4 shrink-0 items-center justify-center rounded-[4px] ${panelTabAccentClass('sprintengine', moduleOverrides)}`}
-              title='Sprint Engine panel'
-              aria-label='Sprint Engine panel'
+              title='Sprint panel'
+              aria-label='Sprint panel'
             >
               <WorkspaceTypeIcon mode="sprintengine" moduleOverrides={moduleOverrides} className="h-3.5 w-3.5" />
             </span>
@@ -1012,7 +1032,7 @@ function WorkspaceLayout({ workspaceId, onStartFuturePlan, agentClis, onSpawnAge
         : undefined
       const currentTaskId = runtimeAgent?.currentTaskId
       const isLive = Boolean(agentSession?.processAlive)
-      // Sprint Engine agents show their run lifecycle (in progress / blocked /
+      // sprint agents show their run lifecycle (in progress / blocked /
       // complete), never a live dot or recency. Everyone else uses the
       // processAlive-driven dot with recency-when-not-live.
       const isSprintEngineRun = agent?.kind === 'sprintengine'
@@ -1044,8 +1064,8 @@ function WorkspaceLayout({ workspaceId, onStartFuturePlan, agentClis, onSpawnAge
         renderValues.leading = (
           <span
             className="flex h-4 w-4 shrink-0 items-center justify-center rounded-[4px]"
-            title={`${sprintEngineRole} Sprint Engine agent`}
-            aria-label={`${sprintEngineRole} Sprint Engine agent`}
+            title={`${sprintEngineRole} sprint agent`}
+            aria-label={`${sprintEngineRole} sprint agent`}
           >
             <SprintEngineRoleIcon role={sprintEngineRole} className="h-3.5 w-3.5" />
           </span>
@@ -1066,7 +1086,7 @@ function WorkspaceLayout({ workspaceId, onStartFuturePlan, agentClis, onSpawnAge
 
       // Recency only when NOT live and NOT a Sprint Engine run: a dead/suspended
       // process emits nothing, so its lastOutputAt is frozen and honest. Live
-      // agents show the green dot; Sprint Engine agents show run lifecycle.
+      // agents show the green dot; sprint agents show run lifecycle.
       const agentRecency = isLive || isSprintEngineRun
         ? null
         : pickAgentTabRecency(

@@ -2,6 +2,9 @@ import type { IpcMain } from 'electron'
 
 import type {
   BacklogAddOrUpdateLinkInput,
+  BacklogCreateEpicInput,
+  BacklogCreateEpicResult,
+  BacklogEpicInput,
   BacklogHighlightInput,
   BacklogItemRecordInput,
   BacklogModuleMetadataInput,
@@ -15,10 +18,12 @@ import type {
 } from '../../shared/electron-api'
 import {
   addOrUpdateBacklogLink,
+  createBacklogEpic,
   ensureBacklogObjectRecords,
   moveBacklogObjectSource,
   readBacklogObjectStore,
   removeBacklogObjectRecord,
+  updateBacklogEpic,
   updateBacklogHighlight,
   updateBacklogModuleMetadata,
   updateBacklogStatus,
@@ -68,5 +73,13 @@ export function registerBacklogIpc(ipcMain: IpcMain): void {
 
   ipcMain.handle('backlog:remove-object-record', (_event, input: BacklogRemoveRecordInput): Promise<BacklogMutationResult> => {
     return removeBacklogObjectRecord(input)
+  })
+
+  ipcMain.handle('backlog:update-epic', (_event, input: BacklogEpicInput): Promise<BacklogMutationResult> => {
+    return updateBacklogEpic(input)
+  })
+
+  ipcMain.handle('backlog:create-epic', (_event, input: BacklogCreateEpicInput): Promise<BacklogCreateEpicResult> => {
+    return createBacklogEpic(input)
   })
 }

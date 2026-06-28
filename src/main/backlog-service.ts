@@ -1,8 +1,16 @@
 import { mkdir, readFile, realpath, stat, writeFile } from 'node:fs/promises'
 import { dirname, isAbsolute, join, relative, resolve } from 'node:path'
 
+import {
+  parseBacklogFrontmatter,
+  serializeBacklogFrontmatterFields,
+  type BacklogFrontmatterUpdates,
+} from '../shared/backlog/frontmatter'
 import type {
   BacklogAddOrUpdateLinkInput,
+  BacklogCreateEpicInput,
+  BacklogCreateEpicResult,
+  BacklogEpicInput,
   BacklogHighlightColorPayload,
   BacklogHighlightInput,
   BacklogItemLinkPayload,
@@ -21,6 +29,7 @@ import type {
 
 const STORE_PATH = ['.multi-code', 'backlog', 'items.json'] as const
 const BACKLOG_PREFIX = 'backlog/'
+const EPICS_PREFIX = 'backlog/epics/'
 
 type ValidWorkspace = {
   root: string
@@ -33,18 +42,162 @@ type BacklogObjectRecord = BacklogObjectRecordPayload
 const EMPTY_STORE: BacklogObjectStore = { schemaVersion: 1, items: [] }
 
 const VALID_STATUS = new Set(['idea', 'ready', 'in_progress', 'needs_input', 'completed', 'archived'])
-const VALID_TYPE = new Set(['feature', 'bug', 'mockup', 'spike'])
+const VALID_TYPE = new Set(['epic', 'feature', 'bug', 'mockup', 'spike'])
 const VALID_DIFFICULTY = new Set(['xs', 's', 'm', 'l', 'xl'])
 const VALID_CRITICALITY = new Set(['low', 'normal', 'high', 'critical'])
+const VALID_RISK = new Set(['low', 'normal', 'high'])
 const VALID_HIGHLIGHT_COLOR = new Set(['red', 'orange', 'amber', 'green', 'blue', 'purple', 'pink'])
 
 export async function readBacklogObjectStore(workspaceRoot: string): Promise<BacklogReadResult> {
   try {
     const workspace = await validateWorkspaceRoot(workspaceRoot)
-    const store = await loadStore(workspace)
+    // The read path is where the lazy v1 -> v2 migration runs: a not-yet-migrated
+    // workspace is migrated on first read and tolerated indefinitely until then.
+    const store = await loadMigratedStore(workspace)
     return { ok: true, store }
   } catch (error) {
     return { ok: false, message: errorMessage(error) }
+  }
+}
+
+const MIGRATABLE_FRONTMATTER_FIELDS = ['status', 'type', 'difficulty', 'criticality', 'risk'] as const
+
+export type BacklogRecordFrontmatterMigration = {
+  relativePath: string
+  updates: Record<string, string>
+}
+
+export type BacklogStoreMigrationPlan = {
+  // Per-record frontmatter writes to apply (only records that still carry fields).
+  migrations: BacklogRecordFrontmatterMigration[]
+  // Every record with the migratable fields stripped (orphan GC happens in the
+  // service, which has fs to check for the file).
+  slimRecords: Record<string, unknown>[]
+  // True when any record carried a migratable field — i.e. a rewrite is needed.
+  changed: boolean
+}
+
+// Pure planner for the lazy v1 -> v2 migration. Given a parsed items.json, work
+// out which records still carry lightweight fields (status/type/difficulty/
+// criticality/risk) to push into the item's frontmatter — sidecar value WINS on
+// conflict (matching the old precedence), and unknown string values are migrated
+// intact rather than dropped (OKF drift tolerance) — and the records with those
+// fields stripped. No fs: the service applies the writes and prunes orphans.
+export function planBacklogStoreMigration(parsed: unknown): BacklogStoreMigrationPlan {
+  const items = isPlainRecord(parsed) && Array.isArray(parsed.items) ? parsed.items : []
+  const migrations: BacklogRecordFrontmatterMigration[] = []
+  const slimRecords: Record<string, unknown>[] = []
+  let changed = false
+  for (const raw of items) {
+    if (!isPlainRecord(raw)) continue
+    const slim: Record<string, unknown> = { ...raw }
+    const updates: Record<string, string> = {}
+    for (const field of MIGRATABLE_FRONTMATTER_FIELDS) {
+      if (!(field in slim)) continue
+      const value = slim[field]
+      delete slim[field]
+      changed = true
+      // Only string values can live in flat frontmatter; non-strings are malformed
+      // sidecar data and are simply dropped. Unknown strings (e.g. a custom type)
+      // are preserved so the read model can surface them. items.json scalars are
+      // untrusted v1 sidecar data, so sanitize before the writer sees them (sec F1,
+      // defense in depth with formatScalar) and drop ones that sanitize to empty.
+      if (typeof value === 'string') {
+        const sanitized = sanitizeMigratedScalar(value)
+        if (sanitized) updates[field] = sanitized
+      }
+    }
+    slimRecords.push(slim)
+    const relativePath = recordRelativePath(raw)
+    if (relativePath && Object.keys(updates).length > 0) migrations.push({ relativePath, updates })
+  }
+  return { migrations, slimRecords, changed }
+}
+
+// Collapse embedded CR/LF in a migration-sourced scalar so a crafted multi-line
+// items.json value cannot serialize into extra frontmatter lines, then trim.
+function sanitizeMigratedScalar(value: string): string {
+  return value.replace(/[\r\n]+/g, ' ').trim()
+}
+
+function recordRelativePath(raw: unknown): string | null {
+  if (!isPlainRecord(raw)) return null
+  const source = raw.source
+  if (!isPlainRecord(source) || typeof source.relativePath !== 'string') return null
+  return normalizeRelativePath(source.relativePath)
+}
+
+// Read items.json, run the lazy migration when it still carries v1 fields, and
+// return the (slimmed) store. When nothing needs migrating this is a plain load,
+// so steady-state reads incur no extra fs writes (idempotent).
+async function loadMigratedStore(workspace: ValidWorkspace): Promise<BacklogObjectStore> {
+  let rawText: string
+  try {
+    rawText = await readFile(workspace.storePath, 'utf-8')
+  } catch (error) {
+    if (isMissingFileError(error)) return EMPTY_STORE
+    throw new Error(`Could not read Backlog metadata: ${errorMessage(error)}`)
+  }
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(rawText)
+  } catch (error) {
+    throw new Error(`Could not parse Backlog metadata: ${errorMessage(error)}`)
+  }
+
+  const plan = planBacklogStoreMigration(parsed)
+  if (!plan.changed) return normalizeStore(parsed)
+
+  // Push each record's lightweight fields into its item frontmatter (sidecar
+  // wins, body byte-preserved). A record whose file is gone is skipped here and
+  // pruned by the orphan GC below.
+  for (const migration of plan.migrations) {
+    const target = resolve(join(workspace.root, migration.relativePath))
+    if (!isPathInside(workspace.root, target)) continue
+    let content: string
+    try {
+      content = await readFile(target, 'utf-8')
+    } catch {
+      continue
+    }
+    const next = serializeBacklogFrontmatterFields(content, migration.updates)
+    if (next !== content) await writeFile(target, next, 'utf-8')
+  }
+
+  // Orphan GC: drop records whose source file no longer exists on disk.
+  const survivors: unknown[] = []
+  for (const record of plan.slimRecords) {
+    const relativePath = recordRelativePath(record)
+    if (relativePath && (await backlogFileExists(workspace, relativePath))) survivors.push(record)
+  }
+  const migrated = normalizeStore({ schemaVersion: 1, items: survivors })
+  await saveStore(workspace, migrated)
+  return migrated
+}
+
+// Frontmatter-sourced lifecycle/triage/epic for an item's markdown content. This
+// is the v2 read shape non-panel readers (the mobile bridge, Sprint Engine) use
+// so they see the same source of truth the renderer does, instead of the now-stale
+// sidecar fields. Unknown/invalid values are dropped; callers fall back to a
+// sidecar record only for not-yet-migrated items (mixed-version tolerance).
+export type BacklogFrontmatterFields = {
+  status?: BacklogObjectRecord['status']
+  type?: BacklogObjectRecord['type']
+  difficulty?: BacklogObjectRecord['difficulty']
+  criticality?: BacklogObjectRecord['criticality']
+  risk?: BacklogObjectRecord['risk']
+  epic?: string
+}
+
+export function readBacklogFrontmatterFields(content: string): BacklogFrontmatterFields {
+  const { fields } = parseBacklogFrontmatter(content)
+  return {
+    status: isBacklogStatus(fields.status) ? fields.status : undefined,
+    type: isBacklogType(fields.type) ? fields.type : undefined,
+    difficulty: isBacklogDifficulty(fields.difficulty) ? fields.difficulty : undefined,
+    criticality: isBacklogCriticality(fields.criticality) ? fields.criticality : undefined,
+    risk: isBacklogRisk(fields.risk) ? fields.risk : undefined,
+    epic: isValidEpicSlug(fields.epic) ? fields.epic : undefined,
   }
 }
 
@@ -103,6 +256,34 @@ export async function createBacklogItem(input: BacklogCreateInput): Promise<Back
   }
 }
 
+// Creates a new epic concept file `backlog/epics/<slug>.md` (`type: epic` + the
+// title heading). Epics are surfaced from the filesystem, so this writes only the
+// markdown file — never an items.json membership record. The slug is the title
+// slug, made collision-safe against existing files the same way item creation is.
+export async function createBacklogEpic(input: BacklogCreateEpicInput): Promise<BacklogCreateEpicResult> {
+  const title = input.title.trim()
+  if (!title) return { ok: false, message: 'Enter a title for the new epic.' }
+  try {
+    const workspace = await validateWorkspaceRoot(input.workspaceRoot)
+    const store = await loadStore(workspace)
+    const existingLower = new Set(store.items.map((record) => record.source.relativePath.toLowerCase()))
+    const relativePath = await uniqueEpicFilePath(workspace, slugifyBacklogTitle(title), existingLower)
+    const target = resolve(join(workspace.root, relativePath))
+    if (!isPathInside(workspace.root, target)) throw new Error('Backlog item path escaped the workspace root.')
+
+    const content = `---\ntype: epic\n---\n# ${title}\n`
+    await mkdir(dirname(target), { recursive: true })
+    // `wx` fails instead of clobbering if a file appears between the uniqueness
+    // check and the write.
+    await writeFile(target, content, { encoding: 'utf-8', flag: 'wx' })
+
+    const slug = relativePath.slice(EPICS_PREFIX.length).replace(/\.md$/i, '')
+    return { ok: true, slug, relativePath }
+  } catch (error) {
+    return { ok: false, message: errorMessage(error) }
+  }
+}
+
 export async function ensureBacklogObjectRecords(
   workspaceRoot: string,
   items: BacklogItemRecordInput[],
@@ -114,13 +295,13 @@ export async function ensureBacklogObjectRecords(
       const relativePath = validateBacklogRelativePath(item.relativePath)
       const pathKey = relativePath.toLowerCase()
       if (nextItems.some((record) => record.source.relativePath.toLowerCase() === pathKey)) continue
+      // v2: the sidecar record carries only app-owned churn (id/source, metadata,
+      // links, highlight, timestamps). Lifecycle/triage live in frontmatter, so a
+      // freshly registered record seeds none of them — otherwise the lazy migrator
+      // would later write those seeded defaults back into the item's frontmatter.
       nextItems.push({
         id: stableBacklogObjectId(relativePath),
         source: { type: 'file', relativePath },
-        status: isBacklogStatus(item.status) ? item.status : 'idea',
-        type: isBacklogType(item.type) ? item.type : undefined,
-        difficulty: isBacklogDifficulty(item.difficulty) ? item.difficulty : undefined,
-        criticality: isBacklogCriticality(item.criticality) ? item.criticality : undefined,
         metadata: {},
         links: [],
         createdAt: now,
@@ -132,22 +313,18 @@ export async function ensureBacklogObjectRecords(
   })
 }
 
+// Lifecycle, type, and triage (difficulty/criticality/risk) are frontmatter-
+// sourced: these write the item's markdown frontmatter via the shared helper
+// (body byte-preserved) and never touch items.json. The matching reader is
+// parseBacklogFrontmatter in src/shared/backlog/frontmatter.ts.
 export async function updateBacklogStatus(input: BacklogStatusInput): Promise<BacklogMutationResult> {
   if (!isBacklogStatus(input.status)) return { ok: false, message: 'Enter a valid Backlog item status.' }
-  return mutateItem(input.workspaceRoot, input.relativePath, (record, now) => ({
-    ...record,
-    status: input.status,
-    updatedAt: now,
-  }))
+  return writeBacklogFrontmatter(input.workspaceRoot, input.relativePath, { status: input.status })
 }
 
 export async function updateBacklogType(input: BacklogTypeInput): Promise<BacklogMutationResult> {
   if (input.type !== null && !isBacklogType(input.type)) return { ok: false, message: 'Enter a valid Backlog item type.' }
-  return mutateItem(input.workspaceRoot, input.relativePath, (record, now) => ({
-    ...record,
-    type: input.type ?? undefined,
-    updatedAt: now,
-  }))
+  return writeBacklogFrontmatter(input.workspaceRoot, input.relativePath, { type: input.type })
 }
 
 export async function updateBacklogTriage(input: BacklogTriageInput): Promise<BacklogMutationResult> {
@@ -157,12 +334,28 @@ export async function updateBacklogTriage(input: BacklogTriageInput): Promise<Ba
   if (input.criticality !== undefined && input.criticality !== null && !isBacklogCriticality(input.criticality)) {
     return { ok: false, message: 'Enter a valid Backlog item criticality.' }
   }
-  return mutateItem(input.workspaceRoot, input.relativePath, (record, now) => {
-    const next = { ...record, updatedAt: now }
-    if ('difficulty' in input) next.difficulty = input.difficulty ?? undefined
-    if ('criticality' in input) next.criticality = input.criticality ?? undefined
-    return next
-  })
+  if (input.risk !== undefined && input.risk !== null && !isBacklogRisk(input.risk)) {
+    return { ok: false, message: 'Enter a valid Backlog item risk.' }
+  }
+  // Only axes the caller actually supplied are touched; null clears that key's
+  // frontmatter line, an omitted axis is left exactly as written.
+  const updates: BacklogFrontmatterUpdates = {}
+  if ('difficulty' in input) updates.difficulty = input.difficulty ?? null
+  if ('criticality' in input) updates.criticality = input.criticality ?? null
+  if ('risk' in input) updates.risk = input.risk ?? null
+  return writeBacklogFrontmatter(input.workspaceRoot, input.relativePath, updates)
+}
+
+// Epic membership is the child-side write: set the child's `epic:` frontmatter
+// slug, or null to remove it from its epic. The down-direction (epic -> children)
+// stays a derived query (see backlogEpics.ts), never stored, so there is nothing
+// to keep in sync. Like the other lifecycle writers this targets the markdown
+// frontmatter, never items.json.
+export async function updateBacklogEpic(input: BacklogEpicInput): Promise<BacklogMutationResult> {
+  if (input.epic !== null && !isValidEpicSlug(input.epic)) {
+    return { ok: false, message: 'Enter a valid epic slug.' }
+  }
+  return writeBacklogFrontmatter(input.workspaceRoot, input.relativePath, { epic: input.epic })
 }
 
 export async function updateBacklogHighlight(input: BacklogHighlightInput): Promise<BacklogMutationResult> {
@@ -226,10 +419,16 @@ export async function moveBacklogObjectSource(input: BacklogMoveSourceInput): Pr
   } catch (error) {
     return { ok: false, message: errorMessage(error) }
   }
+  // v2: archived-ness is path-derived by the reader (isArchivedBacklogPath in
+  // src/renderer/src/utils/backlog.ts), so the move only rewrites the sidecar
+  // source path. Writing status:'archived' here would orphan a lifecycle field
+  // the reader never consults, and — since status is migratable under sidecar-
+  // wins precedence — a later loadMigratedStore pass would push it back into the
+  // archived file's frontmatter, clobbering its true pre-archive status. Mirror
+  // the mutateItem pattern that deliberately never seeds lifecycle into items.json.
   return mutateItem(input.workspaceRoot, input.relativePath, (record, now) => ({
     ...record,
     source: { type: 'file', relativePath: nextRelativePath },
-    status: nextRelativePath.toLowerCase().startsWith('backlog/archived/') ? 'archived' : record.status,
     updatedAt: now,
   }))
 }
@@ -244,6 +443,53 @@ export async function removeBacklogObjectRecord(input: BacklogRemoveRecordInput)
   })
 }
 
+// Read/modify/write the item's markdown frontmatter through the shared
+// serializer (T1), leaving items.json untouched. This is the seam epic writes
+// (T8) reuse — pass `{ epic: slug }` to point a child, `{ epic: null }` to
+// orphan it. Path and workspace validation mirror the items.json mutators, and
+// every failure returns an explicit `ok:false` rather than a silent fallback.
+async function writeBacklogFrontmatter(
+  workspaceRoot: string,
+  relativePath: string,
+  updates: BacklogFrontmatterUpdates,
+): Promise<BacklogMutationResult> {
+  let normalizedPath: string
+  try {
+    normalizedPath = validateBacklogRelativePath(relativePath)
+  } catch (error) {
+    return { ok: false, message: errorMessage(error) }
+  }
+  try {
+    const workspace = await validateWorkspaceRoot(workspaceRoot)
+    const target = resolve(join(workspace.root, normalizedPath))
+    if (!isPathInside(workspace.root, target)) throw new Error('Backlog item path escaped the workspace root.')
+
+    let content: string
+    try {
+      content = await readFile(target, 'utf-8')
+    } catch (error) {
+      const detail = isMissingFileError(error) ? 'file not found' : errorMessage(error)
+      throw new Error(`Could not read Backlog item: ${detail}`)
+    }
+
+    const next = serializeBacklogFrontmatterFields(content, updates)
+    if (next !== content) {
+      try {
+        await writeFile(target, next, 'utf-8')
+      } catch (error) {
+        throw new Error(`Could not write Backlog item: ${errorMessage(error)}`)
+      }
+    }
+    // Frontmatter is the source of truth for these fields, but the result still
+    // carries the (unchanged) sidecar so the IPC contract and renderer callers
+    // stay identical.
+    const store = await loadStore(workspace)
+    return { ok: true, store }
+  } catch (error) {
+    return { ok: false, message: errorMessage(error) }
+  }
+}
+
 async function mutateItem(
   workspaceRoot: string,
   relativePath: string,
@@ -255,10 +501,12 @@ async function mutateItem(
     const index = store.items.findIndex((record) => record.source.relativePath.toLowerCase() === pathKey)
     const base: BacklogObjectRecord = index >= 0
       ? store.items[index]
+      // v2: a record materialized by a highlight/link/metadata mutation carries
+      // only app-owned churn. Seeding a default `status` here would let the lazy
+      // migrator later overwrite the item's real frontmatter status with 'idea'.
       : {
           id: stableBacklogObjectId(normalizedPath),
           source: { type: 'file', relativePath: normalizedPath },
-          status: 'idea',
           metadata: {},
           links: [],
           createdAt: now,
@@ -351,6 +599,20 @@ async function uniqueBacklogFilePath(
   let index = 2
   while (existingLower.has(candidate.toLowerCase()) || (await backlogFileExists(workspace, candidate))) {
     candidate = `${BACKLOG_PREFIX}${base}-${index}.md`
+    index += 1
+  }
+  return validateBacklogRelativePath(candidate)
+}
+
+async function uniqueEpicFilePath(
+  workspace: ValidWorkspace,
+  slug: string,
+  existingLower: Set<string>,
+): Promise<string> {
+  let candidate = `${EPICS_PREFIX}${slug}.md`
+  let index = 2
+  while (existingLower.has(candidate.toLowerCase()) || (await backlogFileExists(workspace, candidate))) {
+    candidate = `${EPICS_PREFIX}${slug}-${index}.md`
     index += 1
   }
   return validateBacklogRelativePath(candidate)
@@ -491,6 +753,17 @@ function isBacklogDifficulty(value: unknown): value is BacklogObjectRecord['diff
 
 function isBacklogCriticality(value: unknown): value is BacklogObjectRecord['criticality'] {
   return typeof value === 'string' && VALID_CRITICALITY.has(value)
+}
+
+function isBacklogRisk(value: unknown): value is BacklogObjectRecord['risk'] {
+  return typeof value === 'string' && VALID_RISK.has(value)
+}
+
+// An epic slug is a single filename-stem token (it must match an epic file's
+// stem at read time), so reject whitespace, separators, and other characters
+// that could never name `backlog/epics/<slug>.md`.
+function isValidEpicSlug(value: unknown): value is string {
+  return typeof value === 'string' && /^[A-Za-z0-9._-]+$/.test(value) && value !== '.' && value !== '..'
 }
 
 function isBacklogHighlightColor(value: unknown): value is BacklogHighlightColorPayload {

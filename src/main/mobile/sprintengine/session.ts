@@ -110,13 +110,13 @@ export class DesktopMobileSprintEngineSessionOrchestrator implements MobileSprin
     )
 
     if (processAliveSprintEngineSessions.length >= this.maxProcessAliveAgentTerminals) {
-      throw new MobileSprintEngineCommandError('task_not_ready', 'Desktop has reached the live Sprint Engine terminal limit.', true)
+      throw new MobileSprintEngineCommandError('task_not_ready', 'Desktop has reached the live sprint terminal limit.', true)
     }
 
     const state = await readMobileSprintEngineProjection(request.teamDirectory)
     const agentId = chooseAgentId(state, request.role, processAliveSprintEngineSessions)
     if (processAliveSprintEngineSessions.some((session) => session.agentId === agentId)) {
-      throw new MobileSprintEngineCommandError('task_not_ready', 'The selected Sprint Engine agent already has a live terminal.', false)
+      throw new MobileSprintEngineCommandError('task_not_ready', 'The selected sprint agent already has a live terminal.', false)
     }
 
     const executionCwd = request.workspaceRoot
@@ -207,7 +207,7 @@ async function readMobileSprintEngineProjection(teamDirectory: string): Promise<
   } catch (error) {
     throw new MobileSprintEngineCommandError(
       'internal_error',
-      `Sprint Engine projection could not be read from projection.json: ${error instanceof Error ? error.message : String(error)}`,
+      `Sprint projection could not be read from projection.json: ${error instanceof Error ? error.message : String(error)}`,
       false
     )
   }
@@ -299,8 +299,8 @@ function buildStartupPrompt(input: {
   return [
     `${input.label}: ${input.label} - Fetch the canonical Sprint Engine instructions from the managed Sprint Engine MCP server.`,
     `Worker cwd: ${input.executionCwd}`,
-    `Shared Sprint Engine state: ${input.statePath}`,
-    `You are assigned role: ${input.role}. Only claim and work Sprint Engine tasks or quality gates whose role exactly matches ${input.role}. Sprint Engine work runs through the managed Sprint Engine MCP server in this terminal.`,
+    `Shared sprint state: ${input.statePath}`,
+    `You are assigned role: ${input.role}. Only claim and work sprint tasks or quality gates whose role exactly matches ${input.role}. Sprint work runs through the managed Sprint Engine MCP server in this terminal.`,
     'Register this agent with `sprintengine.agent.join`:',
     ['```json', joinPayload, '```'].join('\n'),
     'Then claim your work with `sprintengine.task.next`:',

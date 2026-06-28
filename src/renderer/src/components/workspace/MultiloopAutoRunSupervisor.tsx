@@ -164,11 +164,11 @@ async function readLinkedSprintEngineState(
     await publishDiagnostic({
       level: 'warning',
       source: 'sprintengine',
-      title: 'Multiloop auto-run skipped linked Sprint Engine state',
+      title: 'Multiloop auto-run skipped linked sprint state',
       message: error instanceof Error ? error.message : String(error),
       details: [
         `Workspace: ${workspace.name}`,
-        `Sprint Engine state: ${link.statePath}`,
+        `Sprint state: ${link.statePath}`,
       ].join('\n'),
       workspaceId: workspace.id,
       workspaceName: workspace.name,
@@ -464,7 +464,7 @@ async function spawnMultiloopAutoRunCandidate(
           `Session: ${sessionId}`,
           `Cwd: ${workspace.folderPath}`,
           candidate.kind === 'sprintengine-task'
-            ? `Sprint Engine state: ${linkedStatePath ?? 'Unavailable'}`
+            ? `Sprint state: ${linkedStatePath ?? 'Unavailable'}`
             : `Multiloop state: ${workspace.multiloopContext.statePath}`,
         ].join('\n'),
         workspaceId: workspace.id,

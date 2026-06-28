@@ -152,7 +152,7 @@ export async function createPlanSourcedSprintEngineWorkspace({
       useWorktrees: useWorktrees === true,
     })
     if (!initResult.ok) {
-      throw new Error(initResult.message || 'Could not initialize Sprint Engine run state.')
+      throw new Error(initResult.message || 'Could not initialize sprint run state.')
     }
   }
 
@@ -208,5 +208,5 @@ function derivePlanSourcedGoal(sourceContent: string, sourcePath: string): strin
   const filename = sourcePath.replace(/\\/g, '/').split('/').pop() ?? ''
   const stem = filename.replace(/\.[^.]+$/u, '').trim()
   const normalized = stem.replace(/[-_]+/gu, ' ').replace(/\s+/gu, ' ').trim()
-  return normalized || 'Sprint Engine handoff'
+  return normalized || 'Sprint handoff'
 }

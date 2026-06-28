@@ -45,7 +45,7 @@ export async function readRawSprintEngineState(state: ValidSprintEngineStatePath
   } catch (error) {
     throw new MobileSprintEngineCommandError(
       'internal_error',
-      `Sprint Engine projection could not be read from projection.json: ${error instanceof Error ? error.message : String(error)}`,
+      `Sprint projection could not be read from projection.json: ${error instanceof Error ? error.message : String(error)}`,
       false
     )
   }
@@ -68,7 +68,7 @@ export async function findSprintEngineArtifact(
   })[0]
 
   if (!artifact) {
-    throw new MobileSprintEngineCommandError('artifact_not_found', 'Requested artifact was not found in the Sprint Engine state.', false)
+    throw new MobileSprintEngineCommandError('artifact_not_found', 'Requested artifact was not found in the sprint state.', false)
   }
 
   if (artifact.path) {
@@ -87,7 +87,7 @@ export async function findReadySprintEngineTask(
   const tasks = normalizeSprintEngineTasks(parsed.tasks)
   const task = tasks.find((candidate) => candidate.id === taskId)
   if (!task) {
-    throw new MobileSprintEngineCommandError('task_not_ready', 'Requested task was not found in the Sprint Engine state.', false)
+    throw new MobileSprintEngineCommandError('task_not_ready', 'Requested task was not found in the sprint state.', false)
   }
 
   if (task.role !== role) {

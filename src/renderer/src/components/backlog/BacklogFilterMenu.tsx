@@ -2,7 +2,7 @@ import React, { useCallback, useRef, useState } from 'react'
 
 import { Popover, type SelectItem } from '../ui'
 import { FOCUS_RING_CLASS } from '../ui/tokens'
-import type { BacklogSort, BacklogView } from '../../utils/backlogTriage'
+import type { BacklogGroup, BacklogSort, BacklogView } from '../../utils/backlogTriage'
 
 // The Backlog toolbar's filter/sort affordance. The lens + sort controls used to
 // sit in the toolbar as two always-visible dropdowns; they now collapse behind a
@@ -20,13 +20,17 @@ import type { BacklogSort, BacklogView } from '../../utils/backlogTriage'
 type BacklogFilterMenuProps = {
   view: BacklogView
   sort: BacklogSort
+  group: BacklogGroup
   viewItems: ReadonlyArray<SelectItem<BacklogView>>
   sortItems: ReadonlyArray<SelectItem<BacklogSort>>
+  groupItems: ReadonlyArray<SelectItem<BacklogGroup>>
   onViewChange: (view: BacklogView) => void
   onSortChange: (sort: BacklogSort) => void
+  onGroupChange: (group: BacklogGroup) => void
   // The "no filter applied" baseline the active marker is measured against.
   defaultView?: BacklogView
   defaultSort?: BacklogSort
+  defaultGroup?: BacklogGroup
   className?: string
 }
 
@@ -35,12 +39,16 @@ const OPTION_SELECTOR = '[data-filter-option="true"]'
 export function BacklogFilterMenu({
   view,
   sort,
+  group,
   viewItems,
   sortItems,
+  groupItems,
   onViewChange,
   onSortChange,
+  onGroupChange,
   defaultView = 'all',
   defaultSort = 'recent',
+  defaultGroup = 'none',
   className,
 }: BacklogFilterMenuProps): JSX.Element {
   const [open, setOpen] = useState(false)
@@ -81,7 +89,7 @@ export function BacklogFilterMenu({
     }
   }
 
-  const active = view !== defaultView || sort !== defaultSort
+  const active = view !== defaultView || sort !== defaultSort || group !== defaultGroup
 
   return (
     <Popover
@@ -134,6 +142,14 @@ export function BacklogFilterMenu({
         items={sortItems}
         current={sort}
         onSelect={onSortChange}
+        onOptionKey={onOptionKey}
+        divider
+      />
+      <FilterGroup
+        label="Group"
+        items={groupItems}
+        current={group}
+        onSelect={onGroupChange}
         onOptionKey={onOptionKey}
         divider
       />

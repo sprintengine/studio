@@ -107,19 +107,19 @@ export default function CommandPalette({
     // requires a focusable running/waiting agent; both come through the shared
     // availability context, so a row only appears when the shortcut would run.
     const sprintEngineCommands: Command[] = [
-      { id: 'sprintengine.verify.progress', label: 'Sprint Engine: Verify progress', run: runPanel('sprintengine.verify.progress') },
-      { id: 'sprintengine.add.role', label: 'Sprint Engine: More roles', run: runPanel('sprintengine.add.role') },
-      { id: 'sprintengine.request.plan-reviews', label: 'Sprint Engine: Request plan reviews', run: runPanel('sprintengine.request.plan-reviews') },
-      { id: 'sprintengine.address.feedback', label: 'Sprint Engine: Address feedback', run: runPanel('sprintengine.address.feedback') },
-      { id: 'sprintengine.read.plan', label: 'Sprint Engine: Read plan', run: runPanel('sprintengine.read.plan') },
-      { id: 'sprintengine.focus.agent', label: 'Sprint Engine: Focus active agent', run: runPanel('sprintengine.focus.agent') },
-      { id: 'sprintengine.refresh.board', label: 'Sprint Engine: Refresh board', run: runPanel('sprintengine.refresh.board') },
-      { id: 'sprintengine.goto.inbox', label: 'Sprint Engine: Inbox', shortcut: shortcutFor('sprintengine.goto.inbox'), run: runPanel('sprintengine.goto.inbox') },
-      { id: 'sprintengine.goto.roster', label: 'Sprint Engine: Roster', shortcut: shortcutFor('sprintengine.goto.roster'), run: runPanel('sprintengine.goto.roster') },
-      { id: 'sprintengine.goto.tasks', label: 'Sprint Engine: Tasks', shortcut: shortcutFor('sprintengine.goto.tasks'), run: runPanel('sprintengine.goto.tasks') },
-      { id: 'sprintengine.goto.graph', label: 'Sprint Engine: Tasks → Graph layout', shortcut: shortcutFor('sprintengine.goto.graph'), run: runPanel('sprintengine.goto.graph') },
-      { id: 'sprintengine.goto.kanban', label: 'Sprint Engine: Tasks → Kanban layout', shortcut: shortcutFor('sprintengine.goto.kanban'), run: runPanel('sprintengine.goto.kanban') },
-      { id: 'sprintengine.open.settings', label: 'Sprint Engine: Run configuration', shortcut: shortcutFor('sprintengine.open.settings'), run: runPanel('sprintengine.open.settings') },
+      { id: 'sprintengine.verify.progress', label: 'Sprint: Verify progress', run: runPanel('sprintengine.verify.progress') },
+      { id: 'sprintengine.add.role', label: 'Sprint: More roles', run: runPanel('sprintengine.add.role') },
+      { id: 'sprintengine.request.plan-reviews', label: 'Sprint: Request plan reviews', run: runPanel('sprintengine.request.plan-reviews') },
+      { id: 'sprintengine.address.feedback', label: 'Sprint: Address feedback', run: runPanel('sprintengine.address.feedback') },
+      { id: 'sprintengine.read.plan', label: 'Sprint: Read plan', run: runPanel('sprintengine.read.plan') },
+      { id: 'sprintengine.focus.agent', label: 'Sprint: Focus active agent', run: runPanel('sprintengine.focus.agent') },
+      { id: 'sprintengine.refresh.board', label: 'Sprint: Refresh board', run: runPanel('sprintengine.refresh.board') },
+      { id: 'sprintengine.goto.inbox', label: 'Sprint: Inbox', shortcut: shortcutFor('sprintengine.goto.inbox'), run: runPanel('sprintengine.goto.inbox') },
+      { id: 'sprintengine.goto.roster', label: 'Sprint: Roster', shortcut: shortcutFor('sprintengine.goto.roster'), run: runPanel('sprintengine.goto.roster') },
+      { id: 'sprintengine.goto.tasks', label: 'Sprint: Tasks', shortcut: shortcutFor('sprintengine.goto.tasks'), run: runPanel('sprintengine.goto.tasks') },
+      { id: 'sprintengine.goto.graph', label: 'Sprint: Tasks → Graph layout', shortcut: shortcutFor('sprintengine.goto.graph'), run: runPanel('sprintengine.goto.graph') },
+      { id: 'sprintengine.goto.kanban', label: 'Sprint: Tasks → Kanban layout', shortcut: shortcutFor('sprintengine.goto.kanban'), run: runPanel('sprintengine.goto.kanban') },
+      { id: 'sprintengine.open.settings', label: 'Sprint: Run configuration', shortcut: shortcutFor('sprintengine.open.settings'), run: runPanel('sprintengine.open.settings') },
     ].filter((command) => panelCommandEnabled(command.id))
     // open-coordinator requires a loaded Multiloop state, carried by the shared
     // availability context.

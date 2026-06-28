@@ -242,8 +242,8 @@ export default function MultiloopBoardPanel({ workspaceId }: Props) {
       const sprintEngineLink = currentMilestone?.sprintEngine ?? null
       const linkedState = sprintEngineLink ? linkedSprintEngineStatesByPath[sprintEngineLink.statePath] ?? null : null
       if (sprintEngineLink && isSprintEngineRole(role)) {
-        if (!workspaceRoot) throw new Error('Open this Multiloop workspace from a project folder before launching Sprint Engine workers.')
-        if (!linkedState) throw new Error(`Linked Sprint Engine state is not readable yet: ${sprintEngineLink.statePath}`)
+        if (!workspaceRoot) throw new Error('Open this Multiloop workspace from a project folder before launching sprint workers.')
+        if (!linkedState) throw new Error(`Linked sprint state is not readable yet: ${sprintEngineLink.statePath}`)
 
         const agentId = getLinkedSprintEngineAgentId(role, linkedState)
         const existingAgent = workspace.agents[agentId]
@@ -398,7 +398,7 @@ export default function MultiloopBoardPanel({ workspaceId }: Props) {
         if (cancelled()) return
         if (!projection.ok) throw new Error(projection.message)
         const parsed = normalizeSprintEngineProjection(projection.data, link.teamSlug)
-        if (!parsed) throw new Error('Sprint Engine projection was malformed.')
+        if (!parsed) throw new Error('Sprint projection was malformed.')
         setLinkedSprintEngineStatesByPath((current) => ({ ...current, [link.statePath]: parsed }))
         setLinkedExecutionReadStatesByPath((current) => ({
           ...current,

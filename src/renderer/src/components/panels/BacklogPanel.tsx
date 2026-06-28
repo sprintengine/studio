@@ -40,6 +40,7 @@ import {
   type BacklogHighlight,
   type BacklogItem,
   type BacklogItemStatus,
+  type BacklogRisk,
   type BacklogScanResult,
 } from '../../utils/backlog'
 import { getHighlightSwatch } from '../../utils/highlight'
@@ -54,17 +55,33 @@ import { BacklogFilterMenu } from '../backlog/BacklogFilterMenu'
 import {
   compareBacklogItems,
   matchesBacklogView,
+  resolveBacklogStripeColor,
+  type BacklogGroup,
   type BacklogSort,
   type BacklogView,
 } from '../../utils/backlogTriage'
 import {
+  childrenOfEpic,
+  epicGroupKey,
+  epicSlug,
+  groupItemsByEpic,
+  groupedBacklogRows,
+  isBacklogHeaderNavId,
+  planEpicArchive,
+  type BacklogEpicGroup,
+  type BacklogGroupedRow,
+} from '../../utils/backlogEpics'
+import {
   BacklogItemContextMenu,
   CRITICALITY_EDIT_ITEMS,
   DIFFICULTY_EDIT_ITEMS,
+  RISK_EDIT_ITEMS,
   type BacklogActions,
+  type BacklogEpicChoice,
 } from '../backlog/BacklogItemContextMenu'
 import { BacklogCreateDialog, type BacklogDraft } from './BacklogCreateDialog'
 import {
+  BacklogEpicHeaderContent,
   BacklogRowContent,
   BACKLOG_STATUS_LABEL,
   backlogStatusToLifecycle,
@@ -113,11 +130,19 @@ const VIEW_ITEMS: SelectItem<BacklogView>[] = [
 ]
 
 const SORT_ITEMS: SelectItem<BacklogSort>[] = [
+  { value: 'best', label: 'Best' },
   { value: 'recent', label: 'Recently updated' },
   { value: 'status', label: 'Status' },
   { value: 'priority', label: 'Priority' },
   { value: 'largest', label: 'Largest first' },
   { value: 'smallest', label: 'Smallest first' },
+]
+
+// Grouping is orthogonal to view/sort: None is today's flat list, By epic nests
+// items under collapsible epic headers (T9).
+const GROUP_ITEMS: SelectItem<BacklogGroup>[] = [
+  { value: 'none', label: 'None' },
+  { value: 'by_epic', label: 'By epic' },
 ]
 
 // Scope word shown next to the header count when a lens narrows the list, so a
@@ -191,6 +216,10 @@ export default function BacklogPanel({ workspaceId, onStartFuturePlan }: Workspa
   const [search, setSearch] = useState(() => initialBacklogState?.search ?? '')
   const [view, setView] = useState<BacklogView>(() => initialBacklogState?.view ?? 'all')
   const [sort, setSort] = useState<BacklogSort>(() => initialBacklogState?.sort ?? 'recent')
+  const [group, setGroup] = useState<BacklogGroup>(() => initialBacklogState?.group ?? 'none')
+  // Collapsed epic groups, keyed by epicGroupKey. Session-only (not persisted):
+  // grouping itself persists, the open/closed state of each header does not.
+  const [collapsedGroups, setCollapsedGroups] = useState<ReadonlySet<string>>(() => new Set())
   // Single-column (narrow) mode: which face is showing.
   const [showDetailInSingle, setShowDetailInSingle] = useState(false)
   // The structured "New item" capture dialog (title, description, type, size,
@@ -243,6 +272,72 @@ export default function BacklogPanel({ workspaceId, onStartFuturePlan }: Workspa
       .sort((a, b) => compareBacklogItems(a, b, sort))
   }, [items, search, view, sort])
 
+  // Epic grouping is an orthogonal axis layered over the filtered+sorted list.
+  // `none` keeps the flat list untouched (groupedRows stays null → the panel
+  // renders today's path); `by_epic` partitions into ordered epic/unknown/no-epic
+  // groups and flattens them (headers + visible children) into the render +
+  // keyboard order. Children keep the active sort because `filtered` is already
+  // sorted and groupItemsByEpic preserves input order.
+  // A group's collapse state = its default flipped by any explicit user toggle.
+  // Default: expanded — except an epic group in the Archived lens, which defaults
+  // collapsed so an archived epic reads as one rolled-up unit, not N loose
+  // child rows (T11). `collapsedGroups` records the groups the user flipped away
+  // from their default, so the chevron toggle works the same in both lenses.
+  const isGroupCollapsed = useCallback(
+    (epicGroup: BacklogEpicGroup) => {
+      const defaultCollapsed = view === 'archived' && epicGroup.kind === 'epic'
+      const flipped = collapsedGroups.has(epicGroupKey(epicGroup))
+      return flipped ? !defaultCollapsed : defaultCollapsed
+    },
+    [collapsedGroups, view],
+  )
+  const groupedRows = useMemo<BacklogGroupedRow[] | null>(() => {
+    if (group !== 'by_epic') return null
+    return groupedBacklogRows(groupItemsByEpic(filtered), isGroupCollapsed)
+  }, [group, filtered, isGroupCollapsed])
+
+  // The flattened selection order drives j/k navigation and aria-activedescendant
+  // for both modes: grouped uses the header+child row order, flat is the filtered
+  // list itself. navIndexById gives each selectable row its stable option index
+  // (`backlog-opt-<n>`); in flat mode it equals the list index, so the rendered
+  // markup is byte-identical to today.
+  const navOrder = useMemo<string[]>(
+    () => (groupedRows ? groupedRows.map((row) => row.navId) : filtered.map((item) => item.id)),
+    [groupedRows, filtered],
+  )
+  const navIndexById = useMemo(() => {
+    const map = new Map<string, number>()
+    navOrder.forEach((id, index) => map.set(id, index))
+    return map
+  }, [navOrder])
+  const rowByNavId = useMemo(() => {
+    const map = new Map<string, BacklogGroupedRow>()
+    if (groupedRows) for (const row of groupedRows) map.set(row.navId, row)
+    return map
+  }, [groupedRows])
+
+  // Assignable epics for the "Move to epic" affordances: every epic concept file
+  // with its slug + title, drawn from the full scan (not the filtered view) so
+  // assignment is possible regardless of the active lens. Ordered like the epic
+  // groups (epic `order:` then title). Reuses the T7 grouping, not a re-scan.
+  const epicChoices = useMemo<BacklogEpicChoice[]>(
+    () =>
+      groupItemsByEpic(items)
+        .filter((group) => group.kind === 'epic' && group.slug != null)
+        .map((group) => ({ slug: group.slug as string, title: group.title })),
+    [items],
+  )
+
+  const toggleGroupCollapsed = useCallback((epicGroup: BacklogEpicGroup) => {
+    setCollapsedGroups((prev) => {
+      const key = epicGroupKey(epicGroup)
+      const next = new Set(prev)
+      if (next.has(key)) next.delete(key)
+      else next.add(key)
+      return next
+    })
+  }, [])
+
   // Live run glyph per visible item, for items linked to an observable Sprint
   // Engine run. The rollup (`deriveSprintEngineRunGlyph`) is shared with the
   // workspace sidebar: a human-routed needs_input wins over everything, then
@@ -268,14 +363,21 @@ export default function BacklogPanel({ workspaceId, onStartFuturePlan }: Workspa
     return map
   }, [filtered, sprintEngineWorkspaces, folderPath])
 
-  // Keep selection valid across rescans/filters; select-by-id is preserved when
-  // the item survives, otherwise selection clears.
+  // Keep selection valid across rescans/filters/grouping. A real item cursor
+  // survives as long as the item is still in `filtered` — a collapsed group hides
+  // its row but must not drop the selection. A synthetic group-header cursor is
+  // only valid while that header is still in the nav order (its group exists and
+  // grouping is on), so it clears when grouping turns off or the group vanishes.
   useEffect(() => {
-    if (selectedId && !filtered.some((item) => item.id === selectedId)) {
+    if (!selectedId) return
+    const stillValid = isBacklogHeaderNavId(selectedId)
+      ? navIndexById.has(selectedId)
+      : filtered.some((item) => item.id === selectedId)
+    if (!stillValid) {
       setSelectedId(null)
       setShowDetailInSingle(false)
     }
-  }, [filtered, selectedId])
+  }, [filtered, navIndexById, selectedId])
 
   const selected = useMemo(
     () => filtered.find((item) => item.id === selectedId) ?? null,
@@ -368,6 +470,7 @@ export default function BacklogPanel({ workspaceId, onStartFuturePlan }: Workspa
     selectedRelativePath: null as string | null,
     view,
     sort,
+    group,
     search,
     restorePending,
   })
@@ -375,6 +478,7 @@ export default function BacklogPanel({ workspaceId, onStartFuturePlan }: Workspa
     selectedRelativePath: selected?.relativePath ?? null,
     view,
     sort,
+    group,
     search,
     restorePending,
   }
@@ -385,7 +489,11 @@ export default function BacklogPanel({ workspaceId, onStartFuturePlan }: Workspa
     // workspace; only persist once there is something non-default to remember (or
     // a record already exists).
     const isDefault =
-      !snapshot.selectedRelativePath && snapshot.view === 'all' && snapshot.sort === 'recent' && snapshot.search === ''
+      !snapshot.selectedRelativePath &&
+      snapshot.view === 'all' &&
+      snapshot.sort === 'recent' &&
+      snapshot.group === 'none' &&
+      snapshot.search === ''
     const hasRecord = Boolean(
       useWorkspaceStore.getState().workspaces.find((w) => w.id === workspaceId)?.backlogState,
     )
@@ -394,6 +502,7 @@ export default function BacklogPanel({ workspaceId, onStartFuturePlan }: Workspa
       selectedRelativePath: snapshot.selectedRelativePath,
       view: snapshot.view,
       sort: snapshot.sort,
+      group: snapshot.group,
       search: snapshot.search,
     })
   }, [workspaceId, setBacklogViewState])
@@ -401,41 +510,56 @@ export default function BacklogPanel({ workspaceId, onStartFuturePlan }: Workspa
     if (restorePending != null) return
     const handle = window.setTimeout(persistBacklogViewState, 300)
     return () => window.clearTimeout(handle)
-  }, [restorePending, selectedId, view, sort, search, persistBacklogViewState])
+  }, [restorePending, selectedId, view, sort, group, search, persistBacklogViewState])
   useEffect(() => {
     return () => persistBacklogViewState()
   }, [persistBacklogViewState])
 
+  // Navigation runs over the flattened nav order (header + child rows when
+  // grouped, the filtered list when flat), so j/k cross group boundaries exactly
+  // like a flat list.
   const selectAt = useCallback(
     (index: number) => {
-      const next = filtered[index]
-      if (!next) return
-      setSelectedId(next.id)
+      const nextId = navOrder[index]
+      if (nextId == null) return
+      setSelectedId(nextId)
     },
-    [filtered],
+    [navOrder],
   )
 
   const handleListKeyDown = useCallback(
     (event: React.KeyboardEvent<HTMLUListElement>) => {
       if (isEditableTarget(event.target)) return
-      const currentIndex = filtered.findIndex((item) => item.id === selectedId)
+      const currentIndex = selectedId ? navOrder.indexOf(selectedId) : -1
+      const currentRow = selectedId ? rowByNavId.get(selectedId) : undefined
       if (event.key === 'j' || event.key === 'ArrowDown') {
         event.preventDefault()
-        selectAt(currentIndex < 0 ? 0 : Math.min(currentIndex + 1, filtered.length - 1))
+        selectAt(currentIndex < 0 ? 0 : Math.min(currentIndex + 1, navOrder.length - 1))
       } else if (event.key === 'k' || event.key === 'ArrowUp') {
         event.preventDefault()
         selectAt(currentIndex < 0 ? 0 : Math.max(currentIndex - 1, 0))
       } else if (event.key === 'Enter' || event.key === 'ArrowRight') {
-        if (selectedId) {
+        // On a group header the primary action is collapse/expand; on a leaf it
+        // opens the detail (single-column mode). Flat mode has no header rows, so
+        // this stays today's "open detail" behavior.
+        if (currentRow?.kind === 'header') {
+          event.preventDefault()
+          toggleGroupCollapsed(currentRow.group)
+        } else if (selectedId) {
           event.preventDefault()
           setShowDetailInSingle(true)
+        }
+      } else if (event.key === 'ArrowLeft') {
+        if (currentRow?.kind === 'header' && !currentRow.collapsed) {
+          event.preventDefault()
+          toggleGroupCollapsed(currentRow.group)
         }
       } else if (event.key === 'Escape') {
         event.preventDefault()
         setSelectedId(null)
       }
     },
-    [filtered, selectAt, selectedId],
+    [navOrder, rowByNavId, selectAt, selectedId, toggleGroupCollapsed],
   )
 
   const handleSelectRow = useCallback((id: string) => {
@@ -574,50 +698,96 @@ export default function BacklogPanel({ workspaceId, onStartFuturePlan }: Workspa
     [dialog, folderPath, refreshAndSelect, remapOpenFiles, runAction, workspaceId],
   )
 
+  // Snapshot of the relative paths already under backlog/archived/, the dedup
+  // baseline for nextArchiveRelativePath (so a new archive never reuses a name).
+  const archivedRelativePaths = useCallback(
+    () => (scan?.items ?? []).filter((i) => i.status === 'archived').map((i) => i.relativePath),
+    [scan],
+  )
+
+  // Archive one item to a pre-resolved collision-safe `backlog/archived/<name>`
+  // path: move the live on-disk file (read → write into the new target → trash
+  // the source), re-point open editor tabs, then update the items.json record.
+  // Throws on any step so the caller can surface the failure; on a partial write
+  // it cleans up the archived copy so archive never leaves a duplicate. Shared by
+  // the single-item Archive and the epic rollup so they cannot drift.
+  const moveItemToArchive = useCallback(
+    async (item: BacklogItem, archivedRel: string): Promise<void> => {
+      if (!folderPath) return
+      const archivedName = archivedRel.slice(archivedRel.lastIndexOf('/') + 1)
+      const content = await window.api.readfile(item.path)
+      const archivedDir = await window.api.ensureDir(backlogRootPath(folderPath), 'archived')
+      const newPath = await window.api.createFile(archivedDir, archivedName)
+      try {
+        await window.api.writefile(newPath, content)
+        await window.api.deletePath(item.path)
+      } catch (error) {
+        await window.api.deletePath(newPath).catch(() => {})
+        throw error
+      }
+      if (workspaceId) {
+        remapOpenFiles(workspaceId, item.path, newPath)
+        remapFileTabsForPath(workspaceId, item.path, newPath)
+      }
+      const moved = await window.api.moveBacklogObjectSource({
+        workspaceRoot: folderPath,
+        relativePath: item.relativePath,
+        nextRelativePath: archivedRel,
+      })
+      assertBacklogMutation(moved)
+    },
+    [folderPath, remapOpenFiles, workspaceId],
+  )
+
   const archiveItem = useCallback(
     (item: BacklogItem) =>
       runAction(async () => {
         if (!folderPath || item.status === 'archived') return
-        const archivedRel = nextArchiveRelativePath(
-          item.relativePath,
-          (scan?.items ?? []).filter((i) => i.status === 'archived').map((i) => i.relativePath),
-        )
-        const archivedName = archivedRel.slice(archivedRel.lastIndexOf('/') + 1)
-        // Move the live file: re-read the current on-disk content now so a plan
-        // edited after the last scan is archived faithfully rather than from the
-        // stale preview snapshot. If the source can't be read, abort before
-        // creating anything so archive never leaves a partial copy.
-        const content = await window.api.readfile(item.path)
-        // Move = write the current content into the collision-safe archived
-        // target, then trash the source. createFile's wx flag guards the name.
-        const archivedDir = await window.api.ensureDir(backlogRootPath(folderPath), 'archived')
-        const newPath = await window.api.createFile(archivedDir, archivedName)
-        try {
-          await window.api.writefile(newPath, content)
-          await window.api.deletePath(item.path)
-        } catch (error) {
-          // Partial failure (write or trash failed after the archived target was
-          // created): clean up the archived copy so archive never silently
-          // leaves a duplicate, then surface the original error. The cleanup is
-          // best-effort and must not mask the failure the user needs to see.
-          await window.api.deletePath(newPath).catch(() => {})
-          throw error
-        }
-        // Archive is a move: re-point any open editor tab / open-file entry from
-        // the source to the archived path so editor state never goes stale.
-        if (workspaceId) {
-          remapOpenFiles(workspaceId, item.path, newPath)
-          remapFileTabsForPath(workspaceId, item.path, newPath)
-        }
-        const moved = await window.api.moveBacklogObjectSource({
-          workspaceRoot: folderPath,
-          relativePath: item.relativePath,
-          nextRelativePath: archivedRel,
-        })
-        assertBacklogMutation(moved)
+        const archivedRel = nextArchiveRelativePath(item.relativePath, archivedRelativePaths())
+        await moveItemToArchive(item, archivedRel)
         await refreshAndSelect(normalizeRelativePath(archivedRel))
       }),
-    [folderPath, refreshAndSelect, remapOpenFiles, runAction, scan, workspaceId],
+    [archivedRelativePaths, folderPath, moveItemToArchive, refreshAndSelect, runAction],
+  )
+
+  // Archive-epic rollup: archive every active child, then the epic itself, via
+  // the same archive-move path. `planEpicArchive` resolves the collision-safe
+  // targets up front and, when a `backlog/archived/<stem>.md` collision renames
+  // the epic, marks each child to be re-pointed to the epic's new stem first —
+  // otherwise the children (keyed on the old stem via their `epic:` frontmatter)
+  // would scatter into "Unknown epic" and the archived epic would be empty,
+  // breaking AC2's single-unit rollup. Children go first so a mid-batch failure
+  // leaves the epic recoverable rather than an archived epic with live children.
+  const archiveEpicRollup = useCallback(
+    (epic: BacklogItem) =>
+      runAction(async () => {
+        if (!folderPath || epic.status === 'archived' || !epic.isEpic) return
+        const children = childrenOfEpic(items, epicSlug(epic)).filter((child) => child.status !== 'archived')
+        const plan = planEpicArchive(epic, children, archivedRelativePaths())
+        try {
+          for (const move of plan.children) {
+            // Re-point the child to the epic's final (possibly renamed) slug
+            // before the move, so the archived copy carries the matching `epic:`.
+            if (move.repointEpic !== null) {
+              const repointed = await window.api.updateBacklogEpic({
+                workspaceRoot: folderPath,
+                relativePath: move.item.relativePath,
+                epic: move.repointEpic,
+              })
+              assertBacklogMutation(repointed)
+            }
+            await moveItemToArchive(move.item, move.archivedRel)
+          }
+          await moveItemToArchive(epic, plan.epicArchivedRel)
+        } catch (error) {
+          // Some members may have archived before the failure; re-scan so the UI
+          // reflects the real on-disk state, then surface the error.
+          await runScan()
+          throw error
+        }
+        await refreshAndSelect(normalizeRelativePath(plan.epicArchivedRel))
+      }),
+    [archivedRelativePaths, folderPath, items, moveItemToArchive, refreshAndSelect, runAction, runScan],
   )
 
   const deleteItem = useCallback(
@@ -625,7 +795,7 @@ export default function BacklogPanel({ workspaceId, onStartFuturePlan }: Workspa
       runAction(async () => {
         const confirmed = await dialog.confirm({
           title: 'Delete item?',
-          body: `“${item.title}” will be moved to the trash. This affects the file only — no Sprint Engine state changes.`,
+          body: `“${item.title}” will be moved to the trash. This affects the file only — no sprint state changes.`,
           confirmLabel: 'Delete',
           tone: 'danger',
         })
@@ -651,11 +821,19 @@ export default function BacklogPanel({ workspaceId, onStartFuturePlan }: Workspa
     [dialog, folderPath, removeOpenFilesForPath, runAction, runScan, workspaceId],
   )
 
-  // Triage edits persist to the backlog object store (items.json) and re-scan,
-  // so size/priority are real owned metadata — never markdown frontmatter and
-  // never disconnected UI state.
+  // Triage edits (difficulty/criticality/risk) route through updateBacklogTriage
+  // to the item's markdown frontmatter under schema-v2 — frontmatter is the
+  // source of truth for these axes, not items.json — then re-scan, so they are
+  // real persisted metadata and never disconnected UI state.
   const setItemTriage = useCallback(
-    (item: BacklogItem, triage: { difficulty?: BacklogDifficulty | null; criticality?: BacklogCriticality | null }) =>
+    (
+      item: BacklogItem,
+      triage: {
+        difficulty?: BacklogDifficulty | null
+        criticality?: BacklogCriticality | null
+        risk?: BacklogRisk | null
+      },
+    ) =>
       runAction(async () => {
         if (!folderPath) return
         const updated = await window.api.updateBacklogTriage({
@@ -704,6 +882,53 @@ export default function BacklogPanel({ workspaceId, onStartFuturePlan }: Workspa
     [folderPath, runAction, runScan],
   )
 
+  // Epic membership is the child's `epic:` frontmatter only (backlog:update-epic
+  // rewrites the markdown; items.json is untouched). slug assigns, null clears
+  // back into the No-epic group.
+  const setItemEpic = useCallback(
+    (item: BacklogItem, slug: string | null) =>
+      runAction(async () => {
+        if (!folderPath || item.epic === (slug ?? undefined)) return
+        const updated = await window.api.updateBacklogEpic({
+          workspaceRoot: folderPath,
+          relativePath: item.relativePath,
+          epic: slug,
+        })
+        assertBacklogMutation(updated)
+        await runScan()
+      }),
+    [folderPath, runAction, runScan],
+  )
+
+  // "New epic…": prompt for a title, write backlog/epics/<slug>.md via the
+  // create-epic writer, then assign this item to the freshly created slug. A
+  // cancelled prompt or a create failure leaves the item untouched.
+  const createEpicForItem = useCallback(
+    (item: BacklogItem) =>
+      runAction(async () => {
+        if (!folderPath) return
+        const title = (
+          await dialog.prompt({
+            title: 'New epic',
+            inputLabel: 'Epic title',
+            confirmLabel: 'Create',
+            required: true,
+          })
+        )?.trim()
+        if (!title) return
+        const created = await window.api.createBacklogEpic({ workspaceRoot: folderPath, title })
+        if (!created.ok) throw new Error(created.message)
+        const assigned = await window.api.updateBacklogEpic({
+          workspaceRoot: folderPath,
+          relativePath: item.relativePath,
+          epic: created.slug,
+        })
+        assertBacklogMutation(assigned)
+        await runScan()
+      }),
+    [dialog, folderPath, runAction, runScan],
+  )
+
   const refreshButton = (
     <Tooltip content="Refresh backlog">
       <IconButton aria-label="Refresh backlog" onClick={() => void runScan()} disabled={loading || !folderPath}>
@@ -728,10 +953,14 @@ export default function BacklogPanel({ workspaceId, onStartFuturePlan }: Workspa
     revealInFiles: (item) => void revealInFiles(item),
     rename: (item) => void renameItem(item),
     archive: (item) => void archiveItem(item),
+    archiveEpic: (item) => void archiveEpicRollup(item),
     remove: (item) => void deleteItem(item),
     setStatus: (item, status) => void setItemStatus(item, status),
     setDifficulty: (item, value) => setItemTriage(item, { difficulty: value === 'unset' ? null : value }),
     setCriticality: (item, value) => setItemTriage(item, { criticality: value === 'unset' ? null : value }),
+    setRisk: (item, value) => setItemTriage(item, { risk: value === 'unset' ? null : value }),
+    setEpic: (item, slug) => void setItemEpic(item, slug),
+    createEpic: (item) => void createEpicForItem(item),
     setHighlight: (item, highlight) => void setItemHighlight(item, highlight),
   }
 
@@ -908,8 +1137,11 @@ export default function BacklogPanel({ workspaceId, onStartFuturePlan }: Workspa
   const listPane = (
     <BacklogList
       items={filtered}
+      groupedRows={groupedRows}
+      navIndexById={navIndexById}
       selectedId={selectedId}
       onSelect={handleSelectRow}
+      onToggleCollapse={toggleGroupCollapsed}
       onKeyDown={handleListKeyDown}
       onItemDragStart={folderPath ? handleRowDragStart : undefined}
       onItemContextMenu={folderPath ? handleRowContextMenu : undefined}
@@ -937,6 +1169,7 @@ export default function BacklogPanel({ workspaceId, onStartFuturePlan }: Workspa
       showBack={!isSplit}
       onBack={() => setShowDetailInSingle(false)}
       actions={actions}
+      epicChoices={epicChoices}
     />
   )
 
@@ -976,10 +1209,13 @@ export default function BacklogPanel({ workspaceId, onStartFuturePlan }: Workspa
         <BacklogFilterMenu
           view={view}
           sort={sort}
+          group={group}
           viewItems={VIEW_ITEMS}
           sortItems={SORT_ITEMS}
+          groupItems={GROUP_ITEMS}
           onViewChange={setView}
           onSortChange={setSort}
+          onGroupChange={setGroup}
           className="shrink-0"
         />
       </div>
@@ -1043,6 +1279,7 @@ export default function BacklogPanel({ workspaceId, onStartFuturePlan }: Workspa
           y={rowMenu.y}
           item={menuItem}
           actions={actions}
+          epicChoices={epicChoices}
           agentTargets={agentTargets}
           agentSessions={agentSessions}
           onFlyoutOpen={refreshAgentSessions}
@@ -1103,8 +1340,11 @@ function BacklogListSkeleton(): JSX.Element {
 
 function BacklogList({
   items,
+  groupedRows,
+  navIndexById,
   selectedId,
   onSelect,
+  onToggleCollapse,
   onKeyDown,
   onItemDragStart,
   onItemContextMenu,
@@ -1114,8 +1354,13 @@ function BacklogList({
   runGlyphById,
 }: {
   items: BacklogItem[]
+  // Non-null when grouping by epic: the flattened header+child render order.
+  // Null keeps the flat list path (byte-identical to the ungrouped default).
+  groupedRows: BacklogGroupedRow[] | null
+  navIndexById: ReadonlyMap<string, number>
   selectedId: string | null
   onSelect: (id: string) => void
+  onToggleCollapse: (group: BacklogEpicGroup) => void
   onKeyDown: (event: React.KeyboardEvent<HTMLUListElement>) => void
   onItemDragStart?: (event: React.DragEvent<HTMLLIElement>, item: BacklogItem) => void
   onItemContextMenu?: (event: React.MouseEvent, item: BacklogItem) => void
@@ -1145,7 +1390,9 @@ function BacklogList({
     )
   }
 
-  const activeIndex = items.findIndex((item) => item.id === selectedId)
+  // The option index is the row's position in the flattened nav order; it equals
+  // the list index in flat mode, so `backlog-opt-<n>` ids stay byte-identical.
+  const activeIndex = selectedId != null ? navIndexById.get(selectedId) ?? -1 : -1
 
   return (
     <ul
@@ -1159,35 +1406,156 @@ function BacklogList({
       aria-activedescendant={activeIndex >= 0 ? `backlog-opt-${activeIndex}` : undefined}
       className="min-h-0 flex-1 overflow-auto py-1 outline-none focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[color:var(--border-focus)]"
     >
-      {items.map((item, index) => {
-        const active = item.id === selectedId
-        const archived = item.status === 'archived'
-        // Highlight color owns the row's left-edge stripe; on the selected row
-        // it also replaces the accent soft-bg, mirroring the sidebar rowAccent
-        // override. Marks are visual only — order and padding never change.
-        const swatch = item.highlight?.color ? getHighlightSwatch(item.highlight.color) : null
-        return (
-          <li
-            key={item.id}
-            id={`backlog-opt-${index}`}
-            role="option"
-            aria-selected={active}
-            draggable={Boolean(onItemDragStart)}
-            onDragStart={onItemDragStart ? (event) => onItemDragStart(event, item) : undefined}
-            onContextMenu={onItemContextMenu ? (event) => onItemContextMenu(event, item) : undefined}
-            onClick={() => onSelect(item.id)}
-            title={item.relativePath}
-            className={`cursor-pointer border-l-[3px] px-3 py-1.5 transition-colors ${
-              active
-                ? `${swatch ? `${swatch.border} ${swatch.bg}` : 'border-l-[color:var(--accent-primary)] bg-[color:var(--accent-primary-soft)]'} pl-[9px]`
-                : `${swatch ? `${swatch.border} ${swatch.dimBg}` : 'border-l-transparent'} hover:bg-[color:var(--bg-hover)]`
-            } ${archived ? 'opacity-70' : ''}`}
-          >
-            <BacklogRowContent item={item} now={now} runGlyph={runGlyphById?.get(item.id)} />
-          </li>
-        )
-      })}
+      {groupedRows
+        ? groupedRows.map((row) =>
+            row.kind === 'header' ? (
+              <BacklogGroupHeaderRow
+                key={row.navId}
+                row={row}
+                optionIndex={navIndexById.get(row.navId) ?? -1}
+                selected={row.navId === selectedId}
+                onSelect={onSelect}
+                onToggleCollapse={onToggleCollapse}
+                onItemDragStart={onItemDragStart}
+                onItemContextMenu={onItemContextMenu}
+              />
+            ) : (
+              <BacklogOptionRow
+                key={row.item.id}
+                item={row.item}
+                optionIndex={navIndexById.get(row.item.id) ?? -1}
+                selected={row.item.id === selectedId}
+                indented
+                onSelect={onSelect}
+                onItemDragStart={onItemDragStart}
+                onItemContextMenu={onItemContextMenu}
+                now={now}
+                runGlyph={runGlyphById?.get(row.item.id)}
+              />
+            ),
+          )
+        : items.map((item) => (
+            <BacklogOptionRow
+              key={item.id}
+              item={item}
+              optionIndex={navIndexById.get(item.id) ?? -1}
+              selected={item.id === selectedId}
+              onSelect={onSelect}
+              onItemDragStart={onItemDragStart}
+              onItemContextMenu={onItemContextMenu}
+              now={now}
+              runGlyph={runGlyphById?.get(item.id)}
+            />
+          ))}
     </ul>
+  )
+}
+
+// One selectable backlog row (`role="option"`). Shared by the flat list and the
+// grouped list's children so the stripe/selection treatment can't drift. The
+// left-edge stripe resolves to the manual highlight color, or — when none is set
+// — the derived risk×effort heat (nothing persisted). A hand-set highlight earns
+// the full lit treatment (stripe + soft bg, mirroring the sidebar rowAccent
+// override); a derived color tints the stripe alone so the ambient heat never
+// competes with selection. `indented` nests the row under a group header; at the
+// default (false) the class string is byte-identical to the pre-grouping row.
+function BacklogOptionRow({
+  item,
+  optionIndex,
+  selected,
+  indented = false,
+  onSelect,
+  onItemDragStart,
+  onItemContextMenu,
+  now,
+  runGlyph,
+}: {
+  item: BacklogItem
+  optionIndex: number
+  selected: boolean
+  indented?: boolean
+  onSelect: (id: string) => void
+  onItemDragStart?: (event: React.DragEvent<HTMLLIElement>, item: BacklogItem) => void
+  onItemContextMenu?: (event: React.MouseEvent, item: BacklogItem) => void
+  now: number
+  runGlyph?: BacklogRunGlyph
+}): JSX.Element {
+  const archived = item.status === 'archived'
+  const manualColor = item.highlight?.color ?? null
+  const stripeColor = resolveBacklogStripeColor(item)
+  const swatch = stripeColor ? getHighlightSwatch(stripeColor) : null
+  const litFill = manualColor !== null
+  return (
+    <li
+      id={`backlog-opt-${optionIndex}`}
+      role="option"
+      aria-selected={selected}
+      draggable={Boolean(onItemDragStart)}
+      onDragStart={onItemDragStart ? (event) => onItemDragStart(event, item) : undefined}
+      onContextMenu={onItemContextMenu ? (event) => onItemContextMenu(event, item) : undefined}
+      onClick={() => onSelect(item.id)}
+      title={item.relativePath}
+      className={`cursor-pointer border-l-[3px] ${indented ? 'pl-6 pr-3' : 'px-3'} py-1.5 transition-colors ${
+        selected
+          ? `${swatch ? swatch.border : 'border-l-[color:var(--accent-primary)]'} ${litFill && swatch ? swatch.bg : 'bg-[color:var(--accent-primary-soft)]'} ${indented ? 'pl-[21px]' : 'pl-[9px]'}`
+          : `${swatch ? `${swatch.border}${litFill ? ` ${swatch.dimBg}` : ''}` : 'border-l-transparent'} hover:bg-[color:var(--bg-hover)]`
+      } ${archived ? 'opacity-70' : ''}`}
+    >
+      <BacklogRowContent item={item} now={now} runGlyph={runGlyph} />
+    </li>
+  )
+}
+
+// An epic/unknown/no-epic group header row. It is a navigable `role="option"` so
+// j/k can reach it and Enter can collapse it. An epic header borrows the epic
+// item's identity — clicking it (away from the chevron) selects the epic and can
+// be dragged / right-clicked like any item; unknown and no-epic headers carry no
+// item, so the whole row toggles collapse. The left stripe uses the epic's
+// `color:` frontmatter when set.
+function BacklogGroupHeaderRow({
+  row,
+  optionIndex,
+  selected,
+  onSelect,
+  onToggleCollapse,
+  onItemDragStart,
+  onItemContextMenu,
+}: {
+  row: Extract<BacklogGroupedRow, { kind: 'header' }>
+  optionIndex: number
+  selected: boolean
+  onSelect: (id: string) => void
+  onToggleCollapse: (group: BacklogEpicGroup) => void
+  onItemDragStart?: (event: React.DragEvent<HTMLLIElement>, item: BacklogItem) => void
+  onItemContextMenu?: (event: React.MouseEvent, item: BacklogItem) => void
+}): JSX.Element {
+  const { group } = row
+  const epic = group.kind === 'epic' ? group.epic : null
+  const swatch = group.color ? getHighlightSwatch(group.color) : null
+  return (
+    <li
+      id={`backlog-opt-${optionIndex}`}
+      role="option"
+      aria-selected={selected}
+      draggable={Boolean(epic && onItemDragStart)}
+      onDragStart={epic && onItemDragStart ? (event) => onItemDragStart(event, epic) : undefined}
+      onContextMenu={epic && onItemContextMenu ? (event) => onItemContextMenu(event, epic) : undefined}
+      // Clicking an epic header selects the epic (its detail); a header with no
+      // item has nothing to select, so the row click collapses it instead.
+      onClick={() => (epic ? onSelect(epic.id) : onToggleCollapse(group))}
+      title={epic ? epic.relativePath : group.title}
+      className={`cursor-pointer border-l-[3px] px-3 py-1.5 transition-colors ${
+        selected
+          ? `${swatch ? swatch.border : 'border-l-[color:var(--accent-primary)]'} bg-[color:var(--accent-primary-soft)] pl-[9px]`
+          : `${swatch ? swatch.border : 'border-l-transparent'} hover:bg-[color:var(--bg-hover)]`
+      }`}
+    >
+      <BacklogEpicHeaderContent
+        group={group}
+        collapsed={row.collapsed}
+        onToggleCollapse={() => onToggleCollapse(group)}
+      />
+    </li>
   )
 }
 
@@ -1207,6 +1575,7 @@ function BacklogDetail({
   showBack,
   onBack,
   actions,
+  epicChoices,
 }: {
   scan: BacklogScanResult | null
   loading: boolean
@@ -1221,6 +1590,7 @@ function BacklogDetail({
   showBack: boolean
   onBack: () => void
   actions: BacklogActions
+  epicChoices: ReadonlyArray<BacklogEpicChoice>
 }): JSX.Element {
   if (!folderPath) {
     return (
@@ -1365,7 +1735,9 @@ function BacklogDetail({
               { id: 'rename', label: 'Rename…', onSelect: () => actions.rename(selected) },
               ...(selected.status === 'archived'
                 ? []
-                : [{ id: 'archive', label: 'Archive', onSelect: () => actions.archive(selected) }]),
+                : selected.isEpic
+                  ? [{ id: 'archive-epic', label: 'Archive epic', onSelect: () => actions.archiveEpic(selected) }]
+                  : [{ id: 'archive', label: 'Archive', onSelect: () => actions.archive(selected) }]),
               { kind: 'separator' as const, id: 'sep' },
               { id: 'delete', label: 'Delete…', destructive: true, onSelect: () => actions.remove(selected) },
             ]}
@@ -1381,7 +1753,7 @@ function BacklogDetail({
         excludeLinkId={primaryRunLinkId}
       />
 
-      <BacklogTriage item={selected} actions={actions} />
+      <BacklogTriage item={selected} actions={actions} epicChoices={epicChoices} />
 
       <div className="min-h-0 flex-1 overflow-auto px-4 py-3">
         <BacklogPreviewBody item={selected} />
@@ -1431,10 +1803,36 @@ function DetailState({
   )
 }
 
-// Triage editor: type + size + priority are lightweight owned metadata.
-// Selecting "Untyped" / "Unestimated" / "No priority" clears the axis back to
-// neutral. These persist to the backlog object store, not markdown frontmatter.
-function BacklogTriage({ item, actions }: { item: BacklogItem; actions: BacklogActions }): JSX.Element {
+// Sentinel + cleared values for the detail-pane Epic Select. '' clears the
+// `epic:` field (No epic); the sentinel opens the create-epic prompt.
+const EPIC_NEW_SENTINEL = '__new_epic__'
+const EPIC_NONE_VALUE = ''
+
+// Triage editor: size + priority + risk + epic are owned organization metadata.
+// Selecting "Unestimated" / "No priority" / "No risk set" / "No epic" clears the
+// axis back to neutral. Risk is the likelihood the work goes sideways — distinct
+// from effort and impact — and feeds the Best sort and the row's derived heat
+// color. The Epic control is the detail-pane peer of the row menu's "Move to
+// epic"; it is hidden for epic items, which cannot nest inside another epic.
+function BacklogTriage({
+  item,
+  actions,
+  epicChoices,
+}: {
+  item: BacklogItem
+  actions: BacklogActions
+  epicChoices: ReadonlyArray<BacklogEpicChoice>
+}): JSX.Element {
+  const epicItems: SelectItem<string>[] = [
+    { value: EPIC_NONE_VALUE, label: 'No epic' },
+    ...epicChoices.map((epic) => ({ value: epic.slug, label: epic.title })),
+    // A dangling slug (its concept file is missing) stays a visible option so the
+    // control reflects the item's real frontmatter instead of silently blanking.
+    ...(item.epic && !epicChoices.some((epic) => epic.slug === item.epic)
+      ? [{ value: item.epic, label: `${item.epic} (missing)` }]
+      : []),
+    { value: EPIC_NEW_SENTINEL, label: 'New epic…' },
+  ]
   return (
     <Section title="Triage" level={4} inset className="shrink-0 border-b border-[color:var(--border-subtle)] pb-3">
       <div className="grid grid-cols-[3.5rem_minmax(0,16rem)] items-center gap-x-3 gap-y-2 px-3">
@@ -1452,6 +1850,27 @@ function BacklogTriage({ item, actions }: { item: BacklogItem; actions: BacklogA
           value={item.criticality ?? 'unset'}
           onChange={(value) => actions.setCriticality(item, value)}
         />
+        <span className="text-[11px] text-[color:var(--text-muted)]">Risk</span>
+        <Select
+          ariaLabel="Set risk"
+          items={RISK_EDIT_ITEMS}
+          value={item.risk ?? 'unset'}
+          onChange={(value) => actions.setRisk(item, value)}
+        />
+        {!item.isEpic ? (
+          <>
+            <span className="text-[11px] text-[color:var(--text-muted)]">Epic</span>
+            <Select
+              ariaLabel="Move to epic"
+              items={epicItems}
+              value={item.epic ?? EPIC_NONE_VALUE}
+              onChange={(value) => {
+                if (value === EPIC_NEW_SENTINEL) actions.createEpic(item)
+                else actions.setEpic(item, value === EPIC_NONE_VALUE ? null : value)
+              }}
+            />
+          </>
+        ) : null}
       </div>
     </Section>
   )

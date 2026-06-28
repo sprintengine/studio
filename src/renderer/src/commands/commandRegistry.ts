@@ -185,7 +185,7 @@ export const COMMAND_REGISTRY = [
   // bind it in Shortcuts settings.
   command({
     id: 'panel.sprint-engines.toggle',
-    title: 'Toggle Sprint Engines',
+    title: 'Toggle Sprints',
     category: 'panel',
     scopes: ['global'],
     availability: ['sprintEngineEnabled'],
@@ -327,7 +327,7 @@ export const COMMAND_REGISTRY = [
   }),
   command({
     id: 'sprintengine.verify.progress',
-    title: 'Sprint Engine: Verify Progress',
+    title: 'Sprint: Verify Progress',
     category: 'sprintengine',
     scopes: ['panel:sprintengine'],
     availability: ['sprintengineWorkspace', 'sprintengineHasArchitect'],
@@ -335,7 +335,7 @@ export const COMMAND_REGISTRY = [
   }),
   command({
     id: 'sprintengine.add.role',
-    title: 'Sprint Engine: More Roles',
+    title: 'Sprint: More Roles',
     category: 'sprintengine',
     scopes: ['panel:sprintengine'],
     availability: ['sprintengineWorkspace'],
@@ -343,7 +343,7 @@ export const COMMAND_REGISTRY = [
   }),
   command({
     id: 'sprintengine.request.plan-reviews',
-    title: 'Sprint Engine: Request Plan Reviews',
+    title: 'Sprint: Request Plan Reviews',
     category: 'sprintengine',
     scopes: ['panel:sprintengine'],
     availability: ['sprintengineWorkspace'],
@@ -351,7 +351,7 @@ export const COMMAND_REGISTRY = [
   }),
   command({
     id: 'sprintengine.address.feedback',
-    title: 'Sprint Engine: Address Feedback',
+    title: 'Sprint: Address Feedback',
     category: 'sprintengine',
     scopes: ['panel:sprintengine'],
     availability: ['sprintengineWorkspace'],
@@ -359,7 +359,7 @@ export const COMMAND_REGISTRY = [
   }),
   command({
     id: 'sprintengine.read.plan',
-    title: 'Sprint Engine: Read Plan',
+    title: 'Sprint: Read Plan',
     category: 'sprintengine',
     scopes: ['panel:sprintengine'],
     availability: ['sprintengineWorkspace'],
@@ -367,7 +367,7 @@ export const COMMAND_REGISTRY = [
   }),
   command({
     id: 'sprintengine.focus.agent',
-    title: 'Sprint Engine: Focus Active Agent',
+    title: 'Sprint: Focus Active Agent',
     category: 'sprintengine',
     scopes: ['panel:sprintengine'],
     availability: ['sprintengineWorkspace', 'sprintengineFocusAgentVisible'],
@@ -375,7 +375,7 @@ export const COMMAND_REGISTRY = [
   }),
   command({
     id: 'sprintengine.refresh.board',
-    title: 'Sprint Engine: Refresh Board',
+    title: 'Sprint: Refresh Board',
     category: 'sprintengine',
     scopes: ['panel:sprintengine'],
     availability: ['sprintengineWorkspace'],
@@ -383,7 +383,7 @@ export const COMMAND_REGISTRY = [
   }),
   command({
     id: 'sprintengine.goto.inbox',
-    title: 'Sprint Engine: Inbox',
+    title: 'Sprint: Inbox',
     category: 'sprintengine',
     scopes: ['panel:sprintengine'],
     defaultKeybindings: ['G then I'],
@@ -392,7 +392,7 @@ export const COMMAND_REGISTRY = [
   }),
   command({
     id: 'sprintengine.goto.roster',
-    title: 'Sprint Engine: Roster',
+    title: 'Sprint: Roster',
     category: 'sprintengine',
     scopes: ['panel:sprintengine'],
     defaultKeybindings: ['G then R'],
@@ -401,7 +401,7 @@ export const COMMAND_REGISTRY = [
   }),
   command({
     id: 'sprintengine.goto.tasks',
-    title: 'Sprint Engine: Tasks',
+    title: 'Sprint: Tasks',
     category: 'sprintengine',
     scopes: ['panel:sprintengine'],
     defaultKeybindings: ['G then T'],
@@ -410,7 +410,7 @@ export const COMMAND_REGISTRY = [
   }),
   command({
     id: 'sprintengine.goto.graph',
-    title: 'Sprint Engine: Tasks Graph Layout',
+    title: 'Sprint: Tasks Graph Layout',
     category: 'sprintengine',
     scopes: ['panel:sprintengine'],
     defaultKeybindings: ['G then G'],
@@ -419,7 +419,7 @@ export const COMMAND_REGISTRY = [
   }),
   command({
     id: 'sprintengine.goto.kanban',
-    title: 'Sprint Engine: Tasks Kanban Layout',
+    title: 'Sprint: Tasks Kanban Layout',
     category: 'sprintengine',
     scopes: ['panel:sprintengine'],
     defaultKeybindings: ['G then K'],
@@ -428,7 +428,7 @@ export const COMMAND_REGISTRY = [
   }),
   command({
     id: 'sprintengine.open.settings',
-    title: 'Sprint Engine: Run Configuration',
+    title: 'Sprint: Run Configuration',
     category: 'sprintengine',
     scopes: ['panel:sprintengine'],
     defaultKeybindings: ['Primary+,'],

@@ -175,7 +175,7 @@ function testAgentTerminalBackgroundPolicyDoesNotSelectOrCreateTabs(): void {
           id: 'main',
           selected: 0,
           children: [
-            { type: 'tab', id: 'board', name: 'Sprint Engine', component: 'sprintengine' },
+            { type: 'tab', id: 'board', name: 'Sprint', component: 'sprintengine' },
             { type: 'tab', id: 'agent-existing', name: 'Old Agent', component: 'agent', config: { agentId: 'agent-1' } },
           ],
         },
@@ -939,7 +939,7 @@ async function testDeliverApprovalCompletionWakesOwnerOnceWithoutFocus(): Promis
   assert.equal(second, 'none')
   assert.equal(writes.length, 2, 'completion notification produces one pasted directive plus submit per event id')
   assert.equal(writes[0].sessionId, 'session-frontend')
-  assert.ok(writes[0].text.includes('Your Sprint Engine task is complete.'))
+  assert.ok(writes[0].text.includes('Your sprint task is complete.'))
   assert.ok(
     !writes[0].text.includes('sprintengine join'),
     'completion notification does not direct the agent to re-run any sprintengine CLI command'
@@ -3117,7 +3117,7 @@ async function testNotificationPasteSuppressesSamePassDispatchPaste(): Promise<v
     2,
     `the engaged notification target gets exactly one instruction plus submit this pass; writes ${JSON.stringify(writes.map((write) => write.text.slice(0, 60)))}`
   )
-  assert.ok(writes[0].text.includes('Sprint Engine notification.'), 'the first write is the notification paste')
+  assert.ok(writes[0].text.includes('Sprint notification.'), 'the first write is the notification paste')
 }
 
 function idleReviewerCycleFixtures(input: { tasks: SprintEngineTask[]; reviewerOverrides?: Partial<SprintEngineRuntimeAgent> }): {
@@ -4416,7 +4416,7 @@ function testPromptBuildersIncludeAgentIdAndCommand(): void {
     taskId: 'T3',
     notificationKind: 'task_completed_after_artifact_approval',
   }, { agentId: 'developer-1', role: 'developer' })
-  assert.ok(notif.includes('Your Sprint Engine task is complete.'))
+  assert.ok(notif.includes('Your sprint task is complete.'))
   assert.ok(notif.includes('Task: T3'))
   assert.ok(
     !notif.includes('sprintengine.agent.next_directive'),
@@ -4527,7 +4527,7 @@ function automationNotification(input: { workspaceId: string; read: boolean }): 
     level: 'info',
     source: 'sprintengine',
     title: SPRINT_ENGINE_AUTOMATION_NOTIFICATION_TITLE,
-    message: 'Sprint Engine automation is now Run agents.',
+    message: 'Sprint automation is now Run agents.',
     workspaceId: input.workspaceId,
     read: input.read,
   }

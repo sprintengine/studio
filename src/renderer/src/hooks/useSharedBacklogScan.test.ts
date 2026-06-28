@@ -32,6 +32,7 @@ function makeRunner() {
           title: `scan ${calls[folderPath]}`,
           kind: 'unknown',
           status: 'idea',
+          isEpic: false,
           metadata: {},
           links: [],
           excerpt: '',

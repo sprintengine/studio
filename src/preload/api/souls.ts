@@ -54,7 +54,7 @@ function buildMultiloopPromptFetchInstruction(role: MultiloopRole): string {
     `scripts/multiloop --state <state-path> milestone review --role ${role}`,
     '```',
     '',
-    'Treat the returned text as read-only Multiloop milestone context and follow the linked Sprint Engine task instructions for execution.',
+    'Treat the returned text as read-only Multiloop milestone context and follow the linked sprint task instructions for execution.',
   ].join('\n')
 }
 

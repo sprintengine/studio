@@ -1789,9 +1789,10 @@ export type AppMenuAcceleratorUpdate = {
 export type AppMenuAcceleratorUpdateResult = { ok: true }
 
 export type BacklogItemStatusPayload = 'idea' | 'ready' | 'in_progress' | 'needs_input' | 'completed' | 'archived'
-export type BacklogTypePayload = 'feature' | 'bug' | 'mockup' | 'spike'
+export type BacklogTypePayload = 'epic' | 'feature' | 'bug' | 'mockup' | 'spike'
 export type BacklogDifficultyPayload = 'xs' | 's' | 'm' | 'l' | 'xl'
 export type BacklogCriticalityPayload = 'low' | 'normal' | 'high' | 'critical'
+export type BacklogRiskPayload = 'low' | 'normal' | 'high'
 // Declared fresh in shared (no renderer imports); the renderer's HighlightColor
 // union must stay assignable to this payload type.
 export type BacklogHighlightColorPayload = 'red' | 'orange' | 'amber' | 'green' | 'blue' | 'purple' | 'pink'
@@ -1829,6 +1830,7 @@ export type BacklogObjectRecordPayload = {
   type?: BacklogTypePayload
   difficulty?: BacklogDifficultyPayload
   criticality?: BacklogCriticalityPayload
+  risk?: BacklogRiskPayload
   highlight?: BacklogHighlightPayload
   metadata?: Record<string, unknown>
   links?: BacklogItemLinkPayload[]
@@ -1874,6 +1876,7 @@ export type BacklogTriageInput = {
   relativePath: string
   difficulty?: BacklogDifficultyPayload | null
   criticality?: BacklogCriticalityPayload | null
+  risk?: BacklogRiskPayload | null
 }
 
 export type BacklogHighlightInput = {
@@ -1907,6 +1910,24 @@ export type BacklogRemoveRecordInput = {
   workspaceRoot: string
   relativePath: string
 }
+
+// Epic membership is the child-side write: `epic` is the up-pointing slug to set
+// on the child item's frontmatter, or null to remove it from its epic. The
+// down-direction (epic -> children) stays derived, never stored.
+export type BacklogEpicInput = {
+  workspaceRoot: string
+  relativePath: string
+  epic: string | null
+}
+
+export type BacklogCreateEpicInput = {
+  workspaceRoot: string
+  title: string
+}
+
+export type BacklogCreateEpicResult =
+  | { ok: true; slug: string; relativePath: string }
+  | { ok: false; message: string }
 
 export type ElectronApi = {
   platform: string
@@ -2264,4 +2285,6 @@ export type ElectronApi = {
   updateBacklogModuleMetadata: (input: BacklogModuleMetadataInput) => Promise<BacklogMutationResult>
   moveBacklogObjectSource: (input: BacklogMoveSourceInput) => Promise<BacklogMutationResult>
   removeBacklogObjectRecord: (input: BacklogRemoveRecordInput) => Promise<BacklogMutationResult>
+  updateBacklogEpic: (input: BacklogEpicInput) => Promise<BacklogMutationResult>
+  createBacklogEpic: (input: BacklogCreateEpicInput) => Promise<BacklogCreateEpicResult>
 }

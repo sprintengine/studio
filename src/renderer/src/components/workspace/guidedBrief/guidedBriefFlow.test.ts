@@ -315,7 +315,7 @@ assert.deepEqual(
   [
     'Validate implementation against any accepted Guided brief artifact snapshot hashes.',
     'Resolve missing product or architecture decisions before broad implementation work.',
-    'Create or validate UI direction during Sprint Engine planning because the guided frontend stage was skipped.',
+    'Create or validate UI direction during sprint planning because the guided frontend stage was skipped.',
   ],
 )
 

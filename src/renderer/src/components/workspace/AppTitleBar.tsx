@@ -69,12 +69,12 @@ function DiagnosticsTitleBarButton({ onOpen }: { onOpen: () => void }) {
 
 function SprintEnginesAsideToggle({ open, onToggle }: SprintEnginesToggle) {
   return (
-    <Tooltip content="Sprint Engines" placement="bottom">
+    <Tooltip content="Sprints" placement="bottom">
       <button
         type="button"
         onClick={onToggle}
         aria-pressed={open}
-        aria-label="Toggle Sprint Engines"
+        aria-label="Toggle Sprints"
         className={`app-no-drag interactive inline-flex h-7 w-7 items-center justify-center bg-transparent transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[color:var(--accent-primary-soft)] ${
           open
             ? 'text-[color:var(--text-strong)]'

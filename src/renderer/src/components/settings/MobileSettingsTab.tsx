@@ -312,7 +312,7 @@ export default function MobileSettingsTab() {
       <div className="divide-y divide-[color:var(--border-subtle)]">
         <SettingToggle
           label="Enable mobile companion"
-          description="Let paired phones request snapshots, send follow-ups, and control Sprint Engine."
+          description="Let paired phones request snapshots, send follow-ups, and control sprints."
           enabled={enabled}
           onChange={(next) => void toggleEnabled(next)}
           disabled={busy}
@@ -586,13 +586,13 @@ function commandLabel(commandType: MobileControlCommandType): string {
     case 'task.start':
       return 'Task start requested'
     case 'sprintengine.create':
-      return 'Sprint Engine create requested'
+      return 'Sprint create requested'
     case 'device.revoke':
       return 'Device revoke requested'
     case 'backlog.update':
       return 'Backlog item updated'
     case 'backlog.startSprintEngine':
-      return 'Sprint Engine started from backlog'
+      return 'Sprint started from backlog'
     case 'backlog.create':
       return 'Backlog item created'
   }

@@ -135,8 +135,9 @@ async function main(): Promise<void> {
 // dispose them: a disposed session loses its painted scrollback and falls
 // through to the renderer's resume-spawn on reopen, silently relaunching the
 // agent. Suspending keeps the session with `suspended = true` so reopening
-// replays the frozen history and only resumes on the first keystroke. Live
-// workspaces (the hot set) are never reaped, so they are untouched.
+// replays the frozen history and only resumes on the first keystroke. An agent
+// whose authoritative hook phase is non-idle (here: awaiting_input) is never
+// reaped regardless of how long it has been idle by keystroke.
 async function assertIdleSweepSuspendsRatherThanDisposes(runtimeModule: RuntimeModule): Promise<void> {
   const workspaceRoot = await mkdtemp(join(tmpdir(), 'multicode-terminal-runtime-idle-suspend-'))
   mockPty.spawnCalls = []
@@ -169,14 +170,22 @@ async function assertIdleSweepSuspendsRatherThanDisposes(runtimeModule: RuntimeM
   }
 
   try {
-    // The oldest-interacted agent is the one that falls out of the 5-workspace
-    // hot set. Spawn it first, then let the clock advance a touch so the five
-    // fresher agents deterministically own the hot set regardless of tie-break.
+    // Three hidden idle agents (no hook frames → recency floor) and one that is
+    // authoritatively awaiting user input (a hook frame protects it).
     const oldProcess = await spawnHiddenAgent('session-old', 'ws-old')
-    await delay(10)
-    for (let i = 0; i < 5; i += 1) {
-      await spawnHiddenAgent(`session-h${i}`, `ws-h${i}`)
-    }
+    await spawnHiddenAgent('session-idle-b', 'ws-b')
+    await spawnHiddenAgent('session-awaiting', 'ws-awaiting')
+
+    // Mark the protected agent as awaiting_input via an authoritative hook frame.
+    runtime.ingestAgentStateFrame({
+      type: 'agent_state',
+      agentId: 'session-awaiting',
+      workspaceId: 'ws-awaiting',
+      sessionId: null,
+      phase: 'awaiting_input',
+      event: null,
+      ts: Date.now(),
+    })
 
     // Fresh sweep leaves everything alive (nothing past the idle threshold yet).
     assert.deepEqual(
@@ -185,9 +194,15 @@ async function assertIdleSweepSuspendsRatherThanDisposes(runtimeModule: RuntimeM
       'recently active agents must not be suspended'
     )
 
-    const wellPastIdle = Date.now() + 2 * 60 * 60 * 1000 + 1_000
-    const reaped = runtimeModule.runIdleAgentReapSweep(wellPastIdle)
-    assert.deepEqual(reaped, ['session-old'], 'only the non-hot idle agent is reaped')
+    // Past the idle threshold: both hookless idle agents reap; the awaiting_input
+    // agent is protected by its hook phase, not by any hot-set membership.
+    const wellPastIdle = Date.now() + 30 * 60 * 1000 + 1_000
+    const reaped = runtimeModule.runIdleAgentReapSweep(wellPastIdle).sort()
+    assert.deepEqual(
+      reaped,
+      ['session-idle-b', 'session-old'],
+      'every idle agent past the threshold reaps; the awaiting_input agent does not'
+    )
 
     // Suspend finalizes when the killed pty reports exit.
     oldProcess.emitExit({ exitCode: 0 })
@@ -214,11 +229,12 @@ async function assertIdleSweepSuspendsRatherThanDisposes(runtimeModule: RuntimeM
       'a suspend is not an exit: the view must stay painted, so no terminal:exit is emitted'
     )
 
-    // The hot-set agents the user is actively working with stay live.
+    // The awaiting-input agent stays live: a terminal blocked on the user must
+    // never be frozen out from under them.
     assert.deepEqual(
-      runtime.ipcHandlers.getTerminalStatus('session-h0'),
+      runtime.ipcHandlers.getTerminalStatus('session-awaiting'),
       { processAlive: true, suspended: false },
-      'live (hot) workspaces must never be suspended by the reaper'
+      'an agent awaiting user input must never be suspended by the reaper'
     )
   } finally {
     await runtime.shutdown()

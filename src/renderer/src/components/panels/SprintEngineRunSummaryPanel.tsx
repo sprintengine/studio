@@ -51,6 +51,7 @@ import type {
   SprintEngineTask,
   SprintEngineTaskFeedbackFindingSeverity,
   SprintEngineTaskStatus,
+  SprintEngineVcs,
 } from '../../types/workspace'
 
 const projectionSourceLabel: Record<SprintEngineProjectionSource, string> = {
@@ -218,7 +219,7 @@ export default function SprintEngineRunSummaryPanel({
 
   if (!sprintEngineState || !report) {
     return (
-      <PanelShell titleId={TITLE_ID} subtitle="Sprint Engine state is not available for this workspace." onClose={onClose} embedded={embedded}>
+      <PanelShell titleId={TITLE_ID} subtitle="Sprint state is not available for this workspace." onClose={onClose} embedded={embedded}>
         <div className="border-l-2 border-[color:var(--border-strong)] pl-3 text-[13px] leading-6 text-[color:var(--text-muted)]">
           Open a Sprint Engine workspace to see its run summary.
         </div>
@@ -275,6 +276,11 @@ export default function SprintEngineRunSummaryPanel({
           </span>
         ) : null}
       </div>
+
+      <RunPullRequestRow
+        vcs={sprintEngineState.vcs}
+        allTasksDone={report.totalTasks > 0 && report.doneTasks === report.totalTasks}
+      />
 
       {report.totalTasks === 0 ? (
         <div className="border-l-2 border-[color:var(--border-strong)] pl-3 text-[13px] leading-6 text-[color:var(--text-muted)]">
@@ -1288,6 +1294,67 @@ function StatStrip({ cells, columns }: { cells: StatCell[]; columns: string }) {
           </div>
         </div>
       ))}
+    </div>
+  )
+}
+
+// The run's pull request — the review handoff. This panel is a completed-run
+// report, so the PR is always relevant: link it when open, surface a failed
+// open, and tell the truth when the sprint ran in the workspace checkout (no
+// worktree → no branch → no PR to review).
+function RunPullRequestRow({
+  vcs,
+  allTasksDone,
+}: {
+  vcs?: SprintEngineVcs | null
+  allTasksDone: boolean
+}) {
+  const url = vcs?.pullRequestUrl ?? null
+  // The PR is a completion outcome. Stay quiet until the run is done unless one
+  // already exists (e.g. opened manually mid-run).
+  if (!allTasksDone && !url) return null
+
+  if (url) {
+    return (
+      <div className="mb-3 flex flex-wrap items-center gap-x-2 gap-y-1 border-l-2 border-[color:var(--accent-primary)] pl-3 text-[13px] leading-6">
+        <span className="text-[color:var(--text-strong)]">Pull request:</span>
+        <Tooltip content={url}>
+          <a
+            href={url}
+            target="_blank"
+            rel="noreferrer"
+            className="font-medium text-[color:var(--accent-primary)] hover:underline"
+          >
+            View pull request
+          </a>
+        </Tooltip>
+      </div>
+    )
+  }
+
+  if (vcs?.status === 'failed') {
+    return (
+      <div className="mb-3 border-l-2 border-[color:var(--tone-warn)] pl-3 text-[13px] leading-6 text-[color:var(--text-default)]">
+        <span className="text-[color:var(--text-strong)]">Pull request:</span> couldn&apos;t be
+        opened. Retry with <code className="text-[12px]">sprintengine vcs pr</code>.
+      </div>
+    )
+  }
+
+  if (vcs) {
+    return (
+      <div className="mb-3 border-l-2 border-[color:var(--border-strong)] pl-3 text-[13px] leading-6 text-[color:var(--text-muted)]">
+        Pull request pending…
+      </div>
+    )
+  }
+
+  // No worktree metadata → the sprint ran in the workspace checkout, so there is
+  // no branch and no PR. By design, not a failure.
+  return (
+    <div className="mb-3 border-l-2 border-[color:var(--border-strong)] pl-3 text-[13px] leading-6 text-[color:var(--text-muted)]">
+      No pull request — this sprint ran in the workspace checkout, so there&apos;s no branch to
+      review. Run a sprint in an isolated git worktree to get a pull request on completion.
     </div>
   )
 }

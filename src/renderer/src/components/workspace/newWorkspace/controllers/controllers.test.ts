@@ -898,7 +898,7 @@ async function testGuidedBriefStartBuildHandoffPath(): Promise<void> {
   // build-handoff body was emitted under the workspace root.
   const writtenHandoff = fs.files.get('/workspace/product/build-handoff.md')
   assert.ok(writtenHandoff, 'handoff file is present')
-  assert.match(writtenHandoff ?? '', /## Suggested Sprint Engine Goal/, 'handoff body contains the goal section')
+  assert.match(writtenHandoff ?? '', /## Suggested Sprint Goal/, 'handoff body contains the goal section')
 }
 
 async function testGuidedBriefStartBuildDesignPresetHandoff(): Promise<void> {

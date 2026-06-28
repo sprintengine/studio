@@ -187,15 +187,20 @@ run('an unknown-kind capture is never flagged needs_structure by default', () =>
   assert.equal(item.criticality, undefined)
 })
 
-run('triage metadata is surfaced from the backlog object record', () => {
+run('the sidecar object contributes identity, metadata, and highlight, never triage', () => {
   const item = createBacklogItem({
     path: '/repo/backlog/checkout.md',
     relativePath: 'backlog/checkout.md',
-    sourceContent: '# Checkout',
+    sourceContent: '---\ntype: feature\ndifficulty: m\ncriticality: high\n---\n# Checkout',
     stats: { modifiedAtMs: 20, sizeBytes: 64 },
-    object: { objectId: 'obj_1', metadata: {}, links: [], type: 'feature', difficulty: 'm', criticality: 'high' },
+    object: { objectId: 'obj_1', metadata: { jira: { key: 'P-1' } }, links: [], highlight: { starred: true, color: 'amber' } },
   })
 
+  // App churn rides along from the sidecar object.
+  assert.equal(item.objectId, 'obj_1')
+  assert.deepEqual(item.metadata, { jira: { key: 'P-1' } })
+  assert.deepEqual(item.highlight, { starred: true, color: 'amber' })
+  // Triage is frontmatter-sourced; the sidecar cannot supply or shadow it.
   assert.equal(item.type, 'feature')
   assert.equal(item.difficulty, 'm')
   assert.equal(item.criticality, 'high')
@@ -227,31 +232,105 @@ run('nested backlog frontmatter seeds metadata and aliases size/priority', () =>
   assert.equal(item.criticality, 'high')
 })
 
-run('object store metadata overrides frontmatter seeds', () => {
-  const item = createBacklogItem({
-    path: '/repo/backlog/override.md',
-    relativePath: 'backlog/override.md',
-    sourceContent: '---\ntype: bug\ndifficulty: xl\ncriticality: critical\n---\n# Checkout copy',
-    stats: { modifiedAtMs: 20, sizeBytes: 64 },
-    object: { objectId: 'obj_1', metadata: {}, links: [], type: 'feature', difficulty: 'xs', criticality: 'low' },
-  })
-
-  assert.equal(item.type, 'feature')
-  assert.equal(item.difficulty, 'xs')
-  assert.equal(item.criticality, 'low')
-})
-
 run('invalid frontmatter triage values are ignored without warnings', () => {
   const item = createBacklogItem({
     path: '/repo/backlog/bad-metadata.md',
     relativePath: 'backlog/bad-metadata.md',
-    sourceContent: '---\ntype: epic\ndifficulty: huge\ncriticality: emergency\n---\n# Notes',
+    sourceContent: '---\ntype: saga\ndifficulty: huge\ncriticality: emergency\n---\n# Notes',
     stats: { modifiedAtMs: 20, sizeBytes: 64 },
   })
 
   assert.equal(item.type, undefined)
   assert.equal(item.difficulty, undefined)
   assert.equal(item.criticality, undefined)
+})
+
+run('epic frontmatter sets the slug and marks containers via isEpic', () => {
+  const child = createBacklogItem({
+    path: '/repo/backlog/login.md',
+    relativePath: 'backlog/login.md',
+    sourceContent: '---\ntype: feature\nepic: auth-revamp\n---\n# Login',
+    stats: { modifiedAtMs: 20, sizeBytes: 64 },
+  })
+  assert.equal(child.epic, 'auth-revamp')
+  assert.equal(child.isEpic, false)
+
+  const container = createBacklogItem({
+    path: '/repo/backlog/epics/auth-revamp.md',
+    relativePath: 'backlog/epics/auth-revamp.md',
+    sourceContent: '---\ntype: epic\n---\n# Auth revamp',
+    stats: { modifiedAtMs: 20, sizeBytes: 64 },
+  })
+  assert.equal(container.type, 'epic')
+  assert.equal(container.isEpic, true)
+  assert.equal(container.epic, undefined)
+})
+
+run('risk is read from frontmatter; invalid or absent risk stays unset', () => {
+  const risky = createBacklogItem({
+    path: '/repo/backlog/migration.md',
+    relativePath: 'backlog/migration.md',
+    sourceContent: '---\ntype: feature\nrisk: high\n---\n# Risky migration',
+    stats: { modifiedAtMs: 20, sizeBytes: 64 },
+  })
+  assert.equal(risky.risk, 'high')
+
+  // `critical` is a criticality value, not a risk value — risk is low|normal|high.
+  const invalid = createBacklogItem({
+    path: '/repo/backlog/bad-risk.md',
+    relativePath: 'backlog/bad-risk.md',
+    sourceContent: '---\nrisk: critical\n---\n# Bad risk',
+    stats: { modifiedAtMs: 20, sizeBytes: 64 },
+  })
+  assert.equal(invalid.risk, undefined)
+
+  const none = createBacklogItem({
+    path: '/repo/backlog/no-risk.md',
+    relativePath: 'backlog/no-risk.md',
+    sourceContent: '# No risk',
+    stats: { modifiedAtMs: 20, sizeBytes: 64 },
+  })
+  assert.equal(none.risk, undefined)
+})
+
+run('an unknown type value is preserved as rawType and treated as a leaf', () => {
+  const item = createBacklogItem({
+    path: '/repo/backlog/saga.md',
+    relativePath: 'backlog/saga.md',
+    sourceContent: '---\ntype: saga\n---\n# Long-running saga',
+    stats: { modifiedAtMs: 20, sizeBytes: 64 },
+  })
+  // Not coerced into the known union, not dropped: the literal survives on rawType.
+  assert.equal(item.type, undefined)
+  assert.equal(item.rawType, 'saga')
+  assert.equal(item.isEpic, false)
+})
+
+run('recently-updated recency uses frontmatter updated when present, else file mtime', () => {
+  const dated = createBacklogItem({
+    path: '/repo/backlog/dated.md',
+    relativePath: 'backlog/dated.md',
+    sourceContent: '---\nupdated: 2026-06-26T10:00:00Z\n---\n# Dated',
+    stats: { modifiedAtMs: 1000, sizeBytes: 64 },
+  })
+  assert.equal(dated.modifiedAt, Date.parse('2026-06-26T10:00:00Z'))
+
+  // No `updated` (or an unparseable one) falls back to the file mtime.
+  const undatedMtime = createBacklogItem({
+    path: '/repo/backlog/undated.md',
+    relativePath: 'backlog/undated.md',
+    sourceContent: '# Undated',
+    stats: { modifiedAtMs: 1000, sizeBytes: 64 },
+  })
+  assert.equal(undatedMtime.modifiedAt, 1000)
+
+  const badDate = createBacklogItem({
+    path: '/repo/backlog/bad-date.md',
+    relativePath: 'backlog/bad-date.md',
+    sourceContent: '---\nupdated: not-a-date\n---\n# Bad date',
+    stats: { modifiedAtMs: 1000, sizeBytes: 64 },
+  })
+  assert.equal(badDate.modifiedAt, 1000)
 })
 
 run('highlight comes only from the object store, never frontmatter', () => {
@@ -509,13 +588,13 @@ run('Sprint Engine contributes Start/Open Backlog actions for run-linked items',
   )
   assert.match(
     sprintEngineModuleSource,
-    /id: 'sprint-engine\.start-from-backlog',\s*label: 'Start Sprint Engine'/s,
-    'the module registers the Start Sprint Engine Backlog action',
+    /id: 'sprint-engine\.start-from-backlog',\s*label: 'Run a Sprint'/s,
+    'the module registers the Run a Sprint Backlog action',
   )
   assert.match(
     sprintEngineModuleSource,
-    /id: 'sprint-engine\.open-linked-run',\s*label: 'Open Sprint Engine'/s,
-    'the module registers the Open Sprint Engine Backlog action',
+    /id: 'sprint-engine\.open-linked-run',\s*label: 'Open Sprint'/s,
+    'the module registers the Open Sprint Backlog action',
   )
   assert.match(
     sprintEngineModuleSource,

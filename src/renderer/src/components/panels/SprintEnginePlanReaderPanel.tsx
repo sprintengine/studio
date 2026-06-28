@@ -48,8 +48,8 @@ export default function SprintEnginePlanReaderPanel({ workspaceId, onClose }: Pr
       setStatus('error')
       setError(
         !folderPath
-          ? 'Choose a workspace folder before reading the Sprint Engine plan.'
-          : 'This Sprint Engine workspace is missing its selected team context.'
+          ? 'Choose a workspace folder before reading the sprint plan.'
+          : 'This sprint workspace is missing its selected team context.'
       )
       return
     }

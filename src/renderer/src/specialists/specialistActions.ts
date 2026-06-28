@@ -363,7 +363,7 @@ export function buildGuidedBriefSpecialistStartupPrompt(input: GuidedBriefSpecia
       '',
       marker,
       '',
-      'Do not create or mutate Sprint Engine state. This Guided brief flow hands off to Sprint Engine later.',
+      'Do not create or mutate sprint state. This Guided brief flow hands off to a sprint later.',
       'If the `souls` command is unavailable, stop and report that the Souls CLI is unavailable instead of guessing the role prompt.',
     ].join('\n')
   }
@@ -397,7 +397,7 @@ export function buildGuidedBriefSpecialistStartupPrompt(input: GuidedBriefSpecia
       '',
       marker,
       '',
-      'Do not create or mutate Sprint Engine state. This Guided brief flow hands off to Sprint Engine later.',
+      'Do not create or mutate sprint state. This Guided brief flow hands off to a sprint later.',
       'If the `souls` command is unavailable, stop and report that the Souls CLI is unavailable instead of guessing the role prompt.',
     ].join('\n')
   }
@@ -430,7 +430,7 @@ export function buildGuidedBriefSpecialistStartupPrompt(input: GuidedBriefSpecia
     marker,
     '',
     'Do not introduce a new agent runtime protocol. Use only normal terminal stdout/stdin, prompt instructions, and this marker.',
-    'Do not create or mutate Sprint Engine state. This Guided brief flow hands off to Sprint Engine later.',
+    'Do not create or mutate sprint state. This Guided brief flow hands off to a sprint later.',
     'If the `souls` command is unavailable, stop and report that the Souls CLI is unavailable instead of guessing the role prompt.',
   ].join('\n')
 }

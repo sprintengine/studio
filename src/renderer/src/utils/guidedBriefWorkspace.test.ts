@@ -98,7 +98,7 @@ const noUiHandoff = await writeGuidedBriefBuildHandoff({
 assert.equal(noUiHandoff.path, 'product/build-handoff.md', 'handoff returns a project-relative path')
 assert.match(noUiHandoff.content, /No UI mockups required/, 'no-UI handoff omits mockup requirement')
 assert.match(noUiHandoff.content, /product\/\.versions\/[a-f0-9]{64}\.md/, 'handoff records accepted brief hash path')
-assert.match(noUiFs.files.get('/workspace/product/build-handoff.md') ?? '', /## Suggested Sprint Engine Goal/)
+assert.match(noUiFs.files.get('/workspace/product/build-handoff.md') ?? '', /## Suggested Sprint Goal/)
 
 const uiHandoff = buildGuidedBriefBuildHandoffMarkdown({
   idea: 'Create a dashboard for invoice trends.',

@@ -1,6 +1,9 @@
 import { ipcRenderer } from 'electron'
 import type {
   BacklogAddOrUpdateLinkInput,
+  BacklogCreateEpicInput,
+  BacklogCreateEpicResult,
+  BacklogEpicInput,
   BacklogHighlightInput,
   BacklogItemRecordInput,
   BacklogModuleMetadataInput,
@@ -25,6 +28,8 @@ type BacklogIpcRenderer = {
   invoke(channel: 'backlog:update-module-metadata', input: BacklogModuleMetadataInput): Promise<BacklogMutationResult>
   invoke(channel: 'backlog:move-object-source', input: BacklogMoveSourceInput): Promise<BacklogMutationResult>
   invoke(channel: 'backlog:remove-object-record', input: BacklogRemoveRecordInput): Promise<BacklogMutationResult>
+  invoke(channel: 'backlog:update-epic', input: BacklogEpicInput): Promise<BacklogMutationResult>
+  invoke(channel: 'backlog:create-epic', input: BacklogCreateEpicInput): Promise<BacklogCreateEpicResult>
 }
 
 export function createBacklogApi(renderer: BacklogIpcRenderer) {
@@ -49,6 +54,10 @@ export function createBacklogApi(renderer: BacklogIpcRenderer) {
       renderer.invoke('backlog:move-object-source', input),
     removeBacklogObjectRecord: (input: BacklogRemoveRecordInput): Promise<BacklogMutationResult> =>
       renderer.invoke('backlog:remove-object-record', input),
+    updateBacklogEpic: (input: BacklogEpicInput): Promise<BacklogMutationResult> =>
+      renderer.invoke('backlog:update-epic', input),
+    createBacklogEpic: (input: BacklogCreateEpicInput): Promise<BacklogCreateEpicResult> =>
+      renderer.invoke('backlog:create-epic', input),
   } satisfies Pick<
     ElectronApi,
     | 'readBacklogObjectStore'
@@ -61,6 +70,8 @@ export function createBacklogApi(renderer: BacklogIpcRenderer) {
     | 'updateBacklogModuleMetadata'
     | 'moveBacklogObjectSource'
     | 'removeBacklogObjectRecord'
+    | 'updateBacklogEpic'
+    | 'createBacklogEpic'
   >
 }
 
