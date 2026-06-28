@@ -1920,6 +1920,17 @@ export type BacklogEpicInput = {
   epic: string | null
 }
 
+// Prerequisites are the dependent-side write: `dependsOn` is the list of item
+// slugs this item waits on, serialized to the single comma-separated `dependsOn:`
+// frontmatter line. An empty list or null clears the line. The reverse "blocks"
+// edges and the waiting signal stay derived (see backlogDependencies.ts), never
+// stored.
+export type BacklogDependenciesInput = {
+  workspaceRoot: string
+  relativePath: string
+  dependsOn: string[] | null
+}
+
 export type BacklogCreateEpicInput = {
   workspaceRoot: string
   title: string
@@ -2286,5 +2297,6 @@ export type ElectronApi = {
   moveBacklogObjectSource: (input: BacklogMoveSourceInput) => Promise<BacklogMutationResult>
   removeBacklogObjectRecord: (input: BacklogRemoveRecordInput) => Promise<BacklogMutationResult>
   updateBacklogEpic: (input: BacklogEpicInput) => Promise<BacklogMutationResult>
+  updateBacklogDependencies: (input: BacklogDependenciesInput) => Promise<BacklogMutationResult>
   createBacklogEpic: (input: BacklogCreateEpicInput) => Promise<BacklogCreateEpicResult>
 }

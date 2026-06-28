@@ -2,6 +2,8 @@ import { mkdir, readFile, realpath, stat, writeFile } from 'node:fs/promises'
 import { dirname, isAbsolute, join, relative, resolve } from 'node:path'
 
 import {
+  formatBacklogCsvList,
+  isValidBacklogSlug,
   parseBacklogFrontmatter,
   serializeBacklogFrontmatterFields,
   type BacklogFrontmatterUpdates,
@@ -10,6 +12,7 @@ import type {
   BacklogAddOrUpdateLinkInput,
   BacklogCreateEpicInput,
   BacklogCreateEpicResult,
+  BacklogDependenciesInput,
   BacklogEpicInput,
   BacklogHighlightColorPayload,
   BacklogHighlightInput,
@@ -356,6 +359,36 @@ export async function updateBacklogEpic(input: BacklogEpicInput): Promise<Backlo
     return { ok: false, message: 'Enter a valid epic slug.' }
   }
   return writeBacklogFrontmatter(input.workspaceRoot, input.relativePath, { epic: input.epic })
+}
+
+// Prerequisites are the dependent-side write: serialize the item's prerequisite
+// slugs to the single comma-separated `dependsOn:` frontmatter line via the
+// shared CSV formatter. Each slug is validated with the shared slug check (so the
+// write path and the read model agree on what a slug may contain) and the whole
+// write is rejected on the first invalid one — nothing is written. Surrounding
+// whitespace is trimmed and duplicates dropped, keeping first-seen order, so the
+// stored line matches what the reader parses back. An empty list or null clears
+// the line (passed as null, since the serializer treats an empty string as a set,
+// not a clear). The reverse "blocks" edges and the waiting signal stay derived
+// (backlogDependencies.ts), never stored, and this targets markdown frontmatter
+// only, never items.json.
+export async function updateBacklogDependencies(input: BacklogDependenciesInput): Promise<BacklogMutationResult> {
+  if (input.dependsOn !== null && !Array.isArray(input.dependsOn)) {
+    return { ok: false, message: 'Enter a valid Backlog prerequisite list.' }
+  }
+  const cleaned: string[] = []
+  const seen = new Set<string>()
+  for (const raw of input.dependsOn ?? []) {
+    const slug = typeof raw === 'string' ? raw.trim() : ''
+    if (!isValidBacklogSlug(slug)) {
+      return { ok: false, message: 'Enter valid Backlog prerequisite slugs.' }
+    }
+    if (seen.has(slug)) continue
+    seen.add(slug)
+    cleaned.push(slug)
+  }
+  const dependsOn = cleaned.length > 0 ? formatBacklogCsvList(cleaned) : null
+  return writeBacklogFrontmatter(input.workspaceRoot, input.relativePath, { dependsOn })
 }
 
 export async function updateBacklogHighlight(input: BacklogHighlightInput): Promise<BacklogMutationResult> {
