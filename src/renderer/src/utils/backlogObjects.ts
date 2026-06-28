@@ -125,13 +125,12 @@ export function ensureBacklogObjectRecords(
   const nextItems = [...normalized.items]
   for (const item of items) {
     if (byPath.has(item.relativePath.toLowerCase())) continue
+    // v2: a freshly registered record carries only app-owned churn (id/source,
+    // metadata, links, highlight, timestamps). Lifecycle/triage live in
+    // frontmatter and are never seeded into the sidecar.
     nextItems.push({
       id: stableBacklogObjectId(item.relativePath),
       source: { type: 'file', relativePath: item.relativePath },
-      status: item.status,
-      type: item.type,
-      difficulty: item.difficulty,
-      criticality: item.criticality,
       metadata: {},
       links: [],
       createdAt: now,

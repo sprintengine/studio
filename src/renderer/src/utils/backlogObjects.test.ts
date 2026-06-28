@@ -101,8 +101,11 @@ assert.equal(frontmatterHydrated.items[0]?.objectId, 'item_payments')
 const ensured = ensureBacklogObjectRecords({ schemaVersion: 1, items: [] }, [item], '2026-06-07T01:00:00.000Z')
 assert.equal(ensured.changed, true)
 assert.equal(ensured.store.items[0]?.source.relativePath, 'backlog/checkout.md')
-// New records adopt the item's calm default status, not a needs_structure flag.
-assert.equal(ensured.store.items[0]?.status, 'idea')
+// v2: a freshly registered record carries no lifecycle/triage — those live in
+// frontmatter, so the sidecar record is seeded slim (status stays unset).
+assert.equal(ensured.store.items[0]?.status, undefined)
+assert.equal(ensured.store.items[0]?.type, undefined)
+assert.equal(ensured.store.items[0]?.metadata && Object.keys(ensured.store.items[0].metadata).length, 0)
 
 const typed = updateBacklogObjectType(store, item, 'bug', '2026-06-07T05:30:00.000Z')
 assert.equal(typed.items[0]?.type, 'bug')

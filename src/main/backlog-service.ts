@@ -51,11 +51,117 @@ const VALID_HIGHLIGHT_COLOR = new Set(['red', 'orange', 'amber', 'green', 'blue'
 export async function readBacklogObjectStore(workspaceRoot: string): Promise<BacklogReadResult> {
   try {
     const workspace = await validateWorkspaceRoot(workspaceRoot)
-    const store = await loadStore(workspace)
+    // The read path is where the lazy v1 -> v2 migration runs: a not-yet-migrated
+    // workspace is migrated on first read and tolerated indefinitely until then.
+    const store = await loadMigratedStore(workspace)
     return { ok: true, store }
   } catch (error) {
     return { ok: false, message: errorMessage(error) }
   }
+}
+
+const MIGRATABLE_FRONTMATTER_FIELDS = ['status', 'type', 'difficulty', 'criticality', 'risk'] as const
+
+export type BacklogRecordFrontmatterMigration = {
+  relativePath: string
+  updates: Record<string, string>
+}
+
+export type BacklogStoreMigrationPlan = {
+  // Per-record frontmatter writes to apply (only records that still carry fields).
+  migrations: BacklogRecordFrontmatterMigration[]
+  // Every record with the migratable fields stripped (orphan GC happens in the
+  // service, which has fs to check for the file).
+  slimRecords: Record<string, unknown>[]
+  // True when any record carried a migratable field — i.e. a rewrite is needed.
+  changed: boolean
+}
+
+// Pure planner for the lazy v1 -> v2 migration. Given a parsed items.json, work
+// out which records still carry lightweight fields (status/type/difficulty/
+// criticality/risk) to push into the item's frontmatter — sidecar value WINS on
+// conflict (matching the old precedence), and unknown string values are migrated
+// intact rather than dropped (OKF drift tolerance) — and the records with those
+// fields stripped. No fs: the service applies the writes and prunes orphans.
+export function planBacklogStoreMigration(parsed: unknown): BacklogStoreMigrationPlan {
+  const items = isPlainRecord(parsed) && Array.isArray(parsed.items) ? parsed.items : []
+  const migrations: BacklogRecordFrontmatterMigration[] = []
+  const slimRecords: Record<string, unknown>[] = []
+  let changed = false
+  for (const raw of items) {
+    if (!isPlainRecord(raw)) continue
+    const slim: Record<string, unknown> = { ...raw }
+    const updates: Record<string, string> = {}
+    for (const field of MIGRATABLE_FRONTMATTER_FIELDS) {
+      if (!(field in slim)) continue
+      const value = slim[field]
+      delete slim[field]
+      changed = true
+      // Only string values can live in flat frontmatter; non-strings are malformed
+      // sidecar data and are simply dropped. Unknown strings (e.g. a custom type)
+      // are preserved so the read model can surface them.
+      if (typeof value === 'string' && value.trim()) updates[field] = value.trim()
+    }
+    slimRecords.push(slim)
+    const relativePath = recordRelativePath(raw)
+    if (relativePath && Object.keys(updates).length > 0) migrations.push({ relativePath, updates })
+  }
+  return { migrations, slimRecords, changed }
+}
+
+function recordRelativePath(raw: unknown): string | null {
+  if (!isPlainRecord(raw)) return null
+  const source = raw.source
+  if (!isPlainRecord(source) || typeof source.relativePath !== 'string') return null
+  return normalizeRelativePath(source.relativePath)
+}
+
+// Read items.json, run the lazy migration when it still carries v1 fields, and
+// return the (slimmed) store. When nothing needs migrating this is a plain load,
+// so steady-state reads incur no extra fs writes (idempotent).
+async function loadMigratedStore(workspace: ValidWorkspace): Promise<BacklogObjectStore> {
+  let rawText: string
+  try {
+    rawText = await readFile(workspace.storePath, 'utf-8')
+  } catch (error) {
+    if (isMissingFileError(error)) return EMPTY_STORE
+    throw new Error(`Could not read Backlog metadata: ${errorMessage(error)}`)
+  }
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(rawText)
+  } catch (error) {
+    throw new Error(`Could not parse Backlog metadata: ${errorMessage(error)}`)
+  }
+
+  const plan = planBacklogStoreMigration(parsed)
+  if (!plan.changed) return normalizeStore(parsed)
+
+  // Push each record's lightweight fields into its item frontmatter (sidecar
+  // wins, body byte-preserved). A record whose file is gone is skipped here and
+  // pruned by the orphan GC below.
+  for (const migration of plan.migrations) {
+    const target = resolve(join(workspace.root, migration.relativePath))
+    if (!isPathInside(workspace.root, target)) continue
+    let content: string
+    try {
+      content = await readFile(target, 'utf-8')
+    } catch {
+      continue
+    }
+    const next = serializeBacklogFrontmatterFields(content, migration.updates)
+    if (next !== content) await writeFile(target, next, 'utf-8')
+  }
+
+  // Orphan GC: drop records whose source file no longer exists on disk.
+  const survivors: unknown[] = []
+  for (const record of plan.slimRecords) {
+    const relativePath = recordRelativePath(record)
+    if (relativePath && (await backlogFileExists(workspace, relativePath))) survivors.push(record)
+  }
+  const migrated = normalizeStore({ schemaVersion: 1, items: survivors })
+  await saveStore(workspace, migrated)
+  return migrated
 }
 
 // Frontmatter-sourced lifecycle/triage/epic for an item's markdown content. This
@@ -178,13 +284,13 @@ export async function ensureBacklogObjectRecords(
       const relativePath = validateBacklogRelativePath(item.relativePath)
       const pathKey = relativePath.toLowerCase()
       if (nextItems.some((record) => record.source.relativePath.toLowerCase() === pathKey)) continue
+      // v2: the sidecar record carries only app-owned churn (id/source, metadata,
+      // links, highlight, timestamps). Lifecycle/triage live in frontmatter, so a
+      // freshly registered record seeds none of them — otherwise the lazy migrator
+      // would later write those seeded defaults back into the item's frontmatter.
       nextItems.push({
         id: stableBacklogObjectId(relativePath),
         source: { type: 'file', relativePath },
-        status: isBacklogStatus(item.status) ? item.status : 'idea',
-        type: isBacklogType(item.type) ? item.type : undefined,
-        difficulty: isBacklogDifficulty(item.difficulty) ? item.difficulty : undefined,
-        criticality: isBacklogCriticality(item.criticality) ? item.criticality : undefined,
         metadata: {},
         links: [],
         createdAt: now,
@@ -378,10 +484,12 @@ async function mutateItem(
     const index = store.items.findIndex((record) => record.source.relativePath.toLowerCase() === pathKey)
     const base: BacklogObjectRecord = index >= 0
       ? store.items[index]
+      // v2: a record materialized by a highlight/link/metadata mutation carries
+      // only app-owned churn. Seeding a default `status` here would let the lazy
+      // migrator later overwrite the item's real frontmatter status with 'idea'.
       : {
           id: stableBacklogObjectId(normalizedPath),
           source: { type: 'file', relativePath: normalizedPath },
-          status: 'idea',
           metadata: {},
           links: [],
           createdAt: now,

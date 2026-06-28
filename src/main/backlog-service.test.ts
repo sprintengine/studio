@@ -7,6 +7,7 @@ import { parseBacklogFrontmatter } from '../shared/backlog/frontmatter'
 import {
   addOrUpdateBacklogLink,
   createBacklogEpic,
+  planBacklogStoreMigration,
   readBacklogObjectStore,
   updateBacklogEpic,
   updateBacklogHighlight,
@@ -441,6 +442,107 @@ async function main(): Promise<void> {
 
   } finally {
     await rm(tempRoot, { force: true, recursive: true })
+  }
+
+  await assertLazyMigrationMatrix()
+}
+
+// Lazy v1 -> v2 migration: the pure planner plus the on-disk migration that
+// readBacklogObjectStore performs (sidecar wins, body preserved, orphan GC,
+// unknown values tolerated, idempotent re-run).
+async function assertLazyMigrationMatrix(): Promise<void> {
+  // --- Pure planner ---------------------------------------------------------
+  const plan = planBacklogStoreMigration({
+    schemaVersion: 1,
+    items: [
+      { id: 'a', source: { type: 'file', relativePath: 'backlog/a.md' }, status: 'ready', type: 'saga', metadata: { x: 1 } },
+      { id: 'b', source: { type: 'file', relativePath: 'backlog/b.md' }, difficulty: 7, links: [] },
+      { id: 'c', source: { type: 'file', relativePath: 'backlog/c.md' }, metadata: {} },
+    ],
+  })
+  assert.equal(plan.changed, true)
+  // 'a' migrates status + an unknown type string; both are preserved, not dropped.
+  const aMig = plan.migrations.find((m) => m.relativePath === 'backlog/a.md')
+  assert.deepEqual(aMig?.updates, { status: 'ready', type: 'saga' })
+  // 'b' carried only a non-string difficulty: stripped, but nothing to migrate.
+  assert.equal(plan.migrations.some((m) => m.relativePath === 'backlog/b.md'), false)
+  // 'c' had no migratable fields and produces no migration.
+  assert.equal(plan.migrations.some((m) => m.relativePath === 'backlog/c.md'), false)
+  // Every record is slimmed of the lightweight fields.
+  assert.ok(plan.slimRecords.every((r) => !('status' in r) && !('type' in r) && !('difficulty' in r)))
+  assert.deepEqual((plan.slimRecords[0] as { metadata?: unknown }).metadata, { x: 1 })
+  // An already-migrated store is a no-op.
+  assert.equal(planBacklogStoreMigration({ schemaVersion: 1, items: [{ id: 'a', source: { type: 'file', relativePath: 'backlog/a.md' } }] }).changed, false)
+
+  // --- On-disk migration via readBacklogObjectStore -------------------------
+  const root = await mkdtemp(join(tmpdir(), 'multicode-backlog-migrate-'))
+  const storePath = join(root, '.multi-code', 'backlog', 'items.json')
+  try {
+    const body = '# Checkout\n\nSpeed up checkout.\n'
+    await mkdir(join(root, 'backlog'), { recursive: true })
+    // The file already carries a status; the sidecar must WIN over it on migrate.
+    await writeFile(join(root, 'backlog', 'a.md'), `---\nstatus: idea\n---\n${body}`, 'utf-8')
+    await mkdir(join(root, '.multi-code', 'backlog'), { recursive: true })
+    await writeFile(storePath, `${JSON.stringify({
+      schemaVersion: 1,
+      items: [
+        { id: 'a', source: { type: 'file', relativePath: 'backlog/a.md' }, status: 'ready', type: 'saga', difficulty: 'm', criticality: 'high', risk: 'low', metadata: { jira: 'P-1' }, links: [] },
+        // Orphan: no file on disk -> must be pruned.
+        { id: 'ghost', source: { type: 'file', relativePath: 'backlog/ghost.md' }, status: 'in_progress' },
+      ],
+    }, null, 2)}\n`, 'utf-8')
+
+    const read = await readBacklogObjectStore(root)
+    assert.equal(read.ok, true)
+    const records = read.ok ? read.store.items : []
+    // Orphan pruned; only the real item's record survives, slimmed of triage but
+    // keeping its app-owned churn.
+    assert.deepEqual(records.map((r) => r.source.relativePath), ['backlog/a.md'])
+    assert.equal(records[0]?.status, undefined)
+    assert.equal(records[0]?.type, undefined)
+    assert.equal(records[0]?.risk as unknown, undefined)
+    assert.deepEqual(records[0]?.metadata, { jira: 'P-1' })
+
+    // Frontmatter now holds the sidecar-won values; an unknown type is preserved;
+    // the body is byte-identical.
+    const migrated = parseBacklogFrontmatter(await readFile(join(root, 'backlog', 'a.md'), 'utf-8'))
+    assert.equal(migrated.fields.status, 'ready', 'sidecar status wins over the file value')
+    assert.equal(migrated.fields.type, 'saga', 'unknown type preserved, not dropped')
+    assert.equal(migrated.fields.difficulty, 'm')
+    assert.equal(migrated.fields.criticality, 'high')
+    assert.equal(migrated.fields.risk, 'low')
+    assert.equal(migrated.body, body, 'migration preserves the document body byte-for-byte')
+
+    // The persisted sidecar is slim (fields stripped, churn kept).
+    const persisted = JSON.parse(await readFile(storePath, 'utf-8')) as { items: Array<Record<string, unknown>> }
+    assert.equal(persisted.items.length, 1)
+    assert.equal('status' in persisted.items[0], false)
+    assert.equal('type' in persisted.items[0], false)
+
+    // Idempotent: a second read moves nothing and rewrites neither file.
+    const fileBefore = await readFile(join(root, 'backlog', 'a.md'), 'utf-8')
+    const storeBefore = await readFile(storePath, 'utf-8')
+    const reread = await readBacklogObjectStore(root)
+    assert.equal(reread.ok, true)
+    assert.equal(await readFile(join(root, 'backlog', 'a.md'), 'utf-8'), fileBefore, 're-run must not rewrite the item')
+    assert.equal(await readFile(storePath, 'utf-8'), storeBefore, 're-run must not rewrite the sidecar')
+  } finally {
+    await rm(root, { force: true, recursive: true })
+  }
+
+  // A not-yet-migrated workspace with no sidecar at all reads cleanly and leaves
+  // its item files untouched (nothing to migrate).
+  const freshRoot = await mkdtemp(join(tmpdir(), 'multicode-backlog-migrate-fresh-'))
+  try {
+    await mkdir(join(freshRoot, 'backlog'), { recursive: true })
+    const fresh = '---\nstatus: ready\n---\n# Fresh\n'
+    await writeFile(join(freshRoot, 'backlog', 'fresh.md'), fresh, 'utf-8')
+    const read = await readBacklogObjectStore(freshRoot)
+    assert.equal(read.ok, true)
+    assert.deepEqual(read.ok ? read.store.items : null, [])
+    assert.equal(await readFile(join(freshRoot, 'backlog', 'fresh.md'), 'utf-8'), fresh, 'no sidecar -> no migration, file untouched')
+  } finally {
+    await rm(freshRoot, { force: true, recursive: true })
   }
 }
 
