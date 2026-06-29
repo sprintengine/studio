@@ -10,7 +10,8 @@ import { pickRandomAgentName } from '../utils/agentNames'
 import { getModel, revealAgentTab, type AgentTabRevealTarget } from '../utils/modelRegistry'
 import { buildSpecialistDirectiveStartupPrompt, getSpecialistAction } from '../specialists/specialistActions'
 import { isAutomationsHostWorkspace } from '../utils/workspaceVisibility'
-import type { SpecialistActionId, WorkspaceWindowId } from '../types/workspace'
+import { createAutomationsTemplate } from '../modules/automations-workspace-types'
+import { AUTOMATIONS_HOST_WORKSPACE_MODE, type SpecialistActionId, type WorkspaceWindowId } from '../types/workspace'
 
 // Renderer half of the app-automation surface: the main-process MCP server
 // delegates mutations here so they run the exact store actions the UI uses
@@ -69,9 +70,15 @@ async function handleAutomationRequest(request: AutomationRendererRequest): Prom
 function createWorkspace(
   request: Extract<AutomationRendererRequest, { kind: 'workspace.create' }>
 ): AutomationRendererResponse {
+  // A host workspace auto-created for a run gets the same single-surface control
+  // template as a user-created Automations workspace, so the control center and
+  // the run's deep-link target land on a real panel — never a bare standard
+  // layout. An explicit templateId (legacy/MCP) still wins.
   const template = request.templateId
     ? LAYOUT_TEMPLATES.find((candidate) => candidate.id === request.templateId)
-    : LAYOUT_TEMPLATES[0]
+    : request.mode === AUTOMATIONS_HOST_WORKSPACE_MODE
+      ? createAutomationsTemplate()
+      : LAYOUT_TEMPLATES[0]
   if (!template) {
     return {
       ok: false,

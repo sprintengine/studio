@@ -3,7 +3,7 @@ import assert from 'node:assert/strict'
 import { renderToStaticMarkup } from 'react-dom/server'
 
 import { AutomationRunActions } from './AutomationRunActions'
-import type { AutomationRun } from '../../../../shared/automations/contracts'
+import type { AutomationRun } from '../../../../../shared/automations/contracts'
 
 let failures = 0
 function run(name: string, fn: () => void): void {

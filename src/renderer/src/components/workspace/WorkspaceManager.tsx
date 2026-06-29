@@ -129,7 +129,6 @@ const NewWorkspacePanel = React.lazy(() => import('./NewWorkspacePanel'))
 // Automations is a content-area destination (not a modal): it renders inside the
 // workspace card in place of workspace content, like the new-workspace panel.
 // Lazy so the control center + schema-driven editor stay out of the boot chunk.
-const AutomationsScreen = React.lazy(() => import('../automations/AutomationsScreen'))
 
 const MENU_BAR_ITEMS = ['File', 'Edit', 'View', 'Window', 'Help'] as const
 const EMPTY_SPECIALIST_CLI_DEFAULTS: Partial<Record<SpecialistActionId, AgentCli>> = {}
@@ -254,13 +253,6 @@ export default function WorkspaceManager() {
   const settingsOverlayOpen = useWorkspaceStore((s) => s.settingsOverlay.open)
   const openSettingsOverlay = useWorkspaceStore((s) => s.openSettingsOverlay)
   const closeSettingsOverlay = useWorkspaceStore((s) => s.closeSettingsOverlay)
-  const openAutomationsOverlay = useWorkspaceStore((s) => s.openAutomationsOverlay)
-  const closeAutomationsOverlay = useWorkspaceStore((s) => s.closeAutomationsOverlay)
-  // `automationsOverlay.open` now means "the Automations area is the active
-  // content region" (a destination, not a floating modal).
-  const automationsOpen = useWorkspaceStore((s) => s.automationsOverlay.open)
-  const automationsProjectPath = useWorkspaceStore((s) => s.automationsOverlay.projectPath)
-  const automationsRunTarget = useWorkspaceStore((s) => s.automationsOverlay.runTarget)
   const forgetFolder = useWorkspaceStore((s) => s.forgetFolder)
   const recordWorkspaceTerminalActivity = useWorkspaceStore((s) => s.recordWorkspaceTerminalActivity)
   const reconcileWorkspaceAgentLaunchFlags = useWorkspaceStore((s) => s.reconcileWorkspaceAgentLaunchFlags)
@@ -467,7 +459,7 @@ export default function WorkspaceManager() {
   // effect only fires an IPC call on an actual transition.
   const appliedTerminalVisibilityRef = useRef<Map<string, boolean>>(new Map())
   const collapsedStaleDetachedWindowsRef = useRef(false)
-  const workspaceActionsEnabled = activeWorkspace && !showNewWorkspacePanel && !automationsOpen
+  const workspaceActionsEnabled = activeWorkspace && !showNewWorkspacePanel
   const commandDispatcherRef = useRef(new RendererCommandDispatcher())
   // Per-window visit history backing mouse back/forward workspace navigation.
   // Transient shell state: a ref (not store state) because navigation must not
@@ -614,10 +606,9 @@ export default function WorkspaceManager() {
     setNewWorkspacePanelInitialState(null)
     setShowNewWorkspacePanel(true)
     closeSettingsOverlay()
-    closeAutomationsOverlay()
     setSpecialistMenuOpen(false)
     setNotificationsOpen(false)
-  }, [closeSettingsOverlay, closeAutomationsOverlay])
+  }, [closeSettingsOverlay])
 
   const pickNewChatName = useCallback((folderPath: string | null): string => {
     const folderWorkspaces = workspaces.filter((workspace) => workspace.folderPath === folderPath)
@@ -793,39 +784,16 @@ export default function WorkspaceManager() {
   const openSettings = useCallback((checkForUpdates = false, targetTab: string | null = null) => {
     openSettingsOverlay({ initialTab: targetTab, checkForUpdates })
     setShowNewWorkspacePanel(false)
-    closeAutomationsOverlay()
     setSpecialistMenuOpen(false)
     setSessionsOpen(false)
     setViewMenuOpen(false)
     setNotificationsOpen(false)
     setAccountOpen(false)
-  }, [openSettingsOverlay, closeAutomationsOverlay])
+  }, [openSettingsOverlay])
 
   const openLearnCenter = useCallback(() => {
     openSettings(false, 'learn')
   }, [openSettings])
-
-  // Open the global Automations screen (an app-level route, not a workspace),
-  // scoped to the active workspace's project by default. Closes the other
-  // transient surfaces so it lands clean.
-  const openAutomations = useCallback(() => {
-    openAutomationsOverlay({ projectPath: activeWorkspace?.folderPath ?? null })
-    setShowNewWorkspacePanel(false)
-    closeSettingsOverlay()
-    setSpecialistMenuOpen(false)
-    setSessionsOpen(false)
-    setViewMenuOpen(false)
-    setNotificationsOpen(false)
-    setAccountOpen(false)
-  }, [activeWorkspace?.folderPath, closeSettingsOverlay, openAutomationsOverlay])
-
-  // Automations and the new-workspace panel are mutually exclusive content
-  // regions. The rail button clears the panel directly; this also covers the
-  // deep-link path (a run notification opens the area via the store, which can't
-  // reach this local panel state), so an arriving deep-link always wins.
-  useEffect(() => {
-    if (automationsOpen) setShowNewWorkspacePanel(false)
-  }, [automationsOpen])
 
   const openFuturePlanWorkspace = useCallback((source: FuturePlanWorkspaceSource) => {
     setNewWorkspacePanelInitialState({
@@ -1455,7 +1423,7 @@ export default function WorkspaceManager() {
     requestedName = '',
     selectedCli?: AgentCli
   ) => {
-    if (showNewWorkspacePanel || automationsOpen || !windowActiveWorkspaceId) return
+    if (showNewWorkspacePanel || !windowActiveWorkspaceId) return
     const model = getModel(windowActiveWorkspaceId)
     if (!model) return
 
@@ -1494,7 +1462,7 @@ export default function WorkspaceManager() {
     requestedName = '',
     selectedCli?: AgentCli
   ) => {
-    if (showNewWorkspacePanel || automationsOpen || !windowActiveWorkspaceId) return
+    if (showNewWorkspacePanel || !windowActiveWorkspaceId) return
     const model = getModel(windowActiveWorkspaceId)
     if (!model) return
 
@@ -1558,7 +1526,7 @@ export default function WorkspaceManager() {
   }
 
   const addNewCliAgent = (cli: AgentCli, label: string) => {
-    if (showNewWorkspacePanel || automationsOpen || !windowActiveWorkspaceId) return
+    if (showNewWorkspacePanel || !windowActiveWorkspaceId) return
     const model = getModel(windowActiveWorkspaceId)
     if (!model) return
 
@@ -1591,7 +1559,7 @@ export default function WorkspaceManager() {
   // the chat composer until the first message, so spawning just needs a default
   // pair. Missing-key/unavailable states are handled downstream by AgentChatView.
   const addNewConversationAgent = (providerId: string, modelId: string, modelLabel: string) => {
-    if (showNewWorkspacePanel || automationsOpen || !windowActiveWorkspaceId) return
+    if (showNewWorkspacePanel || !windowActiveWorkspaceId) return
     const model = getModel(windowActiveWorkspaceId)
     if (!model) return
 
@@ -1623,7 +1591,7 @@ export default function WorkspaceManager() {
   }
 
   const addNewTerminal = () => {
-    if (showNewWorkspacePanel || automationsOpen || !windowActiveWorkspaceId) return
+    if (showNewWorkspacePanel || !windowActiveWorkspaceId) return
     const newId = `terminal-${nanoid(6)}`
     addTerminalTab(windowActiveWorkspaceId, newId, 'Terminal')
   }
@@ -1763,11 +1731,6 @@ export default function WorkspaceManager() {
     }
     if (commandId === 'workspace.new') {
       openNewWorkspacePanel()
-      return true
-    }
-    if (commandId === 'app.automations.open') {
-      if (!automationsEnabled) return false
-      openAutomations()
       return true
     }
     if (commandId === 'workspace.sidebar.toggle') {
@@ -1942,8 +1905,6 @@ export default function WorkspaceManager() {
   }, [
     openSettings,
     openNewWorkspacePanel,
-    openAutomations,
-    automationsEnabled,
     sidebarCollapsed,
     setSidebarCollapsed,
     sprintEngineEnabled,
@@ -2316,7 +2277,6 @@ export default function WorkspaceManager() {
         terminalRecencyByWorkspaceId={terminalRecencyByWorkspaceId}
         onSelectWorkspace={(id) => {
           setShowNewWorkspacePanel(false)
-          closeAutomationsOverlay()
           setActiveWorkspaceForWindow(workspaceWindowId, id)
         }}
         onMoveWorkspaceToNewWindow={(id, placement) => void moveWorkspaceToNewWindow(id, placement)}
@@ -2326,8 +2286,6 @@ export default function WorkspaceManager() {
         onForgetFolder={handleForgetFolder}
         onNewWorkspace={openNewWorkspacePanel}
         onNewWorkspaceInFolder={openNewWorkspacePanelForFolder}
-        onOpenAutomations={automationsEnabled ? openAutomations : null}
-        automationsActive={automationsOpen}
         onNewChat={() => createLauncherChat()}
         onNewChatInFolder={(folderPath) => spawnNewChatForFolder(folderPath)}
         onNewChatTerminal={(folderPath) => pickNewChatTerminal(folderPath)}
@@ -2443,15 +2401,6 @@ export default function WorkspaceManager() {
                 workspaceWindowId={workspaceWindowId}
                 allowClose={railWorkspaces.length > 0}
                 initialState={newWorkspacePanelInitialState}
-              />
-            </React.Suspense>
-          ) : automationsOpen ? (
-            <React.Suspense fallback={<SuspenseFallback label="Loading automations" />}>
-              <AutomationsScreen
-                initialProjectPath={automationsProjectPath}
-                initialRunTarget={automationsRunTarget}
-                titleId="automations-screen-title"
-                onClose={closeAutomationsOverlay}
               />
             </React.Suspense>
           ) : (

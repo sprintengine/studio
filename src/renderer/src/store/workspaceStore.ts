@@ -166,16 +166,6 @@ export interface WorkspaceStore extends PluginsSlice, CliAvailabilitySlice {
   }
   openSettingsOverlay: (opts?: { initialTab?: string | null; checkForUpdates?: boolean }) => void
   closeSettingsOverlay: () => void
-  automationsOverlay: {
-    open: boolean
-    projectPath: string | null
-    runTarget: { automationId: string; runId: string } | null
-  }
-  openAutomationsOverlay: (opts?: {
-    projectPath?: string | null
-    runTarget?: { automationId: string; runId: string } | null
-  }) => void
-  closeAutomationsOverlay: () => void
   runSummaryOverlay: {
     open: boolean
     workspaceId: string | null
