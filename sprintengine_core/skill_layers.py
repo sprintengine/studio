@@ -44,3 +44,18 @@ SPRINTENGINE_SOUL_EXTRA_SKILLS: tuple[str, ...] = (
     *MULTICODE_LAYER_SKILLS,
     *SPRINTENGINE_NORM_SKILLS,
 )
+
+# The full-loop orchestration skill that stands in for a role-personality Soul on
+# a soulless General. It drives one agent through plan -> build -> self-review ->
+# test -> publish and holds the team at the size the user set.
+SPRINTENGINE_GENERAL_WORKFLOW_SKILL: str = "sprintengine_general_workflow"
+
+# Skills composed into a soulless General's join prompt: the orchestration skill
+# (in place of a role soul) plus the same universal norm + Multicode product
+# layer every dispatched agent carries. No role-personality Soul is included, so
+# this list — not a manifest soul render — is what keeps the universal norms from
+# being dropped for the manifest-less General role.
+SPRINTENGINE_GENERAL_SKILLS: tuple[str, ...] = (
+    SPRINTENGINE_GENERAL_WORKFLOW_SKILL,
+    *SPRINTENGINE_SOUL_EXTRA_SKILLS,
+)

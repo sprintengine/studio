@@ -37,7 +37,11 @@ from sprintengine_core.tool.constants import VALID_ARTIFACT_KINDS
 from sprintengine_core.tool.gates import find_active_gate_claim
 from sprintengine_core.tool.plans import plan_path_for_state
 from sprintengine_core.skill_layers import SPRINTENGINE_SOUL_EXTRA_SKILLS
-from sprintengine_core.tool.prompts import compose_prompt, load_sprintengine_coordination_prompt
+from sprintengine_core.tool.prompts import (
+    compose_prompt,
+    load_general_soul_prompt,
+    load_sprintengine_coordination_prompt,
+)
 from sprintengine_core.tool.state import (
     append_event,
     append_task_activity,
@@ -336,14 +340,21 @@ class SprintEngineMcpServer:
             plugin_roots=self._plugin_registry_roots(payload),
             user_root=self._effective_user_root(),
         )
-        try:
-            role_entry = registry.role_entry(str(payload["role"]))
-        except KeyError as exc:
-            raise McpToolError("unknown_role", str(exc)) from exc
-        role_manifest = role_entry.value
-        if not isinstance(role_manifest, RoleManifest):
-            raise McpToolError("unknown_role", f"Unknown registry role: {payload['role']}")
-        role = role_manifest.normalized_id
+        if normalize_role_id(str(payload["role"])) == "general":
+            # `general` is a built-in soulless identity with no role manifest
+            # (recognised by id in capabilities). Accept the join and compose its
+            # manifest-less prompt instead of rejecting it as an unknown role.
+            role = "general"
+            role_entry = None
+        else:
+            try:
+                role_entry = registry.role_entry(str(payload["role"]))
+            except KeyError as exc:
+                raise McpToolError("unknown_role", str(exc)) from exc
+            role_manifest = role_entry.value
+            if not isinstance(role_manifest, RoleManifest):
+                raise McpToolError("unknown_role", f"Unknown registry role: {payload['role']}")
+            role = role_manifest.normalized_id
         agent_id = str(payload["agentId"]).strip()
         if not agent_id:
             raise McpToolError("invalid_payload", "agentId cannot be empty.")
@@ -362,7 +373,7 @@ class SprintEngineMcpServer:
             }
 
         lifecycle = with_locked_state(state_path, mutate)
-        role_payload = _role_payload(role_entry)
+        role_payload = _general_role_manifest_payload() if role_entry is None else _role_payload(role_entry)
         prompt = _compose_registry_prompt(registry, role, workspace_root, str(lifecycle["run"].get("name") or ""))
         # `legacyJoin` (the cmd_join prose containing CLI-laden directives) is intentionally
         # omitted from the MCP response. Agents are MCP-native: managed agents read `prompt`
@@ -1235,15 +1246,23 @@ def _run_metadata(run: dict[str, Any], state_path: Path) -> dict[str, Any]:
 
 
 def _compose_registry_prompt(registry: RegistryDiscovery, role: str, workspace_root: Path, run_id: str) -> str:
-    try:
-        soul_prompt = registry.render_soul(
-            role,
-            workspace_root=workspace_root,
-            run_id=run_id,
-            extra_skills=SPRINTENGINE_SOUL_EXTRA_SKILLS,
-        ).content
-    except (KeyError, SoulRenderError):
-        soul_prompt = None
+    if normalize_role_id(role) == "general":
+        # The soulless General has no role manifest, so it would otherwise fall
+        # through the render_soul fallback below and silently lose the universal
+        # norms. Compose its layer deliberately: no role-personality Soul, but the
+        # full norm + Multicode product layer plus the orchestration skill. Reuse
+        # the workspace-scoped registry so skill overrides apply as for a soul.
+        soul_prompt = load_general_soul_prompt(registry)
+    else:
+        try:
+            soul_prompt = registry.render_soul(
+                role,
+                workspace_root=workspace_root,
+                run_id=run_id,
+                extra_skills=SPRINTENGINE_SOUL_EXTRA_SKILLS,
+            ).content
+        except (KeyError, SoulRenderError):
+            soul_prompt = None
     return compose_prompt(
         "# SprintEngine Coordination Rules",
         load_sprintengine_coordination_prompt(role),
@@ -1268,6 +1287,21 @@ def _role_payload(entry: RegistryEntry, *, include_shadowed: bool = False) -> di
     if include_shadowed:
         payload["shadowedSources"] = [_source_payload(source.layer.name) for source in entry.shadowed]
     return payload
+
+
+def _general_role_manifest_payload() -> dict[str, Any]:
+    # `general` has no registry manifest; describe the built-in soulless identity
+    # so the join response keeps the same `roleManifest` shape as a real role.
+    return {
+        "id": "general",
+        "label": "General",
+        "aliases": [],
+        "summary": "Soulless General agent that plans, builds, reviews, and tests a sprint by itself.",
+        "icon": None,
+        "soul": [],
+        "capabilities": [],
+        "source": _source_payload("builtin"),
+    }
 
 
 def _role_manifest_payload(role: RoleManifest) -> dict[str, Any]:
