@@ -6,6 +6,7 @@ import { join } from 'node:path'
 import type { IpcMain } from 'electron'
 
 import type { AutomationRendererRequest, AutomationRendererResponse } from '../../shared/automation'
+import type { AgentSessionExitEvent, AgentSessionExitListener } from '../../shared/agent-runtime'
 import type {
   AutomationActionProvider,
   AutomationDefinition,
@@ -24,6 +25,7 @@ import {
   AutomationsProviderRegistryToken,
   SprintEngineAutomationFrontDoorsToken,
   SwitchboardAutomationFrontDoorsToken,
+  TerminalRuntimeToken,
   WorkspaceSyncServiceToken,
 } from '../module-host/service-tokens'
 import {
@@ -60,9 +62,41 @@ function createFakeIpcMain(): {
   return { ipcMain, handled, activeHandlers, handlers }
 }
 
+type FakeTerminalRuntime = {
+  runtime: unknown
+  listenerCount: () => number
+  emitExit: (event: AgentSessionExitEvent) => Promise<void>
+  setLiveExecutionIds: (ids: string[]) => void
+}
+
+// Minimal TerminalRuntime stand-in exposing only the seams the automations
+// module uses: the live-execution inventory and the agent-session exit listener.
+function createFakeTerminalRuntime(options: { liveExecutionIds?: string[] } = {}): FakeTerminalRuntime {
+  let liveIds = options.liveExecutionIds ?? []
+  const listeners = new Set<AgentSessionExitListener>()
+  const runtime = {
+    getLiveAgentExecutionIds: () => liveIds.map((executionId) => ({ system: 'manual', executionId })),
+    registerAgentSessionExitListener: (listener: AgentSessionExitListener) => {
+      listeners.add(listener)
+      return () => listeners.delete(listener)
+    },
+  }
+  return {
+    runtime,
+    listenerCount: () => listeners.size,
+    emitExit: async (event) => {
+      for (const listener of listeners) await listener(event)
+    },
+    setLiveExecutionIds: (ids) => {
+      liveIds = ids
+    },
+  }
+}
+
 function fakeAgentRuntimeModule(options: {
   delegateRequest?: (request: AutomationRendererRequest) => Promise<AutomationRendererResponse>
   workspaceSnapshot?: unknown
+  terminalRuntime?: unknown
 } = {}): CapabilityModule {
   return {
     manifest: {
@@ -88,6 +122,10 @@ function fakeAgentRuntimeModule(options: {
           },
         }),
       } as never))
+      host.provideService(
+        TerminalRuntimeToken,
+        () => (options.terminalRuntime ?? createFakeTerminalRuntime().runtime) as never
+      )
     },
   }
 }
@@ -302,10 +340,19 @@ async function closeHttpServer(server: Server): Promise<void> {
 
 type FakeAutomationsEngine = Pick<
   AutomationsEngine,
-  'start' | 'stop' | 'isRunning' | 'handleStartup' | 'tick' | 'runNow' | 'deliverTriggerEvent' | 'finalizeRun'
+  | 'start'
+  | 'stop'
+  | 'isRunning'
+  | 'handleStartup'
+  | 'tick'
+  | 'runNow'
+  | 'deliverTriggerEvent'
+  | 'finalizeRun'
+  | 'finalizeRunOnAgentExit'
 > & {
   startCount: number
   stopCount: number
+  agentExitCalls: Array<{ executionId: string; exitCode: number }>
 }
 
 const emptyEvaluation = (): AutomationsEngineEvaluationResult => ({
@@ -321,6 +368,10 @@ function createFakeAutomationsEngine(): FakeAutomationsEngine {
   return {
     startCount: 0,
     stopCount: 0,
+    agentExitCalls: [],
+    async finalizeRunOnAgentExit(input) {
+      this.agentExitCalls.push(input)
+    },
     start() {
       running = true
       this.startCount += 1
@@ -519,6 +570,46 @@ async function testLiveEnablementToggleStopsUnregistersAndRestarts(): Promise<vo
   await moduleLoad.kernel.runShutdown()
   assert.equal(engines[1].isRunning(), false)
   assert.equal(engines[1].stopCount, 1)
+}
+
+async function testAgentExitListenerRoutesExitsAndWiresLiveExecutions(): Promise<void> {
+  const terminal = createFakeTerminalRuntime({ liveExecutionIds: ['exec-live-1', 'exec-live-2'] })
+  let capturedOptions: AutomationsEngineOptions | null = null
+  let fakeEngine: FakeAutomationsEngine | null = null
+
+  const moduleLoad = loadMainModules({
+    ipcMain: createFakeIpcMain().ipcMain,
+    modules: [
+      fakeAgentRuntimeModule({ terminalRuntime: terminal.runtime }),
+      createAutomationsModule({
+        createEngine: (options) => {
+          capturedOptions = options
+          fakeEngine = createFakeAutomationsEngine()
+          return fakeEngine as unknown as AutomationsEngine
+        },
+      }),
+    ],
+  })
+
+  assert.ok(moduleLoad.report.loaded.includes('automations'))
+  // Exactly one agent-session exit listener is registered by the module.
+  assert.equal(terminal.listenerCount(), 1)
+  // The engine is wired with a live-execution projection that flattens the
+  // runtime inventory to executionId strings (used by the startup reconcile).
+  assert.deepEqual(capturedOptions?.getLiveAgentExecutionIds?.(), ['exec-live-1', 'exec-live-2'])
+
+  // Every real agent-session pty exit is routed to the engine verbatim; the
+  // engine owns the match-vs-ignore decision (covered in engine.test.ts).
+  await terminal.emitExit({ system: 'manual', workspaceRoot: '/repo', executionId: 'exec-live-1', exitCode: 0 })
+  await terminal.emitExit({ system: 'sprintengine', workspaceRoot: '/repo', executionId: 'exec-x', exitCode: 7 })
+  assert.deepEqual(fakeEngine!.agentExitCalls, [
+    { executionId: 'exec-live-1', exitCode: 0 },
+    { executionId: 'exec-x', exitCode: 7 },
+  ])
+
+  // Teardown unregisters the listener so a disable→enable cycle never leaks one.
+  await moduleLoad.kernel.runShutdown()
+  assert.equal(terminal.listenerCount(), 0)
 }
 
 async function testModuleExecutorDoesNotGateOnDirtyTreeBeforeLaunch(): Promise<void> {
@@ -857,6 +948,7 @@ async function main(): Promise<void> {
   await testWebhookReceiverFailureIsVisibleInSidecarStatus()
   await testDisabledModuleRegistersNoSidecarOrIpc()
   await testLiveEnablementToggleStopsUnregistersAndRestarts()
+  await testAgentExitListenerRoutesExitsAndWiresLiveExecutions()
   await testModuleExecutorDoesNotGateOnDirtyTreeBeforeLaunch()
   await testModuleRegistersFirstPartyActionProviders()
   await testThirdPartyAutomationProviderRegistrationUsesLiveRegistry()
