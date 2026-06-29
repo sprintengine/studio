@@ -1,5 +1,5 @@
 import { shell } from 'electron'
-import { access, lstat, readdir, readFile, realpath, stat } from 'fs/promises'
+import { access, readdir, readFile, realpath, stat } from 'fs/promises'
 import { extname, sep } from 'path'
 import { pathToFileURL } from 'url'
 import { normalizeReportPath } from '../shared/automations/contracts'
@@ -99,18 +99,20 @@ export function createFilesystemReadHandlers() {
 // report stays under its `reports/` root; an escape throws, which the viewer
 // surfaces as not-found rather than the target file's contents.
 //
-// Scope is deliberately narrow: only a path that lives under a `reports/`
-// ancestor and is itself a symlink is checked, so ordinary file reads (the
-// common case) keep their existing behavior and cost.
+// Scope is narrow to report reads: only a path that lives under a `reports/`
+// ancestor is checked, so ordinary file reads (the common case) keep their
+// existing behavior and cost. For report reads we always realpath the target,
+// because the escape need not be the leaf — a committed symlinked DIRECTORY
+// (`reports/sub -> ../outside`, mode 120000) makes `reports/sub/<file>` a
+// non-symlink leaf that still resolves outside `reports/`. realpath collapses
+// the whole chain, so a symlink at any depth is caught; contained symlinks
+// (file or directory) still resolve under the root and read normally.
 export async function assertReportSymlinkContained(filePath: string): Promise<void> {
   const boundary = reportsBoundary(filePath)
   if (!boundary) return
   if (normalizeReportPath(boundary.relativePath) === null) {
     throw new Error('Report path is not contained under reports/ and cannot be opened.')
   }
-
-  const linkStats = await lstat(filePath)
-  if (!linkStats.isSymbolicLink()) return
 
   const realRoot = await realpath(boundary.reportsRoot)
   const realTarget = await realpath(filePath)

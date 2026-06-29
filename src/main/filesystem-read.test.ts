@@ -50,6 +50,30 @@ async function assertReportSymlinkContainment(): Promise<void> {
     symlinkSync('real.md', containedLink)
     assert.equal(await handlers.readTextFile(containedLink), '# Real report\n')
 
+    // A symlinked DIRECTORY ancestor under reports/ escapes even though the leaf
+    // file is a plain (non-symlink) entry, so leaf-only checks miss it: the
+    // realpath must collapse the whole chain and block it.
+    const outsideDir = join(root, 'outside')
+    mkdirSync(outsideDir, { recursive: true })
+    writeFileSync(join(outsideDir, 'leak.md'), 'top secret dir\n', 'utf8')
+    const escapingDirLink = join(reportsDir, 'subdir')
+    symlinkSync(join('..', 'outside'), escapingDirLink)
+    await assert.rejects(
+      () => handlers.readTextFile(join(escapingDirLink, 'leak.md')),
+      /outside reports\//u
+    )
+
+    // A symlinked DIRECTORY that stays within reports/ still reads through.
+    const innerDir = join(reportsDir, 'inner')
+    mkdirSync(innerDir, { recursive: true })
+    writeFileSync(join(innerDir, 'nested.md'), '# Nested report\n', 'utf8')
+    const containedDirLink = join(reportsDir, 'inner-alias')
+    symlinkSync('inner', containedDirLink)
+    assert.equal(
+      await handlers.readTextFile(join(containedDirLink, 'nested.md')),
+      '# Nested report\n'
+    )
+
     // A symlink that escapes but lives outside any reports/ tree is not a report
     // read and keeps its existing behavior (no regression for general reads).
     const nonReportLink = join(root, 'note.md')
