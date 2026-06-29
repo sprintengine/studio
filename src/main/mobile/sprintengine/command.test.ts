@@ -783,6 +783,7 @@ async function assertBacklogUpdateWritesFrontmatter(): Promise<void> {
   const invalid = await service.dispatch(command('backlog.update', {
     workspacePath: workspaceRoot,
     relativePath: 'backlog/idea.md',
+    // @ts-expect-error deliberately invalid status to exercise the dispatcher's runtime invalid_payload rejection
     status: 'not-a-status',
   }, {
     commandId: 'cmd_backlog_update_invalid',
