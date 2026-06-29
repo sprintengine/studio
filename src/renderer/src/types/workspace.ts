@@ -1105,6 +1105,43 @@ export type SprintEngineTokenUsage = {
   computedAt: string
 }
 
+// Per-model pricing in USD per 1,000,000 tokens, with a distinct rate for each
+// billable category (these differ materially — cache reads are far cheaper than
+// fresh input, cache writes can cost more). The default table lives in
+// src/main/sprintengine-token-usage/pricing.ts; this shape is what an override
+// (settings/config) supplies. See knowledge/multicode/sprint-engine.md.
+export type SprintEngineModelPricing = {
+  input: number
+  output: number
+  cacheRead: number
+  cacheCreation: number
+}
+
+// Dollar cost for one model's usage. `priced` is false (and `cost` null) when no
+// rate is configured for the model — its tokens are reported but never priced at
+// zero or silently dropped. `cacheSavings` is the USD saved by serving cacheRead
+// tokens at the cache rate instead of the full input rate.
+export type SprintEngineModelCost = {
+  model: string
+  priced: boolean
+  cost: { input: number; output: number; cacheRead: number; cacheCreation: number; total: number } | null
+  cacheSavings: number
+}
+
+// Sprint-level dollar cost: per-model breakdown + grand total, the implied cache
+// savings, and the names of any models that had usage but no configured price.
+// A pure function of stored per-model usage (T4) times the rates, so changing
+// the pricing table recomputes cost with no usage re-collection.
+export type SprintEngineTokenCost = {
+  currency: 'USD'
+  perModel: SprintEngineModelCost[]
+  total: { input: number; output: number; cacheRead: number; cacheCreation: number; total: number }
+  cacheSavings: number
+  // Models with usage but no rate in the pricing table — surfaced, never zeroed.
+  unpricedModels: string[]
+  computedAt: string
+}
+
 export type SprintEngineState = {
   name: string
   goal: string

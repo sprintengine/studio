@@ -12,6 +12,14 @@ export {
   computeSprintEngineRunTokenUsage,
   type SprintEngineTokenAggregateDeps,
 } from './aggregate'
+export { computeSprintEngineTokenCost, type SprintEngineTokenCostOptions } from './cost'
+export {
+  DEFAULT_MODEL_PRICING,
+  SPRINT_ENGINE_PRICING_UNIT,
+  resolveModelPricing,
+  mergeModelPricing,
+  type SprintEngineModelPricing,
+} from './pricing'
 
 // Shared "meter reader" for Sprint Engine token accounting. Reads cumulative
 // per-model token usage for one agent CLI session from that CLI's own on-disk
