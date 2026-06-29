@@ -6,6 +6,7 @@ import { getRendererHost, selectModuleEnabled } from '../../modules'
 import { StandardWorkspaceTypeIcon } from '../AppIcons'
 import { createMultiloopTemplate } from '../../modules/multiloop-workspace-types'
 import { createGuidedBriefTemplate } from '../../modules/sprint-engine-workspace-types'
+import { AUTOMATIONS_HOST_WORKSPACE_MODE } from '../../types/workspace'
 import type {
   AgentCli,
   AgentId,
@@ -90,6 +91,7 @@ import {
   SprintEnginePlanSourcedError,
   buildSprintEngineEffectiveSpawnAtStartRoles,
   buildSprintEngineExistingTeamCreation,
+  buildAutomationsCreation,
   buildStandardCreation,
   buildSwitchboardCreation,
   runGuidedBriefScaffold,
@@ -1560,6 +1562,19 @@ export default function NewWorkspacePanel({
       try {
         if (await persistAdvancedSetup(folderPath)) return
         onCreate(buildSwitchboardCreation({ name, folderPath }))
+        onClose()
+      } finally {
+        setIsCreating(false)
+      }
+      return
+    }
+
+    if (mode === AUTOMATIONS_HOST_WORKSPACE_MODE) {
+      if (!folderPath) return
+      setIsCreating(true)
+      try {
+        if (await persistAdvancedSetup(folderPath)) return
+        onCreate(buildAutomationsCreation({ name, folderPath }))
         onClose()
       } finally {
         setIsCreating(false)

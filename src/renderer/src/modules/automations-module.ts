@@ -1,16 +1,27 @@
+import React from 'react'
+
 import type { RendererModule } from './renderer-host'
 import { decodeRunRef } from '../components/automations/runTarget'
+import { registerAutomationsWorkspaceTypes } from './automations-workspace-types'
+
+// Lazy so the control-center bundle (and the store/FlexLayout graph it pulls in)
+// loads only when an Automations workspace renders the panel — never while the
+// module is disabled, and never into the eager module-registry graph.
+const AutomationsControlCenterPanel = React.lazy(
+  () => import('../components/panels/AutomationsPanel')
+)
 
 // Automations renderer module. Matches the main-side `automations` module id so
 // the single enablement override gates both processes: disabling the module
-// removes the Automations screen entry points and stops the engine sidecar on
-// the main side.
+// removes the Automations entry points and stops the engine sidecar on the main
+// side.
 //
-// Automations is a global app SCREEN (a content-area destination rendered by
-// WorkspaceManager in place of workspace content), not a workspace type — so
-// this module registers no workspace type and no panel. The always-on
-// background run observer (AutomationsRunSupervisor) is mounted directly by the
-// shell (WorkspaceManager), gated on this module's enablement.
+// Automations is a visible workspace TYPE (mode 'automations-host'): the user
+// creates one per project, and it hosts both the control-center panel and the
+// live run terminals. The always-on background run observer
+// (AutomationsRunSupervisor) is mounted directly by the shell (WorkspaceManager),
+// gated on this module's enablement, so scheduled runs notify even when no
+// automations workspace is open.
 export const automationsRendererModule: RendererModule = {
   manifest: {
     id: 'automations',
@@ -23,6 +34,9 @@ export const automationsRendererModule: RendererModule = {
     dependsOn: ['agent-runtime'],
   },
   registerRenderer(host) {
+    host.registerPanel('automations-control-center', AutomationsControlCenterPanel)
+    registerAutomationsWorkspaceTypes(host)
+
     // Deep-link from an automations run notification to the run it is about,
     // shared by manual Run-now and background scheduled runs (the run target
     // carries the run's folderPath). Open lands in the global Automations screen

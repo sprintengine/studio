@@ -71,8 +71,7 @@ import WorkspaceLayout from './WorkspaceLayout'
 import WorkspaceSidebar from './WorkspaceSidebar'
 import SprintEnginesAside from './SprintEnginesAside'
 import { beginSidebarTransition } from '../../utils/sidebarTransition'
-import { isAutomationsHostWorkspace, isHiddenFromRail } from '../../utils/workspaceVisibility'
-import { AutomationsHostBanner } from './AutomationsHostBanner'
+import { isHiddenFromRail } from '../../utils/workspaceVisibility'
 import { WORKSPACE_LAYER_REVEAL_EVENT } from '../../utils/terminalFitScheduler'
 import { AppTitleBar } from './AppTitleBar'
 import WorkspaceTopBar, {
@@ -371,12 +370,6 @@ export default function WorkspaceManager() {
       ? currentWorkspaceWindow.activeWorkspaceId
       : railWorkspaces[0]?.id ?? null
   const activeWorkspace = visibleWorkspaces.find((workspace) => workspace.id === windowActiveWorkspaceId) ?? null
-  // The hidden Automations host is reachable only via "Open agent"/deep link and
-  // never lists in the rail (T4), so when it is the active workspace the host
-  // identity banner is the user's sole way back. Return to the first rail
-  // workspace, or — when the host is the only workspace — into new-workspace setup.
-  const automationsHostActive = Boolean(activeWorkspace && isAutomationsHostWorkspace(activeWorkspace))
-  const automationsHostReturnTarget = railWorkspaces[0] ?? null
   // Load the Sprint Engine role registry for the active workspace so the spawn
   // dropdown and Specialist packs settings tab can surface registry-discovered
   // specialist packs (workspace / user / plugin layers) alongside the bundled
@@ -625,17 +618,6 @@ export default function WorkspaceManager() {
     setSpecialistMenuOpen(false)
     setNotificationsOpen(false)
   }, [closeSettingsOverlay, closeAutomationsOverlay])
-
-  // Leave the Automations host for a normal workspace. Activates the first rail
-  // workspace when one exists; with no rail workspace there is nowhere to go
-  // back to, so open new-workspace setup instead of stranding the user on the host.
-  const returnFromAutomationsHost = useCallback(() => {
-    if (automationsHostReturnTarget) {
-      setActiveWorkspaceForWindow(workspaceWindowId, automationsHostReturnTarget.id)
-    } else {
-      openNewWorkspacePanel()
-    }
-  }, [automationsHostReturnTarget, setActiveWorkspaceForWindow, workspaceWindowId, openNewWorkspacePanel])
 
   const pickNewChatName = useCallback((folderPath: string | null): string => {
     const folderWorkspaces = workspaces.filter((workspace) => workspace.folderPath === folderPath)
@@ -2443,15 +2425,6 @@ export default function WorkspaceManager() {
         refreshAuthState={refreshAuthState}
         logout={logout}
       />
-
-      {/* Host identity + return, only while the host's own content is on screen
-          (the new-workspace panel and Automations overlay own the area otherwise). */}
-      {automationsHostActive && !showNewWorkspacePanel && !automationsOpen ? (
-        <AutomationsHostBanner
-          onReturn={returnFromAutomationsHost}
-          returnLabel={automationsHostReturnTarget ? 'Back to workspace' : 'New workspace'}
-        />
-      ) : null}
 
       <div className="relative min-h-0 flex-1">
         <div
