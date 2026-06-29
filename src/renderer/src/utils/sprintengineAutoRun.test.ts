@@ -79,6 +79,7 @@ async function main(): Promise<void> {
   testKeyHelpersAreStableAndScoped()
   testStartupPromptIsMcpNative()
   testArchitectInitStartupPromptIsMcpNative()
+  testGeneralStartupPromptIsMcpNative()
   testPromptBuildersIncludeAgentIdAndCommand()
   testAgentNotificationPromptCompactsLongResolutionText()
   testTaskWakeSkipsAgentAssignedToNeedsInputTask()
@@ -2765,6 +2766,97 @@ function testRevivesLeftAgentForClaimableWork(): void {
     !cappedPlan.ledgerDeletes.some((del) => del.key === reviveKey),
     'an active revival target keeps its ledger key (not swept), so the retry cap holds across passes',
   )
+
+  // The production stuck case: a task in REVIEW with a pending review gate whose
+  // role has only left agents. Revival must respawn the reviewer for the GATE
+  // (distinct code path from ready-task revival), carrying the gateId.
+  const reviewTask = task({
+    id: 'T-review',
+    title: 'Developer task awaiting review',
+    role: 'developer',
+    status: 'review',
+    boardColumn: 'review',
+    ownerAgentId: null,
+    qualityGates: [
+      { id: 'code_reviewer', phase: 'review', role: 'code_reviewer', status: 'pending', required: true, allowSelfReview: true, focus: '', attempts: [] },
+    ],
+  })
+  const gateWorkspace = workspaceFixture({ agents: { 'code-reviewer-1': sprintAgent('code-reviewer-1', 'Remy') } })
+  const gatePlan = planSprintEngineDispatch({
+    workspace: gateWorkspace,
+    sprintEngineState: sprintEngineStateFixture({
+      tasks: [reviewTask],
+      sprintEngineAgents: { 'code-reviewer-1': runtimeAgent('code_reviewer', { status: 'left' }) },
+    }),
+    now,
+    runningAgentIds: new Set(),
+    idleAgentIds: new Set(),
+    continuationLedger: new Map(),
+    dispatchLedger: new Map(),
+    paths: new Set(['respawn']),
+  })
+  assert.equal(gatePlan.respawns.length, 1, `a left reviewer is revived for a pending gate; respawns ${JSON.stringify(gatePlan.respawns)}`)
+  assert.equal(gatePlan.respawns[0].agentId, 'code-reviewer-1')
+  assert.equal(gatePlan.respawns[0].role, 'code_reviewer')
+  assert.equal(gatePlan.respawns[0].gateId, 'code_reviewer', 'the revival carries the gate id so the reviewer claims the gate')
+
+  // A `dead` agent (process died, vs cleanly left) is equally revivable.
+  const deadPlan = planSprintEngineDispatch({
+    workspace,
+    sprintEngineState: sprintEngineStateFixture({
+      tasks: [readyTask],
+      sprintEngineAgents: { 'developer-1': runtimeAgent('developer', { status: 'dead' }) },
+    }),
+    now,
+    runningAgentIds: new Set(),
+    idleAgentIds: new Set(),
+    continuationLedger: new Map(),
+    dispatchLedger: new Map(),
+    paths: new Set(['respawn']),
+  })
+  assert.equal(deadPlan.respawns.length, 1, 'a dead agent is revived for claimable work')
+  assert.equal(deadPlan.respawns[0].agentId, 'developer-1')
+
+  // An unmanaged claimant (no workspace.agents entry, e.g. a headless CLI) has no
+  // renderer terminal to spawn, so it is never revived.
+  const unmanagedPlan = planSprintEngineDispatch({
+    workspace: workspaceFixture({ agents: {} }),
+    sprintEngineState: sprintEngineStateFixture({
+      tasks: [readyTask],
+      sprintEngineAgents: { 'developer-1': runtimeAgent('developer', { status: 'left' }) },
+    }),
+    now,
+    runningAgentIds: new Set(),
+    idleAgentIds: new Set(),
+    continuationLedger: new Map(),
+    dispatchLedger: new Map(),
+    paths: new Set(['respawn']),
+  })
+  assert.equal(unmanagedPlan.respawns.length, 0, 'an unmanaged left agent is not revived (no terminal to spawn)')
+
+  // Sweep: a `revive:` ledger entry for work that is NO LONGER an active revival
+  // target (here, a task that no longer exists) is deleted, so a maxed-out retry
+  // budget resets and can't permanently block a future legitimate revival.
+  const staleReviveKey = sprintEngineReviveLedgerKey(workspace, { taskId: 'T-gone' }, 'developer-1')
+  const sweepPlan = planSprintEngineDispatch({
+    workspace,
+    sprintEngineState: sprintEngineStateFixture({
+      tasks: [readyTask],
+      sprintEngineAgents: { 'developer-1': runtimeAgent('developer', { status: 'left' }) },
+    }),
+    now,
+    runningAgentIds: new Set(),
+    idleAgentIds: new Set(),
+    continuationLedger: new Map([
+      [staleReviveKey, { sentAt: now - 120_000, attempts: 1 }],
+    ]),
+    dispatchLedger: new Map(),
+    paths: new Set(['respawn']),
+  })
+  assert.ok(
+    sweepPlan.ledgerDeletes.some((del) => del.key === staleReviveKey),
+    'a stale revive: ledger entry (no active target) is swept so its retry budget resets',
+  )
 }
 
 async function testRespawnsDeadTaskClaimantAfterRestart(): Promise<void> {
@@ -4425,6 +4517,40 @@ function testArchitectInitStartupPromptIsMcpNative(): void {
   )
 }
 
+function testGeneralStartupPromptIsMcpNative(): void {
+  const prompt = buildSprintEngineStartupPrompt('general', 'general', 'Ship the sprint', {
+    executionCwd: '/tmp/workspace',
+    workspaceRoot: '/tmp/workspace',
+    sprintEngineStatePath: '/tmp/workspace/.multi-code/sprintengine/team/run.yaml',
+    commandMode: 'join',
+  })
+
+  // Joins as general, claims directly, and never initializes the run (init stays app-owned).
+  assert.ok(prompt.includes('sprintengine.agent.join'), 'general startup prompt joins via MCP')
+  assert.ok(prompt.includes('"role": "general"'), 'general join payload carries role general')
+  assert.ok(prompt.includes('"agentId": "general"'), 'general join payload carries the agent id')
+  assert.ok(prompt.includes('"id": "general"'), 'general claim payload carries the agent id')
+  assert.ok(prompt.includes('sprintengine.task.next'), 'general startup prompt claims work directly')
+  assert.ok(!prompt.includes('sprintengine.init'), 'a General does not call sprintengine.init')
+  // Drives the full single-agent loop and assigns planning to the General when no plan exists.
+  assert.ok(/plan/iu.test(prompt), 'general startup prompt drives planning')
+  assert.ok(/build/iu.test(prompt), 'general startup prompt drives the build step')
+  assert.ok(/review/iu.test(prompt), 'general startup prompt drives self-review')
+  assert.ok(/test/iu.test(prompt), 'general startup prompt drives testing')
+  assert.ok(/publish/iu.test(prompt), 'general startup prompt drives publishing')
+  assert.ok(prompt.includes('you are the planner'), 'general becomes the planner when the run has no task graph')
+  assert.ok(/never add roster members/iu.test(prompt), 'general startup prompt forbids growing the roster')
+  // Same no-statePath/workspaceRoot routing invariant as every other startup prompt.
+  assert.ok(!prompt.includes('"statePath"'), 'general startup prompt must not embed statePath in the MCP payload')
+  assert.ok(!prompt.includes('"workspaceRoot"'), 'general startup prompt must not embed workspaceRoot in the MCP payload')
+  assert.ok(!prompt.includes('/tmp/workspace/.multi-code/sprintengine/team/run.yaml'), 'general startup prompt does not expose the run state path')
+  assert.ok(prompt.includes('multicode-sprintengine'), 'general startup prompt names the managed MCP server entry')
+  assert.ok(
+    !/sprintengine (join|task|gate|triage|init|handover)/.test(prompt),
+    'general startup prompt does not instruct the agent to run any sprintengine CLI command'
+  )
+}
+
 function testPromptBuildersIncludeAgentIdAndCommand(): void {
   const teamStatePath = '/tmp/workspace/.multi-code/sprintengine/team/run.yaml'
   const readyTask = task({ id: 'T3', title: 'Build feature', role: 'developer' })
@@ -5252,8 +5378,8 @@ function testBootstrapStallsInsteadOfSpawningWithoutArchitectOrAfterPrePlanExit(
   )
   assert.deepEqual(
     noArchitect,
-    { kind: 'stall', reason: 'no_architect' },
-    'no tasks and no architect is a visible stall, not a silent no-op'
+    { kind: 'stall', reason: 'no_planner' },
+    'no tasks and no planner (architect or general) is a visible stall, not a silent no-op'
   )
 
   const noArchitectWithTasks = pickSprintEngineBootstrapCandidate(

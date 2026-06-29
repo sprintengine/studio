@@ -56,6 +56,9 @@ import {
   findFirstUncoveredSprintEngineRole,
   getSprintEngineWizardRoleSummary,
   listSprintEngineAddableRoles,
+  listSprintEngineWizardRoles,
+  sprintEngineRosterHasPlanningRole,
+  sprintEngineRosterRoleFloor,
 } from './sprintengineRoleOptions'
 import {
   buildSprintEngineAddressPlanReviewsPrompt,
@@ -282,7 +285,7 @@ assert.equal(
 )
 assert.deepEqual(
   deriveSprintEngineRunGlyph({ sprintEngineState: null, autoState: { desiredMode: 'run_agents', runtimeState: 'complete' } }),
-  { state: 'done', live: false, label: 'Completed' },
+  { state: 'done', live: false, label: 'Complete' },
 )
 
 // Board-driven rollup: progress is derived from the task board, not terminals,
@@ -321,6 +324,31 @@ assert.equal(
 assert.equal(
   deriveSprintEngineRunGlyph({ sprintEngineState: { tasks: [boardTask('done'), boardTask('done')] }, autoState: manualIdle })?.state,
   'done',
+)
+// Completed worktree run: merged → filled `done` ("Complete"); not-yet-merged →
+// outline `done_unmerged` ("Ready for review"); no worktree stays filled `done`.
+const worktreeVcs = (extra: Record<string, unknown>) =>
+  ({ mode: 'run_worktree', worktreePath: '.x/worktree', branchName: 'sprintengine/x', ...extra }) as never
+assert.deepEqual(
+  deriveSprintEngineRunGlyph({
+    sprintEngineState: { tasks: [boardTask('done')], vcs: worktreeVcs({ pullRequestState: 'merged', pullRequestUrl: 'https://x/pull/1' }) },
+    autoState: manualIdle,
+  }),
+  { state: 'done', live: false, label: 'Complete' },
+)
+assert.deepEqual(
+  deriveSprintEngineRunGlyph({
+    sprintEngineState: { tasks: [boardTask('done')], vcs: worktreeVcs({ pullRequestState: 'open', pullRequestUrl: 'https://x/pull/1' }) },
+    autoState: manualIdle,
+  }),
+  { state: 'done_unmerged', live: false, label: 'Ready for review' },
+)
+assert.deepEqual(
+  deriveSprintEngineRunGlyph({
+    sprintEngineState: { tasks: [boardTask('done')], vcs: worktreeVcs({ pullRequestUrl: null }) },
+    autoState: manualIdle,
+  }),
+  { state: 'done_unmerged', live: false, label: 'Ready for review' },
 )
 // An architect-routed needs_input task (no user question) is in-flight work, not
 // a user prompt — it reads in_progress, not needs_input.
@@ -1652,6 +1680,57 @@ type FakeTask = { role: string; status: SprintEngineTask['status'] }
     'Custom registry role.',
     'unknown role falls back to generic wizard label',
   )
+}
+
+// Soulless General is offered as a wizard roster choice (T6 / backlog 131 §7).
+// It is surfaced right after `architect` and only in the wizard list, never the
+// registry-derived board list.
+{
+  const wizardRoles = listSprintEngineWizardRoles()
+  assert.equal(wizardRoles.includes('general'), true, 'general appears as a wizard roster choice')
+  assert.equal(
+    wizardRoles.indexOf('general'),
+    wizardRoles.indexOf('architect') + 1,
+    'general is surfaced immediately after architect',
+  )
+  assert.equal(
+    listSprintEngineAddableRoles().includes('general'),
+    false,
+    'general stays out of the registry-derived board addable list',
+  )
+  // General is not duplicated when a registry already provides it.
+  const registryWithGeneral: SprintEngineRoleRegistry = buildSprintEngineRoleRegistry({
+    roles: [{ id: 'general', label: 'General', aliases: [], source: { layer: 'workspace' } }],
+  })
+  assert.equal(
+    listSprintEngineWizardRoles(registryWithGeneral).filter((role) => role === 'general').length,
+    1,
+    'general is never duplicated when the registry already lists it',
+  )
+
+  // Wizard copy states the solo self-review trade-off plainly.
+  const generalSummary = getSprintEngineWizardRoleSummary('general')
+  assert.match(generalSummary, /self-review/iu, 'general summary names the self-review trade-off')
+  assert.match(generalSummary, /soulless/iu, 'general summary names the soulless single-agent nature')
+}
+
+// Planning-role floor: a roster must keep at least one planning-capable agent
+// (architect or general), but the two trade places freely.
+{
+  assert.equal(sprintEngineRosterHasPlanningRole({ architect: 1 }), true, 'architect satisfies the planner requirement')
+  assert.equal(sprintEngineRosterHasPlanningRole({ general: 2 }), true, 'general satisfies the planner requirement')
+  assert.equal(sprintEngineRosterHasPlanningRole({ developer: 3 }), false, 'a roster of only workers has no planner')
+  assert.equal(sprintEngineRosterHasPlanningRole({}), false, 'an empty roster has no planner')
+
+  // Architect is the sole planner -> cannot drop below 1.
+  assert.equal(sprintEngineRosterRoleFloor('architect', { architect: 1 }), 1, 'sole architect floors at 1')
+  // Once a general is staffed, architect can drop to 0 (and vice versa).
+  assert.equal(sprintEngineRosterRoleFloor('architect', { architect: 1, general: 1 }), 0, 'architect frees up when a general is staffed')
+  assert.equal(sprintEngineRosterRoleFloor('general', { architect: 1, general: 1 }), 0, 'general frees up when an architect is staffed')
+  // Sole general -> cannot drop below 1; general-only roster is valid.
+  assert.equal(sprintEngineRosterRoleFloor('general', { general: 1 }), 1, 'sole general floors at 1')
+  // Non-planning roles always floor at 0.
+  assert.equal(sprintEngineRosterRoleFloor('developer', { architect: 1 }), 0, 'worker roles always floor at 0')
 }
 
 // ---------------------------------------------------------------------------

@@ -25,6 +25,11 @@ import {
 export type LocalAutomationExecutorOptions = {
   delegateToRenderer(request: AutomationRendererRequest): Promise<AutomationRendererResponse>
   getWorkspaceSyncSnapshot(): WorkspaceSyncSnapshot
+  // Resolves the spawned agent's terminal-session executionId at launch-confirm
+  // time so the run can correlate an agent-lifecycle exit back to itself. A miss
+  // (or an absent resolver) leaves executionId undefined and never fails the
+  // launch — the run falls back to the poll-scan. Wired by automations-module.
+  resolveAgentExecutionId?: (input: { workspaceId: string; agentId: string }) => string | undefined
   isIntegrationAvailable?: (id: string) => boolean | undefined
   now?: () => number
   sleep?: (ms: number) => Promise<void>
@@ -194,7 +199,7 @@ async function spawnAgent(
     resolvedTarget?: SpawnAgentResolvedTarget
   },
   options: LocalAutomationExecutorOptions
-): Promise<{ workspaceId: string; agentId: string }> {
+): Promise<{ workspaceId: string; agentId: string; executionId?: string }> {
   const target = input.resolvedTarget ?? resolveLaunchTarget(input, options)
   const workspaceId = target.workspaceId ?? await createWorkspace({
     folderPath: target.folderPath,
@@ -233,7 +238,12 @@ async function spawnAgent(
     )
   }
 
-  return { workspaceId, agentId: confirmed }
+  // Correlation key for agent-lifecycle finalization. Best-effort: a miss leaves
+  // executionId undefined and must not fail the launch — the run is then covered
+  // by the per-tick signal poll-scan instead of the exit trigger.
+  const executionId = options.resolveAgentExecutionId?.({ workspaceId, agentId: confirmed })
+
+  return { workspaceId, agentId: confirmed, executionId }
 }
 
 async function ensureRunWorktree(

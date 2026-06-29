@@ -127,6 +127,7 @@ async function main(): Promise<void> {
     await assertIdleSweepSuspendsRatherThanDisposes(runtimeModule)
     await assertDebugModeEnsureInstallsDebugSkill(runtimeModule)
     await assertAgentSessionExitListenerFiresSystemTaggedForAnySystem(runtimeModule)
+    await assertResolveAgentExecutionIdMatchesLiveSession(runtimeModule)
     await assertLaunchRegistryRootsIncludeUserRolesWhenPresent(runtimeModule)
   } finally {
     moduleWithLoad._load = originalLoad
@@ -391,6 +392,80 @@ async function assertAgentSessionExitListenerFiresSystemTaggedForAnySystem(
     )
   } finally {
     unregister()
+    await runtime.shutdown()
+  }
+}
+
+async function assertResolveAgentExecutionIdMatchesLiveSession(
+  runtimeModule: RuntimeModule
+): Promise<void> {
+  const workspaceRoot = await mkdtemp(join(tmpdir(), 'multicode-terminal-runtime-resolve-exec-'))
+  mockPty.spawnCalls = []
+  mockSender.sent = []
+
+  const runtime = runtimeModule.createTerminalRuntime({
+    diagnosticsEnabled: false,
+    requireAuthenticatedUser: () => undefined,
+    logMainPerfEvent: () => undefined,
+  })
+
+  const spawnAgent = async (
+    overrides: Pick<AgentSpawnDescriptor, 'executionId' | 'system'> & { workspaceId: string }
+  ): Promise<MockPtyProcess> => {
+    const descriptor: AgentSpawnDescriptor = {
+      executionId: overrides.executionId,
+      system: overrides.system,
+      workId: `work-${overrides.executionId}`,
+      role: 'agent',
+      displayName: `Agent ${overrides.executionId}`,
+      command: ['codex'],
+      cwd: workspaceRoot,
+    }
+    const result = await runtime.spawnAgentSession({
+      workspaceId: overrides.workspaceId,
+      workspaceRoot,
+      descriptor,
+      mcpSettings: { syncEnabled: false, servers: {} } satisfies McpSettings,
+    })
+    assert.equal(result.ok, true, JSON.stringify(result))
+    const spawned = mockPty.spawnCalls[mockPty.spawnCalls.length - 1]?.process
+    assert.ok(spawned, `expected a pty for ${overrides.executionId}`)
+    return spawned
+  }
+
+  try {
+    // The descriptor spawn keys the session's agentId to its executionId, so
+    // resolveAgentExecutionId is exercised by matching (workspaceId, agentId).
+    const agentPty = await spawnAgent({
+      executionId: 'exec-resolve-1',
+      system: 'manual',
+      workspaceId: 'ws-resolve',
+    })
+
+    assert.equal(
+      runtime.resolveAgentExecutionId({ workspaceId: 'ws-resolve', agentId: 'exec-resolve-1' }),
+      'exec-resolve-1',
+      'a live session must resolve its executionId by (workspaceId, agentId)'
+    )
+    // Wrong workspaceId or agentId yields no match.
+    assert.equal(
+      runtime.resolveAgentExecutionId({ workspaceId: 'ws-other', agentId: 'exec-resolve-1' }),
+      undefined
+    )
+    assert.equal(
+      runtime.resolveAgentExecutionId({ workspaceId: 'ws-resolve', agentId: 'no-such-agent' }),
+      undefined
+    )
+
+    // After the pty exits, the session is no longer live and must not resolve.
+    agentPty.emitExit({ exitCode: 0 })
+    await delay(20)
+    assert.equal(
+      runtime.resolveAgentExecutionId({ workspaceId: 'ws-resolve', agentId: 'exec-resolve-1' }),
+      undefined,
+      'a dead session must not resolve an executionId'
+    )
+  } finally {
     await runtime.shutdown()
   }
 }

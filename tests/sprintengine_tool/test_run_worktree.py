@@ -357,7 +357,9 @@ def _completed_worktree_run(workspace: Path):
     return fixture, worktree
 
 
-def test_finalize_completed_run_opens_pull_request(tmp_path, monkeypatch) -> None:
+def test_finalize_completed_run_does_not_open_pull_request(tmp_path, monkeypatch) -> None:
+    # PR creation is user-initiated (the run-summary button), never automatic on
+    # completion. Finalize only backstop-commits and reports.
     import sprintengine_core.tool.shell as shell_mod
     from sprintengine_core.store import normalize_runner_policy
     from sprintengine_core.tool.commands.run import finalize_completed_run
@@ -365,24 +367,17 @@ def test_finalize_completed_run_opens_pull_request(tmp_path, monkeypatch) -> Non
     workspace = tmp_path / "ws"
     fixture, _ = _completed_worktree_run(workspace)
 
-    calls = {"count": 0}
+    def boom(*args, **kwargs):
+        raise AssertionError("finalize must not open a pull request automatically")
 
-    def fake_pr(state, state_path, **kwargs):
-        calls["count"] += 1
-        vcs = state["sprintengine"]["vcs"]
-        vcs["pullRequestUrl"] = "https://github.com/acme/multicode/pull/7"
-        vcs["status"] = "pr_opened"
-        return {"ok": True, "pullRequestUrl": "https://github.com/acme/multicode/pull/7", "branch": "sprintengine/alpha"}
-
-    monkeypatch.setattr(shell_mod, "create_run_pull_request", fake_pr)
+    monkeypatch.setattr(shell_mod, "create_run_pull_request", boom)
 
     state = read_state(fixture.state_path)
     result = finalize_completed_run(state, fixture.state_path, normalize_runner_policy({}))
 
     assert result["blocked"] is False
-    assert result["pullRequestUrl"] == "https://github.com/acme/multicode/pull/7"
-    assert "pull request" in result["message"].lower()
-    assert calls["count"] == 1
+    assert "pullRequestUrl" not in result
+    assert "run summary" in result["message"].lower()
 
 
 def test_finalize_completed_run_blocks_on_orphaned_changes(tmp_path, monkeypatch) -> None:
@@ -409,28 +404,6 @@ def test_finalize_completed_run_blocks_on_orphaned_changes(tmp_path, monkeypatch
     assert "src/orphan/extra.ts" in result["message"]
 
 
-def test_finalize_completed_run_noop_when_flag_disabled(tmp_path, monkeypatch) -> None:
-    import sprintengine_core.tool.shell as shell_mod
-    from sprintengine_core.store import normalize_runner_policy
-    from sprintengine_core.tool.commands.run import finalize_completed_run
-
-    workspace = tmp_path / "ws"
-    fixture, _ = _completed_worktree_run(workspace)
-
-    def boom(*args, **kwargs):
-        raise AssertionError("create_run_pull_request must not run when the flag is off")
-
-    monkeypatch.setattr(shell_mod, "create_run_pull_request", boom)
-
-    state = read_state(fixture.state_path)
-    policy = normalize_runner_policy({"openPullRequestOnComplete": False})
-    result = finalize_completed_run(state, fixture.state_path, policy)
-
-    assert result["blocked"] is False
-    assert "pullRequestUrl" not in result
-    assert result["message"] == "All Sprint Engine tasks are done. Stop now."
-
-
 def test_finalize_completed_run_is_idempotent_when_pr_exists(tmp_path, monkeypatch) -> None:
     import sprintengine_core.tool.shell as shell_mod
     from sprintengine_core.store import normalize_runner_policy
@@ -453,23 +426,91 @@ def test_finalize_completed_run_is_idempotent_when_pr_exists(tmp_path, monkeypat
     assert result["pullRequestUrl"] == "https://github.com/acme/multicode/pull/3"
 
 
-def test_finalize_completed_run_survives_pr_failure(tmp_path, monkeypatch) -> None:
-    # gh missing / push failure must not block a completed run from completing.
-    import sprintengine_core.tool.shell as shell_mod
-    from sprintengine_core.store import normalize_runner_policy
-    from sprintengine_core.tool.commands.run import finalize_completed_run
+def test_create_run_pull_request_records_failure_on_push_error(tmp_path) -> None:
+    # No 'origin' remote → push fails. The failure must be recorded honestly on the
+    # vcs record (status=failed + pullRequestError) so the summary can show it and
+    # offer Retry, instead of a silent "pending" forever.
+    from sprintengine_core.tool.shell import create_run_pull_request
 
     workspace = tmp_path / "ws"
     fixture, _ = _completed_worktree_run(workspace)
 
-    def raising_pr(*args, **kwargs):
-        raise SystemExit("GitHub CLI executable 'gh' was not found; cannot create a pull request.")
+    state = read_state(fixture.state_path)
+    result = create_run_pull_request(state, fixture.state_path)
 
-    monkeypatch.setattr(shell_mod, "create_run_pull_request", raising_pr)
+    assert result["ok"] is False
+    assert result["error"]
+    vcs = state["sprintengine"]["vcs"]
+    assert vcs["status"] == "failed"
+    assert vcs["pullRequestError"]
+
+
+def test_refresh_run_pull_request_state_detects_manual_merge(tmp_path) -> None:
+    # A branch merged into its base manually (no PR merge button) must read as
+    # merged via the branch-ancestry signal.
+    from sprintengine_core.tool.shell import refresh_run_pull_request_state
+
+    workspace = tmp_path / "ws"
+    fixture, _ = _completed_worktree_run(workspace)
 
     state = read_state(fixture.state_path)
-    result = finalize_completed_run(state, fixture.state_path, normalize_runner_policy({}))
+    before = refresh_run_pull_request_state(state, fixture.state_path)
+    assert before["pullRequestState"] == "open"
 
-    assert result["blocked"] is False
-    assert "gh" in result["pullRequestError"]
-    assert "Stop now." in result["message"]
+    # Merge the run branch into main in the workspace checkout.
+    _git(workspace, "merge", "--no-edit", "sprintengine/alpha")
+
+    state = read_state(fixture.state_path)
+    after = refresh_run_pull_request_state(state, fixture.state_path)
+    assert after["pullRequestState"] == "merged"
+    assert state["sprintengine"]["vcs"]["pullRequestState"] == "merged"
+
+
+def test_vcs_pr_status_cli_reports_open_before_merge(tmp_path) -> None:
+    workspace = tmp_path / "ws"
+    fixture, _ = _completed_worktree_run(workspace)
+
+    result = fixture.cli.run("vcs", "pr-status")
+    assert result["enabled"] is True
+    assert result["pullRequestState"] == "open"
+
+
+def test_build_run_pull_request_body_lists_delivered_tasks(tmp_path) -> None:
+    from sprintengine_core.tool.shell import build_run_pull_request_body
+
+    workspace = tmp_path / "ws"
+    fixture, _ = _completed_worktree_run(workspace)
+
+    state = read_state(fixture.state_path)
+    body = build_run_pull_request_body(state, "sprintengine/alpha")
+    assert "**Goal:**" in body
+    assert "Tasks delivered (1)" in body
+    assert "Feature" in body  # the task title
+    assert "_(developer)_" in body  # the task role
+
+
+def test_cleanup_merged_worktree_removes_clean_worktree(tmp_path) -> None:
+    from sprintengine_core.tool.shell import cleanup_merged_worktree
+
+    workspace = tmp_path / "ws"
+    fixture, worktree = _completed_worktree_run(workspace)
+    assert worktree.exists()
+
+    state = read_state(fixture.state_path)
+    result = cleanup_merged_worktree(state, fixture.state_path)
+    assert result["removed"] is True
+    assert not worktree.exists()
+
+
+def test_cleanup_merged_worktree_keeps_dirty_worktree(tmp_path) -> None:
+    from sprintengine_core.tool.shell import cleanup_merged_worktree
+
+    workspace = tmp_path / "ws"
+    fixture, worktree = _completed_worktree_run(workspace)
+    (worktree / "uncommitted.txt").write_text("wip\n", encoding="utf-8")
+
+    state = read_state(fixture.state_path)
+    result = cleanup_merged_worktree(state, fixture.state_path)
+    assert result["removed"] is False
+    assert result["reason"] == "dirty"
+    assert worktree.exists()

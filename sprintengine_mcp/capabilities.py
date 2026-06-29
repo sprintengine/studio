@@ -13,6 +13,10 @@ because roles are plugin-extensible:
   IPC actor, the human/debug CLI, and stdio sessions. Full surface.
 - ``architect`` — the system planning role (registry-normalized id
   ``architect``): full agent surface including plan/roster/run-level tools.
+- ``general`` — the soulless ``general`` identity that plans, builds, reviews,
+  and tests a sprint by itself: the planning surface minus the roster-growth
+  tools (``roster.add`` / ``roster.replenish``), so a General can never expand
+  the team. No registry manifest required.
 - ``reviewer`` — any role whose manifest declares a ``review`` capability:
   agent-common plus the gate/review tools.
 - ``worker`` — every other resolvable role, and the conservative fallback for
@@ -28,7 +32,15 @@ from typing import Any, Iterable
 
 from sprintengine_core.role_registry import discover_role_registry, normalize_role_id
 
-RoleClassification = str  # "operator" | "architect" | "reviewer" | "worker"
+RoleClassification = str  # "operator" | "architect" | "general" | "reviewer" | "worker"
+
+# Roster-growth tools withheld from a General so it can never expand the team —
+# the structural fix for the soulless-General sprint (a General keeps
+# `roster.list` for visibility).
+ROSTER_GROWTH_TOOLS: frozenset[str] = frozenset({
+    "sprintengine.roster.add",
+    "sprintengine.roster.replenish",
+})
 
 # Tools every joined agent needs to receive, work, evidence, and finish a task
 # or stop safely (including self-retirement near context capacity). Gate tools
@@ -152,6 +164,8 @@ def allowed_tools_for_classification(classification: RoleClassification, all_too
         return frozenset(all_tools)
     if classification == "architect":
         return AGENT_COMMON_TOOLS | REVIEW_TOOLS | PLANNING_TOOLS
+    if classification == "general":
+        return AGENT_COMMON_TOOLS | REVIEW_TOOLS | (PLANNING_TOOLS - ROSTER_GROWTH_TOOLS)
     if classification == "reviewer":
         return AGENT_COMMON_TOOLS | REVIEW_TOOLS
     return AGENT_COMMON_TOOLS
@@ -194,6 +208,10 @@ def _classify_registry_role(
     registry_roots_key: str,
     user_root: str | None,
 ) -> RoleClassification:
+    # `general` is a built-in soulless identity, recognised by id without a
+    # registry manifest, so short-circuit before discovery.
+    if normalized_role == "general":
+        return "general"
     try:
         registry = discover_role_registry(
             workspace_root=Path(workspace_root) if workspace_root else None,

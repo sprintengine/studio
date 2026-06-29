@@ -48,6 +48,11 @@ export function buildSprintEngineStartupPrompt(
   } = {}
 ): string {
   const commandMode = options.commandMode ?? (role === 'architect' ? 'init' : 'join')
+  // A General is the soul-less single-agent variant: it joins (never inits) and
+  // owns the whole sprint — plan, build, self-review, test, publish. The launch
+  // wiring (managed MCP + state path) is identical to a specialist; only the
+  // role and the soul-less join result differ.
+  const isGeneral = role === 'general' && commandMode !== 'init'
   const claimTool = options.claimTool ?? 'sprintengine.task.next'
   const fallbackClaimTool = claimTool === 'sprintengine.task.next'
     ? 'sprintengine.gate.next'
@@ -100,14 +105,31 @@ export function buildSprintEngineStartupPrompt(
       jsonBlock(claimPayload),
     ].join('\n')
 
+  const noClaimFallback = commandMode === 'init'
+    ? 'If it returns no claim, reply that no work was claimed and stop — Multicode re-engages this terminal when work is ready.'
+    : isGeneral
+      ? `If it returns no claim, call \`${fallbackClaimTool}\` once with the same payload — prefer satisfying your own pending review/testing gates before starting new work. If neither returns work and the run has no task graph yet, you are the planner: create the tasks and their quality gates, self-approve the plan gate, then claim your first task. If a plan already exists and nothing is claimable, reply that no work was claimed and stop — Multicode re-engages this terminal when work is ready.`
+      : `If it returns no claim, call \`${fallbackClaimTool}\` once with the same payload. If neither returns work, reply that no work was claimed and stop — Multicode re-engages this terminal when work is ready.`
+
   const claimContract = [
     '## Claim Contract',
     `\`${claimTool}\` claims the next ready item for your role, or returns your active one to resume. Work what it returns.`,
-    commandMode === 'init'
-      ? 'If it returns no claim, reply that no work was claimed and stop — Multicode re-engages this terminal when work is ready.'
-      : `If it returns no claim, call \`${fallbackClaimTool}\` once with the same payload. If neither returns work, reply that no work was claimed and stop — Multicode re-engages this terminal when work is ready.`,
+    noClaimFallback,
     'Use `sprintengine.help` for the current workflow/tool details instead of relying on this startup prompt.',
   ].join('\n')
+
+  // Belt-and-braces with the orchestration skill the General reads from the
+  // join response: reinforce the full loop and the no-roster-growth rule so the
+  // single agent drives plan → build → review → publish itself.
+  const generalLoopBlock = isGeneral
+    ? [
+      '## General Orchestration',
+      'You are a General: one soul-less agent that owns this whole sprint. With no architect and no specialists, you plan the work, implement it, review it, test it, and publish it yourself. When several Generals run, you share the work by claiming tasks and gates — no central coordinator assigns anything.',
+      'Drive every piece of work through the same loop, in order: plan → build → self-review → test → publish. Finish and review/test your open tasks through to done before claiming new ready work, and prefer your own pending review/testing gates over starting a fresh task.',
+      'When the run has no task graph yet, you are the planner: author the tasks with their quality gates (typically a self-review gate and a testing gate), self-approve the plan gate, then implement. Multicode owns run initialization — you never initialize the run yourself.',
+      'Keep the team exactly the size the user set: never add roster members or specialists. Read your full role rules from the `sprintengine.agent.join` response.',
+    ].join('\n')
+    : null
 
   const autoModeBlock = [
     '## Completion Handling',
@@ -148,6 +170,7 @@ export function buildSprintEngineStartupPrompt(
     roleBoundary,
     initBlock,
     claimContract,
+    generalLoopBlock,
     autoModeBlock,
     missingRunNote,
   ].filter(Boolean).join('\n\n')

@@ -961,27 +961,51 @@ def cmd_vcs_pr(args: argparse.Namespace) -> Dict[str, Any]:
     return with_locked_state(args.state, run)
 
 
-def finalize_completed_run(state: Dict[str, Any], state_path: Path, policy: Dict[str, Any]) -> Dict[str, Any]:
-    """Commit leftover task-scoped changes and open the run pull request at completion.
+def cmd_vcs_pr_status(args: argparse.Namespace) -> Dict[str, Any]:
+    from sprintengine_core.tool.shell import cleanup_merged_worktree, refresh_run_pull_request_state
 
-    Runs only in worktree mode with ``openPullRequestOnComplete`` enabled. Returns
-    a dict with a ``blocked`` flag and a ``message``; when not blocked it carries
-    any ``pullRequestUrl``/``pullRequestError``. If the worktree still has changes
-    owned by no task after a backstop commit, the run is blocked instead of opening
-    a pull request over an incomplete tree.
+    def run(state: Dict[str, Any]) -> Dict[str, Any]:
+        from sprintengine_core.tool.shell import get_run_vcs
+
+        prior = (get_run_vcs(state) or {}).get("pullRequestState")
+        result = refresh_run_pull_request_state(state, args.state)
+        changed = result.get("pullRequestState") != prior
+        # Auto-remove the worktree once the branch has merged (clean only).
+        if result.get("pullRequestState") == "merged":
+            cleanup = cleanup_merged_worktree(state, args.state)
+            result["worktreeCleanup"] = cleanup
+            if cleanup.get("removed"):
+                changed = True
+        # Avoid rewriting the projection (and re-rendering) when nothing changed —
+        # this command polls every 30s while the summary is open.
+        if not changed:
+            result["write"] = False
+        return {"action": "vcs_pr_status", **result}
+
+    return with_locked_state(args.state, run)
+
+
+def finalize_completed_run(state: Dict[str, Any], state_path: Path, policy: Dict[str, Any]) -> Dict[str, Any]:
+    """Commit leftover task-scoped changes at completion and report run state.
+
+    Pull requests are NOT opened automatically: the user opens one from the run
+    summary (the "Create pull request" action) when ready. This backstop-commits any
+    still-uncommitted task-scoped changes so the branch is PR-ready, then returns a
+    ``blocked`` flag and ``message``. If the worktree still has changes owned by no
+    task, the run is blocked rather than declared done over an incomplete tree.
     """
     from sprintengine_core.tool.shell import (
         commit_task_changes_if_needed,
-        create_run_pull_request,
         get_run_vcs,
         worktree_orphaned_dirty_paths,
     )
 
     vcs = get_run_vcs(state)
-    if not vcs or not policy.get("openPullRequestOnComplete"):
+    if not vcs:
         return {"blocked": False, "message": "All Sprint Engine tasks are done. Stop now."}
 
-    # Backstop-commit any still-uncommitted task-scoped changes across all tasks.
+    # Backstop-commit any still-uncommitted task-scoped changes across all tasks so
+    # the branch is ready for a pull request whenever the user opens one.
     for task in state.get("tasks", []) or []:
         if isinstance(task, dict):
             commit_task_changes_if_needed(state, state_path, task, "sprintengine")
@@ -993,7 +1017,7 @@ def finalize_completed_run(state: Dict[str, Any], state_path: Path, policy: Dict
             "orphanedUncommittedPaths": orphaned,
             "message": (
                 "All tasks are done but the run worktree has changes owned by no task and uncommitted: "
-                f"{', '.join(orphaned)}. These would be missing from the pull request. Add them to a task's "
+                f"{', '.join(orphaned)}. These would be missing from a pull request. Add them to a task's "
                 "ownedPaths and commit (`sprintengine vcs commit`), or remove them, then complete again."
             ),
         }
@@ -1007,28 +1031,12 @@ def finalize_completed_run(state: Dict[str, Any], state_path: Path, policy: Dict
             "message": f"All tasks are done. Pull request already open: {existing_url}. Stop now.",
         }
 
-    # Opening the PR is best-effort and must never prevent a completed run from
-    # completing. `create_run_pull_request` returns push/network errors, but
-    # `run_gh_checked` raises SystemExit when `gh` is not installed, so guard the
-    # whole call and surface any failure as a reported error instead.
-    try:
-        pr = create_run_pull_request(state, state_path)
-    except SystemExit as exc:
-        pr = {"ok": False, "error": str(exc)}
-    if not pr.get("ok"):
-        return {
-            "blocked": False,
-            "pullRequestError": pr.get("error"),
-            "message": (
-                "All tasks are done and changes are committed, but opening the pull request failed: "
-                f"{pr.get('error')}. Retry with `sprintengine vcs pr`. Stop now."
-            ),
-        }
-    url = pr.get("pullRequestUrl")
     return {
         "blocked": False,
-        "pullRequestUrl": url,
-        "message": f"All tasks are done. Opened pull request: {url or '(url unavailable)'}. Stop now.",
+        "message": (
+            "All Sprint Engine tasks are done and committed to the run worktree. "
+            "Open a pull request from the run summary when ready. Stop now."
+        ),
     }
 
 
@@ -1248,3 +1256,4 @@ triage_needs_input = cmd_triage_needs_input
 vcs_status = cmd_vcs_status
 vcs_commit = cmd_vcs_commit
 vcs_pr = cmd_vcs_pr
+vcs_pr_status = cmd_vcs_pr_status

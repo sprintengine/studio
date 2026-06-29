@@ -130,6 +130,8 @@ function publishTerminalListIpcFailureNotice(
 // pairs with) for no user-visible loss in a long-running run.
 const AUTO_RUN_POLL_MS = 4000
 const INACTIVE_AUTO_RUN_POLL_MS = 15000
+// Gentle background cadence for refreshing PR merge state on non-open workspaces.
+const BACKGROUND_PR_SWEEP_MS = 600_000
 const AUTO_RUN_STARTUP_SPAWN_DELAY_MS = 10000
 const AUTO_RUN_PENDING_SPAWN_GRACE_MS = 60000
 export const AUTO_RUN_MAX_PROMPT_RETRIES = PLANNER_MAX_PROMPT_RETRIES
@@ -1526,17 +1528,17 @@ async function ensureSprintEngineBootstrapAgent(
       await defaultExecutorPorts.publishDiagnostic({
         level: 'warning',
         source: 'sprintengine',
-        title: decision.reason === 'no_architect'
+        title: decision.reason === 'no_planner'
           ? 'Automation has nothing to start'
-          : 'Architect terminal exited before planning finished',
-        message: decision.reason === 'no_architect'
-          ? 'This run has no tasks yet and no architect on the roster, so automation cannot create a plan.'
-          : 'The run has no tasks yet and the architect terminal already exited. Automation does not respawn it automatically; spawn the architect from the board to continue planning.',
+          : 'Planner terminal exited before planning finished',
+        message: decision.reason === 'no_planner'
+          ? 'This run has no tasks yet and no planning agent (an architect, or a General) on the roster, so automation cannot create a plan.'
+          : 'The run has no tasks yet and the planner terminal already exited. Automation does not respawn it automatically; spawn the planner from the board to continue planning.',
         details: [
           `Workspace: ${workspace.name}`,
-          decision.reason === 'no_architect'
-            ? 'Add an architect to the roster or create tasks before enabling automation.'
-            : 'Once the architect records tasks, agents spawn on their own when work becomes claimable.',
+          decision.reason === 'no_planner'
+            ? 'Add an architect or a General to the roster, or create tasks, before enabling automation.'
+            : 'Once the planner records tasks, agents spawn on their own when work becomes claimable.',
         ].join('\n'),
         workspaceId: workspace.id,
         workspaceName: workspace.name,
@@ -2409,6 +2411,49 @@ export default function SprintEngineAutoRunSupervisor() {
     return () => {
       disposed = true
       timer.unregister()
+      window.clearInterval(interval)
+    }
+  }, [])
+
+  // Background pull-request merge sweep. The open run-summary polls the active
+  // workspace every 30s; this gentle 10-minute sweep keeps the sidebar run glyph
+  // (outline = not merged, filled = merged) honest for runs whose summary isn't
+  // open. It only touches completed worktree runs with a non-terminal PR, skips
+  // the active workspace (already polled), and stops once a run is merged/closed.
+  useEffect(() => {
+    let disposed = false
+    const sweep = async () => {
+      const store = useWorkspaceStore.getState()
+      const activeId = store.activeWorkspaceId
+      for (const workspace of store.workspaces) {
+        if (disposed) return
+        if (workspace.id === activeId) continue
+        if (workspace.mode !== 'sprintengine') continue
+        const statePath = workspace.sprintEngineContext?.statePath
+        const vcs = workspace.sprintEngineState?.vcs
+        if (!statePath || !vcs) continue
+        if (vcs.pullRequestState === 'merged' || vcs.pullRequestState === 'closed') continue
+        const tasks = workspace.sprintEngineState?.tasks ?? []
+        const completed = tasks.length > 0 && tasks.every((task) => task.status === 'done')
+        if (!completed && !vcs.pullRequestUrl) continue
+        try {
+          const result = await window.api.refreshSprintEnginePullRequestStatus(statePath)
+          if (disposed || !result.ok) continue
+          await refreshSprintEngineWorkspaceProjection({
+            workspace,
+            tokens: new Map(),
+            cause: 'manual',
+            force: true,
+          })
+        } catch {
+          // Best-effort: a transient gh/git failure just retries next sweep.
+        }
+      }
+    }
+    void sweep()
+    const interval = window.setInterval(() => void sweep(), BACKGROUND_PR_SWEEP_MS)
+    return () => {
+      disposed = true
       window.clearInterval(interval)
     }
   }, [])

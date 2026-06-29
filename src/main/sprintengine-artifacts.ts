@@ -27,6 +27,7 @@ import type {
   SprintEngineArtifactReviewPayload,
   SprintEngineProjectionReadPayload,
   SprintEngineTaskReadyPayload,
+  SprintEngineVcsPayload,
 } from './ipc/sprintengine-ipc'
 import { findSprintEngineRuntimeRoot } from './mcp-config-service'
 import { getPluginSprintEngineRegistryRoots } from './plugin-registry-instance'
@@ -699,6 +700,8 @@ export function createSprintEngineArtifactHandlers(deps: SprintEngineArtifactDep
   resolveTaskInput(payload: SprintEngineTaskResolveInput): Promise<SprintEngineArtifactCommandResult>
   setTaskStatus(payload: SprintEngineTaskStatusSetInput): Promise<SprintEngineArtifactCommandResult>
   setRunnerMode(payload: SprintEngineRunnerSetInput): Promise<SprintEngineArtifactCommandResult>
+  createPullRequest(payload: SprintEngineVcsPayload): Promise<SprintEngineArtifactCommandResult>
+  refreshPullRequestStatus(payload: SprintEngineVcsPayload): Promise<SprintEngineArtifactCommandResult>
   replenishRoster(payload: SprintEngineRosterReplenishInput): Promise<SprintEngineArtifactCommandResult>
   addRosterMember(payload: SprintEngineRosterAddInput): Promise<SprintEngineArtifactCommandResult>
   readProjection(payload: SprintEngineProjectionReadPayload): Promise<SprintEngineProjectionReadResult>
@@ -1118,6 +1121,74 @@ export function createSprintEngineArtifactHandlers(deps: SprintEngineArtifactDep
           data: await buildSprintEngineMutationData(state, {
             action: 'runner-set-mode',
             cliWatchPolling,
+            tool: parseSprintEngineCliJsonOutput(toolResult.stdout),
+          }),
+        }
+      } catch (error) {
+        return { ok: false, message: error instanceof Error ? error.message : String(error) }
+      }
+    },
+
+    // Push the run worktree branch and open a pull request. Best-effort: a
+    // push/PR failure is recorded on the vcs record (status=failed +
+    // pullRequestError) and surfaced through the refreshed projection, so the
+    // summary shows the real reason and a Retry rather than a silent "pending".
+    async createPullRequest(payload) {
+      try {
+        const state = validateSprintEngineStatePath(payload?.statePath)
+        const toolResult = await runSprintEngineCli(state, [
+          '--state',
+          state.statePath,
+          'vcs',
+          'pr',
+          '--id',
+          'ui',
+        ])
+        if (toolResult.exitCode !== 0) {
+          return {
+            ok: false,
+            message: toolResult.stderr.trim() || toolResult.stdout.trim() || 'Opening the pull request failed.',
+            stdout: toolResult.stdout,
+            stderr: toolResult.stderr,
+            exitCode: toolResult.exitCode ?? 'unknown',
+          }
+        }
+        return {
+          ok: true,
+          data: await buildSprintEngineMutationData(state, {
+            action: 'vcs-pr',
+            tool: parseSprintEngineCliJsonOutput(toolResult.stdout),
+          }),
+        }
+      } catch (error) {
+        return { ok: false, message: error instanceof Error ? error.message : String(error) }
+      }
+    },
+
+    // Resolve and persist whether the run branch has merged (PR state or branch
+    // ancestry). Read-only network/git probe; never mutates the working tree.
+    async refreshPullRequestStatus(payload) {
+      try {
+        const state = validateSprintEngineStatePath(payload?.statePath)
+        const toolResult = await runSprintEngineCli(state, [
+          '--state',
+          state.statePath,
+          'vcs',
+          'pr-status',
+        ])
+        if (toolResult.exitCode !== 0) {
+          return {
+            ok: false,
+            message: toolResult.stderr.trim() || toolResult.stdout.trim() || 'Refreshing pull-request status failed.',
+            stdout: toolResult.stdout,
+            stderr: toolResult.stderr,
+            exitCode: toolResult.exitCode ?? 'unknown',
+          }
+        }
+        return {
+          ok: true,
+          data: await buildSprintEngineMutationData(state, {
+            action: 'vcs-pr-status',
             tool: parseSprintEngineCliJsonOutput(toolResult.stdout),
           }),
         }

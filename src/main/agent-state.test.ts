@@ -1,13 +1,13 @@
 import assert from 'node:assert/strict'
 import { mkdtemp, mkdir, readFile, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { join, sep } from 'node:path'
 
 import {
   AGENT_STATE_CODEX_HOOK_EVENTS,
   AGENT_STATE_HOOK_EVENTS,
   AGENT_STATE_HOOK_TAG,
-  buildAgentStateHookCommand,
+  buildAgentStateReporterCommand,
   deriveActivityFromPhase,
   evaluateAgentStall,
   installAgentStateHook,
@@ -165,11 +165,21 @@ async function run(): Promise<void> {
   assert.equal(isAuthoritativeWorkingPhase(undefined), false)
 
   // --- command builder ----------------------------------------------------
-  const cmd = buildAgentStateHookCommand('/tmp/multi code/agent.sock')
-  assert.match(cmd, /^node "\.multicode\/hooks\/agent-state\.mjs" --socket "\/tmp\/multi code\/agent\.sock"$/)
-  // A Windows named-pipe path must survive verbatim — a separator rewrite would
-  // corrupt `\\.\pipe\...` into `//./pipe/...`, which connect() cannot open.
-  const winCmd = buildAgentStateHookCommand('\\\\.\\pipe\\multicode-agent-state-abc')
+  // The reporter is referenced by its ABSOLUTE path (hook cwd is not guaranteed),
+  // double-quoted so spaces survive and forward-slashed so a Windows `C:\...` path
+  // carries no unescaped backslashes into the JSON/TOML command string.
+  const cmd = buildAgentStateReporterCommand('/abs/multi code/.multicode/hooks/agent-state.mjs', '/tmp/multi code/agent.sock')
+  assert.match(cmd, /^node "\/abs\/multi code\/\.multicode\/hooks\/agent-state\.mjs" --socket "\/tmp\/multi code\/agent\.sock"$/)
+  // The host path separator is rewritten to '/': on Windows `resolve()` yields
+  // backslashes, which Node accepts as forward slashes and which avoids embedding
+  // unescaped backslashes. Build the input with the host `sep` so this holds on
+  // any platform the test runs on.
+  const sepCmd = buildAgentStateReporterCommand(['', 'abs', 'proj', 'agent-state.mjs'].join(sep), '/sock')
+  assert.ok(sepCmd.includes('node "/abs/proj/agent-state.mjs"'), sepCmd)
+  assert.ok(!sepCmd.slice(0, sepCmd.indexOf('--socket')).includes('\\'), 'script path must not contain backslashes')
+  // A Windows named-pipe SOCKET path must survive verbatim — a separator rewrite
+  // would corrupt `\\.\pipe\...` into `//./pipe/...`, which connect() cannot open.
+  const winCmd = buildAgentStateReporterCommand('/abs/.multicode/hooks/agent-state.mjs', '\\\\.\\pipe\\multicode-agent-state-abc')
   assert.ok(winCmd.includes('--socket "\\\\.\\pipe\\multicode-agent-state-abc"'), winCmd)
 
   // --- install / uninstall round-trip ------------------------------------
@@ -213,8 +223,19 @@ async function run(): Promise<void> {
   assert.ok(userEntry, 'user PostToolUse block dropped')
   assert.equal(userEntry?.hooks?.[0]?.command, 'echo user')
 
+  // Our command references the reporter by ABSOLUTE path (the copied destination),
+  // not a workspace-relative path: hook cwd is not guaranteed, so a relative path
+  // would misresolve once the session cwd drifts off the root.
+  const ourEntry = settings.hooks?.SessionStart?.[0]?.hooks?.find((h) => h._multicode === AGENT_STATE_HOOK_TAG)
+  const expectedScript = join(root, '.multicode', 'hooks', 'agent-state.mjs').split('\\').join('/')
+  assert.ok(ourEntry?.command.includes(`node "${expectedScript}"`), ourEntry?.command)
+  // Guard against regressing to the relative form `node ".multicode/...`: in the
+  // absolute form the opening quote is followed by the root (`/` or `C:/`), never
+  // by `.multicode`, so this substring can only appear if a relative path leaked.
+  assert.ok(!ourEntry?.command.includes('node ".multicode'), 'must not embed a relative script path')
+
   // Idempotent: installing again does not duplicate entries.
-  await mergeAgentStateHooks(settingsPath, buildAgentStateHookCommand(join(root, 'agent.sock')))
+  await mergeAgentStateHooks(settingsPath, buildAgentStateReporterCommand(join(root, '.multicode', 'hooks', 'agent-state.mjs'), join(root, 'agent.sock')))
   settings = await readSettings(settingsPath)
   assert.equal(countOurEntries(settings), AGENT_STATE_HOOK_EVENTS.length)
 

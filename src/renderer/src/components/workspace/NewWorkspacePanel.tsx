@@ -63,6 +63,7 @@ import {
 import { ModeCard } from './newWorkspace/ModeCard'
 import { RecentFolderRow, isSameFolder } from './newWorkspace/RecentFolderRow'
 import { AgentCliPicker, type SprintEngineCliOption } from './newWorkspace/SprintEngineRosterTable'
+import { sprintEngineRosterHasPlanningRole, sprintEngineRosterRoleFloor } from '../../utils/sprintengineRoleOptions'
 import { useFolderHints, useFolderScan } from './newWorkspace/useNewWorkspaceFolder'
 import { useBacklogScan } from './newWorkspace/useBacklogScan'
 import { BacklogRowContent } from '../backlog/BacklogRow'
@@ -1048,8 +1049,14 @@ export default function NewWorkspacePanel({
       : seTeamName.trim().length > 0 && seGoal.trim().length > 0)
   const sprintEngineTeamReady =
     sprintEngineAccess.allowed && sePlanReady && seTeamDetailsReady
+  // A new roster needs at least one agent AND at least one planning-capable
+  // agent (architect or general); existing teams were already validated when
+  // created. The stepper floors prevent dropping the last planner interactively,
+  // so this is the defensive gate for loaded/saved counts.
   const sprintEngineRosterReady =
-    sprintEngineAccess.allowed && (seExistingTeam != null || totalAgents > 0)
+    sprintEngineAccess.allowed
+    && (seExistingTeam != null
+      || (totalAgents > 0 && sprintEngineRosterHasPlanningRole(visibleSprintEngineRoleCounts)))
   const guidedIdeaReady = guidedIdea.trim().length > 0 && guidedHasUi != null
 
   const canAdvanceFromCurrent = isStepReady(step, {
@@ -1294,7 +1301,6 @@ export default function NewWorkspacePanel({
   }
 
   const setRoleCount = (role: SprintEngineRoleId, count: number) => {
-    const min = role === 'architect' ? 1 : 0
     setSeExistingTeam(null)
     setSeAgentCliOverrides({})
     setSeRoleCliDefaults((current) => ({
@@ -1304,10 +1310,16 @@ export default function NewWorkspacePanel({
       // uninstalled agent on a machine that lacks it.
       [role]: current[role] ?? resolveAvailableAgentCli('claude-code', sprintEngineCliOptions, 'claude-code'),
     }))
-    setSeRoleCounts((current) => ({
-      ...current,
-      [role]: Math.max(min, Math.min(10, Math.floor(count))),
-    }))
+    setSeRoleCounts((current) => {
+      // Floor against the current counts so a planning role (architect/general)
+      // can only drop to 0 while the other planner is staffed — the roster
+      // never loses its last planning-capable agent.
+      const min = sprintEngineRosterRoleFloor(role, current)
+      return {
+        ...current,
+        [role]: Math.max(min, Math.min(10, Math.floor(count))),
+      }
+    })
   }
 
   const setRoleCli = (role: SprintEngineRoleId, cli: AgentCli) => {

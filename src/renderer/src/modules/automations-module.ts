@@ -48,12 +48,15 @@ export const automationsRendererModule: RendererModule = {
 
     // Deep-link from an automations run notification to the run it is about,
     // shared by manual Run-now and background scheduled runs (the run target
-    // carries the run's folderPath). Open reveals the per-project Automations
-    // workspace and dispatches the run target into it; the control-center panel
-    // there drains it on reveal and scroll/focuses the run. Runs auto-create a
-    // host for their folder, so one normally exists by the time the notification
-    // fires; if none does (e.g. it was closed), the shell's generic
-    // workspace-reveal fallback still offers an Open for the run's workspace.
+    // carries the run's folderPath). Open reveals the run's Automations workspace
+    // and dispatches the run target into it; the control-center panel there drains
+    // it on reveal and scroll/focuses the run. A provider action REPLACES the
+    // shell's generic workspace-reveal fallback (see resolveNotificationActions),
+    // so this action must resolve a target itself: prefer the per-project
+    // `automations-host` workspace matched by folder, then fall back to the
+    // notification's own `workspaceId` (the workspace the run executed in — a
+    // legacy explicit-workspaceId run, or the host before it was reordered/closed
+    // and reopened). Only when neither resolves is there genuinely nowhere to go.
     host.registerNotificationActionProvider({
       source: 'automations',
       resolveActions: ({ notification }) => {
@@ -62,6 +65,7 @@ export const automationsRendererModule: RendererModule = {
         const decoded = decodeRunRef(target.ref)
         if (!decoded?.folderPath) return []
         const folderKey = normalizeFolderKey(decoded.folderPath)
+        const fallbackWorkspaceId = notification.workspaceId
         return [
           {
             id: 'automations.open-run',
@@ -78,9 +82,10 @@ export const automationsRendererModule: RendererModule = {
                       isAutomationsHostWorkspace(workspace) &&
                       normalizeFolderKey(workspace.folderPath) === folderKey
                   )
-                if (!host) return
-                ctx.revealWorkspace(host.id)
-                dispatchRevealTarget({ workspaceId: host.id, target })
+                const targetWorkspaceId = host?.id ?? fallbackWorkspaceId
+                if (!targetWorkspaceId) return
+                ctx.revealWorkspace(targetWorkspaceId)
+                dispatchRevealTarget({ workspaceId: targetWorkspaceId, target })
               })
             },
           },

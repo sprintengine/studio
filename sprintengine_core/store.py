@@ -123,10 +123,6 @@ DEFAULT_RUNNER_POLICY = {
     "idleBackoffSeconds": 30,
     "maxBackoffSeconds": 120,
     "stopWhenComplete": True,
-    # When a worktree-mode run completes, commit any still-uncommitted task-scoped
-    # changes and open a pull request for the run branch. Disable to leave the
-    # branch un-PR'd for manual handling.
-    "openPullRequestOnComplete": True,
 }
 GATE_PHASES = {"review", "testing", "product"}
 GATE_STATUSES = {"pending", "in_progress", "approved", "changes_requested", "blocked", "skipped", "released", "superseded"}
@@ -255,9 +251,6 @@ def normalize_runner_policy(raw: Any) -> dict[str, Any]:
         "idleBackoffSeconds": _positive_int(policy.get("idleBackoffSeconds"), int(DEFAULT_RUNNER_POLICY["idleBackoffSeconds"])),
         "maxBackoffSeconds": _positive_int(policy.get("maxBackoffSeconds"), int(DEFAULT_RUNNER_POLICY["maxBackoffSeconds"])),
         "stopWhenComplete": _bool_value(policy.get("stopWhenComplete"), bool(DEFAULT_RUNNER_POLICY["stopWhenComplete"])),
-        "openPullRequestOnComplete": _bool_value(
-            policy.get("openPullRequestOnComplete"), bool(DEFAULT_RUNNER_POLICY["openPullRequestOnComplete"])
-        ),
     }
 
 
@@ -343,6 +336,13 @@ def derive_default_quality_gates(task: dict[str, Any], state: dict[str, Any], po
     if task.get("role") not in {"developer", "frontend"} and not _bool_value(task.get("producesImplementation"), False):
         return []
     roster_roles = roster_roles_from_state(state)
+    # Derivation is roster-driven: a gate whose role is not rostered is skipped
+    # (below), so a missing reviewer never becomes an unclaimable queue. A
+    # soulless-General roster has none of the specialist reviewer roles, so no
+    # default gates are derived for it; the General instead authors its own
+    # `role: general` review/testing gates (self-approved via the
+    # `allowSelfReview` default) per the general orchestration skill. There is
+    # intentionally no default `general` gate in DEFAULT_QUALITY_POLICY.
     gate_specs = policy.get("gates") if isinstance(policy.get("gates"), dict) else {}
     selected: list[dict[str, Any]] = []
 

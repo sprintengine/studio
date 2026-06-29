@@ -21,6 +21,7 @@ import {
   AutomationsProviderRegistryToken,
   SprintEngineAutomationFrontDoorsToken,
   SwitchboardAutomationFrontDoorsToken,
+  TerminalRuntimeToken,
   WorkspaceSyncServiceToken,
 } from '../module-host/service-tokens'
 import type { CapabilityModule } from '../module-host/load-modules'
@@ -82,6 +83,7 @@ export function createAutomationsModule(options: AutomationsModuleOptions = {}):
     registerMain(host) {
       const automationDelegate = host.requireService(AutomationDelegateToken)
       const workspaceSyncService = host.requireService(WorkspaceSyncServiceToken)
+      const terminalRuntime = host.requireService(TerminalRuntimeToken)
       const switchboardFrontDoors = serviceBackedSwitchboardFrontDoors(() =>
         host.getService(SwitchboardAutomationFrontDoorsToken)
       )
@@ -125,8 +127,21 @@ export function createAutomationsModule(options: AutomationsModuleOptions = {}):
               autonomy: input.autonomy,
             }),
           removeRunWorktree: defaultRemoveRunWorktree,
+          getLiveAgentExecutionIds: () =>
+            terminalRuntime.getLiveAgentExecutionIds().map((execution) => execution.executionId),
         })
       )
+
+      // Agent-lifecycle finalize trigger: route every real agent-session pty exit
+      // to the engine, which finalizes only the pending automation run (if any)
+      // whose executionId matches and ignores all other exits. The signal-file
+      // poll-scan remains the backstop for runs whose executionId never resolved.
+      // Unregister on module teardown so a live disable→enable cycle never leaks
+      // a listener pointed at a stopped engine.
+      const unregisterAgentExitListener = terminalRuntime.registerAgentSessionExitListener((event) =>
+        engine.finalizeRunOnAgentExit({ executionId: event.executionId, exitCode: event.exitCode })
+      )
+      host.onShutdown(() => unregisterAgentExitListener())
       const webhookReceiver = createAutomationWebhookReceiver({
         getProjectFolders: () => projectFoldersFromWorkspaceSyncSnapshot(workspaceSyncService.getSnapshot()),
         deliverTriggerEvent: (input) => engine.deliverTriggerEvent(input),

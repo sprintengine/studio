@@ -13,9 +13,11 @@ import {
   compareCliDeliveryScores,
   buildAgentTokenTotals,
   buildTaskTokenWindows,
+  buildAgentActivityTimeline,
   computeRunDurationMs,
   formatCompactTokenCount,
   formatRunDuration,
+  monotoneCubicPath,
   type SprintEngineAgentRow,
   type SprintEngineTypeStat,
 } from './sprintengineRunSummary'
@@ -683,11 +685,248 @@ function testBuildTaskTokenWindows(): void {
   assert.deepEqual(buildTaskTokenWindows(makeTask({ id: 'T2' })), [])
 }
 
+// The burn-up curve is cumulative, so its smoothing must never overshoot: every
+// point of the rendered curve has to stay within the y-range of the segment it
+// lies on. A cardinal spline fails this on a long flat run followed by a steep
+// finish (the bug that drew a ballooning blob); monotone cubic must not.
+function testMonotoneCubicNeverOvershoots(): void {
+  // Chart-space points (y shrinks as more tasks complete): flat for most of the
+  // run, then a sharp climb to the top in the final stretch.
+  const points: Array<[number, number]> = [
+    [0, 100],
+    [40, 100],
+    [120, 100],
+    [300, 92],
+    [520, 90],
+    [555, 12],
+    [560, 12],
+  ]
+  const d = monotoneCubicPath(points)
+  const nums = (d.match(/-?\d+(?:\.\d+)?/g) ?? []).map(Number)
+  assert.ok(nums.length >= 2, 'path emits coordinates')
+
+  // Walk the cubic segments (M x y, then repeating C c1 c2 end) and sample each.
+  let px = nums[0]
+  let py = nums[1]
+  let idx = 2
+  const eps = 0.01
+  while (idx + 6 <= nums.length) {
+    const [c1x, c1y, c2x, c2y, x, y] = nums.slice(idx, idx + 6)
+    void c1x
+    void c2x
+    const lo = Math.min(py, y) - eps
+    const hi = Math.max(py, y) + eps
+    for (let t = 0; t <= 1.0001; t += 0.05) {
+      const mt = 1 - t
+      const by = mt * mt * mt * py + 3 * mt * mt * t * c1y + 3 * mt * t * t * c2y + t * t * t * y
+      assert.ok(by >= lo && by <= hi, `curve stays within [${lo}, ${hi}] at t=${t.toFixed(2)} (got ${by.toFixed(2)})`)
+    }
+    px = x
+    py = y
+    idx += 6
+  }
+  void px
+
+  // Degenerate inputs stay safe.
+  assert.equal(monotoneCubicPath([]), '')
+  assert.equal(monotoneCubicPath([[3, 4]]), 'M 3 4')
+  assert.equal(monotoneCubicPath([[0, 0], [10, 5]]), 'M 0.00 0.00 L 10.00 5.00')
+}
+
+function activityEntry(
+  timestamp: string,
+  actor: string,
+  type: string,
+  status?: string,
+): SprintEngineTask['activity'] extends Array<infer E> | undefined ? E : never {
+  return { id: `${actor}-${timestamp}`, timestamp, actor, type, message: '', status } as never
+}
+
+function agentRecord(role: string, extra: Record<string, unknown> = {}): SprintEngineRuntimeAgent {
+  // `extra` may carry now-untracked fields (joinedAt/leftAt) the builder ignores —
+  // they just confirm lifecycle timestamps don't affect the task-time timeline.
+  return { role, status: 'idle', currentTaskId: null, ...extra } as unknown as SprintEngineRuntimeAgent
+}
+
+function testBuildAgentActivityTimelineDerivesHandoffs(): void {
+  const tasks = [
+    makeTask({
+      id: 'T1',
+      status: 'done',
+      completedAt: '2026-06-03T10:40:00Z',
+      lastImplementedByAgentId: 'developer-1',
+      // dev claims, adds evidence (same holder), then a reviewer takes it to review and done.
+      activity: [
+        activityEntry('2026-06-03T10:00:00Z', 'developer-1', 'claim'),
+        activityEntry('2026-06-03T10:05:00Z', 'developer-1', 'evidence'),
+        activityEntry('2026-06-03T10:30:00Z', 'code_reviewer-1', 'status_change', 'review'),
+        activityEntry('2026-06-03T10:40:00Z', 'code_reviewer-1', 'status_change', 'done'),
+      ],
+    }),
+    // No activity log: falls back to the implementer's started→completed window.
+    makeTask({
+      id: 'T2',
+      status: 'done',
+      startedAt: '2026-06-03T10:50:00Z',
+      completedAt: '2026-06-03T11:10:00Z',
+      ownerAgentId: 'developer-1',
+    }),
+  ]
+  const timeline = buildAgentActivityTimeline(
+    makeState({
+      tasks,
+      creation: { createdAt: '2026-06-03T09:55:00Z', updatedAt: '2026-06-03T11:15:00Z' },
+      sprintEngineAgents: {
+        'developer-1': agentRecord('developer', { joinedAt: '2026-06-03T09:58:00Z' }),
+        'code_reviewer-1': agentRecord('code_reviewer', { joinedAt: '2026-06-03T10:25:00Z' }),
+      },
+    }),
+    { 'developer-1': 'developer', 'code_reviewer-1': 'code_reviewer' }
+  )
+  assert.ok(timeline, 'timeline builds when activity/timing exist')
+
+  // Window spans creation → last update, not just the work segments.
+  assert.equal(timeline!.startMs, Date.parse('2026-06-03T09:55:00Z'))
+  assert.equal(timeline!.endMs, Date.parse('2026-06-03T11:15:00Z'))
+
+  const dev = timeline!.rows.find((r) => r.agentId === 'developer-1')
+  const reviewer = timeline!.rows.find((r) => r.agentId === 'code_reviewer-1')
+  assert.ok(dev && reviewer, 'both actors get a lane')
+
+  // dev's claim+evidence slivers on T1 merge into one in_progress bar [10:00,10:30],
+  // and the activity-less T2 adds a second bar [10:50,11:10].
+  assert.equal(dev!.role, 'developer')
+  assert.deepEqual(
+    dev!.segments.map((s) => [s.taskId, s.status, s.startMs, s.endMs]),
+    [
+      ['T1', 'in_progress', Date.parse('2026-06-03T10:00:00Z'), Date.parse('2026-06-03T10:30:00Z')],
+      ['T2', 'in_progress', Date.parse('2026-06-03T10:50:00Z'), Date.parse('2026-06-03T11:10:00Z')],
+    ]
+  )
+  assert.equal(dev!.activeMs, 30 * 60000 + 20 * 60000, 'active time sums both bars')
+
+  // Reviewer holds T1 through the review phase [10:30,10:40]; the trailing
+  // done-at-completion entry is zero-length and dropped.
+  assert.deepEqual(
+    reviewer!.segments.map((s) => [s.taskId, s.status]),
+    [['T1', 'review']]
+  )
+
+  // Earliest-active agent leads the lane order.
+  assert.equal(timeline!.rows[0].agentId, 'developer-1')
+}
+
+function testBuildAgentActivityTimelineOnlyTaskHolders(): void {
+  const tasks = [
+    makeTask({
+      id: 'T1',
+      status: 'done',
+      completedAt: '2026-06-03T10:20:00Z',
+      lastImplementedByAgentId: 'developer-1',
+      activity: [
+        activityEntry('2026-06-03T10:00:00Z', 'developer-1', 'claim'),
+        activityEntry('2026-06-03T10:20:00Z', 'developer-1', 'status_change', 'done'),
+      ],
+    }),
+  ]
+  const timeline = buildAgentActivityTimeline(
+    makeState({
+      tasks,
+      creation: { createdAt: '2026-06-03T09:55:00Z', updatedAt: '2026-06-03T10:30:00Z' },
+      sprintEngineAgents: {
+        'developer-1': agentRecord('developer', {}),
+        // On the roster but never held a task — no lane (lifecycle is not tracked).
+        'security-1': agentRecord('security', { leftAt: '2026-06-03T10:10:00Z' }),
+        'tester-1': agentRecord('tester', {}),
+      },
+    }),
+    { 'developer-1': 'developer', 'security-1': 'security', 'tester-1': 'tester' }
+  )
+  assert.ok(timeline)
+  assert.deepEqual(
+    timeline!.rows.map((r) => r.agentId),
+    ['developer-1'],
+    'only agents that held a task get a lane; idle/departed agents do not'
+  )
+}
+
+function testBuildAgentActivityTimelineAttributesByPhase(): void {
+  // An architect comment lands mid-implementation, and a non-roster actor (the
+  // user) posts an artifact. Neither must fragment the developer's bar or create
+  // a lane: the implementation phase belongs to the implementer end-to-end.
+  const tasks = [
+    makeTask({
+      id: 'T1',
+      status: 'done',
+      startedAt: '2026-06-03T10:00:00Z',
+      completedAt: '2026-06-03T11:00:00Z',
+      lastImplementedByAgentId: 'developer-1',
+      activity: [
+        activityEntry('2026-06-03T10:00:00Z', 'developer-1', 'claim'),
+        activityEntry('2026-06-03T10:15:00Z', 'usr_abc', 'artifact'),
+        activityEntry('2026-06-03T10:20:00Z', 'architect-1', 'feedback'),
+        activityEntry('2026-06-03T10:40:00Z', 'developer-1', 'evidence'),
+        activityEntry('2026-06-03T10:50:00Z', 'developer-1', 'status_change', 'review'),
+        activityEntry('2026-06-03T10:52:00Z', 'spec_reviewer-1', 'gate_claim'),
+        activityEntry('2026-06-03T11:00:00Z', 'spec_reviewer-1', 'gate_verdict'),
+        activityEntry('2026-06-03T11:00:00Z', 'spec_reviewer-1', 'status_change', 'done'),
+      ],
+    }),
+  ]
+  const timeline = buildAgentActivityTimeline(
+    makeState({
+      tasks,
+      creation: { createdAt: '2026-06-03T09:59:00Z', updatedAt: '2026-06-03T11:05:00Z' },
+      sprintEngineAgents: {
+        'developer-1': agentRecord('developer', { joinedAt: '2026-06-03T09:59:00Z' }),
+        'architect-1': agentRecord('architect', { joinedAt: '2026-06-03T09:59:00Z' }),
+        'spec_reviewer-1': agentRecord('spec_reviewer', { joinedAt: '2026-06-03T09:59:00Z' }),
+      },
+    }),
+    { 'developer-1': 'developer', 'architect-1': 'architect', 'spec_reviewer-1': 'spec_reviewer' }
+  )
+  assert.ok(timeline)
+
+  // Developer owns the whole implementation phase [10:00,10:50] as ONE bar — the
+  // architect feedback and the user artifact in between do not split it.
+  const dev = timeline!.rows.find((r) => r.agentId === 'developer-1')
+  assert.deepEqual(
+    dev!.segments.map((s) => [s.taskId, s.status, s.startMs, s.endMs]),
+    [['T1', 'in_progress', Date.parse('2026-06-03T10:00:00Z'), Date.parse('2026-06-03T10:50:00Z')]]
+  )
+
+  // The review phase belongs to the reviewer who worked it.
+  const reviewer = timeline!.rows.find((r) => r.agentId === 'spec_reviewer-1')
+  assert.deepEqual(
+    reviewer!.segments.map((s) => [s.taskId, s.status]),
+    [['T1', 'review']]
+  )
+
+  // The architect (only a mid-build commenter) gets NO bar and no lane; the
+  // non-roster user actor never appears.
+  assert.equal(timeline!.rows.find((r) => r.agentId === 'architect-1'), undefined)
+  assert.equal(timeline!.rows.find((r) => r.agentId === 'usr_abc'), undefined)
+}
+
+function testBuildAgentActivityTimelineEmptyCases(): void {
+  assert.equal(buildAgentActivityTimeline(makeState({ tasks: [] }), {}), null)
+  // Tasks with no activity and no usable timing yield no lanes.
+  assert.equal(
+    buildAgentActivityTimeline(makeState({ tasks: [makeTask({ id: 'T1', status: 'todo' })] }), {}),
+    null
+  )
+}
+
 function main(): void {
   testAgentTypeSummaryGroupsByRoleAndCli()
   testCompareCliDeliveryScores()
   testIssueTotalsAndPerAgentCounts()
   testBuildBurnupBuildsCumulativeSeries()
+  testMonotoneCubicNeverOvershoots()
+  testBuildAgentActivityTimelineDerivesHandoffs()
+  testBuildAgentActivityTimelineOnlyTaskHolders()
+  testBuildAgentActivityTimelineAttributesByPhase()
+  testBuildAgentActivityTimelineEmptyCases()
   testBuildAgentTaskDetailJoinsTasksCountsAndFindings()
   testQualitySummaryRollsUpAcrossAgents()
   testQualitySummaryDistinguishesNoMeasuredData()
