@@ -40,6 +40,9 @@ async function main(): Promise<void> {
     testCodexRenderDefault()
     testCodexRenderWithAutoWorkspace()
     testCodexRenderResume()
+    testOpenCodeRenderDefault()
+    testOpenCodeRenderWithBypassAndModel()
+    testOpenCodeRenderResume()
     testClaudeCodeRenderWithModel()
     testCodexRenderWithModel()
     testQuoteTokenLeavesSafeStringsBare()
@@ -248,6 +251,61 @@ function testCodexRenderResume(): void {
     resume: true,
   })
   assert.deepEqual(bare.argv, ['codex', 'resume'])
+}
+
+// OpenCode launch: prompt is positional, placed after `run`. The manifest's
+// default preset contributes no permission args, so a bare launch is just
+// [opencode, run, <prompt>]. Renders against the real loaded opencode manifest.
+function testOpenCodeRenderDefault(): void {
+  const out = renderAgentLaunchArgv({
+    cli: 'opencode',
+    sessionId: 'sid_oc',
+    initialPrompt: 'fix the parser',
+  })
+  assert.deepEqual(out.argv, ['opencode', 'run', 'fix the parser'])
+  assert.equal(out.binary, 'opencode')
+}
+
+// OpenCode bypass + model: the bypass_all preset adds
+// --dangerously-skip-permissions and modelSelection adds --model <id>, both
+// ahead of the positional prompt (launch.argv order: binary, run,
+// permissionArgs, modelArgs, prompt).
+function testOpenCodeRenderWithBypassAndModel(): void {
+  const out = renderAgentLaunchArgv({
+    cli: 'opencode',
+    sessionId: 'sid_oc2',
+    initialPrompt: 'build the auth flow',
+    cliPermissionPreset: 'bypass_all',
+    cliModel: 'anthropic/claude-opus-4',
+  })
+  assert.deepEqual(out.argv, [
+    'opencode',
+    'run',
+    '--dangerously-skip-permissions',
+    '--model',
+    'anthropic/claude-opus-4',
+    'build the auth flow',
+  ])
+}
+
+// OpenCode resume: targeted reattach to a known session id via
+// `--continue --session <id>`, with the prompt appended positionally. Default
+// preset contributes no permission/model args.
+function testOpenCodeRenderResume(): void {
+  const out = renderAgentLaunchArgv({
+    cli: 'opencode',
+    sessionId: 'sid_oc3',
+    resume: true,
+    initialPrompt: 'keep going',
+  })
+  assert.deepEqual(out.argv, [
+    'opencode',
+    'run',
+    '--continue',
+    '--session',
+    'sid_oc3',
+    'keep going',
+  ])
 }
 
 function testQuoteTokenLeavesSafeStringsBare(): void {
