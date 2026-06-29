@@ -44,12 +44,13 @@ export async function createWorkspaceConfirmed(
   const findWorkspace = (id: string): Workspace | null =>
     deps.getWorkspaceSyncSnapshot().state.workspaces.find((candidate) => candidate.id === id) ?? null
 
+  const mode = optionalString(input.mode) as WorkspaceMode | undefined
   const delegated = await deps.delegateToRenderer({
     kind: 'workspace.create',
     name: optionalString(input.name),
     folderPath: optionalString(input.folderPath),
     templateId: optionalString(input.templateId),
-    mode: optionalString(input.mode) as WorkspaceMode | undefined,
+    ...(mode ? { mode } : {}),
   })
   if (!delegated.ok) return { ok: false, code: delegated.code, message: delegated.message }
 
