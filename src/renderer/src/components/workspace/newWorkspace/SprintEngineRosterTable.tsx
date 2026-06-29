@@ -5,7 +5,8 @@ import { CliModelPickerButton, InboxRow, Popover, Tooltip } from '../../ui'
 import { getSprintEngineRoleLabel } from '../../../utils/sprintengine'
 import {
   getSprintEngineWizardRoleSummary,
-  listSprintEngineAddableRoles,
+  listSprintEngineWizardRoles,
+  sprintEngineRosterRoleFloor,
 } from '../../../utils/sprintengineRoleOptions'
 import type {
   AgentCli,
@@ -68,13 +69,13 @@ export function SprintEngineRosterTable({
   onSetSpawnAtStart,
   footer,
 }: RosterTableProps) {
-  const roles = listSprintEngineAddableRoles(registry, disabledRoleIds)
+  const roles = listSprintEngineWizardRoles(registry, disabledRoleIds)
   const fallbackCli = cliOptions[0]?.value ?? 'claude-code'
   return (
     <div className="divide-y divide-[color:var(--border-default)] rounded-md border border-[color:var(--border-default)]">
       {roles.map((role) => {
         const count = roleCounts[role] ?? 0
-        const isAdded = role === 'architect' || count > 0
+        const isAdded = count > 0
         const label = getSprintEngineRoleLabel(role, registry)
         const summary = getSprintEngineWizardRoleSummary(role, registry)
         const roleCli = roleCliDefaults[role] ?? fallbackCli
@@ -84,6 +85,7 @@ export function SprintEngineRosterTable({
               role={role}
               label={label}
               count={count}
+              minCount={sprintEngineRosterRoleFloor(role, roleCounts)}
               disabled={countDisabled}
               onSetCount={onSetCount}
             />
@@ -180,16 +182,20 @@ function CountStepper({
   role,
   label,
   count,
+  minCount,
   disabled,
   onSetCount,
 }: {
   role: SprintEngineRoleId
   label: string
   count: number
+  // Per-row floor. Planning roles (architect/general) floor at 1 while they are
+  // the sole staffed planner; every other role floors at 0. Computed by the
+  // caller via `sprintEngineRosterRoleFloor` so the rule lives in one place.
+  minCount: number
   disabled: boolean
   onSetCount: (role: SprintEngineRoleId, count: number) => void
 }) {
-  const minCount = role === 'architect' ? 1 : 0
   const decDisabled = disabled || count <= minCount
   const incDisabled = disabled || count >= 10
   return (
