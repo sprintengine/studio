@@ -60,6 +60,13 @@ async function main(): Promise<void> {
   await assertSignalScanRecordsContainedReportPaths()
   await assertOutOfReportsPathsDropWithoutFailingFinalize()
   await assertConcurrentManualAndScanFinalizeOnce()
+  await assertAgentExitFinalizesFromSignalWhenPresent()
+  await assertAgentExitWithoutSignalFinalizesFailedWithExitCode()
+  await assertAgentExitForUnknownExecutionIdIsNoOp()
+  await assertStartupReconcileForceFailsOrphanedAgentRun()
+  await assertStartupReconcileLeavesStillLiveRunPending()
+  await assertStartupReconcileNeverForceFailsExecutionlessRun()
+  await assertConcurrentAgentExitAndScanFinalizeOnce()
   await assertOversizeSignalStaysPending()
   await assertReviewOnlyFinalizeWithholdsUnexpectedChanges()
   await assertAllowChangesFinalizeStillPushesWorkingDiff()
@@ -515,6 +522,35 @@ function agentEngine(
   return { engine, events, removedWorktrees, counters, worktreePath }
 }
 
+// Like setupAgentRun, but the launched run carries an executionId so the
+// agent-lifecycle exit trigger and the startup reconcile can correlate to it.
+async function setupAgentRunWithExecutionId(
+  now: number,
+  executionId: string,
+  overrides: Partial<ConstructorParameters<typeof AutomationsEngine>[0]> = {}
+): Promise<{ workspaceRoot: string; store: AutomationsStore } & AgentEngineHarness> {
+  const workspaceRoot = await createWorkspace()
+  const store = new AutomationsStore(workspaceRoot)
+  assert.equal((await store.createDefinition(definition({
+    trigger: { kind: 'schedule', config: intervalConfig(10) },
+    nextRunAt: new Date(now).toISOString(),
+  }))).ok, true)
+  const worktreePath = `${workspaceRoot}/.multi-code/automations/worktrees/run-agent`
+  const harness = agentEngine(workspaceRoot, now, {
+    runAutomation: async () => ({
+      status: 'running',
+      workspaceId: 'ws-automations',
+      agentId: 'agent-1',
+      executionId,
+      worktreePath,
+      branch: 'automations/run-agent',
+      summary: 'Launched; working…',
+    }),
+    ...overrides,
+  })
+  return { workspaceRoot, store, ...harness }
+}
+
 async function writeRunSignal(worktreePath: string, body: string): Promise<void> {
   await mkdir(worktreePath, { recursive: true })
   await writeFile(runSignalPath(worktreePath), body, 'utf8')
@@ -784,6 +820,181 @@ async function assertConcurrentManualAndScanFinalizeOnce(): Promise<void> {
   assert.equal(removedWorktrees, 1, 'worktree torn down once')
   const terminalEvents = events.filter((event) => event.runId === 'run-agent')
   assert.equal(terminalEvents.length, 1, 'exactly one terminal run-event')
+  assert.equal((await readRunStatus(store, 'nightly-review', 'run-agent')), 'completed')
+}
+
+// --- Agent-lifecycle exit-driven finalize + startup reconcile (T2) ---
+
+async function assertAgentExitFinalizesFromSignalWhenPresent(): Promise<void> {
+  const now = Date.parse('2026-06-17T10:00:00.000Z')
+  const { engine, workspaceRoot, store, events, counters, worktreePath } =
+    await setupAgentRunWithExecutionId(now, 'exec-1')
+  assert.equal((await engine.runNow({ workspaceRoot, automationId: 'nightly-review', workspaceId: 'ws-automations' })).ok, true)
+
+  // A valid signal is present at exit → finalize from its outcome, not failed.
+  await writeRunSignal(worktreePath, JSON.stringify({ status: 'completed', summary: 'Wrote the report.' }))
+  await engine.finalizeRunOnAgentExit({ executionId: 'exec-1', exitCode: 0 })
+
+  const finalized = await store.getRun('nightly-review', 'run-agent')
+  assert.equal(finalized.ok && finalized.value.status, 'completed', 'signal outcome wins over exit-code default')
+  assert.equal(finalized.ok && finalized.value.summary, 'Wrote the report. Opened pull request https://github.com/acme/repo/pull/9.')
+  assert.equal(counters.prCalls, 1)
+  // Completed via the timer-routed exit path stays silent (no run-event).
+  assert.equal(events.length, 0)
+}
+
+async function assertAgentExitWithoutSignalFinalizesFailedWithExitCode(): Promise<void> {
+  const now = Date.parse('2026-06-17T10:00:00.000Z')
+  const { engine, workspaceRoot, store, events, counters } =
+    await setupAgentRunWithExecutionId(now, 'exec-1')
+  assert.equal((await engine.runNow({ workspaceRoot, automationId: 'nightly-review', workspaceId: 'ws-automations' })).ok, true)
+
+  // No signal file → the agent ended without declaring an outcome.
+  await engine.finalizeRunOnAgentExit({ executionId: 'exec-1', exitCode: 3 })
+
+  const finalized = await store.getRun('nightly-review', 'run-agent')
+  assert.equal(finalized.ok && finalized.value.status, 'failed')
+  assert.equal(finalized.ok && finalized.value.summary, 'Agent ended without declaring an outcome (exit code 3).')
+  assert.equal(counters.prCalls, 0, 'failed run opens no PR')
+  // Failed via timer routing still surfaces a failed run-event.
+  assert.equal(events.length, 1)
+  assert.equal(events[0]?.status, 'failed')
+  assert.equal(events[0]?.trigger, 'timer')
+}
+
+async function assertAgentExitForUnknownExecutionIdIsNoOp(): Promise<void> {
+  const now = Date.parse('2026-06-17T10:00:00.000Z')
+  const { engine, workspaceRoot, store, events, counters } =
+    await setupAgentRunWithExecutionId(now, 'exec-1')
+  assert.equal((await engine.runNow({ workspaceRoot, automationId: 'nightly-review', workspaceId: 'ws-automations' })).ok, true)
+
+  // An exit for an executionId with no pending run is a no-op: no finalize, no error.
+  await engine.finalizeRunOnAgentExit({ executionId: 'exec-other', exitCode: 1 })
+  await engine.finalizeRunOnAgentExit({ executionId: '   ', exitCode: 1 })
+
+  assert.equal((await readRunStatus(store, 'nightly-review', 'run-agent')), 'running', 'unmatched exit leaves the run pending')
+  assert.equal(counters.prCalls, 0)
+  assert.equal(events.length, 0)
+}
+
+async function assertStartupReconcileForceFailsOrphanedAgentRun(): Promise<void> {
+  const now = Date.parse('2026-06-17T10:00:00.000Z')
+  // Engine A dispatches a run that records `running` with executionId 'exec-orphan'.
+  const { engine: engineA, workspaceRoot, store } = await setupAgentRunWithExecutionId(now, 'exec-orphan')
+  assert.equal((await engineA.runNow({ workspaceRoot, automationId: 'nightly-review', workspaceId: 'ws-automations' })).ok, true)
+  assert.equal((await readRunStatus(store, 'nightly-review', 'run-agent')), 'running')
+
+  // Engine B restart: the agent is no longer live and wrote no signal.
+  const { engine: engineB, events, counters } = agentEngine(workspaceRoot, now, {
+    getLiveAgentExecutionIds: () => [],
+  })
+  await engineB.handleStartup()
+
+  const finalized = await store.getRun('nightly-review', 'run-agent')
+  assert.equal(finalized.ok && finalized.value.status, 'failed', 'orphaned run is force-failed')
+  assert.equal(finalized.ok && finalized.value.summary, 'Agent ended while Multicode was not running.')
+  assert.equal(counters.prCalls, 0)
+  assert.equal(events.length, 1)
+  assert.equal(events[0]?.status, 'failed')
+  assert.equal(events[0]?.trigger, 'timer')
+}
+
+async function assertStartupReconcileLeavesStillLiveRunPending(): Promise<void> {
+  const now = Date.parse('2026-06-17T10:00:00.000Z')
+  const { engine: engineA, workspaceRoot, store } = await setupAgentRunWithExecutionId(now, 'exec-live')
+  assert.equal((await engineA.runNow({ workspaceRoot, automationId: 'nightly-review', workspaceId: 'ws-automations' })).ok, true)
+
+  // Engine B restart, but the agent's executionId is still in the live inventory.
+  const { engine: engineB, counters } = agentEngine(workspaceRoot, now, {
+    getLiveAgentExecutionIds: () => ['exec-live'],
+  })
+  await engineB.handleStartup()
+
+  assert.equal((await readRunStatus(store, 'nightly-review', 'run-agent')), 'running', 'a still-live run is left pending')
+  assert.equal(counters.prCalls, 0)
+}
+
+async function assertStartupReconcileNeverForceFailsExecutionlessRun(): Promise<void> {
+  const now = Date.parse('2026-06-17T10:00:00.000Z')
+  // setupAgentRun's default run carries NO executionId.
+  const { engine: engineA, workspaceRoot, store } = await setupAgentRun(now)
+  assert.equal((await engineA.runNow({ workspaceRoot, automationId: 'nightly-review', workspaceId: 'ws-automations' })).ok, true)
+
+  // Engine B restart with an empty live inventory: a run lacking a recorded
+  // executionId must never be force-failed (the signal scan still covers it).
+  const { engine: engineB, counters } = agentEngine(workspaceRoot, now, {
+    getLiveAgentExecutionIds: () => [],
+  })
+  await engineB.handleStartup()
+
+  assert.equal((await readRunStatus(store, 'nightly-review', 'run-agent')), 'running', 'executionless run is untouched')
+  assert.equal(counters.prCalls, 0)
+}
+
+async function assertConcurrentAgentExitAndScanFinalizeOnce(): Promise<void> {
+  const now = Date.parse('2026-06-17T10:00:00.000Z')
+  const workspaceRoot = await createWorkspace()
+  const store = new AutomationsStore(workspaceRoot)
+  assert.equal((await store.createDefinition(definition({
+    trigger: { kind: 'schedule', config: intervalConfig(10) },
+    nextRunAt: new Date(now).toISOString(),
+  }))).ok, true)
+
+  const events: AutomationsRunEvent[] = []
+  let prCalls = 0
+  let removedWorktrees = 0
+  let markPrStarted: () => void = () => undefined
+  const prStarted = new Promise<void>((resolve) => { markPrStarted = resolve })
+  let releasePr: () => void = () => undefined
+  const prGate = new Promise<void>((resolve) => { releasePr = resolve })
+  const worktreePath = `${workspaceRoot}/.multi-code/automations/worktrees/run-agent`
+  const engine = new AutomationsEngine({
+    getProjectFolders: () => [{ workspaceId: 'ws-automations', folderPath: workspaceRoot }],
+    now: () => now,
+    createRunId: () => 'run-agent',
+    onRunEvent: (event) => events.push(event),
+    runAutomation: async () => ({
+      status: 'running',
+      workspaceId: 'ws-automations',
+      agentId: 'agent-1',
+      executionId: 'exec-1',
+      worktreePath,
+      branch: 'automations/run-agent',
+      summary: 'Launched; working…',
+    }),
+    openRunPullRequest: async () => {
+      prCalls += 1
+      markPrStarted()
+      await prGate
+      return { ok: true, url: 'https://github.com/acme/repo/pull/9', created: true }
+    },
+    removeRunWorktree: async () => { removedWorktrees += 1 },
+  })
+
+  assert.equal((await engine.runNow({ workspaceRoot, automationId: 'nightly-review', workspaceId: 'ws-automations' })).ok, true)
+  await writeRunSignal(worktreePath, JSON.stringify({ status: 'completed' }))
+
+  // The agent-exit trigger wins the per-run lock and blocks inside the PR open.
+  const exit = engine.finalizeRunOnAgentExit({ executionId: 'exec-1', exitCode: 0 })
+  await prStarted
+
+  // A concurrent scan-style finalize for the same run must hit the lock, not
+  // re-open a PR (mirrors the per-tick scan's internal finalize call).
+  const concurrent = await engine.finalizeRun({
+    workspaceRoot,
+    automationId: 'nightly-review',
+    runId: 'run-agent',
+    outcome: 'completed',
+    eventTrigger: 'timer',
+  })
+  assert.equal(concurrent.ok && concurrent.run.status, 'running', 'concurrent caller gets the in-progress run')
+
+  releasePr()
+  await exit
+
+  assert.equal(prCalls, 1, 'exactly one PR-open across interleaved exit + scan')
+  assert.equal(removedWorktrees, 1, 'worktree torn down once')
+  assert.equal(events.filter((event) => event.runId === 'run-agent').length, 0, 'completed timer finalize stays silent')
   assert.equal((await readRunStatus(store, 'nightly-review', 'run-agent')), 'completed')
 }
 
