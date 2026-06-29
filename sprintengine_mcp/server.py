@@ -212,6 +212,9 @@ class SprintEngineMcpServer:
         if tool_name == "sprintengine.agent.leave":
             assert state_path is not None
             return self._agent_leave(state_path, payload)
+        if tool_name == "sprintengine.agent.record_session":
+            assert state_path is not None
+            return self._agent_record_session(state_path, payload)
         if tool_name == "sprintengine.dispatch.next":
             assert state_path is not None
             return self._dispatch_next(state_path, payload)
@@ -430,6 +433,27 @@ class SprintEngineMcpServer:
                 "currentDispatch": bool(agent) and agent.get("currentDispatch") == result["previous"].get("currentDispatch"),
             },
         }
+
+    def _agent_record_session(self, state_path: Path, payload: dict[str, Any]) -> dict[str, Any]:
+        # Durable token-accounting ledger: the host pushes the (agentId, role,
+        # cli, cliSessionId) triple it alone observes on the terminal whenever an
+        # agent first participates or resumes (a changed cliSessionId). Records
+        # are append-only and reduced into projection.ledger by build_projection;
+        # this never mutates task/gate state. See store.record_agent_session and
+        # knowledge/multicode/sprint-engine.md.
+        agent_id = str(payload.get("agentId") or "").strip()
+        if not agent_id:
+            raise McpToolError("invalid_payload", "agentId cannot be empty.")
+        record = {
+            "schemaVersion": folder_store.SESSION_LEDGER_SCHEMA_VERSION,
+            "agentId": agent_id,
+            "role": str(payload.get("role") or "").strip(),
+            "cli": str(payload.get("cli") or "").strip(),
+            "cliSessionId": str(payload.get("cliSessionId") or "").strip(),
+            "recordedAt": folder_store.now_iso(),
+        }
+        folder_store.record_agent_session(state_path.parent, record, state_path=state_path)
+        return {"ok": True, "recorded": True, "agentId": agent_id}
 
     def _agent_leave(self, state_path: Path, payload: dict[str, Any]) -> dict[str, Any]:
         agent_id = str(payload["agentId"]).strip()

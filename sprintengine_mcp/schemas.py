@@ -224,6 +224,15 @@ MCP_V1_CONTRACT_SCHEMAS: dict[str, dict[str, Any]] = {
     ),
     "sprintengine.agent.heartbeat": object_schema(["statePath", "agentId"], {"agentId": AGENT_ID_PROPERTY, "role": ROLE_PROPERTY}),
     "sprintengine.agent.leave": object_schema(["statePath", "agentId"], {"agentId": AGENT_ID_PROPERTY, "role": ROLE_PROPERTY, "reason": {"type": "string"}}),
+    "sprintengine.agent.record_session": object_schema(
+        ["statePath", "agentId"],
+        {
+            "agentId": AGENT_ID_PROPERTY,
+            "role": ROLE_PROPERTY,
+            "cli": {"type": "string", "description": "Runtime CLI plugin id, e.g. claude-code."},
+            "cliSessionId": {"type": "string", "description": "The CLI's own session id; may be empty until reported."},
+        },
+    ),
     "sprintengine.subscribe": object_schema(
         ["statePath", "agentId"],
         {

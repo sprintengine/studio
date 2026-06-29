@@ -46,6 +46,12 @@ RUN_FILE = "run.yaml"
 EVENTS_FILE = "events.jsonl"
 DISPATCH_FILE = "dispatch.jsonl"
 FEEDBACK_FILE = "metrics/agent-feedback.jsonl"
+# Append-only log of which agent CLI sessions participated in a run, written by
+# `sprintengine.agent.record_session` (the host pushes the triple it alone
+# knows) and reduced into `projection.ledger` so token usage is recomputable per
+# session after an app restart. See knowledge/multicode/sprint-engine.md.
+SESSION_LEDGER_FILE = "metrics/agent-sessions.jsonl"
+SESSION_LEDGER_SCHEMA_VERSION = 1
 PROJECTION_FILE = "projection.json"
 LOCK_STATE_FILES = ("runner/run.lock.json", "runner/ready.lock.json")
 RUN_LOCK_FILE = "runner/run.queue.lock"
@@ -677,6 +683,79 @@ def read_jsonl_file(path: Path) -> list[dict[str, Any]]:
     return records
 
 
+def append_session_ledger_record(team_dir: Path, record: dict[str, Any]) -> Path:
+    path = team_dir / SESSION_LEDGER_FILE
+    append_jsonl(path, record)
+    return path
+
+
+def record_agent_session(
+    team_dir: Path,
+    record: dict[str, Any],
+    *,
+    state_path: Path | None = None,
+) -> Path:
+    """Append one agent-session record and refresh the projection.
+
+    The append is atomic on its own; the projection rebuild runs under the
+    ready-queue lock so it serializes with state-locked mutations and the
+    durable ledger becomes visible immediately, without waiting for the next
+    mutation. Keeps python the sole run-store writer (the host only supplies the
+    triple it alone knows via the MCP tool).
+    """
+    path = append_session_ledger_record(team_dir, record)
+    with FolderLock(team_dir / READY_QUEUE_LOCK_FILE):
+        write_projection_file(team_dir, {}, state_path=state_path)
+    return path
+
+
+def build_session_ledger(records: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Reduce append-only agent-session records into one entry per agent.
+
+    Each raw record is {agentId, role, cli, cliSessionId, recordedAt}. The
+    durable ledger keeps every cliSessionId an agent used, in first-seen order
+    (a resume mints a new id and appends a record, it never overwrites the
+    history), so per-session token usage stays recomputable after a restart.
+    role/cli take the most recent non-empty value; firstSeenAt/lastSeenAt bound
+    the agent's participation. Agents on unmeasured CLIs still appear here with
+    their cli (and possibly no cliSessionIds) so coverage can name them.
+    """
+    order: list[str] = []
+    by_agent: dict[str, dict[str, Any]] = {}
+    for record in records:
+        agent_id = str(record.get("agentId") or "").strip()
+        if not agent_id:
+            continue
+        recorded_at = str(record.get("recordedAt") or "").strip()
+        entry = by_agent.get(agent_id)
+        if entry is None:
+            entry = {
+                "agentId": agent_id,
+                "role": "",
+                "cli": "",
+                "cliSessionIds": [],
+                "firstSeenAt": recorded_at,
+                "lastSeenAt": recorded_at,
+            }
+            by_agent[agent_id] = entry
+            order.append(agent_id)
+        role = str(record.get("role") or "").strip()
+        if role:
+            entry["role"] = role
+        cli = str(record.get("cli") or "").strip()
+        if cli:
+            entry["cli"] = cli
+        cli_session_id = str(record.get("cliSessionId") or "").strip()
+        if cli_session_id and cli_session_id not in entry["cliSessionIds"]:
+            entry["cliSessionIds"].append(cli_session_id)
+        if recorded_at:
+            if not entry["firstSeenAt"] or recorded_at < entry["firstSeenAt"]:
+                entry["firstSeenAt"] = recorded_at
+            if not entry["lastSeenAt"] or recorded_at > entry["lastSeenAt"]:
+                entry["lastSeenAt"] = recorded_at
+    return [by_agent[agent_id] for agent_id in order]
+
+
 def task_graph_from_run(team_dir: Path) -> dict[str, list[str]]:
     run = load_run_yaml(team_dir)
     graph: dict[str, list[str]] = {}
@@ -1209,6 +1288,7 @@ def build_projection(
         events = read_jsonl_file(team_dir / EVENTS_FILE)
         dispatches = read_jsonl_file(team_dir / DISPATCH_FILE)
         feedback = read_jsonl_file(team_dir / FEEDBACK_FILE)
+        ledger = build_session_ledger(read_jsonl_file(team_dir / SESSION_LEDGER_FILE))
         roster = normalize_agents(run.get("agents"))
         quality_policy = normalize_quality_policy(run.get("qualityPolicy") if isinstance(run.get("qualityPolicy"), dict) else {})
         runner_policy = normalize_runner_policy(run.get("runner"))
@@ -1260,6 +1340,7 @@ def build_projection(
         "activity": events,
         "dispatches": dispatches,
         "feedback": feedback,
+        "ledger": ledger,
         "counts": {
             "tasks": board["counts"],
             "ready": board["counts"].get("ready", 0),

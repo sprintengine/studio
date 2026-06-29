@@ -6,6 +6,7 @@ export const SPRINTENGINE_TOOL_NAMES = [
   'sprintengine.agent.join',
   'sprintengine.agent.leave',
   'sprintengine.agent.next_directive',
+  'sprintengine.agent.record_session',
   'sprintengine.artifact.add',
   'sprintengine.artifact.approve',
   'sprintengine.artifact.list',

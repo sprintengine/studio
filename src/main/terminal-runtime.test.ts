@@ -496,9 +496,23 @@ async function assertSprintEngineAgentHeartbeatAndLeaveUseManagedMcp(runtimeModu
     })
     assert.equal(result.ok, true, JSON.stringify(result))
 
+    // Attaching a sprint agent records its first participation in the durable
+    // session ledger (cli known up front; the codex cli session id is learned
+    // later via the agent hook, so it is omitted here).
+    assert.deepEqual(toolCalls[0], {
+      runId: 'liveness-run-1',
+      toolName: 'sprintengine.agent.record_session',
+      arguments: {
+        agentId: 'frontend-2',
+        role: 'frontend',
+        cli: 'codex',
+      },
+    })
+
     const heartbeats = await runtimeModule.sendSprintEngineAgentHeartbeats()
     assert.deepEqual(heartbeats, ['frontend-2'])
-    assert.deepEqual(toolCalls[0], {
+    const heartbeatCalls = toolCalls.filter((call) => call.toolName === 'sprintengine.agent.heartbeat')
+    assert.deepEqual(heartbeatCalls[0], {
       runId: 'liveness-run-1',
       toolName: 'sprintengine.agent.heartbeat',
       arguments: {
@@ -527,7 +541,7 @@ async function assertSprintEngineAgentHeartbeatAndLeaveUseManagedMcp(runtimeModu
       clients: ['codex', 'claude-code'],
       cleanupMcpConfig: true,
     }])
-    assert.deepEqual(order, ['sprintengine.agent.heartbeat', 'sprintengine.agent.leave', 'release'])
+    assert.deepEqual(order, ['sprintengine.agent.record_session', 'sprintengine.agent.heartbeat', 'sprintengine.agent.leave', 'release'])
   } finally {
     await runtime.shutdown()
   }
@@ -593,7 +607,9 @@ async function assertSprintEngineShutdownWaitsForLeaveBeforeRelease(runtimeModul
     clients: ['codex', 'claude-code'],
     cleanupMcpConfig: true,
   }])
-  assert.deepEqual(order, ['sprintengine.agent.leave', 'release'])
+  // record_session fires first when the agent attaches; leave must still settle
+  // before the MCP run is released.
+  assert.deepEqual(order, ['sprintengine.agent.record_session', 'sprintengine.agent.leave', 'release'])
 }
 
 async function assertSprintEngineTeardownIsSessionObjectScoped(runtimeModule: RuntimeModule): Promise<void> {

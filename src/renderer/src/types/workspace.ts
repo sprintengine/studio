@@ -1030,6 +1030,21 @@ export type SprintEngineTask = {
   recordedArtifacts?: SprintEngineRecordedArtifact[]
 }
 
+// Durable record of which agent CLI sessions participated in a run, projected
+// from the run store's append-only session log. Keeps each agent's full
+// cliSessionIds history (a resume mints a new id and appends, never overwrites)
+// so per-model token usage stays recomputable per session after an app restart.
+// Agents on unmeasured CLIs still appear (with their cli, possibly no session
+// ids) so token coverage can name them.
+export type SprintEngineLedgerEntry = {
+  agentId: string
+  role: string
+  cli: AgentCli
+  cliSessionIds: string[]
+  firstSeenAt: string
+  lastSeenAt: string
+}
+
 export type SprintEngineState = {
   name: string
   goal: string
@@ -1064,6 +1079,12 @@ export type SprintEngineState = {
    * `worktreePath` and per-task commits land on `branchName`.
    */
   vcs?: SprintEngineVcs | null
+  /**
+   * Durable per-agent CLI session ledger from the projection, used to recompute
+   * token usage per session (incl. across resumes) and to name unmeasured-CLI
+   * agents in coverage. Absent until at least one agent session is recorded.
+   */
+  ledger?: SprintEngineLedgerEntry[]
 }
 
 export type SprintEngineVcs = {
