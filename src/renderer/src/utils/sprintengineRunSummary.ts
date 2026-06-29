@@ -11,6 +11,7 @@ import type {
   SprintEngineTaskFeedbackIssue,
   SprintEngineTaskFeedbackScores,
   SprintEngineTaskStatus,
+  SprintEngineTokenUsage,
 } from '../types/workspace'
 
 export const feedbackScoreLabels: Array<{ key: keyof SprintEngineTaskFeedback['scores']; label: string }> = [
@@ -110,9 +111,17 @@ export type SprintEngineRunSummary = {
   promptImprovementSignals: string[]
   findingSummaries: string[]
   openQuestions: string[]
+  // Sprint-level per-model token total + coverage (Phase 1). Computed in the
+  // main process from the durable ledger (it reads CLI transcripts/servers), so
+  // it is threaded in by the caller rather than derived from `tasks` here.
+  // Absent until the main aggregator has produced it for the run.
+  tokenUsage?: SprintEngineTokenUsage
 }
 
-export function buildRunSummary(tasks: SprintEngineTask[]): SprintEngineRunSummary {
+export function buildRunSummary(
+  tasks: SprintEngineTask[],
+  tokenUsage?: SprintEngineTokenUsage,
+): SprintEngineRunSummary {
   const completed = tasks.filter((task) => task.status === 'done')
   const touchedFiles = uniqueStrings(completed.flatMap((task) => task.evidence.touchedFiles))
   const commandsRan = uniqueStrings(completed.flatMap((task) => task.evidence.commandsRan))
@@ -141,6 +150,7 @@ export function buildRunSummary(tasks: SprintEngineTask[]): SprintEngineRunSumma
     promptImprovementSignals,
     findingSummaries,
     openQuestions,
+    ...(tokenUsage ? { tokenUsage } : {}),
   }
 }
 

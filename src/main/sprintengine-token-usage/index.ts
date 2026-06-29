@@ -7,6 +7,11 @@ import { readOpenCodeUsage } from './opencode-adapter'
 import type { FetchLike, ModelTokenUsage, SessionTokenUsage, TokenUsageDeps } from './types'
 
 export type { FetchLike, ModelTokenUsage, SessionTokenUsage, TokenUsageDeps } from './types'
+export {
+  computeSprintEngineTokenUsage,
+  computeSprintEngineRunTokenUsage,
+  type SprintEngineTokenAggregateDeps,
+} from './aggregate'
 
 // Shared "meter reader" for Sprint Engine token accounting. Reads cumulative
 // per-model token usage for one agent CLI session from that CLI's own on-disk

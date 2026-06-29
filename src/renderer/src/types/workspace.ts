@@ -1045,6 +1045,33 @@ export type SprintEngineLedgerEntry = {
   lastSeenAt: string
 }
 
+// Cumulative token usage for one model. Cache reads/writes are kept distinct
+// from input/output (never folded in) so cache savings can be reported.
+export type SprintEngineModelTokenUsage = {
+  model: string
+  input: number
+  output: number
+  cacheRead: number
+  cacheCreation: number
+}
+
+// Sprint-level token total: per-model breakdown + grand total, with explicit
+// coverage so unmeasured agents are named rather than silently zeroed. Computed
+// by walking the durable session ledger and reading each measured CLI session's
+// usage, so it is reproducible after an app restart with no live terminals.
+export type SprintEngineTokenUsage = {
+  perModel: SprintEngineModelTokenUsage[]
+  total: { input: number; output: number; cacheRead: number; cacheCreation: number }
+  coverage: {
+    measuredAgents: number
+    unmeasuredAgents: number
+    // Agents whose every recorded session returned measured:false (unsupported
+    // CLI, server down, transcript missing), named with their cli.
+    unmeasured: Array<{ agentId: string; cli: string }>
+  }
+  computedAt: string
+}
+
 export type SprintEngineState = {
   name: string
   goal: string

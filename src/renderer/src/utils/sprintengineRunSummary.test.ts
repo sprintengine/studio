@@ -9,6 +9,7 @@ import {
   buildProcessHealth,
   buildRunQualitySummary,
   buildRunReport,
+  buildRunSummary,
   compareCliDeliveryScores,
   computeRunDurationMs,
   formatRunDuration,
@@ -20,6 +21,7 @@ import type {
   SprintEngineRuntimeAgent,
   SprintEngineState,
   SprintEngineTask,
+  SprintEngineTokenUsage,
 } from '../types/workspace'
 
 function makeTask(overrides: Partial<SprintEngineTask>): SprintEngineTask {
@@ -552,6 +554,24 @@ function testCompareCliDeliveryScores(): void {
   assert.equal(compareCliDeliveryScores([stat('claude-code', null, 0), stat('codex', 40)]), null)
 }
 
+function testBuildRunSummaryThreadsTokenUsage(): void {
+  const tasks = [makeTask({ id: 'T1', status: 'done' })]
+  const tokenUsage: SprintEngineTokenUsage = {
+    perModel: [{ model: 'claude-opus-4-8', input: 100, output: 10, cacheRead: 50, cacheCreation: 5 }],
+    total: { input: 100, output: 10, cacheRead: 50, cacheCreation: 5 },
+    coverage: { measuredAgents: 1, unmeasuredAgents: 1, unmeasured: [{ agentId: 'oc-1', cli: 'opencode' }] },
+    computedAt: '2026-06-28T00:00:00.000Z',
+  }
+
+  const withUsage = buildRunSummary(tasks, tokenUsage)
+  assert.deepEqual(withUsage.tokenUsage, tokenUsage, 'tokenUsage is threaded onto the run summary')
+
+  // Existing callers that pass only tasks are unaffected: the field is absent.
+  const withoutUsage = buildRunSummary(tasks)
+  assert.equal(withoutUsage.tokenUsage, undefined)
+  assert.equal(withoutUsage.completedTasks, 1, 'existing summary fields still computed')
+}
+
 function main(): void {
   testAgentTypeSummaryGroupsByRoleAndCli()
   testCompareCliDeliveryScores()
@@ -565,6 +585,7 @@ function main(): void {
   testBuildRunReportDerivesStatusesNeedsInputAndFindings()
   testProcessHealthExcludesAgentPerformanceDimensions()
   testDurationFormatting()
+  testBuildRunSummaryThreadsTokenUsage()
   console.log('sprintengineRunSummary.test.ts: ok')
 }
 
