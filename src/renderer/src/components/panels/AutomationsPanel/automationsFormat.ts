@@ -3,17 +3,27 @@ import {
   isAgentCliAvailable,
   type AgentCliCatalogOption,
 } from '../../workspace/newWorkspace/cliRuntimeOptions'
-import type {
-  AutomationDefinition,
-  AutomationRun,
-  AutomationRunStatus,
-  AutomationStatus,
-  AutomationsEngineStatus,
-  AutomationsProviderView,
-  AutomationsRunsListResult,
-  ScheduleTriggerConfig,
-  TriggerKind,
+import {
+  REPO_EVENT_TRIGGER_KIND,
+  SCHEDULE_TRIGGER_KIND,
+  WEBHOOK_TRIGGER_KIND,
+  type AutomationDefinition,
+  type AutomationRun,
+  type AutomationRunStatus,
+  type AutomationStatus,
+  type AutomationsEngineStatus,
+  type AutomationsProviderView,
+  type AutomationsRunsListResult,
+  type RepoEventTriggerConfig,
+  type ScheduleTriggerConfig,
+  type TriggerKind,
+  type WebhookTriggerConfig,
 } from '../../../../../shared/automations/contracts'
+
+// Re-exported so the editor (AutomationEditor.tsx, TriggerFields.tsx) keeps
+// importing the canonical trigger-kind constants from this module; the
+// definitions themselves live in contracts.ts.
+export { REPO_EVENT_TRIGGER_KIND, SCHEDULE_TRIGGER_KIND, WEBHOOK_TRIGGER_KIND }
 
 // Shared async + editor state used across the control-center modules.
 export type AsyncState = 'idle' | 'loading' | 'ready' | 'error'
@@ -91,7 +101,7 @@ export function absoluteTime(at: number): string {
 export const WEEKDAY_SHORT = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
 
 export function isScheduleConfig(config: unknown): config is ScheduleTriggerConfig {
-  return Boolean(config) && typeof config === 'object' && (config as { kind?: unknown }).kind === 'schedule'
+  return Boolean(config) && typeof config === 'object' && (config as { kind?: unknown }).kind === SCHEDULE_TRIGGER_KIND
 }
 
 // ---------------------------------------------------------------------------
@@ -137,7 +147,7 @@ export function triggerFamilyLabel(trigger: AutomationDefinition['trigger']): st
 }
 
 export function cadenceSummary(trigger: AutomationDefinition['trigger']): string {
-  if (trigger.kind !== 'schedule' || !isScheduleConfig(trigger.config)) {
+  if (trigger.kind !== SCHEDULE_TRIGGER_KIND || !isScheduleConfig(trigger.config)) {
     return TRIGGER_SUMMARY[trigger.kind] ?? trigger.kind
   }
   const cadence = trigger.config.cadence
@@ -196,7 +206,7 @@ function webhookDetail(config: unknown): string | null {
 // on its own. cadenceSummary stays the standalone summary used where no family
 // prefix precedes it (the detail pane's Trigger meta).
 export function triggerDetail(trigger: AutomationDefinition['trigger']): string | null {
-  if (trigger.kind === 'schedule') {
+  if (trigger.kind === SCHEDULE_TRIGGER_KIND) {
     return isScheduleConfig(trigger.config) ? cadenceSummary(trigger) : null
   }
   if (trigger.kind === REPO_EVENT_TRIGGER_KIND) return repoEventDetail(trigger.config)
@@ -229,7 +239,7 @@ export type ScheduleCadenceForm = {
 // actually author (interval/daily/weekly). Cron, repo-event, webhook, and any
 // other family are read-only here.
 export function isEditableScheduleTrigger(trigger: AutomationDefinition['trigger']): boolean {
-  if (trigger.kind !== 'schedule' || !isScheduleConfig(trigger.config)) return false
+  if (trigger.kind !== SCHEDULE_TRIGGER_KIND || !isScheduleConfig(trigger.config)) return false
   return trigger.config.cadence.type !== 'cron'
 }
 
@@ -284,8 +294,6 @@ export type SubmitTriggerForm = ScheduleCadenceForm & {
   webhook: WebhookForm
 }
 
-export const REPO_EVENT_TRIGGER_KIND = 'repo-event'
-export const WEBHOOK_TRIGGER_KIND = 'webhook'
 // /automations/webhooks/<path> — mirrors WEBHOOK_ROUTE_PREFIX in the receiver.
 export const WEBHOOK_ROUTE_PREFIX = '/automations/webhooks/'
 export const WEBHOOK_SIGNATURE_HEADER = 'x-multicode-signature'
@@ -297,12 +305,12 @@ const WEBHOOK_PATH_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/
 // families return false — they stay read-only and round-trip verbatim.
 export function isAuthorableTrigger(trigger: AutomationDefinition['trigger']): boolean {
   if (trigger.kind === REPO_EVENT_TRIGGER_KIND || trigger.kind === WEBHOOK_TRIGGER_KIND) return true
-  if (trigger.kind === 'schedule') return isEditableScheduleTrigger(trigger)
+  if (trigger.kind === SCHEDULE_TRIGGER_KIND) return isEditableScheduleTrigger(trigger)
   return false
 }
 
-export function buildRepoEventConfig(form: RepoEventForm): Record<string, unknown> {
-  const config: Record<string, unknown> = { kind: REPO_EVENT_TRIGGER_KIND, provider: form.provider }
+export function buildRepoEventConfig(form: RepoEventForm): RepoEventTriggerConfig {
+  const config: RepoEventTriggerConfig = { kind: REPO_EVENT_TRIGGER_KIND, provider: form.provider }
   if (form.eventTypes.length > 0) config.eventTypes = [...form.eventTypes]
   const externalKey = form.externalKey.trim()
   if (externalKey) config.externalKey = externalKey
@@ -311,8 +319,8 @@ export function buildRepoEventConfig(form: RepoEventForm): Record<string, unknow
   return config
 }
 
-export function buildWebhookConfig(form: WebhookForm): Record<string, unknown> {
-  const config: Record<string, unknown> = { kind: WEBHOOK_TRIGGER_KIND, enabled: form.enabled }
+export function buildWebhookConfig(form: WebhookForm): WebhookTriggerConfig {
+  const config: WebhookTriggerConfig = { kind: WEBHOOK_TRIGGER_KIND, enabled: form.enabled }
   const port = form.port.trim()
   if (port) {
     const parsed = Number(port)
@@ -333,7 +341,7 @@ export function buildWebhookConfig(form: WebhookForm): Record<string, unknown> {
 // Compares a built webhook config against the loaded (redacted) config, ignoring
 // the write-only secret and the redaction marker, so the editor can tell whether
 // the webhook trigger actually changed.
-export function webhookConfigEquivalent(built: Record<string, unknown>, loaded: unknown): boolean {
+export function webhookConfigEquivalent(built: WebhookTriggerConfig, loaded: unknown): boolean {
   if (!loaded || typeof loaded !== 'object') return false
   const a: Record<string, unknown> = { ...built }
   delete a.secret
@@ -382,7 +390,9 @@ export function webhookTriggerError(form: WebhookForm, opts: { sendingTrigger: b
 // Seed the repo-event / webhook form sub-state from a loaded (redacted) config.
 export function repoEventFormFromConfig(config: unknown): RepoEventForm {
   if (!config || typeof config !== 'object') return { ...EMPTY_REPO_EVENT_FORM }
-  const record = config as Record<string, unknown>
+  // The loaded config is untrusted, so the runtime guards stay; typing the view as
+  // a Partial of the wire config makes a field-name typo a compile error.
+  const record = config as Partial<RepoEventTriggerConfig>
   const provider = record.provider
   const eventTypes = Array.isArray(record.eventTypes)
     ? record.eventTypes.filter((e): e is RepoEventType => e === 'created' || e === 'updated')
@@ -397,7 +407,10 @@ export function repoEventFormFromConfig(config: unknown): RepoEventForm {
 
 export function webhookFormFromConfig(config: unknown): WebhookForm {
   if (!config || typeof config !== 'object') return { ...EMPTY_WEBHOOK_FORM }
-  const record = config as Record<string, unknown>
+  // The renderer receives the config with `secret` redacted to a `hasSecret`
+  // marker, so the view adds that field on top of the wire config. Guards stay
+  // (untrusted input); the typed view turns a field-name typo into a compile error.
+  const record = config as Partial<WebhookTriggerConfig> & { hasSecret?: unknown }
   return {
     enabled: record.enabled === true,
     port: typeof record.port === 'number' ? String(record.port) : '',
@@ -452,9 +465,9 @@ export function resolveSubmitTrigger(
   const loaded = editor.mode === 'edit' ? editor.definition.trigger.config : null
   const timezone = isScheduleConfig(loaded) ? loaded.timezone : fallbackTimezone
   return {
-    kind: 'schedule',
+    kind: SCHEDULE_TRIGGER_KIND,
     config: {
-      kind: 'schedule',
+      kind: SCHEDULE_TRIGGER_KIND,
       timezone,
       cadence: buildScheduleCadence(form),
     } satisfies ScheduleTriggerConfig,
@@ -493,7 +506,7 @@ export function triggersEquivalent(
 ): boolean {
   if (!loaded || built.kind !== loaded.kind) return false
   if (built.kind === WEBHOOK_TRIGGER_KIND) {
-    return webhookConfigEquivalent(built.config as Record<string, unknown>, loaded.config)
+    return webhookConfigEquivalent(built.config as WebhookTriggerConfig, loaded.config)
   }
   return deepEqual(built.config, loaded.config)
 }

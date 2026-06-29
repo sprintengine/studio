@@ -3,8 +3,12 @@ import { useState } from 'react'
 import { Field, GhostButton, InlineNotice, Select, type SelectItem, Switch } from '../../ui'
 import type { AutomationsProviders, TriggerKind } from '../../../../../shared/automations/contracts'
 import {
+  REPO_EVENT_TRIGGER_KIND,
+  SCHEDULE_TRIGGER_KIND,
+  TRIGGER_FAMILY_LABEL,
   WEBHOOK_ROUTE_PREFIX,
   WEBHOOK_SIGNATURE_HEADER,
+  WEBHOOK_TRIGGER_KIND,
   WEEKDAY_SHORT,
   cadenceSummary,
   generateWebhookSecret,
@@ -20,11 +24,13 @@ import {
 
 // The trigger families the picker always offers, in priority order. Each is shown
 // even when unavailable (disabled + reason) so a control boundary is never hidden.
-const CANONICAL_FAMILIES: TriggerKind[] = ['schedule', 'repo-event', 'webhook']
-const FAMILY_LABEL: Record<string, string> = {
-  schedule: 'Schedule',
-  'repo-event': 'On event',
-  webhook: 'Webhook',
+const CANONICAL_FAMILIES: TriggerKind[] = [SCHEDULE_TRIGGER_KIND, REPO_EVENT_TRIGGER_KIND, WEBHOOK_TRIGGER_KIND]
+
+// The picker's family label is the one canonical TRIGGER_FAMILY_LABEL map (shared
+// with the list's supporting line, so the two can't drift), falling back to the
+// raw kind for unknown third-party families.
+function familyLabel(kind: TriggerKind): string {
+  return TRIGGER_FAMILY_LABEL[kind] ?? kind
 }
 
 const INPUT_CLASS =
@@ -48,7 +54,7 @@ function familyUnavailableReason(kind: TriggerKind, providers: AutomationsProvid
   if (!providers) return null
   const provider = providers.triggers.find((t) => t.kind === kind)
   if (!provider) {
-    if (kind === 'repo-event') return 'This trigger needs the Switchboard module, which is not enabled.'
+    if (kind === REPO_EVENT_TRIGGER_KIND) return 'This trigger needs the Switchboard module, which is not enabled.'
     return null
   }
   return providerUnavailableReason(provider, 'trigger')
@@ -91,7 +97,7 @@ export function TriggerFields({
     const reason = familyUnavailableReason(kind, providers)
     return {
       value: kind,
-      label: reason ? `${FAMILY_LABEL[kind]} — unavailable` : FAMILY_LABEL[kind],
+      label: reason ? `${familyLabel(kind)} — unavailable` : familyLabel(kind),
       disabled: Boolean(reason),
     }
   })
@@ -112,11 +118,11 @@ export function TriggerFields({
 
       {selectedReason ? <InlineNotice tone="warn">{selectedReason}</InlineNotice> : null}
 
-      {value.triggerKind === 'schedule' ? (
+      {value.triggerKind === SCHEDULE_TRIGGER_KIND ? (
         <ScheduleFields value={value} onChange={onChange} />
-      ) : value.triggerKind === 'repo-event' ? (
+      ) : value.triggerKind === REPO_EVENT_TRIGGER_KIND ? (
         <RepoEventFields value={value.repoEvent} onChange={(repoEvent) => onChange({ repoEvent })} />
-      ) : value.triggerKind === 'webhook' ? (
+      ) : value.triggerKind === WEBHOOK_TRIGGER_KIND ? (
         <WebhookFields value={value.webhook} onChange={(webhook) => onChange({ webhook })} />
       ) : null}
     </fieldset>

@@ -1,25 +1,22 @@
 import { createHmac, timingSafeEqual } from 'node:crypto'
 
-import type {
-  AutomationTriggerPollEvent,
-  AutomationTriggerProvider,
+import {
+  WEBHOOK_TRIGGER_KIND,
+  type AutomationTriggerPollEvent,
+  type AutomationTriggerProvider,
+  type WebhookTriggerConfig,
 } from '../../../shared/automations/contracts'
 
-export const WEBHOOK_TRIGGER_KIND = 'webhook'
+// Canonical kind + config now live in contracts.ts; re-export so existing
+// importers of this module (webhook-receiver, automations-ipc, tests) keep their
+// import paths.
+export { WEBHOOK_TRIGGER_KIND }
+export type { WebhookTriggerConfig }
+
 export const WEBHOOK_SIGNATURE_HEADER = 'x-multicode-signature'
 export const WEBHOOK_DELIVERY_ID_HEADER = 'x-multicode-delivery-id'
 export const WEBHOOK_EVENT_TIME_HEADER = 'x-multicode-event-time'
 export const WEBHOOK_ROUTE_PREFIX = '/automations/webhooks/'
-
-export type WebhookTriggerConfig = {
-  kind: typeof WEBHOOK_TRIGGER_KIND
-  enabled?: boolean
-  port?: number
-  path?: string
-  secret?: string
-  eventType?: string
-  label?: string
-}
 
 type WebhookTriggerValidationResult =
   | { ok: true; value: WebhookTriggerConfig }
