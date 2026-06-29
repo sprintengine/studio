@@ -53,12 +53,15 @@ def reviewed_task() -> dict:
 
 def test_developer_and_reviewer_attributed_separately_and_sum_to_task_total() -> None:
     samples = [
-        # developer session D1: baseline before claim, then post-implementation Stop
+        # developer session D1: baseline before claim, then post-implementation
+        # Stop (which lands before the reviewer claims, the dev window's end).
         sample("dev-1", "D1", "2026-06-28T10:00:00Z", "opus", input=0),
         sample("dev-1", "D1", "2026-06-28T10:05:00Z", "opus", input=100, output=10, cacheRead=50, cacheCreation=5),
-        # reviewer session R1: baseline before claim, then post-review Stop
+        # reviewer session R1: baseline before claim, then the closing Stop — which
+        # fires AFTER completedAt (10:08:30), because the verdict is recorded
+        # mid-turn and the flush drains the review's work after it.
         sample("rev-1", "R1", "2026-06-28T10:05:30Z", "opus", input=0),
-        sample("rev-1", "R1", "2026-06-28T10:08:00Z", "opus", input=30, output=5, cacheRead=10),
+        sample("rev-1", "R1", "2026-06-28T10:09:00Z", "opus", input=30, output=5, cacheRead=10),
     ]
     t = reviewed_task()
     folder_store.attribute_task_token_usage(t, samples)
@@ -79,6 +82,41 @@ def test_developer_and_reviewer_attributed_separately_and_sum_to_task_total() ->
     assert t["tokenUsage"]["partial"] is False
 
 
+def test_gate_attempt_end_uses_drain_after_completedAt_not_baseline() -> None:
+    # AC3 regression: an agent session reused across dispatches. The reviewer's
+    # only sample after it claims the gate is the closing Stop, which lands AFTER
+    # completedAt (the verdict is recorded mid-turn). The window END must read
+    # that post-boundary drain, not the pre-claim baseline — otherwise the delta
+    # silently collapses to 0.
+    t = reviewed_task()  # attempt window [10:06:00, 10:08:30]
+    samples = [
+        # Prior dispatch's work on this reused reviewer session (the baseline).
+        sample("rev-1", "R1", "2026-06-28T10:04:00Z", "opus", input=200, output=0, cacheRead=0),
+        # The only post-claim sample is the closing Stop, AFTER completedAt.
+        sample("rev-1", "R1", "2026-06-28T10:09:00Z", "opus", input=230, output=5, cacheRead=10),
+    ]
+    folder_store.attribute_task_token_usage(t, samples)
+    attempt = t["qualityGates"][0]["attempts"][0]["tokenUsage"]
+    # delta = drain(230/5/10) - baseline(200/0/0) = 30/5/10, not zero.
+    assert attempt["partial"] is False
+    assert attempt["total"] == {"input": 30, "output": 5, "cacheRead": 10, "cacheCreation": 0}
+
+
+def test_gate_attempt_partial_when_closing_flush_has_not_landed() -> None:
+    # The reviewer recorded its verdict but has not Stopped yet, so there is no
+    # flush at-or-after completedAt: report partial:no_sample, never a clean 0.
+    t = reviewed_task()
+    samples = [
+        sample("rev-1", "R1", "2026-06-28T10:04:00Z", "opus", input=200),
+        # An in-window sample (a mid-review flush) but nothing draining past END.
+        sample("rev-1", "R1", "2026-06-28T10:07:00Z", "opus", input=210),
+    ]
+    folder_store.attribute_task_token_usage(t, samples)
+    attempt = t["qualityGates"][0]["attempts"][0]["tokenUsage"]
+    assert attempt["partial"] is True
+    assert attempt["reason"] == "no_sample"
+
+
 def test_reworked_task_developer_window_flagged_partial_not_guessed() -> None:
     t = reviewed_task()
     t["qualityGates"][0]["attempts"][0]["verdict"] = "changes_requested"
@@ -87,7 +125,7 @@ def test_reworked_task_developer_window_flagged_partial_not_guessed() -> None:
         sample("dev-1", "D1", "2026-06-28T10:00:00Z", "opus", input=0),
         sample("dev-1", "D1", "2026-06-28T10:05:00Z", "opus", input=100, output=10),
         sample("rev-1", "R1", "2026-06-28T10:05:30Z", "opus", input=0),
-        sample("rev-1", "R1", "2026-06-28T10:08:00Z", "opus", input=30, output=5),
+        sample("rev-1", "R1", "2026-06-28T10:09:00Z", "opus", input=30, output=5),
     ]
     folder_store.attribute_task_token_usage(t, samples)
     dev = t["tokenUsage"]["developer"]

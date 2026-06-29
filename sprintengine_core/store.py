@@ -774,9 +774,11 @@ def build_session_ledger(records: list[dict[str, Any]]) -> list[dict[str, Any]]:
 # zeroed or guessed.
 
 _USAGE_KEYS = ("input", "output", "cacheRead", "cacheCreation")
-# Verdicts that mean the task bounced back to the developer, i.e. it was worked
-# across more than one implementation episode.
-_REWORK_VERDICTS = {"changes_requested", "rejected", "failed"}
+# Gate verdicts that bounce the task back to the developer, i.e. it was worked
+# across more than one implementation episode. Drawn from VALID_GATE_VERDICTS
+# (approved/changes_requested/failed/blocked/skipped); approved and skipped do
+# not cause rework.
+_REWORK_VERDICTS = {"changes_requested", "failed", "blocked"}
 
 
 def record_agent_token_sample(
@@ -825,26 +827,66 @@ def _cumulative_at(samples: list[dict[str, Any]], boundary: str) -> dict[str, di
     return _sample_per_model(chosen) if chosen is not None else None
 
 
+def _session_end_cumulative(
+    samples: list[dict[str, Any]],
+    start: str,
+    end: str,
+    end_mode: str,
+) -> tuple[dict[str, dict[str, int]] | None, bool]:
+    """The session's cumulative as of a window END boundary. Returns (cumulative, drained).
+
+    For the developer window the closing flush precedes the END boundary (the
+    next reviewer's claim), so `at_or_before` — the latest sample at-or-before
+    END — is the drained final state.
+
+    For a gate attempt the reviewer records its verdict mid-turn and the closing
+    Stop flush lands AFTER `completedAt`, so `at_or_after` takes the FIRST flush
+    at-or-after END (the flush that drains the window's work). If the session has
+    no flush past END it may have ended within the window (resumed away) — its
+    last in-window sample is its final state, but with no drain past the boundary
+    `drained` is False so the window is reported partial rather than as a clean
+    zero/measured value.
+    """
+    if end_mode == "at_or_before":
+        return _cumulative_at(samples, end), True
+    for sample in samples:
+        if str(sample.get("sampledAt") or "") >= end:
+            return _sample_per_model(sample), True
+    in_window: dict[str, Any] | None = None
+    for sample in samples:
+        at = str(sample.get("sampledAt") or "")
+        if start < at <= end:
+            in_window = sample
+    return (_sample_per_model(in_window) if in_window is not None else None), False
+
+
 def _window_usage(
     samples_by_session: dict[str, list[dict[str, Any]]],
     start: str | None,
     end: str | None,
+    *,
+    end_mode: str = "at_or_before",
 ) -> dict[str, Any]:
     """Cumulative-delta over [start, end] across one agent's sessions.
 
-    A resumed agent contributes one segment per cliSessionId; a session that
-    began within the window has no at-or-before-start sample, so its segment
+    START is always the latest sample at-or-before `start` (the baseline); a
+    session that began within the window has no such sample, so its segment
     counts from 0 (the resume baseline) instead of subtracting across the
-    discontinuity. Returns {perModel, total, partial, reason?}.
+    discontinuity. END semantics depend on `end_mode` (see
+    `_session_end_cumulative`): the developer window uses `at_or_before`, gate
+    attempts use `at_or_after` so the post-verdict drain flush is not missed.
+    A window with no flush draining it is `partial:no_sample`, never a clean 0.
+    Returns {perModel, total, partial, reason?}.
     """
     if not start or not end:
         return {"perModel": [], "total": _zero_usage(), "partial": True, "reason": "window_open"}
     aggregate: dict[str, dict[str, int]] = {}
     measured_any = False
+    drained_any = False
     for samples in samples_by_session.values():
-        end_cumulative = _cumulative_at(samples, end)
+        end_cumulative, drained = _session_end_cumulative(samples, start, end, end_mode)
         if end_cumulative is None:
-            continue  # this session produced nothing by the window end
+            continue  # this session produced nothing within/after the window end
         start_cumulative = _cumulative_at(samples, start) or {}
         for model, end_usage in end_cumulative.items():
             base = start_cumulative.get(model, _zero_usage())
@@ -852,6 +894,7 @@ def _window_usage(
             for key in _USAGE_KEYS:
                 bucket[key] += max(0, end_usage[key] - base.get(key, 0))
         measured_any = True
+        drained_any = drained_any or drained
     if not measured_any:
         # The window happened but no flushed sample captured it (e.g. the agent
         # has not stopped since). Truthfully partial, not zero.
@@ -860,11 +903,16 @@ def _window_usage(
     for usage in aggregate.values():
         for key in _USAGE_KEYS:
             total[key] += usage[key]
-    return {
+    result: dict[str, Any] = {
         "perModel": [{"model": model, **usage} for model, usage in aggregate.items()],
         "total": total,
-        "partial": False,
+        "partial": not drained_any,
     }
+    if not drained_any:
+        # We have in-window data but the closing flush has not landed past the
+        # boundary yet — report the best-effort delta, flagged partial.
+        result["reason"] = "no_sample"
+    return result
 
 
 def _sum_usage(parts: list[dict[str, Any]]) -> dict[str, Any]:
@@ -931,7 +979,10 @@ def attribute_task_token_usage(task: dict[str, Any], samples: list[dict[str, Any
                     earliest_attempt_start = started_at
             if str(attempt.get("verdict") or attempt.get("status") or "") in _REWORK_VERDICTS:
                 reworked = True
-            usage = _window_usage(by_agent.get(actor, {}), started_at, completed_at)
+            # A gate attempt's closing flush lands after completedAt (the verdict
+            # is recorded mid-turn), so the END cumulative must come from the
+            # first flush at-or-after the boundary, not at-or-before it.
+            usage = _window_usage(by_agent.get(actor, {}), started_at, completed_at, end_mode="at_or_after")
             attempt["tokenUsage"] = usage
             attempt_usages.append(usage)
 
