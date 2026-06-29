@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import os
 import re
 import shutil
@@ -351,6 +352,29 @@ def task_scoped_orphaned_dirty_paths(
     ]
 
 
+def build_run_pull_request_body(state: Dict[str, Any], branch: str) -> str:
+    """Default PR description: the run goal plus the tasks it delivered.
+
+    A reviewer opening the PR sees what shipped and why, not just the branch name.
+    A caller-supplied ``--body`` overrides this entirely.
+    """
+    sprintengine = state.get("sprintengine", {})
+    goal = str(sprintengine.get("goal") or "").strip()
+    lines = [f"Sprint Engine run delivery for branch `{branch}`.", "", f"**Goal:** {goal or '_(not set)_'}"]
+    done = [t for t in (state.get("tasks") or []) if isinstance(t, dict) and t.get("status") == "done"]
+    if done:
+        lines += ["", f"## Tasks delivered ({len(done)})"]
+        for task in done:
+            title = str(task.get("title") or task.get("id") or "task").strip()
+            role = str(task.get("role") or "").strip()
+            lines.append(f"- {title}{f' _({role})_' if role else ''}")
+            evidence = task.get("evidence")
+            summary = str(evidence.get("summary")).strip() if isinstance(evidence, dict) and evidence.get("summary") else ""
+            if summary:
+                lines.append(f"  - {summary.splitlines()[0].strip()}")
+    return "\n".join(lines)
+
+
 def create_run_pull_request(
     state: Dict[str, Any],
     state_path: Path,
@@ -382,30 +406,135 @@ def create_run_pull_request(
     sprintengine = state.get("sprintengine", {})
     goal = str(sprintengine.get("goal") or "").strip()
     pr_title = (title or "").strip() or compact_commit_subject(f"SprintEngine: {goal or branch}")
-    pr_body = body if isinstance(body, str) and body.strip() else (f"Sprint Engine run delivery for branch `{branch}`.\n\nGoal: {goal or '(not set)'}")
+    pr_body = body if isinstance(body, str) and body.strip() else build_run_pull_request_body(state, branch)
 
     if push:
         pushed = run_git_checked(worktree, ["push", "-u", remote, branch], allow_failure=True)
         if pushed.returncode != 0:
+            error = pushed.stderr.strip() or pushed.stdout.strip() or "git push failed"
             vcs["status"] = "failed"
-            return {"ok": False, "error": (pushed.stderr.strip() or pushed.stdout.strip() or "git push failed"), "branch": branch}
+            vcs["pullRequestError"] = error
+            return {"ok": False, "error": error, "branch": branch}
         vcs["status"] = "pushed"
 
-    pr = run_gh_checked(
-        worktree,
-        ["pr", "create", "--base", base_branch, "--head", branch, "--title", pr_title, "--body", pr_body, *(["--draft"] if draft else [])],
-        allow_failure=True,
-    )
+    try:
+        pr = run_gh_checked(
+            worktree,
+            ["pr", "create", "--base", base_branch, "--head", branch, "--title", pr_title, "--body", pr_body, *(["--draft"] if draft else [])],
+            allow_failure=True,
+        )
+    except SystemExit as exc:
+        # gh is not installed. Record it as a failure with the reason rather than
+        # aborting the whole command, so the summary shows it and offers Retry.
+        error = str(exc)
+        vcs["status"] = "failed"
+        vcs["pullRequestError"] = error
+        return {"ok": False, "error": error, "branch": branch}
     if pr.returncode != 0:
         stderr = pr.stderr.strip()
         existing = parse_url_from_output(stderr) or parse_url_from_output(pr.stdout)
         if existing:
             vcs["pullRequestUrl"] = existing
+            vcs["status"] = "pr_opened"
+            vcs["pullRequestState"] = "open"
+            vcs.pop("pullRequestError", None)
             return {"ok": True, "branch": branch, "base": base_branch, "pullRequestUrl": existing, "alreadyExists": True}
-        return {"ok": False, "error": stderr or pr.stdout.strip() or "gh pr create failed", "branch": branch}
+        # Push succeeded but the PR could not be opened (gh not authed, no remote,
+        # API error). Record it as failed with the reason so the summary can show
+        # the real error and a Retry, instead of a silent "pending" forever.
+        error = stderr or pr.stdout.strip() or "gh pr create failed"
+        vcs["status"] = "failed"
+        vcs["pullRequestError"] = error
+        return {"ok": False, "error": error, "branch": branch}
 
     url = parse_url_from_output(pr.stdout) or parse_url_from_output(pr.stderr)
     vcs["pullRequestUrl"] = url
     vcs["status"] = "pr_opened"
+    vcs["pullRequestState"] = "open"
+    vcs.pop("pullRequestError", None)
     append_event(state, "run_pull_request_opened", "sprintengine", f"Opened pull request for {branch}: {url or '(url unavailable)'}.")
     return {"ok": True, "branch": branch, "base": base_branch, "pullRequestUrl": url}
+
+
+def refresh_run_pull_request_state(state: Dict[str, Any], state_path: Path) -> Dict[str, Any]:
+    """Resolve and persist whether the run's branch has merged.
+
+    Merged if EITHER signal says so: the GitHub PR reports ``MERGED`` (authoritative,
+    also covers squash/rebase done through the PR), OR the branch tip is an ancestor
+    of its base ref (catches a branch merged into main manually, without the PR merge
+    button — and a branch merged with no PR at all). A squash/rebase merge performed
+    outside a PR rewrites history and is not detectable here; through a PR, ``gh``
+    reports it. All git/gh calls are best-effort and never raise.
+    """
+    vcs = get_run_vcs(state)
+    if not vcs:
+        return {"ok": True, "enabled": False, "pullRequestState": None}
+
+    worktree = worktree_for_vcs(state, state_path)
+    repo = worktree if (worktree and worktree.exists()) else workspace_root_for_state_path(state_path)
+    branch = str(vcs.get("branchName") or "").strip()
+    base = str(vcs.get("baseRef") or "").strip()
+    url = str(vcs.get("pullRequestUrl") or "").strip()
+
+    pr_state = "open"
+
+    # 1. Authoritative: the GitHub PR's own state.
+    if url:
+        try:
+            viewed = run_gh_checked(repo, ["pr", "view", url, "--json", "state"], allow_failure=True)
+        except SystemExit:
+            viewed = None  # gh not installed; fall through to the git signal
+        if viewed is not None and viewed.returncode == 0:
+            try:
+                gh_state = str(json.loads(viewed.stdout or "{}").get("state") or "").upper()
+            except (ValueError, TypeError):
+                gh_state = ""
+            if gh_state == "MERGED":
+                pr_state = "merged"
+            elif gh_state == "CLOSED":
+                pr_state = "closed"
+
+    # 2. Branch ancestry — catches a manual merge into the base (and a no-PR merge).
+    #    Only meaningful once the run has committed work: an empty branch whose tip
+    #    still equals base would otherwise read as a spurious "merged" (a commit is
+    #    its own ancestor). `lastCommitSha` is set exactly when the run committed.
+    has_commits = bool(str(vcs.get("lastCommitSha") or "").strip())
+    if pr_state == "open" and has_commits and branch and base:
+        run_git_checked(repo, ["fetch", "origin", base], allow_failure=True)
+        tip = run_git_checked(repo, ["rev-parse", branch], allow_failure=True)
+        branch_tip = tip.stdout.strip() if tip.returncode == 0 else ""
+        if branch_tip:
+            for candidate in (base, f"origin/{base}"):
+                ancestor = run_git_checked(repo, ["merge-base", "--is-ancestor", branch_tip, candidate], allow_failure=True)
+                if ancestor.returncode == 0:
+                    pr_state = "merged"
+                    break
+
+    vcs["pullRequestState"] = pr_state
+    return {"ok": True, "enabled": True, "pullRequestState": pr_state, "vcs": vcs}
+
+
+def cleanup_merged_worktree(state: Dict[str, Any], state_path: Path) -> Dict[str, Any]:
+    """Remove the run worktree once the branch has merged, if it is clean.
+
+    Only runs after a merge is confirmed. A worktree with uncommitted changes is
+    left in place (the work would be lost) — never force-removed. The branch is not
+    deleted. The run record lives outside the worktree dir, so the summary survives.
+    """
+    from sprintengine_core.tool.state import append_event
+
+    vcs = get_run_vcs(state)
+    if not vcs:
+        return {"removed": False, "reason": "not_worktree_mode"}
+    worktree = worktree_for_vcs(state, state_path)
+    if not worktree or not worktree.exists():
+        return {"removed": False, "reason": "missing"}
+    if git_status_short(worktree).strip():
+        return {"removed": False, "reason": "dirty"}
+
+    workspace_root = workspace_root_for_state_path(state_path)
+    removed = run_git_checked(workspace_root, ["worktree", "remove", str(worktree)], allow_failure=True)
+    if removed.returncode != 0:
+        return {"removed": False, "reason": (removed.stderr.strip() or removed.stdout.strip() or "git worktree remove failed")}
+    append_event(state, "run_worktree_removed", "sprintengine", f"Removed merged run worktree {vcs.get('worktreePath')}.")
+    return {"removed": True}

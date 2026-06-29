@@ -18,6 +18,10 @@ export type LifecycleState =
   | 'changes_requested'
   | 'needs_input'
   | 'done'
+  // Complete but not yet merged — an outline check, distinct by shape from the
+  // filled `done` disc. Used by Sprint Engine runs: outline until the branch
+  // merges, filled `done` once it does.
+  | 'done_unmerged'
   | 'archived'
   | 'failed'
 
@@ -33,6 +37,7 @@ export const LIFECYCLE_LABEL: Record<LifecycleState, string> = {
   changes_requested: 'Changes requested',
   needs_input: 'Needs input',
   done: 'Done',
+  done_unmerged: 'Complete · not merged',
   archived: 'Archived',
   failed: 'Failed',
 }
@@ -51,6 +56,7 @@ const TONE: Record<LifecycleState, string> = {
   changes_requested: 'text-[color:var(--tone-warn)]',
   needs_input: 'text-[color:var(--tone-warn)]',
   done: 'text-[color:var(--tone-good)]',
+  done_unmerged: 'text-[color:var(--tone-good)]',
   archived: 'text-[color:var(--text-disabled)]',
   failed: 'text-[color:var(--tone-error)]',
 }
@@ -94,6 +100,19 @@ export function LifecycleGlyph({
         <path
           d="M5.5 8.2l1.7 1.7 3.4-3.9"
           className="[stroke:var(--bg-app)]"
+          strokeWidth="1.5"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        />
+      </>
+    ) : state === 'done_unmerged' ? (
+      // Outline ring with a check drawn in the ink itself (not knocked out), so it
+      // reads as "complete but not merged" — the same check, hollow rather than filled.
+      <>
+        <circle cx="8" cy="8" r="5" stroke="currentColor" strokeWidth="1.4" />
+        <path
+          d="M5.5 8.2l1.7 1.7 3.4-3.9"
+          stroke="currentColor"
           strokeWidth="1.5"
           strokeLinecap="round"
           strokeLinejoin="round"

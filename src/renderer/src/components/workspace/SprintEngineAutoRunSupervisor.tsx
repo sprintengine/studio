@@ -17,6 +17,7 @@ import {
   buildSprintEngineAgentRosterForState,
   buildSprintEngineRosterCommandArgs,
   getSprintEngineRoleLabel,
+  isCompletedSprintEngineRun,
   isSprintEngineTaskLaunchable,
   normalizeSprintEngineProjection,
 } from '../../utils/sprintengine'
@@ -70,10 +71,7 @@ import { pathJoin } from '../../utils/paths'
 import { MULTICODE_DISABLE_SPRINTENGINE_AUTORUN } from '../../utils/runtimeFlags'
 import { resolveProjectKnowledgeConfig } from '../../utils/projectKnowledge'
 import { isAgentTabVisible, type AgentTerminalRevealPolicy } from '../../utils/modelRegistry'
-import {
-  isCompletedSprintEngineRun,
-  refreshSprintEngineWorkspaceProjection,
-} from '../../utils/sprintengineProjectionRefresh'
+import { refreshSprintEngineWorkspaceProjection } from '../../utils/sprintengineProjectionRefresh'
 import { registerTimer } from '../../utils/diagnostics/timerRegistry'
 import { deriveSprintEngineAutomationMode } from '../../utils/sprintengineAutomation'
 import {
@@ -130,6 +128,8 @@ function publishTerminalListIpcFailureNotice(
 // pairs with) for no user-visible loss in a long-running run.
 const AUTO_RUN_POLL_MS = 4000
 const INACTIVE_AUTO_RUN_POLL_MS = 15000
+// Gentle background cadence for refreshing PR merge state on non-open workspaces.
+const BACKGROUND_PR_SWEEP_MS = 600_000
 const AUTO_RUN_STARTUP_SPAWN_DELAY_MS = 10000
 const AUTO_RUN_PENDING_SPAWN_GRACE_MS = 60000
 export const AUTO_RUN_MAX_PROMPT_RETRIES = PLANNER_MAX_PROMPT_RETRIES
@@ -2082,7 +2082,7 @@ export async function superviseRunnerActiveCycle(input: RunnerActiveCycleInput):
     })
   }
 
-  if (sprintEngineState.tasks.length > 0 && sprintEngineState.tasks.every((task) => task.status === 'done')) {
+  if (isCompletedSprintEngineRun(sprintEngineState)) {
     // Close the run's agent terminals before applying the stop reason: a
     // terminal-list IPC failure throws here, leaves the runner in `running`,
     // and the next tick retries both the close and the completion transition.
@@ -2409,6 +2409,49 @@ export default function SprintEngineAutoRunSupervisor() {
     return () => {
       disposed = true
       timer.unregister()
+      window.clearInterval(interval)
+    }
+  }, [])
+
+  // Background pull-request merge sweep. The open run-summary polls the active
+  // workspace every 30s; this gentle 10-minute sweep keeps the sidebar run glyph
+  // (outline = not merged, filled = merged) honest for runs whose summary isn't
+  // open. It only touches completed worktree runs with a non-terminal PR, skips
+  // the active workspace (already polled), and stops once a run is merged/closed.
+  useEffect(() => {
+    let disposed = false
+    const sweep = async () => {
+      const store = useWorkspaceStore.getState()
+      const activeId = store.activeWorkspaceId
+      for (const workspace of store.workspaces) {
+        if (disposed) return
+        if (workspace.id === activeId) continue
+        if (workspace.mode !== 'sprintengine') continue
+        const statePath = workspace.sprintEngineContext?.statePath
+        const vcs = workspace.sprintEngineState?.vcs
+        if (!statePath || !vcs) continue
+        if (vcs.pullRequestState === 'merged' || vcs.pullRequestState === 'closed') continue
+        const tasks = workspace.sprintEngineState?.tasks ?? []
+        const completed = tasks.length > 0 && tasks.every((task) => task.status === 'done')
+        if (!completed && !vcs.pullRequestUrl) continue
+        try {
+          const result = await window.api.refreshSprintEnginePullRequestStatus(statePath)
+          if (disposed || !result.ok) continue
+          await refreshSprintEngineWorkspaceProjection({
+            workspace,
+            tokens: new Map(),
+            cause: 'manual',
+            force: true,
+          })
+        } catch {
+          // Best-effort: a transient gh/git failure just retries next sweep.
+        }
+      }
+    }
+    void sweep()
+    const interval = window.setInterval(() => void sweep(), BACKGROUND_PR_SWEEP_MS)
+    return () => {
+      disposed = true
       window.clearInterval(interval)
     }
   }, [])

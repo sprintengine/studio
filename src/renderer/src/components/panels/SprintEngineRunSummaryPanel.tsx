@@ -18,6 +18,7 @@ import {
   buildAgentTaskDetail,
   buildAgentTypeSummary,
   bucketAgentRowsByWorkType,
+  buildAgentActivityTimeline,
   buildBurnup,
   buildIssueTotals,
   buildProcessHealth,
@@ -37,8 +38,8 @@ import {
   type SprintEngineRunReport,
   type SprintEngineTypeStat,
 } from '../../utils/sprintengineRunSummary'
-import { IssueBars, ProgressRing, RunBurnupChart } from './runSummaryCharts'
-import { formatSprintEngineLockAge, getSprintEngineRoleLabel } from '../../utils/sprintengine'
+import { AgentActivityTimeline, IssueBars, ProgressRing, RunBurnupChart } from './runSummaryCharts'
+import { deriveSprintEngineRunGlyph, formatSprintEngineLockAge, getSprintEngineRoleLabel } from '../../utils/sprintengine'
 import CliIcon from '../CliIcon'
 import type {
   AgentCli,
@@ -51,7 +52,6 @@ import type {
   SprintEngineTask,
   SprintEngineTaskFeedbackFindingSeverity,
   SprintEngineTaskStatus,
-  SprintEngineVcs,
 } from '../../types/workspace'
 
 const projectionSourceLabel: Record<SprintEngineProjectionSource, string> = {
@@ -144,6 +144,9 @@ export default function SprintEngineRunSummaryPanel({
   const statePath = useWorkspaceStore(
     (s) => s.workspaces.find((w) => w.id === workspaceId)?.sprintEngineContext?.statePath ?? null
   )
+  const autoState = useWorkspaceStore(
+    (s) => s.workspaces.find((w) => w.id === workspaceId)?.sprintEngineAutoState ?? null
+  )
   // The CLI each agent ran on lives on the workspace agent record. Select the
   // stable `agents` reference (Zustand v5 rejects fresh-object selectors) and
   // derive the id→cli map with useMemo.
@@ -216,6 +219,17 @@ export default function SprintEngineRunSummaryPanel({
     () => (report ? buildAgentTypeSummary(report.agentRows, cliByAgent) : null),
     [report, cliByAgent]
   )
+  // Role lookup keyed by agent id, from the run report's roster — drives the
+  // activity timeline's lane labels.
+  const rolesByAgent = useMemo(() => {
+    const map: Record<string, SprintEngineRoleId> = {}
+    if (report) for (const row of report.agentRows) map[row.agentId] = row.role
+    return map
+  }, [report])
+  const activityTimeline = useMemo(
+    () => (sprintEngineState ? buildAgentActivityTimeline(sprintEngineState, rolesByAgent) : null),
+    [sprintEngineState, rolesByAgent]
+  )
 
   if (!sprintEngineState || !report) {
     return (
@@ -232,16 +246,28 @@ export default function SprintEngineRunSummaryPanel({
   const allDone = report.totalTasks > 0 && report.doneTasks === report.totalTasks
   const changesRequested = report.statusCounts.changes_requested ?? 0
   const attention = report.needsInput.length > 0 || changesRequested > 0
-  const phase: { label: string; tone: Tone } =
+  // A worktree run that's done but not yet merged is "Ready for review", not
+  // "Complete" — it only becomes Complete once its pull request merges. A
+  // non-worktree run (no branch to review) is Complete the moment work is done.
+  const merged = sprintEngineState.vcs?.pullRequestState === 'merged'
+  const awaitingReview = !!sprintEngineState.vcs && !merged
+  const phaseLabel =
     report.totalTasks === 0
-      ? { label: 'No tasks recorded', tone: 'neutral' }
-      : allDone && !attention
-        ? { label: 'Complete', tone: 'good' }
-        : allDone
-          ? { label: 'Complete — needs your attention', tone: 'warn' }
-          : attention
-            ? { label: 'Needs your attention', tone: 'warn' }
-            : { label: 'In progress', tone: 'accent' }
+      ? 'No tasks recorded'
+      : !allDone
+        ? attention
+          ? 'Needs your attention'
+          : 'In progress'
+        : attention
+          ? `${awaitingReview ? 'Ready for review' : 'Complete'} — needs your attention`
+          : awaitingReview
+            ? 'Ready for review'
+            : 'Complete'
+  // The verdict carries the same shape-coded run glyph as the board hero and the
+  // Backlog/sidebar rows — one run-status vocabulary across surfaces. The glyph's
+  // own tone (warn for attention, good for done) does the coloring; the verdict
+  // label stays plain strong ink rather than tinted heading chrome.
+  const runGlyph = deriveSprintEngineRunGlyph({ sprintEngineState, autoState })
 
   // Open findings (not marked fixed/rejected) are leftovers that still need fixing.
   const openFindings = report.findings.filter(
@@ -261,9 +287,11 @@ export default function SprintEngineRunSummaryPanel({
 
       {/* Verdict — the one clear visual priority */}
       <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1 pb-3">
-        <span className="inline-flex items-center gap-2 text-[16px] font-semibold text-[color:var(--text-strong)]">
-          <StatusDot tone={phase.tone} label={phase.label} />
-          {phase.label}
+        <span className="inline-flex items-center gap-2">
+          {runGlyph ? (
+            <LifecycleGlyph state={runGlyph.state} live={runGlyph.live} label={`Run: ${runGlyph.label}`} />
+          ) : null}
+          <span className="text-[16px] font-semibold text-[color:var(--text-strong)]">{phaseLabel}</span>
         </span>
         {report.totalTasks > 0 ? (
           <span className="flex flex-wrap items-baseline gap-x-2 text-[12px] tabular-nums text-[color:var(--text-muted)]">
@@ -277,19 +305,21 @@ export default function SprintEngineRunSummaryPanel({
         ) : null}
       </div>
 
-      <RunPullRequestRow
-        vcs={sprintEngineState.vcs}
-        allTasksDone={report.totalTasks > 0 && report.doneTasks === report.totalTasks}
-      />
-
       {report.totalTasks === 0 ? (
         <div className="border-l-2 border-[color:var(--border-strong)] pl-3 text-[13px] leading-6 text-[color:var(--text-muted)]">
           This run has no tasks yet. Configure a roster and dispatch work to populate the summary.
         </div>
       ) : (
         <>
-          {/* Overview → output → by-type headline → the real measured issues → who. */}
+          {/* Overview → output → who-worked-when → by-type headline → measured issues → who. */}
           <RunOverviewSection report={report} burnup={burnup} durationLabel={durationLabel} />
+          {activityTimeline ? (
+            <SectionDivider>
+              <Section title="Agent activity" count={activityTimeline.rows.length} level={3}>
+                <AgentActivityTimeline timeline={activityTimeline} durationLabel={durationLabel} />
+              </Section>
+            </SectionDivider>
+          ) : null}
           <RunMetricsSection report={report} />
           {agentTypeSummary ? <AgentTypeSummarySection summary={agentTypeSummary} /> : null}
           <IssuesCaughtSection issueTotals={issueTotals} />
@@ -304,11 +334,6 @@ export default function SprintEngineRunSummaryPanel({
           />
           {/* Lower-priority: what still needs a human, at the bottom. */}
           {hasRemaining ? <WhatsLeftSection report={report} openFindings={openFindings} /> : null}
-
-          <div className="mt-4 border-l-2 border-[color:var(--tone-warn)] pl-3 text-[13px] leading-6 text-[color:var(--text-default)]">
-            <span className="text-[color:var(--text-strong)]">Next step:</span> manually test the
-            uncommitted changes in the workspace before committing or reverting.
-          </div>
         </>
       )}
     </PanelShell>
@@ -1294,67 +1319,6 @@ function StatStrip({ cells, columns }: { cells: StatCell[]; columns: string }) {
           </div>
         </div>
       ))}
-    </div>
-  )
-}
-
-// The run's pull request — the review handoff. This panel is a completed-run
-// report, so the PR is always relevant: link it when open, surface a failed
-// open, and tell the truth when the sprint ran in the workspace checkout (no
-// worktree → no branch → no PR to review).
-function RunPullRequestRow({
-  vcs,
-  allTasksDone,
-}: {
-  vcs?: SprintEngineVcs | null
-  allTasksDone: boolean
-}) {
-  const url = vcs?.pullRequestUrl ?? null
-  // The PR is a completion outcome. Stay quiet until the run is done unless one
-  // already exists (e.g. opened manually mid-run).
-  if (!allTasksDone && !url) return null
-
-  if (url) {
-    return (
-      <div className="mb-3 flex flex-wrap items-center gap-x-2 gap-y-1 border-l-2 border-[color:var(--accent-primary)] pl-3 text-[13px] leading-6">
-        <span className="text-[color:var(--text-strong)]">Pull request:</span>
-        <Tooltip content={url}>
-          <a
-            href={url}
-            target="_blank"
-            rel="noreferrer"
-            className="font-medium text-[color:var(--accent-primary)] hover:underline"
-          >
-            View pull request
-          </a>
-        </Tooltip>
-      </div>
-    )
-  }
-
-  if (vcs?.status === 'failed') {
-    return (
-      <div className="mb-3 border-l-2 border-[color:var(--tone-warn)] pl-3 text-[13px] leading-6 text-[color:var(--text-default)]">
-        <span className="text-[color:var(--text-strong)]">Pull request:</span> couldn&apos;t be
-        opened. Retry with <code className="text-[12px]">sprintengine vcs pr</code>.
-      </div>
-    )
-  }
-
-  if (vcs) {
-    return (
-      <div className="mb-3 border-l-2 border-[color:var(--border-strong)] pl-3 text-[13px] leading-6 text-[color:var(--text-muted)]">
-        Pull request pending…
-      </div>
-    )
-  }
-
-  // No worktree metadata → the sprint ran in the workspace checkout, so there is
-  // no branch and no PR. By design, not a failure.
-  return (
-    <div className="mb-3 border-l-2 border-[color:var(--border-strong)] pl-3 text-[13px] leading-6 text-[color:var(--text-muted)]">
-      No pull request — this sprint ran in the workspace checkout, so there&apos;s no branch to
-      review. Run a sprint in an isolated git worktree to get a pull request on completion.
     </div>
   )
 }

@@ -70,6 +70,8 @@ export const sprintEngineModule: CapabilityModule = {
       resolveTaskInput: artifacts.resolveTaskInput,
       setTaskStatus: artifacts.setTaskStatus,
       setRunnerMode: artifacts.setRunnerMode,
+      createPullRequest: artifacts.createPullRequest,
+      refreshPullRequestStatus: artifacts.refreshPullRequestStatus,
       replenishRoster: artifacts.replenishRoster,
       addRosterMember: artifacts.addRosterMember,
       readProjection: artifacts.readProjection,

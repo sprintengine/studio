@@ -2766,6 +2766,97 @@ function testRevivesLeftAgentForClaimableWork(): void {
     !cappedPlan.ledgerDeletes.some((del) => del.key === reviveKey),
     'an active revival target keeps its ledger key (not swept), so the retry cap holds across passes',
   )
+
+  // The production stuck case: a task in REVIEW with a pending review gate whose
+  // role has only left agents. Revival must respawn the reviewer for the GATE
+  // (distinct code path from ready-task revival), carrying the gateId.
+  const reviewTask = task({
+    id: 'T-review',
+    title: 'Developer task awaiting review',
+    role: 'developer',
+    status: 'review',
+    boardColumn: 'review',
+    ownerAgentId: null,
+    qualityGates: [
+      { id: 'code_reviewer', phase: 'review', role: 'code_reviewer', status: 'pending', required: true, allowSelfReview: true, focus: '', attempts: [] },
+    ],
+  })
+  const gateWorkspace = workspaceFixture({ agents: { 'code-reviewer-1': sprintAgent('code-reviewer-1', 'Remy') } })
+  const gatePlan = planSprintEngineDispatch({
+    workspace: gateWorkspace,
+    sprintEngineState: sprintEngineStateFixture({
+      tasks: [reviewTask],
+      sprintEngineAgents: { 'code-reviewer-1': runtimeAgent('code_reviewer', { status: 'left' }) },
+    }),
+    now,
+    runningAgentIds: new Set(),
+    idleAgentIds: new Set(),
+    continuationLedger: new Map(),
+    dispatchLedger: new Map(),
+    paths: new Set(['respawn']),
+  })
+  assert.equal(gatePlan.respawns.length, 1, `a left reviewer is revived for a pending gate; respawns ${JSON.stringify(gatePlan.respawns)}`)
+  assert.equal(gatePlan.respawns[0].agentId, 'code-reviewer-1')
+  assert.equal(gatePlan.respawns[0].role, 'code_reviewer')
+  assert.equal(gatePlan.respawns[0].gateId, 'code_reviewer', 'the revival carries the gate id so the reviewer claims the gate')
+
+  // A `dead` agent (process died, vs cleanly left) is equally revivable.
+  const deadPlan = planSprintEngineDispatch({
+    workspace,
+    sprintEngineState: sprintEngineStateFixture({
+      tasks: [readyTask],
+      sprintEngineAgents: { 'developer-1': runtimeAgent('developer', { status: 'dead' }) },
+    }),
+    now,
+    runningAgentIds: new Set(),
+    idleAgentIds: new Set(),
+    continuationLedger: new Map(),
+    dispatchLedger: new Map(),
+    paths: new Set(['respawn']),
+  })
+  assert.equal(deadPlan.respawns.length, 1, 'a dead agent is revived for claimable work')
+  assert.equal(deadPlan.respawns[0].agentId, 'developer-1')
+
+  // An unmanaged claimant (no workspace.agents entry, e.g. a headless CLI) has no
+  // renderer terminal to spawn, so it is never revived.
+  const unmanagedPlan = planSprintEngineDispatch({
+    workspace: workspaceFixture({ agents: {} }),
+    sprintEngineState: sprintEngineStateFixture({
+      tasks: [readyTask],
+      sprintEngineAgents: { 'developer-1': runtimeAgent('developer', { status: 'left' }) },
+    }),
+    now,
+    runningAgentIds: new Set(),
+    idleAgentIds: new Set(),
+    continuationLedger: new Map(),
+    dispatchLedger: new Map(),
+    paths: new Set(['respawn']),
+  })
+  assert.equal(unmanagedPlan.respawns.length, 0, 'an unmanaged left agent is not revived (no terminal to spawn)')
+
+  // Sweep: a `revive:` ledger entry for work that is NO LONGER an active revival
+  // target (here, a task that no longer exists) is deleted, so a maxed-out retry
+  // budget resets and can't permanently block a future legitimate revival.
+  const staleReviveKey = sprintEngineReviveLedgerKey(workspace, { taskId: 'T-gone' }, 'developer-1')
+  const sweepPlan = planSprintEngineDispatch({
+    workspace,
+    sprintEngineState: sprintEngineStateFixture({
+      tasks: [readyTask],
+      sprintEngineAgents: { 'developer-1': runtimeAgent('developer', { status: 'left' }) },
+    }),
+    now,
+    runningAgentIds: new Set(),
+    idleAgentIds: new Set(),
+    continuationLedger: new Map([
+      [staleReviveKey, { sentAt: now - 120_000, attempts: 1 }],
+    ]),
+    dispatchLedger: new Map(),
+    paths: new Set(['respawn']),
+  })
+  assert.ok(
+    sweepPlan.ledgerDeletes.some((del) => del.key === staleReviveKey),
+    'a stale revive: ledger entry (no active target) is swept so its retry budget resets',
+  )
 }
 
 async function testRespawnsDeadTaskClaimantAfterRestart(): Promise<void> {

@@ -9,20 +9,17 @@ import {
   type MobileSprintEngineTaskStartRequest,
   type MobileSprintEngineTaskStartResult,
 } from './command'
+import type { TerminalSessionSnapshot as CanonicalTerminalSessionSnapshot } from '../../../shared/electron-api'
 
 type AgentCli = string
 
-type TerminalSessionSnapshot = {
-  sessionId: string
-  processAlive: boolean
-  kind: 'agent' | 'terminal'
-  agentId?: string
-  cli?: AgentCli
-  sprintEngineStatePath?: string
-  executionMode?: 'current_workspace' | 'worktree'
-  worktreeId?: string
-  worktreePath?: string
-}
+// The subset of the canonical terminal snapshot the session orchestrator reads.
+// Derived via Pick<> from src/shared/electron-api.ts so the field names and their
+// unions (kind, executionMode, cli) cannot drift from the source of truth.
+type TerminalSessionSnapshot = Pick<
+  CanonicalTerminalSessionSnapshot,
+  'sessionId' | 'processAlive' | 'kind' | 'agentId' | 'cli' | 'sprintEngineStatePath' | 'executionMode' | 'worktreeId' | 'worktreePath'
+>
 
 type SpawnMobileAgentTerminalInput = {
   sessionId: string

@@ -1,7 +1,10 @@
-import type {
-  AutomationTriggerPollContext,
-  AutomationTriggerPollEvent,
-  AutomationTriggerProvider,
+import {
+  REPO_EVENT_TRIGGER_KIND,
+  type AutomationTriggerPollContext,
+  type AutomationTriggerPollEvent,
+  type AutomationTriggerProvider,
+  type RepoEventTriggerConfig,
+  type RepoEventType,
 } from '../../../shared/automations/contracts'
 import type {
   SwitchboardReadResult,
@@ -13,17 +16,10 @@ import {
   type SwitchboardAutomationFrontDoors,
 } from '../actions/switchboard'
 
-export const REPO_EVENT_TRIGGER_KIND = 'repo-event'
-
-type RepoEventType = 'created' | 'updated'
-
-export type RepoEventTriggerConfig = {
-  kind: typeof REPO_EVENT_TRIGGER_KIND
-  provider?: SwitchboardImportProvider | 'any'
-  eventTypes?: RepoEventType[]
-  externalKey?: string
-  label?: string
-}
+// Canonical definitions now live in contracts.ts; re-export so existing importers
+// of this module (provider registry, tests) keep their import paths.
+export { REPO_EVENT_TRIGGER_KIND }
+export type { RepoEventTriggerConfig }
 
 type RepoEventTriggerValidationResult =
   | { ok: true; value: RepoEventTriggerConfig }

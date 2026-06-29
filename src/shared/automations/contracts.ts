@@ -1,3 +1,5 @@
+import type { SwitchboardImportProvider } from '../switchboard'
+
 export type JsonSchema = Record<string, unknown>
 
 // CLI permission preset for a spawned automation agent. Mirrors
@@ -40,16 +42,49 @@ export type AutomationsRunEvent = {
   trigger: AutomationRunEventTrigger
 }
 
-export type TriggerKind = 'schedule' | string
+// Trigger/action kinds are open strings — third-party providers register their
+// own — so the built-in kinds get named constants and helpers compare against a
+// symbol, never a bare literal. Each built-in config type pins `kind` to its
+// constant.
+export const SCHEDULE_TRIGGER_KIND = 'schedule'
+export const REPO_EVENT_TRIGGER_KIND = 'repo-event'
+export const WEBHOOK_TRIGGER_KIND = 'webhook'
+
+export type TriggerKind = string
 
 export type ScheduleTriggerConfig = {
-  kind: 'schedule'
+  kind: typeof SCHEDULE_TRIGGER_KIND
   cadence:
     | { type: 'interval'; everyMinutes: number }
     | { type: 'daily'; timeLocal: string }
     | { type: 'weekly'; timeLocal: string; daysOfWeek: number[] }
     | { type: 'cron'; expression: string }
   timezone: string
+}
+
+export type RepoEventType = 'created' | 'updated'
+
+// Repo-event trigger wire config (Switchboard GitHub/Jira import events). Shared
+// so producer (src/main/automations/triggers/repo-event.ts) and the renderer
+// editor build/parse it typed, instead of as Record<string, unknown>.
+export type RepoEventTriggerConfig = {
+  kind: typeof REPO_EVENT_TRIGGER_KIND
+  provider?: SwitchboardImportProvider | 'any'
+  eventTypes?: RepoEventType[]
+  externalKey?: string
+  label?: string
+}
+
+// Webhook trigger wire config. The renderer receives it with `secret` redacted
+// (the form carries a `hasSecret` marker instead), so `secret` is optional here.
+export type WebhookTriggerConfig = {
+  kind: typeof WEBHOOK_TRIGGER_KIND
+  enabled?: boolean
+  port?: number
+  path?: string
+  secret?: string
+  eventType?: string
+  label?: string
 }
 
 export type AutomationTriggerProvider = {
@@ -85,7 +120,7 @@ export type AutomationTriggerPollResult =
   | { ok: true; events: AutomationTriggerPollEvent[] }
   | { ok: false; blockedReason: string }
 
-export type ActionKind = 'spawn-agent' | 'run-command' | 'run-skill-loop' | string
+export type ActionKind = string
 
 export type ActionContext = {
   automationId: string

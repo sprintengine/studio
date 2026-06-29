@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { NewChatIcon, SpecialistActionIcon, WorkspaceTypeIcon, resolveEnabledWorkspaceType } from '../AppIcons'
+import { AutomationsWorkspaceTypeIcon, NewChatIcon, SpecialistActionIcon, WorkspaceTypeIcon, resolveEnabledWorkspaceType } from '../AppIcons'
 import CliIcon from '../CliIcon'
 import { getSpecialistAction } from '../../specialists/specialistActions'
 import { FOCUS_RING_CLASS } from '../ui/tokens'
@@ -29,15 +29,16 @@ import { Modal, ModalBody, ModalButton, ModalFooter, ModalHeader } from '../ui/M
 import PanelRail from './PanelRail'
 import SpawnAgentMenu, { TerminalSessionIcon } from './SpawnAgentMenu'
 import { useWorkspaceStore } from '../../store/workspaceStore'
-import type {
-  AgentCli,
-  HighlightColor,
-  LayoutTemplate,
-  NewChatAgentChoice,
-  SpecialistActionId,
-  SprintEngineCliPermissionPreset,
-  Workspace,
-  WorkspaceId,
+import {
+  AUTOMATIONS_HOST_WORKSPACE_MODE,
+  type AgentCli,
+  type HighlightColor,
+  type LayoutTemplate,
+  type NewChatAgentChoice,
+  type SpecialistActionId,
+  type SprintEngineCliPermissionPreset,
+  type Workspace,
+  type WorkspaceId,
 } from '../../types/workspace'
 import { getHighlightSwatch, hasHighlightOverride, isStarred } from '../../utils/highlight'
 import {
@@ -61,6 +62,7 @@ import { partitionWorkspacesByRecency, sortWorkspacesByActivity } from '../../ut
 import { beginSidebarTransition } from '../../utils/sidebarTransition'
 import { filterWorkspacesBySearchQuery, normalizeWorkspaceSearchQuery } from '../../utils/workspaceSearch'
 import { isHiddenFromRail } from '../../utils/workspaceVisibility'
+import { listAutomationsProjectFolders } from '../../utils/automationsEntry'
 
 type Activity = 'working' | 'failed' | 'needs-input' | 'idle'
 
@@ -90,6 +92,9 @@ type WorkspaceSidebarProps = {
   onForgetFolder: (folderPath: string) => void
   onNewWorkspace: () => void
   onNewWorkspaceInFolder: (folderPath: string) => void
+  // Front-door (bottom utility rail) entry: reveal-or-create this project's
+  // Automations host workspace. Gated on the automations module being enabled.
+  onOpenAutomationsForFolder: (folderPath: string) => void
   onNewChat: () => void
   onNewChatInFolder: (folderPath: string) => void
   // New-chat spawn handlers wired to the shared SpawnAgentMenu picker. Each
@@ -216,6 +221,18 @@ const modeAccents: Record<Workspace['mode'], RowAccent> = {
     glyph: 'text-[color:var(--tool-multiloop)]',
   },
   'guided-brief': {
+    border: 'border-l-[color:var(--accent-primary)]',
+    bg: 'bg-[color:var(--bg-selected)]',
+    text: 'text-[color:var(--text-strong)]',
+    shadow: 'shadow-[inset_0_0_0_1px_var(--border-strong)]',
+    collapsedShadow: 'shadow-[inset_0_0_0_1px_var(--border-strong)]',
+    chip: 'bg-[color:var(--bg-hover)]',
+    glyph: 'text-[color:var(--accent-primary)]',
+  },
+  // Automations host carries the same primary-accent identity as its registered
+  // accentToken (--accent-primary) so its rows read distinctly from the muted
+  // `standard` rows that dominate the list, instead of falling through to it.
+  'automations-host': {
     border: 'border-l-[color:var(--accent-primary)]',
     bg: 'bg-[color:var(--bg-selected)]',
     text: 'text-[color:var(--text-strong)]',
@@ -379,6 +396,7 @@ export default function WorkspaceSidebar({
   onForgetFolder,
   onNewWorkspace,
   onNewWorkspaceInFolder,
+  onOpenAutomationsForFolder,
   onNewChat,
   onNewChatInFolder,
   onNewChatTerminal,
@@ -418,6 +436,8 @@ export default function WorkspaceSidebar({
   const [contextMenu, setContextMenu] = useState<{ workspaceId: WorkspaceId; x: number; y: number } | null>(null)
   const [folderMenu, setFolderMenu] = useState<{ folderKey: string; x: number; y: number } | null>(null)
   const [newChatMenu, setNewChatMenu] = useState<{ x: number; y: number; folderPath?: string } | null>(null)
+  // Front-door project picker anchor for the bottom Automations utility rail.
+  const [automationsMenu, setAutomationsMenu] = useState<{ x: number; y: number } | null>(null)
   const [confirmClose, setConfirmClose] = useState<WorkspaceId | null>(null)
   const [confirmDelete, setConfirmDelete] = useState<WorkspaceId | null>(null)
   const [confirmForget, setConfirmForget] = useState<string | null>(null)
@@ -1248,6 +1268,17 @@ export default function WorkspaceSidebar({
     )
   }
 
+  // The Automations front door (bottom utility rail) is gated on the automations
+  // module being enabled — same gate that hides a disabled module's workspace
+  // type from the rail/picker.
+  const automationsEntryEnabled = Boolean(
+    resolveEnabledWorkspaceType(AUTOMATIONS_HOST_WORKSPACE_MODE, moduleOverrides),
+  )
+  const automationsProjectFolders = useMemo(
+    () => listAutomationsProjectFolders(workspaces),
+    [workspaces],
+  )
+
   return (
     <aside
       ref={sidebarRef}
@@ -1552,6 +1583,76 @@ export default function WorkspaceSidebar({
           </div>
         ) : null}
       </nav>
+
+      {/* Bottom utility rail: the Automations front door. A destination (not a
+          create action), so it lives below the workspace tree as a Settings-peer
+          rather than in the New-workspace creation cluster. Pinned to the bottom
+          because the <nav> above is flex-1. Gated on the automations module. */}
+      {automationsEntryEnabled ? (
+        <div
+          className={`shrink-0 border-t border-[color:var(--border-subtle)] ${
+            sidebarCollapsed ? 'px-1.5 py-1.5' : 'px-2 py-1.5'
+          }`}
+        >
+          {sidebarCollapsed ? (
+            <Tooltip content="Automations — schedule agents per project" wrapperClassName="flex">
+              <button
+                type="button"
+                onClick={(event) => setAutomationsMenu({ x: event.clientX, y: event.clientY })}
+                className={`flex h-[30px] w-full items-center justify-center rounded-md text-[color:var(--text-muted)] transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)] ${FOCUS_RING_CLASS}`}
+                aria-label="Automations"
+              >
+                <AutomationsWorkspaceTypeIcon className="icon-xs pointer-events-none" />
+              </button>
+            </Tooltip>
+          ) : (
+            <button
+              type="button"
+              onClick={(event) => setAutomationsMenu({ x: event.clientX, y: event.clientY })}
+              className={`flex h-[30px] w-full items-center gap-2 rounded-md px-2 text-left text-[12px] font-medium text-[color:var(--text-muted)] transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)] ${FOCUS_RING_CLASS}`}
+            >
+              <AutomationsWorkspaceTypeIcon className="icon-xs pointer-events-none shrink-0" />
+              <span className="min-w-0 flex-1 truncate">Automations</span>
+            </button>
+          )}
+        </div>
+      ) : null}
+
+      {/* Front-door project picker: reveal-or-create per project. */}
+      {automationsMenu ? (
+        <PointerPopover
+          x={automationsMenu.x}
+          y={automationsMenu.y}
+          ariaLabel="Open Automations for a project"
+          onClose={() => setAutomationsMenu(null)}
+        >
+          <div className="min-w-[220px] max-w-[320px] py-1">
+            {automationsProjectFolders.length === 0 ? (
+              <div className="px-3 py-2 text-[12px] text-[color:var(--text-muted)]">
+                No project folders yet. Create a workspace in a project first.
+              </div>
+            ) : (
+              automationsProjectFolders.map((folder) => (
+                <button
+                  key={folder.folderPath}
+                  type="button"
+                  onClick={() => {
+                    setAutomationsMenu(null)
+                    onOpenAutomationsForFolder(folder.folderPath)
+                  }}
+                  className={`flex w-full items-center gap-2 px-3 py-1.5 text-left text-[13px] text-[color:var(--text-default)] transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)] ${FOCUS_RING_CLASS}`}
+                >
+                  <AutomationsWorkspaceTypeIcon className="icon-xs pointer-events-none shrink-0 text-[color:var(--accent-primary)]" />
+                  <span className="min-w-0 flex-1 truncate">{folder.displayName}</span>
+                  <span className="shrink-0 text-[11px] text-[color:var(--text-subtle)]">
+                    {folder.hasHost ? 'Open' : 'Create'}
+                  </span>
+                </button>
+              ))
+            )}
+          </div>
+        </PointerPopover>
+      ) : null}
 
       {/* Context menu (workspace row) */}
       {contextMenu ? (

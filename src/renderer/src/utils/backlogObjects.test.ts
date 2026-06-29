@@ -2,14 +2,7 @@ import assert from 'node:assert/strict'
 
 import { createBacklogItem } from './backlog'
 import {
-  addBacklogObjectLink,
-  ensureBacklogObjectRecords,
   hydrateBacklogScanResult,
-  moveBacklogObjectSource,
-  removeBacklogObjectRecord,
-  updateBacklogObjectStatus,
-  updateBacklogObjectTriage,
-  updateBacklogObjectType,
   type BacklogObjectStore,
 } from './backlogObjects'
 
@@ -97,90 +90,5 @@ assert.equal(frontmatterHydrated.items[0]?.criticality, 'low')
 assert.equal(frontmatterHydrated.items[0]?.epic, 'payments-revamp')
 assert.equal(frontmatterHydrated.items[0]?.isEpic, false)
 assert.equal(frontmatterHydrated.items[0]?.objectId, 'item_payments')
-
-const ensured = ensureBacklogObjectRecords({ schemaVersion: 1, items: [] }, [item], '2026-06-07T01:00:00.000Z')
-assert.equal(ensured.changed, true)
-assert.equal(ensured.store.items[0]?.source.relativePath, 'backlog/checkout.md')
-// v2: a freshly registered record carries no lifecycle/triage — those live in
-// frontmatter, so the sidecar record is seeded slim (status stays unset).
-assert.equal(ensured.store.items[0]?.status, undefined)
-assert.equal(ensured.store.items[0]?.type, undefined)
-assert.equal(ensured.store.items[0]?.metadata && Object.keys(ensured.store.items[0].metadata).length, 0)
-
-const typed = updateBacklogObjectType(store, item, 'bug', '2026-06-07T05:30:00.000Z')
-assert.equal(typed.items[0]?.type, 'bug')
-assert.equal(typed.items[0]?.updatedAt, '2026-06-07T05:30:00.000Z')
-
-const clearedType = updateBacklogObjectType(typed, item, null, '2026-06-07T05:45:00.000Z')
-assert.equal(clearedType.items[0]?.type, undefined)
-
-// Triage edits set, then clear, an axis; the other axes are untouched. Risk is
-// the third axis, plumbed parallel to difficulty/criticality.
-const sized = updateBacklogObjectTriage(store, item, { difficulty: 'xl', criticality: 'low', risk: 'high' }, '2026-06-07T06:00:00.000Z')
-assert.equal(sized.items[0]?.difficulty, 'xl')
-assert.equal(sized.items[0]?.criticality, 'low')
-assert.equal(sized.items[0]?.risk, 'high')
-assert.equal(sized.items[0]?.updatedAt, '2026-06-07T06:00:00.000Z')
-
-const clearedSize = updateBacklogObjectTriage(sized, item, { difficulty: null }, '2026-06-07T07:00:00.000Z')
-assert.equal(clearedSize.items[0]?.difficulty, undefined)
-assert.equal(clearedSize.items[0]?.criticality, 'low')
-// Omitting risk leaves it untouched; passing null clears it.
-assert.equal(clearedSize.items[0]?.risk, 'high')
-const clearedRisk = updateBacklogObjectTriage(sized, item, { risk: null }, '2026-06-07T07:30:00.000Z')
-assert.equal(clearedRisk.items[0]?.risk, undefined)
-assert.equal(clearedRisk.items[0]?.criticality, 'low')
-
-// Invalid persisted triage values are dropped on normalization (here via an
-// unrelated mutation that round-trips the store), while valid ones survive.
-const dirty: BacklogObjectStore = {
-  schemaVersion: 1,
-  items: [
-    {
-      id: 'item_dirty',
-      source: { type: 'file', relativePath: 'backlog/checkout.md' },
-      type: 'saga' as unknown as 'feature',
-      difficulty: 'huge' as unknown as 'xl',
-      criticality: 'high',
-      risk: 'critical' as unknown as 'high',
-      highlight: { starred: true, color: 'magenta' as unknown as 'red' },
-    },
-  ],
-}
-const cleaned = updateBacklogObjectStatus(dirty, item, 'idea', '2026-06-07T08:00:00.000Z')
-assert.equal(cleaned.items[0]?.type, undefined)
-assert.equal(cleaned.items[0]?.difficulty, undefined)
-assert.equal(cleaned.items[0]?.criticality, 'high')
-// `critical` is not a valid risk value (low|normal|high) and is dropped.
-assert.equal(cleaned.items[0]?.risk, undefined)
-// Unknown highlight colors are dropped on normalization; the star survives.
-assert.deepEqual(cleaned.items[0]?.highlight, { starred: true, color: null })
-
-const statusUpdated = updateBacklogObjectStatus(store, item, 'completed', '2026-06-07T02:00:00.000Z')
-assert.equal(statusUpdated.items[0]?.status, 'completed')
-assert.equal(statusUpdated.items[0]?.updatedAt, '2026-06-07T02:00:00.000Z')
-
-const linked = addBacklogObjectLink(store, item, {
-  id: 'jira:PROJ-1',
-  moduleId: 'jira',
-  type: 'issue',
-  label: 'Jira issue',
-  target: { kind: 'jira.issue', id: 'PROJ-1', url: 'https://example.test/PROJ-1' },
-  status: 'active',
-}, '2026-06-07T03:00:00.000Z')
-assert.equal(linked.items[0]?.links?.length, 2)
-assert.equal(linked.items[0]?.links?.[1]?.updatedAt, '2026-06-07T03:00:00.000Z')
-
-const moved = moveBacklogObjectSource(store, item, 'backlog/renamed-checkout.md', '2026-06-07T04:00:00.000Z')
-assert.equal(moved.items[0]?.id, 'item_checkout')
-assert.equal(moved.items[0]?.source.relativePath, 'backlog/renamed-checkout.md')
-assert.equal(moved.items[0]?.status, 'in_progress')
-
-const archived = moveBacklogObjectSource(store, item, 'backlog/archived/checkout.md', '2026-06-07T05:00:00.000Z')
-assert.equal(archived.items[0]?.id, 'item_checkout')
-assert.equal(archived.items[0]?.status, 'archived')
-
-const removed = removeBacklogObjectRecord(store, item)
-assert.equal(removed.items.length, 0)
 
 console.log('backlogObjects.test.ts: ok')

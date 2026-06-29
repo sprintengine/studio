@@ -145,6 +145,17 @@ const SPRINT_ENGINE_ACTIVE_TASK_STATUSES: ReadonlySet<SprintEngineTaskStatus> = 
   'product',
 ])
 
+// Canonical "this run is finished" signal: there is at least one task and every
+// task is done. The single source of truth for run completion across the
+// renderer — the auto-run supervisor's hard completion gate, the backlog run-link
+// status, the board run-phase, and the run glyph all read it, so a completed run
+// is judged identically everywhere. Lives in this leaf module (depended on by
+// projectionRefresh and backlogLinks) so adopting it never reintroduces the
+// projectionRefresh↔backlogLinks import cycle. Accepts any task-bearing shape.
+export function isCompletedSprintEngineRun(state: Pick<SprintEngineState, 'tasks'>): boolean {
+  return state.tasks.length > 0 && state.tasks.every((task) => task.status === 'done')
+}
+
 // One run, one glyph, derived purely from sprint state — the task board plus the
 // AutoRun runtime. Terminals are deliberately NOT consulted: an agent terminal
 // sitting at (or stuck at) a prompt is ephemeral and must never make a whole
@@ -163,7 +174,7 @@ const SPRINT_ENGINE_ACTIVE_TASK_STATUSES: ReadonlySet<SprintEngineTaskStatus> = 
 //   7. null — not started / no observable run; the surface keeps its own
 //      resting rendering (recency text, or the Backlog item's own status).
 export function deriveSprintEngineRunGlyph(input: {
-  sprintEngineState: Pick<SprintEngineState, 'tasks'> | null | undefined
+  sprintEngineState: Pick<SprintEngineState, 'tasks' | 'vcs'> | null | undefined
   autoState: Partial<SprintEngineAutoState> | null | undefined
 }): SprintEngineRunGlyph | null {
   const tasks = input.sprintEngineState?.tasks ?? []
@@ -191,8 +202,18 @@ export function deriveSprintEngineRunGlyph(input: {
   if (hasActiveWork) return { state: 'in_progress', live: false, label: 'In progress' }
 
   const hasTasks = tasks.length > 0
-  if ((hasTasks && tasks.every((task) => task.status === 'done')) || runtimeState === 'complete') {
-    return { state: 'done', live: false, label: 'Completed' }
+  if (isCompletedSprintEngineRun({ tasks }) || runtimeState === 'complete') {
+    // A worktree run distinguishes merged (filled) from not-yet-merged (outline).
+    // A run with no worktree has no branch to merge, so it stays the plain filled
+    // "Complete" — never a permanent "unmerged" badge.
+    // Vocabulary matches the run-summary verdict: a worktree run is "Ready for
+    // review" until its PR merges, then "Complete"; a non-worktree run is
+    // "Complete" the moment work is done.
+    const vcs = input.sprintEngineState?.vcs
+    if (vcs && vcs.pullRequestState !== 'merged') {
+      return { state: 'done_unmerged', live: false, label: 'Ready for review' }
+    }
+    return { state: 'done', live: false, label: 'Complete' }
   }
 
   if (runtimeState === 'paused') return AUTOMATION_RUN_GLYPH.paused ?? null
@@ -1262,6 +1283,13 @@ function normalizeSprintEngineVcs(input: unknown): SprintEngineVcs | undefined {
     ...(optionalTrimmedString(record.baseRef) ? { baseRef: optionalTrimmedString(record.baseRef) } : {}),
     ...(optionalTrimmedString(record.status) ? { status: optionalTrimmedString(record.status) } : {}),
     pullRequestUrl: typeof record.pullRequestUrl === 'string' ? record.pullRequestUrl : null,
+    pullRequestError: typeof record.pullRequestError === 'string' ? record.pullRequestError : null,
+    pullRequestState:
+      record.pullRequestState === 'open' ||
+      record.pullRequestState === 'merged' ||
+      record.pullRequestState === 'closed'
+        ? record.pullRequestState
+        : null,
     lastCommitSha: typeof record.lastCommitSha === 'string' ? record.lastCommitSha : null,
   }
 }
@@ -2814,7 +2842,7 @@ export function getSprintEngineBoardRunPhase(
   sprintEngineState: Pick<SprintEngineState, 'tasks'>,
   runtimeAgents: SprintEngineBoardRuntimeAgentView[],
 ): SprintEngineBoardRunPhase {
-  if (sprintEngineState.tasks.length > 0 && sprintEngineState.tasks.every((task) => task.status === 'done')) {
+  if (isCompletedSprintEngineRun(sprintEngineState)) {
     return 'Complete'
   }
   if (runtimeAgents.some((agent) => agent.status === 'running' || agent.status === 'needs_input')) {

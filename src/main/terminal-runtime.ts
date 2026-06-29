@@ -752,9 +752,15 @@ export function runIdleAgentReapSweep(now = Date.now()): string[] {
     // When the agent went idle — keeps a just-finished agent alive until it has
     // actually been idle past the threshold.
     idleSince: session.agentState?.phase === 'idle' ? session.agentState.since : null,
-    // Conservatively protect any managed SprintEngine agent (it may be mid-run
-    // with no user keystrokes) until authoritative run-active state is wired in.
-    inActiveRun: Boolean(session.sprintEngineStatePath),
+    // SprintEngine agents are NO LONGER blanket-exempt. The phase gate already
+    // protects working/awaiting_input/stalled agents, so only a genuinely at-rest
+    // ('idle') sprint agent is reclaimed — and for those we DISPOSE (not freeze),
+    // which fires `agent.leave` (→ status `left`) so the dispatch's revival path
+    // respawns the agent when its role next has claimable work. This backstops the
+    // 5-min AutoRun idle-retirement for runs whose dispatch loop has stopped
+    // (completed/inactive), where idle agents otherwise sit holding RAM until the
+    // 24h sweep or app/workspace teardown. See the dispose branch below.
+    inActiveRun: false,
   }))
 
   const decision = selectReapableSessions(candidates, {
@@ -766,7 +772,15 @@ export function runIdleAgentReapSweep(now = Date.now()): string[] {
     const session = terminals.get(sessionId)
     if (!session || session.isDisposed) continue
     const idleMs = now - lastInteractionAt(session)
-    logMainPerfEvent('TerminalRuntime', 'terminal-idle-suspended', {
+    // SprintEngine agents are orchestrator-driven (no user keystroke to resume on),
+    // so freeze-the-view suspend is the wrong reclaim action for them: it would
+    // keep the dead session around without marking the agent `left`, breaking the
+    // dispatch (a duplicate fresh terminal, no revival). Disposing instead fires
+    // `agent.leave` (→ `left`), which the dispatch's revival path turns back into a
+    // respawn when the role next has claimable work. Plain (non-sprint) agent
+    // terminals keep the user-facing freeze-the-view suspend.
+    const reclaimByDispose = Boolean(session.sprintEngineStatePath)
+    logMainPerfEvent('TerminalRuntime', 'terminal-idle-reaped', {
       sessionId,
       kind: session.kind,
       workspaceId: session.workspaceId,
@@ -775,10 +789,11 @@ export function runIdleAgentReapSweep(now = Date.now()): string[] {
       lastInteractionAt: lastInteractionAt(session),
       agentPhase: session.agentState?.phase ?? null,
       idleMs,
+      action: reclaimByDispose ? 'dispose' : 'suspend',
     })
     recordReapEvent({
       reapedAt: now,
-      reason: 'idle-suspend',
+      reason: reclaimByDispose ? 'idle-dispose' : 'idle-suspend',
       sessionId,
       workspaceId: session.workspaceId ?? null,
       agentId: session.agentId ?? null,
@@ -787,7 +802,8 @@ export function runIdleAgentReapSweep(now = Date.now()): string[] {
       kind: session.kind,
       idleMs,
     })
-    suspendTerminal(sessionId)
+    if (reclaimByDispose) disposeTerminal(sessionId)
+    else suspendTerminal(sessionId)
   }
   return decision.reapableSessionIds
 }

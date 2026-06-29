@@ -1088,6 +1088,11 @@ export type SprintEngineVcs = {
   baseRef?: string
   status?: string
   pullRequestUrl?: string | null
+  /** Reason the last pull-request open failed, surfaced in the summary with Retry. */
+  pullRequestError?: string | null
+  /** Merge state of the run branch: 'open' until the PR merges or the branch lands
+   *  in its base; 'merged'/'closed' are terminal (polling stops). */
+  pullRequestState?: 'open' | 'merged' | 'closed' | null
   lastCommitSha?: string | null
 }
 

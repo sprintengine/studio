@@ -1,6 +1,7 @@
 import { createHash } from 'crypto'
 import { basename, dirname, join, resolve } from 'path'
 import { readdir, readFile, stat } from 'fs/promises'
+import { selectTaskStatusSources } from './task-normalizer'
 import type {
   SwitchboardReadResult,
   SwitchboardRunnerExecution,
@@ -14,13 +15,60 @@ import {
   listWatchtowerRuns,
   readAllSwitchboardTasks,
 } from '../../switchboard-files'
-import type { MobileControlBacklogWorkspaceSnapshot, MobileControlCommandType } from '../../../shared/mobile-control/protocol'
+import {
+  mobileControlProtocolVersion,
+  mobileControlWorkspaceSnapshotVersion,
+} from '../../../shared/mobile-control/protocol'
+// Wire schema is owned by src/shared/mobile-control/protocol.ts. Import the
+// snapshot type tree from there (aliased to this module's established local
+// names) and re-export it, rather than re-declaring it and risking drift from
+// the validator (validateMobileControlSnapshot) that consumes the same schema.
+import type {
+  MobileControlBacklogWorkspaceSnapshot,
+  MobileControlCommandType,
+  MobileControlSnapshot,
+  MobileControlSprintEngineSnapshot as MobileSprintEngineSnapshot,
+  MobileControlTaskSnapshot as MobileSprintEngineTaskSnapshot,
+  MobileControlArtifactSnapshot as MobileSprintEngineArtifactSnapshot,
+  MobileControlWorkspaceSnapshot as MobileWorkspaceSnapshot,
+  MobileControlSprintEngineQualityGateSummary as MobileSprintEngineQualityGateSummary,
+  MobileControlSprintEngineQualityGate as MobileSprintEngineQualityGate,
+  MobileControlTaskCommentSummary as MobileSprintEngineCommentSummary,
+  MobileControlRecordedArtifactSummary as MobileSprintEngineRecordedArtifactSummary,
+  MobileControlTaskNeedsInput,
+  MobileControlTaskEvidence,
+  MobileControlTaskFeedback,
+  MobileControlTaskReviewSignals,
+  MobileControlTaskRelease,
+  MobileControlNeedsInputKind,
+  MobileControlQualityGatePhase as MobileQualityGatePhase,
+  MobileControlQualityGateStatus as MobileQualityGateStatus,
+  MobileControlTaskCommentType as MobileTaskCommentType,
+  MobileControlSwitchboardTaskSummary as MobileSwitchboardTaskSummary,
+  MobileControlSwitchboardCommentSummary as MobileSwitchboardCommentSummary,
+  MobileControlSwitchboardEvidenceSummary as MobileSwitchboardEvidenceSummary,
+  MobileControlSwitchboardLogSummary as MobileSwitchboardLogSummary,
+  MobileControlWatchtowerRunSummary as MobileWatchtowerRunSummary,
+  MobileControlWatchtowerGeneratedInboxSummary as MobileWatchtowerGeneratedInboxSummary,
+  MobileControlMultiloopMilestoneSummary as MobileMultiloopMilestoneSummary,
+  MobileControlMultiloopBlockerSummary as MobileMultiloopBlockerSummary,
+} from '../../../shared/mobile-control/protocol'
 import { readMobileBacklogWorkspaceSnapshot } from './backlog'
 import { deriveWorkspaceId } from './workspace-id'
 import { containsLocalPath, deepRedactLocalPaths } from './relay-path-safety'
 
-const mobileControlProtocolVersion = 1 as const
-const mobileControlWorkspaceSnapshotVersion = 2 as const
+export type {
+  MobileControlSnapshot,
+  MobileSprintEngineSnapshot,
+  MobileSprintEngineTaskSnapshot,
+  MobileSprintEngineArtifactSnapshot,
+  MobileWorkspaceSnapshot,
+  MobileSprintEngineQualityGateSummary,
+  MobileSprintEngineQualityGate,
+  MobileSprintEngineCommentSummary,
+  MobileSprintEngineRecordedArtifactSummary,
+}
+
 const defaultPublishThrottleMs = 1000
 const maxWorkspaceCollectionItems = 20
 const maxNestedWorkspaceCollectionItems = 10
@@ -41,313 +89,11 @@ const mobileSnapshotCommandTypes = [
 export const defaultMobileSnapshotCommands: readonly MobileControlCommandType[] = mobileSnapshotCommandTypes
 
 type SprintEngineTaskStatus = 'todo' | 'ready' | 'in_progress' | 'review' | 'testing' | 'product' | 'changes_requested' | 'needs_input' | 'done'
-type MobileTaskStatus = 'todo' | 'ready' | 'in_progress' | 'review' | 'testing' | 'product' | 'changes_requested' | 'needs_input' | 'blocked' | 'done'
-type MobileQualityGatePhase = 'review' | 'testing' | 'product'
-type MobileQualityGateStatus = 'pending' | 'in_progress' | 'approved' | 'changes_requested' | 'blocked' | 'skipped'
-type MobileTaskCommentType =
-  | 'implementation_summary'
-  | 'implementation_response'
-  | 'review_feedback'
-  | 'test_feedback'
-  | 'product_feedback'
-  | 'architect_feedback'
-  | 'needs_input'
-  | 'user_note'
-  | 'system_note'
-
-export type MobileSprintEngineQualityGateSummary = {
-  total: number
-  required: number
-  openRequired: number
-  byPhase: Partial<Record<MobileQualityGatePhase, number>>
-  byStatus: Partial<Record<MobileQualityGateStatus, number>>
-}
-
-export type MobileSprintEngineQualityGate = {
-  id: string
-  phase: MobileQualityGatePhase
-  role: string
-  status: MobileQualityGateStatus
-  required: boolean
-  attemptCount: number
-  latestVerdict?: string
-}
-
-export type MobileSprintEngineCommentSummary = {
-  id: string
-  type?: MobileTaskCommentType
-  actor: string
-  authorRole?: string
-  body: string
-  createdAt?: string
-}
-
-export type MobileSprintEngineRecordedArtifactSummary = {
-  id: string
-  kind?: string
-  title?: string
-  path?: string
-  gateId?: string
-  createdAt?: string
-}
-type MobileArtifactStatus = 'draft' | 'ready_for_review' | 'approved' | 'changes_requested'
-type MobileWorkspaceStatus = 'idle' | 'running' | 'needs_input' | 'blocked' | 'complete' | 'error' | 'unknown'
-
-export type MobileSprintEngineTaskSnapshot = {
-  taskId: string
-  title: string
-  role: string
-  status: MobileTaskStatus
-  ownerAgentId?: string
-  dependsOn: string[]
-  needsInput?: {
-    kind?: string
-    reason?: string
-    question?: string
-    suggestedResolution?: string
-    artifactId?: string
-  }
-  evidence?: {
-    summary?: string
-    touchedFileCount?: number
-    commandCount?: number
-    resultCount?: number
-  }
-  feedback?: {
-    confidencePct?: number
-    hallucinationRiskPct?: number
-  }
-  reviewSignals?: {
-    findingCount?: number
-    issueCount?: number
-    verdict?: string
-  }
-  release?: {
-    requestedBy?: string
-    reason?: string
-  }
-  qualityGateSummary?: MobileSprintEngineQualityGateSummary
-  qualityGates?: MobileSprintEngineQualityGate[]
-  latestComments?: MobileSprintEngineCommentSummary[]
-  latestOpenFeedback?: MobileSprintEngineCommentSummary[]
-  recordedArtifacts?: MobileSprintEngineRecordedArtifactSummary[]
-}
-
-export type MobileSprintEngineArtifactSnapshot = {
-  artifactId: string
-  title: string
-  kind: string
-  status: MobileArtifactStatus
-  taskId?: string
-  path?: string
-}
-
-export type MobileSprintEngineSnapshot = {
-  sprintEngineId: string
-  name: string
-  workspacePath: string
-  statePath: string
-  planPath?: string
-  snapshotVersion: string
-  updatedAt: string
-  board: {
-    todo: number
-    ready: number
-    inProgress: number
-    changesRequested: number
-    review: number
-    testing: number
-    product: number
-    needsInput: number
-    blocked: number
-    done: number
-  }
-  qualityPolicy?: {
-    enabled: boolean
-    rosterDriven: boolean
-    lifecyclePhases: MobileQualityGatePhase[]
-  }
-  tasks: MobileSprintEngineTaskSnapshot[]
-  artifacts: MobileSprintEngineArtifactSnapshot[]
-  roster?: Record<string, { role?: string; status?: string; currentTaskId?: string | null }>
-  runSummary?: Record<string, string | number | boolean | null>
-  planReview?: Record<string, string | number | boolean | null>
-  locks?: {
-    warnings?: unknown[]
-    locks?: unknown[]
-  }
-  activity?: {
-    count: number
-    latest?: unknown
-  }
-  counts?: {
-    ready?: number
-    needsInput?: number
-    changesRequested?: number
-  }
-}
-
-export type MobileWorkspaceSnapshot = {
-  workspaceId: string
-  kind: 'sprintengine' | 'switchboard' | 'watchtower' | 'multiloop'
-  name: string
-  workspacePath?: string
-  statePath?: string
-  updatedAt: string
-  capabilities: ('summary.read' | 'detail.read' | 'logs.read')[]
-  detailVersion: typeof mobileControlWorkspaceSnapshotVersion
-  summary: {
-    status: MobileWorkspaceStatus
-    headline?: string
-    counts?: Record<string, number>
-  }
-  detail?: {
-    kind: 'sprintengine'
-    data: {
-      sprintEngineId: string
-      snapshotVersion: string
-      board: MobileSprintEngineSnapshot['board']
-      roster?: Record<string, { role?: string; status?: string; currentTaskId?: string | null }>
-      runSummary?: Record<string, string | number | boolean | null>
-      planReview?: Record<string, string | number | boolean | null>
-      qualityPolicy?: MobileSprintEngineSnapshot['qualityPolicy']
-    }
-  }
-  | {
-    kind: 'switchboard'
-    data: {
-      inboxCount?: number
-      laneCounts?: Record<string, number>
-      activeExecutionCount?: number
-      tasks?: MobileSwitchboardTaskSummary[]
-      inboxItems?: MobileSwitchboardTaskSummary[]
-      comments?: MobileSwitchboardCommentSummary[]
-      evidence?: MobileSwitchboardEvidenceSummary[]
-      logs?: MobileSwitchboardLogSummary[]
-    }
-  }
-  | {
-    kind: 'watchtower'
-    data: {
-      activeRunCount?: number
-      latestRunStatus?: string
-      generatedInboxCount?: number
-      runs?: MobileWatchtowerRunSummary[]
-      generatedInboxItems?: MobileWatchtowerGeneratedInboxSummary[]
-    }
-  }
-  | {
-    kind: 'multiloop'
-    data: {
-      loopId?: string
-      milestoneCount?: number
-      blockerCount?: number
-      linkedSprintEngineId?: string
-      milestones?: MobileMultiloopMilestoneSummary[]
-      blockers?: MobileMultiloopBlockerSummary[]
-    }
-  }
-}
-
-type MobileSwitchboardSourceSummary = {
-  type: string
-  externalId?: string | null
-  externalKey?: string | null
-  externalUrl?: string | null
-}
-
-type MobileSwitchboardTaskSummary = {
-  taskId: string
-  identifier: string
-  title: string
-  status: string
-  lane: string
-  updatedAt: string
-  source: MobileSwitchboardSourceSummary
-  priority?: number | null
-  claimedBy?: string | null
-}
-
-type MobileSwitchboardCommentSummary = {
-  taskId: string
-  commentId: string
-  kind: string
-  body: string
-  createdAt: string
-  authorName?: string | null
-  confidencePct?: number | null
-}
-
-type MobileSwitchboardEvidenceSummary = {
-  taskId: string
-  summary?: string
-  artifactCount: number
-  commandCount: number
-  touchedFileCount: number
-  updatedAt: string
-}
-
-type MobileSwitchboardLogSummary = {
-  taskId?: string
-  executionId: string
-  status?: string | null
-  agentId?: string | null
-  startedAt: string
-  completedAt?: string | null
-  summary?: string | null
-}
-
-type MobileWatchtowerRunSummary = {
-  runId: string
-  status: string
-  preset: string
-  createdAt: string
-  completedAt?: string | null
-  validCount: number
-  invalidCount: number
-  generatedInboxCount: number
-  agentCount: number
-}
-
-type MobileWatchtowerGeneratedInboxSummary = {
-  runId: string
-  taskId: string
-  source: 'watchtower'
-}
-
-type MobileMultiloopMilestoneSummary = {
-  milestoneId: string
-  title: string
-  status?: string
-  updatedAt?: string
-  linkedSprintEngineId?: string
-}
-
-type MobileMultiloopBlockerSummary = {
-  blockerId: string
-  title: string
-  status?: string
-  updatedAt?: string
-}
-
-export type MobileControlSnapshot = {
-  protocolVersion: typeof mobileControlProtocolVersion
-  generatedAt: string
-  desktopSessionId: string
-  snapshotVersion?: string
-  commands?: MobileControlCommandType[]
-  sprintEngines: MobileSprintEngineSnapshot[]
-  workspaces?: MobileWorkspaceSnapshot[]
-  backlog?: MobileControlBacklogWorkspaceSnapshot[]
-  snapshotLimits?: {
-    sprintEngines?: {
-      included: number
-      omitted: number
-      total: number
-      reason: 'relay_result_summary_size'
-    }
-  }
-}
+// Producer-side status unions derived from the imported wire schema so they
+// cannot drift from protocol.ts.
+type MobileTaskStatus = MobileSprintEngineTaskSnapshot['status']
+type MobileArtifactStatus = MobileSprintEngineArtifactSnapshot['status']
+type MobileWorkspaceStatus = MobileWorkspaceSnapshot['summary']['status']
 
 export type MobileSprintEngineSnapshotRequest = {
   desktopSessionId: string
@@ -445,32 +191,11 @@ type NormalizedTask = {
   boardColumn?: SprintEngineTaskStatus
   ownerAgentId: string | null
   dependsOn: string[]
-  needsInput?: {
-    kind?: string
-    reason?: string
-    question?: string
-    suggestedResolution?: string
-    artifactId?: string
-  }
-  evidence?: {
-    summary?: string
-    touchedFileCount?: number
-    commandCount?: number
-    resultCount?: number
-  }
-  feedback?: {
-    confidencePct?: number
-    hallucinationRiskPct?: number
-  }
-  reviewSignals?: {
-    findingCount?: number
-    issueCount?: number
-    verdict?: string
-  }
-  release?: {
-    requestedBy?: string
-    reason?: string
-  }
+  needsInput?: MobileControlTaskNeedsInput
+  evidence?: MobileControlTaskEvidence
+  feedback?: MobileControlTaskFeedback
+  reviewSignals?: MobileControlTaskReviewSignals
+  release?: MobileControlTaskRelease
   qualityGateSummary?: MobileSprintEngineQualityGateSummary
   qualityGates?: MobileSprintEngineQualityGate[]
   latestComments?: MobileSprintEngineCommentSummary[]
@@ -735,12 +460,16 @@ function normalizeTasks(value: unknown): NormalizedTask[] {
     if (!task || typeof task !== 'object' || Array.isArray(task)) return []
     const record = task as Record<string, unknown>
     const id = stringOrFallback(record.id, `task-${index + 1}`)
+    // Shared precedence with the command-readiness reader: the semantic status is
+    // `stateStatus ?? status` (projection records mirror the board column into
+    // `status`), the lane is `boardColumn`. The board-aware union below is kept.
+    const statusSources = selectTaskStatusSources(record)
     return [{
       id,
       title: stringOrFallback(record.title, id),
       role: stringOrFallback(record.role, 'developer'),
-      status: normalizeTaskStatus(record.status),
-      boardColumn: normalizeOptionalTaskStatus(record.boardColumn),
+      status: normalizeTaskStatus(statusSources.status),
+      boardColumn: normalizeOptionalTaskStatus(statusSources.boardColumn),
       ownerAgentId: typeof record.ownerAgentId === 'string' && record.ownerAgentId.trim()
         ? record.ownerAgentId
         : null,
@@ -1295,14 +1024,23 @@ function multiloopWorkspaceStatus(status: unknown, activeBlockers: number): Mobi
 function normalizeNeedsInput(value: unknown): NormalizedTask['needsInput'] | undefined {
   const record = recordObject(value)
   if (!record) return undefined
-  const normalized = {
-    kind: stringOrNull(record.kind) ?? undefined,
+  // kind is narrowed to the protocol's needs-input vocabulary so the emitted
+  // snapshot passes validateMobileControlSnapshot (which rejects unknown kinds);
+  // an unrecognized raw kind is dropped rather than passed through.
+  const normalized: MobileControlTaskNeedsInput = {
+    kind: normalizeNeedsInputKind(record.kind),
     reason: stringOrNull(record.reason) ?? undefined,
     question: stringOrNull(record.question) ?? undefined,
     suggestedResolution: stringOrNull(record.suggestedResolution) ?? undefined,
     artifactId: stringOrNull(record.artifactId) ?? undefined,
   }
   return Object.values(normalized).some(Boolean) ? normalized : undefined
+}
+
+function normalizeNeedsInputKind(value: unknown): MobileControlNeedsInputKind | undefined {
+  return value === 'architect' || value === 'user' || value === 'owner' || value === 'external_validation'
+    ? value
+    : undefined
 }
 
 function normalizeEvidence(value: unknown): NormalizedTask['evidence'] | undefined {

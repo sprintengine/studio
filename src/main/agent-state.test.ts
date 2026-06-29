@@ -2,13 +2,13 @@ import assert from 'node:assert/strict'
 import { existsSync } from 'node:fs'
 import { mkdtemp, mkdir, readFile, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { join, sep } from 'node:path'
 
 import {
   AGENT_STATE_CODEX_HOOK_EVENTS,
   AGENT_STATE_HOOK_EVENTS,
   AGENT_STATE_HOOK_TAG,
-  buildAgentStateHookCommand,
+  buildAgentStateReporterCommand,
   deriveActivityFromPhase,
   evaluateAgentStall,
   installAgentStateHook,
@@ -112,6 +112,34 @@ async function run(): Promise<void> {
   assert.equal(parseAgentStateFrame('not-json-object', 1), null)
   assert.equal(parseAgentStateFrame(null, 1), null)
 
+  // --- future-dated ts is clamped to server arrival (phase-freeze bug) ----
+  // A reporter cannot legitimately be ahead of the main-process clock. Without
+  // the clamp a single far-future frame pins agentState.since in the future and
+  // terminal-runtime's stale-frame guard (since > frame.ts) then drops every
+  // later frame forever, future-dating the user-visible "working since".
+  {
+    const arrival = 1_000_000
+    const future = parseAgentStateFrame(
+      { type: 'agent_state', agentId: 'a1', phase: 'thinking', ts: arrival + 5_000_000 },
+      arrival
+    )
+    // ts is capped at `now`, never the future raw value.
+    assert.equal(future?.ts, arrival, 'future ts is clamped to now')
+    assert.ok(future!.ts <= arrival, 'clamped since is not future-dated')
+
+    // A normal frame arriving just after still parses, and terminal-runtime's
+    // drop guard (recorded since > frame.ts) does NOT drop it, because the
+    // future frame recorded since=arrival rather than the future raw value.
+    const normal = parseAgentStateFrame(
+      { type: 'agent_state', agentId: 'a1', phase: 'idle', ts: arrival + 1 },
+      arrival + 1
+    )
+    assert.ok(normal, 'normal frame parses')
+    const recordedSince = future!.ts
+    const droppedByStaleGuard = recordedSince > normal!.ts
+    assert.equal(droppedByStaleGuard, false, 'normal frame is not dropped after a future-dated frame')
+  }
+
   // --- frame → session resolution ----------------------------------------
   type Sess = { id: string; agentId?: string; executionId?: string; sessionId?: string; workspaceId?: string; startedAt: number }
   const cand = (s: Sess) => ({ value: s, agentId: s.agentId, executionId: s.executionId, sessionId: s.sessionId, workspaceId: s.workspaceId, startedAt: s.startedAt })
@@ -171,11 +199,21 @@ async function run(): Promise<void> {
   assert.equal(isAuthoritativeWorkingPhase(undefined), false)
 
   // --- command builder ----------------------------------------------------
-  const cmd = buildAgentStateHookCommand('/tmp/multi code/agent.sock')
-  assert.match(cmd, /^node "\.multicode\/hooks\/agent-state\.mjs" --socket "\/tmp\/multi code\/agent\.sock"$/)
-  // A Windows named-pipe path must survive verbatim — a separator rewrite would
-  // corrupt `\\.\pipe\...` into `//./pipe/...`, which connect() cannot open.
-  const winCmd = buildAgentStateHookCommand('\\\\.\\pipe\\multicode-agent-state-abc')
+  // The reporter is referenced by its ABSOLUTE path (hook cwd is not guaranteed),
+  // double-quoted so spaces survive and forward-slashed so a Windows `C:\...` path
+  // carries no unescaped backslashes into the JSON/TOML command string.
+  const cmd = buildAgentStateReporterCommand('/abs/multi code/.multicode/hooks/agent-state.mjs', '/tmp/multi code/agent.sock')
+  assert.match(cmd, /^node "\/abs\/multi code\/\.multicode\/hooks\/agent-state\.mjs" --socket "\/tmp\/multi code\/agent\.sock"$/)
+  // The host path separator is rewritten to '/': on Windows `resolve()` yields
+  // backslashes, which Node accepts as forward slashes and which avoids embedding
+  // unescaped backslashes. Build the input with the host `sep` so this holds on
+  // any platform the test runs on.
+  const sepCmd = buildAgentStateReporterCommand(['', 'abs', 'proj', 'agent-state.mjs'].join(sep), '/sock')
+  assert.ok(sepCmd.includes('node "/abs/proj/agent-state.mjs"'), sepCmd)
+  assert.ok(!sepCmd.slice(0, sepCmd.indexOf('--socket')).includes('\\'), 'script path must not contain backslashes')
+  // A Windows named-pipe SOCKET path must survive verbatim — a separator rewrite
+  // would corrupt `\\.\pipe\...` into `//./pipe/...`, which connect() cannot open.
+  const winCmd = buildAgentStateReporterCommand('/abs/.multicode/hooks/agent-state.mjs', '\\\\.\\pipe\\multicode-agent-state-abc')
   assert.ok(winCmd.includes('--socket "\\\\.\\pipe\\multicode-agent-state-abc"'), winCmd)
 
   // --- install / uninstall round-trip ------------------------------------
@@ -219,8 +257,19 @@ async function run(): Promise<void> {
   assert.ok(userEntry, 'user PostToolUse block dropped')
   assert.equal(userEntry?.hooks?.[0]?.command, 'echo user')
 
+  // Our command references the reporter by ABSOLUTE path (the copied destination),
+  // not a workspace-relative path: hook cwd is not guaranteed, so a relative path
+  // would misresolve once the session cwd drifts off the root.
+  const ourEntry = settings.hooks?.SessionStart?.[0]?.hooks?.find((h) => h._multicode === AGENT_STATE_HOOK_TAG)
+  const expectedScript = join(root, '.multicode', 'hooks', 'agent-state.mjs').split('\\').join('/')
+  assert.ok(ourEntry?.command.includes(`node "${expectedScript}"`), ourEntry?.command)
+  // Guard against regressing to the relative form `node ".multicode/...`: in the
+  // absolute form the opening quote is followed by the root (`/` or `C:/`), never
+  // by `.multicode`, so this substring can only appear if a relative path leaked.
+  assert.ok(!ourEntry?.command.includes('node ".multicode'), 'must not embed a relative script path')
+
   // Idempotent: installing again does not duplicate entries.
-  await mergeAgentStateHooks(settingsPath, buildAgentStateHookCommand(join(root, 'agent.sock')))
+  await mergeAgentStateHooks(settingsPath, buildAgentStateReporterCommand(join(root, '.multicode', 'hooks', 'agent-state.mjs'), join(root, 'agent.sock')))
   settings = await readSettings(settingsPath)
   assert.equal(countOurEntries(settings), AGENT_STATE_HOOK_EVENTS.length)
 
