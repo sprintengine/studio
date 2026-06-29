@@ -99,6 +99,9 @@ export type CapabilityPermission =
   | 'ipc:agents'
   | 'ipc:settings'
   | 'ipc:invoke'
+  | 'backlog.read'
+  | 'backlog.write'
+  | 'backlog.link.open'
   | (string & {})
 
 export const KNOWN_CAPABILITY_PERMISSIONS: readonly string[] = [
@@ -112,6 +115,9 @@ export const KNOWN_CAPABILITY_PERMISSIONS: readonly string[] = [
   'ipc:agents',
   'ipc:settings',
   'ipc:invoke',
+  'backlog.read',
+  'backlog.write',
+  'backlog.link.open',
 ]
 
 // ── Notifications ────────────────────────────────────────────────────────────
