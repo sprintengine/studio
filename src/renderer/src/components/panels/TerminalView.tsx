@@ -755,6 +755,13 @@ export default function TerminalView({ workspaceId, agentId, sessionId: attached
           workspaceId,
           agentId,
           agentName: finalAgent.name,
+          // The agent's own CLI/harness session id, used as the resume token so
+          // non-Claude CLIs (e.g. Codex) reattach the right conversation. Read
+          // live at call time — the resume thunk outlives this closure, and the
+          // harness id is learned from the hook AFTER launch, so the captured
+          // `finalAgent` may not have it yet. For Claude this coincides with the
+          // terminal id, so main's fallback keeps `--resume <id>` identical.
+          cliSessionId: currentContext().agent?.harnessSessionId ?? finalAgent.harnessSessionId,
           executionMode: executionRoot.mode,
           worktreeId: executionRoot.worktreeId,
           worktreePath: executionRoot.worktreePath,
@@ -809,6 +816,13 @@ export default function TerminalView({ workspaceId, agentId, sessionId: attached
           workspaceId,
           agentId,
           agentName: finalAgent.name,
+          // The agent's own CLI/harness session id, used as the resume token so
+          // non-Claude CLIs (e.g. Codex) reattach the right conversation. Read
+          // live at call time — the resume thunk outlives this closure, and the
+          // harness id is learned from the hook AFTER launch, so the captured
+          // `finalAgent` may not have it yet. For Claude this coincides with the
+          // terminal id, so main's fallback keeps `--resume <id>` identical.
+          cliSessionId: currentContext().agent?.harnessSessionId ?? finalAgent.harnessSessionId,
           executionMode: executionRoot.mode,
           worktreeId: executionRoot.worktreeId,
           worktreePath: executionRoot.worktreePath,

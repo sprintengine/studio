@@ -43,6 +43,7 @@ export function clearSprintEngineAgentLaunchState(workspace: Workspace): Workspa
             status: 'idle',
             streamBuffer: '',
             cliSessionId: undefined,
+            harnessSessionId: undefined,
             cliStartRequested: false,
             cliRestartNonce: 0,
             cliHasLaunched: false,

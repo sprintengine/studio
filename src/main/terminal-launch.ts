@@ -830,7 +830,6 @@ export function buildCodexLegacyNativeAgentLaunchPowerShellScript(
   cliModel?: string,
   debugMode = false
 ): string {
-  void sessionId
   const permissionArgs = getCliPermissionArgs('codex', cliPermissionPreset)
   const command = cliRuntime.command || 'codex'
   // This acknowledged-legacy path builds codex args by hand instead of going
@@ -849,7 +848,9 @@ export function buildCodexLegacyNativeAgentLaunchPowerShellScript(
   const args = [
     ...permissionArgs,
     ...(model ? ['--model', model] : []),
-    ...(resume ? ['resume'] : []),
+    // Targeted resume when the harness session id is known (mirrors the manifest
+    // resume argv); falls back to bare `resume` (last session) otherwise.
+    ...(resume ? ['resume', ...(sessionId ? [sessionId] : [])] : []),
     '-C',
     cwd,
     ...(!resume && promptArg ? [promptArg] : []),

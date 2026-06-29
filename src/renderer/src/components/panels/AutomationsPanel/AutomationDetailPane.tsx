@@ -20,7 +20,7 @@ import {
 // `window.api` automations bridge; reloads whenever the definition's lastRunId
 // changes (e.g. after a run-now).
 export function AutomationDetailPane({
-  definition, workspaceRoot, now, focusRunId, focusNonce, onOpenAgent,
+  definition, workspaceRoot, now, focusRunId, focusNonce, onOpenAgent, onViewReport,
 }: {
   definition: AutomationDefinition
   workspaceRoot: string
@@ -30,6 +30,8 @@ export function AutomationDetailPane({
   /** Changes on every Open action so re-opening the same run re-fires the scroll. */
   focusNonce?: number
   onOpenAgent: (workspaceId: string, agentId?: string) => void
+  /** Open a run's report in the in-app viewer. */
+  onViewReport: (run: AutomationRun) => void
 }) {
   const [runs, setRuns] = useState<AutomationRun[]>([])
   const [state, setState] = useState<AsyncState>('idle')
@@ -143,6 +145,7 @@ export function AutomationDetailPane({
                 now={now}
                 highlighted={run.id === highlightRunId}
                 onOpenAgent={onOpenAgent}
+                onViewReport={onViewReport}
                 onFinalize={finalizeRun}
                 finalizing={finalizingRunId === run.id}
               />
@@ -166,11 +169,12 @@ function Meta({ label, value }: { label: string; value: string }) {
 // Watchtower-style run row: leading lifecycle glyph (shape-coded), identifier in
 // mono, timing in tabular figures, and a trailing "Open agent" when a run
 // launched one.
-function RunRow({ run, now, highlighted, onOpenAgent, onFinalize, finalizing }: {
+function RunRow({ run, now, highlighted, onOpenAgent, onViewReport, onFinalize, finalizing }: {
   run: AutomationRun
   now: number
   highlighted: boolean
   onOpenAgent: (workspaceId: string, agentId?: string) => void
+  onViewReport: (run: AutomationRun) => void
   onFinalize: (run: AutomationRun, outcome: 'completed' | 'failed') => void
   finalizing: boolean
 }) {
@@ -213,7 +217,7 @@ function RunRow({ run, now, highlighted, onOpenAgent, onFinalize, finalizing }: 
         {run.blockedReason ? (
           <p className="mt-0.5 text-[11px] leading-4 text-[color:var(--tone-warn)]">{run.blockedReason}</p>
         ) : null}
-        <AutomationRunActions run={run} onOpenAgent={onOpenAgent} onFinalize={onFinalize} finalizing={finalizing} />
+        <AutomationRunActions run={run} onOpenAgent={onOpenAgent} onViewReport={onViewReport} onFinalize={onFinalize} finalizing={finalizing} />
       </div>
     </li>
   )

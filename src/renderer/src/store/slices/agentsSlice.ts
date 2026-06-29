@@ -61,6 +61,7 @@ export const defaultAgent = (id: AgentId, name = id, kind: AgentKind = 'general'
   runtimeKind: 'terminal',
   conversation: undefined,
   cliSessionId: undefined,
+  harnessSessionId: undefined,
   cliStartRequested: false,
   cliRestartNonce: 0,
   cliHasLaunched: false,
@@ -278,6 +279,11 @@ export function createAgentsSlice(set: AgentsSliceSet): AgentsSlice {
               agent.cliStartRequested = true
               agent.cliHasLaunched = true
               agent.cliSessionId = matchingLive.sessionId
+              // Capture the agent's own CLI/harness session id (resume token).
+              // For Claude it equals the terminal key; for Codex etc. it is the
+              // harness id learned from the hook. Don't clobber a known id with
+              // an undefined snapshot (the hook may not have reported yet).
+              if (matchingLive.cliSessionId) agent.harnessSessionId = matchingLive.cliSessionId
               agent.cliResumeAvailable = true
               if (matchingLive.cli) agent.cli = matchingLive.cli
               continue
@@ -291,6 +297,7 @@ export function createAgentsSlice(set: AgentsSliceSet): AgentsSlice {
               agent.cliStartRequested = false
               agent.cliHasLaunched = false
               agent.cliSessionId = undefined
+              agent.harnessSessionId = undefined
               agent.cliOnboardingPromptSent = false
               agent.cliResumeAvailable = false
               continue
@@ -303,6 +310,7 @@ export function createAgentsSlice(set: AgentsSliceSet): AgentsSlice {
             agent.cliStartRequested = false
             agent.cliHasLaunched = false
             agent.cliSessionId = undefined
+            agent.harnessSessionId = undefined
           }
         }
       }),

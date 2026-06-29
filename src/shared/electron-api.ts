@@ -809,6 +809,10 @@ export type TerminalSpawnMetadata = {
   kind?: TerminalKind
   workspaceId?: string
   agentId?: string
+  // The agent's session id within its CLI/harness, used as the resume token.
+  // Distinct from the terminal-tracking `sessionId`; supplied on resume so the
+  // CLI reattaches its own conversation. See TerminalSpawnPayload.cliSessionId.
+  cliSessionId?: string
   // Agent display name, exposed to the session as MULTICODE_AGENT_NAME for the
   // typed-handoff Backlog link label. See agentIdentityEnv (terminal-launch).
   agentName?: string
@@ -873,6 +877,11 @@ export type TerminalSessionSnapshot = {
   workspaceId?: string
   agentId?: string
   terminalId?: string
+  // The agent's session id within its own CLI/harness (the id used to resume the
+  // conversation), captured from lifecycle hooks. Distinct from `sessionId`,
+  // which is our Multicode terminal-tracking id. Equal to it for Claude (we mint
+  // and pass the id); minted by the harness and learned post-launch for Codex etc.
+  cliSessionId?: string
   cli?: AgentCli
   cwd?: string
   sprintEngineStatePath?: string
@@ -1868,6 +1877,29 @@ export type BacklogReadResult =
   | { ok: true; store: BacklogObjectStorePayload }
   | { ok: false; message: string }
 
+// Scan-time id allocation: the renderer hands the main process every scanned
+// item with its current frontmatter id (or null), and the service writes the
+// next sequential id into the frontmatter of those without one. `assignments`
+// maps relativePath -> the newly minted numeric id (only for items that gained
+// one); `key` is the workspace display key so the panel can render `KEY-n`.
+export type BacklogEnsureIdsItemInput = {
+  relativePath: string
+  numericId?: number | null
+}
+
+export type BacklogEnsureIdsInput = {
+  workspaceRoot: string
+  items: BacklogEnsureIdsItemInput[]
+}
+
+export type BacklogEnsureIdsResult =
+  | { ok: true; key: string; assignments: Record<string, number> }
+  | { ok: false; message: string }
+
+export type BacklogWorkspaceKeyResult =
+  | { ok: true; key: string }
+  | { ok: false; message: string }
+
 export type BacklogMutationResult =
   | { ok: true; store: BacklogObjectStorePayload }
   | { ok: false; message: string }
@@ -2317,6 +2349,8 @@ export type ElectronApi = {
   setColorScheme: (scheme: ColorScheme) => Promise<void>
   readBacklogObjectStore: (workspaceRoot: string) => Promise<BacklogReadResult>
   ensureBacklogObjectRecords: (workspaceRoot: string, items: BacklogItemRecordInput[]) => Promise<BacklogReadResult>
+  ensureBacklogItemIds: (input: BacklogEnsureIdsInput) => Promise<BacklogEnsureIdsResult>
+  readBacklogWorkspaceKey: (workspaceRoot: string) => Promise<BacklogWorkspaceKeyResult>
   updateBacklogStatus: (input: BacklogStatusInput) => Promise<BacklogMutationResult>
   updateBacklogType: (input: BacklogTypeInput) => Promise<BacklogMutationResult>
   updateBacklogTriage: (input: BacklogTriageInput) => Promise<BacklogMutationResult>

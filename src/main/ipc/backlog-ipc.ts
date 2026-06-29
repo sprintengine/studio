@@ -4,6 +4,8 @@ import type {
   BacklogAddOrUpdateLinkInput,
   BacklogCreateEpicInput,
   BacklogCreateEpicResult,
+  BacklogEnsureIdsInput,
+  BacklogEnsureIdsResult,
   BacklogEpicColorInput,
   BacklogDependenciesInput,
   BacklogEpicInput,
@@ -17,13 +19,16 @@ import type {
   BacklogTriageInput,
   BacklogTypeInput,
   BacklogMoveSourceInput,
+  BacklogWorkspaceKeyResult,
 } from '../../shared/electron-api'
 import {
   addOrUpdateBacklogLink,
   createBacklogEpic,
+  ensureBacklogItemIds,
   ensureBacklogObjectRecords,
   moveBacklogObjectSource,
   readBacklogObjectStore,
+  readBacklogWorkspaceKey,
   removeBacklogObjectRecord,
   updateBacklogDependencies,
   updateBacklogEpic,
@@ -46,6 +51,14 @@ export function registerBacklogIpc(ipcMain: IpcMain): void {
       return ensureBacklogObjectRecords(workspaceRoot, items)
     },
   )
+
+  ipcMain.handle('backlog:ensure-item-ids', (_event, input: BacklogEnsureIdsInput): Promise<BacklogEnsureIdsResult> => {
+    return ensureBacklogItemIds(input)
+  })
+
+  ipcMain.handle('backlog:read-workspace-key', (_event, workspaceRoot: string): Promise<BacklogWorkspaceKeyResult> => {
+    return readBacklogWorkspaceKey(workspaceRoot)
+  })
 
   ipcMain.handle('backlog:update-status', (_event, input: BacklogStatusInput): Promise<BacklogMutationResult> => {
     return updateBacklogStatus(input)

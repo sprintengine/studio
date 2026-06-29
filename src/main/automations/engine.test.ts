@@ -57,6 +57,8 @@ async function main(): Promise<void> {
   await assertStartupRebuildsRegistryFromStore()
   await assertManualFinalizeRemovesRunFromRegistry()
   await assertEmptySummarySignalAutoFinalizes()
+  await assertSignalScanRecordsContainedReportPaths()
+  await assertOutOfReportsPathsDropWithoutFailingFinalize()
   await assertConcurrentManualAndScanFinalizeOnce()
   await assertOversizeSignalStaysPending()
   await assertReviewOnlyFinalizeWithholdsUnexpectedChanges()
@@ -663,6 +665,55 @@ async function assertEmptySummarySignalAutoFinalizes(): Promise<void> {
   const finalized = await store.getRun('nightly-review', 'run-agent')
   assert.equal(finalized.ok && finalized.value.status, 'completed', 'empty-summary completed signal finalizes')
   assert.equal(counters.prCalls, 1, 'PR opened for empty-summary completed run')
+}
+
+async function assertSignalScanRecordsContainedReportPaths(): Promise<void> {
+  const now = Date.parse('2026-06-17T10:00:00.000Z')
+  const { engine, workspaceRoot, store, worktreePath } = await setupAgentRun(now)
+  assert.equal((await engine.runNow({ workspaceRoot, automationId: 'nightly-review', workspaceId: 'ws-automations' })).ok, true)
+
+  // The signal threads its reports into finalize. A mix of a valid path, an
+  // exact duplicate, a traversal escape, and an out-of-reports path collapses to
+  // the contained, de-duped survivors recorded on the run.
+  await writeRunSignal(worktreePath, JSON.stringify({
+    status: 'completed',
+    summary: 'Wrote the review.',
+    reports: [
+      'reports/2026-06-17-review.md',
+      'reports/2026-06-17-review.md',
+      '../secret.md',
+      'notes/leak.md',
+      'reports/sub/extra.html',
+    ],
+  }))
+  await engine.tick()
+
+  const finalized = await store.getRun('nightly-review', 'run-agent')
+  assert.equal(finalized.ok && finalized.value.status, 'completed')
+  assert.deepEqual(
+    finalized.ok ? finalized.value.reportPaths : undefined,
+    ['reports/2026-06-17-review.md', 'reports/sub/extra.html'],
+    'only contained, de-duped report paths recorded',
+  )
+}
+
+async function assertOutOfReportsPathsDropWithoutFailingFinalize(): Promise<void> {
+  const now = Date.parse('2026-06-17T10:00:00.000Z')
+  const { engine, workspaceRoot, store, counters, worktreePath } = await setupAgentRun(now)
+  assert.equal((await engine.runNow({ workspaceRoot, automationId: 'nightly-review', workspaceId: 'ws-automations' })).ok, true)
+
+  // Every declared path escapes reports/ — they all drop, but the completed
+  // outcome still finalizes (and opens its PR); reportPaths stays absent.
+  await writeRunSignal(worktreePath, JSON.stringify({
+    status: 'completed',
+    reports: ['../secret.md', 'notes/leak.md', '/etc/passwd'],
+  }))
+  await engine.tick()
+
+  const finalized = await store.getRun('nightly-review', 'run-agent')
+  assert.equal(finalized.ok && finalized.value.status, 'completed', 'finalize still completes')
+  assert.equal(finalized.ok && finalized.value.reportPaths, undefined, 'no contained paths → reportPaths absent')
+  assert.equal(counters.prCalls, 1)
 }
 
 async function assertConcurrentManualAndScanFinalizeOnce(): Promise<void> {

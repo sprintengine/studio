@@ -5,7 +5,9 @@ import { revealAutomationAgent } from '../../hooks/useAutomationRequests'
 import { basename } from '../../utils/paths'
 import { publishDiagnosticSync } from '../../utils/diagnostics'
 import { RUN_TARGET_KIND, encodeRunRef } from './runTarget'
-import type { AutomationDefinition } from '../../../../shared/automations/contracts'
+import { AutomationReportViewer } from './AutomationReportViewer'
+import { extractReportPaths } from './reportPaths'
+import type { AutomationDefinition, AutomationRun } from '../../../../shared/automations/contracts'
 import { GhostButton, InlineNotice, LifecycleGlyph, PrimaryButton, Select, Spinner, useConfirmDialog } from '../ui'
 import { AutomationsWorkspaceTypeIcon } from '../AppIcons'
 import { AutomationDetailPane } from '../panels/AutomationsPanel/AutomationDetailPane'
@@ -97,6 +99,8 @@ export default function AutomationsScreen({
   // A run-notification deep-link to apply once its definition has loaded.
   const [pendingRunTarget, setPendingRunTarget] = useState(initialRunTarget ?? null)
   const [focusRunId, setFocusRunId] = useState<string | null>(null)
+  // The run whose report is open in the in-app viewer overlay (null = closed).
+  const [viewerRun, setViewerRun] = useState<AutomationRun | null>(null)
   // Bumped each time a target is applied so re-opening the same run re-fires the
   // detail pane's scroll/highlight even though the run id is unchanged.
   const [focusNonce, setFocusNonce] = useState(0)
@@ -126,6 +130,7 @@ export default function AutomationsScreen({
     setSelectedId(null)
     setEditor(null)
     setFocusRunId(null)
+    setViewerRun(null)
   }, [selectedProject])
 
   // Aggregate the runs feed on demand — only while the runs view is open, and
@@ -324,6 +329,7 @@ export default function AutomationsScreen({
                 setActiveWorkspace(wsId)
                 onClose()
               }}
+              onViewReport={setViewerRun}
               onOpenDefinition={handleOpenRunDefinition}
               onFinalize={finalizeFeedRun}
             />
@@ -367,6 +373,7 @@ export default function AutomationsScreen({
                   setActiveWorkspace(wsId)
                   onClose()
                 }}
+                onViewReport={setViewerRun}
               />
             ) : (
               <DetailEmptyState hasDefinitions={definitions.length > 0} />
@@ -376,6 +383,15 @@ export default function AutomationsScreen({
           )}
         </div>
       )}
+
+      {viewerRun ? (
+        <AutomationReportViewer
+          workspaceRoot={selectedProject ?? ''}
+          reportPaths={extractReportPaths(viewerRun)}
+          pullRequestUrl={viewerRun.pullRequestUrl}
+          onClose={() => setViewerRun(null)}
+        />
+      ) : null}
     </section>
   )
 }

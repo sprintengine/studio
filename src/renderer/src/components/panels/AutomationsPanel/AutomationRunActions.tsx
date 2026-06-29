@@ -1,19 +1,27 @@
 import { GhostButton, Tooltip } from '../../ui'
 import type { AutomationRun } from '../../../../../shared/automations/contracts'
+import { extractReportPaths } from '../../automations/reportPaths'
 
 // The trailing run affordances shared by the per-definition timeline (detail
 // pane) and the cross-definition runs feed: the launched agent id, Open agent,
-// the Pull request link, and the manual Finalize fallback for a running agent.
-// Rendered only when a run has something actionable.
+// View report, the Pull request link, and the manual Finalize fallback for a
+// running agent. Rendered only when a run has something actionable.
 export function AutomationRunActions({
-  run, onOpenAgent, onFinalize, finalizing,
+  run, onOpenAgent, onViewReport, onFinalize, finalizing,
 }: {
   run: AutomationRun
   onOpenAgent: (workspaceId: string, agentId?: string) => void
+  /** Open the run's report in the in-app viewer. Omitted where reports aren't surfaced. */
+  onViewReport?: (run: AutomationRun) => void
   onFinalize: (run: AutomationRun, outcome: 'completed' | 'failed') => void
   finalizing: boolean
 }) {
-  if (!(run.workspaceId || run.agentId || run.pullRequestUrl) && run.status !== 'running') return null
+  // Honest affordance: only offer "View report" when the run actually produced
+  // one (structured reportPaths, or a path scanned from its summary for
+  // historical runs) and a handler is wired to open it.
+  const canViewReport = Boolean(onViewReport) && extractReportPaths(run).length > 0
+
+  if (!(run.workspaceId || run.agentId || run.pullRequestUrl || canViewReport) && run.status !== 'running') return null
 
   return (
     <div className="mt-1 flex flex-wrap items-center gap-2">
@@ -23,6 +31,11 @@ export function AutomationRunActions({
       {run.workspaceId ? (
         <GhostButton onClick={() => onOpenAgent(run.workspaceId!, run.agentId ?? undefined)} className="h-5 px-1.5 text-[10px]">
           Open agent
+        </GhostButton>
+      ) : null}
+      {canViewReport ? (
+        <GhostButton onClick={() => onViewReport!(run)} className="h-5 px-1.5 text-[10px]">
+          View report
         </GhostButton>
       ) : null}
       {run.pullRequestUrl ? (
