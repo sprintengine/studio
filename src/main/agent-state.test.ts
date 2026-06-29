@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict'
+import { existsSync } from 'node:fs'
 import { mkdtemp, mkdir, readFile, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -12,15 +13,20 @@ import {
   evaluateAgentStall,
   installAgentStateHook,
   installCodexAgentStateHook,
+  installOpencodeAgentStateHook,
   isAuthoritativeWorkingPhase,
   mapHookEventToPhase,
+  mapOpencodeEventToPhase,
   mergeCodexAgentStateHooks,
   mergeAgentStateHooks,
+  opencodeSessionIdFromEvent,
   parseAgentStateFrame,
   renderCodexAgentStateHooksBlock,
+  renderOpencodeAgentStatePlugin,
   selectAgentStateTarget,
   uninstallAgentStateHook,
   uninstallCodexAgentStateHook,
+  uninstallOpencodeAgentStateHook,
 } from './agent-state'
 
 type Settings = {
@@ -283,6 +289,72 @@ async function run(): Promise<void> {
   codexConfig = await readFile(join(codexRoot, '.codex', 'config.toml'), 'utf8')
   assert.ok(codexConfig.includes('approval_policy = "on-request"'), 'uninstall dropped user config')
   assert.ok(!codexConfig.includes('[[hooks.SessionStart]]'), 'uninstall left the hooks block')
+
+  // --- OpenCode: event → phase mapping ----------------------------------
+  assert.equal(mapOpencodeEventToPhase('session.created'), 'starting')
+  assert.equal(mapOpencodeEventToPhase('message.updated'), 'thinking')
+  assert.equal(mapOpencodeEventToPhase('permission.updated'), 'awaiting_input')
+  // The load-bearing transition: answering a prompt clears awaiting_input.
+  assert.equal(mapOpencodeEventToPhase('permission.replied'), 'thinking')
+  assert.equal(mapOpencodeEventToPhase('session.idle'), 'idle')
+  assert.equal(mapOpencodeEventToPhase('session.error'), 'idle')
+  // No event synthesizes an exit (pty exit listener owns that), and unknown
+  // events are dropped rather than guessed.
+  assert.equal(mapOpencodeEventToPhase('session.deleted'), null)
+  assert.equal(mapOpencodeEventToPhase('file.edited'), null)
+
+  // --- OpenCode: session id extraction across payload shapes ------------
+  assert.equal(opencodeSessionIdFromEvent({ type: 'session.idle', properties: { sessionID: 's1' } }), 's1')
+  assert.equal(opencodeSessionIdFromEvent({ type: 'permission.updated', properties: { sessionID: 's2', id: 'p1' } }), 's2')
+  // session.* lifecycle events carry a Session under properties.info (id).
+  assert.equal(opencodeSessionIdFromEvent({ type: 'session.created', properties: { info: { id: 's3' } } }), 's3')
+  // message.updated carries a Message under properties.info (sessionID).
+  assert.equal(opencodeSessionIdFromEvent({ type: 'message.updated', properties: { info: { sessionID: 's4' } } }), 's4')
+  assert.equal(opencodeSessionIdFromEvent({ type: 'session.idle', properties: {} }), null)
+  assert.equal(opencodeSessionIdFromEvent(null), null)
+  assert.equal(opencodeSessionIdFromEvent({ type: 'x' }), null)
+
+  // --- OpenCode: socket baking renders a valid JS string literal --------
+  const ocTemplate = "const BAKED_SOCKET = '__MULTICODE_AGENT_STATE_SOCKET__'\n"
+  // A Windows pipe path's backslashes must survive as data, not act as escapes.
+  const winSocket = '\\\\.\\pipe\\multicode-agent-state-abc'
+  const renderedWin = renderOpencodeAgentStatePlugin(ocTemplate, winSocket)
+  assert.ok(renderedWin.includes(`const BAKED_SOCKET = ${JSON.stringify(winSocket)}`), renderedWin)
+  assert.ok(!renderedWin.includes("'__MULTICODE_AGENT_STATE_SOCKET__'"), 'token left unsubstituted')
+  // The rendered literal round-trips back to the exact path.
+  assert.equal(JSON.parse(renderedWin.split('= ')[1].trim()), winSocket)
+
+  // --- OpenCode: install round-trip on disk -----------------------------
+  // Writes .opencode/plugin/multicode-agent-state.js with the socket baked in,
+  // is idempotent, and uninstall removes the plugin file.
+  const ocRoot = await mkdtemp(join(tmpdir(), 'multicode-agent-state-opencode-'))
+  const ocReporter = join(ocRoot, 'opencode-reporter-src.mjs')
+  await writeFile(ocReporter, ocTemplate, 'utf8')
+  const ocSocket = join(ocRoot, 'agent-state.sock')
+
+  const ocInstalled = await installOpencodeAgentStateHook(ocRoot, { sourceScriptPath: ocReporter, socketPath: ocSocket })
+  assert.equal(ocInstalled.ok, true)
+  const ocPluginPath = join(ocRoot, '.opencode', 'plugin', 'multicode-agent-state.js')
+  let ocPlugin = await readFile(ocPluginPath, 'utf8')
+  assert.ok(ocPlugin.includes(JSON.stringify(ocSocket)), 'opencode plugin missing baked socket')
+  assert.ok(!ocPlugin.includes("'__MULTICODE_AGENT_STATE_SOCKET__'"), 'opencode socket token left unsubstituted')
+
+  // Re-install is idempotent (overwrites in place, no second copy).
+  const ocReinstall = await installOpencodeAgentStateHook(ocRoot, { sourceScriptPath: ocReporter, socketPath: ocSocket })
+  assert.equal(ocReinstall.ok, true)
+  ocPlugin = await readFile(ocPluginPath, 'utf8')
+  assert.equal((ocPlugin.match(/const BAKED_SOCKET =/gu) ?? []).length, 1, 'opencode plugin duplicated on re-install')
+
+  const ocRemoved = await uninstallOpencodeAgentStateHook(ocRoot)
+  assert.equal(ocRemoved.ok, true)
+  assert.equal(existsSync(ocPluginPath), false, 'uninstall left the opencode plugin file')
+
+  // Missing source script is a safe, reported failure (never throws).
+  const ocMissing = await installOpencodeAgentStateHook(ocRoot, {
+    sourceScriptPath: join(ocRoot, 'nope.mjs'),
+    socketPath: ocSocket,
+  })
+  assert.equal(ocMissing.ok, false)
 
   console.log('agent-state.test.ts: all assertions passed')
 }

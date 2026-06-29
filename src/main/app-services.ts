@@ -72,6 +72,7 @@ export function createAppServices(diagnosticsEnabled: boolean) {
   const agentStateService = createAgentStateService({
     resolveUserDataDir: () => app.getPath('userData'),
     resolveReporterScriptPath: getBundledAgentStateReporterPath,
+    resolveOpencodeReporterScriptPath: getBundledOpencodeAgentStateReporterPath,
     onFrame: (frame) => terminalRuntime.ingestAgentStateFrame(frame),
     logDiagnostic: (diagnostic) => {
       void writeDiagnosticLog({ ...diagnostic, source: 'workspace' })
@@ -187,11 +188,10 @@ export function createAppServices(diagnosticsEnabled: boolean) {
 
 export type AppServices = ReturnType<typeof createAppServices>
 
-// Resolves the bundled agent-state reporter script across packaged and dev
-// layouts. Mirrors memory-activity's resolver: extraResources ships
-// resources/hooks/*.mjs to <resourcesPath>/hooks in packaged builds.
-function getBundledAgentStateReporterPath(): string | null {
-  const filename = 'multicode-agent-state.mjs'
+// Resolves a bundled hook reporter script across packaged and dev layouts.
+// Mirrors memory-activity's resolver: extraResources ships resources/hooks/*.mjs
+// to <resourcesPath>/hooks in packaged builds.
+function getBundledHookReporterPath(filename: string): string | null {
   if (app.isPackaged) {
     const packaged = join(process.resourcesPath, 'hooks', filename)
     return existsSync(packaged) ? packaged : null
@@ -203,4 +203,14 @@ function getBundledAgentStateReporterPath(): string | null {
     join(__dirname, '..', '..', '..', 'resources', 'hooks', filename),
   ]
   return candidates.find((candidate) => existsSync(candidate)) ?? null
+}
+
+// Claude Code + Codex share one stdin-filter reporter; OpenCode uses a separate
+// in-process plugin template (rewritten to .js on install).
+function getBundledAgentStateReporterPath(): string | null {
+  return getBundledHookReporterPath('multicode-agent-state.mjs')
+}
+
+function getBundledOpencodeAgentStateReporterPath(): string | null {
+  return getBundledHookReporterPath('opencode-agent-state.mjs')
 }
