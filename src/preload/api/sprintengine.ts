@@ -17,6 +17,12 @@ import type {
   SprintEngineTaskStatusSetInput,
   SprintEngineTaskUpdateInput,
 } from '../../shared/electron-api'
+import type {
+  UserRoleDeleteResult,
+  UserRoleGetResult,
+  UserRoleSaveInput,
+  UserRoleSaveResult,
+} from '../../shared/sprintengine/role-manifest'
 
 export const sprintEngineApi = {
   openSprintEngineArtifact: (
@@ -105,6 +111,12 @@ export const sprintEngineApi = {
   installUserSprintEngineRoleFolder: (srcDir: string) =>
     ipcRenderer.invoke('sprintengine:user-roles:install-folder', srcDir),
   listUserSprintEngineRoles: () => ipcRenderer.invoke('sprintengine:user-roles:list'),
+  saveUserSprintEngineRole: (input: UserRoleSaveInput): Promise<UserRoleSaveResult> =>
+    ipcRenderer.invoke('sprintengine:user-roles:save', input),
+  deleteUserSprintEngineRole: (id: string): Promise<UserRoleDeleteResult> =>
+    ipcRenderer.invoke('sprintengine:user-roles:delete', id),
+  getUserSprintEngineRole: (id: string): Promise<UserRoleGetResult> =>
+    ipcRenderer.invoke('sprintengine:user-roles:get', id),
 } satisfies Pick<
   ElectronApi,
   | 'openSprintEngineArtifact'
@@ -128,4 +140,7 @@ export const sprintEngineApi = {
   | 'summarizeSprintEngineFeedback'
   | 'installUserSprintEngineRoleFolder'
   | 'listUserSprintEngineRoles'
+  | 'saveUserSprintEngineRole'
+  | 'deleteUserSprintEngineRole'
+  | 'getUserSprintEngineRole'
 >

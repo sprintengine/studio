@@ -2,11 +2,22 @@ import type { IpcMain } from 'electron'
 
 import {
   defaultUserRoleRegistryRoot,
+  deleteUserRole,
+  getUserRole,
   installRoleFolder,
   loadUserRoleManifests,
+  saveUserRole,
   type RoleInstallResult,
+  type UserRoleDeleteResult,
+  type UserRoleGetResult,
   type UserRoleListResult,
+  type UserRoleSaveInput,
+  type UserRoleSaveResult,
 } from '../sprintengine-role-registry'
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
+}
 
 // Kernel-level IPC for the user-global Sprint Engine role registry. It's pure
 // filesystem config management (validate + copy declarative manifests), so it's
@@ -33,5 +44,33 @@ export function registerSprintEngineRoleRegistryIpc(ipcMain: IpcMain): void {
 
   ipcMain.handle('sprintengine:user-roles:list', (): Promise<UserRoleListResult> => {
     return loadUserRoleManifests(defaultUserRoleRegistryRoot())
+  })
+
+  ipcMain.handle(
+    'sprintengine:user-roles:save',
+    (_event, input: unknown): Promise<UserRoleSaveResult> => {
+      if (
+        !isRecord(input) ||
+        typeof input.id !== 'string' ||
+        typeof input.label !== 'string' ||
+        typeof input.body !== 'string'
+      ) {
+        return Promise.resolve({
+          ok: false,
+          issues: [{ path: '', message: 'Save payload must include id, label, and body.' }],
+        })
+      }
+      return saveUserRole(input as unknown as UserRoleSaveInput, defaultUserRoleRegistryRoot())
+    }
+  )
+
+  ipcMain.handle('sprintengine:user-roles:delete', (_event, id: unknown): Promise<UserRoleDeleteResult> => {
+    if (typeof id !== 'string') return Promise.resolve({ ok: false })
+    return deleteUserRole(id, defaultUserRoleRegistryRoot())
+  })
+
+  ipcMain.handle('sprintengine:user-roles:get', (_event, id: unknown): Promise<UserRoleGetResult> => {
+    if (typeof id !== 'string') return Promise.resolve({ ok: false })
+    return getUserRole(id, defaultUserRoleRegistryRoot())
   })
 }

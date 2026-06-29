@@ -28,6 +28,18 @@ export type RoleManifest = {
   capabilities?: RoleCapability[]
 }
 
+// The authoring surface (renderer form -> main install path) collects one
+// authored skill per role, so the soul is always [{ skill: id }] and the only
+// optional capability is a single review entry. buildAuthoredRoleManifest below
+// turns this into a RoleManifest; validateRoleManifest stays the one validator.
+export type AuthoredRoleInput = {
+  id: string
+  label: string
+  summary?: string
+  aliases?: string[]
+  capability?: { phase?: RoleCapability['phase']; defaultFocus?: string }
+}
+
 export type RoleManifestValidationIssue = { path: string; message: string }
 
 export type RoleManifestValidationResult =
@@ -176,6 +188,29 @@ export type RoleInstallResult = {
   message?: string
 }
 
+// Authoring service IPC contracts (save/delete/get a single user-authored role).
+// Shared here, next to the install contracts, so preload and electron-api can
+// reference them without importing main-process code.
+export type UserRoleSaveInput = AuthoredRoleInput & { body: string }
+
+export type UserRoleSaveResult = {
+  ok: boolean
+  id?: string
+  issues?: RoleManifestValidationIssue[]
+}
+
+export type UserRoleDeleteResult = { ok: boolean }
+
+export type UserRoleGetResult =
+  | { ok: true; manifest: RoleManifest; body: string }
+  | { ok: false; issues?: RoleManifestValidationIssue[] }
+
+// Exposed so the install/authoring path can reject an unsafe id (path traversal)
+// before any filesystem work, using the same pattern validateRoleManifest enforces.
+export function isValidRoleId(id: string): boolean {
+  return ID_PATTERN.test(id)
+}
+
 export function parseRoleManifest(source: string): RoleManifestValidationResult {
   let parsed: unknown
   try {
@@ -187,4 +222,74 @@ export function parseRoleManifest(source: string): RoleManifestValidationResult 
     }
   }
   return validateRoleManifest(parsed)
+}
+
+// Canonical on-disk form for a role manifest: pretty-printed JSON (2-space
+// indent) with a trailing newline, matching the shape the install path writes to
+// resources/sprintengine/roles/*.json. Round-trips through parseRoleManifest.
+export function serializeRoleManifest(manifest: RoleManifest): string {
+  return `${JSON.stringify(manifest, null, 2)}\n`
+}
+
+// Assemble a RoleManifest from the authoring form. Soul is fixed to the single
+// authored skill (id == role id); baseline skills are layered later at spawn by
+// sprintengine_core/skill_layers.py, not stored here. Optional fields are
+// omitted (not emitted as null/empty) when absent so the serialized manifest
+// stays minimal. The result still flows through validateRoleManifest at install.
+export function buildAuthoredRoleManifest(input: AuthoredRoleInput): RoleManifest {
+  const manifest: RoleManifest = {
+    id: input.id,
+    label: input.label,
+    soul: [{ skill: input.id }],
+  }
+  const summary = input.summary?.trim()
+  if (summary) manifest.summary = summary
+  const aliases = input.aliases?.filter((alias) => alias.trim().length > 0)
+  if (aliases && aliases.length > 0) manifest.aliases = aliases
+  if (input.capability) {
+    const capability: RoleCapability = { kind: 'review' }
+    if (input.capability.phase) capability.phase = input.capability.phase
+    const focus = input.capability.defaultFocus?.trim()
+    if (focus) capability.defaultFocus = focus
+    manifest.capabilities = [capability]
+  }
+  return manifest
+}
+
+// Seed text for a brand-new authored soul. The runtime reads the <what-to-do>
+// block as the mandatory core and <supporting-info> as reference detail (see the
+// soul-legend the composer wraps these in), so the scaffold gives authors both
+// sections pre-labelled with their role name to fill in.
+export function starterSoulTemplate(roleLabel: string): string {
+  const label = roleLabel.trim() || 'this role'
+  return `<what-to-do>
+
+# Role
+
+You are ${label}, a specialist agent in a Sprint Engine team. Replace this line with one or two sentences naming ${label}'s mandate and where it fits in the team.
+
+# Core Principles
+
+- State the non-negotiable behaviours ${label} must always follow.
+- Keep work scoped to what the task asks for; do not expand beyond it.
+- Prefer correctness over speed, and verify before claiming work is done.
+
+</what-to-do>
+
+<supporting-info>
+
+# How ${label} Works
+
+- Document the conventions, edge cases, and reference detail ${label} should consult when the work touches them.
+- Replace this scaffold with the real guidance for the role before relying on it.
+
+</supporting-info>
+`
+}
+
+// True when a candidate role id would collide with an already-registered id or
+// alias. Ids and aliases are lowercase, so the comparison is case-sensitive.
+// Pass the union of existing ids and aliases as the second argument.
+export function roleIdCollision(candidateId: string, existingIdsAndAliases: Iterable<string>): boolean {
+  return new Set(existingIdsAndAliases).has(candidateId)
 }

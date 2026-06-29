@@ -66,6 +66,20 @@ import { cliRuntimeForPlugin, orderInstalledPlugins } from '../workspace/newWork
 import { CliInstallControl } from './CliInstallControl'
 import MulticodeMark from '../brand/MulticodeMark'
 import { getSettingDescriptor, type SettingDescriptor } from './settingsRegistry'
+import {
+  authoringFieldErrors,
+  authoringStatusReducer,
+  CAPABILITY_PHASES,
+  createRoleAuthoringDraft,
+  editRoleAuthoringDraft,
+  idleAuthoringStatus,
+  isAuthoringBusy,
+  mapIssuesToFieldErrors,
+  validateRoleAuthoringDraft,
+  type RoleAuthoringDraft,
+  type RoleAuthoringFieldErrors,
+  type RoleAuthoringMode,
+} from './userRoleAuthoring'
 
 interface Props {
   onClose: () => void
@@ -244,6 +258,20 @@ const INPUT_CLASS =
  */
 const ROW_INPUT_CLASS =
   'h-8 max-w-full rounded-md border border-[color:var(--border-default)] bg-[color:var(--bg-app)] px-2.5 font-mono text-[12px] text-[color:var(--text-strong)] outline-none placeholder:text-[color:var(--text-disabled)] focus:border-[color:var(--accent-primary)] disabled:opacity-45'
+
+// Soul-body editor: the SKILL.md document the runtime parses, so it reads as a
+// structured document (mono) rather than prose. Tall by default since the author
+// is filling in a multi-section scaffold.
+const TEXTAREA_CLASS =
+  'min-h-[260px] w-full resize-y rounded-md border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] px-3 py-2 font-mono text-[12px] leading-5 text-[color:var(--text-strong)] outline-none placeholder:text-[color:var(--text-disabled)] focus:border-[color:var(--accent-primary)] disabled:opacity-45'
+
+// The optional review capability's phase. Sentence-case labels; the runtime maps
+// these to the gate phase a custom reviewer participates in.
+const CAPABILITY_PHASE_ITEMS: SelectItem<(typeof CAPABILITY_PHASES)[number]>[] = [
+  { value: 'review', label: 'Review' },
+  { value: 'testing', label: 'Testing' },
+  { value: 'product', label: 'Product' },
+]
 
 type MessageTone = 'neutral' | 'accent' | 'warn' | 'error'
 type RoleRegistryStatus = 'idle' | 'loading' | 'ready' | 'unavailable'
@@ -600,6 +628,169 @@ function CompoundSwitchRow({
   )
 }
 
+// Authoring form for a single custom Sprint Engine role. Pure presentation: the
+// draft, lifecycle, validation, and persistence live in the parent and the
+// userRoleAuthoring view-model. The id is locked while editing (it is the role's
+// durable identity); inline errors come from the view-model keyed by field.
+function UserRoleAuthoringForm({
+  mode,
+  draft,
+  errors,
+  busy,
+  onChange,
+  onSubmit,
+  onCancel,
+}: {
+  mode: RoleAuthoringMode
+  draft: RoleAuthoringDraft
+  errors: RoleAuthoringFieldErrors
+  busy: boolean
+  onChange: (patch: Partial<RoleAuthoringDraft>) => void
+  onSubmit: () => void
+  onCancel: () => void
+}) {
+  const editing = mode.kind === 'edit'
+  const capabilityLabelId = React.useId()
+  return (
+    <div className="space-y-4 rounded-[var(--radius-md)] border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] p-4">
+      <div className="text-[13px] font-semibold text-[color:var(--text-strong)]">
+        {editing ? 'Edit custom role' : 'New custom role'}
+      </div>
+
+      <div className="grid gap-4 sm:grid-cols-2">
+        <Field
+          label="Role id"
+          htmlFor="user-role-id"
+          required
+          error={errors.id}
+          help={editing ? 'Locked; the id is the role’s durable identity.' : 'Lowercase snake_case. Cannot change after creation.'}
+        >
+          <input
+            value={draft.id}
+            onChange={(event) => onChange({ id: event.target.value })}
+            disabled={editing || busy}
+            placeholder="code_auditor"
+            spellCheck={false}
+            autoCapitalize="none"
+            autoCorrect="off"
+            className={INPUT_CLASS}
+          />
+        </Field>
+        <Field label="Display name" htmlFor="user-role-label" required error={errors.label}>
+          <input
+            value={draft.label}
+            onChange={(event) => onChange({ label: event.target.value })}
+            disabled={busy}
+            placeholder="Code auditor"
+            className={`${INPUT_CLASS} font-sans`}
+          />
+        </Field>
+      </div>
+
+      <Field label="Summary" htmlFor="user-role-summary" help="One line shown in role lists. Optional.">
+        <input
+          value={draft.summary}
+          onChange={(event) => onChange({ summary: event.target.value })}
+          disabled={busy}
+          placeholder="Audits diffs for regressions before release."
+          className={`${INPUT_CLASS} font-sans`}
+        />
+      </Field>
+
+      <Field
+        label="Aliases"
+        htmlFor="user-role-aliases"
+        error={errors.aliases}
+        help="Optional. Comma- or space-separated alternate ids."
+      >
+        <input
+          value={draft.aliasesText}
+          onChange={(event) => onChange({ aliasesText: event.target.value })}
+          disabled={busy}
+          placeholder="auditor, reviewer_x"
+          spellCheck={false}
+          autoCapitalize="none"
+          autoCorrect="off"
+          className={INPUT_CLASS}
+        />
+      </Field>
+
+      <div className="space-y-3 rounded-[var(--radius-md)] border border-[color:var(--border-subtle)] p-3">
+        <div className="flex items-start justify-between gap-4">
+          <div className="min-w-0">
+            <span id={capabilityLabelId} className="block text-[13px] font-medium text-[color:var(--text-strong)]">
+              Review capability
+            </span>
+            <p className="mt-0.5 text-[12px] leading-5 text-[color:var(--text-muted)]">
+              Let this role act as a reviewer at a gate phase. Off for a regular contributor role.
+            </p>
+          </div>
+          <Switch
+            checked={draft.capability.enabled}
+            onChange={(next) => onChange({ capability: { ...draft.capability, enabled: next } })}
+            disabled={busy}
+            ariaLabelledBy={capabilityLabelId}
+            className="mt-0.5"
+          />
+        </div>
+        {draft.capability.enabled ? (
+          <div className="grid gap-4 sm:grid-cols-2">
+            <div className="flex flex-col gap-1.5">
+              <Field.Label>Phase</Field.Label>
+              <Select
+                ariaLabel="Review capability phase"
+                items={CAPABILITY_PHASE_ITEMS}
+                value={draft.capability.phase}
+                onChange={(phase) => onChange({ capability: { ...draft.capability, phase } })}
+                disabled={busy}
+              />
+            </div>
+            <Field label="Default focus" htmlFor="user-role-focus" help="Optional. What the review concentrates on.">
+              <input
+                value={draft.capability.defaultFocus}
+                onChange={(event) => onChange({ capability: { ...draft.capability, defaultFocus: event.target.value } })}
+                disabled={busy}
+                placeholder="regressions, edge cases"
+                className={`${INPUT_CLASS} font-sans`}
+              />
+            </Field>
+          </div>
+        ) : null}
+        {errors.capability ? (
+          <p className="text-[11px] text-[color:var(--tone-error)]">{errors.capability}</p>
+        ) : null}
+      </div>
+
+      <Field
+        label="Soul body"
+        htmlFor="user-role-body"
+        required
+        error={errors.body}
+        help="The role’s instructions, written as a skill document. Replace the seeded scaffold."
+      >
+        <textarea
+          value={draft.body}
+          onChange={(event) => onChange({ body: event.target.value })}
+          disabled={busy}
+          spellCheck={false}
+          className={TEXTAREA_CLASS}
+        />
+      </Field>
+
+      {errors.form ? <MessageBlock tone="error">{errors.form}</MessageBlock> : null}
+
+      <div className="flex items-center justify-end gap-2">
+        <GhostButton size="md" onClick={onCancel} disabled={busy}>
+          Cancel
+        </GhostButton>
+        <PrimaryButton size="md" onClick={onSubmit} disabled={busy}>
+          {busy ? 'Saving' : editing ? 'Save changes' : 'Create role'}
+        </PrimaryButton>
+      </div>
+    </div>
+  )
+}
+
 export default function SettingsPanel({
   onClose,
   checkForUpdatesOnOpen = false,
@@ -719,6 +910,14 @@ export default function SettingsPanel({
   const [userRoles, setUserRoles] = useState<Array<{ id: string; label: string; summary?: string }>>([])
   const [globalInstallPending, setGlobalInstallPending] = useState(false)
   const [globalInstallMessage, setGlobalInstallMessage] = useState<RoleInstallMessage>(null)
+  // Custom-role authoring form. `null` = closed; otherwise create or edit a single
+  // user-authored role. The lifecycle reducer (idle/validating/saving/saved/error)
+  // is owned by the DOM-free view-model so it stays unit-testable.
+  const [roleAuthoring, setRoleAuthoring] = useState<{ mode: RoleAuthoringMode; draft: RoleAuthoringDraft } | null>(null)
+  const [roleAuthoringStatus, dispatchRoleAuthoring] = React.useReducer(authoringStatusReducer, idleAuthoringStatus)
+  const [roleEditLoadingId, setRoleEditLoadingId] = useState<string | null>(null)
+  const [userRoleDeletePendingId, setUserRoleDeletePendingId] = useState<string | null>(null)
+  const [userRoleMessage, setUserRoleMessage] = useState<RoleInstallMessage>(null)
   const [customMcpId, setCustomMcpId] = useState('')
   const [customMcpName, setCustomMcpName] = useState('')
   const [customMcpCommand, setCustomMcpCommand] = useState('')
@@ -1427,6 +1626,125 @@ export default function SettingsPanel({
     }
   }, [loadUserRoles])
 
+  // True only on builds whose preload exposes the T2 authoring bridge; gates the
+  // Create/Edit/Delete affordances so an older renderer degrades to read-only.
+  const userRoleAuthoringSupported = typeof window.api.saveUserSprintEngineRole === 'function'
+
+  // Every id and alias already registered (any layer) plus the user-authored ids,
+  // so create-mode collision detection rejects a new id that would shadow an
+  // existing role. Edit locks its own id, so self-collision never triggers.
+  const existingRoleKeys = useMemo(() => {
+    const keys = new Set<string>()
+    if (roleRegistry) {
+      for (const id of Object.keys(roleRegistry.roles)) keys.add(id)
+      for (const alias of Object.keys(roleRegistry.aliases)) keys.add(alias)
+    }
+    for (const role of userRoles) keys.add(role.id)
+    return keys
+  }, [roleRegistry, userRoles])
+
+  const openCreateRole = useCallback(() => {
+    setUserRoleMessage(null)
+    dispatchRoleAuthoring({ type: 'reset' })
+    setRoleAuthoring({ mode: { kind: 'create' }, draft: createRoleAuthoringDraft() })
+  }, [])
+
+  const openEditRole = useCallback(async (id: string) => {
+    if (typeof window.api.getUserSprintEngineRole !== 'function') return
+    setUserRoleMessage(null)
+    setRoleEditLoadingId(id)
+    try {
+      const result = await window.api.getUserSprintEngineRole(id)
+      if (result.ok) {
+        dispatchRoleAuthoring({ type: 'reset' })
+        setRoleAuthoring({ mode: { kind: 'edit', id }, draft: editRoleAuthoringDraft(result.manifest, result.body) })
+      } else {
+        setUserRoleMessage({ tone: 'error', text: `Could not open "${id}" for editing; its manifest may be invalid on disk.` })
+      }
+    } catch (error) {
+      setUserRoleMessage({ tone: 'error', text: error instanceof Error ? error.message : 'Could not load the role for editing.' })
+    } finally {
+      setRoleEditLoadingId(null)
+    }
+  }, [])
+
+  const closeRoleAuthoring = useCallback(() => {
+    setRoleAuthoring(null)
+    dispatchRoleAuthoring({ type: 'reset' })
+  }, [])
+
+  // Mutating the open draft re-derives the form; the lifecycle drops back to idle
+  // so a prior error/saved banner clears as soon as the author edits.
+  const updateRoleDraft = useCallback((patch: Partial<RoleAuthoringDraft>) => {
+    setRoleAuthoring((current) => (current ? { ...current, draft: { ...current.draft, ...patch } } : current))
+    dispatchRoleAuthoring({ type: 'reset' })
+  }, [])
+
+  const submitRoleAuthoring = useCallback(async () => {
+    if (!roleAuthoring || typeof window.api.saveUserSprintEngineRole !== 'function') return
+    dispatchRoleAuthoring({ type: 'submit' })
+    const validation = validateRoleAuthoringDraft(roleAuthoring.draft, {
+      mode: roleAuthoring.mode,
+      existingIdsAndAliases: existingRoleKeys,
+    })
+    if (!validation.ok) {
+      dispatchRoleAuthoring({ type: 'invalid', errors: validation.errors })
+      return
+    }
+    dispatchRoleAuthoring({ type: 'valid' })
+    try {
+      const result = await window.api.saveUserSprintEngineRole(validation.input)
+      if (!result.ok) {
+        dispatchRoleAuthoring({ type: 'failed', errors: mapIssuesToFieldErrors(result.issues ?? []) })
+        return
+      }
+      const savedId = result.id ?? validation.input.id
+      dispatchRoleAuthoring({ type: 'saved', id: savedId })
+      // Reflect the new/edited role everywhere without a restart: the user-roles
+      // list (Global section + roster wizard) and the live MCP registry.
+      await Promise.all([loadUserRoles(), loadSprintEngineRoles()])
+      setRoleAuthoring(null)
+      setUserRoleMessage({
+        tone: 'accent',
+        text: roleAuthoring.mode.kind === 'edit' ? `Saved changes to "${savedId}".` : `Created "${savedId}". Reload open workspaces to use it in a run.`,
+      })
+    } catch (error) {
+      dispatchRoleAuthoring({ type: 'failed', errors: { form: error instanceof Error ? error.message : 'Save failed.' } })
+    }
+  }, [roleAuthoring, existingRoleKeys, loadUserRoles, loadSprintEngineRoles])
+
+  const deleteUserRole = useCallback(async (id: string, label: string) => {
+    if (typeof window.api.deleteUserSprintEngineRole !== 'function') return
+    const confirmed = await dialog.confirm({
+      title: `Delete "${label}"?`,
+      body: (
+        <>
+          <div>This removes the custom role <span className="font-mono">{id}</span> and its soul document for every workspace.</div>
+          <div className="mt-2">Runs already using it keep their copy; new runs will no longer see it.</div>
+        </>
+      ),
+      confirmLabel: 'Delete role',
+      tone: 'danger',
+    })
+    if (!confirmed) return
+    setUserRoleDeletePendingId(id)
+    setUserRoleMessage(null)
+    try {
+      const result = await window.api.deleteUserSprintEngineRole(id)
+      if (result.ok) {
+        if (roleAuthoring?.mode.kind === 'edit' && roleAuthoring.mode.id === id) closeRoleAuthoring()
+        await Promise.all([loadUserRoles(), loadSprintEngineRoles()])
+        setUserRoleMessage({ tone: 'neutral', text: `Deleted "${label}".` })
+      } else {
+        setUserRoleMessage({ tone: 'error', text: `Could not delete "${label}".` })
+      }
+    } catch (error) {
+      setUserRoleMessage({ tone: 'error', text: error instanceof Error ? error.message : 'Delete failed.' })
+    } finally {
+      setUserRoleDeletePendingId(null)
+    }
+  }, [dialog, roleAuthoring, closeRoleAuthoring, loadUserRoles, loadSprintEngineRoles])
+
   const selectSettingsTab = useCallback((tabId: string) => {
     setActiveSettingsTab(tabId)
   }, [])
@@ -2014,46 +2332,97 @@ export default function SettingsPanel({
               <SettingsSectionTitle
                 count={userRoles.length || undefined}
                 action={
-                  <GhostButton
-                    size="md"
-                    onClick={() => void installGlobalRoleFolder()}
-                    disabled={globalInstallPending}
-                    className="border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] text-[color:var(--text-default)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]"
-                  >
-                    {globalInstallPending ? 'Installing' : 'Install from folder'}
-                  </GhostButton>
+                  <div className="flex items-center gap-2">
+                    {userRoleAuthoringSupported ? (
+                      <PrimaryButton size="md" onClick={openCreateRole} disabled={Boolean(roleAuthoring)}>
+                        Create custom role
+                      </PrimaryButton>
+                    ) : null}
+                    <GhostButton
+                      size="md"
+                      onClick={() => void installGlobalRoleFolder()}
+                      disabled={globalInstallPending}
+                      className="border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] text-[color:var(--text-default)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]"
+                    >
+                      {globalInstallPending ? 'Installing' : 'Install from folder'}
+                    </GhostButton>
+                  </div>
                 }
               >
                 Global roles
               </SettingsSectionTitle>
               <p className="text-[12px] leading-5 text-[color:var(--text-muted)]">
-                Installed for every workspace. Invalid manifests are skipped; reload open workspaces to pick up changes.
+                Authored or installed here and available to every workspace. Invalid manifests are skipped; reload open workspaces to pick up changes.
               </p>
             </div>
+
+            {roleAuthoring ? (
+              <UserRoleAuthoringForm
+                mode={roleAuthoring.mode}
+                draft={roleAuthoring.draft}
+                errors={authoringFieldErrors(roleAuthoringStatus)}
+                busy={isAuthoringBusy(roleAuthoringStatus)}
+                onChange={updateRoleDraft}
+                onSubmit={() => void submitRoleAuthoring()}
+                onCancel={closeRoleAuthoring}
+              />
+            ) : null}
 
             {globalInstallMessage ? (
               <MessageBlock tone={globalInstallMessage.tone}>{globalInstallMessage.text}</MessageBlock>
             ) : null}
 
+            {userRoleMessage ? (
+              <MessageBlock tone={userRoleMessage.tone}>{userRoleMessage.text}</MessageBlock>
+            ) : null}
+
             {userRoles.length === 0 ? (
               <p className="text-[12px] leading-5 text-[color:var(--text-muted)]">
-                No global roles installed.
+                No global roles yet. {userRoleAuthoringSupported ? 'Create a custom role or install a folder of manifests.' : 'Install a folder of manifests to add some.'}
               </p>
             ) : (
               <div className="divide-y divide-[color:var(--border-subtle)] border-y border-[color:var(--border-subtle)]">
-                {userRoles.map((role) => (
-                  <div key={role.id} className="flex items-baseline justify-between gap-3 py-2.5">
-                    <div className="min-w-0">
-                      <div className="text-[12px] font-medium text-[color:var(--text-default)]">{role.label}</div>
-                      {role.summary ? (
-                        <div className="mt-0.5 text-[12px] leading-5 text-[color:var(--text-muted)]">
-                          {role.summary}
-                        </div>
-                      ) : null}
+                {userRoles.map((role) => {
+                  const editLoading = roleEditLoadingId === role.id
+                  const deletePending = userRoleDeletePendingId === role.id
+                  return (
+                    <div key={role.id} className="group flex items-baseline justify-between gap-3 py-2.5">
+                      <div className="min-w-0">
+                        <div className="text-[12px] font-medium text-[color:var(--text-default)]">{role.label}</div>
+                        {role.summary ? (
+                          <div className="mt-0.5 text-[12px] leading-5 text-[color:var(--text-muted)]">
+                            {role.summary}
+                          </div>
+                        ) : null}
+                      </div>
+                      <div className="flex shrink-0 items-center gap-3">
+                        {userRoleAuthoringSupported ? (
+                          <div className="flex items-center gap-1">
+                            <button
+                              type="button"
+                              onClick={() => void openEditRole(role.id)}
+                              disabled={editLoading || deletePending}
+                              className="rounded px-1.5 py-0.5 text-[11px] font-semibold text-[color:var(--text-subtle)] opacity-0 transition-[color,opacity] hover:text-[color:var(--text-strong)] focus:outline-none focus-visible:underline focus-visible:opacity-100 group-hover:opacity-100 group-focus-within:opacity-100"
+                            >
+                              {editLoading ? 'Opening' : 'Edit'}
+                              <span className="sr-only"> {role.label}</span>
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => void deleteUserRole(role.id, role.label)}
+                              disabled={editLoading || deletePending}
+                              className="rounded px-1.5 py-0.5 text-[11px] font-semibold text-[color:var(--text-subtle)] opacity-0 transition-[color,opacity] hover:text-[color:var(--tone-error)] focus:outline-none focus-visible:underline focus-visible:opacity-100 group-hover:opacity-100 group-focus-within:opacity-100"
+                            >
+                              {deletePending ? 'Deleting' : 'Delete'}
+                              <span className="sr-only"> {role.label}</span>
+                            </button>
+                          </div>
+                        ) : null}
+                        <span className="font-mono text-[11px] text-[color:var(--text-subtle)]">{role.id}</span>
+                      </div>
                     </div>
-                    <span className="shrink-0 font-mono text-[11px] text-[color:var(--text-subtle)]">{role.id}</span>
-                  </div>
-                ))}
+                  )
+                })}
               </div>
             )}
           </div>
