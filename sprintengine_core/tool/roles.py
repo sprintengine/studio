@@ -67,6 +67,12 @@ def canonical_role_id(role: str, discovery: RegistryDiscovery | None = None) -> 
     clean_role = str(role or "").strip()
     if not clean_role:
         raise KeyError("Role cannot be empty.")
+    if normalize_role_id(clean_role) == "general":
+        # `general` is a built-in soulless identity recognised by id without a
+        # registry manifest (see capabilities classification and join
+        # composition). It is a valid dispatch/task role even though no Soul
+        # manifest defines it, so role validation must accept it everywhere.
+        return "general"
     resolved = discovery if discovery is not None else discover_role_registry()
     return resolved.get_role(clean_role).normalized_id
 

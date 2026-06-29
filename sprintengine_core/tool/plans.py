@@ -215,6 +215,20 @@ def apply_source_context_to_task(task: Dict[str, Any], state: Dict[str, Any], st
     ]
     add_unique_values(task, "implementationNotes", notes)
 
+def resolve_planning_role(state: Dict[str, Any]) -> str:
+    """The role that owns the plan-approval gate.
+
+    The architect owns planning whenever one is rostered; a roster of soulless
+    Generals with no architect plans the run itself, so the planner is `general`.
+    Resolving to `general` only when a general is rostered and no architect is
+    keeps every existing architect/specialist run on the architect path
+    byte-for-byte.
+    """
+    roles = roster_roles(state)
+    if "architect" not in roles and "general" in roles:
+        return "general"
+    return "architect"
+
 def find_architect_plan_gate(state: Dict[str, Any], state_path: Path) -> Dict[str, Any]:
     plan_resolved_path = artifact_absolute_path(state_path, plan_path_artifact_value(state_path))
     plan_task = None
@@ -236,17 +250,18 @@ def find_architect_plan_gate(state: Dict[str, Any], state_path: Path) -> Dict[st
 
     if plan_task is None:
         candidate = find_task_by_id(state, "T0")
-        if candidate and candidate.get("role") == "architect":
+        if candidate and candidate.get("role") == resolve_planning_role(state):
             plan_task = candidate
 
     return {"task": plan_task, "artifact": plan_artifact}
 
 def apply_plan_gate_dependency(task: Dict[str, Any], state: Dict[str, Any], state_path: Path) -> None:
     """Planned work is gated on plan approval: a newly created task with no
-    dependencies roots on the architect plan gate task, so nothing becomes
-    claimable before the plan is approved and the task graph stays rooted at
-    the plan review. Tasks created with explicit dependencies are covered
-    transitively — every dependency chain terminates at a gated root."""
+    dependencies roots on the plan-approval gate task (owned by the run's
+    planning role — architect or general), so nothing becomes claimable before
+    the plan is approved and the task graph stays rooted at the plan review.
+    Tasks created with explicit dependencies are covered transitively — every
+    dependency chain terminates at a gated root."""
     if task.get("dependsOn"):
         return
     gate_task = find_architect_plan_gate(state, state_path).get("task")
@@ -381,6 +396,12 @@ def ensure_plan_approval_gate(
     start_active: bool = True,
 ) -> Dict[str, Any]:
     plan_path_value = plan_path_artifact_value(state_path)
+    # The plan gate is owned by the run's planning role: `architect` on every
+    # architect/specialist run (so those stay byte-for-byte identical), `general`
+    # on a soulless-General run. `role_noun` carries the prose form so the
+    # architect copy is reproduced verbatim.
+    role = resolve_planning_role(state)
+    role_noun = role.capitalize()
     existing_gate = find_architect_plan_gate(state, state_path)
     plan_task = existing_gate["task"]
     plan_artifact = existing_gate["artifact"]
@@ -391,17 +412,17 @@ def ensure_plan_approval_gate(
         task_id = preferred_id if preferred_id not in task_ids(state) else next_task_id(state.get("tasks", []))
         plan_task = normalize_task({
             "id": task_id,
-            "title": "Review architect plan artifact",
-            "description": f"Architect-authored active team plan at {plan_path_value} and task graph approval gate. Use this exact path; do not read, copy, or overwrite another team's plan.md.",
-            "role": "architect",
+            "title": f"Review {role} plan artifact",
+            "description": f"{role_noun}-authored active team plan at {plan_path_value} and task graph approval gate. Use this exact path; do not read, copy, or overwrite another team's plan.md.",
+            "role": role,
             "status": "in_progress" if start_active else "todo",
             "ownerAgentId": actor if start_active else None,
             "dependsOn": [depends_on] if depends_on else [],
             "ownedPaths": [plan_path_value],
             "acceptanceCriteria": [
-                "Architect plan describes the execution approach and task graph.",
-                f"Architect plan artifact is written at the active team path `{plan_path_value}`.",
-                "Architect plan records confirmed decisions, repo-answered decisions, defaulted assumptions, and remaining open questions or blockers.",
+                f"{role_noun} plan describes the execution approach and task graph.",
+                f"{role_noun} plan artifact is written at the active team path `{plan_path_value}`.",
+                f"{role_noun} plan records confirmed decisions, repo-answered decisions, defaulted assumptions, and remaining open questions or blockers.",
                 "If autonomous planning or artifact auto-approval is active, plan records conservative defaults used, risks accepted by autonomy mode, and any questions intentionally not asked.",
                 "Plan is reviewed by the user and either approved to done or sent back for changes.",
             ],
@@ -431,7 +452,7 @@ def ensure_plan_approval_gate(
         apply_source_context_to_task(plan_task, state, state_path)
 
     if plan_task.get("status") in ACTIVE_TASK_STATUSES:
-        set_agent_active(ensure_agent(state, actor, "architect"), plan_task)
+        set_agent_active(ensure_agent(state, actor, role), plan_task)
 
     if plan_artifact is None:
         now = now_iso()
@@ -439,11 +460,14 @@ def ensure_plan_approval_gate(
         initial_status = "approved" if plan_task.get("status") == "done" else "draft"
         history = [{"action": "created", "actor": actor, "timestamp": now}]
         if initial_status == "approved":
-            history.append({"action": "approved", "actor": actor, "timestamp": now, "note": "Imported from completed architect plan task."})
+            history.append({"action": "approved", "actor": actor, "timestamp": now, "note": f"Imported from completed {role} plan task."})
         plan_artifact = {
             "id": next_artifact_id(state.setdefault("artifacts", [])),
+            # The canonical plan-artifact kind is shared by both planners; the
+            # general variant differs by title/owner, not kind, so the renderer
+            # artifact-kind map and find_architect_plan_gate keep working.
             "kind": "architect_plan",
-            "title": "Architect Plan",
+            "title": f"{role_noun} Plan",
             "path": plan_path_value,
             "status": initial_status,
             "createdBy": actor,
@@ -458,11 +482,11 @@ def ensure_plan_approval_gate(
             plan_artifact["approvedBy"] = actor
             plan_artifact["approvedAt"] = now
         state.setdefault("artifacts", []).append(plan_artifact)
-        append_event(state, "artifact_added", actor, f"{actor} registered architect plan artifact {plan_artifact['id']}.")
+        append_event(state, "artifact_added", actor, f"{actor} registered {role} plan artifact {plan_artifact['id']}.")
     else:
         plan_artifact["taskId"] = plan_task.get("id")
         plan_artifact["path"] = plan_path_value
-        plan_artifact.setdefault("title", "Architect Plan")
+        plan_artifact.setdefault("title", f"{role_noun} Plan")
         plan_artifact.setdefault("createdBy", actor)
         plan_artifact.setdefault("reviewHistory", [])
         plan_artifact.setdefault("recommendedTasks", [])
