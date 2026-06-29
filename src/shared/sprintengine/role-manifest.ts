@@ -188,6 +188,29 @@ export type RoleInstallResult = {
   message?: string
 }
 
+// Authoring service IPC contracts (save/delete/get a single user-authored role).
+// Shared here, next to the install contracts, so preload and electron-api can
+// reference them without importing main-process code.
+export type UserRoleSaveInput = AuthoredRoleInput & { body: string }
+
+export type UserRoleSaveResult = {
+  ok: boolean
+  id?: string
+  issues?: RoleManifestValidationIssue[]
+}
+
+export type UserRoleDeleteResult = { ok: boolean }
+
+export type UserRoleGetResult =
+  | { ok: true; manifest: RoleManifest; body: string }
+  | { ok: false; issues?: RoleManifestValidationIssue[] }
+
+// Exposed so the install/authoring path can reject an unsafe id (path traversal)
+// before any filesystem work, using the same pattern validateRoleManifest enforces.
+export function isValidRoleId(id: string): boolean {
+  return ID_PATTERN.test(id)
+}
+
 export function parseRoleManifest(source: string): RoleManifestValidationResult {
   let parsed: unknown
   try {

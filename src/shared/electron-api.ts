@@ -52,7 +52,20 @@ import type {
   WatchtowerStartReviewInput,
   WatchtowerStartTriageInput,
 } from './switchboard'
-import type { RoleInstallResult, UserRoleListResult } from './sprintengine/role-manifest'
+import type {
+  RoleInstallResult,
+  UserRoleDeleteResult,
+  UserRoleGetResult,
+  UserRoleListResult,
+  UserRoleSaveInput,
+  UserRoleSaveResult,
+} from './sprintengine/role-manifest'
+export type {
+  UserRoleDeleteResult,
+  UserRoleGetResult,
+  UserRoleSaveInput,
+  UserRoleSaveResult,
+} from './sprintengine/role-manifest'
 import type { LayoutTemplateInstallResult, UserLayoutTemplateListResult } from './layouts/template-manifest'
 import type { ConversationProviderListEntry, ConversationProviderModel, PluginRegistryListEntry } from './plugin-manifest'
 import type { MarketplaceComponentKind, MarketplaceIndex, MarketplaceManifestIssue, MarketplacePluginEntry } from './marketplace/manifest'
@@ -2200,6 +2213,12 @@ export type ElectronApi = {
   installUserSprintEngineRoleFolder: (srcDir: string) => Promise<RoleInstallResult>
   /** List the roles currently installed in the user-global registry. */
   listUserSprintEngineRoles: () => Promise<UserRoleListResult>
+  /** Save (create or overwrite) a user-authored role manifest and its soul (SKILL.md) body. */
+  saveUserSprintEngineRole: (input: UserRoleSaveInput) => Promise<UserRoleSaveResult>
+  /** Delete a user-authored role and its soul skill folder. Idempotent. */
+  deleteUserSprintEngineRole: (id: string) => Promise<UserRoleDeleteResult>
+  /** Read a user-authored role manifest and its soul body for edit prefill. */
+  getUserSprintEngineRole: (id: string) => Promise<UserRoleGetResult>
   /** Install third-party workspace layout templates from a folder. */
   installUserLayoutTemplateFolder: (srcDir: string) => Promise<LayoutTemplateInstallResult>
   /** List the layout templates installed in the user-global registry. */
