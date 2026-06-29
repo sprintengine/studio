@@ -168,8 +168,6 @@ def test_mcp_tool_schemas_cover_swarm_command_groups() -> None:
         "sprintengine.agent.next_directive",
         "sprintengine.agent.heartbeat",
         "sprintengine.agent.leave",
-        "sprintengine.agent.record_session",
-        "sprintengine.agent.sample_token_usage",
         "sprintengine.subscribe",
         "sprintengine.join",
         "sprintengine.summary",

@@ -11,7 +11,6 @@ import type {
   SprintEngineTaskFeedbackIssue,
   SprintEngineTaskFeedbackScores,
   SprintEngineTaskStatus,
-  SprintEngineTokenUsage,
 } from '../types/workspace'
 
 export const feedbackScoreLabels: Array<{ key: keyof SprintEngineTaskFeedback['scores']; label: string }> = [
@@ -111,17 +110,9 @@ export type SprintEngineRunSummary = {
   promptImprovementSignals: string[]
   findingSummaries: string[]
   openQuestions: string[]
-  // Sprint-level per-model token total + coverage (Phase 1). Computed in the
-  // main process from the durable ledger (it reads CLI transcripts/servers), so
-  // it is threaded in by the caller rather than derived from `tasks` here.
-  // Absent until the main aggregator has produced it for the run.
-  tokenUsage?: SprintEngineTokenUsage
 }
 
-export function buildRunSummary(
-  tasks: SprintEngineTask[],
-  tokenUsage?: SprintEngineTokenUsage,
-): SprintEngineRunSummary {
+export function buildRunSummary(tasks: SprintEngineTask[]): SprintEngineRunSummary {
   const completed = tasks.filter((task) => task.status === 'done')
   const touchedFiles = uniqueStrings(completed.flatMap((task) => task.evidence.touchedFiles))
   const commandsRan = uniqueStrings(completed.flatMap((task) => task.evidence.commandsRan))
@@ -150,7 +141,6 @@ export function buildRunSummary(
     promptImprovementSignals,
     findingSummaries,
     openQuestions,
-    ...(tokenUsage ? { tokenUsage } : {}),
   }
 }
 
@@ -672,112 +662,6 @@ export function formatRunDuration(durationMs: number | null): string | null {
   const minutes = totalMinutes % 60
   if (hours === 0) return `${minutes}m`
   return `${hours}h ${minutes.toString().padStart(2, '0')}m`
-}
-
-// Compact token count for dense numeric columns: 0–999 verbatim, then K/M/B
-// with one decimal (trailing ".0" dropped) so a 698M cache-read column stays a
-// single readable glyph instead of a nine-digit run. Negative inputs are clamped
-// to 0 (token counts are never negative; a bad read should read as 0, not "-1").
-export function formatCompactTokenCount(value: number): string {
-  if (!Number.isFinite(value) || value <= 0) return '0'
-  const units: Array<{ limit: number; suffix: string }> = [
-    { limit: 1_000_000_000, suffix: 'B' },
-    { limit: 1_000_000, suffix: 'M' },
-    { limit: 1_000, suffix: 'K' },
-  ]
-  for (const { limit, suffix } of units) {
-    if (value >= limit) {
-      const scaled = value / limit
-      // One decimal under 100 (1.2M), none above (340M) so width stays bounded.
-      const text = scaled >= 100 ? Math.round(scaled).toString() : trimDecimal(scaled)
-      return `${text}${suffix}`
-    }
-  }
-  return Math.round(value).toString()
-}
-
-function trimDecimal(value: number): string {
-  const fixed = value.toFixed(1)
-  return fixed.endsWith('.0') ? fixed.slice(0, -2) : fixed
-}
-
-export type SprintEngineAgentTokenTotal = { tokens: number; partial: boolean }
-
-// Per-agent token totals for the run-summary breakdown (Phase 2). Sums each
-// agent's attributed windows: the developer implementation window (keyed by
-// `developer.agentId`) and every gate attempt the agent ran (keyed by the
-// attempt's `claimedBy`, falling back to `actor`). `tokens` is input + output
-// (cache is shown in the per-model/inspector detail, never folded into this
-// glanceable figure). An agent with any partial contributing window is flagged
-// `partial`. A task with absent `tokenUsage` (no samples captured) contributes
-// nothing — the column shows the coverage gap, never a fabricated 0.
-export function buildAgentTokenTotals(
-  tasks: SprintEngineTask[]
-): Map<string, SprintEngineAgentTokenTotal> {
-  const totals = new Map<string, SprintEngineAgentTokenTotal>()
-  const add = (agentId: string | undefined, tokens: number, partial: boolean): void => {
-    if (!agentId) return
-    const prev = totals.get(agentId) ?? { tokens: 0, partial: false }
-    totals.set(agentId, { tokens: prev.tokens + tokens, partial: prev.partial || partial })
-  }
-  for (const task of tasks) {
-    const usage = task.tokenUsage
-    if (usage?.developer) {
-      const w = usage.developer
-      add(w.agentId, w.total.input + w.total.output, w.partial)
-    }
-    for (const gate of task.qualityGates ?? []) {
-      for (const attempt of gate.attempts ?? []) {
-        const w = attempt.tokenUsage
-        if (w) add(attempt.claimedBy ?? attempt.actor, w.total.input + w.total.output, w.partial)
-      }
-    }
-  }
-  return totals
-}
-
-// One attributed window for a task's per-role/per-attempt breakdown (Phase 2):
-// the developer implementation span, then each sampled gate attempt. `tokens` is
-// input + output. `kind` lets the view label developer vs. a role-named attempt
-// without this util depending on the role-label map. Returns [] when the task
-// carries no attribution (no samples) — the view shows that as the coverage
-// story, never as zeroed rows.
-export type SprintEngineTaskTokenWindow = {
-  kind: 'developer' | 'attempt'
-  role?: SprintEngineRoleId
-  agentId?: string
-  tokens: number
-  partial: boolean
-  reason?: string
-}
-
-export function buildTaskTokenWindows(task: SprintEngineTask): SprintEngineTaskTokenWindow[] {
-  const windows: SprintEngineTaskTokenWindow[] = []
-  const dev = task.tokenUsage?.developer
-  if (dev) {
-    windows.push({
-      kind: 'developer',
-      agentId: dev.agentId,
-      tokens: dev.total.input + dev.total.output,
-      partial: dev.partial,
-      reason: dev.reason,
-    })
-  }
-  for (const gate of task.qualityGates ?? []) {
-    for (const attempt of gate.attempts ?? []) {
-      const w = attempt.tokenUsage
-      if (!w) continue
-      windows.push({
-        kind: 'attempt',
-        role: attempt.role,
-        agentId: attempt.claimedBy ?? attempt.actor,
-        tokens: w.total.input + w.total.output,
-        partial: w.partial,
-        reason: w.reason,
-      })
-    }
-  }
-  return windows
 }
 
 function taskImplementerAgentId(task: SprintEngineTask): string | null {

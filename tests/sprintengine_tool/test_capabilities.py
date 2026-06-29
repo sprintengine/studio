@@ -403,11 +403,9 @@ def test_worker_tool_listing_stays_under_byte_budget(tmp_path) -> None:
     serialized = len(json.dumps(worker_listing))
     # The token-efficiency plan targeted ~6k tokens (~24k chars) for workers;
     # gate tools stayed in the common surface for correctness (worker-role
-    # gates like frontend_review are real), which costs ~4.5k chars more. The
-    # host-driven token-accounting lifecycle tools (agent.record_session,
-    # agent.sample_token_usage) add a little more. Budget guards against
-    # regression toward the old ~62k-char full listing.
-    assert serialized < 32_000, f"worker tools/list serialized to {serialized} chars"
+    # gates like frontend_review are real), which costs ~4.5k chars more.
+    # Budget guards against regression toward the old ~62k-char full listing.
+    assert serialized < 30_000, f"worker tools/list serialized to {serialized} chars"
     full_listing = len(json.dumps(server.list_tools(None)))
     assert serialized < full_listing
 

@@ -17,7 +17,6 @@ import type {
 } from '../shared/agent-runtime'
 import { createAgentStreamWatcher } from './agent-stream-watcher'
 import { deriveActivityFromPhase, evaluateAgentStall, isAuthoritativeWorkingPhase, selectAgentStateTarget, type AgentStateFrame } from './agent-state'
-import { readSessionTokenUsage, type SessionTokenUsage } from './sprintengine-token-usage'
 import type { TerminalSpawnPayload } from './ipc/terminal-ipc'
 import {
   cleanupTerminalStartupScript,
@@ -102,9 +101,6 @@ type TerminalRuntimeOptions = {
     toolName: string
     arguments?: Record<string, unknown>
   }): Promise<unknown>
-  // Reads a CLI session's cumulative per-model token usage (Phase 2 sampling).
-  // Defaults to the real adapter dispatcher; tests inject a stub.
-  readSessionTokenUsage?(cli: AgentCli, cliSessionId: string): Promise<SessionTokenUsage>
   // Ensures a built-in skill is installed into the workspace before an agent
   // launches. Debug Mode uses this to guarantee the `debug` skill is present in
   // the session CLI's native skill dir so the injected invocation resolves to a
@@ -165,7 +161,6 @@ const agentSessionExitListeners = new Set<AgentSessionExitListener>()
 let syncMcpConfig: TerminalRuntimeOptions['syncMcpConfig']
 let releaseManagedSprintEngineRun: TerminalRuntimeOptions['releaseManagedSprintEngineRun']
 let callManagedSprintEngineTool: TerminalRuntimeOptions['callManagedSprintEngineTool']
-let readSessionTokenUsageImpl: (cli: AgentCli, cliSessionId: string) => Promise<SessionTokenUsage> = readSessionTokenUsage
 let ensureBuiltinSkillInstalled: TerminalRuntimeOptions['ensureBuiltinSkillInstalled']
 let prepareAgentStateHook: TerminalRuntimeOptions['prepareAgentStateHook']
 
@@ -189,10 +184,6 @@ const sprintEngineMcpRunRefCounts = new Map<string, number>()
 const sprintEngineMcpWorkspaceRefCounts = new Map<string, number>()
 const pendingSprintEngineMcpRunReleases = new Set<Promise<void>>()
 const sprintEngineAgentHeartbeatTimers = new Map<string, ReturnType<typeof setInterval>>()
-// Last `${cli}|${cliSessionId}` recorded into the durable session ledger per
-// terminal, so a record is pushed only when an agent first participates or its
-// CLI session id changes (a resume), not on every state frame.
-const sprintEngineLedgerKeys = new Map<string, string>()
 const pendingSprintEngineLifecycleCalls = new Set<Promise<void>>()
 const pendingSprintEngineTerminalTeardowns = new Map<string, { session: TerminalSession; promise: Promise<void> }>()
 
@@ -288,7 +279,6 @@ export function createTerminalRuntime(options: TerminalRuntimeOptions): Terminal
   syncMcpConfig = options.syncMcpConfig
   releaseManagedSprintEngineRun = options.releaseManagedSprintEngineRun
   callManagedSprintEngineTool = options.callManagedSprintEngineTool
-  readSessionTokenUsageImpl = options.readSessionTokenUsage ?? readSessionTokenUsage
   ensureBuiltinSkillInstalled = options.ensureBuiltinSkillInstalled
   prepareAgentStateHook = options.prepareAgentStateHook
   sprintEngineMcpRunRefCounts.clear()
@@ -296,7 +286,6 @@ export function createTerminalRuntime(options: TerminalRuntimeOptions): Terminal
   pendingSprintEngineMcpRunReleases.clear()
   pendingSprintEngineLifecycleCalls.clear()
   pendingSprintEngineTerminalTeardowns.clear()
-  sprintEngineLedgerKeys.clear()
   logMainPerfEvent = options.logMainPerfEvent
   terminalDiagnostics = createTerminalDiagnostics({
     enabled: options.diagnosticsEnabled,
@@ -611,7 +600,6 @@ function disposeTerminal(sessionId: string): void {
   if (!session) return
 
   void queueSprintEngineTerminalTeardown(session, 'terminal disposed')
-  sprintEngineLedgerKeys.delete(sessionId)
   cleanupTerminalStartupScript(session.startupScriptPath)
   terminalOutput.flush(sessionId, 'dispose')
   terminalDiagnostics.clear(sessionId)
@@ -1052,13 +1040,7 @@ function ingestAgentStateFrame(frame: AgentStateFrame): void {
   // spawns can't cross-assign it.
   const cliSessionIdChanged =
     !!frame.sessionId && frame.sessionId !== session.cliSessionId
-  if (cliSessionIdChanged) {
-    session.cliSessionId = frame.sessionId ?? session.cliSessionId
-    // A new (or first-known) CLI session id is the resume / first-seen hook for
-    // the durable token-accounting ledger; record it so a resumed agent keeps
-    // both its old and new session ids in order.
-    void recordSprintEngineAgentSession(session)
-  }
+  if (cliSessionIdChanged) session.cliSessionId = frame.sessionId ?? session.cliSessionId
 
   // Bridge to the legacy activity field so existing consumers (sidebar bolding,
   // reaping, diagnostics) reflect the authoritative phase. Suppress its own
@@ -1093,12 +1075,6 @@ function ingestAgentStateFrame(frame: AgentStateFrame): void {
     && terminals.get(session.sessionId) === session
   ) {
     broadcastTerminalSessionsChanged()
-  }
-
-  // Stop/SessionEnd is the flush boundary: the agent finished a turn and its CLI
-  // transcript is written, so sample the session's cumulative token usage now.
-  if (frame.event === 'Stop' || frame.event === 'SessionEnd') {
-    void sampleSprintEngineAgentTokenUsage(session)
   }
 }
 
@@ -1266,88 +1242,6 @@ function queueSprintEngineLifecycleCall(
   return call
 }
 
-// Push the (agentId, role, cli, cliSessionId) triple to the durable session
-// ledger so token usage stays recomputable after a restart. Multicode main is
-// the only place that observes the CLI session id (minted by us for Claude
-// Code, learned via the agent hook for Codex/others), so the host records it;
-// the python core remains the sole run-store writer. Deduped per terminal so we
-// only record on first participation and on a resume (changed cli session id);
-// agents on unmeasured CLIs are still recorded (empty cliSessionId) so coverage
-// can name them.
-function recordSprintEngineAgentSession(session: TerminalSession): Promise<void> | null {
-  if (!session.sprintEngineMcpRunId || !session.sprintEngineStatePath || !session.agentId) return null
-  if (!callManagedSprintEngineTool) return null
-  const cli = session.cli ?? ''
-  const cliSessionId = session.cliSessionId ?? ''
-  const key = `${cli}|${cliSessionId}`
-  if (sprintEngineLedgerKeys.get(session.sessionId) === key) return null
-  sprintEngineLedgerKeys.set(session.sessionId, key)
-  const call = Promise.resolve(callManagedSprintEngineTool({
-    runId: session.sprintEngineMcpRunId,
-    toolName: 'sprintengine.agent.record_session',
-    arguments: {
-      agentId: session.agentId,
-      ...(session.sprintEngineRole ? { role: session.sprintEngineRole } : {}),
-      ...(cli ? { cli } : {}),
-      ...(cliSessionId ? { cliSessionId } : {}),
-    },
-  }))
-    .then(() => undefined)
-    .catch((error) => {
-      logMainPerfEvent('TerminalRuntime', 'sprintengine-record-session-failed', {
-        sessionId: session.sessionId,
-        agentId: session.agentId,
-        message: getErrorMessage(error),
-      })
-    })
-  pendingSprintEngineLifecycleCalls.add(call)
-  void call.finally(() => {
-    pendingSprintEngineLifecycleCalls.delete(call)
-  })
-  return call
-}
-
-// Phase 2 token attribution: when an agent's turn flushes (Stop/SessionEnd), the
-// host reads its CLI session's cumulative per-model usage and posts it to the run
-// store. The python core brackets these samples against task/gate-attempt
-// lifecycle windows to attribute tokens to tasks and roles. Sampling at flush
-// (not at Multicode's status-change instant) is what makes the cumulative
-// accurate; an unmeasured/empty reading is simply skipped (no fabricated zero).
-function sampleSprintEngineAgentTokenUsage(session: TerminalSession): Promise<void> | null {
-  const runId = session.sprintEngineMcpRunId
-  const { cli, cliSessionId, agentId } = session
-  if (!runId || !session.sprintEngineStatePath || !agentId || !cli || !cliSessionId) return null
-  const callTool = callManagedSprintEngineTool
-  if (!callTool) return null
-  const call = readSessionTokenUsageImpl(cli, cliSessionId)
-    .then((usage) => {
-      if (!usage.measured || usage.perModel.length === 0) return undefined
-      return Promise.resolve(callTool({
-        runId,
-        toolName: 'sprintengine.agent.sample_token_usage',
-        arguments: {
-          agentId,
-          cli,
-          cliSessionId,
-          perModel: usage.perModel,
-          sampledAt: usage.sampledAt,
-        },
-      })).then(() => undefined)
-    })
-    .catch((error) => {
-      logMainPerfEvent('TerminalRuntime', 'sprintengine-token-sample-failed', {
-        sessionId: session.sessionId,
-        agentId,
-        message: getErrorMessage(error),
-      })
-    })
-  pendingSprintEngineLifecycleCalls.add(call)
-  void call.finally(() => {
-    pendingSprintEngineLifecycleCalls.delete(call)
-  })
-  return call
-}
-
 function startSprintEngineAgentHeartbeat(session: TerminalSession): void {
   if (sprintEngineAgentHeartbeatTimers.has(session.sessionId)) return
   if (!sprintEngineLifecycleCallInput(session, 'sprintengine.agent.heartbeat')) return
@@ -1431,11 +1325,6 @@ function attachTerminalSession(
 ): void {
   terminals.set(sessionId, terminalSession)
   startSprintEngineAgentHeartbeat(terminalSession)
-  // Record first participation in the durable session ledger up front (with the
-  // cli even when the CLI session id is not known yet), so every agent — including
-  // those on unmeasured CLIs — is named in coverage. ingestAgentStateFrame records
-  // again once the agent reports its session id.
-  void recordSprintEngineAgentSession(terminalSession)
   scheduleTerminalIdleTransition(terminalSession)
   broadcastTerminalSessionsChanged()
 

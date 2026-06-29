@@ -224,39 +224,6 @@ MCP_V1_CONTRACT_SCHEMAS: dict[str, dict[str, Any]] = {
     ),
     "sprintengine.agent.heartbeat": object_schema(["statePath", "agentId"], {"agentId": AGENT_ID_PROPERTY, "role": ROLE_PROPERTY}),
     "sprintengine.agent.leave": object_schema(["statePath", "agentId"], {"agentId": AGENT_ID_PROPERTY, "role": ROLE_PROPERTY, "reason": {"type": "string"}}),
-    "sprintengine.agent.record_session": object_schema(
-        ["statePath", "agentId"],
-        {
-            "agentId": AGENT_ID_PROPERTY,
-            "role": ROLE_PROPERTY,
-            "cli": {"type": "string", "description": "Runtime CLI plugin id, e.g. claude-code."},
-            "cliSessionId": {"type": "string", "description": "The CLI's own session id; may be empty until reported."},
-        },
-    ),
-    "sprintengine.agent.sample_token_usage": object_schema(
-        ["statePath", "agentId", "cliSessionId"],
-        {
-            "agentId": AGENT_ID_PROPERTY,
-            "cli": {"type": "string", "description": "Runtime CLI plugin id, e.g. claude-code."},
-            "cliSessionId": {"type": "string", "description": "The CLI session the cumulative usage is for."},
-            "perModel": {
-                "type": "array",
-                "description": "Cumulative per-model usage for the session at sample time.",
-                "items": {
-                    "type": "object",
-                    "properties": {
-                        "model": {"type": "string"},
-                        "input": {"type": "number"},
-                        "output": {"type": "number"},
-                        "cacheRead": {"type": "number"},
-                        "cacheCreation": {"type": "number"},
-                    },
-                },
-            },
-            "sampledAt": {"type": "string", "description": "ISO-8601 sample time; defaults to now."},
-            "source": {"type": "string", "description": "Flush trigger, e.g. stop or sessionEnd."},
-        },
-    ),
     "sprintengine.subscribe": object_schema(
         ["statePath", "agentId"],
         {

@@ -9,13 +9,9 @@ import {
   buildProcessHealth,
   buildRunQualitySummary,
   buildRunReport,
-  buildRunSummary,
   compareCliDeliveryScores,
-  buildAgentTokenTotals,
-  buildTaskTokenWindows,
   buildAgentActivityTimeline,
   computeRunDurationMs,
-  formatCompactTokenCount,
   formatRunDuration,
   monotoneCubicPath,
   type SprintEngineAgentRow,
@@ -26,7 +22,6 @@ import type {
   SprintEngineRuntimeAgent,
   SprintEngineState,
   SprintEngineTask,
-  SprintEngineTokenUsage,
 } from '../types/workspace'
 
 function makeTask(overrides: Partial<SprintEngineTask>): SprintEngineTask {
@@ -559,132 +554,6 @@ function testCompareCliDeliveryScores(): void {
   assert.equal(compareCliDeliveryScores([stat('claude-code', null, 0), stat('codex', 40)]), null)
 }
 
-function testBuildRunSummaryThreadsTokenUsage(): void {
-  const tasks = [makeTask({ id: 'T1', status: 'done' })]
-  const tokenUsage: SprintEngineTokenUsage = {
-    perModel: [{ model: 'claude-opus-4-8', input: 100, output: 10, cacheRead: 50, cacheCreation: 5 }],
-    total: { input: 100, output: 10, cacheRead: 50, cacheCreation: 5 },
-    coverage: { measuredAgents: 1, unmeasuredAgents: 1, unmeasured: [{ agentId: 'oc-1', cli: 'opencode' }] },
-    computedAt: '2026-06-28T00:00:00.000Z',
-  }
-
-  const withUsage = buildRunSummary(tasks, tokenUsage)
-  assert.deepEqual(withUsage.tokenUsage, tokenUsage, 'tokenUsage is threaded onto the run summary')
-
-  // Existing callers that pass only tasks are unaffected: the field is absent.
-  const withoutUsage = buildRunSummary(tasks)
-  assert.equal(withoutUsage.tokenUsage, undefined)
-  assert.equal(withoutUsage.completedTasks, 1, 'existing summary fields still computed')
-}
-
-function testFormatCompactTokenCount(): void {
-  assert.equal(formatCompactTokenCount(0), '0')
-  assert.equal(formatCompactTokenCount(-5), '0', 'negatives clamp to 0')
-  assert.equal(formatCompactTokenCount(999), '999')
-  assert.equal(formatCompactTokenCount(1000), '1K')
-  assert.equal(formatCompactTokenCount(1200), '1.2K')
-  assert.equal(formatCompactTokenCount(12_345), '12.3K')
-  assert.equal(formatCompactTokenCount(150_000), '150K', 'no decimal at/above 100')
-  assert.equal(formatCompactTokenCount(1_200_000), '1.2M')
-  assert.equal(formatCompactTokenCount(698_510_128), '699M', 'rounds with no decimal at/above 100')
-  assert.equal(formatCompactTokenCount(1_500_000_000), '1.5B')
-}
-
-function testBuildAgentTokenTotals(): void {
-  const win = (input: number, output: number, partial = false) => ({
-    perModel: [],
-    total: { input, output, cacheRead: 0, cacheCreation: 0 },
-    partial,
-  })
-  const tasks = [
-    makeTask({
-      id: 'T1',
-      tokenUsage: {
-        perModel: [],
-        total: { input: 100, output: 10, cacheRead: 0, cacheCreation: 0 },
-        developer: { ...win(100, 10), agentId: 'dev-1' },
-        partial: false,
-      },
-      qualityGates: [
-        {
-          id: 'g1',
-          phase: 'review',
-          role: 'code_reviewer',
-          status: 'approved',
-          required: true,
-          allowSelfReview: false,
-          attempts: [{ claimedBy: 'rev-1', tokenUsage: win(50, 5) }],
-        },
-      ],
-    }),
-    makeTask({
-      id: 'T2',
-      // Same developer again, this window partial -> agent flagged partial.
-      tokenUsage: {
-        perModel: [],
-        total: { input: 200, output: 20, cacheRead: 0, cacheCreation: 0 },
-        developer: { ...win(200, 20, true), agentId: 'dev-1' },
-        partial: true,
-      },
-    }),
-    // Absent tokenUsage contributes nothing (coverage gap, not 0).
-    makeTask({ id: 'T3' }),
-  ]
-
-  const totals = buildAgentTokenTotals(tasks)
-  assert.deepEqual(totals.get('dev-1'), { tokens: 330, partial: true }, 'dev sums across tasks, partial OR-ed')
-  assert.deepEqual(totals.get('rev-1'), { tokens: 55, partial: false }, 'reviewer attempt attributed by claimedBy')
-  assert.equal(totals.size, 2, 'no entry fabricated for the absent-tokenUsage task')
-}
-
-function testBuildTaskTokenWindows(): void {
-  const win = (input: number, output: number, partial = false, reason?: string) => ({
-    perModel: [],
-    total: { input, output, cacheRead: 0, cacheCreation: 0 },
-    partial,
-    ...(reason ? { reason } : {}),
-  })
-  // Populated: developer window + two gate attempts (one partial).
-  const populated = makeTask({
-    id: 'T1',
-    tokenUsage: {
-      perModel: [],
-      total: { input: 300, output: 30, cacheRead: 0, cacheCreation: 0 },
-      developer: { ...win(100, 10), agentId: 'dev-1' },
-      partial: true,
-    },
-    qualityGates: [
-      {
-        id: 'g1',
-        phase: 'review',
-        role: 'code_reviewer',
-        status: 'approved',
-        required: true,
-        allowSelfReview: false,
-        attempts: [
-          { role: 'code_reviewer', claimedBy: 'cr-1', tokenUsage: win(50, 5) },
-          { role: 'spec_reviewer', actor: 'sr-1', tokenUsage: win(40, 4, true, 'no_sample') },
-        ],
-      },
-    ],
-  })
-  const windows = buildTaskTokenWindows(populated)
-  assert.equal(windows.length, 3, 'developer + 2 attempts')
-  assert.deepEqual(
-    { kind: windows[0].kind, agentId: windows[0].agentId, tokens: windows[0].tokens, partial: windows[0].partial },
-    { kind: 'developer', agentId: 'dev-1', tokens: 110, partial: false }
-  )
-  assert.deepEqual(
-    { kind: windows[1].kind, role: windows[1].role, agentId: windows[1].agentId, tokens: windows[1].tokens },
-    { kind: 'attempt', role: 'code_reviewer', agentId: 'cr-1', tokens: 55 }
-  )
-  assert.equal(windows[2].partial, true, 'partial attempt flagged')
-  assert.equal(windows[2].reason, 'no_sample', 'partial reason carried through')
-
-  // Absent attribution -> [] (coverage story, not zeroed rows).
-  assert.deepEqual(buildTaskTokenWindows(makeTask({ id: 'T2' })), [])
-}
-
 // The burn-up curve is cumulative, so its smoothing must never overshoot: every
 // point of the rendered curve has to stay within the y-range of the segment it
 // lies on. A cardinal spline fails this on a long flat run followed by a steep
@@ -935,10 +804,6 @@ function main(): void {
   testBuildRunReportDerivesStatusesNeedsInputAndFindings()
   testProcessHealthExcludesAgentPerformanceDimensions()
   testDurationFormatting()
-  testBuildRunSummaryThreadsTokenUsage()
-  testFormatCompactTokenCount()
-  testBuildAgentTokenTotals()
-  testBuildTaskTokenWindows()
   console.log('sprintengineRunSummary.test.ts: ok')
 }
 

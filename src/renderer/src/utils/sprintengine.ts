@@ -61,7 +61,6 @@ import type {
   SprintEngineTaskComment,
   SprintEngineTaskNeedsInput,
   SprintEngineState,
-  SprintEngineLedgerEntry,
   SprintEngineTask,
   SprintEngineTaskStatus,
   SprintEngineNeedsInputKind,
@@ -2304,7 +2303,6 @@ export function normalizeSprintEngineState(input: SprintEngineState | null | und
     ...(input.runner ? { runner: input.runner } : {}),
     ...(input.useWorktrees ? { useWorktrees: true } : {}),
     ...(input.vcs ? { vcs: input.vcs } : {}),
-    ...(input.ledger && input.ledger.length > 0 ? { ledger: input.ledger } : {}),
   }
 }
 
@@ -2441,27 +2439,6 @@ function normalizeProjectionRoster(value: unknown): Record<string, SprintEngineR
  * shape the renderer panels consume. The projection is the single source of
  * truth for board columns, activity, lock warnings, and run metadata.
  */
-function normalizeProjectionLedger(value: unknown): SprintEngineLedgerEntry[] {
-  if (!Array.isArray(value)) return []
-  return value.flatMap((entry): SprintEngineLedgerEntry[] => {
-    if (!entry || typeof entry !== 'object') return []
-    const record = entry as Record<string, unknown>
-    const agentId = optionalTrimmedString(record.agentId)
-    if (!agentId) return []
-    const cliSessionIds = Array.isArray(record.cliSessionIds)
-      ? record.cliSessionIds.filter((id): id is string => typeof id === 'string' && id.length > 0)
-      : []
-    return [{
-      agentId,
-      role: typeof record.role === 'string' ? record.role : '',
-      cli: typeof record.cli === 'string' ? record.cli : '',
-      cliSessionIds,
-      firstSeenAt: typeof record.firstSeenAt === 'string' ? record.firstSeenAt : '',
-      lastSeenAt: typeof record.lastSeenAt === 'string' ? record.lastSeenAt : '',
-    }]
-  })
-}
-
 export function normalizeSprintEngineProjection(
   input: unknown,
   fallbackName?: string,
@@ -2529,9 +2506,6 @@ export function normalizeSprintEngineProjection(
       ? { runner: normalizeSprintEngineRunnerPolicy(runRecord.runner) }
       : {}),
     ...(normalizeSprintEngineVcs(runRecord.vcs) ? { vcs: normalizeSprintEngineVcs(runRecord.vcs), useWorktrees: true } : {}),
-    ...(normalizeProjectionLedger(record.ledger).length > 0
-      ? { ledger: normalizeProjectionLedger(record.ledger) }
-      : {}),
   }
 
   return normalizeSprintEngineState(candidate)

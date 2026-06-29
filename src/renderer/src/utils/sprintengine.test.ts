@@ -2625,44 +2625,5 @@ type FakeTask = { role: string; status: SprintEngineTask['status'] }
   assert.equal(sprintEngineArtifactKindLabel('design_notes'), 'Design Notes')
 }
 
-// normalizeSprintEngineProjection surfaces the durable session ledger so token
-// accounting can recompute usage per agent CLI session, including across resumes.
-{
-  const ledgerState = normalizeSprintEngineProjection(fakeProjection({
-    ledger: [
-      {
-        agentId: 'developer-1',
-        role: 'developer',
-        cli: 'claude-code',
-        cliSessionIds: ['C1', 'C2'],
-        firstSeenAt: '2026-05-16T20:00:00Z',
-        lastSeenAt: '2026-05-16T20:05:00Z',
-      },
-      // Unmeasured-CLI agent with no session ids is still surfaced for coverage.
-      {
-        agentId: 'reviewer-1',
-        role: 'nuclear_reviewer',
-        cli: 'weirdcli',
-        cliSessionIds: [],
-        firstSeenAt: '2026-05-16T20:01:00Z',
-        lastSeenAt: '2026-05-16T20:01:00Z',
-      },
-      { notAnObject: true },
-      { role: 'developer' }, // dropped: missing agentId
-    ],
-  }))
-  assert.ok(ledgerState, 'projection with a ledger parses')
-  assert.equal(ledgerState!.ledger?.length, 2, 'malformed and agentId-less ledger rows are dropped')
-  const dev = ledgerState!.ledger?.find((entry) => entry.agentId === 'developer-1')
-  assert.deepEqual(dev?.cliSessionIds, ['C1', 'C2'], 'resume ids retained in order')
-  assert.equal(dev?.cli, 'claude-code')
-  const reviewer = ledgerState!.ledger?.find((entry) => entry.agentId === 'reviewer-1')
-  assert.equal(reviewer?.cli, 'weirdcli', 'unmeasured-cli agent is named')
-  assert.deepEqual(reviewer?.cliSessionIds, [])
-
-  const noLedgerState = normalizeSprintEngineProjection(fakeProjection({}))
-  assert.equal(noLedgerState!.ledger, undefined, 'ledger is absent when the projection has none')
-}
-
 // eslint-disable-next-line no-console
 console.log('sprintengine.test.ts: ok')
