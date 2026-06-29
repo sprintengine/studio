@@ -953,6 +953,17 @@ function SprintEngineBoardPanelContent({
    sprintEngineState,
    autoState: workspace?.sprintEngineAutoState,
  })
+ // The run-config chip's label tracks the run's real end-state once complete: a
+ // merged worktree run reads "Merged", a done-but-unmerged one "Ready for review";
+ // otherwise it shows the automation runtime state (Running / Paused / Complete…).
+ const runConfigLabel =
+   automationRuntimeState === 'complete'
+     ? sprintEngineState.vcs?.pullRequestState === 'merged'
+       ? 'Merged'
+       : sprintEngineState.vcs
+         ? 'Ready for review'
+         : 'Complete'
+     : sprintEngineAutomationRuntimeLabels[automationRuntimeState]
  const projectionUnavailable = sprintEngineState.projection?.source === 'unavailable'
  const projectionErrorMessage = sprintEngineState.projection?.errorMessage
  const lockWarnings = sprintEngineState.locks?.warnings ?? []
@@ -1890,8 +1901,10 @@ function SprintEngineBoardPanelContent({
  {/* Left: view tabs + the Tasks layout switcher. Keeping the switcher here
      (rather than in the right cluster) holds the run-state cluster — count,
      automation, overflow — in a fixed position across tabs, so switching to
-     Tasks no longer shoves those controls sideways. */}
- <div className="flex min-w-0 items-center gap-2">
+     Tasks no longer shoves those controls sideways. `flex-1 min-w-0` plus
+     horizontal scroll gives the tab strip a bounded box, so on a narrow window
+     it scrolls within its lane instead of spilling over the run-state cluster. */}
+ <div className="flex min-w-0 flex-1 items-center gap-2 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
  {!fixedView ? (
  <Tabs<SprintEngineView>
  ariaLabel="Sprint view"
@@ -1925,7 +1938,7 @@ function SprintEngineBoardPanelContent({
  <button
  ref={ref}
  type="button"
- aria-label={`Run configuration: ${sprintEngineAutomationRuntimeLabels[automationRuntimeState]}`}
+ aria-label={`Run configuration: ${runConfigLabel}`}
  aria-haspopup="dialog"
  aria-expanded={triggerProps['aria-expanded']}
  aria-controls={triggerProps['aria-controls']}
@@ -1941,7 +1954,7 @@ function SprintEngineBoardPanelContent({
  ) : automationRuntimeGlyph ? (
  <LifecycleGlyph state={automationRuntimeGlyph} />
  ) : null}
- <span className="truncate">{sprintEngineAutomationRuntimeLabels[automationRuntimeState]}</span>
+ <span className="truncate">{runConfigLabel}</span>
  <svg className="icon-xs shrink-0 text-[color:var(--text-disabled)]" viewBox="0 0 12 12" fill="none" aria-hidden="true">
  <path d="M3 4.5L6 7.5L9 4.5" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" />
  </svg>

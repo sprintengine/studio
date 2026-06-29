@@ -200,7 +200,7 @@ assert.ok(
 )
 // Run configuration: the chrome status chip is the popover trigger (one click),
 // and the popover's automation modes are a real radio group.
-expectIncludes(sprintEnginePanel, 'aria-label={`Run configuration: ${sprintEngineAutomationRuntimeLabels[automationRuntimeState]}`}', 'Run configuration chip names itself and the current runtime state')
+expectIncludes(sprintEnginePanel, 'aria-label={`Run configuration: ${runConfigLabel}`}', 'Run configuration chip names itself and the current run state')
 expectIncludes(sprintEnginePanel, 'aria-haspopup="dialog"', 'Run configuration chip advertises its dialog popover')
 expectIncludes(sprintEngineSettingsPopover, 'role="radiogroup"', 'Sprint Engine automation modes form a radio group')
 expectIncludes(sprintEngineSettingsPopover, 'aria-checked={checked}', 'Sprint Engine automation mode radios expose checked state')
