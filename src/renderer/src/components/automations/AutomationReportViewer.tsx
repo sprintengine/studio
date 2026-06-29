@@ -111,7 +111,7 @@ export function AutomationReportViewer({
   }, [activePath, workspaceRoot])
 
   // The one place an agent-authored html report is handed to the external
-  // browser: only on explicit user confirm (or re-open). An open failure (e.g.
+  // browser: only on an explicit user confirmation (or re-open). An open failure (e.g.
   // the file vanished after the existence probe) falls back to not-found.
   const openHtml = useCallback(() => {
     if (!activePath) return
