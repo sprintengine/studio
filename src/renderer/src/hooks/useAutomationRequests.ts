@@ -9,6 +9,7 @@ import { useWorkspaceStore } from '../store/workspaceStore'
 import { pickRandomAgentName } from '../utils/agentNames'
 import { getModel, revealAgentTab, type AgentTabRevealTarget } from '../utils/modelRegistry'
 import { buildSpecialistDirectiveStartupPrompt, getSpecialistAction } from '../specialists/specialistActions'
+import { isAutomationsHostWorkspace } from '../utils/workspaceVisibility'
 import type { SpecialistActionId, WorkspaceWindowId } from '../types/workspace'
 
 // Renderer half of the app-automation surface: the main-process MCP server
@@ -82,6 +83,9 @@ function createWorkspace(
     name: request.name,
     folderPath: request.folderPath ?? null,
     windowId: 'primary',
+    // An explicit mode (e.g. the automations executor's hidden 'automations-host'
+    // host) wins over standard-derivation; omitted falls through to standard.
+    mode: request.mode,
   })
   return { ok: true, workspaceId }
 }
@@ -94,14 +98,15 @@ async function launchAgent(
   if (!workspace) {
     return { ok: false, code: 'unknown_workspace', message: `Workspace "${request.workspaceId}" does not exist in the renderer registry.` }
   }
-  // Agent-backed automation runs launch into a standard workspace (the executor
-  // creates a fresh one when the run has no explicit target). Automations is a
-  // global screen now, not a workspace type, so 'standard' is the only host.
-  if (workspace.mode !== 'standard') {
+  // Agent-backed automation runs launch into either the per-project hidden
+  // 'automations-host' workspace (the default route resolves-or-creates one) or a
+  // standard workspace named by an explicit/legacy config workspaceId. Any other
+  // mode is not a valid automation host.
+  if (workspace.mode !== 'standard' && !isAutomationsHostWorkspace(workspace)) {
     return {
       ok: false,
       code: 'unsupported_workspace_mode',
-      message: `Automation agent launch supports standard workspaces; "${workspace.id}" is a ${workspace.mode} workspace.`,
+      message: `Automation agent launch supports standard or automations-host workspaces; "${workspace.id}" is a ${workspace.mode} workspace.`,
     }
   }
   const cli = request.cli?.trim() || store.appSettings.lastSelectedCli

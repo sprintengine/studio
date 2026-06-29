@@ -5,6 +5,7 @@ import { useWorkspaceStore } from '../store/workspaceStore'
 import type { SpecialistActionId, Workspace, WorkspaceId, WorkspaceWindowId } from '../types/workspace'
 import { focusOrAddComponentTab, revealNavRailComponent, togglePanelRailComponent } from '../utils/modelRegistry'
 import { openFileSurface } from '../utils/openFileSurface'
+import { isHiddenFromRail } from '../utils/workspaceVisibility'
 import {
   getEffectiveKeybindingLabel,
   getSpecialistCommandId,
@@ -226,15 +227,19 @@ export default function CommandPalette({
           onClose()
         },
       })),
-      ...workspaces.map((workspace) => ({
-        id: `switch-${workspace.id}`,
-        label: `Switch to: ${workspace.name}`,
-        description: workspace.id === activeWorkspaceId ? 'active' : '',
-        run: () => {
-          setActiveWorkspaceForWindow(workspaceWindowId, workspace.id)
-          onClose()
-        },
-      })),
+      // Rail-hidden workspaces (the background Automations host) are never a
+      // switch target — the palette mirrors the rail/hotkey navigation surfaces.
+      ...workspaces
+        .filter((workspace) => !isHiddenFromRail(workspace))
+        .map((workspace) => ({
+          id: `switch-${workspace.id}`,
+          label: `Switch to: ${workspace.name}`,
+          description: workspace.id === activeWorkspaceId ? 'active' : '',
+          run: () => {
+            setActiveWorkspaceForWindow(workspaceWindowId, workspace.id)
+            onClose()
+          },
+        })),
       ...(activeWorkspaceId
         ? openFiles.map((file) => ({
             id: `file-${file.path}`,

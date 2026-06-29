@@ -7,8 +7,10 @@ import {
   managedNodeBinary,
   managedNodeEnv,
   managedPythonSpawnEnv,
+  reportManagedPythonResolution,
   resolveManagedPython,
   withManagedRuntimePath,
+  type ResolvedPython,
   type RuntimeEnv,
 } from './managed-runtime'
 
@@ -161,6 +163,46 @@ for (const source of ['venv', 'system', 'override'] as const) {
   const out = managedPythonSpawnEnv(env, source)
   assert.equal(out.PYTHONHOME, '/opt/pyenv', `${source} leaves PYTHONHOME untouched`)
   assert.equal(out, env, `${source} returns the env unchanged (no copy)`)
+}
+
+// --- resolution diagnostic --------------------------------------------------
+
+function captureLogger() {
+  const logs: string[] = []
+  const warns: string[] = []
+  return {
+    logs,
+    warns,
+    log: (m: string) => logs.push(m),
+    warn: (m: string) => warns.push(m),
+  }
+}
+
+// Packaged build that missed the bundled CPython must warn, not log quietly.
+for (const source of ['venv', 'system'] as const) {
+  const logger = captureLogger()
+  const resolved: ResolvedPython = { command: '/usr/bin/python3', source }
+  reportManagedPythonResolution(resolved, makeEnv({ isPackaged: true }), logger)
+  assert.equal(logger.logs.length, 0, `packaged ${source} does not log at info level`)
+  assert.equal(logger.warns.length, 1, `packaged ${source} warns`)
+  assert.match(logger.warns[0]!, /expected the bundled CPython/, `packaged ${source} warning explains why`)
+}
+
+// Bundled (the happy path) and an explicit override are expected — info only.
+for (const source of ['bundled', 'override'] as const) {
+  const logger = captureLogger()
+  reportManagedPythonResolution({ command: '/x/python', source }, makeEnv({ isPackaged: true }), logger)
+  assert.equal(logger.warns.length, 0, `packaged ${source} does not warn`)
+  assert.equal(logger.logs.length, 1, `packaged ${source} logs the source`)
+  assert.match(logger.logs[0]!, new RegExp(`source=${source}`), `packaged ${source} reports the source`)
+}
+
+// Unpackaged (dev) never warns even on a system interpreter — that's normal.
+{
+  const logger = captureLogger()
+  reportManagedPythonResolution({ command: 'python3', source: 'system' }, makeEnv({ isPackaged: false }), logger)
+  assert.equal(logger.warns.length, 0, 'dev system python does not warn')
+  assert.equal(logger.logs.length, 1, 'dev still logs the resolved source')
 }
 
 console.log('managed-runtime.test.ts ok')

@@ -2,6 +2,7 @@ import { app, BrowserWindow, Menu } from 'electron'
 import { createAppMenu } from './app-menu'
 import { createMainWindow, markAppQuitInProgressForWindowClose } from './window-factory'
 import { releaseAllWorkspaceRunnerLocks } from './workspace-runner-lock'
+import { currentRuntimeEnv, getManagedPython, reportManagedPythonResolution } from './managed-runtime'
 import type { MulticodeUpdateService } from './update-service'
 
 type RegisterAppLifecycleOptions = {
@@ -73,6 +74,10 @@ export function registerAppLifecycle({
 
   app.whenReady().then(() => {
     app.setAppLogsPath()
+
+    // Surface which Python the app resolved; warns when a packaged build missed
+    // the bundled CPython instead of silently falling back to system python3.
+    reportManagedPythonResolution(getManagedPython(), currentRuntimeEnv())
 
     if (process.platform === 'win32') {
       app.setAppUserModelId(

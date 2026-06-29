@@ -809,4 +809,31 @@ assert.equal(
   'an open-ended/custom role falls back to the team architect CLI',
 )
 
+// --- Explicit automations-host mode (T2) ------------------------------------
+// An explicit non-standard `mode` is honored at creation so the automations
+// executor can create the hidden background host.
+const automationsHostId = useWorkspaceStore.getState().addWorkspace(standardTemplate, {
+  name: 'Automations Host',
+  folderPath: '/Users/example/project',
+  mode: 'automations-host',
+})
+state = useWorkspaceStore.getState()
+assert.equal(
+  state.workspaces.find((workspace) => workspace.id === automationsHostId)?.mode,
+  'automations-host',
+  'an explicit automations-host mode wins over standard-derivation',
+)
+
+// Omitting mode behaves exactly as today: standard-derivation is unchanged.
+const derivedStandardId = useWorkspaceStore.getState().addWorkspace(standardTemplate, {
+  name: 'Plain Standard',
+  folderPath: '/Users/example/project',
+})
+state = useWorkspaceStore.getState()
+assert.equal(
+  state.workspaces.find((workspace) => workspace.id === derivedStandardId)?.mode,
+  'standard',
+  'an omitted mode still derives standard',
+)
+
 console.log('workspacesSlice.test.ts: ok')

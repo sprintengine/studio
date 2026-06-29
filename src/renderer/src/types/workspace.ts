@@ -9,6 +9,10 @@ export const SPRINT_ENGINE_WORKSPACE_MODE = 'sprintengine'
 export const SWITCHBOARD_WORKSPACE_MODE = 'switchboard'
 export const MULTILOOP_WORKSPACE_MODE = 'multiloop'
 export const GUIDED_BRIEF_WORKSPACE_MODE = 'guided-brief'
+// Background host workspace for per-project Automations. It is hidden from the
+// normal workspace rail (see `utils/workspaceVisibility.ts`); its hidden-ness is
+// derived from this mode, never a persisted flag, so no store migration exists.
+export const AUTOMATIONS_HOST_WORKSPACE_MODE = 'automations-host'
 
 export type BundledWorkspaceMode =
   | typeof STANDARD_WORKSPACE_MODE
@@ -16,6 +20,7 @@ export type BundledWorkspaceMode =
   | typeof SWITCHBOARD_WORKSPACE_MODE
   | typeof MULTILOOP_WORKSPACE_MODE
   | typeof GUIDED_BRIEF_WORKSPACE_MODE
+  | typeof AUTOMATIONS_HOST_WORKSPACE_MODE
 
 export type WorkspaceMode = typeof STANDARD_WORKSPACE_MODE | (string & {})
 

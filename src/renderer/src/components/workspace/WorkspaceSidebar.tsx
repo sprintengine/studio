@@ -60,6 +60,7 @@ import { deriveWorkspaceRunGlyph, workspaceHasRunGlyphProvider } from '../../uti
 import { partitionWorkspacesByRecency, sortWorkspacesByActivity } from '../../utils/workspaceRecency'
 import { beginSidebarTransition } from '../../utils/sidebarTransition'
 import { filterWorkspacesBySearchQuery, normalizeWorkspaceSearchQuery } from '../../utils/workspaceSearch'
+import { isHiddenFromRail } from '../../utils/workspaceVisibility'
 
 type Activity = 'working' | 'failed' | 'needs-input' | 'idle'
 
@@ -538,14 +539,24 @@ export default function WorkspaceSidebar({
     | null
   >(null)
 
+  // Rail-hidden workspaces (the background Automations host) stay in the store
+  // and in window assignments but never render as rail rows. Every presentation
+  // path below — search, folder groups, starred — derives from this list, while
+  // drag-reorder still stitches against the full `workspaces` array so the host
+  // keeps its place in the persisted order.
+  const railWorkspaces = useMemo(
+    () => workspaces.filter((workspace) => !isHiddenFromRail(workspace)),
+    [workspaces]
+  )
+
   const normalizedWorkspaceSearchQuery = useMemo(
     () => normalizeWorkspaceSearchQuery(workspaceSearchQuery),
     [workspaceSearchQuery]
   )
   const searchingWorkspaces = normalizedWorkspaceSearchQuery.length > 0
   const filteredWorkspaces = useMemo(
-    () => filterWorkspacesBySearchQuery(workspaces, workspaceSearchQuery),
-    [workspaceSearchQuery, workspaces]
+    () => filterWorkspacesBySearchQuery(railWorkspaces, workspaceSearchQuery),
+    [workspaceSearchQuery, railWorkspaces]
   )
   const groups = useMemo(() => buildFolderGroups(filteredWorkspaces), [filteredWorkspaces])
 

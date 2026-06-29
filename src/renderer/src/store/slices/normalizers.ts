@@ -1,4 +1,4 @@
-import type { Workspace } from '../../types/workspace'
+import { AUTOMATIONS_HOST_WORKSPACE_MODE, type Workspace } from '../../types/workspace'
 import { normalizeAgentState } from './agentsSlice'
 import { normalizeGuidedBriefState } from './guidedBriefSlice'
 import { normalizeWorkspaceMemoryConfig } from './memorySlice'
@@ -57,6 +57,35 @@ export function clearSprintEngineAgentLaunchState(workspace: Workspace): Workspa
   }
 }
 
+// The automations-host shell persists and is reused, but its agents are
+// finalized automation runs — a full restart must not auto-resume them. Mirror
+// `clearSprintEngineAgentLaunchState`: strip transient + durable cli
+// launch/session identity from every agent so cold-load is idle, never resuming.
+export function clearAutomationsHostAgentLaunchState(workspace: Workspace): Workspace {
+  if (workspace.mode !== AUTOMATIONS_HOST_WORKSPACE_MODE) return workspace
+
+  return {
+    ...workspace,
+    agents: Object.fromEntries(
+      Object.entries(workspace.agents).map(([id, agent]) => [
+        id,
+        normalizeAgentState({
+          ...agent,
+          status: 'idle',
+          streamBuffer: '',
+          cliSessionId: undefined,
+          cliStartRequested: false,
+          cliRestartNonce: 0,
+          cliHasLaunched: false,
+          cliOnboardingPromptSent: false,
+          cliResumeAvailable: false,
+          cliStartupPrompt: undefined,
+        }),
+      ]),
+    ),
+  }
+}
+
 export function preserveNewerSprintEngineAutomationState(
   incomingWorkspace: Workspace,
   currentWorkspace: Workspace | undefined,
@@ -83,7 +112,9 @@ export function preserveNewerSprintEngineAutomationState(
 
 export function normalizeWorkspaceForPartialize(workspace: Workspace): Workspace {
   const sprintEngineAutoState = normalizeSprintEngineAutoState(workspace.sprintEngineAutoState)
-  const launchSafeWorkspace = clearSprintEngineAgentLaunchState(workspace)
+  const launchSafeWorkspace = clearAutomationsHostAgentLaunchState(
+    clearSprintEngineAgentLaunchState(workspace),
+  )
   return {
     ...launchSafeWorkspace,
     mode: normalizeWorkspaceMode(launchSafeWorkspace.mode, launchSafeWorkspace.sprintEngineState, launchSafeWorkspace.multiloopState),

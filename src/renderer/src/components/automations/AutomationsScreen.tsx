@@ -8,7 +8,7 @@ import { RUN_TARGET_KIND, encodeRunRef } from './runTarget'
 import { AutomationReportViewer } from './AutomationReportViewer'
 import { extractReportPaths } from './reportPaths'
 import type { AutomationDefinition, AutomationRun } from '../../../../shared/automations/contracts'
-import { GhostButton, InlineNotice, LifecycleGlyph, PrimaryButton, Select, Spinner, useConfirmDialog } from '../ui'
+import { GhostButton, InlineNotice, LifecycleGlyph, PrimaryButton, Select, SidePane, Spinner, useConfirmDialog } from '../ui'
 import { AutomationsWorkspaceTypeIcon } from '../AppIcons'
 import { AutomationDetailPane } from '../panels/AutomationsPanel/AutomationDetailPane'
 import { AutomationEditor } from '../panels/AutomationsPanel/AutomationEditor'
@@ -305,7 +305,8 @@ export default function AutomationsScreen({
           <GhostButton onClick={() => void load()}>Retry</GhostButton>
         </div>
       ) : (
-        <div className="flex min-h-0 flex-1 flex-col">
+        <div className="flex min-h-0 flex-1">
+          <div className="flex min-w-0 flex-1 flex-col">
           {engineUnreachable ? (
             <div className="px-4 pt-3">
               <InlineNotice tone={engine.tone === 'error' ? 'error' : 'warn'}>
@@ -381,17 +382,19 @@ export default function AutomationsScreen({
           </div>
             </div>
           )}
+          </div>
+          {viewerRun ? (
+            <SidePane side="right" width="md" ariaLabel="Automation run report">
+              <AutomationReportViewer
+                workspaceRoot={selectedProject ?? ''}
+                reportPaths={extractReportPaths(viewerRun)}
+                pullRequestUrl={viewerRun.pullRequestUrl}
+                onClose={() => setViewerRun(null)}
+              />
+            </SidePane>
+          ) : null}
         </div>
       )}
-
-      {viewerRun ? (
-        <AutomationReportViewer
-          workspaceRoot={selectedProject ?? ''}
-          reportPaths={extractReportPaths(viewerRun)}
-          pullRequestUrl={viewerRun.pullRequestUrl}
-          onClose={() => setViewerRun(null)}
-        />
-      ) : null}
     </section>
   )
 }

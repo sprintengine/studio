@@ -67,6 +67,7 @@ import type {
   WorkspaceWorktreeState,
   WorktreeEntry,
 } from '../../types/workspace'
+import { AUTOMATIONS_HOST_WORKSPACE_MODE } from '../../types/workspace'
 // TerminalSessionSnapshot is a global ambient type from src/renderer/src/env.d.ts.
 
 const PRIMARY_WORKSPACE_WINDOW_ID: WorkspaceWindowId = 'primary'
@@ -903,6 +904,7 @@ export function createWorkspacesSlice(
         const isMultiloop = template.id === 'multiloop-mode' || Boolean(options?.multiloopState)
         const guidedBriefState = normalizeGuidedBriefState(options?.guidedBriefState)
         const isGuidedBrief = explicitMode === 'guided-brief' || template.id === 'guided-brief-mode' || Boolean(guidedBriefState)
+        const isAutomationsHost = explicitMode === AUTOMATIONS_HOST_WORKSPACE_MODE
         const targetWindowId =
           options?.windowId
           ?? (state.activeWorkspaceId ? findWorkspaceWindow(state, state.activeWorkspaceId)?.id : null)
@@ -1045,7 +1047,9 @@ export function createWorkspacesSlice(
                 ? 'guided-brief'
                 : sprintEngineState
                   ? 'sprintengine'
-                  : 'standard',
+                  : isAutomationsHost
+                    ? AUTOMATIONS_HOST_WORKSPACE_MODE
+                    : 'standard',
           folderPath,
           folderMissing: false,
           sprintEngineContext,

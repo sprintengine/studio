@@ -237,4 +237,65 @@ const noViewState = normalizeWorkspaceForPartialize(baseWorkspace())
 assert.equal(noViewState.backlogState, undefined, 'absent backlog state stays undefined')
 assert.equal(noViewState.gitPanelState, undefined, 'absent git panel state stays undefined')
 
+// An automations-host workspace persists and is reused, but its finalized
+// automation agents must not auto-resume after a full restart: partialize strips
+// both transient and durable cli launch/session identity from every agent.
+const automationsHostPersisted = normalizeWorkspaceForPartialize(baseWorkspace({
+  mode: 'automations-host',
+  agents: {
+    'agent-1': {
+      id: 'agent-1',
+      name: 'Automation',
+      kind: 'general',
+      status: 'streaming',
+      streamBuffer: 'partial chunk',
+      cliSessionId: 'sess-123',
+      cliStartRequested: true,
+      cliHasLaunched: true,
+      cliResumeAvailable: true,
+      cliOnboardingPromptSent: true,
+    },
+  } as unknown as Workspace['agents'],
+}))
+const automationsHostAgent = (automationsHostPersisted.agents as Record<string, {
+  status: string
+  streamBuffer: string
+  cliSessionId?: string
+  cliStartRequested?: boolean
+  cliHasLaunched?: boolean
+  cliResumeAvailable?: boolean
+}>)['agent-1']
+assert.equal(automationsHostPersisted.mode, 'automations-host', 'mode is preserved')
+assert.equal(automationsHostAgent.status, 'idle')
+assert.equal(automationsHostAgent.streamBuffer, '')
+assert.equal(automationsHostAgent.cliSessionId, undefined, 'session identity is cleared')
+assert.equal(automationsHostAgent.cliStartRequested, false)
+assert.equal(automationsHostAgent.cliHasLaunched, false)
+assert.equal(automationsHostAgent.cliResumeAvailable, false)
+
+// A standard workspace's agent keeps its durable resume identity (regression
+// guard that the automations-host clear does not leak into other modes).
+const standardResumePersisted = normalizeWorkspaceForPartialize(baseWorkspace({
+  agents: {
+    'agent-1': {
+      id: 'agent-1',
+      name: 'Dev',
+      kind: 'general',
+      status: 'idle',
+      streamBuffer: '',
+      cliSessionId: 'sess-keep',
+      cliHasLaunched: true,
+      cliResumeAvailable: true,
+    },
+  } as unknown as Workspace['agents'],
+}))
+const standardResumeAgent = (standardResumePersisted.agents as Record<string, {
+  cliSessionId?: string
+  cliHasLaunched?: boolean
+  cliResumeAvailable?: boolean
+}>)['agent-1']
+assert.equal(standardResumeAgent.cliSessionId, 'sess-keep', 'standard agents keep resume identity')
+assert.equal(standardResumeAgent.cliHasLaunched, true)
+assert.equal(standardResumeAgent.cliResumeAvailable, true)
+
 console.log('normalizers.test.ts: ok')

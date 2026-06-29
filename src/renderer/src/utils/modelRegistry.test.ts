@@ -220,6 +220,58 @@ function navTabsets(model: Model): TabsetJson[] {
   unregisterModel(WS)
 }
 
+// Reveal into the hidden Automations host: "Open agent" activates the host
+// workspace and focuses the run's concrete agent tab, preserving the green-flash
+// reveal. The host is mode-agnostic to the reveal ports (its hidden-ness is
+// enforced at the WorkspaceManager activation layer, T4), so the fixture stands
+// in for the host's own layout — a mounted model whose only content is the run's
+// agent terminal.
+{
+  const hostJson: IJsonModel = {
+    global: { tabSetEnableDrop: true, tabEnableClose: true },
+    borders: [],
+    layout: {
+      type: 'row',
+      children: [
+        {
+          type: 'tabset',
+          weight: 100,
+          children: [
+            { type: 'tab', name: 'agent', component: 'agent', config: { agentId: 'host-run-1' } },
+          ],
+        },
+      ],
+    },
+  }
+  const hostModel = Model.fromJson(hostJson)
+  const HOST_WS = 'automations-host-ws'
+  const active: string[] = []
+  let updatedLayout: IJsonModel | null = null
+  registerModel(HOST_WS, hostModel)
+  assert.equal(revealAgentTab({
+    workspaceId: HOST_WS,
+    agentId: 'host-run-1',
+    name: 'Nightly digest',
+  }, {
+    getWorkspace: () => ({
+      id: HOST_WS,
+      layoutModel: hostModel.toJson(),
+      agents: { 'host-run-1': { name: 'Nightly digest' } },
+    }),
+    setActiveWorkspace: (workspaceId) => active.push(workspaceId),
+    updateLayout: (_workspaceId, layoutModel) => { updatedLayout = layoutModel },
+  }), true)
+  // The host was activated, the live model was used (no persisted-layout fallback),
+  // and the agent tab was renamed to the run's display name.
+  assert.deepEqual(active, [HOST_WS])
+  assert.equal(updatedLayout, null)
+  assert.deepEqual(tabNames(hostModel), ['Nightly digest'])
+  // The green spawn-flash is re-applied so the revealed run is called out.
+  const revealedTab = allTabs(hostModel).find((tab) => tab.config?.agentId === 'host-run-1')
+  assert.equal(revealedTab?.className, 'agent-tab-spawn-flash', 'the reveal flashes the host agent tab green')
+  unregisterModel(HOST_WS)
+}
+
 // If activation has not mounted the live model yet, reveal mutates the
 // persisted layout so the concrete agent tab appears and is selected on mount.
 {

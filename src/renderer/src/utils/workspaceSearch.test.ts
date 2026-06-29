@@ -61,6 +61,12 @@ const workspaces = [
   }),
 ]
 
+const hostWorkspace = makeWorkspace('host', {
+  name: 'Automations host',
+  mode: 'automations-host' as Workspace['mode'],
+  folderPath: '/Users/dev/work/acme-platform',
+})
+
 run('normalizes surrounding whitespace and case', () => {
   assert.equal(normalizeWorkspaceSearchQuery('  API  '), 'api')
 })
@@ -114,6 +120,27 @@ run('matches the raw mode id for an unregistered type', () => {
 
 run('empty searches preserve the original array reference', () => {
   assert.equal(filterWorkspacesBySearchQuery(workspaces, '   '), workspaces)
+})
+
+run('rail-hidden automations host is never a search match', () => {
+  // Matches the host name, its folder, and an empty query — none may return it.
+  assert.equal(workspaceMatchesSearch(hostWorkspace, 'automations'), false)
+  assert.equal(workspaceMatchesSearch(hostWorkspace, 'acme-platform'), false)
+  assert.equal(workspaceMatchesSearch(hostWorkspace, ''), false)
+})
+
+run('filter drops the rail-hidden host for empty and non-empty queries', () => {
+  const withHost = [...workspaces, hostWorkspace]
+  // Empty query: every visible workspace, never the host.
+  assert.deepEqual(
+    filterWorkspacesBySearchQuery(withHost, '   ').map((workspace) => workspace.id),
+    workspaces.map((workspace) => workspace.id),
+  )
+  // A query the host's folder would otherwise match still excludes the host.
+  assert.deepEqual(
+    filterWorkspacesBySearchQuery(withHost, 'acme-platform').map((workspace) => workspace.id),
+    ['api'],
+  )
 })
 
 console.log('workspaceSearch.test.ts: ok')

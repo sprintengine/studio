@@ -1,5 +1,6 @@
 import { getRendererHost } from '../modules'
 import type { Workspace } from '../types/workspace'
+import { isHiddenFromRail } from './workspaceVisibility'
 
 export function normalizeWorkspaceSearchQuery(value: string): string {
   return value.trim().toLocaleLowerCase()
@@ -19,6 +20,10 @@ function workspaceModeLabel(mode: Workspace['mode']): string {
 }
 
 export function workspaceMatchesSearch(workspace: Workspace, normalizedQuery: string): boolean {
+  // Rail-hidden workspaces (the background Automations host) are never a search
+  // result — they are not part of normal navigation. This holds for every query,
+  // including the empty one, so search can never surface a hidden host.
+  if (isHiddenFromRail(workspace)) return false
   if (!normalizedQuery) return true
   const folderPath = normalizeSearchField(workspace.folderPath)
   const folderName = folderPath.split(/[\\/]/u).filter(Boolean).at(-1) ?? ''
@@ -34,6 +39,12 @@ export function workspaceMatchesSearch(workspace: Workspace, normalizedQuery: st
 
 export function filterWorkspacesBySearchQuery(workspaces: Workspace[], query: string): Workspace[] {
   const normalizedQuery = normalizeWorkspaceSearchQuery(query)
-  if (!normalizedQuery) return workspaces
+  if (!normalizedQuery) {
+    // An empty query is not a search, but a rail-hidden host is still never a
+    // navigable result. Preserve the original array reference when nothing is
+    // hidden so the no-query fast path stays allocation-free.
+    const visible = workspaces.filter((workspace) => !isHiddenFromRail(workspace))
+    return visible.length === workspaces.length ? workspaces : visible
+  }
   return workspaces.filter((workspace) => workspaceMatchesSearch(workspace, normalizedQuery))
 }

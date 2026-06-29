@@ -1,6 +1,6 @@
 import type { AutomationRendererRequest, AutomationRendererResponse } from '../shared/automation'
 import type { WorkspaceSyncSnapshot } from '../shared/workspace-sync'
-import type { Workspace } from '../renderer/src/types/workspace'
+import type { Workspace, WorkspaceMode } from '../renderer/src/types/workspace'
 
 // Shared "create a workspace and confirm it on the bus" core, used by both the
 // automation `workspace.create` tool and the capability-module WorkspaceService.
@@ -18,6 +18,9 @@ export type WorkspaceCreateInput = {
   name?: string
   folderPath?: string
   templateId?: string
+  /** Explicit non-standard mode (e.g. 'automations-host'). Omitted means the
+   *  renderer derives the mode as it does for a user-created workspace. */
+  mode?: WorkspaceMode
 }
 
 export type WorkspaceCreateOutcome =
@@ -41,11 +44,13 @@ export async function createWorkspaceConfirmed(
   const findWorkspace = (id: string): Workspace | null =>
     deps.getWorkspaceSyncSnapshot().state.workspaces.find((candidate) => candidate.id === id) ?? null
 
+  const mode = optionalString(input.mode) as WorkspaceMode | undefined
   const delegated = await deps.delegateToRenderer({
     kind: 'workspace.create',
     name: optionalString(input.name),
     folderPath: optionalString(input.folderPath),
     templateId: optionalString(input.templateId),
+    ...(mode ? { mode } : {}),
   })
   if (!delegated.ok) return { ok: false, code: delegated.code, message: delegated.message }
 

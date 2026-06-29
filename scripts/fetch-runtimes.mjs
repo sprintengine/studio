@@ -18,7 +18,7 @@
 // Linux, and modern Windows.
 
 import { spawnSync } from 'node:child_process'
-import { cpSync, createWriteStream, existsSync, mkdirSync, rmSync } from 'node:fs'
+import { cpSync, createWriteStream, existsSync, mkdirSync, readdirSync, rmSync, statSync } from 'node:fs'
 import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
@@ -133,6 +133,63 @@ function installPythonDeps(pythonExe, opts) {
   }
 }
 
+// Stdlib subtrees we never import from the headless Python sidecars (verified:
+// nothing under souls/sprintengine_*/switchboard_core/multiloop_core imports
+// them). Dropping them trims the shipped runtime with no runtime behavior change.
+// `test` is the CPython stdlib test suite (the largest single win); the rest are
+// GUI/legacy tooling. Pruned by directory basename within the stdlib dir only, so
+// third-party packages under site-packages are untouched. `ensurepip`/`pip` are
+// deliberately kept: an agent may seed a `.venv` from the bundled interpreter via
+// `python -m venv`, which needs ensurepip.
+const PRUNE_STDLIB_DIRS = ['test', 'idlelib', 'tkinter', 'turtledemo', 'lib2to3']
+
+function dirSizeBytes(dir) {
+  let total = 0
+  for (const entry of readdirSync(dir, { withFileTypes: true })) {
+    const full = join(dir, entry.name)
+    if (entry.isDirectory()) total += dirSizeBytes(full)
+    else if (entry.isFile()) {
+      try {
+        total += statSync(full).size
+      } catch {
+        // Race/symlink: ignore, it's only an accounting estimate.
+      }
+    }
+  }
+  return total
+}
+
+function removeDir(dir) {
+  if (!existsSync(dir)) return 0
+  const freed = dirSizeBytes(dir)
+  rmSync(dir, { recursive: true, force: true })
+  return freed
+}
+
+// Trims the extracted CPython to what our features actually use. Runs AFTER
+// installPythonDeps so pip (under ensurepip) is still available for that step.
+function prunePython(opts) {
+  const [major, minor] = PYTHON_VERSION.split('.')
+  // POSIX install_only layout: python/lib/python3.12; Windows: python/Lib.
+  const stdlibDir =
+    opts.platform === 'win32'
+      ? join(RUNTIME_DIR, 'python', 'Lib')
+      : join(RUNTIME_DIR, 'python', 'lib', `python${major}.${minor}`)
+  if (!existsSync(stdlibDir)) {
+    log(`prune: stdlib dir not found at ${stdlibDir}; skipping`)
+    return
+  }
+  let freed = 0
+  for (const name of PRUNE_STDLIB_DIRS) {
+    const removed = removeDir(join(stdlibDir, name))
+    if (removed > 0) {
+      freed += removed
+      log(`prune: removed ${name} (${(removed / 1024 / 1024).toFixed(1)} MiB)`)
+    }
+  }
+  log(`prune: freed ${(freed / 1024 / 1024).toFixed(1)} MiB from bundled CPython`)
+}
+
 async function fetchNpm(tmp) {
   const url = `https://registry.npmjs.org/npm/-/npm-${NPM_VERSION}.tgz`
   const archive = join(tmp, `npm-${NPM_VERSION}.tgz`)
@@ -167,6 +224,7 @@ async function main() {
   try {
     const pythonExe = await fetchPython(opts, tmp)
     installPythonDeps(pythonExe, opts)
+    prunePython(opts)
     await fetchNpm(tmp)
     log('done')
   } finally {
