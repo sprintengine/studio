@@ -16,6 +16,7 @@ import {
 import {
   agentIssueCount,
   buildAgentTaskDetail,
+  buildAgentTokenTotals,
   buildAgentTypeSummary,
   bucketAgentRowsByWorkType,
   buildBurnup,
@@ -31,6 +32,7 @@ import {
   formatSprintEngineGoal,
   measuredIssueTypes,
   type SprintEngineAgentRow,
+  type SprintEngineAgentTokenTotal,
   type SprintEngineAgentTaskDetail,
   type SprintEngineAgentTypeSummary,
   type SprintEngineBurnup,
@@ -276,6 +278,12 @@ export default function SprintEngineRunSummaryPanel({
     () => (report ? buildAgentTypeSummary(report.agentRows, cliByAgent) : null),
     [report, cliByAgent]
   )
+  // Per-agent token totals (Phase 2), summed from per-task/per-attempt
+  // attribution in the projection. Empty when no samples were captured.
+  const tokensByAgent = useMemo(
+    () => (sprintEngineState ? buildAgentTokenTotals(sprintEngineState.tasks) : new Map()),
+    [sprintEngineState]
+  )
 
   if (!sprintEngineState || !report) {
     return (
@@ -356,6 +364,7 @@ export default function SprintEngineRunSummaryPanel({
           <AgentBreakdownSection
             report={report}
             tasks={sprintEngineState.tasks}
+            tokensByAgent={tokensByAgent}
             analysisStatus={analysisState.status}
             analysisError={analysisState.status === 'error' ? analysisState.error : undefined}
             architectDifficulty={analysisState.architectDifficulty}
@@ -560,6 +569,7 @@ function AgentName({ role, agentId, idle }: { role: SprintEngineRoleId; agentId:
 function AgentBreakdownSection({
   report,
   tasks,
+  tokensByAgent,
   analysisStatus,
   analysisError,
   architectDifficulty,
@@ -568,6 +578,7 @@ function AgentBreakdownSection({
 }: {
   report: SprintEngineRunReport
   tasks: SprintEngineTask[]
+  tokensByAgent: Map<string, SprintEngineAgentTokenTotal>
   analysisStatus: AnalysisState['status']
   analysisError?: string
   architectDifficulty: SprintEngineArchitectDifficulty | null
@@ -602,11 +613,12 @@ function AgentBreakdownSection({
           <ImplementationTable
             rows={implRows}
             tasks={tasks}
+            tokensByAgent={tokensByAgent}
             loading={analysisStatus === 'loading'}
             onOpenTask={onOpenTask}
           />
         ) : null}
-        {reviewRows.length > 0 ? <ReviewTable rows={reviewRows} /> : null}
+        {reviewRows.length > 0 ? <ReviewTable rows={reviewRows} tokensByAgent={tokensByAgent} /> : null}
         {planningRows.length > 0 || architectDifficulty || planQuality.length > 0 ? (
           <PlanningTable
             rows={planningRows}
@@ -652,11 +664,13 @@ function AgentBreakdownSection({
 function ImplementationTable({
   rows,
   tasks,
+  tokensByAgent,
   loading,
   onOpenTask,
 }: {
   rows: SprintEngineAgentRow[]
   tasks: SprintEngineTask[]
+  tokensByAgent: Map<string, SprintEngineAgentTokenTotal>
   loading: boolean
   onOpenTask?: (taskId: string) => void
 }) {
@@ -672,8 +686,8 @@ function ImplementationTable({
     <div className="mt-1">
       <WorkTypeHeading label="Implementation" count={rows.length} />
       <div className="overflow-x-auto">
-        <table className={TABLE_CLASS} style={tableStyleFor(1 + measuredIssueTypes.length)}>
-          <ColGroup numCols={1 + measuredIssueTypes.length} />
+        <table className={TABLE_CLASS} style={tableStyleFor(2 + measuredIssueTypes.length)}>
+          <ColGroup numCols={2 + measuredIssueTypes.length} />
           <thead>
             <tr>
               <th scope="col" className={AGENT_HEADER}>
@@ -681,6 +695,13 @@ function ImplementationTable({
               </th>
               <th scope="col" className={`${NUM_HEADER} ${COL_SEP}`}>
                 Tasks
+              </th>
+              <th scope="col" className={NUM_HEADER}>
+                Tokens
+                <ColumnHint
+                  label="Tokens"
+                  hint="Input + output tokens attributed to this agent's implementation windows (Phase 2). '~' marks a partial total (a window that couldn't be cleanly sampled); '—' means no per-task samples were captured."
+                />
               </th>
               {measuredIssueTypes.map((type) => (
                 <th
@@ -707,6 +728,7 @@ function ImplementationTable({
                 <React.Fragment key={row.agentId}>
                   <AgentRow
                     row={row}
+                    tokens={tokensByAgent.get(row.agentId)}
                     loading={loading}
                     sep={COL_SEP}
                     expandable={detail.length > 0}
@@ -727,13 +749,19 @@ function ImplementationTable({
 }
 
 // Reviewers: what they reviewed and how they ruled.
-function ReviewTable({ rows }: { rows: SprintEngineAgentRow[] }) {
+function ReviewTable({
+  rows,
+  tokensByAgent,
+}: {
+  rows: SprintEngineAgentRow[]
+  tokensByAgent: Map<string, SprintEngineAgentTokenTotal>
+}) {
   return (
     <div className="mt-5">
       <WorkTypeHeading label="Review" count={rows.length} />
       <div className="overflow-x-auto">
-        <table className={TABLE_CLASS} style={tableStyleFor(4)}>
-          <ColGroup numCols={4} />
+        <table className={TABLE_CLASS} style={tableStyleFor(5)}>
+          <ColGroup numCols={5} />
           <thead>
             <tr>
               <th scope="col" className={AGENT_HEADER}>
@@ -742,6 +770,13 @@ function ReviewTable({ rows }: { rows: SprintEngineAgentRow[] }) {
               <th scope="col" className={`${NUM_HEADER} ${COL_SEP}`}>
                 Reviews
                 <ColumnHint label="Reviews" hint={REVIEW_COLUMN_HINTS.reviews} />
+              </th>
+              <th scope="col" className={NUM_HEADER}>
+                Tokens
+                <ColumnHint
+                  label="Tokens"
+                  hint="Input + output tokens attributed to this agent's gate attempts (Phase 2). '~' marks a partial total; '—' means no per-attempt samples were captured."
+                />
               </th>
               <th scope="col" className={NUM_HEADER}>
                 Tasks reviewed
@@ -770,6 +805,7 @@ function ReviewTable({ rows }: { rows: SprintEngineAgentRow[] }) {
                   <NumCellB border={border} sep={COL_SEP}>
                     {reviewer ? reviewer.reviewsPerformed : NA}
                   </NumCellB>
+                  <AgentTokenCell total={tokensByAgent.get(row.agentId)} border={border} />
                   <NumCellB border={border}>{reviewer ? reviewer.tasksReviewed : NA}</NumCellB>
                   <NumCellB border={border}>{reviewer ? reviewer.approved : NA}</NumCellB>
                   <NumCellB border={border}>
@@ -915,6 +951,7 @@ function WorkTypeHeading({ label, count }: { label: string; count?: number }) {
 
 function AgentRow({
   row,
+  tokens,
   loading,
   sep,
   expandable,
@@ -922,6 +959,7 @@ function AgentRow({
   onToggle,
 }: {
   row: SprintEngineAgentRow
+  tokens?: SprintEngineAgentTokenTotal
   loading: boolean
   sep: string
   expandable: boolean
@@ -987,6 +1025,7 @@ function AgentRow({
       <NumCellB border={cellBorder} sep={sep}>
         {row.tasksDone}
       </NumCellB>
+      <AgentTokenCell total={tokens} border={cellBorder} />
       {measuredIssueTypes.map((type) => {
         const count = agentIssueCount(metrics, type.key)
         let content: React.ReactNode
@@ -1027,6 +1066,41 @@ function NumCellB({
   )
 }
 
+// Per-agent token total cell for the breakdown tables (Phase 2). Absent (no
+// per-task samples) reads as a muted "—" coverage gap, never a fabricated 0; a
+// partial total is prefixed "~" with an explanatory title (text marker, not a
+// color-only signal). Exact count on hover since the compact label rounds.
+function AgentTokenCell({
+  total,
+  border,
+}: {
+  total?: SprintEngineAgentTokenTotal
+  border: string
+}) {
+  if (!total) {
+    return (
+      <td className={`${border} py-[7px] px-3 text-right`}>
+        <span className="text-[color:var(--text-disabled)]">—</span>
+      </td>
+    )
+  }
+  const label = formatCompactTokenCount(total.tokens)
+  return (
+    <td className={`${border} py-[7px] px-3 text-right tabular-nums`}>
+      {total.partial ? (
+        <span
+          className="text-[color:var(--text-muted)]"
+          title={`Partial — ${total.tokens.toLocaleString()} input+output tokens; some windows weren't cleanly sampled`}
+        >
+          ~{label}
+        </span>
+      ) : (
+        <span title={`${total.tokens.toLocaleString()} input+output tokens`}>{label}</span>
+      )}
+    </td>
+  )
+}
+
 function AgentDetailRow({
   detail,
   onOpenTask,
@@ -1037,7 +1111,7 @@ function AgentDetailRow({
   return (
     <tr>
       <td
-        colSpan={2 + measuredIssueTypes.length}
+        colSpan={3 + measuredIssueTypes.length}
         className="border-b border-[color:var(--border-subtle)] bg-[color:var(--bg-surface)] px-3 py-3"
       >
         <ul className="space-y-3">

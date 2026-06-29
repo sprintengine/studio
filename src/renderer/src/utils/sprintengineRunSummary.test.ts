@@ -11,6 +11,8 @@ import {
   buildRunReport,
   buildRunSummary,
   compareCliDeliveryScores,
+  buildAgentTokenTotals,
+  buildTaskTokenWindows,
   computeRunDurationMs,
   formatCompactTokenCount,
   formatRunDuration,
@@ -586,6 +588,101 @@ function testFormatCompactTokenCount(): void {
   assert.equal(formatCompactTokenCount(1_500_000_000), '1.5B')
 }
 
+function testBuildAgentTokenTotals(): void {
+  const win = (input: number, output: number, partial = false) => ({
+    perModel: [],
+    total: { input, output, cacheRead: 0, cacheCreation: 0 },
+    partial,
+  })
+  const tasks = [
+    makeTask({
+      id: 'T1',
+      tokenUsage: {
+        perModel: [],
+        total: { input: 100, output: 10, cacheRead: 0, cacheCreation: 0 },
+        developer: { ...win(100, 10), agentId: 'dev-1' },
+        partial: false,
+      },
+      qualityGates: [
+        {
+          id: 'g1',
+          phase: 'review',
+          role: 'code_reviewer',
+          status: 'approved',
+          required: true,
+          allowSelfReview: false,
+          attempts: [{ claimedBy: 'rev-1', tokenUsage: win(50, 5) }],
+        },
+      ],
+    }),
+    makeTask({
+      id: 'T2',
+      // Same developer again, this window partial -> agent flagged partial.
+      tokenUsage: {
+        perModel: [],
+        total: { input: 200, output: 20, cacheRead: 0, cacheCreation: 0 },
+        developer: { ...win(200, 20, true), agentId: 'dev-1' },
+        partial: true,
+      },
+    }),
+    // Absent tokenUsage contributes nothing (coverage gap, not 0).
+    makeTask({ id: 'T3' }),
+  ]
+
+  const totals = buildAgentTokenTotals(tasks)
+  assert.deepEqual(totals.get('dev-1'), { tokens: 330, partial: true }, 'dev sums across tasks, partial OR-ed')
+  assert.deepEqual(totals.get('rev-1'), { tokens: 55, partial: false }, 'reviewer attempt attributed by claimedBy')
+  assert.equal(totals.size, 2, 'no entry fabricated for the absent-tokenUsage task')
+}
+
+function testBuildTaskTokenWindows(): void {
+  const win = (input: number, output: number, partial = false, reason?: string) => ({
+    perModel: [],
+    total: { input, output, cacheRead: 0, cacheCreation: 0 },
+    partial,
+    ...(reason ? { reason } : {}),
+  })
+  // Populated: developer window + two gate attempts (one partial).
+  const populated = makeTask({
+    id: 'T1',
+    tokenUsage: {
+      perModel: [],
+      total: { input: 300, output: 30, cacheRead: 0, cacheCreation: 0 },
+      developer: { ...win(100, 10), agentId: 'dev-1' },
+      partial: true,
+    },
+    qualityGates: [
+      {
+        id: 'g1',
+        phase: 'review',
+        role: 'code_reviewer',
+        status: 'approved',
+        required: true,
+        allowSelfReview: false,
+        attempts: [
+          { role: 'code_reviewer', claimedBy: 'cr-1', tokenUsage: win(50, 5) },
+          { role: 'spec_reviewer', actor: 'sr-1', tokenUsage: win(40, 4, true, 'no_sample') },
+        ],
+      },
+    ],
+  })
+  const windows = buildTaskTokenWindows(populated)
+  assert.equal(windows.length, 3, 'developer + 2 attempts')
+  assert.deepEqual(
+    { kind: windows[0].kind, agentId: windows[0].agentId, tokens: windows[0].tokens, partial: windows[0].partial },
+    { kind: 'developer', agentId: 'dev-1', tokens: 110, partial: false }
+  )
+  assert.deepEqual(
+    { kind: windows[1].kind, role: windows[1].role, agentId: windows[1].agentId, tokens: windows[1].tokens },
+    { kind: 'attempt', role: 'code_reviewer', agentId: 'cr-1', tokens: 55 }
+  )
+  assert.equal(windows[2].partial, true, 'partial attempt flagged')
+  assert.equal(windows[2].reason, 'no_sample', 'partial reason carried through')
+
+  // Absent attribution -> [] (coverage story, not zeroed rows).
+  assert.deepEqual(buildTaskTokenWindows(makeTask({ id: 'T2' })), [])
+}
+
 function main(): void {
   testAgentTypeSummaryGroupsByRoleAndCli()
   testCompareCliDeliveryScores()
@@ -601,6 +698,8 @@ function main(): void {
   testDurationFormatting()
   testBuildRunSummaryThreadsTokenUsage()
   testFormatCompactTokenCount()
+  testBuildAgentTokenTotals()
+  testBuildTaskTokenWindows()
   console.log('sprintengineRunSummary.test.ts: ok')
 }
 

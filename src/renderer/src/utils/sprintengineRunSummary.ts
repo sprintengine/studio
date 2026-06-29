@@ -488,6 +488,85 @@ function trimDecimal(value: number): string {
   return fixed.endsWith('.0') ? fixed.slice(0, -2) : fixed
 }
 
+export type SprintEngineAgentTokenTotal = { tokens: number; partial: boolean }
+
+// Per-agent token totals for the run-summary breakdown (Phase 2). Sums each
+// agent's attributed windows: the developer implementation window (keyed by
+// `developer.agentId`) and every gate attempt the agent ran (keyed by the
+// attempt's `claimedBy`, falling back to `actor`). `tokens` is input + output
+// (cache is shown in the per-model/inspector detail, never folded into this
+// glanceable figure). An agent with any partial contributing window is flagged
+// `partial`. A task with absent `tokenUsage` (no samples captured) contributes
+// nothing — the column shows the coverage gap, never a fabricated 0.
+export function buildAgentTokenTotals(
+  tasks: SprintEngineTask[]
+): Map<string, SprintEngineAgentTokenTotal> {
+  const totals = new Map<string, SprintEngineAgentTokenTotal>()
+  const add = (agentId: string | undefined, tokens: number, partial: boolean): void => {
+    if (!agentId) return
+    const prev = totals.get(agentId) ?? { tokens: 0, partial: false }
+    totals.set(agentId, { tokens: prev.tokens + tokens, partial: prev.partial || partial })
+  }
+  for (const task of tasks) {
+    const usage = task.tokenUsage
+    if (usage?.developer) {
+      const w = usage.developer
+      add(w.agentId, w.total.input + w.total.output, w.partial)
+    }
+    for (const gate of task.qualityGates ?? []) {
+      for (const attempt of gate.attempts ?? []) {
+        const w = attempt.tokenUsage
+        if (w) add(attempt.claimedBy ?? attempt.actor, w.total.input + w.total.output, w.partial)
+      }
+    }
+  }
+  return totals
+}
+
+// One attributed window for a task's per-role/per-attempt breakdown (Phase 2):
+// the developer implementation span, then each sampled gate attempt. `tokens` is
+// input + output. `kind` lets the view label developer vs. a role-named attempt
+// without this util depending on the role-label map. Returns [] when the task
+// carries no attribution (no samples) — the view shows that as the coverage
+// story, never as zeroed rows.
+export type SprintEngineTaskTokenWindow = {
+  kind: 'developer' | 'attempt'
+  role?: SprintEngineRoleId
+  agentId?: string
+  tokens: number
+  partial: boolean
+  reason?: string
+}
+
+export function buildTaskTokenWindows(task: SprintEngineTask): SprintEngineTaskTokenWindow[] {
+  const windows: SprintEngineTaskTokenWindow[] = []
+  const dev = task.tokenUsage?.developer
+  if (dev) {
+    windows.push({
+      kind: 'developer',
+      agentId: dev.agentId,
+      tokens: dev.total.input + dev.total.output,
+      partial: dev.partial,
+      reason: dev.reason,
+    })
+  }
+  for (const gate of task.qualityGates ?? []) {
+    for (const attempt of gate.attempts ?? []) {
+      const w = attempt.tokenUsage
+      if (!w) continue
+      windows.push({
+        kind: 'attempt',
+        role: attempt.role,
+        agentId: attempt.claimedBy ?? attempt.actor,
+        tokens: w.total.input + w.total.output,
+        partial: w.partial,
+        reason: w.reason,
+      })
+    }
+  }
+  return windows
+}
+
 function taskImplementerAgentId(task: SprintEngineTask): string | null {
   return task.lastImplementedByAgentId ?? task.ownerAgentId ?? null
 }
