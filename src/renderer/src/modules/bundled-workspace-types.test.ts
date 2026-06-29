@@ -136,18 +136,18 @@ const host = getRendererHost()
 
 assert.deepEqual(
   host.getWorkspaceTypes().map((definition) => definition.id),
-  ['switchboard', 'sprintengine', 'multiloop', 'guided-brief'],
-  'bundled workspace types keep the existing picker order (automations is a screen, not a type)',
+  ['switchboard', 'sprintengine', 'multiloop', 'automations-host', 'guided-brief'],
+  'bundled workspace types keep picker order (automations-host sorts by pickerOrder 35)',
 )
 assert.deepEqual(
   host.getWorkspaceTypes((moduleId) => moduleId !== 'sprint-engine').map((definition) => definition.id),
-  ['switchboard', 'multiloop'],
+  ['switchboard', 'multiloop', 'automations-host'],
   'sprint-engine disablement hides sprintengine and dependent guided-brief',
 )
 assert.deepEqual(
   host.getWorkspaceTypes((moduleId) => moduleId !== 'automations').map((definition) => definition.id),
   ['switchboard', 'sprintengine', 'multiloop', 'guided-brief'],
-  'automations registers no workspace type, so disabling its module leaves the picker unchanged',
+  'disabling the automations module removes the automations-host workspace type from the picker',
 )
 assert.deepEqual(
   host.getWorkspaceTypes((moduleId) => moduleId !== 'sprint-engine')
@@ -161,10 +161,11 @@ assert.equal(host.getWorkspaceTypeModule('sprintengine'), 'sprint-engine')
 assert.equal(host.getWorkspaceTypeModule('guided-brief'), 'sprint-engine')
 assert.equal(host.getWorkspaceTypeModule('switchboard'), 'switchboard')
 assert.equal(host.getWorkspaceTypeModule('multiloop'), 'multiloop')
-assert.equal(host.getWorkspaceTypeModule('automations'), undefined, 'automations is not a workspace type')
+assert.equal(host.getWorkspaceTypeModule('automations-host'), 'automations', 'automations-host is owned by the automations module')
+assert.equal(host.getWorkspaceTypeModule('automations'), undefined, "the type id is 'automations-host', not 'automations'")
 
 assert.deepEqual(
-  ['switchboard', 'sprintengine', 'multiloop', 'guided-brief'].map((id) => {
+  ['switchboard', 'sprintengine', 'multiloop', 'automations-host', 'guided-brief'].map((id) => {
     const definition = host.getWorkspaceType(id)
     assert.ok(definition, `expected ${id} registration`)
     return {
@@ -200,6 +201,14 @@ assert.deepEqual(
       description: 'Roadmap, milestones, decisions, and evidence for long-running work.',
       accentToken: '--text-muted',
       creationStepsId: 'multiloop',
+    },
+    {
+      id: 'automations-host',
+      moduleId: 'automations',
+      label: 'Automations',
+      description: 'Schedule agents and tasks on this project, with run history and the live run terminals hosted in one place.',
+      accentToken: '--accent-primary',
+      creationStepsId: 'automations',
     },
     {
       id: 'guided-brief',

@@ -55,6 +55,7 @@ type TerminalIpcDependencies = {
   suspendTerminal(sessionId: string): void
   resumeTerminal(sender: WebContents, payload: TerminalSpawnPayload): Promise<TerminalSpawnResult>
   killTerminal(sessionId: string): void
+  setIdleSuspendThresholdMs(value: unknown): void
 }
 
 export function registerTerminalIpc(ipcMain: IpcMain, deps: TerminalIpcDependencies): void {
@@ -100,5 +101,12 @@ export function registerTerminalIpc(ipcMain: IpcMain, deps: TerminalIpcDependenc
 
   ipcMain.handle('terminal:kill', (_, sessionId: string): void => {
     deps.killTerminal(sessionId)
+  })
+
+  // Renderer pushes the user's "Pause idle terminals after" setting (ms). The
+  // reap policy clamps it; an out-of-range or non-numeric value falls back to the
+  // default. Fire-and-forget — the next reap sweep reads the latest value.
+  ipcMain.handle('terminal:set-idle-suspend-ms', (_, value: unknown): void => {
+    deps.setIdleSuspendThresholdMs(value)
   })
 }
