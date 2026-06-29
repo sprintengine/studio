@@ -1512,6 +1512,14 @@ export type AppSettings = {
    * components/onboarding/AdoptConfigCard.tsx.
    */
   pendingAgentConfigAdoption: PendingAgentConfigAdoption | null
+  /**
+   * How long an idle agent terminal sits before it is paused (its CLI process is
+   * killed to reclaim memory, with the painted view frozen and resumed on click
+   * or keystroke). In MINUTES; default 15. Never applies to agents waiting on the
+   * user or mid-work. Synced to the main reap policy, which clamps it to
+   * [1 minute, 24 hours]. See terminal-reap-policy.ts.
+   */
+  terminalIdleSuspendMinutes: number
 }
 
 export type PendingAgentConfigAdoption = {

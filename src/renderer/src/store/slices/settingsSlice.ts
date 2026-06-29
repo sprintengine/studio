@@ -753,6 +753,22 @@ function normalizeSavedSprintEngineRoleCounts(value: unknown): SprintEngineRoleC
   return result
 }
 
+// Idle-terminal pause threshold, in minutes. Default 15. Bounds mirror the main
+// reap policy's clamp ([1 min, 24 h]) so the UI and the runtime agree.
+export const DEFAULT_TERMINAL_IDLE_SUSPEND_MINUTES = 15
+export const MIN_TERMINAL_IDLE_SUSPEND_MINUTES = 1
+export const MAX_TERMINAL_IDLE_SUSPEND_MINUTES = 24 * 60
+
+export function normalizeTerminalIdleSuspendMinutes(value: unknown): number {
+  if (typeof value !== 'number' || !Number.isFinite(value)) {
+    return DEFAULT_TERMINAL_IDLE_SUSPEND_MINUTES
+  }
+  return Math.max(
+    MIN_TERMINAL_IDLE_SUSPEND_MINUTES,
+    Math.min(MAX_TERMINAL_IDLE_SUSPEND_MINUTES, Math.round(value))
+  )
+}
+
 export const defaultAppSettings = (): AppSettings => ({
   cliRuntimes: {
     codex: { command: 'codex', useWsl: false },
@@ -790,6 +806,7 @@ export const defaultAppSettings = (): AppSettings => ({
   modulesChosen: false,
   onboardingStep: 'welcome',
   pendingAgentConfigAdoption: null,
+  terminalIdleSuspendMinutes: DEFAULT_TERMINAL_IDLE_SUSPEND_MINUTES,
 })
 
 // Accept a persisted adoption selection only when it is the expected shape (two
@@ -856,6 +873,7 @@ export function normalizeAppSettings(settings: Partial<AppSettings> | undefined,
       hasWorkspaces: workspaces.length > 0,
     }),
     pendingAgentConfigAdoption: normalizePendingAgentConfigAdoption(settings?.pendingAgentConfigAdoption),
+    terminalIdleSuspendMinutes: normalizeTerminalIdleSuspendMinutes(settings?.terminalIdleSuspendMinutes),
   }
 }
 
@@ -971,6 +989,8 @@ export interface SettingsSliceActions {
    *  surfaced on the first-run overlay. */
   setAgentConfigAdoptionResult: (result: AgentConfigAdoptionResult | null) => void
   setSearchExcludes: (patterns: string[]) => void
+  /** Set how long an idle agent terminal waits before it is paused (minutes). */
+  setTerminalIdleSuspendMinutes: (minutes: number) => void
   setUsageTelemetrySettings: (update: Partial<UsageTelemetrySettings>) => void
   setVoiceDictationSettings: (update: Partial<VoiceDictationSettings>) => void
   setLearningShowTipsOnStartup: (enabled: boolean) => void
@@ -1450,6 +1470,11 @@ export function createSettingsSlice(set: SettingsSliceSet): SettingsSlice {
     setSearchExcludes: (patterns) =>
       set((state) => {
         state.appSettings.searchExcludes = normalizeSearchExcludes(patterns)
+      }),
+
+    setTerminalIdleSuspendMinutes: (minutes) =>
+      set((state) => {
+        state.appSettings.terminalIdleSuspendMinutes = normalizeTerminalIdleSuspendMinutes(minutes)
       }),
 
     setUsageTelemetrySettings: (update) =>

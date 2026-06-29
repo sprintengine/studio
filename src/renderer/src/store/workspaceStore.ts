@@ -231,6 +231,7 @@ export interface WorkspaceStore extends PluginsSlice, CliAvailabilitySlice {
   resetAllKeybindings: () => void
   setSearchExcludes: (patterns: string[]) => void
   setProjectKnowledgeRoot: (projectRoot: string, relativeRoot: string | null) => void
+  setTerminalIdleSuspendMinutes: (minutes: number) => void
   setUsageTelemetrySettings: (update: Partial<UsageTelemetrySettings>) => void
   setVoiceDictationSettings: (update: Partial<VoiceDictationSettings>) => void
   setSprintEngineRoleEnabled: (role: SprintEngineRoleId, enabled: boolean) => void
@@ -1261,6 +1262,27 @@ function syncModuleEnablementToMain(): void {
   useWorkspaceStore.subscribe((state) => push(state.appSettings.modules ?? {}))
 }
 syncModuleEnablementToMain()
+
+// Mirror the "Pause idle terminals after" setting (minutes → ms) to the main
+// reap policy so the next idle sweep uses the user's value. Renderer is the
+// source of truth; pushed on startup and on every change (deduped). Main clamps.
+function syncTerminalIdleSuspendToMain(): void {
+  if (typeof window === 'undefined') return
+  const api = window.api as { setTerminalIdleSuspendMs?: (ms: number) => Promise<unknown> } | undefined
+  if (!api?.setTerminalIdleSuspendMs) return
+
+  let lastSent = NaN
+  const push = (minutes: number): void => {
+    const ms = Math.round(minutes * 60 * 1000)
+    if (ms === lastSent) return
+    lastSent = ms
+    void api.setTerminalIdleSuspendMs!(ms)
+  }
+
+  push(useWorkspaceStore.getState().appSettings.terminalIdleSuspendMinutes)
+  useWorkspaceStore.subscribe((state) => push(state.appSettings.terminalIdleSuspendMinutes))
+}
+syncTerminalIdleSuspendToMain()
 
 function syncWorkspaceRegistryAcrossWindows(): void {
   if (typeof window === 'undefined') return
