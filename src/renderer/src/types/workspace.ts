@@ -574,7 +574,20 @@ export type SprintEngineTaskNeedsInput = {
   resumeRequestedAt?: string
 }
 
-export type SprintEngineRuntimeAgentStatus = 'idle' | 'running' | 'needs_input' | 'done' | 'retired'
+// Mirrors the agent statuses the SprintEngine Python core writes into the run
+// projection (sprintengine_core/tool/state.py). `left`/`dead` are set by
+// `record_agent_leave` when an agent's terminal is torn down (e.g. idle
+// retirement disposes it) — they are NOT terminal: `record_agent_join` revives
+// them to `idle` when the agent rejoins. These were previously missing here,
+// so planner guards written against `retired` never matched a disposed agent.
+export type SprintEngineRuntimeAgentStatus =
+  | 'idle'
+  | 'running'
+  | 'needs_input'
+  | 'done'
+  | 'retired'
+  | 'left'
+  | 'dead'
 
 export type SprintEngineCurrentDispatch = {
   dispatchId: string | null
