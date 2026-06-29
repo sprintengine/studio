@@ -2402,7 +2402,7 @@ export default function SettingsPanel({
                               type="button"
                               onClick={() => void openEditRole(role.id)}
                               disabled={editLoading || deletePending}
-                              className="invisible rounded px-1.5 py-0.5 text-[11px] font-semibold text-[color:var(--text-subtle)] transition-colors hover:text-[color:var(--text-strong)] focus:outline-none focus-visible:visible focus-visible:underline group-hover:visible group-focus-within:visible disabled:opacity-45"
+                              className="rounded px-1.5 py-0.5 text-[11px] font-semibold text-[color:var(--text-subtle)] opacity-0 transition-[color,opacity] hover:text-[color:var(--text-strong)] focus:outline-none focus-visible:underline focus-visible:opacity-100 group-hover:opacity-100 group-focus-within:opacity-100"
                             >
                               {editLoading ? 'Opening' : 'Edit'}
                               <span className="sr-only"> {role.label}</span>
@@ -2411,7 +2411,7 @@ export default function SettingsPanel({
                               type="button"
                               onClick={() => void deleteUserRole(role.id, role.label)}
                               disabled={editLoading || deletePending}
-                              className="invisible rounded px-1.5 py-0.5 text-[11px] font-semibold text-[color:var(--text-subtle)] transition-colors hover:text-[color:var(--tone-error)] focus:outline-none focus-visible:visible focus-visible:underline group-hover:visible group-focus-within:visible disabled:opacity-45"
+                              className="rounded px-1.5 py-0.5 text-[11px] font-semibold text-[color:var(--text-subtle)] opacity-0 transition-[color,opacity] hover:text-[color:var(--tone-error)] focus:outline-none focus-visible:underline focus-visible:opacity-100 group-hover:opacity-100 group-focus-within:opacity-100"
                             >
                               {deletePending ? 'Deleting' : 'Delete'}
                               <span className="sr-only"> {role.label}</span>
