@@ -574,7 +574,20 @@ export type SprintEngineTaskNeedsInput = {
   resumeRequestedAt?: string
 }
 
-export type SprintEngineRuntimeAgentStatus = 'idle' | 'running' | 'needs_input' | 'done' | 'retired'
+// Mirrors the agent statuses the SprintEngine Python core writes into the run
+// projection (sprintengine_core/tool/state.py). `left`/`dead` are set by
+// `record_agent_leave` when an agent's terminal is torn down (e.g. idle
+// retirement disposes it) — they are NOT terminal: `record_agent_join` revives
+// them to `idle` when the agent rejoins. These were previously missing here,
+// so planner guards written against `retired` never matched a disposed agent.
+export type SprintEngineRuntimeAgentStatus =
+  | 'idle'
+  | 'running'
+  | 'needs_input'
+  | 'done'
+  | 'retired'
+  | 'left'
+  | 'dead'
 
 export type SprintEngineCurrentDispatch = {
   dispatchId: string | null
@@ -1512,6 +1525,14 @@ export type AppSettings = {
    * components/onboarding/AdoptConfigCard.tsx.
    */
   pendingAgentConfigAdoption: PendingAgentConfigAdoption | null
+  /**
+   * How long an idle agent terminal sits before it is paused (its CLI process is
+   * killed to reclaim memory, with the painted view frozen and resumed on click
+   * or keystroke). In MINUTES; default 15. Never applies to agents waiting on the
+   * user or mid-work. Synced to the main reap policy, which clamps it to
+   * [1 minute, 24 hours]. See terminal-reap-policy.ts.
+   */
+  terminalIdleSuspendMinutes: number
 }
 
 export type PendingAgentConfigAdoption = {

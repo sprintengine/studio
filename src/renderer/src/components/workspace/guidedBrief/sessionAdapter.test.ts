@@ -167,6 +167,11 @@ if (result.ok) {
   assert.equal(api.spawned[0]?.cwd, '/workspace')
   assert.match(api.spawned[0]?.prompt ?? '', /souls get product/, 'session sends startup prompt to real terminal spawn')
   assert.equal(result.session.markerDetection.artifactPath, 'product/requirements.md')
+  assert.equal(
+    api.spawned[0]?.metadata?.cliPermissionPreset,
+    'bypass_all',
+    'guided brief strategist sessions request bypass-all CLI permissions (no per-tool prompts mid-interview)',
+  )
 
   api.emitData('guided-brief-test', 'drafting\nBRIEF_READY\n')
   assert.deepEqual(markers, ['BRIEF_READY'], 'adapter detects marker from real terminal output')
@@ -201,6 +206,11 @@ if (architectResult.ok) {
   assert.equal(architectApi.spawned[0]?.sessionId, 'persisted-architect-id')
   assert.match(architectApi.spawned[0]?.prompt ?? '', /souls get architect/, 'architect session sends architecture startup prompt')
   assert.equal(architectResult.session.markerDetection.artifactPath, 'architecture/plan.md')
+  assert.equal(
+    architectApi.spawned[0]?.metadata?.cliPermissionPreset,
+    'bypass_all',
+    'guided brief architect sessions request bypass-all CLI permissions',
+  )
 }
 
 // Reattach path: a hook that was given a persisted sessionId must reuse it
@@ -223,7 +233,7 @@ if (reattachResult.ok) {
   assert.equal(
     reattachApi.spawned[0]?.metadata?.cliPermissionPreset,
     'bypass_all',
-    'guided brief designer sessions request bypass-all CLI permissions',
+    'guided brief designer sessions request bypass-all CLI permissions (every specialist gets the same preset)',
   )
   assert.equal(reattachResult.session.sessionId, 'persisted-designer-id', 'session exposes the persisted id back to the hook')
 }

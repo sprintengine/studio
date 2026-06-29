@@ -335,7 +335,12 @@ export async function startGuidedBriefSpecialistSession(
     {
       kind: 'agent',
       agentId: `guided-brief-${input.kind}`,
-      ...(input.kind === 'designer' ? { cliPermissionPreset: 'bypass_all' as const } : {}),
+      // All guided-brief specialists run unattended in a workspace the user is
+      // actively watching — they read project files, search the web, and write a
+      // couple of artifacts. Without bypass they stall on per-tool permission
+      // prompts (and never reach the structured-interview output). Apply the same
+      // preset to every specialist, not just the designer.
+      cliPermissionPreset: 'bypass_all' as const,
       ...(input.cliModel ? { cliModel: input.cliModel } : {}),
       visible: true,
     },

@@ -37,6 +37,8 @@ import {
   sprintEngineAutoRunWorkKey,
   sprintEngineIdleClockKey,
   sprintEngineRespawnLedgerKey,
+  sprintEngineReviveLedgerKey,
+  AUTO_RUN_MAX_WAKE_CANDIDATE_PROMPT_RETRIES,
   type AutoRunCandidate,
   type RoleContinuationGrace,
   type SprintEngineDispatchAttempt,
@@ -150,6 +152,7 @@ async function main(): Promise<void> {
   await testRespawnsDeadTaskClaimantAfterRestart()
   await testRespawnsDeadGateClaimantWithGateClaimTool()
   await testRespawnSkipsLiveCappedNeedsInputAndCoolingClaimants()
+  testRevivesLeftAgentForClaimableWork()
   await testSuperviseRunnerCycleRespawnsDeadClaimantsAtFullOccupancy()
   await testAllPathsPlanNeverPastesAndKillsSameAgentInOnePass()
   await testNotificationPasteSuppressesSamePassDispatchPaste()
@@ -2679,6 +2682,91 @@ const respawnTestCliRuntimes = {
   'claude-code': { command: 'claude', useWsl: false },
 }
 
+function testRevivesLeftAgentForClaimableWork(): void {
+  // Regression: idle-retirement disposes a role's terminal (agent -> 'left').
+  // When claimable work later appears for that role and no live agent of the
+  // role exists, the respawn path must REVIVE the left agent — otherwise the
+  // gate/ready-task pickers (which only match `idle` agents) strand the run.
+  const now = Date.parse('2026-06-28T22:00:00Z')
+  const readyTask = task({
+    id: 'T-ready',
+    title: 'Ready developer task',
+    role: 'developer',
+    status: 'todo',
+    boardColumn: 'ready',
+    ownerAgentId: null,
+    qualityGates: [],
+  })
+  const workspace = workspaceFixture({ agents: { 'developer-1': sprintAgent('developer-1', 'Perry') } })
+
+  const plan = planSprintEngineDispatch({
+    workspace,
+    sprintEngineState: sprintEngineStateFixture({
+      tasks: [readyTask],
+      sprintEngineAgents: { 'developer-1': runtimeAgent('developer', { status: 'left' }) },
+    }),
+    now,
+    runningAgentIds: new Set(),
+    idleAgentIds: new Set(),
+    continuationLedger: new Map(),
+    dispatchLedger: new Map(),
+    paths: new Set(['respawn']),
+  })
+  assert.equal(plan.respawns.length, 1, `a left agent is revived for claimable ready work; respawns ${JSON.stringify(plan.respawns)}`)
+  assert.equal(plan.respawns[0].agentId, 'developer-1', 'the left agent itself is revived, not a fresh replacement')
+  assert.equal(plan.respawns[0].role, 'developer')
+
+  // No revival when a live agent of the role already exists — it will claim the
+  // work through the normal idle picker, so we must not spawn a redundant one.
+  const planWithLiveAgent = planSprintEngineDispatch({
+    workspace,
+    sprintEngineState: sprintEngineStateFixture({
+      tasks: [readyTask],
+      sprintEngineAgents: {
+        'developer-1': runtimeAgent('developer', { status: 'left' }),
+        'developer-2': runtimeAgent('developer', { status: 'idle' }),
+      },
+    }),
+    now,
+    runningAgentIds: new Set(),
+    idleAgentIds: new Set(['developer-2']),
+    continuationLedger: new Map(),
+    dispatchLedger: new Map(),
+    paths: new Set(['respawn']),
+  })
+  assert.equal(planWithLiveAgent.respawns.length, 0, 'no revival when a live agent of the role exists')
+
+  // Storm guard: once the `revive:` ledger key has hit the retry cap, revival
+  // stops (no endless respawn of a broken CLI). The key uses its own `revive:`
+  // namespace so the `respawn:` sweep can't wipe it and reset the counter; and
+  // while the revival is still an active target its key must NOT be swept.
+  const reviveKey = sprintEngineReviveLedgerKey(workspace, { taskId: 'T-ready' }, 'developer-1')
+  const cappedPlan = planSprintEngineDispatch({
+    workspace,
+    sprintEngineState: sprintEngineStateFixture({
+      tasks: [readyTask],
+      sprintEngineAgents: { 'developer-1': runtimeAgent('developer', { status: 'left' }) },
+    }),
+    now,
+    runningAgentIds: new Set(),
+    idleAgentIds: new Set(),
+    continuationLedger: new Map([
+      [reviveKey, { sentAt: now - 120_000, attempts: AUTO_RUN_MAX_WAKE_CANDIDATE_PROMPT_RETRIES }],
+    ]),
+    dispatchLedger: new Map(),
+    paths: new Set(['respawn']),
+  })
+  assert.equal(cappedPlan.respawns.length, 0, 'revival stops once the retry cap is reached')
+  assert.ok(
+    cappedPlan.skips.some((skip) => skip.event === 'revive-retry-limit-reached'),
+    'a capped revival emits the retry-limit skip event',
+  )
+  assert.ok(
+    !cappedPlan.ledgerDeletes.some((del) => del.key === reviveKey),
+    'an active revival target keeps its ledger key (not swept), so the retry cap holds across passes',
+  )
+}
+
 async function testRespawnsDeadTaskClaimantAfterRestart(): Promise<void> {
   // Restart-recovery regression: a task claimed before an app restart whose
   // owner has no live terminal must get its claimant respawned (the claim
@@ -2826,7 +2914,7 @@ async function testRespawnSkipsLiveCappedNeedsInputAndCoolingClaimants(): Promis
   const cappedKey = sprintEngineRespawnLedgerKey(workspace, { taskId: 'T3' }, 'developer-capped')
   const coolingKey = sprintEngineRespawnLedgerKey(workspace, { taskId: 'T4' }, 'developer-cooling')
   const sent = mutableRef(new Map<string, { sentAt: number; attempts?: number }>([
-    [cappedKey, { sentAt: Date.now() - 120_000, attempts: supervisor.AUTO_RUN_MAX_WAKE_CANDIDATE_PROMPT_RETRIES }],
+    [cappedKey, { sentAt: Date.now() - 120_000, attempts: AUTO_RUN_MAX_WAKE_CANDIDATE_PROMPT_RETRIES }],
     [coolingKey, { sentAt: Date.now() - 5_000, attempts: 1 }],
   ]))
 
@@ -3008,7 +3096,7 @@ async function testAllPathsPlanNeverPastesAndKillsSameAgentInOnePass(): Promise<
   installWorkspaceStore(workspace)
   const wakeKey = continuationMessageKey(workspace, 'T-ready', 'code_reviewer-1')
   const sentContinuationMessages = mutableRef(new Map<string, { sentAt: number; attempts?: number }>([
-    [wakeKey, { sentAt: Date.now() - 120_000, attempts: supervisor.AUTO_RUN_MAX_WAKE_CANDIDATE_PROMPT_RETRIES }],
+    [wakeKey, { sentAt: Date.now() - 120_000, attempts: AUTO_RUN_MAX_WAKE_CANDIDATE_PROMPT_RETRIES }],
   ]))
 
   await supervisor.superviseRunnerActiveCycle({
@@ -3892,7 +3980,7 @@ async function testSuperviseRunnerCycleReengagesStalledLiveIdleAgentForChangesRe
   // matching the stranded run after the supervisor gave up.
   const continuationKey = continuationMessageKey(workspace, 'T4', 'frontend')
   const sentContinuationMessages = mutableRef(new Map<string, { sentAt: number; attempts?: number }>([
-    [continuationKey, { sentAt: Date.now() - 120_000, attempts: supervisor.AUTO_RUN_MAX_WAKE_CANDIDATE_PROMPT_RETRIES }],
+    [continuationKey, { sentAt: Date.now() - 120_000, attempts: AUTO_RUN_MAX_WAKE_CANDIDATE_PROMPT_RETRIES }],
   ]))
 
   await supervisor.superviseRunnerActiveCycle({

@@ -23,6 +23,10 @@ export {
   SwitchboardControllerError,
 } from './switchboardController'
 export {
+  buildAutomationsCreation,
+  AutomationsControllerError,
+} from './automationsController'
+export {
   runMultiloopCreation,
   MultiloopControllerError,
 } from './multiloopController'

@@ -122,24 +122,26 @@ run('empty searches preserve the original array reference', () => {
   assert.equal(filterWorkspacesBySearchQuery(workspaces, '   '), workspaces)
 })
 
-run('rail-hidden automations host is never a search match', () => {
-  // Matches the host name, its folder, and an empty query — none may return it.
-  assert.equal(workspaceMatchesSearch(hostWorkspace, 'automations'), false)
-  assert.equal(workspaceMatchesSearch(hostWorkspace, 'acme-platform'), false)
-  assert.equal(workspaceMatchesSearch(hostWorkspace, ''), false)
+run('the Automations workspace is searchable like any visible workspace', () => {
+  // It is now a visible, user-created workspace type (not rail-hidden), so it
+  // matches its name, its folder, and the empty query like any workspace.
+  assert.equal(workspaceMatchesSearch(hostWorkspace, 'automations'), true)
+  assert.equal(workspaceMatchesSearch(hostWorkspace, 'acme-platform'), true)
+  assert.equal(workspaceMatchesSearch(hostWorkspace, ''), true)
 })
 
-run('filter drops the rail-hidden host for empty and non-empty queries', () => {
+run('the Automations workspace is included in filtering like any visible workspace', () => {
   const withHost = [...workspaces, hostWorkspace]
-  // Empty query: every visible workspace, never the host.
+  // Empty query: every workspace, including the now-visible Automations host.
   assert.deepEqual(
     filterWorkspacesBySearchQuery(withHost, '   ').map((workspace) => workspace.id),
-    workspaces.map((workspace) => workspace.id),
+    withHost.map((workspace) => workspace.id),
   )
-  // A query the host's folder would otherwise match still excludes the host.
+  // 'acme-platform' is both the host's folder and the 'api' workspace's folder,
+  // so the host now appears alongside it.
   assert.deepEqual(
     filterWorkspacesBySearchQuery(withHost, 'acme-platform').map((workspace) => workspace.id),
-    ['api'],
+    ['api', 'host'],
   )
 })
 
