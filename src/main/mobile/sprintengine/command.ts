@@ -58,157 +58,19 @@ import type {
 
 export { MobileSprintEngineCommandError } from './command-error'
 
-export const mobileControlProtocolVersion = 1 as const
+// Wire schema is owned by src/shared/mobile-control/protocol.ts. Import the
+// command types from there and re-export them so this module stays the public
+// surface for consumers, without re-declaring (and risking drift from) the
+// protocol. Adding a new command type is an edit to protocol.ts alone.
+export { mobileControlProtocolVersion } from '../../../shared/mobile-control/protocol'
 
-export type MobileControlCommandType =
-  | 'snapshot.request'
-  | 'artifact.read'
-  | 'sprintengine.create'
-  | 'task.start'
-  | 'artifact.approve'
-  | 'artifact.requestChanges'
-  | 'agent.followUp'
-  | 'device.revoke'
-  | 'backlog.update'
-  | 'backlog.startSprintEngine'
-  | 'backlog.create'
+import type {
+  MobileControlCommand,
+  MobileControlCommandType,
+  MobileControlError,
+} from '../../../shared/mobile-control/protocol'
 
-type MobileControlErrorCode =
-  | 'unsupported_protocol_version'
-  | 'invalid_payload'
-  | 'unauthenticated'
-  | 'unauthorized'
-  | 'device_revoked'
-  | 'desktop_unavailable'
-  | 'relay_unavailable'
-  | 'command_not_supported'
-  | 'command_expired'
-  | 'duplicate_idempotency_key'
-  | 'stale_snapshot'
-  | 'sprintengine_not_found'
-  | 'task_not_ready'
-  | 'artifact_not_found'
-  | 'path_not_allowed'
-  | 'snapshot_too_large'
-  | 'python_tool_failed'
-  | 'internal_error'
-
-export type MobileControlError = {
-  protocolVersion: typeof mobileControlProtocolVersion
-  code: MobileControlErrorCode
-  message: string
-  retryable: boolean
-  correlationId?: string
-  detail?: Record<string, string | number | boolean | null>
-}
-
-type MobileControlCommandBase<Type extends MobileControlCommandType, Payload> = {
-  protocolVersion: typeof mobileControlProtocolVersion
-  commandId: string
-  type: Type
-  issuedAt: string
-  deviceId: string
-  idempotencyKey?: string
-  expectedSnapshotVersion?: string
-  payload: Payload
-}
-
-type SprintEngineCreateCommand = MobileControlCommandBase<
-  'sprintengine.create',
-  {
-    workspacePath: string
-    productPrompt: string
-    requestedRole?: string
-  }
->
-
-type TaskStartCommand = MobileControlCommandBase<
-  'task.start',
-  {
-    sprintEngineId: string
-    taskId: string
-    role: string
-    worktreeIsolation: 'required' | 'preferred' | 'disabled'
-  }
->
-
-type AgentFollowUpCommand = MobileControlCommandBase<
-  'agent.followUp',
-  {
-    sprintEngineId: string
-    agentId: string
-    text: string
-  }
->
-
-type ArtifactApproveCommand = MobileControlCommandBase<
-  'artifact.approve',
-  {
-    sprintEngineId: string
-    artifactId: string
-    feedback?: string
-  }
->
-
-type ArtifactRequestChangesCommand = MobileControlCommandBase<
-  'artifact.requestChanges',
-  {
-    sprintEngineId: string
-    artifactId: string
-    feedback: string
-  }
->
-
-type BacklogUpdateCommand = MobileControlCommandBase<
-  'backlog.update',
-  {
-    workspacePath: string
-    relativePath: string
-    status?: string
-    type?: string
-    difficulty?: string
-    criticality?: string
-  }
->
-
-type BacklogStartSprintEngineCommand = MobileControlCommandBase<
-  'backlog.startSprintEngine',
-  {
-    workspacePath: string
-    relativePath: string
-  }
->
-
-type BacklogCreateCommand = MobileControlCommandBase<
-  'backlog.create',
-  {
-    workspacePath: string
-    title: string
-    description?: string
-    type?: string
-    difficulty?: string
-    criticality?: string
-  }
->
-
-type UnsupportedMobileControlCommand = MobileControlCommandBase<
-  Exclude<
-    MobileControlCommandType,
-    'sprintengine.create' | 'task.start' | 'agent.followUp' | 'artifact.approve' | 'artifact.requestChanges' | 'backlog.update' | 'backlog.startSprintEngine' | 'backlog.create'
-  >,
-  Record<string, unknown>
->
-
-export type MobileControlCommand =
-  | SprintEngineCreateCommand
-  | TaskStartCommand
-  | AgentFollowUpCommand
-  | ArtifactApproveCommand
-  | ArtifactRequestChangesCommand
-  | BacklogUpdateCommand
-  | BacklogStartSprintEngineCommand
-  | BacklogCreateCommand
-  | UnsupportedMobileControlCommand
+export type { MobileControlCommand, MobileControlCommandType, MobileControlError }
 
 export type MobileSprintEngineTaskStartRequest = {
   sprintEngineId: string
