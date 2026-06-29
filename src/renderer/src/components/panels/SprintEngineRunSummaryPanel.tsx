@@ -48,10 +48,12 @@ import type {
   SprintEngineFeedbackAnalysisData,
   SprintEngineProjectionSource,
   SprintEngineRoleId,
+  SprintEngineModelCost,
   SprintEngineState,
   SprintEngineTask,
   SprintEngineTaskFeedbackFindingSeverity,
   SprintEngineTaskStatus,
+  SprintEngineTokenCost,
   SprintEngineTokenUsage,
   SprintEngineVcs,
 } from '../../types/workspace'
@@ -141,7 +143,7 @@ type AnalysisState =
 type TokenUsageState =
   | { status: 'pending' }
   | { status: 'loading' }
-  | { status: 'ready'; usage: SprintEngineTokenUsage }
+  | { status: 'ready'; usage: SprintEngineTokenUsage; cost: SprintEngineTokenCost }
   | { status: 'error'; error: string }
   | { status: 'unavailable' }
 
@@ -241,7 +243,10 @@ export default function SprintEngineRunSummaryPanel({
           setTokenUsageState({ status: 'error', error: result.message })
           return
         }
-        setTokenUsageState({ status: 'ready', usage: result.data as SprintEngineTokenUsage })
+        // The dep returns { usage, cost } (Phase 3); cost is a pure function of
+        // usage computed in main so the renderer never imports the pricing table.
+        const data = result.data as { usage: SprintEngineTokenUsage; cost: SprintEngineTokenCost }
+        setTokenUsageState({ status: 'ready', usage: data.usage, cost: data.cost })
       })
       .catch((error: unknown) => {
         if (cancelled) return
@@ -1519,23 +1524,57 @@ function TokenUsageBody({ state }: { state: TokenUsageState }) {
       </div>
     )
   }
-  const { usage } = state
+  const { usage, cost } = state
   if (usage.perModel.length === 0) {
     return <TokenNote>{emptyTokenMessage(usage)}</TokenNote>
   }
-  return <TokenUsageTable usage={usage} />
+  return <TokenUsageTable usage={usage} cost={cost} />
 }
 
 function TokenNote({ children }: { children: React.ReactNode }) {
   return <p className="text-[12px] leading-5 text-[color:var(--text-muted)]">{children}</p>
 }
 
-function TokenUsageTable({ usage }: { usage: SprintEngineTokenUsage }) {
+function TokenUsageTable({
+  usage,
+  cost,
+}: {
+  usage: SprintEngineTokenUsage
+  cost: SprintEngineTokenCost
+}) {
   const border = 'border-b border-[color:var(--border-subtle)]'
+  // Cost rows are keyed by the same model string as usage rows; map for a robust
+  // join rather than relying on array order.
+  const costByModel = new Map(cost.perModel.map((entry) => [entry.model, entry]))
+  const pricedCount = cost.perModel.length - cost.unpricedModels.length
+  const tokensLabel = formatCompactTokenCount(usage.total.input + usage.total.output)
   return (
-    <div className="overflow-x-auto">
-      <table className={TABLE_CLASS} style={tableStyleFor(4)}>
-        <ColGroup numCols={4} />
+    <div>
+      {/* Headline: total cost + token total + the distinct cache saving, before
+          the per-model breakdown. Cost is the one emphasized figure. */}
+      <p className="mb-2 text-[13px] leading-5 text-[color:var(--text-muted)]">
+        {pricedCount > 0 ? (
+          <span className="font-medium tabular-nums text-[color:var(--text-strong)]">
+            {formatUsd(cost.total.total)}
+          </span>
+        ) : (
+          <span className="text-[color:var(--text-default)]">Cost unavailable</span>
+        )}
+        <span> · </span>
+        <span className="tabular-nums text-[color:var(--text-default)]">{tokensLabel}</span> tokens
+        {cost.cacheSavings > 0 ? (
+          <>
+            <span> · </span>
+            <span className="tabular-nums text-[color:var(--text-default)]">
+              {formatUsd(cost.cacheSavings)}
+            </span>{' '}
+            saved by cache
+          </>
+        ) : null}
+      </p>
+      <div className="overflow-x-auto">
+      <table className={TABLE_CLASS} style={tableStyleFor(5)}>
+        <ColGroup numCols={5} />
         <thead>
           <tr>
             <th scope="col" className={AGENT_HEADER}>
@@ -1553,6 +1592,9 @@ function TokenUsageTable({ usage }: { usage: SprintEngineTokenUsage }) {
             <th scope="col" className={NUM_HEADER}>
               Cache created
             </th>
+            <th scope="col" className={NUM_HEADER}>
+              Cost
+            </th>
           </tr>
         </thead>
         <tbody>
@@ -1567,6 +1609,7 @@ function TokenUsageTable({ usage }: { usage: SprintEngineTokenUsage }) {
               <TokenCell border={border} value={model.output} />
               <TokenCell border={border} value={model.cacheRead} />
               <TokenCell border={border} value={model.cacheCreation} />
+              <CostCell border={border} modelCost={costByModel.get(model.model)} />
             </tr>
           ))}
           {/* Grand total. The preceding row's hairline is the separator, so the
@@ -1580,12 +1623,26 @@ function TokenUsageTable({ usage }: { usage: SprintEngineTokenUsage }) {
             <TokenCell value={usage.total.output} strong />
             <TokenCell value={usage.total.cacheRead} strong />
             <TokenCell value={usage.total.cacheCreation} strong />
+            <td className="py-[7px] px-3 text-right tabular-nums font-medium text-[color:var(--text-strong)]">
+              {/* Never present an all-unpriced sprint as $0.00. */}
+              {pricedCount > 0 ? (
+                formatUsd(cost.total.total)
+              ) : (
+                <span className="text-[color:var(--text-disabled)]">—</span>
+              )}
+            </td>
           </tr>
         </tbody>
       </table>
+      </div>
       <p className="mt-2 text-[12px] leading-5 text-[color:var(--text-muted)]">
         {coverageCaveat(usage)}
       </p>
+      {cost.unpricedModels.length > 0 ? (
+        <p className="mt-1 text-[12px] leading-5 text-[color:var(--text-muted)]">
+          {unpricedNote(cost)}
+        </p>
+      ) : null}
     </div>
   )
 }
@@ -1612,6 +1669,57 @@ function TokenCell({
       )}
     </td>
   )
+}
+
+// Dollar cost for one model. An unpriced model (no configured rate) shows a
+// plain "no price" marker — never $0 — so a missing rate never reads as free.
+function CostCell({
+  modelCost,
+  border = '',
+}: {
+  modelCost: SprintEngineModelCost | undefined
+  border?: string
+}) {
+  const base = `${border} py-[7px] px-3 text-right`
+  if (!modelCost || !modelCost.priced || !modelCost.cost) {
+    return (
+      <td className={base}>
+        <span className="text-[color:var(--text-disabled)]">no price</span>
+      </td>
+    )
+  }
+  return (
+    <td className={`${base} tabular-nums`}>
+      <span title={exactUsd(modelCost.cost.total)}>{formatUsd(modelCost.cost.total)}</span>
+    </td>
+  )
+}
+
+function formatUsd(amount: number): string {
+  return amount.toLocaleString('en-US', {
+    style: 'currency',
+    currency: 'USD',
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  })
+}
+
+// Higher-precision value for the hover title, since the 2-decimal display rounds.
+function exactUsd(amount: number): string {
+  return amount.toLocaleString('en-US', {
+    style: 'currency',
+    currency: 'USD',
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 4,
+  })
+}
+
+// Honest note when some models had no configured price: their tokens are shown
+// (in the breakdown) without a cost rather than priced at zero, and the headline
+// total therefore covers only the priced models.
+function unpricedNote(cost: SprintEngineTokenCost): string {
+  const count = cost.unpricedModels.length
+  return `${count} model${count === 1 ? '' : 's'} without a configured price (${cost.unpricedModels.join(', ')}): tokens shown, cost excluded from the total.`
 }
 
 function pluralAgents(count: number): string {

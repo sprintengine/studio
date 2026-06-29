@@ -2,7 +2,7 @@ import { basename, dirname, isAbsolute, resolve } from 'node:path'
 
 import { registerSprintEngineIpc, type SprintEngineProjectionReadPayload } from '../ipc/sprintengine-ipc'
 import { SprintEngineArtifactsToken, SprintEngineAutomationFrontDoorsToken, SprintEngineMcpHubToken } from '../module-host/service-tokens'
-import { computeSprintEngineRunTokenUsage } from '../sprintengine-token-usage'
+import { computeSprintEngineRunTokenUsage, computeSprintEngineTokenCost } from '../sprintengine-token-usage'
 import type { SprintEngineMcpReadResult } from '../../shared/electron-api'
 import type { CapabilityModule } from '../module-host/load-modules'
 import type { SidecarRunState } from '../module-host/main-host'
@@ -86,17 +86,21 @@ export const sprintEngineModule: CapabilityModule = {
   },
 }
 
-// On-demand sprint token total. The aggregator lives in main (it reads CLI
-// transcripts/servers, which python cannot do), so unlike the feedback summary
-// — a python MCP read — this is a direct TS call. Wired here rather than in the
-// artifacts service so the token-usage data path stays self-contained.
+// On-demand sprint token total + cost. The aggregator lives in main (it reads
+// CLI transcripts/servers, which python cannot do), so unlike the feedback
+// summary — a python MCP read — this is a direct TS call. Wired here rather than
+// in the artifacts service so the token-usage data path stays self-contained.
+// Cost is a pure function of the aggregated usage (Phase 3), computed here so
+// the renderer never has to import the pricing tables across the main boundary;
+// `data` carries both. The renderer reads `data.usage` and `data.cost`.
 async function readTokenUsage(
   payload: SprintEngineProjectionReadPayload
 ): Promise<SprintEngineMcpReadResult> {
   try {
     const statePath = validateRunStatePath(payload?.statePath)
     const usage = await computeSprintEngineRunTokenUsage(statePath)
-    return { ok: true, data: usage }
+    const cost = computeSprintEngineTokenCost(usage)
+    return { ok: true, data: { usage, cost } }
   } catch (error) {
     return { ok: false, message: error instanceof Error ? error.message : String(error) }
   }
