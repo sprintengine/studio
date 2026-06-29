@@ -136,6 +136,7 @@ function executorHarness(
     actionProviders?: LocalAutomationExecutorOptions['actionProviders']
     isIntegrationAvailable?: LocalAutomationExecutorOptions['isIntegrationAvailable']
     createRunWorktree?: LocalAutomationExecutorOptions['createRunWorktree']
+    resolveAgentExecutionId?: LocalAutomationExecutorOptions['resolveAgentExecutionId']
   } = {}
 ) {
   const workspaces = [...initialWorkspaces]
@@ -195,6 +196,7 @@ function executorHarness(
       createRunWorktree: options.createRunWorktree ?? (async () => null),
       ...(options.actionProviders ? { actionProviders: options.actionProviders } : {}),
       ...(options.isIntegrationAvailable ? { isIntegrationAvailable: options.isIntegrationAvailable } : {}),
+      ...(options.resolveAgentExecutionId ? { resolveAgentExecutionId: options.resolveAgentExecutionId } : {}),
     }),
   }
 }
@@ -344,6 +346,66 @@ async function assertExplicitConfigWorkspaceIdLaunchesIntoNamedWorkspace(): Prom
   assert.equal(result.workspaceId, 'ws-standard')
   assert.deepEqual(harness.requests.map((request) => request.kind), ['agent.launch'])
   assert.equal(Object.keys(host.agents).length, 0)
+}
+
+async function assertExecutionIdRecordedWhenResolvable(): Promise<void> {
+  // The executor resolves the launched agent's terminal executionId at
+  // launch-confirm time and records it on the run patch for exit-correlation.
+  const host = workspace('ws-host', '/repo/a', { mode: 'automations-host' })
+  const calls: Array<{ workspaceId: string; agentId: string }> = []
+  const harness = executorHarness([host], {
+    resolveAgentExecutionId: (input) => {
+      calls.push(input)
+      return 'exec-from-runtime'
+    },
+  })
+  const result = await harness.executor({
+    workspaceRoot: '/repo/a',
+    definition: definition(),
+    run: run(),
+    triggerPayload: { kind: 'schedule' },
+  })
+
+  assert.equal(result.status, 'running')
+  assert.equal(result.executionId, 'exec-from-runtime')
+  // Resolved against the confirmed (workspaceId, agentId), not raw config.
+  assert.deepEqual(calls, [{ workspaceId: 'ws-host', agentId: 'agent-1' }])
+}
+
+async function assertExecutionIdMissDoesNotFailLaunch(): Promise<void> {
+  // A resolution miss (agent not yet on the runtime, or no resolver) leaves
+  // executionId undefined and must NOT fail the launch — the poll-scan covers it.
+  const host = workspace('ws-host', '/repo/a', { mode: 'automations-host' })
+  const harness = executorHarness([host], {
+    resolveAgentExecutionId: () => undefined,
+  })
+  const result = await harness.executor({
+    workspaceRoot: '/repo/a',
+    definition: definition(),
+    run: run(),
+    triggerPayload: { kind: 'schedule' },
+  })
+
+  assert.equal(result.status, 'running')
+  assert.equal(result.agentId, 'agent-1')
+  assert.equal(result.executionId, undefined)
+  assert.equal('executionId' in result, true, 'executionId key present even on a miss')
+}
+
+async function assertExecutionIdAbsentWithoutResolver(): Promise<void> {
+  // With no resolver wired (the executor's default), the launch still succeeds
+  // and the run simply carries no executionId.
+  const host = workspace('ws-host', '/repo/a', { mode: 'automations-host' })
+  const harness = executorHarness([host])
+  const result = await harness.executor({
+    workspaceRoot: '/repo/a',
+    definition: definition(),
+    run: run(),
+    triggerPayload: { kind: 'schedule' },
+  })
+
+  assert.equal(result.status, 'running')
+  assert.equal(result.executionId, undefined)
 }
 
 async function assertRunWorktreeIsThreadedToLaunchAndPatch(): Promise<void> {
@@ -914,6 +976,9 @@ async function main(): Promise<void> {
   await assertDefaultRunNeverHijacksStandardWorkspace()
   await assertExplicitConfigWorkspaceIdLaunchesIntoNamedWorkspace()
   await assertRunWorktreeIsThreadedToLaunchAndPatch()
+  await assertExecutionIdRecordedWhenResolvable()
+  await assertExecutionIdMissDoesNotFailLaunch()
+  await assertExecutionIdAbsentWithoutResolver()
   await assertDirtyWorkspaceNoLongerBlocksLaunch()
   await assertNonGitWorkspaceNoLongerBlocksLaunch()
   await assertMissingIntegrationBlocksWithoutFakeSuccess()

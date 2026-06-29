@@ -120,6 +120,10 @@ type PendingAgentRun = {
   runId: string
   worktreePath: string
   workspaceId?: string
+  // Terminal-session executionId of the run's spawned agent, when it was
+  // resolvable at launch. Lets an agent-lifecycle exit correlate to this pending
+  // run; absent on historical runs and resolution misses (poll-scan covers those).
+  executionId?: string
 }
 
 const DEFAULT_POLL_INTERVAL_MS = 60_000
@@ -697,6 +701,7 @@ export class AutomationsEngine {
       runId: run.id,
       worktreePath: run.worktreePath,
       workspaceId: workspaceId ?? run.workspaceId,
+      executionId: run.executionId,
     })
   }
 
@@ -1118,6 +1123,7 @@ function completeRun(run: AutomationRun, patch: Partial<AutomationRun>, complete
     blockedReason: patch.blockedReason,
     workspaceId: patch.workspaceId,
     agentId: patch.agentId,
+    executionId: patch.executionId,
     promptFingerprint: patch.promptFingerprint,
     touchedFiles: patch.touchedFiles,
     commandsRan: patch.commandsRan,

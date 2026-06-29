@@ -14,6 +14,7 @@ void main().catch((error) => {
 async function main(): Promise<void> {
   await assertDefinitionRoundTrip()
   await assertRunHistoryIsBounded()
+  await assertRunExecutionIdRoundTrip()
   await assertMalformedDefinitionFailsClosed()
   await assertRunWriteRequiresReadableDefinition()
   await assertMalformedRunListFailsClosedButWriteSkipsBadRun()
@@ -146,6 +147,27 @@ async function assertRunHistoryIsBounded(): Promise<void> {
   const runFiles = await readdir(join(workspaceRoot, '.multi-code', 'automations', 'runs', 'nightly-review'))
   assert.equal(runFiles.filter((file) => file.endsWith('.json')).length, 50)
   assert.equal(runFiles.includes('run-004.json'), false)
+}
+
+async function assertRunExecutionIdRoundTrip(): Promise<void> {
+  // executionId is the agent-lifecycle correlation key; it must survive store
+  // write/read so the exit trigger can match a pending run after a restart.
+  const workspaceRoot = await createWorkspace()
+  const store = new AutomationsStore(workspaceRoot)
+  assert.equal((await store.createDefinition(definition())).ok, true)
+
+  const withExecution = run(1, { status: 'running', completedAt: null, executionId: 'exec-abc123' })
+  assert.equal((await store.recordRun(withExecution)).ok, true)
+  const fetched = await store.getRun('nightly-review', 'run-001')
+  assert.equal(fetched.ok, true)
+  assert.equal(fetched.ok && fetched.value.executionId, 'exec-abc123')
+
+  // A run without executionId (historical / resolution miss) still reads back.
+  const withoutExecution = run(2, { status: 'running', completedAt: null })
+  assert.equal((await store.recordRun(withoutExecution)).ok, true)
+  const fetchedBare = await store.getRun('nightly-review', 'run-002')
+  assert.equal(fetchedBare.ok, true)
+  assert.equal(fetchedBare.ok && fetchedBare.value.executionId, undefined)
 }
 
 async function assertMalformedDefinitionFailsClosed(): Promise<void> {

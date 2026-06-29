@@ -127,6 +127,7 @@ type TerminalRuntime = {
   ipcHandlers: TerminalIpcHandlers
   shutdown(): Promise<void>
   getLiveAgentExecutionIds(): LiveAgentExecution[]
+  resolveAgentExecutionId(input: { workspaceId: string; agentId: string }): string | undefined
   registerAgentSessionExitListener(listener: AgentSessionExitListener): () => void
   killAgentSession(input: {
     workspaceRoot: string
@@ -289,6 +290,7 @@ export function createTerminalRuntime(options: TerminalRuntimeOptions): Terminal
     commandService: createMobileCommandService(),
     shutdown: shutdownTerminalRuntime,
     getLiveAgentExecutionIds,
+    resolveAgentExecutionId,
     registerAgentSessionExitListener,
     killAgentSession: killAgentSessionByExecutionId,
     spawnAgentSession: spawnAgentSessionFromDescriptor,
@@ -819,6 +821,24 @@ function getLiveAgentExecutionIds(): LiveAgentExecution[] {
       system: session.agentSession!.system,
       executionId: session.agentSession!.executionId,
     }))
+}
+
+// Resolve the executionId of the live agent session matching a (workspaceId,
+// agentId) pair. Used at automation launch-confirm time to record the run's
+// correlation key. Returns undefined when no live session matches — the caller
+// must treat a miss as best-effort and not fail the launch.
+function resolveAgentExecutionId(input: { workspaceId: string; agentId: string }): string | undefined {
+  for (const session of terminals.values()) {
+    if (
+      isTerminalProcessAlive(session)
+      && session.agentId === input.agentId
+      && session.agentSession?.workspaceId === input.workspaceId
+      && session.agentSession.executionId
+    ) {
+      return session.agentSession.executionId
+    }
+  }
+  return undefined
 }
 
 function registerAgentSessionExitListener(listener: AgentSessionExitListener): () => void {

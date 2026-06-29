@@ -140,6 +140,13 @@ export type AutomationRun = {
   blockedReason?: string
   workspaceId?: string
   agentId?: string
+  /**
+   * Terminal-session executionId of the spawned agent, resolved at launch-confirm
+   * time. Correlates an agent-lifecycle exit back to this run so finalization can
+   * be driven from the agent terminating, not only the run-status signal file.
+   * Optional: historical runs and resolution misses degrade to the poll-scan.
+   */
+  executionId?: string
   promptFingerprint?: string
   touchedFiles?: string[]
   commandsRan?: string[]

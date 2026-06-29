@@ -37,7 +37,7 @@ export type SpawnAgentRuntime = {
     specialistId?: string
     name?: string
     prompt: string
-  }): Promise<{ workspaceId: string; agentId: string; worktreePath?: string; branch?: string }>
+  }): Promise<{ workspaceId: string; agentId: string; executionId?: string; worktreePath?: string; branch?: string }>
   requireIntegration(id: string): void
 }
 
@@ -113,6 +113,7 @@ export async function runSpawnAgentAction(config: unknown, runtime: SpawnAgentRu
     status: 'running',
     workspaceId: launched.workspaceId,
     agentId: launched.agentId,
+    executionId: launched.executionId,
     worktreePath: launched.worktreePath,
     branch: launched.branch,
     promptFingerprint: fingerprintPrompt(prompt),
