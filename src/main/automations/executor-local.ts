@@ -4,7 +4,7 @@ import type { WorkspaceSyncSnapshot } from '../../shared/workspace-sync'
 import { appendFile, mkdir, readFile } from 'node:fs/promises'
 import { dirname, isAbsolute, join, resolve } from 'node:path'
 
-import type { Workspace } from '../../renderer/src/types/workspace'
+import type { Workspace, WorkspaceMode } from '../../renderer/src/types/workspace'
 import { createGitWorktree, removeGitWorktree } from '../git'
 import { runGitCommand } from '../git-utils'
 import { RUN_SIGNAL_FILENAME } from './run-signal'
@@ -111,18 +111,12 @@ export async function runLocalAutomationAction(
       runId: input.run.id,
       workspaceRoot: input.workspaceRoot,
       // Launch target precedence: an explicit config workspaceId (legacy/MCP
-      // path) wins; otherwise own the agent in the run's automations control
-      // center (input.workspaceId) so no standard workspace is created and no
-      // second solo agent is spawned; otherwise fall back to a folder-matched
-      // standard workspace.
+      // path) wins and launches into that named workspace; otherwise the default
+      // automation route resolves-or-creates the per-project hidden
+      // automations-host workspace for the run's folder. No standard workspace is
+      // reused or created for the default route.
       resolveSpawnAgentTarget: (target: { workspaceId?: string; folderPath: string }) =>
-        Promise.resolve(
-          target.workspaceId
-            ? resolveStandardLaunchTarget(target, options)
-            : input.workspaceId
-              ? { workspaceId: input.workspaceId, folderPath: target.folderPath }
-              : resolveStandardLaunchTarget(target, options),
-        ),
+        Promise.resolve(resolveLaunchTarget(target, options)),
       // Agent-backed runs launch into a per-run worktree so the agent's work
       // (and its PR) is isolated from the user's checkout. Isolation is
       // best-effort: a non-Git folder or a worktree failure falls back to the
@@ -201,7 +195,7 @@ async function spawnAgent(
   },
   options: LocalAutomationExecutorOptions
 ): Promise<{ workspaceId: string; agentId: string }> {
-  const target = input.resolvedTarget ?? resolveStandardLaunchTarget(input, options)
+  const target = input.resolvedTarget ?? resolveLaunchTarget(input, options)
   const workspaceId = target.workspaceId ?? await createWorkspace({
     folderPath: target.folderPath,
     name: input.name,
@@ -321,40 +315,59 @@ export async function defaultRemoveRunWorktree(
   await removeGitWorktree({ repoRoot: input.workspaceRoot, path: input.worktreePath, force: true })
 }
 
-function resolveStandardLaunchTarget(
+// An explicit config workspaceId (legacy/MCP) launches into that named standard
+// workspace; the default automation route resolves-or-creates the per-project
+// hidden automations-host workspace for the run's folder.
+function resolveLaunchTarget(
   input: { workspaceId?: string; folderPath: string; name?: string },
   options: LocalAutomationExecutorOptions
 ): SpawnAgentResolvedTarget {
-  const snapshot = options.getWorkspaceSyncSnapshot()
-  if (input.workspaceId) {
-    const explicitWorkspace = findWorkspaceById(snapshot, input.workspaceId)
-    if (!explicitWorkspace) {
-      throw new Error(`Workspace "${input.workspaceId}" is not known to the workspace-sync bus.`)
-    }
-    if (isStandardWorkspace(explicitWorkspace)) {
-      return {
-        workspaceId: explicitWorkspace.id,
-        folderPath: explicitWorkspace.folderPath?.trim() || input.folderPath,
-      }
-    }
+  return input.workspaceId
+    ? resolveStandardLaunchTarget(input.workspaceId, input.folderPath, options)
+    : resolveHostLaunchTarget(input.folderPath, options)
+}
 
-    const targetFolderPath = explicitWorkspace.folderPath?.trim() || input.folderPath
-    const standardWorkspace = findStandardWorkspaceByFolder(snapshot, targetFolderPath)
-    return standardWorkspace
-      ? {
-          workspaceId: standardWorkspace.id,
-          folderPath: standardWorkspace.folderPath?.trim() || targetFolderPath,
-        }
-      : { folderPath: targetFolderPath }
+// Resolve the per-project automations-host workspace for a folder. Returns the
+// existing host's target when one is open, or a bare `{ folderPath }` so
+// `createWorkspace` creates a fresh host — never a standard workspace.
+function resolveHostLaunchTarget(
+  folderPath: string,
+  options: LocalAutomationExecutorOptions
+): SpawnAgentResolvedTarget {
+  const host = findHostWorkspaceByFolder(options.getWorkspaceSyncSnapshot(), folderPath)
+  return host
+    ? { workspaceId: host.id, folderPath: host.folderPath?.trim() || folderPath }
+    : { folderPath }
+}
+
+// Explicit config workspaceId (legacy/MCP): launch into that named standard
+// workspace, or a folder-matched standard workspace when the named one is not a
+// standard workspace. Only reached when a workspaceId is provided.
+function resolveStandardLaunchTarget(
+  workspaceId: string,
+  folderPath: string,
+  options: LocalAutomationExecutorOptions
+): SpawnAgentResolvedTarget {
+  const snapshot = options.getWorkspaceSyncSnapshot()
+  const explicitWorkspace = findWorkspaceById(snapshot, workspaceId)
+  if (!explicitWorkspace) {
+    throw new Error(`Workspace "${workspaceId}" is not known to the workspace-sync bus.`)
+  }
+  if (isStandardWorkspace(explicitWorkspace)) {
+    return {
+      workspaceId: explicitWorkspace.id,
+      folderPath: explicitWorkspace.folderPath?.trim() || folderPath,
+    }
   }
 
-  const standardWorkspace = findStandardWorkspaceByFolder(snapshot, input.folderPath)
+  const targetFolderPath = explicitWorkspace.folderPath?.trim() || folderPath
+  const standardWorkspace = findStandardWorkspaceByFolder(snapshot, targetFolderPath)
   return standardWorkspace
     ? {
         workspaceId: standardWorkspace.id,
-        folderPath: standardWorkspace.folderPath?.trim() || input.folderPath,
+        folderPath: standardWorkspace.folderPath?.trim() || targetFolderPath,
       }
-    : { folderPath: input.folderPath }
+    : { folderPath: targetFolderPath }
 }
 
 async function createWorkspace(
@@ -365,6 +378,7 @@ async function createWorkspace(
     {
       name: input.name,
       folderPath: input.folderPath,
+      mode: AUTOMATIONS_HOST_WORKSPACE_MODE,
     },
     {
       delegateToRenderer: options.delegateToRenderer,
@@ -374,10 +388,10 @@ async function createWorkspace(
     }
   )
   if (!created.ok) throw new Error(created.message)
-  if (!isStandardWorkspace(created.workspace)) {
+  if (!isAutomationsHostWorkspace(created.workspace)) {
     throw new Error(
       `Created workspace "${created.workspaceId}" is a ${created.workspace.mode} workspace; `
-      + 'automation agent launch requires a standard workspace.'
+      + 'automation agent launch requires an automations-host workspace.'
     )
   }
   return created.workspaceId
@@ -395,8 +409,26 @@ function findStandardWorkspaceByFolder(snapshot: WorkspaceSyncSnapshot, folderPa
   ) ?? null
 }
 
+function findHostWorkspaceByFolder(snapshot: WorkspaceSyncSnapshot, folderPath: string): Workspace | null {
+  const key = normalizeFolderKey(folderPath)
+  if (!key) return null
+  return snapshot.state.workspaces.find((workspace) =>
+    isAutomationsHostWorkspace(workspace) && normalizeFolderKey(workspace.folderPath) === key
+  ) ?? null
+}
+
 function isStandardWorkspace(workspace: Workspace): boolean {
   return workspace.mode === 'standard'
+}
+
+// Mode literal mirrors AUTOMATIONS_HOST_WORKSPACE_MODE in the renderer's
+// types/workspace.ts. Main and renderer are separate TS projects, so this file
+// matches a literal here (as isStandardWorkspace does for 'standard') rather than
+// value-importing across the project boundary.
+const AUTOMATIONS_HOST_WORKSPACE_MODE: WorkspaceMode = 'automations-host'
+
+function isAutomationsHostWorkspace(workspace: Workspace): boolean {
+  return workspace.mode === AUTOMATIONS_HOST_WORKSPACE_MODE
 }
 
 function normalizeFolderKey(folderPath: string | null | undefined): string | null {

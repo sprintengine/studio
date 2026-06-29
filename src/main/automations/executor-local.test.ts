@@ -144,7 +144,13 @@ function executorHarness(
     requests.push(request)
     if (request.kind === 'workspace.create') {
       const id = 'ws-created'
-      workspaces.push(workspace(id, request.folderPath ?? null, { name: request.name ?? id }))
+      // Honor the explicit mode the executor threads through (T2 create-with-mode),
+      // mirroring the renderer addWorkspace path, so a created automations host is
+      // observed as `automations-host` on the bus.
+      workspaces.push(workspace(id, request.folderPath ?? null, {
+        name: request.name ?? id,
+        mode: request.mode ?? 'standard',
+      }))
       return { ok: true, workspaceId: id }
     }
 
@@ -248,7 +254,9 @@ function firstPartyActionProviders(calls: string[] = []): AutomationActionProvid
   })
 }
 
-async function assertSpawnAgentCreatesWorkspaceAndLaunchesOnBus(): Promise<void> {
+async function assertDefaultRunCreatesHostWorkspaceAndLaunchesOnBus(): Promise<void> {
+  // Default route, no host open for the folder: the executor creates a hidden
+  // automations-host workspace (never a standard one) and launches one agent.
   const harness = executorHarness()
   const result = await harness.executor({
     workspaceRoot: '/repo/a',
@@ -264,15 +272,24 @@ async function assertSpawnAgentCreatesWorkspaceAndLaunchesOnBus(): Promise<void>
   assert.equal('prompt' in result, false, 'full prompt is not persisted on the run patch')
   assert.deepEqual(harness.requests.map((request) => request.kind), ['workspace.create', 'agent.launch'])
 
+  const create = harness.requests[0]
+  assert.equal(create.kind, 'workspace.create')
+  assert.equal(create.kind === 'workspace.create' ? create.mode : '', 'automations-host',
+    'host route creates the workspace with explicit automations-host mode')
+  assert.equal(harness.workspaces.find((entry) => entry.id === 'ws-created')?.mode, 'automations-host')
+
   const launch = harness.requests[1]
   assert.equal(launch.kind, 'agent.launch')
   assert.match(launch.kind === 'agent.launch' ? launch.prompt ?? '' : '', /review_only/)
   assert.match(launch.kind === 'agent.launch' ? launch.prompt ?? '' : '', /Do not edit files/)
-  assert.equal(harness.workspaces[0]?.agents['agent-1']?.cliHasLaunched, true)
+  assert.equal(harness.workspaces.find((entry) => entry.id === 'ws-created')?.agents['agent-1']?.cliHasLaunched, true)
 }
 
-async function assertSpawnAgentUsesExistingStandardWorkspace(): Promise<void> {
-  const harness = executorHarness([workspace('ws-standard', '/repo/a')])
+async function assertDefaultRunReusesExistingHostWorkspace(): Promise<void> {
+  // A second run for the same folder reuses the open host — no duplicate host,
+  // no workspace.create.
+  const host = workspace('ws-host', '/repo/a', { mode: 'automations-host' })
+  const harness = executorHarness([host])
   const result = await harness.executor({
     workspaceRoot: '/repo/a',
     definition: definition(),
@@ -281,46 +298,39 @@ async function assertSpawnAgentUsesExistingStandardWorkspace(): Promise<void> {
   })
 
   assert.equal(result.status, 'running')
-  assert.equal(result.workspaceId, 'ws-standard')
+  assert.equal(result.workspaceId, 'ws-host')
   assert.equal(result.agentId, 'agent-1')
   assert.deepEqual(harness.requests.map((request) => request.kind), ['agent.launch'])
   const launch = harness.requests[0]
   assert.equal(launch.kind, 'agent.launch')
-  assert.equal(launch.kind === 'agent.launch' ? launch.workspaceId : '', 'ws-standard')
+  assert.equal(launch.kind === 'agent.launch' ? launch.workspaceId : '', 'ws-host')
 }
 
-async function assertOwningAutomationsWorkspaceIsLaunchTarget(): Promise<void> {
-  // The run carries its owning automations control-center workspace; the agent
-  // launches there (one terminal, owned by the panel) instead of creating a
-  // standard workspace and a second solo agent.
-  const automationsWorkspace = workspace('ws-automations', '/repo/a', { mode: 'automations' })
-  const harness = executorHarness([automationsWorkspace])
+async function assertDefaultRunNeverHijacksStandardWorkspace(): Promise<void> {
+  // A folder-matched standard workspace must not be reused or mutated by a
+  // default automation run; the run creates its own host instead.
+  const standard = workspace('ws-standard', '/repo/a')
+  const harness = executorHarness([standard])
   const result = await harness.executor({
     workspaceRoot: '/repo/a',
     definition: definition(),
     run: run(),
     triggerPayload: { kind: 'schedule' },
-    workspaceId: 'ws-automations',
   })
 
   assert.equal(result.status, 'running')
-  assert.equal(result.workspaceId, 'ws-automations')
-  assert.equal(result.agentId, 'agent-1')
-  assert.deepEqual(harness.requests.map((request) => request.kind), ['agent.launch'])
-
-  const launch = harness.requests[0]
-  assert.equal(launch.kind, 'agent.launch')
-  assert.equal(launch.kind === 'agent.launch' ? launch.workspaceId : '', 'ws-automations')
-  assert.equal(Object.keys(automationsWorkspace.agents).length, 1)
-  assert.equal(harness.requests.some((request) => request.kind === 'workspace.create'), false)
+  assert.equal(result.workspaceId, 'ws-created')
+  assert.deepEqual(harness.requests.map((request) => request.kind), ['workspace.create', 'agent.launch'])
+  assert.equal(harness.workspaces.find((entry) => entry.id === 'ws-created')?.mode, 'automations-host')
+  assert.equal(Object.keys(standard.agents).length, 0, 'the standard workspace is never hijacked')
 }
 
-async function assertExplicitConfigWorkspaceIdOverridesOwningWorkspace(): Promise<void> {
-  // A definition that names an explicit standard workspaceId still targets it,
-  // even when the run has an owning automations workspace.
-  const automationsWorkspace = workspace('ws-automations', '/repo/a', { mode: 'automations' })
+async function assertExplicitConfigWorkspaceIdLaunchesIntoNamedWorkspace(): Promise<void> {
+  // An explicit config workspaceId (legacy/MCP) wins over the host route and
+  // launches into that named standard workspace; the host is untouched.
+  const host = workspace('ws-host', '/repo/a', { mode: 'automations-host' })
   const standardWorkspace = workspace('ws-standard', '/repo/a')
-  const harness = executorHarness([automationsWorkspace, standardWorkspace])
+  const harness = executorHarness([host, standardWorkspace])
   const result = await harness.executor({
     workspaceRoot: '/repo/a',
     definition: definition({
@@ -328,20 +338,19 @@ async function assertExplicitConfigWorkspaceIdOverridesOwningWorkspace(): Promis
     }),
     run: run(),
     triggerPayload: { kind: 'schedule' },
-    workspaceId: 'ws-automations',
   })
 
   assert.equal(result.status, 'running')
   assert.equal(result.workspaceId, 'ws-standard')
   assert.deepEqual(harness.requests.map((request) => request.kind), ['agent.launch'])
-  assert.equal(Object.keys(automationsWorkspace.agents).length, 0)
+  assert.equal(Object.keys(host.agents).length, 0)
 }
 
 async function assertRunWorktreeIsThreadedToLaunchAndPatch(): Promise<void> {
   // When the executor creates a per-run worktree, the agent launches with that
   // worktree path and the run patch records worktreePath + branch.
-  const automationsWorkspace = workspace('ws-automations', '/repo/a', { mode: 'automations' })
-  const harness = executorHarness([automationsWorkspace], {
+  const host = workspace('ws-host', '/repo/a', { mode: 'automations-host' })
+  const harness = executorHarness([host], {
     createRunWorktree: async (input) => ({
       worktreePath: `/repo/a/.multi-code/automations/worktrees/${input.runId}`,
       branch: `automations/${input.runId}`,
@@ -352,7 +361,6 @@ async function assertRunWorktreeIsThreadedToLaunchAndPatch(): Promise<void> {
     definition: definition({ autonomyDefault: 'allow_changes' }),
     run: run(),
     triggerPayload: { kind: 'schedule' },
-    workspaceId: 'ws-automations',
   })
 
   assert.equal(result.status, 'running')
@@ -370,14 +378,14 @@ async function assertRunWorktreeIsThreadedToLaunchAndPatch(): Promise<void> {
 async function assertDirtyWorkspaceNoLongerBlocksLaunch(): Promise<void> {
   // The dirty-tree gate was removed: agent-backed runs execute in their own
   // worktree, so uncommitted changes in the checkout must not block a launch.
-  const automationsWorkspace = workspace('ws-automations', '/repo/dirty', {
-    mode: 'automations',
+  const host = workspace('ws-host', '/repo/dirty', {
+    mode: 'automations-host',
     editorState: {
       activeFilePath: '/repo/dirty/file.ts',
       openFiles: [{ path: '/repo/dirty/file.ts', name: 'file.ts', language: 'ts', isDirty: true }],
     },
   })
-  const harness = executorHarness([automationsWorkspace])
+  const harness = executorHarness([host])
   const result = await harness.executor({
     workspaceRoot: '/repo/dirty',
     definition: definition({
@@ -386,7 +394,6 @@ async function assertDirtyWorkspaceNoLongerBlocksLaunch(): Promise<void> {
     }),
     run: run(),
     triggerPayload: { kind: 'schedule' },
-    workspaceId: 'ws-automations',
   })
 
   assert.equal(result.status, 'running')
@@ -396,8 +403,8 @@ async function assertDirtyWorkspaceNoLongerBlocksLaunch(): Promise<void> {
 
 async function assertNonGitWorkspaceNoLongerBlocksLaunch(): Promise<void> {
   const folderPath = await mkdtemp(join(tmpdir(), 'multicode-automations-non-git-'))
-  const automationsWorkspace = workspace('ws-automations', folderPath, { mode: 'automations' })
-  const harness = executorHarness([automationsWorkspace])
+  const host = workspace('ws-host', folderPath, { mode: 'automations-host' })
+  const harness = executorHarness([host])
   const result = await harness.executor({
     workspaceRoot: folderPath,
     definition: definition({
@@ -406,7 +413,6 @@ async function assertNonGitWorkspaceNoLongerBlocksLaunch(): Promise<void> {
     }),
     run: run(),
     triggerPayload: { kind: 'schedule' },
-    workspaceId: 'ws-automations',
   })
 
   assert.equal(result.status, 'running')
@@ -599,7 +605,7 @@ async function assertRunSkillLoopIsPresetAndRunCommandIsNotRegistered(): Promise
   const providers = createBuiltInAutomationActionProviders()
   assert.deepEqual(providers.map((provider) => provider.kind).sort(), ['run-skill-loop', 'spawn-agent'])
 
-  const harness = executorHarness([workspace('ws-loop', '/repo/loop')])
+  const harness = executorHarness([workspace('ws-loop', '/repo/loop', { mode: 'automations-host' })])
   const result = await harness.executor({
     workspaceRoot: '/repo/loop',
     definition: definition({
@@ -903,10 +909,10 @@ void main().catch((error) => {
 
 async function main(): Promise<void> {
   assertBuiltInProviderRegistryUsesNamespacedIdsAndRejectsDuplicates()
-  await assertSpawnAgentCreatesWorkspaceAndLaunchesOnBus()
-  await assertSpawnAgentUsesExistingStandardWorkspace()
-  await assertOwningAutomationsWorkspaceIsLaunchTarget()
-  await assertExplicitConfigWorkspaceIdOverridesOwningWorkspace()
+  await assertDefaultRunCreatesHostWorkspaceAndLaunchesOnBus()
+  await assertDefaultRunReusesExistingHostWorkspace()
+  await assertDefaultRunNeverHijacksStandardWorkspace()
+  await assertExplicitConfigWorkspaceIdLaunchesIntoNamedWorkspace()
   await assertRunWorktreeIsThreadedToLaunchAndPatch()
   await assertDirtyWorkspaceNoLongerBlocksLaunch()
   await assertNonGitWorkspaceNoLongerBlocksLaunch()

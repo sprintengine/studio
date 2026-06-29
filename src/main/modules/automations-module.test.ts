@@ -255,7 +255,7 @@ function automationRun(): AutomationRun {
   }
 }
 
-function workspaceSnapshot(folderPath: string): unknown {
+function workspaceSnapshot(folderPath: string, mode: 'standard' | 'automations-host' = 'standard'): unknown {
   return {
     sequence: 1,
     state: {
@@ -263,7 +263,7 @@ function workspaceSnapshot(folderPath: string): unknown {
         {
           id: 'ws-non-git',
           name: 'Non Git',
-          mode: 'standard',
+          mode,
           folderPath,
           editorState: { openFiles: [], activeFilePath: null },
           agents: {},
@@ -536,7 +536,10 @@ async function testModuleExecutorDoesNotGateOnDirtyTreeBeforeLaunch(): Promise<v
     ipcMain: createFakeIpcMain().ipcMain,
     modules: [
       fakeAgentRuntimeModule({
-        workspaceSnapshot: workspaceSnapshot(folderPath),
+        // The default automation route launches into a per-project hidden
+        // automations-host workspace; seed one so the run reaches the launch
+        // (which the fake delegate then refuses) instead of trying to create one.
+        workspaceSnapshot: workspaceSnapshot(folderPath, 'automations-host'),
         delegateRequest: async (request) => {
           launchRequests.push(request)
           return { ok: false, code: 'should_not_launch', message: 'should not launch' }
