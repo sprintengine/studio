@@ -39,6 +39,8 @@ import {
   feedbackFindingSeverityLabels,
   feedbackIssueCategoryLabels,
   feedbackIssueSeverityLabels,
+  formatCompactTokenCount,
+  buildTaskTokenWindows,
 } from '../../utils/sprintengineRunSummary'
 import {
   getOpenSprintEngineFeedbackComments,
@@ -1152,6 +1154,86 @@ function TaskScoresLine({ task }: { task: SprintEngineTask }) {
         from <span className="font-mono">{feedback.agentId}</span>
         {captured ? `, ${captured}` : ''}
       </span>
+    </div>
+  )
+}
+
+// Per-task token attribution (Phase 2): the task total + a breakdown by window
+// (the developer implementation span and each sampled gate attempt, keyed by the
+// role/agent that spent them). Read-only, from SprintEngineTask.tokenUsage /
+// attempt.tokenUsage in the projection — no IPC. Absent attribution shows the
+// coverage story (no samples captured), never fabricated zeros; a window that
+// couldn't be cleanly sampled is labeled "partial" in plain text.
+function TaskTokenUsage({ task }: { task: SprintEngineTask }) {
+  const usage = task.tokenUsage
+  const windows = buildTaskTokenWindows(task)
+
+  return (
+    <div>
+      <div className="mb-2 text-[11px] font-semibold text-[color:var(--text-muted)]">Token usage</div>
+      {!usage ? (
+        <div className="text-[12.5px] text-[color:var(--text-disabled)]">
+          No per-task token attribution captured for this task.
+        </div>
+      ) : (
+        <>
+          <div className="flex items-baseline justify-between gap-3 border-b border-[color:var(--border-subtle)] pb-1.5">
+            <span className="text-[12px] text-[color:var(--text-muted)]">
+              Total
+              {usage.partial ? (
+                <span className="ml-1.5 text-[11px] text-[color:var(--text-disabled)]">partial</span>
+              ) : null}
+            </span>
+            <span
+              className="text-[13px] font-medium tabular-nums text-[color:var(--text-strong)]"
+              title={`${(usage.total.input + usage.total.output).toLocaleString()} input+output tokens`}
+            >
+              {formatCompactTokenCount(usage.total.input + usage.total.output)} tokens
+            </span>
+          </div>
+          <div className="mt-1 text-[11px] tabular-nums text-[color:var(--text-disabled)]">
+            input {formatCompactTokenCount(usage.total.input)} · output{' '}
+            {formatCompactTokenCount(usage.total.output)} · cache read{' '}
+            {formatCompactTokenCount(usage.total.cacheRead)} · cache created{' '}
+            {formatCompactTokenCount(usage.total.cacheCreation)}
+          </div>
+          <ul className="mt-2 space-y-1.5">
+            {windows.map((w, index) => (
+              <li
+                key={`${w.kind}-${w.role ?? ''}-${w.agentId ?? 'na'}-${index}`}
+                className="flex items-baseline justify-between gap-3"
+              >
+                <span className="inline-flex items-baseline gap-1.5 text-[12px] text-[color:var(--text-default)]">
+                  {w.kind === 'developer'
+                    ? 'Developer'
+                    : w.role
+                      ? getSprintEngineRoleLabel(w.role)
+                      : 'Review'}
+                  {w.agentId ? (
+                    <span className="font-mono text-[11px] text-[color:var(--text-muted)]">
+                      {w.agentId}
+                    </span>
+                  ) : null}
+                  {w.partial ? (
+                    <span
+                      className="text-[11px] text-[color:var(--text-disabled)]"
+                      title={w.reason ? `partial: ${w.reason}` : 'partial'}
+                    >
+                      partial
+                    </span>
+                  ) : null}
+                </span>
+                <span
+                  className="text-[12px] tabular-nums text-[color:var(--text-default)]"
+                  title={`${w.tokens.toLocaleString()} input+output tokens`}
+                >
+                  {formatCompactTokenCount(w.tokens)}
+                </span>
+              </li>
+            ))}
+          </ul>
+        </>
+      )}
     </div>
   )
 }
@@ -3163,6 +3245,8 @@ function SprintEngineTaskBody({
       ) : null}
 
       <TaskScoresLine task={selectedTask} />
+
+      <TaskTokenUsage task={selectedTask} />
 
       {showDiffTab ? (
         <div>

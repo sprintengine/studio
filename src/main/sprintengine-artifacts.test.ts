@@ -760,13 +760,18 @@ async function testIpcRegistersReadOnlyBridgeChannels(): Promise<void> {
       return { ok: true, data: null }
     },
     summarizeFeedback: async () => ({ ok: true, data: null }),
+    readTokenUsage: async () => {
+      calls.push('token-usage')
+      return { ok: true, data: null }
+    },
   })
 
   await handlers.get('sprintengine:registry:roles:read')?.(null, { workspaceRoot: '/tmp/workspace' })
   await handlers.get('sprintengine:registry:role:read')?.(null, { workspaceRoot: '/tmp/workspace', roleId: 'developer' })
   await handlers.get('sprintengine:dispatch:read')?.(null, { statePath: '/tmp/workspace/.multi-code/sprintengine/team/run.yaml', agentId: 'developer-1' })
+  await handlers.get('sprintengine:token-usage:read')?.(null, { statePath: '/tmp/workspace/.multi-code/sprintengine/team/run.yaml' })
 
-  assert.deepEqual(calls, ['roles', 'role', 'dispatch'])
+  assert.deepEqual(calls, ['roles', 'role', 'dispatch', 'token-usage'])
 }
 
 void main().catch((error) => {

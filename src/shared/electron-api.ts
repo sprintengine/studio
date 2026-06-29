@@ -2268,6 +2268,12 @@ export type ElectronApi = {
   readSprintEngineDispatch: (input: SprintEngineDispatchReadInput) => Promise<SprintEngineMcpReadResult>
   /** Sanitized per-run + per-agent feedback analysis for the run summary (read-only). */
   summarizeSprintEngineFeedback: (statePath: string) => Promise<SprintEngineMcpReadResult>
+  /**
+   * On-demand sprint-level token total (per-model + grand total + coverage),
+   * computed in main from the durable session ledger for a finished sprint.
+   * `data` is a `SprintEngineTokenUsage`. Read-only; never mutates CLI state.
+   */
+  readSprintEngineTokenUsage: (statePath: string) => Promise<SprintEngineMcpReadResult>
   initializeSwitchboard: (workspaceRoot: string) => Promise<SwitchboardInitApiResult>
   readSwitchboardTasks: (workspaceRoot: string) => Promise<SwitchboardReadResult>
   createSwitchboardTask: (input: SwitchboardCreateTaskInput) => Promise<SwitchboardMutationResult>

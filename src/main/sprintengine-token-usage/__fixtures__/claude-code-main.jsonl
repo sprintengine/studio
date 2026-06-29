@@ -1,0 +1,7 @@
+{"type":"user","uuid":"u1","message":{"role":"user","content":"hi"}}
+{"type":"assistant","uuid":"a1","isSidechain":false,"message":{"model":"claude-opus-4-8","usage":{"input_tokens":1807,"output_tokens":188,"cache_read_input_tokens":8605,"cache_creation_input_tokens":4152}}}
+{"type":"assistant","uuid":"a2","isSidechain":false,"message":{"model":"claude-opus-4-8","usage":{"input_tokens":12,"output_tokens":340,"cache_read_input_tokens":20000,"cache_creation_input_tokens":0}}}
+{"type":"assistant","uuid":"a2","isSidechain":false,"message":{"model":"claude-opus-4-8","usage":{"input_tokens":12,"output_tokens":340,"cache_read_input_tokens":20000,"cache_creation_input_tokens":0}}}
+{"type":"assistant","uuid":"a3","isSidechain":false,"message":{"model":"claude-sonnet-4-6","usage":{"input_tokens":500,"output_tokens":75,"cache_read_input_tokens":1000,"cache_creation_input_tokens":200}}}
+{this is a malformed line that must be skipped
+{"type":"assistant","uuid":"a4","message":{"model":"claude-opus-4-8"}}

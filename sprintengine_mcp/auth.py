@@ -18,6 +18,8 @@ AUDITED_TOOLS = {
     "sprintengine.agent.next_directive",
     "sprintengine.agent.heartbeat",
     "sprintengine.agent.leave",
+    "sprintengine.agent.record_session",
+    "sprintengine.agent.sample_token_usage",
     "sprintengine.subscribe",
     "sprintengine.join",
     "sprintengine.dispatch.ack",

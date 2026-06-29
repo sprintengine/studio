@@ -142,6 +142,8 @@ export type SprintEngineQualityGateAttempt = {
   note?: string
   /** Reviewer prose attached on gate verdict (the review itself). */
   summary?: string
+  /** Tokens this reviewer spent on the attempt (Phase 2); absent until sampled. */
+  tokenUsage?: SprintEngineWindowTokenUsage
 }
 
 export type SprintEngineQualityGate = {
@@ -1041,6 +1043,116 @@ export type SprintEngineTask = {
   latestOpenFeedback?: SprintEngineTaskComment[]
   /** Recorded review/test/product artifacts attached to gate attempts. */
   recordedArtifacts?: SprintEngineRecordedArtifact[]
+  /**
+   * Per-task token attribution (Phase 2): developer + per-attempt windows and
+   * the grand total. Absent until token sampling has produced data for the run.
+   */
+  tokenUsage?: SprintEngineTaskTokenUsage
+}
+
+// Durable record of which agent CLI sessions participated in a run, projected
+// from the run store's append-only session log. Keeps each agent's full
+// cliSessionIds history (a resume mints a new id and appends, never overwrites)
+// so per-model token usage stays recomputable per session after an app restart.
+// Agents on unmeasured CLIs still appear (with their cli, possibly no session
+// ids) so token coverage can name them.
+export type SprintEngineLedgerEntry = {
+  agentId: string
+  role: string
+  cli: AgentCli
+  cliSessionIds: string[]
+  firstSeenAt: string
+  lastSeenAt: string
+}
+
+// Cumulative token usage for one model. Cache reads/writes are kept distinct
+// from input/output (never folded in) so cache savings can be reported.
+export type SprintEngineModelTokenUsage = {
+  model: string
+  input: number
+  output: number
+  cacheRead: number
+  cacheCreation: number
+}
+
+export type SprintEngineTokenTotals = { input: number; output: number; cacheRead: number; cacheCreation: number }
+
+// Token usage attributed to one lifecycle window (Phase 2) — a developer
+// implementation span or a single quality-gate attempt — via cumulative-delta
+// sampling at Stop/SessionEnd boundaries. `partial` marks a window that could
+// not be cleanly measured (no flushed sample yet, still open, or a reworked
+// developer span that interleaves with review); it is reported, never zeroed,
+// with a `reason`.
+export type SprintEngineWindowTokenUsage = {
+  perModel: SprintEngineModelTokenUsage[]
+  total: SprintEngineTokenTotals
+  partial: boolean
+  reason?: string
+}
+
+// Per-task token attribution: the grand total plus the developer window broken
+// out separately. Each quality-gate attempt carries its own
+// SprintEngineWindowTokenUsage, so developer + reviewer (+ tester/product)
+// counts are reported separately and sum to this total.
+export type SprintEngineTaskTokenUsage = {
+  perModel: SprintEngineModelTokenUsage[]
+  total: SprintEngineTokenTotals
+  developer: SprintEngineWindowTokenUsage & { agentId: string }
+  partial: boolean
+}
+
+// Sprint-level token total: per-model breakdown + grand total, with explicit
+// coverage so unmeasured agents are named rather than silently zeroed. Computed
+// by walking the durable session ledger and reading each measured CLI session's
+// usage, so it is reproducible after an app restart with no live terminals.
+export type SprintEngineTokenUsage = {
+  perModel: SprintEngineModelTokenUsage[]
+  total: { input: number; output: number; cacheRead: number; cacheCreation: number }
+  coverage: {
+    measuredAgents: number
+    unmeasuredAgents: number
+    // Agents whose every recorded session returned measured:false (unsupported
+    // CLI, server down, transcript missing), named with their cli.
+    unmeasured: Array<{ agentId: string; cli: string }>
+  }
+  computedAt: string
+}
+
+// Per-model pricing in USD per 1,000,000 tokens, with a distinct rate for each
+// billable category (these differ materially — cache reads are far cheaper than
+// fresh input, cache writes can cost more). The default table lives in
+// src/main/sprintengine-token-usage/pricing.ts; this shape is what an override
+// (settings/config) supplies. See knowledge/multicode/sprint-engine.md.
+export type SprintEngineModelPricing = {
+  input: number
+  output: number
+  cacheRead: number
+  cacheCreation: number
+}
+
+// Dollar cost for one model's usage. `priced` is false (and `cost` null) when no
+// rate is configured for the model — its tokens are reported but never priced at
+// zero or silently dropped. `cacheSavings` is the USD saved by serving cacheRead
+// tokens at the cache rate instead of the full input rate.
+export type SprintEngineModelCost = {
+  model: string
+  priced: boolean
+  cost: { input: number; output: number; cacheRead: number; cacheCreation: number; total: number } | null
+  cacheSavings: number
+}
+
+// Sprint-level dollar cost: per-model breakdown + grand total, the implied cache
+// savings, and the names of any models that had usage but no configured price.
+// A pure function of stored per-model usage (T4) times the rates, so changing
+// the pricing table recomputes cost with no usage re-collection.
+export type SprintEngineTokenCost = {
+  currency: 'USD'
+  perModel: SprintEngineModelCost[]
+  total: { input: number; output: number; cacheRead: number; cacheCreation: number; total: number }
+  cacheSavings: number
+  // Models with usage but no rate in the pricing table — surfaced, never zeroed.
+  unpricedModels: string[]
+  computedAt: string
 }
 
 export type SprintEngineState = {
@@ -1077,6 +1189,12 @@ export type SprintEngineState = {
    * `worktreePath` and per-task commits land on `branchName`.
    */
   vcs?: SprintEngineVcs | null
+  /**
+   * Durable per-agent CLI session ledger from the projection, used to recompute
+   * token usage per session (incl. across resumes) and to name unmeasured-CLI
+   * agents in coverage. Absent until at least one agent session is recorded.
+   */
+  ledger?: SprintEngineLedgerEntry[]
 }
 
 export type SprintEngineVcs = {
