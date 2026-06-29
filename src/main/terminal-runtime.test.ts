@@ -113,6 +113,7 @@ async function main(): Promise<void> {
     await assertSprintEngineSpawnReleasesUnusedRunWhenPtySpawnFails(runtimeModule)
     await assertSprintEngineRunCleanupWaitsForLastTerminal(runtimeModule)
     await assertSprintEngineAgentHeartbeatAndLeaveUseManagedMcp(runtimeModule)
+    await assertSprintEngineSamplesTokenUsageOnStop(runtimeModule)
     await assertSprintEngineShutdownWaitsForLeaveBeforeRelease(runtimeModule)
     await assertSprintEngineTeardownIsSessionObjectScoped(runtimeModule)
     await assertSprintEngineConcurrentSpawnFailureKeepsReservedRun(runtimeModule)
@@ -542,6 +543,90 @@ async function assertSprintEngineAgentHeartbeatAndLeaveUseManagedMcp(runtimeModu
       cleanupMcpConfig: true,
     }])
     assert.deepEqual(order, ['sprintengine.agent.record_session', 'sprintengine.agent.heartbeat', 'sprintengine.agent.leave', 'release'])
+  } finally {
+    await runtime.shutdown()
+  }
+}
+
+async function assertSprintEngineSamplesTokenUsageOnStop(runtimeModule: RuntimeModule): Promise<void> {
+  const workspaceRoot = await mkdtemp(join(tmpdir(), 'multicode-terminal-runtime-sprintengine-sample-'))
+  const sprintEngineStatePath = join(workspaceRoot, '.multi-code', 'sprintengine', 'run.yaml')
+  const toolCalls: ToolCallInput[] = []
+  mockPty.spawnCalls = []
+  mockSender.sent = []
+
+  const runtime = runtimeModule.createTerminalRuntime({
+    diagnosticsEnabled: false,
+    requireAuthenticatedUser: () => undefined,
+    logMainPerfEvent: () => undefined,
+    syncMcpConfig: async (): Promise<SyncResult> => ({
+      ok: true,
+      managedSprintEngineRunId: 'sample-run-1',
+      runTokenEnv: { [MANAGED_SPRINTENGINE_MCP_RUN_TOKEN_ENV_VAR]: 'sample-token' },
+    }),
+    callManagedSprintEngineTool: async (input) => {
+      toolCalls.push(input)
+      return { ok: true }
+    },
+    // Stub the adapter so the test does not depend on a real transcript.
+    readSessionTokenUsage: async (cli, cliSessionId) => ({
+      cli,
+      cliSessionId,
+      measured: true,
+      perModel: [{ model: 'gpt-5.5', input: 100, output: 10, cacheRead: 5, cacheCreation: 0 }],
+      sampledAt: '2026-06-28T10:05:00Z',
+    }),
+  })
+
+  try {
+    const result = await runtime.ipcHandlers.spawnTerminal(mockSender as unknown as WebContents, {
+      sessionId: 'session_sample',
+      cols: 120,
+      rows: 30,
+      cwd: workspaceRoot,
+      sprintEngineStatePath,
+      agentId: 'developer-9',
+      cli: 'codex',
+      kind: 'agent',
+      shellOnly: false,
+      mcpSettings: { syncEnabled: false, servers: {} } satisfies McpSettings,
+    })
+    assert.equal(result.ok, true, JSON.stringify(result))
+
+    // The agent reports its CLI session id, then a Stop hook flushes the turn.
+    runtime.ingestAgentStateFrame({
+      type: 'agent_state',
+      agentId: 'developer-9',
+      workspaceId: null,
+      sessionId: 'S1',
+      phase: 'thinking',
+      event: 'PreToolUse',
+      ts: Date.now(),
+    })
+    runtime.ingestAgentStateFrame({
+      type: 'agent_state',
+      agentId: 'developer-9',
+      workspaceId: null,
+      sessionId: 'S1',
+      phase: 'idle',
+      event: 'Stop',
+      ts: Date.now(),
+    })
+    await delay(20)
+
+    const sampleCalls = toolCalls.filter((call) => call.toolName === 'sprintengine.agent.sample_token_usage')
+    assert.equal(sampleCalls.length, 1, 'one token-usage sample posted on Stop')
+    assert.deepEqual(sampleCalls[0], {
+      runId: 'sample-run-1',
+      toolName: 'sprintengine.agent.sample_token_usage',
+      arguments: {
+        agentId: 'developer-9',
+        cli: 'codex',
+        cliSessionId: 'S1',
+        perModel: [{ model: 'gpt-5.5', input: 100, output: 10, cacheRead: 5, cacheCreation: 0 }],
+        sampledAt: '2026-06-28T10:05:00Z',
+      },
+    })
   } finally {
     await runtime.shutdown()
   }

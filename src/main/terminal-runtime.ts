@@ -17,6 +17,7 @@ import type {
 } from '../shared/agent-runtime'
 import { createAgentStreamWatcher } from './agent-stream-watcher'
 import { deriveActivityFromPhase, evaluateAgentStall, isAuthoritativeWorkingPhase, selectAgentStateTarget, type AgentStateFrame } from './agent-state'
+import { readSessionTokenUsage, type SessionTokenUsage } from './sprintengine-token-usage'
 import type { TerminalSpawnPayload } from './ipc/terminal-ipc'
 import {
   cleanupTerminalStartupScript,
@@ -95,6 +96,9 @@ type TerminalRuntimeOptions = {
     toolName: string
     arguments?: Record<string, unknown>
   }): Promise<unknown>
+  // Reads a CLI session's cumulative per-model token usage (Phase 2 sampling).
+  // Defaults to the real adapter dispatcher; tests inject a stub.
+  readSessionTokenUsage?(cli: AgentCli, cliSessionId: string): Promise<SessionTokenUsage>
   // Ensures a built-in skill is installed into the workspace before an agent
   // launches. Debug Mode uses this to guarantee the `debug` skill is present in
   // the session CLI's native skill dir so the injected invocation resolves to a
@@ -153,6 +157,7 @@ const agentSessionExitListeners = new Set<AgentSessionExitListener>()
 let syncMcpConfig: TerminalRuntimeOptions['syncMcpConfig']
 let releaseManagedSprintEngineRun: TerminalRuntimeOptions['releaseManagedSprintEngineRun']
 let callManagedSprintEngineTool: TerminalRuntimeOptions['callManagedSprintEngineTool']
+let readSessionTokenUsageImpl: (cli: AgentCli, cliSessionId: string) => Promise<SessionTokenUsage> = readSessionTokenUsage
 let ensureBuiltinSkillInstalled: TerminalRuntimeOptions['ensureBuiltinSkillInstalled']
 let prepareAgentStateHook: TerminalRuntimeOptions['prepareAgentStateHook']
 
@@ -275,6 +280,7 @@ export function createTerminalRuntime(options: TerminalRuntimeOptions): Terminal
   syncMcpConfig = options.syncMcpConfig
   releaseManagedSprintEngineRun = options.releaseManagedSprintEngineRun
   callManagedSprintEngineTool = options.callManagedSprintEngineTool
+  readSessionTokenUsageImpl = options.readSessionTokenUsage ?? readSessionTokenUsage
   ensureBuiltinSkillInstalled = options.ensureBuiltinSkillInstalled
   prepareAgentStateHook = options.prepareAgentStateHook
   sprintEngineMcpRunRefCounts.clear()
@@ -1021,6 +1027,12 @@ function ingestAgentStateFrame(frame: AgentStateFrame): void {
   ) {
     broadcastTerminalSessionsChanged()
   }
+
+  // Stop/SessionEnd is the flush boundary: the agent finished a turn and its CLI
+  // transcript is written, so sample the session's cumulative token usage now.
+  if (frame.event === 'Stop' || frame.event === 'SessionEnd') {
+    void sampleSprintEngineAgentTokenUsage(session)
+  }
 }
 
 function retainFailedTerminalSession(input: {
@@ -1218,6 +1230,47 @@ function recordSprintEngineAgentSession(session: TerminalSession): Promise<void>
       logMainPerfEvent('TerminalRuntime', 'sprintengine-record-session-failed', {
         sessionId: session.sessionId,
         agentId: session.agentId,
+        message: getErrorMessage(error),
+      })
+    })
+  pendingSprintEngineLifecycleCalls.add(call)
+  void call.finally(() => {
+    pendingSprintEngineLifecycleCalls.delete(call)
+  })
+  return call
+}
+
+// Phase 2 token attribution: when an agent's turn flushes (Stop/SessionEnd), the
+// host reads its CLI session's cumulative per-model usage and posts it to the run
+// store. The python core brackets these samples against task/gate-attempt
+// lifecycle windows to attribute tokens to tasks and roles. Sampling at flush
+// (not at Multicode's status-change instant) is what makes the cumulative
+// accurate; an unmeasured/empty reading is simply skipped (no fabricated zero).
+function sampleSprintEngineAgentTokenUsage(session: TerminalSession): Promise<void> | null {
+  const runId = session.sprintEngineMcpRunId
+  const { cli, cliSessionId, agentId } = session
+  if (!runId || !session.sprintEngineStatePath || !agentId || !cli || !cliSessionId) return null
+  const callTool = callManagedSprintEngineTool
+  if (!callTool) return null
+  const call = readSessionTokenUsageImpl(cli, cliSessionId)
+    .then((usage) => {
+      if (!usage.measured || usage.perModel.length === 0) return undefined
+      return Promise.resolve(callTool({
+        runId,
+        toolName: 'sprintengine.agent.sample_token_usage',
+        arguments: {
+          agentId,
+          cli,
+          cliSessionId,
+          perModel: usage.perModel,
+          sampledAt: usage.sampledAt,
+        },
+      })).then(() => undefined)
+    })
+    .catch((error) => {
+      logMainPerfEvent('TerminalRuntime', 'sprintengine-token-sample-failed', {
+        sessionId: session.sessionId,
+        agentId,
         message: getErrorMessage(error),
       })
     })

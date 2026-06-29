@@ -142,6 +142,8 @@ export type SprintEngineQualityGateAttempt = {
   note?: string
   /** Reviewer prose attached on gate verdict (the review itself). */
   summary?: string
+  /** Tokens this reviewer spent on the attempt (Phase 2); absent until sampled. */
+  tokenUsage?: SprintEngineWindowTokenUsage
 }
 
 export type SprintEngineQualityGate = {
@@ -1028,6 +1030,11 @@ export type SprintEngineTask = {
   latestOpenFeedback?: SprintEngineTaskComment[]
   /** Recorded review/test/product artifacts attached to gate attempts. */
   recordedArtifacts?: SprintEngineRecordedArtifact[]
+  /**
+   * Per-task token attribution (Phase 2): developer + per-attempt windows and
+   * the grand total. Absent until token sampling has produced data for the run.
+   */
+  tokenUsage?: SprintEngineTaskTokenUsage
 }
 
 // Durable record of which agent CLI sessions participated in a run, projected
@@ -1053,6 +1060,32 @@ export type SprintEngineModelTokenUsage = {
   output: number
   cacheRead: number
   cacheCreation: number
+}
+
+export type SprintEngineTokenTotals = { input: number; output: number; cacheRead: number; cacheCreation: number }
+
+// Token usage attributed to one lifecycle window (Phase 2) — a developer
+// implementation span or a single quality-gate attempt — via cumulative-delta
+// sampling at Stop/SessionEnd boundaries. `partial` marks a window that could
+// not be cleanly measured (no flushed sample yet, still open, or a reworked
+// developer span that interleaves with review); it is reported, never zeroed,
+// with a `reason`.
+export type SprintEngineWindowTokenUsage = {
+  perModel: SprintEngineModelTokenUsage[]
+  total: SprintEngineTokenTotals
+  partial: boolean
+  reason?: string
+}
+
+// Per-task token attribution: the grand total plus the developer window broken
+// out separately. Each quality-gate attempt carries its own
+// SprintEngineWindowTokenUsage, so developer + reviewer (+ tester/product)
+// counts are reported separately and sum to this total.
+export type SprintEngineTaskTokenUsage = {
+  perModel: SprintEngineModelTokenUsage[]
+  total: SprintEngineTokenTotals
+  developer: SprintEngineWindowTokenUsage & { agentId: string }
+  partial: boolean
 }
 
 // Sprint-level token total: per-model breakdown + grand total, with explicit

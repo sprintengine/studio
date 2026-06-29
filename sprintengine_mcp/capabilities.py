@@ -47,6 +47,7 @@ AGENT_COMMON_TOOLS: frozenset[str] = frozenset({
     "sprintengine.agent.heartbeat",
     "sprintengine.agent.leave",
     "sprintengine.agent.record_session",
+    "sprintengine.agent.sample_token_usage",
     "sprintengine.subscribe",
     "sprintengine.dispatch.next",
     "sprintengine.dispatch.ack",

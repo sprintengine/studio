@@ -97,6 +97,7 @@ MCP_TOOL_CONTRACTS: dict[str, McpToolContract] = {
         _special("sprintengine.agent.heartbeat"),
         _special("sprintengine.agent.leave"),
         _special("sprintengine.agent.record_session"),
+        _special("sprintengine.agent.sample_token_usage"),
         _special("sprintengine.subscribe"),
         _command("sprintengine.join", cmd_join),
         _command("sprintengine.summary", cmd_summary),
