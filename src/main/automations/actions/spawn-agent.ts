@@ -175,8 +175,9 @@ export function composeSpawnAgentPrompt(input: {
   const signalInstruction = [
     'When you finish, declare your terminal outcome as your final action:',
     `write the file ${RUN_SIGNAL_FILENAME} in your current working directory with exactly this JSON shape:`,
-    '{ "status": "completed" | "failed", "summary"?: string }',
+    '{ "status": "completed" | "failed", "summary"?: string, "reports"?: string[] }',
     'Use "completed" when you finished the task, or "failed" if you could not complete it. Include a short summary of what you did or why it failed.',
+    'If you wrote any report files, list each one in "reports" as a project-relative path under reports/ (for example "reports/2026-06-28-review.md"); omit "reports" when you wrote none.',
   ]
 
   return [

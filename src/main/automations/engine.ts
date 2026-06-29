@@ -13,6 +13,7 @@ import type {
   AutomationsRunEvent,
   ScheduleTriggerConfig,
 } from '../../shared/automations/contracts'
+import { normalizeReportPath } from '../../shared/automations/contracts'
 import type { WorkspaceSyncSnapshot } from '../../shared/workspace-sync'
 import { AutomationsStore, type AutomationStoreProblem, type AutomationStoreState } from './store'
 import type { AutomationPullRequestResult } from './pull-request'
@@ -479,6 +480,9 @@ export class AutomationsEngine {
     runId: string
     outcome: 'completed' | 'failed'
     summary?: string
+    // Report files the agent declared. Each is containment-guarded (under
+    // reports/) before it lands on AutomationRun.reportPaths; bad paths drop.
+    reports?: string[]
     workspaceId?: string
     // Routes the terminal run-event. 'manual' (default, IPC button) always emits;
     // 'timer' (signal-scan auto-finalize) emits only on failure so the completed
@@ -517,6 +521,7 @@ export class AutomationsEngine {
       runId: string
       outcome: 'completed' | 'failed'
       summary?: string
+      reports?: string[]
       workspaceId?: string
       eventTrigger?: AutomationRunEventTrigger
     },
@@ -573,6 +578,10 @@ export class AutomationsEngine {
       }
     }
 
+    // Map declared reports onto the run only for paths that pass the shared
+    // containment guard; escaping/out-of-reports paths are dropped without
+    // failing finalize. Keep any existing reportPaths when none survive.
+    const reportPaths = containReportPaths(input.reports)
     const finalRun: AutomationRun = {
       ...run,
       status: input.outcome,
@@ -580,6 +589,7 @@ export class AutomationsEngine {
       pullRequestUrl,
       blockedReason: withheldChangesReason ?? run.blockedReason,
       summary: summaryParts.length > 0 ? summaryParts.join(' ') : run.summary,
+      reportPaths: reportPaths.length > 0 ? reportPaths : run.reportPaths,
     }
     const recorded = await store.recordRun(finalRun)
     if (!recorded.ok) {
@@ -657,6 +667,7 @@ export class AutomationsEngine {
         runId: pending.runId,
         outcome: signal.outcome,
         summary: signal.summary,
+        reports: signal.reports,
         workspaceId: pending.workspaceId,
         eventTrigger: 'timer',
       })
@@ -1115,6 +1126,22 @@ function completeRun(run: AutomationRun, patch: Partial<AutomationRun>, complete
     branch: patch.branch,
     pullRequestUrl: patch.pullRequestUrl,
   }
+}
+
+// Normalize and contain declared report paths, dropping any that fail the
+// shared guard (absolute, '..' traversal, or outside reports/) and de-duping
+// the survivors. A failing path never fails finalize — it is simply omitted.
+function containReportPaths(reports: string[] | undefined): string[] {
+  if (!reports) return []
+  const seen = new Set<string>()
+  const contained: string[] = []
+  for (const raw of reports) {
+    const normalized = normalizeReportPath(raw)
+    if (!normalized || seen.has(normalized)) continue
+    seen.add(normalized)
+    contained.push(normalized)
+  }
+  return contained
 }
 
 function isTerminalRunStatus(status: AutomationRunStatus): boolean {

