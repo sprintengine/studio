@@ -21,6 +21,7 @@ from sprintengine_mcp.capabilities import (
     AGENT_COMMON_TOOLS,
     PLANNING_TOOLS,
     REVIEW_TOOLS,
+    ROSTER_GROWTH_TOOLS,
     allowed_tools_for_classification,
     classify_role,
     clear_role_classification_cache,
@@ -54,6 +55,7 @@ def test_capability_table_stays_within_active_contracts() -> None:
     assert AGENT_COMMON_TOOLS <= all_tools
     assert REVIEW_TOOLS <= all_tools
     assert PLANNING_TOOLS <= all_tools
+    assert ROSTER_GROWTH_TOOLS <= PLANNING_TOOLS
     # Every active tool is reachable by some classification (operator gets all).
     assert allowed_tools_for_classification("operator", all_tools) == all_tools
 
@@ -100,6 +102,65 @@ def test_listing_matches_capability_table_per_role(tmp_path) -> None:
     # Run-scoped sessions (no bound role) and stdio keep the full surface.
     assert listed_names(server, make_context(fixture, tmp_path)) == set(TOOL_SCHEMAS)
     assert listed_names(server, None) == set(TOOL_SCHEMAS)
+
+
+def test_general_gets_planning_surface_without_roster_growth(tmp_path) -> None:
+    """A soulless General plans, builds, reviews, and tests a run by itself, so
+    it gets the planning + review surface — but never `roster.add` /
+    `roster.replenish`, the structural fence that stops it growing the team. It
+    needs no registry manifest, and architect classification is unchanged."""
+    clear_role_classification_cache()
+    fixture = create_team(tmp_path, "cap-general", [task("T1", "Work", "developer")])
+    server = SprintEngineMcpServer(allowed_roots=[tmp_path])
+
+    assert classify_role("general", workspace_root=tmp_path) == "general"
+    # No manifest exists for `general`; recognition is by id alone.
+    assert classify_role("architect", workspace_root=tmp_path) == "architect"
+
+    expected = AGENT_COMMON_TOOLS | REVIEW_TOOLS | (PLANNING_TOOLS - ROSTER_GROWTH_TOOLS)
+    listed = listed_names(server, make_context(fixture, tmp_path, role="general"))
+    assert listed == allowed_tools_for_classification("general", TOOL_SCHEMAS)
+    assert listed == expected
+
+    # Planning + gate + review surface is present.
+    for granted in ("sprintengine.plan.add_task", "sprintengine.task.ready", "sprintengine.gate.verdict", "sprintengine.task.request_changes", "sprintengine.roster.list"):
+        assert granted in listed, granted
+    # The team-growth fence: withheld for a General, kept for the architect.
+    for withheld in ROSTER_GROWTH_TOOLS:
+        assert withheld not in listed, withheld
+        assert withheld in listed_names(server, make_context(fixture, tmp_path, role="architect")), withheld
+
+
+def test_general_cannot_grow_roster_but_can_plan(tmp_path) -> None:
+    clear_role_classification_cache()
+    fixture = create_team(tmp_path, "cap-general-calls", [task("T1", "Work", "developer")])
+    state = read_state(fixture.state_path)
+    state["sprintengine"]["rosterConfigured"] = True
+    state["agents"] = {
+        "general-a": {"role": "general", "status": "idle", "currentTaskId": None},
+        "developer-a": {"role": "developer", "status": "idle", "currentTaskId": None},
+    }
+    write_state(fixture.state_path, state)
+    server = SprintEngineMcpServer(allowed_roots=[tmp_path])
+
+    denied = server.call_tool(
+        "sprintengine.roster.add",
+        {"statePath": str(fixture.state_path), "role": "developer"},
+        actor("general-a", "general"),
+    )
+    assert denied["ok"] is False
+    assert denied["error"]["code"] == "tool_not_permitted_for_role"
+    assert denied["error"]["details"]["role"] == "general"
+
+    # The planning surface is reachable for a General: plan.add_task passes the
+    # capability gate and creates the task (recognising `general` as a *task*
+    # role is later work, so this plans a rostered developer task).
+    planned = server.call_tool(
+        "sprintengine.plan.add_task",
+        {"statePath": str(fixture.state_path), "title": "Planned by General", "role": "developer"},
+        actor("general-a", "general"),
+    )
+    assert planned["ok"] is True
 
 
 def test_hidden_tools_fail_when_called_by_name(tmp_path) -> None:
