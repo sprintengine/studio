@@ -147,6 +147,174 @@ async function main(): Promise<void> {
     url: 'https://mcp.sentry.dev/mcp',
   })
 
+  // --- OpenCode writer (format 'opencode'): real bundled manifest ---
+  const opencodeRoot = join(temp, 'opencode-workspace')
+  await mkdir(join(opencodeRoot, '.multi-code', 'sprintengine', 'managed'), { recursive: true })
+  const opencodeStatePath = join(opencodeRoot, '.multi-code', 'sprintengine', 'managed', 'run.yaml')
+  await writeFile(opencodeStatePath, 'sprintengine:\n  name: managed\n  status: active\n', 'utf-8')
+  const opencodeConfigPath = join(opencodeRoot, 'opencode.json')
+  // Pre-existing user config: a top-level key and a user-authored server that must survive sync.
+  await writeFile(
+    opencodeConfigPath,
+    JSON.stringify({
+      $schema: 'https://opencode.ai/config.json',
+      model: 'anthropic/claude-opus-4',
+      mcp: { 'user-remote': { type: 'remote', url: 'https://user.example.com/mcp' } },
+    }, null, 2),
+    'utf-8'
+  )
+  const opencodeService = createMcpConfigService({
+    lookupPlugin,
+    homeDir: () => homeRoot,
+    userDataDir: () => join(temp, 'opencode-user-data'),
+    runtimeRoot: () => process.cwd(),
+  })
+  // The sync path consumes only statePath + http; build inline so this block
+  // does not depend on the plugin-registry override set up later in this test.
+  const opencodeManagedInput = {
+    statePath: opencodeStatePath,
+    workspaceRoot: opencodeRoot,
+    actorId: 'workspace-user',
+    http: {
+      url: 'http://127.0.0.1:49160/mcp',
+      authTokenEnvVar: MANAGED_SPRINTENGINE_MCP_RUN_TOKEN_ENV_VAR,
+    },
+  }
+  const opencodeSettings: McpSettings = {
+    syncEnabled: true,
+    servers: {
+      'local-helper': {
+        id: 'local-helper',
+        name: 'Local Helper',
+        transport: 'stdio',
+        command: 'node',
+        args: ['/srv/helper.js', '--flag'],
+        env: { HELPER_TOKEN: 'abc' },
+        enabled: true,
+        clients: ['opencode'],
+        scope: 'workspace',
+        source: 'custom',
+        riskLevel: 'local-command',
+      },
+    },
+  }
+  const opencodeResult = opencodeService.sync({
+    workspaceRoot: opencodeRoot,
+    settings: opencodeSettings,
+    clients: ['opencode'],
+    managedSprintEngine: opencodeManagedInput,
+  })
+  assert.equal(opencodeResult.ok, true)
+  const opencodeConfig = JSON.parse(await readFile(opencodeConfigPath, 'utf-8')) as {
+    $schema?: string
+    model?: string
+    mcp: Record<string, Record<string, unknown>>
+  }
+  // Top-level user keys preserved.
+  assert.equal(opencodeConfig.$schema, 'https://opencode.ai/config.json')
+  assert.equal(opencodeConfig.model, 'anthropic/claude-opus-4')
+  // User-authored server preserved.
+  assert.deepEqual(opencodeConfig.mcp['user-remote'], { type: 'remote', url: 'https://user.example.com/mcp' })
+  // Managed remote server: env-backed bearer via {env:VAR} interpolation, no literal token.
+  assert.deepEqual(opencodeConfig.mcp[MANAGED_SPRINTENGINE_MCP_SERVER_ID], {
+    type: 'remote',
+    url: 'http://127.0.0.1:49160/mcp',
+    headers: { Authorization: `Bearer {env:${MANAGED_SPRINTENGINE_MCP_RUN_TOKEN_ENV_VAR}}` },
+  })
+  // Local/stdio server: command string array + environment record.
+  assert.deepEqual(opencodeConfig.mcp['local-helper'], {
+    type: 'local',
+    command: ['node', '/srv/helper.js', '--flag'],
+    environment: { HELPER_TOKEN: 'abc' },
+  })
+  const opencodeRaw = await readFile(opencodeConfigPath, 'utf-8')
+  assert.doesNotMatch(opencodeRaw, /\$\{/, 'opencode uses {env:VAR}, never shell-style ${VAR} interpolation')
+
+  // Idempotent re-sync: no duplicated managed entry, same three servers.
+  const opencodeRerun = opencodeService.sync({
+    workspaceRoot: opencodeRoot,
+    settings: opencodeSettings,
+    clients: ['opencode'],
+    managedSprintEngine: opencodeManagedInput,
+  })
+  assert.equal(opencodeRerun.ok, true)
+  const opencodeConfigRerun = JSON.parse(await readFile(opencodeConfigPath, 'utf-8')) as {
+    mcp: Record<string, unknown>
+  }
+  assert.deepEqual(
+    Object.keys(opencodeConfigRerun.mcp).sort(),
+    ['local-helper', 'user-remote', MANAGED_SPRINTENGINE_MCP_SERVER_ID].sort()
+  )
+
+  // Removing the managed server preserves user-authored + other managed servers.
+  const opencodeCleanup = opencodeService.removeManagedSprintEngine({
+    workspaceRoot: opencodeRoot,
+    clients: ['opencode'],
+  })
+  assert.equal(opencodeCleanup.ok, true)
+  const opencodeCleaned = JSON.parse(await readFile(opencodeConfigPath, 'utf-8')) as {
+    mcp: Record<string, unknown>
+  }
+  assert.equal(Boolean(opencodeCleaned.mcp[MANAGED_SPRINTENGINE_MCP_SERVER_ID]), false)
+  assert.deepEqual(opencodeCleaned.mcp['user-remote'], { type: 'remote', url: 'https://user.example.com/mcp' })
+  assert.deepEqual(opencodeCleaned.mcp['local-helper'], {
+    type: 'local',
+    command: ['node', '/srv/helper.js', '--flag'],
+    environment: { HELPER_TOKEN: 'abc' },
+  })
+
+  // Removing the only managed server strips the mcp block entirely, keeping other config.
+  const opencodeSoloRoot = join(temp, 'opencode-solo-workspace')
+  await mkdir(opencodeSoloRoot, { recursive: true })
+  await writeFile(
+    join(opencodeSoloRoot, 'opencode.json'),
+    JSON.stringify({
+      $schema: 'https://opencode.ai/config.json',
+      mcp: { [MANAGED_SPRINTENGINE_MCP_SERVER_ID]: { type: 'remote', url: 'http://127.0.0.1:1/mcp' } },
+    }, null, 2),
+    'utf-8'
+  )
+  const opencodeSoloCleanup = opencodeService.removeManagedSprintEngine({
+    workspaceRoot: opencodeSoloRoot,
+    clients: ['opencode'],
+  })
+  assert.equal(opencodeSoloCleanup.ok, true)
+  const opencodeSolo = JSON.parse(await readFile(join(opencodeSoloRoot, 'opencode.json'), 'utf-8')) as Record<string, unknown>
+  assert.equal('mcp' in opencodeSolo, false, 'empty managed block should be stripped, not left as {}')
+  assert.equal(opencodeSolo.$schema, 'https://opencode.ai/config.json')
+
+  // Honest failure for a shape OpenCode cannot express (SSE): error issue, no fake write.
+  const opencodeUnsupported = opencodeService.sync({
+    workspaceRoot: opencodeRoot,
+    clients: ['opencode'],
+    settings: {
+      syncEnabled: true,
+      servers: {
+        'sse-server': {
+          id: 'sse-server',
+          name: 'SSE Server',
+          transport: 'sse',
+          url: 'https://sse.example.com/mcp',
+          enabled: true,
+          required: true,
+          clients: ['opencode'],
+          scope: 'workspace',
+          source: 'custom',
+          riskLevel: 'network',
+        },
+      },
+    },
+  })
+  assert.equal(opencodeUnsupported.ok, false)
+  const opencodeUnsupportedIssues = opencodeUnsupported.issues ?? []
+  assert.equal(
+    opencodeUnsupportedIssues.some((issue) =>
+      issue.level === 'error' && issue.serverId === 'sse-server' && issue.message.includes('SSE')
+    ),
+    true,
+    `unsupported SSE shape should emit an error issue, got: ${JSON.stringify(opencodeUnsupportedIssues)}`
+  )
+
   const blocked = service.sync({
     workspaceRoot,
     clients: ['codex'],

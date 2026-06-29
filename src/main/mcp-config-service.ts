@@ -516,7 +516,10 @@ function syncForFormat(input: SyncForFormatInput): {
       const result = syncClaude(input)
       return { targets: [result.target], issues: result.issues }
     }
-    case 'opencode':
+    case 'opencode': {
+      const result = syncOpencode(input)
+      return { targets: [result.target], issues: result.issues }
+    }
     case 'generic': {
       const hasRequired = input.servers.some((server) => server.required)
       return {
@@ -619,6 +622,118 @@ function syncClaude(input: SyncForFormatInput): {
     target: { client, path, serverIds: workspaceServers.map((server) => server.id) },
     issues,
   }
+}
+
+function syncOpencode(input: SyncForFormatInput): {
+  target: McpSyncTarget
+  issues: McpValidationIssue[]
+} {
+  const { plugin, servers, knownServerIds, workspaceRoot, write, context, client } = input
+  const issues: McpValidationIssue[] = []
+  // OpenCode's `mcp` schema expresses local (stdio) and remote (HTTP) servers
+  // only. Surface anything it cannot represent instead of writing a fake entry.
+  const writableServers: McpServerConfig[] = []
+  for (const server of servers) {
+    if (server.transport === 'sse') {
+      issues.push({
+        level: server.required ? 'error' : 'warning',
+        client,
+        serverId: server.id,
+        message: `OpenCode MCP config supports local (stdio) and remote (HTTP) servers only; SSE server ${server.name} cannot be synced. Use an HTTP endpoint instead.`,
+      })
+      continue
+    }
+    writableServers.push(server)
+  }
+
+  const serverIds = writableServers.map((server) => server.id)
+  const scope: McpScope = writableServers.some((server) => server.scope === 'user') ? 'user' : 'workspace'
+  const path = resolveMcpTargetPath(plugin.mcpConfig!, scope, workspaceRoot, context.homeDir)
+  if (!path) return { target: { client, path: '', serverIds }, issues }
+  if (issues.some((issue) => issue.level === 'error')) {
+    return { target: { client, path, serverIds }, issues }
+  }
+
+  if (write && (writableServers.length > 0 || knownServerIds.length > 0)) {
+    const prepared = prepareWritableConfigFile(path, client)
+    if (!prepared.ok) {
+      return { target: { client, path, serverIds }, issues: [...issues, prepared.issue] }
+    }
+    // Nothing to add and no file to prune from: do not create an empty config.
+    if (!prepared.existed && writableServers.length === 0) {
+      return { target: { client, path, serverIds }, issues }
+    }
+    let existing: Record<string, unknown> = {}
+    if (prepared.existed && prepared.previous.trim()) {
+      try {
+        existing = JSON.parse(prepared.previous) as Record<string, unknown>
+      } catch {
+        issues.push({
+          level: 'error',
+          client,
+          message: `opencode.json is not valid JSON. Fix it before syncing OpenCode MCPs.`,
+        })
+        return { target: { client, path, serverIds }, issues }
+      }
+    }
+    const currentServers = existing.mcp && typeof existing.mcp === 'object' && !Array.isArray(existing.mcp)
+      ? existing.mcp as Record<string, unknown>
+      : {}
+    const nextServers = { ...currentServers }
+    for (const serverId of knownServerIds) {
+      delete nextServers[serverId]
+    }
+    for (const server of writableServers) {
+      nextServers[server.id] = toOpencodeServer(server)
+    }
+    const next: Record<string, unknown> = { ...existing }
+    if (Object.keys(nextServers).length) {
+      next.mcp = nextServers
+    } else {
+      delete next.mcp
+    }
+    writeFileSync(path, `${JSON.stringify(next, null, 2)}\n`, 'utf8')
+  }
+  return { target: { client, path, serverIds }, issues }
+}
+
+function toOpencodeServer(server: McpServerConfig): Record<string, unknown> {
+  if (server.transport === 'stdio') {
+    const entry: Record<string, unknown> = {
+      type: 'local',
+      command: opencodeLocalCommand(server),
+    }
+    if (server.env && Object.keys(server.env).length) entry.environment = server.env
+    return entry
+  }
+  const entry: Record<string, unknown> = { type: 'remote', url: server.url ?? '' }
+  const headers = opencodeRemoteHeaders(server)
+  if (Object.keys(headers).length) entry.headers = headers
+  return entry
+}
+
+function opencodeLocalCommand(server: McpServerConfig): string[] {
+  const command = server.command ?? ''
+  const args = server.args ?? []
+  if (process.platform === 'win32' && command === 'npx') {
+    return ['cmd', '/c', 'npx', ...args]
+  }
+  return [command, ...args]
+}
+
+function opencodeRemoteHeaders(server: McpServerConfig): Record<string, string> {
+  // OpenCode interpolates `{env:VAR}` in string fields; an env-backed bearer
+  // token replaces any caller-supplied Authorization header so the literal
+  // secret is never written to disk.
+  const headers: Record<string, string> = server.envVarNames?.length
+    ? Object.fromEntries(
+        Object.entries(server.headers ?? {}).filter(([key]) => key.toLowerCase() !== 'authorization')
+      )
+    : { ...(server.headers ?? {}) }
+  if (server.envVarNames?.[0]) {
+    headers.Authorization = `Bearer {env:${server.envVarNames[0]}}`
+  }
+  return headers
 }
 
 type WritableConfigFileResult =
