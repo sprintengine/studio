@@ -29,7 +29,8 @@ import { basename, dirname } from 'node:path'
 import { getErrorMessage } from './error-message'
 import { getTerminalErrorMessage } from './terminal-error'
 import { MobileSprintEngineCommandService } from './mobile/sprintengine/command'
-import { getPluginRegistryUserRoot, getPluginSprintEngineRegistryRoots } from './plugin-registry-instance'
+import { getPluginById, getPluginRegistryUserRoot, getPluginSprintEngineRegistryRoots } from './plugin-registry-instance'
+import { pluginIdForCli } from './agent-launch-render'
 import {
   appendTerminalOutput,
   clearAgentStallTimer,
@@ -158,6 +159,16 @@ let prepareAgentStateHook: TerminalRuntimeOptions['prepareAgentStateHook']
 // target differs (handled in the service).
 function agentStateSupportsCli(cli: string | undefined): cli is string {
   return cli === 'claude-code' || cli === 'codex'
+}
+
+// True when the CLI resumes using the session id WE mint and pass at launch
+// (`sessionIdFromCaller`) — so our terminal key equals its resume id (Claude).
+// For these it is safe to resume against the terminal key when no harness id was
+// captured. CLIs that mint their own id (Codex) must NOT fall back to our key —
+// a bare `resume` (last session) is the correct default instead.
+function cliResumesWithCallerSessionId(cli: string | undefined): boolean {
+  if (!cli) return false
+  return getPluginById(pluginIdForCli(cli))?.manifest.capabilities.sessionIdFromCaller ?? false
 }
 const sprintEngineMcpRunRefCounts = new Map<string, number>()
 const sprintEngineMcpWorkspaceRefCounts = new Map<string, number>()
@@ -529,10 +540,16 @@ async function resumeTerminal(
   payload: TerminalSpawnPayload
 ): Promise<TerminalSpawnResult> {
   const existing = terminals.get(payload.sessionId)
+  // Carry the agent's captured harness session id forward from the suspended
+  // session before it is disposed, so an in-session resume still targets the
+  // right conversation even if the renderer's payload lacks it (e.g. a resume
+  // thunk closed over the agent before the lifecycle hook reported the id). An
+  // explicit payload value still wins.
+  const cliSessionId = payload.cliSessionId ?? existing?.cliSessionId
   if (existing && existing.suspended) {
     disposeTerminal(payload.sessionId)
   }
-  return spawnTerminalFromIpc(sender, { ...payload, resume: true })
+  return spawnTerminalFromIpc(sender, { ...payload, resume: true, cliSessionId })
 }
 
 function disposeTerminal(sessionId: string): void {
@@ -938,6 +955,16 @@ function ingestAgentStateFrame(frame: AgentStateFrame): void {
   const previousPhase = session.agentState?.phase
   session.agentState = { phase: frame.phase, since: frame.ts, source: 'hook' }
 
+  // Capture the agent's own session id within its CLI/harness (Claude's equals
+  // our terminal id since we mint and pass it; Codex/others mint their own and
+  // we only learn it here). This is the id used to resume the conversation, so
+  // persist it the first time the hook reports one. The frame is already routed
+  // to the right session by the per-terminal MULTICODE_AGENT_ID, so concurrent
+  // spawns can't cross-assign it.
+  const cliSessionIdChanged =
+    !!frame.sessionId && frame.sessionId !== session.cliSessionId
+  if (cliSessionIdChanged) session.cliSessionId = frame.sessionId ?? session.cliSessionId
+
   // Bridge to the legacy activity field so existing consumers (sidebar bolding,
   // reaping, diagnostics) reflect the authoritative phase. Suppress its own
   // broadcast; we decide below whether a broadcast is warranted.
@@ -966,7 +993,10 @@ function ingestAgentStateFrame(frame: AgentStateFrame): void {
   // "working" updates `agentState` in place but does not re-broadcast — matching
   // the renderer's dedupe signature and avoiding a snapshot IPC per tool call.
   const attentionChanged = (previousPhase === 'awaiting_input') !== (frame.phase === 'awaiting_input')
-  if ((activityChanged || attentionChanged) && terminals.get(session.sessionId) === session) {
+  if (
+    (activityChanged || attentionChanged || cliSessionIdChanged)
+    && terminals.get(session.sessionId) === session
+  ) {
     broadcastTerminalSessionsChanged()
   }
 }
@@ -1762,6 +1792,7 @@ async function spawnTerminalFromIpc(
     initialPrompt,
     cliRuntimes,
     shellOnly,
+    cliSessionId,
     kind,
     workspaceId,
     agentId,
@@ -1976,11 +2007,24 @@ async function spawnTerminalFromIpc(
         }
       }
 
+      // The launch command's session id is the agent's own CLI/harness id when
+      // resuming — `claude --resume <id>` / `codex resume <id>`. Prefer the
+      // renderer-supplied (persisted) id, then any id captured on the session
+      // being relaunched, then fall back to our terminal key ONLY for CLIs that
+      // resume with the id we minted (Claude). For a self-id CLI (Codex) with no
+      // captured id, pass empty so the manifest renders a bare `resume` (last
+      // session) rather than `resume <terminal-key>`. Fresh launch: terminal key.
+      const launchSessionId =
+        resume
+          ? (cliSessionId
+            ?? existingSession?.cliSessionId
+            ?? (cliResumesWithCallerSessionId(cli) ? sessionId : ''))
+          : sessionId
       const { command, args, cwd: launchCwd, pathStyle, initialInput, env, startupScriptPath } = shellOnly
         ? getPlainShellLaunchConfig(workingDirectory, sprintEngineStatePath, sessionId)
         : getShellLaunchConfig(
           workingDirectory,
-          sessionId,
+          launchSessionId,
           resume,
           sprintEngineStatePath,
           cli,
@@ -2033,6 +2077,10 @@ async function spawnTerminalFromIpc(
         workspaceId,
         agentId,
         terminalId,
+        // Seed the harness session id from the resume payload so it is known
+        // (and snapshotted) immediately; the lifecycle hook refreshes it once
+        // the relaunched agent reports its own id.
+        cliSessionId: cliSessionId ?? undefined,
         cli: shellOnly ? undefined : cli,
         cwd: launchCwd ?? workingDirectory,
         sprintEngineStatePath,

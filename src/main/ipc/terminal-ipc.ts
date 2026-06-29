@@ -22,6 +22,11 @@ export type TerminalSpawnPayload = {
   initialPrompt?: string
   cliRuntimes?: Partial<Record<AgentCli, Partial<CliRuntimeSettings>>>
   shellOnly?: boolean
+  // The agent's session id within its CLI/harness, used as the resume token
+  // (`claude --resume <id>` / `codex resume <id>`). Distinct from `sessionId`
+  // (our terminal-tracking key). For Claude it equals the minted id; for Codex
+  // it is the harness id learned from the hook, persisted and passed on resume.
+  cliSessionId?: string
   kind?: TerminalKind
   workspaceId?: string
   agentId?: string

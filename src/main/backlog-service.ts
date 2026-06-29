@@ -1,5 +1,5 @@
 import { mkdir, readFile, realpath, stat, writeFile } from 'node:fs/promises'
-import { dirname, isAbsolute, join, relative, resolve } from 'node:path'
+import { basename, dirname, isAbsolute, join, relative, resolve } from 'node:path'
 
 import {
   formatBacklogCsvList,
@@ -8,10 +8,18 @@ import {
   serializeBacklogFrontmatterFields,
   type BacklogFrontmatterUpdates,
 } from '../shared/backlog/frontmatter'
+import {
+  deriveDefaultBacklogKey,
+  formatBacklogNumericId,
+  isValidBacklogKey,
+  planBacklogIdAllocation,
+} from '../shared/backlog/item-id'
 import type {
   BacklogAddOrUpdateLinkInput,
   BacklogCreateEpicInput,
   BacklogCreateEpicResult,
+  BacklogEnsureIdsInput,
+  BacklogEnsureIdsResult,
   BacklogEpicColorInput,
   BacklogDependenciesInput,
   BacklogEpicInput,
@@ -29,9 +37,14 @@ import type {
   BacklogTriageInput,
   BacklogTypeInput,
   BacklogMoveSourceInput,
+  BacklogWorkspaceKeyResult,
 } from '../shared/electron-api'
 
 const STORE_PATH = ['.multi-code', 'backlog', 'items.json'] as const
+// Per-workspace, committed config holding the display key (`MC`) so `KEY-n` ids
+// render identically on every machine. Separate from items.json, whose store
+// shape is normalized down to `{schemaVersion, items}` and would drop a key.
+const CONFIG_PATH = ['.multi-code', 'backlog', 'config.json'] as const
 const BACKLOG_PREFIX = 'backlog/'
 const EPICS_PREFIX = 'backlog/epics/'
 
@@ -59,6 +72,103 @@ export async function readBacklogObjectStore(workspaceRoot: string): Promise<Bac
     // workspace is migrated on first read and tolerated indefinitely until then.
     const store = await loadMigratedStore(workspace)
     return { ok: true, store }
+  } catch (error) {
+    return { ok: false, message: errorMessage(error) }
+  }
+}
+
+// Resolve the workspace display key: the committed config value when valid, else
+// a default derived from the workspace folder name and persisted so it stays
+// stable. A malformed config is non-fatal — we derive a fresh default.
+async function resolveBacklogWorkspaceKey(workspace: ValidWorkspace): Promise<string> {
+  const configPath = join(workspace.root, ...CONFIG_PATH)
+  try {
+    const raw = await readFile(configPath, 'utf-8')
+    const parsed = JSON.parse(raw) as { key?: unknown }
+    if (isValidBacklogKey(parsed.key)) return parsed.key
+  } catch (error) {
+    if (!isMissingFileError(error)) {
+      // Unreadable/unparseable config: fall through and re-derive a default.
+    }
+  }
+  const key = deriveDefaultBacklogKey(basename(workspace.root))
+  await persistBacklogWorkspaceKey(workspace, key)
+  return key
+}
+
+async function persistBacklogWorkspaceKey(workspace: ValidWorkspace, key: string): Promise<void> {
+  const target = resolve(join(workspace.root, ...CONFIG_PATH))
+  if (!isPathInside(workspace.root, target)) return
+  try {
+    await mkdir(dirname(target), { recursive: true })
+    await writeFile(target, `${JSON.stringify({ schemaVersion: 1, key }, null, 2)}\n`, 'utf-8')
+  } catch {
+    // Best effort: a failed write just means we re-derive the same default next time.
+  }
+}
+
+// Read the workspace display key for the panel to render `KEY-n`. Initializes
+// (and persists) the derived default on first call when no config exists.
+export async function readBacklogWorkspaceKey(workspaceRoot: string): Promise<BacklogWorkspaceKeyResult> {
+  try {
+    const workspace = await validateWorkspaceRoot(workspaceRoot)
+    const key = await resolveBacklogWorkspaceKey(workspace)
+    return { ok: true, key }
+  } catch (error) {
+    return { ok: false, message: errorMessage(error) }
+  }
+}
+
+// Scan-time id allocation + backfill. The single allocation authority: given
+// every scanned item with its current frontmatter id (or null), mint the next
+// sequential id (scan-max + 1, oldest-first by the sidecar createdAt) for those
+// lacking one and write it into the item's frontmatter. Idempotent — once every
+// item has an id this writes nothing, mirroring the v1→v2 lazy migration. New
+// items (from any surface) self-heal an id here on the next scan, so creation
+// paths never need to allocate.
+export async function ensureBacklogItemIds(input: BacklogEnsureIdsInput): Promise<BacklogEnsureIdsResult> {
+  try {
+    const workspace = await validateWorkspaceRoot(input.workspaceRoot)
+    const key = await resolveBacklogWorkspaceKey(workspace)
+    const store = await loadStore(workspace)
+    const createdByPath = new Map<string, string | undefined>()
+    for (const record of store.items) {
+      createdByPath.set(record.source.relativePath.toLowerCase(), record.createdAt)
+    }
+
+    const allocationItems: Array<{ relativePath: string; numericId?: number | null; createdAt?: string }> = []
+    for (const raw of input.items ?? []) {
+      let relativePath: string
+      try {
+        relativePath = validateBacklogRelativePath(raw.relativePath)
+      } catch {
+        // A path that escapes backlog/ is ignored, never written to.
+        continue
+      }
+      allocationItems.push({
+        relativePath,
+        numericId: typeof raw.numericId === 'number' ? raw.numericId : null,
+        createdAt: createdByPath.get(relativePath.toLowerCase()),
+      })
+    }
+
+    const assignments = planBacklogIdAllocation(allocationItems)
+    for (const [relativePath, numericId] of Object.entries(assignments)) {
+      const target = resolve(join(workspace.root, relativePath))
+      if (!isPathInside(workspace.root, target)) continue
+      let content: string
+      try {
+        content = await readFile(target, 'utf-8')
+      } catch {
+        // A file that vanished between scan and write is skipped; the next scan
+        // re-evaluates it.
+        continue
+      }
+      const next = serializeBacklogFrontmatterFields(content, { id: formatBacklogNumericId(numericId) })
+      if (next !== content) await writeFile(target, next, 'utf-8')
+    }
+
+    return { ok: true, key, assignments }
   } catch (error) {
     return { ok: false, message: errorMessage(error) }
   }

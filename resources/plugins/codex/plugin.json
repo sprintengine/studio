@@ -42,7 +42,8 @@
       "{{binary}}",
       { "spreadIf": "permissionArgs" },
       { "spreadIf": "themeArgs" },
-      "resume"
+      "resume",
+      { "valueIf": "sessionId", "value": "{{sessionId}}" }
     ]
   },
   "promptInjection": {

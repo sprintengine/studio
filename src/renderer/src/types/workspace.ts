@@ -1688,6 +1688,12 @@ export type AgentState = {
   runtimeKind?: AgentRuntimeKind
   conversation?: AgentConversationRuntime
   cliSessionId?: string
+  // The agent's session id within its CLI/harness, captured from lifecycle hooks
+  // (the snapshot's `cliSessionId`). Distinct from `cliSessionId` above, which is
+  // our terminal-tracking key. Used as the resume token so non-Claude CLIs (e.g.
+  // Codex, which mints its own id) resume the right conversation. For Claude it
+  // coincides with the terminal key. Persisted so resume survives a restart.
+  harnessSessionId?: string
   cliStartRequested?: boolean
   cliRestartNonce?: number
   cliHasLaunched?: boolean

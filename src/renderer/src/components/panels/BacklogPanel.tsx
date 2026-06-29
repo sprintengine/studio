@@ -29,6 +29,7 @@ import { focusOrAddFileTab, remapFileTabsForPath, removeFileTabsForPath } from '
 import { sendFileDropToTerminal, setFileDropData, type FileDropPayload } from '../../utils/terminalDrop'
 import { recordBacklogAgentHandoff } from '../../utils/backlogAgentHandoff'
 import { consumePendingBacklogReveal, subscribeBacklogReveal } from '../../utils/backlogReveal'
+import { findDuplicateBacklogIds } from '../../../../shared/backlog/item-id'
 import {
   backlogItemSlugFromPath,
   backlogPreviewMarkdown,
@@ -1086,6 +1087,24 @@ export default function BacklogPanel({ workspaceId, onStartFuturePlan }: Workspa
   // dropped file never silently misleads (design §5 / north-star real-labels).
   const partialErrors = scan && scan.errors.length > 0 && items.length > 0 ? scan.errors : null
 
+  // Duplicate display ids: the visible symptom of concurrent scan-max allocation
+  // across unmerged branches. We surface it (naming the colliding files) rather
+  // than silently renumbering — git merge plus this warning is the cure.
+  const duplicateIdWarnings = useMemo(() => {
+    const duplicates = findDuplicateBacklogIds(
+      items.map((item) => ({ relativePath: item.relativePath, numericId: item.numericId ?? null })),
+    )
+    if (duplicates.length === 0) return null
+    const displayById = new Map<number, string>()
+    for (const item of items) {
+      if (typeof item.numericId === 'number' && item.displayId) displayById.set(item.numericId, item.displayId)
+    }
+    return duplicates.map((duplicate) => ({
+      label: displayById.get(duplicate.numericId) ?? `#${duplicate.numericId}`,
+      paths: duplicate.relativePaths,
+    }))
+  }, [items])
+
   // The header count is the visible row count. By default that is the
   // non-archived backlog (archived is opt-in); when a filter narrows the set —
   // especially the Archived view — label the scope so a bare number never reads
@@ -1373,6 +1392,19 @@ export default function BacklogPanel({ workspaceId, onStartFuturePlan }: Workspa
             <span className="font-mono text-[12px] tabular-nums">
               {partialErrors.map((error) => error.relativePath).join(', ')}
             </span>
+          </InlineNotice>
+        </div>
+      ) : null}
+
+      {duplicateIdWarnings ? (
+        <div className="shrink-0 px-3 py-2">
+          <InlineNotice tone="warn">
+            {duplicateIdWarnings.length === 1 ? 'A duplicate id' : 'Duplicate ids'} from concurrent edits — resolve by re-allocating one side:
+            {duplicateIdWarnings.map((warning) => (
+              <span key={warning.label} className="mt-0.5 block font-mono text-[12px] tabular-nums">
+                {warning.label}: {warning.paths.join(', ')}
+              </span>
+            ))}
           </InlineNotice>
         </div>
       ) : null}
@@ -1886,6 +1918,12 @@ function BacklogDetail({
           <TruncatedText as="h3" text={selected.title} className="text-[14px] font-semibold text-[color:var(--text-strong)]" />
         </div>
         <div className="mt-1 flex items-center gap-2 text-[11px] text-[color:var(--text-muted)]">
+          {selected.displayId ? (
+            <>
+              <span className="font-mono tabular-nums text-[color:var(--text-subtle)]">{selected.displayId}</span>
+              <span aria-hidden="true" className="text-[color:var(--text-disabled)]">·</span>
+            </>
+          ) : null}
           {(selectedRunGlyph?.label ?? LIFECYCLE_LABEL[selected.status]) ? (
             <>
               <span>{selectedRunGlyph?.label ?? LIFECYCLE_LABEL[selected.status]}</span>
