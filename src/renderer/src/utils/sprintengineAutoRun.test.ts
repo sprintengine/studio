@@ -5199,8 +5199,8 @@ function testBootstrapStallsInsteadOfSpawningWithoutArchitectOrAfterPrePlanExit(
   )
   assert.deepEqual(
     noArchitect,
-    { kind: 'stall', reason: 'no_architect' },
-    'no tasks and no architect is a visible stall, not a silent no-op'
+    { kind: 'stall', reason: 'no_planner' },
+    'no tasks and no planner (architect or general) is a visible stall, not a silent no-op'
   )
 
   const noArchitectWithTasks = pickSprintEngineBootstrapCandidate(
