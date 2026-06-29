@@ -500,6 +500,48 @@ function RegistrySwitchRow({
   )
 }
 
+// Number input for the "Pause idle terminals after" setting. Edits live in local
+// string state so a half-typed or briefly-empty value isn't clamped/rounded out
+// from under the user; the store (which clamps to the field's min/max) is written
+// on blur or Enter. A blank/invalid commit reverts to the persisted value.
+function IdleSuspendField({ descriptor }: { descriptor: SettingDescriptor }) {
+  const minutes = useWorkspaceStore((s) => s.appSettings.terminalIdleSuspendMinutes)
+  const setMinutes = useWorkspaceStore((s) => s.setTerminalIdleSuspendMinutes)
+  const [draft, setDraft] = useState<string>(String(minutes))
+  useEffect(() => {
+    setDraft(String(minutes))
+  }, [minutes])
+  if (descriptor.field.type !== 'number') return null
+  const { min, max, step } = descriptor.field
+  const commit = (): void => {
+    // Revert a blank/whitespace field to the persisted value — `Number('')` is 0
+    // (finite), which would otherwise clamp to the 1-minute floor rather than
+    // restore what the user had.
+    const parsed = draft.trim() === '' ? NaN : Number(draft)
+    if (Number.isFinite(parsed)) setMinutes(parsed)
+    else setDraft(String(minutes))
+  }
+  return (
+    <Field label={descriptor.label} htmlFor={descriptor.id} help={descriptor.help}>
+      <input
+        id={descriptor.id}
+        type="number"
+        inputMode="numeric"
+        min={min}
+        max={max}
+        step={step}
+        value={draft}
+        onChange={(event) => setDraft(event.target.value)}
+        onBlur={commit}
+        onKeyDown={(event) => {
+          if (event.key === 'Enter') event.currentTarget.blur()
+        }}
+        className={INPUT_CLASS}
+      />
+    </Field>
+  )
+}
+
 // Compact, glanceable CLI tile: icon + name + source, then a one-line detection
 // status (a Spinner while probing, else a shape-coded LifecycleGlyph + terse
 // text). A missing CLI surfaces an inline Install button; everything else
@@ -1375,6 +1417,7 @@ export default function SettingsPanel({
     : null
   const installedSkillPacks = Object.values(skillPackSettings.installed)
 
+  const idleSuspendDescriptor = getSettingDescriptor('terminal-idle-suspend-minutes')
   const telemetrySendDescriptor = getSettingDescriptor('usage-telemetry-send-data')
   const telemetryLocalDescriptor = getSettingDescriptor('usage-telemetry-local-export')
   const telemetryDiagnosticsDescriptor = getSettingDescriptor('usage-telemetry-export-diagnostics')
@@ -2188,6 +2231,18 @@ export default function SettingsPanel({
               })()}
             </>
           )}
+
+          {idleSuspendDescriptor ? (
+            <div className="space-y-3 border-t border-[color:var(--border-subtle)] pt-4">
+              <SettingsSectionTitle>Memory</SettingsSectionTitle>
+              <p className="text-[12px] leading-5 text-[color:var(--text-muted)]">
+                Unused agent terminals are paused to free memory — their CLI process stops while the
+                last screen stays painted, and they resume the moment you click or type. Agents
+                waiting on you or actively working are never paused.
+              </p>
+              <IdleSuspendField descriptor={idleSuspendDescriptor} />
+            </div>
+          ) : null}
         </div>
       ) : null}
 

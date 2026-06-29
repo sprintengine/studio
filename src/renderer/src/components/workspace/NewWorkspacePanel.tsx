@@ -6,6 +6,7 @@ import { getRendererHost, selectModuleEnabled } from '../../modules'
 import { StandardWorkspaceTypeIcon } from '../AppIcons'
 import { createMultiloopTemplate } from '../../modules/multiloop-workspace-types'
 import { createGuidedBriefTemplate } from '../../modules/sprint-engine-workspace-types'
+import { AUTOMATIONS_HOST_WORKSPACE_MODE } from '../../types/workspace'
 import type {
   AgentCli,
   AgentId,
@@ -90,6 +91,7 @@ import {
   SprintEnginePlanSourcedError,
   buildSprintEngineEffectiveSpawnAtStartRoles,
   buildSprintEngineExistingTeamCreation,
+  buildAutomationsCreation,
   buildStandardCreation,
   buildSwitchboardCreation,
   runGuidedBriefScaffold,
@@ -859,6 +861,17 @@ export default function NewWorkspacePanel({
     setFolderDraftPath(proposed ?? '')
   }, [folderPathPinned, defaultDraftParent, name])
 
+  // The reverse direction: once the user pins a concrete folder (Recent row,
+  // Browse, or a typed path), default the workspace name to that folder's
+  // basename until they edit the name themselves — so choosing an existing
+  // project never requires retyping its name. Only runs when pinned, so it can't
+  // fight the name→path derivation above (which only runs when unpinned).
+  useEffect(() => {
+    if (!folderPathPinned || nameTouched) return
+    const leaf = basename(folderDraftPath.trim())
+    if (leaf) setName(leaf)
+  }, [folderPathPinned, folderDraftPath, nameTouched])
+
   // Existence-aware status for the draft path (display only — folder creation
   // and detection happen on continue). Debounced so typing stays responsive.
   useEffect(() => {
@@ -1560,6 +1573,19 @@ export default function NewWorkspacePanel({
       try {
         if (await persistAdvancedSetup(folderPath)) return
         onCreate(buildSwitchboardCreation({ name, folderPath }))
+        onClose()
+      } finally {
+        setIsCreating(false)
+      }
+      return
+    }
+
+    if (mode === AUTOMATIONS_HOST_WORKSPACE_MODE) {
+      if (!folderPath) return
+      setIsCreating(true)
+      try {
+        if (await persistAdvancedSetup(folderPath)) return
+        onCreate(buildAutomationsCreation({ name, folderPath }))
         onClose()
       } finally {
         setIsCreating(false)
