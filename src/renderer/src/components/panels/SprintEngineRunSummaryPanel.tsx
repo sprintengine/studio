@@ -622,6 +622,7 @@ function AgentBreakdownSection({
         {planningRows.length > 0 || architectDifficulty || planQuality.length > 0 ? (
           <PlanningTable
             rows={planningRows}
+            tokensByAgent={tokensByAgent}
             architectDifficulty={architectDifficulty}
             planQuality={planQuality}
             totalTasks={report.totalTasks}
@@ -830,11 +831,13 @@ function ReviewTable({
 // Planners: the architect's estimation accuracy (run-level) + planner task counts.
 function PlanningTable({
   rows,
+  tokensByAgent,
   architectDifficulty,
   planQuality,
   totalTasks,
 }: {
   rows: SprintEngineAgentRow[]
+  tokensByAgent: Map<string, SprintEngineAgentTokenTotal>
   architectDifficulty: SprintEngineArchitectDifficulty | null
   planQuality: ReturnType<typeof buildProcessHealth>
   totalTasks: number
@@ -847,8 +850,8 @@ function PlanningTable({
       <WorkTypeHeading label="Planning" count={rows.length > 0 ? rows.length : undefined} />
       {rows.length > 0 ? (
         <div className="overflow-x-auto">
-          <table className={TABLE_CLASS} style={tableStyleFor(4)}>
-            <ColGroup numCols={4} />
+          <table className={TABLE_CLASS} style={tableStyleFor(5)}>
+            <ColGroup numCols={5} />
             <thead>
               <tr>
                 <th scope="col" className={AGENT_HEADER}>
@@ -856,6 +859,13 @@ function PlanningTable({
                 </th>
                 <th scope="col" className={`${NUM_HEADER} ${COL_SEP}`}>
                   Tasks
+                </th>
+                <th scope="col" className={NUM_HEADER}>
+                  Tokens
+                  <ColumnHint
+                    label="Tokens"
+                    hint="Input + output tokens attributed to this agent's windows (Phase 2) — for a planner, their review-gate attempts. '~' marks a partial total; '—' means no per-attempt samples were captured."
+                  />
                 </th>
                 <th scope="col" className={NUM_HEADER}>
                   Estimate error
@@ -891,6 +901,7 @@ function PlanningTable({
                     <NumCellB border={border} sep={COL_SEP}>
                       {row.tasksDone}
                     </NumCellB>
+                    <AgentTokenCell total={tokensByAgent.get(row.agentId)} border={border} />
                     <NumCellB border={border}>
                       {diff ? `±${diff.mean_absolute_error_pct}%` : NA}
                     </NumCellB>
