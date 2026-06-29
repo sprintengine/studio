@@ -50,18 +50,6 @@ export type SettingsOverlayState = {
   checkForUpdatesRequestId: number | null
 }
 
-// Global Automations screen. Like the Settings overlay, this is an app-level
-// route — NOT a workspace — so it lives in shell state rather than the workspace
-// registry. `projectPath` is the folder whose automations the screen shows; null
-// means "default to the active workspace's project" (resolved at open time).
-// `runTarget` is set when a run notification's Open deep-links to a specific run:
-// the screen selects that automation and scrolls/focuses the run.
-export type AutomationsOverlayState = {
-  open: boolean
-  projectPath: string | null
-  runTarget: { automationId: string; runId: string } | null
-}
-
 export type RunSummaryOverlayState = {
   open: boolean
   /** Which workspace's run summary the overlay is showing. */
@@ -753,6 +741,22 @@ function normalizeSavedSprintEngineRoleCounts(value: unknown): SprintEngineRoleC
   return result
 }
 
+// Idle-terminal pause threshold, in minutes. Default 15. Bounds mirror the main
+// reap policy's clamp ([1 min, 24 h]) so the UI and the runtime agree.
+export const DEFAULT_TERMINAL_IDLE_SUSPEND_MINUTES = 15
+export const MIN_TERMINAL_IDLE_SUSPEND_MINUTES = 1
+export const MAX_TERMINAL_IDLE_SUSPEND_MINUTES = 24 * 60
+
+export function normalizeTerminalIdleSuspendMinutes(value: unknown): number {
+  if (typeof value !== 'number' || !Number.isFinite(value)) {
+    return DEFAULT_TERMINAL_IDLE_SUSPEND_MINUTES
+  }
+  return Math.max(
+    MIN_TERMINAL_IDLE_SUSPEND_MINUTES,
+    Math.min(MAX_TERMINAL_IDLE_SUSPEND_MINUTES, Math.round(value))
+  )
+}
+
 export const defaultAppSettings = (): AppSettings => ({
   cliRuntimes: {
     codex: { command: 'codex', useWsl: false },
@@ -790,6 +794,7 @@ export const defaultAppSettings = (): AppSettings => ({
   modulesChosen: false,
   onboardingStep: 'welcome',
   pendingAgentConfigAdoption: null,
+  terminalIdleSuspendMinutes: DEFAULT_TERMINAL_IDLE_SUSPEND_MINUTES,
 })
 
 // Accept a persisted adoption selection only when it is the expected shape (two
@@ -856,6 +861,7 @@ export function normalizeAppSettings(settings: Partial<AppSettings> | undefined,
       hasWorkspaces: workspaces.length > 0,
     }),
     pendingAgentConfigAdoption: normalizePendingAgentConfigAdoption(settings?.pendingAgentConfigAdoption),
+    terminalIdleSuspendMinutes: normalizeTerminalIdleSuspendMinutes(settings?.terminalIdleSuspendMinutes),
   }
 }
 
@@ -867,7 +873,6 @@ export const DEFAULT_OPEN_FILES_IN_EXTERNAL_WINDOW = true
 export interface SettingsSliceState {
   appSettings: AppSettings
   settingsOverlay: SettingsOverlayState
-  automationsOverlay: AutomationsOverlayState
   runSummaryOverlay: RunSummaryOverlayState
   sidebarCollapsed: boolean
   // User-resizable expanded width of the workspace sidebar, in px. Persisted so
@@ -902,11 +907,6 @@ export interface SettingsSliceActions {
   setOpenFilesInExternalWindow: (enabled: boolean) => void
   openSettingsOverlay: (opts?: { initialTab?: string | null; checkForUpdates?: boolean }) => void
   closeSettingsOverlay: () => void
-  openAutomationsOverlay: (opts?: {
-    projectPath?: string | null
-    runTarget?: { automationId: string; runId: string } | null
-  }) => void
-  closeAutomationsOverlay: () => void
   openRunSummaryOverlay: (workspaceId: string) => void
   closeRunSummaryOverlay: () => void
   setCliRuntime: (cli: AgentCli, update: Partial<CliRuntimeSettings>) => void
@@ -971,6 +971,8 @@ export interface SettingsSliceActions {
    *  surfaced on the first-run overlay. */
   setAgentConfigAdoptionResult: (result: AgentConfigAdoptionResult | null) => void
   setSearchExcludes: (patterns: string[]) => void
+  /** Set how long an idle agent terminal waits before it is paused (minutes). */
+  setTerminalIdleSuspendMinutes: (minutes: number) => void
   setUsageTelemetrySettings: (update: Partial<UsageTelemetrySettings>) => void
   setVoiceDictationSettings: (update: Partial<VoiceDictationSettings>) => void
   setLearningShowTipsOnStartup: (enabled: boolean) => void
@@ -989,7 +991,6 @@ export function createSettingsSlice(set: SettingsSliceSet): SettingsSlice {
   return {
     appSettings: defaultAppSettings(),
     settingsOverlay: { open: false, initialTab: null, checkForUpdatesRequestId: null },
-    automationsOverlay: { open: false, projectPath: null, runTarget: null },
     runSummaryOverlay: { open: false, workspaceId: null },
     sidebarCollapsed: false,
     sidebarWidth: SIDEBAR_DEFAULT_WIDTH,
@@ -1037,19 +1038,6 @@ export function createSettingsSlice(set: SettingsSliceSet): SettingsSlice {
         state.settingsOverlay.checkForUpdatesRequestId = null
       }),
 
-    openAutomationsOverlay: (opts) =>
-      set((state) => {
-        state.automationsOverlay.open = true
-        state.automationsOverlay.projectPath = opts?.projectPath ?? null
-        state.automationsOverlay.runTarget = opts?.runTarget ?? null
-      }),
-
-    closeAutomationsOverlay: () =>
-      set((state) => {
-        state.automationsOverlay.open = false
-        state.automationsOverlay.projectPath = null
-        state.automationsOverlay.runTarget = null
-      }),
 
     openRunSummaryOverlay: (workspaceId) =>
       set((state) => {
@@ -1450,6 +1438,11 @@ export function createSettingsSlice(set: SettingsSliceSet): SettingsSlice {
     setSearchExcludes: (patterns) =>
       set((state) => {
         state.appSettings.searchExcludes = normalizeSearchExcludes(patterns)
+      }),
+
+    setTerminalIdleSuspendMinutes: (minutes) =>
+      set((state) => {
+        state.appSettings.terminalIdleSuspendMinutes = normalizeTerminalIdleSuspendMinutes(minutes)
       }),
 
     setUsageTelemetrySettings: (update) =>

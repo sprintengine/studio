@@ -209,6 +209,16 @@ export const settingsRegistry: ReadonlyArray<SettingDescriptor> = [
     storeSetter: 'setLastAgentSpawnPermissionPreset',
   },
   {
+    id: 'terminal-idle-suspend-minutes',
+    label: 'Pause idle terminals after',
+    help: 'Minutes an unused agent terminal sits before it is paused to free memory. Its painted view is kept and resumes the instant you click or type. Agents waiting on you or mid-work are never paused.',
+    scope: 'app',
+    group: 'agents',
+    field: { type: 'number', min: 1, max: 1440, step: 1 },
+    storePath: 'appSettings.terminalIdleSuspendMinutes',
+    storeSetter: 'setTerminalIdleSuspendMinutes',
+  },
+  {
     id: 'last-selected-specialist',
     label: 'Default specialist action',
     help: 'Preselected specialist when running a one-off task from the palette.',

@@ -584,6 +584,17 @@ export default function TerminalView({ workspaceId, agentId, sessionId: attached
       terminalDiagnostics.recordInputDispatch(data)
     })
 
+    // Resume on a deliberate click of the frozen pane — voice-dictation users
+    // (and anyone reading the painted view) never type, so waiting for a keystroke
+    // would strand them. Bound to `click` (not `mousedown`/`focus`): a click is an
+    // intentional tap, whereas `focus` can fire when the pane mounts/auto-focuses,
+    // which must NOT auto-resume a just-revealed workspace. No-op unless suspended;
+    // `resumeFromSuspend` is idempotent via `resumingRef`.
+    const onPaneClick = () => {
+      if (suspendedRef.current) void resumeFromSuspend()
+    }
+    container.addEventListener('click', onPaneClick)
+
     // The suspended-state play button (AgentPanel) lives in a different component
     // and has no access to the relaunch payload, so it asks this terminal to
     // resume via a window event keyed by session id — same path as typing.
@@ -935,6 +946,7 @@ export default function TerminalView({ workspaceId, agentId, sessionId: attached
       container.removeEventListener('mouseup', focusTerminal)
       container.removeEventListener('click', focusTerminal)
       container.removeEventListener('focus', focusTerminal)
+      container.removeEventListener('click', onPaneClick)
       disposeClipboardHandlers()
       disposeData()
       disposeReplay()

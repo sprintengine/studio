@@ -630,14 +630,18 @@ function modelHasSprintEngineBoard(model: Model): boolean {
   return found
 }
 
-// Layouts whose primary tabset is a fixed single-surface control panel that
-// agent terminals must dock beside (to the right), never stack into: the Sprint
-// Engine board.
+// Single-surface control layouts whose control panel owns a non-closeable tab in
+// a tab-strip-hidden tabset: agent run terminals must dock into a right-hand
+// terminals tabset instead of stacking (invisibly) into the control tabset. The
+// Sprint Engine board ('sprintengine') and the Automations control center
+// ('automations-control-center') both follow this pattern.
+const AGENT_DOCK_RIGHT_COMPONENTS = new Set(['sprintengine', 'automations-control-center'])
+
 function modelDocksAgentsRight(model: Model): boolean {
   let found = false
   model.visitNodes((node) => {
     if (found) return
-    if (node instanceof TabNode && node.getComponent() === 'sprintengine') {
+    if (node instanceof TabNode && AGENT_DOCK_RIGHT_COMPONENTS.has(node.getComponent() ?? '')) {
       found = true
     }
   })
