@@ -494,6 +494,9 @@ export default function TerminalView({ workspaceId, agentId, sessionId: attached
 
     const disposeExit = window.api.onTerminalExit(sessionId, (code) => {
       const latestContext = currentContext()
+      // If the process died mid-resume, reveal any withheld boot output first so
+      // a genuine startup error surfaces ahead of the exit banner.
+      replayGate.flushResumeSuppression()
       term.write(`\r\n\x1b[31m[Terminal exited with code ${code}]\x1b[0m\r\n`)
       const currentSessionId = useWorkspaceStore
         .getState()
@@ -556,6 +559,10 @@ export default function TerminalView({ workspaceId, agentId, sessionId: attached
       const resume = resumeThunkRef.current
       if (!resume) return
       resumingRef.current = true
+      // Withhold the relaunched CLI's transitional boot output (focus-report
+      // echo, trust/permissions warning, shell fragments) until it repaints its
+      // alt-screen TUI, so the resume cuts cleanly from snapshot to live view.
+      replayGate.armResumeSuppression()
       const result = await resume().catch((): TerminalSpawnResult => ({
         ok: false,
         sessionId,
@@ -572,6 +579,17 @@ export default function TerminalView({ workspaceId, agentId, sessionId: attached
     }
 
     const onDataDisposable = term.onData((data) => {
+      // Focus-report escapes (DECSET 1004: `ESC[I`/`ESC[O`) are not user intent.
+      // During the suspend/resume window the PTY can echo them back as a visible
+      // `^[[I`; worse, a focus event while suspended would otherwise be buffered
+      // as "input" and kick a resume. Drop them in that window — a live PTY still
+      // receives them so the CLI's focus tracking keeps working.
+      if (
+        (data === '\x1b[I' || data === '\x1b[O') &&
+        (suspendedRef.current || resumingRef.current)
+      ) {
+        return
+      }
       terminalDiagnostics.recordInput(data)
       // Suspended: buffer the keystroke and kick a resume instead of writing to a
       // dead pty (main drops writes to a suspended session anyway).

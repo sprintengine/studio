@@ -124,6 +124,13 @@ export type WorkspaceSyncRoutingSnapshot = {
   // surface its raw id (e.g. in the diagnostics Workspaces panel). Optional and
   // best-effort: a missing entry falls back to the id.
   workspaceNames?: Record<string, string>
+  // Folder paths by workspace id, captured at persist time. Without this, a
+  // workspace restored from the routing snapshot but not yet re-hydrated by the
+  // renderer this session comes back folder-less in main's snapshot, so
+  // folder-gated features (e.g. the Automations trust check,
+  // projectFoldersFromWorkspaceSyncSnapshot) can't match it. Optional and
+  // best-effort, mirroring workspaceNames; a missing entry restores folder-less.
+  workspaceFolderPaths?: Record<string, string>
 }
 
 export type WorkspaceSyncCommandResult =

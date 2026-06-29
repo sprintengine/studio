@@ -56,6 +56,7 @@ type TerminalIpcDependencies = {
   resumeTerminal(sender: WebContents, payload: TerminalSpawnPayload): Promise<TerminalSpawnResult>
   killTerminal(sessionId: string): void
   setIdleSuspendThresholdMs(value: unknown): void
+  setActiveSprintRunStatePaths(value: unknown): void
 }
 
 export function registerTerminalIpc(ipcMain: IpcMain, deps: TerminalIpcDependencies): void {
@@ -108,5 +109,12 @@ export function registerTerminalIpc(ipcMain: IpcMain, deps: TerminalIpcDependenc
   // default. Fire-and-forget — the next reap sweep reads the latest value.
   ipcMain.handle('terminal:set-idle-suspend-ms', (_, value: unknown): void => {
     deps.setIdleSuspendThresholdMs(value)
+  })
+
+  // Renderer pushes the set of SprintEngine run statePaths whose dispatch loop is
+  // actively running, so the idle reaper protects those runs' agents (the
+  // claim-aware 5-min retirement owns them) and only reclaims inactive-run agents.
+  ipcMain.handle('terminal:set-active-sprint-runs', (_, value: unknown): void => {
+    deps.setActiveSprintRunStatePaths(value)
   })
 }

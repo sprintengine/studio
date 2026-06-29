@@ -180,7 +180,7 @@ function routingSnapshotToState(snapshot: WorkspaceSyncRoutingSnapshot): Workspa
     lastAppliedWorkspaceSyncSequence: snapshot.sequence,
     primaryWorkspaceWindowId: snapshot.primaryWorkspaceWindowId,
     workspaces: workspaceIds.map((id) =>
-      createRoutingPlaceholderWorkspace(id, snapshot.workspaceNames?.[id])
+      createRoutingPlaceholderWorkspace(id, snapshot.workspaceNames?.[id], snapshot.workspaceFolderPaths?.[id])
     ),
     workspaceWindows,
   }
@@ -196,11 +196,15 @@ function stateToSnapshot(state: WorkspaceSyncState): WorkspaceSyncSnapshot {
 
 function stateToRoutingSnapshot(state: WorkspaceSyncState): WorkspaceSyncRoutingSnapshot {
   const workspaceNames: Record<string, string> = {}
+  const workspaceFolderPaths: Record<string, string> = {}
   for (const workspace of state.workspaces) {
     const name = workspace.name?.trim()
     // Skip routing placeholders (name === id): persisting them would cement the
     // raw id as a "real" name and mask the workspace's true name once it hydrates.
     if (name && name !== workspace.id) workspaceNames[workspace.id] = workspace.name
+    // Capture the folder so a workspace restored before the renderer re-registers
+    // it still resolves its folder in main's snapshot (folder-gated automations).
+    if (workspace.folderPath?.trim()) workspaceFolderPaths[workspace.id] = workspace.folderPath
   }
   return {
     sequence: state.lastAppliedWorkspaceSyncSequence,
@@ -210,9 +214,10 @@ function stateToRoutingSnapshot(state: WorkspaceSyncState): WorkspaceSyncRouting
       workspaceIds: [...windowState.workspaceIds],
       bounds: windowState.bounds ? { ...windowState.bounds } : null,
     })),
-    // Omit the field entirely when there are no real names to carry, so the
-    // common (placeholder-only) snapshot stays compact.
+    // Omit the maps entirely when empty, so the common (placeholder-only)
+    // snapshot stays compact.
     ...(Object.keys(workspaceNames).length > 0 ? { workspaceNames } : {}),
+    ...(Object.keys(workspaceFolderPaths).length > 0 ? { workspaceFolderPaths } : {}),
   }
 }
 
@@ -252,12 +257,12 @@ function normalizeRoutingWindows(
   return windows
 }
 
-function createRoutingPlaceholderWorkspace(id: WorkspaceId, name?: string): Workspace {
+function createRoutingPlaceholderWorkspace(id: WorkspaceId, name?: string, folderPath?: string): Workspace {
   return {
     id,
     name: name?.trim() ? name : id,
     mode: 'standard',
-    folderPath: null,
+    folderPath: folderPath?.trim() ? folderPath : null,
     templateId: 'workspace-sync-routing-placeholder',
     layoutModel: { global: {}, borders: [], layout: { type: 'row', children: [] } },
     agents: {},

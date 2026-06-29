@@ -37,6 +37,7 @@ import { TAB_DRAG_MIME, serializeTabDragPayload } from '../../utils/tabDragPaylo
 import { logPerfEvent } from '../../utils/perfDiagnostics'
 import { applySprintEngineAutomationStopReason } from '../../utils/sprintengineSupervisorNotifications'
 import { HIGHLIGHT_COLORS, getHighlightSwatch } from '../../utils/highlight'
+import { resolveWorkspaceWorktree } from '../../utils/workspaceWorktree'
 import { SpecialistActionIcon, SprintEngineRoleIcon, WorkspaceTypeIcon } from '../AppIcons'
 import WorkspaceLauncher from './WorkspaceLauncher'
 import type { AgentCliCatalogOption } from './newWorkspace/cliRuntimeOptions'
@@ -273,6 +274,18 @@ function WorkspaceLayout({ workspaceId, onStartFuturePlan, agentClis, onSpawnAge
   const lastTerminalActivityAt = useWorkspaceStore((s) =>
     s.workspaces.find((w) => w.id === workspaceId)?.lastTerminalActivityAt ?? null
   )
+  // Worktree-backed workspace (a sprint run worktree, or a worktree opened as a
+  // workspace): every terminal/agent tab gets a branch glyph so it's obvious the
+  // work is happening on an isolated branch, not the main checkout. Selected as
+  // primitives so the panel doesn't re-render on unrelated workspace churn.
+  const isWorktreeBacked = useWorkspaceStore((s) => {
+    const ws = s.workspaces.find((w) => w.id === workspaceId)
+    return ws ? resolveWorkspaceWorktree(ws) !== null : false
+  })
+  const worktreeBranch = useWorkspaceStore((s) => {
+    const ws = s.workspaces.find((w) => w.id === workspaceId)
+    return ws ? resolveWorkspaceWorktree(ws)?.branch ?? null : null
+  })
   const terminalSessions = useTerminalSessions()
   const now = useRelativeNow()
   const updateLayout = useWorkspaceStore((s) => s.updateLayout)
@@ -847,6 +860,30 @@ function WorkspaceLayout({ workspaceId, onStartFuturePlan, agentClis, onSpawnAge
 
   const renderTab = useCallback(
     (node: TabNode, renderValues: ITabRenderValues) => {
+      // Prepend a worktree branch glyph to a tab's leading slot (preserving any
+      // role/specialist/highlight icon) when the workspace runs in a worktree.
+      const withWorktreeGlyph = (existing: React.ReactNode): React.ReactNode => {
+        if (!isWorktreeBacked) return existing
+        const title = worktreeBranch ? `Worktree · ${worktreeBranch}` : 'Running in a git worktree'
+        const glyph = (
+          <span
+            className="flex h-4 w-3.5 shrink-0 items-center justify-center text-[color:var(--text-muted)]"
+            title={title}
+            aria-label={title}
+          >
+            <svg viewBox="0 0 16 16" className="icon-sm" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <circle cx="4" cy="3" r="1.6" />
+              <circle cx="4" cy="13" r="1.6" />
+              <circle cx="12" cy="6" r="1.6" />
+              <path d="M4 4.6v6.8M4 9.5a4 4 0 0 0 4-4 2.5 2.5 0 0 1 2.5-2.5" />
+            </svg>
+          </span>
+        )
+        return existing ? (
+          <span className="flex shrink-0 items-center gap-1">{glyph}{existing}</span>
+        ) : glyph
+      }
+
       if (renamingTabId === node.getId()) {
         renderValues.content = (
           <input
@@ -982,6 +1019,7 @@ function WorkspaceLayout({ workspaceId, onStartFuturePlan, agentClis, onSpawnAge
               />
             )
           }
+          renderValues.leading = withWorktreeGlyph(renderValues.leading)
           const terminalId = config?.terminalId ?? node.getId()
           const session = terminalSessions.find((s) => s.sessionId === `terminal-${terminalId}`)
           const indicator = renderTerminalRecencyIndicator(session, now)
@@ -1083,6 +1121,7 @@ function WorkspaceLayout({ workspaceId, onStartFuturePlan, agentClis, onSpawnAge
       } else {
         renderValues.leading = null
       }
+      renderValues.leading = withWorktreeGlyph(renderValues.leading)
 
       // Recency only when NOT live and NOT a Sprint Engine run: a dead/suspended
       // process emits nothing, so its lastOutputAt is frozen and honest. Live
@@ -1135,7 +1174,7 @@ function WorkspaceLayout({ workspaceId, onStartFuturePlan, agentClis, onSpawnAge
         )
       }
     },
-    [commitRename, editorOpenFiles, hideTab, lastTerminalActivityAt, moduleOverrides, now, renameValue, renamingTabId, showTabContextMenu, sprintEngineAgents, startRename, terminalSessions, workspaceAgents, workspaceId]
+    [commitRename, editorOpenFiles, hideTab, isWorktreeBacked, lastTerminalActivityAt, moduleOverrides, now, renameValue, renamingTabId, showTabContextMenu, sprintEngineAgents, startRename, terminalSessions, workspaceAgents, worktreeBranch, workspaceId]
   )
 
   const handleContextMenu = useCallback<NodeMouseEvent>((node, event) => {

@@ -60,8 +60,6 @@ import { MULTICODE_DISABLE_SPRINTENGINE_SYNC } from '../../utils/runtimeFlags'
 import { agentCliSupportsConversationResume } from '../../utils/agentCliResume'
 import { useConfirmDialog } from '../ui/ConfirmDialog'
 import { type NewWorkspacePanelInitialState } from './NewWorkspacePanel'
-import { buildAutomationsCreation } from './newWorkspace/controllers/automationsController'
-import { resolveAutomationsHostForFolder } from '../../utils/automationsEntry'
 import MultiloopStateSynchronizer from './MultiloopStateSynchronizer'
 import SprintEngineProjectionSupervisor from './SprintEngineProjectionSupervisor'
 // Always-on observer of background automation run events (raises run
@@ -1293,19 +1291,6 @@ export default function WorkspaceManager() {
     }
   }
 
-  // Front-door (sidebar utility rail) entry: reveal this project's Automations
-  // host workspace, or create one when none exists. Reuses the same creation
-  // path as the new-workspace wizard's Automations card.
-  const openAutomationsForFolder = (folderPath: string) => {
-    setShowNewWorkspacePanel(false)
-    const resolution = resolveAutomationsHostForFolder(visibleWorkspaces, folderPath)
-    if (resolution.kind === 'reveal') {
-      setActiveWorkspaceForWindow(workspaceWindowId, resolution.workspaceId)
-      return
-    }
-    handleCreate(buildAutomationsCreation({ name: 'Automations', folderPath: resolution.folderPath }))
-  }
-
   const deleteWorkspaceWithState = useCallback(
     async (id: string) => {
       const workspace = workspaces.find((candidate) => candidate.id === id)
@@ -2301,7 +2286,6 @@ export default function WorkspaceManager() {
         onForgetFolder={handleForgetFolder}
         onNewWorkspace={openNewWorkspacePanel}
         onNewWorkspaceInFolder={openNewWorkspacePanelForFolder}
-        onOpenAutomationsForFolder={openAutomationsForFolder}
         onNewChat={() => createLauncherChat()}
         onNewChatInFolder={(folderPath) => spawnNewChatForFolder(folderPath)}
         onNewChatTerminal={(folderPath) => pickNewChatTerminal(folderPath)}

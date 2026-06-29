@@ -23,6 +23,10 @@ function main(): void {
   assertEmptyReplayReleaseFlushesLiveOutput()
   assertDisposeCancelsRemainingReplayChunks()
   assertRevisibleReplayResetsBeforeReplayingButInitialDoesNot()
+  assertResumeSuppressionWithholdsUntilAltScreen()
+  assertResumeSuppressionFlushesOnExit()
+  assertResumeSuppressionRevealsOnTimeout()
+  assertResumeRevealDefersWhileReplayDraining()
   console.log('xtermOutputQueue.test.ts: ok')
 }
 
@@ -209,6 +213,136 @@ function assertRevisibleReplayResetsBeforeReplayingButInitialDoesNot(): void {
   assert.equal(afterResync.indexOf('[reset]') < afterResync.indexOf('second-window\n'), true)
   // The pre-hide window is not re-written after the reset.
   assert.ok(!afterResync.includes('first-window\n'))
+  gate.dispose()
+  queue.dispose()
+}
+
+// Resume-suppression: on a freeze-the-view relaunch the gate must withhold the
+// CLI's transitional boot output (focus-report echo, trust warning, shell
+// fragments) until it re-enters its alt-screen TUI, then flush it in a single
+// write — so the noise lands on the now-hidden normal buffer and never gets its
+// own painted frame. The alt-screen scan runs on the concatenated hold buffer so
+// a sequence split across PTY chunks is still detected.
+function assertResumeSuppressionWithholdsUntilAltScreen(): void {
+  const writes: string[] = []
+  const queue = createXtermOutputQueue(createTerminal(writes), { recordWrite: () => {} })
+  const gate = createXtermReplayGate(createTerminal(writes), queue, {})
+
+  // Boot output, in arrival order. The alt-screen enter (ESC[?1049h) is split
+  // across the last two chunks to exercise the concatenated-buffer scan.
+  const chunks = [
+    '\x1b[I', // focus-report echo
+    'Ignoring 10 permissions.allow entries...\n', // trust warning
+    '\x1b[?10', // alt-screen enter, first half
+    '49h\x1b[2Jrepainted-tui', // second half + repaint
+  ]
+  const content = (): string[] => writes.filter((value) => value !== '[scroll-bottom]')
+
+  gate.armResumeSuppression()
+  gate.handleLiveData(chunks[0])
+  gate.handleLiveData(chunks[1])
+  gate.handleLiveData(chunks[2])
+  assert.deepEqual(content(), [], 'boot output is withheld until the alt-screen repaint')
+
+  gate.handleLiveData(chunks[3]) // completes ESC[?1049h across chunks → reveal
+  // Everything held flushes in exactly one write, in order.
+  assert.deepEqual(content(), [chunks.join('')])
+  assert.equal(content().length, 1, 'held output is flushed as a single batched write')
+
+  // After reveal, live data flows normally again.
+  gate.handleLiveData('post-resume')
+  assert.equal(content().at(-1), 'post-resume')
+  gate.dispose()
+  queue.dispose()
+}
+
+// Fallback: if the relaunched process exits before painting an alt-screen, the
+// withheld output must still be revealed (so a genuine boot error surfaces).
+function assertResumeSuppressionFlushesOnExit(): void {
+  const writes: string[] = []
+  const queue = createXtermOutputQueue(createTerminal(writes), { recordWrite: () => {} })
+  const gate = createXtermReplayGate(createTerminal(writes), queue, {})
+
+  gate.armResumeSuppression()
+  gate.handleLiveData('boot error: command not found\n')
+  assert.deepEqual(writes, [], 'output is withheld while suppressing')
+
+  gate.flushResumeSuppression()
+  assert.deepEqual(writes, ['boot error: command not found\n'])
+
+  // Idempotent: a second flush after reveal is a no-op.
+  gate.flushResumeSuppression()
+  assert.deepEqual(writes, ['boot error: command not found\n'])
+  gate.dispose()
+  queue.dispose()
+}
+
+// Fallback: a CLI that never enters an alt-screen (plain shell) must still be
+// revealed once the bounded timeout fires.
+function assertResumeSuppressionRevealsOnTimeout(): void {
+  const writes: string[] = []
+  const queue = createXtermOutputQueue(createTerminal(writes), { recordWrite: () => {} })
+  const gate = createXtermReplayGate(createTerminal(writes), queue, {})
+
+  const realSetTimeout = globalThis.setTimeout
+  const realClearTimeout = globalThis.clearTimeout
+  // A box (not a plain `let`) so control-flow analysis doesn't narrow the
+  // captured callback away across the stubbed-closure mutation.
+  const box: { cb: (() => void) | null } = { cb: null }
+  globalThis.setTimeout = ((callback: () => void) => {
+    box.cb = callback
+    return 1 as unknown as ReturnType<typeof setTimeout>
+  }) as typeof setTimeout
+  globalThis.clearTimeout = (() => {}) as typeof clearTimeout
+  try {
+    gate.armResumeSuppression(250)
+    gate.handleLiveData('plain shell prompt $ ')
+    assert.deepEqual(writes, [], 'output is withheld until the timeout fires')
+
+    assert.equal(typeof box.cb, 'function', 'arm scheduled a timeout')
+    box.cb?.()
+    assert.deepEqual(writes, ['plain shell prompt $ '])
+  } finally {
+    globalThis.setTimeout = realSetTimeout
+    globalThis.clearTimeout = realClearTimeout
+  }
+  gate.dispose()
+  queue.dispose()
+}
+
+// If resume reveals while a snapshot replay is still draining (resume clicked
+// over a frozen view mid-paint), the held boot output must NOT interleave with
+// the remaining replay chunks — since it enters the alt-screen, a later chunk
+// would corrupt the repaint. It is routed through liveBuffer and flushed in
+// order only after the replay fully settles. Uses a manual terminal so the
+// replay drain stays in flight across the reveal.
+function assertResumeRevealDefersWhileReplayDraining(): void {
+  const writes: string[] = []
+  const manual = createManualTerminal(writes)
+  const queue = createXtermOutputQueue(createTerminal(writes), { recordWrite: () => {} })
+  const gate = createXtermReplayGate(manual.term, queue, {})
+
+  // Start a multi-chunk replay; only the first chunk dispatches (callback held),
+  // so the gate stays in the `replaying` state.
+  gate.beginReplayWait()
+  const replay = `${'a'.repeat(REPLAY_CHUNK_CHARS - 1)}\n${'b'.repeat(REPLAY_CHUNK_CHARS - 1)}\n`
+  gate.handleReplay(replay)
+  assert.equal(writes.length, 1, 'replay is mid-drain (first chunk only)')
+
+  // Resume arms suppression and the relaunched CLI repaints its alt-screen while
+  // the snapshot is still draining.
+  gate.armResumeSuppression()
+  gate.handleLiveData('\x1b[Iboot-warning\x1b[?1049hrepaint')
+  // Held output is deferred, not written yet — the replay is still draining.
+  assert.equal(writes.length, 1, 'held boot output is deferred while replay drains')
+
+  // Draining the rest of the replay settles it and then flushes the held buffer,
+  // strictly after the snapshot chunks and exactly once.
+  manual.flushAll()
+  const content = writes.filter((value) => value !== '[scroll-bottom]')
+  assert.equal(content.length, 3, 'two replay chunks then the held buffer')
+  assert.equal(content.slice(0, 2).join(''), replay)
+  assert.equal(content.at(-1), '\x1b[Iboot-warning\x1b[?1049hrepaint')
   gate.dispose()
   queue.dispose()
 }

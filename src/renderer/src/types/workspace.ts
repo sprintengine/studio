@@ -1848,12 +1848,26 @@ export type WorkspaceGitPanelState = {
   commitDraftsByScopeId: Record<string, string>
 }
 
+/**
+ * Marks a standard workspace as living in a git worktree — set when a worktree
+ * is opened as a workspace from the Worktree manager. The workspace's
+ * `folderPath` already points at the worktree in this case, so this only carries
+ * display info (branch/base) and flags the workspace as worktree-backed. Sprint
+ * runs instead carry their worktree on `sprintEngineState.vcs`; both are
+ * normalized by `resolveWorkspaceWorktree` (utils/workspaceWorktree.ts).
+ */
+export type WorkspaceWorktree = {
+  branch?: string
+  baseRef?: string
+}
+
 export type Workspace = {
   id: WorkspaceId
   name: string
   mode: WorkspaceMode
   folderPath: string | null
   folderMissing?: boolean
+  worktree?: WorkspaceWorktree | null
   sprintEngineContext?: SprintEngineWorkspaceContext | null
   multiloopContext?: MultiloopWorkspaceContext | null
   templateId: string

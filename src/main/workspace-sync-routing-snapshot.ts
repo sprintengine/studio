@@ -50,7 +50,8 @@ export function createWorkspaceSyncRoutingSnapshotStore(options: {
           sequence,
           primaryWorkspaceWindowId: parsed.primaryWorkspaceWindowId,
           workspaceWindows: parsed.workspaceWindows.filter(isWorkspaceWindowState),
-          workspaceNames: sanitizeWorkspaceNames(parsed.workspaceNames),
+          workspaceNames: sanitizeIdStringMap(parsed.workspaceNames),
+          workspaceFolderPaths: sanitizeIdStringMap(parsed.workspaceFolderPaths),
         }
       } catch (error) {
         options.logDiagnostic?.({
@@ -72,11 +73,13 @@ export function createWorkspaceSyncRoutingSnapshotStore(options: {
   }
 }
 
-function sanitizeWorkspaceNames(value: unknown): Record<string, string> | undefined {
+// Sanitize an id→string map (workspace names or folder paths): drop non-string
+// and empty values, and return undefined when nothing survives.
+function sanitizeIdStringMap(value: unknown): Record<string, string> | undefined {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return undefined
   const result: Record<string, string> = {}
-  for (const [id, name] of Object.entries(value as Record<string, unknown>)) {
-    if (typeof name === 'string' && name.trim()) result[id] = name
+  for (const [id, entry] of Object.entries(value as Record<string, unknown>)) {
+    if (typeof entry === 'string' && entry.trim()) result[id] = entry
   }
   return Object.keys(result).length > 0 ? result : undefined
 }

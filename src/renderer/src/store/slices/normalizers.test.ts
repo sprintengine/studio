@@ -298,4 +298,32 @@ assert.equal(standardResumeAgent.cliSessionId, 'sess-keep', 'standard agents kee
 assert.equal(standardResumeAgent.cliHasLaunched, true)
 assert.equal(standardResumeAgent.cliResumeAvailable, true)
 
+// The worktree marker (set when a worktree is opened as a workspace) must
+// survive partialize so the Git view + tab glyph still resolve after a restart,
+// including through the sprint-engine and automations-host launch-state clears.
+assert.deepEqual(
+  normalizeWorkspaceForPartialize(baseWorkspace({ worktree: { branch: 'spike/parser', baseRef: 'main' } })).worktree,
+  { branch: 'spike/parser', baseRef: 'main' },
+  'worktree marker survives partialize',
+)
+assert.deepEqual(
+  normalizeWorkspaceForPartialize(baseWorkspace({
+    mode: 'sprintengine',
+    worktree: { branch: 'sprintengine/x' },
+    sprintEngineState: { goal: 'g', tasks: [], artifacts: [] } as unknown as Workspace['sprintEngineState'],
+  })).worktree,
+  { branch: 'sprintengine/x' },
+  'sprint-engine launch-state clear preserves the worktree marker',
+)
+assert.deepEqual(
+  normalizeWorkspaceForPartialize(baseWorkspace({ mode: 'automations-host', worktree: { branch: 'auto/y' } })).worktree,
+  { branch: 'auto/y' },
+  'automations-host launch-state clear preserves the worktree marker',
+)
+assert.equal(
+  normalizeWorkspaceForPartialize(baseWorkspace()).worktree,
+  undefined,
+  'absent worktree marker stays absent (no-op for existing workspaces)',
+)
+
 console.log('normalizers.test.ts: ok')

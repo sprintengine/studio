@@ -976,5 +976,28 @@ assert.deepEqual(
   'partialize + storage round-trip preserves File Explorer expanded folders without file contents',
 )
 
+// MC-1416: the worktree marker (set when a worktree is opened as a workspace)
+// must survive the full persist normalization + JSON storage round-trip so the
+// Git view + tab glyph still resolve a worktree-backed workspace after a restart.
+const partializedWorktree = JSON.parse(
+  JSON.stringify(normalizeWorkspaceForPartialize({
+    ...runtimeBaseWorkspace,
+    worktree: { branch: 'spike/parser', baseRef: 'main' },
+  })),
+) as Workspace
+assert.deepEqual(
+  partializedWorktree.worktree,
+  { branch: 'spike/parser', baseRef: 'main' },
+  'partialize + storage round-trip preserves the worktree marker',
+)
+const partializedNoWorktree = JSON.parse(
+  JSON.stringify(normalizeWorkspaceForPartialize({ ...runtimeBaseWorkspace, worktree: null })),
+) as Workspace
+assert.equal(
+  partializedNoWorktree.worktree ?? undefined,
+  undefined,
+  'a workspace without a worktree marker stays without one (no-op for existing workspaces)',
+)
+
 console.info = originalInfo
 console.log('workspaceStore.persistence.test.ts: ok')

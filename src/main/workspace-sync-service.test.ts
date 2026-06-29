@@ -424,6 +424,64 @@ async function main(): Promise<void> {
     'persisted routing snapshot carries real display names by id',
   )
 
+  // Routing snapshot carries folder paths so a workspace restored but never
+  // re-hydrated this session still resolves its folder in main's snapshot. The
+  // folder-gated Automations trust check (workspace_root_untrusted after restart)
+  // depends on this — restored placeholders were previously folder-less.
+  const folderRoutingSnapshot: WorkspaceSyncRoutingSnapshot = {
+    sequence: 40,
+    primaryWorkspaceWindowId: 'primary',
+    workspaceWindows: [
+      {
+        id: 'primary',
+        kind: 'primary',
+        workspaceIds: ['ws-folder'],
+        activeWorkspaceId: 'ws-folder',
+        bounds: null,
+        isMaximized: false,
+        displayId: null,
+        createdAt: 1,
+        lastFocusedAt: 1,
+      },
+    ],
+    workspaceFolderPaths: { 'ws-folder': '/Users/example/project' },
+  }
+  const folderPersisted: WorkspaceSyncRoutingSnapshot[] = []
+  const folderService = createWorkspaceSyncService({
+    initialRoutingSnapshot: folderRoutingSnapshot,
+    persistDebounceMs: 60_000,
+    persistRoutingSnapshot: (persisted) => {
+      folderPersisted.push(persisted)
+    },
+    now: () => 4000,
+  })
+  assert.equal(
+    folderService.getSnapshot().state.workspaces.find((ws) => ws.id === 'ws-folder')?.folderPath,
+    '/Users/example/project',
+    'routing snapshot folder paths hydrate onto the restored placeholder workspace',
+  )
+
+  const createFolder = folderService.dispatch({
+    sourceWindowId: 'primary',
+    command: {
+      type: 'workspace.created',
+      payload: {
+        workspace: workspace('ws-new-folder', '/Users/example/other'),
+        windowId: 'primary',
+        insert: { kind: 'folder_head', folderPath: '/Users/example/other' },
+      },
+    },
+  })
+  assert.equal(createFolder.ok, true)
+  await folderService.flushRoutingSnapshot()
+  const folderSnapshot = folderPersisted.at(-1)
+  assert.ok(folderSnapshot)
+  assert.deepEqual(
+    folderSnapshot.workspaceFolderPaths,
+    { 'ws-folder': '/Users/example/project', 'ws-new-folder': '/Users/example/other' },
+    'persisted routing snapshot carries folder paths by id',
+  )
+
   console.log('workspace-sync-service.test.ts: ok')
 }
 

@@ -7,6 +7,7 @@ import { isImageFile } from '../../utils/files'
 import { openDiffWindow } from '../auxWindows/openDiffWindow'
 import { openFileSurface } from '../../utils/openFileSurface'
 import { basename, samePath, trimPath } from '../../utils/paths'
+import { findHealthyWorktreeScope, resolveWorkspaceWorktree } from '../../utils/workspaceWorktree'
 import WorktreeManager from '../worktree/WorktreeManager'
 import PlainTerminalPanel from './PlainTerminalPanel'
 import { IconButton, InboxRow, LifecycleGlyph, Select, Skeleton, Tooltip, type LifecycleState } from '../ui'
@@ -268,6 +269,17 @@ function gitRepoCacheKey(repoRoot: string): string {
 export default function GitPanel({ workspaceId }: { workspaceId: string }) {
   const workspace = useWorkspaceStore((s) => s.workspaces.find((w) => w.id === workspaceId) ?? null)
   const folderPath = workspace?.folderPath ?? null
+  // For a worktree-backed workspace (a sprint run worktree, or a worktree opened
+  // as a workspace) the Git view should resolve to the worktree's branch, not the
+  // parent project. The worktree is a real `git worktree`, so it already shows up
+  // as a scope below; this drives the *default* scope selection toward it.
+  const workspaceWorktree = useMemo(
+    () => (workspace ? resolveWorkspaceWorktree(workspace) : null),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [workspace?.folderPath, workspace?.worktree, workspace?.sprintEngineState?.vcs],
+  )
+  const worktreeGitRoot = workspaceWorktree?.gitRoot ?? null
+  const worktreeBranch = workspaceWorktree?.branch ?? null
   const mainGit = useGitStatus(folderPath)
   const mainRepoRoot = mainGit.repoRoot
   const setGitPanelState = useWorkspaceStore((s) => s.setGitPanelState)
@@ -281,12 +293,25 @@ export default function GitPanel({ workspaceId }: { workspaceId: string }) {
     [workspaceId],
   )
   const [scopeOptions, setScopeOptions] = useState<GitScopeOption[]>([])
-  const [activeScopeId, setActiveScopeId] = useState(() => initialGitPanelState?.activeScopeId ?? 'main')
-  const activeScope = useMemo(
-    () => scopeOptions.find((scope) => scope.id === activeScopeId) ?? scopeOptions[0] ?? null,
-    [activeScopeId, scopeOptions]
+  const [activeScopeId, setActiveScopeId] = useState(() =>
+    initialGitPanelState?.activeScopeId
+    ?? (worktreeGitRoot ? scopeId('worktree', worktreeGitRoot) : 'main')
   )
-  const activeRootPath = activeScope?.path ?? folderPath
+  const activeScope = useMemo(() => {
+    const byId = scopeOptions.find((scope) => scope.id === activeScopeId)
+    if (byId) return byId
+    // The computed worktree scope id can miss the listed one when git's
+    // realpath-resolved path diverges from the joined path (symlinked roots);
+    // recover via path-or-branch match so a worktree-backed workspace defaults to
+    // its worktree, not the parent.
+    return findHealthyWorktreeScope(scopeOptions, worktreeGitRoot, worktreeBranch) ?? scopeOptions[0] ?? null
+  }, [activeScopeId, scopeOptions, worktreeGitRoot, worktreeBranch])
+  // Before scopes finish loading, still resolve to the worktree (not the parent)
+  // for a worktree-backed workspace so the first paint isn't the wrong diff.
+  const activeRootPath = activeScope?.path ?? worktreeGitRoot ?? folderPath
+  // True once the user (or a restored persisted choice) explicitly picked a scope,
+  // so the worktree auto-default never overrides an intentional 'main' selection.
+  const userSelectedScopeRef = useRef(Boolean(initialGitPanelState?.activeScopeId))
   const { repoRoot, status, repoState, refresh } = useGitStatus(activeRootPath)
   const [branches, setBranches] = useState<GitBranchSnapshot | null>(null)
   const [graph, setGraph] = useState<GitGraphState>({ status: 'loading' })
@@ -378,9 +403,28 @@ export default function GitPanel({ workspaceId }: { workspaceId: string }) {
 
   useEffect(() => {
     if (scopeOptions.length === 0) return
-    if (scopeOptions.some((scope) => scope.id === activeScopeId)) return
-    setActiveScopeId('main')
-  }, [activeScopeId, scopeOptions])
+    // Prefer this workspace's own (healthy) worktree scope by default (a sprint
+    // run worktree, or a worktree opened as a workspace), falling back to main.
+    // Excluding missing/locked/prunable here is what prevents an update loop with
+    // the validity-reset effect below: a stale/prunable worktree resolves to null
+    // and stays on main instead of being re-selected every tick.
+    const desiredWorktreeScope = findHealthyWorktreeScope(scopeOptions, worktreeGitRoot, worktreeBranch)
+    if (scopeOptions.some((scope) => scope.id === activeScopeId)) {
+      // Auto-upgrade the initial 'main' default to the worktree once it appears
+      // (the sprint's vcs can populate a tick after mount), but never override an
+      // explicit user/persisted choice — main stays selectable.
+      if (
+        !userSelectedScopeRef.current
+        && desiredWorktreeScope
+        && desiredWorktreeScope.id !== 'main'
+        && activeScopeId === 'main'
+      ) {
+        setActiveScopeId(desiredWorktreeScope.id)
+      }
+      return
+    }
+    setActiveScopeId(desiredWorktreeScope?.id ?? 'main')
+  }, [activeScopeId, scopeOptions, worktreeGitRoot, worktreeBranch])
 
   useEffect(() => {
     if (!activeScope || activeScope.kind === 'main') return
@@ -1145,7 +1189,10 @@ export default function GitPanel({ workspaceId }: { workspaceId: string }) {
                   disabled: scope.missing || scope.locked || scope.prunable,
                 }))}
                 value={activeScope?.id ?? 'main'}
-                onChange={(next) => setActiveScopeId(next)}
+                onChange={(next) => {
+                  userSelectedScopeRef.current = true
+                  setActiveScopeId(next)
+                }}
                 disabled={Boolean(busy)}
                 className="w-full"
               />

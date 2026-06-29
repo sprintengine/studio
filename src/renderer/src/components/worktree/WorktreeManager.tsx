@@ -305,6 +305,9 @@ export default function WorktreeManager({
     const nextWorkspaceId = addWorkspace(template, {
       name: workspaceName,
       folderPath: row.path,
+      // Flag the workspace as worktree-backed so its Git view and terminal glyph
+      // treat it as a worktree (its folderPath already IS the worktree).
+      worktree: { branch: row.branch ?? undefined },
       windowId: workspaceWindowId,
     })
     setActiveWorkspaceForWindow(workspaceWindowId, nextWorkspaceId)

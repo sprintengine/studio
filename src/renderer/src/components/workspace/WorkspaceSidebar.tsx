@@ -62,7 +62,7 @@ import { partitionWorkspacesByRecency, sortWorkspacesByActivity } from '../../ut
 import { beginSidebarTransition } from '../../utils/sidebarTransition'
 import { filterWorkspacesBySearchQuery, normalizeWorkspaceSearchQuery } from '../../utils/workspaceSearch'
 import { isHiddenFromRail } from '../../utils/workspaceVisibility'
-import { listAutomationsProjectFolders } from '../../utils/automationsEntry'
+import { listAutomationsHostWorkspaces } from '../../utils/automationsEntry'
 
 type Activity = 'working' | 'failed' | 'needs-input' | 'idle'
 
@@ -92,9 +92,6 @@ type WorkspaceSidebarProps = {
   onForgetFolder: (folderPath: string) => void
   onNewWorkspace: () => void
   onNewWorkspaceInFolder: (folderPath: string) => void
-  // Front-door (bottom utility rail) entry: reveal-or-create this project's
-  // Automations host workspace. Gated on the automations module being enabled.
-  onOpenAutomationsForFolder: (folderPath: string) => void
   onNewChat: () => void
   onNewChatInFolder: (folderPath: string) => void
   // New-chat spawn handlers wired to the shared SpawnAgentMenu picker. Each
@@ -396,7 +393,6 @@ export default function WorkspaceSidebar({
   onForgetFolder,
   onNewWorkspace,
   onNewWorkspaceInFolder,
-  onOpenAutomationsForFolder,
   onNewChat,
   onNewChatInFolder,
   onNewChatTerminal,
@@ -1268,16 +1264,18 @@ export default function WorkspaceSidebar({
     )
   }
 
-  // The Automations front door (bottom utility rail) is gated on the automations
-  // module being enabled — same gate that hides a disabled module's workspace
-  // type from the rail/picker.
-  const automationsEntryEnabled = Boolean(
-    resolveEnabledWorkspaceType(AUTOMATIONS_HOST_WORKSPACE_MODE, moduleOverrides),
-  )
-  const automationsProjectFolders = useMemo(
-    () => listAutomationsProjectFolders(workspaces),
+  // The Automations front door (bottom utility rail) lists the project
+  // Automations workspaces that already exist and lets the user jump to one. It
+  // never creates — that stays the New-workspace mode card's job. Gated on the
+  // automations module being enabled AND at least one host existing, so the rail
+  // only appears when it has somewhere to go.
+  const automationsHostWorkspaces = useMemo(
+    () => listAutomationsHostWorkspaces(workspaces),
     [workspaces],
   )
+  const automationsEntryEnabled =
+    automationsHostWorkspaces.length > 0 &&
+    Boolean(resolveEnabledWorkspaceType(AUTOMATIONS_HOST_WORKSPACE_MODE, moduleOverrides))
 
   return (
     <aside
@@ -1584,10 +1582,12 @@ export default function WorkspaceSidebar({
         ) : null}
       </nav>
 
-      {/* Bottom utility rail: the Automations front door. A destination (not a
-          create action), so it lives below the workspace tree as a Settings-peer
-          rather than in the New-workspace creation cluster. Pinned to the bottom
-          because the <nav> above is flex-1. Gated on the automations module. */}
+      {/* Bottom utility rail: the Automations front door. A pure destination —
+          it lists the project Automations workspaces that already exist and jumps
+          to one; it never creates (that is the New-workspace mode card's job). So
+          it lives below the workspace tree as a Settings-peer, pinned to the
+          bottom because the <nav> above is flex-1. Shown only when the automations
+          module is enabled AND at least one host exists. */}
       {automationsEntryEnabled ? (
         <div
           className={`shrink-0 border-t border-[color:var(--border-subtle)] ${
@@ -1595,7 +1595,7 @@ export default function WorkspaceSidebar({
           }`}
         >
           {sidebarCollapsed ? (
-            <Tooltip content="Automations — schedule agents per project" wrapperClassName="flex">
+            <Tooltip content="Open Automations" wrapperClassName="flex">
               <button
                 type="button"
                 onClick={(event) => setAutomationsMenu({ x: event.clientX, y: event.clientY })}
@@ -1618,38 +1618,31 @@ export default function WorkspaceSidebar({
         </div>
       ) : null}
 
-      {/* Front-door project picker: reveal-or-create per project. */}
+      {/* Front-door picker: jump to an existing project's Automations workspace.
+          Reveal-only — creating an Automations workspace is the New-workspace
+          mode card's job, not this rail. */}
       {automationsMenu ? (
         <PointerPopover
           x={automationsMenu.x}
           y={automationsMenu.y}
-          ariaLabel="Open Automations for a project"
+          ariaLabel="Open Automations"
           onClose={() => setAutomationsMenu(null)}
         >
           <div className="min-w-[220px] max-w-[320px] py-1">
-            {automationsProjectFolders.length === 0 ? (
-              <div className="px-3 py-2 text-[12px] text-[color:var(--text-muted)]">
-                No project folders yet. Create a workspace in a project first.
-              </div>
-            ) : (
-              automationsProjectFolders.map((folder) => (
-                <button
-                  key={folder.folderPath}
-                  type="button"
-                  onClick={() => {
-                    setAutomationsMenu(null)
-                    onOpenAutomationsForFolder(folder.folderPath)
-                  }}
-                  className={`flex w-full items-center gap-2 px-3 py-1.5 text-left text-[13px] text-[color:var(--text-default)] transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)] ${FOCUS_RING_CLASS}`}
-                >
-                  <AutomationsWorkspaceTypeIcon className="icon-xs pointer-events-none shrink-0 text-[color:var(--accent-primary)]" />
-                  <span className="min-w-0 flex-1 truncate">{folder.displayName}</span>
-                  <span className="shrink-0 text-[11px] text-[color:var(--text-subtle)]">
-                    {folder.hasHost ? 'Open' : 'Create'}
-                  </span>
-                </button>
-              ))
-            )}
+            {automationsHostWorkspaces.map((host) => (
+              <button
+                key={host.id}
+                type="button"
+                onClick={() => {
+                  setAutomationsMenu(null)
+                  onSelectWorkspace(host.id)
+                }}
+                className={`flex w-full items-center gap-2 px-3 py-1.5 text-left text-[13px] text-[color:var(--text-default)] transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)] ${FOCUS_RING_CLASS}`}
+              >
+                <AutomationsWorkspaceTypeIcon className="icon-xs pointer-events-none shrink-0 text-[color:var(--accent-primary)]" />
+                <span className="min-w-0 flex-1 truncate">{host.displayName}</span>
+              </button>
+            ))}
           </div>
         </PointerPopover>
       ) : null}

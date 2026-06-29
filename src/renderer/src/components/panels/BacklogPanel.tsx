@@ -2293,7 +2293,9 @@ function matchesQuery(item: BacklogItem, query: string): boolean {
   return (
     item.title.toLowerCase().includes(query) ||
     item.relativePath.toLowerCase().includes(query) ||
-    item.excerpt.toLowerCase().includes(query)
+    item.excerpt.toLowerCase().includes(query) ||
+    (item.displayId?.toLowerCase().includes(query) ?? false) ||
+    (typeof item.numericId === 'number' && String(item.numericId).includes(query))
   )
 }
 

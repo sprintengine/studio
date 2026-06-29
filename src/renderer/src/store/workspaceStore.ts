@@ -137,7 +137,8 @@ import {
   isLegacyV44WorkspaceEnvelope,
   splitLegacyV44Envelope,
 } from './repositories/workspaceRegistry'
-import type { WorkspaceRegistryEmptyState } from '../types/workspace'
+import type { WorkspaceRegistryEmptyState, WorkspaceWorktree } from '../types/workspace'
+import { sprintEngineAutomationShouldRun } from '../utils/sprintengineAutomationLifecycle'
 
 migrateLegacyWorkspaceStorageKey()
 
@@ -255,6 +256,7 @@ export interface WorkspaceStore extends PluginsSlice, CliAvailabilitySlice {
     options?: {
       name?: string
       folderPath?: string | null
+      worktree?: WorkspaceWorktree | null
       sprintEngineState?: SprintEngineState | null
       sprintEngineContext?: SprintEngineWorkspaceContext | null
       multiloopState?: MultiloopState | null
@@ -1273,6 +1275,34 @@ function syncTerminalIdleSuspendToMain(): void {
   useWorkspaceStore.subscribe((state) => push(state.appSettings.terminalIdleSuspendMinutes))
 }
 syncTerminalIdleSuspendToMain()
+
+// Mirror which SprintEngine runs are ACTIVELY dispatching to main, so the idle
+// reaper protects those runs' agents (owned by the claim-aware 5-min retirement)
+// and only disposes agents of inactive/completed runs. Renderer owns run-active
+// state; pushed on startup and on every workspace change (deduped). A run is
+// active when its automation should run (mode !== manual && runtimeState running);
+// completion flips runtimeState off 'running', so it drops out automatically.
+function syncActiveSprintRunsToMain(): void {
+  if (typeof window === 'undefined') return
+  const api = window.api as { setActiveSprintRunStatePaths?: (paths: string[]) => Promise<unknown> } | undefined
+  if (!api?.setActiveSprintRunStatePaths) return
+
+  let lastSerialized = ''
+  const push = (workspaces: Workspace[]): void => {
+    const paths = workspaces
+      .filter((ws) => ws.sprintEngineContext?.statePath && sprintEngineAutomationShouldRun(ws.sprintEngineAutoState))
+      .map((ws) => ws.sprintEngineContext!.statePath)
+      .sort()
+    const serialized = JSON.stringify(paths)
+    if (serialized === lastSerialized) return
+    lastSerialized = serialized
+    void api.setActiveSprintRunStatePaths!(paths)
+  }
+
+  push(useWorkspaceStore.getState().workspaces)
+  useWorkspaceStore.subscribe((state) => push(state.workspaces))
+}
+syncActiveSprintRunsToMain()
 
 function syncWorkspaceRegistryAcrossWindows(): void {
   if (typeof window === 'undefined') return

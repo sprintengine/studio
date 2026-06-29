@@ -836,4 +836,28 @@ assert.equal(
   'an omitted mode still derives standard',
 )
 
+// addWorkspace plumbs the optional `worktree` marker onto the created workspace
+// (set by the Worktree manager's "Open as workspace"), and omits it otherwise so
+// existing/non-worktree workspaces stay a true no-op.
+const worktreeWsId = useWorkspaceStore.getState().addWorkspace(standardTemplate, {
+  name: 'Worktree: spike',
+  folderPath: '/Users/example/wt/spike',
+  worktree: { branch: 'spike/parser' },
+})
+const plainWsId = useWorkspaceStore.getState().addWorkspace(standardTemplate, {
+  name: 'Plain',
+  folderPath: '/Users/example/plain',
+})
+state = useWorkspaceStore.getState()
+assert.deepEqual(
+  state.workspaces.find((workspace) => workspace.id === worktreeWsId)?.worktree,
+  { branch: 'spike/parser' },
+  'addWorkspace sets the worktree marker',
+)
+assert.equal(
+  state.workspaces.find((workspace) => workspace.id === plainWsId)?.worktree,
+  undefined,
+  'addWorkspace omits the worktree marker when not provided',
+)
+
 console.log('workspacesSlice.test.ts: ok')

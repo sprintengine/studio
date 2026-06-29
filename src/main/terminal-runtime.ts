@@ -127,6 +127,7 @@ type TerminalIpcHandlers = {
   resumeTerminal(sender: WebContents, payload: TerminalSpawnPayload): Promise<TerminalSpawnResult>
   killTerminal(sessionId: string): void
   setIdleSuspendThresholdMs(value: unknown): void
+  setActiveSprintRunStatePaths(value: unknown): void
 }
 
 type TerminalRuntime = {
@@ -323,6 +324,7 @@ export function createTerminalRuntime(options: TerminalRuntimeOptions): Terminal
       resumeTerminal: resumeTerminal,
       killTerminal: disposeTerminal,
       setIdleSuspendThresholdMs: setIdleSuspendThresholdMs,
+      setActiveSprintRunStatePaths: setActiveSprintRunStatePaths,
     },
   }
 }
@@ -650,6 +652,23 @@ export function getIdleSuspendThresholdMs(): number {
   return configuredSuspendIdleAfterMs
 }
 
+// SprintEngine run.yaml statePaths whose dispatch loop is currently ACTIVELY
+// running (pushed from the renderer, which owns run-active state). The idle
+// reaper protects sprint agents belonging to these — an active run's idle agents
+// are owned by the claim-aware 5-min AutoRun retirement, and disposing them from
+// here would race the dispatch (flapping / lost in-flight claims). A sprint agent
+// whose run is NOT in this set (completed, stopped, or manual) is reclaimable —
+// that is the parked-until-teardown gap this sweep exists to close. Empty until
+// the renderer first syncs (so before sync, all sprint agents look inactive and
+// only an authoritatively-idle one is reaped, which is the safe default).
+let activeSprintRunStatePaths = new Set<string>()
+
+export function setActiveSprintRunStatePaths(value: unknown): void {
+  activeSprintRunStatePaths = new Set(
+    Array.isArray(value) ? value.filter((entry): entry is string => typeof entry === 'string') : []
+  )
+}
+
 let staleTerminalSweepTimer: ReturnType<typeof setInterval> | undefined
 
 function startStaleTerminalSweep(): void {
@@ -749,15 +768,24 @@ export function runIdleAgentReapSweep(now = Date.now()): string[] {
     // When the agent went idle — keeps a just-finished agent alive until it has
     // actually been idle past the threshold.
     idleSince: session.agentState?.phase === 'idle' ? session.agentState.since : null,
-    // SprintEngine agents are NO LONGER blanket-exempt. The phase gate already
-    // protects working/awaiting_input/stalled agents, so only a genuinely at-rest
-    // ('idle') sprint agent is reclaimed — and for those we DISPOSE (not freeze),
-    // which fires `agent.leave` (→ status `left`) so the dispatch's revival path
-    // respawns the agent when its role next has claimable work. This backstops the
-    // 5-min AutoRun idle-retirement for runs whose dispatch loop has stopped
-    // (completed/inactive), where idle agents otherwise sit holding RAM until the
-    // 24h sweep or app/workspace teardown. See the dispose branch below.
-    inActiveRun: false,
+    // A SprintEngine agent is protected from this sweep when EITHER its run's
+    // dispatch loop is actively running (the claim-aware 5-min AutoRun retirement
+    // owns those — disposing from here would race the dispatch: flapping, or
+    // dropping an in-flight claim + `--resume` conversation) OR its idle is not
+    // AUTHORITATIVELY known. `agentState.phase` comes from a lifecycle hook; a
+    // hookless/BYO sprint CLI (or the pre-first-frame window) has `phase === null`,
+    // which the policy's phase gate skips, falling to the keystroke floor — and a
+    // sprint agent on a long autonomous turn has no keystrokes, so that floor would
+    // dispose it mid-work. So we only reap a sprint agent that is BOTH in an inactive
+    // run AND authoritatively `idle`. Those we DISPOSE (branch below) → `agent.leave`
+    // (→ `left`) → the dispatch revival path respawns them when work returns. This
+    // closes the parked-until-teardown gap for completed/stopped runs without
+    // touching active ones. (Empty set before the renderer first syncs ⇒ runs look
+    // inactive ⇒ only authoritatively-idle agents reap, the safe default.)
+    inActiveRun:
+      Boolean(session.sprintEngineStatePath)
+      && (activeSprintRunStatePaths.has(session.sprintEngineStatePath ?? '')
+        || session.agentState?.phase !== 'idle'),
   }))
 
   const decision = selectReapableSessions(candidates, {

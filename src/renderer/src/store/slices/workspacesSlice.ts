@@ -55,6 +55,7 @@ import type {
   SprintEngineWorkspaceContext,
   GitPanelView,
   Workspace,
+  WorkspaceWorktree,
   WorkspaceBacklogState,
   WorkspaceFileExplorerState,
   WorkspaceGitPanelState,
@@ -242,6 +243,7 @@ export interface WorkspacesSliceActions {
     options?: {
       name?: string
       folderPath?: string | null
+      worktree?: WorkspaceWorktree | null
       sprintEngineState?: SprintEngineState | null
       sprintEngineContext?: SprintEngineWorkspaceContext | null
       multiloopState?: MultiloopState | null
@@ -1052,6 +1054,7 @@ export function createWorkspacesSlice(
                     : 'standard',
           folderPath,
           folderMissing: false,
+          ...(options?.worktree ? { worktree: options.worktree } : {}),
           sprintEngineContext,
           multiloopContext,
           templateId: template.id,

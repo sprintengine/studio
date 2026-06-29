@@ -2339,6 +2339,9 @@ export type ElectronApi = {
   // Push the user's "Pause idle terminals after" setting (ms) to the main reap
   // policy. Clamped/validated in main; the next idle sweep uses the latest value.
   setTerminalIdleSuspendMs: (ms: number) => Promise<void>
+  // Push the SprintEngine run statePaths whose dispatch loop is actively running,
+  // so the idle reaper protects those runs' agents and only reclaims inactive ones.
+  setActiveSprintRunStatePaths: (statePaths: string[]) => Promise<void>
   onTerminalReplay: (sessionId: string, cb: (data: string) => void) => () => void
   onTerminalData: (sessionId: string, cb: (data: string) => void) => () => void
   onTerminalExit: (sessionId: string, cb: (code: number) => void) => () => void

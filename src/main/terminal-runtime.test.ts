@@ -572,16 +572,48 @@ async function assertIdleSweepDisposesIdleSprintEngineAgent(runtimeModule: Runti
     })
     assert.equal(result.ok, true, JSON.stringify(result))
 
-    // Fresh: nothing reaps yet.
-    assert.deepEqual(runtimeModule.runIdleAgentReapSweep(Date.now()), [], 'a fresh sprint agent is not reaped')
-
-    // Past the idle threshold: the sprint agent reaps even though it belongs to a
-    // managed run (no longer exempt).
+    // A hookless sprint agent (no lifecycle frame → phase null) is NOT reaped,
+    // even well past the threshold: a long autonomous turn has no keystrokes, and
+    // disposing it would drop its in-flight work. Only an AUTHORITATIVELY idle
+    // sprint agent is reapable.
     const wellPastIdle = Date.now() + 30 * 60 * 1000 + 1_000
     assert.deepEqual(
       runtimeModule.runIdleAgentReapSweep(wellPastIdle),
+      [],
+      'a hookless (null-phase) sprint agent is protected from the reaper',
+    )
+
+    // Now an authoritative `idle` hook frame marks it genuinely at-rest.
+    runtime.ingestAgentStateFrame({
+      type: 'agent_state',
+      agentId: 'frontend-9',
+      workspaceId: 'ws-sprint',
+      sessionId: null,
+      phase: 'idle',
+      event: null,
+      ts: Date.now(),
+    })
+
+    // Fresh after the frame: not yet past the threshold relative to going idle.
+    assert.deepEqual(runtimeModule.runIdleAgentReapSweep(Date.now()), [], 'a freshly-idle sprint agent is not reaped')
+
+    // While its run's dispatch loop is ACTIVELY running, the idle sprint agent is
+    // protected even past the threshold — active runs are owned by the claim-aware
+    // 5-min AutoRun retirement; disposing from here would race the dispatch.
+    runtimeModule.setActiveSprintRunStatePaths([sprintEngineStatePath])
+    assert.deepEqual(
+      runtimeModule.runIdleAgentReapSweep(wellPastIdle),
+      [],
+      'an idle sprint agent whose run is actively dispatching is protected',
+    )
+
+    // Once its run is no longer active (completed/stopped), the agent is
+    // reclaimable past the threshold (the parked-until-teardown gap this closes).
+    runtimeModule.setActiveSprintRunStatePaths([])
+    assert.deepEqual(
+      runtimeModule.runIdleAgentReapSweep(wellPastIdle),
       ['session_sprint_idle'],
-      'an idle sprint agent past the threshold is reaped',
+      'an authoritatively-idle sprint agent of an INACTIVE run past the threshold is reaped',
     )
 
     mockPty.spawnCalls[0]?.process.emitExit({ exitCode: 0 })
