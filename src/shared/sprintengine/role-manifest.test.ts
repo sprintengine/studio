@@ -1,6 +1,13 @@
 import assert from 'node:assert/strict'
 
-import { parseRoleManifest, validateRoleManifest } from './role-manifest'
+import {
+  buildAuthoredRoleManifest,
+  parseRoleManifest,
+  roleIdCollision,
+  serializeRoleManifest,
+  starterSoulTemplate,
+  validateRoleManifest,
+} from './role-manifest'
 
 function testValidMinimal(): void {
   const result = validateRoleManifest({
@@ -105,6 +112,76 @@ function testParseValid(): void {
   assert.equal(result.ok, true)
 }
 
+function testSerializeRoundTrip(): void {
+  const built = validateRoleManifest({
+    id: 'auditor',
+    label: 'Auditor',
+    summary: 'Audits the change.',
+    aliases: ['audit'],
+    capabilities: [{ kind: 'review', phase: 'review', defaultFocus: 'Security review.' }],
+    soul: [{ skill: 'auditor' }],
+  })
+  assert.equal(built.ok, true)
+  if (!built.ok) return
+  const serialized = serializeRoleManifest(built.manifest)
+  assert.equal(serialized.endsWith('\n'), true)
+  assert.equal(serialized, `${JSON.stringify(built.manifest, null, 2)}\n`)
+  const reparsed = parseRoleManifest(serialized)
+  assert.equal(reparsed.ok, true)
+  if (reparsed.ok) assert.deepEqual(reparsed.manifest, built.manifest)
+}
+
+function testBuildAuthoredSoulAndOmission(): void {
+  const minimal = buildAuthoredRoleManifest({ id: 'auditor', label: 'Auditor' })
+  assert.deepEqual(minimal.soul, [{ skill: 'auditor' }])
+  assert.equal('summary' in minimal, false)
+  assert.equal('aliases' in minimal, false)
+  assert.equal('capabilities' in minimal, false)
+  // Blank/whitespace optionals are omitted rather than emitted empty.
+  const blanks = buildAuthoredRoleManifest({ id: 'auditor', label: 'Auditor', summary: '  ', aliases: ['', '  '] })
+  assert.equal('summary' in blanks, false)
+  assert.equal('aliases' in blanks, false)
+  // The minimal authored manifest validates through the single validator.
+  assert.equal(validateRoleManifest(minimal).ok, true)
+}
+
+function testBuildAuthoredFull(): void {
+  const full = buildAuthoredRoleManifest({
+    id: 'auditor',
+    label: 'Auditor',
+    summary: 'Audits the change.',
+    aliases: ['audit'],
+    capability: { phase: 'review', defaultFocus: 'Security review.' },
+  })
+  assert.deepEqual(full, {
+    id: 'auditor',
+    label: 'Auditor',
+    soul: [{ skill: 'auditor' }],
+    summary: 'Audits the change.',
+    aliases: ['audit'],
+    capabilities: [{ kind: 'review', phase: 'review', defaultFocus: 'Security review.' }],
+  })
+}
+
+function testRoleIdCollision(): void {
+  const existing = ['developer', 'architect', 'sec-audit']
+  assert.equal(roleIdCollision('developer', existing), true)
+  assert.equal(roleIdCollision('sec-audit', existing), true)
+  assert.equal(roleIdCollision('auditor', existing), false)
+  assert.equal(roleIdCollision('developer', new Set(existing)), true)
+  assert.equal(roleIdCollision('developer', []), false)
+}
+
+function testStarterSoulTemplate(): void {
+  const template = starterSoulTemplate('Security Auditor')
+  assert.ok(template.length > 0)
+  assert.ok(template.includes('<what-to-do>'))
+  assert.ok(template.includes('</what-to-do>'))
+  assert.ok(template.includes('<supporting-info>'))
+  assert.ok(template.includes('</supporting-info>'))
+  assert.ok(template.includes('Security Auditor'))
+}
+
 testValidMinimal()
 testValidFull()
 testRejectsNonObject()
@@ -116,4 +193,9 @@ testRejectsBadAlias()
 testRejectsBadCapability()
 testParseInvalidJson()
 testParseValid()
+testSerializeRoundTrip()
+testBuildAuthoredSoulAndOmission()
+testBuildAuthoredFull()
+testRoleIdCollision()
+testStarterSoulTemplate()
 console.log('role-manifest tests passed')
