@@ -12,6 +12,7 @@ import {
   buildRunSummary,
   compareCliDeliveryScores,
   computeRunDurationMs,
+  formatCompactTokenCount,
   formatRunDuration,
   type SprintEngineAgentRow,
   type SprintEngineTypeStat,
@@ -572,6 +573,19 @@ function testBuildRunSummaryThreadsTokenUsage(): void {
   assert.equal(withoutUsage.completedTasks, 1, 'existing summary fields still computed')
 }
 
+function testFormatCompactTokenCount(): void {
+  assert.equal(formatCompactTokenCount(0), '0')
+  assert.equal(formatCompactTokenCount(-5), '0', 'negatives clamp to 0')
+  assert.equal(formatCompactTokenCount(999), '999')
+  assert.equal(formatCompactTokenCount(1000), '1K')
+  assert.equal(formatCompactTokenCount(1200), '1.2K')
+  assert.equal(formatCompactTokenCount(12_345), '12.3K')
+  assert.equal(formatCompactTokenCount(150_000), '150K', 'no decimal at/above 100')
+  assert.equal(formatCompactTokenCount(1_200_000), '1.2M')
+  assert.equal(formatCompactTokenCount(698_510_128), '699M', 'rounds with no decimal at/above 100')
+  assert.equal(formatCompactTokenCount(1_500_000_000), '1.5B')
+}
+
 function main(): void {
   testAgentTypeSummaryGroupsByRoleAndCli()
   testCompareCliDeliveryScores()
@@ -586,6 +600,7 @@ function main(): void {
   testProcessHealthExcludesAgentPerformanceDimensions()
   testDurationFormatting()
   testBuildRunSummaryThreadsTokenUsage()
+  testFormatCompactTokenCount()
   console.log('sprintengineRunSummary.test.ts: ok')
 }
 

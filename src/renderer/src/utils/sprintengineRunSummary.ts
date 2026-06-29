@@ -461,6 +461,33 @@ export function formatRunDuration(durationMs: number | null): string | null {
   return `${hours}h ${minutes.toString().padStart(2, '0')}m`
 }
 
+// Compact token count for dense numeric columns: 0–999 verbatim, then K/M/B
+// with one decimal (trailing ".0" dropped) so a 698M cache-read column stays a
+// single readable glyph instead of a nine-digit run. Negative inputs are clamped
+// to 0 (token counts are never negative; a bad read should read as 0, not "-1").
+export function formatCompactTokenCount(value: number): string {
+  if (!Number.isFinite(value) || value <= 0) return '0'
+  const units: Array<{ limit: number; suffix: string }> = [
+    { limit: 1_000_000_000, suffix: 'B' },
+    { limit: 1_000_000, suffix: 'M' },
+    { limit: 1_000, suffix: 'K' },
+  ]
+  for (const { limit, suffix } of units) {
+    if (value >= limit) {
+      const scaled = value / limit
+      // One decimal under 100 (1.2M), none above (340M) so width stays bounded.
+      const text = scaled >= 100 ? Math.round(scaled).toString() : trimDecimal(scaled)
+      return `${text}${suffix}`
+    }
+  }
+  return Math.round(value).toString()
+}
+
+function trimDecimal(value: number): string {
+  const fixed = value.toFixed(1)
+  return fixed.endsWith('.0') ? fixed.slice(0, -2) : fixed
+}
+
 function taskImplementerAgentId(task: SprintEngineTask): string | null {
   return task.lastImplementedByAgentId ?? task.ownerAgentId ?? null
 }

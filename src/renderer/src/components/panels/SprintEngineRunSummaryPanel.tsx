@@ -26,6 +26,7 @@ import {
   feedbackFindingAreaLabels,
   feedbackFindingKindLabels,
   findingSeverityOrder,
+  formatCompactTokenCount,
   formatRunDuration,
   formatSprintEngineGoal,
   measuredIssueTypes,
@@ -51,6 +52,7 @@ import type {
   SprintEngineTask,
   SprintEngineTaskFeedbackFindingSeverity,
   SprintEngineTaskStatus,
+  SprintEngineTokenUsage,
   SprintEngineVcs,
 } from '../../types/workspace'
 
@@ -132,6 +134,17 @@ type AnalysisState =
   | { status: 'error'; analysis: null; architectDifficulty: null; error: string }
   | { status: 'unavailable'; analysis: null; architectDifficulty: null }
 
+// Token totals are a completion artifact computed on demand in main (it reads
+// CLI transcripts), so the renderer loads them via IPC into this state rather
+// than deriving them from `tasks`. `pending` = run still running, so we have not
+// asked yet; `unavailable` = no run path to query.
+type TokenUsageState =
+  | { status: 'pending' }
+  | { status: 'loading' }
+  | { status: 'ready'; usage: SprintEngineTokenUsage }
+  | { status: 'error'; error: string }
+  | { status: 'unavailable' }
+
 export default function SprintEngineRunSummaryPanel({
   workspaceId,
   onClose,
@@ -163,6 +176,15 @@ export default function SprintEngineRunSummaryPanel({
     analysis: null,
     architectDifficulty: null,
   })
+  const [tokenUsageState, setTokenUsageState] = useState<TokenUsageState>({ status: 'pending' })
+
+  // Token totals are computed once the sprint is complete (the panel is a
+  // completed-run report). A still-running sprint shows the pending note instead
+  // of a mid-run partial that would read as the final figure.
+  const runComplete = useMemo(() => {
+    const tasks = sprintEngineState?.tasks ?? []
+    return tasks.length > 0 && tasks.every((task) => task.status === 'done')
+  }, [sprintEngineState])
 
   useEffect(() => {
     if (!statePath) {
@@ -199,6 +221,39 @@ export default function SprintEngineRunSummaryPanel({
       cancelled = true
     }
   }, [statePath, stateUpdatedAt])
+
+  useEffect(() => {
+    if (!statePath) {
+      setTokenUsageState({ status: 'unavailable' })
+      return
+    }
+    if (!runComplete) {
+      setTokenUsageState({ status: 'pending' })
+      return
+    }
+    let cancelled = false
+    setTokenUsageState({ status: 'loading' })
+    window.api
+      .readSprintEngineTokenUsage(statePath)
+      .then((result) => {
+        if (cancelled) return
+        if (!result.ok) {
+          setTokenUsageState({ status: 'error', error: result.message })
+          return
+        }
+        setTokenUsageState({ status: 'ready', usage: result.data as SprintEngineTokenUsage })
+      })
+      .catch((error: unknown) => {
+        if (cancelled) return
+        setTokenUsageState({
+          status: 'error',
+          error: error instanceof Error ? error.message : String(error),
+        })
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [statePath, stateUpdatedAt, runComplete])
 
   const report = useMemo<SprintEngineRunReport | null>(
     () => (sprintEngineState ? buildRunReport(sprintEngineState, analysisState.analysis) : null),
@@ -290,7 +345,7 @@ export default function SprintEngineRunSummaryPanel({
         <>
           {/* Overview → output → by-type headline → the real measured issues → who. */}
           <RunOverviewSection report={report} burnup={burnup} durationLabel={durationLabel} />
-          <RunMetricsSection report={report} />
+          <RunMetricsSection report={report} tokenUsage={tokenUsageState} />
           {agentTypeSummary ? <AgentTypeSummarySection summary={agentTypeSummary} /> : null}
           <IssuesCaughtSection issueTotals={issueTotals} />
           <AgentBreakdownSection
@@ -1405,7 +1460,13 @@ function RunOverviewSection({
   )
 }
 
-function RunMetricsSection({ report }: { report: SprintEngineRunReport }) {
+function RunMetricsSection({
+  report,
+  tokenUsage,
+}: {
+  report: SprintEngineRunReport
+  tokenUsage: TokenUsageState
+}) {
   const cells: StatCell[] = [
     { label: 'Files touched', value: report.metrics.filesTouched },
     { label: 'Commands', value: report.metrics.commands },
@@ -1422,9 +1483,173 @@ function RunMetricsSection({ report }: { report: SprintEngineRunReport }) {
     <SectionDivider>
       <Section title="Run metrics" level={3}>
         <StatStrip cells={cells} columns="md:grid-cols-4" />
+        <TokenUsageBlock state={tokenUsage} />
       </Section>
     </SectionDivider>
   )
+}
+
+// Per-model token total for the run. Cache reads/creation get their own columns
+// and are never folded into the input/output headline; unmeasured agents are
+// named in a plain caveat rather than silently dropped, so the figure is never
+// an understated total presented as complete.
+function TokenUsageBlock({ state }: { state: TokenUsageState }) {
+  return (
+    <div className="mt-5">
+      <WorkTypeHeading label="Token usage" />
+      <TokenUsageBody state={state} />
+    </div>
+  )
+}
+
+function TokenUsageBody({ state }: { state: TokenUsageState }) {
+  if (state.status === 'pending') {
+    return <TokenNote>Token totals are computed when the sprint completes.</TokenNote>
+  }
+  if (state.status === 'loading') {
+    return <TokenNote>Computing token totals…</TokenNote>
+  }
+  if (state.status === 'unavailable') {
+    return <TokenNote>Token usage is unavailable for this run.</TokenNote>
+  }
+  if (state.status === 'error') {
+    return (
+      <div className="border-l-2 border-[color:var(--tone-error)] pl-3 text-[12px] leading-5 text-[color:var(--tone-error)]">
+        Couldn&apos;t compute token totals: {state.error}
+      </div>
+    )
+  }
+  const { usage } = state
+  if (usage.perModel.length === 0) {
+    return <TokenNote>{emptyTokenMessage(usage)}</TokenNote>
+  }
+  return <TokenUsageTable usage={usage} />
+}
+
+function TokenNote({ children }: { children: React.ReactNode }) {
+  return <p className="text-[12px] leading-5 text-[color:var(--text-muted)]">{children}</p>
+}
+
+function TokenUsageTable({ usage }: { usage: SprintEngineTokenUsage }) {
+  const border = 'border-b border-[color:var(--border-subtle)]'
+  return (
+    <div className="overflow-x-auto">
+      <table className={TABLE_CLASS} style={tableStyleFor(4)}>
+        <ColGroup numCols={4} />
+        <thead>
+          <tr>
+            <th scope="col" className={AGENT_HEADER}>
+              Model
+            </th>
+            <th scope="col" className={`${NUM_HEADER} ${COL_SEP}`}>
+              Input
+            </th>
+            <th scope="col" className={NUM_HEADER}>
+              Output
+            </th>
+            <th scope="col" className={NUM_HEADER}>
+              Cache read
+            </th>
+            <th scope="col" className={NUM_HEADER}>
+              Cache created
+            </th>
+          </tr>
+        </thead>
+        <tbody>
+          {usage.perModel.map((model) => (
+            <tr key={model.model || 'unknown'}>
+              <td className={`${border} py-[7px] pr-6`}>
+                <span className="font-mono text-[12px] text-[color:var(--text-strong)]">
+                  {model.model || 'unknown model'}
+                </span>
+              </td>
+              <TokenCell border={border} sep={COL_SEP} value={model.input} />
+              <TokenCell border={border} value={model.output} />
+              <TokenCell border={border} value={model.cacheRead} />
+              <TokenCell border={border} value={model.cacheCreation} />
+            </tr>
+          ))}
+          {/* Grand total. The preceding row's hairline is the separator, so the
+              total row carries no top border (avoids a double rule) and stands
+              out by weight instead. */}
+          <tr>
+            <td className="py-[7px] pr-6">
+              <span className="text-[12px] font-medium text-[color:var(--text-strong)]">Total</span>
+            </td>
+            <TokenCell sep={COL_SEP} value={usage.total.input} strong />
+            <TokenCell value={usage.total.output} strong />
+            <TokenCell value={usage.total.cacheRead} strong />
+            <TokenCell value={usage.total.cacheCreation} strong />
+          </tr>
+        </tbody>
+      </table>
+      <p className="mt-2 text-[12px] leading-5 text-[color:var(--text-muted)]">
+        {coverageCaveat(usage)}
+      </p>
+    </div>
+  )
+}
+
+function TokenCell({
+  value,
+  border = '',
+  sep,
+  strong = false,
+}: {
+  value: number
+  border?: string
+  sep?: string
+  strong?: boolean
+}) {
+  const weight = strong ? 'font-medium text-[color:var(--text-strong)]' : ''
+  return (
+    <td className={`${border} ${sep ?? ''} py-[7px] px-3 text-right tabular-nums ${weight}`}>
+      {value <= 0 ? (
+        <span className="text-[color:var(--text-disabled)]">0</span>
+      ) : (
+        // Compact label for width; exact count on hover since K/M/B loses precision.
+        <span title={`${value.toLocaleString()} tokens`}>{formatCompactTokenCount(value)}</span>
+      )}
+    </td>
+  )
+}
+
+function pluralAgents(count: number): string {
+  return `${count} agent${count === 1 ? '' : 's'}`
+}
+
+// Groups unmeasured agents by CLI so the caveat names sources truthfully:
+// "OpenCode ×2, Foo" rather than a bare count.
+function formatUnmeasuredClis(unmeasured: SprintEngineTokenUsage['coverage']['unmeasured']): string {
+  const counts = new Map<string, number>()
+  for (const { cli } of unmeasured) {
+    const key = cli || 'unknown'
+    counts.set(key, (counts.get(key) ?? 0) + 1)
+  }
+  return [...counts.entries()]
+    .map(([cli, count]) => (count > 1 ? `${cliLabel(cli)} ×${count}` : cliLabel(cli)))
+    .join(', ')
+}
+
+// Headline + coverage in one plain line. The headline counts input+output only
+// (cache is shown in its own columns, never folded in). When agents are
+// unmeasured it names them so the total never reads as silently complete.
+function coverageCaveat(usage: SprintEngineTokenUsage): string {
+  const { measuredAgents, unmeasuredAgents, unmeasured } = usage.coverage
+  const totalAgents = measuredAgents + unmeasuredAgents
+  const headline = formatCompactTokenCount(usage.total.input + usage.total.output)
+  if (unmeasuredAgents > 0) {
+    return `${headline} input + output tokens measured across ${measuredAgents} of ${pluralAgents(totalAgents)}. ${pluralAgents(unmeasuredAgents)} on unmeasured CLIs (${formatUnmeasuredClis(unmeasured)}) not included.`
+  }
+  return `${headline} input + output tokens across all ${pluralAgents(measuredAgents)}.`
+}
+
+function emptyTokenMessage(usage: SprintEngineTokenUsage): string {
+  const { unmeasuredAgents, unmeasured } = usage.coverage
+  if (unmeasuredAgents > 0) {
+    return `No measured token usage — ${pluralAgents(unmeasuredAgents)} on unmeasured CLIs (${formatUnmeasuredClis(unmeasured)}).`
+  }
+  return 'No token usage was recorded for this sprint.'
 }
 
 // A glanceable headline: implementation agents grouped by role, each showing a
