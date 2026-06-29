@@ -10,7 +10,7 @@ import type { SprintEngineState, Workspace, WorkspaceId } from '../types/workspa
 import type { SprintEngineAutomationEvent } from '../types/workspace'
 import { publishDiagnostic } from './diagnostics'
 import { logPerfEvent } from './perfDiagnostics'
-import { normalizeSprintEngineProjection } from './sprintengine'
+import { isCompletedSprintEngineRun, normalizeSprintEngineProjection } from './sprintengine'
 import {
   buildSprintEnginePullRequestLink,
   sprintEngineStatePathForBacklogLink,
@@ -188,13 +188,6 @@ export function canStopPollingCompletedSprintEngineProjection(
 
 function normalizedPathKey(path: string): string {
   return path.replace(/\\/g, '/').replace(/\/+$/u, '').toLowerCase()
-}
-
-// Canonical "this run is finished" signal: every task is done. This is the same
-// signal the auto-run supervisor's hard completion gate uses, so a completed run
-// can never auto-spawn — see SprintEngineAutoRunSupervisor.superviseWorkspace.
-export function isCompletedSprintEngineRun(state: SprintEngineState): boolean {
-  return state.tasks.length > 0 && state.tasks.every((task) => task.status === 'done')
 }
 
 async function refreshBacklogSprintEngineRunLinks(input: {

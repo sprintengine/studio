@@ -17,6 +17,7 @@ import {
   buildSprintEngineAgentRosterForState,
   buildSprintEngineRosterCommandArgs,
   getSprintEngineRoleLabel,
+  isCompletedSprintEngineRun,
   isSprintEngineTaskLaunchable,
   normalizeSprintEngineProjection,
 } from '../../utils/sprintengine'
@@ -70,10 +71,7 @@ import { pathJoin } from '../../utils/paths'
 import { MULTICODE_DISABLE_SPRINTENGINE_AUTORUN } from '../../utils/runtimeFlags'
 import { resolveProjectKnowledgeConfig } from '../../utils/projectKnowledge'
 import { isAgentTabVisible, type AgentTerminalRevealPolicy } from '../../utils/modelRegistry'
-import {
-  isCompletedSprintEngineRun,
-  refreshSprintEngineWorkspaceProjection,
-} from '../../utils/sprintengineProjectionRefresh'
+import { refreshSprintEngineWorkspaceProjection } from '../../utils/sprintengineProjectionRefresh'
 import { registerTimer } from '../../utils/diagnostics/timerRegistry'
 import { deriveSprintEngineAutomationMode } from '../../utils/sprintengineAutomation'
 import {
@@ -2084,7 +2082,7 @@ export async function superviseRunnerActiveCycle(input: RunnerActiveCycleInput):
     })
   }
 
-  if (sprintEngineState.tasks.length > 0 && sprintEngineState.tasks.every((task) => task.status === 'done')) {
+  if (isCompletedSprintEngineRun(sprintEngineState)) {
     // Close the run's agent terminals before applying the stop reason: a
     // terminal-list IPC failure throws here, leaves the runner in `running`,
     // and the next tick retries both the close and the completion transition.

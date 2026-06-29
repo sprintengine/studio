@@ -1,5 +1,5 @@
 import type { BacklogItem, BacklogItemLink, BacklogResolvedLink } from './backlog'
-import { normalizeSprintEngineProjection } from './sprintengine'
+import { isCompletedSprintEngineRun, normalizeSprintEngineProjection } from './sprintengine'
 import type { BacklogLinkProviderInput } from '../modules/renderer-host'
 import type { Workspace } from '../types/workspace'
 
@@ -146,9 +146,7 @@ export async function resolveSprintEngineBacklogLink(
     return unavailableLink(input.link, 'Sprint projection is malformed.')
   }
 
-  const status = state.tasks.length > 0 && state.tasks.every((task) => task.status === 'done')
-    ? 'completed'
-    : 'active'
+  const status = isCompletedSprintEngineRun(state) ? 'completed' : 'active'
   return {
     ...input.link,
     status,
