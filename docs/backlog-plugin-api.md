@@ -202,11 +202,13 @@ rather than part of this plugin contract.
 ## Permissions
 
 Bundled modules are first-party. Third-party capability modules declare
-permission strings in their manifest for install/trust disclosure. Current
-permission validation accepts string scopes and does not yet enforce a runtime
-Backlog permission broker.
+permission strings in their manifest for install/trust disclosure. Permission
+validation accepts string scopes; these are install-time disclosure shown
+before you trust a module, not a runtime-enforced cage — there is no runtime
+Backlog permission broker, and these scopes do not gate `backlog-service` IPC.
 
-Expected Backlog-related scopes for future third-party modules:
+Defined Backlog-related disclosure scopes (part of the capability-permission
+vocabulary, with consent descriptions, alongside the `ipc:*` tiers):
 
 - `backlog.read`: read Backlog item metadata and source paths.
 - `backlog.write`: mutate Backlog item status, metadata, links, or records.
@@ -219,5 +221,7 @@ focus workspaces, spawn external processes, or open network resources should
 also declare the corresponding workspace/process/network capability scopes when
 those actions apply.
 
-Do not document these scopes as a user-facing permission UI until enforcement
-and presentation are implemented.
+These scopes are disclosure vocabulary only: they declare what a module says it
+does and surface readable consent text at install/trust time. They make no
+runtime enforcement claim, so describe them to users as disclosure, never as a
+sandbox or permission gate the app enforces.

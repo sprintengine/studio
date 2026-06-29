@@ -12,6 +12,10 @@
   set.
 - `BacklogItemLink.type` now includes `agent`, matching the app's
   lifecycle-neutral working-agent links.
+- Three additive Backlog disclosure scopes — `backlog.read`, `backlog.write`,
+  `backlog.link.open` — added to `CapabilityPermission` and
+  `KNOWN_CAPABILITY_PERMISSIONS`. Install-time disclosure vocabulary only (no
+  runtime enforcement), consistent with the existing `ipc:*` tiers.
 
 ## 0.3.0 — 2026-06-15
 
