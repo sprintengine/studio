@@ -1,11 +1,15 @@
-import React, { useCallback, useEffect, useState } from 'react'
+import React, { useCallback, useEffect, useRef, useState } from 'react'
 
-import { Drawer, GhostButton, InlineNotice, PrimaryButton, Spinner } from '../ui'
+import { GhostButton, InlineNotice, PrimaryButton, SidePaneHeader, Spinner } from '../ui'
 import { renderMarkdown } from '../../utils/markdown'
 import { basename, joinFilePath } from '../../utils/paths'
 
 // In-app viewer for a single automation run's report. The run owns the report
-// link (T4 threads `onViewReport(run)`); this overlay reads and renders it.
+// link (T4 threads `onViewReport(run)`); this side pane reads and renders it.
+//
+// Renders as the body of a right-hand SidePane (the caller owns the SidePane
+// chrome), matching how Sprint Engine, Switchboard, and the Backlog open a
+// selected item beside the list rather than over it — not a full-window overlay.
 //
 // Reports are markdown or html files committed under `reports/`. The paths are
 // already validated upstream (contained under `reports/`, project-relative) —
@@ -123,15 +127,35 @@ export function AutomationReportViewer({
 
   const title = reportPaths.length > 1 ? 'Run reports' : activePath ? basename(activePath) : 'Run report'
 
+  // Focus the pane on open so Escape closes it (parity with the prior Drawer),
+  // scoped to this surface — the keydown lives on the pane, so it never reaches
+  // the definition list's own Escape handler behind it.
+  const paneRef = useRef<HTMLDivElement | null>(null)
+  useEffect(() => {
+    paneRef.current?.focus()
+  }, [])
+
   return (
-    <Drawer open onClose={onClose} title={title} ariaLabel="Automation run report" width={640}>
-      <Drawer.Body className="flex flex-col gap-3">
-        {reportPaths.length > 1 ? (
-          <ReportPathPicker paths={reportPaths} activePath={activePath} onSelect={setActivePath} />
-        ) : null}
-        <ReportViewBody state={state} pullRequestUrl={pullRequestUrl} onOpenHtml={openHtml} />
-      </Drawer.Body>
-    </Drawer>
+    <div
+      ref={paneRef}
+      tabIndex={-1}
+      role="region"
+      aria-label="Automation run report"
+      onKeyDown={(event) => {
+        if (event.key === 'Escape') onClose()
+      }}
+      className="flex h-full min-h-0 flex-col outline-none"
+    >
+      <SidePaneHeader title={title} onClose={onClose} closeLabel="Close report" />
+      <div className="min-h-0 flex-1 overflow-y-auto px-4 py-3">
+        <div className="flex flex-col gap-3">
+          {reportPaths.length > 1 ? (
+            <ReportPathPicker paths={reportPaths} activePath={activePath} onSelect={setActivePath} />
+          ) : null}
+          <ReportViewBody state={state} pullRequestUrl={pullRequestUrl} onOpenHtml={openHtml} />
+        </div>
+      </div>
+    </div>
   )
 }
 

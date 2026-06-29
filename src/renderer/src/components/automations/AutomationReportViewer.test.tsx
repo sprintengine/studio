@@ -193,9 +193,9 @@ run('clicking a picker tab selects that path', () => {
 })
 
 // ---- Component wiring the static render cannot reach ------------------------
-// The overlay's effect + dismissal are store/lifecycle-bound (the Drawer renders
-// null until its enter frames run), so assert them against the source the same
-// way the Backlog row tests assert panel wiring.
+// The pane's effect + dismissal are lifecycle-bound (the load effect and the
+// focus-on-open Escape handler only run once mounted), so assert them against
+// the source the same way the Backlog row tests assert panel wiring.
 const viewerSource = readFileSync(
   join(process.cwd(), 'src/renderer/src/components/automations/AutomationReportViewer.tsx'),
   'utf8',
@@ -239,11 +239,31 @@ run('opening an html report is wired only through the confirm action, never the 
   )
 })
 
-run('the overlay delegates Esc / close / focus to the Drawer primitive via onClose', () => {
+run('the report renders as a closable SidePane body, not a full-window overlay', () => {
+  assert.ok(
+    !viewerSource.includes('<Drawer'),
+    'no Drawer overlay — the report opens beside the list, like the Sprint Engine / Backlog detail panes',
+  )
   assert.match(
     viewerSource,
-    /<Drawer open onClose=\{onClose\}/,
-    'rendered inside Drawer, which owns Escape, backdrop close, focus capture and restoration',
+    /<SidePaneHeader title=\{title\} onClose=\{onClose\} closeLabel="Close report"/,
+    'the header hosts the close affordance via SidePaneHeader',
+  )
+})
+
+run('Escape closes the pane, scoped to the pane so it does not also clear the list selection', () => {
+  // The keydown lives on the focusable pane wrapper (not window), and the pane
+  // focuses itself on open, so Escape resolves here instead of falling through
+  // to the definition list's own Escape handler behind it.
+  assert.match(
+    viewerSource,
+    /onKeyDown=\{\(event\) => \{\s*if \(event\.key === 'Escape'\) onClose\(\)/,
+    'Escape on the pane wrapper closes the report',
+  )
+  assert.match(
+    viewerSource,
+    /paneRef\.current\?\.focus\(\)/,
+    'the pane focuses itself on open so its Escape handler is the one that fires',
   )
 })
 
