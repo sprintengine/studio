@@ -126,8 +126,38 @@ async function main(): Promise<void> {
     await assertIdleSweepSuspendsRatherThanDisposes(runtimeModule)
     await assertDebugModeEnsureInstallsDebugSkill(runtimeModule)
     await assertAgentSessionExitListenerFiresSystemTaggedForAnySystem(runtimeModule)
+    await assertLaunchRegistryRootsIncludeUserRolesWhenPresent(runtimeModule)
   } finally {
     moduleWithLoad._load = originalLoad
+  }
+}
+
+// F1 regression: the managed spawn path must surface the user-authored role
+// registry root (~/.multicode/sprintengine-roles) so agent.join can resolve
+// rostered authored roles. The list mirrors the read path, appending the root
+// only when the directory exists. HOME is redirected so the assertion exercises
+// real defaultUserRoleRegistryRoot()/existsSync logic against a temp home.
+async function assertLaunchRegistryRootsIncludeUserRolesWhenPresent(
+  runtimeModule: RuntimeModule
+): Promise<void> {
+  const tempHome = await mkdtemp(join(tmpdir(), 'multicode-terminal-runtime-user-roles-'))
+  const userRolesRoot = join(tempHome, '.multicode', 'sprintengine-roles')
+  const originalHome = process.env.HOME
+  process.env.HOME = tempHome
+  try {
+    assert.ok(
+      !runtimeModule.sprintEngineRegistryRootsForLaunch().includes(userRolesRoot),
+      'absent user-roles dir must not be added to launch registry roots'
+    )
+
+    await mkdir(userRolesRoot, { recursive: true })
+    assert.ok(
+      runtimeModule.sprintEngineRegistryRootsForLaunch().includes(userRolesRoot),
+      'present user-roles dir must be on the launch registry roots'
+    )
+  } finally {
+    if (originalHome === undefined) delete process.env.HOME
+    else process.env.HOME = originalHome
   }
 }
 

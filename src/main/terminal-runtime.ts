@@ -25,11 +25,13 @@ import {
   getShellLaunchConfig,
   getTerminalEnv,
 } from './terminal-launch'
+import { existsSync } from 'node:fs'
 import { basename, dirname } from 'node:path'
 import { getErrorMessage } from './error-message'
 import { getTerminalErrorMessage } from './terminal-error'
 import { MobileSprintEngineCommandService } from './mobile/sprintengine/command'
 import { getPluginRegistryUserRoot, getPluginSprintEngineRegistryRoots } from './plugin-registry-instance'
+import { defaultUserRoleRegistryRoot } from './sprintengine-role-registry'
 import {
   appendTerminalOutput,
   clearAgentStallTimer,
@@ -228,9 +230,17 @@ export function buildManagedSprintEngineSyncInputForLaunch(
   }
 }
 
-function sprintEngineRegistryRootsForLaunch(): string[] {
+export function sprintEngineRegistryRootsForLaunch(): string[] {
   try {
-    return getPluginSprintEngineRegistryRoots().map((root) => root.root)
+    const roots = getPluginSprintEngineRegistryRoots().map((root) => root.root)
+    // Mirror sprintEngineRegistryRootsForRead (src/main/sprintengine-artifacts.ts):
+    // user-authored roles live under defaultUserRoleRegistryRoot() with the same
+    // { roles/, skills/ } shape, so adding the root lets managed agent.join resolve
+    // them at spawn. Only when the directory exists, so absent-dir launches are
+    // unaffected.
+    const userRoot = defaultUserRoleRegistryRoot()
+    if (existsSync(userRoot)) roots.push(userRoot)
+    return roots
   } catch {
     return []
   }
