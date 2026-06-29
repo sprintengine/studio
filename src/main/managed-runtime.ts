@@ -122,6 +122,37 @@ export function resolveManagedPython(env: RuntimeEnv, repoRoot?: string): Resolv
   return { command: env.platform === 'win32' ? 'python' : 'python3', source: 'system' }
 }
 
+/** Minimal logger surface so this is unit-testable without console side effects. */
+export type RuntimeLogger = { log: (msg: string) => void; warn: (msg: string) => void }
+
+/**
+ * Emits a one-line diagnostic about which Python interpreter the app resolved,
+ * and warns loudly when a *packaged* build did not land on the bundled CPython.
+ *
+ * In a packaged build `source` should always be `bundled` (or an explicit
+ * `override`). A `venv`/`system` result there means `runtimes:fetch` never ran
+ * or the payload is missing from the build, so the app is silently leaning on a
+ * user's system `python3` — possibly the wrong version, possibly absent. That
+ * degrades Sprint Engine / Switchboard / Multiloop / souls at runtime instead of
+ * failing the build, so we surface it in the logs rather than let it pass quietly.
+ */
+export function reportManagedPythonResolution(
+  resolved: ResolvedPython,
+  env: RuntimeEnv,
+  logger: RuntimeLogger = console,
+): void {
+  const summary = `[managed-runtime] python source=${resolved.source} command=${resolved.command}`
+  if (env.isPackaged && resolved.source !== 'bundled' && resolved.source !== 'override') {
+    logger.warn(
+      `${summary} — expected the bundled CPython in a packaged build. ` +
+        `runtimes:fetch likely did not run or resources/runtime/python is missing; ` +
+        `Python-backed features may use an unexpected interpreter or fail.`,
+    )
+    return
+  }
+  logger.log(summary)
+}
+
 /**
  * The Node binary to use for our own JS tooling and npm installs. Electron's
  * own executable runs as Node when ELECTRON_RUN_AS_NODE=1 is set (see
