@@ -72,15 +72,63 @@ export const BUNDLED_SPRINT_ENGINE_WIZARD_ROLE_SUMMARIES: Record<SprintEngineRol
 
 const WIZARD_CUSTOM_REGISTRY_ROLE_SUMMARY = 'Custom registry role.'
 
-// Resolve the wizard summary for a role. Bundled roles use the wizard copy;
-// custom registry roles fall back to their registry `summary` if present, then
-// to a generic label so unknown ids still render. Centralizing this here so
-// the new-workspace roster table consumes the same shared module as the live
-// board.
+// Built-in soulless single-agent participant. Not a registry role with a Soul:
+// `general` is special-cased like `architect`. One General plans, builds,
+// reviews, and tests a whole sprint by itself; several share the work by
+// claiming tasks. See `knowledge/multicode/sprint-engine.md`.
+export const SPRINT_ENGINE_GENERAL_ROLE_ID: SprintEngineRoleId = 'general'
+
+// The planning-capable roster roles. A Sprint Engine roster must staff at least
+// one of them: an `architect` (specialist planner) or a soulless `general`.
+export const SPRINT_ENGINE_PLANNING_ROLE_IDS: readonly SprintEngineRoleId[] = [
+  'architect',
+  SPRINT_ENGINE_GENERAL_ROLE_ID,
+]
+
+// Wizard summary for the General row. States the solo self-review trade-off
+// plainly (per the source backlog risks section): one agent reviewing its own
+// work is lighter assurance than a separate reviewer.
+const SPRINT_ENGINE_GENERAL_WIZARD_SUMMARY =
+  'One soulless agent plans, builds, reviews, and tests the whole sprint itself — solo self-review is lighter assurance than a separate reviewer.'
+
+export function isSprintEnginePlanningRole(role: SprintEngineRoleId): boolean {
+  return SPRINT_ENGINE_PLANNING_ROLE_IDS.includes(role)
+}
+
+// True when the roster staffs at least one planning-capable agent. The wizard
+// must reject a roster that staffs neither architect nor general.
+export function sprintEngineRosterHasPlanningRole(
+  roleCounts: Partial<Record<SprintEngineRoleId, number>>,
+): boolean {
+  return SPRINT_ENGINE_PLANNING_ROLE_IDS.some((role) => (roleCounts[role] ?? 0) > 0)
+}
+
+// Minimum count for a role in the wizard roster. A planning role floors at 1
+// only while it is the *sole* staffed planner, so the roster can never drop
+// below one planning-capable agent — but architect and general trade places
+// freely (drop architect to 0 once a general is added, and vice versa). Every
+// non-planning role floors at 0.
+export function sprintEngineRosterRoleFloor(
+  role: SprintEngineRoleId,
+  roleCounts: Partial<Record<SprintEngineRoleId, number>>,
+): number {
+  if (!isSprintEnginePlanningRole(role)) return 0
+  const anotherPlannerStaffed = SPRINT_ENGINE_PLANNING_ROLE_IDS.some(
+    (candidate) => candidate !== role && (roleCounts[candidate] ?? 0) > 0,
+  )
+  return anotherPlannerStaffed ? 0 : 1
+}
+
+// Resolve the wizard summary for a role. The soulless `general` participant has
+// its own copy; bundled roles use the wizard copy; custom registry roles fall
+// back to their registry `summary` if present, then to a generic label so
+// unknown ids still render. Centralizing this here so the new-workspace roster
+// table consumes the same shared module as the live board.
 export function getSprintEngineWizardRoleSummary(
   roleId: SprintEngineRoleId,
   registry?: SprintEngineRoleRegistry | null,
 ): string {
+  if (roleId === SPRINT_ENGINE_GENERAL_ROLE_ID) return SPRINT_ENGINE_GENERAL_WIZARD_SUMMARY
   if (isBundledWizardRole(roleId)) return BUNDLED_SPRINT_ENGINE_WIZARD_ROLE_SUMMARIES[roleId]
   const fromRegistry = registry?.roles?.[roleId]?.summary
   if (typeof fromRegistry === 'string' && fromRegistry.trim()) return fromRegistry.trim()
@@ -132,6 +180,21 @@ export function listSprintEngineAddableRoles(
   disabledRoleIds?: ReadonlySet<SprintEngineRoleId> | null,
 ): SprintEngineRoleId[] {
   return orderSprintEngineRosterRoles(registry ?? null, disabledRoleIds ?? null)
+}
+
+// New-workspace wizard roster choices: the registry/bundled addable roles plus
+// the soulless `general` planner, surfaced right after `architect` so the two
+// planning options sit together. General is wizard-only here; the live board's
+// add-member list stays registry-derived via `listSprintEngineAddableRoles`.
+export function listSprintEngineWizardRoles(
+  registry?: SprintEngineRoleRegistry | null,
+  disabledRoleIds?: ReadonlySet<SprintEngineRoleId> | null,
+): SprintEngineRoleId[] {
+  const roles = listSprintEngineAddableRoles(registry, disabledRoleIds)
+  if (roles.includes(SPRINT_ENGINE_GENERAL_ROLE_ID)) return roles
+  const architectIndex = roles.indexOf('architect')
+  const insertAt = architectIndex >= 0 ? architectIndex + 1 : roles.length
+  return [...roles.slice(0, insertAt), SPRINT_ENGINE_GENERAL_ROLE_ID, ...roles.slice(insertAt)]
 }
 
 export function buildSprintEngineAddMemberOptions(

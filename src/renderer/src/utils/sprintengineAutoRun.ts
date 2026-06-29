@@ -21,6 +21,7 @@ import {
   isSprintEngineTaskLaunchable,
   sprintEngineAutoApprovalBlockingSiblingsAllReviewable,
 } from './sprintengine'
+import { isSprintEnginePlanningRole } from './sprintengineInitialSpawns'
 import { logPerfEvent } from './perfDiagnostics'
 
 export const AUTO_RUN_ROLE_CONTINUATION_GRACE_MS = 30000
@@ -1617,21 +1618,22 @@ export function getSprintEngineContinuationMessageWorkKey(workspace: Workspace, 
 
 export type SprintEngineBootstrapDecision =
   | { kind: 'spawn'; candidate: AutoRunCandidate }
-  | { kind: 'stall'; reason: 'no_architect' | 'architect_exited_before_plan' }
+  | { kind: 'stall'; reason: 'no_planner' | 'architect_exited_before_plan' }
   | { kind: 'none' }
 
 /**
- * Run-start bootstrap decision. Before the architect produces a plan there are
- * no tasks, so `pickNextAutoRuns` has nothing to select — the architect (and
- * only the architect) is spawned here, carrying its stored handoff prompt when
- * one exists. Every other spawn is work-driven: ready tasks, rework, and
- * quality gates flow through `pickNextAutoRuns` under the concurrency cap,
- * notification targets through notification delivery, and needs-input triage
- * through the architect triage path.
+ * Run-start bootstrap decision. Before a plan exists there are no tasks, so
+ * `pickNextAutoRuns` has nothing to select — the run's planning-capable agent
+ * (the architect, or a soulless General when no architect is rostered) is
+ * spawned here, carrying its stored handoff prompt when one exists. Every other
+ * spawn is work-driven: ready tasks, rework, and quality gates flow through
+ * `pickNextAutoRuns` under the concurrency cap, notification targets through
+ * notification delivery, and needs-input triage through the architect triage
+ * path.
  *
- * An architect terminal that exited after its startup prompt was delivered is
- * not respawned blindly (a broken CLI would spawn/exit loop); that pre-plan
- * stall is reported as a decision so the supervisor can surface it once.
+ * A planner terminal that exited after its startup prompt was delivered is not
+ * respawned blindly (a broken CLI would spawn/exit loop); that pre-plan stall is
+ * reported as a decision so the supervisor can surface it once.
  */
 export function pickSprintEngineBootstrapCandidate(
   workspace: Workspace,
@@ -1643,20 +1645,24 @@ export function pickSprintEngineBootstrapCandidate(
 ): SprintEngineBootstrapDecision {
   const runHasTasks = sprintEngineState.tasks.length > 0
   const roster = buildSprintEngineAgentRosterForState(sprintEngineState)
-  const architect = roster.find((candidate) => candidate.role === 'architect')
-  if (!architect) {
-    return runHasTasks ? { kind: 'none' } : { kind: 'stall', reason: 'no_architect' }
+  // Prefer the architect when one is rostered; otherwise a General plans the
+  // run itself. Either is a planning-capable bootstrap candidate.
+  const planner =
+    roster.find((candidate) => candidate.role === 'architect')
+    ?? roster.find((candidate) => isSprintEnginePlanningRole(candidate.role))
+  if (!planner) {
+    return runHasTasks ? { kind: 'none' } : { kind: 'stall', reason: 'no_planner' }
   }
 
-  const currentAgent = workspace.agents[architect.id]
+  const currentAgent = workspace.agents[planner.id]
   const hasUndeliveredStartupPrompt =
     Boolean(currentAgent?.cliStartupPrompt?.trim()) && !currentAgent?.cliOnboardingPromptSent
   if (runHasTasks && !hasUndeliveredStartupPrompt) return { kind: 'none' }
 
-  const runtimeAgent = sprintEngineState.sprintEngineAgents[architect.id]
+  const runtimeAgent = sprintEngineState.sprintEngineAgents[planner.id]
   if (runtimeAgent?.status === 'retired') return { kind: 'none' }
-  if (options.runningAgentIds.has(architect.id)) return { kind: 'none' }
-  if (options.inFlightSpawnKeys.has(`${workspace.id}:${architect.id}`)) return { kind: 'none' }
+  if (options.runningAgentIds.has(planner.id)) return { kind: 'none' }
+  if (options.inFlightSpawnKeys.has(`${workspace.id}:${planner.id}`)) return { kind: 'none' }
 
   if (currentAgent?.cliLastExitedAt && !hasUndeliveredStartupPrompt) {
     return { kind: 'stall', reason: 'architect_exited_before_plan' }
@@ -1665,10 +1671,10 @@ export function pickSprintEngineBootstrapCandidate(
   return {
     kind: 'spawn',
     candidate: {
-      agentId: architect.id,
-      label: currentAgent?.name ?? architect.label,
-      role: architect.role,
-      taskId: `bootstrap-${architect.id}`,
+      agentId: planner.id,
+      label: currentAgent?.name ?? planner.label,
+      role: planner.role,
+      taskId: `bootstrap-${planner.id}`,
     },
   }
 }
@@ -1978,6 +1984,102 @@ export function pickNextAutoRuns(
   }
   const reservedContinuationByRole = new Map<SprintEngineRoleId, number>()
 
+  // Lifecycle phase tasks (review/testing/product) whose pending gates can be
+  // claimed by an idle roster agent. Computed before the ready-task loop so a
+  // General's own pending gates can be ordered ahead of new ready work.
+  const gatedPhaseTasks = sprintEngineState.tasks.filter((task) => {
+    const column = getSprintEngineTaskBoardColumn(task, sprintEngineState.tasks)
+    return column === 'review' || column === 'testing' || column === 'product'
+  })
+  logPerfEvent('SprintEngineAutoRun', 'candidate-pick-gated-tasks', {
+    workspaceId: workspace.id,
+    workspaceName: workspace.name,
+    gatedTaskCount: gatedPhaseTasks.length,
+  })
+
+  // Spawn an idle roster agent for each pending gate on a task. We never claim
+  // the gate from the renderer — that stays an MCP mutation through
+  // `sprintengine.gate.next` / `sprintengine.gate.claim`; the spawned terminal
+  // claims it directly. `roleFilter` restricts selection to a single gate role
+  // (used to order General self-review/testing gates ahead of ready tasks).
+  const selectGatesForTask = (task: SprintEngineTask, roleFilter?: SprintEngineRoleId): void => {
+    const activeGateClaims = getActiveSprintEngineAutoRunGateClaims(task, sprintEngineState.tasks)
+    for (const claim of activeGateClaims) {
+      if (candidates.length >= options.limit) break
+      if (roleFilter && claim.gate.role !== roleFilter) continue
+      const reviewerAgent = rosterById[claim.claimedBy] ?? {
+        id: claim.claimedBy,
+        label: claim.claimedBy,
+        role: claim.gate.role,
+      }
+      addCandidate(task, reviewerAgent.id, reviewerAgent.label, {
+        allowSharedTask: true,
+        agentRole: claim.gate.role,
+        gateId: claim.gate.id,
+      })
+      logPerfEvent('SprintEngineAutoRun', 'candidate-pick-gated-resume-result', {
+        workspaceId: workspace.id,
+        workspaceName: workspace.name,
+        taskId: task.id,
+        gateId: claim.gate.id,
+        gateRole: claim.gate.role,
+        selectedAgentId: reviewerAgent.id,
+      })
+    }
+
+    const claimableGates = getClaimableSprintEngineAutoRunGates(task, sprintEngineState.tasks)
+    for (const gate of claimableGates) {
+      if (candidates.length >= options.limit) break
+      if (roleFilter && gate.role !== roleFilter) continue
+      const reviewerAgentId = findReusableRoleAgent(gate.role)
+      // Missing roster roles do not create dead launch queues — we simply skip
+      // the gate and the CLI verdict path stays the only completion route.
+      if (!reviewerAgentId) {
+        logPerfEvent('SprintEngineAutoRun', 'candidate-pick-gated-no-roster-agent', {
+          workspaceId: workspace.id,
+          workspaceName: workspace.name,
+          taskId: task.id,
+          gateId: gate.id,
+          gateRole: gate.role,
+        })
+        continue
+      }
+      const reviewerAgent = rosterById[reviewerAgentId] ?? {
+        id: reviewerAgentId,
+        label: reviewerAgentId,
+        role: gate.role,
+      }
+      addCandidate(task, reviewerAgent.id, reviewerAgent.label, {
+        allowSharedTask: true,
+        agentRole: gate.role,
+        gateId: gate.id,
+      })
+      logPerfEvent('SprintEngineAutoRun', 'candidate-pick-gated-result', {
+        workspaceId: workspace.id,
+        workspaceName: workspace.name,
+        taskId: task.id,
+        gateId: gate.id,
+        gateRole: gate.role,
+        selectedAgentId: reviewerAgent.id,
+      })
+    }
+  }
+
+  // General-aware ordering: an idle General reviews/tests its own work before
+  // taking new ready tasks, so order pending `general` gates (self-review and
+  // testing gates on a General's just-finished tasks) ahead of the ready-task
+  // loop. This mirrors the server `cmd_join` gate-first priority and load-
+  // balances multiple Generals for free — once one General is routed to the
+  // gate, the next idle General finds no claimable `general` gate and falls
+  // through to a ready task. Specialist runs have no `general` agent, so this
+  // pre-pass is a no-op for them and their dispatch order is unchanged.
+  if (roster.some((agent) => agent.role === 'general')) {
+    for (const task of gatedPhaseTasks) {
+      if (candidates.length >= options.limit) break
+      selectGatesForTask(task, 'general')
+    }
+  }
+
   for (const task of readyTasks) {
     if (candidates.length >= options.limit) break
     const continuationCapacity = options.continuationCapacityByRole.get(task.role) ?? 0
@@ -2034,82 +2136,14 @@ export function pickNextAutoRuns(
     })
   }
 
-  // Lifecycle phase tasks (review/testing/product) keep auto-run running even
-  // when no implementation task is ready: each pending required gate maps to
-  // a reviewer/tester/product role, and we spawn an idle roster agent for that
-  // role; the spawned terminal claims it directly with `sprintengine.gate.next`.
-  // We never claim the gate from the renderer — that stays an MCP mutation
-  // through `sprintengine.gate.next` / `sprintengine.gate.claim`.
-  const gatedPhaseTasks = sprintEngineState.tasks.filter((task) => {
-    const column = getSprintEngineTaskBoardColumn(task, sprintEngineState.tasks)
-    return column === 'review' || column === 'testing' || column === 'product'
-  })
-  logPerfEvent('SprintEngineAutoRun', 'candidate-pick-gated-tasks', {
-    workspaceId: workspace.id,
-    workspaceName: workspace.name,
-    gatedTaskCount: gatedPhaseTasks.length,
-  })
-
+  // Lifecycle phase gates keep auto-run running even when no implementation
+  // task is ready: each pending gate maps to a reviewer/tester/product role and
+  // we spawn an idle roster agent for it. (General `general`-role gates already
+  // had a first pass above; `addCandidate` dedups by work key so this re-pass
+  // skips any already selected, and picks up the remaining specialist gates.)
   for (const task of gatedPhaseTasks) {
     if (candidates.length >= options.limit) break
-    const activeGateClaims = getActiveSprintEngineAutoRunGateClaims(task, sprintEngineState.tasks)
-    for (const claim of activeGateClaims) {
-      if (candidates.length >= options.limit) break
-      const reviewerAgent = rosterById[claim.claimedBy] ?? {
-        id: claim.claimedBy,
-        label: claim.claimedBy,
-        role: claim.gate.role,
-      }
-      addCandidate(task, reviewerAgent.id, reviewerAgent.label, {
-        allowSharedTask: true,
-        agentRole: claim.gate.role,
-        gateId: claim.gate.id,
-      })
-      logPerfEvent('SprintEngineAutoRun', 'candidate-pick-gated-resume-result', {
-        workspaceId: workspace.id,
-        workspaceName: workspace.name,
-        taskId: task.id,
-        gateId: claim.gate.id,
-        gateRole: claim.gate.role,
-        selectedAgentId: reviewerAgent.id,
-      })
-    }
-
-    const claimableGates = getClaimableSprintEngineAutoRunGates(task, sprintEngineState.tasks)
-    for (const gate of claimableGates) {
-      if (candidates.length >= options.limit) break
-      const reviewerAgentId = findReusableRoleAgent(gate.role)
-      // Missing roster roles do not create dead launch queues — we simply skip
-      // the gate and the CLI verdict path stays the only completion route.
-      if (!reviewerAgentId) {
-        logPerfEvent('SprintEngineAutoRun', 'candidate-pick-gated-no-roster-agent', {
-          workspaceId: workspace.id,
-          workspaceName: workspace.name,
-          taskId: task.id,
-          gateId: gate.id,
-          gateRole: gate.role,
-        })
-        continue
-      }
-      const reviewerAgent = rosterById[reviewerAgentId] ?? {
-        id: reviewerAgentId,
-        label: reviewerAgentId,
-        role: gate.role,
-      }
-      addCandidate(task, reviewerAgent.id, reviewerAgent.label, {
-        allowSharedTask: true,
-        agentRole: gate.role,
-        gateId: gate.id,
-      })
-      logPerfEvent('SprintEngineAutoRun', 'candidate-pick-gated-result', {
-        workspaceId: workspace.id,
-        workspaceName: workspace.name,
-        taskId: task.id,
-        gateId: gate.id,
-        gateRole: gate.role,
-        selectedAgentId: reviewerAgent.id,
-      })
-    }
+    selectGatesForTask(task)
   }
 
   logPerfEvent('SprintEngineAutoRun', 'candidate-pick-end', {

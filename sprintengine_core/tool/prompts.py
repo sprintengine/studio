@@ -5,8 +5,18 @@ from __future__ import annotations
 from typing import Optional
 
 from sprintengine_core.tool.paths import PROMPTS_DIR, REPO_ROOT
-from sprintengine_core.role_registry import SoulRenderError, discover_role_registry
-from sprintengine_core.skill_layers import SPRINTENGINE_SOUL_EXTRA_SKILLS
+from sprintengine_core.role_registry import (
+    SOUL_LEGEND,
+    RegistryDiscovery,
+    SkillDocument,
+    SoulRenderError,
+    discover_role_registry,
+    normalize_role_id,
+)
+from sprintengine_core.skill_layers import (
+    SPRINTENGINE_GENERAL_SKILLS,
+    SPRINTENGINE_SOUL_EXTRA_SKILLS,
+)
 
 
 SPRINTENGINE_SKILLS_DIR = REPO_ROOT / "resources" / "sprintengine" / "skills"
@@ -17,6 +27,11 @@ def load_soul_prompt(role: str) -> Optional[str]:
     # Role manifests carry only the portable soul identity. A Sprint Engine
     # dispatch layers the Multicode product skills and Sprint Engine quality
     # norms on top so the rendered soul carries the full quality bar.
+    if normalize_role_id(role) == "general":
+        # `general` has no role manifest; render its soulless layer (norms +
+        # orchestration) so this shared chokepoint never drops the norms for a
+        # General on the CLI-join or plan-review composition paths.
+        return load_general_soul_prompt()
     try:
         return (
             discover_role_registry()
@@ -25,6 +40,37 @@ def load_soul_prompt(role: str) -> Optional[str]:
         )
     except (KeyError, SoulRenderError):
         return None
+
+
+def load_general_soul_prompt(registry: Optional[RegistryDiscovery] = None) -> Optional[str]:
+    """Render the soulless General's quality + orchestration layer.
+
+    A General carries no role-personality Soul. It still receives the full Sprint
+    Engine quality bar — the same universal norm + Multicode product skills every
+    dispatched agent gets — plus the full-loop orchestration skill that drives one
+    agent through plan -> build -> self-review -> test -> publish. The General role
+    has no manifest, so this composes the layer skills directly (in the same
+    ``<skill>`` envelope a soul render uses) instead of rendering a soul. Composing
+    it deliberately is what stops the universal norms from being dropped the way a
+    manifest-less role otherwise would fall through to the no-soul fallback.
+
+    ``registry`` lets a workspace-scoped caller (the MCP join) reuse its already
+    discovered registry so workspace skill overrides apply, exactly as they do for
+    a specialist soul render; callers without one get the default discovery.
+    """
+    registry = registry if registry is not None else discover_role_registry()
+    parts: list[str] = []
+    for raw_skill in SPRINTENGINE_GENERAL_SKILLS:
+        skill_id = normalize_role_id(raw_skill)
+        entry = registry.skills.get(skill_id)
+        if entry is None or not isinstance(entry.value, SkillDocument):
+            continue
+        body = entry.value.body.strip()
+        if body:
+            parts.append(f'<skill name="{skill_id}">\n{body}\n</skill>')
+    if not parts:
+        return None
+    return "\n\n".join((SOUL_LEGEND, *parts))
 
 
 def load_sprintengine_runtime_skill(skill_id: str) -> str:

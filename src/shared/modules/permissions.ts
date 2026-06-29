@@ -56,6 +56,12 @@ export type CapabilityPermission =
   | 'ipc:agents'
   | 'ipc:settings'
   | 'ipc:invoke'
+  // Backlog-focused disclosure scopes. Finer-grained than the broad
+  // `ipc:workspace-read`/`ipc:workspace-write` areas Backlog reads and writes
+  // already fall under; additive disclosure for modules built around Backlog.
+  | 'backlog.read'
+  | 'backlog.write'
+  | 'backlog.link.open'
   // Extensible: unknown scopes validate structurally but are flagged as unknown
   // so the consent UI can warn rather than silently grant something opaque.
   | (string & {})
@@ -71,6 +77,9 @@ export const KNOWN_CAPABILITY_PERMISSIONS: readonly string[] = [
   'ipc:agents',
   'ipc:settings',
   'ipc:invoke',
+  'backlog.read',
+  'backlog.write',
+  'backlog.link.open',
 ]
 
 // Plain, sentence-case descriptions for the install/trust consent prompt.
@@ -87,6 +96,9 @@ const PERMISSION_DESCRIPTIONS: Record<string, string> = {
   'ipc:agents': 'Launch and control agents and terminals',
   'ipc:settings': 'Read and change Multicode settings and integrations',
   'ipc:invoke': "Call any of Multicode's internal APIs (broad legacy scope)",
+  'backlog.read': 'Read Backlog item details and source content',
+  'backlog.write': 'Change Backlog item status, links, and metadata',
+  'backlog.link.open': 'Open links and targets attached to Backlog items',
 }
 
 export function isKnownCapabilityPermission(value: string): boolean {

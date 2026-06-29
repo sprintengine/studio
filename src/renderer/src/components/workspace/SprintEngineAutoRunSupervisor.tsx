@@ -1526,17 +1526,17 @@ async function ensureSprintEngineBootstrapAgent(
       await defaultExecutorPorts.publishDiagnostic({
         level: 'warning',
         source: 'sprintengine',
-        title: decision.reason === 'no_architect'
+        title: decision.reason === 'no_planner'
           ? 'Automation has nothing to start'
-          : 'Architect terminal exited before planning finished',
-        message: decision.reason === 'no_architect'
-          ? 'This run has no tasks yet and no architect on the roster, so automation cannot create a plan.'
-          : 'The run has no tasks yet and the architect terminal already exited. Automation does not respawn it automatically; spawn the architect from the board to continue planning.',
+          : 'Planner terminal exited before planning finished',
+        message: decision.reason === 'no_planner'
+          ? 'This run has no tasks yet and no planning agent (an architect, or a General) on the roster, so automation cannot create a plan.'
+          : 'The run has no tasks yet and the planner terminal already exited. Automation does not respawn it automatically; spawn the planner from the board to continue planning.',
         details: [
           `Workspace: ${workspace.name}`,
-          decision.reason === 'no_architect'
-            ? 'Add an architect to the roster or create tasks before enabling automation.'
-            : 'Once the architect records tasks, agents spawn on their own when work becomes claimable.',
+          decision.reason === 'no_planner'
+            ? 'Add an architect or a General to the roster, or create tasks, before enabling automation.'
+            : 'Once the planner records tasks, agents spawn on their own when work becomes claimable.',
         ].join('\n'),
         workspaceId: workspace.id,
         workspaceName: workspace.name,

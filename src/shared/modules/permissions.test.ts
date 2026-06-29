@@ -58,6 +58,25 @@ function testTieredIpcScopesAreKnownAndDescribed(): void {
   if (result.ok) assert.deepEqual(result.permissions, tiers)
 }
 
+function testBacklogScopesAreKnownAndDisclosureOnly(): void {
+  const scopes = ['backlog.read', 'backlog.write', 'backlog.link.open']
+  for (const scope of scopes) {
+    assert.equal(isKnownCapabilityPermission(scope), true, `${scope} is a known scope`)
+    assert.equal(isBroadCapabilityPermission(scope), false, `${scope} is not flagged broad`)
+    assert.doesNotMatch(
+      describeCapabilityPermission(scope),
+      /Unrecognized/,
+      `${scope} has a real consent description`
+    )
+  }
+  assert.match(describeCapabilityPermission('backlog.read'), /Read Backlog/)
+  assert.match(describeCapabilityPermission('backlog.write'), /Change Backlog/)
+  assert.match(describeCapabilityPermission('backlog.link.open'), /Open links/)
+  const result = validateCapabilityPermissions(scopes)
+  assert.equal(result.ok, true, 'backlog scopes validate')
+  if (result.ok) assert.deepEqual(result.permissions, scopes)
+}
+
 function testLegacyBroadScopeRetainedAndFlagged(): void {
   assert.equal(isKnownCapabilityPermission('ipc:invoke'), true, 'ipc:invoke keeps validating')
   assert.equal(isBroadCapabilityPermission('ipc:invoke'), true, 'ipc:invoke is flagged broad')
@@ -85,6 +104,7 @@ testRejectsNonArray()
 testRejectsNonStringEntry()
 testKnownDescriptions()
 testTieredIpcScopesAreKnownAndDescribed()
+testBacklogScopesAreKnownAndDisclosureOnly()
 testLegacyBroadScopeRetainedAndFlagged()
 testDescriptionsNeverImplyEnforcement()
 console.log('permissions tests passed')

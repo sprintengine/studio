@@ -79,6 +79,7 @@ async function main(): Promise<void> {
   testKeyHelpersAreStableAndScoped()
   testStartupPromptIsMcpNative()
   testArchitectInitStartupPromptIsMcpNative()
+  testGeneralStartupPromptIsMcpNative()
   testPromptBuildersIncludeAgentIdAndCommand()
   testAgentNotificationPromptCompactsLongResolutionText()
   testTaskWakeSkipsAgentAssignedToNeedsInputTask()
@@ -4425,6 +4426,40 @@ function testArchitectInitStartupPromptIsMcpNative(): void {
   )
 }
 
+function testGeneralStartupPromptIsMcpNative(): void {
+  const prompt = buildSprintEngineStartupPrompt('general', 'general', 'Ship the sprint', {
+    executionCwd: '/tmp/workspace',
+    workspaceRoot: '/tmp/workspace',
+    sprintEngineStatePath: '/tmp/workspace/.multi-code/sprintengine/team/run.yaml',
+    commandMode: 'join',
+  })
+
+  // Joins as general, claims directly, and never initializes the run (init stays app-owned).
+  assert.ok(prompt.includes('sprintengine.agent.join'), 'general startup prompt joins via MCP')
+  assert.ok(prompt.includes('"role": "general"'), 'general join payload carries role general')
+  assert.ok(prompt.includes('"agentId": "general"'), 'general join payload carries the agent id')
+  assert.ok(prompt.includes('"id": "general"'), 'general claim payload carries the agent id')
+  assert.ok(prompt.includes('sprintengine.task.next'), 'general startup prompt claims work directly')
+  assert.ok(!prompt.includes('sprintengine.init'), 'a General does not call sprintengine.init')
+  // Drives the full single-agent loop and assigns planning to the General when no plan exists.
+  assert.ok(/plan/iu.test(prompt), 'general startup prompt drives planning')
+  assert.ok(/build/iu.test(prompt), 'general startup prompt drives the build step')
+  assert.ok(/review/iu.test(prompt), 'general startup prompt drives self-review')
+  assert.ok(/test/iu.test(prompt), 'general startup prompt drives testing')
+  assert.ok(/publish/iu.test(prompt), 'general startup prompt drives publishing')
+  assert.ok(prompt.includes('you are the planner'), 'general becomes the planner when the run has no task graph')
+  assert.ok(/never add roster members/iu.test(prompt), 'general startup prompt forbids growing the roster')
+  // Same no-statePath/workspaceRoot routing invariant as every other startup prompt.
+  assert.ok(!prompt.includes('"statePath"'), 'general startup prompt must not embed statePath in the MCP payload')
+  assert.ok(!prompt.includes('"workspaceRoot"'), 'general startup prompt must not embed workspaceRoot in the MCP payload')
+  assert.ok(!prompt.includes('/tmp/workspace/.multi-code/sprintengine/team/run.yaml'), 'general startup prompt does not expose the run state path')
+  assert.ok(prompt.includes('multicode-sprintengine'), 'general startup prompt names the managed MCP server entry')
+  assert.ok(
+    !/sprintengine (join|task|gate|triage|init|handover)/.test(prompt),
+    'general startup prompt does not instruct the agent to run any sprintengine CLI command'
+  )
+}
+
 function testPromptBuildersIncludeAgentIdAndCommand(): void {
   const teamStatePath = '/tmp/workspace/.multi-code/sprintengine/team/run.yaml'
   const readyTask = task({ id: 'T3', title: 'Build feature', role: 'developer' })
@@ -5252,8 +5287,8 @@ function testBootstrapStallsInsteadOfSpawningWithoutArchitectOrAfterPrePlanExit(
   )
   assert.deepEqual(
     noArchitect,
-    { kind: 'stall', reason: 'no_architect' },
-    'no tasks and no architect is a visible stall, not a silent no-op'
+    { kind: 'stall', reason: 'no_planner' },
+    'no tasks and no planner (architect or general) is a visible stall, not a silent no-op'
   )
 
   const noArchitectWithTasks = pickSprintEngineBootstrapCandidate(
