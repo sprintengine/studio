@@ -1,6 +1,7 @@
 import { createHash } from 'crypto'
 import { basename, dirname, join, resolve } from 'path'
 import { readdir, readFile, stat } from 'fs/promises'
+import { selectTaskStatusSources } from './task-normalizer'
 import type {
   SwitchboardReadResult,
   SwitchboardRunnerExecution,
@@ -459,12 +460,16 @@ function normalizeTasks(value: unknown): NormalizedTask[] {
     if (!task || typeof task !== 'object' || Array.isArray(task)) return []
     const record = task as Record<string, unknown>
     const id = stringOrFallback(record.id, `task-${index + 1}`)
+    // Shared precedence with the command-readiness reader: the semantic status is
+    // `stateStatus ?? status` (projection records mirror the board column into
+    // `status`), the lane is `boardColumn`. The board-aware union below is kept.
+    const statusSources = selectTaskStatusSources(record)
     return [{
       id,
       title: stringOrFallback(record.title, id),
       role: stringOrFallback(record.role, 'developer'),
-      status: normalizeTaskStatus(record.status),
-      boardColumn: normalizeOptionalTaskStatus(record.boardColumn),
+      status: normalizeTaskStatus(statusSources.status),
+      boardColumn: normalizeOptionalTaskStatus(statusSources.boardColumn),
       ownerAgentId: typeof record.ownerAgentId === 'string' && record.ownerAgentId.trim()
         ? record.ownerAgentId
         : null,

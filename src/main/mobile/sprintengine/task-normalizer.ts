@@ -6,6 +6,28 @@ export type SprintEngineTaskRecord = {
   dependsOn: string[]
 }
 
+// The one status-field precedence the mobile snapshot and the command-readiness
+// reader must agree on, so they can never drift. Folder-store projection records
+// carry the semantic value in `stateStatus` while `status` mirrors the board
+// column ("ready", "review", etc.); run.yaml records carry the semantic value in
+// `status` and have no `stateStatus`. So the semantic status source is
+// `stateStatus ?? status`, and the board lane is `boardColumn`. This shares the
+// *field selection* only — each caller normalizes the sources against its own
+// status vocabulary (the snapshot keeps the wide board-aware union; command
+// readiness keeps the narrow semantic union that collapses board-only values to
+// `todo`), so neither caller's behaviour changes.
+export type TaskStatusSources = {
+  status: unknown
+  boardColumn: unknown
+}
+
+export function selectTaskStatusSources(record: Record<string, unknown>): TaskStatusSources {
+  return {
+    status: record.stateStatus ?? record.status,
+    boardColumn: record.boardColumn,
+  }
+}
+
 export function normalizeSprintEngineTasks(value: unknown): SprintEngineTaskRecord[] {
   if (!Array.isArray(value)) return []
 
@@ -15,14 +37,12 @@ export function normalizeSprintEngineTasks(value: unknown): SprintEngineTaskReco
     if (typeof record.id !== 'string' || !record.id.trim()) return []
     if (typeof record.role !== 'string' || !record.role.trim()) return []
 
-    // Folder-store projection records carry the semantic value in `stateStatus`
-    // while `status` mirrors the board column ("ready", "changes_requested",
-    // etc.). Prefer `stateStatus` so command readiness checks keep the
-    // semantic changes_requested status instead of flattening it to ready.
+    // Command readiness only needs the semantic status (it must keep
+    // changes_requested instead of flattening it to the board's "ready").
     return [{
       id: record.id,
       role: record.role,
-      status: normalizeTaskStatus(record.stateStatus ?? record.status),
+      status: normalizeTaskStatus(selectTaskStatusSources(record).status),
       ownerAgentId: typeof record.ownerAgentId === 'string' && record.ownerAgentId.trim()
         ? record.ownerAgentId
         : null,
