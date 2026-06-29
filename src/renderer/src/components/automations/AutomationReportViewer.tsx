@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useState } from 'react'
 
-import { Drawer, GhostButton, Spinner } from '../ui'
+import { Drawer, GhostButton, InlineNotice, PrimaryButton, Spinner } from '../ui'
 import { renderMarkdown } from '../../utils/markdown'
 import { basename, joinFilePath } from '../../utils/paths'
 
@@ -10,11 +10,20 @@ import { basename, joinFilePath } from '../../utils/paths'
 // Reports are markdown or html files committed under `reports/`. The paths are
 // already validated upstream (contained under `reports/`, project-relative) —
 // this component only resolves them under `workspaceRoot` for the read:
-//   - `.md`   → read + render inline via renderMarkdown()
-//   - `.html` → open in the system browser (not inlined)
-//   - a read/open failure (most commonly: the report's PR hasn't merged, so the
-//     file isn't on this checkout yet) → an explicit not-found state that
-//     surfaces the run's Pull request link as the way forward.
+//   - `.md`   → read + render inline via renderMarkdown() (XSS-safe: ReactMarkdown,
+//     no rehype-raw, urlTransform whitelist)
+//   - `.html` → the file is agent-authored (an LLM automation wrote it, so it is
+//     prompt-injectable) and opening it hands raw HTML/JS to the external
+//     browser at a file:// origin, bypassing the markdown sanitizer. So we do
+//     NOT open it on the View-report click: we probe that the file exists, then
+//     render a confirm gate ('this can run code') and only open on explicit
+//     confirm. Markdown's sanitization never covers this path, which is why it
+//     is gated rather than inlined.
+//   - a read failure (most commonly: the report's PR hasn't merged, so the file
+//     isn't on this checkout yet) → an explicit not-found state that surfaces
+//     the run's Pull request link as the way forward. Both .md and .html resolve
+//     not-found through the same readfile probe, so an un-merged .html lands on
+//     not-found rather than a false 'opened in your browser'.
 
 export type ReportFilesystem = {
   readfile: (path: string) => Promise<string>
@@ -24,17 +33,23 @@ export type ReportFilesystem = {
 export type ReportViewState =
   | { kind: 'loading' }
   | { kind: 'markdown'; markdown: string }
-  | { kind: 'html' }
+  // The html file exists on disk and is awaiting explicit confirmation before
+  // it is handed to the external browser (it can run code).
+  | { kind: 'html-confirm' }
+  // The user confirmed and the report was opened in the external browser.
+  | { kind: 'html-opened' }
   | { kind: 'not-found' }
 
-/** An html report opens in the browser; everything else renders inline. */
+/** An html report is gated behind a confirm; everything else renders inline. */
 export function isHtmlReport(reportPath: string): boolean {
   return /\.html$/i.test(reportPath)
 }
 
-// Pure data layer: resolve one report path to a terminal view state. Kept
-// separate from React so the read/open branches are asserted directly against a
-// stubbed filesystem rather than through rendered effects.
+// Pure data layer: resolve one report path to a non-terminal view state. Kept
+// separate from React so the read branches are asserted directly against a
+// stubbed filesystem rather than through rendered effects. Crucially, loading a
+// report has NO side effect: an html report is never opened here — that only
+// happens on an explicit confirm in the component.
 export async function loadReportContent(
   fs: ReportFilesystem,
   workspaceRoot: string,
@@ -42,12 +57,16 @@ export async function loadReportContent(
 ): Promise<ReportViewState> {
   const target = joinFilePath(workspaceRoot, reportPath)
   if (isHtmlReport(reportPath)) {
+    // Probe existence/readability the same way the .md branch does: an un-merged
+    // (missing) file rejects and falls through to not-found, instead of relying
+    // on the browser-open call to surface the miss. The content is discarded —
+    // agent-authored html is never inlined.
     try {
-      await fs.openHtmlFileInBrowser(target)
-      return { kind: 'html' }
+      await fs.readfile(target)
     } catch {
       return { kind: 'not-found' }
     }
+    return { kind: 'html-confirm' }
   }
   try {
     const markdown = await fs.readfile(target)
@@ -75,8 +94,10 @@ export function AutomationReportViewer({
     reportPaths.length > 0 ? { kind: 'loading' } : { kind: 'not-found' },
   )
 
-  // Load the active report; re-runs when the user picks a different one. An html
-  // pick re-opens it in the browser (the load itself is the side effect).
+  // Load the active report; re-runs when the user picks a different one. The
+  // load is side-effect free for every kind, including html — an html pick
+  // resolves to the confirm gate, it does not open the browser. Opening only
+  // happens on the explicit confirm below.
   useEffect(() => {
     if (!activePath) return undefined
     let cancelled = false
@@ -89,8 +110,15 @@ export function AutomationReportViewer({
     }
   }, [activePath, workspaceRoot])
 
-  const reopenHtml = useCallback(() => {
-    if (activePath) void window.api.openHtmlFileInBrowser(joinFilePath(workspaceRoot, activePath))
+  // The one place an agent-authored html report is handed to the external
+  // browser: only on explicit user confirm (or re-open). An open failure (e.g.
+  // the file vanished after the existence probe) falls back to not-found.
+  const openHtml = useCallback(() => {
+    if (!activePath) return
+    void window.api.openHtmlFileInBrowser(joinFilePath(workspaceRoot, activePath)).then(
+      () => setState({ kind: 'html-opened' }),
+      () => setState({ kind: 'not-found' }),
+    )
   }, [activePath, workspaceRoot])
 
   const title = reportPaths.length > 1 ? 'Run reports' : activePath ? basename(activePath) : 'Run report'
@@ -101,7 +129,7 @@ export function AutomationReportViewer({
         {reportPaths.length > 1 ? (
           <ReportPathPicker paths={reportPaths} activePath={activePath} onSelect={setActivePath} />
         ) : null}
-        <ReportViewBody state={state} pullRequestUrl={pullRequestUrl} onReopenHtml={reopenHtml} />
+        <ReportViewBody state={state} pullRequestUrl={pullRequestUrl} onOpenHtml={openHtml} />
       </Drawer.Body>
     </Drawer>
   )
@@ -148,11 +176,12 @@ export function ReportPathPicker({
 export function ReportViewBody({
   state,
   pullRequestUrl,
-  onReopenHtml,
+  onOpenHtml,
 }: {
   state: ReportViewState
   pullRequestUrl?: string
-  onReopenHtml?: () => void
+  /** Hands the active html report to the external browser; gates the confirm and re-open. */
+  onOpenHtml?: () => void
 }): JSX.Element {
   if (state.kind === 'loading') {
     return (
@@ -167,13 +196,30 @@ export function ReportViewBody({
     return <div className="min-w-0">{renderMarkdown(state.markdown)}</div>
   }
 
-  if (state.kind === 'html') {
+  // Gate: agent-authored html can run code, so opening it is an explicit choice,
+  // not the default of a single View-report click.
+  if (state.kind === 'html-confirm') {
+    return (
+      <div className="flex flex-col items-start gap-3 py-2">
+        <InlineNotice tone="warn">
+          <p className="font-semibold">This report can run code</p>
+          <p className="mt-0.5">
+            It’s HTML written by an automation agent and opens in your external browser, where its
+            scripts run with access to local files. Open it only if you trust this run.
+          </p>
+        </InlineNotice>
+        {onOpenHtml ? <PrimaryButton onClick={onOpenHtml}>Open anyway</PrimaryButton> : null}
+      </div>
+    )
+  }
+
+  if (state.kind === 'html-opened') {
     return (
       <div className="flex flex-col items-start gap-3 py-6">
         <p className="text-[13px] leading-6 text-[color:var(--text-default)]">
           This report opened in your browser.
         </p>
-        {onReopenHtml ? <GhostButton onClick={onReopenHtml}>Open again</GhostButton> : null}
+        {onOpenHtml ? <GhostButton onClick={onOpenHtml}>Open again</GhostButton> : null}
       </div>
     )
   }

