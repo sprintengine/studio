@@ -15,6 +15,12 @@ import { emptyModelUsage, tokenCount, type ModelTokenUsage } from './types'
 // usage is summed and rows are de-duplicated by uuid, so the two layouts never
 // double-count. See knowledge/multicode/sprint-engine.md (Token Accounting).
 
+// Claude Code session ids are uuid-shaped; the adapter only ever joins them
+// into transcript paths. Restrict to this charset so a malformed id (e.g. one
+// carrying `..` or a path separator) can never be interpolated into path.join —
+// it reports unmeasured (null) instead, preserving fail-closed semantics.
+const SESSION_ID_PATTERN = /^[A-Za-z0-9_-]+$/
+
 type ClaudeUsage = {
   input_tokens?: unknown
   output_tokens?: unknown
@@ -130,6 +136,7 @@ export async function readClaudeCodeUsage(
   homeDir: string,
   env: NodeJS.ProcessEnv,
 ): Promise<ModelTokenUsage[] | null> {
+  if (!SESSION_ID_PATTERN.test(cliSessionId)) return null
   const projectsDir = path.join(resolveConfigDir(homeDir, env), 'projects')
   const located = await findProjectDir(projectsDir, cliSessionId)
   if (!located) return null

@@ -32,9 +32,23 @@ type OpenCodeMessageInfo = {
 // OPENCODE_SERVER_PASSWORD the server was started with (HTTP Basic auth).
 const OPENCODE_BASIC_AUTH_USER = 'opencode'
 
+// The server is always a local loopback process, and the request carries the
+// Basic-auth password. Restrict the base URL to loopback hosts so a misconfigured
+// OPENCODE_SERVER can never send those credentials to a remote origin; anything
+// else reports unmeasured (null). URL parsing also rejects malformed values.
+// URL.hostname serializes IPv6 with brackets, so [::1] is matched as written.
+const LOOPBACK_HOSTS = new Set(['localhost', '127.0.0.1', '[::1]'])
+
 function resolveBaseUrl(env: NodeJS.ProcessEnv): string | null {
   const raw = env.OPENCODE_SERVER?.trim()
   if (!raw) return null
+  let parsed: URL
+  try {
+    parsed = new URL(raw)
+  } catch {
+    return null
+  }
+  if (!LOOPBACK_HOSTS.has(parsed.hostname)) return null
   return raw.replace(/\/+$/, '')
 }
 
@@ -59,7 +73,9 @@ export async function readOpenCodeUsage(
   const url = `${baseUrl}/session/${encodeURIComponent(cliSessionId)}/message`
   let response
   try {
-    response = await fetchImpl(url, { headers: authHeaders(env) })
+    // redirect:'error' keeps the credentialed request on the loopback origin —
+    // a 3xx cannot bounce the Basic-auth header to another host.
+    response = await fetchImpl(url, { headers: authHeaders(env), redirect: 'error' })
   } catch {
     return null // server unreachable
   }

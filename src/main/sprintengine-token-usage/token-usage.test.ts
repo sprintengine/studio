@@ -212,6 +212,55 @@ async function main(): Promise<void> {
     assert.equal(missing.measured, false)
   })
 
+  await run('claude-code: a path-traversal-shaped session id is rejected unmeasured, never throws', async () => {
+    // A real transcript home exists; the malformed id must be rejected on charset
+    // before any path.join, so it cannot resolve a sibling file via `..` segments.
+    const home = await buildClaudeHome()
+    for (const id of ['../../../../etc/passwd', `${CLAUDE_SID}/../other`, 'a/b']) {
+      const usage = await readSessionTokenUsage('claude-code', id, {
+        homeDir: home,
+        env: {},
+        now: () => NOW,
+      })
+      assert.equal(usage.measured, false, `${id} -> unmeasured`)
+      assert.deepEqual(usage.perModel, [])
+      assert.equal(usage.sampledAt, NOW)
+    }
+  })
+
+  await run('opencode: a non-loopback OPENCODE_SERVER is unmeasured and never calls fetch', async () => {
+    let called = false
+    const fetchImpl: FetchLike = async () => {
+      called = true
+      return { ok: true, status: 200, json: async () => [] }
+    }
+    for (const server of ['http://evil.example.com:7000', 'http://10.0.0.5:7000', 'not a url']) {
+      const usage = await readSessionTokenUsage('opencode', 'ses_abc', {
+        env: { OPENCODE_SERVER: server, OPENCODE_SERVER_PASSWORD: 'secret123' },
+        fetchImpl,
+        now: () => NOW,
+      })
+      assert.equal(usage.measured, false, `${server} -> unmeasured`)
+      assert.deepEqual(usage.perModel, [])
+    }
+    assert.equal(called, false, 'non-loopback base url -> credentials never sent')
+  })
+
+  await run('opencode: the credentialed request is sent with redirect:error', async () => {
+    let redirect: string | undefined
+    const fetchImpl: FetchLike = async (_url, init) => {
+      redirect = init?.redirect
+      return { ok: true, status: 200, json: async () => [] }
+    }
+    const usage = await readSessionTokenUsage('opencode', 'ses_abc', {
+      env: { OPENCODE_SERVER: 'http://127.0.0.1:7000', OPENCODE_SERVER_PASSWORD: 'secret123' },
+      fetchImpl,
+      now: () => NOW,
+    })
+    assert.equal(usage.measured, true)
+    assert.equal(redirect, 'error', 'a 3xx cannot move the Basic-auth request off-origin')
+  })
+
   await run('opencode: no OPENCODE_SERVER configured is unmeasured and never calls fetch', async () => {
     let called = false
     const fetchImpl: FetchLike = async () => {

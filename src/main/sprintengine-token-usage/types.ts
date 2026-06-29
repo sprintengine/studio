@@ -31,7 +31,7 @@ export type FetchResponseLike = {
 }
 export type FetchLike = (
   url: string,
-  init?: { headers?: Record<string, string> },
+  init?: { headers?: Record<string, string>; redirect?: 'error' | 'follow' | 'manual' },
 ) => Promise<FetchResponseLike>
 
 // Injectable environment for the adapters. Production callers omit it and get
