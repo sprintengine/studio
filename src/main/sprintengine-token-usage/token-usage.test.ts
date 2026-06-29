@@ -1,10 +1,10 @@
 import assert from 'node:assert/strict'
-import { mkdtemp, mkdir, copyFile } from 'node:fs/promises'
+import { mkdtemp, mkdir, copyFile, readFile } from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
 
 import { readSessionTokenUsage } from './index'
-import type { ModelTokenUsage } from './types'
+import type { FetchLike, ModelTokenUsage } from './types'
 
 const FIXTURES = path.join(process.cwd(), 'src/main/sprintengine-token-usage/__fixtures__')
 const CLAUDE_SID = '7b4eb104-03f5-4759-994c-5d9570a5bb79'
@@ -132,16 +132,95 @@ async function main(): Promise<void> {
   })
 
   await run('unsupported cli and empty session id are unmeasured', async () => {
-    const opencode = await readSessionTokenUsage('opencode', 'sid', { now: () => NOW })
-    assert.equal(opencode.measured, false)
-    assert.deepEqual(opencode.perModel, [])
-
     const unknown = await readSessionTokenUsage('some-future-cli', 'sid', { now: () => NOW })
     assert.equal(unknown.measured, false)
 
     const empty = await readSessionTokenUsage('claude-code', '', { now: () => NOW })
     assert.equal(empty.measured, false)
     assert.equal(empty.sampledAt, NOW)
+  })
+
+  await run('opencode: sums assistant tokens per model with reasoning folded into output', async () => {
+    const messages = JSON.parse(await readFile(path.join(FIXTURES, 'opencode-messages.json'), 'utf8'))
+    const calls: Array<{ url: string; auth?: string }> = []
+    const fetchImpl: FetchLike = async (url, init) => {
+      calls.push({ url, auth: init?.headers?.Authorization })
+      return { ok: true, status: 200, json: async () => messages }
+    }
+    const usage = await readSessionTokenUsage('opencode', 'ses_abc', {
+      env: { OPENCODE_SERVER: 'http://127.0.0.1:7000/' },
+      fetchImpl,
+      now: () => NOW,
+    })
+    assert.equal(usage.measured, true)
+    assert.equal(usage.perModel.length, 2, 'big-pickle + claude-sonnet-4-6')
+
+    // null-tokens assistant row skipped; reasoning folded into output; cache.read
+    // -> cacheRead, cache.write -> cacheCreation.
+    const big = modelOf(usage.perModel, 'big-pickle')
+    assert.equal(big.input, 7882 + 100)
+    assert.equal(big.output, (3 + 11) + (20 + 5))
+    assert.equal(big.cacheRead, 0 + 50)
+    assert.equal(big.cacheCreation, 0 + 10)
+
+    const sonnet = modelOf(usage.perModel, 'claude-sonnet-4-6')
+    assert.deepEqual(
+      { input: sonnet.input, output: sonnet.output, cacheRead: sonnet.cacheRead, cacheCreation: sonnet.cacheCreation },
+      { input: 500, output: 75, cacheRead: 1000, cacheCreation: 200 },
+    )
+
+    // URL built from base (trailing slash stripped) + session id; no auth without a password.
+    assert.equal(calls[0]?.url, 'http://127.0.0.1:7000/session/ses_abc/message')
+    assert.equal(calls[0]?.auth, undefined)
+  })
+
+  await run('opencode: sends HTTP basic auth when OPENCODE_SERVER_PASSWORD is set', async () => {
+    let authHeader: string | undefined
+    const fetchImpl: FetchLike = async (_url, init) => {
+      authHeader = init?.headers?.Authorization
+      return { ok: true, status: 200, json: async () => [] }
+    }
+    const usage = await readSessionTokenUsage('opencode', 'ses_abc', {
+      env: { OPENCODE_SERVER: 'http://127.0.0.1:7000', OPENCODE_SERVER_PASSWORD: 'secret123' },
+      fetchImpl,
+      now: () => NOW,
+    })
+    // A reachable server with an existing-but-empty session is a real zero reading.
+    assert.equal(usage.measured, true)
+    assert.deepEqual(usage.perModel, [])
+    assert.equal(authHeader, `Basic ${Buffer.from('opencode:secret123').toString('base64')}`)
+  })
+
+  await run('opencode: unreachable server and 404 session are unmeasured, never throw', async () => {
+    const throwing: FetchLike = async () => {
+      throw new Error('ECONNREFUSED')
+    }
+    const unreachable = await readSessionTokenUsage('opencode', 'ses_abc', {
+      env: { OPENCODE_SERVER: 'http://127.0.0.1:7000' },
+      fetchImpl: throwing,
+      now: () => NOW,
+    })
+    assert.equal(unreachable.measured, false)
+    assert.deepEqual(unreachable.perModel, [])
+
+    const notFound: FetchLike = async () => ({ ok: false, status: 404, json: async () => ({}) })
+    const missing = await readSessionTokenUsage('opencode', 'ses_missing', {
+      env: { OPENCODE_SERVER: 'http://127.0.0.1:7000' },
+      fetchImpl: notFound,
+      now: () => NOW,
+    })
+    assert.equal(missing.measured, false)
+  })
+
+  await run('opencode: no OPENCODE_SERVER configured is unmeasured and never calls fetch', async () => {
+    let called = false
+    const fetchImpl: FetchLike = async () => {
+      called = true
+      return { ok: true, status: 200, json: async () => [] }
+    }
+    const usage = await readSessionTokenUsage('opencode', 'ses_abc', { env: {}, fetchImpl, now: () => NOW })
+    assert.equal(usage.measured, false)
+    assert.equal(called, false, 'no base url -> no HTTP call')
   })
 
   console.log('sprintengine token-usage tests passed')

@@ -21,13 +21,28 @@ export type SessionTokenUsage = {
   sampledAt: string
 }
 
+// Minimal structural shape of the global `fetch` used by the OpenCode adapter,
+// so tests can inject a stub without pulling in DOM lib types. The real
+// `globalThis.fetch` is assignable to it.
+export type FetchResponseLike = {
+  ok: boolean
+  status: number
+  json(): Promise<unknown>
+}
+export type FetchLike = (
+  url: string,
+  init?: { headers?: Record<string, string> },
+) => Promise<FetchResponseLike>
+
 // Injectable environment for the adapters. Production callers omit it and get
-// the real home directory, process environment, and wall clock; tests point
-// `homeDir`/`env` at fixtures and pin `now` for deterministic timestamps.
+// the real home directory, process environment, wall clock, and global fetch;
+// tests point `homeDir`/`env` at fixtures, pin `now` for deterministic
+// timestamps, and stub `fetchImpl` for the OpenCode HTTP reader.
 export type TokenUsageDeps = {
   homeDir?: string
   env?: NodeJS.ProcessEnv
   now?: () => string
+  fetchImpl?: FetchLike
 }
 
 export function emptyModelUsage(model: string): ModelTokenUsage {

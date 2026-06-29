@@ -3,9 +3,10 @@ import os from 'node:os'
 import type { AgentCli } from '../../shared/electron-api'
 import { readClaudeCodeUsage } from './claude-code-adapter'
 import { readCodexUsage } from './codex-adapter'
-import type { ModelTokenUsage, SessionTokenUsage, TokenUsageDeps } from './types'
+import { readOpenCodeUsage } from './opencode-adapter'
+import type { FetchLike, ModelTokenUsage, SessionTokenUsage, TokenUsageDeps } from './types'
 
-export type { ModelTokenUsage, SessionTokenUsage, TokenUsageDeps } from './types'
+export type { FetchLike, ModelTokenUsage, SessionTokenUsage, TokenUsageDeps } from './types'
 
 // Shared "meter reader" for Sprint Engine token accounting. Reads cumulative
 // per-model token usage for one agent CLI session from that CLI's own on-disk
@@ -17,8 +18,8 @@ export type { ModelTokenUsage, SessionTokenUsage, TokenUsageDeps } from './types
 // sampledAt timestamp. It never throws and never fabricates a measured zero,
 // so callers can show unmeasured agents truthfully instead of as $0/0 tokens.
 //
-// `cli` is the runtime plugin id (e.g. 'claude-code', 'codex'). OpenCode lands
-// in T2; until then it is reported unmeasured alongside every other CLI.
+// `cli` is the runtime plugin id ('claude-code', 'codex', 'opencode'); every
+// other CLI is reported unmeasured.
 export async function readSessionTokenUsage(
   cli: AgentCli,
   cliSessionId: string,
@@ -46,8 +47,10 @@ export async function readSessionTokenUsage(
       case 'codex':
         perModel = await readCodexUsage(cliSessionId, homeDir, env)
         break
+      case 'opencode':
+        perModel = await readOpenCodeUsage(cliSessionId, env, deps.fetchImpl ?? defaultFetch)
+        break
       default:
-        // 'opencode' (T2) and every other CLI are unmeasured for now.
         return unmeasured
     }
     if (!perModel) return unmeasured
@@ -61,3 +64,5 @@ export async function readSessionTokenUsage(
 function defaultNow(): string {
   return new Date().toISOString()
 }
+
+const defaultFetch: FetchLike = (url, init) => globalThis.fetch(url, init)
