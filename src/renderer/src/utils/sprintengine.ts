@@ -163,7 +163,7 @@ const SPRINT_ENGINE_ACTIVE_TASK_STATUSES: ReadonlySet<SprintEngineTaskStatus> = 
 //   7. null — not started / no observable run; the surface keeps its own
 //      resting rendering (recency text, or the Backlog item's own status).
 export function deriveSprintEngineRunGlyph(input: {
-  sprintEngineState: Pick<SprintEngineState, 'tasks'> | null | undefined
+  sprintEngineState: Pick<SprintEngineState, 'tasks' | 'vcs'> | null | undefined
   autoState: Partial<SprintEngineAutoState> | null | undefined
 }): SprintEngineRunGlyph | null {
   const tasks = input.sprintEngineState?.tasks ?? []
@@ -192,7 +192,17 @@ export function deriveSprintEngineRunGlyph(input: {
 
   const hasTasks = tasks.length > 0
   if ((hasTasks && tasks.every((task) => task.status === 'done')) || runtimeState === 'complete') {
-    return { state: 'done', live: false, label: 'Completed' }
+    // A worktree run distinguishes merged (filled) from not-yet-merged (outline).
+    // A run with no worktree has no branch to merge, so it stays the plain filled
+    // "Complete" — never a permanent "unmerged" badge.
+    // Vocabulary matches the run-summary verdict: a worktree run is "Ready for
+    // review" until its PR merges, then "Complete"; a non-worktree run is
+    // "Complete" the moment work is done.
+    const vcs = input.sprintEngineState?.vcs
+    if (vcs && vcs.pullRequestState !== 'merged') {
+      return { state: 'done_unmerged', live: false, label: 'Ready for review' }
+    }
+    return { state: 'done', live: false, label: 'Complete' }
   }
 
   if (runtimeState === 'paused') return AUTOMATION_RUN_GLYPH.paused ?? null
@@ -1262,6 +1272,13 @@ function normalizeSprintEngineVcs(input: unknown): SprintEngineVcs | undefined {
     ...(optionalTrimmedString(record.baseRef) ? { baseRef: optionalTrimmedString(record.baseRef) } : {}),
     ...(optionalTrimmedString(record.status) ? { status: optionalTrimmedString(record.status) } : {}),
     pullRequestUrl: typeof record.pullRequestUrl === 'string' ? record.pullRequestUrl : null,
+    pullRequestError: typeof record.pullRequestError === 'string' ? record.pullRequestError : null,
+    pullRequestState:
+      record.pullRequestState === 'open' ||
+      record.pullRequestState === 'merged' ||
+      record.pullRequestState === 'closed'
+        ? record.pullRequestState
+        : null,
     lastCommitSha: typeof record.lastCommitSha === 'string' ? record.lastCommitSha : null,
   }
 }

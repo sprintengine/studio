@@ -297,17 +297,17 @@ type ClaudeSettings = {
 }
 
 // Raw shell command both install paths embed (Claude into JSON, Codex into TOML).
-// `scriptPath` is normalized to forward slashes (Node accepts them everywhere).
+// `scriptPath` MUST be absolute: hook commands run with no guaranteed cwd (the
+// session's working directory can drift into a subdirectory mid-run), so a
+// workspace-relative path would misresolve and fail with MODULE_NOT_FOUND. The
+// path is normalized to forward slashes (Node accepts them everywhere, incl.
+// `C:/...` on Windows, which also avoids embedding unescaped backslashes).
 // `socketPath` is VERBATIM: on Windows it is a `\\.\pipe\...` named pipe whose
 // backslashes must survive (a separator rewrite would corrupt it to
 // `//./pipe/...`, which connect() can't open); on POSIX it has none. Both args
 // are double-quoted so spaces survive the shell.
 export function buildAgentStateReporterCommand(scriptPath: string, socketPath: string): string {
   return `node "${scriptPath.split(sep).join('/')}" --socket "${socketPath}"`
-}
-
-export function buildAgentStateHookCommand(socketPath: string): string {
-  return buildAgentStateReporterCommand(AGENT_STATE_HOOK_SCRIPT_REL, socketPath)
 }
 
 async function readJsonIfExists<T>(path: string): Promise<T | null> {
@@ -418,8 +418,12 @@ export async function installAgentStateHook(
     const destScript = resolve(workspaceRoot, AGENT_STATE_HOOK_SCRIPT_REL)
     await copyFile(options.sourceScriptPath, destScript)
 
+    // Reference the reporter by its ABSOLUTE path (the dir we just copied it to),
+    // not a workspace-relative path: hook commands run with no guaranteed cwd, so
+    // a relative path breaks the moment the session's cwd drifts off the root.
+    // This mirrors the Codex install path below.
     const settingsPath = resolve(workspaceRoot, CLAUDE_LOCAL_SETTINGS_REL)
-    await mergeAgentStateHooks(settingsPath, buildAgentStateHookCommand(options.socketPath))
+    await mergeAgentStateHooks(settingsPath, buildAgentStateReporterCommand(destScript, options.socketPath))
 
     return { ok: true, settingsPath, hookScriptPath: destScript }
   } catch (error) {

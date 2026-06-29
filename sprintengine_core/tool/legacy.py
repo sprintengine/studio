@@ -851,6 +851,9 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--no-push", dest="no_push", action="store_true", help="Skip pushing the branch; only attempt PR creation.")
     p.set_defaults(handler=run_commands.vcs_pr)
 
+    p = vcs_sub.add_parser("pr-status", help="Resolve and persist whether the run branch has merged (PR state or branch ancestry).")
+    p.set_defaults(handler=run_commands.vcs_pr_status)
+
     return parser
 
 

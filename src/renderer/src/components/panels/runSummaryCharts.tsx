@@ -1,19 +1,44 @@
 // Hand-built SVG charts for the run summary. No charting dependency: every
 // stroke/fill reads from a design token, so these stay on the calm Linear/
 // Vercel-grade aesthetic (one accent, hairline gridlines, status tones only).
-import React, { useEffect, useRef } from 'react'
+import React, { useEffect, useRef, useState } from 'react'
 import {
-  cardinalSplinePath,
+  formatRunDuration,
+  monotoneCubicPath,
+  type SprintEngineActivityTimeline,
   type SprintEngineBurnup,
   type SprintEngineIssueTotal,
 } from '../../utils/sprintengineRunSummary'
-import { TONE_COLOR_VAR, type Tone } from '../ui/tokens'
+import { getSprintEngineRoleLabel, sprintEngineTaskStateLabel } from '../../utils/sprintengine'
+import { RoleGlyph } from '../ui'
+import { FOCUS_RING_CLASS, TONE_COLOR_VAR, type Tone } from '../ui/tokens'
 
 const TABULAR: React.CSSProperties = { fontVariantNumeric: 'tabular-nums' }
 
 function prefersReducedMotion(): boolean {
   if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') return false
   return window.matchMedia('(prefers-reduced-motion: reduce)').matches
+}
+
+// Track an element's rendered pixel width so charts can draw in true 1:1
+// coordinates instead of stretching a fixed viewBox. A stretched viewBox
+// (preserveAspectRatio="none") distorts circles into ellipses and breaks
+// stroke-dash draw-on animations (the dash length no longer matches the
+// on-screen path length), so we measure and render at real width instead.
+function useMeasuredWidth(): [React.RefObject<HTMLDivElement>, number] {
+  const ref = useRef<HTMLDivElement>(null)
+  const [width, setWidth] = useState(0)
+  useEffect(() => {
+    const node = ref.current
+    if (!node || typeof ResizeObserver !== 'function') return
+    const observer = new ResizeObserver((entries) => {
+      const next = entries[0]?.contentRect.width ?? 0
+      if (next > 0) setWidth(next)
+    })
+    observer.observe(node)
+    return () => observer.disconnect()
+  }, [])
+  return [ref, width]
 }
 
 /** Cumulative tasks-completed curve across the run (Vercel-style trend line). */
@@ -27,7 +52,11 @@ export function RunBurnupChart({
   durationLabel: string | null
 }) {
   const curveRef = useRef<SVGPathElement>(null)
-  const W = 560
+  const [wrapRef, measuredWidth] = useMeasuredWidth()
+  // Draw in true pixel space (1:1 viewBox) so nothing is stretched. Fall back to
+  // a sensible width for the first paint before the observer reports.
+  const W = measuredWidth || 560
+  const H = 116
   const yTop = 12
   const yBot = 100
   const span = burnup.endMs - burnup.startMs || 1
@@ -37,7 +66,7 @@ export function RunBurnupChart({
     ((p.atMs - burnup.startMs) / span) * W,
     yBot - (p.done / ceiling) * (yBot - yTop),
   ])
-  const curve = cardinalSplinePath(xy)
+  const curve = monotoneCubicPath(xy)
   const area = `${curve} L ${W} ${yBot} L 0 ${yBot} Z`
   const end = xy[xy.length - 1]
 
@@ -64,30 +93,31 @@ export function RunBurnupChart({
         <span>Tasks completed over the run</span>
         <span style={TABULAR}>{`0 → ${ceiling}`}</span>
       </div>
-      <svg
-        width="100%"
-        height="116"
-        viewBox={`0 0 ${W} 116`}
-        preserveAspectRatio="none"
-        role="img"
-        aria-label={`Burn-up: ${burnup.total} of ${ceiling} tasks completed over ${durationLabel ?? 'the run'}`}
-      >
-        <line x1="0" y1={yTop + 8} x2={W} y2={yTop + 8} stroke="var(--border-subtle)" />
-        <line x1="0" y1={(yTop + yBot) / 2} x2={W} y2={(yTop + yBot) / 2} stroke="var(--border-subtle)" />
-        <line x1="0" y1={yBot} x2={W} y2={yBot} stroke="var(--border-strong)" />
-        <path d={area} fill="var(--accent-primary-soft)" stroke="none" />
-        <path
-          ref={curveRef}
-          d={curve}
-          fill="none"
-          stroke="var(--accent-primary)"
-          strokeWidth={2}
-          strokeLinecap="round"
-          strokeLinejoin="round"
-          vectorEffect="non-scaling-stroke"
-        />
-        <circle cx={end[0]} cy={end[1]} r={3.5} fill="var(--accent-primary)" />
-      </svg>
+      <div ref={wrapRef}>
+        <svg
+          width={W}
+          height={H}
+          viewBox={`0 0 ${W} ${H}`}
+          role="img"
+          aria-label={`Burn-up: ${burnup.total} of ${ceiling} tasks completed over ${durationLabel ?? 'the run'}`}
+        >
+          <line x1="0" y1={yTop + 8} x2={W} y2={yTop + 8} stroke="var(--border-subtle)" />
+          <line x1="0" y1={(yTop + yBot) / 2} x2={W} y2={(yTop + yBot) / 2} stroke="var(--border-subtle)" />
+          <line x1="0" y1={yBot} x2={W} y2={yBot} stroke="var(--border-strong)" />
+          <path d={area} fill="var(--accent-primary-soft)" stroke="none" />
+          <path
+            ref={curveRef}
+            d={curve}
+            fill="none"
+            stroke="var(--accent-primary)"
+            strokeWidth={2}
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          />
+          {/* Round endpoint marker — a true circle now the space is 1:1. */}
+          <circle cx={end[0]} cy={end[1]} r={3.5} fill="var(--accent-primary)" />
+        </svg>
+      </div>
       <div className="mt-1.5 flex items-baseline justify-between text-[11px] text-[color:var(--text-disabled)]">
         <span>start</span>
         {durationLabel ? <span style={TABULAR}>{durationLabel}</span> : null}
@@ -168,6 +198,91 @@ export function IssueBars({ items }: { items: SprintEngineIssueTotal[] }) {
           </span>
         </div>
       ))}
+    </div>
+  )
+}
+
+// Shared geometry so the lane tracks and the time axis line up under one grid.
+const LANE_GRID = 'grid grid-cols-[150px_minmax(0,1fr)] gap-3'
+
+/** Per-agent activity swimlane (Tier 1): one lane per agent, with accent bars for
+ *  the stretches they held a task, on the same wall-clock as the burn-up above.
+ *  Clicking an agent solos their lane. Honest about its data — it shows when an
+ *  agent was responsible for a task, not inferred idle/paused detail. */
+export function AgentActivityTimeline({
+  timeline,
+  durationLabel,
+}: {
+  timeline: SprintEngineActivityTimeline
+  durationLabel: string | null
+}) {
+  const [soloAgentId, setSoloAgentId] = useState<string | null>(null)
+  const span = timeline.endMs - timeline.startMs || 1
+  const leftPct = (ms: number) => ((ms - timeline.startMs) / span) * 100
+
+  return (
+    <div className="min-w-0">
+      <div className="mb-2 flex items-baseline justify-between text-[11px] text-[color:var(--text-muted)]">
+        <span>Time each agent spent on tasks</span>
+        <span style={TABULAR}>{`${timeline.rows.length} agent${timeline.rows.length === 1 ? '' : 's'}`}</span>
+      </div>
+
+      <div className="flex flex-col gap-1.5">
+        {timeline.rows.map((row) => {
+          const dimmed = soloAgentId !== null && soloAgentId !== row.agentId
+          const soloed = soloAgentId === row.agentId
+          const roleLabel = getSprintEngineRoleLabel(row.role)
+          const activeLabel = formatRunDuration(row.activeMs) ?? '< 1m'
+          const taskCount = row.segments.length
+          return (
+            <div
+              key={row.agentId}
+              className={`${LANE_GRID} items-center transition-opacity ${dimmed ? 'opacity-30' : 'opacity-100'}`}
+            >
+              <button
+                type="button"
+                onClick={() => setSoloAgentId((current) => (current === row.agentId ? null : row.agentId))}
+                aria-pressed={soloed}
+                aria-label={`${roleLabel} ${row.agentId}: ${taskCount} task${taskCount === 1 ? '' : 's'}, ${activeLabel} on tasks${soloed ? ' — filtered' : ''}`}
+                className={`group inline-flex min-w-0 items-baseline gap-2 rounded-sm text-left ${FOCUS_RING_CLASS}`}
+              >
+                <RoleGlyph role={row.role} size="sm" className="translate-y-[2px]" />
+                <span className="truncate font-mono text-[12px] text-[color:var(--text-strong)]">{row.agentId}</span>
+              </button>
+              <div className="relative h-4">
+                <span className="absolute inset-x-0 top-1/2 h-px -translate-y-1/2 bg-[color:var(--border-subtle)]" />
+                {row.segments.map((seg, index) => {
+                  const widthPct = leftPct(seg.endMs) - leftPct(seg.startMs)
+                  const phase = sprintEngineTaskStateLabel[seg.status] ?? seg.status
+                  const duration = formatRunDuration(seg.endMs - seg.startMs) ?? '< 1m'
+                  return (
+                    <span
+                      key={`${seg.taskId}-${index}`}
+                      title={`${seg.taskId} · ${phase} · ${duration}`}
+                      aria-hidden="true"
+                      className="absolute top-1/2 h-2 -translate-y-1/2 rounded-[3px] bg-[color:var(--accent-primary)]"
+                      style={{ left: `${leftPct(seg.startMs)}%`, width: `max(2px, ${widthPct}%)` }}
+                    />
+                  )
+                })}
+              </div>
+            </div>
+          )
+        })}
+      </div>
+
+      {/* Time axis, aligned to the lane tracks via the shared grid. */}
+      <div className={`mt-2 ${LANE_GRID} text-[11px] text-[color:var(--text-disabled)]`}>
+        <span aria-hidden="true" />
+        <div className="flex items-baseline justify-between">
+          <span>start</span>
+          {durationLabel ? <span style={TABULAR}>{durationLabel}</span> : null}
+        </div>
+      </div>
+
+      <div className="mt-2 text-[11px] text-[color:var(--text-disabled)]">
+        Each bar is time a task was assigned to that agent · click an agent to solo
+      </div>
     </div>
   )
 }

@@ -420,25 +420,238 @@ export function buildBurnup(state: SprintEngineState): SprintEngineBurnup | null
   return { points, startMs, endMs, total: completions.length }
 }
 
-/** Cardinal-spline path through normalized points (x,y in viewBox units). Used
- *  by the burn-up chart for a smooth, low-noise trend line (per Vercel's
- *  curve-fitting guidance) without pulling in a charting dependency. */
-export function cardinalSplinePath(points: Array<[number, number]>, tension = 0.5): string {
-  if (points.length === 0) return ''
-  if (points.length === 1) return `M ${points[0][0]} ${points[0][1]}`
-  let d = `M ${points[0][0]} ${points[0][1]}`
-  for (let i = 0; i < points.length - 1; i++) {
-    const p0 = points[i - 1] ?? points[i]
-    const p1 = points[i]
-    const p2 = points[i + 1]
-    const p3 = points[i + 2] ?? points[i + 1]
-    const cp1x = p1[0] + ((p2[0] - p0[0]) / 6) * tension * 2
-    const cp1y = p1[1] + ((p2[1] - p0[1]) / 6) * tension * 2
-    const cp2x = p2[0] - ((p3[0] - p1[0]) / 6) * tension * 2
-    const cp2y = p2[1] - ((p3[1] - p1[1]) / 6) * tension * 2
-    d += ` C ${cp1x.toFixed(2)} ${cp1y.toFixed(2)}, ${cp2x.toFixed(2)} ${cp2y.toFixed(2)}, ${p2[0].toFixed(2)} ${p2[1].toFixed(2)}`
+/** Smooth path through normalized points (x,y in viewBox units), using
+ *  Fritsch–Carlson monotone cubic interpolation. Unlike a cardinal spline, this
+ *  never overshoots between points — essential for the burn-up curve, which is
+ *  cumulative (monotonically non-decreasing): a smoothing that dipped or
+ *  ballooned would draw completed work the run never did. Points must be sorted
+ *  ascending by x. No charting dependency. */
+export function monotoneCubicPath(points: Array<[number, number]>): string {
+  const n = points.length
+  if (n === 0) return ''
+  if (n === 1) return `M ${points[0][0]} ${points[0][1]}`
+  const fmt = (x: number, y: number) => `${x.toFixed(2)} ${y.toFixed(2)}`
+  if (n === 2) return `M ${fmt(...points[0])} L ${fmt(...points[1])}`
+
+  // Secant slopes between consecutive points.
+  const dx: number[] = []
+  const slope: number[] = []
+  for (let i = 0; i < n - 1; i++) {
+    const h = points[i + 1][0] - points[i][0]
+    dx[i] = h
+    slope[i] = h === 0 ? 0 : (points[i + 1][1] - points[i][1]) / h
+  }
+
+  // Tangents at each point. A zero tangent at any local extremum (sign change or
+  // a flat neighbour) is what guarantees monotonicity — the curve can't bulge.
+  const m: number[] = new Array(n)
+  m[0] = slope[0]
+  m[n - 1] = slope[n - 2]
+  for (let i = 1; i < n - 1; i++) {
+    if (slope[i - 1] === 0 || slope[i] === 0 || slope[i - 1] < 0 !== slope[i] < 0) {
+      m[i] = 0
+    } else {
+      const w1 = 2 * dx[i] + dx[i - 1]
+      const w2 = dx[i] + 2 * dx[i - 1]
+      m[i] = (w1 + w2) / (w1 / slope[i - 1] + w2 / slope[i])
+    }
+  }
+
+  // Emit cubic Béziers with control points one-third of each interval along the
+  // endpoint tangents — the standard Hermite-to-Bézier conversion.
+  let d = `M ${fmt(...points[0])}`
+  for (let i = 0; i < n - 1; i++) {
+    const h = dx[i]
+    const cp1x = points[i][0] + h / 3
+    const cp1y = points[i][1] + (m[i] * h) / 3
+    const cp2x = points[i + 1][0] - h / 3
+    const cp2y = points[i + 1][1] - (m[i + 1] * h) / 3
+    d += ` C ${fmt(cp1x, cp1y)}, ${fmt(cp2x, cp2y)}, ${fmt(...points[i + 1])}`
   }
   return d
+}
+
+// One contiguous stretch of an agent holding a task, on the run's wall clock.
+export type SprintEngineActivitySegment = {
+  taskId: string
+  startMs: number
+  endMs: number
+  /** Task phase while the agent held it (in_progress / review / testing / …). */
+  status: SprintEngineTaskStatus
+}
+
+// One agent's lane in the activity timeline.
+export type SprintEngineAgentActivityRow = {
+  agentId: string
+  role: SprintEngineRoleId
+  segments: SprintEngineActivitySegment[]
+  /** Total task-assignment time across all segments — for the row summary and sort. */
+  activeMs: number
+  firstStartMs: number
+}
+
+export type SprintEngineActivityTimeline = {
+  rows: SprintEngineAgentActivityRow[]
+  startMs: number
+  endMs: number
+}
+
+const ACTIVITY_TASK_STATUSES: ReadonlySet<string> = new Set<SprintEngineTaskStatus>([
+  'todo', 'in_progress', 'changes_requested', 'review', 'testing', 'product', 'needs_input', 'done',
+])
+
+// Coalesce contiguous same-task slivers for one agent into a single bar, so a
+// lane reads as continuous work stretches rather than per-phase ticks.
+function mergeActivitySegments(segments: SprintEngineActivitySegment[]): SprintEngineActivitySegment[] {
+  const sorted = [...segments].sort((a, b) => a.startMs - b.startMs)
+  const merged: SprintEngineActivitySegment[] = []
+  for (const seg of sorted) {
+    const prev = merged[merged.length - 1]
+    if (prev && prev.taskId === seg.taskId && seg.startMs <= prev.endMs) {
+      prev.endMs = Math.max(prev.endMs, seg.endMs)
+    } else {
+      merged.push({ ...seg })
+    }
+  }
+  return merged
+}
+
+const GATE_PHASES: ReadonlySet<SprintEngineTaskStatus> = new Set(['review', 'testing', 'product'])
+
+/**
+ * Per-agent activity timeline: the time each agent spent assigned to a task.
+ *
+ * Work bars are attributed by *phase*, not per event. For each task we split its
+ * `activity` into phases at `status_change` boundaries; the implementation phases
+ * (in_progress / changes_requested / todo) go to the task's implementer for their
+ * whole span — so a comment from the architect or a note from the user mid-build
+ * does NOT fragment the developer's bar — and the gate phases (review / testing /
+ * product) go to the agent doing the most work in that window (the reviewer or
+ * tester). Tasks with no activity fall back to the implementer's `startedAt →
+ * completedAt`. Only roster agents (those in `sprintEngineAgents`) get lanes, so
+ * non-agent actors — the human user, `sprintengine`, `multicode-app` — never
+ * appear, and only agents that actually held a task get a lane.
+ *
+ * Deliberately scoped to task-assignment time: it does NOT track agent lifecycle
+ * (joined/left/idle). Those timestamps reflect terminal teardown, not work, and
+ * the run state records no real per-status transitions to track honestly.
+ */
+export function buildAgentActivityTimeline(
+  state: Pick<SprintEngineState, 'tasks' | 'creation' | 'sprintEngineAgents'>,
+  rolesByAgent: Readonly<Record<string, SprintEngineRoleId>>,
+): SprintEngineActivityTimeline | null {
+  const roster = new Set(Object.keys(state.sprintEngineAgents ?? {}))
+  const isRoster = (agentId: unknown): agentId is string => typeof agentId === 'string' && roster.has(agentId)
+
+  const byAgent = new Map<string, SprintEngineActivitySegment[]>()
+  const add = (agentId: string | null | undefined, seg: SprintEngineActivitySegment): void => {
+    if (!isRoster(agentId) || seg.endMs <= seg.startMs) return
+    const list = byAgent.get(agentId)
+    if (list) list.push(seg)
+    else byAgent.set(agentId, [seg])
+  }
+
+  for (const task of state.tasks) {
+    const completedMs = parseTimestampMs(task.completedAt)
+    const entries = (task.activity ?? [])
+      .map((entry) => ({ atMs: parseTimestampMs(entry.timestamp), actor: entry.actor, type: entry.type as string, status: entry.status }))
+      .filter((entry): entry is { atMs: number; actor: string; type: string; status: string | undefined } => entry.atMs !== null && !!entry.actor)
+      .sort((a, b) => a.atMs - b.atMs)
+
+    if (entries.length === 0) {
+      const startedMs = parseTimestampMs(task.startedAt)
+      const owner = task.lastImplementedByAgentId ?? task.ownerAgentId
+      if (startedMs !== null && completedMs !== null) {
+        add(owner, { taskId: task.id, startMs: startedMs, endMs: completedMs, status: 'in_progress' })
+      }
+      continue
+    }
+
+    // The implementer owns every implementation phase, however many comments from
+    // other actors land in between.
+    const firstClaim = entries.find((entry) => entry.type === 'claim' && isRoster(entry.actor))?.actor ?? null
+    const implementer =
+      (isRoster(task.lastImplementedByAgentId) ? task.lastImplementedByAgentId : null) ??
+      (isRoster(task.ownerAgentId) ? task.ownerAgentId : null) ??
+      firstClaim
+
+    // Phase windows from status_change boundaries.
+    const startMs = parseTimestampMs(task.startedAt) ?? entries[0].atMs
+    const endMs = completedMs ?? entries[entries.length - 1].atMs
+    let phaseStatus: SprintEngineTaskStatus = 'in_progress'
+    let phaseStart = startMs
+    const phases: Array<{ status: SprintEngineTaskStatus; startMs: number; endMs: number }> = []
+    for (const entry of entries) {
+      if (entry.type !== 'status_change' || !entry.status || !ACTIVITY_TASK_STATUSES.has(entry.status)) continue
+      if (entry.atMs > phaseStart) phases.push({ status: phaseStatus, startMs: phaseStart, endMs: entry.atMs })
+      phaseStatus = entry.status as SprintEngineTaskStatus
+      phaseStart = entry.atMs
+    }
+    if (endMs > phaseStart) phases.push({ status: phaseStatus, startMs: phaseStart, endMs })
+
+    for (const phase of phases) {
+      if (phase.status === 'done') continue
+      let holder: string | null
+      if (GATE_PHASES.has(phase.status)) {
+        // The reviewer/tester for this gate is whoever did the most in the window.
+        const counts = new Map<string, number>()
+        for (const entry of entries) {
+          if (entry.atMs < phase.startMs || entry.atMs > phase.endMs || !isRoster(entry.actor)) continue
+          counts.set(entry.actor, (counts.get(entry.actor) ?? 0) + 1)
+        }
+        holder = [...counts.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] ?? implementer
+      } else {
+        holder = implementer
+      }
+      add(holder, { taskId: task.id, startMs: phase.startMs, endMs: phase.endMs, status: phase.status })
+    }
+  }
+
+  // The time window is the run's WORK window — creation plus task timing and
+  // activity — to match the burn-up. It deliberately excludes agent `leftAt`/
+  // `deadAt`: agents often idle long after the work finishes and are only torn
+  // down (recorded as "left") much later; letting that stretch the axis would
+  // crush every bar into the left and invent an empty right half.
+  let startMs = parseTimestampMs(state.creation?.createdAt) ?? Number.POSITIVE_INFINITY
+  let endMs = parseTimestampMs(state.creation?.updatedAt) ?? Number.NEGATIVE_INFINITY
+  for (const task of state.tasks) {
+    const started = parseTimestampMs(task.startedAt)
+    const completed = parseTimestampMs(task.completedAt)
+    if (started !== null && started < startMs) startMs = started
+    if (completed !== null && completed > endMs) endMs = completed
+    for (const entry of task.activity ?? []) {
+      const at = parseTimestampMs(entry.timestamp)
+      if (at === null) continue
+      if (at < startMs) startMs = at
+      if (at > endMs) endMs = at
+    }
+  }
+  if (!Number.isFinite(startMs) || !Number.isFinite(endMs) || endMs <= startMs) return null
+
+  // One lane per agent that actually held a task.
+  if (byAgent.size === 0) return null
+  const rows: SprintEngineAgentActivityRow[] = []
+  for (const [agentId, rawSegments] of byAgent) {
+    const segments = mergeActivitySegments(rawSegments)
+    if (segments.length === 0) continue
+    let activeMs = 0
+    for (const seg of segments) activeMs += seg.endMs - seg.startMs
+    rows.push({
+      agentId,
+      role: rolesByAgent[agentId] ?? state.sprintEngineAgents?.[agentId]?.role ?? ('' as SprintEngineRoleId),
+      segments,
+      activeMs,
+      firstStartMs: segments[0].startMs,
+    })
+  }
+  if (rows.length === 0) return null
+
+  // Earliest-active agent first — the lane order reads as the run unfolding.
+  rows.sort(
+    (a, b) =>
+      a.firstStartMs - b.firstStartMs || b.activeMs - a.activeMs || a.agentId.localeCompare(b.agentId)
+  )
+  return { rows, startMs, endMs }
 }
 
 export function formatRunDuration(durationMs: number | null): string | null {

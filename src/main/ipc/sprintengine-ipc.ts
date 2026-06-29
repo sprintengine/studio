@@ -33,6 +33,10 @@ export type SprintEngineTaskReadyPayload = {
   taskId: string
 }
 
+export type SprintEngineVcsPayload = {
+  statePath: string
+}
+
 export type SprintEngineProjectionReadPayload = {
   statePath: string
   // When provided, the reader returns an `unchanged` result without reading or
@@ -58,6 +62,8 @@ type SprintEngineIpcDependencies = {
   resolveTaskInput(payload: SprintEngineTaskResolveInput): Promise<SprintEngineArtifactCommandResult>
   setTaskStatus(payload: SprintEngineTaskStatusSetInput): Promise<SprintEngineArtifactCommandResult>
   setRunnerMode(payload: SprintEngineRunnerSetInput): Promise<SprintEngineArtifactCommandResult>
+  createPullRequest(payload: SprintEngineVcsPayload): Promise<SprintEngineArtifactCommandResult>
+  refreshPullRequestStatus(payload: SprintEngineVcsPayload): Promise<SprintEngineArtifactCommandResult>
   replenishRoster(payload: SprintEngineRosterReplenishInput): Promise<SprintEngineArtifactCommandResult>
   addRosterMember(payload: SprintEngineRosterAddInput): Promise<SprintEngineArtifactCommandResult>
   readProjection(payload: SprintEngineProjectionReadPayload): Promise<SprintEngineProjectionReadResult>
@@ -114,6 +120,14 @@ export function registerSprintEngineIpc(ipcMain: IpcMain, deps: SprintEngineIpcD
 
   ipcMain.handle('sprintengine:runner:set-mode', async (_, payload: SprintEngineRunnerSetInput): Promise<SprintEngineArtifactCommandResult> => {
     return deps.setRunnerMode(payload)
+  })
+
+  ipcMain.handle('sprintengine:vcs:pr', async (_, payload: SprintEngineVcsPayload): Promise<SprintEngineArtifactCommandResult> => {
+    return deps.createPullRequest(payload)
+  })
+
+  ipcMain.handle('sprintengine:vcs:pr-status', async (_, payload: SprintEngineVcsPayload): Promise<SprintEngineArtifactCommandResult> => {
+    return deps.refreshPullRequestStatus(payload)
   })
 
   ipcMain.handle('sprintengine:roster:replenish', async (_, payload: SprintEngineRosterReplenishInput): Promise<SprintEngineArtifactCommandResult> => {

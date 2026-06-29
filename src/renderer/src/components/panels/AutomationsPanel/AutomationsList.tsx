@@ -105,8 +105,15 @@ function DefinitionRow({
     <li
       id={`automation-row-${def.id}`}
       aria-current={selected ? 'true' : undefined}
+      // The whole row selects, not just the title: the trailing-actions row below
+      // reserves height even at rest, so a button wrapping only the text leaves a
+      // dead zone over the rest of the row. The row click is a mouse convenience;
+      // the inner button remains the keyboard/AT control (the list owns j/k/arrow
+      // navigation), and the trailing actions stop propagation so they don't also
+      // select.
+      onClick={onSelect}
       className={[
-        'group relative border-b border-[color:var(--border-subtle)] py-2 transition-colors',
+        'group relative cursor-pointer border-b border-[color:var(--border-subtle)] py-2 transition-colors',
         selected
           ? 'border-l-[3px] border-l-[color:var(--accent-primary)] bg-[color:var(--accent-primary-soft)] pl-[13px] pr-3'
           : 'px-4 hover:bg-[color:var(--bg-hover)]',
@@ -167,6 +174,7 @@ function DefinitionRow({
           Run now is the one resting affordance; Pause/Enable, Edit and Delete live in the
           overflow menu so a row never shows more than two trailing controls at rest. */}
       <div
+        onClick={(e) => e.stopPropagation()}
         className={[
           'mt-1.5 flex items-center gap-1 pl-6 transition-opacity',
           selected ? 'opacity-100' : 'opacity-0 group-hover:opacity-100 group-focus-within:opacity-100',

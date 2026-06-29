@@ -742,6 +742,8 @@ async function testIpcRegistersReadOnlyBridgeChannels(): Promise<void> {
     resolveTaskInput: async () => ({ ok: true, data: {} }),
     setTaskStatus: async () => ({ ok: true, data: {} }),
     setRunnerMode: async () => ({ ok: true, data: {} }),
+    createPullRequest: async () => ({ ok: true, data: {} }),
+    refreshPullRequestStatus: async () => ({ ok: true, data: {} }),
     replenishRoster: async () => ({ ok: true, data: {} }),
     addRosterMember: async () => ({ ok: true, data: {} }),
     readProjection: async () => ({ ok: true, data: null }),

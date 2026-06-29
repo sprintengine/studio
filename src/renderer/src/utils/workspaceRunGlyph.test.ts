@@ -170,7 +170,7 @@ function completedWorkspace(): WorkspaceLike {
 assert.deepEqual(deriveWorkspaceRunGlyph(completedWorkspace()), {
   state: 'done',
   live: false,
-  label: 'Completed',
+  label: 'Complete',
 })
 
 // A manually-driven run (runner never reaches `complete`) whose tasks all

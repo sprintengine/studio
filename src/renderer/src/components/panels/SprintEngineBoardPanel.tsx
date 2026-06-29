@@ -18,7 +18,6 @@ import {
  Section,
  Select,
  Tabs,
- Tooltip,
  TruncatedText,
  DefinitionList,
  type LifecycleState,
@@ -62,6 +61,7 @@ import {
  bracketedTerminalPaste,
  buildSprintEngineRoleRegistry,
  formatSprintEngineLockAge,
+ deriveSprintEngineRunGlyph,
  getNextSprintEngineAgentId,
  getSprintEngineBoardRunPhase,
  getSprintEngineTaskBoardColumn,
@@ -113,6 +113,7 @@ import {
 import { SprintEngineInboxView } from './sprintEngineBoard/SprintEngineInboxView'
 import { SprintEngineRosterView } from './sprintEngineBoard/SprintEngineRosterView'
 import { SprintEngineTasksKanbanView } from './sprintEngineBoard/SprintEngineTasksKanbanView'
+import { RunCompletePullRequestAction, RunPullRequestViewChip, useRunPullRequestMergePoll } from './runPullRequest'
 import { useSprintEngineBoardModel } from './sprintEngineBoard/useSprintEngineBoardModel'
 import { useSprintEngineBoardArtifactActions } from './sprintEngineBoard/useSprintEngineBoardArtifactActions'
 import { useSprintEngineBoardTerminalActions } from './sprintEngineBoard/useSprintEngineBoardTerminalActions'
@@ -934,12 +935,24 @@ function SprintEngineBoardPanelContent({
  const runSummary = buildRunSummary(sprintEngineState.tasks)
  const totalTasks = sprintEngineState.tasks.length
  const progressPct = totalTasks > 0 ? Math.round((doneCount / totalTasks) * 100) : 0
- const runPhaseTone: Tone =
- runPhase === 'Complete'
- ? 'good'
- : runPhase === 'Running'
- ? 'accent'
- : 'neutral'
+ // Keep the header PR chip's merge state fresh while the run is open on any tab.
+ useRunPullRequestMergePoll({
+   workspaceId,
+   statePath: sprintEngineContext?.statePath ?? null,
+   hasVcs: !!sprintEngineState.vcs,
+   prState: sprintEngineState.vcs?.pullRequestState ?? null,
+   shouldPoll: allTasksDone || !!sprintEngineState.vcs?.pullRequestUrl,
+ })
+ // The run's lifecycle as the shared shape-coded glyph — the same rollup the
+ // Backlog rows and workspace sidebar render, so the board hero speaks one
+ // run-status vocabulary with the rest of the app (Ready for review, Changes
+ // requested, In progress, Complete…). The 6 px dot is the "live right now"
+ // idiom and reads wrong for a finished run; this glyph carries the lifecycle,
+ // animating only when a runner is genuinely live.
+ const runGlyph = deriveSprintEngineRunGlyph({
+   sprintEngineState,
+   autoState: workspace?.sprintEngineAutoState,
+ })
  const projectionUnavailable = sprintEngineState.projection?.source === 'unavailable'
  const projectionErrorMessage = sprintEngineState.projection?.errorMessage
  const lockWarnings = sprintEngineState.locks?.warnings ?? []
@@ -1895,28 +1908,13 @@ function SprintEngineBoardPanelContent({
  {tasksLayoutToggle}
  </div>
  <div className="flex min-w-0 shrink-0 items-center gap-2">
- {runPhaseTone === 'neutral' ? null : (
- <StatusDot tone={runPhaseTone} label={`Run phase: ${runPhase}`} />
- )}
+ {runGlyph ? (
+ <LifecycleGlyph state={runGlyph.state} live={runGlyph.live} label={`Run: ${runGlyph.label}`} />
+ ) : null}
   <span className="shrink-0 tabular-nums text-[11px] text-[color:var(--text-muted)]">
   {doneCount}/{totalTasks}
   </span>
-  {sprintEngineState.vcs?.pullRequestUrl ? (
-  <Tooltip content={sprintEngineState.vcs.pullRequestUrl}>
-  <a
-  href={sprintEngineState.vcs.pullRequestUrl}
-  target="_blank"
-  rel="noreferrer"
-  aria-label="Open the pull request for this sprint"
-  className="interactive flex h-6 shrink-0 items-center gap-1 rounded-[5px] px-1.5 text-[11px] font-medium text-[color:var(--accent-primary)] transition-colors hover:bg-[color:var(--bg-hover)] focus:outline-none focus-visible:ring-1 focus-visible:ring-[color:var(--accent-primary-soft)]"
-  >
-  <svg className="icon-xs shrink-0" viewBox="0 0 16 16" fill="none" aria-hidden="true">
-  <path d="M5 4.5a1.5 1.5 0 1 1-3 0 1.5 1.5 0 0 1 3 0Zm0 0v5m0 0a1.5 1.5 0 1 0 0 .01M11 6.5v3m0 0a1.5 1.5 0 1 0 0 .01M11 6.5a1.5 1.5 0 1 0 0-.01M11 6.5c0-1.5-.5-2.5-2-2.5H7" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round" />
-  </svg>
-  <span>PR</span>
-  </a>
-  </Tooltip>
-  ) : null}
+  <RunPullRequestViewChip vcs={sprintEngineState.vcs} />
   <Popover
  open={settingsOpen}
  onOpenChange={setSettingsOpen}
@@ -2056,11 +2054,20 @@ function SprintEngineBoardPanelContent({
  level={3}
  className="shrink-0 border-b border-[color:var(--border-default)] bg-[color:var(--bg-surface)]"
  >
+ <div className="flex items-start justify-between gap-4">
+ <div className="min-w-0">
  <div className="text-[12px] text-[color:var(--text-default)]">
  Review uncommitted workspace changes and manually test the feature.
  </div>
  <div className="mt-1 text-[11px] text-[color:var(--text-muted)]">
  {runSummary.touchedFiles.length} files touched · {runSummary.commandsRan.length} commands recorded · {runSummary.results.length} validation results
+ </div>
+ </div>
+ <RunCompletePullRequestAction
+ workspaceId={workspaceId}
+ statePath={sprintEngineContext?.statePath ?? null}
+ vcs={sprintEngineState.vcs}
+ />
  </div>
  </Section>
  ) : null

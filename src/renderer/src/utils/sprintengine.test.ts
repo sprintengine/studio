@@ -285,7 +285,7 @@ assert.equal(
 )
 assert.deepEqual(
   deriveSprintEngineRunGlyph({ sprintEngineState: null, autoState: { desiredMode: 'run_agents', runtimeState: 'complete' } }),
-  { state: 'done', live: false, label: 'Completed' },
+  { state: 'done', live: false, label: 'Complete' },
 )
 
 // Board-driven rollup: progress is derived from the task board, not terminals,
@@ -324,6 +324,31 @@ assert.equal(
 assert.equal(
   deriveSprintEngineRunGlyph({ sprintEngineState: { tasks: [boardTask('done'), boardTask('done')] }, autoState: manualIdle })?.state,
   'done',
+)
+// Completed worktree run: merged → filled `done` ("Complete"); not-yet-merged →
+// outline `done_unmerged` ("Ready for review"); no worktree stays filled `done`.
+const worktreeVcs = (extra: Record<string, unknown>) =>
+  ({ mode: 'run_worktree', worktreePath: '.x/worktree', branchName: 'sprintengine/x', ...extra }) as never
+assert.deepEqual(
+  deriveSprintEngineRunGlyph({
+    sprintEngineState: { tasks: [boardTask('done')], vcs: worktreeVcs({ pullRequestState: 'merged', pullRequestUrl: 'https://x/pull/1' }) },
+    autoState: manualIdle,
+  }),
+  { state: 'done', live: false, label: 'Complete' },
+)
+assert.deepEqual(
+  deriveSprintEngineRunGlyph({
+    sprintEngineState: { tasks: [boardTask('done')], vcs: worktreeVcs({ pullRequestState: 'open', pullRequestUrl: 'https://x/pull/1' }) },
+    autoState: manualIdle,
+  }),
+  { state: 'done_unmerged', live: false, label: 'Ready for review' },
+)
+assert.deepEqual(
+  deriveSprintEngineRunGlyph({
+    sprintEngineState: { tasks: [boardTask('done')], vcs: worktreeVcs({ pullRequestUrl: null }) },
+    autoState: manualIdle,
+  }),
+  { state: 'done_unmerged', live: false, label: 'Ready for review' },
 )
 // An architect-routed needs_input task (no user question) is in-flight work, not
 // a user prompt — it reads in_progress, not needs_input.

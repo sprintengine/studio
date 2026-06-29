@@ -102,11 +102,17 @@ export function runtimeStatusTone(status: string): Tone {
     case 'needs_input':
       return 'warn'
     case 'complete':
+    case 'done':
       return 'good'
     case 'error':
       return 'error'
+    // 'left'/'dead'/'retired' render as "Paused" — a muted, non-alarming state
+    // (terminal reclaimed, revived when work returns), so they keep neutral tone.
     case 'planning':
     case 'exited':
+    case 'left':
+    case 'dead':
+    case 'retired':
     default:
       return 'neutral'
   }
@@ -121,6 +127,7 @@ export function runtimeStatusLabel(status: string): string {
     case 'planning':
       return 'Planning'
     case 'complete':
+      return 'Complete'
     case 'done':
       return 'Done'
     case 'exited':
