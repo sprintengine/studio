@@ -19,7 +19,7 @@ export type StepId =
 // workspace type points at one of these via its creationStepsId; 'standard' is
 // the shell-owned default and the fallback for any mode whose registry entry is
 // missing or names an unknown flow.
-export type CreationStepsId = 'standard' | 'switchboard' | 'multiloop' | 'sprintengine' | 'guided-brief'
+export type CreationStepsId = 'standard' | 'switchboard' | 'automations' | 'multiloop' | 'sprintengine' | 'guided-brief'
 
 // Default flows keep only the steps a person needs to reach the thing they came
 // to make. The developer-configuration steps — 'mcp-servers', 'skill-packs', and
@@ -35,6 +35,10 @@ export type CreationStepsId = 'standard' | 'switchboard' | 'multiloop' | 'sprint
 export const STEPS_BY_MODE: Record<CreationStepsId, StepId[]> = {
   standard: ['workspace', 'mode', 'standard-layout'],
   switchboard: ['workspace', 'mode'],
+  // Zero-config like Switchboard: pick a folder, confirm the mode; the fixed
+  // single-surface template (control center + right-docked run terminals) means
+  // no layout-picker step.
+  automations: ['workspace', 'mode'],
   multiloop: ['workspace', 'mode', 'multiloop-goal'],
   sprintengine: ['workspace', 'mode', 'sprintengine-team', 'sprintengine-roster'],
   'guided-brief': ['workspace', 'mode', 'guided-idea'],

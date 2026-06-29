@@ -121,11 +121,20 @@ export function runtimeStatusLabel(status: string): string {
     case 'planning':
       return 'Planning'
     case 'complete':
-      return 'Complete'
+    case 'done':
+      return 'Done'
     case 'exited':
       return 'Exited'
     case 'error':
       return 'Error'
+    // The SprintEngine core writes `left`/`dead` when an agent's terminal is torn
+    // down (idle-retirement disposes it) and `retired` when it's parked — all mean
+    // "not running now, revived when work returns". They previously fell through to
+    // 'Idle', which read as "ready and waiting"; "Paused" is the honest label.
+    case 'left':
+    case 'dead':
+    case 'retired':
+      return 'Paused'
     default:
       return 'Idle'
   }

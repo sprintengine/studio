@@ -52,10 +52,16 @@ import {
   transitionTerminalActivity,
   type TerminalSession,
 } from './terminal-session'
+import { buildReplaySnapshot } from './terminal-replay-snapshot'
 import { createTerminalDiagnostics } from './terminal-diagnostics'
 import { createTerminalOutputBuffer } from './terminal-output-buffer'
 import { createTerminalMobileCommandService } from './terminal-mobile-command-service'
-import { selectReapableSessions, type ReapCandidate } from './terminal-reap-policy'
+import {
+  selectReapableSessions,
+  clampSuspendIdleAfterMs,
+  DEFAULT_SUSPEND_IDLE_AFTER_MS,
+  type ReapCandidate,
+} from './terminal-reap-policy'
 import { recordReapEvent } from './terminal-reap-log'
 import type { TerminalRootInfo } from './workspace-memory'
 
@@ -124,6 +130,7 @@ type TerminalIpcHandlers = {
   suspendTerminal(sessionId: string): void
   resumeTerminal(sender: WebContents, payload: TerminalSpawnPayload): Promise<TerminalSpawnResult>
   killTerminal(sessionId: string): void
+  setIdleSuspendThresholdMs(value: unknown): void
 }
 
 type TerminalRuntime = {
@@ -324,6 +331,7 @@ export function createTerminalRuntime(options: TerminalRuntimeOptions): Terminal
       suspendTerminal: suspendTerminal,
       resumeTerminal: resumeTerminal,
       killTerminal: disposeTerminal,
+      setIdleSuspendThresholdMs: setIdleSuspendThresholdMs,
     },
   }
 }
@@ -462,7 +470,10 @@ function setTerminalVisible(sessionId: string, visible: boolean): void {
   }
   recordTerminalVisibility(session, visible)
   if (becameVisible) {
-    const replay = materializeTerminalReplay(session)
+    // A suspended session prefers its faithful screen snapshot (alt-screen TUIs
+    // don't reconstruct from the raw stream); live sessions have none and fall
+    // back to the retained scrollback.
+    const replay = session.replaySnapshot ?? materializeTerminalReplay(session)
     if (replay) {
       sendTerminalEvent(session.sender, `terminal:replay:${sessionId}`, replay)
       logMainPerfEvent('TerminalRuntime', 'terminal-replay-sent', {
@@ -542,12 +553,32 @@ export function suspendTerminal(sessionId: string): void {
   // transition (the onExit branch returns early), so clear the stall timer here
   // too or it lingers armed against a dead process until it self-expires.
   clearAgentStallTimer(session)
+  // Snapshot the painted screen for a faithful blank-free reopen. Read the size
+  // and materialize the retained stream BEFORE the kill, then render+serialize
+  // off-thread (best-effort): a failure just leaves the raw replay in place.
+  const snapshotCols = session.process.cols
+  const snapshotRows = session.process.rows
+  const snapshotSource = materializeTerminalReplay(session)
   try {
     session.process.kill()
   } catch {
     // If the process already died, the onExit path has run; the guards above
     // keep this from double-finalizing.
   }
+  void buildReplaySnapshot(snapshotSource, snapshotCols, snapshotRows).then((snapshot) => {
+    if (!snapshot) return
+    // Only attach if this exact session is still the suspended one (not disposed,
+    // resumed, or replaced) — otherwise a stale snapshot could shadow live output.
+    // Accept `suspending` too: it is set synchronously before the kill, while
+    // `suspended` only flips in the async pty `onExit` — and this render usually
+    // resolves first, so gating on `suspended` alone would discard most snapshots.
+    // A resume/dispose removes the session from the map (so `current === session`
+    // fails) and sets `isDisposed`, keeping this safe against a stale shadow.
+    const current = terminals.get(sessionId)
+    if (current === session && (session.suspending || session.suspended) && !session.isDisposed) {
+      session.replaySnapshot = snapshot
+    }
+  })
 }
 
 // Freeze-the-view: relaunch a suspended agent under the SAME session id with
@@ -611,10 +642,23 @@ async function waitForTerminalExit(session: TerminalSession, timeoutMs: number):
   })
 }
 
-// Cadence of the idle-agent reap sweep. Kept well under
-// DEFAULT_SUSPEND_IDLE_AFTER_MS (30m) so a freshly-dormant agent is suspended
-// soon after it crosses the threshold rather than up to a sweep-interval later.
+// Cadence of the idle-agent reap sweep. Kept well under the idle-suspend
+// threshold (default 15m) so a freshly-dormant agent is suspended soon after it
+// crosses the threshold rather than up to a sweep-interval later.
 export const STALE_TERMINAL_SWEEP_INTERVAL_MS = 3 * 60 * 1000
+
+// User-configurable idle-suspend threshold (ms), set from the renderer's
+// "Pause idle terminals after" setting. Defaults to the policy default until the
+// renderer syncs its persisted value on startup.
+let configuredSuspendIdleAfterMs = DEFAULT_SUSPEND_IDLE_AFTER_MS
+
+export function setIdleSuspendThresholdMs(value: unknown): void {
+  configuredSuspendIdleAfterMs = clampSuspendIdleAfterMs(value)
+}
+
+export function getIdleSuspendThresholdMs(): number {
+  return configuredSuspendIdleAfterMs
+}
 
 let staleTerminalSweepTimer: ReturnType<typeof setInterval> | undefined
 
@@ -720,7 +764,10 @@ export function runIdleAgentReapSweep(now = Date.now()): string[] {
     inActiveRun: Boolean(session.sprintEngineStatePath),
   }))
 
-  const decision = selectReapableSessions(candidates, { now })
+  const decision = selectReapableSessions(candidates, {
+    now,
+    idleThresholdMs: configuredSuspendIdleAfterMs,
+  })
 
   for (const sessionId of decision.reapableSessionIds) {
     const session = terminals.get(sessionId)
@@ -1961,7 +2008,8 @@ async function spawnTerminalFromIpc(
       if (isTerminalProcessAlive(existingSession)) {
         safeResizeTerminal(sessionId, cols, rows)
       }
-      const replay = materializeTerminalReplay(existingSession)
+      // Prefer a suspended session's faithful screen snapshot over the raw stream.
+      const replay = existingSession.replaySnapshot ?? materializeTerminalReplay(existingSession)
       if (replay) {
         sendTerminalEvent(sender, `terminal:replay:${sessionId}`, replay)
         logMainPerfEvent('TerminalRuntime', 'terminal-replay-sent', {

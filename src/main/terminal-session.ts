@@ -77,6 +77,13 @@ export type TerminalSession = {
   outputChunkStart: number
   outputBytes: number
   outputLength: number
+  // Faithful screen snapshot captured at suspend: the retained output stream is
+  // rendered once through a headless terminal and serialized, so reopening a
+  // paused agent repaints its last screen (including alternate-screen TUI state)
+  // without a live process. Preferred over the raw `outputChunks` replay when
+  // present; absent for live sessions and cleared on resume. See
+  // terminal-replay-snapshot.ts.
+  replaySnapshot?: string
   kind: TerminalKind
   pathStyle?: TerminalPathStyle
   workspaceId?: string

@@ -11,8 +11,10 @@ export function isAutomationsHostWorkspace(workspace: WorkspaceModeInput): boole
 }
 
 // True when the workspace should not appear in the normal workspace rail.
-// Hidden-ness is derived from the mode, never a persisted field — currently only
-// the Automations host is hidden.
-export function isHiddenFromRail(workspace: WorkspaceModeInput): boolean {
-  return isAutomationsHostWorkspace(workspace)
+// Hidden-ness is derived from the mode, never a persisted field. The Automations
+// workspace is now a visible, user-created workspace type that hosts its run
+// terminals in plain sight, so nothing is currently rail-hidden. The predicate is
+// retained as the single chokepoint for any future hidden mode.
+export function isHiddenFromRail(_workspace: WorkspaceModeInput): boolean {
+  return false
 }

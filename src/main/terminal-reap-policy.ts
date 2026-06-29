@@ -34,8 +34,23 @@ import type { AgentPhase } from '../shared/electron-api'
 // How long an agent must sit IDLE (no work, no user interaction) before it's
 // suspended. Measured from the last keystroke or the moment it went idle,
 // whichever is later — so revealing a workspace can't reset it, and a
-// just-finished agent isn't reaped on the spot. Tunable.
-export const DEFAULT_SUSPEND_IDLE_AFTER_MS = 30 * 60 * 1000
+// just-finished agent isn't reaped on the spot. This is the DEFAULT/fallback;
+// the user-configurable "Pause idle terminals after" setting overrides it at
+// runtime (see setIdleSuspendThresholdMs in terminal-runtime).
+export const DEFAULT_SUSPEND_IDLE_AFTER_MS = 15 * 60 * 1000
+
+// Clamp bounds for the user-configurable idle-suspend threshold. 1 minute floor
+// keeps the reaper from thrashing live agents; 24h ceiling is effectively "never
+// for a working day". Shared by the renderer setting normalizer and the main IPC.
+export const MIN_SUSPEND_IDLE_AFTER_MS = 60 * 1000
+export const MAX_SUSPEND_IDLE_AFTER_MS = 24 * 60 * 60 * 1000
+
+// Coerce an arbitrary value to a valid idle-suspend threshold in ms, or return
+// the default when it isn't a usable finite number. Pure; reused on both sides.
+export function clampSuspendIdleAfterMs(value: unknown): number {
+  if (typeof value !== 'number' || !Number.isFinite(value)) return DEFAULT_SUSPEND_IDLE_AFTER_MS
+  return Math.max(MIN_SUSPEND_IDLE_AFTER_MS, Math.min(MAX_SUSPEND_IDLE_AFTER_MS, value))
+}
 
 // Phases in which the agent is actively doing work. Reaping one would kill an
 // in-flight command, so these are never reapable.
