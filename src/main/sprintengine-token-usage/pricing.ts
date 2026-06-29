@@ -33,11 +33,36 @@ export const DEFAULT_MODEL_PRICING: Record<string, SprintEngineModelPricing> = {
 
 // Look up a model's rate, tolerating case/whitespace. Returns null when the
 // model is not in the table so the caller can flag it unpriced.
+//
+// CLI transcripts emit dated/versioned ids (Claude Code emits
+// claude-haiku-4-5-20251001) while the table keys the canonical undated id
+// (claude-haiku-4-5). When the exact id is absent we strip a trailing date
+// suffix — a hyphen then 6+ digits, wide enough for a YYYYMM/YYYYMMDD stamp but
+// never the 1-2 digit version segments inside an id (the -5 of -4-5) — and retry
+// once. The strip is anchored and numeric, so it buckets a dated id to its base
+// model without collapsing distinct models: claude-haiku-4-5 and
+// claude-opus-4-8 share no canonical prefix, and a genuinely unknown id (no
+// date suffix, or one whose stripped form is still absent) resolves to null so
+// the cost UI keeps flagging it unpriced instead of fabricating a price.
+const DATE_SUFFIX = /-\d{6,}$/
+
 export function resolveModelPricing(
   model: string,
   table: Record<string, SprintEngineModelPricing> = DEFAULT_MODEL_PRICING,
 ): SprintEngineModelPricing | null {
   const key = model.trim()
+  const exact = lookupExact(key, table)
+  if (exact) return exact
+  const canonical = key.replace(DATE_SUFFIX, '')
+  if (canonical !== key) return lookupExact(canonical, table)
+  return null
+}
+
+// Exact lookup, tolerating case differences between the id and the table key.
+function lookupExact(
+  key: string,
+  table: Record<string, SprintEngineModelPricing>,
+): SprintEngineModelPricing | null {
   if (table[key]) return table[key]
   const lowered = key.toLowerCase()
   for (const [name, pricing] of Object.entries(table)) {

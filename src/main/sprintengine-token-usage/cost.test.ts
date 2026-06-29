@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 
-import { computeSprintEngineTokenCost, mergeModelPricing } from './index'
+import { computeSprintEngineTokenCost, mergeModelPricing, resolveModelPricing } from './index'
 import type { SprintEngineModelTokenUsage, SprintEngineTokenUsage } from '../../renderer/src/types/workspace'
 
 const NOW = '2026-06-28T00:00:00.000Z'
@@ -101,6 +101,45 @@ run('empty usage yields zero cost and no unpriced models', () => {
   assert.deepEqual(cost.total, { input: 0, output: 0, cacheRead: 0, cacheCreation: 0, total: 0 })
   assert.equal(cost.cacheSavings, 0)
   assert.deepEqual(cost.unpricedModels, [])
+})
+
+// claude-haiku-4-5 default rates ($/1M): input 1, output 5, cacheRead 0.1, cacheCreation 1.25.
+run('dated/suffixed model id resolves to its canonical table pricing', () => {
+  // Claude Code emits this dated id; the table keys the undated canonical id.
+  assert.deepEqual(
+    resolveModelPricing('claude-haiku-4-5-20251001'),
+    { input: 1, output: 5, cacheRead: 0.1, cacheCreation: 1.25 },
+  )
+  // Sonnet/opus dated ids price too.
+  assert.deepEqual(resolveModelPricing('claude-sonnet-4-6-20250101'), resolveModelPricing('claude-sonnet-4-6'))
+  assert.deepEqual(resolveModelPricing('claude-opus-4-8-20260101'), resolveModelPricing('claude-opus-4-8'))
+})
+
+run('genuinely unknown model resolves to null, no fabricated price', () => {
+  assert.equal(resolveModelPricing('big-pickle'), null)
+  // A date suffix on an unknown base is still unknown after stripping.
+  assert.equal(resolveModelPricing('big-pickle-20251001'), null)
+})
+
+run('normalization keeps distinct models distinct', () => {
+  const haiku = resolveModelPricing('claude-haiku-4-5-20251001')
+  const opus = resolveModelPricing('claude-opus-4-8-20260101')
+  assert.ok(haiku && opus)
+  assert.notDeepEqual(haiku, opus)
+  // The version segment (-4-5) is not a date suffix, so it is never stripped
+  // down to a shorter, wrong bucket.
+  assert.equal(resolveModelPricing('claude-haiku-4-5'), resolveModelPricing('claude-haiku-4-5'))
+})
+
+run('override layered on a canonical id prices its dated id too', () => {
+  const pricing = mergeModelPricing({ 'claude-haiku-4-5': { input: 9, output: 9, cacheRead: 9, cacheCreation: 9 } })
+  assert.deepEqual(
+    resolveModelPricing('claude-haiku-4-5-20251001', pricing),
+    { input: 9, output: 9, cacheRead: 9, cacheCreation: 9 },
+  )
+  // And an override added for a previously-unknown model still resolves exactly.
+  const added = mergeModelPricing({ 'big-pickle': { input: 2, output: 8, cacheRead: 0.2, cacheCreation: 2 } })
+  assert.deepEqual(resolveModelPricing('big-pickle', added), { input: 2, output: 8, cacheRead: 0.2, cacheCreation: 2 })
 })
 
 console.log('sprintengine token-cost tests passed')
