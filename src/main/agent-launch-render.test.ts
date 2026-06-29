@@ -190,14 +190,15 @@ function testCodexRenderWithModel(): void {
   // Resume omits --model, same as Claude Code: the CLI tracks its own session
   // model, so re-passing it would clobber a mid-session switch. This is a
   // per-manifest choice (resume.argv), not engine behavior — a CLI that does NOT
-  // persist its session model can keep modelArgs in its own resume.argv.
+  // persist its session model can keep modelArgs in its own resume.argv. The
+  // harness session id IS appended (targeted resume).
   const resumed = renderAgentLaunchArgv({
     cli: 'codex',
     sessionId: 'sid_m2',
     resume: true,
     cliModel: 'gpt-5-codex',
   })
-  assert.deepEqual(resumed.argv, ['codex', 'resume'])
+  assert.deepEqual(resumed.argv, ['codex', 'resume', 'sid_m2'])
 
   // No model selected → manifest renders no model flag at all.
   const noModel = renderAgentLaunchArgv({ cli: 'codex', sessionId: 'sid_m3' })
@@ -231,12 +232,22 @@ function testCodexRenderWithAutoWorkspace(): void {
 }
 
 function testCodexRenderResume(): void {
+  // Targeted resume: a known harness session id is appended so Codex reattaches
+  // that specific conversation (`codex resume <id>`).
   const out = renderAgentLaunchArgv({
     cli: 'codex',
     sessionId: 'sid_z',
     resume: true,
   })
-  assert.deepEqual(out.argv, ['codex', 'resume'])
+  assert.deepEqual(out.argv, ['codex', 'resume', 'sid_z'])
+
+  // Bare fallback: no harness id known yet → plain `codex resume`.
+  const bare = renderAgentLaunchArgv({
+    cli: 'codex',
+    sessionId: '',
+    resume: true,
+  })
+  assert.deepEqual(bare.argv, ['codex', 'resume'])
 }
 
 function testQuoteTokenLeavesSafeStringsBare(): void {
@@ -338,7 +349,7 @@ function testBuildAgentShellCommandCodex(): void {
   })
   assert.equal(
     resumeOut,
-    `if ! command -v codex >/dev/null 2>&1; then echo 'Codex CLI was not found. Check the codex command in Multicode Settings.'; else codex resume; fi`
+    `if ! command -v codex >/dev/null 2>&1; then echo 'Codex CLI was not found. Check the codex command in Multicode Settings.'; else codex resume sid_y; fi`
   )
 }
 

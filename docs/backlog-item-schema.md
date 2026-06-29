@@ -23,6 +23,7 @@ there is exactly one parser.
 
 ```yaml
 ---
+id: 240              # stable workspace-global integer; allocated once, never changes
 type: feature        # epic | feature | bug | mockup | spike   (epic = container)
 status: ready        # idea | ready | in_progress | needs_input | completed | archived
 difficulty: m        # xs | s | m | l | xl   (effort to build)
@@ -36,6 +37,17 @@ updated: 2026-06-26T10:00:00Z   # optional; drives the "recently updated" sort
 
 ### Fields
 
+- **id**: a stable, workspace-global sequential integer that is the item's
+  durable identity. Allocated once (scan-max + 1) and **never changed** — not
+  across re-type, rename, or re-triage — so anything keyed on it (a commit
+  message, an external dashboard) stays valid. The human-facing identifier shown
+  in the panel is `<KEY>-<id>` (e.g. `MC-240`), where `KEY` is the per-workspace
+  display key; the type is conveyed by a glyph, never encoded in the id (the
+  Jira/Linear convention). The number is allocated automatically by the app's
+  scan-time pass (`ensureBacklogItemIds`), so a hand-authored item can omit it
+  and get one on the next open; an agent that needs to cite an id immediately may
+  allocate the next integer above the current max across `backlog/**`. The
+  pure helpers live in `src/shared/backlog/item-id.ts`.
 - **type** (required by OKF): one of `epic`, `feature`, `bug`, `mockup`, `spike`.
   `epic` marks a grouping container (see below). Unknown values are tolerated on
   read and left untouched.
@@ -73,6 +85,26 @@ sizes and prioritizes it.
   (lazy migration): unknown keys are preserved on write, never dropped.
 - Star/highlight is owned exclusively by the object store and is never seeded
   from frontmatter.
+
+## Display identifiers
+
+The human-facing id is `<KEY>-<id>` — `MC-240` — composed at render time from the
+frontmatter `id` integer and a per-workspace **display key**. The key lives in a
+small committed config file `.multi-code/backlog/config.json`
+(`{ "schemaVersion": 1, "key": "MC" }`), so the id reads identically on every
+machine; when absent it is derived from the workspace folder name and persisted.
+Changing the key only changes the displayed prefix — the stored `id` integer is
+the identity and never moves, so a key rename never rewrites item files.
+
+Allocation is **scan-max + 1** over committed frontmatter: no counter file, no
+daemon. `ensureBacklogItemIds` (main process, invoked from the panel's load flow)
+assigns an id to every item lacking one, oldest-first, and writes it to
+frontmatter — idempotent once every item has one, mirroring the v1→v2 migration.
+Two unmerged branches can mint the same id; that is **detected and surfaced** (a
+panel warning naming the colliding files), never silently renumbered — git merge
+is the arbiter. Imported issues (future importers) keep their provider key
+verbatim and display that instead; the display formatter already accepts an
+external override.
 
 ## Epics (grouping)
 

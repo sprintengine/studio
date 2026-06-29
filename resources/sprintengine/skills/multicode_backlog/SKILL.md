@@ -35,6 +35,7 @@ Do not strip detail from an item to keep it "behaviour only". If implementation 
 
 The item file's frontmatter owns lifecycle and triage as flat top-level scalars; the object store `.multi-code/backlog/items.json` holds only app-owned churn (links, the star/highlight, module metadata, timestamps).
 
+- `id`: a stable, workspace-global integer that is the item's durable identity — allocated once and **never changed** across re-type/rename/re-triage. Shown as `<KEY>-<id>` (e.g. `MC-240`), the `KEY` from `.multi-code/backlog/config.json`; cite items by that display id. The app assigns ids automatically on scan, so a new item may omit `id`; never reuse or renumber an existing one.
 - `type`: `epic`, `feature`, `bug`, `mockup`, or `spike`. `epic` marks a grouping container (see Epics below). An unknown `type:` value is preserved as written and treated as a leaf item.
 - `difficulty`: t-shirt size `xs`, `s`, `m`, `l`, or `xl`.
 - `criticality`: `low`, `normal`, `high`, or `critical`.

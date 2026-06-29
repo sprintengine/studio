@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import {
@@ -14,10 +14,74 @@ void main()
 
 async function main(): Promise<void> {
   await assertTextReadLimits()
+  await assertReportSymlinkContainment()
   await assertImageReadLimits()
   await assertFileStats()
   await assertMemoryPreviewImageLimit()
   assertBinarySniffing()
+}
+
+// A committed symlink under reports/ that resolves outside reports/ must be
+// blocked at the read boundary (F2): the viewer should see a rejection, not the
+// target file's contents. Symlinks that stay within reports/, plain report
+// files, and reads outside any reports/ tree are unaffected.
+async function assertReportSymlinkContainment(): Promise<void> {
+  const root = mkdtempSync(join(tmpdir(), 'multicode-fs-report-symlink-'))
+  const handlers = createFilesystemReadHandlers()
+
+  try {
+    const reportsDir = join(root, 'reports')
+    mkdirSync(reportsDir, { recursive: true })
+
+    const secretPath = join(root, 'secret.txt')
+    writeFileSync(secretPath, 'top secret\n', 'utf8')
+
+    const realReportPath = join(reportsDir, 'real.md')
+    writeFileSync(realReportPath, '# Real report\n', 'utf8')
+    assert.equal(await handlers.readTextFile(realReportPath), '# Real report\n')
+
+    // Escapes reports/ -> blocked, and never returns the secret contents.
+    const escapingLink = join(reportsDir, 'leak.md')
+    symlinkSync(join('..', 'secret.txt'), escapingLink)
+    await assert.rejects(() => handlers.readTextFile(escapingLink), /outside reports\//u)
+
+    // Stays within reports/ -> still readable.
+    const containedLink = join(reportsDir, 'alias.md')
+    symlinkSync('real.md', containedLink)
+    assert.equal(await handlers.readTextFile(containedLink), '# Real report\n')
+
+    // A symlinked DIRECTORY ancestor under reports/ escapes even though the leaf
+    // file is a plain (non-symlink) entry, so leaf-only checks miss it: the
+    // realpath must collapse the whole chain and block it.
+    const outsideDir = join(root, 'outside')
+    mkdirSync(outsideDir, { recursive: true })
+    writeFileSync(join(outsideDir, 'leak.md'), 'top secret dir\n', 'utf8')
+    const escapingDirLink = join(reportsDir, 'subdir')
+    symlinkSync(join('..', 'outside'), escapingDirLink)
+    await assert.rejects(
+      () => handlers.readTextFile(join(escapingDirLink, 'leak.md')),
+      /outside reports\//u
+    )
+
+    // A symlinked DIRECTORY that stays within reports/ still reads through.
+    const innerDir = join(reportsDir, 'inner')
+    mkdirSync(innerDir, { recursive: true })
+    writeFileSync(join(innerDir, 'nested.md'), '# Nested report\n', 'utf8')
+    const containedDirLink = join(reportsDir, 'inner-alias')
+    symlinkSync('inner', containedDirLink)
+    assert.equal(
+      await handlers.readTextFile(join(containedDirLink, 'nested.md')),
+      '# Nested report\n'
+    )
+
+    // A symlink that escapes but lives outside any reports/ tree is not a report
+    // read and keeps its existing behavior (no regression for general reads).
+    const nonReportLink = join(root, 'note.md')
+    symlinkSync(join('reports', 'real.md'), nonReportLink)
+    assert.equal(await handlers.readTextFile(nonReportLink), '# Real report\n')
+  } finally {
+    rmSync(root, { force: true, recursive: true })
+  }
 }
 
 async function assertTextReadLimits(): Promise<void> {

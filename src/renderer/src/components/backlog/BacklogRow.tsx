@@ -1,6 +1,7 @@
 import { memo } from 'react'
 
 import { LifecycleGlyph, StarGlyph, Tooltip, TruncatedText, type LifecycleState } from '../ui'
+import { BacklogTypeGlyph } from './BacklogTypeGlyph'
 import type {
   BacklogCriticality,
   BacklogDifficulty,
@@ -15,6 +16,7 @@ import {
   CRITICALITY_LABEL,
   DIFFICULTY_LABEL,
   DIFFICULTY_WORD,
+  TYPE_LABEL,
 } from '../../utils/backlogTriage'
 import { formatRelativeMsAgo } from '../../utils/relativeTime'
 
@@ -129,13 +131,39 @@ export const BacklogRowContent = memo(function BacklogRowContent({
   // Default true keeps the standalone in_progress item spinning; a run override
   // earns the spinner only when the runner is genuinely running.
   const live = runGlyph?.live ?? true
+  // The leading glyph is the item's status — except for an epic, whose lifecycle
+  // is derived from its children, so it earns a dedicated type glyph instead of
+  // the (misleading) "idea" ring it would otherwise show.
+  // Leaf items keep their status glyph and carry a small type glyph beside the id
+  // so the type stays legible now that the `KEY-n` id no longer encodes it.
+  const leafType = !item.isEpic && item.type && item.type !== 'epic' ? item.type : null
   return (
     <>
       <div className="flex items-center gap-2">
-        <Tooltip content={statusLabel} placement="top">
-          <LifecycleGlyph state={lifecycle} live={live} />
-        </Tooltip>
+        {item.isEpic ? (
+          <Tooltip content="Epic" placement="top">
+            <BacklogTypeGlyph type="epic" label="Epic" className="icon-sm text-[color:var(--text-muted)]" />
+          </Tooltip>
+        ) : (
+          <Tooltip content={statusLabel} placement="top">
+            <LifecycleGlyph state={lifecycle} live={live} />
+          </Tooltip>
+        )}
         <span className="flex min-w-0 flex-1 items-center gap-1.5">
+          {item.displayId ? (
+            <span className="shrink-0 font-mono text-[11px] tabular-nums text-[color:var(--text-subtle)]">
+              {item.displayId}
+            </span>
+          ) : null}
+          {leafType ? (
+            <Tooltip content={TYPE_LABEL[leafType]} placement="top">
+              <BacklogTypeGlyph
+                type={leafType}
+                label={TYPE_LABEL[leafType]}
+                className="icon-xs text-[color:var(--text-disabled)]"
+              />
+            </Tooltip>
+          ) : null}
           <TruncatedText
             as="span"
             text={item.title}

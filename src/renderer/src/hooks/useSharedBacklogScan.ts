@@ -8,6 +8,7 @@ import {
   type BacklogScanResult,
 } from '../utils/backlog'
 import { hydrateBacklogScanResult } from '../utils/backlogObjects'
+import { formatBacklogDisplayId } from '../../../shared/backlog/item-id'
 import { normalizeProjectRootKey } from '../utils/projectKnowledge'
 import type { BacklogItemRecordInput } from '../../../shared/electron-api'
 
@@ -92,10 +93,40 @@ async function defaultBacklogScanRunner(folderPath: string): Promise<BacklogScan
       metadataError = error instanceof Error ? error.message : String(error)
       return null
     })
-  if (ensured?.ok) return hydrateBacklogScanResult(scanned, ensured.store)
-  if (ensured && !ensured.ok) return mergeMetadataError(scanned, ensured.message)
-  if (metadataError) return mergeMetadataError(scanned, metadataError)
-  return scanned
+  let result: BacklogScanResult
+  if (ensured?.ok) result = hydrateBacklogScanResult(scanned, ensured.store)
+  else if (ensured && !ensured.ok) result = mergeMetadataError(scanned, ensured.message)
+  else if (metadataError) result = mergeMetadataError(scanned, metadataError)
+  else result = scanned
+  return allocateBacklogItemIds(folderPath, result)
+}
+
+// Scan-time id allocation (the single allocation authority): hand every scanned
+// item with its current frontmatter id to the main process, which mints the next
+// sequential id for any without one and writes it to frontmatter. We merge the
+// freshly minted ids back onto the items so the panel shows `KEY-n` immediately,
+// without waiting for the watcher re-scan the frontmatter write triggers. A
+// failure is non-fatal — the next scan retries — so the backlog stays usable.
+async function allocateBacklogItemIds(folderPath: string, result: BacklogScanResult): Promise<BacklogScanResult> {
+  if (result.items.length === 0) return result
+  const allocated = await window.api
+    .ensureBacklogItemIds({
+      workspaceRoot: folderPath,
+      items: result.items.map((item) => ({ relativePath: item.relativePath, numericId: item.numericId ?? null })),
+    })
+    .catch(() => null)
+  if (!allocated?.ok) return result
+  const { key, assignments } = allocated
+  // Compose the display id for every item that has (or just gained) a numeric id,
+  // using the workspace key returned alongside the assignments. Items still
+  // awaiting an id (none assignable) are left untouched.
+  const items = result.items.map((item) => {
+    const minted = assignments?.[item.relativePath]
+    const numericId = typeof minted === 'number' ? minted : item.numericId
+    if (typeof numericId !== 'number') return item
+    return { ...item, numericId, displayId: formatBacklogDisplayId({ key, numericId }) }
+  })
+  return { ...result, items } as BacklogScanResult
 }
 
 let scanRunner: BacklogScanRunner = defaultBacklogScanRunner

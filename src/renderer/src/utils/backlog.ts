@@ -1,5 +1,6 @@
 import type { BacklogHighlightColorPayload, FileSystemStat } from '../../../shared/electron-api'
 import { parseBacklogCsvList, parseBacklogFrontmatter } from '../../../shared/backlog/frontmatter'
+import { parseBacklogNumericId } from '../../../shared/backlog/item-id'
 import type { HighlightColor, SprintEngineSourcePlanKind } from '../types/workspace'
 import {
   inferSourcePlanKind,
@@ -102,6 +103,17 @@ export type BacklogItem = {
   title: string
   kind: BacklogItemKind
   status: BacklogItemStatus
+  // Stable workspace-global identity from the frontmatter `id:` integer, allocated
+  // once and never changed (across re-type/rename/re-triage). The human-facing
+  // `<KEY>-<number>` display id is composed at render time from this plus the
+  // workspace key (see src/shared/backlog/item-id.ts). Undefined until the scan-
+  // time allocation pass assigns one (ensureBacklogItemIds).
+  numericId?: number
+  // The human-facing identifier (`MC-240`), composed from numericId + the
+  // workspace key by the scan-time allocation pass. Undefined when the item has
+  // no numeric id yet, or on surfaces that scan without the key (e.g. the
+  // new-workspace source picker). Display-only — never a stored field.
+  displayId?: string
   type?: BacklogType
   // The literal frontmatter `type:` value, preserved even when it is not a known
   // BacklogType (OKF unknown-type tolerance). Equal to `type` for known values;
@@ -294,6 +306,7 @@ export function createBacklogItem(input: {
   const inferredKind = inferBacklogKind(relativePath, body)
   const archived = isArchivedBacklogPath(relativePath)
   const frontmatterStatus = parseBacklogStatus(frontmatterValue(fields, 'status'))
+  const numericId = parseBacklogNumericId(frontmatterValue(fields, 'id'))
   const rawType = frontmatterValue(fields, 'type', 'itemType', 'item_type', 'backlogType', 'backlog_type')
   const frontmatterType = parseBacklogType(rawType)
   const frontmatterDifficulty = parseBacklogDifficulty(frontmatterValue(fields, 'difficulty', 'size'))
@@ -315,6 +328,7 @@ export function createBacklogItem(input: {
     title,
     kind: frontmatterKind ?? inferredKind,
     status: archived ? 'archived' : frontmatterStatus ?? defaultBacklogStatus(),
+    numericId,
     type,
     rawType,
     difficulty: frontmatterDifficulty,

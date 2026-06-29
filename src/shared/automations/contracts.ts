@@ -150,6 +150,12 @@ export type AutomationRun = {
   branch?: string
   /** Pull request opened for the run's branch on completion, when available. */
   pullRequestUrl?: string
+  /**
+   * Report files the run produced, project-relative and contained under
+   * `reports/` (validated via {@link normalizeReportPath}). Absent on historical
+   * runs; the renderer falls back to scanning {@link summary} for those.
+   */
+  reportPaths?: string[]
 }
 
 export type AutomationDefinitionDraft = {
@@ -187,6 +193,7 @@ export type AutomationsRunFinalizeInput = AutomationsDefinitionInput & {
   runId: string
   outcome: 'completed' | 'failed'
   summary?: string
+  reports?: string[]
 }
 
 export type AutomationsProviderView = {
@@ -223,6 +230,33 @@ export type AutomationsEngineStatus = {
 export type AutomationsResult<T> =
   | { ok: true; value: T }
   | { ok: false; code: string; message: string }
+
+/**
+ * Containment guard for automation report paths. Reports are addressed relative
+ * to the project root and must live under the fixed `reports/` directory.
+ *
+ * Returns the normalized project-relative path (forward slashes, no `.`/empty
+ * segments) when `rawPath` is project-relative and stays under `reports/`, or
+ * `null` for anything absolute, containing a `..` segment, or resolving outside
+ * `reports/`. The single source of truth shared by the engine finalize guard
+ * (main) and the renderer report extraction so neither forks divergent rules.
+ */
+export function normalizeReportPath(rawPath: string): string | null {
+  if (typeof rawPath !== 'string') return null
+  const trimmed = rawPath.trim()
+  if (trimmed.length === 0) return null
+  // Reject absolute paths: POSIX (/…), Windows drive (C:\…), and UNC (\\…).
+  if (/^(?:\/|\\|[A-Za-z]:)/.test(trimmed)) return null
+  const normalized: string[] = []
+  for (const segment of trimmed.replace(/\\/g, '/').split('/')) {
+    if (segment === '' || segment === '.') continue
+    if (segment === '..') return null
+    normalized.push(segment)
+  }
+  // Must address a file under reports/, i.e. at least `reports/<name>`.
+  if (normalized.length < 2 || normalized[0] !== 'reports') return null
+  return normalized.join('/')
+}
 
 export type AutomationsListResult = AutomationsResult<AutomationDefinition[]>
 export type AutomationsDefinitionResult = AutomationsResult<AutomationDefinition>

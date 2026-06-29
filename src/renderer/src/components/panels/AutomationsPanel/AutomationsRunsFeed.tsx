@@ -18,7 +18,7 @@ import {
 // project, newest first. The investigation surface for "what has the engine been
 // doing", complementing the per-definition timeline in the detail pane.
 export function AutomationsRunsFeed({
-  feedRuns, state, error, partialCount, now, onReload, onOpenAgent, onOpenDefinition, onFinalize,
+  feedRuns, state, error, partialCount, now, onReload, onOpenAgent, onViewReport, onOpenDefinition, onFinalize,
 }: {
   feedRuns: AutomationFeedRun[]
   state: AsyncState
@@ -27,6 +27,8 @@ export function AutomationsRunsFeed({
   now: number
   onReload: () => void
   onOpenAgent: (workspaceId: string, agentId?: string) => void
+  /** Open a run's report in the in-app viewer. */
+  onViewReport: (run: AutomationFeedRun['run']) => void
   /** Drill into a run's owning definition: open the Definitions view, select it,
    *  and focus the run in its detail timeline. */
   onOpenDefinition: (automationId: string, runId: string) => void
@@ -87,6 +89,7 @@ export function AutomationsRunsFeed({
               entry={entry}
               now={now}
               onOpenAgent={onOpenAgent}
+              onViewReport={onViewReport}
               onOpenDefinition={onOpenDefinition}
               onFinalize={(run, outcome) => void finalize(entry.definitionId, run.id, outcome)}
               finalizing={finalizingRunId === entry.run.id}
@@ -99,11 +102,12 @@ export function AutomationsRunsFeed({
 }
 
 function FeedRow({
-  entry, now, onOpenAgent, onOpenDefinition, onFinalize, finalizing,
+  entry, now, onOpenAgent, onViewReport, onOpenDefinition, onFinalize, finalizing,
 }: {
   entry: AutomationFeedRun
   now: number
   onOpenAgent: (workspaceId: string, agentId?: string) => void
+  onViewReport: (run: AutomationFeedRun['run']) => void
   onOpenDefinition: (automationId: string, runId: string) => void
   onFinalize: (run: AutomationFeedRun['run'], outcome: 'completed' | 'failed') => void
   finalizing: boolean
@@ -155,7 +159,7 @@ function FeedRow({
         {run.blockedReason ? (
           <p className="mt-0.5 text-[11px] leading-4 text-[color:var(--tone-warn)]">{run.blockedReason}</p>
         ) : null}
-        <AutomationRunActions run={run} onOpenAgent={onOpenAgent} onFinalize={onFinalize} finalizing={finalizing} />
+        <AutomationRunActions run={run} onOpenAgent={onOpenAgent} onViewReport={onViewReport} onFinalize={onFinalize} finalizing={finalizing} />
       </div>
     </li>
   )

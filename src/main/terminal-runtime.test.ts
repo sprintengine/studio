@@ -1336,6 +1336,23 @@ async function assertIngestAgentStateFrameUpdatesSession(runtimeModule: RuntimeM
     snap = snapshotFor('sess-ingest')
     assert.equal(snap?.agentState?.phase, 'thinking', 'unknown-agent frame must not touch other sessions')
 
+    // The CLI/harness session id the hook reports is captured onto the session
+    // (distinct from our terminal id) so resume can target the conversation.
+    // Routing is by the per-terminal agent id, so concurrent spawns can't
+    // cross-assign it. (Frame ts must lead the prior applied frame.)
+    assert.equal(snap?.cliSessionId, undefined, 'no cli session id before any hook reports one')
+    runtime.ingestAgentStateFrame({
+      type: 'agent_state',
+      agentId: 'agent-ingest',
+      workspaceId: 'ws-ingest',
+      sessionId: 'codex-conv-abc123',
+      phase: 'thinking',
+      event: null,
+      ts: 4000,
+    })
+    snap = snapshotFor('sess-ingest')
+    assert.equal(snap?.cliSessionId, 'codex-conv-abc123', 'hook session_id is captured for resume')
+
     // On a real process exit the hook phase is cleared, so a stale working /
     // awaiting_input phase cannot outlive the pty and keep the attention glyph
     // lit. The snapshot then infers `exited` from the exit activity (source

@@ -221,7 +221,7 @@ function testCodexManifestProducesExpectedArgv(): void {
     },
     resume: {
       supported: true,
-      argv: ['{{binary}}', { spreadIf: 'permissionArgs' }, 'resume'],
+      argv: ['{{binary}}', { spreadIf: 'permissionArgs' }, 'resume', { valueIf: 'sessionId', value: '{{sessionId}}' }],
     },
     promptInjection: { mode: 'positional-arg' },
     completion: { mode: 'process-exit' },
@@ -246,8 +246,14 @@ function testCodexManifestProducesExpectedArgv(): void {
     'fix the parser bug',
   ])
 
-  const resumed = renderPluginResume(codex, { permissionPreset: 'default' })
-  assert.deepEqual(resumed?.argv, ['codex', 'resume'])
+  // Targeted resume: when the harness session id is known it is appended, so
+  // Codex reattaches that specific conversation (`codex resume <id>`).
+  const resumedTargeted = renderPluginResume(codex, { permissionPreset: 'default', sessionId: 'codex-conv-xyz' })
+  assert.deepEqual(resumedTargeted?.argv, ['codex', 'resume', 'codex-conv-xyz'])
+
+  // Bare fallback: no id known yet → plain `codex resume` (Codex's last session).
+  const resumedBare = renderPluginResume(codex, { permissionPreset: 'default' })
+  assert.deepEqual(resumedBare?.argv, ['codex', 'resume'])
 }
 
 function testFilesSpreadEmpty(): void {

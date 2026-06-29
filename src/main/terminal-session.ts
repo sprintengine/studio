@@ -82,6 +82,11 @@ export type TerminalSession = {
   workspaceId?: string
   agentId?: string
   terminalId?: string
+  // The agent's own session id within its CLI/harness, captured from lifecycle
+  // hooks. Distinct from `sessionId` (our terminal-tracking id): this is the id
+  // the CLI uses to resume the conversation. For Claude it equals our minted
+  // id; Codex and others mint their own, learned via the hook after launch.
+  cliSessionId?: string
   cli?: AgentCli
   cwd?: string
   sprintEngineStatePath?: string
@@ -361,6 +366,7 @@ export function getTerminalSnapshot(session: TerminalSession): TerminalSessionSn
     workspaceId: session.workspaceId,
     agentId: session.agentId,
     terminalId: session.terminalId,
+    cliSessionId: session.cliSessionId,
     cli: session.cli,
     cwd: session.cwd,
     sprintEngineStatePath: session.sprintEngineStatePath,

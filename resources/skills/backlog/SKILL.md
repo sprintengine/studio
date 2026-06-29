@@ -67,6 +67,7 @@ may expose `/backlog`, while Codex uses explicit skill mention such as
 
 All lifecycle and triage fields are flat top-level frontmatter scalars; every axis is optional — leave one unset rather than guessing:
 
+- `id`: a stable, workspace-global integer that is the item's durable identity — allocated once and **never changed** (not across re-type, rename, or re-triage). It is shown in the app as `<KEY>-<id>` (e.g. `MC-240`), where `KEY` is the per-workspace display key in `.multi-code/backlog/config.json`; cite items by that display id. The app assigns ids automatically on scan, so a new item you author may omit `id` and get one on the next open; if you need to cite one immediately, allocate the next integer above the current max — `grep -hoE '^id: *[0-9]+' backlog/**/*.md backlog/*.md | grep -oE '[0-9]+' | sort -n | tail -1` — and write `id: <that+1>`. Never reuse or renumber an existing id.
 - `type`: `epic`, `feature`, `bug`, `mockup`, or `spike` (a time-boxed investigation/decision item — the deliverable is a recommendation, not shipped behaviour). `epic` marks a grouping container; see Epics below. An unknown `type:` value is preserved as written and treated as a leaf item, never coerced.
 - `difficulty`: t-shirt size `xs`, `s`, `m`, `l`, or `xl` (effort to build).
 - `criticality`: `low`, `normal`, `high`, or `critical` (impact if missing).
