@@ -41,6 +41,7 @@ async function run(): Promise<void> {
   const service = createAgentStateService({
     resolveUserDataDir: () => userDataDir,
     resolveReporterScriptPath: () => null,
+    resolveOpencodeReporterScriptPath: () => null,
     onFrame: (frame) => received.push(frame),
     now: () => 4242,
   })
@@ -74,12 +75,20 @@ async function run(): Promise<void> {
   const reporterSrc = join(workspaceRoot, 'reporter-src.mjs')
   await writeFile(reporterSrc, '// reporter\n', 'utf8')
 
+  const opencodeReporterSrc = join(workspaceRoot, 'opencode-reporter-src.mjs')
+  await writeFile(opencodeReporterSrc, "const BAKED = '__MULTICODE_AGENT_STATE_SOCKET__'\n", 'utf8')
+
   let resolveCalls = 0
+  let opencodeResolveCalls = 0
   const installSvc = createAgentStateService({
     resolveUserDataDir: () => userDataDir,
     resolveReporterScriptPath: () => {
       resolveCalls += 1
       return reporterSrc
+    },
+    resolveOpencodeReporterScriptPath: () => {
+      opencodeResolveCalls += 1
+      return opencodeReporterSrc
     },
     onFrame: () => {},
   })
@@ -112,14 +121,29 @@ async function run(): Promise<void> {
   await installSvc.installForWorkspace(workspaceRoot, 'codex')
   assert.equal(resolveCalls, 2)
 
+  // OpenCode in the SAME workspace uses the separate opencode reporter resolver
+  // and writes an in-process plugin (.js) with the live socket baked in — not the
+  // claude/codex stdin reporter.
+  await installSvc.installForWorkspace(workspaceRoot, 'opencode')
+  assert.equal(opencodeResolveCalls, 1)
+  assert.equal(resolveCalls, 2, 'opencode must not consume the claude/codex reporter resolver')
+  const opencodePlugin = await readFile(join(workspaceRoot, '.opencode', 'plugin', 'multicode-agent-state.js'), 'utf8')
+  assert.ok(opencodePlugin.includes(JSON.stringify(installSvc.getSocketPath())), 'opencode plugin missing baked socket path')
+  assert.ok(!opencodePlugin.includes("'__MULTICODE_AGENT_STATE_SOCKET__'"), 'opencode socket token left unsubstituted')
+  // …and is install-once.
+  await installSvc.installForWorkspace(workspaceRoot, 'opencode')
+  assert.equal(opencodeResolveCalls, 1)
+
   // --- missing reporter script: safe no-op, never throws -----------------
   const noScriptWs = await mkdtemp(join(tmpdir(), 'multicode-agent-state-noscript-'))
   const noScriptSvc = createAgentStateService({
     resolveUserDataDir: () => userDataDir,
     resolveReporterScriptPath: () => null,
+    resolveOpencodeReporterScriptPath: () => null,
     onFrame: () => {},
   })
   await noScriptSvc.installForWorkspace(noScriptWs, 'claude-code') // must not throw
+  await noScriptSvc.installForWorkspace(noScriptWs, 'opencode') // must not throw
 
   console.log('agent-state-service.test.ts: all assertions passed')
 }

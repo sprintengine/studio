@@ -4,7 +4,12 @@ import { createServer, type Server, type Socket } from 'net'
 import { tmpdir } from 'os'
 import { join } from 'path'
 import type { AgentStateFrame } from './agent-state'
-import { installAgentStateHook, installCodexAgentStateHook, parseAgentStateFrame } from './agent-state'
+import {
+  installAgentStateHook,
+  installCodexAgentStateHook,
+  installOpencodeAgentStateHook,
+  parseAgentStateFrame,
+} from './agent-state'
 
 // =============================================================================
 // Agent-state service — the Electron-bound half of authoritative agent state.
@@ -33,7 +38,11 @@ export type AgentStateServiceOptions = {
   resolveUserDataDir: () => string
   // Resolves the bundled reporter script to copy into a workspace. Returns null
   // when the script is missing from the build (install then no-ops, safely).
+  // Used for Claude Code and Codex, which share one stdin-filter reporter.
   resolveReporterScriptPath: () => string | null
+  // OpenCode uses a different reporter (an in-process plugin, not a stdin
+  // filter), so it resolves its own bundled template. Returns null when missing.
+  resolveOpencodeReporterScriptPath: () => string | null
   onFrame: (frame: AgentStateFrame) => void
   logDiagnostic?: (diagnostic: { level: 'warning'; title: string; message: string; details?: string }) => void
   now?: () => number
@@ -163,9 +172,10 @@ export function createAgentStateService(options: AgentStateServiceOptions) {
 
   // Install the reporter into a workspace before an agent launches, dispatching
   // by CLI: Claude Code writes JSON into .claude/settings.local.json, Codex
-  // writes a TOML managed block into .codex/config.toml. Serialized + run once
-  // per (cli, workspace) per app run, and strictly best-effort: a failure is
-  // logged and swallowed so it can never block or break the launch that awaits it.
+  // writes a TOML managed block into .codex/config.toml, OpenCode writes an
+  // in-process plugin into .opencode/plugin/. Serialized + run once per (cli,
+  // workspace) per app run, and strictly best-effort: a failure is logged and
+  // swallowed so it can never block or break the launch that awaits it.
   async function installForWorkspace(workspaceRoot: string, cli: string): Promise<void> {
     const root = workspaceRoot.trim()
     if (!root) return
@@ -175,12 +185,19 @@ export function createAgentStateService(options: AgentStateServiceOptions) {
     const prior = installChains.get(key) ?? Promise.resolve()
     const next = prior.then(async () => {
       if (installed.has(key)) return
-      const sourceScriptPath = options.resolveReporterScriptPath()
+      const isOpencode = cli === 'opencode'
+      const sourceScriptPath = isOpencode
+        ? options.resolveOpencodeReporterScriptPath()
+        : options.resolveReporterScriptPath()
       if (!sourceScriptPath) {
         warn('Agent-state reporter missing', 'Reporter script not found in this build; agent state falls back to inference.')
         return
       }
-      const install = cli === 'codex' ? installCodexAgentStateHook : installAgentStateHook
+      const install = isOpencode
+        ? installOpencodeAgentStateHook
+        : cli === 'codex'
+          ? installCodexAgentStateHook
+          : installAgentStateHook
       const result = await install(workspaceRoot, {
         sourceScriptPath,
         socketPath: getSocketPath(),

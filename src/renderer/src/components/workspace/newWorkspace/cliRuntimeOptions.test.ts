@@ -62,7 +62,7 @@ assert.deepEqual(
   [
     { value: 'codex', label: 'Codex' },
     { value: 'claude-code', label: 'Claude Code' },
-    { value: 'opencode', label: 'Opencode' },
+    { value: 'opencode', label: 'OpenCode' },
   ],
   'missing registry data falls back to canonical bundled plugins plus configured overrides',
 )
@@ -75,6 +75,7 @@ assert.ok(
 assert.deepEqual(buildCliRuntimeOptions(undefined).map(({ value, label }) => ({ value, label })), [
   { value: 'codex', label: 'Codex' },
   { value: 'claude-code', label: 'Claude Code' },
+  { value: 'opencode', label: 'OpenCode' },
 ])
 assert.deepEqual(buildAgentCliCatalog([]), [], 'loaded empty registry does not invent fallback entries')
 
@@ -111,7 +112,7 @@ assert.deepEqual(
   [
     { value: 'codex', label: 'Codex' },
     { value: 'claude-code', label: 'Claude Code' },
-    { value: 'opencode', label: 'Opencode' },
+    { value: 'opencode', label: 'OpenCode' },
   ],
   'loading status ignores registry entries and falls back to canonical bundled plugins + configured runtimes',
 )
@@ -120,6 +121,7 @@ assert.deepEqual(
   [
     { value: 'codex', label: 'Codex' },
     { value: 'claude-code', label: 'Claude Code' },
+    { value: 'opencode', label: 'OpenCode' },
   ],
   'registry error falls back to canonical bundled plugin options',
 )
@@ -134,13 +136,13 @@ assert.deepEqual(
 assert.deepEqual(
   selectAgentCliCatalog('loading', plugins, { 'generic-shell': { command: 'sh', useWsl: false } })
     .map((option) => option.value),
-  ['codex', 'claude-code'],
+  ['codex', 'claude-code', 'opencode'],
   'loading fallback drops a configured generic-shell runtime key (hidden id)',
 )
 assert.deepEqual(
   selectAgentCliCatalog('error', null, { 'generic-shell': { command: 'sh', useWsl: false } })
     .map((option) => option.value),
-  ['codex', 'claude-code'],
+  ['codex', 'claude-code', 'opencode'],
   'error fallback drops a configured generic-shell runtime key (hidden id)',
 )
 assert.equal(
@@ -220,11 +222,14 @@ const modelPlugins: PluginCatalogEntry[] = [
       allowCustomId: true,
     },
   },
-  { id: 'opencode', displayName: 'OpenCode', source: 'user', version: 1, binary: 'opencode' },
+  // `aider` is an unbundled id with no manifest modelSelection and no bundled
+  // fallback catalog — the clean "no model UI anywhere" case. (opencode is no
+  // longer usable here: it is now a canonical bundled CLI with its own catalog.)
+  { id: 'aider', displayName: 'Aider', source: 'user', version: 1, binary: 'aider' },
 ]
 const modelCatalog = buildAgentCliCatalog(modelPlugins, {
   'claude-code': { command: '', useWsl: false, models: [' opus ', 'haiku', 'haiku'] },
-  opencode: { command: '', useWsl: false, models: ['some/model'] },
+  aider: { command: '', useWsl: false, models: ['some/model'] },
 })
 assert.deepEqual(
   modelCatalog.find((option) => option.value === 'claude-code')?.modelSelection,
@@ -235,7 +240,7 @@ assert.deepEqual(
   'user-added model ids merge after manifest seeds, trimmed and deduped',
 )
 assert.equal(
-  modelCatalog.find((option) => option.value === 'opencode')?.modelSelection,
+  modelCatalog.find((option) => option.value === 'aider')?.modelSelection,
   undefined,
   'user models without a declared modelSelection never surface model UI',
 )

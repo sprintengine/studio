@@ -165,11 +165,14 @@ let callManagedSprintEngineTool: TerminalRuntimeOptions['callManagedSprintEngine
 let ensureBuiltinSkillInstalled: TerminalRuntimeOptions['ensureBuiltinSkillInstalled']
 let prepareAgentStateHook: TerminalRuntimeOptions['prepareAgentStateHook']
 
-// CLIs whose lifecycle hooks the agent-state reporter can install into. Both
-// emit the same hook payload (hook_event_name/session_id); only the install
-// target differs (handled in the service).
+// CLIs the agent-state reporter can install into. Claude Code and Codex share a
+// stdin-filter reporter (same hook_event_name/session_id payload; only the
+// install target differs). OpenCode has no command hooks, so it gets an
+// in-process plugin reporter instead — it still emits the same socket frame, so
+// runtime ingestion is identical. All install differences are handled in the
+// service.
 function agentStateSupportsCli(cli: string | undefined): cli is string {
-  return cli === 'claude-code' || cli === 'codex'
+  return cli === 'claude-code' || cli === 'codex' || cli === 'opencode'
 }
 
 // True when the CLI resumes using the session id WE mint and pass at launch

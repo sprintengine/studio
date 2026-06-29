@@ -66,11 +66,16 @@ const BUNDLED_AGENT_MODEL_CATALOGS: Record<AgentCli, PluginModelCatalog> = {
     options: [],
     allowCustomId: true,
   },
+  opencode: {
+    options: [],
+    allowCustomId: true,
+  },
 }
 
 function labelForCliRuntime(cli: AgentCli): string {
   if (cli === 'codex') return 'Codex'
   if (cli === 'claude-code') return 'Claude Code'
+  if (cli === 'opencode') return 'OpenCode'
   return cli
     .split(/[-_\s]+/u)
     .filter(Boolean)
@@ -83,7 +88,7 @@ function legacyCliRuntimeOptions(
 ): AgentCliCatalogOption[] {
   const seen = new Set<AgentCli>()
   const orderedIds: AgentCli[] = []
-  for (const id of ['codex', CLAUDE_CODE_PLUGIN_ID, ...Object.keys(cliRuntimes ?? {})]) {
+  for (const id of ['codex', CLAUDE_CODE_PLUGIN_ID, 'opencode', ...Object.keys(cliRuntimes ?? {})]) {
     const trimmed = id.trim()
     const canonical = pluginRegistryIdForCli(trimmed)
     if (!canonical || seen.has(canonical) || AGENT_PICKER_HIDDEN_CLI_IDS.has(canonical)) continue

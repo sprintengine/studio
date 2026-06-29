@@ -60,7 +60,7 @@ async function testBundledManifestsLoad(): Promise<void> {
   )
 
   const ids = registry.list().map((p) => p.id).sort()
-  assert.deepEqual(ids, ['claude-code', 'codex', 'generic-shell'])
+  assert.deepEqual(ids, ['claude-code', 'codex', 'generic-shell', 'opencode'])
   assert.equal(
     registry.listConversationProviders().some((provider) => provider.id === 'openrouter'),
     true

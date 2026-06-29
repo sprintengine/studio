@@ -587,3 +587,119 @@ export async function uninstallCodexAgentStateHook(
     }
   }
 }
+
+// =============================================================================
+// OpenCode install path (Phase 3)
+//
+// OpenCode has no command-hook mechanism like Claude/Codex (no per-event command
+// fed a JSON stdin payload). Instead it auto-loads in-process JS plugins from
+// .opencode/plugin/ and exposes a typed event stream. So the OpenCode reporter is
+// a *plugin* (resources/hooks/opencode-agent-state.mjs) that maps OpenCode events
+// to the same AgentPhase vocabulary and writes the same socket frame — the
+// runtime ingestion is unchanged. A plugin can't take a --socket arg, so the live
+// socket path is baked into the plugin file at install time (token substitution);
+// the plugin also honours MULTICODE_AGENT_STATE_SOCKET as a fallback.
+//
+// The dest extension is .js, not .mjs: OpenCode's loader picks up .js/.ts from
+// .opencode/plugin but not .mjs (verified against opencode v1.17.11). The bundled
+// template ships as .mjs (the packaging filter is **/*.mjs) and is rewritten to
+// .js on install, so source and dest extensions intentionally differ.
+// =============================================================================
+
+export const OPENCODE_PLUGIN_REL = join('.opencode', 'plugin', 'multicode-agent-state.js')
+
+// The quoted token in the plugin template that install replaces with the live
+// socket path. Replacing the WHOLE quoted literal with JSON.stringify(path) keeps
+// the value valid even for a Windows pipe path full of backslashes (splicing a
+// bare string back inside the quotes would let those backslashes act as JS
+// escapes and corrupt the path).
+const OPENCODE_SOCKET_PLACEHOLDER = "'__MULTICODE_AGENT_STATE_SOCKET__'"
+
+// OpenCode's lifecycle events differ from Claude/Codex; map them to the same
+// AgentPhase vocabulary. The plugin reporter MUST mirror this.
+//   - `message.updated` is the working signal — OpenCode has no discrete
+//     thinking-start event; an updating message means the model is producing.
+//   - `permission.replied → thinking` is load-bearing: it's the only signal that
+//     clears awaiting_input mid-turn after the user answers a prompt (the analog
+//     of Claude's PostToolUse → thinking).
+//   - No event maps to `exited`: a real process exit is owned authoritatively by
+//     the pty exit listener (same as Codex).
+export function mapOpencodeEventToPhase(type: string): AgentPhase | null {
+  switch (type) {
+    case 'session.created':
+      return 'starting'
+    case 'message.updated':
+      return 'thinking'
+    case 'permission.updated':
+      return 'awaiting_input'
+    case 'permission.replied':
+      return 'thinking'
+    case 'session.idle':
+    case 'session.error':
+      return 'idle'
+    default:
+      return null
+  }
+}
+
+// Extract the OpenCode session id from an event payload. Events carry it
+// differently: most as `properties.sessionID`; session.* lifecycle events as
+// `properties.info.id` (a Session); message.updated as `properties.info.sessionID`
+// (a Message). The plugin reporter MUST mirror this. The id is optional for the
+// runtime (frames resolve by agentId), so an unknown shape returns null safely.
+export function opencodeSessionIdFromEvent(event: unknown): string | null {
+  if (!isRecord(event)) return null
+  const props = event.properties
+  if (!isRecord(props)) return null
+  if (typeof props.sessionID === 'string' && props.sessionID) return props.sessionID
+  const info = props.info
+  if (isRecord(info)) {
+    if (typeof info.sessionID === 'string' && info.sessionID) return info.sessionID
+    if (typeof info.id === 'string' && info.id) return info.id
+  }
+  return null
+}
+
+export function renderOpencodeAgentStatePlugin(template: string, socketPath: string): string {
+  return template.split(OPENCODE_SOCKET_PLACEHOLDER).join(JSON.stringify(socketPath))
+}
+
+export async function installOpencodeAgentStateHook(
+  workspaceRoot: string,
+  options: { sourceScriptPath: string; socketPath: string }
+): Promise<AgentStateInstallResult> {
+  if (!workspaceRoot?.trim()) return { ok: false, message: 'Workspace root is required.' }
+  if (!options.socketPath?.trim()) return { ok: false, message: 'Agent-state socket path is required.' }
+  if (!options.sourceScriptPath || !existsSync(options.sourceScriptPath)) {
+    return { ok: false, message: 'Agent-state reporter script is missing from this build.' }
+  }
+
+  try {
+    const destScript = resolve(workspaceRoot, OPENCODE_PLUGIN_REL)
+    await mkdir(resolve(destScript, '..'), { recursive: true })
+    const template = await readFile(options.sourceScriptPath, 'utf8')
+    await writeFile(destScript, renderOpencodeAgentStatePlugin(template, options.socketPath), 'utf8')
+    return { ok: true, settingsPath: destScript, hookScriptPath: destScript }
+  } catch (error) {
+    return {
+      ok: false,
+      message: error instanceof Error ? error.message : 'Failed to install OpenCode agent-state hook.',
+    }
+  }
+}
+
+export async function uninstallOpencodeAgentStateHook(
+  workspaceRoot: string
+): Promise<{ ok: true } | { ok: false; message: string }> {
+  if (!workspaceRoot?.trim()) return { ok: false, message: 'Workspace root is required.' }
+  try {
+    const destScript = resolve(workspaceRoot, OPENCODE_PLUGIN_REL)
+    if (existsSync(destScript)) await rm(destScript, { force: true })
+    return { ok: true }
+  } catch (error) {
+    return {
+      ok: false,
+      message: error instanceof Error ? error.message : 'Failed to uninstall OpenCode agent-state hook.',
+    }
+  }
+}

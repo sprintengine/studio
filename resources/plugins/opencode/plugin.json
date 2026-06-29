@@ -1,0 +1,163 @@
+{
+  "id": "opencode",
+  "displayName": "OpenCode",
+  "publisher": "sst",
+  "version": 1,
+  "binary": "opencode",
+  "permissionPresets": {
+    "default": {
+      "label": "Default (OpenCode prompts for permissions)",
+      "args": []
+    },
+    "bypass_all": {
+      "label": "Bypass all approvals (dangerous)",
+      "args": ["--dangerously-skip-permissions"]
+    }
+  },
+  "modelSelection": {
+    "args": ["--model", "{{model}}"],
+    "options": [],
+    "allowCustomId": true
+  },
+  "launch": {
+    "argv": [
+      "{{binary}}",
+      "run",
+      { "spreadIf": "permissionArgs" },
+      { "spreadIf": "modelArgs" },
+      { "valueIf": "prompt", "value": "{{prompt}}" }
+    ]
+  },
+  "resume": {
+    "supported": true,
+    "argv": [
+      "{{binary}}",
+      "run",
+      { "spreadIf": "permissionArgs" },
+      { "spreadIf": "modelArgs" },
+      "--continue",
+      { "valueIf": "sessionId", "value": "--session" },
+      { "valueIf": "sessionId", "value": "{{sessionId}}" },
+      { "valueIf": "prompt", "value": "{{prompt}}" }
+    ]
+  },
+  "promptInjection": {
+    "mode": "positional-arg"
+  },
+  "completion": {
+    "mode": "process-exit"
+  },
+  "mcpConfig": {
+    "path": "{{workspaceRoot}}/opencode.json",
+    "userPath": "{{home}}/.config/opencode/opencode.json",
+    "format": "opencode"
+  },
+  "skillIntegration": {
+    "support": "native",
+    "harnessId": "opencode",
+    "installTargets": [
+      {
+        "scope": "workspace",
+        "path": "{{workspaceRoot}}/.opencode/skills/{{skillId}}",
+        "format": "opencode",
+        "restartRequired": true
+      }
+    ],
+    "invocation": {
+      "fileDropTemplate": "Use the {{skillId}} skill to work {{path}}.",
+      "explicitTemplate": "Use the {{skillId}} skill.",
+      "explicitMention": true,
+      "implicitInvocation": true
+    }
+  },
+  "detect": {
+    "versionArgs": ["--version"]
+  },
+  "install": {
+    "darwin": [
+      {
+        "id": "brew",
+        "label": "Homebrew (recommended)",
+        "shell": "brew install opencode",
+        "recommended": true,
+        "requires": "brew"
+      },
+      {
+        "id": "npm",
+        "label": "npm (requires Node.js)",
+        "shell": "npm install -g opencode-ai",
+        "requires": "npm"
+      },
+      {
+        "id": "script",
+        "label": "Official install script",
+        "shell": "curl -fsSL https://opencode.ai/install | bash",
+        "requires": "curl"
+      }
+    ],
+    "linux": [
+      {
+        "id": "npm",
+        "label": "npm (requires Node.js)",
+        "shell": "npm install -g opencode-ai",
+        "recommended": true,
+        "requires": "npm"
+      },
+      {
+        "id": "script",
+        "label": "Official install script",
+        "shell": "curl -fsSL https://opencode.ai/install | bash",
+        "requires": "curl"
+      },
+      {
+        "id": "brew",
+        "label": "Homebrew",
+        "shell": "brew install opencode",
+        "requires": "brew"
+      }
+    ],
+    "wsl": [
+      {
+        "id": "npm",
+        "label": "npm in WSL (requires Node.js)",
+        "shell": "npm install -g opencode-ai",
+        "recommended": true,
+        "requires": "npm"
+      },
+      {
+        "id": "script",
+        "label": "Official install script in WSL",
+        "shell": "curl -fsSL https://opencode.ai/install | bash",
+        "requires": "curl"
+      }
+    ],
+    "win32": [
+      {
+        "id": "npm",
+        "label": "npm (requires Node.js)",
+        "shell": "npm install -g opencode-ai",
+        "recommended": true,
+        "requires": "npm"
+      },
+      {
+        "id": "scoop",
+        "label": "Scoop",
+        "shell": "scoop install opencode",
+        "requires": "scoop"
+      },
+      {
+        "id": "choco",
+        "label": "Chocolatey",
+        "shell": "choco install opencode",
+        "requires": "choco"
+      }
+    ]
+  },
+  "capabilities": {
+    "resumeSession": true,
+    "sessionIdFromCaller": false,
+    "toolUse": true,
+    "mcpServers": true,
+    "imageInput": true
+  }
+}
