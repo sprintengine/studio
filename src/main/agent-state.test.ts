@@ -106,6 +106,34 @@ async function run(): Promise<void> {
   assert.equal(parseAgentStateFrame('not-json-object', 1), null)
   assert.equal(parseAgentStateFrame(null, 1), null)
 
+  // --- future-dated ts is clamped to server arrival (phase-freeze bug) ----
+  // A reporter cannot legitimately be ahead of the main-process clock. Without
+  // the clamp a single far-future frame pins agentState.since in the future and
+  // terminal-runtime's stale-frame guard (since > frame.ts) then drops every
+  // later frame forever, future-dating the user-visible "working since".
+  {
+    const arrival = 1_000_000
+    const future = parseAgentStateFrame(
+      { type: 'agent_state', agentId: 'a1', phase: 'thinking', ts: arrival + 5_000_000 },
+      arrival
+    )
+    // ts is capped at `now`, never the future raw value.
+    assert.equal(future?.ts, arrival, 'future ts is clamped to now')
+    assert.ok(future!.ts <= arrival, 'clamped since is not future-dated')
+
+    // A normal frame arriving just after still parses, and terminal-runtime's
+    // drop guard (recorded since > frame.ts) does NOT drop it, because the
+    // future frame recorded since=arrival rather than the future raw value.
+    const normal = parseAgentStateFrame(
+      { type: 'agent_state', agentId: 'a1', phase: 'idle', ts: arrival + 1 },
+      arrival + 1
+    )
+    assert.ok(normal, 'normal frame parses')
+    const recordedSince = future!.ts
+    const droppedByStaleGuard = recordedSince > normal!.ts
+    assert.equal(droppedByStaleGuard, false, 'normal frame is not dropped after a future-dated frame')
+  }
+
   // --- frame → session resolution ----------------------------------------
   type Sess = { id: string; agentId?: string; executionId?: string; sessionId?: string; workspaceId?: string; startedAt: number }
   const cand = (s: Sess) => ({ value: s, agentId: s.agentId, executionId: s.executionId, sessionId: s.sessionId, workspaceId: s.workspaceId, startedAt: s.startedAt })

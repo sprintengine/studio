@@ -223,7 +223,12 @@ export function parseAgentStateFrame(raw: unknown, now: number): AgentStateFrame
   if (!agentId) return null
   const phase = raw.phase
   if (typeof phase !== 'string' || !VALID_PHASES.has(phase as AgentPhase)) return null
-  const ts = typeof raw.ts === 'number' && Number.isFinite(raw.ts) ? raw.ts : now
+  // Clamp to server arrival time: raw.ts is reporter-supplied and compared
+  // cross-clock against the main-process clock (terminal-runtime drops frames
+  // where since > frame.ts, and since is written from Date.now()). A far-future
+  // ts would pin the phase forever and future-date "working since"; a reporter
+  // cannot legitimately be ahead of now, so cap it.
+  const ts = typeof raw.ts === 'number' && Number.isFinite(raw.ts) ? Math.min(raw.ts, now) : now
   return {
     type: 'agent_state',
     agentId,
