@@ -108,6 +108,7 @@ const SORT_OPTIONS: { key: TerminalDiagnosticsSortKey; label: string }[] = [
 
 const REAP_REASON_LABEL: Record<TerminalReapEvent['reason'], string> = {
   'idle-suspend': 'idle suspend',
+  'idle-dispose': 'idle dispose',
   'stale-dispose': 'stale dispose',
 }
 

@@ -65,8 +65,10 @@ export function useRunPullRequestMergePoll(input: {
   }, [statePath, hasVcs, terminal, shouldPoll])
 }
 
-// The shared create/open action. Returns the busy flag and the last failure (a
-// hard IPC error; a `gh`/push failure surfaces through the refreshed `vcs`).
+// The shared create-and-open action: opens the pull request (push + `gh pr
+// create`), then opens the resulting PR in the browser so the user lands on it.
+// Returns the busy flag and the last failure (a hard IPC error; a `gh`/push
+// failure surfaces through the refreshed `vcs`).
 export function useRunPullRequestAction(input: { workspaceId: string; statePath: string | null }): {
   busy: boolean
   actionError: string | null
@@ -82,14 +84,27 @@ export function useRunPullRequestAction(input: { workspaceId: string; statePath:
     setActionError(null)
     try {
       const result = await window.api.createSprintEnginePullRequest(statePath)
-      if (!result.ok) setActionError(result.message ?? 'Opening the pull request failed.')
+      // Refresh first so the projection carries the new pullRequestUrl/status.
       await refresh()
+      if (!result.ok) {
+        setActionError(result.message ?? 'Opening the pull request failed.')
+        return
+      }
+      // Land the user on the PR they just created. The URL comes from the
+      // refreshed projection (authoritative); a push-succeeded-but-PR-failed run
+      // leaves it null and surfaces the reason through `vcs` instead. The header
+      // "View pull request" chip remains a fallback if the browser open fails.
+      const url =
+        useWorkspaceStore
+          .getState()
+          .workspaces.find((w) => w.id === workspaceId)?.sprintEngineState?.vcs?.pullRequestUrl ?? null
+      if (url) await window.api.openExternal(url)
     } catch (error) {
       setActionError(error instanceof Error ? error.message : String(error))
     } finally {
       setBusy(false)
     }
-  }, [statePath, busy, refresh])
+  }, [statePath, busy, refresh, workspaceId])
   return { busy, actionError, createPullRequest }
 }
 

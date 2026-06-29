@@ -991,10 +991,13 @@ export type WorkspaceMemorySample = {
 // One terminal the main-process reaper acted on, kept in a bounded ring buffer
 // so the diagnostics panel can show an audit trail of what was reaped and from
 // which workspace. `idle-suspend` is the memory-bounded sweep
-// (`runIdleAgentReapSweep`) suspending an idle agent outside the hot set;
-// `stale-dispose` is the 24h backstop (`reapStaleTerminals`). Both preserve the
-// agent's resume flags, so a reaped agent relaunches with `--resume` on reopen.
-export type TerminalReapReason = 'idle-suspend' | 'stale-dispose'
+// (`runIdleAgentReapSweep`) suspending an idle (non-sprint) agent outside the hot
+// set; `idle-dispose` is the same sweep DISPOSING an idle SprintEngine agent
+// (orchestrator-driven, so it leaves → revives via dispatch rather than freezing
+// the view); `stale-dispose` is the 24h backstop (`reapStaleTerminals`). The
+// suspend reasons preserve the agent's resume flags so it relaunches with
+// `--resume` on reopen.
+export type TerminalReapReason = 'idle-suspend' | 'idle-dispose' | 'stale-dispose'
 
 export type TerminalReapEvent = {
   reapedAt: number

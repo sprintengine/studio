@@ -124,6 +124,7 @@ async function main(): Promise<void> {
     await assertHiddenTerminalOutputSkipsLiveIpcAndReplaysOnAttach(runtimeModule)
     await assertStaleSweepReapsOnlyUnseenHiddenTerminals(runtimeModule)
     await assertIdleSweepSuspendsRatherThanDisposes(runtimeModule)
+    await assertIdleSweepDisposesIdleSprintEngineAgent(runtimeModule)
     await assertDebugModeEnsureInstallsDebugSkill(runtimeModule)
     await assertAgentSessionExitListenerFiresSystemTaggedForAnySystem(runtimeModule)
     await assertResolveAgentExecutionIdMatchesLiveSession(runtimeModule)
@@ -522,6 +523,86 @@ async function assertStaleSweepReapsOnlyUnseenHiddenTerminals(runtimeModule: Run
       false,
       'reaped terminals must not emit terminal:exit so renderer launch flags survive for resume'
     )
+  } finally {
+    await runtime.shutdown()
+  }
+}
+
+// SprintEngine agents are no longer exempt from the idle reaper, AND the reaper
+// DISPOSES them (not suspend/freeze-the-view): dispose fires `agent.leave` (→
+// status `left`) so the dispatch's revival path can respawn the agent when work
+// returns. A frozen-but-not-left sprint agent would instead break the dispatch.
+async function assertIdleSweepDisposesIdleSprintEngineAgent(runtimeModule: RuntimeModule): Promise<void> {
+  const workspaceRoot = await mkdtemp(join(tmpdir(), 'multicode-terminal-runtime-sprintengine-idle-dispose-'))
+  const sprintEngineStatePath = join(workspaceRoot, '.multi-code', 'sprintengine', 'run.yaml')
+  const toolCalls: ToolCallInput[] = []
+  mockPty.spawnCalls = []
+  mockSender.sent = []
+
+  const runtime = runtimeModule.createTerminalRuntime({
+    diagnosticsEnabled: false,
+    requireAuthenticatedUser: () => undefined,
+    logMainPerfEvent: () => undefined,
+    syncMcpConfig: async (): Promise<SyncResult> => ({
+      ok: true,
+      managedSprintEngineRunId: 'idle-dispose-run',
+      runTokenEnv: { [MANAGED_SPRINTENGINE_MCP_RUN_TOKEN_ENV_VAR]: 'idle-dispose-token' },
+    }),
+    callManagedSprintEngineTool: async (input) => {
+      toolCalls.push(input)
+      return { ok: true }
+    },
+    releaseManagedSprintEngineRun: async () => undefined,
+  })
+
+  try {
+    const result = await runtime.ipcHandlers.spawnTerminal(mockSender as unknown as WebContents, {
+      sessionId: 'session_sprint_idle',
+      cols: 120,
+      rows: 30,
+      cwd: workspaceRoot,
+      sprintEngineStatePath,
+      workspaceId: 'ws-sprint',
+      agentId: 'frontend-9',
+      cli: 'codex',
+      kind: 'agent',
+      shellOnly: false,
+      visible: false,
+      mcpSettings: { syncEnabled: false, servers: {} } satisfies McpSettings,
+    })
+    assert.equal(result.ok, true, JSON.stringify(result))
+
+    // Fresh: nothing reaps yet.
+    assert.deepEqual(runtimeModule.runIdleAgentReapSweep(Date.now()), [], 'a fresh sprint agent is not reaped')
+
+    // Past the idle threshold: the sprint agent reaps even though it belongs to a
+    // managed run (no longer exempt).
+    const wellPastIdle = Date.now() + 30 * 60 * 1000 + 1_000
+    assert.deepEqual(
+      runtimeModule.runIdleAgentReapSweep(wellPastIdle),
+      ['session_sprint_idle'],
+      'an idle sprint agent past the threshold is reaped',
+    )
+
+    mockPty.spawnCalls[0]?.process.emitExit({ exitCode: 0 })
+    await delay(20)
+
+    // Reclaimed by DISPOSE, not suspend: the session is gone (not frozen+retained).
+    assert.deepEqual(
+      runtime.ipcHandlers.getTerminalStatus('session_sprint_idle'),
+      { processAlive: false, suspended: false },
+      'a reaped sprint agent is disposed (gone), not suspended (frozen + retained)',
+    )
+    assert.ok(
+      !runtime.ipcHandlers.listTerminals().some((session) => session.sessionId === 'session_sprint_idle'),
+      'a disposed sprint session is not retained in the terminal list',
+    )
+
+    // Dispose fired agent.leave, which marks the agent `left` so the dispatch
+    // revival path can bring it back when its role next has claimable work.
+    const leaveCalls = toolCalls.filter((call) => call.toolName === 'sprintengine.agent.leave')
+    assert.equal(leaveCalls.length, 1, 'disposing the idle sprint agent fires sprintengine.agent.leave (→ left → revivable)')
+    assert.equal(leaveCalls[0]?.arguments?.agentId, 'frontend-9')
   } finally {
     await runtime.shutdown()
   }
