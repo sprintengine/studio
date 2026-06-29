@@ -547,6 +547,7 @@ function isAutomationRun(value: unknown): value is AutomationRun {
     && isOptionalString(value.blockedReason)
     && isOptionalString(value.workspaceId)
     && isOptionalString(value.agentId)
+    && isOptionalString(value.executionId)
     && isOptionalString(value.promptFingerprint)
     && isOptionalStringArray(value.touchedFiles)
     && isOptionalStringArray(value.commandsRan)

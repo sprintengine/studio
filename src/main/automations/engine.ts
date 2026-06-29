@@ -19,7 +19,7 @@ import { AutomationsStore, type AutomationStoreProblem, type AutomationStoreStat
 import type { AutomationPullRequestResult } from './pull-request'
 import { computeNextRun, validateScheduleTriggerConfig } from './schedule'
 import { evaluatePollingTriggerDefinition } from './polling-trigger-runner'
-import { parseRunSignal, runSignalPath } from './run-signal'
+import { parseRunSignal, runSignalPath, type RunSignal } from './run-signal'
 import { enqueueTriggerEventRun, type TriggerEventRunResult } from './trigger-event-runner'
 
 export type AutomationsProjectFolder = {
@@ -107,6 +107,10 @@ export type AutomationsEngineOptions = {
   // Agent-backed run finalize collaborators (injected for testability).
   openRunPullRequest?: AutomationRunPullRequestOpener
   removeRunWorktree?: AutomationRunWorktreeRemover
+  // Live agent-session executionIds, used by the startup reconcile to tell an
+  // orphaned pending run (agent gone while Multicode was down) from one whose
+  // agent is still live. Absent in tests that do not exercise reconcile.
+  getLiveAgentExecutionIds?: () => string[]
 }
 
 type EvaluationMode = 'startup' | 'timer'
@@ -120,6 +124,10 @@ type PendingAgentRun = {
   runId: string
   worktreePath: string
   workspaceId?: string
+  // Terminal-session executionId of the run's spawned agent, when it was
+  // resolvable at launch. Lets an agent-lifecycle exit correlate to this pending
+  // run; absent on historical runs and resolution misses (poll-scan covers those).
+  executionId?: string
 }
 
 const DEFAULT_POLL_INTERVAL_MS = 60_000
@@ -143,6 +151,7 @@ export class AutomationsEngine {
   private readonly onRunEvent?: (event: AutomationsRunEvent) => void
   private readonly openRunPullRequest?: AutomationRunPullRequestOpener
   private readonly removeRunWorktree?: AutomationRunWorktreeRemover
+  private readonly getLiveAgentExecutionIds?: () => string[]
   private readonly inFlight = new Set<string>()
   private readonly pendingAgentRuns = new Map<string, PendingAgentRun>()
   // Per-run finalize lock (pendingRunKey shape). Closes the manual-IPC vs
@@ -169,6 +178,7 @@ export class AutomationsEngine {
     this.onRunEvent = options.onRunEvent
     this.openRunPullRequest = options.openRunPullRequest
     this.removeRunWorktree = options.removeRunWorktree
+    this.getLiveAgentExecutionIds = options.getLiveAgentExecutionIds
   }
 
   start(): void {
@@ -514,6 +524,38 @@ export class AutomationsEngine {
     }
   }
 
+  // Agent-lifecycle finalize trigger: the owning module routes a real agent-
+  // session pty exit here. Only an executionId that matches a pending agent run
+  // finalizes; any other exit (a non-automation agent, or a run already
+  // finalized by the scan) is ignored. Re-reads the run's signal file first so a
+  // just-written terminal outcome wins; otherwise the agent ended without
+  // declaring one, so the run is failed with an exit-code summary. Routed
+  // 'timer' so a failed auto-finalize still emits a run-event while a completed
+  // one stays silent, matching the signal-scan path. Shares finalizeRun's lock
+  // and idempotency, so a concurrent scan/manual finalize yields one record.
+  async finalizeRunOnAgentExit(input: { executionId: string; exitCode: number }): Promise<void> {
+    const executionId = input.executionId.trim()
+    if (!executionId) return
+    const pending = this.findPendingRunByExecutionId(executionId)
+    if (!pending) return
+
+    const signal = await this.readPendingRunSignal(pending.worktreePath)
+    const outcome = signal
+      ? { outcome: signal.outcome, summary: signal.summary, reports: signal.reports }
+      : {
+          outcome: 'failed' as const,
+          summary: `Agent ended without declaring an outcome (exit code ${input.exitCode}).`,
+        }
+    await this.finalizeRun({
+      workspaceRoot: pending.workspaceRoot,
+      automationId: pending.automationId,
+      runId: pending.runId,
+      ...outcome,
+      workspaceId: pending.workspaceId,
+      eventTrigger: 'timer',
+    })
+  }
+
   private async finalizeRunLocked(
     input: {
       workspaceRoot: string
@@ -623,6 +665,9 @@ export class AutomationsEngine {
     // dispatched before an app restart are still finalized when their signal lands.
     if (mode === 'startup') {
       await this.seedPendingAgentRuns(projectFolders)
+      // Force-fail runs orphaned while Multicode was down before the scan below
+      // gets a chance to leave them pending forever (their agent is gone).
+      await this.reconcileOrphanedAgentRuns()
     }
     const pollContext = createTriggerPollContext()
     const triggerProvidersByKind = new Map(
@@ -645,22 +690,8 @@ export class AutomationsEngine {
   private async scanPendingAgentRuns(): Promise<void> {
     if (this.pendingAgentRuns.size === 0) return
     for (const pending of [...this.pendingAgentRuns.values()]) {
-      const signalPath = runSignalPath(pending.worktreePath)
-      let raw: string
-      try {
-        const stats = await stat(signalPath)
-        if (stats.size > MAX_RUN_SIGNAL_BYTES) {
-          // Oversize signal — treat as malformed (never load it); stay pending.
-          continue
-        }
-        raw = await readFile(signalPath, 'utf8')
-      } catch {
-        // No signal file yet (or unreadable) — the agent has not declared an
-        // outcome; leave the run pending.
-        continue
-      }
-      const signal = parseRunSignal(raw)
-      if (!signal) continue // malformed/unrecognized — never coerce; stay pending.
+      const signal = await this.readPendingRunSignal(pending.worktreePath)
+      if (!signal) continue // missing/malformed/oversize — never coerce; stay pending.
       await this.finalizeRun({
         workspaceRoot: pending.workspaceRoot,
         automationId: pending.automationId,
@@ -672,6 +703,58 @@ export class AutomationsEngine {
         eventTrigger: 'timer',
       })
     }
+  }
+
+  // Startup reconciliation: an agent-backed run recorded `running` whose
+  // executionId is NOT among the live agent executions, and which carries no
+  // valid signal, had its agent end while Multicode was down — force-fail it. A
+  // run whose executionId is still live stays pending for its exit/scan; a run
+  // with no recorded executionId is never force-failed (the signal scan, which
+  // runs later in this same evaluate pass, finalizes a valid signal and
+  // otherwise leaves it pending — matching pre-executionId behavior). Runs
+  // carrying a valid signal here are likewise left for that scan.
+  private async reconcileOrphanedAgentRuns(): Promise<void> {
+    if (!this.getLiveAgentExecutionIds || this.pendingAgentRuns.size === 0) return
+    const liveExecutionIds = new Set(this.getLiveAgentExecutionIds())
+    for (const pending of [...this.pendingAgentRuns.values()]) {
+      if (!pending.executionId || liveExecutionIds.has(pending.executionId)) continue
+      if (await this.readPendingRunSignal(pending.worktreePath)) continue
+      await this.finalizeRun({
+        workspaceRoot: pending.workspaceRoot,
+        automationId: pending.automationId,
+        runId: pending.runId,
+        outcome: 'failed',
+        summary: 'Agent ended while Multicode was not running.',
+        workspaceId: pending.workspaceId,
+        eventTrigger: 'timer',
+      })
+    }
+  }
+
+  // Read + parse a pending run's signal file, size-capped so a stray/oversize
+  // file (a buggy or compromised agent) is treated as malformed and never
+  // loaded into memory. Returns the validated signal, or null when the file is
+  // missing, unreadable, oversize, or malformed. Shared by the per-tick scan,
+  // the agent-exit trigger, and the startup reconcile so all three apply the
+  // same containment and never-coerce rules.
+  private async readPendingRunSignal(worktreePath: string): Promise<RunSignal | null> {
+    const signalPath = runSignalPath(worktreePath)
+    let raw: string
+    try {
+      const stats = await stat(signalPath)
+      if (stats.size > MAX_RUN_SIGNAL_BYTES) return null
+      raw = await readFile(signalPath, 'utf8')
+    } catch {
+      return null
+    }
+    return parseRunSignal(raw)
+  }
+
+  private findPendingRunByExecutionId(executionId: string): PendingAgentRun | undefined {
+    for (const pending of this.pendingAgentRuns.values()) {
+      if (pending.executionId === executionId) return pending
+    }
+    return undefined
   }
 
   private async seedPendingAgentRuns(projectFolders: AutomationsProjectFolder[]): Promise<void> {
@@ -697,6 +780,7 @@ export class AutomationsEngine {
       runId: run.id,
       worktreePath: run.worktreePath,
       workspaceId: workspaceId ?? run.workspaceId,
+      executionId: run.executionId,
     })
   }
 
@@ -1118,6 +1202,7 @@ function completeRun(run: AutomationRun, patch: Partial<AutomationRun>, complete
     blockedReason: patch.blockedReason,
     workspaceId: patch.workspaceId,
     agentId: patch.agentId,
+    executionId: patch.executionId,
     promptFingerprint: patch.promptFingerprint,
     touchedFiles: patch.touchedFiles,
     commandsRan: patch.commandsRan,
