@@ -342,12 +342,12 @@ run('archiveEpicRollup archives children then the epic via the plan + shared arc
     'the epic is archived last (children first → recoverable on mid-batch failure)',
   )
   assert.match(backlogPanelSource, /archiveEpic: \(item\) => void archiveEpicRollup\(item\)/, 'archiveEpic sits in shared BacklogActions')
-  // In the Archived lens an epic group defaults collapsed so it reads as one
-  // rolled-up unit, not N loose archived child rows.
+  // In a terminal lens (Completed or Archived) an epic group defaults collapsed
+  // so it reads as one rolled-up unit, not N loose finished child rows.
   assert.match(
     backlogPanelSource,
-    /view === 'archived' && epicGroup\.kind === 'epic'/,
-    'archived epic groups roll up collapsed by default',
+    /\(view === 'archived' \|\| view === 'completed'\) && epicGroup\.kind === 'epic'/,
+    'terminal-lens epic groups roll up collapsed by default',
   )
 })
 
@@ -385,8 +385,9 @@ run('Dependency order is a whole-list topo branch, not a pairwise comparator', (
 run('detail cross-navigation widens the lens so a filtered-out target never dead-clicks', () => {
   // Prerequisite/Blocks activation routes through navigateToBacklogItem, not the
   // plain row-select: the detail `selected` resolves only within `filtered`, so a
-  // target hidden by the active lens/search (always for archived — every
-  // non-archived lens hides archived) would be dropped by the validity effect.
+  // target hidden by the active lens/search (always for a terminal item — the
+  // default Active lens hides completed/archived) would be dropped by the
+  // validity effect.
   assert.match(backlogPanelSource, /onNavigate=\{navigateToBacklogItem\}/, 'the detail section navigates through the widening handler')
   assert.match(
     backlogPanelSource,
@@ -395,8 +396,8 @@ run('detail cross-navigation widens the lens so a filtered-out target never dead
   )
   assert.match(
     backlogPanelSource,
-    /setView\(target\.status === 'archived' \? 'archived' : 'all'\)/,
-    'a hidden target widens to its own lens (Archived for archived, else All items)',
+    /setView\(lensForItemStatus\(target\.status\)\)/,
+    'a hidden target widens to a lens that contains it (Completed/Archived for terminal items, else Active)',
   )
   assert.match(backlogPanelSource, /setSearch\(''\)/, 'the search is cleared so the navigated row stays visible')
 })

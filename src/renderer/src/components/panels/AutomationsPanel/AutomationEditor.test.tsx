@@ -292,3 +292,48 @@ assert.match(cronMarkup, /Editing this trigger type isn.t supported yet/, 'cron 
 assert.doesNotMatch(cronMarkup, /Run every \(minutes\)/, 'cron schedule hides the editable cadence fields')
 
 console.log('AutomationEditor family render tests passed')
+
+// ---------------------------------------------------------------------------
+// Agent block — the reused spawn picker (select mode) replaces the old flat
+// Specialist / CLI / Model selects. A spawn-agent action whose schema carries a
+// `cli` field renders the embedded picker trigger (default General agent), the
+// CliModelPickerButton runtime row, and the permission summary; it must NOT
+// render the retired flat Specialist/Model select help text.
+// ---------------------------------------------------------------------------
+
+const spawnAgentProviders: AutomationsProviders = {
+  triggers: [
+    { kind: 'schedule', configSchema: { type: 'object' }, requiredIntegrations: [], missingIntegrations: [] },
+    { kind: 'webhook', configSchema: { type: 'object' }, requiredIntegrations: [], missingIntegrations: [] },
+  ],
+  actions: [{
+    kind: 'spawn-agent',
+    configSchema: {
+      type: 'object',
+      properties: { cli: { type: 'string' }, prompt: { type: 'string' } },
+      required: ['prompt'],
+    },
+    requiredIntegrations: [],
+    missingIntegrations: [],
+  }],
+}
+
+const agentBlockMarkup = renderToStaticMarkup(
+  <AutomationEditor
+    editor={{ mode: 'create' }}
+    providers={spawnAgentProviders}
+    workspaceRoot="/tmp/multicode-automation-editor"
+    onCancel={() => {}}
+    onSaved={() => {}}
+  />,
+)
+
+assert.match(agentBlockMarkup, /General agent/, 'the agent block defaults to General agent (no specialist) in the picker trigger')
+assert.match(agentBlockMarkup, /No soul/, 'the General trigger row carries its description')
+assert.match(agentBlockMarkup, /Runtime/, 'the runtime row reuses CliModelPickerButton')
+assert.match(agentBlockMarkup, /Same roster, runtimes, and permission presets/, 'help text names the reused picker')
+assert.match(agentBlockMarkup, /Permissions · Default permissions/, 'the permission summary reflects the default preset')
+assert.doesNotMatch(agentBlockMarkup, /Run as a specialist agent, or a general agent\./, 'the retired flat Specialist select is gone')
+assert.doesNotMatch(agentBlockMarkup, /Model passed at launch/, 'the retired flat Model select is gone')
+
+console.log('AutomationEditor agent-block render tests passed')

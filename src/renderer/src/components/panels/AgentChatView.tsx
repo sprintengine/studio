@@ -22,6 +22,7 @@ import { useWorkspaceStore } from '../../store/workspaceStore'
 import { publishDiagnosticSync } from '../../utils/diagnostics'
 import { renderMarkdown } from '../../utils/markdown'
 import { GhostButton, Popover, PrimaryButton, StatusDot, Tooltip, TruncatedText, type Tone } from '../ui'
+import { CreationBackdrop } from '../backdrops/CreationBackdrop'
 
 // ── Pure projection ─────────────────────────────────────────────────────────
 
@@ -746,6 +747,7 @@ export default function AgentChatView({ workspaceId, agentId }: Props) {
 
   return (
     <ChatShell>
+      <CreationBackdrop surface="chat" visible={timelineRows.length === 0} />
       {!ready ? (
         <ChatNotice tone={readiness.kind === 'loading' ? 'neutral' : 'warn'}>{readinessLabel(readiness)}</ChatNotice>
       ) : null}
@@ -758,9 +760,14 @@ export default function AgentChatView({ workspaceId, agentId }: Props) {
         className="flex-1 space-y-4 overflow-y-auto px-3 py-3"
       >
         {timelineRows.length === 0 ? (
-          <p className="text-[12px] leading-5 text-[color:var(--text-muted)]">
-            {ready ? 'No messages yet. Send a prompt to start the conversation.' : 'Conversation is unavailable until the provider is ready.'}
-          </p>
+          // Centered in the calm middle of the chat backdrop (the plates are
+          // authored quiet-center, art-at-edges), so the copy reads as intentional
+          // and keeps AA contrast over the scrim's --bg-app pool.
+          <div className="flex h-full items-center justify-center">
+            <p className="max-w-[280px] text-center text-[12px] leading-5 text-[color:var(--text-muted)]">
+              {ready ? 'No messages yet. Send a prompt to start the conversation.' : 'Conversation is unavailable until the provider is ready.'}
+            </p>
+          </div>
         ) : (
           timelineRows.map((row) => (
             <TimelineRow key={row.id} row={row} />
@@ -879,7 +886,7 @@ export default function AgentChatView({ workspaceId, agentId }: Props) {
 // or model in a header is the duplication we're avoiding.
 function ChatShell({ children }: { children: React.ReactNode }) {
   return (
-    <div className="flex h-full flex-col bg-[color:var(--agent-surface)] text-[12px] text-[color:var(--text-default)]">
+    <div className="relative isolate flex h-full flex-col bg-[color:var(--agent-surface)] text-[12px] text-[color:var(--text-default)]">
       {children}
     </div>
   )

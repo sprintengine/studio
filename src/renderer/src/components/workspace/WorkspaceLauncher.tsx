@@ -4,6 +4,7 @@ import type { AgentCliCatalogOption } from './newWorkspace/cliRuntimeOptions'
 import CliIcon from '../CliIcon'
 import { SprintEngineWorkspaceTypeIcon } from '../AppIcons'
 import { Popover } from '../ui'
+import { CreationBackdrop } from '../backdrops/CreationBackdrop'
 
 interface WorkspaceLauncherProps {
   // Available agent CLIs to offer as the quick-launch grid (the expected
@@ -61,7 +62,8 @@ export default function WorkspaceLauncher({
   const hasFooter = Boolean(onNewWorkspace || onClose)
 
   return (
-    <div className="absolute inset-0 z-10 flex items-start justify-center overflow-auto bg-[color:var(--bg-app)]">
+    <div className="absolute inset-0 z-10 isolate flex items-start justify-center overflow-auto bg-[color:var(--bg-app)]">
+      <CreationBackdrop surface="workspace" />
       <div className="w-full max-w-[520px] px-6 pb-16 pt-[14vh]">
         <h1 className="text-[18px] font-semibold tracking-[-0.01em] text-[color:var(--text-strong)]">
           Start something here

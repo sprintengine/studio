@@ -222,7 +222,7 @@ const malformedViewState = normalizeWorkspaceForPartialize(baseWorkspace({
 } as unknown as Partial<Workspace>) as unknown as Workspace)
 assert.deepEqual(malformedViewState.backlogState, {
   selectedRelativePath: null,
-  view: 'all',
+  view: 'active',
   sort: 'recent',
   group: 'none',
   search: '',

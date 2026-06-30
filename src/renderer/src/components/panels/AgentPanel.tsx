@@ -142,7 +142,7 @@ export default function AgentPanel({
     void window.api.terminalSuspend(effectiveSessionId).catch(() => {})
   }
   // Resume is owned by TerminalView (it holds the relaunch payload + keystroke
-  // buffer), so the play button asks it to resume via a window event keyed by
+  // buffer), so the paused footer asks it to resume via a window event keyed by
   // session id — same path as typing into the suspended terminal.
   const resumeTerminal = () => {
     if (!effectiveSessionId) return
@@ -213,32 +213,15 @@ export default function AgentPanel({
 
   return (
     <div className={`flex h-full flex-col bg-[color:var(--bg-surface)] font-mono text-[12px] text-[color:var(--text-default)] ${cliShellTone}`}>
-      <div className={`group relative flex-1 overflow-hidden bg-[color:var(--bg-app)] ${needsInput ? 'shadow-[inset_0_1px_0_var(--tone-warn-soft)]' : ''}`}>
-        {hasStarted && (isTerminalSuspended || canSuspendTerminal || backlogItemRef) ? (
+      <div className={`group relative flex flex-1 flex-col overflow-hidden bg-[color:var(--bg-app)] ${needsInput ? 'shadow-[inset_0_1px_0_var(--tone-warn-soft)]' : ''}`}>
+        {hasStarted && (canSuspendTerminal || backlogItemRef) ? (
           // The positioning lives on this wrapper, not the buttons: Tooltip wraps
           // its child in a `position: relative` span, so an `absolute` child
           // would anchor to that zero-size span (off-screen) instead of the
           // terminal surface. Liveness shows on the workspace tab (single source
-          // of truth); here we keep only the resume/suspend actions + Backlog link.
+          // of truth); here we keep only the suspend action + Backlog link. The
+          // suspended state is surfaced by the quiet footer below, not a button.
           <div className="absolute right-2 top-2 z-30 flex items-center gap-1.5">
-            {isTerminalSuspended ? (
-              // Suspended state is a distinct, accented PLAY button (not a muted
-              // pause indicator) so the suspend→resume transition is obvious and
-              // the resume affordance is clear. Click resumes; typing also resumes.
-              <Tooltip content="Suspended to free memory — click or type to resume" placement="bottom">
-                <button
-                  type="button"
-                  onClick={resumeTerminal}
-                  aria-label="Resume suspended agent"
-                  className="interactive inline-flex h-7 w-7 items-center justify-center rounded-md border border-[color:var(--accent-primary-soft)] bg-[color:var(--bg-surface-raised)] text-[color:var(--accent-primary)] shadow-sm transition-colors hover:border-[color:var(--accent-primary)] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[color:var(--accent-primary-soft)]"
-                >
-                  {/* Play triangle reads as "resume". */}
-                  <svg viewBox="0 0 16 16" fill="none" className="h-[15px] w-[15px]" aria-hidden="true">
-                    <path d="M5.5 4.2 11.5 8l-6 3.8V4.2Z" fill="currentColor" />
-                  </svg>
-                </button>
-              </Tooltip>
-            ) : null}
             {canSuspendTerminal ? (
               // Hover-revealed so it doesn't clutter the live terminal; the same
               // pause glyph as the suspended state (context disambiguates: a
@@ -278,38 +261,71 @@ export default function AgentPanel({
             ) : null}
           </div>
         ) : null}
-        {hasStarted ? (
-          <React.Suspense fallback={null}>
-            <TerminalView
-              workspaceId={workspaceId}
-              agentId={agentId}
-              sessionId={sessionId}
-              shouldKillOnUnmount={shouldKillTerminalOnUnmount}
-            />
-          </React.Suspense>
-        ) : (
-          <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 p-5 text-center">
-            {sprintEngineTerminalBlocked ? (
-              <div className="max-w-sm text-[12px] leading-5 text-[color:var(--text-muted)]">
-                {MULTICODE_SAFE_MODE
-                  ? 'Safe mode is active. Sprint agent terminals are not auto-mounted.'
-                  : 'Sprint agent terminals are disabled for this diagnostic run.'}
-              </div>
-            ) : null}
-            {agentCliUnavailable ? (
-              <div className="max-w-sm text-[12px] leading-5 text-[color:var(--text-muted)]">
-                Agent CLI "{cli}" is unavailable. Reinstall or re-enable the plugin before launching this agent.
-              </div>
-            ) : null}
-            <PrimaryButton
-              size="md"
-              onClick={() => startAgent(false)}
-              disabled={sprintEngineTerminalBlocked || agentCliUnavailable}
-            >
-              {startLabel}
-            </PrimaryButton>
-          </div>
-        )}
+        {/* Terminal area. `min-h-0` lets it shrink so the paused footer below can
+            reserve its strip without ever overlapping output; TerminalView is
+            `absolute inset-0`, so it anchors to this relative box (not the pane),
+            and its ResizeObserver refits xterm when the footer claims/releases
+            space. */}
+        <div className="relative min-h-0 flex-1">
+          {hasStarted ? (
+            <React.Suspense fallback={null}>
+              <TerminalView
+                workspaceId={workspaceId}
+                agentId={agentId}
+                sessionId={sessionId}
+                shouldKillOnUnmount={shouldKillTerminalOnUnmount}
+              />
+            </React.Suspense>
+          ) : (
+            <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 p-5 text-center">
+              {sprintEngineTerminalBlocked ? (
+                <div className="max-w-sm text-[12px] leading-5 text-[color:var(--text-muted)]">
+                  {MULTICODE_SAFE_MODE
+                    ? 'Safe mode is active. Sprint agent terminals are not auto-mounted.'
+                    : 'Sprint agent terminals are disabled for this diagnostic run.'}
+                </div>
+              ) : null}
+              {agentCliUnavailable ? (
+                <div className="max-w-sm text-[12px] leading-5 text-[color:var(--text-muted)]">
+                  Agent CLI "{cli}" is unavailable. Reinstall or re-enable the plugin before launching this agent.
+                </div>
+              ) : null}
+              <PrimaryButton
+                size="md"
+                onClick={() => startAgent(false)}
+                disabled={sprintEngineTerminalBlocked || agentCliUnavailable}
+              >
+                {startLabel}
+              </PrimaryButton>
+            </div>
+          )}
+        </div>
+        {/* Paused indicator: a quiet, reserved footer (not an overlay) so the
+            frozen scrollback above stays fully readable and scrollable. It is the
+            whole resume affordance — keyboard-focusable, click resumes (typing or
+            a click on the pane also resume). Kept deliberately low-key: a muted
+            pause glyph + "Paused", with the resume hint revealed on pane hover. */}
+        {hasStarted && isTerminalSuspended ? (
+          <button
+            type="button"
+            onClick={resumeTerminal}
+            aria-label="Resume paused agent — click or type to resume"
+            className="flex flex-none items-center gap-2 border-t border-[color:var(--border-subtle)] bg-[color:var(--bg-app)] px-3.5 py-[7px] text-left text-[11px] text-[color:var(--text-muted)] transition-colors hover:text-[color:var(--text-default)] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[color:var(--accent-primary-soft)]"
+          >
+            {/* Pause glyph, low-opacity — a status mark, not a call to action. */}
+            <svg viewBox="0 0 16 16" fill="none" className="h-[11px] w-[11px] opacity-60" aria-hidden="true">
+              <rect x="5" y="4" width="2" height="8" rx="1" fill="currentColor" />
+              <rect x="9" y="4" width="2" height="8" rx="1" fill="currentColor" />
+            </svg>
+            <span>Paused</span>
+            {/* Hint stays hidden until pane hover (kept low-key), but reveals at
+                full muted contrast — a reduced opacity here fell under the WCAG AA
+                text threshold against --bg-app. */}
+            <span className="ml-auto opacity-0 transition-opacity group-hover:opacity-100">
+              click or type to resume
+            </span>
+          </button>
+        ) : null}
       </div>
     </div>
   )

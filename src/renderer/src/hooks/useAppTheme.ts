@@ -89,6 +89,37 @@ export function useResolvedColorScheme(): ColorScheme {
   return scheme
 }
 
+// The concrete resolved theme id of the active preference, reactive to both an
+// explicit theme change and — under `system` — an OS light/dark switch (the
+// store value stays `'system'`, so the media query is the only signal). Surfaces
+// that key off the specific theme rather than just its light/dark scheme (e.g.
+// per-theme backdrop plates) read this. Mirrors useResolvedColorScheme but
+// returns the full id instead of collapsing to a scheme.
+export function useResolvedTheme(): ResolvedAppTheme {
+  const theme = useWorkspaceStore((s) => s.appSettings.appearance.theme)
+  const [resolved, setResolved] = useState<ResolvedAppTheme>(() => resolveTheme(theme))
+
+  useEffect(() => {
+    setResolved(resolveTheme(theme))
+
+    if (theme !== 'system') return undefined
+    if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') {
+      return undefined
+    }
+    const media = window.matchMedia(LIGHT_MEDIA_QUERY)
+    const onChange = (): void => setResolved(resolveTheme('system'))
+    if (typeof media.addEventListener === 'function') {
+      media.addEventListener('change', onChange)
+      return () => media.removeEventListener('change', onChange)
+    }
+    // Safari < 14 fallback.
+    media.addListener(onChange)
+    return () => media.removeListener(onChange)
+  }, [theme])
+
+  return resolved
+}
+
 // Monaco ships only a light (`vs`) and dark (`vs-dark`) built-in base theme, so
 // map the active app theme's surface onto the matching one. Without this an
 // editor renders its hard-coded dark canvas inside a light app — the mismatch

@@ -56,5 +56,9 @@ ayu-mirage) — there the hue is the point.
 
 ## Status
 
-Finished examples to color-match against: `dark` and `paper` (both plates each).
-Remaining 17 themes × 2 plates to be generated against the spec above.
+Complete: all 19 concrete themes have both plates (38 JPEGs total). `system`
+does not have separate files because it resolves to the active light or dark
+theme before a backdrop is selected.
+
+The full set is mirrored for visual review in
+`multicode-website/public/art/multicode-theme-backdrops-2026-06/`.

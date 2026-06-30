@@ -33,8 +33,13 @@ function familyLabel(kind: TriggerKind): string {
   return TRIGGER_FAMILY_LABEL[kind] ?? kind
 }
 
-const INPUT_CLASS =
-  'w-full rounded-md border border-[color:var(--border-strong)] bg-[color:var(--bg-surface)] px-2.5 py-1.5 text-[12px] text-[color:var(--text-default)] outline-none focus-visible:border-[color:var(--accent-primary)]'
+// One control box vocabulary, shared with AutomationEditor.CONTROL_INPUT
+// (h-7, 5px radius, --border-default on --bg-surface-raised) so every input and
+// Select trigger in the editor reads as one family.
+const CONTROL_BASE =
+  'h-7 rounded-[5px] border border-[color:var(--border-default)] bg-[color:var(--bg-surface-raised)] px-2.5 text-[12px] text-[color:var(--text-default)] outline-none transition-colors hover:border-[color:var(--border-strong)] focus-visible:border-[color:var(--accent-primary)]'
+const INPUT_CLASS = `w-full ${CONTROL_BASE}`
+const NARROW_CONTROL = `w-32 tabular-nums ${CONTROL_BASE}`
 
 export type TriggerFieldsValue = {
   triggerKind: TriggerKind
@@ -81,8 +86,8 @@ export function TriggerFields({
   // (the engine rejects cron); show its read-only summary and round-trip verbatim.
   if (loaded && !isAuthorableTrigger(loaded)) {
     return (
-      <fieldset className="flex flex-col gap-3 rounded-md border border-[color:var(--border-subtle)] p-3">
-        <legend className="px-1 text-[11px] font-medium text-[color:var(--text-muted)]">Trigger</legend>
+      <fieldset className="flex flex-col gap-3">
+        <legend className="text-[11px] font-medium text-[color:var(--text-muted)]">Trigger</legend>
         <div className="flex flex-col gap-1">
           <span className="text-[12px] text-[color:var(--text-default)]">{cadenceSummary(loaded)}</span>
           <span className="text-[11px] text-[color:var(--text-subtle)]">
@@ -104,8 +109,8 @@ export function TriggerFields({
   const selectedReason = familyUnavailableReason(value.triggerKind, providers)
 
   return (
-    <fieldset className="flex flex-col gap-3 rounded-md border border-[color:var(--border-subtle)] p-3">
-      <legend className="px-1 text-[11px] font-medium text-[color:var(--text-muted)]">Trigger</legend>
+    <fieldset className="flex flex-col gap-3">
+      <legend className="text-[11px] font-medium text-[color:var(--text-muted)]">Trigger</legend>
 
       <Field label="When it runs" htmlFor="automation-trigger-family">
         <Select
@@ -157,7 +162,7 @@ function ScheduleFields({
             min={5}
             value={value.everyMinutes}
             onChange={(e) => onChange({ everyMinutes: Number(e.target.value) || 0 })}
-            className="w-32 rounded-md border border-[color:var(--border-strong)] bg-[color:var(--bg-surface)] px-2.5 py-1.5 text-[12px] tabular-nums text-[color:var(--text-default)] outline-none focus-visible:border-[color:var(--accent-primary)]"
+            className={NARROW_CONTROL}
           />
         </Field>
       ) : (
@@ -167,7 +172,7 @@ function ScheduleFields({
             type="time"
             value={value.timeLocal}
             onChange={(e) => onChange({ timeLocal: e.target.value })}
-            className="w-32 rounded-md border border-[color:var(--border-strong)] bg-[color:var(--bg-surface)] px-2.5 py-1.5 text-[12px] tabular-nums text-[color:var(--text-default)] outline-none focus-visible:border-[color:var(--accent-primary)]"
+            className={`${NARROW_CONTROL} time-control`}
           />
         </Field>
       )}
@@ -310,7 +315,7 @@ function WebhookFields({
           max={65535}
           value={value.port}
           onChange={(e) => onChange({ ...value, port: e.target.value })}
-          className="w-32 rounded-md border border-[color:var(--border-strong)] bg-[color:var(--bg-surface)] px-2.5 py-1.5 text-[12px] tabular-nums text-[color:var(--text-default)] outline-none focus-visible:border-[color:var(--accent-primary)]"
+          className={NARROW_CONTROL}
         />
       </Field>
       <Field label="Path" htmlFor="automation-webhook-path" help="Path segment after the delivery prefix.">
@@ -370,9 +375,9 @@ function WebhookFields({
 
 function chipClass(active: boolean): string {
   return [
-    'h-7 min-w-9 rounded-md border px-2 text-[11px] outline-none focus-visible:ring-1 focus-visible:ring-[color:var(--accent-primary)]',
+    'h-7 min-w-9 rounded-[5px] border px-2 text-[11px] outline-none transition-colors focus-visible:ring-1 focus-visible:ring-[color:var(--accent-primary)]',
     active
       ? 'border-[color:var(--accent-primary)] bg-[color:var(--accent-primary-soft)] text-[color:var(--text-strong)]'
-      : 'border-[color:var(--border-strong)] text-[color:var(--text-muted)] hover:bg-[color:var(--bg-hover)]',
+      : 'border-[color:var(--border-default)] text-[color:var(--text-muted)] hover:border-[color:var(--border-strong)] hover:bg-[color:var(--bg-hover)]',
   ].join(' ')
 }

@@ -118,18 +118,20 @@ export function normalizeWorkspaceFileExplorerState(input: unknown): WorkspaceFi
 }
 
 export function defaultWorkspaceBacklogState(): WorkspaceBacklogState {
-  return { selectedRelativePath: null, view: 'all', sort: 'recent', group: 'none', search: '' }
+  return { selectedRelativePath: null, view: 'active', sort: 'recent', group: 'none', search: '' }
 }
 
 // Runtime guards for the persisted enums, exhaustiveness-checked against the
 // source unions via `satisfies` so a new lens/sort fails to compile until it is
 // added here too.
 const BACKLOG_VIEW_VALUES = {
+  active: true,
   all: true,
   quick_wins: true,
   strategic_bets: true,
   defer: true,
   unestimated: true,
+  completed: true,
   archived: true,
 } satisfies Record<WorkspaceBacklogState['view'], true>
 
@@ -157,7 +159,7 @@ export function normalizeWorkspaceBacklogState(input: unknown): WorkspaceBacklog
   if (!input || typeof input !== 'object') return undefined
   const raw = input as Partial<WorkspaceBacklogState>
   const view =
-    typeof raw.view === 'string' && raw.view in BACKLOG_VIEW_VALUES ? (raw.view as WorkspaceBacklogState['view']) : 'all'
+    typeof raw.view === 'string' && raw.view in BACKLOG_VIEW_VALUES ? (raw.view as WorkspaceBacklogState['view']) : 'active'
   const sort =
     typeof raw.sort === 'string' && raw.sort in BACKLOG_SORT_VALUES ? (raw.sort as WorkspaceBacklogState['sort']) : 'recent'
   const group =

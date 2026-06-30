@@ -1804,11 +1804,13 @@ export type WorkspaceFileExplorerState = {
 // renderer-only triage util into the node project. `utils/backlogTriage.ts`
 // re-exports these and owns their behavior (matchesBacklogView/compareBacklogItems).
 export type BacklogView =
+  | 'active'
   | 'all'
   | 'quick_wins'
   | 'strategic_bets'
   | 'defer'
   | 'unestimated'
+  | 'completed'
   | 'archived'
 
 // `dependency` is "Dependency order": a whole-list topological transform

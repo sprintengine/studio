@@ -111,7 +111,7 @@ export function formatDiagnosticsReport(input: {
   if (metrics && metrics.processes.length > 0) {
     sections.push(
       table(
-        ['Kind', 'PID', 'Type', 'CPU %', 'RSS', 'Threads', 'JS heap (used/total)'],
+        ['Kind', 'PID', 'Type', 'CPU %', 'Reported memory', 'Threads', 'JS heap (used/total)'],
         metrics.processes.map((process) => [
           process.kind,
           String(process.pid),
@@ -128,29 +128,32 @@ export function formatDiagnosticsReport(input: {
   } else {
     sections.push('Process metrics unavailable.')
   }
+  sections.push(
+    'Memory note: Electron rows are working set; child rows are OS RSS. These are reported process-memory signals, not macOS physical footprint or pressure attribution. Activity Monitor Memory can differ, especially for GPU-owned IOSurfaces.'
+  )
 
   if (metricsTrend && metricsTrend.current) {
     const { current, baseline, growth } = metricsTrend
     sections.push('## Memory trend')
     const sys = current.systemMemory
     const lines = [
-      `Total RSS: ${formatBytes(current.totalRssBytes)} · renderer ${formatBytes(current.rendererRssBytes)} · main ${formatBytes(current.mainRssBytes)} · gpu ${formatBytes(current.gpuRssBytes)} · children ${formatBytes(current.childRssBytes)}`,
+      `Reported process memory: ${formatBytes(current.totalRssBytes)} · renderer ${formatBytes(current.rendererRssBytes)} · main ${formatBytes(current.mainRssBytes)} · gpu ${formatBytes(current.gpuRssBytes)} · children ${formatBytes(current.childRssBytes)}`,
       sys
-        ? `System memory: ${formatBytes(sys.usedBytes)} / ${formatBytes(sys.totalBytes)} used (${Math.round(sys.pressure * 100)}% pressure) · available ${formatBytes(sys.availableBytes)}${sys.compressedBytes > 0 ? ` · compressed ${formatBytes(sys.compressedBytes)}` : ''}${sys.swapUsedBytes > 0 ? ` · swap ${formatBytes(sys.swapUsedBytes)}` : ''}`
+        ? `Estimated system memory: ${formatBytes(sys.usedBytes)} / ${formatBytes(sys.totalBytes)} non-reclaimable (${Math.round(sys.utilizationRatio * 100)}% utilization) · estimated available ${formatBytes(sys.availableBytes)}${sys.compressedBytes > 0 ? ` · compressed ${formatBytes(sys.compressedBytes)}` : ''}${sys.swapUsedBytes > 0 ? ` · swap ${formatBytes(sys.swapUsedBytes)}` : ''}`
         : 'System memory: unavailable',
       current.rendererHeapUsedBytes !== null
         ? `Renderer JS heap: ${formatBytes(current.rendererHeapUsedBytes)} used${current.rendererHeapTotalBytes !== null ? ` / ${formatBytes(current.rendererHeapTotalBytes)}` : ''}`
         : 'Renderer JS heap: unavailable',
-      `Growth (last ${Math.round(growth.windowMs / 1000)}s, ${growth.sampleCount} samples): RSS ${bytesPerMin(growth.rssBytesPerMin)}, heap ${bytesPerMin(growth.heapBytesPerMin)}`,
+      `Growth (last ${Math.round(growth.windowMs / 1000)}s, ${growth.sampleCount} samples): reported memory ${bytesPerMin(growth.rssBytesPerMin)}, heap ${bytesPerMin(growth.heapBytesPerMin)}`,
     ]
     if (metricsTrend.peaks && metricsTrend.peaks.totalRssBytes > 0) {
       const peaks = metricsTrend.peaks
       const peakSystem =
-        peaks.systemPressure !== null
-          ? ` · OS pressure ${Math.round(peaks.systemPressure * 100)}%${peaks.systemUsedBytes !== null ? ` (${formatBytes(peaks.systemUsedBytes)} used)` : ''}`
+        peaks.systemUtilizationRatio !== null
+          ? ` · estimated system utilization ${Math.round(peaks.systemUtilizationRatio * 100)}%${peaks.systemUsedBytes !== null ? ` (${formatBytes(peaks.systemUsedBytes)} non-reclaimable)` : ''}`
           : ''
       lines.push(
-        `Peak this session: total RSS ${formatBytes(peaks.totalRssBytes)}${peaks.totalRssAt ? ` (${lastOutput(peaks.totalRssAt, now)})` : ''} · children ${formatBytes(peaks.childRssBytes)}${peakSystem}`
+        `Peak this session: reported process memory ${formatBytes(peaks.totalRssBytes)}${peaks.totalRssAt ? ` (${lastOutput(peaks.totalRssAt, now)})` : ''} · children ${formatBytes(peaks.childRssBytes)}${peakSystem}`
       )
     }
     if (baseline) {

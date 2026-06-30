@@ -613,12 +613,18 @@ export default function TerminalView({ workspaceId, agentId, sessionId: attached
     }
     container.addEventListener('click', onPaneClick)
 
-    // The suspended-state play button (AgentPanel) lives in a different component
-    // and has no access to the relaunch payload, so it asks this terminal to
-    // resume via a window event keyed by session id — same path as typing.
+    // The paused-state footer (AgentPanel) lives in a different component and has
+    // no access to the relaunch payload, so it asks this terminal to resume via a
+    // window event keyed by session id — same path as typing.
     const onResumeRequest = (event: Event) => {
       const detail = (event as CustomEvent<{ sessionId?: string }>).detail
-      if (detail?.sessionId === sessionId) void resumeFromSuspend()
+      if (detail?.sessionId !== sessionId) return
+      // The footer lives outside `container`, so its click doesn't hit the
+      // focusTerminal listeners the way a pane click or keystroke does. Focus the
+      // terminal here (synchronously, within the click gesture) so the user can
+      // type immediately after resuming instead of having to click in again.
+      focusTerminal()
+      void resumeFromSuspend()
     }
     window.addEventListener('multicode:resume-terminal', onResumeRequest)
 
@@ -680,9 +686,9 @@ export default function TerminalView({ workspaceId, agentId, sessionId: attached
       // Reopening a suspended agent must NOT silently respawn it: the reaper
       // suspended it to reclaim memory, the painted scrollback is still on the
       // record, and the user opened the workspace just to read it. Replay the
-      // history below and leave it suspended — the existing top-right play button
-      // (AgentPanel, keyed off the same `suspended` flag) and type-to-resume are
-      // the controls. A live pty (background run) reports suspended=false and
+      // history below and leave it suspended — the quiet paused footer (AgentPanel,
+      // keyed off the same `suspended` flag), a click on the pane, and
+      // type-to-resume are the controls. A live pty (background run) reports suspended=false and
       // reattaches normally.
       const pauseInsteadOfLaunch = !attachedSessionId && terminalStatus.suspended
       logPerfEvent('TerminalView', shouldResumeCli ? 'terminal-reattach-existing-session' : 'terminal-spawn-fresh', {
@@ -811,7 +817,7 @@ export default function TerminalView({ workspaceId, agentId, sessionId: attached
 
       if (pauseInsteadOfLaunch) {
         // Arm the freeze-the-view resume path (resumeThunkRef is set above) so
-        // the existing top-right play button / type-to-resume relaunches it, and
+        // the paused footer / pane click / type-to-resume relaunches it, and
         // route the next keystroke through it. Reveal the session so main replays
         // the retained scrollback into this fresh xterm — the painted history is
         // readable while the agent process stays suspended.

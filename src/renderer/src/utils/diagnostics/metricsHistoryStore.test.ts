@@ -68,13 +68,13 @@ run('systemMemory is carried through from the snapshot', () => {
       usedBytes: 12 * 1024 * MIB,
       compressedBytes: 5 * 1024 * MIB,
       swapUsedBytes: 1024 * MIB,
-      pressure: 0.75,
+      utilizationRatio: 0.75,
       source: 'vm_stat',
     },
   }
   const sample = deriveMetricsSample(withSystem, null)
   assert.equal(sample.systemMemory?.source, 'vm_stat')
-  assert.equal(sample.systemMemory?.pressure, 0.75)
+  assert.equal(sample.systemMemory?.utilizationRatio, 0.75)
   assert.equal(sample.systemMemory?.availableBytes, 4 * 1024 * MIB)
 })
 
@@ -124,7 +124,7 @@ run('high-water marks track the max across appended samples, surviving a later d
   assert.equal(peaks.childRssBytes, 340 * MIB)
 })
 
-run('high-water marks capture peak OS pressure from system memory samples', () => {
+run('high-water marks capture peak estimated system utilization', () => {
   resetMetricsPeaks()
   const withSystem: ProcessMetricsSnapshot = {
     ...snapshot(NOW),
@@ -134,15 +134,15 @@ run('high-water marks capture peak OS pressure from system memory samples', () =
       usedBytes: 14 * 1024 * MIB,
       compressedBytes: 6 * 1024 * MIB,
       swapUsedBytes: 2 * 1024 * MIB,
-      pressure: 0.88,
+      utilizationRatio: 0.88,
       source: 'vm_stat',
     },
   }
   appendMetricsSample(deriveMetricsSample(withSystem, null))
   appendMetricsSample(deriveMetricsSample(snapshot(NOW + 1000), null)) // no system memory
   const peaks = getMetricsPeaks()
-  assert.equal(peaks.systemPressure, 0.88)
-  assert.equal(peaks.systemPressureAt, NOW)
+  assert.equal(peaks.systemUtilizationRatio, 0.88)
+  assert.equal(peaks.systemUtilizationAt, NOW)
   assert.equal(peaks.systemUsedBytes, 14 * 1024 * MIB)
   resetMetricsPeaks()
 })

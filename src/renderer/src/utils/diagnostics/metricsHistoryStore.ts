@@ -46,10 +46,10 @@ export type MetricsPeaks = {
   childRssBytes: number
   // Null until a sample carrying system memory is seen.
   systemUsedBytes: number | null
-  systemPressure: number | null
-  // When the total-RSS / system-pressure peaks were observed (for context).
+  systemUtilizationRatio: number | null
+  // When the total-RSS / system-utilization peaks were observed (for context).
   totalRssAt: number | null
-  systemPressureAt: number | null
+  systemUtilizationAt: number | null
 }
 
 export type GrowthRates = {
@@ -152,9 +152,9 @@ function emptyPeaks(): MetricsPeaks {
     totalRssBytes: 0,
     childRssBytes: 0,
     systemUsedBytes: null,
-    systemPressure: null,
+    systemUtilizationRatio: null,
     totalRssAt: null,
-    systemPressureAt: null,
+    systemUtilizationAt: null,
   }
 }
 
@@ -173,9 +173,9 @@ function updatePeaks(sample: MetricsSample): void {
     if (peaks.systemUsedBytes === null || sys.usedBytes > peaks.systemUsedBytes) {
       peaks.systemUsedBytes = sys.usedBytes
     }
-    if (peaks.systemPressure === null || sys.pressure > peaks.systemPressure) {
-      peaks.systemPressure = sys.pressure
-      peaks.systemPressureAt = sample.sampledAt
+    if (peaks.systemUtilizationRatio === null || sys.utilizationRatio > peaks.systemUtilizationRatio) {
+      peaks.systemUtilizationRatio = sys.utilizationRatio
+      peaks.systemUtilizationAt = sample.sampledAt
     }
   }
 }

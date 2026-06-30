@@ -930,7 +930,9 @@ export type ProcessMetricSample = {
   type: string
   name?: string
   cpuPercent: number
-  // Working set size in bytes (Electron reports KB; the main process converts).
+  // Reported process memory in bytes. Electron rows use Electron working set
+  // (reported in KB and converted by main); spawned child rows use OS RSS. On
+  // macOS neither should be treated as Activity Monitor physical footprint.
   memoryBytes: number
   threads?: number
   fileDescriptors?: number
@@ -943,19 +945,21 @@ export type ProcessMetricSample = {
 }
 
 // OS-wide memory, sampled out-of-band (getAppMetrics only covers Electron's own
-// processes). This is what actually predicts macOS "out of application memory"
-// — system exhaustion across every app — and the input the pressure-aware
-// evictor keys off. `availableBytes`/`pressure` are best-effort approximations;
-// `source` records how they were derived ('vm_stat' macOS, 'proc' linux, 'os'
-// fallback).
+// processes). This is what actually predicts system exhaustion across every app.
+// `availableBytes`/`utilizationRatio` are best-effort availability estimates;
+// they are not the operating system's memory-pressure signal. `source` records
+// how they were derived ('vm_stat' macOS, 'proc' linux, 'os' fallback).
 export type SystemMemorySample = {
   totalBytes: number
   availableBytes: number
   usedBytes: number
   compressedBytes: number
   swapUsedBytes: number
-  // 0..1 proxy: 1 - available/total.
-  pressure: number
+  // 0..1 estimated utilization: 1 - available/total. On Darwin, available
+  // includes free + speculative + inactive + purgeable pages, so usedBytes is
+  // an estimated non-reclaimable amount rather than Activity Monitor "Memory
+  // Used" and this ratio must never be labelled OS memory pressure.
+  utilizationRatio: number
   source: 'vm_stat' | 'proc' | 'os'
 }
 

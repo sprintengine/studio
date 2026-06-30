@@ -1,10 +1,13 @@
 import { useCallback, useMemo, useState } from 'react'
 
-import { Field, GhostButton, InlineNotice, PrimaryButton, Select, type SelectItem, Switch, Tooltip } from '../../ui'
+import { CliModelPickerButton, Field, GhostButton, InlineNotice, Popover, PrimaryButton, Select, type SelectItem, Switch } from '../../ui'
 import { useWorkspaceStore } from '../../../store/workspaceStore'
 import { selectAgentCliCatalog } from '../../workspace/newWorkspace/cliRuntimeOptions'
 import { orderSpecialistActions } from '../../../specialists/specialistActions'
-import { AGENT_SPAWN_PERMISSION_OPTIONS } from '../../workspace/SpawnAgentMenu'
+import { listSpecialistPacks, resolveEnabledSpecialists } from '../../../specialists/specialistPacks'
+import SpawnAgentMenu, { AGENT_SPAWN_PERMISSION_OPTIONS } from '../../workspace/SpawnAgentMenu'
+import { SpecialistActionIcon } from '../../AppIcons'
+import type { AgentCli, SpecialistActionId, SprintEngineCliPermissionPreset } from '../../../types/workspace'
 import type {
   AutomationDefinition,
   AutomationDefinitionDraft,
@@ -20,7 +23,6 @@ import {
   WEBHOOK_TRIGGER_KIND,
   actionLabel,
   automationCliFieldError,
-  automationCliSelectItems,
   isAuthorableTrigger,
   isScheduleConfig,
   providerUnavailableReason,
@@ -69,6 +71,22 @@ const CONFIG_FIELD_LABEL: Record<string, string> = {
   name: 'Agent name',
   skill: 'Skill',
 }
+
+// One control box vocabulary shared by every text input and the Select trigger
+// (h-7, 5px radius, --border-default on --bg-surface-raised) so inputs and
+// dropdowns read as one family instead of two. See TriggerFields.INPUT_CLASS,
+// kept in sync.
+const CONTROL_BASE =
+  'w-full rounded-[5px] border border-[color:var(--border-default)] bg-[color:var(--bg-surface-raised)] text-[12px] text-[color:var(--text-default)] outline-none transition-colors hover:border-[color:var(--border-strong)] focus-visible:border-[color:var(--accent-primary)]'
+const CONTROL_INPUT = `${CONTROL_BASE} h-7 px-2.5`
+// Auto-grows with its content (field-sizing: content) from the rows={4} floor up
+// to a cap, then scrolls internally — no native drag handle. The `rows` attribute
+// sets the minimum height; max-h caps the growth so the form stays usable.
+const CONTROL_TEXTAREA = `${CONTROL_BASE} max-h-[280px] resize-none overflow-y-auto field-sizing-content px-2.5 py-1.5 leading-5`
+
+// Stable empty fallbacks so the roster store selectors don't churn refs per render.
+const EMPTY_SPECIALIST_ORDER: SpecialistActionId[] = []
+const EMPTY_DISABLED_PACKS: string[] = []
 
 function schemaStringKeys(schema: AutomationsProviderView['configSchema']): string[] {
   const properties = (schema as { properties?: Record<string, unknown> }).properties
@@ -145,6 +163,7 @@ export function AutomationEditor({
     providers ? initialFormState(editor, providers) : EMPTY_FORM)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [agentPickerOpen, setAgentPickerOpen] = useState(false)
 
   // The cli config field is constrained to the same agent-picker catalog
   // SpawnAgentMenu uses (T2 plugin registry), not a new hardcoded list, so an
@@ -162,21 +181,43 @@ export function AutomationEditor({
   const configKeys = actionProvider ? schemaStringKeys(actionProvider.configSchema) : []
   const requiredKeys = actionProvider ? schemaRequiredKeys(actionProvider.configSchema) : new Set<string>()
 
-  // Agent picker options (same catalogs the live SpawnAgentMenu uses), persisted
-  // into the automation's action config so a scheduled run reproduces the choice.
-  const specialistItems = useMemo<SelectItem[]>(
-    () => [
-      { value: '', label: 'General agent' },
-      ...orderSpecialistActions([]).map((action) => ({ value: action.id as string, label: action.shortLabel ?? action.label ?? action.id })),
-    ],
-    [],
+  // The agent block reuses the live SpawnAgentMenu (select mode) for the
+  // specialist + permission preset, and CliModelPickerButton for the runtime —
+  // the same components the top-bar spawn menu uses — so the picker never drifts.
+  // The choice is persisted into the action config so a scheduled run reproduces it.
+  // Resolve the specialist descriptor from the SAME enabled-pack roster the
+  // embedded SpawnAgentMenu offers, so a custom-pack specialist the picker can
+  // select also labels correctly on the trigger row (not just the built-in set).
+  const specialistOrder = useWorkspaceStore((s) => s.appSettings.specialistOrder ?? EMPTY_SPECIALIST_ORDER)
+  const disabledSpecialistPacks = useWorkspaceStore((s) => s.appSettings.specialistPacks?.disabled ?? EMPTY_DISABLED_PACKS)
+  const sprintEngineRoleRegistry = useWorkspaceStore((s) => s.sprintEngineRoleRegistry)
+  const specialistRoster = useMemo(
+    () => orderSpecialistActions(
+      specialistOrder,
+      resolveEnabledSpecialists(disabledSpecialistPacks, listSpecialistPacks(sprintEngineRoleRegistry)),
+    ),
+    [specialistOrder, disabledSpecialistPacks, sprintEngineRoleRegistry],
   )
-  const modelItems = useMemo<SelectItem[]>(() => {
-    const entry = cliCatalog.find((option) => option.value === (form.config.cli || cliCatalog[0]?.value))
-    const options = entry?.modelSelection?.options ?? []
-    return [{ value: '', label: 'CLI default' }, ...options.map((model) => ({ value: model.id, label: model.label ?? model.id }))]
-  }, [cliCatalog, form.config.cli])
+  const selectedSpecialist = form.config.specialistId
+    ? specialistRoster.find((action) => action.id === form.config.specialistId) ?? null
+    : null
+  const selectedCli = (form.config.cli || cliCatalog[0]?.value || 'claude-code') as AgentCli
+  const selectedCliLabel = cliCatalog.find((option) => option.value === selectedCli)?.label ?? selectedCli
+  const permissionLabel =
+    AGENT_SPAWN_PERMISSION_OPTIONS.find((option) => option.value === (form.config.permissionPreset || 'default'))?.label
+    ?? 'Default permissions'
   const showAgentPicker = !actionUnavailableReason && configKeys.includes('cli')
+
+  // Plain-language read-back of the whole automation (altitude / friendliness):
+  // shown only for the scheduled spawn-agent shape it describes.
+  const scheduleReadback =
+    showAgentPicker && form.triggerKind === 'schedule'
+      ? `Runs ${
+          form.cadenceType === 'interval'
+            ? `every ${form.everyMinutes} min`
+            : `${form.cadenceType === 'weekly' ? 'weekly' : 'daily'} at ${form.timeLocal}`
+        }, ${selectedSpecialist ? `spawns ${selectedSpecialist.shortLabel}` : 'runs a general agent'} on ${selectedCliLabel}.`
+      : null
 
   // A loaded cron schedule (or unknown third-party family) has no authoring
   // control — it is read-only and round-trips verbatim. Schedule/repo-event/
@@ -315,9 +356,12 @@ export function AutomationEditor({
           value={form.name}
           onChange={(e) => update('name', e.target.value)}
           placeholder="Nightly review of this repo"
-          className="w-full rounded-md border border-[color:var(--border-strong)] bg-[color:var(--bg-surface)] px-2.5 py-1.5 text-[12px] text-[color:var(--text-default)] outline-none focus-visible:border-[color:var(--accent-primary)]"
+          className={CONTROL_INPUT}
         />
       </Field>
+      {scheduleReadback ? (
+        <p className="-mt-1 text-[11px] text-[color:var(--text-subtle)]">{scheduleReadback}</p>
+      ) : null}
 
       <TriggerFields
         editor={editor}
@@ -327,8 +371,8 @@ export function AutomationEditor({
       />
 
       {/* Action — schema-driven from providers:list. */}
-      <fieldset className="flex flex-col gap-3 rounded-md border border-[color:var(--border-subtle)] p-3">
-        <legend className="px-1 text-[11px] font-medium text-[color:var(--text-muted)]">Action</legend>
+      <fieldset className="flex flex-col gap-3">
+        <legend className="text-[11px] font-medium text-[color:var(--text-muted)]">Action</legend>
         <Field label="Action" htmlFor="automation-action">
           <Select
             ariaLabel="Action"
@@ -343,90 +387,124 @@ export function AutomationEditor({
             {actionUnavailableReason}
           </InlineNotice>
         ) : (
-          configKeys.map((key) => {
-            const required = requiredKeys.has(key)
-            const label = CONFIG_FIELD_LABEL[key] ?? key
-            const id = `automation-config-${key}`
-            return (
-              <Field key={key} label={label} htmlFor={id} required={required}>
-                {key === 'cli' ? (
-                  <Select
-                    ariaLabel="Agent CLI"
-                    value={form.config[key] ?? ''}
-                    onChange={(value) => update('config', { ...form.config, [key]: value })}
-                    items={automationCliSelectItems(form.config[key], cliCatalog)}
-                  />
-                ) : key === 'prompt' ? (
-                  <textarea
-                    id={id}
-                    rows={4}
-                    value={form.config[key] ?? ''}
-                    onChange={(e) => update('config', { ...form.config, [key]: e.target.value })}
-                    placeholder="Review the changes on this repo and summarise risks."
-                    className="w-full resize-y rounded-md border border-[color:var(--border-strong)] bg-[color:var(--bg-surface)] px-2.5 py-1.5 text-[12px] leading-5 text-[color:var(--text-default)] outline-none focus-visible:border-[color:var(--accent-primary)]"
-                  />
-                ) : (
-                  <input
-                    id={id}
-                    type="text"
-                    value={form.config[key] ?? ''}
-                    onChange={(e) => update('config', { ...form.config, [key]: e.target.value })}
-                    className="w-full rounded-md border border-[color:var(--border-strong)] bg-[color:var(--bg-surface)] px-2.5 py-1.5 text-[12px] text-[color:var(--text-default)] outline-none focus-visible:border-[color:var(--accent-primary)]"
-                  />
-                )}
-              </Field>
-            )
-          })
-        )}
-
-        {showAgentPicker ? (
           <>
-            <Field label="Specialist" htmlFor="automation-config-specialistId" help="Run as a specialist agent, or a general agent.">
-              <Select
-                ariaLabel="Specialist"
-                value={form.config.specialistId ?? ''}
-                onChange={(value) => update('config', { ...form.config, specialistId: value })}
-                items={specialistItems}
-              />
-            </Field>
-            <Field label="Model" htmlFor="automation-config-cliModel" help="Model passed at launch; empty uses the CLI default.">
-              <Select
-                ariaLabel="Agent model"
-                value={form.config.cliModel ?? ''}
-                onChange={(value) => update('config', { ...form.config, cliModel: value })}
-                items={modelItems}
-              />
-            </Field>
-            <Field label="Permissions" htmlFor="automation-config-permissionPreset" help="Bypass skips CLI permission prompts — use only in trusted repos.">
-              <div className="flex flex-wrap gap-1" role="group" aria-label="Permission preset">
-                {AGENT_SPAWN_PERMISSION_OPTIONS.map((option) => {
-                  const current = form.config.permissionPreset || 'default'
-                  const active = option.value === current
-                  const isBypass = option.value === 'bypass_all'
-                  return (
-                    <Tooltip key={option.value} content={option.title}>
+            {/* Agent block — the live spawn picker (select mode) for the specialist
+                + permission preset and CliModelPickerButton for the runtime, reused
+                from the top-bar spawn menu instead of bespoke flat dropdowns. */}
+            {showAgentPicker ? (
+              <div className="flex flex-col gap-1.5">
+                <span className="text-[12px] font-medium text-[color:var(--text-default)]">Agent</span>
+                <div className="overflow-hidden rounded-lg border border-[color:var(--border-default)] bg-[color:var(--bg-surface-raised)]">
+                  <Popover
+                    open={agentPickerOpen}
+                    onOpenChange={setAgentPickerOpen}
+                    ariaLabel="Choose agent"
+                    popupRole="menu"
+                    placement="bottom-start"
+                    renderTrigger={({ ref, triggerProps, togglePopover }) => (
                       <button
+                        ref={ref}
                         type="button"
-                        aria-pressed={active}
-                        onClick={() => update('config', { ...form.config, permissionPreset: option.value })}
-                        className={[
-                          'rounded px-2 py-1 text-[11px] font-medium transition-colors',
-                          active
-                            ? isBypass
-                              ? 'bg-[color:var(--tone-warn)]/12 text-[color:var(--tone-warn)]'
-                              : 'bg-[color:var(--accent-primary-soft)] text-[color:var(--text-strong)]'
-                            : 'border border-[color:var(--border-strong)] text-[color:var(--text-muted)] hover:bg-[color:var(--bg-hover)]',
-                        ].join(' ')}
+                        aria-label="Choose agent"
+                        onClick={togglePopover}
+                        className="grid w-full grid-cols-[24px_1fr_auto] items-center gap-3 px-2.5 py-2 text-left transition-colors hover:bg-[color:var(--bg-hover)]"
+                        {...triggerProps}
                       >
-                        {option.label}
+                        <span className="flex h-6 w-6 items-center justify-center text-[color:var(--text-muted)]">
+                          {selectedSpecialist ? (
+                            <SpecialistActionIcon icon={selectedSpecialist.icon} className="h-4 w-4" />
+                          ) : (
+                            <svg className="icon-md" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                              <circle cx="12" cy="8" r="3.4" stroke="currentColor" strokeWidth="1.7" />
+                              <path d="M5.5 19a6.5 6.5 0 0 1 13 0" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" />
+                            </svg>
+                          )}
+                        </span>
+                        <span className="min-w-0">
+                          <span className="block truncate text-[13px] font-medium text-[color:var(--text-strong)]">
+                            {selectedSpecialist ? selectedSpecialist.shortLabel : 'General agent'}
+                          </span>
+                          <span className="block truncate text-[11px] text-[color:var(--text-subtle)]">
+                            {selectedSpecialist ? selectedSpecialist.description : 'No soul — runs the prompt as written'}
+                          </span>
+                        </span>
+                        <svg className="icon-sm shrink-0 text-[color:var(--text-muted)]" viewBox="0 0 20 20" fill="none" aria-hidden="true">
+                          <path d="M5 7.5L10 12.5L15 7.5" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+                        </svg>
                       </button>
-                    </Tooltip>
-                  )
-                })}
+                    )}
+                  >
+                    <SpawnAgentMenu
+                      multiloopLaunchMenu={false}
+                      conversationSpawnAvailable={false}
+                      agentSpawnPermissionPreset={(form.config.permissionPreset as SprintEngineCliPermissionPreset) || 'default'}
+                      onChangeAgentSpawnPermissionPreset={(preset) => update('config', { ...form.config, permissionPreset: preset })}
+                      agentSpawnDebugMode={false}
+                      onChangeAgentSpawnDebugMode={() => {}}
+                      onSpawnTerminal={() => {}}
+                      onSpawnGeneral={() => {}}
+                      onSpawnConversation={() => {}}
+                      onSpawnSpecialist={() => {}}
+                      onSpawnMultiloopRole={() => {}}
+                      showOpenInNewChat={false}
+                      onClose={() => setAgentPickerOpen(false)}
+                      selectionMode={{
+                        selectedSpecialistId: (form.config.specialistId as SpecialistActionId) || null,
+                        cli: selectedCli,
+                        model: form.config.cliModel || undefined,
+                        onSelectSpecialist: (id, cli, model) =>
+                          setForm((prev) => ({ ...prev, config: { ...prev.config, specialistId: id, cli, cliModel: model ?? '' } })),
+                        onSelectGeneral: (cli, model) =>
+                          setForm((prev) => ({ ...prev, config: { ...prev.config, specialistId: '', cli, cliModel: model ?? '' } })),
+                      }}
+                    />
+                  </Popover>
+                  <div className="flex items-center gap-2 border-t border-[color:var(--border-subtle)] px-2.5 py-2">
+                    <span className="text-[11px] text-[color:var(--text-subtle)]">Runtime</span>
+                    <CliModelPickerButton
+                      ariaLabel="Agent runtime"
+                      options={cliCatalog}
+                      cli={selectedCli}
+                      effectiveModelFor={(candidate) => (candidate === selectedCli ? form.config.cliModel || undefined : undefined)}
+                      onSelectCli={(cli) => update('config', { ...form.config, cli, cliModel: '' })}
+                      onSelectModel={(cli, model) => update('config', { ...form.config, cli, cliModel: model ?? '' })}
+                    />
+                    <span className="ml-auto truncate text-[11px] text-[color:var(--text-subtle)]">Permissions · {permissionLabel}</span>
+                  </div>
+                </div>
+                <span className="text-[11px] text-[color:var(--text-subtle)]">Same roster, runtimes, and permission presets as the spawn menu.</span>
               </div>
-            </Field>
+            ) : null}
+
+            {configKeys.filter((key) => key !== 'cli').map((key) => {
+              const required = requiredKeys.has(key)
+              const label = CONFIG_FIELD_LABEL[key] ?? key
+              const id = `automation-config-${key}`
+              return (
+                <Field key={key} label={label} htmlFor={id} required={required}>
+                  {key === 'prompt' ? (
+                    <textarea
+                      id={id}
+                      rows={4}
+                      value={form.config[key] ?? ''}
+                      onChange={(e) => update('config', { ...form.config, [key]: e.target.value })}
+                      placeholder="Review the changes on this repo and summarise risks."
+                      className={CONTROL_TEXTAREA}
+                    />
+                  ) : (
+                    <input
+                      id={id}
+                      type="text"
+                      value={form.config[key] ?? ''}
+                      onChange={(e) => update('config', { ...form.config, [key]: e.target.value })}
+                      className={CONTROL_INPUT}
+                    />
+                  )}
+                </Field>
+              )
+            })}
           </>
-        ) : null}
+        )}
       </fieldset>
 
       <div className="flex items-center justify-between gap-3">

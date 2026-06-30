@@ -54,6 +54,7 @@ import {
 } from '../../utils/sprintengine'
 import MulticodeMark from '../brand/MulticodeMark'
 import MulticodeWordmark from '../brand/MulticodeWordmark'
+import { CreationBackdrop } from '../backdrops/CreationBackdrop'
 import { CloseIconButton, Field, GhostButton, Select, TruncatedText, WizardProgress } from '../ui'
 import {
   analyzeWorkspaceTargetPath,
@@ -1919,8 +1920,9 @@ export default function NewWorkspacePanel({
       aria-labelledby="new-workspace-title"
       tabIndex={-1}
       onKeyDown={handleSectionKeyDown}
-      className="relative flex h-full min-h-0 flex-col bg-[color:var(--bg-app)] outline-none"
+      className="relative isolate flex h-full min-h-0 flex-col bg-[color:var(--bg-app)] outline-none"
     >
+      <CreationBackdrop surface="workspace" />
       {guidedRuntimeState ? (
         <div
           aria-hidden={!guidedFlowVisible}

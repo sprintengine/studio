@@ -154,11 +154,39 @@ function ConversationProviderIcon({ className }: { className?: string }) {
   )
 }
 
+// A trailing check marking the persisted selection in select mode — the listbox
+// idiom where the check is the durable "selected" mark and the accent background
+// stays the transient keyboard/hover cue, so the two never compete on one row.
+function SelectedCheck() {
+  return (
+    <svg className="icon-sm shrink-0 text-[color:var(--accent-primary)]" viewBox="0 0 10 10" aria-hidden="true">
+      <path d="M2 5.2l2 2 4-4" stroke="currentColor" strokeWidth="1.6" fill="none" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  )
+}
+
+// Select mode. When provided, the menu picks a persisted choice (the Automations
+// editor's agent block) instead of spawning: row click / Enter report the chosen
+// specialist (or General) and runtime to the caller, and the per-row CLI chips,
+// drag-reorder, Terminal row, and Debug toggle are suppressed. The permission
+// footer stays driven by the existing agentSpawnPermissionPreset props, so the
+// caller's persisted preset round-trips. Absent = today's spawn-on-pick behavior,
+// byte-for-byte unchanged, so the top-bar and sidebar call sites are unaffected.
+export type SpawnAgentSelectionMode = {
+  selectedSpecialistId: SpecialistActionId | null
+  cli: AgentCli
+  model: string | undefined
+  onSelectSpecialist: (id: SpecialistActionId, cli: AgentCli, model: string | undefined) => void
+  onSelectGeneral: (cli: AgentCli, model: string | undefined) => void
+}
+
 export type SpawnAgentMenuProps = {
   // Multiloop workspaces spawn loop roles; everything else spawns specialists.
   multiloopLaunchMenu: boolean
   // Whether the Conversation agent quick row is offered.
   conversationSpawnAvailable: boolean
+  // When set, the menu selects (persists) a choice instead of spawning. See above.
+  selectionMode?: SpawnAgentSelectionMode
 
   // Shared permission preset. Owned by the parent because the spawn handlers
   // read it at spawn time; both pickers read/write the same remembered value.
@@ -205,6 +233,7 @@ export type SpawnAgentMenuProps = {
 export default function SpawnAgentMenu({
   multiloopLaunchMenu,
   conversationSpawnAvailable,
+  selectionMode,
   agentSpawnPermissionPreset,
   onChangeAgentSpawnPermissionPreset,
   agentSpawnDebugMode,
@@ -221,6 +250,8 @@ export default function SpawnAgentMenu({
   onOpenSpecialistInNewChat,
   onClose,
 }: SpawnAgentMenuProps) {
+  // Select mode reflects/sets a persisted choice; spawn mode (null) launches.
+  const selectMode = selectionMode ?? null
   // App-global agent preferences (persisted in settings). Read here so the menu
   // is self-contained at every call site.
   const lastSelectedCli = useWorkspaceStore((s) => normalizeSelectedCli(s.appSettings.lastSelectedCli))
@@ -286,7 +317,11 @@ export default function SpawnAgentMenu({
   const [agentMenuHighlight, setAgentMenuHighlight] = React.useState(() =>
     multiloopLaunchMenu
       ? rememberedHighlight(MULTILOOP_ROLES, (soul) => soul.role === lastSelectedMultiloopRole)
-      : rememberedHighlight(specialistActions, (action) => action.id === lastSelectedSpecialist),
+      : rememberedHighlight(
+          specialistActions,
+          // In select mode, seed the highlight on the persisted pick; otherwise the last-used row.
+          (action) => action.id === (selectionMode?.selectedSpecialistId ?? lastSelectedSpecialist),
+        ),
   )
   const [chipPopoverForRole, setChipPopoverForRole] = React.useState<ChipPopoverForRole>(null)
   const agentMenuSearchRef = React.useRef<HTMLInputElement>(null)
@@ -383,7 +418,7 @@ export default function SpawnAgentMenu({
     : MULTILOOP_ROLES
   const visibleItems = multiloopLaunchMenu ? filteredMultiloop : filteredSpecialists
   const safeHighlight = visibleItems.length === 0 ? 0 : Math.min(agentMenuHighlight, visibleItems.length - 1)
-  const quickTerminalVisible = !multiloopLaunchMenu && (!menuQuery || 'terminal'.includes(menuQuery))
+  const quickTerminalVisible = !multiloopLaunchMenu && !selectMode && (!menuQuery || 'terminal'.includes(menuQuery))
   const quickGeneralVisible = !multiloopLaunchMenu && (!menuQuery || 'general agent'.includes(menuQuery))
   // Single conversation-agent quick row (when a provider/model is available).
   // Non-roving like the other quick rows; the model is chosen later in the
@@ -398,8 +433,24 @@ export default function SpawnAgentMenu({
     return next?.value ?? current
   }
 
-  const selectSpecialist = (id: SpecialistActionId, cli: AgentCli) => {
+  const selectSpecialist = (id: SpecialistActionId, cli: AgentCli, model?: string) => {
+    if (selectMode) {
+      selectMode.onSelectSpecialist(id, cli, model)
+      onClose()
+      return
+    }
     onSpawnSpecialist(id, cli)
+    onClose()
+  }
+  // General is the soulless row: in select mode it clears the specialist (the
+  // automation runs the prompt as written); in spawn mode it launches a General.
+  const selectGeneral = (cli: AgentCli, model?: string) => {
+    if (selectMode) {
+      selectMode.onSelectGeneral(cli, model)
+      onClose()
+      return
+    }
+    onSpawnGeneral(cli)
     onClose()
   }
   const selectMultiloopRole = (role: MultiloopRole, cli: AgentCli) => {
@@ -427,7 +478,10 @@ export default function SpawnAgentMenu({
         selectMultiloopRole(role, resolvePickerCli(multiloopRoleCliDefaults[role] ?? lastSelectedCli))
       } else {
         const id = (item as SpecialistAction).id
-        selectSpecialist(id, resolvePickerCli(specialistCliDefaults[id] ?? lastSelectedCli))
+        const cli = selectMode
+          ? resolvePickerCli(selectMode.cli)
+          : resolvePickerCli(specialistCliDefaults[id] ?? lastSelectedCli)
+        selectSpecialist(id, cli, selectMode?.model)
       }
       return
     }
@@ -539,25 +593,25 @@ export default function SpawnAgentMenu({
             )
           })() : null}
           {quickGeneralVisible ? (() => {
-            const generalCli = resolvePickerCli(lastSelectedCli)
+            const generalCli = resolvePickerCli(selectMode ? selectMode.cli : lastSelectedCli)
             const generalChipOpen = chipPopoverForRole?.kind === 'general'
             return (
               <div className="relative">
                 <button
                   type="button"
-                  role="menuitem"
-                  onClick={() => {
-                    onSpawnGeneral(generalCli)
-                    onClose()
-                  }}
+                  role={selectMode ? 'menuitemradio' : 'menuitem'}
+                  aria-checked={selectMode ? !selectMode.selectedSpecialistId : undefined}
+                  onClick={() => selectGeneral(generalCli, selectMode?.model)}
                   onContextMenu={(event) => {
                     event.preventDefault()
+                    if (selectMode) return
                     setChipPopoverForRole((current) => (current?.kind === 'general' ? null : { kind: 'general' }))
                   }}
                   className="grid w-full grid-cols-[20px_1fr_auto] items-center gap-2.5 py-1.5 pl-2.5 pr-2 text-left text-[color:var(--text-default)] transition-colors hover:bg-[rgba(92,124,255,0.05)] hover:text-[color:var(--text-strong)]"
                 >
                   <CliIcon cli={generalCli} className="h-4 w-4 text-[color:var(--text-muted)]" />
                   <span className="truncate text-[13px]">General Agent</span>
+                  {selectMode ? (!selectMode.selectedSpecialistId ? <SelectedCheck /> : <span aria-hidden="true" />) : (
                   <Tooltip placement="bottom" content={`Agent CLI: ${cliWithModelLabel(generalCli, undefined)} · right-click or click to change`}>
                     <span
                       role="button"
@@ -572,6 +626,7 @@ export default function SpawnAgentMenu({
                       <CliIcon cli={generalCli} className="icon-sm" />
                     </span>
                   </Tooltip>
+                  )}
                 </button>
                 {generalChipOpen ? (
                   // primitive-duplication-allow: nested chip menu inside the menu's floating surface, matching the specialist rows; the surrounding surface owns outside-click and focus restoration.
@@ -749,8 +804,16 @@ export default function SpawnAgentMenu({
               })
             : filteredSpecialists.map((action, index) => {
                 const highlighted = index === safeHighlight
-                const boundCli = resolvePickerCli(specialistCliDefaults[action.id] ?? lastSelectedCli)
-                const boundModel = resolveSurfaceModel(boundCli, specialistModelDefaults[action.id])
+                const boundCli = selectMode
+                  ? resolvePickerCli(selectMode.cli)
+                  : resolvePickerCli(specialistCliDefaults[action.id] ?? lastSelectedCli)
+                const boundModel = selectMode
+                  ? selectMode.model
+                  : resolveSurfaceModel(boundCli, specialistModelDefaults[action.id])
+                // In select mode the persisted pick is marked by a trailing check
+                // (see SelectedCheck); the accent background stays the transient
+                // keyboard/hover cue, so hovering another row never lights two.
+                const picked = selectMode ? action.id === selectMode.selectedSpecialistId : false
                 const popoverOpen = chipPopoverForRole?.kind === 'specialist' && chipPopoverForRole.id === action.id
                 const dragging = draggingSpecialistId === action.id
                 const dropTarget =
@@ -762,7 +825,7 @@ export default function SpawnAgentMenu({
                   <div
                     key={action.id}
                     className={`relative ${dragging ? 'opacity-40' : ''} ${dropTarget ? 'shadow-[inset_0_2px_0_var(--accent-primary)]' : ''}`}
-                    draggable={specialistDragEnabled}
+                    draggable={specialistDragEnabled && !selectMode}
                     onDragStart={(event) => {
                       setDraggingSpecialistId(action.id)
                       event.dataTransfer.effectAllowed = 'move'
@@ -791,11 +854,12 @@ export default function SpawnAgentMenu({
                     <button
                       type="button"
                       role="menuitemradio"
-                      aria-checked={highlighted}
-                      onClick={() => selectSpecialist(action.id, boundCli)}
+                      aria-checked={selectMode ? picked : highlighted}
+                      onClick={() => selectSpecialist(action.id, boundCli, boundModel)}
                       onContextMenu={(event) => {
                         event.preventDefault()
                         setAgentMenuHighlight(index)
+                        if (selectMode) return
                         setChipPopoverForRole({ kind: 'specialist', id: action.id })
                       }}
                       onMouseEnter={() => setAgentMenuHighlight(index)}
@@ -812,6 +876,7 @@ export default function SpawnAgentMenu({
                         className={`h-4 w-4 ${highlighted ? 'text-[color:var(--text-strong)]' : 'text-[color:var(--text-muted)]'}`}
                       />
                       <TruncatedText as="span" text={action.shortLabel} className="text-[13px]" />
+                      {selectMode ? (picked ? <SelectedCheck /> : <span aria-hidden="true" />) : (
                       <Tooltip placement="bottom" content={`Agent CLI: ${cliWithModelLabel(boundCli, boundModel)} · click to change`}>
                         <span
                           role="button"
@@ -833,6 +898,7 @@ export default function SpawnAgentMenu({
                           <CliIcon cli={boundCli} className="icon-sm" />
                         </span>
                       </Tooltip>
+                      )}
                     </button>
                     {popoverOpen ? (
                       <div
@@ -901,7 +967,7 @@ export default function SpawnAgentMenu({
             </Tooltip>
           )
         })}
-        <SpawnDebugToggle active={agentSpawnDebugMode} onChange={onChangeAgentSpawnDebugMode} />
+        {selectMode ? null : <SpawnDebugToggle active={agentSpawnDebugMode} onChange={onChangeAgentSpawnDebugMode} />}
       </div>
     </div>
   )

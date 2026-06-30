@@ -3,12 +3,10 @@ import { readFile } from 'node:fs/promises'
 import { freemem, totalmem } from 'node:os'
 import type { SystemMemorySample } from '../shared/electron-api'
 
-// OS-wide memory is what actually predicts macOS "out of application memory":
-// the crash fires on *system* exhaustion (Multicode + simulator + Cursor + OS),
-// not on any single process. getAppMetrics only sees Electron's own processes,
-// so the panel needs this separate signal — and the pressure-aware evictor
-// (lifecycle epic, Phase 2) keys off it. Sampled on a throttle off the hot path,
-// mirroring thread-counts / child-process-metrics.
+// OS-wide memory is what actually predicts system exhaustion across Multicode,
+// other apps, and the OS. getAppMetrics only sees Electron's own processes, so
+// the panel needs this separate availability estimate. Sampled on a throttle off
+// the hot path, mirroring thread-counts / child-process-metrics.
 export const SYSTEM_MEMORY_SAMPLE_THROTTLE_MS = 5_000
 
 export type SystemMemoryDeps = {
@@ -23,9 +21,10 @@ export type SystemMemoryDeps = {
 // macOS `vm_stat` prints "(page size of 16384 bytes)" then "Key: value." lines
 // in pages. We approximate *available* memory as the pages the kernel can hand
 // out without paging (free + speculative + inactive + purgeable) and treat the
-// rest as used; `pressure` is 1 - available/total. Compressor + swap are carried
-// raw so the panel can show the stress signal directly. Returns null when the
-// output is unparseable so the caller falls back to the os-module reading.
+// rest as an estimated non-reclaimable amount. `utilizationRatio` is simply
+// 1 - available/total; it is not macOS memory pressure. Compressor + swap are
+// carried raw as separate context. Returns null when the output is unparseable
+// so the caller falls back to the os-module reading.
 export function parseDarwinVmStat(
   vmStat: string,
   swapUsage: string,
@@ -54,7 +53,7 @@ export function parseDarwinVmStat(
     usedBytes: Math.max(0, totalBytes - clampedAvailable),
     compressedBytes,
     swapUsedBytes,
-    pressure: totalBytes > 0 ? clamp01(1 - clampedAvailable / totalBytes) : 0,
+    utilizationRatio: totalBytes > 0 ? clamp01(1 - clampedAvailable / totalBytes) : 0,
     source: 'vm_stat',
   }
 }
@@ -84,7 +83,7 @@ export function parseLinuxMemInfo(memInfo: string, totalBytes: number): SystemMe
     usedBytes: Math.max(0, totalBytes - clampedAvailable),
     compressedBytes: 0,
     swapUsedBytes: Math.max(0, swapTotal - swapFree),
-    pressure: totalBytes > 0 ? clamp01(1 - clampedAvailable / totalBytes) : 0,
+    utilizationRatio: totalBytes > 0 ? clamp01(1 - clampedAvailable / totalBytes) : 0,
     source: 'proc',
   }
 }
@@ -100,7 +99,7 @@ function osMemorySample(totalBytes: number): SystemMemorySample {
     usedBytes: Math.max(0, totalBytes - available),
     compressedBytes: 0,
     swapUsedBytes: 0,
-    pressure: totalBytes > 0 ? clamp01(1 - available / totalBytes) : 0,
+    utilizationRatio: totalBytes > 0 ? clamp01(1 - available / totalBytes) : 0,
     source: 'os',
   }
 }

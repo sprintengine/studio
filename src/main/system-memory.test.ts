@@ -36,7 +36,7 @@ async function main(): Promise<void> {
     assert.equal(s!.usedBytes, TOTAL - expectedAvailable)
     assert.equal(s!.compressedBytes, 320000 * pageSize)
     assert.equal(s!.swapUsedBytes, Math.round(1357.62 * 1024 ** 2))
-    assert.ok(s!.pressure > 0 && s!.pressure < 1)
+    assert.ok(s!.utilizationRatio > 0 && s!.utilizationRatio < 1)
   })
 
   await run('parseDarwinVmStat returns null on unparseable output', () => {
@@ -53,7 +53,7 @@ Pages occupied by compressor:             1.
     assert.ok(s)
     assert.equal(s!.availableBytes, TOTAL)
     assert.equal(s!.usedBytes, 0)
-    assert.equal(s!.pressure, 0)
+    assert.equal(s!.utilizationRatio, 0)
   })
 
   await run('parseLinuxMemInfo prefers MemAvailable and reads swap', () => {

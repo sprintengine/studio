@@ -66,14 +66,29 @@ run('type labels use the public backlog vocabulary', () => {
   })
 })
 
-run('all view shows everything except archived', () => {
+run('all view is the firehose — shows every status, terminal states included', () => {
   assert.equal(matchesBacklogView(mk({}), 'all'), true)
-  assert.equal(matchesBacklogView(mk({ status: 'archived' }), 'all'), false)
+  assert.equal(matchesBacklogView(mk({ status: 'completed' }), 'all'), true)
+  assert.equal(matchesBacklogView(mk({ status: 'archived' }), 'all'), true)
+})
+
+run('active view is the default working set — hides completed and archived', () => {
+  assert.equal(matchesBacklogView(mk({ status: 'idea' }), 'active'), true)
+  assert.equal(matchesBacklogView(mk({ status: 'in_progress' }), 'active'), true)
+  assert.equal(matchesBacklogView(mk({ status: 'completed' }), 'active'), false)
+  assert.equal(matchesBacklogView(mk({ status: 'archived' }), 'active'), false)
+})
+
+run('completed view shows only completed', () => {
+  assert.equal(matchesBacklogView(mk({ status: 'completed' }), 'completed'), true)
+  assert.equal(matchesBacklogView(mk({ status: 'idea' }), 'completed'), false)
+  assert.equal(matchesBacklogView(mk({ status: 'archived' }), 'completed'), false)
 })
 
 run('archived view shows only archived', () => {
   assert.equal(matchesBacklogView(mk({ status: 'archived' }), 'archived'), true)
   assert.equal(matchesBacklogView(mk({ status: 'idea' }), 'archived'), false)
+  assert.equal(matchesBacklogView(mk({ status: 'completed' }), 'archived'), false)
 })
 
 run('quick wins are XS/S with high or critical priority', () => {
@@ -81,8 +96,9 @@ run('quick wins are XS/S with high or critical priority', () => {
   assert.equal(matchesBacklogView(mk({ difficulty: 's', criticality: 'critical' }), 'quick_wins'), true)
   assert.equal(matchesBacklogView(mk({ difficulty: 'm', criticality: 'critical' }), 'quick_wins'), false)
   assert.equal(matchesBacklogView(mk({ difficulty: 's', criticality: 'normal' }), 'quick_wins'), false)
-  // Archived never leaks into a triage lens even when sizes/priority match.
+  // Neither terminal state leaks into a triage lens even when sizes/priority match.
   assert.equal(matchesBacklogView(mk({ difficulty: 'xs', criticality: 'high', status: 'archived' }), 'quick_wins'), false)
+  assert.equal(matchesBacklogView(mk({ difficulty: 'xs', criticality: 'high', status: 'completed' }), 'quick_wins'), false)
 })
 
 run('strategic bets are L/XL with high or critical priority', () => {
@@ -257,11 +273,16 @@ run('the named lenses partition a mixed backlog as documented', () => {
     mk({ difficulty: 'l', criticality: 'high' }), // strategic bet
     mk({ difficulty: 'xl', criticality: 'low' }), // defer
     mk({ difficulty: 'm' }), // unestimated (no priority)
+    mk({ status: 'completed' }), // completed
     mk({ status: 'archived' }), // archived
   ]
-  const lenses: BacklogView[] = ['quick_wins', 'strategic_bets', 'defer', 'unestimated', 'archived']
+  const lenses: BacklogView[] = ['quick_wins', 'strategic_bets', 'defer', 'unestimated', 'completed', 'archived']
   const counts = lenses.map((lens) => backlog.filter((item) => matchesBacklogView(item, lens)).length)
-  assert.deepEqual(counts, [1, 1, 1, 1, 1])
+  assert.deepEqual(counts, [1, 1, 1, 1, 1, 1])
+  // Active is the working set: the four estimated/unestimated items, neither
+  // terminal one. All items is the firehose: every row.
+  assert.equal(backlog.filter((item) => matchesBacklogView(item, 'active')).length, 4)
+  assert.equal(backlog.filter((item) => matchesBacklogView(item, 'all')).length, 6)
 })
 
 let failures = 0

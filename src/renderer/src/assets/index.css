@@ -1283,6 +1283,30 @@ samp,
   font-variant-numeric: tabular-nums;
 }
 
+/* Native time/date input picker glyph, tamed to the theme. The default
+ * ::-webkit-calendar-picker-indicator is near-black and reads as foreign chrome
+ * on dark surfaces; mute it and let it brighten on hover so a native control
+ * (kept for its built-in keyboard + accessibility) sits in the form's box
+ * vocabulary instead of looking bolted on. */
+.time-control::-webkit-calendar-picker-indicator {
+  filter: invert(0.65);
+  opacity: 0.6;
+  cursor: pointer;
+}
+.time-control::-webkit-calendar-picker-indicator:hover {
+  opacity: 1;
+}
+/* Light-surface themes already render a legible dark glyph — inverting it there
+ * would wash it out. (sage/fernery/greenhouse are dark mid-greens, so they keep
+ * the inverted glyph above.) */
+:root[data-theme="light"] .time-control::-webkit-calendar-picker-indicator,
+:root[data-theme="vellum"] .time-control::-webkit-calendar-picker-indicator,
+:root[data-theme="herbarium"] .time-control::-webkit-calendar-picker-indicator,
+:root[data-theme="paper"] .time-control::-webkit-calendar-picker-indicator {
+  filter: none;
+  opacity: 0.7;
+}
+
 /* Highlight palette — user-chosen workspace/tab tints.
  * Theme-portable: each background tints the current surface toward the hue,
  * each text class blends the strong text color with the hue. On Dark themes
@@ -1669,6 +1693,53 @@ samp,
 @media (prefers-reduced-motion: reduce) {
   .suspense-fallback {
     animation: none;
+  }
+}
+
+/* Creation-surface backdrop — the per-theme editorial backplate behind a
+ * creation / empty / first-run surface (see CreationBackdrop.tsx and
+ * assets/backdrops/README.md). Decorative and inert: it sits at z-index:-10 so
+ * a parent `isolate` context drops it above the panel's --bg-app fill but behind
+ * all in-flow content, and never intercepts pointer events. Fit is `cover` +
+ * center so it always fills at the plate's native 16:9, cropping symmetrically;
+ * the plates are authored center-quiet, so a crop only ever eats edge art. */
+.creation-backdrop {
+  position: absolute;
+  inset: 0;
+  z-index: -10;
+  pointer-events: none;
+  background-position: center;
+  background-size: cover;
+  background-repeat: no-repeat;
+  opacity: 1;
+  transition: opacity var(--motion-normal) var(--motion-ease);
+}
+
+/* The fade-out side of the contract: the chat plate cross-fades away the moment
+ * the first message arrives, rather than unmounting under the new content. */
+.creation-backdrop--hidden {
+  opacity: 0;
+}
+
+/* Panel-sized center scrim — pools the theme's own --bg-app in the quiet center
+ * and thins toward the art at the edges, so the foreground card/composer keeps
+ * WCAG AA contrast no matter how the image crops. Sized to the panel (not the
+ * image), which is what decouples contrast safety from image fit. */
+.creation-backdrop-scrim {
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(
+    ellipse 66% 62% at 50% 50%,
+    var(--bg-app) 0%,
+    color-mix(in oklab, var(--bg-app) 86%, transparent) 42%,
+    color-mix(in oklab, var(--bg-app) 55%, transparent) 72%,
+    transparent 100%
+  );
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .creation-backdrop {
+    transition: none;
   }
 }
 

@@ -46,7 +46,7 @@ export function BacklogFilterMenu({
   onViewChange,
   onSortChange,
   onGroupChange,
-  defaultView = 'all',
+  defaultView = 'active',
   defaultSort = 'recent',
   defaultGroup = 'none',
   className,

@@ -91,13 +91,17 @@ export function isBacklogUnestimated(item: Pick<BacklogItem, 'difficulty' | 'cri
 }
 
 export function matchesBacklogView(item: Triageable, view: BacklogView): boolean {
-  // Archived is its own lens; every other lens hides archived so a stale item
-  // never surfaces as an active idea.
+  // Completed and archived are each their own terminal lens, and 'all' is the
+  // firehose that shows everything. Every other lens — the default 'active'
+  // working set and the triage presets — hides both terminal states so a
+  // finished or stale item never resurfaces as live work.
+  if (view === 'all') return true
   if (view === 'archived') return item.status === 'archived'
-  if (item.status === 'archived') return false
+  if (view === 'completed') return item.status === 'completed'
+  if (item.status === 'archived' || item.status === 'completed') return false
 
   switch (view) {
-    case 'all':
+    case 'active':
       return true
     case 'quick_wins':
       return item.difficulty != null && SMALL.has(item.difficulty)

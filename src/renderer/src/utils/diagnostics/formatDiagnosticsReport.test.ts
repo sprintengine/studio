@@ -99,7 +99,7 @@ run('report carries every section and key totals', () => {
   assert.match(report, /Nova/)
 })
 
-run('memory trend renders the system-memory line with pressure when present', () => {
+run('memory trend labels utilization without claiming OS pressure', () => {
   const aggregation = aggregateDiagnostics({
     sessions: [],
     activeWorkspaceIds: new Set<string>(),
@@ -116,7 +116,7 @@ run('memory trend renders the system-memory line with pressure when present', ()
         usedBytes: 12 * 1024 * MIB,
         compressedBytes: 5 * 1024 * MIB,
         swapUsedBytes: 1024 * MIB,
-        pressure: 0.75,
+        utilizationRatio: 0.75,
         source: 'vm_stat',
       },
     },
@@ -130,18 +130,20 @@ run('memory trend renders the system-memory line with pressure when present', ()
       totalRssBytes: 9000 * MIB,
       childRssBytes: 4000 * MIB,
       systemUsedBytes: 14 * 1024 * MIB,
-      systemPressure: 0.9,
+      systemUtilizationRatio: 0.9,
       totalRssAt: NOW - 30_000,
-      systemPressureAt: NOW - 30_000,
+      systemUtilizationAt: NOW - 30_000,
     },
   }
   const report = formatDiagnosticsReport({ aggregation, metrics: null, profiles: [], metricsTrend, now: NOW })
   assert.match(report, /## Memory trend/)
-  assert.match(report, /System memory: .* used \(75% pressure\)/)
+  assert.match(report, /Estimated system memory: .* non-reclaimable \(75% utilization\)/)
+  assert.doesNotMatch(report, /OS pressure|% pressure/)
   assert.match(report, /compressed/)
   assert.match(report, /swap/)
   // Session high-water mark surfaces even though `current` is lower.
-  assert.match(report, /Peak this session: total RSS .* · OS pressure 90%/)
+  assert.match(report, /Peak this session: reported process memory .* · estimated system utilization 90%/)
+  assert.match(report, /Memory note: Electron rows are working set; child rows are OS RSS/)
 })
 
 run('memory trend shows system memory unavailable when the sample lacks it', () => {

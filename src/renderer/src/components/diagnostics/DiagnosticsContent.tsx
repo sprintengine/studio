@@ -2,7 +2,7 @@ import React, { useEffect, useId, useMemo, useRef, useState } from 'react'
 import type { ProcessMetricKind, ProcessMetricsSnapshot, TerminalReapEvent, WorkspaceMemorySample } from '../../../../shared/electron-api'
 import { Select } from '../ui/Select'
 import { Tabs, TabPanel, type TabItem } from '../ui/Tabs'
-import { useTerminalSessions } from '../../hooks/useTerminalSessions'
+import { getLiveTerminalSessionsSnapshot, useTerminalSessions } from '../../hooks/useTerminalSessions'
 import { formatRelativeMsAgo } from '../../utils/relativeTime'
 import {
   aggregateDiagnostics,
@@ -21,12 +21,10 @@ import { formatBytes, formatDiagnosticsReport } from '../../utils/diagnostics/fo
 import {
   aggregatePerfEvents,
   getPerfEventSamples,
-  subscribePerfEvents,
 } from '../../utils/diagnostics/perfEventStore'
 import {
   getLongTaskSamples,
   startLongTaskObserver,
-  subscribeLongTasks,
   summarizeLongTasks,
 } from '../../utils/diagnostics/longTaskStore'
 import {
@@ -48,16 +46,13 @@ import {
 import { diffIpcSnapshots, type IpcThroughput } from '../../utils/diagnostics/ipcThroughputStore'
 import {
   getTerminalWriteSamples,
-  subscribeTerminalWrites,
   summarizeTerminalThroughput,
 } from '../../utils/diagnostics/terminalThroughputStore'
 import {
   collectScrollbackFootprint,
-  subscribeTerminalInstances,
 } from '../../utils/diagnostics/terminalInstanceRegistry'
 import {
   getTimerRegistrations,
-  subscribeTimers,
   summarizeTimers,
 } from '../../utils/diagnostics/timerRegistry'
 import type { IpcStatsSnapshot } from '../../../../shared/electron-api'
@@ -276,9 +271,14 @@ function DashboardCard({
 }
 
 export default function DiagnosticsContent({ headerActions }: Props) {
-  // Diagnostics renders live per-terminal fields the dedup signature omits
-  // (retainedOutputBytes, visible, lastOutputAt), so it opts into every broadcast.
-  const sessions = useTerminalSessions({ live: true })
+  // Keep lifecycle changes immediate through the semantic subscription, but do
+  // not re-render Diagnostics for every high-churn live broadcast. The existing
+  // one-second sample clock below reads the latest live snapshot, including the
+  // retainedOutputBytes / visible / lastOutputAt fields omitted by the semantic
+  // signature. Diagnostics remains current without becoming part of the hot path
+  // it is trying to observe.
+  useTerminalSessions()
+  const sessions = getLiveTerminalSessionsSnapshot()
   const { workspaceNames, activeWorkspaceIds } = useWorkspaceSyncContext()
 
   const [metrics, setMetrics] = useState<ProcessMetricsSnapshot | null>(null)
@@ -312,24 +312,25 @@ export default function DiagnosticsContent({ headerActions }: Props) {
   useEffect(() => {
     let cancelled = false
     const poll = () => {
-      setNow(Date.now())
+      const ipcSnapshot = window.api.diagnosticsGetIpcStats?.()
       window.api
         .diagnosticsGetProcessMetrics()
         .then((snapshot) => {
           if (cancelled) return
+          const sampledAt = Date.now()
           setMetrics(snapshot)
+          setNow(sampledAt)
           // Feed the rolling history (with this renderer's JS heap) so the trend,
           // growth-rate, and baseline-diff all read from one append-only series.
           appendMetricsSample(deriveMetricsSample(snapshot, readRendererHeap()))
+          if (ipcSnapshot) {
+            setIpcThroughput(diffIpcSnapshots(prevIpcRef.current, ipcSnapshot))
+            prevIpcRef.current = ipcSnapshot
+          }
         })
-        .catch(() => {})
-      // IPC counters are synchronous preload state; diff against the previous
-      // snapshot to get per-second rates. Guarded for older preloads.
-      const ipcSnapshot = window.api.diagnosticsGetIpcStats?.()
-      if (ipcSnapshot && !cancelled) {
-        setIpcThroughput(diffIpcSnapshots(prevIpcRef.current, ipcSnapshot))
-        prevIpcRef.current = ipcSnapshot
-      }
+        .catch(() => {
+          if (!cancelled) setNow(Date.now())
+        })
     }
     poll()
     const id = window.setInterval(poll, PROCESS_METRICS_POLL_MS)
@@ -339,23 +340,21 @@ export default function DiagnosticsContent({ headerActions }: Props) {
     }
   }, [])
 
-  // Start the longtask observer while the panel is mounted; stops on unmount so
-  // there is no observer cost when the panel is closed.
-  useEffect(() => startLongTaskObserver(), [])
+  // Rendering instrumentation is intentionally opt-in. Keeping a Performance
+  // Observer and a continuous rAF callback alive on every Diagnostics tab makes
+  // the panel perturb the workload it is measuring, especially on high-refresh
+  // displays. Selecting Rendering starts both; leaving it disposes both.
+  useEffect(() => {
+    if (activeTab !== 'rendering') return
+    return startLongTaskObserver()
+  }, [activeTab])
 
-  // Frame-cadence monitor (rAF). Like the longtask observer it runs only while
-  // the panel is mounted. Samples accumulate silently and are read on the 1s
-  // `now` tick below — it deliberately does not re-render per frame.
-  useEffect(() => startFrameMonitor(), [])
+  useEffect(() => {
+    if (activeTab !== 'rendering') return
+    return startFrameMonitor()
+  }, [activeTab])
 
   useEffect(() => subscribeReplayProfiles(() => setProfiles(getReplayProfiles())), [])
-  // Re-render on perf-event / long-task / timer / terminal arrivals between polls
-  // so spikes show promptly rather than waiting for the next 1s tick.
-  useEffect(() => subscribePerfEvents(() => setNow(Date.now())), [])
-  useEffect(() => subscribeLongTasks(() => setNow(Date.now())), [])
-  useEffect(() => subscribeTimers(() => setNow(Date.now())), [])
-  useEffect(() => subscribeTerminalWrites(() => setNow(Date.now())), [])
-  useEffect(() => subscribeTerminalInstances(() => setNow(Date.now())), [])
 
   const perfRollup = useMemo(() => aggregatePerfEvents(getPerfEventSamples(), { now }), [now])
   const longTaskSummary = useMemo(() => summarizeLongTasks(getLongTaskSamples(), { now }), [now])
@@ -531,13 +530,12 @@ export default function DiagnosticsContent({ headerActions }: Props) {
               return (
                 <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-4">
                   <DashboardCard
-                    label="OS memory pressure"
-                    value={sys ? `${Math.round(sys.pressure * 100)}%` : '—'}
-                    tone={sys && sys.pressure >= 0.7 ? 'warn' : undefined}
-                    detail={sys ? `${formatBytes(sys.usedBytes)} / ${formatBytes(sys.totalBytes)} used` : 'sampling…'}
+                    label="Estimated memory utilization"
+                    value={sys ? `${Math.round(sys.utilizationRatio * 100)}%` : '—'}
+                    detail={sys ? `${formatBytes(sys.usedBytes)} estimated non-reclaimable` : 'sampling…'}
                   />
                   <DashboardCard
-                    label="Total RSS"
+                    label="Reported process memory"
                     value={formatBytes(c.totalRssBytes)}
                     detail={`renderer ${formatBytes(c.rendererRssBytes)} · main ${formatBytes(c.mainRssBytes)} · children ${formatBytes(c.childRssBytes)}`}
                   />
@@ -550,10 +548,9 @@ export default function DiagnosticsContent({ headerActions }: Props) {
                   <DashboardCard
                     label="Peak this session"
                     value={peaks && peaks.totalRssBytes > 0 ? formatBytes(peaks.totalRssBytes) : '—'}
-                    tone={peaks && peaks.systemPressure !== null && peaks.systemPressure >= 0.7 ? 'warn' : undefined}
                     detail={
-                      peaks && peaks.systemPressure !== null
-                        ? `OS pressure ${Math.round(peaks.systemPressure * 100)}%`
+                      peaks && peaks.systemUtilizationRatio !== null
+                        ? `estimated utilization ${Math.round(peaks.systemUtilizationRatio * 100)}%`
                         : peaks && peaks.totalRssAt
                           ? formatRelativeMsAgo(peaks.totalRssAt, now) || 'just now'
                           : undefined
@@ -566,15 +563,13 @@ export default function DiagnosticsContent({ headerActions }: Props) {
                   />
                   <DashboardCard
                     label="Rendering"
-                    value={frameStats.fps !== null ? `${frameStats.fps} fps` : '—'}
-                    tone={frameStats.fps !== null && frameStats.fps < 50 ? 'warn' : undefined}
-                    detail={`${frameStats.longFrameCount} long frames (${frameStats.longFramePercent}%)`}
+                    value={frameStats.fps !== null ? `${frameStats.fps} fps last` : 'paused'}
+                    detail="open Rendering tab to sample"
                   />
                   <DashboardCard
                     label="Main-thread stalls"
-                    value={String(longTaskSummary.count)}
-                    tone={longTaskSummary.count > 0 ? 'warn' : undefined}
-                    detail={`${longTaskSummary.totalBlockingMs} ms blocking / ${Math.round(longTaskSummary.windowMs / 1000)}s`}
+                    value={longTaskSummary.count > 0 ? `${longTaskSummary.count} last` : 'paused'}
+                    detail="open Rendering tab to observe"
                   />
                   <DashboardCard
                     label="Terminals"
@@ -614,7 +609,7 @@ export default function DiagnosticsContent({ headerActions }: Props) {
                   <Th numeric>PID</Th>
                   <Th>Type / name</Th>
                   <Th numeric>CPU %</Th>
-                  <Th numeric>Memory (RSS)</Th>
+                  <Th numeric>Reported memory</Th>
                   <Th numeric>Threads</Th>
                   <Th numeric>FDs</Th>
                 </tr>
@@ -637,9 +632,10 @@ export default function DiagnosticsContent({ headerActions }: Props) {
             <p className="text-[color:var(--text-muted)]">Process metrics unavailable.</p>
           )}
           <p className="mt-1 text-[10px] text-[color:var(--text-subtle)]">
-            Total RSS includes Electron processes plus spawned agent, terminal, and helper children. CPU % is the
-            rolling share since the previous sample. Thread counts are sampled from the OS off the poll path
-            (refreshed every few seconds); FD counts are not collected in this build.
+            Electron rows use Electron working set; child rows use OS RSS. Their sum is reported process memory,
+            not macOS physical footprint or pressure attribution. Activity Monitor Memory can differ, especially
+            for GPU-owned IOSurfaces. CPU % is the rolling share since the previous sample. Thread counts are
+            sampled from the OS off the poll path (refreshed every few seconds); FD counts are not collected.
           </p>
         </section>
 
@@ -649,7 +645,7 @@ export default function DiagnosticsContent({ headerActions }: Props) {
           {metricsTrend.current ? (
             <div className="flex flex-col gap-1 text-[11px] text-[color:var(--text-default)]">
               <div className="flex flex-wrap gap-x-4 gap-y-1 tabular-nums">
-                <span>Total RSS <strong>{formatBytes(metricsTrend.current.totalRssBytes)}</strong></span>
+                <span>Reported process memory <strong>{formatBytes(metricsTrend.current.totalRssBytes)}</strong></span>
                 <span>renderer {formatBytes(metricsTrend.current.rendererRssBytes)}</span>
                 <span>main {formatBytes(metricsTrend.current.mainRssBytes)}</span>
                 <span>gpu {formatBytes(metricsTrend.current.gpuRssBytes)}</span>
@@ -661,20 +657,16 @@ export default function DiagnosticsContent({ headerActions }: Props) {
               {metricsTrend.current.systemMemory && (
                 <div className="flex flex-wrap gap-x-4 gap-y-1 tabular-nums">
                   <span>
-                    System memory{' '}
-                    <strong
-                      className={
-                        metricsTrend.current.systemMemory.pressure >= 0.7
-                          ? 'text-[color:var(--tone-error)]'
-                          : ''
-                      }
-                    >
+                    Estimated system utilization{' '}
+                    <strong>
+                      {Math.round(metricsTrend.current.systemMemory.utilizationRatio * 100)}%
+                    </strong>{' '}
+                    (
                       {formatBytes(metricsTrend.current.systemMemory.usedBytes)} /{' '}
                       {formatBytes(metricsTrend.current.systemMemory.totalBytes)}
-                    </strong>{' '}
-                    ({Math.round(metricsTrend.current.systemMemory.pressure * 100)}% pressure)
+                    {' '}estimated non-reclaimable)
                   </span>
-                  <span>available {formatBytes(metricsTrend.current.systemMemory.availableBytes)}</span>
+                  <span>estimated available {formatBytes(metricsTrend.current.systemMemory.availableBytes)}</span>
                   {metricsTrend.current.systemMemory.compressedBytes > 0 && (
                     <span>compressed {formatBytes(metricsTrend.current.systemMemory.compressedBytes)}</span>
                   )}
@@ -711,13 +703,11 @@ export default function DiagnosticsContent({ headerActions }: Props) {
               </div>
               {metricsTrend.peaks && metricsTrend.peaks.totalRssBytes > 0 && (
                 <div className="flex flex-wrap gap-x-4 gap-y-1 tabular-nums text-[color:var(--text-muted)]">
-                  <span>Peak this session: total RSS {formatBytes(metricsTrend.peaks.totalRssBytes)}</span>
+                  <span>Peak this session: reported memory {formatBytes(metricsTrend.peaks.totalRssBytes)}</span>
                   <span>children {formatBytes(metricsTrend.peaks.childRssBytes)}</span>
-                  {metricsTrend.peaks.systemPressure !== null && (
-                    <span
-                      className={metricsTrend.peaks.systemPressure >= 0.7 ? 'text-[color:var(--tone-error)]' : ''}
-                    >
-                      OS pressure {Math.round(metricsTrend.peaks.systemPressure * 100)}%
+                  {metricsTrend.peaks.systemUtilizationRatio !== null && (
+                    <span>
+                      estimated utilization {Math.round(metricsTrend.peaks.systemUtilizationRatio * 100)}%
                     </span>
                   )}
                 </div>

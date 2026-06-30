@@ -94,8 +94,8 @@ run('the menu seeds agentMenuHighlight from the remembered pick via a lazy initi
   )
   assert.match(
     menuSource,
-    /rememberedHighlight\(specialistActions, \(action\) => action\.id === lastSelectedSpecialist\)/,
-    'the specialist roster restores from lastSelectedSpecialist',
+    /rememberedHighlight\(\s*specialistActions,[\s\S]*?action\.id === \(selectionMode\?\.selectedSpecialistId \?\? lastSelectedSpecialist\)/,
+    'the specialist roster restores from the select-mode pick when present, otherwise lastSelectedSpecialist',
   )
   assert.match(
     menuSource,

@@ -744,7 +744,7 @@ export function reapStaleTerminals(now = Date.now()): string[] {
 // (freeze-the-view): the pty is killed to reclaim its RAM but the session and
 // its painted scrollback are retained with `suspended = true`. Reopening the
 // workspace then replays the frozen history and resumes the agent (`--resume`
-// where the cli supports it) only on the first keystroke or the play button —
+// where the cli supports it) only on the first keystroke, pane click, or the paused footer —
 // it never auto-respawns. Disposing instead (the old behavior) dropped the
 // session and scrollback, so reopen fell through to the renderer's resume-spawn
 // and the agent silently relaunched. The 24h `reapStaleTerminals` backstop still

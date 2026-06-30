@@ -177,8 +177,8 @@ assert.deepEqual(
 useWorkspaceStore.getState().setBacklogViewState(firstId, { view: 'bogus' as never })
 assert.equal(
   useWorkspaceStore.getState().workspaces.find((workspace) => workspace.id === firstId)?.backlogState?.view,
-  'all',
-  'An unknown lens is coerced to all',
+  'active',
+  'An unknown lens is coerced to the default Active lens',
 )
 
 // Git panel: per-scope drafts set/clear independently and never bleed.

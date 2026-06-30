@@ -129,14 +129,18 @@ const LIFECYCLE_LABEL: Partial<Record<BacklogItemStatus, string>> = {
 }
 
 // Lenses double as filters: the named views express the difficulty/criticality
-// ranges a single-value dropdown can't (XS/S, L/XL), and Archived is reached
-// here rather than via a separate status control.
+// ranges a single-value dropdown can't (XS/S, L/XL), and the terminal Completed
+// and Archived states are reached here rather than via a separate status
+// control. Active is the default — the live working set with the two terminal
+// states hidden — while All items is the firehose that hides nothing.
 const VIEW_ITEMS: SelectItem<BacklogView>[] = [
+  { value: 'active', label: 'Active' },
   { value: 'all', label: 'All items' },
   { value: 'quick_wins', label: 'Quick wins' },
   { value: 'strategic_bets', label: 'Strategic bets' },
   { value: 'defer', label: 'Defer candidates' },
   { value: 'unestimated', label: 'Unestimated' },
+  { value: 'completed', label: 'Completed' },
   { value: 'archived', label: 'Archived' },
 ]
 
@@ -164,7 +168,17 @@ const VIEW_SCOPE_LABEL: Partial<Record<BacklogView, string>> = {
   strategic_bets: 'strategic bets',
   defer: 'defer candidates',
   unestimated: 'unestimated',
+  completed: 'completed',
   archived: 'archived',
+}
+
+// The lens that surfaces a given item when revealing or navigating to it: its
+// own terminal view for finished/archived items (which the default Active lens
+// hides), else the Active working set.
+function lensForItemStatus(status: BacklogItemStatus): BacklogView {
+  if (status === 'archived') return 'archived'
+  if (status === 'completed') return 'completed'
+  return 'active'
 }
 
 // Below this content width the list + detail two-pane split would be cramped,
@@ -226,7 +240,7 @@ export default function BacklogPanel({ workspaceId, onStartFuturePlan }: Workspa
 
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [search, setSearch] = useState(() => initialBacklogState?.search ?? '')
-  const [view, setView] = useState<BacklogView>(() => initialBacklogState?.view ?? 'all')
+  const [view, setView] = useState<BacklogView>(() => initialBacklogState?.view ?? 'active')
   const [sort, setSort] = useState<BacklogSort>(() => initialBacklogState?.sort ?? 'recent')
   const [group, setGroup] = useState<BacklogGroup>(() => initialBacklogState?.group ?? 'none')
   // Collapsed epic groups, keyed by epicGroupKey. Session-only (not persisted):
@@ -310,13 +324,15 @@ export default function BacklogPanel({ workspaceId, onStartFuturePlan }: Workspa
   // keyboard order. Children keep the active sort because `filtered` is already
   // sorted and groupItemsByEpic preserves input order.
   // A group's collapse state = its default flipped by any explicit user toggle.
-  // Default: expanded — except an epic group in the Archived lens, which defaults
-  // collapsed so an archived epic reads as one rolled-up unit, not N loose
-  // child rows (T11). `collapsedGroups` records the groups the user flipped away
-  // from their default, so the chevron toggle works the same in both lenses.
+  // Default: expanded — except an epic group in a terminal lens (Completed or
+  // Archived), which defaults collapsed so a finished epic reads as one
+  // rolled-up unit, not N loose child rows (T11). `collapsedGroups` records the
+  // groups the user flipped away from their default, so the chevron toggle works
+  // the same in every lens.
   const isGroupCollapsed = useCallback(
     (epicGroup: BacklogEpicGroup) => {
-      const defaultCollapsed = view === 'archived' && epicGroup.kind === 'epic'
+      const defaultCollapsed =
+        (view === 'archived' || view === 'completed') && epicGroup.kind === 'epic'
       const flipped = collapsedGroups.has(epicGroupKey(epicGroup))
       return flipped ? !defaultCollapsed : defaultCollapsed
     },
@@ -473,12 +489,12 @@ export default function BacklogPanel({ workspaceId, onStartFuturePlan }: Workspa
       (candidate) => candidate.relativePath.replace(/\\/g, '/').toLowerCase() === wanted,
     )
     if (item) {
-      // `selected` derives from `filtered`, so reset search and the lens (to the
-      // item's own view if archived, else all) to keep the row visible in the
-      // list beside its detail.
+      // `selected` derives from `filtered`, so reset search and widen the lens to
+      // one that contains the item (its terminal view if completed/archived, else
+      // the Active working set) to keep the row visible beside its detail.
       setPendingReveal(null)
       setSearch('')
-      setView(item.status === 'archived' ? 'archived' : 'all')
+      setView(lensForItemStatus(item.status))
       setSelectedId(item.id)
       setShowDetailInSingle(true)
     } else if (items.length > 0) {
@@ -543,7 +559,7 @@ export default function BacklogPanel({ workspaceId, onStartFuturePlan }: Workspa
     // a record already exists).
     const isDefault =
       !snapshot.selectedRelativePath &&
-      snapshot.view === 'all' &&
+      snapshot.view === 'active' &&
       snapshot.sort === 'recent' &&
       snapshot.group === 'none' &&
       snapshot.search === ''
@@ -627,15 +643,16 @@ export default function BacklogPanel({ workspaceId, onStartFuturePlan }: Workspa
   // `selected` detail resolves only within `filtered` and the stale-selection
   // effect drops a selectedId that isn't visible, so selecting blindly would dead
   // click (blank the pane). Mirror the agent-glyph reveal: when the target isn't
-  // already visible, widen to its own view (Archived for an archived item, else
-  // All items) and clear the search so the row — and its detail — stay in view.
+  // already visible, widen to a lens that contains it (Completed/Archived for a
+  // terminal item, else the Active working set) and clear the search so the row —
+  // and its detail — stay in view.
   const navigateToBacklogItem = useCallback(
     (id: string) => {
       const target = items.find((item) => item.id === id)
       if (!target) return
       if (!filtered.some((item) => item.id === id)) {
         setSearch('')
-        setView(target.status === 'archived' ? 'archived' : 'all')
+        setView(lensForItemStatus(target.status))
       }
       setSelectedId(id)
       setShowDetailInSingle(true)
@@ -1105,11 +1122,12 @@ export default function BacklogPanel({ workspaceId, onStartFuturePlan }: Workspa
     }))
   }, [items])
 
-  // The header count is the visible row count. By default that is the
-  // non-archived backlog (archived is opt-in); when a filter narrows the set —
-  // especially the Archived view — label the scope so a bare number never reads
-  // as the whole backlog (T16 AC3).
-  const headerScopeLabel = view !== 'all'
+  // The header count is the visible row count. The two whole-set views — Active
+  // (the default working set) and All items (the firehose) — read as "the
+  // backlog" and carry no scope word; every narrowing lens (Completed, Archived,
+  // the triage presets) labels its scope so a bare number never reads as the
+  // whole backlog (T16 AC3).
+  const headerScopeLabel = view !== 'all' && view !== 'active'
     ? VIEW_SCOPE_LABEL[view]
     : search.trim() !== ''
       ? 'filtered'

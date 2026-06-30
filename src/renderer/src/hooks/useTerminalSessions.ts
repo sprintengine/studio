@@ -10,6 +10,7 @@ import {
 } from './terminalSessionsStore'
 
 export {
+  getLiveTerminalSessionsSnapshot,
   getTerminalSessionsSignature,
   refreshTerminalSessions,
   subscribeLiveTerminalSessionSnapshots,
