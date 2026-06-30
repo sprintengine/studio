@@ -4,7 +4,7 @@ import { unlink } from 'fs/promises'
 import { join } from 'path'
 import type { AgentCli, CliRuntimeSettings, SprintEngineCliPermissionPreset, TerminalPathStyle } from '../shared/electron-api'
 import { applyDebugDirective } from '../shared/debug-directive'
-import { buildAgentShellCommand, pluginIdForCli, renderAgentLaunchArgv, resolveCliRuntimeSettings, resolveDebugSkillInvocation } from './agent-launch-render'
+import { buildAgentShellCommand, pluginIdForCli, renderAgentLaunchArgv, renderCliLaunchEnv, resolveCliRuntimeSettings, resolveDebugSkillInvocation } from './agent-launch-render'
 import { getPluginById, getPluginSprintEngineRegistryRoots } from './plugin-registry-instance'
 import { withMulticodeCliPath } from './cli-install'
 import { getColorScheme } from './color-scheme-store'
@@ -77,6 +77,43 @@ export function applyAgentIdentityEnv(
   const next = { ...baseEnv }
   for (const key of AGENT_IDENTITY_ENV_KEYS) delete next[key]
   return { ...next, ...agentIdentityEnv(input) }
+}
+
+// Identity/terminal keys a CLI manifest's `launch.env` must never override.
+// The agent-identity vars are owned by `applyAgentIdentityEnv` (applied at spawn
+// time, so they already win); TERM/COLORTERM are the terminal's own identity.
+// Listed here so the provider-env merge refuses to clobber them even if a
+// manifest declared one. The set is the boundary between what the app knows
+// about a session and what a manifest may configure: a manifest describes its
+// PROVIDER, and every key in here is a fact about the pane or about which agent
+// this is — neither of which a manifest is in a position to restate.
+const PROTECTED_LAUNCH_ENV_KEYS = new Set<string>([
+  ...AGENT_IDENTITY_ENV_KEYS,
+  'TERM',
+  'COLORTERM',
+])
+
+// Merge a CLI manifest's rendered `launch.env` onto a base session env. The
+// provider env wins on collision (it is the whole point — e.g. pointing
+// ANTHROPIC_BASE_URL at Z.AI) except for the protected identity keys above.
+// When the provider sets ANTHROPIC_AUTH_TOKEN (the Anthropic-compatible endpoint
+// auth scheme), any inherited ANTHROPIC_API_KEY is stripped so a globally
+// configured real Anthropic key cannot shadow the redirect. No-op (returns the
+// base unchanged) for the common case of a manifest with no `launch.env`.
+export function mergeProviderLaunchEnv(
+  base: Record<string, string>,
+  providerEnv: Record<string, string> | undefined
+): Record<string, string> {
+  if (!providerEnv || Object.keys(providerEnv).length === 0) return base
+  const next = { ...base }
+  if (providerEnv.ANTHROPIC_AUTH_TOKEN) {
+    delete next.ANTHROPIC_API_KEY
+  }
+  for (const [key, value] of Object.entries(providerEnv)) {
+    if (PROTECTED_LAUNCH_ENV_KEYS.has(key)) continue
+    next[key] = value
+  }
+  return next
 }
 
 // JSON for the dynamic plugin registry roots the souls CLI should also search
@@ -415,7 +452,8 @@ function buildSprintEngineShellBootstrap(
   sprintEngineStatePath?: string,
   memoryRootPath?: string,
   memoryRelativeRoot?: string,
-  managedMcpEnv?: Record<string, string>
+  managedMcpEnv?: Record<string, string>,
+  providerLaunchEnv?: Record<string, string>
 ): string {
   const shellStatePath =
     sprintEngineStatePath && process.platform === 'win32' ? toWslPath(sprintEngineStatePath) : sprintEngineStatePath
@@ -444,6 +482,21 @@ function buildSprintEngineShellBootstrap(
   }
 
   for (const [key, value] of Object.entries(managedMcpEnv ?? {})) {
+    if (/^[A-Za-z_][A-Za-z0-9_]*$/.test(key)) {
+      lines.push(`export ${key}=${quotePosix(value)}`)
+    }
+  }
+
+  // CLI manifest `launch.env` (e.g. the Z.AI runtime's ANTHROPIC_* redirect).
+  // Emitted as exports so the value is authoritative inside the login shell and
+  // crosses the WSL boundary, where the Windows process env is not inherited.
+  // ANTHROPIC_API_KEY is unset first when an auth token is provided, matching
+  // the PTY-env precedence in `mergeProviderLaunchEnv`.
+  if (providerLaunchEnv?.ANTHROPIC_AUTH_TOKEN) {
+    lines.push('unset ANTHROPIC_API_KEY')
+  }
+  for (const [key, value] of Object.entries(providerLaunchEnv ?? {})) {
+    if (PROTECTED_LAUNCH_ENV_KEYS.has(key)) continue
     if (/^[A-Za-z_][A-Za-z0-9_]*$/.test(key)) {
       lines.push(`export ${key}=${quotePosix(value)}`)
     }
@@ -582,13 +635,14 @@ function buildWslShellScript(
   memoryRootPath?: string,
   memoryRelativeRoot?: string,
   managedMcpEnv?: Record<string, string>,
-  debugMode = false
+  debugMode = false,
+  providerLaunchEnv?: Record<string, string>
 ): string {
   const shellInitialPrompt = normalizeInitialPromptPaths(initialPrompt, 'wsl', [cwd, sprintEngineStatePath, memoryRootPath])
   return [
     buildUserShellStartup(),
     `cd ${quotePosix(toWslPath(cwd))}`,
-    buildSprintEngineShellBootstrap(sprintEngineStatePath, memoryRootPath, memoryRelativeRoot, managedMcpEnv),
+    buildSprintEngineShellBootstrap(sprintEngineStatePath, memoryRootPath, memoryRelativeRoot, managedMcpEnv, providerLaunchEnv),
     buildAgentLaunchCommand(cli, sessionId, resume, shellInitialPrompt, cliRuntime, cliPermissionPreset, cliModel, debugMode),
     'exec bash -li',
   ].join('; ')
@@ -607,11 +661,29 @@ export function getShellLaunchConfig(
   memoryRootPath?: string,
   memoryRelativeRoot?: string,
   managedMcpEnv?: Record<string, string>,
-  debugMode = false
+  debugMode = false,
+  cliAuthToken?: string
 ): ShellLaunchConfig {
   assertExistingDirectory(cwd)
 
   const cliRuntime = getCliRuntimeSettings(cli, cliRuntimes)
+
+  // CLI manifests may redirect the agent at an alternate API endpoint via
+  // `launch.env` (e.g. the Z.AI runtime points the `claude` binary at Z.AI's
+  // Anthropic-compatible endpoint). Render it once here with the resolved auth
+  // token, then inject it into the spawned env (PTY env for native, bootstrap
+  // exports for WSL). Empty for the ordinary CLIs, so their launch is unchanged.
+  const providerLaunchEnv = renderCliLaunchEnv({
+    cli,
+    sessionId,
+    initialPrompt,
+    cliRuntime,
+    cliPermissionPreset,
+    cliModel,
+    debugMode,
+    colorScheme: getColorScheme(),
+    secretToken: cliAuthToken,
+  })
 
   if (process.platform === 'win32' && !cliRuntime.useWsl) {
     const windowsCwd = toWindowsPath(cwd)
@@ -642,7 +714,10 @@ export function getShellLaunchConfig(
     return {
       command: 'powershell.exe',
       args: ['-NoLogo', '-NoExit', '-ExecutionPolicy', 'Bypass', '-File', startupScriptPath],
-      env: withSprintEngineEnv(getTerminalEnv(), windowsCwd, windowsStatePath, windowsMemoryRootPath, memoryRelativeRoot, managedMcpEnv),
+      env: mergeProviderLaunchEnv(
+        withSprintEngineEnv(getTerminalEnv(), windowsCwd, windowsStatePath, windowsMemoryRootPath, memoryRelativeRoot, managedMcpEnv),
+        providerLaunchEnv
+      ),
       cwd: windowsCwd,
       pathStyle: 'windows',
       startupScriptPath,
@@ -666,7 +741,8 @@ export function getShellLaunchConfig(
         memoryRootPath,
         memoryRelativeRoot,
         managedMcpEnv,
-        debugMode
+        debugMode,
+        providerLaunchEnv
       )
     )
     return {
@@ -685,7 +761,7 @@ export function getShellLaunchConfig(
   const shellPath = getPosixShellPath()
   const shellName = shellPath.split(/[\\/]/).at(-1)
   const launchCommand = [
-    buildSprintEngineShellBootstrap(sprintEngineStatePath, memoryRootPath, memoryRelativeRoot, managedMcpEnv),
+    buildSprintEngineShellBootstrap(sprintEngineStatePath, memoryRootPath, memoryRelativeRoot, managedMcpEnv, providerLaunchEnv),
     buildAgentLaunchCommand(cli, sessionId, resume, initialPrompt, cliRuntime, cliPermissionPreset, cliModel, debugMode),
     buildInteractiveShellExec(shellPath, shellName),
   ].join('; ')
@@ -695,7 +771,10 @@ export function getShellLaunchConfig(
     command: shellPath,
     args: isLoginShell(shellName) ? ['-l', startupScriptPath] : [startupScriptPath],
     cwd,
-    env: withSprintEngineEnv(getTerminalEnv(), cwd, sprintEngineStatePath, memoryRootPath, memoryRelativeRoot, managedMcpEnv),
+    env: mergeProviderLaunchEnv(
+      withSprintEngineEnv(getTerminalEnv(), cwd, sprintEngineStatePath, memoryRootPath, memoryRelativeRoot, managedMcpEnv),
+      providerLaunchEnv
+    ),
     pathStyle: 'posix',
     startupScriptPath,
   }

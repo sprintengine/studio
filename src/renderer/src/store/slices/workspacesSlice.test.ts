@@ -291,6 +291,18 @@ state = useWorkspaceStore.getState()
 assert.equal(state.workspaces.find((workspace) => workspace.id === firstId)?.agents['agent-1'], undefined)
 assert.equal(state.workspaces.find((workspace) => workspace.id === secondId)?.agents['agent-1']?.name, 'Agent One')
 
+// removeAgent deletes the record entirely (used by automation run-finalize dispose).
+useWorkspaceStore.getState().removeAgent(secondId, 'agent-1')
+state = useWorkspaceStore.getState()
+assert.equal(
+  state.workspaces.find((workspace) => workspace.id === secondId)?.agents['agent-1'],
+  undefined,
+  'removeAgent deletes the agent record from the workspace',
+)
+// Idempotent: a repeat call and a missing-workspace call are silent no-ops.
+useWorkspaceStore.getState().removeAgent(secondId, 'agent-1')
+useWorkspaceStore.getState().removeAgent('no-such-workspace', 'agent-1')
+
 useWorkspaceStore.getState().openFile(firstId, '/tmp/example.ts', 'example.ts', 'const value = 1')
 useWorkspaceStore.getState().openFile(firstId, '/tmp/other.ts', 'other.ts', 'const other = 2')
 useWorkspaceStore.getState().moveOpenFileToWorkspace(firstId, secondId, '/tmp/example.ts')

@@ -333,6 +333,130 @@ function StatusTag({
 // model could not be passed, and terminal CLIs expose no live model catalog, so
 // this list is how new models are adopted between plugin updates. Rendered
 // inline inside the per-plugin configuration disclosure.
+// API-key entry for a CLI whose manifest declares `auth` (e.g. Z.AI). Reads and
+// writes through the shared credential store via the generic `credentialSecret*`
+// IPC — the same store the chat Providers tab uses. Mirrors the Providers tab's
+// masked/save/remove pattern; the value is write-only and never read back.
+function CliCredentialRow({
+  pluginId,
+  displayName,
+  label,
+}: {
+  pluginId: string
+  displayName: string
+  label: string
+}) {
+  const [status, setStatus] = useState<Awaited<ReturnType<typeof window.api.credentialSecretStatus>> | null>(null)
+  const [draft, setDraft] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [message, setMessage] = useState<string | null>(null)
+
+  useEffect(() => {
+    let active = true
+    void window.api.credentialSecretStatus({ id: pluginId }).then((result) => {
+      if (active) setStatus(result)
+    })
+    return () => {
+      active = false
+    }
+  }, [pluginId])
+
+  const configured = status?.ok === true && status.status.configured
+  const source = status?.ok === true ? status.status.source : 'none'
+  const persistence = status?.ok === true ? status.status.persistence : 'encrypted'
+  // Environment-sourced keys are owned outside the app; don't offer Remove.
+  const canClear = configured && source !== 'environment'
+  const inputId = `cli-credential-${pluginId}`
+
+  const save = async (): Promise<void> => {
+    const value = draft.trim()
+    if (!value || busy) return
+    setBusy(true)
+    setMessage(null)
+    const result = await window.api.credentialSecretSet({ id: pluginId, value })
+    setBusy(false)
+    if (result.ok) {
+      setStatus(result)
+      setDraft('')
+      setMessage('API key saved.')
+    } else {
+      setMessage(result.message)
+    }
+  }
+
+  const clear = async (): Promise<void> => {
+    if (busy) return
+    setBusy(true)
+    setMessage(null)
+    const result = await window.api.credentialSecretClear({ id: pluginId })
+    setBusy(false)
+    if (result.ok) {
+      setStatus(result)
+      setMessage('API key removed.')
+    } else {
+      setMessage(result.message)
+    }
+  }
+
+  return (
+    <div className="py-2.5 first:pt-0 last:pb-0">
+      <div className="text-[13px] font-medium text-[color:var(--text-strong)]">{label}</div>
+      <div className="mt-2 space-y-1.5">
+        {configured ? (
+          <div className="flex items-center gap-2">
+            <div className={`${ROW_INPUT_CLASS} flex flex-1 items-center tracking-[0.3em] text-[color:var(--text-muted)]`}>
+              <span className="sr-only">{displayName} API key is saved</span>
+              <span aria-hidden="true">••••••••••••</span>
+            </div>
+            {canClear ? (
+              <GhostButton size="md" onClick={() => void clear()} disabled={busy} className="h-8 shrink-0">
+                {busy ? 'Removing…' : 'Remove'}
+              </GhostButton>
+            ) : null}
+          </div>
+        ) : (
+          <div className="flex items-center gap-2">
+            <label htmlFor={inputId} className="sr-only">
+              {displayName} API key
+            </label>
+            <input
+              id={inputId}
+              type="password"
+              value={draft}
+              onChange={(event) => setDraft(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === 'Enter') {
+                  event.preventDefault()
+                  void save()
+                }
+              }}
+              placeholder="Paste API key"
+              autoComplete="off"
+              disabled={busy}
+              className={`${ROW_INPUT_CLASS} min-w-0 flex-1`}
+            />
+            <PrimaryButton size="md" onClick={() => void save()} disabled={busy || !draft.trim()} className="h-8 shrink-0">
+              {busy ? 'Saving…' : 'Save'}
+            </PrimaryButton>
+          </div>
+        )}
+        {configured && source === 'environment' ? (
+          <p className="text-[11px] leading-5 text-[color:var(--text-subtle)]">
+            Set from the environment. Remove it there to change it.
+          </p>
+        ) : configured && persistence === 'session' ? (
+          <p className="text-[11px] leading-5 text-[color:var(--tone-warn)]">
+            Stored for this session only — clears when the app quits.
+          </p>
+        ) : null}
+        <div aria-live="polite" className="text-[11px] leading-5 text-[color:var(--text-muted)] empty:hidden">
+          {message}
+        </div>
+      </div>
+    </div>
+  )
+}
+
 function PluginModelSettings({
   displayName,
   userModels,
@@ -2223,6 +2347,14 @@ export default function SettingsPanel({
                           displayName={plugin.displayName}
                           userModels={userModels}
                           onUserModelsChange={(models) => setCliRuntime(plugin.id, { models })}
+                        />
+                      ) : null}
+
+                      {plugin.auth ? (
+                        <CliCredentialRow
+                          pluginId={plugin.id}
+                          displayName={plugin.displayName}
+                          label={plugin.auth.label}
                         />
                       ) : null}
                     </div>

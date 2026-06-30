@@ -1700,19 +1700,28 @@ samp,
  * creation / empty / first-run surface (see CreationBackdrop.tsx and
  * assets/backdrops/README.md). Decorative and inert: it sits at z-index:-10 so
  * a parent `isolate` context drops it above the panel's --bg-app fill but behind
- * all in-flow content, and never intercepts pointer events. Fit is `cover` +
- * center so it always fills at the plate's native 16:9, cropping symmetrically;
- * the plates are authored center-quiet, so a crop only ever eats edge art. */
+ * all in-flow content, and never intercepts pointer events. The child image uses
+ * `object-fit: cover` + center so it always fills at the plate's native 16:9,
+ * cropping symmetrically; the plates are authored center-quiet, so a crop only
+ * ever eats edge art. */
 .creation-backdrop {
   position: absolute;
   inset: 0;
   z-index: -10;
   pointer-events: none;
-  background-position: center;
-  background-size: cover;
-  background-repeat: no-repeat;
+  overflow: hidden;
   opacity: 1;
   transition: opacity var(--motion-normal) var(--motion-ease);
+}
+
+.creation-backdrop-image {
+  position: absolute;
+  inset: 0;
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  object-position: center;
 }
 
 /* The fade-out side of the contract: the chat plate cross-fades away the moment

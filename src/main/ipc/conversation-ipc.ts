@@ -28,7 +28,7 @@ import type {
 import { ConversationRuntime } from '../conversation-runtime'
 import { getConversationProviderById, listConversationProviderRegistryEntries } from '../plugin-registry-instance'
 import { listOpenAiCompatibleModels, testOpenAiCompatibleConnection } from '../providers/openai-compatible-provider'
-import { ProviderSecretStore } from '../secret-store'
+import { getSharedCredentialStore } from '../secret-store'
 
 export type ConversationIpcHandlers = {
   listProviders(): ConversationProviderListResult
@@ -47,7 +47,7 @@ export type ConversationIpcHandlers = {
 }
 
 export function createConversationIpcHandlers(): ConversationIpcHandlers {
-  const secretStore = new ProviderSecretStore()
+  const secretStore = getSharedCredentialStore()
   const runtime = new ConversationRuntime({ secretStore })
   return {
     listProviders(): ConversationProviderListResult {

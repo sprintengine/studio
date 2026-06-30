@@ -515,6 +515,26 @@ export type ConversationSecretSetResult = ConversationSecretStatusResult
 
 export type ConversationSecretClearResult = ConversationSecretStatusResult
 
+// Generic credential IPC — the shared credential store surfaced for any owner
+// kind (CLI plugins AND conversation providers). `id` is the manifest id whose
+// `auth` descriptor owns the secret. Results reuse the conversation-secret
+// shapes, which are structurally generic.
+export type CredentialSecretStatusInput = {
+  id: string
+}
+
+export type CredentialSecretSetInput = CredentialSecretStatusInput & {
+  value: string
+}
+
+export type CredentialSecretClearInput = CredentialSecretStatusInput
+
+export type CredentialSecretStatusResult = ConversationSecretStatusResult
+
+export type CredentialSecretSetResult = ConversationSecretSetResult
+
+export type CredentialSecretClearResult = ConversationSecretClearResult
+
 // Runtime CLI identity is a plugin id. Bundled choices include `codex` and
 // `claude-code`.
 export type AgentCli = string
@@ -2134,6 +2154,9 @@ export type ElectronApi = {
   conversationSecretStatus: (input: ConversationSecretStatusInput) => Promise<ConversationSecretStatusResult>
   conversationSecretSet: (input: ConversationSecretSetInput) => Promise<ConversationSecretSetResult>
   conversationSecretClear: (input: ConversationSecretClearInput) => Promise<ConversationSecretClearResult>
+  credentialSecretStatus: (input: CredentialSecretStatusInput) => Promise<CredentialSecretStatusResult>
+  credentialSecretSet: (input: CredentialSecretSetInput) => Promise<CredentialSecretSetResult>
+  credentialSecretClear: (input: CredentialSecretClearInput) => Promise<CredentialSecretClearResult>
   conversationSessionStart: (input: ConversationStartSessionInput) => Promise<ConversationStartSessionResult>
   conversationSessionSendTurn: (input: ConversationSendTurnInput) => Promise<ConversationSessionActionResult>
   conversationSessionInterrupt: (input: ConversationInterruptInput) => Promise<ConversationSessionActionResult>

@@ -79,7 +79,7 @@ export type AutomationsIpcDependencies = {
 
 type ParsedDefinitionPatch = Partial<Pick<
   AutomationDefinition,
-  'name' | 'status' | 'trigger' | 'condition' | 'action' | 'autonomyDefault'
+  'name' | 'status' | 'trigger' | 'condition' | 'action' | 'autonomyDefault' | 'runInWorktree'
 >>
 
 const AUTOMATION_STATUSES = new Set(['enabled', 'paused', 'blocked'])
@@ -244,6 +244,7 @@ function buildDefinitionForCreate(
     condition: draft.condition,
     action: draft.action,
     autonomyDefault: draft.autonomyDefault,
+    ...(draft.runInWorktree === undefined ? {} : { runInWorktree: draft.runInWorktree }),
     nextRunAt: null,
     lastRunAt: null,
     lastRunId: null,
@@ -507,6 +508,10 @@ function parseDefinitionDraft(input: unknown): AutomationsResult<AutomationDefin
   if (!isAutonomyDefault(input.autonomyDefault)) {
     return fail('invalid_input', 'Automation definition autonomyDefault is invalid.')
   }
+  if (input.runInWorktree !== undefined && typeof input.runInWorktree !== 'boolean') {
+    return fail('invalid_input', 'Automation definition runInWorktree must be a boolean.')
+  }
+  const runInWorktree = input.runInWorktree as boolean | undefined
   const id = trimmedString(input.id)
   return ok({
     ...(id ? { id } : {}),
@@ -516,6 +521,7 @@ function parseDefinitionDraft(input: unknown): AutomationsResult<AutomationDefin
     ...(condition.value ? { condition: condition.value } : {}),
     action: action.value,
     autonomyDefault: input.autonomyDefault,
+    ...(runInWorktree === undefined ? {} : { runInWorktree }),
   })
 }
 
@@ -554,6 +560,12 @@ function parseDefinitionPatch(input: unknown): AutomationsResult<ParsedDefinitio
       return fail('invalid_input', 'Automation definition autonomyDefault is invalid.')
     }
     patch.autonomyDefault = input.autonomyDefault
+  }
+  if (input.runInWorktree !== undefined) {
+    if (typeof input.runInWorktree !== 'boolean') {
+      return fail('invalid_input', 'Automation definition runInWorktree must be a boolean.')
+    }
+    patch.runInWorktree = input.runInWorktree
   }
   return ok(patch)
 }

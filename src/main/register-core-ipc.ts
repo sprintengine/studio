@@ -9,6 +9,7 @@ import { registerBuiltinSkillsIpc } from './ipc/builtin-skills-ipc'
 import { registerCliRuntimeIpc } from './ipc/cli-runtime-ipc'
 import { registerClipboardIpc } from './ipc/clipboard-ipc'
 import { registerConversationIpc } from './ipc/conversation-ipc'
+import { registerCredentialIpc } from './ipc/credential-ipc'
 import { registerDiagnosticsIpc } from './ipc/diagnostics-ipc'
 import { registerFilesystemMutationIpc } from './ipc/filesystem-mutation-ipc'
 import { registerFilesystemReadIpc } from './ipc/filesystem-read-ipc'
@@ -110,6 +111,7 @@ export function registerCoreIpc(
   registerMarketplacePluginIpc(ipcMain, services)
   registerPluginIpc(ipcMain)
   registerConversationIpc(ipcMain)
+  registerCredentialIpc(ipcMain)
   registerSprintEngineRoleRegistryIpc(ipcMain)
   registerLayoutTemplateRegistryIpc(ipcMain)
   registerThirdPartyModuleIpc(ipcMain)

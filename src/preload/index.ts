@@ -12,6 +12,7 @@ import { builtinSkillsApi } from './api/builtinSkills'
 import { cliRuntimeApi } from './api/cli-runtime'
 import { clipboardApi } from './api/clipboard'
 import { conversationApi } from './api/conversation'
+import { credentialApi } from './api/credential'
 import { filesystemApi } from './api/filesystem'
 import { gitApi } from './api/git'
 import { layoutTemplatesApi } from './api/layout-templates'
@@ -62,6 +63,7 @@ const api = {
   ...modulesApi,
   ...pluginsApi,
   ...conversationApi,
+  ...credentialApi,
   ...skillPackApi,
   ...sprintEngineApi,
   ...switchboardApi,

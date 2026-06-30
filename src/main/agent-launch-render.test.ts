@@ -45,6 +45,9 @@ async function main(): Promise<void> {
     testOpenCodeRenderResume()
     testClaudeCodeRenderWithModel()
     testCodexRenderWithModel()
+    testOrdinaryCliRendersNoLaunchEnv()
+    testZaiRenderInjectsLaunchEnv()
+    testZaiRenderOmitsModelFlag()
     testQuoteTokenLeavesSafeStringsBare()
     testQuoteTokenWrapsSpecialChars()
     testArgvToPosixShellCommand()
@@ -114,6 +117,47 @@ function testClaudeCodeRenderDefault(): void {
   })
   assert.deepEqual(out.argv, ['claude', '--session-id', 'sid_demo'])
   assert.equal(out.binary, 'claude')
+}
+
+// The ordinary CLIs declare no `launch.env`, so the rendered env is empty and
+// their spawn is byte-for-byte unchanged by the provider-env wire.
+function testOrdinaryCliRendersNoLaunchEnv(): void {
+  for (const cli of ['claude-code', 'codex', 'opencode'] as const) {
+    const out = renderAgentLaunchArgv({ cli, sessionId: 'sid_env' })
+    assert.deepEqual(out.env, {}, `${cli} should declare no launch.env`)
+  }
+}
+
+// The Z.AI runtime runs the `claude` binary redirected at Z.AI's
+// Anthropic-compatible endpoint via `launch.env`. The base URL + GLM model map
+// are static; the auth token expands from the resolved `{{secret}}`.
+function testZaiRenderInjectsLaunchEnv(): void {
+  const withToken = renderAgentLaunchArgv({
+    cli: 'zai',
+    sessionId: 'sid_zai',
+    secretToken: 'zai-secret-123',
+  })
+  assert.equal(withToken.binary, 'claude', 'Z.AI runs the claude binary')
+  assert.equal(withToken.env.ANTHROPIC_BASE_URL, 'https://api.z.ai/api/anthropic')
+  assert.equal(withToken.env.ANTHROPIC_AUTH_TOKEN, 'zai-secret-123')
+  assert.equal(withToken.env.ANTHROPIC_DEFAULT_SONNET_MODEL, 'glm-5.2')
+  assert.equal(withToken.env.ANTHROPIC_DEFAULT_OPUS_MODEL, 'glm-5.2')
+  assert.equal(withToken.env.ANTHROPIC_DEFAULT_HAIKU_MODEL, 'glm-4.7')
+
+  // With no resolved token, renderEnv drops the empty value so no blank
+  // ANTHROPIC_AUTH_TOKEN is injected (the endpoint stays unauthenticated until a
+  // key is configured, rather than launching with an empty token).
+  const noToken = renderAgentLaunchArgv({ cli: 'zai', sessionId: 'sid_zai2' })
+  assert.equal(noToken.env.ANTHROPIC_BASE_URL, 'https://api.z.ai/api/anthropic')
+  assert.equal('ANTHROPIC_AUTH_TOKEN' in noToken.env, false, 'no empty token is injected')
+}
+
+// Model tier is driven entirely by ANTHROPIC_DEFAULT_*_MODEL env, so the Z.AI
+// launch argv must never pass `--model` (which would send a model name to the
+// GLM endpoint and bypass the tier mapping).
+function testZaiRenderOmitsModelFlag(): void {
+  const out = renderAgentLaunchArgv({ cli: 'zai', sessionId: 'sid_zai3', cliModel: 'glm-4.7' })
+  assert.equal(out.argv.includes('--model'), false, 'Z.AI argv must not carry --model')
 }
 
 function testClaudeCodeRenderWithBypass(): void {

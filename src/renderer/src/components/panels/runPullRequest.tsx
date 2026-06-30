@@ -111,32 +111,112 @@ export function useRunPullRequestAction(input: { workspaceId: string; statePath:
 const CHIP_CLASS =
   'interactive flex h-6 shrink-0 items-center rounded-[5px] px-1.5 text-[11px] font-medium transition-colors hover:bg-[color:var(--bg-hover)]'
 
-// The PR control is split by altitude. Opening the pull request is the sprint's
-// culminating action, so it lives at full weight in the run-complete banner
-// (`RunCompletePullRequestAction`). Once a PR exists, linking to it is routine —
-// this calm chip carries that "View" state in the board chrome, reachable across
-// every tab. It renders nothing until there's a URL to link, so it never competes
-// with the banner's create CTA at the completion moment.
-export function RunPullRequestViewChip({ vcs }: { vcs?: SprintEngineVcs | null }): JSX.Element | null {
-  const url = vcs?.pullRequestUrl ?? null
-  const prState = vcs?.pullRequestState ?? null
+// Merge state of a run branch, shared by every Run-PR source (SprintEngine,
+// automations, and any future workspace type that opens a PR from a run branch).
+export type RunPrState = 'open' | 'merged' | 'closed' | null
+
+// ----------------------------------------------------------------------------
+// Generic, source-agnostic presentational core
+//
+// These two components know nothing about SprintEngine or automations — they
+// render a "create the PR" button and a "view the PR" chip from plain props, so
+// any run that can open a pull request (the generic Run-PR capability) reuses the
+// exact same control. The source-specific wrappers below inject the create action
+// and project their own state onto these props.
+// ----------------------------------------------------------------------------
+
+// The calm "view" chip: links to an existing PR. Renders nothing until there is a
+// URL, so it never competes with the create CTA at the completion moment. Label
+// and aria-label are caller-supplied so each surface keeps its own wording
+// (SprintEngine: "View pull request"; automations: "Open PR").
+export function RunPullRequestLinkChip({
+  url,
+  prState,
+  label,
+  ariaLabel,
+}: {
+  url: string | null
+  prState: RunPrState
+  label: string
+  ariaLabel: string
+}): JSX.Element | null {
   if (!url) return null
   return (
     <Tooltip content={prState === 'merged' ? 'Pull request merged — open it' : prState === 'closed' ? 'Pull request closed — open it' : url}>
-      <a href={url} target="_blank" rel="noreferrer" aria-label="View the pull request for this sprint" className={`${CHIP_CLASS} text-[color:var(--accent-primary)] ${FOCUS_RING_CLASS}`}>
-        View pull request
+      <a href={url} target="_blank" rel="noreferrer" aria-label={ariaLabel} className={`${CHIP_CLASS} text-[color:var(--accent-primary)] ${FOCUS_RING_CLASS}`}>
+        {label}
       </a>
     </Tooltip>
   )
 }
 
-// The culminating action for a completed worktree run: push the branch and open
-// the pull request. A full-weight primary button — this is the one place the
-// create action earns presence — shown only at the completion moment, before a
-// PR exists. A failure swaps the label to "Retry" and surfaces the reason inline
-// (the banner has the room a header tooltip didn't). Renders nothing for a
-// non-worktree run (no branch to review), once a PR exists (the view chip takes
-// over), or once the branch has merged.
+// The full-weight create action: a primary button that runs the injected
+// `onCreate` (push + open the PR). Shown only before a PR exists and before the
+// branch merges; a failure swaps the label to the retry wording and surfaces the
+// reason inline. Source-agnostic — the caller owns the create action, the busy
+// flag, the error string, and the labels.
+export function RunPullRequestActionButton({
+  pullRequestUrl,
+  pullRequestState,
+  busy,
+  error,
+  disabled,
+  onCreate,
+  createLabel,
+  retryLabel,
+  busyLabel,
+  ariaLabel,
+}: {
+  pullRequestUrl: string | null
+  pullRequestState: RunPrState
+  busy: boolean
+  error: string | null
+  disabled?: boolean
+  onCreate: () => void | Promise<void>
+  createLabel: string
+  retryLabel: string
+  busyLabel: string
+  ariaLabel: string
+}): JSX.Element | null {
+  if (pullRequestUrl || pullRequestState === 'merged') return null
+  return (
+    <div className="flex shrink-0 flex-col items-end gap-1">
+      <PrimaryButton
+        onClick={() => void onCreate()}
+        disabled={busy || disabled}
+        aria-label={ariaLabel}
+      >
+        {busy ? busyLabel : error ? retryLabel : createLabel}
+      </PrimaryButton>
+      {error ? (
+        <span className="max-w-[260px] text-right text-[11px] text-[color:var(--tone-warn)] [overflow-wrap:anywhere]">
+          {error}
+        </span>
+      ) : null}
+    </div>
+  )
+}
+
+// ----------------------------------------------------------------------------
+// SprintEngine adapters (thin wrappers over the generic core above)
+// ----------------------------------------------------------------------------
+
+// Once a PR exists, linking to it is routine — this calm chip carries that "View"
+// state in the board chrome, reachable across every tab.
+export function RunPullRequestViewChip({ vcs }: { vcs?: SprintEngineVcs | null }): JSX.Element | null {
+  return (
+    <RunPullRequestLinkChip
+      url={vcs?.pullRequestUrl ?? null}
+      prState={vcs?.pullRequestState ?? null}
+      label="View pull request"
+      ariaLabel="View the pull request for this sprint"
+    />
+  )
+}
+
+// The culminating action for a completed sprint worktree run: push the branch and
+// open the pull request. Renders nothing for a non-worktree run (no branch), once
+// a PR exists (the view chip takes over), or once the branch has merged.
 export function RunCompletePullRequestAction({
   workspaceId,
   statePath,
@@ -147,26 +227,21 @@ export function RunCompletePullRequestAction({
   vcs?: SprintEngineVcs | null
 }): JSX.Element | null {
   const { busy, actionError, createPullRequest } = useRunPullRequestAction({ workspaceId, statePath })
-  const url = vcs?.pullRequestUrl ?? null
-  const prState = vcs?.pullRequestState ?? null
-  if (!vcs || url || prState === 'merged') return null
-
+  if (!vcs) return null
   const failed = vcs.status === 'failed'
   const error = actionError ?? (failed ? vcs.pullRequestError ?? 'The last pull-request open failed.' : null)
   return (
-    <div className="flex shrink-0 flex-col items-end gap-1">
-      <PrimaryButton
-        onClick={() => void createPullRequest()}
-        disabled={busy || !statePath}
-        aria-label="Open a pull request for this sprint"
-      >
-        {busy ? 'Opening…' : error ? 'Retry pull request' : 'Open pull request'}
-      </PrimaryButton>
-      {error ? (
-        <span className="max-w-[260px] text-right text-[11px] text-[color:var(--tone-warn)] [overflow-wrap:anywhere]">
-          {error}
-        </span>
-      ) : null}
-    </div>
+    <RunPullRequestActionButton
+      pullRequestUrl={vcs.pullRequestUrl ?? null}
+      pullRequestState={vcs.pullRequestState ?? null}
+      busy={busy}
+      error={error}
+      disabled={!statePath}
+      onCreate={createPullRequest}
+      createLabel="Open pull request"
+      retryLabel="Retry pull request"
+      busyLabel="Opening…"
+      ariaLabel="Open a pull request for this sprint"
+    />
   )
 }

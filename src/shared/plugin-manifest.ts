@@ -184,6 +184,12 @@ export type PluginManifest = {
   modelSelection?: PluginModelSelectionSpec
   themeSelection?: PluginThemeSelectionSpec
   skillIntegration?: PluginSkillIntegration
+  // Optional credential the CLI needs to reach an authenticated endpoint (e.g.
+  // the Z.AI runtime, which redirects the `claude` binary at Z.AI via
+  // `launch.env`). Resolved by the shared credential store and exposed to
+  // `launch.env` as `{{secret}}`. Most CLIs (claude-code/codex/opencode) use the
+  // user's own logged-in account and declare none.
+  auth?: ManifestAuth
   detect?: PluginDetectSpec
   install?: PluginInstallSpec
 }
@@ -224,11 +230,20 @@ export type ConversationProviderModel = {
   contextLength?: number
 }
 
-export type ConversationProviderAuth = {
+// A credential descriptor any manifest kind can declare — a CLI plugin that
+// proxies an authenticated endpoint (e.g. the Z.AI runtime) or a conversation
+// provider. Resolved by Multicode's single shared credential store
+// (src/main/secret-store.ts), which stores the value encrypted and exposes only
+// redacted status. `env` names an environment variable consulted as a fallback
+// source for the secret.
+export type ManifestAuth = {
   type: 'api-key'
   label: string
   env?: string
 }
+
+// Back-compat alias: conversation provider manifests referenced this name.
+export type ConversationProviderAuth = ManifestAuth
 
 export type ConversationProviderAdapterKind = 'declarative' | 'trusted-executable'
 
@@ -345,6 +360,10 @@ export type PluginRegistryListEntry = {
   binary: string
   modelSelection?: PluginModelCatalog
   skillIntegration?: PluginSkillCatalog
+  // Present when the CLI declares a credential (`auth`); the renderer uses the
+  // label to render a key-entry row in Agents settings. The secret value itself
+  // is never sent to the renderer — only this descriptor.
+  auth?: { label: string }
 }
 
 export type ConversationProviderListEntry = {

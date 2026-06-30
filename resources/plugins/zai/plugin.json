@@ -1,0 +1,93 @@
+{
+  "id": "zai",
+  "displayName": "Z.AI",
+  "publisher": "multicode",
+  "version": 1,
+  "binary": "claude",
+  "auth": {
+    "type": "api-key",
+    "label": "Z.AI API key",
+    "env": "ANTHROPIC_AUTH_TOKEN"
+  },
+  "permissionPresets": {
+    "default": {
+      "label": "Default (prompts for permissions)",
+      "args": []
+    },
+    "auto_workspace": {
+      "label": "Auto-approve workspace edits",
+      "args": ["--permission-mode", "auto"]
+    },
+    "bypass_all": {
+      "label": "Bypass all approvals (dangerous)",
+      "args": ["--permission-mode", "bypassPermissions"]
+    }
+  },
+  "themeSelection": {
+    "args": ["--settings", "{\"theme\":\"{{colorScheme}}\"}"]
+  },
+  "launch": {
+    "argv": [
+      "{{binary}}",
+      { "spreadIf": "permissionArgs" },
+      { "spreadIf": "themeArgs" },
+      "--session-id",
+      "{{sessionId}}",
+      { "valueIf": "prompt", "value": "{{prompt}}" }
+    ],
+    "env": {
+      "ANTHROPIC_BASE_URL": "https://api.z.ai/api/anthropic",
+      "ANTHROPIC_AUTH_TOKEN": "{{secret}}",
+      "ANTHROPIC_DEFAULT_SONNET_MODEL": "glm-5.2",
+      "ANTHROPIC_DEFAULT_OPUS_MODEL": "glm-5.2",
+      "ANTHROPIC_DEFAULT_HAIKU_MODEL": "glm-4.7"
+    }
+  },
+  "resume": {
+    "supported": true,
+    "argv": [
+      "{{binary}}",
+      { "spreadIf": "permissionArgs" },
+      { "spreadIf": "themeArgs" },
+      "--resume",
+      "{{sessionId}}",
+      { "valueIf": "prompt", "value": "{{prompt}}" }
+    ]
+  },
+  "promptInjection": {
+    "mode": "positional-arg"
+  },
+  "completion": {
+    "mode": "process-exit"
+  },
+  "mcpConfig": {
+    "path": "{{workspaceRoot}}/.mcp.json",
+    "format": "claude-code"
+  },
+  "skillIntegration": {
+    "support": "native",
+    "harnessId": "claude",
+    "installTargets": [
+      {
+        "scope": "workspace",
+        "path": "{{workspaceRoot}}/.claude/skills/{{skillId}}",
+        "format": "claude-code",
+        "restartRequired": true
+      }
+    ],
+    "invocation": {
+      "fileDropTemplate": "/{{skillId}} {{path}}",
+      "explicitTemplate": "/{{skillId}}",
+      "nativeSlashCommand": true
+    }
+  },
+  "detect": {
+    "versionArgs": ["--version"]
+  },
+  "capabilities": {
+    "resumeSession": true,
+    "sessionIdFromCaller": true,
+    "toolUse": true,
+    "mcpServers": true
+  }
+}

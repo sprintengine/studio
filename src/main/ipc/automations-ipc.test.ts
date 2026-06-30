@@ -690,8 +690,70 @@ async function testEngineStatusChannelReflectsSidecar(): Promise<void> {
   assert.deepEqual(absent.value, { state: 'unavailable' })
 }
 
+async function testRunInWorktreeRoundTripAndValidation(): Promise<void> {
+  const workspaceRoot = await withWorkspaceRoot()
+  const handlers = createFakeHost({ workspaceRoots: [workspaceRoot] })
+
+  // Opt out at create: the boolean round-trips onto the stored definition.
+  const created = await invoke<AutomationsDefinitionResult>(handlers, AUTOMATIONS_CREATE_CHANNEL, {
+    workspaceRoot,
+    definition: definitionDraft({ runInWorktree: false }),
+  })
+  assert.equal(created.ok, true)
+  if (!created.ok) return
+  assert.equal(created.value.runInWorktree, false, 'create persists runInWorktree=false')
+
+  // Flip it back on via patch.
+  const updated = await invoke<AutomationsDefinitionResult>(handlers, AUTOMATIONS_UPDATE_CHANNEL, {
+    workspaceRoot,
+    automationId: 'nightly-review',
+    patch: { runInWorktree: true },
+  })
+  assert.equal(updated.ok, true)
+  if (!updated.ok) return
+  assert.equal(updated.value.runInWorktree, true, 'patch updates runInWorktree')
+
+  // Flip back OFF via patch (the user's edit-screen on→off flow), then re-fetch
+  // from the store to prove `false` actually persists — not just echoed back.
+  const off = await invoke<AutomationsDefinitionResult>(handlers, AUTOMATIONS_UPDATE_CHANNEL, {
+    workspaceRoot,
+    automationId: 'nightly-review',
+    patch: { runInWorktree: false },
+  })
+  assert.equal(off.ok, true)
+  if (!off.ok) return
+  assert.equal(off.value.runInWorktree, false, 'patch updates runInWorktree to false')
+  const refetched = await invoke<AutomationsDefinitionResult>(handlers, AUTOMATIONS_GET_CHANNEL, {
+    workspaceRoot,
+    automationId: 'nightly-review',
+  })
+  assert.equal(refetched.ok, true)
+  if (!refetched.ok) return
+  assert.equal(refetched.value.runInWorktree, false, 'runInWorktree=false persists across a fresh fetch')
+
+  // Absent at create stays absent on the stored definition; consumers default it
+  // to true (existing automations keep their per-run worktree).
+  const createdDefault = await invoke<AutomationsDefinitionResult>(handlers, AUTOMATIONS_CREATE_CHANNEL, {
+    workspaceRoot,
+    definition: definitionDraft({ id: 'other-review' }),
+  })
+  assert.equal(createdDefault.ok, true)
+  if (!createdDefault.ok) return
+  assert.equal(createdDefault.value.runInWorktree, undefined, 'absent runInWorktree stays absent (defaulted at use)')
+
+  // A non-boolean runInWorktree is rejected at the IPC boundary.
+  const invalid = await invoke<AutomationsDefinitionResult>(handlers, AUTOMATIONS_CREATE_CHANNEL, {
+    workspaceRoot,
+    definition: { ...definitionDraft({ id: 'bad-review' }), runInWorktree: 'yes' } as unknown,
+  })
+  assert.equal(invalid.ok, false, 'non-boolean runInWorktree is rejected as invalid_input')
+
+  console.log('automations-ipc runInWorktree round-trip tests passed')
+}
+
 async function main(): Promise<void> {
   await testProviderList()
+  await testRunInWorktreeRoundTripAndValidation()
   await testProviderListIncludesFirstPartyActionsAndMissingIntegrations()
   await testDefinitionRoundTripAndRunNow()
   await testWebhookSecretIsRedactedFromDefinitionIpcReads()

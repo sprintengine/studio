@@ -7,7 +7,7 @@ import type {
 import { LAYOUT_TEMPLATES } from '../layouts/templates'
 import { useWorkspaceStore } from '../store/workspaceStore'
 import { pickRandomAgentName } from '../utils/agentNames'
-import { getModel, revealAgentTab, type AgentTabRevealTarget } from '../utils/modelRegistry'
+import { getModel, removeAgentTab, revealAgentTab, type AgentTabRevealTarget } from '../utils/modelRegistry'
 import { buildSpecialistDirectiveStartupPrompt, getSpecialistAction } from '../specialists/specialistActions'
 import { isAutomationsHostWorkspace } from '../utils/workspaceVisibility'
 import { createAutomationsTemplate } from '../modules/automations-workspace-types'
@@ -58,6 +58,8 @@ async function handleAutomationRequest(request: AutomationRendererRequest): Prom
       return createWorkspace(request)
     case 'agent.launch':
       return launchAgent(request)
+    case 'agent.dispose':
+      return disposeAgent(request)
     default:
       return {
         ok: false,
@@ -180,6 +182,25 @@ async function launchAgent(
     }
   }
   return { ok: true, workspaceId: workspace.id, agentId }
+}
+
+// Remove a spawned automation agent entirely: kill its terminal, drop its
+// layout tab, and delete the agent record. Called at run finalize so a one-shot
+// automation agent never lingers pointing at a torn-down run worktree. Idempotent
+// — an already-gone workspace/agent returns ok so a duplicate finalize is benign.
+function disposeAgent(
+  request: Extract<AutomationRendererRequest, { kind: 'agent.dispose' }>
+): AutomationRendererResponse {
+  const store = useWorkspaceStore.getState()
+  const workspace = store.workspaces.find((candidate) => candidate.id === request.workspaceId)
+  const agent = workspace?.agents[request.agentId]
+  // Kill the live terminal session (a finished agent has usually already exited;
+  // best-effort either way), drop the tab, then delete the record. Order matters:
+  // remove the record last so any tab-close handler still sees the agent.
+  if (agent?.cliSessionId) void window.api.terminalKill(agent.cliSessionId).catch(() => {})
+  removeAgentTab(request.workspaceId, request.agentId)
+  store.removeAgent(request.workspaceId, request.agentId)
+  return { ok: true, workspaceId: request.workspaceId, agentId: request.agentId }
 }
 
 async function waitForLayoutModel(workspaceId: string): Promise<ReturnType<typeof getModel>> {

@@ -70,6 +70,12 @@ const BUNDLED_AGENT_MODEL_CATALOGS: Record<AgentCli, PluginModelCatalog> = {
     options: [],
     allowCustomId: true,
   },
+  // Z.AI runs the claude binary against Z.AI's endpoint; model tier is driven by
+  // the manifest's ANTHROPIC_DEFAULT_*_MODEL env, so the picker seeds no models.
+  zai: {
+    options: [],
+    allowCustomId: true,
+  },
 }
 
 function labelForCliRuntime(cli: AgentCli): string {

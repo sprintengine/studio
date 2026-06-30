@@ -292,6 +292,7 @@ export interface WorkspaceStore extends PluginsSlice, CliAvailabilitySlice {
   setGitCommitDraft: (id: WorkspaceId, scopeId: string, text: string) => void
   clearGitCommitDraft: (id: WorkspaceId, scopeId: string) => void
   updateAgent: (workspaceId: WorkspaceId, agentId: AgentId, update: Partial<AgentState>) => void
+  removeAgent: (workspaceId: WorkspaceId, agentId: AgentId) => void
   applyAgentTerminalSessionEvent: (apply: AgentTerminalSessionApply) => void
   applyAgentTerminalLaunchStateEvent: (apply: AgentTerminalLaunchStateApply) => void
   setAgentExecution: (

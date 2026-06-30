@@ -125,9 +125,14 @@ export async function runLocalAutomationAction(
       // Agent-backed runs launch into a per-run worktree so the agent's work
       // (and its PR) is isolated from the user's checkout. Isolation is
       // best-effort: a non-Git folder or a worktree failure falls back to the
-      // workspace checkout rather than blocking the run.
+      // workspace checkout rather than blocking the run. A definition can opt out
+      // (runInWorktree === false) to run directly in the workspace checkout — that
+      // run has no branch, so it cannot (and does not) open a PR. Absent ⇒ true,
+      // so existing automations keep their per-run worktree.
       spawnAgent: async (spawnInput) => {
-        const worktree = await ensureRunWorktree(input, options)
+        const worktree = input.definition.runInWorktree === false
+          ? null
+          : await ensureRunWorktree(input, options)
         const launched = await spawnAgent(
           { ...spawnInput, worktreePath: worktree?.worktreePath },
           options,

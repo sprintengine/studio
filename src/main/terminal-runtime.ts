@@ -27,6 +27,7 @@ import {
 } from './terminal-launch'
 import { existsSync } from 'node:fs'
 import { basename, dirname } from 'node:path'
+import { getSharedCredentialStore } from './secret-store'
 import { getErrorMessage } from './error-message'
 import { getTerminalErrorMessage } from './terminal-error'
 import { MobileSprintEngineCommandService } from './mobile/sprintengine/command'
@@ -1810,6 +1811,11 @@ async function spawnMobileAgentTerminal(input: {
     retainSprintEngineMcpRunRef(sprintEngineMcpRunId, input.cwd)
     sprintEngineMcpRunRetained = Boolean(sprintEngineMcpRunId)
 
+    // Resolve a CLI auth token (only CLIs whose manifest declares `auth`, e.g.
+    // Z.AI, return one) from the shared credential store, so the manifest's
+    // `launch.env` `{{secret}}` resolves into the spawned process env.
+    const mobileAuthSecret = await getSharedCredentialStore().resolveSecret(input.cli)
+    const mobileCliAuthToken = mobileAuthSecret.ok ? mobileAuthSecret.value : undefined
     const { command, args, cwd: launchCwd, pathStyle, initialInput, env, startupScriptPath } = getShellLaunchConfig(
       input.cwd,
       input.sessionId,
@@ -1822,7 +1828,9 @@ async function spawnMobileAgentTerminal(input: {
       undefined,
       undefined,
       undefined,
-      sprintEngineMcpEnv
+      sprintEngineMcpEnv,
+      false,
+      mobileCliAuthToken
     )
     // Expose the agent's identity (=== session.agentId below) so the agent-state
     // reporter resolves its hook frames, and strip any stale inherited id.
@@ -2145,6 +2153,12 @@ async function spawnTerminalFromIpc(
             ?? existingSession?.cliSessionId
             ?? (cliResumesWithCallerSessionId(cli) ? sessionId : ''))
           : sessionId
+      // Resolve a CLI auth token (only CLIs whose manifest declares `auth`, e.g.
+      // Z.AI, return one) from the shared credential store so the manifest's
+      // `launch.env` `{{secret}}` resolves into the spawned process env. Skipped
+      // for plain shells (no agent CLI to authenticate).
+      const cliAuthSecret = shellOnly ? null : await getSharedCredentialStore().resolveSecret(cli)
+      const cliAuthToken = cliAuthSecret?.ok ? cliAuthSecret.value : undefined
       const { command, args, cwd: launchCwd, pathStyle, initialInput, env, startupScriptPath } = shellOnly
         ? getPlainShellLaunchConfig(workingDirectory, sprintEngineStatePath, sessionId)
         : getShellLaunchConfig(
@@ -2160,7 +2174,8 @@ async function spawnTerminalFromIpc(
           memoryRootPath,
           memoryRelativeRoot,
           sprintEngineMcpEnv,
-          debugMode
+          debugMode,
+          cliAuthToken
         )
       // Install the authoritative-agent-state reporter into the workspace before
       // launching a supported agent, so its lifecycle hooks report phase the

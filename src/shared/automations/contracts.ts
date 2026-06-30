@@ -158,6 +158,13 @@ export type AutomationDefinition = {
   condition?: { kind: string; config: unknown }
   action: { kind: ActionKind; config: unknown }
   autonomyDefault: 'review_only' | 'allow_changes'
+  /**
+   * Whether an agent-backed run executes in its own per-run git worktree (branch
+   * isolation from the user's checkout, and the prerequisite for opening a PR —
+   * a non-worktree run has no branch to review). Absent ⇒ true, so existing
+   * automations keep running in a worktree.
+   */
+  runInWorktree?: boolean
   nextRunAt: string | null
   lastRunAt: string | null
   lastRunId: string | null
@@ -208,6 +215,7 @@ export type AutomationDefinitionDraft = {
   condition?: { kind: string; config: unknown }
   action: { kind: ActionKind; config: unknown }
   autonomyDefault: AutomationDefinition['autonomyDefault']
+  runInWorktree?: boolean
 }
 
 export type AutomationDefinitionPatch = Partial<Omit<AutomationDefinitionDraft, 'id'>>

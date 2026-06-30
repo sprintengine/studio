@@ -43,6 +43,9 @@ type EditorFormState = {
   name: string
   enabled: boolean
   autonomy: AutomationDefinition['autonomyDefault']
+  // Whether an agent-backed run executes in its own per-run worktree (isolation
+  // from the user's checkout, and the prerequisite for opening a PR).
+  runInWorktree: boolean
   actionKind: string
   // Discriminates the active trigger family. Each family is authored from its own
   // sub-state below; resolveSubmitTrigger builds the trigger from the active one.
@@ -104,7 +107,7 @@ function schemaRequiredKeys(schema: AutomationsProviderView['configSchema']): Se
 }
 
 const EMPTY_FORM: EditorFormState = {
-  name: '', enabled: true, autonomy: 'review_only', actionKind: '', triggerKind: 'schedule',
+  name: '', enabled: true, autonomy: 'review_only', runInWorktree: true, actionKind: '', triggerKind: 'schedule',
   cadenceType: 'interval', everyMinutes: 30, timeLocal: '09:00', daysOfWeek: [1, 2, 3, 4, 5],
   repoEvent: { ...EMPTY_REPO_EVENT_FORM }, webhook: { ...EMPTY_WEBHOOK_FORM }, config: {},
 }
@@ -131,6 +134,8 @@ function initialFormState(editor: EditorState, providers: AutomationsProviders):
     name: def.name,
     enabled: def.status !== 'paused',
     autonomy: def.autonomyDefault,
+    // Absent on existing definitions ⇒ true (they were always worktree runs).
+    runInWorktree: def.runInWorktree ?? true,
     actionKind: def.action.kind,
     triggerKind: def.trigger.kind,
     cadenceType: cadence?.type === 'daily' || cadence?.type === 'weekly' ? cadence.type : 'interval',
@@ -300,6 +305,7 @@ export function AutomationEditor({
       name: form.name.trim(),
       status: form.enabled ? 'enabled' : 'paused',
       autonomyDefault: form.autonomy,
+      runInWorktree: form.runInWorktree,
       // Built from the active family (a read-only cron schedule round-trips verbatim).
       trigger: builtTrigger,
       action: { kind: form.actionKind, config },
@@ -313,6 +319,7 @@ export function AutomationEditor({
           name: draft.name,
           status: draft.status,
           autonomyDefault: draft.autonomyDefault,
+          runInWorktree: draft.runInWorktree,
           action: draft.action,
         }
         // Omit an unchanged trigger so the engine preserves the stored webhook
@@ -507,17 +514,31 @@ export function AutomationEditor({
         )}
       </fieldset>
 
-      <div className="flex items-center justify-between gap-3">
-        <label htmlFor="automation-autonomy" className="flex items-center gap-2 text-[12px] text-[color:var(--text-default)]">
-          <Switch
-            id="automation-autonomy"
-            checked={form.autonomy === 'allow_changes'}
-            onChange={(next) => update('autonomy', next ? 'allow_changes' : 'review_only')}
-            ariaLabel="Allow the agent to change files"
-          />
-          Allow changes
-          <span className="text-[11px] text-[color:var(--text-subtle)]">{form.autonomy === 'allow_changes' ? '(agent may edit files)' : '(review only)'}</span>
-        </label>
+      <div className="flex flex-wrap items-center justify-between gap-x-6 gap-y-2">
+        {/* Run-config toggles grouped together on the left; lifecycle (Enabled) on
+            the right. Keeps related controls adjacent instead of spread edge-to-edge. */}
+        <div className="flex flex-wrap items-center gap-x-6 gap-y-2">
+          <label htmlFor="automation-autonomy" className="flex items-center gap-2 text-[12px] text-[color:var(--text-default)]">
+            <Switch
+              id="automation-autonomy"
+              checked={form.autonomy === 'allow_changes'}
+              onChange={(next) => update('autonomy', next ? 'allow_changes' : 'review_only')}
+              ariaLabel="Allow the agent to change files"
+            />
+            Allow changes
+            <span className="text-[11px] text-[color:var(--text-subtle)]">{form.autonomy === 'allow_changes' ? '(agent may edit files)' : '(review only)'}</span>
+          </label>
+          <label htmlFor="automation-worktree" className="flex items-center gap-2 text-[12px] text-[color:var(--text-default)]">
+            <Switch
+              id="automation-worktree"
+              checked={form.runInWorktree}
+              onChange={(next) => update('runInWorktree', next)}
+              ariaLabel="Run the agent in an isolated git worktree"
+            />
+            Run in worktree
+            <span className="text-[11px] text-[color:var(--text-subtle)]">{form.runInWorktree ? '(isolated branch; can open a PR)' : '(runs in the workspace checkout; no PR)'}</span>
+          </label>
+        </div>
         <label htmlFor="automation-enabled" className="flex items-center gap-2 text-[12px] text-[color:var(--text-default)]">
           <Switch
             id="automation-enabled"

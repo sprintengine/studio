@@ -60,11 +60,18 @@ async function testBundledManifestsLoad(): Promise<void> {
   )
 
   const ids = registry.list().map((p) => p.id).sort()
-  assert.deepEqual(ids, ['claude-code', 'codex', 'generic-shell', 'opencode'])
+  assert.deepEqual(ids, ['claude-code', 'codex', 'generic-shell', 'opencode', 'zai'])
   assert.equal(
     registry.listConversationProviders().some((provider) => provider.id === 'openrouter'),
     true
   )
+  // CLI `auth` surfaces only its label to the renderer (gates the key-entry row);
+  // CLIs without auth omit the field entirely.
+  const zaiEntry = registry.list().find((entry) => entry.id === 'zai')
+  assert.deepEqual(zaiEntry?.auth, { label: 'Z.AI API key' })
+  const claudeEntry = registry.list().find((entry) => entry.id === 'claude-code')
+  assert.equal(claudeEntry?.auth, undefined)
+
   const codexEntry = registry.list().find((entry) => entry.id === 'codex')
   assert.equal(codexEntry?.skillIntegration?.support, 'native')
   assert.equal(codexEntry?.skillIntegration?.harnessId, 'codex')

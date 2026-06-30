@@ -158,7 +158,7 @@ function createStore(input: {
   providerById?: (id: string) => LoadedConversationProvider | undefined
 }): ProviderSecretStore {
   return new ProviderSecretStore({
-    getProviderById: input.providerById ?? ((id) => (id === 'openai-compatible' ? provider : undefined)),
+    resolveAuthOwner: input.providerById ?? ((id) => (id === 'openai-compatible' ? provider : undefined)),
     resolveUserDataDir: () => '/user-data',
     safeStorage: {
       isEncryptionAvailable: () => input.encryptionAvailable,

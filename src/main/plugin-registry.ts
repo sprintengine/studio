@@ -502,12 +502,15 @@ function formatError(err: unknown): string {
 export function manifestToListEntry(plugin: LoadedPlugin): PluginRegistryListEntry {
   const modelSelection = plugin.manifest.modelSelection
   const skillIntegration = plugin.manifest.skillIntegration
+  const auth = plugin.manifest.auth
   return {
     id: plugin.manifest.id,
     displayName: plugin.manifest.displayName,
     source: plugin.source,
     version: plugin.manifest.version,
     binary: plugin.manifest.binary,
+    // Only the label crosses to the renderer; the secret value never does.
+    ...(auth ? { auth: { label: auth.label } } : {}),
     // Renderer pickers need the choices, not the arg templates.
     ...(modelSelection
       ? {

@@ -156,6 +156,21 @@ export type CliSoulsSpec = {
 }
 
 /**
+ * A credential the CLI needs to reach an authenticated endpoint. Multicode
+ * stores the value in its shared, encrypted credential store and exposes it to
+ * `launch.env` as `{{secret}}` at spawn time — the token never appears in argv
+ * or the manifest. `env` optionally names an environment variable consulted as a
+ * fallback source. Most CLIs use the user's own logged-in account and declare no
+ * `auth`; declare it only when the CLI talks to a keyed endpoint (e.g. an
+ * Anthropic-compatible provider such as Z.AI).
+ */
+export type CliAuthSpec = {
+  type: 'api-key'
+  label: string
+  env?: string
+}
+
+/**
  * The authoring contract for a BYO-CLI plugin (`kind: 'cli'`). This is the
  * public mirror of the app's internal CLI plugin manifest. Fields the app adds
  * later are accepted leniently by the validator so a forward-compatible plugin
@@ -180,6 +195,7 @@ export type CliPluginManifest = {
   modelSelection?: CliModelSelectionSpec
   themeSelection?: CliThemeSelectionSpec
   skillIntegration?: CliSkillIntegration
+  auth?: CliAuthSpec
 }
 
 // ── Validator ────────────────────────────────────────────────────────────────
@@ -199,8 +215,11 @@ const SKILL_SUPPORTS: CliSkillSupport[] = ['native', 'prompt-shim', 'unsupported
 const SKILL_INSTALL_SCOPES = ['workspace', 'user'] as const
 const SKILL_FORMATS = ['agent-skills-v1', 'claude-code', 'codex', 'opencode', 'generic'] as const
 // Fields that only belong on provider manifests (kind: 'provider'); a CLI
-// manifest carrying any of them is malformed. Mirrors the app's loader.
-const PROVIDER_ONLY_FIELDS = ['providerType', 'models', 'auth', 'adapter', 'openaiCompatible', 'signature'] as const
+// manifest carrying any of them is malformed. Mirrors the app's loader. `auth`
+// is intentionally NOT here: it is a shared credential descriptor a CLI plugin
+// may declare when it proxies an authenticated endpoint (e.g. Z.AI).
+const PROVIDER_ONLY_FIELDS = ['providerType', 'models', 'adapter', 'openaiCompatible', 'signature'] as const
+const AUTH_TYPES = ['api-key'] as const
 
 function isObject(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
@@ -251,6 +270,7 @@ export function validateCliPluginManifest(value: unknown): CliManifestResult {
   if (value.modelSelection !== undefined) validateModelSelection(value.modelSelection, issues)
   if (value.themeSelection !== undefined) validateThemeSelection(value.themeSelection, issues)
   if (value.skillIntegration !== undefined) validateSkillIntegration(value.skillIntegration, issues)
+  if (value.auth !== undefined) validateAuth(value.auth, issues)
 
   if (issues.length > 0) return { ok: false, issues }
   return { ok: true, manifest: value as unknown as CliPluginManifest }
@@ -506,6 +526,18 @@ function validateVariables(value: unknown, issues: CliManifestIssue[]): void {
       }
     }
   }
+}
+
+function validateAuth(value: unknown, issues: CliManifestIssue[]): void {
+  if (!isObject(value)) {
+    issues.push({ path: 'auth', message: 'auth must be an object when present.' })
+    return
+  }
+  if (typeof value.type !== 'string' || !(AUTH_TYPES as readonly string[]).includes(value.type)) {
+    issues.push({ path: 'auth.type', message: `auth.type must be one of: ${AUTH_TYPES.join(', ')}.` })
+  }
+  requireString(value, 'label', issues, undefined, 'auth')
+  if (value.env !== undefined) requireString(value, 'env', issues, undefined, 'auth')
 }
 
 function validateSouls(value: unknown, issues: CliManifestIssue[]): void {

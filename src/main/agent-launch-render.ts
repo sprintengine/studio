@@ -56,12 +56,24 @@ export type AgentLaunchRenderInput = {
   // only by manifests declaring themeSelection (today: Claude Code); undefined
   // leaves the CLI on its own configured theme.
   colorScheme?: ColorScheme
+  // Resolved provider auth token for CLIs whose manifest redirects the agent at
+  // an alternate API endpoint (e.g. the Z.AI runtime, which runs the `claude`
+  // binary against Z.AI's Anthropic-compatible endpoint). Exposed to the
+  // manifest's `launch.env` templates as `{{secret}}` so the token is injected
+  // into the spawned process env without ever appearing in argv. Undefined for
+  // the ordinary CLIs (claude-code/codex/opencode), which declare no auth.
+  secretToken?: string
 }
 
 export type RenderedAgentLaunch = {
   argv: string[]
   binary: string
   plugin: LoadedPlugin
+  // Environment variables the manifest's `launch.env` resolves to (with
+  // `{{secret}}` and other variables substituted). Empty for manifests that
+  // declare no `launch.env`. The caller injects these into the spawned PTY env
+  // (and the WSL bootstrap) — they are intentionally NOT folded into argv.
+  env: Record<string, string>
 }
 
 export class AgentLaunchRenderError extends Error {}
@@ -92,6 +104,10 @@ export function renderAgentLaunchArgv(input: AgentLaunchRenderInput): RenderedAg
     permissionPreset: input.cliPermissionPreset ?? 'default',
     model: input.cliModel,
     colorScheme: input.colorScheme,
+    // Only expose the secret variable when a token was resolved, so manifests
+    // without auth render no `{{secret}}` value (renderEnv drops empty results,
+    // so an unconfigured endpoint injects no empty token).
+    variables: input.secretToken ? { secret: input.secretToken } : undefined,
   }
 
   const rendered = input.resume
@@ -105,7 +121,16 @@ export function renderAgentLaunchArgv(input: AgentLaunchRenderInput): RenderedAg
     )
   }
 
-  return { argv: rendered.argv, binary, plugin }
+  return { argv: rendered.argv, binary, plugin, env: rendered.env }
+}
+
+// Renders just the launch-env a CLI manifest declares (with `{{secret}}` and
+// other variables substituted), for callers that inject it into the spawned
+// process env rather than argv. Returns an empty object for manifests with no
+// `launch.env`. Resume vs launch only affects argv, so the env is identical;
+// this always renders the launch spec.
+export function renderCliLaunchEnv(input: AgentLaunchRenderInput): Record<string, string> {
+  return renderAgentLaunchArgv({ ...input, resume: false }).env
 }
 
 // Quote rules match the legacy buildAgentLaunchCommand: tokens that are safe

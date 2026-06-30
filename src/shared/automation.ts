@@ -49,6 +49,15 @@ export type AutomationRendererRequest =
       /** Git worktree the agent should run in, instead of the workspace checkout. */
       worktreePath?: string
     }
+  | {
+      // Remove a spawned automation agent entirely: kill its terminal, drop its
+      // tab, and delete the agent record. Used at run finalize so a one-shot
+      // automation agent never lingers pointing at a torn-down run worktree (the
+      // dead-cwd relaunch loop). Idempotent — a missing workspace/agent is `ok`.
+      kind: 'agent.dispose'
+      workspaceId: string
+      agentId: string
+    }
 
 export type AutomationRendererResponse =
   | { ok: true; workspaceId: string; agentId?: string }

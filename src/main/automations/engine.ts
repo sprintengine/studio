@@ -91,6 +91,14 @@ export type AutomationRunWorktreeRemover = (input: {
   worktreePath: string
 }) => Promise<void>
 
+// Disposes the run's spawned agent (kill terminal + drop tab + delete record) at
+// finalize, so a one-shot automation agent never outlives its torn-down worktree
+// and loop-relaunches into the dead cwd. Best-effort and idempotent.
+export type AutomationRunAgentDisposer = (input: {
+  workspaceId: string
+  agentId: string
+}) => Promise<void>
+
 export type AutomationsEngineOptions = {
   getProjectFolders?: () => AutomationsProjectFolder[] | Promise<AutomationsProjectFolder[]>
   getWorkspaceSnapshot?: () => WorkspaceSyncSnapshot | Promise<WorkspaceSyncSnapshot>
@@ -107,6 +115,7 @@ export type AutomationsEngineOptions = {
   // Agent-backed run finalize collaborators (injected for testability).
   openRunPullRequest?: AutomationRunPullRequestOpener
   removeRunWorktree?: AutomationRunWorktreeRemover
+  disposeRunAgent?: AutomationRunAgentDisposer
   // Live agent-session executionIds, used by the startup reconcile to tell an
   // orphaned pending run (agent gone while Multicode was down) from one whose
   // agent is still live. Absent in tests that do not exercise reconcile.
@@ -151,6 +160,7 @@ export class AutomationsEngine {
   private readonly onRunEvent?: (event: AutomationsRunEvent) => void
   private readonly openRunPullRequest?: AutomationRunPullRequestOpener
   private readonly removeRunWorktree?: AutomationRunWorktreeRemover
+  private readonly disposeRunAgent?: AutomationRunAgentDisposer
   private readonly getLiveAgentExecutionIds?: () => string[]
   private readonly inFlight = new Set<string>()
   private readonly pendingAgentRuns = new Map<string, PendingAgentRun>()
@@ -178,6 +188,7 @@ export class AutomationsEngine {
     this.onRunEvent = options.onRunEvent
     this.openRunPullRequest = options.openRunPullRequest
     this.removeRunWorktree = options.removeRunWorktree
+    this.disposeRunAgent = options.disposeRunAgent
     this.getLiveAgentExecutionIds = options.getLiveAgentExecutionIds
   }
 
@@ -617,6 +628,20 @@ export class AutomationsEngine {
       } catch {
         // Worktree teardown is best-effort; a leftover worktree is swept later
         // and must not fail the finalize.
+      }
+    }
+
+    // Dispose the run's one-shot agent alongside its worktree: kill the terminal,
+    // drop the tab, delete the record. This is what prevents the dead-cwd relaunch
+    // loop — with no surviving agent there is nothing to relaunch into the removed
+    // worktree. Best-effort, and reached by the startup reconcile too (it re-runs
+    // finalize for runs orphaned while Multicode was down), so a crash mid-run is
+    // also covered.
+    if (run.workspaceId && run.agentId && this.disposeRunAgent) {
+      try {
+        await this.disposeRunAgent({ workspaceId: run.workspaceId, agentId: run.agentId })
+      } catch {
+        // Best-effort teardown; a failure leaves the pre-fix behavior, not worse.
       }
     }
 

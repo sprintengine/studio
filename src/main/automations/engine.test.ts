@@ -60,6 +60,7 @@ async function main(): Promise<void> {
   await assertSignalScanRecordsContainedReportPaths()
   await assertOutOfReportsPathsDropWithoutFailingFinalize()
   await assertConcurrentManualAndScanFinalizeOnce()
+  await assertFinalizeDisposesSpawnedAgentAndToleratesDisposeFailure()
   await assertAgentExitFinalizesFromSignalWhenPresent()
   await assertAgentExitWithoutSignalFinalizesFailedWithExitCode()
   await assertAgentExitForUnknownExecutionIdIsNoOp()
@@ -470,6 +471,7 @@ type AgentEngineHarness = {
   engine: AutomationsEngine
   events: AutomationsRunEvent[]
   removedWorktrees: string[]
+  disposedAgents: Array<{ workspaceId: string; agentId: string }>
   counters: { prCalls: number }
   worktreePath: string
 }
@@ -495,6 +497,7 @@ function agentEngine(
 ): AgentEngineHarness {
   const events: AutomationsRunEvent[] = []
   const removedWorktrees: string[] = []
+  const disposedAgents: Array<{ workspaceId: string; agentId: string }> = []
   const counters = { prCalls: 0 }
   const worktreePath = `${workspaceRoot}/.multi-code/automations/worktrees/run-agent`
   const engine = new AutomationsEngine({
@@ -517,9 +520,12 @@ function agentEngine(
     removeRunWorktree: async (input) => {
       removedWorktrees.push(input.worktreePath)
     },
+    disposeRunAgent: async (input) => {
+      disposedAgents.push(input)
+    },
     ...overrides,
   })
-  return { engine, events, removedWorktrees, counters, worktreePath }
+  return { engine, events, removedWorktrees, disposedAgents, counters, worktreePath }
 }
 
 // Like setupAgentRun, but the launched run carries an executionId so the
@@ -877,6 +883,39 @@ async function assertAgentExitForUnknownExecutionIdIsNoOp(): Promise<void> {
   assert.equal(events.length, 0)
 }
 
+async function assertFinalizeDisposesSpawnedAgentAndToleratesDisposeFailure(): Promise<void> {
+  const now = Date.parse('2026-06-17T10:00:00.000Z')
+
+  // Normal completed finalize disposes the run's one-shot agent with its ids, so
+  // it never outlives the torn-down worktree and loop-relaunches into the dead cwd.
+  {
+    const { engine, workspaceRoot, store, disposedAgents } = await setupAgentRunWithExecutionId(now, 'exec-1')
+    assert.equal((await engine.runNow({ workspaceRoot, automationId: 'nightly-review', workspaceId: 'ws-automations' })).ok, true)
+    assert.equal((await engine.finalizeRun({
+      workspaceRoot, automationId: 'nightly-review', runId: 'run-agent', outcome: 'completed',
+    })).ok, true)
+    assert.deepEqual(
+      disposedAgents,
+      [{ workspaceId: 'ws-automations', agentId: 'agent-1' }],
+      'finalize disposes the spawned agent exactly once with its workspace/agent ids',
+    )
+    assert.equal((await readRunStatus(store, 'nightly-review', 'run-agent')), 'completed')
+  }
+
+  // The dispose is best-effort: a throwing disposer (e.g. the renderer is gone)
+  // must not fail the finalize — the terminal run is still recorded.
+  {
+    const { engine, workspaceRoot } = await setupAgentRunWithExecutionId(now, 'exec-2', {
+      disposeRunAgent: async () => { throw new Error('renderer unavailable') },
+    })
+    assert.equal((await engine.runNow({ workspaceRoot, automationId: 'nightly-review', workspaceId: 'ws-automations' })).ok, true)
+    const result = await engine.finalizeRun({
+      workspaceRoot, automationId: 'nightly-review', runId: 'run-agent', outcome: 'completed',
+    })
+    assert.equal(result.ok && result.run.status, 'completed', 'a failed dispose does not fail the finalize')
+  }
+}
+
 async function assertStartupReconcileForceFailsOrphanedAgentRun(): Promise<void> {
   const now = Date.parse('2026-06-17T10:00:00.000Z')
   // Engine A dispatches a run that records `running` with executionId 'exec-orphan'.
@@ -885,7 +924,7 @@ async function assertStartupReconcileForceFailsOrphanedAgentRun(): Promise<void>
   assert.equal((await readRunStatus(store, 'nightly-review', 'run-agent')), 'running')
 
   // Engine B restart: the agent is no longer live and wrote no signal.
-  const { engine: engineB, events, counters } = agentEngine(workspaceRoot, now, {
+  const { engine: engineB, events, counters, disposedAgents } = agentEngine(workspaceRoot, now, {
     getLiveAgentExecutionIds: () => [],
   })
   await engineB.handleStartup()
@@ -893,6 +932,11 @@ async function assertStartupReconcileForceFailsOrphanedAgentRun(): Promise<void>
   const finalized = await store.getRun('nightly-review', 'run-agent')
   assert.equal(finalized.ok && finalized.value.status, 'failed', 'orphaned run is force-failed')
   assert.equal(finalized.ok && finalized.value.summary, 'Agent ended while Multicode was not running.')
+  assert.deepEqual(
+    disposedAgents,
+    [{ workspaceId: 'ws-automations', agentId: 'agent-1' }],
+    'startup reconcile disposes the orphaned agent so it cannot loop-relaunch into the removed worktree',
+  )
   assert.equal(counters.prCalls, 0)
   assert.equal(events.length, 1)
   assert.equal(events[0]?.status, 'failed')

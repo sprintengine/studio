@@ -292,6 +292,10 @@ export interface WorkspacesSliceActions {
     destWorkspaceId: WorkspaceId,
     agentId: AgentId
   ) => void
+  /** Delete an agent record from a workspace entirely (not just close its tab).
+   *  Caller is responsible for killing the agent's terminal and removing its
+   *  layout tab first. Idempotent: a missing workspace/agent is a no-op. */
+  removeAgent: (workspaceId: WorkspaceId, agentId: AgentId) => void
   moveOpenFileToWorkspace: (
     sourceWorkspaceId: WorkspaceId,
     destWorkspaceId: WorkspaceId,
@@ -1330,6 +1334,14 @@ export function createWorkspacesSlice(
         if (!agent) return
         dest.agents[agentId] = agent
         delete source.agents[agentId]
+      })
+    },
+
+    removeAgent: (workspaceId, agentId) => {
+      set((state) => {
+        const workspace = state.workspaces.find((w) => w.id === workspaceId)
+        if (!workspace?.agents[agentId]) return
+        delete workspace.agents[agentId]
       })
     },
 

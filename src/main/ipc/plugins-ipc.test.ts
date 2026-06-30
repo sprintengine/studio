@@ -47,7 +47,7 @@ async function testReturnsBundledAndFixtureUserEntries(): Promise<void> {
 
   assert.deepEqual(
     result.plugins.map((p) => p.id).sort(),
-    ['aider', 'claude-code', 'codex', 'generic-shell', 'opencode', 'pi']
+    ['aider', 'claude-code', 'codex', 'generic-shell', 'opencode', 'pi', 'zai']
   )
   assert.equal(result.plugins.find((p) => p.id === 'codex')?.source, 'bundled')
   assert.equal(result.plugins.find((p) => p.id === 'opencode')?.source, 'user')

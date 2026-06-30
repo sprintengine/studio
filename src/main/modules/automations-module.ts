@@ -127,6 +127,10 @@ export function createAutomationsModule(options: AutomationsModuleOptions = {}):
               autonomy: input.autonomy,
             }),
           removeRunWorktree: defaultRemoveRunWorktree,
+          disposeRunAgent: (input) =>
+            automationDelegate
+              .request({ kind: 'agent.dispose', workspaceId: input.workspaceId, agentId: input.agentId })
+              .then(() => undefined),
           getLiveAgentExecutionIds: () =>
             terminalRuntime.getLiveAgentExecutionIds().map((execution) => execution.executionId),
         })

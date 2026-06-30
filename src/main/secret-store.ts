@@ -1,14 +1,13 @@
 import { dirname, join } from 'path'
 import { mkdir, readFile, unlink, writeFile } from 'fs/promises'
 
-import type { LoadedConversationProvider } from '../shared/plugin-manifest'
 import type {
   ConversationSecretClearResult,
   ConversationSecretSetResult,
   ConversationSecretStatus,
   ConversationSecretStatusResult,
 } from '../shared/electron-api'
-import { getConversationProviderById } from './plugin-registry-instance'
+import { type CredentialOwner, resolveCredentialOwner } from './credential-descriptors'
 
 type SafeStorageAdapter = {
   isEncryptionAvailable(): boolean
@@ -24,7 +23,10 @@ type FileAdapter = {
 }
 
 export type ProviderSecretStoreOptions = {
-  getProviderById?: (id: string) => LoadedConversationProvider | undefined
+  // Resolves the manifest that owns a credential id, across all manifest kinds
+  // (conversation providers AND CLI plugins). Defaults to the shared resolver so
+  // the store is a single mechanism, not a chat-only one.
+  resolveAuthOwner?: (id: string) => CredentialOwner | undefined
   resolveUserDataDir?: () => string
   safeStorage?: SafeStorageAdapter
   files?: FileAdapter
@@ -46,7 +48,7 @@ export type ProviderSecretValueResult =
   | { ok: false; message: string }
 
 export class ProviderSecretStore {
-  private readonly getProviderById: (id: string) => LoadedConversationProvider | undefined
+  private readonly resolveAuthOwner: (id: string) => CredentialOwner | undefined
   private readonly resolveUserDataDir: () => string
   private readonly safeStorage: SafeStorageAdapter
   private readonly files: FileAdapter
@@ -54,7 +56,7 @@ export class ProviderSecretStore {
   private readonly inMemorySecrets = new Map<string, string>()
 
   constructor(options: ProviderSecretStoreOptions = {}) {
-    this.getProviderById = options.getProviderById ?? getConversationProviderById
+    this.resolveAuthOwner = options.resolveAuthOwner ?? resolveCredentialOwner
     this.resolveUserDataDir = options.resolveUserDataDir ?? (() => loadElectron().app.getPath('userData'))
     this.safeStorage = options.safeStorage ?? loadElectron().safeStorage
     this.files = options.files ?? { mkdir, readFile, unlink, writeFile }
@@ -192,10 +194,10 @@ export class ProviderSecretStore {
       return { ok: false, message: 'Provider id is invalid.' }
     }
 
-    const provider = this.getProviderById(normalizedProviderId)
-    if (!provider) return { ok: false, message: 'Conversation provider is not installed.' }
+    const owner = this.resolveAuthOwner(normalizedProviderId)
+    if (!owner) return { ok: false, message: 'Conversation provider is not installed.' }
 
-    const auth = provider.manifest.auth
+    const auth = owner.manifest.auth
     if (!auth) return { ok: false, message: 'Conversation provider does not declare a secret.' }
 
     const envName = auth.env?.trim() || null
@@ -216,4 +218,12 @@ export class ProviderSecretStore {
 function loadElectron(): typeof import('electron') {
   // eslint-disable-next-line @typescript-eslint/no-require-imports
   return require('electron')
+}
+
+// Multicode's single shared credential store. Both the conversation runtime and
+// the agent-CLI launch path resolve secrets through this one instance, so a key
+// set in one surface (and its in-memory/session cache) is visible to the other.
+let sharedCredentialStore: ProviderSecretStore | null = null
+export function getSharedCredentialStore(): ProviderSecretStore {
+  return (sharedCredentialStore ??= new ProviderSecretStore())
 }
