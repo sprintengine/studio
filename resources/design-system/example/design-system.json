@@ -1,0 +1,31 @@
+{
+  "schemaVersion": 1,
+  "name": "example",
+  "version": "0.1.0",
+  "summary": "Reference example bundle for the Multicode design-system schema: warm-neutral surfaces, a single green accent, light + dark modes.",
+  "modes": ["light", "dark"],
+  "namingGrammar": {
+    "tokens": "<tier>.<group...>.<name> — tier is 'ref' or 'sem'; every segment is lowercase kebab-case; nesting follows DTCG groups; aliases reference the full dotted path as {tier.group.name}",
+    "cssVariables": "'--' plus the token path with '.' replaced by '-' (sem.color.bg.app -> --sem-color-bg-app); components consume only the --sem-* set",
+    "components": "kebab-case directory under components/, containing component.html, component.css, and component.md",
+    "glyphs": "kebab-case concept name, one concept per SVG; strokes and fills use currentColor"
+  },
+  "contents": {
+    "foundations": ["foundations/tokens.tokens.json", "foundations/principles.md"],
+    "components": ["button"],
+    "patterns": ["patterns/sign-in.html"],
+    "glyphs": ["glyphs/check.svg"],
+    "assets": []
+  },
+  "derived": {
+    "foundations/tokens.css": "scripts/build-tokens.mjs",
+    "catalog/index.html": "scripts/build-catalog.mjs"
+  },
+  "provenance": {
+    "authoredBy": "multicode-design-wizard",
+    "sourceLibraryId": null,
+    "sourceLibraryVersion": null,
+    "releasedAt": null,
+    "attachedAt": null
+  }
+}

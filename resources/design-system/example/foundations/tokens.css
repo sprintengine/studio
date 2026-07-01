@@ -1,0 +1,63 @@
+/* GENERATED FILE — do not edit by hand.
+ * Derived from foundations/tokens.tokens.json by scripts/build-tokens.mjs.
+ * Emission contract: knowledge/multicode/design-system-bundle.md.
+ * :root carries the light (default) mode; [data-mode="dark"] overrides the
+ * tokens whose values differ in dark mode. */
+:root {
+  --ref-color-neutral-0: #ffffff;
+  --ref-color-neutral-50: #f7f5ef;
+  --ref-color-neutral-200: #e5e1d8;
+  --ref-color-neutral-400: #a6a196;
+  --ref-color-neutral-500: #767268;
+  --ref-color-neutral-800: #23211b;
+  --ref-color-neutral-900: #161511;
+  --ref-color-neutral-950: #0c0b09;
+  --ref-color-green-400: #4daf7d;
+  --ref-color-green-500: #3f9468;
+  --ref-color-green-600: #2f6a4a;
+  --ref-color-green-700: #275842;
+  --ref-color-red-300: #e08a82;
+  --ref-color-red-500: #b8433a;
+  --ref-space-1: 4px;
+  --ref-space-2: 8px;
+  --ref-space-3: 12px;
+  --ref-space-4: 16px;
+  --ref-space-6: 24px;
+  --ref-radius-sm: 5px;
+  --ref-radius-md: 7px;
+  --ref-font-family-ui: Inter, system-ui, sans-serif;
+  --ref-font-family-mono: "JetBrains Mono", SFMono-Regular, monospace;
+  --ref-font-size-sm: 12px;
+  --ref-font-size-md: 13px;
+  --ref-font-size-lg: 15px;
+  --ref-font-weight-regular: 400;
+  --ref-font-weight-semibold: 600;
+  --sem-color-bg-app: var(--ref-color-neutral-50);
+  --sem-color-bg-surface: var(--ref-color-neutral-0);
+  --sem-color-text-primary: var(--ref-color-neutral-800);
+  --sem-color-text-muted: var(--ref-color-neutral-500);
+  --sem-color-text-on-accent: var(--ref-color-neutral-0);
+  --sem-color-border-default: var(--ref-color-neutral-200);
+  --sem-color-accent-primary: var(--ref-color-green-600);
+  --sem-color-accent-hover: var(--ref-color-green-700);
+  --sem-color-status-danger: var(--ref-color-red-500);
+  --sem-color-brand-highlight: var(--ref-color-green-500);
+  --sem-space-control-gap: var(--ref-space-2);
+  --sem-space-section: var(--ref-space-6);
+  --sem-radius-control: var(--ref-radius-sm);
+  --sem-radius-overlay: var(--ref-radius-md);
+  --sem-font-family-ui: var(--ref-font-family-ui);
+  --sem-font-size-body: var(--ref-font-size-md);
+  --sem-font-weight-emphasis: var(--ref-font-weight-semibold);
+}
+[data-mode="dark"] {
+  --sem-color-bg-app: var(--ref-color-neutral-950);
+  --sem-color-bg-surface: var(--ref-color-neutral-900);
+  --sem-color-text-primary: var(--ref-color-neutral-50);
+  --sem-color-text-muted: var(--ref-color-neutral-400);
+  --sem-color-text-on-accent: var(--ref-color-neutral-950);
+  --sem-color-border-default: var(--ref-color-neutral-800);
+  --sem-color-accent-primary: var(--ref-color-green-500);
+  --sem-color-accent-hover: var(--ref-color-green-400);
+  --sem-color-status-danger: var(--ref-color-red-300);
+}
