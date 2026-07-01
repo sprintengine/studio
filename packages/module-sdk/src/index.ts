@@ -659,6 +659,7 @@ export {
   parseCliPluginManifest,
   validateCliPluginManifest,
   type CliArgvToken,
+  type CliAuthSpec,
   type CliCapabilities,
   type CliCompletionMode,
   type CliCompletionSpec,

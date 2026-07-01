@@ -93,20 +93,29 @@ const PROTECTED_LAUNCH_ENV_KEYS = new Set<string>([
   'COLORTERM',
 ])
 
+// True when the provider env redirects the Anthropic endpoint (a different
+// base URL, or our own auth token). On a redirect, an inherited ANTHROPIC_API_KEY
+// belongs to the DEFAULT Anthropic endpoint — NOT the redirect target — so it
+// must never travel: leaving it set would transmit the user's real Anthropic key
+// to the third-party endpoint (e.g. api.z.ai) on the auth header. This is the
+// critical case to cover even when no token is configured (endpoint redirected,
+// key inherited): the launch should fail closed (401), not leak the key.
+function redirectsAnthropicEndpoint(providerEnv: Record<string, string>): boolean {
+  return Boolean(providerEnv.ANTHROPIC_BASE_URL || providerEnv.ANTHROPIC_AUTH_TOKEN)
+}
+
 // Merge a CLI manifest's rendered `launch.env` onto a base session env. The
 // provider env wins on collision (it is the whole point — e.g. pointing
 // ANTHROPIC_BASE_URL at Z.AI) except for the protected identity keys above.
-// When the provider sets ANTHROPIC_AUTH_TOKEN (the Anthropic-compatible endpoint
-// auth scheme), any inherited ANTHROPIC_API_KEY is stripped so a globally
-// configured real Anthropic key cannot shadow the redirect. No-op (returns the
-// base unchanged) for the common case of a manifest with no `launch.env`.
+// No-op (returns the base unchanged) for the common case of a manifest with no
+// `launch.env`.
 export function mergeProviderLaunchEnv(
   base: Record<string, string>,
   providerEnv: Record<string, string> | undefined
 ): Record<string, string> {
   if (!providerEnv || Object.keys(providerEnv).length === 0) return base
   const next = { ...base }
-  if (providerEnv.ANTHROPIC_AUTH_TOKEN) {
+  if (redirectsAnthropicEndpoint(providerEnv)) {
     delete next.ANTHROPIC_API_KEY
   }
   for (const [key, value] of Object.entries(providerEnv)) {
@@ -490,9 +499,10 @@ function buildSprintEngineShellBootstrap(
   // CLI manifest `launch.env` (e.g. the Z.AI runtime's ANTHROPIC_* redirect).
   // Emitted as exports so the value is authoritative inside the login shell and
   // crosses the WSL boundary, where the Windows process env is not inherited.
-  // ANTHROPIC_API_KEY is unset first when an auth token is provided, matching
-  // the PTY-env precedence in `mergeProviderLaunchEnv`.
-  if (providerLaunchEnv?.ANTHROPIC_AUTH_TOKEN) {
+  // ANTHROPIC_API_KEY is unset first on any Anthropic-endpoint redirect, matching
+  // the PTY-env precedence in `mergeProviderLaunchEnv` — so an inherited real
+  // Anthropic key is never sent to the redirect target.
+  if (providerLaunchEnv && redirectsAnthropicEndpoint(providerLaunchEnv)) {
     lines.push('unset ANTHROPIC_API_KEY')
   }
   for (const [key, value] of Object.entries(providerLaunchEnv ?? {})) {

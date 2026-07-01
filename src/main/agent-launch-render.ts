@@ -124,6 +124,23 @@ export function renderAgentLaunchArgv(input: AgentLaunchRenderInput): RenderedAg
   return { argv: rendered.argv, binary, plugin, env: rendered.env }
 }
 
+// Decides whether a CLI launch must be blocked because the CLI declares a
+// required credential (`auth`) that isn't configured. Returns a user-facing
+// message when blocked, or null to proceed. Pure — the caller resolves the
+// manifest + whether a secret is configured. A CLI without `auth` never blocks,
+// so the ordinary CLIs are unaffected. This lets the spawn path show a clear
+// "needs an API key" message instead of launching the agent into an auth error.
+export function cliCredentialLaunchBlock(input: {
+  displayName: string
+  auth?: { label: string }
+  secretConfigured: boolean
+}): { message: string } | null {
+  if (!input.auth || input.secretConfigured) return null
+  return {
+    message: `${input.displayName} needs an API key before it can start. Add it in Settings → Agents.`,
+  }
+}
+
 // Renders just the launch-env a CLI manifest declares (with `{{secret}}` and
 // other variables substituted), for callers that inject it into the spawned
 // process env rather than argv. Returns an empty object for manifests with no

@@ -6,6 +6,7 @@ import type { SprintEngineCliPermissionPreset } from '../shared/electron-api'
 import {
   argvToPosixShellCommand,
   buildAgentShellCommand,
+  cliCredentialLaunchBlock,
   pluginIdForCli,
   quotePosixToken,
   renderAgentLaunchArgv,
@@ -48,6 +49,7 @@ async function main(): Promise<void> {
     testOrdinaryCliRendersNoLaunchEnv()
     testZaiRenderInjectsLaunchEnv()
     testZaiRenderOmitsModelFlag()
+    testCliCredentialLaunchBlock()
     testQuoteTokenLeavesSafeStringsBare()
     testQuoteTokenWrapsSpecialChars()
     testArgvToPosixShellCommand()
@@ -158,6 +160,28 @@ function testZaiRenderInjectsLaunchEnv(): void {
 function testZaiRenderOmitsModelFlag(): void {
   const out = renderAgentLaunchArgv({ cli: 'zai', sessionId: 'sid_zai3', cliModel: 'glm-4.7' })
   assert.equal(out.argv.includes('--model'), false, 'Z.AI argv must not carry --model')
+}
+
+// A CLI that declares `auth` with no configured key is blocked from launching
+// with an actionable message; a configured key or a CLI without auth proceeds.
+function testCliCredentialLaunchBlock(): void {
+  const blocked = cliCredentialLaunchBlock({
+    displayName: 'Z.AI',
+    auth: { label: 'Z.AI API key' },
+    secretConfigured: false,
+  })
+  assert.equal(blocked?.message, 'Z.AI needs an API key before it can start. Add it in Settings → Agents.')
+
+  assert.equal(
+    cliCredentialLaunchBlock({ displayName: 'Z.AI', auth: { label: 'Z.AI API key' }, secretConfigured: true }),
+    null,
+    'a configured key proceeds',
+  )
+  assert.equal(
+    cliCredentialLaunchBlock({ displayName: 'Claude Code', secretConfigured: false }),
+    null,
+    'a CLI without auth never blocks',
+  )
 }
 
 function testClaudeCodeRenderWithBypass(): void {

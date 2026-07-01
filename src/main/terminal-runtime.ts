@@ -32,7 +32,7 @@ import { getErrorMessage } from './error-message'
 import { getTerminalErrorMessage } from './terminal-error'
 import { MobileSprintEngineCommandService } from './mobile/sprintengine/command'
 import { getPluginById, getPluginRegistryUserRoot, getPluginSprintEngineRegistryRoots } from './plugin-registry-instance'
-import { pluginIdForCli } from './agent-launch-render'
+import { cliCredentialLaunchBlock, pluginIdForCli } from './agent-launch-render'
 import { defaultUserRoleRegistryRoot } from './sprintengine-role-registry'
 import {
   appendTerminalOutput,
@@ -1816,6 +1816,15 @@ async function spawnMobileAgentTerminal(input: {
     // `launch.env` `{{secret}}` resolves into the spawned process env.
     const mobileAuthSecret = await getSharedCredentialStore().resolveSecret(input.cli)
     const mobileCliAuthToken = mobileAuthSecret.ok ? mobileAuthSecret.value : undefined
+    // Block launch when the CLI requires an API key that isn't configured, rather
+    // than starting it into an auth error (mirrors the desktop spawn guard).
+    const mobileAuthPlugin = getPluginById(input.cli)
+    const mobileBlock = cliCredentialLaunchBlock({
+      displayName: mobileAuthPlugin?.manifest.displayName ?? input.cli,
+      auth: mobileAuthPlugin?.manifest.auth,
+      secretConfigured: mobileAuthSecret.ok,
+    })
+    if (mobileBlock) return { ok: false, message: mobileBlock.message }
     const { command, args, cwd: launchCwd, pathStyle, initialInput, env, startupScriptPath } = getShellLaunchConfig(
       input.cwd,
       input.sessionId,
@@ -2159,6 +2168,19 @@ async function spawnTerminalFromIpc(
       // for plain shells (no agent CLI to authenticate).
       const cliAuthSecret = shellOnly ? null : await getSharedCredentialStore().resolveSecret(cli)
       const cliAuthToken = cliAuthSecret?.ok ? cliAuthSecret.value : undefined
+      // If this CLI requires an API key (declares `auth`, e.g. Z.AI) and none is
+      // configured, don't launch it into an auth error — return a clear,
+      // actionable message. The renderer surfaces it and leaves the terminal
+      // unstarted (see TerminalView spawn-failure handling).
+      if (!shellOnly && cliAuthSecret) {
+        const authPlugin = getPluginById(cli)
+        const block = cliCredentialLaunchBlock({
+          displayName: authPlugin?.manifest.displayName ?? cli,
+          auth: authPlugin?.manifest.auth,
+          secretConfigured: cliAuthSecret.ok,
+        })
+        if (block) return { ok: false, sessionId, message: block.message, exitCode: 1 }
+      }
       const { command, args, cwd: launchCwd, pathStyle, initialInput, env, startupScriptPath } = shellOnly
         ? getPlainShellLaunchConfig(workingDirectory, sprintEngineStatePath, sessionId)
         : getShellLaunchConfig(

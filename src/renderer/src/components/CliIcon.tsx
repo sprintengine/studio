@@ -1,11 +1,12 @@
 import type { AgentCli } from '../types/workspace'
 
-export type CliIconKind = 'claude-code' | 'codex' | 'opencode' | 'terminal'
+export type CliIconKind = 'claude-code' | 'codex' | 'opencode' | 'zai' | 'terminal'
 
 export function resolveCliIconKind(cli: AgentCli): CliIconKind {
   if (cli === 'claude-code') return 'claude-code'
   if (cli === 'codex') return 'codex'
   if (cli === 'opencode') return 'opencode'
+  if (cli === 'zai') return 'zai'
   return 'terminal'
 }
 
@@ -44,6 +45,30 @@ export default function CliIcon({ cli, className }: { cli: AgentCli; className?:
           d="M384 416H128V96H384V416ZM320 160H192V352H320V160Z"
         />
         <path d="M320 224V352H192V224H320Z" />
+      </svg>
+    )
+  }
+
+  if (iconKind === 'zai') {
+    // A simple, original "Z" tile mark (theme-adaptive via currentColor) that
+    // reads as the Z.AI runtime. Swap this branch's contents for Z.AI's official
+    // brand SVG if/when one is bundled.
+    return (
+      <svg
+        className={className}
+        viewBox="0 0 24 24"
+        fill="none"
+        aria-hidden="true"
+        xmlns="http://www.w3.org/2000/svg"
+      >
+        <rect x="3.5" y="3.5" width="17" height="17" rx="5" stroke="currentColor" strokeWidth="1.7" />
+        <path
+          d="M8.25 8.5H15.75L8.25 15.5H15.75"
+          stroke="currentColor"
+          strokeWidth="1.9"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        />
       </svg>
     )
   }
