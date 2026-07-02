@@ -118,6 +118,25 @@ assert.ok(designPreset, 'frontend-design preset input should normalize')
 assert.equal(designPreset.preset, 'frontend-design')
 assert.equal(designPreset.activeDesignArtifactPath, 'mockups/app.html')
 
+// The design-system preset round-trips the same way, resuming on the
+// designer stage with the selected bundle artifact preserved.
+const designSystemPreset = normalizeGuidedBriefState({
+  workspaceRoot: '/repo/system',
+  workspaceName: 'Brand system',
+  idea: 'A warm editorial design system',
+  hasUi: 'yes',
+  preset: 'design-system',
+  stage: 'designer-working',
+  activeDesignArtifactPath: 'design-system/foundations/principles.md',
+})
+assert.ok(designSystemPreset, 'design-system preset input should normalize')
+assert.equal(designSystemPreset.preset, 'design-system')
+assert.equal(designSystemPreset.stage, 'designer-working')
+assert.equal(
+  designSystemPreset.activeDesignArtifactPath,
+  'design-system/foundations/principles.md',
+)
+
 const bogusPreset = normalizeGuidedBriefState({
   workspaceRoot: '/repo/bogus',
   workspaceName: 'Bogus preset',

@@ -13,6 +13,7 @@ import {
 } from './interviewProtocol'
 import { joinWorkspacePath } from './paths'
 import {
+  DESIGN_SYSTEM_BUNDLE_DIRECTORY_NAME,
   EMPTY_DESIGN_ARTIFACT_INDEX,
   INSPIRATION_DIRECTORY_NAME,
   MOCKUPS_DIRECTORY_NAME,
@@ -22,6 +23,7 @@ import {
   type DesignArtifactIndex,
   type DesignArtifactsStatus,
 } from './designArtifacts'
+import { DESIGN_SYSTEM_IDEA_SEED_RELATIVE_PATH } from '../../../utils/guidedBriefWorkspace'
 
 export type DesignerMockupFile = {
   name: string
@@ -73,6 +75,10 @@ export type UseDesignerSessionInput = {
   cliModel?: string
   cliRuntimes?: Partial<Record<AgentCli, Partial<CliRuntimeSettings>>>
   enabled: boolean
+  // Design-system preset: the session authors the portable bundle under its
+  // dedicated role prompt, and the artifact index/watchers cover the
+  // `design-system/` tree instead of `product/ui-direction.md`.
+  designSystem?: boolean
   // Persisted PTY id (survives renderer HMR / reload). When provided, the main
   // process reattaches to the existing session and replays its buffer.
   sessionId: string | null
@@ -117,6 +123,7 @@ export function useDesignerSession({
   cliModel,
   cliRuntimes,
   enabled,
+  designSystem = false,
   sessionId,
   onAssignSessionId,
 }: UseDesignerSessionInput): UseDesignerSessionResult {
@@ -172,6 +179,14 @@ export function useDesignerSession({
         inspirationDirectoryPath: INSPIRATION_DIRECTORY_NAME,
         uiDirectionPath: UI_DIRECTION_RELATIVE_PATH,
         mockupPath: PRIMARY_MOCKUP_RELATIVE_PATH,
+        ...(designSystem
+          ? {
+              designSystem: {
+                bundleDirectoryPath: DESIGN_SYSTEM_BUNDLE_DIRECTORY_NAME,
+                ideaSeedPath: DESIGN_SYSTEM_IDEA_SEED_RELATIVE_PATH,
+              },
+            }
+          : {}),
       },
       {
         terminalApi: {
@@ -251,11 +266,15 @@ export function useDesignerSession({
           setDesignArtifactsStatus('unavailable')
           return
         }
-        const index = await collectDesignArtifacts(workspaceRoot, {
-          readdir: window.api.readdir,
-          pathExists: window.api.pathExists,
-          statPath: window.api.statPath,
-        })
+        const index = await collectDesignArtifacts(
+          workspaceRoot,
+          {
+            readdir: window.api.readdir,
+            pathExists: window.api.pathExists,
+            statPath: window.api.statPath,
+          },
+          { includeDesignSystemBundle: designSystem },
+        )
         if (cancelled) return
         setDesignArtifacts(index)
         const pages = index.groups.find((group) => group.id === 'pages')?.entries ?? []
@@ -274,6 +293,9 @@ export function useDesignerSession({
       mockupsDirectoryPath,
       joinWorkspacePath(workspaceRoot, 'product'),
       joinWorkspacePath(workspaceRoot, INSPIRATION_DIRECTORY_NAME),
+      ...(designSystem
+        ? [joinWorkspacePath(workspaceRoot, DESIGN_SYSTEM_BUNDLE_DIRECTORY_NAME)]
+        : []),
     ]
 
     void refresh()
@@ -303,11 +325,13 @@ export function useDesignerSession({
       clearInterval(pollHandle)
       for (const stop of stopWatchers) void stop()
     }
-  }, [enabled, workspaceRoot, mockupsDirectoryPath])
+  }, [enabled, workspaceRoot, mockupsDirectoryPath, designSystem])
 
-  // Watch product/ui-direction.md for non-empty content.
+  // Watch product/ui-direction.md for non-empty content. Design-system
+  // studios have no UI-direction artifact — readiness there is the marker or
+  // real bundle pages, so the watcher (and its poll) never starts.
   useEffect(() => {
-    if (!enabled) return
+    if (!enabled || designSystem) return
     let cancelled = false
     let stopWatch: (() => Promise<void>) | null = null
 
@@ -353,7 +377,7 @@ export function useDesignerSession({
       clearInterval(pollHandle)
       if (stopWatch) void stopWatch()
     }
-  }, [enabled, uiDirectionAbsolutePath, workspaceRoot])
+  }, [enabled, uiDirectionAbsolutePath, workspaceRoot, designSystem])
 
   const mockupsAvailable = mockups.length > 0
   // Spec: marker OR real mockup file readiness. We treat "real readiness" as

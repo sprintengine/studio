@@ -1563,13 +1563,15 @@ export type SprintEngineRunSettings = {
 
 export type GuidedBriefHasUi = 'yes' | 'no'
 
-// Guided Brief ships two presets. `full-brief` is the classic strategist →
+// Guided Brief ships three presets. `full-brief` is the classic strategist →
 // architect → designer → handoff flow. `frontend-design` is surfaced to users
-// as "Multicode Design": a design-only studio that forces the UI path, skips
+// as "Design only": a design-only studio that forces the UI path, skips
 // the product and architecture discussions, and starts on the designer stage.
-// It stays inside the `guided-brief` workspace mode rather than becoming its own
-// `WorkspaceMode`.
-export type GuidedBriefPreset = 'full-brief' | 'frontend-design'
+// `design-system` reuses that design-only studio but authors a portable
+// design-system bundle (see knowledge/multicode/design-system-bundle.md)
+// instead of one app's mockups. All presets stay inside the `guided-brief`
+// workspace mode rather than becoming their own `WorkspaceMode`.
+export type GuidedBriefPreset = 'full-brief' | 'frontend-design' | 'design-system'
 
 export type GuidedBriefRoleCliDefaults = {
   product: AgentCli

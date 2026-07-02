@@ -206,6 +206,39 @@ export function buildGuidedBriefIdeaSeedMarkdown(idea: string, hasUi: GuidedBrie
   ].join('\n')
 }
 
+// Design-system preset seed. Lives under `.guided-brief/` (app metadata,
+// like the inspiration drop dir) so the design goal never ships inside the
+// portable bundle at `design-system/`.
+export const DESIGN_SYSTEM_IDEA_SEED_RELATIVE_PATH = '.guided-brief/idea-seed.md'
+
+export function buildDesignSystemIdeaSeedMarkdown(idea: string): string {
+  const trimmedIdea = trimRequired(idea, 'missing-idea')
+  return [
+    '# Design System Goal',
+    '',
+    '## User Goal',
+    '',
+    trimmedIdea,
+    '',
+  ].join('\n')
+}
+
+export async function scaffoldDesignSystemWorkspaceSeed({
+  workspaceRoot,
+  idea,
+  filesystem,
+}: {
+  workspaceRoot: string
+  idea: string
+  filesystem: GuidedBriefFilesystem
+}): Promise<{ ideaSeedPath: string }> {
+  const root = trimRequired(workspaceRoot, 'missing-root')
+  await filesystem.ensureDir(root, '.guided-brief')
+  const ideaSeedPath = joinWorkspacePath(root, '.guided-brief', 'idea-seed.md')
+  await filesystem.writeFile(ideaSeedPath, buildDesignSystemIdeaSeedMarkdown(idea))
+  return { ideaSeedPath }
+}
+
 export async function scaffoldGuidedBriefWorkspace({
   workspaceRoot,
   idea,

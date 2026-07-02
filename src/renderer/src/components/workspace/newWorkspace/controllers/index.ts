@@ -1,6 +1,8 @@
 export type {
   CreationResult,
   OnCreateArgs,
+  DesignSystemScaffoldControllerInput,
+  DesignSystemScaffoldControllerPorts,
   GuidedBriefFilesystemPort,
   GuidedBriefScaffoldInput,
   GuidedBriefScaffoldPorts,
@@ -45,3 +47,7 @@ export {
   GuidedBriefScaffoldError,
   GuidedBriefStartBuildError,
 } from './guidedBriefController'
+export {
+  runDesignSystemScaffold,
+  DesignSystemScaffoldError,
+} from './designSystemController'

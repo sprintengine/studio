@@ -206,6 +206,31 @@ export type GuidedBriefScaffoldResult = {
   runtimeState: GuidedBriefRuntimeState
 }
 
+// The design-system preset forces the design-only path (UI implied,
+// product/architecture discussions off), so its scaffold input carries no
+// hasUi or discussion flags.
+export type DesignSystemScaffoldControllerInput = {
+  folderPath: string | null
+  workspaceName: string
+  idea: string
+  guidedRoleCliDefaults: import('../../../../types/workspace').GuidedBriefRoleCliDefaults
+  buildRoleCounts: SprintEngineRoleCounts
+  buildRoleCliDefaults: Required<SprintEngineRoleCliDefaults>
+  buildCliPermissionPreset: SprintEngineCliPermissionPreset
+  buildStartRunner: boolean
+  buildAutoApproveArtifacts: boolean
+}
+
+export type DesignSystemScaffoldControllerPorts = {
+  filesystem: GuidedBriefFilesystemPort
+  /** Main-process bundle scaffold (design-system:scaffold-bundle IPC). */
+  scaffoldBundle: (
+    workspaceRoot: string,
+    name: string,
+    summary: string,
+  ) => Promise<import('../../../../../../shared/design-system/bundle-scaffold').DesignSystemScaffoldResult>
+}
+
 export type GuidedBriefStartBuildInput = {
   runtimeState: GuidedBriefRuntimeState
   runOptions: {

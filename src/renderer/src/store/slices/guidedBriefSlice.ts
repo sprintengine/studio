@@ -226,9 +226,10 @@ export function normalizeGuidedBriefState(input: unknown): GuidedBriefRuntimeSta
     : 'strategist-working'
   // Legacy guided-brief states predate the preset model; missing/unknown values
   // normalize to `full-brief` so existing workspaces load unchanged.
-  const preset: GuidedBriefPreset = candidate.preset === 'frontend-design'
-    ? 'frontend-design'
-    : 'full-brief'
+  const preset: GuidedBriefPreset =
+    candidate.preset === 'frontend-design' || candidate.preset === 'design-system'
+      ? candidate.preset
+      : 'full-brief'
   const wantsProductDiscussion = typeof candidate.wantsProductDiscussion === 'boolean'
     ? candidate.wantsProductDiscussion
     : true

@@ -86,6 +86,7 @@ import {
   type AgentCliCatalogOption,
 } from './newWorkspace/cliRuntimeOptions'
 import {
+  DesignSystemScaffoldError,
   GuidedBriefScaffoldError,
   GuidedBriefStartBuildError,
   MultiloopControllerError,
@@ -96,6 +97,7 @@ import {
   buildAutomationsCreation,
   buildStandardCreation,
   buildSwitchboardCreation,
+  runDesignSystemScaffold,
   runGuidedBriefScaffold,
   runGuidedBriefStartBuild,
   runMultiloopCreation,
@@ -1377,14 +1379,14 @@ export default function NewWorkspacePanel({
     [seEffectiveSpawnAtStartRoles],
   )
 
-  // Multicode Design forces the design-only path: a screen is implied, the
-  // product and architecture discussions are off, and the frontend discussion
-  // is on. Switching back to the full brief restores the standard defaults and
-  // re-asks the has-UI question.
+  // The design-only presets (Design only, Design system) force the studio
+  // path: a screen is implied, the product and architecture discussions are
+  // off, and the frontend discussion is on. Switching back to the full brief
+  // restores the standard defaults and re-asks the has-UI question.
   const handleChangeGuidedPreset = (next: GuidedBriefPreset) => {
     setGuidedPreset(next)
     setGuidedError(null)
-    if (next === 'frontend-design') {
+    if (next === 'frontend-design' || next === 'design-system') {
       setGuidedHasUi('yes')
       setGuidedWantsProduct(false)
       setGuidedWantsArchitecture(false)
@@ -1493,34 +1495,54 @@ export default function NewWorkspacePanel({
       setGuidedError(null)
       try {
         if (await persistAdvancedSetup(folderPath)) return
-        const { runtimeState } = await runGuidedBriefScaffold(
-          {
-            folderPath,
-            workspaceName: name,
-            idea: guidedIdea,
-            hasUi: guidedHasUi,
-            preset: guidedPreset,
-            wantsProduct: guidedWantsProduct,
-            wantsArchitecture: guidedWantsArchitecture,
-            wantsFrontend: guidedWantsFrontend,
-            guidedRoleCliDefaults,
-            buildRoleCounts: applyUserDisabledSprintEngineRoleCounts(
-              guidedBriefBuildRoleCountsForSurface(guidedHasUi),
-              sprintEngineDisabledRoleIds,
-            ),
-            buildRoleCliDefaults: seRoleCliDefaults,
-            buildCliPermissionPreset: cliPermissionPreset,
-            buildStartRunner: seStartRunner,
-            buildAutoApproveArtifacts: seAutoApproveArtifacts,
-          },
-          {
-            filesystem: {
-              ensureDir: window.api.ensureDir,
-              readFile: window.api.readfile,
-              writeFile: window.api.writefile,
-            },
-          },
+        const guidedFilesystem = {
+          ensureDir: window.api.ensureDir,
+          readFile: window.api.readfile,
+          writeFile: window.api.writefile,
+        }
+        const buildRoleCounts = applyUserDisabledSprintEngineRoleCounts(
+          guidedBriefBuildRoleCountsForSurface(guidedHasUi),
+          sprintEngineDisabledRoleIds,
         )
+        const { runtimeState } = guidedPreset === 'design-system'
+          ? await runDesignSystemScaffold(
+              {
+                folderPath,
+                workspaceName: name,
+                idea: guidedIdea,
+                guidedRoleCliDefaults,
+                buildRoleCounts,
+                buildRoleCliDefaults: seRoleCliDefaults,
+                buildCliPermissionPreset: cliPermissionPreset,
+                buildStartRunner: seStartRunner,
+                buildAutoApproveArtifacts: seAutoApproveArtifacts,
+              },
+              {
+                filesystem: guidedFilesystem,
+                scaffoldBundle: window.api.scaffoldDesignSystemBundle,
+              },
+            )
+          : await runGuidedBriefScaffold(
+              {
+                folderPath,
+                workspaceName: name,
+                idea: guidedIdea,
+                hasUi: guidedHasUi,
+                preset: guidedPreset,
+                wantsProduct: guidedWantsProduct,
+                wantsArchitecture: guidedWantsArchitecture,
+                wantsFrontend: guidedWantsFrontend,
+                guidedRoleCliDefaults,
+                buildRoleCounts,
+                buildRoleCliDefaults: seRoleCliDefaults,
+                buildCliPermissionPreset: cliPermissionPreset,
+                buildStartRunner: seStartRunner,
+                buildAutoApproveArtifacts: seAutoApproveArtifacts,
+              },
+              {
+                filesystem: guidedFilesystem,
+              },
+            )
         onCreate({
           template: createGuidedBriefTemplate(),
           name: runtimeState.workspaceName,
@@ -1530,9 +1552,10 @@ export default function NewWorkspacePanel({
         })
       } catch (error) {
         setGuidedError(
-          error instanceof GuidedBriefScaffoldError && error.message !== error.code
+          (error instanceof GuidedBriefScaffoldError || error instanceof DesignSystemScaffoldError)
+            && error.message !== error.code
             ? error.message
-            : error instanceof GuidedBriefScaffoldError
+            : error instanceof GuidedBriefScaffoldError || error instanceof DesignSystemScaffoldError
               ? `Could not set up the Design Wizard workspace (${error.code}).`
               : error instanceof Error
                 ? error.message
@@ -2987,12 +3010,15 @@ function GuidedIdeaStep({
   folderPath: string | null
   error: string | null
 }) {
-  const isDesignPreset = preset === 'frontend-design'
+  const isDesignSystemPreset = preset === 'design-system'
+  // Both design-only presets share the studio path: UI implied, planning
+  // discussions skipped, designer locked on.
+  const isDesignPreset = preset === 'frontend-design' || isDesignSystemPreset
   return (
     <div className="flex flex-col gap-5">
       <div className="flex flex-col gap-2">
         <FieldLabel>What are we making?</FieldLabel>
-        <div role="radiogroup" aria-label="Design Wizard mode" className="grid grid-cols-2 gap-2.5">
+        <div role="radiogroup" aria-label="Design Wizard mode" className="grid grid-cols-3 gap-2.5">
           <GuidedChoiceCard
             active={!isDesignPreset}
             title="Plan & design"
@@ -3000,23 +3026,33 @@ function GuidedIdeaStep({
             onSelect={() => onChangePreset('full-brief')}
           />
           <GuidedChoiceCard
-            active={isDesignPreset}
+            active={isDesignPreset && !isDesignSystemPreset}
             title="Design only"
             body="Skip the planning and go straight to screens and mockups."
             onSelect={() => onChangePreset('frontend-design')}
+          />
+          <GuidedChoiceCard
+            active={isDesignSystemPreset}
+            title="Design system"
+            body="Author a reusable system — tokens, components, patterns — as a portable bundle."
+            onSelect={() => onChangePreset('design-system')}
           />
         </div>
       </div>
 
       <label className="flex flex-col gap-2">
-        <FieldLabel>{isDesignPreset ? 'Design goal' : 'Rough idea'}</FieldLabel>
+        <FieldLabel>
+          {isDesignSystemPreset ? 'Design system goal' : isDesignPreset ? 'Design goal' : 'Rough idea'}
+        </FieldLabel>
         <textarea
           value={idea}
           onChange={(event) => onChangeIdea(event.target.value)}
           placeholder={
-            isDesignPreset
-              ? 'A calm onboarding flow for a café shift-trading app: sign in, see this week’s shifts, request a swap.'
-              : 'A shift-trading app where café staff can swap shifts without texting the manager.'
+            isDesignSystemPreset
+              ? 'A warm, editorial design system for a café brand: friendly type, calm surfaces, light and dark modes.'
+              : isDesignPreset
+                ? 'A calm onboarding flow for a café shift-trading app: sign in, see this week’s shifts, request a swap.'
+                : 'A shift-trading app where café staff can swap shifts without texting the manager.'
           }
           autoFocus
           className="
@@ -3027,9 +3063,11 @@ function GuidedIdeaStep({
           "
         />
         <span className="text-[12px] leading-5 text-[color:var(--text-muted)]">
-          {isDesignPreset
-            ? 'Describe the screen or flow, the target user, and any brand constraints.'
-            : 'Plain English. Spelling doesn’t matter.'}
+          {isDesignSystemPreset
+            ? 'Describe the brand character, the products it will serve, and any constraints — fonts, colors, density.'
+            : isDesignPreset
+              ? 'Describe the screen or flow, the target user, and any brand constraints.'
+              : 'Plain English. Spelling doesn’t matter.'}
         </span>
       </label>
 
@@ -3060,8 +3098,12 @@ function GuidedIdeaStep({
             <GuidedRoleToggle
               checked
               locked
-              title="Frontend engineer"
-              body="Designs the screens and reviewable mockups."
+              title={isDesignSystemPreset ? 'Design system designer' : 'Frontend engineer'}
+              body={
+                isDesignSystemPreset
+                  ? 'Interviews through the brand and authors the tokens, components, and patterns.'
+                  : 'Designs the screens and reviewable mockups.'
+              }
               cli={roleCliDefaults.frontend}
               cliOptions={cliOptions}
               onChangeCli={(cli) => onSetRoleCli('frontend', cli)}
@@ -3102,16 +3144,28 @@ function GuidedIdeaStep({
         </div>
         {isDesignPreset ? (
           <p className="text-[12px] leading-5 text-[color:var(--text-muted)]">
-            Design only skips the strategy and planning discussions and starts straight in the design studio.
+            {isDesignSystemPreset
+              ? 'Design system skips the planning discussions and starts straight in the authoring studio.'
+              : 'Design only skips the strategy and planning discussions and starts straight in the design studio.'}
           </p>
         ) : null}
       </div>
 
       {folderPath ? (
         <p className="text-[12px] leading-5 text-[color:var(--text-muted)]">
-          Idea seed will be written to{' '}
-          <span className="font-mono text-[color:var(--text-default)]">product/idea-seed.md</span>{' '}
-          in the selected folder.
+          {isDesignSystemPreset ? (
+            <>
+              The bundle will be scaffolded into{' '}
+              <span className="font-mono text-[color:var(--text-default)]">design-system/</span>{' '}
+              in the selected folder.
+            </>
+          ) : (
+            <>
+              Idea seed will be written to{' '}
+              <span className="font-mono text-[color:var(--text-default)]">product/idea-seed.md</span>{' '}
+              in the selected folder.
+            </>
+          )}
         </p>
       ) : null}
 

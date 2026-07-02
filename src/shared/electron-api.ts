@@ -68,6 +68,7 @@ export type {
 } from './sprintengine/role-manifest'
 import type { LayoutTemplateInstallResult, UserLayoutTemplateListResult } from './layouts/template-manifest'
 import type { DesignSystemRegenResult } from './design-system/derived-files'
+import type { DesignSystemScaffoldResult } from './design-system/bundle-scaffold'
 import type { ConversationProviderListEntry, ConversationProviderModel, PluginRegistryListEntry } from './plugin-manifest'
 import type { MarketplaceComponentKind, MarketplaceIndex, MarketplaceManifestIssue, MarketplacePluginEntry } from './marketplace/manifest'
 import type { CapabilityPermission } from './modules/permissions'
@@ -2290,6 +2291,8 @@ export type ElectronApi = {
   listUserLayoutTemplates: () => Promise<UserLayoutTemplateListResult>
   /** Regenerate design-system derived files (tokens.css, catalog) for every bundle under a root dir. */
   regenerateDesignSystemDerivedFiles: (rootDir: string) => Promise<DesignSystemRegenResult>
+  /** Stamp the design-system bundle layout (templates + manifest) into a workspace. Never overwrites an existing bundle. */
+  scaffoldDesignSystemBundle: (workspaceRoot: string, name: string, summary: string) => Promise<DesignSystemScaffoldResult>
   /** List installed third-party capability modules with trust, permissions, and launch readiness. */
   listThirdPartyModules: () => Promise<ThirdPartyModuleListResult>
   /** Install a third-party capability module from a folder (validated, not executed). */

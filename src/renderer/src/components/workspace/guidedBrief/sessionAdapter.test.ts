@@ -85,6 +85,26 @@ assert.match(designerPrompt, /product\/ui-direction\.md/, 'designer prompt write
 assert.match(designerPrompt, /mockups\/app\.html/, 'designer prompt writes mockup HTML')
 assert.match(designerPrompt, /\nMOCKUP_SET_READY\n/, 'designer prompt emits MOCKUP_SET_READY marker')
 
+// The design-system preset routes through the same designer kind but under a
+// dedicated role prompt: no shared Soul fetch, bundle-directed authoring, the
+// USAGE.md governance contract, and its own readiness marker.
+const designSystemPrompt = buildGuidedBriefSpecialistStartupPrompt({
+  kind: 'designer',
+  designSystem: {
+    bundleDirectoryPath: 'design-system',
+    ideaSeedPath: '.guided-brief/idea-seed.md',
+  },
+})
+assert.doesNotMatch(designSystemPrompt, /souls get/, 'design-system prompt replaces the shared designer Soul')
+assert.match(designSystemPrompt, /\.guided-brief\/idea-seed\.md/, 'design-system prompt reads the design goal seed')
+assert.match(designSystemPrompt, /design-system\/USAGE\.md/, 'design-system prompt binds the USAGE.md governance contract')
+assert.match(designSystemPrompt, /tokens\.tokens\.json/, 'design-system prompt directs token authoring')
+assert.match(designSystemPrompt, /scripts\/lint\.mjs/, 'design-system prompt requires the lint gate')
+assert.match(designSystemPrompt, /scripts\/build-tokens\.mjs/, 'design-system prompt regenerates derived files via bundle scripts')
+assert.match(designSystemPrompt, /one question at a time/, 'design-system prompt keeps the shared interview protocol')
+assert.match(designSystemPrompt, /\nDESIGN_SYSTEM_READY\n/, 'design-system prompt emits its own marker')
+assert.doesNotMatch(designSystemPrompt, /MOCKUP_SET_READY/, 'design-system prompt does not reuse the mockup marker')
+
 const architectPrompt = buildGuidedBriefSpecialistStartupPrompt({
   kind: 'architect',
   acceptedBriefSnapshotPath: 'product/.versions/brief.md',
@@ -236,6 +256,39 @@ if (reattachResult.ok) {
     'guided brief designer sessions request bypass-all CLI permissions (every specialist gets the same preset)',
   )
   assert.equal(reattachResult.session.sessionId, 'persisted-designer-id', 'session exposes the persisted id back to the hook')
+}
+
+// Design-system designer session: same shared spawn path (bypass_all), but
+// the readiness marker and watched artifact are the bundle's, not mockups'.
+const designSystemApi = createTerminalApi()
+const designSystemMarkers: string[] = []
+const designSystemResult = await startGuidedBriefSpecialistSession(
+  {
+    kind: 'designer',
+    workspaceRoot: '/workspace',
+    cli: 'codex',
+    designSystem: {
+      bundleDirectoryPath: 'design-system',
+      ideaSeedPath: '.guided-brief/idea-seed.md',
+    },
+  },
+  {
+    terminalApi: designSystemApi,
+    onMarker: (marker) => designSystemMarkers.push(marker),
+  },
+)
+assert.equal(designSystemResult.ok, true, 'design-system designer spawn returns ok')
+if (designSystemResult.ok) {
+  assert.equal(designSystemResult.session.markerDetection.marker, 'DESIGN_SYSTEM_READY')
+  assert.equal(designSystemResult.session.markerDetection.watchPath, 'design-system')
+  assert.equal(designSystemResult.session.markerDetection.artifactPath, 'design-system/design-system.json')
+  assert.equal(
+    designSystemApi.spawned[0]?.metadata?.cliPermissionPreset,
+    'bypass_all',
+    'design-system designer sessions keep the shared bypass-all spawn path',
+  )
+  designSystemApi.emitData(designSystemResult.session.sessionId, 'working\nDESIGN_SYSTEM_READY\n')
+  assert.deepEqual(designSystemMarkers, ['DESIGN_SYSTEM_READY'], 'bundle marker is detected from terminal output')
 }
 
 // Eager-persist contract: hooks call createGuidedBriefSessionId() to mint an

@@ -71,6 +71,7 @@ export const EMPTY_DESIGN_ARTIFACT_INDEX: DesignArtifactIndex = {
 export const MOCKUPS_DIRECTORY_NAME = 'mockups'
 export const UI_DIRECTION_RELATIVE_PATH = 'product/ui-direction.md'
 export const INSPIRATION_DIRECTORY_NAME = '.guided-brief/inspiration'
+export const DESIGN_SYSTEM_BUNDLE_DIRECTORY_NAME = 'design-system'
 
 // Recursion is shallow-bounded so a runaway tree can't lock the renderer —
 // matches the existing mockup walker in useDesignerSession.
@@ -113,6 +114,18 @@ export function classifyMockupFile(
   name: string,
 ): Exclude<DesignArtifactKind, 'notes' | 'inspiration'> | null {
   return EXTENSION_KIND[extensionOf(name)] ?? null
+}
+
+/**
+ * Classify a `design-system/**` bundle file. Same extension map as mockups,
+ * plus markdown (USAGE.md, principles.md, component.md) as notes. Generator
+ * sources (`scripts/*.mjs`) stay unclassified — they are plumbing, not design
+ * artifacts.
+ */
+export function classifyDesignSystemBundleFile(name: string): DesignArtifactKind | null {
+  const extension = extensionOf(name)
+  if (extension === 'md' || extension === 'markdown') return 'notes'
+  return EXTENSION_KIND[extension] ?? null
 }
 
 function typeLabelFor(name: string, kind: DesignArtifactKind): string {
@@ -217,16 +230,27 @@ async function collectFilesUnder(
   return files
 }
 
+export type CollectDesignArtifactsOptions = {
+  /**
+   * Also index the `design-system/` bundle tree. Passed only by design-system
+   * preset studios so full-brief / frontend-design workspaces keep their
+   * existing index untouched.
+   */
+  includeDesignSystemBundle?: boolean
+}
+
 /**
  * Walk the real workspace for design artifacts and return a grouped index.
  * Covers `mockups/**` (classified by extension), `product/ui-direction.md`
- * (when present), and `.guided-brief/inspiration/**` (any file). All paths are
- * read through the injected port so the collector is testable with an in-memory
- * filesystem and reuses `window.api` in the renderer.
+ * (when present), `.guided-brief/inspiration/**` (any file), and — for
+ * design-system preset studios — the `design-system/**` bundle tree. All
+ * paths are read through the injected port so the collector is testable with
+ * an in-memory filesystem and reuses `window.api` in the renderer.
  */
 export async function collectDesignArtifacts(
   workspaceRoot: string,
   ports: DesignArtifactFsPort,
+  options: CollectDesignArtifactsOptions = {},
 ): Promise<DesignArtifactIndex> {
   const entries: DesignArtifactEntry[] = []
 
@@ -273,6 +297,25 @@ export async function collectDesignArtifacts(
       typeLabel: typeLabelFor(file.name, 'inspiration'),
       ...(await metadataFor(file.absolutePath, ports)),
     })
+  }
+
+  if (options.includeDesignSystemBundle) {
+    const bundleFiles = await collectFilesUnder(
+      joinWorkspacePath(workspaceRoot, DESIGN_SYSTEM_BUNDLE_DIRECTORY_NAME),
+      DESIGN_SYSTEM_BUNDLE_DIRECTORY_NAME,
+      ports,
+      0,
+    )
+    for (const file of bundleFiles) {
+      const kind = classifyDesignSystemBundleFile(file.name)
+      if (!kind) continue
+      entries.push({
+        ...file,
+        kind,
+        typeLabel: typeLabelFor(file.name, kind),
+        ...(await metadataFor(file.absolutePath, ports)),
+      })
+    }
   }
 
   return buildDesignArtifactIndex(entries)

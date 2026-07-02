@@ -312,9 +312,18 @@ export type GuidedBriefSpecialistPromptInput =
       uiDirectionPath?: string
       mockupPath?: string
       marker?: string
+      // Design-system preset: the session authors a portable bundle instead
+      // of one app's mockups, under a dedicated role prompt (not the shared
+      // designer soul). See knowledge/multicode/design-system-bundle.md.
+      designSystem?: {
+        bundleDirectoryPath: string
+        ideaSeedPath: string
+      }
     }
 
-function guidedBriefInterviewInstructions(role: 'product strategist' | 'architect' | 'frontend designer'): string[] {
+function guidedBriefInterviewInstructions(
+  role: 'product strategist' | 'architect' | 'frontend designer' | 'design-system designer',
+): string[] {
   return [
     `Conduct a guided ${role} interview before writing the artifact.`,
     'Ask exactly one question at a time.',
@@ -399,6 +408,33 @@ export function buildGuidedBriefSpecialistStartupPrompt(input: GuidedBriefSpecia
       '',
       'Do not create or mutate sprint state. This Guided brief flow hands off to a sprint later.',
       'If the `souls` command is unavailable, stop and report that the Souls CLI is unavailable instead of guessing the role prompt.',
+    ].join('\n')
+  }
+
+  if (input.designSystem) {
+    const marker = input.marker ?? 'DESIGN_SYSTEM_READY'
+    const bundle = input.designSystem.bundleDirectoryPath
+    const ideaSeedPath = input.designSystem.ideaSeedPath
+    const inspirationDirectoryPath = input.inspirationDirectoryPath ?? '.guided-brief/inspiration'
+
+    return [
+      'You are the design-system designer for this workspace: a senior design engineer who turns a brand direction into a portable, agent-usable design system bundle. This prompt is your role, judgment, and quality bar — it replaces the shared designer Soul; do not fetch one.',
+      '',
+      `Read the design goal at \`${ideaSeedPath}\` before asking follow-up questions.`,
+      `Read \`${bundle}/USAGE.md\` before authoring anything — it is the bundle's consume-and-contribute contract, and every contribution you make must follow it: the naming grammar in \`${bundle}/design-system.json\`, full semantic metadata on tokens, the per-component template, and the lint gate.`,
+      `If the user has dropped inspiration files into \`${inspirationDirectoryPath}\`, read them through the existing CLI image-input path before drafting.`,
+      ...guidedBriefInterviewInstructions('design-system designer'),
+      `Author the system as real files inside \`${bundle}/\`, walking it in this order with the user: design rules and principles (\`foundations/principles.md\`), design tokens (\`foundations/tokens.tokens.json\` — two tiers \`ref\`/\`sem\`, explicit \`$type\` and \`$description\` on every token, \`sem.*\` tokens carrying role/use metadata and light+dark modes as USAGE.md specifies), glyphs (\`glyphs/*.svg\`, one concept per file, currentColor), an open-ended component set (\`components/<name>/\` with component.html, component.css, component.md), and exemplar patterns (\`patterns/*.html\`).`,
+      `Register every authored piece in \`${bundle}/design-system.json\` under \`contents\` as you go.`,
+      `Never hand-edit the derived files (\`foundations/tokens.css\`, \`catalog/index.html\`). Regenerate them with the bundle's own scripts after source edits: \`node ${bundle}/scripts/build-tokens.mjs\` after token changes, \`node ${bundle}/scripts/build-catalog.mjs\` after component or pattern changes (skip it if that script is not present yet).`,
+      `Run \`node ${bundle}/scripts/lint.mjs\` and fix every finding before declaring the bundle ready.`,
+      `When and only when \`${bundle}/foundations/tokens.tokens.json\`, \`${bundle}/foundations/principles.md\`, and at least one component exist, the lint exits 0, and the bundle is ready for user review, emit this exact marker on its own line:`,
+      '',
+      marker,
+      '',
+      'Keep iterating with the user after the marker — the studio stays open for refining tokens, components, and patterns until they are satisfied.',
+      'Do not introduce a new agent runtime protocol. Use only normal terminal stdout/stdin, prompt instructions, and this marker.',
+      'Do not create or mutate sprint state.',
     ].join('\n')
   }
 

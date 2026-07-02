@@ -103,12 +103,17 @@ export type GuidedBriefProgressOptions = {
   wantsProductDiscussion?: boolean
   wantsArchitectureDiscussion?: boolean
   wantsFrontendDiscussion?: boolean
+  preset?: GuidedBriefPreset
 }
 
 function guidedBriefStageOrder(
   hasUi: GuidedBriefHasUi,
   options: GuidedBriefProgressOptions = {},
 ): GuidedBriefStage[] {
+  // The design-system preset is a studio, not a pipeline: the designer stage
+  // is the whole flow, and there is no Sprint Engine build tail. (The release
+  // action replaces it — see the design-system-platform epic.)
+  if (options.preset === 'design-system') return ['designer-working']
   const wantsProductDiscussion = options.wantsProductDiscussion ?? true
   const wantsArchitectureDiscussion = options.wantsArchitectureDiscussion ?? false
   const wantsFrontendDiscussion = options.wantsFrontendDiscussion ?? hasUi === 'yes'
@@ -165,7 +170,10 @@ export function guidedBriefSteps(
   const activeIndex = foundIndex >= 0 ? foundIndex : order.length - 1
   return order.map((stepStage, index) => ({
     stage: stepStage,
-    label: STEP_LABELS[stepStage] ?? stepStage,
+    label:
+      options.preset === 'design-system' && stepStage === 'designer-working'
+        ? 'Design system'
+        : STEP_LABELS[stepStage] ?? stepStage,
     state: index < activeIndex ? 'done' : index === activeIndex ? 'active' : 'upcoming',
   }))
 }

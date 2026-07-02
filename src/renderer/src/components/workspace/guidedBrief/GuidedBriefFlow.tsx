@@ -120,6 +120,7 @@ export function GuidedBriefFlow({
     wantsProductDiscussion: runtimeState.wantsProductDiscussion,
     wantsArchitectureDiscussion: runtimeState.wantsArchitectureDiscussion,
     wantsFrontendDiscussion: runtimeState.wantsFrontendDiscussion,
+    preset: runtimeState.preset,
   }
   const steps = guidedBriefSteps(stage, hasUi, progressOptions)
   const inStrategistStage = stage === 'strategist-working' || stage === 'strategist-ready'
@@ -168,6 +169,7 @@ export function GuidedBriefFlow({
       hasUi === 'yes' &&
       runtimeState.wantsFrontendDiscussion &&
       inDesignerStage,
+    designSystem: runtimeState.preset === 'design-system',
     sessionId: runtimeState.designerSessionId,
     onAssignSessionId: (id) => {
       updateRuntimeState((prev) =>
@@ -296,12 +298,15 @@ export function GuidedBriefFlow({
       : 'manual'
   const effectiveAutoApprove = automationMode === 'run_agents_and_approve_artifacts'
 
-  // Multicode Design (frontend-design preset) surfaces the real design-file
-  // index. Selecting a file persists its relative path to the runtime state via
-  // the existing onChange path; HTML pages mirror to activeMockupPath so the
-  // existing mockup preview stays in sync. The full three-pane studio shell is
-  // T4's scope — this is the minimal wiring that makes selection real.
-  const isDesignPreset = runtimeState.preset === 'frontend-design'
+  // The design-only studio presets (frontend-design and design-system)
+  // surface the real design-file index. Selecting a file persists its relative
+  // path to the runtime state via the existing onChange path; HTML pages
+  // mirror to activeMockupPath so the existing mockup preview stays in sync.
+  // The design-system preset shares the same three-pane shell but authors the
+  // portable bundle: no Sprint Engine build tail (its release action is a
+  // separate epic task), so the footer drops the build-flow controls.
+  const isDesignSystemPreset = runtimeState.preset === 'design-system'
+  const isDesignPreset = runtimeState.preset === 'frontend-design' || isDesignSystemPreset
   const handleSelectDesignArtifact = (entry: DesignArtifactEntry) => {
     updateRuntimeState((prev) => applyDesignArtifactSelection(prev, entry))
   }
@@ -576,18 +581,24 @@ export function GuidedBriefFlow({
     }
   }
 
-  const primaryAction = renderPrimaryAction({
-    stage,
-    accepting,
-    startingBuild,
-    strategist,
-    architect,
-    designer,
-    onAcceptStrategist: () => void acceptStrategistBrief(),
-    onAcceptArchitect: () => void acceptArchitectPlan(),
-    onAcceptDesigner: () => void acceptDesignerMockups(),
-    onStartBuild: () => void startBuild(),
-  })
+  // The design-system studio has no build tail: authoring continues in place
+  // and the release action (a later task in the epic) replaces the primary
+  // action. Rendering a disabled Accept/Build control here would be an
+  // unsupported control, so the footer simply omits it.
+  const primaryAction = isDesignSystemPreset
+    ? null
+    : renderPrimaryAction({
+        stage,
+        accepting,
+        startingBuild,
+        strategist,
+        architect,
+        designer,
+        onAcceptStrategist: () => void acceptStrategistBrief(),
+        onAcceptArchitect: () => void acceptArchitectPlan(),
+        onAcceptDesigner: () => void acceptDesignerMockups(),
+        onStartBuild: () => void startBuild(),
+      })
 
   const skipToRoster = async () => {
     if (stage === 'handoff') return
@@ -664,7 +675,11 @@ export function GuidedBriefFlow({
             {workspaceName}
           </h2>
           <span className="text-[12px] text-[color:var(--text-muted)]">
-            · {isDesignPreset ? 'Design only' : `Plan & design${hasUi === 'no' ? ' · no UI' : ''}`}
+            · {isDesignSystemPreset
+              ? 'Design system'
+              : isDesignPreset
+                ? 'Design only'
+                : `Plan & design${hasUi === 'no' ? ' · no UI' : ''}`}
           </span>
         </div>
         <StepRail
@@ -727,6 +742,7 @@ export function GuidedBriefFlow({
             interview={designer.interview}
             onAnswer={answerViaTerminal(designer.session)}
             mockupCount={designer.mockups.length}
+            designSystem={isDesignSystemPreset}
             designArtifacts={designer.designArtifacts}
             designArtifactsStatus={designer.designArtifactsStatus}
             activeDesignArtifactPath={runtimeState.activeDesignArtifactPath ?? null}
@@ -757,7 +773,10 @@ export function GuidedBriefFlow({
           <>
             <span className="flex min-w-0 flex-1 items-center gap-3">
               {stage === 'designer-working' || stage === 'designer-ready' ? (
-                <DesignerReadinessHint readiness={designer.readiness} />
+                <DesignerReadinessHint
+                  readiness={designer.readiness}
+                  designSystem={isDesignSystemPreset}
+                />
               ) : null}
               {acceptError ? (
                 <TruncatedText as="span" text={acceptError} className="text-[12px] text-[color:var(--tone-error)]" />
@@ -780,7 +799,7 @@ export function GuidedBriefFlow({
             >
               Back
             </button>
-            {stage !== 'handoff' ? (
+            {stage !== 'handoff' && !isDesignSystemPreset ? (
               <SecondaryButton onClick={() => void skipToRoster()} disabled={skippingPlanning}>
                 {skippingPlanning ? 'Skipping…' : 'Skip to roster'}
               </SecondaryButton>
@@ -1035,9 +1054,21 @@ function renderPrimaryAction({
 
 function DesignerReadinessHint({
   readiness,
+  designSystem = false,
 }: {
   readiness: ReturnType<typeof useDesignerSession>['readiness']
+  designSystem?: boolean
 }) {
+  if (designSystem) {
+    // Design-system studios have no UI-direction artifact; readiness is the
+    // designer's marker or real bundle pages (components, patterns, catalog).
+    if (readiness.isReady) return null
+    return (
+      <span className="shrink-0 truncate text-[12px] text-[color:var(--text-subtle)]">
+        Waiting for the first design-system files.
+      </span>
+    )
+  }
   const waitingFor: string[] = []
   if (!readiness.mockupsAvailable) waitingFor.push('the screens')
   if (!readiness.uiDirectionReady) waitingFor.push('the UI direction')
@@ -1373,6 +1404,7 @@ function DesignStudioBody({
   interview,
   onAnswer,
   mockupCount,
+  designSystem = false,
   designArtifacts,
   designArtifactsStatus,
   activeDesignArtifactPath,
@@ -1385,6 +1417,7 @@ function DesignStudioBody({
   interview: GuidedInterviewState
   onAnswer: (answerText: string) => void
   mockupCount: number
+  designSystem?: boolean
   designArtifacts: DesignArtifactIndex
   designArtifactsStatus: DesignArtifactsStatus
   activeDesignArtifactPath: string | null
@@ -1399,11 +1432,15 @@ function DesignStudioBody({
           session={session}
           starting={starting}
           errorMessage={errorMessage}
-          specialistName="Frontend Designer"
+          specialistName={designSystem ? 'Design System Designer' : 'Frontend Designer'}
           specialistSubline={
-            mockupCount > 0
-              ? `${mockupCount} screen${mockupCount === 1 ? '' : 's'} on disk · ask for changes anytime`
-              : 'Describe the screens you want — files and preview update as they’re written'
+            designSystem
+              ? designArtifacts.count > 0
+                ? `${designArtifacts.count} file${designArtifacts.count === 1 ? '' : 's'} in the bundle · ask for changes anytime`
+                : 'Describe the system you want — tokens, components, and patterns land as real files'
+              : mockupCount > 0
+                ? `${mockupCount} screen${mockupCount === 1 ? '' : 's'} on disk · ask for changes anytime`
+                : 'Describe the screens you want — files and preview update as they’re written'
           }
           working={working}
           interview={interview}
