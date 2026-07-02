@@ -17,6 +17,7 @@ import type {
   DesignSystemReleaseResult,
 } from '../../shared/design-system/library'
 import { regenerateBundleDerivedFiles, type BundleScriptFork } from './derived-file-runner'
+import { runDesignSystemBundleLint } from './bundle-lint-run'
 
 // User-global design-system library: immutable, versioned copies of authored
 // bundles at <root>/<name>/<version>/, following the ~/.multicode registry
@@ -30,8 +31,6 @@ import { regenerateBundleDerivedFiles, type BundleScriptFork } from './derived-f
 export function defaultDesignSystemLibraryRoot(): string {
   return join(homedir(), '.multicode', 'design-systems')
 }
-
-const BUNDLE_LINT_SCRIPT = 'scripts/lint.mjs'
 
 async function pathExists(path: string): Promise<boolean> {
   try {
@@ -120,33 +119,21 @@ export async function releaseDesignSystemBundle(
     }
   }
 
-  // Lint gate before anything is mutated: the bundle's own scripts/lint.mjs,
-  // exit 1 = findings (returned to the caller), exit 2 = misconfiguration.
-  const lintPath = join(bundleDir, BUNDLE_LINT_SCRIPT)
-  if (!(await pathExists(lintPath))) {
-    return {
-      ok: false,
-      stage: 'lint',
-      message: `The bundle is missing its lint script (${BUNDLE_LINT_SCRIPT}); it is not a complete design-system bundle.`,
-    }
-  }
-  const lint = await fork(lintPath, [bundleDir], { cwd: bundleDir })
-  if (lint.exitCode !== 0) {
-    if (lint.exitCode === 1) {
+  // Lint gate before anything is mutated. One implementation of the lint
+  // fork + exit contract (bundle-lint-run.ts) serves both the studio's
+  // validating preview and this release gate, so the two can never drift —
+  // only the release-specific copy lives in this mapping.
+  const lint = await runDesignSystemBundleLint(bundleDir, fork)
+  if (!lint.ok) {
+    if (lint.kind === 'findings') {
       return {
         ok: false,
         stage: 'lint',
         message: 'The design-system lint found violations. Fix them and release again.',
-        lintFindings: lint.stdout,
+        lintFindings: lint.findings,
       }
     }
-    return {
-      ok: false,
-      stage: 'lint',
-      message: `The design-system lint could not run (exit ${lint.exitCode ?? 'none'}): ${
-        lint.stderr.trim() || lint.stdout.trim() || 'no output'
-      }`,
-    }
+    return { ok: false, stage: 'lint', message: lint.message }
   }
 
   // Stamp version + release provenance. The manifest object is the parsed

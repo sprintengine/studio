@@ -4050,6 +4050,8 @@ function guidedBriefStartBuildErrorMessage(error: GuidedBriefStartBuildError): s
       return 'Accept the architecture plan before starting the build.'
     case 'missing-ui-direction-or-mockups':
       return 'Accept the screen design and mockups before starting the build.'
+    case 'design-system-preset':
+      return 'A design-system studio releases a bundle; it never starts a Sprint Engine build.'
     case 'advanced-setup-failed':
       // Carries the actionable persistAdvancedSetup message verbatim.
       return error.message && error.message !== error.code

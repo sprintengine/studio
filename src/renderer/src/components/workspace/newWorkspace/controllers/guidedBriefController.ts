@@ -40,6 +40,7 @@ export class GuidedBriefStartBuildError extends Error {
       | 'missing-product-brief'
       | 'missing-architecture-plan'
       | 'missing-ui-direction-or-mockups'
+      | 'design-system-preset'
       | 'advanced-setup-failed'
       | 'team-exists'
       | 'unknown',
@@ -149,9 +150,7 @@ export async function runGuidedBriefStartBuild(
   // release pipeline), never a Sprint Engine build; its studio renders no
   // build tail, so reaching here means a caller bug — refuse loudly.
   if (runtimeState.preset === 'design-system') {
-    const wrapped = new GuidedBriefStartBuildError('unknown')
-    wrapped.message = 'A design-system studio releases a bundle; it never starts a Sprint Engine build.'
-    throw wrapped
+    throw new GuidedBriefStartBuildError('design-system-preset')
   }
 
   if (runtimeState.wantsProductDiscussion && !runtimeState.acceptedProductBrief) {

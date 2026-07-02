@@ -990,8 +990,7 @@ async function testGuidedBriefStartBuildValidation(): Promise<void> {
       ports,
     ),
     (error) =>
-      error instanceof GuidedBriefStartBuildError
-      && error.message === 'A design-system studio releases a bundle; it never starts a Sprint Engine build.',
+      error instanceof GuidedBriefStartBuildError && error.code === 'design-system-preset',
     'design-system preset never starts a build',
   )
 }
