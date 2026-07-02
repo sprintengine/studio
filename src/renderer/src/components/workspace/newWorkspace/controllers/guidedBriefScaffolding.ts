@@ -49,6 +49,7 @@ export function buildInitialGuidedBriefRuntimeState(
   return {
     ...input,
     designSystemSeedSource: input.designSystemSeedSource ?? null,
+    designSystemLastRelease: null,
     acceptedProductBrief: null,
     acceptedArchitecturePlan: null,
     acceptedUiDirection: null,

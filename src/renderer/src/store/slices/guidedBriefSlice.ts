@@ -1,6 +1,7 @@
 import type { IJsonModel } from 'flexlayout-react'
 import type {
   DesignSystemSeedSource,
+  DesignSystemStudioRelease,
   GuidedBriefPreset,
   GuidedBriefRecordedDecision,
   GuidedBriefRuntimeState,
@@ -173,6 +174,32 @@ function normalizeGuidedBriefAcceptedArtifact(
   }
 }
 
+// A persisted last release survives only when structurally whole; anything
+// else normalizes to null (i.e. "not released yet" — the version input then
+// prefills 1.0.0).
+function normalizeDesignSystemLastRelease(input: unknown): DesignSystemStudioRelease | null {
+  if (!input || typeof input !== 'object') return null
+  const candidate = input as Partial<DesignSystemStudioRelease>
+  if (
+    typeof candidate.name !== 'string'
+    || !candidate.name.trim()
+    || typeof candidate.version !== 'string'
+    || !candidate.version.trim()
+    || typeof candidate.path !== 'string'
+    || !candidate.path.trim()
+    || typeof candidate.releasedAt !== 'string'
+    || !candidate.releasedAt.trim()
+  ) {
+    return null
+  }
+  return {
+    name: candidate.name,
+    version: candidate.version,
+    path: candidate.path,
+    releasedAt: candidate.releasedAt,
+  }
+}
+
 // Seed source survives only when it is structurally whole (known kind +
 // non-empty path); anything else normalizes to null, i.e. a blank start.
 function normalizeDesignSystemSeedSource(input: unknown): DesignSystemSeedSource | null {
@@ -309,6 +336,10 @@ export function normalizeGuidedBriefState(input: unknown): GuidedBriefRuntimeSta
     // preset (or a malformed one) normalizes back to blank-start.
     designSystemSeedSource: preset === 'design-system'
       ? normalizeDesignSystemSeedSource(candidate.designSystemSeedSource)
+      : null,
+    // Only the design-system preset releases; other presets never carry one.
+    designSystemLastRelease: preset === 'design-system'
+      ? normalizeDesignSystemLastRelease(candidate.designSystemLastRelease)
       : null,
     strategistSessionId:
       typeof candidate.strategistSessionId === 'string' && candidate.strategistSessionId.trim()

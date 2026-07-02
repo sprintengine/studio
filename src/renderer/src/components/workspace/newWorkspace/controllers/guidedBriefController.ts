@@ -145,6 +145,15 @@ export async function runGuidedBriefStartBuild(
 ): Promise<void> {
   const { runtimeState, runOptions, finalRoleCounts } = input
 
+  // The design-system preset completes with "Save as design system" (the T6
+  // release pipeline), never a Sprint Engine build; its studio renders no
+  // build tail, so reaching here means a caller bug — refuse loudly.
+  if (runtimeState.preset === 'design-system') {
+    const wrapped = new GuidedBriefStartBuildError('unknown')
+    wrapped.message = 'A design-system studio releases a bundle; it never starts a Sprint Engine build.'
+    throw wrapped
+  }
+
   if (runtimeState.wantsProductDiscussion && !runtimeState.acceptedProductBrief) {
     throw new GuidedBriefStartBuildError('missing-product-brief')
   }

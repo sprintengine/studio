@@ -966,6 +966,34 @@ async function testGuidedBriefStartBuildValidation(): Promise<void> {
     (error) => error instanceof GuidedBriefStartBuildError && error.code === 'missing-ui-direction-or-mockups',
     'missing-ui-direction-or-mockups (UI required but no direction/mockups)',
   )
+
+  // A design-system studio completes with "Save as design system" (T6 release
+  // pipeline), never a Sprint Engine build — reaching start-build is a caller
+  // bug and must refuse loudly rather than write a handoff.
+  const designSystemRuntime: GuidedBriefRuntimeState = {
+    ...baseRuntime,
+    preset: 'design-system',
+    wantsProductDiscussion: false,
+    wantsArchitectureDiscussion: false,
+  }
+  await assert.rejects(
+    () => runGuidedBriefStartBuild(
+      {
+        runtimeState: designSystemRuntime,
+        runOptions: { startRunner: false, autoApproveArtifacts: false, roleCounts: designSystemRuntime.buildRoleCounts, roleCliDefaults: designSystemRuntime.buildRoleCliDefaults, cliPermissionPreset: 'default' },
+        finalRoleCounts: designSystemRuntime.buildRoleCounts,
+        rosterSummary: [],
+        planningDecisions: [],
+        planningValidationNotes: [],
+        buildHandoffRelativePath: 'product/build-handoff.md',
+      },
+      ports,
+    ),
+    (error) =>
+      error instanceof GuidedBriefStartBuildError
+      && error.message === 'A design-system studio releases a bundle; it never starts a Sprint Engine build.',
+    'design-system preset never starts a build',
+  )
 }
 
 async function testGuidedBriefStartBuildHandoffPath(): Promise<void> {

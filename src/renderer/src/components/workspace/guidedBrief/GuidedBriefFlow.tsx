@@ -28,10 +28,21 @@ import { StageArtifactsPane, type StageArtifactFile } from './StageArtifactsPane
 import {
   applyDesignArtifactSelection,
   findDesignArtifact,
+  DESIGN_SYSTEM_BUNDLE_DIRECTORY_NAME,
   type DesignArtifactEntry,
   type DesignArtifactIndex,
   type DesignArtifactsStatus,
 } from './designArtifacts'
+import {
+  canRelease,
+  initialReleaseVersion,
+  isValidReleaseVersion,
+  releaseButtonLabel,
+  releasePhaseAfterLint,
+  releasePhaseAfterRelease,
+  releaseStatusLine,
+  type DesignSystemReleasePhase,
+} from './designSystemRelease'
 import { useArchitectSession } from './useArchitectSession'
 import {
   useDesignerSession,
@@ -292,6 +303,12 @@ export function GuidedBriefFlow({
   const [startBuildError, setStartBuildError] = useState<string | null>(null)
   const [skippingPlanning, setSkippingPlanning] = useState(false)
   const [skipError, setSkipError] = useState<string | null>(null)
+  // Design-system release action ("Save as design system"). The phase is
+  // derived from observed IPC results only — see designSystemRelease.ts.
+  // `releaseVersionDraft` is null until the user types, so the input follows
+  // the last released version (prefill-to-bump) without an effect.
+  const [releasePhase, setReleasePhase] = useState<DesignSystemReleasePhase>({ kind: 'idle' })
+  const [releaseVersionDraft, setReleaseVersionDraft] = useState<string | null>(null)
   const automationMode: SprintEngineAutomationMode = runtimeState.buildAutoApproveArtifacts
     ? 'run_agents_and_approve_artifacts'
     : runtimeState.buildStartRunner
@@ -583,11 +600,51 @@ export function GuidedBriefFlow({
   }
 
   // The design-system studio has no build tail: authoring continues in place
-  // and the release action (a later task in the epic) replaces the primary
-  // action. Rendering a disabled Accept/Build control here would be an
-  // unsupported control, so the footer simply omits it.
+  // and the "Save as design system" release action replaces the primary
+  // action. Version prefill: last released version (bump to re-release), or
+  // 1.0.0 for a first release.
+  const releaseVersion =
+    releaseVersionDraft ?? initialReleaseVersion(runtimeState.designSystemLastRelease ?? null)
+  const releaseArmed = canRelease({
+    phase: releasePhase,
+    designerReady: designer.readiness.isReady,
+    version: releaseVersion,
+  })
+
+  const releaseDesignSystem = async () => {
+    if (!releaseArmed) return
+    const bundleDir = joinWorkspacePath(workspaceRoot, DESIGN_SYSTEM_BUNDLE_DIRECTORY_NAME)
+    setReleasePhase({ kind: 'validating' })
+    try {
+      const afterLint = releasePhaseAfterLint(await window.api.lintDesignSystemBundle(bundleDir))
+      setReleasePhase(afterLint)
+      if (afterLint.kind !== 'releasing') return
+      const after = releasePhaseAfterRelease(
+        await window.api.releaseDesignSystemBundle(bundleDir, releaseVersion.trim()),
+      )
+      setReleasePhase(after)
+      if (after.kind === 'released') {
+        updateRuntimeState((prev) => ({ ...prev, designSystemLastRelease: after.release }))
+        // Follow the new last release again so the next prefill is bump-ready.
+        setReleaseVersionDraft(null)
+      }
+    } catch (error) {
+      setReleasePhase({
+        kind: 'error',
+        message: error instanceof Error ? error.message : 'Could not release the design system.',
+      })
+    }
+  }
+
   const primaryAction = isDesignSystemPreset
-    ? null
+    ? renderDesignSystemReleaseAction({
+        phase: releasePhase,
+        version: releaseVersion,
+        designerReady: designer.readiness.isReady,
+        armed: releaseArmed,
+        onChangeVersion: (value) => setReleaseVersionDraft(value),
+        onRelease: () => void releaseDesignSystem(),
+      })
     : renderPrimaryAction({
         stage,
         accepting,
@@ -760,6 +817,21 @@ export function GuidedBriefFlow({
         )}
       </main>
 
+      {isDesignSystemPreset && releasePhase.kind === 'lint-failed' ? (
+        <div
+          role="region"
+          aria-label="Design-system lint findings"
+          className="shrink-0 border-t border-[color:var(--bg-surface-raised)] bg-[color:var(--bg-surface)] px-5 py-3"
+        >
+          <span className="text-[12px] font-semibold text-[color:var(--text-strong)]">
+            Lint findings — release blocked
+          </span>
+          <pre className="mt-2 max-h-40 overflow-auto whitespace-pre-wrap font-mono text-[11px] leading-4 text-[color:var(--text-default)]">
+            {releasePhase.findings}
+          </pre>
+        </div>
+      ) : null}
+
       <footer className="flex shrink-0 items-center gap-3 border-t border-[color:var(--bg-surface-raised)] px-5 py-3">
         {reviewing && reviewingStage ? (
           <>
@@ -773,7 +845,23 @@ export function GuidedBriefFlow({
         ) : (
           <>
             <span className="flex min-w-0 flex-1 items-center gap-3">
-              {stage === 'designer-working' || stage === 'designer-ready' ? (
+              {isDesignSystemPreset && releasePhase.kind !== 'idle' ? (
+                // Live region wraps the truncated line (TruncatedText does not
+                // forward ARIA props), so phase changes are announced.
+                <span aria-live="polite" className="flex min-w-0 flex-1">
+                  <TruncatedText
+                    as="span"
+                    text={releaseStatusLine(releasePhase) ?? ''}
+                    className={`text-[12px] ${
+                      releasePhase.kind === 'lint-failed' || releasePhase.kind === 'error'
+                        ? 'text-[color:var(--tone-error)]'
+                        : releasePhase.kind === 'released'
+                          ? 'text-[color:var(--text-default)]'
+                          : 'text-[color:var(--text-subtle)]'
+                    }`}
+                  />
+                </span>
+              ) : stage === 'designer-working' || stage === 'designer-ready' ? (
                 <DesignerReadinessHint
                   readiness={designer.readiness}
                   designSystem={isDesignSystemPreset}
@@ -962,6 +1050,64 @@ function ReviewBody({
         emptyReason={`The accepted snapshot ${artifact.path} is empty.`}
       />
     </div>
+  )
+}
+
+// Completion action for the design-system studio: a semver input + the
+// release button, replacing the Sprint Engine build tail for this preset.
+// Disabled reasons surface as a tooltip on the button (readiness, invalid
+// version); phase labels come from designSystemRelease.ts so the five states
+// (validating / releasing / released / lint-failed / error) stay text-distinct.
+function renderDesignSystemReleaseAction({
+  phase,
+  version,
+  designerReady,
+  armed,
+  onChangeVersion,
+  onRelease,
+}: {
+  phase: DesignSystemReleasePhase
+  version: string
+  designerReady: boolean
+  armed: boolean
+  onChangeVersion: (value: string) => void
+  onRelease: () => void
+}) {
+  const inFlight = phase.kind === 'validating' || phase.kind === 'releasing'
+  const versionValid = isValidReleaseVersion(version)
+  const disabledReason = inFlight
+    ? null
+    : !designerReady
+      ? 'Available once the designer signals the bundle is ready.'
+      : !versionValid
+        ? 'Enter a semver version like 1.0.0.'
+        : null
+  const button = (
+    <PrimaryButton onClick={onRelease} disabled={!armed}>
+      {releaseButtonLabel(phase)}
+    </PrimaryButton>
+  )
+  return (
+    <span className="flex shrink-0 items-center gap-2">
+      <input
+        value={version}
+        onChange={(event) => onChangeVersion(event.target.value)}
+        disabled={inFlight}
+        aria-label="Release version"
+        aria-invalid={!versionValid}
+        placeholder="1.0.0"
+        spellCheck={false}
+        className={`
+          h-9 w-24 rounded-md border bg-[color:var(--bg-surface)] px-2.5 text-center font-mono text-[12px] tabular-nums
+          text-[color:var(--text-strong)] outline-none transition-colors
+          placeholder:text-[color:var(--text-disabled)]
+          disabled:cursor-not-allowed disabled:text-[color:var(--text-disabled)]
+          focus:border-[color:var(--text-strong)]
+          ${versionValid ? 'border-[color:var(--border-default)]' : 'border-[color:var(--tone-error)]'}
+        `}
+      />
+      {disabledReason ? <Tooltip content={disabledReason}>{button}</Tooltip> : button}
+    </span>
   )
 }
 
