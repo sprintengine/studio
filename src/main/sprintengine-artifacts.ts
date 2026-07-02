@@ -1168,6 +1168,10 @@ export function createSprintEngineArtifactHandlers(deps: SprintEngineArtifactDep
         if (payload?.role) {
           args.push('--role', resolveTaskRole(payload.role))
         }
+        if (payload?.queueDepth) {
+          const maxNew = Math.max(1, Math.min(10, Math.trunc(payload.maxNew ?? 1)))
+          args.push('--queue-depth', '--max-new', String(maxNew))
+        }
         const toolResult = await runSprintEngineCli(state, args)
         if (toolResult.exitCode !== 0) {
           return {

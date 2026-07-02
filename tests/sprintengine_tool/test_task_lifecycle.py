@@ -2372,6 +2372,72 @@ def test_roster_replenish_adds_replacement_for_retired_capacity_with_open_work(t
     assert_event_type(state, "roster_replacement_added")
 
 
+def test_roster_replenish_queue_depth_tops_up_task_scoped_capacity(tmp_path) -> None:
+    # MC-1444 Phase 3: with one agent session per task, a role's parallel
+    # throughput is bounded by spawnable roster ids. Three ready developer
+    # tasks against zero capacity (the only id is bound to its in-window task)
+    # mints up to --max-new ids; repeat runs converge instead of growing.
+    fixture = create_team(
+        tmp_path,
+        "queue-depth-replenish",
+        [
+            task("T0", "Published implementation", "developer", "review"),
+            task("T1", "Ready one", "developer"),
+            task("T2", "Ready two", "developer"),
+            task("T3", "Ready three", "developer"),
+        ],
+    )
+    state = read_state(fixture.state_path)
+    state["agents"] = {
+        # Bound to its publish→verdict task: not capacity for new work.
+        "developer-1": {"role": "developer", "status": "idle", "currentTaskId": None, "lastOwnedTaskId": "T0"},
+    }
+    state["sprintengine"]["rosterConfigured"] = True
+    write_state(fixture.state_path, state)
+
+    replenished = fixture.cli.run("roster", "replenish", "--actor", "runner", "--queue-depth", "--max-new", "2")
+    assert replenished["action"] == "replenished"
+    assert [entry["id"] for entry in replenished["created"]] == ["developer-2", "developer-3"]
+    assert all(entry.get("reason") == "queue_depth" for entry in replenished["created"])
+    state = read_state(fixture.state_path)
+    assert_event_type(state, "roster_capacity_added")
+
+    # The minted ids now count as capacity: only the remaining deficit mints.
+    replenished_again = fixture.cli.run("roster", "replenish", "--actor", "runner", "--queue-depth", "--max-new", "5")
+    assert [entry["id"] for entry in replenished_again["created"]] == ["developer-4"]
+
+    # Fully covered: converges to none.
+    assert fixture.cli.run("roster", "replenish", "--actor", "runner", "--queue-depth", "--max-new", "5")["action"] == "none"
+
+    # Without --queue-depth the legacy retired-replacement behavior is
+    # untouched (no retired agents here, so nothing mints).
+    assert fixture.cli.run("roster", "replenish", "--actor", "runner")["action"] == "none"
+
+
+def test_roster_replenish_queue_depth_skips_covered_rework_and_planning_roles(tmp_path) -> None:
+    # A changes_requested task whose bound previous owner still exists is
+    # served by that agent (owner-affinity respawn) — no surplus id. Planning
+    # roles never mint parallel capacity.
+    fixture = create_team(
+        tmp_path,
+        "queue-depth-covered",
+        [
+            task("T1", "Rework round", "developer", "changes_requested"),
+            task("G1", "General-owned work", "general"),
+        ],
+    )
+    state = read_state(fixture.state_path)
+    state["agents"] = {
+        # No general agent at all: the ready G1 task would show a deficit, but
+        # planning roles are skipped — a General owns a whole sprint solo.
+        "developer-1": {"role": "developer", "status": "idle", "currentTaskId": None, "lastOwnedTaskId": "T1"},
+    }
+    state["sprintengine"]["rosterConfigured"] = True
+    write_state(fixture.state_path, state)
+
+    assert fixture.cli.run("roster", "replenish", "--actor", "runner", "--queue-depth", "--max-new", "5")["action"] == "none"
+
+
 def test_auto_mode_retire_immediately_adds_replacement_for_open_work(tmp_path) -> None:
     fixture = create_team(
         tmp_path,

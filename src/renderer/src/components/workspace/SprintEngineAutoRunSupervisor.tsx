@@ -37,6 +37,7 @@ import {
   type SprintEngineDispatchAttempt,
   type SprintEngineDispatchNotificationInput,
   getSprintEngineDispatchPlanEngagedAgentIds,
+  getSprintEngineQueueDepthReplenishRoles,
   updateSprintEngineIdleClock,
   type SprintEngineDispatchPlan,
   type SprintEngineDispatchPath,
@@ -1624,13 +1625,22 @@ async function replenishRetiredRosterCapacity(
   // Roster replenishment is supervisor work — it should run based on local
   // automation state, not the headless CLI watch-polling flag in run.yaml.
   if (!workspace.sprintEngineContext) return { status: 'none' }
-  if (deriveSprintEngineAutomationMode(getSprintEngineAutoState(workspace)) === 'manual') return { status: 'none' }
+  const autoState = getSprintEngineAutoState(workspace)
+  if (deriveSprintEngineAutomationMode(autoState) === 'manual') return { status: 'none' }
   const hasRetiredAgent = Object.values(sprintEngineState.sprintEngineAgents)
     .some((agent) => agent.status === 'retired')
-  if (!hasRetiredAgent) return { status: 'none' }
+  // MC-1444 Phase 3: with one agent session per task, a role's parallel
+  // throughput is bounded by its spawnable roster ids — trigger a queue-depth
+  // top-up when ready depth exceeds capacity. The Python command recomputes
+  // both authoritatively; maxNew carries the local concurrency ceiling.
+  const queueDepthRoles = getSprintEngineQueueDepthReplenishRoles(sprintEngineState)
+  if (!hasRetiredAgent && queueDepthRoles.length === 0) return { status: 'none' }
 
   const result = await defaultExecutorPorts.replenishSprintEngineRoster({
     statePath: workspace.sprintEngineContext.statePath,
+    ...(queueDepthRoles.length > 0
+      ? { queueDepth: true, maxNew: Math.max(1, Math.min(10, autoState.maxConcurrentAgents ?? 3)) }
+      : {}),
   })
   if (!result.ok) {
     await defaultExecutorPorts.publishDiagnostic({

@@ -457,6 +457,19 @@ def build_parser() -> argparse.ArgumentParser:
     p = roster_sub.add_parser("replenish", help="Let Sprint Engine add replacement roster slots for retired capacity when open work remains.")
     p.add_argument("--role", help="Limit replenishment to one role.")
     p.add_argument("--actor", default="runner")
+    p.add_argument(
+        "--queue-depth",
+        action="store_true",
+        dest="queue_depth",
+        help="Also top non-planning roles up to their ready-queue depth (MC-1444 task-scoped workers).",
+    )
+    p.add_argument(
+        "--max-new",
+        type=int,
+        default=0,
+        dest="max_new",
+        help="Upper bound on queue-depth roster additions this invocation (caller's concurrency headroom).",
+    )
     p.set_defaults(handler=roster_commands.replenish)
 
     p = roster_sub.add_parser("list", help="List the canonical Sprint Engine roster.")

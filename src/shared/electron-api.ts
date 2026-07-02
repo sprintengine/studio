@@ -1581,6 +1581,14 @@ export type SprintEngineRunnerSetInput = {
 export type SprintEngineRosterReplenishInput = {
   statePath: string
   role?: SprintEngineTaskMutationRole
+  /**
+   * MC-1444 Phase 3: also top non-planning roles up to their ready-queue
+   * depth so task-scoped (one-session-per-task) workers can run in parallel.
+   * `maxNew` bounds additions per invocation — callers pass their concurrency
+   * headroom; spawning stays capped by availableSlots regardless.
+   */
+  queueDepth?: boolean
+  maxNew?: number
 }
 
 export type SprintEngineRosterAddInput = {

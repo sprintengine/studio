@@ -399,6 +399,52 @@ export function sprintEngineWakeRestrictionTaskId(
   return runtimeAgent.lastOwnedTaskId
 }
 
+/**
+ * Roles whose ready-queue depth exceeds their spawnable roster capacity
+ * (MC-1444 Phase 3). With one agent session per task, a role's parallel
+ * throughput is bounded by its spawnable ids — the supervisor calls
+ * `roster replenish --queue-depth` for these so fresh sessions can take the
+ * queue in parallel. A cheap trigger heuristic only: the Python command
+ * recomputes depth/capacity authoritatively under the state lock.
+ *
+ * Capacity = non-retired idle agents with no current task that aren't bound
+ * to a still-in-window lastOwnedTaskId task (disposed workers appear idle
+ * with no session and respawn fresh, so they count). A changes_requested
+ * task whose bound previous owner still exists is already covered by that
+ * agent (live wake or owner-affinity respawn) and does not add depth.
+ */
+export function getSprintEngineQueueDepthReplenishRoles(
+  sprintEngineState: SprintEngineState
+): SprintEngineRoleId[] {
+  const agents = Object.values(sprintEngineState.sprintEngineAgents)
+  const boundTaskIds = new Set(
+    agents
+      .filter((agent) => agent.status !== 'retired' && agent.lastOwnedTaskId)
+      .map((agent) => agent.lastOwnedTaskId as string)
+  )
+  const readyByRole = new Map<SprintEngineRoleId, number>()
+  for (const task of getSprintEngineWakeCandidateTasks(sprintEngineState)) {
+    if (isSprintEnginePlanningRole(task.role)) continue
+    if (task.status === 'changes_requested' && boundTaskIds.has(task.id)) continue
+    readyByRole.set(task.role, (readyByRole.get(task.role) ?? 0) + 1)
+  }
+  if (readyByRole.size === 0) return []
+  const taskById = new Map(sprintEngineState.tasks.map((task) => [task.id, task]))
+  const capacityByRole = new Map<SprintEngineRoleId, number>()
+  for (const agent of agents) {
+    if (agent.status !== 'idle' || agent.currentTaskId) continue
+    if (!readyByRole.has(agent.role)) continue
+    if (agent.lastOwnedTaskId) {
+      const lastOwned = taskById.get(agent.lastOwnedTaskId)
+      if (lastOwned && lastOwned.status !== 'done') continue
+    }
+    capacityByRole.set(agent.role, (capacityByRole.get(agent.role) ?? 0) + 1)
+  }
+  return [...readyByRole.entries()]
+    .filter(([role, depth]) => depth > (capacityByRole.get(role) ?? 0))
+    .map(([role]) => role)
+}
+
 export function findSprintEngineWakeCandidateTaskForAgent(
   wakeTasks: SprintEngineTask[],
   role: SprintEngineRoleId,

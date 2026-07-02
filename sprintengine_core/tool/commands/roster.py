@@ -13,12 +13,40 @@ from sprintengine_core.tool.state import (
     add_roster_agent,
     agent_is_retired,
     append_event,
+    find_task_by_id,
     next_replacement_agent_id,
     retired_agent_has_live_replacement,
     role_has_open_work,
     roster_is_configured,
     with_locked_state,
 )
+from sprintengine_core.tool.tasks import task_is_ready
+
+# One agent session per task (MC-1444) never applies to planning roles: an
+# architect orchestrates the run and a General owns a whole sprint solo, so
+# queue-depth replenishment must not mint parallel planning agents.
+PLANNING_ROLE_IDS = {"architect", "general"}
+
+
+def _agent_is_new_task_capacity(state: Dict[str, Any], agent: Any) -> bool:
+    """True when this roster id can host a fresh session for a NEW task.
+
+    Mirrors the renderer's task-scoped reuse rules (MC-1444): retired ids are
+    gone; an id owning active work is busy; an id whose durable
+    lastOwnedTaskId task is still short of terminal state is bound to that
+    task (its live terminal only wakes for that task's rework, and a respawn
+    would resume that conversation). left/dead ids count — they respawn
+    fresh.
+    """
+    if not isinstance(agent, dict) or agent_is_retired(agent):
+        return False
+    if agent.get("currentTaskId"):
+        return False
+    last_owned = str(agent.get("lastOwnedTaskId") or "").strip()
+    if not last_owned:
+        return True
+    task = find_task_by_id(state, last_owned)
+    return task is None or task.get("status") in {"done", "canceled"}
 
 def cmd_roster_add(args: argparse.Namespace) -> Dict[str, Any]:
     def run(state: Dict[str, Any]) -> Dict[str, Any]:
@@ -155,6 +183,60 @@ def cmd_roster_replenish(args: argparse.Namespace) -> Dict[str, Any]:
                     {"agentId": replacement_id, "role": role, "replaces": [str(retired_id)]},
                 )
                 created.append({"id": replacement_id, "role": role, "agent": replacement, "replaces": [str(retired_id)]})
+
+        # Queue-depth top-up (MC-1444 Phase 3): with one agent session per
+        # task, a role's parallel throughput is bounded by its spawnable
+        # roster ids. Top each non-planning role up to its ready-queue depth,
+        # bounded by --max-new per invocation (the caller passes its
+        # concurrency headroom; spawning itself stays capped by the renderer's
+        # availableSlots either way). Runs after the retired-replacement pass
+        # so freshly minted replacements count as capacity — no double mint.
+        if getattr(args, "queue_depth", False):
+            remaining = max(0, int(getattr(args, "max_new", 0) or 0))
+            tasks = [task for task in state.get("tasks", []) or [] if isinstance(task, dict)]
+            # A changes_requested task whose bound previous owner still exists
+            # is already covered by that agent (live wake or owner-affinity
+            # respawn) — it must not add queue depth, or every rework round
+            # would mint a surplus id.
+            covered_task_ids = {
+                str(agent.get("lastOwnedTaskId"))
+                for agent in state.get("agents", {}).values()
+                if isinstance(agent, dict)
+                and not agent_is_retired(agent)
+                and agent.get("lastOwnedTaskId")
+            }
+            for role in roles:
+                if remaining <= 0:
+                    break
+                if role in PLANNING_ROLE_IDS:
+                    continue
+                ready_depth = sum(
+                    1 for task in tasks
+                    if task.get("role") == role
+                    and task_is_ready(state, task)
+                    and not (task.get("status") == "changes_requested" and str(task.get("id")) in covered_task_ids)
+                )
+                if ready_depth <= 0:
+                    continue
+                capacity = sum(
+                    1 for agent in state.get("agents", {}).values()
+                    if isinstance(agent, dict)
+                    and agent.get("role") == role
+                    and _agent_is_new_task_capacity(state, agent)
+                )
+                deficit = min(ready_depth - capacity, remaining)
+                for _ in range(max(0, deficit)):
+                    new_id = next_replacement_agent_id(state, role)
+                    new_agent = add_roster_agent(state, role, new_id, actor)
+                    append_event(
+                        state,
+                        "roster_capacity_added",
+                        actor,
+                        f"{actor} added Sprint Engine roster member {new_id}: {role} ready-queue depth exceeds spawnable capacity.",
+                        {"agentId": new_id, "role": role, "reason": "queue_depth", "readyDepth": ready_depth},
+                    )
+                    created.append({"id": new_id, "role": role, "agent": new_agent, "reason": "queue_depth"})
+                    remaining -= 1
 
         return {"ok": True, "action": "replenished" if created else "none", "created": created}
 

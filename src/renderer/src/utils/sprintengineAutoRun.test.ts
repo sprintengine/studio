@@ -30,6 +30,7 @@ import {
   getClaimableSprintEngineAutoRunGates,
   getPendingAgentNotificationEvents,
   getSprintEngineAutoRunOccupiedAgentIds,
+  getSprintEngineQueueDepthReplenishRoles,
   getSprintEngineWakeCandidateTasks,
   isSprintEngineAutoPendingSpawnStillRelevant,
   isSprintEngineRunBlockedOnExternalInput,
@@ -155,6 +156,7 @@ async function main(): Promise<void> {
   testPickNextAutoRunsPrefersPreviousOwnerForRework()
   await testSpawnAutoRunCandidateResumesPreviousOwnerConversation()
   await testWindowDisposalRetainsResumeStateInStore()
+  testQueueDepthReplenishRolesComputeDeficits()
   testActiveAssignmentRescueStopsAfterTwoPromptsWithDiagnostic()
   await testActiveAssignmentExhaustionDiagnosticMarksLedger()
   testActiveGateAssignmentRescueSendsMinimalPrompt()
@@ -356,8 +358,17 @@ function installTestWindow(api: TestWindowApi): void {
   const cryptoShim = globalThis.crypto ?? {
     randomUUID: () => `test-uuid-${Math.random().toString(36).slice(2)}`,
   }
+  // The queue-depth replenish trigger (MC-1444 Phase 3) may fire during any
+  // supervise cycle whose fixture has ready tasks beyond spawnable capacity;
+  // default it to a no-op "nothing created" result so fixtures that don't
+  // exercise replenishment keep working. Tests that assert on replenish
+  // behavior pass their own stub.
+  const apiWithDefaults = {
+    replenishSprintEngineRoster: async () => ({ ok: true, data: {} }),
+    ...api,
+  }
   Object.defineProperty(globalThis, 'window', {
-    value: { localStorage, api, crypto: cryptoShim },
+    value: { localStorage, api: apiWithDefaults, crypto: cryptoShim },
     configurable: true,
     writable: true,
   })
@@ -2601,6 +2612,49 @@ async function testSpawnAutoRunCandidateResumesPreviousOwnerConversation(): Prom
   assert.equal(spawns.length, 1)
   assert.equal(spawns[0].resume, false, 'a new task never resumes the old conversation')
   assert.equal(spawns[0].metadata?.cliSessionId, undefined, 'no resume token is passed for a fresh session')
+}
+
+function testQueueDepthReplenishRolesComputeDeficits(): void {
+  // MC-1444 Phase 3 trigger: a role is flagged when its ready-queue depth
+  // exceeds spawnable capacity. Bound-in-window ids are not capacity; a
+  // covered changes_requested task adds no depth; planning roles never flag.
+  const deficitState = sprintEngineStateFixture({
+    tasks: [
+      task({ id: 'T0', role: 'developer', status: 'review', boardColumn: 'review', ownerAgentId: null, qualityGates: [] }),
+      task({ id: 'T1', role: 'developer', status: 'todo', boardColumn: 'ready', ownerAgentId: null, qualityGates: [] }),
+      task({ id: 'T2', role: 'developer', status: 'todo', boardColumn: 'ready', ownerAgentId: null, qualityGates: [] }),
+      task({ id: 'G1', role: 'general', status: 'todo', boardColumn: 'ready', ownerAgentId: null, qualityGates: [] }),
+    ],
+    sprintEngineAgents: {
+      'developer-1': runtimeAgent('developer', { lastOwnedTaskId: 'T0' }),
+      'developer-2': runtimeAgent('developer'),
+    },
+  })
+  assert.deepEqual(
+    getSprintEngineQueueDepthReplenishRoles(deficitState),
+    ['developer'],
+    'two ready tasks vs one spawnable id flags the role; the window-bound id is not capacity; the planning role never flags'
+  )
+
+  const coveredState = sprintEngineStateFixture({
+    tasks: [task({ id: 'T1', role: 'developer', status: 'todo', boardColumn: 'ready', ownerAgentId: null, qualityGates: [] })],
+    sprintEngineAgents: {
+      'developer-2': runtimeAgent('developer'),
+    },
+  })
+  assert.deepEqual(getSprintEngineQueueDepthReplenishRoles(coveredState), [], 'capacity covering depth flags nothing')
+
+  const reworkState = sprintEngineStateFixture({
+    tasks: [task({ id: 'T1', role: 'developer', status: 'changes_requested', boardColumn: 'changes_requested', ownerAgentId: null, qualityGates: [] })],
+    sprintEngineAgents: {
+      'developer-1': runtimeAgent('developer', { lastOwnedTaskId: 'T1' }),
+    },
+  })
+  assert.deepEqual(
+    getSprintEngineQueueDepthReplenishRoles(reworkState),
+    [],
+    'rework covered by its bound previous owner adds no depth'
+  )
 }
 
 async function testWindowDisposalRetainsResumeStateInStore(): Promise<void> {
