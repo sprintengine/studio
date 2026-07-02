@@ -200,6 +200,29 @@ run('a component directory missing one of its three files fails loudly, naming i
   assert.ok(result.stderr.includes('component.md'), result.stderr)
 })
 
+run('a drifted tokens.css emission with mode-varying tokens fails loudly, not a no-op toggle', () => {
+  const result = buildMutatedExample((root) => {
+    // A format the pinned-contract parser cannot read: single-line, no
+    // `[data-mode="dark"]` block — while tokens.tokens.json still declares
+    // mode-varying tokens.
+    writeFileSync(join(root, 'foundations', 'tokens.css'), ':root{--sem-color-bg-app:#fff}\n')
+  })
+  assert.equal(result.status, 1)
+  assert.ok(result.stderr.includes('mode-varying'), result.stderr)
+  assert.ok(result.stderr.includes('build-tokens.mjs'), result.stderr)
+})
+
+run('a component directory name outside the kebab-case grammar fails at read time', () => {
+  const result = buildMutatedExample((root) => {
+    cpSync(join(root, 'components', 'button'), join(root, 'components', 'Bad_Name'), {
+      recursive: true,
+    })
+  })
+  assert.equal(result.status, 1)
+  assert.ok(result.stderr.includes('components/Bad_Name'), result.stderr)
+  assert.ok(result.stderr.includes('kebab-case'), result.stderr)
+})
+
 run('a missing bundle manifest exits 2 (misconfiguration)', () => {
   const result = buildMutatedExample((root) => {
     rmSync(join(root, 'design-system.json'))

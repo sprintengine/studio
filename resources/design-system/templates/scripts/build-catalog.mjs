@@ -70,6 +70,20 @@ function escapeHtml(text) {
     .replace(/"/g, '&quot;')
 }
 
+// Component directory names and pattern file stems become CSS class names on
+// their embed wrappers (.ds-embed-component-<name>), used verbatim in both the
+// class attribute and the scoped-stylesheet selector. Assert the manifest's
+// kebab-case naming grammar at read time so the two can never diverge.
+const KEBAB_CASE = /^[a-z0-9]+(?:-[a-z0-9]+)*$/
+
+function assertEmbedName(name, sourceLabel) {
+  if (!KEBAB_CASE.test(name)) {
+    fail(
+      `${sourceLabel}: "${name}" is not kebab-case ([a-z0-9] segments joined by "-") — it becomes an embed CSS class name`,
+    )
+  }
+}
+
 // --- Tokens ----------------------------------------------------------------------
 
 function collectTokens(node, path, out) {
@@ -511,6 +525,7 @@ function main() {
     ...new Set([...(contents.components ?? []), ...onDiskComponents]),
   ].sort()
   const components = componentNames.map((name) => {
+    assertEmbedName(name, `components/${name}`)
     const dir = join(componentsDir, name)
     for (const file of ['component.html', 'component.css', 'component.md']) {
       if (!existsSync(join(dir, file))) {
@@ -544,6 +559,7 @@ function main() {
     const filePath = join(bundleRoot, path)
     if (!existsSync(filePath)) fail(`${path}: registered in contents.patterns but missing on disk`)
     const stem = path.slice(path.lastIndexOf('/') + 1).replace(/\.html$/, '')
+    assertEmbedName(stem, path)
     const source = readFileSync(filePath, 'utf8')
     const embed = extractEmbeddable(source, path)
     return { path, stem, source, embed }
@@ -576,6 +592,15 @@ function main() {
 
   // --- Mode-toggle patch: re-declare the dark overrides under the checkbox ----
   const parsedTokensCss = parseTokensCss(tokensCss)
+  // parseTokensCss depends on the pinned tokens.css emission format; if that
+  // format ever drifts, the parse quietly yields nothing and the mode toggle
+  // would ship as a silent no-op. The tokens document knows whether dark
+  // overrides must exist — cross-check it and fail loudly instead.
+  if (parsedTokensCss.dark.length === 0 && tokens.some(tokenIsModeVarying)) {
+    fail(
+      'foundations/tokens.css: tokens.tokens.json declares mode-varying tokens but no [data-mode="dark"] overrides were parsed — the tokens.css emission format has drifted from the pinned contract; regenerate it with node scripts/build-tokens.mjs and keep parseTokensCss in scripts/build-catalog.mjs in sync',
+    )
+  }
   const lightValues = new Map(parsedTokensCss.light.map((decl) => [decl.name, decl.value]))
   for (const decl of parsedTokensCss.dark) {
     if (!lightValues.has(decl.name)) {
@@ -628,7 +653,7 @@ function main() {
     viewClass: ' catalog-component',
     body:
       `<div class="catalog-component-grid">\n` +
-      `<div class="catalog-stage ds-embed-component-${escapeHtml(component.name)}">\n${component.demo.markup}\n</div>\n` +
+      `<div class="catalog-stage ds-embed-component-${component.name}">\n${component.demo.markup}\n</div>\n` +
       `<div class="catalog-doc">\n${component.doc.html}\n</div>\n` +
       `</div>\n` +
       sourceDetails(`components/${component.name}/component.css`, component.cssSource) +
@@ -640,7 +665,7 @@ function main() {
     label: pattern.embed.title ?? pattern.stem,
     viewClass: ' catalog-pattern',
     body:
-      `<div class="catalog-stage ds-embed-pattern-${escapeHtml(pattern.stem)}">\n${pattern.embed.markup}\n</div>\n` +
+      `<div class="catalog-stage ds-embed-pattern-${pattern.stem}">\n${pattern.embed.markup}\n</div>\n` +
       sourceDetails(pattern.path, pattern.source),
   }))
   const groups = [
