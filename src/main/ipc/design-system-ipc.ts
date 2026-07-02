@@ -1,22 +1,45 @@
 import type { IpcMain } from 'electron'
 
+import type { DesignSystemBundleLintRunResult } from '../../shared/design-system/bundle-lint-run'
 import type { DesignSystemRegenResult } from '../../shared/design-system/derived-files'
 import type { DesignSystemScaffoldResult } from '../../shared/design-system/bundle-scaffold'
 import type {
   DesignSystemLibraryReadResult,
   DesignSystemReleaseResult,
 } from '../../shared/design-system/library'
+import type {
+  DesignSystemAttachResult,
+  DesignSystemAttachSource,
+} from '../../shared/design-system/attach'
 import { regenerateDesignSystemDerivedFiles } from '../design-system/derived-file-runner'
 import { forkBundleScriptInUtilityProcess } from '../design-system/utility-process-fork'
 import { scaffoldDesignSystemBundle } from '../design-system/bundle-scaffold'
 import { resolveDesignSystemTemplatesDir } from '../design-system/templates-path'
 import { resolveDesignSystemBrandDemoSeedDir } from '../design-system/brand-demo-path'
+import { runDesignSystemBundleLint } from '../design-system/bundle-lint-run'
 import {
   defaultDesignSystemLibraryRoot,
   listDesignSystemLibrary,
   readDesignSystemLibraryEntry,
   releaseDesignSystemBundle,
 } from '../design-system/library-registry'
+import { attachDesignSystemBundle } from '../design-system/attach'
+
+function parseAttachSource(value: unknown): DesignSystemAttachSource | null {
+  if (typeof value !== 'object' || value === null) return null
+  const source = value as Record<string, unknown>
+  if (
+    source.kind === 'library' &&
+    typeof source.name === 'string' &&
+    typeof source.version === 'string'
+  ) {
+    return { kind: 'library', name: source.name, version: source.version }
+  }
+  if (source.kind === 'folder' && typeof source.path === 'string' && source.path.trim().length > 0) {
+    return { kind: 'folder', path: source.path }
+  }
+  return null
+}
 
 // Regenerates design-system derived files (tokens.css, catalog/index.html) by
 // forking the bundle's own generator scripts in a utility process. Triggered
@@ -54,6 +77,18 @@ export function registerDesignSystemIpc(ipcMain: IpcMain): void {
   ipcMain.handle('design-system:resolve-brand-demo-seed', () =>
     resolveDesignSystemBrandDemoSeedDir(),
   )
+  // On-demand bundle lint: the studio release action's validating phase. The
+  // release pipeline re-runs the same script as its own gate, so a pass here
+  // is a preview, never a bypass.
+  ipcMain.handle(
+    'design-system:lint-bundle',
+    (_event, bundleDir: unknown): Promise<DesignSystemBundleLintRunResult> => {
+      if (typeof bundleDir !== 'string' || bundleDir.trim().length === 0) {
+        return Promise.resolve({ ok: false, kind: 'error', message: 'No bundle directory provided.' })
+      }
+      return runDesignSystemBundleLint(bundleDir, forkBundleScriptInUtilityProcess)
+    },
+  )
   // Library release + list/read: immutable versioned copies under
   // ~/.multicode/design-systems/<name>/<version>/ (library-registry.ts).
   ipcMain.handle(
@@ -83,6 +118,26 @@ export function registerDesignSystemIpc(ipcMain: IpcMain): void {
         return Promise.resolve({ ok: false, message: 'A design-system name and version are required.' })
       }
       return readDesignSystemLibraryEntry(defaultDesignSystemLibraryRoot(), name, version)
+    },
+  )
+  // Attach: one-time copy of a released bundle (library entry or browsed
+  // folder) into a consuming workspace at design-system/, provenance stamped
+  // into the copy. An existing design-system/ is a typed 'conflict' refusal.
+  ipcMain.handle(
+    'design-system:attach',
+    (_event, source: unknown, workspaceRoot: unknown): Promise<DesignSystemAttachResult> => {
+      const parsedSource = parseAttachSource(source)
+      if (!parsedSource) {
+        return Promise.resolve({
+          ok: false,
+          stage: 'request',
+          message: 'An attach source (library name+version, or a folder path) is required.',
+        })
+      }
+      if (typeof workspaceRoot !== 'string' || workspaceRoot.trim().length === 0) {
+        return Promise.resolve({ ok: false, stage: 'request', message: 'No workspace root provided.' })
+      }
+      return attachDesignSystemBundle(parsedSource, workspaceRoot, defaultDesignSystemLibraryRoot())
     },
   )
 }
