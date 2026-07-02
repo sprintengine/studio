@@ -3227,7 +3227,7 @@ function GuidedIdeaStep({
                 </GhostButton>
               </div>
               <span className="text-[12px] leading-5 text-[color:var(--text-muted)]">
-                The designer reads this folder's stylesheets and assets, then drafts tokens, glyphs, and components for your review — nothing lands unreviewed.
+                The designer reads this folder’s stylesheets and assets, then drafts tokens, glyphs, and components for your review — nothing lands unreviewed.
               </span>
             </>
           ) : null}
