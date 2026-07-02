@@ -1,4 +1,34 @@
-# T5 Nuclear Review — design-system authoring preset (gate: nuclear_reviewer, attempt GA-001)
+# T5 Nuclear Review — design-system authoring preset (gate: nuclear_reviewer)
+
+## GA-002 addendum — rework verified, approved
+
+Rework commit `27d44f47` resolves all four GA-001 findings; verified against the diff, not the claims:
+
+1. `DESIGN_SYSTEM_BUNDLE_DIRECTORY_NAME` now has a single definition on the shared boundary
+   (`src/shared/design-system/bundle-scaffold.ts:13`); main imports it, `designArtifacts.ts`
+   re-exports it for studio consumers, and `sessionAdapter.ts` uses `DESIGN_SYSTEM_MANIFEST_FILENAME`
+   instead of the hardcoded string. Repo-wide grep confirms one definition.
+2. New `controllers/guidedBriefScaffolding.ts`: `buildInitialGuidedBriefRuntimeState` (decided fields
+   in, all accepted/selection/session fields nulled once) and `rethrowGuidedScaffoldFailure`; both
+   controllers call them — the 25-field literal and the error-wrap block each exist exactly once, and
+   a future optional runtime field cannot silently diverge between presets.
+3. `GuidedIdeaStep` rebuilt on `GUIDED_PRESET_COPY` (record keyed by `GuidedBriefPreset`) +
+   `GUIDED_PRESET_ORDER` card map; every preset ternary and the
+   `active={isDesignPreset && !isDesignSystemPreset}` construction are gone; cards compare
+   `preset === presetOption` directly. A fourth preset is now a one-entry addition.
+4. T4 build-catalog coordination handled correctly (flagged on T4 rather than committing another
+   task's file under T5); independently closed by the T4 gate commit `6683d79c`, which landed
+   `src/shared/design-system/build-catalog.test.ts` under T4 — `verify:app` wiring is now satisfied
+   at the tip.
+
+Re-verified here: controllers, bundle-scaffold 5/5, backlog-row (NewWorkspacePanel source contract),
+slice, sessionAdapter, and guidedBriefFlow suites all green. One immaterial copy unification noted:
+the design-system seed-failure message now says "Design Wizard workspace" (shared helper wording)
+instead of "design-system workspace" — no test asserted the old copy. **Verdict: approved.**
+
+---
+
+# Original review (GA-001)
 
 Reviewed commit: `3b46e596` (29 files, +1229/−114). Verdict: **changes_requested**.
 
