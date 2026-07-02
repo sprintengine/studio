@@ -16,6 +16,7 @@ import type {
   DesignSystemLibraryRejection,
   DesignSystemReleaseResult,
 } from '../../shared/design-system/library'
+import { findEscapingSymlink } from './bundle-copy-confinement'
 import { regenerateBundleDerivedFiles, type BundleScriptFork } from './derived-file-runner'
 import { runDesignSystemBundleLint } from './bundle-lint-run'
 
@@ -116,6 +117,20 @@ export async function releaseDesignSystemBundle(
       ok: false,
       stage: 'conflict',
       message: `${manifest.name}@${version} is already in the library. Releases are immutable — bump the version to release again.`,
+    }
+  }
+
+  // The library copy preserves symlinks verbatim, so a bundle tree carrying a
+  // link that resolves outside itself must never become a release — every
+  // later attach of that release would materialize the escaping link into a
+  // consuming repo. Fail closed before running any bundle script or mutating
+  // anything.
+  const escapingLink = await findEscapingSymlink(bundleDir)
+  if (escapingLink !== null) {
+    return {
+      ok: false,
+      stage: 'source',
+      message: `The bundle contains a symlink that points outside the bundle (${escapingLink}). Releases refuse bundles with escaping symlinks — nothing was copied.`,
     }
   }
 

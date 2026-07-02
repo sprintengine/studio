@@ -10,6 +10,7 @@ import type {
   DesignSystemAttachResult,
   DesignSystemAttachSource,
 } from '../../shared/design-system/attach'
+import { findEscapingSymlink } from './bundle-copy-confinement'
 import { readDesignSystemLibraryEntry } from './library-registry'
 
 // Attach materializes a released bundle into a consuming workspace at
@@ -99,6 +100,19 @@ export async function attachDesignSystemBundle(
   const resolved = await resolveAttachSource(source, libraryRoot)
   if ('failure' in resolved) return resolved.failure
   const { dir: sourceDir, manifest, libraryCoords } = resolved
+
+  // The copy preserves symlinks verbatim, so a bundle carrying a link that
+  // resolves outside itself must never land in the workspace — a hostile
+  // bundle could alias a component file to a local secret and the launch
+  // prompt would direct an agent straight at it. Fail closed before any copy.
+  const escapingLink = await findEscapingSymlink(sourceDir)
+  if (escapingLink !== null) {
+    return {
+      ok: false,
+      stage: 'source',
+      message: `The bundle contains a symlink that points outside the bundle (${escapingLink}). Attach refuses bundles with escaping symlinks — nothing was copied.`,
+    }
+  }
 
   if ((await statKind(workspaceRoot)) !== 'dir') {
     return {

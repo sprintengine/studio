@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { spawn } from 'node:child_process'
-import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
@@ -184,6 +184,28 @@ run('releases are immutable: same name+version refuses, a new version is a sibli
     )
   } finally {
     rmSync(bundle, { recursive: true, force: true })
+    rmSync(root, { recursive: true, force: true })
+  }
+})
+
+run('a bundle with a symlink escaping the source refuses the release with nothing copied', async () => {
+  const outer = mkdtempSync(join(tmpdir(), 'ds-lib-symlink-'))
+  const root = mkdtempSync(join(tmpdir(), 'ds-lib-root-'))
+  try {
+    const bundle = join(outer, 'bundle')
+    cpSync(exampleRoot, bundle, { recursive: true })
+    writeFileSync(join(outer, 'secret.txt'), 'not-for-the-library')
+    symlinkSync(join('..', '..', 'secret.txt'), join(bundle, 'foundations', 'escape.css'))
+
+    const result = await releaseDesignSystemBundle(bundle, '1.0.0', root, nodeFork)
+    assert.equal(result.ok, false)
+    if (!result.ok) {
+      assert.equal(result.stage, 'source')
+      assert.ok(result.message.includes('symlink'), result.message)
+    }
+    assert.ok(!existsSync(join(root, 'example')), 'a refused release must copy nothing into the library')
+  } finally {
+    rmSync(outer, { recursive: true, force: true })
     rmSync(root, { recursive: true, force: true })
   }
 })

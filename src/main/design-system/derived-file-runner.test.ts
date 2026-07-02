@@ -4,6 +4,7 @@ import { cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync, ex
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
+import { BUNDLE_SCRIPT_ENV_ALLOWLIST, bundleScriptEnv } from './bundle-script-env'
 import {
   discoverBundleDirs,
   regenerateBundleDerivedFiles,
@@ -96,6 +97,87 @@ run('surfaces a failing generator script with its exit code and stderr', async (
     assert.equal(failed?.status, 'failed')
     assert.equal(failed?.exitCode, 2)
     assert.ok(failed?.stderr.includes('not valid JSON'), failed?.stderr)
+  } finally {
+    rmSync(bundle, { recursive: true, force: true })
+  }
+})
+
+run('a manifest derived script resolving outside the bundle is refused before any fork', async () => {
+  const outer = mkdtempSync(join(tmpdir(), 'ds-runner-escape-'))
+  try {
+    // Bundle nested so ../../evil.mjs resolves to a real planted script whose
+    // execution would be observable — the marker file must never appear.
+    const bundle = join(outer, 'nest', 'bundle')
+    mkdirSync(join(outer, 'nest'), { recursive: true })
+    cpSync(exampleRoot, bundle, { recursive: true })
+    const marker = join(outer, 'pwned.txt')
+    writeFileSync(
+      join(outer, 'evil.mjs'),
+      `import { writeFileSync } from 'node:fs'\nwriteFileSync(${JSON.stringify(marker)}, 'forked outside the bundle')\n`,
+    )
+    const manifestPath = join(bundle, 'design-system.json')
+    const manifest = JSON.parse(readFileSync(manifestPath, 'utf8'))
+    manifest.derived = { x: '../../evil.mjs' }
+    writeFileSync(manifestPath, JSON.stringify(manifest, null, 2))
+
+    const result = await regenerateBundleDerivedFiles(bundle, nodeFork)
+    assert.equal(result.ok, false)
+    assert.ok(result.message?.includes('refused'), result.message)
+    const refused = result.runs.find((r) => r.script === '../../evil.mjs')
+    assert.equal(refused?.status, 'failed')
+    assert.equal(refused?.exitCode, null)
+    assert.ok(refused?.stderr.includes('bundle-relative'), refused?.stderr)
+    assert.ok(!existsSync(marker), 'the escaping script must never be forked')
+
+    // Absolute paths and non-.mjs entries are refused by the same guard.
+    manifest.derived = { x: join(outer, 'evil.mjs'), y: 'scripts/build-tokens.js' }
+    writeFileSync(manifestPath, JSON.stringify(manifest, null, 2))
+    const absolute = await regenerateBundleDerivedFiles(bundle, nodeFork)
+    assert.equal(absolute.ok, false)
+    assert.ok(absolute.runs.every((r) => r.status === 'failed' && r.exitCode === null))
+    assert.ok(!existsSync(marker))
+  } finally {
+    rmSync(outer, { recursive: true, force: true })
+  }
+})
+
+run('bundle scripts see only the allowlisted env, never the full main-process env', async () => {
+  const bundle = makeExampleCopy('ds-runner-env-')
+  try {
+    const printEnv = join(bundle, 'scripts', 'print-env.mjs')
+    writeFileSync(printEnv, 'process.stdout.write(JSON.stringify(Object.keys(process.env)))\n')
+
+    // The projection utilityProcess.fork receives (utility-process-fork.ts
+    // passes bundleScriptEnv(process.env) as env) applied to a real forked
+    // process: only allowlisted variables survive.
+    const env = bundleScriptEnv({
+      ...process.env,
+      MULTICODE_FAKE_MAIN_SECRET: 'must-not-leak',
+      AWS_SECRET_ACCESS_KEY: 'must-not-leak',
+    })
+    const child = spawn(process.execPath, [printEnv], { cwd: bundle, env })
+    const stdout = await new Promise<string>((resolve, reject) => {
+      let out = ''
+      child.stdout.on('data', (chunk) => {
+        out += String(chunk)
+      })
+      child.on('error', reject)
+      child.on('close', () => resolve(out))
+    })
+    const keys = JSON.parse(stdout) as string[]
+    assert.ok(!keys.includes('MULTICODE_FAKE_MAIN_SECRET'), JSON.stringify(keys))
+    assert.ok(!keys.includes('AWS_SECRET_ACCESS_KEY'), JSON.stringify(keys))
+    const allowed = new Set<string>(BUNDLE_SCRIPT_ENV_ALLOWLIST)
+    // macOS injects __CF_USER_TEXT_ENCODING into every spawned process at the
+    // libc level; it does not come from the projection under test.
+    const platformInjected = /^__CF_/
+    for (const key of keys) {
+      assert.ok(
+        allowed.has(key) || platformInjected.test(key),
+        `unexpected env variable reached the bundle script: ${key}`,
+      )
+    }
+    assert.ok(keys.includes('PATH'), 'the allowlist must keep PATH for the forked runtime')
   } finally {
     rmSync(bundle, { recursive: true, force: true })
   }

@@ -945,6 +945,9 @@ body { margin: 0; }
   border: 1px solid var(--sem-color-border-default, #dddddd);
   border-radius: var(--sem-radius-overlay, 7px);
   overflow: hidden;
+  /* Embedded demos are source-faithful and may not wrap; let narrow panes
+     scroll to overflowing specimens instead of clipping them. */
+  overflow-x: auto;
 }
 .catalog-doc h4 { margin: 14px 0 6px; font-size: 13px; }
 .catalog-doc h4:first-child { margin-top: 0; }

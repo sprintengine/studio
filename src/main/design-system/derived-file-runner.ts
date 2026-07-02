@@ -1,5 +1,5 @@
 import { readdir, readFile, stat } from 'fs/promises'
-import { join } from 'path'
+import { isAbsolute, join } from 'path'
 
 import {
   DESIGN_SYSTEM_MANIFEST_FILENAME,
@@ -47,6 +47,16 @@ async function pathExists(path: string): Promise<boolean> {
   }
 }
 
+// Manifest `derived` values are untrusted input: a `../`-prefixed value would
+// resolve (and fork) outside the bundle. A generator must be a bundle-relative
+// `.mjs` path with no empty or dot segments — anything else is refused before
+// the fork.
+function isConfinedBundleScript(script: string): boolean {
+  if (isAbsolute(script) || !script.endsWith('.mjs')) return false
+  const segments = script.split(/[\\/]/)
+  return segments.every((segment) => segment !== '' && segment !== '.' && segment !== '..')
+}
+
 /** Regenerate one bundle's derived files by running its generator scripts. */
 export async function regenerateBundleDerivedFiles(
   bundleDir: string,
@@ -82,7 +92,19 @@ export async function regenerateBundleDerivedFiles(
   // inlines the tokens.css that build-tokens just wrote).
   const scripts = [...new Set(Object.values(derived))]
   const runs: DerivedScriptRun[] = []
+  const refusedScripts = new Set<string>()
   for (const script of scripts) {
+    if (!isConfinedBundleScript(script)) {
+      refusedScripts.add(script)
+      runs.push({
+        script,
+        status: 'failed',
+        exitCode: null,
+        stdout: '',
+        stderr: `refused to run "${script}": a manifest derived script must be a bundle-relative .mjs path with no ".." segments`,
+      })
+      continue
+    }
     const scriptPath = join(bundleDir, script)
     if (!(await pathExists(scriptPath))) {
       // Authoring-time state: the manifest already names the generator but the
@@ -107,7 +129,11 @@ export async function regenerateBundleDerivedFiles(
     message:
       failed.length > 0
         ? failed
-            .map((run) => `${run.script} exited ${run.exitCode ?? 'without a code'}`)
+            .map((run) =>
+              refusedScripts.has(run.script)
+                ? `${run.script} refused: escapes the bundle`
+                : `${run.script} exited ${run.exitCode ?? 'without a code'}`,
+            )
             .join('; ')
         : undefined,
     runs,

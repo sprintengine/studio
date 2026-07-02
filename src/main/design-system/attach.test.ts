@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { cpSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { cpSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
@@ -173,6 +173,56 @@ run('an invalid browsed source fails typed with nothing written', async () => {
     rmSync(workspace, { recursive: true, force: true })
     rmSync(libraryRoot, { recursive: true, force: true })
     rmSync(notABundle, { recursive: true, force: true })
+  }
+})
+
+run('a bundle with symlinks escaping the source is a typed source refusal with nothing written', async () => {
+  const outer = mkdtempSync(join(tmpdir(), 'ds-attach-symlink-'))
+  const workspace = mkdtempSync(join(tmpdir(), 'ds-attach-ws-'))
+  const libraryRoot = mkdtempSync(join(tmpdir(), 'ds-attach-lib-'))
+  try {
+    // Bundle nested one level down so a ../ link has somewhere real to escape to.
+    const bundle = join(outer, 'bundle')
+    cpSync(exampleRoot, bundle, { recursive: true })
+    writeFileSync(join(outer, 'secret.txt'), 'AKIA-not-really')
+
+    // Absolute symlink shape: foundations/tokens.css -> <outside file>.
+    const absoluteLink = join(bundle, 'foundations', 'stolen.css')
+    symlinkSync(join(outer, 'secret.txt'), absoluteLink)
+    const absolute = await attachDesignSystemBundle({ kind: 'folder', path: bundle }, workspace, libraryRoot)
+    assert.equal(absolute.ok, false)
+    if (!absolute.ok) {
+      assert.equal(absolute.stage, 'source')
+      assert.ok(absolute.message.includes('symlink'), absolute.message)
+      assert.ok(absolute.message.includes(join('foundations', 'stolen.css')), absolute.message)
+    }
+    assert.deepEqual(readdirSync(workspace), [], 'a refused attach must write nothing into the workspace')
+    rmSync(absoluteLink)
+
+    // Relative ../ symlink shape escaping the bundle root.
+    const relativeLink = join(bundle, 'components', 'button', 'escape.md')
+    symlinkSync(join('..', '..', '..', 'secret.txt'), relativeLink)
+    const relative = await attachDesignSystemBundle({ kind: 'folder', path: bundle }, workspace, libraryRoot)
+    assert.equal(relative.ok, false)
+    if (!relative.ok) assert.equal(relative.stage, 'source')
+    assert.deepEqual(readdirSync(workspace), [])
+    rmSync(relativeLink)
+
+    // A relative link confined to the bundle stays attachable, and the landed
+    // copy contains no link that resolves outside design-system/.
+    symlinkSync('tokens.css', join(bundle, 'foundations', 'alias.css'))
+    const confined = await attachDesignSystemBundle({ kind: 'folder', path: bundle }, workspace, libraryRoot)
+    assert.equal(confined.ok, true, JSON.stringify(confined))
+    const landedLink = join(workspace, DESIGN_SYSTEM_ATTACH_DIRNAME, 'foundations', 'alias.css')
+    assert.ok(lstatSync(landedLink).isSymbolicLink())
+    assert.equal(
+      readFileSync(landedLink, 'utf8'),
+      readFileSync(join(workspace, DESIGN_SYSTEM_ATTACH_DIRNAME, 'foundations', 'tokens.css'), 'utf8'),
+    )
+  } finally {
+    rmSync(outer, { recursive: true, force: true })
+    rmSync(workspace, { recursive: true, force: true })
+    rmSync(libraryRoot, { recursive: true, force: true })
   }
 })
 

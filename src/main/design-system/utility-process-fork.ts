@@ -1,5 +1,6 @@
 import { utilityProcess } from 'electron'
 
+import { bundleScriptEnv } from './bundle-script-env'
 import type { BundleScriptExit, BundleScriptFork } from './derived-file-runner'
 
 // Bundle generator scripts run in an Electron utility process, never in the
@@ -27,7 +28,14 @@ export const forkBundleScriptInUtilityProcess: BundleScriptFork = (scriptPath, a
   new Promise<BundleScriptExit>((resolve) => {
     let child: Electron.UtilityProcess
     try {
-      child = utilityProcess.fork(scriptPath, args, { cwd: options.cwd, stdio: 'pipe' })
+      // Bundle scripts never see the full main-process env — only the
+      // minimal allowlist (bundle-script-env.ts): main-env secrets must not
+      // leak into every generator script the runner executes.
+      child = utilityProcess.fork(scriptPath, args, {
+        cwd: options.cwd,
+        stdio: 'pipe',
+        env: bundleScriptEnv(process.env),
+      })
     } catch (error) {
       resolve({
         exitCode: null,
