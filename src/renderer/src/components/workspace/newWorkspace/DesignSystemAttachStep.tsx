@@ -1,5 +1,9 @@
 import { useEffect, useState } from 'react'
-import type { DesignSystemAttachSource } from '../../../../../shared/design-system/attach'
+import {
+  DESIGN_SYSTEM_ATTACHED_PROMPT_LINE,
+  type DesignSystemAttachSource,
+} from '../../../../../shared/design-system/attach'
+import { DESIGN_SYSTEM_BUNDLE_DIRECTORY_NAME } from '../../../../../shared/design-system/bundle-scaffold'
 import type { DesignSystemLibraryEntry } from '../../../../../shared/design-system/library'
 import { GhostButton } from '../../ui'
 import { pathJoin } from '../../../utils/paths'
@@ -15,6 +19,33 @@ type LibraryState =
   | { kind: 'loading' }
   | { kind: 'ready'; entries: DesignSystemLibraryEntry[]; rejectedCount: number }
   | { kind: 'unavailable'; message: string }
+
+// Bonus path after a successful attach when the wizard also committed a
+// knowledge root: a pointer note next to the graph, composed from the shared
+// launch-line contract so the two can never drift. The bundle stays the
+// source of truth; callers treat a write failure as non-fatal.
+export function buildDesignSystemKnowledgeNote(name: string, version: string): string {
+  return [
+    '# Design system',
+    '',
+    `Attached bundle: ${name}@${version}.`,
+    DESIGN_SYSTEM_ATTACHED_PROMPT_LINE,
+    'This note is a pointer, not a second source of truth: the bundle documents itself.',
+    '',
+  ].join('\n')
+}
+
+/** Writes the pointer note unless one already exists (never overwrites). */
+export async function writeDesignSystemKnowledgeNote(input: {
+  workspaceRoot: string
+  knowledgeRoot: string
+  name: string
+  version: string
+}): Promise<void> {
+  const notePath = pathJoin(input.workspaceRoot, input.knowledgeRoot, 'design-system.md')
+  if (await window.api.pathExists(notePath)) return
+  await window.api.writefile(notePath, buildDesignSystemKnowledgeNote(input.name, input.version))
+}
 
 export type DesignSystemAttachStepProps = {
   /** Materialized workspace folder the bundle would be copied into. */
@@ -58,7 +89,7 @@ export function DesignSystemAttachStep({ workspaceRoot, selection, onSelect }: D
     let cancelled = false
     setExistingBundle(null)
     window.api
-      .pathExists(pathJoin(workspaceRoot, 'design-system'))
+      .pathExists(pathJoin(workspaceRoot, DESIGN_SYSTEM_BUNDLE_DIRECTORY_NAME))
       .then((exists) => {
         if (!cancelled) setExistingBundle(exists)
       })

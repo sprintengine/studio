@@ -41,8 +41,10 @@ import { GuidedBriefCloseConfirmation } from './guidedBrief/GuidedBriefCloseConf
 import { isMidStageGuidedRuntime, type GuidedBriefPreset, type GuidedBriefRuntimeState } from './guidedBrief/types'
 import type { DesignSystemBrandDemoResolveResult } from '../../../../shared/design-system/brand-demo'
 import type { DesignSystemAttachSource } from '../../../../shared/design-system/attach'
-import { DesignSystemAttachStep } from './newWorkspace/DesignSystemAttachStep'
-import { pathJoin } from '../../utils/paths'
+import {
+  DesignSystemAttachStep,
+  writeDesignSystemKnowledgeNote,
+} from './newWorkspace/DesignSystemAttachStep'
 import {
   guidedBriefBuildHandoffRelativePath,
   guidedBriefPlanningDecisionNotes,
@@ -739,10 +741,13 @@ export default function NewWorkspacePanel({
     || mode === 'sprintengine'
     || (mode === 'guided-brief' && guidedPreset !== 'design-system')
 
-  // The committed knowledge root is declared later in this component (it
-  // feeds several memos); the attach step only needs its value at
-  // create-time, so it rides a ref instead of reordering those memos.
-  const committedKnowledgeRootRef = useRef<string | null>(null)
+  // Knowledge folder currently stored for the chosen project (case-preserved
+  // key, matching the project-keyed store). Declared before
+  // persistAdvancedSetup, which reads it for the attach step's bonus note.
+  const committedKnowledgeRoot = useMemo(() => {
+    const key = normalizeProjectRootKey(folderPath)
+    return key ? projectKnowledgeRoots?.[key] ?? null : null
+  }, [folderPath, projectKnowledgeRoots])
 
   // Persist the optional Advanced setup selections to the real project on disk:
   // write the MCP agent config through the same mcp:sync path Settings uses,
@@ -814,29 +819,19 @@ export default function NewWorkspacePanel({
           const result = await window.api.attachDesignSystemBundle(dsAttachSelection, workspaceRoot)
           if (!result.ok) {
             failures.push(`Design system attach failed: ${result.message}`)
-          } else {
-            // Bonus path when a knowledge root is configured: drop a pointer
-            // note next to the graph so agents browsing it find the bundle.
-            // The bundle stays the source of truth; a note failure never
-            // fails the attach (the mechanism is KG-independent).
-            const knowledgeRoot = committedKnowledgeRootRef.current
-            if (knowledgeRoot) {
-              const notePath = pathJoin(workspaceRoot, knowledgeRoot, 'design-system.md')
-              try {
-                const noteExists = await window.api.pathExists(notePath)
-                if (!noteExists) {
-                  await window.api.writefile(notePath, [
-                    '# Design system',
-                    '',
-                    `A design system is attached at \`design-system/\` (bundle: ${result.name}@${result.version}).`,
-                    'Consume it via `design-system/USAGE.md`, `design-system/foundations/tokens.css`, and `design-system/components/` — do not invent styles.',
-                    'This note is a pointer, not a second source of truth: the bundle documents itself.',
-                    '',
-                  ].join('\n'))
-                }
-              } catch (error) {
-                console.error('[design-system] could not write the knowledge-root pointer note', error)
-              }
+          } else if (committedKnowledgeRoot) {
+            // Bonus path when a knowledge root is configured: a pointer note
+            // next to the graph (composed from the shared launch-line
+            // contract). Non-fatal — the mechanism is KG-independent.
+            try {
+              await writeDesignSystemKnowledgeNote({
+                workspaceRoot,
+                knowledgeRoot: committedKnowledgeRoot,
+                name: result.name,
+                version: result.version,
+              })
+            } catch (error) {
+              console.error('[design-system] could not write the knowledge-root pointer note', error)
             }
           }
         } catch (error) {
@@ -861,6 +856,7 @@ export default function NewWorkspacePanel({
       upsertSkillPack,
       dsAttachSelection,
       designSystemAttachEligible,
+      committedKnowledgeRoot,
     ],
   )
 
@@ -897,13 +893,6 @@ export default function NewWorkspacePanel({
   // at 'mode', and config belongs off that decision screen.
   const showAdvancedSetup = isAdvancedSetupStep(steps, step)
 
-  // Knowledge folder currently stored for the chosen project (case-preserved key,
-  // matching the project-keyed store), surfaced to the step and blocking copy.
-  const committedKnowledgeRoot = useMemo(() => {
-    const key = normalizeProjectRootKey(folderPath)
-    return key ? projectKnowledgeRoots?.[key] ?? null : null
-  }, [folderPath, projectKnowledgeRoots])
-  committedKnowledgeRootRef.current = committedKnowledgeRoot
   const handleCommitKnowledgeRoot = useCallback(
     (relativeRoot: string | null) => {
       if (folderPath) setProjectKnowledgeRoot(folderPath, relativeRoot)

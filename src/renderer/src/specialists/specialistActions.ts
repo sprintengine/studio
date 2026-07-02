@@ -1,5 +1,6 @@
 import type { DesignSystemSeedSource, MultiloopRole, SpecialistActionId } from '../types/workspace'
 import { DESIGN_SYSTEM_ATTACHED_PROMPT_LINE } from '../../../shared/design-system/attach'
+import { DESIGN_SYSTEM_BUNDLE_DIRECTORY_NAME } from '../../../shared/design-system/bundle-scaffold'
 import { pathJoin } from '../utils/paths'
 
 export type { MultiloopRole }
@@ -304,7 +305,7 @@ export async function resolveDesignSystemAttachedPromptLine(
 ): Promise<string | null> {
   const root = executionRoot?.trim()
   if (!root) return null
-  const attached = await pathExists(pathJoin(root, 'design-system')).catch(() => false)
+  const attached = await pathExists(pathJoin(root, DESIGN_SYSTEM_BUNDLE_DIRECTORY_NAME)).catch(() => false)
   return attached ? DESIGN_SYSTEM_ATTACHED_PROMPT_LINE : null
 }
 
