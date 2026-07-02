@@ -105,6 +105,26 @@ run('discovers the root itself as a bundle, or direct children carrying a manife
   }
 })
 
+run('a missing or non-directory root is an observable failure, not a silent ok', async () => {
+  const missing = await regenerateDesignSystemDerivedFiles(
+    join(tmpdir(), 'ds-runner-does-not-exist-xyzzy'),
+    nodeFork,
+  )
+  assert.equal(missing.ok, false)
+  assert.deepEqual(missing.bundles, [])
+  assert.ok(missing.message?.includes('missing or unreadable'), missing.message)
+
+  const filePath = join(mkdtempSync(join(tmpdir(), 'ds-runner-fileroot-')), 'not-a-dir.txt')
+  try {
+    writeFileSync(filePath, 'x')
+    const fileRoot = await regenerateDesignSystemDerivedFiles(filePath, nodeFork)
+    assert.equal(fileRoot.ok, false)
+    assert.ok(fileRoot.message?.includes('not a directory'), fileRoot.message)
+  } finally {
+    rmSync(join(filePath, '..'), { recursive: true, force: true })
+  }
+})
+
 run('a root without any bundle is a successful no-op (existing flows untouched)', async () => {
   const workspace = mkdtempSync(join(tmpdir(), 'ds-runner-nobundle-'))
   try {

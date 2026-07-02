@@ -136,14 +136,28 @@ export async function discoverBundleDirs(rootDir: string): Promise<string[]> {
 }
 
 /**
- * Regenerate derived files for every bundle under a root. A root with no
- * bundle is a successful no-op, so non-design-system workspaces (full-brief,
- * frontend-design) are untouched.
+ * Regenerate derived files for every bundle under a root. A readable root
+ * with no bundle is a successful no-op, so non-design-system workspaces
+ * (full-brief, frontend-design) are untouched — but a missing or unreadable
+ * root is an observable failure, never a silent ok.
  */
 export async function regenerateDesignSystemDerivedFiles(
   rootDir: string,
   fork: BundleScriptFork,
 ): Promise<DesignSystemRegenResult> {
+  let rootStat: import('fs').Stats
+  try {
+    rootStat = await stat(rootDir)
+  } catch (error) {
+    return {
+      ok: false,
+      bundles: [],
+      message: `root directory is missing or unreadable: ${error instanceof Error ? error.message : String(error)}`,
+    }
+  }
+  if (!rootStat.isDirectory()) {
+    return { ok: false, bundles: [], message: `root path is not a directory: ${rootDir}` }
+  }
   const bundleDirs = await discoverBundleDirs(rootDir)
   const bundles: BundleRegenResult[] = []
   for (const bundleDir of bundleDirs) {
