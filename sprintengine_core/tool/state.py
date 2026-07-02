@@ -399,6 +399,15 @@ def set_agent_idle(agent: Dict[str, Any]) -> bool:
 def set_agent_active(agent: Dict[str, Any], task: Dict[str, Any], *, refresh_heartbeat: bool = True) -> bool:
     changed = set_if_changed(agent, "status", "needs_input" if task.get("status") == "needs_input" else "running")
     changed = set_if_changed(agent, "currentTaskId", task.get("id")) or changed
+    # Durable task-ownership record for task-scoped worker lifecycle (MC-1444):
+    # unlike currentTaskId, this survives set_agent_idle/reconcile so the
+    # dispatch planner can tell "finished a task" from "never had one".
+    # Invariant: every flow that establishes task ownership must pass through
+    # here (assign_task/reconcile do; the direct currentTaskId reactivation
+    # writes in artifacts.py/task.py only re-activate owners already stamped).
+    # A missing stamp is failure-safe — the planner treats the agent as
+    # never-owned and falls back to the reuse-preferring lifecycle.
+    changed = set_if_changed(agent, "lastOwnedTaskId", task.get("id")) or changed
     changed = clear_terminal_state_metadata(agent) or changed
     if refresh_heartbeat:
         changed = set_if_changed(agent, "heartbeatAt", now_iso()) or changed

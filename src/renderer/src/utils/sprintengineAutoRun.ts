@@ -381,16 +381,39 @@ export function getSprintEngineWakeCandidateTasks(
   )
 }
 
+/**
+ * Task-scoped wake restriction (MC-1444): a live implementation agent that has
+ * owned a task may only be woken for that same task (its rework); new tasks go
+ * to fresh sessions so cross-task context never accumulates in one terminal.
+ * Planning roles (architect/general) run whole sprints in one terminal and are
+ * exempt, as is an agent that never owned a task. Returns the task id the
+ * agent is restricted to, or null when unrestricted. A disposed agent is
+ * unaffected: respawns start a fresh session, so the spawn path may hand its
+ * roster id any task.
+ */
+export function sprintEngineWakeRestrictionTaskId(
+  runtimeAgent: SprintEngineState['sprintEngineAgents'][string] | undefined
+): string | null {
+  if (!runtimeAgent?.lastOwnedTaskId) return null
+  if (isSprintEnginePlanningRole(runtimeAgent.role)) return null
+  return runtimeAgent.lastOwnedTaskId
+}
+
 export function findSprintEngineWakeCandidateTaskForAgent(
   wakeTasks: SprintEngineTask[],
   role: SprintEngineRoleId,
   agentId: string,
-  reservedTaskIds: ReadonlySet<string>
+  reservedTaskIds: ReadonlySet<string>,
+  // Required (no default) so a call site can never silently drop the
+  // task-scoped reuse guard: pass sprintEngineWakeRestrictionTaskId(agent),
+  // or null for contexts with no runtime agent.
+  restrictToTaskId: string | null
 ): SprintEngineTask | undefined {
   return wakeTasks.find((candidate) =>
     candidate.role === role
     && !reservedTaskIds.has(candidate.id)
     && (!candidate.ownerAgentId || candidate.ownerAgentId === agentId || candidate.status === 'changes_requested')
+    && (!restrictToTaskId || candidate.id === restrictToTaskId)
   )
 }
 
@@ -419,6 +442,16 @@ export const AUTO_RUN_IDLE_RETIREMENT_MS = 5 * 60_000
  * terminal is far cheaper than a respawn storm, so we err toward not churning.
  */
 export const AUTO_RUN_RETIREMENT_COOLDOWN_MS = 15 * 60_000
+/**
+ * Cooldown for task-scoped retirements (MC-1444): a worker retired because its
+ * task reached terminal state, not because it was parked. Much shorter than the
+ * idle cooldown — the same roster id is legitimately respawned fresh for the
+ * next ready task and may finish it within minutes, and the long cooldown would
+ * park that live terminal (blocking the role) until it elapsed. One minute
+ * still caps a pathological kill/respawn cycle at one kill per minute; the
+ * wake-prompt retry budgets bound the respawn side.
+ */
+export const AUTO_RUN_TASK_SCOPED_RETIREMENT_COOLDOWN_MS = 60_000
 export const AUTO_RUN_MAX_PROMPT_RETRIES = 5
 export const AUTO_RUN_MAX_WAKE_CANDIDATE_PROMPT_RETRIES = 3
 
@@ -1077,7 +1110,13 @@ export function planSprintEngineDispatch(input: {
         })
         continue
       }
-      const task = findSprintEngineWakeCandidateTaskForAgent(wakeTasks, runtimeAgent.role, agentId, reservedWakeCandidateTaskIds)
+      const task = findSprintEngineWakeCandidateTaskForAgent(
+        wakeTasks,
+        runtimeAgent.role,
+        agentId,
+        reservedWakeCandidateTaskIds,
+        sprintEngineWakeRestrictionTaskId(runtimeAgent)
+      )
       if (!task) continue
       const key = continuationMessageKey(workspace, task.id, agentId)
       const previous = input.continuationLedger.get(key)
@@ -1150,6 +1189,13 @@ export function planSprintEngineDispatch(input: {
       }
 
       for (const gate of getClaimableSprintEngineAutoRunGates(task, sprintEngineState.tasks)) {
+        // Gate claiming is deliberately NOT restricted by the task-scoped wake
+        // restriction (MC-1444): reviewers keep the reuse-preferring lifecycle
+        // by decision, and that must include roles that also own tasks — the
+        // product agent owns the intake task yet reviews every task's product
+        // gate; restricting it here starves product review while the intake
+        // sits in its rework window. The restriction only governs handing out
+        // TASKS to a used terminal.
         const agentId = [...input.idleAgentIds].find((candidateId) => {
           if (usedIdleAgentIds.has(candidateId) || engagedAgentIds.has(candidateId)) return false
           const runtimeAgent = sprintEngineState.sprintEngineAgents[candidateId]
@@ -1314,7 +1360,13 @@ export function planSprintEngineDispatch(input: {
         continue
       }
       if (runtimeAgent.status !== 'idle' || runtimeAgent.currentTaskId || runtimeAgent.currentDispatch) continue
-      const task = findSprintEngineWakeCandidateTaskForAgent(wakeTasks, runtimeAgent.role, agentId, new Set())
+      const task = findSprintEngineWakeCandidateTaskForAgent(
+        wakeTasks,
+        runtimeAgent.role,
+        agentId,
+        new Set(),
+        sprintEngineWakeRestrictionTaskId(runtimeAgent)
+      )
       if (!task) continue
       // Any engagement planned this pass (wake, gate, dispatch) supersedes a
       // restart; in per-path mode the executed paste's ledger record trips the
@@ -1578,19 +1630,67 @@ export function planSprintEngineDispatch(input: {
       if (!runtimeAgent || !isUnclaimedIdleRuntimeAgent(runtimeAgent)) continue
       if (gateClaimHolders.has(agentId)) continue
       if (runtimeAgent.role === 'architect' && hasArchitectTriageWork) continue
-      if (findSprintEngineWakeCandidateTaskForAgent(wakeTasks, runtimeAgent.role, agentId, new Set())) continue
+      // Task-scoped workers (MC-1444) only ever wake for their own task's
+      // rework, so the claimable-work skip below no longer parks them on
+      // unrelated ready tasks — a completed worker retires even while its role
+      // has a full queue; fresh sessions take the queue.
+      const restrictToTaskId = sprintEngineWakeRestrictionTaskId(runtimeAgent)
+      if (findSprintEngineWakeCandidateTaskForAgent(wakeTasks, runtimeAgent.role, agentId, new Set(), restrictToTaskId)) continue
       if (claimableGateRoles.has(runtimeAgent.role)) continue
       const idleClockKey = sprintEngineIdleClockKey(workspace, agentId)
+      // Task-scoped terminal state: the worker's own task is finished, so its
+      // session has nothing left to return for. Retires without the 5-minute
+      // idle window, on the next tick the agent is authoritatively idle (the
+      // idle-clock precondition below is the deliberate safety floor — never
+      // kill a terminal not observed unclaimed-idle). Only 'done' counts —
+      // TS task statuses carry no 'canceled'; anything else, including a
+      // missing record, safely falls back to the idle window. The
+      // publish→verdict window is NOT terminal: a task in
+      // review/testing/product/changes_requested keeps the idle-window path,
+      // so fast rework still lands in the warm terminal.
+      const lastOwnedTask = restrictToTaskId
+        ? sprintEngineState.tasks.find((candidate) => candidate.id === restrictToTaskId)
+        : undefined
+      const taskScopedComplete = lastOwnedTask?.status === 'done'
       // Storm guard: a recently retired agent that was respawned (and idled
       // again) must not be retired a second time until the cooldown elapses.
+      // Task-scoped retirements use the short cooldown: the same roster id is
+      // legitimately respawned for the next task and may finish within minutes.
+      const cooldownMs = taskScopedComplete
+        ? AUTO_RUN_TASK_SCOPED_RETIREMENT_COOLDOWN_MS
+        : AUTO_RUN_RETIREMENT_COOLDOWN_MS
       const retiredAt = input.retirementCooldown?.get(idleClockKey)
-      if (retiredAt !== undefined && now - retiredAt < AUTO_RUN_RETIREMENT_COOLDOWN_MS) continue
+      if (retiredAt !== undefined && now - retiredAt < cooldownMs) continue
       const since = input.idleClock.get(idleClockKey)
-      if (!since || now - since < AUTO_RUN_IDLE_RETIREMENT_MS) continue
+      if (!since) continue
+      if (taskScopedComplete) {
+        planRetirement({
+          agentId,
+          data: {
+            agentId,
+            role: runtimeAgent.role,
+            idleMs: now - since,
+            reason: 'task_scoped_terminal_state',
+            taskId: restrictToTaskId,
+          },
+          diagnostic: {
+            title: 'Retired a task-scoped sprint terminal',
+            message: `${runtimeAgent.role} finished ${restrictToTaskId}, so its terminal was closed. The next task gets a fresh session; rework respawns this role automatically.`,
+            details: [
+              `Workspace: ${workspace.name}`,
+              `Agent: ${agentId} (${runtimeAgent.role})`,
+              `Completed task: ${restrictToTaskId}`,
+              'One agent session per task keeps worker context small; ready work respawns the role with a fresh session.',
+            ].join('\n'),
+          },
+        })
+        continue
+      }
+      if (now - since < AUTO_RUN_IDLE_RETIREMENT_MS) continue
       const idleMinutes = Math.round((now - since) / 60_000)
       planRetirement({
         agentId,
-        data: { agentId, role: runtimeAgent.role, idleMs: now - since },
+        data: { agentId, role: runtimeAgent.role, idleMs: now - since, reason: 'idle_window' },
         diagnostic: {
           title: 'Retired an idle sprint terminal',
           message: `${runtimeAgent.role} had no claimable work for ${idleMinutes} minute${idleMinutes === 1 ? '' : 's'}, so its terminal was closed. The role respawns automatically when work is ready.`,

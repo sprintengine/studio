@@ -594,6 +594,13 @@ export type SprintEngineRuntimeAgent = {
   role: SprintEngineRoleId
   status: SprintEngineRuntimeAgentStatus
   currentTaskId: string | null
+  /**
+   * Last task this agent was assigned (MC-1444). Unlike currentTaskId this is
+   * never cleared on idle/leave, so the dispatch planner can distinguish a
+   * worker that finished a task (task-scoped retirement + no cross-task reuse)
+   * from one that never had one.
+   */
+  lastOwnedTaskId?: string | null
   currentGateId?: string | null
   currentGate?: {
     taskId?: string

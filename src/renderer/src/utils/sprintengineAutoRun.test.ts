@@ -9,7 +9,11 @@ import {
   AUTO_RUN_ACTIVE_ASSIGNMENT_INACTIVITY_MS,
   AUTO_RUN_ACTIVE_ASSIGNMENT_MAX_PROMPTS,
   AUTO_RUN_ACTIVE_ASSIGNMENT_PROMPT,
+  AUTO_RUN_IDLE_RETIREMENT_MS,
   AUTO_RUN_ROLE_CONTINUATION_GRACE_MS,
+  AUTO_RUN_TASK_SCOPED_RETIREMENT_COOLDOWN_MS,
+  findSprintEngineWakeCandidateTaskForAgent,
+  sprintEngineWakeRestrictionTaskId,
   agentNotificationDeliveryKey,
   architectTriageMessageKey,
   artifactApprovalMessageKey,
@@ -58,6 +62,7 @@ import type {
   SprintEngineEvent,
   SprintEngineQualityGate,
   SprintEngineRole,
+  SprintEngineRoleId,
   SprintEngineRuntimeAgent,
   SprintEngineState,
   SprintEngineTask,
@@ -139,6 +144,13 @@ async function main(): Promise<void> {
   await testDispatchPromptSkipsNeedsInputAgent()
   testActiveAssignmentRescueSendsMinimalPromptAfterSprintEngineInactivity()
   testActiveAssignmentRescueUsesSprintEngineActivityAndResetsBudget()
+  testTaskScopedRetirementFiresOnTerminalStateDespiteReadyQueue()
+  testTaskScopedRetirementNeverFiresMidReworkLoop()
+  testTaskScopedWakeRestrictionBlocksCrossTaskReuse()
+  testTaskScopedLifecycleExemptsPlanningRoles()
+  testTaskScopedRetirementHonorsShortCooldown()
+  testTaskScopedRestrictionDoesNotBlockGateClaims()
+  testTaskScopedParkingStaysConsistentWithGateAvailability()
   testActiveAssignmentRescueStopsAfterTwoPromptsWithDiagnostic()
   await testActiveAssignmentExhaustionDiagnosticMarksLedger()
   testActiveGateAssignmentRescueSendsMinimalPrompt()
@@ -2138,6 +2150,277 @@ function testActiveAssignmentRescueUsesSprintEngineActivityAndResetsBudget(): vo
 
   assert.equal(plan.pastes.length, 0, 'fresh Sprint Engine artifact activity prevents a continuation paste')
   assert.deepEqual(plan.ledgerDeletes, [{ ledger: 'continuation', key }], 'new Sprint Engine activity clears the old rescue budget')
+}
+
+// --- Task-scoped worker lifecycle (MC-1444) ---
+
+function taskScopedPlanInput(input: {
+  workspace: Workspace
+  state: SprintEngineState
+  now: number
+  idleAgentIds: string[]
+  paths: SprintEngineDispatchPath[]
+  idleClock?: Map<string, number>
+  retirementCooldown?: Map<string, number>
+}): ReturnType<typeof planSprintEngineDispatch> {
+  return planSprintEngineDispatch({
+    workspace: input.workspace,
+    sprintEngineState: input.state,
+    now: input.now,
+    runningAgentIds: new Set(input.idleAgentIds),
+    idleAgentIds: new Set(input.idleAgentIds),
+    continuationLedger: new Map(),
+    dispatchLedger: new Map(),
+    paths: new Set(input.paths),
+    ...(input.idleClock ? { idleClock: input.idleClock } : {}),
+    ...(input.retirementCooldown ? { retirementCooldown: input.retirementCooldown } : {}),
+  })
+}
+
+function testTaskScopedRetirementFiresOnTerminalStateDespiteReadyQueue(): void {
+  // The core MC-1444 inversion: a worker whose own task is done retires
+  // immediately — no 5-minute idle window, and a full ready queue for its role
+  // no longer parks it for reuse. Fresh sessions take the queue.
+  const now = Date.parse('2026-07-02T12:00:00Z')
+  const workspace = workspaceFixture()
+  const state = sprintEngineStateFixture({
+    tasks: [
+      task({ id: 'T-finished', role: 'developer', status: 'done', boardColumn: 'done', ownerAgentId: null, qualityGates: [] }),
+      task({ id: 'T-next', role: 'developer', status: 'todo', boardColumn: 'ready', ownerAgentId: null, qualityGates: [] }),
+    ],
+    sprintEngineAgents: {
+      'developer-1': runtimeAgent('developer', { lastOwnedTaskId: 'T-finished' }),
+    },
+  })
+  // Idle for one second only — far inside the idle window.
+  const idleClock = new Map([[sprintEngineIdleClockKey(workspace, 'developer-1'), now - 1_000]])
+
+  const plan = taskScopedPlanInput({ workspace, state, now, idleAgentIds: ['developer-1'], paths: ['idle_retire'], idleClock })
+
+  assert.equal(plan.retirements.length, 1, 'the completed worker retires without waiting out the idle window')
+  assert.equal(plan.retirements[0].agentId, 'developer-1')
+  assert.equal(plan.retirements[0].data.reason, 'task_scoped_terminal_state')
+  assert.equal(plan.retirements[0].data.taskId, 'T-finished')
+}
+
+function testTaskScopedRetirementNeverFiresMidReworkLoop(): void {
+  // Publish→verdict is NOT terminal: a task in review keeps the worker on the
+  // ordinary idle-window path (fast rework lands in the warm terminal), and a
+  // changes_requested verdict wakes the same agent instead of retiring it.
+  const now = Date.parse('2026-07-02T12:00:00Z')
+  const workspace = workspaceFixture()
+  const inReviewState = sprintEngineStateFixture({
+    tasks: [task({ id: 'T-mine', role: 'developer', status: 'review', boardColumn: 'review', ownerAgentId: 'developer-1' })],
+    sprintEngineAgents: {
+      'developer-1': runtimeAgent('developer', { lastOwnedTaskId: 'T-mine' }),
+    },
+  })
+  const freshClock = new Map([[sprintEngineIdleClockKey(workspace, 'developer-1'), now - 1_000]])
+  const freshPlan = taskScopedPlanInput({ workspace, state: inReviewState, now, idleAgentIds: ['developer-1'], paths: ['idle_retire'], idleClock: freshClock })
+  assert.equal(freshPlan.retirements.length, 0, 'a worker awaiting its verdict is not retired inside the idle window')
+
+  const parkedClock = new Map([[sprintEngineIdleClockKey(workspace, 'developer-1'), now - AUTO_RUN_IDLE_RETIREMENT_MS - 60_000]])
+  const parkedPlan = taskScopedPlanInput({ workspace, state: inReviewState, now, idleAgentIds: ['developer-1'], paths: ['idle_retire'], idleClock: parkedClock })
+  assert.equal(parkedPlan.retirements.length, 1, 'past the idle window the parked publisher is still reclaimed (production behavior)')
+  assert.equal(parkedPlan.retirements[0].data.reason, 'idle_window')
+
+  const reworkState = sprintEngineStateFixture({
+    tasks: [task({ id: 'T-mine', role: 'developer', status: 'changes_requested', boardColumn: 'changes_requested', ownerAgentId: 'developer-1', qualityGates: [] })],
+    sprintEngineAgents: {
+      'developer-1': runtimeAgent('developer', { lastOwnedTaskId: 'T-mine' }),
+    },
+  })
+  const reworkWake = taskScopedPlanInput({ workspace, state: reworkState, now, idleAgentIds: ['developer-1'], paths: ['task_wake'] })
+  assert.equal(reworkWake.pastes.length, 1, 'rework on the worker\'s own task still wakes the live terminal')
+  assert.equal(reworkWake.pastes[0].agentId, 'developer-1')
+  const reworkRetire = taskScopedPlanInput({ workspace, state: reworkState, now, idleAgentIds: ['developer-1'], paths: ['idle_retire'], idleClock: parkedClock })
+  assert.equal(reworkRetire.retirements.length, 0, 'own-task rework blocks retirement even past the idle window')
+}
+
+function testTaskScopedWakeRestrictionBlocksCrossTaskReuse(): void {
+  // A used live terminal never receives a different task; a fresh agent of the
+  // same role does.
+  const now = Date.parse('2026-07-02T12:00:00Z')
+  const workspace = workspaceFixture()
+  const state = sprintEngineStateFixture({
+    tasks: [
+      task({ id: 'T-finished', role: 'developer', status: 'done', boardColumn: 'done', ownerAgentId: null, qualityGates: [] }),
+      task({ id: 'T-next', role: 'developer', status: 'todo', boardColumn: 'ready', ownerAgentId: null, qualityGates: [] }),
+    ],
+    sprintEngineAgents: {
+      'developer-1': runtimeAgent('developer', { lastOwnedTaskId: 'T-finished' }),
+      'developer-2': runtimeAgent('developer'),
+    },
+  })
+  const plan = taskScopedPlanInput({ workspace, state, now, idleAgentIds: ['developer-1', 'developer-2'], paths: ['task_wake'] })
+  assert.equal(plan.pastes.length, 1, 'exactly one wake paste is planned for the ready task')
+  assert.equal(plan.pastes[0].agentId, 'developer-2', 'the fresh agent gets the task; the used terminal is never reused')
+}
+
+function testTaskScopedLifecycleExemptsPlanningRoles(): void {
+  // General owns a whole sprint solo; architect orchestrates. Both keep
+  // today's reuse-preferring lifecycle.
+  const now = Date.parse('2026-07-02T12:00:00Z')
+  const workspace = workspaceFixture()
+  const state = sprintEngineStateFixture({
+    tasks: [
+      task({ id: 'T-finished', role: 'general', status: 'done', boardColumn: 'done', ownerAgentId: null, qualityGates: [] }),
+      task({ id: 'T-next', role: 'general', status: 'todo', boardColumn: 'ready', ownerAgentId: null, qualityGates: [] }),
+    ],
+    sprintEngineAgents: {
+      'general-1': runtimeAgent('general', { lastOwnedTaskId: 'T-finished' }),
+    },
+  })
+  const wakePlan = taskScopedPlanInput({ workspace, state, now, idleAgentIds: ['general-1'], paths: ['task_wake'] })
+  assert.equal(wakePlan.pastes.length, 1, 'a General is rewoken for the next task in the same terminal')
+  assert.equal(wakePlan.pastes[0].agentId, 'general-1')
+
+  const freshClock = new Map([[sprintEngineIdleClockKey(workspace, 'general-1'), now - 1_000]])
+  const retirePlan = taskScopedPlanInput({ workspace, state, now, idleAgentIds: ['general-1'], paths: ['idle_retire'], idleClock: freshClock })
+  assert.equal(retirePlan.retirements.length, 0, 'a General with claimable work is never task-scope retired')
+
+  assert.equal(
+    sprintEngineWakeRestrictionTaskId(runtimeAgent('architect', { lastOwnedTaskId: 'T-x' })),
+    null,
+    'architect carries no wake restriction'
+  )
+  assert.equal(
+    sprintEngineWakeRestrictionTaskId(runtimeAgent('developer')),
+    null,
+    'an implementation agent that never owned a task carries no restriction'
+  )
+  assert.equal(
+    sprintEngineWakeRestrictionTaskId(runtimeAgent('developer', { lastOwnedTaskId: 'T-x' })),
+    'T-x',
+    'a used implementation agent is restricted to its own task'
+  )
+  assert.equal(
+    findSprintEngineWakeCandidateTaskForAgent(
+      [task({ id: 'T-other', role: 'developer', status: 'todo', boardColumn: 'ready', ownerAgentId: null, qualityGates: [] })],
+      'developer',
+      'developer-1',
+      new Set(),
+      'T-x'
+    ),
+    undefined,
+    'the restriction excludes every task but the agent\'s own'
+  )
+}
+
+function testTaskScopedRetirementHonorsShortCooldown(): void {
+  // Storm guard: the short task-scoped cooldown still suppresses immediate
+  // re-retirement, but does not park the role for the full 15-minute idle
+  // cooldown between back-to-back small tasks.
+  const now = Date.parse('2026-07-02T12:00:00Z')
+  const workspace = workspaceFixture()
+  const state = sprintEngineStateFixture({
+    tasks: [
+      task({ id: 'T-finished', role: 'developer', status: 'done', boardColumn: 'done', ownerAgentId: null, qualityGates: [] }),
+      // The run must still be mid-flight: an all-tasks-done run skips the
+      // idle_retire path entirely (completion teardown owns those terminals).
+      task({ id: 'T-elsewhere', role: 'tester', status: 'todo', boardColumn: 'ready', ownerAgentId: null, qualityGates: [] }),
+    ],
+    sprintEngineAgents: {
+      'developer-1': runtimeAgent('developer', { lastOwnedTaskId: 'T-finished' }),
+    },
+  })
+  const clockKey = sprintEngineIdleClockKey(workspace, 'developer-1')
+  const idleClock = new Map([[clockKey, now - 1_000]])
+
+  const insideCooldown = taskScopedPlanInput({
+    workspace, state, now, idleAgentIds: ['developer-1'], paths: ['idle_retire'], idleClock,
+    retirementCooldown: new Map([[clockKey, now - 30_000]]),
+  })
+  assert.equal(insideCooldown.retirements.length, 0, 'a retirement inside the short cooldown is suppressed')
+
+  const pastCooldown = taskScopedPlanInput({
+    workspace, state, now, idleAgentIds: ['developer-1'], paths: ['idle_retire'], idleClock,
+    retirementCooldown: new Map([[clockKey, now - AUTO_RUN_TASK_SCOPED_RETIREMENT_COOLDOWN_MS - 1_000]]),
+  })
+  assert.equal(pastCooldown.retirements.length, 1, 'past the short cooldown the completed worker retires')
+}
+
+function testTaskScopedRestrictionDoesNotBlockGateClaims(): void {
+  // Reviewers keep the reuse-preferring lifecycle BY DECISION (MC-1444), and
+  // that includes roles that also own tasks: the product agent owns the intake
+  // task yet must review every task's product gate. Gate claiming is therefore
+  // never restricted by lastOwnedTaskId — only handing out TASKS is.
+  const now = Date.parse('2026-07-02T12:00:00Z')
+  const workspace = workspaceFixture()
+  const gatedTask = task({
+    id: 'T-other',
+    role: 'developer',
+    status: 'review',
+    boardColumn: 'review',
+    ownerAgentId: 'developer-2',
+    qualityGates: [
+      { id: 'product', phase: 'review', role: 'product', status: 'pending', required: true, allowSelfReview: true, focus: '', attempts: [] },
+    ],
+  })
+  const state = sprintEngineStateFixture({
+    tasks: [
+      // The product agent's own intake task, parked in review awaiting the user.
+      task({ id: 'T-intake', role: 'product', status: 'review', boardColumn: 'review', ownerAgentId: 'product-1', qualityGates: [] }),
+      gatedTask,
+    ],
+    sprintEngineAgents: {
+      'product-1': runtimeAgent('product', { lastOwnedTaskId: 'T-intake' }),
+    },
+  })
+  const plan = taskScopedPlanInput({ workspace, state, now, idleAgentIds: ['product-1'], paths: ['gate'] })
+  assert.equal(plan.pastes.length, 1, 'the used product terminal still claims another task\'s product gate')
+  assert.equal(plan.pastes[0].agentId, 'product-1')
+}
+
+function testTaskScopedParkingStaysConsistentWithGateAvailability(): void {
+  // Regression (found in review): a completed task-scoped worker whose role
+  // has a claimable gate elsewhere must not become a zombie — parked by the
+  // claimable-gate retirement skip yet refused the gate. With gate claiming
+  // unrestricted, the gate path engages it; retirement then waits (engaged
+  // agents are never killed in the same pass), and fires once no gate work
+  // remains.
+  const now = Date.parse('2026-07-02T12:00:00Z')
+  const workspace = workspaceFixture()
+  const gatedTask = task({
+    id: 'T-other',
+    role: 'tester',
+    status: 'review',
+    boardColumn: 'review',
+    ownerAgentId: 'tester-9',
+    qualityGates: [
+      { id: 'developer', phase: 'review', role: 'developer', status: 'pending', required: true, allowSelfReview: true, focus: '', attempts: [] },
+    ],
+  })
+  const state = sprintEngineStateFixture({
+    tasks: [
+      task({ id: 'T-finished', role: 'developer', status: 'done', boardColumn: 'done', ownerAgentId: null, qualityGates: [] }),
+      gatedTask,
+    ],
+    sprintEngineAgents: {
+      'developer-1': runtimeAgent('developer', { lastOwnedTaskId: 'T-finished' }),
+    },
+  })
+  const idleClock = new Map([[sprintEngineIdleClockKey(workspace, 'developer-1'), now - 1_000]])
+  // Gate + retire in one pass: the gate engagement wins (one action per agent
+  // per pass), so the worker does the gate instead of rotting.
+  const plan = taskScopedPlanInput({ workspace, state, now, idleAgentIds: ['developer-1'], paths: ['gate', 'idle_retire'], idleClock })
+  assert.equal(plan.pastes.length, 1, 'the completed worker is engaged on the claimable same-role gate')
+  assert.equal(plan.pastes[0].agentId, 'developer-1')
+  assert.equal(plan.retirements.length, 0, 'no kill is planned in the same pass as an engagement')
+
+  // Once the gate is gone, the completed worker retires without the idle window.
+  const stateNoGate = sprintEngineStateFixture({
+    tasks: [
+      task({ id: 'T-finished', role: 'developer', status: 'done', boardColumn: 'done', ownerAgentId: null, qualityGates: [] }),
+      task({ id: 'T-elsewhere', role: 'tester', status: 'todo', boardColumn: 'ready', ownerAgentId: null, qualityGates: [] }),
+    ],
+    sprintEngineAgents: {
+      'developer-1': runtimeAgent('developer', { lastOwnedTaskId: 'T-finished' }),
+    },
+  })
+  const retirePlan = taskScopedPlanInput({ workspace, state: stateNoGate, now, idleAgentIds: ['developer-1'], paths: ['gate', 'idle_retire'], idleClock })
+  assert.equal(retirePlan.retirements.length, 1, 'with no claimable gate the completed worker retires promptly')
+  assert.equal(retirePlan.retirements[0].data.reason, 'task_scoped_terminal_state')
 }
 
 function testActiveAssignmentRescueStopsAfterTwoPromptsWithDiagnostic(): void {
@@ -5193,7 +5476,7 @@ function testGetPendingAgentNotificationEventsFiltersDeliveredAndSent(): void {
   )
 }
 
-function runtimeAgent(role: SprintEngineRole, overrides: Partial<SprintEngineRuntimeAgent> = {}): SprintEngineRuntimeAgent {
+function runtimeAgent(role: SprintEngineRoleId, overrides: Partial<SprintEngineRuntimeAgent> = {}): SprintEngineRuntimeAgent {
   return { role, status: 'idle', currentTaskId: null, ...overrides }
 }
 

@@ -2397,6 +2397,9 @@ function normalizeProjectionRoster(value: unknown): Record<string, SprintEngineR
       role: roleId,
       status,
       currentTaskId: typeof record.currentTaskId === 'string' ? record.currentTaskId : null,
+      ...(typeof record.lastOwnedTaskId === 'string' && record.lastOwnedTaskId
+        ? { lastOwnedTaskId: record.lastOwnedTaskId }
+        : {}),
       ...(currentGateId ? { currentGateId } : {}),
       ...(currentGate ? { currentGate } : {}),
       currentDispatch: normalizeCurrentDispatch(record.currentDispatch),

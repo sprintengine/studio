@@ -510,7 +510,7 @@ def normalize_agent_record(agent_id: str, raw: Any) -> dict[str, Any]:
         "joinedAt": joined_at,
         "currentTaskId": source.get("currentTaskId") or None,
     }
-    for key in ("currentGateId", "lastDirectiveAt", "leftAt", "leaveReason", "deadAt", "replacedByAgentId"):
+    for key in ("currentGateId", "lastDirectiveAt", "lastOwnedTaskId", "leftAt", "leaveReason", "deadAt", "replacedByAgentId"):
         value = source.get(key)
         if value not in (None, ""):
             agent[key] = value
