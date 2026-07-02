@@ -46,7 +46,7 @@ function attentionStatusMeta(item: SessionItem, now: number): string {
     return `Exit ${item.exitCode ?? 1} · ${formatRelativeMsAgo(item.activitySince, now)}`
   }
   const rel = formatRelativeMs(item.activitySince, now)
-  return rel === 'now' ? 'Needs input' : `Needs input · waiting ${rel}`
+  return rel ? `Needs input · waiting ${rel}` : 'Needs input'
 }
 
 // Group the already-attention-sorted items by workspace in first-encounter order.

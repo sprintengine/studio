@@ -7,6 +7,7 @@ import { join } from 'node:path'
 import type { WebContents } from 'electron'
 import type { McpSettings, TerminalSpawnResult } from '../shared/electron-api'
 import { MANAGED_SPRINTENGINE_MCP_RUN_TOKEN_ENV_VAR } from './sprintengine-managed-mcp-sync'
+import { createTerminalSnapshotSidecarStore } from './terminal-snapshot-sidecar'
 
 type RuntimeModule = typeof import('./terminal-runtime')
 type SyncMcpConfig = NonNullable<Parameters<typeof import('./terminal-runtime')['createTerminalRuntime']>[0]['syncMcpConfig']>
@@ -124,6 +125,7 @@ async function main(): Promise<void> {
     await assertHiddenTerminalOutputSkipsLiveIpcAndReplaysOnAttach(runtimeModule)
     await assertStaleSweepReapsOnlyUnseenHiddenTerminals(runtimeModule)
     await assertIdleSweepSuspendsRatherThanDisposes(runtimeModule)
+    await assertSuspendSnapshotSidecarsSurviveRestart(runtimeModule)
     await assertIdleSweepDisposesIdleSprintEngineAgent(runtimeModule)
     await assertDebugModeEnsureInstallsDebugSkill(runtimeModule)
     await assertAgentSessionExitListenerFiresSystemTaggedForAnySystem(runtimeModule)
@@ -242,7 +244,7 @@ async function assertIdleSweepSuspendsRatherThanDisposes(runtimeModule: RuntimeM
 
     assert.equal(oldProcess.killed, true, 'suspending must kill the underlying pty to reclaim RAM')
 
-    const oldStatus = runtime.ipcHandlers.getTerminalStatus('session-old')
+    const oldStatus = await runtime.ipcHandlers.getTerminalStatus('session-old')
     assert.deepEqual(
       oldStatus,
       { processAlive: false, suspended: true },
@@ -264,7 +266,7 @@ async function assertIdleSweepSuspendsRatherThanDisposes(runtimeModule: RuntimeM
     // The awaiting-input agent stays live: a terminal blocked on the user must
     // never be frozen out from under them.
     assert.deepEqual(
-      runtime.ipcHandlers.getTerminalStatus('session-awaiting'),
+      await runtime.ipcHandlers.getTerminalStatus('session-awaiting'),
       { processAlive: true, suspended: false },
       'an agent awaiting user input must never be suspended by the reaper'
     )
@@ -532,6 +534,155 @@ async function assertStaleSweepReapsOnlyUnseenHiddenTerminals(runtimeModule: Run
 // DISPOSES them (not suspend/freeze-the-view): dispose fires `agent.leave` (→
 // status `left`) so the dispatch's revival path can respawn the agent when work
 // returns. A frozen-but-not-left sprint agent would instead break the dispatch.
+// Durable freeze-the-view: a suspended agent's painted screen must survive an
+// app restart. Suspend writes a snapshot sidecar; quit (runtime shutdown) dumps
+// each live agent's raw retained stream; a fresh runtime — the terminals map is
+// empty after shutdown, exactly like a relaunch — rehydrates a suspended
+// placeholder from the sidecar (status reports suspended, reveal replays the
+// painted screen), and resume/dispose consume the sidecar so nothing stale
+// lingers.
+async function assertSuspendSnapshotSidecarsSurviveRestart(runtimeModule: RuntimeModule): Promise<void> {
+  const workspaceRoot = await mkdtemp(join(tmpdir(), 'multicode-terminal-runtime-sidecar-ws-'))
+  const userDataDir = await mkdtemp(join(tmpdir(), 'multicode-terminal-runtime-sidecar-data-'))
+  const sidecarStore = createTerminalSnapshotSidecarStore({
+    resolveUserDataDir: () => userDataDir,
+  })
+  mockPty.spawnCalls = []
+  mockSender.sent = []
+
+  const waitFor = async (label: string, predicate: () => boolean, timeoutMs = 5_000): Promise<void> => {
+    const start = Date.now()
+    while (!predicate()) {
+      if (Date.now() - start > timeoutMs) throw new Error(`timed out waiting for ${label}`)
+      await delay(20)
+    }
+  }
+
+  const runtimeOptions = {
+    diagnosticsEnabled: false,
+    requireAuthenticatedUser: () => undefined,
+    logMainPerfEvent: () => undefined,
+    snapshotSidecars: sidecarStore,
+  }
+
+  const spawnAgent = async (
+    runtime: TerminalRuntime,
+    sessionId: string,
+    agentWorkspaceId: string
+  ): Promise<MockPtyProcess> => {
+    const result = await runtime.ipcHandlers.spawnTerminal(mockSender as unknown as WebContents, {
+      sessionId,
+      cols: 120,
+      rows: 30,
+      cwd: workspaceRoot,
+      cli: 'codex',
+      kind: 'agent',
+      shellOnly: false,
+      workspaceId: agentWorkspaceId,
+      agentId: sessionId,
+      visible: false,
+      mcpSettings: { syncEnabled: false, servers: {} } satisfies McpSettings,
+    })
+    assert.equal(result.ok, true, JSON.stringify(result))
+    const spawned = mockPty.spawnCalls[mockPty.spawnCalls.length - 1]?.process
+    assert.ok(spawned, `expected a pty for ${sessionId}`)
+    return spawned
+  }
+
+  // ── "Run 1": suspend one agent, leave the other live, then quit. ──
+  const runtime = runtimeModule.createTerminalRuntime(runtimeOptions)
+  try {
+    const frozenProcess = await spawnAgent(runtime, 'session-frozen', 'ws-frozen')
+    frozenProcess.emitData('frozen painted output\r\n')
+    const liveProcess = await spawnAgent(runtime, 'session-live', 'ws-live')
+    liveProcess.emitData('live painted output\r\n')
+    await delay(20)
+
+    runtime.ipcHandlers.suspendTerminal('session-frozen')
+    frozenProcess.emitExit({ exitCode: 0 })
+    // The suspend-time sidecar lands once the async headless render settles.
+    await waitFor('suspend-time sidecar write', () => sidecarStore.read('session-frozen') !== null)
+    const frozenSidecar = sidecarStore.read('session-frozen')
+    assert.ok(
+      frozenSidecar?.snapshot?.includes('frozen painted output'),
+      'suspend must persist a serialized snapshot carrying the painted content'
+    )
+  } finally {
+    await runtime.shutdown()
+  }
+
+  // Quit dumped the still-live agent's raw retained stream.
+  const liveSidecar = sidecarStore.read('session-live')
+  assert.ok(
+    liveSidecar?.rawReplay?.includes('live painted output'),
+    'runtime shutdown must dump each live agent terminal\'s retained stream to its sidecar'
+  )
+
+  // ── "Run 2": a fresh runtime (empty terminals map = post-relaunch state). ──
+  const runtime2 = runtimeModule.createTerminalRuntime(runtimeOptions)
+  try {
+    assert.deepEqual(
+      await runtime2.ipcHandlers.getTerminalStatus('session-frozen', mockSender as unknown as WebContents),
+      { processAlive: false, suspended: true },
+      'a persisted suspend must rehydrate as suspended so the renderer pauses instead of launching'
+    )
+    mockSender.sent = []
+    runtime2.ipcHandlers.setTerminalVisible('session-frozen', true, mockSender as unknown as WebContents)
+    const frozenReplay = mockSender.sent.find((event) => event.channel === 'terminal:replay:session-frozen')
+    assert.ok(
+      typeof frozenReplay?.payload === 'string' && frozenReplay.payload.includes('frozen painted output'),
+      'revealing the rehydrated terminal must replay the painted screen'
+    )
+
+    // Quit-path sidecars carry raw bytes; rehydration renders them to a
+    // faithful snapshot before the placeholder is revealed.
+    assert.deepEqual(
+      await runtime2.ipcHandlers.getTerminalStatus('session-live', mockSender as unknown as WebContents),
+      { processAlive: false, suspended: true },
+      'a quit-dumped live agent must also rehydrate as suspended'
+    )
+    mockSender.sent = []
+    runtime2.ipcHandlers.setTerminalVisible('session-live', true, mockSender as unknown as WebContents)
+    const liveReplay = mockSender.sent.find((event) => event.channel === 'terminal:replay:session-live')
+    assert.ok(
+      typeof liveReplay?.payload === 'string' && liveReplay.payload.includes('live painted output'),
+      'revealing a quit-dumped terminal must replay its painted screen'
+    )
+
+    // Resume consumes the sidecar (dispose-then-respawn under the same id).
+    mockPty.spawnCalls = []
+    const resumed = await runtime2.ipcHandlers.resumeTerminal(mockSender as unknown as WebContents, {
+      sessionId: 'session-frozen',
+      cols: 120,
+      rows: 30,
+      cwd: workspaceRoot,
+      cli: 'codex',
+      kind: 'agent',
+      shellOnly: false,
+      workspaceId: 'ws-frozen',
+      agentId: 'session-frozen',
+      mcpSettings: { syncEnabled: false, servers: {} } satisfies McpSettings,
+    })
+    assert.equal(resumed.ok, true, JSON.stringify(resumed))
+    assert.equal(mockPty.spawnCalls.length, 1, 'resume must re-spawn a fresh pty under the same session id')
+    assert.equal(
+      sidecarStore.read('session-frozen'),
+      null,
+      'resume disposes the placeholder, which deletes the consumed sidecar'
+    )
+
+    // Dispose is terminal: killing the rehydrated placeholder deletes its sidecar.
+    runtime2.ipcHandlers.killTerminal('session-live')
+    assert.equal(
+      sidecarStore.read('session-live'),
+      null,
+      'disposing a rehydrated placeholder must delete its sidecar (gone means gone)'
+    )
+  } finally {
+    await runtime2.shutdown()
+  }
+}
+
 async function assertIdleSweepDisposesIdleSprintEngineAgent(runtimeModule: RuntimeModule): Promise<void> {
   const workspaceRoot = await mkdtemp(join(tmpdir(), 'multicode-terminal-runtime-sprintengine-idle-dispose-'))
   const sprintEngineStatePath = join(workspaceRoot, '.multi-code', 'sprintengine', 'run.yaml')
@@ -621,7 +772,7 @@ async function assertIdleSweepDisposesIdleSprintEngineAgent(runtimeModule: Runti
 
     // Reclaimed by DISPOSE, not suspend: the session is gone (not frozen+retained).
     assert.deepEqual(
-      runtime.ipcHandlers.getTerminalStatus('session_sprint_idle'),
+      await runtime.ipcHandlers.getTerminalStatus('session_sprint_idle'),
       { processAlive: false, suspended: false },
       'a reaped sprint agent is disposed (gone), not suspended (frozen + retained)',
     )
@@ -1346,7 +1497,7 @@ async function assertSprintEngineSpawnSyncsManagedMcpBeforePtySpawn(runtimeModul
     assert.equal(syncInputs[0]?.managedSprintEngine?.agentId, 'developer-1')
     assert.equal(syncInputs[0]?.managedSprintEngine?.role, 'developer')
     assert.equal(syncInputs[0]?.managedSprintEngine?.cli, 'codex')
-    assert.equal(runtime.ipcHandlers.getTerminalStatus('session_success').processAlive, true)
+    assert.equal((await runtime.ipcHandlers.getTerminalStatus('session_success')).processAlive, true)
     assert.deepEqual(releasedRuns, [])
     runtime.ipcHandlers.killTerminal('session_success')
     assert.deepEqual(releasedRuns, [{

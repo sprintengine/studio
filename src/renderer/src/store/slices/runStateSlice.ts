@@ -54,6 +54,7 @@ import type {
   SprintEngineCliPermissionPreset,
   SprintEngineRoleId,
   SprintEngineRoleCliDefaults,
+  SprintEngineRosterSession,
   SprintEngineRunSettings,
   SprintEngineState,
   SprintEngineWorkspaceContext,
@@ -69,7 +70,6 @@ export const defaultSprintEngineAutoState = (): SprintEngineAutoState => ({
   reasonTaskId: undefined,
   reasonAgentId: undefined,
   changedAt: undefined,
-  keepDoneAgentTerminals: false,
   cliPermissionPreset: 'default',
   maxConcurrentAgents: 3,
   pendingSpawns: [],
@@ -207,7 +207,6 @@ export function normalizeSprintEngineAutoState(
     changedAt: typeof input?.changedAt === 'number' && Number.isFinite(input.changedAt)
       ? input.changedAt
       : undefined,
-    keepDoneAgentTerminals: Boolean(input?.keepDoneAgentTerminals),
     cliPermissionPreset,
     maxConcurrentAgents,
     pendingSpawns,
@@ -457,12 +456,16 @@ export interface RunStateSliceActions {
     workspaceId: WorkspaceId,
     event: SprintEngineAutomationEvent
   ) => void
-  setSprintEngineKeepDoneAgentTerminals: (workspaceId: WorkspaceId, keepDoneAgentTerminals: boolean) => void
   setSprintEngineCliPermissionPreset: (
     workspaceId: WorkspaceId,
     cliPermissionPreset: SprintEngineCliPermissionPreset
   ) => void
   setSprintEngineMaxConcurrentAgents: (workspaceId: WorkspaceId, maxConcurrentAgents: number) => void
+  upsertSprintEngineRosterSession: (
+    workspaceId: WorkspaceId,
+    agentId: AgentId,
+    session: SprintEngineRosterSession
+  ) => void
   setSprintEngineAutoPendingSpawns: (
     workspaceId: WorkspaceId,
     pendingSpawns: SprintEngineAutoPendingSpawn[]
@@ -709,19 +712,6 @@ export function createRunStateSlice(set: RunStateSliceSet): RunStateSlice {
         })
       }),
 
-    setSprintEngineKeepDoneAgentTerminals: (workspaceId, keepDoneAgentTerminals) =>
-      set((state) => {
-        const ws = state.workspaces.find((w) => w.id === workspaceId)
-        if (!ws) return
-        const current = normalizeSprintEngineAutoState(ws.sprintEngineAutoState)
-        ws.sprintEngineAutoState = {
-          ...current,
-          keepDoneAgentTerminals,
-          changedAt: Date.now(),
-        }
-        rememberSprintEngineRunSettings(state, ws, { keepDoneAgentTerminals })
-      }),
-
     setSprintEngineCliPermissionPreset: (workspaceId, cliPermissionPreset) =>
       set((state) => {
         const ws = state.workspaces.find((w) => w.id === workspaceId)
@@ -759,6 +749,15 @@ export function createRunStateSlice(set: RunStateSliceSet): RunStateSlice {
           current,
           { type: 'pending_spawns_changed', pendingSpawns },
         )
+      }),
+
+    upsertSprintEngineRosterSession: (workspaceId, agentId, session) =>
+      set((state) => {
+        const ws = state.workspaces.find((w) => w.id === workspaceId)
+        if (!ws) return
+        if (!session.cliSessionId?.trim() || !session.cli?.trim()) return
+        if (!ws.sprintEngineRosterSessions) ws.sprintEngineRosterSessions = {}
+        ws.sprintEngineRosterSessions[agentId] = session
       }),
 
     markSprintEngineAgentNotificationDelivered: (workspaceId, eventKey) =>

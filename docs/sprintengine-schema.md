@@ -199,10 +199,25 @@ Each line is a JSON object with:
 
 `sprintengine.dispatch.next` is the read contract for this ledger. It requires
 an `agentId`, returns the agent's `currentDispatch`, and filters ledger rows by
-that same `agentId` before applying optional `lastDispatchId` pagination.
+that same `agentId` before applying `lastDispatchId` pagination — when the
+caller omits `lastDispatchId`, the cursor defaults to the acked
+`agents.<id>.subscription.lastDispatchId`, so a subscribed agent replays only
+the delta since its own ack. A cursor that matches no ledger row (mistyped
+ack, pruned `dispatch.jsonl`) falls back to the full capped history instead
+of an empty reply, so a poisoned cursor self-heals. Over MCP the replayed
+rows are slim stubs in the `currentDispatch` field dialect (`dispatchId`,
+`targetKind`, `taskId`/`gateId`/`attemptId`, `reason`, `assignedAt`), capped
+at the newest `DISPATCH_REPLAY_LIMIT` (20) with `truncated`/`totalCount` when
+older rows are dropped; the on-disk ledger keeps the full record shape.
 `sprintengine.dispatch.ack` records acknowledgement metadata on
 `agents.<id>.subscription` and appends a normal event; it does not rewrite
-`dispatch.jsonl`.
+`dispatch.jsonl`. Its MCP response is the minimal ack
+`{ok, dispatchId, outcome}` echoing the values the server persisted (not the
+raw payload); `sprintengine.subscribe` answers `{ok, subscription}`, and
+`sprintengine.agent.heartbeat` answers the pure-liveness ack `{ok, known}` —
+heartbeat never conveys assignment state; agents learn assignments from
+`dispatch.next` (`currentDispatch`) and `task.next` resume
+(`sprintengine_mcp/response_shapes.py`).
 
 Dispatch is durable state, not a guarantee that a model session woke up.
 Multicode remains responsible for spawning, focusing, or injecting terminal
@@ -241,7 +256,7 @@ Active operation names:
 - Tasks: `sprintengine.task.get`, `sprintengine.task.list`,
   `sprintengine.task.next`, `sprintengine.task.claim`,
   `sprintengine.task.status`, `sprintengine.task.resolve_input`,
-  `sprintengine.task.release`, `sprintengine.task.ready`,
+  `sprintengine.task.release`,
   `sprintengine.task.log`, `sprintengine.task.note`,
   `sprintengine.task.comment`, `sprintengine.task.comment.list`,
   `sprintengine.task.publish`, `sprintengine.task.request_changes`.
@@ -323,7 +338,7 @@ Compatibility names:
   the direct claim tool named in the runtime prompt; `agent.next_directive`
   survives for standalone/headless compatibility only.
 - CLI wrapper flows still use `sprintengine.task.next`,
-  `sprintengine.task.claim`, `sprintengine.task.ready`,
+  `sprintengine.task.claim`,
   `sprintengine.task.note`, `sprintengine.task.resolve_input`,
   `sprintengine.task.release`, `sprintengine.gate.next`,
   `sprintengine.gate.claim`, and `sprintengine.gate.verdict` while preserving

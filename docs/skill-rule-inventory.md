@@ -24,6 +24,7 @@ Rules for editing skills:
 | `no-fake-success` | `production_reality_gate` | "Do not treat \`MVP\`, \`first pass\`, \`local\`, or \`works in UI\` as permission"; "not completion evidence" |
 | `explicit-failure` | `fallback_discipline` | "explicit failure over surprising fallback" |
 | `evidence-required` | `evidence_quality_assessment` | "Completion claims must be backed by" |
+| `evidence-machine-first` | `evidence_quality_assessment` | "for the next agent, not for narration"; "under 700 characters" |
 | `self-review` | `post_change_self_review` | "inspect your own diff" |
 | `relative-paths` | `project_relative_paths` | "relative to the project root" |
 | `kg-opt-in-gate` | `workspace_knowledge` | "MULTICODE_KNOWLEDGE_ROOT" |

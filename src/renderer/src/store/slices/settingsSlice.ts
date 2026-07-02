@@ -705,9 +705,6 @@ export function normalizeSprintEngineRunSettings(value: unknown): Record<string,
     if ('cliPermissionPreset' in candidate) {
       next.cliPermissionPreset = normalizeCliPermissionPreset(candidate.cliPermissionPreset)
     }
-    if (typeof candidate.keepDoneAgentTerminals === 'boolean') {
-      next.keepDoneAgentTerminals = candidate.keepDoneAgentTerminals
-    }
     const maxConcurrentAgents = normalizeSprintEngineMaxConcurrentAgents(candidate.maxConcurrentAgents)
     if (maxConcurrentAgents !== undefined) {
       next.maxConcurrentAgents = maxConcurrentAgents

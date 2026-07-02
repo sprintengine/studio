@@ -19,6 +19,7 @@ import { subscribePluginCatalogRefreshOnFocus } from '../../store/slices/plugins
 import { getRendererHost, selectModuleEnabled } from '../../modules'
 import { resolveNotificationActions as resolveNotificationActionsFor } from '../../utils/notificationActions'
 import {
+  deriveWorkspaceIdleSince,
   deriveWorkspaceLastInputAt,
   deriveWorkspaceTerminalActivity,
   getTerminalSessionsSignature,
@@ -1404,15 +1405,16 @@ export default function WorkspaceManager() {
   )
 
   const terminalRecencyByWorkspaceId = useMemo(() => {
-    const map: Record<string, { hasRunning: boolean; lastFinishedAt: number | null }> = {}
+    const map: Record<string, { hasRunning: boolean; idleSince: number | null; lastInputAt: number | null }> = {}
     for (const workspace of workspaces) {
       const persistedLastInputAt = typeof workspace.lastTerminalActivityAt === 'number'
         ? workspace.lastTerminalActivityAt
         : null
       const activity = deriveWorkspaceTerminalActivity(workspace.id, terminalSessions, persistedLastInputAt)
       const hasRunning = activity.kind === 'working' || activity.kind === 'failed'
-      const lastFinishedAt = deriveWorkspaceLastInputAt(workspace.id, terminalSessions, persistedLastInputAt)
-      map[workspace.id] = { hasRunning, lastFinishedAt }
+      const idleSince = deriveWorkspaceIdleSince(workspace.id, terminalSessions, persistedLastInputAt)
+      const lastInputAt = deriveWorkspaceLastInputAt(workspace.id, terminalSessions, persistedLastInputAt)
+      map[workspace.id] = { hasRunning, idleSince, lastInputAt }
     }
     return map
   }, [workspaces, terminalSessions])

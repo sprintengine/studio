@@ -30,7 +30,6 @@ const workspace = (agent: AgentState): Workspace => ({
   sprintEngineAutoState: {
     desiredMode: 'manual',
     runtimeState: 'idle',
-    keepDoneAgentTerminals: false,
     cliPermissionPreset: 'bypass_all',
     maxConcurrentAgents: 3,
     pendingSpawns: [],

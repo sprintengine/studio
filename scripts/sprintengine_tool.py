@@ -304,9 +304,6 @@ def _plan_payload(action: str, args, base: dict) -> tuple[str, dict]:
             "taskNote": args.task_note or [],
             "productFacing": args.product_facing,
             "notProductFacing": args.not_product_facing,
-            "manualDispatch": args.manual_dispatch,
-            "dispatchStatus": args.dispatch_status,
-            "triagedBy": args.triaged_by,
         }
     if action == "update-task":
         return "sprintengine.plan.update_task", {

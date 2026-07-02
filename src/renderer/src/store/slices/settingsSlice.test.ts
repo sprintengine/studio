@@ -228,7 +228,6 @@ assert.deepEqual(
   normalizeSprintEngineRunSettings({
     ' /Users/example/Project/.multi-code\\sprintengine/run.yaml/ ': {
       cliPermissionPreset: 'bypass_all',
-      keepDoneAgentTerminals: true,
       maxConcurrentAgents: 99,
     },
     '/Users/example/bad/run.yaml': { maxConcurrentAgents: 'many' },
@@ -237,7 +236,6 @@ assert.deepEqual(
   {
     '/users/example/project/.multi-code/sprintengine/run.yaml': {
       cliPermissionPreset: 'bypass_all',
-      keepDoneAgentTerminals: true,
       maxConcurrentAgents: 10,
     },
   },
@@ -346,7 +344,6 @@ const permissionCarrier = {
       sprintEngineAutoState: {
         desiredMode: 'manual',
         runtimeState: 'idle',
-        keepDoneAgentTerminals: false,
         cliPermissionPreset: 'default',
         maxConcurrentAgents: 3,
         pendingSpawns: [],

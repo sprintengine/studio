@@ -317,6 +317,81 @@ export function createFailedTerminalSession(input: FailedTerminalSessionInput): 
   }
 }
 
+type SuspendedPlaceholderSessionInput = {
+  sessionId: string
+  sender?: WebContents
+  // When the sidecar was written (the suspend/quit moment) — the honest "last
+  // output" time for the painted content.
+  savedAt: number
+  kind?: TerminalKind
+  workspaceId?: string
+  agentId?: string
+  terminalId?: string
+  cli?: AgentCli
+  cliSessionId?: string
+  cwd?: string
+  executionMode?: AgentExecutionMode
+  worktreeId?: string
+  worktreePath?: string
+  replaySnapshot?: string
+  // Raw retained pty stream, used only when no serialized snapshot could be
+  // built — seeds the replay buffer so reveal still paints something.
+  rawReplay?: string
+  at?: number
+}
+
+// Durable freeze-the-view: materialize a suspended session from a persisted
+// snapshot sidecar after an app restart, so the existing pause/replay/resume
+// flow treats it exactly like a session suspended in this process: processAlive
+// false, `suspended` true, painted content preferred from `replaySnapshot`.
+// There is no pty and no SprintEngine run behind it; resume disposes it and
+// re-spawns under the same session id.
+export function createSuspendedPlaceholderSession(
+  input: SuspendedPlaceholderSessionInput
+): TerminalSession {
+  const at = input.at ?? Date.now()
+  const session: TerminalSession = {
+    sessionId: input.sessionId,
+    process: createInactiveTerminalProcess(),
+    sender: input.sender ?? createNoopWebContents(),
+    isReady: true,
+    hasExited: false,
+    exitedAt: null,
+    isDisposed: false,
+    suspended: true,
+    activity: { kind: 'idle', since: input.savedAt },
+    outputChunks: [],
+    outputChunkBytes: [],
+    outputChunkStart: 0,
+    outputBytes: 0,
+    outputLength: 0,
+    replaySnapshot: input.replaySnapshot,
+    kind: input.kind ?? 'agent',
+    workspaceId: input.workspaceId,
+    agentId: input.agentId,
+    terminalId: input.terminalId,
+    cliSessionId: input.cliSessionId,
+    cli: input.cli,
+    cwd: input.cwd,
+    executionMode: input.executionMode,
+    worktreeId: input.worktreeId,
+    worktreePath: input.worktreePath,
+    agentSession: undefined,
+    visible: false,
+    // The rehydration moment, NOT savedAt: getTerminalLastSeenAt feeds the 24h
+    // stale backstop, and dating the placeholder from its suspend time would let
+    // the backstop dispose it (deleting the sidecar) the moment it reappears.
+    startedAt: at,
+    lastOutputAt: input.savedAt,
+    lastInputAt: null,
+    lastVisibleAt: null,
+  }
+  if (!input.replaySnapshot && input.rawReplay) {
+    appendTerminalOutput(session, input.rawReplay, input.savedAt, false)
+  }
+  return session
+}
+
 // `markAsRealOutput` lets the caller append bytes to the scrollback WITHOUT
 // advancing `lastOutputAt`. Host-triggered repaints (an alt-screen TUI redrawing
 // after a resize on mount/reveal) are real bytes but NOT agent activity, so they

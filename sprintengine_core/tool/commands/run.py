@@ -60,6 +60,11 @@ from sprintengine_core.tool.tasks import (
     task_is_ready,
 )
 
+EVIDENCE_STYLE_GUIDANCE = (
+    "Keep evidence, comments, and log summaries succinct and machine-first: outcome first, "
+    "structured fields over prose, one fact per entry, under 700 characters per prose field. "
+)
+
 BENCHMARK_FEEDBACK_GUIDANCE = (
     "Benchmark feedback counts are evidence fields, not guesses. "
     "`claims_checked` is the number of concrete implementation, spec, evidence, or verification claims you actually checked. "
@@ -602,6 +607,7 @@ def cmd_join(args: argparse.Namespace) -> Dict[str, Any]:
                 "artifact is requested, `--recommended-task`; include severity, impact, recommended fix, owner role, "
                 "and verification steps. Move the task to `needs_input` only when the review output requires approval "
                 "or the task is blocked from meeting acceptance. "
+                f"{EVIDENCE_STYLE_GUIDANCE}"
                 f"{BENCHMARK_FEEDBACK_GUIDANCE} {DIFFICULTY_FEEDBACK_GUIDANCE} "
             )
         return (
@@ -617,6 +623,7 @@ def cmd_join(args: argparse.Namespace) -> Dict[str, Any]:
             "After you finish your current work and should not accept more work because of context capacity, run "
             "`sprintengine roster retire --id <your-agent-id> --reason \"context capacity near limit\"`. "
             "Sprint Engine decides whether to replenish the roster; do not try to spawn your own replacement. "
+            f"{EVIDENCE_STYLE_GUIDANCE}"
             f"{BENCHMARK_FEEDBACK_GUIDANCE} {DIFFICULTY_FEEDBACK_GUIDANCE} "
         )
 

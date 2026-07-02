@@ -49,6 +49,7 @@ export function clearSprintEngineAgentLaunchState(workspace: Workspace): Workspa
             cliHasLaunched: false,
             cliOnboardingPromptSent: false,
             cliResumeAvailable: false,
+            cliResumeRequested: false,
             cliStartupPrompt: undefined,
           }),
         ]
@@ -79,6 +80,7 @@ export function clearAutomationsHostAgentLaunchState(workspace: Workspace): Work
           cliHasLaunched: false,
           cliOnboardingPromptSent: false,
           cliResumeAvailable: false,
+          cliResumeRequested: false,
           cliStartupPrompt: undefined,
         }),
       ]),

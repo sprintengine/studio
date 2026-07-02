@@ -627,12 +627,6 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--reason", required=True, help="Why the task is being released.")
     p.set_defaults(handler=task_commands.release)
 
-    p = task_sub.add_parser("ready", help="Move a manual-dispatch todo task to Ready.")
-    p.add_argument("--task-id", required=True)
-    p.add_argument("--id", default="user", help="Actor id.")
-    p.add_argument("--triaged-by", default="user", choices=sorted(VALID_TASK_DISPATCH_TRIAGED_BY))
-    p.set_defaults(handler=task_commands.ready)
-
     p = task_sub.add_parser("refresh-ready", help="Refresh the materialized ready queue from the run DAG.")
     p.set_defaults(handler=task_commands.refresh_ready)
 
@@ -705,9 +699,6 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--require-gate", action="append", default=[], help="Require a named quality gate for this task.")
     p.add_argument("--skip-gate", action="append", default=[], help="Remove a named quality gate for this task.")
     p.add_argument("--needs-triage", action="store_true", help="Create the task as an architect-triage candidate that is not claimable until cleared.")
-    p.add_argument("--manual-dispatch", action="store_true", help="Create the task behind the manual Ready gate.")
-    p.add_argument("--dispatch-status", choices=sorted(VALID_TASK_DISPATCH_STATUSES), default="todo")
-    p.add_argument("--triaged-by", choices=sorted(VALID_TASK_DISPATCH_TRIAGED_BY), default="none")
     add_architect_difficulty_arguments(p)
     p.set_defaults(handler=plan_commands.add_task)
 

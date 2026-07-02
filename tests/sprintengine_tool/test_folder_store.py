@@ -727,7 +727,7 @@ def test_ready_queue_materializes_dependency_satisfied_tasks_in_topological_orde
     ]
 
 
-def test_ready_queue_excludes_blocked_active_terminal_and_manual_todo_tasks(tmp_path) -> None:
+def test_ready_queue_excludes_blocked_active_and_terminal_tasks(tmp_path) -> None:
     fixture = create_team(
         tmp_path,
         "ready-exclusions",
@@ -740,11 +740,6 @@ def test_ready_queue_excludes_blocked_active_terminal_and_manual_todo_tasks(tmp_
             task("T6", "Already done", "developer", "done"),
         ],
     )
-    manual = task("T7", "Manual pending", "developer")
-    manual["dispatch"] = {"mode": "manual", "status": "todo", "triagedBy": "none"}
-    state = read_state(fixture.state_path)
-    state["tasks"].append(manual)
-    store.sync_state_to_store(fixture.team_dir, state, state_path=fixture.state_path)
     payload = fixture.cli.run("task", "refresh-ready")
 
     assert payload["readyTaskIds"] == ["T2"]

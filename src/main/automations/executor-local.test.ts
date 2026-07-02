@@ -50,7 +50,6 @@ function workspace(id: string, folderPath: string | null, overrides: Partial<Wor
     sprintEngineAutoState: {
       desiredMode: 'manual',
       runtimeState: 'idle',
-      keepDoneAgentTerminals: false,
       cliPermissionPreset: 'default',
       maxConcurrentAgents: 0,
       pendingSpawns: [],

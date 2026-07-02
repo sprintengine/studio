@@ -26,6 +26,7 @@ import type {
   MultiloopWorkspaceContext,
   SprintEngineRoleId,
   SprintEngineRoleCliDefaults,
+  SprintEngineRosterSession,
   SprintEngineRoleCounts,
   SprintEngineRoleModelOverrides,
   AgentCli,
@@ -325,12 +326,16 @@ export interface WorkspaceStore extends PluginsSlice, CliAvailabilitySlice {
     workspaceId: WorkspaceId,
     event: SprintEngineAutomationEvent
   ) => void
-  setSprintEngineKeepDoneAgentTerminals: (workspaceId: WorkspaceId, keepDoneAgentTerminals: boolean) => void
   setSprintEngineCliPermissionPreset: (
     workspaceId: WorkspaceId,
     cliPermissionPreset: SprintEngineCliPermissionPreset
   ) => void
   setSprintEngineMaxConcurrentAgents: (workspaceId: WorkspaceId, maxConcurrentAgents: number) => void
+  upsertSprintEngineRosterSession: (
+    workspaceId: WorkspaceId,
+    agentId: AgentId,
+    session: SprintEngineRosterSession
+  ) => void
   setSprintEngineAutoPendingSpawns: (
     workspaceId: WorkspaceId,
     pendingSpawns: SprintEngineAutoPendingSpawn[]

@@ -119,7 +119,6 @@ PLANNING_TOOLS: frozenset[str] = frozenset({
     "sprintengine.feedback.summarize",
     "sprintengine.feedback.recommend_actions",
     "sprintengine.roles.list",
-    "sprintengine.task.ready",
     "sprintengine.artifact.approve",
     "sprintengine.vcs.pr",
 })

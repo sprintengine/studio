@@ -28,7 +28,6 @@ function testWorkspace(id: string, overrides: Partial<Workspace> = {}): Workspac
     sprintEngineAutoState: {
       desiredMode: 'manual',
       runtimeState: 'idle',
-      keepDoneAgentTerminals: false,
       cliPermissionPreset: 'default',
       maxConcurrentAgents: 0,
       pendingSpawns: [],

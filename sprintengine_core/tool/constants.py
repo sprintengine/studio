@@ -19,9 +19,6 @@ VALID_TASK_COMMENT_TYPES = {
 }
 VALID_TASK_SOURCE_TYPES = {"local", "github", "jira", "linear"}
 VALID_TASK_SOURCE_SYNC_STATUSES = {"clean", "local_changed", "remote_changed", "conflict"}
-VALID_TASK_DISPATCH_MODES = {"dependency", "manual"}
-VALID_TASK_DISPATCH_STATUSES = {"todo", "ready"}
-VALID_TASK_DISPATCH_TRIAGED_BY = {"none", "user", "architect"}
 VALID_NEEDS_INPUT_KINDS = {"architect", "user"}
 LEGACY_NEEDS_INPUT_KIND_MAP = {
     "owner": ("architect", "blocked_other"),

@@ -64,7 +64,6 @@ from .commands.task import (
     cmd_task_next,
     cmd_task_note,
     cmd_task_publish,
-    cmd_task_ready,
     cmd_task_refresh_ready,
     cmd_task_release,
     cmd_task_resolve_input,

@@ -46,11 +46,6 @@ export const sprintEngineApi = {
     feedback: string
   ): Promise<SprintEngineArtifactCommandResult> =>
     ipcRenderer.invoke('sprintengine:artifact:request-changes', { statePath, artifactId, feedback }),
-  readySprintEngineTask: (
-    statePath: string,
-    taskId: string
-  ): Promise<SprintEngineArtifactCommandResult> =>
-    ipcRenderer.invoke('sprintengine:task:ready', { statePath, taskId }),
   initializeSprintEngineState: (
     input: SprintEngineStateInitializeInput
   ): Promise<SprintEngineArtifactCommandResult> =>
@@ -131,7 +126,6 @@ export const sprintEngineApi = {
   | 'approveSprintEngineArtifact'
   | 'autoApproveSprintEngineArtifact'
   | 'requestSprintEngineArtifactChanges'
-  | 'readySprintEngineTask'
   | 'initializeSprintEngineState'
   | 'updateSprintEngineTask'
   | 'createSprintEngineTask'

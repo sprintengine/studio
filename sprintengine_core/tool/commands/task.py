@@ -608,40 +608,6 @@ def artifacts_for_task(state: Dict[str, Any], task_id: Any) -> List[Dict[str, An
         if isinstance(artifact, dict) and artifact.get("taskId") == task_id
     ]
 
-def cmd_task_ready(args: argparse.Namespace) -> Dict[str, Any]:
-    def run(state: Dict[str, Any]) -> Dict[str, Any]:
-        task = find_task(state, args.task_id)
-        dispatch = task.get("dispatch")
-        actor = args.id or "user"
-        if not isinstance(dispatch, dict) or dispatch.get("mode") != "manual":
-            return {
-                "ok": False,
-                "error": "Task does not use manual dispatch.",
-                "task": {"id": task.get("id"), "dispatch": dispatch},
-                "write": False,
-            }
-        if task.get("status") != "todo" or task.get("ownerAgentId"):
-            return {
-                "ok": False,
-                "error": "Only unclaimed todo tasks can be moved to Ready.",
-                "task": {"id": task.get("id"), "status": task.get("status"), "ownerAgentId": task.get("ownerAgentId")},
-                "write": False,
-            }
-
-        if dispatch.get("status") != "ready":
-            dispatch["status"] = "ready"
-            dispatch["triagedBy"] = args.triaged_by
-            dispatch["readyAt"] = now_iso()
-        else:
-            dispatch.setdefault("triagedBy", args.triaged_by)
-            dispatch.setdefault("readyAt", now_iso())
-
-        recompute_phase(state)
-        event = append_event(state, "task_dispatch_ready", actor, f"{actor} moved {args.task_id} to Ready.")
-        return {"ok": True, "task": task, "event": event}
-
-    return with_locked_state(args.state, run)
-
 def cmd_task_refresh_ready(args: argparse.Namespace) -> Dict[str, Any]:
     def run(state: Dict[str, Any]) -> Dict[str, Any]:
         refresh = refresh_materialized_ready_queue(args.state, state)
@@ -775,7 +741,6 @@ claim = cmd_task_claim
 status = cmd_task_status
 resolve_input = cmd_task_resolve_input
 release = cmd_task_release
-ready = cmd_task_ready
 refresh_ready = cmd_task_refresh_ready
 log = cmd_task_log
 publish = cmd_task_publish

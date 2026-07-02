@@ -25,7 +25,11 @@ SKILL_ANCHORS: dict[str, tuple[str, ...]] = {
         "not completion evidence",
     ),
     "fallback_discipline": ("explicit failure over surprising fallback",),
-    "evidence_quality_assessment": ("Completion claims must be backed by",),
+    "evidence_quality_assessment": (
+        "Completion claims must be backed by",
+        "for the next agent, not for narration",
+        "under 700 characters",
+    ),
     "post_change_self_review": ("inspect your own diff",),
     "project_relative_paths": ("relative to the project root",),
     "workspace_knowledge": ("MULTICODE_KNOWLEDGE_ROOT",),

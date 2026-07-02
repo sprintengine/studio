@@ -8,7 +8,8 @@ import type {
   WorkspaceId,
 } from '../../../types/workspace'
 import { addAgentTabTiled, focusOrAddAgentTab, hasAgentTab } from '../../../utils/modelRegistry'
-import { getSprintEngineRoleLabel, type SprintEngineAgentRosterItem } from '../../../utils/sprintengine'
+import { agentCliSupportsConversationResume } from '../../../utils/agentCliResume'
+import { getSprintEngineRoleLabel, isCompletedSprintEngineRun, type SprintEngineAgentRosterItem } from '../../../utils/sprintengine'
 import { prependAgentIdentifier } from '../../../utils/agentPrompt'
 import { publishDiagnostic } from '../../../utils/diagnostics'
 import {
@@ -27,6 +28,12 @@ type StartAgentTerminalOptions = {
   freshSession?: boolean
   agentName?: string
   execution?: AgentExecution
+  // Resume a specific recorded CLI session instead of minting a fresh one — used
+  // to re-open a completed run's roster agent and continue its conversation.
+  // `resumeSessionId` is the stable terminal/claude id; `resumeHarnessSessionId`
+  // is the codex harness token when the recorded CLI resumes with its own id.
+  resumeSessionId?: string
+  resumeHarnessSessionId?: string
   // string sets the launch model, null clears it back to the CLI default,
   // undefined preserves whatever the agent already has.
   cliModel?: string | null
@@ -144,6 +151,32 @@ export function useSprintEngineBoardTerminalActions(
       })
       return false
     }
+    // Resume path: re-open a recorded session (e.g. "talk to the architect"
+    // after the run finished). Reuse the recorded id and flag resume intent so
+    // TerminalView relaunches with `--resume` rather than starting a new
+    // conversation. No fresh startup prompt is sent.
+    if (options?.resumeSessionId) {
+      updateAgent(workspaceId, agentId, {
+        name: label,
+        ...(options?.execution ? { execution: options.execution } : {}),
+        cli: selectedCli,
+        ...(options?.cliModel !== undefined ? { cliModel: options.cliModel ?? undefined } : {}),
+        cliSessionId: options.resumeSessionId,
+        harnessSessionId: options.resumeHarnessSessionId,
+        cliStartRequested: true,
+        cliHasLaunched: true,
+        cliResumeRequested: true,
+        cliResumeAvailable: true,
+        cliOnboardingPromptSent: true,
+        cliStartupPrompt: undefined,
+        cliLastExitCode: undefined,
+        cliLastExitedAt: undefined,
+        kind: 'sprintengine',
+      })
+      focusOrAddAgentTab(workspaceId, agentId, label)
+      return true
+    }
+
     const role = sprintEngineState?.sprintEngineAgents[agentId]?.role
     const roleLabel = role ? getSprintEngineRoleLabel(role) : undefined
     const startupPrompt = options?.startupPrompt && options.agentName
@@ -172,6 +205,9 @@ export function useSprintEngineBoardTerminalActions(
       cliHasLaunched: current?.cliStartRequested && !shouldStartFresh ? current.cliHasLaunched ?? false : false,
       cliOnboardingPromptSent: current?.cliStartRequested && !shouldStartFresh ? current.cliOnboardingPromptSent ?? false : false,
       cliResumeAvailable: shouldStartFresh ? false : current?.cliResumeAvailable ?? false,
+      // Fresh/restart spawns never carry a resume intent; only the explicit
+      // resume path above sets it.
+      cliResumeRequested: false,
       cliLastExitCode: undefined,
       cliLastExitedAt: undefined,
       cli: selectedCli,
@@ -336,6 +372,26 @@ export function useSprintEngineBoardTerminalActions(
     const agentState = agents[agentId]
     const fallbackLabel = rosterById[agentId]?.label ?? agentId
     const label = getAgentName(agentId, fallbackLabel)
+
+    // Prefer resuming the role's recorded session (completion teardown removed
+    // the panel but kept the session), so re-opening a finished run's agent
+    // continues its conversation instead of starting fresh. Gated on the run
+    // being complete: the map is only written at teardown, so a recorded entry
+    // seen during a *new* run on the same workspace is stale from the prior run
+    // and must not hijack a fresh spawn. Only when there is no live terminal and
+    // the recorded CLI supports conversation resume.
+    const recorded = workspace?.sprintEngineRosterSessions?.[agentId]
+    const runComplete = sprintEngineState ? isCompletedSprintEngineRun(sprintEngineState) : false
+    if (runComplete && recorded?.cliSessionId && agentCliSupportsConversationResume(recorded.cli)) {
+      await startAgentTerminalWhenReady(agentId, label, recorded.cli, {
+        agentName: getCustomAgentName(agentId, fallbackLabel),
+        resumeSessionId: recorded.cliSessionId,
+        resumeHarnessSessionId: recorded.harnessSessionId,
+        cliModel: recorded.cliModel ?? null,
+      })
+      return
+    }
+
     const role = rosterById[agentId]?.role
     const roleDefaultCli = role
       ? workspace?.sprintEngineRoleCliDefaults?.[role] ?? lastSelectedCli

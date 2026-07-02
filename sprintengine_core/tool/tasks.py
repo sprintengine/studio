@@ -154,9 +154,6 @@ def task_is_ready(state: Dict[str, Any], task: Dict[str, Any]) -> bool:
         return False
     if task.get("needsTriage") is True:
         return False
-    dispatch = task.get("dispatch")
-    if isinstance(dispatch, dict) and dispatch.get("mode") == "manual" and dispatch.get("status") != "ready":
-        return False
     for dep_id in task.get("dependsOn", []):
         dep = next((t for t in state.get("tasks", []) if t.get("id") == dep_id), None)
         if dep is None or dep.get("status") != "done":
@@ -223,41 +220,6 @@ def normalize_task_source(raw: Any, task_id: str) -> Optional[Dict[str, Any]]:
         source["syncStatus"] = sync_status
 
     return source
-
-def normalize_task_dispatch(raw: Any, task_id: str) -> Optional[Dict[str, Any]]:
-    if raw is None:
-        return None
-    if not isinstance(raw, dict):
-        raise SystemExit(f"Task {task_id} dispatch must be an object.")
-
-    mode = optional_non_empty_string(raw, "mode")
-    if mode not in VALID_TASK_DISPATCH_MODES:
-        raise SystemExit(
-            f"Task {task_id} dispatch.mode must be one of: {', '.join(sorted(VALID_TASK_DISPATCH_MODES))}."
-        )
-
-    dispatch: Dict[str, Any] = {"mode": mode}
-    status = optional_non_empty_string(raw, "status")
-    if status is not None:
-        if status not in VALID_TASK_DISPATCH_STATUSES:
-            raise SystemExit(
-                f"Task {task_id} dispatch.status must be one of: {', '.join(sorted(VALID_TASK_DISPATCH_STATUSES))}."
-            )
-        dispatch["status"] = status
-
-    triaged_by = optional_non_empty_string(raw, "triagedBy")
-    if triaged_by is not None:
-        if triaged_by not in VALID_TASK_DISPATCH_TRIAGED_BY:
-            raise SystemExit(
-                f"Task {task_id} dispatch.triagedBy must be one of: {', '.join(sorted(VALID_TASK_DISPATCH_TRIAGED_BY))}."
-            )
-        dispatch["triagedBy"] = triaged_by
-
-    ready_at = optional_non_empty_string(raw, "readyAt")
-    if ready_at is not None:
-        dispatch["readyAt"] = ready_at
-
-    return dispatch
 
 def normalize_task_needs_input(raw: Any, task_id: str) -> Optional[Dict[str, Any]]:
     if raw is None:
@@ -455,9 +417,6 @@ def normalize_task(raw: Dict[str, Any]) -> Dict[str, Any]:
     source = normalize_task_source(raw.get("source"), task_id)
     if source is not None:
         task["source"] = source
-    dispatch = normalize_task_dispatch(raw.get("dispatch"), task_id)
-    if dispatch is not None:
-        task["dispatch"] = dispatch
     needs_input = normalize_task_needs_input(raw.get("needsInput"), task_id)
     if needs_input is not None:
         task["needsInput"] = needs_input
@@ -660,12 +619,6 @@ def build_task_from_args(args: argparse.Namespace, state: Dict[str, Any]) -> Dic
             raw["difficulty"]["architectEstimatePct"] = getattr(args, "difficulty_pct")
         if str(getattr(args, "difficulty_reason", "") or "").strip():
             raw["difficulty"]["architectEstimateReason"] = getattr(args, "difficulty_reason")
-    if getattr(args, "manual_dispatch", False):
-        raw["dispatch"] = {
-            "mode": "manual",
-            "status": getattr(args, "dispatch_status", None) or "todo",
-            "triagedBy": getattr(args, "triaged_by", None) or "none",
-        }
     task = normalize_task(raw)
     policy = folder_store.normalize_quality_fields(state)
     task["qualityGates"] = folder_store.normalize_task_quality_gates(task, state, policy)

@@ -49,9 +49,12 @@ type TerminalIpcDependencies = {
   spawnTerminal(sender: WebContents, payload: TerminalSpawnPayload): Promise<TerminalSpawnResult>
   writeTerminal(sessionId: string, data: string): void
   resizeTerminal(sessionId: string, cols: number, rows: number): void
-  getTerminalStatus(sessionId: string): { processAlive: boolean; suspended: boolean }
+  getTerminalStatus(
+    sessionId: string,
+    sender?: WebContents
+  ): Promise<{ processAlive: boolean; suspended: boolean }>
   listTerminals(): TerminalSessionSnapshot[]
-  setTerminalVisible(sessionId: string, visible: boolean): void
+  setTerminalVisible(sessionId: string, visible: boolean, sender?: WebContents): void
   suspendTerminal(sessionId: string): void
   resumeTerminal(sender: WebContents, payload: TerminalSpawnPayload): Promise<TerminalSpawnResult>
   killTerminal(sessionId: string): void
@@ -80,16 +83,19 @@ export function registerTerminalIpc(ipcMain: IpcMain, deps: TerminalIpcDependenc
     deps.resizeTerminal(sessionId, cols, rows)
   })
 
-  ipcMain.handle('terminal:status', (_, sessionId: string): { processAlive: boolean; suspended: boolean } => {
-    return deps.getTerminalStatus(sessionId)
+  // The sender matters: a status lookup can rehydrate a suspended placeholder
+  // from its snapshot sidecar, and the placeholder must target the window that
+  // is about to reveal it.
+  ipcMain.handle('terminal:status', (event, sessionId: string): Promise<{ processAlive: boolean; suspended: boolean }> => {
+    return deps.getTerminalStatus(sessionId, event.sender)
   })
 
   ipcMain.handle('terminal:list', (): TerminalSessionSnapshot[] => {
     return deps.listTerminals()
   })
 
-  ipcMain.handle('terminal:set-visible', (_, { sessionId, visible }: { sessionId: string; visible: boolean }): void => {
-    deps.setTerminalVisible(sessionId, visible)
+  ipcMain.handle('terminal:set-visible', (event, { sessionId, visible }: { sessionId: string; visible: boolean }): void => {
+    deps.setTerminalVisible(sessionId, visible, event.sender)
   })
 
   ipcMain.handle('terminal:suspend', (_, sessionId: string): void => {

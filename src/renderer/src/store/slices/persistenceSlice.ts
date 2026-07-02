@@ -116,7 +116,6 @@ function sprintEngineRunSettingsFromWorkspace(
 ): SprintEngineRunSettings {
   const autoState = normalizeSprintEngineAutoState(workspace.sprintEngineAutoState)
   return {
-    keepDoneAgentTerminals: autoState.keepDoneAgentTerminals,
     cliPermissionPreset: autoState.cliPermissionPreset === 'default'
       ? fallbackPermissionPreset
       : autoState.cliPermissionPreset,
@@ -126,7 +125,6 @@ function sprintEngineRunSettingsFromWorkspace(
 
 function hasPersistableSprintEngineRunSettings(runSettings: SprintEngineRunSettings): boolean {
   return runSettings.cliPermissionPreset !== undefined && runSettings.cliPermissionPreset !== 'default'
-    || runSettings.keepDoneAgentTerminals === true
     || (
       typeof runSettings.maxConcurrentAgents === 'number'
       && Number.isFinite(runSettings.maxConcurrentAgents)

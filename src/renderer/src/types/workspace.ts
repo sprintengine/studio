@@ -549,17 +549,6 @@ export type SprintEngineTaskSource = {
   syncStatus?: SprintEngineTaskSourceSyncStatus
 }
 
-export type SprintEngineTaskDispatchMode = 'dependency' | 'manual'
-export type SprintEngineTaskDispatchStatus = 'todo' | 'ready'
-export type SprintEngineTaskDispatchTriagedBy = 'none' | 'user' | 'architect'
-
-export type SprintEngineTaskDispatch = {
-  mode: SprintEngineTaskDispatchMode
-  status?: SprintEngineTaskDispatchStatus
-  triagedBy?: SprintEngineTaskDispatchTriagedBy
-  readyAt?: string
-}
-
 export type SprintEngineTaskNeedsInput = {
   kind: SprintEngineNeedsInputKind
   reason?: SprintEngineNeedsInputReason
@@ -728,7 +717,6 @@ export type SprintEngineAutoState = {
   reasonTaskId?: string
   reasonAgentId?: string
   changedAt?: number
-  keepDoneAgentTerminals: boolean
   cliPermissionPreset: SprintEngineCliPermissionPreset
   maxConcurrentAgents: number
   pendingSpawns: SprintEngineAutoPendingSpawn[]
@@ -1003,7 +991,6 @@ export type SprintEngineTask = {
   role: SprintEngineRoleId
   status: SprintEngineTaskStatus
   source?: SprintEngineTaskSource
-  dispatch?: SprintEngineTaskDispatch
   ownerAgentId: string | null
   /** Worker who last published an implementation pass. Retained after the task
    *  leaves the worker's hands (review/testing/product) so the owning worker
@@ -1109,6 +1096,26 @@ export type AgentStatus = 'idle' | 'running' | 'streaming' | 'error' | 'complete
 // `claude-code`.
 export type AgentCli = string
 export type SprintEngineRoleCliDefaults = Partial<Record<SprintEngineRoleId, AgentCli>>
+
+// A resumable record of a sprint agent's last live CLI session, kept on the
+// workspace so it outlives the agent panel. Completion teardown removes the
+// agent panels but records this first, so the board can later re-open a role and
+// resume its exact conversation (claude-code: `--resume cliSessionId`; codex:
+// its `harnessSessionId`) rather than starting fresh.
+export type SprintEngineRosterSession = {
+  role?: SprintEngineRoleId
+  cli: AgentCli
+  // Stable terminal id minted for the session; claude-code's `--resume` token.
+  cliSessionId: string
+  // CLI/harness conversation id learned after launch; codex's resume token.
+  harnessSessionId?: string
+  cliModel?: string
+  // Display label captured for the roster/tab when the session is re-opened.
+  name?: string
+  recordedAt: number
+}
+
+export type SprintEngineRosterSessions = Record<AgentId, SprintEngineRosterSession>
 
 // Explicit per-role model selection from the new-workspace roster. A string
 // is an explicit model id; null or an absent role means "CLI default" (no
@@ -1556,7 +1563,6 @@ export type AgentConfigAdoptionResult =
   | { status: 'failed'; message: string }
 
 export type SprintEngineRunSettings = {
-  keepDoneAgentTerminals?: boolean
   cliPermissionPreset?: SprintEngineCliPermissionPreset
   maxConcurrentAgents?: number
 }
@@ -1761,6 +1767,12 @@ export type AgentState = {
   cliHasLaunched?: boolean
   cliOnboardingPromptSent?: boolean
   cliResumeAvailable?: boolean
+  // Explicit "resume this conversation on next launch" intent. Sprint agents are
+  // otherwise always spawned fresh (auto-run re-dispatches roles); this flag is
+  // set only by an explicit board re-open of a completed run's recorded session
+  // (see sprintEngineRosterSessions) so TerminalView resumes rather than starting
+  // a new conversation.
+  cliResumeRequested?: boolean
   cliLastExitCode?: number | null
   cliLastExitedAt?: number | null
   cli?: AgentCli
@@ -1915,6 +1927,11 @@ export type Workspace = {
   sprintEngineState: SprintEngineState | null
   multiloopState?: MultiloopState | null
   sprintEngineRoleCliDefaults?: SprintEngineRoleCliDefaults
+  // Durable per-agent CLI session records, keyed by roster agent id. Populated
+  // when a sprint agent gets a live session and just before completion teardown
+  // removes its panel, so a role can be re-opened later and resumed. Survives
+  // panel removal and app restart (persisted alongside sprintEngineRoleCliDefaults).
+  sprintEngineRosterSessions?: SprintEngineRosterSessions
   // Roster agents the user explicitly asked to start when the workspace
   // opens (new-workspace "Start now" intent). Session-only launch intent:
   // consumed by the Sprint Engine board on first ready render and stripped

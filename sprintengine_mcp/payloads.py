@@ -65,8 +65,6 @@ def command_payload_to_namespace(
         base.update(task_id=payload["taskId"], id=payload["id"], resolution=payload["resolution"], complete=bool(payload.get("complete", False)))
     elif tool_name == "sprintengine.task.release":
         base.update(task_id=payload["taskId"], id=payload["id"], reason=payload["reason"])
-    elif tool_name == "sprintengine.task.ready":
-        base.update(task_id=payload["taskId"], id=payload["id"], triaged_by=payload.get("triagedBy") or "user")
     elif tool_name == "sprintengine.task.log":
         base.update(
             task_id=payload["taskId"],
@@ -149,9 +147,6 @@ def command_payload_to_namespace(
             no_product_acceptance=bool(payload.get("noProductAcceptance", False)),
             require_gate=list(payload.get("requireGate") or []),
             skip_gate=list(payload.get("skipGate") or []),
-            manual_dispatch=bool(payload.get("manualDispatch", False)),
-            dispatch_status=payload.get("dispatchStatus") or "todo",
-            triaged_by=payload.get("triagedBy") or "none",
         )
         add_architect_difficulty_defaults(base, payload)
     elif tool_name == "sprintengine.plan.update_task":

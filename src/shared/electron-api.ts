@@ -1527,7 +1527,6 @@ export type SprintEngineTaskCreateInput = {
   acceptanceCriteria?: string[]
   implementationNotes?: string[]
   notes?: string[]
-  manualDispatch?: boolean
 }
 
 export type SprintEngineTaskCommentInput = {
@@ -2271,7 +2270,6 @@ export type ElectronApi = {
     artifactId: string,
     feedback: string
   ) => Promise<SprintEngineArtifactCommandResult>
-  readySprintEngineTask: (statePath: string, taskId: string) => Promise<SprintEngineArtifactCommandResult>
   initializeSprintEngineState: (input: SprintEngineStateInitializeInput) => Promise<SprintEngineArtifactCommandResult>
   updateSprintEngineTask: (input: SprintEngineTaskUpdateInput) => Promise<SprintEngineArtifactCommandResult>
   createSprintEngineTask: (input: SprintEngineTaskCreateInput) => Promise<SprintEngineArtifactCommandResult>

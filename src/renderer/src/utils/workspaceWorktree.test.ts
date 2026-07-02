@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 
-import { findHealthyWorktreeScope, resolveWorkspaceWorktree, type WorktreeScopeCandidate } from './workspaceWorktree'
+import { findHealthyWorktreeScope, resolveWorkspaceWorktree, resolveWorktreeSpawnFallback, type WorktreeScopeCandidate } from './workspaceWorktree'
 import type { Workspace } from '../types/workspace'
 
 type WorktreeInput = Pick<Workspace, 'folderPath' | 'worktree' | 'sprintEngineState'>
@@ -139,4 +139,62 @@ const mainScope = scope({ id: 'main', path: '/Users/example/project', branch: 'm
   assert.equal(findHealthyWorktreeScope([mainScope], '/wt', 'sprintengine/a'), null)
 }
 
-console.log('workspaceWorktree.test.ts: ok')
+// --- resolveWorktreeSpawnFallback ---
+
+const existsAlways = async () => true
+const existsNever = async () => false
+
+void (async () => {
+  // 13. Worktree cwd still present → pass through unchanged, no fallback.
+  {
+    const result = await resolveWorktreeSpawnFallback(
+      'worktree',
+      '/proj/.multi-code/sprintengine/a/worktree',
+      '/proj',
+      existsAlways,
+    )
+    assert.deepEqual(result, { fellBack: false, cwd: '/proj/.multi-code/sprintengine/a/worktree' })
+  }
+
+  // 14. Worktree cwd removed → fall back to the workspace folder and flag it.
+  {
+    const result = await resolveWorktreeSpawnFallback(
+      'worktree',
+      '/proj/.multi-code/sprintengine/a/worktree',
+      '/proj',
+      existsNever,
+    )
+    assert.deepEqual(result, { fellBack: true, cwd: '/proj' })
+  }
+
+  // 15. Non-worktree agent → never probes the filesystem, passes through.
+  {
+    let probed = false
+    const result = await resolveWorktreeSpawnFallback(
+      'current_workspace',
+      undefined,
+      '/proj',
+      async () => {
+        probed = true
+        return false
+      },
+    )
+    assert.deepEqual(result, { fellBack: false, cwd: undefined })
+    assert.equal(probed, false, 'non-worktree agents must not stat a cwd')
+  }
+
+  // 16. Worktree mode but no cwd recorded → pass through (nothing to probe).
+  {
+    const result = await resolveWorktreeSpawnFallback('worktree', undefined, '/proj', existsNever)
+    assert.deepEqual(result, { fellBack: false, cwd: undefined })
+  }
+
+  // 17. Removed worktree with no workspace folder → fell back with undefined cwd
+  //     (caller lets the launch surface the missing-root error).
+  {
+    const result = await resolveWorktreeSpawnFallback('worktree', '/gone/worktree', null, existsNever)
+    assert.deepEqual(result, { fellBack: true, cwd: undefined })
+  }
+
+  console.log('workspaceWorktree.test.ts: ok')
+})()

@@ -20,7 +20,10 @@
   },
   "modelSelection": {
     "args": ["--model", "{{model}}"],
-    "options": [],
+    "options": [
+      { "id": "opus[1m]", "label": "Opus 4.8 (1M context)" },
+      { "id": "claude-fable-5", "label": "Fable 5" }
+    ],
     "allowCustomId": true
   },
   "themeSelection": {

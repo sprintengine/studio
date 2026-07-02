@@ -78,7 +78,6 @@ function multiloopState(name = 'release-loop'): MultiloopState {
 const sprintAuto = normalizeSprintEngineAutoState({
   desiredMode: 'run_agents_and_approve_artifacts',
   runtimeState: 'running',
-  keepDoneAgentTerminals: true,
   cliPermissionPreset: 'invalid' as never,
   maxConcurrentAgents: 99,
   pending: { taskId: 'T1', gateId: '', agentId: 'frontend', startedAt: 123 },
@@ -86,7 +85,6 @@ const sprintAuto = normalizeSprintEngineAutoState({
 })
 assert.equal(sprintAuto.desiredMode, 'run_agents_and_approve_artifacts')
 assert.equal(sprintAuto.runtimeState, 'running')
-assert.equal(sprintAuto.keepDoneAgentTerminals, true)
 assert.equal(sprintAuto.cliPermissionPreset, 'default')
 assert.equal(sprintAuto.maxConcurrentAgents, 10)
 assert.deepEqual(sprintAuto.pendingSpawns, [{ taskId: 'T1', agentId: 'frontend', startedAt: 123 }])

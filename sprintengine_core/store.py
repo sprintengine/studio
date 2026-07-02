@@ -737,9 +737,6 @@ def task_is_ready_for_queue(tasks_by_id: dict[str, dict[str, Any]], task: dict[s
         return False
     if _bool_value(task.get("needsTriage"), False):
         return False
-    dispatch = task.get("dispatch")
-    if isinstance(dispatch, dict) and dispatch.get("mode") == "manual" and dispatch.get("status") != "ready":
-        return False
     for dep_id in graph.get(str(task.get("id")), []):
         dependency = tasks_by_id.get(dep_id)
         if dependency is None or dependency.get("status") != "done":

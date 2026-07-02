@@ -58,7 +58,6 @@ export const SPRINTENGINE_TOOL_NAMES = [
   'sprintengine.task.next',
   'sprintengine.task.note',
   'sprintengine.task.publish',
-  'sprintengine.task.ready',
   'sprintengine.task.release',
   'sprintengine.task.request_changes',
   'sprintengine.task.resolve_input',

@@ -26,7 +26,6 @@ import type {
   SprintEngineArtifactReviewMode,
   SprintEngineArtifactReviewPayload,
   SprintEngineProjectionReadPayload,
-  SprintEngineTaskReadyPayload,
   SprintEngineVcsPayload,
 } from './ipc/sprintengine-ipc'
 import { findSprintEngineRuntimeRoot } from './mcp-config-service'
@@ -692,7 +691,6 @@ export function createSprintEngineArtifactHandlers(deps: SprintEngineArtifactDep
     action: SprintEngineArtifactReviewAction,
     mode: SprintEngineArtifactReviewMode
   ): Promise<SprintEngineArtifactCommandResult>
-  readyTask(payload: SprintEngineTaskReadyPayload): Promise<SprintEngineArtifactCommandResult>
   initializeSprintEngineState(payload: SprintEngineStateInitializeInput): Promise<SprintEngineArtifactCommandResult>
   updateTask(payload: SprintEngineTaskUpdateInput): Promise<SprintEngineArtifactCommandResult>
   createTask(payload: SprintEngineTaskCreateInput): Promise<SprintEngineArtifactCommandResult>
@@ -780,44 +778,6 @@ export function createSprintEngineArtifactHandlers(deps: SprintEngineArtifactDep
             authorizedUserId: actor.id,
             mode,
             artifactId,
-            tool: toolResult.response.result,
-          }),
-        }
-      } catch (error) {
-        return { ok: false, message: error instanceof Error ? error.message : String(error) }
-      }
-    },
-
-    async readyTask(payload) {
-      try {
-        const state = validateSprintEngineStatePath(payload?.statePath)
-        const taskId = resolveSprintEngineTaskId(payload?.taskId)
-        const actor = await requireSprintEngineMcpAuthority(deps)
-        const toolResult = await runMcpTool(
-          { workspaceRoot: state.workspaceRoot },
-          'sprintengine.task.ready',
-          { statePath: state.statePath, taskId, id: actor.id, triagedBy: 'user' },
-          actor
-        )
-        if (toolResult.exitCode !== 0 || !toolResult.response?.ok) {
-          const message = toolResult.response && !toolResult.response.ok
-            ? toolResult.response.error?.message
-            : undefined
-          return {
-            ok: false,
-            message: message ?? (toolResult.stderr.trim() || 'The sprintengine MCP command failed.'),
-            stdout: toolResult.stdout,
-            stderr: toolResult.stderr,
-            exitCode: toolResult.exitCode ?? 'unknown',
-          }
-        }
-
-        return {
-          ok: true,
-          data: await buildSprintEngineMutationData(state, {
-            action: 'ready',
-            actor: actor.id,
-            taskId,
             tool: toolResult.response.result,
           }),
         }
@@ -917,9 +877,6 @@ export function createSprintEngineArtifactHandlers(deps: SprintEngineArtifactDep
           acceptance: resolveStringList(payload?.acceptanceCriteria, 'Acceptance criteria') ?? [],
           note: resolveStringList(payload?.implementationNotes, 'Implementation notes') ?? [],
           taskNote: resolveStringList(payload?.notes, 'Task notes') ?? [],
-          manualDispatch: payload?.manualDispatch !== false,
-          dispatchStatus: 'todo',
-          triagedBy: 'none',
         }
         const toolResult = await runMcpTool({ workspaceRoot: state.workspaceRoot }, 'sprintengine.plan.add_task', toolPayload, actor)
         if (toolResult.exitCode !== 0 || !toolResult.response?.ok) {

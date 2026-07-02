@@ -185,7 +185,6 @@ def test_mcp_tool_schemas_cover_swarm_command_groups() -> None:
         "sprintengine.task.status",
         "sprintengine.task.resolve_input",
         "sprintengine.task.release",
-        "sprintengine.task.ready",
         "sprintengine.task.log",
         "sprintengine.task.publish",
         "sprintengine.task.note",
@@ -251,7 +250,6 @@ def test_mcp_contract_registry_covers_schemas_and_payload_adapters(tmp_path) -> 
         "sprintengine.task.status": {"taskId": "T1", "status": "done", "id": "developer-1"},
         "sprintengine.task.resolve_input": {"taskId": "T1", "id": "developer-1", "resolution": "resolved"},
         "sprintengine.task.release": {"taskId": "T1", "id": "developer-1", "reason": "released"},
-        "sprintengine.task.ready": {"taskId": "T1", "id": "architect"},
         "sprintengine.task.log": {"taskId": "T1", "id": "developer-1"},
         "sprintengine.task.publish": {"taskId": "T1", "id": "developer-1", "summary": "ready"},
         "sprintengine.task.note": {"taskId": "T1", "id": "developer-1", "note": "note"},
@@ -475,14 +473,15 @@ def test_mcp_run_and_dispatch_tools_return_role_agnostic_progression_context(tmp
     assert dispatch["ok"] is True
     assert dispatch["result"]["state"] == "dispatched"
     assert dispatch["result"]["currentDispatch"]["dispatchId"] == dispatch_id
-    assert any(row["id"] == dispatch_id for row in dispatch["result"]["dispatches"])
+    # Replay stubs share currentDispatch's field dialect (dispatchId, not id).
+    assert any(row["dispatchId"] == dispatch_id for row in dispatch["result"]["dispatches"])
+    # Ack is a minimal acknowledgment — no agent/subscription/event echo; the
+    # subscription cursor persists in the store, not in the response.
     assert ack["ok"] is True
-    assert ack["result"]["agent"]["subscription"]["lastDispatchId"] == dispatch_id
-    assert ack["result"]["agent"]["subscription"]["lastDispatchAckAt"]
-    assert ack["result"]["agent"]["subscription"]["lastDispatchOutcome"] == "acknowledged"
+    assert ack["result"] == {"ok": True, "dispatchId": dispatch_id, "outcome": "acknowledged"}
     persisted_subscription = read_state(fixture.state_path)["agents"]["developer-a"]["subscription"]
     assert persisted_subscription["lastDispatchId"] == dispatch_id
-    assert persisted_subscription["lastDispatchAckAt"] == ack["result"]["agent"]["subscription"]["lastDispatchAckAt"]
+    assert persisted_subscription["lastDispatchAckAt"]
     assert persisted_subscription["lastDispatchOutcome"] == "acknowledged"
     assert run["result"]["run"]["name"] == "mcp-run-dispatch"
     assert "cliWatchPolling" in policy["result"]["runner"]
@@ -531,7 +530,10 @@ def test_mcp_dispatch_next_returns_only_requested_agent_rows(tmp_path) -> None:
     )
 
     assert current["ok"] is True
-    assert [record["agentId"] for record in current["result"]["dispatches"]] == ["dev-1"]
+    # Replayed records are delta stubs scoped to the requested agent: dev-2's
+    # dispatch is absent, and the caller's own agentId is not echoed back.
+    assert [record["taskId"] for record in current["result"]["dispatches"]] == ["T1"]
+    assert all("agentId" not in record for record in current["result"]["dispatches"])
     assert current["result"]["currentDispatch"]["dispatchId"] == first_dispatch_id
     assert after_seen["ok"] is True
     assert after_seen["result"]["dispatches"] == []
@@ -1253,10 +1255,13 @@ def test_mcp_agent_heartbeat_preserves_assignment_state(tmp_path) -> None:
     )
 
     assert response["ok"] is True
-    agent = response["result"]["agent"]
-    assert agent["currentTaskId"] == before["currentTaskId"]
-    assert agent["currentDispatch"] == before["currentDispatch"]
-    assert response["result"]["assignmentUnchanged"]["currentDispatch"] is True
+    # Heartbeat is pure liveness: a two-field ack, no roster-record echo and
+    # no assignment payload — assignment state travels via dispatch.next
+    # (currentDispatch) and task.next resume. The store keeps the assignment.
+    assert response["result"] == {"ok": True, "known": True}
+    persisted = read_state(fixture.state_path)["agents"]["developer-a"]
+    assert persisted["currentTaskId"] == before["currentTaskId"]
+    assert persisted["currentDispatch"] == before["currentDispatch"]
 
 
 def test_mcp_agent_heartbeat_unknown_agent_does_not_create_roster_entry(tmp_path) -> None:
@@ -1270,8 +1275,7 @@ def test_mcp_agent_heartbeat_unknown_agent_does_not_create_roster_entry(tmp_path
     )
 
     assert response["ok"] is True
-    assert response["result"]["known"] is False
-    assert response["result"]["agent"] is None
+    assert response["result"] == {"ok": True, "known": False}
     assert "developer-a" not in read_state(fixture.state_path).get("agents", {})
 
 
@@ -1483,62 +1487,6 @@ def test_mcp_registry_discovery_accepts_plugin_registry_roots(tmp_path) -> None:
     assert any(role["id"] == "plugin_writer" and role["source"]["layer"] == "plugin:writer-plugin" for role in roles["result"]["roles"])
     assert skills["ok"] is True
     assert any(skill["id"] == "plugin_writer" and skill["source"]["layer"] == "plugin:writer-plugin" for skill in skills["result"]["skills"])
-
-
-def test_mcp_task_ready_uses_core_and_emits_audit(tmp_path) -> None:
-    task_record = task("T1", "Ready through MCP", "developer")
-    task_record["dispatch"] = {"mode": "manual", "status": "todo", "triagedBy": "none"}
-    fixture = create_team(tmp_path, "mcp-task-ready", [task_record])
-    server = SprintEngineMcpServer(allowed_roots=[tmp_path])
-
-    response = server.call_tool(
-        "sprintengine.task.ready",
-        {"statePath": str(fixture.state_path), "taskId": "T1", "id": "workspace-user", "triagedBy": "user"},
-        actor("workspace-user", "user"),
-    )
-
-    assert response["ok"] is True
-    assert response["result"]["ok"] is True
-    assert "task" not in response["result"]
-    assert response["result"]["taskId"] == "T1"
-    state = read_state(fixture.state_path)
-    assert get_task(state, "T1")["dispatch"]["status"] == "ready"
-    assert get_task(state, "T1")["dispatch"]["triagedBy"] == "user"
-    assert [row["operation_name"] for row in audit_rows(fixture.team_dir)] == ["sprintengine.task.ready"]
-
-
-def test_mcp_plan_add_task_can_create_manual_dispatch_local_task(tmp_path) -> None:
-    fixture = create_team(tmp_path, "mcp-plan-add-manual-task", [])
-    state = read_state(fixture.state_path)
-    state["sprintengine"]["rosterConfigured"] = True
-    state["agents"] = {
-        "developer-a": {"role": "developer", "status": "idle", "currentTaskId": None},
-    }
-    write_state(fixture.state_path, state)
-    server = SprintEngineMcpServer(allowed_roots=[tmp_path])
-
-    response = server.call_tool(
-        "sprintengine.plan.add_task",
-        {
-            "statePath": str(fixture.state_path),
-            "title": "Local manual task",
-            "description": "Refined execution brief",
-            "role": "developer",
-            "acceptance": ["Manual gate remains closed."],
-            "note": ["Use the existing board."],
-            "taskNote": ["Created locally."],
-            "manualDispatch": True,
-        },
-        actor("workspace-user", "user"),
-    )
-
-    assert response["ok"] is True
-    assert "task" not in response["result"]
-    task_id = response["result"]["taskId"]
-    state = read_state(fixture.state_path)
-    task_record = get_task(state, task_id)
-    assert task_record["dispatch"] == {"mode": "manual", "status": "todo", "triagedBy": "none"}
-    assert task_record["notes"] == ["Created locally."]
 
 
 def test_mcp_plan_add_and_update_task_forward_needs_triage(tmp_path) -> None:

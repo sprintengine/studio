@@ -1,7 +1,9 @@
 import assert from 'node:assert/strict'
 import type { TerminalSessionSnapshot } from '../../../shared/electron-api'
+import { formatRelativeMs, formatRelativeMsAgo } from '../utils/relativeTime'
 import {
   deriveWorkspaceDisplayActivity,
+  deriveWorkspaceIdleSince,
   deriveWorkspaceLastInputAt,
   deriveWorkspaceTerminalActivity,
   describeExecutionTerminal,
@@ -19,11 +21,12 @@ void main()
 
 async function main(): Promise<void> {
   assertProcessAliveHelpersUseLivenessOnly()
+  assertShortRecencyStartsAtOneMinute()
   assertSignatureIgnoresOutputTimingButTracksActivity()
   assertWorkspaceDisplayActivityPriority()
   assertAwaitingInputHookSurfacesAsNeedsInput()
   assertWorkspaceTerminalActivityPriorityAndPersistedRecency()
-  assertTerminalTabRecencyPrefersLastInputAt()
+  assertTerminalTabRecencyUsesIdleTransition()
   assertAgentTabRecencyFallbackChain()
   await assertSharedStoreUsesOneUnderlyingSubscription()
   await assertSharedStoreDedupsSemanticUpdatesButKeepsLive()
@@ -32,6 +35,16 @@ async function main(): Promise<void> {
   await assertStaleLaunchFlagsClearWithoutLosingRecency()
   await assertClaudeSessionIdentitySurvivesStartupReconciliation()
   await assertClaudeCodeSessionIdentitySurvivesStartupReconciliation()
+}
+
+function assertShortRecencyStartsAtOneMinute(): void {
+  const now = 120_000
+  assert.equal(formatRelativeMs(now, now), '')
+  assert.equal(formatRelativeMs(now - 59_999, now), '')
+  assert.equal(formatRelativeMs(now - 60_000, now), '1m')
+  assert.equal(formatRelativeMs(now - 119_999, now), '1m')
+  assert.equal(formatRelativeMsAgo(now - 59_999, now), 'just now')
+  assert.equal(formatRelativeMsAgo(now - 60_000, now), '1m ago')
 }
 
 // The hook dedupes broadcasts by this signature: a snapshot that only bumps
@@ -235,9 +248,21 @@ function assertWorkspaceTerminalActivityPriorityAndPersistedRecency(): void {
     deriveWorkspaceTerminalActivity('workspace_1', [], null),
     { kind: 'quiet' }
   )
+  assert.equal(deriveWorkspaceIdleSince('workspace_1', [idle], 500), 400)
+  assert.equal(deriveWorkspaceIdleSince('workspace_1', [], 500), 500)
+
+  const workingTerminal = session({
+    sessionId: 'plain_terminal_working',
+    kind: 'terminal',
+    activity: { kind: 'working', since: 600 },
+  })
+  assert.deepEqual(
+    deriveWorkspaceTerminalActivity('workspace_1', [workingTerminal]),
+    { kind: 'working', since: 600 }
+  )
 }
 
-function assertTerminalTabRecencyPrefersLastInputAt(): void {
+function assertTerminalTabRecencyUsesIdleTransition(): void {
   const exitedWithOlderInput = session({
     sessionId: 'session_exited_with_input',
     processAlive: false,
@@ -267,7 +292,8 @@ function assertTerminalTabRecencyPrefersLastInputAt(): void {
     activity: { kind: 'idle', since: 2_500 },
     lastInputAt: 2_400,
   })
-  assert.deepEqual(pickTerminalTabRecency(liveIdleWithInput), { at: 2_400, source: 'input' })
+  assert.deepEqual(pickTerminalTabRecency(liveIdleWithInput), { at: 2_500, source: 'idle' })
+  assert.equal(tabRecencyLabel('idle'), 'Idle')
 
   const blankSession = session({
     sessionId: 'session_blank',
@@ -277,7 +303,7 @@ function assertTerminalTabRecencyPrefersLastInputAt(): void {
     lastOutputAt: null,
     exitedAt: null,
   })
-  assert.equal(pickTerminalTabRecency(blankSession), null)
+  assert.deepEqual(pickTerminalTabRecency(blankSession), { at: 0, source: 'idle' })
   assert.equal(pickTerminalTabRecency(null), null)
   assert.equal(pickTerminalTabRecency(undefined), null)
 }
@@ -294,7 +320,7 @@ function assertAgentTabRecencyFallbackChain(): void {
   })
   assert.deepEqual(
     pickAgentTabRecency(liveAgent, 6_000, 5_000),
-    { at: 7_950, source: 'input' }
+    { at: 8_000, source: 'idle' }
   )
 
   const exitedAgent = session({

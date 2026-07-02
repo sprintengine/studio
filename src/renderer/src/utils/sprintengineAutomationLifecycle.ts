@@ -121,7 +121,7 @@ export function transitionSprintEngineAutomation(
   }
 
   // `complete` is a terminal runtime state. When every task is done the run's
-  // agent terminals are torn down (see `closeSprintEngineRunAgentTerminals`),
+  // agent panels are torn down (see `tearDownCompletedSprintRunAgents`),
   // and those terminal-close events arrive asynchronously — after the
   // completion transition — as `runner_paused{ reason: terminal_closed }`.
   // Without this guard they would demote a finished run back to `paused` (the

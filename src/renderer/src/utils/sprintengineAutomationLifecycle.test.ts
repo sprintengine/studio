@@ -16,7 +16,6 @@ function baseAutoState(overrides: Partial<SprintEngineAutoState> = {}): SprintEn
     reasonTaskId: undefined,
     reasonAgentId: undefined,
     changedAt: undefined,
-    keepDoneAgentTerminals: false,
     cliPermissionPreset: 'default',
     maxConcurrentAgents: 3,
     pendingSpawns: [],

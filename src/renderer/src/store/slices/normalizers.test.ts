@@ -63,7 +63,6 @@ const autoRunCleaned = normalizeWorkspaceForPartialize(baseWorkspace({
   sprintEngineAutoState: {
     desiredMode: 'run_agents_and_approve_artifacts',
     runtimeState: 'running',
-    keepDoneAgentTerminals: true,
     cliPermissionPreset: 'bypass_all',
     maxConcurrentAgents: 4,
     pendingSpawns: [{ taskId: 'T1', agentId: 'developer-1', startedAt: 1 }],

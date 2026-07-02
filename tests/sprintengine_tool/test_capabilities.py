@@ -123,7 +123,7 @@ def test_general_gets_planning_surface_without_roster_growth(tmp_path) -> None:
     assert listed == expected
 
     # Planning + gate + review surface is present.
-    for granted in ("sprintengine.plan.add_task", "sprintengine.task.ready", "sprintengine.gate.verdict", "sprintengine.task.request_changes", "sprintengine.roster.list"):
+    for granted in ("sprintengine.plan.add_task", "sprintengine.gate.verdict", "sprintengine.task.request_changes", "sprintengine.roster.list"):
         assert granted in listed, granted
     # The team-growth fence: withheld for a General, kept for the architect.
     for withheld in ROSTER_GROWTH_TOOLS:

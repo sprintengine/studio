@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { Spinner, TruncatedText } from '../../ui'
+import { StatusDot, TruncatedText } from '../../ui'
 import { GuidedBriefRawTerminal } from './GuidedBriefRawTerminal'
 import { InterviewQuestionCard, ResolvedDecisionsList } from './InterviewPane'
 import type { GuidedInterviewState } from './interviewProtocol'
@@ -81,7 +81,7 @@ export function ConversationPane({
             className="text-[12px] text-[color:var(--text-muted)]"
           />
         </div>
-        {working && session && !errorMessage ? <Spinner size={14} label="Working" /> : null}
+        {working && session && !errorMessage ? <StatusDot tone="good" pulse label="Working" /> : null}
       </div>
 
       <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-md border border-[color:var(--border-default)] bg-[color:var(--bg-app)]">

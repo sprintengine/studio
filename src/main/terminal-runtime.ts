@@ -40,6 +40,7 @@ import {
   clearTerminalIdleTimer,
   createFailedTerminalSession,
   createInitialTerminalActivity,
+  createSuspendedPlaceholderSession,
   getTerminalLastSeenAt,
   getTerminalSize,
   getTerminalSnapshot,
@@ -53,6 +54,7 @@ import {
   type TerminalSession,
 } from './terminal-session'
 import { buildReplaySnapshot } from './terminal-replay-snapshot'
+import type { TerminalSnapshotSidecarStore } from './terminal-snapshot-sidecar'
 import { createTerminalDiagnostics } from './terminal-diagnostics'
 import { createTerminalOutputBuffer } from './terminal-output-buffer'
 import { createTerminalMobileCommandService } from './terminal-mobile-command-service'
@@ -115,15 +117,23 @@ type TerminalRuntimeOptions = {
   // swallows its own failures, so awaiting it never blocks or fails a launch.
   // Absent in tests / when the feature is unwired (no-op).
   prepareAgentStateHook?(workspaceRoot: string, cli: string): Promise<void>
+  // Durable freeze-the-view: per-terminal snapshot sidecars on disk, so a
+  // suspended terminal reopens painted-and-paused after an app restart. Absent
+  // when unwired (tests): suspend/quit skip persistence and rehydration never
+  // finds anything — in-process behavior is unchanged.
+  snapshotSidecars?: TerminalSnapshotSidecarStore
 }
 
 type TerminalIpcHandlers = {
   spawnTerminal(sender: WebContents, payload: TerminalSpawnPayload): Promise<TerminalSpawnResult>
   writeTerminal(sessionId: string, data: string): void
   resizeTerminal(sessionId: string, cols: number, rows: number): void
-  getTerminalStatus(sessionId: string): { processAlive: boolean; suspended: boolean }
+  getTerminalStatus(
+    sessionId: string,
+    sender?: WebContents
+  ): Promise<{ processAlive: boolean; suspended: boolean }>
   listTerminals(): TerminalSessionSnapshot[]
-  setTerminalVisible(sessionId: string, visible: boolean): void
+  setTerminalVisible(sessionId: string, visible: boolean, sender?: WebContents): void
   suspendTerminal(sessionId: string): void
   resumeTerminal(sender: WebContents, payload: TerminalSpawnPayload): Promise<TerminalSpawnResult>
   killTerminal(sessionId: string): void
@@ -165,6 +175,7 @@ let releaseManagedSprintEngineRun: TerminalRuntimeOptions['releaseManagedSprintE
 let callManagedSprintEngineTool: TerminalRuntimeOptions['callManagedSprintEngineTool']
 let ensureBuiltinSkillInstalled: TerminalRuntimeOptions['ensureBuiltinSkillInstalled']
 let prepareAgentStateHook: TerminalRuntimeOptions['prepareAgentStateHook']
+let snapshotSidecars: TerminalRuntimeOptions['snapshotSidecars']
 
 // CLIs the agent-state reporter can install into. Claude Code and Codex share a
 // stdin-filter reporter (same hook_event_name/session_id payload; only the
@@ -286,6 +297,7 @@ export function createTerminalRuntime(options: TerminalRuntimeOptions): Terminal
   callManagedSprintEngineTool = options.callManagedSprintEngineTool
   ensureBuiltinSkillInstalled = options.ensureBuiltinSkillInstalled
   prepareAgentStateHook = options.prepareAgentStateHook
+  snapshotSidecars = options.snapshotSidecars
   sprintEngineMcpRunRefCounts.clear()
   sprintEngineMcpWorkspaceRefCounts.clear()
   pendingSprintEngineMcpRunReleases.clear()
@@ -311,11 +323,13 @@ export function createTerminalRuntime(options: TerminalRuntimeOptions): Terminal
       spawnTerminal: spawnTerminalFromIpc,
       writeTerminal: writeTerminalInput,
       resizeTerminal: safeResizeTerminal,
-      getTerminalStatus(sessionId) {
-        const session = terminals.get(sessionId)
+      async getTerminalStatus(sessionId, sender) {
+        const session =
+          terminals.get(sessionId)
+          ?? (await rehydrateSuspendedTerminalFromSidecar(sessionId, sender))
         return {
           processAlive: Boolean(session && isTerminalProcessAlive(session)),
-          suspended: Boolean(session?.suspended),
+          suspended: Boolean(session?.suspended && !session.isDisposed),
         }
       },
       listTerminals() {
@@ -449,9 +463,16 @@ function broadcastTerminalSessionsChanged(): void {
   }
 }
 
-function setTerminalVisible(sessionId: string, visible: boolean): void {
+function setTerminalVisible(sessionId: string, visible: boolean, sender?: WebContents): void {
   const session = terminals.get(sessionId)
   if (!session || session.isDisposed) return
+  // A suspended session has no live pty routing output anywhere, and its
+  // recorded sender can be a dead window (or the noop sender of a placeholder
+  // rehydrated from a snapshot sidecar). Adopt the revealing window so the
+  // replay below actually reaches the view being painted.
+  if (sender && session.suspended && session.sender !== sender) {
+    session.sender = sender
+  }
   // While a terminal is hidden the agent keeps running and we keep appending to
   // the retained replay buffer, but we stop forwarding output to its (frozen)
   // renderer xterm (see terminal-output-buffer flush gate). On becoming visible
@@ -573,9 +594,106 @@ export function suspendTerminal(sessionId: string): void {
     // fails) and sets `isDisposed`, keeping this safe against a stale shadow.
     const current = terminals.get(sessionId)
     if (current === session && (session.suspending || session.suspended) && !session.isDisposed) {
-      session.replaySnapshot = snapshot
+      if (snapshot) session.replaySnapshot = snapshot
+      // Durable freeze-the-view: give the snapshot a disk lifecycle so this
+      // terminal reopens painted-and-paused after an app restart too. A failed
+      // render persists the raw stream instead; rehydration re-renders it.
+      writeTerminalSnapshotSidecar(session, {
+        snapshot: snapshot ?? undefined,
+        rawReplay: snapshot ? undefined : snapshotSource,
+        cols: snapshotCols,
+        rows: snapshotRows,
+      })
     }
   })
+}
+
+function writeTerminalSnapshotSidecar(
+  session: TerminalSession,
+  payload: { snapshot?: string; rawReplay?: string; cols: number; rows: number }
+): void {
+  if (!snapshotSidecars) return
+  // Painted-pause is an agent-terminal promise (the paused footer, resume-on-
+  // click); plain shells respawn fresh on reopen as they always have.
+  if (session.kind !== 'agent') return
+  if (!payload.snapshot && !payload.rawReplay) return
+  // A dead/mock pty can report undefined dimensions; clamp so the sidecar
+  // always validates on read (buildReplaySnapshot applies the same defaults).
+  const size = getTerminalSize(payload.cols, payload.rows)
+  snapshotSidecars.write({
+    version: 1,
+    sessionId: session.sessionId,
+    savedAt: Date.now(),
+    cols: size.cols,
+    rows: size.rows,
+    kind: session.kind,
+    workspaceId: session.workspaceId,
+    agentId: session.agentId,
+    terminalId: session.terminalId,
+    cli: session.cli,
+    cliSessionId: session.cliSessionId,
+    cwd: session.cwd,
+    executionMode: session.executionMode,
+    worktreeId: session.worktreeId,
+    worktreePath: session.worktreePath,
+    snapshot: payload.snapshot,
+    rawReplay: payload.rawReplay,
+  })
+}
+
+// Durable freeze-the-view, read side: no live session for this id, but a
+// snapshot sidecar survives from a previous app run — materialize a suspended
+// placeholder so the renderer's existing pause-instead-of-launch flow fires:
+// status reports suspended, reveal replays the painted screen, and resume
+// disposes the placeholder (deleting the sidecar) and re-spawns with --resume.
+// Quit-path sidecars carry the raw stream; render it to a faithful snapshot
+// here (alt-screen TUIs do not reconstruct from raw replay), falling back to
+// seeding the raw buffer when the render fails.
+async function rehydrateSuspendedTerminalFromSidecar(
+  sessionId: string,
+  sender?: WebContents
+): Promise<TerminalSession | undefined> {
+  if (!snapshotSidecars) return undefined
+  const sidecar = snapshotSidecars.read(sessionId)
+  if (!sidecar) return undefined
+  let snapshot = sidecar.snapshot
+  if (!snapshot && sidecar.rawReplay) {
+    snapshot = (await buildReplaySnapshot(sidecar.rawReplay, sidecar.cols, sidecar.rows)) ?? undefined
+  }
+  // The render awaited above can race a concurrent spawn/rehydrate for the same
+  // id; an existing live record wins.
+  const existing = terminals.get(sessionId)
+  if (existing && !existing.isDisposed) return existing
+  const session = createSuspendedPlaceholderSession({
+    sessionId,
+    sender,
+    savedAt: sidecar.savedAt,
+    kind: sidecar.kind,
+    workspaceId: sidecar.workspaceId,
+    agentId: sidecar.agentId,
+    terminalId: sidecar.terminalId,
+    cli: sidecar.cli,
+    cliSessionId: sidecar.cliSessionId,
+    cwd: sidecar.cwd,
+    executionMode: sidecar.executionMode,
+    worktreeId: sidecar.worktreeId,
+    worktreePath: sidecar.worktreePath,
+    replaySnapshot: snapshot,
+    rawReplay: snapshot ? undefined : sidecar.rawReplay,
+  })
+  terminals.set(sessionId, session)
+  logMainPerfEvent('TerminalRuntime', 'terminal-suspended-rehydrated', {
+    sessionId,
+    workspaceId: session.workspaceId,
+    agentId: session.agentId,
+    terminalId: session.terminalId,
+    cli: session.cli,
+    kind: session.kind,
+    savedAt: sidecar.savedAt,
+    snapshotSource: sidecar.snapshot ? 'sidecar-snapshot' : snapshot ? 'rendered-raw' : 'raw-fallback',
+  })
+  broadcastTerminalSessionsChanged()
+  return session
 }
 
 // Freeze-the-view: relaunch a suspended agent under the SAME session id with
@@ -605,6 +723,11 @@ function disposeTerminal(sessionId: string): void {
   const session = terminals.get(sessionId)
   if (!session) return
 
+  // Dispose means gone — never rehydrated or repainted. Covers resume (the
+  // sidecar is consumed), fresh spawn, agent deletion, and the reap sweeps.
+  // App-quit teardown deliberately does NOT run through here (disposeAllTerminals
+  // inlines its own loop), so quit never erases the sidecars it just wrote.
+  snapshotSidecars?.remove(sessionId)
   void queueSprintEngineTerminalTeardown(session, 'terminal disposed')
   cleanupTerminalStartupScript(session.startupScriptPath)
   terminalOutput.flush(sessionId, 'dispose')
@@ -683,6 +806,9 @@ function startStaleTerminalSweep(): void {
     // session.
     reapStaleTerminals()
     runIdleAgentReapSweep()
+    // Reclaim snapshot sidecars past their TTL (painted history nobody
+    // reopened). Piggybacked here rather than owning another timer.
+    snapshotSidecars?.sweepExpired()
   }, STALE_TERMINAL_SWEEP_INTERVAL_MS)
   staleTerminalSweepTimer.unref?.()
 }
@@ -843,7 +969,9 @@ export function runIdleAgentReapSweep(now = Date.now()): string[] {
 // accessor exposes them to the workspace-memory sampler.
 export function listTerminalRoots(): TerminalRootInfo[] {
   return [...terminals.values()]
-    .filter((session) => !session.isDisposed)
+    // A placeholder rehydrated from a snapshot sidecar has an inert process
+    // with no pid — there is no subtree to attribute, so it has no root entry.
+    .filter((session) => !session.isDisposed && typeof session.process.pid === 'number')
     .map((session) => ({
       sessionId: session.sessionId,
       rootPid: session.process.pid,
@@ -875,6 +1003,17 @@ async function disposeAllTerminals(): Promise<void> {
     terminalOutput.flush(session.sessionId, 'dispose')
     terminalDiagnostics.clear(session.sessionId)
     clearTerminalIdleTimer(session)
+    // Durable freeze-the-view, quit path: persist each agent terminal's painted
+    // content before its process dies, so reopening the workspace after relaunch
+    // shows it painted-and-paused instead of black. A suspended session's
+    // already-built snapshot is preferred; live sessions get the cheap raw byte
+    // dump (no headless render on the quit path) and rehydration renders it.
+    writeTerminalSnapshotSidecar(session, {
+      snapshot: session.replaySnapshot,
+      rawReplay: session.replaySnapshot ? undefined : materializeTerminalReplay(session),
+      cols: session.appliedCols ?? 80,
+      rows: session.appliedRows ?? 24,
+    })
     try {
       session.process.kill()
     } catch {

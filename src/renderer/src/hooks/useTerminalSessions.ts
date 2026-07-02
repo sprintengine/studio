@@ -113,7 +113,6 @@ export function deriveWorkspaceTerminalActivity(
   let failedDetail: { exitCode: number; message?: string } | null = null
 
   for (const session of sessions) {
-    if (session.kind !== 'agent') continue
     if (session.workspaceId !== workspaceId) continue
     const activity = session.activity
     if (activity.kind === 'working') {
@@ -134,6 +133,28 @@ export function deriveWorkspaceTerminalActivity(
   const lastInputAt = deriveWorkspaceLastInputAt(workspaceId, sessions, persistedLastInputAt)
   if (lastInputAt !== null) return { kind: 'idle-recency', lastInputAt }
   return { kind: 'quiet' }
+}
+
+// When every terminal is at rest, recency starts from the moment the workspace
+// actually became idle: the newest idle transition across its sessions. This is
+// separate from last-input recency, which remains the ordering signal.
+export function deriveWorkspaceIdleSince(
+  workspaceId: string,
+  sessions: TerminalSessionSnapshot[],
+  persistedLastInputAt?: number | null
+): number | null {
+  let idleSince: number | null = null
+  for (const session of sessions) {
+    if (session.workspaceId !== workspaceId) continue
+    const activity = session.activity
+    const at = activity.kind === 'idle'
+      ? activity.since
+      : activity.kind === 'exited' || activity.kind === 'failed'
+        ? activity.at
+        : null
+    if (at !== null && (idleSince === null || at > idleSince)) idleSince = at
+  }
+  return idleSince ?? deriveWorkspaceLastInputAt(workspaceId, sessions, persistedLastInputAt)
 }
 
 // True when any agent terminal in the workspace reports an authoritative
@@ -188,19 +209,22 @@ export function findExecutionTerminalSession(
   )
 }
 
-export type TabRecencySource = 'input' | 'persisted' | 'exited'
+export type TabRecencySource = 'idle' | 'input' | 'persisted' | 'exited'
 
 export type TabRecencyDisplay = {
   at: number
   source: TabRecencySource
 }
 
-// Per-tab recency mirrors the sidebar: "last typed into this terminal", from
-// lastInputAt, so revealing a tab never reads as "now". See deriveWorkspaceLastInputAt.
+// A resting tab counts from its idle transition. Exited sessions retain the
+// historical last-input fallback because they no longer have a live idle phase.
 export function pickTerminalTabRecency(
   session: TerminalSessionSnapshot | null | undefined
 ): TabRecencyDisplay | null {
   if (!session) return null
+  if (session.activity.kind === 'idle') {
+    return { at: session.activity.since, source: 'idle' }
+  }
   if (typeof session.lastInputAt === 'number') {
     return { at: session.lastInputAt, source: 'input' }
   }
@@ -215,6 +239,9 @@ export function pickAgentTabRecency(
   persistedWorkspaceRecency: number | null | undefined,
   cliLastExitedAt: number | null | undefined
 ): TabRecencyDisplay | null {
+  if (session?.activity.kind === 'idle') {
+    return { at: session.activity.since, source: 'idle' }
+  }
   if (session && typeof session.lastInputAt === 'number') {
     return { at: session.lastInputAt, source: 'input' }
   }
@@ -231,6 +258,7 @@ export function pickAgentTabRecency(
 }
 
 export function tabRecencyLabel(source: TabRecencySource): string {
+  if (source === 'idle') return 'Idle'
   if (source === 'input') return 'Last typed'
   if (source === 'persisted') return 'Last activity'
   return 'Exited'

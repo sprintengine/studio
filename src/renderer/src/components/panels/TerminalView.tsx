@@ -39,6 +39,7 @@ import { resolveProjectKnowledgeConfig } from '../../utils/projectKnowledge'
 import { resolveAgentCliPermissionPreset } from '../../utils/agentCliPermissions'
 import { agentCliSupportsConversationResume, agentCliUsesStableSessionIdForResume } from '../../utils/agentCliResume'
 import { deriveSprintEngineAutomationDesiredMode } from '../../utils/sprintengineAutomationLifecycle'
+import { resolveWorktreeSpawnFallback } from '../../utils/workspaceWorktree'
 import type { McpSettings } from '../../types/workspace'
 import { CursorErrorPopover } from '../ui/CursorErrorPopover'
 import { workspaceSyncClient } from '../../store/workspaceSyncClient'
@@ -372,9 +373,19 @@ export default function TerminalView({ workspaceId, agentId, sessionId: attached
     const sessionId = attachedSessionId ?? initialContext.agent?.cliSessionId
     if (!sessionId) return
     const isSprintEngineAgent = initialContext.agent?.kind === 'sprintengine'
-    const shouldResume = attachedSessionId ? true : isSprintEngineAgent ? false : initialContext.agent?.cliHasLaunched ?? false
+    // Sprint agents are normally spawned fresh (auto-run re-dispatches roles),
+    // but an explicit board re-open of a completed run's recorded session sets
+    // `cliResumeRequested` so we resume that conversation instead.
+    const sprintResumeRequested = isSprintEngineAgent && (initialContext.agent?.cliResumeRequested ?? false)
+    const shouldResume = attachedSessionId
+      ? true
+      : isSprintEngineAgent
+        ? sprintResumeRequested
+        : initialContext.agent?.cliHasLaunched ?? false
     const shouldResumeCodexConversation =
-      !isSprintEngineAgent && initialContext.cli === 'codex' && Boolean(initialContext.agent?.cliResumeAvailable)
+      initialContext.cli === 'codex'
+      && Boolean(initialContext.agent?.cliResumeAvailable)
+      && (!isSprintEngineAgent || sprintResumeRequested)
     const term = new Terminal({
       theme: getTerminalTheme(),
       fontFamily: MONO_FONT_STACK,
@@ -738,11 +749,42 @@ export default function TerminalView({ workspaceId, agentId, sessionId: attached
       const launchCli = launchContext.cli
       if (!launchAgent || !launchCli) return
       const sprintEngineStatePath = folderReadyPath ? launchContext.sprintEngineContext?.statePath : undefined
-      const executionRoot = resolveAgentExecutionRoot(
+      let executionRoot = resolveAgentExecutionRoot(
         launchAgent.execution,
         launchContext.storedExecutionWorktreePath,
         folderReadyPath
       )
+      // The run worktree can be removed out from under a persisted agent (sprint
+      // merge cleanup, the Worktree manager, or `git worktree prune`). Spawning
+      // into the vanished directory exits the terminal with code 1 on reopen.
+      // Detect the missing worktree and fall back to the workspace folder for
+      // THIS spawn. Deliberately a stateless, per-launch redirect: we do NOT
+      // rewrite the persisted `agent.execution` here — that field is in this
+      // effect's dependency array, so mutating it would re-run the launch effect
+      // mid-spawn. The guard re-checks (one `pathExists`) on every launch and
+      // self-corrects if the worktree reappears; completion teardown removes the
+      // agent entirely, so a stale execution is short-lived either way.
+      const worktreeFallback = await resolveWorktreeSpawnFallback(
+        executionRoot.mode,
+        executionRoot.cwd,
+        folderReadyPath,
+        window.api.pathExists,
+      )
+      if (disposed) return
+      if (worktreeFallback.fellBack) {
+        logPerfEvent('TerminalView', 'worktree-cwd-missing-fallback', {
+          workspaceId,
+          agentId,
+          missingCwd: executionRoot.cwd,
+          fallbackCwd: worktreeFallback.cwd ?? null,
+        })
+        executionRoot = {
+          cwd: worktreeFallback.cwd,
+          mode: 'current_workspace',
+          worktreeId: undefined,
+          worktreePath: undefined,
+        }
+      }
       terminalLaunchDetails = [
         `Session: ${sessionId}`,
         `CLI: ${launchCli}${launchAgent.cliModel ? ` · ${launchAgent.cliModel}` : ''}`,

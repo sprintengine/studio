@@ -24,6 +24,7 @@ import { openExternalFileWindow } from '../auxWindows/openFileWindow'
 import { getRendererHost, selectModuleEnabled } from '../../modules'
 import {
   isSessionFailed,
+  isSessionWorking,
   pickAgentTabRecency,
   pickTerminalTabRecency,
   tabRecencyLabel,
@@ -135,10 +136,9 @@ type AgentTabActivityDot = {
   label: string
 }
 
-// The tab status dot, driven by repaint-immune signals. Priority: needs-input
-// (authoritative SprintEngine run state) > live (processAlive — NOT the
-// output-derived 'working', which flips on a reveal repaint) > failed. A live
-// agent shows a steady green dot; revealing a workspace can never flip it.
+// The tab status dot follows actual work rather than mere process residency.
+// Priority: needs-input > working > failed. Idle sessions fall back to elapsed
+// idle time, while Sprint and automation surfaces keep their lifecycle spinners.
 function agentTabStatusDot(
   session: TerminalSessionSnapshot | undefined,
   runtimeStatus: SprintEngineRuntimeAgentStatus | undefined,
@@ -151,8 +151,8 @@ function agentTabStatusDot(
       label: currentTaskId ? `Needs input on ${currentTaskId}` : 'Needs input',
     }
   }
-  if (session?.processAlive) {
-    return { tone: 'good', pulse: false, label: 'Live' }
+  if (session?.processAlive && isSessionWorking(session)) {
+    return { tone: 'good', pulse: true, label: 'Working' }
   }
   if (isSessionFailed(session)) {
     return { tone: 'error', pulse: false, label: 'Failed' }
@@ -237,17 +237,18 @@ function renderTerminalRecencyIndicator(
   now: number
 ): React.ReactNode {
   if (!session) return null
-  // Liveness (processAlive) drives the green dot — repaint-immune, unlike the
-  // output-derived 'working' activity which flips on a reveal repaint. Recency
-  // shows only when NOT live (a dead process can't bump lastOutputAt).
-  if (session.processAlive) {
-    return <StatusDot tone="good" label="Live" className="ml-0.5" />
+  // Active work gets the pulsing green dot. Idle sessions show elapsed idle
+  // time instead, beginning at 1m; sub-minute recency renders blank.
+  if (session.processAlive && isSessionWorking(session)) {
+    return <StatusDot tone="good" pulse label="Working" className="ml-0.5" />
   }
   if (isSessionFailed(session)) {
     return <StatusDot tone="error" label="Failed" className="ml-0.5" />
   }
   const recency = pickTerminalTabRecency(session)
   if (!recency) return null
+  const recencyText = formatRelativeMs(recency.at, now)
+  if (!recencyText) return null
   const label = tabRecencyLabel(recency.source)
   return (
     <span
@@ -255,7 +256,7 @@ function renderTerminalRecencyIndicator(
       title={`${label} ${formatRelativeMsAgo(recency.at, now)} (${new Date(recency.at).toLocaleString()})`}
       aria-label={`${label} ${formatRelativeMsAgo(recency.at, now)}`}
     >
-      {formatRelativeMs(recency.at, now)}
+      {recencyText}
     </span>
   )
 }
@@ -1069,10 +1070,10 @@ function WorkspaceLayout({ workspaceId, onStartFuturePlan, agentClis, onSpawnAge
         ? terminalSessions.find((s) => s.sessionId === agentSessionId)
         : undefined
       const currentTaskId = runtimeAgent?.currentTaskId
-      const isLive = Boolean(agentSession?.processAlive)
+      const isWorking = Boolean(agentSession?.processAlive && isSessionWorking(agentSession))
       // sprint agents show their run lifecycle (in progress / blocked /
       // complete), never a live dot or recency. Everyone else uses the
-      // processAlive-driven dot with recency-when-not-live.
+      // working dot with recency while idle.
       const isSprintEngineRun = agent?.kind === 'sprintengine'
       const sprintEngineLifecycle = isSprintEngineRun
         ? sprintEngineTabLifecycle(runtimeAgent?.status)
@@ -1123,24 +1124,26 @@ function WorkspaceLayout({ workspaceId, onStartFuturePlan, agentClis, onSpawnAge
       }
       renderValues.leading = withWorktreeGlyph(renderValues.leading)
 
-      // Recency only when NOT live and NOT a Sprint Engine run: a dead/suspended
-      // process emits nothing, so its lastOutputAt is frozen and honest. Live
-      // agents show the green dot; sprint agents show run lifecycle.
-      const agentRecency = isLive || isSprintEngineRun
+      // Recency only when NOT working and NOT a Sprint Engine run. Active agents
+      // show the pulsing green dot; sprint agents show run lifecycle.
+      const agentRecency = isWorking || isSprintEngineRun
         ? null
         : pickAgentTabRecency(
             agentSession,
             lastTerminalActivityAt,
             agent?.cliLastExitedAt
           )
-      const recencyIndicator = agentRecency !== null
+      const agentRecencyText = agentRecency !== null
+        ? formatRelativeMs(agentRecency.at, now)
+        : ''
+      const recencyIndicator = agentRecency !== null && agentRecencyText
         ? (
             <span
               className="ml-0.5 shrink-0 text-[10px] tabular-nums text-[color:var(--text-subtle)]"
               title={`${tabRecencyLabel(agentRecency.source)} ${formatRelativeMsAgo(agentRecency.at, now)} (${new Date(agentRecency.at).toLocaleString()})`}
               aria-label={`${tabRecencyLabel(agentRecency.source)} ${formatRelativeMsAgo(agentRecency.at, now)}`}
             >
-              {formatRelativeMs(agentRecency.at, now)}
+              {agentRecencyText}
             </span>
           )
         : null

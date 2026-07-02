@@ -27,7 +27,6 @@ AUDITED_TOOLS = {
     "sprintengine.task.status",
     "sprintengine.task.resolve_input",
     "sprintengine.task.release",
-    "sprintengine.task.ready",
     "sprintengine.task.log",
     "sprintengine.task.publish",
     "sprintengine.task.note",

@@ -66,7 +66,7 @@ import { listAutomationsHostWorkspaces } from '../../utils/automationsEntry'
 
 type Activity = 'working' | 'failed' | 'needs-input' | 'idle'
 
-type TerminalRecency = { hasRunning: boolean; lastFinishedAt: number | null }
+type TerminalRecency = { hasRunning: boolean; idleSince: number | null; lastInputAt: number | null }
 
 type WorkspaceDetachPlacement = {
   screenX: number
@@ -296,11 +296,12 @@ function inactiveHighlightClass(workspace: Workspace): string {
   return `border-l-[4px] ${swatch.border} ${swatch.dimBg}`
 }
 
-// Working rows carry no status dot: a busy agent reads as "now" in the recency
-// column (see renderWorkspaceRow) rather than a green dot, so the dot is reserved
-// for the two states that actually want attention — needs-input and failed.
+// Chat/session workspaces use the terminal activity idiom: active work earns a
+// pulsing green dot, while idle rows fall back to minute-based recency.
+// Sprint and automation workspaces bypass this through their run-glyph provider.
 function activityTone(activity: Activity): { tone: Tone; pulse: boolean } | null {
   if (activity === 'needs-input') return { tone: 'warn', pulse: true }
+  if (activity === 'working') return { tone: 'good', pulse: true }
   if (activity === 'failed') return { tone: 'error', pulse: false }
   return null
 }
@@ -891,22 +892,22 @@ export default function WorkspaceSidebar({
     // Recency still drives ordering and survives in the glyph's tooltip.
     const runGlyph = deriveWorkspaceRunGlyph(workspace)
     const runGlyphRecencyAgo =
-      runGlyph && typeof recency?.lastFinishedAt === 'number'
-        ? formatRelativeMsAgo(recency.lastFinishedAt, now)
+      runGlyph && typeof recency?.lastInputAt === 'number'
+        ? formatRelativeMsAgo(recency.lastInputAt, now)
         : null
     const runGlyphLabel = runGlyph
       ? `${runGlyph.label}${runGlyphRecencyAgo ? ` · last typed ${runGlyphRecencyAgo}` : ''}`
       : null
+    const idleRecencyText = typeof recency?.idleSince === 'number'
+      ? formatRelativeMs(recency.idleSince, now)
+      : ''
     const showRecencyText =
       !sidebarCollapsed
       && !runGlyph
       && activity === 'idle'
       && !!recency
       && !recency.hasRunning
-      && typeof recency.lastFinishedAt === 'number'
-    // A working row has no dot anymore; it reads as "now" in the recency column,
-    // the same idiom as a workspace whose terminal last spoke under a minute ago.
-    const showWorkingNow = !sidebarCollapsed && !runGlyph && activity === 'working'
+      && !!idleRecencyText
     // Collapsed rows keep the corner-dot idiom (a 16px glyph doesn't fit as an
     // overlay on the 20px icon); it derives from the same rollup so the two
     // presentations agree. Only the attention states earn the corner dot.
@@ -1080,20 +1081,13 @@ export default function WorkspaceSidebar({
                   </Tooltip>
                 ) : null}
                 {!runGlyph && tone ? <StatusDot tone={tone.tone} pulse={tone.pulse} label={activityLabel(activity)} /> : null}
-                {showWorkingNow ? (
+                {showRecencyText ? (
                   <span
                     className="text-[10px] tabular-nums text-[color:var(--text-subtle)]"
-                    aria-label="Agents working now"
+                    title={`Idle ${formatRelativeMsAgo(recency!.idleSince!, now)} (${new Date(recency!.idleSince!).toLocaleString()})`}
+                    aria-label={`Idle ${formatRelativeMsAgo(recency!.idleSince!, now)}`}
                   >
-                    now
-                  </span>
-                ) : showRecencyText ? (
-                  <span
-                    className="text-[10px] tabular-nums text-[color:var(--text-subtle)]"
-                    title={`Last typed ${formatRelativeMsAgo(recency!.lastFinishedAt!, now)} (${new Date(recency!.lastFinishedAt!).toLocaleString()})`}
-                    aria-label={`Last typed ${formatRelativeMsAgo(recency!.lastFinishedAt!, now)}`}
-                  >
-                    {formatRelativeMs(recency!.lastFinishedAt!, now)}
+                    {idleRecencyText}
                   </span>
                 ) : null}
               </span>

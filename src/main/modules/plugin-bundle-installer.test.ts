@@ -456,7 +456,7 @@ async function testMcpSkillBundleIsVisibleAndLaunchesTerminalWithInstalledMcp():
         })
 
         assert.equal(launch.ok, true, JSON.stringify(launch))
-        assert.equal(runtime.ipcHandlers.getTerminalStatus('bundle-mcp-launch').processAlive, true)
+        assert.equal((await runtime.ipcHandlers.getTerminalStatus('bundle-mcp-launch')).processAlive, true)
         assert.equal(syncInputs.length, 1)
         assert.equal(syncInputs[0].clients.includes('codex'), true)
         assert.equal(syncInputs[0].settings.servers['bundle-mcp']?.enabled, true)

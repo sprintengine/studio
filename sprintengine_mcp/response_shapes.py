@@ -42,6 +42,11 @@ CARD_TEXT_LIMIT = 700
 # pass an explicit limit.
 COMMENT_LIST_DEFAULT_LIMIT = 20
 
+# Newest dispatch ledger records replayed per `sprintengine.dispatch.next`
+# call. The ledger grows unboundedly over a run; with an ack cursor the reply
+# is a small delta, and this cap bounds the cold-start (no-cursor) case.
+DISPATCH_REPLAY_LIMIT = 20
+
 TASK_GET_INCLUDE_SECTIONS = ("activity", "comments", "evidence_log", "diffs", "notes", "needs_input")
 
 # Mutating tools whose responses become minimal acks: the agent already knows
@@ -53,7 +58,6 @@ MUTATION_ACK_TOOLS = {
     "sprintengine.task.note",
     "sprintengine.task.comment",
     "sprintengine.task.status",
-    "sprintengine.task.ready",
     "sprintengine.task.resolve_input",
     "sprintengine.task.release",
     "sprintengine.task.request_changes",
@@ -80,11 +84,19 @@ SLIM_CARD_TOOLS = {
 
 
 def _comment_delta(comment: dict[str, Any]) -> dict[str, Any]:
-    return {
+    delta = {
         key: comment.get(key)
         for key in ("id", "type", "actor", "authorRole", "source", "body", "createdAt", "paths")
         if comment.get(key) is not None
     }
+    # Card/ack surfaces carry the gist; the full body stays readable through
+    # `task.comment.list` and the server-composed review/rework prompts.
+    if isinstance(delta.get("body"), str):
+        text, truncated = _truncate_text(delta["body"])
+        delta["body"] = text
+        if truncated:
+            delta["bodyTruncated"] = True
+    return delta
 
 
 def _open_user_notes(task: dict[str, Any]) -> list[dict[str, Any]]:
@@ -200,10 +212,13 @@ def slim_task_card(task: Any) -> dict[str, Any] | None:
         card["needsInput"] = needs_input
     if needs_input_truncated:
         card["needsInputTruncated"] = True
+    summary_text, summary_truncated = _truncate_text(str(evidence.get("summary") or ""))
     card["evidence"] = {
-        "summary": evidence.get("summary") or "",
+        "summary": summary_text,
         "touchedFiles": list(evidence.get("touchedFiles") or []),
     }
+    if summary_truncated:
+        card["evidence"]["summaryTruncated"] = True
     open_feedback = open_feedback_delta(task, CARD_OPEN_FEEDBACK_LIMIT)
     if open_feedback:
         card["openFeedback"] = open_feedback
@@ -236,6 +251,8 @@ def expanded_task_card(task: Any, include: list[str]) -> dict[str, Any] | None:
             card["needsInput"] = dict(needs_input)
         card.pop("needsInputTruncated", None)
     if "evidence_log" in requested:
+        card["evidence"]["summary"] = str(evidence.get("summary") or "")
+        card["evidence"].pop("summaryTruncated", None)
         card["evidence"]["commandsRan"] = list(evidence.get("commandsRan") or [])
         card["evidence"]["results"] = list(evidence.get("results") or [])
         card["evidence"]["scopeExpansions"] = list(evidence.get("scopeExpansions") or [])
@@ -254,7 +271,17 @@ def _attempt_summary(attempt: Any) -> dict[str, Any] | None:
     }
 
 
-def _mutation_ack(result: dict[str, Any]) -> dict[str, Any]:
+# Prose payload fields whose card surfaces cap at CARD_TEXT_LIMIT. Acks flag
+# over-limit writes so the author learns the overflow is truncated for
+# downstream agents — advisory only, the evidence itself is never rejected.
+# task.comment is deliberately absent: its ack already carries the signal as
+# `comment.bodyTruncated` from the same `_truncate_text` predicate.
+ACK_CARD_PROSE_FIELDS: dict[str, str] = {
+    "sprintengine.task.log": "summary",
+}
+
+
+def _mutation_ack(result: dict[str, Any], payload: dict[str, Any], tool_name: str) -> dict[str, Any]:
     shaped = dict(result)
     task = shaped.pop("task", None)
     if isinstance(task, dict):
@@ -269,6 +296,22 @@ def _mutation_ack(result: dict[str, Any]) -> dict[str, Any]:
     attempt = shaped.get("attempt")
     if isinstance(attempt, dict):
         shaped["attempt"] = _attempt_summary(attempt)
+    comment = shaped.get("comment")
+    if isinstance(comment, dict):
+        # The author already knows what it wrote; the ack carries the delta
+        # form other surfaces will show, not a full echo. Structured `data`
+        # (open/closed status, finding payloads) is machine-first and stays.
+        delta = _comment_delta(comment)
+        if isinstance(comment.get("data"), dict):
+            delta["data"] = comment["data"]
+        shaped["comment"] = delta
+    prose_field = ACK_CARD_PROSE_FIELDS.get(tool_name)
+    if prose_field:
+        prose = payload.get(prose_field)
+        if isinstance(prose, str):
+            _, over_limit = _truncate_text(prose)
+            if over_limit:
+                shaped["exceedsCardLimit"] = True
     return shaped
 
 
@@ -295,7 +338,67 @@ def _directive_response(result: dict[str, Any]) -> dict[str, Any]:
         shaped["task"] = task_stub(shaped["task"])
     if isinstance(shaped.get("gate"), dict):
         shaped["gate"] = gate_stub(shaped["gate"])
+    if shaped.get("releasedExpired") == []:
+        del shaped["releasedExpired"]
     return shaped
+
+
+def dispatch_record_stub(record: Any) -> dict[str, Any] | None:
+    """Delta reference for one dispatch ledger record: identity and target
+    only, in the same field dialect as `currentDispatch`
+    (dispatchId/assignedAt). Constant fields (`outcome`, `source`), the
+    caller's own `agentId`, and the mostly-null `state` sub-object stay in
+    the on-disk ledger."""
+    if not isinstance(record, dict):
+        return None
+    target = record.get("target") if isinstance(record.get("target"), dict) else {}
+    stub: dict[str, Any] = {
+        "dispatchId": record.get("id"),
+        "targetKind": target.get("kind"),
+        "reason": record.get("reason"),
+        "assignedAt": record.get("timestamp"),
+    }
+    for key in ("taskId", "gateId", "attemptId"):
+        if target.get(key):
+            stub[key] = target[key]
+    return stub
+
+
+def _heartbeat_response(result: dict[str, Any]) -> dict[str, Any]:
+    """Heartbeat is pure liveness: the server compares the roster record
+    before/after within one mutation that only refreshes `heartbeatAt`, so a
+    heartbeat can never observe a reassignment — assignment state travels
+    through `dispatch.next` (`currentDispatch`) and `task.next` resume, never
+    through this ack (see MC-36's dispatch contract)."""
+    return {"ok": True, "known": result.get("known") is not False}
+
+
+def _dispatch_next_response(result: dict[str, Any]) -> dict[str, Any]:
+    shaped = dict(result)
+    records = result.get("dispatches") if isinstance(result.get("dispatches"), list) else []
+    tail = records[-DISPATCH_REPLAY_LIMIT:]
+    shaped["dispatches"] = [stub for stub in (dispatch_record_stub(record) for record in tail) if stub]
+    if len(records) > len(tail):
+        shaped["truncated"] = True
+        shaped["totalCount"] = len(records)
+    return shaped
+
+
+def _dispatch_ack_response(result: dict[str, Any]) -> dict[str, Any]:
+    # Echo what the server PERSISTED (the subscription cursor it wrote), not
+    # the raw request payload — the ack is the caller's only confirmation of
+    # the cursor that future dispatch.next replays will be filtered by.
+    agent = result.get("agent") if isinstance(result.get("agent"), dict) else {}
+    subscription = agent.get("subscription") if isinstance(agent.get("subscription"), dict) else {}
+    return {
+        "ok": True,
+        "dispatchId": subscription.get("lastDispatchId"),
+        "outcome": subscription.get("lastDispatchOutcome"),
+    }
+
+
+def _subscribe_response(result: dict[str, Any]) -> dict[str, Any]:
+    return {"ok": True, "subscription": result.get("subscription")}
 
 
 def _summary_response(result: dict[str, Any]) -> dict[str, Any]:
@@ -337,7 +440,7 @@ def shape_tool_result(tool_name: str, payload: dict[str, Any], result: Any) -> A
     if not isinstance(result, dict) or result.get("ok") is not True:
         return result
     if tool_name in MUTATION_ACK_TOOLS:
-        return _mutation_ack(result)
+        return _mutation_ack(result, payload, tool_name)
     if tool_name in SLIM_CARD_TOOLS:
         return _slim_card_response(result)
     if tool_name == "sprintengine.task.get":
@@ -347,6 +450,14 @@ def shape_tool_result(tool_name: str, payload: dict[str, Any], result: Any) -> A
         return shaped
     if tool_name == "sprintengine.agent.next_directive":
         return _directive_response(result)
+    if tool_name == "sprintengine.agent.heartbeat":
+        return _heartbeat_response(result)
+    if tool_name == "sprintengine.dispatch.next":
+        return _dispatch_next_response(result)
+    if tool_name == "sprintengine.dispatch.ack":
+        return _dispatch_ack_response(result)
+    if tool_name == "sprintengine.subscribe":
+        return _subscribe_response(result)
     if tool_name == "sprintengine.summary":
         return _summary_response(result)
     if tool_name == "sprintengine.task.comment.list":

@@ -108,7 +108,6 @@ function multiloopWorkspaceFixture(overrides: Partial<Workspace> = {}): Workspac
     sprintEngineAutoState: {
       desiredMode: 'manual',
       runtimeState: 'idle',
-      keepDoneAgentTerminals: false,
       cliPermissionPreset: 'default',
       maxConcurrentAgents: 3,
       pendingSpawns: [],

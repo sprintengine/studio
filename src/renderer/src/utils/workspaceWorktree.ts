@@ -1,5 +1,5 @@
 import { isAbsoluteFilePath, joinFilePath, samePath } from './paths'
-import type { Workspace } from '../types/workspace'
+import type { AgentExecutionMode, Workspace } from '../types/workspace'
 
 export type ResolvedWorkspaceWorktree = {
   /** Absolute git root to use for this workspace's Git view. */
@@ -43,6 +43,40 @@ export function resolveWorkspaceWorktree(
   }
 
   return null
+}
+
+export type WorktreeSpawnFallback = {
+  /** True when the agent's worktree cwd was gone and we fell back. */
+  fellBack: boolean
+  /** The cwd to actually spawn into. */
+  cwd: string | undefined
+}
+
+/**
+ * Guard a worktree-backed agent spawn against a removed run worktree.
+ *
+ * Sprint agents persist an absolute `execution.cwd` pointing into the shared run
+ * worktree. That worktree can be removed out from under the persisted agent
+ * (merge cleanup, the Worktree manager, or `git worktree prune`); spawning a
+ * terminal into the vanished directory exits with code 1. When the worktree cwd
+ * no longer exists, fall back to the workspace folder so the spawn succeeds and
+ * flag `fellBack` (callers use it only to redirect this launch and log — they do
+ * not persist a change). Non-worktree agents and still-present worktrees pass
+ * through unchanged.
+ */
+export async function resolveWorktreeSpawnFallback(
+  executionMode: AgentExecutionMode,
+  worktreeCwd: string | undefined,
+  workspaceFolderPath: string | null,
+  pathExists: (path: string) => Promise<boolean>,
+): Promise<WorktreeSpawnFallback> {
+  if (executionMode !== 'worktree' || !worktreeCwd) {
+    return { fellBack: false, cwd: worktreeCwd }
+  }
+  if (await pathExists(worktreeCwd)) {
+    return { fellBack: false, cwd: worktreeCwd }
+  }
+  return { fellBack: true, cwd: workspaceFolderPath ?? undefined }
 }
 
 /** Minimal shape of a Git panel scope option needed to pick the worktree scope. */

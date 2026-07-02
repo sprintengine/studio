@@ -38,10 +38,6 @@ import type {
   SprintEngineTaskDiffLine,
   SprintEngineTaskDiffSource,
   SprintEngineTaskDiffStatus,
-  SprintEngineTaskDispatch,
-  SprintEngineTaskDispatchMode,
-  SprintEngineTaskDispatchStatus,
-  SprintEngineTaskDispatchTriagedBy,
   SprintEngineTaskBoardColumn,
   SprintEngineTaskEvidence,
   SprintEngineTaskFeedback,
@@ -600,9 +596,6 @@ const feedbackFindingAreas: readonly SprintEngineTaskFeedbackFindingArea[] = [
 const feedbackFindingStatuses: readonly SprintEngineTaskFeedbackFindingStatus[] = ['open', 'accepted', 'fixed', 'rejected', 'deferred']
 const sprintEngineTaskSourceTypes: readonly SprintEngineTaskSourceType[] = ['local', 'github', 'jira', 'linear']
 const sprintEngineTaskSourceSyncStatuses: readonly SprintEngineTaskSourceSyncStatus[] = ['clean', 'local_changed', 'remote_changed', 'conflict']
-const sprintEngineTaskDispatchModes: readonly SprintEngineTaskDispatchMode[] = ['dependency', 'manual']
-const sprintEngineTaskDispatchStatuses: readonly SprintEngineTaskDispatchStatus[] = ['todo', 'ready']
-const sprintEngineTaskDispatchTriagedByValues: readonly SprintEngineTaskDispatchTriagedBy[] = ['none', 'user', 'architect']
 const sprintEngineNeedsInputKinds: readonly SprintEngineNeedsInputKind[] = ['architect', 'user']
 
 const sprintEngineTaskActivityTypes: readonly SprintEngineTaskActivityType[] = [
@@ -1330,18 +1323,6 @@ function isSprintEngineTaskSourceSyncStatus(value: unknown): value is SprintEngi
   return sprintEngineTaskSourceSyncStatuses.includes(value as SprintEngineTaskSourceSyncStatus)
 }
 
-function isSprintEngineTaskDispatchMode(value: unknown): value is SprintEngineTaskDispatchMode {
-  return sprintEngineTaskDispatchModes.includes(value as SprintEngineTaskDispatchMode)
-}
-
-function isSprintEngineTaskDispatchStatus(value: unknown): value is SprintEngineTaskDispatchStatus {
-  return sprintEngineTaskDispatchStatuses.includes(value as SprintEngineTaskDispatchStatus)
-}
-
-function isSprintEngineTaskDispatchTriagedBy(value: unknown): value is SprintEngineTaskDispatchTriagedBy {
-  return sprintEngineTaskDispatchTriagedByValues.includes(value as SprintEngineTaskDispatchTriagedBy)
-}
-
 function isSprintEngineNeedsInputKind(value: unknown): value is SprintEngineNeedsInputKind {
   return sprintEngineNeedsInputKinds.includes(value as SprintEngineNeedsInputKind)
 }
@@ -1385,24 +1366,6 @@ function normalizeSprintEngineTaskSource(value: unknown): SprintEngineTaskSource
     ...(externalUpdatedAt ? { externalUpdatedAt } : {}),
     ...(syncedAt ? { syncedAt } : {}),
     ...(syncStatus ? { syncStatus } : {}),
-  }
-}
-
-function normalizeSprintEngineTaskDispatch(value: unknown): SprintEngineTaskDispatch | undefined {
-  if (!value || typeof value !== 'object') return undefined
-
-  const record = value as Record<string, unknown>
-  if (!isSprintEngineTaskDispatchMode(record.mode)) return undefined
-
-  const status = isSprintEngineTaskDispatchStatus(record.status) ? record.status : undefined
-  const triagedBy = isSprintEngineTaskDispatchTriagedBy(record.triagedBy) ? record.triagedBy : undefined
-  const readyAt = optionalTrimmedString(record.readyAt)
-
-  return {
-    mode: record.mode,
-    ...(status ? { status } : {}),
-    ...(triagedBy ? { triagedBy } : {}),
-    ...(readyAt ? { readyAt } : {}),
   }
 }
 
@@ -2024,7 +1987,6 @@ export function getSprintEngineTaskBoardColumn(
     tasks.some((t) => t.id === depId && t.status === 'done')
   )
   if (!dependenciesDone) return 'todo'
-  if (task.dispatch?.mode === 'manual' && task.dispatch.status !== 'ready') return 'todo'
   return 'ready'
 }
 
@@ -2234,7 +2196,6 @@ export function normalizeSprintEngineState(input: SprintEngineState | null | und
       : []
     const triage = normalizeSprintEngineTaskTriage(task.triage)
     const source = normalizeSprintEngineTaskSource(task.source)
-    const dispatch = normalizeSprintEngineTaskDispatch(task.dispatch)
     const needsInput = normalizeSprintEngineTaskNeedsInput(task.needsInput)
     const activity = normalizeSprintEngineTaskActivity(task.activity)
     const taskStatusValues = ['todo', 'changes_requested', 'in_progress', 'review', 'testing', 'product', 'needs_input', 'done'] as const
@@ -2266,7 +2227,6 @@ export function normalizeSprintEngineState(input: SprintEngineState | null | und
       ...(boardColumn ? { boardColumn } : {}),
       ...(folderStatus ? { folderStatus } : {}),
       ...(source ? { source } : {}),
-      ...(dispatch ? { dispatch } : {}),
       ownerAgentId: task.ownerAgentId ?? null,
       ...(task.lastImplementedByAgentId ? { lastImplementedByAgentId: task.lastImplementedByAgentId } : {}),
       dependsOn: stringArray(task.dependsOn),

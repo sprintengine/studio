@@ -354,7 +354,7 @@ Final MCP names use dotted, role-agnostic operation groups. The old CLI-shaped M
 | Agent lifecycle | `sprintengine.agent.join`, `sprintengine.agent.heartbeat`, `sprintengine.agent.leave`, `sprintengine.subscribe` | `sprintengine.join` is a compatibility alias for CLI `join --watch`. It accepts `role`, `id`, `watch`, and `maxWaitSeconds`, returns the existing join directive shape, and records the same lifecycle fields as `sprintengine.agent.join`. |
 | Dispatch observation | `sprintengine.dispatch.next`, `sprintengine.dispatch.ack`; optional server notifications `sprintengine.dispatch`, `sprintengine.cancel`, `sprintengine.run.status_changed` | `dispatch.next` returns the agent's `currentDispatch`, state, and only that agent's ledger entries, with `lastDispatchId` pagination applied after agent filtering. Dispatch records are durable state, not a wake-up guarantee. Multicode still owns terminal spawn/focus/input wake-up for current CLIs. |
 | Discovery | `sprintengine.roles.list`, `sprintengine.roles.get`, `sprintengine.soul.get`, `sprintengine.skills.list`, `sprintengine.skill.get` | Discovery reads the role registry and Soul renderer; it must expose source layer and warnings where available. |
-| Task operations | `sprintengine.task.get`, `sprintengine.task.list`, `sprintengine.task.next`, `sprintengine.task.claim`, `sprintengine.task.status`, `sprintengine.task.resolve_input`, `sprintengine.task.release`, `sprintengine.task.ready`, `sprintengine.task.log`, `sprintengine.task.note`, `sprintengine.task.comment`, `sprintengine.task.comment.list`, `sprintengine.task.publish`, `sprintengine.task.request_changes` | Active MCP names are role-agnostic and call the same core mutation path as the CLI. Claim responses include `currentDispatch` and a top-level dispatched state when a durable assignment exists. Completion-style responses include progression data where server progression advanced the task. |
+| Task operations | `sprintengine.task.get`, `sprintengine.task.list`, `sprintengine.task.next`, `sprintengine.task.claim`, `sprintengine.task.status`, `sprintengine.task.resolve_input`, `sprintengine.task.release`, `sprintengine.task.log`, `sprintengine.task.note`, `sprintengine.task.comment`, `sprintengine.task.comment.list`, `sprintengine.task.publish`, `sprintengine.task.request_changes` | Active MCP names are role-agnostic and call the same core mutation path as the CLI. Claim responses include `currentDispatch` and a top-level dispatched state when a durable assignment exists. Completion-style responses include progression data where server progression advanced the task. |
 | Gate operations | `sprintengine.gate.list`, `sprintengine.gate.next`, `sprintengine.gate.claim`, `sprintengine.gate.verdict`, `sprintengine.gate.publish`, `sprintengine.gate.skip` | Gate claim responses include `currentDispatch` and top-level dispatched state for the claimed gate. `gate.publish` is the final v1 verdict name; `gate.verdict` remains the CLI-compatible wrapper. |
 | Artifact operations | `sprintengine.artifact.add`, `sprintengine.artifact.ready`, `sprintengine.artifact.approve`, `sprintengine.artifact.request_changes`, `sprintengine.artifact.list` | Artifact paths remain project-root-relative. Explicit UI review actions may call authenticated main/MCP IPC for approval or request-changes, but the mutation authority remains Sprint Engine core/MCP rather than agent terminal text or direct store writes. |
 | Plan operations | `sprintengine.plan.add_task`, `sprintengine.plan.update_task`, `sprintengine.plan.delete_task`, `sprintengine.plan.add_dependency`, `sprintengine.plan.remove_dependency`, `sprintengine.plan.start_review`, `sprintengine.plan.review_status`, `sprintengine.plan.address_reviews` | Architect-only mutating operations continue to enforce actor/role authorization. |
@@ -412,7 +412,6 @@ artifact review mutation path.
 - `sprintengine.task.status(statePath, taskId, status, id, summary?, needsInput*)`
 - `sprintengine.task.resolve_input(statePath, taskId, id, resolution, complete?)`
 - `sprintengine.task.release(statePath, taskId, id, reason)`
-- `sprintengine.task.ready(statePath, taskId, id, triagedBy?)`
 - `sprintengine.task.log(statePath, taskId, id, summary?, file?, command?, result?, scopeExpansionJson?)`
 - `sprintengine.task.note(statePath, taskId, id, note)`
 - `sprintengine.task.comment(statePath, taskId, id, body, source?, commentType?, paths?, data?)`
@@ -439,7 +438,7 @@ artifact review mutation path.
 
 ### Architect ops
 
-- `sprintengine.plan.add_task(statePath, title, role, actor?, taskId?, description?, dependsOn?, path?, acceptance?, note?, taskNote?, requireGate?, skipGate?, manualDispatch?)`
+- `sprintengine.plan.add_task(statePath, title, role, actor?, taskId?, description?, dependsOn?, path?, acceptance?, note?, taskNote?, requireGate?, skipGate?)`
 - `sprintengine.plan.update_task(statePath, taskId, actor?, title?, description?, role?, path?, acceptance?, note?, taskNote?, requireGate?, skipGate?)`
 - `sprintengine.plan.delete_task(statePath, taskId, actor?, unlinkDependents?)`
 - `sprintengine.plan.add_dependency(statePath, taskId, dependsOn, actor?)`

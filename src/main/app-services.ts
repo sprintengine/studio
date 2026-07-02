@@ -16,6 +16,7 @@ import { createSprintEngineArtifactHandlers } from './sprintengine-artifacts'
 import { createGatedSprintEngineMcpHub, createSprintEngineMcpHubService } from './sprintengine-mcp-hub'
 import { syncManagedSprintEngineMcpConfig } from './sprintengine-managed-mcp-sync'
 import { createTerminalRuntime } from './terminal-runtime'
+import { createTerminalSnapshotSidecarStore } from './terminal-snapshot-sidecar'
 import { MulticodeUpdateService } from './update-service'
 import { GitHubTokenStore } from './github-token-store'
 import { createWorkspaceBackupService } from './workspace-backup'
@@ -83,6 +84,14 @@ export function createAppServices(diagnosticsEnabled: boolean) {
     diagnosticsEnabled,
     requireAuthenticatedUser: requireAuthenticatedMulticodeUser,
     logMainPerfEvent,
+    // Durable freeze-the-view: suspended agent terminals persist their painted
+    // screen to disk and reopen painted-and-paused after an app restart.
+    snapshotSidecars: createTerminalSnapshotSidecarStore({
+      resolveUserDataDir: () => app.getPath('userData'),
+      logDiagnostic: (diagnostic) => {
+        void writeDiagnosticLog({ ...diagnostic, source: 'terminal' })
+      },
+    }),
     syncMcpConfig: (input) => syncManagedSprintEngineMcpConfig(input, { mcpConfigService, sprintEngineMcpHub }),
     callManagedSprintEngineTool: (input) => sprintEngineMcpHub.callRunTool(input),
     // Debug Mode: make the `debug` skill present in the session CLI's native

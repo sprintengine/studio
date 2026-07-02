@@ -371,7 +371,6 @@ function workspaceFixture(overrides: Partial<Workspace> = {}): Workspace {
     sprintEngineAutoState: {
       desiredMode: 'run_agents_and_approve_artifacts',
       runtimeState: 'running',
-      keepDoneAgentTerminals: false,
       cliPermissionPreset: 'default',
       maxConcurrentAgents: 3,
       pendingSpawns: [],
@@ -503,7 +502,6 @@ async function testAutoApprovalOnlyBranchSkipsTerminalListWhenNothingToApprove()
     sprintEngineAutoState: {
       desiredMode: 'run_agents_and_approve_artifacts',
       runtimeState: 'running',
-      keepDoneAgentTerminals: false,
       cliPermissionPreset: 'default',
       maxConcurrentAgents: 3,
       pendingSpawns: [],
@@ -569,7 +567,6 @@ function autoApprovalFixture(): {
     sprintEngineAutoState: {
       desiredMode: 'run_agents_and_approve_artifacts',
       runtimeState: 'running',
-      keepDoneAgentTerminals: false,
       cliPermissionPreset: 'default',
       maxConcurrentAgents: 3,
       pendingSpawns: [],
@@ -786,7 +783,6 @@ async function testDeliverAgentNotificationsSkipsRetiredTargets(): Promise<void>
     sprintEngineAutoState: {
       desiredMode: 'run_agents',
       runtimeState: 'running',
-      keepDoneAgentTerminals: false,
       cliPermissionPreset: 'default',
       maxConcurrentAgents: 3,
       pendingSpawns: [],
@@ -834,7 +830,6 @@ function reworkNotificationWorkspaceFixture(): Workspace {
     sprintEngineAutoState: {
       desiredMode: 'run_agents',
       runtimeState: 'running',
-      keepDoneAgentTerminals: false,
       cliPermissionPreset: 'default',
       maxConcurrentAgents: 3,
       pendingSpawns: [],
@@ -1239,7 +1234,6 @@ async function testDeliverNotificationLeavesPendingWhenSupervisorDisabledAndNoTe
   const supervisor = await loadSupervisor()
   const workspace = workspaceFixture({
     sprintEngineAutoState: {
-      keepDoneAgentTerminals: false,
       cliPermissionPreset: 'default',
       maxConcurrentAgents: 3,
       pendingSpawns: [],
@@ -1290,10 +1284,6 @@ async function testDispatchPromptDeliveryUsesDispatchIdCooldown(): Promise<void>
     ],
     terminalWrite: async (sessionId, text) => {
       writes.push({ sessionId, text })
-      return { ok: true }
-    },
-    readySprintEngineTask: async () => {
-      mutations.push('readySprintEngineTask')
       return { ok: true }
     },
     updateSprintEngineTask: async () => {
@@ -2353,9 +2343,6 @@ async function testSpawnAutoRunCandidateStartsMissingTerminalWithJoinPrompt(): P
       return { ok: true, sessionId }
     },
     logDiagnostic: async (input) => input,
-    readySprintEngineTask: async () => {
-      throw new Error('renderer must not ready Sprint Engine tasks while spawning')
-    },
     updateSprintEngineTask: async () => {
       throw new Error('renderer must not update Sprint Engine tasks while spawning')
     },
@@ -2375,7 +2362,6 @@ async function testSpawnAutoRunCandidateStartsMissingTerminalWithJoinPrompt(): P
     sprintEngineAutoState: {
       desiredMode: 'run_agents',
       runtimeState: 'running',
-      keepDoneAgentTerminals: false,
       cliPermissionPreset: 'default',
       maxConcurrentAgents: 3,
       pendingSpawns: [],
@@ -2514,7 +2500,6 @@ async function testSuperviseRunnerCycleSpawnsReplenishedRetiredCapacity(): Promi
     sprintEngineAutoState: {
       desiredMode: 'run_agents',
       runtimeState: 'running',
-      keepDoneAgentTerminals: false,
       cliPermissionPreset: 'default',
       maxConcurrentAgents: 3,
       pendingSpawns: [],
@@ -2614,7 +2599,6 @@ async function testSuperviseRunnerCycleRestartsExitedRoleForReadyTask(): Promise
     sprintEngineAutoState: {
       desiredMode: 'run_agents',
       runtimeState: 'running',
-      keepDoneAgentTerminals: false,
       cliPermissionPreset: 'default',
       maxConcurrentAgents: 3,
       pendingSpawns: [],
@@ -3071,7 +3055,6 @@ async function testSuperviseRunnerCycleRespawnsDeadClaimantsAtFullOccupancy(): P
     sprintEngineAutoState: {
       desiredMode: 'run_agents',
       runtimeState: 'running',
-      keepDoneAgentTerminals: false,
       cliPermissionPreset: 'default',
       maxConcurrentAgents: 3,
       pendingSpawns: [],
@@ -3178,7 +3161,6 @@ async function testAllPathsPlanNeverPastesAndKillsSameAgentInOnePass(): Promise<
     sprintEngineAutoState: {
       desiredMode: 'run_agents',
       runtimeState: 'running',
-      keepDoneAgentTerminals: false,
       cliPermissionPreset: 'default',
       maxConcurrentAgents: 3,
       pendingSpawns: [],
@@ -3267,7 +3249,6 @@ async function testNotificationPasteSuppressesSamePassDispatchPaste(): Promise<v
     sprintEngineAutoState: {
       desiredMode: 'run_agents',
       runtimeState: 'running',
-      keepDoneAgentTerminals: false,
       cliPermissionPreset: 'default',
       maxConcurrentAgents: 3,
       pendingSpawns: [],
@@ -3316,7 +3297,6 @@ function idleReviewerCycleFixtures(input: { tasks: SprintEngineTask[]; reviewerO
     sprintEngineAutoState: {
       desiredMode: 'run_agents',
       runtimeState: 'running',
-      keepDoneAgentTerminals: false,
       cliPermissionPreset: 'default',
       maxConcurrentAgents: 3,
       pendingSpawns: [],
@@ -3682,7 +3662,6 @@ async function testNotificationSpawnFailureAbortsRemainingPlanActions(): Promise
     sprintEngineAutoState: {
       desiredMode: 'run_agents',
       runtimeState: 'running',
-      keepDoneAgentTerminals: false,
       cliPermissionPreset: 'default',
       maxConcurrentAgents: 3,
       pendingSpawns: [],
@@ -3837,7 +3816,6 @@ async function testTriageDefersWhenPlanEngagedArchitectThisPass(): Promise<void>
     sprintEngineAutoState: {
       desiredMode: 'run_agents',
       runtimeState: 'running',
-      keepDoneAgentTerminals: false,
       cliPermissionPreset: 'default',
       maxConcurrentAgents: 3,
       pendingSpawns: [],
@@ -3929,7 +3907,6 @@ async function testSuperviseRunnerCycleBootstrapsOnlyArchitectForFreshRun(): Pro
     sprintEngineAutoState: {
       desiredMode: 'run_agents',
       runtimeState: 'running',
-      keepDoneAgentTerminals: false,
       cliPermissionPreset: 'default',
       maxConcurrentAgents: 6,
       pendingSpawns: [],
@@ -4059,7 +4036,6 @@ async function testSuperviseRunnerCycleReengagesStalledLiveIdleAgentForChangesRe
     sprintEngineAutoState: {
       desiredMode: 'run_agents',
       runtimeState: 'running',
-      keepDoneAgentTerminals: false,
       cliPermissionPreset: 'default',
       maxConcurrentAgents: 3,
       pendingSpawns: [],
@@ -4163,7 +4139,6 @@ async function testSuperviseRunnerCycleDoesNotRestartUnresolvedNeedsInputOwner()
     sprintEngineAutoState: {
       desiredMode: 'run_agents',
       runtimeState: 'running',
-      keepDoneAgentTerminals: false,
       cliPermissionPreset: 'default',
       maxConcurrentAgents: 1,
       pendingSpawns: [],
@@ -4268,7 +4243,6 @@ async function testSuperviseRunnerCycleStartsReviewGateWhenUnrelatedAgentNeedsIn
     sprintEngineAutoState: {
       desiredMode: 'run_agents',
       runtimeState: 'running',
-      keepDoneAgentTerminals: false,
       cliPermissionPreset: 'default',
       maxConcurrentAgents: 3,
       pendingSpawns: [],
@@ -4307,10 +4281,6 @@ async function testSuperviseRunnerCycleDoesNotMutateTaskOrGateState(): Promise<v
     memoryResolveRoot: async () => ({ ok: false, status: 'disabled', relativeRoot: null }),
     terminalSpawn: async (sessionId: string) => ({ ok: true, sessionId }),
     logDiagnostic: async (input) => input,
-    readySprintEngineTask: async () => {
-      mutations.push('readySprintEngineTask')
-      return { ok: true }
-    },
     updateSprintEngineTask: async () => {
       mutations.push('updateSprintEngineTask')
       return { ok: true }
@@ -4363,7 +4333,6 @@ async function testSuperviseRunnerCycleDoesNotMutateTaskOrGateState(): Promise<v
     sprintEngineAutoState: {
       desiredMode: 'run_agents',
       runtimeState: 'running',
-      keepDoneAgentTerminals: false,
       cliPermissionPreset: 'default',
       maxConcurrentAgents: 3,
       pendingSpawns: [],

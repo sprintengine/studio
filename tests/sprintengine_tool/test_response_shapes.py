@@ -422,3 +422,311 @@ def test_claim_log_publish_cycle_stays_under_byte_budget(tmp_path) -> None:
     # old contract echoed it on every call. The new contract keeps the whole
     # cycle within a small fixed budget dominated by the rework prompt.
     assert total_bytes < 40_000, f"claim→log→publish cycle returned {total_bytes} bytes"
+
+
+def test_heartbeat_is_liveness_only_two_field_ack() -> None:
+    """Heartbeat can never observe a reassignment (the server compares the
+    roster record before/after a mutation that only refreshes heartbeatAt),
+    so the shaper must not pretend otherwise: two fields, no agent echo, no
+    assignment flags. Assignment state travels via dispatch.next/task.next."""
+    from sprintengine_mcp.response_shapes import _heartbeat_response
+
+    fat_agent = {
+        "role": "developer",
+        "status": "working",
+        "currentTaskId": "T1",
+        "currentDispatch": {"dispatchId": "d-1", "targetKind": "task", "taskId": "T1"},
+        "subscription": {"mode": "poll", "lastDispatchId": "d-0"},
+    }
+    known = _heartbeat_response({
+        "ok": True,
+        "known": True,
+        "agent": fat_agent,
+        "currentDispatch": fat_agent["currentDispatch"],
+        "assignmentUnchanged": {"status": True, "currentTaskId": True, "currentGateId": True, "currentDispatch": True},
+    })
+    assert known == {"ok": True, "known": True}
+
+    unknown = _heartbeat_response({"ok": True, "known": False, "agent": None, "previous": {}})
+    assert unknown == {"ok": True, "known": False}
+
+
+def test_dispatch_next_defaults_cursor_to_acked_subscription(tmp_path) -> None:
+    fixture = create_team(tmp_path, "shape-dispatch-cursor", [task("T1", "Cursor", "developer")])
+    server = make_server(tmp_path)
+    claimed = server.call_tool(
+        "sprintengine.task.next",
+        {"statePath": str(fixture.state_path), "role": "developer", "id": "dev-1"},
+        actor("dev-1", "developer"),
+    )
+    dispatch_id = claimed["result"]["currentDispatch"]["dispatchId"]
+    server.call_tool(
+        "sprintengine.dispatch.ack",
+        {"statePath": str(fixture.state_path), "agentId": "dev-1", "dispatchId": dispatch_id},
+        actor("dev-1", "developer"),
+    )
+
+    replay = server.call_tool(
+        "sprintengine.dispatch.next",
+        {"statePath": str(fixture.state_path), "agentId": "dev-1"},
+        actor("dev-1", "developer"),
+    )
+
+    # No explicit cursor, but the acked subscription cursor applies: the
+    # already-acknowledged record is not replayed. currentDispatch still
+    # reports the active assignment.
+    assert replay["ok"] is True
+    assert replay["result"]["dispatches"] == []
+    assert replay["result"]["currentDispatch"]["dispatchId"] == dispatch_id
+
+
+def test_dispatch_next_without_cursor_is_capped_to_record_stubs(tmp_path) -> None:
+    from sprintengine_mcp.response_shapes import DISPATCH_REPLAY_LIMIT
+
+    fixture = create_team(tmp_path, "shape-dispatch-cap", [task("T1", "Cap", "developer")])
+    total = DISPATCH_REPLAY_LIMIT + 5
+    rows = [
+        json.dumps({
+            "id": f"d-{index}",
+            "timestamp": f"2026-01-01T00:00:{index:02d}Z",
+            "agentId": "dev-1",
+            "role": "developer",
+            "target": {"kind": "task", "taskId": "T1"},
+            "reason": "task_claimed",
+            "state": {"taskStatus": None, "gateStatus": None},
+            "outcome": "dispatched",
+            "source": "core",
+        })
+        for index in range(total)
+    ]
+    (fixture.team_dir / "dispatch.jsonl").write_text("\n".join(rows) + "\n", encoding="utf-8")
+    server = make_server(tmp_path)
+
+    replay = server.call_tool(
+        "sprintengine.dispatch.next",
+        {"statePath": str(fixture.state_path), "agentId": "dev-1"},
+        actor("dev-1", "developer"),
+    )
+
+    result = replay["result"]
+    assert replay["ok"] is True
+    assert len(result["dispatches"]) == DISPATCH_REPLAY_LIMIT
+    assert result["truncated"] is True
+    assert result["totalCount"] == total
+    # Newest records win, and each is a stub: no agentId echo, no constant
+    # outcome/source fields, no null state sub-object.
+    assert result["dispatches"][-1]["dispatchId"] == f"d-{total - 1}"
+    newest = result["dispatches"][-1]
+    assert newest["targetKind"] == "task"
+    assert newest["taskId"] == "T1"
+    assert newest["reason"] == "task_claimed"
+    assert newest["assignedAt"] == f"2026-01-01T00:00:{total - 1:02d}Z"
+    assert "agentId" not in newest and "outcome" not in newest and "source" not in newest and "state" not in newest
+
+
+def test_subscribe_returns_subscription_ack_without_agent_echo(tmp_path) -> None:
+    fixture = create_team(tmp_path, "shape-subscribe", [task("T1", "Subscribe", "developer")])
+    server = make_server(tmp_path)
+
+    response = server.call_tool(
+        "sprintengine.subscribe",
+        {"statePath": str(fixture.state_path), "agentId": "dev-1", "transport": "poll"},
+        actor("dev-1", "developer"),
+    )
+
+    assert response["ok"] is True
+    assert set(response["result"].keys()) == {"ok", "subscription"}
+    assert response["result"]["subscription"]["mode"] == "poll"
+
+
+def test_idle_poll_cycle_stays_under_byte_budget(tmp_path) -> None:
+    """Size regression for the polling loop: one heartbeat + dispatch.next
+    cycle for a working agent with an acked dispatch must stay a small,
+    fixed-size delta — this is the highest-frequency payload in the system."""
+    fixture = create_team(tmp_path, "shape-poll-budget", [task("T1", "Poll", "developer")])
+    server = make_server(tmp_path)
+    claimed = server.call_tool(
+        "sprintengine.task.next",
+        {"statePath": str(fixture.state_path), "role": "developer", "id": "dev-1"},
+        actor("dev-1", "developer"),
+    )
+    dispatch_id = claimed["result"]["currentDispatch"]["dispatchId"]
+    server.call_tool(
+        "sprintengine.dispatch.ack",
+        {"statePath": str(fixture.state_path), "agentId": "dev-1", "dispatchId": dispatch_id},
+        actor("dev-1", "developer"),
+    )
+
+    heartbeat = server.call_tool(
+        "sprintengine.agent.heartbeat",
+        {"statePath": str(fixture.state_path), "agentId": "dev-1", "role": "developer"},
+        actor("dev-1", "developer"),
+    )
+    replay = server.call_tool(
+        "sprintengine.dispatch.next",
+        {"statePath": str(fixture.state_path), "agentId": "dev-1"},
+        actor("dev-1", "developer"),
+    )
+
+    cycle_bytes = len(json.dumps(heartbeat)) + len(json.dumps(replay))
+    assert cycle_bytes < 700, f"idle poll cycle returned {cycle_bytes} bytes"
+
+
+def test_over_limit_prose_flags_ack_and_truncates_on_cards(tmp_path) -> None:
+    """Evidence style nudge (MC-1445): an over-limit comment body is flagged
+    on the write ack, rides cards truncated, and stays full only in the
+    explicit deep read (`task.comment.list`)."""
+    record = task("T1", "Style", "developer", status="in_progress", owner="dev-1")
+    fixture = create_team(tmp_path, "shape-evidence-style", [record])
+    server = make_server(tmp_path)
+    long_body = "finding detail " * 80  # ~1200 chars, over CARD_TEXT_LIMIT
+
+    posted = server.call_tool(
+        "sprintengine.task.comment",
+        {
+            "statePath": str(fixture.state_path),
+            "taskId": "T1",
+            "id": "reviewer-1",
+            "body": long_body,
+            "commentType": "review_feedback",
+            "source": "agent",
+        },
+        actor("reviewer-1", "code_reviewer"),
+    )
+    assert posted["ok"] is True
+    # The comment ack carries the over-limit signal as bodyTruncated on the
+    # comment delta itself — no duplicate exceedsCardLimit flag.
+    assert "exceedsCardLimit" not in posted["result"]
+    ack_comment = posted["result"]["comment"]
+    assert ack_comment["bodyTruncated"] is True
+    assert len(ack_comment["body"]) <= CARD_TEXT_LIMIT
+
+    resumed = server.call_tool(
+        "sprintengine.task.next",
+        {"statePath": str(fixture.state_path), "role": "developer", "id": "dev-1"},
+        actor("dev-1", "developer"),
+    )
+    feedback = resumed["result"]["task"]["openFeedback"]
+    assert feedback and feedback[0]["bodyTruncated"] is True
+    assert len(feedback[0]["body"]) <= CARD_TEXT_LIMIT
+
+    listed = server.call_tool(
+        "sprintengine.task.comment.list",
+        {"statePath": str(fixture.state_path), "taskId": "T1"},
+        actor("dev-1", "developer"),
+    )
+    full_bodies = [comment["body"] for comment in listed["result"]["comments"]]
+    assert long_body.strip() in full_bodies
+
+
+def test_under_limit_prose_gets_no_advisory(tmp_path) -> None:
+    record = task("T1", "Style short", "developer", status="in_progress", owner="dev-1")
+    fixture = create_team(tmp_path, "shape-evidence-style-short", [record])
+    server = make_server(tmp_path)
+
+    logged = server.call_tool(
+        "sprintengine.task.log",
+        {"statePath": str(fixture.state_path), "taskId": "T1", "id": "dev-1", "summary": "Wired the adapter; tests green."},
+        actor("dev-1", "developer"),
+    )
+    assert logged["ok"] is True
+    assert "exceedsCardLimit" not in logged["result"]
+
+    long_logged = server.call_tool(
+        "sprintengine.task.log",
+        {"statePath": str(fixture.state_path), "taskId": "T1", "id": "dev-1", "summary": "step " * 200},
+        actor("dev-1", "developer"),
+    )
+    assert long_logged["ok"] is True
+    assert long_logged["result"]["exceedsCardLimit"] is True
+
+
+def test_dispatch_next_poisoned_cursor_falls_back_to_full_replay(tmp_path) -> None:
+    """A subscription cursor that no longer matches any ledger row (mistyped
+    ack, pruned dispatch.jsonl) must not blank the replay forever — the
+    filter falls back to the full (capped) history and self-heals."""
+    fixture = create_team(tmp_path, "shape-dispatch-poisoned", [task("T1", "Poisoned", "developer")])
+    server = make_server(tmp_path)
+    claimed = server.call_tool(
+        "sprintengine.task.next",
+        {"statePath": str(fixture.state_path), "role": "developer", "id": "dev-1"},
+        actor("dev-1", "developer"),
+    )
+    dispatch_id = claimed["result"]["currentDispatch"]["dispatchId"]
+    server.call_tool(
+        "sprintengine.dispatch.ack",
+        {"statePath": str(fixture.state_path), "agentId": "dev-1", "dispatchId": "DISP-does-not-exist"},
+        actor("dev-1", "developer"),
+    )
+
+    replay = server.call_tool(
+        "sprintengine.dispatch.next",
+        {"statePath": str(fixture.state_path), "agentId": "dev-1"},
+        actor("dev-1", "developer"),
+    )
+
+    assert replay["ok"] is True
+    assert [row["dispatchId"] for row in replay["result"]["dispatches"]] == [dispatch_id]
+
+    explicit = server.call_tool(
+        "sprintengine.dispatch.next",
+        {"statePath": str(fixture.state_path), "agentId": "dev-1", "lastDispatchId": "DISP-also-bogus"},
+        actor("dev-1", "developer"),
+    )
+    assert [row["dispatchId"] for row in explicit["result"]["dispatches"]] == [dispatch_id]
+
+
+def test_dispatch_ack_echoes_persisted_cursor_not_payload(tmp_path) -> None:
+    fixture = create_team(tmp_path, "shape-ack-persisted", [task("T1", "Ack", "developer")])
+    server = make_server(tmp_path)
+    claimed = server.call_tool(
+        "sprintengine.task.next",
+        {"statePath": str(fixture.state_path), "role": "developer", "id": "dev-1"},
+        actor("dev-1", "developer"),
+    )
+    dispatch_id = claimed["result"]["currentDispatch"]["dispatchId"]
+
+    ack = server.call_tool(
+        "sprintengine.dispatch.ack",
+        {"statePath": str(fixture.state_path), "agentId": "dev-1", "dispatchId": f"  {dispatch_id}  "},
+        actor("dev-1", "developer"),
+    )
+
+    # The ack reports the stripped cursor the server persisted, not the raw
+    # whitespace-padded payload value.
+    assert ack["result"] == {"ok": True, "dispatchId": dispatch_id, "outcome": "acknowledged"}
+    persisted = read_state(fixture.state_path)["agents"]["dev-1"]["subscription"]
+    assert persisted["lastDispatchId"] == dispatch_id
+
+
+def test_evidence_summary_truncates_on_cards_with_deep_read_intact(tmp_path) -> None:
+    """The task.log exceedsCardLimit advisory is only honest if cards really
+    do truncate evidence.summary; the full text stays on the evidence_log
+    deep read."""
+    record = task("T1", "Long summary", "developer", status="in_progress", owner="dev-1")
+    fixture = create_team(tmp_path, "shape-summary-trunc", [record])
+    server = make_server(tmp_path)
+    long_summary = "outcome detail " * 80  # ~1200 chars
+
+    logged = server.call_tool(
+        "sprintengine.task.log",
+        {"statePath": str(fixture.state_path), "taskId": "T1", "id": "dev-1", "summary": long_summary},
+        actor("dev-1", "developer"),
+    )
+    assert logged["result"]["exceedsCardLimit"] is True
+
+    card = server.call_tool(
+        "sprintengine.task.next",
+        {"statePath": str(fixture.state_path), "role": "developer", "id": "dev-1"},
+        actor("dev-1", "developer"),
+    )["result"]["task"]
+    assert len(card["evidence"]["summary"]) <= CARD_TEXT_LIMIT
+    assert card["evidence"]["summaryTruncated"] is True
+
+    deep = server.call_tool(
+        "sprintengine.task.get",
+        {"statePath": str(fixture.state_path), "taskId": "T1", "include": ["evidence_log"]},
+        actor("dev-1", "developer"),
+    )["result"]["task"]
+    assert long_summary.strip() in deep["evidence"]["summary"]
+    assert "summaryTruncated" not in deep["evidence"]

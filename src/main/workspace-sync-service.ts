@@ -273,7 +273,6 @@ function createRoutingPlaceholderWorkspace(id: WorkspaceId, name?: string, folde
     sprintEngineAutoState: {
       desiredMode: 'manual',
       runtimeState: 'idle',
-      keepDoneAgentTerminals: false,
       cliPermissionPreset: 'default',
       maxConcurrentAgents: 0,
       pendingSpawns: [],

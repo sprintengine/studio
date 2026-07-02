@@ -16,6 +16,7 @@ import {
   sprintEngineStatePathForBacklogLink,
   SPRINT_ENGINE_PR_LINK_ID,
 } from './sprintengineBacklogLinks'
+import { tearDownCompletedSprintRunAgents } from './sprintengineRunTeardown'
 
 export type SprintEngineProjectionRefreshCause = 'supervisor' | 'auto-run' | 'manual' | 'mutation'
 
@@ -37,6 +38,9 @@ export type SprintEngineProjectionRefreshPorts = {
     status?: 'completed'
   }): Promise<BacklogMutationResult>
   publishDiagnostic?(input: DiagnosticLogInput): Promise<unknown> | unknown
+  // Remove the completed run's agent panels (recording each resumable session
+  // first). Injected for testability; defaults to the real teardown.
+  tearDownCompletedRunAgents?(workspaceId: WorkspaceId): Promise<unknown> | unknown
   now?(): number
 }
 
@@ -51,6 +55,7 @@ function defaultSprintEngineProjectionRefreshPorts(): SprintEngineProjectionRefr
     readBacklogObjectStore: (workspaceRoot) => window.api.readBacklogObjectStore(workspaceRoot),
     addOrUpdateBacklogLink: (input) => window.api.addOrUpdateBacklogLink(input),
     publishDiagnostic: (input) => publishDiagnostic(input),
+    tearDownCompletedRunAgents: (workspaceId) => tearDownCompletedSprintRunAgents(workspaceId),
   }
 }
 
@@ -160,16 +165,30 @@ function reconcileCompletedRunLifecycle(
   ports: SprintEngineProjectionRefreshPorts,
 ): void {
   if (!state || !isCompletedSprintEngineRun(state)) return
-  if (workspace.sprintEngineAutoState?.runtimeState === 'complete') return
-  ports.applySprintEngineAutomationEvent?.(workspace.id, {
-    type: 'runner_complete',
-    message: 'All tasks are complete.',
-  })
+
+  // Fire the lifecycle transition once (the runtime-state gate keeps this from
+  // churning the store on every poll).
+  if (workspace.sprintEngineAutoState?.runtimeState !== 'complete') {
+    ports.applySprintEngineAutomationEvent?.(workspace.id, {
+      type: 'runner_complete',
+      message: 'All tasks are complete.',
+    })
+  }
+
+  // Remove the completed run's agent panels (recording each resumable session
+  // first). Gated on the snapshot still carrying sprint agents so a stably-
+  // finished run does not issue a terminal-list IPC on every poll; the teardown
+  // is itself idempotent. This owns completion teardown for every automation
+  // mode, including a run reopened after the app restarted.
+  const hasSprintAgents = Object.values(workspace.agents).some((agent) => agent.kind === 'sprintengine')
+  if (hasSprintAgents) {
+    void ports.tearDownCompletedRunAgents?.(workspace.id)
+  }
 }
 
 // Whether the projection poller can stop reading a workspace's projection.json.
-// A finished run is terminal — its projection won't change again — but two
-// conditions must both hold before we skip it:
+// A finished run is terminal — its projection won't change again — but three
+// conditions must all hold before we skip it:
 //   1. lifecycle `complete` (not raw task-completeness): a run that finished but
 //      is still stuck in `paused` must keep polling so `reconcileCompletedRun-
 //      Lifecycle` can self-heal it to `complete` first; the next tick skips it.
@@ -179,11 +198,21 @@ function reconcileCompletedRunLifecycle(
 //      restart still needs one read to populate the board and run summary.
 //      Skipping before that read strands the board on "workspace data is
 //      missing". Re-selecting an automation mode leaves `complete` and re-arms.
+//   3. no sprint agent panels remain: completion teardown runs inside the poll
+//      (`reconcileCompletedRunLifecycle`). The auto-run supervisor can flip
+//      runtimeState to `complete` before the poller ever ran teardown, so
+//      stopping on (1)+(2) alone would strand the agent panels until a later
+//      cold reopen. Keep polling until teardown has removed them; the poll is a
+//      cheap unchanged-projection read that still drives the reconcile.
 export function canStopPollingCompletedSprintEngineProjection(
-  workspace: Pick<Workspace, 'sprintEngineAutoState' | 'sprintEngineState'>,
+  workspace: Pick<Workspace, 'sprintEngineAutoState' | 'sprintEngineState'> & Partial<Pick<Workspace, 'agents'>>,
 ): boolean {
+  const hasSprintAgentPanels = Object.values(workspace.agents ?? {}).some(
+    (agent) => agent.kind === 'sprintengine',
+  )
   return workspace.sprintEngineAutoState?.runtimeState === 'complete'
     && Boolean(workspace.sprintEngineState)
+    && !hasSprintAgentPanels
 }
 
 function normalizedPathKey(path: string): string {

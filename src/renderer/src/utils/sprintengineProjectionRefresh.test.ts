@@ -105,6 +105,7 @@ function portsFor(input: {
   backlogMutationResult?: BacklogMutationResult
   diagnostics?: string[]
   automationEvents?: SprintEngineAutomationEvent[]
+  teardownCalls?: string[]
 }): SprintEngineProjectionRefreshPorts {
   return {
     readSprintEngineProjection: async (_statePath, knownToken) => {
@@ -130,6 +131,9 @@ function portsFor(input: {
     publishDiagnostic: (diagnostic) => {
       input.diagnostics?.push(diagnostic.message)
     },
+    tearDownCompletedRunAgents: (workspaceId) => {
+      input.teardownCalls?.push(workspaceId)
+    },
     now: () => 1000,
   }
 }
@@ -138,7 +142,6 @@ function autoState(runtimeState?: SprintEngineAutomationRuntimeState): SprintEng
   return {
     desiredMode: 'run_agents',
     runtimeState,
-    keepDoneAgentTerminals: false,
     cliPermissionPreset: 'default',
     maxConcurrentAgents: 1,
     pendingSpawns: [],
@@ -447,15 +450,67 @@ async function testBacklogRefreshFailureWarnsAndLeavesItemUnchanged(): Promise<v
   assert.equal(backlogMutations.length, 0)
 }
 
+function completedWorkspaceWithAgent(runtimeState: 'paused' | 'complete'): Workspace {
+  const base = completedWorkspace(runtimeState)
+  return {
+    ...base,
+    agents: {
+      architect: { id: 'architect', name: 'Architect', kind: 'sprintengine' },
+    },
+  } as unknown as Workspace
+}
+
+// A completed run that still has agent panels must tear them down — on every
+// automation state, including a run reopened as `complete`.
+async function testCompletedRunWithAgentsTearsDownPanels(): Promise<void> {
+  for (const runtimeState of ['paused', 'complete'] as const) {
+    const teardownCalls: string[] = []
+    const tokens = new Map([['workspace-1', 'tok-1']])
+    await refreshSprintEngineWorkspaceProjection({
+      workspace: completedWorkspaceWithAgent(runtimeState),
+      tokens,
+      cause: 'supervisor',
+      ports: portsFor({ applied: [], teardownCalls }),
+    })
+    assert.deepEqual(teardownCalls, ['workspace-1'], `teardown fires when runtimeState=${runtimeState}`)
+  }
+}
+
+// A completed run with no agent panels left issues no teardown (idempotent).
+async function testCompletedRunWithoutAgentsSkipsTeardown(): Promise<void> {
+  const teardownCalls: string[] = []
+  const tokens = new Map([['workspace-1', 'tok-1']])
+  await refreshSprintEngineWorkspaceProjection({
+    workspace: completedWorkspace('complete'),
+    tokens,
+    cause: 'supervisor',
+    ports: portsFor({ applied: [], teardownCalls }),
+  })
+  assert.deepEqual(teardownCalls, [], 'no teardown when no sprint agents remain')
+}
+
 function testCanStopPollingCompletedProjection(): void {
   const state = completedWorkspace('complete').sprintEngineState!
-  // Terminal + hydrated → safe to stop polling.
+  // Terminal + hydrated + no agent panels left → safe to stop polling.
   assert.equal(
     canStopPollingCompletedSprintEngineProjection({
       sprintEngineAutoState: autoState('complete'),
       sprintEngineState: state,
+      agents: {},
     }),
     true,
+  )
+  // Terminal + hydrated but agent panels still present → keep polling so the
+  // completion teardown (which runs inside the poll) can remove them. Guards the
+  // race where the auto-run supervisor flips runtimeState to `complete` before
+  // the poller ever ran teardown.
+  assert.equal(
+    canStopPollingCompletedSprintEngineProjection({
+      sprintEngineAutoState: autoState('complete'),
+      sprintEngineState: state,
+      agents: { architect: { id: 'architect', name: 'Architect', kind: 'sprintengine' } as never },
+    }),
+    false,
   )
   // Complete but not yet hydrated (cold run after restart) → keep polling so the
   // first read can populate the board/run summary.
@@ -506,5 +561,7 @@ await testMissingContextSkip()
 await testCompletedProjectionRefreshesMatchingBacklogLink()
 await testNonterminalProjectionDoesNotCompleteBacklogLink()
 await testBacklogRefreshFailureWarnsAndLeavesItemUnchanged()
+await testCompletedRunWithAgentsTearsDownPanels()
+await testCompletedRunWithoutAgentsSkipsTeardown()
 
 console.log('sprintengine projection refresh tests passed')

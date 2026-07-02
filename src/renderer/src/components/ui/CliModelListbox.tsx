@@ -103,12 +103,16 @@ export function CliModelPickerButton({
 // `mono` renders raw model ids (no friendly label) in the mono face. `note` is a
 // muted trailing annotation — used to flag a persisted model id that is no longer
 // in the CLI's model list, so it reads as deliberate rather than a normal choice.
+// `indent` marks the row as a model nested under its CLI header: the label is
+// indented to align under the header's label and the redundant repeated brand
+// icon is dropped, so models read as children of the CLI rather than peer CLIs.
 function CliModelRow({
   icon,
   label,
   selected,
   mono,
   note,
+  indent,
   onClick,
 }: {
   icon: AgentCli
@@ -116,6 +120,7 @@ function CliModelRow({
   selected: boolean
   mono?: boolean
   note?: string
+  indent?: boolean
   onClick: () => void
 }) {
   return (
@@ -124,7 +129,9 @@ function CliModelRow({
       role="option"
       aria-selected={selected}
       onClick={onClick}
-      className={`flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-[12px] transition-colors ${
+      className={`flex w-full items-center gap-2 rounded py-1.5 pr-2 text-left text-[12px] transition-colors ${
+        indent ? 'pl-8' : 'pl-2'
+      } ${
         mono ? 'font-mono text-[11px]' : ''
       } ${
         selected
@@ -132,7 +139,9 @@ function CliModelRow({
           : 'text-[color:var(--text-default)] hover:bg-[rgba(92,124,255,0.06)] hover:text-[color:var(--text-strong)]'
       }`}
     >
-      <CliIcon cli={icon} className="icon-sm shrink-0 text-[color:var(--text-muted)]" />
+      {indent ? null : (
+        <CliIcon cli={icon} className="icon-sm shrink-0 text-[color:var(--text-muted)]" />
+      )}
       <TruncatedText as="span" text={label} className="min-w-0 flex-1" />
       {note ? (
         <span className="shrink-0 font-sans text-[10px] text-[color:var(--text-muted)]">{note}</span>
@@ -142,14 +151,15 @@ function CliModelRow({
   )
 }
 
-// Flat runtime listbox shared by the top-bar spawn-row chip popovers (General
+// Runtime listbox shared by the top-bar spawn-row chip popovers (General
 // Agent, specialist rows, Multiloop roles) and the Sprint Engine roster runtime
-// pickers. Rendered as one shared flat list grouped by CLI with
-// whitespace between groups: each group leads with a bare CLI row — that CLI
-// with no `--model` flag, so it rides the CLI's own default — followed by one
-// row per model. Every row carries the CLI brand icon. Picking any row selects
-// the CLI and the model together in a single action; the bare row clears the
-// model (CLIs without a model catalog select the CLI as-is).
+// pickers. Grouped by CLI with whitespace between groups: each group leads with a
+// branded CLI header row — that CLI with no `--model` flag, so it rides the CLI's
+// own default — followed by one indented row per model. The header carries the
+// CLI brand icon; the model rows are indented under it with the redundant icon
+// dropped, so they read as children of the CLI rather than peer CLIs. Picking any
+// row selects the CLI and the model together in a single action; the header row
+// clears the model (CLIs without a model catalog select the CLI as-is).
 export function CliModelListbox({
   ariaLabel,
   options,
@@ -191,6 +201,7 @@ export function CliModelListbox({
                 icon={option.value}
                 label={model.label ?? model.id}
                 mono={!model.label}
+                indent
                 selected={option.value === currentCli && effectiveModel === model.id}
                 onClick={() => onSelectModel(option.value, model.id)}
               />
@@ -203,6 +214,7 @@ export function CliModelListbox({
                 icon={option.value}
                 label={effectiveModel}
                 mono
+                indent
                 selected
                 note="Not listed"
                 onClick={() => onSelectModel(option.value, effectiveModel)}

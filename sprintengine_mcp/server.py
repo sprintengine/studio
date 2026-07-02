@@ -525,19 +525,32 @@ class SprintEngineMcpServer:
         def run(state: dict[str, Any]) -> dict[str, Any]:
             agent = state.get("agents", {}).get(agent_id)
             current = agent.get("currentDispatch") if isinstance(agent, dict) else None
+            # Default the replay cursor to the agent's last acked dispatch so
+            # a caller that omits lastDispatchId gets the delta since its own
+            # ack instead of the run's full ledger history.
+            cursor = last_dispatch_id
+            if not cursor and isinstance(agent, dict):
+                subscription = agent.get("subscription")
+                if isinstance(subscription, dict):
+                    cursor = str(subscription.get("lastDispatchId") or "").strip()
             dispatches = [
                 record for record in folder_store.read_jsonl_file(state_path.parent / folder_store.DISPATCH_FILE)
                 if record.get("agentId") == agent_id
             ]
-            if last_dispatch_id:
+            if cursor:
                 seen = False
                 filtered = []
                 for record in dispatches:
                     if seen:
                         filtered.append(record)
-                    elif record.get("id") == last_dispatch_id:
+                    elif record.get("id") == cursor:
                         seen = True
-                dispatches = filtered
+                # A cursor absent from the agent's ledger rows (mistyped ack,
+                # pruned/recreated dispatch.jsonl) must not blank the replay
+                # forever: fall back to the full (shaper-capped) history so
+                # delivery self-heals instead of trusting a poisoned cursor.
+                if seen:
+                    dispatches = filtered
             return {
                 "ok": True,
                 "agentId": agent_id,

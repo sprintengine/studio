@@ -183,7 +183,6 @@ const v60SprintEnginePermissionState = {
       sprintEngineAutoState: {
         desiredMode: 'manual',
         runtimeState: 'idle',
-        keepDoneAgentTerminals: false,
         cliPermissionPreset: 'default',
         maxConcurrentAgents: 3,
         pendingSpawns: [],
@@ -228,7 +227,6 @@ const v52AutoRunState = {
         supervisorEnabled: true,
         enabled: true,
         autoApproveArtifacts: true,
-        keepDoneAgentTerminals: true,
         cliPermissionPreset: 'bypass_all',
         maxConcurrentAgents: 4,
         pendingSpawns: [{ taskId: 'T1', agentId: 'developer-1', startedAt: 1 }],
@@ -242,7 +240,6 @@ const migratedAutoRun = migratePersistedWorkspaceState(v52AutoRunState, 52) as {
     sprintEngineAutoState: {
       desiredMode: string
       runtimeState: string
-      keepDoneAgentTerminals: boolean
       cliPermissionPreset: string
       maxConcurrentAgents: number
       pendingSpawns: unknown[]
@@ -262,7 +259,6 @@ assert.equal(
 assert.equal(migratedAutoRun.workspaces[0].sprintEngineAutoState.desiredMode, 'run_agents_and_approve_artifacts')
 assert.equal(migratedAutoRun.workspaces[0].sprintEngineAutoState.runtimeState, 'running')
 assert.deepEqual(migratedAutoRun.workspaces[0].sprintEngineAutoState.pendingSpawns, [])
-assert.equal(migratedAutoRun.workspaces[0].sprintEngineAutoState.keepDoneAgentTerminals, true)
 assert.equal(migratedAutoRun.workspaces[0].sprintEngineAutoState.cliPermissionPreset, 'bypass_all')
 assert.equal(migratedAutoRun.workspaces[0].sprintEngineAutoState.maxConcurrentAgents, 4)
 assert.deepEqual(migratedAutoRun.workspaces[0].sprintEngineAutoState.deliveredAgentNotificationEventKeys, ['EVT-1'])

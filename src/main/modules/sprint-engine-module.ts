@@ -62,7 +62,6 @@ export const sprintEngineModule: CapabilityModule = {
     registerSprintEngineIpc(host.ipcMain, {
       openArtifact: artifacts.openArtifact,
       reviewArtifact: artifacts.reviewArtifact,
-      readyTask: artifacts.readyTask,
       initializeSprintEngineState: artifacts.initializeSprintEngineState,
       updateTask: artifacts.updateTask,
       createTask: artifacts.createTask,

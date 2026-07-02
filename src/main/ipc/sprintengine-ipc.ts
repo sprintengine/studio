@@ -28,11 +28,6 @@ export type SprintEngineArtifactReviewPayload = {
   feedback?: string
 }
 
-export type SprintEngineTaskReadyPayload = {
-  statePath: string
-  taskId: string
-}
-
 export type SprintEngineVcsPayload = {
   statePath: string
 }
@@ -54,7 +49,6 @@ type SprintEngineIpcDependencies = {
     action: SprintEngineArtifactReviewAction,
     mode: SprintEngineArtifactReviewMode
   ): Promise<SprintEngineArtifactCommandResult>
-  readyTask(payload: SprintEngineTaskReadyPayload): Promise<SprintEngineArtifactCommandResult>
   initializeSprintEngineState(payload: SprintEngineStateInitializeInput): Promise<SprintEngineArtifactCommandResult>
   updateTask(payload: SprintEngineTaskUpdateInput): Promise<SprintEngineArtifactCommandResult>
   createTask(payload: SprintEngineTaskCreateInput): Promise<SprintEngineArtifactCommandResult>
@@ -88,10 +82,6 @@ export function registerSprintEngineIpc(ipcMain: IpcMain, deps: SprintEngineIpcD
 
   ipcMain.handle('sprintengine:artifact:request-changes', async (_, payload: SprintEngineArtifactReviewPayload): Promise<SprintEngineArtifactCommandResult> => {
     return deps.reviewArtifact(payload, 'request-changes', 'user')
-  })
-
-  ipcMain.handle('sprintengine:task:ready', async (_, payload: SprintEngineTaskReadyPayload): Promise<SprintEngineArtifactCommandResult> => {
-    return deps.readyTask(payload)
   })
 
   ipcMain.handle('sprintengine:state:initialize', async (_, payload: SprintEngineStateInitializeInput): Promise<SprintEngineArtifactCommandResult> => {

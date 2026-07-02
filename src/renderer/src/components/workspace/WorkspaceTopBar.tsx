@@ -189,17 +189,17 @@ function sessionStatusMeta(item: SessionItem, now: number): string {
   switch (item.status) {
     case 'needs-input': {
       const rel = formatRelativeMs(item.activitySince, now)
-      return rel === 'now' ? 'Needs input' : `Needs input · waiting ${rel}`
+      return rel ? `Needs input · waiting ${rel}` : 'Needs input'
     }
     case 'working': {
       const rel = formatRelativeMs(item.activitySince, now)
-      return rel === 'now' ? 'Working' : `Working · ${rel}`
+      return rel ? `Working · ${rel}` : 'Working'
     }
     case 'failed':
       return `Exit ${item.exitCode ?? 1} · ${formatRelativeMsAgo(item.activitySince, now)}`
     case 'idle': {
       const rel = formatRelativeMs(item.lastActivityAt ?? item.activitySince, now)
-      return rel === 'now' ? 'idle' : `idle · ${rel}`
+      return rel ? `idle · ${rel}` : 'idle'
     }
   }
 }

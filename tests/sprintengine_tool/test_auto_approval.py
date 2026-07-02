@@ -399,7 +399,6 @@ def test_sprintengine_agent_prompts_do_not_continue_polling_after_claim() -> Non
         "MCP-native autonomous prompts must not embed `sprintengine join` CLI invocations."
     )
     assert "buildWorkerRespawnStartupPrompt" not in combined_source
-    assert "readySprintEngineTask" not in combined_source
 
 
 def test_electron_auto_run_clears_stale_spawn_state_before_retrying() -> None:
