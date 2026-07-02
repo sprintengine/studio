@@ -1,4 +1,8 @@
-import type { GuidedBriefRecordedDecision, SprintEngineSourceBundleItem } from '../types/workspace'
+import type {
+  DesignSystemSeedSource,
+  GuidedBriefRecordedDecision,
+  SprintEngineSourceBundleItem,
+} from '../types/workspace'
 
 export type GuidedBriefHasUi = 'yes' | 'no'
 
@@ -211,7 +215,10 @@ export function buildGuidedBriefIdeaSeedMarkdown(idea: string, hasUi: GuidedBrie
 // portable bundle at `design-system/`.
 export const DESIGN_SYSTEM_IDEA_SEED_RELATIVE_PATH = '.guided-brief/idea-seed.md'
 
-export function buildDesignSystemIdeaSeedMarkdown(idea: string): string {
+export function buildDesignSystemIdeaSeedMarkdown(
+  idea: string,
+  seedSource?: DesignSystemSeedSource | null,
+): string {
   const trimmedIdea = trimRequired(idea, 'missing-idea')
   return [
     '# Design System Goal',
@@ -220,22 +227,38 @@ export function buildDesignSystemIdeaSeedMarkdown(idea: string): string {
     '',
     trimmedIdea,
     '',
+    // The seed source is recorded here (app metadata, outside the portable
+    // bundle) so the choice survives on disk and stays visible to the user;
+    // the designer session's prompt carries the extraction instructions.
+    ...(seedSource
+      ? [
+          '## Seed Source',
+          '',
+          seedSource.kind === 'brand-demo'
+            ? '- Kind: built-in Multicode brand reference (demo)'
+            : '- Kind: existing product folder',
+          `- Path: \`${seedSource.path}\``,
+          '',
+        ]
+      : []),
   ].join('\n')
 }
 
 export async function scaffoldDesignSystemWorkspaceSeed({
   workspaceRoot,
   idea,
+  seedSource,
   filesystem,
 }: {
   workspaceRoot: string
   idea: string
+  seedSource?: DesignSystemSeedSource | null
   filesystem: GuidedBriefFilesystem
 }): Promise<{ ideaSeedPath: string }> {
   const root = trimRequired(workspaceRoot, 'missing-root')
   await filesystem.ensureDir(root, '.guided-brief')
   const ideaSeedPath = joinWorkspacePath(root, '.guided-brief', 'idea-seed.md')
-  await filesystem.writeFile(ideaSeedPath, buildDesignSystemIdeaSeedMarkdown(idea))
+  await filesystem.writeFile(ideaSeedPath, buildDesignSystemIdeaSeedMarkdown(idea, seedSource))
   return { ideaSeedPath }
 }
 

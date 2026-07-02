@@ -101,10 +101,16 @@ export type GuidedBriefDesignerSessionInput = {
   mockupPath?: string
   // Design-system preset: the same shared designer session (terminalSpawn
   // path, bypass_all preset) under a dedicated role prompt that authors the
-  // portable bundle instead of mockups.
+  // portable bundle instead of mockups. `seedSource` is present when the
+  // studio was started as "seed from an existing product" and makes the
+  // prompt's opening move the reviewed extraction of that source.
   designSystem?: {
     bundleDirectoryPath: string
     ideaSeedPath: string
+    seedSource?: {
+      kind: 'source-folder' | 'brand-demo'
+      path: string
+    }
   }
 }
 

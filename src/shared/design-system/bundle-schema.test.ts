@@ -179,6 +179,43 @@ run('mode-carrying tokens declare exactly light and dark, with light matching $v
   assert.ok(modeVaryingTokens.length > 0, 'example bundle must contain tokens that differ between light and dark')
 })
 
+run('a seeded starter output validates like from-scratch output', () => {
+  // Seed-from-existing-product (T10) marks every inferred semantic with
+  // `"seeded": true` inside the vendor extension until the user confirms it.
+  // The schema treats that as an ordinary extra vendor field: every invariant
+  // that holds for the from-scratch example holds unchanged for the seeded shape.
+  const seededJson = JSON.parse(JSON.stringify(tokensJson)) as Record<string, unknown>
+  const seededTokens: DtcgToken[] = []
+  collectTokens(seededJson, [], seededTokens)
+  let marked = 0
+  for (const token of seededTokens) {
+    if (!token.path.startsWith('sem.')) continue
+    const vendor = vendorExtension(token)
+    assert.ok(vendor, `${token.path}: semantic token missing vendor extension`)
+    vendor.seeded = true
+    marked += 1
+  }
+  assert.ok(marked > 0, 'seeded shape must mark at least one semantic token')
+  for (const token of seededTokens) {
+    assert.equal(typeof token.node.$type, 'string', `${token.path}: seeded token missing explicit $type`)
+    const description = token.node.$description
+    assert.ok(typeof description === 'string' && description.trim().length > 0, `${token.path}: seeded token missing $description`)
+    if (!token.path.startsWith('sem.')) continue
+    const vendor = vendorExtension(token)
+    assert.ok(typeof vendor?.role === 'string' && vendor.role.length > 0, `${token.path}: seeded token lost its semantic role`)
+    assert.ok(typeof vendor?.use === 'string' && vendor.use.length > 0, `${token.path}: seeded token lost its semantic use`)
+    assert.equal(vendor?.seeded, true, `${token.path}: seeded marker must survive alongside the semantics`)
+    const modes = vendor?.modes
+    if (typeof modes === 'object' && modes !== null) {
+      assert.deepEqual(
+        Object.keys(modes as Record<string, unknown>).sort(),
+        ['dark', 'light'],
+        `${token.path}: seeded shape must keep the light/dark mode convention`,
+      )
+    }
+  }
+})
+
 // --- Derived tokens.css --------------------------------------------------------
 
 run('tokens.css defines every token as a custom property and overrides mode-varying tokens in the dark block', () => {

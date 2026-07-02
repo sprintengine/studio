@@ -11,7 +11,14 @@ import type {
 } from './types'
 
 export class DesignSystemScaffoldError extends Error {
-  constructor(public readonly code: 'missing-folder' | 'missing-idea' | 'scaffold-failed' | 'unknown') {
+  constructor(
+    public readonly code:
+      | 'missing-folder'
+      | 'missing-idea'
+      | 'missing-seed-source'
+      | 'scaffold-failed'
+      | 'unknown',
+  ) {
     super(code)
     this.name = 'DesignSystemScaffoldError'
   }
@@ -33,6 +40,12 @@ export async function runDesignSystemScaffold(
 ): Promise<GuidedBriefScaffoldResult> {
   if (!input.folderPath) throw new DesignSystemScaffoldError('missing-folder')
   if (!input.idea.trim()) throw new DesignSystemScaffoldError('missing-idea')
+  // A seed entry with no resolved source path means the wizard let a
+  // half-picked seed through — fail loudly rather than silently starting blank.
+  const seedSource = input.seedSource ?? null
+  if (seedSource && !seedSource.path.trim()) {
+    throw new DesignSystemScaffoldError('missing-seed-source')
+  }
   const folderPath = input.folderPath
   const workspaceLabel =
     toTitleName(basename(folderPath)) || input.workspaceName.trim() || 'Design System'
@@ -48,6 +61,7 @@ export async function runDesignSystemScaffold(
     await scaffoldDesignSystemWorkspaceSeed({
       workspaceRoot: folderPath,
       idea: input.idea,
+      seedSource,
       filesystem: ports.filesystem,
     })
   } catch (error) {
@@ -65,6 +79,7 @@ export async function runDesignSystemScaffold(
       idea: input.idea,
       hasUi: 'yes',
       preset: 'design-system',
+      designSystemSeedSource: seedSource,
       wantsProductDiscussion: false,
       wantsArchitectureDiscussion: false,
       wantsFrontendDiscussion: true,

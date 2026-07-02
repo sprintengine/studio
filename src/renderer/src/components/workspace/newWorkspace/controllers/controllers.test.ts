@@ -749,6 +749,16 @@ async function testDesignSystemScaffoldValidationAndFailure(): Promise<void> {
     (error) => error instanceof DesignSystemScaffoldError && error.code === 'missing-idea',
     'missing-idea',
   )
+  // A seed entry whose source path never resolved fails loudly instead of
+  // silently degrading to a blank start.
+  await assert.rejects(
+    () => runDesignSystemScaffold(
+      { ...baseInput, folderPath: '/ds', seedSource: { kind: 'source-folder', path: '  ' } },
+      okPorts,
+    ),
+    (error) => error instanceof DesignSystemScaffoldError && error.code === 'missing-seed-source',
+    'missing-seed-source',
+  )
 
   // A failed bundle scaffold surfaces its real cause — no runtime state is
   // produced on top of a missing bundle.
@@ -819,6 +829,49 @@ async function testDesignSystemScaffoldHappyPath(): Promise<void> {
     !fs.files.has('/brand/product/build-handoff.md'),
     'design-system preset never writes a build handoff',
   )
+  assert.equal(
+    runtimeState.designSystemSeedSource,
+    null,
+    'blank start records no seed source',
+  )
+  assert.doesNotMatch(
+    fs.files.get('/brand/.guided-brief/idea-seed.md') ?? '',
+    /## Seed Source/,
+    'blank start writes no seed-source section',
+  )
+}
+
+async function testDesignSystemScaffoldSeeded(): Promise<void> {
+  const fs = createMemoryFilesystem()
+  const seedSource = { kind: 'brand-demo' as const, path: '/app/knowledge/brand' }
+  const { runtimeState } = await runDesignSystemScaffold(
+    {
+      folderPath: '/brand',
+      workspaceName: 'Brand System',
+      idea: 'Distill the Multicode brand into a portable system.',
+      seedSource,
+      guidedRoleCliDefaults: { product: 'claude-code', architect: 'claude-code', frontend: 'claude-code' },
+      buildRoleCounts: { architect: 1, product: 1, frontend: 1, developer: 1, code_reviewer: 1, spec_reviewer: 1, performance: 0, cross_platform: 0, tester: 1, security: 0 },
+      buildRoleCliDefaults: { architect: 'claude-code', product: 'claude-code', frontend: 'claude-code', developer: 'claude-code', code_reviewer: 'claude-code', spec_reviewer: 'claude-code', performance: 'claude-code', cross_platform: 'claude-code', tester: 'claude-code', security: 'claude-code' },
+      buildCliPermissionPreset: 'default',
+      buildStartRunner: false,
+      buildAutoApproveArtifacts: false,
+    },
+    {
+      filesystem: fs,
+      scaffoldBundle: async (workspaceRoot) => ({ ok: true, bundleDir: `${workspaceRoot}/design-system` }),
+    },
+  )
+
+  // Seeding only adds the seed source on top of the blank-start scaffold: the
+  // same bundle scaffold ran, the runtime state carries the source for the
+  // designer prompt, and the idea seed records the choice on disk.
+  assert.deepEqual(runtimeState.designSystemSeedSource, seedSource)
+  assert.equal(runtimeState.stage, 'designer-working')
+  const ideaSeed = fs.files.get('/brand/.guided-brief/idea-seed.md') ?? ''
+  assert.match(ideaSeed, /## Seed Source/)
+  assert.match(ideaSeed, /built-in Multicode brand reference/)
+  assert.match(ideaSeed, /\/app\/knowledge\/brand/)
 }
 
 async function testGuidedBriefStartBuildValidation(): Promise<void> {
@@ -1194,6 +1247,7 @@ async function main(): Promise<void> {
   await testGuidedBriefDesignPresetScaffold()
   await testDesignSystemScaffoldValidationAndFailure()
   await testDesignSystemScaffoldHappyPath()
+  await testDesignSystemScaffoldSeeded()
   await testGuidedBriefStartBuildValidation()
   await testGuidedBriefStartBuildHandoffPath()
   await testGuidedBriefStartBuildDesignPresetHandoff()

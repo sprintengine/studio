@@ -213,6 +213,9 @@ export type DesignSystemScaffoldControllerInput = {
   folderPath: string | null
   workspaceName: string
   idea: string
+  // Blank start when null/absent; otherwise the source the designer agent
+  // extracts the starter bundle from (see DesignSystemSeedSource).
+  seedSource?: import('../../../../types/workspace').DesignSystemSeedSource | null
   guidedRoleCliDefaults: import('../../../../types/workspace').GuidedBriefRoleCliDefaults
   buildRoleCounts: SprintEngineRoleCounts
   buildRoleCliDefaults: Required<SprintEngineRoleCliDefaults>

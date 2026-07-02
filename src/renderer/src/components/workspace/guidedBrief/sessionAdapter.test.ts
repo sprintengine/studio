@@ -104,6 +104,63 @@ assert.match(designSystemPrompt, /scripts\/build-tokens\.mjs/, 'design-system pr
 assert.match(designSystemPrompt, /one question at a time/, 'design-system prompt keeps the shared interview protocol')
 assert.match(designSystemPrompt, /\nDESIGN_SYSTEM_READY\n/, 'design-system prompt emits its own marker')
 assert.doesNotMatch(designSystemPrompt, /MOCKUP_SET_READY/, 'design-system prompt does not reuse the mockup marker')
+assert.doesNotMatch(designSystemPrompt, /seeded/, 'blank-start design-system prompt carries no seeding instructions')
+
+// Seed-from-existing-product: the prompt's opening move becomes a reviewed
+// extraction of the named source — DTCG tokens marked as inferred via the
+// vendor extension, copied glyphs, candidate components, both modes, and an
+// interview that confirms the inferred semantics with the user.
+const seededFolderPrompt = buildGuidedBriefSpecialistStartupPrompt({
+  kind: 'designer',
+  designSystem: {
+    bundleDirectoryPath: 'design-system',
+    ideaSeedPath: '.guided-brief/idea-seed.md',
+    seedSource: { kind: 'source-folder', path: '/repo/my-app' },
+  },
+})
+assert.match(seededFolderPrompt, /\/repo\/my-app/, 'seeded prompt names the source path')
+assert.match(seededFolderPrompt, /:root/, 'seeded prompt targets CSS custom-property blocks')
+assert.match(
+  seededFolderPrompt,
+  /"seeded": true/,
+  'seeded prompt marks inferred semantics in the vendor extension for review',
+)
+assert.match(
+  seededFolderPrompt,
+  /\$extensions\["com\.multicode"\]/,
+  'seeded prompt uses the bundle token metadata convention',
+)
+assert.match(
+  seededFolderPrompt,
+  /both light and dark mode values/,
+  'seeded prompt requires both mode sets',
+)
+assert.match(seededFolderPrompt, /glyphs\//, 'seeded prompt copies source glyphs into the bundle')
+assert.match(seededFolderPrompt, /candidate components/, 'seeded prompt drafts candidate components')
+assert.match(
+  seededFolderPrompt,
+  /walking the user through the inferred semantics/,
+  'seeded prompt confirms inferred semantics with the user',
+)
+assert.match(
+  seededFolderPrompt,
+  /not a silent import/,
+  'seeded prompt frames extraction as reviewed, not magic import',
+)
+assert.doesNotMatch(seededFolderPrompt, /Multicode brand reference/, 'folder seeding does not mention the demo source')
+
+const seededDemoPrompt = buildGuidedBriefSpecialistStartupPrompt({
+  kind: 'designer',
+  designSystem: {
+    bundleDirectoryPath: 'design-system',
+    ideaSeedPath: '.guided-brief/idea-seed.md',
+    seedSource: { kind: 'brand-demo', path: '/app/knowledge/brand' },
+  },
+})
+assert.match(seededDemoPrompt, /\/app\/knowledge\/brand/, 'demo seeding names the resolved demo path')
+assert.match(seededDemoPrompt, /Multicode brand reference/, 'demo seeding frames the built-in source')
+assert.match(seededDemoPrompt, /design-tokens\.md/, 'demo seeding points at the brand token tables')
+assert.match(seededDemoPrompt, /glyph-system\.md/, 'demo seeding points at the brand glyph language')
 
 const architectPrompt = buildGuidedBriefSpecialistStartupPrompt({
   kind: 'architect',

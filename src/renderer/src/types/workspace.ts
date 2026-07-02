@@ -1573,6 +1573,17 @@ export type GuidedBriefHasUi = 'yes' | 'no'
 // workspace mode rather than becoming their own `WorkspaceMode`.
 export type GuidedBriefPreset = 'full-brief' | 'frontend-design' | 'design-system'
 
+// Where a design-system studio starts. `null`/absent is the blank scaffold;
+// otherwise the designer agent's opening move is extracting the de-facto
+// design language from the named source (a user-picked product folder, or the
+// built-in Multicode brand reference resolved by the main process). The path
+// is machine-local by design — it is read live by the designer session on this
+// machine and never travels inside the portable bundle.
+export type DesignSystemSeedSource = {
+  kind: 'source-folder' | 'brand-demo'
+  path: string
+}
+
 export type GuidedBriefRoleCliDefaults = {
   product: AgentCli
   architect: AgentCli
@@ -1640,6 +1651,10 @@ export type GuidedBriefRuntimeState = {
   // role + question id. Absent on legacy states; normalization defaults it
   // to an empty array.
   guidedDecisions?: GuidedBriefRecordedDecision[]
+  // Design-system preset only: the source the studio was seeded from, carried
+  // into the designer session's opening prompt. Absent/null on legacy states
+  // and on blank-start studios; always null for the other presets.
+  designSystemSeedSource?: DesignSystemSeedSource | null
   // Persisted so the renderer reattaches to the same PTY across HMR / refresh
   // instead of spawning a fresh strategist, architect, or designer.
   strategistSessionId: string | null

@@ -136,6 +136,52 @@ assert.equal(
   designSystemPreset.activeDesignArtifactPath,
   'design-system/foundations/principles.md',
 )
+assert.equal(
+  designSystemPreset.designSystemSeedSource,
+  null,
+  'legacy design-system state without a seed source normalizes to blank start',
+)
+
+// A whole seed source round-trips on the design-system preset; malformed ones
+// (unknown kind, empty path) and seed sources on other presets normalize to null.
+const seededDesignSystem = normalizeGuidedBriefState({
+  workspaceRoot: '/repo/system',
+  workspaceName: 'Brand system',
+  idea: 'A warm editorial design system',
+  hasUi: 'yes',
+  preset: 'design-system',
+  stage: 'designer-working',
+  designSystemSeedSource: { kind: 'brand-demo', path: '/app/knowledge/brand' },
+})
+assert.ok(seededDesignSystem)
+assert.deepEqual(seededDesignSystem.designSystemSeedSource, {
+  kind: 'brand-demo',
+  path: '/app/knowledge/brand',
+})
+const malformedSeed = normalizeGuidedBriefState({
+  workspaceRoot: '/repo/system',
+  workspaceName: 'Brand system',
+  idea: 'A warm editorial design system',
+  hasUi: 'yes',
+  preset: 'design-system',
+  designSystemSeedSource: { kind: 'figma', path: '   ' },
+})
+assert.ok(malformedSeed)
+assert.equal(malformedSeed.designSystemSeedSource, null, 'malformed seed source normalizes to blank start')
+const seedOnOtherPreset = normalizeGuidedBriefState({
+  workspaceRoot: '/repo/design',
+  workspaceName: 'Design studio',
+  idea: 'A calm onboarding flow',
+  hasUi: 'yes',
+  preset: 'frontend-design',
+  designSystemSeedSource: { kind: 'source-folder', path: '/repo/app' },
+})
+assert.ok(seedOnOtherPreset)
+assert.equal(
+  seedOnOtherPreset.designSystemSeedSource,
+  null,
+  'a seed source persisted on a non-design-system preset is dropped',
+)
 
 const bogusPreset = normalizeGuidedBriefState({
   workspaceRoot: '/repo/bogus',

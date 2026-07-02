@@ -1,5 +1,6 @@
 import type { IJsonModel } from 'flexlayout-react'
 import type {
+  DesignSystemSeedSource,
   GuidedBriefPreset,
   GuidedBriefRecordedDecision,
   GuidedBriefRuntimeState,
@@ -172,6 +173,21 @@ function normalizeGuidedBriefAcceptedArtifact(
   }
 }
 
+// Seed source survives only when it is structurally whole (known kind +
+// non-empty path); anything else normalizes to null, i.e. a blank start.
+function normalizeDesignSystemSeedSource(input: unknown): DesignSystemSeedSource | null {
+  if (!input || typeof input !== 'object') return null
+  const candidate = input as Partial<DesignSystemSeedSource>
+  if (
+    (candidate.kind !== 'source-folder' && candidate.kind !== 'brand-demo')
+    || typeof candidate.path !== 'string'
+    || !candidate.path.trim()
+  ) {
+    return null
+  }
+  return { kind: candidate.kind, path: candidate.path }
+}
+
 function normalizeGuidedBriefDecisions(input: unknown): GuidedBriefRecordedDecision[] {
   if (!Array.isArray(input)) return []
   const decisions: GuidedBriefRecordedDecision[] = []
@@ -289,6 +305,11 @@ export function normalizeGuidedBriefState(input: unknown): GuidedBriefRuntimeSta
     activeDesignArtifactPath:
       typeof candidate.activeDesignArtifactPath === 'string' ? candidate.activeDesignArtifactPath : null,
     guidedDecisions: normalizeGuidedBriefDecisions(candidate.guidedDecisions),
+    // Only the design-system preset seeds; a seed source persisted on another
+    // preset (or a malformed one) normalizes back to blank-start.
+    designSystemSeedSource: preset === 'design-system'
+      ? normalizeDesignSystemSeedSource(candidate.designSystemSeedSource)
+      : null,
     strategistSessionId:
       typeof candidate.strategistSessionId === 'string' && candidate.strategistSessionId.trim()
         ? candidate.strategistSessionId

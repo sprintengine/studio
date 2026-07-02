@@ -170,6 +170,7 @@ export function GuidedBriefFlow({
       runtimeState.wantsFrontendDiscussion &&
       inDesignerStage,
     designSystem: runtimeState.preset === 'design-system',
+    designSystemSeedSource: runtimeState.designSystemSeedSource ?? null,
     sessionId: runtimeState.designerSessionId,
     onAssignSessionId: (id) => {
       updateRuntimeState((prev) =>

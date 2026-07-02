@@ -10,6 +10,7 @@ import { AUTOMATIONS_HOST_WORKSPACE_MODE } from '../../types/workspace'
 import type {
   AgentCli,
   AgentId,
+  DesignSystemSeedSource,
   FuturePlanWorkspaceSource,
   LayoutTemplate,
   McpCatalogServer,
@@ -537,6 +538,35 @@ export default function NewWorkspacePanel({
   const [guidedRuntimeState, setGuidedRuntimeState] = useState<GuidedBriefRuntimeState | null>(null)
   const [viewingIdeaAfterCommit, setViewingIdeaAfterCommit] = useState(false)
   const [closeConfirmation, setCloseConfirmation] = useState(false)
+  // Design-system preset starting point: blank scaffold, seed from a
+  // user-picked product folder, or seed from the built-in brand demo.
+  const [guidedSeedMode, setGuidedSeedMode] = useState<DesignSystemSeedMode>('blank')
+  const [guidedSeedFolderPath, setGuidedSeedFolderPath] = useState<string | null>(null)
+  // null = not resolved yet; the demo card is disabled (with the cause as its
+  // body copy) when the running build does not carry the demo source.
+  const [guidedBrandDemo, setGuidedBrandDemo] = useState<
+    { ok: true; path: string } | { ok: false; message: string } | null
+  >(null)
+
+  // Resolve the brand-demo source lazily, the first time the design-system
+  // preset is selected, so the other presets never pay the IPC.
+  useEffect(() => {
+    if (guidedPreset !== 'design-system' || guidedBrandDemo != null) return
+    let cancelled = false
+    window.api
+      .resolveDesignSystemBrandDemoSeed()
+      .then((result) => {
+        if (!cancelled) setGuidedBrandDemo(result)
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setGuidedBrandDemo({ ok: false, message: 'The built-in brand demo source could not be resolved.' })
+        }
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [guidedPreset, guidedBrandDemo])
 
   const appCliRuntimes = useWorkspaceStore((s) => s.appSettings.cliRuntimes)
   const pluginCatalogEntries = useWorkspaceStore((s) => s.pluginCatalogEntries)
@@ -1060,7 +1090,19 @@ export default function NewWorkspacePanel({
     sprintEngineAccess.allowed
     && (seExistingTeam != null
       || (totalAgents > 0 && sprintEngineRosterHasPlanningRole(visibleSprintEngineRoleCounts)))
-  const guidedIdeaReady = guidedIdea.trim().length > 0 && guidedHasUi != null
+  // The resolved seed source for the design-system preset. Null means blank
+  // start — either chosen deliberately, or because a seed mode is selected but
+  // its source is not resolved yet (folder not picked / demo unavailable), in
+  // which case `guidedSeedReady` blocks Continue instead of silently starting blank.
+  const guidedSeedSource: DesignSystemSeedSource | null =
+    guidedPreset === 'design-system' && guidedSeedMode === 'source-folder' && guidedSeedFolderPath
+      ? { kind: 'source-folder', path: guidedSeedFolderPath }
+      : guidedPreset === 'design-system' && guidedSeedMode === 'brand-demo' && guidedBrandDemo?.ok
+        ? { kind: 'brand-demo', path: guidedBrandDemo.path }
+        : null
+  const guidedSeedReady =
+    guidedPreset !== 'design-system' || guidedSeedMode === 'blank' || guidedSeedSource != null
+  const guidedIdeaReady = guidedIdea.trim().length > 0 && guidedHasUi != null && guidedSeedReady
 
   const canAdvanceFromCurrent = isStepReady(step, {
     workspaceStepReady,
@@ -1085,6 +1127,8 @@ export default function NewWorkspacePanel({
     totalAgents,
     guidedIdea,
     guidedHasUi,
+    guidedSeedMode,
+    guidedSeedReady,
     committedKnowledgeRoot,
   })
 
@@ -1379,6 +1423,14 @@ export default function NewWorkspacePanel({
     [seEffectiveSpawnAtStartRoles],
   )
 
+  const handleChooseGuidedSeedFolder = async () => {
+    const dir = await window.api.openDir()
+    if (!dir) return
+    setGuidedSeedFolderPath(dir)
+    setGuidedSeedMode('source-folder')
+    setGuidedError(null)
+  }
+
   // The design-only presets (Design only, Design system) force the studio
   // path: a screen is implied, the product and architecture discussions are
   // off, and the frontend discussion is on. Switching back to the full brief
@@ -1510,6 +1562,7 @@ export default function NewWorkspacePanel({
                 folderPath,
                 workspaceName: name,
                 idea: guidedIdea,
+                seedSource: guidedSeedSource,
                 guidedRoleCliDefaults,
                 buildRoleCounts,
                 buildRoleCliDefaults: seRoleCliDefaults,
@@ -2192,6 +2245,14 @@ export default function NewWorkspacePanel({
                 if (value === 'yes') setGuidedWantsFrontend(true)
                 setGuidedError(null)
               }}
+              seedMode={guidedSeedMode}
+              onChangeSeedMode={(value) => {
+                setGuidedSeedMode(value)
+                setGuidedError(null)
+              }}
+              seedFolderPath={guidedSeedFolderPath}
+              onChooseSeedFolder={() => void handleChooseGuidedSeedFolder()}
+              brandDemo={guidedBrandDemo}
               wantsProductDiscussion={guidedWantsProduct}
               wantsArchitectureDiscussion={guidedWantsArchitecture}
               wantsFrontendDiscussion={guidedWantsFrontend}
@@ -2989,6 +3050,11 @@ type GuidedPresetCopy = {
 
 const GUIDED_PRESET_ORDER: GuidedBriefPreset[] = ['full-brief', 'frontend-design', 'design-system']
 
+// Starting-point choice for the design-system preset. 'blank' scaffolds the
+// empty bundle; the seed modes make the designer's opening move a reviewed
+// extraction from an existing source (see DesignSystemSeedSource).
+type DesignSystemSeedMode = 'blank' | 'source-folder' | 'brand-demo'
+
 const GUIDED_PRESET_COPY: Record<GuidedBriefPreset, GuidedPresetCopy> = {
   'full-brief': {
     cardTitle: 'Plan & design',
@@ -3052,6 +3118,11 @@ function GuidedIdeaStep({
   hasUi,
   onChangeIdea,
   onChangeHasUi,
+  seedMode,
+  onChangeSeedMode,
+  seedFolderPath,
+  onChooseSeedFolder,
+  brandDemo,
   wantsProductDiscussion,
   wantsArchitectureDiscussion,
   wantsFrontendDiscussion,
@@ -3070,6 +3141,11 @@ function GuidedIdeaStep({
   hasUi: GuidedBriefHasUi | null
   onChangeIdea: (value: string) => void
   onChangeHasUi: (value: GuidedBriefHasUi) => void
+  seedMode: DesignSystemSeedMode
+  onChangeSeedMode: (value: DesignSystemSeedMode) => void
+  seedFolderPath: string | null
+  onChooseSeedFolder: () => void
+  brandDemo: { ok: true; path: string } | { ok: false; message: string } | null
   wantsProductDiscussion: boolean
   wantsArchitectureDiscussion: boolean
   wantsFrontendDiscussion: boolean
@@ -3099,6 +3175,64 @@ function GuidedIdeaStep({
           ))}
         </div>
       </div>
+
+      {preset === 'design-system' ? (
+        <div className="flex flex-col gap-2">
+          <FieldLabel>Starting point</FieldLabel>
+          <div role="radiogroup" aria-label="Design system starting point" className="grid grid-cols-3 gap-2.5">
+            <GuidedChoiceCard
+              active={seedMode === 'blank'}
+              title="Start blank"
+              body="Author the system from scratch in the studio."
+              onSelect={() => onChangeSeedMode('blank')}
+            />
+            <GuidedChoiceCard
+              active={seedMode === 'source-folder'}
+              title="Seed from a product"
+              body="The designer extracts a repo's de-facto tokens, glyphs, and components for review."
+              onSelect={() => onChangeSeedMode('source-folder')}
+            />
+            <GuidedChoiceCard
+              active={seedMode === 'brand-demo'}
+              title="Multicode brand demo"
+              body={
+                brandDemo == null
+                  ? 'Checking availability…'
+                  : brandDemo.ok
+                    ? 'Seed from the built-in Multicode brand reference.'
+                    : brandDemo.message
+              }
+              disabled={brandDemo == null || !brandDemo.ok}
+              onSelect={() => onChangeSeedMode('brand-demo')}
+            />
+          </div>
+          {seedMode === 'source-folder' ? (
+            <>
+              <div className="flex items-center gap-3">
+                <span
+                  className={`min-w-0 flex-1 truncate rounded-md border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] px-3 py-2 font-mono text-[12px] leading-5 ${
+                    seedFolderPath
+                      ? 'text-[color:var(--text-default)]'
+                      : 'text-[color:var(--text-disabled)]'
+                  }`}
+                >
+                  {seedFolderPath ?? 'No source folder chosen'}
+                </span>
+                <GhostButton
+                  size="md"
+                  onClick={onChooseSeedFolder}
+                  className="shrink-0 border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] text-[color:var(--text-default)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]"
+                >
+                  Choose…
+                </GhostButton>
+              </div>
+              <span className="text-[12px] leading-5 text-[color:var(--text-muted)]">
+                The designer reads this folder's stylesheets and assets, then drafts tokens, glyphs, and components for your review — nothing lands unreviewed.
+              </span>
+            </>
+          ) : null}
+        </div>
+      ) : null}
 
       <label className="flex flex-col gap-2">
         <FieldLabel>{copy.ideaLabel}</FieldLabel>
@@ -3266,24 +3400,31 @@ function GuidedChoiceCard({
   title,
   body,
   onSelect,
+  disabled = false,
 }: {
   active: boolean
   title: string
   body: string
   onSelect: () => void
+  // Renders the option unavailable (the body copy should carry the cause).
+  disabled?: boolean
 }) {
   return (
     <button
       type="button"
       role="radio"
       aria-checked={active}
+      disabled={disabled}
       onClick={onSelect}
       className={`
         relative flex h-[88px] w-full flex-col items-start gap-1.5 overflow-hidden rounded-md border p-3 text-left
         transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--accent-primary)]
+        disabled:cursor-not-allowed disabled:opacity-55
         ${active
           ? 'border-[color:var(--accent-primary-soft-strong)] bg-[color:var(--accent-primary-soft)]'
-          : 'border-[color:var(--bg-selected)] bg-[color:var(--bg-surface)] hover:border-[color:var(--color-5)] hover:bg-[color:var(--bg-surface-raised)]'}
+          : disabled
+            ? 'border-[color:var(--bg-selected)] bg-[color:var(--bg-surface)]'
+            : 'border-[color:var(--bg-selected)] bg-[color:var(--bg-surface)] hover:border-[color:var(--color-5)] hover:bg-[color:var(--bg-surface-raised)]'}
       `}
     >
       <span
@@ -3997,6 +4138,8 @@ function getStepBlockingMessage(args: {
   totalAgents: number
   guidedIdea: string
   guidedHasUi: GuidedBriefHasUi | null
+  guidedSeedMode: DesignSystemSeedMode
+  guidedSeedReady: boolean
   committedKnowledgeRoot: string | null
 }): string {
   const {
@@ -4013,6 +4156,8 @@ function getStepBlockingMessage(args: {
     totalAgents,
     guidedIdea,
     guidedHasUi,
+    guidedSeedMode,
+    guidedSeedReady,
     committedKnowledgeRoot,
   } = args
 
@@ -4053,6 +4198,11 @@ function getStepBlockingMessage(args: {
     case 'guided-idea':
       if (!guidedIdea.trim()) return 'Describe the idea in a sentence or two.'
       if (guidedHasUi == null) return 'Pick whether the app has a screen.'
+      if (!guidedSeedReady) {
+        return guidedSeedMode === 'source-folder'
+          ? 'Choose the folder to seed from.'
+          : 'The brand demo is unavailable — pick another starting point.'
+      }
       return 'Ready to capture the idea.'
   }
 }

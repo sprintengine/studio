@@ -1,4 +1,5 @@
 import type {
+  DesignSystemSeedSource,
   GuidedBriefHasUi,
   GuidedBriefPreset,
   GuidedBriefRoleCliDefaults,
@@ -32,6 +33,9 @@ export type InitialGuidedBriefRuntimeStateInput = {
   buildCliPermissionPreset: SprintEngineCliPermissionPreset
   buildStartRunner: boolean
   buildAutoApproveArtifacts: boolean
+  // Design-system preset only; the other preset controllers leave it unset
+  // and the runtime state records null (blank start).
+  designSystemSeedSource?: DesignSystemSeedSource | null
 }
 
 /**
@@ -44,6 +48,7 @@ export function buildInitialGuidedBriefRuntimeState(
 ): GuidedBriefRuntimeState {
   return {
     ...input,
+    designSystemSeedSource: input.designSystemSeedSource ?? null,
     acceptedProductBrief: null,
     acceptedArchitecturePlan: null,
     acceptedUiDirection: null,

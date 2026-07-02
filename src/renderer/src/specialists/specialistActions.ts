@@ -318,6 +318,13 @@ export type GuidedBriefSpecialistPromptInput =
       designSystem?: {
         bundleDirectoryPath: string
         ideaSeedPath: string
+        // Present when the studio was started as "seed from an existing
+        // product": the agent's opening move is extracting the source's
+        // de-facto design language into a starter bundle for review.
+        seedSource?: {
+          kind: 'source-folder' | 'brand-demo'
+          path: string
+        }
       }
     }
 
@@ -415,7 +422,26 @@ export function buildGuidedBriefSpecialistStartupPrompt(input: GuidedBriefSpecia
     const marker = input.marker ?? 'DESIGN_SYSTEM_READY'
     const bundle = input.designSystem.bundleDirectoryPath
     const ideaSeedPath = input.designSystem.ideaSeedPath
+    const seedSource = input.designSystem.seedSource
     const inspirationDirectoryPath = input.inspirationDirectoryPath ?? '.guided-brief/inspiration'
+
+    // Seed-from-existing-product opening move. The extraction is a reviewed
+    // draft, never a silent import: inferred semantics carry a `"seeded"`
+    // marker in the vendor extension and the interview opens by confirming
+    // them with the user (that metadata is what makes the system agent-usable
+    // downstream). v1 source scope per the epic: CSS custom properties /
+    // documented token values + glyphs + obvious components only.
+    const seedSourceLines = seedSource
+      ? [
+          seedSource.kind === 'brand-demo'
+            ? `This studio was seeded from the built-in Multicode brand reference at \`${seedSource.path}\`. Treat it as the existing product being distilled into a design system: its token values live in Markdown tables (\`design-tokens.md\`, \`workspace-themes.md\`), its glyph language in \`glyph-system.md\`, its principles in \`aesthetic-north-star.md\`, and its logo/icon SVGs in \`multicode-assets/\`.`
+            : `This studio was seeded from an existing product at \`${seedSource.path}\`. Extract its de-facto design language instead of starting blank.`,
+          'Before the first interview question, inspect the source and author a starter bundle from what is actually there: CSS custom properties (`:root` blocks and stylesheet files), documented token values, SVG glyphs, and the obvious repeated components (button, input, card). Extract only values the source contains — do not invent.',
+          `Write the extraction as real files: reference and semantic DTCG tokens in \`${bundle}/foundations/tokens.tokens.json\` with both light and dark mode values (when the source defines only one mode, derive the other conservatively and flag it for review), the source's glyphs copied into \`${bundle}/glyphs/\` (one concept per file, fills converted to currentColor), and the two or three strongest candidate components under \`${bundle}/components/\`.`,
+          'Every semantic meaning you infer — a token\'s role, use, or doNotUse — is a proposal until the user confirms it. Mark each inferred token by setting `"seeded": true` inside its `$extensions["com.multicode"]` metadata.',
+          'Then open the interview by walking the user through the inferred semantics group by group (color, type, spacing, radius; then glyphs and candidate components): confirm or correct each, remove the `"seeded"` flag once the user confirms it, and say what you skipped in the source and why. This is a reviewed extraction, not a silent import.',
+        ]
+      : []
 
     return [
       'You are the design-system designer for this workspace: a senior design engineer who turns a brand direction into a portable, agent-usable design system bundle. This prompt is your role, judgment, and quality bar — it replaces the shared designer Soul; do not fetch one.',
@@ -423,6 +449,7 @@ export function buildGuidedBriefSpecialistStartupPrompt(input: GuidedBriefSpecia
       `Read the design goal at \`${ideaSeedPath}\` before asking follow-up questions.`,
       `Read \`${bundle}/USAGE.md\` before authoring anything — it is the bundle's consume-and-contribute contract, and every contribution you make must follow it: the naming grammar in \`${bundle}/design-system.json\`, full semantic metadata on tokens, the per-component template, and the lint gate.`,
       `If the user has dropped inspiration files into \`${inspirationDirectoryPath}\`, read them through the existing CLI image-input path before drafting.`,
+      ...seedSourceLines,
       ...guidedBriefInterviewInstructions('design-system designer'),
       `Author the system as real files inside \`${bundle}/\`, walking it in this order with the user: design rules and principles (\`foundations/principles.md\`), design tokens (\`foundations/tokens.tokens.json\` — two tiers \`ref\`/\`sem\`, explicit \`$type\` and \`$description\` on every token, \`sem.*\` tokens carrying role/use metadata and light+dark modes as USAGE.md specifies), glyphs (\`glyphs/*.svg\`, one concept per file, currentColor), an open-ended component set (\`components/<name>/\` with component.html, component.css, component.md), and exemplar patterns (\`patterns/*.html\`).`,
       `Register every authored piece in \`${bundle}/design-system.json\` under \`contents\` as you go.`,

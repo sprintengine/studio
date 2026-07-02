@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import type { AgentCli, CliRuntimeSettings } from '../../../../../shared/electron-api'
-import type { GuidedBriefRuntimeState } from '../../../types/workspace'
+import type { DesignSystemSeedSource, GuidedBriefRuntimeState } from '../../../types/workspace'
 import {
   createGuidedBriefSessionId,
   startGuidedBriefSpecialistSession,
@@ -79,6 +79,9 @@ export type UseDesignerSessionInput = {
   // dedicated role prompt, and the artifact index/watchers cover the
   // `design-system/` tree instead of `product/ui-direction.md`.
   designSystem?: boolean
+  // Seed-from-existing-product source for the design-system preset; shapes
+  // the designer prompt's opening move. Ignored when designSystem is false.
+  designSystemSeedSource?: DesignSystemSeedSource | null
   // Persisted PTY id (survives renderer HMR / reload). When provided, the main
   // process reattaches to the existing session and replays its buffer.
   sessionId: string | null
@@ -124,6 +127,7 @@ export function useDesignerSession({
   cliRuntimes,
   enabled,
   designSystem = false,
+  designSystemSeedSource = null,
   sessionId,
   onAssignSessionId,
 }: UseDesignerSessionInput): UseDesignerSessionResult {
@@ -184,6 +188,7 @@ export function useDesignerSession({
               designSystem: {
                 bundleDirectoryPath: DESIGN_SYSTEM_BUNDLE_DIRECTORY_NAME,
                 ideaSeedPath: DESIGN_SYSTEM_IDEA_SEED_RELATIVE_PATH,
+                ...(designSystemSeedSource ? { seedSource: designSystemSeedSource } : {}),
               },
             }
           : {}),
