@@ -194,8 +194,8 @@ function AttachChoiceRow({
       `}
     >
       <span
-        className={`min-w-0 max-w-full truncate text-[12px] font-semibold text-[color:var(--text-strong)] ${
-          titleMono ? 'font-mono font-medium' : ''
+        className={`min-w-0 max-w-full truncate text-[12px] text-[color:var(--text-strong)] ${
+          titleMono ? 'font-mono font-medium' : 'font-semibold'
         }`}
       >
         {title}
