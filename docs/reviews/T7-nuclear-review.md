@@ -1,4 +1,32 @@
-# T7 Nuclear Review — "Save as design system" completion action (gate: nuclear_reviewer, GA-001)
+# T7 Nuclear Review — "Save as design system" completion action (gate: nuclear_reviewer)
+
+## GA-002 addendum — rework verified, approved
+
+Rework commit `aecf80d1` resolves both C2 required actions; verified against the diff, not the
+claims:
+
+1. `releaseDesignSystemBundle` now delegates its lint gate to `runDesignSystemBundleLint`
+   (`library-registry.ts:122-136`): the duplicated fork block and the dead `BUNDLE_LINT_SCRIPT`
+   const are gone (−13 net lines), only the release-specific findings copy stays in the
+   `stage: 'lint'` mapping, and the misconfiguration/missing-script messages pass through from the
+   single implementation. The lint exit contract now exists exactly once, so the studio preview
+   and the release gate structurally cannot drift.
+2. `GuidedBriefStartBuildError` gains a dedicated `'design-system-preset'` code, thrown directly —
+   no post-construction message mutation. Better than the minimum asked: the exhaustive
+   `guidedBriefStartBuildErrorMessage` switch in `NewWorkspacePanel.tsx` (a required companion
+   edit — typecheck forced it) now carries real user copy for the refusal alongside every other
+   code, and the copy chain to the flow is intact (`NewWorkspacePanel.tsx:1977` maps the code
+   before rethrowing). The controllers test asserts the code, not the message string.
+
+Re-verified here: library-registry 6/6 (lint failure still blocks with findings, nothing
+copied/stamped), bundle-lint-run 3/3, new-workspace-controllers ok, typecheck exit 0, lint 0
+violations, worktree clean. No new structural issues in the rework diff — it is a pure
+deletion/delegation plus a union extension. The two GA-001 advisories (GuidedBriefFlow.tsx size
+trajectory; unwired slice/flow test scripts) stand as non-blocking notes. **Verdict: approved.**
+
+---
+
+# Original review (GA-001)
 
 Reviewed commits: `1e9d821b` (T7 publish) + `85ac7ffa` (frontend-gate a11y fix, committed under T7)
 plus the T7-authored main/preload/shared surface that was scooped into the T8 commit `76e1e009`
