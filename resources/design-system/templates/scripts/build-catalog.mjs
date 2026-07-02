@@ -198,6 +198,18 @@ function scopeSelector(selector, scope) {
   return `${scope} ${trimmed}`
 }
 
+// A demo/pattern authored as a full-viewport page (body { min-height: 100vh })
+// would force a viewport-tall embed stage in the catalog — a screenful of dead
+// space between the view heading and the source disclosure. Clamp
+// viewport-height minimums when the page CSS is rescoped onto its embed
+// wrapper; values already wrapped in min() are left alone.
+function clampViewportMinHeight(body) {
+  return body.replace(/(min-height\s*:\s*)([^;}]*)/gi, (match, property, value) => {
+    if (!/\b\d+(?:\.\d+)?vh\b/.test(value) || value.includes('min(')) return match
+    return `${property}min(${value.trim()}, 480px)`
+  })
+}
+
 // Scope a demo/pattern stylesheet to its embed wrapper so page-level selectors
 // (html, body, :root) style the wrapper instead of the catalog document, and
 // everything else applies only inside the wrapper.
@@ -217,7 +229,7 @@ function scopeCss(css, scope) {
     const selectors = splitTopLevel(rule.prelude, ',').map((selector) =>
       scopeSelector(selector, scope),
     )
-    out.push(`${selectors.join(', ')} {${rule.body}}`)
+    out.push(`${selectors.join(', ')} {${clampViewportMinHeight(rule.body)}}`)
   }
   return out.join('\n')
 }
@@ -747,8 +759,10 @@ function main() {
       )
     }
     for (const radio of [headerRadio, ...group.items.map((item) => radioFor(item.id))]) {
+      // The selected item must not rely on color alone: pair the accent with a
+      // weight shift and a currentColor inset bar so it survives grayscale.
       navRules.push(
-        `#${radio}:checked ~ .ds-catalog .catalog-nav label[for="${radio}"] { color: var(--sem-color-accent-primary, #2f6a4a); }`,
+        `#${radio}:checked ~ .ds-catalog .catalog-nav label[for="${radio}"] { color: var(--sem-color-accent-primary, #2f6a4a); font-weight: var(--sem-font-weight-emphasis, 600); box-shadow: inset 2px 0 0 currentColor; }`,
         `#${radio}:focus-visible ~ .ds-catalog .catalog-nav label[for="${radio}"] { outline: 2px solid var(--sem-color-accent-hover, #275842); outline-offset: 2px; }`,
       )
     }
@@ -825,19 +839,21 @@ body { margin: 0; }
   flex: 0 0 200px;
   max-height: 100vh;
   overflow-y: auto;
-  padding: 20px 20px 28px 28px;
+  padding: 20px 20px 28px 20px;
   display: flex;
   flex-direction: column;
   gap: 2px;
 }
+/* Left padding is the gutter for the selected item's inset bar. */
 .catalog-nav-item {
   color: var(--sem-color-text-primary, #17170f);
-  padding: 2px 0;
+  padding: 2px 0 2px 8px;
   cursor: pointer;
 }
 .catalog-nav-item:hover { color: var(--sem-color-accent-primary, #2f6a4a); }
 .catalog-nav-group {
   margin: 14px 0 4px;
+  padding-left: 8px;
   font-weight: var(--sem-font-weight-emphasis, 600);
   color: var(--sem-color-text-muted, #666666);
   cursor: pointer;
@@ -882,10 +898,13 @@ body { margin: 0; }
   border-color: var(--sem-color-status-danger, #b8433a);
 }
 .catalog-chip-pair { display: inline-flex; flex: none; }
+/* Mode-stable hairline: chip fills can equal border.default or the page
+   background in either mode, so the swatch edge must not ride the tokens
+   it is displaying. */
 .catalog-chip {
   width: 34px;
   height: 26px;
-  border: 1px solid var(--sem-color-border-default, #dddddd);
+  border: 1px solid rgba(127, 127, 127, 0.55);
 }
 .catalog-chip-pair .catalog-chip + .catalog-chip { border-left: 0; }
 .catalog-type-specimen { flex: none; width: 72px; text-align: center; }
@@ -949,6 +968,25 @@ body { margin: 0; }
 code {
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
   font-size: 0.95em;
+}
+/* Narrow-pane layout: the catalog's primary home is the studio preview pane,
+   a narrow column. Stack the layout and let token rows wrap. */
+@media (max-width: 640px) {
+  .catalog-layout { flex-direction: column; }
+  .catalog-nav {
+    position: static;
+    flex: none;
+    max-height: none;
+    flex-direction: row;
+    flex-wrap: wrap;
+    align-items: baseline;
+    column-gap: 14px;
+    padding: 14px 20px 10px;
+    border-bottom: 1px solid var(--sem-color-border-default, #dddddd);
+  }
+  .catalog-nav .catalog-nav-group { margin: 0; }
+  .catalog-main { padding: 20px 20px 48px; }
+  .catalog-token-row { flex-wrap: wrap; }
 }`
 
   const html = `<!doctype html>

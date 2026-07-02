@@ -20,7 +20,7 @@
   --ref-color-neutral-50: #f7f5ef;
   --ref-color-neutral-200: #e5e1d8;
   --ref-color-neutral-400: #a6a196;
-  --ref-color-neutral-500: #767268;
+  --ref-color-neutral-500: #6e6a60;
   --ref-color-neutral-800: #23211b;
   --ref-color-neutral-900: #161511;
   --ref-color-neutral-950: #0c0b09;
@@ -50,6 +50,7 @@
   --sem-color-text-muted: var(--ref-color-neutral-500);
   --sem-color-text-on-accent: var(--ref-color-neutral-0);
   --sem-color-border-default: var(--ref-color-neutral-200);
+  --sem-color-border-input: var(--ref-color-neutral-500);
   --sem-color-accent-primary: var(--ref-color-green-600);
   --sem-color-accent-hover: var(--ref-color-green-700);
   --sem-color-status-danger: var(--ref-color-red-500);
@@ -152,19 +153,21 @@ body { margin: 0; }
   flex: 0 0 200px;
   max-height: 100vh;
   overflow-y: auto;
-  padding: 20px 20px 28px 28px;
+  padding: 20px 20px 28px 20px;
   display: flex;
   flex-direction: column;
   gap: 2px;
 }
+/* Left padding is the gutter for the selected item's inset bar. */
 .catalog-nav-item {
   color: var(--sem-color-text-primary, #17170f);
-  padding: 2px 0;
+  padding: 2px 0 2px 8px;
   cursor: pointer;
 }
 .catalog-nav-item:hover { color: var(--sem-color-accent-primary, #2f6a4a); }
 .catalog-nav-group {
   margin: 14px 0 4px;
+  padding-left: 8px;
   font-weight: var(--sem-font-weight-emphasis, 600);
   color: var(--sem-color-text-muted, #666666);
   cursor: pointer;
@@ -209,10 +212,13 @@ body { margin: 0; }
   border-color: var(--sem-color-status-danger, #b8433a);
 }
 .catalog-chip-pair { display: inline-flex; flex: none; }
+/* Mode-stable hairline: chip fills can equal border.default or the page
+   background in either mode, so the swatch edge must not ride the tokens
+   it is displaying. */
 .catalog-chip {
   width: 34px;
   height: 26px;
-  border: 1px solid var(--sem-color-border-default, #dddddd);
+  border: 1px solid rgba(127, 127, 127, 0.55);
 }
 .catalog-chip-pair .catalog-chip + .catalog-chip { border-left: 0; }
 .catalog-type-specimen { flex: none; width: 72px; text-align: center; }
@@ -277,6 +283,25 @@ code {
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
   font-size: 0.95em;
 }
+/* Narrow-pane layout: the catalog's primary home is the studio preview pane,
+   a narrow column. Stack the layout and let token rows wrap. */
+@media (max-width: 640px) {
+  .catalog-layout { flex-direction: column; }
+  .catalog-nav {
+    position: static;
+    flex: none;
+    max-height: none;
+    flex-direction: row;
+    flex-wrap: wrap;
+    align-items: baseline;
+    column-gap: 14px;
+    padding: 14px 20px 10px;
+    border-bottom: 1px solid var(--sem-color-border-default, #dddddd);
+  }
+  .catalog-nav .catalog-nav-group { margin: 0; }
+  .catalog-main { padding: 20px 20px 48px; }
+  .catalog-token-row { flex-wrap: wrap; }
+}
 </style>
 <style>
 /* CSS-only nav: each rule shows the view selected by its hidden radio. */
@@ -294,35 +319,35 @@ code {
 #ds-view-foundations-glyphs:checked ~ .ds-catalog #foundations-glyphs { display: block; }
 #ds-view-foundations-doc-principles:checked ~ .ds-catalog #foundations { display: block; }
 #ds-view-foundations-doc-principles:checked ~ .ds-catalog #foundations-doc-principles { display: block; }
-#ds-view-foundations:checked ~ .ds-catalog .catalog-nav label[for="ds-view-foundations"] { color: var(--sem-color-accent-primary, #2f6a4a); }
+#ds-view-foundations:checked ~ .ds-catalog .catalog-nav label[for="ds-view-foundations"] { color: var(--sem-color-accent-primary, #2f6a4a); font-weight: var(--sem-font-weight-emphasis, 600); box-shadow: inset 2px 0 0 currentColor; }
 #ds-view-foundations:focus-visible ~ .ds-catalog .catalog-nav label[for="ds-view-foundations"] { outline: 2px solid var(--sem-color-accent-hover, #275842); outline-offset: 2px; }
-#ds-view-foundations-palette:checked ~ .ds-catalog .catalog-nav label[for="ds-view-foundations-palette"] { color: var(--sem-color-accent-primary, #2f6a4a); }
+#ds-view-foundations-palette:checked ~ .ds-catalog .catalog-nav label[for="ds-view-foundations-palette"] { color: var(--sem-color-accent-primary, #2f6a4a); font-weight: var(--sem-font-weight-emphasis, 600); box-shadow: inset 2px 0 0 currentColor; }
 #ds-view-foundations-palette:focus-visible ~ .ds-catalog .catalog-nav label[for="ds-view-foundations-palette"] { outline: 2px solid var(--sem-color-accent-hover, #275842); outline-offset: 2px; }
-#ds-view-foundations-type:checked ~ .ds-catalog .catalog-nav label[for="ds-view-foundations-type"] { color: var(--sem-color-accent-primary, #2f6a4a); }
+#ds-view-foundations-type:checked ~ .ds-catalog .catalog-nav label[for="ds-view-foundations-type"] { color: var(--sem-color-accent-primary, #2f6a4a); font-weight: var(--sem-font-weight-emphasis, 600); box-shadow: inset 2px 0 0 currentColor; }
 #ds-view-foundations-type:focus-visible ~ .ds-catalog .catalog-nav label[for="ds-view-foundations-type"] { outline: 2px solid var(--sem-color-accent-hover, #275842); outline-offset: 2px; }
-#ds-view-foundations-spacing:checked ~ .ds-catalog .catalog-nav label[for="ds-view-foundations-spacing"] { color: var(--sem-color-accent-primary, #2f6a4a); }
+#ds-view-foundations-spacing:checked ~ .ds-catalog .catalog-nav label[for="ds-view-foundations-spacing"] { color: var(--sem-color-accent-primary, #2f6a4a); font-weight: var(--sem-font-weight-emphasis, 600); box-shadow: inset 2px 0 0 currentColor; }
 #ds-view-foundations-spacing:focus-visible ~ .ds-catalog .catalog-nav label[for="ds-view-foundations-spacing"] { outline: 2px solid var(--sem-color-accent-hover, #275842); outline-offset: 2px; }
-#ds-view-foundations-other-tokens:checked ~ .ds-catalog .catalog-nav label[for="ds-view-foundations-other-tokens"] { color: var(--sem-color-accent-primary, #2f6a4a); }
+#ds-view-foundations-other-tokens:checked ~ .ds-catalog .catalog-nav label[for="ds-view-foundations-other-tokens"] { color: var(--sem-color-accent-primary, #2f6a4a); font-weight: var(--sem-font-weight-emphasis, 600); box-shadow: inset 2px 0 0 currentColor; }
 #ds-view-foundations-other-tokens:focus-visible ~ .ds-catalog .catalog-nav label[for="ds-view-foundations-other-tokens"] { outline: 2px solid var(--sem-color-accent-hover, #275842); outline-offset: 2px; }
-#ds-view-foundations-glyphs:checked ~ .ds-catalog .catalog-nav label[for="ds-view-foundations-glyphs"] { color: var(--sem-color-accent-primary, #2f6a4a); }
+#ds-view-foundations-glyphs:checked ~ .ds-catalog .catalog-nav label[for="ds-view-foundations-glyphs"] { color: var(--sem-color-accent-primary, #2f6a4a); font-weight: var(--sem-font-weight-emphasis, 600); box-shadow: inset 2px 0 0 currentColor; }
 #ds-view-foundations-glyphs:focus-visible ~ .ds-catalog .catalog-nav label[for="ds-view-foundations-glyphs"] { outline: 2px solid var(--sem-color-accent-hover, #275842); outline-offset: 2px; }
-#ds-view-foundations-doc-principles:checked ~ .ds-catalog .catalog-nav label[for="ds-view-foundations-doc-principles"] { color: var(--sem-color-accent-primary, #2f6a4a); }
+#ds-view-foundations-doc-principles:checked ~ .ds-catalog .catalog-nav label[for="ds-view-foundations-doc-principles"] { color: var(--sem-color-accent-primary, #2f6a4a); font-weight: var(--sem-font-weight-emphasis, 600); box-shadow: inset 2px 0 0 currentColor; }
 #ds-view-foundations-doc-principles:focus-visible ~ .ds-catalog .catalog-nav label[for="ds-view-foundations-doc-principles"] { outline: 2px solid var(--sem-color-accent-hover, #275842); outline-offset: 2px; }
 #ds-view-components:checked ~ .ds-catalog #components { display: block; }
 #ds-view-components:checked ~ .ds-catalog #components .catalog-view { display: block; }
 #ds-view-component-button:checked ~ .ds-catalog #components { display: block; }
 #ds-view-component-button:checked ~ .ds-catalog #component-button { display: block; }
-#ds-view-components:checked ~ .ds-catalog .catalog-nav label[for="ds-view-components"] { color: var(--sem-color-accent-primary, #2f6a4a); }
+#ds-view-components:checked ~ .ds-catalog .catalog-nav label[for="ds-view-components"] { color: var(--sem-color-accent-primary, #2f6a4a); font-weight: var(--sem-font-weight-emphasis, 600); box-shadow: inset 2px 0 0 currentColor; }
 #ds-view-components:focus-visible ~ .ds-catalog .catalog-nav label[for="ds-view-components"] { outline: 2px solid var(--sem-color-accent-hover, #275842); outline-offset: 2px; }
-#ds-view-component-button:checked ~ .ds-catalog .catalog-nav label[for="ds-view-component-button"] { color: var(--sem-color-accent-primary, #2f6a4a); }
+#ds-view-component-button:checked ~ .ds-catalog .catalog-nav label[for="ds-view-component-button"] { color: var(--sem-color-accent-primary, #2f6a4a); font-weight: var(--sem-font-weight-emphasis, 600); box-shadow: inset 2px 0 0 currentColor; }
 #ds-view-component-button:focus-visible ~ .ds-catalog .catalog-nav label[for="ds-view-component-button"] { outline: 2px solid var(--sem-color-accent-hover, #275842); outline-offset: 2px; }
 #ds-view-patterns:checked ~ .ds-catalog #patterns { display: block; }
 #ds-view-patterns:checked ~ .ds-catalog #patterns .catalog-view { display: block; }
 #ds-view-pattern-sign-in:checked ~ .ds-catalog #patterns { display: block; }
 #ds-view-pattern-sign-in:checked ~ .ds-catalog #pattern-sign-in { display: block; }
-#ds-view-patterns:checked ~ .ds-catalog .catalog-nav label[for="ds-view-patterns"] { color: var(--sem-color-accent-primary, #2f6a4a); }
+#ds-view-patterns:checked ~ .ds-catalog .catalog-nav label[for="ds-view-patterns"] { color: var(--sem-color-accent-primary, #2f6a4a); font-weight: var(--sem-font-weight-emphasis, 600); box-shadow: inset 2px 0 0 currentColor; }
 #ds-view-patterns:focus-visible ~ .ds-catalog .catalog-nav label[for="ds-view-patterns"] { outline: 2px solid var(--sem-color-accent-hover, #275842); outline-offset: 2px; }
-#ds-view-pattern-sign-in:checked ~ .ds-catalog .catalog-nav label[for="ds-view-pattern-sign-in"] { color: var(--sem-color-accent-primary, #2f6a4a); }
+#ds-view-pattern-sign-in:checked ~ .ds-catalog .catalog-nav label[for="ds-view-pattern-sign-in"] { color: var(--sem-color-accent-primary, #2f6a4a); font-weight: var(--sem-font-weight-emphasis, 600); box-shadow: inset 2px 0 0 currentColor; }
 #ds-view-pattern-sign-in:focus-visible ~ .ds-catalog .catalog-nav label[for="ds-view-pattern-sign-in"] { outline: 2px solid var(--sem-color-accent-hover, #275842); outline-offset: 2px; }
 </style>
 <style>
@@ -413,7 +438,7 @@ code {
       }
 .ds-embed-pattern-sign-in {
         margin: 0;
-        min-height: 100vh;
+        min-height: min(100vh, 480px);
         display: grid;
         place-items: center;
         background: var(--sem-color-bg-app);
@@ -444,7 +469,7 @@ code {
       }
 .ds-embed-pattern-sign-in .signin-field input {
         padding: 6px 10px;
-        border: 1px solid var(--sem-color-border-default);
+        border: 1px solid var(--sem-color-border-input);
         border-radius: var(--sem-radius-control);
         background: var(--sem-color-bg-surface);
         color: var(--sem-color-text-primary);
@@ -506,7 +531,7 @@ code {
 <div class="catalog-token-row"><span class="catalog-chip-pair"><span class="catalog-chip" style="background: var(--ref-color-neutral-50)"></span></span><div class="catalog-token-text"><p class="catalog-token-name"><code>ref.color.neutral.50</code><code class="catalog-token-value">#f7f5ef</code></p><p class="catalog-token-meta">Warm paper off-white. Light app background; primary text on dark.</p></div></div>
 <div class="catalog-token-row"><span class="catalog-chip-pair"><span class="catalog-chip" style="background: var(--ref-color-neutral-200)"></span></span><div class="catalog-token-text"><p class="catalog-token-name"><code>ref.color.neutral.200</code><code class="catalog-token-value">#e5e1d8</code></p><p class="catalog-token-meta">Warm hairline grey for borders on light surfaces.</p></div></div>
 <div class="catalog-token-row"><span class="catalog-chip-pair"><span class="catalog-chip" style="background: var(--ref-color-neutral-400)"></span></span><div class="catalog-token-text"><p class="catalog-token-name"><code>ref.color.neutral.400</code><code class="catalog-token-value">#a6a196</code></p><p class="catalog-token-meta">Warm mid grey. Muted text on dark surfaces.</p></div></div>
-<div class="catalog-token-row"><span class="catalog-chip-pair"><span class="catalog-chip" style="background: var(--ref-color-neutral-500)"></span></span><div class="catalog-token-text"><p class="catalog-token-name"><code>ref.color.neutral.500</code><code class="catalog-token-value">#767268</code></p><p class="catalog-token-meta">Warm grey. Muted text on light surfaces.</p></div></div>
+<div class="catalog-token-row"><span class="catalog-chip-pair"><span class="catalog-chip" style="background: var(--ref-color-neutral-500)"></span></span><div class="catalog-token-text"><p class="catalog-token-name"><code>ref.color.neutral.500</code><code class="catalog-token-value">#6e6a60</code></p><p class="catalog-token-meta">Warm grey. Muted text on light surfaces.</p></div></div>
 <div class="catalog-token-row"><span class="catalog-chip-pair"><span class="catalog-chip" style="background: var(--ref-color-neutral-800)"></span></span><div class="catalog-token-text"><p class="catalog-token-name"><code>ref.color.neutral.800</code><code class="catalog-token-value">#23211b</code></p><p class="catalog-token-meta">Warm near-black ink. Primary text on light; hairlines on dark.</p></div></div>
 <div class="catalog-token-row"><span class="catalog-chip-pair"><span class="catalog-chip" style="background: var(--ref-color-neutral-900)"></span></span><div class="catalog-token-text"><p class="catalog-token-name"><code>ref.color.neutral.900</code><code class="catalog-token-value">#161511</code></p><p class="catalog-token-meta">Warm dark ink. Raised surface on dark.</p></div></div>
 <div class="catalog-token-row"><span class="catalog-chip-pair"><span class="catalog-chip" style="background: var(--ref-color-neutral-950)"></span></span><div class="catalog-token-text"><p class="catalog-token-name"><code>ref.color.neutral.950</code><code class="catalog-token-value">#0c0b09</code></p><p class="catalog-token-meta">Darkest warm ink. Dark app background; labels on bright accents.</p></div></div>
@@ -520,7 +545,8 @@ code {
 <div class="catalog-token-row"><span class="catalog-chip-pair"><span class="catalog-chip" data-mode="light" style="background: var(--sem-color-text-primary)" title="light"></span><span class="catalog-chip" data-mode="dark" style="background: var(--sem-color-text-primary)" title="dark"></span></span><div class="catalog-token-text"><p class="catalog-token-name"><code>sem.color.text.primary</code><code class="catalog-token-value">{ref.color.neutral.800}</code><span class="catalog-badge">text</span></p><p class="catalog-token-meta">Primary content text. Body copy, titles, labels — the default foreground.</p></div></div>
 <div class="catalog-token-row"><span class="catalog-chip-pair"><span class="catalog-chip" data-mode="light" style="background: var(--sem-color-text-muted)" title="light"></span><span class="catalog-chip" data-mode="dark" style="background: var(--sem-color-text-muted)" title="dark"></span></span><div class="catalog-token-text"><p class="catalog-token-name"><code>sem.color.text.muted</code><code class="catalog-token-value">{ref.color.neutral.500}</code><span class="catalog-badge">text</span></p><p class="catalog-token-meta">Secondary, supporting text. Meta, captions, and supporting copy next to primary text. <strong>Do not:</strong> Never for actionable copy standing alone.</p></div></div>
 <div class="catalog-token-row"><span class="catalog-chip-pair"><span class="catalog-chip" data-mode="light" style="background: var(--sem-color-text-on-accent)" title="light"></span><span class="catalog-chip" data-mode="dark" style="background: var(--sem-color-text-on-accent)" title="dark"></span></span><div class="catalog-token-text"><p class="catalog-token-name"><code>sem.color.text.on-accent</code><code class="catalog-token-value">{ref.color.neutral.0}</code><span class="catalog-badge">text</span></p><p class="catalog-token-meta">Foreground on accent-filled controls. Labels and icons sitting on sem.color.accent.primary or sem.color.status.danger fills.</p></div></div>
-<div class="catalog-token-row"><span class="catalog-chip-pair"><span class="catalog-chip" data-mode="light" style="background: var(--sem-color-border-default)" title="light"></span><span class="catalog-chip" data-mode="dark" style="background: var(--sem-color-border-default)" title="dark"></span></span><div class="catalog-token-text"><p class="catalog-token-name"><code>sem.color.border.default</code><code class="catalog-token-value">{ref.color.neutral.200}</code><span class="catalog-badge">border</span></p><p class="catalog-token-meta">Default hairline border. Panel dividers, card edges, and secondary control outlines. Borders carry structure; shadows do not.</p></div></div>
+<div class="catalog-token-row"><span class="catalog-chip-pair"><span class="catalog-chip" data-mode="light" style="background: var(--sem-color-border-default)" title="light"></span><span class="catalog-chip" data-mode="dark" style="background: var(--sem-color-border-default)" title="dark"></span></span><div class="catalog-token-text"><p class="catalog-token-name"><code>sem.color.border.default</code><code class="catalog-token-value">{ref.color.neutral.200}</code><span class="catalog-badge">border</span></p><p class="catalog-token-meta">Default hairline border. Panel dividers, card edges, and secondary control outlines. Borders carry structure; shadows do not. <strong>Do not:</strong> Not for form-field boundaries; use sem.color.border.input so unfocused fields stay visible.</p></div></div>
+<div class="catalog-token-row"><span class="catalog-chip-pair"><span class="catalog-chip" style="background: var(--sem-color-border-input)"></span></span><div class="catalog-token-text"><p class="catalog-token-name"><code>sem.color.border.input</code><code class="catalog-token-value">{ref.color.neutral.500}</code><span class="catalog-badge">border</span></p><p class="catalog-token-meta">Boundary for form fields that must read as bounded controls. Outlines of text inputs, selects, and other form fields — keeps unfocused controls visible (at least 3:1 against their surface) in both modes. <strong>Do not:</strong> Not for panel dividers or card edges; use sem.color.border.default.</p></div></div>
 <div class="catalog-token-row"><span class="catalog-chip-pair"><span class="catalog-chip" data-mode="light" style="background: var(--sem-color-accent-primary)" title="light"></span><span class="catalog-chip" data-mode="dark" style="background: var(--sem-color-accent-primary)" title="dark"></span></span><div class="catalog-token-text"><p class="catalog-token-name"><code>sem.color.accent.primary</code><code class="catalog-token-value">{ref.color.green.600}</code><span class="catalog-badge">accent</span></p><p class="catalog-token-meta">The single accent color. Primary CTA fills and selected states. One accent per view; selection and primary action share it. <strong>Do not:</strong> Never to convey status (use sem.color.status.*) and never as a large decorative surface fill.</p></div></div>
 <div class="catalog-token-row"><span class="catalog-chip-pair"><span class="catalog-chip" data-mode="light" style="background: var(--sem-color-accent-hover)" title="light"></span><span class="catalog-chip" data-mode="dark" style="background: var(--sem-color-accent-hover)" title="dark"></span></span><div class="catalog-token-text"><p class="catalog-token-name"><code>sem.color.accent.hover</code><code class="catalog-token-value">{ref.color.green.700}</code><span class="catalog-badge">accent</span></p><p class="catalog-token-meta">Hover shift of the accent. Hover and focus emphasis on accent-filled or accent-outlined controls.</p></div></div>
 <div class="catalog-token-row"><span class="catalog-chip-pair"><span class="catalog-chip" data-mode="light" style="background: var(--sem-color-status-danger)" title="light"></span><span class="catalog-chip" data-mode="dark" style="background: var(--sem-color-status-danger)" title="dark"></span></span><div class="catalog-token-text"><p class="catalog-token-name"><code>sem.color.status.danger</code><code class="catalog-token-value">{ref.color.red.500}</code><span class="catalog-badge">status</span></p><p class="catalog-token-meta">Destructive and error signal. Destructive action fills, error text, and failure marks — status meaning only. <strong>Do not:</strong> Never as a category or brand color.</p></div></div>
@@ -811,7 +837,7 @@ code {
       }
       .signin-field input {
         padding: 6px 10px;
-        border: 1px solid var(--sem-color-border-default);
+        border: 1px solid var(--sem-color-border-input);
         border-radius: var(--sem-radius-control);
         background: var(--sem-color-bg-surface);
         color: var(--sem-color-text-primary);

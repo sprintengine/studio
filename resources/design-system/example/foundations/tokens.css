@@ -8,7 +8,7 @@
   --ref-color-neutral-50: #f7f5ef;
   --ref-color-neutral-200: #e5e1d8;
   --ref-color-neutral-400: #a6a196;
-  --ref-color-neutral-500: #767268;
+  --ref-color-neutral-500: #6e6a60;
   --ref-color-neutral-800: #23211b;
   --ref-color-neutral-900: #161511;
   --ref-color-neutral-950: #0c0b09;
@@ -38,6 +38,7 @@
   --sem-color-text-muted: var(--ref-color-neutral-500);
   --sem-color-text-on-accent: var(--ref-color-neutral-0);
   --sem-color-border-default: var(--ref-color-neutral-200);
+  --sem-color-border-input: var(--ref-color-neutral-500);
   --sem-color-accent-primary: var(--ref-color-green-600);
   --sem-color-accent-hover: var(--ref-color-green-700);
   --sem-color-status-danger: var(--ref-color-red-500);

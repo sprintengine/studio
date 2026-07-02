@@ -6,7 +6,7 @@
         "50": { "$type": "color", "$value": "#f7f5ef", "$description": "Warm paper off-white. Light app background; primary text on dark." },
         "200": { "$type": "color", "$value": "#e5e1d8", "$description": "Warm hairline grey for borders on light surfaces." },
         "400": { "$type": "color", "$value": "#a6a196", "$description": "Warm mid grey. Muted text on dark surfaces." },
-        "500": { "$type": "color", "$value": "#767268", "$description": "Warm grey. Muted text on light surfaces." },
+        "500": { "$type": "color", "$value": "#6e6a60", "$description": "Warm grey. Muted text on light surfaces." },
         "800": { "$type": "color", "$value": "#23211b", "$description": "Warm near-black ink. Primary text on light; hairlines on dark." },
         "900": { "$type": "color", "$value": "#161511", "$description": "Warm dark ink. Raised surface on dark." },
         "950": { "$type": "color", "$value": "#0c0b09", "$description": "Darkest warm ink. Dark app background; labels on bright accents." }
@@ -128,8 +128,21 @@
             "com.multicode": {
               "role": "border",
               "use": "Panel dividers, card edges, and secondary control outlines. Borders carry structure; shadows do not.",
+              "doNotUse": "Not for form-field boundaries; use sem.color.border.input so unfocused fields stay visible.",
               "components": ["button"],
               "modes": { "light": "{ref.color.neutral.200}", "dark": "{ref.color.neutral.800}" }
+            }
+          }
+        },
+        "input": {
+          "$type": "color",
+          "$value": "{ref.color.neutral.500}",
+          "$description": "Boundary for form fields that must read as bounded controls.",
+          "$extensions": {
+            "com.multicode": {
+              "role": "border",
+              "use": "Outlines of text inputs, selects, and other form fields — keeps unfocused controls visible (at least 3:1 against their surface) in both modes.",
+              "doNotUse": "Not for panel dividers or card edges; use sem.color.border.default."
             }
           }
         }
