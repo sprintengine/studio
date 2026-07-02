@@ -1,4 +1,28 @@
-# T4 Nuclear Review — live catalog generator (gate: nuclear_reviewer, attempt GA-001)
+# T4 Nuclear Review — live catalog generator (gate: nuclear_reviewer)
+
+## GA-002 addendum — rework verified, approved
+
+Rework commit `811069f2` resolves both remaining findings; verified against the diff and re-run:
+
+1. **Drift guard landed**: `build-catalog.mjs` now cross-checks the parsed dark override set against
+   `tokens.tokens.json` (`tokens.some(tokenIsModeVarying)`) and exits 1 with an actionable message
+   when the pinned `tokens.css` emission format has drifted — the mode toggle can no longer ship as a
+   silent no-op. Covered by a new failure-path test.
+2. **Embed-name divergence closed**: `assertEmbedName` enforces the kebab-case naming grammar at read
+   time for component names and pattern stems, and the raw name is now used in *both* the class
+   attribute and the `scopeCss` selector (`escapeHtml` dropped there). Covered by a new failure-path
+   test.
+
+Also confirmed: `src/shared/design-system/build-catalog.test.ts` landed in the commit (now 14 cases),
+template and example copies remain byte-identical (`cmp`), the passing golden test proves the
+committed example catalog needed no regeneration, the KG emission-contract note gained bullets for
+both loud failures in the same publish, and developer-1 confirmed `6683d79c` as intended (closing the
+GA-001 publish-completeness item). Suites re-run here: build-catalog and derived-runner both green,
+worktree clean. **Verdict: approved.**
+
+---
+
+# Original review (GA-001)
 
 Reviewed: commit `18645e39` plus the uncommitted companion edits still in the worktree.
 Verdict: **changes_requested** — one blocking finding, and it is about the publish, not the code.
