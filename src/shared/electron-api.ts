@@ -67,6 +67,7 @@ export type {
   UserRoleSaveResult,
 } from './sprintengine/role-manifest'
 import type { LayoutTemplateInstallResult, UserLayoutTemplateListResult } from './layouts/template-manifest'
+import type { DesignSystemBrandDemoResolveResult } from './design-system/brand-demo'
 import type { DesignSystemRegenResult } from './design-system/derived-files'
 import type { DesignSystemScaffoldResult } from './design-system/bundle-scaffold'
 import type {
@@ -2299,7 +2300,7 @@ export type ElectronApi = {
   /** Stamp the design-system bundle layout (templates + manifest) into a workspace. Never overwrites an existing bundle. */
   scaffoldDesignSystemBundle: (workspaceRoot: string, name: string, summary: string) => Promise<DesignSystemScaffoldResult>
   /** Resolve the built-in "seed from the Multicode brand" demo source dir (knowledge/brand/); unavailable in builds that do not carry it. */
-  resolveDesignSystemBrandDemoSeed: () => Promise<{ ok: true; path: string } | { ok: false; message: string }>
+  resolveDesignSystemBrandDemoSeed: () => Promise<DesignSystemBrandDemoResolveResult>
   /** Release an authored bundle into the user-global design-system library as an immutable versioned copy (lint gate + provenance stamp + derived-file regen). */
   releaseDesignSystemBundle: (bundleDir: string, version: string) => Promise<DesignSystemReleaseResult>
   /** List released design systems in the user-global library (name, version, summary per release). */

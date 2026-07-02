@@ -1,5 +1,6 @@
 import { ipcRenderer } from 'electron'
 import type { ElectronApi } from '../../shared/electron-api'
+import type { DesignSystemBrandDemoResolveResult } from '../../shared/design-system/brand-demo'
 import type { DesignSystemRegenResult } from '../../shared/design-system/derived-files'
 import type { DesignSystemScaffoldResult } from '../../shared/design-system/bundle-scaffold'
 import type {
@@ -17,9 +18,8 @@ export const designSystemApi = {
     summary: string,
   ): Promise<DesignSystemScaffoldResult> =>
     ipcRenderer.invoke('design-system:scaffold-bundle', workspaceRoot, name, summary),
-  resolveDesignSystemBrandDemoSeed: (): Promise<
-    { ok: true; path: string } | { ok: false; message: string }
-  > => ipcRenderer.invoke('design-system:resolve-brand-demo-seed'),
+  resolveDesignSystemBrandDemoSeed: (): Promise<DesignSystemBrandDemoResolveResult> =>
+    ipcRenderer.invoke('design-system:resolve-brand-demo-seed'),
   releaseDesignSystemBundle: (bundleDir: string, version: string): Promise<DesignSystemReleaseResult> =>
     ipcRenderer.invoke('design-system:release', bundleDir, version),
   listDesignSystemLibrary: (): Promise<DesignSystemLibraryListResult> =>

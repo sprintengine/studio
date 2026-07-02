@@ -39,6 +39,7 @@ import type {
 import { GuidedBriefFlow } from './guidedBrief/GuidedBriefFlow'
 import { GuidedBriefCloseConfirmation } from './guidedBrief/GuidedBriefCloseConfirmation'
 import { isMidStageGuidedRuntime, type GuidedBriefPreset, type GuidedBriefRuntimeState } from './guidedBrief/types'
+import type { DesignSystemBrandDemoResolveResult } from '../../../../shared/design-system/brand-demo'
 import {
   guidedBriefBuildHandoffRelativePath,
   guidedBriefPlanningDecisionNotes,
@@ -544,9 +545,9 @@ export default function NewWorkspacePanel({
   const [guidedSeedFolderPath, setGuidedSeedFolderPath] = useState<string | null>(null)
   // null = not resolved yet; the demo card is disabled (with the cause as its
   // body copy) when the running build does not carry the demo source.
-  const [guidedBrandDemo, setGuidedBrandDemo] = useState<
-    { ok: true; path: string } | { ok: false; message: string } | null
-  >(null)
+  const [guidedBrandDemo, setGuidedBrandDemo] = useState<DesignSystemBrandDemoResolveResult | null>(
+    null,
+  )
 
   // Resolve the brand-demo source lazily, the first time the design-system
   // preset is selected, so the other presets never pay the IPC.
@@ -3145,7 +3146,7 @@ function GuidedIdeaStep({
   onChangeSeedMode: (value: DesignSystemSeedMode) => void
   seedFolderPath: string | null
   onChooseSeedFolder: () => void
-  brandDemo: { ok: true; path: string } | { ok: false; message: string } | null
+  brandDemo: DesignSystemBrandDemoResolveResult | null
   wantsProductDiscussion: boolean
   wantsArchitectureDiscussion: boolean
   wantsFrontendDiscussion: boolean

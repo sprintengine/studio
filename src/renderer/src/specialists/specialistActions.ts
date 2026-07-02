@@ -1,4 +1,4 @@
-import type { MultiloopRole, SpecialistActionId } from '../types/workspace'
+import type { DesignSystemSeedSource, MultiloopRole, SpecialistActionId } from '../types/workspace'
 
 export type { MultiloopRole }
 
@@ -321,10 +321,7 @@ export type GuidedBriefSpecialistPromptInput =
         // Present when the studio was started as "seed from an existing
         // product": the agent's opening move is extracting the source's
         // de-facto design language into a starter bundle for review.
-        seedSource?: {
-          kind: 'source-folder' | 'brand-demo'
-          path: string
-        }
+        seedSource?: DesignSystemSeedSource
       }
     }
 

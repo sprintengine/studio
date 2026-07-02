@@ -5,6 +5,7 @@ import type {
   TerminalSpawnResult,
 } from '../../../../../shared/electron-api'
 import { DESIGN_SYSTEM_MANIFEST_FILENAME } from '../../../../../shared/design-system/manifest'
+import type { DesignSystemSeedSource } from '../../../types/workspace'
 import {
   buildGuidedBriefSpecialistStartupPrompt,
   type GuidedBriefSpecialistKind,
@@ -107,10 +108,7 @@ export type GuidedBriefDesignerSessionInput = {
   designSystem?: {
     bundleDirectoryPath: string
     ideaSeedPath: string
-    seedSource?: {
-      kind: 'source-folder' | 'brand-demo'
-      path: string
-    }
+    seedSource?: DesignSystemSeedSource
   }
 }
 
