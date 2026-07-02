@@ -26,6 +26,14 @@ export type DesignSystemAttachFailureStage =
   | 'conflict'
   | 'copy'
 
+/**
+ * The one dedicated agent-launch prompt line for consuming workspaces.
+ * Injected when and only when `design-system/` exists in the agent's
+ * execution root — KG-independent by design (plan contract line).
+ */
+export const DESIGN_SYSTEM_ATTACHED_PROMPT_LINE =
+  'A design system is attached at `design-system/`; read `USAGE.md` + `foundations/tokens.css` + `components/` and conform — do not invent styles.'
+
 export type DesignSystemAttachResult =
   | {
       ok: true

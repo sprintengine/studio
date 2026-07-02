@@ -1,6 +1,10 @@
 import assert from 'node:assert/strict'
 import type { TerminalSpawnMetadata } from '../../../../../shared/electron-api'
-import { buildGuidedBriefSpecialistStartupPrompt } from '../../../specialists/specialistActions'
+import { DESIGN_SYSTEM_ATTACHED_PROMPT_LINE } from '../../../../../shared/design-system/attach'
+import {
+  buildGuidedBriefSpecialistStartupPrompt,
+  resolveDesignSystemAttachedPromptLine,
+} from '../../../specialists/specialistActions'
 import {
   containsGuidedBriefMarker,
   createGuidedBriefSessionId,
@@ -148,6 +152,44 @@ assert.match(
   'seeded prompt frames extraction as reviewed, not magic import',
 )
 assert.doesNotMatch(seededFolderPrompt, /Multicode brand reference/, 'folder seeding does not mention the demo source')
+
+// Attached-design-system injection (T9): the mockup designer's prompt carries
+// the conform line when and only when the caller resolved design-system/ as
+// present; the authoring studio never gets it (it owns that directory).
+const designerWithAttachedBundle = buildGuidedBriefSpecialistStartupPrompt({
+  kind: 'designer',
+  designSystemAttached: true,
+})
+assert.ok(
+  designerWithAttachedBundle.includes(DESIGN_SYSTEM_ATTACHED_PROMPT_LINE),
+  'attached bundle injects the conform line into the mockup designer prompt',
+)
+const designerWithoutAttachedBundle = buildGuidedBriefSpecialistStartupPrompt({ kind: 'designer' })
+assert.ok(
+  !designerWithoutAttachedBundle.includes(DESIGN_SYSTEM_ATTACHED_PROMPT_LINE),
+  'no attached bundle, no conform line',
+)
+assert.ok(
+  !designSystemPrompt.includes(DESIGN_SYSTEM_ATTACHED_PROMPT_LINE),
+  'the design-system authoring prompt never carries the consumer conform line',
+)
+
+// The launch-time predicate resolves once per launch: line when and only when
+// design-system/ exists under the execution root; failures resolve to absent.
+assert.equal(await resolveDesignSystemAttachedPromptLine(null, async () => true), null)
+assert.equal(await resolveDesignSystemAttachedPromptLine('  ', async () => true), null)
+assert.equal(await resolveDesignSystemAttachedPromptLine('/repo', async () => false), null)
+assert.equal(
+  await resolveDesignSystemAttachedPromptLine('/repo', async (path) => path.endsWith('design-system')),
+  DESIGN_SYSTEM_ATTACHED_PROMPT_LINE,
+)
+assert.equal(
+  await resolveDesignSystemAttachedPromptLine('/repo', async () => {
+    throw new Error('fs unavailable')
+  }),
+  null,
+  'a failed existence check resolves to no line, never a crash',
+)
 
 const seededDemoPrompt = buildGuidedBriefSpecialistStartupPrompt({
   kind: 'designer',

@@ -100,6 +100,10 @@ export type GuidedBriefDesignerSessionInput = {
   inspirationDirectoryPath?: string
   uiDirectionPath?: string
   mockupPath?: string
+  // An attached design-system bundle exists at `design-system/` in the
+  // workspace: the mockup designer's prompt gains the conform line. Never set
+  // alongside `designSystem` (the authoring studio owns that directory).
+  designSystemAttached?: boolean
   // Design-system preset: the same shared designer session (terminalSpawn
   // path, bypass_all preset) under a dedicated role prompt that authors the
   // portable bundle instead of mockups. `seedSource` is present when the
@@ -223,6 +227,7 @@ function promptForInput(input: StartGuidedBriefSpecialistSessionInput, marker: s
     inspirationDirectoryPath: input.inspirationDirectoryPath,
     uiDirectionPath: input.uiDirectionPath,
     mockupPath: input.mockupPath,
+    designSystemAttached: input.designSystemAttached,
     designSystem: input.designSystem,
     marker,
   })

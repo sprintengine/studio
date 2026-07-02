@@ -171,7 +171,16 @@ export function useDesignerSession({
     }
 
     setStatus('starting')
-    void startGuidedBriefSpecialistSession(
+    // Injection predicate for the attached-design-system prompt line, resolved
+    // once per launch: `design-system/` exists in the workspace AND this is
+    // not the authoring studio (which owns that directory as its product).
+    const resolveDesignSystemAttached = async (): Promise<boolean> => {
+      if (designSystem) return false
+      return window.api
+        .pathExists(joinWorkspacePath(workspaceRoot, DESIGN_SYSTEM_BUNDLE_DIRECTORY_NAME))
+        .catch(() => false)
+    }
+    void resolveDesignSystemAttached().then((designSystemAttached) => startGuidedBriefSpecialistSession(
       {
         kind: 'designer',
         workspaceRoot,
@@ -183,6 +192,7 @@ export function useDesignerSession({
         inspirationDirectoryPath: INSPIRATION_DIRECTORY_NAME,
         uiDirectionPath: UI_DIRECTION_RELATIVE_PATH,
         mockupPath: PRIMARY_MOCKUP_RELATIVE_PATH,
+        ...(designSystemAttached ? { designSystemAttached } : {}),
         ...(designSystem
           ? {
               designSystem: {
@@ -239,7 +249,7 @@ export function useDesignerSession({
       // Defensive: same id we passed in. Call again to self-heal any closure
       // skew between mount and resolve.
       assignSessionIdRef.current(result.session.sessionId)
-    })
+    }))
 
     return () => {
       cancelled = true

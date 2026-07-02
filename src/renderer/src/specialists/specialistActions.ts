@@ -1,4 +1,6 @@
 import type { DesignSystemSeedSource, MultiloopRole, SpecialistActionId } from '../types/workspace'
+import { DESIGN_SYSTEM_ATTACHED_PROMPT_LINE } from '../../../shared/design-system/attach'
+import { pathJoin } from '../utils/paths'
 
 export type { MultiloopRole }
 
@@ -288,6 +290,24 @@ export function buildSpecialistDirectiveStartupPrompt(action: SpecialistAction, 
   ].join('\n')
 }
 
+/**
+ * Launch-time injection predicate for the attached-design-system prompt line:
+ * the line is emitted when and only when `design-system/` exists in the
+ * agent's execution root. Resolved once per launch, mirroring how the
+ * knowledge suffix resolves its root (TerminalView appends the returned line
+ * to the launch prompt; the guided designer spawn passes the boolean through
+ * its session input). KG-independent by design.
+ */
+export async function resolveDesignSystemAttachedPromptLine(
+  executionRoot: string | null | undefined,
+  pathExists: (path: string) => Promise<boolean>,
+): Promise<string | null> {
+  const root = executionRoot?.trim()
+  if (!root) return null
+  const attached = await pathExists(pathJoin(root, 'design-system')).catch(() => false)
+  return attached ? DESIGN_SYSTEM_ATTACHED_PROMPT_LINE : null
+}
+
 export type GuidedBriefSpecialistKind = 'strategist' | 'architect' | 'designer'
 
 export type GuidedBriefSpecialistPromptInput =
@@ -312,6 +332,11 @@ export type GuidedBriefSpecialistPromptInput =
       uiDirectionPath?: string
       mockupPath?: string
       marker?: string
+      // True when `design-system/` exists in the workspace (an attached
+      // bundle): the mockup designer must conform to it instead of inventing
+      // styles. Never set for the design-system authoring studio, which owns
+      // that directory as its work product.
+      designSystemAttached?: boolean
       // Design-system preset: the session authors a portable bundle instead
       // of one app's mockups, under a dedicated role prompt (not the shared
       // designer soul). See knowledge/multicode/design-system-bundle.md.
@@ -481,6 +506,7 @@ export function buildGuidedBriefSpecialistStartupPrompt(input: GuidedBriefSpecia
       : input.acceptedBriefSnapshotPath
         ? `Read the accepted product brief snapshot at \`${input.acceptedBriefSnapshotPath}\` before designing.`
         : 'No accepted product brief or architecture plan is available; read `product/idea-seed.md` and make uncertainty explicit.',
+    ...(input.designSystemAttached ? [DESIGN_SYSTEM_ATTACHED_PROMPT_LINE] : []),
     `If the user has dropped inspiration files into \`${inspirationDirectoryPath}\`, read them through the existing CLI image-input path before drafting.`,
     ...guidedBriefInterviewInstructions('frontend designer'),
     `Write UX direction to \`${uiDirectionPath}\`.`,

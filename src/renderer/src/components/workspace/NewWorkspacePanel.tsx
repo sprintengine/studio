@@ -40,6 +40,9 @@ import { GuidedBriefFlow } from './guidedBrief/GuidedBriefFlow'
 import { GuidedBriefCloseConfirmation } from './guidedBrief/GuidedBriefCloseConfirmation'
 import { isMidStageGuidedRuntime, type GuidedBriefPreset, type GuidedBriefRuntimeState } from './guidedBrief/types'
 import type { DesignSystemBrandDemoResolveResult } from '../../../../shared/design-system/brand-demo'
+import type { DesignSystemAttachSource } from '../../../../shared/design-system/attach'
+import { DesignSystemAttachStep } from './newWorkspace/DesignSystemAttachStep'
+import { pathJoin } from '../../utils/paths'
 import {
   guidedBriefBuildHandoffRelativePath,
   guidedBriefPlanningDecisionNotes,
@@ -549,6 +552,13 @@ export default function NewWorkspacePanel({
     null,
   )
 
+  // Design system to attach at create time (Advanced setup section). Null is
+  // "none"; the attach IPC runs in the create-time preflight alongside the
+  // other Advanced setup selections. Eligible for the three build entry
+  // points only — never for the design-system authoring preset, which owns
+  // design-system/ as its work product.
+  const [dsAttachSelection, setDsAttachSelection] = useState<DesignSystemAttachSource | null>(null)
+
   // Resolve the brand-demo source lazily, the first time the design-system
   // preset is selected, so the other presets never pay the IPC.
   useEffect(() => {
@@ -720,9 +730,24 @@ export default function NewWorkspacePanel({
     })
   }
 
+  // Attach is offered on the three build entry points (standard, Sprint
+  // Engine, Design Wizard) — never on the design-system authoring preset,
+  // which owns design-system/ as its work product, and never on the
+  // zero-config flows that skip Advanced setup.
+  const designSystemAttachEligible =
+    mode === 'standard'
+    || mode === 'sprintengine'
+    || (mode === 'guided-brief' && guidedPreset !== 'design-system')
+
+  // The committed knowledge root is declared later in this component (it
+  // feeds several memos); the attach step only needs its value at
+  // create-time, so it rides a ref instead of reordering those memos.
+  const committedKnowledgeRootRef = useRef<string | null>(null)
+
   // Persist the optional Advanced setup selections to the real project on disk:
-  // write the MCP agent config through the same mcp:sync path Settings uses, then
-  // install each selected skill pack, awaiting every result so a failure surfaces
+  // write the MCP agent config through the same mcp:sync path Settings uses,
+  // install each selected skill pack, then attach the selected design system
+  // through the real attach IPC, awaiting every result so a failure surfaces
   // an actionable error instead of a silent fire-and-forget. Returns the failure
   // message (and sets advancedSetupError) when any selection failed, or null on
   // success, so callers avoid reporting a half-configured create as success.
@@ -780,6 +805,47 @@ export default function NewWorkspacePanel({
         }
       }
 
+      // Attach the selected design system through the real T8 IPC. Fail
+      // closed like the other setup steps: a refusal (conflict, invalid
+      // bundle) aborts the create with the pipeline's own message — never a
+      // silent half-attached workspace.
+      if (dsAttachSelection && designSystemAttachEligible) {
+        try {
+          const result = await window.api.attachDesignSystemBundle(dsAttachSelection, workspaceRoot)
+          if (!result.ok) {
+            failures.push(`Design system attach failed: ${result.message}`)
+          } else {
+            // Bonus path when a knowledge root is configured: drop a pointer
+            // note next to the graph so agents browsing it find the bundle.
+            // The bundle stays the source of truth; a note failure never
+            // fails the attach (the mechanism is KG-independent).
+            const knowledgeRoot = committedKnowledgeRootRef.current
+            if (knowledgeRoot) {
+              const notePath = pathJoin(workspaceRoot, knowledgeRoot, 'design-system.md')
+              try {
+                const noteExists = await window.api.pathExists(notePath)
+                if (!noteExists) {
+                  await window.api.writefile(notePath, [
+                    '# Design system',
+                    '',
+                    `A design system is attached at \`design-system/\` (bundle: ${result.name}@${result.version}).`,
+                    'Consume it via `design-system/USAGE.md`, `design-system/foundations/tokens.css`, and `design-system/components/` — do not invent styles.',
+                    'This note is a pointer, not a second source of truth: the bundle documents itself.',
+                    '',
+                  ].join('\n'))
+                }
+              } catch (error) {
+                console.error('[design-system] could not write the knowledge-root pointer note', error)
+              }
+            }
+          }
+        } catch (error) {
+          failures.push(
+            `Design system attach failed: ${error instanceof Error ? error.message : 'attach error'}`,
+          )
+        }
+      }
+
       if (failures.length > 0) {
         const message = failures.join(' ')
         setAdvancedSetupError(message)
@@ -788,7 +854,14 @@ export default function NewWorkspacePanel({
       setAdvancedSetupError(null)
       return null
     },
-    [mcpSettings, selectedSkillPackIds, integrationsSkillPackCatalog, upsertSkillPack],
+    [
+      mcpSettings,
+      selectedSkillPackIds,
+      integrationsSkillPackCatalog,
+      upsertSkillPack,
+      dsAttachSelection,
+      designSystemAttachEligible,
+    ],
   )
 
   const [isCreating, setIsCreating] = useState(false)
@@ -830,6 +903,7 @@ export default function NewWorkspacePanel({
     const key = normalizeProjectRootKey(folderPath)
     return key ? projectKnowledgeRoots?.[key] ?? null : null
   }, [folderPath, projectKnowledgeRoots])
+  committedKnowledgeRootRef.current = committedKnowledgeRoot
   const handleCommitKnowledgeRoot = useCallback(
     (relativeRoot: string | null) => {
       if (folderPath) setProjectKnowledgeRoot(folderPath, relativeRoot)
@@ -2321,6 +2395,12 @@ export default function NewWorkspacePanel({
               committedKnowledgeRoot={committedKnowledgeRoot}
               onCommitKnowledge={handleCommitKnowledgeRoot}
               knowledgeAutoAppliedRef={knowledgeAutoAppliedRef}
+              designSystemAttachRoot={designSystemAttachEligible && folderPath ? folderPath : null}
+              designSystemAttachSelection={dsAttachSelection}
+              onSelectDesignSystemAttach={(source) => {
+                setDsAttachSelection(source)
+                setAdvancedSetupError(null)
+              }}
             />
           ) : null}
 
@@ -2589,6 +2669,9 @@ function AdvancedSetupDisclosure({
   committedKnowledgeRoot,
   onCommitKnowledge,
   knowledgeAutoAppliedRef,
+  designSystemAttachRoot,
+  designSystemAttachSelection,
+  onSelectDesignSystemAttach,
 }: {
   mcpCatalog: McpCatalogServer[]
   mcpSettings: { servers: Record<string, { enabled: boolean }> } | null
@@ -2601,11 +2684,16 @@ function AdvancedSetupDisclosure({
   committedKnowledgeRoot: string | null
   onCommitKnowledge: (relativeRoot: string | null) => void
   knowledgeAutoAppliedRef: MutableRefObject<Set<string>>
+  /** Materialized workspace folder when the flow offers attach; null hides the section. */
+  designSystemAttachRoot: string | null
+  designSystemAttachSelection: DesignSystemAttachSource | null
+  onSelectDesignSystemAttach: (source: DesignSystemAttachSource | null) => void
 }) {
   const [open, setOpen] = useState(false)
   const selectedCount =
     mcpCatalog.reduce((count, server) => count + (mcpSettings?.servers[server.id]?.enabled ? 1 : 0), 0) +
-    skillPackCatalog.reduce((count, pack) => count + (selectedSkillPackIds.has(pack.id) ? 1 : 0), 0)
+    skillPackCatalog.reduce((count, pack) => count + (selectedSkillPackIds.has(pack.id) ? 1 : 0), 0) +
+    (designSystemAttachSelection ? 1 : 0)
 
   return (
     <div className="border-t border-[color:var(--border-subtle)] pt-4">
@@ -2628,7 +2716,7 @@ function AdvancedSetupDisclosure({
         </svg>
         <span className="text-[13px] font-medium text-[color:var(--text-strong)]">Advanced setup</span>
         <span className="min-w-0 truncate text-[12px] text-[color:var(--text-subtle)]">
-          Tool integrations and skill packs{knowledgeProjectRoot ? ', knowledge' : ''} — optional
+          Tool integrations and skill packs{knowledgeProjectRoot ? ', knowledge' : ''}{designSystemAttachRoot ? ', design system' : ''} — optional
         </span>
         {selectedCount > 0 ? (
           <span className="ml-auto shrink-0 text-[11px] tabular-nums text-[color:var(--text-subtle)]">
@@ -2664,6 +2752,16 @@ function AdvancedSetupDisclosure({
                 committedRelativeRoot={committedKnowledgeRoot}
                 onCommit={onCommitKnowledge}
                 autoApplyGuard={knowledgeAutoAppliedRef}
+              />
+            </section>
+          ) : null}
+          {designSystemAttachRoot ? (
+            <section className="flex flex-col gap-2">
+              <h4 className="text-[12px] font-semibold text-[color:var(--text-strong)]">Design system</h4>
+              <DesignSystemAttachStep
+                workspaceRoot={designSystemAttachRoot}
+                selection={designSystemAttachSelection}
+                onSelect={onSelectDesignSystemAttach}
               />
             </section>
           ) : null}
