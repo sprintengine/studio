@@ -1,36 +1,7 @@
 name: Marketplace Registry
 
 on:
-  pull_request:
-    paths:
-      - .github/workflows/marketplace-registry.yml
-      - package-lock.json
-      - package.json
-      - packages/module-sdk/src/cli.ts
-      - packages/module-sdk/src/index.ts
-      - packages/module-sdk/src/manifest-validate.ts
-      - packages/module-sdk/src/plugin-manifest.ts
-      - packages/module-sdk/src/signing.ts
-      - resources/marketplace/**
-      - src/main/mcp-config-service.ts
-      - src/shared/marketplace/**
-      - src/shared/modules/**
-  push:
-    branches:
-      - main
-    paths:
-      - .github/workflows/marketplace-registry.yml
-      - package-lock.json
-      - package.json
-      - packages/module-sdk/src/cli.ts
-      - packages/module-sdk/src/index.ts
-      - packages/module-sdk/src/manifest-validate.ts
-      - packages/module-sdk/src/plugin-manifest.ts
-      - packages/module-sdk/src/signing.ts
-      - resources/marketplace/**
-      - src/main/mcp-config-service.ts
-      - src/shared/marketplace/**
-      - src/shared/modules/**
+  workflow_dispatch:
 
 permissions:
   contents: read

@@ -20,7 +20,7 @@ permissions:
 
 jobs:
   validate:
-    name: Validate release version
+    name: Validate release
     runs-on: ubuntu-latest
     outputs:
       version: ${{ steps.version.outputs.version }}
@@ -56,6 +56,27 @@ jobs:
           else
             echo "publish=never" >> "$GITHUB_OUTPUT"
           fi
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Typecheck
+        run: npm run typecheck:all
+
+      - name: Test mobile sprintengine command
+        run: npm run test:main:mobile-sprintengine-command
+
+      - name: Validate registry and plugin signatures
+        run: npm run verify:marketplace-registry
+
+      - name: Exercise valid and tampered marketplace submissions
+        run: npm run test:marketplace-publish
 
   package:
     name: Package (${{ matrix.name }})
@@ -102,12 +123,6 @@ jobs:
         run: npm ci
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Typecheck
-        run: npm run typecheck:all
-
-      - name: Test mobile sprintengine command
-        run: npm run test:main:mobile-sprintengine-command
 
       - name: Build renderer and main process
         run: npm run build
