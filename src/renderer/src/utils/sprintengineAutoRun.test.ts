@@ -151,6 +151,10 @@ async function main(): Promise<void> {
   testTaskScopedRetirementHonorsShortCooldown()
   testTaskScopedRestrictionDoesNotBlockGateClaims()
   testTaskScopedParkingStaysConsistentWithGateAvailability()
+  testWindowDisposalMarksRetainResumeStateAndTerminalStateDoesNot()
+  testPickNextAutoRunsPrefersPreviousOwnerForRework()
+  await testSpawnAutoRunCandidateResumesPreviousOwnerConversation()
+  await testWindowDisposalRetainsResumeStateInStore()
   testActiveAssignmentRescueStopsAfterTwoPromptsWithDiagnostic()
   await testActiveAssignmentExhaustionDiagnosticMarksLedger()
   testActiveGateAssignmentRescueSendsMinimalPrompt()
@@ -2421,6 +2425,248 @@ function testTaskScopedParkingStaysConsistentWithGateAvailability(): void {
   const retirePlan = taskScopedPlanInput({ workspace, state: stateNoGate, now, idleAgentIds: ['developer-1'], paths: ['gate', 'idle_retire'], idleClock })
   assert.equal(retirePlan.retirements.length, 1, 'with no claimable gate the completed worker retires promptly')
   assert.equal(retirePlan.retirements[0].data.reason, 'task_scoped_terminal_state')
+}
+
+function testWindowDisposalMarksRetainResumeStateAndTerminalStateDoesNot(): void {
+  // MC-1444 Phase 2: an idle-window disposal of a worker whose own task is
+  // still in publish→verdict carries retainResumeState (the executor keeps the
+  // resume token); a terminal-state retirement never does (the next task must
+  // get a fresh session).
+  const now = Date.parse('2026-07-02T12:00:00Z')
+  const workspace = workspaceFixture()
+  const parkedClock = new Map([[sprintEngineIdleClockKey(workspace, 'developer-1'), now - AUTO_RUN_IDLE_RETIREMENT_MS - 60_000]])
+
+  const inReviewState = sprintEngineStateFixture({
+    tasks: [task({ id: 'T-mine', role: 'developer', status: 'review', boardColumn: 'review', ownerAgentId: 'developer-1', qualityGates: [] })],
+    sprintEngineAgents: {
+      'developer-1': runtimeAgent('developer', { lastOwnedTaskId: 'T-mine' }),
+    },
+  })
+  const windowPlan = taskScopedPlanInput({ workspace, state: inReviewState, now, idleAgentIds: ['developer-1'], paths: ['idle_retire'], idleClock: parkedClock })
+  assert.equal(windowPlan.retirements.length, 1)
+  assert.equal(windowPlan.retirements[0].retainResumeState, true, 'window disposal keeps the resume token for late rework')
+
+  const doneState = sprintEngineStateFixture({
+    tasks: [
+      task({ id: 'T-mine', role: 'developer', status: 'done', boardColumn: 'done', ownerAgentId: null, qualityGates: [] }),
+      task({ id: 'T-open', role: 'tester', status: 'todo', boardColumn: 'ready', ownerAgentId: null, qualityGates: [] }),
+    ],
+    sprintEngineAgents: {
+      'developer-1': runtimeAgent('developer', { lastOwnedTaskId: 'T-mine' }),
+    },
+  })
+  const terminalPlan = taskScopedPlanInput({ workspace, state: doneState, now, idleAgentIds: ['developer-1'], paths: ['idle_retire'], idleClock: parkedClock })
+  assert.equal(terminalPlan.retirements.length, 1)
+  assert.equal(terminalPlan.retirements[0].retainResumeState, undefined, 'terminal-state retirement clears resume state — fresh session per task')
+
+  // A parked agent with NO owned task (fresh/reviewer) also gets a plain
+  // disposal: nothing to resume toward.
+  const neverOwnedState = sprintEngineStateFixture({
+    tasks: [task({ id: 'T-open', role: 'tester', status: 'todo', boardColumn: 'ready', ownerAgentId: null, qualityGates: [] })],
+    sprintEngineAgents: {
+      'developer-1': runtimeAgent('developer'),
+    },
+  })
+  const plainPlan = taskScopedPlanInput({ workspace, state: neverOwnedState, now, idleAgentIds: ['developer-1'], paths: ['idle_retire'], idleClock: parkedClock })
+  assert.equal(plainPlan.retirements.length, 1)
+  assert.equal(plainPlan.retirements[0].retainResumeState, undefined)
+}
+
+function testPickNextAutoRunsPrefersPreviousOwnerForRework(): void {
+  // Owner affinity (MC-1444 Phase 2): a changes_requested task goes back to
+  // the roster agent that owned it — its respawn resumes the original
+  // conversation — even when another idle agent of the role sorts first.
+  const reworkTask = task({
+    id: 'T-mine',
+    role: 'developer',
+    status: 'changes_requested',
+    boardColumn: 'changes_requested',
+    ownerAgentId: null,
+    qualityGates: [],
+  })
+  const state = sprintEngineStateFixture({
+    tasks: [reworkTask],
+    sprintEngineAgents: {
+      'developer-0': runtimeAgent('developer'),
+      'developer-1': runtimeAgent('developer', { lastOwnedTaskId: 'T-mine' }),
+    },
+  })
+  const candidates = pickNextAutoRuns(workspaceFixture(), state, pickInput())
+  assert.equal(candidates.length, 1)
+  assert.equal(candidates[0].taskId, 'T-mine')
+  assert.equal(candidates[0].agentId, 'developer-1', 'the previous owner is preferred over the first eligible role agent')
+
+  // Without a previous owner among the eligible agents, selection falls back
+  // to the generic first-eligible pick.
+  const noOwnerState = sprintEngineStateFixture({
+    tasks: [reworkTask],
+    sprintEngineAgents: {
+      'developer-0': runtimeAgent('developer'),
+      'developer-1': runtimeAgent('developer', { lastOwnedTaskId: 'T-other' }),
+    },
+  })
+  const fallback = pickNextAutoRuns(workspaceFixture(), noOwnerState, pickInput())
+  assert.equal(fallback.length, 1)
+  assert.equal(fallback[0].agentId, 'developer-0')
+}
+
+async function testSpawnAutoRunCandidateResumesPreviousOwnerConversation(): Promise<void> {
+  // MC-1444 Phase 2: respawning the previous owner onto its OWN task with
+  // retained resume state relaunches the conversation (`resume: true` + the
+  // retained token in metadata.cliSessionId). A different task spawns fresh.
+  const spawns: Array<{ sessionId: string; resume?: boolean; metadata?: { cliSessionId?: string } }> = []
+  installTestWindow({
+    terminalList: async () => [],
+    terminalStatus: async () => ({ processAlive: false }),
+    pathExists: async () => true,
+    memoryResolveRoot: async () => ({ ok: false, status: 'disabled', relativeRoot: null }),
+    terminalSpawn: async (
+      sessionId: string,
+      _cols: number,
+      _rows: number,
+      _cwd?: string,
+      resume?: boolean,
+      _statePath?: string,
+      _cli?: AgentCli,
+      _initialPrompt?: string,
+      _cliRuntimes?: unknown,
+      _shellOnly?: boolean,
+      metadata?: { cliSessionId?: string },
+    ) => {
+      spawns.push({ sessionId, resume, metadata })
+      return { ok: true, sessionId }
+    },
+    logDiagnostic: async (input) => input,
+  })
+
+  const supervisor = await loadSupervisor()
+  const retainedAgent = {
+    ...sprintAgent('developer-1', 'Dev One', 'claude-code'),
+    cliSessionId: 'retained-conversation-token',
+    cliResumeAvailable: true,
+    cliStartRequested: false,
+    cliHasLaunched: false,
+  }
+  const workspace = workspaceFixture({
+    agents: { 'developer-1': retainedAgent },
+    sprintEngineAutoState: {
+      desiredMode: 'run_agents',
+      runtimeState: 'running',
+      cliPermissionPreset: 'default',
+      maxConcurrentAgents: 3,
+      pendingSpawns: [],
+      deliveredAgentNotificationEventKeys: [],
+    },
+  })
+  const state = sprintEngineStateFixture({
+    tasks: [task({ id: 'T-mine', role: 'developer', status: 'changes_requested', boardColumn: 'changes_requested', ownerAgentId: null, qualityGates: [] })],
+    sprintEngineAgents: {
+      'developer-1': runtimeAgent('developer', { lastOwnedTaskId: 'T-mine' }),
+    },
+  })
+  installWorkspaceStore({ ...workspace, sprintEngineState: state })
+
+  const cliRuntimes = { codex: { command: 'codex', useWsl: false }, 'claude-code': { command: 'claude', useWsl: false } }
+  const result = await supervisor.spawnAutoRunCandidate(
+    workspace,
+    state,
+    { agentId: 'developer-1', label: 'Dev One', role: 'developer', taskId: 'T-mine' },
+    cliRuntimes,
+    emptyMcpSettings,
+    mutableRef(new Set<string>()),
+  )
+  assert.equal(result, 'started')
+  assert.equal(spawns.length, 1)
+  assert.equal(spawns[0].resume, true, 'own-task rework respawn resumes the retained conversation')
+  assert.equal(spawns[0].metadata?.cliSessionId, 'retained-conversation-token', 'the retained token rides metadata.cliSessionId')
+
+  // Same retained state, DIFFERENT task: fresh conversation.
+  spawns.length = 0
+  const otherTaskState = sprintEngineStateFixture({
+    tasks: [task({ id: 'T-new', role: 'developer', status: 'todo', boardColumn: 'ready', ownerAgentId: null, qualityGates: [] })],
+    sprintEngineAgents: {
+      'developer-1': runtimeAgent('developer', { lastOwnedTaskId: 'T-mine' }),
+    },
+  })
+  installWorkspaceStore({ ...workspace, sprintEngineState: otherTaskState })
+  const freshResult = await supervisor.spawnAutoRunCandidate(
+    workspace,
+    otherTaskState,
+    { agentId: 'developer-1', label: 'Dev One', role: 'developer', taskId: 'T-new' },
+    cliRuntimes,
+    emptyMcpSettings,
+    mutableRef(new Set<string>()),
+  )
+  assert.equal(freshResult, 'started')
+  assert.equal(spawns.length, 1)
+  assert.equal(spawns[0].resume, false, 'a new task never resumes the old conversation')
+  assert.equal(spawns[0].metadata?.cliSessionId, undefined, 'no resume token is passed for a fresh session')
+}
+
+async function testWindowDisposalRetainsResumeStateInStore(): Promise<void> {
+  // Executor side of MC-1444 Phase 2: a retainResumeState retirement keeps the
+  // resume token (captured harness id) and cliResumeAvailable on the agent
+  // record while still clearing the launch flags that would let a mounted
+  // panel respawn the PTY.
+  const kills: string[] = []
+  installTestWindow({
+    terminalList: async () => [
+      {
+        sessionId: 'session-developer',
+        processAlive: true,
+        kind: 'agent',
+        workspaceId: 'workspace-1',
+        agentId: 'developer-1',
+        sprintEngineStatePath: '/tmp/workspace/.multi-code/sprintengine/team/run.yaml',
+        executionMode: 'current_workspace',
+        cli: 'claude-code',
+        cliSessionId: 'captured-harness-id',
+        startedAt: 1,
+      },
+    ],
+    terminalStatus: async () => ({ processAlive: true }),
+    terminalWrite: async () => ({ ok: true }),
+    terminalKill: async (sessionId: string) => {
+      kills.push(sessionId)
+      return { ok: true }
+    },
+    pathExists: async () => true,
+    memoryResolveRoot: async () => ({ ok: false, status: 'disabled', relativeRoot: null }),
+    logDiagnostic: async (input) => input,
+  })
+
+  const supervisor = await loadSupervisor()
+  const sprintEngineState = sprintEngineStateFixture({
+    tasks: [task({ id: 'T-mine', role: 'developer', status: 'review', boardColumn: 'review', ownerAgentId: 'developer-1', qualityGates: [] })],
+    sprintEngineAgents: {
+      'developer-1': runtimeAgent('developer', { lastOwnedTaskId: 'T-mine' }),
+    },
+  })
+  const workspace = workspaceFixture({
+    sprintEngineState,
+    agents: { 'developer-1': sprintAgent('developer-1', 'Dev One', 'claude-code') },
+    sprintEngineAutoState: {
+      desiredMode: 'run_agents',
+      runtimeState: 'running',
+      cliPermissionPreset: 'default',
+      maxConcurrentAgents: 3,
+      pendingSpawns: [],
+      deliveredAgentNotificationEventKeys: [],
+    },
+  })
+  installWorkspaceStore(workspace)
+  const idleClockByAgent = mutableRef(new Map<string, number>([
+    [sprintEngineIdleClockKey(workspace, 'developer-1'), Date.now() - supervisor.AUTO_RUN_IDLE_RETIREMENT_MS - 60_000],
+  ]))
+
+  await runIdleRetirementCycle(supervisor, workspace, sprintEngineState, idleClockByAgent)
+
+  assert.deepEqual(kills, ['session-developer'], 'the parked publisher is disposed past the idle window')
+  const retained = useWorkspaceStore.getState().workspaces.find((w) => w.id === workspace.id)?.agents['developer-1']
+  assert.equal(retained?.cliSessionId, 'captured-harness-id', 'window disposal keeps the resume token')
+  assert.equal(retained?.cliResumeAvailable, true, 'window disposal keeps resume availability')
+  assert.equal(retained?.cliStartRequested, false, 'launch flags still clear so the panel does not respawn')
+  assert.equal(retained?.cliHasLaunched, false, 'launch flags still clear so the panel does not respawn')
 }
 
 function testActiveAssignmentRescueStopsAfterTwoPromptsWithDiagnostic(): void {

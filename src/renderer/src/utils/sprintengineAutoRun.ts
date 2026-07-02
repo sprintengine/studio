@@ -592,6 +592,15 @@ export type SprintEngineDispatchNotificationDelivery = {
 
 export type SprintEngineDispatchRetirementAction = {
   agentId: string
+  /**
+   * Window disposal (MC-1444 Phase 2): the agent's own task is still in its
+   * publish→verdict window, so the executor keeps the agent's resume state
+   * (`cliSessionId`/`cliResumeAvailable`) when clearing launch flags — a late
+   * `changes_requested` respawn then resumes the original conversation
+   * (`--resume`) instead of starting from a fresh brief. Terminal-state
+   * retirements leave this unset: the next task must get a fresh session.
+   */
+  retainResumeState?: boolean
   data: Record<string, unknown>
   diagnostic: { title: string; message: string; details: string }
 }
@@ -1687,10 +1696,22 @@ export function planSprintEngineDispatch(input: {
         continue
       }
       if (now - since < AUTO_RUN_IDLE_RETIREMENT_MS) continue
+      // Window disposal: the agent's own task is published but not terminal
+      // (review/testing/product/changes_requested), so keep its resume state —
+      // a late changes_requested verdict resumes the original conversation
+      // with the diff context the gate feedback references (MC-1444 Phase 2).
+      const inReworkWindow = Boolean(
+        lastOwnedTask
+        && (lastOwnedTask.status === 'review'
+          || lastOwnedTask.status === 'testing'
+          || lastOwnedTask.status === 'product'
+          || lastOwnedTask.status === 'changes_requested')
+      )
       const idleMinutes = Math.round((now - since) / 60_000)
       planRetirement({
         agentId,
-        data: { agentId, role: runtimeAgent.role, idleMs: now - since, reason: 'idle_window' },
+        ...(inReworkWindow ? { retainResumeState: true } : {}),
+        data: { agentId, role: runtimeAgent.role, idleMs: now - since, reason: 'idle_window', retainResumeState: inReworkWindow },
         diagnostic: {
           title: 'Retired an idle sprint terminal',
           message: `${runtimeAgent.role} had no claimable work for ${idleMinutes} minute${idleMinutes === 1 ? '' : 's'}, so its terminal was closed. The role respawns automatically when work is ready.`,
@@ -1995,18 +2016,31 @@ export function pickNextAutoRuns(
   const hasInFlightSpawn = (agentId: string) =>
     options.inFlightSpawns.has(`${workspace.id}:${agentId}`)
 
-  const findReusableRoleAgent = (role: SprintEngineRoleId): AutoRunCandidate['agentId'] | null => {
-    const agent = roster.find((candidate) => {
-      const runtime = sprintEngineState.sprintEngineAgents[candidate.id]
-      return candidate.role === role
+  const findReusableRoleAgent = (
+    role: SprintEngineRoleId,
+    // Owner affinity (MC-1444 Phase 2): when selecting for a task, prefer the
+    // roster agent that previously owned it — its respawn can resume the
+    // original conversation for rework instead of starting from a fresh brief.
+    preferAgentWithLastOwnedTaskId?: string
+  ): AutoRunCandidate['agentId'] | null => {
+    const eligible = (candidateId: string, candidateRole: SprintEngineRoleId): boolean => {
+      const runtime = sprintEngineState.sprintEngineAgents[candidateId]
+      return candidateRole === role
         && runtime?.status === 'idle'
         && !runtime.currentTaskId
-        && !pendingAgentIds.has(candidate.id)
-        && !selectedAgentIds.has(candidate.id)
-        && !options.runningAgentIds.has(candidate.id)
-        && !hasInFlightSpawn(candidate.id)
-    })
-
+        && !pendingAgentIds.has(candidateId)
+        && !selectedAgentIds.has(candidateId)
+        && !options.runningAgentIds.has(candidateId)
+        && !hasInFlightSpawn(candidateId)
+    }
+    if (preferAgentWithLastOwnedTaskId) {
+      const previousOwner = roster.find((candidate) =>
+        eligible(candidate.id, candidate.role)
+        && sprintEngineState.sprintEngineAgents[candidate.id]?.lastOwnedTaskId === preferAgentWithLastOwnedTaskId
+      )
+      if (previousOwner) return previousOwner.id
+    }
+    const agent = roster.find((candidate) => eligible(candidate.id, candidate.role))
     return agent?.id ?? null
   }
 
@@ -2212,7 +2246,7 @@ export function pickNextAutoRuns(
       dependsOnCount: task.dependsOn.length,
     })
 
-    const reusableAgentId = findReusableRoleAgent(task.role)
+    const reusableAgentId = findReusableRoleAgent(task.role, task.id)
     if (!reusableAgentId) {
       logPerfEvent('SprintEngineAutoRun', 'candidate-pick-ready-task-waiting-for-roster-agent', {
         workspaceId: workspace.id,

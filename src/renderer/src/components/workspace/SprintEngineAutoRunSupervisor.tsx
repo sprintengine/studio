@@ -80,6 +80,7 @@ import {
 } from '../../utils/sprintengineAutomationLifecycle'
 import {
   agentCliSupportsConversationResume,
+  agentCliUsesStableSessionIdForResume,
 } from '../../utils/agentCliResume'
 
 export { TerminalListIpcError } from '../../utils/sprintengineAutoRunExecutor'
@@ -911,19 +912,33 @@ export async function executeSprintEngineDispatchPlan(
     // `hasStarted` true off `cliStartRequested`, so its TerminalView respawns
     // the PTY before the next tick — the clock never sees a gap and the agent
     // is retired again every tick (an idle-retirement storm).
+    //
+    // Window disposal (MC-1444 Phase 2): when the planner marked the
+    // retirement retainResumeState (the agent's own task is still in its
+    // publish→verdict window), keep a resume token in cliSessionId so a late
+    // changes_requested respawn resumes the original conversation. The token
+    // is the harness id the session captured, falling back to the terminal
+    // key only for CLIs whose resume id IS our minted key (claude-code). No
+    // token → fall through to the full clear (fresh-brief respawn).
+    const effectiveCli = session.cli ?? workspace.agents[retirement.agentId]?.cli
+    const resumeToken = retirement.retainResumeState
+      ? (session.cliSessionId
+        ?? (agentCliUsesStableSessionIdForResume(effectiveCli) ? session.sessionId : undefined))
+      : undefined
+    const retainedResume = Boolean(resumeToken && agentCliSupportsConversationResume(effectiveCli))
     defaultExecutorPorts.updateAgent(workspace.id, retirement.agentId, {
-      cliSessionId: undefined,
+      cliSessionId: retainedResume ? resumeToken : undefined,
       cliStartRequested: false,
       cliHasLaunched: false,
       cliOnboardingPromptSent: false,
-      cliResumeAvailable: false,
+      cliResumeAvailable: retainedResume,
     })
     void workspaceSyncClient.dispatchUpdateTerminalLaunchState(workspace.id, retirement.agentId, {
-      cliSessionId: null,
+      cliSessionId: retainedResume ? (resumeToken as string) : null,
       cliStartRequested: false,
       cliHasLaunched: false,
       cliOnboardingPromptSent: false,
-      cliResumeAvailable: false,
+      cliResumeAvailable: retainedResume,
     })
     await defaultExecutorPorts.publishDiagnostic({
       level: 'info',
@@ -1228,6 +1243,25 @@ export async function spawnAutoRunCandidate(
     })
     return 'failed'
   }
+  // Resume-aware rework respawn (MC-1444 Phase 2): spawning the previous
+  // owner back onto its OWN task after a window disposal relaunches the
+  // original conversation (`--resume <token>`) instead of a fresh brief, so a
+  // late changes_requested verdict gets back the diff context it references.
+  // Deliberately narrow: the retained-resume state is only ever shaped by the
+  // window-disposal retirement (cliResumeAvailable + cliSessionId with
+  // cliHasLaunched/cliStartRequested cleared); every other spawn — new task,
+  // gate, crashed live session — stays a fresh conversation. Resume failure
+  // in the CLI degrades to a new session on the same prompt (fresh brief).
+  const resumeToken =
+    !nextRun.gateId
+    && sprintEngineState.sprintEngineAgents[nextRun.agentId]?.lastOwnedTaskId === nextRun.taskId
+    && currentAgent?.cliResumeAvailable
+    && currentAgent.cliSessionId
+    && !currentAgent.cliHasLaunched
+    && !currentAgent.cliStartRequested
+    && agentCliSupportsConversationResume(selectedCli)
+      ? currentAgent.cliSessionId
+      : undefined
   const workspaceFolderPath = workspace.folderPath
   const sprintEngineStatePath = workspace.sprintEngineContext.statePath
   const pendingSpawn = {
@@ -1247,6 +1281,7 @@ export async function spawnAutoRunCandidate(
       role: nextRun.role,
       taskId: nextRun.taskId,
       sessionId,
+      resumedConversation: Boolean(resumeToken),
     })
     const folderExists = await defaultExecutorPorts.pathExists(workspaceFolderPath)
     if (!folderExists) {
@@ -1392,6 +1427,10 @@ export async function spawnAutoRunCandidate(
       kind: 'agent',
       workspaceId: workspace.id,
       agentId: nextRun.agentId,
+      // The retained conversation id from the window disposal; main renders
+      // `--resume <cliSessionId>` when `resume` is set (works for captured
+      // harness ids too, e.g. codex).
+      ...(resumeToken ? { cliSessionId: resumeToken } : {}),
       executionMode,
       ...(executionMode === 'worktree' ? { worktreePath: executionCwd } : {}),
       cliPermissionPreset: getSprintEngineAutoState(workspace).cliPermissionPreset,
@@ -1419,7 +1458,7 @@ export async function spawnAutoRunCandidate(
       cols: BACKGROUND_TERMINAL_COLS,
       rows: BACKGROUND_TERMINAL_ROWS,
       cwd: executionCwd,
-      resume: false,
+      resume: Boolean(resumeToken),
       sprintEngineStatePath,
       cli: selectedCli,
       initialPrompt: startupPrompt,
