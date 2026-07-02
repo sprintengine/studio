@@ -2414,6 +2414,74 @@ def test_roster_replenish_queue_depth_tops_up_task_scoped_capacity(tmp_path) -> 
     assert fixture.cli.run("roster", "replenish", "--actor", "runner")["action"] == "none"
 
 
+def test_roster_replenish_queue_depth_counts_left_ids_and_excludes_busy_and_done(tmp_path) -> None:
+    # Capacity semantics (MC-1444 review): left/dead ids ARE capacity (they
+    # respawn fresh); ids the renderer reports busy (live task-bound
+    # terminals) and run-complete 'done' ids are NOT.
+    fixture = create_team(
+        tmp_path,
+        "queue-depth-capacity",
+        [
+            task("T0", "Finished work", "developer", "done"),
+            task("T1", "Ready one", "developer"),
+            task("T2", "Ready two", "developer"),
+        ],
+    )
+    state = read_state(fixture.state_path)
+    state["agents"] = {
+        # left id whose task is done: revivable fresh — counts as capacity.
+        "developer-1": {"role": "developer", "status": "left", "currentTaskId": None, "lastOwnedTaskId": "T0"},
+        # live done-lastOwned terminal (visible-tab deferred retirement):
+        # the renderer reports it busy — must NOT count.
+        "developer-2": {"role": "developer", "status": "idle", "currentTaskId": None, "lastOwnedTaskId": "T0"},
+        # run-complete marker status — must NOT count.
+        "developer-3": {"role": "developer", "status": "done", "currentTaskId": None},
+    }
+    state["sprintengine"]["rosterConfigured"] = True
+    write_state(fixture.state_path, state)
+
+    replenished = fixture.cli.run(
+        "roster", "replenish", "--actor", "runner",
+        "--queue-depth", "--max-new", "5",
+        "--busy-agent", "developer-2",
+    )
+    # Depth 2 (T1,T2) vs capacity 1 (developer-1 only) -> mint exactly one.
+    assert [entry["id"] for entry in replenished["created"]] == ["developer-4"]
+
+
+def test_roster_replenish_combined_retired_and_queue_depth_passes_do_not_double_mint(tmp_path) -> None:
+    # The queue-depth pass runs AFTER the retired-replacement pass so freshly
+    # minted replacements count as capacity (explicit invariant in roster.py).
+    fixture = create_team(
+        tmp_path,
+        "queue-depth-combined",
+        [
+            task("T1", "Ready one", "developer"),
+            task("T2", "Ready two", "developer"),
+        ],
+    )
+    state = read_state(fixture.state_path)
+    state["agents"] = {
+        "developer-1": {
+            "role": "developer",
+            "status": "retired",
+            "currentTaskId": None,
+            "retiredAt": "2026-07-02T00:00:00Z",
+            "retiredReason": "context capacity near limit",
+        },
+    }
+    state["sprintengine"]["rosterConfigured"] = True
+    write_state(fixture.state_path, state)
+
+    replenished = fixture.cli.run("roster", "replenish", "--actor", "runner", "--queue-depth", "--max-new", "5")
+    created = replenished["created"]
+    # Retired pass mints developer-2 (replacement); queue-depth then sees
+    # depth 2 vs capacity 1 and mints exactly one more — not two.
+    assert [entry["id"] for entry in created] == ["developer-2", "developer-3"]
+    assert created[0].get("replaces") == ["developer-1"]
+    assert created[1].get("reason") == "queue_depth"
+
+
 def test_roster_replenish_queue_depth_skips_covered_rework_and_planning_roles(tmp_path) -> None:
     # A changes_requested task whose bound previous owner still exists is
     # served by that agent (owner-affinity respawn) — no surplus id. Planning

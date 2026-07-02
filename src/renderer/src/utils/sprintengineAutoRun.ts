@@ -414,29 +414,41 @@ export function sprintEngineWakeRestrictionTaskId(
  * agent (live wake or owner-affinity respawn) and does not add depth.
  */
 export function getSprintEngineQueueDepthReplenishRoles(
-  sprintEngineState: SprintEngineState
+  sprintEngineState: SprintEngineState,
+  // Agents with a live terminal session. A live USED terminal (lastOwnedTaskId
+  // set) is neither wakeable for new tasks nor spawnable, so it must not count
+  // as capacity — otherwise a completed worker whose retirement is deferred
+  // (e.g. the operator is watching its tab) suppresses the mint and stalls the
+  // role's whole queue (review finding).
+  liveAgentIds: ReadonlySet<string> = new Set()
 ): SprintEngineRoleId[] {
-  const agents = Object.values(sprintEngineState.sprintEngineAgents)
+  const agentEntries = Object.entries(sprintEngineState.sprintEngineAgents)
   const boundTaskIds = new Set(
-    agents
-      .filter((agent) => agent.status !== 'retired' && agent.lastOwnedTaskId)
-      .map((agent) => agent.lastOwnedTaskId as string)
+    agentEntries
+      .filter(([, agent]) => agent.status !== 'retired' && agent.lastOwnedTaskId)
+      .map(([, agent]) => agent.lastOwnedTaskId as string)
   )
   const readyByRole = new Map<SprintEngineRoleId, number>()
   for (const task of getSprintEngineWakeCandidateTasks(sprintEngineState)) {
     if (isSprintEnginePlanningRole(task.role)) continue
     if (task.status === 'changes_requested' && boundTaskIds.has(task.id)) continue
+    // Python's task_is_ready excludes triage-pending tasks; the TS task type
+    // does not model needsTriage, but the projection always carries it —
+    // counting those tasks would report a deficit Python refuses to fill,
+    // one no-op CLI call per tick until the architect triages.
+    if ((task as SprintEngineTask & { needsTriage?: boolean }).needsTriage === true) continue
     readyByRole.set(task.role, (readyByRole.get(task.role) ?? 0) + 1)
   }
   if (readyByRole.size === 0) return []
   const taskById = new Map(sprintEngineState.tasks.map((task) => [task.id, task]))
   const capacityByRole = new Map<SprintEngineRoleId, number>()
-  for (const agent of agents) {
+  for (const [agentId, agent] of agentEntries) {
     if (agent.status !== 'idle' || agent.currentTaskId) continue
     if (!readyByRole.has(agent.role)) continue
     if (agent.lastOwnedTaskId) {
       const lastOwned = taskById.get(agent.lastOwnedTaskId)
       if (lastOwned && lastOwned.status !== 'done') continue
+      if (liveAgentIds.has(agentId)) continue
     }
     capacityByRole.set(agent.role, (capacityByRole.get(agent.role) ?? 0) + 1)
   }
@@ -941,6 +953,12 @@ export function planSprintEngineDispatch(input: {
   idleClock?: ReadonlyMap<string, number>
   /** Per-agent timestamp of the last idle retirement; suppresses re-retiring the same agent within AUTO_RUN_RETIREMENT_COOLDOWN_MS. */
   retirementCooldown?: ReadonlyMap<string, number>
+  /**
+   * Per-agent (idle-clock key) task id of the last task-scoped retirement.
+   * Bounds the retire→respawn loop: a repeat retirement for the SAME done
+   * task uses the slow idle-window cadence instead of the 60s fast path.
+   */
+  taskScopedRetirementTaskIds?: ReadonlyMap<string, string>
 }): SprintEngineDispatchPlan {
   const { workspace, sprintEngineState, now } = input
   const include = (path: SprintEngineDispatchPath): boolean => !input.paths || input.paths.has(path)
@@ -1666,12 +1684,25 @@ export function planSprintEngineDispatch(input: {
     // when work appears. Pre-plan runs (no tasks) and completed runs are
     // excluded: bootstrap and the all-tasks-done closure own those terminals.
     const gateClaimHolders = getGateClaimHolderAgentIds(sprintEngineState)
-    const claimableGateRoles = new Set<SprintEngineRoleId>()
+    // Per-gate records (not just a role set): the parking decision below must
+    // ask "could THIS agent claim one of these gates?" — a self-review-barred
+    // gate on the agent's own task must not park it forever (review finding:
+    // with the task-scoped wake restriction, the old role-level skip turned a
+    // same-role own-task gate into a permanent zombie terminal).
+    const claimableGates: Array<{ role: SprintEngineRoleId; ownerAgentId: string | null; allowSelfReview: boolean }> = []
     for (const task of sprintEngineState.tasks) {
       for (const gate of getClaimableSprintEngineAutoRunGates(task, sprintEngineState.tasks)) {
-        claimableGateRoles.add(gate.role)
+        claimableGates.push({
+          role: gate.role,
+          ownerAgentId: task.ownerAgentId ?? null,
+          allowSelfReview: gate.allowSelfReview !== false,
+        })
       }
     }
+    const roleHasGateClaimableByAgent = (role: SprintEngineRoleId, agentId: string): boolean =>
+      claimableGates.some((gate) =>
+        gate.role === role && (gate.allowSelfReview || gate.ownerAgentId !== agentId)
+      )
     // Triage (signalArchitectForNeedsInputTriage) runs outside this plan and
     // re-engages the architect whenever architect-actionable needs_input tasks
     // exist. Retiring that architect here would make triage respawn it next
@@ -1691,7 +1722,7 @@ export function planSprintEngineDispatch(input: {
       // has a full queue; fresh sessions take the queue.
       const restrictToTaskId = sprintEngineWakeRestrictionTaskId(runtimeAgent)
       if (findSprintEngineWakeCandidateTaskForAgent(wakeTasks, runtimeAgent.role, agentId, new Set(), restrictToTaskId)) continue
-      if (claimableGateRoles.has(runtimeAgent.role)) continue
+      if (roleHasGateClaimableByAgent(runtimeAgent.role, agentId)) continue
       const idleClockKey = sprintEngineIdleClockKey(workspace, agentId)
       // Task-scoped terminal state: the worker's own task is finished, so its
       // session has nothing left to return for. Retires without the 5-minute
@@ -1706,7 +1737,19 @@ export function planSprintEngineDispatch(input: {
       const lastOwnedTask = restrictToTaskId
         ? sprintEngineState.tasks.find((candidate) => candidate.id === restrictToTaskId)
         : undefined
-      const taskScopedComplete = lastOwnedTask?.status === 'done'
+      // Storm bound (review finding): the short cooldown only applies to the
+      // FIRST task-scoped retirement per completed task. A respawn that fails
+      // to claim its next task keeps the stale done lastOwnedTaskId, so
+      // without this check it would be killed and respawned every 60 seconds
+      // indefinitely (the spawn path has no retry budget). A repeat for the
+      // SAME done task falls back to the slow pre-change cadence (5-minute
+      // idle window + 15-minute cooldown); a genuinely new completion always
+      // gets the prompt path because its task id differs.
+      const repeatTaskScopedRetirement = Boolean(
+        restrictToTaskId
+        && input.taskScopedRetirementTaskIds?.get(idleClockKey) === restrictToTaskId
+      )
+      const taskScopedComplete = lastOwnedTask?.status === 'done' && !repeatTaskScopedRetirement
       // Storm guard: a recently retired agent that was respawned (and idled
       // again) must not be retired a second time until the cooldown elapses.
       // Task-scoped retirements use the short cooldown: the same roster id is
@@ -1746,12 +1789,17 @@ export function planSprintEngineDispatch(input: {
       // (review/testing/product/changes_requested), so keep its resume state —
       // a late changes_requested verdict resumes the original conversation
       // with the diff context the gate feedback references (MC-1444 Phase 2).
+      // needs_input included (review finding): a needs_input hold keeps its
+      // owner server-side exactly like the four verdict-window statuses, and
+      // the eventual resolution respawn benefits from the same conversation
+      // context (the question the answer references).
       const inReworkWindow = Boolean(
         lastOwnedTask
         && (lastOwnedTask.status === 'review'
           || lastOwnedTask.status === 'testing'
           || lastOwnedTask.status === 'product'
-          || lastOwnedTask.status === 'changes_requested')
+          || lastOwnedTask.status === 'changes_requested'
+          || lastOwnedTask.status === 'needs_input')
       )
       const idleMinutes = Math.round((now - since) / 60_000)
       planRetirement({
@@ -2062,6 +2110,22 @@ export function pickNextAutoRuns(
   const hasInFlightSpawn = (agentId: string) =>
     options.inFlightSpawns.has(`${workspace.id}:${agentId}`)
 
+  // Owner ids bound to pending rework: their retained conversation is the
+  // whole point of owner affinity, so the generic pick must not burn them on
+  // an unrelated task while another eligible id exists (review finding:
+  // iteration order could hand the rework owner to an earlier todo task and
+  // leave its own rework to a cold fresh agent).
+  const reworkTaskIds = new Set(
+    sprintEngineState.tasks
+      .filter((candidate) => candidate.status === 'changes_requested')
+      .map((candidate) => candidate.id)
+  )
+  const reworkReservedAgentIds = new Set(
+    Object.entries(sprintEngineState.sprintEngineAgents)
+      .filter(([, runtime]) => runtime.lastOwnedTaskId && reworkTaskIds.has(runtime.lastOwnedTaskId))
+      .map(([agentId]) => agentId)
+  )
+
   const findReusableRoleAgent = (
     role: SprintEngineRoleId,
     // Owner affinity (MC-1444 Phase 2): when selecting for a task, prefer the
@@ -2086,6 +2150,13 @@ export function pickNextAutoRuns(
       )
       if (previousOwner) return previousOwner.id
     }
+    // Two-tier generic pick: prefer ids not reserved for someone's rework;
+    // fall back to a reserved id rather than stalling the role (throughput
+    // over token — Phase 3 minting covers the gap next tick).
+    const unreserved = roster.find((candidate) =>
+      eligible(candidate.id, candidate.role) && !reworkReservedAgentIds.has(candidate.id)
+    )
+    if (unreserved) return unreserved.id
     const agent = roster.find((candidate) => eligible(candidate.id, candidate.role))
     return agent?.id ?? null
   }
@@ -2291,6 +2362,26 @@ export function pickNextAutoRuns(
       ownerAgentId: task.ownerAgentId ?? null,
       dependsOnCount: task.dependsOn.length,
     })
+
+    // A live idle previous owner is engaged for this rework via the wake
+    // paste in the same supervise cycle — spawning a second agent here would
+    // double-dispatch the task and let a cold fresh agent race the warm owner
+    // for the claim (review finding).
+    const hasLiveBoundOwner = Object.entries(sprintEngineState.sprintEngineAgents).some(([ownerId, runtime]) =>
+      runtime.lastOwnedTaskId === task.id
+      && runtime.status === 'idle'
+      && !runtime.currentTaskId
+      && options.runningAgentIds.has(ownerId)
+    )
+    if (hasLiveBoundOwner) {
+      logPerfEvent('SprintEngineAutoRun', 'candidate-pick-ready-task-deferred-to-live-owner', {
+        workspaceId: workspace.id,
+        workspaceName: workspace.name,
+        taskId: task.id,
+        role: task.role,
+      })
+      continue
+    }
 
     const reusableAgentId = findReusableRoleAgent(task.role, task.id)
     if (!reusableAgentId) {

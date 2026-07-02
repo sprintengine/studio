@@ -470,6 +470,13 @@ def build_parser() -> argparse.ArgumentParser:
         dest="max_new",
         help="Upper bound on queue-depth roster additions this invocation (caller's concurrency headroom).",
     )
+    p.add_argument(
+        "--busy-agent",
+        action="append",
+        default=[],
+        dest="busy_agents",
+        help="Roster id with a live task-bound terminal (repeatable); excluded from queue-depth capacity. The caller owns liveness.",
+    )
     p.set_defaults(handler=roster_commands.replenish)
 
     p = roster_sub.add_parser("list", help="List the canonical Sprint Engine roster.")

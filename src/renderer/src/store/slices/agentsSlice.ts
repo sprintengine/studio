@@ -294,6 +294,22 @@ export function createAgentsSlice(set: AgentsSliceSet): AgentsSlice {
               && !agent.cliSessionId
             ) continue
             if (agent.kind === 'sprintengine') {
+              // MC-1444 window-disposal retention: the auto-run executor
+              // deliberately parks a resume token (cliSessionId +
+              // cliResumeAvailable with launch flags cleared) on a worker
+              // whose task awaits its verdict, so a late changes_requested
+              // respawn can resume the conversation. That shape has no live
+              // session BY DESIGN — wiping it here (mount-time reconcile,
+              // second sync window) silently forfeits the rework context.
+              // Leave it: the supervisor clears it once the task completes
+              // (clearStaleRetainedResumeState), and cold app starts still
+              // reset it via the persist partialize.
+              if (
+                agent.cliResumeAvailable
+                && agent.cliSessionId
+                && !agent.cliStartRequested
+                && !agent.cliHasLaunched
+              ) continue
               agent.cliStartRequested = false
               agent.cliHasLaunched = false
               agent.cliSessionId = undefined

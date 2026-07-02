@@ -1589,6 +1589,12 @@ export type SprintEngineRosterReplenishInput = {
    */
   queueDepth?: boolean
   maxNew?: number
+  /**
+   * Roster ids with a live terminal bound to a task (lastOwnedTaskId set):
+   * neither wakeable for new tasks nor spawnable, so the Python capacity
+   * calc must not count them. The renderer owns liveness.
+   */
+  busyAgentIds?: string[]
 }
 
 export type SprintEngineRosterAddInput = {

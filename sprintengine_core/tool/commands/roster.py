@@ -32,13 +32,19 @@ def _agent_is_new_task_capacity(state: Dict[str, Any], agent: Any) -> bool:
     """True when this roster id can host a fresh session for a NEW task.
 
     Mirrors the renderer's task-scoped reuse rules (MC-1444): retired ids are
-    gone; an id owning active work is busy; an id whose durable
-    lastOwnedTaskId task is still short of terminal state is bound to that
-    task (its live terminal only wakes for that task's rework, and a respawn
-    would resume that conversation). left/dead ids count — they respawn
-    fresh.
+    gone; a run-complete ('done') id is not respawn capacity (the TS mirror
+    requires 'idle', keeping the two calcs from disagreeing every tick); an
+    id owning active work is busy; an id whose durable lastOwnedTaskId task
+    is still short of terminal state is bound to that task (its live terminal
+    only wakes for that task's rework, and a respawn would resume that
+    conversation). left/dead ids count — they respawn fresh. Liveness the
+    caller knows about arrives separately via --busy-agent (a live
+    done-lastOwned terminal is neither wakeable nor spawnable until its
+    deferred retirement lands).
     """
     if not isinstance(agent, dict) or agent_is_retired(agent):
+        return False
+    if str(agent.get("status") or "") == "done":
         return False
     if agent.get("currentTaskId"):
         return False
@@ -193,6 +199,11 @@ def cmd_roster_replenish(args: argparse.Namespace) -> Dict[str, Any]:
         # so freshly minted replacements count as capacity — no double mint.
         if getattr(args, "queue_depth", False):
             remaining = max(0, int(getattr(args, "max_new", 0) or 0))
+            busy_agent_ids = {
+                str(agent_id).strip()
+                for agent_id in (getattr(args, "busy_agents", None) or [])
+                if str(agent_id).strip()
+            }
             tasks = [task for task in state.get("tasks", []) or [] if isinstance(task, dict)]
             # A changes_requested task whose bound previous owner still exists
             # is already covered by that agent (live wake or owner-affinity
@@ -219,9 +230,10 @@ def cmd_roster_replenish(args: argparse.Namespace) -> Dict[str, Any]:
                 if ready_depth <= 0:
                     continue
                 capacity = sum(
-                    1 for agent in state.get("agents", {}).values()
+                    1 for agent_id, agent in state.get("agents", {}).items()
                     if isinstance(agent, dict)
                     and agent.get("role") == role
+                    and str(agent_id) not in busy_agent_ids
                     and _agent_is_new_task_capacity(state, agent)
                 )
                 deficit = min(ready_depth - capacity, remaining)

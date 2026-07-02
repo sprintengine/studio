@@ -157,6 +157,16 @@ async function main(): Promise<void> {
   await testSpawnAutoRunCandidateResumesPreviousOwnerConversation()
   await testWindowDisposalRetainsResumeStateInStore()
   testQueueDepthReplenishRolesComputeDeficits()
+  testTaskScopedRetirementStormBoundFallsBackToSlowCadence()
+  testSelfReviewBarredOwnGateDoesNotParkCompletedWorker()
+  testGenericPickAvoidsReworkReservedOwners()
+  testPickNextAutoRunsDefersReworkToLiveBoundOwner()
+  testNeedsInputHoldRetainsResumeState()
+  testReconcileLaunchFlagsPreservesRetainedResumeShape()
+  await testSpawnResumeBlockedForCrashedLiveFlags()
+  await testWindowDisposalWithoutTokenFullyClears()
+  await testQueueDepthTriggerPayloadAndNoopFingerprint()
+  await testStaleRetainedResumeStateClearedOnceTaskDone()
   testActiveAssignmentRescueStopsAfterTwoPromptsWithDiagnostic()
   await testActiveAssignmentExhaustionDiagnosticMarksLedger()
   testActiveGateAssignmentRescueSendsMinimalPrompt()
@@ -2177,6 +2187,7 @@ function taskScopedPlanInput(input: {
   paths: SprintEngineDispatchPath[]
   idleClock?: Map<string, number>
   retirementCooldown?: Map<string, number>
+  taskScopedRetirementTaskIds?: Map<string, string>
 }): ReturnType<typeof planSprintEngineDispatch> {
   return planSprintEngineDispatch({
     workspace: input.workspace,
@@ -2189,6 +2200,7 @@ function taskScopedPlanInput(input: {
     paths: new Set(input.paths),
     ...(input.idleClock ? { idleClock: input.idleClock } : {}),
     ...(input.retirementCooldown ? { retirementCooldown: input.retirementCooldown } : {}),
+    ...(input.taskScopedRetirementTaskIds ? { taskScopedRetirementTaskIds: input.taskScopedRetirementTaskIds } : {}),
   })
 }
 
@@ -2614,6 +2626,184 @@ async function testSpawnAutoRunCandidateResumesPreviousOwnerConversation(): Prom
   assert.equal(spawns[0].metadata?.cliSessionId, undefined, 'no resume token is passed for a fresh session')
 }
 
+function testTaskScopedRetirementStormBoundFallsBackToSlowCadence(): void {
+  // Review finding: a respawn that fails to claim keeps its stale done
+  // lastOwnedTaskId; without a bound it would be killed every 60s forever.
+  // A repeat retirement for the SAME done task must use the slow idle-window
+  // cadence; a new completion keeps the prompt path.
+  const now = Date.parse('2026-07-02T12:00:00Z')
+  const workspace = workspaceFixture()
+  const state = sprintEngineStateFixture({
+    tasks: [
+      task({ id: 'T-finished', role: 'developer', status: 'done', boardColumn: 'done', ownerAgentId: null, qualityGates: [] }),
+      task({ id: 'T-open', role: 'tester', status: 'todo', boardColumn: 'ready', ownerAgentId: null, qualityGates: [] }),
+    ],
+    sprintEngineAgents: {
+      'developer-1': runtimeAgent('developer', { lastOwnedTaskId: 'T-finished' }),
+    },
+  })
+  const clockKey = sprintEngineIdleClockKey(workspace, 'developer-1')
+  const freshClock = new Map([[clockKey, now - 1_000]])
+  const repeatLedger = new Map([[clockKey, 'T-finished']])
+
+  const repeatPlan = taskScopedPlanInput({
+    workspace, state, now, idleAgentIds: ['developer-1'], paths: ['idle_retire'],
+    idleClock: freshClock, taskScopedRetirementTaskIds: repeatLedger,
+  })
+  assert.equal(repeatPlan.retirements.length, 0, 'a repeat for the same done task waits out the idle window (no 60s churn)')
+
+  const differentTaskLedger = new Map([[clockKey, 'T-previous']])
+  const freshCompletionPlan = taskScopedPlanInput({
+    workspace, state, now, idleAgentIds: ['developer-1'], paths: ['idle_retire'],
+    idleClock: freshClock, taskScopedRetirementTaskIds: differentTaskLedger,
+  })
+  assert.equal(freshCompletionPlan.retirements.length, 1, 'a genuinely new completion keeps the prompt path')
+  assert.equal(freshCompletionPlan.retirements[0].data.reason, 'task_scoped_terminal_state')
+
+  const slowPathPlan = taskScopedPlanInput({
+    workspace, state, now, idleAgentIds: ['developer-1'], paths: ['idle_retire'],
+    idleClock: new Map([[clockKey, now - AUTO_RUN_IDLE_RETIREMENT_MS - 60_000]]),
+    taskScopedRetirementTaskIds: repeatLedger,
+  })
+  assert.equal(slowPathPlan.retirements.length, 1, 'past the full idle window the repeat still reclaims the terminal')
+  assert.equal(slowPathPlan.retirements[0].data.reason, 'idle_window')
+}
+
+function testSelfReviewBarredOwnGateDoesNotParkCompletedWorker(): void {
+  // Review finding: a claimable same-role gate the agent can never claim
+  // (its own task, allowSelfReview false) must not park it as a zombie.
+  const now = Date.parse('2026-07-02T12:00:00Z')
+  const workspace = workspaceFixture()
+  const state = sprintEngineStateFixture({
+    tasks: [
+      task({
+        id: 'T-mine',
+        role: 'developer',
+        status: 'review',
+        boardColumn: 'review',
+        ownerAgentId: 'developer-1',
+        qualityGates: [
+          { id: 'developer', phase: 'review', role: 'developer', status: 'pending', required: true, allowSelfReview: false, focus: '', attempts: [] },
+        ],
+      }),
+      task({ id: 'T-finished', role: 'developer', status: 'done', boardColumn: 'done', ownerAgentId: null, qualityGates: [] }),
+    ],
+    sprintEngineAgents: {
+      // lastOwned points at the done task; the pending gate is on T-mine
+      // which this agent owns — self-review barred, so the gate cannot park it.
+      'developer-1': runtimeAgent('developer', { lastOwnedTaskId: 'T-finished' }),
+    },
+  })
+  const idleClock = new Map([[sprintEngineIdleClockKey(workspace, 'developer-1'), now - 1_000]])
+  const plan = taskScopedPlanInput({ workspace, state, now, idleAgentIds: ['developer-1'], paths: ['idle_retire'], idleClock })
+  assert.equal(plan.retirements.length, 1, 'a gate the agent can never claim does not defer its retirement')
+
+  // Wait — the gate is on developer-1's OWN task, but its ownership matters,
+  // not lastOwned: a different agent (fresh) CAN claim it, so a fresh idle
+  // developer IS parked by it (claimable work for the role).
+  const parkedState = sprintEngineStateFixture({
+    tasks: [
+      task({
+        id: 'T-other',
+        role: 'developer',
+        status: 'review',
+        boardColumn: 'review',
+        ownerAgentId: 'developer-9',
+        qualityGates: [
+          { id: 'developer', phase: 'review', role: 'developer', status: 'pending', required: true, allowSelfReview: false, focus: '', attempts: [] },
+        ],
+      }),
+      task({ id: 'T-finished', role: 'developer', status: 'done', boardColumn: 'done', ownerAgentId: null, qualityGates: [] }),
+    ],
+    sprintEngineAgents: {
+      'developer-1': runtimeAgent('developer', { lastOwnedTaskId: 'T-finished' }),
+    },
+  })
+  const parkedPlan = taskScopedPlanInput({ workspace, state: parkedState, now, idleAgentIds: ['developer-1'], paths: ['idle_retire'], idleClock })
+  assert.equal(parkedPlan.retirements.length, 0, 'a gate the agent CAN claim (someone else\'s task) still parks it for that work')
+}
+
+function testGenericPickAvoidsReworkReservedOwners(): void {
+  // Review finding: iteration order must not burn a rework owner (and its
+  // retained conversation) on an unrelated earlier task.
+  const state = sprintEngineStateFixture({
+    tasks: [
+      task({ id: 'T-new', role: 'developer', status: 'todo', boardColumn: 'ready', ownerAgentId: null, qualityGates: [] }),
+      task({ id: 'T-rework', role: 'developer', status: 'changes_requested', boardColumn: 'changes_requested', ownerAgentId: null, qualityGates: [] }),
+    ],
+    sprintEngineAgents: {
+      // Previous owner of the rework sorts FIRST — the generic pick must skip it.
+      'developer-1': runtimeAgent('developer', { lastOwnedTaskId: 'T-rework' }),
+      'developer-2': runtimeAgent('developer'),
+    },
+  })
+  const candidates = pickNextAutoRuns(workspaceFixture(), state, pickInput())
+  const byTask = new Map(candidates.map((candidate) => [candidate.taskId, candidate.agentId]))
+  assert.equal(byTask.get('T-new'), 'developer-2', 'the unreserved agent takes the new task')
+  assert.equal(byTask.get('T-rework'), 'developer-1', 'the rework owner is preserved for its own task')
+}
+
+function testPickNextAutoRunsDefersReworkToLiveBoundOwner(): void {
+  // Review finding: when the previous owner is LIVE and idle, the wake paste
+  // engages it in the same cycle — spawning a second agent for the same
+  // rework double-dispatches the task.
+  const state = sprintEngineStateFixture({
+    tasks: [task({ id: 'T-rework', role: 'developer', status: 'changes_requested', boardColumn: 'changes_requested', ownerAgentId: null, qualityGates: [] })],
+    sprintEngineAgents: {
+      'developer-1': runtimeAgent('developer', { lastOwnedTaskId: 'T-rework' }),
+      'developer-2': runtimeAgent('developer'),
+    },
+  })
+  const candidates = pickNextAutoRuns(workspaceFixture(), state, pickInput({
+    runningAgentIds: new Set(['developer-1']),
+  }))
+  assert.deepEqual(candidates, [], 'no spawn is planned while the live bound owner will be wake-pasted')
+}
+
+function testNeedsInputHoldRetainsResumeState(): void {
+  // Review finding: needs_input keeps its owner server-side exactly like the
+  // verdict-window statuses — the resolution respawn needs the conversation
+  // that asked the question.
+  const now = Date.parse('2026-07-02T12:00:00Z')
+  const workspace = workspaceFixture()
+  const state = sprintEngineStateFixture({
+    tasks: [task({ id: 'T-held', role: 'developer', status: 'needs_input', boardColumn: 'needs_input', ownerAgentId: 'developer-1', qualityGates: [] })],
+    sprintEngineAgents: {
+      'developer-1': runtimeAgent('developer', { lastOwnedTaskId: 'T-held' }),
+    },
+  })
+  const parkedClock = new Map([[sprintEngineIdleClockKey(workspace, 'developer-1'), now - AUTO_RUN_IDLE_RETIREMENT_MS - 60_000]])
+  const plan = taskScopedPlanInput({ workspace, state, now, idleAgentIds: ['developer-1'], paths: ['idle_retire'], idleClock: parkedClock })
+  assert.equal(plan.retirements.length, 1)
+  assert.equal(plan.retirements[0].retainResumeState, true, 'a needs_input hold keeps the resume token for the resolution respawn')
+}
+
+function testReconcileLaunchFlagsPreservesRetainedResumeShape(): void {
+  // Review finding: the mount-time launch-flag reconcile (app remount, second
+  // sync window) must not wipe the deliberately-parked resume token.
+  const retainedAgent = {
+    ...sprintAgent('developer-1', 'Dev One', 'claude-code'),
+    cliSessionId: 'retained-token',
+    cliResumeAvailable: true,
+    cliStartRequested: false,
+    cliHasLaunched: false,
+  }
+  const staleAgent = {
+    ...sprintAgent('developer-2', 'Dev Two', 'claude-code'),
+    cliSessionId: 'dead-session',
+    cliResumeAvailable: false,
+    cliStartRequested: true,
+    cliHasLaunched: true,
+  }
+  installWorkspaceStore(workspaceFixture({ agents: { 'developer-1': retainedAgent, 'developer-2': staleAgent } }))
+  useWorkspaceStore.getState().reconcileWorkspaceAgentLaunchFlags([])
+  const agents = useWorkspaceStore.getState().workspaces[0].agents
+  assert.equal(agents['developer-1'].cliSessionId, 'retained-token', 'the retained resume token survives the reconcile')
+  assert.equal(agents['developer-1'].cliResumeAvailable, true)
+  assert.equal(agents['developer-2'].cliSessionId, undefined, 'a genuinely stale launch state is still cleared')
+  assert.equal(agents['developer-2'].cliStartRequested, false)
+}
+
 function testQueueDepthReplenishRolesComputeDeficits(): void {
   // MC-1444 Phase 3 trigger: a role is flagged when its ready-queue depth
   // exceeds spawnable capacity. Bound-in-window ids are not capacity; a
@@ -2655,6 +2845,241 @@ function testQueueDepthReplenishRolesComputeDeficits(): void {
     [],
     'rework covered by its bound previous owner adds no depth'
   )
+
+  // Review findings: a LIVE done-lastOwned terminal (retirement deferred,
+  // e.g. visible tab) is not capacity — without the liveness exclusion the
+  // whole role queue stalls behind the watched terminal; and triage-pending
+  // tasks add no depth (Python's task_is_ready refuses them).
+  const watchedState = sprintEngineStateFixture({
+    tasks: [
+      task({ id: 'T-done', role: 'developer', status: 'done', boardColumn: 'done', ownerAgentId: null, qualityGates: [] }),
+      task({ id: 'T-next', role: 'developer', status: 'todo', boardColumn: 'ready', ownerAgentId: null, qualityGates: [] }),
+    ],
+    sprintEngineAgents: {
+      'developer-1': runtimeAgent('developer', { lastOwnedTaskId: 'T-done' }),
+    },
+  })
+  assert.deepEqual(
+    getSprintEngineQueueDepthReplenishRoles(watchedState, new Set(['developer-1'])),
+    ['developer'],
+    'a live done-lastOwned terminal is not capacity — the role needs a mint'
+  )
+  assert.deepEqual(
+    getSprintEngineQueueDepthReplenishRoles(watchedState, new Set()),
+    [],
+    'the same id counts once disposed (it respawns fresh)'
+  )
+
+  const triageState = sprintEngineStateFixture({
+    tasks: [
+      { ...task({ id: 'T-triage', role: 'developer', status: 'todo', boardColumn: 'ready', ownerAgentId: null, qualityGates: [] }), needsTriage: true } as SprintEngineTask,
+    ],
+    sprintEngineAgents: {},
+  })
+  assert.deepEqual(
+    getSprintEngineQueueDepthReplenishRoles(triageState),
+    [],
+    'triage-pending tasks add no depth (Python would refuse to fill them)'
+  )
+}
+
+async function testSpawnResumeBlockedForCrashedLiveFlags(): Promise<void> {
+  // Coverage gap from review: the crashed-live guard (!cliHasLaunched &&
+  // !cliStartRequested) must suppress resume — a crashed session's stale
+  // terminal key is not a retention-shaped token.
+  const spawns: Array<{ resume?: boolean; metadata?: { cliSessionId?: string } }> = []
+  installTestWindow({
+    terminalList: async () => [],
+    terminalStatus: async () => ({ processAlive: false }),
+    pathExists: async () => true,
+    memoryResolveRoot: async () => ({ ok: false, status: 'disabled', relativeRoot: null }),
+    terminalSpawn: async (
+      sessionId: string, _c: number, _r: number, _cwd?: string, resume?: boolean,
+      _sp?: string, _cli?: AgentCli, _p?: string, _rt?: unknown, _so?: boolean,
+      metadata?: { cliSessionId?: string },
+    ) => {
+      spawns.push({ resume, metadata })
+      return { ok: true, sessionId }
+    },
+    logDiagnostic: async (input) => input,
+  })
+  const supervisor = await loadSupervisor()
+  const crashedAgent = {
+    ...sprintAgent('developer-1', 'Dev One', 'claude-code'),
+    cliSessionId: 'stale-terminal-key',
+    cliResumeAvailable: true,
+    cliStartRequested: true,
+    cliHasLaunched: true,
+  }
+  const workspace = workspaceFixture({
+    agents: { 'developer-1': crashedAgent },
+    sprintEngineAutoState: {
+      desiredMode: 'run_agents', runtimeState: 'running', cliPermissionPreset: 'default',
+      maxConcurrentAgents: 3, pendingSpawns: [], deliveredAgentNotificationEventKeys: [],
+    },
+  })
+  const state = sprintEngineStateFixture({
+    tasks: [task({ id: 'T-mine', role: 'developer', status: 'changes_requested', boardColumn: 'changes_requested', ownerAgentId: null, qualityGates: [] })],
+    sprintEngineAgents: { 'developer-1': runtimeAgent('developer', { lastOwnedTaskId: 'T-mine' }) },
+  })
+  installWorkspaceStore({ ...workspace, sprintEngineState: state })
+  const result = await supervisor.spawnAutoRunCandidate(
+    workspace, state,
+    { agentId: 'developer-1', label: 'Dev One', role: 'developer', taskId: 'T-mine' },
+    { codex: { command: 'codex', useWsl: false }, 'claude-code': { command: 'claude', useWsl: false } },
+    emptyMcpSettings, mutableRef(new Set<string>()),
+  )
+  assert.equal(result, 'started')
+  assert.equal(spawns.length, 1)
+  assert.equal(spawns[0].resume, false, 'crashed-live flags suppress resume even for the own task')
+  assert.equal(spawns[0].metadata?.cliSessionId, undefined)
+}
+
+async function testWindowDisposalWithoutTokenFullyClears(): Promise<void> {
+  // Coverage gap from review: a codex window disposal with NO captured
+  // harness id has no resume token — the executor must fully clear rather
+  // than retain cliResumeAvailable with a garbage token.
+  const kills: string[] = []
+  installTestWindow({
+    terminalList: async () => [
+      {
+        sessionId: 'session-developer',
+        processAlive: true,
+        kind: 'agent',
+        workspaceId: 'workspace-1',
+        agentId: 'developer-1',
+        sprintEngineStatePath: '/tmp/workspace/.multi-code/sprintengine/team/run.yaml',
+        executionMode: 'current_workspace',
+        cli: 'codex',
+        startedAt: 1,
+      },
+    ],
+    terminalStatus: async () => ({ processAlive: true }),
+    terminalWrite: async () => ({ ok: true }),
+    terminalKill: async (sessionId: string) => {
+      kills.push(sessionId)
+      return { ok: true }
+    },
+    pathExists: async () => true,
+    memoryResolveRoot: async () => ({ ok: false, status: 'disabled', relativeRoot: null }),
+    logDiagnostic: async (input) => input,
+  })
+  const supervisor = await loadSupervisor()
+  const sprintEngineState = sprintEngineStateFixture({
+    tasks: [task({ id: 'T-mine', role: 'developer', status: 'review', boardColumn: 'review', ownerAgentId: 'developer-1', qualityGates: [] })],
+    sprintEngineAgents: { 'developer-1': runtimeAgent('developer', { lastOwnedTaskId: 'T-mine' }) },
+  })
+  const workspace = workspaceFixture({
+    sprintEngineState,
+    agents: { 'developer-1': sprintAgent('developer-1', 'Dev One', 'codex') },
+    sprintEngineAutoState: {
+      desiredMode: 'run_agents', runtimeState: 'running', cliPermissionPreset: 'default',
+      maxConcurrentAgents: 3, pendingSpawns: [], deliveredAgentNotificationEventKeys: [],
+    },
+  })
+  installWorkspaceStore(workspace)
+  const idleClockByAgent = mutableRef(new Map<string, number>([
+    [sprintEngineIdleClockKey(workspace, 'developer-1'), Date.now() - supervisor.AUTO_RUN_IDLE_RETIREMENT_MS - 60_000],
+  ]))
+  await runIdleRetirementCycle(supervisor, workspace, sprintEngineState, idleClockByAgent)
+  assert.deepEqual(kills, ['session-developer'])
+  const cleared = useWorkspaceStore.getState().workspaces.find((w) => w.id === workspace.id)?.agents['developer-1']
+  assert.equal(cleared?.cliSessionId, undefined, 'no captured harness id for a non-stable-id CLI → full clear')
+  assert.equal(cleared?.cliResumeAvailable, false, 'fresh-brief fallback: resume availability is not retained without a token')
+}
+
+async function testQueueDepthTriggerPayloadAndNoopFingerprint(): Promise<void> {
+  // Coverage gap from review: the Phase 3 trigger payload was unasserted (a
+  // regression could silently disable queue-depth minting), and a no-mint
+  // outcome must park the trigger until the projection changes instead of
+  // spawning a no-op CLI subprocess every supervise tick.
+  const replenishCalls: Array<Record<string, unknown>> = []
+  installTestWindow({
+    terminalList: async () => [],
+    terminalStatus: async () => ({ processAlive: false }),
+    terminalWrite: async () => ({ ok: true }),
+    terminalSpawn: async (sessionId: string) => ({ ok: true, sessionId }),
+    pathExists: async () => true,
+    memoryResolveRoot: async () => ({ ok: false, status: 'disabled', relativeRoot: null }),
+    replenishSprintEngineRoster: async (input: Record<string, unknown>) => {
+      replenishCalls.push(input)
+      return { ok: true, data: {} }
+    },
+    logDiagnostic: async (input) => input,
+  })
+  const supervisor = await loadSupervisor()
+  const sprintEngineState = sprintEngineStateFixture({
+    updatedAt: '2026-07-02T12:00:00Z',
+    tasks: [
+      task({ id: 'T1', role: 'developer', status: 'todo', boardColumn: 'ready', ownerAgentId: null, qualityGates: [] }),
+      task({ id: 'T2', role: 'developer', status: 'todo', boardColumn: 'ready', ownerAgentId: null, qualityGates: [] }),
+    ],
+    sprintEngineAgents: {
+      'developer-1': runtimeAgent('developer'),
+    },
+  })
+  const workspace = workspaceFixture({
+    sprintEngineState,
+    agents: { 'developer-1': sprintAgent('developer-1', 'Dev One') },
+    sprintEngineAutoState: {
+      desiredMode: 'run_agents', runtimeState: 'running', cliPermissionPreset: 'default',
+      maxConcurrentAgents: 4, pendingSpawns: [], deliveredAgentNotificationEventKeys: [],
+    },
+  })
+  installWorkspaceStore(workspace)
+  const idleClockByAgent = mutableRef(new Map<string, number>())
+  await runIdleRetirementCycle(supervisor, workspace, sprintEngineState, idleClockByAgent)
+  assert.equal(replenishCalls.length, 1, 'a role deficit triggers exactly one replenish call')
+  assert.equal(replenishCalls[0].queueDepth, true, 'the payload requests queue-depth mode')
+  assert.equal(replenishCalls[0].maxNew, 4, 'maxNew carries the local concurrency ceiling')
+
+  // Same projection, no mint: the trigger is parked — no per-tick churn.
+  await runIdleRetirementCycle(supervisor, workspace, sprintEngineState, idleClockByAgent)
+  assert.equal(replenishCalls.length, 1, 'a no-mint outcome parks the trigger until the projection changes')
+}
+
+async function testStaleRetainedResumeStateClearedOnceTaskDone(): Promise<void> {
+  // Review finding: an approval landing AFTER window disposal leaves a
+  // purposeless retained token that would leak into completed-run teardown
+  // (board reopen would resume the finished conversation). The supervise
+  // cycle clears it once the bound task is done and no session is live.
+  installTestWindow({
+    terminalList: async () => [],
+    terminalStatus: async () => ({ processAlive: false }),
+    terminalWrite: async () => ({ ok: true }),
+    terminalSpawn: async (sessionId: string) => ({ ok: true, sessionId }),
+    pathExists: async () => true,
+    memoryResolveRoot: async () => ({ ok: false, status: 'disabled', relativeRoot: null }),
+    logDiagnostic: async (input) => input,
+  })
+  const supervisor = await loadSupervisor()
+  const retainedAgent = {
+    ...sprintAgent('developer-1', 'Dev One', 'claude-code'),
+    cliSessionId: 'stale-retained-token',
+    cliResumeAvailable: true,
+    cliStartRequested: false,
+    cliHasLaunched: false,
+  }
+  const sprintEngineState = sprintEngineStateFixture({
+    tasks: [
+      task({ id: 'T-mine', role: 'developer', status: 'done', boardColumn: 'done', ownerAgentId: null, qualityGates: [] }),
+      task({ id: 'T-open', role: 'tester', status: 'todo', boardColumn: 'ready', ownerAgentId: null, qualityGates: [] }),
+    ],
+    sprintEngineAgents: { 'developer-1': runtimeAgent('developer', { lastOwnedTaskId: 'T-mine' }) },
+  })
+  const workspace = workspaceFixture({
+    sprintEngineState,
+    agents: { 'developer-1': retainedAgent },
+    sprintEngineAutoState: {
+      desiredMode: 'run_agents', runtimeState: 'running', cliPermissionPreset: 'default',
+      maxConcurrentAgents: 3, pendingSpawns: [], deliveredAgentNotificationEventKeys: [],
+    },
+  })
+  installWorkspaceStore(workspace)
+  await runIdleRetirementCycle(supervisor, workspace, sprintEngineState, mutableRef(new Map<string, number>()))
+  const cleared = useWorkspaceStore.getState().workspaces.find((w) => w.id === workspace.id)?.agents['developer-1']
+  assert.equal(cleared?.cliSessionId, undefined, 'the stale token is cleared once the bound task is done')
+  assert.equal(cleared?.cliResumeAvailable, false)
 }
 
 async function testWindowDisposalRetainsResumeStateInStore(): Promise<void> {

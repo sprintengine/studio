@@ -1171,6 +1171,11 @@ export function createSprintEngineArtifactHandlers(deps: SprintEngineArtifactDep
         if (payload?.queueDepth) {
           const maxNew = Math.max(1, Math.min(10, Math.trunc(payload.maxNew ?? 1)))
           args.push('--queue-depth', '--max-new', String(maxNew))
+          for (const busyAgentId of payload.busyAgentIds ?? []) {
+            if (typeof busyAgentId === 'string' && busyAgentId.trim()) {
+              args.push('--busy-agent', busyAgentId.trim())
+            }
+          }
         }
         const toolResult = await runSprintEngineCli(state, args)
         if (toolResult.exitCode !== 0) {
