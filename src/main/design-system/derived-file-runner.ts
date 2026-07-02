@@ -77,8 +77,10 @@ export async function regenerateBundleDerivedFiles(
   }
 
   // The derived map is file → generator; several files may share a generator.
-  // Run each generator once, in stable order.
-  const scripts = [...new Set(Object.values(derived))].sort()
+  // Run each generator once, in manifest declaration order: the map is
+  // authored dependency-first (build-tokens before build-catalog, which
+  // inlines the tokens.css that build-tokens just wrote).
+  const scripts = [...new Set(Object.values(derived))]
   const runs: DerivedScriptRun[] = []
   for (const script of scripts) {
     const scriptPath = join(bundleDir, script)

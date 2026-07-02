@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { spawn } from 'node:child_process'
-import { cpSync, mkdirSync, mkdtempSync, rmSync, writeFileSync, existsSync } from 'node:fs'
+import { cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync, existsSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
@@ -44,19 +44,42 @@ function makeExampleCopy(base: string): string {
   return root
 }
 
-run('regenerates derived files for a bundle, reporting unstamped generators as missing', async () => {
+run('regenerates derived files for a bundle, tokens before the catalog that inlines them', async () => {
   const bundle = makeExampleCopy('ds-runner-ok-')
   try {
     rmSync(join(bundle, 'foundations', 'tokens.css'))
+    rmSync(join(bundle, 'catalog', 'index.html'))
     const result = await regenerateBundleDerivedFiles(bundle, nodeFork)
     assert.equal(result.ok, true, JSON.stringify(result))
     assert.ok(existsSync(join(bundle, 'foundations', 'tokens.css')), 'tokens.css was not regenerated')
+    assert.ok(existsSync(join(bundle, 'catalog', 'index.html')), 'catalog/index.html was not regenerated')
+    // Declaration order of the manifest derived map: the catalog generator
+    // inlines tokens.css, so build-tokens must have run first.
+    assert.deepEqual(
+      result.runs.map((r) => r.script),
+      ['scripts/build-tokens.mjs', 'scripts/build-catalog.mjs'],
+    )
     const byScript = new Map(result.runs.map((r) => [r.script, r]))
     assert.equal(byScript.get('scripts/build-tokens.mjs')?.status, 'ok')
     assert.ok(byScript.get('scripts/build-tokens.mjs')?.stdout.includes('wrote foundations/tokens.css'))
-    // The example manifest already names the catalog generator; it lands with
-    // the catalog task, so today it must surface as missing — not as failure.
-    assert.equal(byScript.get('scripts/build-catalog.mjs')?.status, 'missing')
+    assert.equal(byScript.get('scripts/build-catalog.mjs')?.status, 'ok')
+    assert.ok(byScript.get('scripts/build-catalog.mjs')?.stdout.includes('wrote catalog/index.html'))
+  } finally {
+    rmSync(bundle, { recursive: true, force: true })
+  }
+})
+
+run('a generator named in the manifest but not yet stamped reports missing, not failure', async () => {
+  const bundle = makeExampleCopy('ds-runner-missing-')
+  try {
+    const manifestPath = join(bundle, 'design-system.json')
+    const manifest = JSON.parse(readFileSync(manifestPath, 'utf8'))
+    manifest.derived['docs/extra.html'] = 'scripts/build-extra.mjs'
+    writeFileSync(manifestPath, JSON.stringify(manifest, null, 2))
+    const result = await regenerateBundleDerivedFiles(bundle, nodeFork)
+    assert.equal(result.ok, true, JSON.stringify(result))
+    const unstamped = result.runs.find((r) => r.script === 'scripts/build-extra.mjs')
+    assert.equal(unstamped?.status, 'missing')
   } finally {
     rmSync(bundle, { recursive: true, force: true })
   }
