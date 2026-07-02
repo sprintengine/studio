@@ -37,12 +37,15 @@ export type DesignSystemLibraryReadResult =
 /**
  * Pipeline stage that refused a release. Nothing is copied into the library
  * on any failure; `lint` failures carry the lint report in `lintFindings`.
+ * `source` refuses a bundle tree that is unsafe to copy verbatim (a symlink
+ * escaping the bundle).
  */
 export type DesignSystemReleaseFailureStage =
   | 'request'
   | 'manifest'
   | 'lint'
   | 'regenerate'
+  | 'source'
   | 'conflict'
   | 'copy'
 
