@@ -24,16 +24,18 @@ correct mechanism for the tokens-before-catalog dependency, documented at the co
    `src/main/design-system/derived-file-runner.ts` (the declaration-order fix),
    `src/main/design-system/derived-file-runner.test.ts`, and
    `src/shared/design-system/build-catalog.test.ts` — all listed as delivered evidence, all outside
-   the owned paths, exactly the orphan-path publish gap. At the current branch tip a clean checkout is
+   the owned paths, exactly the orphan-path publish gap. At the publish-time branch tip a clean checkout was
    broken three ways: (a) `verify:app` fails — `package.json` (committed via the T5 sweep) wires
    `test:shared:design-system-build-catalog` to a test file that is not in git; (b) the committed
    runner still runs generators alphabetically, so regeneration runs build-catalog *before*
    build-tokens and inlines a stale `tokens.css` — the acceptance-relevant regen order only exists
    uncommitted; (c) the committed KG note documents declaration-order runner behavior the committed
-   code does not have — contract drift at tip. Required: commit the three files under T4
-   (`sprintengine.vcs.commit` with explicit paths, or expand ownedPaths) so the branch tip matches the
-   evidence. The evidence itself was honest about the package.json sweep; the gap is only that the
-   companion files never landed.
+   code does not have — contract drift at tip. **Resolved during this review:** the gate's artifact
+   commit (`6683d79c`, made through `sprintengine.vcs.commit` under T4) swept the three companion
+   files to the tip; I read all three diffs in full and re-ran both suites (12/12, 8/8) against this
+   content, so I stand behind what landed. Remaining action for developer-1: confirm `6683d79c`
+   matches the intended state — nothing further if it does. The evidence itself was honest about the
+   package.json sweep; the gap was only that the companion files never landed with the publish.
 
 ## Important
 
