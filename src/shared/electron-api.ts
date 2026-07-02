@@ -67,6 +67,7 @@ export type {
   UserRoleSaveResult,
 } from './sprintengine/role-manifest'
 import type { LayoutTemplateInstallResult, UserLayoutTemplateListResult } from './layouts/template-manifest'
+import type { DesignSystemRegenResult } from './design-system/derived-files'
 import type { ConversationProviderListEntry, ConversationProviderModel, PluginRegistryListEntry } from './plugin-manifest'
 import type { MarketplaceComponentKind, MarketplaceIndex, MarketplaceManifestIssue, MarketplacePluginEntry } from './marketplace/manifest'
 import type { CapabilityPermission } from './modules/permissions'
@@ -2287,6 +2288,8 @@ export type ElectronApi = {
   installUserLayoutTemplateFolder: (srcDir: string) => Promise<LayoutTemplateInstallResult>
   /** List the layout templates installed in the user-global registry. */
   listUserLayoutTemplates: () => Promise<UserLayoutTemplateListResult>
+  /** Regenerate design-system derived files (tokens.css, catalog) for every bundle under a root dir. */
+  regenerateDesignSystemDerivedFiles: (rootDir: string) => Promise<DesignSystemRegenResult>
   /** List installed third-party capability modules with trust, permissions, and launch readiness. */
   listThirdPartyModules: () => Promise<ThirdPartyModuleListResult>
   /** Install a third-party capability module from a folder (validated, not executed). */

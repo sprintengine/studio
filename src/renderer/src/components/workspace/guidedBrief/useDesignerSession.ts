@@ -362,6 +362,27 @@ export function useDesignerSession({
   // remains gated on real files only — see GuidedBriefFlow.acceptDesigner.
   const isReady = markerReceived || mockupsAvailable
 
+  // Designer-turn completion edge: regenerate design-system derived files
+  // (tokens.css, catalog) for any bundle in the workspace by running the
+  // bundle's own generator scripts in a main-process utility fork. Workspaces
+  // without a bundle (full-brief, frontend-design) resolve as a no-op, so
+  // this fires the IPC once and otherwise leaves those flows untouched.
+  const regenTriggeredRef = useRef(false)
+  useEffect(() => {
+    if (!enabled || !isReady || regenTriggeredRef.current) return
+    regenTriggeredRef.current = true
+    window.api
+      .regenerateDesignSystemDerivedFiles(workspaceRoot)
+      .then((result) => {
+        if (!result.ok) {
+          console.error('[design-system] derived-file regeneration failed', result)
+        }
+      })
+      .catch((error) => {
+        console.error('[design-system] derived-file regeneration failed', error)
+      })
+  }, [enabled, isReady, workspaceRoot])
+
   return {
     status,
     error,
