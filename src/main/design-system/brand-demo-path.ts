@@ -16,9 +16,11 @@ export async function resolveDesignSystemBrandDemoSeedDir(): Promise<
     await access(candidate)
     return { ok: true, path: candidate }
   } catch {
+    // Kept short: the wizard renders this verbatim as the demo card's body
+    // copy, which has roughly two 12px lines before the card clips.
     return {
       ok: false,
-      message: 'The built-in brand demo source (knowledge/brand/) is not available in this build.',
+      message: 'The demo source (knowledge/brand/) is not bundled with this build.',
     }
   }
 }

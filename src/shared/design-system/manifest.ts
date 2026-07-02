@@ -29,8 +29,14 @@ export interface DesignSystemManifest extends Record<string, unknown> {
   provenance: DesignSystemProvenance
 }
 
-const NAME_PATTERN = /^[a-z0-9][a-z0-9-]*$/
-const SEMVER_PATTERN = /^\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)?$/
+// Exported for callers that compose filesystem paths from renderer-supplied
+// name/version strings (the library registry): both patterns exclude path
+// separators and dot-segments, so a validated pair is path-safe.
+export const DESIGN_SYSTEM_NAME_PATTERN = /^[a-z0-9][a-z0-9-]*$/
+export const DESIGN_SYSTEM_VERSION_PATTERN = /^\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)?$/
+
+const NAME_PATTERN = DESIGN_SYSTEM_NAME_PATTERN
+const SEMVER_PATTERN = DESIGN_SYSTEM_VERSION_PATTERN
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
