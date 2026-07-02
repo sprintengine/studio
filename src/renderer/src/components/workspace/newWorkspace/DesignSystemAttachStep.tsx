@@ -20,6 +20,13 @@ type LibraryState =
   | { kind: 'ready'; entries: DesignSystemLibraryEntry[]; rejectedCount: number }
   | { kind: 'unavailable'; message: string }
 
+// Trust-transfer copy for the browse-to-folder path (T16 F2): attached-bundle
+// prose is agent-visible instruction data, so attaching an arbitrary folder
+// hands it authorship of agent context. Library releases were authored on this
+// machine and do not carry the warning. Exported for the render-contract test.
+export const FOLDER_ATTACH_TRUST_COPY =
+  'Agents in this workspace will read and use its files — only attach sources you trust.'
+
 // Bonus path after a successful attach when the wizard also committed a
 // knowledge root: a pointer note next to the graph, composed from the shared
 // launch-line contract so the two can never drift. The bundle stays the
@@ -186,9 +193,10 @@ export function DesignSystemAttachStep({ workspaceRoot, selection, onSelect }: D
           titleMono={folderSelection != null}
           detail={
             folderSelection
-              ? 'This folder is validated as a bundle before anything is copied.'
-              : 'Attach any released bundle from disk.'
+              ? `This folder is validated as a bundle before anything is copied. ${FOLDER_ATTACH_TRUST_COPY}`
+              : `Attach any released bundle from disk. ${FOLDER_ATTACH_TRUST_COPY}`
           }
+          detailWraps
           onSelect={() => void chooseFolder()}
         />
       </div>
@@ -222,12 +230,15 @@ function AttachChoiceRow({
   title,
   titleMono = false,
   detail,
+  detailWraps = false,
   onSelect,
 }: {
   active: boolean
   title: string
   titleMono?: boolean
   detail: string
+  /** Trust copy must stay readable, so the browse row wraps instead of truncating. */
+  detailWraps?: boolean
   onSelect: () => void
 }) {
   return (
@@ -250,7 +261,13 @@ function AttachChoiceRow({
       >
         {title}
       </span>
-      <span className="min-w-0 max-w-full truncate text-[12px] leading-4 text-[color:var(--text-muted)]">{detail}</span>
+      <span
+        className={`min-w-0 max-w-full text-[12px] leading-4 text-[color:var(--text-muted)] ${
+          detailWraps ? '' : 'truncate'
+        }`}
+      >
+        {detail}
+      </span>
     </button>
   )
 }

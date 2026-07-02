@@ -8,6 +8,7 @@ import {
   buildDesignSystemKnowledgeNote,
   clearStaleAttachSelection,
   DesignSystemAttachStep,
+  FOLDER_ATTACH_TRUST_COPY,
 } from './DesignSystemAttachStep'
 
 // Static-markup contract for the attach picker's initial render (effects do
@@ -47,6 +48,14 @@ assert.ok(folderHtml.includes('Choose a different folder'), 'folder selection of
 const pressedCount = (folderHtml.match(/aria-pressed="true"/g) ?? []).length
 assert.equal(pressedCount, 1, 'exactly one row is pressed')
 
+// Trust-transfer copy (T20, T16 F2 mitigation): attaching an arbitrary folder
+// hands its prose authorship of agent context, so the browse-to-folder row and
+// the folder-selected state carry the warning — exactly once per render,
+// proving it sits only on the browse/folder row and never on other rows.
+const countTrustCopy = (html: string) => html.split(FOLDER_ATTACH_TRUST_COPY).length - 1
+assert.equal(countTrustCopy(initialHtml), 1, 'browse row carries the trust-transfer copy once')
+assert.equal(countTrustCopy(folderHtml), 1, 'folder-selected state carries the trust-transfer copy once')
+
 // Stale-selection clearing (T15): a selection made before the conflict
 // pre-check trips would ride into a folder attach refuses, with the picker
 // withheld and no way to unselect. The decision lives in
@@ -82,6 +91,14 @@ assert.match(
   stepSource,
   /useEffect\(\(\) => \{\s*clearStaleAttachSelection\(\{ existingBundle, selection, onSelect \}\)\s*\}, \[existingBundle, selection, onSelect\]\)/,
   'attach step wires clearStaleAttachSelection from the pre-check effect',
+)
+// Library rows never carry the trust-transfer copy: they were authored on this
+// machine, and their detail line is the entry summary alone. (Effects do not
+// run under renderToStaticMarkup, so library rows are asserted in source.)
+assert.match(
+  stepSource,
+  /detail=\{entry\.summary\}/,
+  'library rows take their detail from the entry summary alone — no trust-transfer copy',
 )
 // 2. The wizard resets the selection when the target folder changes, so a
 //    pick made for folder A never rides into folder B (the Advanced setup
