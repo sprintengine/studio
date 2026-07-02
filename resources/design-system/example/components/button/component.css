@@ -1,0 +1,56 @@
+/* Button — consumes semantic tokens only; --ref-* is forbidden in components. */
+.ds-button {
+  appearance: none;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sem-space-control-gap);
+  padding: 6px 14px;
+  border: 1px solid transparent;
+  border-radius: var(--sem-radius-control);
+  font-family: var(--sem-font-family-ui);
+  font-size: var(--sem-font-size-body);
+  font-weight: var(--sem-font-weight-emphasis);
+  line-height: 1.4;
+  background: var(--sem-color-accent-primary);
+  color: var(--sem-color-text-on-accent);
+  cursor: pointer;
+}
+
+.ds-button:hover {
+  background: var(--sem-color-accent-hover);
+}
+
+.ds-button:focus-visible {
+  outline: 2px solid var(--sem-color-accent-hover);
+  outline-offset: 2px;
+}
+
+.ds-button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.ds-button--secondary {
+  background: transparent;
+  border-color: var(--sem-color-border-default);
+  color: var(--sem-color-text-primary);
+}
+
+.ds-button--secondary:hover {
+  background: transparent;
+  border-color: var(--sem-color-text-muted);
+}
+
+.ds-button--danger {
+  background: var(--sem-color-status-danger);
+  color: var(--sem-color-text-on-accent);
+}
+
+.ds-button--danger:hover {
+  background: var(--sem-color-status-danger);
+}
+
+.ds-button .ds-button__icon {
+  width: 14px;
+  height: 14px;
+}

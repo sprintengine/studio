@@ -1,0 +1,309 @@
+{
+  "ref": {
+    "color": {
+      "neutral": {
+        "0": { "$type": "color", "$value": "#ffffff", "$description": "Absolute white. Card surface on light." },
+        "50": { "$type": "color", "$value": "#f7f5ef", "$description": "Warm paper off-white. Light app background; primary text on dark." },
+        "200": { "$type": "color", "$value": "#e5e1d8", "$description": "Warm hairline grey for borders on light surfaces." },
+        "400": { "$type": "color", "$value": "#a6a196", "$description": "Warm mid grey. Muted text on dark surfaces." },
+        "500": { "$type": "color", "$value": "#6e6a60", "$description": "Warm grey. Muted text on light surfaces." },
+        "800": { "$type": "color", "$value": "#23211b", "$description": "Warm near-black ink. Primary text on light; hairlines on dark." },
+        "900": { "$type": "color", "$value": "#161511", "$description": "Warm dark ink. Raised surface on dark." },
+        "950": { "$type": "color", "$value": "#0c0b09", "$description": "Darkest warm ink. Dark app background; labels on bright accents." }
+      },
+      "green": {
+        "400": { "$type": "color", "$value": "#4daf7d", "$description": "Bright green. Accent hover on dark." },
+        "500": { "$type": "color", "$value": "#3f9468", "$description": "Forest green. The accent on dark." },
+        "600": { "$type": "color", "$value": "#2f6a4a", "$description": "Deep green. The accent on light." },
+        "700": { "$type": "color", "$value": "#275842", "$description": "Deepest green. Accent hover on light." }
+      },
+      "red": {
+        "300": { "$type": "color", "$value": "#e08a82", "$description": "Soft red. Danger on dark surfaces." },
+        "500": { "$type": "color", "$value": "#b8433a", "$description": "Deep red. Danger on light surfaces." }
+      }
+    },
+    "space": {
+      "1": { "$type": "dimension", "$value": "4px", "$description": "Base spacing unit." },
+      "2": { "$type": "dimension", "$value": "8px", "$description": "2x base spacing." },
+      "3": { "$type": "dimension", "$value": "12px", "$description": "3x base spacing." },
+      "4": { "$type": "dimension", "$value": "16px", "$description": "4x base spacing." },
+      "6": { "$type": "dimension", "$value": "24px", "$description": "6x base spacing." }
+    },
+    "radius": {
+      "sm": { "$type": "dimension", "$value": "5px", "$description": "Small corner radius for controls and rows." },
+      "md": { "$type": "dimension", "$value": "7px", "$description": "Medium corner radius for popovers and cards." }
+    },
+    "font": {
+      "family": {
+        "ui": { "$type": "fontFamily", "$value": ["Inter", "system-ui", "sans-serif"], "$description": "Default UI face." },
+        "mono": { "$type": "fontFamily", "$value": ["JetBrains Mono", "SFMono-Regular", "monospace"], "$description": "Monospace face for identifiers and code." }
+      },
+      "size": {
+        "sm": { "$type": "dimension", "$value": "12px", "$description": "Meta and supporting copy." },
+        "md": { "$type": "dimension", "$value": "13px", "$description": "Default body size." },
+        "lg": { "$type": "dimension", "$value": "15px", "$description": "Titles and section headings." }
+      },
+      "weight": {
+        "regular": { "$type": "fontWeight", "$value": 400, "$description": "Body weight." },
+        "semibold": { "$type": "fontWeight", "$value": 600, "$description": "Emphasis and control labels." }
+      }
+    }
+  },
+  "sem": {
+    "color": {
+      "bg": {
+        "app": {
+          "$type": "color",
+          "$value": "{ref.color.neutral.50}",
+          "$description": "Root page/application background.",
+          "$extensions": {
+            "com.multicode": {
+              "role": "surface",
+              "use": "The outermost background layer of any page or app shell.",
+              "doNotUse": "Not for cards or raised panels; use sem.color.bg.surface.",
+              "modes": { "light": "{ref.color.neutral.50}", "dark": "{ref.color.neutral.950}" }
+            }
+          }
+        },
+        "surface": {
+          "$type": "color",
+          "$value": "{ref.color.neutral.0}",
+          "$description": "Card and panel surface, one level above the app background.",
+          "$extensions": {
+            "com.multicode": {
+              "role": "surface",
+              "use": "Cards, panels, inputs, and any content container sitting on sem.color.bg.app.",
+              "components": ["button"],
+              "modes": { "light": "{ref.color.neutral.0}", "dark": "{ref.color.neutral.900}" }
+            }
+          }
+        }
+      },
+      "text": {
+        "primary": {
+          "$type": "color",
+          "$value": "{ref.color.neutral.800}",
+          "$description": "Primary content text.",
+          "$extensions": {
+            "com.multicode": {
+              "role": "text",
+              "use": "Body copy, titles, labels — the default foreground.",
+              "modes": { "light": "{ref.color.neutral.800}", "dark": "{ref.color.neutral.50}" }
+            }
+          }
+        },
+        "muted": {
+          "$type": "color",
+          "$value": "{ref.color.neutral.500}",
+          "$description": "Secondary, supporting text.",
+          "$extensions": {
+            "com.multicode": {
+              "role": "text",
+              "use": "Meta, captions, and supporting copy next to primary text.",
+              "doNotUse": "Never for actionable copy standing alone.",
+              "modes": { "light": "{ref.color.neutral.500}", "dark": "{ref.color.neutral.400}" }
+            }
+          }
+        },
+        "on-accent": {
+          "$type": "color",
+          "$value": "{ref.color.neutral.0}",
+          "$description": "Foreground on accent-filled controls.",
+          "$extensions": {
+            "com.multicode": {
+              "role": "text",
+              "use": "Labels and icons sitting on sem.color.accent.primary or sem.color.status.danger fills.",
+              "components": ["button"],
+              "modes": { "light": "{ref.color.neutral.0}", "dark": "{ref.color.neutral.950}" }
+            }
+          }
+        }
+      },
+      "border": {
+        "default": {
+          "$type": "color",
+          "$value": "{ref.color.neutral.200}",
+          "$description": "Default hairline border.",
+          "$extensions": {
+            "com.multicode": {
+              "role": "border",
+              "use": "Panel dividers, card edges, and secondary control outlines. Borders carry structure; shadows do not.",
+              "doNotUse": "Not for form-field boundaries; use sem.color.border.input so unfocused fields stay visible.",
+              "components": ["button"],
+              "modes": { "light": "{ref.color.neutral.200}", "dark": "{ref.color.neutral.800}" }
+            }
+          }
+        },
+        "input": {
+          "$type": "color",
+          "$value": "{ref.color.neutral.500}",
+          "$description": "Boundary for form fields that must read as bounded controls.",
+          "$extensions": {
+            "com.multicode": {
+              "role": "border",
+              "use": "Outlines of text inputs, selects, and other form fields — keeps unfocused controls visible (at least 3:1 against their surface) in both modes.",
+              "doNotUse": "Not for panel dividers or card edges; use sem.color.border.default."
+            }
+          }
+        }
+      },
+      "accent": {
+        "primary": {
+          "$type": "color",
+          "$value": "{ref.color.green.600}",
+          "$description": "The single accent color.",
+          "$extensions": {
+            "com.multicode": {
+              "role": "accent",
+              "use": "Primary CTA fills and selected states. One accent per view; selection and primary action share it.",
+              "doNotUse": "Never to convey status (use sem.color.status.*) and never as a large decorative surface fill.",
+              "components": ["button"],
+              "modes": { "light": "{ref.color.green.600}", "dark": "{ref.color.green.500}" }
+            }
+          }
+        },
+        "hover": {
+          "$type": "color",
+          "$value": "{ref.color.green.700}",
+          "$description": "Hover shift of the accent.",
+          "$extensions": {
+            "com.multicode": {
+              "role": "accent",
+              "use": "Hover and focus emphasis on accent-filled or accent-outlined controls.",
+              "components": ["button"],
+              "modes": { "light": "{ref.color.green.700}", "dark": "{ref.color.green.400}" }
+            }
+          }
+        }
+      },
+      "status": {
+        "danger": {
+          "$type": "color",
+          "$value": "{ref.color.red.500}",
+          "$description": "Destructive and error signal.",
+          "$extensions": {
+            "com.multicode": {
+              "role": "status",
+              "use": "Destructive action fills, error text, and failure marks — status meaning only.",
+              "doNotUse": "Never as a category or brand color.",
+              "components": ["button"],
+              "modes": { "light": "{ref.color.red.500}", "dark": "{ref.color.red.300}" }
+            }
+          }
+        }
+      },
+      "brand": {
+        "highlight": {
+          "$type": "color",
+          "$value": "{ref.color.green.500}",
+          "$description": "Deprecated brand highlight, kept to exercise the deprecation schema.",
+          "$extensions": {
+            "com.multicode": {
+              "role": "accent",
+              "use": "Do not adopt; retained only for existing consumers.",
+              "deprecated": {
+                "since": "0.1.0",
+                "replaceWith": "{sem.color.accent.primary}",
+                "reason": "Merged into the single-accent rule."
+              }
+            }
+          }
+        }
+      }
+    },
+    "space": {
+      "control-gap": {
+        "$type": "dimension",
+        "$value": "{ref.space.2}",
+        "$description": "Gap between a control's internal elements and between sibling controls.",
+        "$extensions": {
+          "com.multicode": {
+            "role": "space",
+            "use": "Icon-to-label gaps and gaps in control rows.",
+            "components": ["button"]
+          }
+        }
+      },
+      "section": {
+        "$type": "dimension",
+        "$value": "{ref.space.6}",
+        "$description": "Vertical rhythm between page sections.",
+        "$extensions": {
+          "com.multicode": {
+            "role": "space",
+            "use": "Padding around sections and stacked page regions."
+          }
+        }
+      }
+    },
+    "radius": {
+      "control": {
+        "$type": "dimension",
+        "$value": "{ref.radius.sm}",
+        "$description": "Corner radius for interactive controls.",
+        "$extensions": {
+          "com.multicode": {
+            "role": "radius",
+            "use": "Buttons, inputs, chips, and rows.",
+            "components": ["button"]
+          }
+        }
+      },
+      "overlay": {
+        "$type": "dimension",
+        "$value": "{ref.radius.md}",
+        "$description": "Corner radius for floating surfaces.",
+        "$extensions": {
+          "com.multicode": {
+            "role": "radius",
+            "use": "Popovers, cards, and modal shells. Keep at most two radii per view."
+          }
+        }
+      }
+    },
+    "font": {
+      "family": {
+        "ui": {
+          "$type": "fontFamily",
+          "$value": "{ref.font.family.ui}",
+          "$description": "The face for all UI copy.",
+          "$extensions": {
+            "com.multicode": {
+              "role": "type",
+              "use": "Everything except identifiers and code, which use ref.font.family.mono.",
+              "components": ["button"]
+            }
+          }
+        }
+      },
+      "size": {
+        "body": {
+          "$type": "dimension",
+          "$value": "{ref.font.size.md}",
+          "$description": "Default body text size.",
+          "$extensions": {
+            "com.multicode": {
+              "role": "type",
+              "use": "Body copy and control labels. Keep at most three sizes per view.",
+              "components": ["button"]
+            }
+          }
+        }
+      },
+      "weight": {
+        "emphasis": {
+          "$type": "fontWeight",
+          "$value": "{ref.font.weight.semibold}",
+          "$description": "Emphasis weight for labels and headings.",
+          "$extensions": {
+            "com.multicode": {
+              "role": "type",
+              "use": "Control labels, section headings, and inline emphasis.",
+              "components": ["button"]
+            }
+          }
+        }
+      }
+    }
+  }
+}

@@ -5,11 +5,14 @@ import {
   sprintEngineAutomationModeForRunOptions,
 } from '../../../../utils/sprintengineAutomationLifecycle'
 import {
-  GuidedBriefWorkspaceError,
   buildGuidedBriefSprintEngineSourceBundle,
   scaffoldGuidedBriefWorkspace,
   writeGuidedBriefBuildHandoff,
 } from '../../../../utils/guidedBriefWorkspace'
+import {
+  buildInitialGuidedBriefRuntimeState,
+  rethrowGuidedScaffoldFailure,
+} from './guidedBriefScaffolding'
 import {
   PlanSourcedSprintEngineWorkspaceError,
   createPlanSourcedSprintEngineWorkspace,
@@ -37,6 +40,7 @@ export class GuidedBriefStartBuildError extends Error {
       | 'missing-product-brief'
       | 'missing-architecture-plan'
       | 'missing-ui-direction-or-mockups'
+      | 'design-system-preset'
       | 'advanced-setup-failed'
       | 'team-exists'
       | 'unknown',
@@ -77,17 +81,11 @@ export async function runGuidedBriefScaffold(
       filesystem: ports.filesystem,
     })
   } catch (error) {
-    if (error instanceof GuidedBriefWorkspaceError) {
+    rethrowGuidedScaffoldFailure(error, (message) => {
       const wrapped = new GuidedBriefScaffoldError('unknown')
-      wrapped.message = `Could not set up the Design Wizard workspace (${error.code}).`
-      throw wrapped
-    }
-    if (error instanceof Error) {
-      const wrapped = new GuidedBriefScaffoldError('unknown')
-      wrapped.message = error.message
-      throw wrapped
-    }
-    throw new GuidedBriefScaffoldError('unknown')
+      if (message) wrapped.message = message
+      return wrapped
+    })
   }
 
   const wantsFrontendDiscussion = isDesignPreset
@@ -121,34 +119,25 @@ export async function runGuidedBriefScaffold(
   }
 
   const workspaceLabel = toTitleName(basename(folderPath)) || input.workspaceName.trim() || 'Design Wizard'
-  const runtimeState: GuidedBriefRuntimeState = {
-    workspaceRoot: folderPath,
-    workspaceName: workspaceLabel,
-    idea: input.idea,
-    hasUi,
-    preset,
-    wantsProductDiscussion: wantsProduct,
-    wantsArchitectureDiscussion: wantsArchitecture,
-    wantsFrontendDiscussion,
-    guidedRoleCliDefaults: input.guidedRoleCliDefaults,
-    buildRoleCounts: input.buildRoleCounts,
-    buildRoleCliDefaults: input.buildRoleCliDefaults,
-    buildCliPermissionPreset: input.buildCliPermissionPreset,
-    buildStartRunner: input.buildStartRunner,
-    buildAutoApproveArtifacts: input.buildAutoApproveArtifacts,
-    stage: initialStage,
-    acceptedProductBrief: null,
-    acceptedArchitecturePlan: null,
-    acceptedUiDirection: null,
-    acceptedMockups: [],
-    activeMockupPath: null,
-    activeDesignArtifactPath: null,
-    strategistSessionId: null,
-    architectSessionId: null,
-    designerSessionId: null,
+  return {
+    runtimeState: buildInitialGuidedBriefRuntimeState({
+      workspaceRoot: folderPath,
+      workspaceName: workspaceLabel,
+      idea: input.idea,
+      hasUi,
+      preset,
+      wantsProductDiscussion: wantsProduct,
+      wantsArchitectureDiscussion: wantsArchitecture,
+      wantsFrontendDiscussion,
+      stage: initialStage,
+      guidedRoleCliDefaults: input.guidedRoleCliDefaults,
+      buildRoleCounts: input.buildRoleCounts,
+      buildRoleCliDefaults: input.buildRoleCliDefaults,
+      buildCliPermissionPreset: input.buildCliPermissionPreset,
+      buildStartRunner: input.buildStartRunner,
+      buildAutoApproveArtifacts: input.buildAutoApproveArtifacts,
+    }),
   }
-
-  return { runtimeState }
 }
 
 export async function runGuidedBriefStartBuild(
@@ -156,6 +145,13 @@ export async function runGuidedBriefStartBuild(
   ports: GuidedBriefStartBuildPorts,
 ): Promise<void> {
   const { runtimeState, runOptions, finalRoleCounts } = input
+
+  // The design-system preset completes with "Save as design system" (the T6
+  // release pipeline), never a Sprint Engine build; its studio renders no
+  // build tail, so reaching here means a caller bug — refuse loudly.
+  if (runtimeState.preset === 'design-system') {
+    throw new GuidedBriefStartBuildError('design-system-preset')
+  }
 
   if (runtimeState.wantsProductDiscussion && !runtimeState.acceptedProductBrief) {
     throw new GuidedBriefStartBuildError('missing-product-brief')

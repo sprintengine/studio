@@ -4,6 +4,8 @@ import type {
   TerminalSpawnMetadata,
   TerminalSpawnResult,
 } from '../../../../../shared/electron-api'
+import { DESIGN_SYSTEM_MANIFEST_FILENAME } from '../../../../../shared/design-system/manifest'
+import type { DesignSystemSeedSource } from '../../../types/workspace'
 import {
   buildGuidedBriefSpecialistStartupPrompt,
   type GuidedBriefSpecialistKind,
@@ -21,6 +23,11 @@ export const GUIDED_BRIEF_SPECIALIST_MARKERS: Record<GuidedBriefSpecialistKind, 
   architect: 'ARCHITECTURE_PLAN_READY',
   designer: 'MOCKUP_SET_READY',
 }
+
+// A designer session authoring a design-system bundle (the design-system
+// preset) signals readiness with its own marker — the bundle, not a mockup
+// set, is the artifact.
+export const GUIDED_BRIEF_DESIGN_SYSTEM_MARKER = 'DESIGN_SYSTEM_READY'
 
 export type GuidedBriefSessionLifecycle =
   | 'starting'
@@ -93,6 +100,20 @@ export type GuidedBriefDesignerSessionInput = {
   inspirationDirectoryPath?: string
   uiDirectionPath?: string
   mockupPath?: string
+  // An attached design-system bundle exists at `design-system/` in the
+  // workspace: the mockup designer's prompt gains the conform line. Never set
+  // alongside `designSystem` (the authoring studio owns that directory).
+  designSystemAttached?: boolean
+  // Design-system preset: the same shared designer session (terminalSpawn
+  // path, bypass_all preset) under a dedicated role prompt that authors the
+  // portable bundle instead of mockups. `seedSource` is present when the
+  // studio was started as "seed from an existing product" and makes the
+  // prompt's opening move the reviewed extraction of that source.
+  designSystem?: {
+    bundleDirectoryPath: string
+    ideaSeedPath: string
+    seedSource?: DesignSystemSeedSource
+  }
 }
 
 export type GuidedBriefArchitectSessionInput = {
@@ -206,8 +227,15 @@ function promptForInput(input: StartGuidedBriefSpecialistSessionInput, marker: s
     inspirationDirectoryPath: input.inspirationDirectoryPath,
     uiDirectionPath: input.uiDirectionPath,
     mockupPath: input.mockupPath,
+    designSystemAttached: input.designSystemAttached,
+    designSystem: input.designSystem,
     marker,
   })
+}
+
+function markerForInput(input: StartGuidedBriefSpecialistSessionInput): string {
+  if (input.kind === 'designer' && input.designSystem) return GUIDED_BRIEF_DESIGN_SYSTEM_MARKER
+  return GUIDED_BRIEF_SPECIALIST_MARKERS[input.kind]
 }
 
 function markerDetectionForInput(input: StartGuidedBriefSpecialistSessionInput, marker: string): GuidedBriefMarkerDetection {
@@ -226,6 +254,14 @@ function markerDetectionForInput(input: StartGuidedBriefSpecialistSessionInput, 
       marker,
       artifactPath,
       watchPath: artifactPath,
+    }
+  }
+
+  if (input.designSystem) {
+    return {
+      marker,
+      artifactPath: `${input.designSystem.bundleDirectoryPath}/${DESIGN_SYSTEM_MANIFEST_FILENAME}`,
+      watchPath: input.designSystem.bundleDirectoryPath,
     }
   }
 
@@ -268,7 +304,7 @@ export async function startGuidedBriefSpecialistSession(
   options: StartGuidedBriefSpecialistSessionOptions,
 ): Promise<StartGuidedBriefSpecialistSessionResult> {
   const sessionId = input.sessionId ?? createSessionId()
-  const marker = GUIDED_BRIEF_SPECIALIST_MARKERS[input.kind]
+  const marker = markerForInput(input)
   const prompt = promptForInput(input, marker)
   const markerDetection = markerDetectionForInput(input, marker)
   const disposers: Array<() => void> = []
@@ -372,7 +408,9 @@ export async function startGuidedBriefSpecialistSession(
           ? 'Product Strategist terminal'
           : input.kind === 'architect'
             ? 'Architect terminal'
-            : 'Frontend Designer terminal',
+            : input.designSystem
+              ? 'Design System Designer terminal'
+              : 'Frontend Designer terminal',
       },
       prompt,
       stop: () => options.terminalApi.terminalKill(sessionId),

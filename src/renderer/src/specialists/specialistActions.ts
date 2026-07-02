@@ -1,4 +1,7 @@
-import type { MultiloopRole, SpecialistActionId } from '../types/workspace'
+import type { DesignSystemSeedSource, MultiloopRole, SpecialistActionId } from '../types/workspace'
+import { DESIGN_SYSTEM_ATTACHED_PROMPT_LINE } from '../../../shared/design-system/attach'
+import { DESIGN_SYSTEM_BUNDLE_DIRECTORY_NAME } from '../../../shared/design-system/bundle-scaffold'
+import { pathJoin } from '../utils/paths'
 
 export type { MultiloopRole }
 
@@ -288,6 +291,24 @@ export function buildSpecialistDirectiveStartupPrompt(action: SpecialistAction, 
   ].join('\n')
 }
 
+/**
+ * Launch-time injection predicate for the attached-design-system prompt line:
+ * the line is emitted when and only when `design-system/` exists in the
+ * agent's execution root. Resolved once per launch, mirroring how the
+ * knowledge suffix resolves its root (TerminalView appends the returned line
+ * to the launch prompt; the guided designer spawn passes the boolean through
+ * its session input). KG-independent by design.
+ */
+export async function resolveDesignSystemAttachedPromptLine(
+  executionRoot: string | null | undefined,
+  pathExists: (path: string) => Promise<boolean>,
+): Promise<string | null> {
+  const root = executionRoot?.trim()
+  if (!root) return null
+  const attached = await pathExists(pathJoin(root, DESIGN_SYSTEM_BUNDLE_DIRECTORY_NAME)).catch(() => false)
+  return attached ? DESIGN_SYSTEM_ATTACHED_PROMPT_LINE : null
+}
+
 export type GuidedBriefSpecialistKind = 'strategist' | 'architect' | 'designer'
 
 export type GuidedBriefSpecialistPromptInput =
@@ -312,9 +333,27 @@ export type GuidedBriefSpecialistPromptInput =
       uiDirectionPath?: string
       mockupPath?: string
       marker?: string
+      // True when `design-system/` exists in the workspace (an attached
+      // bundle): the mockup designer must conform to it instead of inventing
+      // styles. Never set for the design-system authoring studio, which owns
+      // that directory as its work product.
+      designSystemAttached?: boolean
+      // Design-system preset: the session authors a portable bundle instead
+      // of one app's mockups, under a dedicated role prompt (not the shared
+      // designer soul). See knowledge/multicode/design-system-bundle.md.
+      designSystem?: {
+        bundleDirectoryPath: string
+        ideaSeedPath: string
+        // Present when the studio was started as "seed from an existing
+        // product": the agent's opening move is extracting the source's
+        // de-facto design language into a starter bundle for review.
+        seedSource?: DesignSystemSeedSource
+      }
     }
 
-function guidedBriefInterviewInstructions(role: 'product strategist' | 'architect' | 'frontend designer'): string[] {
+function guidedBriefInterviewInstructions(
+  role: 'product strategist' | 'architect' | 'frontend designer' | 'design-system designer',
+): string[] {
   return [
     `Conduct a guided ${role} interview before writing the artifact.`,
     'Ask exactly one question at a time.',
@@ -402,6 +441,53 @@ export function buildGuidedBriefSpecialistStartupPrompt(input: GuidedBriefSpecia
     ].join('\n')
   }
 
+  if (input.designSystem) {
+    const marker = input.marker ?? 'DESIGN_SYSTEM_READY'
+    const bundle = input.designSystem.bundleDirectoryPath
+    const ideaSeedPath = input.designSystem.ideaSeedPath
+    const seedSource = input.designSystem.seedSource
+    const inspirationDirectoryPath = input.inspirationDirectoryPath ?? '.guided-brief/inspiration'
+
+    // Seed-from-existing-product opening move. The extraction is a reviewed
+    // draft, never a silent import: inferred semantics carry a `"seeded"`
+    // marker in the vendor extension and the interview opens by confirming
+    // them with the user (that metadata is what makes the system agent-usable
+    // downstream). v1 source scope per the epic: CSS custom properties /
+    // documented token values + glyphs + obvious components only.
+    const seedSourceLines = seedSource
+      ? [
+          seedSource.kind === 'brand-demo'
+            ? `This studio was seeded from the built-in Multicode brand reference at \`${seedSource.path}\`. Treat it as the existing product being distilled into a design system: its token values live in Markdown tables (\`design-tokens.md\`, \`workspace-themes.md\`), its glyph language in \`glyph-system.md\`, its principles in \`aesthetic-north-star.md\`, and its logo/icon SVGs in \`multicode-assets/\`.`
+            : `This studio was seeded from an existing product at \`${seedSource.path}\`. Extract its de-facto design language instead of starting blank.`,
+          'Before the first interview question, inspect the source and author a starter bundle from what is actually there: CSS custom properties (`:root` blocks and stylesheet files), documented token values, SVG glyphs, and the obvious repeated components (button, input, card). Extract only values the source contains — do not invent.',
+          `Write the extraction as real files: reference and semantic DTCG tokens in \`${bundle}/foundations/tokens.tokens.json\` with both light and dark mode values (when the source defines only one mode, derive the other conservatively and flag it for review), the source's glyphs copied into \`${bundle}/glyphs/\` (one concept per file, fills converted to currentColor), and the two or three strongest candidate components under \`${bundle}/components/\`.`,
+          'Every semantic meaning you infer — a token\'s role, use, or doNotUse — is a proposal until the user confirms it. Mark each inferred token by setting `"seeded": true` inside its `$extensions["com.multicode"]` metadata.',
+          'Then open the interview by walking the user through the inferred semantics group by group (color, type, spacing, radius; then glyphs and candidate components): confirm or correct each, remove the `"seeded"` flag once the user confirms it, and say what you skipped in the source and why. This is a reviewed extraction, not a silent import.',
+        ]
+      : []
+
+    return [
+      'You are the design-system designer for this workspace: a senior design engineer who turns a brand direction into a portable, agent-usable design system bundle. This prompt is your role, judgment, and quality bar — it replaces the shared designer Soul; do not fetch one.',
+      '',
+      `Read the design goal at \`${ideaSeedPath}\` before asking follow-up questions.`,
+      `Read \`${bundle}/USAGE.md\` before authoring anything — it is the bundle's consume-and-contribute contract, and every contribution you make must follow it: the naming grammar in \`${bundle}/design-system.json\`, full semantic metadata on tokens, the per-component template, and the lint gate.`,
+      `If the user has dropped inspiration files into \`${inspirationDirectoryPath}\`, read them through the existing CLI image-input path before drafting.`,
+      ...seedSourceLines,
+      ...guidedBriefInterviewInstructions('design-system designer'),
+      `Author the system as real files inside \`${bundle}/\`, walking it in this order with the user: design rules and principles (\`foundations/principles.md\`), design tokens (\`foundations/tokens.tokens.json\` — two tiers \`ref\`/\`sem\`, explicit \`$type\` and \`$description\` on every token, \`sem.*\` tokens carrying role/use metadata and light+dark modes as USAGE.md specifies), glyphs (\`glyphs/*.svg\`, one concept per file, currentColor), an open-ended component set (\`components/<name>/\` with component.html, component.css, component.md), and exemplar patterns (\`patterns/*.html\`).`,
+      `Register every authored piece in \`${bundle}/design-system.json\` under \`contents\` as you go.`,
+      `Never hand-edit the derived files (\`foundations/tokens.css\`, \`catalog/index.html\`). Regenerate them with the bundle's own scripts after source edits: \`node ${bundle}/scripts/build-tokens.mjs\` after token changes, \`node ${bundle}/scripts/build-catalog.mjs\` after component or pattern changes (skip it if that script is not present yet).`,
+      `Run \`node ${bundle}/scripts/lint.mjs\` and fix every finding before declaring the bundle ready.`,
+      `When and only when \`${bundle}/foundations/tokens.tokens.json\`, \`${bundle}/foundations/principles.md\`, and at least one component exist, the lint exits 0, and the bundle is ready for user review, emit this exact marker on its own line:`,
+      '',
+      marker,
+      '',
+      'Keep iterating with the user after the marker — the studio stays open for refining tokens, components, and patterns until they are satisfied.',
+      'Do not introduce a new agent runtime protocol. Use only normal terminal stdout/stdin, prompt instructions, and this marker.',
+      'Do not create or mutate sprint state.',
+    ].join('\n')
+  }
+
   const marker = input.marker ?? 'MOCKUP_SET_READY'
   const inspirationDirectoryPath = input.inspirationDirectoryPath ?? '.guided-brief/inspiration'
   const uiDirectionPath = input.uiDirectionPath ?? 'product/ui-direction.md'
@@ -421,6 +507,7 @@ export function buildGuidedBriefSpecialistStartupPrompt(input: GuidedBriefSpecia
       : input.acceptedBriefSnapshotPath
         ? `Read the accepted product brief snapshot at \`${input.acceptedBriefSnapshotPath}\` before designing.`
         : 'No accepted product brief or architecture plan is available; read `product/idea-seed.md` and make uncertainty explicit.',
+    ...(input.designSystemAttached ? [DESIGN_SYSTEM_ATTACHED_PROMPT_LINE] : []),
     `If the user has dropped inspiration files into \`${inspirationDirectoryPath}\`, read them through the existing CLI image-input path before drafting.`,
     ...guidedBriefInterviewInstructions('frontend designer'),
     `Write UX direction to \`${uiDirectionPath}\`.`,

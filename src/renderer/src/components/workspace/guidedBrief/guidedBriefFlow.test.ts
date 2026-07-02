@@ -170,6 +170,26 @@ assert.deepEqual(
   'the frontend-design preset rail shows only its own stations',
 )
 assert.deepEqual(designPresetSteps.map((step) => step.state), ['active', 'upcoming'])
+// The design-system preset is a studio, not a pipeline: one station, no
+// Sprint Engine build tail (its release action is a separate epic task).
+const designSystemSteps = guidedBriefSteps('designer-working', 'yes', {
+  wantsProductDiscussion: false,
+  wantsArchitectureDiscussion: false,
+  wantsFrontendDiscussion: true,
+  preset: 'design-system',
+})
+assert.deepEqual(
+  designSystemSteps.map((step) => step.label),
+  ['Design system'],
+  'the design-system preset rail is the single authoring station',
+)
+assert.deepEqual(designSystemSteps.map((step) => step.state), ['active'])
+const designSystemReadySteps = guidedBriefSteps('designer-ready', 'yes', { preset: 'design-system' })
+assert.deepEqual(
+  designSystemReadySteps.map((step) => step.state),
+  ['active'],
+  'designer-ready keeps the design-system station active (authoring continues in place)',
+)
 const handoffSteps = guidedBriefSteps('handoff', 'no', { wantsProductDiscussion: true })
 assert.equal(handoffSteps[handoffSteps.length - 1].label, 'Build')
 assert.equal(handoffSteps[handoffSteps.length - 1].state, 'active')
@@ -559,7 +579,78 @@ async function testCollectDesignArtifacts(): Promise<void> {
   console.log('designArtifacts: ok')
 }
 
-void testCollectDesignArtifacts().catch((error) => {
-  console.error(error)
-  process.exit(1)
-})
+async function testCollectDesignSystemBundleArtifacts(): Promise<void> {
+  const dirs: Record<string, { name: string; isDir: boolean }[]> = {
+    '/ds/design-system': [
+      { name: 'design-system.json', isDir: false },
+      { name: 'USAGE.md', isDir: false },
+      { name: 'AGENTS.md', isDir: false },
+      { name: 'foundations', isDir: true },
+      { name: 'components', isDir: true },
+      { name: 'scripts', isDir: true },
+    ],
+    '/ds/design-system/foundations': [
+      { name: 'tokens.tokens.json', isDir: false },
+      { name: 'tokens.css', isDir: false },
+      { name: 'principles.md', isDir: false },
+    ],
+    '/ds/design-system/components': [{ name: 'button', isDir: true }],
+    '/ds/design-system/components/button': [
+      { name: 'component.html', isDir: false },
+      { name: 'component.css', isDir: false },
+      { name: 'component.md', isDir: false },
+    ],
+    '/ds/design-system/scripts': [
+      { name: 'build-tokens.mjs', isDir: false }, // plumbing → unclassified
+      { name: 'lint.mjs', isDir: false },
+    ],
+  }
+  const ports: DesignArtifactFsPort = {
+    readdir: async (path) => dirs[path] ?? [],
+    pathExists: async () => false,
+  }
+
+  // Without opting in, the bundle tree stays out of the index — full-brief and
+  // frontend-design workspaces are untouched by the design-system preset.
+  const defaultIndex = await collectDesignArtifacts('/ds', ports)
+  assert.equal(defaultIndex.count, 0, 'bundle files are not indexed without the option')
+
+  const index = await collectDesignArtifacts('/ds', ports, { includeDesignSystemBundle: true })
+  assert.deepEqual(
+    index.groups.find((group) => group.id === 'pages')?.entries.map((entry) => entry.relativePath),
+    ['design-system/components/button/component.html'],
+    'bundle component demos are pages (they drive designer readiness)',
+  )
+  assert.deepEqual(
+    index.groups.find((group) => group.id === 'notes')?.entries.map((entry) => entry.relativePath),
+    [
+      'design-system/AGENTS.md',
+      'design-system/components/button/component.md',
+      'design-system/foundations/principles.md',
+      'design-system/USAGE.md',
+    ],
+    'bundle markdown (contracts, principles, component docs) lands in notes',
+  )
+  assert.deepEqual(
+    index.groups.find((group) => group.id === 'scripts')?.entries.map((entry) => entry.relativePath),
+    ['design-system/design-system.json', 'design-system/foundations/tokens.tokens.json'],
+    'manifest and token source are data entries; generator .mjs files stay unclassified',
+  )
+  assert.deepEqual(
+    index.groups.find((group) => group.id === 'stylesheets')?.entries.map((entry) => entry.relativePath),
+    [
+      'design-system/components/button/component.css',
+      'design-system/foundations/tokens.css',
+    ],
+    'bundle css (source and derived) is previewable',
+  )
+
+  console.log('designArtifacts design-system bundle: ok')
+}
+
+void testCollectDesignArtifacts()
+  .then(() => testCollectDesignSystemBundleArtifacts())
+  .catch((error) => {
+    console.error(error)
+    process.exit(1)
+  })

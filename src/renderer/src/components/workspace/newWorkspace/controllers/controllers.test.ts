@@ -5,6 +5,7 @@ import type {
   SprintEngineWorkspaceContext,
 } from '../../../../types/workspace'
 import {
+  DesignSystemScaffoldError,
   GuidedBriefScaffoldError,
   GuidedBriefStartBuildError,
   SprintEngineNewTeamCreationError,
@@ -15,6 +16,7 @@ import {
   buildSprintEngineNewTeamCreation,
   buildStandardCreation,
   buildSwitchboardCreation,
+  runDesignSystemScaffold,
   runGuidedBriefScaffold,
   runGuidedBriefStartBuild,
   runSprintEngineNewTeamCreation,
@@ -721,6 +723,157 @@ async function testGuidedBriefDesignPresetScaffold(): Promise<void> {
   assert.ok(!fs.files.has('/design/product/build-handoff.md'), 'design preset does not write a premature handoff')
 }
 
+async function testDesignSystemScaffoldValidationAndFailure(): Promise<void> {
+  const baseInput = {
+    workspaceName: 'Brand System',
+    idea: 'A warm editorial design system.',
+    guidedRoleCliDefaults: { product: 'claude-code', architect: 'claude-code', frontend: 'claude-code' },
+    buildRoleCounts: { architect: 1, product: 1, frontend: 1, developer: 1, code_reviewer: 1, spec_reviewer: 1, performance: 0, cross_platform: 0, tester: 1, security: 0 },
+    buildRoleCliDefaults: { architect: 'claude-code', product: 'claude-code', frontend: 'claude-code', developer: 'claude-code', code_reviewer: 'claude-code', spec_reviewer: 'claude-code', performance: 'claude-code', cross_platform: 'claude-code', tester: 'claude-code', security: 'claude-code' },
+    buildCliPermissionPreset: 'default' as const,
+    buildStartRunner: false,
+    buildAutoApproveArtifacts: false,
+  }
+  const okPorts = {
+    filesystem: createMemoryFilesystem(),
+    scaffoldBundle: async (workspaceRoot: string) => ({ ok: true as const, bundleDir: `${workspaceRoot}/design-system` }),
+  }
+
+  await assert.rejects(
+    () => runDesignSystemScaffold({ ...baseInput, folderPath: null }, okPorts),
+    (error) => error instanceof DesignSystemScaffoldError && error.code === 'missing-folder',
+    'missing-folder',
+  )
+  await assert.rejects(
+    () => runDesignSystemScaffold({ ...baseInput, folderPath: '/ds', idea: '   ' }, okPorts),
+    (error) => error instanceof DesignSystemScaffoldError && error.code === 'missing-idea',
+    'missing-idea',
+  )
+  // A seed entry whose source path never resolved fails loudly instead of
+  // silently degrading to a blank start.
+  await assert.rejects(
+    () => runDesignSystemScaffold(
+      { ...baseInput, folderPath: '/ds', seedSource: { kind: 'source-folder', path: '  ' } },
+      okPorts,
+    ),
+    (error) => error instanceof DesignSystemScaffoldError && error.code === 'missing-seed-source',
+    'missing-seed-source',
+  )
+
+  // A failed bundle scaffold surfaces its real cause — no runtime state is
+  // produced on top of a missing bundle.
+  await assert.rejects(
+    () => runDesignSystemScaffold(
+      { ...baseInput, folderPath: '/ds' },
+      {
+        filesystem: createMemoryFilesystem(),
+        scaffoldBundle: async () => ({ ok: false, message: 'templates missing' }),
+      },
+    ),
+    (error) =>
+      error instanceof DesignSystemScaffoldError
+      && error.code === 'scaffold-failed'
+      && error.message === 'templates missing',
+    'scaffold-failed carries the port message',
+  )
+}
+
+async function testDesignSystemScaffoldHappyPath(): Promise<void> {
+  const fs = createMemoryFilesystem()
+  const scaffoldCalls: Array<{ workspaceRoot: string; name: string; summary: string }> = []
+  const { runtimeState } = await runDesignSystemScaffold(
+    {
+      folderPath: '/brand',
+      workspaceName: 'Fallback Name',
+      idea: 'A warm editorial design system.',
+      guidedRoleCliDefaults: { product: 'claude-code', architect: 'claude-code', frontend: 'codex' },
+      buildRoleCounts: { architect: 1, product: 1, frontend: 1, developer: 1, code_reviewer: 1, spec_reviewer: 1, performance: 0, cross_platform: 0, tester: 1, security: 0 },
+      buildRoleCliDefaults: { architect: 'claude-code', product: 'claude-code', frontend: 'claude-code', developer: 'claude-code', code_reviewer: 'claude-code', spec_reviewer: 'claude-code', performance: 'claude-code', cross_platform: 'claude-code', tester: 'claude-code', security: 'claude-code' },
+      buildCliPermissionPreset: 'default',
+      buildStartRunner: false,
+      buildAutoApproveArtifacts: false,
+    },
+    {
+      filesystem: fs,
+      scaffoldBundle: async (workspaceRoot, name, summary) => {
+        scaffoldCalls.push({ workspaceRoot, name, summary })
+        return { ok: true, bundleDir: `${workspaceRoot}/design-system` }
+      },
+    },
+  )
+
+  assert.equal(scaffoldCalls.length, 1, 'bundle scaffold port is called once')
+  assert.equal(scaffoldCalls[0].workspaceRoot, '/brand')
+  assert.equal(scaffoldCalls[0].name, 'Brand', 'bundle name derives from the folder basename')
+  assert.equal(scaffoldCalls[0].summary, 'A warm editorial design system.')
+  assert.equal(runtimeState.preset, 'design-system')
+  assert.equal(runtimeState.hasUi, 'yes', 'design-system preset forces hasUi to yes')
+  assert.equal(runtimeState.stage, 'designer-working', 'design-system preset starts on the designer stage')
+  assert.equal(runtimeState.wantsProductDiscussion, false)
+  assert.equal(runtimeState.wantsArchitectureDiscussion, false)
+  assert.equal(runtimeState.wantsFrontendDiscussion, true)
+  assert.equal(runtimeState.guidedRoleCliDefaults.frontend, 'codex')
+  assert.ok(
+    fs.files.has('/brand/.guided-brief/idea-seed.md'),
+    'design goal seed is written under .guided-brief, not into the bundle',
+  )
+  assert.match(
+    fs.files.get('/brand/.guided-brief/idea-seed.md') ?? '',
+    /# Design System Goal/,
+  )
+  assert.ok(
+    !fs.files.has('/brand/product/idea-seed.md'),
+    'design-system preset does not scaffold the product/ layout',
+  )
+  assert.ok(
+    !fs.files.has('/brand/product/build-handoff.md'),
+    'design-system preset never writes a build handoff',
+  )
+  assert.equal(
+    runtimeState.designSystemSeedSource,
+    null,
+    'blank start records no seed source',
+  )
+  assert.doesNotMatch(
+    fs.files.get('/brand/.guided-brief/idea-seed.md') ?? '',
+    /## Seed Source/,
+    'blank start writes no seed-source section',
+  )
+}
+
+async function testDesignSystemScaffoldSeeded(): Promise<void> {
+  const fs = createMemoryFilesystem()
+  const seedSource = { kind: 'brand-demo' as const, path: '/app/knowledge/brand' }
+  const { runtimeState } = await runDesignSystemScaffold(
+    {
+      folderPath: '/brand',
+      workspaceName: 'Brand System',
+      idea: 'Distill the Multicode brand into a portable system.',
+      seedSource,
+      guidedRoleCliDefaults: { product: 'claude-code', architect: 'claude-code', frontend: 'claude-code' },
+      buildRoleCounts: { architect: 1, product: 1, frontend: 1, developer: 1, code_reviewer: 1, spec_reviewer: 1, performance: 0, cross_platform: 0, tester: 1, security: 0 },
+      buildRoleCliDefaults: { architect: 'claude-code', product: 'claude-code', frontend: 'claude-code', developer: 'claude-code', code_reviewer: 'claude-code', spec_reviewer: 'claude-code', performance: 'claude-code', cross_platform: 'claude-code', tester: 'claude-code', security: 'claude-code' },
+      buildCliPermissionPreset: 'default',
+      buildStartRunner: false,
+      buildAutoApproveArtifacts: false,
+    },
+    {
+      filesystem: fs,
+      scaffoldBundle: async (workspaceRoot) => ({ ok: true, bundleDir: `${workspaceRoot}/design-system` }),
+    },
+  )
+
+  // Seeding only adds the seed source on top of the blank-start scaffold: the
+  // same bundle scaffold ran, the runtime state carries the source for the
+  // designer prompt, and the idea seed records the choice on disk.
+  assert.deepEqual(runtimeState.designSystemSeedSource, seedSource)
+  assert.equal(runtimeState.stage, 'designer-working')
+  const ideaSeed = fs.files.get('/brand/.guided-brief/idea-seed.md') ?? ''
+  assert.match(ideaSeed, /## Seed Source/)
+  assert.match(ideaSeed, /built-in Multicode brand reference/)
+  assert.match(ideaSeed, /\/app\/knowledge\/brand/)
+}
+
 async function testGuidedBriefStartBuildValidation(): Promise<void> {
   const baseRuntime: GuidedBriefRuntimeState = {
     workspaceRoot: '/workspace',
@@ -812,6 +965,33 @@ async function testGuidedBriefStartBuildValidation(): Promise<void> {
     ),
     (error) => error instanceof GuidedBriefStartBuildError && error.code === 'missing-ui-direction-or-mockups',
     'missing-ui-direction-or-mockups (UI required but no direction/mockups)',
+  )
+
+  // A design-system studio completes with "Save as design system" (T6 release
+  // pipeline), never a Sprint Engine build — reaching start-build is a caller
+  // bug and must refuse loudly rather than write a handoff.
+  const designSystemRuntime: GuidedBriefRuntimeState = {
+    ...baseRuntime,
+    preset: 'design-system',
+    wantsProductDiscussion: false,
+    wantsArchitectureDiscussion: false,
+  }
+  await assert.rejects(
+    () => runGuidedBriefStartBuild(
+      {
+        runtimeState: designSystemRuntime,
+        runOptions: { startRunner: false, autoApproveArtifacts: false, roleCounts: designSystemRuntime.buildRoleCounts, roleCliDefaults: designSystemRuntime.buildRoleCliDefaults, cliPermissionPreset: 'default' },
+        finalRoleCounts: designSystemRuntime.buildRoleCounts,
+        rosterSummary: [],
+        planningDecisions: [],
+        planningValidationNotes: [],
+        buildHandoffRelativePath: 'product/build-handoff.md',
+      },
+      ports,
+    ),
+    (error) =>
+      error instanceof GuidedBriefStartBuildError && error.code === 'design-system-preset',
+    'design-system preset never starts a build',
   )
 }
 
@@ -1092,6 +1272,9 @@ async function main(): Promise<void> {
   await testGuidedBriefScaffoldValidation()
   await testGuidedBriefScaffoldHappyPath()
   await testGuidedBriefDesignPresetScaffold()
+  await testDesignSystemScaffoldValidationAndFailure()
+  await testDesignSystemScaffoldHappyPath()
+  await testDesignSystemScaffoldSeeded()
   await testGuidedBriefStartBuildValidation()
   await testGuidedBriefStartBuildHandoffPath()
   await testGuidedBriefStartBuildDesignPresetHandoff()

@@ -1,0 +1,65 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Button — example design system</title>
+    <link rel="stylesheet" href="../../foundations/tokens.css" />
+    <link rel="stylesheet" href="component.css" />
+    <style>
+      /* Demo scaffolding only — real consumers take styles from component.css. */
+      body {
+        margin: 0;
+        font-family: var(--sem-font-family-ui);
+      }
+      .demo-mode {
+        padding: var(--sem-space-section);
+        background: var(--sem-color-bg-app);
+        color: var(--sem-color-text-primary);
+      }
+      .demo-mode h2 {
+        margin: 0 0 4px;
+        font-size: 15px;
+      }
+      .demo-mode p {
+        margin: 0 0 12px;
+        font-size: var(--sem-font-size-body);
+        color: var(--sem-color-text-muted);
+      }
+      .demo-row {
+        display: flex;
+        align-items: center;
+        gap: var(--sem-space-control-gap);
+        padding: var(--sem-space-control-gap) 0;
+      }
+    </style>
+  </head>
+  <body>
+    <section class="demo-mode" data-mode="light">
+      <h2>Button — light</h2>
+      <p>Variants left to right: primary, secondary, danger, disabled.</p>
+      <div class="demo-row">
+        <button class="ds-button" type="button">
+          <svg class="ds-button__icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4.5 12.5l5 5 10-11" /></svg>
+          Save draft
+        </button>
+        <button class="ds-button ds-button--secondary" type="button">Cancel</button>
+        <button class="ds-button ds-button--danger" type="button">Delete workspace</button>
+        <button class="ds-button" type="button" disabled>Save draft</button>
+      </div>
+    </section>
+    <section class="demo-mode" data-mode="dark">
+      <h2>Button — dark</h2>
+      <p>The same markup under <code>data-mode="dark"</code>; only tokens change.</p>
+      <div class="demo-row">
+        <button class="ds-button" type="button">
+          <svg class="ds-button__icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4.5 12.5l5 5 10-11" /></svg>
+          Save draft
+        </button>
+        <button class="ds-button ds-button--secondary" type="button">Cancel</button>
+        <button class="ds-button ds-button--danger" type="button">Delete workspace</button>
+        <button class="ds-button" type="button" disabled>Save draft</button>
+      </div>
+    </section>
+  </body>
+</html>

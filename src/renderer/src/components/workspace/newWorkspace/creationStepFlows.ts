@@ -41,6 +41,10 @@ export const STEPS_BY_MODE: Record<CreationStepsId, StepId[]> = {
   automations: ['workspace', 'mode'],
   multiloop: ['workspace', 'mode', 'multiloop-goal'],
   sprintengine: ['workspace', 'mode', 'sprintengine-team', 'sprintengine-roster'],
+  // All three Design Wizard presets (full-brief, frontend-design,
+  // design-system) share this flow: the preset is chosen inside the
+  // 'guided-idea' step, not by a separate flow id, because presets live inside
+  // the guided-brief workspace type rather than being modes of their own.
   'guided-brief': ['workspace', 'mode', 'guided-idea'],
 }
 

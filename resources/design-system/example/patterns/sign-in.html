@@ -1,0 +1,80 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Sign in — example design system pattern</title>
+    <link rel="stylesheet" href="../foundations/tokens.css" />
+    <link rel="stylesheet" href="../components/button/component.css" />
+    <style>
+      body {
+        margin: 0;
+        min-height: 100vh;
+        display: grid;
+        place-items: center;
+        background: var(--sem-color-bg-app);
+        color: var(--sem-color-text-primary);
+        font-family: var(--sem-font-family-ui);
+        font-size: var(--sem-font-size-body);
+      }
+      .signin-card {
+        width: 320px;
+        padding: var(--sem-space-section);
+        background: var(--sem-color-bg-surface);
+        border: 1px solid var(--sem-color-border-default);
+        border-radius: var(--sem-radius-overlay);
+      }
+      .signin-card h1 {
+        margin: 0 0 4px;
+        font-size: 15px;
+        font-weight: var(--sem-font-weight-emphasis);
+      }
+      .signin-card p {
+        margin: 0 0 16px;
+        color: var(--sem-color-text-muted);
+      }
+      .signin-field {
+        display: grid;
+        gap: 4px;
+        margin-bottom: 12px;
+      }
+      .signin-field input {
+        padding: 6px 10px;
+        border: 1px solid var(--sem-color-border-input);
+        border-radius: var(--sem-radius-control);
+        background: var(--sem-color-bg-surface);
+        color: var(--sem-color-text-primary);
+        font: inherit;
+      }
+      .signin-field input:focus-visible {
+        outline: 2px solid var(--sem-color-accent-hover);
+        outline-offset: 1px;
+      }
+      .signin-actions {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: var(--sem-space-control-gap);
+        margin-top: 16px;
+      }
+    </style>
+  </head>
+  <body>
+    <main class="signin-card">
+      <h1>Sign in</h1>
+      <p>Use your workspace account.</p>
+      <label class="signin-field">
+        Email
+        <input type="email" name="email" autocomplete="email" />
+      </label>
+      <label class="signin-field">
+        Password
+        <input type="password" name="password" autocomplete="current-password" />
+      </label>
+      <div class="signin-actions">
+        <button class="ds-button ds-button--secondary" type="button">Create account</button>
+        <button class="ds-button" type="submit">Sign in</button>
+      </div>
+    </main>
+  </body>
+</html>

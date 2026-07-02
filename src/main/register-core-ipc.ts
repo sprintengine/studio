@@ -16,6 +16,7 @@ import { registerFilesystemReadIpc } from './ipc/filesystem-read-ipc'
 import { registerFilesystemWatchSearchIpc } from './ipc/filesystem-watch-search-ipc'
 import { registerGitHubTokenIpc } from './ipc/github-token-ipc'
 import { registerGitIpc } from './ipc/git-ipc'
+import { registerDesignSystemIpc } from './ipc/design-system-ipc'
 import { registerLayoutTemplateRegistryIpc } from './ipc/layout-template-registry-ipc'
 import { registerMcpIpc } from './ipc/mcp-ipc'
 import { registerMemoryActivityIpc } from './ipc/memory-activity-ipc'
@@ -114,5 +115,6 @@ export function registerCoreIpc(
   registerCredentialIpc(ipcMain)
   registerSprintEngineRoleRegistryIpc(ipcMain)
   registerLayoutTemplateRegistryIpc(ipcMain)
+  registerDesignSystemIpc(ipcMain)
   registerThirdPartyModuleIpc(ipcMain)
 }

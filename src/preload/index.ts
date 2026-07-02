@@ -13,6 +13,7 @@ import { cliRuntimeApi } from './api/cli-runtime'
 import { clipboardApi } from './api/clipboard'
 import { conversationApi } from './api/conversation'
 import { credentialApi } from './api/credential'
+import { designSystemApi } from './api/design-system'
 import { filesystemApi } from './api/filesystem'
 import { gitApi } from './api/git'
 import { layoutTemplatesApi } from './api/layout-templates'
@@ -64,6 +65,7 @@ const api = {
   ...pluginsApi,
   ...conversationApi,
   ...credentialApi,
+  ...designSystemApi,
   ...skillPackApi,
   ...sprintEngineApi,
   ...switchboardApi,

@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import type { AgentCli, CliRuntimeSettings } from '../../../../../shared/electron-api'
-import type { GuidedBriefRuntimeState } from '../../../types/workspace'
+import type { DesignSystemSeedSource, GuidedBriefRuntimeState } from '../../../types/workspace'
 import {
   createGuidedBriefSessionId,
   startGuidedBriefSpecialistSession,
@@ -13,6 +13,7 @@ import {
 } from './interviewProtocol'
 import { joinWorkspacePath } from './paths'
 import {
+  DESIGN_SYSTEM_BUNDLE_DIRECTORY_NAME,
   EMPTY_DESIGN_ARTIFACT_INDEX,
   INSPIRATION_DIRECTORY_NAME,
   MOCKUPS_DIRECTORY_NAME,
@@ -22,6 +23,7 @@ import {
   type DesignArtifactIndex,
   type DesignArtifactsStatus,
 } from './designArtifacts'
+import { DESIGN_SYSTEM_IDEA_SEED_RELATIVE_PATH } from '../../../utils/guidedBriefWorkspace'
 
 export type DesignerMockupFile = {
   name: string
@@ -73,6 +75,13 @@ export type UseDesignerSessionInput = {
   cliModel?: string
   cliRuntimes?: Partial<Record<AgentCli, Partial<CliRuntimeSettings>>>
   enabled: boolean
+  // Design-system preset: the session authors the portable bundle under its
+  // dedicated role prompt, and the artifact index/watchers cover the
+  // `design-system/` tree instead of `product/ui-direction.md`.
+  designSystem?: boolean
+  // Seed-from-existing-product source for the design-system preset; shapes
+  // the designer prompt's opening move. Ignored when designSystem is false.
+  designSystemSeedSource?: DesignSystemSeedSource | null
   // Persisted PTY id (survives renderer HMR / reload). When provided, the main
   // process reattaches to the existing session and replays its buffer.
   sessionId: string | null
@@ -117,6 +126,8 @@ export function useDesignerSession({
   cliModel,
   cliRuntimes,
   enabled,
+  designSystem = false,
+  designSystemSeedSource = null,
   sessionId,
   onAssignSessionId,
 }: UseDesignerSessionInput): UseDesignerSessionResult {
@@ -160,7 +171,16 @@ export function useDesignerSession({
     }
 
     setStatus('starting')
-    void startGuidedBriefSpecialistSession(
+    // Injection predicate for the attached-design-system prompt line, resolved
+    // once per launch: `design-system/` exists in the workspace AND this is
+    // not the authoring studio (which owns that directory as its product).
+    const resolveDesignSystemAttached = async (): Promise<boolean> => {
+      if (designSystem) return false
+      return window.api
+        .pathExists(joinWorkspacePath(workspaceRoot, DESIGN_SYSTEM_BUNDLE_DIRECTORY_NAME))
+        .catch(() => false)
+    }
+    void resolveDesignSystemAttached().then((designSystemAttached) => startGuidedBriefSpecialistSession(
       {
         kind: 'designer',
         workspaceRoot,
@@ -172,6 +192,16 @@ export function useDesignerSession({
         inspirationDirectoryPath: INSPIRATION_DIRECTORY_NAME,
         uiDirectionPath: UI_DIRECTION_RELATIVE_PATH,
         mockupPath: PRIMARY_MOCKUP_RELATIVE_PATH,
+        ...(designSystemAttached ? { designSystemAttached } : {}),
+        ...(designSystem
+          ? {
+              designSystem: {
+                bundleDirectoryPath: DESIGN_SYSTEM_BUNDLE_DIRECTORY_NAME,
+                ideaSeedPath: DESIGN_SYSTEM_IDEA_SEED_RELATIVE_PATH,
+                ...(designSystemSeedSource ? { seedSource: designSystemSeedSource } : {}),
+              },
+            }
+          : {}),
       },
       {
         terminalApi: {
@@ -219,7 +249,7 @@ export function useDesignerSession({
       // Defensive: same id we passed in. Call again to self-heal any closure
       // skew between mount and resolve.
       assignSessionIdRef.current(result.session.sessionId)
-    })
+    }))
 
     return () => {
       cancelled = true
@@ -251,11 +281,15 @@ export function useDesignerSession({
           setDesignArtifactsStatus('unavailable')
           return
         }
-        const index = await collectDesignArtifacts(workspaceRoot, {
-          readdir: window.api.readdir,
-          pathExists: window.api.pathExists,
-          statPath: window.api.statPath,
-        })
+        const index = await collectDesignArtifacts(
+          workspaceRoot,
+          {
+            readdir: window.api.readdir,
+            pathExists: window.api.pathExists,
+            statPath: window.api.statPath,
+          },
+          { includeDesignSystemBundle: designSystem },
+        )
         if (cancelled) return
         setDesignArtifacts(index)
         const pages = index.groups.find((group) => group.id === 'pages')?.entries ?? []
@@ -274,6 +308,9 @@ export function useDesignerSession({
       mockupsDirectoryPath,
       joinWorkspacePath(workspaceRoot, 'product'),
       joinWorkspacePath(workspaceRoot, INSPIRATION_DIRECTORY_NAME),
+      ...(designSystem
+        ? [joinWorkspacePath(workspaceRoot, DESIGN_SYSTEM_BUNDLE_DIRECTORY_NAME)]
+        : []),
     ]
 
     void refresh()
@@ -303,11 +340,13 @@ export function useDesignerSession({
       clearInterval(pollHandle)
       for (const stop of stopWatchers) void stop()
     }
-  }, [enabled, workspaceRoot, mockupsDirectoryPath])
+  }, [enabled, workspaceRoot, mockupsDirectoryPath, designSystem])
 
-  // Watch product/ui-direction.md for non-empty content.
+  // Watch product/ui-direction.md for non-empty content. Design-system
+  // studios have no UI-direction artifact — readiness there is the marker or
+  // real bundle pages, so the watcher (and its poll) never starts.
   useEffect(() => {
-    if (!enabled) return
+    if (!enabled || designSystem) return
     let cancelled = false
     let stopWatch: (() => Promise<void>) | null = null
 
@@ -353,7 +392,7 @@ export function useDesignerSession({
       clearInterval(pollHandle)
       if (stopWatch) void stopWatch()
     }
-  }, [enabled, uiDirectionAbsolutePath, workspaceRoot])
+  }, [enabled, uiDirectionAbsolutePath, workspaceRoot, designSystem])
 
   const mockupsAvailable = mockups.length > 0
   // Spec: marker OR real mockup file readiness. We treat "real readiness" as
@@ -361,6 +400,27 @@ export function useDesignerSession({
   // agent's own ready signal. Either flips the UI to ready state. Accept
   // remains gated on real files only — see GuidedBriefFlow.acceptDesigner.
   const isReady = markerReceived || mockupsAvailable
+
+  // Designer-turn completion edge: regenerate design-system derived files
+  // (tokens.css, catalog) for any bundle in the workspace by running the
+  // bundle's own generator scripts in a main-process utility fork. Workspaces
+  // without a bundle (full-brief, frontend-design) resolve as a no-op, so
+  // this fires the IPC once and otherwise leaves those flows untouched.
+  const regenTriggeredRef = useRef(false)
+  useEffect(() => {
+    if (!enabled || !isReady || regenTriggeredRef.current) return
+    regenTriggeredRef.current = true
+    window.api
+      .regenerateDesignSystemDerivedFiles(workspaceRoot)
+      .then((result) => {
+        if (!result.ok) {
+          console.error('[design-system] derived-file regeneration failed', result)
+        }
+      })
+      .catch((error) => {
+        console.error('[design-system] derived-file regeneration failed', error)
+      })
+  }, [enabled, isReady, workspaceRoot])
 
   return {
     status,

@@ -1563,13 +1563,37 @@ export type SprintEngineRunSettings = {
 
 export type GuidedBriefHasUi = 'yes' | 'no'
 
-// Guided Brief ships two presets. `full-brief` is the classic strategist →
+// Guided Brief ships three presets. `full-brief` is the classic strategist →
 // architect → designer → handoff flow. `frontend-design` is surfaced to users
-// as "Multicode Design": a design-only studio that forces the UI path, skips
+// as "Design only": a design-only studio that forces the UI path, skips
 // the product and architecture discussions, and starts on the designer stage.
-// It stays inside the `guided-brief` workspace mode rather than becoming its own
-// `WorkspaceMode`.
-export type GuidedBriefPreset = 'full-brief' | 'frontend-design'
+// `design-system` reuses that design-only studio but authors a portable
+// design-system bundle (see knowledge/multicode/design-system-bundle.md)
+// instead of one app's mockups. All presets stay inside the `guided-brief`
+// workspace mode rather than becoming their own `WorkspaceMode`.
+export type GuidedBriefPreset = 'full-brief' | 'frontend-design' | 'design-system'
+
+// The last successful library release from a design-system studio. Drives the
+// re-release loop: the version input prefills this version for the user to
+// bump, and the released confirmation names the real library copy.
+export type DesignSystemStudioRelease = {
+  name: string
+  version: string
+  /** Absolute path of the immutable released copy in the user-global library. */
+  path: string
+  releasedAt: string
+}
+
+// Where a design-system studio starts. `null`/absent is the blank scaffold;
+// otherwise the designer agent's opening move is extracting the de-facto
+// design language from the named source (a user-picked product folder, or the
+// built-in Multicode brand reference resolved by the main process). The path
+// is machine-local by design — it is read live by the designer session on this
+// machine and never travels inside the portable bundle.
+export type DesignSystemSeedSource = {
+  kind: 'source-folder' | 'brand-demo'
+  path: string
+}
 
 export type GuidedBriefRoleCliDefaults = {
   product: AgentCli
@@ -1638,6 +1662,13 @@ export type GuidedBriefRuntimeState = {
   // role + question id. Absent on legacy states; normalization defaults it
   // to an empty array.
   guidedDecisions?: GuidedBriefRecordedDecision[]
+  // Design-system preset only: the source the studio was seeded from, carried
+  // into the designer session's opening prompt. Absent/null on legacy states
+  // and on blank-start studios; always null for the other presets.
+  designSystemSeedSource?: DesignSystemSeedSource | null
+  // Design-system preset only: the last successful library release from this
+  // studio. Absent/null before the first release and on other presets.
+  designSystemLastRelease?: DesignSystemStudioRelease | null
   // Persisted so the renderer reattaches to the same PTY across HMR / refresh
   // instead of spawning a fresh strategist, architect, or designer.
   strategistSessionId: string | null

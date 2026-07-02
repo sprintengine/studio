@@ -10,6 +10,7 @@ import { AUTOMATIONS_HOST_WORKSPACE_MODE } from '../../types/workspace'
 import type {
   AgentCli,
   AgentId,
+  DesignSystemSeedSource,
   FuturePlanWorkspaceSource,
   LayoutTemplate,
   McpCatalogServer,
@@ -38,6 +39,12 @@ import type {
 import { GuidedBriefFlow } from './guidedBrief/GuidedBriefFlow'
 import { GuidedBriefCloseConfirmation } from './guidedBrief/GuidedBriefCloseConfirmation'
 import { isMidStageGuidedRuntime, type GuidedBriefPreset, type GuidedBriefRuntimeState } from './guidedBrief/types'
+import type { DesignSystemBrandDemoResolveResult } from '../../../../shared/design-system/brand-demo'
+import type { DesignSystemAttachSource } from '../../../../shared/design-system/attach'
+import {
+  DesignSystemAttachStep,
+  writeDesignSystemKnowledgeNote,
+} from './newWorkspace/DesignSystemAttachStep'
 import {
   guidedBriefBuildHandoffRelativePath,
   guidedBriefPlanningDecisionNotes,
@@ -86,6 +93,7 @@ import {
   type AgentCliCatalogOption,
 } from './newWorkspace/cliRuntimeOptions'
 import {
+  DesignSystemScaffoldError,
   GuidedBriefScaffoldError,
   GuidedBriefStartBuildError,
   MultiloopControllerError,
@@ -96,6 +104,7 @@ import {
   buildAutomationsCreation,
   buildStandardCreation,
   buildSwitchboardCreation,
+  runDesignSystemScaffold,
   runGuidedBriefScaffold,
   runGuidedBriefStartBuild,
   runMultiloopCreation,
@@ -535,6 +544,50 @@ export default function NewWorkspacePanel({
   const [guidedRuntimeState, setGuidedRuntimeState] = useState<GuidedBriefRuntimeState | null>(null)
   const [viewingIdeaAfterCommit, setViewingIdeaAfterCommit] = useState(false)
   const [closeConfirmation, setCloseConfirmation] = useState(false)
+  // Design-system preset starting point: blank scaffold, seed from a
+  // user-picked product folder, or seed from the built-in brand demo.
+  const [guidedSeedMode, setGuidedSeedMode] = useState<DesignSystemSeedMode>('blank')
+  const [guidedSeedFolderPath, setGuidedSeedFolderPath] = useState<string | null>(null)
+  // null = not resolved yet; the demo card is disabled (with the cause as its
+  // body copy) when the running build does not carry the demo source.
+  const [guidedBrandDemo, setGuidedBrandDemo] = useState<DesignSystemBrandDemoResolveResult | null>(
+    null,
+  )
+
+  // Design system to attach at create time (Advanced setup section). Null is
+  // "none"; the attach IPC runs in the create-time preflight alongside the
+  // other Advanced setup selections. Eligible for the three build entry
+  // points only — never for the design-system authoring preset, which owns
+  // design-system/ as its work product.
+  const [dsAttachSelection, setDsAttachSelection] = useState<DesignSystemAttachSource | null>(null)
+
+  // The selection is made against a concrete target folder; switching folders
+  // invalidates it (folder B may already carry design-system/, which attach
+  // refuses). Reset on folder change so a stale pick can never ride into
+  // create — the Advanced setup count drops with it.
+  useEffect(() => {
+    setDsAttachSelection(null)
+  }, [folderPath])
+
+  // Resolve the brand-demo source lazily, the first time the design-system
+  // preset is selected, so the other presets never pay the IPC.
+  useEffect(() => {
+    if (guidedPreset !== 'design-system' || guidedBrandDemo != null) return
+    let cancelled = false
+    window.api
+      .resolveDesignSystemBrandDemoSeed()
+      .then((result) => {
+        if (!cancelled) setGuidedBrandDemo(result)
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setGuidedBrandDemo({ ok: false, message: 'The built-in brand demo source could not be resolved.' })
+        }
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [guidedPreset, guidedBrandDemo])
 
   const appCliRuntimes = useWorkspaceStore((s) => s.appSettings.cliRuntimes)
   const pluginCatalogEntries = useWorkspaceStore((s) => s.pluginCatalogEntries)
@@ -687,9 +740,27 @@ export default function NewWorkspacePanel({
     })
   }
 
+  // Attach is offered on the three build entry points (standard, Sprint
+  // Engine, Design Wizard) — never on the design-system authoring preset,
+  // which owns design-system/ as its work product, and never on the
+  // zero-config flows that skip Advanced setup.
+  const designSystemAttachEligible =
+    mode === 'standard'
+    || mode === 'sprintengine'
+    || (mode === 'guided-brief' && guidedPreset !== 'design-system')
+
+  // Knowledge folder currently stored for the chosen project (case-preserved
+  // key, matching the project-keyed store). Declared before
+  // persistAdvancedSetup, which reads it for the attach step's bonus note.
+  const committedKnowledgeRoot = useMemo(() => {
+    const key = normalizeProjectRootKey(folderPath)
+    return key ? projectKnowledgeRoots?.[key] ?? null : null
+  }, [folderPath, projectKnowledgeRoots])
+
   // Persist the optional Advanced setup selections to the real project on disk:
-  // write the MCP agent config through the same mcp:sync path Settings uses, then
-  // install each selected skill pack, awaiting every result so a failure surfaces
+  // write the MCP agent config through the same mcp:sync path Settings uses,
+  // install each selected skill pack, then attach the selected design system
+  // through the real attach IPC, awaiting every result so a failure surfaces
   // an actionable error instead of a silent fire-and-forget. Returns the failure
   // message (and sets advancedSetupError) when any selection failed, or null on
   // success, so callers avoid reporting a half-configured create as success.
@@ -747,6 +818,37 @@ export default function NewWorkspacePanel({
         }
       }
 
+      // Attach the selected design system through the real T8 IPC. Fail
+      // closed like the other setup steps: a refusal (conflict, invalid
+      // bundle) aborts the create with the pipeline's own message — never a
+      // silent half-attached workspace.
+      if (dsAttachSelection && designSystemAttachEligible) {
+        try {
+          const result = await window.api.attachDesignSystemBundle(dsAttachSelection, workspaceRoot)
+          if (!result.ok) {
+            failures.push(`Design system attach failed: ${result.message}`)
+          } else if (committedKnowledgeRoot) {
+            // Bonus path when a knowledge root is configured: a pointer note
+            // next to the graph (composed from the shared launch-line
+            // contract). Non-fatal — the mechanism is KG-independent.
+            try {
+              await writeDesignSystemKnowledgeNote({
+                workspaceRoot,
+                knowledgeRoot: committedKnowledgeRoot,
+                name: result.name,
+                version: result.version,
+              })
+            } catch (error) {
+              console.error('[design-system] could not write the knowledge-root pointer note', error)
+            }
+          }
+        } catch (error) {
+          failures.push(
+            `Design system attach failed: ${error instanceof Error ? error.message : 'attach error'}`,
+          )
+        }
+      }
+
       if (failures.length > 0) {
         const message = failures.join(' ')
         setAdvancedSetupError(message)
@@ -755,7 +857,15 @@ export default function NewWorkspacePanel({
       setAdvancedSetupError(null)
       return null
     },
-    [mcpSettings, selectedSkillPackIds, integrationsSkillPackCatalog, upsertSkillPack],
+    [
+      mcpSettings,
+      selectedSkillPackIds,
+      integrationsSkillPackCatalog,
+      upsertSkillPack,
+      dsAttachSelection,
+      designSystemAttachEligible,
+      committedKnowledgeRoot,
+    ],
   )
 
   const [isCreating, setIsCreating] = useState(false)
@@ -791,12 +901,6 @@ export default function NewWorkspacePanel({
   // at 'mode', and config belongs off that decision screen.
   const showAdvancedSetup = isAdvancedSetupStep(steps, step)
 
-  // Knowledge folder currently stored for the chosen project (case-preserved key,
-  // matching the project-keyed store), surfaced to the step and blocking copy.
-  const committedKnowledgeRoot = useMemo(() => {
-    const key = normalizeProjectRootKey(folderPath)
-    return key ? projectKnowledgeRoots?.[key] ?? null : null
-  }, [folderPath, projectKnowledgeRoots])
   const handleCommitKnowledgeRoot = useCallback(
     (relativeRoot: string | null) => {
       if (folderPath) setProjectKnowledgeRoot(folderPath, relativeRoot)
@@ -1058,7 +1162,19 @@ export default function NewWorkspacePanel({
     sprintEngineAccess.allowed
     && (seExistingTeam != null
       || (totalAgents > 0 && sprintEngineRosterHasPlanningRole(visibleSprintEngineRoleCounts)))
-  const guidedIdeaReady = guidedIdea.trim().length > 0 && guidedHasUi != null
+  // The resolved seed source for the design-system preset. Null means blank
+  // start — either chosen deliberately, or because a seed mode is selected but
+  // its source is not resolved yet (folder not picked / demo unavailable), in
+  // which case `guidedSeedReady` blocks Continue instead of silently starting blank.
+  const guidedSeedSource: DesignSystemSeedSource | null =
+    guidedPreset === 'design-system' && guidedSeedMode === 'source-folder' && guidedSeedFolderPath
+      ? { kind: 'source-folder', path: guidedSeedFolderPath }
+      : guidedPreset === 'design-system' && guidedSeedMode === 'brand-demo' && guidedBrandDemo?.ok
+        ? { kind: 'brand-demo', path: guidedBrandDemo.path }
+        : null
+  const guidedSeedReady =
+    guidedPreset !== 'design-system' || guidedSeedMode === 'blank' || guidedSeedSource != null
+  const guidedIdeaReady = guidedIdea.trim().length > 0 && guidedHasUi != null && guidedSeedReady
 
   const canAdvanceFromCurrent = isStepReady(step, {
     workspaceStepReady,
@@ -1083,6 +1199,8 @@ export default function NewWorkspacePanel({
     totalAgents,
     guidedIdea,
     guidedHasUi,
+    guidedSeedMode,
+    guidedSeedReady,
     committedKnowledgeRoot,
   })
 
@@ -1377,14 +1495,22 @@ export default function NewWorkspacePanel({
     [seEffectiveSpawnAtStartRoles],
   )
 
-  // Multicode Design forces the design-only path: a screen is implied, the
-  // product and architecture discussions are off, and the frontend discussion
-  // is on. Switching back to the full brief restores the standard defaults and
-  // re-asks the has-UI question.
+  const handleChooseGuidedSeedFolder = async () => {
+    const dir = await window.api.openDir()
+    if (!dir) return
+    setGuidedSeedFolderPath(dir)
+    setGuidedSeedMode('source-folder')
+    setGuidedError(null)
+  }
+
+  // The design-only presets (Design only, Design system) force the studio
+  // path: a screen is implied, the product and architecture discussions are
+  // off, and the frontend discussion is on. Switching back to the full brief
+  // restores the standard defaults and re-asks the has-UI question.
   const handleChangeGuidedPreset = (next: GuidedBriefPreset) => {
     setGuidedPreset(next)
     setGuidedError(null)
-    if (next === 'frontend-design') {
+    if (next === 'frontend-design' || next === 'design-system') {
       setGuidedHasUi('yes')
       setGuidedWantsProduct(false)
       setGuidedWantsArchitecture(false)
@@ -1493,34 +1619,55 @@ export default function NewWorkspacePanel({
       setGuidedError(null)
       try {
         if (await persistAdvancedSetup(folderPath)) return
-        const { runtimeState } = await runGuidedBriefScaffold(
-          {
-            folderPath,
-            workspaceName: name,
-            idea: guidedIdea,
-            hasUi: guidedHasUi,
-            preset: guidedPreset,
-            wantsProduct: guidedWantsProduct,
-            wantsArchitecture: guidedWantsArchitecture,
-            wantsFrontend: guidedWantsFrontend,
-            guidedRoleCliDefaults,
-            buildRoleCounts: applyUserDisabledSprintEngineRoleCounts(
-              guidedBriefBuildRoleCountsForSurface(guidedHasUi),
-              sprintEngineDisabledRoleIds,
-            ),
-            buildRoleCliDefaults: seRoleCliDefaults,
-            buildCliPermissionPreset: cliPermissionPreset,
-            buildStartRunner: seStartRunner,
-            buildAutoApproveArtifacts: seAutoApproveArtifacts,
-          },
-          {
-            filesystem: {
-              ensureDir: window.api.ensureDir,
-              readFile: window.api.readfile,
-              writeFile: window.api.writefile,
-            },
-          },
+        const guidedFilesystem = {
+          ensureDir: window.api.ensureDir,
+          readFile: window.api.readfile,
+          writeFile: window.api.writefile,
+        }
+        const buildRoleCounts = applyUserDisabledSprintEngineRoleCounts(
+          guidedBriefBuildRoleCountsForSurface(guidedHasUi),
+          sprintEngineDisabledRoleIds,
         )
+        const { runtimeState } = guidedPreset === 'design-system'
+          ? await runDesignSystemScaffold(
+              {
+                folderPath,
+                workspaceName: name,
+                idea: guidedIdea,
+                seedSource: guidedSeedSource,
+                guidedRoleCliDefaults,
+                buildRoleCounts,
+                buildRoleCliDefaults: seRoleCliDefaults,
+                buildCliPermissionPreset: cliPermissionPreset,
+                buildStartRunner: seStartRunner,
+                buildAutoApproveArtifacts: seAutoApproveArtifacts,
+              },
+              {
+                filesystem: guidedFilesystem,
+                scaffoldBundle: window.api.scaffoldDesignSystemBundle,
+              },
+            )
+          : await runGuidedBriefScaffold(
+              {
+                folderPath,
+                workspaceName: name,
+                idea: guidedIdea,
+                hasUi: guidedHasUi,
+                preset: guidedPreset,
+                wantsProduct: guidedWantsProduct,
+                wantsArchitecture: guidedWantsArchitecture,
+                wantsFrontend: guidedWantsFrontend,
+                guidedRoleCliDefaults,
+                buildRoleCounts,
+                buildRoleCliDefaults: seRoleCliDefaults,
+                buildCliPermissionPreset: cliPermissionPreset,
+                buildStartRunner: seStartRunner,
+                buildAutoApproveArtifacts: seAutoApproveArtifacts,
+              },
+              {
+                filesystem: guidedFilesystem,
+              },
+            )
         onCreate({
           template: createGuidedBriefTemplate(),
           name: runtimeState.workspaceName,
@@ -1530,9 +1677,10 @@ export default function NewWorkspacePanel({
         })
       } catch (error) {
         setGuidedError(
-          error instanceof GuidedBriefScaffoldError && error.message !== error.code
+          (error instanceof GuidedBriefScaffoldError || error instanceof DesignSystemScaffoldError)
+            && error.message !== error.code
             ? error.message
-            : error instanceof GuidedBriefScaffoldError
+            : error instanceof GuidedBriefScaffoldError || error instanceof DesignSystemScaffoldError
               ? `Could not set up the Design Wizard workspace (${error.code}).`
               : error instanceof Error
                 ? error.message
@@ -2169,6 +2317,14 @@ export default function NewWorkspacePanel({
                 if (value === 'yes') setGuidedWantsFrontend(true)
                 setGuidedError(null)
               }}
+              seedMode={guidedSeedMode}
+              onChangeSeedMode={(value) => {
+                setGuidedSeedMode(value)
+                setGuidedError(null)
+              }}
+              seedFolderPath={guidedSeedFolderPath}
+              onChooseSeedFolder={() => void handleChooseGuidedSeedFolder()}
+              brandDemo={guidedBrandDemo}
               wantsProductDiscussion={guidedWantsProduct}
               wantsArchitectureDiscussion={guidedWantsArchitecture}
               wantsFrontendDiscussion={guidedWantsFrontend}
@@ -2236,6 +2392,12 @@ export default function NewWorkspacePanel({
               committedKnowledgeRoot={committedKnowledgeRoot}
               onCommitKnowledge={handleCommitKnowledgeRoot}
               knowledgeAutoAppliedRef={knowledgeAutoAppliedRef}
+              designSystemAttachRoot={designSystemAttachEligible && folderPath ? folderPath : null}
+              designSystemAttachSelection={dsAttachSelection}
+              onSelectDesignSystemAttach={(source) => {
+                setDsAttachSelection(source)
+                setAdvancedSetupError(null)
+              }}
             />
           ) : null}
 
@@ -2504,6 +2666,9 @@ function AdvancedSetupDisclosure({
   committedKnowledgeRoot,
   onCommitKnowledge,
   knowledgeAutoAppliedRef,
+  designSystemAttachRoot,
+  designSystemAttachSelection,
+  onSelectDesignSystemAttach,
 }: {
   mcpCatalog: McpCatalogServer[]
   mcpSettings: { servers: Record<string, { enabled: boolean }> } | null
@@ -2516,11 +2681,16 @@ function AdvancedSetupDisclosure({
   committedKnowledgeRoot: string | null
   onCommitKnowledge: (relativeRoot: string | null) => void
   knowledgeAutoAppliedRef: MutableRefObject<Set<string>>
+  /** Materialized workspace folder when the flow offers attach; null hides the section. */
+  designSystemAttachRoot: string | null
+  designSystemAttachSelection: DesignSystemAttachSource | null
+  onSelectDesignSystemAttach: (source: DesignSystemAttachSource | null) => void
 }) {
   const [open, setOpen] = useState(false)
   const selectedCount =
     mcpCatalog.reduce((count, server) => count + (mcpSettings?.servers[server.id]?.enabled ? 1 : 0), 0) +
-    skillPackCatalog.reduce((count, pack) => count + (selectedSkillPackIds.has(pack.id) ? 1 : 0), 0)
+    skillPackCatalog.reduce((count, pack) => count + (selectedSkillPackIds.has(pack.id) ? 1 : 0), 0) +
+    (designSystemAttachSelection ? 1 : 0)
 
   return (
     <div className="border-t border-[color:var(--border-subtle)] pt-4">
@@ -2543,7 +2713,7 @@ function AdvancedSetupDisclosure({
         </svg>
         <span className="text-[13px] font-medium text-[color:var(--text-strong)]">Advanced setup</span>
         <span className="min-w-0 truncate text-[12px] text-[color:var(--text-subtle)]">
-          Tool integrations and skill packs{knowledgeProjectRoot ? ', knowledge' : ''} — optional
+          Tool integrations and skill packs{knowledgeProjectRoot ? ', knowledge' : ''}{designSystemAttachRoot ? ', design system' : ''} — optional
         </span>
         {selectedCount > 0 ? (
           <span className="ml-auto shrink-0 text-[11px] tabular-nums text-[color:var(--text-subtle)]">
@@ -2579,6 +2749,16 @@ function AdvancedSetupDisclosure({
                 committedRelativeRoot={committedKnowledgeRoot}
                 onCommit={onCommitKnowledge}
                 autoApplyGuard={knowledgeAutoAppliedRef}
+              />
+            </section>
+          ) : null}
+          {designSystemAttachRoot ? (
+            <section className="flex flex-col gap-2">
+              <h4 className="text-[12px] font-semibold text-[color:var(--text-strong)]">Design system</h4>
+              <DesignSystemAttachStep
+                workspaceRoot={designSystemAttachRoot}
+                selection={designSystemAttachSelection}
+                onSelect={onSelectDesignSystemAttach}
               />
             </section>
           ) : null}
@@ -2950,6 +3130,83 @@ function MultiloopGoalStep({
   )
 }
 
+// Per-preset wizard copy for the guided-idea step. `lockedDesigner` doubles as
+// the studio-preset switch: when set, the has-UI question is skipped and the
+// designer discussion is pinned on (the controller forces the matching flags).
+type GuidedPresetCopy = {
+  cardTitle: string
+  cardBody: string
+  ideaLabel: string
+  ideaPlaceholder: string
+  ideaHint: string
+  lockedDesigner: { title: string; body: string } | null
+  studioNote: string | null
+  folderHint: { before: string; path: string; after: string }
+}
+
+const GUIDED_PRESET_ORDER: GuidedBriefPreset[] = ['full-brief', 'frontend-design', 'design-system']
+
+// Starting-point choice for the design-system preset. 'blank' scaffolds the
+// empty bundle; the seed modes make the designer's opening move a reviewed
+// extraction from an existing source (see DesignSystemSeedSource).
+type DesignSystemSeedMode = 'blank' | 'source-folder' | 'brand-demo'
+
+const GUIDED_PRESET_COPY: Record<GuidedBriefPreset, GuidedPresetCopy> = {
+  'full-brief': {
+    cardTitle: 'Plan & design',
+    cardBody: 'Think it through, then design it — strategy, plan, and screens before the build.',
+    ideaLabel: 'Rough idea',
+    ideaPlaceholder: 'A shift-trading app where café staff can swap shifts without texting the manager.',
+    ideaHint: 'Plain English. Spelling doesn’t matter.',
+    lockedDesigner: null,
+    studioNote: null,
+    folderHint: {
+      before: 'Idea seed will be written to ',
+      path: 'product/idea-seed.md',
+      after: ' in the selected folder.',
+    },
+  },
+  'frontend-design': {
+    cardTitle: 'Design only',
+    cardBody: 'Skip the planning and go straight to screens and mockups.',
+    ideaLabel: 'Design goal',
+    ideaPlaceholder:
+      'A calm onboarding flow for a café shift-trading app: sign in, see this week’s shifts, request a swap.',
+    ideaHint: 'Describe the screen or flow, the target user, and any brand constraints.',
+    lockedDesigner: {
+      title: 'Frontend engineer',
+      body: 'Designs the screens and reviewable mockups.',
+    },
+    studioNote:
+      'Design only skips the strategy and planning discussions and starts straight in the design studio.',
+    folderHint: {
+      before: 'Idea seed will be written to ',
+      path: 'product/idea-seed.md',
+      after: ' in the selected folder.',
+    },
+  },
+  'design-system': {
+    cardTitle: 'Design system',
+    cardBody: 'Author a reusable system — tokens, components, patterns — as a portable bundle.',
+    ideaLabel: 'Design system goal',
+    ideaPlaceholder:
+      'A warm, editorial design system for a café brand: friendly type, calm surfaces, light and dark modes.',
+    ideaHint:
+      'Describe the brand character, the products it will serve, and any constraints — fonts, colors, density.',
+    lockedDesigner: {
+      title: 'Design system designer',
+      body: 'Interviews through the brand and authors the tokens, components, and patterns.',
+    },
+    studioNote:
+      'Design system skips the planning discussions and starts straight in the authoring studio.',
+    folderHint: {
+      before: 'The bundle will be scaffolded into ',
+      path: 'design-system/',
+      after: ' in the selected folder.',
+    },
+  },
+}
+
 function GuidedIdeaStep({
   idea,
   preset,
@@ -2957,6 +3214,11 @@ function GuidedIdeaStep({
   hasUi,
   onChangeIdea,
   onChangeHasUi,
+  seedMode,
+  onChangeSeedMode,
+  seedFolderPath,
+  onChooseSeedFolder,
+  brandDemo,
   wantsProductDiscussion,
   wantsArchitectureDiscussion,
   wantsFrontendDiscussion,
@@ -2975,6 +3237,11 @@ function GuidedIdeaStep({
   hasUi: GuidedBriefHasUi | null
   onChangeIdea: (value: string) => void
   onChangeHasUi: (value: GuidedBriefHasUi) => void
+  seedMode: DesignSystemSeedMode
+  onChangeSeedMode: (value: DesignSystemSeedMode) => void
+  seedFolderPath: string | null
+  onChooseSeedFolder: () => void
+  brandDemo: DesignSystemBrandDemoResolveResult | null
   wantsProductDiscussion: boolean
   wantsArchitectureDiscussion: boolean
   wantsFrontendDiscussion: boolean
@@ -2987,37 +3254,88 @@ function GuidedIdeaStep({
   folderPath: string | null
   error: string | null
 }) {
-  const isDesignPreset = preset === 'frontend-design'
+  const copy = GUIDED_PRESET_COPY[preset]
   return (
     <div className="flex flex-col gap-5">
       <div className="flex flex-col gap-2">
         <FieldLabel>What are we making?</FieldLabel>
-        <div role="radiogroup" aria-label="Design Wizard mode" className="grid grid-cols-2 gap-2.5">
-          <GuidedChoiceCard
-            active={!isDesignPreset}
-            title="Plan & design"
-            body="Think it through, then design it — strategy, plan, and screens before the build."
-            onSelect={() => onChangePreset('full-brief')}
-          />
-          <GuidedChoiceCard
-            active={isDesignPreset}
-            title="Design only"
-            body="Skip the planning and go straight to screens and mockups."
-            onSelect={() => onChangePreset('frontend-design')}
-          />
+        <div role="group" aria-label="Design Wizard mode" className="grid grid-cols-3 gap-2.5">
+          {GUIDED_PRESET_ORDER.map((presetOption) => (
+            <GuidedChoiceCard
+              key={presetOption}
+              active={preset === presetOption}
+              title={GUIDED_PRESET_COPY[presetOption].cardTitle}
+              body={GUIDED_PRESET_COPY[presetOption].cardBody}
+              onSelect={() => onChangePreset(presetOption)}
+            />
+          ))}
         </div>
       </div>
 
+      {preset === 'design-system' ? (
+        <div className="flex flex-col gap-2">
+          <FieldLabel>Starting point</FieldLabel>
+          <div role="group" aria-label="Design system starting point" className="grid grid-cols-3 gap-2.5">
+            <GuidedChoiceCard
+              active={seedMode === 'blank'}
+              title="Start blank"
+              body="Author the system from scratch in the studio."
+              onSelect={() => onChangeSeedMode('blank')}
+            />
+            <GuidedChoiceCard
+              active={seedMode === 'source-folder'}
+              title="Seed from a product"
+              body="The designer extracts a repo's de-facto tokens, glyphs, and components for review."
+              onSelect={() => onChangeSeedMode('source-folder')}
+            />
+            <GuidedChoiceCard
+              active={seedMode === 'brand-demo'}
+              title="Multicode brand demo"
+              body={
+                brandDemo == null
+                  ? 'Checking availability…'
+                  : brandDemo.ok
+                    ? 'Seed from the built-in Multicode brand reference.'
+                    : brandDemo.message
+              }
+              disabled={brandDemo == null || !brandDemo.ok}
+              onSelect={() => onChangeSeedMode('brand-demo')}
+            />
+          </div>
+          {seedMode === 'source-folder' ? (
+            <>
+              <div className="flex items-center gap-3">
+                <span
+                  className={`min-w-0 flex-1 truncate rounded-md border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] px-3 py-2 font-mono text-[12px] leading-5 ${
+                    seedFolderPath
+                      ? 'text-[color:var(--text-default)]'
+                      : 'text-[color:var(--text-disabled)]'
+                  }`}
+                >
+                  {seedFolderPath ?? 'No source folder chosen'}
+                </span>
+                <GhostButton
+                  size="md"
+                  onClick={onChooseSeedFolder}
+                  className="shrink-0 border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] text-[color:var(--text-default)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]"
+                >
+                  Choose…
+                </GhostButton>
+              </div>
+              <span className="text-[12px] leading-5 text-[color:var(--text-muted)]">
+                The designer reads this folder’s stylesheets and assets, then drafts tokens, glyphs, and components for your review — nothing lands unreviewed.
+              </span>
+            </>
+          ) : null}
+        </div>
+      ) : null}
+
       <label className="flex flex-col gap-2">
-        <FieldLabel>{isDesignPreset ? 'Design goal' : 'Rough idea'}</FieldLabel>
+        <FieldLabel>{copy.ideaLabel}</FieldLabel>
         <textarea
           value={idea}
           onChange={(event) => onChangeIdea(event.target.value)}
-          placeholder={
-            isDesignPreset
-              ? 'A calm onboarding flow for a café shift-trading app: sign in, see this week’s shifts, request a swap.'
-              : 'A shift-trading app where café staff can swap shifts without texting the manager.'
-          }
+          placeholder={copy.ideaPlaceholder}
           autoFocus
           className="
             min-h-[140px] w-full resize-none rounded-md border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] px-3.5 py-3
@@ -3026,17 +3344,13 @@ function GuidedIdeaStep({
             hover:border-[color:var(--color-5)] focus:border-[color:var(--text-strong)]
           "
         />
-        <span className="text-[12px] leading-5 text-[color:var(--text-muted)]">
-          {isDesignPreset
-            ? 'Describe the screen or flow, the target user, and any brand constraints.'
-            : 'Plain English. Spelling doesn’t matter.'}
-        </span>
+        <span className="text-[12px] leading-5 text-[color:var(--text-muted)]">{copy.ideaHint}</span>
       </label>
 
-      {isDesignPreset ? null : (
+      {copy.lockedDesigner ? null : (
         <div className="flex flex-col gap-2">
           <FieldLabel>Will people use it on a screen?</FieldLabel>
-          <div role="radiogroup" aria-label="App surface" className="grid grid-cols-2 gap-2.5">
+          <div role="group" aria-label="App surface" className="grid grid-cols-2 gap-2.5">
             <GuidedChoiceCard
               active={hasUi === 'yes'}
               title="Yes, it has a screen"
@@ -3056,12 +3370,12 @@ function GuidedIdeaStep({
       <div className="flex flex-col gap-2">
         <FieldLabel>Guided discussions</FieldLabel>
         <div className="flex flex-col gap-2">
-          {isDesignPreset ? (
+          {copy.lockedDesigner ? (
             <GuidedRoleToggle
               checked
               locked
-              title="Frontend engineer"
-              body="Designs the screens and reviewable mockups."
+              title={copy.lockedDesigner.title}
+              body={copy.lockedDesigner.body}
               cli={roleCliDefaults.frontend}
               cliOptions={cliOptions}
               onChangeCli={(cli) => onSetRoleCli('frontend', cli)}
@@ -3100,18 +3414,16 @@ function GuidedIdeaStep({
             </>
           )}
         </div>
-        {isDesignPreset ? (
-          <p className="text-[12px] leading-5 text-[color:var(--text-muted)]">
-            Design only skips the strategy and planning discussions and starts straight in the design studio.
-          </p>
+        {copy.studioNote ? (
+          <p className="text-[12px] leading-5 text-[color:var(--text-muted)]">{copy.studioNote}</p>
         ) : null}
       </div>
 
       {folderPath ? (
         <p className="text-[12px] leading-5 text-[color:var(--text-muted)]">
-          Idea seed will be written to{' '}
-          <span className="font-mono text-[color:var(--text-default)]">product/idea-seed.md</span>{' '}
-          in the selected folder.
+          {copy.folderHint.before}
+          <span className="font-mono text-[color:var(--text-default)]">{copy.folderHint.path}</span>
+          {copy.folderHint.after}
         </p>
       ) : null}
 
@@ -3179,29 +3491,40 @@ function GuidedRoleToggle({
   )
 }
 
+// Selection cards are aria-pressed toggle buttons in a labelled group, not
+// role="radio": radio semantics promise arrow-key movement these Tab-navigated
+// grids don't have, and some groups legitimately start with no selection
+// (hasUi). Every grid that renders these cards must use role="group" with an
+// aria-label so the announced role matches the actual keyboard behavior.
 function GuidedChoiceCard({
   active,
   title,
   body,
   onSelect,
+  disabled = false,
 }: {
   active: boolean
   title: string
   body: string
   onSelect: () => void
+  // Renders the option unavailable (the body copy should carry the cause).
+  disabled?: boolean
 }) {
   return (
     <button
       type="button"
-      role="radio"
-      aria-checked={active}
+      aria-pressed={active}
+      disabled={disabled}
       onClick={onSelect}
       className={`
         relative flex h-[88px] w-full flex-col items-start gap-1.5 overflow-hidden rounded-md border p-3 text-left
         transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--accent-primary)]
+        disabled:cursor-not-allowed disabled:opacity-55
         ${active
           ? 'border-[color:var(--accent-primary-soft-strong)] bg-[color:var(--accent-primary-soft)]'
-          : 'border-[color:var(--bg-selected)] bg-[color:var(--bg-surface)] hover:border-[color:var(--color-5)] hover:bg-[color:var(--bg-surface-raised)]'}
+          : disabled
+            ? 'border-[color:var(--bg-selected)] bg-[color:var(--bg-surface)]'
+            : 'border-[color:var(--bg-selected)] bg-[color:var(--bg-surface)] hover:border-[color:var(--color-5)] hover:bg-[color:var(--bg-surface-raised)]'}
       `}
     >
       <span
@@ -3826,6 +4149,8 @@ function guidedBriefStartBuildErrorMessage(error: GuidedBriefStartBuildError): s
       return 'Accept the architecture plan before starting the build.'
     case 'missing-ui-direction-or-mockups':
       return 'Accept the screen design and mockups before starting the build.'
+    case 'design-system-preset':
+      return 'A design-system studio releases a bundle; it never starts a Sprint Engine build.'
     case 'advanced-setup-failed':
       // Carries the actionable persistAdvancedSetup message verbatim.
       return error.message && error.message !== error.code
@@ -3915,6 +4240,8 @@ function getStepBlockingMessage(args: {
   totalAgents: number
   guidedIdea: string
   guidedHasUi: GuidedBriefHasUi | null
+  guidedSeedMode: DesignSystemSeedMode
+  guidedSeedReady: boolean
   committedKnowledgeRoot: string | null
 }): string {
   const {
@@ -3931,6 +4258,8 @@ function getStepBlockingMessage(args: {
     totalAgents,
     guidedIdea,
     guidedHasUi,
+    guidedSeedMode,
+    guidedSeedReady,
     committedKnowledgeRoot,
   } = args
 
@@ -3971,6 +4300,11 @@ function getStepBlockingMessage(args: {
     case 'guided-idea':
       if (!guidedIdea.trim()) return 'Describe the idea in a sentence or two.'
       if (guidedHasUi == null) return 'Pick whether the app has a screen.'
+      if (!guidedSeedReady) {
+        return guidedSeedMode === 'source-folder'
+          ? 'Choose the folder to seed from.'
+          : 'The brand demo is unavailable — pick another starting point.'
+      }
       return 'Ready to capture the idea.'
   }
 }

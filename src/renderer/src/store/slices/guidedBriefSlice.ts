@@ -1,5 +1,7 @@
 import type { IJsonModel } from 'flexlayout-react'
 import type {
+  DesignSystemSeedSource,
+  DesignSystemStudioRelease,
   GuidedBriefPreset,
   GuidedBriefRecordedDecision,
   GuidedBriefRuntimeState,
@@ -172,6 +174,47 @@ function normalizeGuidedBriefAcceptedArtifact(
   }
 }
 
+// A persisted last release survives only when structurally whole; anything
+// else normalizes to null (i.e. "not released yet" — the version input then
+// prefills 1.0.0).
+function normalizeDesignSystemLastRelease(input: unknown): DesignSystemStudioRelease | null {
+  if (!input || typeof input !== 'object') return null
+  const candidate = input as Partial<DesignSystemStudioRelease>
+  if (
+    typeof candidate.name !== 'string'
+    || !candidate.name.trim()
+    || typeof candidate.version !== 'string'
+    || !candidate.version.trim()
+    || typeof candidate.path !== 'string'
+    || !candidate.path.trim()
+    || typeof candidate.releasedAt !== 'string'
+    || !candidate.releasedAt.trim()
+  ) {
+    return null
+  }
+  return {
+    name: candidate.name,
+    version: candidate.version,
+    path: candidate.path,
+    releasedAt: candidate.releasedAt,
+  }
+}
+
+// Seed source survives only when it is structurally whole (known kind +
+// non-empty path); anything else normalizes to null, i.e. a blank start.
+function normalizeDesignSystemSeedSource(input: unknown): DesignSystemSeedSource | null {
+  if (!input || typeof input !== 'object') return null
+  const candidate = input as Partial<DesignSystemSeedSource>
+  if (
+    (candidate.kind !== 'source-folder' && candidate.kind !== 'brand-demo')
+    || typeof candidate.path !== 'string'
+    || !candidate.path.trim()
+  ) {
+    return null
+  }
+  return { kind: candidate.kind, path: candidate.path }
+}
+
 function normalizeGuidedBriefDecisions(input: unknown): GuidedBriefRecordedDecision[] {
   if (!Array.isArray(input)) return []
   const decisions: GuidedBriefRecordedDecision[] = []
@@ -226,9 +269,10 @@ export function normalizeGuidedBriefState(input: unknown): GuidedBriefRuntimeSta
     : 'strategist-working'
   // Legacy guided-brief states predate the preset model; missing/unknown values
   // normalize to `full-brief` so existing workspaces load unchanged.
-  const preset: GuidedBriefPreset = candidate.preset === 'frontend-design'
-    ? 'frontend-design'
-    : 'full-brief'
+  const preset: GuidedBriefPreset =
+    candidate.preset === 'frontend-design' || candidate.preset === 'design-system'
+      ? candidate.preset
+      : 'full-brief'
   const wantsProductDiscussion = typeof candidate.wantsProductDiscussion === 'boolean'
     ? candidate.wantsProductDiscussion
     : true
@@ -288,6 +332,15 @@ export function normalizeGuidedBriefState(input: unknown): GuidedBriefRuntimeSta
     activeDesignArtifactPath:
       typeof candidate.activeDesignArtifactPath === 'string' ? candidate.activeDesignArtifactPath : null,
     guidedDecisions: normalizeGuidedBriefDecisions(candidate.guidedDecisions),
+    // Only the design-system preset seeds; a seed source persisted on another
+    // preset (or a malformed one) normalizes back to blank-start.
+    designSystemSeedSource: preset === 'design-system'
+      ? normalizeDesignSystemSeedSource(candidate.designSystemSeedSource)
+      : null,
+    // Only the design-system preset releases; other presets never carry one.
+    designSystemLastRelease: preset === 'design-system'
+      ? normalizeDesignSystemLastRelease(candidate.designSystemLastRelease)
+      : null,
     strategistSessionId:
       typeof candidate.strategistSessionId === 'string' && candidate.strategistSessionId.trim()
         ? candidate.strategistSessionId

@@ -118,6 +118,119 @@ assert.ok(designPreset, 'frontend-design preset input should normalize')
 assert.equal(designPreset.preset, 'frontend-design')
 assert.equal(designPreset.activeDesignArtifactPath, 'mockups/app.html')
 
+// The design-system preset round-trips the same way, resuming on the
+// designer stage with the selected bundle artifact preserved.
+const designSystemPreset = normalizeGuidedBriefState({
+  workspaceRoot: '/repo/system',
+  workspaceName: 'Brand system',
+  idea: 'A warm editorial design system',
+  hasUi: 'yes',
+  preset: 'design-system',
+  stage: 'designer-working',
+  activeDesignArtifactPath: 'design-system/foundations/principles.md',
+})
+assert.ok(designSystemPreset, 'design-system preset input should normalize')
+assert.equal(designSystemPreset.preset, 'design-system')
+assert.equal(designSystemPreset.stage, 'designer-working')
+assert.equal(
+  designSystemPreset.activeDesignArtifactPath,
+  'design-system/foundations/principles.md',
+)
+assert.equal(
+  designSystemPreset.designSystemSeedSource,
+  null,
+  'legacy design-system state without a seed source normalizes to blank start',
+)
+
+// A whole seed source round-trips on the design-system preset; malformed ones
+// (unknown kind, empty path) and seed sources on other presets normalize to null.
+const seededDesignSystem = normalizeGuidedBriefState({
+  workspaceRoot: '/repo/system',
+  workspaceName: 'Brand system',
+  idea: 'A warm editorial design system',
+  hasUi: 'yes',
+  preset: 'design-system',
+  stage: 'designer-working',
+  designSystemSeedSource: { kind: 'brand-demo', path: '/app/knowledge/brand' },
+})
+assert.ok(seededDesignSystem)
+assert.deepEqual(seededDesignSystem.designSystemSeedSource, {
+  kind: 'brand-demo',
+  path: '/app/knowledge/brand',
+})
+const malformedSeed = normalizeGuidedBriefState({
+  workspaceRoot: '/repo/system',
+  workspaceName: 'Brand system',
+  idea: 'A warm editorial design system',
+  hasUi: 'yes',
+  preset: 'design-system',
+  designSystemSeedSource: { kind: 'figma', path: '   ' },
+})
+assert.ok(malformedSeed)
+assert.equal(malformedSeed.designSystemSeedSource, null, 'malformed seed source normalizes to blank start')
+// The last library release round-trips on the design-system preset; malformed
+// records and releases persisted on other presets normalize to null.
+const releasedDesignSystem = normalizeGuidedBriefState({
+  workspaceRoot: '/repo/system',
+  workspaceName: 'Brand system',
+  idea: 'A warm editorial design system',
+  hasUi: 'yes',
+  preset: 'design-system',
+  designSystemLastRelease: {
+    name: 'brand',
+    version: '1.1.0',
+    path: '/home/u/.multicode/design-systems/brand/1.1.0',
+    releasedAt: '2026-07-02T00:00:00.000Z',
+  },
+})
+assert.ok(releasedDesignSystem)
+assert.deepEqual(releasedDesignSystem.designSystemLastRelease, {
+  name: 'brand',
+  version: '1.1.0',
+  path: '/home/u/.multicode/design-systems/brand/1.1.0',
+  releasedAt: '2026-07-02T00:00:00.000Z',
+})
+const malformedRelease = normalizeGuidedBriefState({
+  workspaceRoot: '/repo/system',
+  workspaceName: 'Brand system',
+  idea: 'A warm editorial design system',
+  hasUi: 'yes',
+  preset: 'design-system',
+  designSystemLastRelease: { name: 'brand', version: '' },
+})
+assert.ok(malformedRelease)
+assert.equal(malformedRelease.designSystemLastRelease, null, 'malformed release normalizes to not-released')
+const releaseOnOtherPreset = normalizeGuidedBriefState({
+  workspaceRoot: '/repo/design',
+  workspaceName: 'Design studio',
+  idea: 'A calm onboarding flow',
+  hasUi: 'yes',
+  preset: 'frontend-design',
+  designSystemLastRelease: {
+    name: 'brand',
+    version: '1.0.0',
+    path: '/p',
+    releasedAt: 't',
+  },
+})
+assert.ok(releaseOnOtherPreset)
+assert.equal(releaseOnOtherPreset.designSystemLastRelease, null, 'a release persisted on a non-design-system preset is dropped')
+
+const seedOnOtherPreset = normalizeGuidedBriefState({
+  workspaceRoot: '/repo/design',
+  workspaceName: 'Design studio',
+  idea: 'A calm onboarding flow',
+  hasUi: 'yes',
+  preset: 'frontend-design',
+  designSystemSeedSource: { kind: 'source-folder', path: '/repo/app' },
+})
+assert.ok(seedOnOtherPreset)
+assert.equal(
+  seedOnOtherPreset.designSystemSeedSource,
+  null,
+  'a seed source persisted on a non-design-system preset is dropped',
+)
+
 const bogusPreset = normalizeGuidedBriefState({
   workspaceRoot: '/repo/bogus',
   workspaceName: 'Bogus preset',

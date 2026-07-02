@@ -28,10 +28,21 @@ import { StageArtifactsPane, type StageArtifactFile } from './StageArtifactsPane
 import {
   applyDesignArtifactSelection,
   findDesignArtifact,
+  DESIGN_SYSTEM_BUNDLE_DIRECTORY_NAME,
   type DesignArtifactEntry,
   type DesignArtifactIndex,
   type DesignArtifactsStatus,
 } from './designArtifacts'
+import {
+  canRelease,
+  initialReleaseVersion,
+  isValidReleaseVersion,
+  releaseButtonLabel,
+  releasePhaseAfterLint,
+  releasePhaseAfterRelease,
+  releaseStatusLine,
+  type DesignSystemReleasePhase,
+} from './designSystemRelease'
 import { useArchitectSession } from './useArchitectSession'
 import {
   useDesignerSession,
@@ -120,6 +131,7 @@ export function GuidedBriefFlow({
     wantsProductDiscussion: runtimeState.wantsProductDiscussion,
     wantsArchitectureDiscussion: runtimeState.wantsArchitectureDiscussion,
     wantsFrontendDiscussion: runtimeState.wantsFrontendDiscussion,
+    preset: runtimeState.preset,
   }
   const steps = guidedBriefSteps(stage, hasUi, progressOptions)
   const inStrategistStage = stage === 'strategist-working' || stage === 'strategist-ready'
@@ -168,6 +180,8 @@ export function GuidedBriefFlow({
       hasUi === 'yes' &&
       runtimeState.wantsFrontendDiscussion &&
       inDesignerStage,
+    designSystem: runtimeState.preset === 'design-system',
+    designSystemSeedSource: runtimeState.designSystemSeedSource ?? null,
     sessionId: runtimeState.designerSessionId,
     onAssignSessionId: (id) => {
       updateRuntimeState((prev) =>
@@ -289,6 +303,12 @@ export function GuidedBriefFlow({
   const [startBuildError, setStartBuildError] = useState<string | null>(null)
   const [skippingPlanning, setSkippingPlanning] = useState(false)
   const [skipError, setSkipError] = useState<string | null>(null)
+  // Design-system release action ("Save as design system"). The phase is
+  // derived from observed IPC results only — see designSystemRelease.ts.
+  // `releaseVersionDraft` is null until the user types, so the input follows
+  // the last released version (prefill-to-bump) without an effect.
+  const [releasePhase, setReleasePhase] = useState<DesignSystemReleasePhase>({ kind: 'idle' })
+  const [releaseVersionDraft, setReleaseVersionDraft] = useState<string | null>(null)
   const automationMode: SprintEngineAutomationMode = runtimeState.buildAutoApproveArtifacts
     ? 'run_agents_and_approve_artifacts'
     : runtimeState.buildStartRunner
@@ -296,12 +316,15 @@ export function GuidedBriefFlow({
       : 'manual'
   const effectiveAutoApprove = automationMode === 'run_agents_and_approve_artifacts'
 
-  // Multicode Design (frontend-design preset) surfaces the real design-file
-  // index. Selecting a file persists its relative path to the runtime state via
-  // the existing onChange path; HTML pages mirror to activeMockupPath so the
-  // existing mockup preview stays in sync. The full three-pane studio shell is
-  // T4's scope — this is the minimal wiring that makes selection real.
-  const isDesignPreset = runtimeState.preset === 'frontend-design'
+  // The design-only studio presets (frontend-design and design-system)
+  // surface the real design-file index. Selecting a file persists its relative
+  // path to the runtime state via the existing onChange path; HTML pages
+  // mirror to activeMockupPath so the existing mockup preview stays in sync.
+  // The design-system preset shares the same three-pane shell but authors the
+  // portable bundle: no Sprint Engine build tail (its release action is a
+  // separate epic task), so the footer drops the build-flow controls.
+  const isDesignSystemPreset = runtimeState.preset === 'design-system'
+  const isDesignPreset = runtimeState.preset === 'frontend-design' || isDesignSystemPreset
   const handleSelectDesignArtifact = (entry: DesignArtifactEntry) => {
     updateRuntimeState((prev) => applyDesignArtifactSelection(prev, entry))
   }
@@ -576,18 +599,64 @@ export function GuidedBriefFlow({
     }
   }
 
-  const primaryAction = renderPrimaryAction({
-    stage,
-    accepting,
-    startingBuild,
-    strategist,
-    architect,
-    designer,
-    onAcceptStrategist: () => void acceptStrategistBrief(),
-    onAcceptArchitect: () => void acceptArchitectPlan(),
-    onAcceptDesigner: () => void acceptDesignerMockups(),
-    onStartBuild: () => void startBuild(),
+  // The design-system studio has no build tail: authoring continues in place
+  // and the "Save as design system" release action replaces the primary
+  // action. Version prefill: last released version (bump to re-release), or
+  // 1.0.0 for a first release.
+  const releaseVersion =
+    releaseVersionDraft ?? initialReleaseVersion(runtimeState.designSystemLastRelease ?? null)
+  const releaseArmed = canRelease({
+    phase: releasePhase,
+    designerReady: designer.readiness.isReady,
+    version: releaseVersion,
   })
+
+  const releaseDesignSystem = async () => {
+    if (!releaseArmed) return
+    const bundleDir = joinWorkspacePath(workspaceRoot, DESIGN_SYSTEM_BUNDLE_DIRECTORY_NAME)
+    setReleasePhase({ kind: 'validating' })
+    try {
+      const afterLint = releasePhaseAfterLint(await window.api.lintDesignSystemBundle(bundleDir))
+      setReleasePhase(afterLint)
+      if (afterLint.kind !== 'releasing') return
+      const after = releasePhaseAfterRelease(
+        await window.api.releaseDesignSystemBundle(bundleDir, releaseVersion.trim()),
+      )
+      setReleasePhase(after)
+      if (after.kind === 'released') {
+        updateRuntimeState((prev) => ({ ...prev, designSystemLastRelease: after.release }))
+        // Follow the new last release again so the next prefill is bump-ready.
+        setReleaseVersionDraft(null)
+      }
+    } catch (error) {
+      setReleasePhase({
+        kind: 'error',
+        message: error instanceof Error ? error.message : 'Could not release the design system.',
+      })
+    }
+  }
+
+  const primaryAction = isDesignSystemPreset
+    ? renderDesignSystemReleaseAction({
+        phase: releasePhase,
+        version: releaseVersion,
+        designerReady: designer.readiness.isReady,
+        armed: releaseArmed,
+        onChangeVersion: (value) => setReleaseVersionDraft(value),
+        onRelease: () => void releaseDesignSystem(),
+      })
+    : renderPrimaryAction({
+        stage,
+        accepting,
+        startingBuild,
+        strategist,
+        architect,
+        designer,
+        onAcceptStrategist: () => void acceptStrategistBrief(),
+        onAcceptArchitect: () => void acceptArchitectPlan(),
+        onAcceptDesigner: () => void acceptDesignerMockups(),
+        onStartBuild: () => void startBuild(),
+      })
 
   const skipToRoster = async () => {
     if (stage === 'handoff') return
@@ -664,7 +733,11 @@ export function GuidedBriefFlow({
             {workspaceName}
           </h2>
           <span className="text-[12px] text-[color:var(--text-muted)]">
-            · {isDesignPreset ? 'Design only' : `Plan & design${hasUi === 'no' ? ' · no UI' : ''}`}
+            · {isDesignSystemPreset
+              ? 'Design system'
+              : isDesignPreset
+                ? 'Design only'
+                : `Plan & design${hasUi === 'no' ? ' · no UI' : ''}`}
           </span>
         </div>
         <StepRail
@@ -727,6 +800,7 @@ export function GuidedBriefFlow({
             interview={designer.interview}
             onAnswer={answerViaTerminal(designer.session)}
             mockupCount={designer.mockups.length}
+            designSystem={isDesignSystemPreset}
             designArtifacts={designer.designArtifacts}
             designArtifactsStatus={designer.designArtifactsStatus}
             activeDesignArtifactPath={runtimeState.activeDesignArtifactPath ?? null}
@@ -743,6 +817,25 @@ export function GuidedBriefFlow({
         )}
       </main>
 
+      {isDesignSystemPreset && releasePhase.kind === 'lint-failed' ? (
+        <div
+          role="region"
+          aria-label="Design-system lint findings"
+          className="shrink-0 border-t border-[color:var(--bg-surface-raised)] bg-[color:var(--bg-surface)] px-5 py-3"
+        >
+          <span className="text-[12px] font-semibold text-[color:var(--text-strong)]">
+            Lint findings — release blocked
+          </span>
+          {/* Focusable so keyboard users can scroll findings that overflow. */}
+          <pre
+            tabIndex={0}
+            className="mt-2 max-h-40 overflow-auto whitespace-pre-wrap font-mono text-[11px] leading-4 text-[color:var(--text-default)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--accent-primary)]"
+          >
+            {releasePhase.findings}
+          </pre>
+        </div>
+      ) : null}
+
       <footer className="flex shrink-0 items-center gap-3 border-t border-[color:var(--bg-surface-raised)] px-5 py-3">
         {reviewing && reviewingStage ? (
           <>
@@ -756,8 +849,27 @@ export function GuidedBriefFlow({
         ) : (
           <>
             <span className="flex min-w-0 flex-1 items-center gap-3">
-              {stage === 'designer-working' || stage === 'designer-ready' ? (
-                <DesignerReadinessHint readiness={designer.readiness} />
+              {isDesignSystemPreset && releasePhase.kind !== 'idle' ? (
+                // Live region wraps the truncated line (TruncatedText does not
+                // forward ARIA props), so phase changes are announced.
+                <span aria-live="polite" className="flex min-w-0 flex-1">
+                  <TruncatedText
+                    as="span"
+                    text={releaseStatusLine(releasePhase) ?? ''}
+                    className={`text-[12px] ${
+                      releasePhase.kind === 'lint-failed' || releasePhase.kind === 'error'
+                        ? 'text-[color:var(--tone-error)]'
+                        : releasePhase.kind === 'released'
+                          ? 'text-[color:var(--text-default)]'
+                          : 'text-[color:var(--text-subtle)]'
+                    }`}
+                  />
+                </span>
+              ) : stage === 'designer-working' || stage === 'designer-ready' ? (
+                <DesignerReadinessHint
+                  readiness={designer.readiness}
+                  designSystem={isDesignSystemPreset}
+                />
               ) : null}
               {acceptError ? (
                 <TruncatedText as="span" text={acceptError} className="text-[12px] text-[color:var(--tone-error)]" />
@@ -780,7 +892,7 @@ export function GuidedBriefFlow({
             >
               Back
             </button>
-            {stage !== 'handoff' ? (
+            {stage !== 'handoff' && !isDesignSystemPreset ? (
               <SecondaryButton onClick={() => void skipToRoster()} disabled={skippingPlanning}>
                 {skippingPlanning ? 'Skipping…' : 'Skip to roster'}
               </SecondaryButton>
@@ -945,6 +1057,79 @@ function ReviewBody({
   )
 }
 
+// Completion action for the design-system studio: a semver input + the
+// release button, replacing the Sprint Engine build tail for this preset.
+// Disabled reasons must stay reachable without hover (a disabled button is
+// unfocusable): the tooltip is the sighted shortcut, while the same reason
+// rides an always-present aria-label on the button (mirroring the waiting
+// Continue button) and the version format hint is tied to the input via
+// aria-describedby. Phase labels come from designSystemRelease.ts so the five
+// states (validating / releasing / released / lint-failed / error) stay
+// text-distinct.
+const RELEASE_VERSION_HINT_ID = 'design-system-release-version-hint'
+
+function renderDesignSystemReleaseAction({
+  phase,
+  version,
+  designerReady,
+  armed,
+  onChangeVersion,
+  onRelease,
+}: {
+  phase: DesignSystemReleasePhase
+  version: string
+  designerReady: boolean
+  armed: boolean
+  onChangeVersion: (value: string) => void
+  onRelease: () => void
+}) {
+  const inFlight = phase.kind === 'validating' || phase.kind === 'releasing'
+  const versionValid = isValidReleaseVersion(version)
+  const disabledReason = inFlight
+    ? null
+    : !designerReady
+      ? 'Available once the designer signals the bundle is ready.'
+      : !versionValid
+        ? 'Enter a semver version like 1.0.0.'
+        : null
+  const buttonLabel = releaseButtonLabel(phase)
+  const button = (
+    <PrimaryButton
+      onClick={onRelease}
+      disabled={!armed}
+      aria-label={disabledReason ? `${buttonLabel} — ${disabledReason}` : undefined}
+    >
+      {buttonLabel}
+    </PrimaryButton>
+  )
+  return (
+    <span className="flex shrink-0 items-center gap-2">
+      <input
+        value={version}
+        onChange={(event) => onChangeVersion(event.target.value)}
+        disabled={inFlight}
+        aria-label="Release version"
+        aria-invalid={!versionValid}
+        aria-describedby={RELEASE_VERSION_HINT_ID}
+        placeholder="1.0.0"
+        spellCheck={false}
+        className={`
+          h-9 w-24 rounded-md border bg-[color:var(--bg-surface)] px-2.5 text-center font-mono text-[12px] tabular-nums
+          text-[color:var(--text-strong)] outline-none transition-colors
+          placeholder:text-[color:var(--text-disabled)]
+          disabled:cursor-not-allowed disabled:text-[color:var(--text-disabled)]
+          focus:border-[color:var(--text-strong)]
+          ${versionValid ? 'border-[color:var(--border-default)]' : 'border-[color:var(--tone-error)]'}
+        `}
+      />
+      <span id={RELEASE_VERSION_HINT_ID} className="sr-only">
+        Version must be semver, like 1.0.0.
+      </span>
+      {disabledReason ? <Tooltip content={disabledReason}>{button}</Tooltip> : button}
+    </span>
+  )
+}
+
 function renderPrimaryAction({
   stage,
   accepting,
@@ -1035,9 +1220,21 @@ function renderPrimaryAction({
 
 function DesignerReadinessHint({
   readiness,
+  designSystem = false,
 }: {
   readiness: ReturnType<typeof useDesignerSession>['readiness']
+  designSystem?: boolean
 }) {
+  if (designSystem) {
+    // Design-system studios have no UI-direction artifact; readiness is the
+    // designer's marker or real bundle pages (components, patterns, catalog).
+    if (readiness.isReady) return null
+    return (
+      <span className="shrink-0 truncate text-[12px] text-[color:var(--text-subtle)]">
+        Waiting for the first design-system files.
+      </span>
+    )
+  }
   const waitingFor: string[] = []
   if (!readiness.mockupsAvailable) waitingFor.push('the screens')
   if (!readiness.uiDirectionReady) waitingFor.push('the UI direction')
@@ -1085,7 +1282,7 @@ type PrimaryButtonProps = {
   children: React.ReactNode
 } & Pick<
   React.ButtonHTMLAttributes<HTMLButtonElement>,
-  'aria-describedby' | 'onMouseEnter' | 'onMouseLeave' | 'onFocus' | 'onBlur' | 'onKeyDown'
+  'aria-label' | 'aria-describedby' | 'onMouseEnter' | 'onMouseLeave' | 'onFocus' | 'onBlur' | 'onKeyDown'
 >
 
 function PrimaryButton({
@@ -1373,6 +1570,7 @@ function DesignStudioBody({
   interview,
   onAnswer,
   mockupCount,
+  designSystem = false,
   designArtifacts,
   designArtifactsStatus,
   activeDesignArtifactPath,
@@ -1385,6 +1583,7 @@ function DesignStudioBody({
   interview: GuidedInterviewState
   onAnswer: (answerText: string) => void
   mockupCount: number
+  designSystem?: boolean
   designArtifacts: DesignArtifactIndex
   designArtifactsStatus: DesignArtifactsStatus
   activeDesignArtifactPath: string | null
@@ -1399,11 +1598,15 @@ function DesignStudioBody({
           session={session}
           starting={starting}
           errorMessage={errorMessage}
-          specialistName="Frontend Designer"
+          specialistName={designSystem ? 'Design System Designer' : 'Frontend Designer'}
           specialistSubline={
-            mockupCount > 0
-              ? `${mockupCount} screen${mockupCount === 1 ? '' : 's'} on disk · ask for changes anytime`
-              : 'Describe the screens you want — files and preview update as they’re written'
+            designSystem
+              ? designArtifacts.count > 0
+                ? `${designArtifacts.count} file${designArtifacts.count === 1 ? '' : 's'} in the bundle · ask for changes anytime`
+                : 'Describe the system you want — tokens, components, and patterns land as real files'
+              : mockupCount > 0
+                ? `${mockupCount} screen${mockupCount === 1 ? '' : 's'} on disk · ask for changes anytime`
+                : 'Describe the screens you want — files and preview update as they’re written'
           }
           working={working}
           interview={interview}

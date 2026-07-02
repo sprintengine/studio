@@ -8,7 +8,11 @@ import { useWorkspaceFolderStatus } from '../../hooks/useWorkspaceFolderStatus'
 import type { AgentExecution, AgentExecutionMode, AgentKind } from '../../types/workspace'
 import type { AgentSessionSystem, TerminalSpawnMetadata, TerminalSpawnResult } from '../../../../shared/electron-api'
 import { useSession } from '../../hooks/useTerminalSessions'
-import { buildSpecialistSoulStartupPrompt, getSpecialistAction } from '../../specialists/specialistActions'
+import {
+  buildSpecialistSoulStartupPrompt,
+  getSpecialistAction,
+  resolveDesignSystemAttachedPromptLine,
+} from '../../specialists/specialistActions'
 import { buildSprintEngineAgentRosterForState, buildSprintEngineRosterCommandArgs, getSprintEngineRoleLabel } from '../../utils/sprintengine'
 import { buildSprintEngineStartupPrompt, getSprintEngineStartupCommandMode, prependAgentIdentifier } from '../../utils/agentPrompt'
 import { publishDiagnosticSync } from '../../utils/diagnostics'
@@ -128,6 +132,16 @@ function appendMemoryPrompt(prompt: string | undefined, memoryContext: MemoryLau
   if (!memoryContext.promptSuffix) return prompt
   if (!prompt) return memoryContext.promptSuffix
   return `${prompt}\n\n${memoryContext.promptSuffix}`
+}
+
+// Attached-design-system launch line, same shape as the knowledge suffix
+// above: resolved once per launch against the agent's execution root and
+// appended only when the predicate (design-system/ exists) holds. Deliberately
+// KG-independent — it must fire in repos with no knowledge graph configured.
+function appendDesignSystemPrompt(prompt: string | undefined, line: string | null): string | undefined {
+  if (!line) return prompt
+  if (!prompt) return line
+  return `${prompt}\n\n${line}`
 }
 
 function agentSessionSystem(kind: AgentKind | undefined): AgentSessionSystem {
@@ -742,9 +756,17 @@ export default function TerminalView({ workspaceId, agentId, sessionId: attached
         launchContext.memoryConfig?.relativeRoot ?? null
       )
       if (disposed) return
+      const designSystemPromptLine = await resolveDesignSystemAttachedPromptLine(
+        executionRoot.cwd ?? folderReadyPath ?? null,
+        window.api.pathExists,
+      )
+      if (disposed) return
       const launchInitialPrompt = shouldResumeCli
         ? undefined
-        : appendMemoryPrompt(startupPromptRef.current ?? undefined, memoryContext)
+        : appendDesignSystemPrompt(
+            appendMemoryPrompt(startupPromptRef.current ?? undefined, memoryContext),
+            designSystemPromptLine,
+          )
       const finalContext = currentContext()
       const finalAgent = finalContext.agent
       const finalCli = finalContext.cli
