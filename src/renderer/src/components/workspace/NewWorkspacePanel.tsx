@@ -561,6 +561,14 @@ export default function NewWorkspacePanel({
   // design-system/ as its work product.
   const [dsAttachSelection, setDsAttachSelection] = useState<DesignSystemAttachSource | null>(null)
 
+  // The selection is made against a concrete target folder; switching folders
+  // invalidates it (folder B may already carry design-system/, which attach
+  // refuses). Reset on folder change so a stale pick can never ride into
+  // create — the Advanced setup count drops with it.
+  useEffect(() => {
+    setDsAttachSelection(null)
+  }, [folderPath])
+
   // Resolve the brand-demo source lazily, the first time the design-system
   // preset is selected, so the other presets never pay the IPC.
   useEffect(() => {
@@ -3251,7 +3259,7 @@ function GuidedIdeaStep({
     <div className="flex flex-col gap-5">
       <div className="flex flex-col gap-2">
         <FieldLabel>What are we making?</FieldLabel>
-        <div role="radiogroup" aria-label="Design Wizard mode" className="grid grid-cols-3 gap-2.5">
+        <div role="group" aria-label="Design Wizard mode" className="grid grid-cols-3 gap-2.5">
           {GUIDED_PRESET_ORDER.map((presetOption) => (
             <GuidedChoiceCard
               key={presetOption}
@@ -3267,7 +3275,7 @@ function GuidedIdeaStep({
       {preset === 'design-system' ? (
         <div className="flex flex-col gap-2">
           <FieldLabel>Starting point</FieldLabel>
-          <div role="radiogroup" aria-label="Design system starting point" className="grid grid-cols-3 gap-2.5">
+          <div role="group" aria-label="Design system starting point" className="grid grid-cols-3 gap-2.5">
             <GuidedChoiceCard
               active={seedMode === 'blank'}
               title="Start blank"
@@ -3342,7 +3350,7 @@ function GuidedIdeaStep({
       {copy.lockedDesigner ? null : (
         <div className="flex flex-col gap-2">
           <FieldLabel>Will people use it on a screen?</FieldLabel>
-          <div role="radiogroup" aria-label="App surface" className="grid grid-cols-2 gap-2.5">
+          <div role="group" aria-label="App surface" className="grid grid-cols-2 gap-2.5">
             <GuidedChoiceCard
               active={hasUi === 'yes'}
               title="Yes, it has a screen"
@@ -3483,6 +3491,11 @@ function GuidedRoleToggle({
   )
 }
 
+// Selection cards are aria-pressed toggle buttons in a labelled group, not
+// role="radio": radio semantics promise arrow-key movement these Tab-navigated
+// grids don't have, and some groups legitimately start with no selection
+// (hasUi). Every grid that renders these cards must use role="group" with an
+// aria-label so the announced role matches the actual keyboard behavior.
 function GuidedChoiceCard({
   active,
   title,
@@ -3500,8 +3513,7 @@ function GuidedChoiceCard({
   return (
     <button
       type="button"
-      role="radio"
-      aria-checked={active}
+      aria-pressed={active}
       disabled={disabled}
       onClick={onSelect}
       className={`

@@ -59,6 +59,18 @@ function sourceKey(source: DesignSystemAttachSource | null): string {
   return source.kind === 'library' ? `library:${source.name}@${source.version}` : `folder:${source.path}`
 }
 
+// A selection made before the conflict pre-check trips is stale: attach would
+// refuse it, the picker is withheld, and the UI would offer no way to unselect.
+// Called from the pre-check effect so the selection clears the moment the
+// conflict state renders. Exported for the test's contract on this decision.
+export function clearStaleAttachSelection(input: {
+  existingBundle: boolean | null
+  selection: DesignSystemAttachSource | null
+  onSelect: (source: DesignSystemAttachSource | null) => void
+}): void {
+  if (input.existingBundle === true && input.selection != null) input.onSelect(null)
+}
+
 export function DesignSystemAttachStep({ workspaceRoot, selection, onSelect }: DesignSystemAttachStepProps) {
   const [library, setLibrary] = useState<LibraryState>({ kind: 'loading' })
   // null = pre-check still running. True renders the conflict state: attach
@@ -101,6 +113,10 @@ export function DesignSystemAttachStep({ workspaceRoot, selection, onSelect }: D
     }
   }, [workspaceRoot])
 
+  useEffect(() => {
+    clearStaleAttachSelection({ existingBundle, selection, onSelect })
+  }, [existingBundle, selection, onSelect])
+
   const chooseFolder = async () => {
     const dir = await window.api.openDir()
     if (!dir) return
@@ -125,7 +141,7 @@ export function DesignSystemAttachStep({ workspaceRoot, selection, onSelect }: D
         Copies a released bundle into <span className="font-mono text-[color:var(--text-default)]">design-system/</span> when
         the workspace is created; agents launched here are told to conform to it.
       </p>
-      <div role="radiogroup" aria-label="Design system to attach" className="flex flex-col gap-1.5">
+      <div role="group" aria-label="Design system to attach" className="flex flex-col gap-1.5">
         <AttachChoiceRow
           active={selectedKey === 'none'}
           title="None"
@@ -197,6 +213,10 @@ export function DesignSystemAttachStep({ workspaceRoot, selection, onSelect }: D
   )
 }
 
+// aria-pressed buttons in a labelled group, matching GuidedChoiceCard in
+// NewWorkspacePanel.tsx: radio semantics would promise arrow-key movement
+// these Tab-navigated rows don't have, and the browse row opens a native
+// dialog on activation, which selection-follows-focus arrows would fire.
 function AttachChoiceRow({
   active,
   title,
@@ -213,8 +233,7 @@ function AttachChoiceRow({
   return (
     <button
       type="button"
-      role="radio"
-      aria-checked={active}
+      aria-pressed={active}
       onClick={onSelect}
       className={`
         flex w-full flex-col items-start gap-0.5 rounded-md border px-3 py-2 text-left transition-colors

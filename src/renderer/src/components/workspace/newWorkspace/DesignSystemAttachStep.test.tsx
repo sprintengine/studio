@@ -1,31 +1,39 @@
 import assert from 'node:assert/strict'
+import { readFileSync } from 'node:fs'
+import { join } from 'node:path'
 import { renderToStaticMarkup } from 'react-dom/server'
 
 import { DESIGN_SYSTEM_ATTACHED_PROMPT_LINE } from '../../../../../shared/design-system/attach'
-import { buildDesignSystemKnowledgeNote, DesignSystemAttachStep } from './DesignSystemAttachStep'
+import {
+  buildDesignSystemKnowledgeNote,
+  clearStaleAttachSelection,
+  DesignSystemAttachStep,
+} from './DesignSystemAttachStep'
 
 // Static-markup contract for the attach picker's initial render (effects do
 // not run here, so this is the pre-IPC state: library loading, no conflict).
-// Mirrors ModeCard.test.tsx — the wizard's radio-row convention is the
-// keyboard/a11y surface the acceptance criteria name.
+// The rows are aria-pressed toggle buttons in a labelled group — not
+// role="radio", which would promise arrow-key movement the Tab-navigated rows
+// don't have (T15; same pattern as GuidedChoiceCard in NewWorkspacePanel.tsx).
 
 // AC (keyboard-navigable picker with visible focus): the choices are a labeled
-// radiogroup of native buttons with the shared focus-visible ring.
+// group of native aria-pressed buttons with the shared focus-visible ring.
 const initialHtml = renderToStaticMarkup(
   <DesignSystemAttachStep workspaceRoot="/repo" selection={null} onSelect={() => {}} />,
 )
-assert.match(initialHtml, /role="radiogroup"/, 'choices form a radiogroup')
-assert.match(initialHtml, /aria-label="Design system to attach"/, 'radiogroup is labeled')
-assert.match(initialHtml, /role="radio"/, 'each choice row is a radio')
+assert.match(initialHtml, /role="group"/, 'choices form a labelled group')
+assert.match(initialHtml, /aria-label="Design system to attach"/, 'group is labeled')
+assert.match(initialHtml, /aria-pressed=/, 'each choice row is an aria-pressed toggle')
+assert.doesNotMatch(initialHtml, /role="radio(group)?"/, 'rows no longer claim radio semantics')
 assert.match(initialHtml, /focus-visible:ring-2/, 'rows carry the visible focus ring')
 assert.ok(initialHtml.includes('type="button"'), 'rows are native buttons (Tab/Enter/Space)')
 assert.ok(initialHtml.includes('Reading your library'), 'library load state is explicit')
 assert.ok(initialHtml.includes('Browse to a bundle folder'), 'browse-to-folder is always offered')
 
-// Null selection reads as "None" checked; every other row unchecked.
-assert.match(initialHtml, /aria-checked="true"[^>]*>[^<]*<[^>]*>None/s, 'null selection checks the None row')
+// Null selection reads as "None" pressed; every other row unpressed.
+assert.match(initialHtml, /aria-pressed="true"[^>]*>[^<]*<[^>]*>None/s, 'null selection presses the None row')
 
-// A committed folder selection is reflected: that row is checked, shows the
+// A committed folder selection is reflected: that row is pressed, shows the
 // path, and the swap affordance appears.
 const folderHtml = renderToStaticMarkup(
   <DesignSystemAttachStep
@@ -36,8 +44,57 @@ const folderHtml = renderToStaticMarkup(
 )
 assert.ok(folderHtml.includes('/bundles/acme'), 'folder selection shows the chosen path')
 assert.ok(folderHtml.includes('Choose a different folder'), 'folder selection offers a swap')
-const checkedCount = (folderHtml.match(/aria-checked="true"/g) ?? []).length
-assert.equal(checkedCount, 1, 'exactly one row is checked')
+const pressedCount = (folderHtml.match(/aria-pressed="true"/g) ?? []).length
+assert.equal(pressedCount, 1, 'exactly one row is pressed')
+
+// Stale-selection clearing (T15): a selection made before the conflict
+// pre-check trips would ride into a folder attach refuses, with the picker
+// withheld and no way to unselect. The decision lives in
+// clearStaleAttachSelection, wired from the pre-check effect.
+{
+  const calls: Array<unknown> = []
+  const onSelect = (source: unknown) => calls.push(source)
+  const selection = { kind: 'library', name: 'brand', version: '1.0.0' } as const
+
+  clearStaleAttachSelection({ existingBundle: true, selection, onSelect })
+  assert.deepEqual(calls, [null], 'conflict + selection clears to null')
+
+  calls.length = 0
+  clearStaleAttachSelection({ existingBundle: true, selection: null, onSelect })
+  assert.equal(calls.length, 0, 'conflict with nothing selected is a no-op')
+
+  clearStaleAttachSelection({ existingBundle: false, selection, onSelect })
+  assert.equal(calls.length, 0, 'no conflict keeps the selection')
+
+  clearStaleAttachSelection({ existingBundle: null, selection, onSelect })
+  assert.equal(calls.length, 0, 'pre-check still running keeps the selection')
+}
+
+// Source contracts for the two clearing layers (effects do not run under
+// renderToStaticMarkup, so assert the wiring in source):
+// 1. The attach step calls clearStaleAttachSelection from an effect keyed on
+//    the pre-check result and the selection.
+const stepSource = readFileSync(
+  join(process.cwd(), 'src/renderer/src/components/workspace/newWorkspace/DesignSystemAttachStep.tsx'),
+  'utf8',
+)
+assert.match(
+  stepSource,
+  /useEffect\(\(\) => \{\s*clearStaleAttachSelection\(\{ existingBundle, selection, onSelect \}\)\s*\}, \[existingBundle, selection, onSelect\]\)/,
+  'attach step wires clearStaleAttachSelection from the pre-check effect',
+)
+// 2. The wizard resets the selection when the target folder changes, so a
+//    pick made for folder A never rides into folder B (the Advanced setup
+//    count drops with it, and create runs no attach).
+const panelSource = readFileSync(
+  join(process.cwd(), 'src/renderer/src/components/workspace/NewWorkspacePanel.tsx'),
+  'utf8',
+)
+assert.match(
+  panelSource,
+  /useEffect\(\(\) => \{\s*setDsAttachSelection\(null\)\s*\}, \[folderPath\]\)/,
+  'wizard resets the attach selection when the target folder changes',
+)
 
 // KG pointer note is composed from the shared launch-line contract so the
 // note and the injected prompt line can never drift.

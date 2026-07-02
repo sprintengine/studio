@@ -1059,9 +1059,15 @@ function ReviewBody({
 
 // Completion action for the design-system studio: a semver input + the
 // release button, replacing the Sprint Engine build tail for this preset.
-// Disabled reasons surface as a tooltip on the button (readiness, invalid
-// version); phase labels come from designSystemRelease.ts so the five states
-// (validating / releasing / released / lint-failed / error) stay text-distinct.
+// Disabled reasons must stay reachable without hover (a disabled button is
+// unfocusable): the tooltip is the sighted shortcut, while the same reason
+// rides an always-present aria-label on the button (mirroring the waiting
+// Continue button) and the version format hint is tied to the input via
+// aria-describedby. Phase labels come from designSystemRelease.ts so the five
+// states (validating / releasing / released / lint-failed / error) stay
+// text-distinct.
+const RELEASE_VERSION_HINT_ID = 'design-system-release-version-hint'
+
 function renderDesignSystemReleaseAction({
   phase,
   version,
@@ -1086,9 +1092,14 @@ function renderDesignSystemReleaseAction({
       : !versionValid
         ? 'Enter a semver version like 1.0.0.'
         : null
+  const buttonLabel = releaseButtonLabel(phase)
   const button = (
-    <PrimaryButton onClick={onRelease} disabled={!armed}>
-      {releaseButtonLabel(phase)}
+    <PrimaryButton
+      onClick={onRelease}
+      disabled={!armed}
+      aria-label={disabledReason ? `${buttonLabel} — ${disabledReason}` : undefined}
+    >
+      {buttonLabel}
     </PrimaryButton>
   )
   return (
@@ -1099,6 +1110,7 @@ function renderDesignSystemReleaseAction({
         disabled={inFlight}
         aria-label="Release version"
         aria-invalid={!versionValid}
+        aria-describedby={RELEASE_VERSION_HINT_ID}
         placeholder="1.0.0"
         spellCheck={false}
         className={`
@@ -1110,6 +1122,9 @@ function renderDesignSystemReleaseAction({
           ${versionValid ? 'border-[color:var(--border-default)]' : 'border-[color:var(--tone-error)]'}
         `}
       />
+      <span id={RELEASE_VERSION_HINT_ID} className="sr-only">
+        Version must be semver, like 1.0.0.
+      </span>
       {disabledReason ? <Tooltip content={disabledReason}>{button}</Tooltip> : button}
     </span>
   )
@@ -1267,7 +1282,7 @@ type PrimaryButtonProps = {
   children: React.ReactNode
 } & Pick<
   React.ButtonHTMLAttributes<HTMLButtonElement>,
-  'aria-describedby' | 'onMouseEnter' | 'onMouseLeave' | 'onFocus' | 'onBlur' | 'onKeyDown'
+  'aria-label' | 'aria-describedby' | 'onMouseEnter' | 'onMouseLeave' | 'onFocus' | 'onBlur' | 'onKeyDown'
 >
 
 function PrimaryButton({

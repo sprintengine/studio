@@ -1,4 +1,6 @@
 import assert from 'node:assert/strict'
+import { readFileSync } from 'node:fs'
+import { join } from 'node:path'
 import {
   canRelease,
   initialReleaseVersion,
@@ -110,5 +112,33 @@ assert.equal(releaseStatusLine({ kind: 'idle' }), null)
 assert.equal(releaseButtonLabel({ kind: 'idle' }), 'Save as design system')
 assert.equal(isReleaseInFlight({ kind: 'validating' }), true)
 assert.equal(isReleaseInFlight(idle), false)
+
+// Reachable disabled reason (T15, ux-review finding 6): a disabled button is
+// unfocusable, so the hover tooltip alone strands keyboard/SR users. Source
+// contract on GuidedBriefFlow.tsx renderDesignSystemReleaseAction: the reason
+// rides an always-present aria-label on the button (visible label included,
+// per label-in-name), and the version input carries aria-invalid plus an
+// aria-describedby format hint that exists in the DOM.
+{
+  const flowSource = readFileSync(
+    join(process.cwd(), 'src/renderer/src/components/workspace/guidedBrief/GuidedBriefFlow.tsx'),
+    'utf8',
+  )
+  assert.match(
+    flowSource,
+    /aria-label=\{disabledReason \? `\$\{buttonLabel\} — \$\{disabledReason\}` : undefined\}/,
+    'release button carries the disabled reason as an always-present aria-label',
+  )
+  assert.match(
+    flowSource,
+    /aria-invalid=\{!versionValid\}\s*aria-describedby=\{RELEASE_VERSION_HINT_ID\}/,
+    'version input announces invalid state and points at the format hint',
+  )
+  assert.match(
+    flowSource,
+    /<span id=\{RELEASE_VERSION_HINT_ID\} className="sr-only">\s*Version must be semver, like 1\.0\.0\./,
+    'the format hint exists in the DOM for aria-describedby to resolve',
+  )
+}
 
 console.log('designSystemRelease.test.ts: ok')
