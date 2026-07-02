@@ -826,7 +826,11 @@ export function GuidedBriefFlow({
           <span className="text-[12px] font-semibold text-[color:var(--text-strong)]">
             Lint findings — release blocked
           </span>
-          <pre className="mt-2 max-h-40 overflow-auto whitespace-pre-wrap font-mono text-[11px] leading-4 text-[color:var(--text-default)]">
+          {/* Focusable so keyboard users can scroll findings that overflow. */}
+          <pre
+            tabIndex={0}
+            className="mt-2 max-h-40 overflow-auto whitespace-pre-wrap font-mono text-[11px] leading-4 text-[color:var(--text-default)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--accent-primary)]"
+          >
             {releasePhase.findings}
           </pre>
         </div>
