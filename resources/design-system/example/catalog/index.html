@@ -1,0 +1,859 @@
+<!doctype html>
+<!-- GENERATED FILE — do not edit by hand.
+     Derived from this bundle's manifest, tokens, components, patterns, and
+     glyphs by scripts/build-catalog.mjs. Regenerate with:
+       node scripts/build-catalog.mjs -->
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>example — design system catalog</title>
+<style>
+/* foundations/tokens.css (inlined verbatim) */
+/* GENERATED FILE — do not edit by hand.
+ * Derived from foundations/tokens.tokens.json by scripts/build-tokens.mjs.
+ * Emission contract: knowledge/multicode/design-system-bundle.md.
+ * :root carries the light (default) mode; [data-mode="dark"] overrides the
+ * tokens whose values differ in dark mode. */
+:root {
+  --ref-color-neutral-0: #ffffff;
+  --ref-color-neutral-50: #f7f5ef;
+  --ref-color-neutral-200: #e5e1d8;
+  --ref-color-neutral-400: #a6a196;
+  --ref-color-neutral-500: #767268;
+  --ref-color-neutral-800: #23211b;
+  --ref-color-neutral-900: #161511;
+  --ref-color-neutral-950: #0c0b09;
+  --ref-color-green-400: #4daf7d;
+  --ref-color-green-500: #3f9468;
+  --ref-color-green-600: #2f6a4a;
+  --ref-color-green-700: #275842;
+  --ref-color-red-300: #e08a82;
+  --ref-color-red-500: #b8433a;
+  --ref-space-1: 4px;
+  --ref-space-2: 8px;
+  --ref-space-3: 12px;
+  --ref-space-4: 16px;
+  --ref-space-6: 24px;
+  --ref-radius-sm: 5px;
+  --ref-radius-md: 7px;
+  --ref-font-family-ui: Inter, system-ui, sans-serif;
+  --ref-font-family-mono: "JetBrains Mono", SFMono-Regular, monospace;
+  --ref-font-size-sm: 12px;
+  --ref-font-size-md: 13px;
+  --ref-font-size-lg: 15px;
+  --ref-font-weight-regular: 400;
+  --ref-font-weight-semibold: 600;
+  --sem-color-bg-app: var(--ref-color-neutral-50);
+  --sem-color-bg-surface: var(--ref-color-neutral-0);
+  --sem-color-text-primary: var(--ref-color-neutral-800);
+  --sem-color-text-muted: var(--ref-color-neutral-500);
+  --sem-color-text-on-accent: var(--ref-color-neutral-0);
+  --sem-color-border-default: var(--ref-color-neutral-200);
+  --sem-color-accent-primary: var(--ref-color-green-600);
+  --sem-color-accent-hover: var(--ref-color-green-700);
+  --sem-color-status-danger: var(--ref-color-red-500);
+  --sem-color-brand-highlight: var(--ref-color-green-500);
+  --sem-space-control-gap: var(--ref-space-2);
+  --sem-space-section: var(--ref-space-6);
+  --sem-radius-control: var(--ref-radius-sm);
+  --sem-radius-overlay: var(--ref-radius-md);
+  --sem-font-family-ui: var(--ref-font-family-ui);
+  --sem-font-size-body: var(--ref-font-size-md);
+  --sem-font-weight-emphasis: var(--ref-font-weight-semibold);
+}
+[data-mode="dark"] {
+  --sem-color-bg-app: var(--ref-color-neutral-950);
+  --sem-color-bg-surface: var(--ref-color-neutral-900);
+  --sem-color-text-primary: var(--ref-color-neutral-50);
+  --sem-color-text-muted: var(--ref-color-neutral-400);
+  --sem-color-text-on-accent: var(--ref-color-neutral-950);
+  --sem-color-border-default: var(--ref-color-neutral-800);
+  --sem-color-accent-primary: var(--ref-color-green-500);
+  --sem-color-accent-hover: var(--ref-color-green-400);
+  --sem-color-status-danger: var(--ref-color-red-300);
+}
+</style>
+<style>
+/* CSS-only mode toggle: the hidden checkbox re-declares the dark overrides. */
+#ds-mode-dark:checked ~ .ds-catalog {
+  --sem-color-bg-app: var(--ref-color-neutral-950);
+  --sem-color-bg-surface: var(--ref-color-neutral-900);
+  --sem-color-text-primary: var(--ref-color-neutral-50);
+  --sem-color-text-muted: var(--ref-color-neutral-400);
+  --sem-color-text-on-accent: var(--ref-color-neutral-950);
+  --sem-color-border-default: var(--ref-color-neutral-800);
+  --sem-color-accent-primary: var(--ref-color-green-500);
+  --sem-color-accent-hover: var(--ref-color-green-400);
+  --sem-color-status-danger: var(--ref-color-red-300);
+}
+#ds-mode-dark:checked ~ .ds-catalog [data-mode="light"] {
+  --sem-color-bg-app: var(--ref-color-neutral-50);
+  --sem-color-bg-surface: var(--ref-color-neutral-0);
+  --sem-color-text-primary: var(--ref-color-neutral-800);
+  --sem-color-text-muted: var(--ref-color-neutral-500);
+  --sem-color-text-on-accent: var(--ref-color-neutral-0);
+  --sem-color-border-default: var(--ref-color-neutral-200);
+  --sem-color-accent-primary: var(--ref-color-green-600);
+  --sem-color-accent-hover: var(--ref-color-green-700);
+  --sem-color-status-danger: var(--ref-color-red-500);
+}
+</style>
+<style>
+/* Catalog chrome — consumes the bundle's own semantic tokens. */
+body { margin: 0; }
+.ds-catalog {
+  min-height: 100vh;
+  background: var(--sem-color-bg-app, #ffffff);
+  color: var(--sem-color-text-primary, #17170f);
+  font-family: var(--sem-font-family-ui, system-ui, sans-serif);
+  font-size: var(--sem-font-size-body, 14px);
+  line-height: 1.5;
+}
+#ds-mode-dark, .ds-view-switch {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+}
+.catalog-header {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  flex-wrap: wrap;
+  padding: 20px 28px 16px;
+  border-bottom: 1px solid var(--sem-color-border-default, #dddddd);
+}
+.catalog-header h1 { margin: 0; font-size: 20px; }
+.catalog-header .catalog-version { color: var(--sem-color-text-muted, #666666); }
+.catalog-header .catalog-summary { flex-basis: 100%; margin: 2px 0 0; color: var(--sem-color-text-muted, #666666); }
+.catalog-mode-toggle {
+  margin-left: auto;
+  padding: 4px 12px;
+  border: 1px solid var(--sem-color-border-default, #dddddd);
+  border-radius: var(--sem-radius-control, 5px);
+  cursor: pointer;
+  user-select: none;
+  white-space: nowrap;
+}
+.catalog-mode-when-dark { display: none; }
+#ds-mode-dark:checked ~ .ds-catalog .catalog-mode-when-light { display: none; }
+#ds-mode-dark:checked ~ .ds-catalog .catalog-mode-when-dark { display: inline; }
+#ds-mode-dark:focus-visible ~ .ds-catalog .catalog-mode-toggle {
+  outline: 2px solid var(--sem-color-accent-hover, #275842);
+  outline-offset: 2px;
+}
+.catalog-layout { display: flex; align-items: flex-start; }
+.catalog-nav {
+  position: sticky;
+  top: 0;
+  flex: 0 0 200px;
+  max-height: 100vh;
+  overflow-y: auto;
+  padding: 20px 20px 28px 28px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.catalog-nav-item {
+  color: var(--sem-color-text-primary, #17170f);
+  padding: 2px 0;
+  cursor: pointer;
+}
+.catalog-nav-item:hover { color: var(--sem-color-accent-primary, #2f6a4a); }
+.catalog-nav-group {
+  margin: 14px 0 4px;
+  font-weight: var(--sem-font-weight-emphasis, 600);
+  color: var(--sem-color-text-muted, #666666);
+  cursor: pointer;
+}
+.catalog-nav-group:hover { color: var(--sem-color-text-primary, #17170f); }
+.catalog-nav-group:first-child { margin-top: 0; }
+.catalog-nav-empty { color: var(--sem-color-text-muted, #666666); }
+.catalog-main { flex: 1; min-width: 0; padding: 24px 28px 64px; }
+/* Views are radio-driven: everything is hidden until its nav radio shows it. */
+.catalog-group { display: none; }
+.catalog-view { display: none; margin: 0 0 36px; }
+/* Structural headings only — child combinators keep embedded demo markup untouched. */
+.catalog-main > section > h2 {
+  margin: 0 0 16px;
+  padding-bottom: 8px;
+  font-size: 17px;
+  border-bottom: 1px solid var(--sem-color-border-default, #dddddd);
+}
+.catalog-view > h3 { margin: 0 0 10px; font-size: 15px; }
+.catalog-tier-heading { margin: 18px 0 8px; }
+.catalog-empty { color: var(--sem-color-text-muted, #666666); }
+.catalog-token-row {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 7px 0;
+  border-bottom: 1px solid var(--sem-color-border-default, #dddddd);
+}
+.catalog-token-text { min-width: 0; }
+.catalog-token-name { margin: 0; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.catalog-token-value { color: var(--sem-color-text-muted, #666666); }
+.catalog-token-meta { margin: 2px 0 0; font-size: 0.92em; color: var(--sem-color-text-muted, #666666); }
+.catalog-badge {
+  padding: 1px 7px;
+  border: 1px solid var(--sem-color-border-default, #dddddd);
+  border-radius: 999px;
+  font-size: 0.85em;
+  color: var(--sem-color-text-muted, #666666);
+}
+.catalog-badge--deprecated {
+  color: var(--sem-color-status-danger, #b8433a);
+  border-color: var(--sem-color-status-danger, #b8433a);
+}
+.catalog-chip-pair { display: inline-flex; flex: none; }
+.catalog-chip {
+  width: 34px;
+  height: 26px;
+  border: 1px solid var(--sem-color-border-default, #dddddd);
+}
+.catalog-chip-pair .catalog-chip + .catalog-chip { border-left: 0; }
+.catalog-type-specimen { flex: none; width: 72px; text-align: center; }
+.catalog-space-bar {
+  flex: none;
+  height: 12px;
+  background: var(--sem-color-accent-primary, #2f6a4a);
+}
+.catalog-radius-box {
+  flex: none;
+  width: 34px;
+  height: 26px;
+  border: 1px solid var(--sem-color-text-muted, #666666);
+}
+.catalog-specimen-blank { flex: none; width: 34px; }
+.catalog-glyph-grid { display: flex; flex-wrap: wrap; gap: 10px; }
+.catalog-glyph {
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  width: 84px;
+  padding: 12px 6px 8px;
+  border: 1px solid var(--sem-color-border-default, #dddddd);
+  border-radius: var(--sem-radius-overlay, 7px);
+}
+.catalog-glyph svg { width: 20px; height: 20px; }
+.catalog-glyph figcaption { font-size: 0.85em; color: var(--sem-color-text-muted, #666666); }
+.catalog-component-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 3fr) minmax(0, 2fr);
+  gap: 18px;
+  align-items: start;
+}
+@media (max-width: 900px) { .catalog-component-grid { grid-template-columns: 1fr; } }
+.catalog-stage {
+  border: 1px solid var(--sem-color-border-default, #dddddd);
+  border-radius: var(--sem-radius-overlay, 7px);
+  overflow: hidden;
+}
+.catalog-doc h4 { margin: 14px 0 6px; font-size: 13px; }
+.catalog-doc h4:first-child { margin-top: 0; }
+.catalog-doc p, .catalog-doc ul { margin: 0 0 8px; }
+.catalog-doc ul { padding-left: 18px; }
+.catalog-doc-card { max-width: 720px; }
+.catalog-doc-card h4 { margin: 16px 0 6px; }
+.catalog-doc-card ul { padding-left: 18px; }
+.catalog-source { margin-top: 10px; }
+.catalog-source summary { cursor: pointer; color: var(--sem-color-text-muted, #666666); }
+.catalog-source pre {
+  margin: 8px 0 0;
+  padding: 12px;
+  overflow-x: auto;
+  border: 1px solid var(--sem-color-border-default, #dddddd);
+  border-radius: var(--sem-radius-control, 5px);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.9em;
+  line-height: 1.45;
+}
+code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.95em;
+}
+</style>
+<style>
+/* CSS-only nav: each rule shows the view selected by its hidden radio. */
+#ds-view-foundations:checked ~ .ds-catalog #foundations { display: block; }
+#ds-view-foundations:checked ~ .ds-catalog #foundations .catalog-view { display: block; }
+#ds-view-foundations-palette:checked ~ .ds-catalog #foundations { display: block; }
+#ds-view-foundations-palette:checked ~ .ds-catalog #foundations-palette { display: block; }
+#ds-view-foundations-type:checked ~ .ds-catalog #foundations { display: block; }
+#ds-view-foundations-type:checked ~ .ds-catalog #foundations-type { display: block; }
+#ds-view-foundations-spacing:checked ~ .ds-catalog #foundations { display: block; }
+#ds-view-foundations-spacing:checked ~ .ds-catalog #foundations-spacing { display: block; }
+#ds-view-foundations-other-tokens:checked ~ .ds-catalog #foundations { display: block; }
+#ds-view-foundations-other-tokens:checked ~ .ds-catalog #foundations-other-tokens { display: block; }
+#ds-view-foundations-glyphs:checked ~ .ds-catalog #foundations { display: block; }
+#ds-view-foundations-glyphs:checked ~ .ds-catalog #foundations-glyphs { display: block; }
+#ds-view-foundations-doc-principles:checked ~ .ds-catalog #foundations { display: block; }
+#ds-view-foundations-doc-principles:checked ~ .ds-catalog #foundations-doc-principles { display: block; }
+#ds-view-foundations:checked ~ .ds-catalog .catalog-nav label[for="ds-view-foundations"] { color: var(--sem-color-accent-primary, #2f6a4a); }
+#ds-view-foundations:focus-visible ~ .ds-catalog .catalog-nav label[for="ds-view-foundations"] { outline: 2px solid var(--sem-color-accent-hover, #275842); outline-offset: 2px; }
+#ds-view-foundations-palette:checked ~ .ds-catalog .catalog-nav label[for="ds-view-foundations-palette"] { color: var(--sem-color-accent-primary, #2f6a4a); }
+#ds-view-foundations-palette:focus-visible ~ .ds-catalog .catalog-nav label[for="ds-view-foundations-palette"] { outline: 2px solid var(--sem-color-accent-hover, #275842); outline-offset: 2px; }
+#ds-view-foundations-type:checked ~ .ds-catalog .catalog-nav label[for="ds-view-foundations-type"] { color: var(--sem-color-accent-primary, #2f6a4a); }
+#ds-view-foundations-type:focus-visible ~ .ds-catalog .catalog-nav label[for="ds-view-foundations-type"] { outline: 2px solid var(--sem-color-accent-hover, #275842); outline-offset: 2px; }
+#ds-view-foundations-spacing:checked ~ .ds-catalog .catalog-nav label[for="ds-view-foundations-spacing"] { color: var(--sem-color-accent-primary, #2f6a4a); }
+#ds-view-foundations-spacing:focus-visible ~ .ds-catalog .catalog-nav label[for="ds-view-foundations-spacing"] { outline: 2px solid var(--sem-color-accent-hover, #275842); outline-offset: 2px; }
+#ds-view-foundations-other-tokens:checked ~ .ds-catalog .catalog-nav label[for="ds-view-foundations-other-tokens"] { color: var(--sem-color-accent-primary, #2f6a4a); }
+#ds-view-foundations-other-tokens:focus-visible ~ .ds-catalog .catalog-nav label[for="ds-view-foundations-other-tokens"] { outline: 2px solid var(--sem-color-accent-hover, #275842); outline-offset: 2px; }
+#ds-view-foundations-glyphs:checked ~ .ds-catalog .catalog-nav label[for="ds-view-foundations-glyphs"] { color: var(--sem-color-accent-primary, #2f6a4a); }
+#ds-view-foundations-glyphs:focus-visible ~ .ds-catalog .catalog-nav label[for="ds-view-foundations-glyphs"] { outline: 2px solid var(--sem-color-accent-hover, #275842); outline-offset: 2px; }
+#ds-view-foundations-doc-principles:checked ~ .ds-catalog .catalog-nav label[for="ds-view-foundations-doc-principles"] { color: var(--sem-color-accent-primary, #2f6a4a); }
+#ds-view-foundations-doc-principles:focus-visible ~ .ds-catalog .catalog-nav label[for="ds-view-foundations-doc-principles"] { outline: 2px solid var(--sem-color-accent-hover, #275842); outline-offset: 2px; }
+#ds-view-components:checked ~ .ds-catalog #components { display: block; }
+#ds-view-components:checked ~ .ds-catalog #components .catalog-view { display: block; }
+#ds-view-component-button:checked ~ .ds-catalog #components { display: block; }
+#ds-view-component-button:checked ~ .ds-catalog #component-button { display: block; }
+#ds-view-components:checked ~ .ds-catalog .catalog-nav label[for="ds-view-components"] { color: var(--sem-color-accent-primary, #2f6a4a); }
+#ds-view-components:focus-visible ~ .ds-catalog .catalog-nav label[for="ds-view-components"] { outline: 2px solid var(--sem-color-accent-hover, #275842); outline-offset: 2px; }
+#ds-view-component-button:checked ~ .ds-catalog .catalog-nav label[for="ds-view-component-button"] { color: var(--sem-color-accent-primary, #2f6a4a); }
+#ds-view-component-button:focus-visible ~ .ds-catalog .catalog-nav label[for="ds-view-component-button"] { outline: 2px solid var(--sem-color-accent-hover, #275842); outline-offset: 2px; }
+#ds-view-patterns:checked ~ .ds-catalog #patterns { display: block; }
+#ds-view-patterns:checked ~ .ds-catalog #patterns .catalog-view { display: block; }
+#ds-view-pattern-sign-in:checked ~ .ds-catalog #patterns { display: block; }
+#ds-view-pattern-sign-in:checked ~ .ds-catalog #pattern-sign-in { display: block; }
+#ds-view-patterns:checked ~ .ds-catalog .catalog-nav label[for="ds-view-patterns"] { color: var(--sem-color-accent-primary, #2f6a4a); }
+#ds-view-patterns:focus-visible ~ .ds-catalog .catalog-nav label[for="ds-view-patterns"] { outline: 2px solid var(--sem-color-accent-hover, #275842); outline-offset: 2px; }
+#ds-view-pattern-sign-in:checked ~ .ds-catalog .catalog-nav label[for="ds-view-pattern-sign-in"] { color: var(--sem-color-accent-primary, #2f6a4a); }
+#ds-view-pattern-sign-in:focus-visible ~ .ds-catalog .catalog-nav label[for="ds-view-pattern-sign-in"] { outline: 2px solid var(--sem-color-accent-hover, #275842); outline-offset: 2px; }
+</style>
+<style>
+/* components/button/component.css */
+/* Button — consumes semantic tokens only; --ref-* is forbidden in components. */
+.ds-button {
+  appearance: none;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sem-space-control-gap);
+  padding: 6px 14px;
+  border: 1px solid transparent;
+  border-radius: var(--sem-radius-control);
+  font-family: var(--sem-font-family-ui);
+  font-size: var(--sem-font-size-body);
+  font-weight: var(--sem-font-weight-emphasis);
+  line-height: 1.4;
+  background: var(--sem-color-accent-primary);
+  color: var(--sem-color-text-on-accent);
+  cursor: pointer;
+}
+
+.ds-button:hover {
+  background: var(--sem-color-accent-hover);
+}
+
+.ds-button:focus-visible {
+  outline: 2px solid var(--sem-color-accent-hover);
+  outline-offset: 2px;
+}
+
+.ds-button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.ds-button--secondary {
+  background: transparent;
+  border-color: var(--sem-color-border-default);
+  color: var(--sem-color-text-primary);
+}
+
+.ds-button--secondary:hover {
+  background: transparent;
+  border-color: var(--sem-color-text-muted);
+}
+
+.ds-button--danger {
+  background: var(--sem-color-status-danger);
+  color: var(--sem-color-text-on-accent);
+}
+
+.ds-button--danger:hover {
+  background: var(--sem-color-status-danger);
+}
+
+.ds-button .ds-button__icon {
+  width: 14px;
+  height: 14px;
+}
+
+</style>
+<style>
+/* Demo and pattern scaffolding, scoped to each embed wrapper. */
+.ds-embed-component-button {
+        margin: 0;
+        font-family: var(--sem-font-family-ui);
+      }
+.ds-embed-component-button .demo-mode {
+        padding: var(--sem-space-section);
+        background: var(--sem-color-bg-app);
+        color: var(--sem-color-text-primary);
+      }
+.ds-embed-component-button .demo-mode h2 {
+        margin: 0 0 4px;
+        font-size: 15px;
+      }
+.ds-embed-component-button .demo-mode p {
+        margin: 0 0 12px;
+        font-size: var(--sem-font-size-body);
+        color: var(--sem-color-text-muted);
+      }
+.ds-embed-component-button .demo-row {
+        display: flex;
+        align-items: center;
+        gap: var(--sem-space-control-gap);
+        padding: var(--sem-space-control-gap) 0;
+      }
+.ds-embed-pattern-sign-in {
+        margin: 0;
+        min-height: 100vh;
+        display: grid;
+        place-items: center;
+        background: var(--sem-color-bg-app);
+        color: var(--sem-color-text-primary);
+        font-family: var(--sem-font-family-ui);
+        font-size: var(--sem-font-size-body);
+      }
+.ds-embed-pattern-sign-in .signin-card {
+        width: 320px;
+        padding: var(--sem-space-section);
+        background: var(--sem-color-bg-surface);
+        border: 1px solid var(--sem-color-border-default);
+        border-radius: var(--sem-radius-overlay);
+      }
+.ds-embed-pattern-sign-in .signin-card h1 {
+        margin: 0 0 4px;
+        font-size: 15px;
+        font-weight: var(--sem-font-weight-emphasis);
+      }
+.ds-embed-pattern-sign-in .signin-card p {
+        margin: 0 0 16px;
+        color: var(--sem-color-text-muted);
+      }
+.ds-embed-pattern-sign-in .signin-field {
+        display: grid;
+        gap: 4px;
+        margin-bottom: 12px;
+      }
+.ds-embed-pattern-sign-in .signin-field input {
+        padding: 6px 10px;
+        border: 1px solid var(--sem-color-border-default);
+        border-radius: var(--sem-radius-control);
+        background: var(--sem-color-bg-surface);
+        color: var(--sem-color-text-primary);
+        font: inherit;
+      }
+.ds-embed-pattern-sign-in .signin-field input:focus-visible {
+        outline: 2px solid var(--sem-color-accent-hover);
+        outline-offset: 1px;
+      }
+.ds-embed-pattern-sign-in .signin-actions {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: var(--sem-space-control-gap);
+        margin-top: 16px;
+      }
+</style>
+</head>
+<body>
+<input type="checkbox" id="ds-mode-dark" />
+<input type="radio" name="ds-view" class="ds-view-switch" id="ds-view-foundations" checked />
+<input type="radio" name="ds-view" class="ds-view-switch" id="ds-view-foundations-palette" />
+<input type="radio" name="ds-view" class="ds-view-switch" id="ds-view-foundations-type" />
+<input type="radio" name="ds-view" class="ds-view-switch" id="ds-view-foundations-spacing" />
+<input type="radio" name="ds-view" class="ds-view-switch" id="ds-view-foundations-other-tokens" />
+<input type="radio" name="ds-view" class="ds-view-switch" id="ds-view-foundations-glyphs" />
+<input type="radio" name="ds-view" class="ds-view-switch" id="ds-view-foundations-doc-principles" />
+<input type="radio" name="ds-view" class="ds-view-switch" id="ds-view-components" />
+<input type="radio" name="ds-view" class="ds-view-switch" id="ds-view-component-button" />
+<input type="radio" name="ds-view" class="ds-view-switch" id="ds-view-patterns" />
+<input type="radio" name="ds-view" class="ds-view-switch" id="ds-view-pattern-sign-in" />
+<div class="ds-catalog">
+<header class="catalog-header">
+<h1>example</h1>
+<span class="catalog-version">v0.1.0</span>
+<label class="catalog-mode-toggle" for="ds-mode-dark"><span class="catalog-mode-when-light">Light mode — switch to dark</span><span class="catalog-mode-when-dark">Dark mode — switch to light</span></label>
+<p class="catalog-summary">Reference example bundle for the Multicode design-system schema: warm-neutral surfaces, a single green accent, light + dark modes.</p>
+</header>
+<div class="catalog-layout">
+<nav class="catalog-nav" aria-label="Catalog">
+<label class="catalog-nav-group" for="ds-view-foundations">Foundations</label>
+<label class="catalog-nav-item" for="ds-view-foundations-palette">Palette</label>
+<label class="catalog-nav-item" for="ds-view-foundations-type">Type</label>
+<label class="catalog-nav-item" for="ds-view-foundations-spacing">Spacing</label>
+<label class="catalog-nav-item" for="ds-view-foundations-other-tokens">Other tokens</label>
+<label class="catalog-nav-item" for="ds-view-foundations-glyphs">Glyphs</label>
+<label class="catalog-nav-item" for="ds-view-foundations-doc-principles">Principles</label>
+<label class="catalog-nav-group" for="ds-view-components">Components</label>
+<label class="catalog-nav-item" for="ds-view-component-button">Button</label>
+<label class="catalog-nav-group" for="ds-view-patterns">Patterns</label>
+<label class="catalog-nav-item" for="ds-view-pattern-sign-in">Sign in — example design system pattern</label>
+</nav>
+<main class="catalog-main">
+<section id="foundations" class="catalog-group">
+<h2>Foundations</h2>
+<div id="foundations-palette" class="catalog-view">
+<h3>Palette</h3>
+<h4 class="catalog-tier-heading"><code>ref</code> colors</h4><div class="catalog-token-row"><span class="catalog-chip-pair"><span class="catalog-chip" style="background: var(--ref-color-neutral-0)"></span></span><div class="catalog-token-text"><p class="catalog-token-name"><code>ref.color.neutral.0</code><code class="catalog-token-value">#ffffff</code></p><p class="catalog-token-meta">Absolute white. Card surface on light.</p></div></div>
+<div class="catalog-token-row"><span class="catalog-chip-pair"><span class="catalog-chip" style="background: var(--ref-color-neutral-50)"></span></span><div class="catalog-token-text"><p class="catalog-token-name"><code>ref.color.neutral.50</code><code class="catalog-token-value">#f7f5ef</code></p><p class="catalog-token-meta">Warm paper off-white. Light app background; primary text on dark.</p></div></div>
+<div class="catalog-token-row"><span class="catalog-chip-pair"><span class="catalog-chip" style="background: var(--ref-color-neutral-200)"></span></span><div class="catalog-token-text"><p class="catalog-token-name"><code>ref.color.neutral.200</code><code class="catalog-token-value">#e5e1d8</code></p><p class="catalog-token-meta">Warm hairline grey for borders on light surfaces.</p></div></div>
+<div class="catalog-token-row"><span class="catalog-chip-pair"><span class="catalog-chip" style="background: var(--ref-color-neutral-400)"></span></span><div class="catalog-token-text"><p class="catalog-token-name"><code>ref.color.neutral.400</code><code class="catalog-token-value">#a6a196</code></p><p class="catalog-token-meta">Warm mid grey. Muted text on dark surfaces.</p></div></div>
+<div class="catalog-token-row"><span class="catalog-chip-pair"><span class="catalog-chip" style="background: var(--ref-color-neutral-500)"></span></span><div class="catalog-token-text"><p class="catalog-token-name"><code>ref.color.neutral.500</code><code class="catalog-token-value">#767268</code></p><p class="catalog-token-meta">Warm grey. Muted text on light surfaces.</p></div></div>
+<div class="catalog-token-row"><span class="catalog-chip-pair"><span class="catalog-chip" style="background: var(--ref-color-neutral-800)"></span></span><div class="catalog-token-text"><p class="catalog-token-name"><code>ref.color.neutral.800</code><code class="catalog-token-value">#23211b</code></p><p class="catalog-token-meta">Warm near-black ink. Primary text on light; hairlines on dark.</p></div></div>
+<div class="catalog-token-row"><span class="catalog-chip-pair"><span class="catalog-chip" style="background: var(--ref-color-neutral-900)"></span></span><div class="catalog-token-text"><p class="catalog-token-name"><code>ref.color.neutral.900</code><code class="catalog-token-value">#161511</code></p><p class="catalog-token-meta">Warm dark ink. Raised surface on dark.</p></div></div>
+<div class="catalog-token-row"><span class="catalog-chip-pair"><span class="catalog-chip" style="background: var(--ref-color-neutral-950)"></span></span><div class="catalog-token-text"><p class="catalog-token-name"><code>ref.color.neutral.950</code><code class="catalog-token-value">#0c0b09</code></p><p class="catalog-token-meta">Darkest warm ink. Dark app background; labels on bright accents.</p></div></div>
+<div class="catalog-token-row"><span class="catalog-chip-pair"><span class="catalog-chip" style="background: var(--ref-color-green-400)"></span></span><div class="catalog-token-text"><p class="catalog-token-name"><code>ref.color.green.400</code><code class="catalog-token-value">#4daf7d</code></p><p class="catalog-token-meta">Bright green. Accent hover on dark.</p></div></div>
+<div class="catalog-token-row"><span class="catalog-chip-pair"><span class="catalog-chip" style="background: var(--ref-color-green-500)"></span></span><div class="catalog-token-text"><p class="catalog-token-name"><code>ref.color.green.500</code><code class="catalog-token-value">#3f9468</code></p><p class="catalog-token-meta">Forest green. The accent on dark.</p></div></div>
+<div class="catalog-token-row"><span class="catalog-chip-pair"><span class="catalog-chip" style="background: var(--ref-color-green-600)"></span></span><div class="catalog-token-text"><p class="catalog-token-name"><code>ref.color.green.600</code><code class="catalog-token-value">#2f6a4a</code></p><p class="catalog-token-meta">Deep green. The accent on light.</p></div></div>
+<div class="catalog-token-row"><span class="catalog-chip-pair"><span class="catalog-chip" style="background: var(--ref-color-green-700)"></span></span><div class="catalog-token-text"><p class="catalog-token-name"><code>ref.color.green.700</code><code class="catalog-token-value">#275842</code></p><p class="catalog-token-meta">Deepest green. Accent hover on light.</p></div></div>
+<div class="catalog-token-row"><span class="catalog-chip-pair"><span class="catalog-chip" style="background: var(--ref-color-red-300)"></span></span><div class="catalog-token-text"><p class="catalog-token-name"><code>ref.color.red.300</code><code class="catalog-token-value">#e08a82</code></p><p class="catalog-token-meta">Soft red. Danger on dark surfaces.</p></div></div>
+<div class="catalog-token-row"><span class="catalog-chip-pair"><span class="catalog-chip" style="background: var(--ref-color-red-500)"></span></span><div class="catalog-token-text"><p class="catalog-token-name"><code>ref.color.red.500</code><code class="catalog-token-value">#b8433a</code></p><p class="catalog-token-meta">Deep red. Danger on light surfaces.</p></div></div><h4 class="catalog-tier-heading"><code>sem</code> colors</h4><div class="catalog-token-row"><span class="catalog-chip-pair"><span class="catalog-chip" data-mode="light" style="background: var(--sem-color-bg-app)" title="light"></span><span class="catalog-chip" data-mode="dark" style="background: var(--sem-color-bg-app)" title="dark"></span></span><div class="catalog-token-text"><p class="catalog-token-name"><code>sem.color.bg.app</code><code class="catalog-token-value">{ref.color.neutral.50}</code><span class="catalog-badge">surface</span></p><p class="catalog-token-meta">Root page/application background. The outermost background layer of any page or app shell. <strong>Do not:</strong> Not for cards or raised panels; use sem.color.bg.surface.</p></div></div>
+<div class="catalog-token-row"><span class="catalog-chip-pair"><span class="catalog-chip" data-mode="light" style="background: var(--sem-color-bg-surface)" title="light"></span><span class="catalog-chip" data-mode="dark" style="background: var(--sem-color-bg-surface)" title="dark"></span></span><div class="catalog-token-text"><p class="catalog-token-name"><code>sem.color.bg.surface</code><code class="catalog-token-value">{ref.color.neutral.0}</code><span class="catalog-badge">surface</span></p><p class="catalog-token-meta">Card and panel surface, one level above the app background. Cards, panels, inputs, and any content container sitting on sem.color.bg.app.</p></div></div>
+<div class="catalog-token-row"><span class="catalog-chip-pair"><span class="catalog-chip" data-mode="light" style="background: var(--sem-color-text-primary)" title="light"></span><span class="catalog-chip" data-mode="dark" style="background: var(--sem-color-text-primary)" title="dark"></span></span><div class="catalog-token-text"><p class="catalog-token-name"><code>sem.color.text.primary</code><code class="catalog-token-value">{ref.color.neutral.800}</code><span class="catalog-badge">text</span></p><p class="catalog-token-meta">Primary content text. Body copy, titles, labels — the default foreground.</p></div></div>
+<div class="catalog-token-row"><span class="catalog-chip-pair"><span class="catalog-chip" data-mode="light" style="background: var(--sem-color-text-muted)" title="light"></span><span class="catalog-chip" data-mode="dark" style="background: var(--sem-color-text-muted)" title="dark"></span></span><div class="catalog-token-text"><p class="catalog-token-name"><code>sem.color.text.muted</code><code class="catalog-token-value">{ref.color.neutral.500}</code><span class="catalog-badge">text</span></p><p class="catalog-token-meta">Secondary, supporting text. Meta, captions, and supporting copy next to primary text. <strong>Do not:</strong> Never for actionable copy standing alone.</p></div></div>
+<div class="catalog-token-row"><span class="catalog-chip-pair"><span class="catalog-chip" data-mode="light" style="background: var(--sem-color-text-on-accent)" title="light"></span><span class="catalog-chip" data-mode="dark" style="background: var(--sem-color-text-on-accent)" title="dark"></span></span><div class="catalog-token-text"><p class="catalog-token-name"><code>sem.color.text.on-accent</code><code class="catalog-token-value">{ref.color.neutral.0}</code><span class="catalog-badge">text</span></p><p class="catalog-token-meta">Foreground on accent-filled controls. Labels and icons sitting on sem.color.accent.primary or sem.color.status.danger fills.</p></div></div>
+<div class="catalog-token-row"><span class="catalog-chip-pair"><span class="catalog-chip" data-mode="light" style="background: var(--sem-color-border-default)" title="light"></span><span class="catalog-chip" data-mode="dark" style="background: var(--sem-color-border-default)" title="dark"></span></span><div class="catalog-token-text"><p class="catalog-token-name"><code>sem.color.border.default</code><code class="catalog-token-value">{ref.color.neutral.200}</code><span class="catalog-badge">border</span></p><p class="catalog-token-meta">Default hairline border. Panel dividers, card edges, and secondary control outlines. Borders carry structure; shadows do not.</p></div></div>
+<div class="catalog-token-row"><span class="catalog-chip-pair"><span class="catalog-chip" data-mode="light" style="background: var(--sem-color-accent-primary)" title="light"></span><span class="catalog-chip" data-mode="dark" style="background: var(--sem-color-accent-primary)" title="dark"></span></span><div class="catalog-token-text"><p class="catalog-token-name"><code>sem.color.accent.primary</code><code class="catalog-token-value">{ref.color.green.600}</code><span class="catalog-badge">accent</span></p><p class="catalog-token-meta">The single accent color. Primary CTA fills and selected states. One accent per view; selection and primary action share it. <strong>Do not:</strong> Never to convey status (use sem.color.status.*) and never as a large decorative surface fill.</p></div></div>
+<div class="catalog-token-row"><span class="catalog-chip-pair"><span class="catalog-chip" data-mode="light" style="background: var(--sem-color-accent-hover)" title="light"></span><span class="catalog-chip" data-mode="dark" style="background: var(--sem-color-accent-hover)" title="dark"></span></span><div class="catalog-token-text"><p class="catalog-token-name"><code>sem.color.accent.hover</code><code class="catalog-token-value">{ref.color.green.700}</code><span class="catalog-badge">accent</span></p><p class="catalog-token-meta">Hover shift of the accent. Hover and focus emphasis on accent-filled or accent-outlined controls.</p></div></div>
+<div class="catalog-token-row"><span class="catalog-chip-pair"><span class="catalog-chip" data-mode="light" style="background: var(--sem-color-status-danger)" title="light"></span><span class="catalog-chip" data-mode="dark" style="background: var(--sem-color-status-danger)" title="dark"></span></span><div class="catalog-token-text"><p class="catalog-token-name"><code>sem.color.status.danger</code><code class="catalog-token-value">{ref.color.red.500}</code><span class="catalog-badge">status</span></p><p class="catalog-token-meta">Destructive and error signal. Destructive action fills, error text, and failure marks — status meaning only. <strong>Do not:</strong> Never as a category or brand color.</p></div></div>
+<div class="catalog-token-row"><span class="catalog-chip-pair"><span class="catalog-chip" style="background: var(--sem-color-brand-highlight)"></span></span><div class="catalog-token-text"><p class="catalog-token-name"><code>sem.color.brand.highlight</code><code class="catalog-token-value">{ref.color.green.500}</code><span class="catalog-badge">accent</span><span class="catalog-badge catalog-badge--deprecated" title="Merged into the single-accent rule.">deprecated</span></p><p class="catalog-token-meta">Deprecated brand highlight, kept to exercise the deprecation schema. Do not adopt; retained only for existing consumers.</p></div></div>
+</div>
+<div id="foundations-type" class="catalog-view">
+<h3>Type</h3>
+<div class="catalog-token-row"><span class="catalog-type-specimen" style="font-family: var(--ref-font-family-ui)">AaBb</span><div class="catalog-token-text"><p class="catalog-token-name"><code>ref.font.family.ui</code><code class="catalog-token-value">Inter, system-ui, sans-serif</code></p><p class="catalog-token-meta">Default UI face.</p></div></div>
+<div class="catalog-token-row"><span class="catalog-type-specimen" style="font-family: var(--ref-font-family-mono)">AaBb</span><div class="catalog-token-text"><p class="catalog-token-name"><code>ref.font.family.mono</code><code class="catalog-token-value">JetBrains Mono, SFMono-Regular, monospace</code></p><p class="catalog-token-meta">Monospace face for identifiers and code.</p></div></div>
+<div class="catalog-token-row"><span class="catalog-type-specimen" style="font-size: var(--ref-font-size-sm)">AaBb</span><div class="catalog-token-text"><p class="catalog-token-name"><code>ref.font.size.sm</code><code class="catalog-token-value">12px</code></p><p class="catalog-token-meta">Meta and supporting copy.</p></div></div>
+<div class="catalog-token-row"><span class="catalog-type-specimen" style="font-size: var(--ref-font-size-md)">AaBb</span><div class="catalog-token-text"><p class="catalog-token-name"><code>ref.font.size.md</code><code class="catalog-token-value">13px</code></p><p class="catalog-token-meta">Default body size.</p></div></div>
+<div class="catalog-token-row"><span class="catalog-type-specimen" style="font-size: var(--ref-font-size-lg)">AaBb</span><div class="catalog-token-text"><p class="catalog-token-name"><code>ref.font.size.lg</code><code class="catalog-token-value">15px</code></p><p class="catalog-token-meta">Titles and section headings.</p></div></div>
+<div class="catalog-token-row"><span class="catalog-type-specimen" style="font-weight: var(--ref-font-weight-regular)">AaBb</span><div class="catalog-token-text"><p class="catalog-token-name"><code>ref.font.weight.regular</code><code class="catalog-token-value">400</code></p><p class="catalog-token-meta">Body weight.</p></div></div>
+<div class="catalog-token-row"><span class="catalog-type-specimen" style="font-weight: var(--ref-font-weight-semibold)">AaBb</span><div class="catalog-token-text"><p class="catalog-token-name"><code>ref.font.weight.semibold</code><code class="catalog-token-value">600</code></p><p class="catalog-token-meta">Emphasis and control labels.</p></div></div>
+<div class="catalog-token-row"><span class="catalog-type-specimen" style="font-family: var(--sem-font-family-ui)">AaBb</span><div class="catalog-token-text"><p class="catalog-token-name"><code>sem.font.family.ui</code><code class="catalog-token-value">{ref.font.family.ui}</code><span class="catalog-badge">type</span></p><p class="catalog-token-meta">The face for all UI copy. Everything except identifiers and code, which use ref.font.family.mono.</p></div></div>
+<div class="catalog-token-row"><span class="catalog-type-specimen" style="font-size: var(--sem-font-size-body)">AaBb</span><div class="catalog-token-text"><p class="catalog-token-name"><code>sem.font.size.body</code><code class="catalog-token-value">{ref.font.size.md}</code><span class="catalog-badge">type</span></p><p class="catalog-token-meta">Default body text size. Body copy and control labels. Keep at most three sizes per view.</p></div></div>
+<div class="catalog-token-row"><span class="catalog-type-specimen" style="font-weight: var(--sem-font-weight-emphasis)">AaBb</span><div class="catalog-token-text"><p class="catalog-token-name"><code>sem.font.weight.emphasis</code><code class="catalog-token-value">{ref.font.weight.semibold}</code><span class="catalog-badge">type</span></p><p class="catalog-token-meta">Emphasis weight for labels and headings. Control labels, section headings, and inline emphasis.</p></div></div>
+</div>
+<div id="foundations-spacing" class="catalog-view">
+<h3>Spacing</h3>
+<div class="catalog-token-row"><span class="catalog-space-bar" style="width: var(--ref-space-1)"></span><div class="catalog-token-text"><p class="catalog-token-name"><code>ref.space.1</code><code class="catalog-token-value">4px</code></p><p class="catalog-token-meta">Base spacing unit.</p></div></div>
+<div class="catalog-token-row"><span class="catalog-space-bar" style="width: var(--ref-space-2)"></span><div class="catalog-token-text"><p class="catalog-token-name"><code>ref.space.2</code><code class="catalog-token-value">8px</code></p><p class="catalog-token-meta">2x base spacing.</p></div></div>
+<div class="catalog-token-row"><span class="catalog-space-bar" style="width: var(--ref-space-3)"></span><div class="catalog-token-text"><p class="catalog-token-name"><code>ref.space.3</code><code class="catalog-token-value">12px</code></p><p class="catalog-token-meta">3x base spacing.</p></div></div>
+<div class="catalog-token-row"><span class="catalog-space-bar" style="width: var(--ref-space-4)"></span><div class="catalog-token-text"><p class="catalog-token-name"><code>ref.space.4</code><code class="catalog-token-value">16px</code></p><p class="catalog-token-meta">4x base spacing.</p></div></div>
+<div class="catalog-token-row"><span class="catalog-space-bar" style="width: var(--ref-space-6)"></span><div class="catalog-token-text"><p class="catalog-token-name"><code>ref.space.6</code><code class="catalog-token-value">24px</code></p><p class="catalog-token-meta">6x base spacing.</p></div></div>
+<div class="catalog-token-row"><span class="catalog-space-bar" style="width: var(--sem-space-control-gap)"></span><div class="catalog-token-text"><p class="catalog-token-name"><code>sem.space.control-gap</code><code class="catalog-token-value">{ref.space.2}</code><span class="catalog-badge">space</span></p><p class="catalog-token-meta">Gap between a control's internal elements and between sibling controls. Icon-to-label gaps and gaps in control rows.</p></div></div>
+<div class="catalog-token-row"><span class="catalog-space-bar" style="width: var(--sem-space-section)"></span><div class="catalog-token-text"><p class="catalog-token-name"><code>sem.space.section</code><code class="catalog-token-value">{ref.space.6}</code><span class="catalog-badge">space</span></p><p class="catalog-token-meta">Vertical rhythm between page sections. Padding around sections and stacked page regions.</p></div></div>
+</div>
+<div id="foundations-other-tokens" class="catalog-view">
+<h3>Other tokens</h3>
+<div class="catalog-token-row"><span class="catalog-radius-box" style="border-radius: var(--ref-radius-sm)"></span><div class="catalog-token-text"><p class="catalog-token-name"><code>ref.radius.sm</code><code class="catalog-token-value">5px</code></p><p class="catalog-token-meta">Small corner radius for controls and rows.</p></div></div>
+<div class="catalog-token-row"><span class="catalog-radius-box" style="border-radius: var(--ref-radius-md)"></span><div class="catalog-token-text"><p class="catalog-token-name"><code>ref.radius.md</code><code class="catalog-token-value">7px</code></p><p class="catalog-token-meta">Medium corner radius for popovers and cards.</p></div></div>
+<div class="catalog-token-row"><span class="catalog-radius-box" style="border-radius: var(--sem-radius-control)"></span><div class="catalog-token-text"><p class="catalog-token-name"><code>sem.radius.control</code><code class="catalog-token-value">{ref.radius.sm}</code><span class="catalog-badge">radius</span></p><p class="catalog-token-meta">Corner radius for interactive controls. Buttons, inputs, chips, and rows.</p></div></div>
+<div class="catalog-token-row"><span class="catalog-radius-box" style="border-radius: var(--sem-radius-overlay)"></span><div class="catalog-token-text"><p class="catalog-token-name"><code>sem.radius.overlay</code><code class="catalog-token-value">{ref.radius.md}</code><span class="catalog-badge">radius</span></p><p class="catalog-token-meta">Corner radius for floating surfaces. Popovers, cards, and modal shells. Keep at most two radii per view.</p></div></div>
+</div>
+<div id="foundations-glyphs" class="catalog-view">
+<h3>Glyphs</h3>
+<div class="catalog-glyph-grid">
+<figure class="catalog-glyph"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+  <path d="M4.5 12.5l5 5 10-11" />
+</svg><figcaption>check</figcaption></figure>
+</div>
+</div>
+<div id="foundations-doc-principles" class="catalog-view catalog-doc-card">
+<h3>Principles</h3>
+<p>The rules of this system that tokens alone cannot carry. Read before designing anything new.</p>
+<h4>Do</h4>
+<ul><li>One accent per view. Selection and the primary action share <code>sem.color.accent.primary</code>; everything else is neutral ink.</li><li>Structure with hairline borders (<code>sem.color.border.default</code>), not shadows or cards-on-cards.</li><li>Status colors mean status. <code>sem.color.status.danger</code> marks destruction and failure — never a category, never decoration.</li><li>Keep rhythm coarse: at most three font sizes and two corner radii per view.</li><li>Sentence case everywhere. No uppercase-tracking chrome.</li></ul>
+<h4>Don't (AI-tell anti-patterns)</h4>
+<ul><li>No blue-shifted dark surfaces (<code>#0a0d18</code>-family hues). The dark scale here is warm ink; blue-tinted darks are the single strongest generated-UI tell.</li><li>No purple-to-blue gradient CTAs, glassmorphism panels, or glow shadows.</li><li>No inventing intermediate tokens. If a value is missing, add it to <code>tokens.tokens.json</code> with semantics — never hard-code it in component CSS.</li><li>No second accent. If a design &quot;needs&quot; two accents, the hierarchy is wrong.</li></ul>
+<h4>Voice</h4>
+<p>Copy is calm, specific, and short. Buttons name the action (&quot;Save draft&quot;), not enthusiasm (&quot;Let's go!&quot;).</p>
+</div>
+</section>
+<section id="components" class="catalog-group">
+<h2>Components</h2>
+<div id="component-button" class="catalog-view catalog-component">
+<h3>Button</h3>
+<div class="catalog-component-grid">
+<div class="catalog-stage ds-embed-component-button">
+<section class="demo-mode" data-mode="light">
+      <h2>Button — light</h2>
+      <p>Variants left to right: primary, secondary, danger, disabled.</p>
+      <div class="demo-row">
+        <button class="ds-button" type="button">
+          <svg class="ds-button__icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4.5 12.5l5 5 10-11" /></svg>
+          Save draft
+        </button>
+        <button class="ds-button ds-button--secondary" type="button">Cancel</button>
+        <button class="ds-button ds-button--danger" type="button">Delete workspace</button>
+        <button class="ds-button" type="button" disabled>Save draft</button>
+      </div>
+    </section>
+    <section class="demo-mode" data-mode="dark">
+      <h2>Button — dark</h2>
+      <p>The same markup under <code>data-mode="dark"</code>; only tokens change.</p>
+      <div class="demo-row">
+        <button class="ds-button" type="button">
+          <svg class="ds-button__icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4.5 12.5l5 5 10-11" /></svg>
+          Save draft
+        </button>
+        <button class="ds-button ds-button--secondary" type="button">Cancel</button>
+        <button class="ds-button ds-button--danger" type="button">Delete workspace</button>
+        <button class="ds-button" type="button" disabled>Save draft</button>
+      </div>
+    </section>
+</div>
+<div class="catalog-doc">
+<p>The single action control. One primary button per view; it shares the accent with selection.</p>
+<h4>Anatomy</h4>
+<ul><li>Container: <code>.ds-button</code> — accent fill, <code>sem.radius.control</code> corners, <code>sem.space.control-gap</code> internal gap.</li><li>Label: sentence-case action verb, <code>sem.font.size.body</code> at <code>sem.font.weight.emphasis</code>.</li><li>Optional leading icon: <code>.ds-button__icon</code>, 14px, <code>currentColor</code> stroke.</li></ul>
+<h4>Variants</h4>
+<ul><li><strong>Primary</strong> (<code>.ds-button</code>) — <code>sem.color.accent.primary</code> fill with <code>sem.color.text.on-accent</code> label. The one call to action in a view.</li><li><strong>Secondary</strong> (<code>.ds-button--secondary</code>) — transparent fill, <code>sem.color.border.default</code> hairline, <code>sem.color.text.primary</code> label.</li><li><strong>Danger</strong> (<code>.ds-button--danger</code>) — <code>sem.color.status.danger</code> fill; only for destructive actions, always paired with confirmation.</li></ul>
+<h4>States</h4>
+<ul><li>Hover: primary lifts to <code>sem.color.accent.hover</code>; secondary strengthens its border to <code>sem.color.text.muted</code>.</li><li>Focus: 2px <code>sem.color.accent.hover</code> outline with 2px offset, on <code>:focus-visible</code> only.</li><li>Disabled: 50% opacity, <code>not-allowed</code> cursor, no hover response.</li></ul>
+<h4>Usage</h4>
+<ul><li>Name the action (&quot;Save draft&quot;), never enthusiasm or vague verbs (&quot;Submit&quot;).</li><li>One primary per view; everything else is secondary.</li><li>Do not use danger styling for emphasis — it is a status color.</li></ul>
+<h4>Accessibility</h4>
+<ul><li>Real <code>&lt;button type=&quot;button&quot;&gt;</code> elements, never styled <code>div</code>s or bare links.</li><li>Label contrast clears WCAG AA in both modes (<code>sem.color.text.on-accent</code> flips per mode with the accent).</li><li>Icons are <code>aria-hidden</code> and decorative; the text label carries the meaning.</li><li>Keyboard: native button semantics; visible focus via <code>:focus-visible</code>.</li></ul>
+</div>
+</div>
+<details class="catalog-source"><summary>components/button/component.css</summary><pre><code>/* Button — consumes semantic tokens only; --ref-* is forbidden in components. */
+.ds-button {
+  appearance: none;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sem-space-control-gap);
+  padding: 6px 14px;
+  border: 1px solid transparent;
+  border-radius: var(--sem-radius-control);
+  font-family: var(--sem-font-family-ui);
+  font-size: var(--sem-font-size-body);
+  font-weight: var(--sem-font-weight-emphasis);
+  line-height: 1.4;
+  background: var(--sem-color-accent-primary);
+  color: var(--sem-color-text-on-accent);
+  cursor: pointer;
+}
+
+.ds-button:hover {
+  background: var(--sem-color-accent-hover);
+}
+
+.ds-button:focus-visible {
+  outline: 2px solid var(--sem-color-accent-hover);
+  outline-offset: 2px;
+}
+
+.ds-button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.ds-button--secondary {
+  background: transparent;
+  border-color: var(--sem-color-border-default);
+  color: var(--sem-color-text-primary);
+}
+
+.ds-button--secondary:hover {
+  background: transparent;
+  border-color: var(--sem-color-text-muted);
+}
+
+.ds-button--danger {
+  background: var(--sem-color-status-danger);
+  color: var(--sem-color-text-on-accent);
+}
+
+.ds-button--danger:hover {
+  background: var(--sem-color-status-danger);
+}
+
+.ds-button .ds-button__icon {
+  width: 14px;
+  height: 14px;
+}
+</code></pre></details>
+<details class="catalog-source"><summary>components/button/component.html (demo)</summary><pre><code>&lt;!doctype html&gt;
+&lt;html lang=&quot;en&quot;&gt;
+  &lt;head&gt;
+    &lt;meta charset=&quot;utf-8&quot; /&gt;
+    &lt;meta name=&quot;viewport&quot; content=&quot;width=device-width, initial-scale=1&quot; /&gt;
+    &lt;title&gt;Button — example design system&lt;/title&gt;
+    &lt;link rel=&quot;stylesheet&quot; href=&quot;../../foundations/tokens.css&quot; /&gt;
+    &lt;link rel=&quot;stylesheet&quot; href=&quot;component.css&quot; /&gt;
+    &lt;style&gt;
+      /* Demo scaffolding only — real consumers take styles from component.css. */
+      body {
+        margin: 0;
+        font-family: var(--sem-font-family-ui);
+      }
+      .demo-mode {
+        padding: var(--sem-space-section);
+        background: var(--sem-color-bg-app);
+        color: var(--sem-color-text-primary);
+      }
+      .demo-mode h2 {
+        margin: 0 0 4px;
+        font-size: 15px;
+      }
+      .demo-mode p {
+        margin: 0 0 12px;
+        font-size: var(--sem-font-size-body);
+        color: var(--sem-color-text-muted);
+      }
+      .demo-row {
+        display: flex;
+        align-items: center;
+        gap: var(--sem-space-control-gap);
+        padding: var(--sem-space-control-gap) 0;
+      }
+    &lt;/style&gt;
+  &lt;/head&gt;
+  &lt;body&gt;
+    &lt;section class=&quot;demo-mode&quot; data-mode=&quot;light&quot;&gt;
+      &lt;h2&gt;Button — light&lt;/h2&gt;
+      &lt;p&gt;Variants left to right: primary, secondary, danger, disabled.&lt;/p&gt;
+      &lt;div class=&quot;demo-row&quot;&gt;
+        &lt;button class=&quot;ds-button&quot; type=&quot;button&quot;&gt;
+          &lt;svg class=&quot;ds-button__icon&quot; viewBox=&quot;0 0 24 24&quot; fill=&quot;none&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;2.5&quot; stroke-linecap=&quot;round&quot; stroke-linejoin=&quot;round&quot; aria-hidden=&quot;true&quot;&gt;&lt;path d=&quot;M4.5 12.5l5 5 10-11&quot; /&gt;&lt;/svg&gt;
+          Save draft
+        &lt;/button&gt;
+        &lt;button class=&quot;ds-button ds-button--secondary&quot; type=&quot;button&quot;&gt;Cancel&lt;/button&gt;
+        &lt;button class=&quot;ds-button ds-button--danger&quot; type=&quot;button&quot;&gt;Delete workspace&lt;/button&gt;
+        &lt;button class=&quot;ds-button&quot; type=&quot;button&quot; disabled&gt;Save draft&lt;/button&gt;
+      &lt;/div&gt;
+    &lt;/section&gt;
+    &lt;section class=&quot;demo-mode&quot; data-mode=&quot;dark&quot;&gt;
+      &lt;h2&gt;Button — dark&lt;/h2&gt;
+      &lt;p&gt;The same markup under &lt;code&gt;data-mode=&quot;dark&quot;&lt;/code&gt;; only tokens change.&lt;/p&gt;
+      &lt;div class=&quot;demo-row&quot;&gt;
+        &lt;button class=&quot;ds-button&quot; type=&quot;button&quot;&gt;
+          &lt;svg class=&quot;ds-button__icon&quot; viewBox=&quot;0 0 24 24&quot; fill=&quot;none&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;2.5&quot; stroke-linecap=&quot;round&quot; stroke-linejoin=&quot;round&quot; aria-hidden=&quot;true&quot;&gt;&lt;path d=&quot;M4.5 12.5l5 5 10-11&quot; /&gt;&lt;/svg&gt;
+          Save draft
+        &lt;/button&gt;
+        &lt;button class=&quot;ds-button ds-button--secondary&quot; type=&quot;button&quot;&gt;Cancel&lt;/button&gt;
+        &lt;button class=&quot;ds-button ds-button--danger&quot; type=&quot;button&quot;&gt;Delete workspace&lt;/button&gt;
+        &lt;button class=&quot;ds-button&quot; type=&quot;button&quot; disabled&gt;Save draft&lt;/button&gt;
+      &lt;/div&gt;
+    &lt;/section&gt;
+  &lt;/body&gt;
+&lt;/html&gt;
+</code></pre></details>
+</div>
+</section>
+<section id="patterns" class="catalog-group">
+<h2>Patterns</h2>
+<div id="pattern-sign-in" class="catalog-view catalog-pattern">
+<h3>Sign in — example design system pattern</h3>
+<div class="catalog-stage ds-embed-pattern-sign-in">
+<main class="signin-card">
+      <h1>Sign in</h1>
+      <p>Use your workspace account.</p>
+      <label class="signin-field">
+        Email
+        <input type="email" name="email" autocomplete="email" />
+      </label>
+      <label class="signin-field">
+        Password
+        <input type="password" name="password" autocomplete="current-password" />
+      </label>
+      <div class="signin-actions">
+        <button class="ds-button ds-button--secondary" type="button">Create account</button>
+        <button class="ds-button" type="submit">Sign in</button>
+      </div>
+    </main>
+</div>
+<details class="catalog-source"><summary>patterns/sign-in.html</summary><pre><code>&lt;!doctype html&gt;
+&lt;html lang=&quot;en&quot;&gt;
+  &lt;head&gt;
+    &lt;meta charset=&quot;utf-8&quot; /&gt;
+    &lt;meta name=&quot;viewport&quot; content=&quot;width=device-width, initial-scale=1&quot; /&gt;
+    &lt;title&gt;Sign in — example design system pattern&lt;/title&gt;
+    &lt;link rel=&quot;stylesheet&quot; href=&quot;../foundations/tokens.css&quot; /&gt;
+    &lt;link rel=&quot;stylesheet&quot; href=&quot;../components/button/component.css&quot; /&gt;
+    &lt;style&gt;
+      body {
+        margin: 0;
+        min-height: 100vh;
+        display: grid;
+        place-items: center;
+        background: var(--sem-color-bg-app);
+        color: var(--sem-color-text-primary);
+        font-family: var(--sem-font-family-ui);
+        font-size: var(--sem-font-size-body);
+      }
+      .signin-card {
+        width: 320px;
+        padding: var(--sem-space-section);
+        background: var(--sem-color-bg-surface);
+        border: 1px solid var(--sem-color-border-default);
+        border-radius: var(--sem-radius-overlay);
+      }
+      .signin-card h1 {
+        margin: 0 0 4px;
+        font-size: 15px;
+        font-weight: var(--sem-font-weight-emphasis);
+      }
+      .signin-card p {
+        margin: 0 0 16px;
+        color: var(--sem-color-text-muted);
+      }
+      .signin-field {
+        display: grid;
+        gap: 4px;
+        margin-bottom: 12px;
+      }
+      .signin-field input {
+        padding: 6px 10px;
+        border: 1px solid var(--sem-color-border-default);
+        border-radius: var(--sem-radius-control);
+        background: var(--sem-color-bg-surface);
+        color: var(--sem-color-text-primary);
+        font: inherit;
+      }
+      .signin-field input:focus-visible {
+        outline: 2px solid var(--sem-color-accent-hover);
+        outline-offset: 1px;
+      }
+      .signin-actions {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: var(--sem-space-control-gap);
+        margin-top: 16px;
+      }
+    &lt;/style&gt;
+  &lt;/head&gt;
+  &lt;body&gt;
+    &lt;main class=&quot;signin-card&quot;&gt;
+      &lt;h1&gt;Sign in&lt;/h1&gt;
+      &lt;p&gt;Use your workspace account.&lt;/p&gt;
+      &lt;label class=&quot;signin-field&quot;&gt;
+        Email
+        &lt;input type=&quot;email&quot; name=&quot;email&quot; autocomplete=&quot;email&quot; /&gt;
+      &lt;/label&gt;
+      &lt;label class=&quot;signin-field&quot;&gt;
+        Password
+        &lt;input type=&quot;password&quot; name=&quot;password&quot; autocomplete=&quot;current-password&quot; /&gt;
+      &lt;/label&gt;
+      &lt;div class=&quot;signin-actions&quot;&gt;
+        &lt;button class=&quot;ds-button ds-button--secondary&quot; type=&quot;button&quot;&gt;Create account&lt;/button&gt;
+        &lt;button class=&quot;ds-button&quot; type=&quot;submit&quot;&gt;Sign in&lt;/button&gt;
+      &lt;/div&gt;
+    &lt;/main&gt;
+  &lt;/body&gt;
+&lt;/html&gt;
+</code></pre></details>
+</div>
+</section>
+</main>
+</div>
+</div>
+</body>
+</html>
