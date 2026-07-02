@@ -5,11 +5,14 @@ import {
   sprintEngineAutomationModeForRunOptions,
 } from '../../../../utils/sprintengineAutomationLifecycle'
 import {
-  GuidedBriefWorkspaceError,
   buildGuidedBriefSprintEngineSourceBundle,
   scaffoldGuidedBriefWorkspace,
   writeGuidedBriefBuildHandoff,
 } from '../../../../utils/guidedBriefWorkspace'
+import {
+  buildInitialGuidedBriefRuntimeState,
+  rethrowGuidedScaffoldFailure,
+} from './guidedBriefScaffolding'
 import {
   PlanSourcedSprintEngineWorkspaceError,
   createPlanSourcedSprintEngineWorkspace,
@@ -77,17 +80,11 @@ export async function runGuidedBriefScaffold(
       filesystem: ports.filesystem,
     })
   } catch (error) {
-    if (error instanceof GuidedBriefWorkspaceError) {
+    rethrowGuidedScaffoldFailure(error, (message) => {
       const wrapped = new GuidedBriefScaffoldError('unknown')
-      wrapped.message = `Could not set up the Design Wizard workspace (${error.code}).`
-      throw wrapped
-    }
-    if (error instanceof Error) {
-      const wrapped = new GuidedBriefScaffoldError('unknown')
-      wrapped.message = error.message
-      throw wrapped
-    }
-    throw new GuidedBriefScaffoldError('unknown')
+      if (message) wrapped.message = message
+      return wrapped
+    })
   }
 
   const wantsFrontendDiscussion = isDesignPreset
@@ -121,34 +118,25 @@ export async function runGuidedBriefScaffold(
   }
 
   const workspaceLabel = toTitleName(basename(folderPath)) || input.workspaceName.trim() || 'Design Wizard'
-  const runtimeState: GuidedBriefRuntimeState = {
-    workspaceRoot: folderPath,
-    workspaceName: workspaceLabel,
-    idea: input.idea,
-    hasUi,
-    preset,
-    wantsProductDiscussion: wantsProduct,
-    wantsArchitectureDiscussion: wantsArchitecture,
-    wantsFrontendDiscussion,
-    guidedRoleCliDefaults: input.guidedRoleCliDefaults,
-    buildRoleCounts: input.buildRoleCounts,
-    buildRoleCliDefaults: input.buildRoleCliDefaults,
-    buildCliPermissionPreset: input.buildCliPermissionPreset,
-    buildStartRunner: input.buildStartRunner,
-    buildAutoApproveArtifacts: input.buildAutoApproveArtifacts,
-    stage: initialStage,
-    acceptedProductBrief: null,
-    acceptedArchitecturePlan: null,
-    acceptedUiDirection: null,
-    acceptedMockups: [],
-    activeMockupPath: null,
-    activeDesignArtifactPath: null,
-    strategistSessionId: null,
-    architectSessionId: null,
-    designerSessionId: null,
+  return {
+    runtimeState: buildInitialGuidedBriefRuntimeState({
+      workspaceRoot: folderPath,
+      workspaceName: workspaceLabel,
+      idea: input.idea,
+      hasUi,
+      preset,
+      wantsProductDiscussion: wantsProduct,
+      wantsArchitectureDiscussion: wantsArchitecture,
+      wantsFrontendDiscussion,
+      stage: initialStage,
+      guidedRoleCliDefaults: input.guidedRoleCliDefaults,
+      buildRoleCounts: input.buildRoleCounts,
+      buildRoleCliDefaults: input.buildRoleCliDefaults,
+      buildCliPermissionPreset: input.buildCliPermissionPreset,
+      buildStartRunner: input.buildStartRunner,
+      buildAutoApproveArtifacts: input.buildAutoApproveArtifacts,
+    }),
   }
-
-  return { runtimeState }
 }
 
 export async function runGuidedBriefStartBuild(

@@ -4,6 +4,7 @@ import type {
   TerminalSpawnMetadata,
   TerminalSpawnResult,
 } from '../../../../../shared/electron-api'
+import { DESIGN_SYSTEM_MANIFEST_FILENAME } from '../../../../../shared/design-system/manifest'
 import {
   buildGuidedBriefSpecialistStartupPrompt,
   type GuidedBriefSpecialistKind,
@@ -250,7 +251,7 @@ function markerDetectionForInput(input: StartGuidedBriefSpecialistSessionInput, 
   if (input.designSystem) {
     return {
       marker,
-      artifactPath: `${input.designSystem.bundleDirectoryPath}/design-system.json`,
+      artifactPath: `${input.designSystem.bundleDirectoryPath}/${DESIGN_SYSTEM_MANIFEST_FILENAME}`,
       watchPath: input.designSystem.bundleDirectoryPath,
     }
   }

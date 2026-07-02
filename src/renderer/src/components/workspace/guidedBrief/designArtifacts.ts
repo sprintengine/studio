@@ -1,3 +1,4 @@
+import { DESIGN_SYSTEM_BUNDLE_DIRECTORY_NAME } from '../../../../../shared/design-system/bundle-scaffold'
 import { basename, joinWorkspacePath } from './paths'
 
 // Deterministic, path-based index of the real design artifacts a Multicode
@@ -71,7 +72,9 @@ export const EMPTY_DESIGN_ARTIFACT_INDEX: DesignArtifactIndex = {
 export const MOCKUPS_DIRECTORY_NAME = 'mockups'
 export const UI_DIRECTION_RELATIVE_PATH = 'product/ui-direction.md'
 export const INSPIRATION_DIRECTORY_NAME = '.guided-brief/inspiration'
-export const DESIGN_SYSTEM_BUNDLE_DIRECTORY_NAME = 'design-system'
+// Canonical definition lives on the shared main↔renderer boundary (the
+// main-process scaffold writes it; this indexer watches it).
+export { DESIGN_SYSTEM_BUNDLE_DIRECTORY_NAME }
 
 // Recursion is shallow-bounded so a runaway tree can't lock the renderer —
 // matches the existing mockup walker in useDesignerSession.

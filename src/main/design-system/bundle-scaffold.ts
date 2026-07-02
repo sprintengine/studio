@@ -6,7 +6,10 @@ import {
   DESIGN_SYSTEM_SCHEMA_VERSION,
   parseDesignSystemManifest,
 } from '../../shared/design-system/manifest'
-import type { DesignSystemScaffoldResult } from '../../shared/design-system/bundle-scaffold'
+import {
+  DESIGN_SYSTEM_BUNDLE_DIRECTORY_NAME,
+  type DesignSystemScaffoldResult,
+} from '../../shared/design-system/bundle-scaffold'
 
 // Scaffolds the design-system bundle layout for the Design Wizard's
 // design-system preset: stamps the governance templates (USAGE.md, AGENTS.md,
@@ -16,9 +19,6 @@ import type { DesignSystemScaffoldResult } from '../../shared/design-system/bund
 // work — the scaffold never seeds sample design content, so nothing in the
 // bundle pretends to be authored. Layout contract:
 // knowledge/multicode/design-system-bundle.md.
-
-/** Where the bundle lives inside an authoring workspace (attach uses the same name). */
-export const DESIGN_SYSTEM_BUNDLE_DIRECTORY_NAME = 'design-system'
 
 const AUTHORED_CONTENT_DIRECTORIES = [
   'foundations',

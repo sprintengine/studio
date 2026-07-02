@@ -1,9 +1,9 @@
-import type { GuidedBriefRuntimeState } from '../../../../types/workspace'
-import {
-  GuidedBriefWorkspaceError,
-  scaffoldDesignSystemWorkspaceSeed,
-} from '../../../../utils/guidedBriefWorkspace'
+import { scaffoldDesignSystemWorkspaceSeed } from '../../../../utils/guidedBriefWorkspace'
 import { basename, toTitleName } from '../helpers'
+import {
+  buildInitialGuidedBriefRuntimeState,
+  rethrowGuidedScaffoldFailure,
+} from './guidedBriefScaffolding'
 import type {
   DesignSystemScaffoldControllerInput,
   DesignSystemScaffoldControllerPorts,
@@ -51,45 +51,30 @@ export async function runDesignSystemScaffold(
       filesystem: ports.filesystem,
     })
   } catch (error) {
-    if (error instanceof GuidedBriefWorkspaceError) {
+    rethrowGuidedScaffoldFailure(error, (message) => {
       const wrapped = new DesignSystemScaffoldError('unknown')
-      wrapped.message = `Could not set up the design-system workspace (${error.code}).`
-      throw wrapped
-    }
-    if (error instanceof Error) {
-      const wrapped = new DesignSystemScaffoldError('unknown')
-      wrapped.message = error.message
-      throw wrapped
-    }
-    throw new DesignSystemScaffoldError('unknown')
+      if (message) wrapped.message = message
+      return wrapped
+    })
   }
 
-  const runtimeState: GuidedBriefRuntimeState = {
-    workspaceRoot: folderPath,
-    workspaceName: workspaceLabel,
-    idea: input.idea,
-    hasUi: 'yes',
-    preset: 'design-system',
-    wantsProductDiscussion: false,
-    wantsArchitectureDiscussion: false,
-    wantsFrontendDiscussion: true,
-    guidedRoleCliDefaults: input.guidedRoleCliDefaults,
-    buildRoleCounts: input.buildRoleCounts,
-    buildRoleCliDefaults: input.buildRoleCliDefaults,
-    buildCliPermissionPreset: input.buildCliPermissionPreset,
-    buildStartRunner: input.buildStartRunner,
-    buildAutoApproveArtifacts: input.buildAutoApproveArtifacts,
-    stage: 'designer-working',
-    acceptedProductBrief: null,
-    acceptedArchitecturePlan: null,
-    acceptedUiDirection: null,
-    acceptedMockups: [],
-    activeMockupPath: null,
-    activeDesignArtifactPath: null,
-    strategistSessionId: null,
-    architectSessionId: null,
-    designerSessionId: null,
+  return {
+    runtimeState: buildInitialGuidedBriefRuntimeState({
+      workspaceRoot: folderPath,
+      workspaceName: workspaceLabel,
+      idea: input.idea,
+      hasUi: 'yes',
+      preset: 'design-system',
+      wantsProductDiscussion: false,
+      wantsArchitectureDiscussion: false,
+      wantsFrontendDiscussion: true,
+      stage: 'designer-working',
+      guidedRoleCliDefaults: input.guidedRoleCliDefaults,
+      buildRoleCounts: input.buildRoleCounts,
+      buildRoleCliDefaults: input.buildRoleCliDefaults,
+      buildCliPermissionPreset: input.buildCliPermissionPreset,
+      buildStartRunner: input.buildStartRunner,
+      buildAutoApproveArtifacts: input.buildAutoApproveArtifacts,
+    }),
   }
-
-  return { runtimeState }
 }

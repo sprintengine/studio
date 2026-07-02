@@ -2973,6 +2973,78 @@ function MultiloopGoalStep({
   )
 }
 
+// Per-preset wizard copy for the guided-idea step. `lockedDesigner` doubles as
+// the studio-preset switch: when set, the has-UI question is skipped and the
+// designer discussion is pinned on (the controller forces the matching flags).
+type GuidedPresetCopy = {
+  cardTitle: string
+  cardBody: string
+  ideaLabel: string
+  ideaPlaceholder: string
+  ideaHint: string
+  lockedDesigner: { title: string; body: string } | null
+  studioNote: string | null
+  folderHint: { before: string; path: string; after: string }
+}
+
+const GUIDED_PRESET_ORDER: GuidedBriefPreset[] = ['full-brief', 'frontend-design', 'design-system']
+
+const GUIDED_PRESET_COPY: Record<GuidedBriefPreset, GuidedPresetCopy> = {
+  'full-brief': {
+    cardTitle: 'Plan & design',
+    cardBody: 'Think it through, then design it — strategy, plan, and screens before the build.',
+    ideaLabel: 'Rough idea',
+    ideaPlaceholder: 'A shift-trading app where café staff can swap shifts without texting the manager.',
+    ideaHint: 'Plain English. Spelling doesn’t matter.',
+    lockedDesigner: null,
+    studioNote: null,
+    folderHint: {
+      before: 'Idea seed will be written to ',
+      path: 'product/idea-seed.md',
+      after: ' in the selected folder.',
+    },
+  },
+  'frontend-design': {
+    cardTitle: 'Design only',
+    cardBody: 'Skip the planning and go straight to screens and mockups.',
+    ideaLabel: 'Design goal',
+    ideaPlaceholder:
+      'A calm onboarding flow for a café shift-trading app: sign in, see this week’s shifts, request a swap.',
+    ideaHint: 'Describe the screen or flow, the target user, and any brand constraints.',
+    lockedDesigner: {
+      title: 'Frontend engineer',
+      body: 'Designs the screens and reviewable mockups.',
+    },
+    studioNote:
+      'Design only skips the strategy and planning discussions and starts straight in the design studio.',
+    folderHint: {
+      before: 'Idea seed will be written to ',
+      path: 'product/idea-seed.md',
+      after: ' in the selected folder.',
+    },
+  },
+  'design-system': {
+    cardTitle: 'Design system',
+    cardBody: 'Author a reusable system — tokens, components, patterns — as a portable bundle.',
+    ideaLabel: 'Design system goal',
+    ideaPlaceholder:
+      'A warm, editorial design system for a café brand: friendly type, calm surfaces, light and dark modes.',
+    ideaHint:
+      'Describe the brand character, the products it will serve, and any constraints — fonts, colors, density.',
+    lockedDesigner: {
+      title: 'Design system designer',
+      body: 'Interviews through the brand and authors the tokens, components, and patterns.',
+    },
+    studioNote:
+      'Design system skips the planning discussions and starts straight in the authoring studio.',
+    folderHint: {
+      before: 'The bundle will be scaffolded into ',
+      path: 'design-system/',
+      after: ' in the selected folder.',
+    },
+  },
+}
+
 function GuidedIdeaStep({
   idea,
   preset,
@@ -3010,50 +3082,30 @@ function GuidedIdeaStep({
   folderPath: string | null
   error: string | null
 }) {
-  const isDesignSystemPreset = preset === 'design-system'
-  // Both design-only presets share the studio path: UI implied, planning
-  // discussions skipped, designer locked on.
-  const isDesignPreset = preset === 'frontend-design' || isDesignSystemPreset
+  const copy = GUIDED_PRESET_COPY[preset]
   return (
     <div className="flex flex-col gap-5">
       <div className="flex flex-col gap-2">
         <FieldLabel>What are we making?</FieldLabel>
         <div role="radiogroup" aria-label="Design Wizard mode" className="grid grid-cols-3 gap-2.5">
-          <GuidedChoiceCard
-            active={!isDesignPreset}
-            title="Plan & design"
-            body="Think it through, then design it — strategy, plan, and screens before the build."
-            onSelect={() => onChangePreset('full-brief')}
-          />
-          <GuidedChoiceCard
-            active={isDesignPreset && !isDesignSystemPreset}
-            title="Design only"
-            body="Skip the planning and go straight to screens and mockups."
-            onSelect={() => onChangePreset('frontend-design')}
-          />
-          <GuidedChoiceCard
-            active={isDesignSystemPreset}
-            title="Design system"
-            body="Author a reusable system — tokens, components, patterns — as a portable bundle."
-            onSelect={() => onChangePreset('design-system')}
-          />
+          {GUIDED_PRESET_ORDER.map((presetOption) => (
+            <GuidedChoiceCard
+              key={presetOption}
+              active={preset === presetOption}
+              title={GUIDED_PRESET_COPY[presetOption].cardTitle}
+              body={GUIDED_PRESET_COPY[presetOption].cardBody}
+              onSelect={() => onChangePreset(presetOption)}
+            />
+          ))}
         </div>
       </div>
 
       <label className="flex flex-col gap-2">
-        <FieldLabel>
-          {isDesignSystemPreset ? 'Design system goal' : isDesignPreset ? 'Design goal' : 'Rough idea'}
-        </FieldLabel>
+        <FieldLabel>{copy.ideaLabel}</FieldLabel>
         <textarea
           value={idea}
           onChange={(event) => onChangeIdea(event.target.value)}
-          placeholder={
-            isDesignSystemPreset
-              ? 'A warm, editorial design system for a café brand: friendly type, calm surfaces, light and dark modes.'
-              : isDesignPreset
-                ? 'A calm onboarding flow for a café shift-trading app: sign in, see this week’s shifts, request a swap.'
-                : 'A shift-trading app where café staff can swap shifts without texting the manager.'
-          }
+          placeholder={copy.ideaPlaceholder}
           autoFocus
           className="
             min-h-[140px] w-full resize-none rounded-md border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] px-3.5 py-3
@@ -3062,16 +3114,10 @@ function GuidedIdeaStep({
             hover:border-[color:var(--color-5)] focus:border-[color:var(--text-strong)]
           "
         />
-        <span className="text-[12px] leading-5 text-[color:var(--text-muted)]">
-          {isDesignSystemPreset
-            ? 'Describe the brand character, the products it will serve, and any constraints — fonts, colors, density.'
-            : isDesignPreset
-              ? 'Describe the screen or flow, the target user, and any brand constraints.'
-              : 'Plain English. Spelling doesn’t matter.'}
-        </span>
+        <span className="text-[12px] leading-5 text-[color:var(--text-muted)]">{copy.ideaHint}</span>
       </label>
 
-      {isDesignPreset ? null : (
+      {copy.lockedDesigner ? null : (
         <div className="flex flex-col gap-2">
           <FieldLabel>Will people use it on a screen?</FieldLabel>
           <div role="radiogroup" aria-label="App surface" className="grid grid-cols-2 gap-2.5">
@@ -3094,16 +3140,12 @@ function GuidedIdeaStep({
       <div className="flex flex-col gap-2">
         <FieldLabel>Guided discussions</FieldLabel>
         <div className="flex flex-col gap-2">
-          {isDesignPreset ? (
+          {copy.lockedDesigner ? (
             <GuidedRoleToggle
               checked
               locked
-              title={isDesignSystemPreset ? 'Design system designer' : 'Frontend engineer'}
-              body={
-                isDesignSystemPreset
-                  ? 'Interviews through the brand and authors the tokens, components, and patterns.'
-                  : 'Designs the screens and reviewable mockups.'
-              }
+              title={copy.lockedDesigner.title}
+              body={copy.lockedDesigner.body}
               cli={roleCliDefaults.frontend}
               cliOptions={cliOptions}
               onChangeCli={(cli) => onSetRoleCli('frontend', cli)}
@@ -3142,30 +3184,16 @@ function GuidedIdeaStep({
             </>
           )}
         </div>
-        {isDesignPreset ? (
-          <p className="text-[12px] leading-5 text-[color:var(--text-muted)]">
-            {isDesignSystemPreset
-              ? 'Design system skips the planning discussions and starts straight in the authoring studio.'
-              : 'Design only skips the strategy and planning discussions and starts straight in the design studio.'}
-          </p>
+        {copy.studioNote ? (
+          <p className="text-[12px] leading-5 text-[color:var(--text-muted)]">{copy.studioNote}</p>
         ) : null}
       </div>
 
       {folderPath ? (
         <p className="text-[12px] leading-5 text-[color:var(--text-muted)]">
-          {isDesignSystemPreset ? (
-            <>
-              The bundle will be scaffolded into{' '}
-              <span className="font-mono text-[color:var(--text-default)]">design-system/</span>{' '}
-              in the selected folder.
-            </>
-          ) : (
-            <>
-              Idea seed will be written to{' '}
-              <span className="font-mono text-[color:var(--text-default)]">product/idea-seed.md</span>{' '}
-              in the selected folder.
-            </>
-          )}
+          {copy.folderHint.before}
+          <span className="font-mono text-[color:var(--text-default)]">{copy.folderHint.path}</span>
+          {copy.folderHint.after}
         </p>
       ) : null}
 
