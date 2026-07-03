@@ -30,7 +30,7 @@ import {
   getClaimableSprintEngineAutoRunGates,
   getPendingAgentNotificationEvents,
   getSprintEngineAutoRunOccupiedAgentIds,
-  getSprintEngineQueueDepthReplenishRoles,
+  sprintEngineHasUnownedReadyTask,
   getSprintEngineWakeCandidateTasks,
   isSprintEngineAutoPendingSpawnStillRelevant,
   isSprintEngineRunBlockedOnExternalInput,
@@ -156,10 +156,11 @@ async function main(): Promise<void> {
   testPickNextAutoRunsPrefersPreviousOwnerForRework()
   await testSpawnAutoRunCandidateResumesPreviousOwnerConversation()
   await testWindowDisposalRetainsResumeStateInStore()
-  testQueueDepthReplenishRolesComputeDeficits()
+  testHasUnownedReadyTaskTrigger()
   testTaskScopedRetirementStormBoundFallsBackToSlowCadence()
   testSelfReviewBarredOwnGateDoesNotParkCompletedWorker()
   testGenericPickAvoidsReworkReservedOwners()
+  testPickNextAutoRunsNeverReusesSpentIdForNewClaim()
   testPickNextAutoRunsDefersReworkToLiveBoundOwner()
   testNeedsInputHoldRetainsResumeState()
   testReconcileLaunchFlagsPreservesRetainedResumeShape()
@@ -2743,6 +2744,43 @@ function testGenericPickAvoidsReworkReservedOwners(): void {
   assert.equal(byTask.get('T-rework'), 'developer-1', 'the rework owner is preserved for its own task')
 }
 
+function testPickNextAutoRunsNeverReusesSpentIdForNewClaim(): void {
+  // B1/B2 contract (task-scoped roster ids, no slot recycling): a NEW claim
+  // (a todo task with no owner) may never be handed to a spent id — one that
+  // has ever owned a task (lastOwnedTaskId set), even after that task is done.
+  // The engine assignment op mints a fresh id for it; the renderer waits.
+  const spentOnlyState = sprintEngineStateFixture({
+    tasks: [
+      task({ id: 'T-done', role: 'developer', status: 'done', boardColumn: 'done', ownerAgentId: null, qualityGates: [] }),
+      task({ id: 'T-new', role: 'developer', status: 'todo', boardColumn: 'ready', ownerAgentId: null, qualityGates: [] }),
+    ],
+    sprintEngineAgents: {
+      // Spent (finished a prior task) and idle — the old recycling pick would
+      // have reused it for T-new; the task-scoped contract refuses.
+      'developer-1': runtimeAgent('developer', { lastOwnedTaskId: 'T-done' }),
+    },
+  })
+  assert.deepEqual(
+    pickNextAutoRuns(workspaceFixture(), spentOnlyState, pickInput()),
+    [],
+    'a spent id is never reused for a new claim — the engine must mint a fresh id'
+  )
+
+  // With a never-owned id present alongside the spent one (sorting first),
+  // the new claim goes to the never-owned engine-minted capacity.
+  const withFreshState = sprintEngineStateFixture({
+    tasks: [task({ id: 'T-new', role: 'developer', status: 'todo', boardColumn: 'ready', ownerAgentId: null, qualityGates: [] })],
+    sprintEngineAgents: {
+      'developer-1': runtimeAgent('developer', { lastOwnedTaskId: 'T-done' }),
+      'developer-2': runtimeAgent('developer'),
+    },
+  })
+  const candidates = pickNextAutoRuns(workspaceFixture(), withFreshState, pickInput())
+  assert.equal(candidates.length, 1)
+  assert.equal(candidates[0].taskId, 'T-new')
+  assert.equal(candidates[0].agentId, 'developer-2', 'the never-owned id takes the new claim over the spent id')
+}
+
 function testPickNextAutoRunsDefersReworkToLiveBoundOwner(): void {
   // Review finding: when the previous owner is LIVE and idle, the wake paste
   // engages it in the same cycle — spawning a second agent for the same
@@ -2804,15 +2842,17 @@ function testReconcileLaunchFlagsPreservesRetainedResumeShape(): void {
   assert.equal(agents['developer-2'].cliStartRequested, false)
 }
 
-function testQueueDepthReplenishRolesComputeDeficits(): void {
-  // MC-1444 Phase 3 trigger: a role is flagged when its ready-queue depth
-  // exceeds spawnable capacity. Bound-in-window ids are not capacity; a
-  // covered changes_requested task adds no depth; planning roles never flag.
-  const deficitState = sprintEngineStateFixture({
+function testHasUnownedReadyTaskTrigger(): void {
+  // B1/B2 execution-only supervisor: the renderer trigger is a cheap boolean
+  // with no capacity math — true when any non-planning ready task is not
+  // covered by its bound previous owner. Python owns the mint/capacity
+  // decision, so an unowned ready task fires the trigger even when a
+  // never-owned id could already take it (Python then mints nothing and the
+  // no-op park suppresses the repeat call).
+  const readyState = sprintEngineStateFixture({
     tasks: [
       task({ id: 'T0', role: 'developer', status: 'review', boardColumn: 'review', ownerAgentId: null, qualityGates: [] }),
       task({ id: 'T1', role: 'developer', status: 'todo', boardColumn: 'ready', ownerAgentId: null, qualityGates: [] }),
-      task({ id: 'T2', role: 'developer', status: 'todo', boardColumn: 'ready', ownerAgentId: null, qualityGates: [] }),
       task({ id: 'G1', role: 'general', status: 'todo', boardColumn: 'ready', ownerAgentId: null, qualityGates: [] }),
     ],
     sprintEngineAgents: {
@@ -2820,19 +2860,21 @@ function testQueueDepthReplenishRolesComputeDeficits(): void {
       'developer-2': runtimeAgent('developer'),
     },
   })
-  assert.deepEqual(
-    getSprintEngineQueueDepthReplenishRoles(deficitState),
-    ['developer'],
-    'two ready tasks vs one spawnable id flags the role; the window-bound id is not capacity; the planning role never flags'
+  assert.equal(
+    sprintEngineHasUnownedReadyTask(readyState),
+    true,
+    'an unowned ready implementation task fires the trigger regardless of never-owned capacity; the planning-role task alone would not'
   )
 
-  const coveredState = sprintEngineStateFixture({
-    tasks: [task({ id: 'T1', role: 'developer', status: 'todo', boardColumn: 'ready', ownerAgentId: null, qualityGates: [] })],
-    sprintEngineAgents: {
-      'developer-2': runtimeAgent('developer'),
-    },
+  const planningOnlyState = sprintEngineStateFixture({
+    tasks: [task({ id: 'G1', role: 'general', status: 'todo', boardColumn: 'ready', ownerAgentId: null, qualityGates: [] })],
+    sprintEngineAgents: {},
   })
-  assert.deepEqual(getSprintEngineQueueDepthReplenishRoles(coveredState), [], 'capacity covering depth flags nothing')
+  assert.equal(
+    sprintEngineHasUnownedReadyTask(planningOnlyState),
+    false,
+    'a ready planning-role task never fires the trigger'
+  )
 
   const reworkState = sprintEngineStateFixture({
     tasks: [task({ id: 'T1', role: 'developer', status: 'changes_requested', boardColumn: 'changes_requested', ownerAgentId: null, qualityGates: [] })],
@@ -2840,34 +2882,10 @@ function testQueueDepthReplenishRolesComputeDeficits(): void {
       'developer-1': runtimeAgent('developer', { lastOwnedTaskId: 'T1' }),
     },
   })
-  assert.deepEqual(
-    getSprintEngineQueueDepthReplenishRoles(reworkState),
-    [],
-    'rework covered by its bound previous owner adds no depth'
-  )
-
-  // Review findings: a LIVE done-lastOwned terminal (retirement deferred,
-  // e.g. visible tab) is not capacity — without the liveness exclusion the
-  // whole role queue stalls behind the watched terminal; and triage-pending
-  // tasks add no depth (Python's task_is_ready refuses them).
-  const watchedState = sprintEngineStateFixture({
-    tasks: [
-      task({ id: 'T-done', role: 'developer', status: 'done', boardColumn: 'done', ownerAgentId: null, qualityGates: [] }),
-      task({ id: 'T-next', role: 'developer', status: 'todo', boardColumn: 'ready', ownerAgentId: null, qualityGates: [] }),
-    ],
-    sprintEngineAgents: {
-      'developer-1': runtimeAgent('developer', { lastOwnedTaskId: 'T-done' }),
-    },
-  })
-  assert.deepEqual(
-    getSprintEngineQueueDepthReplenishRoles(watchedState, new Set(['developer-1'])),
-    ['developer'],
-    'a live done-lastOwned terminal is not capacity — the role needs a mint'
-  )
-  assert.deepEqual(
-    getSprintEngineQueueDepthReplenishRoles(watchedState, new Set()),
-    [],
-    'the same id counts once disposed (it respawns fresh)'
+  assert.equal(
+    sprintEngineHasUnownedReadyTask(reworkState),
+    false,
+    'rework covered by its bound previous owner is not unowned — no trigger'
   )
 
   const triageState = sprintEngineStateFixture({
@@ -2876,10 +2894,20 @@ function testQueueDepthReplenishRolesComputeDeficits(): void {
     ],
     sprintEngineAgents: {},
   })
-  assert.deepEqual(
-    getSprintEngineQueueDepthReplenishRoles(triageState),
-    [],
-    'triage-pending tasks add no depth (Python would refuse to fill them)'
+  assert.equal(
+    sprintEngineHasUnownedReadyTask(triageState),
+    false,
+    'triage-pending tasks never fire the trigger (Python would refuse to fill them)'
+  )
+
+  const idleState = sprintEngineStateFixture({
+    tasks: [task({ id: 'T-done', role: 'developer', status: 'done', boardColumn: 'done', ownerAgentId: null, qualityGates: [] })],
+    sprintEngineAgents: { 'developer-1': runtimeAgent('developer', { lastOwnedTaskId: 'T-done' }) },
+  })
+  assert.equal(
+    sprintEngineHasUnownedReadyTask(idleState),
+    false,
+    'no ready implementation work leaves the trigger off'
   )
 }
 

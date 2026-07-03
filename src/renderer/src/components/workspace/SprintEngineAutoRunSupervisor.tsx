@@ -37,7 +37,7 @@ import {
   type SprintEngineDispatchAttempt,
   type SprintEngineDispatchNotificationInput,
   getSprintEngineDispatchPlanEngagedAgentIds,
-  getSprintEngineQueueDepthReplenishRoles,
+  sprintEngineHasUnownedReadyTask,
   updateSprintEngineIdleClock,
   type SprintEngineDispatchPlan,
   type SprintEngineDispatchPath,
@@ -1672,19 +1672,20 @@ async function replenishRetiredRosterCapacity(
   if (deriveSprintEngineAutomationMode(autoState) === 'manual') return { status: 'none' }
   const hasRetiredAgent = Object.values(sprintEngineState.sprintEngineAgents)
     .some((agent) => agent.status === 'retired')
-  // MC-1444 Phase 3: with one agent session per task, a role's parallel
-  // throughput is bounded by its spawnable roster ids — trigger a queue-depth
-  // top-up when ready depth exceeds capacity. The Python command recomputes
-  // both authoritatively; maxNew carries the local concurrency ceiling.
-  let queueDepthRoles = getSprintEngineQueueDepthReplenishRoles(sprintEngineState, liveAgentIds)
-  const fingerprint = `${sprintEngineState.updatedAt ?? ''}|${queueDepthRoles.join(',')}`
+  // B1/B2 execution-only supervisor: with one agent session per task, every
+  // unowned ready task needs a fresh never-reused id. The renderer only decides
+  // WHETHER to call the assignment op; the Python command owns the mint/capacity
+  // decision authoritatively under the run lock. maxNew carries the local
+  // concurrency ceiling.
+  let wantsQueueDepthReplenish = sprintEngineHasUnownedReadyTask(sprintEngineState)
+  const fingerprint = `${sprintEngineState.updatedAt ?? ''}|${wantsQueueDepthReplenish ? 'ready' : ''}`
   if (
-    queueDepthRoles.length > 0
+    wantsQueueDepthReplenish
     && lastNoopQueueDepthReplenishFingerprint.get(workspace.id) === fingerprint
   ) {
-    queueDepthRoles = []
+    wantsQueueDepthReplenish = false
   }
-  if (!hasRetiredAgent && queueDepthRoles.length === 0) return { status: 'none' }
+  if (!hasRetiredAgent && !wantsQueueDepthReplenish) return { status: 'none' }
 
   // Live used terminals are neither wakeable for new tasks nor spawnable, so
   // Python must not count them as capacity either — the renderer owns
@@ -1694,7 +1695,7 @@ async function replenishRetiredRosterCapacity(
   )
   const result = await defaultExecutorPorts.replenishSprintEngineRoster({
     statePath: workspace.sprintEngineContext.statePath,
-    ...(queueDepthRoles.length > 0
+    ...(wantsQueueDepthReplenish
       ? {
         queueDepth: true,
         maxNew: Math.max(1, Math.min(10, autoState.maxConcurrentAgents ?? 3)),
@@ -1718,7 +1719,7 @@ async function replenishRetiredRosterCapacity(
   const created = ((result.data as { tool?: { created?: unknown[] } } | undefined)?.tool?.created ?? []).length
   // Park the queue-depth trigger on a no-mint outcome until the projection
   // changes; a mint clears the park so convergence keeps flowing.
-  if (queueDepthRoles.length > 0) {
+  if (wantsQueueDepthReplenish) {
     if (created <= 0) lastNoopQueueDepthReplenishFingerprint.set(workspace.id, fingerprint)
     else lastNoopQueueDepthReplenishFingerprint.delete(workspace.id)
   }
