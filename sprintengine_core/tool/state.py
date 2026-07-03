@@ -161,6 +161,36 @@ def ensure_agent_in_roster(state: Dict[str, Any], agent_id: str, role: str, *, a
         raise SystemExit(f"Agent {agent_id!r} is rostered as {existing_agent.get('role')!r}, not {role!r}.")
 
 
+def lazily_register_reviewer_id(state: Dict[str, Any], agent_id: str, role: str, *, actor: str = "sprintengine") -> bool:
+    """Register a reviewer role's persistent id on its first gate claim.
+
+    Gate work never mints a fresh id per gate: the first gate dispatch/claim for a
+    role whose persistent reviewer id is not yet seated registers that exact id in
+    run.yaml (under the gate-queue lock the caller already holds), and every later
+    gate claim by the same role reuses it. The id the caller supplies is the role's
+    deterministic reviewer id (bare ``<role>``), so the renderer can target it for
+    spawn. Registration goes through the normal agent path and never appends to
+    ``ownedTaskIds``, so a reviewer id is never task-capped. Returns True when a new
+    roster entry was created (so the caller can persist the write).
+
+    A legacy/headless run with no configured roster keeps ad-hoc identity: presence
+    is not required and downstream ``ensure_agent`` creates the record, so this does
+    not flip such a run into configured-roster mode.
+    """
+    role = require_configured_role(role, context="Gate role")
+    existing = state.get("agents", {}).get(agent_id)
+    if agent_is_retired(existing):
+        raise SystemExit(f"Agent {agent_id!r} is retired and cannot claim more Sprint Engine work.")
+    if not roster_is_configured(state):
+        return False
+    if isinstance(existing, dict):
+        if existing.get("role") != role:
+            raise SystemExit(f"Agent {agent_id!r} is rostered as {existing.get('role')!r}, not {role!r}.")
+        return False
+    add_roster_agent(state, role, agent_id, actor)
+    return True
+
+
 def add_roster_agent(state: Dict[str, Any], role: str, agent_id: str, actor: str) -> Dict[str, Any]:
     role = require_configured_role(role, context="Roster")
     clean_id = agent_id.strip()

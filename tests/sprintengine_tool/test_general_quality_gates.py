@@ -14,6 +14,8 @@ from __future__ import annotations
 
 import json
 
+import pytest
+
 from sprintengine_core import store
 from sprintengine_core.tool.gates import gate_is_claimable_for_role, latest_implementer_agent_id
 
@@ -175,3 +177,125 @@ def test_init_without_configured_roles_omits_key(tmp_path) -> None:
     cli = SwarmCli(state_path)
     cli.run("init", "--name", "init-no-configured-roles", "--agent", "developer:developer-1")
     assert "configuredRoles" not in read_state(state_path)
+
+
+# --- Reviewer persistent id: lazy-register on first gate dispatch (A2b) --------
+#
+# Under a lazy architect-only roster no reviewer ids are seeded, but a required
+# reviewer gate (derived from configuredRoles) must still be claimable. The first
+# gate dispatch/claim for such a role registers its deterministic persistent id
+# (bare `<role>`) once; every later gate claim reuses it, and gate work never
+# appends to ownedTaskIds so a reviewer id is never task-capped.
+
+
+def _configured_roster(*roles: str) -> dict:
+    state = roster(*roles)
+    state["events"] = []
+    return state
+
+
+def test_lazily_register_reviewer_id_registers_once_then_reuses() -> None:
+    from sprintengine_core.tool.state import lazily_register_reviewer_id
+
+    state = _configured_roster("architect")  # architect-only lazy roster, no reviewer seeded
+    assert lazily_register_reviewer_id(state, "code_reviewer", "code_reviewer") is True
+    assert state["agents"]["code_reviewer"]["role"] == "code_reviewer"
+    assert "ownedTaskIds" not in state["agents"]["code_reviewer"]
+    # A second gate claim by the same role reuses the persisted id — never re-minted.
+    assert lazily_register_reviewer_id(state, "code_reviewer", "code_reviewer") is False
+    reviewer_ids = [aid for aid, agent in state["agents"].items() if agent.get("role") == "code_reviewer"]
+    assert reviewer_ids == ["code_reviewer"]
+    assert len([e for e in state["events"] if e.get("type") == "roster_member_added"]) == 1
+
+
+def test_lazily_register_reviewer_id_rejects_role_mismatch() -> None:
+    from sprintengine_core.tool.state import lazily_register_reviewer_id
+
+    state = _configured_roster("architect")
+    lazily_register_reviewer_id(state, "code_reviewer", "code_reviewer")
+    with pytest.raises(SystemExit):
+        lazily_register_reviewer_id(state, "code_reviewer", "tester")
+
+
+def test_lazily_register_reviewer_id_rejects_retired_agent() -> None:
+    from sprintengine_core.tool.state import lazily_register_reviewer_id
+
+    state = _configured_roster("architect")
+    state["agents"]["code_reviewer"] = {"role": "code_reviewer", "status": "retired"}
+    with pytest.raises(SystemExit):
+        lazily_register_reviewer_id(state, "code_reviewer", "code_reviewer")
+
+
+def test_lazily_register_reviewer_id_noop_on_unconfigured_roster() -> None:
+    from sprintengine_core.tool.state import lazily_register_reviewer_id
+
+    # Legacy/headless run: no configured roster -> ad-hoc identity, no registration,
+    # and the run is never flipped into configured-roster mode.
+    state = {"sprintengine": {}, "agents": {}, "events": []}
+    assert lazily_register_reviewer_id(state, "code_reviewer", "code_reviewer") is False
+    assert "code_reviewer" not in state["agents"]
+    assert state["sprintengine"].get("rosterConfigured") is not True
+
+
+def _review_task(task_id: str, gate_id: str) -> dict:
+    from helpers import task
+
+    record = task(task_id, "Gated implementation", "developer", "review", owner="developer-1")
+    record["qualityGates"] = [
+        {
+            "id": gate_id,
+            "phase": "review",
+            "role": "code_reviewer",
+            "status": "pending",
+            "required": True,
+            "allowSelfReview": False,
+            "focus": "Review implementation.",
+            "attempts": [],
+        }
+    ]
+    return record
+
+
+def test_gate_claim_lazily_registers_reviewer_id_and_reuses_it(tmp_path) -> None:
+    # End-to-end through the gate CLI: from an architect-only configured roster,
+    # claiming a required code_reviewer gate creates code_reviewer's persistent id
+    # once; a second gate claim by the same role reuses it (no per-gate mint).
+    from helpers import SwarmCli, base_state, read_state, write_state
+
+    state_path = tmp_path / ".multi-code" / "sprintengine" / "reviewer-lazy-register" / "run.yaml"
+    state = base_state(
+        "reviewer-lazy-register",
+        [_review_task("T1", "code-review-1"), _review_task("T2", "code-review-2")],
+    )
+    state["sprintengine"]["rosterConfigured"] = True
+    state["agents"] = {"architect-1": {"role": "architect", "status": "idle", "subscription": {"mode": "none"}}}
+    state["configuredRoles"] = ["developer", "code_reviewer", "tester"]
+    write_state(state_path, state)
+    cli = SwarmCli(state_path)
+
+    first = cli.run("task", "gate", "next", "--role", "code_reviewer", "--id", "code_reviewer")
+    assert first["claimed"] is True
+    seated = read_state(state_path)["agents"]["code_reviewer"]
+    assert seated["role"] == "code_reviewer"
+    assert "ownedTaskIds" not in seated  # gate work never task-caps a reviewer id
+
+    cli.run(
+        "task", "gate", "verdict",
+        "--task-id", first["task"]["id"], "--gate-id", first["gate"]["id"],
+        "--role", "code_reviewer", "--id", "code_reviewer",
+        "--verdict", "approved", "--summary", "Looks good.",
+    )
+
+    second = cli.run("task", "gate", "next", "--role", "code_reviewer", "--id", "code_reviewer")
+    assert second["claimed"] is True
+    assert second["task"]["id"] != first["task"]["id"]  # a genuine second claim, not a resume
+
+    final = read_state(state_path)
+    reviewer_ids = [aid for aid, agent in final["agents"].items() if agent.get("role") == "code_reviewer"]
+    assert reviewer_ids == ["code_reviewer"]  # deterministic bare id, registered exactly once
+    registrations = [
+        e for e in final["events"]
+        if e.get("type") == "roster_member_added" and "code_reviewer" in (e.get("message") or "")
+    ]
+    assert len(registrations) == 1
+    assert "ownedTaskIds" not in final["agents"]["code_reviewer"]
