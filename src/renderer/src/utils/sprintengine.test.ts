@@ -48,6 +48,7 @@ import {
   deriveSprintEngineRunGlyph,
   sprintEngineRoleOrder,
   sprintEngineRunAwaitsHumanInput,
+  shouldResumeRecordedRosterSession,
 } from './sprintengine'
 import { taskGraphEdgeStyle, taskGraphEndEdgeStyle } from '../components/panels/sprintEngineTaskGraph'
 import { sprintEngineGateAttemptVisualState } from '../components/panels/sprintEngineInspector'
@@ -70,7 +71,7 @@ import {
   buildSprintEngineRecoveryAuditPrompt,
   buildSprintEngineRosterRevisionPrompt,
 } from './sprintenginePlanReviewPrompts'
-import type { SprintEngineRoleId, SprintEngineRoleRegistry, SprintEngineTask } from '../types/workspace'
+import type { SprintEngineRoleId, SprintEngineRoleRegistry, SprintEngineState, SprintEngineTask } from '../types/workspace'
 
 function fakeProjection(overrides: Partial<Record<string, unknown>> = {}): Record<string, unknown> {
   return {
@@ -2740,6 +2741,92 @@ type FakeTask = { role: string; status: SprintEngineTask['status'] }
   assert.equal(eligibility.reason, 'Unknown artifact type.')
   assert.equal(sprintEngineArtifactKindLabel('frontend_design'), 'frontend_design', 'unknown kind labels fall back to the raw value')
   assert.equal(sprintEngineArtifactKindLabel('design_notes'), 'Design Notes')
+}
+
+// shouldResumeRecordedRosterSession — B4 mid-run re-open resume (T6 tester rework)
+{
+  const task = (id: string, status: string): SprintEngineTask => ({ id, status } as unknown as SprintEngineTask)
+  const ownedBy = (lastOwnedTaskId: string | null): SprintEngineState['sprintEngineAgents'][string] =>
+    ({ lastOwnedTaskId } as unknown as SprintEngineState['sprintEngineAgents'][string])
+  const state = (
+    tasks: SprintEngineTask[],
+    agents: Record<string, SprintEngineState['sprintEngineAgents'][string]>,
+  ): SprintEngineState => ({ tasks, sprintEngineAgents: agents } as unknown as SprintEngineState)
+
+  // 1. Whole run complete → resume regardless of the agent's own task.
+  assert.equal(
+    shouldResumeRecordedRosterSession({
+      sprintEngineState: state([task('T1', 'done')], {}),
+      autoRuntimeState: undefined,
+      agentId: 'developer-1',
+    }),
+    true,
+    'a completed run resumes any recorded roster session',
+  )
+
+  // 2. Mid-run: the departed worker's own task is done → resume (B4 regression).
+  assert.equal(
+    shouldResumeRecordedRosterSession({
+      sprintEngineState: state(
+        [task('T1', 'done'), task('T2', 'in_progress')],
+        { 'developer-1': ownedBy('T1') },
+      ),
+      autoRuntimeState: undefined,
+      agentId: 'developer-1',
+    }),
+    true,
+    'mid-run departed worker whose own task is done resumes its recorded session',
+  )
+
+  // 3. Mid-run: the owner's task is still in its verdict/rework window → fresh.
+  assert.equal(
+    shouldResumeRecordedRosterSession({
+      sprintEngineState: state(
+        [task('T1', 'review'), task('T2', 'in_progress')],
+        { 'developer-1': ownedBy('T1') },
+      ),
+      autoRuntimeState: undefined,
+      agentId: 'developer-1',
+    }),
+    false,
+    'a worker still in its rework window is not treated as departed',
+  )
+
+  // 4. Stale prior-run entry: the id has not re-owned a done task this run → fresh.
+  assert.equal(
+    shouldResumeRecordedRosterSession({
+      sprintEngineState: state([task('T1', 'in_progress')], { 'developer-1': ownedBy(null) }),
+      autoRuntimeState: undefined,
+      agentId: 'developer-1',
+    }),
+    false,
+    'a recorded id with no done owned task this run cannot hijack a fresh spawn',
+  )
+
+  // 4b. Agent absent from this run's roster entirely → fresh.
+  assert.equal(
+    shouldResumeRecordedRosterSession({
+      sprintEngineState: state([task('T1', 'in_progress')], {}),
+      autoRuntimeState: undefined,
+      agentId: 'developer-1',
+    }),
+    false,
+    'an id absent from this run\'s roster is not resumed',
+  )
+
+  // 5. Cold reopen (projection not hydrated) but persisted lifecycle complete → resume.
+  assert.equal(
+    shouldResumeRecordedRosterSession({ sprintEngineState: null, autoRuntimeState: 'complete', agentId: 'developer-1' }),
+    true,
+    'cold reopen of a complete run resumes from the persisted lifecycle state',
+  )
+
+  // 6. Cold reopen, lifecycle not complete → fresh.
+  assert.equal(
+    shouldResumeRecordedRosterSession({ sprintEngineState: null, autoRuntimeState: undefined, agentId: 'developer-1' }),
+    false,
+    'cold reopen without a complete lifecycle spawns fresh',
+  )
 }
 
 // eslint-disable-next-line no-console

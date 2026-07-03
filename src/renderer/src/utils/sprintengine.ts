@@ -153,6 +153,40 @@ export function isCompletedSprintEngineRun(state: Pick<SprintEngineState, 'tasks
   return state.tasks.length > 0 && state.tasks.every((task) => task.status === 'done')
 }
 
+/**
+ * Whether re-opening a roster agent from the board should resume its recorded
+ * session (`sprintEngineRosterSessions[agentId]`) instead of spawning fresh.
+ *
+ * Two cases record a session and want resume-on-reopen:
+ *  1. Whole-run completion teardown (`tearDownCompletedSprintRunAgents`).
+ *  2. Mid-run departed-worker teardown (B4, `tearDownDepartedTaskScopedWorker`):
+ *     a task-scoped worker whose own task is already `done` is permanently
+ *     departed and torn down while the run still executes.
+ *
+ * The mid-run case is judged from THIS run's roster: the agent must be a current
+ * runtime agent whose `lastOwnedTaskId` is a task that is `done` in the current
+ * `tasks`. A stale recorded entry left by a *prior* run on the same workspace
+ * fails that check (its id has not re-owned a done task this run), so it can
+ * never hijack a fresh spawn — the guard the run-complete gate provided is kept.
+ * On a cold reopen the projection may not be hydrated yet, so `runComplete`
+ * falls back to the persisted lifecycle `runtimeState`.
+ */
+export function shouldResumeRecordedRosterSession(input: {
+  sprintEngineState: SprintEngineState | null | undefined
+  autoRuntimeState: SprintEngineAutomationRuntimeState | undefined
+  agentId: AgentId
+}): boolean {
+  const { sprintEngineState, autoRuntimeState, agentId } = input
+  const runComplete = sprintEngineState
+    ? isCompletedSprintEngineRun(sprintEngineState)
+    : autoRuntimeState === 'complete'
+  if (runComplete) return true
+
+  const ownedTaskId = sprintEngineState?.sprintEngineAgents?.[agentId]?.lastOwnedTaskId
+  if (!ownedTaskId) return false
+  return sprintEngineState?.tasks.some((task) => task.id === ownedTaskId && task.status === 'done') ?? false
+}
+
 // One run, one glyph, derived purely from sprint state — the task board plus the
 // AutoRun runtime. Terminals are deliberately NOT consulted: an agent terminal
 // sitting at (or stuck at) a prompt is ephemeral and must never make a whole

@@ -9,7 +9,7 @@ import type {
 } from '../../../types/workspace'
 import { addAgentTabTiled, focusOrAddAgentTab, hasAgentTab } from '../../../utils/modelRegistry'
 import { agentCliSupportsConversationResume } from '../../../utils/agentCliResume'
-import { getSprintEngineRoleLabel, isCompletedSprintEngineRun, type SprintEngineAgentRosterItem } from '../../../utils/sprintengine'
+import { getSprintEngineRoleLabel, shouldResumeRecordedRosterSession, type SprintEngineAgentRosterItem } from '../../../utils/sprintengine'
 import { prependAgentIdentifier } from '../../../utils/agentPrompt'
 import { publishDiagnostic } from '../../../utils/diagnostics'
 import {
@@ -373,21 +373,20 @@ export function useSprintEngineBoardTerminalActions(
     const fallbackLabel = rosterById[agentId]?.label ?? agentId
     const label = getAgentName(agentId, fallbackLabel)
 
-    // Prefer resuming the role's recorded session (completion teardown removed
-    // the panel but kept the session), so re-opening a finished run's agent
-    // continues its conversation instead of starting fresh. Gated on the run
-    // being complete: the map is only written at teardown, so a recorded entry
-    // seen during a *new* run on the same workspace is stale from the prior run
-    // and must not hijack a fresh spawn. Only when there is no live terminal and
-    // the recorded CLI supports conversation resume.
+    // Prefer resuming the role's recorded session (teardown removed the panel
+    // but kept the session), so re-opening a departed agent continues its
+    // conversation instead of starting fresh. Resume covers both whole-run
+    // completion teardown and mid-run departed-worker teardown (B4); a stale
+    // recorded entry from a prior run on the same workspace still can't hijack a
+    // fresh spawn (see `shouldResumeRecordedRosterSession`). Only when there is
+    // no live terminal and the recorded CLI supports conversation resume.
     const recorded = workspace?.sprintEngineRosterSessions?.[agentId]
-    // On a cold reopen the projection may not be hydrated yet (the supervisor's
-    // first read is in flight); fall back to the persisted lifecycle state so a
-    // click in that window still resumes instead of minting a fresh session.
-    const runComplete = sprintEngineState
-      ? isCompletedSprintEngineRun(sprintEngineState)
-      : workspace?.sprintEngineAutoState?.runtimeState === 'complete'
-    if (runComplete && recorded?.cliSessionId && agentCliSupportsConversationResume(recorded.cli)) {
+    const shouldResume = shouldResumeRecordedRosterSession({
+      sprintEngineState,
+      autoRuntimeState: workspace?.sprintEngineAutoState?.runtimeState,
+      agentId,
+    })
+    if (shouldResume && recorded?.cliSessionId && agentCliSupportsConversationResume(recorded.cli)) {
       await startAgentTerminalWhenReady(agentId, label, recorded.cli, {
         agentName: getCustomAgentName(agentId, fallbackLabel),
         resumeSessionId: recorded.cliSessionId,
