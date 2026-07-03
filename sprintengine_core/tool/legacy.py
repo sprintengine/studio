@@ -437,6 +437,11 @@ def build_parser() -> argparse.ArgumentParser:
         help='JSON object of role -> {"model", "cli"} recording the roster\'s per-role CLI model selection, stamped onto each task at claim.',
     )
     p.add_argument(
+        "--configured-roles-json",
+        dest="configured_roles_json",
+        help="JSON array of the roster's enabled role ids. Quality-gate derivation selects gate roles from this set, so a lazy (architect-only) roster still derives its required reviewer/tester gates. Distinct from the seated agents and from --role-runtimes-json (which includes CLI-default roles).",
+    )
+    p.add_argument(
         "--use-worktrees",
         type=parse_bool,
         default=False,

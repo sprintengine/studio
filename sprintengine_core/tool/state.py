@@ -94,6 +94,34 @@ def apply_role_runtimes(state: Dict[str, Any], raw_json: Optional[str]) -> None:
             runtimes[role] = entry
 
 
+def apply_configured_roles(state: Dict[str, Any], raw_json: Optional[str]) -> None:
+    """Persist the run's explicit enabled-role set at init.
+
+    `raw_json` is a JSON array of role ids supplied by Multicode from the
+    workspace roster's enabled roles. This is the source of truth for quality-gate
+    derivation (see store.configured_gate_roles), so a lazy, architect-only roster
+    still derives its required reviewer/tester gates: the gate role need only be
+    enabled here, not currently seated in `agents`. Deliberately distinct from
+    `roleRuntimes`, whose keys include CLI-default roles. Blank/absent input
+    leaves the key untouched so legacy runs fall back to the seated-roster roles.
+    An explicit empty array records an empty enabled set (no derived gates).
+    """
+    if not raw_json or not str(raw_json).strip():
+        return
+    try:
+        parsed = json.loads(raw_json)
+    except (TypeError, ValueError) as error:
+        raise SystemExit(f"--configured-roles-json must be a JSON array: {error}")
+    if not isinstance(parsed, list):
+        raise SystemExit("--configured-roles-json must be a JSON array of role ids.")
+    roles: List[str] = []
+    for raw_role in parsed:
+        role = str(raw_role or "").strip()
+        if role and role not in roles:
+            roles.append(role)
+    state["configuredRoles"] = roles
+
+
 def roster_roles(state: Dict[str, Any]) -> set[str]:
     return {
         str(agent.get("role")).strip()

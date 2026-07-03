@@ -250,6 +250,35 @@ def roster_roles_from_state(state: dict[str, Any]) -> set[str]:
     }
 
 
+def configured_gate_roles(state: dict[str, Any]) -> set[str] | None:
+    """The run's explicit enabled-role set, or None for legacy runs.
+
+    `configuredRoles` is written once at init from the roster's enabled roles
+    (see apply_configured_roles). Quality-gate derivation reads it so a lazy
+    (e.g. architect-only) roster still derives its required reviewer/tester
+    gates: the gate role need not be *seated*, only *enabled*. Returns None when
+    the key is absent so legacy runs fall back to the seated-roster roles and
+    derive gates exactly as before. Deliberately not sourced from `roleRuntimes`,
+    whose keys include CLI-default roles and so are not the enabled set.
+    """
+    raw = state.get("configuredRoles")
+    if not isinstance(raw, list):
+        return None
+    return {str(role).strip() for role in raw if str(role or "").strip()}
+
+
+def resolved_gate_roles(state: dict[str, Any]) -> set[str]:
+    """The role set that quality-gate derivation selects gate roles from.
+
+    The run's enabled `configuredRoles` when present, else the seated-roster
+    roles for legacy runs. Every gate-derivation path (init derivation and the
+    later `productFacing` sync) resolves gate-role availability through here so
+    they stay consistent for lazy rosters.
+    """
+    configured = configured_gate_roles(state)
+    return configured if configured is not None else roster_roles_from_state(state)
+
+
 def roster_is_configured_in_state(state: dict[str, Any]) -> bool:
     sprintengine = state.get("sprintengine") if isinstance(state.get("sprintengine"), dict) else {}
     return bool(sprintengine.get("rosterConfigured"))
@@ -322,14 +351,19 @@ def derive_default_quality_gates(task: dict[str, Any], state: dict[str, Any], po
         return []
     if task.get("role") not in {"developer", "frontend"} and not _bool_value(task.get("producesImplementation"), False):
         return []
-    roster_roles = roster_roles_from_state(state)
-    # Derivation is roster-driven: a gate whose role is not rostered is skipped
-    # (below), so a missing reviewer never becomes an unclaimable queue. A
-    # soulless-General roster has none of the specialist reviewer roles, so no
-    # default gates are derived for it; the General instead authors its own
-    # `role: general` review/testing gates (self-approved via the
-    # `allowSelfReview` default) per the general orchestration skill. There is
-    # intentionally no default `general` gate in DEFAULT_QUALITY_POLICY.
+    # Gate roles come from the run's explicit enabled-role set (`configuredRoles`)
+    # so a lazy, architect-only roster still derives its required reviewer/tester
+    # gates — derivation keys on configuration, not on who is currently seated.
+    # Legacy runs with no `configuredRoles` fall back to the seated-roster roles
+    # and derive gates exactly as before.
+    gate_roles = resolved_gate_roles(state)
+    # A gate whose role is not in `gate_roles` is skipped (below), so a missing
+    # reviewer never becomes an unclaimable queue. A soulless-General roster has
+    # none of the specialist reviewer roles, so no default gates are derived for
+    # it; the General instead authors its own `role: general` review/testing
+    # gates (self-approved via the `allowSelfReview` default) per the general
+    # orchestration skill. There is intentionally no default `general` gate in
+    # DEFAULT_QUALITY_POLICY.
     gate_specs = policy.get("gates") if isinstance(policy.get("gates"), dict) else {}
     selected: list[dict[str, Any]] = []
 
@@ -338,7 +372,7 @@ def derive_default_quality_gates(task: dict[str, Any], state: dict[str, Any], po
         "src/main/mobile/",
         "src/shared/mobile-control/",
     )
-    if any(str(path).startswith(frontend_paths) for path in task.get("ownedPaths", []) or []) and "frontend" in roster_roles:
+    if any(str(path).startswith(frontend_paths) for path in task.get("ownedPaths", []) or []) and "frontend" in gate_roles:
         selected.append({
             "id": "frontend_review",
             "phase": "review",
@@ -359,7 +393,7 @@ def derive_default_quality_gates(task: dict[str, Any], state: dict[str, Any], po
         role = str(spec.get("role") or gate_id)
         if gate_id == "product" and not task_requires_product_gate(task):
             continue
-        if roster_configured and role not in roster_roles:
+        if role not in gate_roles:
             continue
         selected.append({
             "id": gate_id,
@@ -375,7 +409,7 @@ def derive_default_quality_gates(task: dict[str, Any], state: dict[str, Any], po
     architect_spec = gate_specs.get("architect")
     if isinstance(architect_spec, dict):
         role = str(architect_spec.get("role") or "architect")
-        if (not roster_configured or role in roster_roles) and task_requires_architect_gate(task):
+        if role in gate_roles and task_requires_architect_gate(task):
             selected.insert(0, {
                 "id": "architect_review",
                 "phase": architect_spec["phase"],
@@ -758,6 +792,15 @@ def sync_run_yaml_from_state(team_dir: Path, state: dict[str, Any]) -> None:
         if isinstance(state.get("roleRuntimes"), dict)
         else (run.get("roleRuntimes") if isinstance(run.get("roleRuntimes"), dict) else {})
     )
+    # The run's explicit enabled-role set (written at init); preserve any existing
+    # run.yaml value when in-memory state has not (re)loaded it. Absent on legacy
+    # runs — kept out of run.yaml entirely so gate derivation falls back to the
+    # seated roster (see derive_default_quality_gates).
+    configured_roles = (
+        state.get("configuredRoles")
+        if isinstance(state.get("configuredRoles"), list)
+        else (run.get("configuredRoles") if isinstance(run.get("configuredRoles"), list) else None)
+    )
     creation = run.get("creation") if isinstance(run.get("creation"), dict) else {}
     runner_policy = normalize_runner_policy(state.get("runner") if isinstance(state.get("runner"), dict) else run.get("runner"))
     quality_policy = normalize_quality_fields(state, run)
@@ -802,6 +845,10 @@ def sync_run_yaml_from_state(team_dir: Path, state: dict[str, Any]) -> None:
     for key in RUN_SOURCE_KEYS:
         if key in state:
             run[key] = state[key]
+    if configured_roles is not None:
+        run["configuredRoles"] = configured_roles
+    else:
+        run.pop("configuredRoles", None)
     run["creation"] = creation or {"source": "folder_store", "createdAt": now_iso()}
     atomic_write_yaml(team_dir / RUN_FILE, run)
 
@@ -1013,6 +1060,10 @@ def state_from_folder_store(team_dir: Path) -> dict[str, Any]:
         "roles": roles,
         "roleRuntimes": role_runtimes,
     }
+    # Only reconstruct `configuredRoles` when present so legacy runs stay absent
+    # and gate derivation falls back to the seated roster.
+    if isinstance(run.get("configuredRoles"), list):
+        state["configuredRoles"] = run["configuredRoles"]
     for key in RUN_SOURCE_KEYS:
         if key in run:
             state[key] = run[key]
