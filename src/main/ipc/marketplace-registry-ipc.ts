@@ -2,8 +2,8 @@ import { app, type IpcMain } from 'electron'
 
 import type { MarketplaceRegistryReadInput, MarketplaceRegistryReadResult } from '../../shared/electron-api'
 import {
-  DEFAULT_MARKETPLACE_REGISTRY_URL,
   MarketplaceRegistryClient,
+  configuredMarketplaceRegistryUrl,
   defaultMarketplaceRegistryCachePath,
 } from '../marketplace/registry-client'
 
@@ -45,7 +45,7 @@ export function registerMarketplaceRegistryIpc(
         return {
           ok: false,
           state: 'fetch-error',
-          registryUrl: DEFAULT_MARKETPLACE_REGISTRY_URL,
+          registryUrl: configuredMarketplaceRegistryUrl(),
           stale: false,
           message: formatError(error),
         }
@@ -56,6 +56,7 @@ export function registerMarketplaceRegistryIpc(
 
 function createDefaultMarketplaceRegistryClient(): MarketplaceRegistryClient {
   return new MarketplaceRegistryClient({
+    registryUrl: configuredMarketplaceRegistryUrl(),
     cachePath: defaultMarketplaceRegistryCachePath(app.getPath('userData')),
   })
 }
@@ -73,7 +74,7 @@ function invalidReadInputResult(): { ok: false; result: MarketplaceRegistryReadR
     result: {
       ok: false,
       state: 'fetch-error',
-      registryUrl: DEFAULT_MARKETPLACE_REGISTRY_URL,
+      registryUrl: configuredMarketplaceRegistryUrl(),
       stale: false,
       message: 'Invalid marketplace registry read input.',
     },

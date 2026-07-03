@@ -9,6 +9,7 @@ import { registerMarketplaceRegistryIpc } from '../ipc/marketplace-registry-ipc'
 import {
   DEFAULT_MARKETPLACE_REGISTRY_URL,
   MarketplaceRegistryClient,
+  configuredMarketplaceRegistryUrl,
   type MarketplaceRegistryFetch,
 } from './registry-client'
 import { findMarketplaceResourcePath } from './resources'
@@ -30,6 +31,9 @@ async function main(): Promise<void> {
   await testLiveSuccessPrecedesPackagedSeed()
   await testHttp404WithCacheServesStaleCacheBeforeSeed()
   await testHttp404WithoutCacheFallsBackToPackagedSeed()
+  await testEnvOverrideConfiguresRegistryUrl()
+  await testConfiguredUrlOverrideReadsIndexWithEtagRoundTrip()
+  await testSeedFallbackFiresUnderNonDefaultUrl()
   await testMarketplaceResourceResolutionOrder()
   await testInvalidSchemaDoesNotSilentlyUseCache()
   await testRejectsNonHttpsRegistryUrl()
@@ -257,6 +261,7 @@ async function testOfflineWithoutCacheIsExplicitFailure(): Promise<void> {
     const client = new MarketplaceRegistryClient({
       registryUrl: REGISTRY_URL,
       cachePath: join(dir, 'cache.json'),
+      packagedSeedPath: null,
       fetcher: async () => {
         throw new Error('dns lookup failed')
       },
@@ -278,6 +283,7 @@ async function testFetchErrorIsDistinct(): Promise<void> {
     const client = new MarketplaceRegistryClient({
       registryUrl: REGISTRY_URL,
       cachePath: join(dir, 'cache.json'),
+      packagedSeedPath: null,
       fetcher: async () => new Response('missing', { status: 404 }),
     })
 
@@ -381,6 +387,94 @@ async function testHttp404WithoutCacheFallsBackToPackagedSeed(): Promise<void> {
     assert.match(result.message, /HTTP 404/)
     assert.match(result.message, /packaged marketplace registry seed/i)
     await assert.rejects(readFile(cachePath, 'utf8'), /ENOENT/)
+  })
+}
+
+async function testEnvOverrideConfiguresRegistryUrl(): Promise<void> {
+  assert.equal(
+    DEFAULT_MARKETPLACE_REGISTRY_URL,
+    'https://raw.githubusercontent.com/multicode-labs/marketplace/main/marketplace.json'
+  )
+  assert.equal(configuredMarketplaceRegistryUrl({}), DEFAULT_MARKETPLACE_REGISTRY_URL)
+  assert.equal(
+    configuredMarketplaceRegistryUrl({ MULTICODE_MARKETPLACE_REGISTRY_URL: '   ' }),
+    DEFAULT_MARKETPLACE_REGISTRY_URL
+  )
+  assert.equal(
+    configuredMarketplaceRegistryUrl({
+      MULTICODE_MARKETPLACE_REGISTRY_URL: ' https://catalogue.example.com/v1/registry ',
+    }),
+    'https://catalogue.example.com/v1/registry'
+  )
+}
+
+async function testConfiguredUrlOverrideReadsIndexWithEtagRoundTrip(): Promise<void> {
+  await withTempDir(async (dir) => {
+    const catalogueUrl = 'https://catalogue.example.com/v1/registry'
+    const requests: FetchRequest[] = []
+    const responses = [
+      jsonResponse(validMarketplace(), { headers: { etag: '"cat-v1"' } }),
+      notModifiedResponse('"cat-v1"'),
+    ]
+    const fetcher: MarketplaceRegistryFetch = async (url, init) => {
+      requests.push({ url, init })
+      const response = responses.shift()
+      assert.ok(response, 'test fetcher exhausted')
+      return response
+    }
+    const client = new MarketplaceRegistryClient({
+      registryUrl: configuredMarketplaceRegistryUrl({ MULTICODE_MARKETPLACE_REGISTRY_URL: catalogueUrl }),
+      cachePath: join(dir, 'cache.json'),
+      fetcher,
+      now: () => new Date('2026-06-16T00:00:00.000Z'),
+    })
+
+    const fresh = await client.read()
+
+    assert.equal(fresh.ok, true)
+    if (!fresh.ok) return
+    assert.equal(fresh.state, 'ok')
+    assert.equal(fresh.source, 'network')
+    assert.equal(fresh.registryUrl, catalogueUrl)
+    assert.equal(requests[0].url, catalogueUrl)
+
+    const cached = await client.read()
+
+    assert.equal(cached.ok, true)
+    if (!cached.ok) return
+    assert.equal(cached.state, 'ok')
+    assert.equal(cached.source, 'cache')
+    assert.equal(cached.notModified, true)
+    assert.equal(cached.registryUrl, catalogueUrl)
+    assert.equal(requestHeaders(requests[1].init)['if-none-match'], '"cat-v1"')
+  })
+}
+
+async function testSeedFallbackFiresUnderNonDefaultUrl(): Promise<void> {
+  await withTempDir(async (dir) => {
+    const catalogueUrl = 'https://catalogue.example.com/v1/registry'
+    const seedPath = join(dir, 'seed', 'marketplace.json')
+    await writeMarketplace(seedPath, validMarketplace([validPlugin({ id: 'seed-helper', name: 'Seed Helper' })]))
+    const client = new MarketplaceRegistryClient({
+      registryUrl: catalogueUrl,
+      cachePath: join(dir, 'cache.json'),
+      packagedSeedPath: seedPath,
+      fetcher: async () => {
+        throw new Error('network unavailable')
+      },
+      now: () => new Date('2026-06-16T00:00:00.000Z'),
+    })
+
+    const result = await client.read()
+
+    assert.equal(result.ok, true)
+    if (!result.ok) return
+    assert.equal(result.state, 'offline')
+    assert.equal(result.source, 'seed')
+    assert.equal(result.stale, false)
+    assert.equal(result.registryUrl, catalogueUrl)
+    assert.equal(result.marketplace.plugins[0].id, 'seed-helper')
+    assert.match(result.message, /packaged marketplace registry seed/i)
   })
 }
 
