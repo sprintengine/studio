@@ -33,6 +33,7 @@ async function main(): Promise<void> {
   await testHttp404WithoutCacheFallsBackToPackagedSeed()
   await testEnvOverrideConfiguresRegistryUrl()
   await testConfiguredUrlOverrideReadsIndexWithEtagRoundTrip()
+  await testCatalogueAndGithubRawYieldEquivalentEntries()
   await testSeedFallbackFiresUnderNonDefaultUrl()
   await testMarketplaceResourceResolutionOrder()
   await testInvalidSchemaDoesNotSilentlyUseCache()
@@ -448,6 +449,63 @@ async function testConfiguredUrlOverrideReadsIndexWithEtagRoundTrip(): Promise<v
     assert.equal(cached.registryUrl, catalogueUrl)
     assert.equal(requestHeaders(requests[1].init)['if-none-match'], '"cat-v1"')
   })
+}
+
+async function testCatalogueAndGithubRawYieldEquivalentEntries(): Promise<void> {
+  // Registry parity: the HotStack catalogue endpoint (/v1/registry) and the
+  // GitHub-raw default must be interchangeable transports — the SAME index bytes
+  // read through either URL parse to identical entries, and each does the ETag
+  // capture + 304-round-trip. Proves the client is transport-agnostic (a payload
+  // that parses under one URL and not the other would be a real parity break).
+  const payload = validMarketplace([
+    validPlugin({ id: 'dev-helper', provides: ['mcp', 'skills'] }),
+    validPlugin({ id: 'inline-weather', name: 'Weather', category: 'data', source: undefined, signature: undefined, provides: ['mcp'], mcp: { servers: [{ id: 'weather', name: 'Weather', transport: 'stdio', command: 'npx', args: ['weather-mcp'], enabled: true, clients: ['claude-code'], scope: 'workspace', source: 'custom', riskLevel: 'low' }] } }),
+  ])
+
+  async function readVia(registryUrl: string): Promise<MarketplaceRegistryReadResult> {
+    return withTempDir(async (dir) => {
+      const responses = [
+        jsonResponse(payload, { headers: { etag: '"parity-v1"' } }),
+        notModifiedResponse('"parity-v1"'),
+      ]
+      const requests: FetchRequest[] = []
+      const fetcher: MarketplaceRegistryFetch = async (url, init) => {
+        requests.push({ url, init })
+        const response = responses.shift()
+        assert.ok(response, 'test fetcher exhausted')
+        return response
+      }
+      const client = new MarketplaceRegistryClient({
+        registryUrl,
+        cachePath: join(dir, 'cache.json'),
+        fetcher,
+        now: () => new Date('2026-06-16T00:00:00.000Z'),
+      })
+      const fresh = await client.read()
+      assert.equal(fresh.ok, true)
+      if (fresh.ok) assert.equal(fresh.registryUrl, registryUrl)
+      // Second read exercises the ETag 304 round-trip under this URL.
+      const cached = await client.read()
+      assert.equal(cached.ok, true)
+      if (cached.ok) assert.equal(cached.notModified, true)
+      assert.equal(requestHeaders(requests[1].init)['if-none-match'], '"parity-v1"')
+      return fresh
+    })
+  }
+
+  const catalogueUrl = configuredMarketplaceRegistryUrl({ MULTICODE_MARKETPLACE_REGISTRY_URL: 'https://catalogue.example.com/v1/registry' })
+  const githubRawUrl = configuredMarketplaceRegistryUrl({})
+  assert.notEqual(catalogueUrl, githubRawUrl, 'the two transports must be distinct URLs')
+  assert.equal(githubRawUrl, DEFAULT_MARKETPLACE_REGISTRY_URL)
+
+  const fromCatalogue = await readVia(catalogueUrl)
+  const fromGithubRaw = await readVia(githubRawUrl)
+  assert.equal(fromCatalogue.ok, true)
+  assert.equal(fromGithubRaw.ok, true)
+  if (!fromCatalogue.ok || !fromGithubRaw.ok) return
+  // The parsed entries are byte-for-byte equivalent regardless of transport.
+  assert.deepEqual(fromCatalogue.marketplace.plugins, fromGithubRaw.marketplace.plugins)
+  assert.equal(fromCatalogue.marketplace.plugins.length, 2)
 }
 
 async function testSeedFallbackFiresUnderNonDefaultUrl(): Promise<void> {
