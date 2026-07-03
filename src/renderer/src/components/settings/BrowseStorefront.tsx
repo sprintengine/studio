@@ -11,6 +11,7 @@ import {
   type BrowseLoad,
   componentKindLabels,
   deriveBrowseView,
+  externalSourceHref,
 } from './storefrontView'
 import {
   classifyVerification,
@@ -357,6 +358,10 @@ function PluginDetailPanel({
   const trust = pluginTrust(plugin)
   const components = componentKindLabels(plugin.provides)
   const inlineServers = plugin.mcp?.servers ?? []
+  // Fail closed: only render an external "View source" link for an http(s)
+  // source. A non-http(s) value (file://, smb://, protocol-handler URL) would
+  // reach shell.openExternal via the window-open handler, so it gets no link.
+  const sourceHref = externalSourceHref(plugin.source)
   // MCP servers and skill packs install into the open workspace; modules and
   // CLIs install to the user dirs. Block install with an honest hint when a
   // workspace-scoped component has no workspace, rather than letting the click
@@ -474,9 +479,9 @@ function PluginDetailPanel({
         </ul>
       </div>
 
-      {plugin.source ? (
+      {sourceHref ? (
         <a
-          href={plugin.source}
+          href={sourceHref}
           target="_blank"
           rel="noreferrer"
           className="mt-3 inline-flex text-[12px] font-semibold text-[color:var(--accent-primary)] hover:text-[color:var(--accent-primary-hover)] focus:outline-none focus-visible:underline"
