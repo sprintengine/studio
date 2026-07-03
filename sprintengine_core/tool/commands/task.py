@@ -47,6 +47,7 @@ from sprintengine_core.tool.state import (
     release_expired_agent_targets,
     select_round_robin_target,
     set_agent_idle,
+    task_claim_exceeds_worker_capacity,
     task_quality_gates,
     with_locked_state,
 )
@@ -366,6 +367,21 @@ def cmd_task_next(args: argparse.Namespace) -> Dict[str, Any]:
                 candidates=candidates,
                 key_fn=lambda item: dispatch_target_key("task", item.get("id")),
             )
+            if selected and task_claim_exceeds_worker_capacity(state, agent, selected.get("id")):
+                # Task-scoped roster ids: a spent id (already owns another task)
+                # must not recycle onto a new task. Leave it ready for a fresh
+                # id and stop this one.
+                phase_dirty = recompute_phase(state)
+                return {
+                    "ok": True,
+                    "claimed": False,
+                    "reason": "worker_task_capacity_reached",
+                    "message": f"{args.id} already owns a task; a fresh roster id must claim {selected.get('id')}.",
+                    "task": {"id": selected.get("id"), "status": selected.get("status")},
+                    "agent": agent,
+                    "releasedExpired": expired["released"],
+                    "write": runtime["dirty"] or phase_dirty or expired["dirty"] or stale_owner_dirty,
+                }
             if selected:
                 model, cli = _resolve_execution_identity(args)
                 result = assign_task(state, selected, args.id, model=model, cli=cli)
@@ -388,6 +404,14 @@ def cmd_task_claim(args: argparse.Namespace) -> Dict[str, Any]:
             ready_ids = set(read_ready_task_ids(state))
             if args.task_id not in ready_ids or not task_is_ready(state, task):
                 return {"ok": False, "error": "Task is not ready.", "task": {"id": task.get("id"), "status": task.get("status")}, "write": False}
+            if task_claim_exceeds_worker_capacity(state, agent, task.get("id")):
+                return {
+                    "ok": False,
+                    "error": "Worker already owns a task; a fresh roster id must claim this task.",
+                    "reason": "worker_task_capacity_reached",
+                    "task": {"id": task.get("id"), "status": task.get("status")},
+                    "write": False,
+                }
             model, cli = _resolve_execution_identity(args)
             result = assign_task(state, task, args.id, model=model, cli=cli)
             recompute_phase(state)

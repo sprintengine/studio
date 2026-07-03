@@ -99,6 +99,13 @@ DEFAULT_QUALITY_POLICY = {
         },
     },
 }
+# Task-scoped roster identity (no slot recycling): a worker roster id owns at
+# most one task for its whole lifetime. `per_task` is the only policy today; the
+# field is durable and versioned so a future multi-task policy can relax the
+# claim guard without a data migration. An absent policy reads as `per_task`.
+WORKER_ASSIGNMENT_PER_TASK = "per_task"
+WORKER_ASSIGNMENT_POLICIES = (WORKER_ASSIGNMENT_PER_TASK,)
+DEFAULT_ROSTER_POLICY = {"workerAssignment": WORKER_ASSIGNMENT_PER_TASK}
 DEFAULT_RUNNER_POLICY = {
     # `cliWatchPolling` controls whether `sprintengine join --watch` keeps
     # polling for new work (`enabled`) or exits when no work is ready
@@ -239,6 +246,24 @@ def normalize_runner_policy(raw: Any) -> dict[str, Any]:
         "maxBackoffSeconds": _positive_int(policy.get("maxBackoffSeconds"), int(DEFAULT_RUNNER_POLICY["maxBackoffSeconds"])),
         "stopWhenComplete": _bool_value(policy.get("stopWhenComplete"), bool(DEFAULT_RUNNER_POLICY["stopWhenComplete"])),
     }
+
+
+def normalize_roster_policy(raw: Any) -> dict[str, Any]:
+    """Normalize the durable roster policy, defaulting an absent policy to per_task.
+
+    Unknown or missing `workerAssignment` values fall back to `per_task` so a
+    legacy run.yaml with no `rosterPolicy` key behaves like a task-scoped run.
+    """
+    policy = raw if isinstance(raw, dict) else {}
+    assignment = str(policy.get("workerAssignment") or "").strip()
+    if assignment not in WORKER_ASSIGNMENT_POLICIES:
+        assignment = WORKER_ASSIGNMENT_PER_TASK
+    return {"workerAssignment": assignment}
+
+
+def worker_assignment_policy(state: dict[str, Any]) -> str:
+    """The run's worker-assignment policy id, defaulting to per_task."""
+    return normalize_roster_policy(state.get("rosterPolicy"))["workerAssignment"]
 
 
 def roster_roles_from_state(state: dict[str, Any]) -> set[str]:
@@ -548,6 +573,20 @@ def normalize_agent_record(agent_id: str, raw: Any) -> dict[str, Any]:
         value = source.get(key)
         if value not in (None, ""):
             agent[key] = value
+    # Durable set of every task this id has owned (MC task-scoped roster ids).
+    # Carried through the projection so the renderer and the claim guard read
+    # the same ownership record. Bare (never-owned) ids omit the key.
+    owned_task_ids = [
+        str(task_id).strip()
+        for task_id in (source.get("ownedTaskIds") or [])
+        if str(task_id).strip()
+    ]
+    if owned_task_ids:
+        deduped: list[str] = []
+        for task_id in owned_task_ids:
+            if task_id not in deduped:
+                deduped.append(task_id)
+        agent["ownedTaskIds"] = deduped
     if isinstance(source.get("currentGate"), dict):
         agent["currentGate"] = {
             key: value
@@ -802,6 +841,11 @@ def sync_run_yaml_from_state(team_dir: Path, state: dict[str, Any]) -> None:
         else (run.get("configuredRoles") if isinstance(run.get("configuredRoles"), list) else None)
     )
     creation = run.get("creation") if isinstance(run.get("creation"), dict) else {}
+    # Durable worker-assignment policy; normalized (absent -> per_task) and always
+    # written so run.yaml is self-describing for task-scoped roster ids.
+    roster_policy = normalize_roster_policy(
+        state.get("rosterPolicy") if isinstance(state.get("rosterPolicy"), dict) else run.get("rosterPolicy")
+    )
     runner_policy = normalize_runner_policy(state.get("runner") if isinstance(state.get("runner"), dict) else run.get("runner"))
     quality_policy = normalize_quality_fields(state, run)
     run.update(
@@ -812,6 +856,7 @@ def sync_run_yaml_from_state(team_dir: Path, state: dict[str, Any]) -> None:
             "status": sprintengine.get("status") or "planning",
             "rosterConfigured": bool(sprintengine.get("rosterConfigured")),
             "graphPolicy": run.get("graphPolicy") or {"readiness": "dependency"},
+            "rosterPolicy": roster_policy,
             "runner": runner_policy,
             "qualityPolicy": quality_policy,
             "agents": agents,
@@ -1051,6 +1096,7 @@ def state_from_folder_store(team_dir: Path) -> dict[str, Any]:
     tasks.sort(key=lambda task: task_order.get(str(task.get("id") or ""), len(task_order)))
     state = {
         "sprintengine": reconstructed_sprintengine,
+        "rosterPolicy": normalize_roster_policy(run.get("rosterPolicy")),
         "runner": normalize_runner_policy(run.get("runner")),
         "tasks": tasks,
         "artifacts": [_semantic_artifact_from_folder_record(artifact) for artifact in _artifacts_from_folder_store(team_dir)],
@@ -1308,6 +1354,7 @@ def build_projection(
             "updatedAt": updated_at,
             "creation": run.get("creation") if isinstance(run.get("creation"), dict) else {},
             "qualityPolicy": quality_policy,
+            "rosterPolicy": normalize_roster_policy(run.get("rosterPolicy")),
             "runner": runner_policy,
             "vcs": vcs,
             # Per-role execution runtime map ({model, cli} per role), written to

@@ -460,6 +460,61 @@ def set_agent_idle(agent: Dict[str, Any]) -> bool:
     return changed
 
 
+def append_owned_task_id(agent: Dict[str, Any], task_id: Any) -> bool:
+    """Record `task_id` in the agent's durable ownedTaskIds set (append-once).
+
+    Task-scoped roster ids own a task for their whole lifetime; ownedTaskIds is
+    the authoritative per-id ownership record the claim guard reads. Re-claiming
+    an already-owned task (rework respawn) is a no-op, so the set never grows on
+    rework and a per_task id keeps exactly one entry.
+    """
+    clean_id = str(task_id or "").strip()
+    if not clean_id:
+        return False
+    owned = agent.get("ownedTaskIds")
+    if not isinstance(owned, list):
+        owned = []
+        agent["ownedTaskIds"] = owned
+    if clean_id in owned:
+        return False
+    owned.append(clean_id)
+    return True
+
+
+def agent_owned_task_ids(agent: Dict[str, Any]) -> set[str]:
+    """Every task this id owns, unioning ownedTaskIds with lastOwnedTaskId.
+
+    lastOwnedTaskId is included so a roster entry written before ownedTaskIds
+    existed (mid-run upgrade) still reports its owned task to the claim guard.
+    """
+    owned = {
+        str(task_id).strip()
+        for task_id in (agent.get("ownedTaskIds") or [])
+        if str(task_id).strip()
+    }
+    last_owned = str(agent.get("lastOwnedTaskId") or "").strip()
+    if last_owned:
+        owned.add(last_owned)
+    return owned
+
+
+def task_claim_exceeds_worker_capacity(state: Dict[str, Any], agent: Dict[str, Any], task_id: Any) -> bool:
+    """True when claiming `task_id` would push this id past its task-ownership cap.
+
+    Under the per_task policy an id owns at most one task for life. Re-claiming a
+    task the id already owns (rework respawn) is always allowed; only a claim on
+    a DIFFERENT task by an id already at its cap is refused. A non-per_task policy
+    (none exist yet) imposes no cap.
+    """
+    policy = folder_store.worker_assignment_policy(state)
+    if policy != folder_store.WORKER_ASSIGNMENT_PER_TASK:
+        return False
+    owned = agent_owned_task_ids(agent)
+    if str(task_id or "").strip() in owned:
+        return False
+    return len(owned) >= 1
+
+
 def set_agent_active(agent: Dict[str, Any], task: Dict[str, Any], *, refresh_heartbeat: bool = True) -> bool:
     changed = set_if_changed(agent, "status", "needs_input" if task.get("status") == "needs_input" else "running")
     changed = set_if_changed(agent, "currentTaskId", task.get("id")) or changed
@@ -472,6 +527,7 @@ def set_agent_active(agent: Dict[str, Any], task: Dict[str, Any], *, refresh_hea
     # A missing stamp is failure-safe — the planner treats the agent as
     # never-owned and falls back to the reuse-preferring lifecycle.
     changed = set_if_changed(agent, "lastOwnedTaskId", task.get("id")) or changed
+    changed = append_owned_task_id(agent, task.get("id")) or changed
     changed = clear_terminal_state_metadata(agent) or changed
     if refresh_heartbeat:
         changed = set_if_changed(agent, "heartbeatAt", now_iso()) or changed
