@@ -11,23 +11,31 @@ import type { RuntimeAgentView } from '../sprintEngineInspector'
 // newest-activity summary; expanded groups list their agents newest-first with
 // aria-label="<Role> agents"; the persistent reviewer id is tagged distinctly
 // from the per-task workers; enabled roles with no sessions render as collapsed
-// empty groups (never add chips); and each agent row keeps its Open/Spawn
-// action, labeled row menu, CLI · model summary, pending state, and task list.
+// empty groups (never add chips); each agent row keeps its labeled row menu,
+// CLI · model summary, pending state, and task list; and the primary action
+// splits three ways — Open (live), Resume (departed with a resumable recorded
+// session), Spawn (never-run / not resumable) — while the row StatusDot is
+// decorative (status announced once via the adjacent visible text).
 
 const sprintEngineState = {
   // Enabled team roles (architect always on). code_reviewer is enabled but has
   // no sessions yet -> collapsed empty group.
   roleCounts: { architect: 1, frontend: 1, developer: 1, tester: 1, security: 1, code_reviewer: 1 },
   tasks: [
+    // T1 is done -> its departed owner (developer-3) is resumable, not the run.
+    { id: 'T1', title: 'Scaffold the panel', role: 'developer', status: 'done' },
     { id: 'T2', title: 'Wire the store', role: 'developer', status: 'in_progress' },
     { id: 'T3', title: 'Validate the flow', role: 'tester', status: 'in_progress' },
     { id: 'T5', title: 'Group the roster', role: 'frontend', status: 'in_progress' },
   ],
   // lastOwnedTaskId marks an id that was assigned an implementation task. The
   // bare `frontend` id owns T5 here (legacy pre-lazy seeding), so it must read
-  // as a worker, not a reviewer, despite holding the bare role id.
+  // as a worker, not a reviewer, despite holding the bare role id. developer-3
+  // owns the done T1 and is not live -> departed-resumable (Resume action);
+  // tester-2 owns the still-open T3 -> not resumable (stays Spawn).
   sprintEngineAgents: {
     frontend: { role: 'frontend', status: 'running', currentTaskId: 'T5', lastOwnedTaskId: 'T5' },
+    'developer-3': { role: 'developer', status: 'exited', currentTaskId: null, lastOwnedTaskId: 'T1' },
     'tester-2': { role: 'tester', status: 'needs_input', currentTaskId: 'T3', lastOwnedTaskId: 'T3' },
   },
 } as unknown as SprintEngineState
@@ -39,6 +47,7 @@ const roster: SprintEngineAgentRosterItem[] = [
   { id: 'frontend', label: 'Frontend', role: 'frontend' },
   { id: 'developer-1', label: 'Developer 1', role: 'developer' },
   { id: 'developer-2', label: 'Developer 2', role: 'developer' },
+  { id: 'developer-3', label: 'Developer 3', role: 'developer' },
   { id: 'tester', label: 'Tester 1', role: 'tester' },
   { id: 'tester-2', label: 'Tester 2', role: 'tester' },
   { id: 'security-1', label: 'Security 1', role: 'security' },
@@ -50,6 +59,8 @@ const agents = {
   // Spawn requested but no live terminal yet -> pending row state.
   'developer-1': { name: 'Developer 1', cli: 'codex', cliStartRequested: true } as unknown as AgentState,
   'developer-2': { name: 'Developer 2', cli: 'codex', cliModel: 'model-a' } as unknown as AgentState,
+  // Departed worker: no live terminal, its done task makes re-open a resume.
+  'developer-3': { name: 'Developer 3', cli: 'claude-code' } as unknown as AgentState,
   tester: { name: 'Tester 1', cli: 'claude-code' } as unknown as AgentState,
   'tester-2': { name: 'Tester 2', cli: 'claude-code' } as unknown as AgentState,
   'security-1': { name: 'Security 1', cli: 'claude-code' } as unknown as AgentState,
@@ -60,6 +71,7 @@ const runtimeAgents: RuntimeAgentView[] = [
   { agentId: 'frontend', label: 'Frontend', role: 'frontend', status: 'running', currentTaskId: 'T5' },
   { agentId: 'developer-1', label: 'Developer 1', role: 'developer', status: 'idle', currentTaskId: null },
   { agentId: 'developer-2', label: 'Developer 2', role: 'developer', status: 'running', currentTaskId: 'T2' },
+  { agentId: 'developer-3', label: 'Developer 3', role: 'developer', status: 'exited', currentTaskId: null },
   { agentId: 'tester', label: 'Tester 1', role: 'tester', status: 'idle', currentTaskId: null },
   { agentId: 'tester-2', label: 'Tester 2', role: 'tester', status: 'needs_input', currentTaskId: 'T3' },
   { agentId: 'security-1', label: 'Security 1', role: 'security', status: 'idle', currentTaskId: null },
@@ -128,12 +140,29 @@ assert.ok(
 // tagged -> exactly one Reviewer tag.
 assert.equal((html.match(/>Reviewer</g) || []).length, 1, 'only the persistent reviewer entry is tagged')
 
-// Live member: primary action is Open, and the row menu is labeled.
+// Primary action splits three ways by liveness + resumability.
+// Live member: Open, and the row menu is labeled.
 assert.ok(html.includes('aria-label="Open Developer 2 terminal"'), 'live row exposes a labeled Open action')
 assert.ok(html.includes('aria-label="Developer 2 actions"'), 'live row exposes a labeled row menu')
 
+// Departed worker whose owned task is done -> Resume (matches
+// shouldResumeRecordedRosterSession); the click still routes through the spawn
+// handler, which resumes the recorded conversation. No live terminal here.
+assert.ok(html.includes('aria-label="Resume Developer 3"'), 'departed-resumable row exposes a Resume action')
+assert.ok(html.includes('>Resume<'), 'departed-resumable primary action reads Resume, not Spawn')
+
+// A not-live worker whose owned task is still open is not resumable -> Spawn,
+// so a never-run/mid-task id keeps the fresh-start affordance.
+assert.ok(html.includes('aria-label="Spawn Tester 2"'), 'a not-resumable not-live row keeps Spawn')
+
 // CLI · model runtime summary on the row meta line.
 assert.ok(html.includes('Codex · model-a'), 'row meta line shows the CLI · model runtime summary')
+
+// FIND-2: the row StatusDot is decorative (no label -> aria-hidden), so a
+// running row announces its state once via the adjacent visible text, not
+// twice. The dot must not re-emit the status as an aria-label.
+assert.ok(html.includes('>Running<'), 'running status is announced via the visible row text')
+assert.ok(!html.includes('aria-label="Running"'), 'the row StatusDot sets no status aria-label')
 
 // Spawn in flight: the primary action is a disabled pending state.
 assert.ok(html.includes('aria-label="Developer 1 is starting"'), 'pending row announces the starting state')

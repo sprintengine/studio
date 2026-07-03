@@ -25,6 +25,7 @@ import type {
 } from '../../../types/workspace'
 import {
   getSprintEngineRoleLabel,
+  shouldResumeRecordedRosterSession,
   sprintEngineEnabledRoles,
   sprintEngineRoleOrder,
   type SprintEngineAgentRosterItem,
@@ -107,6 +108,11 @@ type RosterEntryDescriptor = {
   runtime: RuntimeAgentView | null
   hasLiveTerminal: boolean
   spawnPending: boolean
+  // Departed-but-resumable: not live, and re-opening this id would resume its
+  // recorded conversation rather than start fresh (mirrors
+  // shouldResumeRecordedRosterSession). Drives the primary action's Resume vs
+  // Spawn split; a never-run id is not resumable and stays Spawn.
+  resumable: boolean
   statusKey: string
   statusLabel: string
   displayName: string
@@ -207,6 +213,16 @@ export function SprintEngineRosterView({
       runtime,
       hasLiveTerminal,
       spawnPending,
+      // Not live + the run/session state means spawnAgent would resume this id's
+      // recorded conversation. autoRuntimeState is omitted: sprintEngineState is
+      // always present here, so run-completion is read straight from its tasks.
+      resumable:
+        !hasLiveTerminal
+        && shouldResumeRecordedRosterSession({
+          sprintEngineState,
+          autoRuntimeState: undefined,
+          agentId: agent.id,
+        }),
       statusKey,
       statusLabel,
       displayName,
@@ -289,7 +305,10 @@ export function SprintEngineRosterView({
                         setExpandOverrides((prev) => ({ ...prev, [role]: !expanded }))
                       }
                       aria-expanded={expanded}
-                      aria-controls={listId}
+                      // The controlled list only renders while expanded, so point
+                      // aria-controls at it only then — never at an id absent from
+                      // the DOM.
+                      aria-controls={expanded ? listId : undefined}
                       className="interactive flex w-full min-w-0 items-center gap-2 px-3 py-2 text-left transition-colors hover:bg-[color:var(--bg-surface)] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[color:var(--accent-primary-soft)] focus-visible:ring-inset"
                     >
                       <svg
@@ -402,6 +421,15 @@ export function SprintEngineRosterView({
         const live = isAgentTerminalLive(menuAgent.id)
         const agentState = agents[menuAgent.id]
         const pending = Boolean(agentState?.cliStartRequested) && !live
+        // Same Resume/Spawn split as the row primary action, so the menu never
+        // says "Spawn" for an id whose recorded conversation would be resumed.
+        const resumable =
+          !live
+          && shouldResumeRecordedRosterSession({
+            sprintEngineState,
+            autoRuntimeState: undefined,
+            agentId: menuAgent.id,
+          })
         const displayName = agentState?.name?.trim() || menuAgent.label
         const close = () => setMenu(null)
 
@@ -440,7 +468,7 @@ export function SprintEngineRosterView({
               <MenuItem onClick={() => { onOpenAgent(menuAgent.id); close() }}>Open terminal</MenuItem>
             ) : (
               <MenuItem disabled={pending} onClick={() => { onSpawnAgent(menuAgent.id); close() }}>
-                {pending ? 'Starting…' : 'Spawn agent'}
+                {pending ? 'Starting…' : resumable ? 'Resume agent' : 'Spawn agent'}
               </MenuItem>
             )}
             <MenuFlyoutItem
@@ -476,7 +504,7 @@ export function SprintEngineRosterView({
   // of the pre-grouping flat row: identity, earned status, CLI/model summary,
   // owned task list, primary open/spawn action, and the ⋮ lifecycle menu.
   function renderAgentRow(descriptor: RosterEntryDescriptor): React.ReactNode {
-    const { agent, spawnPending, statusKey, statusLabel, displayName, roleSlotLabel, isReviewer, tasks } =
+    const { agent, spawnPending, resumable, statusKey, statusLabel, displayName, roleSlotLabel, isReviewer, tasks } =
       descriptor
     const hasLiveTerminal = descriptor.hasLiveTerminal
     const lifecycle = rosterLifecycle(statusKey, spawnPending)
@@ -524,7 +552,10 @@ export function SprintEngineRosterView({
                 {lifecycle ? (
                   <span className="flex shrink-0 items-center gap-1.5">
                     {lifecycle.kind === 'dot' ? (
-                      <StatusDot tone={lifecycle.tone} pulse={lifecycle.pulse} label={statusLabel} />
+                      // Decorative: the adjacent <span>{statusLabel}</span> is the
+                      // single spoken source for the state, so the dot omits its
+                      // label (renders aria-hidden) to avoid a double-announce.
+                      <StatusDot tone={lifecycle.tone} pulse={lifecycle.pulse} />
                     ) : (
                       <LifecycleGlyph state={lifecycle.state} live={lifecycle.live} />
                     )}
@@ -573,10 +604,16 @@ export function SprintEngineRosterView({
                 type="button"
                 onClick={() => onSpawnAgent(agent.id)}
                 disabled={spawnPending}
-                aria-label={spawnPending ? `${displayName} is starting` : `Spawn ${displayName}`}
+                aria-label={
+                  spawnPending
+                    ? `${displayName} is starting`
+                    : resumable
+                      ? `Resume ${displayName}`
+                      : `Spawn ${displayName}`
+                }
                 className="interactive inline-flex h-6 items-center rounded px-2 text-[11px] font-medium text-[color:var(--text-muted)] transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[color:var(--accent-primary-soft)] disabled:cursor-default disabled:opacity-50"
               >
-                {spawnPending ? 'Starting…' : 'Spawn'}
+                {spawnPending ? 'Starting…' : resumable ? 'Resume' : 'Spawn'}
               </button>
             )}
             <button
