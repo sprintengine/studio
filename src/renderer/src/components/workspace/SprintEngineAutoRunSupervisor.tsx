@@ -74,6 +74,7 @@ import { MULTICODE_DISABLE_SPRINTENGINE_AUTORUN } from '../../utils/runtimeFlags
 import { resolveProjectKnowledgeConfig } from '../../utils/projectKnowledge'
 import { isAgentTabVisible, type AgentTerminalRevealPolicy } from '../../utils/modelRegistry'
 import { refreshSprintEngineWorkspaceProjection } from '../../utils/sprintengineProjectionRefresh'
+import { tearDownDepartedTaskScopedWorker } from '../../utils/sprintengineRunTeardown'
 import { registerTimer } from '../../utils/diagnostics/timerRegistry'
 import { deriveSprintEngineAutomationMode } from '../../utils/sprintengineAutomation'
 import {
@@ -920,6 +921,52 @@ export async function executeSprintEngineDispatchPlan(
       && isAgentTabVisible(workspace.id, retirement.agentId)
     ) {
       logPerfEvent('SprintEngineAutoRun', 'idle-retirement-skipped-visible-tab', { ...base, ...retirement.data })
+      continue
+    }
+    if (retirement.teardown) {
+      // Departed task-scoped worker (task done): record + remove its panel so
+      // there is nothing to auto-respawn, killing the idle reap ↔ respawn loop.
+      // The recorded session lets a re-open from the role group resume. No
+      // `dispatchUpdateTerminalLaunchState` mirror: removal is the flag reset,
+      // and a post-removal reset would re-materialize the removed agent.
+      const teardown = await tearDownDepartedTaskScopedWorker(
+        workspace.id,
+        retirement.agentId,
+        undefined,
+        sessionsSnapshot,
+      )
+      // Only toast when the user could see the panel close; a recreated,
+      // already-torn-down roster record closes nothing visible.
+      if (teardown.closedSessionId || teardown.removedTab) {
+        await defaultExecutorPorts.publishDiagnostic({
+          level: 'info',
+          source: 'sprintengine',
+          title: retirement.diagnostic.title,
+          message: retirement.diagnostic.message,
+          details: retirement.diagnostic.details,
+          workspaceId: workspace.id,
+          workspaceName: workspace.name,
+          agentId: retirement.agentId,
+          ...(teardown.closedSessionId ? { sessionId: teardown.closedSessionId } : {}),
+        })
+      }
+      logPerfEvent('SprintEngineAutoRun', 'task-scoped-worker-torn-down', { ...base, ...retirement.data, ...teardown })
+      // Storm bound: a recreated record observed idle for a tick before Python
+      // marks the id `left` must not re-tear-down until the short cooldown
+      // elapses. Mirrors the kill-only path's cooldown bookkeeping.
+      if (typeof retirement.data.taskId === 'string') {
+        taskScopedRetirementTaskByClockKey.set(
+          sprintEngineIdleClockKey(workspace, retirement.agentId),
+          retirement.data.taskId
+        )
+      }
+      if (retirementCooldown) {
+        const retiredAt = Date.now()
+        retirementCooldown.set(sprintEngineIdleClockKey(workspace, retirement.agentId), retiredAt)
+        for (const [key, ts] of retirementCooldown) {
+          if (retiredAt - ts >= AUTO_RUN_RETIREMENT_COOLDOWN_MS) retirementCooldown.delete(key)
+        }
+      }
       continue
     }
     const session = await findRunningAgentSession(workspace, retirement.agentId, sessionsSnapshot)

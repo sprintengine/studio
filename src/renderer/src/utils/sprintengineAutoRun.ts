@@ -632,6 +632,18 @@ export type SprintEngineDispatchRetirementAction = {
    * retirements leave this unset: the next task must get a fresh session.
    */
   retainResumeState?: boolean
+  /**
+   * Departed-worker teardown (MC-1444 B4): the agent's task is terminal
+   * (`done`), so it is permanently departed. Instead of the kill-only
+   * retirement — which left the panel to respawn and lost the resume token —
+   * the executor runs the record + remove teardown
+   * (`tearDownDepartedTaskScopedWorker`): record the resumable session, dispose
+   * the PTY, then remove the panel and agent. Removing the panel unmounts its
+   * TerminalView so nothing respawns, killing the idle reap ↔ respawn loop; the
+   * recorded session lets a re-open from the role group resume. Mutually
+   * exclusive with `retainResumeState` (that keeps a live record for rework).
+   */
+  teardown?: boolean
   data: Record<string, unknown>
   diagnostic: { title: string; message: string; details: string }
 }
@@ -1735,8 +1747,13 @@ export function planSprintEngineDispatch(input: {
       const since = input.idleClock.get(idleClockKey)
       if (!since) continue
       if (taskScopedComplete) {
+        // Departed permanently: its task is done and new work goes to fresh
+        // sessions. Tear the panel down (record + remove) rather than kill it in
+        // place — the kill-only path left the panel to auto-respawn (idle
+        // reap ↔ respawn loop) and dropped the resume token.
         planRetirement({
           agentId,
+          teardown: true,
           data: {
             agentId,
             role: runtimeAgent.role,
@@ -1745,13 +1762,13 @@ export function planSprintEngineDispatch(input: {
             taskId: restrictToTaskId,
           },
           diagnostic: {
-            title: 'Retired a task-scoped sprint terminal',
-            message: `${runtimeAgent.role} finished ${restrictToTaskId}, so its terminal was closed. The next task gets a fresh session; rework respawns this role automatically.`,
+            title: 'Closed a finished sprint worker',
+            message: `${runtimeAgent.role} finished ${restrictToTaskId}, so its panel was closed. Re-open the role from its group to resume that conversation; new work spawns a fresh session.`,
             details: [
               `Workspace: ${workspace.name}`,
               `Agent: ${agentId} (${runtimeAgent.role})`,
               `Completed task: ${restrictToTaskId}`,
-              'One agent session per task keeps worker context small; ready work respawns the role with a fresh session.',
+              'One agent session per task keeps worker context small; the recorded session resumes on re-open, and new ready work spawns a fresh session.',
             ].join('\n'),
           },
         })
