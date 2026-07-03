@@ -39,6 +39,7 @@ import {
   sprintEngineRunSettingsKey,
 } from './settingsSlice'
 import type {
+  AgentCli,
   AgentState,
   AgentId,
   AppSettings,
@@ -54,6 +55,7 @@ import type {
   SprintEngineCliPermissionPreset,
   SprintEngineRoleId,
   SprintEngineRoleCliDefaults,
+  SprintEngineRoleRuntimes,
   SprintEngineRosterSession,
   SprintEngineRunSettings,
   SprintEngineState,
@@ -131,6 +133,55 @@ function resolveSprintEngineRoleCli(
   // the team's architect CLI (always present after normalization), else the
   // universal default.
   return roleCliDefaults.architect?.trim() || 'claude-code'
+}
+
+/**
+ * Resolve a roster role's CLI + model from the run's `roleRuntimes` map
+ * (run.yaml via the projection — the single source of truth for what every
+ * spawn of that role must launch with, MC-1450). Returns null when the role
+ * is not in the map (legacy runs mid-flight, pre-first-projection window):
+ * callers must then preserve what they already have — never substitute.
+ * An entry without a model resolves `cliModel: undefined` = no `--model`
+ * flag (the CLI's own default, deliberately).
+ */
+export function resolveSprintEngineRoleRuntime(
+  roleRuntimes: SprintEngineRoleRuntimes | undefined,
+  role: SprintEngineRoleId
+): { cli?: AgentCli; cliModel?: string } | null {
+  const runtime = roleRuntimes?.[role]
+  if (!runtime) return null
+  return {
+    cli: typeof runtime.cli === 'string' && runtime.cli.trim() ? runtime.cli.trim() : undefined,
+    cliModel: typeof runtime.model === 'string' && runtime.model.trim() ? runtime.model.trim() : undefined,
+  }
+}
+
+/**
+ * Effective launch runtime for one roster agent, layering the full MC-1450
+ * hierarchy: explicit per-agent override (`cliRuntimeOverride` — the board's
+ * mid-run picker / creation-time per-agent CLI override) > per-role
+ * `roleRuntimes` config > the existing record's values (legacy runs whose
+ * projection predates `roleRuntimes`). An override `model: null` pins the
+ * CLI's own default even when the role configures a model; a role config with
+ * no model resolves `cliModel: undefined` = no `--model` flag.
+ */
+export function resolveSprintEngineAgentRuntime(
+  roleRuntimes: SprintEngineRoleRuntimes | undefined,
+  role: SprintEngineRoleId,
+  current: Pick<AgentState, 'cli' | 'cliModel' | 'cliRuntimeOverride'> | undefined,
+): { cli?: AgentCli; cliModel?: string } {
+  const config = resolveSprintEngineRoleRuntime(roleRuntimes, role)
+  const override = current?.cliRuntimeOverride
+  const overrideCli = typeof override?.cli === 'string' && override.cli.trim() ? override.cli.trim() : undefined
+  const cli = overrideCli ?? config?.cli ?? current?.cli
+  const cliModel = override !== undefined && override.model !== undefined
+    // `model: null` = explicitly the CLI default; tolerate junk in persisted
+    // records by treating any non-string as the CLI default too.
+    ? (typeof override.model === 'string' && override.model.trim() ? override.model.trim() : undefined)
+    : config
+      ? config.cliModel
+      : current?.cliModel
+  return { cli, cliModel }
 }
 
 function normalizeSprintEngineAutoPendingSpawn(
@@ -369,6 +420,8 @@ function agentStatesEqual(left: AgentState, right: AgentState): boolean {
     && left.cliLastExitedAt === right.cliLastExitedAt
     && left.cli === right.cli
     && left.cliModel === right.cliModel
+    && left.cliRuntimeOverride?.cli === right.cliRuntimeOverride?.cli
+    && left.cliRuntimeOverride?.model === right.cliRuntimeOverride?.model
     && left.cliPermissionPreset === right.cliPermissionPreset
     && left.cliStartupPrompt === right.cliStartupPrompt
     && left.kind === right.kind
@@ -407,9 +460,26 @@ export function reconcileSprintEngineAgents(
       const nextName = isDefaultSprintEngineAgentName(current?.name, agent.label)
         ? pickWorkspaceAgentName({ ...currentAgents, ...nextAgents })
         : current?.name ?? agent.label
+      // Per-role CLI + model resolve from the run's `roleRuntimes` config on
+      // EVERY rebuild — seeded, minted, and recycled records alike (MC-1450:
+      // the minted branch used to hardcode `claude-code` with no model, so
+      // replenishment-minted agents launched on the CLI's default model). An
+      // explicit per-agent `cliRuntimeOverride` outranks the role config; a
+      // role absent from the map preserves the existing record's values.
+      const resolved = resolveSprintEngineAgentRuntime(sprintEngineState.roleRuntimes, agent.role, current)
       const normalizedAgent = current
-        ? normalizeAgentState({ ...current, name: nextName, kind: 'sprintengine' as const }, 'claude-code')
-        : { ...defaultAgent(agent.id, nextName, 'sprintengine'), cli: 'claude-code' as const }
+        ? normalizeAgentState({
+          ...current,
+          name: nextName,
+          kind: 'sprintengine' as const,
+          cli: resolved.cli ?? current.cli,
+          cliModel: resolved.cliModel,
+        }, 'claude-code')
+        : {
+          ...defaultAgent(agent.id, nextName, 'sprintengine'),
+          cli: resolved.cli ?? ('claude-code' as const),
+          ...(resolved.cliModel ? { cliModel: resolved.cliModel } : {}),
+        }
       const nextAgent = reuseAgentIfUnchanged(current, normalizedAgent)
       nextAgents[agent.id] = nextAgent
       return [agent.id, nextAgent]
@@ -856,7 +926,10 @@ export function createRunStateSlice(set: RunStateSliceSet): RunStateSlice {
           status: 'idle',
           currentTaskId: null,
         }
-        ws.sprintEngineState.roleCounts[role] = (ws.sprintEngineState.roleCounts[role] ?? 0) + 1
+        // No roleCounts bump (MC-1450): counts are an enabled-set encoding,
+        // not a headcount — mark the role enabled and let the runtime roster
+        // carry the actual membership.
+        ws.sprintEngineState.roleCounts[role] = 1
 
         const rosterAgent = buildSprintEngineAgentRosterForState(ws.sprintEngineState).find(
           (agent) => agent.id === agentId
@@ -864,10 +937,16 @@ export function createRunStateSlice(set: RunStateSliceSet): RunStateSlice {
         const agentRoleLabel = rosterAgent?.label ?? agentId
         const agentLabel = pickWorkspaceAgentName(ws.agents)
         const roleCliDefaults = normalizeSprintEngineRoleCliDefaults(ws.sprintEngineRoleCliDefaults)
-        const memberCli = resolveSprintEngineRoleCli(roleCliDefaults, role)
+        // Role config from run.yaml (via the projection) wins for both CLI and
+        // model; the workspace-level CLI defaults are the pre-projection
+        // fallback. No model in either place ⇒ no `--model` flag. A brand-new
+        // member has no per-agent override yet.
+        const runtime = resolveSprintEngineAgentRuntime(ws.sprintEngineState.roleRuntimes, role, undefined)
+        const memberCli = runtime.cli ?? resolveSprintEngineRoleCli(roleCliDefaults, role)
         ws.agents[agentId] = {
           ...defaultAgent(agentId, agentLabel, 'sprintengine'),
           cli: memberCli,
+          ...(runtime.cliModel ? { cliModel: runtime.cliModel } : {}),
         }
         ws.agents = reconcileSprintEngineAgents(ws.agents, ws.sprintEngineState)
         ws.sprintEngineState.events.push({

@@ -1259,6 +1259,12 @@ def build_projection(
             "qualityPolicy": quality_policy,
             "runner": runner_policy,
             "vcs": vcs,
+            # Per-role execution runtime map ({model, cli} per role), written to
+            # run.yaml once at init. The renderer resolves every spawn's model
+            # and CLI from this map (MC-1450), so the projection must carry it —
+            # renderer-side SprintEngineState is rebuilt from this payload on
+            # every poll and would otherwise never see the roster's picks.
+            "roleRuntimes": run.get("roleRuntimes") if isinstance(run.get("roleRuntimes"), dict) else {},
         },
         "roster": roster if isinstance(roster, dict) else {},
         "tasks": tasks,

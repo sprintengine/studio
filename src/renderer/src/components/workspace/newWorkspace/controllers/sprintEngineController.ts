@@ -1,6 +1,5 @@
 import { createSprintEngineTemplate } from '../../../../modules/sprint-engine-workspace-types'
 import {
-  countSprintEngineAgents,
   createInitialSprintEngineState,
   normalizeSprintEngineProjection,
 } from '../../../../utils/sprintengine'
@@ -64,6 +63,16 @@ function sprintEngineAutoStateFromRunOptions(input: {
   return sprintEngineAutomationInitialStateForMode(sprintEngineAutomationModeForRunOptions(input))
 }
 
+// Workspace-level cap on concurrent agent sessions (MC-1450). The supervisor
+// re-clamps on read, so this only shapes what gets stored.
+export const SPRINT_ENGINE_DEFAULT_MAX_PARALLEL_AGENTS = 3
+
+export function clampSprintEngineMaxParallelAgents(value: number | null | undefined): number {
+  const parsed = Math.floor(Number(value))
+  if (!Number.isFinite(parsed) || parsed < 1) return SPRINT_ENGINE_DEFAULT_MAX_PARALLEL_AGENTS
+  return Math.max(1, Math.min(10, parsed))
+}
+
 export function buildSprintEngineEffectiveSpawnAtStartRoles(input: {
   automationMode: SprintEngineAutomationMode
   existingTeam: boolean
@@ -105,7 +114,8 @@ export function buildSprintEngineExistingTeamCreation(
     sprintEngineAutoState: {
       ...sprintEngineAutoStateFromRunOptions(input),
       cliPermissionPreset: input.cliPermissionPreset,
-      maxConcurrentAgents: Math.max(1, countSprintEngineAgents(loadedState.roleCounts)),
+      // MC-1450: the ceiling is a user knob, never derived from roster size.
+      maxConcurrentAgents: SPRINT_ENGINE_DEFAULT_MAX_PARALLEL_AGENTS,
     },
   }
 }
@@ -142,7 +152,7 @@ export function buildSprintEngineNewTeamCreation(
     sprintEngineAutoState: {
       ...sprintEngineAutoStateFromRunOptions(input),
       cliPermissionPreset: input.cliPermissionPreset,
-      maxConcurrentAgents: Math.max(1, input.totalAgents),
+      maxConcurrentAgents: clampSprintEngineMaxParallelAgents(input.maxParallelAgents),
     },
   }
 }
@@ -256,7 +266,7 @@ export async function runSprintEnginePlanSourcedCreation(
       sprintEngineAutoState: {
         ...sprintEngineAutoStateFromRunOptions(input),
         cliPermissionPreset: input.cliPermissionPreset,
-        maxConcurrentAgents: Math.max(1, input.totalAgents),
+        maxConcurrentAgents: clampSprintEngineMaxParallelAgents(input.maxParallelAgents),
       },
       pathExists: ports.pathExists,
       initializeSprintEngineState: ports.initializeSprintEngineState,

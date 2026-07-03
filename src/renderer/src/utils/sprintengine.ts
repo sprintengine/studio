@@ -21,6 +21,7 @@ import type {
   SprintEngineRecordedArtifact,
   SprintEngineRole,
   SprintEngineRoleCounts,
+  SprintEngineRoleRuntimes,
   SprintEngineRoleId,
   SprintEngineRoleRegistry,
   SprintEngineRoleRegistryMetadata,
@@ -161,13 +162,16 @@ export function isCompletedSprintEngineRun(state: Pick<SprintEngineState, 'tasks
 //   2. failed — a failed runner.
 //   3. changes_requested — a reviewer asked for rework. Surfaced above
 //      in_progress so review churn is never hidden by the spinner.
-//   4. in_progress — any active-column task, or a running runner. `live`
+//   4. paused (runner) — an explicitly paused AutoRun reads as paused even
+//      while a task is still mid-flight (e.g. a review in progress), so a
+//      stopped run never shows a static (stuck-looking) in_progress spinner.
+//      A paused run that has finished every task still falls through to `done`.
+//   5. in_progress — any active-column task, or a running runner. `live`
 //      (spinner) only when the runner is genuinely `running`; a manual run with
 //      active tasks reads in-progress but static (no live runner is asserted).
-//   5. done — every task finished, or a `complete` runner.
-//   6. paused — a paused runner, or a started run (≥1 done) with nothing
-//      currently running.
-//   7. null — not started / no observable run; the surface keeps its own
+//   6. done — every task finished, or a `complete` runner.
+//   7. paused (rollup) — a started run (≥1 done) with nothing currently running.
+//   8. null — not started / no observable run; the surface keeps its own
 //      resting rendering (recency text, or the Backlog item's own status).
 export function deriveSprintEngineRunGlyph(input: {
   sprintEngineState: Pick<SprintEngineState, 'tasks' | 'vcs'> | null | undefined
@@ -195,6 +199,14 @@ export function deriveSprintEngineRunGlyph(input: {
     (task) => SPRINT_ENGINE_ACTIVE_TASK_STATUSES.has(task.status) || task.status === 'needs_input',
   )
   if (runtimeState === 'running') return { state: 'in_progress', live: true, label: 'Running' }
+  // An explicitly paused runner reads as *paused* even while a task is still
+  // mid-flight (e.g. a review in progress). Without this the active-work branch
+  // below renders a static `in_progress` arc — a spinner that looks stuck —
+  // instead of the pause glyph. A paused run that has actually finished every
+  // task still falls through to `done`.
+  if (runtimeState === 'paused' && !isCompletedSprintEngineRun({ tasks })) {
+    return AUTOMATION_RUN_GLYPH.paused ?? null
+  }
   if (hasActiveWork) return { state: 'in_progress', live: false, label: 'In progress' }
 
   const hasTasks = tasks.length > 0
@@ -212,7 +224,6 @@ export function deriveSprintEngineRunGlyph(input: {
     return { state: 'done', live: false, label: 'Complete' }
   }
 
-  if (runtimeState === 'paused') return AUTOMATION_RUN_GLYPH.paused ?? null
   if (hasTasks && tasks.some((task) => task.status === 'done')) {
     return { state: 'paused', live: false, label: 'Paused' }
   }
@@ -1677,6 +1688,13 @@ export function countSprintEngineAgents(roleCounts: SprintEngineRoleCounts): num
   return Object.values(roleCounts).reduce((total, count) => total + Math.max(0, count), 0)
 }
 
+// MC-1450 retired per-role quantities: `roleCounts` is now the persisted
+// encoding of an enabled-role SET — every value normalizes to 0 or 1 (legacy
+// presets/workspaces with counts > 1 collapse to "enabled"). Under MC-1444's
+// one-session-per-task model a role's parallel throughput comes from
+// mint-on-demand plus the workspace-level max-parallel-agents knob, never
+// from a configured headcount. The count-shaped encoding is kept so old and
+// new presets stay mutually readable.
 export function normalizeSprintEngineRoleCounts(
   roleCounts?: Partial<SprintEngineRoleCounts> | null
 ): SprintEngineRoleCounts {
@@ -1686,7 +1704,8 @@ export function normalizeSprintEngineRoleCounts(
   for (const [role, rawCount] of Object.entries(roleCounts)) {
     if (!normalizeSprintEngineRoleId(role)) continue
     const fallback = defaults[role] ?? (role === 'architect' ? 1 : 0)
-    result[role] = Math.max(role === 'architect' ? 1 : 0, Math.floor(Number(rawCount ?? fallback) || 0))
+    const enabled = Math.floor(Number(rawCount ?? fallback) || 0) > 0 ? 1 : 0
+    result[role] = Math.max(role === 'architect' ? 1 : 0, enabled)
   }
   return result
 }
@@ -1743,12 +1762,15 @@ export function buildSprintEngineAgentRoster(
   })
 
   for (const role of orderedRoles) {
-    const count = Math.max(role === 'architect' ? 1 : 0, roleCounts[role] ?? 0)
-    for (let i = 0; i < count; i++) {
-      const id = count > 1 || role === 'developer' ? `${role}-${i + 1}` : role
-      const suffix = count > 1 ? ` ${i + 1}` : ''
-      roster.push({ id, label: `${getSprintEngineRoleLabel(role, registry)}${suffix}`, role })
-    }
+    // One roster agent per enabled role (architect forced on) — MC-1450
+    // retired count fan-out. Extra same-role capacity is minted on demand by
+    // queue-depth replenishment, so a legacy count > 1 seeds only the first
+    // agent of the id scheme (`developer` stays `developer-1` so
+    // `getNextSprintEngineAgentId` minting remains consistent).
+    const enabled = role === 'architect' || (roleCounts[role] ?? 0) > 0
+    if (!enabled) continue
+    const id = role === 'developer' ? `${role}-1` : role
+    roster.push({ id, label: getSprintEngineRoleLabel(role, registry), role })
   }
 
   return roster
@@ -2184,6 +2206,25 @@ export function getSprintEngineArtifactDependencyBlockers(
   })
 }
 
+// Tolerant read of the run.yaml/projection `roleRuntimes` map. Keeps only
+// registry-valid roles with an object value; trims cli/model and drops empty
+// strings (absent and null both mean "CLI default" — no `--model` flag).
+// Returns null when nothing valid remains so callers can omit the field.
+export function normalizeSprintEngineRoleRuntimes(value: unknown): SprintEngineRoleRuntimes | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null
+  const result: SprintEngineRoleRuntimes = {}
+  for (const [rawRole, runtime] of Object.entries(value as Record<string, unknown>)) {
+    const role = normalizeSprintEngineRoleId(rawRole)
+    if (!role || !runtime || typeof runtime !== 'object') continue
+    const record = runtime as Record<string, unknown>
+    const cli = typeof record.cli === 'string' && record.cli.trim() ? record.cli.trim() : undefined
+    const model = typeof record.model === 'string' && record.model.trim() ? record.model.trim() : undefined
+    if (!cli && !model) continue
+    result[role] = { ...(model ? { model } : {}), ...(cli ? { cli } : {}) }
+  }
+  return Object.keys(result).length > 0 ? result : null
+}
+
 export function normalizeSprintEngineState(input: SprintEngineState | null | undefined): SprintEngineState | null {
   if (!input) return null
 
@@ -2276,6 +2317,10 @@ export function normalizeSprintEngineState(input: SprintEngineState | null | und
     ...(input.runner ? { runner: input.runner } : {}),
     ...(input.useWorktrees ? { useWorktrees: true } : {}),
     ...(input.vcs ? { vcs: input.vcs } : {}),
+    ...((): Partial<Pick<SprintEngineState, 'roleRuntimes'>> => {
+      const roleRuntimes = normalizeSprintEngineRoleRuntimes(input.roleRuntimes)
+      return roleRuntimes ? { roleRuntimes } : {}
+    })(),
   }
 }
 
@@ -2482,6 +2527,10 @@ export function normalizeSprintEngineProjection(
       ? { runner: normalizeSprintEngineRunnerPolicy(runRecord.runner) }
       : {}),
     ...(normalizeSprintEngineVcs(runRecord.vcs) ? { vcs: normalizeSprintEngineVcs(runRecord.vcs), useWorktrees: true } : {}),
+    ...((): Partial<Pick<SprintEngineState, 'roleRuntimes'>> => {
+      const roleRuntimes = normalizeSprintEngineRoleRuntimes(runRecord.roleRuntimes)
+      return roleRuntimes ? { roleRuntimes } : {}
+    })(),
   }
 
   return normalizeSprintEngineState(candidate)

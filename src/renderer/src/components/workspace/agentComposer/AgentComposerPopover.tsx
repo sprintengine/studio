@@ -246,6 +246,7 @@ export default function AgentComposerPopover({
                     persisted={Boolean(persisted)}
                     icon={rowIcon(row, composer.cliForSelection(target))}
                     label={rowLabel(row)}
+                    description={rowDescription(row)}
                     engineChip={
                       engineEditable ? (
                         <Tooltip placement="bottom" content={`Agent runtime: ${engineLabel(target)} · click to change`}>
@@ -303,26 +304,10 @@ export default function AgentComposerPopover({
         )}
       </div>
 
-      {/* Fixed-height info strip: what the highlighted row is and (spawn mode)
-          exactly what a click will launch. Height is reserved so browsing the
-          roster never moves the surrounding chrome; the engine line is pinned
-          to the strip's bottom so it doesn't hop as descriptions wrap. Select
-          mode omits the engine — the editor shows its own runtime field. */}
-      <div className="flex h-[60px] flex-col border-t border-[color:var(--border-subtle)] px-2.5 py-1.5">
-        {selectedRow ? (
-          <>
-            <p className="line-clamp-2 text-[11px] leading-[1.35] text-[color:var(--text-muted)]">
-              {rowDescription(selectedRow)}
-            </p>
-            {!selectMode && selectedRow.kind !== 'terminal' && selectedRow.kind !== 'conversation' ? (
-              <p className="mt-auto truncate text-[11px] text-[color:var(--text-subtle)]">
-                {engineLabel(selectionForRow(selectedRow))}
-              </p>
-            ) : null}
-          </>
-        ) : null}
-      </div>
-
+      {/* The per-agent description now rides a hover tooltip on each row (see
+          PopoverRosterRow), so the roster stays compact instead of reserving a
+          fixed info strip. Each row's runtime stays discoverable via its engine
+          chip tooltip. */}
       <div className="flex items-center gap-1 border-t border-[color:var(--border-subtle)] px-2 py-1.5">
         {AGENT_SPAWN_PERMISSION_OPTIONS.map((option) => {
           const active = option.value === action.permissionPreset
@@ -395,6 +380,7 @@ function PopoverRosterRow({
   persisted,
   icon,
   label,
+  description,
   engineChip,
   onHighlight,
   onCommit,
@@ -405,41 +391,44 @@ function PopoverRosterRow({
   persisted: boolean
   icon: React.ReactNode
   label: string
+  description: string
   engineChip: React.ReactNode
   onHighlight: () => void
   onCommit: () => void
   onOpenEngine?: () => void
 }) {
   return (
-    <button
-      type="button"
-      id={id}
-      role="option"
-      aria-selected={selected}
-      tabIndex={-1}
-      onClick={onCommit}
-      onMouseEnter={onHighlight}
-      onContextMenu={(event) => {
-        if (!onOpenEngine) return
-        event.preventDefault()
-        onHighlight()
-        onOpenEngine()
-      }}
-      className={`grid w-full grid-cols-[20px_1fr_auto] items-center gap-2 py-1.5 pr-2 text-left transition-colors ${
-        selected
-          ? 'bg-[color:var(--accent-primary-soft)] pl-[7px] text-[color:var(--text-strong)] shadow-[inset_3px_0_0_var(--accent-primary)]'
-          : 'pl-2.5 text-[color:var(--text-default)] hover:bg-[color:var(--bg-hover)]'
-      }`}
-    >
-      <span className={selected ? 'text-[color:var(--text-strong)]' : 'text-[color:var(--text-muted)]'}>{icon}</span>
-      <TruncatedText as="span" text={label} className="text-[13px]" />
-      {persisted ? (
-        <svg className="icon-sm shrink-0 text-[color:var(--accent-primary)]" viewBox="0 0 10 10" aria-hidden="true">
-          <path d="M2 5.2l2 2 4-4" stroke="currentColor" strokeWidth="1.6" fill="none" strokeLinecap="round" strokeLinejoin="round" />
-        </svg>
-      ) : (
-        engineChip ?? <span aria-hidden="true" />
-      )}
-    </button>
+    <Tooltip content={description} placement="left" wrapperClassName="block">
+      <button
+        type="button"
+        id={id}
+        role="option"
+        aria-selected={selected}
+        tabIndex={-1}
+        onClick={onCommit}
+        onMouseEnter={onHighlight}
+        onContextMenu={(event) => {
+          if (!onOpenEngine) return
+          event.preventDefault()
+          onHighlight()
+          onOpenEngine()
+        }}
+        className={`grid w-full grid-cols-[20px_1fr_auto] items-center gap-2 py-1.5 pr-2 text-left transition-colors ${
+          selected
+            ? 'bg-[color:var(--accent-primary-soft)] pl-[7px] text-[color:var(--text-strong)] shadow-[inset_3px_0_0_var(--accent-primary)]'
+            : 'pl-2.5 text-[color:var(--text-default)] hover:bg-[color:var(--bg-hover)]'
+        }`}
+      >
+        <span className={selected ? 'text-[color:var(--text-strong)]' : 'text-[color:var(--text-muted)]'}>{icon}</span>
+        <TruncatedText as="span" text={label} className="text-[13px]" />
+        {persisted ? (
+          <svg className="icon-sm shrink-0 text-[color:var(--accent-primary)]" viewBox="0 0 10 10" aria-hidden="true">
+            <path d="M2 5.2l2 2 4-4" stroke="currentColor" strokeWidth="1.6" fill="none" strokeLinecap="round" strokeLinejoin="round" />
+          </svg>
+        ) : (
+          engineChip ?? <span aria-hidden="true" />
+        )}
+      </button>
+    </Tooltip>
   )
 }

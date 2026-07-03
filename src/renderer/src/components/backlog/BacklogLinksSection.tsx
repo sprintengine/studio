@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 
 import { InlineNotice, Section, Tooltip } from '../ui'
-import type { BacklogItem, BacklogResolvedLink } from '../../utils/backlog'
+import type { BacklogItem, BacklogItemLink, BacklogResolvedLink } from '../../utils/backlog'
 import {
   backlogLinkControlModel,
   openBacklogLink,
@@ -90,6 +90,7 @@ export function BacklogLinksSection({
   workspaceRoot,
   providers,
   excludeLinkId,
+  onRemoveLink,
 }: {
   item: BacklogItem
   workspaceId: string
@@ -99,6 +100,7 @@ export function BacklogLinksSection({
   // primary Open Sprint Engine run), so it is not duplicated as a secondary
   // control here. Null keeps every link visible.
   excludeLinkId: string | null
+  onRemoveLink: (link: BacklogItemLink) => void
 }): JSX.Element | null {
   const { resolvedLinks, linkError, openLink } = useResolvedBacklogItemLinks({
     item,
@@ -124,7 +126,7 @@ export function BacklogLinksSection({
       {secondaryLinks.length > 0 ? (
         <ul className="flex flex-col gap-0.5 px-3">
           {secondaryLinks.map((link) => (
-            <BacklogLinkControl key={link.id} link={link} onOpen={openLink} />
+            <BacklogLinkControl key={link.id} link={link} onOpen={openLink} onRemove={onRemoveLink} />
           ))}
         </ul>
       ) : null}
@@ -140,9 +142,11 @@ export function BacklogLinksSection({
 function BacklogLinkControl({
   link,
   onOpen,
+  onRemove,
 }: {
   link: BacklogResolvedLink
   onOpen: (link: BacklogResolvedLink) => void
+  onRemove: (link: BacklogItemLink) => void
 }): JSX.Element {
   const model = backlogLinkControlModel(link)
   return (
@@ -171,7 +175,27 @@ function BacklogLinkControl({
         </Tooltip>
       )}
       <span className="shrink-0 text-[11px] tabular-nums text-[color:var(--text-subtle)]">{model.statusText}</span>
+      <Tooltip content={`Unlink ${model.label}`} placement="top">
+        <button
+          type="button"
+          aria-label={`Unlink ${model.label}`}
+          onClick={() => onRemove(link)}
+          className="interactive inline-flex h-6 w-6 shrink-0 items-center justify-center rounded text-[color:var(--text-subtle)] transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)] focus:outline-none focus-visible:ring-1 focus-visible:ring-[color:var(--border-strong)]"
+        >
+          <UnlinkGlyph />
+        </button>
+      </Tooltip>
     </li>
+  )
+}
+
+function UnlinkGlyph(): JSX.Element {
+  return (
+    <svg viewBox="0 0 16 16" fill="none" className="icon-xs" aria-hidden="true">
+      <path d="M6.2 5.1l1-1a2.8 2.8 0 014 4l-1 1" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
+      <path d="M9.8 10.9l-1 1a2.8 2.8 0 01-4-4l1-1" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
+      <path d="M5.8 10.2l4.4-4.4M3 3l10 10" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
+    </svg>
   )
 }
 

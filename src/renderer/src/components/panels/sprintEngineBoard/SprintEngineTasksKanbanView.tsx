@@ -121,17 +121,10 @@ export function SprintEngineTasksKanbanView({
                     }
                     justMovedClassName={justMoved ? 'card-just-moved-gold' : undefined}
                     trailing={
+                      // The task's execution model/cli (MC-1448) stays metadata
+                      // only — surfaced in the inspector, never as card chrome
+                      // (a per-card model chip crowded every column).
                       <span className="flex items-center gap-1.5">
-                        {task.model?.trim() ? (
-                          <Tooltip content={task.cli?.trim() ? `${task.cli.trim()} · ${task.model.trim()}` : task.model.trim()}>
-                            <span
-                              className="max-w-[96px] truncate rounded-[4px] bg-[color:var(--bg-hover)] px-1 py-0.5 text-[10px] leading-none text-[color:var(--text-muted)]"
-                              aria-label={`Model: ${task.model.trim()}`}
-                            >
-                              {task.model.trim()}
-                            </span>
-                          </Tooltip>
-                        ) : null}
                         <Tooltip content={getSprintEngineRoleLabel(task.role)}>
                           <span
                             // design-tokens-allow: role glyph is the one place per the redesign where role tones are retained.

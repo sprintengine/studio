@@ -46,7 +46,10 @@ const html = renderToStaticMarkup(
     onSelectAgent={() => {}}
     onAddRole={() => {}}
     addMemberOptions={[
+      // Already-rostered roles are filtered out (MC-1450: same-role capacity
+      // grows on demand); only not-yet-enabled roles render as add chips.
       { role: 'developer', label: 'Developer', summary: 'Builds things.', activeForRole: 1, openTasksForRole: 1 },
+      { role: 'tester', label: 'Tester', summary: 'Verifies things.', activeForRole: 0, openTasksForRole: 0 },
     ]}
     isAgentTerminalLive={(agentId) => liveAgentIds.has(agentId)}
     runtimeSummaryFor={(agentId) =>
@@ -79,9 +82,46 @@ assert.ok(html.includes('aria-label="Frontend Engineer is starting"'), 'pending 
 assert.ok(/aria-label="Frontend Engineer is starting"[^>]*disabled/u.test(html) || /disabled[^>]*aria-label="Frontend Engineer is starting"/u.test(html), 'pending primary action is disabled')
 assert.ok(html.includes('Starting…'), 'pending row shows the Starting label')
 
-// Roster list and add-member affordances keep their accessible structure.
+// Roster list and add-role affordances keep their accessible structure. An
+// already-rostered role never renders an add chip (no "add another" — MC-1450).
 assert.ok(html.includes('aria-label="Roster agents"'), 'roster list is labeled')
-assert.ok(html.includes('aria-label="Add a roster member"'), 'add member section is labeled')
-assert.ok(html.includes('aria-label="Add another Developer"'), 'role chips are labeled with add intent')
+assert.ok(html.includes('aria-label="Add a role to the roster"'), 'add role section is labeled')
+assert.ok(html.includes('aria-label="Add Tester"'), 'not-yet-enabled role chips are labeled with add intent')
+assert.ok(!html.includes('Add another'), 'no add-another affordance for an already-rostered role')
+assert.ok(!html.includes('aria-label="Add Developer"'), 'an already-rostered role renders no add chip')
+
+// With every role already on the team, the Add-role section disappears
+// entirely instead of rendering an empty shell.
+const fullyRosteredHtml = renderToStaticMarkup(
+  <SprintEngineRosterView
+    sprintEngineState={sprintEngineState}
+    roster={roster}
+    agents={agents}
+    runtimeAgents={runtimeAgents}
+    selectedAgentId={'architect'}
+    onSelectAgent={() => {}}
+    onAddRole={() => {}}
+    addMemberOptions={[
+      { role: 'developer', label: 'Developer', summary: 'Builds things.', activeForRole: 1, openTasksForRole: 1 },
+    ]}
+    isAgentTerminalLive={(agentId) => liveAgentIds.has(agentId)}
+    runtimeSummaryFor={() => null}
+    cliOptions={[]}
+    agentRuntimeCli={(agentId) => (agents[agentId]?.cli ?? 'codex') as AgentCli}
+    effectiveModelForAgent={(agentId) => agents[agentId]?.cliModel}
+    onSelectAgentCli={() => {}}
+    onSelectAgentModel={() => {}}
+    onOpenAgent={() => {}}
+    onSpawnAgent={() => {}}
+    onRestartAgent={() => {}}
+    onKillAgent={() => {}}
+    inspectorContent={null}
+    inspectorExpanded={false}
+  />,
+)
+assert.ok(
+  !fullyRosteredHtml.includes('aria-label="Add a role to the roster"'),
+  'the Add-role section is hidden when every role is already rostered'
+)
 
 console.log('SprintEngineRosterView.test.tsx: ok')

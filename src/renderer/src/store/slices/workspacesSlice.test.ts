@@ -387,6 +387,8 @@ assert.equal(state.activeWorkspaceId, guidedBriefId, 'guided brief workspace is 
 const sprintEngineState = createInitialSprintEngineState({
   name: 'Runtime Choice Team',
   goal: 'Preserve agent runtime choices.',
+  // Legacy count > 1 collapses to the enabled set (MC-1450): one roster agent
+  // per enabled role; same-role capacity grows on demand at run time.
   roleCounts: { architect: 1, developer: 2 },
 })
 const sprintEngineId = useWorkspaceStore.getState().addWorkspace(standardTemplate, {
@@ -399,14 +401,17 @@ const sprintEngineId = useWorkspaceStore.getState().addWorkspace(standardTemplat
   },
   sprintEngineAgentCliOverrides: {
     'developer-1': 'codex',
-    'developer-2': 'claude-code',
   },
 })
 state = useWorkspaceStore.getState()
 const sprintEngineWorkspace = state.workspaces.find((workspace) => workspace.id === sprintEngineId)
 assert.equal(sprintEngineWorkspace?.agents.architect?.cli, 'claude-code')
 assert.equal(sprintEngineWorkspace?.agents['developer-1']?.cli, 'codex')
-assert.equal(sprintEngineWorkspace?.agents['developer-2']?.cli, 'claude-code')
+assert.equal(
+  sprintEngineWorkspace?.agents['developer-2'],
+  undefined,
+  'a legacy developer count of 2 seeds only developer-1 — extra capacity is minted on demand (MC-1450)',
+)
 assert.equal(
   sprintEngineWorkspace?.sprintEngineInitialSpawnAgentIds,
   undefined,

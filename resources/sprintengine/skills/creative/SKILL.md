@@ -77,6 +77,28 @@ When the deliverable is a rendered video, these are hard rules, not preferences:
 - **Composition config** (`id`, `component`, `durationInFrames`, `fps`, `width`, `height`) lives in `src/Root.tsx`. Use `calculateMetadata` for data-driven duration/dimensions/props; type props with `type` (not `interface`) so `defaultProps` stay type-safe; add a Zod schema for parameterized videos. Organize with `<Folder>` (e.g. Marketing / Social) and use `<Still>` for thumbnails.
 - **Typography motion:** typewriter effects use string slicing, never per-character opacity. Captions/subtitles, audio visualization, voiceover, fonts (Google Fonts is the recommended loader), and FFmpeg operations each have a dedicated Remotion rule file — load the relevant one rather than guessing the API.
 - **Convert design timings to frames against the composition's `fps`** (at 30 fps, 300 ms ≈ 9 frames). The motion-craft duration/easing tables above are the design source; translate them, don't reinvent them per scene.
+- **Bootstrap from the official prompt, not memory.** Before writing a composition, load Remotion's own system prompt (`remotion.dev/llms.txt`) and install its skills (`npx skills add remotion-dev/skills`); any `remotion.dev/docs/...` URL serves a markdown version to paste in. Layer the landing-page and digital-twin rules below on top — do not guess an API a rule file already pins.
+
+# Digital Twin — Reuse The Real Product
+
+The strongest product landing-page video is a **digital twin**: the real product UI rebuilt *inside* the composition so it animates, stays on-brand, and shows live-looking state — not a flat screenshot dropped on a slide. A twin is the proof; a stock mockup is decoration. Prefer a twin for any hero, feature, or "how it works" scene where the product itself is the story. `src/remotion/SprintEngineProductHero.tsx` is the existing precursor — it hand-rebuilds the app shell with inline styles and hardcoded hex, which drifts the moment the real UI changes. The twin discipline replaces that hand-rolling; reuse its composition config and layout intent, not its detached styling.
+
+**The twin's likeness comes from tokens + data, not from importing app code.** This is an Electron app: the real renderer components are wired to IPC (`window.api`), Zustand stores, React context, timers, and scroll/observer hooks. Remotion runs its own browser-only bundler with none of that, so importing a live product component fails or renders empty. Reuse the product's *identity* instead — its real design tokens (color, radii, spacing, type scale), its real copy, and production-realistic data — and rebuild the surface from portable primitives.
+
+- **Build the twin from shadcn/ui primitives.** shadcn is the component vocabulary for twins: copy-in (no runtime coupling), Tailwind-native, deterministic under Remotion. Vendor the primitives you need into `src/remotion/twin/ui/` and compose the product surface from them; `rrh1441/remotion-ui` offers shadcn-style motion primitives if you want animated variants. Do **not** `import` from `src/renderer` — if a real component is genuinely pure (no IPC/store/hook coupling), copy it into the twin folder and sever any remaining runtime deps; never reach back into the app tree.
+- **Dress the primitives in the app's real tokens.** Pull the product's actual color scale, radii, spacing, and fonts (the app is Inter + JetBrains Mono) from its brand/token source so the twin reads as *this* product, not generic shadcn. A twin in default shadcn slate is a failed twin.
+- **Pre-bake data; never fetch per frame.** Remotion re-renders every frame in a fresh headless snapshot, so live fetches re-fire each frame and drift. Bake realistic fixtures to typed JSON and pass them as `defaultProps`/props (add a Zod schema for parameterized twins). Sever every runtime dependency — replace store/IPC/`fetch` hooks, `Date.now()`, `Math.random()`, `IntersectionObserver`, `matchMedia`, and real timers with frame-driven values off `useCurrentFrame()`. **Data must look shipped:** no `Test User`, `Sample`, lorem, or obvious placeholder text — use plausible names, real-shaped metrics, and copy that could pass in production.
+- **Wire Tailwind v4 into Remotion's bundler** (it is not inherited from the app). Install `@remotion/tailwind-v4`, add an `enableTailwind()` webpack override in `remotion.config.ts` (create it — none exists yet), `@import "tailwindcss";` in an `index.css` imported from `Root.tsx`, and ensure `package.json` does not carry `sideEffects: false` (set `"sideEffects": ["*.css"]` or the CSS is stripped from the bundle). Motion still comes from the frame — Tailwind supplies static classes only; `transition-*`/`animate-*` remain forbidden.
+- **Load fonts through Remotion, gated for render.** Use `@remotion/google-fonts` / `loadFont()` at module top level (never inside render), loading only the weights/subsets you use, or Chromium substitutes a system font mid-render. For any async load (fonts, `staticFile()` images), gate with `delayRender` created once via `useState(() => delayRender())` and `continueRender` within 30 s — never mint a handle per re-render.
+
+# Landing-Page Video Structure
+
+For product/landing-page films, structure the beat sheet on the proven arc and hold the timing honest:
+
+- **Scene arc:** hook (brand promise) → problem (the pain) → 2–3 feature/mechanism beats (the twin doing real work) → proof (a real metric or state) → CTA (the outcome). Plan **5–7 scenes across ~30–35 s**; keep scenes ≤5 s (CTA up to ~6 s). If the piece is narrated, err slightly *longer* than instinct — tight 3.5 s cuts read as mechanical against natural speech.
+- **Single source of truth for timing.** Put every scene's duration, audio delay, and script line in one config module (e.g. `src/remotion/<video>/scenes.ts`) and derive both the timeline and all frame math from it, so changing a duration in one place updates everything. This is the beat sheet from the Creative Brief Contract, made executable.
+- **Reusable spring hooks.** Factor entrance motion into shared hooks (`useFadeIn`, `useSlideIn`, `useScaleIn`, screenshot/UI zoom) driven by `spring()`; use `interpolate()` with clamped extrapolation for opacity, position, and audio ducking (keep bg music ~0.12 under voiceover, fade at head and tail).
+- **`TransitionSeries` audio sync.** Scene transitions overlap ~0.4–0.5 s, which stacks voiceover unless each scene's `<Audio>` is offset — wrap it in a nested `<Sequence from={Math.round(fps * scene.audioDelay)}>`. Write voiceover as one person thinking out loud (connectors across cuts), not six stitched headlines.
 
 # Marketing & Expressive Web Standards
 
@@ -84,7 +106,7 @@ When the deliverable is a rendered video, these are hard rules, not preferences:
 - **No AI spectacle.** Reject "magical", "100x", novelty robots, meaningless hero blobs, radial gradient mush that says nothing. Accent glows, hero gradients, and richer cards are house aesthetic *on marketing surfaces* — purposeful, not decorative excess.
 - **One clear visual priority per view or scene.** The eye lands on the headline, the product shot, the metric, or the motion — not all at once. Build hierarchy with spacing, type, density, and order before adding chrome.
 - **Brand fidelity.** On marketing surfaces use the workspace's sanctioned marketing palette, type, and radii from its brand tokens and brand knowledge graph — never invent a new typeface, palette, or radius the brand hasn't sanctioned. Inside the app, switch to the operational ink scale — never mix the two.
-- **Honest framing.** Show real product UI (running app or deterministic fixture), label states (empty / loading / unavailable / not-yet-shipped) rather than passing a failed dependency off as the happy path, and let "what we haven't solved yet" stand where it belongs.
+- **Honest framing.** Show real product UI — a **digital twin** (see above) for hero/feature scenes, or a real screenshot/recording as fallback — and label states (empty / loading / unavailable / not-yet-shipped) rather than passing a failed dependency off as the happy path, and let "what we haven't solved yet" stand where it belongs.
 - **Motion that earns its place.** Autoplay video is muted and reads in ≤3 seconds before any text. Looping ambient motion is reserved for hero/cover, never behind dense reading. No parallax on technical content. The piece must still communicate at 1× with no audio.
 
 # Reject-on-Sight (motion & marketing)
@@ -99,6 +121,7 @@ Stop and rebuild, do not patch, if a draft contains:
 - Decorative emoji as iconography, celebration spam ("✅🎉"), or AI-spectacle copy ("magical", "100x", "revolutionary") and unsourced numbers.
 - Ambient/decorative motion with no "alive right now" or "just changed" meaning, looping behind text the viewer is trying to read.
 - A claim on screen with no real source, or the same metric shown two ways that could appear to disagree.
+- A digital twin dressed in default shadcn/generic styling instead of the product's real tokens, populated with placeholder data (`Test User`, `Sample`, lorem), importing a live component from `src/renderer`, or fetching per frame instead of from pre-baked props.
 
 # Asset Strategy
 
@@ -106,7 +129,7 @@ Code-native and vector first, bitmap and footage last.
 
 - **Charts / data motion:** drive from real data in code (Remotion compositions, animated SVG). Do not fake numbers for a hero stat.
 - **Illustration-grade looping motion:** Lottie, embedded via the project's Lottie runtime (in Remotion via the `lottie` rule).
-- **Product UI:** real screenshots/recordings from the running app or a deterministic fixture — the real UI is the proof.
+- **Product UI:** a digital twin (real tokens + real data, rebuilt from shadcn primitives — see Digital Twin) is the strongest proof and the default for product scenes; a real screenshot/recording is the fallback when a twin isn't worth the build.
 - **Hero / conceptual bitmaps:** generate only when a beat genuinely needs a visual that code cannot express. Use the reflective pattern: read the beat's message, sketch three distinct visual approaches, pick the one that best serves the message, then write the final prompt. No decorative filler.
 - **Footage / b-roll:** allowed as input; the composition and timing stay in code.
 

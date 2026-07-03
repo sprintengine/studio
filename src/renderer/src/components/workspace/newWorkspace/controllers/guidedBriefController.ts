@@ -1,5 +1,5 @@
 import type { GuidedBriefRuntimeState } from '../../../../types/workspace'
-import { countSprintEngineAgents } from '../../../../utils/sprintengine'
+import { SPRINT_ENGINE_DEFAULT_MAX_PARALLEL_AGENTS } from './sprintEngineController'
 import {
   sprintEngineAutomationInitialStateForMode,
   sprintEngineAutomationModeForRunOptions,
@@ -226,7 +226,8 @@ export async function runGuidedBriefStartBuild(
       sprintEngineAutoState: {
         ...sprintEngineAutomationInitialStateForMode(sprintEngineAutomationModeForRunOptions(runOptions)),
         cliPermissionPreset: runOptions.cliPermissionPreset,
-        maxConcurrentAgents: Math.max(1, countSprintEngineAgents(finalRoleCounts)),
+        // MC-1450: the ceiling is a workspace-level knob, never roster size.
+        maxConcurrentAgents: SPRINT_ENGINE_DEFAULT_MAX_PARALLEL_AGENTS,
       },
       pathExists: ports.pathExists,
     })

@@ -36,6 +36,7 @@ import { getSprintEngineRoleAccent } from '../../utils/sprintengine'
 import { NotificationsPopover, type NotificationRowAction } from './topbar/NotificationsPopover'
 import { useWorkspaceStore } from '../../store/workspaceStore'
 import { useGitBranch } from '../../hooks/useGitBranch'
+import { resolveWorkspaceWorktree } from '../../utils/workspaceWorktree'
 import {
   getEffectiveKeybindingLabel,
   getSpecialistCommandId,
@@ -715,6 +716,17 @@ export default function WorkspaceTopBar({
     [activeWorkspace, moduleOverrides],
   )
   const gitBranch = useGitBranch(activeWorkspace?.folderPath ?? null)
+  // For a worktree-backed workspace (a Sprint Engine run in worktree mode, or a
+  // worktree opened as a workspace) the branch label must reflect the worktree
+  // the work runs on — matching the Git panel, which also resolves the worktree.
+  // The live `useGitBranch` probe is keyed on the parent `folderPath` and reports
+  // its branch (e.g. "main"), so prefer the worktree's branch, which is available
+  // synchronously from workspace state and is symlink-independent. The folder-path
+  // segment stays on `folderPath` because it opens the file explorer, which is
+  // rooted there. Regular workspaces fall back to the live probe unchanged.
+  const worktree = activeWorkspace ? resolveWorkspaceWorktree(activeWorkspace) : null
+  const branchIsRepo = worktree ? true : gitBranch.isRepo
+  const branchName = worktree ? worktree.branch ?? null : gitBranch.branch
   // The header identity segments double as panel shortcuts: the folder path
   // reveals the file explorer and the branch reveals the Git panel — but only
   // when the owning capability module is enabled, so we never offer a click that
@@ -808,27 +820,27 @@ export default function WorkspaceTopBar({
                   </span>
                 )
               ) : null}
-              {gitBranch.isRepo ? (
+              {branchIsRepo ? (
                 gitPanelEnabled ? (
                   <Tooltip
-                    content={gitBranch.branch ?? 'Detached HEAD'}
+                    content={branchName ?? 'Detached HEAD'}
                     placement="bottom"
                     wrapperClassName="hidden min-w-0 shrink-[10] sm:flex"
                   >
                     <button
                       type="button"
                       onClick={revealGitPanel}
-                      aria-label={gitBranch.branch ? `Open Git panel, branch ${gitBranch.branch}` : 'Open Git panel, detached HEAD'}
+                      aria-label={branchName ? `Open Git panel, branch ${branchName}` : 'Open Git panel, detached HEAD'}
                       className={`interactive flex min-w-0 items-center gap-1 text-[12px] text-[color:var(--text-muted)] hover:text-[color:var(--text-default)] ${FOCUS_RING_CLASS}`}
                     >
                       <GitBranchGlyph className="icon-xs shrink-0" />
-                      <span className="min-w-0 truncate">{gitBranch.branch ?? 'detached'}</span>
+                      <span className="min-w-0 truncate">{branchName ?? 'detached'}</span>
                     </button>
                   </Tooltip>
                 ) : (
                   <span className="hidden min-w-0 shrink-[10] items-center gap-1 text-[12px] text-[color:var(--text-muted)] sm:inline-flex">
                     <GitBranchGlyph className="icon-xs shrink-0" />
-                    <span className="min-w-0 truncate">{gitBranch.branch ?? 'detached'}</span>
+                    <span className="min-w-0 truncate">{branchName ?? 'detached'}</span>
                   </span>
                 )
               ) : null}

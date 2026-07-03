@@ -8,10 +8,12 @@ import {
   MenuItem,
   RoleAvatar,
   SidePane,
+  StatusDot,
   Tooltip,
   TruncatedText,
   type CliModelListboxOption,
   type LifecycleState,
+  type Tone,
 } from '../../ui'
 import type {
   AgentCli,
@@ -27,24 +29,31 @@ import { SprintEngineEmptyDetail } from './SprintEngineEmptyDetail'
 // Runtime status → shape-coded lifecycle glyph. Status is earned, not
 // decorated: an idle member gets no mark — its row reads as quiet — while the
 // states that actually want attention (working, blocked, errored, finished)
-// carry a glyph. Only the genuinely live states spin.
+// carry an indicator. A live agent that is *doing work* gets the pulsing green
+// dot (the shared "agent working" idiom); the spinner is reserved for workspace
+// runs and backlog items, never a live agent. The other, non-working states
+// keep their lifecycle glyph.
+type RosterIndicator =
+  | { kind: 'dot'; tone: Tone; pulse: boolean }
+  | { kind: 'glyph'; state: LifecycleState; live: boolean }
+
 function rosterLifecycle(
   statusKey: string,
   spawnPending: boolean,
-): { state: LifecycleState; live: boolean } | null {
-  if (spawnPending) return { state: 'in_progress', live: true }
+): RosterIndicator | null {
+  if (spawnPending) return { kind: 'dot', tone: 'good', pulse: true }
   switch (statusKey) {
     case 'running':
     case 'planning':
-      return { state: 'in_progress', live: true }
+      return { kind: 'dot', tone: 'good', pulse: true }
     case 'needs_input':
-      return { state: 'needs_input', live: false }
+      return { kind: 'glyph', state: 'needs_input', live: false }
     case 'error':
-      return { state: 'failed', live: false }
+      return { kind: 'glyph', state: 'failed', live: false }
     case 'complete':
-      return { state: 'done', live: false }
+      return { kind: 'glyph', state: 'done', live: false }
     case 'exited':
-      return { state: 'archived', live: false }
+      return { kind: 'glyph', state: 'archived', live: false }
     default:
       return null
   }
@@ -186,7 +195,11 @@ export function SprintEngineRosterView({
                             <span className="flex min-w-0 items-center gap-2 text-[11px] text-[color:var(--text-subtle)]">
                               {lifecycle ? (
                                 <span className="flex shrink-0 items-center gap-1.5">
-                                  <LifecycleGlyph state={lifecycle.state} live={lifecycle.live} />
+                                  {lifecycle.kind === 'dot' ? (
+                                    <StatusDot tone={lifecycle.tone} pulse={lifecycle.pulse} label={statusLabel} />
+                                  ) : (
+                                    <LifecycleGlyph state={lifecycle.state} live={lifecycle.live} />
+                                  )}
                                   <span>{statusLabel}</span>
                                 </span>
                               ) : null}
@@ -256,18 +269,22 @@ export function SprintEngineRosterView({
             )}
           </div>
 
+          {/* Only roles not yet on the roster: same-role capacity grows on
+              demand via queue-depth replenishment (MC-1450 retired manual
+              "add another" and the per-role count badge). Hidden entirely
+              when every role is already on the team. */}
+          {addMemberOptions.some((option) => option.activeForRole === 0) ? (
           <section
-            aria-label="Add a roster member"
+            aria-label="Add a role to the roster"
             className="shrink-0 border-t border-[color:var(--border-default)] bg-[color:var(--bg-surface)]"
           >
             <div className="px-3 pb-1 pt-2">
-              <h4 className="text-[11px] font-medium text-[color:var(--text-muted)]">Add member</h4>
+              <h4 className="text-[11px] font-medium text-[color:var(--text-muted)]">Add role</h4>
             </div>
             <div className="flex flex-wrap gap-1.5 px-3 pb-2.5">
-              {addMemberOptions.map((option) => {
+              {addMemberOptions.filter((option) => option.activeForRole === 0).map((option) => {
                 const role = option.role
-                const count = option.activeForRole
-                const addLabel = `${count > 0 ? 'Add another' : 'Add'} ${option.label}`
+                const addLabel = `Add ${option.label}`
                 return (
                   <Tooltip key={role} content={addLabel}>
                     <button
@@ -278,15 +295,13 @@ export function SprintEngineRosterView({
                     >
                       <RoleAvatar role={role} size="xs" ariaLabel="" />
                       <span>{option.label}</span>
-                      {count > 0 ? (
-                        <span className="ml-0.5 tabular-nums text-[color:var(--text-disabled)]">{count}</span>
-                      ) : null}
                     </button>
                   </Tooltip>
                 )
               })}
             </div>
           </section>
+          ) : null}
         </SidePane>
       )}
 

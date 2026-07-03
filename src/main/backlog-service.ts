@@ -32,6 +32,7 @@ import type {
   BacklogObjectRecordPayload,
   BacklogObjectStorePayload,
   BacklogReadResult,
+  BacklogRemoveLinkInput,
   BacklogRemoveRecordInput,
   BacklogStatusInput,
   BacklogTriageInput,
@@ -433,7 +434,13 @@ export async function ensureBacklogObjectRecords(
 // parseBacklogFrontmatter in src/shared/backlog/frontmatter.ts.
 export async function updateBacklogStatus(input: BacklogStatusInput): Promise<BacklogMutationResult> {
   if (!isBacklogStatus(input.status)) return { ok: false, message: 'Enter a valid Backlog item status.' }
-  return writeBacklogFrontmatter(input.workspaceRoot, input.relativePath, { status: input.status })
+  const written = await writeBacklogFrontmatter(input.workspaceRoot, input.relativePath, { status: input.status })
+  if (!written.ok) return written
+
+  // v2 lifecycle belongs only in frontmatter. A link-sync write from an older
+  // build may have left a sidecar status behind; clear it in the same mutation
+  // so a later lazy migration cannot overwrite the user's explicit choice.
+  return clearBacklogSidecarStatus(input.workspaceRoot, input.relativePath)
 }
 
 export async function updateBacklogType(input: BacklogTypeInput): Promise<BacklogMutationResult> {
@@ -543,15 +550,58 @@ export async function addOrUpdateBacklogLink(input: BacklogAddOrUpdateLinkInput)
   if (input.status !== undefined && !isBacklogStatus(input.status)) {
     return { ok: false, message: 'Enter a valid Backlog item status.' }
   }
-  return mutateItem(input.workspaceRoot, input.relativePath, (record, now) => {
+  const linked = await mutateItem(input.workspaceRoot, input.relativePath, (record, now) => {
     const nextLink = { ...link, updatedAt: link.updatedAt ?? now }
     return {
       ...record,
-      status: input.status ?? record.status,
       links: [...(record.links ?? []).filter((candidate) => candidate.id !== nextLink.id), nextLink],
       updatedAt: now,
     }
   })
+  if (!linked.ok || input.status === undefined) return linked
+
+  // Link lifecycle may advance the item, but the lifecycle source of truth is
+  // still the Markdown frontmatter. Never reintroduce status into items.json.
+  return updateBacklogStatus({
+    workspaceRoot: input.workspaceRoot,
+    relativePath: input.relativePath,
+    status: input.status,
+  })
+}
+
+export async function removeBacklogLink(input: BacklogRemoveLinkInput): Promise<BacklogMutationResult> {
+  const linkId = input.linkId.trim()
+  if (!linkId) return { ok: false, message: 'Choose a Backlog link to remove.' }
+  return mutateItem(input.workspaceRoot, input.relativePath, (record, now) => ({
+    ...record,
+    links: (record.links ?? []).filter((candidate) => candidate.id !== linkId),
+    updatedAt: now,
+  }))
+}
+
+async function clearBacklogSidecarStatus(
+  workspaceRoot: string,
+  relativePath: string,
+): Promise<BacklogMutationResult> {
+  try {
+    validateBacklogRelativePath(relativePath)
+    const workspace = await validateWorkspaceRoot(workspaceRoot)
+    const store = await loadStore(workspace)
+    const pathKey = normalizeRelativePath(relativePath).toLowerCase()
+    let changed = false
+    const items = store.items.map((record) => {
+      if (record.source.relativePath.toLowerCase() !== pathKey || record.status === undefined) return record
+      const { status: _status, ...next } = record
+      changed = true
+      return next
+    })
+    if (!changed) return { ok: true, store }
+    const nextStore = normalizeStore({ schemaVersion: 1, items })
+    await saveStore(workspace, nextStore)
+    return { ok: true, store: nextStore }
+  } catch (error) {
+    return { ok: false, message: errorMessage(error) }
+  }
 }
 
 export async function updateBacklogModuleMetadata(input: BacklogModuleMetadataInput): Promise<BacklogMutationResult> {

@@ -1995,6 +1995,12 @@ export type BacklogAddOrUpdateLinkInput = {
   status?: BacklogItemStatusPayload
 }
 
+export type BacklogRemoveLinkInput = {
+  workspaceRoot: string
+  relativePath: string
+  linkId: string
+}
+
 export type BacklogModuleMetadataInput = {
   workspaceRoot: string
   relativePath: string
@@ -2439,6 +2445,7 @@ export type ElectronApi = {
   updateBacklogTriage: (input: BacklogTriageInput) => Promise<BacklogMutationResult>
   updateBacklogHighlight: (input: BacklogHighlightInput) => Promise<BacklogMutationResult>
   addOrUpdateBacklogLink: (input: BacklogAddOrUpdateLinkInput) => Promise<BacklogMutationResult>
+  removeBacklogLink: (input: BacklogRemoveLinkInput) => Promise<BacklogMutationResult>
   updateBacklogModuleMetadata: (input: BacklogModuleMetadataInput) => Promise<BacklogMutationResult>
   moveBacklogObjectSource: (input: BacklogMoveSourceInput) => Promise<BacklogMutationResult>
   removeBacklogObjectRecord: (input: BacklogRemoveRecordInput) => Promise<BacklogMutationResult>

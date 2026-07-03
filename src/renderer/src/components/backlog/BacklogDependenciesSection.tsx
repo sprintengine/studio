@@ -9,6 +9,7 @@ import {
   type BacklogActions,
   type BacklogDependencyChoice,
 } from './BacklogItemContextMenu'
+import { BacklogItemSearchPicker } from './BacklogItemSearchPicker'
 
 // Detail-pane dependency surface, the analog of BacklogLinksSection for the
 // `dependsOn` axis. It renders the derived view (T2 backlogDependencies) — the
@@ -197,11 +198,10 @@ function RemoveButton({ label, onClick }: { label: string; onClick: () => void }
   )
 }
 
-// The add/remove editor: a "Depends on…" button opening a checkable candidate
-// list (every other non-epic item), the detail-pane peer of the context menu's
-// flyout. Toggling a row rewrites the full `dependsOn` set; the popover stays
-// open so several can be set in one pass, and the checks reflect the current set
-// — mirroring "Move to epic".
+// The add/remove editor is search-first: opening it never renders the entire
+// Backlog. A typed item code, title, or slug filters real candidates; toggling a
+// result rewrites the full `dependsOn` set and keeps the picker open so several
+// prerequisites can be set in one pass.
 function DependsOnEditor({
   item,
   dependencyChoices,
@@ -220,14 +220,14 @@ function DependsOnEditor({
       open={open}
       onOpenChange={setOpen}
       ariaLabel="Set prerequisites"
-      popupRole="menu"
+      popupRole="dialog"
       placement="bottom-end"
-      surfaceClassName="max-h-[18rem] min-w-[220px] overflow-auto py-1"
+      surfaceClassName="min-w-[19rem] p-1"
       renderTrigger={({ ref, togglePopover, open: opened, triggerProps }) => (
         <button
           ref={ref}
           type="button"
-          aria-haspopup="menu"
+          aria-haspopup="dialog"
           aria-expanded={triggerProps['aria-expanded']}
           aria-controls={triggerProps['aria-controls']}
           onClick={togglePopover}
@@ -239,32 +239,21 @@ function DependsOnEditor({
         </button>
       )}
     >
-      {candidates.length === 0 ? (
-        <p className="px-2.5 py-1.5 text-[12px] text-[color:var(--text-disabled)]">No other items</p>
-      ) : (
-        candidates.map((candidate) => {
-          const checked = dependsOn.includes(candidate.slug)
-          return (
-            <button
-              key={candidate.id}
-              role="menuitemcheckbox"
-              type="button"
-              aria-checked={checked}
-              onClick={() => onToggle(candidate.slug)}
-              className="flex w-full items-center gap-2 px-2.5 py-1.5 text-left text-[12px] text-[color:var(--text-default)] transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]"
-            >
-              <span className="inline-flex h-3.5 w-3.5 shrink-0 items-center justify-center" aria-hidden="true">
-                {checked ? (
-                  <svg viewBox="0 0 16 16" fill="none" className="icon-xs">
-                    <path d="M3.5 8.5L6.5 11.5L12.5 5" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
-                  </svg>
-                ) : null}
-              </span>
-              <span className="min-w-0 flex-1 truncate">{candidate.title}</span>
-            </button>
-          )
-        })
-      )}
+      <BacklogItemSearchPicker
+        options={candidates.map((candidate) => ({
+          id: candidate.id,
+          value: candidate.slug,
+          title: candidate.title,
+          displayId: candidate.displayId,
+          searchText: candidate.slug,
+        }))}
+        selectedValues={dependsOn}
+        ariaLabel="Search prerequisite items"
+        noOptionsMessage="No other items."
+        multiple
+        resultRole="listbox"
+        onSelect={(candidate) => onToggle(candidate.value)}
+      />
     </Popover>
   )
 }

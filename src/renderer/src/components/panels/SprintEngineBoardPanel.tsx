@@ -1569,12 +1569,16 @@ function SprintEngineBoardPanelContent({
 
  // Persist a runtime choice onto the member record (applied on next launch,
  // and immediately reflected in the row's CLI summary). Picking a bare CLI
- // clears any explicit model so the CLI's own default is used.
+ // clears any explicit model so the CLI's own default is used. The choice is
+ // also recorded as an explicit `cliRuntimeOverride` so the per-role
+ // `roleRuntimes` reconcile (MC-1450) honors it instead of reverting it on
+ // the next projection tick — `model: null` pins the CLI default even for a
+ // role whose config names a model.
  const selectAgentCli = (agentId: string, cli: AgentCli) => {
-   updateAgent(workspaceId, agentId, { cli, cliModel: undefined })
+   updateAgent(workspaceId, agentId, { cli, cliModel: undefined, cliRuntimeOverride: { cli, model: null } })
  }
  const selectAgentModel = (agentId: string, cli: AgentCli, model: string | null) => {
-   updateAgent(workspaceId, agentId, { cli, cliModel: model ?? undefined })
+   updateAgent(workspaceId, agentId, { cli, cliModel: model ?? undefined, cliRuntimeOverride: { cli, model } })
  }
 
  // Kill = stop the app-owned terminal process and release Sprint Engine

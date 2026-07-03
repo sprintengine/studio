@@ -67,6 +67,7 @@ import {
   type TerminalListNoticeCooldown,
 } from '../../utils/sprintengineAutoRunExecutor'
 import { isSprintEnginePlanningRole } from '../../utils/sprintengineInitialSpawns'
+import { resolveSprintEngineAgentRuntime } from '../../store/slices/runStateSlice'
 import { logPerfEvent } from '../../utils/perfDiagnostics'
 import { pathJoin } from '../../utils/paths'
 import { MULTICODE_DISABLE_SPRINTENGINE_AUTORUN } from '../../utils/runtimeFlags'
@@ -1243,7 +1244,17 @@ export async function spawnAutoRunCandidate(
   const currentState = useWorkspaceStore.getState()
   const currentWorkspace = currentState.workspaces.find((candidate) => candidate.id === workspace.id)
   const currentAgent = currentWorkspace?.agents[nextRun.agentId]
-  const selectedCli = currentAgent?.cli
+  // Defensive belt over the reconcile-stamped record (MC-1450): re-resolve
+  // the full runtime hierarchy (per-agent override > role `roleRuntimes`
+  // config > record) at the moment of spawn, so a mint path that bypassed
+  // reconcile can never substitute the CLI's default model.
+  const resolvedRuntime = resolveSprintEngineAgentRuntime(
+    sprintEngineState.roleRuntimes,
+    nextRun.role,
+    currentAgent,
+  )
+  const selectedCli = resolvedRuntime.cli
+  const selectedCliModel = resolvedRuntime.cliModel
   const sessionId = crypto.randomUUID()
   const spawnKey = `${workspace.id}:${nextRun.agentId}`
   if (inFlightSpawns.current.has(spawnKey)) return 'skipped'
@@ -1275,7 +1286,7 @@ export async function spawnAutoRunCandidate(
   // window-disposal retirement (cliResumeAvailable + cliSessionId with
   // cliHasLaunched/cliStartRequested cleared); every other spawn — new task,
   // gate, crashed live session — stays a fresh conversation. Resume failure
-  // in the CLI degrades to a new session on the same prompt (fresh brief).
+  // in the CLI degrades to a new session on the same startup text — a fresh brief.
   const resumeToken =
     !nextRun.gateId
     && sprintEngineState.sprintEngineAgents[nextRun.agentId]?.lastOwnedTaskId === nextRun.taskId
@@ -1458,7 +1469,7 @@ export async function spawnAutoRunCandidate(
       executionMode,
       ...(executionMode === 'worktree' ? { worktreePath: executionCwd } : {}),
       cliPermissionPreset: getSprintEngineAutoState(workspace).cliPermissionPreset,
-      cliModel: currentAgent?.cliModel,
+      cliModel: selectedCliModel,
       memoryRootPath: memoryStatus?.ok ? memoryStatus.rootPath : undefined,
       memoryRelativeRoot: memoryRelativeRoot ?? undefined,
       mcpSettings,

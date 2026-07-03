@@ -193,6 +193,83 @@ assert.equal(
 )
 assert.equal(stableRenamedDefaultAgents.frontend, renamedDefaultAgents.frontend)
 
+// MC-1450: every reconcile — seeded, minted, recycled — resolves cli/cliModel
+// from the run's per-role `roleRuntimes` (run.yaml via the projection), so a
+// replenishment-minted agent can never launch on the CLI's default model.
+const runtimeSprintState = {
+  ...sprintState,
+  roleRuntimes: {
+    frontend: { model: 'claude-opus-4-8', cli: 'claude-code' },
+    tester: { cli: 'codex' },
+  },
+  sprintEngineAgents: {
+    ...sprintState.sprintEngineAgents,
+    'frontend-2': { role: 'frontend' as const, status: 'idle' as const, currentTaskId: null },
+  },
+}
+const mintedAgents = reconcileSprintEngineAgents(directWorkspace.agents, runtimeSprintState)
+assert.equal(
+  mintedAgents['frontend-2']?.cliModel,
+  'claude-opus-4-8',
+  'a minted (brand-new) roster record must carry the role-configured model'
+)
+assert.equal(mintedAgents['frontend-2']?.cli, 'claude-code')
+assert.equal(
+  mintedAgents.tester?.cli,
+  'codex',
+  'an existing record must be re-resolved from role config on reconcile'
+)
+assert.equal(
+  mintedAgents.tester?.cliModel,
+  undefined,
+  'a role configured without a model launches with no --model flag — not a substitute'
+)
+assert.equal(
+  mintedAgents.frontend?.cliModel,
+  'claude-opus-4-8',
+  'a seeded record with a stale snapshot must be refreshed from role config'
+)
+// A role absent from the map (legacy run mid-flight) preserves what the record
+// already has — never substitutes.
+const legacyAgents = reconcileSprintEngineAgents(
+  {
+    frontend: {
+      ...defaultAgent('frontend', 'Legacy Frontend', 'sprintengine'),
+      cli: 'codex' as const,
+      cliModel: 'legacy-model',
+    },
+  },
+  sprintState
+)
+assert.equal(legacyAgents.frontend?.cli, 'codex')
+assert.equal(legacyAgents.frontend?.cliModel, 'legacy-model')
+// Config is static per run, so a repeat reconcile stays identity-stable.
+const stableMintedAgents = reconcileSprintEngineAgents(mintedAgents, runtimeSprintState)
+assert.equal(stableMintedAgents, mintedAgents, 'roleRuntimes-resolved reconcile must stay identity-stable')
+// An explicit per-agent override (board mid-run picker / wizard per-agent CLI
+// pick) outranks the role config and survives every reconcile — including
+// `model: null`, which pins the CLI default over a role-configured model.
+const overriddenAgents = reconcileSprintEngineAgents(
+  {
+    ...mintedAgents,
+    frontend: {
+      ...mintedAgents.frontend!,
+      cli: 'codex' as const,
+      cliModel: undefined,
+      cliRuntimeOverride: { cli: 'codex' as const, model: null },
+    },
+  },
+  runtimeSprintState
+)
+assert.equal(overriddenAgents.frontend?.cli, 'codex', 'per-agent CLI override outranks role config')
+assert.equal(
+  overriddenAgents.frontend?.cliModel,
+  undefined,
+  'override model:null pins the CLI default over the role-configured model'
+)
+const stableOverriddenAgents = reconcileSprintEngineAgents(overriddenAgents, runtimeSprintState)
+assert.equal(stableOverriddenAgents, overriddenAgents, 'override-resolved reconcile stays identity-stable')
+
 runStateSlice.setSprintEngineMaxConcurrentAgents('ws-direct-run-state', 0)
 assert.equal(carrier.workspaces[0].sprintEngineAutoState?.maxConcurrentAgents, 1)
 runStateSlice.setSprintEngineAutoPendingSpawns('ws-direct-run-state', [

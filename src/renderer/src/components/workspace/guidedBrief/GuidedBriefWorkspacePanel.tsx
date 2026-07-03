@@ -10,11 +10,11 @@ import {
 } from '../../../utils/sprintengineWorkspaceCreation'
 import {
   applyUserDisabledSprintEngineRoleCounts,
-  countSprintEngineAgents,
   getSprintEngineRoleLabel,
   getUserDisabledSprintEngineRoleIds,
   sprintEngineRoleOrder,
 } from '../../../utils/sprintengine'
+import { SPRINT_ENGINE_DEFAULT_MAX_PARALLEL_AGENTS } from '../newWorkspace/controllers/sprintEngineController'
 import {
   sprintEngineAutomationInitialStateForMode,
   sprintEngineAutomationModeForRunOptions,
@@ -149,7 +149,8 @@ export default function GuidedBriefWorkspacePanel({ workspaceId }: Props) {
         sprintEngineAutoState: {
           ...sprintEngineAutomationInitialStateForMode(sprintEngineAutomationModeForRunOptions(runOptions)),
           cliPermissionPreset: runOptions.cliPermissionPreset,
-          maxConcurrentAgents: Math.max(1, countSprintEngineAgents(finalRoleCounts)),
+          // MC-1450: the ceiling is a workspace-level knob, never roster size.
+          maxConcurrentAgents: SPRINT_ENGINE_DEFAULT_MAX_PARALLEL_AGENTS,
         },
         pathExists: window.api.pathExists,
       })

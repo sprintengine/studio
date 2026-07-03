@@ -10,6 +10,7 @@ import {
   moveBacklogObjectSource,
   planBacklogStoreMigration,
   readBacklogObjectStore,
+  removeBacklogLink,
   updateBacklogDependencies,
   updateBacklogEpic,
   updateBacklogEpicColor,
@@ -393,7 +394,34 @@ async function main(): Promise<void> {
     })
     assert.equal(linked.ok, true)
     assert.equal(linked.ok ? linked.store.items[0]?.links?.[0]?.target.path : null, '.multi-code/sprintengine/checkout/run.yaml')
-    assert.equal(linked.ok ? linked.store.items[0]?.status : null, 'in_progress')
+    assert.equal(linked.ok ? linked.store.items[0]?.status : null, undefined, 'link lifecycle must not leak into items.json')
+    assert.equal((await readItem()).fields.status, 'in_progress', 'link lifecycle writes the frontmatter source of truth')
+
+    // Manual lifecycle control clears stale v1/link-written sidecar status so a
+    // subsequent migration cannot restore completed over the user's Ready.
+    const withStaleStatus = JSON.parse(await readFile(storePath, 'utf-8')) as {
+      schemaVersion: 1
+      items: Array<Record<string, unknown>>
+    }
+    withStaleStatus.items[0].status = 'completed'
+    await writeFile(storePath, `${JSON.stringify(withStaleStatus, null, 2)}\n`, 'utf-8')
+    const manuallyReady = await updateBacklogStatus({
+      workspaceRoot: tempRoot,
+      relativePath: 'backlog/checkout.md',
+      status: 'ready',
+    })
+    assert.equal(manuallyReady.ok, true)
+    assert.equal((await readItem()).fields.status, 'ready')
+    assert.equal(manuallyReady.ok ? manuallyReady.store.items[0]?.status : 'missing', undefined)
+
+    const unlinked = await removeBacklogLink({
+      workspaceRoot: tempRoot,
+      relativePath: 'backlog/checkout.md',
+      linkId: 'sprint-engine:checkout',
+    })
+    assert.equal(unlinked.ok, true)
+    assert.deepEqual(unlinked.ok ? unlinked.store.items[0]?.links : null, [], 'unlink removes only the selected association')
+    assert.equal((await readItem()).fields.status, 'ready', 'unlink leaves manually controlled lifecycle unchanged')
 
     const persisted = JSON.parse(await readFile(storePath, 'utf-8')) as {
       items: Array<{ source: { relativePath: string } }>

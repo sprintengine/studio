@@ -338,7 +338,10 @@ function MenuFlyoutSurface({
   })
 
   useEffect(() => {
-    ref.current?.focus()
+    const surface = ref.current
+    const preferred = surface?.querySelector<HTMLElement>('[data-menu-autofocus="true"]')
+    if (preferred) preferred.focus()
+    else surface?.focus()
   }, [])
 
   return (

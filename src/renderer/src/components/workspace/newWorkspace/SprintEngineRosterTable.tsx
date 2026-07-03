@@ -1,12 +1,11 @@
 import React from 'react'
 
 import CliIcon from '../../CliIcon'
-import { CliModelPickerButton, InboxRow, Popover, Tooltip } from '../../ui'
+import { CliModelPickerButton, Popover, RoleAvatar, Tooltip } from '../../ui'
 import { getSprintEngineRoleLabel } from '../../../utils/sprintengine'
 import {
   getSprintEngineWizardRoleSummary,
   listSprintEngineWizardRoles,
-  sprintEngineRosterRoleFloor,
 } from '../../../utils/sprintengineRoleOptions'
 import type {
   AgentCli,
@@ -52,6 +51,10 @@ interface RosterTableProps {
   footer?: React.ReactNode
 }
 
+// Planning roles are marked so the row can badge them; the panel's enable
+// handler keeps at least one planner on the team (`sprintEngineRosterRoleFloor`).
+const PLANNER_ROLE_IDS: ReadonlySet<string> = new Set(['architect', 'general'])
+
 export function SprintEngineRosterTable({
   roleCounts,
   roleCliDefaults,
@@ -79,16 +82,8 @@ export function SprintEngineRosterTable({
         const label = getSprintEngineRoleLabel(role, registry)
         const summary = getSprintEngineWizardRoleSummary(role, registry)
         const roleCli = roleCliDefaults[role] ?? fallbackCli
-        const trailing = isAdded ? (
-          <div className="flex items-center gap-2">
-            <CountStepper
-              role={role}
-              label={label}
-              count={count}
-              minCount={sprintEngineRosterRoleFloor(role, roleCounts)}
-              disabled={countDisabled}
-              onSetCount={onSetCount}
-            />
+        const controls = isAdded ? (
+          <div className="flex shrink-0 items-center gap-2 py-2 pr-2">
             {onSetModel ? (
               <RoleRuntimePicker
                 role={role}
@@ -146,89 +141,58 @@ export function SprintEngineRosterTable({
               </Tooltip>
             ) : null}
           </div>
-        ) : (
-          <button
-            type="button"
-            disabled={countDisabled}
-            onClick={() => onSetCount(role, 1)}
-            className="
-              inline-flex h-7 items-center gap-1.5 rounded border border-[color:var(--color-5)] bg-[color:var(--bg-surface-raised)] px-2
-              text-[11px] font-semibold text-[color:var(--text-muted)] transition-colors
-              hover:border-[color:var(--accent-primary)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]
-              focus:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--accent-primary)]
-              disabled:cursor-not-allowed disabled:opacity-55
-            "
-          >
-            <span aria-hidden="true">+</span>
-            Add
-          </button>
-        )
+        ) : null
         return (
-          <InboxRow
+          <div
             key={role}
-            tone={isAdded ? 'accent' : 'neutral'}
-            title={label}
-            supporting={summary}
-            trailing={trailing}
-          />
+            className={`group relative flex items-stretch gap-2 border-l-2 transition-colors ${
+              isAdded
+                ? 'border-[color:var(--accent-primary)] bg-[color:var(--accent-primary-soft)]'
+                : 'border-transparent hover:bg-[color:var(--bg-hover)]'
+            }`}
+          >
+            <button
+              type="button"
+              aria-pressed={isAdded}
+              disabled={countDisabled}
+              aria-label={isAdded ? `${label} — in the team, activate to remove` : `${label} — add to the team`}
+              onClick={() => {
+                if (!countDisabled) onSetCount(role, isAdded ? 0 : 1)
+              }}
+              className="
+                flex min-w-0 flex-1 items-center gap-3 px-3 py-2 text-left transition-colors
+                focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[color:var(--accent-primary)]
+                disabled:cursor-not-allowed
+              "
+            >
+              <RoleAvatar role={role} registry={registry} size="md" ariaLabel="" className={isAdded ? undefined : 'opacity-55'} />
+              <span className="min-w-0 flex-1">
+                <span className="flex items-center gap-2">
+                  <span className={`truncate text-[12px] font-medium ${isAdded ? 'text-[color:var(--text-strong)]' : 'text-[color:var(--text-default)]'}`}>
+                    {label}
+                  </span>
+                  {PLANNER_ROLE_IDS.has(role) ? (
+                    <span className="shrink-0 rounded border border-[color:var(--border-default)] px-1 text-[9px] font-semibold text-[color:var(--text-subtle)]">
+                      Planner
+                    </span>
+                  ) : null}
+                </span>
+                <span className="mt-0.5 block truncate text-[12px] text-[color:var(--text-muted)]">{summary}</span>
+              </span>
+              {!isAdded ? (
+                <span
+                  aria-hidden="true"
+                  className="shrink-0 pr-1 text-[11px] font-semibold text-[color:var(--text-subtle)] opacity-0 transition-opacity group-hover:opacity-100"
+                >
+                  + Add
+                </span>
+              ) : null}
+            </button>
+            {controls}
+          </div>
         )
       })}
       {footer}
-    </div>
-  )
-}
-
-function CountStepper({
-  role,
-  label,
-  count,
-  minCount,
-  disabled,
-  onSetCount,
-}: {
-  role: SprintEngineRoleId
-  label: string
-  count: number
-  // Per-row floor. Planning roles (architect/general) floor at 1 while they are
-  // the sole staffed planner; every other role floors at 0. Computed by the
-  // caller via `sprintEngineRosterRoleFloor` so the rule lives in one place.
-  minCount: number
-  disabled: boolean
-  onSetCount: (role: SprintEngineRoleId, count: number) => void
-}) {
-  const decDisabled = disabled || count <= minCount
-  const incDisabled = disabled || count >= 10
-  return (
-    <div className="flex h-7 items-center overflow-hidden rounded-md border border-[color:var(--color-5)] bg-[color:var(--bg-surface-raised)]">
-      <button
-        type="button"
-        aria-label={`Decrease ${label} count`}
-        disabled={decDisabled}
-        onClick={() => onSetCount(role, count - 1)}
-        className="
-          h-7 w-7 text-[color:var(--text-muted)] transition-colors
-          hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]
-          disabled:cursor-default disabled:opacity-35 disabled:hover:bg-transparent disabled:hover:text-[color:var(--text-muted)]
-        "
-      >
-        -
-      </button>
-      <span className="w-6 text-center text-[12px] font-semibold tabular-nums text-[color:var(--text-strong)]">
-        {count}
-      </span>
-      <button
-        type="button"
-        aria-label={`Increase ${label} count`}
-        disabled={incDisabled}
-        onClick={() => onSetCount(role, count + 1)}
-        className="
-          h-7 w-7 text-[color:var(--text-muted)] transition-colors
-          hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]
-          disabled:cursor-default disabled:opacity-35 disabled:hover:bg-transparent disabled:hover:text-[color:var(--text-muted)]
-        "
-      >
-        +
-      </button>
     </div>
   )
 }

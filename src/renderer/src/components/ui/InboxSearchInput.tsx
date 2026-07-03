@@ -11,6 +11,7 @@ type InboxSearchInputProps = {
   ariaLabel: string
   placeholder?: string
   clearAriaLabel?: string
+  autoFocus?: boolean
 }
 
 export function InboxSearchInput({
@@ -19,6 +20,7 @@ export function InboxSearchInput({
   ariaLabel,
   placeholder,
   clearAriaLabel = 'Clear search',
+  autoFocus = false,
 }: InboxSearchInputProps) {
   return (
     <div
@@ -35,6 +37,8 @@ export function InboxSearchInput({
         onChange={(event) => onChange(event.target.value)}
         aria-label={ariaLabel}
         placeholder={placeholder}
+        autoFocus={autoFocus}
+        data-menu-autofocus={autoFocus ? 'true' : undefined}
         // Suppress Chromium's native search clear button so it doesn't double
         // up with the styled clear affordance below (two X's in the field).
         className="min-w-0 flex-1 bg-transparent text-[color:var(--text-default)] outline-none [&::-webkit-search-cancel-button]:hidden"

@@ -11,6 +11,7 @@ from __future__ import annotations
 import json
 
 from helpers import create_team, get_task, read_state, task, write_state
+from sprintengine_core import store as store_module
 from sprintengine_core.tool import state as state_module
 from sprintengine_core.tool.tasks import normalize_task
 
@@ -101,6 +102,28 @@ def test_role_runtimes_survive_folder_store_round_trip(tmp_path) -> None:
 
     reloaded = read_state(fixture.state_path)
     assert reloaded["roleRuntimes"] == {"developer": {"model": "claude-fable-5", "cli": "claude-code"}}
+
+
+def test_projection_emits_role_runtimes(tmp_path) -> None:
+    fixture = create_team(tmp_path, "projection-role-runtimes", [task("T1", "Build", "developer")])
+    state = read_state(fixture.state_path)
+    state["roleRuntimes"] = {"developer": {"model": "claude-fable-5", "cli": "claude-code"}}
+    write_state(fixture.state_path, state)
+
+    projection = store_module.build_projection(fixture.state_path.parent, state_path=fixture.state_path)
+    assert projection["run"]["roleRuntimes"] == {
+        "developer": {"model": "claude-fable-5", "cli": "claude-code"}
+    }
+
+
+def test_projection_role_runtimes_empty_for_legacy_run(tmp_path) -> None:
+    fixture = create_team(tmp_path, "projection-legacy-runtimes", [task("T1", "Build", "developer")])
+    state = read_state(fixture.state_path)
+    state.pop("roleRuntimes", None)
+    write_state(fixture.state_path, state)
+
+    projection = store_module.build_projection(fixture.state_path.parent, state_path=fixture.state_path)
+    assert projection["run"]["roleRuntimes"] == {}
 
 
 def test_claim_stamps_model_from_role_runtime_map(tmp_path) -> None:

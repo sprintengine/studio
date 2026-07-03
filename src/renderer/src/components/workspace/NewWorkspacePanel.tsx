@@ -517,6 +517,9 @@ export default function NewWorkspacePanel({
   const [seRoleRegistryStatus, setSeRoleRegistryStatus] = useState<'idle' | 'loading' | 'ready' | 'unavailable'>('idle')
   const [seStartRunner, setSeStartRunner] = useState(false)
   const [seUseWorktrees, setSeUseWorktrees] = useState(false)
+  // Workspace-level concurrent-session cap (MC-1450: replaces the roster-size
+  // ceiling). Clamped 1-10 at the input and again by the controller.
+  const [seMaxParallelAgents, setSeMaxParallelAgents] = useState(3)
   const [sePlanError, setSePlanError] = useState<string | null>(null)
   const [cliPermissionPreset, setCliPermissionPreset] = useState<SprintEngineCliPermissionPreset>(
     lastSpawnPermissionPreset,
@@ -1471,11 +1474,13 @@ export default function NewWorkspacePanel({
     setSeRoleCounts((current) => {
       // Floor against the current counts so a planning role (architect/general)
       // can only drop to 0 while the other planner is staffed — the roster
-      // never loses its last planning-capable agent.
+      // never loses its last planning-capable agent. Counts are an enabled-set
+      // encoding (MC-1450): every role is 0 or 1; parallelism comes from the
+      // max-parallel-agents knob + mint-on-demand, not headcounts.
       const min = sprintEngineRosterRoleFloor(role, current)
       return {
         ...current,
-        [role]: Math.max(min, Math.min(10, Math.floor(count))),
+        [role]: Math.max(min, Math.min(1, Math.floor(count))),
       }
     })
   }
@@ -1864,7 +1869,7 @@ export default function NewWorkspacePanel({
               sourcePlanKind: seSourcePlanKind,
               sourceBundle: seSourceBundle ?? null,
               visibleRoleCounts: visibleSprintEngineRoleCounts,
-              totalAgents,
+              maxParallelAgents: seMaxParallelAgents,
               roleCliDefaults: seRoleCliDefaults,
               roleModelOverrides: seRoleModelOverrides,
               initialSpawnRoles: seInitialSpawnRoles,
@@ -1941,7 +1946,7 @@ export default function NewWorkspacePanel({
             goal: sprintEngineConfig.goal,
             roleCounts: visibleSprintEngineRoleCounts,
             visibleRoleCounts: visibleSprintEngineRoleCounts,
-            totalAgents,
+            maxParallelAgents: seMaxParallelAgents,
             roleCliDefaults: seRoleCliDefaults,
             roleModelOverrides: seRoleModelOverrides,
             initialSpawnRoles: seInitialSpawnRoles,
@@ -2181,7 +2186,7 @@ export default function NewWorkspacePanel({
       <main ref={stepBodyRef} className="relative min-h-0 flex-1 overflow-y-auto">
         <div
           key={step}
-          className={`mx-auto flex w-full ${step === 'sprintengine-roster' ? 'max-w-[880px]' : 'max-w-[520px]'} flex-col gap-7 px-6 pt-10 pb-14 ${stepAnimationClass}`}
+          className={`mx-auto flex w-full ${step === 'sprintengine-roster' ? 'max-w-[1040px]' : 'max-w-[520px]'} flex-col gap-7 px-6 pt-10 pb-14 ${stepAnimationClass}`}
         >
           {stepIndex > 0 ? (
             <button
@@ -2422,6 +2427,8 @@ export default function NewWorkspacePanel({
               useWorktrees={seUseWorktrees}
               onChangeUseWorktrees={setSeUseWorktrees}
               worktreesDisabled={seExistingTeam != null}
+              maxParallelAgents={seMaxParallelAgents}
+              onChangeMaxParallelAgents={setSeMaxParallelAgents}
               totalAgents={totalAgents}
               hasExistingTeam={seExistingTeam != null}
               existingTeamName={seExistingTeam?.displayName ?? null}
@@ -4053,6 +4060,8 @@ function SprintEngineRosterStep(props: {
   useWorktrees: boolean
   onChangeUseWorktrees: (value: boolean) => void
   worktreesDisabled: boolean
+  maxParallelAgents: number
+  onChangeMaxParallelAgents: (value: number) => void
   totalAgents: number
   hasExistingTeam: boolean
   existingTeamName: string | null
@@ -4090,6 +4099,8 @@ function SprintEngineRosterStep(props: {
     useWorktrees,
     onChangeUseWorktrees,
     worktreesDisabled,
+    maxParallelAgents,
+    onChangeMaxParallelAgents,
     totalAgents,
     hasExistingTeam,
     existingTeamName,
@@ -4154,6 +4165,8 @@ function SprintEngineRosterStep(props: {
         useWorktrees={useWorktrees}
         onChangeUseWorktrees={onChangeUseWorktrees}
         worktreesDisabled={worktreesDisabled}
+        maxParallelAgents={maxParallelAgents}
+        onChangeMaxParallelAgents={onChangeMaxParallelAgents}
       />
     </div>
   )

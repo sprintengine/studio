@@ -16,7 +16,7 @@ import type {
   SprintEngineRosterTeam,
 } from '../../../types/workspace'
 import { sprintEngineAutomationModeOptions } from '../../../utils/sprintengineAutomation'
-import { Field, Select } from '../../ui'
+import { Field, RoleAvatar, Select } from '../../ui'
 import { SprintEngineRosterTable, type SprintEngineCliOption } from './SprintEngineRosterTable'
 import { sprintEngineTeamNameTaken } from './savedTeams'
 
@@ -164,6 +164,8 @@ export function RosterAndRunSettings({
   useWorktrees,
   onChangeUseWorktrees,
   worktreesDisabled,
+  maxParallelAgents,
+  onChangeMaxParallelAgents,
 }: {
   roleCounts: SprintEngineRoleCounts
   roleCliDefaults: Required<SprintEngineRoleCliDefaults>
@@ -207,53 +209,95 @@ export function RosterAndRunSettings({
   useWorktrees?: boolean
   onChangeUseWorktrees?: (value: boolean) => void
   worktreesDisabled?: boolean
+  // Workspace-level cap on concurrent agent sessions (MC-1450: replaces the
+  // retired per-role count ceiling). Omitted by surfaces without run options.
+  maxParallelAgents?: number
+  onChangeMaxParallelAgents?: (value: number) => void
 }) {
-  return (
-    <>
-      <div className="flex flex-col gap-2">
-        <div className="flex items-baseline justify-between">
-          <Field.Label>Roster</Field.Label>
-          <span className="text-[11px] tabular-nums text-[color:var(--text-muted)]">
-            {rosterCountLabel ?? `${totalAgents} specialist${totalAgents === 1 ? '' : 's'}`}
-          </span>
-        </div>
-        {onSelectTeam && !countDisabled && (teams?.length ?? 0) > 0 ? (
-          <RosterTeamPicker
+  // The saved-teams rail (two-column layout) is available only where team
+  // management is wired up — the Sprint Engine wizard. The Guided Brief handoff
+  // omits the team props, so it keeps the single-column roster automatically.
+  const showTeamRail = Boolean(onSelectTeam && onSaveTeam) && !countDisabled
+  const rosterCount = (
+    <span className="text-[11px] tabular-nums text-[color:var(--text-muted)]">
+      {rosterCountLabel ?? `${totalAgents} specialist${totalAgents === 1 ? '' : 's'}`}
+    </span>
+  )
+  const rosterTable = (
+    <SprintEngineRosterTable
+      roleCounts={roleCounts}
+      roleCliDefaults={roleCliDefaults}
+      cliOptions={cliOptions}
+      registry={registry}
+      disabledRoleIds={disabledRoleIds}
+      countDisabled={countDisabled}
+      cliDisabled={cliDisabled}
+      onSetCount={onSetCount}
+      onSetCli={onSetCli}
+      roleModelOverrides={roleModelOverrides}
+      onSetModel={onSetModel}
+      spawnAtStartRoles={spawnAtStartRoles}
+      spawnAtStartLocked={spawnAtStartLocked}
+      onSetSpawnAtStart={onSetSpawnAtStart}
+      footer={
+        // In rail mode the save/update/rename/delete affordances live in the
+        // rail footer; only the single-column layout hangs them off the table.
+        !showTeamRail && onSaveTeam ? (
+          <SaveRosterTeamRow
             teams={teams ?? []}
             selectedTeamId={selectedTeamId ?? null}
             selectedTeamDirty={selectedTeamDirty ?? false}
-            onSelectTeam={onSelectTeam}
+            onSaveTeam={onSaveTeam}
+            onUpdateTeam={onUpdateTeam}
+            onRenameTeam={onRenameTeam}
+            onDeleteTeam={onDeleteTeam}
           />
-        ) : null}
-        <SprintEngineRosterTable
-          roleCounts={roleCounts}
-          roleCliDefaults={roleCliDefaults}
-          cliOptions={cliOptions}
-          registry={registry}
-          disabledRoleIds={disabledRoleIds}
-          countDisabled={countDisabled}
-          cliDisabled={cliDisabled}
-          onSetCount={onSetCount}
-          onSetCli={onSetCli}
-          roleModelOverrides={roleModelOverrides}
-          onSetModel={onSetModel}
-          spawnAtStartRoles={spawnAtStartRoles}
-          spawnAtStartLocked={spawnAtStartLocked}
-          onSetSpawnAtStart={onSetSpawnAtStart}
-          footer={
-            onSaveTeam ? (
-              <SaveRosterTeamRow
+        ) : undefined
+      }
+    />
+  )
+  return (
+    <>
+      <div className="flex flex-col gap-2">
+        {showTeamRail ? (
+          <div className="grid grid-cols-[236px_minmax(0,1fr)] items-start gap-4">
+            <RosterTeamsRail
+              roleCounts={roleCounts}
+              registry={registry}
+              teams={teams ?? []}
+              selectedTeamId={selectedTeamId ?? null}
+              selectedTeamDirty={selectedTeamDirty ?? false}
+              onSelectTeam={onSelectTeam!}
+              onSaveTeam={onSaveTeam!}
+              onUpdateTeam={onUpdateTeam}
+              onRenameTeam={onRenameTeam}
+              onDeleteTeam={onDeleteTeam}
+            />
+            <div className="flex min-w-0 flex-col gap-2">
+              <div className="flex items-baseline justify-between">
+                <Field.Label>Roster</Field.Label>
+                {rosterCount}
+              </div>
+              {rosterTable}
+            </div>
+          </div>
+        ) : (
+          <>
+            <div className="flex items-baseline justify-between">
+              <Field.Label>Roster</Field.Label>
+              {rosterCount}
+            </div>
+            {onSelectTeam && !countDisabled && (teams?.length ?? 0) > 0 ? (
+              <RosterTeamPicker
                 teams={teams ?? []}
                 selectedTeamId={selectedTeamId ?? null}
                 selectedTeamDirty={selectedTeamDirty ?? false}
-                onSaveTeam={onSaveTeam}
-                onUpdateTeam={onUpdateTeam}
-                onRenameTeam={onRenameTeam}
-                onDeleteTeam={onDeleteTeam}
+                onSelectTeam={onSelectTeam}
               />
-            ) : null
-          }
-        />
+            ) : null}
+            {rosterTable}
+          </>
+        )}
       </div>
 
       <div className="flex flex-col gap-2">
@@ -282,6 +326,36 @@ export function RosterAndRunSettings({
               ))}
             </div>
           </div>
+          {onChangeMaxParallelAgents ? (
+            <div className="flex items-start justify-between gap-3 border-t border-[color:var(--border-default)] px-3.5 py-3">
+              <label htmlFor="sprintengine-max-parallel-agents" className="min-w-0">
+                <span className="block text-[13px] font-semibold text-[color:var(--text-strong)]">Max parallel agents</span>
+                <span className="mt-0.5 block text-[11px] leading-4 text-[color:var(--text-muted)]">
+                  Cap on agent sessions running at once, across all roles. Extra ready tasks queue until a slot frees up.
+                </span>
+              </label>
+              <input
+                id="sprintengine-max-parallel-agents"
+                type="number"
+                inputMode="numeric"
+                min={1}
+                max={10}
+                step={1}
+                value={maxParallelAgents ?? 3}
+                onChange={(event) => {
+                  const parsed = Math.floor(Number(event.target.value))
+                  if (Number.isFinite(parsed)) {
+                    onChangeMaxParallelAgents(Math.max(1, Math.min(10, parsed)))
+                  }
+                }}
+                className="
+                  h-7 w-16 shrink-0 rounded-md border border-[color:var(--color-5)] bg-[color:var(--bg-surface-raised)]
+                  px-2 text-right text-[12px] tabular-nums text-[color:var(--text-strong)]
+                  focus:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--accent-primary)]
+                "
+              />
+            </div>
+          ) : null}
           {onChangeUseWorktrees ? (
             <label
               className={`flex items-start gap-2.5 border-t border-[color:var(--border-default)] px-3.5 py-3 text-[12px] text-[color:var(--text-default)] transition-colors ${worktreesDisabled ? 'cursor-not-allowed opacity-60' : 'cursor-pointer hover:bg-[color:var(--bg-hover)]'}`}
@@ -306,6 +380,131 @@ export function RosterAndRunSettings({
         </div>
       </div>
     </>
+  )
+}
+
+function railTeamMembers(roleCounts: SprintEngineRoleCounts): SprintEngineRoleId[] {
+  return Object.keys(roleCounts).filter((role) => (roleCounts[role] ?? 0) > 0)
+}
+function railTeamTotal(roleCounts: SprintEngineRoleCounts): number {
+  return Object.values(roleCounts).reduce<number>((sum, n) => sum + (n ?? 0), 0)
+}
+
+// Browsable left rail of saved teams (replaces the compact "Team" dropdown).
+// The "Custom roster" entry is the current, unsaved config; each saved team is a
+// card that loads on click. Save / update / rename / delete hang off the footer,
+// reusing SaveRosterTeamRow so the two surfaces cannot drift.
+function RosterTeamsRail({
+  roleCounts,
+  registry,
+  teams,
+  selectedTeamId,
+  selectedTeamDirty,
+  onSelectTeam,
+  onSaveTeam,
+  onUpdateTeam,
+  onRenameTeam,
+  onDeleteTeam,
+}: {
+  roleCounts: SprintEngineRoleCounts
+  registry?: SprintEngineRoleRegistry | null
+  teams: SprintEngineRosterTeam[]
+  selectedTeamId: string | null
+  selectedTeamDirty: boolean
+  onSelectTeam: (id: string | null) => void
+  onSaveTeam: (name: string) => void
+  onUpdateTeam?: (id: string, name: string) => void
+  onRenameTeam?: (id: string, name: string) => void
+  onDeleteTeam?: (id: string) => void
+}) {
+  return (
+    <aside className="flex flex-col overflow-hidden rounded-md border border-[color:var(--border-default)] bg-[color:var(--bg-surface)]">
+      <div className="flex items-baseline justify-between px-3 pb-1.5 pt-2.5">
+        <Field.Label>Teams</Field.Label>
+        <span className="text-[11px] tabular-nums text-[color:var(--text-subtle)]">{teams.length}</span>
+      </div>
+      <div className="flex flex-col gap-0.5 px-1.5 pb-1.5">
+        <RailTeamCard
+          name="Custom roster"
+          roleCounts={roleCounts}
+          registry={registry}
+          active={!selectedTeamId}
+          edited={false}
+          onSelect={() => onSelectTeam(null)}
+        />
+        {teams.map((team) => (
+          <RailTeamCard
+            key={team.id}
+            name={team.name}
+            roleCounts={team.roleCounts}
+            registry={registry}
+            active={selectedTeamId === team.id}
+            edited={selectedTeamId === team.id && selectedTeamDirty}
+            onSelect={() => onSelectTeam(team.id)}
+          />
+        ))}
+      </div>
+      <div className="border-t border-[color:var(--border-default)]">
+        <SaveRosterTeamRow
+          teams={teams}
+          selectedTeamId={selectedTeamId}
+          selectedTeamDirty={selectedTeamDirty}
+          onSaveTeam={onSaveTeam}
+          onUpdateTeam={onUpdateTeam}
+          onRenameTeam={onRenameTeam}
+          onDeleteTeam={onDeleteTeam}
+        />
+      </div>
+    </aside>
+  )
+}
+
+function RailTeamCard({
+  name,
+  roleCounts,
+  registry,
+  active,
+  edited,
+  onSelect,
+}: {
+  name: string
+  roleCounts: SprintEngineRoleCounts
+  registry?: SprintEngineRoleRegistry | null
+  active: boolean
+  edited: boolean
+  onSelect: () => void
+}) {
+  const members = railTeamMembers(roleCounts)
+  const total = railTeamTotal(roleCounts)
+  return (
+    <button
+      type="button"
+      aria-pressed={active}
+      onClick={onSelect}
+      className={`relative flex flex-col gap-1.5 rounded-[6px] border px-2.5 py-2 text-left transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[color:var(--accent-primary)] ${
+        active
+          ? 'border-[color:var(--accent-primary-soft)] bg-[color:var(--accent-primary-soft)]'
+          : 'border-transparent hover:bg-[color:var(--bg-hover)]'
+      }`}
+    >
+      {active ? (
+        <span aria-hidden="true" className="absolute bottom-2 left-0 top-2 w-[3px] rounded-r bg-[color:var(--accent-primary)]" />
+      ) : null}
+      <span className="flex items-center gap-1.5">
+        <span className={`min-w-0 flex-1 truncate text-[12px] font-medium ${active ? 'text-[color:var(--text-strong)]' : 'text-[color:var(--text-default)]'}`}>
+          {name}
+        </span>
+        {edited ? <span className="shrink-0 text-[10px] font-semibold text-[color:var(--accent-primary)]">· edited</span> : null}
+      </span>
+      <span className="flex items-center gap-2">
+        <span className="flex items-center gap-1">
+          {members.slice(0, 5).map((role) => (
+            <RoleAvatar key={role} role={role} registry={registry} size="xs" ariaLabel="" />
+          ))}
+        </span>
+        <span className="ml-auto text-[11px] tabular-nums text-[color:var(--text-muted)]">{total || '—'}</span>
+      </span>
+    </button>
   )
 }
 

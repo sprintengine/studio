@@ -3,6 +3,7 @@ import { getSprintEngineStartupCommandMode } from './agentPrompt'
 import {
   applyUserDisabledSprintEngineRoleCounts,
   bracketedTerminalPaste,
+  buildSprintEngineAgentRoster,
   buildSprintEngineAgentRosterFromRuntimeAgents,
   buildSprintEngineRoleRegistry,
   formatSprintEngineLockAge,
@@ -36,6 +37,7 @@ import {
   isSprintEngineRoleId,
   isSprintEngineTaskLaunchable,
   normalizeSprintEngineProjection,
+  normalizeSprintEngineState,
   orderSprintEngineBoardColumnTasks,
   orderSprintEngineRosterRoles,
   resolveSprintEngineArtifactEditorPath,
@@ -217,6 +219,47 @@ assert.equal(modelState!.tasks[0]?.cli, 'claude-code')
 assert.equal(modelState!.tasks[1]?.model, undefined)
 assert.equal(modelState!.tasks[1]?.cli, undefined)
 
+// MC-1450: the roster seeds ONE agent per enabled role — counts are an
+// enabled-set encoding, and a legacy count > 1 seeds only the first id of the
+// mint scheme so `getNextSprintEngineAgentId` stays consistent.
+const singleSeedRoster = buildSprintEngineAgentRoster({ architect: 1, developer: 3, tester: 1 })
+assert.deepEqual(
+  singleSeedRoster.map((agent) => agent.id),
+  ['architect', 'developer-1', 'tester'],
+  'one roster agent per enabled role; developer keeps its -1 id scheme'
+)
+assert.ok(
+  singleSeedRoster.every((agent) => !/\s\d+$/.test(agent.label)),
+  'single-seed labels carry no positional suffix'
+)
+
+// MC-1450: run.roleRuntimes (run.yaml per-role {model, cli}) rides the
+// projection into SprintEngineState so every reconcile/spawn resolves the
+// roster's picks — and survives a normalize round-trip (projection replaces
+// the state wholesale every poll, so dropping it here IS the original bug).
+const roleRuntimesState = normalizeSprintEngineProjection(fakeProjection({
+  run: {
+    id: 'run-id', name: 'Sample Run', goal: 'Test goal', status: 'executing',
+    rosterConfigured: true, updatedAt: '2026-05-16T20:00:00Z',
+    roleRuntimes: {
+      developer: { model: ' claude-opus-4-8 ', cli: ' claude-code ' },
+      product: { cli: 'claude-code' },
+      growth_engineer: { model: 'claude-fable-5' },
+      tester: { model: '', cli: '' },
+      security: 'bogus-not-an-object',
+    },
+  },
+}))
+assert.deepEqual(roleRuntimesState!.roleRuntimes, {
+  developer: { model: 'claude-opus-4-8', cli: 'claude-code' },
+  product: { cli: 'claude-code' },
+  growth_engineer: { model: 'claude-fable-5' },
+})
+const reNormalized = normalizeSprintEngineState(roleRuntimesState)
+assert.deepEqual(reNormalized!.roleRuntimes, roleRuntimesState!.roleRuntimes)
+// Legacy payload without the map normalizes cleanly with the field absent.
+assert.equal(normalizeSprintEngineProjection(fakeProjection())!.roleRuntimes, undefined)
+
 const externalNeedsInputState = normalizeSprintEngineProjection(fakeProjection({
   tasks: [
     {
@@ -327,6 +370,23 @@ assert.deepEqual(
 assert.equal(
   deriveSprintEngineRunGlyph({ sprintEngineState: { tasks: [boardTask('review')] }, autoState: manualIdle })?.state,
   'in_progress',
+)
+// A *paused* runner with a task still mid-flight reads as paused — NOT the static
+// in_progress arc (a spinner that looks stuck). The paused runner must win over
+// the active-work branch so the glyph is a pause icon.
+const pausedRunner = { desiredMode: 'run_agents' as const, runtimeState: 'paused' as const }
+assert.equal(
+  deriveSprintEngineRunGlyph({ sprintEngineState: { tasks: [boardTask('review')] }, autoState: pausedRunner })?.state,
+  'paused',
+)
+assert.equal(
+  deriveSprintEngineRunGlyph({ sprintEngineState: { tasks: [boardTask('in_progress'), boardTask('todo')] }, autoState: pausedRunner })?.state,
+  'paused',
+)
+// …but a paused runner whose tasks are all done still reads as done, not paused.
+assert.equal(
+  deriveSprintEngineRunGlyph({ sprintEngineState: { tasks: [boardTask('done')] }, autoState: pausedRunner })?.state,
+  'done',
 )
 // Changes requested outranks a plain in-progress task — review churn is not hidden.
 assert.deepEqual(

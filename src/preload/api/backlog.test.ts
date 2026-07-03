@@ -29,6 +29,11 @@ async function main(): Promise<void> {
       target: { kind: 'sprintengine.run', id: 'plan', path: '.multi-code/sprintengine/plan/run.yaml' },
     },
   })
+  await api.removeBacklogLink({
+    workspaceRoot: '/repo',
+    relativePath: 'backlog/plan.md',
+    linkId: 'sprint-engine:plan',
+  })
   await api.updateBacklogModuleMetadata({
     workspaceRoot: '/repo',
     relativePath: 'backlog/plan.md',
@@ -45,6 +50,7 @@ async function main(): Promise<void> {
     'backlog:read-workspace-key',
     'backlog:update-status',
     'backlog:add-or-update-link',
+    'backlog:remove-link',
     'backlog:update-module-metadata',
     'backlog:update-epic',
     'backlog:create-epic',
