@@ -8,6 +8,11 @@
 // the marketplace.json registry index contract used by the app.
 
 import type { ModuleSignature } from '../modules/manifest'
+import type { McpServerConfig } from '../electron-api'
+// Inline-MCP registry entries carry raw MCP server configs; validate them through
+// the same normalizer the app uses everywhere else (shared/mcp, node-free) so an
+// inline entry cannot express a server the app would reject.
+import { normalizeMcpServerConfig } from '../mcp/normalize-server'
 import {
   validateThirdPartyModuleManifest as validateSdkThirdPartyModuleManifest,
   type ThirdPartyManifestIssue,
@@ -51,17 +56,29 @@ export type MarketplacePublisher = {
   verified: boolean
 }
 
+// Inline-MCP registry entries ship MCP server configs directly (modeled on
+// resources/mcps/catalog.json server entries) instead of a signed bundle.
+export type MarketplaceInlineMcp = {
+  servers: McpServerConfig[]
+}
+
+// A registry entry is either a bundle entry (has `source`) or an inline-MCP
+// entry (has `mcp`, `provides` is exactly ['mcp']), never both. `signature` is
+// optional; trust classification is decided downstream, not by the schema.
 export type MarketplacePluginEntry = {
   id: string
   name: string
   publisher: MarketplacePublisher
   summary: string
   category: string
+  categories?: string[]
+  tags?: string[]
   icon: string
   latest: number
-  source: string
   provides: MarketplaceComponentKind[]
-  signature: ModuleSignature
+  source?: string
+  signature?: ModuleSignature
+  mcp?: MarketplaceInlineMcp
 }
 
 export type MarketplaceIndex = {
@@ -130,13 +147,57 @@ function validateProvides(value: unknown, path: string, issues: MarketplaceManif
   return seen.size > 0 ? Array.from(seen) : undefined
 }
 
+function validateStringArray(value: unknown, path: string, field: string, issues: MarketplaceManifestIssue[]): string[] | undefined {
+  if (!Array.isArray(value)) {
+    issues.push({ path, message: `${field} must be an array of strings.` })
+    return undefined
+  }
+  const items: string[] = []
+  value.forEach((entry, index) => {
+    if (!isNonEmptyString(entry)) {
+      issues.push({ path: `${path}[${index}]`, message: `${field} entries must be non-empty strings.` })
+      return
+    }
+    items.push(entry.trim())
+  })
+  return items.length === value.length ? items : undefined
+}
+
+function validateInlineMcp(value: unknown, path: string, issues: MarketplaceManifestIssue[]): MarketplaceInlineMcp | undefined {
+  if (!isObject(value)) {
+    issues.push({ path, message: 'mcp must be an object.' })
+    return undefined
+  }
+  if (!Array.isArray(value.servers) || value.servers.length === 0) {
+    issues.push({ path: `${path}.servers`, message: 'mcp.servers must be a non-empty array.' })
+    return undefined
+  }
+  const servers: McpServerConfig[] = []
+  value.servers.forEach((server, index) => {
+    const normalized = normalizeMcpServerConfig(server, {
+      enabled: true,
+      clients: ['codex', 'claude-code'],
+      scope: 'workspace',
+      source: 'custom',
+    })
+    if (!normalized) {
+      issues.push({ path: `${path}.servers[${index}]`, message: 'mcp server must normalize through the app MCP parser.' })
+      return
+    }
+    servers.push(normalized)
+  })
+  return servers.length === value.servers.length ? { servers } : undefined
+}
+
 function validateMarketplaceEntry(value: unknown, index: number, issues: MarketplaceManifestIssue[]): MarketplacePluginEntry | undefined {
   const path = `plugins[${index}]`
   if (!isObject(value)) {
     issues.push({ path, message: 'marketplace plugin entry must be an object.' })
     return undefined
   }
+  const startIssues = issues.length
 
+  // signature is optional here; the SDK probe validates its shape when present.
   const moduleProbe = validateSdkThirdPartyModuleManifest({
     id: value.id,
     displayName: value.name,
@@ -147,34 +208,80 @@ function validateMarketplaceEntry(value: unknown, index: number, issues: Marketp
   if (!moduleProbe.ok) {
     pushSdkIssues(issues, moduleProbe.issues, path, { displayName: 'name', version: 'latest' })
   }
-  if (value.signature === undefined) {
-    issues.push({ path: `${path}.signature`, message: 'signature is required.' })
-  }
 
   const publisher = validatePublisher(value.publisher, `${path}.publisher`, issues)
-  for (const key of ['summary', 'category', 'icon', 'source'] as const) {
+  for (const key of ['summary', 'icon'] as const) {
     if (!isNonEmptyString(value[key])) {
       issues.push({ path: `${path}.${key}`, message: `${key} is required and must be a non-empty string.` })
     }
   }
   const provides = validateProvides(value.provides, `${path}.provides`, issues)
 
-  if (!moduleProbe.ok || !publisher || !provides || issues.some((issue) => issue.path.startsWith(`${path}.`))) {
+  // Categories: accept the legacy singular `category` and/or a `categories[]`
+  // array, and keep `category` populated (from categories[0]) for back-compat.
+  const categories = value.categories !== undefined
+    ? validateStringArray(value.categories, `${path}.categories`, 'categories', issues)
+    : undefined
+  const tags = value.tags !== undefined
+    ? validateStringArray(value.tags, `${path}.tags`, 'tags', issues)
+    : undefined
+  let category: string | undefined
+  if (value.category !== undefined && !isNonEmptyString(value.category)) {
+    issues.push({ path: `${path}.category`, message: 'category must be a non-empty string.' })
+  } else if (isNonEmptyString(value.category)) {
+    category = value.category.trim()
+  }
+  if (category === undefined && categories && categories.length > 0) category = categories[0]
+  if (category === undefined) {
+    issues.push({ path: `${path}.category`, message: 'category or categories[] is required.' })
+  }
+
+  // Bundle (source) XOR inline-MCP (mcp): exactly one shape.
+  const hasSource = value.source !== undefined
+  const hasMcp = value.mcp !== undefined
+  if (hasSource && hasMcp) {
+    issues.push({ path, message: 'entry must be a bundle entry (source) or an inline-MCP entry (mcp), not both.' })
+  } else if (!hasSource && !hasMcp) {
+    issues.push({ path, message: 'entry must declare a bundle source or an inline mcp block.' })
+  }
+
+  let source: string | undefined
+  if (hasSource) {
+    if (!isNonEmptyString(value.source)) {
+      issues.push({ path: `${path}.source`, message: 'source is required and must be a non-empty string.' })
+    } else {
+      source = value.source.trim()
+    }
+  }
+
+  let mcp: MarketplaceInlineMcp | undefined
+  if (hasMcp) {
+    mcp = validateInlineMcp(value.mcp, `${path}.mcp`, issues)
+    if (provides && (provides.length !== 1 || provides[0] !== 'mcp')) {
+      issues.push({ path: `${path}.provides`, message: "inline-MCP entries must set provides to ['mcp']." })
+    }
+  }
+
+  if (!moduleProbe.ok || !publisher || !provides || category === undefined || issues.length > startIssues) {
     return undefined
   }
 
-  return {
+  const entry: MarketplacePluginEntry = {
     id: moduleProbe.manifest.id,
     name: moduleProbe.manifest.displayName,
     publisher,
     summary: (value.summary as string).trim(),
-    category: (value.category as string).trim(),
+    category,
     icon: (value.icon as string).trim(),
     latest: moduleProbe.manifest.version,
-    source: (value.source as string).trim(),
     provides,
-    signature: moduleProbe.manifest.signature as ModuleSignature,
   }
+  if (categories && categories.length > 0) entry.categories = categories
+  if (tags && tags.length > 0) entry.tags = tags
+  if (source !== undefined) entry.source = source
+  if (moduleProbe.manifest.signature) entry.signature = moduleProbe.manifest.signature as ModuleSignature
+  if (mcp) entry.mcp = mcp
+  return entry
 }
 
 export function validateMarketplaceIndex(value: unknown): MarketplaceIndexResult {

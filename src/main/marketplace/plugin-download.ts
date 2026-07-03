@@ -97,6 +97,11 @@ export function defaultMarketplacePluginStagingRoot(userDataDir?: string): strin
 export async function downloadMarketplacePluginBundle(
   options: MarketplacePluginDownloadOptions
 ): Promise<MarketplacePluginDownloadResult> {
+  // Bundle download requires a `source`; inline-MCP registry entries carry no
+  // bundle and never reach this path, but `source` is optional on the entry type.
+  if (!options.entry.source) {
+    return { ok: false, sourceUrl: '', message: 'Marketplace entry has no bundle source to download.' }
+  }
   const sourceUrl = options.entry.source.trim()
   const parsedSource = parseHttpsUrl(sourceUrl)
   if (!parsedSource.ok) {
