@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 
 import type { MarketplacePluginEntry } from '../../../../shared/marketplace/manifest'
+import type { CapabilityPermission } from '../../../../shared/modules/permissions'
 import type { McpServerConfig, McpSettings } from '../../types/workspace'
 import { CloseIconButton, GhostButton, InboxSearchInput, InlineNotice, PrimaryButton, Spinner, StatusDot, TruncatedText } from '../ui'
 import { SettingsSectionTitle } from './SettingsAtoms'
@@ -281,7 +282,7 @@ function PluginCard({
   selected: boolean
   onOpen: () => void
 }) {
-  const trust = publisherTrust(plugin)
+  const trust = pluginTrust(plugin)
   return (
     <button
       type="button"
@@ -304,11 +305,11 @@ function PluginCard({
         />
         <div className="mt-0.5 flex items-center gap-1.5 text-[11px] leading-4 text-[color:var(--text-subtle)]">
           {/* Decorative: the adjacent label names the trust state. Verified is the
-              quiet default — only community plugins surface the dot to earn attention. */}
-          {trust.verified ? null : <StatusDot tone={trust.tone} />}
+              quiet default — the lower tiers surface the dot to earn attention. */}
+          {trust.tier === 'verified' ? null : <StatusDot tone={trust.tone} />}
           <TruncatedText
             as="span"
-            text={trust.verified ? plugin.publisher.name : `${plugin.publisher.name} · ${trust.label}`}
+            text={trust.tier === 'verified' ? plugin.publisher.name : `${plugin.publisher.name} · ${trust.label}`}
           />
         </div>
       </div>
@@ -353,8 +354,9 @@ function PluginDetailPanel({
     setFlow({ status: 'idle' })
   }, [plugin.id])
 
-  const trust = publisherTrust(plugin)
+  const trust = pluginTrust(plugin)
   const components = componentKindLabels(plugin.provides)
+  const inlineServers = plugin.mcp?.servers ?? []
   // MCP servers and skill packs install into the open workspace; modules and
   // CLIs install to the user dirs. Block install with an honest hint when a
   // workspace-scoped component has no workspace, rather than letting the click
@@ -392,6 +394,14 @@ function PluginDetailPanel({
   )
 
   const startInstall = useCallback(async () => {
+    // Inline-MCP entries ship their server config in the registry entry itself —
+    // there is no bundle to download or verify. They are executable config, so they
+    // always route through the explicit trust prompt — never a silent install — and
+    // carry no capability permissions (those live only in signed module bundles).
+    if (plugin.mcp) {
+      setFlow({ status: 'needs-trust', permissions: [] })
+      return
+    }
     if (typeof window.api.verifyMarketplacePlugin !== 'function') {
       setFlow({ status: 'error', message: 'Installing extensions needs a newer app build. Update Multicode and restart.' })
       return
@@ -404,7 +414,7 @@ function PluginDetailPanel({
       setFlow({ status: 'error', message: error instanceof Error ? error.message : 'Could not verify this extension.' })
       return
     }
-    const outcome = classifyVerification(verify)
+    const outcome = classifyVerification(verify, plugin.provides)
     if (outcome.kind === 'blocked') {
       setFlow({ status: 'blocked', classification: outcome.classification, message: outcome.message, issues: outcome.issues })
       return
@@ -448,6 +458,10 @@ function PluginDetailPanel({
 
       <p className="mt-3 text-[12px] leading-5 text-[color:var(--text-muted)]">{plugin.summary}</p>
 
+      {plugin.tags?.length ? (
+        <p className="mt-2 text-[11px] leading-4 text-[color:var(--text-subtle)]">{plugin.tags.join(' · ')}</p>
+      ) : null}
+
       <div className="mt-3">
         <div className="text-[11px] font-semibold text-[color:var(--text-muted)]">Components</div>
         <ul className="mt-1 space-y-0.5 text-[12px] text-[color:var(--text-muted)]">
@@ -477,18 +491,7 @@ function PluginDetailPanel({
           no purchase/Buy affordance anywhere (D4). */}
       <div className="mt-4 space-y-2">
         {installView.trustPrompt ? (
-          <div className="rounded-md border border-[color:var(--border-subtle)] bg-[color:var(--bg-surface-raised)] p-3">
-            <div className="text-[11px] font-semibold text-[color:var(--text-default)]">
-              Community extension — review the access it requests
-            </div>
-            <p className="mt-1 text-[11px] leading-4 text-[color:var(--text-subtle)]">
-              This publisher isn’t verified. Trusting it lets its code run in Multicode with the app’s
-              access — requested access is install-time disclosure, not a runtime sandbox.
-            </p>
-            <div className="mt-2">
-              <PermissionChips permissions={installView.permissions ?? []} />
-            </div>
-          </div>
+          <TrustPrompt tier={trust.tier} permissions={installView.permissions ?? []} inlineServers={inlineServers} />
         ) : null}
 
         {installView.notice ? (
@@ -550,15 +553,88 @@ function PluginDetailPanel({
   )
 }
 
-type PluginTrust = { verified: boolean; tone: 'good' | 'neutral'; label: string }
+// The pre-trust disclosure shown inside the trust prompt. Community/unsigned
+// bundles disclose their real capability permissions (never fabricated); an
+// inline-MCP entry has no capability permissions, so it discloses the executable
+// server config the trust grant will run instead. Copy avoids any purchase/paywall
+// framing (D4) and states plainly that trust is install-time, not a runtime sandbox.
+function TrustPrompt({
+  tier,
+  permissions,
+  inlineServers,
+}: {
+  tier: PluginTrustTier
+  permissions: CapabilityPermission[]
+  inlineServers: McpServerConfig[]
+}) {
+  const copy =
+    tier === 'inline'
+      ? {
+          heading: 'Inline MCP server — review it before trusting',
+          body: 'This entry runs a local command or connects to a remote endpoint as an MCP server. Trusting it adds and starts the server below — review it before you continue.',
+        }
+      : tier === 'unsigned'
+        ? {
+            heading: 'Unsigned extension — review before trusting',
+            body: "This extension isn’t signed, so its publisher and contents can’t be verified. Trusting it installs it with the app’s access — install-time disclosure, not a runtime sandbox.",
+          }
+        : {
+            heading: 'Community extension — review the access it requests',
+            body: 'This publisher isn’t verified. Trusting it lets its code run in Multicode with the app’s access — requested access is install-time disclosure, not a runtime sandbox.',
+          }
+  return (
+    <div className="rounded-md border border-[color:var(--border-subtle)] bg-[color:var(--bg-surface-raised)] p-3">
+      <div className="text-[11px] font-semibold text-[color:var(--text-default)]">{copy.heading}</div>
+      <p className="mt-1 text-[11px] leading-4 text-[color:var(--text-subtle)]">{copy.body}</p>
+      <div className="mt-2">
+        {tier === 'inline' ? (
+          <ul className="space-y-1">
+            {inlineServers.map((server) => (
+              <li key={server.id} className="min-w-0">
+                <div className="flex items-center gap-1.5 text-[11px] text-[color:var(--text-muted)]">
+                  <span className="font-mono text-[10px] text-[color:var(--text-subtle)]">{server.transport}</span>
+                  <TruncatedText as="span" text={server.name} className="font-medium" />
+                </div>
+                <TruncatedText
+                  as="div"
+                  text={inlineServerCommand(server)}
+                  className="mt-0.5 font-mono text-[10px] leading-4 text-[color:var(--text-subtle)]"
+                />
+              </li>
+            ))}
+          </ul>
+        ) : (
+          <PermissionChips permissions={permissions} />
+        )}
+      </div>
+    </div>
+  )
+}
 
-// First-party verified publishers vs. community. The registry signature is
-// always present; "Verified" is the matched first-party publisher, "Community"
-// is everyone else (untrusted until the user trusts at install — D3).
-function publisherTrust(plugin: MarketplacePluginEntry): PluginTrust {
+// The executable summary of an inline MCP server: the stdio command line, or the
+// endpoint URL for http/sse transports. This is what the trust grant will run.
+function inlineServerCommand(server: McpServerConfig): string {
+  if (server.transport === 'stdio') {
+    return [server.command, ...(server.args ?? [])].filter(Boolean).join(' ') || '(no command)'
+  }
+  return server.url || '(no endpoint)'
+}
+
+type PluginTrustTier = 'verified' | 'community' | 'unsigned' | 'inline'
+type PluginTrust = { tier: PluginTrustTier; tone: 'good' | 'neutral'; label: string }
+
+// The signing/trust tier disclosed on the card and detail header, read straight
+// from the registry entry (no download needed). Inline-MCP entries ship raw server
+// config; unsigned bundles carry no signature; signed bundles are Verified (matched
+// first-party publisher) or Community (everyone else). All three lower tiers are
+// untrusted until the user grants trust at install (D3). Verified is the quiet
+// default (no dot); the rest surface the neutral dot to earn attention.
+function pluginTrust(plugin: MarketplacePluginEntry): PluginTrust {
+  if (plugin.mcp) return { tier: 'inline', tone: 'neutral', label: 'Inline MCP' }
+  if (!plugin.signature) return { tier: 'unsigned', tone: 'neutral', label: 'Unsigned' }
   return plugin.publisher.verified
-    ? { verified: true, tone: 'good', label: 'Verified' }
-    : { verified: false, tone: 'neutral', label: 'Community' }
+    ? { tier: 'verified', tone: 'good', label: 'Verified' }
+    : { tier: 'community', tone: 'neutral', label: 'Community' }
 }
 
 function resolveIconUrl(registryUrl: string | null, icon: string): string | null {

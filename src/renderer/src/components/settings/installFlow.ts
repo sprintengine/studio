@@ -11,15 +11,31 @@
 // sourced from the T3.4 `verifyMarketplacePlugin` IPC, which runs the existing
 // download + ed25519-verify path WITHOUT installing. Flow: idle → click Install →
 // verifying → if 'verified' install directly; if 'community' show the trust prompt
-// populated with the verified permissions, then install with trustGranted:true;
-// if 'unsigned' OR 'invalid', a hard block with no install affordance (only signed
-// community plugins get the trust prompt). No permission is ever fabricated.
+// populated with the verified permissions, then install with trustGranted:true.
+//
+// Trust split (T4b/T5): an 'unsigned' bundle is no longer a blanket block. Unsigned
+// mcp/skills-only bundles are declarative — they earn the same explicit trust prompt
+// as community (installing load-ineligible behind trustGranted:true). Unsigned
+// code-bearing bundles (module/cli) and 'invalid' still hard-block with no install
+// affordance, mirroring the backend gate (shared/marketplace/component-trust.ts,
+// which is the real enforcement; this classification only picks the UI affordance).
+// No permission is ever fabricated.
 
 import type {
   MarketplacePluginRegistryInstallResult,
   MarketplacePluginVerifyResult,
 } from '../../../../shared/electron-api'
+import type { MarketplaceComponentKind } from '../../../../shared/marketplace/manifest'
 import type { CapabilityPermission } from '../../../../shared/modules/permissions'
+
+// Code-bearing kinds execute arbitrary code once loaded, so an UNSIGNED bundle
+// carrying one is never trust-grantable in the UI — it hard-blocks. mcp/skills are
+// declarative and may install unsigned behind an explicit trust grant. The real
+// enforcement is the backend `hasCodeBearingComponent` gate; this kind-level check
+// only decides whether the renderer offers a trust prompt or a hard block.
+function hasCodeBearingKind(provides: MarketplaceComponentKind[]): boolean {
+  return provides.some((kind) => kind === 'module' || kind === 'cli')
+}
 
 // The blocked classifications: signature problems that offer no install path.
 // 'community' is NOT here — it is trust-grantable; 'verified' installs directly.
@@ -52,21 +68,37 @@ function blockedFallbackMessage(classification: BlockedClassification): string {
     : "This extension is unsigned, so it can't be installed."
 }
 
-// Map a verify result to the next step. Verified installs directly; community
-// earns the trust prompt with its real verified permissions; unsigned/invalid
-// are hard blocks carrying the verifier's message + issue detail.
-export function classifyVerification(verify: MarketplacePluginVerifyResult): VerifyOutcome {
+// Map a verify result to the next step. Verified installs directly; community and
+// unsigned mcp/skills-only earn the trust prompt with the real verified permissions;
+// unsigned code-bearing bundles and invalid are hard blocks carrying the verifier's
+// message + issue detail. `provides` (from the registry entry) resolves the unsigned
+// split — the verify result itself does not carry component kinds.
+export function classifyVerification(
+  verify: MarketplacePluginVerifyResult,
+  provides: MarketplaceComponentKind[],
+): VerifyOutcome {
   switch (verify.classification) {
     case 'verified':
       return { kind: 'install' }
     case 'community':
       return { kind: 'needs-trust', permissions: verify.permissions }
     case 'unsigned':
+      // Code-bearing unsigned hard-blocks (the backend refuses it too); unsigned
+      // mcp/skills-only earns the explicit trust prompt with its declared permissions.
+      if (hasCodeBearingKind(provides)) {
+        return {
+          kind: 'blocked',
+          classification: 'unsigned',
+          message: verify.message || blockedFallbackMessage('unsigned'),
+          issues: verify.issues?.map((issue) => issue.message),
+        }
+      }
+      return { kind: 'needs-trust', permissions: verify.permissions }
     case 'invalid':
       return {
         kind: 'blocked',
-        classification: verify.classification,
-        message: verify.message || blockedFallbackMessage(verify.classification),
+        classification: 'invalid',
+        message: verify.message || blockedFallbackMessage('invalid'),
         issues: verify.issues?.map((issue) => issue.message),
       }
   }

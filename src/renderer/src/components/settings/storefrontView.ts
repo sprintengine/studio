@@ -76,11 +76,19 @@ export type BrowseView =
 export function filterPlugins(plugins: MarketplacePluginEntry[], query: string): MarketplacePluginEntry[] {
   const needle = query.trim().toLowerCase()
   if (!needle) return plugins
-  return plugins.filter((plugin) =>
-    [plugin.name, plugin.category, plugin.summary, plugin.publisher.name].some((field) =>
-      field.toLowerCase().includes(needle),
-    ),
-  )
+  return plugins.filter((plugin) => {
+    // Search the primary category plus every widened `categories[]`/`tags[]` facet
+    // so a plugin surfaces on any label it carries, not just its display category.
+    const fields = [
+      plugin.name,
+      plugin.category,
+      plugin.summary,
+      plugin.publisher.name,
+      ...(plugin.categories ?? []),
+      ...(plugin.tags ?? []),
+    ]
+    return fields.some((field) => field.toLowerCase().includes(needle))
+  })
 }
 
 export function groupPluginsByCategory(plugins: MarketplacePluginEntry[]): PluginCategoryGroup[] {
