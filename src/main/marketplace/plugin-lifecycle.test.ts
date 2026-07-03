@@ -207,7 +207,14 @@ function signedModuleManifest(id: string, signer: Signer, version = 1): Record<s
   }
 }
 
-async function writeBundle(root: string, folder: string, components: BundleComponents, signer: Signer, version: number): Promise<{
+async function writeBundle(
+  root: string,
+  folder: string,
+  components: BundleComponents,
+  signer: Signer,
+  version: number,
+  options: { unsigned?: boolean } = {}
+): Promise<{
   files: Map<string, string>
   entry: MarketplacePluginEntry
   fingerprint: string
@@ -258,8 +265,12 @@ async function writeBundle(root: string, folder: string, components: BundleCompo
     }, null, 2)}\n`)
   }
 
-  const manifest = signedPluginManifest(components, files, signer, version)
-  const fingerprint = verifyModuleSignature(manifest).fingerprint!
+  const signed = signedPluginManifest(components, files, signer, version)
+  // An unsigned bundle is the same authoring manifest with the signature
+  // stripped; the download/installer decide trust from signature presence.
+  const { signature, ...unsignedManifest } = signed
+  const manifest = options.unsigned ? unsignedManifest : signed
+  const fingerprint = options.unsigned ? '' : verifyModuleSignature(signed).fingerprint!
   files.set('plugin.json', `${JSON.stringify(manifest, null, 2)}\n`)
 
   for (const [path, source] of files) {
@@ -272,16 +283,16 @@ async function writeBundle(root: string, folder: string, components: BundleCompo
     files,
     fingerprint,
     entry: {
-      id: manifest.id,
-      name: manifest.displayName,
-      publisher: { name: 'Multicode Labs', verified: true },
+      id: signed.id,
+      name: signed.displayName,
+      publisher: { name: 'Multicode Labs', verified: !options.unsigned },
       summary: 'Registry plugin.',
       category: 'dev-tools',
       icon: 'icons/registry.svg',
-      latest: manifest.version,
+      latest: signed.version,
       source: `https://github.com/multicode-labs/marketplace/tree/main/plugins/${folder}`,
       provides: Object.keys(components) as MarketplacePluginEntry['provides'],
-      signature: manifest.signature,
+      ...(options.unsigned ? {} : { signature }),
     },
   }
 }
@@ -437,6 +448,163 @@ async function testCommunityBundleRequiresTrustGrant(): Promise<void> {
     if (!granted.ok) return
     assert.equal(granted.classification, 'community')
     assert.match(await readFile(join(workspaceRoot, '.codex', 'config.toml'), 'utf8'), /community-mcp/)
+  })
+}
+
+async function testUnsignedMcpSkillsBundleRoutesThroughTrust(): Promise<void> {
+  await withTempDir(async (temp) => {
+    const signer = generateKeyPairSync('ed25519')
+    const components: BundleComponents = {
+      mcp: { path: 'mcp/server.json', id: 'unsigned-mcp' },
+      skills: { path: 'skills/unsigned-skill', name: 'unsigned-skill' },
+    }
+    const bundle = await writeBundle(temp, 'unsigned-plugin', components, signer, 1, { unsigned: true })
+    const folders = new Map([[ 'unsigned-plugin', bundle.files ]])
+    const { services, workspaceRoot, receiptStorePath } = await createServices(
+      temp,
+      createGithubFetcher(folders),
+      { trustedModules: new Map() }
+    )
+    const lifecycle = createMarketplacePluginLifecycleService(services)
+
+    const blocked = await lifecycle.installFromRegistry({
+      entry: bundle.entry,
+      workspaceRoot,
+      mcpSettings: { syncEnabled: false, servers: {} },
+      mcpClients: ['codex'],
+      skillHarnesses: ['agents'],
+    })
+    assert.equal(blocked.ok, false)
+    if (blocked.ok) return
+    assert.equal(blocked.classification, 'unsigned')
+    assert.match(blocked.message, /Unsigned marketplace plugin requires trust approval/)
+    assert.equal(existsSync(join(workspaceRoot, '.codex', 'config.toml')), false)
+    assert.equal(existsSync(join(workspaceRoot, '.agents', 'skills', 'unsigned-skill')), false)
+    assert.equal(existsSync(receiptStorePath), false)
+
+    const granted = await lifecycle.installFromRegistry({
+      entry: bundle.entry,
+      workspaceRoot,
+      mcpSettings: { syncEnabled: false, servers: {} },
+      mcpClients: ['codex'],
+      skillHarnesses: ['agents'],
+      trustGranted: true,
+    })
+    assert.equal(granted.ok, true, JSON.stringify(granted))
+    if (!granted.ok) return
+    assert.equal(granted.classification, 'unsigned')
+    assert.equal(granted.trust, 'unsigned')
+    assert.equal(granted.loadEligible, false)
+    assert.match(await readFile(join(workspaceRoot, '.codex', 'config.toml'), 'utf8'), /unsigned-mcp/)
+    assert.equal(existsSync(join(workspaceRoot, '.agents', 'skills', 'unsigned-skill', 'SKILL.md')), true)
+    const receipts = JSON.parse(await readFile(receiptStorePath, 'utf8')) as {
+      plugins: Record<string, { classification?: unknown }>
+    }
+    assert.equal(receipts.plugins['registry-plugin']?.classification, 'unsigned')
+  })
+}
+
+async function testUnsignedModuleBearingBundleHardBlocksEvenWithTrust(): Promise<void> {
+  await withTempDir(async (temp) => {
+    const signer = generateKeyPairSync('ed25519')
+    const components: BundleComponents = {
+      mcp: { path: 'mcp/server.json', id: 'unsigned-mcp' },
+      module: { path: 'module', id: 'unsigned-module' },
+    }
+    const bundle = await writeBundle(temp, 'unsigned-module-plugin', components, signer, 1, { unsigned: true })
+    const folders = new Map([[ 'unsigned-module-plugin', bundle.files ]])
+    const { services, workspaceRoot, moduleRoot, receiptStorePath } = await createServices(
+      temp,
+      createGithubFetcher(folders),
+      { trustedModules: new Map() }
+    )
+    const lifecycle = createMarketplacePluginLifecycleService(services)
+
+    const result = await lifecycle.installFromRegistry({
+      entry: bundle.entry,
+      workspaceRoot,
+      mcpSettings: { syncEnabled: false, servers: {} },
+      mcpClients: ['codex'],
+      trustGranted: true,
+    })
+    assert.equal(result.ok, false)
+    if (result.ok) return
+    assert.equal(result.classification, 'unsigned')
+    assert.match(result.message, /unsigned/i)
+    assert.doesNotMatch(result.message, /requires trust approval/)
+    assert.equal(existsSync(join(workspaceRoot, '.codex', 'config.toml')), false)
+    assert.equal(existsSync(join(moduleRoot, 'unsigned-module')), false)
+    assert.equal(existsSync(receiptStorePath), false)
+  })
+}
+
+async function testInlineMcpEntryRoutesThroughTrustAndSyncs(): Promise<void> {
+  await withTempDir(async (temp) => {
+    const { services, workspaceRoot, receiptStorePath } = await createServices(
+      temp,
+      createGithubFetcher(new Map()),
+      { trustedModules: new Map() }
+    )
+    const lifecycle = createMarketplacePluginLifecycleService(services)
+    const entry: MarketplacePluginEntry = {
+      id: 'inline-mcp-plugin',
+      name: 'Inline MCP Plugin',
+      publisher: { name: 'Community Author', verified: false },
+      summary: 'Inline MCP server config.',
+      category: 'dev-tools',
+      icon: 'icons/inline.svg',
+      latest: 1,
+      provides: ['mcp'],
+      mcp: {
+        servers: [
+          {
+            id: 'inline-mcp',
+            name: 'inline-mcp',
+            transport: 'stdio',
+            command: 'node',
+            args: ['-e', 'console.log("inline")'],
+            clients: ['codex'],
+            scope: 'workspace',
+            source: 'custom',
+            enabled: true,
+            riskLevel: 'local-command',
+          },
+        ],
+      },
+    }
+
+    const blocked = await lifecycle.installFromRegistry({
+      entry,
+      workspaceRoot,
+      mcpSettings: { syncEnabled: false, servers: {} },
+      mcpClients: ['codex'],
+    })
+    assert.equal(blocked.ok, false)
+    if (blocked.ok) return
+    assert.equal(blocked.classification, 'unsigned')
+    assert.match(blocked.message, /Inline MCP marketplace entry requires trust approval/)
+    assert.equal(existsSync(join(workspaceRoot, '.codex', 'config.toml')), false)
+    assert.equal(existsSync(receiptStorePath), false)
+
+    const granted = await lifecycle.installFromRegistry({
+      entry,
+      workspaceRoot,
+      mcpSettings: { syncEnabled: false, servers: {} },
+      mcpClients: ['codex'],
+      trustGranted: true,
+    })
+    assert.equal(granted.ok, true, JSON.stringify(granted))
+    if (!granted.ok) return
+    assert.equal(granted.classification, 'unsigned')
+    assert.equal(granted.trust, 'unsigned')
+    assert.equal(granted.loadEligible, false)
+    assert.equal(granted.updated, false)
+    assert.match(await readFile(join(workspaceRoot, '.codex', 'config.toml'), 'utf8'), /inline-mcp/)
+    const receipts = JSON.parse(await readFile(receiptStorePath, 'utf8')) as {
+      plugins: Record<string, { classification?: unknown; components?: Array<{ kind?: unknown }> }>
+    }
+    assert.equal(receipts.plugins['inline-mcp-plugin']?.classification, 'unsigned')
+    assert.equal(receipts.plugins['inline-mcp-plugin']?.components?.[0]?.kind, 'mcp')
   })
 }
 
@@ -698,6 +866,9 @@ async function testReceiptStoreValidationRejectsMalformedAndUnsafeState(): Promi
 async function main(): Promise<void> {
   await testVerifiedRegistryInstallFansOutAndRecordsReceipt()
   await testCommunityBundleRequiresTrustGrant()
+  await testUnsignedMcpSkillsBundleRoutesThroughTrust()
+  await testUnsignedModuleBearingBundleHardBlocksEvenWithTrust()
+  await testInlineMcpEntryRoutesThroughTrustAndSyncs()
   await testDigestMismatchedRegistryInstallDoesNotFanOut()
   await testSkillPostInstallListingFailureRollsBackResidue()
   await testUpdateAndUninstallRemoveOldComponents()

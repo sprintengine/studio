@@ -35,6 +35,18 @@ async function main(): Promise<void> {
     sourceUrl: 'https://example.com/plugins/bundle-plugin/',
     updated: false,
   }
+  const inlineInstallResponse: MarketplacePluginRegistryInstallResult = {
+    ok: true,
+    id: 'inline-mcp-plugin',
+    displayName: 'Inline MCP Plugin',
+    version: 1,
+    trust: 'unsigned',
+    loadEligible: false,
+    installed: [{ kind: 'mcp', id: 'inline-mcp' }],
+    classification: 'unsigned',
+    sourceUrl: '',
+    updated: false,
+  }
   const verifyResponse: MarketplacePluginVerifyResult = {
     classification: 'verified',
     permissions: ['network'],
@@ -51,7 +63,10 @@ async function main(): Promise<void> {
       calls.push({ channel, args })
       if (channel === 'marketplace:registry:read') return registryResponse
       if (channel === 'marketplace:plugins:verify') return verifyResponse
-      if (channel === 'marketplace:plugins:install-entry') return registryInstallResponse
+      if (channel === 'marketplace:plugins:install-entry') {
+        const entryInput = args[0] as { entry?: { mcp?: unknown } }
+        return entryInput.entry?.mcp ? inlineInstallResponse : registryInstallResponse
+      }
       if (channel === 'marketplace:plugins:update-entry') return { ...registryInstallResponse, updated: true }
       if (channel === 'marketplace:plugins:uninstall') return uninstallResponse
       return installResponse
@@ -76,14 +91,47 @@ async function main(): Promise<void> {
     },
     workspaceRoot: '/tmp/workspace',
   }
+  const inlineEntryInput = {
+    entry: {
+      id: 'inline-mcp-plugin',
+      name: 'Inline MCP Plugin',
+      publisher: { name: 'Community Author', verified: false },
+      summary: 'Inline MCP server config.',
+      category: 'dev-tools',
+      icon: 'icons/inline.svg',
+      latest: 1,
+      provides: ['mcp' as const],
+      mcp: {
+        servers: [
+          {
+            id: 'inline-mcp',
+            name: 'inline-mcp',
+            transport: 'stdio' as const,
+            command: 'node',
+            args: ['-e', 'console.log("inline")'],
+            clients: ['codex' as const],
+            scope: 'workspace' as const,
+            source: 'custom' as const,
+            enabled: true,
+            riskLevel: 'local-command' as const,
+          },
+        ],
+      },
+    },
+    workspaceRoot: '/tmp/workspace',
+    trustGranted: true,
+  }
   const verified = await api.verifyMarketplacePlugin(entryInput.entry)
   const registryInstalled = await api.installMarketplacePluginFromRegistry(entryInput)
+  const inlineInstalled = await api.installMarketplacePluginFromRegistry(inlineEntryInput)
   const registryUpdated = await api.updateMarketplacePluginFromRegistry({ ...entryInput, trustGranted: true })
   const uninstalled = await api.uninstallMarketplacePlugin({ pluginId: 'bundle-plugin', workspaceRoot: '/tmp/workspace' })
   assert.deepEqual(registry, registryResponse)
   assert.deepEqual(installed, installResponse)
   assert.deepEqual(verified, verifyResponse)
   assert.deepEqual(registryInstalled, registryInstallResponse)
+  assert.deepEqual(inlineInstalled, inlineInstallResponse)
+  assert.equal(inlineInstalled.ok && inlineInstalled.classification, 'unsigned')
   assert.equal(registryUpdated.updated, true)
   assert.deepEqual(uninstalled, uninstallResponse)
   assert.deepEqual(calls, [
@@ -91,6 +139,7 @@ async function main(): Promise<void> {
     { channel: 'marketplace:plugins:install-folder', args: [input] },
     { channel: 'marketplace:plugins:verify', args: [entryInput.entry] },
     { channel: 'marketplace:plugins:install-entry', args: [entryInput] },
+    { channel: 'marketplace:plugins:install-entry', args: [inlineEntryInput] },
     { channel: 'marketplace:plugins:update-entry', args: [{ ...entryInput, trustGranted: true }] },
     { channel: 'marketplace:plugins:uninstall', args: [{ pluginId: 'bundle-plugin', workspaceRoot: '/tmp/workspace' }] },
   ])

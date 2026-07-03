@@ -15,6 +15,7 @@ import type {
 import type { MarketplacePluginEntry } from '../../shared/marketplace'
 import { validateMarketplaceIndex } from '../../shared/marketplace'
 import { installMarketplacePlugin, type MarketplacePluginInstallerServices } from '../modules/plugin-bundle-installer'
+import { normalizeMcpClients, normalizeMcpServerConfig } from '../mcp-config-service'
 import { defaultUserModuleRoot, moduleInstallPath } from '../modules/user-module-registry'
 import { getPluginRegistryUserRoot, reloadPluginRegistry } from '../plugin-registry-instance'
 import { defaultMarketplacePluginStagingRoot, downloadMarketplacePluginBundle, type MarketplacePluginDownloadFetch } from './plugin-download'
@@ -27,7 +28,7 @@ export type MarketplacePluginInstallReceipt = {
   displayName: string
   version: number
   sourceUrl: string
-  classification: 'verified' | 'community'
+  classification: 'verified' | 'community' | 'unsigned'
   installedAt: string
   components: MarketplacePluginInstalledComponent[]
 }
@@ -81,6 +82,12 @@ export async function installOrUpdateMarketplacePlugin(
   const store = storeResult.store
   const previous = store.plugins[entry.entry.id]
 
+  // Inline-MCP entries carry server configs directly (no bundle to download).
+  // Route them through the MCP config sync behind the same trust gate.
+  if (entry.entry.mcp) {
+    return installInlineMcpEntry(entry.entry, input, services, store, previous)
+  }
+
   const download = await downloadMarketplacePluginBundle({
     entry: entry.entry,
     trustContext: services.trustContext(),
@@ -101,7 +108,13 @@ export async function installOrUpdateMarketplacePlugin(
     }
   }
 
-  if (download.classification === 'community' && input.trustGranted !== true) {
+  // Community (signed, unverified publisher) and unsigned (mcp/skills-only)
+  // bundles both require the server-side trust grant before install. Unsigned
+  // code-bearing bundles never reach here: download hard-blocks them.
+  if (
+    (download.classification === 'community' || download.classification === 'unsigned') &&
+    input.trustGranted !== true
+  ) {
     await rm(download.stagedBundlePath, { recursive: true, force: true })
     return {
       ok: false,
@@ -110,12 +123,19 @@ export async function installOrUpdateMarketplacePlugin(
       trust: download.trust.status,
       loadEligible: download.loadEligible,
       updated: Boolean(previous),
-      message: 'Community marketplace plugin requires trust approval before install.',
+      message: download.classification === 'unsigned'
+        ? 'Unsigned marketplace plugin requires trust approval before install.'
+        : 'Community marketplace plugin requires trust approval before install.',
       issues: [{ path: 'signature', message: 'Grant trust in the marketplace trust gate before installing this plugin.' }],
     }
   }
 
-  const installClassification: 'verified' | 'community' = download.classification === 'verified' ? 'verified' : 'community'
+  const installClassification: 'verified' | 'community' | 'unsigned' =
+    download.classification === 'verified'
+      ? 'verified'
+      : download.classification === 'unsigned'
+        ? 'unsigned'
+        : 'community'
   const backupRoot = join(dirname(download.stagedBundlePath), `${entry.entry.id}-previous-${Date.now()}`)
   try {
     const previousSnapshot = previous
@@ -235,6 +255,190 @@ export async function installOrUpdateMarketplacePlugin(
     await rm(download.stagedBundlePath, { recursive: true, force: true })
     await rm(backupRoot, { recursive: true, force: true })
   }
+}
+
+// Install an inline-MCP registry entry: the servers ship in the entry itself,
+// so there is no bundle to download, verify, or sign. Because MCP config is
+// code-execution config written to agent CLIs, this NEVER installs without the
+// server-side trust grant, and is recorded with an honest 'unsigned' receipt.
+async function installInlineMcpEntry(
+  entry: MarketplacePluginEntry,
+  input: MarketplacePluginRegistryInstallInput,
+  services: MarketplacePluginLifecycleServices,
+  store: MarketplacePluginInstallStore,
+  previous: MarketplacePluginInstallReceipt | undefined
+): Promise<MarketplacePluginRegistryInstallResult> {
+  const updated = Boolean(previous)
+  if (input.trustGranted !== true) {
+    return {
+      ok: false,
+      sourceUrl: '',
+      classification: 'unsigned',
+      trust: 'unsigned',
+      loadEligible: false,
+      updated,
+      message: 'Inline MCP marketplace entry requires trust approval before install.',
+      issues: [{ path: 'mcp', message: 'Grant trust in the marketplace trust gate before installing this MCP server.' }],
+    }
+  }
+
+  const workspaceRoot = input.workspaceRoot?.trim()
+  if (!workspaceRoot) {
+    return { ok: false, sourceUrl: '', classification: 'unsigned', updated, message: 'Workspace root is required to install inline MCP marketplace entries.' }
+  }
+
+  const servers: McpServerConfig[] = []
+  for (const raw of entry.mcp?.servers ?? []) {
+    const normalized = normalizeMcpServerConfig(raw, {
+      enabled: true,
+      scope: 'workspace',
+      source: 'custom',
+      clients: input.mcpClients?.length ? input.mcpClients : undefined,
+    })
+    if (!normalized) {
+      return {
+        ok: false,
+        sourceUrl: '',
+        classification: 'unsigned',
+        updated,
+        message: 'Inline MCP marketplace entry contains an invalid server configuration.',
+        issues: [{ path: 'mcp.servers', message: 'MCP server did not normalize through the app MCP parser.' }],
+      }
+    }
+    servers.push(normalized)
+  }
+  if (servers.length === 0) {
+    return { ok: false, sourceUrl: '', classification: 'unsigned', updated, message: 'Inline MCP marketplace entry declares no servers.' }
+  }
+
+  const backupRoot = join(dirname(services.receiptStorePath), `${entry.id}-inline-previous-${Date.now()}`)
+  try {
+    const previousSnapshot = previous
+      ? await createPreviousInstallSnapshot(previous, input, services, backupRoot)
+      : { ok: true as const, snapshot: undefined }
+    if (!previousSnapshot.ok) {
+      return { ok: false, sourceUrl: '', classification: 'unsigned', updated, message: `Could not snapshot previous marketplace plugin install: ${previousSnapshot.message}` }
+    }
+
+    const nextSettings: McpSettings = {
+      syncEnabled: true,
+      servers: {
+        ...(input.mcpSettings?.servers ?? {}),
+        ...Object.fromEntries(servers.map((server) => [server.id, server])),
+      },
+    }
+    const clients = normalizeMcpClients(input.mcpClients?.length ? input.mcpClients : servers.flatMap((server) => server.clients))
+    const sync = services.mcpConfigService.sync({ workspaceRoot, settings: nextSettings, clients, write: true })
+    if (!sync.ok) {
+      const restored = previousSnapshot.snapshot
+        ? await restorePreviousInstallSnapshot(previousSnapshot.snapshot, input, services)
+        : { ok: true as const }
+      const issues = mcpSyncIssuesToMarketplaceIssues(sync.issues)
+      return appendRestoreFailure({
+        ok: false,
+        sourceUrl: '',
+        classification: 'unsigned',
+        updated,
+        message: sync.message,
+        ...(issues ? { issues } : {}),
+      }, restored)
+    }
+
+    const receipt: MarketplacePluginInstallReceipt = {
+      id: entry.id,
+      displayName: entry.name,
+      version: entry.latest,
+      sourceUrl: '',
+      classification: 'unsigned',
+      installedAt: new Date().toISOString(),
+      components: [installedInlineMcpComponent(servers)],
+    }
+
+    let finalMcpSettings = nextSettings
+    if (previous) {
+      const stale = componentsWithoutOverlap(previous.components, receipt.components)
+      if (stale.length > 0) {
+        const removed = await uninstallReceipt(
+          { ...previous, components: stale },
+          { ...input, pluginId: previous.id, mcpSettings: finalMcpSettings },
+          services
+        )
+        if (!removed.ok) {
+          const rollback = await rollbackInstalledComponents(receipt.id, receipt.components, { ...input, mcpSettings: finalMcpSettings }, services, finalMcpSettings)
+          const restored = previousSnapshot.snapshot
+            ? await restorePreviousInstallSnapshot(previousSnapshot.snapshot, input, services)
+            : { ok: true as const }
+          return appendRestoreFailure(appendRollbackFailure({
+            ok: false,
+            sourceUrl: '',
+            classification: 'unsigned',
+            trust: 'unsigned',
+            loadEligible: false,
+            installed: receipt.components,
+            updated: true,
+            message: `Could not remove previous marketplace plugin components: ${removed.message}`,
+          }, rollback), restored)
+        }
+        finalMcpSettings = removed.mcpSettings ?? finalMcpSettings
+      }
+    }
+
+    store.plugins[receipt.id] = receipt
+    try {
+      await writeInstallStore(services.receiptStorePath, store)
+    } catch (error) {
+      const rollback = await rollbackInstalledComponents(receipt.id, receipt.components, input, services, finalMcpSettings)
+      const restored = previousSnapshot.snapshot
+        ? await restorePreviousInstallSnapshot(previousSnapshot.snapshot, input, services)
+        : { ok: true as const }
+      return appendRestoreFailure(appendRollbackFailure({
+        ok: false,
+        sourceUrl: '',
+        classification: 'unsigned',
+        trust: 'unsigned',
+        loadEligible: false,
+        installed: receipt.components,
+        updated,
+        message: `Could not write marketplace plugin install receipt: ${formatError(error)}`,
+      }, rollback), restored)
+    }
+
+    return {
+      ok: true,
+      id: receipt.id,
+      displayName: receipt.displayName,
+      version: receipt.version,
+      trust: 'unsigned',
+      loadEligible: false,
+      installed: receipt.components,
+      mcpSettings: finalMcpSettings,
+      sourceUrl: '',
+      classification: 'unsigned',
+      updated,
+    }
+  } finally {
+    await rm(backupRoot, { recursive: true, force: true })
+  }
+}
+
+function installedInlineMcpComponent(servers: McpServerConfig[]): MarketplacePluginInstalledComponent {
+  return {
+    kind: 'mcp',
+    id: servers.map((server) => server.id).join(','),
+    serverIds: servers.map((server) => server.id),
+    servers,
+    message: `Synced ${servers.length} inline MCP server${servers.length === 1 ? '' : 's'}.`,
+  }
+}
+
+function mcpSyncIssuesToMarketplaceIssues(
+  issues: Array<{ serverId?: string; client?: string; message: string }> | undefined
+): Array<{ path: string; message: string }> | undefined {
+  if (!issues?.length) return undefined
+  return issues.map((issue) => ({
+    path: issue.serverId ? `servers.${issue.serverId}` : issue.client ? `clients.${issue.client}` : '',
+    message: issue.message,
+  }))
 }
 
 export async function uninstallMarketplacePlugin(
@@ -602,8 +806,8 @@ function validateReceipt(value: unknown, path: string): MarketplacePluginInstall
     throw new Error(`${path}.version: version must be a non-negative integer.`)
   }
   if (typeof value.sourceUrl !== 'string') throw new Error(`${path}.sourceUrl: sourceUrl must be a string.`)
-  if (value.classification !== 'verified' && value.classification !== 'community') {
-    throw new Error(`${path}.classification: classification must be verified or community.`)
+  if (value.classification !== 'verified' && value.classification !== 'community' && value.classification !== 'unsigned') {
+    throw new Error(`${path}.classification: classification must be verified, community, or unsigned.`)
   }
   if (typeof value.installedAt !== 'string' || value.installedAt.trim().length === 0) {
     throw new Error(`${path}.installedAt: installedAt is required.`)
