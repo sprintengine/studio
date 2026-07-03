@@ -20,8 +20,8 @@ import type {
 } from '../../shared/marketplace'
 import {
   MARKETPLACE_COMPONENT_KINDS,
-  parseMarketplacePluginAuthoringManifest,
-  parseMarketplacePluginManifest,
+  hasCodeBearingComponent,
+  resolveOptionallySignedManifest,
 } from '../../shared/marketplace'
 import { parseThirdPartyModuleManifest } from '../../shared/modules/third-party-manifest'
 import { marketplaceComponentDigestMismatchIssuesSync } from '../../../packages/module-sdk/src/plugin-component-digests'
@@ -115,7 +115,7 @@ async function buildInstallPlan(
     return failure('No plugin.json found in the selected plugin bundle.', undefined, manifestSource.issues)
   }
 
-  const resolvedManifest = resolveInstallManifest(manifestSource.source)
+  const resolvedManifest = resolveOptionallySignedManifest(manifestSource.source)
   if (!resolvedManifest.ok) {
     return failure('plugin.json is invalid.', undefined, resolvedManifest.issues)
   }
@@ -165,28 +165,6 @@ async function buildInstallPlan(
     manifest,
     plan: { components: resolvedComponents, trust },
   }
-}
-
-type ResolvedInstallManifest =
-  | { ok: true; manifest: MarketplacePluginAuthoringManifest }
-  | { ok: false; issues: MarketplaceManifestIssue[] }
-
-// Parse a staged plugin.json. A signed manifest is validated strictly; a
-// manifest whose only defect is a missing signature is accepted as unsigned so
-// the kind-aware gate above can permit unsigned mcp/skills-only bundles. Any
-// other defect (malformed/present signature, structural errors) is rejected.
-function resolveInstallManifest(source: string): ResolvedInstallManifest {
-  const signed = parseMarketplacePluginManifest(source)
-  if (signed.ok) return { ok: true, manifest: signed.manifest }
-  const authoring = parseMarketplacePluginAuthoringManifest(source)
-  if (authoring.ok && authoring.manifest.signature === undefined) {
-    return { ok: true, manifest: authoring.manifest }
-  }
-  return { ok: false, issues: signed.issues }
-}
-
-function hasCodeBearingComponent(components: MarketplacePluginComponents): boolean {
-  return components.module !== undefined || components.cli !== undefined
 }
 
 async function installComponent(

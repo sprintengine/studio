@@ -12,10 +12,11 @@ import {
   MARKETPLACE_CANONICAL_SOURCE,
   MARKETPLACE_COMPONENT_KINDS,
   MARKETPLACE_EXTRA_HOSTS_ENV,
+  hasCodeBearingComponent,
   isMarketplaceSourceHostAllowed,
   parseMarketplaceExtraHosts,
   parseMarketplacePluginAuthoringManifest,
-  parseMarketplacePluginManifest,
+  resolveOptionallySignedManifest,
 } from '../../shared/marketplace'
 import { isSafeManifestRelativePath } from '../../../packages/module-sdk/src/manifest-validate'
 import {
@@ -181,7 +182,7 @@ export async function downloadMarketplacePluginBundle(
     // unsigned module/cli must never become load-eligible, so gate on signature
     // presence (id-trust would otherwise promote an unsigned manifest to
     // 'trusted' and slip a code component past the classification check).
-    if (!manifest.signature && hasCodeBearingComponent(manifest)) {
+    if (!manifest.signature && hasCodeBearingComponent(manifest.components)) {
       await rm(stage, { recursive: true, force: true })
       return {
         ok: false,
@@ -294,26 +295,20 @@ type ResolvedDownloadedManifest =
   | { ok: true; manifest: MarketplacePluginAuthoringManifest; trust: ModuleTrust }
   | { ok: false; classification: 'unsigned' | 'invalid'; trust?: ModuleTrust; message: string; issues?: MarketplaceManifestIssue[] }
 
-// Parse a downloaded plugin.json into a manifest plus its trust status. A signed
-// manifest is validated strictly. A manifest whose only defect is a missing
-// signature is validated as unsigned (components and digests still enforced) so
-// the kind-aware gate can decide whether to permit it. Anything else — a
-// present-but-malformed signature, or structural errors — is reported for a hard
-// block.
+// Resolve a downloaded plugin.json under the shared optionally-signed contract,
+// then layer trust classification on top. A resolved manifest carries its trust
+// status; an unresolved one is reported as an unsigned (id-bearing, no signature)
+// or hard-invalid block so the caller can fail closed with the right label.
 function resolveDownloadedManifest(source: string, trustContext: ModuleTrustContext): ResolvedDownloadedManifest {
-  const signed = parseMarketplacePluginManifest(source)
-  if (signed.ok) {
-    return { ok: true, manifest: signed.manifest, trust: classifyModuleTrust(signed.manifest, trustContext) }
-  }
-  const authoring = parseMarketplacePluginAuthoringManifest(source)
-  if (authoring.ok && authoring.manifest.signature === undefined) {
-    return { ok: true, manifest: authoring.manifest, trust: classifyModuleTrust(authoring.manifest, trustContext) }
+  const resolved = resolveOptionallySignedManifest(source)
+  if (resolved.ok) {
+    return { ok: true, manifest: resolved.manifest, trust: classifyModuleTrust(resolved.manifest, trustContext) }
   }
   const unsigned = classifyUnsignedManifest(source, trustContext)
   if (unsigned) {
-    return { ok: false, classification: 'unsigned', trust: unsigned, message: 'Downloaded plugin bundle is unsigned.', issues: signed.issues }
+    return { ok: false, classification: 'unsigned', trust: unsigned, message: 'Downloaded plugin bundle is unsigned.', issues: resolved.issues }
   }
-  return { ok: false, classification: 'invalid', message: 'Downloaded plugin bundle plugin.json is invalid.', issues: signed.issues }
+  return { ok: false, classification: 'invalid', message: 'Downloaded plugin bundle plugin.json is invalid.', issues: resolved.issues }
 }
 
 function classifyUnsignedManifest(source: string, trustContext: ModuleTrustContext): ModuleTrust | null {
@@ -355,10 +350,6 @@ function registryMismatchIssues(
 
 function componentKinds(manifest: MarketplacePluginAuthoringManifest): MarketplaceComponentKind[] {
   return MARKETPLACE_COMPONENT_KINDS.filter((kind) => manifest.components[kind] !== undefined)
-}
-
-function hasCodeBearingComponent(manifest: Pick<MarketplacePluginAuthoringManifest, 'components'>): boolean {
-  return manifest.components.module !== undefined || manifest.components.cli !== undefined
 }
 
 async function downloadGithubTree(
