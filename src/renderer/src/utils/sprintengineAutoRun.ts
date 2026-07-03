@@ -2127,11 +2127,35 @@ export function pickNextAutoRuns(
     return owner?.id ?? null
   }
 
-  // Gate reviewer selection: any eligible idle roster agent of the reviewer
+  // Ids bound to a still-pending changes_requested task: their retained
+  // conversation is the whole point of owner affinity, so the gate reviewer
+  // pick below must not burn them on an unrelated same-role gate while another
+  // eligible id exists — the pre-ready-task general gate pass can run before
+  // the ready-task loop reserves the owner for its own rework (MC-1444 Phase 2
+  // regression guard). The new-claim task pick needs no such set: it is already
+  // restricted to never-owned ids, which excludes every rework owner.
+  const reworkOwnerAgentIds = new Set(
+    Object.entries(sprintEngineState.sprintEngineAgents)
+      .filter(([, runtime]) =>
+        runtime.lastOwnedTaskId
+        && sprintEngineState.tasks.some((candidate) =>
+          candidate.id === runtime.lastOwnedTaskId && candidate.status === 'changes_requested')
+      )
+      .map(([agentId]) => agentId)
+  )
+
+  // Gate reviewer selection: an eligible idle roster agent of the reviewer
   // role. Reviewers persist across gates and are never task-owned, and a mixed
   // role that owns a task may still review its gates — a gate claim is not a
   // task claim, so the task-scoped never-owned restriction does not apply here.
+  // Two-tier so a rework owner keeps its own task: prefer an id not bound to a
+  // pending changes_requested task, falling back to any eligible id only when
+  // none exists (throughput over a stalled gate).
   const findGateReviewerAgent = (role: SprintEngineRoleId): AutoRunCandidate['agentId'] | null => {
+    const unreserved = roster.find((candidate) =>
+      isEligibleRoleAgent(candidate.id, candidate.role, role) && !reworkOwnerAgentIds.has(candidate.id)
+    )
+    if (unreserved) return unreserved.id
     const agent = roster.find((candidate) => isEligibleRoleAgent(candidate.id, candidate.role, role))
     return agent?.id ?? null
   }

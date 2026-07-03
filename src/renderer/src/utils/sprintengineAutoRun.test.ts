@@ -161,6 +161,7 @@ async function main(): Promise<void> {
   testSelfReviewBarredOwnGateDoesNotParkCompletedWorker()
   testGenericPickAvoidsReworkReservedOwners()
   testPickNextAutoRunsNeverReusesSpentIdForNewClaim()
+  testGateReviewerPickAvoidsReworkOwner()
   testPickNextAutoRunsDefersReworkToLiveBoundOwner()
   testNeedsInputHoldRetainsResumeState()
   testReconcileLaunchFlagsPreservesRetainedResumeShape()
@@ -2779,6 +2780,40 @@ function testPickNextAutoRunsNeverReusesSpentIdForNewClaim(): void {
   assert.equal(candidates.length, 1)
   assert.equal(candidates[0].taskId, 'T-new')
   assert.equal(candidates[0].agentId, 'developer-2', 'the never-owned id takes the new claim over the spent id')
+}
+
+function testGateReviewerPickAvoidsReworkOwner(): void {
+  // Regression guard (nuclear review of B1/B2): the gate reviewer pick must
+  // keep the two-tier rework-owner avoidance the deleted generic pick had.
+  // The general gate pre-pass runs BEFORE the ready-task loop, so without it a
+  // disposed idle rework owner could be pulled onto an unrelated same-role gate
+  // and its own changes_requested task would strand to a fresh-brief respawn
+  // (retained conversation lost, MC-1444 Phase 2).
+  const state = sprintEngineStateFixture({
+    tasks: [
+      task({
+        id: 'T-review',
+        role: 'general',
+        status: 'review',
+        boardColumn: 'review',
+        ownerAgentId: 'general-9',
+        qualityGates: [
+          { id: 'general_review', phase: 'review', role: 'general', status: 'pending', required: true, allowSelfReview: true, focus: '', attempts: [] },
+        ],
+      }),
+      task({ id: 'T-rework', role: 'general', status: 'changes_requested', boardColumn: 'changes_requested', ownerAgentId: null, qualityGates: [] }),
+    ],
+    sprintEngineAgents: {
+      // Rework owner sorts FIRST — the gate pre-pass must skip it and leave it
+      // for its own rework.
+      'general-1': runtimeAgent('general', { lastOwnedTaskId: 'T-rework' }),
+      'general-2': runtimeAgent('general'),
+    },
+  })
+  const candidates = pickNextAutoRuns(workspaceFixture(), state, pickInput())
+  const byTask = new Map(candidates.map((candidate) => [candidate.taskId, candidate.agentId]))
+  assert.equal(byTask.get('T-review'), 'general-2', 'the same-role gate goes to the non-owner, not the rework owner')
+  assert.equal(byTask.get('T-rework'), 'general-1', 'the rework owner is preserved for its own changes_requested task')
 }
 
 function testPickNextAutoRunsDefersReworkToLiveBoundOwner(): void {
