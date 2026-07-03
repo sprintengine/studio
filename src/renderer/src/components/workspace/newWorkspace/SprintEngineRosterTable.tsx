@@ -40,12 +40,6 @@ interface RosterTableProps {
   // model shown (string = explicit id, null/absent = CLI default).
   roleModelOverrides?: SprintEngineRoleModelOverrides
   onSetModel?: (role: SprintEngineRoleId, model: string | null) => void
-  // "Start now" launch intent per role. When `onSetSpawnAtStart` is provided,
-  // each added role row gets a checkbox marking its agents for an explicit
-  // spawn when the workspace opens.
-  spawnAtStartRoles?: Partial<Record<SprintEngineRoleId, boolean>>
-  spawnAtStartLocked?: boolean
-  onSetSpawnAtStart?: (role: SprintEngineRoleId, spawn: boolean) => void
   /** Optional trailing row rendered inside the roster border, hairline-divided
    *  below the role rows (e.g. the "save as default" affordance). */
   footer?: React.ReactNode
@@ -67,9 +61,6 @@ export function SprintEngineRosterTable({
   onSetCli,
   roleModelOverrides,
   onSetModel,
-  spawnAtStartRoles,
-  spawnAtStartLocked = false,
-  onSetSpawnAtStart,
   footer,
 }: RosterTableProps) {
   const roles = listSprintEngineWizardRoles(registry, disabledRoleIds)
@@ -105,41 +96,6 @@ export function SprintEngineRosterTable({
                 onChange={onSetCli}
               />
             )}
-            {onSetSpawnAtStart ? (
-              <Tooltip content={spawnAtStartLocked ? 'This role is controlled by the selected run settings.' : `Start ${label} agents when the workspace opens`}>
-                <button
-                  type="button"
-                  aria-pressed={spawnAtStartRoles?.[role] ?? false}
-                  aria-disabled={spawnAtStartLocked}
-                  aria-label={`Start ${label} agents when the workspace opens`}
-                  onClick={() => {
-                    if (!spawnAtStartLocked) onSetSpawnAtStart(role, !(spawnAtStartRoles?.[role] ?? false))
-                  }}
-                  className={`
-                    interactive inline-flex h-7 items-center gap-1.5 rounded-md border px-2 text-[11px] font-semibold transition-colors
-                    focus:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--accent-primary)]
-                    ${(spawnAtStartRoles?.[role] ?? false)
-                      ? `border-[color:var(--accent-primary-soft)] bg-[color:var(--accent-primary-soft)] text-[color:var(--text-strong)] ${spawnAtStartLocked ? 'cursor-default' : ''}`
-                      : 'border-[color:var(--color-5)] bg-[color:var(--bg-surface-raised)] text-[color:var(--text-muted)] hover:border-[color:var(--border-strong)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]'
-                    }
-                  `}
-                >
-                  <span
-                    aria-hidden="true"
-                    className={`
-                      inline-flex h-3.5 w-3.5 items-center justify-center rounded-full border transition-colors
-                      ${(spawnAtStartRoles?.[role] ?? false)
-                        ? 'border-[color:var(--accent-primary)] bg-[color:var(--accent-primary)] text-[color:var(--bg-base)]'
-                        : 'border-[color:var(--text-disabled)] text-transparent'
-                      }
-                    `}
-                  >
-                    <span className="ml-[1px] text-[8px] leading-none">▶</span>
-                  </span>
-                  Start
-                </button>
-              </Tooltip>
-            ) : null}
           </div>
         ) : null
         return (

@@ -289,7 +289,9 @@ async function testSprintEngineNewTeamInitializesRunState(): Promise<void> {
       statePath: '/p/.multi-code/sprintengine/ship-squad/run.yaml',
       name: 'Ship Squad',
       goal: 'Ship the things',
-      agentIds: ['architect', 'product'],
+      // Lazy roster: init receives only the architect seat; enabled worker roles
+      // ride enabledRoles -> configuredRoles, and worker ids mint on demand.
+      agentIds: ['architect'],
       useWorktrees: true,
     },
   ])
@@ -348,41 +350,39 @@ async function testSprintEngineNewTeamInitFailuresBlockWorkspaceArgs(): Promise<
 
 function testSprintEngineEffectiveSpawnAtStartRoles(): void {
   const visibleRoleCounts = { architect: 1, product: 1, frontend: 1, developer: 0, code_reviewer: 0, spec_reviewer: 0, performance: 0, cross_platform: 0, tester: 1, security: 0 }
+  // Lazy roster: only the architect ever carries a start-at-launch intent — the
+  // per-role "Start now" toggle is retired, so no other role is materialized.
   assert.deepEqual(
     buildSprintEngineEffectiveSpawnAtStartRoles({
       automationMode: 'run_agents_and_approve_artifacts',
       existingTeam: false,
-      spawnAtStartRoles: {},
       visibleRoleCounts,
     }),
     { architect: true },
-    'full automation no longer forces every roster role to start immediately',
+    'a non-manual new-team run bootstraps the architect only',
   )
   assert.deepEqual(
     buildSprintEngineEffectiveSpawnAtStartRoles({
       automationMode: 'run_agents',
       existingTeam: false,
-      spawnAtStartRoles: { tester: true },
       visibleRoleCounts,
     }),
-    { tester: true, architect: true },
-    'automation starts the architect by default and preserves explicit extra roles',
+    { architect: true },
+    'no per-role start intent survives — worker/reviewer ids mint on demand',
   )
   assert.deepEqual(
     buildSprintEngineEffectiveSpawnAtStartRoles({
-      automationMode: 'run_agents',
+      automationMode: 'manual',
       existingTeam: false,
-      spawnAtStartRoles: { architect: false, tester: true },
       visibleRoleCounts,
     }),
-    { architect: false, tester: true },
-    'automation default does not override an explicit architect opt-out',
+    {},
+    'manual mode starts nothing at launch',
   )
   assert.deepEqual(
     buildSprintEngineEffectiveSpawnAtStartRoles({
       automationMode: 'run_agents_and_approve_artifacts',
       existingTeam: true,
-      spawnAtStartRoles: {},
       visibleRoleCounts,
     }),
     {},

@@ -1725,8 +1725,13 @@ export function getNextSprintEngineAgentId(
   role: SprintEngineRoleId,
   sprintEngineAgents: Record<AgentId, SprintEngineRuntimeAgent>
 ): AgentId {
+  // Task-scoped workers are always suffixed: the first minted worker of a role
+  // is `<role>-1`. This mirrors the Python allocator (next_replacement_agent_id:
+  // max matching index + 1, counting a bare `<role>` as index 1). The bare
+  // `<role>` id is reserved for a role's persistent reviewer, so worker minting
+  // never hands it out — it starts at `-1` on an empty roster and steps past a
+  // bare reviewer id (which counts as index 1) when one is already seated.
   const usedIds = new Set(Object.keys(sprintEngineAgents))
-  if (!usedIds.has(role) && role !== 'developer') return role
 
   let nextIndex = 1
   for (const [agentId, agent] of Object.entries(sprintEngineAgents)) {
@@ -1744,36 +1749,30 @@ export function getNextSprintEngineAgentId(
 }
 
 export function buildSprintEngineAgentRoster(
-  roleCounts: SprintEngineRoleCounts,
+  _roleCounts: SprintEngineRoleCounts,
   registry?: SprintEngineRoleRegistry | null,
 ): SprintEngineAgentRosterItem[] {
-  const roster: SprintEngineAgentRosterItem[] = []
-  const configuredRoles = new Set<SprintEngineRoleId>([
-    ...sprintEngineRoleOrder,
-    ...Object.keys(roleCounts).filter((role) => Boolean(normalizeSprintEngineRoleId(role))),
-  ])
-  const orderedRoles = [...configuredRoles].sort((a, b) => {
-    const aBundled = sprintEngineRoleOrder.indexOf(a as SprintEngineRole)
-    const bBundled = sprintEngineRoleOrder.indexOf(b as SprintEngineRole)
-    const aRank = aBundled >= 0 ? aBundled : sprintEngineRoleOrder.length
-    const bRank = bBundled >= 0 ? bBundled : sprintEngineRoleOrder.length
-    if (aRank !== bRank) return aRank - bRank
-    return getSprintEngineRoleLabel(a, registry).localeCompare(getSprintEngineRoleLabel(b, registry))
-  })
+  // Lazy roster: creation seeds ONLY the architect. Worker ids are minted
+  // task-scoped on demand by the Python assignment op, and a role's persistent
+  // reviewer id registers lazily on its first gate — so no worker or reviewer
+  // record exists at creation. enabledRoles/roleCounts still gate which roles
+  // participate (forwarded to Python init as `configuredRoles` for quality-gate
+  // derivation) but no longer materialize seats here.
+  return [{ id: 'architect', label: getSprintEngineRoleLabel('architect', registry), role: 'architect' }]
+}
 
-  for (const role of orderedRoles) {
-    // One roster agent per enabled role (architect forced on) — MC-1450
-    // retired count fan-out. Extra same-role capacity is minted on demand by
-    // queue-depth replenishment, so a legacy count > 1 seeds only the first
-    // agent of the id scheme (`developer` stays `developer-1` so
-    // `getNextSprintEngineAgentId` minting remains consistent).
-    const enabled = role === 'architect' || (roleCounts[role] ?? 0) > 0
-    if (!enabled) continue
-    const id = role === 'developer' ? `${role}-1` : role
-    roster.push({ id, label: getSprintEngineRoleLabel(role, registry), role })
+// The enabled role set encoded by the roster counts (architect always on).
+// Forwarded to Python init as `configuredRoles` so quality-gate derivation runs
+// against the roles the user actually turned on, even though the lazy roster
+// seeds only the architect. Empty of non-architect roles => no derived gates.
+export function sprintEngineEnabledRoles(
+  roleCounts: SprintEngineRoleCounts,
+): SprintEngineRoleId[] {
+  const roles = new Set<SprintEngineRoleId>(['architect'])
+  for (const [role, count] of Object.entries(roleCounts)) {
+    if ((count ?? 0) > 0 && normalizeSprintEngineRoleId(role)) roles.add(role as SprintEngineRoleId)
   }
-
-  return roster
+  return [...roles]
 }
 
 export function buildSprintEngineAgentRosterFromRuntimeAgents(

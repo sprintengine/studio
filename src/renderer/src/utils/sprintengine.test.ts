@@ -6,6 +6,8 @@ import {
   buildSprintEngineAgentRoster,
   buildSprintEngineAgentRosterFromRuntimeAgents,
   buildSprintEngineRoleRegistry,
+  getNextSprintEngineAgentId,
+  sprintEngineEnabledRoles,
   formatSprintEngineLockAge,
   getActiveSprintEngineLifecyclePhases,
   getLatestSprintEngineTaskComment,
@@ -219,18 +221,47 @@ assert.equal(modelState!.tasks[0]?.cli, 'claude-code')
 assert.equal(modelState!.tasks[1]?.model, undefined)
 assert.equal(modelState!.tasks[1]?.cli, undefined)
 
-// MC-1450: the roster seeds ONE agent per enabled role — counts are an
-// enabled-set encoding, and a legacy count > 1 seeds only the first id of the
-// mint scheme so `getNextSprintEngineAgentId` stays consistent.
-const singleSeedRoster = buildSprintEngineAgentRoster({ architect: 1, developer: 3, tester: 1 })
+// Lazy roster: creation seeds ONLY the architect regardless of enabled counts.
+// Workers are minted task-scoped by the Python assignment op and reviewer ids
+// register on their first gate, so no worker/reviewer record exists at creation.
+const lazyRoster = buildSprintEngineAgentRoster({ architect: 1, developer: 3, tester: 1 })
 assert.deepEqual(
-  singleSeedRoster.map((agent) => agent.id),
-  ['architect', 'developer-1', 'tester'],
-  'one roster agent per enabled role; developer keeps its -1 id scheme'
+  lazyRoster.map((agent) => agent.id),
+  ['architect'],
+  'lazy roster seeds only the architect'
 )
-assert.ok(
-  singleSeedRoster.every((agent) => !/\s\d+$/.test(agent.label)),
-  'single-seed labels carry no positional suffix'
+
+// enabledRoles still encodes the participating set (architect always on) even
+// though seats are not materialized — this is what feeds Python `configuredRoles`.
+assert.deepEqual(
+  sprintEngineEnabledRoles({ architect: 1, developer: 1, tester: 1 }).sort(),
+  ['architect', 'developer', 'tester'],
+  'enabledRoles = architect + every role with count > 0'
+)
+assert.deepEqual(
+  sprintEngineEnabledRoles({ architect: 1, developer: 0 }),
+  ['architect'],
+  'a disabled role (count 0) is not enabled; architect is always present'
+)
+
+// Allocator (D-Naming): the first minted worker of a role is `<role>-1` — no
+// bare-id short-circuit — matching the Python allocator (max matching index + 1,
+// a bare `<role>` counting as index 1). Bare `<role>` is the reviewer id.
+const rt = (role: string) => ({ role, status: 'idle' as const, currentTaskId: null })
+assert.equal(
+  getNextSprintEngineAgentId('developer', { architect: rt('architect') }),
+  'developer-1',
+  'first worker on an empty developer roster is developer-1',
+)
+assert.equal(
+  getNextSprintEngineAgentId('developer', { architect: rt('architect'), 'developer-1': rt('developer') }),
+  'developer-2',
+  'the next worker steps past developer-1',
+)
+assert.equal(
+  getNextSprintEngineAgentId('nuclear_reviewer', { nuclear_reviewer: rt('nuclear_reviewer') }),
+  'nuclear_reviewer-2',
+  'a seated bare reviewer id counts as index 1, so a worker mint steps to -2',
 )
 
 // MC-1450: run.roleRuntimes (run.yaml per-role {model, cli}) rides the

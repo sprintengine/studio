@@ -131,6 +131,14 @@ def test_per_task_claim_guard_allows_rework_refuses_second_distinct_task() -> No
     assert task_claim_exceeds_worker_capacity({}, owner, "T2") is True
 
 
+def test_allocator_first_worker_is_index_one() -> None:
+    # D-Naming: with no id for the role yet (lazy roster seeds only the
+    # architect), the first minted worker is `<role>-1`, matching the renderer
+    # allocator. An unrelated role's id does not shift the index.
+    assert next_replacement_agent_id({"agents": {}}, "developer") == "developer-1"
+    assert next_replacement_agent_id({"agents": {"architect": {"role": "architect"}}}, "developer") == "developer-1"
+
+
 def test_allocator_counts_legacy_bare_id() -> None:
     # A bare `<role>` id is index 1; the monotonic allocator never reuses it.
     assert next_replacement_agent_id({"agents": {"developer": {"role": "developer"}}}, "developer") == "developer-2"

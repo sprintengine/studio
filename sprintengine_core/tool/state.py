@@ -231,7 +231,11 @@ def next_replacement_agent_id(state: Dict[str, Any], role: str) -> str:
         if not match:
             continue
         highest = max(highest, int(match.group(1) or "1"))
-    candidate_index = max(2, highest + 1)
+    # D-Naming: the first minted worker of a role is `<role>-1` (no seeded
+    # `<role>-1` original under the lazy roster). A bare `<role>` reviewer id
+    # counts as index 1, so a mint steps past it to `-2`. Mirrors the renderer
+    # allocator (getNextSprintEngineAgentId).
+    candidate_index = highest + 1
     while True:
         candidate = f"{role}-{candidate_index}"
         if candidate not in used:
