@@ -15,10 +15,14 @@ import type {
 import type {
   MarketplaceComponentKind,
   MarketplaceManifestIssue,
+  MarketplacePluginAuthoringManifest,
   MarketplacePluginComponents,
-  MarketplacePluginManifest,
 } from '../../shared/marketplace'
-import { MARKETPLACE_COMPONENT_KINDS, parseMarketplacePluginManifest } from '../../shared/marketplace'
+import {
+  MARKETPLACE_COMPONENT_KINDS,
+  parseMarketplacePluginAuthoringManifest,
+  parseMarketplacePluginManifest,
+} from '../../shared/marketplace'
 import { parseThirdPartyModuleManifest } from '../../shared/modules/third-party-manifest'
 import { marketplaceComponentDigestMismatchIssuesSync } from '../../../packages/module-sdk/src/plugin-component-digests'
 import { installPluginFolder as installCliPluginFolder } from '../plugin-install'
@@ -95,7 +99,7 @@ async function buildInstallPlan(
   input: MarketplacePluginInstallInput,
   trustContext: ModuleTrustContext
 ): Promise<
-  | { ok: true; manifest: MarketplacePluginManifest; plan: ResolvedInstallPlan }
+  | { ok: true; manifest: MarketplacePluginAuthoringManifest; plan: ResolvedInstallPlan }
   | { ok: false; result: MarketplacePluginInstallResult }
 > {
   const localFolder = typeof input.localFolder === 'string' ? input.localFolder.trim() : ''
@@ -111,26 +115,31 @@ async function buildInstallPlan(
     return failure('No plugin.json found in the selected plugin bundle.', undefined, manifestSource.issues)
   }
 
-  const manifestResult = parseMarketplacePluginManifest(manifestSource.source)
-  if (!manifestResult.ok) {
-    return failure('plugin.json is invalid.', undefined, manifestResult.issues)
+  const resolvedManifest = resolveInstallManifest(manifestSource.source)
+  if (!resolvedManifest.ok) {
+    return failure('plugin.json is invalid.', undefined, resolvedManifest.issues)
   }
+  const manifest = resolvedManifest.manifest
 
-  const trust = classifyModuleTrust(manifestResult.manifest, trustContext)
+  const trust = classifyModuleTrust(manifest, trustContext)
   if (trust.status === 'invalid') {
     return failure('Plugin bundle signature is invalid.', undefined, [{ path: 'signature', message: 'Invalid signature.' }], {
       trust: trust.status,
       loadEligible: false,
     })
   }
-  if (trust.status === 'unsigned') {
+  // Mirror the download gate (defense in depth): an unsigned module/cli must
+  // never install, so a bypassed download cannot slip code past this point.
+  // Unsigned mcp/skills-only bundles are permitted (loadEligible false). Gate on
+  // signature presence so id-trust cannot promote an unsigned code component.
+  if (!manifest.signature && hasCodeBearingComponent(manifest.components)) {
     return failure('Plugin bundle is unsigned and cannot be installed.', undefined, [{ path: 'signature', message: 'signature is required.' }], {
       trust: trust.status,
       loadEligible: false,
     })
   }
 
-  const digestMismatch = marketplaceComponentDigestMismatchIssuesSync(bundleRoot.path, manifestResult.manifest, {
+  const digestMismatch = marketplaceComponentDigestMismatchIssuesSync(bundleRoot.path, manifest, {
     bytesLabel: 'current bytes',
     blockedFileMessage: (path) => `component file "${path}" cannot be installed from marketplace bundles.`,
   })
@@ -142,7 +151,7 @@ async function buildInstallPlan(
   }
 
   const resolvedComponents: ResolvedComponent[] = []
-  for (const component of componentPaths(manifestResult.manifest.components)) {
+  for (const component of componentPaths(manifest.components)) {
     const resolved = await resolveComponent(bundleRoot.path, component)
     if (!resolved.ok) return failure(resolved.message, component.kind)
 
@@ -153,9 +162,31 @@ async function buildInstallPlan(
 
   return {
     ok: true,
-    manifest: manifestResult.manifest,
+    manifest,
     plan: { components: resolvedComponents, trust },
   }
+}
+
+type ResolvedInstallManifest =
+  | { ok: true; manifest: MarketplacePluginAuthoringManifest }
+  | { ok: false; issues: MarketplaceManifestIssue[] }
+
+// Parse a staged plugin.json. A signed manifest is validated strictly; a
+// manifest whose only defect is a missing signature is accepted as unsigned so
+// the kind-aware gate above can permit unsigned mcp/skills-only bundles. Any
+// other defect (malformed/present signature, structural errors) is rejected.
+function resolveInstallManifest(source: string): ResolvedInstallManifest {
+  const signed = parseMarketplacePluginManifest(source)
+  if (signed.ok) return { ok: true, manifest: signed.manifest }
+  const authoring = parseMarketplacePluginAuthoringManifest(source)
+  if (authoring.ok && authoring.manifest.signature === undefined) {
+    return { ok: true, manifest: authoring.manifest }
+  }
+  return { ok: false, issues: signed.issues }
+}
+
+function hasCodeBearingComponent(components: MarketplacePluginComponents): boolean {
+  return components.module !== undefined || components.cli !== undefined
 }
 
 async function installComponent(
