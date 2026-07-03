@@ -113,6 +113,7 @@ function stubPorts(workspace: Workspace, sessions: TerminalSessionSnapshot[]): {
   removedTabs: string[]
   killed: string[]
   layoutUpdates: string[]
+  diagnostics: string[]
   setLiveModelMounted: (mounted: boolean) => void
 } {
   const recorded: Record<string, unknown> = {}
@@ -120,6 +121,7 @@ function stubPorts(workspace: Workspace, sessions: TerminalSessionSnapshot[]): {
   const removedTabs: string[] = []
   const killed: string[] = []
   const layoutUpdates: string[] = []
+  const diagnostics: string[] = []
   // When false, simulate an unmounted workspace: removeAgentTab reports nothing
   // removed so teardown falls back to stripping the persisted layout.
   let liveModelMounted = true
@@ -143,7 +145,9 @@ function stubPorts(workspace: Workspace, sessions: TerminalSessionSnapshot[]): {
     updateLayout: (_ws, model) => {
       layoutUpdates.push(JSON.stringify(model))
     },
-    publishDiagnostic: () => undefined,
+    publishDiagnostic: (input) => {
+      diagnostics.push((input as { title: string }).title)
+    },
     now: () => 5000,
   }
   return {
@@ -153,6 +157,7 @@ function stubPorts(workspace: Workspace, sessions: TerminalSessionSnapshot[]): {
     removedTabs,
     killed,
     layoutUpdates,
+    diagnostics,
     setLiveModelMounted: (mounted: boolean) => {
       liveModelMounted = mounted
     },
@@ -176,7 +181,7 @@ void (async () => {
         sprintEngineStatePath: '/proj/.multi-code/sprintengine/x/run.yaml',
       } as unknown as TerminalSessionSnapshot,
     ]
-    const { ports, recorded, removed, removedTabs, killed } = stubPorts(workspace, sessions)
+    const { ports, recorded, removed, removedTabs, killed, diagnostics } = stubPorts(workspace, sessions)
     const result = await tearDownCompletedSprintRunAgents('ws-1', ports)
 
     assert.deepEqual(removed.sort(), ['architect', 'dev-1'], 'both agents removed')
@@ -186,6 +191,7 @@ void (async () => {
     assert.equal((recorded['dev-1'] as { cliSessionId: string }).cliSessionId, 'sess-dev', 'idle agent still recorded for resume')
     assert.deepEqual(result.removedAgentIds.sort(), ['architect', 'dev-1'])
     assert.deepEqual(result.closedSessionIds, ['sess-arch'])
+    assert.deepEqual(diagnostics, ['Sprint complete — agent terminals closed'], 'user-visible teardown toasts once')
   }
 
   // 6. No sprint agents → no-op (idempotent on later polls).
@@ -243,6 +249,63 @@ void (async () => {
     stub.setLiveModelMounted(true)
     await tearDownCompletedSprintRunAgents('ws-1', stub.ports)
     assert.deepEqual(stub.layoutUpdates, [], 'no persisted-layout write when the live Model handled it')
+  }
+
+  // 10. Suspended session (the idle reaper froze the agent, processAlive=false):
+  //     still recorded — its captured harness id is the codex resume token — and
+  //     disposed via kill so the session record and snapshot sidecar are not
+  //     orphaned. A plainly-exited session is left alone.
+  {
+    const workspace = makeWorkspace({
+      architect: agent({ id: 'architect', cli: 'claude-code', cliSessionId: 'sess-arch' }),
+      'dev-1': agent({ id: 'dev-1', cli: 'codex', cliSessionId: 'term-dev', harnessSessionId: undefined }),
+    })
+    const sessions = [
+      {
+        sessionId: 'term-dev',
+        processAlive: false,
+        suspended: true,
+        kind: 'agent',
+        workspaceId: 'ws-1',
+        agentId: 'dev-1',
+        cliSessionId: 'harness-123',
+        sprintEngineStatePath: '/proj/.multi-code/sprintengine/x/run.yaml',
+      } as unknown as TerminalSessionSnapshot,
+      // Exited (not suspended) session: nothing to kill or dispose.
+      {
+        sessionId: 'sess-arch',
+        processAlive: false,
+        suspended: false,
+        kind: 'agent',
+        workspaceId: 'ws-1',
+        agentId: 'architect',
+        sprintEngineStatePath: '/proj/.multi-code/sprintengine/x/run.yaml',
+      } as unknown as TerminalSessionSnapshot,
+    ]
+    const { ports, recorded, killed } = stubPorts(workspace, sessions)
+    await tearDownCompletedSprintRunAgents('ws-1', ports)
+
+    assert.deepEqual(killed, ['term-dev'], 'suspended session disposed; exited session left alone')
+    assert.equal(
+      (recorded['dev-1'] as { harnessSessionId?: string }).harnessSessionId,
+      'harness-123',
+      'suspended session still supplies the harness resume token',
+    )
+  }
+
+  // 11. Tab-less teardown (reopened run whose panels were already removed —
+  //     roster records recreated by a projection read): silent, no toast.
+  {
+    const workspace = makeWorkspace(
+      { architect: agent({ id: 'architect', cli: 'claude-code', cliSessionId: 'sess-arch' }) },
+      agentTabLayout(), // persisted layout has no agent tabs
+    )
+    const stub = stubPorts(workspace, [])
+    stub.setLiveModelMounted(false)
+    await tearDownCompletedSprintRunAgents('ws-1', stub.ports)
+
+    assert.deepEqual(stub.removed, ['architect'], 'recreated record still removed')
+    assert.deepEqual(stub.diagnostics, [], 'nothing user-visible closed → no toast')
   }
 
   console.log('sprintengineRunTeardown.test.ts: ok')

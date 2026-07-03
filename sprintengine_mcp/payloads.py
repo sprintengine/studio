@@ -30,6 +30,7 @@ def command_payload_to_namespace(
             handover_stdin=False,
             source=list(payload.get("source") or []),
             source_plan_kind=payload.get("sourcePlanKind") or "unknown",
+            reference=bool(payload.get("reference", False)),
             actor=payload.get("actor") or _actor_id(actor, "sprintengine"),
             force=bool(payload.get("force", False)),
         )

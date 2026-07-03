@@ -5,7 +5,7 @@ import { join } from 'node:path'
 import type { ReactElement } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 
-import { SpawnDebugToggle } from './SpawnAgentMenu'
+import { SpawnDebugToggle } from './agentComposer/agentSpawnShared'
 
 let failures = 0
 function run(name: string, fn: () => void): void {
@@ -79,12 +79,20 @@ run('renders on the real server surface with the DEBUG label and aria-pressed', 
   assert.match(on, /aria-pressed="true"/, 'static markup announces the on state')
 })
 
-// Wiring the unit render cannot reach: the menu places the toggle beside (not
-// inside) the preset group, and WorkspaceManager carries the value into the
+// Wiring the unit render cannot reach: the composer places the toggle beside
+// (not inside) the preset group, and WorkspaceManager carries the value into the
 // spawn payload + launch input and resets it per spawn. Mirrors the
 // source-contract style of BacklogRow.test.tsx.
-const menuSource = readFileSync(
-  join(process.cwd(), 'src/renderer/src/components/workspace/SpawnAgentMenu.tsx'),
+const composerPopoverSource = readFileSync(
+  join(process.cwd(), 'src/renderer/src/components/workspace/agentComposer/AgentComposerPopover.tsx'),
+  'utf8',
+)
+const composerPanelSource = readFileSync(
+  join(process.cwd(), 'src/renderer/src/components/workspace/agentComposer/AgentComposer.tsx'),
+  'utf8',
+)
+const sharedSource = readFileSync(
+  join(process.cwd(), 'src/renderer/src/components/workspace/agentComposer/agentSpawnShared.tsx'),
   'utf8',
 )
 const managerSource = readFileSync(
@@ -96,19 +104,24 @@ const terminalSource = readFileSync(
   'utf8',
 )
 
-run('the menu renders the toggle independently of the permission-preset group', () => {
+run('both composer surfaces render the toggle as a controlled sibling of the preset group', () => {
   assert.match(
-    menuSource,
-    /<SpawnDebugToggle active=\{agentSpawnDebugMode\} onChange=\{onChangeAgentSpawnDebugMode\} \/>/,
-    'the toggle is a controlled sibling of the preset buttons',
+    composerPopoverSource,
+    /<SpawnDebugToggle active=\{action\.debugMode\} onChange=\{action\.onChangeDebugMode\} \/>/,
+    'the popover picker renders the toggle beside its preset buttons',
+  )
+  assert.match(
+    composerPanelSource,
+    /<SpawnDebugToggle active=\{debugMode\} onChange=\{onChangeDebugMode\} \/>/,
+    'the New Chat panel renders the toggle in its Permissions & options disclosure',
   )
   assert.ok(
-    !menuSource.includes("value: 'debug'") && !menuSource.includes('debug_mode'),
+    !sharedSource.includes("value: 'debug'") && !sharedSource.includes('debug_mode'),
     'DEBUG is not folded into AGENT_SPAWN_PERMISSION_OPTIONS',
   )
 })
 
-run('WorkspaceManager carries the toggle into the spawn payload, resets it, and threads it to both menu hosts', () => {
+run('WorkspaceManager carries the toggle into the spawn payload, resets it, and threads it to the picker hosts', () => {
   assert.ok(
     (managerSource.match(/debugMode: agentSpawnDebugMode/g) ?? []).length >= 3,
     'the transient toggle becomes the agent record debugMode on the CLI spawn paths',
@@ -121,7 +134,12 @@ run('WorkspaceManager carries the toggle into the spawn payload, resets it, and 
   assert.match(
     managerSource,
     /agentSpawnDebugMode=\{agentSpawnDebugMode\}\n\s*setAgentSpawnDebugMode=\{setAgentSpawnDebugMode\}/,
-    'the toggle + setter thread to the top bar and sidebar hosts',
+    'the toggle + setter thread to the top bar spawn popover',
+  )
+  assert.match(
+    managerSource,
+    /debugMode=\{agentSpawnDebugMode\}\n\s*onChangeDebugMode=\{setAgentSpawnDebugMode\}/,
+    'and to the New Chat panel via the composer debugMode/onChangeDebugMode props',
   )
 })
 

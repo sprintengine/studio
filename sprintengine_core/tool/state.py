@@ -58,6 +58,42 @@ def apply_agent_specs(state: Dict[str, Any], values: Optional[List[str]]) -> Non
             agents[agent_id] = agent
 
 
+def apply_role_runtimes(state: Dict[str, Any], raw_json: Optional[str]) -> None:
+    """Record the roster's per-role execution runtime (model/cli) at init.
+
+    `raw_json` is a JSON object `{role: {"model": str, "cli": str}}` supplied by
+    Multicode from the workspace roster's per-role model/CLI selection. Entries
+    with no usable model AND no usable cli are dropped (a role left on the CLI's
+    default model records nothing, so no model flag is fabricated). Merges into
+    any existing map so a re-init preserves roles it does not mention.
+    """
+    if not raw_json or not str(raw_json).strip():
+        return
+    try:
+        parsed = json.loads(raw_json)
+    except (TypeError, ValueError) as error:
+        raise SystemExit(f"--role-runtimes-json must be a JSON object: {error}")
+    if not isinstance(parsed, dict):
+        raise SystemExit("--role-runtimes-json must be a JSON object of role -> {model, cli}.")
+    runtimes = state.setdefault("roleRuntimes", {})
+    if not isinstance(runtimes, dict):
+        runtimes = {}
+        state["roleRuntimes"] = runtimes
+    for raw_role, raw_entry in parsed.items():
+        role = str(raw_role or "").strip()
+        if not role or not isinstance(raw_entry, dict):
+            continue
+        model = str(raw_entry.get("model") or "").strip()
+        cli = str(raw_entry.get("cli") or "").strip()
+        entry: Dict[str, Any] = {}
+        if model:
+            entry["model"] = model
+        if cli:
+            entry["cli"] = cli
+        if entry:
+            runtimes[role] = entry
+
+
 def roster_roles(state: Dict[str, Any]) -> set[str]:
     return {
         str(agent.get("role")).strip()
@@ -949,10 +985,64 @@ def clear_non_active_task_owner_claims(state: Dict[str, Any]) -> bool:
     return dirty
 
 
-def assign_task(state: Dict[str, Any], task: Dict[str, Any], agent_id: str) -> Dict[str, Any]:
+def role_runtime(state: Dict[str, Any], role: Optional[str]) -> Dict[str, Any]:
+    """The recorded {model, cli} the roster configured for `role`, or {}.
+
+    Written once at run init from the workspace roster's per-role model/CLI
+    selection (see cmd_init). This is the source of truth for stamping a task's
+    execution model on the normal Multicode path, where claims arrive over the
+    shared HTTP MCP hub with no per-agent context to carry the model.
+    """
+    role_key = str(role or "").strip()
+    if not role_key:
+        return {}
+    runtimes = state.get("roleRuntimes")
+    if not isinstance(runtimes, dict):
+        return {}
+    entry = runtimes.get(role_key)
+    return entry if isinstance(entry, dict) else {}
+
+
+def stamp_task_execution_identity(
+    state: Dict[str, Any],
+    task: Dict[str, Any],
+    *,
+    model: Optional[str] = None,
+    cli: Optional[str] = None,
+) -> None:
+    """Stamp the CLI model/CLI that worked `task` onto the task record.
+
+    The value carries "what ran" and is retained through handoff (never cleared
+    with ownerAgentId), for attribution and per-task usage metrics. Precedence:
+    explicit override (headless --model/--cli) > the run's per-role runtime map
+    (`role_runtime`). Last-write-wins; a blank never clobbers a good value, so a
+    role on the CLI default (empty runtime) records nothing. Called wherever a
+    task is activated for a worker — both `assign_task` (worker claims) and the
+    architect plan-gate / product-intake tasks that are activated directly.
+    """
+    runtime = role_runtime(state, task.get("role"))
+    resolved_model = (model or "").strip() or str(runtime.get("model") or "").strip()
+    resolved_cli = (cli or "").strip() or str(runtime.get("cli") or "").strip()
+    if resolved_model:
+        task["model"] = resolved_model
+    if resolved_cli:
+        task["cli"] = resolved_cli
+
+
+def assign_task(
+    state: Dict[str, Any],
+    task: Dict[str, Any],
+    agent_id: str,
+    *,
+    model: Optional[str] = None,
+    cli: Optional[str] = None,
+) -> Dict[str, Any]:
     task["ownerAgentId"] = agent_id
     task["status"] = "in_progress"
     task["startedAt"] = task.get("startedAt") or now_iso()
+    # One agent/model owns a task start-to-finish (MC-1444), so a single
+    # model/cli field per task is faithful — no per-attempt history.
+    stamp_task_execution_identity(state, task, model=model, cli=cli)
     agent = ensure_agent(state, agent_id, task.get("role"))
     set_agent_active(agent, task)
     dispatch = queue_dispatch_record(

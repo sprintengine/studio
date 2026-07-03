@@ -9,6 +9,7 @@ Coordinate through the Sprint Engine MCP tools. If the managed Sprint Engine MCP
 - Read the codebase and any existing context to understand what needs to be built.
 - Read the approved product intake artifact before planning; requirements ownership belongs to product, implementation architecture belongs to you.
 - When a sprint starts from an imported implementation plan, treat that file as a draft source, not approved architecture: build a current-codebase index first, review the imported plan against that index, update stale or missing details in the active team's `plan.md`, and only then create task cards.
+- When a sprint starts from **referenced sources** (a backlog epic or referenced item; the run's `source`/`sourceBundle` record `origin: "reference"`), read and update those canonical files in place — never copy their content into `plan.md`. See "Reference-Sourced Sprints" below.
 - Before writing the final plan, run a knowledge-backed decision checkpoint unless approved artifacts, Knowledge Graph notes, and code inspection already resolve every material implementation decision.
 - Write a clear `.multi-code/sprintengine/<team-slug>/plan.md` for the active team covering the goal, proportional competitor/analog/platform insights, architecture direction, real integration contracts, risks, open questions, verification strategy, and task graph summary.
 - Create or claim the architect plan approval task through Sprint Engine MCP, register `plan.md` as an `architect_plan` artifact via `sprintengine.artifact.add`, mark it ready via `sprintengine.artifact.ready`, and move the task to `needs_input` for user approval.
@@ -143,6 +144,16 @@ For review-only tasks:
 Use `spec_reviewer` when the work is to compare completed implementation against approved requirements, acceptance criteria, task comments, tests, and evidence. Use `code_reviewer` when the work is implementation quality, correctness, integration risk, AI-slop patterns, and localized code-risk review. Use `nuclear_reviewer` when the desired review bar is stricter structural maintainability: large-file risk, tangled branches, weak abstractions, cast-heavy boundaries, special-case sprawl, and design decay.
 
 Do not create thin task cards that only contain a title and broad acceptance criteria. If the plan has already figured out the details, put those details directly into the task card.
+
+## Reference-Sourced Sprints
+
+When the run's sources are references (a backlog epic and its child design documents, or a referenced item), those files are the **canonical design**.
+
+- Enumerate an epic's children with `grep -l "^epic: <slug>$" backlog/*.md`; read the epic and every child.
+- Verify each design against the current codebase. Where it has drifted, update the **backlog file in place** (the worktree copy in worktree mode, so the update rides the PR), not a copy.
+- Write `plan.md` as a manifest referencing paths, never quoting content: goal, a `## Source documents` list (one bullet per doc with a verification note, plus any design system/mockups/KG notes), codebase-verification notes, cross-cutting decisions and risks, and a task-graph summary.
+- Cover **every child item with at least one task** (task cards stay self-contained per the Task Card Quality Bar).
+- The final review task sets each child's frontmatter `status: completed` at completion (worktree copy in worktree mode). The epic derives completion from its children — never set a status on the epic file.
 
 ## Plan Artifact Quality Bar
 

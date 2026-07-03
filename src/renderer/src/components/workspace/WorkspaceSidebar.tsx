@@ -1,7 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { AutomationsWorkspaceTypeIcon, NewChatIcon, SpecialistActionIcon, WorkspaceTypeIcon, resolveEnabledWorkspaceType } from '../AppIcons'
-import CliIcon from '../CliIcon'
-import { getSpecialistAction } from '../../specialists/specialistActions'
+import { AutomationsWorkspaceTypeIcon, NewChatIcon, WorkspaceTypeIcon, resolveEnabledWorkspaceType } from '../AppIcons'
 import { FOCUS_RING_CLASS } from '../ui/tokens'
 import {
   SIDEBAR_COLLAPSED_WIDTH,
@@ -27,16 +25,11 @@ import {
 } from '../ui'
 import { Modal, ModalBody, ModalButton, ModalFooter, ModalHeader } from '../ui/Modal'
 import PanelRail from './PanelRail'
-import SpawnAgentMenu, { TerminalSessionIcon } from './SpawnAgentMenu'
 import { useWorkspaceStore } from '../../store/workspaceStore'
 import {
   AUTOMATIONS_HOST_WORKSPACE_MODE,
-  type AgentCli,
   type HighlightColor,
   type LayoutTemplate,
-  type NewChatAgentChoice,
-  type SpecialistActionId,
-  type SprintEngineCliPermissionPreset,
   type Workspace,
   type WorkspaceId,
 } from '../../types/workspace'
@@ -92,24 +85,11 @@ type WorkspaceSidebarProps = {
   onForgetFolder: (folderPath: string) => void
   onNewWorkspace: () => void
   onNewWorkspaceInFolder: (folderPath: string) => void
+  // Open the pre-creation New Chat panel. `onNewChat` inherits the active
+  // workspace's folder; `onNewChatInFolder` scopes the chat to that project.
+  // The panel owns the agent/engine choice — the sidebar only opens it.
   onNewChat: () => void
   onNewChatInFolder: (folderPath: string) => void
-  // New-chat spawn handlers wired to the shared SpawnAgentMenu picker. Each
-  // creates a fresh solo-chat workspace; `folderPath` (the right-clicked folder,
-  // or undefined for the New chat button) scopes it.
-  onNewChatTerminal: (folderPath?: string | null) => void
-  onNewChatGeneral: (cli: AgentCli, folderPath?: string | null) => void
-  onNewChatSpecialist: (id: SpecialistActionId, cli: AgentCli, folderPath?: string | null) => void
-  // The agent a plain "New chat in project" click spawns, surfaced as an
-  // indicator on that menu item. `newChatAgentCli` supplies the General-agent
-  // glyph; the specialist/terminal kinds carry their own icon.
-  newChatAgentChoice: NewChatAgentChoice
-  newChatAgentCli: AgentCli
-  agentSpawnPermissionPreset: SprintEngineCliPermissionPreset
-  setAgentSpawnPermissionPreset: (preset: SprintEngineCliPermissionPreset) => void
-  // Transient Debug Mode toggle, forwarded to the New-chat spawn menu's mode row.
-  agentSpawnDebugMode: boolean
-  setAgentSpawnDebugMode: (next: boolean) => void
   onRevealFolder: (folderPath: string) => void
   onSetSidebarCollapsed: (collapsed: boolean) => void
   // Persisted expanded width (px) and its setter, for drag-to-resize.
@@ -396,15 +376,6 @@ export default function WorkspaceSidebar({
   onNewWorkspaceInFolder,
   onNewChat,
   onNewChatInFolder,
-  onNewChatTerminal,
-  onNewChatGeneral,
-  onNewChatSpecialist,
-  newChatAgentChoice,
-  newChatAgentCli,
-  agentSpawnPermissionPreset,
-  setAgentSpawnPermissionPreset,
-  agentSpawnDebugMode,
-  setAgentSpawnDebugMode,
   onRevealFolder,
   onSetSidebarCollapsed,
   sidebarWidth,
@@ -432,7 +403,6 @@ export default function WorkspaceSidebar({
   const [renameValue, setRenameValue] = useState('')
   const [contextMenu, setContextMenu] = useState<{ workspaceId: WorkspaceId; x: number; y: number } | null>(null)
   const [folderMenu, setFolderMenu] = useState<{ folderKey: string; x: number; y: number } | null>(null)
-  const [newChatMenu, setNewChatMenu] = useState<{ x: number; y: number; folderPath?: string } | null>(null)
   // Front-door project picker anchor for the bottom Automations utility rail.
   const [automationsMenu, setAutomationsMenu] = useState<{ x: number; y: number } | null>(null)
   const [confirmClose, setConfirmClose] = useState<WorkspaceId | null>(null)
@@ -1344,16 +1314,12 @@ export default function WorkspaceSidebar({
               </button>
             </Tooltip>
 
-            {/* New chat — quiet solo-agent quick spawn, subordinate to New workspace.
-               Left-click spawns the last-used agent; right-click chooses the type. */}
-            <Tooltip content="New chat · right-click to choose agent" wrapperClassName="flex">
+            {/* New chat — quiet solo-agent quick spawn, subordinate to New
+               workspace. Opens the New Chat panel to pick agent + engine. */}
+            <Tooltip content="New chat" wrapperClassName="flex">
               <button
                 type="button"
                 onClick={onNewChat}
-                onContextMenu={(event) => {
-                  event.preventDefault()
-                  setNewChatMenu({ x: event.clientX, y: event.clientY })
-                }}
                 className="flex h-[30px] w-full shrink-0 items-center justify-center rounded-md text-[color:var(--text-default)] transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]"
                 aria-label="New chat"
               >
@@ -1400,14 +1366,10 @@ export default function WorkspaceSidebar({
 
             <span aria-hidden="true" className="w-px self-stretch bg-[color:var(--border-subtle)]" />
 
-            <Tooltip content="New chat · right-click to choose agent" wrapperClassName="flex">
+            <Tooltip content="New chat" wrapperClassName="flex">
               <button
                 type="button"
                 onClick={onNewChat}
-                onContextMenu={(event) => {
-                  event.preventDefault()
-                  setNewChatMenu({ x: event.clientX, y: event.clientY })
-                }}
                 className="flex h-full w-9 shrink-0 items-center justify-center text-[color:var(--text-default)] transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]"
                 aria-label="New chat"
               >
@@ -1648,16 +1610,7 @@ export default function WorkspaceSidebar({
           y={contextMenu.y}
           workspace={workspaceById.get(contextMenu.workspaceId) ?? null}
           isDetachedWindow={isDetachedWindow}
-          newChatAgentChoice={newChatAgentChoice}
-          newChatAgentCli={newChatAgentCli}
           onClose={() => setContextMenu(null)}
-          onPickNewChatAgent={(x, y) => {
-            const workspace = workspaceById.get(contextMenu.workspaceId)
-            setContextMenu(null)
-            if (workspace?.folderPath && !workspace.folderMissing) {
-              setNewChatMenu({ x, y, folderPath: workspace.folderPath })
-            }
-          }}
           onSelect={(action) => {
             const workspace = workspaceById.get(contextMenu.workspaceId)
             if (!workspace) {
@@ -1737,16 +1690,7 @@ export default function WorkspaceSidebar({
           x={folderMenu.x}
           y={folderMenu.y}
           group={groups.find((g) => g.key === folderMenu.folderKey) ?? null}
-          newChatAgentChoice={newChatAgentChoice}
-          newChatAgentCli={newChatAgentCli}
           onClose={() => setFolderMenu(null)}
-          onPickNewChatAgent={(x, y) => {
-            const group = groups.find((g) => g.key === folderMenu.folderKey)
-            setFolderMenu(null)
-            if (group?.fullPath && !group.missing) {
-              setNewChatMenu({ x, y, folderPath: group.fullPath })
-            }
-          }}
           onSelect={(action) => {
             const group = groups.find((g) => g.key === folderMenu.folderKey)
             setFolderMenu(null)
@@ -1761,39 +1705,6 @@ export default function WorkspaceSidebar({
             if (action === 'forget' && group.fullPath) setConfirmForget(group.fullPath)
           }}
         />
-      ) : null}
-
-      {/* New chat agent picker (right-click on the New chat control, or a
-          folder/workspace context menu). Reuses the top bar's SpawnAgentMenu so
-          a new chat can launch any specialist/terminal/general agent; every pick
-          opens a fresh solo chat scoped to newChatMenu.folderPath. */}
-      {newChatMenu ? (
-        <PointerPopover
-          x={newChatMenu.x}
-          y={newChatMenu.y}
-          ariaLabel="Start a new chat with"
-          onClose={() => setNewChatMenu(null)}
-        >
-          <SpawnAgentMenu
-            multiloopLaunchMenu={false}
-            // The sidebar New chat always creates a standard solo workspace, so
-            // the conversation row (which needs a provider loaded for the active
-            // standard workspace) is omitted here; Terminal, General, and every
-            // specialist are wired below.
-            conversationSpawnAvailable={false}
-            agentSpawnPermissionPreset={agentSpawnPermissionPreset}
-            onChangeAgentSpawnPermissionPreset={setAgentSpawnPermissionPreset}
-            agentSpawnDebugMode={agentSpawnDebugMode}
-            onChangeAgentSpawnDebugMode={setAgentSpawnDebugMode}
-            onSpawnTerminal={() => onNewChatTerminal(newChatMenu.folderPath)}
-            onSpawnGeneral={(cli) => onNewChatGeneral(cli, newChatMenu.folderPath)}
-            onSpawnConversation={() => {}}
-            onSpawnSpecialist={(id, cli) => onNewChatSpecialist(id, cli, newChatMenu.folderPath)}
-            onSpawnMultiloopRole={() => {}}
-            showOpenInNewChat={false}
-            onClose={() => setNewChatMenu(null)}
-          />
-        </PointerPopover>
       ) : null}
 
       {/* Close-confirm popover (modal-style for safety) */}
@@ -1955,89 +1866,6 @@ type ContextMenuAction =
   | 'toggle-star'
   | 'clear-color'
 
-// Glyph + label for the agent a plain "New chat in project" click spawns. The
-// specialist kind carries its own roster glyph; general borrows the active
-// CLI's icon; terminal uses the shared terminal glyph.
-function resolveNewChatAgentDescriptor(
-  choice: NewChatAgentChoice,
-  cli: AgentCli,
-): { icon: React.ReactNode; label: string } {
-  if (choice.kind === 'terminal') {
-    return { icon: <TerminalSessionIcon className="icon-sm shrink-0" />, label: 'Terminal' }
-  }
-  if (choice.kind === 'specialist') {
-    const specialist = getSpecialistAction(choice.specialistId)
-    return {
-      icon: <SpecialistActionIcon icon={specialist.icon} className="icon-sm shrink-0" />,
-      label: specialist.shortLabel,
-    }
-  }
-  return { icon: <CliIcon cli={cli} className="icon-sm shrink-0" />, label: 'General agent' }
-}
-
-// "New chat in project" as a split menu item: the left action spawns the
-// remembered agent; the right cluster shows which agent that is and, on click
-// or right-click (either half), opens the full agent picker. Both halves carry
-// data-menu-item so the ContextMenu's arrow-key roving includes them.
-function NewChatMenuItem({
-  agentChoice,
-  agentCli,
-  onSpawn,
-  onPickAgent,
-}: {
-  agentChoice: NewChatAgentChoice
-  agentCli: AgentCli
-  onSpawn: () => void
-  onPickAgent: (x: number, y: number) => void
-}) {
-  const descriptor = resolveNewChatAgentDescriptor(agentChoice, agentCli)
-  const openPicker = (event: React.MouseEvent) => {
-    event.preventDefault()
-    event.stopPropagation()
-    // Keyboard activation (Enter) reports a 0,0 pointer; anchor the picker to
-    // the item's corner in that case so it opens beside the menu, not at the
-    // viewport origin. Mouse clicks open at the pointer.
-    if (event.clientX === 0 && event.clientY === 0) {
-      const rect = event.currentTarget.getBoundingClientRect()
-      onPickAgent(rect.right, rect.bottom)
-    } else {
-      onPickAgent(event.clientX, event.clientY)
-    }
-  }
-  return (
-    <div role="none" className="flex items-stretch gap-px">
-      <button
-        type="button"
-        role="menuitem"
-        data-menu-item="true"
-        tabIndex={-1}
-        onClick={onSpawn}
-        onContextMenu={openPicker}
-        aria-label={`New chat in project with ${descriptor.label}`}
-        className={`flex min-w-0 flex-1 items-center gap-2 rounded-l rounded-r-none px-2.5 py-1.5 text-left text-[color:var(--text-default)] transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)] ${FOCUS_RING_CLASS}`}
-      >
-        <span className="min-w-0 flex-1 truncate">New chat in project</span>
-      </button>
-      <button
-        type="button"
-        role="menuitem"
-        data-menu-item="true"
-        tabIndex={-1}
-        onClick={openPicker}
-        onContextMenu={openPicker}
-        aria-label={`Change new chat agent, currently ${descriptor.label}`}
-        className={`flex shrink-0 items-center gap-1.5 rounded-l-none rounded-r py-1.5 pl-1.5 pr-2 text-[color:var(--text-muted)] transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)] ${FOCUS_RING_CLASS}`}
-      >
-        {descriptor.icon}
-        <TruncatedText as="span" text={descriptor.label} className="max-w-[124px] text-[12px]" />
-        <svg viewBox="0 0 16 16" fill="none" className="icon-xs shrink-0 text-[color:var(--text-disabled)]" aria-hidden="true">
-          <path d="M4 6L8 10L12 6" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
-        </svg>
-      </button>
-    </div>
-  )
-}
-
 // Workspace-row context menu. Generic menu chrome (surface, clamped
 // positioning, items, dividers, swatch row, dismissal, focus handling) lives
 // in the ui/ContextMenu primitive; only the sidebar's actions stay here.
@@ -2049,9 +1877,6 @@ function WorkspaceContextMenu({
   onClose,
   onSelect,
   onPickColor,
-  onPickNewChatAgent,
-  newChatAgentChoice,
-  newChatAgentCli,
 }: {
   x: number
   y: number
@@ -2060,9 +1885,6 @@ function WorkspaceContextMenu({
   onClose: () => void
   onSelect: (action: ContextMenuAction) => void
   onPickColor: (color: HighlightColor) => void
-  onPickNewChatAgent: (x: number, y: number) => void
-  newChatAgentChoice: NewChatAgentChoice
-  newChatAgentCli: AgentCli
 }) {
   if (!workspace) return null
   const showDelete = workspaceHasOnDiskState(workspace)
@@ -2083,12 +1905,7 @@ function WorkspaceContextMenu({
         Rename
       </MenuItem>
       {folderPathExists ? (
-        <NewChatMenuItem
-          agentChoice={newChatAgentChoice}
-          agentCli={newChatAgentCli}
-          onSpawn={() => onSelect('new-chat')}
-          onPickAgent={onPickNewChatAgent}
-        />
+        <MenuItem onClick={() => onSelect('new-chat')}>New chat in project</MenuItem>
       ) : null}
       {folderPathExists ? (
         <MenuItem onClick={() => onSelect('new-workspace')}>New workspace in project</MenuItem>
@@ -2138,18 +1955,12 @@ function FolderContextMenu({
   group,
   onClose,
   onSelect,
-  onPickNewChatAgent,
-  newChatAgentChoice,
-  newChatAgentCli,
 }: {
   x: number
   y: number
   group: FolderGroup | null
   onClose: () => void
   onSelect: (action: FolderMenuAction) => void
-  onPickNewChatAgent: (x: number, y: number) => void
-  newChatAgentChoice: NewChatAgentChoice
-  newChatAgentCli: AgentCli
 }) {
   if (!group) return null
   const canReveal = Boolean(group.fullPath) && !group.missing
@@ -2165,12 +1976,7 @@ function FolderContextMenu({
       surfaceClassName="min-w-[220px]"
     >
       {canCreateWorkspace ? (
-        <NewChatMenuItem
-          agentChoice={newChatAgentChoice}
-          agentCli={newChatAgentCli}
-          onSpawn={() => onSelect('new-chat')}
-          onPickAgent={onPickNewChatAgent}
-        />
+        <MenuItem onClick={() => onSelect('new-chat')}>New chat in project</MenuItem>
       ) : null}
       {canCreateWorkspace ? (
         <MenuItem onClick={() => onSelect('new-workspace')}>New workspace in project</MenuItem>

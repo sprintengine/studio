@@ -30,6 +30,7 @@ PLAN_REVIEW_FOCUS = {
 SOURCE_KIND_LABELS = {
     "product_plan": "Product plan",
     "architect_plan": "Implementation plan",
+    "epic": "Epic",
     "html_mockup": "HTML mockup",
     "design_notes": "Design notes",
     "plan_overview": "Plan overview",
@@ -73,12 +74,26 @@ def state_has_source_kind(state: Dict[str, Any], kind: str) -> bool:
         return True
     return source_plan_kind(state) == kind
 
+def source_item_absolute_path(state_path: Path, item: Dict[str, Any], path_value: str) -> Path:
+    # Reference sources store a project-root-relative path to the canonical
+    # original (which lives outside the team folder), so resolve them against the
+    # repository root. Copy sources live under the team folder and resolve via the
+    # standard artifact path logic.
+    if item.get("origin") == "reference":
+        return (repository_root_for_state(state_path) / path_value).resolve()
+    return artifact_absolute_path(state_path, path_value)
+
 def source_path_for_kind(state: Dict[str, Any], state_path: Path, kind: str) -> Path:
     bundle_item = next(iter(source_bundle_items(state, kind)), None)
     if bundle_item:
         item_path = str(bundle_item.get("path") or "").strip()
         if item_path:
-            return artifact_absolute_path(state_path, item_path)
+            return source_item_absolute_path(state_path, bundle_item, item_path)
+    source = state.get("source")
+    if isinstance(source, dict) and source_plan_kind(state) == kind:
+        source_path_value = str(source.get("path") or "").strip()
+        if source_path_value:
+            return source_item_absolute_path(state_path, source, source_path_value)
     return handover_path_for_state(state_path)
 
 def import_source_to_team_file(state: Dict[str, Any], state_path: Path, kind: str, filename: str) -> bool:
@@ -350,6 +365,7 @@ def ensure_product_intake_gate(state: Dict[str, Any], state_path: Path, actor: s
 
     if product_task.get("status") in ACTIVE_TASK_STATUSES:
         set_agent_active(ensure_agent(state, actor, "product"), product_task)
+        stamp_task_execution_identity(state, product_task)
 
     if product_artifact is None:
         now = now_iso()
@@ -453,6 +469,7 @@ def ensure_plan_approval_gate(
 
     if plan_task.get("status") in ACTIVE_TASK_STATUSES:
         set_agent_active(ensure_agent(state, actor, role), plan_task)
+        stamp_task_execution_identity(state, plan_task)
 
     if plan_artifact is None:
         now = now_iso()

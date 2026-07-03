@@ -148,12 +148,71 @@ function testWorktreeModeFlowsIntoInitPayload(): void {
   )
 }
 
+function testReferenceFlagFlowsIntoHandoverPayload(): void {
+  const base = {
+    teamSlug: 'checkout-flow',
+    goal: 'Checkout Flow',
+    sourcePath: 'backlog/checkout-flow.md',
+    sourceContent: '# Checkout Flow\nShip it.',
+    sourcePlanKind: 'architect_plan' as const,
+    statePath: '.multi-code/sprintengine/checkout-flow/run.yaml',
+  }
+
+  const referenced = buildPlanFileSprintEngineHandoffPrompt({ ...base, reference: true })
+  assert.ok(referenced.includes('"reference": true'), 'reference launches embed reference:true in the handover payload')
+  assert.ok(referenced.includes('read and update it in place'), 'reference guidance tells the agent to edit in place')
+  assert.ok(referenced.includes('update them in place rather than copying them'), 'closing guidance is reference-aware')
+
+  const copied = buildPlanFileSprintEngineHandoffPrompt(base)
+  assert.ok(!copied.includes('"reference"'), 'non-reference launches omit the reference flag')
+  assert.ok(copied.includes('in the Sprint Engine team folder'), 'copy launches keep the team-folder read guidance')
+}
+
+function testEpicHandoffReferencesChildrenAndGuidesInPlaceReview(): void {
+  const prompt = buildPlanFileSprintEngineHandoffPrompt({
+    teamSlug: 'auth-revamp',
+    goal: 'Revamp authentication',
+    sourcePath: 'backlog/epics/auth-revamp.md',
+    sourceContent: '# Auth revamp',
+    sourcePlanKind: 'epic',
+    reference: true,
+    sourceBundle: [
+      {
+        kind: 'generic_context',
+        sourcePath: '/repo/backlog/login-form.md',
+        sourceRelativePath: 'backlog/login-form.md',
+        sourceContent: '# Login form',
+      },
+      {
+        kind: 'generic_context',
+        sourcePath: '/repo/backlog/session-store.md',
+        sourceRelativePath: 'backlog/session-store.md',
+        sourceContent: '# Session store',
+      },
+    ],
+    statePath: '.multi-code/sprintengine/auth-revamp/run.yaml',
+  })
+
+  // The epic is the handover root; its children are the source bundle.
+  assert.ok(prompt.includes('"handoverPath": "backlog/epics/auth-revamp.md"'), 'epic file is the handover root')
+  assert.ok(prompt.includes('"sourcePlanKind": "epic"'), 'root plan kind is epic')
+  assert.ok(prompt.includes('"sourcePath": "backlog/login-form.md"'), 'children are referenced by backlog-relative path')
+  assert.ok(prompt.includes('"sourcePath": "backlog/session-store.md"'))
+  assert.ok(prompt.includes('"reference": true'), 'epic launches are reference launches')
+  assert.ok(prompt.includes('Source type: backlog epic'), 'epic-specific guidance is emitted')
+  assert.ok(prompt.includes('plan.md` as a thin manifest'), 'guidance describes the manifest plan.md')
+  assert.ok(!prompt.includes('/repo/backlog'), 'epic handoff does not expose absolute child paths')
+  assert.ok(!CLI_INSTRUCTION_PATTERN.test(prompt), 'epic handoff does not instruct sprintengine CLI commands')
+}
+
 function main(): void {
   testPlanFileHandoffIsMcpNative()
   testPlanFileHandoffBundleIssuesOneHandoverCallWithSourceBundle()
   testBacklogHandoffUsesBacklogPathsAndKeepsManagedMcpInvariants()
   testBacklogBundleUsesRelativeBundlePaths()
   testWorktreeModeFlowsIntoInitPayload()
+  testReferenceFlagFlowsIntoHandoverPayload()
+  testEpicHandoffReferencesChildrenAndGuidesInPlaceReview()
   console.log('sprintengineHandoff.test.ts: ok')
 }
 

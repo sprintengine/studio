@@ -10,6 +10,7 @@ import {
 } from '../../../../utils/sprintengineAutomationLifecycle'
 import {
   PlanSourcedSprintEngineWorkspaceError,
+  buildSprintEngineRoleRuntimes,
   createPlanSourcedSprintEngineWorkspace,
 } from '../../../../utils/sprintengineWorkspaceCreation'
 import { slugifySprintEngineName } from '../../../../utils/sprintengineStateFile'
@@ -184,6 +185,9 @@ export async function runSprintEngineNewTeamCreation(
       events: args.sprintEngineState.events,
       artifacts: args.sprintEngineState.artifacts,
       useWorktrees: input.useWorktrees === true,
+      // Record the roster's per-role model selection so claimed tasks get
+      // stamped with the model that worked them (same as the plan-sourced path).
+      roleRuntimes: buildSprintEngineRoleRuntimes(input.roleModelOverrides, input.roleCliDefaults),
     })
     if (!initResult.ok) {
       const wrapped = new SprintEngineNewTeamCreationError('init-failed')
@@ -216,7 +220,11 @@ export async function runSprintEnginePlanSourcedCreation(
   ports: SprintEnginePlanSourcedPorts,
 ): Promise<void> {
   if (!input.folderPath) throw new SprintEnginePlanSourcedError('missing-folder')
-  const bundlePrimary = input.sourceBundle?.[0] ?? null
+  // For an epic, the epic file itself is the primary handover source and the
+  // bundle holds its children; for every other bundle (e.g. an HTML mockup) the
+  // first bundle item is the primary source.
+  const isEpicSource = input.sourcePlanKind === 'epic'
+  const bundlePrimary = !isEpicSource ? (input.sourceBundle?.[0] ?? null) : null
   const optionRelativePath = bundlePrimary
     ? bundlePrimary.sourceRelativePath
     : input.sourcePlanRelativePath
@@ -244,6 +252,7 @@ export async function runSprintEnginePlanSourcedCreation(
       initialSpawnRoles: input.initialSpawnRoles ?? null,
       workspaceWindowId: input.workspaceWindowId,
       useWorktrees: input.useWorktrees === true,
+      sourceReference: input.sourceReference === true,
       sprintEngineAutoState: {
         ...sprintEngineAutoStateFromRunOptions(input),
         cliPermissionPreset: input.cliPermissionPreset,
@@ -258,6 +267,9 @@ export async function runSprintEnginePlanSourcedCreation(
         sourceRelativePath: optionRelativePath,
         teamSlug: result.sprintEngineContext.teamSlug,
         statePath: result.sprintEngineContext.statePath,
+        ...(isEpicSource
+          ? { childRelativePaths: (input.epicChildRelativePaths ?? []).filter((path) => path.startsWith('backlog/')) }
+          : {}),
       })
     }
   } catch (error) {

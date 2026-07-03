@@ -613,6 +613,50 @@ async function testSprintEnginePlanSourcedSkipsNonBacklogLink(): Promise<void> {
   )
 }
 
+async function testSprintEngineEpicSourcedLinksEpicAndFlagsChildren(): Promise<void> {
+  const links: Array<{ sourceRelativePath: string; childRelativePaths?: string[] }> = []
+  await runSprintEnginePlanSourcedCreation(
+    {
+      folderPath: '/p',
+      teamName: 'Auth Revamp',
+      goal: 'Revamp authentication',
+      // For an epic, the epic file is the primary source (sourcePlanPath); the
+      // bundle holds its children. The controller must not treat bundle[0] as the
+      // handover primary.
+      sourcePlanPath: '/p/backlog/epics/auth-revamp.md',
+      sourcePlanRelativePath: 'backlog/epics/auth-revamp.md',
+      sourcePlanContent: '# Auth revamp',
+      sourcePlanKind: 'epic',
+      sourceBundle: [
+        { kind: 'generic_context', sourcePath: '/p/backlog/login-form.md', sourceRelativePath: 'backlog/login-form.md', sourceContent: '# Login' },
+        { kind: 'generic_context', sourcePath: '/p/backlog/session-store.md', sourceRelativePath: 'backlog/session-store.md', sourceContent: '# Session' },
+      ],
+      epicChildRelativePaths: ['backlog/login-form.md', 'backlog/session-store.md'],
+      sourceReference: true,
+      visibleRoleCounts: { architect: 1, product: 1, frontend: 0, developer: 0, code_reviewer: 0, spec_reviewer: 0, performance: 0, cross_platform: 0, tester: 0, security: 0 },
+      totalAgents: 2,
+      roleCliDefaults: { architect: 'claude-code', product: 'claude-code', frontend: 'claude-code', developer: 'claude-code', code_reviewer: 'claude-code', spec_reviewer: 'claude-code', performance: 'claude-code', cross_platform: 'claude-code', tester: 'claude-code', security: 'claude-code' },
+      startRunner: false,
+      autoApproveArtifacts: false,
+      cliPermissionPreset: 'default',
+    },
+    {
+      // Only the epic file is probed for existence (it is the handover primary).
+      pathExists: async (path) => path === '/p/backlog/epics/auth-revamp.md',
+      initializeSprintEngineState: async () => ({ ok: true, data: {} }),
+      recordBacklogExecutionLink: async (input) => {
+        links.push({ sourceRelativePath: input.sourceRelativePath, childRelativePaths: input.childRelativePaths })
+      },
+    },
+  )
+
+  assert.deepEqual(
+    links,
+    [{ sourceRelativePath: 'backlog/epics/auth-revamp.md', childRelativePaths: ['backlog/login-form.md', 'backlog/session-store.md'] }],
+    'epic launch links the epic file and forwards its child paths for in_progress flips',
+  )
+}
+
 async function testGuidedBriefScaffoldValidation(): Promise<void> {
   const ports: GuidedBriefScaffoldPorts = {
     filesystem: createMemoryFilesystem(),
@@ -1269,6 +1313,7 @@ async function main(): Promise<void> {
   await testSprintEnginePlanSourcedInitializesAndLinksBacklog()
   await testSprintEnginePlanSourcedWorktreeModeFlowsThroughStateAndPrompt()
   await testSprintEnginePlanSourcedSkipsNonBacklogLink()
+  await testSprintEngineEpicSourcedLinksEpicAndFlagsChildren()
   await testGuidedBriefScaffoldValidation()
   await testGuidedBriefScaffoldHappyPath()
   await testGuidedBriefDesignPresetScaffold()

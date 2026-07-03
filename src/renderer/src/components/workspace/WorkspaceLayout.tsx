@@ -54,7 +54,7 @@ interface Props {
   // secondary launch paths (specialist picker, Sprint Engine setup).
   agentClis?: AgentCliCatalogOption[]
   onSpawnAgent?: (cli: AgentCli, label: string) => void
-  // Renders the existing SpawnAgentMenu (specialist picker) as Popover content,
+  // Renders the shared agent picker (AgentComposerPopover) as Popover content,
   // anchored to the launcher's row; `close` dismisses the popover after a pick.
   renderSpecialistPicker?: (close: () => void) => React.ReactNode
   onStartSprintEngine?: () => void

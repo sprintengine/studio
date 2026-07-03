@@ -251,6 +251,21 @@ directSlice.applyAgentTerminalLaunchStateEvent({
 assert.equal(carrier.workspaces[0].agents['event-agent'].cliSessionId, undefined)
 assert.equal(carrier.workspaces[0].agents['event-agent'].cliHasLaunched, false)
 
+// Launch-state events never materialize a missing agent: a reset dispatched for
+// an agent that was since removed (e.g. sprint completion teardown) must not
+// re-create it as a ghost record.
+directSlice.applyAgentTerminalLaunchStateEvent({
+  workspaceId: 'ws-direct',
+  agentId: 'removed-agent',
+  cliSessionId: null,
+  cliStartRequested: false,
+})
+assert.equal(
+  carrier.workspaces[0].agents['removed-agent'],
+  undefined,
+  'launch-state event for an unknown agent is dropped, not upserted',
+)
+
 const storeWorkspaceId = useWorkspaceStore.getState().addWorkspace(standardTemplate, {
   name: 'Agents Slice Store Workspace',
 })

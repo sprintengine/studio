@@ -336,6 +336,7 @@ export interface WorkspaceStore extends PluginsSlice, CliAvailabilitySlice {
     agentId: AgentId,
     session: SprintEngineRosterSession
   ) => void
+  setSprintEngineCompletionTeardownAt: (workspaceId: WorkspaceId, at: number | undefined) => void
   setSprintEngineAutoPendingSpawns: (
     workspaceId: WorkspaceId,
     pendingSpawns: SprintEngineAutoPendingSpawn[]

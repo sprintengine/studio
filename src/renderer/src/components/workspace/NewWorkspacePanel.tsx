@@ -77,6 +77,7 @@ import { useBacklogScan } from './newWorkspace/useBacklogScan'
 import { BacklogRowContent } from '../backlog/BacklogRow'
 import { useRelativeNow } from '../../hooks/useRelativeNow'
 import type { BacklogItem, BacklogScanResult } from '../../utils/backlog'
+import { childrenOfEpic, epicSlug } from '../../utils/backlogEpics'
 import { slugifySprintEngineName } from '../../utils/sprintengineStateFile'
 import { basename, folderKey, planBasename, markdownTitle, toTitleName, inferSourcePlanKind, workspaceRelativePath } from './newWorkspace/helpers'
 import type { CreationMode, ExistingTeam, GuidedBriefHasUi, ModeCardModel, SprintEnginePath } from './newWorkspace/types'
@@ -172,6 +173,7 @@ const STEP_HEADING: Record<StepId, { title: string; subtitle: string }> = {
 const SOURCE_PLAN_KIND_LABELS: Record<SprintEngineSourcePlanKind, string> = {
   product_plan: 'Product plan',
   architect_plan: 'Implementation plan',
+  epic: 'Epic',
   unknown: 'Generic handoff',
 }
 
@@ -488,6 +490,9 @@ export default function NewWorkspacePanel({
     initialFuturePlan?.sourcePlanKind ?? 'unknown',
   )
   const [seSourceBundle, setSeSourceBundle] = useState(initialFuturePlan?.sourceBundle ?? null)
+  // Project-root-relative paths of an epic launch's child items, flipped to
+  // in_progress at launch. Null for non-epic sources.
+  const [seEpicChildRelativePaths, setSeEpicChildRelativePaths] = useState<string[] | null>(null)
   const [seExistingTeam, setSeExistingTeam] = useState<ExistingTeam | null>(null)
   const [seTeamName, setSeTeamName] = useState(initialFuturePlan?.teamName ?? '')
   const [seTeamNameTouched, setSeTeamNameTouched] = useState(Boolean(initialFuturePlan))
@@ -1245,6 +1250,7 @@ export default function NewWorkspacePanel({
     setSePlanContent(null)
     setSeSourcePlanKind('unknown')
     setSeSourceBundle(null)
+    setSeEpicChildRelativePaths(null)
     setSeSourceFromFile(false)
     setSePlanError(null)
     setMlError(null)
@@ -1356,23 +1362,48 @@ export default function NewWorkspacePanel({
     content: string
     title?: string
     fromFile: boolean
+    // When the selected item is an epic, its child design documents. The epic
+    // becomes the root (`epic`) plan source and the children become the source
+    // bundle; each is referenced in place, never copied.
+    epicChildren?: BacklogItem[]
   }) => {
     const fallbackName = planBasename(input.relativePath)
     const goal = input.title?.trim() || markdownTitle(input.content) || toTitleName(fallbackName)
     const isHtmlSource = /\.html?$/i.test(input.relativePath)
+    const epicChildren = input.epicChildren ?? []
+    const isEpicSource = epicChildren.length > 0
     setSePlanPath(input.path)
     setSePlanRelativePath(input.relativePath)
     setSePlanContent(input.content)
     setSePlanError(null)
-    setSeSourcePlanKind(isHtmlSource ? 'unknown' : inferSourcePlanKind(input.relativePath, input.content))
-    setSeSourceBundle(isHtmlSource
-      ? [{
-        kind: 'html_mockup',
-        sourcePath: input.path,
-        sourceRelativePath: input.relativePath,
-        sourceContent: input.content,
-      }]
-      : null)
+    if (isEpicSource) {
+      setSeSourcePlanKind('epic')
+      setSeSourceBundle(epicChildren.map((child) => {
+        const inferred = inferSourcePlanKind(child.relativePath, child.sourceContent)
+        return {
+          kind: /\.html?$/i.test(child.relativePath)
+            ? 'html_mockup'
+            : inferred === 'product_plan' || inferred === 'architect_plan'
+              ? inferred
+              : 'generic_context',
+          sourcePath: child.path,
+          sourceRelativePath: child.relativePath,
+          sourceContent: child.sourceContent,
+        }
+      }))
+      setSeEpicChildRelativePaths(epicChildren.map((child) => child.relativePath))
+    } else {
+      setSeSourcePlanKind(isHtmlSource ? 'unknown' : inferSourcePlanKind(input.relativePath, input.content))
+      setSeSourceBundle(isHtmlSource
+        ? [{
+          kind: 'html_mockup',
+          sourcePath: input.path,
+          sourceRelativePath: input.relativePath,
+          sourceContent: input.content,
+        }]
+        : null)
+      setSeEpicChildRelativePaths(null)
+    }
     if (!seTeamNameTouched) setSeTeamName(slugifySprintEngineName(fallbackName))
     setSeGoal(goal)
     setSeExistingTeam(null)
@@ -1381,12 +1412,19 @@ export default function NewWorkspacePanel({
   }
 
   const handleSelectBacklogItem = (item: BacklogItem) => {
+    // An epic launch plans the whole epic: hand the architect the epic plus every
+    // child design document (referenced in place). Non-epic items launch as a
+    // single reference source.
+    const epicChildren = item.isEpic
+      ? childrenOfEpic(backlogScan.result.items, epicSlug(item)).filter((child) => child.status !== 'archived')
+      : []
     applyPlanSource({
       path: item.path,
       relativePath: item.relativePath,
       content: item.sourceContent,
       title: item.title,
       fromFile: false,
+      epicChildren,
     })
   }
 
@@ -1416,6 +1454,7 @@ export default function NewWorkspacePanel({
     setSePlanContent(null)
     setSeSourcePlanKind('unknown')
     setSeSourceBundle(null)
+    setSeEpicChildRelativePaths(null)
     setSePlanError(null)
   }
 
@@ -1790,7 +1829,10 @@ export default function NewWorkspacePanel({
           setSePlanError('Pick a folder before creating from a plan.')
           return
         }
-        const bundlePrimary = seSourceBundle?.[0] ?? null
+        // For an epic the epic file itself is the primary handover source and the
+        // bundle holds its children; every other bundle uses its first item.
+        const isEpicSource = seSourcePlanKind === 'epic'
+        const bundlePrimary = !isEpicSource ? (seSourceBundle?.[0] ?? null) : null
         const option = bundlePrimary
           ? { path: bundlePrimary.sourcePath, relativePath: bundlePrimary.sourceRelativePath }
           : sePlanPath
@@ -1829,13 +1871,16 @@ export default function NewWorkspacePanel({
               startRunner: seStartRunner,
               autoApproveArtifacts: seAutoApproveArtifacts,
               useWorktrees: seUseWorktrees,
+              // Backlog/file sources are referenced in place, never copied.
+              sourceReference: true,
+              epicChildRelativePaths: seEpicChildRelativePaths ?? undefined,
               cliPermissionPreset,
               workspaceWindowId,
             },
             {
               pathExists: window.api.pathExists,
               initializeSprintEngineState: window.api.initializeSprintEngineState,
-              recordBacklogExecutionLink: async ({ workspaceRoot, sourceRelativePath, teamSlug, statePath }) => {
+              recordBacklogExecutionLink: async ({ workspaceRoot, sourceRelativePath, teamSlug, statePath, childRelativePaths }) => {
                 const result = await window.api.addOrUpdateBacklogLink({
                   workspaceRoot,
                   relativePath: sourceRelativePath,
@@ -1854,6 +1899,19 @@ export default function NewWorkspacePanel({
                   status: 'in_progress',
                 })
                 if (!result.ok) throw new Error(result.message)
+                // Flip every epic child to in_progress in the main checkout so the
+                // whole epic shows the sprint immediately. Never downgrade a child
+                // that is already in_progress or completed.
+                for (const childPath of childRelativePaths ?? []) {
+                  const child = backlogScan.result.items.find((item) => item.relativePath === childPath)
+                  if (child && (child.status === 'in_progress' || child.status === 'completed')) continue
+                  const childResult = await window.api.updateBacklogStatus({
+                    workspaceRoot,
+                    relativePath: childPath,
+                    status: 'in_progress',
+                  })
+                  if (!childResult.ok) throw new Error(childResult.message)
+                }
               },
             },
           )

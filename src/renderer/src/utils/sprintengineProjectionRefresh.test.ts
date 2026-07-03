@@ -106,6 +106,8 @@ function portsFor(input: {
   diagnostics?: string[]
   automationEvents?: SprintEngineAutomationEvent[]
   teardownCalls?: string[]
+  teardownError?: boolean
+  markerCalls?: Array<{ workspaceId: string; at: number | undefined }>
 }): SprintEngineProjectionRefreshPorts {
   return {
     readSprintEngineProjection: async (_statePath, knownToken) => {
@@ -131,14 +133,27 @@ function portsFor(input: {
     publishDiagnostic: (diagnostic) => {
       input.diagnostics?.push(diagnostic.message)
     },
-    tearDownCompletedRunAgents: (workspaceId) => {
+    tearDownCompletedRunAgents: async (workspaceId) => {
       input.teardownCalls?.push(workspaceId)
+      if (input.teardownError) throw new Error('teardown failed')
+    },
+    setCompletionTeardownAt: (workspaceId, at) => {
+      input.markerCalls?.push({ workspaceId, at })
     },
     now: () => 1000,
   }
 }
 
-function autoState(runtimeState?: SprintEngineAutomationRuntimeState): SprintEngineAutoState {
+// The reconcile fires teardown without awaiting it; drain the microtask queue so
+// its post-teardown marker write has run before asserting.
+async function flushMicrotasks(): Promise<void> {
+  for (let i = 0; i < 5; i += 1) await Promise.resolve()
+}
+
+function autoState(
+  runtimeState?: SprintEngineAutomationRuntimeState,
+  completionTeardownAt?: number,
+): SprintEngineAutoState {
   return {
     desiredMode: 'run_agents',
     runtimeState,
@@ -146,10 +161,14 @@ function autoState(runtimeState?: SprintEngineAutomationRuntimeState): SprintEng
     maxConcurrentAgents: 1,
     pendingSpawns: [],
     deliveredAgentNotificationEventKeys: [],
+    completionTeardownAt,
   }
 }
 
-function completedWorkspace(runtimeState: 'paused' | 'complete'): Workspace {
+function completedWorkspace(
+  runtimeState: 'paused' | 'complete',
+  options?: { completionTeardownAt?: number },
+): Workspace {
   const base = workspace()
   return {
     ...base,
@@ -165,6 +184,7 @@ function completedWorkspace(runtimeState: 'paused' | 'complete'): Workspace {
       reason: runtimeState === 'paused' ? 'terminal_closed' : 'all_tasks_done',
       pendingSpawns: [],
       deliveredAgentNotificationEventKeys: [],
+      completionTeardownAt: options?.completionTeardownAt,
     },
   } as unknown as Workspace
 }
@@ -450,65 +470,120 @@ async function testBacklogRefreshFailureWarnsAndLeavesItemUnchanged(): Promise<v
   assert.equal(backlogMutations.length, 0)
 }
 
-function completedWorkspaceWithAgent(runtimeState: 'paused' | 'complete'): Workspace {
-  const base = completedWorkspace(runtimeState)
-  return {
-    ...base,
+// A completed run whose one-shot marker is unset must tear down — on every
+// automation state, including a run reopened as `complete` — and set the marker
+// once the teardown resolves.
+async function testCompletedRunWithoutMarkerTearsDownAndSetsMarker(): Promise<void> {
+  for (const runtimeState of ['paused', 'complete'] as const) {
+    const teardownCalls: string[] = []
+    const markerCalls: Array<{ workspaceId: string; at: number | undefined }> = []
+    const tokens = new Map([['workspace-1', 'tok-1']])
+    await refreshSprintEngineWorkspaceProjection({
+      workspace: completedWorkspace(runtimeState),
+      tokens,
+      cause: 'supervisor',
+      ports: portsFor({ applied: [], teardownCalls, markerCalls }),
+    })
+    await flushMicrotasks()
+    assert.deepEqual(teardownCalls, ['workspace-1'], `teardown fires when runtimeState=${runtimeState}`)
+    assert.deepEqual(
+      markerCalls,
+      [{ workspaceId: 'workspace-1', at: 1000 }],
+      'marker records completion teardown after it resolves',
+    )
+  }
+}
+
+// The marker is one-shot: a completed run that already tore down must NOT fire
+// again, even though roster agent records get recreated by projection reads and
+// the user may have re-opened a role's panel (board resume) — tearing those
+// down again is exactly the bug the marker exists to prevent.
+async function testCompletedRunWithMarkerSkipsTeardown(): Promise<void> {
+  const teardownCalls: string[] = []
+  const markerCalls: Array<{ workspaceId: string; at: number | undefined }> = []
+  const tokens = new Map([['workspace-1', 'tok-1']])
+  const ws = {
+    ...completedWorkspace('complete', { completionTeardownAt: 500 }),
     agents: {
       architect: { id: 'architect', name: 'Architect', kind: 'sprintengine' },
     },
   } as unknown as Workspace
+  await refreshSprintEngineWorkspaceProjection({
+    workspace: ws,
+    tokens,
+    cause: 'supervisor',
+    ports: portsFor({ applied: [], teardownCalls, markerCalls }),
+  })
+  await flushMicrotasks()
+  assert.deepEqual(teardownCalls, [], 'no re-teardown after the marker is set')
+  assert.deepEqual(markerCalls, [], 'marker untouched on an already-torn-down run')
 }
 
-// A completed run that still has agent panels must tear them down — on every
-// automation state, including a run reopened as `complete`.
-async function testCompletedRunWithAgentsTearsDownPanels(): Promise<void> {
-  for (const runtimeState of ['paused', 'complete'] as const) {
-    const teardownCalls: string[] = []
-    const tokens = new Map([['workspace-1', 'tok-1']])
-    await refreshSprintEngineWorkspaceProjection({
-      workspace: completedWorkspaceWithAgent(runtimeState),
-      tokens,
-      cause: 'supervisor',
-      ports: portsFor({ applied: [], teardownCalls }),
-    })
-    assert.deepEqual(teardownCalls, ['workspace-1'], `teardown fires when runtimeState=${runtimeState}`)
-  }
-}
-
-// A completed run with no agent panels left issues no teardown (idempotent).
-async function testCompletedRunWithoutAgentsSkipsTeardown(): Promise<void> {
+// A formerly-complete run that gained open tasks again (scope expansion, sprint
+// chaining) clears the marker so the NEXT completion tears down again.
+async function testReopenedRunClearsMarker(): Promise<void> {
   const teardownCalls: string[] = []
+  const markerCalls: Array<{ workspaceId: string; at: number | undefined }> = []
+  const ws = workspace()
+  ;(ws as { sprintEngineAutoState?: SprintEngineAutoState }).sprintEngineAutoState =
+    autoState('running', 500)
+  ;(ws.sprintEngineState as SprintEngineState).tasks = [
+    { id: 'T1', title: 'New task', role: 'developer', status: 'in_progress' },
+  ] as SprintEngineState['tasks']
   const tokens = new Map([['workspace-1', 'tok-1']])
   await refreshSprintEngineWorkspaceProjection({
+    workspace: ws,
+    tokens,
+    cause: 'supervisor',
+    ports: portsFor({ applied: [], teardownCalls, markerCalls }),
+  })
+  await flushMicrotasks()
+  assert.deepEqual(teardownCalls, [], 'no teardown while tasks are open')
+  assert.deepEqual(
+    markerCalls,
+    [{ workspaceId: 'workspace-1', at: undefined }],
+    're-opened tasks re-arm the one-shot teardown',
+  )
+}
+
+// A failing teardown leaves the marker unset so the next poll retries, and must
+// not fail the refresh itself.
+async function testTeardownFailureLeavesMarkerUnset(): Promise<void> {
+  const teardownCalls: string[] = []
+  const markerCalls: Array<{ workspaceId: string; at: number | undefined }> = []
+  const tokens = new Map([['workspace-1', 'tok-1']])
+  const result = await refreshSprintEngineWorkspaceProjection({
     workspace: completedWorkspace('complete'),
     tokens,
     cause: 'supervisor',
-    ports: portsFor({ applied: [], teardownCalls }),
+    ports: portsFor({ applied: [], teardownCalls, teardownError: true, markerCalls }),
   })
-  assert.deepEqual(teardownCalls, [], 'no teardown when no sprint agents remain')
+  await flushMicrotasks()
+  assert.equal(result.status, 'unchanged', 'teardown failure does not fail the refresh')
+  assert.deepEqual(teardownCalls, ['workspace-1'])
+  assert.deepEqual(markerCalls, [], 'failed teardown leaves the marker unset for a retry')
 }
 
 function testCanStopPollingCompletedProjection(): void {
   const state = completedWorkspace('complete').sprintEngineState!
-  // Terminal + hydrated + no agent panels left → safe to stop polling.
+  // Terminal + hydrated + completion teardown already ran → safe to stop polling.
   assert.equal(
     canStopPollingCompletedSprintEngineProjection({
-      sprintEngineAutoState: autoState('complete'),
+      sprintEngineAutoState: autoState('complete', 500),
       sprintEngineState: state,
-      agents: {},
     }),
     true,
   )
-  // Terminal + hydrated but agent panels still present → keep polling so the
-  // completion teardown (which runs inside the poll) can remove them. Guards the
-  // race where the auto-run supervisor flips runtimeState to `complete` before
-  // the poller ever ran teardown.
+  // Terminal + hydrated but teardown has not run yet → keep polling so the
+  // reconcile (which runs inside the poll) can perform it. Guards the race where
+  // the auto-run supervisor flips runtimeState to `complete` before the poller
+  // ever ran teardown. Deliberately independent of agent records: roster records
+  // are recreated by projection reads and a user may re-open a role's panel
+  // after completion — neither may restart polling.
   assert.equal(
     canStopPollingCompletedSprintEngineProjection({
       sprintEngineAutoState: autoState('complete'),
       sprintEngineState: state,
-      agents: { architect: { id: 'architect', name: 'Architect', kind: 'sprintengine' } as never },
     }),
     false,
   )
@@ -516,7 +591,7 @@ function testCanStopPollingCompletedProjection(): void {
   // first read can populate the board/run summary.
   assert.equal(
     canStopPollingCompletedSprintEngineProjection({
-      sprintEngineAutoState: autoState('complete'),
+      sprintEngineAutoState: autoState('complete', 500),
       sprintEngineState: null,
     }),
     false,
@@ -525,7 +600,7 @@ function testCanStopPollingCompletedProjection(): void {
   // promote it to `complete` first.
   assert.equal(
     canStopPollingCompletedSprintEngineProjection({
-      sprintEngineAutoState: autoState('paused'),
+      sprintEngineAutoState: autoState('paused', 500),
       sprintEngineState: state,
     }),
     false,
@@ -561,7 +636,9 @@ await testMissingContextSkip()
 await testCompletedProjectionRefreshesMatchingBacklogLink()
 await testNonterminalProjectionDoesNotCompleteBacklogLink()
 await testBacklogRefreshFailureWarnsAndLeavesItemUnchanged()
-await testCompletedRunWithAgentsTearsDownPanels()
-await testCompletedRunWithoutAgentsSkipsTeardown()
+await testCompletedRunWithoutMarkerTearsDownAndSetsMarker()
+await testCompletedRunWithMarkerSkipsTeardown()
+await testReopenedRunClearsMarker()
+await testTeardownFailureLeavesMarkerUnset()
 
 console.log('sprintengine projection refresh tests passed')

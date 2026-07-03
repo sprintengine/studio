@@ -41,6 +41,9 @@ export type SprintEngineProjectionRefreshPorts = {
   // Remove the completed run's agent panels (recording each resumable session
   // first). Injected for testability; defaults to the real teardown.
   tearDownCompletedRunAgents?(workspaceId: WorkspaceId): Promise<unknown> | unknown
+  // One-shot completion-teardown marker on sprintEngineAutoState: set after
+  // teardown resolves, cleared when the run's tasks are no longer all done.
+  setCompletionTeardownAt?(workspaceId: WorkspaceId, at: number | undefined): void
   now?(): number
 }
 
@@ -56,6 +59,8 @@ function defaultSprintEngineProjectionRefreshPorts(): SprintEngineProjectionRefr
     addOrUpdateBacklogLink: (input) => window.api.addOrUpdateBacklogLink(input),
     publishDiagnostic: (input) => publishDiagnostic(input),
     tearDownCompletedRunAgents: (workspaceId) => tearDownCompletedSprintRunAgents(workspaceId),
+    setCompletionTeardownAt: (workspaceId, at) =>
+      useWorkspaceStore.getState().setSprintEngineCompletionTeardownAt(workspaceId, at),
   }
 }
 
@@ -164,7 +169,17 @@ function reconcileCompletedRunLifecycle(
   state: SprintEngineState | null,
   ports: SprintEngineProjectionRefreshPorts,
 ): void {
-  if (!state || !isCompletedSprintEngineRun(state)) return
+  if (!state) return
+  const completionTeardownAt = workspace.sprintEngineAutoState?.completionTeardownAt
+
+  if (!isCompletedSprintEngineRun(state)) {
+    // A formerly-complete run gained open tasks again (scope expansion, sprint
+    // chaining): re-arm the one-shot teardown for the next completion.
+    if (completionTeardownAt !== undefined) {
+      ports.setCompletionTeardownAt?.(workspace.id, undefined)
+    }
+    return
+  }
 
   // Fire the lifecycle transition once (the runtime-state gate keeps this from
   // churning the store on every poll).
@@ -175,14 +190,22 @@ function reconcileCompletedRunLifecycle(
     })
   }
 
-  // Remove the completed run's agent panels (recording each resumable session
-  // first). Gated on the snapshot still carrying sprint agents so a stably-
-  // finished run does not issue a terminal-list IPC on every poll; the teardown
-  // is itself idempotent. This owns completion teardown for every automation
+  // Remove the run's agent panels (recording each resumable session first) —
+  // exactly ONCE per completion. The marker, not "do sprint agents exist",
+  // gates the teardown: agent records legitimately reappear after it ran
+  // (`reconcileSprintEngineAgents` recreates roster records on every projection
+  // read, and the board resume path re-opens a role's panel on purpose), so an
+  // agent-presence gate would tear those straight back down. The marker is set
+  // only after the teardown resolves, so a teardown interrupted by an app quit
+  // retries on the next poll; it owns completion teardown for every automation
   // mode, including a run reopened after the app restarted.
-  const hasSprintAgents = Object.values(workspace.agents).some((agent) => agent.kind === 'sprintengine')
-  if (hasSprintAgents) {
-    void ports.tearDownCompletedRunAgents?.(workspace.id)
+  if (completionTeardownAt === undefined) {
+    void (async () => {
+      await ports.tearDownCompletedRunAgents?.(workspace.id)
+      ports.setCompletionTeardownAt?.(workspace.id, ports.now?.() ?? Date.now())
+    })().catch(() => {
+      // Leave the marker unset so the next poll retries the teardown.
+    })
   }
 }
 
@@ -198,21 +221,20 @@ function reconcileCompletedRunLifecycle(
 //      restart still needs one read to populate the board and run summary.
 //      Skipping before that read strands the board on "workspace data is
 //      missing". Re-selecting an automation mode leaves `complete` and re-arms.
-//   3. no sprint agent panels remain: completion teardown runs inside the poll
-//      (`reconcileCompletedRunLifecycle`). The auto-run supervisor can flip
-//      runtimeState to `complete` before the poller ever ran teardown, so
-//      stopping on (1)+(2) alone would strand the agent panels until a later
-//      cold reopen. Keep polling until teardown has removed them; the poll is a
-//      cheap unchanged-projection read that still drives the reconcile.
+//   3. completion teardown already ran (`completionTeardownAt` set): teardown
+//      runs inside the poll (`reconcileCompletedRunLifecycle`), and the auto-run
+//      supervisor can flip runtimeState to `complete` before the poller ever ran
+//      it, so stopping on (1)+(2) alone would strand the agent panels until a
+//      later cold reopen. Deliberately NOT an agent-presence check: roster agent
+//      records are recreated by every projection read, and a user may re-open a
+//      role's panel after completion (board resume) — polling must not restart
+//      for those, or the reconcile would tear the re-opened panel down.
 export function canStopPollingCompletedSprintEngineProjection(
-  workspace: Pick<Workspace, 'sprintEngineAutoState' | 'sprintEngineState'> & Partial<Pick<Workspace, 'agents'>>,
+  workspace: Pick<Workspace, 'sprintEngineAutoState' | 'sprintEngineState'>,
 ): boolean {
-  const hasSprintAgentPanels = Object.values(workspace.agents ?? {}).some(
-    (agent) => agent.kind === 'sprintengine',
-  )
   return workspace.sprintEngineAutoState?.runtimeState === 'complete'
     && Boolean(workspace.sprintEngineState)
-    && !hasSprintAgentPanels
+    && workspace.sprintEngineAutoState?.completionTeardownAt !== undefined
 }
 
 function normalizedPathKey(path: string): string {

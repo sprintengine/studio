@@ -31,6 +31,7 @@ import { useAutomationRequests } from '../../hooks/useAutomationRequests'
 import { useVoiceDictation } from '../../hooks/useVoiceDictation'
 import {
   MULTILOOP_ROLES,
+  GENERAL_AGENT_ENGINE_KEY,
   SPECIALIST_ACTIONS,
   getMultiloopRole,
   getSpecialistAction,
@@ -61,6 +62,8 @@ import { MULTICODE_DISABLE_SPRINTENGINE_SYNC } from '../../utils/runtimeFlags'
 import { agentCliSupportsConversationResume } from '../../utils/agentCliResume'
 import { useConfirmDialog } from '../ui/ConfirmDialog'
 import { type NewWorkspacePanelInitialState } from './NewWorkspacePanel'
+import { type AgentComposerConfirm, type AgentComposerSelection } from './agentComposer/AgentComposer'
+import AgentComposerPopover from './agentComposer/AgentComposerPopover'
 import MultiloopStateSynchronizer from './MultiloopStateSynchronizer'
 import SprintEngineProjectionSupervisor from './SprintEngineProjectionSupervisor'
 // Always-on observer of background automation run events (raises run
@@ -78,7 +81,7 @@ import { AppTitleBar } from './AppTitleBar'
 import WorkspaceTopBar, {
   type SessionItem,
 } from './WorkspaceTopBar'
-import SpawnAgentMenu, { AGENT_SPAWN_PERMISSION_OPTIONS } from './SpawnAgentMenu'
+import { AGENT_SPAWN_PERMISSION_OPTIONS } from './agentComposer/agentSpawnShared'
 import {
   buildMultiloopSpawnPrompt,
   buildSidebarWorkspaceOrder,
@@ -126,6 +129,15 @@ import { isGlobalShortcutSuppressedTarget } from '../../utils/keyboard'
 // chunk and only fetched when the user opens "new workspace". Rendered only when
 // showNewWorkspacePanel is true.
 const NewWorkspacePanel = React.lazy(() => import('./NewWorkspacePanel'))
+// The pre-creation New Chat panel — agent + engine chooser that creates nothing
+// until the user starts the chat. Code-split like NewWorkspacePanel; rendered
+// only when showNewChatPanel is true.
+const NewChatPanel = React.lazy(() => import('./agentComposer/NewChatPanel'))
+
+// Display name for a New Chat project scope: the folder's last path segment.
+function newChatFolderLabel(path: string): string {
+  return path.split(/[\\/]/).filter(Boolean).pop() ?? path
+}
 
 // Automations is a content-area destination (not a modal): it renders inside the
 // workspace card in place of workspace content, like the new-workspace panel.
@@ -261,7 +273,7 @@ export default function WorkspaceManager() {
   const authState = useWorkspaceStore((s) => s.authState)
   const setAuthState = useWorkspaceStore((s) => s.setAuthState)
   const lastSelectedCli = useWorkspaceStore((s) => normalizeSelectedCli(s.appSettings.lastSelectedCli))
-  const setLastSelectedCli = useWorkspaceStore((s) => s.setLastSelectedCli)
+  const setSpecialistCliDefault = useWorkspaceStore((s) => s.setSpecialistCliDefault)
   const rememberedConversationModel = useWorkspaceStore((s) => s.appSettings.lastSelectedConversationModel)
   const setLastSelectedConversationModel = useWorkspaceStore((s) => s.setLastSelectedConversationModel)
   const cliRuntimes = useWorkspaceStore((s) => s.appSettings.cliRuntimes)
@@ -400,6 +412,11 @@ export default function WorkspaceManager() {
 
   const [showNewWorkspacePanel, setShowNewWorkspacePanel] = useState(false)
   const [newWorkspacePanelInitialState, setNewWorkspacePanelInitialState] = useState<NewWorkspacePanelInitialState | null>(null)
+  // The pre-creation New Chat panel's scope. Present while the panel is open;
+  // folderPath is the project the chat lands in (null → inherit active), and
+  // folderLabel names it in the panel's scoping chip.
+  const [newChatPanelState, setNewChatPanelState] = useState<{ folderPath: string | null; folderLabel: string | null } | null>(null)
+  const newChatPanelOpen = newChatPanelState !== null
   const [tipModalOpen, setTipModalOpen] = useState(false)
   const tipModalDecidedRef = useRef(false)
   // True once onboarding has been observed active (any non-complete step) this
@@ -738,14 +755,33 @@ export default function WorkspaceManager() {
 
   const createNewChat = useCallback((folderPath?: string | null, cli?: AgentCli) => {
     const chosenCli = cli && cli.trim() ? cli.trim() : null
-    // Plain New chat (no explicit pick) clamps the remembered lastSelectedCli to an
-    // installed catalog entry so a stale value cannot seed a chat with an
-    // uninstalled plugin id; explicit picks come from the catalog already.
-    const templateAgentCli = resolveTemplateAgentCli(chosenCli, lastSelectedCli, agentCliCatalog)
-    createSoloChatWorkspace({ folderPath, templateAgentCli })
-    // Remember an explicit pick so the next plain New chat repeats it.
-    if (chosenCli) setLastSelectedCli(chosenCli)
-  }, [agentCliCatalog, createSoloChatWorkspace, lastSelectedCli, setLastSelectedCli])
+    // A plain New chat is a General agent, so it rides General's own remembered
+    // CLI (falling back to the global default), never the reverse. The result is
+    // clamped to an installed catalog entry so a stale value cannot seed a chat
+    // with an uninstalled plugin id; explicit picks come from the catalog already.
+    // A plain New chat is a General agent, so it rides General's own keyed
+    // engine default (falling back to the global default), exactly like a
+    // specialist. Clamped to an installed catalog entry so a stale value cannot
+    // seed a chat with an uninstalled plugin id.
+    const templateAgentCli = resolveTemplateAgentCli(
+      chosenCli ?? specialistCliDefaults[GENERAL_AGENT_ENGINE_KEY],
+      lastSelectedCli,
+      agentCliCatalog,
+    )
+    // Ride the remembered General model when it belongs to the spawning CLI —
+    // the same mechanism as a specialist. Seed it via an agentPatch (no tabName,
+    // so the layout is untouched) only when present, so a plain default-model
+    // chat still takes the no-seed path unchanged.
+    const cliModel = resolveSurfaceModel(templateAgentCli, specialistModelDefaults[GENERAL_AGENT_ENGINE_KEY])
+    createSoloChatWorkspace({
+      folderPath,
+      templateAgentCli,
+      seedAgent: cliModel ? { agentPatch: { cliModel } } : undefined,
+    })
+    // Remember an explicit pick as General's own default — never the shared
+    // lastSelectedCli, so a new-chat CLI never bleeds into the specialists.
+    if (chosenCli) setSpecialistCliDefault(GENERAL_AGENT_ENGINE_KEY, chosenCli)
+  }, [agentCliCatalog, createSoloChatWorkspace, specialistCliDefaults, specialistModelDefaults, lastSelectedCli, setSpecialistCliDefault])
 
   // "New chat" entry point: create a fresh workspace that opens empty so the
   // WorkspaceLauncher chooser shows (the user picks an agent / specialist / Sprint
@@ -1541,6 +1577,7 @@ export default function WorkspaceManager() {
     updateAgent(windowActiveWorkspaceId, newId, {
       name: tabName,
       cli: spawnCli,
+      cliModel: resolveSurfaceModel(spawnCli, specialistModelDefaults[GENERAL_AGENT_ENGINE_KEY]),
       cliPermissionPreset: agentSpawnPermissionPreset,
       debugMode: agentSpawnDebugMode,
       kind: 'general',
@@ -1641,20 +1678,6 @@ export default function WorkspaceManager() {
     if (agentSpawnDebugMode) setAgentSpawnDebugMode(false)
   }
 
-  const openConversationInNewChat = (folderPath?: string | null) => {
-    const option = conversationDefaultOption
-    if (!option) return
-    const tabName = option.modelLabel || 'Conversation Agent'
-    createSoloChatWorkspace({
-      folderPath,
-      seedAgent: {
-        tabName,
-        agentPatch: { name: tabName, ...conversationAgentRuntimePatch(option.providerId, option.modelId) },
-      },
-    })
-    setLastSelectedConversationModel({ providerId: option.providerId, modelId: option.modelId })
-  }
-
   const openTerminalInNewChat = (folderPath?: string | null) => {
     createSoloChatWorkspace({
       folderPath,
@@ -1683,21 +1706,68 @@ export default function WorkspaceManager() {
     openSpecialistInNewChat(specialistId, cli, folderPath)
   }
 
-  // Plain "New chat in project" replays the last picked agent. CLI/model resolve
-  // from the same remembered defaults the picker uses (passing undefined lets
-  // openSpecialistInNewChat fall back to the per-specialist/last CLI), so the
-  // click reproduces the last pick rather than a fixed general agent.
-  const spawnNewChatForFolder = (folderPath?: string | null) => {
-    const choice = lastNewChatAgent ?? { kind: 'general' }
-    if (choice.kind === 'terminal') {
-      openTerminalInNewChat(folderPath)
-      return
+  // Open the pre-creation New Chat panel. `folderPath === undefined` inherits the
+  // active workspace's folder (the plain New chat button); an explicit value
+  // scopes the chat to that project (folder/workspace-row menus). Nothing is
+  // created here — the panel's confirm does that.
+  const openNewChatPanel = (folderPath?: string | null) => {
+    const resolved = folderPath === undefined ? activeWorkspace?.folderPath ?? null : folderPath
+    setNewChatPanelState({ folderPath: resolved, folderLabel: resolved ? newChatFolderLabel(resolved) : null })
+    closeSettingsOverlay()
+    setSpecialistMenuOpen(false)
+    setNotificationsOpen(false)
+  }
+  const closeNewChatPanel = () => {
+    setNewChatPanelState(null)
+  }
+  // The panel's project chip: distinct folders across this window's open
+  // workspaces, in rail order. Browse admits a folder Multicode doesn't know.
+  const newChatProjectOptions = useMemo(() => {
+    const seen = new Set<string>()
+    const options: Array<{ path: string; label: string }> = []
+    for (const workspace of workspaces) {
+      const path = workspace.folderPath?.trim()
+      if (!path) continue
+      const key = path.replace(/\\/g, '/').replace(/\/+$/u, '').toLowerCase()
+      if (seen.has(key)) continue
+      seen.add(key)
+      options.push({ path, label: newChatFolderLabel(path) })
     }
-    if (choice.kind === 'specialist') {
-      openSpecialistInNewChat(choice.specialistId, undefined, folderPath)
-      return
+    return options
+  }, [workspaces])
+  const selectNewChatProject = (path: string) => {
+    setNewChatPanelState((prev) => (prev ? { folderPath: path, folderLabel: newChatFolderLabel(path) } : prev))
+  }
+  const browseNewChatProject = async () => {
+    const dir = await window.api.openDir()
+    if (!dir) return
+    setNewChatPanelState((prev) => (prev ? { folderPath: dir, folderLabel: newChatFolderLabel(dir) } : prev))
+  }
+  // Switching workspaces dismisses the pre-creation panel: the user has moved
+  // on, and the panel would otherwise sit over the newly revealed workspace.
+  useEffect(() => {
+    setNewChatPanelState(null)
+  }, [windowActiveWorkspaceId])
+  // Map the composer's confirm to the existing new-chat spawn handlers (which
+  // persist lastNewChatAgent and seed the solo workspace), then close the panel.
+  const confirmNewChat = (confirm: AgentComposerConfirm) => {
+    const folderPath = newChatPanelState?.folderPath ?? null
+    switch (confirm.kind) {
+      case 'terminal':
+        pickNewChatTerminal(folderPath)
+        break
+      case 'specialist':
+        pickNewChatSpecialist(confirm.specialistId, confirm.cli, folderPath)
+        break
+      case 'general':
+        pickNewChatGeneral(confirm.cli, folderPath)
+        break
+      default:
+        // The New Chat panel is specialist-mode with no conversation/multiloop
+        // rows, so those confirm kinds are unreachable here.
+        break
     }
-    createNewChat(folderPath)
+    closeNewChatPanel()
   }
 
   // Optional workspaceId targets a single workspace's panel. The mode-scoped
@@ -1983,6 +2053,15 @@ export default function WorkspaceManager() {
     const onMouseUp = (event: MouseEvent) => {
       // Chromium reports the mouse back button as 3 and forward as 4.
       if (event.button !== 3 && event.button !== 4) return
+      // With the pre-creation New Chat panel open, back means "leave the
+      // panel": dismiss it and stay on the workspace underneath, never
+      // navigate history through the overlay.
+      if (event.button === 3 && newChatPanelOpen) {
+        event.preventDefault()
+        event.stopPropagation()
+        closeNewChatPanel()
+        return
+      }
       const commandId = event.button === 3 ? 'workspace.history.back' : 'workspace.history.forward'
       // A command disabled through the Shortcuts tab opts the buttons out
       // entirely; the untouched event then reaches whatever surface wants it.
@@ -1996,7 +2075,7 @@ export default function WorkspaceManager() {
     }
     window.addEventListener('mouseup', onMouseUp, true)
     return () => window.removeEventListener('mouseup', onMouseUp, true)
-  }, [runCommand, disabledCommandIds])
+  }, [runCommand, disabledCommandIds, newChatPanelOpen])
 
   useEffect(() => {
     return window.api.onAppMenuCommand((command) => {
@@ -2047,25 +2126,52 @@ export default function WorkspaceManager() {
     void addNewMultiloopAgent(role, '', selectedCli)
   }
 
-  // The empty-workspace launcher's "Specialist agent" row renders the existing
-  // SpawnAgentMenu inside a Popover anchored to the row (opens at the click, not
-  // from the top bar). All spawn wiring stays here; the launcher only owns the
-  // anchor and open state and calls this with a close callback. Open-in-new-chat
-  // flyouts are omitted — the launcher already creates a fresh chat workspace.
+  // The agent a picker opens preselected — the remembered specialist (standard
+  // workspaces) or multiloop role. The composer falls back to its first roster
+  // row if this is absent.
+  const composerInitialSelection: AgentComposerSelection = multiloopLaunchMenu
+    ? { kind: 'multiloop', role: lastSelectedMultiloopRole }
+    : { kind: 'specialist', specialistId: lastSelectedSpecialist }
+
+  // Map a composer confirm to the real spawn into the active workspace.
+  // Shared by every AgentComposerPopover host (top bar, launcher); fresh chats
+  // are the New Chat panel's job.
+  const runComposerSpawn = (confirm: AgentComposerConfirm) => {
+    switch (confirm.kind) {
+      case 'terminal':
+        addNewTerminal()
+        break
+      case 'general':
+        addNewCliAgent(confirm.cli, 'General Agent')
+        break
+      case 'conversation':
+        spawnConversationAgent()
+        break
+      case 'specialist':
+        handleSelectSpecialist(confirm.specialistId, confirm.cli)
+        break
+      case 'multiloop':
+        handleSelectMultiloopRole(confirm.role, confirm.cli)
+        break
+    }
+  }
+
+  // The empty-workspace launcher's "Specialist agent" row renders the shared
+  // AgentComposerPopover anchored to the row. It spawns into the launcher's own
+  // (active) workspace — a single `here` destination, no new-chat toggle.
   const renderSpecialistPicker = (close: () => void) => (
-    <SpawnAgentMenu
-      multiloopLaunchMenu={multiloopLaunchMenu}
-      conversationSpawnAvailable={conversationSpawnAvailable}
-      agentSpawnPermissionPreset={agentSpawnPermissionPreset}
-      onChangeAgentSpawnPermissionPreset={setAgentSpawnPermissionPreset}
-      agentSpawnDebugMode={agentSpawnDebugMode}
-      onChangeAgentSpawnDebugMode={setAgentSpawnDebugMode}
-      onSpawnTerminal={addNewTerminal}
-      onSpawnGeneral={(cli) => addNewCliAgent(cli, 'General Agent')}
-      onSpawnConversation={spawnConversationAgent}
-      onSpawnSpecialist={handleSelectSpecialist}
-      onSpawnMultiloopRole={handleSelectMultiloopRole}
-      showOpenInNewChat={false}
+    <AgentComposerPopover
+      roster={multiloopLaunchMenu ? 'multiloop' : 'specialist'}
+      conversationAvailable={conversationSpawnAvailable}
+      initialSelection={composerInitialSelection}
+      action={{
+        kind: 'spawn',
+        onSpawn: runComposerSpawn,
+        permissionPreset: agentSpawnPermissionPreset,
+        onChangePermissionPreset: setAgentSpawnPermissionPreset,
+        debugMode: agentSpawnDebugMode,
+        onChangeDebugMode: setAgentSpawnDebugMode,
+      }}
       onClose={close}
     />
   )
@@ -2288,17 +2394,8 @@ export default function WorkspaceManager() {
         onForgetFolder={handleForgetFolder}
         onNewWorkspace={openNewWorkspacePanel}
         onNewWorkspaceInFolder={openNewWorkspacePanelForFolder}
-        onNewChat={() => createLauncherChat()}
-        onNewChatInFolder={(folderPath) => spawnNewChatForFolder(folderPath)}
-        onNewChatTerminal={(folderPath) => pickNewChatTerminal(folderPath)}
-        onNewChatGeneral={(cli, folderPath) => pickNewChatGeneral(cli, folderPath)}
-        onNewChatSpecialist={(specialistId, cli, folderPath) => pickNewChatSpecialist(specialistId, cli, folderPath)}
-        newChatAgentChoice={lastNewChatAgent ?? { kind: 'general' }}
-        newChatAgentCli={lastSelectedCli}
-        agentSpawnPermissionPreset={agentSpawnPermissionPreset}
-        setAgentSpawnPermissionPreset={setAgentSpawnPermissionPreset}
-        agentSpawnDebugMode={agentSpawnDebugMode}
-        setAgentSpawnDebugMode={setAgentSpawnDebugMode}
+        onNewChat={() => openNewChatPanel()}
+        onNewChatInFolder={(folderPath) => openNewChatPanel(folderPath)}
         onRevealFolder={handleRevealFolder}
         onSetSidebarCollapsed={setSidebarCollapsed}
         sidebarWidth={sidebarWidth}
@@ -2363,18 +2460,11 @@ export default function WorkspaceManager() {
         setAgentSpawnPermissionPreset={setAgentSpawnPermissionPreset}
         agentSpawnDebugMode={agentSpawnDebugMode}
         setAgentSpawnDebugMode={setAgentSpawnDebugMode}
-        handleSelectSpecialist={handleSelectSpecialist}
-        handleSelectMultiloopRole={handleSelectMultiloopRole}
         addNewSpecialist={(cli) => addNewSpecialist(lastSelectedSpecialist, '', cli)}
         addNewMultiloopAgent={(cli) => addNewMultiloopAgent(lastSelectedMultiloopRole, '', cli)}
-        addNewCliAgent={addNewCliAgent}
-        addNewTerminal={addNewTerminal}
         conversationSpawnAvailable={conversationSpawnAvailable}
-        onSpawnConversationAgent={spawnConversationAgent}
-        onOpenTerminalInNewChat={pickNewChatTerminal}
-        onOpenGeneralInNewChat={pickNewChatGeneral}
-        onOpenConversationInNewChat={openConversationInNewChat}
-        onOpenSpecialistInNewChat={pickNewChatSpecialist}
+        composerInitialSelection={composerInitialSelection}
+        runComposerSpawn={runComposerSpawn}
         openSettings={openSettings}
         settingsOpen={settingsOpen}
         accountOpen={accountOpen}
@@ -2441,6 +2531,27 @@ export default function WorkspaceManager() {
                   </div>
                 )
               })}
+              {/* Pre-creation New Chat panel — overlays the workspace canvas as a
+                  full-region chooser. Creates nothing until confirmed; Escape or
+                  close discards. Sits above the layers so it works whether or not
+                  a workspace is active. */}
+              {newChatPanelState ? (
+                <React.Suspense fallback={<SuspenseFallback label="Loading new chat" />}>
+                  <NewChatPanel
+                    initialState={newChatPanelState}
+                    projectOptions={newChatProjectOptions}
+                    onSelectProject={selectNewChatProject}
+                    onBrowseProject={() => void browseNewChatProject()}
+                    initialSelection={lastNewChatAgent ?? { kind: 'general' }}
+                    permissionPreset={agentSpawnPermissionPreset}
+                    onChangePermissionPreset={setAgentSpawnPermissionPreset}
+                    debugMode={agentSpawnDebugMode}
+                    onChangeDebugMode={setAgentSpawnDebugMode}
+                    onConfirm={confirmNewChat}
+                    onClose={closeNewChatPanel}
+                  />
+                </React.Suspense>
+              ) : null}
             </>
           )}
         </div>

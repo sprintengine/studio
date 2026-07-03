@@ -161,6 +161,11 @@ export type SprintEnginePlanSourcedInput = {
   startRunner: boolean
   autoApproveArtifacts: boolean
   useWorktrees?: boolean
+  // Record file-backed sources as project-root-relative references (no copy).
+  sourceReference?: boolean
+  // For an epic launch: the project-root-relative paths of the epic's child items,
+  // flipped to `in_progress` at launch so every row shows the sprint immediately.
+  epicChildRelativePaths?: string[]
   cliPermissionPreset: SprintEngineCliPermissionPreset
   workspaceWindowId?: WorkspaceWindowId | null
 }
@@ -175,6 +180,8 @@ export type SprintEnginePlanSourcedPorts = {
     sourceRelativePath: string
     teamSlug: string
     statePath: string
+    // Child items of an epic launch to also mark `in_progress` in the main checkout.
+    childRelativePaths?: string[]
   }) => Promise<void>
 }
 

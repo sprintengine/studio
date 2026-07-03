@@ -29,6 +29,7 @@ from sprintengine_core.tool.plans import (
     safe_source_filename,
     slugify_team_name,
     source_bundle_reference_notes,
+    source_plan_kind,
     sources_dir_for_state,
     state_has_source_kind,
 )
@@ -40,6 +41,7 @@ from sprintengine_core.tool.state import (
     agent_is_retired,
     append_event,
     apply_agent_specs,
+    apply_role_runtimes,
     clear_non_active_task_owner_claims,
     ensure_agent_in_roster,
     find_task,
@@ -102,11 +104,26 @@ def cmd_handover(args: argparse.Namespace) -> Dict[str, Any]:
             "write": False,
         }
 
+    reference_mode = bool(getattr(args, "reference", False))
     handover_text = ""
     source_metadata: Optional[Dict[str, Any]] = None
     source_bundle: List[Dict[str, Any]] = []
     captured_at = now_iso()
-    if args.handover:
+    if reference_mode and args.handover:
+        # Reference mode: record the markdown source as a project-root-relative
+        # reference to the canonical original. Do not read it into handover_text
+        # (so handover.md is never written) and do not copy it — the architect
+        # reads and updates the original file in place.
+        source_path = args.handover.resolve()
+        if not source_path.is_file():
+            raise SystemExit(f"Source file not found: {source_path}")
+        source_metadata = {
+            "kind": "markdown",
+            "origin": "reference",
+            "path": project_relative_display_path(state_path, source_path),
+            "capturedAt": captured_at,
+        }
+    elif args.handover:
         source_path = args.handover.resolve()
         handover_text = source_path.read_text(encoding="utf-8")
         source_metadata = {
@@ -142,23 +159,36 @@ def cmd_handover(args: argparse.Namespace) -> Dict[str, Any]:
 
     source_specs = [parse_source_bundle_arg(value) for value in getattr(args, "source", [])]
     if source_specs:
-        source_dir = sources_dir_for_state(state_path)
-        source_dir.mkdir(parents=True, exist_ok=True)
+        source_dir: Optional[Path] = None
         used_names: set[str] = set()
+        if not reference_mode:
+            source_dir = sources_dir_for_state(state_path)
+            source_dir.mkdir(parents=True, exist_ok=True)
         for spec in source_specs:
             original_path = Path(spec["path"]).expanduser().resolve()
             if not original_path.is_file():
                 raise SystemExit(f"Source file not found: {original_path}")
-            filename = safe_source_filename(original_path, used_names)
-            copied_path = source_dir / filename
-            copied_path.write_bytes(original_path.read_bytes())
-            source_bundle.append({
-                "kind": spec["kind"],
-                "origin": "file",
-                "path": project_relative_display_path(state_path, copied_path),
-                "originalPath": project_relative_display_path(state_path, original_path),
-                "capturedAt": captured_at,
-            })
+            if reference_mode:
+                # Record a project-root-relative reference; the original stays
+                # canonical and is read/updated in place.
+                source_bundle.append({
+                    "kind": spec["kind"],
+                    "origin": "reference",
+                    "path": project_relative_display_path(state_path, original_path),
+                    "capturedAt": captured_at,
+                })
+            else:
+                assert source_dir is not None
+                filename = safe_source_filename(original_path, used_names)
+                copied_path = source_dir / filename
+                copied_path.write_bytes(original_path.read_bytes())
+                source_bundle.append({
+                    "kind": spec["kind"],
+                    "origin": "file",
+                    "path": project_relative_display_path(state_path, copied_path),
+                    "originalPath": project_relative_display_path(state_path, original_path),
+                    "capturedAt": captured_at,
+                })
 
     initial: Dict[str, Any] = {
         "sprintengine": {
@@ -181,24 +211,36 @@ def cmd_handover(args: argparse.Namespace) -> Dict[str, Any]:
         "artifacts": [],
         "roles": {},
     }
-    if source_metadata and handover_text.strip():
+    root_is_reference = bool(source_metadata and source_metadata.get("origin") == "reference")
+    if source_metadata and (handover_text.strip() or root_is_reference):
         source_metadata["planKind"] = args.source_plan_kind
         initial["source"] = source_metadata
     if source_bundle:
         initial["sourceBundle"] = source_bundle
-    if wrote_handover:
+    # Register the root handoff artifact for a written copy or an in-place
+    # reference. References point the approved artifact at the canonical original
+    # and carry no fingerprint (there is no snapshot to drift from).
+    if wrote_handover or root_is_reference:
+        if root_is_reference:
+            root_artifact_path = source_metadata["path"]
+            root_artifact_fingerprint = None
+            root_artifact_note = "Referenced in place as the root handoff source (not copied into the run store)."
+        else:
+            root_artifact_path = project_relative_display_path(state_path, handover_path)
+            root_artifact_fingerprint = file_fingerprint(handover_path)
+            root_artifact_note = "Imported as the root handoff artifact."
         source_artifact = {
             "id": next_artifact_id(initial["artifacts"]),
             "kind": "requirements",
             "title": "Source Handoff",
-            "path": project_relative_display_path(state_path, handover_path),
+            "path": root_artifact_path,
             "status": "approved",
             "createdBy": args.actor,
             "taskId": "",
-            "fingerprint": file_fingerprint(handover_path),
+            "fingerprint": root_artifact_fingerprint,
             "reviewHistory": [
                 {"action": "created", "actor": args.actor, "timestamp": captured_at},
-                {"action": "approved", "actor": args.actor, "timestamp": captured_at, "note": "Imported as the root handoff artifact."},
+                {"action": "approved", "actor": args.actor, "timestamp": captured_at, "note": root_artifact_note},
             ],
             "recommendedTasks": [],
             "createdAt": captured_at,
@@ -263,6 +305,7 @@ def cmd_init(args: argparse.Namespace) -> Dict[str, Any]:
 
     def run(state: Dict[str, Any]) -> Dict[str, Any]:
         apply_agent_specs(state, getattr(args, "agent", None))
+        apply_role_runtimes(state, getattr(args, "role_runtimes_json", None))
         sprintengine = state.setdefault("sprintengine", {})
         if not sprintengine.get("name"):
             sprintengine["name"] = default_name
@@ -276,6 +319,11 @@ def cmd_init(args: argparse.Namespace) -> Dict[str, Any]:
             ensure_run_worktree(state, state_path)
         has_product_plan_source = state_has_source_kind(state, "product_plan")
         has_architect_plan_source = state_has_source_kind(state, "architect_plan")
+        # An epic root source (reference-based backlog epic launch) is a plan
+        # source: the architect reviews the epic + its child design docs in place
+        # and builds the task graph. It is `epic` only as the root planKind — its
+        # children carry their own leaf kinds in the source bundle.
+        has_epic_source = source_plan_kind(state) == "epic"
         existing_plan_gate = find_architect_plan_gate(state, state_path)
         if existing_plan_gate["task"] and not any(
             isinstance(task, dict) and task.get("role") == "product"
@@ -288,7 +336,13 @@ def cmd_init(args: argparse.Namespace) -> Dict[str, Any]:
 
         roles = roster_roles(state)
         has_product_reviewer = not roster_is_configured(state) or "product" in roles
-        should_create_product_gate = has_product_reviewer and (has_product_plan_source or not has_architect_plan_source)
+        # An epic source only opens a product intake gate when a child is itself a
+        # product plan; otherwise the architect plans directly from the epic's
+        # design docs. Non-epic behavior is unchanged.
+        should_create_product_gate = has_product_reviewer and (
+            has_product_plan_source
+            or (not has_architect_plan_source and not has_epic_source)
+        )
         product_gate = (
             ensure_product_intake_gate(state, state_path, "sprintengine")
             if should_create_product_gate
@@ -361,6 +415,37 @@ def cmd_init(args: argparse.Namespace) -> Dict[str, Any]:
                     *source_bundle_reference_notes(state),
                 ]
                 apply_source_context_to_task(plan_task, state, state_path)
+            refresh_artifact_fingerprint(plan_gate["artifact"], state_path)
+        elif has_epic_source:
+            # Reference-based epic launch: the epic and its child design documents
+            # are the canonical plan. plan.md is NOT seeded — it becomes a thin
+            # manifest that references those documents. The architect reviews and
+            # updates the design docs in place, then builds the task graph.
+            plan_task = plan_gate["task"]
+            plan_task["title"] = "Review epic designs in place and create task graph"
+            plan_task["description"] = (
+                "Review the referenced epic and every child design document against the current codebase. "
+                "Update stale or incomplete design content in those backlog files themselves, then write "
+                f"{plan_path_artifact_value(state_path)} as a manifest that references each source document "
+                "(project-root-relative), and create the full task graph covering every child item."
+            )
+            plan_task["acceptanceCriteria"] = [
+                "Every child item of the epic is enumerated (children are the backlog items whose `epic:` frontmatter names the epic slug) and each design document is read.",
+                "Each design document is verified against the current codebase; stale, missing, or incorrect design content is updated in the backlog files themselves, not re-authored into plan.md.",
+                "plan.md is a manifest: it references every source document by project-root-relative path with a per-document verification note, and adds only cross-cutting decisions, risks, and the task graph summary.",
+                "The task graph covers all child items of the epic; every child maps to at least one task.",
+                "Architect plan artifact is marked ready for user approval after review.",
+            ]
+            plan_task["implementationNotes"] = [
+                "Enumerate the epic's children with `grep -l \"^epic: <slug>$\" backlog/*.md`, where <slug> is the epic file stem.",
+                "In worktree-mode runs, edit the worktree's copies of the backlog files so design updates ride the run branch and its pull request.",
+                "Do not copy valid design prose into plan.md; the manifest only references the design documents and records verification, decisions, risks, and the task graph summary.",
+                "Additional relevant documents (design systems, mockups, Knowledge Graph notes) may be added to the manifest as project-root-relative references.",
+                "Keep task cards self-contained per the Task Card Quality Bar; workers should rarely need to open the design documents.",
+                "The final review scheduling task must set each child item's frontmatter `status: completed` when the sprint completes (editing the worktree copies in worktree mode so the flips ride the pull request).",
+                *source_bundle_reference_notes(state),
+            ]
+            apply_source_context_to_task(plan_task, state, state_path)
             refresh_artifact_fingerprint(plan_gate["artifact"], state_path)
         recompute_phase(state)
         return {

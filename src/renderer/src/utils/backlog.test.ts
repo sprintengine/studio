@@ -646,8 +646,8 @@ run('Sprint Engine contributes Start/Open Backlog actions for run-linked items',
   )
   assert.match(
     sprintEngineModuleSource,
-    /item\.status !== 'archived' && item\.status !== 'completed' && !hasSprintEngineRunLink\(item\)/,
-    'Start is visible only for runnable items without a Sprint Engine run link',
+    /item\.status !== 'archived'\s*&&\s*item\.status !== 'completed'\s*&&\s*!hasSprintEngineRunLink\(item\)\s*&&\s*!hasAgentLink\(item\)/,
+    'Start is visible only for runnable items without a Sprint Engine run link and without an agent already working it',
   )
   assert.match(
     sprintEngineModuleSource,
@@ -669,7 +669,7 @@ run('completed Backlog items can be marked done manually and do not offer Sprint
   )
   assert.match(
     sprintEngineModuleSource,
-    /item\.status !== 'archived' && item\.status !== 'completed' && !hasSprintEngineRunLink\(item\)/,
+    /item\.status !== 'archived'\s*&&\s*item\.status !== 'completed'\s*&&\s*!hasSprintEngineRunLink\(item\)\s*&&\s*!hasAgentLink\(item\)/,
     'completed items without a run link hide Start Sprint Engine',
   )
 })

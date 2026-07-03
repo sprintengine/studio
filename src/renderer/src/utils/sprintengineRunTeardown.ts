@@ -14,7 +14,6 @@
  */
 
 import { useWorkspaceStore } from '../store/workspaceStore'
-import { workspaceSyncClient } from '../store/workspaceSyncClient'
 import { removeAgentTab, removeAgentTabFromLayoutModel } from './modelRegistry'
 import { publishDiagnostic } from './diagnostics'
 import { logPerfEvent } from './perfDiagnostics'
@@ -125,11 +124,17 @@ export async function tearDownCompletedSprintRunAgents(
     sessions = []
   }
 
+  // Sessions to record + kill. Suspended sessions count too: the idle reaper
+  // suspends exactly the idle end-of-run agents this teardown targets
+  // (`processAlive` is false while suspended, but the session record — and its
+  // persisted snapshot sidecar — lives on and would otherwise be orphaned by
+  // the panel removal; `terminalKill` disposes both). Their captured harness id
+  // is also the codex resume token we want to record.
   const liveByAgentId = new Map<string, TerminalSessionSnapshot>()
   for (const session of sessions) {
     if (
       session.kind === 'agent'
-      && session.processAlive
+      && (session.processAlive || session.suspended)
       && session.workspaceId === workspaceId
       && session.agentId
       && (!statePath || session.sprintEngineStatePath === statePath)
@@ -144,6 +149,10 @@ export async function tearDownCompletedSprintRunAgents(
   // their tabs are stripped from the persisted layout below so a later open
   // does not render an orphan panel for a removed agent.
   const orphanTabAgentIds: AgentId[] = []
+  // Tabs actually removed (live Model or persisted layout). Gates the user-facing
+  // diagnostic: tearing down tab-less recreated roster records (a reopened run
+  // whose panels were already removed) closes nothing the user can see.
+  let removedTabCount = 0
 
   for (const agentId of agentIds) {
     const agent = workspace.agents[agentId]
@@ -157,7 +166,8 @@ export async function tearDownCompletedSprintRunAgents(
       result.recordedAgentIds.push(agentId)
     }
 
-    // 2. Kill the live PTY if any.
+    // 2. Kill the live PTY — or dispose the suspended session record and its
+    //    snapshot sidecar — if any.
     if (live) {
       await ports.terminalKill(live.sessionId).catch(() => {})
       result.closedSessionIds.push(live.sessionId)
@@ -165,7 +175,8 @@ export async function tearDownCompletedSprintRunAgents(
 
     // 3. Remove the panel from the layout (live Model when mounted; else the
     //    persisted layout, batched below) and the agent from the store.
-    if (!ports.removeAgentTab(workspaceId, agentId)) orphanTabAgentIds.push(agentId)
+    if (ports.removeAgentTab(workspaceId, agentId)) removedTabCount += 1
+    else orphanTabAgentIds.push(agentId)
     ports.removeAgent(workspaceId, agentId)
     result.removedAgentIds.push(agentId)
   }
@@ -185,6 +196,7 @@ export async function tearDownCompletedSprintRunAgents(
         if (stripped.removed) {
           layoutModel = stripped.layoutModel
           changed = true
+          removedTabCount += 1
         }
       }
       if (changed) ports.updateLayout(workspaceId, layoutModel)
@@ -199,7 +211,17 @@ export async function tearDownCompletedSprintRunAgents(
     closedSessionIds: result.closedSessionIds,
   })
 
-  if (result.removedAgentIds.length > 0) {
+  // Only toast when the user could see an effect (a killed session or a closed
+  // tab). Tearing down tab-less recreated roster records — a reopened run whose
+  // panels were already removed — must stay silent.
+  //
+  // Deliberately NO `dispatchUpdateTerminalLaunchState` mirror here: the sync
+  // bus applies the accepted event back into the dispatching window's own store,
+  // and `applyAgentTerminalLaunchStateEvent` used to upsert — so a launch-state
+  // reset issued AFTER `removeAgent` materialized the just-removed agent again
+  // as a ghost record. Removal itself is the reset: any later roster recreation
+  // starts from clean defaults.
+  if (result.closedSessionIds.length > 0 || removedTabCount > 0) {
     void ports.publishDiagnostic({
       level: 'info',
       source: 'sprintengine',
@@ -217,17 +239,6 @@ export async function tearDownCompletedSprintRunAgents(
       workspaceId,
       workspaceName: workspace.name,
     })
-    // Mirror the launch-state reset to the main registry so a cross-window
-    // mirror does not resurrect a killed session.
-    for (const agentId of result.removedAgentIds) {
-      void workspaceSyncClient.dispatchUpdateTerminalLaunchState(workspaceId, agentId, {
-        cliSessionId: null,
-        cliStartRequested: false,
-        cliHasLaunched: false,
-        cliOnboardingPromptSent: false,
-        cliResumeAvailable: false,
-      })
-    }
   }
 
   return result

@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 import argparse
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional, Tuple
 
 from sprintengine_core import store as folder_store
 from sprintengine_core.tool.artifacts import release_task_from_owner, resolve_task_input
@@ -295,6 +295,26 @@ def cmd_task_gate_verdict(args: argparse.Namespace) -> Dict[str, Any]:
         result["feedbackMetricsPath"] = append_feedback_record(args.state, feedback_record)
     return result
 
+def _resolve_execution_identity(args: argparse.Namespace) -> Tuple[Optional[str], Optional[str]]:
+    """Explicit CLI model/CLI override to stamp onto a claimed task.
+
+    Only the `--model`/`--cli` flags are read here — an explicit override for
+    headless / non-Multicode CLI callers. When absent (the normal Multicode
+    path, where claims arrive over the shared HTTP MCP hub with no per-agent
+    context), assign_task falls back to the run's per-role runtime map. We do
+    NOT read process env: the hub is a single app-process server, so an env var
+    there would not be the claiming agent's and could mis-stamp every task.
+    """
+
+    def _clean(value: Optional[str]) -> Optional[str]:
+        if not isinstance(value, str):
+            return None
+        stripped = value.strip()
+        return stripped or None
+
+    return _clean(getattr(args, "model", None)), _clean(getattr(args, "cli", None))
+
+
 def cmd_task_next(args: argparse.Namespace) -> Dict[str, Any]:
     args.role = require_configured_role(args.role, context="Task")
 
@@ -347,7 +367,8 @@ def cmd_task_next(args: argparse.Namespace) -> Dict[str, Any]:
                 key_fn=lambda item: dispatch_target_key("task", item.get("id")),
             )
             if selected:
-                result = assign_task(state, selected, args.id)
+                model, cli = _resolve_execution_identity(args)
+                result = assign_task(state, selected, args.id, model=model, cli=cli)
                 recompute_phase(state)
                 event = append_event(state, "task_claimed", args.id, f"{args.id} claimed {selected.get('id')}.")
                 return {"ok": True, "claimed": True, "task": selected, "agent": result["agent"], "prompt": build_rework_prompt(args.state, selected), "event": event, "releasedExpired": expired["released"]}
@@ -367,7 +388,8 @@ def cmd_task_claim(args: argparse.Namespace) -> Dict[str, Any]:
             ready_ids = set(read_ready_task_ids(state))
             if args.task_id not in ready_ids or not task_is_ready(state, task):
                 return {"ok": False, "error": "Task is not ready.", "task": {"id": task.get("id"), "status": task.get("status")}, "write": False}
-            result = assign_task(state, task, args.id)
+            model, cli = _resolve_execution_identity(args)
+            result = assign_task(state, task, args.id, model=model, cli=cli)
             recompute_phase(state)
             event = append_event(state, "task_claimed", args.id, f"{args.id} claimed {args.task_id}.")
             return {"ok": True, "task": task, "agent": result["agent"], "event": event}

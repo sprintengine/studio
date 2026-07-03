@@ -14,6 +14,11 @@ type PlanFileSprintEngineHandoffPromptArgs = {
   rosterArgs?: string[]
   autoRunRequested?: boolean
   useWorktrees?: boolean
+  // When true, the markdown source and every bundle item are handed over as
+  // project-root-relative references (no copy into the run store). Used for
+  // backlog-sourced sprints so the canonical design docs stay authoritative and
+  // are reviewed/updated in place.
+  reference?: boolean
 }
 
 function jsonBlock(payload: Record<string, unknown>): string {
@@ -25,6 +30,13 @@ function sourceTypeGuidance(
   bundle: Array<{ kind: string }>,
   sourcePlanKind: string,
 ): string {
+  if (sourcePlanKind === 'epic') {
+    return [
+      'Source type: backlog epic. The epic and its child design documents (the source bundle) are the canonical plan — they are referenced in place, not copied.',
+      '`sprintengine.init` mints a plan task to review these designs against the current codebase. As the architect: read the epic and every child document, verify each against the current code, and update stale or incomplete design content in those backlog files themselves (in worktree-mode runs, edit the worktree copies so the updates ride the pull request).',
+      'Then write `plan.md` as a thin manifest that references each source document by project-root-relative path with a per-document verification note, and build the full task graph covering every child item. Do not re-author valid design prose into plan.md.',
+    ].join('\n\n')
+  }
   if (hasExplicitSourceBundle) {
     const kinds = Array.from(new Set(bundle.map((item) => item.kind)))
     if (kinds.length === 1) {
@@ -70,6 +82,7 @@ export function buildPlanFileSprintEngineHandoffPrompt({
   rosterArgs = [],
   autoRunRequested = false,
   useWorktrees = false,
+  reference = false,
 }: PlanFileSprintEngineHandoffPromptArgs): string {
   const hasExplicitSourceBundle = sourceBundle.length > 0
   const bundle = hasExplicitSourceBundle
@@ -82,12 +95,15 @@ export function buildPlanFileSprintEngineHandoffPrompt({
 
   const handoverCalls = hasExplicitSourceBundle
     ? [
-      'Call `sprintengine.handover` once with the selected markdown source and the complete source bundle. Stop and report to the user if the call reports a collision or failure:',
+      reference
+        ? 'Call `sprintengine.handover` once with the selected markdown source and the complete source bundle. `reference: true` records every source as a project-root-relative reference to the canonical original (no copy) — read and update those files in place. Stop and report to the user if the call reports a collision or failure:'
+        : 'Call `sprintengine.handover` once with the selected markdown source and the complete source bundle. Stop and report to the user if the call reports a collision or failure:',
       jsonBlock({
         name: teamSlug,
         goal,
         handoverPath: sourcePath,
         sourcePlanKind,
+        ...(reference ? { reference: true } : {}),
         sourceBundle: bundle.map((item) => ({
           kind: item.kind,
           sourcePath: item.sourceRelativePath ?? item.sourcePath,
@@ -95,12 +111,15 @@ export function buildPlanFileSprintEngineHandoffPrompt({
       }),
     ].join('\n\n')
     : [
-      'Call `sprintengine.handover` with the selected markdown source:',
+      reference
+        ? 'Call `sprintengine.handover` with the selected markdown source. `reference: true` records it as a project-root-relative reference to the canonical original (no copy) — read and update it in place:'
+        : 'Call `sprintengine.handover` with the selected markdown source:',
       jsonBlock({
         name: teamSlug,
         goal,
         handoverPath: sourcePath,
         sourcePlanKind,
+        ...(reference ? { reference: true } : {}),
       }),
     ].join('\n')
 
@@ -150,6 +169,8 @@ export function buildPlanFileSprintEngineHandoffPrompt({
         'Work what the claim returns. `sprintengine.init` creates the first architect task; if the claim returns no work, reply that no work was claimed and stop.',
       ].join('\n\n')
       : null,
-    'After initialization, agents continue through the managed MCP server: register with `sprintengine.agent.join`, then claim work with `sprintengine.task.next` (implementation and planning tasks) or `sprintengine.gate.next` (quality gates) using `{role, id}`. Work what the claim returns; if it returns no claim, stop — Multicode re-engages the terminal when work is ready. Product and architect agents must read the imported source file(s) in the Sprint Engine team folder when their own work is claimed, and should treat those files as incoming context.',
+    reference
+      ? 'After initialization, agents continue through the managed MCP server: register with `sprintengine.agent.join`, then claim work with `sprintengine.task.next` (implementation and planning tasks) or `sprintengine.gate.next` (quality gates) using `{role, id}`. Work what the claim returns; if it returns no claim, stop — Multicode re-engages the terminal when work is ready. Product and architect agents must read the referenced source file(s) at the project-root-relative paths listed in their claimed task, treat them as canonical incoming context, and update them in place rather than copying them.'
+      : 'After initialization, agents continue through the managed MCP server: register with `sprintengine.agent.join`, then claim work with `sprintengine.task.next` (implementation and planning tasks) or `sprintengine.gate.next` (quality gates) using `{role, id}`. Work what the claim returns; if it returns no claim, stop — Multicode re-engages the terminal when work is ready. Product and architect agents must read the imported source file(s) in the Sprint Engine team folder when their own work is claimed, and should treat those files as incoming context.',
   ].filter((line): line is string => line !== null).join('\n\n')
 }

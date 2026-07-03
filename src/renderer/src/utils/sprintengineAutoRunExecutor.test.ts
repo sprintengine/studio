@@ -3,7 +3,6 @@ import type { Workspace } from '../types/workspace'
 import {
   TerminalListIpcError,
   bracketedTerminalPaste,
-  closeSprintEngineRunAgentTerminals,
   listTerminalSessionsForAutoRun,
   publishTerminalListIpcFailureNotice,
   recordSpawnFailure,
@@ -370,115 +369,6 @@ async function testRecordSpawnFailureOrdersStoreUpdatesBeforeDiagnostic(): Promi
   assert.ok(diagnosticIdx > agentIdx, 'diagnostic must publish after store mutations settle')
 }
 
-const SPRINT_STATE_PATH = '/tmp/workspace/.multi-code/sprintengine/team/run.yaml'
-
-function completedSprintWorkspaceFixture(): Workspace {
-  return {
-    id: 'workspace-1',
-    name: 'Auto-run workspace',
-    sprintEngineContext: { statePath: SPRINT_STATE_PATH },
-    agents: {
-      'developer-1': {
-        kind: 'sprintengine',
-        cliStartRequested: true,
-        cliHasLaunched: true,
-        cliSessionId: 'session-dev',
-      },
-      'architect-1': {
-        kind: 'sprintengine',
-        cliStartRequested: false,
-        cliHasLaunched: false,
-        cliSessionId: undefined,
-      },
-    },
-  } as unknown as Workspace
-}
-
-async function testCloseSprintEngineRunTerminalsKillsOnlyRunSessions(): Promise<void> {
-  const killed: string[] = []
-  const { ports, calls } = createFakePorts({
-    terminalList: async () => [
-      {
-        sessionId: 'session-dev',
-        processAlive: true,
-        kind: 'agent',
-        workspaceId: 'workspace-1',
-        agentId: 'developer-1',
-        sprintEngineStatePath: SPRINT_STATE_PATH,
-      },
-      // Different workspace: must not be touched.
-      {
-        sessionId: 'session-other-ws',
-        processAlive: true,
-        kind: 'agent',
-        workspaceId: 'workspace-2',
-        agentId: 'developer-1',
-        sprintEngineStatePath: SPRINT_STATE_PATH,
-      },
-      // Plain shell terminal in the same workspace: must not be touched.
-      {
-        sessionId: 'terminal-shell',
-        processAlive: true,
-        kind: 'terminal',
-        workspaceId: 'workspace-1',
-        terminalId: 'shell',
-      },
-      // Already-dead run session: nothing to kill.
-      {
-        sessionId: 'session-dead',
-        processAlive: false,
-        kind: 'agent',
-        workspaceId: 'workspace-1',
-        agentId: 'reviewer-1',
-        sprintEngineStatePath: SPRINT_STATE_PATH,
-      },
-    ] as any,
-    terminalKill: async (sessionId) => { killed.push(sessionId) },
-  })
-
-  const result = await closeSprintEngineRunAgentTerminals(ports, completedSprintWorkspaceFixture())
-
-  assert.deepEqual(killed, ['session-dev'])
-  assert.deepEqual(result.closedSessionIds, ['session-dev'])
-  assert.deepEqual(result.resetAgentIds, ['developer-1'])
-
-  const updateCalls = calls.filter((call) => call.method === 'updateAgent')
-  assert.equal(updateCalls.length, 1, 'idle architect with no launch state must not be reset')
-  assert.equal(updateCalls[0].args[1], 'developer-1')
-  const update = updateCalls[0].args[2] as Record<string, unknown>
-  assert.equal(update.cliStartRequested, false)
-  assert.equal(update.cliHasLaunched, false)
-  assert.equal(update.cliSessionId, undefined)
-  assert.equal(update.cliResumeAvailable, false)
-}
-
-async function testCloseSprintEngineRunTerminalsResetsLaunchedAgentsWithoutLiveSessions(): Promise<void> {
-  const { ports, calls } = createFakePorts({
-    terminalList: async () => [],
-  })
-  const result = await closeSprintEngineRunAgentTerminals(ports, completedSprintWorkspaceFixture())
-
-  assert.deepEqual(result.closedSessionIds, [])
-  assert.deepEqual(result.resetAgentIds, ['developer-1'])
-  const updateCalls = calls.filter((call) => call.method === 'updateAgent')
-  assert.equal(updateCalls.length, 1, 'launched agent flags reset even when its pty already exited')
-}
-
-async function testCloseSprintEngineRunTerminalsNoopsWithoutSprintContext(): Promise<void> {
-  let listed = 0
-  const { ports, calls } = createFakePorts({
-    terminalList: async () => {
-      listed += 1
-      return []
-    },
-  })
-  const result = await closeSprintEngineRunAgentTerminals(ports, workspaceFixture())
-
-  assert.equal(listed, 0, 'must not touch terminal IPC without a sprint run context')
-  assert.deepEqual(result, { closedSessionIds: [], resetAgentIds: [] })
-  assert.equal(calls.filter((call) => call.method === 'updateAgent').length, 0)
-}
-
 async function main(): Promise<void> {
   await testBracketedPasteEscapeSequence()
   await testWriteBracketedPromptSubmitsAfterPaste()
@@ -494,9 +384,6 @@ async function main(): Promise<void> {
   await testSpawnTerminalSessionConvertsThrownErrorToFailure()
   await testRecordSpawnFailureResetsStoreAndPublishesDiagnostic()
   await testRecordSpawnFailureOrdersStoreUpdatesBeforeDiagnostic()
-  await testCloseSprintEngineRunTerminalsKillsOnlyRunSessions()
-  await testCloseSprintEngineRunTerminalsResetsLaunchedAgentsWithoutLiveSessions()
-  await testCloseSprintEngineRunTerminalsNoopsWithoutSprintContext()
   // eslint-disable-next-line no-console
   console.log('sprintengineAutoRunExecutor tests passed')
 }

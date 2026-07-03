@@ -161,7 +161,7 @@ sprintengine projection --help
 
 Current command groups:
 
-- `handover`: create a team bootstrap and handoff context.
+- `handover`: create a team bootstrap and handoff context. `--source-plan-kind` accepts `unknown`, `product_plan`, `architect_plan`, or `epic` (a backlog epic launched as a reference-based sprint). `--reference-sources` records the `--handover` markdown and every `--source kind:path` item as project-root-relative references to the canonical originals instead of copying them into the run store — the architect reads and updates those files in place. Inline (`--handover-text`) and stdin sources have no durable file and keep the copy behavior.
 - `init`: initialize a run.
 - `recover`: run an integrity recovery audit prompt.
 - `projection`: read the normalized run projection.

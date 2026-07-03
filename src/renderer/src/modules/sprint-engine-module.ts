@@ -7,6 +7,7 @@ import { slugifySprintEngineName } from '../utils/sprintengineStateFile'
 import { markdownTitle } from '../components/workspace/newWorkspace/helpers'
 import { normalizeSprintEngineProjection } from '../utils/sprintengine'
 import { dispatchRevealTarget } from '../utils/revealTarget'
+import { hasAgentLink } from '../utils/agentBacklogLinks'
 import {
   hasSprintEngineRunLink,
   openSprintEngineBacklogLink,
@@ -199,7 +200,14 @@ export const sprintEngineRendererModule: RendererModule = {
       label: 'Run a Sprint',
       category: 'execute',
       order: 10,
-      isVisible: ({ item }) => item.status !== 'archived' && item.status !== 'completed' && !hasSprintEngineRunLink(item),
+      // An item already handed to an agent shows "Open agent" as its execute
+      // action instead — running a fresh Sprint over work an agent already owns
+      // would fork the effort, so the Sprint entry point drops out entirely.
+      isVisible: ({ item }) =>
+        item.status !== 'archived'
+        && item.status !== 'completed'
+        && !hasSprintEngineRunLink(item)
+        && !hasAgentLink(item),
       getState: ({ startSourcePlan }) => startSourcePlan ? 'enabled' : 'disabled',
       async run(context) {
         if (!context.startSourcePlan) return

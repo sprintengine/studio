@@ -167,6 +167,7 @@ export function CliModelListbox({
   effectiveModelFor,
   onSelectCli,
   onSelectModel,
+  className,
 }: {
   ariaLabel: string
   options: CliModelListboxOption[]
@@ -174,9 +175,11 @@ export function CliModelListbox({
   effectiveModelFor: (cli: AgentCli) => string | undefined
   onSelectCli: (cli: AgentCli) => void
   onSelectModel: (cli: AgentCli, model: string | null) => void
+  /** Height clamp override — popovers keep the default; inline hosts may allow more. */
+  className?: string
 }) {
   return (
-    <div role="listbox" aria-label={ariaLabel} className="max-h-[280px] overflow-y-auto">
+    <div role="listbox" aria-label={ariaLabel} className={`overflow-y-auto ${className ?? 'max-h-[280px]'}`}>
       {options.map((option, groupIndex) => {
         const models = option.modelSelection
         const effectiveModel = option.value === currentCli ? effectiveModelFor(option.value) : undefined

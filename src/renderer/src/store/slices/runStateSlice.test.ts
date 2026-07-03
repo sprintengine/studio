@@ -89,6 +89,19 @@ assert.equal(sprintAuto.cliPermissionPreset, 'default')
 assert.equal(sprintAuto.maxConcurrentAgents, 10)
 assert.deepEqual(sprintAuto.pendingSpawns, [{ taskId: 'T1', agentId: 'frontend', startedAt: 123 }])
 assert.deepEqual(sprintAuto.deliveredAgentNotificationEventKeys, [' EVT-1 ', 'EVT-2'])
+assert.equal(sprintAuto.completionTeardownAt, undefined)
+
+// The one-shot completion-teardown marker survives normalization — this runs on
+// every projection write, so dropping it would re-arm teardown each poll.
+assert.equal(
+  normalizeSprintEngineAutoState({ runtimeState: 'complete', completionTeardownAt: 1234 } as never)
+    .completionTeardownAt,
+  1234,
+)
+assert.equal(
+  normalizeSprintEngineAutoState({ completionTeardownAt: 'bogus' as never } as never).completionTeardownAt,
+  undefined,
+)
 
 const normalizedMultiloopAuto = normalizeMultiloopAutoState({
   enabled: true,
@@ -265,6 +278,26 @@ try {
 } finally {
   Date.now = originalDateNow
 }
+useWorkspaceStore.getState().setSprintEngineCompletionTeardownAt(storeWorkspaceId, 4321)
+assert.equal(
+  useWorkspaceStore.getState().workspaces.find((workspace) => workspace.id === storeWorkspaceId)
+    ?.sprintEngineAutoState?.completionTeardownAt,
+  4321,
+)
+// The marker must survive a projection write (setSprintEngineState re-normalizes
+// the auto state on every poll).
+useWorkspaceStore.getState().setSprintEngineState(storeWorkspaceId, sprintState)
+assert.equal(
+  useWorkspaceStore.getState().workspaces.find((workspace) => workspace.id === storeWorkspaceId)
+    ?.sprintEngineAutoState?.completionTeardownAt,
+  4321,
+)
+useWorkspaceStore.getState().setSprintEngineCompletionTeardownAt(storeWorkspaceId, undefined)
+assert.equal(
+  useWorkspaceStore.getState().workspaces.find((workspace) => workspace.id === storeWorkspaceId)
+    ?.sprintEngineAutoState?.completionTeardownAt,
+  undefined,
+)
 useWorkspaceStore.getState().setMultiloopState(storeWorkspaceId, initialMultiloopState)
 useWorkspaceStore.getState().setMultiloopCoordinatorAutoSpawnKey(storeWorkspaceId, 'coordinator-key')
 

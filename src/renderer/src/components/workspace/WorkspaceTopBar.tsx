@@ -11,7 +11,9 @@ import {
 import { useRelativeNow } from '../../hooks/useRelativeNow'
 import { formatRelativeMs, formatRelativeMsAgo } from '../../utils/relativeTime'
 import CliIcon from '../CliIcon'
-import SpawnAgentMenu, { AGENT_SPAWN_PERMISSION_OPTIONS, TerminalSessionIcon } from './SpawnAgentMenu'
+import { AGENT_SPAWN_PERMISSION_OPTIONS, TerminalSessionIcon } from './agentComposer/agentSpawnShared'
+import AgentComposerPopover from './agentComposer/AgentComposerPopover'
+import { type AgentComposerConfirm, type AgentComposerSelection } from './agentComposer/AgentComposer'
 import {
   getMultiloopRole,
   getSpecialistAction,
@@ -594,23 +596,17 @@ export type WorkspaceTopBarProps = {
   // Transient Debug Mode toggle, forwarded to the spawn menu's mode row.
   agentSpawnDebugMode: boolean
   setAgentSpawnDebugMode: (next: boolean) => void
-  handleSelectSpecialist: (id: SpecialistActionId, cli: AgentCli) => void
-  handleSelectMultiloopRole: (role: MultiloopRole, cli: AgentCli) => void
+  // Primary split-button half: spawn the remembered specialist / multiloop role
+  // straight into the active workspace with the trigger CLI.
   addNewSpecialist: (cli: AgentCli) => void | Promise<void>
   addNewMultiloopAgent: (cli: AgentCli) => void | Promise<void>
-  addNewCliAgent: (cli: AgentCli, label: string) => void
-  addNewTerminal: () => void
-  // Conversation runtime spawn collapses to one entry: the model is picked in
-  // the chat composer, so the menu only needs to know whether a default
-  // provider/model is available and how to open it.
+  // The dropdown renders the shared AgentComposerPopover. `conversationAvailable`
+  // gates its Conversation row; `composerInitialSelection` preselects the
+  // remembered agent; `runComposerSpawn` maps a confirm to the real spawn into
+  // the active workspace.
   conversationSpawnAvailable: boolean
-  onSpawnConversationAgent: () => void
-  // Open-in-new-chat: spawn the row's agent in a fresh workspace (inheriting the
-  // current folder) instead of the active one. Surfaced in each row's flyout.
-  onOpenTerminalInNewChat: () => void
-  onOpenGeneralInNewChat: (cli: AgentCli) => void
-  onOpenConversationInNewChat: () => void
-  onOpenSpecialistInNewChat: (id: SpecialistActionId, cli: AgentCli) => void
+  composerInitialSelection: AgentComposerSelection
+  runComposerSpawn: (confirm: AgentComposerConfirm) => void
 
   openSettings: (checkForUpdates?: boolean, targetTab?: string | null) => void
   settingsOpen: boolean
@@ -693,18 +689,11 @@ export default function WorkspaceTopBar({
   setAgentSpawnPermissionPreset,
   agentSpawnDebugMode,
   setAgentSpawnDebugMode,
-  handleSelectSpecialist,
-  handleSelectMultiloopRole,
   addNewSpecialist,
   addNewMultiloopAgent,
-  addNewCliAgent,
-  addNewTerminal,
   conversationSpawnAvailable,
-  onSpawnConversationAgent,
-  onOpenTerminalInNewChat,
-  onOpenGeneralInNewChat,
-  onOpenConversationInNewChat,
-  onOpenSpecialistInNewChat,
+  composerInitialSelection,
+  runComposerSpawn,
   openSettings,
   settingsOpen,
   accountOpen,
@@ -1177,23 +1166,18 @@ export default function WorkspaceTopBar({
                     </Tooltip>
                   )}
                 >
-                  <SpawnAgentMenu
-                    multiloopLaunchMenu={multiloopLaunchMenu}
-                    conversationSpawnAvailable={conversationSpawnAvailable}
-                    agentSpawnPermissionPreset={agentSpawnPermissionPreset}
-                    onChangeAgentSpawnPermissionPreset={setAgentSpawnPermissionPreset}
-                    agentSpawnDebugMode={agentSpawnDebugMode}
-                    onChangeAgentSpawnDebugMode={setAgentSpawnDebugMode}
-                    onSpawnTerminal={addNewTerminal}
-                    onSpawnGeneral={(cli) => addNewCliAgent(cli, 'General Agent')}
-                    onSpawnConversation={onSpawnConversationAgent}
-                    onSpawnSpecialist={handleSelectSpecialist}
-                    onSpawnMultiloopRole={handleSelectMultiloopRole}
-                    showOpenInNewChat
-                    onOpenTerminalInNewChat={onOpenTerminalInNewChat}
-                    onOpenGeneralInNewChat={onOpenGeneralInNewChat}
-                    onOpenConversationInNewChat={onOpenConversationInNewChat}
-                    onOpenSpecialistInNewChat={onOpenSpecialistInNewChat}
+                  <AgentComposerPopover
+                    roster={multiloopLaunchMenu ? 'multiloop' : 'specialist'}
+                    conversationAvailable={conversationSpawnAvailable}
+                    initialSelection={composerInitialSelection}
+                    action={{
+                      kind: 'spawn',
+                      onSpawn: runComposerSpawn,
+                      permissionPreset: agentSpawnPermissionPreset,
+                      onChangePermissionPreset: setAgentSpawnPermissionPreset,
+                      debugMode: agentSpawnDebugMode,
+                      onChangeDebugMode: setAgentSpawnDebugMode,
+                    }}
                     onClose={() => setSpecialistMenuOpen(false)}
                   />
                 </Popover>

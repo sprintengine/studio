@@ -403,6 +403,11 @@ def normalize_task(raw: Dict[str, Any]) -> Dict[str, Any]:
         "startedAt": raw.get("startedAt") or None,
         "completedAt": raw.get("completedAt") or None,
         "needsTriage": normalize_needs_triage(raw.get("needsTriage"), task_id),
+        # Execution identity: the CLI model/CLI that worked this task, stamped at
+        # claim (see assign_task). Retained through handoff for attribution and
+        # per-task usage metrics — a fact about the work, not lifecycle state.
+        "model": optional_non_empty_string(raw, "model"),
+        "cli": optional_non_empty_string(raw, "cli"),
     }
     diff_evidence = normalize_diff_evidence(ev.get("diffs"), task_id)
     if diff_evidence:

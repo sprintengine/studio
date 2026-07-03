@@ -750,6 +750,14 @@ def sync_run_yaml_from_state(team_dir: Path, state: dict[str, Any]) -> None:
     state["agents"] = agents
     roles = state.get("roles") if isinstance(state.get("roles"), dict) else {}
     run = load_run_yaml(team_dir)
+    # Per-role execution runtime map (model/cli), written once at init from the
+    # roster's per-role model selection; preserve any existing run.yaml value
+    # when the in-memory state has not (re)loaded it.
+    role_runtimes = (
+        state.get("roleRuntimes")
+        if isinstance(state.get("roleRuntimes"), dict)
+        else (run.get("roleRuntimes") if isinstance(run.get("roleRuntimes"), dict) else {})
+    )
     creation = run.get("creation") if isinstance(run.get("creation"), dict) else {}
     runner_policy = normalize_runner_policy(state.get("runner") if isinstance(state.get("runner"), dict) else run.get("runner"))
     quality_policy = normalize_quality_fields(state, run)
@@ -765,6 +773,7 @@ def sync_run_yaml_from_state(team_dir: Path, state: dict[str, Any]) -> None:
             "qualityPolicy": quality_policy,
             "agents": agents,
             "roles": roles,
+            "roleRuntimes": role_runtimes,
             "sprintengine": sprintengine,
             "tasks": [
                 {
@@ -985,6 +994,7 @@ def state_from_folder_store(team_dir: Path) -> dict[str, Any]:
 
     agents = normalize_agents(run.get("agents"))
     roles = run.get("roles") if isinstance(run.get("roles"), dict) else {}
+    role_runtimes = run.get("roleRuntimes") if isinstance(run.get("roleRuntimes"), dict) else {}
     task_order = {
         str(entry.get("id")): index
         for index, entry in enumerate(run.get("tasks", []) or [])
@@ -1001,6 +1011,7 @@ def state_from_folder_store(team_dir: Path) -> dict[str, Any]:
         "dispatches": read_jsonl_file(team_dir / DISPATCH_FILE),
         "agents": agents,
         "roles": roles,
+        "roleRuntimes": role_runtimes,
     }
     for key in RUN_SOURCE_KEYS:
         if key in run:

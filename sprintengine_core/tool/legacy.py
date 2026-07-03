@@ -291,7 +291,16 @@ def add_handover_parser(sub: argparse._SubParsersAction, name: str, help_text: s
         "--source-plan-kind",
         default="unknown",
         choices=sorted(VALID_SOURCE_PLAN_KINDS),
-        help="Meaning of the markdown source: unknown, product_plan, or architect_plan.",
+        help="Meaning of the markdown source: unknown, product_plan, architect_plan, or epic.",
+    )
+    p.add_argument(
+        "--reference-sources",
+        dest="reference",
+        action="store_true",
+        help=(
+            "Record file-backed sources (--handover markdown and every --source item) as project-root-relative "
+            "references instead of copying them into the run store. The originals stay canonical and are read in place."
+        ),
     )
     p.add_argument("--actor", default="handoff", help="Actor name for the team creation event.")
     p.add_argument("--agent", action="append", default=[], help="Selected roster member as role:id. Repeat for each specialist.")
@@ -422,6 +431,11 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--name", help="Display name for the run; defaults to the team folder slug.")
     p.add_argument("--goal", help="Goal for the run.")
     p.add_argument("--agent", action="append", default=[], help="Selected roster member as role:id. Repeat for each specialist.")
+    p.add_argument(
+        "--role-runtimes-json",
+        dest="role_runtimes_json",
+        help='JSON object of role -> {"model", "cli"} recording the roster\'s per-role CLI model selection, stamped onto each task at claim.',
+    )
     p.add_argument(
         "--use-worktrees",
         type=parse_bool,
@@ -574,11 +588,15 @@ def build_parser() -> argparse.ArgumentParser:
     p = task_sub.add_parser("next", help="Claim the next ready task for your role.")
     p.add_argument("--role", required=True)
     p.add_argument("--id", required=True)
+    p.add_argument("--model", help="CLI model to record on the claimed task. Overrides MULTICODE_AGENT_MODEL; Multicode injects that env at launch, so this is for headless/non-Multicode CLI use.")
+    p.add_argument("--cli", help="CLI the recorded model belongs to. Overrides MULTICODE_AGENT_CLI.")
     p.set_defaults(handler=task_commands.next_task)
 
     p = task_sub.add_parser("claim", help="Claim a specific task by ID.")
     p.add_argument("--task-id", required=True)
     p.add_argument("--id", required=True, help="Agent id.")
+    p.add_argument("--model", help="CLI model to record on the claimed task. Overrides MULTICODE_AGENT_MODEL; Multicode injects that env at launch, so this is for headless/non-Multicode CLI use.")
+    p.add_argument("--cli", help="CLI the recorded model belongs to. Overrides MULTICODE_AGENT_CLI.")
     p.set_defaults(handler=task_commands.claim)
 
     gate_p = task_sub.add_parser("gate", help="Gate operations for review, testing, and product phases.")

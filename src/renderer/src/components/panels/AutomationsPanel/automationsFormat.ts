@@ -549,7 +549,7 @@ export function sortDefinitions(defs: AutomationDefinition[], now: number): Auto
 // which only reaches launch-confirm when the workspace-sync bus observes that
 // id. CLIs the picker hides (e.g. `generic-shell`) never launch that way, so a
 // free-text cli value could be saved that always fails. The editor reuses the
-// same `selectAgentCliCatalog` source SpawnAgentMenu uses and rejects any value
+// same `selectAgentCliCatalog` source the agent picker uses and rejects any value
 // the catalog does not offer. These helpers are pure so the constraint is unit-
 // testable without rendering the form.
 

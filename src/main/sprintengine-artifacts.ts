@@ -109,6 +109,7 @@ type SerializableSprintEngineStatePayload = {
   events: unknown[]
   artifacts: unknown[]
   useWorktrees: boolean
+  roleRuntimes: Record<string, { model?: string | null; cli?: string | null }>
 }
 
 type SprintEngineEventMetadata = {
@@ -377,7 +378,26 @@ function resolveInitialSprintEngineStatePayload(payload: SprintEngineStateInitia
     events: resolveArray(payload?.events, 'sprint events'),
     artifacts: resolveArray(payload?.artifacts, 'sprint artifacts'),
     useWorktrees: payload?.useWorktrees === true,
+    roleRuntimes: resolveRoleRuntimes(payload?.roleRuntimes),
   }
+}
+
+// Keep only roles with a usable model or cli string; a role left on the CLI's
+// default model contributes nothing (no model flag is fabricated downstream).
+function resolveRoleRuntimes(
+  input: SprintEngineStateInitializeInput['roleRuntimes']
+): Record<string, { model?: string | null; cli?: string | null }> {
+  if (!input || typeof input !== 'object') return {}
+  const out: Record<string, { model?: string | null; cli?: string | null }> = {}
+  for (const [role, entry] of Object.entries(input)) {
+    const roleKey = role.trim()
+    if (!roleKey || !entry || typeof entry !== 'object') continue
+    const model = typeof entry.model === 'string' ? entry.model.trim() : ''
+    const cli = typeof entry.cli === 'string' ? entry.cli.trim() : ''
+    if (!model && !cli) continue
+    out[roleKey] = { ...(model ? { model } : {}), ...(cli ? { cli } : {}) }
+  }
+  return out
 }
 
 function getSprintEngineMcpRuntimeRoot(): string {
@@ -418,6 +438,9 @@ function sprintEngineInitArgs(state: ValidSprintEngineStatePath, payload: Serial
     if (typeof role === 'string' && role.trim()) {
       args.push('--agent', `${role.trim()}:${agentId}`)
     }
+  }
+  if (Object.keys(payload.roleRuntimes).length > 0) {
+    args.push('--role-runtimes-json', JSON.stringify(payload.roleRuntimes))
   }
   return args
 }

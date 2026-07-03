@@ -1076,6 +1076,61 @@ def test_mcp_plan_list_read_and_handover_bootstrap_cover_agent_workflows(tmp_pat
     assert initialized["result"]["action"] == "initialized"
 
 
+def test_mcp_epic_reference_handover_and_init_over_mcp_route(tmp_path) -> None:
+    # Exercise the MCP payload adapter (which bypasses argparse `choices`) for a
+    # reference-based epic launch: the epic and its children must be recorded as
+    # references (no copies), and init must mint the review-in-place plan task.
+    workspace = tmp_path / "workspace"
+    (workspace / "backlog" / "epics").mkdir(parents=True, exist_ok=True)
+    (workspace / "backlog" / "epics" / "auth-revamp.md").write_text("# Auth revamp\n", encoding="utf-8")
+    (workspace / "backlog" / "login-form.md").write_text("---\nepic: auth-revamp\n---\n# Login\n", encoding="utf-8")
+    (workspace / "backlog" / "session-store.md").write_text("---\nepic: auth-revamp\n---\n# Session\n", encoding="utf-8")
+    state_path = workspace / ".multi-code" / "sprintengine" / "auth-revamp" / "run.yaml"
+    server = SprintEngineMcpServer(allowed_roots=[tmp_path])
+
+    handover = server.call_tool(
+        "sprintengine.handover",
+        {
+            "statePath": str(state_path),
+            "workspaceRoot": str(workspace),
+            "name": "auth-revamp",
+            "goal": "Revamp authentication",
+            "handoverPath": "backlog/epics/auth-revamp.md",
+            "sourcePlanKind": "epic",
+            "reference": True,
+            "sourceBundle": [
+                {"kind": "generic_context", "sourcePath": "backlog/login-form.md"},
+                {"kind": "generic_context", "sourcePath": "backlog/session-store.md"},
+            ],
+            "actor": "workspace-user",
+        },
+        actor("workspace-user", "user"),
+    )
+    assert handover["ok"] is True
+    team_dir = state_path.parent
+    assert not (team_dir / "handover.md").exists()
+    assert not (team_dir / "sources").exists()
+
+    state = read_state(state_path)
+    assert state["source"]["origin"] == "reference"
+    assert state["source"]["planKind"] == "epic"
+    # In-process server inherits pytest's cwd, so the repo-root derivation stores an
+    # absolute path here; production resolves it relative. Assert on the suffix.
+    assert state["source"]["path"].endswith("backlog/epics/auth-revamp.md")
+    assert [item["path"].rsplit("/backlog/", 1)[-1] for item in state["sourceBundle"]] == ["login-form.md", "session-store.md"]
+    assert all(item["origin"] == "reference" for item in state["sourceBundle"])
+
+    initialized = server.call_tool(
+        "sprintengine.init",
+        {"statePath": str(state_path)},
+        actor("workspace-user", "user"),
+    )
+    assert initialized["ok"] is True
+    assert initialized["result"]["planTask"]["title"] == "Review epic designs in place and create task graph"
+    assert initialized["result"].get("productTask") is None
+    assert not (team_dir / "plan.md").exists()
+
+
 def test_mcp_agent_join_resolves_workspace_only_custom_role(tmp_path) -> None:
     workspace = tmp_path / "workspace"
     write_registry_role(workspace, "writer", label="Writer", soul=[{"skill": "drafting"}])

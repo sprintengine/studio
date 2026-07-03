@@ -11,8 +11,8 @@ interface WorkspaceLauncherProps {
   // default action). Empty when no runtime is configured yet.
   agentClis: AgentCliCatalogOption[]
   onSpawnAgent: (cli: AgentCli, label: string) => void
-  // Renders the specialist picker (SpawnAgentMenu) as Popover content anchored
-  // to the row; `close` dismisses the popover. Absent → the row is omitted.
+  // Renders the shared agent picker (AgentComposerPopover) as Popover content
+  // anchored to the row; `close` dismisses the popover. Absent → the row is omitted.
   renderSpecialistPicker?: (close: () => void) => ReactNode
   onStartSprintEngine: () => void
   onNewWorkspace?: () => void

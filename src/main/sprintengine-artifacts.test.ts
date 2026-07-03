@@ -27,6 +27,7 @@ async function main(): Promise<void> {
   await testReadRegistryRoleSurfacesUnknownRole()
   await testReadDispatchUsesMcpTool()
   await testInitializeSprintEngineStatePreservesDisplayName()
+  await testInitializeSprintEngineStateRecordsRoleRuntimes()
   await testRunnerModeCliInvocationUsesSprintEngineTool()
   await testRosterAddCliInvocationUsesSprintEngineTool()
   await testReadBridgeSurfacesUnavailableMcpAndMalformedPayloads()
@@ -646,6 +647,41 @@ async function testInitializeSprintEngineStatePreservesDisplayName(): Promise<vo
 
     const projection = JSON.parse(String(init.data?.projectionContent ?? '{}')) as { run?: { name?: string } }
     assert.equal(projection.run?.name, 'Ship Squad')
+  } finally {
+    await rm(workspaceRoot, { recursive: true, force: true })
+  }
+}
+
+async function testInitializeSprintEngineStateRecordsRoleRuntimes(): Promise<void> {
+  const workspaceRoot = await mkdtemp(join(tmpdir(), 'multicode-sprintengine-role-runtimes-'))
+  const statePath = join(workspaceRoot, '.multi-code', 'sprintengine', 'team', 'run.yaml')
+  const handlers = createHandlers(async () => {
+    throw new Error('init must use the Sprint Engine CLI bridge')
+  })
+
+  try {
+    const init = await handlers.initializeSprintEngineState({
+      statePath,
+      name: 'Role runtimes',
+      goal: 'Record per-role model',
+      agents: { developer: { role: 'developer' } },
+      // A role with neither model nor cli must not be recorded (CLI default).
+      roleRuntimes: {
+        developer: { model: 'claude-fable-5', cli: 'claude-code' },
+        tester: { model: null, cli: null },
+      },
+    })
+    assert.equal(init.ok, true, init.ok ? undefined : init.message)
+    if (!init.ok) return
+
+    const runYaml = await readFile(statePath, 'utf-8')
+    // Scope assertions to the roleRuntimes block (a `tester` role legitimately
+    // appears elsewhere in run.yaml, e.g. default quality gates).
+    const block = runYaml.slice(runYaml.indexOf('roleRuntimes:')).split(/\n(?=\S)/u)[0]
+    assert.match(block, /roleRuntimes:/u)
+    assert.match(block, /developer:/u)
+    assert.match(block, /claude-fable-5/u)
+    assert.doesNotMatch(block, /tester:/u, 'a CLI-default role records no runtime')
   } finally {
     await rm(workspaceRoot, { recursive: true, force: true })
   }

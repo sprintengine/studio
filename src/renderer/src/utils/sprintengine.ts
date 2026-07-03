@@ -2229,6 +2229,8 @@ export function normalizeSprintEngineState(input: SprintEngineState | null | und
       ...(source ? { source } : {}),
       ownerAgentId: task.ownerAgentId ?? null,
       ...(task.lastImplementedByAgentId ? { lastImplementedByAgentId: task.lastImplementedByAgentId } : {}),
+      ...(typeof task.model === 'string' && task.model.trim() ? { model: task.model.trim() } : {}),
+      ...(typeof task.cli === 'string' && task.cli.trim() ? { cli: task.cli.trim() } : {}),
       dependsOn: stringArray(task.dependsOn),
       ownedPaths: stringArray(task.ownedPaths),
       acceptanceCriteria: stringArray(task.acceptanceCriteria),

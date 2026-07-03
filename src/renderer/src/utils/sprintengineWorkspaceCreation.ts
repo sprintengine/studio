@@ -51,6 +51,10 @@ export type PlanSourcedSprintEngineWorkspaceArgs = {
   sprintEngineAutoState?: Partial<SprintEngineAutoState> | null
   workspaceWindowId?: WorkspaceWindowId | null
   useWorktrees?: boolean
+  // Record file-backed sources as project-root-relative references (no copy into
+  // the run store). Set for backlog/file-sourced launches so the canonical design
+  // docs stay authoritative and are reviewed/updated in place.
+  sourceReference?: boolean
   pathExists?: (path: string) => boolean | Promise<boolean>
   initializeSprintEngineState?: (
     input: SprintEngineStateInitializeInput
@@ -94,6 +98,27 @@ export function buildPlanSourcedSprintEngineWorkspaceContext(
   }
 }
 
+// Build the per-role execution runtime map (model/cli) recorded into run state
+// at init, so each claimed task can be stamped with the model that worked it.
+// Union the roles from both maps; a role with no explicit model is still
+// recorded when it has a CLI, and dropped entirely (server-side) when it has
+// neither. Used by every Sprint Engine creation path that inits a run.
+export function buildSprintEngineRoleRuntimes(
+  roleModelOverrides: SprintEngineRoleModelOverrides | null | undefined,
+  roleCliDefaults: SprintEngineRoleCliDefaults | null | undefined,
+): Record<string, { model?: string | null; cli?: string | null }> {
+  const roleRuntimes: Record<string, { model?: string | null; cli?: string | null }> = {}
+  for (const role of new Set([
+    ...Object.keys(roleModelOverrides ?? {}),
+    ...Object.keys(roleCliDefaults ?? {}),
+  ])) {
+    const model = roleModelOverrides?.[role as SprintEngineRoleId] ?? null
+    const cli = roleCliDefaults?.[role as SprintEngineRoleId] ?? null
+    if (model || cli) roleRuntimes[role] = { model, cli }
+  }
+  return roleRuntimes
+}
+
 export async function createPlanSourcedSprintEngineWorkspace({
   rootPath,
   teamName,
@@ -109,6 +134,7 @@ export async function createPlanSourcedSprintEngineWorkspace({
   sprintEngineAutoState,
   workspaceWindowId,
   useWorktrees,
+  sourceReference,
   pathExists,
   initializeSprintEngineState,
 }: PlanSourcedSprintEngineWorkspaceArgs): Promise<PlanSourcedSprintEngineWorkspaceResult> {
@@ -150,6 +176,7 @@ export async function createPlanSourcedSprintEngineWorkspace({
       events: sprintEngineState.events,
       artifacts: sprintEngineState.artifacts,
       useWorktrees: useWorktrees === true,
+      roleRuntimes: buildSprintEngineRoleRuntimes(roleModelOverrides, roleCliDefaults),
     })
     if (!initResult.ok) {
       throw new Error(initResult.message || 'Could not initialize sprint run state.')
@@ -184,6 +211,7 @@ export async function createPlanSourcedSprintEngineWorkspace({
     rosterArgs: buildSprintEngineRosterCommandArgs(sprintEngineState),
     autoRunRequested: deriveSprintEngineAutomationDesiredMode(sprintEngineAutoState) !== 'manual',
     useWorktrees: useWorktrees === true,
+    reference: sourceReference === true,
   })
 
   useWorkspaceStore.getState().updateAgent(workspaceId, architect.id, {

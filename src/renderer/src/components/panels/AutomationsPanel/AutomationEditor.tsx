@@ -5,7 +5,9 @@ import { useWorkspaceStore } from '../../../store/workspaceStore'
 import { selectAgentCliCatalog } from '../../workspace/newWorkspace/cliRuntimeOptions'
 import { orderSpecialistActions } from '../../../specialists/specialistActions'
 import { listSpecialistPacks, resolveEnabledSpecialists } from '../../../specialists/specialistPacks'
-import SpawnAgentMenu, { AGENT_SPAWN_PERMISSION_OPTIONS } from '../../workspace/SpawnAgentMenu'
+import AgentComposerPopover from '../../workspace/agentComposer/AgentComposerPopover'
+import type { AgentComposerSelection } from '../../workspace/agentComposer/AgentComposer'
+import { AGENT_SPAWN_PERMISSION_OPTIONS } from '../../workspace/agentComposer/agentSpawnShared'
 import { SpecialistActionIcon } from '../../AppIcons'
 import type { AgentCli, SpecialistActionId, SprintEngineCliPermissionPreset } from '../../../types/workspace'
 import type {
@@ -170,8 +172,8 @@ export function AutomationEditor({
   const [error, setError] = useState<string | null>(null)
   const [agentPickerOpen, setAgentPickerOpen] = useState(false)
 
-  // The cli config field is constrained to the same agent-picker catalog
-  // SpawnAgentMenu uses (T2 plugin registry), not a new hardcoded list, so an
+  // The cli config field is constrained to the same agent-picker catalog the
+  // shared composer uses (T2 plugin registry), not a new hardcoded list, so an
   // unlaunchable CLI cannot be saved.
   const pluginCatalogEntries = useWorkspaceStore((s) => s.pluginCatalogEntries)
   const pluginCatalogStatus = useWorkspaceStore((s) => s.pluginCatalogStatus)
@@ -186,13 +188,13 @@ export function AutomationEditor({
   const configKeys = actionProvider ? schemaStringKeys(actionProvider.configSchema) : []
   const requiredKeys = actionProvider ? schemaRequiredKeys(actionProvider.configSchema) : new Set<string>()
 
-  // The agent block reuses the live SpawnAgentMenu (select mode) for the
+  // The agent block reuses the shared AgentComposerPopover (select mode) for the
   // specialist + permission preset, and CliModelPickerButton for the runtime —
-  // the same components the top-bar spawn menu uses — so the picker never drifts.
+  // the same components every spawn surface uses — so the picker never drifts.
   // The choice is persisted into the action config so a scheduled run reproduces it.
   // Resolve the specialist descriptor from the SAME enabled-pack roster the
-  // embedded SpawnAgentMenu offers, so a custom-pack specialist the picker can
-  // select also labels correctly on the trigger row (not just the built-in set).
+  // embedded picker offers, so a custom-pack specialist the picker can select
+  // also labels correctly on the trigger row (not just the built-in set).
   const specialistOrder = useWorkspaceStore((s) => s.appSettings.specialistOrder ?? EMPTY_SPECIALIST_ORDER)
   const disabledSpecialistPacks = useWorkspaceStore((s) => s.appSettings.specialistPacks?.disabled ?? EMPTY_DISABLED_PACKS)
   const sprintEngineRoleRegistry = useWorkspaceStore((s) => s.sprintEngineRoleRegistry)
@@ -441,21 +443,16 @@ export function AutomationEditor({
                       </button>
                     )}
                   >
-                    <SpawnAgentMenu
-                      multiloopLaunchMenu={false}
-                      conversationSpawnAvailable={false}
-                      agentSpawnPermissionPreset={(form.config.permissionPreset as SprintEngineCliPermissionPreset) || 'default'}
-                      onChangeAgentSpawnPermissionPreset={(preset) => update('config', { ...form.config, permissionPreset: preset })}
-                      agentSpawnDebugMode={false}
-                      onChangeAgentSpawnDebugMode={() => {}}
-                      onSpawnTerminal={() => {}}
-                      onSpawnGeneral={() => {}}
-                      onSpawnConversation={() => {}}
-                      onSpawnSpecialist={() => {}}
-                      onSpawnMultiloopRole={() => {}}
-                      showOpenInNewChat={false}
-                      onClose={() => setAgentPickerOpen(false)}
-                      selectionMode={{
+                    <AgentComposerPopover
+                      roster="specialist"
+                      conversationAvailable={false}
+                      initialSelection={
+                        (form.config.specialistId
+                          ? { kind: 'specialist', specialistId: form.config.specialistId as SpecialistActionId }
+                          : { kind: 'general' }) as AgentComposerSelection
+                      }
+                      action={{
+                        kind: 'select',
                         selectedSpecialistId: (form.config.specialistId as SpecialistActionId) || null,
                         cli: selectedCli,
                         model: form.config.cliModel || undefined,
@@ -463,7 +460,10 @@ export function AutomationEditor({
                           setForm((prev) => ({ ...prev, config: { ...prev.config, specialistId: id, cli, cliModel: model ?? '' } })),
                         onSelectGeneral: (cli, model) =>
                           setForm((prev) => ({ ...prev, config: { ...prev.config, specialistId: '', cli, cliModel: model ?? '' } })),
+                        permissionPreset: (form.config.permissionPreset as SprintEngineCliPermissionPreset) || 'default',
+                        onChangePermissionPreset: (preset) => update('config', { ...form.config, permissionPreset: preset }),
                       }}
+                      onClose={() => setAgentPickerOpen(false)}
                     />
                   </Popover>
                   <div className="flex items-center gap-2 border-t border-[color:var(--border-subtle)] px-2.5 py-2">

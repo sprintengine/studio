@@ -182,8 +182,13 @@ export default function TerminalView({ workspaceId, agentId, sessionId: attached
   const resumeThunkRef = useRef<(() => Promise<TerminalSpawnResult>) | null>(null)
   const pendingResumeInputRef = useRef<string[]>([])
   const resumingRef = useRef(false)
+  // Set by the launch effect (which owns the xterm instance) so this
+  // store-driven sync can freeze/unfreeze the cursor: a blinking cursor is a
+  // liveness signal, and a suspended snapshot is not live.
+  const applyCursorFrozenRef = useRef<((frozen: boolean) => void) | null>(null)
   useEffect(() => {
     suspendedRef.current = Boolean(suspendedSession?.suspended)
+    applyCursorFrozenRef.current?.(suspendedRef.current)
   }, [suspendedSession?.suspended])
   const {
     folderPath: savedFolderPath,
@@ -417,6 +422,16 @@ export default function TerminalView({ workspaceId, agentId, sessionId: attached
     }
     focusTerminalRef.current = focusTerminal
 
+    // Suspended = frozen: stop the cursor blinking so the snapshot doesn't
+    // impersonate a live terminal. Applied immediately (the session may already
+    // be suspended when this term mounts) and re-applied by the suspend sync
+    // effect whenever the store flag changes.
+    const setCursorFrozen = (frozen: boolean) => {
+      term.options.cursorBlink = !frozen
+    }
+    applyCursorFrozenRef.current = setCursorFrozen
+    setCursorFrozen(suspendedRef.current)
+
     term.loadAddon(fitAddon)
     // Register for scrollback-footprint diagnostics; unregistered on dispose.
     registerTerminalInstance(sessionId, term)
@@ -584,6 +599,16 @@ export default function TerminalView({ workspaceId, agentId, sessionId: attached
       const resume = resumeThunkRef.current
       if (!resume) return
       resumingRef.current = true
+      // Tell the paused footer (AgentPanel) a resume is in flight: the relaunch
+      // takes seconds and boot output is suppressed below, so without this the
+      // click/keystroke reads as dead. Success needs no counterpart event — the
+      // session snapshot flips `suspended` off and the footer leaves. Failure
+      // rolls the footer back to "Paused".
+      window.dispatchEvent(
+        new CustomEvent('multicode:terminal-resume-state', {
+          detail: { sessionId, resuming: true },
+        }),
+      )
       // Withhold the relaunched CLI's transitional boot output (focus-report
       // echo, trust/permissions warning, shell fragments) until it repaints its
       // alt-screen TUI, so the resume cuts cleanly from snapshot to live view.
@@ -596,9 +621,18 @@ export default function TerminalView({ workspaceId, agentId, sessionId: attached
       }))
       if (result.ok) {
         suspendedRef.current = false
+        // Unfreeze eagerly — the store's suspended flag clears a broadcast
+        // later, and the cursor should read live the moment the TUI repaints.
+        setCursorFrozen(false)
         const buffered = pendingResumeInputRef.current.join('')
         pendingResumeInputRef.current = []
         if (buffered) window.api.terminalWriteFast(sessionId, buffered)
+      } else {
+        window.dispatchEvent(
+          new CustomEvent('multicode:terminal-resume-state', {
+            detail: { sessionId, resuming: false },
+          }),
+        )
       }
       resumingRef.current = false
     }
@@ -886,6 +920,7 @@ export default function TerminalView({ workspaceId, agentId, sessionId: attached
         // the retained scrollback into this fresh xterm — the painted history is
         // readable while the agent process stays suspended.
         suspendedRef.current = true
+        setCursorFrozen(true)
         await window.api.terminalSetVisible(sessionId, true).catch(() => {})
         logPerfEvent('TerminalView', 'terminal-paused-on-open', {
           sessionId,
@@ -1051,6 +1086,7 @@ export default function TerminalView({ workspaceId, agentId, sessionId: attached
       unbindTerminalTheme()
       unregisterTerminalInstance(sessionId)
       term.dispose()
+      applyCursorFrozenRef.current = null
       focusTerminalRef.current = () => {
         containerRef.current?.focus()
       }

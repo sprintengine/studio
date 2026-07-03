@@ -74,6 +74,7 @@ export const defaultSprintEngineAutoState = (): SprintEngineAutoState => ({
   maxConcurrentAgents: 3,
   pendingSpawns: [],
   deliveredAgentNotificationEventKeys: [],
+  completionTeardownAt: undefined,
 })
 
 export const defaultMultiloopAutoState = (): MultiloopAutoState => ({
@@ -211,6 +212,14 @@ export function normalizeSprintEngineAutoState(
     maxConcurrentAgents,
     pendingSpawns,
     deliveredAgentNotificationEventKeys,
+    // Preserve the one-shot completion-teardown marker: this normalizer runs on
+    // every projection write (`setSprintEngineState`), so dropping the field
+    // here would re-arm teardown each poll and resurrect the kill-resumed-panel
+    // loop it exists to prevent.
+    completionTeardownAt:
+      typeof input?.completionTeardownAt === 'number' && Number.isFinite(input.completionTeardownAt)
+        ? input.completionTeardownAt
+        : undefined,
   }
 }
 
@@ -466,6 +475,7 @@ export interface RunStateSliceActions {
     agentId: AgentId,
     session: SprintEngineRosterSession
   ) => void
+  setSprintEngineCompletionTeardownAt: (workspaceId: WorkspaceId, at: number | undefined) => void
   setSprintEngineAutoPendingSpawns: (
     workspaceId: WorkspaceId,
     pendingSpawns: SprintEngineAutoPendingSpawn[]
@@ -758,6 +768,15 @@ export function createRunStateSlice(set: RunStateSliceSet): RunStateSlice {
         if (!session.cliSessionId?.trim() || !session.cli?.trim()) return
         if (!ws.sprintEngineRosterSessions) ws.sprintEngineRosterSessions = {}
         ws.sprintEngineRosterSessions[agentId] = session
+      }),
+
+    setSprintEngineCompletionTeardownAt: (workspaceId, at) =>
+      set((state) => {
+        const ws = state.workspaces.find((w) => w.id === workspaceId)
+        if (!ws) return
+        const current = normalizeSprintEngineAutoState(ws.sprintEngineAutoState)
+        if (current.completionTeardownAt === at) return
+        ws.sprintEngineAutoState = { ...current, completionTeardownAt: at }
       }),
 
     markSprintEngineAgentNotificationDelivered: (workspaceId, eventKey) =>

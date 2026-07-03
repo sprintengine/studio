@@ -381,7 +381,12 @@ export function useSprintEngineBoardTerminalActions(
     // and must not hijack a fresh spawn. Only when there is no live terminal and
     // the recorded CLI supports conversation resume.
     const recorded = workspace?.sprintEngineRosterSessions?.[agentId]
-    const runComplete = sprintEngineState ? isCompletedSprintEngineRun(sprintEngineState) : false
+    // On a cold reopen the projection may not be hydrated yet (the supervisor's
+    // first read is in flight); fall back to the persisted lifecycle state so a
+    // click in that window still resumes instead of minting a fresh session.
+    const runComplete = sprintEngineState
+      ? isCompletedSprintEngineRun(sprintEngineState)
+      : workspace?.sprintEngineAutoState?.runtimeState === 'complete'
     if (runComplete && recorded?.cliSessionId && agentCliSupportsConversationResume(recorded.cli)) {
       await startAgentTerminalWhenReady(agentId, label, recorded.cli, {
         agentName: getCustomAgentName(agentId, fallbackLabel),

@@ -211,8 +211,13 @@ export function createAgentsSlice(set: AgentsSliceSet): AgentsSlice {
       set((state) => {
         const ws = state.workspaces.find((w) => w.id === workspaceId)
         if (!ws) return
-        if (!ws.agents[agentId]) ws.agents[agentId] = defaultAgent(agentId)
+        // Launch-state events only carry flags, never identity — applying one
+        // to an agent that no longer exists must NOT materialize a default
+        // record. (Completion teardown removes agents; the old upsert here
+        // turned the teardown's own launch-state echo into a persistent ghost
+        // agent that re-triggered teardown on every reopen.)
         const agent = ws.agents[agentId]
+        if (!agent) return
         if (cliSessionId !== undefined) agent.cliSessionId = cliSessionId ?? undefined
         if (cliStartRequested !== undefined) agent.cliStartRequested = cliStartRequested
         if (cliHasLaunched !== undefined) agent.cliHasLaunched = cliHasLaunched

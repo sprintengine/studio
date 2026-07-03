@@ -26,6 +26,15 @@ Update knowledge when the work creates durable knowledge that should survive the
 - Keep notes concise, factual, and navigable.
 - Use project-root-relative source paths such as `src/main/index.ts`.
 
+## Note Size
+
+Keep notes small so agents can traverse the graph from the index without loading large files.
+
+- Aim for ≤ 1,500 words (~2k tokens) per note.
+- Split any note over 5,000 words or 800 lines — it covers more than one concept; link the new sub-notes from an entry point and each other.
+- Measure words, not lines; line counts are gameable by rewrapping.
+- Check with the project's knowledge-size lint script when available.
+
 ## Do Not Store
 
 - Secrets, credentials, tokens, private keys, or session data.

@@ -121,16 +121,28 @@ export function SprintEngineTasksKanbanView({
                     }
                     justMovedClassName={justMoved ? 'card-just-moved-gold' : undefined}
                     trailing={
-                      <Tooltip content={getSprintEngineRoleLabel(task.role)}>
-                        <span
-                          // design-tokens-allow: role glyph is the one place per the redesign where role tones are retained.
-                          style={{ color: getSprintEngineRoleAccent(task.role) }}
-                          aria-label={`Role: ${getSprintEngineRoleLabel(task.role)}`}
-                          role="img"
-                        >
-                          <SprintEngineRoleIcon role={task.role} className="icon-sm" />
-                        </span>
-                      </Tooltip>
+                      <span className="flex items-center gap-1.5">
+                        {task.model?.trim() ? (
+                          <Tooltip content={task.cli?.trim() ? `${task.cli.trim()} · ${task.model.trim()}` : task.model.trim()}>
+                            <span
+                              className="max-w-[96px] truncate rounded-[4px] bg-[color:var(--bg-hover)] px-1 py-0.5 text-[10px] leading-none text-[color:var(--text-muted)]"
+                              aria-label={`Model: ${task.model.trim()}`}
+                            >
+                              {task.model.trim()}
+                            </span>
+                          </Tooltip>
+                        ) : null}
+                        <Tooltip content={getSprintEngineRoleLabel(task.role)}>
+                          <span
+                            // design-tokens-allow: role glyph is the one place per the redesign where role tones are retained.
+                            style={{ color: getSprintEngineRoleAccent(task.role) }}
+                            aria-label={`Role: ${getSprintEngineRoleLabel(task.role)}`}
+                            role="img"
+                          >
+                            <SprintEngineRoleIcon role={task.role} className="icon-sm" />
+                          </span>
+                        </Tooltip>
+                      </span>
                     }
                   />
                 )

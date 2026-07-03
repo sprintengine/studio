@@ -854,7 +854,7 @@ export type TerminalSpawnMetadata = {
   worktreeId?: string
   worktreePath?: string
   cliPermissionPreset?: SprintEngineCliPermissionPreset
-  // Orthogonal Debug Mode toggle (SpawnAgentMenu). Layers on top of the chosen
+  // Orthogonal Debug Mode toggle (the agent picker). Layers on top of the chosen
   // permission preset without changing its flags; the launch boundary prepends
   // the debug directive to the initial prompt when set. Transient per-spawn —
   // not persisted like cliPermissionPreset.
@@ -1564,6 +1564,10 @@ export type SprintEngineStateInitializeInput = {
   // When true, Sprint Engine creates one shared git worktree + branch for the
   // whole team before any task runs, and all agents work and commit there.
   useWorktrees?: boolean
+  // The roster's per-role CLI model selection, recorded into run state at init
+  // so each claimed task can be stamped with the model that worked it. A role
+  // with no explicit model (CLI default) is omitted / left null.
+  roleRuntimes?: Record<string, { model?: string | null; cli?: string | null }>
 }
 
 export type SprintEngineCliWatchPolling = 'enabled' | 'disabled'

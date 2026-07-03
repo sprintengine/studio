@@ -191,6 +191,32 @@ assert.equal(state!.locks?.warnings[0]?.ageSeconds, 360)
 assert.equal(state!.creation?.source, 'folder_store')
 assert.equal(state!.tasks.length, 3)
 
+// The per-task execution model/CLI (MC-1448) propagates through the projection
+// normalizer when present, and is absent (not fabricated) when the task carries
+// none — the CLI-default case.
+const modelState = normalizeSprintEngineProjection(fakeProjection({
+  tasks: [
+    {
+      id: 'T-model', title: 'Modelled', description: 'd', role: 'developer',
+      status: 'in_progress', folderStatus: 'in_progress', stateStatus: 'in_progress', boardColumn: 'in_progress',
+      ownedPaths: [], dependsOn: [], acceptanceCriteria: [], implementationNotes: [], notes: [], comments: [],
+      evidence: { summary: '', touchedFiles: [], commandsRan: [], results: [] }, activity: [],
+      ownerAgentId: 'developer-1', model: 'claude-fable-5', cli: 'claude-code',
+    },
+    {
+      id: 'T-default', title: 'CLI default', description: 'd', role: 'developer',
+      status: 'todo', folderStatus: 'todo', stateStatus: 'todo', boardColumn: 'todo',
+      ownedPaths: [], dependsOn: [], acceptanceCriteria: [], implementationNotes: [], notes: [], comments: [],
+      evidence: { summary: '', touchedFiles: [], commandsRan: [], results: [] }, activity: [],
+      ownerAgentId: null,
+    },
+  ],
+}))
+assert.equal(modelState!.tasks[0]?.model, 'claude-fable-5')
+assert.equal(modelState!.tasks[0]?.cli, 'claude-code')
+assert.equal(modelState!.tasks[1]?.model, undefined)
+assert.equal(modelState!.tasks[1]?.cli, undefined)
+
 const externalNeedsInputState = normalizeSprintEngineProjection(fakeProjection({
   tasks: [
     {

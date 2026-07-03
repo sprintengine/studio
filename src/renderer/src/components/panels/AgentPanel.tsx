@@ -1,4 +1,4 @@
-import React, { useCallback, useMemo } from 'react'
+import React, { useCallback, useEffect, useLayoutEffect, useMemo, useState } from 'react'
 import { useWorkspaceStore } from '../../store/workspaceStore'
 import { useSession } from '../../hooks/useTerminalSessions'
 import type {
@@ -132,6 +132,29 @@ export default function AgentPanel({
     ),
   )
   const isTerminalSuspended = Boolean(terminalSession?.suspended)
+  // Resume-in-flight: TerminalView relaunches the CLI over a few seconds and
+  // suppresses its boot output, so the footer must acknowledge the click/type
+  // itself ("Resuming…") or it reads as dead. TerminalView broadcasts the state
+  // (it owns the resume; typing there also triggers one). Success sends no
+  // counterpart event — `suspended` flips off and the footer collapses still
+  // reading "Resuming…"; the pending flag resets on the next suspend.
+  const [isResumePending, setIsResumePending] = useState(false)
+  useEffect(() => {
+    if (!effectiveSessionId) return
+    const onResumeState = (event: Event) => {
+      const detail = (event as CustomEvent<{ sessionId?: string; resuming?: boolean }>).detail
+      if (detail?.sessionId !== effectiveSessionId) return
+      setIsResumePending(Boolean(detail?.resuming))
+    }
+    window.addEventListener('multicode:terminal-resume-state', onResumeState)
+    return () => window.removeEventListener('multicode:terminal-resume-state', onResumeState)
+  }, [effectiveSessionId])
+  // Layout effect: a fresh suspend re-expands the footer, and the stale pending
+  // flag from the previous resume must clear before that first paint or the
+  // strip briefly reads "Resuming…" on a terminal that just paused.
+  useLayoutEffect(() => {
+    if (isTerminalSuspended) setIsResumePending(false)
+  }, [isTerminalSuspended])
   // The terminal has a live agent process (green "live" dot). A suspended session
   // reports processAlive=false, so live and suspended are mutually exclusive.
   const isTerminalLive = Boolean(terminalSession?.processAlive)
@@ -303,28 +326,63 @@ export default function AgentPanel({
         {/* Paused indicator: a quiet, reserved footer (not an overlay) so the
             frozen scrollback above stays fully readable and scrollable. It is the
             whole resume affordance — keyboard-focusable, click resumes (typing or
-            a click on the pane also resume). Kept deliberately low-key: a muted
-            pause glyph + "Paused", with the resume hint revealed on pane hover. */}
-        {hasStarted && isTerminalSuspended ? (
-          <button
-            type="button"
-            onClick={resumeTerminal}
-            aria-label="Resume paused agent — click or type to resume"
-            className="flex flex-none items-center gap-2 border-t border-[color:var(--border-subtle)] bg-[color:var(--bg-app)] px-3.5 py-[7px] text-left text-[11px] text-[color:var(--text-muted)] transition-colors hover:text-[color:var(--text-default)] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[color:var(--accent-primary-soft)]"
+            a click on the pane also resume) — and it doubles as resume feedback:
+            the label flips to "Resuming…" (glyph pulsing) until the live TUI
+            repaints, since the relaunch takes seconds with boot output withheld.
+            The wrapper stays mounted (inert at 0fr) so the strip animates its
+            claim/release of terminal space instead of jumping the pane by a row;
+            the ResizeObserver in TerminalView refits xterm through the ease. */}
+        {hasStarted ? (
+          <div
+            aria-hidden={!isTerminalSuspended}
+            className={`grid flex-none transition-[grid-template-rows] duration-200 ease-out motion-reduce:transition-none ${
+              isTerminalSuspended ? 'grid-rows-[1fr]' : 'grid-rows-[0fr]'
+            }`}
           >
-            {/* Pause glyph, low-opacity — a status mark, not a call to action. */}
-            <svg viewBox="0 0 16 16" fill="none" className="h-[11px] w-[11px] opacity-60" aria-hidden="true">
-              <rect x="5" y="4" width="2" height="8" rx="1" fill="currentColor" />
-              <rect x="9" y="4" width="2" height="8" rx="1" fill="currentColor" />
-            </svg>
-            <span>Paused</span>
-            {/* Hint stays hidden until pane hover (kept low-key), but reveals at
-                full muted contrast — a reduced opacity here fell under the WCAG AA
-                text threshold against --bg-app. */}
-            <span className="ml-auto opacity-0 transition-opacity group-hover:opacity-100">
-              click or type to resume
-            </span>
-          </button>
+            <div className="overflow-hidden">
+              <button
+                type="button"
+                onClick={resumeTerminal}
+                tabIndex={isTerminalSuspended ? 0 : -1}
+                aria-label={
+                  isResumePending
+                    ? 'Resuming agent'
+                    : 'Resume paused agent — click or type to resume'
+                }
+                className="flex w-full items-center gap-2 border-t border-[color:var(--border-subtle)] bg-[color:var(--bg-app)] px-3.5 py-[7px] text-left text-[11px] text-[color:var(--text-muted)] transition-colors hover:text-[color:var(--text-default)] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[color:var(--accent-primary-soft)]"
+              >
+                {/* Pause glyph, low-opacity — a status mark, not a call to action.
+                    The pulse while resuming is the "alive right now" signal; it
+                    stops once the resume lands (suspended flips off) so the
+                    collapse is the only motion during the strip's exit. */}
+                <svg
+                  viewBox="0 0 16 16"
+                  fill="none"
+                  className={`h-[11px] w-[11px] opacity-60 ${
+                    isResumePending && isTerminalSuspended
+                      ? 'animate-pulse motion-reduce:animate-none'
+                      : ''
+                  }`}
+                  aria-hidden="true"
+                >
+                  <rect x="5" y="4" width="2" height="8" rx="1" fill="currentColor" />
+                  <rect x="9" y="4" width="2" height="8" rx="1" fill="currentColor" />
+                </svg>
+                <span>{isResumePending ? 'Resuming…' : 'Paused'}</span>
+                {/* Hint stays hidden until pane hover (kept low-key), but reveals
+                    at full muted contrast — a reduced opacity here fell under the
+                    WCAG AA text threshold against --bg-app. Withheld while a
+                    resume is in flight: the action already happened. */}
+                <span
+                  className={`ml-auto opacity-0 transition-opacity ${
+                    isResumePending ? '' : 'group-hover:opacity-100'
+                  }`}
+                >
+                  click or type to resume
+                </span>
+              </button>
+            </div>
+          </div>
         ) : null}
       </div>
     </div>

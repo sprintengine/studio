@@ -32,6 +32,13 @@ export type SpecialistAction = {
   shortcut?: string
 }
 
+// Reserved engine-defaults key for the General agent. General is not special-
+// cased: its CLI + model persist through the same `specialistCliDefaults` /
+// `specialistModelDefaults` maps as every specialist, keyed by this sentinel.
+// The double-underscore guarantees it never collides with a real specialist id,
+// and it is never added to the specialist roster or `specialistOrder`.
+export const GENERAL_AGENT_ENGINE_KEY = '__general__' as SpecialistActionId
+
 export type MultiloopRoleDescriptor = {
   role: MultiloopRole
   label: string

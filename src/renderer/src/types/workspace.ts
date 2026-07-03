@@ -728,6 +728,14 @@ export type SprintEngineAutoState = {
   maxConcurrentAgents: number
   pendingSpawns: SprintEngineAutoPendingSpawn[]
   deliveredAgentNotificationEventKeys: string[]
+  // One-shot completion-teardown marker: set (to the teardown timestamp) after
+  // `tearDownCompletedSprintRunAgents` finished for the current completion, so
+  // the projection reconcile never re-fires teardown against panels the user
+  // re-opened afterwards (board resume, recovery audit, manual spawn). Cleared
+  // by the reconcile when the run's tasks are no longer all done (scope
+  // expansion / a chained follow-up sprint), re-arming teardown for the next
+  // completion. Persisted with the rest of the auto state.
+  completionTeardownAt?: number
 }
 
 export type MultiloopAutoPendingSpawn = {
@@ -959,6 +967,9 @@ export type SprintEngineSourcePlanKind =
   | 'unknown'
   | 'product_plan'
   | 'architect_plan'
+  // A backlog epic launched as a reference-based sprint. Only ever a root plan
+  // kind — the epic's children carry their own leaf kinds in the source bundle.
+  | 'epic'
 
 export type SprintEngineSourceBundleKind =
   | SprintEngineSourcePlanKind
@@ -1003,6 +1014,13 @@ export type SprintEngineTask = {
    *  leaves the worker's hands (review/testing/product) so the owning worker
    *  stays visible while `ownerAgentId` is null. */
   lastImplementedByAgentId?: string | null
+  /** CLI model that worked this task (e.g. `claude-fable-5`, `opus[1m]`),
+   *  stamped at claim from the roster's per-role model selection. Retained
+   *  through handoff for attribution and per-task usage metrics. Absent when
+   *  the role runs on the CLI's default model. */
+  model?: string | null
+  /** CLI the recorded `model` belongs to (e.g. `claude-code`). */
+  cli?: string | null
   dependsOn: string[]
   ownedPaths: string[]
   acceptanceCriteria: string[]
@@ -1457,6 +1475,13 @@ export type AppSettings = {
   keybindings: KeybindingSettings
   mcp: McpSettings
   skillPacks: SkillPackSettings
+  /**
+   * The user's global default CLI — the fallback shown for any specialist,
+   * multiloop role, Sprint Engine role, or automation with no per-agent default,
+   * and settable directly in Settings. The General agent, like every specialist,
+   * carries its own entry in `specialistCliDefaults` / `specialistModelDefaults`
+   * (keyed by `GENERAL_AGENT_ENGINE_KEY`), so its engine is isolated from this.
+   */
   lastSelectedCli: AgentCli
   /**
    * Last provider/model pair spawned as a conversation agent, so a new
@@ -1788,7 +1813,7 @@ export type AgentState = {
   // Sprint Engine auto-run keep the model the agent was created with.
   cliModel?: string
   cliPermissionPreset?: SprintEngineCliPermissionPreset
-  // Orthogonal Debug Mode toggle (SpawnAgentMenu). Set per-spawn from the
+  // Orthogonal Debug Mode toggle (the agent picker). Set per-spawn from the
   // transient spawn-UI state; the launch boundary prepends the debug directive
   // to the initial prompt when true. Not persisted-by-default UI: defaults off
   // each spawn, but recorded on the agent so the launch path can read it.
