@@ -7,6 +7,9 @@ import { buildSync } from 'esbuild'
 import { normalizeMcpServerConfig } from '../../src/main/mcp-config-service'
 import {
   MARKETPLACE_COMPONENT_KINDS,
+  MARKETPLACE_EXTRA_HOSTS_ENV,
+  isMarketplaceSourceHostAllowed,
+  parseMarketplaceExtraHosts,
   parseMarketplaceIndex,
   parseMarketplacePluginManifest,
   type MarketplaceComponentKind,
@@ -190,22 +193,23 @@ function validateMcpComponent(
 }
 
 function validateEntrySource(entryId: string, source: string, issues: VerificationIssue[]): void {
+  let parsed: URL
   try {
-    const parsed = new URL(source)
-    if (parsed.protocol !== 'https:') {
-      issues.push(issue(`plugins.${entryId}.source`, 'source must be an HTTPS URL.'))
-      return
-    }
-    const segments = parsed.pathname.split('/').filter(Boolean)
-    const canonical = ['multicode-labs', 'marketplace', 'tree', 'main', 'plugins', entryId]
-    if (parsed.hostname !== 'github.com' || segments.length !== canonical.length || segments.some((segment, index) => segment !== canonical[index])) {
-      issues.push(issue(
-        `plugins.${entryId}.source`,
-        `source must be the canonical registry path https://github.com/multicode-labs/marketplace/tree/main/plugins/${entryId}.`
-      ))
-    }
+    parsed = new URL(source)
   } catch {
     issues.push(issue(`plugins.${entryId}.source`, 'source must be a valid HTTPS URL.'))
+    return
+  }
+  if (parsed.protocol !== 'https:') {
+    issues.push(issue(`plugins.${entryId}.source`, 'source must be an HTTPS URL.'))
+    return
+  }
+  const extraHosts = parseMarketplaceExtraHosts(process.env[MARKETPLACE_EXTRA_HOSTS_ENV])
+  if (!isMarketplaceSourceHostAllowed(parsed.hostname, extraHosts)) {
+    issues.push(issue(
+      `plugins.${entryId}.source`,
+      `source host "${parsed.hostname}" is not on the marketplace allowlist.`
+    ))
   }
 }
 

@@ -8,7 +8,14 @@ import type {
   MarketplacePluginEntry,
   MarketplacePluginManifest,
 } from '../../shared/marketplace'
-import { MARKETPLACE_COMPONENT_KINDS, parseMarketplacePluginManifest } from '../../shared/marketplace'
+import {
+  MARKETPLACE_CANONICAL_SOURCE,
+  MARKETPLACE_COMPONENT_KINDS,
+  MARKETPLACE_EXTRA_HOSTS_ENV,
+  isMarketplaceSourceHostAllowed,
+  parseMarketplaceExtraHosts,
+  parseMarketplacePluginManifest,
+} from '../../shared/marketplace'
 import { isSafeManifestRelativePath } from '../../../packages/module-sdk/src/manifest-validate'
 import {
   marketplaceComponentDigestMismatchIssuesSync,
@@ -253,7 +260,13 @@ async function copyPackagedMarketplacePluginBundle(
 }
 
 function packagedMarketplacePluginRelativePath(source: GithubTreeSource, entryId: string): string | null {
-  if (source.owner !== 'multicode-labs' || source.repo !== 'marketplace' || source.ref !== 'main') return null
+  if (
+    source.owner !== MARKETPLACE_CANONICAL_SOURCE.owner ||
+    source.repo !== MARKETPLACE_CANONICAL_SOURCE.repo ||
+    source.ref !== MARKETPLACE_CANONICAL_SOURCE.ref
+  ) {
+    return null
+  }
   const expectedPath = `plugins/${entryId}`
   return source.path === expectedPath ? expectedPath : null
 }
@@ -474,13 +487,18 @@ function relativeGithubPath(basePath: string, path: string | undefined): string 
 }
 
 function parseHttpsUrl(value: string): { ok: true; url: URL } | { ok: false; message: string } {
+  let url: URL
   try {
-    const url = new URL(value)
-    if (url.protocol !== 'https:') return { ok: false, message: 'Marketplace plugin source URL must use HTTPS.' }
-    return { ok: true, url }
+    url = new URL(value)
   } catch {
     return { ok: false, message: 'Marketplace plugin source URL is invalid.' }
   }
+  if (url.protocol !== 'https:') return { ok: false, message: 'Marketplace plugin source URL must use HTTPS.' }
+  const extraHosts = parseMarketplaceExtraHosts(process.env[MARKETPLACE_EXTRA_HOSTS_ENV])
+  if (!isMarketplaceSourceHostAllowed(url.hostname, extraHosts)) {
+    return { ok: false, message: `Marketplace plugin source host "${url.hostname}" is not on the allowlist.` }
+  }
+  return { ok: true, url }
 }
 
 function ensureTrailingSlash(value: string): string {

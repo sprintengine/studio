@@ -296,10 +296,10 @@ function createGithubFetcher(folders: Map<string, Map<string, string>>): Marketp
       return new Response(JSON.stringify(Array.from(files.keys()).map((path) => ({
         type: 'file',
         path: `plugins/${folder}/${path}`,
-        download_url: `https://raw.example.test/${folder}/${path}`,
+        download_url: `https://raw.githubusercontent.com/multicode-labs/marketplace/main/${folder}/${path}`,
       }))))
     }
-    const raw = url.match(/^https:\/\/raw\.example\.test\/([^/]+)\/(.+)$/)
+    const raw = url.match(/^https:\/\/raw\.githubusercontent\.com\/multicode-labs\/marketplace\/main\/([^/]+)\/(.+)$/)
     if (raw) {
       const files = folders.get(raw[1]!)
       const body = files?.get(raw[2]!)

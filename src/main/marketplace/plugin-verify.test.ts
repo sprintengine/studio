@@ -15,9 +15,9 @@ import {
 import { createMarketplacePluginVerifier } from './plugin-verify'
 import type { MarketplacePluginDownloadFetch } from './plugin-download'
 
-const SOURCE_URL = 'https://example.test/plugins/preview-plugin/'
-const PLUGIN_JSON_URL = 'https://example.test/plugins/preview-plugin/plugin.json'
-const MCP_JSON_URL = 'https://example.test/plugins/preview-plugin/mcp/server.json'
+const SOURCE_URL = 'https://raw.githubusercontent.com/preview/preview-plugin/main/'
+const PLUGIN_JSON_URL = 'https://raw.githubusercontent.com/preview/preview-plugin/main/plugin.json'
+const MCP_JSON_URL = 'https://raw.githubusercontent.com/preview/preview-plugin/main/mcp/server.json'
 
 type Fixture = {
   entry: MarketplacePluginEntry
