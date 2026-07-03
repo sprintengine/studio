@@ -359,7 +359,11 @@ async function testMcpFanOutWarningDoesNotReportCleanSuccess(): Promise<void> {
     const bundle = await createBundle(temp, components)
     const lookupPlugin: PluginLookup = (id) => {
       if (id === 'codex') return { manifest: mcpPluginManifest(id, 'codex') }
-      if (id === 'opencode') return { manifest: mcpPluginManifest(id, 'opencode') }
+      // The second fan-out client declares an unimplemented config-writer format
+      // ('generic') so sync emits a warning and writes no target for it. Exercises
+      // the installer's contract that a fan-out warning is not masked as clean
+      // success, independent of which per-format writers happen to be implemented.
+      if (id === 'opencode') return { manifest: mcpPluginManifest(id, 'generic') }
       return undefined
     }
     const { input, services, workspaceRoot } = await installInput(temp, bundle, {
@@ -376,7 +380,7 @@ async function testMcpFanOutWarningDoesNotReportCleanSuccess(): Promise<void> {
     assert.deepEqual(result.installed?.map((component) => component.kind), ['mcp'])
     assert.ok(
       result.issues?.some((issue) =>
-        issue.path === 'clients.opencode' && /writer for format "opencode" is not implemented/.test(issue.message)
+        issue.path === 'clients.opencode' && /writer for format "generic" is not implemented/.test(issue.message)
       ),
       `expected opencode warning in install issues, got ${JSON.stringify(result.issues)}`
     )
