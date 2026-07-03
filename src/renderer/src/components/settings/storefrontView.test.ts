@@ -4,6 +4,7 @@ import type { MarketplaceRegistryReadResult } from '../../../../shared/electron-
 import type { MarketplaceIndex, MarketplacePluginEntry } from '../../../../shared/marketplace/manifest'
 import {
   deriveBrowseView,
+  externalSourceHref,
   filterPlugins,
   groupPluginsByCategory,
   type BrowseLoad,
@@ -235,6 +236,28 @@ assert.equal(deriveBrowseView({ status: 'unsupported' }, '').status, 'unsupporte
   if (view.status !== 'ready') throw new Error('unreachable')
   assert.equal(view.featured.length, 0)
   assert.equal(view.total, 4)
+}
+
+{
+  // "View source" href guard: http(s) sources pass through unchanged so the
+  // link still renders and opens.
+  assert.equal(
+    externalSourceHref('https://github.com/multicode-labs/marketplace/tree/main/plugins/x'),
+    'https://github.com/multicode-labs/marketplace/tree/main/plugins/x',
+  )
+  assert.equal(externalSourceHref('http://example.com/x'), 'http://example.com/x')
+}
+
+{
+  // Fail closed: non-http(s) schemes that would reach shell.openExternal render
+  // no link. Covers file:// / smb:// / an OS protocol-handler scheme.
+  assert.equal(externalSourceHref('file:///etc/passwd'), undefined)
+  assert.equal(externalSourceHref('smb://host/share'), undefined)
+  assert.equal(externalSourceHref('ms-msdt:/id'), undefined)
+  // Missing/absent and unparseable sources also fail closed (inline-MCP entries
+  // carry no source and must show no link).
+  assert.equal(externalSourceHref(undefined), undefined)
+  assert.equal(externalSourceHref('not a url'), undefined)
 }
 
 console.log('storefrontView.test.ts passed')
