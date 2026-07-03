@@ -308,6 +308,12 @@ export type AutomationRun = {
   blockedReason?: string
   workspaceId?: string
   agentId?: string
+  /**
+   * Terminal-session executionId of the spawned agent, resolved at launch-confirm
+   * time. Correlates an agent-lifecycle exit back to this run. Optional: historical
+   * runs and resolution misses degrade to the poll-scan.
+   */
+  executionId?: string
   promptFingerprint?: string
   touchedFiles?: string[]
   commandsRan?: string[]
@@ -318,6 +324,8 @@ export type AutomationRun = {
   branch?: string
   /** Pull request opened for the run's branch on completion, when available. */
   pullRequestUrl?: string
+  /** Report files the run produced, project-relative and contained under `reports/`. */
+  reportPaths?: string[]
 }
 
 export type AutomationCliPermissionPreset = 'default' | 'auto_workspace' | 'bypass_all'
