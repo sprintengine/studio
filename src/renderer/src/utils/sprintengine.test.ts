@@ -49,6 +49,7 @@ import {
   sprintEngineRoleOrder,
   sprintEngineRunAwaitsHumanInput,
   shouldResumeRecordedRosterSession,
+  willResumeRecordedRosterSession,
 } from './sprintengine'
 import { taskGraphEdgeStyle, taskGraphEndEdgeStyle } from '../components/panels/sprintEngineTaskGraph'
 import { sprintEngineGateAttemptVisualState } from '../components/panels/sprintEngineInspector'
@@ -71,7 +72,7 @@ import {
   buildSprintEngineRecoveryAuditPrompt,
   buildSprintEngineRosterRevisionPrompt,
 } from './sprintenginePlanReviewPrompts'
-import type { SprintEngineRoleId, SprintEngineRoleRegistry, SprintEngineState, SprintEngineTask } from '../types/workspace'
+import type { AgentCli, SprintEngineRoleId, SprintEngineRoleRegistry, SprintEngineRosterSession, SprintEngineState, SprintEngineTask } from '../types/workspace'
 
 function fakeProjection(overrides: Partial<Record<string, unknown>> = {}): Record<string, unknown> {
   return {
@@ -2826,6 +2827,101 @@ type FakeTask = { role: string; status: SprintEngineTask['status'] }
     shouldResumeRecordedRosterSession({ sprintEngineState: null, autoRuntimeState: undefined, agentId: 'developer-1' }),
     false,
     'cold reopen without a complete lifecycle spawns fresh',
+  )
+}
+
+// willResumeRecordedRosterSession — the shared Resume-vs-Spawn gate (T12). Must
+// match spawnAgent's real resume gate: lifecycle wants resume AND a recorded
+// session with a cliSessionId exists for a resume-capable CLI. This is the gate
+// the roster label and spawnAgent both read, so they can never drift.
+{
+  const task = (id: string, status: string): SprintEngineTask => ({ id, status } as unknown as SprintEngineTask)
+  const ownedBy = (lastOwnedTaskId: string | null): SprintEngineState['sprintEngineAgents'][string] =>
+    ({ lastOwnedTaskId } as unknown as SprintEngineState['sprintEngineAgents'][string])
+  const state = (
+    tasks: SprintEngineTask[],
+    agents: Record<string, SprintEngineState['sprintEngineAgents'][string]>,
+  ): SprintEngineState => ({ tasks, sprintEngineAgents: agents } as unknown as SprintEngineState)
+  const session = (cli: AgentCli, cliSessionId: string): SprintEngineRosterSession =>
+    ({ cli, cliSessionId, recordedAt: 0 } as SprintEngineRosterSession)
+
+  const completeRun = state([task('T1', 'done')], {})
+
+  // 1. Run wants resume + recorded resume-capable session → resume.
+  assert.equal(
+    willResumeRecordedRosterSession({
+      sprintEngineState: completeRun,
+      autoRuntimeState: undefined,
+      recorded: session('claude-code', 'sess-1'),
+      agentId: 'developer-1',
+    }),
+    true,
+    'a completed run with a recorded resume-capable session resumes',
+  )
+
+  // 2. Run wants resume but NO recorded session → fresh (post-completion
+  //    never-run id): the exact inverse-mislabel the shared gate fixes.
+  assert.equal(
+    willResumeRecordedRosterSession({
+      sprintEngineState: completeRun,
+      autoRuntimeState: undefined,
+      recorded: undefined,
+      agentId: 'developer-1',
+    }),
+    false,
+    'a post-completion id with no recorded session spawns fresh, not Resume',
+  )
+
+  // 3. Recorded session but a resume-incapable CLI → fresh.
+  assert.equal(
+    willResumeRecordedRosterSession({
+      sprintEngineState: completeRun,
+      autoRuntimeState: undefined,
+      recorded: session('gemini', 'sess-1'),
+      agentId: 'developer-1',
+    }),
+    false,
+    'a resume-incapable recorded CLI spawns fresh',
+  )
+
+  // 4. Recorded session missing its cliSessionId → fresh.
+  assert.equal(
+    willResumeRecordedRosterSession({
+      sprintEngineState: completeRun,
+      autoRuntimeState: undefined,
+      recorded: { cli: 'claude-code', cliSessionId: '', recordedAt: 0 } as SprintEngineRosterSession,
+      agentId: 'developer-1',
+    }),
+    false,
+    'a recorded session without a cliSessionId spawns fresh',
+  )
+
+  // 5. Resumable session present but the lifecycle does not want resume (owner's
+  //    task still open) → fresh: the session gate cannot override shouldResume.
+  assert.equal(
+    willResumeRecordedRosterSession({
+      sprintEngineState: state([task('T1', 'in_progress')], { 'developer-1': ownedBy(null) }),
+      autoRuntimeState: undefined,
+      recorded: session('claude-code', 'sess-1'),
+      agentId: 'developer-1',
+    }),
+    false,
+    'a recorded session does not resume while the lifecycle wants a fresh spawn',
+  )
+
+  // 6. Mid-run departed worker (own done task) + resumable session → resume.
+  assert.equal(
+    willResumeRecordedRosterSession({
+      sprintEngineState: state(
+        [task('T1', 'done'), task('T2', 'in_progress')],
+        { 'developer-1': ownedBy('T1') },
+      ),
+      autoRuntimeState: undefined,
+      recorded: session('codex', 'sess-1'),
+      agentId: 'developer-1',
+    }),
+    true,
+    'a mid-run departed worker with a resumable session resumes',
   )
 }
 

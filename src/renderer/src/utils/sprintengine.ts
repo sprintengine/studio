@@ -21,6 +21,7 @@ import type {
   SprintEngineRecordedArtifact,
   SprintEngineRole,
   SprintEngineRoleCounts,
+  SprintEngineRosterSession,
   SprintEngineRoleRuntimes,
   SprintEngineRoleId,
   SprintEngineRoleRegistry,
@@ -69,6 +70,7 @@ import {
   deriveSprintEngineAutomationDesiredMode,
   normalizeSprintEngineAutomationRuntimeState,
 } from './sprintengineAutomationLifecycle'
+import { agentCliSupportsConversationResume } from './agentCliResume'
 import type { LifecycleState } from '../components/ui/LifecycleGlyph'
 
 // Sprint Engine board column → the shared lifecycle vocabulary. The pipeline
@@ -185,6 +187,34 @@ export function shouldResumeRecordedRosterSession(input: {
   const ownedTaskId = sprintEngineState?.sprintEngineAgents?.[agentId]?.lastOwnedTaskId
   if (!ownedTaskId) return false
   return sprintEngineState?.tasks.some((task) => task.id === ownedTaskId && task.status === 'done') ?? false
+}
+
+/**
+ * Whether re-opening a departed roster id would actually RESUME its recorded
+ * conversation rather than start fresh. This is the single source of truth for
+ * the roster's Resume-vs-Spawn label and MUST match spawnAgent's real resume
+ * gate (`useSprintEngineBoardTerminalActions.ts`): the lifecycle wants resume
+ * (`shouldResumeRecordedRosterSession`) AND a recorded session with a
+ * `cliSessionId` exists for a CLI that supports conversation resume.
+ *
+ * The recorded-session gate is load-bearing: `shouldResumeRecordedRosterSession`
+ * is broader — it returns true for EVERY non-live id once the run completes — so
+ * without this gate an idle/never-recorded id or a resume-incapable CLI would
+ * read 'Resume' yet spawn fresh (the inverse of the bug the label split fixes).
+ */
+export function willResumeRecordedRosterSession(input: {
+  sprintEngineState: SprintEngineState | null | undefined
+  autoRuntimeState: SprintEngineAutomationRuntimeState | undefined
+  recorded: SprintEngineRosterSession | null | undefined
+  agentId: AgentId
+}): boolean {
+  const { recorded } = input
+  if (!recorded?.cliSessionId || !agentCliSupportsConversationResume(recorded.cli)) return false
+  return shouldResumeRecordedRosterSession({
+    sprintEngineState: input.sprintEngineState,
+    autoRuntimeState: input.autoRuntimeState,
+    agentId: input.agentId,
+  })
 }
 
 // One run, one glyph, derived purely from sprint state — the task board plus the

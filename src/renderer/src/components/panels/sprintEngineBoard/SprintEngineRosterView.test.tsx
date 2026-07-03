@@ -48,6 +48,7 @@ const roster: SprintEngineAgentRosterItem[] = [
   { id: 'developer-1', label: 'Developer 1', role: 'developer' },
   { id: 'developer-2', label: 'Developer 2', role: 'developer' },
   { id: 'developer-3', label: 'Developer 3', role: 'developer' },
+  { id: 'developer-4', label: 'Developer 4', role: 'developer' },
   { id: 'tester', label: 'Tester 1', role: 'tester' },
   { id: 'tester-2', label: 'Tester 2', role: 'tester' },
   { id: 'security-1', label: 'Security 1', role: 'security' },
@@ -59,8 +60,11 @@ const agents = {
   // Spawn requested but no live terminal yet -> pending row state.
   'developer-1': { name: 'Developer 1', cli: 'codex', cliStartRequested: true } as unknown as AgentState,
   'developer-2': { name: 'Developer 2', cli: 'codex', cliModel: 'model-a' } as unknown as AgentState,
-  // Departed worker: no live terminal, its done task makes re-open a resume.
+  // Departed worker: no live terminal, willResumeAgent -> true (Resume).
   'developer-3': { name: 'Developer 3', cli: 'claude-code' } as unknown as AgentState,
+  // Idle, post-completion, no recorded session: not live, willResumeAgent ->
+  // false, so it must render Spawn (not Resume) — the inverse-of-FIND-1 case.
+  'developer-4': { name: 'Developer 4', cli: 'claude-code' } as unknown as AgentState,
   tester: { name: 'Tester 1', cli: 'claude-code' } as unknown as AgentState,
   'tester-2': { name: 'Tester 2', cli: 'claude-code' } as unknown as AgentState,
   'security-1': { name: 'Security 1', cli: 'claude-code' } as unknown as AgentState,
@@ -72,6 +76,7 @@ const runtimeAgents: RuntimeAgentView[] = [
   { agentId: 'developer-1', label: 'Developer 1', role: 'developer', status: 'idle', currentTaskId: null },
   { agentId: 'developer-2', label: 'Developer 2', role: 'developer', status: 'running', currentTaskId: 'T2' },
   { agentId: 'developer-3', label: 'Developer 3', role: 'developer', status: 'exited', currentTaskId: null },
+  { agentId: 'developer-4', label: 'Developer 4', role: 'developer', status: 'exited', currentTaskId: null },
   { agentId: 'tester', label: 'Tester 1', role: 'tester', status: 'idle', currentTaskId: null },
   { agentId: 'tester-2', label: 'Tester 2', role: 'tester', status: 'needs_input', currentTaskId: 'T3' },
   { agentId: 'security-1', label: 'Security 1', role: 'security', status: 'idle', currentTaskId: null },
@@ -80,6 +85,11 @@ const runtimeAgents: RuntimeAgentView[] = [
 // Live terminals: architect, frontend, developer-2. tester-2 is needs_input
 // (not live) so its group still auto-expands on the attention state.
 const liveAgentIds = new Set(['architect', 'frontend', 'developer-2'])
+
+// The spawn container's resolved resume gate (matches spawnAgent). Only
+// developer-3 has a resumable recorded session; every other non-live id (idle
+// developer-4, mid-task tester-2) would spawn fresh -> Spawn label.
+const willResumeIds = new Set(['developer-3'])
 
 const html = renderToStaticMarkup(
   <SprintEngineRosterView
@@ -102,6 +112,7 @@ const html = renderToStaticMarkup(
       { role: 'product', label: 'Product', summary: 'Shapes scope.', activeForRole: 0, openTasksForRole: 0 },
     ]}
     isAgentTerminalLive={(agentId) => liveAgentIds.has(agentId)}
+    willResumeAgent={(agentId) => willResumeIds.has(agentId)}
     runtimeSummaryFor={(agentId) => (agentId === 'developer-2' ? 'Codex · model-a' : null)}
     cliOptions={[]}
     agentRuntimeCli={(agentId) => (agents[agentId]?.cli ?? 'codex') as AgentCli}
@@ -145,15 +156,18 @@ assert.equal((html.match(/>Reviewer</g) || []).length, 1, 'only the persistent r
 assert.ok(html.includes('aria-label="Open Developer 2 terminal"'), 'live row exposes a labeled Open action')
 assert.ok(html.includes('aria-label="Developer 2 actions"'), 'live row exposes a labeled row menu')
 
-// Departed worker whose owned task is done -> Resume (matches
-// shouldResumeRecordedRosterSession); the click still routes through the spawn
-// handler, which resumes the recorded conversation. No live terminal here.
-assert.ok(html.includes('aria-label="Resume Developer 3"'), 'departed-resumable row exposes a Resume action')
-assert.ok(html.includes('>Resume<'), 'departed-resumable primary action reads Resume, not Spawn')
+// Departed id whose spawn-side resume gate (willResumeAgent) is true -> Resume;
+// the click still routes through the spawn handler, which resumes the recorded
+// conversation. No live terminal here.
+assert.ok(html.includes('aria-label="Resume Developer 3"'), 'a willResume row exposes a Resume action')
+assert.ok(html.includes('>Resume<'), 'a willResume primary action reads Resume, not Spawn')
 
-// A not-live worker whose owned task is still open is not resumable -> Spawn,
-// so a never-run/mid-task id keeps the fresh-start affordance.
-assert.ok(html.includes('aria-label="Spawn Tester 2"'), 'a not-resumable not-live row keeps Spawn')
+// Inverse-of-FIND-1 guard: a not-live id whose resume gate is false must render
+// Spawn, never Resume — covers the idle/post-completion no-session id
+// (developer-4) and the mid-task id (tester-2). The label follows willResumeAgent
+// exactly, so it can't claim Resume for an id that would fresh-spawn.
+assert.ok(html.includes('aria-label="Spawn Developer 4"'), 'an idle no-session id renders Spawn, not Resume')
+assert.ok(html.includes('aria-label="Spawn Tester 2"'), 'a mid-task not-resumable id keeps Spawn')
 
 // CLI · model runtime summary on the row meta line.
 assert.ok(html.includes('Codex · model-a'), 'row meta line shows the CLI · model runtime summary')

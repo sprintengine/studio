@@ -8,8 +8,7 @@ import type {
   WorkspaceId,
 } from '../../../types/workspace'
 import { addAgentTabTiled, focusOrAddAgentTab, hasAgentTab } from '../../../utils/modelRegistry'
-import { agentCliSupportsConversationResume } from '../../../utils/agentCliResume'
-import { getSprintEngineRoleLabel, shouldResumeRecordedRosterSession, type SprintEngineAgentRosterItem } from '../../../utils/sprintengine'
+import { getSprintEngineRoleLabel, willResumeRecordedRosterSession, type SprintEngineAgentRosterItem } from '../../../utils/sprintengine'
 import { prependAgentIdentifier } from '../../../utils/agentPrompt'
 import { publishDiagnostic } from '../../../utils/diagnostics'
 import {
@@ -94,6 +93,12 @@ export type SprintEngineBoardTerminalActions = {
   // defaults. If a live terminal already exists, focuses it instead of
   // re-spawning.
   spawnAgent: (agentId: string) => Promise<void>
+  // Whether spawnAgent would RESUME this id's recorded conversation rather than
+  // start fresh — the shared source of truth for the roster's Resume-vs-Spawn
+  // label. Matches spawnAgent's own resume gate; not live-aware, so callers that
+  // render an Open action for a live terminal combine it with their own liveness
+  // check.
+  willResumeAgent: (agentId: string) => boolean
   openRecoveryDialog: () => void
   confirmRecoveryAudit: () => Promise<void>
   requestPlanReviews: () => void
@@ -360,6 +365,18 @@ export function useSprintEngineBoardTerminalActions(
     })
   }
 
+  // Whether spawnAgent would resume this id's recorded conversation. The shared
+  // resume gate (`willResumeRecordedRosterSession`) is the single source of
+  // truth for both this handler and the roster's Resume-vs-Spawn label, so the
+  // two can never drift. Not live-aware: spawnAgent guards liveness separately.
+  const willResumeAgent: SprintEngineBoardTerminalActions['willResumeAgent'] = (agentId) =>
+    willResumeRecordedRosterSession({
+      sprintEngineState,
+      autoRuntimeState: workspace?.sprintEngineAutoState?.runtimeState,
+      recorded: workspace?.sprintEngineRosterSessions?.[agentId],
+      agentId,
+    })
+
   const spawnAgent: SprintEngineBoardTerminalActions['spawnAgent'] = async (agentId) => {
     setSelectedAgentId(agentId)
 
@@ -378,15 +395,10 @@ export function useSprintEngineBoardTerminalActions(
     // conversation instead of starting fresh. Resume covers both whole-run
     // completion teardown and mid-run departed-worker teardown (B4); a stale
     // recorded entry from a prior run on the same workspace still can't hijack a
-    // fresh spawn (see `shouldResumeRecordedRosterSession`). Only when there is
-    // no live terminal and the recorded CLI supports conversation resume.
+    // fresh spawn (see `willResumeRecordedRosterSession`, which also requires a
+    // recorded cliSessionId on a resume-capable CLI).
     const recorded = workspace?.sprintEngineRosterSessions?.[agentId]
-    const shouldResume = shouldResumeRecordedRosterSession({
-      sprintEngineState,
-      autoRuntimeState: workspace?.sprintEngineAutoState?.runtimeState,
-      agentId,
-    })
-    if (shouldResume && recorded?.cliSessionId && agentCliSupportsConversationResume(recorded.cli)) {
+    if (willResumeAgent(agentId) && recorded) {
       await startAgentTerminalWhenReady(agentId, label, recorded.cli, {
         agentName: getCustomAgentName(agentId, fallbackLabel),
         resumeSessionId: recorded.cliSessionId,
@@ -467,6 +479,7 @@ export function useSprintEngineBoardTerminalActions(
     stopAgentTerminal,
     restartAgentTerminal,
     spawnAgent,
+    willResumeAgent,
     openRecoveryDialog,
     confirmRecoveryAudit,
     requestPlanReviews,

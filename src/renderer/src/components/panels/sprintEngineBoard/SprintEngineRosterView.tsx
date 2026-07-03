@@ -25,7 +25,6 @@ import type {
 } from '../../../types/workspace'
 import {
   getSprintEngineRoleLabel,
-  shouldResumeRecordedRosterSession,
   sprintEngineEnabledRoles,
   sprintEngineRoleOrder,
   type SprintEngineAgentRosterItem,
@@ -108,10 +107,10 @@ type RosterEntryDescriptor = {
   runtime: RuntimeAgentView | null
   hasLiveTerminal: boolean
   spawnPending: boolean
-  // Departed-but-resumable: not live, and re-opening this id would resume its
-  // recorded conversation rather than start fresh (mirrors
-  // shouldResumeRecordedRosterSession). Drives the primary action's Resume vs
-  // Spawn split; a never-run id is not resumable and stays Spawn.
+  // Departed-but-resumable: not live, and spawnAgent's own resume gate
+  // (willResumeAgent) says re-opening this id would resume its recorded
+  // conversation rather than start fresh. Drives the primary action's Resume vs
+  // Spawn split; a never-run or resume-incapable id is not resumable → Spawn.
   resumable: boolean
   statusKey: string
   statusLabel: string
@@ -148,6 +147,7 @@ export function SprintEngineRosterView({
   onSelectAgentModel,
   onOpenAgent,
   onSpawnAgent,
+  willResumeAgent,
   onRestartAgent,
   onKillAgent,
   inspectorContent,
@@ -172,6 +172,11 @@ export function SprintEngineRosterView({
   onSelectAgentModel: (agentId: string, cli: AgentCli, model: string | null) => void
   onOpenAgent: (agentId: string) => void
   onSpawnAgent: (agentId: string) => void
+  // Whether spawnAgent would RESUME this id's recorded conversation rather than
+  // start fresh — the shared spawn-side resume gate. Drives the Resume-vs-Spawn
+  // label so it never disagrees with what the click actually does. Not
+  // live-aware, so the view combines it with its own liveness check.
+  willResumeAgent: (agentId: string) => boolean
   onRestartAgent: (agentId: string) => void
   onKillAgent: (agentId: string) => void
   inspectorContent: React.ReactNode
@@ -213,16 +218,11 @@ export function SprintEngineRosterView({
       runtime,
       hasLiveTerminal,
       spawnPending,
-      // Not live + the run/session state means spawnAgent would resume this id's
-      // recorded conversation. autoRuntimeState is omitted: sprintEngineState is
-      // always present here, so run-completion is read straight from its tasks.
-      resumable:
-        !hasLiveTerminal
-        && shouldResumeRecordedRosterSession({
-          sprintEngineState,
-          autoRuntimeState: undefined,
-          agentId: agent.id,
-        }),
+      // Not live + spawnAgent's own resume gate (willResumeAgent) says re-opening
+      // this id would resume its recorded conversation rather than spawn fresh.
+      // Sharing that gate keeps the label from claiming Resume for a never-run or
+      // resume-incapable id that actually fresh-spawns.
+      resumable: !hasLiveTerminal && willResumeAgent(agent.id),
       statusKey,
       statusLabel,
       displayName,
@@ -423,13 +423,7 @@ export function SprintEngineRosterView({
         const pending = Boolean(agentState?.cliStartRequested) && !live
         // Same Resume/Spawn split as the row primary action, so the menu never
         // says "Spawn" for an id whose recorded conversation would be resumed.
-        const resumable =
-          !live
-          && shouldResumeRecordedRosterSession({
-            sprintEngineState,
-            autoRuntimeState: undefined,
-            agentId: menuAgent.id,
-          })
+        const resumable = !live && willResumeAgent(menuAgent.id)
         const displayName = agentState?.name?.trim() || menuAgent.label
         const close = () => setMenu(null)
 
