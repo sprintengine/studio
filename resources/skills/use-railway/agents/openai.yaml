@@ -1,0 +1,4 @@
+interface:
+  display_name: "Use Railway"
+  short_description: "Explore and operate a Railway environment from chat."
+  default_prompt: "Use $use-railway to survey my Railway environment: confirm auth, list projects and environments, report per-service deploy status, sample HTTP health, and offer follow-ups."

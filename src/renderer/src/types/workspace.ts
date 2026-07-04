@@ -1866,6 +1866,15 @@ export type AgentState = {
   // each spawn, but recorded on the agent so the launch path can read it.
   debugMode?: boolean
   cliStartupPrompt?: string
+  // Connector chat (Railway, etc.): a worktree-isolated solo chat scoped to one
+  // MCP connector plus its driving skill. `connectorMcpSettings` is the
+  // connector-only MCP config the spawn forwards *instead of* the global
+  // appSettings.mcp, so the connector server is written into this worktree's
+  // .mcp.json and nowhere else; `connectorSkillId` is the builtin skill the spawn
+  // installs into the worktree so the seeded invocation resolves. Both are seeded
+  // at creation by createConnectorChat and read by the TerminalView launch path.
+  connectorMcpSettings?: McpSettings
+  connectorSkillId?: string
   kind?: AgentKind
   specialistId?: SpecialistActionId
   multiloopRole?: MultiloopRole

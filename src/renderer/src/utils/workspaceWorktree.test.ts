@@ -1,7 +1,20 @@
 import assert from 'node:assert/strict'
 
-import { findHealthyWorktreeScope, resolveWorkspaceWorktree, resolveWorktreeSpawnFallback, type WorktreeScopeCandidate } from './workspaceWorktree'
-import type { Workspace } from '../types/workspace'
+import {
+  connectorMcpSettings,
+  connectorStartupPrompt,
+  connectorWorktreeBranch,
+  connectorWorktreePaths,
+  connectorWorktreeSlug,
+  findHealthyWorktreeScope,
+  resolveWorkspaceWorktree,
+  resolveWorktreeSpawnFallback,
+  worktreeContainerPath,
+  type WorktreeScopeCandidate,
+} from './workspaceWorktree'
+import { resolveSkillInvocation } from '../../../shared/skill-invocation'
+import type { McpServerConfig, Workspace } from '../types/workspace'
+import type { PluginSkillCatalog } from '../../../shared/plugin-manifest'
 
 type WorktreeInput = Pick<Workspace, 'folderPath' | 'worktree' | 'sprintEngineState'>
 
@@ -137,6 +150,90 @@ const mainScope = scope({ id: 'main', path: '/Users/example/project', branch: 'm
 // 12. No matching scope present → null (worktree not yet listed).
 {
   assert.equal(findHealthyWorktreeScope([mainScope], '/wt', 'sprintengine/a'), null)
+}
+
+// --- connector chats ---
+
+// 18. Branch + slug are derived from the connector id and a unique suffix.
+{
+  assert.equal(connectorWorktreeBranch('railway', 'a1b2c3d4'), 'connector/railway-a1b2c3d4')
+  assert.equal(connectorWorktreeSlug('railway', 'a1b2c3d4'), 'railway-a1b2c3d4')
+}
+
+// 19. Worktree paths land under the repo's shared `.multicode-worktrees/<repo>`
+//     container (worktreeContainerPath — the single source the Worktree manager
+//     also uses).
+{
+  assert.equal(worktreeContainerPath('/Users/example/project'), '/Users/example/.multicode-worktrees/project')
+  const paths = connectorWorktreePaths('/Users/example/project', 'railway', 'a1b2c3d4')
+  assert.deepEqual(paths, {
+    containerPath: '/Users/example/.multicode-worktrees/project',
+    destinationPath: '/Users/example/.multicode-worktrees/project/railway-a1b2c3d4',
+    slug: 'railway-a1b2c3d4',
+    branchName: 'connector/railway-a1b2c3d4',
+  })
+}
+
+// 20. connectorMcpSettings wraps exactly one server with sync ON — never a second
+//     server, so the spawn syncs only the connector into the worktree.
+{
+  const railway: McpServerConfig = {
+    id: 'railway',
+    name: 'Railway',
+    transport: 'http',
+    url: 'https://mcp.railway.com',
+    enabled: true,
+    clients: ['codex', 'claude'],
+    scope: 'workspace',
+    source: 'bundled',
+    riskLevel: 'secrets',
+  }
+  const settings = connectorMcpSettings(railway)
+  assert.equal(settings.syncEnabled, true)
+  assert.deepEqual(Object.keys(settings.servers), ['railway'])
+  assert.equal(settings.servers.railway, railway)
+}
+
+// 21. resolveSkillInvocation (shared with the debug launch path) is the plugin's
+//     CLI-native explicit template with {{skillId}} substituted — `/use-railway`
+//     (Claude) and `Use $use-railway.` (Codex).
+{
+  const claude: PluginSkillCatalog = {
+    support: 'native',
+    harnessId: 'claude',
+    restartRequired: true,
+    installTargetCount: 1,
+    invocation: { explicitTemplate: '/{{skillId}}', nativeSlashCommand: true },
+  }
+  const codex: PluginSkillCatalog = {
+    support: 'native',
+    harnessId: 'codex',
+    restartRequired: true,
+    installTargetCount: 1,
+    invocation: { explicitTemplate: 'Use ${{skillId}}.', explicitMention: true },
+  }
+  assert.equal(resolveSkillInvocation(claude, 'use-railway'), '/use-railway')
+  assert.equal(resolveSkillInvocation(codex, 'use-railway'), 'Use $use-railway.')
+}
+
+// 22. No native skill support (or no plugin, or no explicit template) → undefined,
+//     so the caller falls back to the plain instruction.
+{
+  assert.equal(resolveSkillInvocation(undefined, 'use-railway'), undefined)
+  const unsupported: PluginSkillCatalog = { support: 'unsupported', harnessId: 'x', restartRequired: false, installTargetCount: 0 }
+  assert.equal(resolveSkillInvocation(unsupported, 'use-railway'), undefined)
+  const noTemplate: PluginSkillCatalog = { support: 'native', harnessId: 'claude', restartRequired: true, installTargetCount: 1, invocation: {} }
+  assert.equal(resolveSkillInvocation(noTemplate, 'use-railway'), undefined)
+}
+
+// 23. Startup prompt leads with the invocation (when present) then the instruction;
+//     without an invocation it is the bare instruction.
+{
+  assert.equal(
+    connectorStartupPrompt('/use-railway', 'Show me my Railway environment and flag anything failing.'),
+    '/use-railway\n\nShow me my Railway environment and flag anything failing.',
+  )
+  assert.equal(connectorStartupPrompt(undefined, 'Show me my Railway environment.'), 'Show me my Railway environment.')
 }
 
 // --- resolveWorktreeSpawnFallback ---

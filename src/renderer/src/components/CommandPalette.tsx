@@ -38,6 +38,7 @@ interface Props {
   onClose: () => void
   onNewWorkspace: () => void
   onNewChat: () => void
+  onConnectRailway: () => void
   onSpawnSpecialist: (specialistId: SpecialistActionId) => void
   workspaceWindowId: WorkspaceWindowId
   workspaces: Workspace[]
@@ -53,6 +54,7 @@ export default function CommandPalette({
   onClose,
   onNewWorkspace,
   onNewChat,
+  onConnectRailway,
   onSpawnSpecialist,
   workspaceWindowId,
   workspaces,
@@ -283,6 +285,15 @@ export default function CommandPalette({
                 onClose()
               },
             },
+            {
+              id: 'connector.railway.connect',
+              label: 'Connect: Railway',
+              description: 'Open an isolated Railway connector chat in a new worktree',
+              run: () => {
+                onConnectRailway()
+                onClose()
+              },
+            },
           ]
         : []),
       ...navigationCommands,
@@ -303,7 +314,7 @@ export default function CommandPalette({
         },
       },
     ]
-  }, [workspaces, activeWorkspace, activeWorkspaceId, openFiles, addWorkspace, setActiveWorkspaceForWindow, setActiveFile, onClose, onNewChat, onNewWorkspace, onSpawnSpecialist, workspaceWindowId, keybindingPlatform, keybindingSettings, activeScopes, commandAvailability, moduleEnablement])
+  }, [workspaces, activeWorkspace, activeWorkspaceId, openFiles, addWorkspace, setActiveWorkspaceForWindow, setActiveFile, onClose, onNewChat, onNewWorkspace, onConnectRailway, onSpawnSpecialist, workspaceWindowId, keybindingPlatform, keybindingSettings, activeScopes, commandAvailability, moduleEnablement])
 
   const filtered = query.trim()
     ? commands.filter((command) => {

@@ -83,6 +83,16 @@ export const BUILTIN_SKILLS: BuiltinSkill[] = [
     description: 'Take, work, survey, or triage Backlog items with truthful lifecycle status.',
     targetPolicy: ALL_NATIVE_TARGET_POLICY,
   },
+  {
+    id: 'use-railway',
+    name: 'Use Railway',
+    version: '1.0.0',
+    description: 'Explore and operate a Railway environment from chat: auth check, projects, deploy status, health, and follow-ups.',
+    // The Railway connector installs this into whichever CLI it launches so the
+    // seed prompt can invoke it natively (.claude/skills, .codex/skills), not
+    // just .agents/. createConnectorChat ensure-installs it at spawn.
+    targetPolicy: ALL_NATIVE_TARGET_POLICY,
+  },
 ]
 
 type BuiltinSkillManagerOptions = {

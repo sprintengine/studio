@@ -22,6 +22,7 @@ import {
   type LocalAutomationExecutorOptions,
 } from './executor-local'
 import { RUN_SIGNAL_FILENAME } from './run-signal'
+import { MCP_CONFIG_WORKTREE_EXCLUDE_ENTRIES, excludeMcpConfigFromWorktree } from '../git'
 import { runGitCommand } from '../git-utils'
 import {
   AutomationProviderRegistrationError,
@@ -945,6 +946,50 @@ async function assertSignalExcludeIsIdempotent(): Promise<void> {
   }
 }
 
+async function assertMcpConfigExcludedInRealWorktree(): Promise<void> {
+  // Connector-worktree exclusion: the generated managed MCP config
+  // (`.mcp.json` + `.codex/config.toml`) must be invisible to git so it never
+  // shows up in the connector chat's `git status` or commits. Real git worktree.
+  const repoRoot = await initSignalTestRepo()
+  try {
+    const created = await defaultCreateRunWorktree({ workspaceRoot: repoRoot, runId: 'run-mcp' })
+    assert.ok(created, 'worktree created')
+    await excludeMcpConfigFromWorktree(created!.worktreePath)
+
+    const resolved = await runGitCommand(created!.worktreePath, ['rev-parse', '--git-path', 'info/exclude'])
+    assert.ok(resolved.ok, 'rev-parse exclude path')
+    const content = await readFile(resolved.stdout.trim(), 'utf8')
+    for (const entry of MCP_CONFIG_WORKTREE_EXCLUDE_ENTRIES) {
+      assert.ok(
+        content.split('\n').some((line) => line.trim() === entry),
+        `info/exclude must contain ${entry}, got: ${content}`
+      )
+    }
+
+    // The excluded files must not surface in git status once present on disk.
+    await writeFile(join(created!.worktreePath, '.mcp.json'), '{"servers":{}}\n', 'utf8')
+    const status = await runGitCommand(created!.worktreePath, ['status', '--porcelain'])
+    assert.ok(status.ok)
+    assert.ok(
+      !status.stdout.includes('.mcp.json'),
+      `.mcp.json must not appear in git status, got: ${status.stdout}`
+    )
+
+    // Idempotent: a repeat call does not duplicate the entries.
+    await excludeMcpConfigFromWorktree(created!.worktreePath)
+    const after = await readFile(resolved.stdout.trim(), 'utf8')
+    for (const entry of MCP_CONFIG_WORKTREE_EXCLUDE_ENTRIES) {
+      assert.equal(
+        after.split('\n').filter((line) => line.trim() === entry).length,
+        1,
+        `${entry} must appear exactly once after repeats`
+      )
+    }
+  } finally {
+    await rm(repoRoot, { recursive: true, force: true })
+  }
+}
+
 async function assertWorktreeReturnedWhenExcludeWriteFails(): Promise<void> {
   // A failed exclude write is best-effort: the run still gets its worktree.
   const repoRoot = await initSignalTestRepo()
@@ -992,4 +1037,5 @@ async function main(): Promise<void> {
   await assertSignalFileExcludedInRealWorktree()
   await assertSignalExcludeIsIdempotent()
   await assertWorktreeReturnedWhenExcludeWriteFails()
+  await assertMcpConfigExcludedInRealWorktree()
 }

@@ -903,7 +903,12 @@ export default function TerminalView({ workspaceId, agentId, sessionId: attached
           cliModel: finalAgent.cliModel,
           memoryRootPath: memoryContext.rootPath,
           memoryRelativeRoot: memoryContext.relativeRoot,
-          mcpSettings: finalContext.mcpSettings,
+          // A connector chat (Railway, etc.) forwards its own Railway-only MCP
+          // settings and skill id so the spawn syncs that server into the
+          // worktree .mcp.json and installs the skill — never the global
+          // appSettings.mcp. Ordinary agents fall through to the workspace's MCP.
+          mcpSettings: finalAgent.connectorMcpSettings ?? finalContext.mcpSettings,
+          connectorSkillId: finalAgent.connectorSkillId,
           visible: true,
           ...(agentSession ? { agentSession } : {}),
         } as TerminalSpawnMetadata & {
@@ -965,7 +970,12 @@ export default function TerminalView({ workspaceId, agentId, sessionId: attached
           cliModel: finalAgent.cliModel,
           memoryRootPath: memoryContext.rootPath,
           memoryRelativeRoot: memoryContext.relativeRoot,
-          mcpSettings: finalContext.mcpSettings,
+          // A connector chat (Railway, etc.) forwards its own Railway-only MCP
+          // settings and skill id so the spawn syncs that server into the
+          // worktree .mcp.json and installs the skill — never the global
+          // appSettings.mcp. Ordinary agents fall through to the workspace's MCP.
+          mcpSettings: finalAgent.connectorMcpSettings ?? finalContext.mcpSettings,
+          connectorSkillId: finalAgent.connectorSkillId,
           visible: true,
           ...(agentSession ? { agentSession } : {}),
         } as TerminalSpawnMetadata & {
