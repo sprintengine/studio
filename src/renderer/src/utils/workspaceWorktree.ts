@@ -1,5 +1,6 @@
-import { isAbsoluteFilePath, joinFilePath, samePath } from './paths'
-import type { AgentExecutionMode, Workspace } from '../types/workspace'
+import { basename, isAbsoluteFilePath, joinFilePath, parentPath, pathJoin, samePath } from './paths'
+import type { AgentExecutionMode, McpServerConfig, McpSettings, Workspace } from '../types/workspace'
+import type { PluginSkillCatalog } from '../../../shared/plugin-manifest'
 
 export type ResolvedWorkspaceWorktree = {
   /** Absolute git root to use for this workspace's Git view. */
@@ -122,4 +123,75 @@ export function findHealthyWorktreeScope<T extends WorktreeScopeCandidate>(
         ),
     ) ?? null
   )
+}
+
+// ── Connector chats ──────────────────────────────────────────────────────────
+// A "connector chat" is a worktree-isolated solo chat scoped to exactly one MCP
+// connector (e.g. Railway) plus its driving skill, so the connector server never
+// leaks into the user's other chats. These pure helpers build the deterministic
+// pieces of that spawn; the async worktree/catalog IO around them lives in
+// WorkspaceManager.createConnectorChat.
+
+/** Directory holding all of a repo's worktrees — shared with the Worktree manager. */
+const WORKTREE_CONTAINER_DIR = '.multicode-worktrees'
+
+/** Branch a connector chat's worktree is created on: `connector/<id>-<uid>`. */
+export function connectorWorktreeBranch(connectorId: string, uid: string): string {
+  return `connector/${connectorId}-${uid}`
+}
+
+/** Directory name (under the worktree container) for a connector chat worktree. */
+export function connectorWorktreeSlug(connectorId: string, uid: string): string {
+  return `${connectorId}-${uid}`
+}
+
+/**
+ * Resolve the git worktree location for a new connector chat off `repoRoot`,
+ * placing it under the same container the Worktree manager uses so every
+ * worktree for a repo lives in one folder.
+ */
+export function connectorWorktreePaths(
+  repoRoot: string,
+  connectorId: string,
+  uid: string,
+): { containerPath: string; destinationPath: string; slug: string; branchName: string } {
+  const slug = connectorWorktreeSlug(connectorId, uid)
+  const containerPath = pathJoin(parentPath(repoRoot), WORKTREE_CONTAINER_DIR, basename(repoRoot))
+  return {
+    containerPath,
+    destinationPath: pathJoin(containerPath, slug),
+    slug,
+    branchName: connectorWorktreeBranch(connectorId, uid),
+  }
+}
+
+/**
+ * Wrap a single connector MCP server as a spawn-scoped McpSettings: sync ON (the
+ * spawn writes the worktree .mcp.json from it) and exactly that one server — this
+ * carries no other MCP, so the spawn's per-worktree config never syncs anything
+ * beyond the connector. Never merge this into the global appSettings.mcp.
+ */
+export function connectorMcpSettings(server: McpServerConfig): McpSettings {
+  return { syncEnabled: true, servers: { [server.id]: server } }
+}
+
+/**
+ * The CLI-native explicit invocation for a connector's skill (e.g. `/use-railway`
+ * for Claude, `Use $use-railway.` for Codex), read from the CLI plugin's declared
+ * skill-invocation template. Undefined when the plugin declares no native skill
+ * support or template, so the caller falls back to the plain instruction.
+ */
+export function connectorSkillInvocation(
+  skillIntegration: PluginSkillCatalog | undefined,
+  skillId: string,
+): string | undefined {
+  if (!skillIntegration || skillIntegration.support !== 'native') return undefined
+  const template = skillIntegration.invocation?.explicitTemplate
+  if (!template) return undefined
+  return template.replace(/\{\{\s*skillId\s*\}\}/g, skillId)
+}
+
+/** The seeded first turn: the skill invocation (when available) then the instruction. */
+export function connectorStartupPrompt(invocation: string | undefined, instruction: string): string {
+  return invocation ? `${invocation}\n\n${instruction}` : instruction
 }
