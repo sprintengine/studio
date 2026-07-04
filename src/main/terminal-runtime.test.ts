@@ -531,9 +531,12 @@ async function assertStaleSweepReapsOnlyUnseenHiddenTerminals(runtimeModule: Run
 }
 
 // SprintEngine agents are no longer exempt from the idle reaper, AND the reaper
-// DISPOSES them (not suspend/freeze-the-view): dispose fires `agent.leave` (→
-// status `left`) so the dispatch's revival path can respawn the agent when work
-// returns. A frozen-but-not-left sprint agent would instead break the dispatch.
+// DISPOSES them (not suspend/freeze-the-view): dispose fires `agent.leave`,
+// which releases the agent's targets and resets it to `idle` (liveness is
+// derived, not stored — no `left`/`dead` status), leaving its retained
+// `lastOwnedTaskId` for the dispatch's ownership-keyed revival to respawn it
+// when work returns. A frozen-but-not-disposed sprint agent would instead break
+// the dispatch.
 // Durable freeze-the-view: a suspended agent's painted screen must survive an
 // app restart. Suspend writes a snapshot sidecar; quit (runtime shutdown) dumps
 // each live agent's raw retained stream; a fresh runtime — the terminals map is

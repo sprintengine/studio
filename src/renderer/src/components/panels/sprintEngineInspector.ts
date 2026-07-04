@@ -106,12 +106,10 @@ export function runtimeStatusTone(status: string): Tone {
       return 'good'
     case 'error':
       return 'error'
-    // 'left'/'dead'/'retired' render as "Paused" — a muted, non-alarming state
-    // (terminal reclaimed, revived when work returns), so they keep neutral tone.
+    // `retired` (parked, revived when work returns) and a departed agent (now
+    // plain `idle` — liveness is derived, not stored) keep a muted neutral tone.
     case 'planning':
     case 'exited':
-    case 'left':
-    case 'dead':
     case 'retired':
     default:
       return 'neutral'
@@ -134,12 +132,10 @@ export function runtimeStatusLabel(status: string): string {
       return 'Exited'
     case 'error':
       return 'Error'
-    // The SprintEngine core writes `left`/`dead` when an agent's terminal is torn
-    // down (idle-retirement disposes it) and `retired` when it's parked — all mean
-    // "not running now, revived when work returns". They previously fell through to
-    // 'Idle', which read as "ready and waiting"; "Paused" is the honest label.
-    case 'left':
-    case 'dead':
+    // `retired` means the terminal is parked — "not running now, revived when
+    // work returns" — so it reads as the honest "Paused" rather than "Idle"
+    // (ready and waiting). A departed agent is now plain `idle` (liveness is
+    // derived, not stored) and renders through the default Idle presentation.
     case 'retired':
       return 'Paused'
     default:
