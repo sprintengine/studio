@@ -1,4 +1,4 @@
-import { cp, mkdir, readFile, writeFile } from 'fs/promises'
+import { appendFile, cp, mkdir, readFile, writeFile } from 'fs/promises'
 import { dirname, isAbsolute, join, resolve } from 'path'
 import {
   getRelativeGitPath,
@@ -622,4 +622,55 @@ export async function resolveGitConflict(
 
   await writeFile(toFilesystemPath(normalized.absolutePath), content, 'utf8')
   return runGitCommand(repoRoot, ['add', '--', normalized.relativePath])
+}
+
+// The two managed MCP-config files a per-spawn sync writes into a worktree root:
+// Claude's `.mcp.json` and Codex's `.codex/config.toml`. Excluded from a
+// connector worktree's git so the generated, machine-specific config never shows
+// up in the connector chat's `git status` or commits.
+export const MCP_CONFIG_WORKTREE_EXCLUDE_ENTRIES = ['.mcp.json', '.codex/config.toml'] as const
+
+/**
+ * Append each of {@link entries} to a worktree's git exclude file so those paths
+ * are never staged. The exclude path is resolved via
+ * `git rev-parse --git-path info/exclude` — for a linked worktree git reads the
+ * shared common-dir exclude, not a per-worktree one, so resolving it is the only
+ * reliable way to land the entries where git will honor them. Idempotent per
+ * entry: an already-present line is not duplicated. Throws if git or the write
+ * fails.
+ */
+export async function appendWorktreeGitExcludes(
+  worktreePath: string,
+  entries: readonly string[]
+): Promise<void> {
+  const resolved = await runGitCommand(worktreePath, ['rev-parse', '--git-path', 'info/exclude'])
+  if (!resolved.ok) {
+    throw new Error(resolved.message ?? 'git rev-parse --git-path info/exclude failed.')
+  }
+  const rawPath = resolved.stdout.trim()
+  if (!rawPath) throw new Error('git returned an empty exclude path.')
+  const excludePath = isAbsolute(rawPath) ? rawPath : resolve(worktreePath, rawPath)
+
+  let existing = ''
+  try {
+    existing = await readFile(excludePath, 'utf8')
+  } catch {
+    // No exclude file yet; appendFile creates it below.
+  }
+  const present = new Set(existing.split('\n').map((line) => line.trim()))
+  const missing = entries.filter((entry) => !present.has(entry))
+  if (missing.length === 0) return
+
+  await mkdir(dirname(excludePath), { recursive: true })
+  const separator = existing.length > 0 && !existing.endsWith('\n') ? '\n' : ''
+  await appendFile(excludePath, `${separator}${missing.join('\n')}\n`, 'utf8')
+}
+
+/**
+ * Keep the generated managed MCP config ({@link MCP_CONFIG_WORKTREE_EXCLUDE_ENTRIES})
+ * out of a connector worktree's git. Best-effort at the call site: the caller
+ * swallows failures so a launch is never blocked by an exclude write.
+ */
+export async function excludeMcpConfigFromWorktree(worktreePath: string): Promise<void> {
+  await appendWorktreeGitExcludes(worktreePath, MCP_CONFIG_WORKTREE_EXCLUDE_ENTRIES)
 }

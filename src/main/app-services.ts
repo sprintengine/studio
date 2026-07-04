@@ -15,6 +15,7 @@ import { createSkillPackService } from './skill-pack-service'
 import { createSprintEngineArtifactHandlers } from './sprintengine-artifacts'
 import { createGatedSprintEngineMcpHub, createSprintEngineMcpHubService } from './sprintengine-mcp-hub'
 import { syncManagedSprintEngineMcpConfig } from './sprintengine-managed-mcp-sync'
+import { excludeMcpConfigFromWorktree } from './git'
 import { createTerminalRuntime } from './terminal-runtime'
 import { createTerminalSnapshotSidecarStore } from './terminal-snapshot-sidecar'
 import { MulticodeUpdateService } from './update-service'
@@ -103,6 +104,9 @@ export function createAppServices(diagnosticsEnabled: boolean) {
         await builtinSkillManager.install(workspaceRoot, skillId)
       }
     },
+    // Connector launch: keep the generated managed MCP config out of the
+    // connector chat's worktree git (`.mcp.json` / `.codex/config.toml`).
+    excludeWorktreeMcpConfig: (worktreePath) => excludeMcpConfigFromWorktree(worktreePath),
     releaseManagedSprintEngineRun: async (input) => {
       await sprintEngineMcpHub.unregisterRun(input.runId)
       if (input.cleanupMcpConfig) {

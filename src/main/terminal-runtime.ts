@@ -110,6 +110,12 @@ type TerminalRuntimeOptions = {
   // real skill. Best-effort: the caller swallows failures and falls back to the
   // always-present inline directive.
   ensureBuiltinSkillInstalled?(workspaceRoot: string, skillId: string): Promise<void>
+  // Keeps the generated managed MCP config (`.mcp.json` / `.codex/config.toml`)
+  // out of a connector chat's worktree git by appending them to the worktree's
+  // info/exclude. Invoked at a connector spawn (connectorSkillId set) after the
+  // per-spawn MCP sync writes those files. Best-effort: the caller swallows
+  // failures so an exclude write never blocks a launch. Absent in tests (no-op).
+  excludeWorktreeMcpConfig?(worktreePath: string): Promise<void>
   // Installs the authoritative-agent-state reporter hook into the workspace
   // before a supported agent (Claude Code / Codex) launches, so the agent's
   // lifecycle hooks report its true phase over the agent-state socket. The
@@ -174,6 +180,7 @@ let syncMcpConfig: TerminalRuntimeOptions['syncMcpConfig']
 let releaseManagedSprintEngineRun: TerminalRuntimeOptions['releaseManagedSprintEngineRun']
 let callManagedSprintEngineTool: TerminalRuntimeOptions['callManagedSprintEngineTool']
 let ensureBuiltinSkillInstalled: TerminalRuntimeOptions['ensureBuiltinSkillInstalled']
+let excludeWorktreeMcpConfig: TerminalRuntimeOptions['excludeWorktreeMcpConfig']
 let prepareAgentStateHook: TerminalRuntimeOptions['prepareAgentStateHook']
 let snapshotSidecars: TerminalRuntimeOptions['snapshotSidecars']
 
@@ -296,6 +303,7 @@ export function createTerminalRuntime(options: TerminalRuntimeOptions): Terminal
   releaseManagedSprintEngineRun = options.releaseManagedSprintEngineRun
   callManagedSprintEngineTool = options.callManagedSprintEngineTool
   ensureBuiltinSkillInstalled = options.ensureBuiltinSkillInstalled
+  excludeWorktreeMcpConfig = options.excludeWorktreeMcpConfig
   prepareAgentStateHook = options.prepareAgentStateHook
   snapshotSidecars = options.snapshotSidecars
   sprintEngineMcpRunRefCounts.clear()
@@ -2089,6 +2097,7 @@ async function spawnTerminalFromIpc(
     agentSession,
     visible = true,
     mcpSettings,
+    connectorSkillId,
   }: TerminalSpawnPayload
 ): Promise<TerminalSpawnResult> {
     const existingSession = terminals.get(sessionId)
@@ -2285,6 +2294,37 @@ async function spawnTerminalFromIpc(
             cli,
             message: getErrorMessage(error),
           })
+        }
+      }
+
+      // Connector launch (e.g. Railway): install the named connector skill into
+      // the worktree so the seeded skill invocation resolves to a present skill,
+      // and keep the just-synced managed MCP config out of the connector
+      // worktree's git. Both are best-effort like the debug install — a failure
+      // is logged and never blocks the spawn.
+      if (connectorSkillId && !shellOnly) {
+        if (ensureBuiltinSkillInstalled) {
+          try {
+            await ensureBuiltinSkillInstalled(workingDirectory, connectorSkillId)
+          } catch (error) {
+            logMainPerfEvent('TerminalRuntime', 'connector-skill-install-failed', {
+              sessionId,
+              cli,
+              connectorSkillId,
+              message: getErrorMessage(error),
+            })
+          }
+        }
+        if (excludeWorktreeMcpConfig) {
+          try {
+            await excludeWorktreeMcpConfig(workingDirectory)
+          } catch (error) {
+            logMainPerfEvent('TerminalRuntime', 'connector-mcp-exclude-failed', {
+              sessionId,
+              cli,
+              message: getErrorMessage(error),
+            })
+          }
         }
       }
 
