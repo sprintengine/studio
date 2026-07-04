@@ -78,7 +78,7 @@ const BUNDLED_AGENT_MODEL_CATALOGS: Record<AgentCli, PluginModelCatalog> = {
   },
 }
 
-function labelForCliRuntime(cli: AgentCli): string {
+export function labelForCliRuntime(cli: AgentCli): string {
   if (cli === 'codex') return 'Codex'
   if (cli === 'claude-code') return 'Claude Code'
   if (cli === 'opencode') return 'OpenCode'

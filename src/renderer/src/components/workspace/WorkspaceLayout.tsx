@@ -41,7 +41,10 @@ import { HIGHLIGHT_COLORS, getHighlightSwatch } from '../../utils/highlight'
 import { resolveWorkspaceWorktree } from '../../utils/workspaceWorktree'
 import { SpecialistActionIcon, SprintEngineRoleIcon, WorkspaceTypeIcon } from '../AppIcons'
 import WorkspaceLauncher from './WorkspaceLauncher'
+import CliIcon from '../CliIcon'
+import { AgentTabIdentityPopover, type AgentTabIdentity } from './AgentTabIdentityPopover'
 import type { AgentCliCatalogOption } from './newWorkspace/cliRuntimeOptions'
+import { labelForCliRuntime } from './newWorkspace/cliRuntimeOptions'
 import { panelTabAccentClass } from './panelTabAccent'
 import { LifecycleGlyph, type LifecycleState, StatusDot, type Tone } from '../ui'
 import MulticodeSpinner from '../brand/MulticodeSpinner'
@@ -150,6 +153,12 @@ function agentTabStatusDot(
       pulse: true,
       label: currentTaskId ? `Needs input on ${currentTaskId}` : 'Needs input',
     }
+  }
+  // A paused agent keeps a retained (frozen) snapshot with the process gone, so
+  // it is stopped, not resting — distinguish it from a live idle tab (which has
+  // no dot). "Paused" mirrors the AgentPanel footer's user-facing wording.
+  if (session?.suspended) {
+    return { tone: 'neutral', pulse: false, label: 'Paused' }
   }
   if (session?.processAlive && isSessionWorking(session)) {
     return { tone: 'good', pulse: true, label: 'Working' }
@@ -1150,6 +1159,21 @@ function WorkspaceLayout({ workspaceId, onStartFuturePlan, agentClis, onSpawnAge
             <WorkspaceTypeIcon mode="multiloop" moduleOverrides={moduleOverrides} className="h-3.5 w-3.5" />
           </span>
         )
+      } else if (agent?.cli) {
+        // A plain agent has no role glyph, so its otherwise-empty leading slot
+        // carries the runtime brand mark (Claude Code / Codex / OpenCode) — the
+        // at-a-glance "which harness" signal. The exact model lives in the hover
+        // popout, since models carry no icon.
+        const runtimeLabel = `${labelForCliRuntime(agent.cli)} runtime`
+        renderValues.leading = (
+          <span
+            className="flex h-4 w-4 shrink-0 items-center justify-center rounded-[4px] text-[color:var(--text-muted)]"
+            title={runtimeLabel}
+            aria-label={runtimeLabel}
+          >
+            <CliIcon cli={agent.cli} className="h-3.5 w-3.5" />
+          </span>
+        )
       } else {
         renderValues.leading = null
       }
@@ -1195,34 +1219,84 @@ function WorkspaceLayout({ workspaceId, onStartFuturePlan, agentClis, onSpawnAge
           )
         : null
 
-      if (sprintEngineLifecycle) {
-        renderValues.content = (
-          <span className="inline-flex min-w-0 items-center gap-1.5">
-            {tabContent}
-            <LifecycleGlyph
-              state={sprintEngineLifecycle.state}
-              live={sprintEngineLifecycle.live}
-              label={sprintEngineLifecycle.label}
-              className="translate-y-px"
-            />
-          </span>
-        )
-      } else if (activityDot) {
-        renderValues.content = (
-          <span className="inline-flex min-w-0 items-center gap-1.5">
-            {tabContent}
-            <StatusDot tone={activityDot.tone} pulse={activityDot.pulse} label={activityDot.label} />
-            {recencyIndicator}
-          </span>
-        )
-      } else {
-        renderValues.content = (
-          <span className="inline-flex min-w-0 items-center gap-1.5">
-            {tabContent}
-            {recencyIndicator}
-          </span>
-        )
+      // Trailing status treatment, shared across the three content branches:
+      // sprint agents show a run-lifecycle glyph, everyone else the activity dot
+      // (+ recency while idle).
+      const trailing = sprintEngineLifecycle ? (
+        <LifecycleGlyph
+          state={sprintEngineLifecycle.state}
+          live={sprintEngineLifecycle.live}
+          label={sprintEngineLifecycle.label}
+          className="translate-y-px"
+        />
+      ) : activityDot ? (
+        <>
+          <StatusDot tone={activityDot.tone} pulse={activityDot.pulse} label={activityDot.label} />
+          {recencyIndicator}
+        </>
+      ) : (
+        recencyIndicator
+      )
+
+      // Everything needed to identify this agent, surfaced in the hover/focus
+      // popout wrapping the tab content. Role glyph stays the at-rest signal;
+      // the popout carries the exact model, runtime, and session id.
+      const prettyRole = (role: string): string =>
+        role
+          .split(/[-_\s]+/u)
+          .filter(Boolean)
+          .map((part) => part.slice(0, 1).toUpperCase() + part.slice(1))
+          .join(' ')
+      const roleLabel = specialist
+        ? `${specialist.shortLabel} specialist`
+        : sprintEngineRole
+          ? `${prettyRole(sprintEngineRole)} · sprint`
+          : multiloopRole
+            ? `${prettyRole(multiloopRole)} · multiloop`
+            : 'General agent'
+      // Paused wins its own self-contained label (with elapsed time) so the
+      // popout reads "Paused · 13m" without leaning on the tab's recency chip.
+      // Otherwise mirror the tab dot, then sprint lifecycle, then the honest
+      // recency source (Idle / Last activity / Exited) — never a blanket "Idle".
+      const identityStatus: AgentTabIdentity['status'] = agentSession?.suspended
+        ? {
+            tone: 'neutral',
+            pulse: false,
+            label: agentRecencyText ? `Paused · ${agentRecencyText}` : 'Paused',
+          }
+        : activityDot
+          ? { tone: activityDot.tone, pulse: Boolean(activityDot.pulse), label: activityDot.label }
+          : sprintEngineLifecycle
+            ? {
+                tone: sprintEngineLifecycle.state === 'needs_input' ? 'warn' : 'neutral',
+                pulse: false,
+                label: sprintEngineLifecycle.label,
+              }
+            : agentRecency !== null && agentRecencyText
+              ? {
+                  tone: 'neutral',
+                  pulse: false,
+                  label: `${tabRecencyLabel(agentRecency.source)} · ${agentRecencyText}`,
+                }
+              : { tone: 'neutral', pulse: false, label: 'Idle' }
+      const agentIdentity: AgentTabIdentity = {
+        name: agent?.name ?? node.getName(),
+        roleLabel,
+        model: agent?.cliModel ?? null,
+        cli: agent?.cli ?? null,
+        cliLabel: agent?.cli ? labelForCliRuntime(agent.cli) : null,
+        sessionId: agentSessionId ?? null,
+        taskId: currentTaskId ?? null,
+        worktree: agentWorktree,
+        status: identityStatus,
       }
+
+      renderValues.content = (
+        <AgentTabIdentityPopover identity={agentIdentity}>
+          {tabContent}
+          {trailing}
+        </AgentTabIdentityPopover>
+      )
     },
     [commitRename, editorOpenFiles, hideTab, isWorktreeOpenedWorkspace, lastTerminalActivityAt, moduleOverrides, now, renameValue, renamingTabId, showTabContextMenu, sprintEngineAgents, startRename, terminalSessions, workspaceAgents, worktreeBranch, worktreeGitRoot, workspaceId]
   )
