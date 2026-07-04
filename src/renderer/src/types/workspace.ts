@@ -1099,6 +1099,17 @@ export type SprintEngineState = {
    * `--model` flag, deliberately not a fallback to any other model.
    */
   roleRuntimes?: SprintEngineRoleRuntimes
+  /**
+   * The run's configured (enabled) role set from run.yaml `configuredRoles`
+   * (projection-owned; the renderer reads it, never writes it). Written once at
+   * init from the roster the user turned on. Under the lazy roster only the
+   * architect is seated at start, so this is the only honest source for "which
+   * roles belong to this run" — the roster view groups by it so a configured
+   * reviewer that has not spawned yet still shows as an empty role group.
+   * Absent for legacy runs, which fall back to the seated-roster census
+   * (`roleCounts`).
+   */
+  configuredRoles?: SprintEngineRoleId[]
 }
 
 export type SprintEngineRoleRuntime = { model?: string | null; cli?: string | null }

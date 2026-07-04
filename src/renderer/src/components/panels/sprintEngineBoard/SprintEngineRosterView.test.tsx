@@ -205,4 +205,50 @@ assert.ok(!html.includes('Security 1'), 'a collapsed quiet group hides its agent
 assert.ok(html.includes('aria-label="Add a role to the roster"'), 'add role section is labeled')
 assert.ok(html.includes('aria-label="Add Product"'), 'a not-yet-enabled role renders an add chip')
 
+// configuredRoles (projected enabled-role set) drives the role groups: a
+// configured reviewer that has never spawned (unseated, absent from roleCounts)
+// still renders as an empty group — the lazy-roster visibility fix — and is not
+// mistaken for an add chip.
+const configuredRolesState = {
+  configuredRoles: ['architect', 'developer', 'nuclear_reviewer'],
+  roleCounts: { architect: 1, developer: 1 },
+  tasks: [],
+  sprintEngineAgents: {},
+} as unknown as SprintEngineState
+const configuredHtml = renderToStaticMarkup(
+  <SprintEngineRosterView
+    sprintEngineState={configuredRolesState}
+    roster={[{ id: 'architect', label: 'Architect', role: 'architect' }]}
+    agents={{}}
+    runtimeAgents={[]}
+    selectedAgentId={null}
+    onSelectAgent={() => {}}
+    onAddRole={() => {}}
+    addMemberOptions={[
+      { role: 'architect', label: 'Architect', summary: 'Plans.', activeForRole: 1, openTasksForRole: 0 },
+      { role: 'developer', label: 'Developer', summary: 'Builds.', activeForRole: 0, openTasksForRole: 0 },
+      { role: 'nuclear_reviewer', label: 'Nuclear Reviewer', summary: 'Reviews.', activeForRole: 0, openTasksForRole: 0 },
+    ]}
+    isAgentTerminalLive={() => false}
+    willResumeAgent={() => false}
+    runtimeSummaryFor={() => null}
+    cliOptions={[]}
+    agentRuntimeCli={() => 'codex' as AgentCli}
+    effectiveModelForAgent={() => undefined}
+    onSelectAgentCli={() => {}}
+    onSelectAgentModel={() => {}}
+    onOpenAgent={() => {}}
+    onSpawnAgent={() => {}}
+    onRestartAgent={() => {}}
+    onKillAgent={() => {}}
+    inspectorContent={null}
+    inspectorExpanded={false}
+  />,
+)
+assert.ok(configuredHtml.includes('Nuclear Reviewer'), 'a configured unseated role renders as a group')
+assert.ok(
+  !configuredHtml.includes('aria-label="Add Nuclear Reviewer"'),
+  'a configured role is a group, not an add chip, even with no seated agent',
+)
+
 console.log('SprintEngineRosterView.test.tsx: ok')

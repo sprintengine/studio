@@ -109,6 +109,10 @@ async function main(): Promise<void> {
   testGetSprintEngineAutoRunOccupiedAgentIdsIgnoresChangesRequestedOwners()
   testGetSprintEngineAutoRunOccupiedAgentIdsDoesNotCountDeadNeedsInputOwner()
   testPickNextAutoRunsSelectsReadyTaskForIdleRoleAgent()
+  testPickNextAutoRunsSpawnsBareReviewerForUnseatedGateRole()
+  testPickNextAutoRunsPrefersSeatedIdleReviewerOverBareId()
+  testPickNextAutoRunsWaitsForBusyReviewerInsteadOfDuplicating()
+  testPickNextAutoRunsDefersDepartedReviewerToRevivalPath()
   testPickNextAutoRunsSelectsOwnerlessChangesRequestedWork()
   testPickNextAutoRunsSelectsStaleOwnedChangesRequestedWork()
   testPickNextAutoRunsSkipsUnresolvedNeedsInputOwner()
@@ -6517,6 +6521,115 @@ function testPickNextAutoRunsSelectsReadyTaskForIdleRoleAgent(): void {
   assert.equal(candidates[0].role, 'developer')
   assert.equal(candidates[0].taskId, 'T-ready')
   assert.equal(candidates[0].gateId, undefined)
+}
+
+function testPickNextAutoRunsSpawnsBareReviewerForUnseatedGateRole(): void {
+  // A task in review with a pending gate whose reviewer role has never been
+  // seated (lazy architect-only roster). The gate must not be silently skipped:
+  // the picker targets the deterministic bare `<role>` persistent-reviewer id so
+  // the supervisor spawns it and the terminal self-registers on claim.
+  const reviewTask = task({
+    id: 'T-review',
+    role: 'developer',
+    status: 'review',
+    boardColumn: 'review',
+    ownerAgentId: 'developer-1',
+    dependsOn: [],
+    qualityGates: [
+      { id: 'nuclear_reviewer', phase: 'review', role: 'nuclear_reviewer', status: 'pending', required: true, allowSelfReview: true, focus: '', attempts: [] },
+    ],
+  })
+  const state = sprintEngineStateFixture({
+    tasks: [reviewTask],
+    // Only the implementer (now retired) is seated — no nuclear_reviewer exists.
+    sprintEngineAgents: { 'developer-1': runtimeAgent('developer', { status: 'retired' }) },
+  })
+  const candidates = pickNextAutoRuns(workspaceFixture(), state, pickInput())
+  const gateCandidate = candidates.find((candidate) => candidate.gateId === 'nuclear_reviewer')
+  assert.ok(gateCandidate, 'an unseated reviewer role still yields a gate candidate')
+  assert.equal(gateCandidate?.agentId, 'nuclear_reviewer', 'targets the bare <role> persistent reviewer id')
+  assert.equal(gateCandidate?.role, 'nuclear_reviewer')
+  assert.equal(gateCandidate?.taskId, 'T-review')
+}
+
+function testPickNextAutoRunsPrefersSeatedIdleReviewerOverBareId(): void {
+  // A seated idle reviewer of the gate's role is used as-is; the bare-id fallback
+  // only fires when no live agent of the role exists.
+  const reviewTask = task({
+    id: 'T-review',
+    role: 'developer',
+    status: 'review',
+    boardColumn: 'review',
+    ownerAgentId: 'developer-1',
+    dependsOn: [],
+    qualityGates: [
+      { id: 'nuclear_reviewer', phase: 'review', role: 'nuclear_reviewer', status: 'pending', required: true, allowSelfReview: true, focus: '', attempts: [] },
+    ],
+  })
+  const state = sprintEngineStateFixture({
+    tasks: [reviewTask],
+    sprintEngineAgents: {
+      'developer-1': runtimeAgent('developer', { status: 'retired' }),
+      'nuclear_reviewer-2': runtimeAgent('nuclear_reviewer'),
+    },
+  })
+  const candidates = pickNextAutoRuns(workspaceFixture(), state, pickInput())
+  const gateCandidate = candidates.find((candidate) => candidate.gateId === 'nuclear_reviewer')
+  assert.equal(gateCandidate?.agentId, 'nuclear_reviewer-2', 'a seated idle reviewer is used instead of minting the bare id')
+}
+
+function testPickNextAutoRunsWaitsForBusyReviewerInsteadOfDuplicating(): void {
+  // The role's only reviewer is busy (running on another gate): do NOT mint a
+  // duplicate bare-id reviewer — one persistent reviewer per role, and the
+  // bare-id mint only fires when the role has NO agent at all.
+  const reviewTask = task({
+    id: 'T-review',
+    role: 'developer',
+    status: 'review',
+    boardColumn: 'review',
+    ownerAgentId: 'developer-1',
+    dependsOn: [],
+    qualityGates: [
+      { id: 'nuclear_reviewer', phase: 'review', role: 'nuclear_reviewer', status: 'pending', required: true, allowSelfReview: true, focus: '', attempts: [] },
+    ],
+  })
+  const state = sprintEngineStateFixture({
+    tasks: [reviewTask],
+    sprintEngineAgents: {
+      'developer-1': runtimeAgent('developer', { status: 'retired' }),
+      'nuclear_reviewer': runtimeAgent('nuclear_reviewer', { status: 'running', currentTaskId: 'T-other' }),
+    },
+  })
+  const candidates = pickNextAutoRuns(workspaceFixture(), state, pickInput())
+  const gateCandidate = candidates.find((candidate) => candidate.gateId === 'nuclear_reviewer')
+  assert.equal(gateCandidate, undefined, 'a busy reviewer is left to finish; no duplicate mint')
+}
+
+function testPickNextAutoRunsDefersDepartedReviewerToRevivalPath(): void {
+  // The role's only reviewer has departed (left). The bare-id mint must NOT
+  // fire — a departed reviewer is revived through the retry-limited revival path
+  // in reconcileWorkspaceSessions, and minting here would race a second spawn.
+  const reviewTask = task({
+    id: 'T-review',
+    role: 'developer',
+    status: 'review',
+    boardColumn: 'review',
+    ownerAgentId: 'developer-1',
+    dependsOn: [],
+    qualityGates: [
+      { id: 'nuclear_reviewer', phase: 'review', role: 'nuclear_reviewer', status: 'pending', required: true, allowSelfReview: true, focus: '', attempts: [] },
+    ],
+  })
+  const state = sprintEngineStateFixture({
+    tasks: [reviewTask],
+    sprintEngineAgents: {
+      'developer-1': runtimeAgent('developer', { status: 'retired' }),
+      'nuclear_reviewer': runtimeAgent('nuclear_reviewer', { status: 'left', currentTaskId: null }),
+    },
+  })
+  const candidates = pickNextAutoRuns(workspaceFixture(), state, pickInput())
+  const gateCandidate = candidates.find((candidate) => candidate.gateId === 'nuclear_reviewer')
+  assert.equal(gateCandidate, undefined, 'a departed reviewer defers to the revival path; no bare-id mint')
 }
 
 function testPickNextAutoRunsSelectsOwnerlessChangesRequestedWork(): void {

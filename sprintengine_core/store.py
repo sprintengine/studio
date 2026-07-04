@@ -1363,6 +1363,17 @@ def build_projection(
             # renderer-side SprintEngineState is rebuilt from this payload on
             # every poll and would otherwise never see the roster's picks.
             "roleRuntimes": run.get("roleRuntimes") if isinstance(run.get("roleRuntimes"), dict) else {},
+            # The run's configured (enabled) role set, written once at init from
+            # the roster the user turned on. Under the lazy roster only the
+            # architect is seated at start, so the renderer cannot infer the
+            # enabled roles from who is present — it must carry the config. The
+            # roster view groups by these roles so a configured reviewer that has
+            # not spawned yet still shows as an (empty) role group, and gate
+            # derivation stays consistent. Absent (null) for legacy runs, which
+            # keeps the renderer on its seated-roster fallback.
+            "configuredRoles": (
+                run.get("configuredRoles") if isinstance(run.get("configuredRoles"), list) else None
+            ),
         },
         "roster": roster if isinstance(roster, dict) else {},
         "tasks": tasks,

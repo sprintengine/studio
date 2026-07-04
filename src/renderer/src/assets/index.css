@@ -82,6 +82,13 @@
   --tone-good: #30d058;
   --tone-warn: #fcc030;
   --tone-error: #fc787c;
+  /* Merged-branch purple, borrowed from GitHub's merged-PR semantic so a
+     completed-and-merged run reads distinctly from a plain green "done". A
+     single base value (no per-theme override): this mid purple clears the 3:1
+     non-text contrast floor on both the dark surfaces and the cream light
+     themes, and staying constant keeps "merged" recognisable across themes the
+     way GitHub keeps it constant across light/dark. */
+  --tone-merged: #8957e5;
   --tone-neutral-soft: rgba(156, 156, 164, 0.18);
   --tone-accent-soft: rgba(63, 148, 104, 0.16);
   --tone-good-soft: rgba(48, 208, 88, 0.18);

@@ -250,7 +250,16 @@ export function SprintEngineRosterView({
   // first, then custom roles alphabetically) — the same ordering the roster
   // builder uses so groups and entries never disagree.
   const optionByRole = new Map(addMemberOptions.map((option) => [option.role, option]))
-  const enabledRoles = new Set(sprintEngineEnabledRoles(sprintEngineState.roleCounts))
+  // The run's enabled role set. Prefer the projected `configuredRoles` (the
+  // roles the user actually turned on): under the lazy roster only the architect
+  // is seated at start, so a configured reviewer would otherwise be invisible
+  // until it spawns. Legacy runs without `configuredRoles` fall back to the
+  // seated-roster census (`roleCounts`).
+  const enabledRoles = new Set(
+    sprintEngineState.configuredRoles && sprintEngineState.configuredRoles.length > 0
+      ? sprintEngineState.configuredRoles
+      : sprintEngineEnabledRoles(sprintEngineState.roleCounts),
+  )
   const rolePriority = (role: SprintEngineRoleId): number => {
     const index = sprintEngineRoleOrder.indexOf(role as SprintEngineRole)
     return index >= 0 ? index : sprintEngineRoleOrder.length

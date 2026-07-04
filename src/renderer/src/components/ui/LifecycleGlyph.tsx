@@ -22,6 +22,10 @@ export type LifecycleState =
   // filled `done` disc. Used by Sprint Engine runs: outline until the branch
   // merges, filled `done` once it does.
   | 'done_unmerged'
+  // Complete AND merged — the GitHub-style git-merge mark in merged-purple,
+  // distinct by both shape and color from the green `done` check. Used by
+  // Sprint Engine worktree runs once their pull request merges.
+  | 'done_merged'
   | 'archived'
   | 'failed'
 
@@ -38,6 +42,7 @@ export const LIFECYCLE_LABEL: Record<LifecycleState, string> = {
   needs_input: 'Needs input',
   done: 'Done',
   done_unmerged: 'Complete · not merged',
+  done_merged: 'Merged',
   archived: 'Archived',
   failed: 'Failed',
 }
@@ -57,6 +62,7 @@ const TONE: Record<LifecycleState, string> = {
   needs_input: 'text-[color:var(--tone-warn)]',
   done: 'text-[color:var(--tone-good)]',
   done_unmerged: 'text-[color:var(--tone-good)]',
+  done_merged: 'text-[color:var(--tone-merged)]',
   archived: 'text-[color:var(--text-disabled)]',
   failed: 'text-[color:var(--tone-error)]',
 }
@@ -113,6 +119,21 @@ export function LifecycleGlyph({
         <path
           d="M5.5 8.2l1.7 1.7 3.4-3.9"
           stroke="currentColor"
+          strokeWidth="1.5"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        />
+      </>
+    ) : state === 'done_merged' ? (
+      // Merged reuses the filled-disc-with-knockout-check shape of `done`; the
+      // merged-purple tone (not green) is what distinguishes a merged run. A
+      // dedicated merge glyph read as noise at this 16px size, so color carries
+      // the "merged" meaning here while shape still separates done/unmerged.
+      <>
+        <circle cx="8" cy="8" r="5.25" fill="currentColor" />
+        <path
+          d="M5.5 8.2l1.7 1.7 3.4-3.9"
+          className="[stroke:var(--bg-app)]"
           strokeWidth="1.5"
           strokeLinecap="round"
           strokeLinejoin="round"
