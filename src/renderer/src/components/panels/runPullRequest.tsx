@@ -1,16 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 
-import { isSprintEngineWorkspaceDormant } from '../../utils/sprintengineAutomationLifecycle'
 import { useWorkspaceStore } from '../../store/workspaceStore'
 import { refreshSprintEngineWorkspaceProjection } from '../../utils/sprintengineProjectionRefresh'
 import type { SprintEngineVcs } from '../../types/workspace'
 import { FOCUS_RING_CLASS, PrimaryButton, Tooltip } from '../ui'
-
-// How often a live run polls GitHub for the PR's merge state while the workspace
-// is open. One `gh pr view` per tick, until the PR merges/closes or the run goes
-// dormant. A dormant run never holds this interval — it refreshes once when the
-// surface opens (on-demand), then stops, so no periodic `gh` runs while it idles.
-export const PR_MERGE_POLL_MS = 30_000
 
 // Pull the freshly-written projection into the store after a vcs mutation so the
 // header chip, the summary row, and the run glyph all reflect the new state.
@@ -29,36 +22,27 @@ function useRunProjectionRefresh(workspaceId: string): () => Promise<void> {
 
 type PrState = 'open' | 'merged' | 'closed' | null
 
-// What the merge-poll effect should do for a run, from stop-condition inputs:
-//   'off'  — nothing to check (no state path / vcs / poll reason, or the PR is
-//            already merged/closed, a permanent terminal state).
-//   'once' — refresh exactly once when the surface opens, then stop. A dormant
-//            run (T1's terminal lifecycle bit) is never a live poll target: an
-//            open PR on it is "pending" metadata, not a merge to watch for.
-//   'poll' — refresh on open, then keep polling at PR_MERGE_POLL_MS. The live
-//            open run, exactly as before dormancy existed.
-// Pure and export-only so the stop condition is unit-tested without React.
-export function prMergePollMode(input: {
+// Whether opening the run surface should fire a one-shot GitHub merge-state
+// probe: there is a run to probe (state path + vcs), a reason to (the run is done
+// or a PR exists), and the PR is not already in a terminal state. Pure and
+// export-only so the condition is unit-tested without React.
+export function shouldProbePullRequestOnOpen(input: {
   statePath: string | null
   hasVcs: boolean
   prState: PrState
   shouldPoll: boolean
-  dormant: boolean
-}): 'off' | 'once' | 'poll' {
-  const { statePath, hasVcs, prState, shouldPoll, dormant } = input
-  if (!statePath || !hasVcs || !shouldPoll) return 'off'
-  if (prState === 'merged' || prState === 'closed') return 'off'
-  return dormant ? 'once' : 'poll'
+}): boolean {
+  const { statePath, hasVcs, prState, shouldPoll } = input
+  if (!statePath || !hasVcs || !shouldPoll) return false
+  return prState !== 'merged' && prState !== 'closed'
 }
 
-// Keep the PR's merge state fresh while a run is open. Refreshes once on mount
-// (the on-demand open refresh) and, for a live run, again every PR_MERGE_POLL_MS
-// until the PR merges/closes or the run goes dormant — a dormant run refreshes
-// once and stops, never holding a live interval. Depends on stable primitives,
-// never the `vcs` object — each poll refreshes the projection (new `vcs`
-// identity), and re-running the effect on that would restart the interval and
-// poll again immediately (a tight loop). `dormant` is read reactively from the
-// store so the interval tears down the moment the run transitions to complete.
+// Refresh the PR's merge state once when the run surface opens, so a merge that
+// happened while the board was closed shows the moment the user lands on it.
+// Periodic background polling is owned by SprintEnginePullRequestPollSupervisor
+// (window-level, exponential backoff, surface-independent), so this holds no
+// interval — one `gh` probe on open and nothing more. Keyed on stable primitives;
+// the projection refresh mutates `vcs`, so depending on it would re-fire.
 export function useRunPullRequestMergePoll(input: {
   workspaceId: string
   statePath: string | null
@@ -67,35 +51,26 @@ export function useRunPullRequestMergePoll(input: {
   shouldPoll: boolean
 }): void {
   const { workspaceId, statePath, hasVcs, prState, shouldPoll } = input
-  const dormant = useWorkspaceStore((state) =>
-    isSprintEngineWorkspaceDormant(state.workspaces.find((w) => w.id === workspaceId)),
-  )
   const refresh = useRunProjectionRefresh(workspaceId)
   const refreshRef = useRef(refresh)
   refreshRef.current = refresh
-  const mode = prMergePollMode({ statePath, hasVcs, prState, shouldPoll, dormant })
+  const probe = shouldProbePullRequestOnOpen({ statePath, hasVcs, prState, shouldPoll })
   useEffect(() => {
-    if (mode === 'off' || !statePath) return
+    if (!probe || !statePath) return
     let cancelled = false
-    const poll = async () => {
+    void (async () => {
       try {
         const result = await window.api.refreshSprintEnginePullRequestStatus(statePath)
         if (cancelled || !result.ok) return
         await refreshRef.current()
       } catch {
-        // Best-effort: a transient gh/git failure just retries next tick.
+        // Best-effort: a transient gh/git failure just waits for the supervisor.
       }
-    }
-    void poll()
-    if (mode === 'once') return () => {
-      cancelled = true
-    }
-    const timer = window.setInterval(poll, PR_MERGE_POLL_MS)
+    })()
     return () => {
       cancelled = true
-      window.clearInterval(timer)
     }
-  }, [statePath, mode])
+  }, [statePath, probe])
 }
 
 // The shared create-and-open action: opens the pull request (push + `gh pr

@@ -1,36 +1,27 @@
 import assert from 'node:assert/strict'
-import { prMergePollMode } from './runPullRequest'
+import { shouldProbePullRequestOnOpen } from './runPullRequest'
 
 const base = {
   statePath: '/run/state.yaml',
   hasVcs: true,
   prState: 'open' as const,
   shouldPoll: true,
-  dormant: false,
 }
 
-// Live open run with a PR to watch → keep polling at 30s (unchanged behaviour).
-assert.equal(prMergePollMode(base), 'poll')
+// An open run with a PR to watch → probe once on open (the snappy on-surface
+// refresh). Periodic polling now belongs to the window-level supervisor.
+assert.equal(shouldProbePullRequestOnOpen(base), true)
 
-// Dormant run (T1's terminal lifecycle bit): open PR is pending metadata, not a
-// live merge target → refresh once on open, then stop. No interval.
-assert.equal(prMergePollMode({ ...base, dormant: true }), 'once')
+// A PR whose state is not yet known (just created) still probes on open.
+assert.equal(shouldProbePullRequestOnOpen({ ...base, prState: null }), true)
 
-// A dormant run with no PR reason still never holds an interval.
-assert.equal(prMergePollMode({ ...base, dormant: true, shouldPoll: false }), 'off')
+// Terminal PR states never probe — the glyph is already correct.
+assert.equal(shouldProbePullRequestOnOpen({ ...base, prState: 'merged' }), false)
+assert.equal(shouldProbePullRequestOnOpen({ ...base, prState: 'closed' }), false)
 
-// Terminal PR states stop the poll permanently, dormant or not.
-for (const dormant of [false, true]) {
-  assert.equal(prMergePollMode({ ...base, prState: 'merged', dormant }), 'off')
-  assert.equal(prMergePollMode({ ...base, prState: 'closed', dormant }), 'off')
-}
+// Nothing to probe without a state path, without vcs, or with no poll reason.
+assert.equal(shouldProbePullRequestOnOpen({ ...base, statePath: null }), false)
+assert.equal(shouldProbePullRequestOnOpen({ ...base, hasVcs: false }), false)
+assert.equal(shouldProbePullRequestOnOpen({ ...base, shouldPoll: false }), false)
 
-// Nothing to poll without a state path, without vcs, or with no poll reason.
-assert.equal(prMergePollMode({ ...base, statePath: null }), 'off')
-assert.equal(prMergePollMode({ ...base, hasVcs: false }), 'off')
-assert.equal(prMergePollMode({ ...base, shouldPoll: false }), 'off')
-
-// A null PR state on a live run (PR just created, state not yet known) polls.
-assert.equal(prMergePollMode({ ...base, prState: null }), 'poll')
-
-console.log('runPullRequest prMergePollMode: all assertions passed')
+console.log('runPullRequest shouldProbePullRequestOnOpen: all assertions passed')

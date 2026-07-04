@@ -66,6 +66,7 @@ import { type AgentComposerConfirm, type AgentComposerSelection } from './agentC
 import AgentComposerPopover from './agentComposer/AgentComposerPopover'
 import MultiloopStateSynchronizer from './MultiloopStateSynchronizer'
 import SprintEngineProjectionSupervisor from './SprintEngineProjectionSupervisor'
+import SprintEnginePullRequestPollSupervisor from './SprintEnginePullRequestPollSupervisor'
 // Always-on observer of background automation run events (raises run
 // notifications). Automations is no longer a workspace type, so the shell mounts
 // its global supervisor directly, gated on the automations module + primary
@@ -2333,6 +2334,17 @@ export default function WorkspaceManager() {
         // Projection sync consumes active-window/workspace identity from the shell,
         // so it remains the known propful exception to zero-prop supervisor contributions.
         <SprintEngineProjectionSupervisor
+          activeWorkspaceId={windowActiveWorkspaceId}
+          workspaceIds={workspaces.map((workspace) => workspace.id)}
+        />
+      ) : null}
+      {sprintEngineEnabled && !MULTICODE_DISABLE_SPRINTENGINE_SYNC && ownsGlobalSupervisors ? (
+        // Background GitHub merge-state polling (exponential backoff) so a run's
+        // sidebar glyph flips to merged after the PR is merged, without the board
+        // being open. Unlike the disk-cheap projection sync above, each tick spawns
+        // a `gh` subprocess, so it runs as a single global-owner singleton (like
+        // AutomationsRunSupervisor) — one poll per workspace, not one per window.
+        <SprintEnginePullRequestPollSupervisor
           activeWorkspaceId={windowActiveWorkspaceId}
           workspaceIds={workspaces.map((workspace) => workspace.id)}
         />
