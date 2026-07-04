@@ -305,7 +305,34 @@ def _write_legacy_state_projection(path: Path, state: Dict[str, Any]) -> None:
     folder_store.atomic_write_json(path, state)
 
 
+# Agent statuses Main (or a headless claim) legitimately writes. Liveness is
+# derived by Main — never stored here — so any other status on disk, including
+# the retired `left`/`dead` liveness stamps, normalizes to idle on load.
+KNOWN_AGENT_STATUSES = {"idle", "running", "needs_input", "retired", "done"}
+
+
+def normalize_legacy_agent_statuses(state: Dict[str, Any]) -> None:
+    """Coerce any unknown on-disk agent status (legacy `left`/`dead`) to idle.
+
+    Departed agents now end as idle-no-target, so a stored terminal-liveness
+    status is stale by definition. Provenance fields (leftAt/deadAt/...) ride
+    along untouched as inert display metadata; only the status is normalized.
+    """
+    agents = state.get("agents")
+    if not isinstance(agents, dict):
+        return
+    for agent in agents.values():
+        if isinstance(agent, dict) and str(agent.get("status") or "") not in KNOWN_AGENT_STATUSES:
+            agent["status"] = "idle"
+
+
 def load_mutation_state(path: Path, *, initial_state: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    state = _resolve_mutation_state(path, initial_state=initial_state)
+    normalize_legacy_agent_statuses(state)
+    return state
+
+
+def _resolve_mutation_state(path: Path, *, initial_state: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     if _legacy_projection_is_current(path):
         return _load_legacy_state_projection(path)
     if folder_store_is_ready_for_state(path):
@@ -578,7 +605,11 @@ def record_agent_join(
     agent = ensure_agent(state, agent_id, role)
     timestamp = now_iso()
     agent["role"] = role
-    agent["status"] = "idle" if agent.get("status") in {None, "", "left", "dead"} else agent.get("status", "idle")
+    # Legacy terminal statuses are already normalized to idle on load; a rejoin
+    # only needs to fill an empty status. A live status (running/needs_input) is
+    # left for reconcile/claim to resolve.
+    if not agent.get("status"):
+        agent["status"] = "idle"
     agent["heartbeatAt"] = timestamp
     clear_terminal_state_metadata(agent)
     agent.setdefault("joinedAt", timestamp)
@@ -592,20 +623,6 @@ def record_agent_join(
 def record_agent_heartbeat(state: Dict[str, Any], agent_id: str, role: Optional[str] = None) -> Dict[str, Any]:
     agent = ensure_agent(state, agent_id, role or None)
     agent["heartbeatAt"] = now_iso()
-    return agent
-
-
-def record_agent_leave(state: Dict[str, Any], agent_id: str, role: Optional[str] = None, *, reason: str = "") -> Dict[str, Any]:
-    agent = ensure_agent(state, agent_id, role or None)
-    timestamp = now_iso()
-    agent["status"] = "left"
-    agent["leftAt"] = timestamp
-    agent["heartbeatAt"] = timestamp
-    if reason:
-        agent["leaveReason"] = reason
-    set_agent_idle(agent)
-    agent["status"] = "left"
-    agent["leftAt"] = timestamp
     return agent
 
 
@@ -639,38 +656,13 @@ def agent_liveness_timeout_seconds(state: Dict[str, Any]) -> int:
 
 def agent_is_expired(state: Dict[str, Any], agent: Dict[str, Any], *, now: Optional[datetime] = None) -> bool:
     status = str(agent.get("status") or "")
-    if status in TERMINAL_AGENT_STATUSES or status in {"left", "dead"}:
+    if status in TERMINAL_AGENT_STATUSES:
         return False
     heartbeat = parse_utc_timestamp(agent.get("heartbeatAt"))
     if heartbeat is None:
         return False
     current = now or datetime.now(timezone.utc)
     return (current - heartbeat).total_seconds() > agent_liveness_timeout_seconds(state)
-
-
-def find_gate_by_claim(
-    state: Dict[str, Any],
-    task_id: Any,
-    gate_id: Any,
-    attempt_id: Any,
-    *,
-    claimed_by: Optional[str] = None,
-) -> Optional[Dict[str, Any]]:
-    task = find_task_by_id(state, task_id)
-    if not task:
-        return None
-    for gate in task_quality_gates(task):
-        if gate.get("id") != gate_id:
-            continue
-        for attempt in reversed(gate_attempts(gate)):
-            if attempt.get("id") == attempt_id:
-                return {"task": task, "gate": gate, "attempt": attempt}
-        if claimed_by:
-            for attempt in reversed(gate_attempts(gate)):
-                if attempt.get("status") == "in_progress" and attempt.get("claimedBy") == claimed_by:
-                    return {"task": task, "gate": gate, "attempt": attempt}
-        return {"task": task, "gate": gate, "attempt": None}
-    return None
 
 
 def current_gate_reference(agent: Dict[str, Any]) -> Dict[str, Any]:
@@ -682,93 +674,160 @@ def current_gate_reference(agent: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
+def agent_has_target_mirror(agent: Dict[str, Any]) -> bool:
+    """True while an agent record still points at a task or gate to release.
+
+    A departed agent reset to idle-no-target has no mirror, so the expiry sweep
+    skips it on later passes — the derived-liveness idempotency guard.
+    """
+    dispatch = agent.get("currentDispatch") if isinstance(agent.get("currentDispatch"), dict) else {}
+    gate_ref = current_gate_reference(agent)
+    return bool(agent.get("currentTaskId") or dispatch.get("targetKind") or gate_ref.get("gateId"))
+
+
+def release_agent_targets(
+    state: Dict[str, Any],
+    agent_id: str,
+    *,
+    reason: str,
+    actor: str,
+) -> List[Dict[str, Any]]:
+    """Free every target a departing agent holds and reset it to idle.
+
+    The single authority for releasing an agent's owned work, shared by the MCP
+    agent.leave path and the headless expiry sweep. Frees the owned in_progress
+    task (-> todo, ownerAgentId cleared, startedAt/completedAt reset) and any
+    live gate claim (gate -> pending, attempt -> released), preserving the
+    needs_input-stays-owned exclusion, then resets the agent to idle WITHOUT
+    stamping any terminal status: liveness is derived by Main, never stored here.
+    ownedTaskIds/lastOwnedTaskId are left intact so a departed worker stays
+    task-capped and replenish still mints a replacement. Returns one canonical
+    descriptor per released target (empty when the agent held none); callers
+    shape their own release payloads from it.
+    """
+    agents = state.get("agents")
+    agent = agents.get(agent_id) if isinstance(agents, dict) else None
+    released: List[Dict[str, Any]] = []
+
+    for task in state.get("tasks", []) or []:
+        if not isinstance(task, dict) or task.get("ownerAgentId") != agent_id:
+            continue
+        status = str(task.get("status") or "")
+        # needs_input tasks stay owned: the blocker is on the human and input
+        # resolution routes the answer back to this owner. Only live-work
+        # statuses release.
+        if status not in {"in_progress", "changes_requested"}:
+            continue
+        task["ownerAgentId"] = None
+        task["status"] = "todo" if status == "in_progress" else status
+        if status == "in_progress":
+            task["startedAt"] = None
+        task["completedAt"] = None
+        append_task_activity(
+            task,
+            "status_change",
+            actor,
+            f"{actor} released task claim from {agent_id}: {reason}",
+            {"status": task.get("status"), "fromStatus": status, "previousOwnerAgentId": agent_id, "reason": reason},
+        )
+        released.append({
+            "kind": "task",
+            "taskId": task.get("id"),
+            "previousOwnerAgentId": agent_id,
+            "fromStatus": status,
+            "status": task.get("status"),
+        })
+
+    for task in state.get("tasks", []) or []:
+        if not isinstance(task, dict):
+            continue
+        for gate in task_quality_gates(task):
+            if gate.get("status") != "in_progress":
+                continue
+            claim = next(
+                (
+                    attempt
+                    for attempt in reversed(gate_attempts(gate))
+                    if isinstance(attempt, dict)
+                    and attempt.get("status") == "in_progress"
+                    and attempt.get("claimedBy") == agent_id
+                ),
+                None,
+            )
+            if claim is None:
+                continue
+            claim["status"] = "released"
+            claim["completedAt"] = now_iso()
+            gate["status"] = "pending"
+            append_task_activity(
+                task,
+                "gate_release",
+                actor,
+                f"{actor} released gate claim {gate.get('id')} from {agent_id}: {reason}",
+                {"gateId": gate.get("id"), "attemptId": claim.get("id"), "previousOwnerAgentId": agent_id, "reason": reason},
+            )
+            released.append({
+                "kind": "gate",
+                "taskId": task.get("id"),
+                "gateId": gate.get("id"),
+                "attemptId": claim.get("id"),
+                "previousOwnerAgentId": agent_id,
+            })
+
+    if isinstance(agent, dict):
+        set_agent_idle(agent)
+    return released
+
+
 def release_expired_agent_targets(
     state: Dict[str, Any],
     *,
     actor: str = "sprintengine",
     excluding_agent_id: Optional[str] = None,
 ) -> Dict[str, Any]:
+    """Headless fallback for the derived-liveness model.
+
+    Main is the authority on agent liveness; when it is not driving (headless
+    CLI runs), any agent whose heartbeat has aged past the timeout while it still
+    mirrors a target is swept through release_agent_targets — the same release
+    the MCP agent.leave path performs — and re-dispatched. An agent already reset
+    to idle-no-target has no mirror, so repeat sweeps are a no-op.
+    """
     released: List[Dict[str, Any]] = []
+    dirty = False
     current = datetime.now(timezone.utc)
     for agent_id, agent in list(state.get("agents", {}).items()):
         if excluding_agent_id and agent_id == excluding_agent_id:
             continue
         if not isinstance(agent, dict):
             continue
-        dispatch = agent.get("currentDispatch") if isinstance(agent.get("currentDispatch"), dict) else {}
-        gate_ref = current_gate_reference(agent)
-        has_target_mirror = agent.get("currentTaskId") or dispatch.get("targetKind") or gate_ref.get("gateId")
-        if not has_target_mirror:
+        if not agent_has_target_mirror(agent):
             continue
-        if agent.get("status") != "dead" and not agent_is_expired(state, agent, now=current):
+        if not agent_is_expired(state, agent, now=current):
             continue
         role = str(agent.get("role") or "")
-        task_id = agent.get("currentTaskId") or dispatch.get("taskId") or gate_ref.get("taskId")
-        gate_id = dispatch.get("gateId") or gate_ref.get("gateId")
-        attempt_id = dispatch.get("attemptId") or gate_ref.get("attemptId")
-        target_kind = str(dispatch.get("targetKind") or ("gate" if gate_id else "task" if task_id else ""))
-        released_target: Dict[str, Any] = {"agentId": agent_id, "role": role, "targetKind": target_kind}
-        released_actual_target = False
-
-        if target_kind == "gate":
-            gate_claim = find_gate_by_claim(state, task_id, gate_id, attempt_id, claimed_by=str(agent_id))
-            if gate_claim:
-                task = gate_claim["task"]
-                gate = gate_claim["gate"]
-                attempt = gate_claim.get("attempt")
-                if gate.get("status") == "in_progress":
-                    gate["status"] = "pending"
-                    released_actual_target = True
-                if isinstance(attempt, dict) and attempt.get("status") == "in_progress":
-                    attempt["status"] = "released"
-                    attempt["completedAt"] = now_iso()
-                    released_actual_target = True
-                append_task_activity(
-                    task,
-                    "gate_release",
-                    actor,
-                    f"{actor} released expired gate claim {gate.get('id')} from {agent_id}.",
-                    {"gateId": gate.get("id"), "previousOwnerAgentId": agent_id, "reason": "agent_expired"},
-                )
-                released_target.update({"taskId": task.get("id"), "gateId": gate.get("id")})
-        else:
-            task = find_task_by_id(state, task_id)
-            if task and task.get("ownerAgentId") == agent_id and task.get("status") in {"in_progress", "changes_requested"}:
-                previous_status = str(task.get("status") or "")
-                task["ownerAgentId"] = None
-                task["status"] = "todo" if previous_status == "in_progress" else previous_status
-                task["startedAt"] = None if previous_status == "in_progress" else task.get("startedAt")
-                task["completedAt"] = None
-                append_task_activity(
-                    task,
-                    "status_change",
-                    actor,
-                    f"{actor} released expired task claim from {agent_id}.",
-                    {"status": task.get("status"), "fromStatus": previous_status, "previousOwnerAgentId": agent_id, "reason": "agent_expired"},
-                )
-                released_target.update({"taskId": task.get("id"), "fromStatus": previous_status, "status": task.get("status")})
-                released_actual_target = True
-
-        if not released_actual_target:
-            continue
-
-        queue_dispatch_record(
-            state,
-            agent_id=str(agent_id),
-            role=role,
-            target_kind=target_kind or "agent",
-            task_id=str(released_target.get("taskId") or ""),
-            gate_id=str(released_target.get("gateId") or ""),
-            reason="agent_expired_release",
-        )
-        agent["status"] = "dead"
-        agent["deadAt"] = now_iso()
-        agent["heartbeatAt"] = agent["deadAt"]
-        agent["deathReason"] = "heartbeat_expired"
-        set_agent_idle(agent)
-        agent["status"] = "dead"
-        agent["deadAt"] = agent["heartbeatAt"]
-        released.append(released_target)
+        # An expired agent that still mirrors a target is always reset to idle
+        # (its mirror cleared), so the sweep is dirty even if the mirror was
+        # stale and freed no live target.
+        dirty = True
+        for entry in release_agent_targets(state, str(agent_id), reason="agent expired", actor=actor):
+            kind = str(entry.get("kind") or "")
+            queue_dispatch_record(
+                state,
+                agent_id=str(agent_id),
+                role=role,
+                target_kind=kind or "agent",
+                task_id=str(entry.get("taskId") or ""),
+                gate_id=str(entry.get("gateId") or ""),
+                reason="agent_expired_release",
+            )
+            target: Dict[str, Any] = {"agentId": str(agent_id), "role": role, "targetKind": kind, "taskId": entry.get("taskId")}
+            if kind == "gate":
+                target["gateId"] = entry.get("gateId")
+            else:
+                target["fromStatus"] = entry.get("fromStatus")
+                target["status"] = entry.get("status")
+            released.append(target)
 
     if released:
         append_event(
@@ -778,14 +837,14 @@ def release_expired_agent_targets(
             f"{actor} released {len(released)} expired agent target(s).",
             {"releasedCount": len(released)},
         )
-    return {"released": released, "dirty": bool(released)}
+    return {"released": released, "dirty": dirty}
 
 
 def clear_task_refs(state: Dict[str, Any], task_id: str) -> List[str]:
     cleared = []
     for agent_id, agent in state.get("agents", {}).items():
         if isinstance(agent, dict) and agent.get("currentTaskId") == task_id:
-            if agent.get("status") in TERMINAL_AGENT_STATUSES or agent.get("status") in {"left", "dead"}:
+            if agent_is_retired(agent):
                 set_if_changed(agent, "currentTaskId", None)
                 if "currentGateId" in agent:
                     agent.pop("currentGateId", None)

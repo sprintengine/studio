@@ -1353,7 +1353,7 @@ def test_mcp_agent_leave_preserves_needs_input_ownership(tmp_path) -> None:
     )
 
     assert response["ok"] is True
-    assert response["result"]["agent"]["status"] == "left"
+    assert response["result"]["agent"]["status"] == "idle"
     assert response["result"]["releasedTargets"] == []
     persisted = get_task(read_state(fixture.state_path), "T1")
     assert persisted["status"] == "needs_input"
@@ -1394,7 +1394,7 @@ def test_mcp_agent_leave_releases_active_task_for_dispatch(tmp_path) -> None:
     )
 
     assert response["ok"] is True
-    assert response["result"]["agent"]["status"] == "left"
+    assert response["result"]["agent"]["status"] == "idle"
     assert response["result"]["releasedTargets"] == [
         {"kind": "task", "taskId": "T1", "previousOwnerAgentId": "developer-a", "status": "todo"}
     ]

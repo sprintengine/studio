@@ -32,9 +32,7 @@ from sprintengine_core.tool import (
     cmd_handover,
     load_mutation_state,
 )
-from sprintengine_core.tool.artifacts import release_task_from_owner
 from sprintengine_core.tool.constants import VALID_ARTIFACT_KINDS
-from sprintengine_core.tool.gates import find_active_gate_claim
 from sprintengine_core.tool.plans import plan_path_for_state
 from sprintengine_core.skill_layers import SPRINTENGINE_SOUL_EXTRA_SKILLS
 from sprintengine_core.tool.prompts import (
@@ -51,7 +49,7 @@ from sprintengine_core.tool.state import (
     find_task,
     record_agent_heartbeat,
     record_agent_join,
-    record_agent_leave,
+    release_agent_targets,
     set_agent_idle,
     with_locked_state,
 )
@@ -87,6 +85,13 @@ class McpRequestContext:
 
 
 _REQUEST_CONTEXT: ContextVar[McpRequestContext | None] = ContextVar("sprintengine_mcp_request_context", default=None)
+
+
+def _leave_released_payload(entry: dict[str, Any]) -> dict[str, Any]:
+    """Shape one release descriptor into the agent.leave releasedTargets item."""
+    if entry.get("kind") == "gate":
+        return {"kind": "gate", "taskId": entry.get("taskId"), "gateId": entry.get("gateId"), "attemptId": entry.get("attemptId")}
+    return {"kind": "task", "taskId": entry.get("taskId"), "previousOwnerAgentId": entry.get("previousOwnerAgentId"), "status": entry.get("status")}
 
 
 class McpToolError(Exception):
@@ -452,39 +457,15 @@ class SprintEngineMcpServer:
             agents = state.get("agents") if isinstance(state.get("agents"), dict) else {}
             agent = agents.get(agent_id)
             known = isinstance(agent, dict)
-            role = agent.get("role") if known else None
-            released: list[dict[str, Any]] = []
-            for task in state.get("tasks", []) or []:
-                if not isinstance(task, dict) or task.get("ownerAgentId") != agent_id:
-                    continue
-                # needs_input tasks stay owned on leave: the blocker is on the
-                # human, and input resolution routes the answer back to the
-                # owner, whose terminal the supervisor respawns. Mirrors the
-                # expiry sweep's exclusion in release_expired_agent_targets.
-                if task.get("status") != "in_progress":
-                    continue
-                release = release_task_from_owner(state, task, agent_id, reason)
-                released.append({"kind": "task", "taskId": task.get("id"), **release})
-            active_gate = find_active_gate_claim(state, agent_id, str(role or ""))
-            if active_gate:
-                gate = active_gate["gate"]
-                attempt = active_gate["attempt"]
-                attempt["status"] = "released"
-                attempt["completedAt"] = folder_store.now_iso()
-                gate["status"] = "pending"
-                task = active_gate["task"]
-                append_task_activity(
-                    task,
-                    "gate_release",
-                    agent_id,
-                    f"Gate {gate.get('id')} released by {agent_id}: {reason}",
-                    {"gateId": gate.get("id"), "attemptId": attempt.get("id")},
-                )
-                released.append({"kind": "gate", "taskId": task.get("id"), "gateId": gate.get("id"), "attemptId": attempt.get("id")})
+            # Single release authority: frees the departing agent's owned
+            # in_progress task and any live gate claim (needs_input tasks stay
+            # owned) and resets it to idle. Runs for unknown agents too, as
+            # defensive cleanup of stale ownership; it never mints a roster entry.
+            released = [
+                _leave_released_payload(entry)
+                for entry in release_agent_targets(state, agent_id, reason=reason, actor=agent_id)
+            ]
             if not known:
-                # Never create a roster entry from a leave (same guard as
-                # heartbeat). Owned targets, if any, were still released above
-                # as defensive cleanup of stale ownership.
                 if not released:
                     return {"ok": True, "known": False, "agent": None, "releasedTargets": [], "event": None, "write": False}
                 event = append_event(
@@ -495,7 +476,6 @@ class SprintEngineMcpServer:
                     {"releasedTargets": released, "reason": reason},
                 )
                 return {"ok": True, "known": False, "agent": None, "releasedTargets": released, "event": event, "write": True}
-            left = record_agent_leave(state, agent_id, role, reason=reason)
             event = append_event(
                 state,
                 "agent_left",
@@ -503,9 +483,7 @@ class SprintEngineMcpServer:
                 f"{agent_id} left Sprint Engine. Released targets: {len(released)}.",
                 {"releasedTargets": released, "reason": reason},
             )
-            set_agent_idle(left)
-            left["status"] = "left"
-            return {"ok": True, "known": True, "agent": left, "releasedTargets": released, "event": event, "write": True}
+            return {"ok": True, "known": True, "agent": agent, "releasedTargets": released, "event": event, "write": True}
 
         result = with_locked_state(state_path, mutate)
         return {

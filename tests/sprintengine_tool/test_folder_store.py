@@ -10,7 +10,13 @@ import pytest
 from helpers import SwarmCli, create_team, get_task, read_state, task
 from sprintengine_core import store
 from sprintengine_core.tool import append_task_activity
-from sprintengine_core.tool.state import record_agent_heartbeat, record_agent_join, record_agent_leave
+from sprintengine_core.tool.state import (
+    load_mutation_state,
+    record_agent_join,
+    release_agent_targets,
+    release_expired_agent_targets,
+    set_agent_active,
+)
 
 
 def test_init_creates_folder_store_layout(tmp_path) -> None:
@@ -136,49 +142,71 @@ def test_gate_claim_records_current_gate_mirror_and_dispatch_ledger(tmp_path) ->
     assert len(store.read_jsonl_file(fixture.team_dir / "dispatch.jsonl")) == 1
 
 
-def test_agent_lifecycle_helpers_persist_join_heartbeat_and_leave_metadata(tmp_path) -> None:
-    fixture = create_team(tmp_path, "agent-lifecycle-helper-metadata", [])
+def test_agent_leave_releases_task_and_resets_to_idle(tmp_path) -> None:
+    # Derived-liveness model: leaving frees the owned in_progress task and resets
+    # the agent to idle-no-target — no stored left/dead status — while the durable
+    # ownership record survives so the id stays task-capped.
+    fixture = create_team(tmp_path, "agent-leave-idle", [task("T1", "Implement", "developer")])
     state = read_state(fixture.state_path)
 
     joined = record_agent_join(state, "developer-1", "developer", subscription_mode="poll")
     first_heartbeat = joined["heartbeatAt"]
-    record_agent_heartbeat(state, "developer-1", "developer")
-    left = record_agent_leave(state, "developer-1", "developer", reason="terminal closed")
+    set_agent_active(state["agents"]["developer-1"], state["tasks"][0])
+    state["tasks"][0]["ownerAgentId"] = "developer-1"
+    state["tasks"][0]["status"] = "in_progress"
+
+    released = release_agent_targets(state, "developer-1", reason="terminal closed", actor="developer-1")
+    assert released == [
+        {"kind": "task", "taskId": "T1", "previousOwnerAgentId": "developer-1", "fromStatus": "in_progress", "status": "todo"}
+    ]
     store.sync_state_to_store(fixture.team_dir, state, state_path=fixture.state_path)
 
     persisted = store.load_run_yaml(fixture.team_dir)["agents"]["developer-1"]
     assert persisted["role"] == "developer"
-    assert persisted["status"] == "left"
+    assert persisted["status"] == "idle"
     assert persisted["joinedAt"]
     assert persisted["heartbeatAt"] >= first_heartbeat
-    assert persisted["leftAt"] == left["leftAt"]
-    assert persisted["leaveReason"] == "terminal closed"
     assert persisted["subscription"]["mode"] == "poll"
-    assert persisted["subscription"]["subscribedAt"]
     assert persisted["currentDispatch"] is None
     assert persisted["currentTaskId"] is None
+    assert persisted["lastOwnedTaskId"] == "T1"
+    assert store.load_run_yaml(fixture.team_dir)["tasks"] is not None
+    assert get_task(read_state(fixture.state_path), "T1")["status"] == "todo"
 
 
-def test_agent_heartbeat_does_not_reactivate_left_or_dead_agents(tmp_path) -> None:
-    fixture = create_team(tmp_path, "agent-heartbeat-terminal-states", [])
+def test_legacy_left_dead_agent_status_normalizes_to_idle_on_load(tmp_path) -> None:
+    # On-disk left/dead is stale liveness; the unknown-status->idle load rule
+    # coerces it. Provenance fields ride along untouched as inert metadata.
+    fixture = create_team(tmp_path, "legacy-status-load", [])
     state = read_state(fixture.state_path)
+    state["agents"] = {
+        "developer-1": {"role": "developer", "status": "left", "leftAt": "2000-01-01T00:00:00Z", "lastOwnedTaskId": "T0", "ownedTaskIds": ["T0"]},
+        "reviewer-1": {"role": "code_reviewer", "status": "dead", "deadAt": "2000-01-01T00:00:00Z"},
+        "developer-2": {"role": "developer", "status": "running"},
+        "architect": {"role": "architect", "status": "retired"},
+    }
+    store.sync_state_to_store(fixture.team_dir, state, state_path=fixture.state_path)
 
-    record_agent_join(state, "developer-1", "developer")
-    record_agent_leave(state, "developer-1", "developer", reason="terminal closed")
-    record_agent_heartbeat(state, "developer-1", "developer")
-    left = state["agents"]["developer-1"]
-    assert left["status"] == "left"
+    loaded = load_mutation_state(fixture.state_path)
+    assert loaded["agents"]["developer-1"]["status"] == "idle"
+    assert loaded["agents"]["developer-1"]["leftAt"] == "2000-01-01T00:00:00Z"
+    assert loaded["agents"]["developer-1"]["ownedTaskIds"] == ["T0"]
+    assert loaded["agents"]["reviewer-1"]["status"] == "idle"
+    # Known statuses are preserved.
+    assert loaded["agents"]["developer-2"]["status"] == "running"
+    assert loaded["agents"]["architect"]["status"] == "retired"
 
-    left["status"] = "dead"
-    record_agent_heartbeat(state, "developer-1", "developer")
-    assert left["status"] == "dead"
 
-    rejoined = record_agent_join(state, "developer-1", "developer")
-    assert rejoined["status"] == "idle"
-    assert "leftAt" not in rejoined
-    assert "leaveReason" not in rejoined
-    assert "deadAt" not in rejoined
-    assert "deathReason" not in rejoined
+def test_expiry_sweep_is_noop_on_idle_agent_without_target(tmp_path) -> None:
+    fixture = create_team(tmp_path, "expiry-noop-idle", [])
+    state = read_state(fixture.state_path)
+    # Idle, no target, stale heartbeat: the mirror gate skips it — no release.
+    state["agents"] = {
+        "developer-1": {"role": "developer", "status": "idle", "currentTaskId": None, "heartbeatAt": "2000-01-01T00:00:00Z"},
+    }
+    result = release_expired_agent_targets(state, actor="sprintengine")
+    assert result == {"released": [], "dirty": False}
+    assert state["agents"]["developer-1"]["status"] == "idle"
 
 
 def test_agent_reactivation_clears_terminal_state_metadata(tmp_path) -> None:
@@ -186,7 +214,8 @@ def test_agent_reactivation_clears_terminal_state_metadata(tmp_path) -> None:
     state = read_state(fixture.state_path)
 
     agent = record_agent_join(state, "developer-1", "developer")
-    agent["status"] = "dead"
+    # Legacy provenance metadata lingering on a departed id (status already
+    # normalized to idle on load); claiming reactivates and clears it.
     agent["deadAt"] = "2000-01-01T00:00:00Z"
     agent["deathReason"] = "heartbeat_expired"
     store.sync_state_to_store(fixture.team_dir, state, state_path=fixture.state_path)
@@ -197,6 +226,8 @@ def test_agent_reactivation_clears_terminal_state_metadata(tmp_path) -> None:
     assert claimed["claimed"] is True
     assert persisted["status"] == "running"
     assert persisted["currentTaskId"] == "T1"
+    assert "deadAt" not in persisted
+    assert "deathReason" not in persisted
     assert "deadAt" not in persisted
     assert "deathReason" not in persisted
     assert "leftAt" not in persisted
