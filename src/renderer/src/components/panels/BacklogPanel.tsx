@@ -2068,43 +2068,48 @@ function BacklogDetail({
         </div>
       </header>
 
-      {/* Epic-only: identity colour + the navigable children roll-up lead the
-          detail, since they are the epic's primary content. The shared Links +
-          Triage sections still follow for every item (Triage hides its Epic
-          select for an epic — epics do not nest). */}
-      {isEpic ? (
-        <>
-          <BacklogEpicColorPicker
-            current={currentEpicColor}
-            onPick={(color) => actions.setEpicColor(selected, color)}
-          />
-          <BacklogEpicChildren members={epicChildren} color={currentEpicColor} onSelectItem={onSelectItem} />
-        </>
-      ) : null}
+      {/* Only the identity header stays pinned. The metadata sections (Links,
+          Triage, Dependencies, epic roll-up) and the body all scroll together,
+          so they don't permanently consume the viewport above the item text. */}
+      <div className="min-h-0 flex-1 overflow-auto">
+        {/* Epic-only: identity colour + the navigable children roll-up lead the
+            detail, since they are the epic's primary content. The shared Links +
+            Triage sections still follow for every item (Triage hides its Epic
+            select for an epic — epics do not nest). */}
+        {isEpic ? (
+          <>
+            <BacklogEpicColorPicker
+              current={currentEpicColor}
+              onPick={(color) => actions.setEpicColor(selected, color)}
+            />
+            <BacklogEpicChildren members={epicChildren} color={currentEpicColor} onSelectItem={onSelectItem} />
+          </>
+        ) : null}
 
-      <BacklogLinksSection
-        item={selected}
-        workspaceId={workspaceId}
-        workspaceRoot={folderPath}
-        providers={linkProviders}
-        excludeLinkId={primaryRunLinkId}
-        onRemoveLink={(link) => actions.removeLink(selected, link)}
-      />
-
-      <BacklogTriage item={selected} actions={actions} epicChoices={epicChoices} />
-
-      {!selected.isEpic ? (
-        <BacklogDependenciesSection
+        <BacklogLinksSection
           item={selected}
-          node={dependencyNode}
-          dependencyChoices={dependencyChoices}
-          actions={actions}
-          onNavigate={onNavigate}
+          workspaceId={workspaceId}
+          workspaceRoot={folderPath}
+          providers={linkProviders}
+          excludeLinkId={primaryRunLinkId}
+          onRemoveLink={(link) => actions.removeLink(selected, link)}
         />
-      ) : null}
 
-      <div className="min-h-0 flex-1 overflow-auto px-4 py-3">
-        <BacklogPreviewBody item={selected} />
+        <BacklogTriage item={selected} actions={actions} epicChoices={epicChoices} />
+
+        {!selected.isEpic ? (
+          <BacklogDependenciesSection
+            item={selected}
+            node={dependencyNode}
+            dependencyChoices={dependencyChoices}
+            actions={actions}
+            onNavigate={onNavigate}
+          />
+        ) : null}
+
+        <div className="px-4 py-3">
+          <BacklogPreviewBody item={selected} />
+        </div>
       </div>
     </div>
   )
