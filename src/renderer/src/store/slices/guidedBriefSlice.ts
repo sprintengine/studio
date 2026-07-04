@@ -4,6 +4,7 @@ import type {
   DesignSystemStudioRelease,
   GuidedBriefPreset,
   GuidedBriefRecordedDecision,
+  GuidedBriefRoleModelOverrides,
   GuidedBriefRuntimeState,
   SprintEngineRoleCliDefaults,
   SprintEngineRoleCounts,
@@ -146,6 +147,26 @@ function normalizeRoleCliDefaultsForGuidedBrief(
       if (!isValidGuidedBriefRoleId(role)) continue
       const value = (input as Record<SprintEngineRoleId, unknown>)[role]
       if (typeof value === 'string' && value.trim()) {
+        next[role] = value.trim()
+      }
+    }
+  }
+  return next
+}
+
+// Per-role launch model overrides for the guided discussions. Keeps a trimmed
+// nonblank string (explicit model id) or an explicit null (CLI default) for the
+// three guided roles; anything else is dropped so the role falls back to the
+// CLI default. Legacy states with no overrides normalize to {}.
+const GUIDED_BRIEF_ROLE_KEYS: Array<keyof GuidedBriefRoleModelOverrides> = ['product', 'architect', 'frontend']
+function normalizeGuidedRoleModelOverrides(input: unknown): GuidedBriefRoleModelOverrides {
+  const next: GuidedBriefRoleModelOverrides = {}
+  if (input && typeof input === 'object') {
+    for (const role of GUIDED_BRIEF_ROLE_KEYS) {
+      const value = (input as Record<string, unknown>)[role]
+      if (value === null) {
+        next[role] = null
+      } else if (typeof value === 'string' && value.trim()) {
         next[role] = value.trim()
       }
     }
@@ -308,6 +329,7 @@ export function normalizeGuidedBriefState(input: unknown): GuidedBriefRuntimeSta
       architect: roleCliDefaults.architect ?? 'claude-code',
       frontend: roleCliDefaults.frontend ?? 'claude-code',
     },
+    guidedRoleModelOverrides: normalizeGuidedRoleModelOverrides(candidate.guidedRoleModelOverrides),
     buildRoleCounts,
     buildRoleCliDefaults,
     buildCliPermissionPreset,

@@ -201,6 +201,7 @@ export type GuidedBriefScaffoldInput = {
   wantsArchitecture: boolean
   wantsFrontend: boolean
   guidedRoleCliDefaults: import('../../../../types/workspace').GuidedBriefRoleCliDefaults
+  guidedRoleModelOverrides?: import('../../../../types/workspace').GuidedBriefRoleModelOverrides
   buildRoleCounts: SprintEngineRoleCounts
   buildRoleCliDefaults: Required<SprintEngineRoleCliDefaults>
   buildCliPermissionPreset: SprintEngineCliPermissionPreset
@@ -227,6 +228,7 @@ export type DesignSystemScaffoldControllerInput = {
   // extracts the starter bundle from (see DesignSystemSeedSource).
   seedSource?: import('../../../../types/workspace').DesignSystemSeedSource | null
   guidedRoleCliDefaults: import('../../../../types/workspace').GuidedBriefRoleCliDefaults
+  guidedRoleModelOverrides?: import('../../../../types/workspace').GuidedBriefRoleModelOverrides
   buildRoleCounts: SprintEngineRoleCounts
   buildRoleCliDefaults: Required<SprintEngineRoleCliDefaults>
   buildCliPermissionPreset: SprintEngineCliPermissionPreset

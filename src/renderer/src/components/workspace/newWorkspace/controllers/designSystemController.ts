@@ -85,6 +85,7 @@ export async function runDesignSystemScaffold(
       wantsFrontendDiscussion: true,
       stage: 'designer-working',
       guidedRoleCliDefaults: input.guidedRoleCliDefaults,
+      guidedRoleModelOverrides: input.guidedRoleModelOverrides,
       buildRoleCounts: input.buildRoleCounts,
       buildRoleCliDefaults: input.buildRoleCliDefaults,
       buildCliPermissionPreset: input.buildCliPermissionPreset,

@@ -1663,6 +1663,11 @@ export type GuidedBriefRoleCliDefaults = {
   frontend: AgentCli
 }
 
+// Explicit per-role launch model for the guided-brief discussions. A string is
+// an explicit model id; null or an absent role means "CLI default" (no model
+// flag passed). Mirrors SprintEngineRoleModelOverrides for the guided roles.
+export type GuidedBriefRoleModelOverrides = Partial<Record<keyof GuidedBriefRoleCliDefaults, string | null>>
+
 export type GuidedBriefStage =
   | 'strategist-working'
   | 'strategist-ready'
@@ -1701,6 +1706,9 @@ export type GuidedBriefRuntimeState = {
   wantsArchitectureDiscussion: boolean
   wantsFrontendDiscussion: boolean
   guidedRoleCliDefaults: GuidedBriefRoleCliDefaults
+  // Explicit per-role launch models for the guided discussions. Absent on
+  // legacy states; normalization defaults it to {} (all roles use CLI default).
+  guidedRoleModelOverrides?: GuidedBriefRoleModelOverrides
   buildRoleCounts: SprintEngineRoleCounts
   buildRoleCliDefaults: Required<SprintEngineRoleCliDefaults>
   buildCliPermissionPreset: SprintEngineCliPermissionPreset

@@ -131,6 +131,7 @@ export async function runGuidedBriefScaffold(
       wantsFrontendDiscussion,
       stage: initialStage,
       guidedRoleCliDefaults: input.guidedRoleCliDefaults,
+      guidedRoleModelOverrides: input.guidedRoleModelOverrides,
       buildRoleCounts: input.buildRoleCounts,
       buildRoleCliDefaults: input.buildRoleCliDefaults,
       buildCliPermissionPreset: input.buildCliPermissionPreset,

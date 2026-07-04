@@ -34,6 +34,7 @@ import type {
   WorkspaceMode,
   Workspace,
   GuidedBriefRoleCliDefaults,
+  GuidedBriefRoleModelOverrides,
   WorkspaceWindowId,
 } from '../../types/workspace'
 import { GuidedBriefFlow } from './guidedBrief/GuidedBriefFlow'
@@ -62,7 +63,7 @@ import {
 import MulticodeMark from '../brand/MulticodeMark'
 import MulticodeWordmark from '../brand/MulticodeWordmark'
 import { CreationBackdrop } from '../backdrops/CreationBackdrop'
-import { CloseIconButton, Field, GhostButton, Select, TruncatedText, WizardProgress } from '../ui'
+import { CliModelPickerButton, CloseIconButton, Field, GhostButton, Select, TruncatedText, WizardProgress } from '../ui'
 import {
   analyzeWorkspaceTargetPath,
   defaultWorkspaceFolderPath,
@@ -70,7 +71,7 @@ import {
 } from './newWorkspace/folderCreation'
 import { ModeCard } from './newWorkspace/ModeCard'
 import { RecentFolderRow, isSameFolder } from './newWorkspace/RecentFolderRow'
-import { AgentCliPicker, type SprintEngineCliOption } from './newWorkspace/SprintEngineRosterTable'
+import { type SprintEngineCliOption } from './newWorkspace/SprintEngineRosterTable'
 import { sprintEngineRosterHasPlanningRole, sprintEngineRosterRoleFloor } from '../../utils/sprintengineRoleOptions'
 import { useFolderHints, useFolderScan } from './newWorkspace/useNewWorkspaceFolder'
 import { useBacklogScan } from './newWorkspace/useBacklogScan'
@@ -546,6 +547,9 @@ export default function NewWorkspacePanel({
   const [guidedRoleCliDefaults, setGuidedRoleCliDefaults] = useState<GuidedBriefRoleCliDefaults>(
     initialGuidedBriefRoleCliDefaults,
   )
+  // Explicit per-guided-role launch model (string = explicit id, null = explicit
+  // CLI default/no model flag). Mirrors seRoleModelOverrides for the roster.
+  const [guidedRoleModelOverrides, setGuidedRoleModelOverrides] = useState<GuidedBriefRoleModelOverrides>({})
   const [guidedError, setGuidedError] = useState<string | null>(null)
   const [guidedRuntimeState, setGuidedRuntimeState] = useState<GuidedBriefRuntimeState | null>(null)
   const [viewingIdeaAfterCommit, setViewingIdeaAfterCommit] = useState(false)
@@ -1513,6 +1517,10 @@ export default function NewWorkspacePanel({
     setGuidedRoleCliDefaults((current) => ({ ...current, [role]: cli }))
   }
 
+  const setGuidedRoleModel = (role: keyof GuidedBriefRoleCliDefaults, model: string | null) => {
+    setGuidedRoleModelOverrides((current) => ({ ...current, [role]: model }))
+  }
+
   const setRoleModel = (role: SprintEngineRoleId, model: string | null) => {
     setSeRoleModelOverrides((current) => ({ ...current, [role]: model }))
   }
@@ -1671,6 +1679,7 @@ export default function NewWorkspacePanel({
                 idea: guidedIdea,
                 seedSource: guidedSeedSource,
                 guidedRoleCliDefaults,
+                guidedRoleModelOverrides,
                 buildRoleCounts,
                 buildRoleCliDefaults: seRoleCliDefaults,
                 buildCliPermissionPreset: cliPermissionPreset,
@@ -1693,6 +1702,7 @@ export default function NewWorkspacePanel({
                 wantsArchitecture: guidedWantsArchitecture,
                 wantsFrontend: guidedWantsFrontend,
                 guidedRoleCliDefaults,
+                guidedRoleModelOverrides,
                 buildRoleCounts,
                 buildRoleCliDefaults: seRoleCliDefaults,
                 buildCliPermissionPreset: cliPermissionPreset,
@@ -2383,11 +2393,13 @@ export default function NewWorkspacePanel({
               wantsArchitectureDiscussion={guidedWantsArchitecture}
               wantsFrontendDiscussion={guidedWantsFrontend}
               roleCliDefaults={guidedRoleCliDefaults}
+              roleModelOverrides={guidedRoleModelOverrides}
               cliOptions={sprintEngineCliOptions}
               onChangeWantsProductDiscussion={setGuidedWantsProduct}
               onChangeWantsArchitectureDiscussion={setGuidedWantsArchitecture}
               onChangeWantsFrontendDiscussion={setGuidedWantsFrontend}
               onSetRoleCli={setGuidedRoleCli}
+              onSetRoleModel={setGuidedRoleModel}
               folderPath={folderPath}
               error={guidedError}
             />
@@ -3239,25 +3251,36 @@ const GUIDED_PRESET_COPY: Record<GuidedBriefPreset, GuidedPresetCopy> = {
     },
   },
   'design-system': {
-    cardTitle: 'Design system',
+    cardTitle: 'UX design system',
     cardBody: 'Author a reusable system — tokens, components, patterns — as a portable bundle.',
-    ideaLabel: 'Design system goal',
+    ideaLabel: 'UX design system goal',
     ideaPlaceholder:
       'A warm, editorial design system for a café brand: friendly type, calm surfaces, light and dark modes.',
     ideaHint:
       'Describe the brand character, the products it will serve, and any constraints — fonts, colors, density.',
     lockedDesigner: {
-      title: 'Design system designer',
+      title: 'UX designer',
       body: 'Interviews through the brand and authors the tokens, components, and patterns.',
     },
     studioNote:
-      'Design system skips the planning discussions and starts straight in the authoring studio.',
+      'UX design system skips the planning discussions and starts straight in the authoring studio.',
     folderHint: {
       before: 'The bundle will be scaffolded into ',
       path: 'design-system/',
       after: ' in the selected folder.',
     },
   },
+}
+
+// Effective launch model for a guided role: explicit override (string) wins;
+// null (explicit CLI default) or an absent role resolves to undefined (no model
+// flag). Mirrors effectiveRoleModel in the Sprint Engine roster.
+function guidedEffectiveRoleModel(
+  role: keyof GuidedBriefRoleCliDefaults,
+  roleModelOverrides: GuidedBriefRoleModelOverrides,
+): string | undefined {
+  const override = roleModelOverrides[role]
+  return typeof override === 'string' ? override : undefined
 }
 
 function GuidedIdeaStep({
@@ -3276,11 +3299,13 @@ function GuidedIdeaStep({
   wantsArchitectureDiscussion,
   wantsFrontendDiscussion,
   roleCliDefaults,
+  roleModelOverrides,
   cliOptions,
   onChangeWantsProductDiscussion,
   onChangeWantsArchitectureDiscussion,
   onChangeWantsFrontendDiscussion,
   onSetRoleCli,
+  onSetRoleModel,
   folderPath,
   error,
 }: {
@@ -3299,11 +3324,13 @@ function GuidedIdeaStep({
   wantsArchitectureDiscussion: boolean
   wantsFrontendDiscussion: boolean
   roleCliDefaults: GuidedBriefRoleCliDefaults
-  cliOptions: Array<{ value: AgentCli; label: string }>
+  roleModelOverrides: GuidedBriefRoleModelOverrides
+  cliOptions: SprintEngineCliOption[]
   onChangeWantsProductDiscussion: (value: boolean) => void
   onChangeWantsArchitectureDiscussion: (value: boolean) => void
   onChangeWantsFrontendDiscussion: (value: boolean) => void
   onSetRoleCli: (role: keyof GuidedBriefRoleCliDefaults, cli: AgentCli) => void
+  onSetRoleModel: (role: keyof GuidedBriefRoleCliDefaults, model: string | null) => void
   folderPath: string | null
   error: string | null
 }) {
@@ -3431,7 +3458,9 @@ function GuidedIdeaStep({
               body={copy.lockedDesigner.body}
               cli={roleCliDefaults.frontend}
               cliOptions={cliOptions}
+              model={guidedEffectiveRoleModel('frontend', roleModelOverrides)}
               onChangeCli={(cli) => onSetRoleCli('frontend', cli)}
+              onChangeModel={(model) => onSetRoleModel('frontend', model)}
               onChange={onChangeWantsFrontendDiscussion}
             />
           ) : (
@@ -3442,7 +3471,9 @@ function GuidedIdeaStep({
                 body="Sharpens the product brief before planning."
                 cli={roleCliDefaults.product}
                 cliOptions={cliOptions}
+                model={guidedEffectiveRoleModel('product', roleModelOverrides)}
                 onChangeCli={(cli) => onSetRoleCli('product', cli)}
+                onChangeModel={(model) => onSetRoleModel('product', model)}
                 onChange={onChangeWantsProductDiscussion}
               />
               <GuidedRoleToggle
@@ -3451,7 +3482,9 @@ function GuidedIdeaStep({
                 body="Interviews through architecture decisions and writes architecture/plan.md."
                 cli={roleCliDefaults.architect}
                 cliOptions={cliOptions}
+                model={guidedEffectiveRoleModel('architect', roleModelOverrides)}
                 onChangeCli={(cli) => onSetRoleCli('architect', cli)}
+                onChangeModel={(model) => onSetRoleModel('architect', model)}
                 onChange={onChangeWantsArchitectureDiscussion}
               />
               <GuidedRoleToggle
@@ -3461,7 +3494,9 @@ function GuidedIdeaStep({
                 body={hasUi === 'yes' ? 'Designs the screens and reviewable mockups.' : 'Available only for visual apps.'}
                 cli={roleCliDefaults.frontend}
                 cliOptions={cliOptions}
+                model={guidedEffectiveRoleModel('frontend', roleModelOverrides)}
                 onChangeCli={(cli) => onSetRoleCli('frontend', cli)}
+                onChangeModel={(model) => onSetRoleModel('frontend', model)}
                 onChange={onChangeWantsFrontendDiscussion}
               />
             </>
@@ -3497,21 +3532,27 @@ function GuidedRoleToggle({
   body,
   cli,
   cliOptions,
+  model,
   onChange,
   onChangeCli,
+  onChangeModel,
 }: {
   checked: boolean
   disabled?: boolean
   // `locked` pins the discussion on (checkbox checked, not toggleable) while
-  // keeping the CLI selector usable. Used by the Multicode Design preset, which
-  // always runs the frontend designer but still lets the user pick its CLI.
+  // keeping the runtime selector usable. Used by the Multicode Design preset,
+  // which always runs the frontend designer but still lets the user pick its
+  // CLI and model.
   locked?: boolean
   title: string
   body: string
   cli: AgentCli
-  cliOptions: Array<{ value: AgentCli; label: string }>
+  cliOptions: SprintEngineCliOption[]
+  // Effective launch model for the current CLI (undefined = CLI default).
+  model?: string
   onChange: (value: boolean) => void
   onChangeCli: (cli: AgentCli) => void
+  onChangeModel: (model: string | null) => void
 }) {
   const effectiveChecked = locked || checked
   return (
@@ -3525,12 +3566,24 @@ function GuidedRoleToggle({
         <span className="mt-0.5 block text-[12px] leading-4 text-[color:var(--text-muted)]">{body}</span>
       </span>
       <span className="flex shrink-0 items-center gap-2">
-        <AgentCliPicker
-          ariaLabel={`${title} agent`}
-          value={cli}
-          onChange={onChangeCli}
+        <CliModelPickerButton
+          ariaLabel={`${title} agent runtime`}
+          options={cliOptions}
+          cli={cli}
           disabled={disabled || !effectiveChecked}
-          cliOptions={cliOptions}
+          effectiveModelFor={(candidateCli) => (candidateCli === cli ? model : undefined)}
+          onSelectCli={(nextCli) => {
+            // Switching CLIs resets the model to that CLI's default: a model id
+            // from the previous CLI is meaningless for the new one.
+            if (nextCli !== cli) {
+              onChangeCli(nextCli)
+              onChangeModel(null)
+            }
+          }}
+          onSelectModel={(nextCli, nextModel) => {
+            if (nextCli !== cli) onChangeCli(nextCli)
+            onChangeModel(nextModel)
+          }}
         />
         <input
           type="checkbox"
@@ -3570,7 +3623,7 @@ function GuidedChoiceCard({
       disabled={disabled}
       onClick={onSelect}
       className={`
-        relative flex h-[88px] w-full flex-col items-start gap-1.5 overflow-hidden rounded-md border p-3 text-left
+        relative flex min-h-[88px] w-full flex-col items-start gap-1.5 overflow-hidden rounded-md border p-3 text-left
         transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--accent-primary)]
         disabled:cursor-not-allowed disabled:opacity-55
         ${active

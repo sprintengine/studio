@@ -3,6 +3,7 @@ import type {
   GuidedBriefHasUi,
   GuidedBriefPreset,
   GuidedBriefRoleCliDefaults,
+  GuidedBriefRoleModelOverrides,
   GuidedBriefRuntimeState,
   GuidedBriefStage,
   SprintEngineCliPermissionPreset,
@@ -28,6 +29,7 @@ export type InitialGuidedBriefRuntimeStateInput = {
   wantsFrontendDiscussion: boolean
   stage: GuidedBriefStage
   guidedRoleCliDefaults: GuidedBriefRoleCliDefaults
+  guidedRoleModelOverrides?: GuidedBriefRoleModelOverrides
   buildRoleCounts: SprintEngineRoleCounts
   buildRoleCliDefaults: Required<SprintEngineRoleCliDefaults>
   buildCliPermissionPreset: SprintEngineCliPermissionPreset
@@ -48,6 +50,7 @@ export function buildInitialGuidedBriefRuntimeState(
 ): GuidedBriefRuntimeState {
   return {
     ...input,
+    guidedRoleModelOverrides: input.guidedRoleModelOverrides ?? {},
     designSystemSeedSource: input.designSystemSeedSource ?? null,
     designSystemLastRelease: null,
     acceptedProductBrief: null,

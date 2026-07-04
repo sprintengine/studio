@@ -141,6 +141,7 @@ export function GuidedBriefFlow({
   const strategist = useStrategistSession({
     workspaceRoot,
     cli: runtimeState.guidedRoleCliDefaults.product,
+    cliModel: runtimeState.guidedRoleModelOverrides?.product ?? undefined,
     cliRuntimes,
     enabled: inStrategistStage,
     sessionId: runtimeState.strategistSessionId,
@@ -156,6 +157,7 @@ export function GuidedBriefFlow({
     workspaceRoot,
     acceptedBriefSnapshotPath: acceptedBriefRelativePath,
     cli: runtimeState.guidedRoleCliDefaults.architect,
+    cliModel: runtimeState.guidedRoleModelOverrides?.architect ?? undefined,
     cliRuntimes,
     enabled: inArchitectStage,
     sessionId: runtimeState.architectSessionId,
@@ -175,6 +177,7 @@ export function GuidedBriefFlow({
     acceptedBriefSnapshotPath: acceptedBriefRelativePath ?? undefined,
     acceptedArchitecturePlanPath: acceptedArchitecturePlanRelativePath,
     cli: runtimeState.guidedRoleCliDefaults.frontend,
+    cliModel: runtimeState.guidedRoleModelOverrides?.frontend ?? undefined,
     cliRuntimes,
     enabled:
       hasUi === 'yes' &&
