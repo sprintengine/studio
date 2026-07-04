@@ -112,6 +112,8 @@ export async function refreshSprintEngineWorkspaceProjection(input: {
       // that: its display is already set and no lifecycle work remains.
       if (!dormant) {
         reconcileCompletedRunLifecycle(workspace, workspace.sprintEngineState, ports)
+      } else {
+        healInterruptedDormancyTeardown(workspace, ports)
       }
       logPerfEvent('SprintEngineProjection', 'refresh', {
         workspaceId: workspace.id,
@@ -145,6 +147,8 @@ export async function refreshSprintEngineWorkspaceProjection(input: {
         state: parsedState,
         ports,
       })
+    } else {
+      healInterruptedDormancyTeardown(workspace, ports)
     }
     logPerfEvent('SprintEngineProjection', 'refresh', {
       workspaceId: workspace.id,
@@ -214,8 +218,10 @@ export function enterSprintEngineDormancy(
   // read, and the board resume path re-opens a role's panel on purpose), so an
   // agent-presence gate would tear those straight back down. The marker is set
   // only after the teardown resolves, so a teardown interrupted by an app quit
-  // retries on the next entry; it owns completion teardown for every automation
-  // mode, including a run reopened after the app restarted.
+  // retries on the next entry — including the reload case, where the run is
+  // already dormant and the refresh's display-only branch re-enters here via
+  // `healInterruptedDormancyTeardown`. It owns completion teardown for every
+  // automation mode, including a run reopened after the app restarted.
   if (workspace.sprintEngineAutoState?.completionTeardownAt === undefined) {
     void (async () => {
       await ports.tearDownCompletedRunAgents?.(workspace.id)
@@ -223,6 +229,26 @@ export function enterSprintEngineDormancy(
     })().catch(() => {
       // Leave the marker unset so the next entry retries the teardown.
     })
+  }
+}
+
+// Heal a dormant run whose completion teardown never finished. An app quit
+// during the fire-and-forget teardown persists `runtimeState:'complete'` with
+// the marker still unset, so on reload the run is already dormant and the
+// display-only branch skips every lifecycle path — teardown never resolves, the
+// marker never sets, and `canStopPollingCompletedSprintEngineProjection` stays
+// false forever, so the projection poller never quiesces. `enterSprintEngine-
+// Dormancy` is the fix: on an already-`complete` run its runtime guard fires no
+// lifecycle event, so it only runs the marker-gated teardown and sets the
+// marker — completing the pending teardown without breaking the display-only
+// contract (no reconcile, no backlog writes). Gated on the marker being unset so
+// a fully torn-down dormant run stays a strict no-op (0 teardowns, 0 writes).
+function healInterruptedDormancyTeardown(
+  workspace: Workspace,
+  ports: SprintEngineProjectionRefreshPorts,
+): void {
+  if (workspace.sprintEngineAutoState?.completionTeardownAt === undefined) {
+    enterSprintEngineDormancy(workspace, ports)
   }
 }
 

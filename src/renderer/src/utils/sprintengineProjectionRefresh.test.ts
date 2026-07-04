@@ -498,11 +498,13 @@ async function testFinishedPausedRunTransitionsAndTearsDown(): Promise<void> {
   )
 }
 
-// A dormant workspace (lifecycle `complete`) is DISPLAY-only: a changed read still
-// hydrates the board via setSprintEngineState, but no lifecycle port fires — no
-// reconcile event, no teardown (even with the marker unset), no backlog-link
-// write. This is what keeps a deliberately re-opened terminal from being torn
-// down and stops every idle activity source on a finished run.
+// A dormant workspace whose completion teardown already ran (marker SET) is
+// DISPLAY-only: a changed read still hydrates the board via setSprintEngineState,
+// but no lifecycle port fires — no reconcile event, no teardown, no marker write,
+// no backlog-link write. This is what keeps a deliberately re-opened terminal
+// (its teardown long done) from being torn down again and stops every idle
+// activity source on a finished run. The marker-unset heal is a separate case
+// (testDormantWorkspaceRefreshHealsInterruptedTeardown).
 async function testDormantWorkspaceRefreshIsDisplayOnly(): Promise<void> {
   const applied: SprintEngineState[] = []
   const automationEvents: SprintEngineAutomationEvent[] = []
@@ -515,9 +517,9 @@ async function testDormantWorkspaceRefreshIsDisplayOnly(): Promise<void> {
     status?: 'completed'
   }> = []
   const result = await refreshSprintEngineWorkspaceProjection({
-    // Dormant (runtimeState complete) with the marker UNSET: if lifecycle ran it
-    // would tear down, so an empty teardown log proves the skip, not the marker.
-    workspace: completedWorkspace('complete'),
+    // Dormant (runtimeState complete) with the marker SET: teardown already ran,
+    // so an empty teardown log proves the display-only skip, not a pending heal.
+    workspace: completedWorkspace('complete', { completionTeardownAt: 500 }),
     tokens: new Map(),
     cause: 'manual',
     force: true,
@@ -560,15 +562,15 @@ async function testDormantWorkspaceRefreshIsDisplayOnly(): Promise<void> {
   assert.equal(backlogMutations.length, 0, 'no backlog-link write on a dormant run')
 }
 
-// An unchanged poll on a dormant run also skips lifecycle: the self-heal reconcile
-// (which the same path runs for a not-yet-dormant finished run) must not fire once
-// the run is already dormant.
+// An unchanged poll on a fully-dormant run (marker set) also skips lifecycle: the
+// self-heal reconcile (which the same path runs for a not-yet-dormant finished
+// run) must not fire once the run is already dormant and torn down.
 async function testDormantWorkspaceUnchangedRefreshSkipsLifecycle(): Promise<void> {
   const automationEvents: SprintEngineAutomationEvent[] = []
   const teardownCalls: string[] = []
   const tokens = new Map([['workspace-1', 'tok-1']])
   const result = await refreshSprintEngineWorkspaceProjection({
-    workspace: completedWorkspace('complete'),
+    workspace: completedWorkspace('complete', { completionTeardownAt: 500 }),
     tokens,
     cause: 'supervisor',
     ports: portsFor({ token: 'tok-1', applied: [], automationEvents, teardownCalls }),
@@ -577,6 +579,50 @@ async function testDormantWorkspaceUnchangedRefreshSkipsLifecycle(): Promise<voi
   assert.equal(result.status, 'unchanged')
   assert.deepEqual(automationEvents, [], 'no self-heal event on an already-dormant run')
   assert.deepEqual(teardownCalls, [], 'no teardown on an already-dormant run')
+}
+
+// T9: an app quit during the fire-and-forget completion teardown persists
+// `runtimeState:'complete'` with the marker UNSET. On reload the run is already
+// dormant, so the refresh takes its display-only branch — but that branch must
+// still complete the pending teardown ONCE and set the marker, while preserving
+// the display-only contract: no reconcile lifecycle event (the run is already
+// `complete`, so the runtime guard fires none) and no backlog-link write. Both a
+// changed read and an unchanged poll heal it.
+async function testDormantWorkspaceRefreshHealsInterruptedTeardown(): Promise<void> {
+  const automationEvents: SprintEngineAutomationEvent[] = []
+  const teardownCalls: string[] = []
+  const markerCalls: Array<{ workspaceId: string; at: number | undefined }> = []
+  const backlogMutations: Array<{
+    workspaceRoot: string
+    relativePath: string
+    link: BacklogItemLinkPayload
+    status?: 'completed'
+  }> = []
+  const result = await refreshSprintEngineWorkspaceProjection({
+    // Dormant (complete) with the marker UNSET — the interrupted-teardown state.
+    workspace: completedWorkspace('complete'),
+    tokens: new Map(),
+    cause: 'manual',
+    force: true,
+    ports: portsFor({
+      data: projection('done', '2026-06-07T15:00:00Z', 'complete'),
+      applied: [],
+      automationEvents,
+      teardownCalls,
+      markerCalls,
+      backlogMutations,
+    }),
+  })
+  await flushMicrotasks()
+  assert.equal(result.status, 'changed')
+  assert.deepEqual(automationEvents, [], 'no lifecycle event re-fired on an already-complete run')
+  assert.deepEqual(teardownCalls, ['workspace-1'], 'the interrupted teardown runs exactly once')
+  assert.deepEqual(
+    markerCalls,
+    [{ workspaceId: 'workspace-1', at: 1000 }],
+    'the completion-teardown marker is healed once',
+  )
+  assert.equal(backlogMutations.length, 0, 'display-only contract intact: no backlog-link write')
 }
 
 // enterSprintEngineDormancy is the centralized completion transition. Driven the
@@ -759,6 +805,7 @@ await testBacklogRefreshFailureWarnsAndLeavesItemUnchanged()
 await testFinishedPausedRunTransitionsAndTearsDown()
 await testDormantWorkspaceRefreshIsDisplayOnly()
 await testDormantWorkspaceUnchangedRefreshSkipsLifecycle()
+await testDormantWorkspaceRefreshHealsInterruptedTeardown()
 await testEnterDormancyIsIdempotentAcrossRepeats()
 await testCompletedRunWithMarkerSkipsTeardown()
 await testReopenedRunClearsMarker()

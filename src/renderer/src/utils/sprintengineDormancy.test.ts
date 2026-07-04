@@ -317,6 +317,95 @@ function testAllDormantEmptiesBothTimerRegistrations(): void {
   assert.equal(labelCount(AUTO_RUN_LABEL), 0, 'dispose leaves no auto-run registration')
 }
 
+// ── 5. Interrupted-teardown non-quiescence heals on reload (T9) ───────────────
+// An app quit during the fire-and-forget completion teardown persists
+// `runtimeState:'complete'` with `completionTeardownAt:undefined` and a nulled
+// `sprintEngineState`. On reload the run is already dormant, so the refresh takes
+// its display-only branch — but that branch must still complete the pending
+// teardown ONCE and set the marker, after which the projection poller quiesces.
+// A dormant run whose marker is already set must stay a strict no-op.
+async function testInterruptedTeardownHealsOnReload(): Promise<void> {
+  const teardowns: string[] = []
+  const markerWrites: number[] = []
+  const events: SprintEngineAutomationEvent[] = []
+  const backlogMutations: string[] = []
+  // Interrupted: complete + marker unset + not yet hydrated (cold reload).
+  const autoStateRef = autoState({ runtimeState: 'complete', completionTeardownAt: undefined })
+  const interrupted = sprintWorkspace('interrupted', {
+    sprintEngineAutoState: autoStateRef,
+    sprintEngineState: null,
+  })
+  const projectionData = {
+    ok: true,
+    projectionVersion: 1,
+    source: 'folder_store',
+    generatedAt: '2026-06-07T15:00:00Z',
+    updatedAt: '2026-06-07T15:00:00Z',
+    run: { id: 'interrupted', name: 'Done', goal: '', status: 'complete', rosterConfigured: true },
+    roster: {},
+    tasks: [{ id: 'T1', title: 'Done', role: 'developer', status: 'done', dependsOn: [], qualityGates: [], activity: [] }],
+    artifacts: [],
+    activity: [],
+  }
+  const ports: SprintEngineProjectionRefreshPorts = {
+    readSprintEngineProjection: async () => ({ ok: true, data: projectionData, token: 'tok-1' }),
+    setSprintEngineState: (_workspaceId, state) => {
+      if (state) interrupted.sprintEngineState = state
+    },
+    applySprintEngineAutomationEvent: (_workspaceId, event) => {
+      events.push(event)
+    },
+    readBacklogObjectStore: async () => ({ ok: true, store: { schemaVersion: 1, items: [] } }),
+    addOrUpdateBacklogLink: async (args) => {
+      backlogMutations.push(args.relativePath)
+      return { ok: true, store: { schemaVersion: 1, items: [] } }
+    },
+    publishDiagnostic: () => {},
+    tearDownCompletedRunAgents: async (workspaceId) => {
+      teardowns.push(workspaceId)
+    },
+    setCompletionTeardownAt: (_workspaceId, at) => {
+      autoStateRef.completionTeardownAt = at
+      if (at !== undefined) markerWrites.push(at)
+    },
+    now: () => FIXED_NOW,
+  }
+
+  const first = await refreshSprintEngineWorkspaceProjection({
+    workspace: interrupted,
+    tokens: new Map(),
+    cause: 'manual',
+    force: true,
+    ports,
+  })
+  await flushMicrotasks()
+
+  assert.equal(first.status, 'changed', 'the cold projection is read and applied')
+  assert.deepEqual(events, [], 'no lifecycle event re-fired on an already-complete run')
+  assert.deepEqual(teardowns, ['interrupted'], 'the interrupted teardown runs exactly once on reload')
+  assert.deepEqual(markerWrites, [FIXED_NOW], 'the completion-teardown marker is healed once')
+  assert.deepEqual(backlogMutations, [], 'display-only contract intact: no backlog writes')
+  // With the marker now set + state hydrated, the poller can quiesce.
+  assert.equal(
+    canStopPollingCompletedSprintEngineProjection(interrupted),
+    true,
+    'poller can stop once the interrupted teardown is healed',
+  )
+
+  // A second refresh on the now-fully-dormant run is a strict no-op.
+  const second = await refreshSprintEngineWorkspaceProjection({
+    workspace: interrupted,
+    tokens: new Map(),
+    cause: 'manual',
+    force: true,
+    ports,
+  })
+  await flushMicrotasks()
+  assert.equal(second.status, 'changed', 'the second forced read still applies')
+  assert.deepEqual(teardowns, ['interrupted'], 'no second teardown once the marker is set')
+  assert.deepEqual(markerWrites, [FIXED_NOW], 'no second marker write once the marker is set')
+}
+
 async function main(): Promise<void> {
   await testDualPathTeardownRunsExactlyOnce()
   console.log('sprintengineDormancy: dual-path teardown-once — ok')
@@ -326,6 +415,8 @@ async function main(): Promise<void> {
   console.log('sprintengineDormancy: forced refresh display-only on dormant — ok')
   testAllDormantEmptiesBothTimerRegistrations()
   console.log('sprintengineDormancy: all-dormant empties both timer registrations — ok')
+  await testInterruptedTeardownHealsOnReload()
+  console.log('sprintengineDormancy: interrupted teardown heals on reload — ok')
   console.log('sprintengineDormancy.test.ts: ok')
 }
 
