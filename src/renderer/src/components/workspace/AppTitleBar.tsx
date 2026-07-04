@@ -1,26 +1,33 @@
-// The app-wide title strip across the top of the window. It carries the
-// centered Multicode brand (Discord-style) and the platform window chrome:
-// native traffic lights inset on the left on macOS, custom menu + window
-// controls on the custom-frame builds. The whole strip is a drag region; the
-// brand is pointer-transparent so it never eats a drag, and only the menu /
-// control clusters opt back out with `app-no-drag`.
+// The app-wide title strip across the top of the window. Cursor-parity chrome:
+// a slim strip that carries window navigation on the left (sidebar-collapse
+// toggle + workspace back/forward) and app-level surface toggles on the right
+// (global search + the Sprint Engines aside, the "secondary side bar" idiom).
+// The whole strip is a drag region; only the control clusters opt back out with
+// `app-no-drag`, and on macOS the leftmost slice is reserved for the native
+// traffic lights inset by the hiddenInset window frame.
 //
 // The right edge is the home for app-level (cross-workspace) surface toggles —
-// today the Sprint Engines aside — matching the common "secondary
-// side bar" idiom: a global panel gets a global toggle, never a slot in the
-// per-workspace PanelRail.
+// matching the common "secondary side bar" idiom: a global panel gets
+// a global toggle, never a slot in the per-workspace PanelRail.
 
 import React from 'react'
-import MulticodeMark from '../brand/MulticodeMark'
 import { Tooltip } from '../ui'
 import { AttentionQueuePopover, type AttentionQueueSurface } from './AttentionQueuePopover'
 import { WindowControls } from './WindowControls'
 
+// The native traffic lights are pinned at y:11 by the hiddenInset frame
+// (window-factory.ts), so the strip stays 36px to keep them vertically
+// centered; the slimming comes from dropping the brand, not the height.
 const TITLE_BAR_HEIGHT = 'h-[36px]'
 
-// macOS reserves the leftmost slice for the native traffic lights; pad the
-// menu/brand flow past them so nothing sits under the close/zoom buttons.
+// macOS reserves the leftmost slice for the native traffic lights; pad the nav
+// flow past them so nothing sits under the close/zoom buttons.
 const TRAFFIC_LIGHT_INSET = 'pl-[78px]'
+
+// Square icon buttons in the strip: transparent chrome that brightens on hover,
+// opts out of the drag region, and carries a visible focus ring.
+const STRIP_BUTTON =
+  'app-no-drag interactive inline-flex h-7 w-7 items-center justify-center bg-transparent text-[color:var(--text-subtle)] transition-colors hover:text-[color:var(--text-default)] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[color:var(--accent-primary-soft)]'
 
 type SprintEnginesToggle = {
   open: boolean
@@ -32,6 +39,16 @@ type AppTitleBarProps<MenuItem extends string> = {
   isMaximized: boolean
   menuItems: readonly MenuItem[]
   onShowMenu: (event: React.MouseEvent<HTMLButtonElement>, label: MenuItem) => void
+  // Sidebar-collapse toggle: the strip mirrors the workspace.sidebar.toggle
+  // command so the collapse control leads the frame, as in most desktop editors.
+  sidebarCollapsed: boolean
+  onToggleSidebar: () => void
+  // Workspace back/forward, wired to the workspaceNavigationHistory commands
+  // (workspace.history.back / .forward) that mouse buttons and shortcuts share.
+  onNavigateBack: () => void
+  onNavigateForward: () => void
+  // Global search: dispatches the command-palette open command.
+  onOpenSearch: () => void
   // Null when the sprint-engine module is disabled — the toggle hides entirely.
   sprintEnginesToggle: SprintEnginesToggle | null
   // Cross-workspace "agents awaiting you" surface. Core shell chrome (no module
@@ -43,15 +60,59 @@ type AppTitleBarProps<MenuItem extends string> = {
   onOpenDiagnostics: (() => void) | null
 }
 
+function SidebarCollapseButton({ collapsed, onToggle }: { collapsed: boolean; onToggle: () => void }) {
+  const label = collapsed ? 'Open sidebar' : 'Collapse sidebar'
+  return (
+    <Tooltip content={label} placement="bottom">
+      <button type="button" onClick={onToggle} aria-label={label} className={STRIP_BUTTON}>
+        {/* Standard `panel-left` sidebar glyph — the shared idiom from the
+            PanelRail collapse toggle; one glyph for both states. */}
+        <svg viewBox="0 0 16 16" fill="none" className="icon-sm" aria-hidden="true">
+          <rect x="2.5" y="3" width="11" height="10" rx="1.5" stroke="currentColor" strokeWidth="1.5" />
+          <path d="M6 3V13" stroke="currentColor" strokeWidth="1.5" />
+        </svg>
+      </button>
+    </Tooltip>
+  )
+}
+
+function NavHistoryButton({ direction, onClick }: { direction: 'back' | 'forward'; onClick: () => void }) {
+  const label = direction === 'back' ? 'Back' : 'Forward'
+  return (
+    <Tooltip content={label} placement="bottom">
+      <button type="button" onClick={onClick} aria-label={label} className={STRIP_BUTTON}>
+        <svg viewBox="0 0 16 16" fill="none" className="icon-sm" aria-hidden="true">
+          <path
+            d={direction === 'back' ? 'M10 3.5L5.5 8L10 12.5' : 'M6 3.5L10.5 8L6 12.5'}
+            stroke="currentColor"
+            strokeWidth="1.5"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          />
+        </svg>
+      </button>
+    </Tooltip>
+  )
+}
+
+function GlobalSearchButton({ onOpen }: { onOpen: () => void }) {
+  return (
+    <Tooltip content="Search" placement="bottom">
+      <button type="button" onClick={onOpen} aria-label="Search" className={STRIP_BUTTON}>
+        {/* Magnifier glyph. */}
+        <svg viewBox="0 0 16 16" fill="none" className="icon-sm" aria-hidden="true">
+          <circle cx="7" cy="7" r="4.25" stroke="currentColor" strokeWidth="1.5" />
+          <path d="M10.5 10.5L13.5 13.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+        </svg>
+      </button>
+    </Tooltip>
+  )
+}
+
 function DiagnosticsTitleBarButton({ onOpen }: { onOpen: () => void }) {
   return (
     <Tooltip content="Performance diagnostics" placement="bottom">
-      <button
-        type="button"
-        onClick={onOpen}
-        aria-label="Open performance diagnostics"
-        className="app-no-drag interactive inline-flex h-7 w-7 items-center justify-center bg-transparent text-[color:var(--text-subtle)] transition-colors hover:text-[color:var(--text-default)] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[color:var(--accent-primary-soft)]"
-      >
+      <button type="button" onClick={onOpen} aria-label="Open performance diagnostics" className={STRIP_BUTTON}>
         {/* Activity / pulse glyph. */}
         <svg viewBox="0 0 16 16" fill="none" className="icon-sm" aria-hidden="true">
           <path
@@ -96,35 +157,29 @@ export function AppTitleBar<MenuItem extends string>({
   isMaximized,
   menuItems,
   onShowMenu,
+  sidebarCollapsed,
+  onToggleSidebar,
+  onNavigateBack,
+  onNavigateForward,
+  onOpenSearch,
   sprintEnginesToggle,
   attentionQueue,
   onOpenDiagnostics,
 }: AppTitleBarProps<MenuItem>) {
   return (
     <div
-      className={`app-drag relative flex ${TITLE_BAR_HEIGHT} shrink-0 items-stretch justify-between border-b border-[color:var(--border-default)] bg-[color:var(--bg-surface)]`}
+      className={`app-drag flex ${TITLE_BAR_HEIGHT} shrink-0 items-stretch justify-between border-b border-[color:var(--border-default)] bg-[color:var(--bg-surface)]`}
     >
-      {/* Centered brand. Pointer-transparent so the strip stays draggable. */}
-      <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
-        <span className="flex items-center gap-1.5 text-[12px] font-semibold tracking-tight text-[color:var(--text-default)]">
-          <MulticodeMark className="h-[15px] w-[15px]" />
-          <span>multicode</span>
-        </span>
-      </div>
-
-      {isMac ? (
-        <>
-          {/* Spacer holds the traffic-light gutter; the centered brand floats above. */}
-          <div aria-hidden="true" className={TRAFFIC_LIGHT_INSET} />
-          <div className="relative z-10 flex items-center gap-0.5 px-1.5">
-            {onOpenDiagnostics ? <DiagnosticsTitleBarButton onOpen={onOpenDiagnostics} /> : null}
-            <AttentionQueuePopover {...attentionQueue} />
-            {sprintEnginesToggle ? <SprintEnginesAsideToggle {...sprintEnginesToggle} /> : null}
-          </div>
-        </>
-      ) : (
-        <>
-          <div className="relative z-10 flex min-w-0 items-center gap-1 px-2">
+      {/* Left: window navigation. On macOS the traffic-light gutter leads. */}
+      <div className="flex min-w-0 items-center">
+        {isMac ? <div aria-hidden="true" className={TRAFFIC_LIGHT_INSET} /> : null}
+        <div className="flex items-center gap-0.5 px-1.5">
+          <SidebarCollapseButton collapsed={sidebarCollapsed} onToggle={onToggleSidebar} />
+          <NavHistoryButton direction="back" onClick={onNavigateBack} />
+          <NavHistoryButton direction="forward" onClick={onNavigateForward} />
+        </div>
+        {!isMac ? (
+          <div className="flex min-w-0 items-center gap-1 pl-1">
             {menuItems.map((label) => (
               <button
                 key={label}
@@ -136,17 +191,19 @@ export function AppTitleBar<MenuItem extends string>({
               </button>
             ))}
           </div>
+        ) : null}
+      </div>
 
-          <div className="relative z-10 flex items-center">
-            <div className="flex items-center gap-0.5 px-1">
-              {onOpenDiagnostics ? <DiagnosticsTitleBarButton onOpen={onOpenDiagnostics} /> : null}
-              <AttentionQueuePopover {...attentionQueue} />
-              {sprintEnginesToggle ? <SprintEnginesAsideToggle {...sprintEnginesToggle} /> : null}
-            </div>
-            <WindowControls isMaximized={isMaximized} />
-          </div>
-        </>
-      )}
+      {/* Right: global search + app-level surface toggles. */}
+      <div className="flex items-center">
+        <div className="flex items-center gap-0.5 px-1.5">
+          <GlobalSearchButton onOpen={onOpenSearch} />
+          {onOpenDiagnostics ? <DiagnosticsTitleBarButton onOpen={onOpenDiagnostics} /> : null}
+          <AttentionQueuePopover {...attentionQueue} />
+          {sprintEnginesToggle ? <SprintEnginesAsideToggle {...sprintEnginesToggle} /> : null}
+        </div>
+        {!isMac ? <WindowControls isMaximized={isMaximized} /> : null}
+      </div>
     </div>
   )
 }
