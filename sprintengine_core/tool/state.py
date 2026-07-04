@@ -94,6 +94,34 @@ def apply_role_runtimes(state: Dict[str, Any], raw_json: Optional[str]) -> None:
             runtimes[role] = entry
 
 
+def apply_configured_roles(state: Dict[str, Any], raw_json: Optional[str]) -> None:
+    """Persist the run's explicit enabled-role set at init.
+
+    `raw_json` is a JSON array of role ids supplied by Multicode from the
+    workspace roster's enabled roles. This is the source of truth for quality-gate
+    derivation (see store.configured_gate_roles), so a lazy, architect-only roster
+    still derives its required reviewer/tester gates: the gate role need only be
+    enabled here, not currently seated in `agents`. Deliberately distinct from
+    `roleRuntimes`, whose keys include CLI-default roles. Blank/absent input
+    leaves the key untouched so legacy runs fall back to the seated-roster roles.
+    An explicit empty array records an empty enabled set (no derived gates).
+    """
+    if not raw_json or not str(raw_json).strip():
+        return
+    try:
+        parsed = json.loads(raw_json)
+    except (TypeError, ValueError) as error:
+        raise SystemExit(f"--configured-roles-json must be a JSON array: {error}")
+    if not isinstance(parsed, list):
+        raise SystemExit("--configured-roles-json must be a JSON array of role ids.")
+    roles: List[str] = []
+    for raw_role in parsed:
+        role = str(raw_role or "").strip()
+        if role and role not in roles:
+            roles.append(role)
+    state["configuredRoles"] = roles
+
+
 def roster_roles(state: Dict[str, Any]) -> set[str]:
     return {
         str(agent.get("role")).strip()
@@ -131,6 +159,36 @@ def ensure_agent_in_roster(state: Dict[str, Any], agent_id: str, role: str, *, a
         raise SystemExit(f"Agent {agent_id!r} is not in this Sprint Engine roster.")
     if existing_agent.get("role") != role:
         raise SystemExit(f"Agent {agent_id!r} is rostered as {existing_agent.get('role')!r}, not {role!r}.")
+
+
+def lazily_register_reviewer_id(state: Dict[str, Any], agent_id: str, role: str, *, actor: str = "sprintengine") -> bool:
+    """Register a reviewer role's persistent id on its first gate claim.
+
+    Gate work never mints a fresh id per gate: the first gate dispatch/claim for a
+    role whose persistent reviewer id is not yet seated registers that exact id in
+    run.yaml (under the gate-queue lock the caller already holds), and every later
+    gate claim by the same role reuses it. The id the caller supplies is the role's
+    deterministic reviewer id (bare ``<role>``), so the renderer can target it for
+    spawn. Registration goes through the normal agent path and never appends to
+    ``ownedTaskIds``, so a reviewer id is never task-capped. Returns True when a new
+    roster entry was created (so the caller can persist the write).
+
+    A legacy/headless run with no configured roster keeps ad-hoc identity: presence
+    is not required and downstream ``ensure_agent`` creates the record, so this does
+    not flip such a run into configured-roster mode.
+    """
+    role = require_configured_role(role, context="Gate role")
+    existing = state.get("agents", {}).get(agent_id)
+    if agent_is_retired(existing):
+        raise SystemExit(f"Agent {agent_id!r} is retired and cannot claim more Sprint Engine work.")
+    if not roster_is_configured(state):
+        return False
+    if isinstance(existing, dict):
+        if existing.get("role") != role:
+            raise SystemExit(f"Agent {agent_id!r} is rostered as {existing.get('role')!r}, not {role!r}.")
+        return False
+    add_roster_agent(state, role, agent_id, actor)
+    return True
 
 
 def add_roster_agent(state: Dict[str, Any], role: str, agent_id: str, actor: str) -> Dict[str, Any]:
@@ -173,7 +231,11 @@ def next_replacement_agent_id(state: Dict[str, Any], role: str) -> str:
         if not match:
             continue
         highest = max(highest, int(match.group(1) or "1"))
-    candidate_index = max(2, highest + 1)
+    # D-Naming: the first minted worker of a role is `<role>-1` (no seeded
+    # `<role>-1` original under the lazy roster). A bare `<role>` reviewer id
+    # counts as index 1, so a mint steps past it to `-2`. Mirrors the renderer
+    # allocator (getNextSprintEngineAgentId).
+    candidate_index = highest + 1
     while True:
         candidate = f"{role}-{candidate_index}"
         if candidate not in used:
@@ -432,6 +494,61 @@ def set_agent_idle(agent: Dict[str, Any]) -> bool:
     return changed
 
 
+def append_owned_task_id(agent: Dict[str, Any], task_id: Any) -> bool:
+    """Record `task_id` in the agent's durable ownedTaskIds set (append-once).
+
+    Task-scoped roster ids own a task for their whole lifetime; ownedTaskIds is
+    the authoritative per-id ownership record the claim guard reads. Re-claiming
+    an already-owned task (rework respawn) is a no-op, so the set never grows on
+    rework and a per_task id keeps exactly one entry.
+    """
+    clean_id = str(task_id or "").strip()
+    if not clean_id:
+        return False
+    owned = agent.get("ownedTaskIds")
+    if not isinstance(owned, list):
+        owned = []
+        agent["ownedTaskIds"] = owned
+    if clean_id in owned:
+        return False
+    owned.append(clean_id)
+    return True
+
+
+def agent_owned_task_ids(agent: Dict[str, Any]) -> set[str]:
+    """Every task this id owns, unioning ownedTaskIds with lastOwnedTaskId.
+
+    lastOwnedTaskId is included so a roster entry written before ownedTaskIds
+    existed (mid-run upgrade) still reports its owned task to the claim guard.
+    """
+    owned = {
+        str(task_id).strip()
+        for task_id in (agent.get("ownedTaskIds") or [])
+        if str(task_id).strip()
+    }
+    last_owned = str(agent.get("lastOwnedTaskId") or "").strip()
+    if last_owned:
+        owned.add(last_owned)
+    return owned
+
+
+def task_claim_exceeds_worker_capacity(state: Dict[str, Any], agent: Dict[str, Any], task_id: Any) -> bool:
+    """True when claiming `task_id` would push this id past its task-ownership cap.
+
+    Under the per_task policy an id owns at most one task for life. Re-claiming a
+    task the id already owns (rework respawn) is always allowed; only a claim on
+    a DIFFERENT task by an id already at its cap is refused. A non-per_task policy
+    (none exist yet) imposes no cap.
+    """
+    policy = folder_store.worker_assignment_policy(state)
+    if policy != folder_store.WORKER_ASSIGNMENT_PER_TASK:
+        return False
+    owned = agent_owned_task_ids(agent)
+    if str(task_id or "").strip() in owned:
+        return False
+    return len(owned) >= 1
+
+
 def set_agent_active(agent: Dict[str, Any], task: Dict[str, Any], *, refresh_heartbeat: bool = True) -> bool:
     changed = set_if_changed(agent, "status", "needs_input" if task.get("status") == "needs_input" else "running")
     changed = set_if_changed(agent, "currentTaskId", task.get("id")) or changed
@@ -444,6 +561,7 @@ def set_agent_active(agent: Dict[str, Any], task: Dict[str, Any], *, refresh_hea
     # A missing stamp is failure-safe — the planner treats the agent as
     # never-owned and falls back to the reuse-preferring lifecycle.
     changed = set_if_changed(agent, "lastOwnedTaskId", task.get("id")) or changed
+    changed = append_owned_task_id(agent, task.get("id")) or changed
     changed = clear_terminal_state_metadata(agent) or changed
     if refresh_heartbeat:
         changed = set_if_changed(agent, "heartbeatAt", now_iso()) or changed

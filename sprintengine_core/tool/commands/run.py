@@ -41,6 +41,7 @@ from sprintengine_core.tool.state import (
     agent_is_retired,
     append_event,
     apply_agent_specs,
+    apply_configured_roles,
     apply_role_runtimes,
     clear_non_active_task_owner_claims,
     ensure_agent_in_roster,
@@ -306,6 +307,7 @@ def cmd_init(args: argparse.Namespace) -> Dict[str, Any]:
     def run(state: Dict[str, Any]) -> Dict[str, Any]:
         apply_agent_specs(state, getattr(args, "agent", None))
         apply_role_runtimes(state, getattr(args, "role_runtimes_json", None))
+        apply_configured_roles(state, getattr(args, "configured_roles_json", None))
         sprintengine = state.setdefault("sprintengine", {})
         if not sprintengine.get("name"):
             sprintengine["name"] = default_name

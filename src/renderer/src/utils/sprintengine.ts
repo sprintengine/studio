@@ -21,6 +21,7 @@ import type {
   SprintEngineRecordedArtifact,
   SprintEngineRole,
   SprintEngineRoleCounts,
+  SprintEngineRosterSession,
   SprintEngineRoleRuntimes,
   SprintEngineRoleId,
   SprintEngineRoleRegistry,
@@ -69,6 +70,7 @@ import {
   deriveSprintEngineAutomationDesiredMode,
   normalizeSprintEngineAutomationRuntimeState,
 } from './sprintengineAutomationLifecycle'
+import { agentCliSupportsConversationResume } from './agentCliResume'
 import type { LifecycleState } from '../components/ui/LifecycleGlyph'
 
 // Sprint Engine board column → the shared lifecycle vocabulary. The pipeline
@@ -151,6 +153,68 @@ const SPRINT_ENGINE_ACTIVE_TASK_STATUSES: ReadonlySet<SprintEngineTaskStatus> = 
 // projectionRefresh↔backlogLinks import cycle. Accepts any task-bearing shape.
 export function isCompletedSprintEngineRun(state: Pick<SprintEngineState, 'tasks'>): boolean {
   return state.tasks.length > 0 && state.tasks.every((task) => task.status === 'done')
+}
+
+/**
+ * Whether re-opening a roster agent from the board should resume its recorded
+ * session (`sprintEngineRosterSessions[agentId]`) instead of spawning fresh.
+ *
+ * Two cases record a session and want resume-on-reopen:
+ *  1. Whole-run completion teardown (`tearDownCompletedSprintRunAgents`).
+ *  2. Mid-run departed-worker teardown (B4, `tearDownDepartedTaskScopedWorker`):
+ *     a task-scoped worker whose own task is already `done` is permanently
+ *     departed and torn down while the run still executes.
+ *
+ * The mid-run case is judged from THIS run's roster: the agent must be a current
+ * runtime agent whose `lastOwnedTaskId` is a task that is `done` in the current
+ * `tasks`. A stale recorded entry left by a *prior* run on the same workspace
+ * fails that check (its id has not re-owned a done task this run), so it can
+ * never hijack a fresh spawn — the guard the run-complete gate provided is kept.
+ * On a cold reopen the projection may not be hydrated yet, so `runComplete`
+ * falls back to the persisted lifecycle `runtimeState`.
+ */
+export function shouldResumeRecordedRosterSession(input: {
+  sprintEngineState: SprintEngineState | null | undefined
+  autoRuntimeState: SprintEngineAutomationRuntimeState | undefined
+  agentId: AgentId
+}): boolean {
+  const { sprintEngineState, autoRuntimeState, agentId } = input
+  const runComplete = sprintEngineState
+    ? isCompletedSprintEngineRun(sprintEngineState)
+    : autoRuntimeState === 'complete'
+  if (runComplete) return true
+
+  const ownedTaskId = sprintEngineState?.sprintEngineAgents?.[agentId]?.lastOwnedTaskId
+  if (!ownedTaskId) return false
+  return sprintEngineState?.tasks.some((task) => task.id === ownedTaskId && task.status === 'done') ?? false
+}
+
+/**
+ * Whether re-opening a departed roster id would actually RESUME its recorded
+ * conversation rather than start fresh. This is the single source of truth for
+ * the roster's Resume-vs-Spawn label and MUST match spawnAgent's real resume
+ * gate (`useSprintEngineBoardTerminalActions.ts`): the lifecycle wants resume
+ * (`shouldResumeRecordedRosterSession`) AND a recorded session with a
+ * `cliSessionId` exists for a CLI that supports conversation resume.
+ *
+ * The recorded-session gate is load-bearing: `shouldResumeRecordedRosterSession`
+ * is broader — it returns true for EVERY non-live id once the run completes — so
+ * without this gate an idle/never-recorded id or a resume-incapable CLI would
+ * read 'Resume' yet spawn fresh (the inverse of the bug the label split fixes).
+ */
+export function willResumeRecordedRosterSession(input: {
+  sprintEngineState: SprintEngineState | null | undefined
+  autoRuntimeState: SprintEngineAutomationRuntimeState | undefined
+  recorded: SprintEngineRosterSession | null | undefined
+  agentId: AgentId
+}): boolean {
+  const { recorded } = input
+  if (!recorded?.cliSessionId || !agentCliSupportsConversationResume(recorded.cli)) return false
+  return shouldResumeRecordedRosterSession({
+    sprintEngineState: input.sprintEngineState,
+    autoRuntimeState: input.autoRuntimeState,
+    agentId: input.agentId,
+  })
 }
 
 // One run, one glyph, derived purely from sprint state — the task board plus the
@@ -1725,8 +1789,13 @@ export function getNextSprintEngineAgentId(
   role: SprintEngineRoleId,
   sprintEngineAgents: Record<AgentId, SprintEngineRuntimeAgent>
 ): AgentId {
+  // Task-scoped workers are always suffixed: the first minted worker of a role
+  // is `<role>-1`. This mirrors the Python allocator (next_replacement_agent_id:
+  // max matching index + 1, counting a bare `<role>` as index 1). The bare
+  // `<role>` id is reserved for a role's persistent reviewer, so worker minting
+  // never hands it out — it starts at `-1` on an empty roster and steps past a
+  // bare reviewer id (which counts as index 1) when one is already seated.
   const usedIds = new Set(Object.keys(sprintEngineAgents))
-  if (!usedIds.has(role) && role !== 'developer') return role
 
   let nextIndex = 1
   for (const [agentId, agent] of Object.entries(sprintEngineAgents)) {
@@ -1744,36 +1813,30 @@ export function getNextSprintEngineAgentId(
 }
 
 export function buildSprintEngineAgentRoster(
-  roleCounts: SprintEngineRoleCounts,
+  _roleCounts: SprintEngineRoleCounts,
   registry?: SprintEngineRoleRegistry | null,
 ): SprintEngineAgentRosterItem[] {
-  const roster: SprintEngineAgentRosterItem[] = []
-  const configuredRoles = new Set<SprintEngineRoleId>([
-    ...sprintEngineRoleOrder,
-    ...Object.keys(roleCounts).filter((role) => Boolean(normalizeSprintEngineRoleId(role))),
-  ])
-  const orderedRoles = [...configuredRoles].sort((a, b) => {
-    const aBundled = sprintEngineRoleOrder.indexOf(a as SprintEngineRole)
-    const bBundled = sprintEngineRoleOrder.indexOf(b as SprintEngineRole)
-    const aRank = aBundled >= 0 ? aBundled : sprintEngineRoleOrder.length
-    const bRank = bBundled >= 0 ? bBundled : sprintEngineRoleOrder.length
-    if (aRank !== bRank) return aRank - bRank
-    return getSprintEngineRoleLabel(a, registry).localeCompare(getSprintEngineRoleLabel(b, registry))
-  })
+  // Lazy roster: creation seeds ONLY the architect. Worker ids are minted
+  // task-scoped on demand by the Python assignment op, and a role's persistent
+  // reviewer id registers lazily on its first gate — so no worker or reviewer
+  // record exists at creation. enabledRoles/roleCounts still gate which roles
+  // participate (forwarded to Python init as `configuredRoles` for quality-gate
+  // derivation) but no longer materialize seats here.
+  return [{ id: 'architect', label: getSprintEngineRoleLabel('architect', registry), role: 'architect' }]
+}
 
-  for (const role of orderedRoles) {
-    // One roster agent per enabled role (architect forced on) — MC-1450
-    // retired count fan-out. Extra same-role capacity is minted on demand by
-    // queue-depth replenishment, so a legacy count > 1 seeds only the first
-    // agent of the id scheme (`developer` stays `developer-1` so
-    // `getNextSprintEngineAgentId` minting remains consistent).
-    const enabled = role === 'architect' || (roleCounts[role] ?? 0) > 0
-    if (!enabled) continue
-    const id = role === 'developer' ? `${role}-1` : role
-    roster.push({ id, label: getSprintEngineRoleLabel(role, registry), role })
+// The enabled role set encoded by the roster counts (architect always on).
+// Forwarded to Python init as `configuredRoles` so quality-gate derivation runs
+// against the roles the user actually turned on, even though the lazy roster
+// seeds only the architect. Empty of non-architect roles => no derived gates.
+export function sprintEngineEnabledRoles(
+  roleCounts: SprintEngineRoleCounts,
+): SprintEngineRoleId[] {
+  const roles = new Set<SprintEngineRoleId>(['architect'])
+  for (const [role, count] of Object.entries(roleCounts)) {
+    if ((count ?? 0) > 0 && normalizeSprintEngineRoleId(role)) roles.add(role as SprintEngineRoleId)
   }
-
-  return roster
+  return [...roles]
 }
 
 export function buildSprintEngineAgentRosterFromRuntimeAgents(

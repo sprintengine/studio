@@ -122,11 +122,21 @@ assert.deepEqual(normalizedMultiloopAuto.pendingSpawns, [
 assert.equal(normalizeSprintEngineRoleCliDefaults({ tester: 'claude-code' }).tester, 'claude-code')
 assert.equal(normalizeSprintEngineRoleCliDefaults({ tester: 'bad' as never }).tester, 'bad')
 
-const sprintState = createInitialSprintEngineState({
+const baseSprintState = createInitialSprintEngineState({
   goal: 'Validate run-state slice',
   name: 'Run State Team',
   roleCounts: { frontend: 1, tester: 1 },
 })
+// The lazy roster seeds only the architect; a live run mints worker seats. Seed
+// frontend/tester seats explicitly so the reconcile paths below exercise workers.
+const sprintState = {
+  ...baseSprintState,
+  sprintEngineAgents: {
+    ...baseSprintState.sprintEngineAgents,
+    frontend: { role: 'frontend' as const, status: 'idle' as const, currentTaskId: null },
+    tester: { role: 'tester' as const, status: 'idle' as const, currentTaskId: null },
+  },
+}
 const initialMultiloopState = multiloopState()
 const carrier: { workspaces: Workspace[] } = {
   workspaces: [

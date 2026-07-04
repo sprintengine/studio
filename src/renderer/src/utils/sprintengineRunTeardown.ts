@@ -124,25 +124,7 @@ export async function tearDownCompletedSprintRunAgents(
     sessions = []
   }
 
-  // Sessions to record + kill. Suspended sessions count too: the idle reaper
-  // suspends exactly the idle end-of-run agents this teardown targets
-  // (`processAlive` is false while suspended, but the session record — and its
-  // persisted snapshot sidecar — lives on and would otherwise be orphaned by
-  // the panel removal; `terminalKill` disposes both). Their captured harness id
-  // is also the codex resume token we want to record.
-  const liveByAgentId = new Map<string, TerminalSessionSnapshot>()
-  for (const session of sessions) {
-    if (
-      session.kind === 'agent'
-      && (session.processAlive || session.suspended)
-      && session.workspaceId === workspaceId
-      && session.agentId
-      && (!statePath || session.sprintEngineStatePath === statePath)
-    ) {
-      liveByAgentId.set(session.agentId, session)
-    }
-  }
-
+  const liveByAgentId = buildLiveSprintSessionsByAgentId(sessions, workspaceId, statePath)
   const now = ports.now()
   const result: SprintEngineRunTeardownResult = { removedAgentIds: [], recordedAgentIds: [], closedSessionIds: [] }
   // Agents whose tab was not removed from a live Model (workspace unmounted) —
@@ -155,53 +137,14 @@ export async function tearDownCompletedSprintRunAgents(
   let removedTabCount = 0
 
   for (const agentId of agentIds) {
-    const agent = workspace.agents[agentId]
-    const role = workspace.sprintEngineState?.sprintEngineAgents?.[agentId]?.role
-    const live = liveByAgentId.get(agentId)
-
-    // 1. Record the resumable session BEFORE anything clears it.
-    const rosterSession = buildRosterSessionFromAgent(agent, role, live?.cliSessionId, now)
-    if (rosterSession) {
-      ports.upsertRosterSession(workspaceId, agentId, rosterSession)
-      result.recordedAgentIds.push(agentId)
-    }
-
-    // 2. Kill the live PTY — or dispose the suspended session record and its
-    //    snapshot sidecar — if any.
-    if (live) {
-      await ports.terminalKill(live.sessionId).catch(() => {})
-      result.closedSessionIds.push(live.sessionId)
-    }
-
-    // 3. Remove the panel from the layout (live Model when mounted; else the
-    //    persisted layout, batched below) and the agent from the store.
-    if (ports.removeAgentTab(workspaceId, agentId)) removedTabCount += 1
-    else orphanTabAgentIds.push(agentId)
-    ports.removeAgent(workspaceId, agentId)
-    result.removedAgentIds.push(agentId)
+    const { removedLiveTab } = await recordAndRemoveSprintAgent(
+      { workspace, liveByAgentId, now, ports, result, orphanTabAgentIds },
+      agentId,
+    )
+    if (removedLiveTab) removedTabCount += 1
   }
 
-  // Strip any tabs we could not remove from a live Model directly from the
-  // persisted layoutModel, in one pass. Re-read the layout fresh here: a live
-  // `removeAgentTab` above syncs the layoutModel synchronously via onModelChange,
-  // so the top-of-function snapshot could be stale and writing it back would
-  // re-introduce a just-removed tab. No-op when nothing matched.
-  if (orphanTabAgentIds.length > 0) {
-    const baseLayout = ports.getWorkspace(workspaceId)?.layoutModel
-    if (baseLayout) {
-      let layoutModel: IJsonModel = baseLayout
-      let changed = false
-      for (const agentId of orphanTabAgentIds) {
-        const stripped = removeAgentTabFromLayoutModel(layoutModel, agentId)
-        if (stripped.removed) {
-          layoutModel = stripped.layoutModel
-          changed = true
-          removedTabCount += 1
-        }
-      }
-      if (changed) ports.updateLayout(workspaceId, layoutModel)
-    }
-  }
+  removedTabCount += flushOrphanTabsFromPersistedLayout(workspaceId, orphanTabAgentIds, ports)
 
   logPerfEvent('SprintEngineRunTeardown', 'completed-run-panels-removed', {
     workspaceId,
@@ -242,4 +185,190 @@ export async function tearDownCompletedSprintRunAgents(
   }
 
   return result
+}
+
+export type SprintEngineDepartedWorkerTeardownResult = {
+  recorded: boolean
+  removedAgent: boolean
+  /** A tab was removed from a live Model or the persisted layout (i.e. a panel
+   * the user could see went away). Gates the caller's user-facing toast. */
+  removedTab: boolean
+  closedSessionId: string | null
+}
+
+/**
+ * Mid-run teardown of a single departed task-scoped worker (MC-1444 B4).
+ *
+ * Under per-task roster ids a worker becomes permanently departed the moment
+ * its owned task is terminal (`done`): new tasks always go to fresh sessions,
+ * so its terminal has nothing left to return for. The kill-only task-scoped
+ * retirement left the panel behind, and a mounted `TerminalView` respawned the
+ * PTY off `cliStartRequested` before the reaper's next tick — an idle
+ * reap ↔ auto-respawn ping-pong that also lost the resume token.
+ *
+ * This applies the same record + remove flow as `tearDownCompletedSprintRun-
+ * Agents`, scoped to one worker: record the resumable session into
+ * `sprintEngineRosterSessions`, dispose the live/suspended PTY, then
+ * `removeAgentTab` + `removeAgent`. Removing the panel unmounts its
+ * `TerminalView` (nothing left to respawn); the roster record recreated by the
+ * next projection read is tab-less with cleared launch flags. Re-opening the
+ * role from its group resumes the recorded conversation.
+ *
+ * Idempotent: a worker with no live session and no tab (an already-torn-down,
+ * recreated roster record) records nothing and closes nothing, so the caller
+ * suppresses the toast. `preloadedSessions` reuses the executor's shared
+ * terminal-list snapshot; omit it to have the teardown enumerate PTYs itself.
+ */
+export async function tearDownDepartedTaskScopedWorker(
+  workspaceId: WorkspaceId,
+  agentId: AgentId,
+  ports: SprintEngineRunTeardownPorts = defaultPorts(),
+  preloadedSessions?: TerminalSessionSnapshot[],
+): Promise<SprintEngineDepartedWorkerTeardownResult> {
+  const miss: SprintEngineDepartedWorkerTeardownResult = {
+    recorded: false,
+    removedAgent: false,
+    removedTab: false,
+    closedSessionId: null,
+  }
+  const workspace = ports.getWorkspace(workspaceId)
+  const agent = workspace?.agents[agentId]
+  if (!workspace || !agent || agent.kind !== 'sprintengine') return miss
+
+  const statePath = workspace.sprintEngineContext?.statePath
+  let sessions = preloadedSessions
+  if (!sessions) {
+    try {
+      sessions = await ports.terminalList()
+    } catch {
+      // Fall through: still remove the panel even if we cannot enumerate PTYs.
+      sessions = []
+    }
+  }
+  const liveByAgentId = buildLiveSprintSessionsByAgentId(sessions, workspaceId, statePath)
+
+  const now = ports.now()
+  const result: SprintEngineRunTeardownResult = { removedAgentIds: [], recordedAgentIds: [], closedSessionIds: [] }
+  const orphanTabAgentIds: AgentId[] = []
+  const { removedLiveTab } = await recordAndRemoveSprintAgent(
+    { workspace, liveByAgentId, now, ports, result, orphanTabAgentIds },
+    agentId,
+  )
+  const persistedTabsRemoved = flushOrphanTabsFromPersistedLayout(workspaceId, orphanTabAgentIds, ports)
+
+  logPerfEvent('SprintEngineRunTeardown', 'departed-worker-panel-removed', {
+    workspaceId,
+    workspaceName: workspace.name,
+    agentId,
+    recorded: result.recordedAgentIds.length > 0,
+    closedSessionIds: result.closedSessionIds,
+  })
+
+  return {
+    recorded: result.recordedAgentIds.length > 0,
+    removedAgent: result.removedAgentIds.length > 0,
+    removedTab: removedLiveTab || persistedTabsRemoved > 0,
+    closedSessionId: result.closedSessionIds[0] ?? null,
+  }
+}
+
+/**
+ * Sessions to record + dispose, keyed by agent id. Suspended sessions count
+ * too: the idle reaper suspends exactly the idle end-of-run agents teardown
+ * targets (`processAlive` is false while suspended, but the session record —
+ * and its persisted snapshot sidecar — lives on and would otherwise be orphaned
+ * by the panel removal; `terminalKill` disposes both). Their captured harness
+ * id is also the codex resume token we want to record.
+ */
+function buildLiveSprintSessionsByAgentId(
+  sessions: TerminalSessionSnapshot[],
+  workspaceId: WorkspaceId,
+  statePath: string | undefined,
+): Map<string, TerminalSessionSnapshot> {
+  const liveByAgentId = new Map<string, TerminalSessionSnapshot>()
+  for (const session of sessions) {
+    if (
+      session.kind === 'agent'
+      && (session.processAlive || session.suspended)
+      && session.workspaceId === workspaceId
+      && session.agentId
+      && (!statePath || session.sprintEngineStatePath === statePath)
+    ) {
+      liveByAgentId.set(session.agentId, session)
+    }
+  }
+  return liveByAgentId
+}
+
+/**
+ * The record + remove core shared by run-completion and mid-run departed-worker
+ * teardown: (1) record the resumable session BEFORE anything clears it, (2)
+ * dispose the live/suspended PTY, (3) remove the panel (live Model when mounted;
+ * else queued into `orphanTabAgentIds` for the persisted-layout pass) and the
+ * agent from the store. Returns whether a live-Model tab was removed.
+ */
+async function recordAndRemoveSprintAgent(
+  ctx: {
+    workspace: Workspace
+    liveByAgentId: Map<string, TerminalSessionSnapshot>
+    now: number
+    ports: SprintEngineRunTeardownPorts
+    result: SprintEngineRunTeardownResult
+    orphanTabAgentIds: AgentId[]
+  },
+  agentId: AgentId,
+): Promise<{ removedLiveTab: boolean }> {
+  const { workspace, ports, result } = ctx
+  const agent = workspace.agents[agentId]
+  if (!agent) return { removedLiveTab: false }
+  const role = workspace.sprintEngineState?.sprintEngineAgents?.[agentId]?.role
+  const live = ctx.liveByAgentId.get(agentId)
+
+  const rosterSession = buildRosterSessionFromAgent(agent, role, live?.cliSessionId, ctx.now)
+  if (rosterSession) {
+    ports.upsertRosterSession(workspace.id, agentId, rosterSession)
+    result.recordedAgentIds.push(agentId)
+  }
+
+  if (live) {
+    await ports.terminalKill(live.sessionId).catch(() => {})
+    result.closedSessionIds.push(live.sessionId)
+  }
+
+  let removedLiveTab = false
+  if (ports.removeAgentTab(workspace.id, agentId)) removedLiveTab = true
+  else ctx.orphanTabAgentIds.push(agentId)
+  ports.removeAgent(workspace.id, agentId)
+  result.removedAgentIds.push(agentId)
+  return { removedLiveTab }
+}
+
+/**
+ * Strip any tabs that were not removed from a live Model directly from the
+ * persisted `layoutModel`, in one pass. Re-reads the layout fresh: a live
+ * `removeAgentTab` syncs the layoutModel synchronously via onModelChange, so a
+ * stale snapshot would re-introduce a just-removed tab. Returns the count of
+ * tabs stripped; a no-op when nothing matched.
+ */
+function flushOrphanTabsFromPersistedLayout(
+  workspaceId: WorkspaceId,
+  orphanTabAgentIds: AgentId[],
+  ports: SprintEngineRunTeardownPorts,
+): number {
+  if (orphanTabAgentIds.length === 0) return 0
+  const baseLayout = ports.getWorkspace(workspaceId)?.layoutModel
+  if (!baseLayout) return 0
+  let layoutModel: IJsonModel = baseLayout
+  let changed = false
+  let removed = 0
+  for (const agentId of orphanTabAgentIds) {
+    const stripped = removeAgentTabFromLayoutModel(layoutModel, agentId)
+    if (stripped.removed) {
+      layoutModel = stripped.layoutModel
+      changed = true
+      removed += 1
+    }
+  }
+  if (changed) ports.updateLayout(workspaceId, layoutModel)
+  return removed
 }

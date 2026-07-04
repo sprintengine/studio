@@ -2238,10 +2238,13 @@ def test_dead_gate_claim_without_current_dispatch_uses_gate_mirror_for_redispatc
     assert projection["roster"]["reviewer-1"]["currentDispatch"] is None
 
 
-def test_completed_agent_ids_can_claim_a_second_ready_task(tmp_path) -> None:
+def test_completed_agent_ids_cannot_recycle_onto_a_second_task(tmp_path) -> None:
+    # Task-scoped roster ids never recycle: once developer-fixture owns T1 it is
+    # spent, and the per_task claim guard refuses its claim on a different ready
+    # task (T2). A fresh id must take T2.
     fixture = create_team(
         tmp_path,
-        "completed-agent-reuse",
+        "completed-agent-no-reuse",
         [
             task("T1", "First implementation", "developer"),
             task("T2", "Second implementation", "developer"),
@@ -2270,14 +2273,19 @@ def test_completed_agent_ids_can_claim_a_second_ready_task(tmp_path) -> None:
     )
     fixture.cli.run("task", "status", "--task-id", "T1", "--status", "done", "--id", "developer-fixture")
 
-    next_payload = fixture.cli.run("task", "next", "--role", "developer", "--id", "developer-fixture")
-    assert next_payload["claimed"] is True
-    assert next_payload["task"]["id"] == "T2"
-    assert next_payload["agent"]["status"] == "running"
-    assert next_payload["agent"]["currentTaskId"] == "T2"
+    refused = fixture.cli.run("task", "next", "--role", "developer", "--id", "developer-fixture")
+    assert refused["claimed"] is False
+    assert refused["reason"] == "worker_task_capacity_reached"
 
     state = read_state(fixture.state_path)
     assert_task_status(state, "T1", "done")
+    assert_task_status(state, "T2", "todo")
+
+    # A fresh task-scoped id claims T2.
+    fresh = fixture.cli.run("task", "next", "--role", "developer", "--id", "developer-2")
+    assert fresh["claimed"] is True
+    assert fresh["task"]["id"] == "T2"
+    state = read_state(fixture.state_path)
     assert_task_status(state, "T2", "in_progress")
 
 
@@ -2414,10 +2422,12 @@ def test_roster_replenish_queue_depth_tops_up_task_scoped_capacity(tmp_path) -> 
     assert fixture.cli.run("roster", "replenish", "--actor", "runner")["action"] == "none"
 
 
-def test_roster_replenish_queue_depth_counts_left_ids_and_excludes_busy_and_done(tmp_path) -> None:
-    # Capacity semantics (MC-1444 review): left/dead ids ARE capacity (they
-    # respawn fresh); ids the renderer reports busy (live task-bound
-    # terminals) and run-complete 'done' ids are NOT.
+def test_roster_replenish_queue_depth_capacity_excludes_spent_busy_and_done(tmp_path) -> None:
+    # Task-scoped capacity: an id that has EVER owned a task is spent — not
+    # capacity for new work, even after that task is done and even when 'left'
+    # (no recycling). Only a never-owned idle id counts. Busy (renderer-reported)
+    # and run-complete 'done' ids never count. The op returns task-paired
+    # assignments for each fresh mint.
     fixture = create_team(
         tmp_path,
         "queue-depth-capacity",
@@ -2429,13 +2439,14 @@ def test_roster_replenish_queue_depth_counts_left_ids_and_excludes_busy_and_done
     )
     state = read_state(fixture.state_path)
     state["agents"] = {
-        # left id whose task is done: revivable fresh — counts as capacity.
+        # spent left id (owned T0): no longer capacity — a fresh id takes new work.
         "developer-1": {"role": "developer", "status": "left", "currentTaskId": None, "lastOwnedTaskId": "T0"},
-        # live done-lastOwned terminal (visible-tab deferred retirement):
-        # the renderer reports it busy — must NOT count.
-        "developer-2": {"role": "developer", "status": "idle", "currentTaskId": None, "lastOwnedTaskId": "T0"},
-        # run-complete marker status — must NOT count.
-        "developer-3": {"role": "developer", "status": "done", "currentTaskId": None},
+        # never-owned idle id: the one real unit of capacity — absorbs T1.
+        "developer-2": {"role": "developer", "status": "idle", "currentTaskId": None},
+        # busy live terminal (renderer-reported): must NOT count.
+        "developer-3": {"role": "developer", "status": "idle", "currentTaskId": None},
+        # run-complete marker status: must NOT count.
+        "developer-4": {"role": "developer", "status": "done", "currentTaskId": None},
     }
     state["sprintengine"]["rosterConfigured"] = True
     write_state(fixture.state_path, state)
@@ -2443,10 +2454,11 @@ def test_roster_replenish_queue_depth_counts_left_ids_and_excludes_busy_and_done
     replenished = fixture.cli.run(
         "roster", "replenish", "--actor", "runner",
         "--queue-depth", "--max-new", "5",
-        "--busy-agent", "developer-2",
+        "--busy-agent", "developer-3",
     )
-    # Depth 2 (T1,T2) vs capacity 1 (developer-1 only) -> mint exactly one.
-    assert [entry["id"] for entry in replenished["created"]] == ["developer-4"]
+    # Depth 2 (T1,T2) vs capacity 1 (developer-2 only) -> mint exactly one for T2.
+    assert [entry["id"] for entry in replenished["created"]] == ["developer-5"]
+    assert replenished["assignments"] == [{"agentId": "developer-5", "role": "developer", "taskId": "T2"}]
 
 
 def test_roster_replenish_combined_retired_and_queue_depth_passes_do_not_double_mint(tmp_path) -> None:
