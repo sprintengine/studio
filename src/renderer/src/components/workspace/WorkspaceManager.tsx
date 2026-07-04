@@ -55,10 +55,10 @@ import type {
 } from '../../types/workspace'
 import {
   connectorMcpSettings,
-  connectorSkillInvocation,
   connectorStartupPrompt,
   connectorWorktreePaths,
 } from '../../utils/workspaceWorktree'
+import { resolveSkillInvocation } from '../../../../shared/skill-invocation'
 import { mcpServerFromCatalog } from '../settings/McpCatalog'
 import { pickRandomAgentName } from '../../utils/agentNames'
 import { normalizeAgentIdentifier, prependAgentIdentifier } from '../../utils/agentPrompt'
@@ -856,7 +856,7 @@ export default function WorkspaceManager() {
     const cliModel = resolveSurfaceModel(cli, specialistModelDefaults[GENERAL_AGENT_ENGINE_KEY])
     const skillId = railway.skill
     const invocation = skillId
-      ? connectorSkillInvocation(pluginCatalogEntries.find((entry) => entry.id === cli)?.skillIntegration, skillId)
+      ? resolveSkillInvocation(pluginCatalogEntries.find((entry) => entry.id === cli)?.skillIntegration, skillId)
       : undefined
     const startupPrompt = connectorStartupPrompt(
       invocation,

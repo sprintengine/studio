@@ -1,6 +1,7 @@
 import { applyDebugDirective } from '../shared/debug-directive'
 import type { AgentCli, CliRuntimeSettings, ColorScheme, SprintEngineCliPermissionPreset } from '../shared/electron-api'
 import type { LoadedPlugin, PluginRenderContext } from '../shared/plugin-manifest'
+import { resolveSkillInvocation } from '../shared/skill-invocation'
 
 import { getPluginById } from './plugin-registry-instance'
 import { renderPluginLaunch, renderPluginResume } from './plugin-render'
@@ -19,11 +20,7 @@ const DEBUG_SKILL_ID = 'debug'
 // ensure-installs the skill (see terminal-runtime) so the invocation always
 // resolves to a skill that is actually present.
 export function resolveDebugSkillInvocation(plugin: LoadedPlugin): string | undefined {
-  const integration = plugin.manifest.skillIntegration
-  if (!integration || integration.support !== 'native') return undefined
-  const template = integration.invocation?.explicitTemplate
-  if (!template) return undefined
-  return template.replace(/\{\{\s*skillId\s*\}\}/g, DEBUG_SKILL_ID)
+  return resolveSkillInvocation(plugin.manifest.skillIntegration, DEBUG_SKILL_ID)
 }
 
 // Resolves the effective command/WSL override for a launch. Uses the plugin-id

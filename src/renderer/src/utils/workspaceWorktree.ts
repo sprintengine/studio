@@ -1,6 +1,5 @@
 import { basename, isAbsoluteFilePath, joinFilePath, parentPath, pathJoin, samePath } from './paths'
 import type { AgentExecutionMode, McpServerConfig, McpSettings, Workspace } from '../types/workspace'
-import type { PluginSkillCatalog } from '../../../shared/plugin-manifest'
 
 export type ResolvedWorkspaceWorktree = {
   /** Absolute git root to use for this workspace's Git view. */
@@ -132,8 +131,14 @@ export function findHealthyWorktreeScope<T extends WorktreeScopeCandidate>(
 // pieces of that spawn; the async worktree/catalog IO around them lives in
 // WorkspaceManager.createConnectorChat.
 
-/** Directory holding all of a repo's worktrees — shared with the Worktree manager. */
-const WORKTREE_CONTAINER_DIR = '.multicode-worktrees'
+/**
+ * Container directory a repo's worktrees live under:
+ * `<repo-parent>/.multicode-worktrees/<repo>`. Single source of truth for the
+ * convention, shared by the Worktree manager and connector chats.
+ */
+export function worktreeContainerPath(repoRoot: string): string {
+  return pathJoin(parentPath(repoRoot), '.multicode-worktrees', basename(repoRoot))
+}
 
 /** Branch a connector chat's worktree is created on: `connector/<id>-<uid>`. */
 export function connectorWorktreeBranch(connectorId: string, uid: string): string {
@@ -156,7 +161,7 @@ export function connectorWorktreePaths(
   uid: string,
 ): { containerPath: string; destinationPath: string; slug: string; branchName: string } {
   const slug = connectorWorktreeSlug(connectorId, uid)
-  const containerPath = pathJoin(parentPath(repoRoot), WORKTREE_CONTAINER_DIR, basename(repoRoot))
+  const containerPath = worktreeContainerPath(repoRoot)
   return {
     containerPath,
     destinationPath: pathJoin(containerPath, slug),
@@ -173,22 +178,6 @@ export function connectorWorktreePaths(
  */
 export function connectorMcpSettings(server: McpServerConfig): McpSettings {
   return { syncEnabled: true, servers: { [server.id]: server } }
-}
-
-/**
- * The CLI-native explicit invocation for a connector's skill (e.g. `/use-railway`
- * for Claude, `Use $use-railway.` for Codex), read from the CLI plugin's declared
- * skill-invocation template. Undefined when the plugin declares no native skill
- * support or template, so the caller falls back to the plain instruction.
- */
-export function connectorSkillInvocation(
-  skillIntegration: PluginSkillCatalog | undefined,
-  skillId: string,
-): string | undefined {
-  if (!skillIntegration || skillIntegration.support !== 'native') return undefined
-  const template = skillIntegration.invocation?.explicitTemplate
-  if (!template) return undefined
-  return template.replace(/\{\{\s*skillId\s*\}\}/g, skillId)
 }
 
 /** The seeded first turn: the skill invocation (when available) then the instruction. */

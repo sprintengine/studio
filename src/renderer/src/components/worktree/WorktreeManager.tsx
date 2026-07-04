@@ -3,7 +3,8 @@ import { LAYOUT_TEMPLATES } from '../../layouts/templates'
 import { useWorkspaceStore } from '../../store/workspaceStore'
 import type { WorktreeEntry as StoredWorktreeEntry } from '../../types/workspace'
 import { focusOrAddTerminalTab } from '../../utils/modelRegistry'
-import { basename, parentPath, pathJoin, samePath, trimPath } from '../../utils/paths'
+import { pathJoin, samePath, trimPath } from '../../utils/paths'
+import { worktreeContainerPath } from '../../utils/workspaceWorktree'
 import { Field, LifecycleGlyph, OverflowMenu, Select, Spinner, type LifecycleState, type SelectItem } from '../ui'
 import { useConfirmDialog } from '../ui/ConfirmDialog'
 
@@ -54,9 +55,6 @@ function worktreeIdFromPath(pathValue: string): string {
   return `worktree-${slugifyWorktreeName(pathValue).replace(/[\\/.:]+/g, '-')}`
 }
 
-function defaultContainerPath(repoRoot: string): string {
-  return pathJoin(parentPath(repoRoot), '.multicode-worktrees', basename(repoRoot))
-}
 
 function branchLabel(row: WorktreeRow): string {
   if (row.branch) return row.branch
@@ -127,7 +125,7 @@ export default function WorktreeManager({
     () => Object.values(workspace?.worktreeState.entries ?? {}),
     [workspace?.worktreeState.entries]
   )
-  const containerPath = workspace?.worktreeState.containerPath ?? defaultContainerPath(repoRoot)
+  const containerPath = workspace?.worktreeState.containerPath ?? worktreeContainerPath(repoRoot)
   const template = useMemo(
     () => LAYOUT_TEMPLATES.find((item) => item.id === 'solo-dev') ?? LAYOUT_TEMPLATES[0],
     []

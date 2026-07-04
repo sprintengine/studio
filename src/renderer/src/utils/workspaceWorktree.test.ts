@@ -2,7 +2,6 @@ import assert from 'node:assert/strict'
 
 import {
   connectorMcpSettings,
-  connectorSkillInvocation,
   connectorStartupPrompt,
   connectorWorktreeBranch,
   connectorWorktreePaths,
@@ -10,8 +9,10 @@ import {
   findHealthyWorktreeScope,
   resolveWorkspaceWorktree,
   resolveWorktreeSpawnFallback,
+  worktreeContainerPath,
   type WorktreeScopeCandidate,
 } from './workspaceWorktree'
+import { resolveSkillInvocation } from '../../../shared/skill-invocation'
 import type { McpServerConfig, Workspace } from '../types/workspace'
 import type { PluginSkillCatalog } from '../../../shared/plugin-manifest'
 
@@ -160,8 +161,10 @@ const mainScope = scope({ id: 'main', path: '/Users/example/project', branch: 'm
 }
 
 // 19. Worktree paths land under the repo's shared `.multicode-worktrees/<repo>`
-//     container, mirroring the Worktree manager's default.
+//     container (worktreeContainerPath — the single source the Worktree manager
+//     also uses).
 {
+  assert.equal(worktreeContainerPath('/Users/example/project'), '/Users/example/.multicode-worktrees/project')
   const paths = connectorWorktreePaths('/Users/example/project', 'railway', 'a1b2c3d4')
   assert.deepEqual(paths, {
     containerPath: '/Users/example/.multicode-worktrees/project',
@@ -191,8 +194,9 @@ const mainScope = scope({ id: 'main', path: '/Users/example/project', branch: 'm
   assert.equal(settings.servers.railway, railway)
 }
 
-// 21. Skill invocation is the plugin's CLI-native explicit template with {{skillId}}
-//     substituted — `/use-railway` (Claude) and `Use $use-railway.` (Codex).
+// 21. resolveSkillInvocation (shared with the debug launch path) is the plugin's
+//     CLI-native explicit template with {{skillId}} substituted — `/use-railway`
+//     (Claude) and `Use $use-railway.` (Codex).
 {
   const claude: PluginSkillCatalog = {
     support: 'native',
@@ -208,18 +212,18 @@ const mainScope = scope({ id: 'main', path: '/Users/example/project', branch: 'm
     installTargetCount: 1,
     invocation: { explicitTemplate: 'Use ${{skillId}}.', explicitMention: true },
   }
-  assert.equal(connectorSkillInvocation(claude, 'use-railway'), '/use-railway')
-  assert.equal(connectorSkillInvocation(codex, 'use-railway'), 'Use $use-railway.')
+  assert.equal(resolveSkillInvocation(claude, 'use-railway'), '/use-railway')
+  assert.equal(resolveSkillInvocation(codex, 'use-railway'), 'Use $use-railway.')
 }
 
 // 22. No native skill support (or no plugin, or no explicit template) → undefined,
 //     so the caller falls back to the plain instruction.
 {
-  assert.equal(connectorSkillInvocation(undefined, 'use-railway'), undefined)
+  assert.equal(resolveSkillInvocation(undefined, 'use-railway'), undefined)
   const unsupported: PluginSkillCatalog = { support: 'unsupported', harnessId: 'x', restartRequired: false, installTargetCount: 0 }
-  assert.equal(connectorSkillInvocation(unsupported, 'use-railway'), undefined)
+  assert.equal(resolveSkillInvocation(unsupported, 'use-railway'), undefined)
   const noTemplate: PluginSkillCatalog = { support: 'native', harnessId: 'claude', restartRequired: true, installTargetCount: 1, invocation: {} }
-  assert.equal(connectorSkillInvocation(noTemplate, 'use-railway'), undefined)
+  assert.equal(resolveSkillInvocation(noTemplate, 'use-railway'), undefined)
 }
 
 // 23. Startup prompt leads with the invocation (when present) then the instruction;
