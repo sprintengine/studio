@@ -102,6 +102,7 @@
       "capabilities": ["Deployments", "Services", "Variables", "Domains"],
       "envVarNames": [],
       "sourceUrl": "https://docs.railway.com/ai/remote-mcp-server",
+      "skill": "use-railway",
       "setupNotes": "Official remote Railway MCP. It can manage infrastructure, so enable it only for workspaces that should operate Railway projects."
     },
     {

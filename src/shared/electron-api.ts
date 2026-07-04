@@ -648,6 +648,7 @@ export type McpCatalogServer = Omit<McpServerConfig, 'enabled' | 'scope' | 'sour
   defaultClients?: McpClientTarget[]
   recommendedScope?: McpScope
   setupNotes?: string
+  skill?: string
 }
 
 export type McpCatalogResult =
