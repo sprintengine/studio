@@ -18,13 +18,13 @@ export type LifecycleState =
   | 'changes_requested'
   | 'needs_input'
   | 'done'
-  // Complete but not yet merged — an outline check, distinct by shape from the
-  // filled `done` disc. Used by Sprint Engine runs: outline until the branch
-  // merges, filled `done` once it does.
+  // Complete but not yet merged — a green git-branch fork, signalling "work is
+  // sitting on a branch / PR" (GitHub's iconography), distinct by shape from the
+  // filled `done` disc used for on-main completions.
   | 'done_unmerged'
-  // Complete AND merged — the GitHub-style git-merge mark in merged-purple,
-  // distinct by both shape and color from the green `done` check. Used by
-  // Sprint Engine worktree runs once their pull request merges.
+  // Complete AND merged — the same git-branch fork in merged-purple
+  // (--tone-merged), distinct by color from the green `done_unmerged` branch.
+  // Used by Sprint Engine worktree runs once their pull request merges.
   | 'done_merged'
   | 'archived'
   | 'failed'
@@ -111,30 +111,23 @@ export function LifecycleGlyph({
           strokeLinejoin="round"
         />
       </>
-    ) : state === 'done_unmerged' ? (
-      // Outline ring with a check drawn in the ink itself (not knocked out), so it
-      // reads as "complete but not merged" — the same check, hollow rather than filled.
+    ) : state === 'done_unmerged' || state === 'done_merged' ? (
+      // Complete on a branch: a git-branch fork mark (the header Git idiom) rather
+      // than a check, so it reads as "work sitting on a branch / PR" the way
+      // GitHub's own iconography does. Shape stays constant across both states;
+      // the TONE map carries merged-ness — green (--tone-good) while unmerged,
+      // merged-purple (--tone-merged) once the PR lands. On-main completions have
+      // no branch and render the filled `done` disc+check instead. A distinct
+      // merge glyph read as noise at 16px, so color differentiates merged here.
       <>
-        <circle cx="8" cy="8" r="5" stroke="currentColor" strokeWidth="1.4" />
+        <circle cx="5" cy="3.6" r="1.55" stroke="currentColor" strokeWidth="1.3" />
+        <circle cx="5" cy="12.4" r="1.55" stroke="currentColor" strokeWidth="1.3" />
+        <circle cx="11" cy="4.2" r="1.55" stroke="currentColor" strokeWidth="1.3" />
+        <path d="M5 5.15v5.7" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" />
         <path
-          d="M5.5 8.2l1.7 1.7 3.4-3.9"
+          d="M11 5.75v.7a3.1 3.1 0 0 1-3.1 3.1H6.5"
           stroke="currentColor"
-          strokeWidth="1.5"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-        />
-      </>
-    ) : state === 'done_merged' ? (
-      // Merged reuses the filled-disc-with-knockout-check shape of `done`; the
-      // merged-purple tone (not green) is what distinguishes a merged run. A
-      // dedicated merge glyph read as noise at this 16px size, so color carries
-      // the "merged" meaning here while shape still separates done/unmerged.
-      <>
-        <circle cx="8" cy="8" r="5.25" fill="currentColor" />
-        <path
-          d="M5.5 8.2l1.7 1.7 3.4-3.9"
-          className="[stroke:var(--bg-app)]"
-          strokeWidth="1.5"
+          strokeWidth="1.3"
           strokeLinecap="round"
           strokeLinejoin="round"
         />

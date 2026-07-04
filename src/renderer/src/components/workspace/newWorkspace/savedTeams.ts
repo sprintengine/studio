@@ -5,6 +5,7 @@ import type {
   SprintEngineRoleCliDefaults,
   SprintEngineRoleCounts,
   SprintEngineRoleId,
+  SprintEngineRoleModelOverrides,
   SprintEngineRosterTeam,
   SprintEngineSavedRoster,
 } from '../../../types/workspace'
@@ -17,6 +18,20 @@ export type ResolvedInitialSprintEngineRoster = {
   selectedTeamId: string | null
   roleCounts: SprintEngineRoleCounts
   roleCliDefaults: Required<SprintEngineRoleCliDefaults>
+  roleModelOverrides: SprintEngineRoleModelOverrides
+}
+
+// The effective launch model a saved override resolves to: a trimmed explicit
+// model id, or undefined for "CLI default" (null, empty, or absent). Both sides
+// of a divergence comparison and the persisted prune funnel through this so
+// null/absent/"" are treated as the same (no model flag).
+function effectiveSavedRoleModel(
+  overrides: SprintEngineRoleModelOverrides | undefined,
+  role: SprintEngineRoleId,
+): string | undefined {
+  const value = overrides?.[role]
+  if (typeof value === 'string' && value.trim()) return value.trim()
+  return undefined
 }
 
 // Resolve the roster the new-workspace wizard opens with, so the roster step is
@@ -37,7 +52,11 @@ export function resolveInitialSprintEngineRoster(input: {
   const selectedTeam =
     input.savedTeams.find((team) => team.id === input.lastSelectedTeamId) ?? null
   const sourceRoster: SprintEngineSavedRoster | null = selectedTeam
-    ? { roleCounts: selectedTeam.roleCounts, roleCliDefaults: selectedTeam.roleCliDefaults }
+    ? {
+        roleCounts: selectedTeam.roleCounts,
+        roleCliDefaults: selectedTeam.roleCliDefaults,
+        roleModelOverrides: selectedTeam.roleModelOverrides,
+      }
     : input.savedRoster
   const roleCounts = sourceRoster?.roleCounts
     ? { ...sourceRoster.roleCounts }
@@ -46,7 +65,10 @@ export function resolveInitialSprintEngineRoster(input: {
     ...input.defaultRoleCliDefaults,
     ...(sourceRoster?.roleCliDefaults ?? {}),
   }
-  return { selectedTeamId: selectedTeam?.id ?? null, roleCounts, roleCliDefaults }
+  const roleModelOverrides: SprintEngineRoleModelOverrides = {
+    ...(sourceRoster?.roleModelOverrides ?? {}),
+  }
+  return { selectedTeamId: selectedTeam?.id ?? null, roleCounts, roleCliDefaults, roleModelOverrides }
 }
 
 export function activeSprintEngineRoleIds(counts: SprintEngineRoleCounts): SprintEngineRoleId[] {
@@ -69,14 +91,32 @@ export function pruneSprintEngineRoleCliDefaults(
   return pruned
 }
 
+// Keep only explicit model ids for roles actually in the roster (count > 0),
+// mirroring pruneSprintEngineRoleCliDefaults. A "CLI default" pick (null/"" )
+// is dropped because it is indistinguishable from absent at launch, which also
+// keeps two otherwise-identical teams from comparing as different saves.
+export function pruneSprintEngineRoleModelOverrides(
+  counts: SprintEngineRoleCounts,
+  overrides: SprintEngineRoleModelOverrides | undefined,
+): SprintEngineRoleModelOverrides {
+  const pruned: SprintEngineRoleModelOverrides = {}
+  for (const role of activeSprintEngineRoleIds(counts)) {
+    const model = effectiveSavedRoleModel(overrides, role)
+    if (model) pruned[role] = model
+  }
+  return pruned
+}
+
 // True when the current wizard roster still matches the saved team it was loaded
-// from — counts plus each active role's effective CLI. Per-role model overrides
-// are launch-time workspace metadata, not part of a saved team, so they never
-// count as divergence. Drives the picker's "edited" affordance and gates Update.
+// from — counts plus each active role's effective CLI and effective model. A
+// model change (like a CLI change) marks the team edited so Update can re-save
+// it. null/absent/"" all resolve to the same "CLI default", so an explicit
+// default pick does not falsely read as diverged.
 export function sprintEngineRosterMatchesTeam(
   team: SprintEngineRosterTeam,
   counts: SprintEngineRoleCounts,
   cliDefaults: SprintEngineRoleCliDefaults,
+  modelOverrides?: SprintEngineRoleModelOverrides,
 ): boolean {
   const roles = new Set<SprintEngineRoleId>([
     ...activeSprintEngineRoleIds(team.roleCounts),
@@ -87,6 +127,12 @@ export function sprintEngineRosterMatchesTeam(
     const teamCli = team.roleCliDefaults[role] ?? DEFAULT_CLI
     const currentCli = cliDefaults[role] ?? DEFAULT_CLI
     if (teamCli !== currentCli) return false
+    if (
+      effectiveSavedRoleModel(team.roleModelOverrides, role)
+      !== effectiveSavedRoleModel(modelOverrides, role)
+    ) {
+      return false
+    }
   }
   return true
 }

@@ -663,6 +663,42 @@ assert.ok(
 )
 assert.equal(afterDelete.lastSelectedTeamId, null, 'deleting the selected team clears selection')
 
+// --- Per-role model overrides persist with the team ----------------------
+const modelTeamId = teamStore.saveSprintEngineRosterTeam({
+  name: 'Model team',
+  roleCounts: { architect: 1, developer: 1 },
+  roleCliDefaults: { developer: 'codex' },
+  // A null "CLI default" pick is dropped by normalization; only explicit ids persist.
+  roleModelOverrides: { developer: 'opus', architect: null },
+})
+const afterModelSave = useWorkspaceStore.getState().appSettings.sprintEngineRoleSettings
+const savedModelTeam = afterModelSave.savedTeams?.find((team) => team.id === modelTeamId)
+assert.deepEqual(
+  savedModelTeam?.roleModelOverrides,
+  { developer: 'opus' },
+  'an explicit role model persists on the saved team; a null CLI-default pick is dropped',
+)
+assert.deepEqual(
+  afterModelSave.savedRoster?.roleModelOverrides,
+  { developer: 'opus' },
+  'saving a team mirrors its model overrides into savedRoster',
+)
+// Re-saving with the models cleared drops them (explicit overwrite, not merge).
+teamStore.saveSprintEngineRosterTeam({
+  id: modelTeamId,
+  name: 'Model team',
+  roleCounts: { architect: 1, developer: 1 },
+  roleCliDefaults: { developer: 'codex' },
+  roleModelOverrides: {},
+})
+const afterModelClear = useWorkspaceStore.getState().appSettings.sprintEngineRoleSettings
+  .savedTeams?.find((team) => team.id === modelTeamId)
+assert.equal(
+  afterModelClear?.roleModelOverrides ?? undefined,
+  undefined,
+  'clearing every model override drops the stale map on update',
+)
+
 // --- Specialist menu ordering --------------------------------------------
 // Normalization keeps only known specialist ids, drops duplicates, and ignores
 // junk so a stale or hand-edited settings file is always safe to load.

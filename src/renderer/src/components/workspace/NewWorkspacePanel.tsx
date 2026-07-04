@@ -78,6 +78,7 @@ import { useBacklogScan } from './newWorkspace/useBacklogScan'
 import { BacklogRowContent } from '../backlog/BacklogRow'
 import { useRelativeNow } from '../../hooks/useRelativeNow'
 import type { BacklogItem, BacklogScanResult } from '../../utils/backlog'
+import { compareBacklogItems } from '../../utils/backlogTriage'
 import { childrenOfEpic, epicSlug } from '../../utils/backlogEpics'
 import { slugifySprintEngineName } from '../../utils/sprintengineStateFile'
 import { basename, folderKey, planBasename, markdownTitle, toTitleName, inferSourcePlanKind, workspaceRelativePath } from './newWorkspace/helpers'
@@ -88,7 +89,7 @@ import { shouldShowKnowledgeStep } from './newWorkspace/knowledgeFolders'
 import { normalizeProjectRootKey } from '../../utils/projectKnowledge'
 import { folderHintAutoSelectMode } from './newWorkspace/folderHintMode'
 import { CliPermissionPresetRow, PathRadio, RosterAndRunSettings } from './newWorkspace/WizardControls'
-import { pruneSprintEngineRoleCliDefaults, resolveInitialSprintEngineRoster, sprintEngineRosterMatchesTeam } from './newWorkspace/savedTeams'
+import { pruneSprintEngineRoleCliDefaults, pruneSprintEngineRoleModelOverrides, resolveInitialSprintEngineRoster, sprintEngineRosterMatchesTeam } from './newWorkspace/savedTeams'
 import {
   resolveAvailableAgentCli,
   selectAgentCliCatalog,
@@ -510,8 +511,11 @@ export default function NewWorkspacePanel({
   )
   const [seAgentCliOverrides, setSeAgentCliOverrides] = useState<Record<AgentId, AgentCli>>({})
   // Explicit per-role launch model (string = explicit id, null = explicit CLI
-  // default/no model flag).
-  const [seRoleModelOverrides, setSeRoleModelOverrides] = useState<SprintEngineRoleModelOverrides>({})
+  // default/no model flag). Seeded from the initially selected saved team so the
+  // roster opens on the model the team was saved with, not a blank override.
+  const [seRoleModelOverrides, setSeRoleModelOverrides] = useState<SprintEngineRoleModelOverrides>(
+    () => ({ ...initialSprintEngineRoster.roleModelOverrides }),
+  )
   const [seRoleRegistry, setSeRoleRegistry] = useState<SprintEngineRoleRegistry | null>(null)
   const [seRoleRegistryStatus, setSeRoleRegistryStatus] = useState<'idle' | 'loading' | 'ready' | 'unavailable'>('idle')
   const [seStartRunner, setSeStartRunner] = useState(false)
@@ -1590,7 +1594,8 @@ export default function NewWorkspacePanel({
     if (!team) return
     setSeExistingTeam(null)
     setSeAgentCliOverrides({})
-    setSeRoleModelOverrides({})
+    // Restore the team's saved per-role model overrides (absent = CLI default).
+    setSeRoleModelOverrides({ ...(team.roleModelOverrides ?? {}) })
     setSeRoleCounts(cloneSprintEngineRoleCounts(team.roleCounts))
     setSeRoleCliDefaults(sprintEngineRoleCliDefaultsFromSavedRoster(team))
     setSeSelectedTeamId(team.id)
@@ -1602,6 +1607,7 @@ export default function NewWorkspacePanel({
       name,
       roleCounts: cloneSprintEngineRoleCounts(visibleSprintEngineRoleCounts),
       roleCliDefaults: pruneSprintEngineRoleCliDefaults(visibleSprintEngineRoleCounts, seRoleCliDefaults),
+      roleModelOverrides: pruneSprintEngineRoleModelOverrides(visibleSprintEngineRoleCounts, seRoleModelOverrides),
     })
     if (id) setSeSelectedTeamId(id)
   }
@@ -1613,6 +1619,7 @@ export default function NewWorkspacePanel({
       name,
       roleCounts: cloneSprintEngineRoleCounts(visibleSprintEngineRoleCounts),
       roleCliDefaults: pruneSprintEngineRoleCliDefaults(visibleSprintEngineRoleCounts, seRoleCliDefaults),
+      roleModelOverrides: pruneSprintEngineRoleModelOverrides(visibleSprintEngineRoleCounts, seRoleModelOverrides),
     })
     setSeSelectedTeamId(id)
   }
@@ -1638,9 +1645,14 @@ export default function NewWorkspacePanel({
   )
   const selectedSprintEngineTeamDirty = useMemo(
     () => (selectedSprintEngineTeam
-      ? !sprintEngineRosterMatchesTeam(selectedSprintEngineTeam, visibleSprintEngineRoleCounts, seRoleCliDefaults)
+      ? !sprintEngineRosterMatchesTeam(
+          selectedSprintEngineTeam,
+          visibleSprintEngineRoleCounts,
+          seRoleCliDefaults,
+          seRoleModelOverrides,
+        )
       : false),
-    [selectedSprintEngineTeam, visibleSprintEngineRoleCounts, seRoleCliDefaults],
+    [selectedSprintEngineTeam, visibleSprintEngineRoleCounts, seRoleCliDefaults, seRoleModelOverrides],
   )
 
   const handleCreate = async () => {
@@ -3705,6 +3717,23 @@ function BacklogSourcePicker({
   onSelect: (item: BacklogItem) => void
 }): JSX.Element {
   const now = useRelativeNow()
+  // Most-recent first (by modifiedAt), matching the Backlog panel's default
+  // 'recent' order. The raw scan is path-sorted (ascending id ≈ oldest first),
+  // which surfaced stale items at the top.
+  const sortedItems = useMemo(
+    () => [...scan.items].sort((a, b) => compareBacklogItems(a, b, 'recent')),
+    [scan.items],
+  )
+  // Bring an already-selected item into view when the picker opens: after the
+  // recency sort a previously-picked older item can sit far down the scroll
+  // area. `block: 'nearest'` only scrolls when it isn't already visible, so
+  // clicking a visible row never yanks the list.
+  const selectedRef = useRef<HTMLButtonElement | null>(null)
+  useEffect(() => {
+    if (selectedPath && selectedRef.current) {
+      selectedRef.current.scrollIntoView({ block: 'nearest' })
+    }
+  }, [selectedPath, sortedItems])
   if (scanning && scan.items.length === 0) {
     return <BacklogPickerNote>Scanning the backlog…</BacklogPickerNote>
   }
@@ -3725,11 +3754,12 @@ function BacklogSourcePicker({
   return (
     <div className="flex flex-col gap-1.5">
       <div className="max-h-[280px] overflow-y-auto rounded-md border border-[color:var(--border-default)] bg-[color:var(--bg-surface)]">
-        {scan.items.map((item) => {
+        {sortedItems.map((item) => {
           const selected = item.path === selectedPath
           return (
             <button
               key={item.id}
+              ref={selected ? selectedRef : undefined}
               type="button"
               aria-pressed={selected}
               onClick={() => onSelect(item)}

@@ -1174,6 +1174,11 @@ export type SprintEngineRoleModelOverrides = Partial<Record<SprintEngineRoleId, 
 export type SprintEngineSavedRoster = {
   roleCounts: SprintEngineRoleCounts
   roleCliDefaults: SprintEngineRoleCliDefaults
+  // Per-role explicit launch model, saved alongside the CLI so a reused roster
+  // restores the model too. Absent role = CLI default (no model flag). Only
+  // explicit model ids are stored (a "CLI default" pick is dropped, since it is
+  // indistinguishable from absent at launch).
+  roleModelOverrides?: SprintEngineRoleModelOverrides
 }
 
 // A named, reusable roster preset ("team"). Lets users keep several rosters —
@@ -1184,6 +1189,9 @@ export type SprintEngineRosterTeam = {
   name: string
   roleCounts: SprintEngineRoleCounts
   roleCliDefaults: SprintEngineRoleCliDefaults
+  // Per-role explicit launch model (see SprintEngineSavedRoster). Absent on
+  // teams saved before model persistence — those fall back to CLI default.
+  roleModelOverrides?: SprintEngineRoleModelOverrides
   createdAt: number
   updatedAt: number
 }

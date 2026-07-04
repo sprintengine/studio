@@ -232,6 +232,7 @@ export interface WorkspaceStore extends PluginsSlice, CliAvailabilitySlice {
     name: string
     roleCounts: SprintEngineRoleCounts
     roleCliDefaults: SprintEngineRoleCliDefaults
+    roleModelOverrides?: SprintEngineRoleModelOverrides
   }) => string
   renameSprintEngineRosterTeam: (id: string, name: string) => void
   deleteSprintEngineRosterTeam: (id: string) => void

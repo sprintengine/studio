@@ -20,6 +20,7 @@ import {
 } from '../ui'
 import { useShallow } from 'zustand/react/shallow'
 import { useWorkspaceStore } from '../../store/workspaceStore'
+import { selectBacklogProjectView, useBacklogViewStore } from '../../store/backlogViewStore'
 import { useRelativeNow } from '../../hooks/useRelativeNow'
 import { useSharedBacklogScan } from '../../hooks/useSharedBacklogScan'
 import { logPerfEvent } from '../../utils/perfDiagnostics'
@@ -242,10 +243,35 @@ export default function BacklogPanel({ workspaceId, onStartFuturePlan }: Workspa
   })
 
   const [selectedId, setSelectedId] = useState<string | null>(null)
-  const [search, setSearch] = useState(() => initialBacklogState?.search ?? '')
-  const [view, setView] = useState<BacklogView>(() => initialBacklogState?.view ?? 'active')
-  const [sort, setSort] = useState<BacklogSort>(() => initialBacklogState?.sort ?? 'recent')
-  const [group, setGroup] = useState<BacklogGroup>(() => initialBacklogState?.group ?? 'none')
+  // Search is ephemeral: a transient act, never persisted or shared, so each
+  // window's box starts empty and typing here never leaks to another workspace.
+  const [search, setSearch] = useState('')
+  // The lens/sort/grouping are PROJECT-scoped (shared + live-synced across every
+  // workspace on this project) via the backlog view store, so the backlog reads
+  // as one list per project instead of diverging per window. Reading through a
+  // useShallow selector keeps re-renders to actual value changes.
+  const { view, sort, group } = useBacklogViewStore(
+    useShallow((state) => selectBacklogProjectView(state, folderPath)),
+  )
+  const setProjectView = useBacklogViewStore((state) => state.setProjectView)
+  const handleViewChange = useCallback(
+    (next: BacklogView) => setProjectView(folderPath, { view: next }),
+    [setProjectView, folderPath],
+  )
+  const handleSortChange = useCallback(
+    (next: BacklogSort) => setProjectView(folderPath, { sort: next }),
+    [setProjectView, folderPath],
+  )
+  const handleGroupChange = useCallback(
+    (next: BacklogGroup) => setProjectView(folderPath, { group: next }),
+    [setProjectView, folderPath],
+  )
+  // One-time migration: the first panel to mount on a project seeds the shared
+  // lens/sort/group from its own legacy per-workspace record, so preferences set
+  // before this change carry over; later mounts read the shared value.
+  useEffect(() => {
+    useBacklogViewStore.getState().seedProjectViewIfAbsent(folderPath, initialBacklogState)
+  }, [folderPath, initialBacklogState])
   // Collapsed epic groups, keyed by epicGroupKey. Session-only (not persisted):
   // grouping itself persists, the open/closed state of each header does not.
   const [collapsedGroups, setCollapsedGroups] = useState<ReadonlySet<string>>(() => new Set())
@@ -271,9 +297,10 @@ export default function BacklogPanel({ workspaceId, onStartFuturePlan }: Workspa
   // share one result/refresh instead of each instance scanning the identical
   // folder. `runScan` keeps the name every mutation call site uses; it now
   // refreshes the shared entry, so a mutation in any panel updates every panel
-  // on that folder. Per-workspace view state (search/sort/selection) is persisted
-  // per workspace (see the restore + persist effects below) so a reload/restart
-  // returns to the same item and lens.
+  // on that folder. The lens/sort/grouping are likewise project-scoped (shared +
+  // live-synced via the backlog view store); only the selected item is persisted
+  // per workspace (see the restore + persist effects below), and search is
+  // ephemeral, so a reload/restart returns to the same item under the shared lens.
   const { scan, loading, refresh: runScan } = useSharedBacklogScan(folderPath)
 
   // The shared store returns scan=null for a missing folder; mirror the old
@@ -502,7 +529,7 @@ export default function BacklogPanel({ workspaceId, onStartFuturePlan }: Workspa
       // the Active working set) to keep the row visible beside its detail.
       setPendingReveal(null)
       setSearch('')
-      setView(lensForItemStatus(item.status))
+      setProjectView(folderPath, { view: lensForItemStatus(item.status) })
       setSelectedId(item.id)
       setShowDetailInSingle(true)
     } else if (items.length > 0) {
@@ -510,7 +537,7 @@ export default function BacklogPanel({ workspaceId, onStartFuturePlan }: Workspa
       // quietly — the panel is at least open. An empty scan keeps waiting.
       setPendingReveal(null)
     }
-  }, [pendingReveal, items])
+  }, [pendingReveal, items, setProjectView, folderPath])
 
   // Restore the persisted selection once the scan resolves the relativePath to a
   // live item id. Mirrors the pendingReveal latch: an empty scan keeps waiting; a
@@ -537,57 +564,38 @@ export default function BacklogPanel({ workspaceId, onStartFuturePlan }: Workspa
     }
   }, [restorePending, pendingReveal, items])
 
-  // Persist selection + lens + sort + search so a reload/restart restores them.
-  // Debounced (search changes per keystroke; every store write re-serializes the
-  // workspace registry) and gated on restorePending so we never overwrite the
-  // persisted selection before it has been restored. The unmount effect flushes
-  // the latest when the panel/workspace is closed; the debounce timer covers a
-  // Cmd-R reload (and still fires on a layer switch, which does not unmount).
+  // Persist the selected item per workspace so a reload/restart restores which
+  // item's detail was open (a per-window navigation position). The lens/sort/
+  // grouping are NOT persisted here — they live in the project-scoped backlog
+  // view store — and search is ephemeral. Gated on restorePending so we never
+  // overwrite the persisted selection before it has been restored; the unmount
+  // effect flushes on close, the debounce covers a Cmd-R reload / layer switch.
   const backlogPersistRef = useRef({
     selectedRelativePath: null as string | null,
-    view,
-    sort,
-    group,
-    search,
     restorePending,
   })
   backlogPersistRef.current = {
     selectedRelativePath: selected?.relativePath ?? null,
-    view,
-    sort,
-    group,
-    search,
     restorePending,
   }
   const persistBacklogViewState = useCallback(() => {
     const snapshot = backlogPersistRef.current
     if (snapshot.restorePending != null) return
-    // Don't create a default record just by opening the panel for an untouched
-    // workspace; only persist once there is something non-default to remember (or
-    // a record already exists).
-    const isDefault =
-      !snapshot.selectedRelativePath &&
-      snapshot.view === 'active' &&
-      snapshot.sort === 'recent' &&
-      snapshot.group === 'none' &&
-      snapshot.search === ''
+    // Don't create a record just by opening the panel for an untouched workspace;
+    // only persist once there is a selection to remember (or a record exists).
     const hasRecord = Boolean(
       useWorkspaceStore.getState().workspaces.find((w) => w.id === workspaceId)?.backlogState,
     )
-    if (isDefault && !hasRecord) return
+    if (!snapshot.selectedRelativePath && !hasRecord) return
     setBacklogViewState(workspaceId, {
       selectedRelativePath: snapshot.selectedRelativePath,
-      view: snapshot.view,
-      sort: snapshot.sort,
-      group: snapshot.group,
-      search: snapshot.search,
     })
   }, [workspaceId, setBacklogViewState])
   useEffect(() => {
     if (restorePending != null) return
     const handle = window.setTimeout(persistBacklogViewState, 300)
     return () => window.clearTimeout(handle)
-  }, [restorePending, selectedId, view, sort, group, search, persistBacklogViewState])
+  }, [restorePending, selectedId, persistBacklogViewState])
   useEffect(() => {
     return () => persistBacklogViewState()
   }, [persistBacklogViewState])
@@ -660,12 +668,12 @@ export default function BacklogPanel({ workspaceId, onStartFuturePlan }: Workspa
       if (!target) return
       if (!filtered.some((item) => item.id === id)) {
         setSearch('')
-        setView(lensForItemStatus(target.status))
+        setProjectView(folderPath, { view: lensForItemStatus(target.status) })
       }
       setSelectedId(id)
       setShowDetailInSingle(true)
     },
-    [items, filtered],
+    [items, filtered, setProjectView, folderPath],
   )
 
   // ---- file actions (all via existing window.api fs IPC; never mutate Sprint
@@ -1438,9 +1446,9 @@ export default function BacklogPanel({ workspaceId, onStartFuturePlan }: Workspa
           viewItems={VIEW_ITEMS}
           sortItems={SORT_ITEMS}
           groupItems={GROUP_ITEMS}
-          onViewChange={setView}
-          onSortChange={setSort}
-          onGroupChange={setGroup}
+          onViewChange={handleViewChange}
+          onSortChange={handleSortChange}
+          onGroupChange={handleGroupChange}
           className="shrink-0"
         />
       </div>

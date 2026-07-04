@@ -225,15 +225,24 @@ run('panel rows resolve the row color (highlight ▸ epic ▸ derived risk) thro
   )
 })
 
-run('the Group axis is wired to the filter menu and persisted, defaulting to a flat no-op', () => {
+run('the Group axis is wired to the filter menu and is project-scoped, defaulting to a flat no-op', () => {
   // The Group control rides the same FilterMenu plumbing as view/sort.
   assert.match(backlogPanelSource, /group=\{group\}/, 'filter menu receives the group axis')
   assert.match(backlogPanelSource, /groupItems=\{GROUP_ITEMS\}/, 'filter menu receives the group options')
-  assert.match(backlogPanelSource, /onGroupChange=\{setGroup\}/, 'changing the group updates panel state')
-  // group is persisted alongside view/sort, and 'none' is part of the default
-  // baseline so an untouched panel never writes a record.
-  assert.match(backlogPanelSource, /group: snapshot\.group/, 'group is persisted in the view-state record')
-  assert.match(backlogPanelSource, /snapshot\.group === 'none'/, "default baseline keeps group at 'none'")
+  assert.match(backlogPanelSource, /onGroupChange=\{handleGroupChange\}/, 'changing the group updates panel state')
+  // The lens/sort/group are PROJECT-scoped (shared + live-synced across every
+  // workspace on the project) via the backlog view store — not persisted in the
+  // per-workspace record — so two windows on one project read one backlog.
+  assert.match(
+    backlogPanelSource,
+    /setProjectView\(folderPath, \{ group: next \}\)/,
+    'the group change writes to the project-scoped view store',
+  )
+  assert.match(
+    backlogPanelSource,
+    /selectBacklogProjectView\(state, folderPath\)/,
+    'the lens/sort/group are read from the shared project view store',
+  )
   // Grouping off ⇒ groupedRows is null ⇒ the flat list path renders unchanged.
   assert.match(
     backlogPanelSource,
@@ -398,7 +407,7 @@ run('detail cross-navigation widens the lens so a filtered-out target never dead
   )
   assert.match(
     backlogPanelSource,
-    /setView\(lensForItemStatus\(target\.status\)\)/,
+    /setProjectView\(folderPath, \{ view: lensForItemStatus\(target\.status\) \}\)/,
     'a hidden target widens to a lens that contains it (Completed/Archived for terminal items, else Active)',
   )
   assert.match(backlogPanelSource, /setSearch\(''\)/, 'the search is cleared so the navigated row stays visible')

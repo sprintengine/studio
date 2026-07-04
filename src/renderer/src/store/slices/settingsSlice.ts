@@ -16,6 +16,7 @@ import type {
   SprintEngineRoleId,
   AgentConversationRuntime,
   SprintEngineRoleCliDefaults,
+  SprintEngineRoleModelOverrides,
   SprintEngineRoleCounts,
   SprintEngineRunSettings,
   SprintEngineRoleSettings,
@@ -436,6 +437,23 @@ export function normalizeCliDefaults<K extends string>(
   return result
 }
 
+// Per-role saved launch-model overrides for a Sprint Engine roster/team. Keeps
+// only explicit non-empty model ids; a null/empty/"CLI default" value drops to
+// absent (no model flag), matching the save-time prune so load and save agree.
+export function normalizeSprintEngineRoleModelOverrides(
+  input: SprintEngineRoleModelOverrides | null | undefined,
+): SprintEngineRoleModelOverrides {
+  if (!input || typeof input !== 'object') return {}
+  const result: SprintEngineRoleModelOverrides = {}
+  for (const [key, value] of Object.entries(input)) {
+    const role = key.trim()
+    if (role && typeof value === 'string' && value.trim()) {
+      result[role as SprintEngineRoleId] = value.trim()
+    }
+  }
+  return result
+}
+
 // Per-surface (specialist / Multiloop role) model overrides. Keeps only
 // well-formed { cli, model } pairs; a partial blob drops back to "no override"
 // so resolution falls through to the CLI's own default (no model flag).
@@ -637,6 +655,11 @@ export function normalizeSprintEngineRoleSettings(value: unknown): SprintEngineR
       name: 'Saved roster',
       roleCounts: savedRoster.roleCounts,
       roleCliDefaults: savedRoster.roleCliDefaults,
+      // Carry a model-bearing legacy roster's overrides into the migrated team so
+      // the migration is lossless (older rosters simply have none).
+      ...(savedRoster.roleModelOverrides && Object.keys(savedRoster.roleModelOverrides).length > 0
+        ? { roleModelOverrides: savedRoster.roleModelOverrides }
+        : {}),
       createdAt: Date.now(),
       updatedAt: Date.now(),
     })
@@ -671,11 +694,15 @@ function normalizeSprintEngineRosterTeams(value: unknown): SprintEngineRosterTea
     const now = Date.now()
     const createdAt = typeof candidate.createdAt === 'number' && Number.isFinite(candidate.createdAt) ? candidate.createdAt : now
     const updatedAt = typeof candidate.updatedAt === 'number' && Number.isFinite(candidate.updatedAt) ? candidate.updatedAt : createdAt
+    const roleModelOverrides = normalizeSprintEngineRoleModelOverrides(candidate.roleModelOverrides)
     result.push({
       id,
       name,
       roleCounts: normalizeSavedSprintEngineRoleCounts(candidate.roleCounts),
       roleCliDefaults: normalizeCliDefaults(candidate.roleCliDefaults) as SprintEngineRoleCliDefaults,
+      // Omit the key entirely when empty so pre-model-persistence teams keep a
+      // clean shape and comparisons don't churn on `{}` vs absent.
+      ...(Object.keys(roleModelOverrides).length > 0 ? { roleModelOverrides } : {}),
       createdAt,
       updatedAt,
     })
@@ -717,9 +744,11 @@ export function normalizeSprintEngineRunSettings(value: unknown): Record<string,
 function normalizeSprintEngineSavedRoster(value: unknown): SprintEngineSavedRoster | null {
   if (!value || typeof value !== 'object') return null
   const candidate = value as Partial<SprintEngineSavedRoster>
+  const roleModelOverrides = normalizeSprintEngineRoleModelOverrides(candidate.roleModelOverrides)
   return {
     roleCounts: normalizeSavedSprintEngineRoleCounts(candidate.roleCounts),
     roleCliDefaults: normalizeCliDefaults(candidate.roleCliDefaults) as SprintEngineRoleCliDefaults,
+    ...(Object.keys(roleModelOverrides).length > 0 ? { roleModelOverrides } : {}),
   }
 }
 
@@ -946,6 +975,7 @@ export interface SettingsSliceActions {
     name: string
     roleCounts: SprintEngineRoleCounts
     roleCliDefaults: SprintEngineRoleCliDefaults
+    roleModelOverrides?: SprintEngineRoleModelOverrides
   }) => string
   /** Rename a saved team in place. Leaves its roster (counts + CLI defaults)
    *  untouched so renaming is orthogonal to saving roster edits. */
@@ -1295,6 +1325,7 @@ export function createSettingsSlice(set: SettingsSliceSet): SettingsSlice {
       const roster = normalizeSprintEngineSavedRoster({
         roleCounts: input.roleCounts,
         roleCliDefaults: input.roleCliDefaults,
+        roleModelOverrides: input.roleModelOverrides,
       }) ?? { roleCounts: { architect: 1 } as SprintEngineRoleCounts, roleCliDefaults: {} }
       const id = input.id?.trim() || nanoid()
       const now = Date.now()
@@ -1308,6 +1339,9 @@ export function createSettingsSlice(set: SettingsSliceSet): SettingsSlice {
             name,
             roleCounts: roster.roleCounts,
             roleCliDefaults: roster.roleCliDefaults,
+            // Explicitly overwrite (not spread-merge) so clearing every model
+            // override on an edited team drops the stale map instead of keeping it.
+            roleModelOverrides: roster.roleModelOverrides,
             updatedAt: now,
           }
         } else {
@@ -1316,6 +1350,7 @@ export function createSettingsSlice(set: SettingsSliceSet): SettingsSlice {
             name,
             roleCounts: roster.roleCounts,
             roleCliDefaults: roster.roleCliDefaults,
+            roleModelOverrides: roster.roleModelOverrides,
             createdAt: now,
             updatedAt: now,
           })
@@ -1370,9 +1405,15 @@ export function createSettingsSlice(set: SettingsSliceSet): SettingsSlice {
         state.appSettings.sprintEngineRoleSettings = {
           ...current,
           lastSelectedTeamId: team ? team.id : null,
-          // Mirror the picked team into the legacy default for run-mount fallback.
+          // Mirror the picked team into the legacy default for run-mount fallback,
+          // including its model overrides so savedRoster stays a faithful mirror
+          // (matches what saveSprintEngineRosterTeam writes).
           savedRoster: team
-            ? { roleCounts: team.roleCounts, roleCliDefaults: team.roleCliDefaults }
+            ? {
+                roleCounts: team.roleCounts,
+                roleCliDefaults: team.roleCliDefaults,
+                ...(team.roleModelOverrides ? { roleModelOverrides: team.roleModelOverrides } : {}),
+              }
             : current.savedRoster,
         }
       }),
