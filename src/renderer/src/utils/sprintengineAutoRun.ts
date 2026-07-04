@@ -1551,49 +1551,48 @@ export function planSprintEngineDispatch(input: {
       })
     }
 
-    // Revive a LEFT/disposed roster agent when its role has CLAIMABLE work but no
-    // live agent of that role. The claimed-work respawn above only recovers work
-    // an agent already owns; once idle-retirement disposes a role's last terminal
-    // (agent -> 'left'), a newly-pending gate or a freshly-ready task would
-    // otherwise strand forever — the gate/ready-task pickers only match `idle`
-    // agents, so they skip the work with no live agent. We reuse the same
-    // ledger + retry-limit + retry-interval machinery as the claimed-work respawn
-    // for storm safety. Scoped to roles with NO live agent: a role whose agent is
-    // merely busy/stalled is a capacity/restart concern handled by other paths,
-    // not a revival.
+    // Revive a DEPARTED worker for its own rework. Liveness is now derived, not
+    // stored (T1): a departed agent reads as plain `idle`, so revival can no
+    // longer key off a `left`/`dead` status. Instead it keys off task OWNERSHIP —
+    // a role with claimable rework, NO live agent, and a managed roster id whose
+    // retained `lastOwnedTaskId` matches that task: respawn that id so its fresh
+    // session resumes the original conversation. This composes with the pickers:
+    // a fresh ready task (no prior owner) gets a never-owned id from
+    // `findFreshTaskAgent`, and a departed REVIEWER (owns no task) is re-covered
+    // by `findGateReviewerAgent` — both now match a departed agent because it
+    // reads as idle. We reuse the same ledger + retry-limit + retry-interval
+    // machinery as the claimed-work respawn for storm safety. Scoped to roles
+    // with NO live agent: a role whose agent is merely busy/stalled is a
+    // capacity/restart concern handled by other paths, not a revival.
     const liveRoles = new Set<SprintEngineRoleId>()
     for (const liveId of liveAgentIds) {
       const liveRole = sprintEngineState.sprintEngineAgents[liveId]?.role
       if (liveRole) liveRoles.add(liveRole)
     }
-    const revivalByRole = new Map<SprintEngineRoleId, { taskId: string; gateId?: string }>()
+    const claimableWakeTaskIds = new Set<string>()
     for (const task of sprintEngineState.tasks) {
-      for (const gate of getClaimableSprintEngineAutoRunGates(task, sprintEngineState.tasks)) {
-        if (!revivalByRole.has(gate.role)) revivalByRole.set(gate.role, { taskId: task.id, gateId: gate.id })
-      }
-      if (
-        isSprintEngineAutoRunImplementationWakeCandidate(task, sprintEngineState)
-        && !revivalByRole.has(task.role)
-      ) {
-        revivalByRole.set(task.role, { taskId: task.id })
+      if (isSprintEngineAutoRunImplementationWakeCandidate(task, sprintEngineState)) {
+        claimableWakeTaskIds.add(task.id)
       }
     }
-    // Pass 1: select one left/dead, managed roster agent per role that has
-    // claimable work and no live agent. Collected first so the sweep below knows
-    // exactly which revival ledger keys are still active this pass.
-    const revivalTargets: Array<{ role: SprintEngineRoleId; work: { taskId: string; gateId?: string }; agentId: string }> = []
-    for (const [role, work] of revivalByRole) {
-      if (liveRoles.has(role)) continue // a live agent of this role will claim it
-      let reviveAgentId: string | null = null
-      for (const [agentId, runtimeAgent] of Object.entries(sprintEngineState.sprintEngineAgents)) {
-        if (runtimeAgent.role !== role) continue
-        if (runtimeAgent.status !== 'left' && runtimeAgent.status !== 'dead') continue
-        if (plannedRespawnAgentIds.has(agentId) || engagedAgentIds.has(agentId)) continue
-        if (!workspace.agents[agentId]) continue // unmanaged claimant — nothing to spawn
-        reviveAgentId = agentId
-        break
-      }
-      if (reviveAgentId) revivalTargets.push({ role, work, agentId: reviveAgentId })
+    // Pass 1: a managed roster id whose retained `lastOwnedTaskId` is a claimable
+    // rework task, and whose role has no live agent, is a revival target — no
+    // status read, pure owner affinity. Keyed off the agent (not one task per
+    // role) so a fresh ready task sharing the role can't mask a departed owner's
+    // rework. One revival per role per pass for storm safety; a same-role second
+    // owner is recovered by `findReworkOwnerAgent` on a later pass. Collected
+    // first so the sweep below knows which revival ledger keys are still active.
+    const revivalTargets: Array<{ role: SprintEngineRoleId; work: { taskId: string }; agentId: string }> = []
+    const plannedRevivalRoles = new Set<SprintEngineRoleId>()
+    for (const [agentId, runtimeAgent] of Object.entries(sprintEngineState.sprintEngineAgents)) {
+      const taskId = runtimeAgent.lastOwnedTaskId
+      if (!taskId || !claimableWakeTaskIds.has(taskId)) continue
+      if (liveRoles.has(runtimeAgent.role)) continue // a live agent of this role will claim it
+      if (plannedRevivalRoles.has(runtimeAgent.role)) continue // one revival per role per pass
+      if (plannedRespawnAgentIds.has(agentId) || engagedAgentIds.has(agentId)) continue
+      if (!workspace.agents[agentId]) continue // unmanaged claimant — nothing to spawn
+      plannedRevivalRoles.add(runtimeAgent.role)
+      revivalTargets.push({ role: runtimeAgent.role, work: { taskId }, agentId })
     }
 
     // Sweep stale `revive:` ledger entries — any whose revival is no longer an
@@ -1617,8 +1616,7 @@ export function planSprintEngineDispatch(input: {
         agentId: reviveAgentId,
         role,
         taskId: work.taskId,
-        gateId: work.gateId ?? null,
-        reason: 'revive-left-for-claimable-work',
+        reason: 'revive-departed-worker-for-rework',
       }
       const key = sprintEngineReviveLedgerKey(workspace, work, reviveAgentId)
       const previous = input.continuationLedger.get(key)
@@ -1636,21 +1634,17 @@ export function planSprintEngineDispatch(input: {
         label: workspace.agents[reviveAgentId]?.name ?? reviveAgentId,
         role,
         taskId: work.taskId,
-        ...(work.gateId ? { gateId: work.gateId } : {}),
         key,
         data: respawnData,
         diagnostic: {
-          title: 'Revived a left sprint agent for claimable work',
-          message: work.gateId
-            ? `${role} has a pending ${work.gateId} gate on ${work.taskId} but every ${role} agent has left. Reviving one so the gate can be claimed.`
-            : `${role} has ready work on ${work.taskId} but every ${role} agent has left. Reviving one so the task can be claimed.`,
+          title: 'Revived a departed sprint agent for its rework',
+          message: `${role} has claimable rework on ${work.taskId} but its terminal is not running. Reviving the id that last owned the task so its session resumes.`,
           details: [
             `Workspace: ${workspace.name}`,
             `Agent: ${reviveAgentId} (${role})`,
             `Task: ${work.taskId}`,
-            work.gateId ? `Gate: ${work.gateId}` : null,
             `Revive attempts before this one: ${previous?.attempts ?? 0}`,
-          ].filter((line): line is string => Boolean(line)).join('\n'),
+          ].join('\n'),
           taskId: work.taskId,
         },
       })

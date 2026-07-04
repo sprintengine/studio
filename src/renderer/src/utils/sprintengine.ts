@@ -2401,7 +2401,14 @@ export function normalizeSprintEngineState(input: SprintEngineState | null | und
     updatedAt: input.updatedAt ?? null,
     roleCounts,
     sprintEngineAgents: input.sprintEngineAgents && Object.keys(input.sprintEngineAgents).length > 0
-      ? input.sprintEngineAgents
+      // Persisted renderer state can carry a legacy `left`/`dead` status from
+      // before liveness was derived; coerce each to `idle` so it loads clean.
+      ? Object.fromEntries(
+          Object.entries(input.sprintEngineAgents).map(([id, agent]) => [
+            id,
+            { ...agent, status: coerceSprintEngineRuntimeAgentStatus(agent.status) },
+          ])
+        )
       : Object.fromEntries(buildSprintEngineAgentRoster(roleCounts).map((a) => [a.id, { role: a.role, status: 'idle' as const, currentTaskId: null }])),
     events: input.events ?? [],
     tasks,
@@ -2524,6 +2531,25 @@ function projectionSourceValue(value: unknown): SprintEngineProjectionSource {
     : 'folder_store'
 }
 
+// Agent liveness is derived, not stored (T1): a departed agent persists as
+// `idle`, and the core never writes a terminal `left`/`dead` status. Any value
+// outside the modelled set — including legacy on-disk `left`/`dead` from before
+// the unification — coerces to `idle` so a stale payload loads without a type
+// violation and reads as idle.
+const SPRINT_ENGINE_RUNTIME_AGENT_STATUSES: ReadonlySet<SprintEngineRuntimeAgent['status']> = new Set([
+  'idle',
+  'running',
+  'needs_input',
+  'done',
+  'retired',
+])
+
+function coerceSprintEngineRuntimeAgentStatus(value: unknown): SprintEngineRuntimeAgent['status'] {
+  return typeof value === 'string' && SPRINT_ENGINE_RUNTIME_AGENT_STATUSES.has(value as SprintEngineRuntimeAgent['status'])
+    ? (value as SprintEngineRuntimeAgent['status'])
+    : 'idle'
+}
+
 function normalizeProjectionRoster(value: unknown): Record<string, SprintEngineRuntimeAgent> {
   if (!value || typeof value !== 'object') return {}
   const result: Record<string, SprintEngineRuntimeAgent> = {}
@@ -2535,9 +2561,7 @@ function normalizeProjectionRoster(value: unknown): Record<string, SprintEngineR
     // dropped.
     const roleId = normalizeSprintEngineRoleId(record.role)
     if (!roleId) continue
-    const status = record.status === 'running' || record.status === 'needs_input' || record.status === 'done' || record.status === 'retired'
-      ? record.status
-      : 'idle' as const
+    const status = coerceSprintEngineRuntimeAgentStatus(record.status)
     const currentGateId = optionalTrimmedString(record.currentGateId)
     const currentGate = normalizeCurrentGate(record.currentGate)
     result[agentId] = {
