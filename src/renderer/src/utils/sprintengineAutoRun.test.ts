@@ -71,6 +71,7 @@ import type {
   McpSettings,
 } from '../types/workspace'
 import { defaultAgent } from '../store/slices/agentsSlice'
+import { getTimerRegistrations } from './diagnostics/timerRegistry'
 
 const emptyMcpSettings: McpSettings = { syncEnabled: false, servers: {} }
 
@@ -195,6 +196,9 @@ async function main(): Promise<void> {
   await testNotificationSpawnFailureAbortsRemainingPlanActions()
   await testSecondNotificationForSameAgentDefersToNextPass()
   await testTriageDefersWhenPlanEngagedArchitectThisPass()
+  await testHardCompletionGateEntersDormancyExactlyOnceViaHelper()
+  await testHardCompletionGateIgnoresIncompleteRun()
+  await testAutoRunPollerControllerArmsOnlyWhenNeededAndReArms()
 }
 
 function testAgentTerminalBackgroundPolicyDoesNotSelectOrCreateTabs(): void {
@@ -6803,4 +6807,131 @@ function testPickNextAutoRunsResumesActiveGateClaim(): void {
   assert.ok(gateCandidate, 'active gate claim is surfaced for the reviewer')
   assert.equal(gateCandidate?.agentId, 'code_reviewer')
   assert.equal(gateCandidate?.role, 'code_reviewer')
+}
+
+function flushMicrotasks(): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, 0))
+}
+
+// T3: the supervisor's hard-completion gate must route through the shared
+// dormancy helper — fire runner_complete once AND tear the run's agents down
+// once — so a run first detected complete by this 4s poll (before the reactive
+// projection reconcile) tears down exactly once and does not re-fire on repeat.
+async function testHardCompletionGateEntersDormancyExactlyOnceViaHelper(): Promise<void> {
+  const supervisor = await loadSupervisor()
+  const workspace = workspaceFixture({
+    sprintEngineAutoState: {
+      desiredMode: 'run_agents',
+      runtimeState: 'running',
+      cliPermissionPreset: 'default',
+      maxConcurrentAgents: 3,
+      pendingSpawns: [],
+      deliveredAgentNotificationEventKeys: [],
+    },
+  })
+  const autoState = workspace.sprintEngineAutoState!
+
+  let applierCount = 0
+  let teardownCount = 0
+  const ports = {
+    applySprintEngineAutomationEvent: (_workspaceId: string, event: { type: string }) => {
+      applierCount += 1
+      if (event.type === 'runner_complete') autoState.runtimeState = 'complete'
+    },
+    tearDownCompletedRunAgents: async () => { teardownCount += 1 },
+    setCompletionTeardownAt: (_workspaceId: string, at: number | undefined) => {
+      autoState.completionTeardownAt = at
+    },
+    now: () => 4321,
+  }
+
+  const state = sprintEngineStateFixture({
+    tasks: [task({ id: 'T1', status: 'done' }), task({ id: 'T2', status: 'done' })],
+  })
+
+  const first = supervisor.enterDormancyIfRunComplete(workspace, state, ports)
+  await flushMicrotasks()
+  assert.equal(first, true, 'completed run enters dormancy')
+  assert.equal(applierCount, 1, 'runner_complete fired exactly once')
+  assert.equal(teardownCount, 1, 'teardown ran exactly once')
+  assert.equal(autoState.completionTeardownAt, 4321, 'teardown marker set after teardown resolved')
+
+  // Repeat entry now that the run is complete + marked: no re-fire, no re-teardown.
+  const second = supervisor.enterDormancyIfRunComplete(workspace, state, ports)
+  await flushMicrotasks()
+  assert.equal(second, true, 'still reports the run complete')
+  assert.equal(applierCount, 1, 'runner_complete not re-fired once complete')
+  assert.equal(teardownCount, 1, 'teardown not re-run once the marker is set')
+}
+
+async function testHardCompletionGateIgnoresIncompleteRun(): Promise<void> {
+  const supervisor = await loadSupervisor()
+  const workspace = workspaceFixture()
+  let touched = 0
+  const ports = {
+    applySprintEngineAutomationEvent: () => { touched += 1 },
+    tearDownCompletedRunAgents: async () => { touched += 1 },
+    setCompletionTeardownAt: () => { touched += 1 },
+    now: () => 1,
+  }
+  const state = sprintEngineStateFixture({ tasks: [task({ status: 'in_progress' })] })
+  const result = supervisor.enterDormancyIfRunComplete(workspace, state, ports)
+  await flushMicrotasks()
+  assert.equal(result, false, 'an incomplete run does not enter dormancy')
+  assert.equal(touched, 0, 'no dormancy port is invoked for an incomplete run')
+}
+
+// T3: the auto-run poll interval and its registered timer exist ONLY while at
+// least one workspace needs the poller; when none do, no live interval and no
+// 'SprintEngine auto-run poll' timer remain, and returning demand re-arms.
+async function testAutoRunPollerControllerArmsOnlyWhenNeededAndReArms(): Promise<void> {
+  const supervisor = await loadSupervisor()
+  const LABEL = 'SprintEngine auto-run poll'
+  const registeredCount = (): number =>
+    getTimerRegistrations().filter((entry) => entry.label === LABEL).length
+
+  let needed = false
+  let tickCount = 0
+  let intervalId = 0
+  const cleared: number[] = []
+  const controller = supervisor.createAutoRunPollerController({
+    isPollerNeeded: () => needed,
+    tick: () => { tickCount += 1 },
+    setInterval: () => { intervalId += 1; return intervalId },
+    clearInterval: (id: number) => { cleared.push(id) },
+  })
+
+  // No demand: nothing armed, nothing registered, no tick.
+  controller.sync()
+  assert.equal(intervalId, 0, 'no interval armed while no workspace needs the poller')
+  assert.equal(tickCount, 0, 'no tick ran while unarmed')
+  assert.equal(registeredCount(), 0, 'no auto-run poll timer registered while unarmed')
+
+  // Demand appears: arm once, register the timer, run an immediate tick.
+  needed = true
+  controller.sync()
+  assert.equal(intervalId, 1, 'interval armed once demand appears')
+  assert.equal(tickCount, 1, 'immediate tick on arm')
+  assert.equal(registeredCount(), 1, 'auto-run poll timer registered while armed')
+
+  // Idempotent while still needed.
+  controller.sync()
+  assert.equal(intervalId, 1, 'sync does not re-arm an already-live interval')
+  assert.equal(registeredCount(), 1, 'no duplicate timer registration')
+
+  // Demand disappears: clear the interval and unregister the timer.
+  needed = false
+  controller.sync()
+  assert.deepEqual(cleared, [1], 'interval cleared when demand disappears')
+  assert.equal(registeredCount(), 0, 'timer unregistered once idle')
+
+  // Returning demand (mirrors user_set_mode back to a running mode) re-arms.
+  needed = true
+  controller.sync()
+  assert.equal(intervalId, 2, 're-arms a fresh interval on returning demand')
+  assert.equal(registeredCount(), 1, 'timer re-registered on re-arm')
+
+  controller.dispose()
+  assert.deepEqual(cleared, [1, 2], 'dispose clears the live interval')
+  assert.equal(registeredCount(), 0, 'dispose unregisters the timer')
 }
