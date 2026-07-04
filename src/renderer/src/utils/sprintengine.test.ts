@@ -293,6 +293,24 @@ assert.deepEqual(reNormalized!.roleRuntimes, roleRuntimesState!.roleRuntimes)
 // Legacy payload without the map normalizes cleanly with the field absent.
 assert.equal(normalizeSprintEngineProjection(fakeProjection())!.roleRuntimes, undefined)
 
+// run.configuredRoles (the run's enabled role set) rides the projection so the
+// roster view can show configured-but-unseated reviewer roles under the lazy
+// roster. De-duped, registry-validated, order-stable, and survives re-normalize.
+const configuredRolesState = normalizeSprintEngineProjection(fakeProjection({
+  run: {
+    id: 'run-id', name: 'Sample Run', goal: 'Test goal', status: 'executing',
+    rosterConfigured: true, updatedAt: '2026-05-16T20:00:00Z',
+    configuredRoles: ['architect', 'developer', 'nuclear_reviewer', 'developer', 'tester', '  ', 42],
+  },
+}))
+assert.deepEqual(configuredRolesState!.configuredRoles, ['architect', 'developer', 'nuclear_reviewer', 'tester'])
+assert.deepEqual(
+  normalizeSprintEngineState(configuredRolesState)!.configuredRoles,
+  configuredRolesState!.configuredRoles,
+)
+// Legacy payload without the list normalizes cleanly with the field absent.
+assert.equal(normalizeSprintEngineProjection(fakeProjection())!.configuredRoles, undefined)
+
 const externalNeedsInputState = normalizeSprintEngineProjection(fakeProjection({
   tasks: [
     {
@@ -444,8 +462,9 @@ assert.equal(
   deriveSprintEngineRunGlyph({ sprintEngineState: { tasks: [boardTask('done'), boardTask('done')] }, autoState: manualIdle })?.state,
   'done',
 )
-// Completed worktree run: merged → filled `done` ("Complete"); not-yet-merged →
-// outline `done_unmerged` ("Ready for review"); no worktree stays filled `done`.
+// Completed worktree run: merged → purple `done_merged` ("Merged"); not-yet-
+// merged → outline `done_unmerged` ("Ready for review"); no worktree stays
+// filled green `done` ("Complete").
 const worktreeVcs = (extra: Record<string, unknown>) =>
   ({ mode: 'run_worktree', worktreePath: '.x/worktree', branchName: 'sprintengine/x', ...extra }) as never
 assert.deepEqual(
@@ -453,7 +472,7 @@ assert.deepEqual(
     sprintEngineState: { tasks: [boardTask('done')], vcs: worktreeVcs({ pullRequestState: 'merged', pullRequestUrl: 'https://x/pull/1' }) },
     autoState: manualIdle,
   }),
-  { state: 'done', live: false, label: 'Complete' },
+  { state: 'done_merged', live: false, label: 'Merged' },
 )
 assert.deepEqual(
   deriveSprintEngineRunGlyph({

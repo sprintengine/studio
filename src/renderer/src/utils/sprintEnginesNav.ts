@@ -43,6 +43,9 @@ const GLYPH_RANK: Partial<Record<WorkspaceRunGlyph['state'], number>> = {
   in_progress: 2,
   paused: 3,
   done: 4,
+  // A merged run is a terminal-complete state, ranked with `done` so it keeps
+  // its prior nav position (it used to derive `done` before the merged glyph).
+  done_merged: 4,
 }
 
 function rowRank(glyph: WorkspaceRunGlyph | null): number {

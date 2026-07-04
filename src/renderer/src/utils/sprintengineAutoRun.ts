@@ -16,6 +16,7 @@ import {
   getReviewableSprintEngineArtifacts,
   getSprintEngineArtifactAutoApprovalEligibility,
   getSprintEngineArtifactsByTaskId,
+  getSprintEnginePersistentReviewerId,
   getSprintEngineTaskBoardColumn,
   isSprintEngineArtifactAutoApprovableKind,
   isSprintEngineTaskLaunchable,
@@ -2174,7 +2175,23 @@ export function pickNextAutoRuns(
     )
     if (unreserved) return unreserved.id
     const agent = roster.find((candidate) => isEligibleRoleAgent(candidate.id, candidate.role, role))
-    return agent?.id ?? null
+    if (agent) return agent.id
+    // Lazy persistent reviewer (MC-1451 completion): the seated-roster search
+    // found no idle reviewer of this role. Under the architect-only lazy roster a
+    // reviewer role that does only gate work is never seated, so without this the
+    // gate is skipped forever — the deadlock a run hits at its first review. When
+    // NO agent of the role exists yet, target the deterministic bare `<role>` id
+    // so the supervisor spawns it; the terminal's gate claim registers the id
+    // server-side (`lazily_register_reviewer_id`), after which it is a normal
+    // seated reviewer. If an agent of the role already exists we do NOT mint
+    // here: a busy one will free up, and a departed one is revived through the
+    // retry-limited revival path in `reconcileWorkspaceSessions`. One persistent
+    // reviewer per role, and no second spawn racing that revival.
+    const roleHasAgent = Object.values(sprintEngineState.sprintEngineAgents).some(
+      (candidate) => candidate.role === role
+    )
+    if (roleHasAgent) return null
+    return getSprintEnginePersistentReviewerId(role)
   }
 
   const addCandidate = (

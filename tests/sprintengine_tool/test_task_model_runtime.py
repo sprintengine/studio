@@ -126,6 +126,31 @@ def test_projection_role_runtimes_empty_for_legacy_run(tmp_path) -> None:
     assert projection["run"]["roleRuntimes"] == {}
 
 
+def test_projection_emits_configured_roles(tmp_path) -> None:
+    fixture = create_team(tmp_path, "projection-configured-roles", [task("T1", "Build", "developer")])
+    state = read_state(fixture.state_path)
+    state["configuredRoles"] = ["architect", "developer", "nuclear_reviewer", "tester"]
+    write_state(fixture.state_path, state)
+
+    projection = store_module.build_projection(fixture.state_path.parent, state_path=fixture.state_path)
+    assert projection["run"]["configuredRoles"] == [
+        "architect",
+        "developer",
+        "nuclear_reviewer",
+        "tester",
+    ]
+
+
+def test_projection_configured_roles_null_for_legacy_run(tmp_path) -> None:
+    fixture = create_team(tmp_path, "projection-legacy-configured-roles", [task("T1", "Build", "developer")])
+    state = read_state(fixture.state_path)
+    state.pop("configuredRoles", None)
+    write_state(fixture.state_path, state)
+
+    projection = store_module.build_projection(fixture.state_path.parent, state_path=fixture.state_path)
+    assert projection["run"]["configuredRoles"] is None
+
+
 def test_claim_stamps_model_from_role_runtime_map(tmp_path) -> None:
     fixture = create_team(tmp_path, "claim-role-model", [task("T1", "Build", "developer")])
     state = read_state(fixture.state_path)

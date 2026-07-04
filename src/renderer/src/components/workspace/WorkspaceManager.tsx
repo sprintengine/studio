@@ -1710,13 +1710,13 @@ export default function WorkspaceManager() {
   // active workspace's folder (the plain New chat button); an explicit value
   // scopes the chat to that project (folder/workspace-row menus). Nothing is
   // created here — the panel's confirm does that.
-  const openNewChatPanel = (folderPath?: string | null) => {
+  const openNewChatPanel = useCallback((folderPath?: string | null) => {
     const resolved = folderPath === undefined ? activeWorkspace?.folderPath ?? null : folderPath
     setNewChatPanelState({ folderPath: resolved, folderLabel: resolved ? newChatFolderLabel(resolved) : null })
     closeSettingsOverlay()
     setSpecialistMenuOpen(false)
     setNotificationsOpen(false)
-  }
+  }, [activeWorkspace?.folderPath, closeSettingsOverlay])
   const closeNewChatPanel = () => {
     setNewChatPanelState(null)
   }
@@ -1803,6 +1803,10 @@ export default function WorkspaceManager() {
     }
     if (commandId === 'workspace.new') {
       openNewWorkspacePanel()
+      return true
+    }
+    if (commandId === 'chat.new') {
+      openNewChatPanel()
       return true
     }
     if (commandId === 'workspace.sidebar.toggle') {
@@ -1977,6 +1981,7 @@ export default function WorkspaceManager() {
   }, [
     openSettings,
     openNewWorkspacePanel,
+    openNewChatPanel,
     sidebarCollapsed,
     setSidebarCollapsed,
     sprintEngineEnabled,

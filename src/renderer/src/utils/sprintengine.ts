@@ -285,6 +285,12 @@ export function deriveSprintEngineRunGlyph(input: {
     if (vcs && vcs.pullRequestState !== 'merged') {
       return { state: 'done_unmerged', live: false, label: 'Ready for review' }
     }
+    // A merged worktree run gets the git-merge mark in merged-purple (GitHub's
+    // merged-PR idiom). A non-worktree run has no branch to merge, so it stays
+    // the plain green `done` check.
+    if (vcs && vcs.pullRequestState === 'merged') {
+      return { state: 'done_merged', live: false, label: 'Merged' }
+    }
     return { state: 'done', live: false, label: 'Complete' }
   }
 
@@ -1785,6 +1791,16 @@ function roleAgentIndex(agentId: string, role: SprintEngineRoleId): number {
   return Number(match[1])
 }
 
+// A role's persistent reviewer id is the bare `<role>` (no positional suffix) —
+// the counterpart of the task-scoped `<role>-N` worker ids. It is deterministic
+// so the renderer can target it for a gate spawn before it exists in the roster;
+// the terminal's first gate claim registers the exact id server-side
+// (`lazily_register_reviewer_id`). Kept as its own helper so the reservation is
+// stated in one place and never accidentally reused as a worker id.
+export function getSprintEnginePersistentReviewerId(role: SprintEngineRoleId): AgentId {
+  return role
+}
+
 export function getNextSprintEngineAgentId(
   role: SprintEngineRoleId,
   sprintEngineAgents: Record<AgentId, SprintEngineRuntimeAgent>
@@ -2288,6 +2304,23 @@ export function normalizeSprintEngineRoleRuntimes(value: unknown): SprintEngineR
   return Object.keys(result).length > 0 ? result : null
 }
 
+// Tolerant read of the run.yaml/projection `configuredRoles` list — the run's
+// enabled role set. Keeps registry-valid role ids, de-duped and order-stable.
+// Returns null when the field is absent or empty so callers can omit it and the
+// roster view falls back to the seated-roster census (legacy runs).
+export function normalizeSprintEngineConfiguredRoles(value: unknown): SprintEngineRoleId[] | null {
+  if (!Array.isArray(value)) return null
+  const seen = new Set<SprintEngineRoleId>()
+  const result: SprintEngineRoleId[] = []
+  for (const rawRole of value) {
+    const role = normalizeSprintEngineRoleId(typeof rawRole === 'string' ? rawRole : '')
+    if (!role || seen.has(role)) continue
+    seen.add(role)
+    result.push(role)
+  }
+  return result.length > 0 ? result : null
+}
+
 export function normalizeSprintEngineState(input: SprintEngineState | null | undefined): SprintEngineState | null {
   if (!input) return null
 
@@ -2383,6 +2416,10 @@ export function normalizeSprintEngineState(input: SprintEngineState | null | und
     ...((): Partial<Pick<SprintEngineState, 'roleRuntimes'>> => {
       const roleRuntimes = normalizeSprintEngineRoleRuntimes(input.roleRuntimes)
       return roleRuntimes ? { roleRuntimes } : {}
+    })(),
+    ...((): Partial<Pick<SprintEngineState, 'configuredRoles'>> => {
+      const configuredRoles = normalizeSprintEngineConfiguredRoles(input.configuredRoles)
+      return configuredRoles ? { configuredRoles } : {}
     })(),
   }
 }
@@ -2593,6 +2630,10 @@ export function normalizeSprintEngineProjection(
     ...((): Partial<Pick<SprintEngineState, 'roleRuntimes'>> => {
       const roleRuntimes = normalizeSprintEngineRoleRuntimes(runRecord.roleRuntimes)
       return roleRuntimes ? { roleRuntimes } : {}
+    })(),
+    ...((): Partial<Pick<SprintEngineState, 'configuredRoles'>> => {
+      const configuredRoles = normalizeSprintEngineConfiguredRoles(runRecord.configuredRoles)
+      return configuredRoles ? { configuredRoles } : {}
     })(),
   }
 
