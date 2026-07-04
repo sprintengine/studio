@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
-import type { SprintEngineAutoState } from '../types/workspace'
+import type { SprintEngineAutomationRuntimeState, SprintEngineAutoState, Workspace } from '../types/workspace'
 import {
+  isSprintEngineWorkspaceDormant,
   sprintEngineAgentHasLiveRunWork,
   sprintEngineAutomationInitialStateForMode,
   sprintEngineAutomationModeForRunOptions,
@@ -199,5 +200,23 @@ assert.equal(
 )
 assert.equal(sprintEngineAgentHasLiveRunWork(liveWorkState, baseAutoState(), undefined), false)
 assert.equal(sprintEngineAgentHasLiveRunWork(null, baseAutoState(), 'developer-1'), false)
+
+// The dormancy bit: only the terminal `complete` runtime state is dormant. Every
+// other lifecycle state — including a finished-but-not-yet-reconciled run stuck in
+// `paused` — is live and keeps its renderer activity sources running.
+function dormancyWorkspace(runtimeState?: SprintEngineAutomationRuntimeState): Workspace {
+  return { sprintEngineAutoState: runtimeState ? baseAutoState({ runtimeState }) : undefined } as unknown as Workspace
+}
+assert.equal(isSprintEngineWorkspaceDormant(dormancyWorkspace('complete')), true)
+for (const runtimeState of ['idle', 'running', 'paused', 'blocked', 'failed'] as const) {
+  assert.equal(
+    isSprintEngineWorkspaceDormant(dormancyWorkspace(runtimeState)),
+    false,
+    `runtimeState=${runtimeState} is not dormant`,
+  )
+}
+assert.equal(isSprintEngineWorkspaceDormant(dormancyWorkspace()), false, 'no auto-state is not dormant')
+assert.equal(isSprintEngineWorkspaceDormant(null), false)
+assert.equal(isSprintEngineWorkspaceDormant(undefined), false)
 
 console.log('sprintengineAutomationLifecycle.test.ts: ok')

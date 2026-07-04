@@ -5,6 +5,7 @@ import type {
   SprintEngineAutomationRuntimeState,
   SprintEngineAutomationStopReason,
   SprintEngineState,
+  Workspace,
 } from '../types/workspace'
 
 const desiredModes = new Set<SprintEngineAutomationDesiredMode>([
@@ -72,6 +73,21 @@ export function sprintEngineAutomationShouldRun(
   const desiredMode = deriveSprintEngineAutomationDesiredMode(autoState)
   const runtimeState = normalizeSprintEngineAutomationRuntimeState(autoState?.runtimeState, desiredMode)
   return desiredMode !== 'manual' && runtimeState === 'running'
+}
+
+/**
+ * The single dormancy bit. A finished run is dormant once its automation
+ * lifecycle reaches the terminal `complete` state — the one persisted signal
+ * that every renderer activity source honours to stop periodic work. It is the
+ * resulting *state* of completion; `isCompletedSprintEngineRun` (task-level) is
+ * the signal that *triggers* the transition into it. The reducer's
+ * terminal-state guard makes `complete` one-way (only `user_set_mode` leaves
+ * it), so dormancy ends only by explicit user action.
+ */
+export function isSprintEngineWorkspaceDormant(
+  workspace: Pick<Workspace, 'sprintEngineAutoState'> | null | undefined,
+): boolean {
+  return workspace?.sprintEngineAutoState?.runtimeState === 'complete'
 }
 
 export function sprintEngineAutomationModeForRunOptions(input: {
