@@ -73,9 +73,16 @@ import { pathJoin } from '../../utils/paths'
 import { MULTICODE_DISABLE_SPRINTENGINE_AUTORUN } from '../../utils/runtimeFlags'
 import { resolveProjectKnowledgeConfig } from '../../utils/projectKnowledge'
 import { isAgentTabVisible, type AgentTerminalRevealPolicy } from '../../utils/modelRegistry'
-import { refreshSprintEngineWorkspaceProjection } from '../../utils/sprintengineProjectionRefresh'
-import { tearDownDepartedTaskScopedWorker } from '../../utils/sprintengineRunTeardown'
-import { registerTimer } from '../../utils/diagnostics/timerRegistry'
+import {
+  enterSprintEngineDormancy,
+  refreshSprintEngineWorkspaceProjection,
+  type SprintEngineDormancyPorts,
+} from '../../utils/sprintengineProjectionRefresh'
+import {
+  tearDownCompletedSprintRunAgents,
+  tearDownDepartedTaskScopedWorker,
+} from '../../utils/sprintengineRunTeardown'
+import { registerTimer, type TimerHandle } from '../../utils/diagnostics/timerRegistry'
 import { deriveSprintEngineAutomationMode } from '../../utils/sprintengineAutomation'
 import {
   deriveSprintEngineAutomationDesiredMode,
@@ -132,8 +139,6 @@ function publishTerminalListIpcFailureNotice(
 // pairs with) for no user-visible loss in a long-running run.
 const AUTO_RUN_POLL_MS = 4000
 const INACTIVE_AUTO_RUN_POLL_MS = 15000
-// Gentle background cadence for refreshing PR merge state on non-open workspaces.
-const BACKGROUND_PR_SWEEP_MS = 600_000
 const AUTO_RUN_STARTUP_SPAWN_DELAY_MS = 10000
 const AUTO_RUN_PENDING_SPAWN_GRACE_MS = 60000
 export const AUTO_RUN_MAX_PROMPT_RETRIES = PLANNER_MAX_PROMPT_RETRIES
@@ -172,6 +177,98 @@ function getSprintEngineAutoState(workspace: Workspace | null | undefined): Spri
 
 function isSprintEngineRunnerActive(workspace: Workspace | null | undefined): boolean {
   return sprintEngineAutomationShouldRun(getSprintEngineAutoState(workspace))
+}
+
+// Ports for entering dormancy from the supervisor's hard-completion gate: the
+// same completion transition the projection reconcile (T1) uses. Routing the gate
+// through it binds teardown to the completion this 4s poll may detect first —
+// rather than to a follow-up poll that dormancy is about to stop.
+const supervisorDormancyPorts: SprintEngineDormancyPorts = {
+  applySprintEngineAutomationEvent: (workspaceId, event) =>
+    useWorkspaceStore.getState().applySprintEngineAutomationEvent(workspaceId, event),
+  tearDownCompletedRunAgents: (workspaceId) => tearDownCompletedSprintRunAgents(workspaceId),
+  setCompletionTeardownAt: (workspaceId, at) =>
+    useWorkspaceStore.getState().setSprintEngineCompletionTeardownAt(workspaceId, at),
+}
+
+// Hard-completion gate. A finished run (every task done) enters dormancy through
+// the shared helper: fire `runner_complete` once and tear its agents down once,
+// identically to the projection reconcile — so completion detected first by this
+// poll (before the reactive reconcile marks it) still tears down exactly once,
+// and the terminal `complete` runtime state then makes later ticks skip the
+// workspace. Returns true when the run was complete so the caller skips the rest
+// of the supervise cycle. Idempotent: repeat entries no-op via the reducer's
+// terminal-state gate and the persisted teardown marker.
+export function enterDormancyIfRunComplete(
+  workspace: Pick<Workspace, 'id' | 'sprintEngineAutoState'>,
+  sprintEngineState: Pick<SprintEngineState, 'tasks'>,
+  ports: SprintEngineDormancyPorts = supervisorDormancyPorts,
+): boolean {
+  if (!isCompletedSprintEngineRun(sprintEngineState)) return false
+  enterSprintEngineDormancy(workspace, ports)
+  return true
+}
+
+export type AutoRunPollerController = {
+  /** Start or stop the poll interval + timer to match current demand. Idempotent. */
+  sync: () => void
+  /** Effect-cleanup: clear the interval and unregister the timer if live. */
+  dispose: () => void
+}
+
+// Owns the auto-run poll interval and its registered timer, keeping BOTH alive
+// only while `isPollerNeeded` holds (at least one workspace is running a
+// non-manual automation). When nothing needs it — every run manual, finished, or
+// dormant — there is no live interval and no 'SprintEngine auto-run poll' timer,
+// so the renderer does no per-4s O(workspaces) scan or perf emission. `sync()` is
+// re-invoked from a store subscription, so a `user_set_mode` back to a running
+// mode re-arms the poller. Timer/interval ports are injectable for tests.
+export function createAutoRunPollerController(ports: {
+  isPollerNeeded: () => boolean
+  tick: () => Promise<void> | void
+  registerTimer?: (label: string, cadenceMs: number) => TimerHandle
+  setInterval?: (handler: () => void, ms: number) => number
+  clearInterval?: (id: number) => void
+}): AutoRunPollerController {
+  const registerTimerFn = ports.registerTimer ?? registerTimer
+  const setIntervalFn = ports.setInterval ?? ((handler, ms) => window.setInterval(handler, ms))
+  const clearIntervalFn = ports.clearInterval ?? ((id: number) => window.clearInterval(id))
+
+  let timer: TimerHandle | null = null
+  let interval: number | null = null
+  let disposed = false
+
+  const runTick = (): void => {
+    const startedAt = performance.now()
+    void Promise.resolve(ports.tick()).finally(() => timer?.recordTick(performance.now() - startedAt))
+  }
+
+  const sync = (): void => {
+    if (disposed) return
+    const needed = ports.isPollerNeeded()
+    if (needed && interval === null) {
+      timer = registerTimerFn('SprintEngine auto-run poll', AUTO_RUN_POLL_MS)
+      runTick()
+      interval = setIntervalFn(runTick, AUTO_RUN_POLL_MS)
+    } else if (!needed && interval !== null) {
+      clearIntervalFn(interval)
+      interval = null
+      timer?.unregister()
+      timer = null
+    }
+  }
+
+  const dispose = (): void => {
+    disposed = true
+    if (interval !== null) {
+      clearIntervalFn(interval)
+      interval = null
+    }
+    timer?.unregister()
+    timer = null
+  }
+
+  return { sync, dispose }
 }
 
 function isMatchingWorkspaceAgentSession(
@@ -1966,18 +2063,15 @@ async function superviseWorkspace(
   // runtimeState defaulted back to 'running' on reopen. Deriving completion from
   // the live state here (rather than relying solely on the reactive projection
   // reconcile) closes the race where this 4s poll fires before
-  // refreshSprintEngineWorkspaceProjection marks the run complete. We also fire
-  // `runner_complete` so the runtime flips to the terminal 'complete' state
-  // (leaving desiredMode untouched — no swap to manual), which makes subsequent
-  // ticks skip the workspace entirely (isSprintEngineRunnerActive then returns
-  // false), so this fires at most once. Manual, user-initiated agent spawns go
-  // through a separate path and are unaffected by this gate. We only reach here
-  // with runtimeState === 'running' (the early return above guarantees it).
-  if (isCompletedSprintEngineRun(sprintEngineState)) {
-    useWorkspaceStore.getState().applySprintEngineAutomationEvent(workspace.id, {
-      type: 'runner_complete',
-      message: 'All tasks are complete.',
-    })
+  // refreshSprintEngineWorkspaceProjection marks the run complete. Entering
+  // dormancy flips the runtime to the terminal 'complete' state (leaving
+  // desiredMode untouched — no swap to manual), so subsequent ticks skip the
+  // workspace entirely (isSprintEngineRunnerActive then returns false), and tears
+  // the run's agents down once — bound to this transition, not a follow-up poll,
+  // because completion also stops the poller. Manual, user-initiated spawns go
+  // through a separate path and are unaffected. We only reach here with
+  // runtimeState === 'running' (the early return above guarantees it).
+  if (enterDormancyIfRunComplete(workspace, sprintEngineState)) {
     logPerfEvent('SprintEngineAutoRun', 'supervise-stop', {
       workspaceId: workspace.id,
       workspaceName: workspace.name,
@@ -2563,63 +2657,31 @@ export default function SprintEngineAutoRunSupervisor() {
       }
     }
 
-    const timer = registerTimer('SprintEngine auto-run poll', AUTO_RUN_POLL_MS)
-    const runTick = () => {
-      const startedAt = performance.now()
-      void Promise.resolve(tick()).finally(() => timer.recordTick(performance.now() - startedAt))
-    }
-    runTick()
-    const interval = window.setInterval(runTick, AUTO_RUN_POLL_MS)
+    // The poll interval + timer exist only while at least one workspace is
+    // running a non-manual automation. A store change (e.g. a run finishing into
+    // dormancy, or a user re-selecting a running mode) re-evaluates demand and
+    // starts/stops the loop, so a fully manual/finished set of workspaces holds
+    // no live interval and no registered timer.
+    const controller = createAutoRunPollerController({
+      isPollerNeeded: () =>
+        useWorkspaceStore.getState().workspaces.some((workspace) => isSprintEngineRunnerActive(workspace)),
+      tick,
+    })
+    controller.sync()
+    const unsubscribe = useWorkspaceStore.subscribe(() => controller.sync())
 
     return () => {
       disposed = true
-      timer.unregister()
-      window.clearInterval(interval)
+      unsubscribe()
+      controller.dispose()
     }
   }, [])
 
-  // Background pull-request merge sweep. The open run-summary polls the active
-  // workspace every 30s; this gentle 10-minute sweep keeps the sidebar run glyph
-  // (outline = not merged, filled = merged) honest for runs whose summary isn't
-  // open. It only touches completed worktree runs with a non-terminal PR, skips
-  // the active workspace (already polled), and stops once a run is merged/closed.
-  useEffect(() => {
-    let disposed = false
-    const sweep = async () => {
-      const store = useWorkspaceStore.getState()
-      const activeId = store.activeWorkspaceId
-      for (const workspace of store.workspaces) {
-        if (disposed) return
-        if (workspace.id === activeId) continue
-        if (workspace.mode !== 'sprintengine') continue
-        const statePath = workspace.sprintEngineContext?.statePath
-        const vcs = workspace.sprintEngineState?.vcs
-        if (!statePath || !vcs) continue
-        if (vcs.pullRequestState === 'merged' || vcs.pullRequestState === 'closed') continue
-        const tasks = workspace.sprintEngineState?.tasks ?? []
-        const completed = tasks.length > 0 && tasks.every((task) => task.status === 'done')
-        if (!completed && !vcs.pullRequestUrl) continue
-        try {
-          const result = await window.api.refreshSprintEnginePullRequestStatus(statePath)
-          if (disposed || !result.ok) continue
-          await refreshSprintEngineWorkspaceProjection({
-            workspace,
-            tokens: new Map(),
-            cause: 'manual',
-            force: true,
-          })
-        } catch {
-          // Best-effort: a transient gh/git failure just retries next sweep.
-        }
-      }
-    }
-    void sweep()
-    const interval = window.setInterval(() => void sweep(), BACKGROUND_PR_SWEEP_MS)
-    return () => {
-      disposed = true
-      window.clearInterval(interval)
-    }
-  }, [])
+  // The 10-minute background PR merge sweep was removed: it was a forever
+  // `gh`-subprocess + forced-projection-read loop that kept running even for
+  // finished, dormant runs. The open run summary still polls the active
+  // workspace, and on-demand PR refresh for a workspace is delivered by T4, so no
+  // renderer timer needs to poll merge state for non-open workspaces.
 
   return null
 }

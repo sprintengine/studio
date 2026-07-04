@@ -1,10 +1,11 @@
 import { useEffect, useRef } from 'react'
 import { useWorkspaceStore } from '../../store/workspaceStore'
+import type { Workspace } from '../../types/workspace'
 import {
   canStopPollingCompletedSprintEngineProjection,
   refreshSprintEngineWorkspaceProjection,
 } from '../../utils/sprintengineProjectionRefresh'
-import { registerTimer } from '../../utils/diagnostics/timerRegistry'
+import { registerTimer, type TimerHandle } from '../../utils/diagnostics/timerRegistry'
 
 // Paired with the auto-run cadence. The reader now short-circuits via a cheap
 // mtime:size token, so an unchanged projection costs a single stat() with no
@@ -13,9 +14,80 @@ import { registerTimer } from '../../utils/diagnostics/timerRegistry'
 const SPRINT_ENGINE_PROJECTION_ACTIVE_POLL_MS = 4000
 const SPRINT_ENGINE_PROJECTION_INACTIVE_POLL_MS = 15000
 
+const PROJECTION_POLL_TIMER_LABEL = 'SprintEngine projection poll'
+
 type Props = {
   activeWorkspaceId: string | null
   workspaceIds: string[]
+}
+
+// Whether any sprint workspace in this window still needs the projection poll.
+// A finished run drops out once it is skippable (dormant + hydrated + torn down,
+// per `canStopPollingCompletedSprintEngineProjection`). When this returns false
+// for every sprint workspace, the poll interval can be torn down entirely; it is
+// re-derived on every store transition, so a new/resumed run — or a cold-restart
+// dormant run that has not been hydrated yet — flips it back to true and re-arms.
+export function sprintEngineWorkspacesNeedProjectionPolling(
+  workspaces: readonly Workspace[],
+  workspaceIds: ReadonlySet<string>,
+): boolean {
+  return workspaces.some(
+    (workspace) =>
+      workspaceIds.has(workspace.id)
+      && (workspace.mode === 'sprintengine' || Boolean(workspace.sprintEngineContext))
+      && !canStopPollingCompletedSprintEngineProjection(workspace),
+  )
+}
+
+export type ProjectionPollLoop = {
+  // Arm the interval when polling is needed, tear it down (including the timer
+  // registration) when not. Idempotent: repeat calls with the same need no-op.
+  sync(needsPolling: boolean): void
+  dispose(): void
+}
+
+// Owns the setInterval + timer-registry lifecycle so the interval exists ONLY
+// while polling is needed. Arming fires one tick immediately (to hydrate a
+// cold-restart board) before the interval starts; disarming unregisters the
+// timer so it disappears from `getTimerRegistrations()` — the verifiable
+// quiescence signal. setInterval/clearInterval are injectable for tests.
+export function createProjectionPollLoop(deps: {
+  cadenceMs: number
+  runTick: () => void | Promise<void>
+  setInterval?: (handler: () => void, ms: number) => number
+  clearInterval?: (id: number) => void
+}): ProjectionPollLoop {
+  const setIntervalImpl = deps.setInterval ?? ((handler, ms) => window.setInterval(handler, ms))
+  const clearIntervalImpl = deps.clearInterval ?? ((id) => window.clearInterval(id))
+  let interval: number | null = null
+  let timer: TimerHandle | null = null
+
+  const arm = (): void => {
+    if (interval !== null) return
+    timer = registerTimer(PROJECTION_POLL_TIMER_LABEL, deps.cadenceMs)
+    const fire = (): void => {
+      const startedAt = performance.now()
+      void Promise.resolve(deps.runTick()).finally(() => timer?.recordTick(performance.now() - startedAt))
+    }
+    fire()
+    interval = setIntervalImpl(fire, deps.cadenceMs)
+  }
+
+  const disarm = (): void => {
+    if (timer) {
+      timer.unregister()
+      timer = null
+    }
+    if (interval !== null) {
+      clearIntervalImpl(interval)
+      interval = null
+    }
+  }
+
+  return {
+    sync: (needsPolling) => (needsPolling ? arm() : disarm()),
+    dispose: disarm,
+  }
 }
 
 export default function SprintEngineProjectionSupervisor({ activeWorkspaceId, workspaceIds }: Props) {
@@ -74,18 +146,29 @@ export default function SprintEngineProjectionSupervisor({ activeWorkspaceId, wo
       }
     }
 
-    const timer = registerTimer('SprintEngine projection poll', SPRINT_ENGINE_PROJECTION_ACTIVE_POLL_MS)
-    const runTick = () => {
-      const startedAt = performance.now()
-      void Promise.resolve(tick()).finally(() => timer.recordTick(performance.now() - startedAt))
+    // The interval lives only while at least one sprint workspace is not
+    // skippable. Re-derive that need on every store transition so a dormancy /
+    // hydration change that does not alter the workspace id list still tears the
+    // interval down or re-arms it — no app restart, no fixed delay.
+    const loop = createProjectionPollLoop({
+      cadenceMs: SPRINT_ENGINE_PROJECTION_ACTIVE_POLL_MS,
+      runTick: tick,
+    })
+    const workspaceIdSet = new Set(workspaceIds)
+    const evaluate = (): void => {
+      if (disposed) return
+      loop.sync(
+        sprintEngineWorkspacesNeedProjectionPolling(useWorkspaceStore.getState().workspaces, workspaceIdSet),
+      )
     }
-    runTick()
-    const interval = window.setInterval(runTick, SPRINT_ENGINE_PROJECTION_ACTIVE_POLL_MS)
+
+    evaluate()
+    const unsubscribe = useWorkspaceStore.subscribe(evaluate)
 
     return () => {
       disposed = true
-      timer.unregister()
-      window.clearInterval(interval)
+      unsubscribe()
+      loop.dispose()
     }
   }, [activeWorkspaceId, workspaceKey])
 

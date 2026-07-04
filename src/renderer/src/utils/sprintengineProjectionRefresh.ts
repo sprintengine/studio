@@ -10,6 +10,7 @@ import type { SprintEngineState, Workspace, WorkspaceId } from '../types/workspa
 import type { SprintEngineAutomationEvent } from '../types/workspace'
 import { publishDiagnostic } from './diagnostics'
 import { logPerfEvent } from './perfDiagnostics'
+import { isSprintEngineWorkspaceDormant } from './sprintengineAutomationLifecycle'
 import { isCompletedSprintEngineRun, normalizeSprintEngineProjection } from './sprintengine'
 import {
   buildSprintEnginePullRequestLink,
@@ -81,6 +82,17 @@ export async function refreshSprintEngineWorkspaceProjection(input: {
   }
 
   const startedAt = ports.now?.() ?? performance.now()
+  // A dormant workspace (lifecycle already `complete`) does DISPLAY-only work: it
+  // may read + `setSprintEngineState` to hydrate a cold-restarted board, but runs
+  // no lifecycle — no reconcile, teardown, or backlog-link write. A finished run's
+  // projection is terminal, so no source can re-run lifecycle on it, which is what
+  // keeps a deliberately re-opened terminal from being torn down. The full path is
+  // reserved for non-dormant runs, where reconcile may transition the run into
+  // dormancy exactly once (via `enterSprintEngineDormancy`). Decided from the
+  // passed-in snapshot at entry: on the transition tick the store still reads
+  // non-complete (the event applies asynchronously), so the full path runs once
+  // then subsequent refreshes see dormant and go display-only.
+  const dormant = isSprintEngineWorkspaceDormant(workspace)
   try {
     // On a forced refresh, pass no token so the reader always returns full data.
     const knownToken = force ? undefined : tokens.get(workspace.id)
@@ -96,8 +108,13 @@ export async function refreshSprintEngineWorkspaceProjection(input: {
       // completed and was then demoted to `paused` by an end-of-run agent
       // terminal close. `runner_complete` otherwise only fires on a changed
       // poll, so a stably-finished run would never self-heal. Reconcile from the
-      // already-parsed stored state on every tick instead.
-      reconcileCompletedRunLifecycle(workspace, workspace.sprintEngineState, ports)
+      // already-parsed stored state on every tick instead. A dormant run is past
+      // that: its display is already set and no lifecycle work remains.
+      if (!dormant) {
+        reconcileCompletedRunLifecycle(workspace, workspace.sprintEngineState, ports)
+      } else {
+        healInterruptedDormancyTeardown(workspace, ports)
+      }
       logPerfEvent('SprintEngineProjection', 'refresh', {
         workspaceId: workspace.id,
         workspaceName: workspace.name,
@@ -120,12 +137,19 @@ export async function refreshSprintEngineWorkspaceProjection(input: {
     if (projectionResult.token) tokens.set(workspace.id, projectionResult.token)
     else tokens.delete(workspace.id)
     ports.setSprintEngineState(workspace.id, parsedState)
-    reconcileCompletedRunLifecycle(workspace, parsedState, ports)
-    await refreshBacklogSprintEngineRunLinks({
-      workspace,
-      state: parsedState,
-      ports,
-    })
+    // Display-only for dormant runs (see the entry comment): hydrate the board,
+    // skip lifecycle + backlog. Non-dormant runs get the full path, where
+    // reconcile may flip the run into dormancy on this very tick.
+    if (!dormant) {
+      reconcileCompletedRunLifecycle(workspace, parsedState, ports)
+      await refreshBacklogSprintEngineRunLinks({
+        workspace,
+        state: parsedState,
+        ports,
+      })
+    } else {
+      healInterruptedDormancyTeardown(workspace, ports)
+    }
     logPerfEvent('SprintEngineProjection', 'refresh', {
       workspaceId: workspace.id,
       workspaceName: workspace.name,
@@ -158,31 +182,28 @@ export async function refreshSprintEngineWorkspaceProjection(input: {
   }
 }
 
-// Bring the automation lifecycle in line with a run whose tasks are all done.
-// Task-completeness (not the raw projection `run.status`) is the canonical
-// "run finished" signal used by the auto-run supervisor and Backlog links, and
-// it is the only completion signal available on the parsed state for unchanged
-// polls. Re-firing on an already-`complete` run is a no-op in the reducer, so
-// the runtime-state gate keeps us from churning the store on every poll.
-function reconcileCompletedRunLifecycle(
-  workspace: Workspace,
-  state: SprintEngineState | null,
-  ports: SprintEngineProjectionRefreshPorts,
+// The ports `enterSprintEngineDormancy` needs: the completion event applier, the
+// one-shot teardown, its marker setter, and the clock. A subset of the refresh
+// ports so the projection reconcile can hand its own ports straight through, and
+// the auto-run supervisor's hard-completion gate can build a compatible object.
+export type SprintEngineDormancyPorts = Pick<
+  SprintEngineProjectionRefreshPorts,
+  'applySprintEngineAutomationEvent' | 'tearDownCompletedRunAgents' | 'setCompletionTeardownAt' | 'now'
+>
+
+// The single completion transition: fire `runner_complete` once, then tear down
+// the run's agent panels exactly once. Centralized so every completion-entry path
+// (the projection reconcile below, and the auto-run supervisor's hard-completion
+// gate) enters dormancy identically — teardown bound to the transition, not to a
+// follow-up poll, because dormancy stops the poller that used to run it. Idempotent
+// on repeat calls: the reducer's terminal-state gate no-ops the re-fired event, and
+// the persisted marker no-ops the re-run teardown.
+export function enterSprintEngineDormancy(
+  workspace: Pick<Workspace, 'id' | 'sprintEngineAutoState'>,
+  ports: SprintEngineDormancyPorts,
 ): void {
-  if (!state) return
-  const completionTeardownAt = workspace.sprintEngineAutoState?.completionTeardownAt
-
-  if (!isCompletedSprintEngineRun(state)) {
-    // A formerly-complete run gained open tasks again (scope expansion, sprint
-    // chaining): re-arm the one-shot teardown for the next completion.
-    if (completionTeardownAt !== undefined) {
-      ports.setCompletionTeardownAt?.(workspace.id, undefined)
-    }
-    return
-  }
-
   // Fire the lifecycle transition once (the runtime-state gate keeps this from
-  // churning the store on every poll).
+  // churning the store on every caller).
   if (workspace.sprintEngineAutoState?.runtimeState !== 'complete') {
     ports.applySprintEngineAutomationEvent?.(workspace.id, {
       type: 'runner_complete',
@@ -197,16 +218,65 @@ function reconcileCompletedRunLifecycle(
   // read, and the board resume path re-opens a role's panel on purpose), so an
   // agent-presence gate would tear those straight back down. The marker is set
   // only after the teardown resolves, so a teardown interrupted by an app quit
-  // retries on the next poll; it owns completion teardown for every automation
-  // mode, including a run reopened after the app restarted.
-  if (completionTeardownAt === undefined) {
+  // retries on the next entry — including the reload case, where the run is
+  // already dormant and the refresh's display-only branch re-enters here via
+  // `healInterruptedDormancyTeardown`. It owns completion teardown for every
+  // automation mode, including a run reopened after the app restarted.
+  if (workspace.sprintEngineAutoState?.completionTeardownAt === undefined) {
     void (async () => {
       await ports.tearDownCompletedRunAgents?.(workspace.id)
       ports.setCompletionTeardownAt?.(workspace.id, ports.now?.() ?? Date.now())
     })().catch(() => {
-      // Leave the marker unset so the next poll retries the teardown.
+      // Leave the marker unset so the next entry retries the teardown.
     })
   }
+}
+
+// Heal a dormant run whose completion teardown never finished. An app quit
+// during the fire-and-forget teardown persists `runtimeState:'complete'` with
+// the marker still unset, so on reload the run is already dormant and the
+// display-only branch skips every lifecycle path — teardown never resolves, the
+// marker never sets, and `canStopPollingCompletedSprintEngineProjection` stays
+// false forever, so the projection poller never quiesces. `enterSprintEngine-
+// Dormancy` is the fix: on an already-`complete` run its runtime guard fires no
+// lifecycle event, so it only runs the marker-gated teardown and sets the
+// marker — completing the pending teardown without breaking the display-only
+// contract (no reconcile, no backlog writes). Gated on the marker being unset so
+// a fully torn-down dormant run stays a strict no-op (0 teardowns, 0 writes).
+function healInterruptedDormancyTeardown(
+  workspace: Workspace,
+  ports: SprintEngineProjectionRefreshPorts,
+): void {
+  if (workspace.sprintEngineAutoState?.completionTeardownAt === undefined) {
+    enterSprintEngineDormancy(workspace, ports)
+  }
+}
+
+// Bring the automation lifecycle in line with a run whose tasks are all done.
+// Task-completeness (not the raw projection `run.status`) is the canonical
+// "run finished" signal used by the auto-run supervisor and Backlog links, and
+// it is the only completion signal available on the parsed state for unchanged
+// polls. Only reached on the non-dormant path (dormant runs are display-only),
+// so this is where a run first transitions into dormancy — and the only place
+// the scope-expansion marker re-arm is reachable, since a re-opened run has left
+// `complete` and is non-dormant again.
+function reconcileCompletedRunLifecycle(
+  workspace: Workspace,
+  state: SprintEngineState | null,
+  ports: SprintEngineProjectionRefreshPorts,
+): void {
+  if (!state) return
+
+  if (!isCompletedSprintEngineRun(state)) {
+    // A formerly-complete run gained open tasks again (scope expansion, sprint
+    // chaining): re-arm the one-shot teardown for the next completion.
+    if (workspace.sprintEngineAutoState?.completionTeardownAt !== undefined) {
+      ports.setCompletionTeardownAt?.(workspace.id, undefined)
+    }
+    return
+  }
+
+  enterSprintEngineDormancy(workspace, ports)
 }
 
 // Whether the projection poller can stop reading a workspace's projection.json.
