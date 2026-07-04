@@ -159,7 +159,8 @@ async function main(): Promise<void> {
   testTaskScopedRestrictionDoesNotBlockGateClaims()
   testTaskScopedParkingStaysConsistentWithGateAvailability()
   testWindowDisposalMarksRetainResumeStateAndTerminalStateDoesNot()
-  testPickNextAutoRunsPrefersPreviousOwnerForRework()
+  testPickNextAutoRunsDefersBoundOwnerReworkToRevival()
+  testPickNextAutoRunsDoesNotRespawnDepartedOwnerWhileRevivalThrottles()
   await testSpawnAutoRunCandidateResumesPreviousOwnerConversation()
   await testWindowDisposalRetainsResumeStateInStore()
   testHasUnownedReadyTaskTrigger()
@@ -2507,10 +2508,13 @@ function testWindowDisposalMarksRetainResumeStateAndTerminalStateDoesNot(): void
   assert.equal(plainPlan.retirements[0].retainResumeState, undefined)
 }
 
-function testPickNextAutoRunsPrefersPreviousOwnerForRework(): void {
-  // Owner affinity (MC-1444 Phase 2): a changes_requested task goes back to
-  // the roster agent that owned it — its respawn resumes the original
-  // conversation — even when another idle agent of the role sorts first.
+function testPickNextAutoRunsDefersBoundOwnerReworkToRevival(): void {
+  // Single-authority owner respawn (T2 review finding): a departed owner now
+  // reads as `idle`, so the picker must NOT respawn it — that would be a second,
+  // unthrottled authority racing the retry-limited revival pass. The picker
+  // DEFERS a task whose previous owner is still bound to it; the revival pass in
+  // planSprintEngineDispatch is the sole (throttled) spawner. Owner affinity is
+  // preserved because the revival respawn resumes the owner's conversation.
   const reworkTask = task({
     id: 'T-mine',
     role: 'developer',
@@ -2527,12 +2531,27 @@ function testPickNextAutoRunsPrefersPreviousOwnerForRework(): void {
     },
   })
   const candidates = pickNextAutoRuns(workspaceFixture(), state, pickInput())
-  assert.equal(candidates.length, 1)
-  assert.equal(candidates[0].taskId, 'T-mine')
-  assert.equal(candidates[0].agentId, 'developer-1', 'the previous owner is preferred over the first eligible role agent')
+  assert.equal(candidates.length, 0, 'the picker defers the bound owner\'s rework — it does not fresh-dispatch or respawn it')
 
-  // Without a previous owner among the eligible agents, selection falls back
-  // to the generic first-eligible pick.
+  // The revival pass is the one authority that respawns the departed owner, and
+  // it is retry-limited so a crash-looping owner cannot spawn-storm.
+  const revivalWorkspace = workspaceFixture({ agents: { 'developer-1': sprintAgent('developer-1', 'Devin') } })
+  const revivalPlan = planSprintEngineDispatch({
+    workspace: revivalWorkspace,
+    sprintEngineState: state,
+    now: Date.parse('2026-07-04T22:00:00Z'),
+    runningAgentIds: new Set(),
+    idleAgentIds: new Set(),
+    continuationLedger: new Map(),
+    dispatchLedger: new Map(),
+    paths: new Set(['respawn']),
+  })
+  assert.equal(revivalPlan.respawns.length, 1, 'the revival pass respawns the departed owner')
+  assert.equal(revivalPlan.respawns[0].agentId, 'developer-1', 'owner affinity preserved: the id that owned the task is revived')
+  assert.equal(revivalPlan.respawns[0].taskId, 'T-mine')
+
+  // Without a previous owner bound to the task, the picker hands it to fresh
+  // never-owned capacity as usual.
   const noOwnerState = sprintEngineStateFixture({
     tasks: [reworkTask],
     sprintEngineAgents: {
@@ -2543,6 +2562,44 @@ function testPickNextAutoRunsPrefersPreviousOwnerForRework(): void {
   const fallback = pickNextAutoRuns(workspaceFixture(), noOwnerState, pickInput())
   assert.equal(fallback.length, 1)
   assert.equal(fallback[0].agentId, 'developer-0')
+}
+
+function testPickNextAutoRunsDoesNotRespawnDepartedOwnerWhileRevivalThrottles(): void {
+  // Review requirement: the picker must not respawn a departed owner that the
+  // revival ledger is throttling. The picker has no cross-cycle retry ledger, so
+  // it defers the bound owner's rework unconditionally — even mid-throttle,
+  // there is no picker candidate to bypass the cap.
+  const reworkTask = task({
+    id: 'T-rework',
+    role: 'developer',
+    status: 'changes_requested',
+    boardColumn: 'changes_requested',
+    ownerAgentId: null,
+    qualityGates: [],
+  })
+  const workspace = workspaceFixture({ agents: { 'developer-1': sprintAgent('developer-1', 'Devin') } })
+  const state = sprintEngineStateFixture({
+    tasks: [reworkTask],
+    sprintEngineAgents: { 'developer-1': runtimeAgent('developer', { lastOwnedTaskId: 'T-rework' }) },
+  })
+  const candidates = pickNextAutoRuns(workspace, state, pickInput())
+  assert.equal(candidates.length, 0, 'a departed owner gets no picker candidate — respawn stays the revival pass\'s throttled job')
+
+  // And the revival pass itself honours its cap: once the revive: key is maxed,
+  // no respawn is planned this pass.
+  const now = Date.parse('2026-07-04T22:00:00Z')
+  const cappedKey = sprintEngineReviveLedgerKey(workspace, { taskId: 'T-rework' }, 'developer-1')
+  const cappedPlan = planSprintEngineDispatch({
+    workspace,
+    sprintEngineState: state,
+    now,
+    runningAgentIds: new Set(),
+    idleAgentIds: new Set(),
+    continuationLedger: new Map([[cappedKey, { sentAt: now - 120_000, attempts: AUTO_RUN_MAX_WAKE_CANDIDATE_PROMPT_RETRIES }]]),
+    dispatchLedger: new Map(),
+    paths: new Set(['respawn']),
+  })
+  assert.equal(cappedPlan.respawns.length, 0, 'a maxed revive ledger stops the only respawn authority — no spawn-storm')
 }
 
 async function testSpawnAutoRunCandidateResumesPreviousOwnerConversation(): Promise<void> {
@@ -2737,7 +2794,10 @@ function testSelfReviewBarredOwnGateDoesNotParkCompletedWorker(): void {
 
 function testGenericPickAvoidsReworkReservedOwners(): void {
   // Review finding: iteration order must not burn a rework owner (and its
-  // retained conversation) on an unrelated earlier task.
+  // retained conversation) on an unrelated earlier task. Post-T2 the owner is
+  // reserved by DEFERRAL — the picker never selects a bound owner (its rework is
+  // the revival pass's throttled job), so the fresh agent takes only the new
+  // task and the owner is never pulled onto the unrelated one.
   const state = sprintEngineStateFixture({
     tasks: [
       task({ id: 'T-new', role: 'developer', status: 'todo', boardColumn: 'ready', ownerAgentId: null, qualityGates: [] }),
@@ -2752,7 +2812,11 @@ function testGenericPickAvoidsReworkReservedOwners(): void {
   const candidates = pickNextAutoRuns(workspaceFixture(), state, pickInput())
   const byTask = new Map(candidates.map((candidate) => [candidate.taskId, candidate.agentId]))
   assert.equal(byTask.get('T-new'), 'developer-2', 'the unreserved agent takes the new task')
-  assert.equal(byTask.get('T-rework'), 'developer-1', 'the rework owner is preserved for its own task')
+  assert.equal(byTask.has('T-rework'), false, 'the bound owner\'s rework is deferred to the revival pass, not picked here')
+  assert.ok(
+    !candidates.some((candidate) => candidate.agentId === 'developer-1'),
+    'the rework owner is never burned on another task by the picker',
+  )
 }
 
 function testPickNextAutoRunsNeverReusesSpentIdForNewClaim(): void {
@@ -2823,7 +2887,14 @@ function testGateReviewerPickAvoidsReworkOwner(): void {
   const candidates = pickNextAutoRuns(workspaceFixture(), state, pickInput())
   const byTask = new Map(candidates.map((candidate) => [candidate.taskId, candidate.agentId]))
   assert.equal(byTask.get('T-review'), 'general-2', 'the same-role gate goes to the non-owner, not the rework owner')
-  assert.equal(byTask.get('T-rework'), 'general-1', 'the rework owner is preserved for its own changes_requested task')
+  // Post-T2 the owner is reserved by DEFERRAL: its changes_requested task is not
+  // picked here (the revival pass respawns it), and crucially the gate pre-pass
+  // never burns general-1 on the unrelated gate.
+  assert.equal(byTask.has('T-rework'), false, 'the rework owner\'s task is deferred to the revival pass')
+  assert.ok(
+    !candidates.some((candidate) => candidate.agentId === 'general-1'),
+    'the rework owner is never pulled onto the unrelated same-role gate',
+  )
 }
 
 function testPickNextAutoRunsDefersReworkToLiveBoundOwner(): void {

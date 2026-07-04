@@ -1580,8 +1580,8 @@ export function planSprintEngineDispatch(input: {
     // status read, pure owner affinity. Keyed off the agent (not one task per
     // role) so a fresh ready task sharing the role can't mask a departed owner's
     // rework. One revival per role per pass for storm safety; a same-role second
-    // owner is recovered by `findReworkOwnerAgent` on a later pass. Collected
-    // first so the sweep below knows which revival ledger keys are still active.
+    // departed owner is recovered on a later pass (once the first is live).
+    // Collected first so the sweep below knows which revival keys are active.
     const revivalTargets: Array<{ role: SprintEngineRoleId; work: { taskId: string }; agentId: string }> = []
     const plannedRevivalRoles = new Set<SprintEngineRoleId>()
     for (const [agentId, runtimeAgent] of Object.entries(sprintEngineState.sprintEngineAgents)) {
@@ -2124,20 +2124,15 @@ export function pickNextAutoRuns(
     return fresh?.id ?? null
   }
 
-  // Owner-keyed rework respawn (MC-1444 Phase 2): a changes_requested task
-  // returns to the roster id that previously owned it so its respawn resumes
-  // the original conversation. This is the only path that reuses a spent id,
-  // and only for its OWN task.
-  const findReworkOwnerAgent = (
-    role: SprintEngineRoleId,
-    taskId: string
-  ): AutoRunCandidate['agentId'] | null => {
-    const owner = roster.find((candidate) =>
-      isEligibleRoleAgent(candidate.id, candidate.role, role)
-      && sprintEngineState.sprintEngineAgents[candidate.id]?.lastOwnedTaskId === taskId
-    )
-    return owner?.id ?? null
-  }
+  // Owner-keyed rework respawn (MC-1444 Phase 2) is NOT a picker responsibility:
+  // a departed owner now reads as `idle` (T1), so a picker respawn here would be
+  // an UNTHROTTLED second authority racing the retry-limited revival pass in
+  // planSprintEngineDispatch and defeating its storm cap. The ready-task loop
+  // therefore DEFERS any task whose previous owner is still bound to it (see
+  // `hasBoundOwner` below): a live owner is woken via the wake paste, a departed
+  // owner is respawned by the revival pass — the single throttled authority.
+  // Both routes call spawnAutoRunCandidate, which resumes the retained
+  // conversation, so owner affinity is preserved.
 
   // Ids bound to a still-pending changes_requested task: their retained
   // conversation is the whole point of owner affinity, so the gate reviewer
@@ -2390,18 +2385,19 @@ export function pickNextAutoRuns(
       dependsOnCount: task.dependsOn.length,
     })
 
-    // A live idle previous owner is engaged for this rework via the wake
-    // paste in the same supervise cycle — spawning a second agent here would
-    // double-dispatch the task and let a cold fresh agent race the warm owner
-    // for the claim (review finding).
-    const hasLiveBoundOwner = Object.entries(sprintEngineState.sprintEngineAgents).some(([ownerId, runtime]) =>
-      runtime.lastOwnedTaskId === task.id
-      && runtime.status === 'idle'
-      && !runtime.currentTaskId
-      && options.runningAgentIds.has(ownerId)
+    // Defer any task whose previous owner is still bound to it (retained
+    // lastOwnedTaskId). Owner respawn/resume has a single authority: a LIVE owner
+    // is woken via the wake paste this same supervise cycle; a DEPARTED (now
+    // idle, session-less) owner is respawned by the retry-limited revival pass in
+    // planSprintEngineDispatch. Acting here would either double-dispatch the task
+    // (a cold fresh agent racing the warm owner) or, for a departed owner,
+    // respawn it every cycle with no cross-cycle retry cap — a crash-loop
+    // spawn-storm that defeats the revive ledger (review finding).
+    const hasBoundOwner = Object.values(sprintEngineState.sprintEngineAgents).some(
+      (runtime) => runtime.lastOwnedTaskId === task.id
     )
-    if (hasLiveBoundOwner) {
-      logPerfEvent('SprintEngineAutoRun', 'candidate-pick-ready-task-deferred-to-live-owner', {
+    if (hasBoundOwner) {
+      logPerfEvent('SprintEngineAutoRun', 'candidate-pick-ready-task-deferred-to-bound-owner', {
         workspaceId: workspace.id,
         workspaceName: workspace.name,
         taskId: task.id,
@@ -2410,9 +2406,8 @@ export function pickNextAutoRuns(
       continue
     }
 
-    // New claims come only from engine-minted never-owned capacity; a
-    // changes_requested task first tries its owner-keyed rework respawn.
-    const reusableAgentId = findReworkOwnerAgent(task.role, task.id) ?? findFreshTaskAgent(task.role)
+    // New claims come only from engine-minted never-owned capacity.
+    const reusableAgentId = findFreshTaskAgent(task.role)
     if (!reusableAgentId) {
       logPerfEvent('SprintEngineAutoRun', 'candidate-pick-ready-task-waiting-for-roster-agent', {
         workspaceId: workspace.id,
