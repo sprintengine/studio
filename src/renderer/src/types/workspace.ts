@@ -1089,7 +1089,20 @@ export type SprintEngineState = {
    * `worktreePath` and per-task commits land on `branchName`.
    */
   vcs?: SprintEngineVcs | null
+  /**
+   * Per-role execution runtime map from run.yaml `roleRuntimes`
+   * (projection-owned; the renderer reads it, never writes it). Written once
+   * at init from the roster's per-role CLI/model picks; the single source of
+   * truth for the CLI + model every roster spawn must use (MC-1450). Python
+   * stamps `task.model` from the same map at claim (MC-1448), so renderer and
+   * Python cannot drift. A `null`/absent model means "CLI default" — no
+   * `--model` flag, deliberately not a fallback to any other model.
+   */
+  roleRuntimes?: SprintEngineRoleRuntimes
 }
+
+export type SprintEngineRoleRuntime = { model?: string | null; cli?: string | null }
+export type SprintEngineRoleRuntimes = Partial<Record<SprintEngineRoleId, SprintEngineRoleRuntime>>
 
 export type SprintEngineVcs = {
   mode: 'run_worktree'
@@ -1813,6 +1826,14 @@ export type AgentState = {
   // Sprint Engine auto-run keep the model the agent was created with.
   cliModel?: string
   cliPermissionPreset?: SprintEngineCliPermissionPreset
+  // Explicit per-agent runtime override (MC-1450). Wins over the run's
+  // per-role `roleRuntimes` config on every reconcile and spawn — set by the
+  // board's per-agent CLI/model picker and by creation-time per-agent CLI
+  // overrides. `model: null` means "explicitly the CLI default" (suppresses a
+  // role-configured model); an absent field falls through to the role config.
+  // Without this marker the reconcile could not tell a user's mid-run pick
+  // from a stale snapshot and would revert the pick on the next projection.
+  cliRuntimeOverride?: { cli?: AgentCli; model?: string | null }
   // Orthogonal Debug Mode toggle (the agent picker). Set per-spawn from the
   // transient spawn-UI state; the launch boundary prepends the debug directive
   // to the initial prompt when true. Not persisted-by-default UI: defaults off

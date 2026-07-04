@@ -1,8 +1,8 @@
 import { createSprintEngineTemplate } from '../../../../modules/sprint-engine-workspace-types'
 import {
-  countSprintEngineAgents,
   createInitialSprintEngineState,
   normalizeSprintEngineProjection,
+  sprintEngineEnabledRoles,
 } from '../../../../utils/sprintengine'
 import {
   sprintEngineAutomationInitialStateForMode,
@@ -64,22 +64,33 @@ function sprintEngineAutoStateFromRunOptions(input: {
   return sprintEngineAutomationInitialStateForMode(sprintEngineAutomationModeForRunOptions(input))
 }
 
+// Workspace-level cap on concurrent agent sessions (MC-1450). The supervisor
+// re-clamps on read, so this only shapes what gets stored.
+export const SPRINT_ENGINE_DEFAULT_MAX_PARALLEL_AGENTS = 3
+
+export function clampSprintEngineMaxParallelAgents(value: number | null | undefined): number {
+  const parsed = Math.floor(Number(value))
+  if (!Number.isFinite(parsed) || parsed < 1) return SPRINT_ENGINE_DEFAULT_MAX_PARALLEL_AGENTS
+  return Math.max(1, Math.min(10, parsed))
+}
+
 export function buildSprintEngineEffectiveSpawnAtStartRoles(input: {
   automationMode: SprintEngineAutomationMode
   existingTeam: boolean
-  spawnAtStartRoles: Partial<Record<SprintEngineRoleId, boolean>>
   visibleRoleCounts: SprintEngineRoleCounts
 }): Partial<Record<SprintEngineRoleId, boolean>> {
-  const next: Partial<Record<SprintEngineRoleId, boolean>> = { ...input.spawnAtStartRoles }
+  // Lazy roster: only the architect can carry a start-at-launch intent. Worker
+  // ids are minted task-scoped and reviewer ids register on first gate, so there
+  // is no per-role "Start now" toggle — the architect just bootstraps a
+  // non-manual new-team run.
   if (
     input.automationMode !== 'manual'
     && !input.existingTeam
     && (input.visibleRoleCounts.architect ?? 0) > 0
-    && input.spawnAtStartRoles.architect === undefined
   ) {
-    next.architect = true
+    return { architect: true }
   }
-  return next
+  return {}
 }
 
 export function buildSprintEngineExistingTeamCreation(
@@ -105,7 +116,8 @@ export function buildSprintEngineExistingTeamCreation(
     sprintEngineAutoState: {
       ...sprintEngineAutoStateFromRunOptions(input),
       cliPermissionPreset: input.cliPermissionPreset,
-      maxConcurrentAgents: Math.max(1, countSprintEngineAgents(loadedState.roleCounts)),
+      // MC-1450: the ceiling is a user knob, never derived from roster size.
+      maxConcurrentAgents: SPRINT_ENGINE_DEFAULT_MAX_PARALLEL_AGENTS,
     },
   }
 }
@@ -142,7 +154,7 @@ export function buildSprintEngineNewTeamCreation(
     sprintEngineAutoState: {
       ...sprintEngineAutoStateFromRunOptions(input),
       cliPermissionPreset: input.cliPermissionPreset,
-      maxConcurrentAgents: Math.max(1, input.totalAgents),
+      maxConcurrentAgents: clampSprintEngineMaxParallelAgents(input.maxParallelAgents),
     },
   }
 }
@@ -188,6 +200,9 @@ export async function runSprintEngineNewTeamCreation(
       // Record the roster's per-role model selection so claimed tasks get
       // stamped with the model that worked them (same as the plan-sourced path).
       roleRuntimes: buildSprintEngineRoleRuntimes(input.roleModelOverrides, input.roleCliDefaults),
+      // Persist the enabled role set so Python derives quality gates for the
+      // configured-but-not-yet-seated roles under the lazy roster.
+      enabledRoles: sprintEngineEnabledRoles(args.sprintEngineState.roleCounts),
     })
     if (!initResult.ok) {
       const wrapped = new SprintEngineNewTeamCreationError('init-failed')
@@ -256,7 +271,7 @@ export async function runSprintEnginePlanSourcedCreation(
       sprintEngineAutoState: {
         ...sprintEngineAutoStateFromRunOptions(input),
         cliPermissionPreset: input.cliPermissionPreset,
-        maxConcurrentAgents: Math.max(1, input.totalAgents),
+        maxConcurrentAgents: clampSprintEngineMaxParallelAgents(input.maxParallelAgents),
       },
       pathExists: ports.pathExists,
       initializeSprintEngineState: ports.initializeSprintEngineState,

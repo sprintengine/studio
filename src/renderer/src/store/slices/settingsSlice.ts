@@ -723,6 +723,9 @@ function normalizeSprintEngineSavedRoster(value: unknown): SprintEngineSavedRost
   }
 }
 
+// Saved-roster counts are an enabled-set encoding (MC-1450): a legacy preset
+// count > 0 loads as "enabled" (1). The count shape is kept on disk so old and
+// new builds read each other's presets.
 function normalizeSavedSprintEngineRoleCounts(value: unknown): SprintEngineRoleCounts {
   const result: SprintEngineRoleCounts = { architect: 1 }
   if (value && typeof value === 'object') {
@@ -731,7 +734,7 @@ function normalizeSavedSprintEngineRoleCounts(value: unknown): SprintEngineRoleC
       if (!id) continue
       const count = Math.floor(Number(rawCount))
       if (!Number.isFinite(count)) continue
-      result[id] = Math.max(id === PROTECTED_SPRINT_ENGINE_ROLE_ID ? 1 : 0, Math.min(10, count))
+      result[id] = Math.max(id === PROTECTED_SPRINT_ENGINE_ROLE_ID ? 1 : 0, Math.min(1, count))
     }
   }
   result[PROTECTED_SPRINT_ENGINE_ROLE_ID] = Math.max(1, result[PROTECTED_SPRINT_ENGINE_ROLE_ID] ?? 1)

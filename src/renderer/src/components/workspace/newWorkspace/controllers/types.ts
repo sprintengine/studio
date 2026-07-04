@@ -126,7 +126,9 @@ export type SprintEngineNewTeamInput = {
   goal: string
   roleCounts: SprintEngineRoleCounts
   visibleRoleCounts: SprintEngineRoleCounts
-  totalAgents: number
+  // Workspace-level cap on concurrent agent sessions (MC-1450: replaces the
+  // roster-size-derived ceiling). Clamped 1-10 by the consumer; default 3.
+  maxParallelAgents: number
   roleCliDefaults: Required<SprintEngineRoleCliDefaults>
   roleModelOverrides?: SprintEngineRoleModelOverrides | null
   initialSpawnRoles?: SprintEngineRoleId[] | null
@@ -154,7 +156,8 @@ export type SprintEnginePlanSourcedInput = {
   sourcePlanKind: SprintEngineSourcePlanKind
   sourceBundle: SprintEngineSourceBundleItem[] | null
   visibleRoleCounts: SprintEngineRoleCounts
-  totalAgents: number
+  // Workspace-level cap on concurrent agent sessions (MC-1450). Clamped 1-10.
+  maxParallelAgents: number
   roleCliDefaults: Required<SprintEngineRoleCliDefaults>
   roleModelOverrides?: SprintEngineRoleModelOverrides | null
   initialSpawnRoles?: SprintEngineRoleId[] | null

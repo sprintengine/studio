@@ -1,6 +1,8 @@
 import { useWorkspaceStore } from '../store/workspaceStore'
 import type { WorkspaceId } from '../types/workspace'
 import { deriveSprintEngineAutomationMode } from './sprintengineAutomation'
+import { sprintEngineAgentHasLiveRunWork } from './sprintengineAutomationLifecycle'
+import { logPerfEvent } from './perfDiagnostics'
 
 export type SprintEngineAutoRunDisableReason =
   | 'user_manual_toggle'
@@ -56,6 +58,23 @@ export function applySprintEngineAutomationStopReason(
       message: context.message ?? REASON_MESSAGES[reason],
     })
   } else if (reason === 'agent_terminal_closed' || reason === 'workspace_removed') {
+    // MC-1450 (Phase 1b): under MC-1444's one-session-per-task model, agent
+    // terminals and tabs are torn down routinely — and programmatic roster-tab
+    // removal reaches the same close handlers as a user click, so this reason
+    // used to pause a healthy mid-flight run with no self-heal short of manual
+    // Resume. Only treat the close as an intervention when the agent actually
+    // holds live run work; a workless close stays lifecycle-neutral.
+    // `workspace_removed` is unconditional — removing the workspace IS intent.
+    if (
+      reason === 'agent_terminal_closed'
+      && !sprintEngineAgentHasLiveRunWork(workspace?.sprintEngineState, workspace?.sprintEngineAutoState, context.agentId)
+    ) {
+      logPerfEvent('SprintEngineAutoRun', 'terminal-close-ignored-no-live-work', {
+        workspaceId,
+        agentId: context.agentId ?? null,
+      })
+      return
+    }
     store.applySprintEngineAutomationEvent(workspaceId, {
       type: 'runner_paused',
       reason: reason === 'agent_terminal_closed' ? 'terminal_closed' : 'workspace_removed',

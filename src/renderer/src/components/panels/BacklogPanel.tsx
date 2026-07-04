@@ -8,6 +8,7 @@ import {
   LifecycleGlyph,
   OverflowMenu,
   PanelHeader,
+  Popover,
   PrimaryButton,
   Section,
   Select,
@@ -42,6 +43,7 @@ import {
   type BacklogHighlight,
   type BacklogHighlightColor,
   type BacklogItem,
+  type BacklogItemLink,
   type BacklogItemStatus,
   type BacklogRisk,
   type BacklogScanResult,
@@ -55,6 +57,7 @@ import {
 import { deriveSprintEngineRunGlyph } from '../../utils/sprintengine'
 import { BacklogLinksSection } from '../backlog/BacklogLinksSection'
 import { BacklogDependenciesSection } from '../backlog/BacklogDependenciesSection'
+import { BacklogItemSearchPicker } from '../backlog/BacklogItemSearchPicker'
 import { BacklogFilterMenu } from '../backlog/BacklogFilterMenu'
 import {
   compareBacklogItems,
@@ -371,7 +374,11 @@ export default function BacklogPanel({ workspaceId, onStartFuturePlan }: Workspa
     () =>
       groupItemsByEpic(items)
         .filter((group) => group.kind === 'epic' && group.slug != null)
-        .map((group) => ({ slug: group.slug as string, title: group.title })),
+        .map((group) => ({
+          slug: group.slug as string,
+          title: group.title,
+          displayId: group.epic?.displayId,
+        })),
     [items],
   )
 
@@ -393,6 +400,7 @@ export default function BacklogPanel({ workspaceId, onStartFuturePlan }: Workspa
           id: item.id,
           slug: backlogItemSlugFromPath(item.relativePath),
           title: item.title,
+          displayId: item.displayId,
         })),
     [items],
   )
@@ -944,6 +952,23 @@ export default function BacklogPanel({ workspaceId, onStartFuturePlan }: Workspa
     (item: BacklogItem, status: BacklogItemStatus) =>
       runAction(async () => {
         if (!folderPath || item.status === status) return
+        const executionLinks = item.links.filter((link) => link.type === 'execution')
+        if (executionLinks.length > 0) {
+          const confirmed = await dialog.confirm({
+            title: 'Override linked status?',
+            body: `Setting “${BACKLOG_STATUS_LABEL[status]}” will unlink ${executionLinks.length === 1 ? 'the linked sprint' : `${executionLinks.length} linked executions`}. The run itself will not be deleted.`,
+            confirmLabel: `Unlink and set ${BACKLOG_STATUS_LABEL[status]}`,
+          })
+          if (!confirmed) return
+          for (const link of executionLinks) {
+            const unlinked = await window.api.removeBacklogLink({
+              workspaceRoot: folderPath,
+              relativePath: item.relativePath,
+              linkId: link.id,
+            })
+            assertBacklogMutation(unlinked)
+          }
+        }
         const updated = await window.api.updateBacklogStatus({
           workspaceRoot: folderPath,
           relativePath: item.relativePath,
@@ -952,7 +977,28 @@ export default function BacklogPanel({ workspaceId, onStartFuturePlan }: Workspa
         assertBacklogMutation(updated)
         await runScan()
       }),
-    [folderPath, runAction, runScan],
+    [dialog, folderPath, runAction, runScan],
+  )
+
+  const removeItemLink = useCallback(
+    (item: BacklogItem, link: BacklogItemLink) =>
+      runAction(async () => {
+        if (!folderPath) return
+        const confirmed = await dialog.confirm({
+          title: `Unlink ${link.label}?`,
+          body: 'This removes only the Backlog association. The linked sprint, agent, or external target will not be deleted.',
+          confirmLabel: 'Unlink',
+        })
+        if (!confirmed) return
+        const removed = await window.api.removeBacklogLink({
+          workspaceRoot: folderPath,
+          relativePath: item.relativePath,
+          linkId: link.id,
+        })
+        assertBacklogMutation(removed)
+        await runScan()
+      }),
+    [dialog, folderPath, runAction, runScan],
   )
 
   // Star / highlight color persist to the backlog object store (items.json)
@@ -1089,6 +1135,7 @@ export default function BacklogPanel({ workspaceId, onStartFuturePlan }: Workspa
     archive: (item) => void archiveItem(item),
     archiveEpic: (item) => void archiveEpicRollup(item),
     remove: (item) => void deleteItem(item),
+    removeLink: (item, link) => void removeItemLink(item, link),
     setStatus: (item, status) => void setItemStatus(item, status),
     setDifficulty: (item, value) => setItemTriage(item, { difficulty: value === 'unset' ? null : value }),
     setCriticality: (item, value) => setItemTriage(item, { criticality: value === 'unset' ? null : value }),
@@ -1175,9 +1222,8 @@ export default function BacklogPanel({ workspaceId, onStartFuturePlan }: Workspa
     [folderPath, onStartFuturePlan, runScan, workspaceId],
   )
 
-  const externalActions = useMemo(() => {
-    if (!selected) return []
-    const context = backlogActionContext(selected)
+  const externalActionsForItem = useCallback((item: BacklogItem) => {
+    const context = backlogActionContext(item)
     if (!context) return []
     return getRendererHost().getBacklogItemActions()
       .filter((action) => selectModuleEnabled(moduleOverrides, action.moduleId))
@@ -1189,7 +1235,12 @@ export default function BacklogPanel({ workspaceId, onStartFuturePlan }: Workspa
           await action.run(context)
         }),
       }))
-  }, [backlogActionContext, moduleOverrides, runAction, selected])
+  }, [backlogActionContext, moduleOverrides, runAction])
+
+  const externalActions = useMemo(
+    () => selected ? externalActionsForItem(selected) : [],
+    [externalActionsForItem, selected],
+  )
 
   // Enabled Backlog link providers, so the detail pane can resolve and open a
   // selected item's links. Disabled modules drop out, matching the action list.
@@ -1281,6 +1332,17 @@ export default function BacklogPanel({ workspaceId, onStartFuturePlan }: Workspa
   )
 
   const menuItem = rowMenu ? filtered.find((item) => item.id === rowMenu.itemId) ?? null : null
+  const menuItemActions = useMemo(
+    () => menuItem
+      ? externalActionsForItem(menuItem).map(({ action, disabled, run }) => ({
+          id: action.id,
+          label: action.label,
+          disabled,
+          run,
+        }))
+      : [],
+    [externalActionsForItem, menuItem],
+  )
 
   // A mutation that removes the item from the current view (rename, archive,
   // delete, filter change) closes the menu rather than leaving it aimed at a
@@ -1457,6 +1519,7 @@ export default function BacklogPanel({ workspaceId, onStartFuturePlan }: Workspa
           actions={actions}
           epicChoices={epicChoices}
           dependencyChoices={dependencyChoices}
+          itemActions={menuItemActions}
           agentTargets={agentTargets}
           agentSessions={agentSessions}
           onFlyoutOpen={refreshAgentSessions}
@@ -1972,6 +2035,9 @@ function BacklogDetail({
               ...(selected.status !== 'archived' && selected.status !== 'completed'
                 ? [{ id: 'mark-completed', label: 'Mark completed', onSelect: () => actions.setStatus(selected, 'completed') }]
                 : []),
+              ...(primaryRunLink
+                ? [{ id: 'unlink-sprint', label: 'Unlink sprint…', onSelect: () => actions.removeLink(selected, primaryRunLink) }]
+                : []),
               {
                 id: 'star',
                 label: selected.highlight?.starred ? 'Unstar' : 'Star',
@@ -2014,6 +2080,7 @@ function BacklogDetail({
         workspaceRoot={folderPath}
         providers={linkProviders}
         excludeLinkId={primaryRunLinkId}
+        onRemoveLink={(link) => actions.removeLink(selected, link)}
       />
 
       <BacklogTriage item={selected} actions={actions} epicChoices={epicChoices} />
@@ -2075,11 +2142,6 @@ function DetailState({
     </div>
   )
 }
-
-// Sentinel + cleared values for the detail-pane Epic Select. '' clears the
-// `epic:` field (No epic); the sentinel opens the create-epic prompt.
-const EPIC_NEW_SENTINEL = '__new_epic__'
-const EPIC_NONE_VALUE = ''
 
 // Triage editor: size + priority + risk + epic are owned organization metadata.
 // Epic identity colour picker (epic detail only): the clear control plus the
@@ -2209,11 +2271,11 @@ function BacklogEpicChildren({
   )
 }
 
-// Selecting "Unestimated" / "No priority" / "No risk set" / "No epic" clears the
-// axis back to neutral. Risk is the likelihood the work goes sideways — distinct
-// from effort and impact — and feeds the Best sort and the row's derived heat
-// color. The Epic control is the detail-pane peer of the row menu's "Move to
-// epic"; it is hidden for epic items, which cannot nest inside another epic.
+// Selecting "Unestimated" / "No priority" / "No risk set" clears the axis back
+// to neutral. Risk is the likelihood the work goes sideways — distinct from
+// effort and impact — and feeds the Best sort and the row's derived heat color.
+// Epic assignment is search-first, matching the row menu instead of opening the
+// full epic catalogue; epic items cannot nest, so the control stays hidden.
 function BacklogTriage({
   item,
   actions,
@@ -2223,16 +2285,6 @@ function BacklogTriage({
   actions: BacklogActions
   epicChoices: ReadonlyArray<BacklogEpicChoice>
 }): JSX.Element {
-  const epicItems: SelectItem<string>[] = [
-    { value: EPIC_NONE_VALUE, label: 'No epic' },
-    ...epicChoices.map((epic) => ({ value: epic.slug, label: epic.title })),
-    // A dangling slug (its concept file is missing) stays a visible option so the
-    // control reflects the item's real frontmatter instead of silently blanking.
-    ...(item.epic && !epicChoices.some((epic) => epic.slug === item.epic)
-      ? [{ value: item.epic, label: `${item.epic} (missing)` }]
-      : []),
-    { value: EPIC_NEW_SENTINEL, label: 'New epic…' },
-  ]
   return (
     <Section title="Triage" level={4} inset className="shrink-0 border-b border-[color:var(--border-subtle)] pb-3">
       <div className="grid grid-cols-[3.5rem_minmax(0,16rem)] items-center gap-x-3 gap-y-2 px-3">
@@ -2260,19 +2312,97 @@ function BacklogTriage({
         {!item.isEpic ? (
           <>
             <span className="text-[11px] text-[color:var(--text-muted)]">Epic</span>
-            <Select
-              ariaLabel="Move to epic"
-              items={epicItems}
-              value={item.epic ?? EPIC_NONE_VALUE}
-              onChange={(value) => {
-                if (value === EPIC_NEW_SENTINEL) actions.createEpic(item)
-                else actions.setEpic(item, value === EPIC_NONE_VALUE ? null : value)
-              }}
-            />
+            <BacklogEpicSearchEditor item={item} actions={actions} epicChoices={epicChoices} />
           </>
         ) : null}
       </div>
     </Section>
+  )
+}
+
+function BacklogEpicSearchEditor({
+  item,
+  actions,
+  epicChoices,
+}: {
+  item: BacklogItem
+  actions: BacklogActions
+  epicChoices: ReadonlyArray<BacklogEpicChoice>
+}): JSX.Element {
+  const [open, setOpen] = useState(false)
+  const current = epicChoices.find((epic) => epic.slug === item.epic)
+  const currentLabel = current?.title ?? (item.epic ? `${item.epic} (missing)` : 'No epic')
+
+  return (
+    <Popover
+      open={open}
+      onOpenChange={setOpen}
+      ariaLabel="Move to epic"
+      popupRole="dialog"
+      className="w-full"
+      placement="bottom-start"
+      surfaceClassName="min-w-[19rem] p-1"
+      renderTrigger={({ ref, togglePopover, triggerProps }) => (
+        <button
+          ref={ref}
+          type="button"
+          aria-haspopup="dialog"
+          aria-expanded={triggerProps['aria-expanded']}
+          aria-controls={triggerProps['aria-controls']}
+          aria-label="Move to epic"
+          onClick={togglePopover}
+          className="interactive inline-flex h-7 w-full min-w-[140px] items-center justify-between gap-2 rounded-[5px] border border-[color:var(--border-default)] bg-[color:var(--bg-surface-raised)] px-2 text-left text-[12px] text-[color:var(--text-default)] hover:border-[color:var(--border-strong)] hover:text-[color:var(--text-strong)] focus:outline-none focus-visible:ring-1 focus-visible:ring-[color:var(--border-strong)]"
+        >
+          <span className="min-w-0 flex-1 truncate">{currentLabel}</span>
+          <svg width="10" height="10" viewBox="0 0 10 10" aria-hidden="true" className="shrink-0 text-[color:var(--text-muted)]">
+            <path d="M2 4l3 3 3-3" stroke="currentColor" strokeWidth="1.4" fill="none" strokeLinecap="round" strokeLinejoin="round" />
+          </svg>
+        </button>
+      )}
+    >
+      <BacklogItemSearchPicker
+        options={epicChoices.map((epic) => ({
+          id: epic.slug,
+          value: epic.slug,
+          title: epic.title,
+          displayId: epic.displayId,
+          searchText: epic.slug,
+        }))}
+        selectedValues={item.epic ? [item.epic] : []}
+        ariaLabel="Search epics"
+        placeholder="Search epic ID or name…"
+        noOptionsMessage="No epics yet."
+        resultRole="listbox"
+        onSelect={(epic) => {
+          actions.setEpic(item, epic.value)
+          setOpen(false)
+        }}
+      />
+      <div className="border-t border-[color:var(--border-subtle)] pt-1">
+        <button
+          type="button"
+          onClick={() => {
+            setOpen(false)
+            actions.createEpic(item)
+          }}
+          className="interactive w-full rounded px-2.5 py-1.5 text-left text-[12px] text-[color:var(--text-default)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]"
+        >
+          New epic…
+        </button>
+        {item.epic ? (
+          <button
+            type="button"
+            onClick={() => {
+              setOpen(false)
+              actions.setEpic(item, null)
+            }}
+            className="interactive w-full rounded px-2.5 py-1.5 text-left text-[12px] text-[color:var(--text-default)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]"
+          >
+            Remove from epic
+          </button>
+        ) : null}
+      </div>
+    </Popover>
   )
 }
 

@@ -17,6 +17,7 @@ import {
   buildSprintEngineAgentRosterForState,
   buildSprintEngineRosterCommandArgs,
   createInitialSprintEngineState,
+  sprintEngineEnabledRoles,
 } from './sprintengine'
 import { buildPlanFileSprintEngineHandoffPrompt } from './sprintengineHandoff'
 import { buildRunWorkspaceContext } from './runWorkspaceCreation'
@@ -177,6 +178,7 @@ export async function createPlanSourcedSprintEngineWorkspace({
       artifacts: sprintEngineState.artifacts,
       useWorktrees: useWorktrees === true,
       roleRuntimes: buildSprintEngineRoleRuntimes(roleModelOverrides, roleCliDefaults),
+      enabledRoles: sprintEngineEnabledRoles(sprintEngineState.roleCounts),
     })
     if (!initResult.ok) {
       throw new Error(initResult.message || 'Could not initialize sprint run state.')

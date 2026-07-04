@@ -7,6 +7,7 @@ import { renderToStaticMarkup } from 'react-dom/server'
 import { BacklogRowContent } from './BacklogRow'
 import { BacklogDependenciesSection } from './BacklogDependenciesSection'
 import type { BacklogActions } from './BacklogItemContextMenu'
+import { filterBacklogItemSearchOptions } from './BacklogItemSearchPicker'
 import { createBacklogItem, type BacklogHighlight, type BacklogItem } from '../../utils/backlog'
 import { compareBacklogItems, type BacklogSort } from '../../utils/backlogTriage'
 import { deriveBacklogDependencies } from '../../utils/backlogDependencies'
@@ -201,6 +202,10 @@ const dependenciesSectionSource = readFileSync(
   join(process.cwd(), 'src/renderer/src/components/backlog/BacklogDependenciesSection.tsx'),
   'utf8',
 )
+const itemSearchPickerSource = readFileSync(
+  join(process.cwd(), 'src/renderer/src/components/backlog/BacklogItemSearchPicker.tsx'),
+  'utf8',
+)
 
 run('panel rows resolve the row color (highlight ▸ epic ▸ derived risk) through the shared swatch', () => {
   assert.match(
@@ -262,12 +267,11 @@ run('grouped render and cross-group selection run through the flattened nav orde
   )
 })
 
-run('row context menu exposes Move to epic — assign, New epic…, and Remove from epic', () => {
-  // The flyout lists existing epics (assign) and offers create + remove, hidden
-  // on epic rows (no nesting).
+run('row context menu exposes search-first Move to epic — assign, create, and remove', () => {
   assert.match(contextMenuSource, /label="Move to epic"/, 'context menu has a Move to epic flyout')
   assert.match(contextMenuSource, /!item\.isEpic \?/, 'the flyout is hidden on epic rows (no nesting)')
-  assert.match(contextMenuSource, /actions\.setEpic\(item, epic\.slug\)/, 'selecting an epic assigns it by slug')
+  assert.match(contextMenuSource, /ariaLabel="Search epics"/, 'the full epic catalogue is replaced by a search field')
+  assert.match(contextMenuSource, /actions\.setEpic\(item, epic\.value\)/, 'selecting a real search result assigns it by slug')
   assert.match(contextMenuSource, /actions\.createEpic\(item\)/, 'New epic… routes through the create handler')
   assert.match(contextMenuSource, /actions\.setEpic\(item, null\)/, 'Remove from epic clears the field')
   assert.match(contextMenuSource, /item\.epic \?/, 'Remove from epic shows only when the item has an epic')
@@ -290,14 +294,12 @@ run('epic assignment mutates only the child frontmatter via update/create-epic, 
   )
 })
 
-run('detail triage exposes an Epic control wired to the same assign/create/remove handlers', () => {
+run('detail triage exposes the same search-first Epic control and handlers', () => {
   assert.match(backlogPanelSource, /ariaLabel="Move to epic"/, 'detail pane has an Epic select')
-  assert.match(backlogPanelSource, /value === EPIC_NEW_SENTINEL/, 'the New epic… sentinel opens the create flow')
-  assert.match(
-    backlogPanelSource,
-    /actions\.setEpic\(item, value === EPIC_NONE_VALUE \? null : value\)/,
-    'No epic clears the field; an epic value assigns it',
-  )
+  assert.match(backlogPanelSource, /ariaLabel="Search epics"/, 'the detail Epic control searches instead of listing every epic')
+  assert.match(backlogPanelSource, /actions\.setEpic\(item, epic\.value\)/, 'a real result assigns the epic')
+  assert.match(backlogPanelSource, /actions\.createEpic\(item\)/, 'New epic opens the create flow')
+  assert.match(backlogPanelSource, /actions\.setEpic\(item, null\)/, 'Remove from epic clears the field')
 })
 
 run('archive epic rolls up children: menu + overflow swap Archive→Archive epic for epic items', () => {
@@ -418,19 +420,39 @@ run('prerequisites persist only through the dependsOn frontmatter IPC, never ite
   )
 })
 
-run('context menu exposes a multi-select "Depends on…" flyout with checkmarks, excluding self', () => {
+run('context menu exposes a search-first multi-select "Depends on…" flyout', () => {
   assert.match(contextMenuSource, /label="Depends on…"/, 'context menu has a Depends on… flyout')
   assert.match(contextMenuSource, /candidate\.id !== item\.id/, 'the item itself is excluded from candidates')
-  assert.match(contextMenuSource, /toggleDependencySlug\(dependsOn, candidate\.slug\)/, 'each row toggles one slug in the set')
-  assert.match(contextMenuSource, /MenuCheckGlyph visible=\{checked\}/, 'current prerequisites show checkmarks, mirroring Move to epic')
+  assert.match(contextMenuSource, /ariaLabel="Search prerequisite items"/, 'opening the flyout does not render the full Backlog')
+  assert.match(contextMenuSource, /toggleDependencySlug\(dependsOn, candidate\.value\)/, 'only a real search result can toggle one slug')
+  assert.match(contextMenuSource, /selectedValues=\{dependsOn\}/, 'current prerequisites are passed to the shared picker')
 })
 
-run('detail dependencies section reflects current prerequisites with checks and excludes self', () => {
+run('detail dependencies use the shared search picker and exclude self', () => {
   assert.match(dependenciesSectionSource, /Depends on…/, 'the detail editor mirrors the menu affordance')
   assert.match(dependenciesSectionSource, /candidate\.id !== item\.id/, 'the editor excludes the item itself')
-  assert.match(dependenciesSectionSource, /aria-checked=\{checked\}/, 'the editor reflects current prerequisites with checks')
+  assert.match(dependenciesSectionSource, /ariaLabel="Search prerequisite items"/, 'the detail editor is search-first too')
+  assert.match(dependenciesSectionSource, /selectedValues=\{dependsOn\}/, 'the editor reflects current prerequisites through the picker')
+  assert.match(itemSearchPickerSource, /aria-selected=\{resultRole === 'listbox' \? checked : undefined\}/, 'dialog-hosted search results expose selected prerequisites accessibly')
   assert.match(dependenciesSectionSource, /const \{ prerequisites, blocks, inCycle \} = node/, 'the section renders the derived prerequisites, blocks, and cycle flag')
   assert.match(dependenciesSectionSource, /dependency cycle/, 'a non-fatal cycle warning is rendered from inCycle')
+})
+
+run('relationship search requires a query and matches human-facing Backlog IDs', () => {
+  const choices = [
+    { id: 'a', value: 'checkout', title: 'Checkout flow', displayId: 'MC-1434' },
+    { id: 'b', value: 'billing', title: 'Billing cleanup', displayId: 'MC-1435' },
+  ]
+  assert.deepEqual(filterBacklogItemSearchOptions(choices, ''), [], 'an empty query never dumps the full Backlog')
+  assert.deepEqual(filterBacklogItemSearchOptions(choices, 'mc-1434').map((choice) => choice.id), ['a'])
+  assert.deepEqual(filterBacklogItemSearchOptions(choices, 'billing').map((choice) => choice.id), ['b'])
+  assert.deepEqual(filterBacklogItemSearchOptions(choices, 'MC-9999'), [], 'an unknown code cannot create a free-form relationship')
+})
+
+run('row context menu reuses module-contributed Sprint actions', () => {
+  assert.match(backlogPanelSource, /externalActionsForItem\(menuItem\)/, 'the exact row is resolved through the shared module action registry')
+  assert.match(contextMenuSource, /itemActions\.map\(\(itemAction\)/, 'visible module actions render in the row menu')
+  assert.match(contextMenuSource, /itemAction\.run\(\)/, 'activation uses the existing action run path')
 })
 
 run('the new-workspace source picker renders the same shared row interior', () => {

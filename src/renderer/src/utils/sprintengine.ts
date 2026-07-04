@@ -21,6 +21,8 @@ import type {
   SprintEngineRecordedArtifact,
   SprintEngineRole,
   SprintEngineRoleCounts,
+  SprintEngineRosterSession,
+  SprintEngineRoleRuntimes,
   SprintEngineRoleId,
   SprintEngineRoleRegistry,
   SprintEngineRoleRegistryMetadata,
@@ -68,6 +70,7 @@ import {
   deriveSprintEngineAutomationDesiredMode,
   normalizeSprintEngineAutomationRuntimeState,
 } from './sprintengineAutomationLifecycle'
+import { agentCliSupportsConversationResume } from './agentCliResume'
 import type { LifecycleState } from '../components/ui/LifecycleGlyph'
 
 // Sprint Engine board column → the shared lifecycle vocabulary. The pipeline
@@ -152,6 +155,68 @@ export function isCompletedSprintEngineRun(state: Pick<SprintEngineState, 'tasks
   return state.tasks.length > 0 && state.tasks.every((task) => task.status === 'done')
 }
 
+/**
+ * Whether re-opening a roster agent from the board should resume its recorded
+ * session (`sprintEngineRosterSessions[agentId]`) instead of spawning fresh.
+ *
+ * Two cases record a session and want resume-on-reopen:
+ *  1. Whole-run completion teardown (`tearDownCompletedSprintRunAgents`).
+ *  2. Mid-run departed-worker teardown (B4, `tearDownDepartedTaskScopedWorker`):
+ *     a task-scoped worker whose own task is already `done` is permanently
+ *     departed and torn down while the run still executes.
+ *
+ * The mid-run case is judged from THIS run's roster: the agent must be a current
+ * runtime agent whose `lastOwnedTaskId` is a task that is `done` in the current
+ * `tasks`. A stale recorded entry left by a *prior* run on the same workspace
+ * fails that check (its id has not re-owned a done task this run), so it can
+ * never hijack a fresh spawn — the guard the run-complete gate provided is kept.
+ * On a cold reopen the projection may not be hydrated yet, so `runComplete`
+ * falls back to the persisted lifecycle `runtimeState`.
+ */
+export function shouldResumeRecordedRosterSession(input: {
+  sprintEngineState: SprintEngineState | null | undefined
+  autoRuntimeState: SprintEngineAutomationRuntimeState | undefined
+  agentId: AgentId
+}): boolean {
+  const { sprintEngineState, autoRuntimeState, agentId } = input
+  const runComplete = sprintEngineState
+    ? isCompletedSprintEngineRun(sprintEngineState)
+    : autoRuntimeState === 'complete'
+  if (runComplete) return true
+
+  const ownedTaskId = sprintEngineState?.sprintEngineAgents?.[agentId]?.lastOwnedTaskId
+  if (!ownedTaskId) return false
+  return sprintEngineState?.tasks.some((task) => task.id === ownedTaskId && task.status === 'done') ?? false
+}
+
+/**
+ * Whether re-opening a departed roster id would actually RESUME its recorded
+ * conversation rather than start fresh. This is the single source of truth for
+ * the roster's Resume-vs-Spawn label and MUST match spawnAgent's real resume
+ * gate (`useSprintEngineBoardTerminalActions.ts`): the lifecycle wants resume
+ * (`shouldResumeRecordedRosterSession`) AND a recorded session with a
+ * `cliSessionId` exists for a CLI that supports conversation resume.
+ *
+ * The recorded-session gate is load-bearing: `shouldResumeRecordedRosterSession`
+ * is broader — it returns true for EVERY non-live id once the run completes — so
+ * without this gate an idle/never-recorded id or a resume-incapable CLI would
+ * read 'Resume' yet spawn fresh (the inverse of the bug the label split fixes).
+ */
+export function willResumeRecordedRosterSession(input: {
+  sprintEngineState: SprintEngineState | null | undefined
+  autoRuntimeState: SprintEngineAutomationRuntimeState | undefined
+  recorded: SprintEngineRosterSession | null | undefined
+  agentId: AgentId
+}): boolean {
+  const { recorded } = input
+  if (!recorded?.cliSessionId || !agentCliSupportsConversationResume(recorded.cli)) return false
+  return shouldResumeRecordedRosterSession({
+    sprintEngineState: input.sprintEngineState,
+    autoRuntimeState: input.autoRuntimeState,
+    agentId: input.agentId,
+  })
+}
+
 // One run, one glyph, derived purely from sprint state — the task board plus the
 // AutoRun runtime. Terminals are deliberately NOT consulted: an agent terminal
 // sitting at (or stuck at) a prompt is ephemeral and must never make a whole
@@ -161,13 +226,16 @@ export function isCompletedSprintEngineRun(state: Pick<SprintEngineState, 'tasks
 //   2. failed — a failed runner.
 //   3. changes_requested — a reviewer asked for rework. Surfaced above
 //      in_progress so review churn is never hidden by the spinner.
-//   4. in_progress — any active-column task, or a running runner. `live`
+//   4. paused (runner) — an explicitly paused AutoRun reads as paused even
+//      while a task is still mid-flight (e.g. a review in progress), so a
+//      stopped run never shows a static (stuck-looking) in_progress spinner.
+//      A paused run that has finished every task still falls through to `done`.
+//   5. in_progress — any active-column task, or a running runner. `live`
 //      (spinner) only when the runner is genuinely `running`; a manual run with
 //      active tasks reads in-progress but static (no live runner is asserted).
-//   5. done — every task finished, or a `complete` runner.
-//   6. paused — a paused runner, or a started run (≥1 done) with nothing
-//      currently running.
-//   7. null — not started / no observable run; the surface keeps its own
+//   6. done — every task finished, or a `complete` runner.
+//   7. paused (rollup) — a started run (≥1 done) with nothing currently running.
+//   8. null — not started / no observable run; the surface keeps its own
 //      resting rendering (recency text, or the Backlog item's own status).
 export function deriveSprintEngineRunGlyph(input: {
   sprintEngineState: Pick<SprintEngineState, 'tasks' | 'vcs'> | null | undefined
@@ -195,6 +263,14 @@ export function deriveSprintEngineRunGlyph(input: {
     (task) => SPRINT_ENGINE_ACTIVE_TASK_STATUSES.has(task.status) || task.status === 'needs_input',
   )
   if (runtimeState === 'running') return { state: 'in_progress', live: true, label: 'Running' }
+  // An explicitly paused runner reads as *paused* even while a task is still
+  // mid-flight (e.g. a review in progress). Without this the active-work branch
+  // below renders a static `in_progress` arc — a spinner that looks stuck —
+  // instead of the pause glyph. A paused run that has actually finished every
+  // task still falls through to `done`.
+  if (runtimeState === 'paused' && !isCompletedSprintEngineRun({ tasks })) {
+    return AUTOMATION_RUN_GLYPH.paused ?? null
+  }
   if (hasActiveWork) return { state: 'in_progress', live: false, label: 'In progress' }
 
   const hasTasks = tasks.length > 0
@@ -212,7 +288,6 @@ export function deriveSprintEngineRunGlyph(input: {
     return { state: 'done', live: false, label: 'Complete' }
   }
 
-  if (runtimeState === 'paused') return AUTOMATION_RUN_GLYPH.paused ?? null
   if (hasTasks && tasks.some((task) => task.status === 'done')) {
     return { state: 'paused', live: false, label: 'Paused' }
   }
@@ -1677,6 +1752,13 @@ export function countSprintEngineAgents(roleCounts: SprintEngineRoleCounts): num
   return Object.values(roleCounts).reduce((total, count) => total + Math.max(0, count), 0)
 }
 
+// MC-1450 retired per-role quantities: `roleCounts` is now the persisted
+// encoding of an enabled-role SET — every value normalizes to 0 or 1 (legacy
+// presets/workspaces with counts > 1 collapse to "enabled"). Under MC-1444's
+// one-session-per-task model a role's parallel throughput comes from
+// mint-on-demand plus the workspace-level max-parallel-agents knob, never
+// from a configured headcount. The count-shaped encoding is kept so old and
+// new presets stay mutually readable.
 export function normalizeSprintEngineRoleCounts(
   roleCounts?: Partial<SprintEngineRoleCounts> | null
 ): SprintEngineRoleCounts {
@@ -1686,7 +1768,8 @@ export function normalizeSprintEngineRoleCounts(
   for (const [role, rawCount] of Object.entries(roleCounts)) {
     if (!normalizeSprintEngineRoleId(role)) continue
     const fallback = defaults[role] ?? (role === 'architect' ? 1 : 0)
-    result[role] = Math.max(role === 'architect' ? 1 : 0, Math.floor(Number(rawCount ?? fallback) || 0))
+    const enabled = Math.floor(Number(rawCount ?? fallback) || 0) > 0 ? 1 : 0
+    result[role] = Math.max(role === 'architect' ? 1 : 0, enabled)
   }
   return result
 }
@@ -1706,8 +1789,13 @@ export function getNextSprintEngineAgentId(
   role: SprintEngineRoleId,
   sprintEngineAgents: Record<AgentId, SprintEngineRuntimeAgent>
 ): AgentId {
+  // Task-scoped workers are always suffixed: the first minted worker of a role
+  // is `<role>-1`. This mirrors the Python allocator (next_replacement_agent_id:
+  // max matching index + 1, counting a bare `<role>` as index 1). The bare
+  // `<role>` id is reserved for a role's persistent reviewer, so worker minting
+  // never hands it out — it starts at `-1` on an empty roster and steps past a
+  // bare reviewer id (which counts as index 1) when one is already seated.
   const usedIds = new Set(Object.keys(sprintEngineAgents))
-  if (!usedIds.has(role) && role !== 'developer') return role
 
   let nextIndex = 1
   for (const [agentId, agent] of Object.entries(sprintEngineAgents)) {
@@ -1725,33 +1813,30 @@ export function getNextSprintEngineAgentId(
 }
 
 export function buildSprintEngineAgentRoster(
-  roleCounts: SprintEngineRoleCounts,
+  _roleCounts: SprintEngineRoleCounts,
   registry?: SprintEngineRoleRegistry | null,
 ): SprintEngineAgentRosterItem[] {
-  const roster: SprintEngineAgentRosterItem[] = []
-  const configuredRoles = new Set<SprintEngineRoleId>([
-    ...sprintEngineRoleOrder,
-    ...Object.keys(roleCounts).filter((role) => Boolean(normalizeSprintEngineRoleId(role))),
-  ])
-  const orderedRoles = [...configuredRoles].sort((a, b) => {
-    const aBundled = sprintEngineRoleOrder.indexOf(a as SprintEngineRole)
-    const bBundled = sprintEngineRoleOrder.indexOf(b as SprintEngineRole)
-    const aRank = aBundled >= 0 ? aBundled : sprintEngineRoleOrder.length
-    const bRank = bBundled >= 0 ? bBundled : sprintEngineRoleOrder.length
-    if (aRank !== bRank) return aRank - bRank
-    return getSprintEngineRoleLabel(a, registry).localeCompare(getSprintEngineRoleLabel(b, registry))
-  })
+  // Lazy roster: creation seeds ONLY the architect. Worker ids are minted
+  // task-scoped on demand by the Python assignment op, and a role's persistent
+  // reviewer id registers lazily on its first gate — so no worker or reviewer
+  // record exists at creation. enabledRoles/roleCounts still gate which roles
+  // participate (forwarded to Python init as `configuredRoles` for quality-gate
+  // derivation) but no longer materialize seats here.
+  return [{ id: 'architect', label: getSprintEngineRoleLabel('architect', registry), role: 'architect' }]
+}
 
-  for (const role of orderedRoles) {
-    const count = Math.max(role === 'architect' ? 1 : 0, roleCounts[role] ?? 0)
-    for (let i = 0; i < count; i++) {
-      const id = count > 1 || role === 'developer' ? `${role}-${i + 1}` : role
-      const suffix = count > 1 ? ` ${i + 1}` : ''
-      roster.push({ id, label: `${getSprintEngineRoleLabel(role, registry)}${suffix}`, role })
-    }
+// The enabled role set encoded by the roster counts (architect always on).
+// Forwarded to Python init as `configuredRoles` so quality-gate derivation runs
+// against the roles the user actually turned on, even though the lazy roster
+// seeds only the architect. Empty of non-architect roles => no derived gates.
+export function sprintEngineEnabledRoles(
+  roleCounts: SprintEngineRoleCounts,
+): SprintEngineRoleId[] {
+  const roles = new Set<SprintEngineRoleId>(['architect'])
+  for (const [role, count] of Object.entries(roleCounts)) {
+    if ((count ?? 0) > 0 && normalizeSprintEngineRoleId(role)) roles.add(role as SprintEngineRoleId)
   }
-
-  return roster
+  return [...roles]
 }
 
 export function buildSprintEngineAgentRosterFromRuntimeAgents(
@@ -2184,6 +2269,25 @@ export function getSprintEngineArtifactDependencyBlockers(
   })
 }
 
+// Tolerant read of the run.yaml/projection `roleRuntimes` map. Keeps only
+// registry-valid roles with an object value; trims cli/model and drops empty
+// strings (absent and null both mean "CLI default" — no `--model` flag).
+// Returns null when nothing valid remains so callers can omit the field.
+export function normalizeSprintEngineRoleRuntimes(value: unknown): SprintEngineRoleRuntimes | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null
+  const result: SprintEngineRoleRuntimes = {}
+  for (const [rawRole, runtime] of Object.entries(value as Record<string, unknown>)) {
+    const role = normalizeSprintEngineRoleId(rawRole)
+    if (!role || !runtime || typeof runtime !== 'object') continue
+    const record = runtime as Record<string, unknown>
+    const cli = typeof record.cli === 'string' && record.cli.trim() ? record.cli.trim() : undefined
+    const model = typeof record.model === 'string' && record.model.trim() ? record.model.trim() : undefined
+    if (!cli && !model) continue
+    result[role] = { ...(model ? { model } : {}), ...(cli ? { cli } : {}) }
+  }
+  return Object.keys(result).length > 0 ? result : null
+}
+
 export function normalizeSprintEngineState(input: SprintEngineState | null | undefined): SprintEngineState | null {
   if (!input) return null
 
@@ -2276,6 +2380,10 @@ export function normalizeSprintEngineState(input: SprintEngineState | null | und
     ...(input.runner ? { runner: input.runner } : {}),
     ...(input.useWorktrees ? { useWorktrees: true } : {}),
     ...(input.vcs ? { vcs: input.vcs } : {}),
+    ...((): Partial<Pick<SprintEngineState, 'roleRuntimes'>> => {
+      const roleRuntimes = normalizeSprintEngineRoleRuntimes(input.roleRuntimes)
+      return roleRuntimes ? { roleRuntimes } : {}
+    })(),
   }
 }
 
@@ -2482,6 +2590,10 @@ export function normalizeSprintEngineProjection(
       ? { runner: normalizeSprintEngineRunnerPolicy(runRecord.runner) }
       : {}),
     ...(normalizeSprintEngineVcs(runRecord.vcs) ? { vcs: normalizeSprintEngineVcs(runRecord.vcs), useWorktrees: true } : {}),
+    ...((): Partial<Pick<SprintEngineState, 'roleRuntimes'>> => {
+      const roleRuntimes = normalizeSprintEngineRoleRuntimes(runRecord.roleRuntimes)
+      return roleRuntimes ? { roleRuntimes } : {}
+    })(),
   }
 
   return normalizeSprintEngineState(candidate)

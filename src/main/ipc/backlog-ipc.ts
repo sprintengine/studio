@@ -14,6 +14,7 @@ import type {
   BacklogModuleMetadataInput,
   BacklogMutationResult,
   BacklogReadResult,
+  BacklogRemoveLinkInput,
   BacklogRemoveRecordInput,
   BacklogStatusInput,
   BacklogTriageInput,
@@ -29,6 +30,7 @@ import {
   moveBacklogObjectSource,
   readBacklogObjectStore,
   readBacklogWorkspaceKey,
+  removeBacklogLink,
   removeBacklogObjectRecord,
   updateBacklogDependencies,
   updateBacklogEpic,
@@ -78,6 +80,10 @@ export function registerBacklogIpc(ipcMain: IpcMain): void {
 
   ipcMain.handle('backlog:add-or-update-link', (_event, input: BacklogAddOrUpdateLinkInput): Promise<BacklogMutationResult> => {
     return addOrUpdateBacklogLink(input)
+  })
+
+  ipcMain.handle('backlog:remove-link', (_event, input: BacklogRemoveLinkInput): Promise<BacklogMutationResult> => {
+    return removeBacklogLink(input)
   })
 
   ipcMain.handle('backlog:update-module-metadata', (_event, input: BacklogModuleMetadataInput): Promise<BacklogMutationResult> => {

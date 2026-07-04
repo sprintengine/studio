@@ -110,6 +110,7 @@ type SerializableSprintEngineStatePayload = {
   artifacts: unknown[]
   useWorktrees: boolean
   roleRuntimes: Record<string, { model?: string | null; cli?: string | null }>
+  enabledRoles: string[]
 }
 
 type SprintEngineEventMetadata = {
@@ -379,7 +380,25 @@ function resolveInitialSprintEngineStatePayload(payload: SprintEngineStateInitia
     artifacts: resolveArray(payload?.artifacts, 'sprint artifacts'),
     useWorktrees: payload?.useWorktrees === true,
     roleRuntimes: resolveRoleRuntimes(payload?.roleRuntimes),
+    enabledRoles: resolveEnabledRoles(payload?.enabledRoles),
   }
+}
+
+// The enabled role ids (architect always included) forwarded to Python init as
+// `configuredRoles`. Trim, drop empties, and dedupe while preserving order so
+// the run.yaml list is stable; an empty result sends no flag (legacy behavior:
+// gates derive from the seated roster).
+function resolveEnabledRoles(input: SprintEngineStateInitializeInput['enabledRoles']): string[] {
+  if (!Array.isArray(input)) return []
+  const seen = new Set<string>()
+  const out: string[] = []
+  for (const role of input) {
+    const roleKey = typeof role === 'string' ? role.trim() : ''
+    if (!roleKey || seen.has(roleKey)) continue
+    seen.add(roleKey)
+    out.push(roleKey)
+  }
+  return out
 }
 
 // Keep only roles with a usable model or cli string; a role left on the CLI's
@@ -441,6 +460,9 @@ function sprintEngineInitArgs(state: ValidSprintEngineStatePath, payload: Serial
   }
   if (Object.keys(payload.roleRuntimes).length > 0) {
     args.push('--role-runtimes-json', JSON.stringify(payload.roleRuntimes))
+  }
+  if (payload.enabledRoles.length > 0) {
+    args.push('--configured-roles-json', JSON.stringify(payload.enabledRoles))
   }
   return args
 }

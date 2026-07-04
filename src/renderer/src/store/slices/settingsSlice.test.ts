@@ -535,8 +535,8 @@ const normalizedSavedRoster = normalizeAppSettings(
 )
 assert.deepEqual(
   normalizedSavedRoster.sprintEngineRoleSettings.savedRoster?.roleCounts,
-  { architect: 1, frontend: 3, tester: 0 },
-  'saved roster normalization clamps counts and keeps architect present',
+  { architect: 1, frontend: 1, tester: 0 },
+  'saved roster counts load as an enabled set (MC-1450): legacy count > 0 collapses to 1, architect stays present',
 )
 assert.deepEqual(
   normalizedSavedRoster.sprintEngineRoleSettings.savedRoster?.roleCliDefaults,
@@ -614,8 +614,8 @@ const updatedLightweight = afterUpdate.savedTeams?.find((team) => team.id === li
 assert.equal(updatedLightweight?.name, 'Lightweight v2', 'team name updates in place')
 assert.deepEqual(
   updatedLightweight?.roleCounts,
-  { architect: 1, developer: 2 },
-  'team role counts update in place',
+  { architect: 1, developer: 1 },
+  'team role counts update in place as an enabled set (legacy count > 1 collapses, MC-1450)',
 )
 
 // A blank name is rejected.
@@ -636,7 +636,7 @@ const renamedTeam = afterRename.savedTeams?.find((team) => team.id === lightweig
 assert.equal(renamedTeam?.name, 'Featherweight', 'rename trims and applies the new name')
 assert.deepEqual(
   renamedTeam?.roleCounts,
-  { architect: 1, developer: 2 },
+  { architect: 1, developer: 1 },
   'rename leaves the saved roster counts intact',
 )
 // A blank rename and an unknown id are no-ops rather than throwing or clearing.

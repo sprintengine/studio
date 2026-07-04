@@ -387,6 +387,8 @@ assert.equal(state.activeWorkspaceId, guidedBriefId, 'guided brief workspace is 
 const sprintEngineState = createInitialSprintEngineState({
   name: 'Runtime Choice Team',
   goal: 'Preserve agent runtime choices.',
+  // Legacy count > 1 collapses to the enabled set (MC-1450): one roster agent
+  // per enabled role; same-role capacity grows on demand at run time.
   roleCounts: { architect: 1, developer: 2 },
 })
 const sprintEngineId = useWorkspaceStore.getState().addWorkspace(standardTemplate, {
@@ -399,23 +401,27 @@ const sprintEngineId = useWorkspaceStore.getState().addWorkspace(standardTemplat
   },
   sprintEngineAgentCliOverrides: {
     'developer-1': 'codex',
-    'developer-2': 'claude-code',
   },
 })
 state = useWorkspaceStore.getState()
 const sprintEngineWorkspace = state.workspaces.find((workspace) => workspace.id === sprintEngineId)
+// Lazy roster: creation seeds only the architect. Worker seats — and their
+// per-agent CLI overrides — are minted on demand at run time, never here.
+assert.deepEqual(
+  Object.keys(sprintEngineWorkspace?.agents ?? {}),
+  ['architect'],
+  'no worker seat is materialized at creation under the lazy roster (task-scoped ids)',
+)
 assert.equal(sprintEngineWorkspace?.agents.architect?.cli, 'claude-code')
-assert.equal(sprintEngineWorkspace?.agents['developer-1']?.cli, 'codex')
-assert.equal(sprintEngineWorkspace?.agents['developer-2']?.cli, 'claude-code')
 assert.equal(
   sprintEngineWorkspace?.sprintEngineInitialSpawnAgentIds,
   undefined,
   'no launch intent is recorded when no roles are marked spawn-at-start',
 )
 
-// Per-role model overrides and spawn-at-start launch intent from the wizard:
-// explicit model id wins, explicit null means the CLI default (no model), and
-// marked roles queue session-only initial spawn intent for the board.
+// Lazy roster: only the architect seeds, so a spawn-at-start role that is not
+// the architect materializes no seat and records no launch intent. Worker model
+// overrides ride run.yaml `roleRuntimes` and apply when the worker is minted.
 const launchIntentState = createInitialSprintEngineState({
   name: 'Launch Intent Team',
   goal: 'Preserve roster launch intent.',
@@ -438,33 +444,28 @@ const launchIntentId = useWorkspaceStore.getState().addWorkspace(standardTemplat
 })
 state = useWorkspaceStore.getState()
 const launchIntentWorkspace = state.workspaces.find((workspace) => workspace.id === launchIntentId)
-assert.equal(launchIntentWorkspace?.agents['developer-1']?.cliModel, 'sonnet-test-model')
-assert.equal(
-  launchIntentWorkspace?.agents.frontend?.cliModel,
-  undefined,
-  'an explicit null override means the CLI default and suppresses remembered model defaults',
+assert.deepEqual(
+  Object.keys(launchIntentWorkspace?.agents ?? {}),
+  ['architect'],
+  'enabled worker roles do not seed at creation; only the architect does',
 )
-assert.deepEqual(launchIntentWorkspace?.sprintEngineInitialSpawnAgentIds, ['frontend'])
-
-// The launch intent is consumed atomically — exactly one consumer spawn pass.
-const consumedSpawns = useWorkspaceStore.getState().consumeSprintEngineInitialSpawns(launchIntentId)
-assert.deepEqual(consumedSpawns, ['frontend'])
-assert.deepEqual(useWorkspaceStore.getState().consumeSprintEngineInitialSpawns(launchIntentId), [])
 assert.equal(
-  useWorkspaceStore.getState().workspaces.find((workspace) => workspace.id === launchIntentId)
-    ?.sprintEngineInitialSpawnAgentIds,
+  launchIntentWorkspace?.sprintEngineInitialSpawnAgentIds,
   undefined,
+  'a non-architect spawn-at-start role materializes no seat, so no launch intent is recorded',
 )
 
-const partialLaunchIntentState = createInitialSprintEngineState({
-  name: 'Partial Launch Intent Team',
-  goal: 'Launch safe roles first.',
+// When the architect is marked spawn-at-start it is the only seat materialized,
+// even if the wizard also names worker/reviewer roles that no longer seed.
+const architectLaunchState = createInitialSprintEngineState({
+  name: 'Architect Launch Team',
+  goal: 'Launch the architect at open.',
   roleCounts: { architect: 1, developer: 1, tester: 1 },
 })
-const partialLaunchIntentId = useWorkspaceStore.getState().addWorkspace(standardTemplate, {
-  name: 'Partial Launch Intent Team',
-  folderPath: '/Users/example/partial-launch-intent',
-  sprintEngineState: partialLaunchIntentState,
+const architectLaunchId = useWorkspaceStore.getState().addWorkspace(standardTemplate, {
+  name: 'Architect Launch Team',
+  folderPath: '/Users/example/architect-launch',
+  sprintEngineState: architectLaunchState,
   sprintEngineRoleCliDefaults: {
     architect: 'claude-code',
     developer: 'claude-code',
@@ -472,20 +473,22 @@ const partialLaunchIntentId = useWorkspaceStore.getState().addWorkspace(standard
   },
   sprintEngineInitialSpawnRoles: ['architect', 'developer', 'tester'],
 })
-const partialConsumed = useWorkspaceStore
-  .getState()
-  .consumeSprintEngineInitialSpawns(partialLaunchIntentId, ['architect'])
-assert.deepEqual(partialConsumed, ['architect'])
 assert.deepEqual(
-  useWorkspaceStore.getState().workspaces.find((workspace) => workspace.id === partialLaunchIntentId)
+  useWorkspaceStore.getState().workspaces.find((workspace) => workspace.id === architectLaunchId)
     ?.sprintEngineInitialSpawnAgentIds,
-  ['developer-1', 'tester'],
-  'partial consumption preserves initial spawn intent for roles not safe to launch yet',
+  ['architect'],
+  'only the architect seat is materialized from spawn-at-start intent',
 )
+// Consumed atomically — one spawn pass clears the intent.
 assert.deepEqual(
-  useWorkspaceStore.getState().consumeSprintEngineInitialSpawns(partialLaunchIntentId),
-  ['developer-1', 'tester'],
-  'unfiltered consumption still clears all remaining launch intent for legacy callers',
+  useWorkspaceStore.getState().consumeSprintEngineInitialSpawns(architectLaunchId, ['architect']),
+  ['architect'],
+)
+assert.equal(
+  useWorkspaceStore.getState().workspaces.find((workspace) => workspace.id === architectLaunchId)
+    ?.sprintEngineInitialSpawnAgentIds,
+  undefined,
+  'consuming the architect clears all remaining launch intent',
 )
 
 // A second workspace in the same folder inserts directly above the first
@@ -810,15 +813,17 @@ assert.doesNotThrow(() => {
 state = useWorkspaceStore.getState()
 const openRoleWorkspace = state.workspaces.find((workspace) => workspace.id === openRoleId)
 assert.ok(openRoleWorkspace, 'the workspace is created despite an unmapped roster role')
-assert.equal(
-  openRoleWorkspace?.agents.nuclear_reviewer?.cli,
-  'claude-code',
-  'nuclear_reviewer resolves from the completed default CLI map',
+// Lazy roster: only the architect seeds, so an unmapped roster role never
+// reaches a throwing seat at creation. The architect resolves its supplied CLI.
+assert.deepEqual(
+  Object.keys(openRoleWorkspace?.agents ?? {}),
+  ['architect'],
+  'a roster with unmapped roles still seeds only the architect',
 )
 assert.equal(
-  openRoleWorkspace?.agents.qa_lead?.cli,
+  openRoleWorkspace?.agents.architect?.cli,
   'codex',
-  'an open-ended/custom role falls back to the team architect CLI',
+  'the architect seat resolves its supplied CLI default',
 )
 
 // --- Explicit automations-host mode (T2) ------------------------------------

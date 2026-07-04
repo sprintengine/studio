@@ -41,7 +41,10 @@ import { HIGHLIGHT_COLORS, getHighlightSwatch } from '../../utils/highlight'
 import { resolveWorkspaceWorktree } from '../../utils/workspaceWorktree'
 import { SpecialistActionIcon, SprintEngineRoleIcon, WorkspaceTypeIcon } from '../AppIcons'
 import WorkspaceLauncher from './WorkspaceLauncher'
+import CliIcon from '../CliIcon'
+import { AgentTabIdentityPopover, type AgentTabIdentity } from './AgentTabIdentityPopover'
 import type { AgentCliCatalogOption } from './newWorkspace/cliRuntimeOptions'
+import { labelForCliRuntime } from './newWorkspace/cliRuntimeOptions'
 import { panelTabAccentClass } from './panelTabAccent'
 import { LifecycleGlyph, type LifecycleState, StatusDot, type Tone } from '../ui'
 import MulticodeSpinner from '../brand/MulticodeSpinner'
@@ -151,6 +154,12 @@ function agentTabStatusDot(
       label: currentTaskId ? `Needs input on ${currentTaskId}` : 'Needs input',
     }
   }
+  // A paused agent keeps a retained (frozen) snapshot with the process gone, so
+  // it is stopped, not resting — distinguish it from a live idle tab (which has
+  // no dot). "Paused" mirrors the AgentPanel footer's user-facing wording.
+  if (session?.suspended) {
+    return { tone: 'neutral', pulse: false, label: 'Paused' }
+  }
   if (session?.processAlive && isSessionWorking(session)) {
     return { tone: 'good', pulse: true, label: 'Working' }
   }
@@ -161,15 +170,15 @@ function agentTabStatusDot(
 }
 
 // sprint agents are supervised by a run, so their tab shows persistent
-// run status (in progress / blocked / complete) — NOT terminal recency, which is
-// meaningless for a managed agent. Maps the runtime status to a LifecycleGlyph
-// state; `live` animates the spinner only while genuinely running.
+// run status (blocked / complete / idle) — NOT terminal recency, which is
+// meaningless for a managed agent. The genuinely-working (`running`) state is
+// handled separately as a pulsing green dot (see the working-dot branch below);
+// the spinner is reserved for workspace runs and backlog items, never a live
+// agent. This maps the remaining statuses to a LifecycleGlyph state.
 function sprintEngineTabLifecycle(
   status: SprintEngineRuntimeAgentStatus | undefined
 ): { state: LifecycleState; live: boolean; label: string } | null {
   switch (status) {
-    case 'running':
-      return { state: 'in_progress', live: true, label: 'In progress' }
     case 'needs_input':
       return { state: 'needs_input', live: false, label: 'Blocked — needs input' }
     case 'done':
@@ -276,16 +285,28 @@ function WorkspaceLayout({ workspaceId, onStartFuturePlan, agentClis, onSpawnAge
     s.workspaces.find((w) => w.id === workspaceId)?.lastTerminalActivityAt ?? null
   )
   // Worktree-backed workspace (a sprint run worktree, or a worktree opened as a
-  // workspace): every terminal/agent tab gets a branch glyph so it's obvious the
-  // work is happening on an isolated branch, not the main checkout. Selected as
-  // primitives so the panel doesn't re-render on unrelated workspace churn.
-  const isWorktreeBacked = useWorkspaceStore((s) => {
+  // workspace). The branch glyph is applied *per agent* on the tabs below, not
+  // blanket across the workspace: an agent only earns the glyph when it is
+  // actually running on the worktree (see the per-agent resolution in
+  // `renderTab`). Selected as primitives so the panel doesn't re-render on
+  // unrelated workspace churn.
+  //   - `worktreeGitRoot`: absolute git root of the workspace's worktree (null
+  //      when not worktree-backed). Used as the fallback cwd for the tooltip.
+  //   - `isWorktreeOpenedWorkspace`: the whole folder *is* a worktree (opened via
+  //      the Worktree manager). Every agent/terminal in it runs on the worktree,
+  //      even though their `execution.mode` stays `current_workspace` (the cwd is
+  //      never redirected because the folder already is the worktree).
+  const worktreeGitRoot = useWorkspaceStore((s) => {
     const ws = s.workspaces.find((w) => w.id === workspaceId)
-    return ws ? resolveWorkspaceWorktree(ws) !== null : false
+    return ws ? resolveWorkspaceWorktree(ws)?.gitRoot ?? null : null
   })
   const worktreeBranch = useWorkspaceStore((s) => {
     const ws = s.workspaces.find((w) => w.id === workspaceId)
     return ws ? resolveWorkspaceWorktree(ws)?.branch ?? null : null
+  })
+  const isWorktreeOpenedWorkspace = useWorkspaceStore((s) => {
+    const ws = s.workspaces.find((w) => w.id === workspaceId)
+    return Boolean(ws?.worktree)
   })
   const terminalSessions = useTerminalSessions()
   const now = useRelativeNow()
@@ -862,10 +883,16 @@ function WorkspaceLayout({ workspaceId, onStartFuturePlan, agentClis, onSpawnAge
   const renderTab = useCallback(
     (node: TabNode, renderValues: ITabRenderValues) => {
       // Prepend a worktree branch glyph to a tab's leading slot (preserving any
-      // role/specialist/highlight icon) when the workspace runs in a worktree.
-      const withWorktreeGlyph = (existing: React.ReactNode): React.ReactNode => {
-        if (!isWorktreeBacked) return existing
-        const title = worktreeBranch ? `Worktree · ${worktreeBranch}` : 'Running in a git worktree'
+      // role/specialist/highlight icon) when *this* tab is running on a worktree.
+      // `wt` is the resolved worktree for the tab (null → no glyph); its `cwd` is
+      // surfaced in the hover tooltip so the worktree's location is discoverable.
+      const withWorktreeGlyph = (
+        existing: React.ReactNode,
+        wt: { cwd: string | null; branch: string | null } | null,
+      ): React.ReactNode => {
+        if (!wt) return existing
+        const heading = wt.branch ? `Worktree · ${wt.branch}` : 'Running in a git worktree'
+        const title = wt.cwd ? `${heading}\n${wt.cwd}` : heading
         const glyph = (
           <span
             className="flex h-4 w-3.5 shrink-0 items-center justify-center text-[color:var(--text-muted)]"
@@ -1020,7 +1047,14 @@ function WorkspaceLayout({ workspaceId, onStartFuturePlan, agentClis, onSpawnAge
               />
             )
           }
-          renderValues.leading = withWorktreeGlyph(renderValues.leading)
+          // A plain terminal only genuinely runs on the worktree when the whole
+          // workspace folder *is* one (opened via the Worktree manager). In a
+          // sprint run-worktree workspace the terminal runs in the parent
+          // checkout, not the run worktree, so it gets no glyph.
+          renderValues.leading = withWorktreeGlyph(
+            renderValues.leading,
+            isWorktreeOpenedWorkspace ? { cwd: worktreeGitRoot, branch: worktreeBranch } : null,
+          )
           const terminalId = config?.terminalId ?? node.getId()
           const session = terminalSessions.find((s) => s.sessionId === `terminal-${terminalId}`)
           const indicator = renderTerminalRecencyIndicator(session, now)
@@ -1078,8 +1112,14 @@ function WorkspaceLayout({ workspaceId, onStartFuturePlan, agentClis, onSpawnAge
       const sprintEngineLifecycle = isSprintEngineRun
         ? sprintEngineTabLifecycle(runtimeAgent?.status)
         : null
-      const activityDot = isSprintEngineRun
-        ? null
+      // A sprint agent that is genuinely running is "doing work" → pulsing green
+      // dot, the same idiom every other working agent uses. Non-working sprint
+      // statuses (blocked / complete / idle) fall through to their lifecycle
+      // glyph above; everyone else uses the standard activity dot.
+      const activityDot: AgentTabActivityDot | null = isSprintEngineRun
+        ? (runtimeAgent?.status === 'running'
+            ? { tone: 'good', pulse: true, label: 'Working' }
+            : null)
         : agentTabStatusDot(agentSession, runtimeAgent?.status, currentTaskId)
       const specialist = (agent?.kind === 'specialist' || agent?.kind === 'watchtower') && agent.specialistId
         ? getSpecialistAction(agent.specialistId)
@@ -1119,10 +1159,41 @@ function WorkspaceLayout({ workspaceId, onStartFuturePlan, agentClis, onSpawnAge
             <WorkspaceTypeIcon mode="multiloop" moduleOverrides={moduleOverrides} className="h-3.5 w-3.5" />
           </span>
         )
+      } else if (agent?.cli) {
+        // A plain agent has no role glyph, so its otherwise-empty leading slot
+        // carries the runtime brand mark (Claude Code / Codex / OpenCode) — the
+        // at-a-glance "which harness" signal. The exact model lives in the hover
+        // popout, since models carry no icon.
+        const runtimeLabel = `${labelForCliRuntime(agent.cli)} runtime`
+        renderValues.leading = (
+          <span
+            className="flex h-4 w-4 shrink-0 items-center justify-center rounded-[4px] text-[color:var(--text-muted)]"
+            title={runtimeLabel}
+            aria-label={runtimeLabel}
+          >
+            <CliIcon cli={agent.cli} className="h-3.5 w-3.5" />
+          </span>
+        )
       } else {
         renderValues.leading = null
       }
-      renderValues.leading = withWorktreeGlyph(renderValues.leading)
+      // Per-agent worktree glyph: an agent earns it only when it is actually
+      // running on a worktree. Two ways that happens:
+      //   1. The workspace folder itself is a worktree (opened via the Worktree
+      //      manager) → every agent in it runs on the worktree, even though
+      //      `execution.mode` stays `current_workspace` (cwd is never redirected).
+      //   2. A sprint run-worktree agent whose `execution.mode === 'worktree'`
+      //      and cwd points into the run worktree. A manually-spawned agent in
+      //      the same workspace stays on the main checkout → no glyph.
+      const agentWorktree: { cwd: string | null; branch: string | null } | null =
+        !worktreeGitRoot
+          ? null
+          : isWorktreeOpenedWorkspace
+            ? { cwd: worktreeGitRoot, branch: worktreeBranch }
+            : agent?.execution.mode === 'worktree'
+              ? { cwd: agent.execution.cwd ?? worktreeGitRoot, branch: worktreeBranch }
+              : null
+      renderValues.leading = withWorktreeGlyph(renderValues.leading, agentWorktree)
 
       // Recency only when NOT working and NOT a Sprint Engine run. Active agents
       // show the pulsing green dot; sprint agents show run lifecycle.
@@ -1148,36 +1219,86 @@ function WorkspaceLayout({ workspaceId, onStartFuturePlan, agentClis, onSpawnAge
           )
         : null
 
-      if (sprintEngineLifecycle) {
-        renderValues.content = (
-          <span className="inline-flex min-w-0 items-center gap-1.5">
-            {tabContent}
-            <LifecycleGlyph
-              state={sprintEngineLifecycle.state}
-              live={sprintEngineLifecycle.live}
-              label={sprintEngineLifecycle.label}
-              className="translate-y-px"
-            />
-          </span>
-        )
-      } else if (activityDot) {
-        renderValues.content = (
-          <span className="inline-flex min-w-0 items-center gap-1.5">
-            {tabContent}
-            <StatusDot tone={activityDot.tone} pulse={activityDot.pulse} label={activityDot.label} />
-            {recencyIndicator}
-          </span>
-        )
-      } else {
-        renderValues.content = (
-          <span className="inline-flex min-w-0 items-center gap-1.5">
-            {tabContent}
-            {recencyIndicator}
-          </span>
-        )
+      // Trailing status treatment, shared across the three content branches:
+      // sprint agents show a run-lifecycle glyph, everyone else the activity dot
+      // (+ recency while idle).
+      const trailing = sprintEngineLifecycle ? (
+        <LifecycleGlyph
+          state={sprintEngineLifecycle.state}
+          live={sprintEngineLifecycle.live}
+          label={sprintEngineLifecycle.label}
+          className="translate-y-px"
+        />
+      ) : activityDot ? (
+        <>
+          <StatusDot tone={activityDot.tone} pulse={activityDot.pulse} label={activityDot.label} />
+          {recencyIndicator}
+        </>
+      ) : (
+        recencyIndicator
+      )
+
+      // Everything needed to identify this agent, surfaced in the hover/focus
+      // popout wrapping the tab content. Role glyph stays the at-rest signal;
+      // the popout carries the exact model, runtime, and session id.
+      const prettyRole = (role: string): string =>
+        role
+          .split(/[-_\s]+/u)
+          .filter(Boolean)
+          .map((part) => part.slice(0, 1).toUpperCase() + part.slice(1))
+          .join(' ')
+      const roleLabel = specialist
+        ? `${specialist.shortLabel} specialist`
+        : sprintEngineRole
+          ? `${prettyRole(sprintEngineRole)} · sprint`
+          : multiloopRole
+            ? `${prettyRole(multiloopRole)} · multiloop`
+            : 'General agent'
+      // Paused wins its own self-contained label (with elapsed time) so the
+      // popout reads "Paused · 13m" without leaning on the tab's recency chip.
+      // Otherwise mirror the tab dot, then sprint lifecycle, then the honest
+      // recency source (Idle / Last activity / Exited) — never a blanket "Idle".
+      const identityStatus: AgentTabIdentity['status'] = agentSession?.suspended
+        ? {
+            tone: 'neutral',
+            pulse: false,
+            label: agentRecencyText ? `Paused · ${agentRecencyText}` : 'Paused',
+          }
+        : activityDot
+          ? { tone: activityDot.tone, pulse: Boolean(activityDot.pulse), label: activityDot.label }
+          : sprintEngineLifecycle
+            ? {
+                tone: sprintEngineLifecycle.state === 'needs_input' ? 'warn' : 'neutral',
+                pulse: false,
+                label: sprintEngineLifecycle.label,
+              }
+            : agentRecency !== null && agentRecencyText
+              ? {
+                  tone: 'neutral',
+                  pulse: false,
+                  label: `${tabRecencyLabel(agentRecency.source)} · ${agentRecencyText}`,
+                }
+              : { tone: 'neutral', pulse: false, label: 'Idle' }
+      const agentIdentity: AgentTabIdentity = {
+        name: agent?.name ?? node.getName(),
+        roleLabel,
+        model: agent?.cliModel ?? null,
+        cli: agent?.cli ?? null,
+        cliLabel: agent?.cli ? labelForCliRuntime(agent.cli) : null,
+        sessionId: agentSessionId ?? null,
+        taskId: currentTaskId ?? null,
+        worktree: agentWorktree,
+        status: identityStatus,
       }
+
+      renderValues.content = (
+        <AgentTabIdentityPopover identity={agentIdentity}>
+          {tabContent}
+          {trailing}
+        </AgentTabIdentityPopover>
+      )
     },
-    [commitRename, editorOpenFiles, hideTab, isWorktreeBacked, lastTerminalActivityAt, moduleOverrides, now, renameValue, renamingTabId, showTabContextMenu, sprintEngineAgents, startRename, terminalSessions, workspaceAgents, worktreeBranch, workspaceId]
+    [commitRename, editorOpenFiles, hideTab, isWorktreeOpenedWorkspace, lastTerminalActivityAt, moduleOverrides, now, renameValue, renamingTabId, showTabContextMenu, sprintEngineAgents, startRename, terminalSessions, workspaceAgents, worktreeBranch, worktreeGitRoot, workspaceId]
   )
 
   const handleContextMenu = useCallback<NodeMouseEvent>((node, event) => {

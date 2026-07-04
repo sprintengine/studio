@@ -227,7 +227,10 @@ def sync_product_quality_gate(task: Dict[str, Any], state: Dict[str, Any], polic
     if not isinstance(spec, dict):
         return
     role = str(spec.get("role") or "product")
-    if folder_store.roster_is_configured_in_state(state) and role not in folder_store.roster_roles_from_state(state):
+    # Config-keyed like derive_default_quality_gates: the product reviewer need
+    # only be enabled (`configuredRoles`), not seated, so a lazy roster still
+    # gets its product gate when a task turns productFacing after init.
+    if folder_store.roster_is_configured_in_state(state) and role not in folder_store.resolved_gate_roles(state):
         return
     if role == task.get("role"):
         return

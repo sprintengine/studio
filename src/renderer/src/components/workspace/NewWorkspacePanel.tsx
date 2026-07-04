@@ -511,12 +511,13 @@ export default function NewWorkspacePanel({
   // Explicit per-role launch model (string = explicit id, null = explicit CLI
   // default/no model flag).
   const [seRoleModelOverrides, setSeRoleModelOverrides] = useState<SprintEngineRoleModelOverrides>({})
-  // Roles marked "Start now": their agents spawn when the workspace opens.
-  const [seSpawnAtStartRoles, setSeSpawnAtStartRoles] = useState<Partial<Record<SprintEngineRoleId, boolean>>>({})
   const [seRoleRegistry, setSeRoleRegistry] = useState<SprintEngineRoleRegistry | null>(null)
   const [seRoleRegistryStatus, setSeRoleRegistryStatus] = useState<'idle' | 'loading' | 'ready' | 'unavailable'>('idle')
   const [seStartRunner, setSeStartRunner] = useState(false)
   const [seUseWorktrees, setSeUseWorktrees] = useState(false)
+  // Workspace-level concurrent-session cap (MC-1450: replaces the roster-size
+  // ceiling). Clamped 1-10 at the input and again by the controller.
+  const [seMaxParallelAgents, setSeMaxParallelAgents] = useState(3)
   const [sePlanError, setSePlanError] = useState<string | null>(null)
   const [cliPermissionPreset, setCliPermissionPreset] = useState<SprintEngineCliPermissionPreset>(
     lastSpawnPermissionPreset,
@@ -1471,11 +1472,13 @@ export default function NewWorkspacePanel({
     setSeRoleCounts((current) => {
       // Floor against the current counts so a planning role (architect/general)
       // can only drop to 0 while the other planner is staffed — the roster
-      // never loses its last planning-capable agent.
+      // never loses its last planning-capable agent. Counts are an enabled-set
+      // encoding (MC-1450): every role is 0 or 1; parallelism comes from the
+      // max-parallel-agents knob + mint-on-demand, not headcounts.
       const min = sprintEngineRosterRoleFloor(role, current)
       return {
         ...current,
-        [role]: Math.max(min, Math.min(10, Math.floor(count))),
+        [role]: Math.max(min, Math.min(1, Math.floor(count))),
       }
     })
   }
@@ -1514,24 +1517,17 @@ export default function NewWorkspacePanel({
     setSeRoleModelOverrides((current) => ({ ...current, [role]: model }))
   }
 
-  const setRoleSpawnAtStart = (role: SprintEngineRoleId, spawn: boolean) => {
-    setSeSpawnAtStartRoles((current) => ({ ...current, [role]: spawn }))
-  }
-
-  const seEffectiveSpawnAtStartRoles = useMemo<Partial<Record<SprintEngineRoleId, boolean>>>(() => {
-    return buildSprintEngineEffectiveSpawnAtStartRoles({
+  // Lazy roster: only the architect carries a start-at-launch intent (no
+  // per-role "Start now" toggle). Worker/reviewer ids are minted on demand.
+  const seInitialSpawnRoles = useMemo(
+    () => (Object.entries(buildSprintEngineEffectiveSpawnAtStartRoles({
       automationMode: seAutomationMode,
       existingTeam: seExistingTeam != null,
-      spawnAtStartRoles: seSpawnAtStartRoles,
       visibleRoleCounts: visibleSprintEngineRoleCounts,
-    })
-  }, [seAutomationMode, seExistingTeam, seSpawnAtStartRoles, visibleSprintEngineRoleCounts])
-
-  const seInitialSpawnRoles = useMemo(
-    () => (Object.entries(seEffectiveSpawnAtStartRoles) as Array<[SprintEngineRoleId, boolean | undefined]>)
+    })) as Array<[SprintEngineRoleId, boolean | undefined]>)
       .filter(([, spawn]) => spawn)
       .map(([role]) => role),
-    [seEffectiveSpawnAtStartRoles],
+    [seAutomationMode, seExistingTeam, visibleSprintEngineRoleCounts],
   )
 
   const handleChooseGuidedSeedFolder = async () => {
@@ -1864,7 +1860,7 @@ export default function NewWorkspacePanel({
               sourcePlanKind: seSourcePlanKind,
               sourceBundle: seSourceBundle ?? null,
               visibleRoleCounts: visibleSprintEngineRoleCounts,
-              totalAgents,
+              maxParallelAgents: seMaxParallelAgents,
               roleCliDefaults: seRoleCliDefaults,
               roleModelOverrides: seRoleModelOverrides,
               initialSpawnRoles: seInitialSpawnRoles,
@@ -1941,7 +1937,7 @@ export default function NewWorkspacePanel({
             goal: sprintEngineConfig.goal,
             roleCounts: visibleSprintEngineRoleCounts,
             visibleRoleCounts: visibleSprintEngineRoleCounts,
-            totalAgents,
+            maxParallelAgents: seMaxParallelAgents,
             roleCliDefaults: seRoleCliDefaults,
             roleModelOverrides: seRoleModelOverrides,
             initialSpawnRoles: seInitialSpawnRoles,
@@ -2181,7 +2177,7 @@ export default function NewWorkspacePanel({
       <main ref={stepBodyRef} className="relative min-h-0 flex-1 overflow-y-auto">
         <div
           key={step}
-          className={`mx-auto flex w-full ${step === 'sprintengine-roster' ? 'max-w-[880px]' : 'max-w-[520px]'} flex-col gap-7 px-6 pt-10 pb-14 ${stepAnimationClass}`}
+          className={`mx-auto flex w-full ${step === 'sprintengine-roster' ? 'max-w-[1040px]' : 'max-w-[520px]'} flex-col gap-7 px-6 pt-10 pb-14 ${stepAnimationClass}`}
         >
           {stepIndex > 0 ? (
             <button
@@ -2412,9 +2408,6 @@ export default function NewWorkspacePanel({
               onSetRoleCli={setRoleCli}
               roleModelOverrides={seRoleModelOverrides}
               onSetRoleModel={setRoleModel}
-              spawnAtStartRoles={seEffectiveSpawnAtStartRoles}
-              spawnAtStartLocked={false}
-              onSetRoleSpawnAtStart={setRoleSpawnAtStart}
               automationMode={seAutomationMode}
               onChangeAutomationMode={setSeAutomationMode}
               cliPermissionPreset={cliPermissionPreset}
@@ -2422,6 +2415,8 @@ export default function NewWorkspacePanel({
               useWorktrees={seUseWorktrees}
               onChangeUseWorktrees={setSeUseWorktrees}
               worktreesDisabled={seExistingTeam != null}
+              maxParallelAgents={seMaxParallelAgents}
+              onChangeMaxParallelAgents={setSeMaxParallelAgents}
               totalAgents={totalAgents}
               hasExistingTeam={seExistingTeam != null}
               existingTeamName={seExistingTeam?.displayName ?? null}
@@ -4043,9 +4038,6 @@ function SprintEngineRosterStep(props: {
   onSetRoleCli: (role: SprintEngineRoleId, cli: AgentCli) => void
   roleModelOverrides: SprintEngineRoleModelOverrides
   onSetRoleModel: (role: SprintEngineRoleId, model: string | null) => void
-  spawnAtStartRoles: Partial<Record<SprintEngineRoleId, boolean>>
-  spawnAtStartLocked: boolean
-  onSetRoleSpawnAtStart: (role: SprintEngineRoleId, spawn: boolean) => void
   automationMode: SprintEngineAutomationMode
   onChangeAutomationMode: (mode: SprintEngineAutomationMode) => void
   cliPermissionPreset: SprintEngineCliPermissionPreset
@@ -4053,6 +4045,8 @@ function SprintEngineRosterStep(props: {
   useWorktrees: boolean
   onChangeUseWorktrees: (value: boolean) => void
   worktreesDisabled: boolean
+  maxParallelAgents: number
+  onChangeMaxParallelAgents: (value: number) => void
   totalAgents: number
   hasExistingTeam: boolean
   existingTeamName: string | null
@@ -4080,9 +4074,6 @@ function SprintEngineRosterStep(props: {
     onSetRoleCli,
     roleModelOverrides,
     onSetRoleModel,
-    spawnAtStartRoles,
-    spawnAtStartLocked,
-    onSetRoleSpawnAtStart,
     automationMode,
     onChangeAutomationMode,
     cliPermissionPreset,
@@ -4090,6 +4081,8 @@ function SprintEngineRosterStep(props: {
     useWorktrees,
     onChangeUseWorktrees,
     worktreesDisabled,
+    maxParallelAgents,
+    onChangeMaxParallelAgents,
     totalAgents,
     hasExistingTeam,
     existingTeamName,
@@ -4134,9 +4127,6 @@ function SprintEngineRosterStep(props: {
         onSetCli={onSetRoleCli}
         roleModelOverrides={roleModelOverrides}
         onSetModel={onSetRoleModel}
-        spawnAtStartRoles={spawnAtStartRoles}
-        spawnAtStartLocked={spawnAtStartLocked}
-        onSetSpawnAtStart={onSetRoleSpawnAtStart}
         totalAgents={totalAgents}
         rosterCountLabel={registryStatus === 'loading' ? 'Loading roles' : undefined}
         teams={teams}
@@ -4154,6 +4144,8 @@ function SprintEngineRosterStep(props: {
         useWorktrees={useWorktrees}
         onChangeUseWorktrees={onChangeUseWorktrees}
         worktreesDisabled={worktreesDisabled}
+        maxParallelAgents={maxParallelAgents}
+        onChangeMaxParallelAgents={onChangeMaxParallelAgents}
       />
     </div>
   )

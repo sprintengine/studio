@@ -37,7 +37,7 @@ import {
   type SprintEngineDispatchAttempt,
   type SprintEngineDispatchNotificationInput,
   getSprintEngineDispatchPlanEngagedAgentIds,
-  getSprintEngineQueueDepthReplenishRoles,
+  sprintEngineHasUnownedReadyTask,
   updateSprintEngineIdleClock,
   type SprintEngineDispatchPlan,
   type SprintEngineDispatchPath,
@@ -67,12 +67,14 @@ import {
   type TerminalListNoticeCooldown,
 } from '../../utils/sprintengineAutoRunExecutor'
 import { isSprintEnginePlanningRole } from '../../utils/sprintengineInitialSpawns'
+import { resolveSprintEngineAgentRuntime } from '../../store/slices/runStateSlice'
 import { logPerfEvent } from '../../utils/perfDiagnostics'
 import { pathJoin } from '../../utils/paths'
 import { MULTICODE_DISABLE_SPRINTENGINE_AUTORUN } from '../../utils/runtimeFlags'
 import { resolveProjectKnowledgeConfig } from '../../utils/projectKnowledge'
 import { isAgentTabVisible, type AgentTerminalRevealPolicy } from '../../utils/modelRegistry'
 import { refreshSprintEngineWorkspaceProjection } from '../../utils/sprintengineProjectionRefresh'
+import { tearDownDepartedTaskScopedWorker } from '../../utils/sprintengineRunTeardown'
 import { registerTimer } from '../../utils/diagnostics/timerRegistry'
 import { deriveSprintEngineAutomationMode } from '../../utils/sprintengineAutomation'
 import {
@@ -921,6 +923,52 @@ export async function executeSprintEngineDispatchPlan(
       logPerfEvent('SprintEngineAutoRun', 'idle-retirement-skipped-visible-tab', { ...base, ...retirement.data })
       continue
     }
+    if (retirement.teardown) {
+      // Departed task-scoped worker (task done): record + remove its panel so
+      // there is nothing to auto-respawn, killing the idle reap ↔ respawn loop.
+      // The recorded session lets a re-open from the role group resume. No
+      // `dispatchUpdateTerminalLaunchState` mirror: removal is the flag reset,
+      // and a post-removal reset would re-materialize the removed agent.
+      const teardown = await tearDownDepartedTaskScopedWorker(
+        workspace.id,
+        retirement.agentId,
+        undefined,
+        sessionsSnapshot,
+      )
+      // Only toast when the user could see the panel close; a recreated,
+      // already-torn-down roster record closes nothing visible.
+      if (teardown.closedSessionId || teardown.removedTab) {
+        await defaultExecutorPorts.publishDiagnostic({
+          level: 'info',
+          source: 'sprintengine',
+          title: retirement.diagnostic.title,
+          message: retirement.diagnostic.message,
+          details: retirement.diagnostic.details,
+          workspaceId: workspace.id,
+          workspaceName: workspace.name,
+          agentId: retirement.agentId,
+          ...(teardown.closedSessionId ? { sessionId: teardown.closedSessionId } : {}),
+        })
+      }
+      logPerfEvent('SprintEngineAutoRun', 'task-scoped-worker-torn-down', { ...base, ...retirement.data, ...teardown })
+      // Storm bound: a recreated record observed idle for a tick before Python
+      // marks the id `left` must not re-tear-down until the short cooldown
+      // elapses. Mirrors the kill-only path's cooldown bookkeeping.
+      if (typeof retirement.data.taskId === 'string') {
+        taskScopedRetirementTaskByClockKey.set(
+          sprintEngineIdleClockKey(workspace, retirement.agentId),
+          retirement.data.taskId
+        )
+      }
+      if (retirementCooldown) {
+        const retiredAt = Date.now()
+        retirementCooldown.set(sprintEngineIdleClockKey(workspace, retirement.agentId), retiredAt)
+        for (const [key, ts] of retirementCooldown) {
+          if (retiredAt - ts >= AUTO_RUN_RETIREMENT_COOLDOWN_MS) retirementCooldown.delete(key)
+        }
+      }
+      continue
+    }
     const session = await findRunningAgentSession(workspace, retirement.agentId, sessionsSnapshot)
     if (!session) continue
     await safeTerminalKill(defaultExecutorPorts, session.sessionId)
@@ -1243,7 +1291,17 @@ export async function spawnAutoRunCandidate(
   const currentState = useWorkspaceStore.getState()
   const currentWorkspace = currentState.workspaces.find((candidate) => candidate.id === workspace.id)
   const currentAgent = currentWorkspace?.agents[nextRun.agentId]
-  const selectedCli = currentAgent?.cli
+  // Defensive belt over the reconcile-stamped record (MC-1450): re-resolve
+  // the full runtime hierarchy (per-agent override > role `roleRuntimes`
+  // config > record) at the moment of spawn, so a mint path that bypassed
+  // reconcile can never substitute the CLI's default model.
+  const resolvedRuntime = resolveSprintEngineAgentRuntime(
+    sprintEngineState.roleRuntimes,
+    nextRun.role,
+    currentAgent,
+  )
+  const selectedCli = resolvedRuntime.cli
+  const selectedCliModel = resolvedRuntime.cliModel
   const sessionId = crypto.randomUUID()
   const spawnKey = `${workspace.id}:${nextRun.agentId}`
   if (inFlightSpawns.current.has(spawnKey)) return 'skipped'
@@ -1275,7 +1333,7 @@ export async function spawnAutoRunCandidate(
   // window-disposal retirement (cliResumeAvailable + cliSessionId with
   // cliHasLaunched/cliStartRequested cleared); every other spawn — new task,
   // gate, crashed live session — stays a fresh conversation. Resume failure
-  // in the CLI degrades to a new session on the same prompt (fresh brief).
+  // in the CLI degrades to a new session on the same startup text — a fresh brief.
   const resumeToken =
     !nextRun.gateId
     && sprintEngineState.sprintEngineAgents[nextRun.agentId]?.lastOwnedTaskId === nextRun.taskId
@@ -1458,7 +1516,7 @@ export async function spawnAutoRunCandidate(
       executionMode,
       ...(executionMode === 'worktree' ? { worktreePath: executionCwd } : {}),
       cliPermissionPreset: getSprintEngineAutoState(workspace).cliPermissionPreset,
-      cliModel: currentAgent?.cliModel,
+      cliModel: selectedCliModel,
       memoryRootPath: memoryStatus?.ok ? memoryStatus.rootPath : undefined,
       memoryRelativeRoot: memoryRelativeRoot ?? undefined,
       mcpSettings,
@@ -1661,19 +1719,20 @@ async function replenishRetiredRosterCapacity(
   if (deriveSprintEngineAutomationMode(autoState) === 'manual') return { status: 'none' }
   const hasRetiredAgent = Object.values(sprintEngineState.sprintEngineAgents)
     .some((agent) => agent.status === 'retired')
-  // MC-1444 Phase 3: with one agent session per task, a role's parallel
-  // throughput is bounded by its spawnable roster ids — trigger a queue-depth
-  // top-up when ready depth exceeds capacity. The Python command recomputes
-  // both authoritatively; maxNew carries the local concurrency ceiling.
-  let queueDepthRoles = getSprintEngineQueueDepthReplenishRoles(sprintEngineState, liveAgentIds)
-  const fingerprint = `${sprintEngineState.updatedAt ?? ''}|${queueDepthRoles.join(',')}`
+  // B1/B2 execution-only supervisor: with one agent session per task, every
+  // unowned ready task needs a fresh never-reused id. The renderer only decides
+  // WHETHER to call the assignment op; the Python command owns the mint/capacity
+  // decision authoritatively under the run lock. maxNew carries the local
+  // concurrency ceiling.
+  let wantsQueueDepthReplenish = sprintEngineHasUnownedReadyTask(sprintEngineState)
+  const fingerprint = `${sprintEngineState.updatedAt ?? ''}|${wantsQueueDepthReplenish ? 'ready' : ''}`
   if (
-    queueDepthRoles.length > 0
+    wantsQueueDepthReplenish
     && lastNoopQueueDepthReplenishFingerprint.get(workspace.id) === fingerprint
   ) {
-    queueDepthRoles = []
+    wantsQueueDepthReplenish = false
   }
-  if (!hasRetiredAgent && queueDepthRoles.length === 0) return { status: 'none' }
+  if (!hasRetiredAgent && !wantsQueueDepthReplenish) return { status: 'none' }
 
   // Live used terminals are neither wakeable for new tasks nor spawnable, so
   // Python must not count them as capacity either — the renderer owns
@@ -1683,7 +1742,7 @@ async function replenishRetiredRosterCapacity(
   )
   const result = await defaultExecutorPorts.replenishSprintEngineRoster({
     statePath: workspace.sprintEngineContext.statePath,
-    ...(queueDepthRoles.length > 0
+    ...(wantsQueueDepthReplenish
       ? {
         queueDepth: true,
         maxNew: Math.max(1, Math.min(10, autoState.maxConcurrentAgents ?? 3)),
@@ -1707,7 +1766,7 @@ async function replenishRetiredRosterCapacity(
   const created = ((result.data as { tool?: { created?: unknown[] } } | undefined)?.tool?.created ?? []).length
   // Park the queue-depth trigger on a no-mint outcome until the projection
   // changes; a mint clears the park so convergence keeps flowing.
-  if (queueDepthRoles.length > 0) {
+  if (wantsQueueDepthReplenish) {
     if (created <= 0) lastNoopQueueDepthReplenishFingerprint.set(workspace.id, fingerprint)
     else lastNoopQueueDepthReplenishFingerprint.delete(workspace.id)
   }

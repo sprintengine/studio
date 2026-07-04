@@ -13,6 +13,7 @@ import type {
   BacklogModuleMetadataInput,
   BacklogMutationResult,
   BacklogReadResult,
+  BacklogRemoveLinkInput,
   BacklogRemoveRecordInput,
   BacklogStatusInput,
   BacklogTriageInput,
@@ -32,6 +33,7 @@ type BacklogIpcRenderer = {
   invoke(channel: 'backlog:update-triage', input: BacklogTriageInput): Promise<BacklogMutationResult>
   invoke(channel: 'backlog:update-highlight', input: BacklogHighlightInput): Promise<BacklogMutationResult>
   invoke(channel: 'backlog:add-or-update-link', input: BacklogAddOrUpdateLinkInput): Promise<BacklogMutationResult>
+  invoke(channel: 'backlog:remove-link', input: BacklogRemoveLinkInput): Promise<BacklogMutationResult>
   invoke(channel: 'backlog:update-module-metadata', input: BacklogModuleMetadataInput): Promise<BacklogMutationResult>
   invoke(channel: 'backlog:move-object-source', input: BacklogMoveSourceInput): Promise<BacklogMutationResult>
   invoke(channel: 'backlog:remove-object-record', input: BacklogRemoveRecordInput): Promise<BacklogMutationResult>
@@ -61,6 +63,8 @@ export function createBacklogApi(renderer: BacklogIpcRenderer) {
       renderer.invoke('backlog:update-highlight', input),
     addOrUpdateBacklogLink: (input: BacklogAddOrUpdateLinkInput): Promise<BacklogMutationResult> =>
       renderer.invoke('backlog:add-or-update-link', input),
+    removeBacklogLink: (input: BacklogRemoveLinkInput): Promise<BacklogMutationResult> =>
+      renderer.invoke('backlog:remove-link', input),
     updateBacklogModuleMetadata: (input: BacklogModuleMetadataInput): Promise<BacklogMutationResult> =>
       renderer.invoke('backlog:update-module-metadata', input),
     moveBacklogObjectSource: (input: BacklogMoveSourceInput): Promise<BacklogMutationResult> =>
@@ -86,6 +90,7 @@ export function createBacklogApi(renderer: BacklogIpcRenderer) {
     | 'updateBacklogTriage'
     | 'updateBacklogHighlight'
     | 'addOrUpdateBacklogLink'
+    | 'removeBacklogLink'
     | 'updateBacklogModuleMetadata'
     | 'moveBacklogObjectSource'
     | 'removeBacklogObjectRecord'

@@ -986,6 +986,12 @@ export function createWorkspacesSlice(
               ),
               cli: rosterCli,
               cliModel: rosterModel,
+              // An explicit per-agent CLI pick from the wizard outranks the
+              // role config on every later reconcile (MC-1450 hierarchy), so
+              // record it as a durable override rather than a silent snapshot.
+              ...(typeof overrideCli === 'string' && overrideCli.trim()
+                ? { cliRuntimeOverride: { cli: overrideCli.trim() } }
+                : {}),
             }
             if (initialSpawnRoles.has(agent.role)) initialSpawnAgentIds.push(agent.id)
           })

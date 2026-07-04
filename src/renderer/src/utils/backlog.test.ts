@@ -603,6 +603,13 @@ run('every Backlog link shows a visible status word and a Tooltip detail', () =>
   assert.match(linksSectionSource, /<Tooltip content=\{model\.detail\}/, 'target/reason detail uses the Tooltip primitive')
 })
 
+run('Backlog links can be detached without deleting their targets', () => {
+  assert.match(linksSectionSource, /aria-label=\{`Unlink \$\{model\.label\}`\}/, 'each secondary link exposes an accessible unlink control')
+  assert.match(backlogPanelSource, /id: 'unlink-sprint', label: 'Unlink sprint…'/, 'the promoted primary sprint link remains removable from item actions')
+  assert.match(backlogPanelSource, /window\.api\.removeBacklogLink\(/, 'unlink persists through the dedicated Backlog IPC')
+  assert.match(backlogPanelSource, /The run itself will not be deleted/, 'manual status override explains that unlinking preserves the run')
+})
+
 run('Backlog link resolve/open failures surface inline instead of being swallowed', () => {
   assert.match(linksSectionSource, /linkError \?/, 'link errors gate an inline notice')
   assert.match(linksSectionSource, /<InlineNotice tone="warn">\{linkError\}/, 'link errors render as an inline warning')

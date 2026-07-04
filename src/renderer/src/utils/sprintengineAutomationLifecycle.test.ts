@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
 import type { SprintEngineAutoState } from '../types/workspace'
 import {
+  sprintEngineAgentHasLiveRunWork,
   sprintEngineAutomationInitialStateForMode,
   sprintEngineAutomationModeForRunOptions,
   sprintEngineAutomationShouldRun,
@@ -136,5 +137,67 @@ assert.equal(
 const initialApprove = sprintEngineAutomationInitialStateForMode('run_agents_and_approve_artifacts', 700)
 assert.equal(initialApprove.desiredMode, 'run_agents_and_approve_artifacts')
 assert.equal(initialApprove.runtimeState, 'running')
+
+// MC-1450 Phase 1b: an agent-terminal close only counts as an intervention
+// (and pauses the run) when the closed agent holds live run work. Routine
+// MC-1444 per-task teardown — the worker is 'left', its task done/reviewed —
+// must be lifecycle-neutral.
+const liveWorkState = {
+  sprintEngineAgents: {
+    'developer-1': { role: 'developer', status: 'running' as const, currentTaskId: 'T1' },
+    'developer-2': { role: 'developer', status: 'idle' as const, currentTaskId: null },
+    'tester-1': { role: 'tester', status: 'idle' as const, currentTaskId: null },
+    // Reviewers hold a gate claim with no task claim.
+    'code_reviewer': { role: 'code_reviewer', status: 'running' as const, currentTaskId: null, currentGateId: 'G1' },
+    // A dispatched agent may not have claimed yet.
+    'frontend': {
+      role: 'frontend',
+      status: 'idle' as const,
+      currentTaskId: null,
+      currentDispatch: { dispatchId: 'DISP-1', reason: 'task_claimed' } as never,
+    },
+  },
+  tasks: [
+    { ownerAgentId: 'developer-1', status: 'in_progress' },
+    { ownerAgentId: 'developer-2', status: 'review' },
+    { ownerAgentId: 'tester-1', status: 'needs_input' },
+  ] as never,
+}
+assert.equal(
+  sprintEngineAgentHasLiveRunWork(liveWorkState, baseAutoState(), 'developer-1'),
+  true,
+  'an active claimant close is an intervention'
+)
+assert.equal(
+  sprintEngineAgentHasLiveRunWork(liveWorkState, baseAutoState(), 'developer-2'),
+  false,
+  'a worker whose task is in its publish→verdict window is routine teardown — MC-1444 disposes it by design'
+)
+assert.equal(
+  sprintEngineAgentHasLiveRunWork(liveWorkState, baseAutoState(), 'tester-1'),
+  true,
+  'an agent whose owned task needs input still has a live session worth protecting'
+)
+assert.equal(
+  sprintEngineAgentHasLiveRunWork(
+    liveWorkState,
+    baseAutoState({ pendingSpawns: [{ taskId: 'T9', agentId: 'developer-3', startedAt: 1 }] }),
+    'developer-3'
+  ),
+  true,
+  'a pending spawn counts as live work — projection lag must not misclassify an early close'
+)
+assert.equal(
+  sprintEngineAgentHasLiveRunWork(liveWorkState, baseAutoState(), 'code_reviewer'),
+  true,
+  'an active gate claim (reviewer) is live work even with no task claim'
+)
+assert.equal(
+  sprintEngineAgentHasLiveRunWork(liveWorkState, baseAutoState(), 'frontend'),
+  true,
+  'an active dispatch counts as live work before the claim lands'
+)
+assert.equal(sprintEngineAgentHasLiveRunWork(liveWorkState, baseAutoState(), undefined), false)
+assert.equal(sprintEngineAgentHasLiveRunWork(null, baseAutoState(), 'developer-1'), false)
 
 console.log('sprintengineAutomationLifecycle.test.ts: ok')

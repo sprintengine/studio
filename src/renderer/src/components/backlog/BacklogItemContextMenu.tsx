@@ -15,11 +15,13 @@ import type {
   BacklogHighlight,
   BacklogHighlightColor,
   BacklogItem,
+  BacklogItemLink,
   BacklogItemStatus,
   BacklogRisk,
 } from '../../utils/backlog'
 import { CRITICALITY_LABEL, DIFFICULTY_WORD, RISK_LABEL } from '../../utils/backlogTriage'
 import { BACKLOG_STATUS_LABEL } from './BacklogRow'
+import { BacklogItemSearchPicker } from './BacklogItemSearchPicker'
 
 // Row-level Backlog actions, owned by the panel (the handlers persist through
 // the backlog IPC and re-scan). The context menu and the detail pane dispatch
@@ -30,13 +32,20 @@ export type RiskChoice = BacklogRisk | 'unset'
 
 // One assignable epic for the "Move to epic" affordances: the epic file's slug
 // (the updateBacklogEpic target) plus its display title.
-export type BacklogEpicChoice = { slug: string; title: string }
+export type BacklogEpicChoice = { slug: string; title: string; displayId?: string }
 
 // One candidate prerequisite for the "Depends on…" affordances: an item's id
 // (to exclude self), its slug (the dependsOn target, = filename stem), and its
 // display title. The full candidate set is shared; each surface drops the
 // current item by id.
-export type BacklogDependencyChoice = { id: string; slug: string; title: string }
+export type BacklogDependencyChoice = { id: string; slug: string; title: string; displayId?: string }
+
+export type BacklogContextItemAction = {
+  id: string
+  label: string
+  disabled: boolean
+  run: () => void
+}
 
 // Toggle one prerequisite slug in an item's `dependsOn` set (add if absent,
 // remove if present), preserving order. Both the context menu and the detail
@@ -57,6 +66,9 @@ export type BacklogActions = {
   // the Archived lens shows the epic as a single grouped unit.
   archiveEpic: (item: BacklogItem) => void
   remove: (item: BacklogItem) => void
+  // Remove only the association. The linked sprint/agent continues to exist,
+  // and lifecycle remains independently controlled by setStatus.
+  removeLink: (item: BacklogItem, link: BacklogItemLink) => void
   setStatus: (item: BacklogItem, status: BacklogItemStatus) => void
   setDifficulty: (item: BacklogItem, value: DifficultyChoice) => void
   setCriticality: (item: BacklogItem, value: CriticalityChoice) => void
@@ -135,6 +147,7 @@ export function BacklogItemContextMenu({
   actions,
   epicChoices,
   dependencyChoices,
+  itemActions,
   agentTargets,
   agentSessions,
   onFlyoutOpen,
@@ -149,6 +162,9 @@ export function BacklogItemContextMenu({
   epicChoices: ReadonlyArray<BacklogEpicChoice>
   // Items this one can declare as prerequisites (self filtered out below).
   dependencyChoices: ReadonlyArray<BacklogDependencyChoice>
+  // Module-contributed actions resolved for this exact row. This keeps Run a
+  // Sprint/Open Sprint on the same eligibility and execution path as detail.
+  itemActions: ReadonlyArray<BacklogContextItemAction>
   agentTargets: Array<AgentState & { cliSessionId: string }>
   agentSessions: TerminalSessionSnapshot[] | null
   onFlyoutOpen: () => void
@@ -171,6 +187,19 @@ export function BacklogItemContextMenu({
       onClose={onClose}
       surfaceClassName="min-w-[240px]"
     >
+      {itemActions.map((itemAction) => (
+        <MenuItem
+          key={itemAction.id}
+          disabled={itemAction.disabled}
+          onClick={() => {
+            itemAction.run()
+            onClose()
+          }}
+        >
+          {itemAction.label}
+        </MenuItem>
+      ))}
+      {itemActions.length > 0 ? <MenuDivider /> : null}
       <MenuFlyoutItem
         label="Send to agent"
         ariaLabel="Send to agent"
@@ -296,26 +325,24 @@ export function BacklogItemContextMenu({
       {/* Epic membership is the child's `epic:` frontmatter; an epic can't nest
           inside another epic, so the affordance is hidden on epic rows. */}
       {!item.isEpic ? (
-        <MenuFlyoutItem label="Move to epic" ariaLabel="Move to epic" surfaceClassName="min-w-[200px]">
-          {epicChoices.length === 0 ? (
-            <MenuItem disabled onClick={() => {}}>
-              No epics yet
-            </MenuItem>
-          ) : (
-            epicChoices.map((epic) => (
-              <MenuItem
-                key={epic.slug}
-                checked={item.epic === epic.slug}
-                icon={<MenuCheckGlyph visible={item.epic === epic.slug} />}
-                onClick={() => {
-                  actions.setEpic(item, epic.slug)
-                  onClose()
-                }}
-              >
-                {epic.title}
-              </MenuItem>
-            ))
-          )}
+        <MenuFlyoutItem label="Move to epic" ariaLabel="Move to epic" surfaceClassName="min-w-[19rem]">
+          <BacklogItemSearchPicker
+            options={epicChoices.map((epic) => ({
+              id: epic.slug,
+              value: epic.slug,
+              title: epic.title,
+              displayId: epic.displayId,
+              searchText: epic.slug,
+            }))}
+            selectedValues={item.epic ? [item.epic] : []}
+            ariaLabel="Search epics"
+            placeholder="Search epic ID or name…"
+            noOptionsMessage="No epics yet."
+            onSelect={(epic) => {
+              actions.setEpic(item, epic.value)
+              onClose()
+            }}
+          />
           <MenuDivider />
           <MenuItem
             onClick={() => {
@@ -343,29 +370,24 @@ export function BacklogItemContextMenu({
           checks reflect the current set. Hidden on epics, mirroring Move to
           epic. */}
       {!item.isEpic ? (
-        <MenuFlyoutItem label="Depends on…" ariaLabel="Set prerequisites" surfaceClassName="min-w-[220px]">
-          {dependencyCandidates.length === 0 ? (
-            <MenuItem disabled onClick={() => {}}>
-              No other items
-            </MenuItem>
-          ) : (
-            dependencyCandidates.map((candidate) => {
-              const checked = dependsOn.includes(candidate.slug)
-              return (
-                <MenuItem
-                  key={candidate.id}
-                  checked={checked}
-                  icon={<MenuCheckGlyph visible={checked} />}
-                  onClick={() => {
-                    const next = toggleDependencySlug(dependsOn, candidate.slug)
-                    actions.setDependencies(item, next.length > 0 ? next : null)
-                  }}
-                >
-                  {candidate.title}
-                </MenuItem>
-              )
-            })
-          )}
+        <MenuFlyoutItem label="Depends on…" ariaLabel="Set prerequisites" surfaceClassName="min-w-[19rem]">
+          <BacklogItemSearchPicker
+            options={dependencyCandidates.map((candidate) => ({
+              id: candidate.id,
+              value: candidate.slug,
+              title: candidate.title,
+              displayId: candidate.displayId,
+              searchText: candidate.slug,
+            }))}
+            selectedValues={dependsOn}
+            ariaLabel="Search prerequisite items"
+            noOptionsMessage="No other items."
+            multiple
+            onSelect={(candidate) => {
+              const next = toggleDependencySlug(dependsOn, candidate.value)
+              actions.setDependencies(item, next.length > 0 ? next : null)
+            }}
+          />
           {dependsOn.length > 0 ? (
             <>
               <MenuDivider />

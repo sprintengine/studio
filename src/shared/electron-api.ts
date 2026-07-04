@@ -1572,6 +1572,11 @@ export type SprintEngineStateInitializeInput = {
   // so each claimed task can be stamped with the model that worked it. A role
   // with no explicit model (CLI default) is omitted / left null.
   roleRuntimes?: Record<string, { model?: string | null; cli?: string | null }>
+  // The enabled role ids (architect always included) the user turned on for
+  // this run. Written to run.yaml `configuredRoles` at init so Python derives
+  // quality gates for configured-but-not-yet-seated roles under the lazy
+  // (architect-only) roster. Empty => no derived gates.
+  enabledRoles?: string[]
 }
 
 export type SprintEngineCliWatchPolling = 'enabled' | 'disabled'
@@ -1997,6 +2002,12 @@ export type BacklogAddOrUpdateLinkInput = {
   relativePath: string
   link: BacklogItemLinkPayload
   status?: BacklogItemStatusPayload
+}
+
+export type BacklogRemoveLinkInput = {
+  workspaceRoot: string
+  relativePath: string
+  linkId: string
 }
 
 export type BacklogModuleMetadataInput = {
@@ -2443,6 +2454,7 @@ export type ElectronApi = {
   updateBacklogTriage: (input: BacklogTriageInput) => Promise<BacklogMutationResult>
   updateBacklogHighlight: (input: BacklogHighlightInput) => Promise<BacklogMutationResult>
   addOrUpdateBacklogLink: (input: BacklogAddOrUpdateLinkInput) => Promise<BacklogMutationResult>
+  removeBacklogLink: (input: BacklogRemoveLinkInput) => Promise<BacklogMutationResult>
   updateBacklogModuleMetadata: (input: BacklogModuleMetadataInput) => Promise<BacklogMutationResult>
   moveBacklogObjectSource: (input: BacklogMoveSourceInput) => Promise<BacklogMutationResult>
   removeBacklogObjectRecord: (input: BacklogRemoveRecordInput) => Promise<BacklogMutationResult>
