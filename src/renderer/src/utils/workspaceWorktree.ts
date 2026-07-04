@@ -129,7 +129,7 @@ export function findHealthyWorktreeScope<T extends WorktreeScopeCandidate>(
 // connector (e.g. Railway) plus its driving skill, so the connector server never
 // leaks into the user's other chats. These pure helpers build the deterministic
 // pieces of that spawn; the async worktree/catalog IO around them lives in
-// WorkspaceManager.createConnectorChat.
+// WorkspaceManager.launchConnectorChat.
 
 /**
  * Container directory a repo's worktrees live under:

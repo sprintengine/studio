@@ -90,7 +90,7 @@ export const BUILTIN_SKILLS: BuiltinSkill[] = [
     description: 'Explore and operate a Railway environment from chat: auth check, projects, deploy status, health, and follow-ups.',
     // The Railway connector installs this into whichever CLI it launches so the
     // seed prompt can invoke it natively (.claude/skills, .codex/skills), not
-    // just .agents/. createConnectorChat ensure-installs it at spawn.
+    // just .agents/. launchConnectorChat ensure-installs it at spawn.
     targetPolicy: ALL_NATIVE_TARGET_POLICY,
   },
 ]
