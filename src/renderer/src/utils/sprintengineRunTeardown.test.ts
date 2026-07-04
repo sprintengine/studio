@@ -4,6 +4,7 @@ import {
   buildRosterSessionFromAgent,
   selectSprintEngineTeardownAgentIds,
   tearDownCompletedSprintRunAgents,
+  tearDownDepartedTaskScopedWorker,
   type SprintEngineRunTeardownPorts,
 } from './sprintengineRunTeardown'
 import type { AgentState, Workspace } from '../types/workspace'
@@ -306,6 +307,111 @@ void (async () => {
 
     assert.deepEqual(stub.removed, ['architect'], 'recreated record still removed')
     assert.deepEqual(stub.diagnostics, [], 'nothing user-visible closed → no toast')
+  }
+
+  // --- tearDownDepartedTaskScopedWorker (mid-run, MC-1444 B4) ---
+
+  // 12. Departed done-worker: records its resumable session, kills the PTY, and
+  //     removes only its panel/agent (the sibling is untouched → no respawn).
+  {
+    const workspace = makeWorkspace({
+      architect: agent({ id: 'architect', cli: 'claude-code', cliSessionId: 'sess-arch' }),
+      'dev-1': agent({ id: 'dev-1', cli: 'claude-code', cliSessionId: 'sess-dev', cliModel: 'opus', name: 'Dev' }),
+    })
+    const sessions = [
+      {
+        sessionId: 'sess-dev',
+        processAlive: true,
+        kind: 'agent',
+        workspaceId: 'ws-1',
+        agentId: 'dev-1',
+        sprintEngineStatePath: '/proj/.multi-code/sprintengine/x/run.yaml',
+      } as unknown as TerminalSessionSnapshot,
+    ]
+    const { ports, recorded, removed, removedTabs, killed } = stubPorts(workspace, sessions)
+    const result = await tearDownDepartedTaskScopedWorker('ws-1', 'dev-1', ports)
+
+    assert.deepEqual(removed, ['dev-1'], 'only the departed worker is removed')
+    assert.deepEqual(removedTabs, ['dev-1'], 'its tab is removed')
+    assert.deepEqual(killed, ['sess-dev'], 'its live PTY is disposed')
+    assert.equal((recorded['dev-1'] as { cliSessionId: string }).cliSessionId, 'sess-dev', 'resumable session recorded')
+    assert.equal((recorded['dev-1'] as { role: string }).role, 'developer')
+    assert.equal(Boolean(workspace.agents.architect), true, 'the sibling panel is untouched')
+    assert.deepEqual(
+      { recorded: result.recorded, removedAgent: result.removedAgent, removedTab: result.removedTab, closedSessionId: result.closedSessionId },
+      { recorded: true, removedAgent: true, removedTab: true, closedSessionId: 'sess-dev' },
+    )
+  }
+
+  // 13. Idempotent: an already-torn-down worker recreated tab-less with no live
+  //     session records nothing and closes nothing (caller suppresses the toast),
+  //     though the stale record is still removed.
+  {
+    const workspace = makeWorkspace(
+      { 'dev-1': agent({ id: 'dev-1', cli: 'claude-code', cliSessionId: undefined }) },
+      agentTabLayout(), // no agent tabs in the persisted layout
+    )
+    const stub = stubPorts(workspace, [])
+    stub.setLiveModelMounted(false)
+    const result = await tearDownDepartedTaskScopedWorker('ws-1', 'dev-1', stub.ports)
+
+    assert.deepEqual(stub.removed, ['dev-1'], 'stale record still removed')
+    assert.deepEqual(stub.recorded, {}, 'nothing resumable to record')
+    assert.deepEqual(stub.killed, [], 'no live session to kill')
+    assert.equal(result.removedTab, false, 'no visible tab closed')
+    assert.equal(result.closedSessionId, null)
+    assert.equal(result.recorded, false)
+  }
+
+  // 14. Unmounted workspace: removeAgentTab reports nothing removed, so the
+  //     departed worker's tab is stripped from the persisted layout instead.
+  {
+    const workspace = makeWorkspace(
+      { 'dev-1': agent({ id: 'dev-1', cli: 'claude-code', cliSessionId: 'sess-dev' }) },
+      agentTabLayout('dev-1'),
+    )
+    const stub = stubPorts(workspace, [])
+    stub.setLiveModelMounted(false)
+    const result = await tearDownDepartedTaskScopedWorker('ws-1', 'dev-1', stub.ports)
+
+    assert.equal(stub.layoutUpdates.length, 1, 'persisted layout stripped when workspace unmounted')
+    assert.equal(stub.layoutUpdates[0].includes('"agentId":"dev-1"'), false, 'dev-1 tab removed from persisted layout')
+    assert.equal(result.removedTab, true, 'a persisted-layout tab counts as a visible removal')
+  }
+
+  // 15. preloadedSessions is used verbatim — the executor's shared snapshot means
+  //     the teardown must not issue its own terminal-list.
+  {
+    const workspace = makeWorkspace({ 'dev-1': agent({ id: 'dev-1', cli: 'claude-code', cliSessionId: 'sess-dev' }) })
+    const preloaded = [
+      {
+        sessionId: 'sess-dev',
+        processAlive: true,
+        kind: 'agent',
+        workspaceId: 'ws-1',
+        agentId: 'dev-1',
+        sprintEngineStatePath: '/proj/.multi-code/sprintengine/x/run.yaml',
+      } as unknown as TerminalSessionSnapshot,
+    ]
+    const { ports, killed } = stubPorts(workspace, [])
+    ports.terminalList = async () => {
+      throw new Error('terminalList must not be called when sessions are preloaded')
+    }
+    const result = await tearDownDepartedTaskScopedWorker('ws-1', 'dev-1', ports, preloaded)
+    assert.deepEqual(killed, ['sess-dev'], 'preloaded live session disposed without a terminal-list call')
+    assert.equal(result.closedSessionId, 'sess-dev')
+  }
+
+  // 16. A non-sprintengine agent is never torn down by this path.
+  {
+    const workspace = makeWorkspace({ chat: agent({ id: 'chat', kind: 'general', cliSessionId: 'x' }) })
+    const { ports, removed } = stubPorts(workspace, [])
+    const result = await tearDownDepartedTaskScopedWorker('ws-1', 'chat', ports)
+    assert.deepEqual(removed, [], 'non-sprintengine agent untouched')
+    assert.deepEqual(
+      { recorded: result.recorded, removedAgent: result.removedAgent, removedTab: result.removedTab },
+      { recorded: false, removedAgent: false, removedTab: false },
+    )
   }
 
   console.log('sprintengineRunTeardown.test.ts: ok')

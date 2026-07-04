@@ -28,6 +28,7 @@ async function main(): Promise<void> {
   await testReadDispatchUsesMcpTool()
   await testInitializeSprintEngineStatePreservesDisplayName()
   await testInitializeSprintEngineStateRecordsRoleRuntimes()
+  await testInitializeSprintEngineStateRecordsConfiguredRoles()
   await testRunnerModeCliInvocationUsesSprintEngineTool()
   await testRosterAddCliInvocationUsesSprintEngineTool()
   await testReadBridgeSurfacesUnavailableMcpAndMalformedPayloads()
@@ -682,6 +683,42 @@ async function testInitializeSprintEngineStateRecordsRoleRuntimes(): Promise<voi
     assert.match(block, /developer:/u)
     assert.match(block, /claude-fable-5/u)
     assert.doesNotMatch(block, /tester:/u, 'a CLI-default role records no runtime')
+  } finally {
+    await rm(workspaceRoot, { recursive: true, force: true })
+  }
+}
+
+async function testInitializeSprintEngineStateRecordsConfiguredRoles(): Promise<void> {
+  const workspaceRoot = await mkdtemp(join(tmpdir(), 'multicode-sprintengine-configured-roles-'))
+  const statePath = join(workspaceRoot, '.multi-code', 'sprintengine', 'team', 'run.yaml')
+  const handlers = createHandlers(async () => {
+    throw new Error('init must use the Sprint Engine CLI bridge')
+  })
+
+  try {
+    // Lazy roster: only the architect is seeded, but enabledRoles carries the
+    // full participating set so Python derives reviewer/tester gates for roles
+    // that are configured-but-not-yet-seated.
+    const init = await handlers.initializeSprintEngineState({
+      statePath,
+      name: 'Configured roles',
+      goal: 'Persist the enabled role set',
+      agents: { architect: { role: 'architect' } },
+      enabledRoles: ['architect', 'developer', 'tester', 'developer'],
+    })
+    assert.equal(init.ok, true, init.ok ? undefined : init.message)
+    if (!init.ok) return
+
+    const runYaml = await readFile(statePath, 'utf-8')
+    // Top-level configuredRoles list, deduped, in the order supplied. YAML
+    // renders the block sequence with items on their own `- <role>` lines.
+    const cfg = runYaml.match(/^configuredRoles:\n((?:\s*- .*\n?)+)/mu)
+    assert.ok(cfg, 'run.yaml records a top-level configuredRoles list')
+    const block = cfg[1]
+    assert.match(block, /- architect\b/u)
+    assert.match(block, /- developer\b/u)
+    assert.match(block, /- tester\b/u)
+    assert.equal((block.match(/- developer\b/gu) ?? []).length, 1, 'duplicate role is deduped')
   } finally {
     await rm(workspaceRoot, { recursive: true, force: true })
   }

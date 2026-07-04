@@ -6,6 +6,8 @@ import {
   buildSprintEngineAgentRoster,
   buildSprintEngineAgentRosterFromRuntimeAgents,
   buildSprintEngineRoleRegistry,
+  getNextSprintEngineAgentId,
+  sprintEngineEnabledRoles,
   formatSprintEngineLockAge,
   getActiveSprintEngineLifecyclePhases,
   getLatestSprintEngineTaskComment,
@@ -46,6 +48,8 @@ import {
   deriveSprintEngineRunGlyph,
   sprintEngineRoleOrder,
   sprintEngineRunAwaitsHumanInput,
+  shouldResumeRecordedRosterSession,
+  willResumeRecordedRosterSession,
 } from './sprintengine'
 import { taskGraphEdgeStyle, taskGraphEndEdgeStyle } from '../components/panels/sprintEngineTaskGraph'
 import { sprintEngineGateAttemptVisualState } from '../components/panels/sprintEngineInspector'
@@ -68,7 +72,7 @@ import {
   buildSprintEngineRecoveryAuditPrompt,
   buildSprintEngineRosterRevisionPrompt,
 } from './sprintenginePlanReviewPrompts'
-import type { SprintEngineRoleId, SprintEngineRoleRegistry, SprintEngineTask } from '../types/workspace'
+import type { AgentCli, SprintEngineRoleId, SprintEngineRoleRegistry, SprintEngineRosterSession, SprintEngineState, SprintEngineTask } from '../types/workspace'
 
 function fakeProjection(overrides: Partial<Record<string, unknown>> = {}): Record<string, unknown> {
   return {
@@ -219,18 +223,47 @@ assert.equal(modelState!.tasks[0]?.cli, 'claude-code')
 assert.equal(modelState!.tasks[1]?.model, undefined)
 assert.equal(modelState!.tasks[1]?.cli, undefined)
 
-// MC-1450: the roster seeds ONE agent per enabled role — counts are an
-// enabled-set encoding, and a legacy count > 1 seeds only the first id of the
-// mint scheme so `getNextSprintEngineAgentId` stays consistent.
-const singleSeedRoster = buildSprintEngineAgentRoster({ architect: 1, developer: 3, tester: 1 })
+// Lazy roster: creation seeds ONLY the architect regardless of enabled counts.
+// Workers are minted task-scoped by the Python assignment op and reviewer ids
+// register on their first gate, so no worker/reviewer record exists at creation.
+const lazyRoster = buildSprintEngineAgentRoster({ architect: 1, developer: 3, tester: 1 })
 assert.deepEqual(
-  singleSeedRoster.map((agent) => agent.id),
-  ['architect', 'developer-1', 'tester'],
-  'one roster agent per enabled role; developer keeps its -1 id scheme'
+  lazyRoster.map((agent) => agent.id),
+  ['architect'],
+  'lazy roster seeds only the architect'
 )
-assert.ok(
-  singleSeedRoster.every((agent) => !/\s\d+$/.test(agent.label)),
-  'single-seed labels carry no positional suffix'
+
+// enabledRoles still encodes the participating set (architect always on) even
+// though seats are not materialized — this is what feeds Python `configuredRoles`.
+assert.deepEqual(
+  sprintEngineEnabledRoles({ architect: 1, developer: 1, tester: 1 }).sort(),
+  ['architect', 'developer', 'tester'],
+  'enabledRoles = architect + every role with count > 0'
+)
+assert.deepEqual(
+  sprintEngineEnabledRoles({ architect: 1, developer: 0 }),
+  ['architect'],
+  'a disabled role (count 0) is not enabled; architect is always present'
+)
+
+// Allocator (D-Naming): the first minted worker of a role is `<role>-1` — no
+// bare-id short-circuit — matching the Python allocator (max matching index + 1,
+// a bare `<role>` counting as index 1). Bare `<role>` is the reviewer id.
+const rt = (role: string) => ({ role, status: 'idle' as const, currentTaskId: null })
+assert.equal(
+  getNextSprintEngineAgentId('developer', { architect: rt('architect') }),
+  'developer-1',
+  'first worker on an empty developer roster is developer-1',
+)
+assert.equal(
+  getNextSprintEngineAgentId('developer', { architect: rt('architect'), 'developer-1': rt('developer') }),
+  'developer-2',
+  'the next worker steps past developer-1',
+)
+assert.equal(
+  getNextSprintEngineAgentId('nuclear_reviewer', { nuclear_reviewer: rt('nuclear_reviewer') }),
+  'nuclear_reviewer-2',
+  'a seated bare reviewer id counts as index 1, so a worker mint steps to -2',
 )
 
 // MC-1450: run.roleRuntimes (run.yaml per-role {model, cli}) rides the
@@ -2709,6 +2742,187 @@ type FakeTask = { role: string; status: SprintEngineTask['status'] }
   assert.equal(eligibility.reason, 'Unknown artifact type.')
   assert.equal(sprintEngineArtifactKindLabel('frontend_design'), 'frontend_design', 'unknown kind labels fall back to the raw value')
   assert.equal(sprintEngineArtifactKindLabel('design_notes'), 'Design Notes')
+}
+
+// shouldResumeRecordedRosterSession — B4 mid-run re-open resume (T6 tester rework)
+{
+  const task = (id: string, status: string): SprintEngineTask => ({ id, status } as unknown as SprintEngineTask)
+  const ownedBy = (lastOwnedTaskId: string | null): SprintEngineState['sprintEngineAgents'][string] =>
+    ({ lastOwnedTaskId } as unknown as SprintEngineState['sprintEngineAgents'][string])
+  const state = (
+    tasks: SprintEngineTask[],
+    agents: Record<string, SprintEngineState['sprintEngineAgents'][string]>,
+  ): SprintEngineState => ({ tasks, sprintEngineAgents: agents } as unknown as SprintEngineState)
+
+  // 1. Whole run complete → resume regardless of the agent's own task.
+  assert.equal(
+    shouldResumeRecordedRosterSession({
+      sprintEngineState: state([task('T1', 'done')], {}),
+      autoRuntimeState: undefined,
+      agentId: 'developer-1',
+    }),
+    true,
+    'a completed run resumes any recorded roster session',
+  )
+
+  // 2. Mid-run: the departed worker's own task is done → resume (B4 regression).
+  assert.equal(
+    shouldResumeRecordedRosterSession({
+      sprintEngineState: state(
+        [task('T1', 'done'), task('T2', 'in_progress')],
+        { 'developer-1': ownedBy('T1') },
+      ),
+      autoRuntimeState: undefined,
+      agentId: 'developer-1',
+    }),
+    true,
+    'mid-run departed worker whose own task is done resumes its recorded session',
+  )
+
+  // 3. Mid-run: the owner's task is still in its verdict/rework window → fresh.
+  assert.equal(
+    shouldResumeRecordedRosterSession({
+      sprintEngineState: state(
+        [task('T1', 'review'), task('T2', 'in_progress')],
+        { 'developer-1': ownedBy('T1') },
+      ),
+      autoRuntimeState: undefined,
+      agentId: 'developer-1',
+    }),
+    false,
+    'a worker still in its rework window is not treated as departed',
+  )
+
+  // 4. Stale prior-run entry: the id has not re-owned a done task this run → fresh.
+  assert.equal(
+    shouldResumeRecordedRosterSession({
+      sprintEngineState: state([task('T1', 'in_progress')], { 'developer-1': ownedBy(null) }),
+      autoRuntimeState: undefined,
+      agentId: 'developer-1',
+    }),
+    false,
+    'a recorded id with no done owned task this run cannot hijack a fresh spawn',
+  )
+
+  // 4b. Agent absent from this run's roster entirely → fresh.
+  assert.equal(
+    shouldResumeRecordedRosterSession({
+      sprintEngineState: state([task('T1', 'in_progress')], {}),
+      autoRuntimeState: undefined,
+      agentId: 'developer-1',
+    }),
+    false,
+    'an id absent from this run\'s roster is not resumed',
+  )
+
+  // 5. Cold reopen (projection not hydrated) but persisted lifecycle complete → resume.
+  assert.equal(
+    shouldResumeRecordedRosterSession({ sprintEngineState: null, autoRuntimeState: 'complete', agentId: 'developer-1' }),
+    true,
+    'cold reopen of a complete run resumes from the persisted lifecycle state',
+  )
+
+  // 6. Cold reopen, lifecycle not complete → fresh.
+  assert.equal(
+    shouldResumeRecordedRosterSession({ sprintEngineState: null, autoRuntimeState: undefined, agentId: 'developer-1' }),
+    false,
+    'cold reopen without a complete lifecycle spawns fresh',
+  )
+}
+
+// willResumeRecordedRosterSession — the shared Resume-vs-Spawn gate (T12). Must
+// match spawnAgent's real resume gate: lifecycle wants resume AND a recorded
+// session with a cliSessionId exists for a resume-capable CLI. This is the gate
+// the roster label and spawnAgent both read, so they can never drift.
+{
+  const task = (id: string, status: string): SprintEngineTask => ({ id, status } as unknown as SprintEngineTask)
+  const ownedBy = (lastOwnedTaskId: string | null): SprintEngineState['sprintEngineAgents'][string] =>
+    ({ lastOwnedTaskId } as unknown as SprintEngineState['sprintEngineAgents'][string])
+  const state = (
+    tasks: SprintEngineTask[],
+    agents: Record<string, SprintEngineState['sprintEngineAgents'][string]>,
+  ): SprintEngineState => ({ tasks, sprintEngineAgents: agents } as unknown as SprintEngineState)
+  const session = (cli: AgentCli, cliSessionId: string): SprintEngineRosterSession =>
+    ({ cli, cliSessionId, recordedAt: 0 } as SprintEngineRosterSession)
+
+  const completeRun = state([task('T1', 'done')], {})
+
+  // 1. Run wants resume + recorded resume-capable session → resume.
+  assert.equal(
+    willResumeRecordedRosterSession({
+      sprintEngineState: completeRun,
+      autoRuntimeState: undefined,
+      recorded: session('claude-code', 'sess-1'),
+      agentId: 'developer-1',
+    }),
+    true,
+    'a completed run with a recorded resume-capable session resumes',
+  )
+
+  // 2. Run wants resume but NO recorded session → fresh (post-completion
+  //    never-run id): the exact inverse-mislabel the shared gate fixes.
+  assert.equal(
+    willResumeRecordedRosterSession({
+      sprintEngineState: completeRun,
+      autoRuntimeState: undefined,
+      recorded: undefined,
+      agentId: 'developer-1',
+    }),
+    false,
+    'a post-completion id with no recorded session spawns fresh, not Resume',
+  )
+
+  // 3. Recorded session but a resume-incapable CLI → fresh.
+  assert.equal(
+    willResumeRecordedRosterSession({
+      sprintEngineState: completeRun,
+      autoRuntimeState: undefined,
+      recorded: session('gemini', 'sess-1'),
+      agentId: 'developer-1',
+    }),
+    false,
+    'a resume-incapable recorded CLI spawns fresh',
+  )
+
+  // 4. Recorded session missing its cliSessionId → fresh.
+  assert.equal(
+    willResumeRecordedRosterSession({
+      sprintEngineState: completeRun,
+      autoRuntimeState: undefined,
+      recorded: { cli: 'claude-code', cliSessionId: '', recordedAt: 0 } as SprintEngineRosterSession,
+      agentId: 'developer-1',
+    }),
+    false,
+    'a recorded session without a cliSessionId spawns fresh',
+  )
+
+  // 5. Resumable session present but the lifecycle does not want resume (owner's
+  //    task still open) → fresh: the session gate cannot override shouldResume.
+  assert.equal(
+    willResumeRecordedRosterSession({
+      sprintEngineState: state([task('T1', 'in_progress')], { 'developer-1': ownedBy(null) }),
+      autoRuntimeState: undefined,
+      recorded: session('claude-code', 'sess-1'),
+      agentId: 'developer-1',
+    }),
+    false,
+    'a recorded session does not resume while the lifecycle wants a fresh spawn',
+  )
+
+  // 6. Mid-run departed worker (own done task) + resumable session → resume.
+  assert.equal(
+    willResumeRecordedRosterSession({
+      sprintEngineState: state(
+        [task('T1', 'done'), task('T2', 'in_progress')],
+        { 'developer-1': ownedBy('T1') },
+      ),
+      autoRuntimeState: undefined,
+      recorded: session('codex', 'sess-1'),
+      agentId: 'developer-1',
+    }),
+    true,
+    'a mid-run departed worker with a resumable session resumes',
+  )
 }
 
 // eslint-disable-next-line no-console

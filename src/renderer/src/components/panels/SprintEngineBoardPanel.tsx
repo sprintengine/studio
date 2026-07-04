@@ -1511,6 +1511,7 @@ function SprintEngineBoardPanelContent({
  stopAgentTerminal,
  restartAgentTerminal,
  spawnAgent,
+ willResumeAgent,
  openRecoveryDialog,
  confirmRecoveryAudit,
  requestPlanReviews,
@@ -2173,6 +2174,7 @@ function SprintEngineBoardPanelContent({
  onSelectAgentModel={selectAgentModel}
  onOpenAgent={openAgentTerminal}
  onSpawnAgent={spawnAgent}
+ willResumeAgent={willResumeAgent}
  onRestartAgent={(agentId) => {
  void restartAgentTerminal(agentId)
  }}

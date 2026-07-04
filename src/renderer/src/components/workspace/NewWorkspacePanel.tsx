@@ -511,8 +511,6 @@ export default function NewWorkspacePanel({
   // Explicit per-role launch model (string = explicit id, null = explicit CLI
   // default/no model flag).
   const [seRoleModelOverrides, setSeRoleModelOverrides] = useState<SprintEngineRoleModelOverrides>({})
-  // Roles marked "Start now": their agents spawn when the workspace opens.
-  const [seSpawnAtStartRoles, setSeSpawnAtStartRoles] = useState<Partial<Record<SprintEngineRoleId, boolean>>>({})
   const [seRoleRegistry, setSeRoleRegistry] = useState<SprintEngineRoleRegistry | null>(null)
   const [seRoleRegistryStatus, setSeRoleRegistryStatus] = useState<'idle' | 'loading' | 'ready' | 'unavailable'>('idle')
   const [seStartRunner, setSeStartRunner] = useState(false)
@@ -1519,24 +1517,17 @@ export default function NewWorkspacePanel({
     setSeRoleModelOverrides((current) => ({ ...current, [role]: model }))
   }
 
-  const setRoleSpawnAtStart = (role: SprintEngineRoleId, spawn: boolean) => {
-    setSeSpawnAtStartRoles((current) => ({ ...current, [role]: spawn }))
-  }
-
-  const seEffectiveSpawnAtStartRoles = useMemo<Partial<Record<SprintEngineRoleId, boolean>>>(() => {
-    return buildSprintEngineEffectiveSpawnAtStartRoles({
+  // Lazy roster: only the architect carries a start-at-launch intent (no
+  // per-role "Start now" toggle). Worker/reviewer ids are minted on demand.
+  const seInitialSpawnRoles = useMemo(
+    () => (Object.entries(buildSprintEngineEffectiveSpawnAtStartRoles({
       automationMode: seAutomationMode,
       existingTeam: seExistingTeam != null,
-      spawnAtStartRoles: seSpawnAtStartRoles,
       visibleRoleCounts: visibleSprintEngineRoleCounts,
-    })
-  }, [seAutomationMode, seExistingTeam, seSpawnAtStartRoles, visibleSprintEngineRoleCounts])
-
-  const seInitialSpawnRoles = useMemo(
-    () => (Object.entries(seEffectiveSpawnAtStartRoles) as Array<[SprintEngineRoleId, boolean | undefined]>)
+    })) as Array<[SprintEngineRoleId, boolean | undefined]>)
       .filter(([, spawn]) => spawn)
       .map(([role]) => role),
-    [seEffectiveSpawnAtStartRoles],
+    [seAutomationMode, seExistingTeam, visibleSprintEngineRoleCounts],
   )
 
   const handleChooseGuidedSeedFolder = async () => {
@@ -2417,9 +2408,6 @@ export default function NewWorkspacePanel({
               onSetRoleCli={setRoleCli}
               roleModelOverrides={seRoleModelOverrides}
               onSetRoleModel={setRoleModel}
-              spawnAtStartRoles={seEffectiveSpawnAtStartRoles}
-              spawnAtStartLocked={false}
-              onSetRoleSpawnAtStart={setRoleSpawnAtStart}
               automationMode={seAutomationMode}
               onChangeAutomationMode={setSeAutomationMode}
               cliPermissionPreset={cliPermissionPreset}
@@ -4050,9 +4038,6 @@ function SprintEngineRosterStep(props: {
   onSetRoleCli: (role: SprintEngineRoleId, cli: AgentCli) => void
   roleModelOverrides: SprintEngineRoleModelOverrides
   onSetRoleModel: (role: SprintEngineRoleId, model: string | null) => void
-  spawnAtStartRoles: Partial<Record<SprintEngineRoleId, boolean>>
-  spawnAtStartLocked: boolean
-  onSetRoleSpawnAtStart: (role: SprintEngineRoleId, spawn: boolean) => void
   automationMode: SprintEngineAutomationMode
   onChangeAutomationMode: (mode: SprintEngineAutomationMode) => void
   cliPermissionPreset: SprintEngineCliPermissionPreset
@@ -4089,9 +4074,6 @@ function SprintEngineRosterStep(props: {
     onSetRoleCli,
     roleModelOverrides,
     onSetRoleModel,
-    spawnAtStartRoles,
-    spawnAtStartLocked,
-    onSetRoleSpawnAtStart,
     automationMode,
     onChangeAutomationMode,
     cliPermissionPreset,
@@ -4145,9 +4127,6 @@ function SprintEngineRosterStep(props: {
         onSetCli={onSetRoleCli}
         roleModelOverrides={roleModelOverrides}
         onSetModel={onSetRoleModel}
-        spawnAtStartRoles={spawnAtStartRoles}
-        spawnAtStartLocked={spawnAtStartLocked}
-        onSetSpawnAtStart={onSetRoleSpawnAtStart}
         totalAgents={totalAgents}
         rosterCountLabel={registryStatus === 'loading' ? 'Loading roles' : undefined}
         teams={teams}

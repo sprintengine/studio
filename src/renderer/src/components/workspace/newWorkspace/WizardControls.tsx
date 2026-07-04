@@ -144,9 +144,6 @@ export function RosterAndRunSettings({
   onSetCli,
   roleModelOverrides,
   onSetModel,
-  spawnAtStartRoles,
-  spawnAtStartLocked,
-  onSetSpawnAtStart,
   totalAgents,
   rosterCountLabel,
   teams,
@@ -176,13 +173,10 @@ export function RosterAndRunSettings({
   cliDisabled: boolean
   onSetCount: (role: SprintEngineRoleId, count: number) => void
   onSetCli: (role: SprintEngineRoleId, cli: AgentCli) => void
-  // Model-aware roster controls and per-role "start now" intent; optional so
-  // surfaces without launch semantics (Guided Brief handoff) stay as-is.
+  // Model-aware roster controls; optional so surfaces without launch semantics
+  // (Guided Brief handoff) stay as-is.
   roleModelOverrides?: SprintEngineRoleModelOverrides
   onSetModel?: (role: SprintEngineRoleId, model: string | null) => void
-  spawnAtStartRoles?: Partial<Record<SprintEngineRoleId, boolean>>
-  spawnAtStartLocked?: boolean
-  onSetSpawnAtStart?: (role: SprintEngineRoleId, spawn: boolean) => void
   totalAgents: number
   // Lets the Sprint Engine step show "Loading roles" while the registry resolves;
   // omit to show the plain specialist count.
@@ -236,9 +230,6 @@ export function RosterAndRunSettings({
       onSetCli={onSetCli}
       roleModelOverrides={roleModelOverrides}
       onSetModel={onSetModel}
-      spawnAtStartRoles={spawnAtStartRoles}
-      spawnAtStartLocked={spawnAtStartLocked}
-      onSetSpawnAtStart={onSetSpawnAtStart}
       footer={
         // In rail mode the save/update/rename/delete affordances live in the
         // rail footer; only the single-column layout hangs them off the table.

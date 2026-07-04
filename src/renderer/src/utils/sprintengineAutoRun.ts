@@ -400,35 +400,23 @@ export function sprintEngineWakeRestrictionTaskId(
 }
 
 /**
- * Roles whose ready-queue depth exceeds their spawnable roster capacity
- * (MC-1444 Phase 3). With one agent session per task, a role's parallel
- * throughput is bounded by its spawnable ids — the supervisor calls
- * `roster replenish --queue-depth` for these so fresh sessions can take the
- * queue in parallel. A cheap trigger heuristic only: the Python command
- * recomputes depth/capacity authoritatively under the state lock.
- *
- * Capacity = non-retired idle agents with no current task that aren't bound
- * to a still-in-window lastOwnedTaskId task (disposed workers appear idle
- * with no session and respawn fresh, so they count). A changes_requested
- * task whose bound previous owner still exists is already covered by that
- * agent (live wake or owner-affinity respawn) and does not add depth.
+ * Cheap trigger for the task-scoped assignment op (B1/B2): true when at least
+ * one ready implementation task for a non-planning role is not already covered
+ * by its bound previous owner. It decides only WHETHER to call
+ * `roster replenish --queue-depth`; the Python command owns the mint/capacity
+ * decision authoritatively under the run lock, so the renderer keeps no
+ * per-role capacity math. A covered `changes_requested` task (its previous
+ * owner still exists) and a triage-pending task add nothing to mint, so both
+ * are excluded to avoid a guaranteed no-op call every tick.
  */
-export function getSprintEngineQueueDepthReplenishRoles(
-  sprintEngineState: SprintEngineState,
-  // Agents with a live terminal session. A live USED terminal (lastOwnedTaskId
-  // set) is neither wakeable for new tasks nor spawnable, so it must not count
-  // as capacity — otherwise a completed worker whose retirement is deferred
-  // (e.g. the operator is watching its tab) suppresses the mint and stalls the
-  // role's whole queue (review finding).
-  liveAgentIds: ReadonlySet<string> = new Set()
-): SprintEngineRoleId[] {
-  const agentEntries = Object.entries(sprintEngineState.sprintEngineAgents)
+export function sprintEngineHasUnownedReadyTask(
+  sprintEngineState: SprintEngineState
+): boolean {
   const boundTaskIds = new Set(
-    agentEntries
-      .filter(([, agent]) => agent.status !== 'retired' && agent.lastOwnedTaskId)
-      .map(([, agent]) => agent.lastOwnedTaskId as string)
+    Object.values(sprintEngineState.sprintEngineAgents)
+      .filter((agent) => agent.status !== 'retired' && agent.lastOwnedTaskId)
+      .map((agent) => agent.lastOwnedTaskId as string)
   )
-  const readyByRole = new Map<SprintEngineRoleId, number>()
   for (const task of getSprintEngineWakeCandidateTasks(sprintEngineState)) {
     if (isSprintEnginePlanningRole(task.role)) continue
     if (task.status === 'changes_requested' && boundTaskIds.has(task.id)) continue
@@ -437,24 +425,9 @@ export function getSprintEngineQueueDepthReplenishRoles(
     // counting those tasks would report a deficit Python refuses to fill,
     // one no-op CLI call per tick until the architect triages.
     if ((task as SprintEngineTask & { needsTriage?: boolean }).needsTriage === true) continue
-    readyByRole.set(task.role, (readyByRole.get(task.role) ?? 0) + 1)
+    return true
   }
-  if (readyByRole.size === 0) return []
-  const taskById = new Map(sprintEngineState.tasks.map((task) => [task.id, task]))
-  const capacityByRole = new Map<SprintEngineRoleId, number>()
-  for (const [agentId, agent] of agentEntries) {
-    if (agent.status !== 'idle' || agent.currentTaskId) continue
-    if (!readyByRole.has(agent.role)) continue
-    if (agent.lastOwnedTaskId) {
-      const lastOwned = taskById.get(agent.lastOwnedTaskId)
-      if (lastOwned && lastOwned.status !== 'done') continue
-      if (liveAgentIds.has(agentId)) continue
-    }
-    capacityByRole.set(agent.role, (capacityByRole.get(agent.role) ?? 0) + 1)
-  }
-  return [...readyByRole.entries()]
-    .filter(([role, depth]) => depth > (capacityByRole.get(role) ?? 0))
-    .map(([role]) => role)
+  return false
 }
 
 export function findSprintEngineWakeCandidateTaskForAgent(
@@ -659,6 +632,18 @@ export type SprintEngineDispatchRetirementAction = {
    * retirements leave this unset: the next task must get a fresh session.
    */
   retainResumeState?: boolean
+  /**
+   * Departed-worker teardown (MC-1444 B4): the agent's task is terminal
+   * (`done`), so it is permanently departed. Instead of the kill-only
+   * retirement — which left the panel to respawn and lost the resume token —
+   * the executor runs the record + remove teardown
+   * (`tearDownDepartedTaskScopedWorker`): record the resumable session, dispose
+   * the PTY, then remove the panel and agent. Removing the panel unmounts its
+   * TerminalView so nothing respawns, killing the idle reap ↔ respawn loop; the
+   * recorded session lets a re-open from the role group resume. Mutually
+   * exclusive with `retainResumeState` (that keeps a live record for rework).
+   */
+  teardown?: boolean
   data: Record<string, unknown>
   diagnostic: { title: string; message: string; details: string }
 }
@@ -1569,8 +1554,8 @@ export function planSprintEngineDispatch(input: {
     // live agent of that role. The claimed-work respawn above only recovers work
     // an agent already owns; once idle-retirement disposes a role's last terminal
     // (agent -> 'left'), a newly-pending gate or a freshly-ready task would
-    // otherwise strand forever — `findReusableRoleAgent` only matches `idle`
-    // agents, so the gate/ready-task pickers skip the work. We reuse the same
+    // otherwise strand forever — the gate/ready-task pickers only match `idle`
+    // agents, so they skip the work with no live agent. We reuse the same
     // ledger + retry-limit + retry-interval machinery as the claimed-work respawn
     // for storm safety. Scoped to roles with NO live agent: a role whose agent is
     // merely busy/stalled is a capacity/restart concern handled by other paths,
@@ -1762,8 +1747,13 @@ export function planSprintEngineDispatch(input: {
       const since = input.idleClock.get(idleClockKey)
       if (!since) continue
       if (taskScopedComplete) {
+        // Departed permanently: its task is done and new work goes to fresh
+        // sessions. Tear the panel down (record + remove) rather than kill it in
+        // place — the kill-only path left the panel to auto-respawn (idle
+        // reap ↔ respawn loop) and dropped the resume token.
         planRetirement({
           agentId,
+          teardown: true,
           data: {
             agentId,
             role: runtimeAgent.role,
@@ -1772,13 +1762,13 @@ export function planSprintEngineDispatch(input: {
             taskId: restrictToTaskId,
           },
           diagnostic: {
-            title: 'Retired a task-scoped sprint terminal',
-            message: `${runtimeAgent.role} finished ${restrictToTaskId}, so its terminal was closed. The next task gets a fresh session; rework respawns this role automatically.`,
+            title: 'Closed a finished sprint worker',
+            message: `${runtimeAgent.role} finished ${restrictToTaskId}, so its panel was closed. Re-open the role from its group to resume that conversation; new work spawns a fresh session.`,
             details: [
               `Workspace: ${workspace.name}`,
               `Agent: ${agentId} (${runtimeAgent.role})`,
               `Completed task: ${restrictToTaskId}`,
-              'One agent session per task keeps worker context small; ready work respawns the role with a fresh session.',
+              'One agent session per task keeps worker context small; the recorded session resumes on re-open, and new ready work spawns a fresh session.',
             ].join('\n'),
           },
         })
@@ -2110,54 +2100,80 @@ export function pickNextAutoRuns(
   const hasInFlightSpawn = (agentId: string) =>
     options.inFlightSpawns.has(`${workspace.id}:${agentId}`)
 
-  // Owner ids bound to pending rework: their retained conversation is the
-  // whole point of owner affinity, so the generic pick must not burn them on
-  // an unrelated task while another eligible id exists (review finding:
-  // iteration order could hand the rework owner to an earlier todo task and
-  // leave its own rework to a cold fresh agent).
-  const reworkTaskIds = new Set(
-    sprintEngineState.tasks
-      .filter((candidate) => candidate.status === 'changes_requested')
-      .map((candidate) => candidate.id)
-  )
-  const reworkReservedAgentIds = new Set(
+  const isEligibleRoleAgent = (
+    candidateId: string,
+    candidateRole: SprintEngineRoleId,
+    role: SprintEngineRoleId
+  ): boolean => {
+    const runtime = sprintEngineState.sprintEngineAgents[candidateId]
+    return candidateRole === role
+      && runtime?.status === 'idle'
+      && !runtime.currentTaskId
+      && !pendingAgentIds.has(candidateId)
+      && !selectedAgentIds.has(candidateId)
+      && !options.runningAgentIds.has(candidateId)
+      && !hasInFlightSpawn(candidateId)
+  }
+
+  // New-claim task binding (B1/B2, task-scoped roster ids): a fresh ready task
+  // may only be handed to a NEVER-OWNED idle roster id — the engine assignment
+  // op (`roster replenish --queue-depth`) mints exactly one such id per
+  // uncovered ready task and never recycles a spent id. A used/`left` id (one
+  // that has ever owned a task) is never eligible for a new claim; its only
+  // reuse is the owner-keyed rework respawn below.
+  const findFreshTaskAgent = (role: SprintEngineRoleId): AutoRunCandidate['agentId'] | null => {
+    const fresh = roster.find((candidate) =>
+      isEligibleRoleAgent(candidate.id, candidate.role, role)
+      && !sprintEngineState.sprintEngineAgents[candidate.id]?.lastOwnedTaskId
+    )
+    return fresh?.id ?? null
+  }
+
+  // Owner-keyed rework respawn (MC-1444 Phase 2): a changes_requested task
+  // returns to the roster id that previously owned it so its respawn resumes
+  // the original conversation. This is the only path that reuses a spent id,
+  // and only for its OWN task.
+  const findReworkOwnerAgent = (
+    role: SprintEngineRoleId,
+    taskId: string
+  ): AutoRunCandidate['agentId'] | null => {
+    const owner = roster.find((candidate) =>
+      isEligibleRoleAgent(candidate.id, candidate.role, role)
+      && sprintEngineState.sprintEngineAgents[candidate.id]?.lastOwnedTaskId === taskId
+    )
+    return owner?.id ?? null
+  }
+
+  // Ids bound to a still-pending changes_requested task: their retained
+  // conversation is the whole point of owner affinity, so the gate reviewer
+  // pick below must not burn them on an unrelated same-role gate while another
+  // eligible id exists — the pre-ready-task general gate pass can run before
+  // the ready-task loop reserves the owner for its own rework (MC-1444 Phase 2
+  // regression guard). The new-claim task pick needs no such set: it is already
+  // restricted to never-owned ids, which excludes every rework owner.
+  const reworkOwnerAgentIds = new Set(
     Object.entries(sprintEngineState.sprintEngineAgents)
-      .filter(([, runtime]) => runtime.lastOwnedTaskId && reworkTaskIds.has(runtime.lastOwnedTaskId))
+      .filter(([, runtime]) =>
+        runtime.lastOwnedTaskId
+        && sprintEngineState.tasks.some((candidate) =>
+          candidate.id === runtime.lastOwnedTaskId && candidate.status === 'changes_requested')
+      )
       .map(([agentId]) => agentId)
   )
 
-  const findReusableRoleAgent = (
-    role: SprintEngineRoleId,
-    // Owner affinity (MC-1444 Phase 2): when selecting for a task, prefer the
-    // roster agent that previously owned it — its respawn can resume the
-    // original conversation for rework instead of starting from a fresh brief.
-    preferAgentWithLastOwnedTaskId?: string
-  ): AutoRunCandidate['agentId'] | null => {
-    const eligible = (candidateId: string, candidateRole: SprintEngineRoleId): boolean => {
-      const runtime = sprintEngineState.sprintEngineAgents[candidateId]
-      return candidateRole === role
-        && runtime?.status === 'idle'
-        && !runtime.currentTaskId
-        && !pendingAgentIds.has(candidateId)
-        && !selectedAgentIds.has(candidateId)
-        && !options.runningAgentIds.has(candidateId)
-        && !hasInFlightSpawn(candidateId)
-    }
-    if (preferAgentWithLastOwnedTaskId) {
-      const previousOwner = roster.find((candidate) =>
-        eligible(candidate.id, candidate.role)
-        && sprintEngineState.sprintEngineAgents[candidate.id]?.lastOwnedTaskId === preferAgentWithLastOwnedTaskId
-      )
-      if (previousOwner) return previousOwner.id
-    }
-    // Two-tier generic pick: prefer ids not reserved for someone's rework;
-    // fall back to a reserved id rather than stalling the role (throughput
-    // over token — Phase 3 minting covers the gap next tick).
+  // Gate reviewer selection: an eligible idle roster agent of the reviewer
+  // role. Reviewers persist across gates and are never task-owned, and a mixed
+  // role that owns a task may still review its gates — a gate claim is not a
+  // task claim, so the task-scoped never-owned restriction does not apply here.
+  // Two-tier so a rework owner keeps its own task: prefer an id not bound to a
+  // pending changes_requested task, falling back to any eligible id only when
+  // none exists (throughput over a stalled gate).
+  const findGateReviewerAgent = (role: SprintEngineRoleId): AutoRunCandidate['agentId'] | null => {
     const unreserved = roster.find((candidate) =>
-      eligible(candidate.id, candidate.role) && !reworkReservedAgentIds.has(candidate.id)
+      isEligibleRoleAgent(candidate.id, candidate.role, role) && !reworkOwnerAgentIds.has(candidate.id)
     )
     if (unreserved) return unreserved.id
-    const agent = roster.find((candidate) => eligible(candidate.id, candidate.role))
+    const agent = roster.find((candidate) => isEligibleRoleAgent(candidate.id, candidate.role, role))
     return agent?.id ?? null
   }
 
@@ -2282,7 +2298,7 @@ export function pickNextAutoRuns(
     for (const gate of claimableGates) {
       if (candidates.length >= options.limit) break
       if (roleFilter && gate.role !== roleFilter) continue
-      const reviewerAgentId = findReusableRoleAgent(gate.role)
+      const reviewerAgentId = findGateReviewerAgent(gate.role)
       // Missing roster roles do not create dead launch queues — we simply skip
       // the gate and the CLI verdict path stays the only completion route.
       if (!reviewerAgentId) {
@@ -2383,7 +2399,9 @@ export function pickNextAutoRuns(
       continue
     }
 
-    const reusableAgentId = findReusableRoleAgent(task.role, task.id)
+    // New claims come only from engine-minted never-owned capacity; a
+    // changes_requested task first tries its owner-keyed rework respawn.
+    const reusableAgentId = findReworkOwnerAgent(task.role, task.id) ?? findFreshTaskAgent(task.role)
     if (!reusableAgentId) {
       logPerfEvent('SprintEngineAutoRun', 'candidate-pick-ready-task-waiting-for-roster-agent', {
         workspaceId: workspace.id,

@@ -40,6 +40,7 @@ from sprintengine_core.tool.state import (
     ensure_gate_dispatch,
     ensure_agent,
     ensure_agent_in_roster,
+    lazily_register_reviewer_id,
     find_task,
     gate_attempts,
     dispatch_target_key,
@@ -47,6 +48,7 @@ from sprintengine_core.tool.state import (
     release_expired_agent_targets,
     select_round_robin_target,
     set_agent_idle,
+    task_claim_exceeds_worker_capacity,
     task_quality_gates,
     with_locked_state,
 )
@@ -122,7 +124,7 @@ def cmd_task_gate_next(args: argparse.Namespace) -> Dict[str, Any]:
 
     def run(state: Dict[str, Any]) -> Dict[str, Any]:
         with folder_store.FolderLock(args.state.parent / folder_store.GATE_QUEUE_LOCK_FILE):
-            ensure_agent_in_roster(state, args.id, args.role)
+            roster_dirty = lazily_register_reviewer_id(state, args.id, args.role)
             expired = release_expired_agent_targets(state, actor="sprintengine", excluding_agent_id=args.id)
             active = find_active_gate_claim(state, args.id, args.role)
             if active:
@@ -145,7 +147,7 @@ def cmd_task_gate_next(args: argparse.Namespace) -> Dict[str, Any]:
                     args.role,
                 )
                 prompt = build_gate_review_prompt(state, args.state, active["task"], active["gate"], active["attempt"], args.id)
-                return {"ok": True, "claimed": True, "resumed": True, "task": active["task"], "gate": active["gate"], "attempt": active["attempt"], "agent": agent, "prompt": prompt, "releasedExpired": expired["released"], "write": dispatch_dirty or expired["dirty"]}
+                return {"ok": True, "claimed": True, "resumed": True, "task": active["task"], "gate": active["gate"], "attempt": active["attempt"], "agent": agent, "prompt": prompt, "releasedExpired": expired["released"], "write": dispatch_dirty or expired["dirty"] or roster_dirty}
 
             candidates = []
             for task in state.get("tasks", []) or []:
@@ -172,7 +174,7 @@ def cmd_task_gate_next(args: argparse.Namespace) -> Dict[str, Any]:
                 return {"ok": True, "claimed": True, "resumed": False, **result, "prompt": prompt, "event": event, "releasedExpired": expired["released"]}
 
             phase_dirty = recompute_phase(state)
-            return {"ok": True, "claimed": False, "reason": "no_ready_gate", "message": f"No ready {args.role} gates. Stop.", "releasedExpired": expired["released"], "write": phase_dirty or expired["dirty"]}
+            return {"ok": True, "claimed": False, "reason": "no_ready_gate", "message": f"No ready {args.role} gates. Stop.", "releasedExpired": expired["released"], "write": phase_dirty or expired["dirty"] or roster_dirty}
 
     return with_locked_state(args.state, run)
 
@@ -181,13 +183,13 @@ def cmd_task_gate_claim(args: argparse.Namespace) -> Dict[str, Any]:
 
     def run(state: Dict[str, Any]) -> Dict[str, Any]:
         with folder_store.FolderLock(args.state.parent / folder_store.GATE_QUEUE_LOCK_FILE):
-            ensure_agent_in_roster(state, args.id, args.role)
+            roster_dirty = lazily_register_reviewer_id(state, args.id, args.role)
             task = find_task(state, args.task_id)
             gate = next((candidate for candidate in task_quality_gates(task) if candidate.get("id") == args.gate_id), None)
             if gate is None:
-                return {"ok": False, "error": "Gate not found.", "write": False}
+                return {"ok": False, "error": "Gate not found.", "write": roster_dirty}
             if not gate_is_claimable_for_role(task, gate, args.role, args.id):
-                return {"ok": False, "error": "Gate is not claimable.", "task": {"id": task.get("id"), "status": task.get("status")}, "gate": {"id": gate.get("id"), "status": gate.get("status"), "role": gate.get("role"), "phase": gate.get("phase")}, "write": False}
+                return {"ok": False, "error": "Gate is not claimable.", "task": {"id": task.get("id"), "status": task.get("status")}, "gate": {"id": gate.get("id"), "status": gate.get("status"), "role": gate.get("role"), "phase": gate.get("phase")}, "write": roster_dirty}
             result = claim_gate_for_agent(state, task, gate, args.role, args.id)
             recompute_phase(state)
             event = append_event(state, "task_gate_claimed", args.id, f"{args.id} claimed gate {gate.get('id')} on {task.get('id')}.")
@@ -366,6 +368,21 @@ def cmd_task_next(args: argparse.Namespace) -> Dict[str, Any]:
                 candidates=candidates,
                 key_fn=lambda item: dispatch_target_key("task", item.get("id")),
             )
+            if selected and task_claim_exceeds_worker_capacity(state, agent, selected.get("id")):
+                # Task-scoped roster ids: a spent id (already owns another task)
+                # must not recycle onto a new task. Leave it ready for a fresh
+                # id and stop this one.
+                phase_dirty = recompute_phase(state)
+                return {
+                    "ok": True,
+                    "claimed": False,
+                    "reason": "worker_task_capacity_reached",
+                    "message": f"{args.id} already owns a task; a fresh roster id must claim {selected.get('id')}.",
+                    "task": {"id": selected.get("id"), "status": selected.get("status")},
+                    "agent": agent,
+                    "releasedExpired": expired["released"],
+                    "write": runtime["dirty"] or phase_dirty or expired["dirty"] or stale_owner_dirty,
+                }
             if selected:
                 model, cli = _resolve_execution_identity(args)
                 result = assign_task(state, selected, args.id, model=model, cli=cli)
@@ -388,6 +405,14 @@ def cmd_task_claim(args: argparse.Namespace) -> Dict[str, Any]:
             ready_ids = set(read_ready_task_ids(state))
             if args.task_id not in ready_ids or not task_is_ready(state, task):
                 return {"ok": False, "error": "Task is not ready.", "task": {"id": task.get("id"), "status": task.get("status")}, "write": False}
+            if task_claim_exceeds_worker_capacity(state, agent, task.get("id")):
+                return {
+                    "ok": False,
+                    "error": "Worker already owns a task; a fresh roster id must claim this task.",
+                    "reason": "worker_task_capacity_reached",
+                    "task": {"id": task.get("id"), "status": task.get("status")},
+                    "write": False,
+                }
             model, cli = _resolve_execution_identity(args)
             result = assign_task(state, task, args.id, model=model, cli=cli)
             recompute_phase(state)
