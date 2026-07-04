@@ -9,7 +9,7 @@ import { join } from 'node:path'
 import { buildSync } from 'esbuild'
 
 import { parseThirdPartyModuleManifest } from '../../shared/modules/third-party-manifest'
-import type { MarketplacePluginEntry } from '../../shared/marketplace'
+import type { MarketplaceComponentKind, MarketplacePluginEntry } from '../../shared/marketplace'
 import { classifySignedManifestTrust, verifyModuleSignature } from '../modules/module-signature'
 import {
   generateModuleSigningKeyPair,
@@ -24,8 +24,8 @@ import {
 const SOURCE_URL = 'https://github.com/multicode-labs/marketplace/tree/main/plugins/downloaded-plugin'
 const API_ROOT = 'https://api.github.com/repos/multicode-labs/marketplace/contents/plugins/downloaded-plugin?ref=main'
 const API_MCP = 'https://api.github.com/repos/multicode-labs/marketplace/contents/plugins/downloaded-plugin/mcp?ref=main'
-const RAW_PLUGIN = 'https://raw.example.test/downloaded-plugin/plugin.json'
-const RAW_MCP = 'https://raw.example.test/downloaded-plugin/mcp/server.json'
+const RAW_PLUGIN = 'https://raw.githubusercontent.com/multicode-labs/marketplace/main/plugins/downloaded-plugin/plugin.json'
+const RAW_MCP = 'https://raw.githubusercontent.com/multicode-labs/marketplace/main/plugins/downloaded-plugin/mcp/server.json'
 
 type BundleFixture = {
   entry: MarketplacePluginEntry
@@ -114,6 +114,41 @@ function createFixture(overrides: Record<string, unknown> = {}, mcpJson: string 
       source: SOURCE_URL,
       provides: ['mcp'],
       signature,
+    },
+  }
+}
+
+function createUnsignedFixture(overrides: {
+  provides?: MarketplaceComponentKind[]
+  components?: Record<string, unknown>
+} = {}): { entry: MarketplacePluginEntry; manifest: Record<string, unknown> } {
+  const provides: MarketplaceComponentKind[] = overrides.provides ?? ['mcp']
+  const components = overrides.components ?? {
+    mcp: { path: 'mcp/server.json', files: [{ path: 'mcp/server.json', sha256: sha256Hex(mcpComponentSource()) }] },
+  }
+  return {
+    manifest: {
+      id: 'downloaded-plugin',
+      displayName: 'Downloaded Plugin',
+      version: 1,
+      publisher: 'Multicode Labs',
+      category: 'Testing',
+      summary: 'Downloaded marketplace plugin.',
+      defaultEnabled: false,
+      source: 'third-party',
+      permissions: ['network'],
+      components,
+    },
+    entry: {
+      id: 'downloaded-plugin',
+      name: 'Downloaded Plugin',
+      publisher: { name: 'Multicode Labs', verified: false },
+      summary: 'Downloaded marketplace plugin.',
+      category: 'Testing',
+      icon: 'icons/downloaded.svg',
+      latest: 1,
+      source: SOURCE_URL,
+      provides,
     },
   }
 }
@@ -373,11 +408,42 @@ async function testTamperedPluginSignatureBlocksAndRemovesStage(): Promise<void>
   })
 }
 
-async function testUnsignedPluginClassifiesButDoesNotExposeStage(): Promise<void> {
+async function testUnsignedMcpOnlyBundleStagesAsUnsigned(): Promise<void> {
   await withTempDir(async (dir) => {
-    const fixture = createFixture()
-    const { signature: _signature, ...unsigned } = fixture.manifest
-    const { fetcher } = createGithubFetcher(`${JSON.stringify(unsigned, null, 2)}\n`)
+    const fixture = createUnsignedFixture()
+    const { fetcher } = createGithubFetcher(`${JSON.stringify(fixture.manifest, null, 2)}\n`)
+    const stagingRoot = join(dir, 'staging')
+
+    const result = await downloadMarketplacePluginBundle({
+      entry: fixture.entry,
+      trustContext: { trustedModules: new Map() },
+      stagingRoot,
+      fetcher,
+    })
+
+    assert.equal(result.ok, true, result.ok ? '' : result.message)
+    if (!result.ok) return
+    assert.equal(result.classification, 'unsigned')
+    assert.equal(result.trust.status, 'unsigned')
+    assert.equal(result.loadEligible, false)
+    assert.equal(existsSync(join(result.stagedBundlePath, 'plugin.json')), true)
+    assert.equal(existsSync(join(result.stagedBundlePath, 'mcp', 'server.json')), true)
+  })
+}
+
+async function testUnsignedCodeBearingBundleRejectedAndRemovesStage(): Promise<void> {
+  await withTempDir(async (dir) => {
+    // Declare a module (code-bearing) component alongside mcp; the unsigned gate
+    // must block before staging is exposed. The module dir is not listed by the
+    // fetcher because the kind gate rejects before component resolution.
+    const fixture = createUnsignedFixture({
+      provides: ['mcp', 'module'],
+      components: {
+        mcp: { path: 'mcp/server.json', files: [{ path: 'mcp/server.json', sha256: sha256Hex(mcpComponentSource()) }] },
+        module: { path: 'module' },
+      },
+    })
+    const { fetcher } = createGithubFetcher(`${JSON.stringify(fixture.manifest, null, 2)}\n`)
     const stagingRoot = join(dir, 'staging')
 
     const result = await downloadMarketplacePluginBundle({
@@ -390,8 +456,30 @@ async function testUnsignedPluginClassifiesButDoesNotExposeStage(): Promise<void
     assert.equal(result.ok, false)
     if (result.ok) return
     assert.equal(result.classification, 'unsigned')
-    assert.equal(result.trust?.status, 'unsigned')
     assert.match(result.message, /unsigned/i)
+    assert.deepEqual(await readdir(stagingRoot), [])
+  })
+}
+
+async function testUnsignedBundleUnderSignedRegistryEntryRejected(): Promise<void> {
+  await withTempDir(async (dir) => {
+    // A signed registry entry paired with an unsigned downloaded bundle is a
+    // registry mismatch (possible tamper) and must not stage, even mcp-only.
+    const signed = createFixture()
+    const { signature: _signature, ...unsigned } = signed.manifest
+    const { fetcher } = createGithubFetcher(`${JSON.stringify(unsigned, null, 2)}\n`)
+    const stagingRoot = join(dir, 'staging')
+
+    const result = await downloadMarketplacePluginBundle({
+      entry: signed.entry,
+      trustContext: { trustedModules: new Map() },
+      stagingRoot,
+      fetcher,
+    })
+
+    assert.equal(result.ok, false)
+    if (result.ok) return
+    assert.equal(result.classification, 'invalid')
     assert.deepEqual(await readdir(stagingRoot), [])
   })
 }
@@ -411,6 +499,97 @@ async function testRejectsNonHttpsSourceBeforeFetch(): Promise<void> {
   assert.equal(result.ok, false)
   assert.match(result.message, /HTTPS/)
   assert.equal(fetched, false)
+}
+
+async function testRejectsNonAllowlistedSourceHostBeforeFetch(): Promise<void> {
+  const fixture = createFixture()
+  let fetched = false
+  const result = await downloadMarketplacePluginBundle({
+    entry: { ...fixture.entry, source: 'https://evil.example.com/plugins/downloaded-plugin' },
+    trustContext: { trustedModules: new Map() },
+    fetcher: async () => {
+      fetched = true
+      return textResponse('unexpected')
+    },
+  })
+
+  assert.equal(result.ok, false)
+  assert.match(result.message, /allowlist/i)
+  assert.equal(fetched, false)
+}
+
+async function testForeignPerFileDownloadUrlRejectedMidDownload(): Promise<void> {
+  await withTempDir(async (dir) => {
+    const fixture = createFixture()
+    const foreignDownloadUrl = 'https://evil.example.com/downloaded-plugin/plugin.json'
+    const requests: string[] = []
+    const stagingRoot = join(dir, 'staging')
+    const result = await downloadMarketplacePluginBundle({
+      entry: fixture.entry,
+      trustContext: {
+        trustedModules: new Map(),
+        trustedKeyFingerprints: new Set([fixture.fingerprint]),
+      },
+      stagingRoot,
+      fetcher: async (url) => {
+        requests.push(url)
+        if (url === API_ROOT) {
+          return jsonResponse([
+            { type: 'file', path: 'plugins/downloaded-plugin/plugin.json', download_url: foreignDownloadUrl },
+          ])
+        }
+        return textResponse('unexpected')
+      },
+    })
+
+    assert.equal(result.ok, false)
+    if (result.ok) return
+    assert.match(result.message, /allowlist/i)
+    // The Contents API host is allowlisted and fetched, but the followed
+    // per-file download_url on a foreign host is rejected before any request.
+    assert.deepEqual(requests, [API_ROOT])
+    assert.deepEqual(await readdir(stagingRoot), [])
+  })
+}
+
+async function testNonCanonicalOwnerGithubSourceDownloads(): Promise<void> {
+  await withTempDir(async (dir) => {
+    const fixture = createFixture()
+    const source = 'https://github.com/community-org/registry/tree/main/plugins/downloaded-plugin'
+    const apiRoot = 'https://api.github.com/repos/community-org/registry/contents/plugins/downloaded-plugin?ref=main'
+    const apiMcp = 'https://api.github.com/repos/community-org/registry/contents/plugins/downloaded-plugin/mcp?ref=main'
+    const fetcher: MarketplacePluginDownloadFetch = async (url) => {
+      if (url === apiRoot) {
+        return jsonResponse([
+          { type: 'file', path: 'plugins/downloaded-plugin/plugin.json', download_url: RAW_PLUGIN },
+          { type: 'dir', path: 'plugins/downloaded-plugin/mcp', url: apiMcp },
+        ])
+      }
+      if (url === apiMcp) {
+        return jsonResponse([
+          { type: 'file', path: 'plugins/downloaded-plugin/mcp/server.json', download_url: RAW_MCP },
+        ])
+      }
+      if (url === RAW_PLUGIN) return textResponse(`${JSON.stringify(fixture.manifest, null, 2)}\n`)
+      if (url === RAW_MCP) return textResponse(mcpComponentSource())
+      return new Response('not found', { status: 404 })
+    }
+
+    const result = await downloadMarketplacePluginBundle({
+      entry: { ...fixture.entry, source },
+      trustContext: {
+        trustedModules: new Map(),
+        trustedKeyFingerprints: new Set([fixture.fingerprint]),
+      },
+      stagingRoot: join(dir, 'staging'),
+      fetcher,
+    })
+
+    assert.equal(result.ok, true, result.ok ? '' : result.message)
+    if (!result.ok) return
+    assert.equal(result.classification, 'verified')
+    assert.equal(result.sourceUrl, source)
+  })
 }
 
 function testCliAndAppRejectSameTamperedModuleBytes(): void {
@@ -468,8 +647,13 @@ async function main(): Promise<void> {
   await testDownloadedComponentBytesArePreserved()
   await testDownloadedComponentDigestMismatchBlocksAndRemovesStage()
   await testTamperedPluginSignatureBlocksAndRemovesStage()
-  await testUnsignedPluginClassifiesButDoesNotExposeStage()
+  await testUnsignedMcpOnlyBundleStagesAsUnsigned()
+  await testUnsignedCodeBearingBundleRejectedAndRemovesStage()
+  await testUnsignedBundleUnderSignedRegistryEntryRejected()
   await testRejectsNonHttpsSourceBeforeFetch()
+  await testRejectsNonAllowlistedSourceHostBeforeFetch()
+  await testForeignPerFileDownloadUrlRejectedMidDownload()
+  await testNonCanonicalOwnerGithubSourceDownloads()
   testCliAndAppRejectSameTamperedModuleBytes()
   console.log('marketplace plugin download tests passed')
 }

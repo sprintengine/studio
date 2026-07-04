@@ -5,10 +5,19 @@ import { tmpdir } from 'node:os'
 import type {
   MarketplaceComponentKind,
   MarketplaceManifestIssue,
+  MarketplacePluginAuthoringManifest,
   MarketplacePluginEntry,
-  MarketplacePluginManifest,
 } from '../../shared/marketplace'
-import { MARKETPLACE_COMPONENT_KINDS, parseMarketplacePluginManifest } from '../../shared/marketplace'
+import {
+  MARKETPLACE_CANONICAL_SOURCE,
+  MARKETPLACE_COMPONENT_KINDS,
+  MARKETPLACE_EXTRA_HOSTS_ENV,
+  hasCodeBearingComponent,
+  isMarketplaceSourceHostAllowed,
+  parseMarketplaceExtraHosts,
+  parseMarketplacePluginAuthoringManifest,
+  resolveOptionallySignedManifest,
+} from '../../shared/marketplace'
 import { isSafeManifestRelativePath } from '../../../packages/module-sdk/src/manifest-validate'
 import {
   marketplaceComponentDigestMismatchIssuesSync,
@@ -51,7 +60,7 @@ export type MarketplacePluginDownloadResult =
     classification: MarketplacePluginTrustClassification
     sourceUrl: string
     stagedBundlePath: string
-    manifest: MarketplacePluginManifest
+    manifest: MarketplacePluginAuthoringManifest
     trust: ModuleTrust
     loadEligible: boolean
   }
@@ -97,6 +106,11 @@ export function defaultMarketplacePluginStagingRoot(userDataDir?: string): strin
 export async function downloadMarketplacePluginBundle(
   options: MarketplacePluginDownloadOptions
 ): Promise<MarketplacePluginDownloadResult> {
+  // Bundle download requires a `source`; inline-MCP registry entries carry no
+  // bundle and never reach this path, but `source` is optional on the entry type.
+  if (!options.entry.source) {
+    return { ok: false, sourceUrl: '', message: 'Marketplace entry has no bundle source to download.' }
+  }
   const sourceUrl = options.entry.source.trim()
   const parsedSource = parseHttpsUrl(sourceUrl)
   if (!parsedSource.ok) {
@@ -137,43 +151,46 @@ export async function downloadMarketplacePluginBundle(
     }
 
     const manifestSource = await readFile(join(stage, 'plugin.json'), 'utf8')
-    const parsedManifest = parseMarketplacePluginManifest(manifestSource)
-    if (!parsedManifest.ok) {
-      const unsigned = classifyUnsignedManifest(manifestSource, options.trustContext)
+    const resolved = resolveDownloadedManifest(manifestSource, options.trustContext)
+    if (!resolved.ok) {
       await rm(stage, { recursive: true, force: true })
-      if (unsigned) {
-        return {
-          ok: false,
-          sourceUrl,
-          classification: 'unsigned',
-          trust: unsigned,
-          message: 'Downloaded plugin bundle is unsigned.',
-          issues: parsedManifest.issues,
-        }
-      }
       return {
         ok: false,
         sourceUrl,
-        classification: 'invalid',
-        message: 'Downloaded plugin bundle plugin.json is invalid.',
-        issues: parsedManifest.issues,
+        classification: resolved.classification,
+        ...(resolved.trust ? { trust: resolved.trust } : {}),
+        message: resolved.message,
+        issues: resolved.issues,
       }
     }
 
-    const manifest = parsedManifest.manifest
-    const trust = classifyModuleTrust(manifest, options.trustContext)
+    const { manifest, trust } = resolved
     const classification = classifyMarketplaceTrust(options.entry, trust)
-    if (classification === 'invalid' || classification === 'unsigned') {
+    // Invalid signatures never proceed, regardless of component kind.
+    if (classification === 'invalid') {
       await rm(stage, { recursive: true, force: true })
       return {
         ok: false,
         sourceUrl,
         classification,
         trust,
-        message: classification === 'invalid'
-          ? 'Downloaded plugin bundle signature is invalid.'
-          : 'Downloaded plugin bundle is unsigned.',
-        issues: [{ path: 'signature', message: classification === 'invalid' ? 'Invalid signature.' : 'signature is required.' }],
+        message: 'Downloaded plugin bundle signature is invalid.',
+        issues: [{ path: 'signature', message: 'Invalid signature.' }],
+      }
+    }
+    // Unsigned bundles are permitted only when they carry no code component: an
+    // unsigned module/cli must never become load-eligible, so gate on signature
+    // presence (id-trust would otherwise promote an unsigned manifest to
+    // 'trusted' and slip a code component past the classification check).
+    if (!manifest.signature && hasCodeBearingComponent(manifest.components)) {
+      await rm(stage, { recursive: true, force: true })
+      return {
+        ok: false,
+        sourceUrl,
+        classification: 'unsigned',
+        trust,
+        message: 'Downloaded plugin bundle is unsigned.',
+        issues: [{ path: 'signature', message: 'signature is required.' }],
       }
     }
 
@@ -248,7 +265,13 @@ async function copyPackagedMarketplacePluginBundle(
 }
 
 function packagedMarketplacePluginRelativePath(source: GithubTreeSource, entryId: string): string | null {
-  if (source.owner !== 'multicode-labs' || source.repo !== 'marketplace' || source.ref !== 'main') return null
+  if (
+    source.owner !== MARKETPLACE_CANONICAL_SOURCE.owner ||
+    source.repo !== MARKETPLACE_CANONICAL_SOURCE.repo ||
+    source.ref !== MARKETPLACE_CANONICAL_SOURCE.ref
+  ) {
+    return null
+  }
   const expectedPath = `plugins/${entryId}`
   return source.path === expectedPath ? expectedPath : null
 }
@@ -268,6 +291,26 @@ function isSourceUnavailableStatus(statusCode: number): boolean {
   return statusCode === 404 || statusCode === 410 || statusCode === 502 || statusCode === 503 || statusCode === 504
 }
 
+type ResolvedDownloadedManifest =
+  | { ok: true; manifest: MarketplacePluginAuthoringManifest; trust: ModuleTrust }
+  | { ok: false; classification: 'unsigned' | 'invalid'; trust?: ModuleTrust; message: string; issues?: MarketplaceManifestIssue[] }
+
+// Resolve a downloaded plugin.json under the shared optionally-signed contract,
+// then layer trust classification on top. A resolved manifest carries its trust
+// status; an unresolved one is reported as an unsigned (id-bearing, no signature)
+// or hard-invalid block so the caller can fail closed with the right label.
+function resolveDownloadedManifest(source: string, trustContext: ModuleTrustContext): ResolvedDownloadedManifest {
+  const resolved = resolveOptionallySignedManifest(source)
+  if (resolved.ok) {
+    return { ok: true, manifest: resolved.manifest, trust: classifyModuleTrust(resolved.manifest, trustContext) }
+  }
+  const unsigned = classifyUnsignedManifest(source, trustContext)
+  if (unsigned) {
+    return { ok: false, classification: 'unsigned', trust: unsigned, message: 'Downloaded plugin bundle is unsigned.', issues: resolved.issues }
+  }
+  return { ok: false, classification: 'invalid', message: 'Downloaded plugin bundle plugin.json is invalid.', issues: resolved.issues }
+}
+
 function classifyUnsignedManifest(source: string, trustContext: ModuleTrustContext): ModuleTrust | null {
   let parsed: unknown
   try {
@@ -285,7 +328,7 @@ function classifyUnsignedManifest(source: string, trustContext: ModuleTrustConte
 
 function registryMismatchIssues(
   entry: MarketplacePluginEntry,
-  manifest: MarketplacePluginManifest
+  manifest: MarketplacePluginAuthoringManifest
 ): MarketplaceManifestIssue[] {
   const issues: MarketplaceManifestIssue[] = []
   if (entry.id !== manifest.id) issues.push({ path: 'id', message: `expected ${entry.id}, got ${manifest.id}.` })
@@ -305,7 +348,7 @@ function registryMismatchIssues(
   return issues
 }
 
-function componentKinds(manifest: MarketplacePluginManifest): MarketplaceComponentKind[] {
+function componentKinds(manifest: MarketplacePluginAuthoringManifest): MarketplaceComponentKind[] {
   return MARKETPLACE_COMPONENT_KINDS.filter((kind) => manifest.components[kind] !== undefined)
 }
 
@@ -361,7 +404,10 @@ async function downloadGenericPluginSource(
   const state: DownloadState = { files: 0, bytes: 0 }
   const pluginUrl = source.pathname.endsWith('/plugin.json') ? source : new URL(`${ensureTrailingSlash(source.toString())}plugin.json`)
   await downloadFile(pluginUrl.toString(), join(stage, 'plugin.json'), fetcher, timeoutMs, limits, state)
-  const manifestResult = parseMarketplacePluginManifest(await readFile(join(stage, 'plugin.json'), 'utf8'))
+  // Parse without requiring a signature so an unsigned (mcp/skills-only) bundle
+  // still enumerates its component files; the strict signature/kind gate runs
+  // later against the staged bytes.
+  const manifestResult = parseMarketplacePluginAuthoringManifest(await readFile(join(stage, 'plugin.json'), 'utf8'))
   if (!manifestResult.ok) return
 
   const base = new URL('.', pluginUrl)
@@ -469,13 +515,18 @@ function relativeGithubPath(basePath: string, path: string | undefined): string 
 }
 
 function parseHttpsUrl(value: string): { ok: true; url: URL } | { ok: false; message: string } {
+  let url: URL
   try {
-    const url = new URL(value)
-    if (url.protocol !== 'https:') return { ok: false, message: 'Marketplace plugin source URL must use HTTPS.' }
-    return { ok: true, url }
+    url = new URL(value)
   } catch {
     return { ok: false, message: 'Marketplace plugin source URL is invalid.' }
   }
+  if (url.protocol !== 'https:') return { ok: false, message: 'Marketplace plugin source URL must use HTTPS.' }
+  const extraHosts = parseMarketplaceExtraHosts(process.env[MARKETPLACE_EXTRA_HOSTS_ENV])
+  if (!isMarketplaceSourceHostAllowed(url.hostname, extraHosts)) {
+    return { ok: false, message: `Marketplace plugin source host "${url.hostname}" is not on the allowlist.` }
+  }
+  return { ok: true, url }
 }
 
 function ensureTrailingSlash(value: string): string {

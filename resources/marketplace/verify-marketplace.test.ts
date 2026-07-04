@@ -94,17 +94,30 @@ function testTamperedComponentFailsThroughCliVerify(): void {
   assert.match(result.stderr, /component digests/i)
 }
 
-function testEntrySourceOutsideCanonicalPathFails(): void {
+function testEntrySourceOnNonAllowlistedHostFails(): void {
   const root = copySeedRegistry('evil-source-registry')
   const path = join(root, 'marketplace.json')
   const marketplace = JSON.parse(readFileSync(path, 'utf8')) as { plugins: Array<{ source?: string }> }
-  marketplace.plugins[0].source = 'https://github.com/example/evil-marketplace/tree/main/plugins/browser-automation-mcp'
+  marketplace.plugins[0].source = 'https://evil.example.com/plugins/browser-automation-mcp'
   writeFileSync(path, `${JSON.stringify(marketplace, null, 2)}\n`, 'utf8')
 
   const result = runVerifier(root)
   assert.equal(result.status, 1)
   assert.match(result.stderr, /plugins\.browser-automation-mcp\.source/)
-  assert.match(result.stderr, /canonical registry path/)
+  assert.match(result.stderr, /allowlist/)
+}
+
+function testEntrySourceOnAllowlistedNonCanonicalOwnerPasses(): void {
+  const root = copySeedRegistry('non-canonical-owner-registry')
+  const path = join(root, 'marketplace.json')
+  const marketplace = JSON.parse(readFileSync(path, 'utf8')) as { plugins: Array<{ id: string; source?: string }> }
+  const first = marketplace.plugins[0]
+  first.source = `https://github.com/another-org/registry/tree/main/plugins/${first.id}`
+  writeFileSync(path, `${JSON.stringify(marketplace, null, 2)}\n`, 'utf8')
+
+  const result = runVerifier(root)
+  assert.equal(result.status, 0, result.stderr)
+  assert.match(result.stdout, /marketplace registry verified/)
 }
 
 function testPublishScriptsTargetRegistryRoot(): void {
@@ -128,7 +141,8 @@ try {
   testSchemaInvalidRegistryFailsClearly()
   testTamperedPluginFailsThroughCliVerify()
   testTamperedComponentFailsThroughCliVerify()
-  testEntrySourceOutsideCanonicalPathFails()
+  testEntrySourceOnNonAllowlistedHostFails()
+  testEntrySourceOnAllowlistedNonCanonicalOwnerPasses()
   testPublishScriptsTargetRegistryRoot()
   console.log('marketplace publish validation tests passed')
 } finally {

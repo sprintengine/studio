@@ -6,17 +6,29 @@ import type {
   MarketplaceRegistryReadResult,
 } from '../../shared/electron-api'
 import {
+  MARKETPLACE_CANONICAL_SOURCE,
   parseMarketplaceIndex,
   validateMarketplaceIndex,
   type MarketplaceIndex,
 } from '../../shared/marketplace'
 import { findMarketplaceResourcePath } from './resources'
 
-export const DEFAULT_MARKETPLACE_REGISTRY_URL =
-  'https://raw.githubusercontent.com/multicode-labs/marketplace/main/marketplace.json'
+export const DEFAULT_MARKETPLACE_REGISTRY_URL = `https://raw.githubusercontent.com/${MARKETPLACE_CANONICAL_SOURCE.owner}/${MARKETPLACE_CANONICAL_SOURCE.repo}/${MARKETPLACE_CANONICAL_SOURCE.ref}/marketplace.json`
 export const MARKETPLACE_REGISTRY_CACHE_FILENAME = 'marketplace-registry-cache.json'
 export const MARKETPLACE_REGISTRY_SEED_FILENAME = 'marketplace.json'
 export const DEFAULT_MARKETPLACE_REGISTRY_TIMEOUT_MS = 15_000
+
+// MULTICODE_MARKETPLACE_REGISTRY_URL points the registry read at an alternate
+// index endpoint (e.g. the HotStack catalogue GET /v1/registry). GitHub-raw
+// stays the shipped default; the override changes only where the index is
+// fetched from — schema validation, ETag/304 handling, cache invalidation, and
+// the packaged-seed fallback apply to the configured URL exactly as they do to
+// the default one.
+export function configuredMarketplaceRegistryUrl(env: NodeJS.ProcessEnv = process.env): string {
+  const override = env.MULTICODE_MARKETPLACE_REGISTRY_URL?.trim()
+  if (override) return override
+  return DEFAULT_MARKETPLACE_REGISTRY_URL
+}
 
 export type MarketplaceRegistryFetch = (url: string, init: RequestInit) => Promise<Response>
 
@@ -58,7 +70,7 @@ export class MarketplaceRegistryClient {
     this.timeoutMs = options.timeoutMs ?? DEFAULT_MARKETPLACE_REGISTRY_TIMEOUT_MS
     this.now = options.now ?? (() => new Date())
     this.packagedSeedPath = options.packagedSeedPath
-    this.usePackagedSeedFallback = options.usePackagedSeedFallback ?? this.registryUrl.trim() === DEFAULT_MARKETPLACE_REGISTRY_URL
+    this.usePackagedSeedFallback = options.usePackagedSeedFallback ?? true
   }
 
   async read(input: MarketplaceRegistryReadInput = {}): Promise<MarketplaceRegistryReadResult> {

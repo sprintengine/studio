@@ -370,6 +370,10 @@ export type MarketplacePluginInstallInput = {
   skillHarnesses?: SkillPackHarness[]
 }
 
+// Both bundle and inline-MCP registry installs use this shape: a bundle entry
+// carries `source`, an inline-MCP entry carries `mcp.servers` (no bundle to
+// download). `trustGranted` is the server-side community/unsigned trust gate;
+// inline-MCP is code-execution config and never installs without it.
 export type MarketplacePluginRegistryInstallInput = Omit<MarketplacePluginInstallInput, 'localFolder'> & {
   entry: MarketplacePluginEntry
   trustGranted?: boolean
@@ -426,7 +430,7 @@ export type MarketplacePluginInstallResult =
 
 export type MarketplacePluginRegistryInstallResult =
   | (Extract<MarketplacePluginInstallResult, { ok: true }> & {
-      classification: Extract<MarketplacePluginTrustClassification, 'verified' | 'community'>
+      classification: Extract<MarketplacePluginTrustClassification, 'verified' | 'community' | 'unsigned'>
       sourceUrl: string
       updated: boolean
     })

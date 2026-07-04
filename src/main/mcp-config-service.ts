@@ -11,7 +11,6 @@ import type {
   McpCatalogResult,
   McpCatalogServer,
   McpClientTarget,
-  McpRiskLevel,
   McpScope,
   McpServerConfig,
   McpSettings,
@@ -22,8 +21,21 @@ import type {
   McpValidationIssue,
 } from '../shared/electron-api'
 import type { PluginManifest, PluginMcpConfigSpec } from '../shared/plugin-manifest'
+// MCP server-config normalization lives in shared/mcp so node-free consumers
+// (the marketplace registry validator) apply identical rules; re-exported here
+// to keep this module's public surface stable for existing callers.
+import {
+  normalizeMcpClients,
+  normalizeMcpServerConfig,
+  normalizeServer,
+  normalizeStringRecord,
+  type McpServerNormalizationOptions,
+} from '../shared/mcp/normalize-server'
 import { pluginIdForCli } from './agent-launch-render'
 import { getPluginById } from './plugin-registry-instance'
+
+export { normalizeMcpClients, normalizeMcpServerConfig }
+export type { McpServerNormalizationOptions }
 
 const MANAGED_START = '# >>> multicode mcp managed'
 const MANAGED_END = '# <<< multicode mcp managed'
@@ -62,14 +74,6 @@ export function createMcpConfigService(options: McpConfigServiceOptions = {}): M
 export type McpManagedSprintEngineRemoveInput = {
   workspaceRoot: string
   clients?: McpClientTarget[]
-}
-
-export type McpServerNormalizationOptions = {
-  clients?: McpClientTarget[]
-  enabled?: boolean
-  scope?: McpScope
-  source?: 'bundled' | 'custom'
-  riskLevel?: McpRiskLevel
 }
 
 type SyncContext = {
@@ -226,29 +230,6 @@ function removeManagedSprintEngineConfig(input: McpManagedSprintEngineRemoveInpu
   return { ok: true, targets, issues }
 }
 
-export function normalizeMcpClients(value: McpClientTarget[] | undefined): McpClientTarget[] {
-  const clients = (value ?? ['codex', 'claude-code'])
-    .map((client) => sanitizeId(client))
-    .filter(Boolean)
-  return Array.from(new Set(clients))
-}
-
-export function normalizeMcpServerConfig(
-  value: unknown,
-  options: McpServerNormalizationOptions = {}
-): McpServerConfig | null {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) return null
-  const candidate = value as Partial<McpServerConfig>
-  return normalizeServer({
-    ...candidate,
-    enabled: typeof candidate.enabled === 'boolean' ? candidate.enabled : options.enabled ?? true,
-    clients: Array.isArray(candidate.clients) ? candidate.clients : options.clients,
-    scope: candidate.scope ?? options.scope ?? 'workspace',
-    source: candidate.source ?? options.source ?? 'custom',
-    riskLevel: candidate.riskLevel ?? options.riskLevel,
-  } as McpServerConfig)
-}
-
 function buildManagedSprintEngineServer(input: McpSyncInput): McpServerConfig | null {
   const managed = input.managedSprintEngine
   if (!managed?.statePath?.trim()) return null
@@ -354,36 +335,6 @@ function normalizeSettings(settings: McpSettings | undefined, managedServer?: Mc
   }
 }
 
-function normalizeServer(server: McpServerConfig): McpServerConfig | null {
-  const id = sanitizeId(server.id)
-  if (!id) return null
-  const clients = normalizeMcpClients(server.clients)
-  if (clients.length === 0) return null
-  const transport = server.transport === 'http' || server.transport === 'sse' ? server.transport : 'stdio'
-  if (transport === 'stdio' && !server.command?.trim()) return null
-  if ((transport === 'http' || transport === 'sse') && !server.url?.trim()) return null
-  return {
-    ...server,
-    id,
-    name: server.name?.trim() || id,
-    transport,
-    command: server.command?.trim(),
-    args: Array.isArray(server.args) ? server.args.filter((arg) => typeof arg === 'string') : [],
-    url: server.url?.trim(),
-    env: normalizeStringRecord(server.env),
-    envVarNames: Array.isArray(server.envVarNames) ? server.envVarNames.filter((name) => typeof name === 'string' && name.trim()).map((name) => name.trim()) : [],
-    headers: normalizeStringRecord(server.headers),
-    clients,
-    scope: server.scope === 'user' ? 'user' : 'workspace',
-    source: server.source === 'custom' ? 'custom' : 'bundled',
-    riskLevel: server.riskLevel === 'network' || server.riskLevel === 'local-command' || server.riskLevel === 'secrets' ? server.riskLevel : 'low',
-    category: normalizeOptionalString(server.category),
-    auth: normalizeOptionalString(server.auth),
-    capabilities: normalizeStringArray(server.capabilities),
-    sourceUrl: normalizeOptionalString(server.sourceUrl),
-  }
-}
-
 function normalizeCatalogServer(value: unknown): McpCatalogServer | null {
   const server = normalizeServer({
     ...(value as McpServerConfig),
@@ -399,36 +350,6 @@ function normalizeCatalogServer(value: unknown): McpCatalogServer | null {
     recommendedScope: candidate.recommendedScope === 'user' ? 'user' : 'workspace',
     setupNotes: typeof candidate.setupNotes === 'string' ? candidate.setupNotes : undefined,
   }
-}
-
-function normalizeOptionalString(value: unknown): string | undefined {
-  return typeof value === 'string' && value.trim() ? value.trim() : undefined
-}
-
-function normalizeStringArray(value: unknown): string[] | undefined {
-  if (!Array.isArray(value)) return undefined
-  const items = value
-    .filter((item): item is string => typeof item === 'string')
-    .map((item) => item.trim())
-    .filter(Boolean)
-  return items.length ? Array.from(new Set(items)) : undefined
-}
-
-function normalizeStringRecord(value: unknown): Record<string, string> | undefined {
-  if (!value || typeof value !== 'object') return undefined
-  const entries = Object.entries(value as Record<string, unknown>)
-    .filter((entry): entry is [string, string] => typeof entry[1] === 'string' && Boolean(entry[0].trim()))
-    .map(([key, item]) => [key.trim(), item] as const)
-  return entries.length ? Object.fromEntries(entries) : undefined
-}
-
-function sanitizeId(value: string | undefined): string {
-  return (value ?? '')
-    .trim()
-    .toLowerCase()
-    .replace(/[^a-z0-9_-]/g, '-')
-    .replace(/-+/g, '-')
-    .replace(/^-|-$/g, '')
 }
 
 function validateServer(server: McpServerConfig): McpValidationIssue[] {

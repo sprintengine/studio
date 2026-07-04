@@ -4,6 +4,7 @@ import type { MarketplaceRegistryReadResult } from '../../../../shared/electron-
 import type { MarketplaceIndex, MarketplacePluginEntry } from '../../../../shared/marketplace/manifest'
 import {
   deriveBrowseView,
+  externalSourceHref,
   filterPlugins,
   groupPluginsByCategory,
   type BrowseLoad,
@@ -108,6 +109,38 @@ const result = (r: MarketplaceRegistryReadResult): BrowseLoad => ({ status: 'res
   assert.deepEqual(groups.map((g) => g.category), ['Code Hosting', 'Testing'], 'sorted by category')
 }
 
+{
+  // Widened schema: search also matches any `categories[]` facet beyond the primary
+  // display category, and any `tags[]` label — case-insensitively.
+  const plugins = [
+    plugin({ id: 'a', name: 'Test Runner', category: 'Testing', categories: ['Testing', 'Automation'], tags: ['playwright', 'e2e'], summary: 'browser testing helper' }),
+    plugin({ id: 'b', name: 'Repo Workflows', category: 'Code Hosting', tags: ['git'], summary: 'repository workflows' }),
+  ]
+  assert.deepEqual(filterPlugins(plugins, 'automation').map((p) => p.id), ['a'], 'matches a secondary category')
+  assert.deepEqual(filterPlugins(plugins, 'E2E').map((p) => p.id), ['a'], 'matches a tag, case-insensitive')
+  assert.deepEqual(filterPlugins(plugins, 'git').map((p) => p.id), ['b'], 'matches a tag')
+}
+
+{
+  // Inline-MCP entries (no bundle source, provides ['mcp']) are ordinary registry
+  // entries: they filter, group, and render like any other card.
+  const inline = plugin({
+    id: 'inline-weather',
+    name: 'Weather MCP',
+    category: 'Data',
+    provides: ['mcp'],
+    source: undefined,
+    signature: undefined,
+    mcp: { servers: [{ id: 'weather', name: 'Weather', transport: 'stdio', command: 'npx', args: ['weather-mcp'], enabled: true, clients: ['claude-code'], scope: 'workspace', source: 'custom', riskLevel: 'low' }] },
+  })
+  const view = deriveBrowseView(result(okResult([inline])), '')
+  assert.equal(view.status, 'ready')
+  if (view.status !== 'ready') throw new Error('unreachable')
+  assert.equal(view.total, 1)
+  assert.deepEqual(view.groups.flatMap((g) => g.plugins.map((p) => p.id)), ['inline-weather'])
+  assert.deepEqual(filterPlugins([inline], 'weather').map((p) => p.id), ['inline-weather'])
+}
+
 // --- lifecycle states ------------------------------------------------------
 
 assert.equal(deriveBrowseView({ status: 'loading' }, '').status, 'loading')
@@ -203,6 +236,28 @@ assert.equal(deriveBrowseView({ status: 'unsupported' }, '').status, 'unsupporte
   if (view.status !== 'ready') throw new Error('unreachable')
   assert.equal(view.featured.length, 0)
   assert.equal(view.total, 4)
+}
+
+{
+  // "View source" href guard: http(s) sources pass through unchanged so the
+  // link still renders and opens.
+  assert.equal(
+    externalSourceHref('https://github.com/multicode-labs/marketplace/tree/main/plugins/x'),
+    'https://github.com/multicode-labs/marketplace/tree/main/plugins/x',
+  )
+  assert.equal(externalSourceHref('http://example.com/x'), 'http://example.com/x')
+}
+
+{
+  // Fail closed: non-http(s) schemes that would reach shell.openExternal render
+  // no link. Covers file:// / smb:// / an OS protocol-handler scheme.
+  assert.equal(externalSourceHref('file:///etc/passwd'), undefined)
+  assert.equal(externalSourceHref('smb://host/share'), undefined)
+  assert.equal(externalSourceHref('ms-msdt:/id'), undefined)
+  // Missing/absent and unparseable sources also fail closed (inline-MCP entries
+  // carry no source and must show no link).
+  assert.equal(externalSourceHref(undefined), undefined)
+  assert.equal(externalSourceHref('not a url'), undefined)
 }
 
 console.log('storefrontView.test.ts passed')

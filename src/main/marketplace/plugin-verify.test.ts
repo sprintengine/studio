@@ -15,9 +15,9 @@ import {
 import { createMarketplacePluginVerifier } from './plugin-verify'
 import type { MarketplacePluginDownloadFetch } from './plugin-download'
 
-const SOURCE_URL = 'https://example.test/plugins/preview-plugin/'
-const PLUGIN_JSON_URL = 'https://example.test/plugins/preview-plugin/plugin.json'
-const MCP_JSON_URL = 'https://example.test/plugins/preview-plugin/mcp/server.json'
+const SOURCE_URL = 'https://raw.githubusercontent.com/preview/preview-plugin/main/'
+const PLUGIN_JSON_URL = 'https://raw.githubusercontent.com/preview/preview-plugin/main/plugin.json'
+const MCP_JSON_URL = 'https://raw.githubusercontent.com/preview/preview-plugin/main/mcp/server.json'
 
 type Fixture = {
   entry: MarketplacePluginEntry
@@ -190,7 +190,7 @@ async function testVerifiedPreviewDoesNotFabricateMissingPermissions(): Promise<
   })
 }
 
-async function testUnsignedPreviewBlocksWithoutPermissions(): Promise<void> {
+async function testUnsignedBundleUnderSignedEntryBlocksAsMismatch(): Promise<void> {
   await withTempDir(async (temp) => {
     const stagingRoot = join(temp, 'staging')
     const fixture = createFixture({ permissions: ['ipc:settings'] })
@@ -198,15 +198,43 @@ async function testUnsignedPreviewBlocksWithoutPermissions(): Promise<void> {
     const verifier = createMarketplacePluginVerifier({
       trustContext: () => ({ trustedModules: new Map() }),
       stagingRoot,
+      // The registry entry is signed but the downloaded bundle is unsigned: a
+      // signature was stripped. This is a registry mismatch (tamper), blocked as
+      // invalid with no permissions surfaced — not a permitted unsigned preview.
       fetcher: createFetcher(`${JSON.stringify(unsigned, null, 2)}\n`),
     })
 
     const result = await verifier.verify(fixture.entry)
 
-    assert.equal(result.classification, 'unsigned')
+    assert.equal(result.classification, 'invalid')
     assert.deepEqual(result.permissions, [])
-    assert.match(result.message ?? '', /unsigned/i)
+    assert.match(result.message ?? '', /registry entry/i)
     assert.ok(result.issues?.some((issue) => /signature/i.test(issue.path) || /signature/i.test(issue.message)))
+    assert.deepEqual(await listDir(stagingRoot), [])
+    assertNoInstallSideEffects(temp, stagingRoot)
+  })
+}
+
+async function testUnsignedMcpPreviewSurfacesPermissionsAndRemovesStage(): Promise<void> {
+  await withTempDir(async (temp) => {
+    const stagingRoot = join(temp, 'staging')
+    // A genuinely unsigned mcp-only entry+bundle (matching, no signature either
+    // side) is now a permitted preview: classification 'unsigned', permissions
+    // surfaced for the trust prompt, and the stage is cleaned after preview.
+    const fixture = createFixture({ permissions: ['network'] })
+    const { signature: _manifestSignature, ...unsignedManifest } = fixture.manifest
+    const { signature: _entrySignature, ...unsignedEntry } = fixture.entry
+    const verifier = createMarketplacePluginVerifier({
+      trustContext: () => ({ trustedModules: new Map() }),
+      stagingRoot,
+      fetcher: createFetcher(`${JSON.stringify(unsignedManifest, null, 2)}\n`),
+    })
+
+    const result = await verifier.verify(unsignedEntry as MarketplacePluginEntry)
+
+    assert.equal(result.classification, 'unsigned')
+    assert.deepEqual(result.permissions, ['network'])
+    assert.equal(result.message, undefined)
     assert.deepEqual(await listDir(stagingRoot), [])
     assertNoInstallSideEffects(temp, stagingRoot)
   })
@@ -238,7 +266,8 @@ async function main(): Promise<void> {
   await testVerifiedPreviewSurfacesPermissionsAndRemovesStage()
   await testCommunityPreviewSurfacesPermissionsForTrustPrompt()
   await testVerifiedPreviewDoesNotFabricateMissingPermissions()
-  await testUnsignedPreviewBlocksWithoutPermissions()
+  await testUnsignedBundleUnderSignedEntryBlocksAsMismatch()
+  await testUnsignedMcpPreviewSurfacesPermissionsAndRemovesStage()
   await testInvalidPreviewBlocksWithoutPermissions()
   console.log('marketplace plugin verify tests passed')
 }

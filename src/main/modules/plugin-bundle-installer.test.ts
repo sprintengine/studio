@@ -131,6 +131,21 @@ function signedBundleManifest(
   }
 }
 
+function unsignedBundleManifest(
+  components: BundleComponents,
+  files: Map<string, string>,
+  overrides: Record<string, unknown> = {}
+): Record<string, unknown> {
+  return {
+    id: 'bundle-plugin',
+    displayName: 'Bundle Plugin',
+    version: 1,
+    permissions: ['network'],
+    components: componentsWithDigests(components, files),
+    ...overrides,
+  }
+}
+
 function mcpPluginManifest(id: string, format: PluginMcpConfigFormat): PluginManifest {
   return {
     id,
@@ -200,7 +215,11 @@ function createLocalSkillService(): SkillPackService {
   }
 }
 
-async function createBundle(root: string, components: BundleComponents): Promise<string> {
+async function createBundle(
+  root: string,
+  components: BundleComponents,
+  options: { signed?: boolean } = {}
+): Promise<string> {
   const bundle = join(root, 'bundle')
   await mkdir(bundle, { recursive: true })
   const files = new Map<string, string>()
@@ -254,7 +273,10 @@ async function createBundle(root: string, components: BundleComponents): Promise
       },
     }, null, 2)}\n`)
   }
-  files.set('plugin.json', `${JSON.stringify(signedBundleManifest(components, files), null, 2)}\n`)
+  const manifest = options.signed === false
+    ? unsignedBundleManifest(components, files)
+    : signedBundleManifest(components, files)
+  files.set('plugin.json', `${JSON.stringify(manifest, null, 2)}\n`)
   for (const [path, source] of files) {
     const destination = join(bundle, path)
     await mkdir(dirname(destination), { recursive: true })
@@ -337,7 +359,11 @@ async function testMcpFanOutWarningDoesNotReportCleanSuccess(): Promise<void> {
     const bundle = await createBundle(temp, components)
     const lookupPlugin: PluginLookup = (id) => {
       if (id === 'codex') return { manifest: mcpPluginManifest(id, 'codex') }
-      if (id === 'opencode') return { manifest: mcpPluginManifest(id, 'opencode') }
+      // The second fan-out client declares an unimplemented config-writer format
+      // ('generic') so sync emits a warning and writes no target for it. Exercises
+      // the installer's contract that a fan-out warning is not masked as clean
+      // success, independent of which per-format writers happen to be implemented.
+      if (id === 'opencode') return { manifest: mcpPluginManifest(id, 'generic') }
       return undefined
     }
     const { input, services, workspaceRoot } = await installInput(temp, bundle, {
@@ -354,7 +380,7 @@ async function testMcpFanOutWarningDoesNotReportCleanSuccess(): Promise<void> {
     assert.deepEqual(result.installed?.map((component) => component.kind), ['mcp'])
     assert.ok(
       result.issues?.some((issue) =>
-        issue.path === 'clients.opencode' && /writer for format "opencode" is not implemented/.test(issue.message)
+        issue.path === 'clients.opencode' && /writer for format "generic" is not implemented/.test(issue.message)
       ),
       `expected opencode warning in install issues, got ${JSON.stringify(result.issues)}`
     )
@@ -506,8 +532,64 @@ async function testPartialFailureReportsInstalledComponents(): Promise<void> {
   })
 }
 
+async function testInstallsUnsignedMcpSkillsBundle(): Promise<void> {
+  await withTempDir(async (temp) => {
+    const components: BundleComponents = { mcp: { path: 'mcp.json' }, skills: { path: 'skills/local-skill' } }
+    const bundle = await createBundle(temp, components, { signed: false })
+    const { input, services, workspaceRoot } = await installInput(temp, bundle)
+
+    const result = await installMarketplacePlugin(input, services)
+
+    assert.equal(result.ok, true, result.ok ? '' : result.message)
+    if (!result.ok) return
+    assert.equal(result.trust, 'unsigned')
+    assert.equal(result.loadEligible, false, 'unsigned bundle is never load-eligible')
+    assert.deepEqual(result.installed.map((component) => component.kind), ['mcp', 'skills'])
+
+    const codexConfig = await readFile(join(workspaceRoot, '.codex', 'config.toml'), 'utf8')
+    assert.match(codexConfig, /\[mcp_servers\.bundle-mcp\]/)
+    assert.equal(existsSync(join(workspaceRoot, '.agents', 'skills', 'local-skill', 'SKILL.md')), true)
+  })
+}
+
+async function testRejectsUnsignedModuleBundleBeforeWrites(): Promise<void> {
+  await withTempDir(async (temp) => {
+    const components: BundleComponents = { mcp: { path: 'mcp.json' }, module: { path: 'module' } }
+    const bundle = await createBundle(temp, components, { signed: false })
+    const { input, services, workspaceRoot, moduleRoot } = await installInput(temp, bundle)
+
+    const result = await installMarketplacePlugin(input, services)
+
+    assert.equal(result.ok, false)
+    if (result.ok) return
+    assert.equal(result.message, 'Plugin bundle is unsigned and cannot be installed.')
+    assert.equal(result.trust, 'unsigned')
+    assert.equal(result.loadEligible, false)
+    assert.equal(existsSync(join(workspaceRoot, '.codex', 'config.toml')), false)
+    assert.equal(existsSync(moduleRoot), false)
+  })
+}
+
+async function testRejectsUnsignedCliBundleBeforeWrites(): Promise<void> {
+  await withTempDir(async (temp) => {
+    const components: BundleComponents = { cli: { path: 'cli' } }
+    const bundle = await createBundle(temp, components, { signed: false })
+    const { input, services, pluginRoot } = await installInput(temp, bundle)
+
+    const result = await installMarketplacePlugin(input, services)
+
+    assert.equal(result.ok, false)
+    if (result.ok) return
+    assert.equal(result.message, 'Plugin bundle is unsigned and cannot be installed.')
+    assert.equal(existsSync(pluginRoot), false)
+  })
+}
+
 async function main(): Promise<void> {
   await testInstallsEveryComponentThroughRealPaths()
+  await testInstallsUnsignedMcpSkillsBundle()
+  await testRejectsUnsignedModuleBundleBeforeWrites()
+  await testRejectsUnsignedCliBundleBeforeWrites()
   await testMcpFanOutWarningDoesNotReportCleanSuccess()
   await testLocalInstallRejectsSignedComponentDigestMismatchBeforeWrites()
   await testMcpSkillBundleIsVisibleAndLaunchesTerminalWithInstalledMcp()

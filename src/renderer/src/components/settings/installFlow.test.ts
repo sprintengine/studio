@@ -12,9 +12,10 @@ import {
 } from './installFlow'
 
 // The trust gate must disclose REAL verified permissions before trust and must
-// never fake an install: verified installs directly, community earns the trust
-// prompt populated from the verify IPC, unsigned/invalid hard-block with no
-// install affordance, and the seven flow states each render an explicit view.
+// never fake an install: verified installs directly; community AND unsigned
+// mcp/skills-only earn the trust prompt populated from the verify IPC; unsigned
+// code-bearing (module/cli) and invalid hard-block with no install affordance; and
+// the seven flow states each render an explicit view.
 
 function verify(overrides: Partial<MarketplacePluginVerifyResult> = {}): MarketplacePluginVerifyResult {
   return {
@@ -29,7 +30,7 @@ function verify(overrides: Partial<MarketplacePluginVerifyResult> = {}): Marketp
 
 {
   // Verified → install directly (no trust prompt).
-  const outcome = classifyVerification(verify({ classification: 'verified' }))
+  const outcome = classifyVerification(verify({ classification: 'verified' }), ['mcp'])
   assert.equal(outcome.kind, 'install')
 }
 
@@ -37,6 +38,7 @@ function verify(overrides: Partial<MarketplacePluginVerifyResult> = {}): Marketp
   // Community → trust prompt populated with the REAL verified permissions.
   const outcome = classifyVerification(
     verify({ classification: 'community', permissions: ['network', 'filesystem:read-workspace'] }),
+    ['module'],
   )
   assert.equal(outcome.kind, 'needs-trust')
   if (outcome.kind !== 'needs-trust') throw new Error('unreachable')
@@ -45,7 +47,7 @@ function verify(overrides: Partial<MarketplacePluginVerifyResult> = {}): Marketp
 
 {
   // Community with no declared permissions: a real empty list, never fabricated.
-  const outcome = classifyVerification(verify({ classification: 'community', permissions: [] }))
+  const outcome = classifyVerification(verify({ classification: 'community', permissions: [] }), ['mcp'])
   assert.equal(outcome.kind, 'needs-trust')
   if (outcome.kind !== 'needs-trust') throw new Error('unreachable')
   assert.deepEqual(outcome.permissions, [])
@@ -59,6 +61,7 @@ function verify(overrides: Partial<MarketplacePluginVerifyResult> = {}): Marketp
       message: 'Downloaded plugin bundle signature is invalid.',
       issues: [{ path: 'signature', message: 'Invalid signature.' }],
     }),
+    ['mcp'],
   )
   assert.equal(outcome.kind, 'blocked')
   if (outcome.kind !== 'blocked') throw new Error('unreachable')
@@ -68,12 +71,33 @@ function verify(overrides: Partial<MarketplacePluginVerifyResult> = {}): Marketp
 }
 
 {
-  // Unsigned → hard block too (architect ruling: unsigned is not trust-grantable).
-  const outcome = classifyVerification(verify({ classification: 'unsigned' }))
+  // Unsigned mcp/skills-only → trust prompt per the T4b/T5 split: declarative
+  // components may install unsigned behind an explicit trust grant, with real permissions.
+  const outcome = classifyVerification(
+    verify({ classification: 'unsigned', permissions: ['filesystem:read-workspace'] }),
+    ['mcp', 'skills'],
+  )
+  assert.equal(outcome.kind, 'needs-trust')
+  if (outcome.kind !== 'needs-trust') throw new Error('unreachable')
+  assert.deepEqual(outcome.permissions, ['filesystem:read-workspace'])
+}
+
+{
+  // Unsigned code-bearing (module) → hard block; a code-bearing unsigned bundle is
+  // never trust-grantable. Fallback message when the verifier omits one.
+  const outcome = classifyVerification(verify({ classification: 'unsigned' }), ['mcp', 'module'])
   assert.equal(outcome.kind, 'blocked')
   if (outcome.kind !== 'blocked') throw new Error('unreachable')
   assert.equal(outcome.classification, 'unsigned')
   assert.ok(outcome.message.length > 0, 'falls back to a default unsigned message')
+}
+
+{
+  // Unsigned code-bearing (cli) → hard block as well.
+  const outcome = classifyVerification(verify({ classification: 'unsigned' }), ['cli'])
+  assert.equal(outcome.kind, 'blocked')
+  if (outcome.kind !== 'blocked') throw new Error('unreachable')
+  assert.equal(outcome.classification, 'unsigned')
 }
 
 // --- summarizeInstallResult ------------------------------------------------

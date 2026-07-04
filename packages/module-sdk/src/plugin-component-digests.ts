@@ -24,7 +24,7 @@ export type MarketplacePluginComponentsWithDigestsResult =
   | { ok: true; components: MarketplacePluginComponents }
   | { ok: false; issues: MarketplaceManifestIssue[] }
 
-export function marketplaceComponentDigestPaths(manifest: MarketplacePluginManifest): string[] {
+export function marketplaceComponentDigestPaths(manifest: Pick<MarketplacePluginManifest, 'components'>): string[] {
   return Array.from(new Set(componentKinds(manifest).flatMap((kind) =>
     manifest.components[kind]?.files?.map((file) => file.path) ?? []
   ))).sort()
@@ -105,7 +105,10 @@ export function computeMarketplacePluginComponentsWithDigestsSync(
 
 export function marketplaceComponentDigestMismatchIssuesSync(
   bundleRoot: string,
-  manifest: MarketplacePluginManifest,
+  // Only the declared components are read, so an unsigned (signature-optional)
+  // authoring manifest is a valid input: digest integrity is orthogonal to the
+  // signature.
+  manifest: Pick<MarketplacePluginManifest, 'components'>,
   options: MarketplaceComponentDigestOptions = {}
 ): MarketplaceManifestIssue[] {
   const issues: MarketplaceManifestIssue[] = []
@@ -135,7 +138,7 @@ export function marketplaceComponentDigestMismatchIssuesSync(
   return dedupeIssues(issues)
 }
 
-function componentKinds(manifest: MarketplacePluginManifest): MarketplaceComponentKind[] {
+function componentKinds(manifest: Pick<MarketplacePluginManifest, 'components'>): MarketplaceComponentKind[] {
   return MARKETPLACE_COMPONENT_KINDS.filter((kind) => manifest.components[kind] !== undefined)
 }
 
