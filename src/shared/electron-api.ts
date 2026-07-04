@@ -648,6 +648,7 @@ export type McpCatalogServer = Omit<McpServerConfig, 'enabled' | 'scope' | 'sour
   defaultClients?: McpClientTarget[]
   recommendedScope?: McpScope
   setupNotes?: string
+  skill?: string
 }
 
 export type McpCatalogResult =
@@ -871,6 +872,11 @@ export type TerminalSpawnMetadata = {
   agentSession?: AgentSessionMetadata
   visible?: boolean
   mcpSettings?: McpSettings
+  // Connector launches (e.g. Railway) name a builtin skill to install into the
+  // worktree at spawn, so the seeded skill invocation resolves to a present
+  // skill. Generalizes the debug-skill install; best-effort at the launch
+  // boundary. Undefined for ordinary spawns. See TerminalSpawnPayload.
+  connectorSkillId?: string
 }
 
 export type SessionActivity =

@@ -49,6 +49,7 @@ import {
   type SprintEngineDispatchAttempt,
   type SprintEngineDispatchPath,
 } from './sprintengineAutoRun'
+import { normalizeSprintEngineState, normalizeSprintEngineProjection } from './sprintengine'
 import { buildSprintEngineStartupPrompt, getSprintEngineStartupCommandMode } from './agentPrompt'
 import { deriveSprintEngineAutomationMode } from './sprintengineAutomation'
 import {
@@ -113,7 +114,7 @@ async function main(): Promise<void> {
   testPickNextAutoRunsSpawnsBareReviewerForUnseatedGateRole()
   testPickNextAutoRunsPrefersSeatedIdleReviewerOverBareId()
   testPickNextAutoRunsWaitsForBusyReviewerInsteadOfDuplicating()
-  testPickNextAutoRunsDefersDepartedReviewerToRevivalPath()
+  testPickNextAutoRunsRevivesDepartedReviewerForGate()
   testPickNextAutoRunsSelectsOwnerlessChangesRequestedWork()
   testPickNextAutoRunsSelectsStaleOwnedChangesRequestedWork()
   testPickNextAutoRunsSkipsUnresolvedNeedsInputOwner()
@@ -158,7 +159,8 @@ async function main(): Promise<void> {
   testTaskScopedRestrictionDoesNotBlockGateClaims()
   testTaskScopedParkingStaysConsistentWithGateAvailability()
   testWindowDisposalMarksRetainResumeStateAndTerminalStateDoesNot()
-  testPickNextAutoRunsPrefersPreviousOwnerForRework()
+  testPickNextAutoRunsDefersBoundOwnerReworkToRevival()
+  testPickNextAutoRunsDoesNotRespawnDepartedOwnerWhileRevivalThrottles()
   await testSpawnAutoRunCandidateResumesPreviousOwnerConversation()
   await testWindowDisposalRetainsResumeStateInStore()
   testHasUnownedReadyTaskTrigger()
@@ -188,7 +190,8 @@ async function main(): Promise<void> {
   await testRespawnsDeadTaskClaimantAfterRestart()
   await testRespawnsDeadGateClaimantWithGateClaimTool()
   await testRespawnSkipsLiveCappedNeedsInputAndCoolingClaimants()
-  testRevivesLeftAgentForClaimableWork()
+  testRevivesDepartedWorkerForOwnRework()
+  testLegacyLeftDeadAgentStatusCoercesToIdle()
   await testSuperviseRunnerCycleRespawnsDeadClaimantsAtFullOccupancy()
   await testAllPathsPlanNeverPastesAndKillsSameAgentInOnePass()
   await testNotificationPasteSuppressesSamePassDispatchPaste()
@@ -2505,10 +2508,13 @@ function testWindowDisposalMarksRetainResumeStateAndTerminalStateDoesNot(): void
   assert.equal(plainPlan.retirements[0].retainResumeState, undefined)
 }
 
-function testPickNextAutoRunsPrefersPreviousOwnerForRework(): void {
-  // Owner affinity (MC-1444 Phase 2): a changes_requested task goes back to
-  // the roster agent that owned it — its respawn resumes the original
-  // conversation — even when another idle agent of the role sorts first.
+function testPickNextAutoRunsDefersBoundOwnerReworkToRevival(): void {
+  // Single-authority owner respawn (T2 review finding): a departed owner now
+  // reads as `idle`, so the picker must NOT respawn it — that would be a second,
+  // unthrottled authority racing the retry-limited revival pass. The picker
+  // DEFERS a task whose previous owner is still bound to it; the revival pass in
+  // planSprintEngineDispatch is the sole (throttled) spawner. Owner affinity is
+  // preserved because the revival respawn resumes the owner's conversation.
   const reworkTask = task({
     id: 'T-mine',
     role: 'developer',
@@ -2525,12 +2531,27 @@ function testPickNextAutoRunsPrefersPreviousOwnerForRework(): void {
     },
   })
   const candidates = pickNextAutoRuns(workspaceFixture(), state, pickInput())
-  assert.equal(candidates.length, 1)
-  assert.equal(candidates[0].taskId, 'T-mine')
-  assert.equal(candidates[0].agentId, 'developer-1', 'the previous owner is preferred over the first eligible role agent')
+  assert.equal(candidates.length, 0, 'the picker defers the bound owner\'s rework — it does not fresh-dispatch or respawn it')
 
-  // Without a previous owner among the eligible agents, selection falls back
-  // to the generic first-eligible pick.
+  // The revival pass is the one authority that respawns the departed owner, and
+  // it is retry-limited so a crash-looping owner cannot spawn-storm.
+  const revivalWorkspace = workspaceFixture({ agents: { 'developer-1': sprintAgent('developer-1', 'Devin') } })
+  const revivalPlan = planSprintEngineDispatch({
+    workspace: revivalWorkspace,
+    sprintEngineState: state,
+    now: Date.parse('2026-07-04T22:00:00Z'),
+    runningAgentIds: new Set(),
+    idleAgentIds: new Set(),
+    continuationLedger: new Map(),
+    dispatchLedger: new Map(),
+    paths: new Set(['respawn']),
+  })
+  assert.equal(revivalPlan.respawns.length, 1, 'the revival pass respawns the departed owner')
+  assert.equal(revivalPlan.respawns[0].agentId, 'developer-1', 'owner affinity preserved: the id that owned the task is revived')
+  assert.equal(revivalPlan.respawns[0].taskId, 'T-mine')
+
+  // Without a previous owner bound to the task, the picker hands it to fresh
+  // never-owned capacity as usual.
   const noOwnerState = sprintEngineStateFixture({
     tasks: [reworkTask],
     sprintEngineAgents: {
@@ -2541,6 +2562,44 @@ function testPickNextAutoRunsPrefersPreviousOwnerForRework(): void {
   const fallback = pickNextAutoRuns(workspaceFixture(), noOwnerState, pickInput())
   assert.equal(fallback.length, 1)
   assert.equal(fallback[0].agentId, 'developer-0')
+}
+
+function testPickNextAutoRunsDoesNotRespawnDepartedOwnerWhileRevivalThrottles(): void {
+  // Review requirement: the picker must not respawn a departed owner that the
+  // revival ledger is throttling. The picker has no cross-cycle retry ledger, so
+  // it defers the bound owner's rework unconditionally — even mid-throttle,
+  // there is no picker candidate to bypass the cap.
+  const reworkTask = task({
+    id: 'T-rework',
+    role: 'developer',
+    status: 'changes_requested',
+    boardColumn: 'changes_requested',
+    ownerAgentId: null,
+    qualityGates: [],
+  })
+  const workspace = workspaceFixture({ agents: { 'developer-1': sprintAgent('developer-1', 'Devin') } })
+  const state = sprintEngineStateFixture({
+    tasks: [reworkTask],
+    sprintEngineAgents: { 'developer-1': runtimeAgent('developer', { lastOwnedTaskId: 'T-rework' }) },
+  })
+  const candidates = pickNextAutoRuns(workspace, state, pickInput())
+  assert.equal(candidates.length, 0, 'a departed owner gets no picker candidate — respawn stays the revival pass\'s throttled job')
+
+  // And the revival pass itself honours its cap: once the revive: key is maxed,
+  // no respawn is planned this pass.
+  const now = Date.parse('2026-07-04T22:00:00Z')
+  const cappedKey = sprintEngineReviveLedgerKey(workspace, { taskId: 'T-rework' }, 'developer-1')
+  const cappedPlan = planSprintEngineDispatch({
+    workspace,
+    sprintEngineState: state,
+    now,
+    runningAgentIds: new Set(),
+    idleAgentIds: new Set(),
+    continuationLedger: new Map([[cappedKey, { sentAt: now - 120_000, attempts: AUTO_RUN_MAX_WAKE_CANDIDATE_PROMPT_RETRIES }]]),
+    dispatchLedger: new Map(),
+    paths: new Set(['respawn']),
+  })
+  assert.equal(cappedPlan.respawns.length, 0, 'a maxed revive ledger stops the only respawn authority — no spawn-storm')
 }
 
 async function testSpawnAutoRunCandidateResumesPreviousOwnerConversation(): Promise<void> {
@@ -2735,7 +2794,10 @@ function testSelfReviewBarredOwnGateDoesNotParkCompletedWorker(): void {
 
 function testGenericPickAvoidsReworkReservedOwners(): void {
   // Review finding: iteration order must not burn a rework owner (and its
-  // retained conversation) on an unrelated earlier task.
+  // retained conversation) on an unrelated earlier task. Post-T2 the owner is
+  // reserved by DEFERRAL — the picker never selects a bound owner (its rework is
+  // the revival pass's throttled job), so the fresh agent takes only the new
+  // task and the owner is never pulled onto the unrelated one.
   const state = sprintEngineStateFixture({
     tasks: [
       task({ id: 'T-new', role: 'developer', status: 'todo', boardColumn: 'ready', ownerAgentId: null, qualityGates: [] }),
@@ -2750,7 +2812,11 @@ function testGenericPickAvoidsReworkReservedOwners(): void {
   const candidates = pickNextAutoRuns(workspaceFixture(), state, pickInput())
   const byTask = new Map(candidates.map((candidate) => [candidate.taskId, candidate.agentId]))
   assert.equal(byTask.get('T-new'), 'developer-2', 'the unreserved agent takes the new task')
-  assert.equal(byTask.get('T-rework'), 'developer-1', 'the rework owner is preserved for its own task')
+  assert.equal(byTask.has('T-rework'), false, 'the bound owner\'s rework is deferred to the revival pass, not picked here')
+  assert.ok(
+    !candidates.some((candidate) => candidate.agentId === 'developer-1'),
+    'the rework owner is never burned on another task by the picker',
+  )
 }
 
 function testPickNextAutoRunsNeverReusesSpentIdForNewClaim(): void {
@@ -2821,7 +2887,14 @@ function testGateReviewerPickAvoidsReworkOwner(): void {
   const candidates = pickNextAutoRuns(workspaceFixture(), state, pickInput())
   const byTask = new Map(candidates.map((candidate) => [candidate.taskId, candidate.agentId]))
   assert.equal(byTask.get('T-review'), 'general-2', 'the same-role gate goes to the non-owner, not the rework owner')
-  assert.equal(byTask.get('T-rework'), 'general-1', 'the rework owner is preserved for its own changes_requested task')
+  // Post-T2 the owner is reserved by DEFERRAL: its changes_requested task is not
+  // picked here (the revival pass respawns it), and crucially the gate pre-pass
+  // never burns general-1 on the unrelated gate.
+  assert.equal(byTask.has('T-rework'), false, 'the rework owner\'s task is deferred to the revival pass')
+  assert.ok(
+    !candidates.some((candidate) => candidate.agentId === 'general-1'),
+    'the rework owner is never pulled onto the unrelated same-role gate',
+  )
 }
 
 function testPickNextAutoRunsDefersReworkToLiveBoundOwner(): void {
@@ -3746,28 +3819,57 @@ const respawnTestCliRuntimes = {
   'claude-code': { command: 'claude', useWsl: false },
 }
 
-function testRevivesLeftAgentForClaimableWork(): void {
-  // Regression: idle-retirement disposes a role's terminal (agent -> 'left').
-  // When claimable work later appears for that role and no live agent of the
-  // role exists, the respawn path must REVIVE the left agent — otherwise the
-  // gate/ready-task pickers (which only match `idle` agents) strand the run.
+function testRevivesDepartedWorkerForOwnRework(): void {
+  // Derived-liveness revival (T2): idle-retirement disposes a worker's terminal;
+  // the agent reads as plain `idle` (no `left`/`dead`) with its durable
+  // `lastOwnedTaskId` retained. When its task returns as claimable rework and no
+  // live agent of the role exists, the respawn path REVIVES the id bound to that
+  // task by ownership — no status read — so its fresh session resumes the work.
   const now = Date.parse('2026-06-28T22:00:00Z')
-  const readyTask = task({
-    id: 'T-ready',
-    title: 'Ready developer task',
+  const reworkTask = task({
+    id: 'T-rework',
+    title: 'Developer task sent back for rework',
+    role: 'developer',
+    status: 'changes_requested',
+    boardColumn: 'changes_requested',
+    ownerAgentId: null,
+    qualityGates: [],
+  })
+  const workspace = workspaceFixture({ agents: { 'developer-1': sprintAgent('developer-1', 'Perry') } })
+  const departedOwner = { 'developer-1': runtimeAgent('developer', { lastOwnedTaskId: 'T-rework' }) }
+
+  const plan = planSprintEngineDispatch({
+    workspace,
+    sprintEngineState: sprintEngineStateFixture({ tasks: [reworkTask], sprintEngineAgents: departedOwner }),
+    now,
+    runningAgentIds: new Set(),
+    idleAgentIds: new Set(),
+    continuationLedger: new Map(),
+    dispatchLedger: new Map(),
+    paths: new Set(['respawn']),
+  })
+  assert.equal(plan.respawns.length, 1, `the departed owner is revived for its rework; respawns ${JSON.stringify(plan.respawns)}`)
+  assert.equal(plan.respawns[0].agentId, 'developer-1', 'the id that last owned the task is revived, not a fresh replacement')
+  assert.equal(plan.respawns[0].role, 'developer')
+  assert.equal(plan.respawns[0].taskId, 'T-rework')
+
+  // A fresh, never-owned ready task is NOT a revival: no departed id is bound to
+  // it, so `findFreshTaskAgent`/replenish (not this path) mints a new session.
+  const freshTask = task({
+    id: 'T-fresh',
+    title: 'Fresh developer task',
     role: 'developer',
     status: 'todo',
     boardColumn: 'ready',
     ownerAgentId: null,
     qualityGates: [],
   })
-  const workspace = workspaceFixture({ agents: { 'developer-1': sprintAgent('developer-1', 'Perry') } })
-
-  const plan = planSprintEngineDispatch({
+  const freshPlan = planSprintEngineDispatch({
     workspace,
     sprintEngineState: sprintEngineStateFixture({
-      tasks: [readyTask],
-      sprintEngineAgents: { 'developer-1': runtimeAgent('developer', { status: 'left' }) },
+      tasks: [freshTask],
+      // The idle developer never owned T-fresh, so owner affinity finds no match.
+      sprintEngineAgents: { 'developer-1': runtimeAgent('developer', { lastOwnedTaskId: 'T-other' }) },
     }),
     now,
     runningAgentIds: new Set(),
@@ -3776,18 +3878,16 @@ function testRevivesLeftAgentForClaimableWork(): void {
     dispatchLedger: new Map(),
     paths: new Set(['respawn']),
   })
-  assert.equal(plan.respawns.length, 1, `a left agent is revived for claimable ready work; respawns ${JSON.stringify(plan.respawns)}`)
-  assert.equal(plan.respawns[0].agentId, 'developer-1', 'the left agent itself is revived, not a fresh replacement')
-  assert.equal(plan.respawns[0].role, 'developer')
+  assert.equal(freshPlan.respawns.length, 0, 'a fresh unowned ready task is not a revival (fresh-task picker owns it)')
 
-  // No revival when a live agent of the role already exists — it will claim the
-  // work through the normal idle picker, so we must not spawn a redundant one.
+  // No revival when a live agent of the role already exists — it claims the work
+  // through the normal idle picker, so we must not spawn a redundant one.
   const planWithLiveAgent = planSprintEngineDispatch({
     workspace,
     sprintEngineState: sprintEngineStateFixture({
-      tasks: [readyTask],
+      tasks: [reworkTask],
       sprintEngineAgents: {
-        'developer-1': runtimeAgent('developer', { status: 'left' }),
+        'developer-1': runtimeAgent('developer', { lastOwnedTaskId: 'T-rework' }),
         'developer-2': runtimeAgent('developer', { status: 'idle' }),
       },
     }),
@@ -3804,13 +3904,10 @@ function testRevivesLeftAgentForClaimableWork(): void {
   // stops (no endless respawn of a broken CLI). The key uses its own `revive:`
   // namespace so the `respawn:` sweep can't wipe it and reset the counter; and
   // while the revival is still an active target its key must NOT be swept.
-  const reviveKey = sprintEngineReviveLedgerKey(workspace, { taskId: 'T-ready' }, 'developer-1')
+  const reviveKey = sprintEngineReviveLedgerKey(workspace, { taskId: 'T-rework' }, 'developer-1')
   const cappedPlan = planSprintEngineDispatch({
     workspace,
-    sprintEngineState: sprintEngineStateFixture({
-      tasks: [readyTask],
-      sprintEngineAgents: { 'developer-1': runtimeAgent('developer', { status: 'left' }) },
-    }),
+    sprintEngineState: sprintEngineStateFixture({ tasks: [reworkTask], sprintEngineAgents: departedOwner }),
     now,
     runningAgentIds: new Set(),
     idleAgentIds: new Set(),
@@ -3830,64 +3927,11 @@ function testRevivesLeftAgentForClaimableWork(): void {
     'an active revival target keeps its ledger key (not swept), so the retry cap holds across passes',
   )
 
-  // The production stuck case: a task in REVIEW with a pending review gate whose
-  // role has only left agents. Revival must respawn the reviewer for the GATE
-  // (distinct code path from ready-task revival), carrying the gateId.
-  const reviewTask = task({
-    id: 'T-review',
-    title: 'Developer task awaiting review',
-    role: 'developer',
-    status: 'review',
-    boardColumn: 'review',
-    ownerAgentId: null,
-    qualityGates: [
-      { id: 'code_reviewer', phase: 'review', role: 'code_reviewer', status: 'pending', required: true, allowSelfReview: true, focus: '', attempts: [] },
-    ],
-  })
-  const gateWorkspace = workspaceFixture({ agents: { 'code-reviewer-1': sprintAgent('code-reviewer-1', 'Remy') } })
-  const gatePlan = planSprintEngineDispatch({
-    workspace: gateWorkspace,
-    sprintEngineState: sprintEngineStateFixture({
-      tasks: [reviewTask],
-      sprintEngineAgents: { 'code-reviewer-1': runtimeAgent('code_reviewer', { status: 'left' }) },
-    }),
-    now,
-    runningAgentIds: new Set(),
-    idleAgentIds: new Set(),
-    continuationLedger: new Map(),
-    dispatchLedger: new Map(),
-    paths: new Set(['respawn']),
-  })
-  assert.equal(gatePlan.respawns.length, 1, `a left reviewer is revived for a pending gate; respawns ${JSON.stringify(gatePlan.respawns)}`)
-  assert.equal(gatePlan.respawns[0].agentId, 'code-reviewer-1')
-  assert.equal(gatePlan.respawns[0].role, 'code_reviewer')
-  assert.equal(gatePlan.respawns[0].gateId, 'code_reviewer', 'the revival carries the gate id so the reviewer claims the gate')
-
-  // A `dead` agent (process died, vs cleanly left) is equally revivable.
-  const deadPlan = planSprintEngineDispatch({
-    workspace,
-    sprintEngineState: sprintEngineStateFixture({
-      tasks: [readyTask],
-      sprintEngineAgents: { 'developer-1': runtimeAgent('developer', { status: 'dead' }) },
-    }),
-    now,
-    runningAgentIds: new Set(),
-    idleAgentIds: new Set(),
-    continuationLedger: new Map(),
-    dispatchLedger: new Map(),
-    paths: new Set(['respawn']),
-  })
-  assert.equal(deadPlan.respawns.length, 1, 'a dead agent is revived for claimable work')
-  assert.equal(deadPlan.respawns[0].agentId, 'developer-1')
-
   // An unmanaged claimant (no workspace.agents entry, e.g. a headless CLI) has no
   // renderer terminal to spawn, so it is never revived.
   const unmanagedPlan = planSprintEngineDispatch({
     workspace: workspaceFixture({ agents: {} }),
-    sprintEngineState: sprintEngineStateFixture({
-      tasks: [readyTask],
-      sprintEngineAgents: { 'developer-1': runtimeAgent('developer', { status: 'left' }) },
-    }),
+    sprintEngineState: sprintEngineStateFixture({ tasks: [reworkTask], sprintEngineAgents: departedOwner }),
     now,
     runningAgentIds: new Set(),
     idleAgentIds: new Set(),
@@ -3895,7 +3939,7 @@ function testRevivesLeftAgentForClaimableWork(): void {
     dispatchLedger: new Map(),
     paths: new Set(['respawn']),
   })
-  assert.equal(unmanagedPlan.respawns.length, 0, 'an unmanaged left agent is not revived (no terminal to spawn)')
+  assert.equal(unmanagedPlan.respawns.length, 0, 'an unmanaged departed owner is not revived (no terminal to spawn)')
 
   // Sweep: a `revive:` ledger entry for work that is NO LONGER an active revival
   // target (here, a task that no longer exists) is deleted, so a maxed-out retry
@@ -3903,10 +3947,7 @@ function testRevivesLeftAgentForClaimableWork(): void {
   const staleReviveKey = sprintEngineReviveLedgerKey(workspace, { taskId: 'T-gone' }, 'developer-1')
   const sweepPlan = planSprintEngineDispatch({
     workspace,
-    sprintEngineState: sprintEngineStateFixture({
-      tasks: [readyTask],
-      sprintEngineAgents: { 'developer-1': runtimeAgent('developer', { status: 'left' }) },
-    }),
+    sprintEngineState: sprintEngineStateFixture({ tasks: [reworkTask], sprintEngineAgents: departedOwner }),
     now,
     runningAgentIds: new Set(),
     idleAgentIds: new Set(),
@@ -3920,6 +3961,35 @@ function testRevivesLeftAgentForClaimableWork(): void {
     sweepPlan.ledgerDeletes.some((del) => del.key === staleReviveKey),
     'a stale revive: ledger entry (no active target) is swept so its retry budget resets',
   )
+}
+
+function testLegacyLeftDeadAgentStatusCoercesToIdle(): void {
+  // Legacy tolerance (T2): a projection or persisted state written before
+  // liveness was unified may carry a `left`/`dead` agent status. Both load
+  // paths coerce any status outside the modelled set to `idle` so the payload
+  // reads clean without a type violation.
+  const projection = normalizeSprintEngineProjection({
+    run: { name: 'Legacy run' },
+    roster: {
+      'developer-1': { role: 'developer', status: 'left', currentTaskId: null, lastOwnedTaskId: 'T1' },
+      'code-reviewer-1': { role: 'code_reviewer', status: 'dead', currentTaskId: null },
+    },
+    tasks: [],
+    artifacts: [],
+  })
+  assert.equal(projection?.sprintEngineAgents['developer-1'].status, 'idle', 'legacy left status loads as idle from a projection')
+  assert.equal(projection?.sprintEngineAgents['developer-1'].lastOwnedTaskId, 'T1', 'the departed owner keeps its task binding')
+  assert.equal(projection?.sprintEngineAgents['code-reviewer-1'].status, 'idle', 'legacy dead status loads as idle from a projection')
+
+  // Persisted renderer state (already SprintEngineState-shaped) is coerced too;
+  // the legacy values are cast in because they are no longer in the union.
+  const persisted = normalizeSprintEngineState(sprintEngineStateFixture({
+    sprintEngineAgents: {
+      'developer-1': { role: 'developer', status: 'left' as SprintEngineRuntimeAgent['status'], currentTaskId: null, lastOwnedTaskId: 'T1' },
+    },
+  }))
+  assert.equal(persisted?.sprintEngineAgents['developer-1'].status, 'idle', 'legacy left status coerces to idle from persisted state')
+  assert.equal(persisted?.sprintEngineAgents['developer-1'].lastOwnedTaskId, 'T1', 'coercion preserves the retained task binding')
 }
 
 async function testRespawnsDeadTaskClaimantAfterRestart(): Promise<void> {
@@ -6609,10 +6679,12 @@ function testPickNextAutoRunsWaitsForBusyReviewerInsteadOfDuplicating(): void {
   assert.equal(gateCandidate, undefined, 'a busy reviewer is left to finish; no duplicate mint')
 }
 
-function testPickNextAutoRunsDefersDepartedReviewerToRevivalPath(): void {
-  // The role's only reviewer has departed (left). The bare-id mint must NOT
-  // fire — a departed reviewer is revived through the retry-limited revival path
-  // in reconcileWorkspaceSessions, and minting here would race a second spawn.
+function testPickNextAutoRunsRevivesDepartedReviewerForGate(): void {
+  // Reviewer revival is DERIVED (T2): a departed reviewer reads as plain `idle`
+  // (no `left`/`dead`), so `findGateReviewerAgent` matches it directly and
+  // re-covers the pending gate — reviewers own no task, so the owner-affinity
+  // revival path leaves reviewers to this picker. The seated (idle) id is
+  // preferred over the bare-`<role>` mint, so no second spawn races it.
   const reviewTask = task({
     id: 'T-review',
     role: 'developer',
@@ -6628,12 +6700,15 @@ function testPickNextAutoRunsDefersDepartedReviewerToRevivalPath(): void {
     tasks: [reviewTask],
     sprintEngineAgents: {
       'developer-1': runtimeAgent('developer', { status: 'retired' }),
-      'nuclear_reviewer': runtimeAgent('nuclear_reviewer', { status: 'left', currentTaskId: null }),
+      'nuclear_reviewer': runtimeAgent('nuclear_reviewer', { status: 'idle', currentTaskId: null }),
     },
   })
   const candidates = pickNextAutoRuns(workspaceFixture(), state, pickInput())
   const gateCandidate = candidates.find((candidate) => candidate.gateId === 'nuclear_reviewer')
-  assert.equal(gateCandidate, undefined, 'a departed reviewer defers to the revival path; no bare-id mint')
+  assert.ok(gateCandidate, 'a departed (idle) reviewer is re-covered for its pending gate')
+  assert.equal(gateCandidate?.agentId, 'nuclear_reviewer', 'the seated departed reviewer is revived, not the bare-id mint')
+  assert.equal(gateCandidate?.role, 'nuclear_reviewer')
+  assert.equal(gateCandidate?.taskId, 'T-review')
 }
 
 function testPickNextAutoRunsSelectsOwnerlessChangesRequestedWork(): void {

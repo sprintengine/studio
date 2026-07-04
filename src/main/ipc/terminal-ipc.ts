@@ -43,6 +43,11 @@ export type TerminalSpawnPayload = {
   agentSession?: AgentSessionMetadata
   visible?: boolean
   mcpSettings?: McpSettings
+  // Connector launches (e.g. Railway) install this builtin skill into the
+  // worktree at spawn so the seeded skill invocation resolves to a present
+  // skill. Generalizes the debug-skill install (which hardcodes 'debug');
+  // best-effort, non-blocking. Unset for ordinary spawns.
+  connectorSkillId?: string
 }
 
 type TerminalIpcDependencies = {

@@ -128,6 +128,7 @@ async function main(): Promise<void> {
     await assertSuspendSnapshotSidecarsSurviveRestart(runtimeModule)
     await assertIdleSweepDisposesIdleSprintEngineAgent(runtimeModule)
     await assertDebugModeEnsureInstallsDebugSkill(runtimeModule)
+    await assertConnectorSpawnInstallsSkillAndExcludesMcpConfig(runtimeModule)
     await assertAgentSessionExitListenerFiresSystemTaggedForAnySystem(runtimeModule)
     await assertResolveAgentExecutionIdMatchesLiveSession(runtimeModule)
     await assertLaunchRegistryRootsIncludeUserRolesWhenPresent(runtimeModule)
@@ -531,9 +532,12 @@ async function assertStaleSweepReapsOnlyUnseenHiddenTerminals(runtimeModule: Run
 }
 
 // SprintEngine agents are no longer exempt from the idle reaper, AND the reaper
-// DISPOSES them (not suspend/freeze-the-view): dispose fires `agent.leave` (→
-// status `left`) so the dispatch's revival path can respawn the agent when work
-// returns. A frozen-but-not-left sprint agent would instead break the dispatch.
+// DISPOSES them (not suspend/freeze-the-view): dispose fires `agent.leave`,
+// which releases the agent's targets and resets it to `idle` (liveness is
+// derived, not stored — no `left`/`dead` status), leaving its retained
+// `lastOwnedTaskId` for the dispatch's ownership-keyed revival to respawn it
+// when work returns. A frozen-but-not-disposed sprint agent would instead break
+// the dispatch.
 // Durable freeze-the-view: a suspended agent's painted screen must survive an
 // app restart. Suspend writes a snapshot sidecar; quit (runtime shutdown) dumps
 // each live agent's raw retained stream; a fresh runtime — the terminals map is
@@ -2108,6 +2112,70 @@ async function assertDebugModeEnsureInstallsDebugSkill(runtimeModule: RuntimeMod
     ensureCalls,
     [{ workspaceRoot, skillId: 'debug' }],
     'debug on ensure-installs the debug skill into the session workspace before launch'
+  )
+}
+
+// A connector spawn (connectorSkillId set) generalizes the debug-skill install:
+// it installs the named connector skill into the worktree AND excludes the
+// just-synced managed MCP config from the worktree's git. Both are best-effort,
+// gated on connectorSkillId; an ordinary spawn does neither.
+async function assertConnectorSpawnInstallsSkillAndExcludesMcpConfig(
+  runtimeModule: RuntimeModule
+): Promise<void> {
+  const workspaceRoot = await mkdtemp(join(tmpdir(), 'multicode-terminal-runtime-connector-'))
+  mockPty.spawnCalls = []
+  mockSender.sent = []
+  const ensureCalls: Array<{ workspaceRoot: string; skillId: string }> = []
+  const excludeCalls: string[] = []
+
+  const runtime = runtimeModule.createTerminalRuntime({
+    diagnosticsEnabled: false,
+    requireAuthenticatedUser: () => undefined,
+    logMainPerfEvent: () => undefined,
+    ensureBuiltinSkillInstalled: async (root, skillId) => {
+      ensureCalls.push({ workspaceRoot: root, skillId })
+    },
+    excludeWorktreeMcpConfig: async (worktreePath) => {
+      excludeCalls.push(worktreePath)
+    },
+  })
+
+  const spawnConnector = async (sessionId: string, connectorSkillId?: string): Promise<void> => {
+    const result = await runtime.ipcHandlers.spawnTerminal(mockSender as unknown as WebContents, {
+      sessionId,
+      cols: 120,
+      rows: 30,
+      cwd: workspaceRoot,
+      cli: 'claude-code',
+      kind: 'agent',
+      shellOnly: false,
+      workspaceId: 'ws-connector',
+      agentId: sessionId,
+      visible: false,
+      connectorSkillId,
+      mcpSettings: { syncEnabled: false, servers: {} } satisfies McpSettings,
+    })
+    assert.equal(result.ok, true, JSON.stringify(result))
+  }
+
+  // No connectorSkillId: neither the connector install nor the MCP-config
+  // exclude runs.
+  await spawnConnector('session-connector-off', undefined)
+  assert.deepEqual(ensureCalls, [], 'ordinary spawn must not install a connector skill')
+  assert.deepEqual(excludeCalls, [], 'ordinary spawn must not exclude worktree MCP config')
+
+  // connectorSkillId set: install the named skill into the worktree and exclude
+  // the generated MCP config from the worktree git.
+  await spawnConnector('session-connector-on', 'use-railway')
+  assert.deepEqual(
+    ensureCalls,
+    [{ workspaceRoot, skillId: 'use-railway' }],
+    'connector spawn installs the connector skill into the worktree before launch'
+  )
+  assert.deepEqual(
+    excludeCalls,
+    [workspaceRoot],
+    'connector spawn excludes the worktree MCP config from git'
   )
 }
 

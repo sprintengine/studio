@@ -15,7 +15,8 @@ from sprintengine_core.tool.state import (
     ensure_agent,
     next_replacement_agent_id,
     reconcile_agent,
-    record_agent_leave,
+    release_agent_targets,
+    release_expired_agent_targets,
     set_agent_active,
     set_agent_idle,
     task_claim_exceeds_worker_capacity,
@@ -56,9 +57,12 @@ def test_last_owned_task_id_survives_reconcile_and_leave() -> None:
     assert result["agent"]["currentTaskId"] is None
     assert result["agent"]["lastOwnedTaskId"] == "T1"
 
-    left = record_agent_leave(state, "developer-1", "developer", reason="terminal disposed")
-    assert left["status"] == "left"
-    assert left["lastOwnedTaskId"] == "T1"
+    # Leaving resets the agent to idle (no stored terminal status) but keeps the
+    # durable ownership record so the id stays task-capped.
+    release_agent_targets(state, "developer-1", reason="terminal disposed", actor="developer-1")
+    departed = state["agents"]["developer-1"]
+    assert departed["status"] == "idle"
+    assert departed["lastOwnedTaskId"] == "T1"
 
 
 def test_last_owned_task_id_tracks_reassignment() -> None:
@@ -71,6 +75,74 @@ def test_last_owned_task_id_tracks_reassignment() -> None:
     state["tasks"].append(next_task)
     set_agent_active(agent, next_task)
     assert agent["lastOwnedTaskId"] == "T2"
+
+
+def _state_with_gate_claim(agent_id: str) -> dict:
+    return {
+        "agents": {agent_id: {"role": "code_reviewer", "status": "running", "currentTaskId": "T1",
+                              "currentGateId": "code-review",
+                              "currentGate": {"taskId": "T1", "gateId": "code-review", "attemptId": "GA-001"}}},
+        "tasks": [{
+            "id": "T1", "status": "review", "role": "developer",
+            "qualityGates": [{
+                "id": "code-review", "status": "in_progress",
+                "attempts": [{"id": "GA-001", "status": "in_progress", "claimedBy": agent_id}],
+            }],
+        }],
+    }
+
+
+def test_release_agent_targets_frees_gate_and_resets_agent_idle() -> None:
+    state = _state_with_gate_claim("code_reviewer-1")
+    released = release_agent_targets(state, "code_reviewer-1", reason="terminal closed", actor="code_reviewer-1")
+    assert released == [
+        {"kind": "gate", "taskId": "T1", "gateId": "code-review", "attemptId": "GA-001", "previousOwnerAgentId": "code_reviewer-1"}
+    ]
+    gate = state["tasks"][0]["qualityGates"][0]
+    assert gate["status"] == "pending"
+    assert gate["attempts"][0]["status"] == "released"
+    agent = state["agents"]["code_reviewer-1"]
+    assert agent["status"] == "idle"
+    assert agent["currentTaskId"] is None
+    assert "currentGateId" not in agent
+    assert "currentGate" not in agent
+
+
+def test_release_agent_targets_preserves_needs_input_ownership() -> None:
+    # The single release authority never frees a needs_input task: the owner and
+    # the question survive so input resolution routes back to the owner.
+    state = _state_with_task("needs_input")
+    state["tasks"][0]["needsInput"] = {"kind": "user", "question": "Which provider?"}
+    agent = ensure_agent(state, "developer-1", "developer")
+    set_agent_active(agent, state["tasks"][0])
+
+    released = release_agent_targets(state, "developer-1", reason="terminal closed", actor="developer-1")
+    assert released == []
+    assert state["tasks"][0]["ownerAgentId"] == "developer-1"
+    assert state["tasks"][0]["status"] == "needs_input"
+    assert state["tasks"][0]["needsInput"]["question"] == "Which provider?"
+    assert state["agents"]["developer-1"]["status"] == "idle"
+
+
+def test_release_expired_agent_targets_frees_task_and_is_idempotent() -> None:
+    state = _state_with_task("in_progress")
+    state["sprintengine"] = {"agentTimeoutSeconds": 1}
+    state["events"] = []
+    agent = ensure_agent(state, "developer-1", "developer")
+    set_agent_active(agent, state["tasks"][0])
+    agent["heartbeatAt"] = "2000-01-01T00:00:00Z"
+
+    result = release_expired_agent_targets(state, actor="sprintengine")
+    assert result["dirty"] is True
+    assert result["released"] == [
+        {"agentId": "developer-1", "role": "developer", "targetKind": "task", "taskId": "T1", "fromStatus": "in_progress", "status": "todo"}
+    ]
+    assert state["tasks"][0]["status"] == "todo"
+    assert state["tasks"][0]["ownerAgentId"] is None
+    assert state["agents"]["developer-1"]["status"] == "idle"
+
+    # Idle-no-target after release: a second sweep is a no-op.
+    assert release_expired_agent_targets(state, actor="sprintengine") == {"released": [], "dirty": False}
 
 
 def test_projection_agent_record_carries_last_owned_task_id() -> None:
@@ -159,8 +231,10 @@ def _disable_gates_and_seed(fixture, agents: dict) -> None:
 
 
 def test_assignment_op_mints_fresh_id_per_serial_task_no_recycling(tmp_path) -> None:
-    # Three serial developer tasks and a prior spent 'left' id: each task gets a
-    # fresh task-scoped id, none owns two tasks, and the left id is never reused.
+    # Three serial developer tasks and a prior spent id seeded with a legacy
+    # 'left' status: it normalizes to idle on load, capacity keys off task
+    # ownership (owned T0) not status, so each task gets a fresh task-scoped id,
+    # none owns two tasks, and the spent id is never reused.
     fixture = create_team(
         tmp_path,
         "assignment-serial",

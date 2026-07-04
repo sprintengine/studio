@@ -1,12 +1,10 @@
 import type { AutomationRendererRequest, AutomationRendererResponse } from '../../shared/automation'
 import type { ActionContext, AutomationActionProvider, AutomationCliPermissionPreset, AutomationRun } from '../../shared/automations/contracts'
 import type { WorkspaceSyncSnapshot } from '../../shared/workspace-sync'
-import { appendFile, mkdir, readFile } from 'node:fs/promises'
-import { dirname, isAbsolute, join, resolve } from 'node:path'
+import { join } from 'node:path'
 
 import type { Workspace, WorkspaceMode } from '../../renderer/src/types/workspace'
-import { createGitWorktree, removeGitWorktree } from '../git'
-import { runGitCommand } from '../git-utils'
+import { appendWorktreeGitExcludes, createGitWorktree, removeGitWorktree } from '../git'
 import { RUN_SIGNAL_FILENAME } from './run-signal'
 import { createWorkspaceConfirmed } from '../workspace-create'
 import type { AutomationRunExecutionInput, AutomationRunExecutor } from './engine'
@@ -294,34 +292,12 @@ export async function defaultCreateRunWorktree(
 
 /**
  * Append {@link RUN_SIGNAL_FILENAME} to the worktree's git exclude file so the
- * signal file is never staged. The exclude path is resolved via
- * `git rev-parse --git-path info/exclude` — for a linked worktree git reads the
- * shared common-dir exclude, not a per-worktree one, so resolving it is the only
- * reliable way to land the entry where git will honor it. Idempotent: a repeat
- * call does not duplicate the line. Throws if git or the write fails.
+ * signal file is never staged into the run's PR. Delegates to the shared
+ * {@link appendWorktreeGitExcludes} helper (git-path resolved, idempotent).
+ * Throws if git or the write fails.
  */
 export async function excludeRunSignalFromWorktree(worktreePath: string): Promise<void> {
-  const resolved = await runGitCommand(worktreePath, ['rev-parse', '--git-path', 'info/exclude'])
-  if (!resolved.ok) {
-    throw new Error(resolved.message ?? 'git rev-parse --git-path info/exclude failed.')
-  }
-  const rawPath = resolved.stdout.trim()
-  if (!rawPath) throw new Error('git returned an empty exclude path.')
-  const excludePath = isAbsolute(rawPath) ? rawPath : resolve(worktreePath, rawPath)
-
-  let existing = ''
-  try {
-    existing = await readFile(excludePath, 'utf8')
-  } catch {
-    // No exclude file yet; appendFile creates it below.
-  }
-  if (existing.split('\n').some((line) => line.trim() === RUN_SIGNAL_FILENAME)) {
-    return
-  }
-
-  await mkdir(dirname(excludePath), { recursive: true })
-  const separator = existing.length > 0 && !existing.endsWith('\n') ? '\n' : ''
-  await appendFile(excludePath, `${separator}${RUN_SIGNAL_FILENAME}\n`, 'utf8')
+  await appendWorktreeGitExcludes(worktreePath, [RUN_SIGNAL_FILENAME])
 }
 
 export async function defaultRemoveRunWorktree(

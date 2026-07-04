@@ -564,19 +564,18 @@ export type SprintEngineTaskNeedsInput = {
 }
 
 // Mirrors the agent statuses the SprintEngine Python core writes into the run
-// projection (sprintengine_core/tool/state.py). `left`/`dead` are set by
-// `record_agent_leave` when an agent's terminal is torn down (e.g. idle
-// retirement disposes it) — they are NOT terminal: `record_agent_join` revives
-// them to `idle` when the agent rejoins. These were previously missing here,
-// so planner guards written against `retired` never matched a disposed agent.
+// projection (sprintengine_core/tool/state.py). Agent liveness is DERIVED, not
+// stored: Main is the single authority (T1). A departed agent — terminal torn
+// down, e.g. idle retirement disposes it — ends as `idle` with its owned-task
+// refs (`lastOwnedTaskId`) preserved, so revival keys off task ownership, not a
+// status. There is no `left`/`dead` status; any legacy on-disk value is coerced
+// to `idle` on load (normalizeProjectionRoster / normalizeSprintEngineState).
 export type SprintEngineRuntimeAgentStatus =
   | 'idle'
   | 'running'
   | 'needs_input'
   | 'done'
   | 'retired'
-  | 'left'
-  | 'dead'
 
 export type SprintEngineCurrentDispatch = {
   dispatchId: string | null
@@ -1867,6 +1866,15 @@ export type AgentState = {
   // each spawn, but recorded on the agent so the launch path can read it.
   debugMode?: boolean
   cliStartupPrompt?: string
+  // Connector chat (Railway, etc.): a worktree-isolated solo chat scoped to one
+  // MCP connector plus its driving skill. `connectorMcpSettings` is the
+  // connector-only MCP config the spawn forwards *instead of* the global
+  // appSettings.mcp, so the connector server is written into this worktree's
+  // .mcp.json and nowhere else; `connectorSkillId` is the builtin skill the spawn
+  // installs into the worktree so the seeded invocation resolves. Both are seeded
+  // at creation by createConnectorChat and read by the TerminalView launch path.
+  connectorMcpSettings?: McpSettings
+  connectorSkillId?: string
   kind?: AgentKind
   specialistId?: SpecialistActionId
   multiloopRole?: MultiloopRole

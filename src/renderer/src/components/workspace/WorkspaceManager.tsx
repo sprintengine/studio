@@ -51,7 +51,15 @@ import type {
   SprintEngineRoleModelOverrides,
   Workspace,
   WorkspaceWindowId,
+  WorkspaceWorktree,
 } from '../../types/workspace'
+import {
+  connectorMcpSettings,
+  connectorStartupPrompt,
+  connectorWorktreePaths,
+} from '../../utils/workspaceWorktree'
+import { resolveSkillInvocation } from '../../../../shared/skill-invocation'
+import { mcpServerFromCatalog } from '../settings/McpCatalog'
 import { pickRandomAgentName } from '../../utils/agentNames'
 import { normalizeAgentIdentifier, prependAgentIdentifier } from '../../utils/agentPrompt'
 import { publishDiagnosticSync } from '../../utils/diagnostics'
@@ -718,6 +726,10 @@ export default function WorkspaceManager() {
     templateAgentCli?: AgentCli | null
     seedAgent?: SoloChatSeed
     name?: string
+    // Marks the new solo chat as worktree-backed (connector chats). `folderPath`
+    // must already point at the worktree so resolveWorkspaceWorktree resolves the
+    // Git view/glyph to it.
+    worktree?: WorkspaceWorktree
   }) => {
     if (!SOLO_CHAT_TEMPLATE) {
       publishDiagnosticSync({
@@ -735,6 +747,7 @@ export default function WorkspaceManager() {
       windowId: workspaceWindowId,
       templateAgentCli: opts.templateAgentCli,
       seedAgent: opts.seedAgent,
+      ...(opts.worktree ? { worktree: opts.worktree } : {}),
     })
     setShowNewWorkspacePanel(false)
     setNewWorkspacePanelInitialState(null)
@@ -783,6 +796,97 @@ export default function WorkspaceManager() {
     // lastSelectedCli, so a new-chat CLI never bleeds into the specialists.
     if (chosenCli) setSpecialistCliDefault(GENERAL_AGENT_ENGINE_KEY, chosenCli)
   }, [agentCliCatalog, createSoloChatWorkspace, specialistCliDefaults, specialistModelDefaults, lastSelectedCli, setSpecialistCliDefault])
+
+  // Launch an isolated Railway connector chat: a fresh worktree on
+  // `connector/railway-<id>`, opened as a worktree-backed solo chat whose spawn
+  // carries ONLY the Railway MCP (never the global appSettings.mcp) plus the
+  // use-railway skill. Exactly one worktree per connector chat — a new id (and so
+  // a new worktree) is minted on every invocation.
+  const createConnectorChat = useCallback(async () => {
+    const connectorError = (title: string, message: string) =>
+      publishDiagnosticSync({ level: 'error', source: 'workspace', title, message })
+
+    const baseFolderPath = activeWorkspace?.folderPath
+    if (!baseFolderPath) {
+      connectorError('Railway connector needs a project', 'Open a project folder before connecting Railway.')
+      return
+    }
+    const repoRoot = await window.api.getGitRepoRoot(baseFolderPath)
+    if (!repoRoot) {
+      connectorError(
+        'Railway connector needs a git repository',
+        'The current project is not a git repository, so a connector worktree cannot be created.',
+      )
+      return
+    }
+    const catalog = await window.api.mcpListCatalog()
+    if (!catalog.ok) {
+      connectorError('Railway connector unavailable', catalog.message)
+      return
+    }
+    const railway = catalog.servers.find((server) => server.id === 'railway')
+    if (!railway) {
+      connectorError('Railway connector unavailable', 'The Railway MCP is missing from the connector catalog.')
+      return
+    }
+
+    const uid = crypto.randomUUID().slice(0, 8)
+    const { containerPath, destinationPath, branchName } = connectorWorktreePaths(repoRoot, 'railway', uid)
+    const worktreeResult = await window.api.createGitWorktree({
+      repoRoot,
+      containerPath,
+      destinationPath,
+      branchName,
+      baseRef: 'HEAD',
+      copyIncludedFiles: false,
+    })
+    if (!worktreeResult.ok) {
+      connectorError('Railway connector worktree failed', worktreeResult.message)
+      return
+    }
+
+    // Same CLI/model resolution as a plain New chat, so the connector rides the
+    // General engine default. The skill invocation is CLI-native (e.g.
+    // `/use-railway` vs `Use $use-railway.`); when the CLI declares no native
+    // skill support it falls back to the plain instruction.
+    const cli = resolveTemplateAgentCli(
+      specialistCliDefaults[GENERAL_AGENT_ENGINE_KEY],
+      lastSelectedCli,
+      agentCliCatalog,
+    )
+    const cliModel = resolveSurfaceModel(cli, specialistModelDefaults[GENERAL_AGENT_ENGINE_KEY])
+    const skillId = railway.skill
+    const invocation = skillId
+      ? resolveSkillInvocation(pluginCatalogEntries.find((entry) => entry.id === cli)?.skillIntegration, skillId)
+      : undefined
+    const startupPrompt = connectorStartupPrompt(
+      invocation,
+      'Show me my Railway environment and flag anything failing.',
+    )
+
+    createSoloChatWorkspace({
+      folderPath: worktreeResult.data.path,
+      worktree: { branch: worktreeResult.data.branch ?? branchName, baseRef: 'HEAD' },
+      name: `Railway · ${uid}`,
+      templateAgentCli: cli,
+      seedAgent: {
+        agentPatch: {
+          ...(cliModel ? { cliModel } : {}),
+          connectorMcpSettings: connectorMcpSettings(mcpServerFromCatalog(railway)),
+          connectorSkillId: skillId,
+          cliStartupPrompt: startupPrompt,
+        },
+      },
+    })
+  }, [
+    activeWorkspace?.folderPath,
+    agentCliCatalog,
+    createSoloChatWorkspace,
+    lastSelectedCli,
+    pluginCatalogEntries,
+    specialistCliDefaults,
+    specialistModelDefaults,
+  ])
 
   // "New chat" entry point: create a fresh workspace that opens empty so the
   // WorkspaceLauncher chooser shows (the user picks an agent / specialist / Sprint
@@ -2610,6 +2714,7 @@ export default function WorkspaceManager() {
           onClose={() => setShowPalette(false)}
           onNewWorkspace={openNewWorkspacePanel}
           onNewChat={() => createLauncherChat()}
+          onConnectRailway={() => { void createConnectorChat() }}
           onSpawnSpecialist={handleSelectSpecialist}
           workspaceWindowId={workspaceWindowId}
           workspaces={visibleWorkspaces}
