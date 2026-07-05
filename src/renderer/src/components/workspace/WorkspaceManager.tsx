@@ -482,7 +482,6 @@ export default function WorkspaceManager() {
   const sessionsRef = useRef<HTMLDivElement>(null)
   const viewMenuRef = useRef<HTMLDivElement>(null)
   const notificationsRef = useRef<HTMLDivElement>(null)
-  const accountRef = useRef<HTMLDivElement>(null)
   const terminalSessionsSignatureRef = useRef('')
   const reportedTerminalLastInputRef = useRef<Map<string, number>>(new Map())
   const reconciledLaunchFlagsRef = useRef(false)
@@ -2531,6 +2530,15 @@ export default function WorkspaceManager() {
         onSetSidebarCollapsed={setSidebarCollapsed}
         sidebarWidth={sidebarWidth}
         onSetSidebarWidth={setSidebarWidth}
+        authState={authState}
+        authMessage={authMessage}
+        accountOpen={accountOpen}
+        setAccountOpen={setAccountOpen}
+        startLogin={startLogin}
+        refreshAuthState={refreshAuthState}
+        logout={logout}
+        openSettings={openSettings}
+        settingsOpen={settingsOpen}
       />
       {/* The workspace card: everything inside the rounded surface belongs to
           the active workspace. With the Sprint Engines aside open the card
@@ -2552,7 +2560,6 @@ export default function WorkspaceManager() {
         viewMenuRef={viewMenuRef}
         notificationsRef={notificationsRef}
         specialistMenuRef={specialistMenuRef}
-        accountRef={accountRef}
         sessions={sessions}
         sidebarWorkspaceOrder={sidebarWorkspaceOrder}
         sessionsOpen={sessionsOpen}
@@ -2596,15 +2603,6 @@ export default function WorkspaceManager() {
         conversationSpawnAvailable={conversationSpawnAvailable}
         composerInitialSelection={composerInitialSelection}
         runComposerSpawn={runComposerSpawn}
-        openSettings={openSettings}
-        settingsOpen={settingsOpen}
-        accountOpen={accountOpen}
-        setAccountOpen={setAccountOpen}
-        authState={authState}
-        authMessage={authMessage}
-        startLogin={startLogin}
-        refreshAuthState={refreshAuthState}
-        logout={logout}
       />
 
       <div className="relative min-h-0 flex-1">

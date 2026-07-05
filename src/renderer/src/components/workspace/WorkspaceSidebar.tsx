@@ -25,6 +25,7 @@ import {
 } from '../ui'
 import { Modal, ModalBody, ModalButton, ModalFooter, ModalHeader } from '../ui/Modal'
 import PanelRail from './PanelRail'
+import SidebarAccountBar from './SidebarAccountBar'
 import { useWorkspaceStore } from '../../store/workspaceStore'
 import {
   AUTOMATIONS_HOST_WORKSPACE_MODE,
@@ -95,6 +96,18 @@ type WorkspaceSidebarProps = {
   // Persisted expanded width (px) and its setter, for drag-to-resize.
   sidebarWidth: number
   onSetSidebarWidth: (width: number) => void
+  // Account + Settings cluster, relocated from WorkspaceTopBar to the sidebar
+  // bottom (Cursor-parity layout). The handlers stay owned by WorkspaceManager;
+  // the sidebar only mounts the controls at their new home.
+  authState: MulticodeAuthState
+  authMessage: string | null
+  accountOpen: boolean
+  setAccountOpen: React.Dispatch<React.SetStateAction<boolean>>
+  startLogin: () => void | Promise<void>
+  refreshAuthState: () => void | Promise<void>
+  logout: () => void | Promise<void>
+  openSettings: (checkForUpdates?: boolean, targetTab?: string | null) => void
+  settingsOpen: boolean
 }
 
 type FolderGroup = {
@@ -380,6 +393,15 @@ export default function WorkspaceSidebar({
   onSetSidebarCollapsed,
   sidebarWidth,
   onSetSidebarWidth,
+  authState,
+  authMessage,
+  accountOpen,
+  setAccountOpen,
+  startLogin,
+  refreshAuthState,
+  logout,
+  openSettings,
+  settingsOpen,
 }: WorkspaceSidebarProps) {
   const renameWorkspace = useWorkspaceStore((s) => s.renameWorkspace)
   const reorderWorkspaces = useWorkspaceStore((s) => s.reorderWorkspaces)
@@ -393,6 +415,10 @@ export default function WorkspaceSidebar({
   // Passed to WorkspaceTypeIcon so a disabled-module workspace row degrades to
   // the generic glyph (AC4) instead of its tool icon.
   const moduleOverrides = useWorkspaceStore((s) => s.appSettings.modules)
+  // The Connectors nav entry opens the store-level Connectors surface (mounted
+  // by WorkspaceManager) and reads its open state to carry aria-current.
+  const openConnectorsSurface = useWorkspaceStore((s) => s.openConnectorsSurface)
+  const connectorsSurfaceOpen = useWorkspaceStore((s) => s.connectorsSurface.open)
   const now = useRelativeNow()
 
   const [collapsedFolders, setCollapsedFolders] = useState<Record<string, boolean>>({})
@@ -1294,7 +1320,7 @@ export default function WorkspaceSidebar({
         {sidebarCollapsed ? (
           <>
             {/* New workspace — canonical create + tab-extract drop target */}
-            <Tooltip content="New workspace (Ctrl+T) — drop a tab here to extract it" wrapperClassName="flex">
+            <Tooltip content="New Agent (Ctrl+T) — drop a tab here to extract it" wrapperClassName="flex">
               <button
                 type="button"
                 onClick={onNewWorkspace}
@@ -1306,7 +1332,7 @@ export default function WorkspaceSidebar({
                     ? 'border-[color:var(--accent-primary)] bg-[color:var(--bg-hover)] text-[color:var(--text-strong)]'
                     : 'border-[color:var(--border-default)] bg-[color:var(--bg-surface-raised)] text-[color:var(--text-default)] hover:border-[color:var(--border-strong)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]'
                 }`}
-                aria-label="New workspace"
+                aria-label="New Agent"
               >
                 <svg viewBox="0 0 16 16" fill="none" className="icon-xs pointer-events-none">
                   <path d="M8 3.5V12.5M3.5 8H12.5" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
@@ -1339,7 +1365,7 @@ export default function WorkspaceSidebar({
             }`}
           >
             <Tooltip
-              content="New workspace (Ctrl+T) — drop a tab here to extract it"
+              content="New Agent (Ctrl+T) — drop a tab here to extract it"
               wrapperClassName="flex min-w-0 flex-1"
             >
               <button
@@ -1353,13 +1379,13 @@ export default function WorkspaceSidebar({
                     ? 'text-[color:var(--text-strong)]'
                     : 'text-[color:var(--text-default)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]'
                 }`}
-                aria-label="New workspace"
+                aria-label="New Agent"
               >
                 <svg viewBox="0 0 16 16" fill="none" className="icon-xs pointer-events-none">
                   <path d="M8 3.5V12.5M3.5 8H12.5" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
                 </svg>
                 <span className="pointer-events-none truncate">
-                  {tabDropTarget?.kind === 'new' ? 'Drop to extract' : 'New workspace'}
+                  {tabDropTarget?.kind === 'new' ? 'Drop to extract' : 'New Agent'}
                 </span>
               </button>
             </Tooltip>
@@ -1378,6 +1404,30 @@ export default function WorkspaceSidebar({
             </Tooltip>
           </div>
         )}
+
+        {/* Top nav (Cursor-parity order: New Agent → Automations → Connectors).
+            Automations keeps its front-door picker; the gate stays so it only
+            appears when a host workspace exists. Connectors opens the T2 surface. */}
+        {automationsEntryEnabled ? (
+          <SidebarNavButton
+            collapsed={sidebarCollapsed}
+            icon={<AutomationsWorkspaceTypeIcon className="icon-xs pointer-events-none shrink-0" />}
+            label="Automations"
+            ariaLabel="Automations"
+            tooltip="Automations"
+            onClick={(event) => setAutomationsMenu({ x: event.clientX, y: event.clientY })}
+          />
+        ) : null}
+
+        <SidebarNavButton
+          collapsed={sidebarCollapsed}
+          icon={<ConnectorsNavIcon className="icon-xs pointer-events-none shrink-0" />}
+          label="Connectors"
+          ariaLabel="Connectors"
+          tooltip="Connectors"
+          active={connectorsSurfaceOpen}
+          onClick={() => openConnectorsSurface()}
+        />
       </div>
 
       {!sidebarCollapsed ? (
@@ -1389,6 +1439,17 @@ export default function WorkspaceSidebar({
             placeholder="Search workspaces..."
             clearAriaLabel="Clear workspace search"
           />
+        </div>
+      ) : null}
+
+      {/* Repositories: the workspace tree (Starred first, then projects) —
+          behaviour unchanged; the hairline + label separate it from the top nav. */}
+      {!sidebarCollapsed ? (
+        <div className="mx-2 mt-2 mb-0.5">
+          <div aria-hidden="true" className="h-px bg-[color:var(--border-subtle)]" />
+          <div className="px-0 pt-1.5 text-[11px] font-semibold text-[color:var(--text-muted)]">
+            Repositories
+          </div>
         </div>
       ) : null}
 
@@ -1538,41 +1599,22 @@ export default function WorkspaceSidebar({
         ) : null}
       </nav>
 
-      {/* Bottom utility rail: the Automations front door. A pure destination —
-          it lists the project Automations workspaces that already exist and jumps
-          to one; it never creates (that is the New-workspace mode card's job). So
-          it lives below the workspace tree as a Settings-peer, pinned to the
-          bottom because the <nav> above is flex-1. Shown only when the automations
-          module is enabled AND at least one host exists. */}
-      {automationsEntryEnabled ? (
-        <div
-          className={`shrink-0 border-t border-[color:var(--border-subtle)] ${
-            sidebarCollapsed ? 'px-1.5 py-1.5' : 'px-2 py-1.5'
-          }`}
-        >
-          {sidebarCollapsed ? (
-            <Tooltip content="Open Automations" wrapperClassName="flex">
-              <button
-                type="button"
-                onClick={(event) => setAutomationsMenu({ x: event.clientX, y: event.clientY })}
-                className={`flex h-[30px] w-full items-center justify-center rounded-md text-[color:var(--text-muted)] transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)] ${FOCUS_RING_CLASS}`}
-                aria-label="Automations"
-              >
-                <AutomationsWorkspaceTypeIcon className="icon-xs pointer-events-none" />
-              </button>
-            </Tooltip>
-          ) : (
-            <button
-              type="button"
-              onClick={(event) => setAutomationsMenu({ x: event.clientX, y: event.clientY })}
-              className={`flex h-[30px] w-full items-center gap-2 rounded-md px-2 text-left text-[12px] font-medium text-[color:var(--text-muted)] transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)] ${FOCUS_RING_CLASS}`}
-            >
-              <AutomationsWorkspaceTypeIcon className="icon-xs pointer-events-none shrink-0" />
-              <span className="min-w-0 flex-1 truncate">Automations</span>
-            </button>
-          )}
-        </div>
-      ) : null}
+      {/* Sidebar-bottom account + Settings, relocated from WorkspaceTopBar
+          (Cursor-parity). Pinned to the bottom because the <nav> above is
+          flex-1; this is where the Automations rail used to sit (now a top-nav
+          entry). */}
+      <SidebarAccountBar
+        collapsed={sidebarCollapsed}
+        authState={authState}
+        authMessage={authMessage}
+        accountOpen={accountOpen}
+        setAccountOpen={setAccountOpen}
+        startLogin={startLogin}
+        refreshAuthState={refreshAuthState}
+        logout={logout}
+        openSettings={openSettings}
+        settingsOpen={settingsOpen}
+      />
 
       {/* Front-door picker: jump to an existing project's Automations workspace.
           Reveal-only — creating an Automations workspace is the New-workspace
@@ -1851,6 +1893,78 @@ export default function WorkspaceSidebar({
       </Modal>
     </aside>
   )
+}
+
+// Link glyph for the Connectors top-nav entry — a connector is a link to an
+// external service (matches the icon family's 16-box round-stroke idiom).
+function ConnectorsNavIcon({ className }: { className?: string }) {
+  return (
+    <svg viewBox="0 0 16 16" fill="none" className={className} aria-hidden="true">
+      <path d="M6.6 9.4L9.4 6.6" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
+      <path
+        d="M8.7 4.6l.9-.9a2.3 2.3 0 0 1 3.3 3.3l-1.4 1.4a2.3 2.3 0 0 1-3.3 0"
+        stroke="currentColor"
+        strokeWidth="1.4"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+      <path
+        d="M7.3 11.4l-.9.9a2.3 2.3 0 0 1-3.3-3.3l1.4-1.4a2.3 2.3 0 0 1 3.3 0"
+        stroke="currentColor"
+        strokeWidth="1.4"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  )
+}
+
+// Top-nav row (Automations, Connectors). One quiet muted row that lights to the
+// canonical selected fill when active; the collapsed rail shows the icon with a
+// hover tooltip carrying the label.
+function SidebarNavButton({
+  collapsed,
+  active,
+  label,
+  ariaLabel,
+  tooltip,
+  onClick,
+  icon,
+}: {
+  collapsed: boolean
+  active?: boolean
+  label: string
+  ariaLabel: string
+  tooltip: string
+  onClick: (event: React.MouseEvent<HTMLButtonElement>) => void
+  icon: React.ReactNode
+}) {
+  const button = (
+    <button
+      type="button"
+      onClick={onClick}
+      aria-current={active ? 'true' : undefined}
+      aria-label={collapsed ? ariaLabel : undefined}
+      className={`flex h-[30px] w-full items-center rounded-md text-[12px] font-medium transition-colors ${FOCUS_RING_CLASS} ${
+        collapsed ? 'justify-center' : 'gap-2 px-2 text-left'
+      } ${
+        active
+          ? 'bg-[color:var(--bg-selected)] text-[color:var(--text-strong)]'
+          : 'text-[color:var(--text-muted)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]'
+      }`}
+    >
+      {icon}
+      {!collapsed ? <span className="min-w-0 flex-1 truncate">{label}</span> : null}
+    </button>
+  )
+  if (collapsed) {
+    return (
+      <Tooltip content={tooltip} placement="right" wrapperClassName="flex">
+        {button}
+      </Tooltip>
+    )
+  }
+  return button
 }
 
 type ContextMenuAction =
