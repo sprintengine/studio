@@ -128,9 +128,20 @@ export async function runLocalAutomationAction(
       // run has no branch, so it cannot (and does not) open a PR. Absent ⇒ true,
       // so existing automations keep their per-run worktree.
       spawnAgent: async (spawnInput) => {
-        const worktree = input.definition.runInWorktree === false
-          ? null
-          : await ensureRunWorktree(input, options)
+        // A connector run writes the connector's MCP config into the agent's cwd,
+        // so it must land in an isolated worktree — never the user's checkout.
+        // A connectorId therefore forces a worktree (overriding runInWorktree ===
+        // false) and fails the launch rather than falling back to the workspace
+        // checkout when one cannot be created, preserving the connector-chat
+        // isolation invariant.
+        const wantsWorktree = spawnInput.connectorId != null || input.definition.runInWorktree !== false
+        const worktree = wantsWorktree ? await ensureRunWorktree(input, options) : null
+        if (spawnInput.connectorId && !worktree) {
+          throw new Error(
+            `Connector automation run for "${spawnInput.connectorId}" requires an isolated worktree, `
+            + 'but one could not be created (the folder is not a git repository or worktree creation failed).'
+          )
+        }
         const launched = await spawnAgent(
           { ...spawnInput, worktreePath: worktree?.worktreePath },
           options,
@@ -199,6 +210,7 @@ async function spawnAgent(
     worktreePath?: string
     name?: string
     prompt: string
+    connectorId?: string
     resolvedTarget?: SpawnAgentResolvedTarget
   },
   options: LocalAutomationExecutorOptions
@@ -217,6 +229,7 @@ async function spawnAgent(
     permissionPreset: input.permissionPreset,
     specialistId: input.specialistId,
     worktreePath: input.worktreePath,
+    connectorId: input.connectorId,
     name: input.name,
     prompt: input.prompt,
   })

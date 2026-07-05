@@ -10,6 +10,7 @@ import { pickRandomAgentName } from '../utils/agentNames'
 import { getModel, removeAgentTab, revealAgentTab, type AgentTabRevealTarget } from '../utils/modelRegistry'
 import { buildSpecialistDirectiveStartupPrompt, getSpecialistAction } from '../specialists/specialistActions'
 import { isAutomationsHostWorkspace } from '../utils/workspaceVisibility'
+import { resolveConnectorLaunch } from '../utils/connectorLaunch'
 import { createAutomationsTemplate } from '../modules/automations-workspace-types'
 import { AUTOMATIONS_HOST_WORKSPACE_MODE, type SpecialistActionId, type WorkspaceWindowId } from '../types/workspace'
 
@@ -123,6 +124,17 @@ async function launchAgent(
     return { ok: false, code: 'no_cli_selected', message: 'No CLI was requested and no last-selected CLI is configured.' }
   }
 
+  // A connector-backed automation run resolves the same way a connector chat does
+  // (catalog → single-server MCP + driving skill); the resolved settings ride the
+  // AgentState so the terminal launch writes the connector's .mcp.json into the
+  // run worktree and installs its skill. An unavailable/non-connector id is an
+  // explicit failure — never launch a plain agent that silently drops the
+  // connector environment.
+  const connector = request.connectorId ? await resolveConnectorLaunch(request.connectorId) : null
+  if (connector && !connector.ok) {
+    return { ok: false, code: 'connector_unavailable', message: connector.message }
+  }
+
   // Agent terminals render inside the active workspace's layout; activate the
   // target so its FlexLayout model mounts, then wait for it instead of
   // pretending the tab was added.
@@ -168,6 +180,12 @@ async function launchAgent(
     // executor created one; TerminalView reads execution.cwd at launch.
     ...(worktreePath
       ? { execution: { mode: 'worktree' as const, worktreeId: null, cwd: worktreePath } }
+      : {}),
+    // Carry the resolved connector environment onto the AgentState so TerminalView
+    // launches with the connector's single-server MCP (written into the worktree
+    // .mcp.json) and its driving skill — the connector-chat isolation invariant.
+    ...(connector?.ok
+      ? { connectorMcpSettings: connector.resolved.mcpSettings, connectorSkillId: connector.resolved.skillId }
       : {}),
     cliStartupPrompt,
     cliOnboardingPromptSent: false,

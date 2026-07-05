@@ -226,6 +226,7 @@ async function testProviderList(): Promise<void> {
             specialistId: { type: 'string', minLength: 1 },
             name: { type: 'string', minLength: 1 },
             prompt: { type: 'string', minLength: 1 },
+            connectorId: { type: 'string', minLength: 1 },
             requiredIntegrations: {
               type: 'array',
               items: { type: 'string', minLength: 1 },

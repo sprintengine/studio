@@ -54,12 +54,11 @@ import type {
   WorkspaceWorktree,
 } from '../../types/workspace'
 import {
-  connectorMcpSettings,
   connectorStartupPrompt,
   connectorWorktreePaths,
 } from '../../utils/workspaceWorktree'
+import { resolveConnectorLaunch } from '../../utils/connectorLaunch'
 import { resolveSkillInvocation } from '../../../../shared/skill-invocation'
-import { mcpServerFromCatalog } from '../settings/McpCatalog'
 import { pickRandomAgentName } from '../../utils/agentNames'
 import { normalizeAgentIdentifier, prependAgentIdentifier } from '../../utils/agentPrompt'
 import { publishDiagnosticSync } from '../../utils/diagnostics'
@@ -822,24 +821,12 @@ export default function WorkspaceManager() {
       )
       return
     }
-    const catalog = await window.api.mcpListCatalog()
-    if (!catalog.ok) {
-      connectorError('Connector catalog unavailable', catalog.message)
+    const resolution = await resolveConnectorLaunch(serverId)
+    if (!resolution.ok) {
+      connectorError(resolution.title, resolution.message)
       return
     }
-    const server = catalog.servers.find((entry) => entry.id === serverId)
-    if (!server) {
-      connectorError('Connector unavailable', `The ${serverId} MCP is missing from the connector catalog.`)
-      return
-    }
-    const skillId = server.skill
-    if (!skillId) {
-      connectorError(
-        `${server.name} is not a connector`,
-        `${server.name} has no connector skill, so it cannot be launched as a connector chat.`,
-      )
-      return
-    }
+    const { server, skillId, mcpSettings } = resolution.resolved
 
     const uid = crypto.randomUUID().slice(0, 8)
     const { containerPath, destinationPath, branchName } = connectorWorktreePaths(repoRoot, serverId, uid)
@@ -883,7 +870,7 @@ export default function WorkspaceManager() {
       seedAgent: {
         agentPatch: {
           ...(cliModel ? { cliModel } : {}),
-          connectorMcpSettings: connectorMcpSettings(mcpServerFromCatalog(server)),
+          connectorMcpSettings: mcpSettings,
           connectorSkillId: skillId,
           cliStartupPrompt: startupPrompt,
         },
