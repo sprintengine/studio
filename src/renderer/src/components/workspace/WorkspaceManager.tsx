@@ -142,6 +142,11 @@ const NewWorkspacePanel = React.lazy(() => import('./NewWorkspacePanel'))
 // only when showNewChatPanel is true.
 const NewChatPanel = React.lazy(() => import('./agentComposer/NewChatPanel'))
 
+// The Connectors surface (browse / install / launch). Code-split and mounted only
+// while its store overlay is open, so its catalog reads never run on boot. Opened
+// via the store `openConnectorsSurface` action (the sidebar entry T5 targets).
+const ConnectorsSurface = React.lazy(() => import('../panels/ConnectorsPanel'))
+
 // Display name for a New Chat project scope: the folder's last path segment.
 function newChatFolderLabel(path: string): string {
   return path.split(/[\\/]/).filter(Boolean).pop() ?? path
@@ -274,6 +279,8 @@ export default function WorkspaceManager() {
   const settingsOverlayOpen = useWorkspaceStore((s) => s.settingsOverlay.open)
   const openSettingsOverlay = useWorkspaceStore((s) => s.openSettingsOverlay)
   const closeSettingsOverlay = useWorkspaceStore((s) => s.closeSettingsOverlay)
+  const connectorsSurfaceOpen = useWorkspaceStore((s) => s.connectorsSurface.open)
+  const closeConnectorsSurface = useWorkspaceStore((s) => s.closeConnectorsSurface)
   const forgetFolder = useWorkspaceStore((s) => s.forgetFolder)
   const recordWorkspaceTerminalActivity = useWorkspaceStore((s) => s.recordWorkspaceTerminalActivity)
   const reconcileWorkspaceAgentLaunchFlags = useWorkspaceStore((s) => s.reconcileWorkspaceAgentLaunchFlags)
@@ -2680,6 +2687,21 @@ export default function WorkspaceManager() {
           )}
         </div>
         <SettingsOverlay />
+        {connectorsSurfaceOpen ? (
+          <React.Suspense fallback={null}>
+            <ConnectorsSurface
+              onLaunchConnector={(serverId) => { void launchConnectorChat(serverId) }}
+              onUseInAutomation={() => {
+                // The route to author a connector automation; the connector
+                // pre-selection lands in T8. Close the surface and open the
+                // workspace-creation flow where Automations mode is chosen.
+                closeConnectorsSurface()
+                openNewWorkspacePanel()
+              }}
+              activeWorkspaceRoot={activeWorkspaceFolderPath}
+            />
+          </React.Suspense>
+        ) : null}
         {/* T6 first-run payoff: supply the real app actions it needs. A CLI is
             "configured" when at least one catalog entry is confirmed installed;
             the run reuses createNewChat against the just-created workspace

@@ -272,7 +272,7 @@ function PluginGrid({
   )
 }
 
-function PluginCard({
+export function PluginCard({
   plugin,
   registryUrl,
   selected,
@@ -318,7 +318,7 @@ function PluginCard({
   )
 }
 
-function PluginDetailPanel({
+export function PluginDetailPanel({
   plugin,
   registryUrl,
   workspaceRoot,

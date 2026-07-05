@@ -301,6 +301,7 @@ const carrier = {
   settingsOverlay: { open: false, initialTab: null, checkForUpdatesRequestId: null },
   automationsOverlay: { open: false, projectPath: null, runTarget: null },
   runSummaryOverlay: { open: false, workspaceId: null },
+  connectorsSurface: { open: false },
   sidebarCollapsed: false,
   sidebarWidth: 280,
   sprintEnginesAsideOpen: false,
@@ -315,6 +316,11 @@ assert.equal(carrier.settingsOverlay.initialTab, 'integrations')
 assert.equal(typeof carrier.settingsOverlay.checkForUpdatesRequestId, 'number')
 slice.closeSettingsOverlay()
 assert.deepEqual(carrier.settingsOverlay, { open: false, initialTab: null, checkForUpdatesRequestId: null })
+
+slice.openConnectorsSurface()
+assert.equal(carrier.connectorsSurface.open, true)
+slice.closeConnectorsSurface()
+assert.equal(carrier.connectorsSurface.open, false)
 
 const sprintEngineRunPath = '/Users/example/project/.multi-code/sprintengine/run/run.yaml'
 const permissionCarrier = {
@@ -364,6 +370,7 @@ const permissionCarrier = {
   settingsOverlay: { open: false, initialTab: null, checkForUpdatesRequestId: null },
   automationsOverlay: { open: false, projectPath: null, runTarget: null },
   runSummaryOverlay: { open: false, workspaceId: null },
+  connectorsSurface: { open: false },
   sidebarCollapsed: false,
   sidebarWidth: 280,
   sprintEnginesAsideOpen: false,

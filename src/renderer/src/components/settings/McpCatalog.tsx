@@ -172,11 +172,18 @@ export function McpInfoPanel({
   installed,
   onToggle,
   onClose,
+  onNewChat,
+  onUseInAutomation,
 }: {
   server: McpCatalogServer
   installed: boolean
   onToggle: () => void
   onClose: () => void
+  // Connector actions, present only for a launchable connector (catalog entry
+  // with a skill) on the Connectors surface. Omitted on the Settings MCPs tab, so
+  // that surface's Add/Remove primary is unchanged.
+  onNewChat?: () => void
+  onUseInAutomation?: () => void
 }) {
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
@@ -260,8 +267,32 @@ export function McpInfoPanel({
           Source docs
         </a>
       ) : null}
-      <div className="mt-4">
-        {installed ? (
+      <div className="mt-4 space-y-2">
+        {onNewChat ? (
+          // A launchable connector leads with New chat (T1 runtime); Add/Remove
+          // and Use in automation are the secondary actions.
+          <>
+            <PrimaryButton onClick={onNewChat} size="md" className="h-9 w-full">
+              New chat
+            </PrimaryButton>
+            {onUseInAutomation ? (
+              <GhostButton
+                onClick={onUseInAutomation}
+                size="md"
+                className="h-9 w-full border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] text-[color:var(--text-default)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]"
+              >
+                Use in automation
+              </GhostButton>
+            ) : null}
+            <GhostButton
+              onClick={onToggle}
+              size="md"
+              className="h-9 w-full border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] text-[color:var(--text-default)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]"
+            >
+              {installed ? 'Remove from active' : 'Add to active'}
+            </GhostButton>
+          </>
+        ) : installed ? (
           <GhostButton
             onClick={onToggle}
             size="md"

@@ -57,6 +57,13 @@ export type RunSummaryOverlayState = {
   workspaceId: string | null
 }
 
+export type ConnectorsSurfaceState = {
+  /** The Connectors browse/install/launch surface, opened from the sidebar. A
+   *  store-level overlay (like the settings overlay) so any surface — the
+   *  sidebar entry, the command palette — opens it with one action. */
+  open: boolean
+}
+
 export const defaultLearningSettings = (): LearningSettings => ({
   showTipsOnStartup: true,
   lastShownTipId: null,
@@ -903,6 +910,7 @@ export interface SettingsSliceState {
   appSettings: AppSettings
   settingsOverlay: SettingsOverlayState
   runSummaryOverlay: RunSummaryOverlayState
+  connectorsSurface: ConnectorsSurfaceState
   sidebarCollapsed: boolean
   // User-resizable expanded width of the workspace sidebar, in px. Persisted so
   // the rail reopens at the width the user dragged it to. Only meaningful while
@@ -938,6 +946,8 @@ export interface SettingsSliceActions {
   closeSettingsOverlay: () => void
   openRunSummaryOverlay: (workspaceId: string) => void
   closeRunSummaryOverlay: () => void
+  openConnectorsSurface: () => void
+  closeConnectorsSurface: () => void
   setCliRuntime: (cli: AgentCli, update: Partial<CliRuntimeSettings>) => void
   setMcpSyncEnabled: (enabled: boolean) => void
   upsertMcpServer: (server: McpServerConfig) => void
@@ -1022,6 +1032,7 @@ export function createSettingsSlice(set: SettingsSliceSet): SettingsSlice {
     appSettings: defaultAppSettings(),
     settingsOverlay: { open: false, initialTab: null, checkForUpdatesRequestId: null },
     runSummaryOverlay: { open: false, workspaceId: null },
+    connectorsSurface: { open: false },
     sidebarCollapsed: false,
     sidebarWidth: SIDEBAR_DEFAULT_WIDTH,
     sprintEnginesAsideOpen: false,
@@ -1079,6 +1090,16 @@ export function createSettingsSlice(set: SettingsSliceSet): SettingsSlice {
       set((state) => {
         state.runSummaryOverlay.open = false
         state.runSummaryOverlay.workspaceId = null
+      }),
+
+    openConnectorsSurface: () =>
+      set((state) => {
+        state.connectorsSurface.open = true
+      }),
+
+    closeConnectorsSurface: () =>
+      set((state) => {
+        state.connectorsSurface.open = false
       }),
 
     setCliRuntime: (cli, update) =>
