@@ -20,6 +20,7 @@ export type SpawnAgentConfig = {
   name?: string
   prompt: string
   requiredIntegrations?: string[]
+  connectorId?: string
 }
 
 export type SpawnAgentRuntime = {
@@ -37,6 +38,7 @@ export type SpawnAgentRuntime = {
     specialistId?: string
     name?: string
     prompt: string
+    connectorId?: string
   }): Promise<{ workspaceId: string; agentId: string; executionId?: string; worktreePath?: string; branch?: string }>
   requireIntegration(id: string): void
 }
@@ -62,6 +64,7 @@ export function createSpawnAgentActionProvider(): AutomationActionProvider {
         specialistId: { type: 'string', minLength: 1 },
         name: { type: 'string', minLength: 1 },
         prompt: { type: 'string', minLength: 1 },
+        connectorId: { type: 'string', minLength: 1 },
         requiredIntegrations: {
           type: 'array',
           items: { type: 'string', minLength: 1 },
@@ -104,6 +107,7 @@ export async function runSpawnAgentAction(config: unknown, runtime: SpawnAgentRu
     specialistId: parsed.specialistId,
     name: parsed.name ?? runtime.definition.name,
     prompt,
+    connectorId: parsed.connectorId,
   })
 
   const isolation = launched.worktreePath ? ' in an isolated worktree' : ''
@@ -148,6 +152,7 @@ export function parseSpawnAgentConfig(config: unknown): SpawnAgentConfig {
     specialistId: optionalString(config.specialistId),
     name: optionalString(config.name),
     prompt,
+    connectorId: optionalString(config.connectorId),
     requiredIntegrations: Array.isArray(requiredIntegrations)
       ? requiredIntegrations.map((entry) => entry.trim())
       : undefined,

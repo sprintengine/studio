@@ -1,6 +1,6 @@
-// extensionsInstalled — pure, DOM-free derivation for the Settings → Extensions
-// "Installed" inventory. The React component (`ExtensionsSettingsTab.tsx`) owns
-// the IPC calls and rendering; everything that can be unit-tested without a
+// extensionsInstalled — pure, DOM-free derivation for the Connectors surface
+// "Installed" inventory. The React component (`InstalledExtensionsInventory.tsx`)
+// owns the IPC calls and rendering; everything that can be unit-tested without a
 // renderer lives here so the lifecycle states (loading / unsupported /
 // unavailable / error / empty / populated) get node-level coverage like
 // `providerSettings.ts`.

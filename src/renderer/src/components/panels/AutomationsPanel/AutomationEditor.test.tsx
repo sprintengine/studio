@@ -337,3 +337,65 @@ assert.doesNotMatch(agentBlockMarkup, /Run as a specialist agent, or a general a
 assert.doesNotMatch(agentBlockMarkup, /Model passed at launch/, 'the retired flat Model select is gone')
 
 console.log('AutomationEditor agent-block render tests passed')
+
+// ---------------------------------------------------------------------------
+// Connector picker (T8) — a spawn-agent action whose schema exposes connectorId
+// renders a "Connector" control defaulting to "No connector"; a schema without
+// connectorId does not. A stored connectorId round-trips into the control.
+// renderToStaticMarkup runs no effects, so the catalog stays loading and the
+// picker shows the selected value's label (the default or the stored id).
+// ---------------------------------------------------------------------------
+
+const connectorProviders: AutomationsProviders = {
+  triggers: [
+    { kind: 'schedule', configSchema: { type: 'object' }, requiredIntegrations: [], missingIntegrations: [] },
+    { kind: 'webhook', configSchema: { type: 'object' }, requiredIntegrations: [], missingIntegrations: [] },
+  ],
+  actions: [{
+    kind: 'spawn-agent',
+    configSchema: {
+      type: 'object',
+      properties: { cli: { type: 'string' }, prompt: { type: 'string' }, connectorId: { type: 'string' } },
+      required: ['prompt'],
+    },
+    requiredIntegrations: [],
+    missingIntegrations: [],
+  }],
+}
+
+const connectorCreateMarkup = renderToStaticMarkup(
+  <AutomationEditor
+    editor={{ mode: 'create' }}
+    providers={connectorProviders}
+    workspaceRoot="/tmp/multicode-automation-editor"
+    onCancel={() => {}}
+    onSaved={() => {}}
+  />,
+)
+assert.match(connectorCreateMarkup, /Connector/, 'a connectorId-bearing action renders the connector control')
+assert.match(connectorCreateMarkup, /No connector/, 'the connector picker defaults to "No connector"')
+
+// A connectorId is not rendered as a generic free-text config input — the picker owns it.
+assert.doesNotMatch(connectorCreateMarkup, /automation-config-connectorId/, 'connectorId is not a free-text config field')
+
+// An action schema without connectorId renders no connector control.
+assert.doesNotMatch(agentBlockMarkup, />Connector</, 'no connector control when the schema lacks connectorId')
+
+// Edit: a stored connectorId round-trips into the control (shown as its id while
+// the catalog is still loading under static render).
+const connectorEditDef: AutomationDefinition = {
+  ...definition({ kind: 'schedule', config: { kind: 'schedule', timezone: 'UTC', cadence: { type: 'interval', everyMinutes: 30 } } }),
+  action: { kind: 'spawn-agent', config: { prompt: 'Deploy the service', connectorId: 'railway' } },
+}
+const connectorEditMarkup = renderToStaticMarkup(
+  <AutomationEditor
+    editor={{ mode: 'edit', definition: connectorEditDef }}
+    providers={connectorProviders}
+    workspaceRoot="/tmp/multicode-automation-editor"
+    onCancel={() => {}}
+    onSaved={() => {}}
+  />,
+)
+assert.match(connectorEditMarkup, /railway/, 'a stored connectorId round-trips into the connector control')
+
+console.log('AutomationEditor connector-picker render tests passed')

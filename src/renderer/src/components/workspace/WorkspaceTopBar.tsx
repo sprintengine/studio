@@ -1,11 +1,9 @@
 import React from 'react'
 import { SpecialistActionIcon, SprintEngineRoleIcon, WorkspaceTypeIcon, resolveEnabledWorkspaceType } from '../AppIcons'
 import type { ModuleEnablementOverrides } from '../../../../shared/modules/manifest'
-import { ChangePulse, FOCUS_RING_CLASS, Popover, StarGlyph, StatusDot, TONE_COLOR_VAR, TONE_SOFT_VAR, Tooltip, TruncatedText } from '../ui'
-import type { SessionUser } from '../../../../shared/electron-api'
+import { ChangePulse, FOCUS_RING_CLASS, Popover, StarGlyph, StatusDot, Tooltip, TruncatedText } from '../ui'
 import {
   compareSessionItemsByAttention,
-  hasActiveProPlan,
   sessionsAttentionTone,
 } from './workspaceManagerHelpers'
 import { useRelativeNow } from '../../hooks/useRelativeNow'
@@ -82,11 +80,6 @@ function sessionAgentTypeLabel(item: SessionItem): string | null {
   return null
 }
 
-function formatShortDate(value: string | null): string {
-  if (!value) return 'soon'
-  return new Date(value).toLocaleString()
-}
-
 function SessionAgentIcon({ item, className }: { item: SessionItem; className?: string }) {
   if (item.specialistId) {
     const action = getSpecialistAction(item.specialistId)
@@ -151,21 +144,6 @@ function MicIcon({ className }: { className?: string }) {
     </svg>
   )
 }
-
-function GearIcon({ className }: { className?: string }) {
-  return (
-    <svg className={className} viewBox="0 0 24 24" fill="none" aria-hidden="true">
-      <path
-        d="M9.25 4.25L9.9 2.9h4.2l.65 1.35a1.8 1.8 0 0 0 2.2.92l1.43-.48 2.1 3.64-1.12 1a1.8 1.8 0 0 0 0 2.68l1.12 1-2.1 3.64-1.43-.48a1.8 1.8 0 0 0-2.2.92l-.65 1.35H9.9l-.65-1.35a1.8 1.8 0 0 0-2.2-.92l-1.43.48-2.1-3.64 1.12-1a1.8 1.8 0 0 0 0-2.68l-1.12-1 2.1-3.64 1.43.48a1.8 1.8 0 0 0 2.2-.92Z"
-        stroke="currentColor"
-        strokeWidth="1.65"
-        strokeLinejoin="round"
-      />
-      <circle cx="12" cy="11.67" r="3" stroke="currentColor" strokeWidth="1.65" />
-    </svg>
-  )
-}
-
 
 // Earned status dot: idle rows get no dot at all — a "working" indicator must be
 // earned, not the default for every live row. Live attention states pulse; a
@@ -392,148 +370,6 @@ function SessionsPopover({
   )
 }
 
-function accountInitials(user: SessionUser | null): string {
-  const source = user?.displayName?.trim() || user?.email?.trim() || ''
-  if (!source) return '?'
-  const words = source.split(/\s+/).filter(Boolean)
-  if (words.length >= 2) return `${words[0][0]}${words[1][0]}`.toUpperCase()
-  return source[0].toUpperCase()
-}
-
-type AccountTier = 'free' | 'pro'
-
-// Tier drives the colour of the account glyph: gold for an active Pro plan,
-// green otherwise (free, trial, or entitlements not yet resolved).
-function accountTier(authState: MulticodeAuthState): AccountTier {
-  return hasActiveProPlan(authState) ? 'pro' : 'free'
-}
-
-const ACCOUNT_TIER_STYLE: Record<AccountTier, { color: string; soft: string; label: string }> = {
-  free: { color: TONE_COLOR_VAR.good, soft: TONE_SOFT_VAR.good, label: 'Free' },
-  pro: { color: TONE_COLOR_VAR.warn, soft: TONE_SOFT_VAR.warn, label: 'Pro' },
-}
-
-// Neutral person glyph shown when no display name/email initials are available,
-// so a signed-in account still reads as a coloured tier badge rather than a "?".
-function AccountUserGlyph({ className }: { className?: string }) {
-  return (
-    <svg className={className} viewBox="0 0 24 24" fill="none" aria-hidden="true">
-      <circle cx="12" cy="8.4" r="3.5" stroke="currentColor" strokeWidth={1.7} />
-      <path
-        d="M5.6 19c0-3.3 2.9-5.4 6.4-5.4s6.4 2.1 6.4 5.4"
-        stroke="currentColor"
-        strokeWidth={1.7}
-        strokeLinecap="round"
-      />
-    </svg>
-  )
-}
-
-function sentenceCase(value: string): string {
-  return value ? value[0].toUpperCase() + value.slice(1).replace(/_/g, ' ') : value
-}
-
-function AccountMenuItem({ onSelect, children }: { onSelect: () => void; children: React.ReactNode }) {
-  const onKeyDown = (event: React.KeyboardEvent<HTMLButtonElement>) => {
-    if (!['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(event.key)) return
-    event.preventDefault()
-    const surface = event.currentTarget.closest('[data-account-menu="true"]')
-    if (!surface) return
-    const items = Array.from(surface.querySelectorAll<HTMLButtonElement>('[data-account-item="true"]'))
-    if (items.length === 0) return
-    const idx = items.indexOf(event.currentTarget)
-    const next = event.key === 'Home'
-      ? items[0]
-      : event.key === 'End'
-        ? items[items.length - 1]
-        : items[(idx + (event.key === 'ArrowDown' ? 1 : -1) + items.length) % items.length]
-    next?.focus()
-  }
-  return (
-    <button
-      type="button"
-      role="menuitem"
-      data-account-item="true"
-      onClick={onSelect}
-      onKeyDown={onKeyDown}
-      className={`flex w-full items-center px-3 py-1.5 text-left text-[12px] text-[color:var(--text-default)] transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)] ${FOCUS_RING_CLASS}`}
-    >
-      {children}
-    </button>
-  )
-}
-
-function AccountPopover({
-  authState,
-  message,
-  onCheckAccess,
-  onLogout,
-  onUpgrade,
-}: {
-  authState: MulticodeAuthState
-  message: string | null
-  onCheckAccess: () => void
-  onLogout: () => void
-  onUpgrade: () => void
-}) {
-  const plan = authState.entitlements?.plan ?? null
-  const planLabel = plan
-    ? plan.status === 'active' ? `${sentenceCase(plan.code)} plan` : sentenceCase(plan.status)
-    : null
-  const metaLine = [planLabel, authState.selectedOrganization?.name]
-    .filter(Boolean)
-    .join(' · ')
-  const primaryLine = authState.user?.displayName ?? authState.user?.email ?? 'Multicode account'
-  const email = authState.user?.displayName ? authState.user?.email : null
-  const accessStale = Boolean(message) || authState.entitlementStatus !== 'fresh'
-
-  return (
-    <div data-account-menu="true" className="w-64 overflow-hidden">
-      <div className="px-3 pb-2.5 pt-3">
-        <TruncatedText
-          as="div"
-          text={primaryLine}
-          className="text-[13px] font-medium text-[color:var(--text-strong)]"
-        />
-        {email ? (
-          <TruncatedText
-            as="div"
-            text={email}
-            className="mt-0.5 text-[12px] text-[color:var(--text-muted)]"
-          />
-        ) : null}
-        {metaLine ? (
-          <TruncatedText
-            as="div"
-            text={metaLine}
-            className="mt-1 text-[11px] text-[color:var(--text-subtle)]"
-          />
-        ) : null}
-      </div>
-
-      {message || authState.entitlementStatus === 'offline_grace' ? (
-        <div className="border-t border-[color:var(--border-subtle)] px-3 py-2 text-[12px] leading-5 text-[color:var(--tone-warn)]">
-          {message ?? `Offline access expires ${formatShortDate(authState.graceExpiresAt)}.`}
-        </div>
-      ) : null}
-
-      {!hasActiveProPlan(authState) || accessStale ? (
-        <div className="border-t border-[color:var(--border-subtle)] py-1">
-          {!hasActiveProPlan(authState) ? (
-            <AccountMenuItem onSelect={onUpgrade}>Upgrade to Pro</AccountMenuItem>
-          ) : null}
-          {accessStale ? (
-            <AccountMenuItem onSelect={onCheckAccess}>Check access again</AccountMenuItem>
-          ) : null}
-        </div>
-      ) : null}
-      <div className="border-t border-[color:var(--border-subtle)] py-1">
-        <AccountMenuItem onSelect={onLogout}>Sign out</AccountMenuItem>
-      </div>
-    </div>
-  )
-}
-
 export type WorkspaceTopBarProps = {
   workspaces: Workspace[]
   activeWorkspace: Workspace | null
@@ -544,7 +380,6 @@ export type WorkspaceTopBarProps = {
   viewMenuRef: React.RefObject<HTMLDivElement>
   notificationsRef: React.RefObject<HTMLDivElement>
   specialistMenuRef: React.RefObject<HTMLDivElement>
-  accountRef: React.RefObject<HTMLDivElement>
 
   sessions: SessionItem[]
   sidebarWorkspaceOrder: Map<string, number>
@@ -608,17 +443,6 @@ export type WorkspaceTopBarProps = {
   conversationSpawnAvailable: boolean
   composerInitialSelection: AgentComposerSelection
   runComposerSpawn: (confirm: AgentComposerConfirm) => void
-
-  openSettings: (checkForUpdates?: boolean, targetTab?: string | null) => void
-  settingsOpen: boolean
-
-  accountOpen: boolean
-  setAccountOpen: React.Dispatch<React.SetStateAction<boolean>>
-  authState: MulticodeAuthState
-  authMessage: string | null
-  startLogin: () => void | Promise<void>
-  refreshAuthState: () => void | Promise<void>
-  logout: () => void | Promise<void>
 }
 
 // Branch-fork glyph for the header identity cluster. Stroke idiom matches the
@@ -651,7 +475,6 @@ export default function WorkspaceTopBar({
   viewMenuRef,
   notificationsRef,
   specialistMenuRef,
-  accountRef,
   sessions,
   sidebarWorkspaceOrder,
   sessionsOpen,
@@ -695,15 +518,6 @@ export default function WorkspaceTopBar({
   conversationSpawnAvailable,
   composerInitialSelection,
   runComposerSpawn,
-  openSettings,
-  settingsOpen,
-  accountOpen,
-  setAccountOpen,
-  authState,
-  authMessage,
-  startLogin,
-  refreshAuthState,
-  logout,
 }: WorkspaceTopBarProps) {
   const keybindingSettings = useWorkspaceStore((state) => state.appSettings.keybindings)
   const moduleOverrides = useWorkspaceStore((state) => state.appSettings.modules)
@@ -929,7 +743,6 @@ export default function WorkspaceTopBar({
                     setSessionsOpen(false)
                     setSpecialistMenuOpen(false)
                     setNotificationsOpen(false)
-                    setAccountOpen(false)
                   }
                 }}
                 ariaLabel={`${activeWorkspaceViews?.label ?? 'View'} panels`}
@@ -1011,7 +824,6 @@ export default function WorkspaceTopBar({
                 if (next) {
                   setSessionsOpen(false)
                   setSpecialistMenuOpen(false)
-                  setAccountOpen(false)
                 }
               }}
               ariaLabel="Notifications"
@@ -1197,99 +1009,9 @@ export default function WorkspaceTopBar({
             </div>
             )
           })() : null}
-
-          {/* top-bar-group: account-and-settings */}
-          <div ref={accountRef} className="relative inline-flex">
-            {authState.authenticated ? (
-              <Popover
-                open={accountOpen}
-                onOpenChange={(next) => {
-                  setAccountOpen(next)
-                  if (next) {
-                    setSessionsOpen(false)
-                    setSpecialistMenuOpen(false)
-                    setNotificationsOpen(false)
-                  }
-                }}
-                ariaLabel="Account"
-                popupRole="menu"
-                placement="bottom-end"
-                onOpenAutoFocus={(surface) => {
-                  surface.querySelector<HTMLButtonElement>('[data-account-item="true"]')?.focus()
-                }}
-                renderTrigger={({ ref, triggerProps, togglePopover }) => {
-                  const tier = accountTier(authState)
-                  const tierStyle = ACCOUNT_TIER_STYLE[tier]
-                  const initials = accountInitials(authState.user)
-                  return (
-                    <Tooltip content={`Account · ${tierStyle.label}`} placement="bottom">
-                      <button
-                        ref={ref}
-                        type="button"
-                        onClick={togglePopover}
-                        className={`inline-flex h-8 w-8 items-center justify-center rounded-md border transition-colors ${
-                          accountOpen
-                            ? 'border-[color:var(--color-5)] bg-[color:var(--bg-hover)]'
-                            : 'border-transparent hover:bg-[color:var(--bg-hover)]'
-                        }`}
-                        aria-label={`Account · ${tierStyle.label} plan`}
-                        {...triggerProps}
-                      >
-                        <span
-                          aria-hidden="true"
-                          className="flex h-6 w-6 items-center justify-center rounded-full border text-[11px] font-semibold"
-                          style={{
-                            borderColor: tierStyle.color,
-                            backgroundColor: tierStyle.soft,
-                            color: tierStyle.color,
-                          }}
-                        >
-                          {initials === '?' ? <AccountUserGlyph className="icon-sm" /> : initials}
-                        </span>
-                      </button>
-                    </Tooltip>
-                  )
-                }}
-              >
-                <AccountPopover
-                  authState={authState}
-                  message={authMessage}
-                  onCheckAccess={() => void refreshAuthState()}
-                  onLogout={() => void logout()}
-                  onUpgrade={() => {
-                    setAccountOpen(false)
-                    void window.api.authOpenUpgrade('sprintengine')
-                  }}
-                />
-              </Popover>
-            ) : (
-              <button
-                type="button"
-                onClick={() => void startLogin()}
-                disabled={authState.status === 'checking'}
-                className="inline-flex h-8 items-center rounded-md border border-[color:var(--bg-selected)] bg-[color:var(--bg-surface-raised)] px-3 text-[12px] font-semibold text-[color:var(--text-default)] transition-colors hover:border-[color:var(--color-5)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)] disabled:cursor-default disabled:opacity-60 disabled:hover:border-[color:var(--bg-selected)] disabled:hover:bg-[color:var(--bg-surface-raised)] disabled:hover:text-[color:var(--text-default)]"
-                aria-busy={authState.status === 'checking'}
-              >
-                Sign in
-              </button>
-            )}
-          </div>
-
-          <Tooltip content={withShortcut('Settings', shortcutFor('app.settings.open'))} placement="bottom">
-            <button
-              type="button"
-              onClick={() => openSettings(false)}
-              className={`inline-flex h-8 w-8 items-center justify-center rounded-md border transition-colors ${
-                settingsOpen
-                  ? 'border-[color:var(--color-5)] bg-[color:var(--bg-hover)] text-[color:var(--text-strong)]'
-                  : 'border-[color:var(--bg-selected)] bg-[color:var(--bg-surface-raised)] text-[color:var(--text-muted)] hover:border-[color:var(--color-5)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-default)]'
-              }`}
-              aria-label="Settings"
-              aria-pressed={settingsOpen}
-            >
-              <GearIcon className="h-[18px] w-[18px]" />
-            </button>
-          </Tooltip>
+          {/* Account + Settings relocated to the sidebar bottom (SidebarAccountBar,
+              Cursor-parity). The former `account-and-settings` top-bar group is
+              retired; see knowledge/brand/panel-design-system.md TopBar inventory. */}
         </div>
       </div>
   )

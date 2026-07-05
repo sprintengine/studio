@@ -174,6 +174,11 @@ export interface WorkspaceStore extends PluginsSlice, CliAvailabilitySlice {
   }
   openRunSummaryOverlay: (workspaceId: string) => void
   closeRunSummaryOverlay: () => void
+  connectorsSurface: {
+    open: boolean
+  }
+  openConnectorsSurface: () => void
+  closeConnectorsSurface: () => void
   reorderWorkspaces: (orderedIds: WorkspaceId[]) => void
   registerWorkspaceWindow: (windowId: WorkspaceWindowId, kind?: WorkspaceWindowState['kind']) => void
   updateWorkspaceWindowPlacement: (

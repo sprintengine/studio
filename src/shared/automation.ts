@@ -48,6 +48,13 @@ export type AutomationRendererRequest =
       specialistId?: string
       /** Git worktree the agent should run in, instead of the workspace checkout. */
       worktreePath?: string
+      /**
+       * Catalog connector id (e.g. 'railway'). When set, the renderer resolves it
+       * to the connector's single-server MCP and driving skill and launches the
+       * agent worktree-isolated with that connector environment — the same
+       * isolation invariant as a connector chat.
+       */
+      connectorId?: string
     }
   | {
       // Remove a spawned automation agent entirely: kill its terminal, drop its

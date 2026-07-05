@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 
 import { CliModelPickerButton, Field, GhostButton, InlineNotice, Popover, PrimaryButton, Select, type SelectItem, Switch } from '../../ui'
 import { useWorkspaceStore } from '../../../store/workspaceStore'
@@ -65,10 +65,15 @@ type EditorFormState = {
 // and never loaded into the editable form.
 const INTERNAL_CONFIG_KEYS = new Set(['workspaceId', 'folderPath', 'requiredIntegrations'])
 
-// Keys owned by the agent picker (specialist / model / permission). They are
-// loaded into the form and persisted, but rendered by the picker controls rather
-// than as generic free-text string fields.
-const PICKER_CONFIG_KEYS = new Set(['cliModel', 'permissionPreset', 'specialistId'])
+// Keys owned by a dedicated picker control (agent specialist / model / permission,
+// and the connector target). They are loaded into the form and persisted, but
+// rendered by their picker rather than as generic free-text string fields.
+const PICKER_CONFIG_KEYS = new Set(['cliModel', 'permissionPreset', 'specialistId', 'connectorId'])
+
+// Sentinel option value for "target no connector" — the Select emits a string, so
+// the cleared choice is a real item rather than null, and it maps back to removing
+// the connectorId key from the action config on submit.
+const NO_CONNECTOR = ''
 
 const CONFIG_FIELD_LABEL: Record<string, string> = {
   prompt: 'Prompt',
@@ -107,6 +112,25 @@ function schemaRequiredKeys(schema: AutomationsProviderView['configSchema']): Se
   const required = (schema as { required?: unknown }).required
   return new Set(Array.isArray(required) ? required.filter((r): r is string => typeof r === 'string') : [])
 }
+
+// Whether the action's config schema exposes a given string field. Used to gate
+// the connector picker on the same signal the agent block uses for `cli`: the
+// control only renders for an action that actually consumes the key.
+function schemaHasStringProp(schema: AutomationsProviderView['configSchema'], key: string): boolean {
+  const properties = (schema as { properties?: Record<string, unknown> }).properties
+  const prop = properties?.[key]
+  return Boolean(prop) && typeof prop === 'object' && (prop as { type?: unknown }).type === 'string'
+}
+
+// A launchable connector = an MCP catalog entry carrying a `skill` link (the same
+// rule as connectorLaunch.resolveConnectorLaunch and the Connectors surface). The
+// per-source load is undefined-free so a catalog failure renders an explicit
+// unavailable state rather than a silently empty picker.
+type ConnectorOption = { id: string; name: string }
+type ConnectorLoad =
+  | { status: 'loading' }
+  | { status: 'error'; message: string }
+  | { status: 'ready'; connectors: ConnectorOption[] }
 
 const EMPTY_FORM: EditorFormState = {
   name: '', enabled: true, autonomy: 'review_only', runInWorktree: true, actionKind: '', triggerKind: 'schedule',
@@ -215,6 +239,68 @@ export function AutomationEditor({
     ?? 'Default permissions'
   const showAgentPicker = !actionUnavailableReason && configKeys.includes('cli')
 
+  // Connector target — a spawn-agent run can be pinned to an installed connector
+  // (its isolated worktree + MCP + skill, wired by T7). The picker is populated
+  // from the real MCP catalog (entries with a skill link), never a placeholder
+  // list, and shown only for an action whose schema consumes `connectorId`.
+  const showConnectorPicker =
+    !actionUnavailableReason && actionProvider != null && schemaHasStringProp(actionProvider.configSchema, 'connectorId')
+  const [connectorLoad, setConnectorLoad] = useState<ConnectorLoad>({ status: 'loading' })
+  useEffect(() => {
+    let cancelled = false
+    if (typeof window.api.mcpListCatalog !== 'function') {
+      setConnectorLoad({ status: 'error', message: 'Connectors need an app restart before they are available.' })
+      return () => { cancelled = true }
+    }
+    void window.api.mcpListCatalog().then((result) => {
+      if (cancelled) return
+      if (result.ok) {
+        const connectors = result.servers
+          .filter((server) => server.skill)
+          .map((server) => ({ id: server.id, name: server.name }))
+        setConnectorLoad({ status: 'ready', connectors })
+      } else {
+        setConnectorLoad({ status: 'error', message: result.message })
+      }
+    }).catch((error) => {
+      if (!cancelled) {
+        setConnectorLoad({
+          status: 'error',
+          message: error instanceof Error ? error.message : 'Unable to load the connector catalog.',
+        })
+      }
+    })
+    return () => { cancelled = true }
+  }, [])
+
+  const selectedConnectorId = form.config.connectorId ?? NO_CONNECTOR
+  const connectorItems: SelectItem[] = useMemo(() => {
+    const items: SelectItem[] = [{ value: NO_CONNECTOR, label: 'No connector' }]
+    if (connectorLoad.status === 'ready') {
+      for (const connector of connectorLoad.connectors) items.push({ value: connector.id, label: connector.name })
+    }
+    // A stored connector no longer in the catalog still round-trips and is shown
+    // as unavailable (once the catalog has resolved) rather than silently dropped.
+    if (selectedConnectorId && !items.some((item) => item.value === selectedConnectorId)) {
+      const resolved = connectorLoad.status === 'ready'
+      items.push({
+        value: selectedConnectorId,
+        label: resolved ? `${selectedConnectorId} — unavailable` : selectedConnectorId,
+        tone: resolved ? 'warn' : undefined,
+      })
+    }
+    return items
+  }, [connectorLoad, selectedConnectorId])
+
+  const onSelectConnector = useCallback((value: string) => {
+    setForm((prev) => {
+      const config = { ...prev.config }
+      if (value) config.connectorId = value
+      else delete config.connectorId
+      return { ...prev, config }
+    })
+  }, [])
+
   // Plain-language read-back of the whole automation (altitude / friendliness):
   // shown only for the scheduled spawn-agent shape it describes.
   const scheduleReadback =
@@ -303,6 +389,12 @@ export function AutomationEditor({
         if (value) config[key] = value
       }
     }
+    // Connector target: persist connectorId when one is selected; a cleared choice
+    // (No connector) simply omits the key so the run falls back to the default.
+    if (showConnectorPicker) {
+      const connectorId = form.config.connectorId?.trim()
+      if (connectorId) config.connectorId = connectorId
+    }
     const draft: AutomationDefinitionDraft = {
       name: form.name.trim(),
       status: form.enabled ? 'enabled' : 'paused',
@@ -338,7 +430,7 @@ export function AutomationEditor({
     } finally {
       setSaving(false)
     }
-  }, [validationError, workspaceRoot, configKeys, form, editor, onSaved, builtTrigger, shouldSendTrigger, showAgentPicker])
+  }, [validationError, workspaceRoot, configKeys, form, editor, onSaved, builtTrigger, shouldSendTrigger, showAgentPicker, showConnectorPicker])
 
   const actionItems: SelectItem[] = (providers?.actions ?? []).map((a) => ({
     value: a.kind,
@@ -480,6 +572,33 @@ export function AutomationEditor({
                   </div>
                 </div>
                 <span className="text-[11px] text-[color:var(--text-subtle)]">Same roster, runtimes, and permission presets as the spawn menu.</span>
+              </div>
+            ) : null}
+
+            {/* Connector target — pins the run to an installed connector's isolated
+                worktree + MCP + skill. Defaults to "No connector" (workspace run).
+                Mirrors the agent block's label/control/helper rhythm; the Select's
+                ariaLabel carries the accessible name. */}
+            {showConnectorPicker ? (
+              <div className="flex flex-col gap-1.5">
+                <span className="text-[12px] font-medium text-[color:var(--text-default)]">Connector</span>
+                <Select
+                  ariaLabel="Connector"
+                  value={selectedConnectorId}
+                  onChange={onSelectConnector}
+                  items={connectorItems}
+                  disabled={connectorLoad.status === 'loading'}
+                  placeholder={connectorLoad.status === 'loading' ? 'Loading connectors…' : 'No connector'}
+                />
+                {connectorLoad.status === 'error' ? (
+                  <InlineNotice tone="warn">Connectors are unavailable: {connectorLoad.message}</InlineNotice>
+                ) : (
+                  <span className="text-[11px] text-[color:var(--text-subtle)]">
+                    {connectorLoad.status === 'ready' && connectorLoad.connectors.length === 0
+                      ? 'No connectors installed — the run uses the workspace defaults.'
+                      : 'Runs the agent against this connector’s isolated worktree, MCP, and skill.'}
+                  </span>
+                )}
               </div>
             ) : null}
 
