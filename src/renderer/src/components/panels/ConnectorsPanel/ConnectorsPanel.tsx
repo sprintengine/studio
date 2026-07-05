@@ -39,6 +39,7 @@ import {
   mcpServerFromCatalog,
 } from '../../settings/McpCatalog'
 import { PluginCard, PluginDetailPanel } from '../../settings/BrowseStorefront'
+import { ConnectorsManage } from './ConnectorsManage'
 import {
   CONNECTOR_FACETS,
   deriveConnectorsView,
@@ -53,6 +54,15 @@ const EMPTY_MCP_SETTINGS: McpSettings = { syncEnabled: true, servers: {} }
 // Shared id prefix so the facet Tabs' aria-controls resolves to the grid's
 // TabPanel below.
 const FACET_TABS_PREFIX = 'connectors-facets'
+
+// Top-level view switch: Browse (the Get grid) vs Installed (the manage view
+// folded in from the old MCPs / Skill packs / Extensions settings tabs).
+type SurfaceView = 'browse' | 'installed'
+const SURFACE_VIEW_PREFIX = 'connectors-view'
+const SURFACE_VIEW_ITEMS: TabItem<SurfaceView>[] = [
+  { id: 'browse', label: 'Browse' },
+  { id: 'installed', label: 'Installed' },
+]
 
 const FOCUSABLE_SELECTOR =
   'a[href], button:not([disabled]), textarea:not([disabled]), input:not([disabled]):not([type="hidden"]), select:not([disabled]), [tabindex]:not([tabindex="-1"])'
@@ -169,6 +179,11 @@ function ConnectorsBrowser({
   // would just echo that rail.
   const [facet, setFacet] = useState<ConnectorFacet>('All')
   const [selectedKey, setSelectedKey] = useState<string | null>(null)
+  // Top-level surface view: Browse is the catalog/marketplace Get grid; Installed
+  // is the manage-what-you-have half folded in from the old MCPs / Skill packs /
+  // Extensions settings tabs (T3). Browse leads because getting a connector is the
+  // surface's primary job.
+  const [view, setView] = useState<SurfaceView>('browse')
 
   const loadCatalog = useCallback(async () => {
     if (typeof window.api.mcpListCatalog !== 'function') {
@@ -244,7 +259,7 @@ function ConnectorsBrowser({
     [mcpSettings.servers],
   )
 
-  const view = deriveConnectorsView(catalogLoad, registryLoad, installedServerIds, query, facet)
+  const browseView = deriveConnectorsView(catalogLoad, registryLoad, installedServerIds, query, facet)
 
   // The launchable connectors (a search-filtered "ready to launch" rail), derived
   // from the same source merge but independent of the browse facet: they are your
@@ -273,11 +288,13 @@ function ConnectorsBrowser({
   const closeDetail = useCallback(() => setSelectedKey(null), [])
 
   const selectedEntry =
-    view.status === 'ready' ? view.entries.find((entry) => entry.key === selectedKey) ?? null : null
+    browseView.status === 'ready' ? browseView.entries.find((entry) => entry.key === selectedKey) ?? null : null
 
   // A one-source-down degradation notice, present on the settled views only.
   const notice =
-    view.status === 'ready' || view.status === 'empty' || view.status === 'no-match' ? view.notice : undefined
+    browseView.status === 'ready' || browseView.status === 'empty' || browseView.status === 'no-match'
+      ? browseView.notice
+      : undefined
 
   const retry = (
     <GhostButton
@@ -304,51 +321,67 @@ function ConnectorsBrowser({
         <CloseIconButton onClick={onClose} aria-label="Close connectors" />
       </header>
 
-      <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4">
-        <div className="flex flex-wrap items-center gap-3">
-          <div className="min-w-0 flex-1">
-            <InboxSearchInput
-              value={query}
-              onChange={setQuery}
-              ariaLabel="Search connectors by name, category, or capability"
-              placeholder="Search connectors, skills, MCPs"
-            />
-          </div>
-        </div>
-
-        {notice ? (
-          <div className="mt-3">
-            <InlineNotice tone="warn" action={retry}>
-              {notice}
-            </InlineNotice>
-          </div>
-        ) : null}
-
-        <ReadyConnectorsRail
-          connectors={readyConnectors}
-          onLaunchConnector={onLaunchConnector}
-          onUseInAutomation={onUseInAutomation}
+      <div className="border-b border-[color:var(--border-subtle)] px-5 pt-2.5">
+        <Tabs
+          ariaLabel="Connectors view"
+          idPrefix={SURFACE_VIEW_PREFIX}
+          items={SURFACE_VIEW_ITEMS}
+          value={view}
+          onChange={setView}
         />
+      </div>
 
-        <FacetTabs view={view} facet={facet} onSelect={setFacet} />
+      <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4">
+        <TabPanel idPrefix={SURFACE_VIEW_PREFIX} tabId="browse" active={view === 'browse'}>
+          <div className="flex flex-wrap items-center gap-3">
+            <div className="min-w-0 flex-1">
+              <InboxSearchInput
+                value={query}
+                onChange={setQuery}
+                ariaLabel="Search connectors by name, category, or capability"
+                placeholder="Search connectors, skills, MCPs"
+              />
+            </div>
+          </div>
 
-        <TabPanel idPrefix={FACET_TABS_PREFIX} tabId={facet} active>
-          <ConnectorsBody
-            view={view}
-            registryUrl={registryUrl}
-            workspaceRoot={activeWorkspaceRoot}
-            mcpSettings={mcpSettings}
-            selectedKey={selectedKey}
-            selectedEntry={selectedEntry}
-            onSelect={setSelectedKey}
-            onCloseDetail={closeDetail}
-            onToggleCatalogServer={toggleCatalogServer}
+          {notice ? (
+            <div className="mt-3">
+              <InlineNotice tone="warn" action={retry}>
+                {notice}
+              </InlineNotice>
+            </div>
+          ) : null}
+
+          <ReadyConnectorsRail
+            connectors={readyConnectors}
             onLaunchConnector={onLaunchConnector}
             onUseInAutomation={onUseInAutomation}
-            onUpsertMcpServer={upsertMcpServer}
-            onRegistryInstalled={() => void loadRegistry(true)}
-            retry={retry}
           />
+
+          <FacetTabs view={browseView} facet={facet} onSelect={setFacet} />
+
+          <TabPanel idPrefix={FACET_TABS_PREFIX} tabId={facet} active>
+            <ConnectorsBody
+              view={browseView}
+              registryUrl={registryUrl}
+              workspaceRoot={activeWorkspaceRoot}
+              mcpSettings={mcpSettings}
+              selectedKey={selectedKey}
+              selectedEntry={selectedEntry}
+              onSelect={setSelectedKey}
+              onCloseDetail={closeDetail}
+              onToggleCatalogServer={toggleCatalogServer}
+              onLaunchConnector={onLaunchConnector}
+              onUseInAutomation={onUseInAutomation}
+              onUpsertMcpServer={upsertMcpServer}
+              onRegistryInstalled={() => void loadRegistry(true)}
+              retry={retry}
+            />
+          </TabPanel>
+        </TabPanel>
+
+        <TabPanel idPrefix={SURFACE_VIEW_PREFIX} tabId="installed" active={view === 'installed'}>
+          <ConnectorsManage activeWorkspaceRoot={activeWorkspaceRoot} />
         </TabPanel>
       </div>
     </div>

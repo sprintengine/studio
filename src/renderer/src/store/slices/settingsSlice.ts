@@ -1,5 +1,6 @@
 import { nanoid } from 'nanoid'
 import { normalizeProjectKnowledgeRoots } from './memorySlice'
+import { isConnectorsFoldedSettingsTab } from '../../components/settings/extensionsRoute'
 import type {
   AgentCli,
   AgentCliModelSelection,
@@ -1067,6 +1068,14 @@ export function createSettingsSlice(set: SettingsSliceSet): SettingsSlice {
 
     openSettingsOverlay: (opts) =>
       set((state) => {
+        // The MCPs / Skill packs / Extensions settings tabs folded into the
+        // Connectors surface (T3). Deep-links that once opened one of those tabs
+        // route to the Connectors surface instead of a tab that no longer
+        // exists, so no caller has to know the fold happened.
+        if (isConnectorsFoldedSettingsTab(opts?.initialTab)) {
+          state.connectorsSurface.open = true
+          return
+        }
         state.settingsOverlay.open = true
         state.settingsOverlay.initialTab = opts?.initialTab ?? null
         state.settingsOverlay.checkForUpdatesRequestId = opts?.checkForUpdates ? Date.now() : null

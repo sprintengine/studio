@@ -5,15 +5,10 @@ import type { RegisteredSettingsSection } from '../../modules/renderer-host'
 import { ModuleSettingsSectionHost } from './ModuleSettingsSection'
 import type {
   CliAvailability,
-  McpCatalogServer,
-  McpSettings,
   PluginCatalogEntry,
   SprintEngineRoleRegistry,
   SprintEngineRoleRegistryMetadata,
   SprintEngineRoleRegistryWarning,
-  SkillPackCatalogEntry,
-  SkillPackEntry,
-  SkillPackSettings,
   VoiceDictationModel,
 } from '../../types/workspace'
 import AppThemePicker from './AppThemePicker'
@@ -44,22 +39,8 @@ import { KeyboardShortcutsTab } from './KeyboardShortcutsTab'
 import MobileSettingsTab from './MobileSettingsTab'
 import { ModulesSettingsTab } from './ModulesSettingsTab'
 import { ProviderSettingsTab } from './ProviderSettingsTab'
-import { ExtensionsSettingsTab } from './ExtensionsSettingsTab'
 import SpecialistPacksTab from './SpecialistPacksTab'
-import { EXTENSIONS_BROWSE_DEEPLINK } from './extensionsRoute'
-import {
-  McpBrandIcon,
-  McpCatalogBrowser,
-  mcpIconSlug,
-  mcpServerFromCatalog,
-} from './McpCatalog'
-import {
-  SkillPackInfoPanel,
-  SkillPackTile,
-  groupSkillPackCatalog,
-} from './SkillPacksCatalog'
 import { MetaCell, SettingsRow, SettingsSectionTitle, formatNullableDate } from './SettingsAtoms'
-import { AutomationServerSettings } from './AutomationServerSettings'
 import { ProjectKnowledgeList } from './ProjectKnowledgeList'
 import CliIcon from '../CliIcon'
 import { cliRuntimeForPlugin, orderInstalledPlugins } from '../workspace/newWorkspace/cliRuntimeOptions'
@@ -104,13 +85,6 @@ type GitHubTokenUiStatus = Awaited<ReturnType<typeof window.api.getGitHubTokenSt
 
 const EMPTY_USER_MODELS: string[] = []
 const EMPTY_PROJECT_KNOWLEDGE_ROOTS: Record<string, string | null> = {}
-const EMPTY_MCP_SETTINGS: McpSettings = { syncEnabled: false, servers: {} }
-const EMPTY_SKILL_PACK_SETTINGS: SkillPackSettings = { installed: {} }
-
-const MCP_TRANSPORT_ITEMS: SelectItem<'stdio' | 'http'>[] = [
-  { value: 'stdio', label: 'stdio' },
-  { value: 'http', label: 'http' },
-]
 
 const VOICE_MODEL_ITEMS: SelectItem<VoiceDictationModel>[] = [
   { value: 'tiny', label: 'Whisper tiny — fastest, least accurate' },
@@ -144,15 +118,12 @@ type SettingsTabId =
   | 'agents'
   | 'providers'
   | 'roles'
-  | 'mcps'
-  | 'skill-packs'
   | 'specialist-packs'
   | 'knowledge-graph'
   | 'learn'
   | 'mobile'
   | 'voice-dictation'
   | 'telemetry'
-  | 'extensions'
 
 // Declared in rail order: the flat order of this array (filtered to visible
 // tabs, then module sections appended) drives index-based roving focus, so it
@@ -168,8 +139,6 @@ const settingsTabs: Array<{ id: SettingsTabId; label: string }> = [
   { id: 'agents', label: 'Agents' },
   { id: 'providers', label: 'Providers' },
   { id: 'roles', label: 'Roles' },
-  { id: 'mcps', label: 'MCPs' },
-  { id: 'skill-packs', label: 'Skill packs' },
   { id: 'specialist-packs', label: 'Specialist packs' },
   { id: 'github', label: 'GitHub' },
   { id: 'knowledge-graph', label: 'Knowledge graph' },
@@ -177,16 +146,13 @@ const settingsTabs: Array<{ id: SettingsTabId; label: string }> = [
   { id: 'mobile', label: 'Mobile' },
   { id: 'voice-dictation', label: 'Voice dictation' },
   { id: 'learn', label: 'Learn' },
-  // Rendered in the trailing "Extensions" rail group (see railGroups), ahead of
-  // any module-contributed sections — not in settingsTabGroups.
-  { id: 'extensions', label: 'Extensions' },
 ]
 
 // Rail groups (sentence-case micro labels). Module-contributed sections render
 // after these in a trailing "Extensions" group.
 const settingsTabGroups: Array<{ label: string; ids: SettingsTabId[] }> = [
   { label: 'App', ids: ['appearance', 'shortcuts', 'updates', 'telemetry'] },
-  { label: 'Agents', ids: ['agents', 'providers', 'roles', 'mcps', 'skill-packs', 'specialist-packs'] },
+  { label: 'Agents', ids: ['agents', 'providers', 'roles', 'specialist-packs'] },
   { label: 'Workspace', ids: ['github', 'knowledge-graph', 'modules'] },
   { label: 'Companion', ids: ['mobile', 'voice-dictation', 'learn'] },
 ]
@@ -219,32 +185,14 @@ function isSettingsTabId(value: unknown): value is SettingsTabId {
     || value === 'agents'
     || value === 'providers'
     || value === 'roles'
-    || value === 'mcps'
-    || value === 'skill-packs'
     || value === 'specialist-packs'
     || value === 'knowledge-graph'
     || value === 'learn'
     || value === 'mobile'
     || value === 'voice-dictation'
     || value === 'telemetry'
-    || value === 'extensions'
   )
 }
-
-function splitCommandArgs(value: string): string[] {
-  return value
-    .split(/\s+/u)
-    .map((item) => item.trim())
-    .filter(Boolean)
-}
-
-function parseEnvNames(value: string): string[] {
-  return value
-    .split(/\r?\n|,/u)
-    .map((item) => item.trim())
-    .filter(Boolean)
-}
-
 
 const INPUT_CLASS =
   'h-9 w-full rounded-md border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] px-3 font-mono text-sm text-[color:var(--text-strong)] outline-none placeholder:text-[color:var(--text-disabled)] focus:border-[color:var(--accent-primary)] disabled:opacity-45'
@@ -984,7 +932,6 @@ export default function SettingsPanel({
     () => orderInstalledPlugins(pluginCatalogEntries),
     [pluginCatalogEntries],
   )
-  const mcpSettings = useWorkspaceStore((s) => s.appSettings.mcp ?? EMPTY_MCP_SETTINGS)
   const projectKnowledgeRoots = useWorkspaceStore((s) => s.appSettings.projectKnowledgeRoots ?? EMPTY_PROJECT_KNOWLEDGE_ROOTS)
   const usageTelemetry = useWorkspaceStore((s) => s.appSettings.usageTelemetry)
   const sprintEngineRoleSettings = useWorkspaceStore((s) => s.appSettings.sprintEngineRoleSettings)
@@ -1021,14 +968,6 @@ export default function SettingsPanel({
   const appearanceTheme = useWorkspaceStore((s) => s.appSettings.appearance.theme)
   const setAppearanceTheme = useWorkspaceStore((s) => s.setAppearanceTheme)
   const setCliRuntime = useWorkspaceStore((s) => s.setCliRuntime)
-  const upsertMcpServer = useWorkspaceStore((s) => s.upsertMcpServer)
-  const removeMcpServer = useWorkspaceStore((s) => s.removeMcpServer)
-  const skillPackSettings = useWorkspaceStore(
-    (s) => s.appSettings.skillPacks ?? EMPTY_SKILL_PACK_SETTINGS,
-  )
-  const setSkillPacksInstalled = useWorkspaceStore((s) => s.setSkillPacksInstalled)
-  const upsertSkillPack = useWorkspaceStore((s) => s.upsertSkillPack)
-  const removeSkillPackFromStore = useWorkspaceStore((s) => s.removeSkillPack)
   const setUsageTelemetrySettings = useWorkspaceStore((s) => s.setUsageTelemetrySettings)
   const setSprintEngineRoleEnabled = useWorkspaceStore((s) => s.setSprintEngineRoleEnabled)
   const activeKnowledgeConfig = resolveProjectKnowledgeConfig(
@@ -1051,16 +990,6 @@ export default function SettingsPanel({
   const [activityInstalled, setActivityInstalled] = useState(false)
   const [activityPending, setActivityPending] = useState(false)
   const [activityMessage, setActivityMessage] = useState<string | null>(null)
-  const [builtinSkills, setBuiltinSkills] = useState<BuiltinSkill[]>([])
-  const [builtinSkillStatuses, setBuiltinSkillStatuses] = useState<Record<string, BuiltinSkillStatus>>({})
-  const [builtinSkillPendingId, setBuiltinSkillPendingId] = useState<string | null>(null)
-  const [builtinSkillMessage, setBuiltinSkillMessage] = useState<string | null>(null)
-  const [mcpCatalog, setMcpCatalog] = useState<McpCatalogServer[]>([])
-  const [mcpMessage, setMcpMessage] = useState<string | null>(null)
-  const [skillPackCatalog, setSkillPackCatalog] = useState<SkillPackCatalogEntry[]>([])
-  const [skillPackMessage, setSkillPackMessage] = useState<string | null>(null)
-  const [skillPackPendingId, setSkillPackPendingId] = useState<string | null>(null)
-  const [selectedSkillPackId, setSelectedSkillPackId] = useState<string | null>(null)
   const [roleRegistry, setRoleRegistry] = useState<SprintEngineRoleRegistry | null>(null)
   const [roleRegistryStatus, setRoleRegistryStatus] = useState<RoleRegistryStatus>('idle')
   const [roleRegistryMessage, setRoleRegistryMessage] = useState<string | null>(null)
@@ -1084,32 +1013,23 @@ export default function SettingsPanel({
   const [roleEditLoadingId, setRoleEditLoadingId] = useState<string | null>(null)
   const [userRoleDeletePendingId, setUserRoleDeletePendingId] = useState<string | null>(null)
   const [userRoleMessage, setUserRoleMessage] = useState<RoleInstallMessage>(null)
-  const [customMcpId, setCustomMcpId] = useState('')
-  const [customMcpName, setCustomMcpName] = useState('')
-  const [customMcpCommand, setCustomMcpCommand] = useState('')
-  const [customMcpArgs, setCustomMcpArgs] = useState('')
-  const [customMcpUrl, setCustomMcpUrl] = useState('')
-  const [customMcpEnv, setCustomMcpEnv] = useState('')
-  const [customMcpTransport, setCustomMcpTransport] = useState<'stdio' | 'http'>('stdio')
-  // The extensions teaser deep-links to the Extensions tab's Browse sub-tab via a
-  // compound id; resolve it to the real tab here and forward the sub-tab below.
-  const extensionsBrowseRequested = initialTab === EXTENSIONS_BROWSE_DEEPLINK
-  const resolvedInitialTab = extensionsBrowseRequested ? 'extensions' : initialTab
   // Built-in tab ids plus `module-section:<id>` for contributed sections. An
   // initialTab may name either; unknown values fall back to the default tab.
+  // (Deep-links to the folded MCPs / Skill packs / Extensions tabs are routed to
+  // the Connectors surface upstream in the store, so they never reach here.)
   const [activeSettingsTab, setActiveSettingsTab] = useState<string>(
-    isSettingsTabId(resolvedInitialTab) ? resolvedInitialTab : 'updates'
+    isSettingsTabId(initialTab) ? initialTab : 'updates'
   )
 
   useEffect(() => {
     if (
-      isSettingsTabId(resolvedInitialTab) ||
-      (typeof resolvedInitialTab === 'string' && resolvedInitialTab.startsWith(MODULE_SECTION_TAB_PREFIX))
+      isSettingsTabId(initialTab) ||
+      (typeof initialTab === 'string' && initialTab.startsWith(MODULE_SECTION_TAB_PREFIX))
     ) {
-      setActiveSettingsTab(resolvedInitialTab)
-      window.requestAnimationFrame(() => tabRefs.current[resolvedInitialTab]?.focus())
+      setActiveSettingsTab(initialTab)
+      window.requestAnimationFrame(() => tabRefs.current[initialTab]?.focus())
     }
-  }, [resolvedInitialTab])
+  }, [initialTab])
 
   // Refresh CLI detection when the Agents tab opens so each card shows current
   // status. Cache-respecting (no force), so it's a cheap no-op when fresh.
@@ -1132,16 +1052,14 @@ export default function SettingsPanel({
   const autoCheckStartedRef = useRef(false)
   const lastUpdateRequestIdRef = useRef<number | null>(null)
 
+  // Knowledge-graph activity tracking is workspace-scoped: probe install state
+  // when a workspace is open, and reset it otherwise. (Built-in skills moved to
+  // the Connectors surface with the folded MCPs/Skill packs/Extensions tabs.)
   useEffect(() => {
     let cancelled = false
     setActivityMessage(null)
-    setBuiltinSkillMessage(null)
-    setBuiltinSkillStatuses({})
     if (!activeProjectRoot) {
       setActivityInstalled(false)
-      void window.api.builtinSkillsList().then((skills) => {
-        if (!cancelled) setBuiltinSkills(skills)
-      })
       return
     }
     void window.api
@@ -1149,57 +1067,8 @@ export default function SettingsPanel({
       .then((installed) => {
         if (!cancelled) setActivityInstalled(installed)
       })
-    void window.api.builtinSkillsList().then(async (skills) => {
-      if (cancelled) return
-      setBuiltinSkills(skills)
-      const statuses = await Promise.all(skills.map(async (skill) => {
-        const status = await window.api.builtinSkillStatus({
-          workspaceRoot: activeProjectRoot,
-          skillId: skill.id,
-        })
-        return [skill.id, status] as const
-      }))
-      if (!cancelled) {
-        setBuiltinSkillStatuses(Object.fromEntries(statuses))
-      }
-    }).catch((error) => {
-      if (!cancelled) {
-        setBuiltinSkillMessage(error instanceof Error ? error.message : 'Failed to load built-in skills.')
-      }
-    })
     return () => {
       cancelled = true
-    }
-  }, [activeProjectRoot])
-
-  const installBuiltinSkill = useCallback(async (skill: BuiltinSkill) => {
-    if (!activeProjectRoot) return
-    setBuiltinSkillPendingId(skill.id)
-    setBuiltinSkillMessage(null)
-    try {
-      const result = await window.api.builtinSkillInstall({
-        workspaceRoot: activeProjectRoot,
-        skillId: skill.id,
-      })
-      if (result.ok) {
-        setBuiltinSkillMessage(result.status === 'updated'
-          ? `${skill.name} updated.`
-          : `${skill.name} installed.`)
-        const status = await window.api.builtinSkillStatus({
-          workspaceRoot: activeProjectRoot,
-          skillId: skill.id,
-        })
-        setBuiltinSkillStatuses((current) => ({
-          ...current,
-          [skill.id]: status,
-        }))
-      } else {
-        setBuiltinSkillMessage(result.message)
-      }
-    } catch (error) {
-      setBuiltinSkillMessage(error instanceof Error ? error.message : `Failed to install ${skill.name}.`)
-    } finally {
-      setBuiltinSkillPendingId(null)
     }
   }, [activeProjectRoot])
 
@@ -1272,163 +1141,6 @@ export default function SettingsPanel({
       cancelled = true
     }
   }, [])
-
-  useEffect(() => {
-    let cancelled = false
-    if (typeof window.api.mcpListCatalog !== 'function') {
-      setMcpMessage('MCP settings need an app restart before this tab is available.')
-      return () => {
-        cancelled = true
-      }
-    }
-    void window.api.mcpListCatalog().then((result) => {
-      if (cancelled) return
-      if (result.ok) {
-        setMcpCatalog(result.servers)
-      } else {
-        setMcpMessage(result.message)
-      }
-    }).catch((error) => {
-      if (!cancelled) setMcpMessage(error instanceof Error ? error.message : 'Unable to load MCP catalog.')
-    })
-    return () => {
-      cancelled = true
-    }
-  }, [])
-
-  useEffect(() => {
-    let cancelled = false
-    if (typeof window.api.skillPackListCatalog !== 'function') {
-      setSkillPackMessage('Skill packs need an app restart before this tab is available.')
-      return () => {
-        cancelled = true
-      }
-    }
-    void window.api.skillPackListCatalog().then((result) => {
-      if (cancelled) return
-      if (result.ok) {
-        setSkillPackCatalog(result.packs)
-      } else {
-        setSkillPackMessage(result.message)
-      }
-    }).catch((error) => {
-      if (!cancelled) {
-        setSkillPackMessage(
-          error instanceof Error ? error.message : 'Unable to load skill-pack catalog.',
-        )
-      }
-    })
-    return () => {
-      cancelled = true
-    }
-  }, [])
-
-  useEffect(() => {
-    if (!activeProjectRoot) {
-      setSkillPacksInstalled([])
-      return
-    }
-    if (typeof window.api.skillPackListInstalled !== 'function') return
-    let cancelled = false
-    void window.api
-      .skillPackListInstalled({ workspaceRoot: activeProjectRoot })
-      .then((result) => {
-        if (cancelled) return
-        if (result.ok) {
-          setSkillPacksInstalled(result.installed)
-        } else {
-          setSkillPackMessage(result.message)
-        }
-      })
-      .catch((error) => {
-        if (!cancelled) {
-          setSkillPackMessage(
-            error instanceof Error ? error.message : 'Unable to read installed skill packs.',
-          )
-        }
-      })
-    return () => {
-      cancelled = true
-    }
-  }, [activeProjectRoot, setSkillPacksInstalled])
-
-  const syncMcps = useCallback(async () => {
-    if (!activeProjectRoot) return
-    try {
-      const result = await window.api.mcpSync({
-        workspaceRoot: activeProjectRoot,
-        settings: mcpSettings,
-      })
-      if (!result.ok) {
-        setMcpMessage(result.message)
-        return
-      }
-      const blockingIssue = result.issues.find((issue) => issue.level === 'error')
-      if (blockingIssue) setMcpMessage(blockingIssue.message)
-      // Success path leaves mcpMessage alone so setup-notes or default copy persists.
-    } catch (error) {
-      setMcpMessage(error instanceof Error ? error.message : 'MCP sync failed.')
-    }
-  }, [activeProjectRoot, mcpSettings])
-
-  const lastSyncedServersRef = useRef<string | null>(null)
-  useEffect(() => {
-    if (!activeProjectRoot) return
-    const snapshot = JSON.stringify(mcpSettings.servers)
-    if (lastSyncedServersRef.current === snapshot) return
-    const isFirstRun = lastSyncedServersRef.current === null
-    lastSyncedServersRef.current = snapshot
-    if (isFirstRun) return
-    void syncMcps()
-  }, [activeProjectRoot, mcpSettings.servers, syncMcps])
-
-  const addCustomMcp = useCallback(() => {
-    const id = customMcpId.trim().toLowerCase().replace(/[^a-z0-9_-]/g, '-')
-    const name = customMcpName.trim() || id
-    if (!id || !name) {
-      setMcpMessage('Custom MCP needs an id and name.')
-      return
-    }
-    if (customMcpTransport === 'stdio' && !customMcpCommand.trim()) {
-      setMcpMessage('Stdio MCP needs a command.')
-      return
-    }
-    if (customMcpTransport === 'http' && !customMcpUrl.trim()) {
-      setMcpMessage('HTTP MCP needs a URL.')
-      return
-    }
-    upsertMcpServer({
-      id,
-      name,
-      transport: customMcpTransport,
-      command: customMcpTransport === 'stdio' ? customMcpCommand.trim() : undefined,
-      args: splitCommandArgs(customMcpArgs),
-      url: customMcpTransport === 'http' ? customMcpUrl.trim() : undefined,
-      envVarNames: parseEnvNames(customMcpEnv),
-      enabled: true,
-      required: false,
-      clients: ['codex', 'claude-code'],
-      scope: 'workspace',
-      source: 'custom',
-      riskLevel: customMcpTransport === 'stdio' ? 'local-command' : 'network',
-    })
-    setCustomMcpId('')
-    setCustomMcpName('')
-    setCustomMcpCommand('')
-    setCustomMcpArgs('')
-    setCustomMcpUrl('')
-    setCustomMcpEnv('')
-    setMcpMessage(null)
-  }, [
-    customMcpArgs,
-    customMcpCommand,
-    customMcpEnv,
-    customMcpId,
-    customMcpName,
-    customMcpTransport,
-    customMcpUrl,
-    upsertMcpServer,
-  ])
 
   useEffect(() => {
     let cancelled = false
@@ -1532,92 +1244,12 @@ export default function SettingsPanel({
     githubTokenStatus !== null && (githubTokenEditing || !githubTokenStatus.configured)
 
   const activeTab = visibleSettingsTabs.find((tab) => tab.id === activeSettingsTab) ?? visibleSettingsTabs[0]
-  const activeMcpServers = Object.values(mcpSettings.servers).filter((server) => server.enabled)
   const registryRoles = orderedSprintEngineRoles(roleRegistry)
-
-  const groupedSkillPackCatalog = groupSkillPackCatalog(skillPackCatalog)
-  const selectedSkillPack = selectedSkillPackId
-    ? skillPackCatalog.find((pack) => pack.id === selectedSkillPackId) ?? null
-    : null
-  const installedSkillPacks = Object.values(skillPackSettings.installed)
 
   const idleSuspendDescriptor = getSettingDescriptor('terminal-idle-suspend-minutes')
   const telemetrySendDescriptor = getSettingDescriptor('usage-telemetry-send-data')
   const telemetryLocalDescriptor = getSettingDescriptor('usage-telemetry-local-export')
   const telemetryDiagnosticsDescriptor = getSettingDescriptor('usage-telemetry-export-diagnostics')
-
-  const toggleCatalogServer = useCallback((server: McpCatalogServer) => {
-    const existing = mcpSettings.servers[server.id]
-    if (existing?.enabled) {
-      removeMcpServer(server.id)
-      setMcpMessage(null)
-    } else {
-      upsertMcpServer(mcpServerFromCatalog(server))
-      setMcpMessage(server.setupNotes ? server.setupNotes : null)
-    }
-  }, [mcpSettings.servers, removeMcpServer, upsertMcpServer])
-
-  const toggleSkillPack = useCallback(
-    async (pack: SkillPackCatalogEntry) => {
-      if (!activeProjectRoot) {
-        setSkillPackMessage('Open a workspace folder before installing skill packs.')
-        return
-      }
-      const installed = skillPackSettings.installed[pack.id]
-      setSkillPackPendingId(pack.id)
-      setSkillPackMessage(null)
-      try {
-        if (installed) {
-          const result = await window.api.skillPackRemove({
-            workspaceRoot: activeProjectRoot,
-            slug: pack.slug,
-            installedDirName: pack.installedDirName,
-          })
-          if (result.ok) {
-            removeSkillPackFromStore(pack.id)
-            setSkillPackMessage(`${pack.name} removed.`)
-          } else {
-            setSkillPackMessage(result.message)
-          }
-        } else {
-          const result = await window.api.skillPackInstall({
-            workspaceRoot: activeProjectRoot,
-            slug: pack.slug,
-            harnesses: pack.harnesses,
-            installedDirName: pack.installedDirName,
-          })
-          if (result.ok) {
-            const entry: SkillPackEntry = {
-              ...result.installed,
-              id: pack.id,
-              name: pack.name,
-              category: pack.category,
-              description: pack.description,
-              version: pack.version,
-              sourceUrl: pack.sourceUrl,
-              installedDirName: pack.installedDirName ?? result.installed.installedDirName,
-            }
-            upsertSkillPack(entry)
-            setSkillPackMessage(
-              pack.setupNotes ? `${pack.name} installed. ${pack.setupNotes}` : `${pack.name} installed.`,
-            )
-          } else {
-            setSkillPackMessage(result.message)
-          }
-        }
-      } catch (error) {
-        setSkillPackMessage(error instanceof Error ? error.message : 'Skill pack action failed.')
-      } finally {
-        setSkillPackPendingId(null)
-      }
-    },
-    [
-      activeProjectRoot,
-      removeSkillPackFromStore,
-      skillPackSettings.installed,
-      upsertSkillPack,
-    ],
-  )
 
   const loadSprintEngineRoles = useCallback(async () => {
     if (!activeSprintEngineRoot) {
@@ -1936,15 +1568,9 @@ export default function SettingsPanel({
   // Flat index into visibleSettingsTabs for roving focus; the grouped rail
   // renders in the same order, so arrow keys move in visual order.
   const tabIndexById = new Map(visibleSettingsTabs.map((tab, index) => [tab.id, index] as const))
+  // Module-contributed sections trail the built-in groups under one "Extensions"
+  // header. (The built-in Extensions tab folded into the Connectors surface — T3.)
   const moduleSectionTabs = visibleSettingsTabs.filter((tab) => tab.moduleSection)
-  // The built-in Extensions (marketplace) tab leads the trailing "Extensions"
-  // rail group, with any module-contributed sections after it — one coherent
-  // group rather than a duplicate header.
-  const extensionsBuiltInTab = visibleSettingsTabs.find((tab) => tab.id === 'extensions')
-  const extensionsGroupTabs = [
-    ...(extensionsBuiltInTab ? [extensionsBuiltInTab] : []),
-    ...moduleSectionTabs,
-  ]
   const railGroups = [
     ...settingsTabGroups
       .map((group) => ({
@@ -1954,7 +1580,7 @@ export default function SettingsPanel({
           .filter((tab): tab is SettingsTabDescriptor => tab !== undefined),
       }))
       .filter((group) => group.tabs.length > 0),
-    ...(extensionsGroupTabs.length > 0 ? [{ label: 'Extensions', tabs: extensionsGroupTabs }] : []),
+    ...(moduleSectionTabs.length > 0 ? [{ label: 'Extensions', tabs: moduleSectionTabs }] : []),
   ]
 
   const sidebarNode = (
@@ -1983,11 +1609,7 @@ export default function SettingsPanel({
 
   // Form tabs read in a capped measure; catalog/table tabs (tile grids, the
   // shortcuts editor, Learn) keep the full panel width.
-  const fullWidthTab =
-    activeTab.id === 'mcps'
-    || activeTab.id === 'skill-packs'
-    || activeTab.id === 'shortcuts'
-    || activeTab.id === 'learn'
+  const fullWidthTab = activeTab.id === 'shortcuts' || activeTab.id === 'learn'
 
   const bodyContent = (
     <div className={fullWidthTab ? undefined : 'max-w-[640px]'}>
@@ -2616,316 +2238,7 @@ export default function SettingsPanel({
         </div>
       ) : null}
 
-      {activeSettingsTab === 'mcps' ? (
-        <div
-          role="tabpanel"
-          id="settings-panel-mcps"
-          aria-labelledby="settings-tab-mcps"
-          className="space-y-5"
-        >
-          <section className="space-y-2">
-            <SettingsSectionTitle count={activeMcpServers.length}>Active</SettingsSectionTitle>
-            {activeMcpServers.length === 0 ? (
-              <MessageBlock tone="neutral">
-                Nothing selected yet. Click a tile in the catalog below to add it.
-              </MessageBlock>
-            ) : (
-              <ul className="divide-y divide-[color:var(--border-subtle)]">
-                {activeMcpServers.map((server) => (
-                  <li key={server.id} className="flex flex-wrap items-center justify-between gap-3 py-2.5">
-                    <div className="flex min-w-0 flex-1 items-center gap-3">
-                      <McpBrandIcon
-                        slug={server.source === 'bundled' ? mcpIconSlug(server.id) : null}
-                        name={server.name}
-                        size={24}
-                      />
-                      <div className="min-w-0">
-                        <div className="truncate text-[13px] font-semibold text-[color:var(--text-strong)]">{server.name}</div>
-                        <div className="mt-0.5 truncate font-mono text-[11px] leading-4 text-[color:var(--text-subtle)]">
-                          {server.id} · {server.transport} · {server.clients.join(', ')}
-                        </div>
-                      </div>
-                    </div>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        removeMcpServer(server.id)
-                        setMcpMessage(null)
-                      }}
-                      className="text-[12px] font-semibold text-[color:var(--text-subtle)] hover:text-[color:var(--text-strong)] focus:outline-none focus-visible:underline"
-                    >
-                      Remove
-                    </button>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </section>
-
-          <McpCatalogBrowser
-            servers={mcpCatalog}
-            isInstalled={(id) => Boolean(mcpSettings.servers[id]?.enabled)}
-            onToggle={toggleCatalogServer}
-          />
-
-          <details className="group space-y-3 border-t border-[color:var(--border-subtle)] pt-4 [&[open]]:space-y-3">
-            <summary className="flex cursor-pointer list-none items-center justify-between gap-3 text-sm font-semibold text-[color:var(--text-strong)] focus:outline-none focus-visible:underline">
-              <span>Custom MCP</span>
-              <span aria-hidden className="text-[10px] font-medium text-[color:var(--text-subtle)] transition-transform group-open:rotate-180">▾</span>
-            </summary>
-            <div className="grid gap-3 sm:grid-cols-2">
-              <Field label="Server id" htmlFor="custom-mcp-id">
-                <input
-                  value={customMcpId}
-                  onChange={(event) => setCustomMcpId(event.target.value)}
-                  placeholder="server-id"
-                  className={INPUT_CLASS}
-                />
-              </Field>
-              <Field label="Display name" htmlFor="custom-mcp-name">
-                <input
-                  value={customMcpName}
-                  onChange={(event) => setCustomMcpName(event.target.value)}
-                  placeholder="Display name"
-                  className={`${INPUT_CLASS} font-sans`}
-                />
-              </Field>
-              <Field label="Transport" htmlFor="custom-mcp-transport">
-                <Select
-                  ariaLabel="Transport"
-                  items={MCP_TRANSPORT_ITEMS}
-                  value={customMcpTransport}
-                  onChange={setCustomMcpTransport}
-                  className="h-9 w-full"
-                />
-              </Field>
-              <Field
-                label={customMcpTransport === 'stdio' ? 'Command' : 'URL'}
-                htmlFor="custom-mcp-endpoint"
-              >
-                {customMcpTransport === 'stdio' ? (
-                  <input
-                    value={customMcpCommand}
-                    onChange={(event) => setCustomMcpCommand(event.target.value)}
-                    placeholder="e.g. npx"
-                    className={INPUT_CLASS}
-                  />
-                ) : (
-                  <input
-                    value={customMcpUrl}
-                    onChange={(event) => setCustomMcpUrl(event.target.value)}
-                    placeholder="https://example.com/mcp"
-                    className={INPUT_CLASS}
-                  />
-                )}
-              </Field>
-              <div className="sm:col-span-2">
-                <Field label="Args (space separated)" htmlFor="custom-mcp-args">
-                  <input
-                    value={customMcpArgs}
-                    onChange={(event) => setCustomMcpArgs(event.target.value)}
-                    placeholder="e.g. -y @vendor/server"
-                    className={INPUT_CLASS}
-                  />
-                </Field>
-              </div>
-              <div className="sm:col-span-2">
-                <Field label="Required env vars (comma separated)" htmlFor="custom-mcp-env">
-                  <input
-                    value={customMcpEnv}
-                    onChange={(event) => setCustomMcpEnv(event.target.value)}
-                    placeholder="API_KEY, ANOTHER_VAR"
-                    className={INPUT_CLASS}
-                  />
-                </Field>
-              </div>
-            </div>
-            <div className="flex justify-end">
-              <GhostButton
-                size="md"
-                onClick={addCustomMcp}
-                className="h-9 border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] text-[color:var(--text-default)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]"
-              >
-                Add custom MCP
-              </GhostButton>
-            </div>
-          </details>
-
-          <MessageBlock tone={mcpMessage ? 'accent' : 'neutral'}>
-            {mcpMessage || (activeProjectRoot
-              ? 'Changes apply automatically across Claude Code, Codex, and other terminal agents. Existing terminals keep their current config until relaunched.'
-              : 'Open a workspace folder to sync MCPs to terminal agents.')}
-          </MessageBlock>
-
-          <AutomationServerSettings />
-        </div>
-      ) : null}
-
       {activeSettingsTab === 'specialist-packs' ? <SpecialistPacksTab /> : null}
-
-      {activeSettingsTab === 'skill-packs' ? (
-        <div
-          role="tabpanel"
-          id="settings-panel-skill-packs"
-          aria-labelledby="settings-tab-skill-packs"
-          className="space-y-5"
-        >
-          <section className="space-y-2">
-            <SettingsSectionTitle count={builtinSkills.length}>Bundled</SettingsSectionTitle>
-            <p className="text-[12px] leading-5 text-[color:var(--text-muted)]">
-              First-party workflow skills, installed into the workspace targets each agent CLI supports.
-            </p>
-            <div className="divide-y divide-[color:var(--border-subtle)]">
-              {builtinSkills.length ? builtinSkills.map((skill) => {
-                const status = builtinSkillStatuses[skill.id] ?? null
-                const installBlocked =
-                  !activeProjectRoot
-                  || !status
-                  || !status.ok
-                  || status.status === 'installed'
-                  || status.status === 'modified'
-                  || status.status === 'local'
-                return (
-                  <div
-                    key={skill.id}
-                    className="flex flex-wrap items-center justify-between gap-3 py-2.5"
-                  >
-                    <div className="min-w-0 flex-1">
-                      <div className="truncate text-[13px] font-medium text-[color:var(--text-strong)]">{skill.name}</div>
-                      <div className="mt-0.5 text-[12px] leading-5 text-[color:var(--text-muted)]">{skill.description}</div>
-                      <div className="mt-0.5 text-[11px] leading-4 text-[color:var(--text-subtle)]">
-                        {formatBuiltinSkillStatus(status, skill.id)}
-                      </div>
-                    </div>
-                    <GhostButton
-                      size="md"
-                      onClick={() => void installBuiltinSkill(skill)}
-                      disabled={builtinSkillPendingId !== null || installBlocked}
-                      className="border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] text-[color:var(--text-default)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]"
-                    >
-                      {status?.ok && status.status === 'update-available' ? 'Update' : 'Install'}
-                    </GhostButton>
-                  </div>
-                )
-              }) : (
-                <p className="py-2.5 text-[12px] leading-5 text-[color:var(--text-muted)]">
-                  Built-in skills have not loaded yet.
-                </p>
-              )}
-            </div>
-            {builtinSkillMessage ? (
-              <MessageBlock tone="warn">{builtinSkillMessage}</MessageBlock>
-            ) : null}
-          </section>
-
-          <section className="space-y-2 border-t border-[color:var(--border-subtle)] pt-4">
-            <SettingsSectionTitle count={installedSkillPacks.length}>Installed</SettingsSectionTitle>
-            {installedSkillPacks.length === 0 ? (
-              <p className="text-[12px] leading-5 text-[color:var(--text-muted)]">
-                Nothing installed yet. Pick a pack from the catalog below.
-              </p>
-            ) : (
-              <ul className="divide-y divide-[color:var(--border-subtle)]">
-                {installedSkillPacks.map((pack) => (
-                  <li
-                    key={pack.id}
-                    className="flex flex-wrap items-center justify-between gap-3 py-2.5"
-                  >
-                    <div className="min-w-0 flex-1">
-                      <div className="truncate text-[13px] font-semibold text-[color:var(--text-strong)]">
-                        {pack.name}
-                      </div>
-                      <div className="mt-0.5 truncate font-mono text-[11px] leading-4 text-[color:var(--text-subtle)]">
-                        {pack.slug}
-                        {pack.harnesses.length ? ` · ${pack.harnesses.join(', ')}` : ''}
-                      </div>
-                    </div>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        const catalogEntry = skillPackCatalog.find((entry) => entry.id === pack.id)
-                        if (catalogEntry) {
-                          void toggleSkillPack(catalogEntry)
-                          return
-                        }
-                        void toggleSkillPack({
-                          id: pack.id,
-                          slug: pack.slug,
-                          name: pack.name,
-                          installedDirName: pack.installedDirName,
-                          harnesses: pack.harnesses,
-                        })
-                      }}
-                      disabled={skillPackPendingId === pack.id}
-                      className="text-[12px] font-semibold text-[color:var(--text-subtle)] hover:text-[color:var(--text-strong)] focus:outline-none focus-visible:underline disabled:cursor-progress"
-                    >
-                      {skillPackPendingId === pack.id ? 'Removing' : 'Remove'}
-                    </button>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </section>
-
-          <div className="flex gap-4 border-t border-[color:var(--border-subtle)] pt-4">
-            <section className="min-w-0 flex-1 space-y-4">
-              <div className="space-y-1">
-                <SettingsSectionTitle count={skillPackCatalog.length}>Ecosystem catalog</SettingsSectionTitle>
-                <p className="text-[12px] leading-5 text-[color:var(--text-muted)]">
-                  Install runs <code className="font-mono">npx skills add &lt;slug&gt;</code> in the workspace root.
-                </p>
-              </div>
-              <div className="space-y-5">
-                {groupedSkillPackCatalog.map(([category, packs]) => (
-                  <div key={category} className="space-y-2">
-                    <div className="flex items-center gap-3">
-                      <span className="text-[12px] font-medium text-[color:var(--text-muted)]">
-                        {category}
-                      </span>
-                      <span className="h-px flex-1 bg-[color:var(--border-subtle)]" />
-                      <span className="tabular-nums font-mono text-[10px] text-[color:var(--text-subtle)]">
-                        {packs.length}
-                      </span>
-                    </div>
-                    <div
-                      className={`grid grid-cols-2 gap-2 sm:grid-cols-3 ${selectedSkillPack ? '' : 'lg:grid-cols-4'}`}
-                    >
-                      {packs.map((pack) => (
-                        <SkillPackTile
-                          key={pack.id}
-                          pack={pack}
-                          installed={Boolean(skillPackSettings.installed[pack.id])}
-                          pending={skillPackPendingId === pack.id}
-                          selected={selectedSkillPackId === pack.id}
-                          onToggle={() => void toggleSkillPack(pack)}
-                          onInfo={() =>
-                            setSelectedSkillPackId((current) =>
-                              current === pack.id ? null : pack.id,
-                            )
-                          }
-                        />
-                      ))}
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </section>
-            {selectedSkillPack ? (
-              <SkillPackInfoPanel
-                pack={selectedSkillPack}
-                installed={Boolean(skillPackSettings.installed[selectedSkillPack.id])}
-                pending={skillPackPendingId === selectedSkillPack.id}
-                onToggle={() => void toggleSkillPack(selectedSkillPack)}
-                onClose={() => setSelectedSkillPackId(null)}
-              />
-            ) : null}
-          </div>
-
-          {skillPackMessage ? (
-            <MessageBlock tone="accent">{skillPackMessage}</MessageBlock>
-          ) : null}
-        </div>
-      ) : null}
 
       {activeSettingsTab === 'knowledge-graph' ? (
         <div
@@ -3113,17 +2426,6 @@ export default function SettingsPanel({
         </div>
       ) : null}
 
-      {activeSettingsTab === 'extensions' ? (
-        <ExtensionsSettingsTab
-          mcpServers={Object.values(mcpSettings.servers)}
-          mcpSettings={mcpSettings}
-          moduleOverrides={moduleEnablement}
-          workspaceRoot={activeProjectRoot}
-          onUpsertMcpServer={upsertMcpServer}
-          initialSubTab={extensionsBrowseRequested ? 'browse' : undefined}
-        />
-      ) : null}
-
       {activeTab.moduleSection ? (
         <div
           role="tabpanel"
@@ -3215,40 +2517,6 @@ const SettingsTabButton = React.forwardRef<HTMLButtonElement, {
     </button>
   )
 })
-
-function formatBuiltinSkillStatus(status: BuiltinSkillStatus | null, skillId: string): string {
-  if (!status) return 'Skill status has not been checked.'
-  if (!status.ok) return status.message
-  const nativeTargets = status.targets.filter((target) => target.support !== 'unsupported' && target.status !== 'unsupported' && target.status !== 'prompt-shim')
-  const installedNativeTargets = nativeTargets.filter((target) => (
-    target.status === 'installed'
-    || target.status === 'update-available'
-    || target.status === 'modified'
-    || target.status === 'local'
-  ))
-  const promptShimCount = status.targets.filter((target) => target.status === 'prompt-shim').length
-  const unsupportedCount = status.targets.filter((target) => target.status === 'unsupported').length
-
-  switch (status.status) {
-    case 'missing':
-      return nativeTargets.length > 1
-        ? `Not installed. ${nativeTargets.length} native targets available.`
-        : 'Not installed in this workspace.'
-    case 'installed':
-      if (installedNativeTargets.length > 1) {
-        return `Installed in ${installedNativeTargets.length} native targets${promptShimCount ? `; ${promptShimCount} prompt-shim CLI${promptShimCount === 1 ? '' : 's'}` : ''}${unsupportedCount ? `; ${unsupportedCount} unsupported CLI${unsupportedCount === 1 ? '' : 's'}` : ''}.`
-      }
-      return `Installed in .agents/skills/${skillId}.`
-    case 'update-available':
-      return `Update available. Installed version: ${status.installedVersion}.`
-    case 'modified':
-      return 'Installed with local changes. Multicode will not overwrite it.'
-    case 'local':
-      return status.message
-    default:
-      return 'Skill status is unknown.'
-  }
-}
 
 function formatUpdateChannel(channel: AppUpdateState['channel'] | undefined): string {
   switch (channel) {
