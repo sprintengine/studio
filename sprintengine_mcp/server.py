@@ -373,7 +373,7 @@ class SprintEngineMcpServer:
             return {
                 "ok": True,
                 "agent": agent,
-                "run": _run_metadata(run, state_path),
+                "run": _run_metadata(run, state_path, configured_roles=state.get("configuredRoles")),
                 "write": True,
             }
 
@@ -587,7 +587,11 @@ class SprintEngineMcpServer:
         def run(state: dict[str, Any]) -> dict[str, Any]:
             return {
                 "ok": True,
-                "run": _run_metadata(state.get("sprintengine", {}), state_path),
+                "run": _run_metadata(
+                    state.get("sprintengine", {}),
+                    state_path,
+                    configured_roles=state.get("configuredRoles"),
+                ),
                 "runner": folder_store.normalize_runner_policy(state.get("runner")),
                 "write": False,
             }
@@ -1224,8 +1228,13 @@ def _default_workspace_root(state_path: Path) -> Path:
     return state_path.parent
 
 
-def _run_metadata(run: dict[str, Any], state_path: Path) -> dict[str, Any]:
-    return {
+def _run_metadata(
+    run: dict[str, Any],
+    state_path: Path,
+    *,
+    configured_roles: Any = None,
+) -> dict[str, Any]:
+    metadata: dict[str, Any] = {
         "name": run.get("name"),
         "goal": run.get("goal"),
         "status": run.get("status"),
@@ -1234,6 +1243,15 @@ def _run_metadata(run: dict[str, Any], state_path: Path) -> dict[str, Any]:
         "statePath": str(state_path),
         "teamDir": str(state_path.parent),
     }
+    # The run's enabled role set (top-level `state["configuredRoles"]`, written
+    # once at init by apply_configured_roles) so join/run responses carry the
+    # allowed roles and headless agents can self-check without the
+    # renderer-composed prompt. Include the list when present (preserving an
+    # explicit empty enabled set); omit for legacy runs that never set it so
+    # they stay absent-safe.
+    if isinstance(configured_roles, list):
+        metadata["configuredRoles"] = list(configured_roles)
+    return metadata
 
 
 def _compose_registry_prompt(registry: RegistryDiscovery, role: str, workspace_root: Path, run_id: str) -> str:

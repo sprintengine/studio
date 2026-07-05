@@ -1569,6 +1569,7 @@ export async function spawnAutoRunCandidate(
         workspaceRoot: workspaceFolderPath,
         sprintEngineStatePath,
         rosterArgs: buildSprintEngineRosterCommandArgs(sprintEngineState),
+        configuredRoles: sprintEngineState.configuredRoles,
         commandMode: getSprintEngineStartupCommandMode(nextRun.role, nextRun.agentId, sprintEngineState),
         autonomousPlanningOverride: nextRun.role === 'architect' && sprintEngineArtifactApprovalDesired(autoState),
         useWorktrees: sprintEngineState.useWorktrees === true,

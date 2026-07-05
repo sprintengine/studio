@@ -134,8 +134,35 @@ def roster_is_configured(state: Dict[str, Any]) -> bool:
     return bool(state.get("sprintengine", {}).get("rosterConfigured"))
 
 
+# Planning roles are singletons: an architect orchestrates the whole run and a
+# soulless General owns a sprint solo, so neither scales past one live seat. This
+# is the single source of the set — roster.py's queue-depth replenishment imports
+# it — so the seat cap here and the mint-exclusion there cannot drift apart.
+PLANNING_ROLE_IDS = {"architect", "general"}
+
+
+def configured_role_set(state: Dict[str, Any]) -> Optional[set[str]]:
+    """The run's enforced enabled-role set, or None when unconfigured.
+
+    Read inline here rather than via store.configured_gate_roles to avoid a
+    state->store import cycle. `configuredRoles` is stored canonical, so callers
+    membership-test canonical role ids directly. An absent key or an empty/blank
+    list returns None so the roster boundary no-ops for legacy/headless runs.
+    """
+    raw = state.get("configuredRoles")
+    if not isinstance(raw, list):
+        return None
+    roles = {str(role).strip() for role in raw if str(role or "").strip()}
+    return roles or None
+
+
 def ensure_role_in_roster(state: Dict[str, Any], role: str) -> None:
     role = require_configured_role(role, context="Role")
+    configured = configured_role_set(state)
+    if configured is not None and role not in configured:
+        raise SystemExit(
+            f"Role {role!r} is not enabled for this run; ask the user to add it to the roster."
+        )
     roles = roster_roles(state)
     if roster_is_configured(state) and role not in roles:
         raise SystemExit(
@@ -191,6 +218,20 @@ def lazily_register_reviewer_id(state: Dict[str, Any], agent_id: str, role: str,
     return True
 
 
+def planning_seat_taken(agents: Dict[str, Any], role: str) -> bool:
+    """True when a non-retired agent already holds `role`'s planning seat.
+
+    A retired planner has vacated its seat, so it never blocks seating a
+    replacement of the same planning role.
+    """
+    return any(
+        isinstance(other, dict)
+        and str(other.get("role") or "").strip() == role
+        and not agent_is_retired(other)
+        for other in agents.values()
+    )
+
+
 def add_roster_agent(state: Dict[str, Any], role: str, agent_id: str, actor: str) -> Dict[str, Any]:
     role = require_configured_role(role, context="Roster")
     clean_id = agent_id.strip()
@@ -204,6 +245,21 @@ def add_roster_agent(state: Dict[str, Any], role: str, agent_id: str, actor: str
             raise SystemExit(f"Agent {clean_id!r} already exists with role {existing.get('role')!r}.")
         state.setdefault("sprintengine", {})["rosterConfigured"] = True
         return existing
+
+    # Enforce the run's configured roster boundary on genuinely new seats only:
+    # a role the user did not enable cannot be seated, and a planning role is a
+    # single live seat. No-ops when configuredRoles is absent/blank (legacy runs).
+    configured = configured_role_set(state)
+    if configured is not None:
+        if role not in configured:
+            raise SystemExit(
+                f"Role {role!r} is not enabled for this run; ask the user to add it to the roster."
+            )
+        if role in PLANNING_ROLE_IDS and planning_seat_taken(agents, role):
+            raise SystemExit(
+                f"This run already has a seated {role}; the {role} planning seat is a singleton "
+                "and cannot take a second member."
+            )
 
     timestamp = now_iso()
     agent = {

@@ -88,6 +88,7 @@ async function main(): Promise<void> {
   testStartupPromptIsMcpNative()
   testArchitectInitStartupPromptIsMcpNative()
   testGeneralStartupPromptIsMcpNative()
+  testArchitectWakeStartupPromptCarriesConfiguredRoles()
   testPromptBuildersIncludeAgentIdAndCommand()
   testAgentNotificationPromptCompactsLongResolutionText()
   testTaskWakeSkipsAgentAssignedToNeedsInputTask()
@@ -168,6 +169,7 @@ async function main(): Promise<void> {
   testSelfReviewBarredOwnGateDoesNotParkCompletedWorker()
   testGenericPickAvoidsReworkReservedOwners()
   testPickNextAutoRunsNeverReusesSpentIdForNewClaim()
+  testPickNextAutoRunsReusesPlanningIdAcrossSequentialTasks()
   testGateReviewerPickAvoidsReworkOwner()
   testPickNextAutoRunsDefersReworkToLiveBoundOwner()
   testNeedsInputHoldRetainsResumeState()
@@ -191,6 +193,7 @@ async function main(): Promise<void> {
   await testRespawnsDeadGateClaimantWithGateClaimTool()
   await testRespawnSkipsLiveCappedNeedsInputAndCoolingClaimants()
   testRevivesDepartedWorkerForOwnRework()
+  testRevivesDepartedPlanningAgentForNewReadyTask()
   testLegacyLeftDeadAgentStatusCoercesToIdle()
   await testSuperviseRunnerCycleRespawnsDeadClaimantsAtFullOccupancy()
   await testAllPathsPlanNeverPastesAndKillsSameAgentInOnePass()
@@ -2856,6 +2859,53 @@ function testPickNextAutoRunsNeverReusesSpentIdForNewClaim(): void {
   assert.equal(candidates[0].agentId, 'developer-2', 'the never-owned id takes the new claim over the spent id')
 }
 
+function testPickNextAutoRunsReusesPlanningIdAcrossSequentialTasks(): void {
+  // Persistent planning identity (MC-1454): planning roles are NOT task-scoped.
+  // The seated architect that already owned (and finished) a prior task must be
+  // REUSED for the next architect task — findFreshTaskAgent would exclude it as
+  // a spent id, and queue-depth replenish skips planning roles, so without the
+  // planning pick a sequential architect task stalls or mints architect-N.
+  const readyArchitectTask = task({
+    id: 'T-plan-2',
+    role: 'architect',
+    status: 'todo',
+    boardColumn: 'ready',
+    ownerAgentId: null,
+    dependsOn: [],
+    qualityGates: [],
+  })
+  const state = sprintEngineStateFixture({
+    tasks: [readyArchitectTask],
+    sprintEngineAgents: {
+      architect: runtimeAgent('architect', { lastOwnedTaskId: 'T0' }),
+    },
+  })
+  const candidates = pickNextAutoRuns(workspaceFixture(), state, pickInput())
+  assert.equal(candidates.length, 1, 'the second architect task is picked up, not stalled')
+  assert.equal(candidates[0].agentId, 'architect', 'the persistent architect id is reused across sequential tasks')
+  assert.equal(candidates[0].role, 'architect')
+  assert.equal(candidates[0].taskId, 'T-plan-2')
+  assert.ok(
+    !candidates.some((candidate) => /^architect-\d+$/.test(candidate.agentId)),
+    'no architect-N is ever minted for a sequential architect task',
+  )
+
+  // A busy seated architect is waited on (not duplicated): the reuse must not
+  // mint a second planning id while the one architect is running elsewhere.
+  const busyState = sprintEngineStateFixture({
+    tasks: [readyArchitectTask],
+    sprintEngineAgents: {
+      architect: runtimeAgent('architect', { status: 'running', currentTaskId: 'T-other', lastOwnedTaskId: 'T-other' }),
+    },
+  })
+  const busyCandidates = pickNextAutoRuns(
+    workspaceFixture(),
+    busyState,
+    pickInput({ runningAgentIds: new Set(['architect']) }),
+  )
+  assert.equal(busyCandidates.length, 0, 'a busy architect is waited on; no architect-N is minted to cover the task')
+}
+
 function testGateReviewerPickAvoidsReworkOwner(): void {
   // Regression guard (nuclear review of B1/B2): the gate reviewer pick must
   // keep the two-tier rework-owner avoidance the deleted generic pick had.
@@ -3961,6 +4011,78 @@ function testRevivesDepartedWorkerForOwnRework(): void {
     sweepPlan.ledgerDeletes.some((del) => del.key === staleReviveKey),
     'a stale revive: ledger entry (no active target) is swept so its retry budget resets',
   )
+}
+
+function testRevivesDepartedPlanningAgentForNewReadyTask(): void {
+  // Planning persistence (MC-1454): a departed architect is revived under its
+  // SAME id for the NEXT ready task of its role — not only its own rework.
+  // Its retained lastOwnedTaskId points at a PRIOR task that is not itself a
+  // claimable wake target, so the owner-affinity pass alone would leave it
+  // parked while a fresh architect task sits ready.
+  const now = Date.parse('2026-06-28T22:00:00Z')
+  const readyArchitectTask = task({
+    id: 'T-plan-2',
+    title: 'Next architect task',
+    role: 'architect',
+    status: 'todo',
+    boardColumn: 'ready',
+    ownerAgentId: null,
+    qualityGates: [],
+  })
+  const workspace = workspaceFixture({ agents: { architect: sprintAgent('architect', 'Ada') } })
+  const departedArchitect = { architect: runtimeAgent('architect', { lastOwnedTaskId: 'T0' }) }
+
+  const plan = planSprintEngineDispatch({
+    workspace,
+    sprintEngineState: sprintEngineStateFixture({ tasks: [readyArchitectTask], sprintEngineAgents: departedArchitect }),
+    now,
+    runningAgentIds: new Set(),
+    idleAgentIds: new Set(),
+    continuationLedger: new Map(),
+    dispatchLedger: new Map(),
+    paths: new Set(['respawn']),
+  })
+  assert.equal(plan.respawns.length, 1, `a departed planner is revived for a new ready task; respawns ${JSON.stringify(plan.respawns)}`)
+  assert.equal(plan.respawns[0].agentId, 'architect', 'revived under the SAME architect id, never architect-N')
+  assert.equal(plan.respawns[0].role, 'architect')
+  assert.equal(plan.respawns[0].taskId, 'T-plan-2')
+
+  // No revival when a live architect exists — it claims the ready task via the
+  // normal picker, so no redundant respawn.
+  const liveArchitectPlan = planSprintEngineDispatch({
+    workspace,
+    sprintEngineState: sprintEngineStateFixture({
+      tasks: [readyArchitectTask],
+      sprintEngineAgents: {
+        architect: runtimeAgent('architect', { lastOwnedTaskId: 'T0' }),
+        'architect-live': runtimeAgent('architect'),
+      },
+    }),
+    now,
+    runningAgentIds: new Set(),
+    idleAgentIds: new Set(['architect-live']),
+    continuationLedger: new Map(),
+    dispatchLedger: new Map(),
+    paths: new Set(['respawn']),
+  })
+  assert.equal(liveArchitectPlan.respawns.length, 0, 'no planning revival when a live agent of the role exists')
+
+  // Contrast: a departed NON-planning worker is NOT revived for a new unowned
+  // task — worker revival stays owner-scoped (fresh-task minting owns new claims).
+  const developerPlan = planSprintEngineDispatch({
+    workspace: workspaceFixture({ agents: { 'developer-1': sprintAgent('developer-1', 'Dev') } }),
+    sprintEngineState: sprintEngineStateFixture({
+      tasks: [task({ id: 'T-new-dev', role: 'developer', status: 'todo', boardColumn: 'ready', ownerAgentId: null, qualityGates: [] })],
+      sprintEngineAgents: { 'developer-1': runtimeAgent('developer', { lastOwnedTaskId: 'T-old' }) },
+    }),
+    now,
+    runningAgentIds: new Set(),
+    idleAgentIds: new Set(),
+    continuationLedger: new Map(),
+    dispatchLedger: new Map(),
+    paths: new Set(['respawn']),
+  })
+  assert.equal(developerPlan.respawns.length, 0, 'a departed worker is not revived for a new unowned task (owner affinity only)')
 }
 
 function testLegacyLeftDeadAgentStatusCoercesToIdle(): void {
@@ -5666,6 +5788,47 @@ function testGeneralStartupPromptIsMcpNative(): void {
   assert.ok(
     !/sprintengine (join|task|gate|triage|init|handover)/.test(prompt),
     'general startup prompt does not instruct the agent to run any sprintengine CLI command'
+  )
+}
+
+function testArchitectWakeStartupPromptCarriesConfiguredRoles(): void {
+  // The configured-roster boundary must ride the architect's WAKE (join)
+  // dispatch, not only its init bootstrap — the roster is an enforced invariant
+  // for every replan, so a woken architect keeps scheduling only for the run's
+  // roles and escalates to the user rather than inventing an off-roster role.
+  const wake = buildSprintEngineStartupPrompt('architect', 'architect', 'Ship it', {
+    executionCwd: '/tmp/workspace',
+    sprintEngineStatePath: '/tmp/workspace/.multi-code/sprintengine/team/run.yaml',
+    configuredRoles: ['architect', 'developer', 'tester'],
+    commandMode: 'join',
+  })
+  assert.ok(
+    wake.includes("Your run's roles are: architect, developer, tester"),
+    'the architect wake (join) prompt carries the configured-roster boundary, not only init',
+  )
+  assert.ok(
+    /raise needs_input to the user rather than adding the role/.test(wake),
+    'the boundary tells the architect to escalate off-roster needs instead of adding a role',
+  )
+
+  // Init dispatch carries the same invariant on bootstrap.
+  const init = buildSprintEngineStartupPrompt('architect', 'architect', 'Ship it', {
+    configuredRoles: ['architect', 'developer'],
+    commandMode: 'init',
+  })
+  assert.ok(
+    init.includes("Your run's roles are: architect, developer"),
+    'the architect init prompt also carries the configured-roster boundary',
+  )
+
+  // A non-architect worker never receives the architect roster boundary.
+  const worker = buildSprintEngineStartupPrompt('developer', 'developer-1', 'Ship it', {
+    configuredRoles: ['architect', 'developer', 'tester'],
+    commandMode: 'join',
+  })
+  assert.ok(
+    !worker.includes("Your run's roles are:"),
+    'a non-architect prompt does not carry the architect roster boundary',
   )
 }
 

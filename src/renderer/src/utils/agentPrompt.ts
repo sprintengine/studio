@@ -1,4 +1,4 @@
-import type { SprintEngineState } from '../types/workspace'
+import type { SprintEngineRoleId, SprintEngineState } from '../types/workspace'
 
 export function normalizeAgentIdentifier(value: string): string {
   return value.trim().replace(/\s+/g, ' ')
@@ -41,6 +41,7 @@ export function buildSprintEngineStartupPrompt(
     workspaceRoot?: string
     sprintEngineStatePath?: string
     rosterArgs?: string[]
+    configuredRoles?: SprintEngineRoleId[]
     commandMode?: 'init' | 'join'
     autonomousPlanningOverride?: boolean
     useWorktrees?: boolean
@@ -149,8 +150,12 @@ export function buildSprintEngineStartupPrompt(
 
   const context = [
     options.executionCwd ? `Worker cwd: ${options.executionCwd}` : null,
-    commandMode === 'init' && options.rosterArgs?.length
-      ? `Selected sprint roster: ${options.rosterArgs.join(', ')}. The architect must create tasks only for roles present in this roster.`
+    // The configured-roster boundary rides EVERY architect dispatch (init and
+    // wake), not just init: the roster is an enforced invariant, so a woken
+    // architect planning later tasks must keep scheduling only for the run's
+    // roles and escalate to the user rather than inventing an off-roster role.
+    role === 'architect' && options.configuredRoles?.length
+      ? `Your run's roles are: ${options.configuredRoles.join(', ')}. Create tasks and schedule reviews only for these roles. If the work needs a role you don't have, raise needs_input to the user rather than adding the role.`
       : null,
   ].filter(Boolean)
   const autonomousPlanningOverride = options.autonomousPlanningOverride

@@ -847,6 +847,66 @@ def test_mcp_agent_join_returns_prompt_registry_run_and_dispatch_context(tmp_pat
     ]
 
 
+def test_mcp_run_metadata_carries_configured_roles(tmp_path) -> None:
+    # Join and run.get responses expose the run's enabled role set so headless
+    # agents can self-check without the renderer-composed prompt. Configured
+    # runs carry the list; legacy runs omit the field.
+    configured = create_team(tmp_path, "mcp-configured-roles", [task("T1", "Build", "developer")])
+    state = read_state(configured.state_path)
+    state["configuredRoles"] = ["architect", "developer", "nuclear_reviewer", "tester"]
+    write_state(configured.state_path, state)
+    server = SprintEngineMcpServer(allowed_roots=[tmp_path, REPO_ROOT])
+
+    joined = server.call_tool(
+        "sprintengine.agent.join",
+        {
+            "statePath": str(configured.state_path),
+            "workspaceRoot": str(REPO_ROOT),
+            "role": "developer",
+            "agentId": "developer-a",
+        },
+        actor("workspace-user", "user"),
+    )
+    run = server.call_tool(
+        "sprintengine.run.get",
+        {"statePath": str(configured.state_path)},
+        actor("workspace-user", "user"),
+    )
+
+    assert joined["result"]["run"]["configuredRoles"] == [
+        "architect",
+        "developer",
+        "nuclear_reviewer",
+        "tester",
+    ]
+    assert run["result"]["run"]["configuredRoles"] == [
+        "architect",
+        "developer",
+        "nuclear_reviewer",
+        "tester",
+    ]
+
+    legacy = create_team(tmp_path, "mcp-legacy-roles", [task("T1", "Build", "developer")])
+    assert "configuredRoles" not in read_state(legacy.state_path)
+    legacy_join = server.call_tool(
+        "sprintengine.agent.join",
+        {
+            "statePath": str(legacy.state_path),
+            "workspaceRoot": str(REPO_ROOT),
+            "role": "developer",
+            "agentId": "developer-b",
+        },
+        actor("workspace-user", "user"),
+    )
+    legacy_run = server.call_tool(
+        "sprintengine.run.get",
+        {"statePath": str(legacy.state_path)},
+        actor("workspace-user", "user"),
+    )
+    assert "configuredRoles" not in legacy_join["result"]["run"]
+    assert "configuredRoles" not in legacy_run["result"]["run"]
+
+
 def test_mcp_agent_join_injects_role_specific_runtime_skills_without_gate_context(tmp_path) -> None:
     fixture = create_team(tmp_path, "mcp-agent-join-runtime-skills", [task("T1", "Plan work", "architect")])
     server = SprintEngineMcpServer(allowed_roots=[tmp_path, REPO_ROOT])

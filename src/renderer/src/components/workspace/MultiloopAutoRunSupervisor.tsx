@@ -303,6 +303,7 @@ async function spawnMultiloopAutoRunCandidate(
           workspaceRoot: workspace.folderPath,
           sprintEngineStatePath: activeMilestone.sprintEngine.statePath,
           rosterArgs: buildSprintEngineRosterCommandArgs(linkedSprintEngineState),
+          configuredRoles: linkedSprintEngineState.configuredRoles,
           commandMode: getSprintEngineStartupCommandMode(candidate.role, candidate.agentId, linkedSprintEngineState),
         }),
         candidate.label,
