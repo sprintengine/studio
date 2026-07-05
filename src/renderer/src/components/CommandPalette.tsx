@@ -42,9 +42,24 @@ interface Command {
   id: string
   label: string
   description?: string
+  // Extra match text that is searched but never displayed — used so a workspace
+  // switch row still matches on its type label and curated search terms (e.g.
+  // "kanban", "watchtower") the way the retired sidebar search did, without
+  // crowding those terms into the visible description.
+  keywords?: string
   shortcut?: string
   group: CommandGroup
   run: () => void
+}
+
+// The workspace type's label + curated search terms, joined into one match
+// string — mirrors the matching the deleted workspaceSearch util provided so
+// typing a mode name ("sprint engine", "roster", "cron") still surfaces its
+// workspaces in the palette. An unregistered/shell mode falls back to the raw id.
+function workspaceSearchKeywords(mode: Workspace['mode']): string {
+  const definition = getRendererHost().getWorkspaceType(mode)
+  if (!definition) return mode
+  return [definition.label, ...(definition.searchTerms ?? [])].join(' ')
 }
 
 // A command shape before its source group is stamped on — used by the
@@ -335,6 +350,7 @@ export default function CommandPalette({
           label: `Switch to: ${workspace.name}`,
           description:
             workspace.folderPath ?? (workspace.id === activeWorkspaceId ? 'active workspace' : undefined),
+          keywords: workspaceSearchKeywords(workspace.mode),
           group: 'agents',
           run: () => {
             setActiveWorkspaceForWindow(workspaceWindowId, workspace.id)
@@ -445,7 +461,9 @@ export default function CommandPalette({
     const matched = q
       ? commands.filter(
           (command) =>
-            command.label.toLowerCase().includes(q) || command.description?.toLowerCase().includes(q),
+            command.label.toLowerCase().includes(q) ||
+            command.description?.toLowerCase().includes(q) ||
+            command.keywords?.toLowerCase().includes(q),
         )
       : commands
     const ordered = [...matched].sort((a, b) => groupRank(a.group) - groupRank(b.group))
@@ -466,6 +484,14 @@ export default function CommandPalette({
       })).filter((group) => group.items.length > 0),
     [filtered],
   )
+
+  // The flat selection index for each command, so a row can highlight/scroll
+  // without an O(n) indexOf scan per render.
+  const flatIndexById = useMemo(() => {
+    const map = new Map<string, number>()
+    filtered.forEach((command, index) => map.set(command.id, index))
+    return map
+  }, [filtered])
 
   // Keep the highlighted row in view as the selection moves by keyboard.
   useEffect(() => {
@@ -529,7 +555,7 @@ export default function CommandPalette({
                   <span className="tabular-nums">{group.items.length}</span>
                 </div>
                 {group.items.map((command) => {
-                  const index = filtered.indexOf(command)
+                  const index = flatIndexById.get(command.id) ?? -1
                   const isSelected = index === selected
                   return (
                     <div
