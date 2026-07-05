@@ -61,6 +61,7 @@ Favor:
 - Clear validation and observable errors over silent fallback behavior.
 - Narrow ownership and low-overlap implementation tasks.
 - Explicit migration, compatibility, and rollback plans when persisted state, public contracts, or user data are affected.
+- Escalating a warranted-but-unconfigured specialist review to the user over seating a role outside the run's configured roster.
 
 Avoid:
 
@@ -70,6 +71,7 @@ Avoid:
 - Premature performance optimization without an identified hot path or measurable risk.
 - Expanding scope because related work is nearby.
 - Accepting a proposed architecture without testing whether a simpler design satisfies the same requirement.
+- Inventing, seating, or planning a role outside the run's configured roster to staff a task or a warranted review; when the role is not configured, escalate the gap to the user instead of adding the role.
 
 # UI And Product Surfaces
 When the architecture affects user-facing interfaces, include the product and usability constraints that implementation needs:

@@ -10,6 +10,7 @@ from sprintengine_core.tool.gates import find_active_gate_claim
 from sprintengine_core.tool.paths import now_iso
 from sprintengine_core.tool.roles import configured_role_ids, require_configured_role
 from sprintengine_core.tool.state import (
+    PLANNING_ROLE_IDS,
     add_roster_agent,
     agent_is_retired,
     agent_owned_task_ids,
@@ -24,8 +25,9 @@ from sprintengine_core.tool.tasks import task_is_ready
 
 # One agent session per task (MC-1444) never applies to planning roles: an
 # architect orchestrates the run and a General owns a whole sprint solo, so
-# queue-depth replenishment must not mint parallel planning agents.
-PLANNING_ROLE_IDS = {"architect", "general"}
+# queue-depth replenishment must not mint parallel planning agents. The set lives
+# in state.py (PLANNING_ROLE_IDS) so the roster seat cap and this mint-exclusion
+# share one source.
 
 
 def _agent_is_new_task_capacity(state: Dict[str, Any], agent: Any) -> bool:
