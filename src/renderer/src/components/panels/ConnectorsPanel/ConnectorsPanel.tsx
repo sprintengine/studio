@@ -328,6 +328,7 @@ function ConnectorsBrowser({
           items={SURFACE_VIEW_ITEMS}
           value={view}
           onChange={setView}
+          borderless
         />
       </div>
 
