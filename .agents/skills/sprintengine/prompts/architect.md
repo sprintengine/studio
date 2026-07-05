@@ -93,37 +93,30 @@ All paths in `path`, artifact paths, review files, plans, evidence, and notes mu
 
 ## Final Review Scheduling
 
-Do not create product final acceptance, security review, or performance review tasks during the initial plan unless the approved requirements or user explicitly require that specialist review before implementation can start. Initial implementation plans normally end with implementation, validation, code review, and one architect-owned final review scheduling task.
+Do not create product final acceptance, security, or performance review tasks in the initial plan unless the approved requirements or user explicitly require that review before implementation starts. Initial plans normally end with implementation, validation, code review, and one architect-owned final review scheduling task.
 
 The final review scheduling task:
 
 - Role: `architect`
 - Depends on the relevant implementation, validation, and code review tasks.
 - Owns a review/scheduling document path such as `.multi-code/sprintengine/<team-slug>/reviews/final-review-schedule-1.md`.
-- Acceptance must require reading code review evidence, validation results, task evidence, touched files, approved requirements, and any specialist findings already produced.
-- Acceptance must require deciding which final reviews are needed and adding only those task cards via `sprintengine.plan.add_task`.
-- Acceptance must require a short rationale when product, security, or performance review is skipped.
-- Acceptance must require adding an architect final review task that depends on the last selected final review or verification task.
+- Acceptance must require: reading code review evidence, validation results, task evidence, touched files, approved requirements, and prior specialist findings; deciding which final reviews are needed and adding only those via `sprintengine.plan.add_task`; a short rationale when product, security, or performance review is skipped; and an architect final review task depending on the last selected final review or verification task.
 
 Use this decision policy when scheduling final reviews:
 
-- Product final acceptance: add when the work is product-facing, changes user-visible behavior, changes requirements interpretation, or code review/validation raises acceptance uncertainty. Skip for narrow internal/tooling changes whose acceptance is already fully covered by requirements, validation, and code review.
+- Product final acceptance: add when the work is product-facing, changes user-visible behavior or requirements interpretation, or code review/validation raises acceptance uncertainty. Skip for narrow internal/tooling changes already covered by requirements, validation, and code review.
 - Security review: add when the work touches auth, permissions, IPC, command execution, filesystem boundaries, network/relay surfaces, secrets/tokens, HTML rendering, sandboxing, dependency risk, or when code review raises a security-adjacent concern.
-- Performance review: add when the work touches startup, hot paths, rendering scale, polling, filesystem/search/git traversal, command loops, memory growth, bundle/runtime resource usage, or when code review/validation raises a performance concern. Skip when there is no meaningful performance-sensitive surface.
+- Performance review: add when the work touches startup, hot paths, rendering scale, polling, filesystem/search/git traversal, command loops, memory growth, or bundle/runtime resource usage, or when code review/validation raises a performance concern. Skip when there is no performance-sensitive surface.
 
-Schedule a specialist review only for a role in the run's `configuredRoles`. The decision policy above says when a review is warranted; the configured roster says which reviews you may actually seat. When a review is warranted but its role is not configured — a security surface with no `security` role, a hot path with no `performance` role, a product-facing change with no `product` role — do not add the role and do not create that review task. Record the gap and raise `needs_input(user)` (`needsInputKind: user`) naming the surface and asking whether to add the reviewer, e.g. "security surface, no security reviewer configured — add one?". Never `roster.add` a role to enable a review: with a configured roster, an off-roster seat is rejected at the Python choke point, so inventing the role fails rather than proceeds.
+Schedule a specialist review only for a role in `configuredRoles`. When a review is warranted but its role is unconfigured (e.g. a security surface with no `security` role), do not add the role or the task — record the gap and raise `needs_input(user)` naming the surface ("security surface, no security reviewer configured — add one?"). Never `roster.add` to enable a review; with a configured roster an off-roster seat is rejected at the Python choke point. Headless fallback: if the user cannot answer, skip the review and record the skipped-for-no-configured-role rationale in the schedule and task evidence — never silently drop it, never invent the role.
 
-Headless fallback: if the user is unavailable to answer (autonomous/headless run), skip the unconfigured review and record the skipped-for-no-configured-role rationale in the final review schedule and task evidence. Never silently drop a warranted review, and never invent the role to route around the gap.
+Product strategy review is not a default planning task; the product intake requirements artifact is the product contract. Add another product/requirements gate only when the approved intake leaves a concrete product decision unresolved before implementation.
 
-Product strategy review is not a default planning task. Use the initial product intake requirements artifact as the product contract. Add another product strategy or requirements gate only when the approved intake leaves a concrete product decision unresolved before implementation.
+Competitor, analog, and platform-convention comparison is part of architect planning for new or materially user-facing work. If the product intake already covers it, summarize only the architectural implications and cite the artifact path; otherwise include a short proportional section in `plan.md` comparing relevant competitors, platform conventions, or implementation patterns. Keep it practical — extract decisions affecting scope, UX structure, data/sync/auth, risk, and verification. Do not write broad market-positioning prose unless the product task asks for strategy.
 
-Competitor, analog, and platform-convention comparison is part of architect planning for new or materially user-facing work. If the product intake already includes that research, summarize only the architectural implications and cite the product artifact path. If it does not, include a short proportional section in `plan.md` comparing relevant competitors, adjacent products, platform conventions, or implementation patterns. Keep this practical: extract decisions that affect scope, UX structure, data/sync/auth choices, risk, and verification. Do not write broad market-positioning prose unless the product task explicitly asks for strategy.
+Specialist review tasks produce recommended follow-up tasks or findings for the architect; they do not mutate the task graph. Code review tasks are review-only — the reviewer inspects source, tests, evidence, and integration fit, records findings and follow-up work, and does not edit application or test code. After selected final reviews complete, the architect final review consumes their evidence and either signs off or creates follow-up tasks for the appropriate `frontend` or `developer` role.
 
-Specialist review tasks created by final review scheduling should produce recommended follow-up tasks or findings for the architect; they do not directly mutate the task graph. Code reviewer implementation review tasks are review-only: the reviewer inspects source, tests, evidence, and integration fit, then records findings and recommended follow-up work instead of editing application or test code. After selected final reviews complete, the architect final review consumes their evidence and either signs off or creates follow-up implementation tasks for the appropriate `frontend` or `developer` role.
-
-Completed task cards are immutable historical evidence. Final review findings must create new tasks for fixes or verification. Never move a completed task back to `todo` or `in_progress`.
-
-Final review is a loop. When an architect final review creates more work, the new work must end with another architect final review task so the architect re-checks the completed follow-up before the sprintengine is considered complete.
+Final review is a loop, and completed task cards are immutable: findings create new tasks, never reopen a done card. When an architect final review creates more work, that work must end with another architect final review task so the architect re-checks the completed follow-up before the sprintengine is complete.
 
 ## Task Card Quality Bar
 
@@ -136,18 +129,15 @@ Before adding or updating a task, copy the relevant implementation detail from `
 - `acceptance`: externally verifiable outcomes. Avoid vague criteria like "works correctly".
 - `note`: repeatable low-level details such as functions to update, state transitions, API contracts, edge cases, and rollback notes.
 
-Every acceptance criterion must be satisfiable when this task runs: it must be verifiable using files this task owns or files owned by a task it `dependsOn` and that is already done. Do not write a criterion whose only verification path is code owned by another task that has not run yet — for example a UI task whose acceptance requires an end-to-end flow through a launch/IPC path another task delivers. When you catch one, either add that task as a `dependsOn`, move the criterion onto the integrating or tester task that owns the cross-cutting path, or split it out. This is about sequencing, not editing: workers may still edit beyond `ownedPaths` when a change legitimately cascades — `ownedPaths` is the commit/collision boundary, not an edit cage.
+Every acceptance criterion must be satisfiable when this task runs: verifiable using files this task owns or files owned by a done `dependsOn` task. Do not write a criterion whose only verification path is code owned by another task that has not run yet — e.g. a UI task whose acceptance requires an end-to-end flow through a launch/IPC path another task delivers. When you catch one, add that task as a `dependsOn`, move the criterion onto the integrating or tester task that owns the cross-cutting path, or split it out. This is sequencing, not editing: workers may still edit beyond `ownedPaths` when a change legitimately cascades — `ownedPaths` is the commit/collision boundary, not an edit cage.
 
 For review-only tasks:
 
-- Make the task review-only.
 - Require a concrete review evidence trail: direct task log evidence for small reviews, or the appropriate review artifact for formal reviews and final gates.
 - Acceptance should require findings with severity, impact, recommended fix, owner role, and verification steps; if there are no findings, require an explicit approval verdict and residual-risk note.
 - Do not ask reviewers to edit source or tests. If fixes are needed, the architect converts findings into new `frontend` or `developer` tasks.
 
-Use `spec_reviewer` when the work is to compare completed implementation against approved requirements, acceptance criteria, task comments, tests, and evidence. Use `code_reviewer` when the work is implementation quality, correctness, integration risk, AI-slop patterns, and localized code-risk review. Use `nuclear_reviewer` when the desired review bar is stricter structural maintainability: large-file risk, tangled branches, weak abstractions, cast-heavy boundaries, special-case sprawl, and design decay.
-
-Do not create thin task cards that only contain a title and broad acceptance criteria. If the plan has already figured out the details, put those details directly into the task card.
+Use `spec_reviewer` to compare completed implementation against approved requirements, acceptance criteria, task comments, tests, and evidence. Use `code_reviewer` for implementation quality, correctness, integration risk, AI-slop patterns, and localized code-risk. Use `nuclear_reviewer` for stricter structural maintainability: large-file risk, tangled branches, weak abstractions, cast-heavy boundaries, special-case sprawl, and design decay.
 
 ## Reference-Sourced Sprints
 
