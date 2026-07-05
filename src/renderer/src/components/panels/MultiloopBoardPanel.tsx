@@ -257,6 +257,7 @@ export default function MultiloopBoardPanel({ workspaceId }: Props) {
             workspaceRoot,
             sprintEngineStatePath: sprintEngineLink.statePath,
             rosterArgs: buildSprintEngineRosterCommandArgs(linkedState),
+            configuredRoles: linkedState.configuredRoles,
             commandMode: getSprintEngineStartupCommandMode(role, agentId, linkedState),
           }),
           tabName,
