@@ -1585,14 +1585,27 @@ export function planSprintEngineDispatch(input: {
     const revivalTargets: Array<{ role: SprintEngineRoleId; work: { taskId: string }; agentId: string }> = []
     const plannedRevivalRoles = new Set<SprintEngineRoleId>()
     for (const [agentId, runtimeAgent] of Object.entries(sprintEngineState.sprintEngineAgents)) {
-      const taskId = runtimeAgent.lastOwnedTaskId
-      if (!taskId || !claimableWakeTaskIds.has(taskId)) continue
       if (liveRoles.has(runtimeAgent.role)) continue // a live agent of this role will claim it
       if (plannedRevivalRoles.has(runtimeAgent.role)) continue // one revival per role per pass
       if (plannedRespawnAgentIds.has(agentId) || engagedAgentIds.has(agentId)) continue
       if (!workspace.agents[agentId]) continue // unmanaged claimant — nothing to spawn
+      // Owner affinity: revive the id for its own retained task when that task is
+      // claimable rework/ready.
+      const ownTaskId = runtimeAgent.lastOwnedTaskId
+      let reviveTaskId = ownTaskId && claimableWakeTaskIds.has(ownTaskId) ? ownTaskId : null
+      // Planning roles (architect/general) are persistent, not task-scoped: one
+      // architect drives the whole sprint, so a departed planner is revived under
+      // its SAME id for the NEXT ready task of its role, not only its own rework
+      // (MC-1454). Keeps the id stable across sequential planning tasks so no
+      // architect-N is minted while it is away.
+      if (!reviveTaskId && isSprintEnginePlanningRole(runtimeAgent.role)) {
+        reviveTaskId = sprintEngineState.tasks.find(
+          (candidate) => candidate.role === runtimeAgent.role && claimableWakeTaskIds.has(candidate.id)
+        )?.id ?? null
+      }
+      if (!reviveTaskId) continue
       plannedRevivalRoles.add(runtimeAgent.role)
-      revivalTargets.push({ role: runtimeAgent.role, work: { taskId }, agentId })
+      revivalTargets.push({ role: runtimeAgent.role, work: { taskId: reviveTaskId }, agentId })
     }
 
     // Sweep stale `revive:` ledger entries — any whose revival is no longer an
@@ -2183,6 +2196,28 @@ export function pickNextAutoRuns(
     return getSprintEnginePersistentReviewerId(role)
   }
 
+  // Persistent planning identity (MC-1454): planning roles (architect/general)
+  // are NOT task-scoped — one architect drives the whole sprint, so its id is
+  // reused across sequential planning tasks instead of minting architect-N.
+  // findFreshTaskAgent would exclude the seated architect the moment it owns its
+  // first task (lastOwnedTaskId set), and the queue-depth replenish trigger
+  // (`sprintEngineHasUnownedReadyTask`) skips planning roles, so without this a
+  // second architect task stalls forever. Mirrors findGateReviewerAgent: reuse
+  // an eligible seated planning id regardless of its retained lastOwnedTaskId,
+  // else target the deterministic bare `<role>` persistent id so the supervisor
+  // spawns it. No rework-owner two-tier: a planning agent resuming its own
+  // rework is a bound owner (deferred to the revival pass), and there is at most
+  // one planning agent per role.
+  const findPlanningRoleAgent = (role: SprintEngineRoleId): AutoRunCandidate['agentId'] | null => {
+    const seated = roster.find((candidate) => isEligibleRoleAgent(candidate.id, candidate.role, role))
+    if (seated) return seated.id
+    const roleHasAgent = Object.values(sprintEngineState.sprintEngineAgents).some(
+      (candidate) => candidate.role === role
+    )
+    if (roleHasAgent) return null
+    return getSprintEnginePersistentReviewerId(role)
+  }
+
   const addCandidate = (
     task: SprintEngineTask,
     agentId: string,
@@ -2406,8 +2441,13 @@ export function pickNextAutoRuns(
       continue
     }
 
-    // New claims come only from engine-minted never-owned capacity.
-    const reusableAgentId = findFreshTaskAgent(task.role)
+    // New claims come only from engine-minted never-owned capacity — EXCEPT
+    // planning roles, which are persistent: reuse the seated planning id (or the
+    // bare `<role>`) so sequential architect tasks share one identity and no
+    // architect-N is ever minted.
+    const reusableAgentId = isSprintEnginePlanningRole(task.role)
+      ? findPlanningRoleAgent(task.role)
+      : findFreshTaskAgent(task.role)
     if (!reusableAgentId) {
       logPerfEvent('SprintEngineAutoRun', 'candidate-pick-ready-task-waiting-for-roster-agent', {
         workspaceId: workspace.id,
