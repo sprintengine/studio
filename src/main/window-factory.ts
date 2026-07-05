@@ -11,6 +11,13 @@ type CreateMainWindowOptions = {
 
 const forceCloseWindowIds = new WeakSet<BrowserWindow>()
 let appQuitInProgress = false
+// Persisted detached workspace windows are restored exactly ONCE per process —
+// on the genuine cold-start primary. Consumed by the first primary window
+// created; every later primary (notably the one macOS `activate` re-creates
+// after all windows were closed) is handed restoreDetached=0, so closing your
+// windows can never be silently undone by an auto-respawn (which read as an
+// un-closable window that respawned on every close).
+let detachedRestorePending = true
 
 export function markAppQuitInProgressForWindowClose(): void {
   appQuitInProgress = true
@@ -28,6 +35,11 @@ export function createMainWindow({
   bounds = null,
   isMaximized = false,
 }: CreateMainWindowOptions): BrowserWindow {
+  // Consume the one-shot: only the first primary window of the process is
+  // eligible to restore detached windows. Detached windows (windowId !==
+  // 'primary') never restore, so they leave the flag alone.
+  const restoreDetached = windowId === 'primary' && detachedRestorePending
+  if (windowId === 'primary') detachedRestorePending = false
   const safeBounds = normalizeWindowBounds(bounds)
   const win = new BrowserWindow({
     width: safeBounds?.width ?? 1400,
@@ -122,10 +134,11 @@ export function createMainWindow({
   if (process.env['ELECTRON_RENDERER_URL']) {
     const url = new URL(process.env['ELECTRON_RENDERER_URL'])
     url.searchParams.set('windowId', windowId)
+    url.searchParams.set('restoreDetached', restoreDetached ? '1' : '0')
     win.loadURL(url.toString())
   } else {
     win.loadFile(join(__dirname, '../renderer/index.html'), {
-      query: { windowId },
+      query: { windowId, restoreDetached: restoreDetached ? '1' : '0' },
     })
   }
 

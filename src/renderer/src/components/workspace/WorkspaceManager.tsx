@@ -1021,6 +1021,12 @@ export default function WorkspaceManager() {
     if (collapsedStaleDetachedWindowsRef.current) return
     collapsedStaleDetachedWindowsRef.current = true
     if (!isPrimaryWorkspaceWindow) return
+    // Restore popped-out windows only on the genuine cold-start primary. macOS
+    // keeps the app alive with zero windows and `activate` re-creates a primary
+    // when the app regains focus; that window carries restoreDetached=0 so it
+    // never respawns windows the user just closed (the "won't close / keeps
+    // respawning" bug). The main process owns this one-shot per process.
+    if (new URL(window.location.href).searchParams.get('restoreDetached') !== '1') return
     void restoreDetachedWorkspaceWindowsOnStartup({
       primaryWorkspaceWindowId: primaryWorkspaceWindowId || PRIMARY_WORKSPACE_WINDOW_ID,
       workspaceWindows: useWorkspaceStore.getState().workspaceWindows,
