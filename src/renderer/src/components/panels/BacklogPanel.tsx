@@ -442,18 +442,19 @@ export default function BacklogPanel({ workspaceId, onStartFuturePlan }: Workspa
     })
   }, [])
 
-  // Live run glyph per visible item, for items linked to an observable Sprint
-  // Engine run. The rollup (`deriveSprintEngineRunGlyph`) is shared with the
-  // workspace sidebar: a human-routed needs_input wins over everything, then
-  // the AutoRun runtime. A null rollup (idle/manual runner, or workspace not
-  // observable here) keeps the item's own status rendering — an in-progress
-  // item spins by default.
+  // Live run glyph per item linked to an observable Sprint Engine run. Built over
+  // the full scan (not `filtered`) so an epic's detail can roll its members' real
+  // merge state into the epic's own glyph even when a lens hides some children.
+  // The rollup (`deriveSprintEngineRunGlyph`) is shared with the workspace
+  // sidebar: a human-routed needs_input wins over everything, then the AutoRun
+  // runtime. A null rollup (idle/manual runner, or workspace not observable here)
+  // keeps the item's own status rendering — an in-progress item spins by default.
   // Derived with useMemo (not inside the Zustand selector) so it never returns a
   // fresh map from the store snapshot.
   const runGlyphById = useMemo(() => {
     const map = new Map<string, BacklogRunGlyph>()
     if (!folderPath) return map
-    for (const item of filtered) {
+    for (const item of items) {
       const link = sprintEngineRunLinkForItem(item)
       if (!link) continue
       const workspace = matchWorkspaceForBacklogRunLink(sprintEngineWorkspaces, folderPath, link)
@@ -465,7 +466,7 @@ export default function BacklogPanel({ workspaceId, onStartFuturePlan }: Workspa
       if (liveGlyph) map.set(item.id, liveGlyph)
     }
     return map
-  }, [filtered, sprintEngineWorkspaces, folderPath])
+  }, [items, sprintEngineWorkspaces, folderPath])
 
   // Keep selection valid across rescans/filters/grouping. A real item cursor
   // survives as long as the item is still in `filtered` — a collapsed group hides
@@ -487,6 +488,18 @@ export default function BacklogPanel({ workspaceId, onStartFuturePlan }: Workspa
     () => filtered.find((item) => item.id === selectedId) ?? null,
     [filtered, selectedId],
   )
+
+  // The selected item's effective run glyph. A leaf item carries its own Sprint
+  // Engine run link, so it reads directly. An epic has no run link of its own —
+  // without this it would fall back to its coarse `completed` status and show the
+  // green tick even once every member's PR has merged. Roll the members' real run
+  // states up into the epic's glyph so a merged epic reads "Merged" (purple
+  // branch), matching what each member shows in the list.
+  const selectedRunGlyph = useMemo(() => {
+    if (!selected) return undefined
+    if (selected.isEpic) return deriveEpicRunGlyphFromChildren(selected, items, runGlyphById)
+    return runGlyphById.get(selected.id)
+  }, [selected, items, runGlyphById])
 
   // Responsive split vs single-column, measured from the panel's own width.
   const rootRef = useRef<HTMLElement | null>(null)
@@ -1387,7 +1400,8 @@ export default function BacklogPanel({ workspaceId, onStartFuturePlan }: Workspa
       loading={loading}
       folderPath={folderPath}
       selected={selected}
-      selectedRunGlyph={selected ? runGlyphById.get(selected.id) : undefined}
+      selectedRunGlyph={selectedRunGlyph}
+      runGlyphById={runGlyphById}
       now={now}
       hasItems={items.length > 0}
       externalActions={externalActions}
@@ -1835,6 +1849,7 @@ function BacklogDetail({
   folderPath,
   selected,
   selectedRunGlyph,
+  runGlyphById,
   now,
   hasItems,
   externalActions,
@@ -1856,6 +1871,9 @@ function BacklogDetail({
   folderPath: string | null
   selected: BacklogItem | null
   selectedRunGlyph?: BacklogRunGlyph
+  /** Live run glyph by item id, so an epic's children roll-up can render each
+   *  member's real merge state instead of its coarse status tick. */
+  runGlyphById?: ReadonlyMap<string, BacklogRunGlyph>
   now: number
   hasItems: boolean
   externalActions: Array<{ action: BacklogItemAction; disabled: boolean; run: () => void }>
@@ -1959,24 +1977,29 @@ function BacklogDetail({
   return (
     <div className="flex h-full min-h-0 flex-col">
       <header className="shrink-0 border-b border-[color:var(--border-default)] px-4 py-3">
-        {/* Back row: the timestamp sits top-right at the same level, so the
-            title below gets its full width instead of stacking meta lines. */}
-        <div className="flex h-6 items-center justify-between gap-2">
+        {/* Identity row: the back affordance, lifecycle glyph, title, and
+            modified-time share one line so the pinned header stays compact.
+            The title flexes to fill and truncates; the time holds the right. */}
+        <div className="flex min-w-0 items-center gap-2">
           {showBack ? (
             <button
               type="button"
               onClick={onBack}
               aria-label="Back to list"
-              className="interactive -ml-1.5 inline-flex h-6 items-center gap-1 rounded px-1.5 text-[12px] font-semibold text-[color:var(--text-muted)] transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]"
+              className="interactive -ml-1 inline-flex h-6 w-6 shrink-0 items-center justify-center rounded text-[color:var(--text-muted)] transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]"
             >
               <svg viewBox="0 0 16 16" fill="none" className="icon-xs" aria-hidden="true">
                 <path d="M10 4L6 8l4 4" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
               </svg>
-              Back
             </button>
-          ) : (
-            <span />
-          )}
+          ) : null}
+          <Tooltip content={selectedRunGlyph?.label ?? BACKLOG_STATUS_LABEL[selected.status]} placement="top">
+            <LifecycleGlyph
+              state={selectedRunGlyph?.state ?? backlogStatusToLifecycle(selected.status)}
+              live={selectedRunGlyph?.live ?? true}
+            />
+          </Tooltip>
+          <TruncatedText as="h3" text={selected.title} className="min-w-0 flex-1 text-[14px] font-semibold text-[color:var(--text-strong)]" />
           <span className="shrink-0 tabular-nums text-[11px] text-[color:var(--text-subtle)]">
             {formatRelativeMsAgo(selected.modifiedAt, now) || 'unknown'}
           </span>
@@ -1988,7 +2011,7 @@ function BacklogDetail({
             type="button"
             onClick={() => onSelectItem(parentEpic.id)}
             aria-label={`Open epic ${parentEpic.title}`}
-            className="interactive mt-2 -ml-1.5 inline-flex max-w-full items-center gap-1.5 rounded px-1.5 py-0.5 text-[11.5px] font-medium text-[color:var(--text-muted)] transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]"
+            className="interactive mt-1.5 -ml-1.5 inline-flex max-w-full items-center gap-1.5 rounded px-1.5 py-0.5 text-[11.5px] font-medium text-[color:var(--text-muted)] transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]"
           >
             <svg viewBox="0 0 16 16" fill="none" className="icon-xs shrink-0" aria-hidden="true">
               <path d="M10 4L6 8l4 4" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
@@ -1997,29 +2020,28 @@ function BacklogDetail({
             <TruncatedText as="span" text={parentEpic.title} className="min-w-0" />
           </button>
         ) : null}
-        <div className="mt-2 flex min-w-0 items-center gap-2">
-          <Tooltip content={selectedRunGlyph?.label ?? BACKLOG_STATUS_LABEL[selected.status]} placement="top">
-            <LifecycleGlyph
-              state={selectedRunGlyph?.state ?? backlogStatusToLifecycle(selected.status)}
-              live={selectedRunGlyph?.live ?? true}
-            />
-          </Tooltip>
-          <TruncatedText as="h3" text={selected.title} className="text-[14px] font-semibold text-[color:var(--text-strong)]" />
-        </div>
-        <div className="mt-1 flex items-center gap-2 text-[11px] text-[color:var(--text-muted)]">
+        <div className="mt-1 flex min-w-0 items-center gap-2 text-[11px] text-[color:var(--text-muted)]">
           {selected.displayId ? (
             <>
-              <span className="font-mono tabular-nums text-[color:var(--text-subtle)]">{selected.displayId}</span>
-              <span aria-hidden="true" className="text-[color:var(--text-disabled)]">·</span>
+              <span className="shrink-0 whitespace-nowrap font-mono tabular-nums text-[color:var(--text-subtle)]">
+                {selected.displayId}
+              </span>
+              <span aria-hidden="true" className="shrink-0 text-[color:var(--text-disabled)]">·</span>
             </>
           ) : null}
           {(selectedRunGlyph?.label ?? LIFECYCLE_LABEL[selected.status]) ? (
             <>
-              <span>{selectedRunGlyph?.label ?? LIFECYCLE_LABEL[selected.status]}</span>
-              <span aria-hidden="true" className="text-[color:var(--text-disabled)]">·</span>
+              <span className="shrink-0 whitespace-nowrap">
+                {selectedRunGlyph?.label ?? LIFECYCLE_LABEL[selected.status]}
+              </span>
+              <span aria-hidden="true" className="shrink-0 text-[color:var(--text-disabled)]">·</span>
             </>
           ) : null}
-          <TruncatedText as="span" text={selected.relativePath} className="min-w-0 font-mono tabular-nums" />
+          <TruncatedText
+            as="span"
+            text={selected.relativePath}
+            className="min-w-0 flex-1 font-mono tabular-nums"
+          />
         </div>
 
         <div className="mt-3 flex flex-wrap items-center gap-1.5">
@@ -2082,7 +2104,12 @@ function BacklogDetail({
               current={currentEpicColor}
               onPick={(color) => actions.setEpicColor(selected, color)}
             />
-            <BacklogEpicChildren members={epicChildren} color={currentEpicColor} onSelectItem={onSelectItem} />
+            <BacklogEpicChildren
+              members={epicChildren}
+              color={currentEpicColor}
+              runGlyphById={runGlyphById}
+              onSelectItem={onSelectItem}
+            />
           </>
         ) : null}
 
@@ -2213,6 +2240,40 @@ function BacklogEpicColorPicker({
   )
 }
 
+// An epic has no Sprint Engine run link of its own, so its detail header would
+// otherwise fall back to its coarse `completed` status — the green tick — even
+// when every member's sprint run has merged. Roll the members' real run states
+// up into the epic's own glyph so a merged epic reads "Merged" (purple branch)
+// once its children's PRs land, matching what each member shows in the list.
+// Returns undefined when there is no run signal to project — no run-linked
+// member, or active work still in flight — so the epic's own status renders.
+function deriveEpicRunGlyphFromChildren(
+  epic: BacklogItem,
+  items: BacklogItem[],
+  runGlyphById: ReadonlyMap<string, BacklogRunGlyph>,
+): BacklogRunGlyph | undefined {
+  const children = childrenOfEpic(items, epicSlug(epic)).filter((child) => child.status !== 'archived')
+  if (children.length === 0) return undefined
+  let sawMerged = false
+  let sawUnmerged = false
+  for (const child of children) {
+    const state = runGlyphById.get(child.id)?.state ?? backlogStatusToLifecycle(child.status)
+    if (state === 'done_merged') {
+      sawMerged = true
+    } else if (state === 'done_unmerged') {
+      sawUnmerged = true
+    } else if (state !== 'done') {
+      // A member still in flight (or not yet started): the epic isn't complete,
+      // so don't project a merge glyph — defer to the epic's own status.
+      return undefined
+    }
+  }
+  if (sawUnmerged) return { state: 'done_unmerged', live: false, label: 'Ready for review' }
+  if (sawMerged) return { state: 'done_merged', live: false, label: 'Merged' }
+  // All members plain `done` (on-main, no sprint run): no merge signal to project.
+  return undefined
+}
+
 // Epic -> children roll-up (epic detail only): a flat done/total progress track
 // in the epic's identity colour, then each member as a navigable row (status
 // glyph + title + size + priority). Selecting a row drives onSelectItem so the
@@ -2221,10 +2282,12 @@ function BacklogEpicColorPicker({
 function BacklogEpicChildren({
   members,
   color,
+  runGlyphById,
   onSelectItem,
 }: {
   members: BacklogItem[]
   color: BacklogHighlightColor | null
+  runGlyphById?: ReadonlyMap<string, BacklogRunGlyph>
   onSelectItem: (id: string) => void
 }): JSX.Element {
   const total = members.length
@@ -2254,7 +2317,13 @@ function BacklogEpicChildren({
             />
           </div>
           <ul className="flex flex-col">
-            {members.map((child) => (
+            {members.map((child) => {
+              // A member linked to a Sprint Engine run shows the runner's real
+              // state here — the purple "Merged" branch once its PR lands — not
+              // the coarse completed tick, matching how the same item reads in
+              // the list and the epic header.
+              const glyph = runGlyphById?.get(child.id)
+              return (
               <li key={child.id}>
                 <button
                   type="button"
@@ -2262,8 +2331,11 @@ function BacklogEpicChildren({
                   title={child.relativePath}
                   className="interactive flex w-full items-center gap-2 rounded-md px-1.5 py-1.5 text-left transition-colors hover:bg-[color:var(--bg-hover)]"
                 >
-                  <Tooltip content={BACKLOG_STATUS_LABEL[child.status]} placement="top">
-                    <LifecycleGlyph state={backlogStatusToLifecycle(child.status)} live={child.status === 'in_progress'} />
+                  <Tooltip content={glyph?.label ?? BACKLOG_STATUS_LABEL[child.status]} placement="top">
+                    <LifecycleGlyph
+                      state={glyph?.state ?? backlogStatusToLifecycle(child.status)}
+                      live={glyph?.live ?? child.status === 'in_progress'}
+                    />
                   </Tooltip>
                   <TruncatedText
                     as="span"
@@ -2276,7 +2348,8 @@ function BacklogEpicChildren({
                   <CriticalityIndicator criticality={child.criticality} />
                 </button>
               </li>
-            ))}
+              )
+            })}
           </ul>
         </div>
       )}
