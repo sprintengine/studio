@@ -1,50 +1,40 @@
+// The installed-extensions inventory, relocated from the (removed) Settings →
+// Extensions tab into the Connectors surface (T3). It is the aggregated,
+// read-only roll-up of everything installed across the four extension primitives
+// — MCP servers, skill packs, agent CLIs, and capability modules — so the
+// Connectors "Installed" view has one honest "what do I have" surface. Browsing
+// and installing happen on the Connectors Browse grid; this view never mutates,
+// so the two can never disagree. The list-building lives in the DOM-free
+// `extensionsInstalled` view-model for unit coverage; this component owns only
+// the IPC loading and rendering.
+
 import { useCallback, useEffect, useState } from 'react'
 
-import type { ModuleEnablementOverrides, ThirdPartyModuleListResult } from '../../../../shared/modules/manifest'
-import type { SkillPackEntry } from '../../../../shared/electron-api'
-import type { PluginRegistryListEntry } from '../../../../shared/plugin-manifest'
-import type { McpServerConfig, McpSettings } from '../../types/workspace'
-import { InlineNotice, Spinner, StatusDot, TabPanel, Tabs } from '../ui'
-import { SettingsRow } from './SettingsAtoms'
-import { BrowseStorefront } from './BrowseStorefront'
-import { TRUST_PRESENTATION } from './ThirdPartyModuleList'
+import type { ModuleEnablementOverrides, ThirdPartyModuleListResult } from '../../../../../shared/modules/manifest'
+import type { SkillPackEntry } from '../../../../../shared/electron-api'
+import type { PluginRegistryListEntry } from '../../../../../shared/plugin-manifest'
+import type { McpServerConfig } from '../../../types/workspace'
+import { InlineNotice, Spinner, StatusDot } from '../../ui'
+import { SettingsRow } from '../../settings/SettingsAtoms'
+import { TRUST_PRESENTATION } from '../../settings/ThirdPartyModuleList'
 import {
   deriveInstalledExtensions,
   type ExtensionsInstalledView,
   type InstalledExtension,
   type LoadedSource,
   type SourceNotice,
-} from './extensionsInstalled'
+} from '../../settings/extensionsInstalled'
 
-// Settings → Extensions: the aggregated read-only inventory of everything
-// installed across the four extension primitives (MCP servers, skill packs,
-// agent CLIs, capability modules). This is the canonical inventory surface; the
-// per-primitive tabs (MCPs / Skill packs / Modules) remain the place to install,
-// trust, and toggle, so this view never duplicates those mutations and the two
-// can never disagree. The Browse sub-tab hosts the storefront + trust-gate
-// install flow; a successful install there calls `refreshInstalled` (and feeds
-// MCP servers back to the store via `onUpsertMcpServer`) so this inventory
-// reflects the new plugin without a reload. The list-building lives in the
-// DOM-free `extensionsInstalled` view-model for unit coverage; this component
-// only owns IPC loading and rendering.
-
-export function ExtensionsSettingsTab({
+export function InstalledExtensionsInventory({
   mcpServers,
-  mcpSettings,
   moduleOverrides,
   workspaceRoot,
-  onUpsertMcpServer,
-  initialSubTab = 'installed',
 }: {
+  // MCP servers reflect the store live, so the inventory's MCP group updates
+  // without a re-list when a server is added or removed elsewhere on the surface.
   mcpServers: McpServerConfig[]
-  mcpSettings: McpSettings
   moduleOverrides: ModuleEnablementOverrides
   workspaceRoot: string | null
-  onUpsertMcpServer: (server: McpServerConfig) => void
-  // Which sub-tab to open on mount. Defaults to the canonical 'installed' view;
-  // the first-run extensions teaser deep-links to 'browse' (see
-  // EXTENSIONS_BROWSE_DEEPLINK) so its CTA lands directly on the storefront.
-  initialSubTab?: ExtensionsSubTab
 }) {
   const [modules, setModules] = useState<LoadedSource<ThirdPartyModuleListResult>>({ status: 'loading' })
   const [skillPacks, setSkillPacks] = useState<LoadedSource<SkillPackEntry[]>>({ status: 'loading' })
@@ -94,16 +84,6 @@ export function ExtensionsSettingsTab({
     }
   }, [workspaceRoot])
 
-  // After a Browse install succeeds, re-list every per-primitive source so the
-  // newly installed plugin's components appear in this inventory without a
-  // reload (AC4). MCP servers reflect via the store (onUpsertMcpServer) feeding
-  // the `mcpServers` prop; modules / CLIs / skill packs re-list from IPC here.
-  const refreshInstalled = useCallback(() => {
-    void loadModules()
-    void loadClis()
-    void loadSkillPacks()
-  }, [loadModules, loadClis, loadSkillPacks])
-
   useEffect(() => {
     void loadModules()
     void loadClis()
@@ -116,11 +96,6 @@ export function ExtensionsSettingsTab({
     void loadSkillPacks()
   }, [loadSkillPacks])
 
-  // Installed is the default/selected sub-tab; Browse is the read-only
-  // storefront over the first-party registry. A deep-link (the first-run
-  // extensions teaser) can request Browse on mount.
-  const [subTab, setSubTab] = useState<ExtensionsSubTab>(initialSubTab)
-
   const view = deriveInstalledExtensions({
     mcpServers,
     modules,
@@ -129,45 +104,8 @@ export function ExtensionsSettingsTab({
     clis,
   })
 
-  // Count rides the tab label: real total when populated, 0 when cleanly empty,
-  // and absent while loading or degraded (no honest count to show yet).
-  const installedCount =
-    view.status === 'ready' ? view.total : view.status === 'empty' ? 0 : undefined
-
-  return (
-    <div
-      role="tabpanel"
-      id="settings-panel-extensions"
-      aria-labelledby="settings-tab-extensions"
-      className="space-y-4"
-    >
-      <Tabs<ExtensionsSubTab>
-        ariaLabel="Extensions views"
-        idPrefix={EXTENSIONS_SUBTAB_PREFIX}
-        items={[
-          { id: 'installed', label: 'Installed', count: installedCount },
-          { id: 'browse', label: 'Browse' },
-        ]}
-        value={subTab}
-        onChange={setSubTab}
-      />
-      <TabPanel idPrefix={EXTENSIONS_SUBTAB_PREFIX} tabId="installed" active={subTab === 'installed'}>
-        <InstalledView view={view} />
-      </TabPanel>
-      <TabPanel idPrefix={EXTENSIONS_SUBTAB_PREFIX} tabId="browse" active={subTab === 'browse'}>
-        <BrowseStorefront
-          workspaceRoot={workspaceRoot}
-          mcpSettings={mcpSettings}
-          onInstalled={refreshInstalled}
-          onUpsertMcpServer={onUpsertMcpServer}
-        />
-      </TabPanel>
-    </div>
-  )
+  return <InstalledView view={view} />
 }
-
-type ExtensionsSubTab = 'installed' | 'browse'
-const EXTENSIONS_SUBTAB_PREFIX = 'extensions-views'
 
 function NoticeList({ notices }: { notices: SourceNotice[] }) {
   return (
@@ -208,8 +146,8 @@ function InstalledView({ view }: { view: ExtensionsInstalledView }) {
   if (view.status === 'empty') {
     return (
       <div className="border-l-2 border-[color:var(--border-strong)] pl-3 text-[12px] leading-5 text-[color:var(--text-muted)]">
-        Nothing installed yet. Add MCP servers, skill packs, agent CLIs, or modules from their settings tabs and they
-        appear here.
+        Nothing installed yet. Get MCP servers, skill packs, agent CLIs, or modules from the Browse grid and they appear
+        here.
       </div>
     )
   }
@@ -240,14 +178,13 @@ function InstalledView({ view }: { view: ExtensionsInstalledView }) {
 }
 
 // One inventory row, composed from the canonical `SettingsRow` (label + help on
-// the left, a compact status on the right) so the Extensions surface shares the
-// one settings-row grammar rather than forking a second. The right-side control
-// slot carries the row's decision-relevant status — trust for capability
-// modules, active/inactive for MCP servers — as a StatusDot always paired with
-// its text label, so status is never colour-only. Skill packs and CLIs have no
-// such axis (presence is the only state), so they carry no dot. Module
-// enablement is secondary and rides the help meta line as plain text, never a
-// second competing dot.
+// the left, a compact status on the right) so the inventory shares the one
+// settings-row grammar rather than forking a second. The right-side control slot
+// carries the row's decision-relevant status — trust for capability modules,
+// active/inactive for MCP servers — as a StatusDot always paired with its text
+// label, so status is never colour-only. Skill packs and CLIs have no such axis
+// (presence is the only state), so they carry no dot. Module enablement is
+// secondary and rides the help meta line as plain text, never a second dot.
 function InstalledRow({ item }: { item: InstalledExtension }) {
   const meta = [item.source, item.detail, moduleEnabledMeta(item)].filter(Boolean).join(' · ')
   return (

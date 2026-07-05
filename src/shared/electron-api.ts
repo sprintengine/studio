@@ -699,6 +699,12 @@ export type McpSyncInput = {
   }
   requiredOnly?: boolean
   write?: boolean
+  // Connector-scoped writes are exclusive: the worktree config must end with
+  // exactly the servers in this sync (the connector set). Any MCP server the
+  // base repo committed into the worktree config is pruned rather than merged,
+  // preserving the connector-only isolation contract. Off (default) keeps the
+  // normal workspace behavior of merging over the user's configured servers.
+  pruneUnlistedServers?: boolean
 }
 
 export type AgentConfigImportSource = 'codex' | 'claude-code'

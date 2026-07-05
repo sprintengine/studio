@@ -725,6 +725,75 @@ async function main(): Promise<void> {
     true,
     `unsupported format should fail required sync, got: ${JSON.stringify(unsupportedFormatIssues)}`
   )
+
+  // Connector-scoped write (pruneUnlistedServers) must leave the worktree config
+  // holding exactly the connector server — any MCP server the base repo committed
+  // into the worktree is pruned, not merged (T15 / security finding Sec-F1). The
+  // normal workspace path stays a merge (covered by the claude sync above, where
+  // `unmanaged` survives).
+  const connectorRoot = join(temp, 'connector-workspace')
+  await mkdir(join(connectorRoot, '.codex'), { recursive: true })
+  await writeFile(
+    join(connectorRoot, '.mcp.json'),
+    JSON.stringify({
+      mcpServers: { 'legacy-committed': { type: 'http', url: 'https://legacy.example.com/mcp' } },
+    }, null, 2),
+    'utf-8'
+  )
+  await writeFile(
+    join(connectorRoot, '.codex', 'config.toml'),
+    ['model = "gpt-5-codex"', '', '[mcp_servers.legacy_committed]', 'command = "legacy"', 'args = []', '', '[profiles.default]', 'approval_policy = "never"', ''].join('\n'),
+    'utf-8'
+  )
+  const connectorServer = (clients: McpSettings['servers'][string]['clients']): McpSettings => ({
+    syncEnabled: true,
+    servers: {
+      railway: {
+        id: 'railway',
+        name: 'Railway',
+        transport: 'http',
+        url: 'https://mcp.railway.app/mcp',
+        enabled: true,
+        clients,
+        scope: 'workspace',
+        source: 'bundled',
+        riskLevel: 'network',
+      },
+    },
+  })
+
+  // Control: without the flag, the committed server survives (merge).
+  const mergeClaude = service.sync({ workspaceRoot: connectorRoot, settings: connectorServer(['claude-code']), clients: ['claude-code'] })
+  assert.equal(mergeClaude.ok, true)
+  const mergedClaudeConfig = JSON.parse(await readFile(join(connectorRoot, '.mcp.json'), 'utf-8')) as { mcpServers: Record<string, unknown> }
+  assert.equal(Boolean(mergedClaudeConfig.mcpServers['legacy-committed']), true, 'default sync merges: committed server survives')
+
+  const connectorClaude = service.sync({
+    workspaceRoot: connectorRoot,
+    settings: connectorServer(['claude-code']),
+    clients: ['claude-code'],
+    pruneUnlistedServers: true,
+  })
+  assert.equal(connectorClaude.ok, true)
+  const connectorClaudeConfig = JSON.parse(await readFile(join(connectorRoot, '.mcp.json'), 'utf-8')) as { mcpServers: Record<string, unknown> }
+  assert.deepEqual(
+    Object.keys(connectorClaudeConfig.mcpServers).sort(),
+    ['railway'],
+    'connector-scoped write must prune the committed server and leave only the connector'
+  )
+
+  const connectorCodex = service.sync({
+    workspaceRoot: connectorRoot,
+    settings: connectorServer(['codex']),
+    clients: ['codex'],
+    pruneUnlistedServers: true,
+  })
+  assert.equal(connectorCodex.ok, true)
+  const connectorCodexConfig = await readFile(join(connectorRoot, '.codex', 'config.toml'), 'utf-8')
+  assert.doesNotMatch(connectorCodexConfig, /\[mcp_servers\.legacy_committed\]/, 'committed codex MCP server must be pruned')
+  assert.match(connectorCodexConfig, /\[mcp_servers\.railway\]/, 'connector server must be written to codex config')
+  assert.match(connectorCodexConfig, /\[profiles\.default\]/, 'unrelated codex config must be preserved through a connector-scoped prune')
+  assert.match(connectorCodexConfig, /model = "gpt-5-codex"/, 'unrelated codex config must be preserved through a connector-scoped prune')
 }
 
 main().catch((error) => {

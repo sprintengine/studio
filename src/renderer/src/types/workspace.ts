@@ -1872,7 +1872,7 @@ export type AgentState = {
   // appSettings.mcp, so the connector server is written into this worktree's
   // .mcp.json and nowhere else; `connectorSkillId` is the builtin skill the spawn
   // installs into the worktree so the seeded invocation resolves. Both are seeded
-  // at creation by createConnectorChat and read by the TerminalView launch path.
+  // at creation by launchConnectorChat and read by the TerminalView launch path.
   connectorMcpSettings?: McpSettings
   connectorSkillId?: string
   kind?: AgentKind

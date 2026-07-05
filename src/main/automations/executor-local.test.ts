@@ -437,6 +437,88 @@ async function assertRunWorktreeIsThreadedToLaunchAndPatch(): Promise<void> {
   )
 }
 
+async function assertConnectorRunForcesWorktreeAndThreadsConnectorId(): Promise<void> {
+  // A connectorId forces a per-run worktree even when the definition opts out
+  // (runInWorktree === false) and threads the connectorId to the launch so the
+  // renderer resolves the connector MCP + skill for the isolated environment.
+  const host = workspace('ws-host', '/repo/a', { mode: 'automations-host' })
+  const harness = executorHarness([host], {
+    createRunWorktree: async (input) => ({
+      worktreePath: `/repo/a/.multi-code/automations/worktrees/${input.runId}`,
+      branch: `automations/${input.runId}`,
+    }),
+  })
+  const result = await harness.executor({
+    workspaceRoot: '/repo/a',
+    definition: definition({
+      runInWorktree: false,
+      action: { kind: 'spawn-agent', config: { folderPath: '/repo/a', prompt: 'Deploy the service.', connectorId: 'railway' } },
+    }),
+    run: run(),
+    triggerPayload: { kind: 'schedule' },
+  })
+
+  assert.equal(result.status, 'running')
+  // The connectorId overrode runInWorktree === false — the run still got a worktree.
+  assert.equal(result.worktreePath, '/repo/a/.multi-code/automations/worktrees/run-1')
+  const launch = harness.requests[0]
+  assert.equal(launch.kind, 'agent.launch')
+  assert.equal(launch.kind === 'agent.launch' ? launch.connectorId : '', 'railway')
+  assert.equal(
+    launch.kind === 'agent.launch' ? launch.worktreePath : '',
+    '/repo/a/.multi-code/automations/worktrees/run-1',
+    'connector launch runs in the forced worktree',
+  )
+}
+
+async function assertConnectorRunWithoutWorktreeFailsClosed(): Promise<void> {
+  // Data-safety invariant: a connector run whose worktree cannot be created FAILS
+  // rather than falling back to the workspace checkout. The connector's `.mcp.json`
+  // must never be written into the user's real checkout, so no launch is delegated.
+  const host = workspace('ws-host', '/repo/a', { mode: 'automations-host' })
+  // Default harness createRunWorktree returns null (no git worktree available).
+  const harness = executorHarness([host])
+  const result = await harness.executor({
+    workspaceRoot: '/repo/a',
+    definition: definition({
+      action: { kind: 'spawn-agent', config: { folderPath: '/repo/a', prompt: 'Deploy the service.', connectorId: 'railway' } },
+    }),
+    run: run(),
+    triggerPayload: { kind: 'schedule' },
+  })
+
+  assert.equal(result.status, 'failed')
+  assert.match(result.summary ?? '', /railway/)
+  assert.match(result.summary ?? '', /isolated worktree/)
+  assert.deepEqual(harness.requests, [], 'connector run without a worktree never delegates a launch')
+}
+
+async function assertNonConnectorRunHonorsRunInWorktreeOptOut(): Promise<void> {
+  // Regression guard for the no-connectorId path: runInWorktree === false with no
+  // connectorId still launches directly (no worktree, no failure) — the connector
+  // branch must not have changed baseline spawn behaviour.
+  const host = workspace('ws-host', '/repo/a', { mode: 'automations-host' })
+  // Default harness createRunWorktree returns null; a non-connector opt-out run
+  // must launch anyway rather than fail closed.
+  const harness = executorHarness([host])
+  const result = await harness.executor({
+    workspaceRoot: '/repo/a',
+    definition: definition({
+      runInWorktree: false,
+      action: { kind: 'spawn-agent', config: { folderPath: '/repo/a', prompt: 'Review the repo.' } },
+    }),
+    run: run(),
+    triggerPayload: { kind: 'schedule' },
+  })
+
+  assert.equal(result.status, 'running')
+  assert.equal(result.worktreePath, undefined, 'opt-out run carries no worktree')
+  const launch = harness.requests[0]
+  assert.equal(launch.kind, 'agent.launch')
+  assert.equal(launch.kind === 'agent.launch' ? launch.connectorId : 'unset', undefined)
+  assert.equal(launch.kind === 'agent.launch' ? launch.worktreePath : 'unset', undefined)
+}
+
 async function assertDirtyWorkspaceNoLongerBlocksLaunch(): Promise<void> {
   // The dirty-tree gate was removed: agent-backed runs execute in their own
   // worktree, so uncommitted changes in the checkout must not block a launch.
@@ -1020,6 +1102,9 @@ async function main(): Promise<void> {
   await assertDefaultRunNeverHijacksStandardWorkspace()
   await assertExplicitConfigWorkspaceIdLaunchesIntoNamedWorkspace()
   await assertRunWorktreeIsThreadedToLaunchAndPatch()
+  await assertConnectorRunForcesWorktreeAndThreadsConnectorId()
+  await assertConnectorRunWithoutWorktreeFailsClosed()
+  await assertNonConnectorRunHonorsRunInWorktreeOptOut()
   await assertExecutionIdRecordedWhenResolvable()
   await assertExecutionIdMissDoesNotFailLaunch()
   await assertExecutionIdAbsentWithoutResolver()

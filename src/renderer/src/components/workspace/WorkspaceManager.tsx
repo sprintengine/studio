@@ -54,12 +54,11 @@ import type {
   WorkspaceWorktree,
 } from '../../types/workspace'
 import {
-  connectorMcpSettings,
   connectorStartupPrompt,
   connectorWorktreePaths,
 } from '../../utils/workspaceWorktree'
+import { resolveConnectorLaunch } from '../../utils/connectorLaunch'
 import { resolveSkillInvocation } from '../../../../shared/skill-invocation'
-import { mcpServerFromCatalog } from '../settings/McpCatalog'
 import { pickRandomAgentName } from '../../utils/agentNames'
 import { normalizeAgentIdentifier, prependAgentIdentifier } from '../../utils/agentPrompt'
 import { publishDiagnosticSync } from '../../utils/diagnostics'
@@ -142,6 +141,11 @@ const NewWorkspacePanel = React.lazy(() => import('./NewWorkspacePanel'))
 // until the user starts the chat. Code-split like NewWorkspacePanel; rendered
 // only when showNewChatPanel is true.
 const NewChatPanel = React.lazy(() => import('./agentComposer/NewChatPanel'))
+
+// The Connectors surface (browse / install / launch). Code-split and mounted only
+// while its store overlay is open, so its catalog reads never run on boot. Opened
+// via the store `openConnectorsSurface` action (the sidebar entry T5 targets).
+const ConnectorsSurface = React.lazy(() => import('../panels/ConnectorsPanel'))
 
 // Display name for a New Chat project scope: the folder's last path segment.
 function newChatFolderLabel(path: string): string {
@@ -275,6 +279,8 @@ export default function WorkspaceManager() {
   const settingsOverlayOpen = useWorkspaceStore((s) => s.settingsOverlay.open)
   const openSettingsOverlay = useWorkspaceStore((s) => s.openSettingsOverlay)
   const closeSettingsOverlay = useWorkspaceStore((s) => s.closeSettingsOverlay)
+  const connectorsSurfaceOpen = useWorkspaceStore((s) => s.connectorsSurface.open)
+  const closeConnectorsSurface = useWorkspaceStore((s) => s.closeConnectorsSurface)
   const forgetFolder = useWorkspaceStore((s) => s.forgetFolder)
   const recordWorkspaceTerminalActivity = useWorkspaceStore((s) => s.recordWorkspaceTerminalActivity)
   const reconcileWorkspaceAgentLaunchFlags = useWorkspaceStore((s) => s.reconcileWorkspaceAgentLaunchFlags)
@@ -476,7 +482,6 @@ export default function WorkspaceManager() {
   const sessionsRef = useRef<HTMLDivElement>(null)
   const viewMenuRef = useRef<HTMLDivElement>(null)
   const notificationsRef = useRef<HTMLDivElement>(null)
-  const accountRef = useRef<HTMLDivElement>(null)
   const terminalSessionsSignatureRef = useRef('')
   const reportedTerminalLastInputRef = useRef<Map<string, number>>(new Map())
   const reconciledLaunchFlagsRef = useRef(false)
@@ -797,41 +802,40 @@ export default function WorkspaceManager() {
     if (chosenCli) setSpecialistCliDefault(GENERAL_AGENT_ENGINE_KEY, chosenCli)
   }, [agentCliCatalog, createSoloChatWorkspace, specialistCliDefaults, specialistModelDefaults, lastSelectedCli, setSpecialistCliDefault])
 
-  // Launch an isolated Railway connector chat: a fresh worktree on
-  // `connector/railway-<id>`, opened as a worktree-backed solo chat whose spawn
-  // carries ONLY the Railway MCP (never the global appSettings.mcp) plus the
-  // use-railway skill. Exactly one worktree per connector chat — a new id (and so
-  // a new worktree) is minted on every invocation.
-  const createConnectorChat = useCallback(async () => {
+  // Launch an isolated connector chat for any catalog entry carrying a `skill`
+  // link: a fresh worktree on `connector/<id>-<uid>`, opened as a worktree-backed
+  // solo chat whose spawn carries ONLY that connector's MCP (never the global
+  // appSettings.mcp) plus its driving skill. Exactly one worktree per connector
+  // chat — a new id (and so a new worktree) is minted on every invocation. This is
+  // the single connector runtime: Railway's Command Palette entry, the Connectors
+  // surface, and connector automations all funnel through it. A catalog entry with
+  // no `skill` is not a connector and is refused (no silent fallback).
+  const launchConnectorChat = useCallback(async (serverId: string) => {
     const connectorError = (title: string, message: string) =>
       publishDiagnosticSync({ level: 'error', source: 'workspace', title, message })
 
     const baseFolderPath = activeWorkspace?.folderPath
     if (!baseFolderPath) {
-      connectorError('Railway connector needs a project', 'Open a project folder before connecting Railway.')
+      connectorError('Connector needs a project', 'Open a project folder before launching a connector chat.')
       return
     }
     const repoRoot = await window.api.getGitRepoRoot(baseFolderPath)
     if (!repoRoot) {
       connectorError(
-        'Railway connector needs a git repository',
+        'Connector needs a git repository',
         'The current project is not a git repository, so a connector worktree cannot be created.',
       )
       return
     }
-    const catalog = await window.api.mcpListCatalog()
-    if (!catalog.ok) {
-      connectorError('Railway connector unavailable', catalog.message)
+    const resolution = await resolveConnectorLaunch(serverId)
+    if (!resolution.ok) {
+      connectorError(resolution.title, resolution.message)
       return
     }
-    const railway = catalog.servers.find((server) => server.id === 'railway')
-    if (!railway) {
-      connectorError('Railway connector unavailable', 'The Railway MCP is missing from the connector catalog.')
-      return
-    }
+    const { server, skillId, mcpSettings } = resolution.resolved
 
     const uid = crypto.randomUUID().slice(0, 8)
-    const { containerPath, destinationPath, branchName } = connectorWorktreePaths(repoRoot, 'railway', uid)
+    const { containerPath, destinationPath, branchName } = connectorWorktreePaths(repoRoot, serverId, uid)
     const worktreeResult = await window.api.createGitWorktree({
       repoRoot,
       containerPath,
@@ -841,38 +845,38 @@ export default function WorkspaceManager() {
       copyIncludedFiles: false,
     })
     if (!worktreeResult.ok) {
-      connectorError('Railway connector worktree failed', worktreeResult.message)
+      connectorError('Connector worktree failed', worktreeResult.message)
       return
     }
 
     // Same CLI/model resolution as a plain New chat, so the connector rides the
     // General engine default. The skill invocation is CLI-native (e.g.
     // `/use-railway` vs `Use $use-railway.`); when the CLI declares no native
-    // skill support it falls back to the plain instruction.
+    // skill support connectorStartupPrompt falls back to the plain instruction.
     const cli = resolveTemplateAgentCli(
       specialistCliDefaults[GENERAL_AGENT_ENGINE_KEY],
       lastSelectedCli,
       agentCliCatalog,
     )
     const cliModel = resolveSurfaceModel(cli, specialistModelDefaults[GENERAL_AGENT_ENGINE_KEY])
-    const skillId = railway.skill
-    const invocation = skillId
-      ? resolveSkillInvocation(pluginCatalogEntries.find((entry) => entry.id === cli)?.skillIntegration, skillId)
-      : undefined
+    const invocation = resolveSkillInvocation(
+      pluginCatalogEntries.find((entry) => entry.id === cli)?.skillIntegration,
+      skillId,
+    )
     const startupPrompt = connectorStartupPrompt(
       invocation,
-      'Show me my Railway environment and flag anything failing.',
+      `Show me my ${server.name} setup and flag anything that needs attention.`,
     )
 
     createSoloChatWorkspace({
       folderPath: worktreeResult.data.path,
       worktree: { branch: worktreeResult.data.branch ?? branchName, baseRef: 'HEAD' },
-      name: `Railway · ${uid}`,
+      name: `${server.name} · ${uid}`,
       templateAgentCli: cli,
       seedAgent: {
         agentPatch: {
           ...(cliModel ? { cliModel } : {}),
-          connectorMcpSettings: connectorMcpSettings(mcpServerFromCatalog(railway)),
+          connectorMcpSettings: mcpSettings,
           connectorSkillId: skillId,
           cliStartupPrompt: startupPrompt,
         },
@@ -2476,6 +2480,11 @@ export default function WorkspaceManager() {
         isMaximized={windowState.isMaximized}
         menuItems={MENU_BAR_ITEMS}
         onShowMenu={(event, label) => void handleShowMenubarMenu(event, label)}
+        sidebarCollapsed={sidebarCollapsed}
+        onToggleSidebar={() => runCommand('workspace.sidebar.toggle')}
+        onNavigateBack={() => runCommand('workspace.history.back')}
+        onNavigateForward={() => runCommand('workspace.history.forward')}
+        onOpenSearch={() => runCommand('commandPalette.open')}
         sprintEnginesToggle={
           sprintEngineEnabled
             ? {
@@ -2527,6 +2536,15 @@ export default function WorkspaceManager() {
         onSetSidebarCollapsed={setSidebarCollapsed}
         sidebarWidth={sidebarWidth}
         onSetSidebarWidth={setSidebarWidth}
+        authState={authState}
+        authMessage={authMessage}
+        accountOpen={accountOpen}
+        setAccountOpen={setAccountOpen}
+        startLogin={startLogin}
+        refreshAuthState={refreshAuthState}
+        logout={logout}
+        openSettings={openSettings}
+        settingsOpen={settingsOpen}
       />
       {/* The workspace card: everything inside the rounded surface belongs to
           the active workspace. With the Sprint Engines aside open the card
@@ -2548,7 +2566,6 @@ export default function WorkspaceManager() {
         viewMenuRef={viewMenuRef}
         notificationsRef={notificationsRef}
         specialistMenuRef={specialistMenuRef}
-        accountRef={accountRef}
         sessions={sessions}
         sidebarWorkspaceOrder={sidebarWorkspaceOrder}
         sessionsOpen={sessionsOpen}
@@ -2592,15 +2609,6 @@ export default function WorkspaceManager() {
         conversationSpawnAvailable={conversationSpawnAvailable}
         composerInitialSelection={composerInitialSelection}
         runComposerSpawn={runComposerSpawn}
-        openSettings={openSettings}
-        settingsOpen={settingsOpen}
-        accountOpen={accountOpen}
-        setAccountOpen={setAccountOpen}
-        authState={authState}
-        authMessage={authMessage}
-        startLogin={startLogin}
-        refreshAuthState={refreshAuthState}
-        logout={logout}
       />
 
       <div className="relative min-h-0 flex-1">
@@ -2683,6 +2691,21 @@ export default function WorkspaceManager() {
           )}
         </div>
         <SettingsOverlay />
+        {connectorsSurfaceOpen ? (
+          <React.Suspense fallback={null}>
+            <ConnectorsSurface
+              onLaunchConnector={(serverId) => { void launchConnectorChat(serverId) }}
+              onUseInAutomation={() => {
+                // The route to author a connector automation; the connector
+                // pre-selection lands in T8. Close the surface and open the
+                // workspace-creation flow where Automations mode is chosen.
+                closeConnectorsSurface()
+                openNewWorkspacePanel()
+              }}
+              activeWorkspaceRoot={activeWorkspaceFolderPath}
+            />
+          </React.Suspense>
+        ) : null}
         {/* T6 first-run payoff: supply the real app actions it needs. A CLI is
             "configured" when at least one catalog entry is confirmed installed;
             the run reuses createNewChat against the just-created workspace
@@ -2720,7 +2743,7 @@ export default function WorkspaceManager() {
           onClose={() => setShowPalette(false)}
           onNewWorkspace={openNewWorkspacePanel}
           onNewChat={() => createLauncherChat()}
-          onConnectRailway={() => { void createConnectorChat() }}
+          onConnectRailway={() => { void launchConnectorChat('railway') }}
           onSpawnSpecialist={handleSelectSpecialist}
           workspaceWindowId={workspaceWindowId}
           workspaces={visibleWorkspaces}

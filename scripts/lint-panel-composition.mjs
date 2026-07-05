@@ -38,7 +38,9 @@ const CANONICAL_TOP_BAR_GROUPS = new Set([
   'activity-and-views',
   'communication',
   'agent-spawn',
-  'account-and-settings',
+  // `account-and-settings` retired: account + Settings relocated to the sidebar
+  // bottom (SidebarAccountBar) in the Cursor-parity re-layout. See
+  // knowledge/brand/panel-design-system.md TopBar inventory.
 ])
 
 // Files exempt from the rule with reasons. Keep this list small and
@@ -173,7 +175,7 @@ try {
     topBarFindings += 1
   }
   if (topBarFindings === 0) {
-    process.stdout.write('  ok — all five canonical groups present, no extras.\n')
+    process.stdout.write('  ok — all canonical groups present, no extras.\n')
   }
 } catch (error) {
   process.stdout.write(

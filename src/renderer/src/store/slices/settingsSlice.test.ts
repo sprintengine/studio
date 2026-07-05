@@ -25,6 +25,7 @@ import {
   orderSpecialistActions,
 } from '../../specialists/specialistActions'
 import { createInitialSprintEngineState } from '../../utils/sprintengine'
+import { EXTENSIONS_BROWSE_DEEPLINK } from '../../components/settings/extensionsRoute'
 
 const workspaceWithMemoryRoot = {
   folderPath: '/Users/example/project',
@@ -301,6 +302,7 @@ const carrier = {
   settingsOverlay: { open: false, initialTab: null, checkForUpdatesRequestId: null },
   automationsOverlay: { open: false, projectPath: null, runTarget: null },
   runSummaryOverlay: { open: false, workspaceId: null },
+  connectorsSurface: { open: false },
   sidebarCollapsed: false,
   sidebarWidth: 280,
   sprintEnginesAsideOpen: false,
@@ -315,6 +317,24 @@ assert.equal(carrier.settingsOverlay.initialTab, 'integrations')
 assert.equal(typeof carrier.settingsOverlay.checkForUpdatesRequestId, 'number')
 slice.closeSettingsOverlay()
 assert.deepEqual(carrier.settingsOverlay, { open: false, initialTab: null, checkForUpdatesRequestId: null })
+
+slice.openConnectorsSurface()
+assert.equal(carrier.connectorsSurface.open, true)
+slice.closeConnectorsSurface()
+assert.equal(carrier.connectorsSurface.open, false)
+
+// T3: the MCPs / Skill packs / Extensions settings tabs folded into the
+// Connectors surface. A deep-link that once opened one of those tabs (by tab
+// id, or the legacy Extensions browse deep-link) must route to the Connectors
+// surface, not open a settings overlay on a tab that no longer exists.
+for (const foldedTab of ['mcps', 'skill-packs', 'extensions', EXTENSIONS_BROWSE_DEEPLINK]) {
+  carrier.connectorsSurface.open = false
+  carrier.settingsOverlay = { open: false, initialTab: null, checkForUpdatesRequestId: null }
+  slice.openSettingsOverlay({ initialTab: foldedTab })
+  assert.equal(carrier.connectorsSurface.open, true, `${foldedTab} routes to Connectors surface`)
+  assert.equal(carrier.settingsOverlay.open, false, `${foldedTab} does not open a settings overlay`)
+  assert.equal(carrier.settingsOverlay.initialTab, null, `${foldedTab} leaves no dangling settings tab`)
+}
 
 const sprintEngineRunPath = '/Users/example/project/.multi-code/sprintengine/run/run.yaml'
 const permissionCarrier = {
@@ -364,6 +384,7 @@ const permissionCarrier = {
   settingsOverlay: { open: false, initialTab: null, checkForUpdatesRequestId: null },
   automationsOverlay: { open: false, projectPath: null, runTarget: null },
   runSummaryOverlay: { open: false, workspaceId: null },
+  connectorsSurface: { open: false },
   sidebarCollapsed: false,
   sidebarWidth: 280,
   sprintEnginesAsideOpen: false,
