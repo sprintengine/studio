@@ -11,7 +11,6 @@ import {
 import type { ModuleEnablementOverrides } from '../../../../shared/modules/manifest'
 import {
   ContextMenu,
-  InboxSearchInput,
   LifecycleGlyph,
   MenuDivider,
   MenuItem,
@@ -54,7 +53,6 @@ import { formatRelativeMs, formatRelativeMsAgo } from '../../utils/relativeTime'
 import { deriveWorkspaceRunGlyph, workspaceHasRunGlyphProvider } from '../../utils/workspaceRunGlyph'
 import { partitionWorkspacesByRecency, sortWorkspacesByActivity } from '../../utils/workspaceRecency'
 import { beginSidebarTransition } from '../../utils/sidebarTransition'
-import { filterWorkspacesBySearchQuery, normalizeWorkspaceSearchQuery } from '../../utils/workspaceSearch'
 import { isHiddenFromRail } from '../../utils/workspaceVisibility'
 import { listAutomationsHostWorkspaces } from '../../utils/automationsEntry'
 
@@ -423,7 +421,6 @@ export default function WorkspaceSidebar({
 
   const [collapsedFolders, setCollapsedFolders] = useState<Record<string, boolean>>({})
   const [expandedStaleFolders, setExpandedStaleFolders] = useState<Record<string, boolean>>({})
-  const [workspaceSearchQuery, setWorkspaceSearchQuery] = useState('')
   const [starredCollapsed, setStarredCollapsed] = useState(false)
   const [renamingId, setRenamingId] = useState<WorkspaceId | null>(null)
   const [renameValue, setRenameValue] = useState('')
@@ -545,24 +542,16 @@ export default function WorkspaceSidebar({
 
   // Rail-hidden workspaces (the background Automations host) stay in the store
   // and in window assignments but never render as rail rows. Every presentation
-  // path below — search, folder groups, starred — derives from this list, while
+  // path below — folder groups, starred — derives from this list, while
   // drag-reorder still stitches against the full `workspaces` array so the host
-  // keeps its place in the persisted order.
+  // keeps its place in the persisted order. Cross-workspace search now lives in
+  // the global-search palette (T6), not a sidebar box.
   const railWorkspaces = useMemo(
     () => workspaces.filter((workspace) => !isHiddenFromRail(workspace)),
     [workspaces]
   )
 
-  const normalizedWorkspaceSearchQuery = useMemo(
-    () => normalizeWorkspaceSearchQuery(workspaceSearchQuery),
-    [workspaceSearchQuery]
-  )
-  const searchingWorkspaces = normalizedWorkspaceSearchQuery.length > 0
-  const filteredWorkspaces = useMemo(
-    () => filterWorkspacesBySearchQuery(railWorkspaces, workspaceSearchQuery),
-    [workspaceSearchQuery, railWorkspaces]
-  )
-  const groups = useMemo(() => buildFolderGroups(filteredWorkspaces), [filteredWorkspaces])
+  const groups = useMemo(() => buildFolderGroups(railWorkspaces), [railWorkspaces])
 
   // A workspace is "live" while it shows a status dot — working, failed, or
   // waiting on input. Live rows sort above idle ones in the activity ordering.
@@ -572,9 +561,9 @@ export default function WorkspaceSidebar({
   const starredWorkspaces = useMemo(
     () =>
       sortWorkspacesByActivity(
-        filteredWorkspaces.filter((workspace) => isStarred(workspace.highlight))
+        railWorkspaces.filter((workspace) => isStarred(workspace.highlight))
       ),
-    [filteredWorkspaces]
+    [railWorkspaces]
   )
 
   const workspaceById = useMemo(() => {
@@ -602,10 +591,6 @@ export default function WorkspaceSidebar({
       renameInputRef.current.select()
     }
   }, [renamingId])
-
-  useEffect(() => {
-    if (sidebarCollapsed && workspaceSearchQuery) setWorkspaceSearchQuery('')
-  }, [sidebarCollapsed, workspaceSearchQuery])
 
   const startRename = useCallback((workspace: Workspace) => {
     setRenamingId(workspace.id)
@@ -1183,18 +1168,10 @@ export default function WorkspaceSidebar({
     visibleWorkspaces: Workspace[],
     folderCollapsed: boolean
   ) => {
-    if (folderCollapsed && !sidebarCollapsed && !searchingWorkspaces) return null
+    if (folderCollapsed && !sidebarCollapsed) return null
     if (sidebarCollapsed) {
       return (
         <div className="border-b border-[color:var(--bg-hover)] pb-1.5 last:border-b-0">
-          {visibleWorkspaces.map((workspace) => renderWorkspaceRow(workspace, group.key))}
-        </div>
-      )
-    }
-
-    if (searchingWorkspaces) {
-      return (
-        <div>
           {visibleWorkspaces.map((workspace) => renderWorkspaceRow(workspace, group.key))}
         </div>
       )
@@ -1430,18 +1407,6 @@ export default function WorkspaceSidebar({
         />
       </div>
 
-      {!sidebarCollapsed ? (
-        <div className="mx-2 mt-2">
-          <InboxSearchInput
-            value={workspaceSearchQuery}
-            onChange={setWorkspaceSearchQuery}
-            ariaLabel="Search workspaces"
-            placeholder="Search workspaces..."
-            clearAriaLabel="Clear workspace search"
-          />
-        </div>
-      ) : null}
-
       {/* Repositories: the workspace tree (Starred first, then projects) —
           behaviour unchanged; the hairline + label separate it from the top nav. */}
       {!sidebarCollapsed ? (
@@ -1463,7 +1428,7 @@ export default function WorkspaceSidebar({
             <div aria-hidden="true" className="mx-2 my-1.5 h-px bg-[color:var(--border-subtle)]" />
           </section>
         ) : null}
-        {starredWorkspaces.length > 0 && !sidebarCollapsed && !searchingWorkspaces ? (
+        {starredWorkspaces.length > 0 && !sidebarCollapsed ? (
           <section className="relative pt-1" aria-label="Starred workspaces">
             <header
               onClick={() =>
@@ -1592,11 +1557,6 @@ export default function WorkspaceSidebar({
             </section>
           )
         })}
-        {searchingWorkspaces && filteredWorkspaces.length === 0 && !sidebarCollapsed ? (
-          <div className="mx-3 mt-4 rounded-md border border-[color:var(--border-subtle)] bg-[color:var(--bg-surface-raised)] px-3 py-3 text-[12px] text-[color:var(--text-muted)]">
-            No workspaces found
-          </div>
-        ) : null}
       </nav>
 
       {/* Sidebar-bottom account + Settings, relocated from WorkspaceTopBar
