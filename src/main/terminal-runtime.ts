@@ -75,6 +75,7 @@ type TerminalRuntimeOptions = {
     workspaceRoot: string
     settings: McpSettings
     clients: AgentCli[]
+    pruneUnlistedServers?: boolean
     managedSprintEngine?: {
       statePath: string
       workspaceRoot?: string
@@ -2238,6 +2239,11 @@ async function spawnTerminalFromIpc(
             ? mcpSettingsForManagedSprintEngineLaunch(mcpSettings)
             : mcpSettings ?? { syncEnabled: false, servers: {} },
           clients: [cli],
+          // A connector launch (connectorSkillId set, always paired with the
+          // single-server connectorMcpSettings) writes an isolated worktree
+          // config that must contain only the connector — prune any MCP server
+          // the base repo committed into the worktree, never merge it in.
+          pruneUnlistedServers: connectorSkillId != null,
           managedSprintEngine: sprintEngineStatePath
             ? buildManagedSprintEngineSyncInputForLaunch(sprintEngineStatePath, workingDirectory, {
                 workspaceId,

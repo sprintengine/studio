@@ -185,6 +185,7 @@ function syncMcpConfig(input: McpSyncInput, context: SyncContext): McpSyncResult
       workspaceRoot: input.workspaceRoot,
       servers: clientServers,
       knownServerIds: knownClientServerIds,
+      pruneUnlisted: input.pruneUnlistedServers === true,
       write: input.write === true,
       context,
     })
@@ -218,6 +219,7 @@ function removeManagedSprintEngineConfig(input: McpManagedSprintEngineRemoveInpu
       workspaceRoot: input.workspaceRoot,
       servers: [],
       knownServerIds: [MANAGED_SPRINTENGINE_MCP_SERVER_ID],
+      pruneUnlisted: false,
       write: true,
       context,
     })
@@ -419,6 +421,9 @@ type SyncForFormatInput = {
   workspaceRoot: string
   servers: McpServerConfig[]
   knownServerIds: string[]
+  // Connector-scoped write: prune every server not in `servers` from the target
+  // config so the worktree ends with exactly the connector set (see McpSyncInput).
+  pruneUnlisted: boolean
   write: boolean
   context: SyncContext
 }
@@ -463,7 +468,7 @@ function syncCodex(input: SyncForFormatInput): {
   target: McpSyncTarget
   issues: McpValidationIssue[]
 } {
-  const { plugin, servers, knownServerIds, workspaceRoot, write, context, client } = input
+  const { plugin, servers, knownServerIds, pruneUnlisted, workspaceRoot, write, context, client } = input
   const scope: McpScope = servers.some((server) => server.scope === 'user') ? 'user' : 'workspace'
   const resolved = resolveMcpTargetPath(plugin.mcpConfig!, scope, workspaceRoot, context.homeDir)
   const serverIds = servers.map((server) => server.id)
@@ -474,9 +479,17 @@ function syncCodex(input: SyncForFormatInput): {
   if (write && (servers.length > 0 || knownServerIds.length > 0)) {
     const prepared = prepareWritableConfigFile(resolved, client)
     if (!prepared.ok) return { target, issues: [prepared.issue] }
+    // Connector-scoped write: drop every [mcp_servers.*] table the repo committed
+    // outside our managed block (renderCodexManagedBlock only rewrites the managed
+    // block, which is the sole source of truth for the connector set). Keep none —
+    // even a bare table sharing the connector id, to avoid a duplicate section.
+    // Other codex config (model, profiles, …) is preserved.
+    const base = pruneUnlisted
+      ? removeCommittedCodexMcpServers(replaceManagedBlock(prepared.previous, ''))
+      : prepared.previous
     writeFileSync(
       resolved,
-      servers.length ? replaceManagedBlock(prepared.previous, renderCodexManagedBlock(servers)) : removeCodexManagedServers(prepared.previous, knownServerIds),
+      servers.length ? replaceManagedBlock(base, renderCodexManagedBlock(servers)) : removeCodexManagedServers(base, knownServerIds),
       'utf8'
     )
   }
@@ -487,7 +500,7 @@ function syncClaude(input: SyncForFormatInput): {
   target: McpSyncTarget
   issues: McpValidationIssue[]
 } {
-  const { plugin, servers, knownServerIds, workspaceRoot, write, context, client } = input
+  const { plugin, servers, knownServerIds, pruneUnlisted, workspaceRoot, write, context, client } = input
   const workspaceServers = servers.filter((server) => server.scope === 'workspace')
   const userServers = servers.filter((server) => server.scope === 'user')
   const issues = userServers.map((server): McpValidationIssue => ({
@@ -530,9 +543,14 @@ function syncClaude(input: SyncForFormatInput): {
     const currentServers = existing.mcpServers && typeof existing.mcpServers === 'object'
       ? existing.mcpServers as Record<string, unknown>
       : {}
-    const nextServers = { ...currentServers }
-    for (const serverId of knownServerIds) {
-      delete nextServers[serverId]
+    // Connector-scoped write starts empty so any server the repo committed into
+    // the worktree .mcp.json is dropped, not merged; the normal path preserves
+    // the user's other servers and only replaces the ones we manage.
+    const nextServers: Record<string, unknown> = pruneUnlisted ? {} : { ...currentServers }
+    if (!pruneUnlisted) {
+      for (const serverId of knownServerIds) {
+        delete nextServers[serverId]
+      }
     }
     for (const server of workspaceServers) {
       nextServers[server.id] = toClaudeServer(server)
@@ -549,7 +567,7 @@ function syncOpencode(input: SyncForFormatInput): {
   target: McpSyncTarget
   issues: McpValidationIssue[]
 } {
-  const { plugin, servers, knownServerIds, workspaceRoot, write, context, client } = input
+  const { plugin, servers, knownServerIds, pruneUnlisted, workspaceRoot, write, context, client } = input
   const issues: McpValidationIssue[] = []
   // OpenCode's `mcp` schema expresses local (stdio) and remote (HTTP) servers
   // only. Surface anything it cannot represent instead of writing a fake entry.
@@ -600,9 +618,13 @@ function syncOpencode(input: SyncForFormatInput): {
     const currentServers = existing.mcp && typeof existing.mcp === 'object' && !Array.isArray(existing.mcp)
       ? existing.mcp as Record<string, unknown>
       : {}
-    const nextServers = { ...currentServers }
-    for (const serverId of knownServerIds) {
-      delete nextServers[serverId]
+    // Connector-scoped write drops any repo-committed server (start empty); the
+    // normal path keeps the user's servers and only replaces the managed ones.
+    const nextServers: Record<string, unknown> = pruneUnlisted ? {} : { ...currentServers }
+    if (!pruneUnlisted) {
+      for (const serverId of knownServerIds) {
+        delete nextServers[serverId]
+      }
     }
     for (const server of writableServers) {
       nextServers[server.id] = toOpencodeServer(server)
@@ -745,6 +767,24 @@ function removeCodexManagedServers(previous: string, serverIds: string[]): strin
     MANAGED_END,
   ].join('\n')
   return replaceManagedBlock(previous, nextBlock)
+}
+
+// Strip every top-level `[mcp_servers.<id>]` table (and its sub-tables) from a
+// codex config, leaving all other config intact. Used only on the connector-
+// scoped write, after the managed block has been removed, so a server the base
+// repo committed into the worktree config.toml cannot survive into a connector
+// chat; the managed block re-added afterwards is the sole source of the connector.
+function removeCommittedCodexMcpServers(text: string): string {
+  const out: string[] = []
+  let dropping = false
+  for (const line of text.split(/\r?\n/)) {
+    const header = line.match(/^\s*\[\[?\s*([^\]]+?)\s*\]\]?\s*$/)
+    if (header) {
+      dropping = header[1]!.trim().replace(/^["']|["']$/g, '').split('.')[0] === 'mcp_servers'
+    }
+    if (!dropping) out.push(line)
+  }
+  return out.join('\n')
 }
 
 function renderCodexManagedBlock(servers: McpServerConfig[]): string {
