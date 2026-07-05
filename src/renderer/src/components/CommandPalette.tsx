@@ -15,6 +15,7 @@ import {
 import { isCommandEnabled, isCommandIdEnabled, type CommandAvailabilityContext } from '../commands/availability'
 import type { CommandScope } from '../commands/types'
 import { getRendererHost, selectModuleEnabled } from '../modules'
+import { commandMatchesQuery, workspaceSearchKeywords } from './commandPaletteSearch'
 import { TruncatedText } from './ui'
 
 // The four canonical source groups the global-search palette organizes results
@@ -50,16 +51,6 @@ interface Command {
   shortcut?: string
   group: CommandGroup
   run: () => void
-}
-
-// The workspace type's label + curated search terms, joined into one match
-// string — mirrors the matching the deleted workspaceSearch util provided so
-// typing a mode name ("sprint engine", "roster", "cron") still surfaces its
-// workspaces in the palette. An unregistered/shell mode falls back to the raw id.
-function workspaceSearchKeywords(mode: Workspace['mode']): string {
-  const definition = getRendererHost().getWorkspaceType(mode)
-  if (!definition) return mode
-  return [definition.label, ...(definition.searchTerms ?? [])].join(' ')
 }
 
 // A command shape before its source group is stamped on — used by the
@@ -458,14 +449,7 @@ export default function CommandPalette({
   // capped preview; a query searches every group at once.
   const filtered = useMemo((): Command[] => {
     const q = query.trim().toLowerCase()
-    const matched = q
-      ? commands.filter(
-          (command) =>
-            command.label.toLowerCase().includes(q) ||
-            command.description?.toLowerCase().includes(q) ||
-            command.keywords?.toLowerCase().includes(q),
-        )
-      : commands
+    const matched = q ? commands.filter((command) => commandMatchesQuery(command, q)) : commands
     const ordered = [...matched].sort((a, b) => groupRank(a.group) - groupRank(b.group))
     if (q) return ordered
     const perGroup = new Map<CommandGroup, number>()
