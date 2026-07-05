@@ -26,6 +26,9 @@ import {
   PrimaryButton,
   Spinner,
   StatusDot,
+  Tabs,
+  TabPanel,
+  type TabItem,
   TruncatedText,
 } from '../../ui'
 import {
@@ -46,6 +49,10 @@ import {
 } from './connectorsFacets'
 
 const EMPTY_MCP_SETTINGS: McpSettings = { syncEnabled: true, servers: {} }
+
+// Shared id prefix so the facet Tabs' aria-controls resolves to the grid's
+// TabPanel below.
+const FACET_TABS_PREFIX = 'connectors-facets'
 
 const FOCUSABLE_SELECTOR =
   'a[href], button:not([disabled]), textarea:not([disabled]), input:not([disabled]):not([type="hidden"]), select:not([disabled]), [tabindex]:not([tabindex="-1"])'
@@ -325,22 +332,24 @@ function ConnectorsBrowser({
 
         <FacetTabs view={view} facet={facet} onSelect={setFacet} />
 
-        <ConnectorsBody
-          view={view}
-          registryUrl={registryUrl}
-          workspaceRoot={activeWorkspaceRoot}
-          mcpSettings={mcpSettings}
-          selectedKey={selectedKey}
-          selectedEntry={selectedEntry}
-          onSelect={setSelectedKey}
-          onCloseDetail={closeDetail}
-          onToggleCatalogServer={toggleCatalogServer}
-          onLaunchConnector={onLaunchConnector}
-          onUseInAutomation={onUseInAutomation}
-          onUpsertMcpServer={upsertMcpServer}
-          onRegistryInstalled={() => void loadRegistry(true)}
-          retry={retry}
-        />
+        <TabPanel idPrefix={FACET_TABS_PREFIX} tabId={facet} active>
+          <ConnectorsBody
+            view={view}
+            registryUrl={registryUrl}
+            workspaceRoot={activeWorkspaceRoot}
+            mcpSettings={mcpSettings}
+            selectedKey={selectedKey}
+            selectedEntry={selectedEntry}
+            onSelect={setSelectedKey}
+            onCloseDetail={closeDetail}
+            onToggleCatalogServer={toggleCatalogServer}
+            onLaunchConnector={onLaunchConnector}
+            onUseInAutomation={onUseInAutomation}
+            onUpsertMcpServer={upsertMcpServer}
+            onRegistryInstalled={() => void loadRegistry(true)}
+            retry={retry}
+          />
+        </TabPanel>
       </div>
     </div>
   )
@@ -407,36 +416,25 @@ export function FacetTabs({
   facet: ConnectorFacet
   onSelect: (facet: ConnectorFacet) => void
 }) {
+  // The shared Tabs primitive owns the WAI-ARIA tablist contract (roving tab
+  // stop, Home/End/Arrow navigation, aria-controls to the panel below). Counts
+  // come from the search-filtered view; a zero facet drops its count rather than
+  // showing "0".
   const counts = view.status === 'ready' ? view.counts : null
+  const items: TabItem<ConnectorFacet>[] = CONNECTOR_FACETS.map((option) => ({
+    id: option,
+    label: option,
+    count: counts && counts[option] > 0 ? counts[option] : undefined,
+  }))
   return (
-    <div
-      role="tablist"
-      aria-label="Connector categories"
-      className="mt-4 flex flex-wrap items-center gap-1 border-b border-[color:var(--border-subtle)] pb-2"
-    >
-      {CONNECTOR_FACETS.map((option) => {
-        const active = option === facet
-        const count = counts ? counts[option] : null
-        return (
-          <button
-            key={option}
-            type="button"
-            role="tab"
-            aria-selected={active}
-            onClick={() => onSelect(option)}
-            className={`interactive flex items-center gap-1.5 rounded-md px-2.5 py-1 text-[12px] focus:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--border-focus)] ${
-              active
-                ? 'bg-[color:var(--accent-primary-soft)] text-[color:var(--accent-primary)]'
-                : 'text-[color:var(--text-muted)] hover:bg-[color:var(--bg-active)] hover:text-[color:var(--text-default)]'
-            }`}
-          >
-            <span>{option}</span>
-            {count !== null && count > 0 ? (
-              <span className="tabular-nums font-mono text-[10px] text-[color:var(--text-subtle)]">{count}</span>
-            ) : null}
-          </button>
-        )
-      })}
+    <div className="mt-4">
+      <Tabs
+        ariaLabel="Connector categories"
+        idPrefix={FACET_TABS_PREFIX}
+        items={items}
+        value={facet}
+        onChange={onSelect}
+      />
     </div>
   )
 }
