@@ -10,7 +10,7 @@ import {
   getSessionItems,
   sessionsAttentionTone,
 } from '../components/workspace/workspaceManagerHelpers'
-import type { SessionItem } from '../components/workspace/WorkspaceTopBar'
+import type { SessionItem } from '../components/workspace/WorkspaceActions'
 import type { Workspace } from '../types/workspace'
 
 // Trigger-badge summary. `tone` is null when the badge should be hidden — at
