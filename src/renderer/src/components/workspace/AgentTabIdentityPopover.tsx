@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react'
 import { IconButton, PointerPopover, StatusDot, type Tone } from '../ui'
 import CliIcon from '../CliIcon'
-import { GitBranchGlyph } from './WorkspaceTopBar'
+import { GitBranchGlyph } from './WorkspaceActions'
 import type { AgentCli } from '../../types/workspace'
 
 // Identity shown for an agent terminal tab. Assembled by the caller from the

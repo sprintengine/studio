@@ -46,7 +46,7 @@ import { AgentTabIdentityPopover, type AgentTabIdentity } from './AgentTabIdenti
 import type { AgentCliCatalogOption } from './newWorkspace/cliRuntimeOptions'
 import { labelForCliRuntime } from './newWorkspace/cliRuntimeOptions'
 import { panelTabAccentClass } from './panelTabAccent'
-import { GitBranchGlyph } from './WorkspaceTopBar'
+import { GitBranchGlyph } from './WorkspaceActions'
 import { LifecycleGlyph, type LifecycleState, StatusDot, type Tone } from '../ui'
 import MulticodeSpinner from '../brand/MulticodeSpinner'
 import AgentPanel from '../panels/AgentPanel'

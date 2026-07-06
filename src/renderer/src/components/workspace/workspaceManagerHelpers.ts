@@ -18,7 +18,7 @@ import {
 } from '../../hooks/useTerminalSessions'
 import type { Workspace } from '../../types/workspace'
 import type { MultiloopRoleDescriptor } from '../../specialists/specialistActions'
-import type { SessionItem } from './WorkspaceTopBar'
+import type { SessionItem } from './WorkspaceActions'
 
 export type WorkspaceActivity = 'needs-input' | 'working' | 'failed' | 'idle'
 export type SessionStatus = 'needs-input' | 'working' | 'idle' | 'failed'

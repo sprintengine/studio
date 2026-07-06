@@ -13,7 +13,7 @@
 // Git / Backlog) that sit on the left with the window nav.
 
 import React from 'react'
-import { Tooltip } from '../ui'
+import { Popover, Tooltip } from '../ui'
 import { AttentionQueuePopover, type AttentionQueueSurface } from './AttentionQueuePopover'
 import { PanelSwitches } from './PanelSwitches'
 import { WindowControls } from './WindowControls'
@@ -22,11 +22,14 @@ import type { WorkspaceId } from '../../types/workspace'
 // The native traffic lights are pinned at y:11 by the hiddenInset frame
 // (window-factory.ts), so the strip stays 36px to keep them vertically
 // centered; the slimming comes from dropping the brand, not the height.
-const TITLE_BAR_HEIGHT = 'h-[36px]'
+// Exported so the aux-window strips (ExternalEditorWindow / DiffViewerWindow)
+// share the exact height/inset instead of re-hardcoding the literals.
+export const TITLE_BAR_HEIGHT = 'h-[36px]'
 
 // macOS reserves the leftmost slice for the native traffic lights; pad the nav
-// flow past them so nothing sits under the close/zoom buttons.
-const TRAFFIC_LIGHT_INSET = 'pl-[78px]'
+// flow past them so nothing sits under the close/zoom buttons. Dropped when the
+// window is fullscreen on macOS, where the lights are hidden.
+export const TRAFFIC_LIGHT_INSET = 'pl-[78px]'
 
 // Square icon buttons in the strip: transparent chrome that brightens on hover,
 // opts out of the drag region, and carries a visible focus ring.
@@ -41,6 +44,9 @@ type SprintEnginesToggle = {
 type AppTitleBarProps<MenuItem extends string> = {
   isMac: boolean
   isMaximized: boolean
+  // macOS fullscreen hides the native traffic lights, so their reserved gutter
+  // must collapse — otherwise the merged strip carries 78px of dead inset.
+  isFullScreen: boolean
   menuItems: readonly MenuItem[]
   onShowMenu: (event: React.MouseEvent<HTMLButtonElement>, label: MenuItem) => void
   // Sidebar-collapse toggle: the strip mirrors the workspace.sidebar.toggle
@@ -66,6 +72,15 @@ type AppTitleBarProps<MenuItem extends string> = {
   // Null outside dev/diagnostics builds — the performance panel is an
   // engineering tool, so its title-bar entry only exists when diagnostics are on.
   onOpenDiagnostics: (() => void) | null
+  // The active workspace's identity cluster (WorkspaceIdentity), filled by
+  // WorkspaceManager. Rides in the centre of the strip, immediately after the
+  // window-nav cluster, and truncates as the window narrows.
+  centerSlot: React.ReactNode
+  // The active workspace's control groups (WorkspaceActions), filled by
+  // WorkspaceManager. Sits at the head of the right cluster, ahead of the
+  // app-level toggles. Both slots stay generic ReactNodes so AppTitleBar never
+  // threads the ~50 workspace/agent props the merged controls need.
+  rightClusterPrefix: React.ReactNode
 }
 
 function SidebarCollapseButton({ collapsed, onToggle }: { collapsed: boolean; onToggle: () => void }) {
@@ -160,9 +175,85 @@ function SprintEnginesAsideToggle({ open, onToggle }: SprintEnginesToggle) {
   )
 }
 
+// The win/linux menu bar. At >= 900px it renders the five top-level labels
+// inline (File / Edit / … idiom); below 900px it collapses to a single hamburger
+// that opens a popover of the same labels — the usual narrow-window
+// idiom — so the menu bar can never over-subscribe the 800px minimum width and
+// clip. Both variants are always in the DOM and CSS-toggled by the media query,
+// and both call the same `onShowMenu(label)` that pops the native submenu, so
+// every menu stays reachable with its behavior intact.
+function WindowsMenuBar<MenuItem extends string>({
+  menuItems,
+  onShowMenu,
+}: {
+  menuItems: readonly MenuItem[]
+  onShowMenu: (event: React.MouseEvent<HTMLButtonElement>, label: MenuItem) => void
+}) {
+  const [menuOpen, setMenuOpen] = React.useState(false)
+  return (
+    <>
+      <div className="hidden shrink-0 items-center gap-1 pl-1 min-[900px]:flex">
+        {menuItems.map((label) => (
+          <button
+            key={label}
+            type="button"
+            onClick={(event) => onShowMenu(event, label)}
+            className="app-no-drag inline-flex h-7 items-center rounded-md px-2.5 text-[12px] text-[color:var(--text-muted)] transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]"
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+      <div className="flex shrink-0 items-center pl-1 min-[900px]:hidden">
+        <Popover
+          open={menuOpen}
+          onOpenChange={setMenuOpen}
+          ariaLabel="Application menu"
+          popupRole="menu"
+          placement="bottom-start"
+          renderTrigger={({ ref, triggerProps, togglePopover }) => (
+            <Tooltip content="Menu" placement="bottom">
+              <button
+                ref={ref}
+                type="button"
+                onClick={togglePopover}
+                aria-label="Application menu"
+                className="app-no-drag inline-flex h-7 w-7 items-center justify-center rounded-md text-[color:var(--text-muted)] transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]"
+                {...triggerProps}
+              >
+                <svg viewBox="0 0 16 16" fill="none" className="icon-sm" aria-hidden="true">
+                  <path d="M2.5 4.5h11M2.5 8h11M2.5 11.5h11" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+                </svg>
+              </button>
+            </Tooltip>
+          )}
+        >
+          <div className="w-44 p-1">
+            {menuItems.map((label) => (
+              <button
+                key={label}
+                type="button"
+                role="menuitem"
+                onClick={(event) => {
+                  setMenuOpen(false)
+                  onShowMenu(event, label)
+                }}
+                className="flex w-full items-center rounded px-2.5 py-1.5 text-left text-[13px] text-[color:var(--text-default)] transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]"
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+        </Popover>
+      </div>
+    </>
+  )
+}
+
 export function AppTitleBar<MenuItem extends string>({
   isMac,
   isMaximized,
+  isFullScreen,
   menuItems,
   onShowMenu,
   sidebarCollapsed,
@@ -174,38 +265,37 @@ export function AppTitleBar<MenuItem extends string>({
   sprintEnginesToggle,
   attentionQueue,
   onOpenDiagnostics,
+  centerSlot,
+  rightClusterPrefix,
 }: AppTitleBarProps<MenuItem>) {
+  // macOS keeps the traffic lights in the strip except in fullscreen, where
+  // they vanish and the reserved gutter must collapse with them.
+  const reserveTrafficLights = isMac && !isFullScreen
   return (
     <div
-      className={`app-drag flex ${TITLE_BAR_HEIGHT} shrink-0 items-stretch justify-between border-b border-[color:var(--border-default)] bg-[color:var(--bg-surface)]`}
+      className={`app-drag flex ${TITLE_BAR_HEIGHT} shrink-0 items-stretch border-b border-[color:var(--border-default)] bg-[color:var(--bg-surface)]`}
     >
-      {/* Left: window navigation. On macOS the traffic-light gutter leads. */}
-      <div className="flex min-w-0 items-center">
-        {isMac ? <div aria-hidden="true" className={TRAFFIC_LIGHT_INSET} /> : null}
-        <div className="flex items-center gap-0.5 px-1.5">
+      {/* Left + centre: window navigation then the workspace identity cluster.
+          The block flex-grows so its unused tail is the strip's drag spacer;
+          on macOS the traffic-light gutter leads. */}
+      <div className="flex min-w-0 flex-1 items-center">
+        {reserveTrafficLights ? <div aria-hidden="true" className={TRAFFIC_LIGHT_INSET} /> : null}
+        <div className="flex shrink-0 items-center gap-0.5 px-1.5">
           <SidebarCollapseButton collapsed={sidebarCollapsed} onToggle={onToggleSidebar} />
           <NavHistoryButton direction="back" onClick={onNavigateBack} />
           <NavHistoryButton direction="forward" onClick={onNavigateForward} />
           <PanelSwitches activeWorkspaceId={activeWorkspaceId} />
         </div>
-        {!isMac ? (
-          <div className="flex min-w-0 items-center gap-1 pl-1">
-            {menuItems.map((label) => (
-              <button
-                key={label}
-                type="button"
-                onClick={(event) => onShowMenu(event, label)}
-                className="app-no-drag inline-flex h-7 items-center rounded-md px-2.5 text-[12px] text-[color:var(--text-muted)] transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]"
-              >
-                {label}
-              </button>
-            ))}
-          </div>
-        ) : null}
+        {!isMac ? <WindowsMenuBar menuItems={menuItems} onShowMenu={onShowMenu} /> : null}
+        {/* Workspace identity cluster (min-w-0 so it truncates before the
+            right-side controls are reached). */}
+        <div className="flex min-w-0 items-center pl-1 pr-2">{centerSlot}</div>
       </div>
 
-      {/* Right: global search + app-level surface toggles. */}
-      <div className="flex items-center">
+      {/* Right: workspace controls, then global search + app-level surface
+          toggles, then (win/linux) the window controls. */}
+      <div className="flex shrink-0 items-center">
+        {rightClusterPrefix}
         <div className="flex items-center gap-0.5 px-1.5">
           <GlobalSearchButton onOpen={onOpenSearch} />
           {onOpenDiagnostics ? <DiagnosticsTitleBarButton onOpen={onOpenDiagnostics} /> : null}

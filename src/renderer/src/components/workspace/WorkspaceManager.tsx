@@ -86,9 +86,8 @@ import { beginSidebarTransition } from '../../utils/sidebarTransition'
 import { isHiddenFromRail } from '../../utils/workspaceVisibility'
 import { WORKSPACE_LAYER_REVEAL_EVENT } from '../../utils/terminalFitScheduler'
 import { AppTitleBar } from './AppTitleBar'
-import WorkspaceTopBar, {
-  type SessionItem,
-} from './WorkspaceTopBar'
+import { WorkspaceIdentity } from './WorkspaceIdentity'
+import { WorkspaceActions, type SessionItem } from './WorkspaceActions'
 import { AGENT_SPAWN_PERMISSION_OPTIONS } from './agentComposer/agentSpawnShared'
 import {
   buildMultiloopSpawnPrompt,
@@ -2484,6 +2483,7 @@ export default function WorkspaceManager() {
       <AppTitleBar
         isMac={window.api.platform === 'darwin'}
         isMaximized={windowState.isMaximized}
+        isFullScreen={windowState.isFullScreen}
         menuItems={MENU_BAR_ITEMS}
         onShowMenu={(event, label) => void handleShowMenubarMenu(event, label)}
         sidebarCollapsed={sidebarCollapsed}
@@ -2513,6 +2513,64 @@ export default function WorkspaceManager() {
           window.api.isDevelopment || window.api.isDiagnosticsEnabled
             ? () => setDiagnosticsOpen(true)
             : null
+        }
+        centerSlot={
+          <WorkspaceIdentity activeWorkspace={activeWorkspace} activeWorkspaceId={windowActiveWorkspaceId} />
+        }
+        rightClusterPrefix={
+          <WorkspaceActions
+            workspaces={visibleWorkspaces}
+            activeWorkspace={activeWorkspace}
+            activeWorkspaceId={windowActiveWorkspaceId}
+            workspaceActionsEnabled={workspaceActionsEnabled}
+            sessionsRef={sessionsRef}
+            viewMenuRef={viewMenuRef}
+            notificationsRef={notificationsRef}
+            specialistMenuRef={specialistMenuRef}
+            sessions={sessions}
+            sidebarWorkspaceOrder={sidebarWorkspaceOrder}
+            sessionsOpen={sessionsOpen}
+            setSessionsOpen={setSessionsOpen}
+            openSession={openSession}
+            pauseSession={pauseSession}
+            stopSession={stopSession}
+            stopWorkspaceSessions={stopWorkspaceSessions}
+            viewMenuOpen={viewMenuOpen}
+            setViewMenuOpen={setViewMenuOpen}
+            viewMenuTick={viewMenuTick}
+            setViewMenuTick={setViewMenuTick}
+            notifications={notifications}
+            unreadErrorCount={unreadErrorCount}
+            notificationsOpen={notificationsOpen}
+            setNotificationsOpen={setNotificationsOpen}
+            markNotificationRead={markNotificationRead}
+            markAllNotificationsRead={markAllNotificationsRead}
+            clearNotifications={clearNotifications}
+            resolveNotificationActions={resolveNotificationActions}
+            voiceDictationEnabled={voiceDictationEnabled}
+            voiceRecording={voiceDictation.recording}
+            voiceTranscribing={voiceDictation.transcribing}
+            toggleVoiceDictation={voiceDictation.toggle}
+            specialistMenuOpen={specialistMenuOpen}
+            setSpecialistMenuOpen={setSpecialistMenuOpen}
+            agentCliOptions={agentCliCatalog}
+            multiloopLaunchMenu={multiloopLaunchMenu}
+            selectedSpecialistAction={selectedSpecialistAction}
+            selectedMultiloopRoleDescriptor={selectedMultiloopRoleDescriptor}
+            selectedAgentPermissionOption={selectedAgentPermissionOption}
+            lastSelectedCli={lastSelectedCli}
+            specialistCliDefaults={specialistCliDefaults}
+            multiloopRoleCliDefaults={multiloopRoleCliDefaults}
+            agentSpawnPermissionPreset={agentSpawnPermissionPreset}
+            setAgentSpawnPermissionPreset={setAgentSpawnPermissionPreset}
+            agentSpawnDebugMode={agentSpawnDebugMode}
+            setAgentSpawnDebugMode={setAgentSpawnDebugMode}
+            addNewSpecialist={(cli) => addNewSpecialist(lastSelectedSpecialist, '', cli)}
+            addNewMultiloopAgent={(cli) => addNewMultiloopAgent(lastSelectedMultiloopRole, '', cli)}
+            conversationSpawnAvailable={conversationSpawnAvailable}
+            composerInitialSelection={composerInitialSelection}
+            runComposerSpawn={runComposerSpawn}
+          />
         }
       />
 
@@ -2563,60 +2621,10 @@ export default function WorkspaceManager() {
             : 'shadow-[inset_1px_0_0_rgba(255,255,255,0.04)]'
         }`}
       >
-      <WorkspaceTopBar
-        workspaces={visibleWorkspaces}
-        activeWorkspace={activeWorkspace}
-        activeWorkspaceId={windowActiveWorkspaceId}
-        workspaceActionsEnabled={workspaceActionsEnabled}
-        sessionsRef={sessionsRef}
-        viewMenuRef={viewMenuRef}
-        notificationsRef={notificationsRef}
-        specialistMenuRef={specialistMenuRef}
-        sessions={sessions}
-        sidebarWorkspaceOrder={sidebarWorkspaceOrder}
-        sessionsOpen={sessionsOpen}
-        setSessionsOpen={setSessionsOpen}
-        openSession={openSession}
-        pauseSession={pauseSession}
-        stopSession={stopSession}
-        stopWorkspaceSessions={stopWorkspaceSessions}
-        viewMenuOpen={viewMenuOpen}
-        setViewMenuOpen={setViewMenuOpen}
-        viewMenuTick={viewMenuTick}
-        setViewMenuTick={setViewMenuTick}
-        notifications={notifications}
-        unreadErrorCount={unreadErrorCount}
-        notificationsOpen={notificationsOpen}
-        setNotificationsOpen={setNotificationsOpen}
-        markNotificationRead={markNotificationRead}
-        markAllNotificationsRead={markAllNotificationsRead}
-        clearNotifications={clearNotifications}
-        resolveNotificationActions={resolveNotificationActions}
-        voiceDictationEnabled={voiceDictationEnabled}
-        voiceRecording={voiceDictation.recording}
-        voiceTranscribing={voiceDictation.transcribing}
-        toggleVoiceDictation={voiceDictation.toggle}
-        specialistMenuOpen={specialistMenuOpen}
-        setSpecialistMenuOpen={setSpecialistMenuOpen}
-        agentCliOptions={agentCliCatalog}
-        multiloopLaunchMenu={multiloopLaunchMenu}
-        selectedSpecialistAction={selectedSpecialistAction}
-        selectedMultiloopRoleDescriptor={selectedMultiloopRoleDescriptor}
-        selectedAgentPermissionOption={selectedAgentPermissionOption}
-        lastSelectedCli={lastSelectedCli}
-        specialistCliDefaults={specialistCliDefaults}
-        multiloopRoleCliDefaults={multiloopRoleCliDefaults}
-        agentSpawnPermissionPreset={agentSpawnPermissionPreset}
-        setAgentSpawnPermissionPreset={setAgentSpawnPermissionPreset}
-        agentSpawnDebugMode={agentSpawnDebugMode}
-        setAgentSpawnDebugMode={setAgentSpawnDebugMode}
-        addNewSpecialist={(cli) => addNewSpecialist(lastSelectedSpecialist, '', cli)}
-        addNewMultiloopAgent={(cli) => addNewMultiloopAgent(lastSelectedMultiloopRole, '', cli)}
-        conversationSpawnAvailable={conversationSpawnAvailable}
-        composerInitialSelection={composerInitialSelection}
-        runComposerSpawn={runComposerSpawn}
-      />
-
+      {/* The workspace identity + control groups formerly rendered here as a
+          separate 48px WorkspaceTopBar row now live in the merged AppTitleBar
+          title strip (WorkspaceIdentity / WorkspaceActions slots), so the card
+          opens directly with content. */}
       <div className="relative min-h-0 flex-1">
         <div
           className="absolute inset-0"

@@ -5,7 +5,7 @@ import { InboxRow, LIFECYCLE_LABEL, LifecycleGlyph, PanelHeader, Popover, Toolti
 import { useRelativeNow } from '../../hooks/useRelativeNow'
 import { formatRelativeMs, formatRelativeMsAgo } from '../../utils/relativeTime'
 import type { AttentionQueueBadge } from '../../utils/attentionQueue'
-import type { SessionItem } from './WorkspaceTopBar'
+import type { SessionItem } from './WorkspaceActions'
 
 // The title-bar Attention Queue: the global "which agents are waiting on me"
 // surface across ALL workspaces. The trigger lives on the app title strip beside

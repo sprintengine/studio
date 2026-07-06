@@ -4,7 +4,7 @@ import { renderToStaticMarkup } from 'react-dom/server'
 
 import { AttentionQueuePopover, type AttentionQueueSurface } from './AttentionQueuePopover'
 import { attentionQueueBadge } from '../../utils/attentionQueue'
-import type { SessionItem } from './WorkspaceTopBar'
+import type { SessionItem } from './WorkspaceActions'
 import type { Workspace } from '../../types/workspace'
 
 // QA regression for the T2 title-bar Attention Queue trigger. The trigger renders
