@@ -288,6 +288,45 @@ def supersede_duplicate_artifacts(
         superseded_ids.append(str(artifact.get("id") or ""))
     return superseded_ids
 
+# Kinds of the plan/product approval-gate placeholder artifact seeded as `draft`
+# by ensure_plan_approval_gate / ensure_product_intake_gate. The placeholder only
+# becomes `approved` when its file is published and approved; if the gate task is
+# instead marked done directly, the placeholder is never actioned.
+GATE_PLACEHOLDER_ARTIFACT_KINDS = {"architect_plan", "requirements"}
+
+def supersede_stale_gate_placeholder_on_completion(
+    state: Dict[str, Any],
+    task: Dict[str, Any],
+    actor: str,
+) -> List[str]:
+    """Self-heal the plan/product approval gate: when its gate task reaches `done`,
+    a placeholder artifact seeded as `draft` at run creation and never published or
+    approved must not survive as a live `draft`. Supersede those draft placeholders
+    so no artifact stays `draft` while its task is `done`, mirroring
+    supersede_duplicate_artifacts. Only the never-actioned `draft` placeholder is
+    resolved; an `approved`, `superseded`, or in-review placeholder is left as is."""
+    if task.get("status") != "done":
+        return []
+    task_id = str(task.get("id") or "")
+    if not task_id:
+        return []
+    superseded_ids: List[str] = []
+    for artifact in artifacts_for_task(state, task_id):
+        if artifact.get("kind") not in GATE_PLACEHOLDER_ARTIFACT_KINDS:
+            continue
+        if artifact.get("status") != "draft":
+            continue
+        artifact["status"] = "superseded"
+        artifact["updatedAt"] = now_iso()
+        append_artifact_history(
+            artifact,
+            "superseded",
+            actor,
+            f"Superseded unpublished placeholder when gate task {task_id} completed.",
+        )
+        superseded_ids.append(str(artifact.get("id") or ""))
+    return superseded_ids
+
 def resolve_task_input(
     state: Dict[str, Any],
     task: Dict[str, Any],
@@ -316,6 +355,7 @@ def resolve_task_input(
     if complete:
         task["status"] = "done"
         task["completedAt"] = now
+        supersede_stale_gate_placeholder_on_completion(state, task, actor)
         if owner_id:
             set_agent_idle(ensure_agent(state, owner_id, task.get("role")))
         clear_task_refs(state, str(task.get("id")))
