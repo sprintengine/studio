@@ -105,20 +105,21 @@ def test_summary_fields_advertise_no_max_length() -> None:
 
 
 PROMPT_BYTE_CEILINGS = {
-    # architect.md carries the mandatory architect-picks-the-team roster-composition
-    # guidance; it was already 22388 bytes (over the prior 22000) at merge-base and that
-    # essential guidance grew it further, so the ceiling is raised to a real green baseline.
-    "architect.md": 26_000,
-    "code_reviewer.md": 12_000,
-    "cross_platform.md": 12_000,
-    "developer.md": 12_000,
-    "frontend.md": 12_000,
-    "performance.md": 12_000,
-    "product.md": 12_000,
-    "production_readiness_reviewer.md": 13_000,
-    "security.md": 12_000,
-    "spec_reviewer.md": 12_000,
-    "tester.md": 12_000,
+    # Ceilings are ratcheted tight to the post-prune baselines. architect.md is the
+    # exception: it carries the mandatory architect-picks-the-team roster-composition
+    # guidance, which grows the merged file past the general prune baseline, so its
+    # ceiling sits just above the real green size rather than at the shared floor.
+    "architect.md": 23_000,
+    "code_reviewer.md": 6_000,
+    "cross_platform.md": 4_500,
+    "developer.md": 4_000,
+    "frontend.md": 5_500,
+    "performance.md": 4_000,
+    "product.md": 9_000,
+    "production_readiness_reviewer.md": 7_000,
+    "security.md": 4_000,
+    "spec_reviewer.md": 5_500,
+    "tester.md": 3_500,
 }
 
 SKILL_BYTE_CEILINGS = {

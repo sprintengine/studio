@@ -92,6 +92,7 @@ export type BacklogItemObjectMetadata = {
   metadata: Record<string, unknown>
   links: BacklogItemLink[]
   highlight?: BacklogHighlight
+  createdAt?: string
   updatedAt?: string
 }
 
@@ -141,6 +142,12 @@ export type BacklogItem = {
   // parseable, else the file mtime. Drives the recently-updated sort and the
   // row's relative-time label.
   modifiedAt: number
+  // Effective creation time in epoch ms: the object store's `createdAt` (ISO,
+  // stamped once when the app first registers the item) when present and
+  // parseable, else the `YYYY-MM-DD` date prefix on the filename, else the file
+  // mtime. Drives the recently-created sort. Distinct from `modifiedAt` so an
+  // edited item keeps its original position in a created-date ordering.
+  createdAtMs: number
   size: number
   sourceContent: string
 }
@@ -343,6 +350,7 @@ export function createBacklogItem(input: {
     objectUpdatedAt: input.object?.updatedAt,
     excerpt: backlogExcerpt(body, title),
     modifiedAt: resolveBacklogRecencyMs(frontmatterValue(fields, 'updated'), input.stats.modifiedAtMs),
+    createdAtMs: resolveBacklogCreatedMs(input.object?.createdAt, relativePath, input.stats.modifiedAtMs),
     size: input.stats.sizeBytes,
     sourceContent: input.sourceContent,
   }
@@ -357,6 +365,38 @@ function resolveBacklogRecencyMs(updated: string | undefined, mtimeMs: number): 
     if (!Number.isNaN(parsed)) return parsed
   }
   return mtimeMs
+}
+
+// Effective creation time: the object store's stamped `createdAt` when present
+// and parseable (the authoritative source — set once and never overwritten),
+// else the `YYYY-MM-DD` date prefix most leaf items carry on their filename
+// (undated epic files and unprefixed notes skip this), else the file mtime.
+// Keeps the recently-created sort meaningful even for items scanned before they
+// have an object record.
+function resolveBacklogCreatedMs(
+  objectCreatedAt: string | undefined,
+  relativePath: string,
+  mtimeMs: number,
+): number {
+  if (objectCreatedAt) {
+    const parsed = Date.parse(objectCreatedAt)
+    if (!Number.isNaN(parsed)) return parsed
+  }
+  const prefixed = backlogFilenameDateMs(relativePath)
+  if (prefixed != null) return prefixed
+  return mtimeMs
+}
+
+// Parse a leading `YYYY-MM-DD` date from the file's basename (e.g.
+// `backlog/2026-06-30-foo.md` -> that day at UTC midnight), or null when the
+// name has no such prefix. UTC so the ordering is stable regardless of the
+// viewer's timezone.
+function backlogFilenameDateMs(relativePath: string): number | null {
+  const name = normalizeRelativePath(relativePath).split('/').filter(Boolean).at(-1) ?? ''
+  const match = /^(\d{4})-(\d{2})-(\d{2})/.exec(name)
+  if (!match) return null
+  const ms = Date.parse(`${match[1]}-${match[2]}-${match[3]}T00:00:00Z`)
+  return Number.isNaN(ms) ? null : ms
 }
 
 export function inferBacklogKind(relativePath: string, content: string): BacklogItemKind {

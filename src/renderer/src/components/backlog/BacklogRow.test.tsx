@@ -106,6 +106,34 @@ run('a non-waiting row renders no Waiting badge — the marker is earned', () =>
   assert.ok(!markup.includes('Waiting on prerequisites'), 'no badge when isWaiting is unset')
 })
 
+// ---- Parent-epic pill (flat-list member badge) -----------------------------
+
+run('a member row given epicMeta renders the epic pill: id label + title tooltip/name', () => {
+  const markup = renderToStaticMarkup(
+    <BacklogRowContent
+      item={itemWith()}
+      now={NOW}
+      epicMeta={{ title: 'Module SDK v2', color: 'blue', displayId: 'MC-1493' }}
+    />,
+  )
+  // The visible label is the epic's display id; the full title is the accessible
+  // name (and the hover tooltip), so it reads "relates to epic <title>".
+  assert.match(markup, /MC-1493/, 'the pill is labelled with the epic display id')
+  assert.match(markup, /aria-label="Epic: Module SDK v2"/, 'the epic title is the accessible name')
+})
+
+run('the epic pill falls back to the epic title when no display id is allocated', () => {
+  const markup = renderToStaticMarkup(
+    <BacklogRowContent item={itemWith()} now={NOW} epicMeta={{ title: 'Untitled Epic', color: null }} />,
+  )
+  assert.match(markup, /Untitled Epic/, 'the title stands in as the label when there is no id')
+})
+
+run('a row without epicMeta renders no epic pill — the badge is earned', () => {
+  const markup = renderToStaticMarkup(<BacklogRowContent item={itemWith()} now={NOW} />)
+  assert.ok(!markup.includes('aria-label="Epic:'), 'no epic pill when the item has no parent epic')
+})
+
 // Build a real BacklogItem with status + dependsOn frontmatter so the detail
 // section is exercised against the same derivation the panel uses.
 function depItem(relativePath: string, opts: { status?: string; dependsOn?: string[] } = {}): BacklogItem {
@@ -311,6 +339,27 @@ run('detail triage exposes the same search-first Epic control and handlers', () 
   assert.match(backlogPanelSource, /actions\.setEpic\(item, epic\.value\)/, 'a real result assigns the epic')
   assert.match(backlogPanelSource, /actions\.createEpic\(item\)/, 'New epic opens the create flow')
   assert.match(backlogPanelSource, /actions\.setEpic\(item, null\)/, 'Remove from epic clears the field')
+})
+
+run('the detail More-actions menu carries the Size/Priority/Risk/Status triage flyouts', () => {
+  for (const id of ['set-status', 'set-priority', 'set-size', 'set-risk']) {
+    assert.match(backlogPanelSource, new RegExp(`id: '${id}'`), `${id} flyout present in the detail menu`)
+  }
+  assert.match(backlogPanelSource, /kind: 'flyout' as const,/, 'the triage editors are flyout submenus')
+  // Each choice routes through the shared BacklogActions setters, then closes the
+  // whole overflow menu — the same handlers the row right-click menu uses.
+  assert.match(backlogPanelSource, /actions\.setStatus\(selected, status\)\s*\n\s*close\(\)/, 'status choice applies + closes')
+  assert.match(backlogPanelSource, /actions\.setDifficulty\(selected, value\)\s*\n\s*close\(\)/, 'size choice applies + closes')
+  assert.match(backlogPanelSource, /actions\.setCriticality\(selected, value\)\s*\n\s*close\(\)/, 'priority choice applies + closes')
+  assert.match(backlogPanelSource, /actions\.setRisk\(selected, value\)\s*\n\s*close\(\)/, 'risk choice applies + closes')
+})
+
+run('the triage editors no longer render as inline body Selects', () => {
+  // Size/Priority/Risk moved to the menu; the detail body keeps only the Epic
+  // control, so the inline <Select> editors are gone.
+  assert.ok(!backlogPanelSource.includes('items={DIFFICULTY_EDIT_ITEMS}'), 'no inline Size select in the body')
+  assert.ok(!backlogPanelSource.includes('items={CRITICALITY_EDIT_ITEMS}'), 'no inline Priority select in the body')
+  assert.ok(!backlogPanelSource.includes('items={RISK_EDIT_ITEMS}'), 'no inline Risk select in the body')
 })
 
 run('archive epic rolls up children: menu + overflow swap Archive→Archive epic for epic items', () => {

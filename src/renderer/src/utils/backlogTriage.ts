@@ -81,7 +81,7 @@ const URGENT: ReadonlySet<BacklogCriticality> = new Set<BacklogCriticality>(['hi
 
 type Triageable = Pick<
   BacklogItem,
-  'difficulty' | 'criticality' | 'risk' | 'status' | 'modifiedAt' | 'relativePath'
+  'difficulty' | 'criticality' | 'risk' | 'status' | 'modifiedAt' | 'createdAtMs' | 'relativePath' | 'isEpic'
 >
 
 // Missing either axis is the "unestimated" signal — a calm prompt to size or
@@ -98,6 +98,10 @@ export function matchesBacklogView(item: Triageable, view: BacklogView): boolean
   if (view === 'all') return true
   if (view === 'archived') return item.status === 'archived'
   if (view === 'completed') return item.status === 'completed'
+  // Epics is a structural lens: every epic container, at any lifecycle stage
+  // (a finished or archived epic still reads as one grouping), and nothing else.
+  // Evaluated before the terminal-state guard so completed/archived epics show.
+  if (view === 'epics') return item.isEpic
   if (item.status === 'archived' || item.status === 'completed') return false
 
   switch (view) {
@@ -172,6 +176,11 @@ export function compareBacklogItems(a: Triageable, b: Triageable, sort: BacklogS
       if (da !== db) return da - db
       return a.relativePath.localeCompare(b.relativePath)
     }
+    case 'created':
+      // Newest-created first, mirroring 'recent' but keyed on creation time so an
+      // item's position is fixed by when it was captured, not when it was last
+      // edited.
+      return b.createdAtMs - a.createdAtMs
     case 'recent':
     default:
       return b.modifiedAt - a.modifiedAt

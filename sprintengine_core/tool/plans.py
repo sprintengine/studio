@@ -74,6 +74,29 @@ def state_has_source_kind(state: Dict[str, Any], kind: str) -> bool:
         return True
     return source_plan_kind(state) == kind
 
+def source_items_for_kind(state: Dict[str, Any], kind: str) -> List[Dict[str, Any]]:
+    items = list(source_bundle_items(state, kind))
+    source = state.get("source")
+    if isinstance(source, dict) and source_plan_kind(state) == kind:
+        items.append(source)
+    return items
+
+def source_kind_is_reference(state: Dict[str, Any], kind: str) -> bool:
+    # A kind is reference-sourced only when every source of that kind points at
+    # a canonical original (origin "reference"). Mixed copy/reference sources
+    # fall back to the copy path so no source silently loses its seed.
+    items = source_items_for_kind(state, kind)
+    return bool(items) and all(item.get("origin") == "reference" for item in items)
+
+def reference_source_display_path(state: Dict[str, Any], kind: str) -> str:
+    for item in source_items_for_kind(state, kind):
+        if item.get("origin") != "reference":
+            continue
+        path_value = str(item.get("path") or "").strip()
+        if path_value:
+            return path_value
+    return ""
+
 def source_item_absolute_path(state_path: Path, item: Dict[str, Any], path_value: str) -> Path:
     # Reference sources store a project-root-relative path to the canonical
     # original (which lives outside the team folder), so resolve them against the

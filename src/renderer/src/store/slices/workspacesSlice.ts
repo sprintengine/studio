@@ -14,6 +14,7 @@ import {
   setEditorBuffer,
 } from '../../utils/editorBuffers'
 import { detectLanguage } from '../../utils/files'
+import { shouldAutoArchiveWorkspace } from '../../utils/workspaceAutoArchive'
 import { normalizeProjectRootKey } from '../../utils/projectKnowledge'
 import {
   guidedBriefLayoutModel,
@@ -127,6 +128,7 @@ export function defaultWorkspaceBacklogState(): WorkspaceBacklogState {
 const BACKLOG_VIEW_VALUES = {
   active: true,
   all: true,
+  epics: true,
   quick_wins: true,
   strategic_bets: true,
   defer: true,
@@ -138,6 +140,7 @@ const BACKLOG_VIEW_VALUES = {
 const BACKLOG_SORT_VALUES = {
   best: true,
   recent: true,
+  created: true,
   status: true,
   priority: true,
   largest: true,
@@ -238,6 +241,8 @@ export interface WorkspacesSliceActions {
   applyWorkspaceCreatedEvent: (apply: WorkspaceCreatedApply) => void
   setWorkspaceHighlight: (id: WorkspaceId, highlight: Partial<WorkspaceHighlight>) => void
   clearWorkspaceHighlight: (id: WorkspaceId) => void
+  setWorkspaceArchived: (id: WorkspaceId, archived: boolean) => void
+  archiveStaleWorkspaces: () => void
   recordWorkspaceTerminalActivity: (id: WorkspaceId, lastInputAt: number) => void
   forgetFolder: (folderPath: string) => void
   addWorkspace: (
@@ -846,6 +851,34 @@ export function createWorkspacesSlice(
         if (ws) ws.highlight = undefined
       }),
 
+    // Presentation-level archive flag: hides the workspace from the sidebar
+    // rail and the Sprints aside's default lenses. Never touches agents, run
+    // state, or window assignment, so unarchiving restores it exactly.
+    setWorkspaceArchived: (id, archived) =>
+      set((state) => {
+        const ws = state.workspaces.find((w) => w.id === id)
+        if (!ws) return
+        ws.archivedAt = archived ? Date.now() : null
+      }),
+
+    // Startup tidiness sweep: archive workspaces idle for 5+ days
+    // (shouldAutoArchiveWorkspace — starred rows, pending-work sprints, and
+    // the Automations host never qualify). Every window's active workspace is
+    // excluded so the sweep can never hide what someone is looking at. Typing
+    // into an archived workspace revives it (recordWorkspaceTerminalActivity).
+    archiveStaleWorkspaces: () =>
+      set((state) => {
+        const now = Date.now()
+        const activeIds = new Set<WorkspaceId | null>([
+          state.activeWorkspaceId,
+          ...state.workspaceWindows.map((windowState) => windowState.activeWorkspaceId),
+        ])
+        for (const ws of state.workspaces) {
+          if (activeIds.has(ws.id)) continue
+          if (shouldAutoArchiveWorkspace(ws, now)) ws.archivedAt = now
+        }
+      }),
+
     // Monotonic: `lastTerminalActivityAt` only moves forward, and is fed from the
     // user's last terminal input (typing), not terminal output — so reopening a
     // workspace never advances it. See deriveWorkspaceLastInputAt.
@@ -859,6 +892,9 @@ export function createWorkspacesSlice(
         ) {
           ws.lastTerminalActivityAt = lastInputAt
         }
+        // Real work revives an archived workspace — typing is the one signal
+        // that the user is back in it, so it reappears in the rail.
+        if (typeof ws.archivedAt === 'number') ws.archivedAt = null
       }),
 
     forgetFolder: (folderPath) =>

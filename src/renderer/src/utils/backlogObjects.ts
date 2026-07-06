@@ -64,6 +64,7 @@ export function hydrateBacklogScanResult(
       metadata: record.metadata ?? {},
       links: record.links ?? [],
       highlight: record.highlight,
+      createdAt: record.createdAt,
       updatedAt: record.updatedAt,
     }
     return createBacklogItem({

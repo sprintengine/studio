@@ -838,7 +838,9 @@ def test_mcp_agent_join_returns_prompt_registry_run_and_dispatch_context(tmp_pat
     assert result["roleManifest"]["id"] == "developer"
     assert result["promptContext"]["format"] == "composed_soul_coordination_prompt"
     assert "# SprintEngine Coordination Rules" in result["prompt"]
-    assert "Coordinate through the Sprint Engine MCP tools." in result["prompt"]
+    # The MCP-coordination rule lives in the shared sprintengine_workflow skill;
+    # role prompts no longer restate it.
+    assert "Coordinate through Sprint Engine MCP tools rather than editing run-store files directly" in result["prompt"]
     assert "# Sprint Engine Workflow" in result["prompt"]
     assert "# Sprint Engine Publish Feedback" in result["prompt"]
     assert "# Sprint Engine Architect Workflow" not in result["prompt"]

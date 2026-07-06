@@ -70,6 +70,14 @@ run('epicMetaBySlug maps each epic slug to its title and frontmatter colour', ()
   assert.equal(meta.has('backlog/x'), false)
 })
 
+run('epicMetaBySlug carries the epic display id when the scan has allocated one', () => {
+  // displayId is set by the scan-time allocation pass; the member pill labels
+  // itself with it. Absent (no id) the key is omitted, not set to undefined.
+  const epic = { ...mk('backlog/epics/auth-revamp.md', { type: 'epic', title: 'Auth revamp' }), displayId: 'MC-42' }
+  const meta = epicMetaBySlug([epic])
+  assert.deepEqual(meta.get('auth-revamp'), { title: 'Auth revamp', color: null, displayId: 'MC-42' })
+})
+
 run('items with no epic collapse into a single trailing No epic group', () => {
   const groups = groupItemsByEpic([
     mk('backlog/a.md', { status: 'idea' }),

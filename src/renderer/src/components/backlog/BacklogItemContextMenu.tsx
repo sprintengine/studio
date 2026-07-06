@@ -117,7 +117,7 @@ export const RISK_EDIT_ITEMS: SelectItem<RiskChoice>[] = [
 // Status submenu choices: lifecycle states the user sets directly. Archived is
 // deliberately absent — archiving is a file move owned by the top-level
 // Archive action, not a status flip.
-const STATUS_MENU_CHOICES: BacklogItemStatus[] = [
+export const STATUS_MENU_CHOICES: BacklogItemStatus[] = [
   'idea',
   'ready',
   'in_progress',
@@ -126,8 +126,9 @@ const STATUS_MENU_CHOICES: BacklogItemStatus[] = [
 ]
 
 // Leading slot for submenu choice rows: a check on the current value, an
-// equal-width spacer on the rest so labels align into one column.
-function MenuCheckGlyph({ visible }: { visible: boolean }): JSX.Element {
+// equal-width spacer on the rest so labels align into one column. Exported so
+// the detail-pane More-actions menu renders the same triage flyout choices.
+export function MenuCheckGlyph({ visible }: { visible: boolean }): JSX.Element {
   if (!visible) return <span className="icon-xs shrink-0" aria-hidden="true" />
   return (
     <svg viewBox="0 0 16 16" fill="none" className="icon-xs shrink-0" aria-hidden="true">

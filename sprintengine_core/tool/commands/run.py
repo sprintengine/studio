@@ -25,10 +25,12 @@ from sprintengine_core.tool.plans import (
     plan_path_artifact_value,
     plan_path_for_state,
     product_intake_path_artifact_value,
+    reference_source_display_path,
     refresh_artifact_fingerprint,
     safe_source_filename,
     slugify_team_name,
     source_bundle_reference_notes,
+    source_kind_is_reference,
     source_plan_kind,
     sources_dir_for_state,
     state_has_source_kind,
@@ -409,7 +411,38 @@ def cmd_init(args: argparse.Namespace) -> Dict[str, Any]:
             ])
         plan_task = plan_gate["task"]
         add_unique_values(plan_task, "implementationNotes", source_bundle_reference_notes(state))
-        if has_architect_plan_source:
+        if has_architect_plan_source and source_kind_is_reference(state, "architect_plan"):
+            # Reference-sourced implementation plan (a backlog item launched in
+            # place): the referenced file is the canonical plan. plan.md is NOT
+            # seeded — the architect updates the source file itself and writes
+            # plan.md as a thin manifest, mirroring the epic launch path.
+            plan_task = plan_gate["task"]
+            reference_path = reference_source_display_path(state, "architect_plan")
+            plan_task["title"] = "Review referenced plan in place and create task graph"
+            plan_task["description"] = (
+                f"Review the referenced implementation plan `{reference_path}` against the current codebase. "
+                "Update stale or incomplete plan content in that file itself, then write "
+                f"{plan_path_artifact_value(state_path)} as a manifest that references it "
+                "(project-root-relative), and create the full task graph."
+            )
+            plan_task["acceptanceCriteria"] = [
+                f"The referenced plan `{reference_path}` is read and verified against the current repository before task creation.",
+                "Stale, missing, or incorrect plan content is updated in the referenced plan file itself, not re-authored into plan.md.",
+                "plan.md is a manifest: it references the source plan by project-root-relative path with a verification note, and adds only the current-codebase index, cross-cutting decisions, risks, roster adaptations, and the task graph summary.",
+                "Architect plan artifact is marked ready for user approval after review.",
+                "Implementation, validation, and required review tasks are created with Sprint Engine plan commands.",
+                "Task cards include real integration contracts and verification checks from the reviewed plan.",
+            ]
+            plan_task["implementationNotes"] = [
+                "In worktree-mode runs, edit the worktree's copy of the referenced plan so updates ride the run branch and its pull request.",
+                "Do not copy valid plan prose into plan.md; the manifest references the plan and records verification, the codebase index, decisions, risks, and the task graph summary.",
+                "Run-scoped material (codebase index, roster adaptation, task graph summary) belongs in the plan.md manifest, not in the referenced plan file.",
+                "Keep task cards self-contained per the Task Card Quality Bar; workers should rarely need to open the referenced plan.",
+                *source_bundle_reference_notes(state),
+            ]
+            apply_source_context_to_task(plan_task, state, state_path)
+            refresh_artifact_fingerprint(plan_gate["artifact"], state_path)
+        elif has_architect_plan_source:
             seeded_plan = import_source_to_team_file(state, state_path, "architect_plan", "plan.md")
             plan_task = plan_gate["task"]
             if seeded_plan:

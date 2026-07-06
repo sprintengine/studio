@@ -1,9 +1,14 @@
 import type { Workspace } from '../types/workspace'
 
-// A workspace folds into its folder's "Show older" disclosure once it has gone
+// A workspace folds into its folder's "Show more" disclosure once it has gone
 // this long without being worked on. Kept as a single constant on purpose — the
 // fold is intentionally simple (recency only), with no per-user configuration.
-export const WORKSPACE_STALE_THRESHOLD_MS = 5 * 24 * 60 * 60 * 1000 // 5 days
+export const WORKSPACE_STALE_THRESHOLD_MS = 2 * 24 * 60 * 60 * 1000 // 2 days
+
+// Even inside the recency window, a folder shows at most this many rows at
+// rest; the overflow joins the fold (newest first, ahead of the stale rows).
+// Pinned rows never count against the cap — they must always be visible.
+export const WORKSPACE_RECENT_ROW_CAP = 10
 
 // "Last worked on" is the most recent of when the workspace was created and when
 // the user last typed into one of its terminals (lastTerminalActivityAt, fed from
@@ -23,25 +28,38 @@ export type WorkspaceRecencyPartition = {
 }
 
 // Splits a folder's workspaces into the rows shown eagerly and the rows tucked
-// behind "Show older", preserving the incoming (manual) order within each group.
-// `isPinned` keeps a workspace visible regardless of age — the sidebar passes
-// the active, starred, and busy (working/failed/needs-input) workspaces, which
-// must never hide.
+// behind "Show more", preserving the incoming order within each group.
+// Two rules decide the eager set:
+//  1. Recency window: only rows worked within WORKSPACE_STALE_THRESHOLD_MS.
+//  2. Row cap: at most WORKSPACE_RECENT_ROW_CAP rows even inside the window —
+//     the overflow moves to the FRONT of the fold (it is newer than the stale
+//     rows behind it), so paging the fold reads in recency order.
+// `isPinned` keeps a workspace visible regardless of age or cap — the sidebar
+// passes the active, starred, and busy (working/failed/needs-input) workspaces,
+// which must never hide.
 export function partitionWorkspacesByRecency(
   workspaces: Workspace[],
   now: number,
-  isPinned: (workspace: Workspace) => boolean
+  isPinned: (workspace: Workspace) => boolean,
+  recentRowCap: number = WORKSPACE_RECENT_ROW_CAP
 ): WorkspaceRecencyPartition {
   const recent: Workspace[] = []
+  const overflow: Workspace[] = []
   const stale: Workspace[] = []
   for (const workspace of workspaces) {
-    if (isPinned(workspace) || !isWorkspaceStale(workspace, now)) {
+    if (isPinned(workspace)) {
+      // Pinned rows always show, even past the cap — hiding the active, a
+      // starred, or a busy workspace is never acceptable tidiness.
+      recent.push(workspace)
+    } else if (isWorkspaceStale(workspace, now)) {
+      stale.push(workspace)
+    } else if (recent.length < recentRowCap) {
       recent.push(workspace)
     } else {
-      stale.push(workspace)
+      overflow.push(workspace)
     }
   }
-  return { recent, stale }
+  return { recent, stale: [...overflow, ...stale] }
 }
 
 // Workspaces touched within this window all count as "just now" for ordering, so

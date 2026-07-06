@@ -1,7 +1,10 @@
 import React, { useCallback, useMemo, useRef, useState } from 'react'
 import { Popover } from './Popover'
+import { MenuSwatchRow, MenuFlyoutItem } from './ContextMenu'
+import { Tooltip } from './Tooltip'
 import { FOCUS_RING_CLASS } from './tokens'
 import { TruncatedText } from './TruncatedText'
+import type { HighlightColor } from '../../types/workspace'
 
 export type OverflowMenuItem =
   | {
@@ -18,6 +21,38 @@ export type OverflowMenuItem =
       icon?: React.ReactNode
     }
   | { kind: 'separator'; id: string }
+  | {
+      // A color-swatch row (the shared MenuSwatchRow), for menus that also carry
+      // an identity/highlight colour — e.g. an epic's colour on the Backlog
+      // detail menu. Same swatches, clear control, and a11y as the right-click
+      // menu, wired into this menu's arrow-key nav.
+      kind: 'swatch'
+      id: string
+      label?: string
+      value: HighlightColor | null
+      onPick: (color: HighlightColor) => void
+      onClear: () => void
+    }
+  | {
+      // A flyout submenu (the shared MenuFlyoutItem), for menus that carry a
+      // nested set of choices — e.g. the Backlog detail menu's Size/Priority/
+      // Risk/Status editors. `render(close)` returns the flyout's MenuItem
+      // children; each choice calls its setter then `close()` to dismiss the
+      // whole overflow menu, matching how a flat item calls setOpen(false).
+      kind: 'flyout'
+      id: string
+      label: string
+      ariaLabel: string
+      icon?: React.ReactNode
+      disabled?: boolean
+      surfaceClassName?: string
+      render: (close: () => void) => React.ReactNode
+    }
+
+// Buttons that participate in roving focus: this menu's own items plus any
+// swatch buttons a MenuSwatchRow contributes (they carry data-menu-item).
+const FOCUSABLE_SELECTOR =
+  '[data-overflow-item="true"]:not([disabled]), [data-menu-item="true"]:not([disabled])'
 
 type OverflowMenuProps = {
   /** Required accessible name (e.g. "Switchboard overflow"). */
@@ -25,6 +60,8 @@ type OverflowMenuProps = {
   items: OverflowMenuItem[]
   /** Optional render for the trigger button; defaults to a kebab icon. */
   trigger?: (open: () => void, opened: boolean) => React.ReactNode
+  /** Hover/focus tooltip for the default kebab trigger (e.g. "More actions"). */
+  triggerTooltip?: string
   /** Horizontal alignment for the menu surface. */
   align?: 'start' | 'end'
 }
@@ -37,26 +74,27 @@ const KEBAB = (
   </svg>
 )
 
-export function OverflowMenu({ ariaLabel, items, trigger, align = 'end' }: OverflowMenuProps) {
+export function OverflowMenu({ ariaLabel, items, trigger, triggerTooltip, align = 'end' }: OverflowMenuProps) {
   const [open, setOpen] = useState(false)
   const menuRef = useRef<HTMLElement | null>(null)
 
   const interactiveItems = useMemo(
-    () => items.filter((item) => item.kind !== 'separator') as Extract<OverflowMenuItem, { kind?: 'item' }>[],
+    () =>
+      items.filter(
+        (item) => item.kind !== 'separator' && item.kind !== 'swatch' && item.kind !== 'flyout',
+      ) as Extract<OverflowMenuItem, { kind?: 'item' }>[],
     [items],
   )
 
   const focusFirstItem = useCallback((surface: HTMLElement) => {
     menuRef.current = surface
-    const first = surface.querySelector<HTMLButtonElement>('[data-overflow-item="true"]:not([disabled])')
+    const first = surface.querySelector<HTMLButtonElement>(FOCUSABLE_SELECTOR)
     first?.focus()
   }, [])
 
   const focusByOffset = (current: HTMLElement, offset: 1 | -1) => {
     if (!menuRef.current) return
-    const nodes = Array.from(
-      menuRef.current.querySelectorAll<HTMLButtonElement>('[data-overflow-item="true"]:not([disabled])'),
-    )
+    const nodes = Array.from(menuRef.current.querySelectorAll<HTMLButtonElement>(FOCUSABLE_SELECTOR))
     if (nodes.length === 0) return
     const idx = nodes.indexOf(current as HTMLButtonElement)
     const next = nodes[(idx + offset + nodes.length) % nodes.length]
@@ -72,15 +110,11 @@ export function OverflowMenu({ ariaLabel, items, trigger, align = 'end' }: Overf
       focusByOffset(event.currentTarget, -1)
     } else if (event.key === 'Home') {
       event.preventDefault()
-      const first = menuRef.current?.querySelector<HTMLButtonElement>(
-        '[data-overflow-item="true"]:not([disabled])',
-      )
+      const first = menuRef.current?.querySelector<HTMLButtonElement>(FOCUSABLE_SELECTOR)
       first?.focus()
     } else if (event.key === 'End') {
       event.preventDefault()
-      const all = menuRef.current?.querySelectorAll<HTMLButtonElement>(
-        '[data-overflow-item="true"]:not([disabled])',
-      )
+      const all = menuRef.current?.querySelectorAll<HTMLButtonElement>(FOCUSABLE_SELECTOR)
       all?.[all.length - 1]?.focus()
     }
   }
@@ -94,25 +128,37 @@ export function OverflowMenu({ ariaLabel, items, trigger, align = 'end' }: Overf
       placement={align === 'end' ? 'bottom-end' : 'bottom-start'}
       surfaceClassName="min-w-[200px] py-1"
       onOpenAutoFocus={focusFirstItem}
-      renderTrigger={({ ref, openPopover, open: opened, togglePopover, triggerProps }) => (
-        <button
-          ref={ref}
-          type="button"
-          aria-haspopup="menu"
-          aria-expanded={triggerProps['aria-expanded']}
-          aria-controls={triggerProps['aria-controls']}
-          aria-label={ariaLabel}
-          onClick={togglePopover}
-          className={[
-            'interactive inline-flex h-6 w-6 items-center justify-center rounded-[5px]',
-            'text-[color:var(--text-muted)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]',
-            opened ? 'bg-[color:var(--bg-hover)] text-[color:var(--text-strong)]' : '',
-            FOCUS_RING_CLASS,
-          ].join(' ')}
-        >
-          {trigger ? trigger(openPopover, opened) : KEBAB}
-        </button>
-      )}
+      renderTrigger={({ ref, openPopover, open: opened, togglePopover, triggerProps }) => {
+        const button = (
+          <button
+            ref={ref}
+            type="button"
+            aria-haspopup="menu"
+            aria-expanded={triggerProps['aria-expanded']}
+            aria-controls={triggerProps['aria-controls']}
+            aria-label={ariaLabel}
+            onClick={togglePopover}
+            className={[
+              'interactive inline-flex h-6 w-6 items-center justify-center rounded-[5px]',
+              'text-[color:var(--text-muted)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]',
+              opened ? 'bg-[color:var(--bg-hover)] text-[color:var(--text-strong)]' : '',
+              FOCUS_RING_CLASS,
+            ].join(' ')}
+          >
+            {trigger ? trigger(openPopover, opened) : KEBAB}
+          </button>
+        )
+        // A tooltip only makes sense on the default kebab; a custom trigger owns
+        // its own affordance. Suppressed while the menu is open so it doesn't
+        // linger over the surface.
+        return triggerTooltip && !trigger && !opened ? (
+          <Tooltip content={triggerTooltip} wrapperClassName="inline-flex">
+            {button}
+          </Tooltip>
+        ) : (
+          button
+        )
+      }}
     >
           {items.map((item) => {
             if (item.kind === 'separator') {
@@ -122,6 +168,33 @@ export function OverflowMenu({ ariaLabel, items, trigger, align = 'end' }: Overf
                   role="separator"
                   className="my-1 h-px bg-[color:var(--border-default)]"
                 />
+              )
+            }
+            if (item.kind === 'swatch') {
+              return (
+                <MenuSwatchRow
+                  key={item.id}
+                  label={item.label}
+                  value={item.value}
+                  onPick={item.onPick}
+                  onClear={item.onClear}
+                  onItemKeyDown={onItemKey}
+                />
+              )
+            }
+            if (item.kind === 'flyout') {
+              return (
+                <MenuFlyoutItem
+                  key={item.id}
+                  label={item.label}
+                  ariaLabel={item.ariaLabel}
+                  icon={item.icon}
+                  disabled={item.disabled}
+                  surfaceClassName={item.surfaceClassName}
+                  onItemKeyDown={onItemKey}
+                >
+                  {item.render(() => setOpen(false))}
+                </MenuFlyoutItem>
               )
             }
             const isFirst = item.id === interactiveItems[0]?.id

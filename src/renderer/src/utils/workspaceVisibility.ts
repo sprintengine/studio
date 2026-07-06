@@ -18,3 +18,11 @@ export function isAutomationsHostWorkspace(workspace: WorkspaceModeInput): boole
 export function isHiddenFromRail(_workspace: WorkspaceModeInput): boolean {
   return false
 }
+
+// True when the user archived the workspace (Sprints aside row action).
+// Deliberately separate from isHiddenFromRail: rail lists filter archived rows
+// out, but the command palette / search keeps them findable and window
+// assignment never consults this.
+export function isArchivedWorkspace(workspace: { archivedAt?: number | null }): boolean {
+  return typeof workspace.archivedAt === 'number'
+}

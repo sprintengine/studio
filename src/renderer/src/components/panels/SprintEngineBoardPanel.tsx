@@ -521,7 +521,7 @@ export default function SprintEngineBoardPanel(props: Props) {
 
  if (!workspace?.sprintEngineState) {
  return (
- <div className="flex h-full items-center justify-center bg-[color:var(--bg-app)] text-sm text-[color:var(--text-disabled)]">
+ <div className="flex h-full items-center justify-center bg-[color:var(--bg-surface)] text-sm text-[color:var(--text-disabled)]">
  Sprint workspace data is missing.
  </div>
  )
@@ -1905,7 +1905,7 @@ function SprintEngineBoardPanelContent({
  >
  {(['graph', 'kanban'] as SprintEngineTasksLayout[]).map((layout) => {
  const active = effectiveTasksLayout === layout
- const label = layout === 'graph' ? 'Graph' : 'Kanban'
+ const label = layout === 'graph' ? 'Graph' : 'Board'
  return (
  <button
  key={layout}
@@ -2119,7 +2119,7 @@ function SprintEngineBoardPanelContent({
  ) : null
 
  return (
- <div className="relative flex h-full flex-col overflow-hidden bg-[color:var(--bg-app)] text-[color:var(--text-strong)]">
+ <div className="relative flex h-full flex-col overflow-hidden bg-[color:var(--bg-surface)] text-[color:var(--text-strong)]">
  {runHero}
 
  <div className="sr-only" role="status" aria-live="polite">
@@ -2222,7 +2222,7 @@ function SprintEngineBoardPanelContent({
  id="sprintengine-view-panel-tasks"
  role="tabpanel"
  aria-labelledby="sprintengine-view-tab-tasks"
- className={`flex min-h-0 flex-1 flex-col bg-[color:var(--bg-app)] ${effectiveTasksLayout === 'kanban' ? 'focus:outline-none' : ''}`}
+ className={`flex min-h-0 flex-1 flex-col bg-[color:var(--bg-surface)] ${effectiveTasksLayout === 'kanban' ? 'focus:outline-none' : ''}`}
  tabIndex={effectiveTasksLayout === 'kanban' ? 0 : -1}
  onKeyDown={effectiveTasksLayout === 'kanban' ? handleKanbanKeyDown : undefined}
  aria-label={effectiveTasksLayout === 'kanban' ? 'Sprint kanban' : undefined}

@@ -52,8 +52,8 @@ run('workspaceLastWorkedAt prefers the most recent of createdAt and last termina
   )
 })
 
-run('isWorkspaceStale uses the 5-day threshold inclusively', () => {
-  assert.equal(isWorkspaceStale(makeWorkspace('fresh', { createdAt: NOW - 4 * DAY }), NOW), false)
+run('isWorkspaceStale uses the 2-day threshold inclusively', () => {
+  assert.equal(isWorkspaceStale(makeWorkspace('fresh', { createdAt: NOW - DAY }), NOW), false)
   assert.equal(isWorkspaceStale(makeWorkspace('edge', { createdAt: NOW - WORKSPACE_STALE_THRESHOLD_MS }), NOW), true)
   assert.equal(isWorkspaceStale(makeWorkspace('old', { createdAt: NOW - 30 * DAY }), NOW), true)
 })
@@ -61,13 +61,37 @@ run('isWorkspaceStale uses the 5-day threshold inclusively', () => {
 run('partition keeps recent rows and folds stale ones, preserving order', () => {
   const recentA = makeWorkspace('recent-a', { createdAt: NOW - DAY })
   const staleB = makeWorkspace('stale-b', { createdAt: NOW - 10 * DAY })
-  const recentC = makeWorkspace('recent-c', { createdAt: NOW - 6 * DAY, lastTerminalActivityAt: NOW - 2 * DAY })
+  const recentC = makeWorkspace('recent-c', { createdAt: NOW - 6 * DAY, lastTerminalActivityAt: NOW - DAY })
   const staleD = makeWorkspace('stale-d', { createdAt: NOW - 8 * DAY })
 
   const { recent, stale } = partitionWorkspacesByRecency([recentA, staleB, recentC, staleD], NOW, () => false)
 
   assert.deepEqual(recent.map((w) => w.id), ['recent-a', 'recent-c'])
   assert.deepEqual(stale.map((w) => w.id), ['stale-b', 'stale-d'])
+})
+
+run('partition caps the at-rest rows and folds the overflow ahead of stale rows', () => {
+  // Six recent rows with a cap of 4: the first four stay, the newer overflow
+  // rows lead the fold so paging reads in recency order, and genuinely stale
+  // rows trail. A pinned row never counts against the cap.
+  const recents = Array.from({ length: 6 }, (_, i) =>
+    makeWorkspace(`recent-${i}`, { createdAt: NOW - (i + 1) * 60_000 }),
+  )
+  const staleRow = makeWorkspace('stale', { createdAt: NOW - 10 * DAY })
+  const pinned = makeWorkspace('pinned', { createdAt: NOW - 30 * DAY })
+
+  const { recent, stale } = partitionWorkspacesByRecency(
+    [...recents, staleRow, pinned],
+    NOW,
+    (w) => w.id === 'pinned',
+    4,
+  )
+
+  assert.deepEqual(
+    recent.map((w) => w.id),
+    ['recent-0', 'recent-1', 'recent-2', 'recent-3', 'pinned'],
+  )
+  assert.deepEqual(stale.map((w) => w.id), ['recent-4', 'recent-5', 'stale'])
 })
 
 run('pinned workspaces never fold even when stale', () => {

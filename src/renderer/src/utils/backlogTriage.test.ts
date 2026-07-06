@@ -19,7 +19,9 @@ type Triage = {
   risk?: BacklogRisk
   status?: BacklogItemStatus
   modifiedAt?: number
+  createdAtMs?: number
   relativePath?: string
+  isEpic?: boolean
 }
 
 function mk(triage: Triage): {
@@ -28,7 +30,9 @@ function mk(triage: Triage): {
   risk?: BacklogRisk
   status: BacklogItemStatus
   modifiedAt: number
+  createdAtMs: number
   relativePath: string
+  isEpic: boolean
 } {
   return {
     difficulty: triage.difficulty,
@@ -36,7 +40,9 @@ function mk(triage: Triage): {
     risk: triage.risk,
     status: triage.status ?? 'idea',
     modifiedAt: triage.modifiedAt ?? 0,
+    createdAtMs: triage.createdAtMs ?? triage.modifiedAt ?? 0,
     relativePath: triage.relativePath ?? 'backlog/item.md',
+    isEpic: triage.isEpic ?? false,
   }
 }
 
@@ -121,6 +127,28 @@ run('recent sort orders by newest modified first', () => {
   const items = [mk({ modifiedAt: 10 }), mk({ modifiedAt: 30 }), mk({ modifiedAt: 20 })]
   const sorted = [...items].sort((a, b) => compareBacklogItems(a, b, 'recent'))
   assert.deepEqual(ids(sorted, (item) => String(item.modifiedAt)), ['30', '20', '10'])
+})
+
+run('created sort orders by newest created first, independent of modified time', () => {
+  // The freshly-created item leads even though it was modified least recently,
+  // proving the sort keys on createdAtMs rather than modifiedAt.
+  const items = [
+    mk({ createdAtMs: 10, modifiedAt: 99 }),
+    mk({ createdAtMs: 30, modifiedAt: 1 }),
+    mk({ createdAtMs: 20, modifiedAt: 50 }),
+  ]
+  const sorted = [...items].sort((a, b) => compareBacklogItems(a, b, 'created'))
+  assert.deepEqual(ids(sorted, (item) => String(item.createdAtMs)), ['30', '20', '10'])
+})
+
+run('epics view shows only epic containers, at any lifecycle stage', () => {
+  assert.equal(matchesBacklogView(mk({ isEpic: true }), 'epics'), true)
+  assert.equal(matchesBacklogView(mk({ isEpic: false }), 'epics'), false)
+  // Structural lens: a completed or archived epic still shows (unlike the
+  // working-set lenses, which hide terminal states).
+  assert.equal(matchesBacklogView(mk({ isEpic: true, status: 'completed' }), 'epics'), true)
+  assert.equal(matchesBacklogView(mk({ isEpic: true, status: 'archived' }), 'epics'), true)
+  assert.equal(matchesBacklogView(mk({ isEpic: false, status: 'in_progress' }), 'epics'), false)
 })
 
 run('status sort bands needs_input → in_progress → ready → idea → completed, newest within a band', () => {

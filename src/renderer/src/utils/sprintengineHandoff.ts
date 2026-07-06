@@ -31,10 +31,20 @@ function jsonBlock(payload: Record<string, unknown>): string {
   return ['```json', JSON.stringify(payload, null, 2), '```'].join('\n')
 }
 
+// Reference-sourced implementation plans mirror the epic contract: the backlog
+// file stays the canonical plan, plan.md is a thin manifest, and the architect's
+// added value is verification deltas plus the task graph — never re-authored prose.
+const referencedArchitectPlanGuidance = [
+  'Source plan type: implementation plan, referenced in place. The referenced backlog file is the canonical plan — it is not copied, and `sprintengine.init` does not seed plan.md from it.',
+  'As the architect: read the referenced plan, verify it against the current codebase, and update stale or incomplete plan content in that backlog file itself (in worktree-mode runs, edit the worktree copy so updates ride the pull request).',
+  'Then write `plan.md` as a thin manifest: the source plan referenced by project-root-relative path with a verification note, plus only run-scoped additions (current-codebase index, cross-cutting decisions, risks, roster adaptation, task-graph summary). Do not re-author valid plan prose into plan.md. Then create the full task graph.',
+].join('\n\n')
+
 function sourceTypeGuidance(
   hasExplicitSourceBundle: boolean,
   bundle: Array<{ kind: string }>,
   sourcePlanKind: string,
+  reference: boolean,
 ): string {
   if (sourcePlanKind === 'epic') {
     return [
@@ -54,6 +64,7 @@ function sourceTypeGuidance(
         return 'Source bundle type: product plan. `sprintengine.init` should seed product-requirements.md for review. A rostered product strategist should review and update it instead of recreating the same product plan.'
       }
       if (kind === 'architect_plan') {
+        if (reference) return referencedArchitectPlanGuidance
         return 'Source bundle type: implementation plan. `sprintengine.init` should seed plan.md for architect review. The architect should review it against the current codebase, update stale details, mark it ready for user approval, then create task cards.'
       }
       if (kind === 'design_notes') {
@@ -73,6 +84,7 @@ function sourceTypeGuidance(
     return 'Source plan type: product plan. `sprintengine.init` should seed product-requirements.md for review. A rostered product strategist should review and update it instead of recreating the same product plan.'
   }
   if (sourcePlanKind === 'architect_plan') {
+    if (reference) return referencedArchitectPlanGuidance
     return 'Source plan type: implementation plan. `sprintengine.init` should seed plan.md for architect review. The architect should review it against the current codebase, update stale details, then create task cards.'
   }
   return 'Source plan type: generic handoff. The sprint should use the normal product intake and architect planning gates.'
@@ -168,7 +180,7 @@ export function buildPlanFileSprintEngineHandoffPrompt({
     rosterArgs.length > 0
       ? `Roster constraint: the architect must create tasks only for these selected sprint agents: ${rosterArgs.join(', ')}. If a specialist role is absent from this roster, do not create tasks for that role.`
       : null,
-    sourceTypeGuidance(hasExplicitSourceBundle, bundle, sourcePlanKind),
+    sourceTypeGuidance(hasExplicitSourceBundle, bundle, sourcePlanKind, reference),
     autoRunRequested
       ? [
         'Auto-run was requested when this workspace was created. The Multicode app owns runner policy and will persist `auto` mode through its supervisor IPC immediately after `sprintengine.init` returns — you do not need to set runner mode from this terminal.',

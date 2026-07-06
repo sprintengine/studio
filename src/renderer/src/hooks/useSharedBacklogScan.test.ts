@@ -37,6 +37,7 @@ function makeRunner() {
           links: [],
           excerpt: '',
           modifiedAt: 0,
+          createdAtMs: 0,
           size: 0,
           sourceContent: '',
         },

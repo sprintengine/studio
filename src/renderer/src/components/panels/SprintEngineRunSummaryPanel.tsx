@@ -357,7 +357,7 @@ function PanelShell({
     <section
       aria-labelledby={embedded ? undefined : titleId}
       aria-label={embedded ? 'Run summary' : undefined}
-      className="flex h-full min-h-0 flex-col bg-[color:var(--bg-app)] text-[color:var(--text-default)]"
+      className="flex h-full min-h-0 flex-col bg-[color:var(--bg-surface)] text-[color:var(--text-default)]"
     >
       {embedded ? null : (
         <div className="relative shrink-0 bg-[color:var(--bg-surface)]">
