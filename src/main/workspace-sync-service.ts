@@ -26,6 +26,11 @@ type WorkspaceSyncServiceOptions = {
   persistDebounceMs?: number
   persistRoutingSnapshot?: (snapshot: WorkspaceSyncRoutingSnapshot) => void | Promise<void>
   logDiagnostic?: (diagnostic: { level: 'warning'; title: string; message: string; details?: string }) => void
+  // Resolves a CLI's conversation-resume capabilities from the plugin registry.
+  // Injected (app-services wires it to the registry) so this service stays a
+  // pure state machine; the resolved caps are stamped onto assign_session so
+  // stores never re-derive resume from a cli-id allowlist. Default: both false.
+  resolveResumeCapabilities?: (cli: string) => { resumeSession: boolean; sessionIdFromCaller: boolean }
 }
 
 export type WorkspaceSyncService = ReturnType<typeof createWorkspaceSyncService>
@@ -33,6 +38,8 @@ export type WorkspaceSyncService = ReturnType<typeof createWorkspaceSyncService>
 export function createWorkspaceSyncService(options: WorkspaceSyncServiceOptions = {}) {
   const maxReplayEvents = Math.max(1, Math.floor(options.maxReplayEvents ?? MAX_REPLAY_EVENTS))
   const now = options.now ?? Date.now
+  const resolveResumeCapabilities =
+    options.resolveResumeCapabilities ?? (() => ({ resumeSession: false, sessionIdFromCaller: false }))
   const initialSequence = options.initialSnapshot?.sequence ?? options.initialRoutingSnapshot?.sequence ?? 0
   let state: WorkspaceSyncState = options.initialSnapshot
     ? snapshotToState(options.initialSnapshot)
@@ -70,7 +77,7 @@ export function createWorkspaceSyncService(options: WorkspaceSyncServiceOptions 
       sourceWindowId,
       sequence: nextSequence,
       createdAt: now(),
-      payload: eventPayloadForCommand(validation.command, state),
+      payload: eventPayloadForCommand(validation.command, state, resolveResumeCapabilities),
     } as WorkspaceSyncEvent
 
     const applied = applyWorkspaceSyncEvent(state, event)
@@ -554,12 +561,27 @@ function validateSourceWindowOwnsWorkspace(
 // event additionally records the workspace ids the fallback window inherits,
 // computed from the closing window's current membership in the service snapshot
 // (the same set the reducer routes to the fallback).
-function eventPayloadForCommand(command: WorkspaceSyncCommand, state: WorkspaceSyncState): unknown {
+function eventPayloadForCommand(
+  command: WorkspaceSyncCommand,
+  state: WorkspaceSyncState,
+  resolveResumeCapabilities: (cli: string) => { resumeSession: boolean; sessionIdFromCaller: boolean }
+): unknown {
   if (command.type === 'workspace_window.close') {
     const closing = state.workspaceWindows.find((windowState) => windowState.id === command.payload.windowId)
     return {
       ...clone(command.payload),
       movedWorkspaceIds: closing ? [...closing.workspaceIds] : [],
+    }
+  }
+  if (command.type === 'agent_terminal.assign_session') {
+    // Resolve resume capabilities authoritatively from the registry and stamp
+    // them onto the broadcast event, so every applier stores the value given
+    // instead of re-deriving resume behavior from `cli`.
+    const caps = resolveResumeCapabilities(command.payload.cli)
+    return {
+      ...clone(command.payload),
+      cliResumeAvailable: caps.resumeSession,
+      cliUsesStableSessionId: caps.sessionIdFromCaller,
     }
   }
   return clone(command.payload)

@@ -7,6 +7,10 @@ import { dirname, join } from 'node:path'
 import type { ConversationProviderManifest } from '../shared/plugin-manifest'
 import { canonicalManifestPayload } from '../shared/modules/third-party-manifest'
 import {
+  agentCliSupportsConversationResume,
+  agentCliUsesStableSessionIdForResume,
+} from '../shared/agent-cli-resume'
+import {
   createPluginRegistry,
   validateManifestSource,
 } from './plugin-registry'
@@ -19,6 +23,7 @@ const FIXTURE_ROOT = join(process.cwd(), 'tests', 'fixtures', 'plugin-manifests'
 
 async function main(): Promise<void> {
   await testBundledManifestsLoad()
+  await testResumeCapabilitiesProjectedAndConsistent()
   await testClaudeBundledRenderMatchesExpected()
   await testCodexBundledRenderMatchesExpected()
   await testFixtureManifestsValidate()
@@ -87,6 +92,55 @@ async function testBundledManifestsLoad(): Promise<void> {
     const plugin = registry.get(id)
     assert.ok(plugin, `${id} should be retrievable`)
     assert.equal(plugin!.source, 'bundled')
+  }
+}
+
+// Manifest-conformance guardrail (the key regression net): the projection must
+// carry every bundled CLI's resume capabilities, and the resume predicates must
+// agree with the declared manifest capability per plugin. A future CLI wired
+// incorrectly (or a manifest whose capability drifts from the predicate) turns
+// a silent lost-conversation into a red build. Also pins the current bundled
+// values, incl. opencode's deliberate resume-off (MC-1465).
+async function testResumeCapabilitiesProjectedAndConsistent(): Promise<void> {
+  const registry = createPluginRegistry({
+    bundledRoot: BUNDLED_ROOT,
+    userRoot: join(await mkdtemp(join(tmpdir(), 'multicode-no-user-plugins-')), 'plugins'),
+  })
+  await registry.load()
+
+  const expected: Record<string, { resumeSession: boolean; sessionIdFromCaller: boolean }> = {
+    'claude-code': { resumeSession: true, sessionIdFromCaller: true },
+    zai: { resumeSession: true, sessionIdFromCaller: true },
+    codex: { resumeSession: true, sessionIdFromCaller: false },
+    opencode: { resumeSession: false, sessionIdFromCaller: false },
+    'generic-shell': { resumeSession: false, sessionIdFromCaller: false },
+  }
+
+  for (const entry of registry.list()) {
+    const plugin = registry.get(entry.id)
+    assert.ok(plugin, `${entry.id} should be retrievable`)
+    const caps = plugin!.manifest.capabilities
+
+    // Projection (Approach B): the list entry mirrors the manifest capabilities.
+    assert.equal(entry.resumeSession, caps.resumeSession, `${entry.id} projected resumeSession`)
+    assert.equal(entry.sessionIdFromCaller, caps.sessionIdFromCaller, `${entry.id} projected sessionIdFromCaller`)
+
+    // Predicate ⟺ declared capability (resolved from the projected entry).
+    const resolved = { resumeSession: entry.resumeSession, sessionIdFromCaller: entry.sessionIdFromCaller }
+    assert.equal(
+      agentCliSupportsConversationResume(resolved),
+      caps.resumeSession,
+      `${entry.id}: resume predicate must equal capabilities.resumeSession`
+    )
+    assert.equal(
+      agentCliUsesStableSessionIdForResume(resolved),
+      caps.sessionIdFromCaller,
+      `${entry.id}: stable-session predicate must equal capabilities.sessionIdFromCaller`
+    )
+
+    const pin = expected[entry.id]
+    assert.ok(pin, `unexpected bundled CLI ${entry.id} — update the resume-capability guardrail`)
+    assert.deepEqual({ resumeSession: entry.resumeSession, sessionIdFromCaller: entry.sessionIdFromCaller }, pin, entry.id)
   }
 }
 

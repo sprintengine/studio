@@ -358,6 +358,12 @@ export type PluginRegistryListEntry = {
   source: PluginSource
   version: number
   binary: string
+  // Conversation-resume capabilities projected from `capabilities` so renderer
+  // reducers/components can resolve resume behavior synchronously (including
+  // optimistic pre-launch) without reaching the main-process registry. See
+  // agent-cli-resume.ts (ResumeCapabilities) and resumeCapabilitiesForCli.
+  resumeSession: boolean
+  sessionIdFromCaller: boolean
   modelSelection?: PluginModelCatalog
   skillIntegration?: PluginSkillCatalog
   // Present when the CLI declares a credential (`auth`); the renderer uses the

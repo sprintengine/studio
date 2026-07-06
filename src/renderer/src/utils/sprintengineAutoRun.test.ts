@@ -3317,7 +3317,15 @@ async function testWindowDisposalRetainsResumeStateInStore(): Promise<void> {
   })
   const workspace = workspaceFixture({
     sprintEngineState,
-    agents: { 'developer-1': sprintAgent('developer-1', 'Dev One', 'claude-code') },
+    // A launched claude-code agent carries the resume caps stamped at session
+    // assign; retirement reads those stamped flags (not the catalog).
+    agents: {
+      'developer-1': {
+        ...sprintAgent('developer-1', 'Dev One', 'claude-code'),
+        cliResumeAvailable: true,
+        cliUsesStableSessionId: true,
+      },
+    },
     sprintEngineAutoState: {
       desiredMode: 'run_agents',
       runtimeState: 'running',

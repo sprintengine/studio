@@ -200,14 +200,27 @@ function agentStateSupportsCli(cli: string | undefined): cli is string {
   return getPluginById(pluginIdForCli(cli))?.manifest.skillIntegration?.harnessId === 'claude'
 }
 
+// Reads a CLI's conversation-resume capabilities from the plugin registry (the
+// authoritative manifest source; cli id == plugin id). The main process stamps
+// these onto the agent-terminal sync payload so renderer stores never re-derive
+// resume behavior from a hardcoded cli-id allowlist. Absent plugin → both false.
+export function cliResumeCapabilities(
+  cli: string | undefined
+): { resumeSession: boolean; sessionIdFromCaller: boolean } {
+  const caps = cli ? getPluginById(pluginIdForCli(cli))?.manifest.capabilities : undefined
+  return {
+    resumeSession: caps?.resumeSession ?? false,
+    sessionIdFromCaller: caps?.sessionIdFromCaller ?? false,
+  }
+}
+
 // True when the CLI resumes using the session id WE mint and pass at launch
 // (`sessionIdFromCaller`) — so our terminal key equals its resume id (Claude).
 // For these it is safe to resume against the terminal key when no harness id was
 // captured. CLIs that mint their own id (Codex) must NOT fall back to our key —
 // a bare `resume` (last session) is the correct default instead.
 function cliResumesWithCallerSessionId(cli: string | undefined): boolean {
-  if (!cli) return false
-  return getPluginById(pluginIdForCli(cli))?.manifest.capabilities.sessionIdFromCaller ?? false
+  return cliResumeCapabilities(cli).sessionIdFromCaller
 }
 const sprintEngineMcpRunRefCounts = new Map<string, number>()
 const sprintEngineMcpWorkspaceRefCounts = new Map<string, number>()

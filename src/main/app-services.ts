@@ -16,7 +16,7 @@ import { createSprintEngineArtifactHandlers } from './sprintengine-artifacts'
 import { createGatedSprintEngineMcpHub, createSprintEngineMcpHubService } from './sprintengine-mcp-hub'
 import { syncManagedSprintEngineMcpConfig } from './sprintengine-managed-mcp-sync'
 import { excludeMcpConfigFromWorktree } from './git'
-import { createTerminalRuntime } from './terminal-runtime'
+import { cliResumeCapabilities, createTerminalRuntime } from './terminal-runtime'
 import { createTerminalSnapshotSidecarStore } from './terminal-snapshot-sidecar'
 import { MulticodeUpdateService } from './update-service'
 import { GitHubTokenStore } from './github-token-store'
@@ -153,6 +153,7 @@ export function createAppServices(diagnosticsEnabled: boolean) {
     initialRoutingSnapshot: workspaceSyncRoutingSnapshotStore.read() ?? undefined,
     persistRoutingSnapshot: (snapshot) => workspaceSyncRoutingSnapshotStore.write(snapshot),
     logDiagnostic: logWorkspaceSyncDiagnostic,
+    resolveResumeCapabilities: cliResumeCapabilities,
   })
   const sprintEngineArtifacts = createSprintEngineArtifactHandlers({
     getAuthenticatedUserId: getAuthenticatedMulticodeUserId,

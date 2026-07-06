@@ -509,6 +509,10 @@ export function manifestToListEntry(plugin: LoadedPlugin): PluginRegistryListEnt
     source: plugin.source,
     version: plugin.manifest.version,
     binary: plugin.manifest.binary,
+    // Resume capabilities travel to the renderer so it can decide conversation
+    // resume synchronously (see PluginRegistryListEntry / agent-cli-resume.ts).
+    resumeSession: plugin.manifest.capabilities.resumeSession,
+    sessionIdFromCaller: plugin.manifest.capabilities.sessionIdFromCaller,
     // Only the label crosses to the renderer; the secret value never does.
     ...(auth ? { auth: { label: auth.label } } : {}),
     // Renderer pickers need the choices, not the arg templates.

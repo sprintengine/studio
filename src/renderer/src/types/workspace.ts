@@ -1849,6 +1849,11 @@ export type AgentState = {
   cliHasLaunched?: boolean
   cliOnboardingPromptSent?: boolean
   cliResumeAvailable?: boolean
+  // Whether this agent's CLI resumes with the session id WE mint (Claude-family)
+  // vs. minting its own (Codex). Stamped from the plugin manifest capability
+  // (`sessionIdFromCaller`) at session assign, the sibling of cliResumeAvailable;
+  // consumers use it to decide the resume token. See agent-cli-resume.ts.
+  cliUsesStableSessionId?: boolean
   // Explicit "resume this conversation on next launch" intent. Sprint agents are
   // otherwise always spawned fresh (auto-run re-dispatches roles); this flag is
   // set only by an explicit board re-open of a completed run's recorded session

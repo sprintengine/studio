@@ -154,7 +154,8 @@
     ]
   },
   "capabilities": {
-    "resumeSession": true,
+    "$comment": "resumeSession is intentionally false: OpenCode's resume (opencode run --continue --session {{sessionId}}) is structurally caller-independent like Codex and very likely works, but MC-1464 excluded it as unverified and real-app OpenCode resume is not drivable headless. false = zero behavior change vs. today. Flip to true (no code change) once resume is verified end-to-end to preserve the conversation. See backlog MC-1465.",
+    "resumeSession": false,
     "sessionIdFromCaller": false,
     "toolUse": true,
     "mcpServers": true,
