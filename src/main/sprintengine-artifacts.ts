@@ -13,6 +13,8 @@ import type {
   SprintEngineRosterReplenishInput,
   SprintEngineRunnerSetInput,
   SprintEngineStateInitializeInput,
+  SprintEngineStateInitializeSource,
+  SprintEngineStateInitializeSourceBundleItem,
   SprintEngineTaskCommentInput,
   SprintEngineTaskCreateInput,
   SprintEngineTaskMutationRole,
@@ -111,6 +113,8 @@ type SerializableSprintEngineStatePayload = {
   useWorktrees: boolean
   roleRuntimes: Record<string, { model?: string | null; cli?: string | null }>
   enabledRoles: string[]
+  source: SprintEngineStateInitializeSource | null
+  sourceBundle: SprintEngineStateInitializeSourceBundleItem[]
 }
 
 type SprintEngineEventMetadata = {
@@ -381,7 +385,44 @@ function resolveInitialSprintEngineStatePayload(payload: SprintEngineStateInitia
     useWorktrees: payload?.useWorktrees === true,
     roleRuntimes: resolveRoleRuntimes(payload?.roleRuntimes),
     enabledRoles: resolveEnabledRoles(payload?.enabledRoles),
+    source: resolveInitSource(payload?.source),
+    sourceBundle: resolveInitSourceBundle(payload?.sourceBundle),
   }
+}
+
+// Keep only source entries with the non-empty string fields Python persists.
+// A bundle item without a path carries no reference, so it is dropped.
+function resolveInitSourceItem(
+  input: SprintEngineStateInitializeSource | SprintEngineStateInitializeSourceBundleItem | undefined,
+): SprintEngineStateInitializeSource | null {
+  if (!input || typeof input !== 'object') return null
+  const kind = typeof input.kind === 'string' ? input.kind.trim() : ''
+  const origin = typeof input.origin === 'string' ? input.origin.trim() : ''
+  const path = typeof input.path === 'string' ? input.path.trim() : ''
+  if (!kind || !origin || !path) return null
+  const resolved: SprintEngineStateInitializeSource = { kind, origin, path }
+  const planKind = 'planKind' in input && typeof input.planKind === 'string' ? input.planKind.trim() : ''
+  const originalPath = typeof input.originalPath === 'string' ? input.originalPath.trim() : ''
+  const capturedAt = typeof input.capturedAt === 'string' ? input.capturedAt.trim() : ''
+  if (planKind) resolved.planKind = planKind
+  if (originalPath) resolved.originalPath = originalPath
+  if (capturedAt) resolved.capturedAt = capturedAt
+  return resolved
+}
+
+function resolveInitSource(
+  input: SprintEngineStateInitializeInput['source'],
+): SprintEngineStateInitializeSource | null {
+  return resolveInitSourceItem(input)
+}
+
+function resolveInitSourceBundle(
+  input: SprintEngineStateInitializeInput['sourceBundle'],
+): SprintEngineStateInitializeSourceBundleItem[] {
+  if (!Array.isArray(input)) return []
+  return input
+    .map((item) => resolveInitSourceItem(item))
+    .filter((item): item is SprintEngineStateInitializeSourceBundleItem => item !== null)
 }
 
 // The enabled role ids (architect always included) forwarded to Python init as
@@ -463,6 +504,12 @@ function sprintEngineInitArgs(state: ValidSprintEngineStatePath, payload: Serial
   }
   if (payload.enabledRoles.length > 0) {
     args.push('--configured-roles-json', JSON.stringify(payload.enabledRoles))
+  }
+  if (payload.source) {
+    args.push('--source-json', JSON.stringify(payload.source))
+  }
+  if (payload.sourceBundle.length > 0) {
+    args.push('--source-bundle-json', JSON.stringify(payload.sourceBundle))
   }
   return args
 }

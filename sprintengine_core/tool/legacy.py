@@ -447,6 +447,16 @@ def build_parser() -> argparse.ArgumentParser:
         default=False,
         help="Run this team in one shared git worktree + branch so all agents work in the same isolated checkout and commit per task.",
     )
+    p.add_argument(
+        "--source-json",
+        dest="source_json",
+        help="JSON object of the resolved root source metadata (kind/origin/path/planKind/capturedAt). App-created runs seed it into run.yaml so the Sprint Inbox shows the source before any agent runs handover.",
+    )
+    p.add_argument(
+        "--source-bundle-json",
+        dest="source_bundle_json",
+        help="JSON array of resolved source bundle items (kind/origin/path/capturedAt) seeded into run.yaml alongside --source-json.",
+    )
     p.set_defaults(handler=run_commands.init)
 
     # recover

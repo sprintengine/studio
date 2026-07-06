@@ -19,6 +19,12 @@ type PlanFileSprintEngineHandoffPromptArgs = {
   // backlog-sourced sprints so the canonical design docs stay authoritative and
   // are reviewed/updated in place.
   reference?: boolean
+  // When true, the Multicode app already seeded the source into run.yaml and ran
+  // init at workspace creation, so the architect prompt drops the handover step:
+  // a second handover errors ("Team already has bootstrap files") and confuses
+  // the agent. CLI/headless starts (which build their own prompt in Python) and
+  // copy-mode app paths keep the handover step.
+  seedAlreadyPersisted?: boolean
 }
 
 function jsonBlock(payload: Record<string, unknown>): string {
@@ -83,6 +89,7 @@ export function buildPlanFileSprintEngineHandoffPrompt({
   autoRunRequested = false,
   useWorktrees = false,
   reference = false,
+  seedAlreadyPersisted = false,
 }: PlanFileSprintEngineHandoffPromptArgs): string {
   const hasExplicitSourceBundle = sourceBundle.length > 0
   const bundle = hasExplicitSourceBundle
@@ -149,9 +156,13 @@ export function buildPlanFileSprintEngineHandoffPrompt({
     `Goal: ${goal}`,
     sourceSummary,
     `Source snapshot: ${contentLines} total text line${contentLines === 1 ? '' : 's'} selected by the user.`,
-    'The renderer has only created local workspace metadata and this startup prompt. Canonical Sprint Engine files must be created by the managed `multicode-sprintengine` MCP server, which resolves run and workspace routing from its registered HTTP run context. Do not pass server-owned routing fields in autonomous MCP tool payloads. Do not write run-store files, `handover.md`, task state, or artifact state directly.',
-    handoverCalls,
-    'Only after `sprintengine.handover` succeeds, initialize the sprint state for this managed session:',
+    seedAlreadyPersisted
+      ? 'The Multicode app has already created the run store and seeded this sprint source. The remaining canonical Sprint Engine files (product requirements, plan, task cards) are still created by the managed `multicode-sprintengine` MCP server, which resolves run and workspace routing from its registered HTTP run context. Do not pass server-owned routing fields in autonomous MCP tool payloads. Do not write run-store files, `handover.md`, task state, or artifact state directly. The source is already registered — do NOT call `sprintengine.handover`.'
+      : 'The renderer has only created local workspace metadata and this startup prompt. Canonical Sprint Engine files must be created by the managed `multicode-sprintengine` MCP server, which resolves run and workspace routing from its registered HTTP run context. Do not pass server-owned routing fields in autonomous MCP tool payloads. Do not write run-store files, `handover.md`, task state, or artifact state directly.',
+    seedAlreadyPersisted ? null : handoverCalls,
+    seedAlreadyPersisted
+      ? 'Initialize the sprint state for this managed session:'
+      : 'Only after `sprintengine.handover` succeeds, initialize the sprint state for this managed session:',
     '`sprintengine.init`',
     jsonBlock(initPayload),
     rosterArgs.length > 0

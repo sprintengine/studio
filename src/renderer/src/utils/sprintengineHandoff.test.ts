@@ -205,8 +205,33 @@ function testEpicHandoffReferencesChildrenAndGuidesInPlaceReview(): void {
   assert.ok(!CLI_INSTRUCTION_PATTERN.test(prompt), 'epic handoff does not instruct sprintengine CLI commands')
 }
 
+function testSeedAlreadyPersistedDropsHandoverStep(): void {
+  const base = {
+    teamSlug: 'checkout-flow',
+    goal: 'Checkout Flow',
+    sourcePath: 'backlog/checkout-flow.md',
+    sourceContent: '# Checkout Flow\nShip it.',
+    sourcePlanKind: 'architect_plan' as const,
+    statePath: '.multi-code/sprintengine/checkout-flow/run.yaml',
+    reference: true,
+  }
+
+  const seeded = buildPlanFileSprintEngineHandoffPrompt({ ...base, seedAlreadyPersisted: true })
+  assert.ok(!seeded.includes('Call `sprintengine.handover`'), 'app-seeded prompt drops the handover call instruction')
+  assert.ok(!seeded.includes('"handoverPath"'), 'app-seeded prompt drops the handover payload')
+  assert.ok(!seeded.includes('Only after `sprintengine.handover` succeeds'), 'app-seeded prompt drops the handover-then-init sequencing')
+  assert.ok(seeded.includes('do NOT call `sprintengine.handover`'), 'app-seeded prompt tells the agent not to handover')
+  assert.ok(seeded.includes('sprintengine.init'), 'app-seeded prompt still initializes the run')
+  assert.ok(seeded.includes('seeded this sprint source'), 'app-seeded prompt states the source is already seeded')
+
+  const notSeeded = buildPlanFileSprintEngineHandoffPrompt({ ...base, seedAlreadyPersisted: false })
+  assert.ok(notSeeded.includes('Call `sprintengine.handover`'), 'non-seeded (CLI/copy) prompt keeps the handover call instruction')
+  assert.ok(!notSeeded.includes('do NOT call `sprintengine.handover`'), 'non-seeded prompt omits the skip-handover guidance')
+}
+
 function main(): void {
   testPlanFileHandoffIsMcpNative()
+  testSeedAlreadyPersistedDropsHandoverStep()
   testPlanFileHandoffBundleIssuesOneHandoverCallWithSourceBundle()
   testBacklogHandoffUsesBacklogPathsAndKeepsManagedMcpInvariants()
   testBacklogBundleUsesRelativeBundlePaths()
