@@ -17,6 +17,8 @@ export type { ConfirmDialogOptions, ConfirmDialogProps, PromptDialogOptions } fr
 export { CliModelListbox, CliModelPickerButton } from './CliModelListbox'
 export type { CliModelListboxOption } from './CliModelListbox'
 export { Popover } from './Popover'
+export { FilterMenu } from './FilterMenu'
+export type { FilterMenuGroup } from './FilterMenu'
 export type { PopoverProps, PopoverPlacement } from './Popover'
 export { OverflowMenu } from './OverflowMenu'
 export type { OverflowMenuItem } from './OverflowMenu'

@@ -245,6 +245,13 @@ export default function WorkspaceManager() {
       }
     })
   }, [])
+  // Startup tidiness sweep: archive workspaces idle for 5+ days (pinned states,
+  // starred rows, and every window's active workspace never qualify). Once per
+  // window mount — the sweep is idempotent, so a second window re-running it is
+  // harmless.
+  useEffect(() => {
+    useWorkspaceStore.getState().archiveStaleWorkspaces()
+  }, [])
   const workspaces = useWorkspaceStore(useShallow((s) => selectWorkspaceManagerWorkspaces(s.workspaces)))
   const workspaceWindows = useWorkspaceStore((s) => s.workspaceWindows)
   const primaryWorkspaceWindowId = useWorkspaceStore((s) => s.primaryWorkspaceWindowId)
@@ -2631,6 +2638,11 @@ export default function WorkspaceManager() {
           />
         }
       />
+      {/* Card row: the workspace card and (when open) the Sprint Engines aside
+          share the strip under the full-width WorkspaceHeader, so the header's
+          right-edge controls keep the window's true right edge regardless of
+          whether the aside is open. */}
+      <div className="flex min-h-0 flex-1 flex-row">
       {/* The workspace card: everything inside the rounded surface belongs to
           the active workspace. With the Sprint Engines aside open the card
           also rounds its right edge, reading as a card floating between two
@@ -2766,7 +2778,6 @@ export default function WorkspaceManager() {
         />
       </div>
       </div>
-      </div>
       {showSprintEnginesAside ? (
         <SprintEnginesAside
           activeWorkspaceId={windowActiveWorkspaceId}
@@ -2778,6 +2789,8 @@ export default function WorkspaceManager() {
           onClose={() => setSprintEnginesAsideOpen(false)}
         />
       ) : null}
+      </div>
+      </div>
       {/* Win/linux caption buttons pin to the window's absolute top-right corner
           (above whatever column owns that edge — content or the Sprint Engines
           aside), since the split chrome has no full-width bar to host them. */}

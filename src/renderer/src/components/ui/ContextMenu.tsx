@@ -232,12 +232,16 @@ type MenuSwatchRowProps = {
   value: HighlightColor | null
   onPick: (color: HighlightColor) => void
   onClear: () => void
+  /** Optional keydown handler attached to each swatch button, so a host menu
+   *  with its own roving-focus nav (e.g. OverflowMenu) can drive arrow keys
+   *  through the swatches. ContextMenu omits it and keeps its own handling. */
+  onItemKeyDown?: (event: React.KeyboardEvent<HTMLButtonElement>) => void
 }
 
 // One-tap color choice row: a clear control followed by the seven canonical
 // highlight swatches. Swatches behave as a radio group within the menu —
 // each is a menuitemradio carrying aria-checked for the applied color.
-export function MenuSwatchRow({ label, value, onPick, onClear }: MenuSwatchRowProps) {
+export function MenuSwatchRow({ label, value, onPick, onClear, onItemKeyDown }: MenuSwatchRowProps) {
   return (
     <>
       {label ? (
@@ -254,6 +258,7 @@ export function MenuSwatchRow({ label, value, onPick, onClear }: MenuSwatchRowPr
             data-menu-item="true"
             tabIndex={-1}
             onClick={onClear}
+            onKeyDown={onItemKeyDown}
             aria-label="Clear color"
             className={`flex h-5 w-5 items-center justify-center rounded-full border border-[color:var(--border-default)] text-[color:var(--text-disabled)] transition-colors hover:border-[color:var(--text-disabled)] hover:text-[color:var(--text-default)] ${
               value === null ? 'ring-1 ring-[color:var(--text-default)]' : ''
@@ -276,6 +281,7 @@ export function MenuSwatchRow({ label, value, onPick, onClear }: MenuSwatchRowPr
                 data-menu-item="true"
                 tabIndex={-1}
                 onClick={() => onPick(color)}
+                onKeyDown={onItemKeyDown}
                 aria-label={`Highlight ${swatch.label}`}
                 className={`h-5 w-5 rounded-full transition-transform hover:scale-110 ${
                   selected ? 'ring-2 ring-offset-1 ring-offset-[color:var(--bg-surface)]' : ''
@@ -303,6 +309,11 @@ type MenuFlyoutItemProps = {
   disabled?: boolean
   /** Extra classes for the flyout surface — typically a `min-w-[…]` floor. */
   surfaceClassName?: string
+  /** Optional keydown handler run before the trigger's own open logic, so a host
+   *  menu with its own roving-focus nav (e.g. OverflowMenu) can drive
+   *  Up/Down/Home/End through the flyout trigger. ContextMenu omits it and keeps
+   *  its own handling; the trigger still owns ArrowRight/Enter/Space to open. */
+  onItemKeyDown?: (event: React.KeyboardEvent<HTMLButtonElement>) => void
   /** Open-state notifications, e.g. to lazily refresh flyout content. */
   onOpenChange?: (open: boolean) => void
   /** Flyout content: MenuItem / MenuDivider / MenuSwatchRow children. */
@@ -377,6 +388,7 @@ export function MenuFlyoutItem({
   icon,
   disabled,
   surfaceClassName,
+  onItemKeyDown,
   onOpenChange,
   children,
 }: MenuFlyoutItemProps) {
@@ -442,6 +454,9 @@ export function MenuFlyoutItem({
         }}
         onKeyDown={(event) => {
           if (disabled) return
+          // Let a host menu drive its roving focus first (Up/Down/Home/End); the
+          // trigger still owns ArrowRight/Enter/Space to open the flyout.
+          onItemKeyDown?.(event)
           if (event.key === 'ArrowRight' || event.key === 'Enter' || event.key === ' ') {
             event.preventDefault()
             event.stopPropagation()

@@ -56,7 +56,10 @@ import type { CommandId } from '../commands/commandRegistry'
 import { createGuidedBriefSlice } from './slices/guidedBriefSlice'
 import { createAuthSlice } from './slices/authSlice'
 import { createSettingsSlice, normalizeAppSettings } from './slices/settingsSlice'
+import type { SprintsAsideViewState } from './slices/settingsSlice'
 import { clampSidebarWidth } from '../components/workspace/sidebarWidth'
+import { clampSprintsAsideWidth } from '../components/workspace/sprintsAsideWidth'
+import type { SprintsSort, SprintsView } from '../utils/sprintEnginesNav'
 import {
   createWorkspacesSlice,
   type SoloChatSeed,
@@ -159,6 +162,10 @@ export interface WorkspaceStore extends PluginsSlice, CliAvailabilitySlice {
   setSprintEngineRoleRegistry: (registry: SprintEngineRoleRegistry | null) => void
   sprintEnginesAsideOpen: boolean
   setSprintEnginesAsideOpen: (open: boolean) => void
+  sprintsAsideView: SprintsAsideViewState
+  setSprintsAsideView: (patch: Partial<SprintsAsideViewState>) => void
+  sprintsAsideWidth: number
+  setSprintsAsideWidth: (width: number) => void
   openFilesInExternalWindow: boolean
   setOpenFilesInExternalWindow: (enabled: boolean) => void
   settingsOverlay: {
@@ -200,6 +207,8 @@ export interface WorkspaceStore extends PluginsSlice, CliAvailabilitySlice {
   forgetFolder: (folderPath: string) => void
   setWorkspaceHighlight: (id: WorkspaceId, highlight: Partial<WorkspaceHighlight>) => void
   clearWorkspaceHighlight: (id: WorkspaceId) => void
+  setWorkspaceArchived: (id: WorkspaceId, archived: boolean) => void
+  archiveStaleWorkspaces: () => void
   recordWorkspaceTerminalActivity: (id: WorkspaceId, lastInputAt: number) => void
   reconcileWorkspaceAgentLaunchFlags: (sessions: TerminalSessionSnapshot[]) => void
   setAuthState: (authState: MulticodeAuthState) => void
@@ -493,11 +502,31 @@ type RegistryEnvelopeState = {
   workspaceRegistryEmptyState: unknown
 }
 
+const SPRINTS_ASIDE_VIEWS: ReadonlySet<SprintsView> = new Set(['active', 'attention', 'running', 'completed', 'archived'])
+const SPRINTS_ASIDE_SORTS: ReadonlySet<SprintsSort> = new Set(['attention', 'updated_desc', 'updated_asc', 'created_desc', 'created_asc'])
+
+// Hydration guard for the persisted aside view: unknown enum values (from a
+// newer/older build) fall back to the current in-memory default per axis.
+function normalizeSprintsAsideView(
+  persisted: unknown,
+  current: SprintsAsideViewState,
+): SprintsAsideViewState {
+  if (typeof persisted !== 'object' || persisted === null) return current
+  const raw = persisted as Partial<Record<'view' | 'project' | 'sort', unknown>>
+  return {
+    view: SPRINTS_ASIDE_VIEWS.has(raw.view as SprintsView) ? (raw.view as SprintsView) : current.view,
+    project: typeof raw.project === 'string' ? raw.project : null,
+    sort: SPRINTS_ASIDE_SORTS.has(raw.sort as SprintsSort) ? (raw.sort as SprintsSort) : current.sort,
+  }
+}
+
 type SettingsEnvelopeState = {
   appSettings: unknown
   sidebarCollapsed: unknown
   sidebarWidth: unknown
   sprintEnginesAsideOpen: unknown
+  sprintsAsideWidth: unknown
+  sprintsAsideView: unknown
   openFilesInExternalWindow: unknown
 }
 
@@ -586,6 +615,8 @@ function extractSettingsFields(state: Record<string, unknown>): SettingsEnvelope
     sidebarCollapsed: state.sidebarCollapsed,
     sidebarWidth: state.sidebarWidth,
     sprintEnginesAsideOpen: state.sprintEnginesAsideOpen,
+    sprintsAsideWidth: state.sprintsAsideWidth,
+    sprintsAsideView: state.sprintsAsideView,
     openFilesInExternalWindow: state.openFilesInExternalWindow,
   }
 }
@@ -620,6 +651,8 @@ function partializeWorkspaceStoreState(s: WorkspaceStore): ReturnType<typeof par
         sidebarCollapsed: s.sidebarCollapsed,
         sidebarWidth: s.sidebarWidth,
         sprintEnginesAsideOpen: s.sprintEnginesAsideOpen,
+        sprintsAsideWidth: s.sprintsAsideWidth,
+        sprintsAsideView: s.sprintsAsideView,
         openFilesInExternalWindow: s.openFilesInExternalWindow,
         workspaces: retainedWorkspaces,
         activeWorkspaceId: retainedActiveId ?? retainedWorkspaces[0]?.id ?? s.activeWorkspaceId,
@@ -642,6 +675,8 @@ function partializeWorkspaceStoreState(s: WorkspaceStore): ReturnType<typeof par
     sidebarCollapsed: s.sidebarCollapsed,
     sidebarWidth: s.sidebarWidth,
     sprintEnginesAsideOpen: s.sprintEnginesAsideOpen,
+    sprintsAsideWidth: s.sprintsAsideWidth,
+    sprintsAsideView: s.sprintsAsideView,
     openFilesInExternalWindow: s.openFilesInExternalWindow,
     ...partializeRegistryFields(s),
   }
@@ -1172,7 +1207,7 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
         }
       },
       merge: (persisted, current) => {
-        const state = persisted as Partial<WorkspaceMigrationState & { sidebarCollapsed?: boolean; sidebarWidth?: number; sprintEnginesAsideOpen?: boolean }> | undefined
+        const state = persisted as Partial<WorkspaceMigrationState & { sidebarCollapsed?: boolean; sidebarWidth?: number; sprintEnginesAsideOpen?: boolean; sprintsAsideWidth?: number; sprintsAsideView?: unknown }> | undefined
         const rawWorkspaces = state?.workspaces ?? current.workspaces
         const hydrated = hydrateSprintEngineLocalRunSettings(
           rawWorkspaces,
@@ -1205,6 +1240,11 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
             typeof state?.sprintEnginesAsideOpen === 'boolean'
               ? state.sprintEnginesAsideOpen
               : current.sprintEnginesAsideOpen,
+          sprintsAsideWidth:
+            typeof state?.sprintsAsideWidth === 'number'
+              ? clampSprintsAsideWidth(state.sprintsAsideWidth)
+              : current.sprintsAsideWidth,
+          sprintsAsideView: normalizeSprintsAsideView(state?.sprintsAsideView, current.sprintsAsideView),
           workspaceRegistryEmptyState:
             state?.workspaceRegistryEmptyState !== undefined
               ? state.workspaceRegistryEmptyState

@@ -1162,6 +1162,7 @@ export default function GitPanel({ workspaceId }: { workspaceId: string }) {
               onChange={(next) => void handleSwitchBranch(next)}
               disabled={Boolean(busy) || branchOptions.length === 0}
               className="w-full"
+              triggerMinWidthClassName="min-w-0"
             />
           </div>
           {/*
@@ -1192,6 +1193,7 @@ export default function GitPanel({ workspaceId }: { workspaceId: string }) {
                 }}
                 disabled={Boolean(busy)}
                 className="w-full"
+                triggerMinWidthClassName="min-w-0"
               />
               {activeScope?.kind === 'worktree' ? (
                 <Tooltip content={`Review this branch's changes against ${reviewDiffTarget.baseRef}`} placement="bottom">

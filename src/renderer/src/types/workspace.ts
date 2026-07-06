@@ -1953,6 +1953,7 @@ export type WorkspaceFileExplorerState = {
 export type BacklogView =
   | 'active'
   | 'all'
+  | 'epics'
   | 'quick_wins'
   | 'strategic_bets'
   | 'defer'
@@ -1964,7 +1965,7 @@ export type BacklogView =
 // (prerequisites before dependents, unblocked frontier first) the panel applies
 // via orderItemsByDependencies, branching around the pairwise compareBacklogItems
 // the other sorts use.
-export type BacklogSort = 'best' | 'recent' | 'status' | 'priority' | 'largest' | 'smallest' | 'dependency'
+export type BacklogSort = 'best' | 'recent' | 'created' | 'status' | 'priority' | 'largest' | 'smallest' | 'dependency'
 
 // Backlog grouping axis, orthogonal to view/sort. `none` is the flat list;
 // `by_epic` renders collapsible epic headers with their children nested.
@@ -2047,4 +2048,9 @@ export type Workspace = {
   highlight?: WorkspaceHighlight
   createdAt: number
   lastTerminalActivityAt?: number | null
+  // When set, the workspace is archived: hidden from the sidebar rail and the
+  // Sprints aside's default lenses, but fully intact on disk and in the store —
+  // visible under the aside's Archived lens and still findable in search.
+  // Presentation-level only; archiving never touches agents or run state.
+  archivedAt?: number | null
 }

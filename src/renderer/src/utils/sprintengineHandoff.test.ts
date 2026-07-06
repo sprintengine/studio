@@ -205,6 +205,43 @@ function testEpicHandoffReferencesChildrenAndGuidesInPlaceReview(): void {
   assert.ok(!CLI_INSTRUCTION_PATTERN.test(prompt), 'epic handoff does not instruct sprintengine CLI commands')
 }
 
+function testReferencedArchitectPlanGetsManifestGuidanceNotSeedGuidance(): void {
+  const base = {
+    teamSlug: 'checkout-flow',
+    goal: 'Checkout Flow',
+    sourcePath: 'backlog/checkout-flow.md',
+    sourceContent: '# Checkout Flow\nShip it.',
+    sourcePlanKind: 'architect_plan' as const,
+    statePath: '.multi-code/sprintengine/checkout-flow/run.yaml',
+  }
+
+  const referenced = buildPlanFileSprintEngineHandoffPrompt({ ...base, reference: true })
+  assert.ok(referenced.includes('implementation plan, referenced in place'), 'reference launch gets the in-place plan guidance')
+  assert.ok(referenced.includes('does not seed plan.md'), 'reference guidance states plan.md is not seeded')
+  assert.ok(referenced.includes('thin manifest'), 'reference guidance describes the manifest plan.md')
+  assert.ok(!referenced.includes('should seed plan.md'), 'reference launch drops the copy-mode seed guidance')
+
+  const copied = buildPlanFileSprintEngineHandoffPrompt(base)
+  assert.ok(copied.includes('should seed plan.md'), 'copy launch keeps the seed guidance')
+  assert.ok(!copied.includes('referenced in place'), 'copy launch omits the in-place plan guidance')
+
+  // Bundle-shaped launches classify by bundle kind and must branch the same way.
+  const bundleReferenced = buildPlanFileSprintEngineHandoffPrompt({
+    ...base,
+    reference: true,
+    sourceBundle: [
+      {
+        kind: 'architect_plan',
+        sourcePath: '/repo/backlog/checkout-flow.md',
+        sourceRelativePath: 'backlog/checkout-flow.md',
+        sourceContent: '# Checkout Flow',
+      },
+    ],
+  })
+  assert.ok(bundleReferenced.includes('implementation plan, referenced in place'), 'reference bundle launch gets the in-place plan guidance')
+  assert.ok(!bundleReferenced.includes('should seed plan.md'), 'reference bundle launch drops the seed guidance')
+}
+
 function testSeedAlreadyPersistedDropsHandoverStep(): void {
   const base = {
     teamSlug: 'checkout-flow',
@@ -237,6 +274,7 @@ function main(): void {
   testBacklogBundleUsesRelativeBundlePaths()
   testWorktreeModeFlowsIntoInitPayload()
   testReferenceFlagFlowsIntoHandoverPayload()
+  testReferencedArchitectPlanGetsManifestGuidanceNotSeedGuidance()
   testEpicHandoffReferencesChildrenAndGuidesInPlaceReview()
   console.log('sprintengineHandoff.test.ts: ok')
 }

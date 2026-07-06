@@ -1,5 +1,11 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { AutomationsWorkspaceTypeIcon, WorkspaceTypeIcon, resolveEnabledWorkspaceType } from '../AppIcons'
+import {
+  AutomationsWorkspaceTypeIcon,
+  SprintEngineWorkspaceTypeIcon,
+  WorkspaceTypeIcon,
+  resolveEnabledWorkspaceType,
+} from '../AppIcons'
+import { selectModuleEnabled } from '../../modules'
 import { FOCUS_RING_CLASS } from '../ui/tokens'
 import {
   SIDEBAR_COLLAPSED_WIDTH,
@@ -51,7 +57,7 @@ import { useRelativeNow } from '../../hooks/useRelativeNow'
 import { formatRelativeMs, formatRelativeMsAgo } from '../../utils/relativeTime'
 import { deriveWorkspaceRunGlyph, workspaceHasRunGlyphProvider } from '../../utils/workspaceRunGlyph'
 import { partitionWorkspacesByRecency, sortWorkspacesByActivity } from '../../utils/workspaceRecency'
-import { isHiddenFromRail } from '../../utils/workspaceVisibility'
+import { isArchivedWorkspace, isHiddenFromRail } from '../../utils/workspaceVisibility'
 import { listAutomationsHostWorkspaces } from '../../utils/automationsEntry'
 
 type Activity = 'working' | 'failed' | 'needs-input' | 'idle'
@@ -117,6 +123,10 @@ type FolderGroup = {
 }
 
 const NULL_FOLDER_KEY = '__no_folder__'
+
+// Folded (older/history) rows reveal in pages of this size — pressing the
+// "Show N older" row repeatedly pages through the remainder.
+const FOLD_PAGE_SIZE = 5
 
 const DRAG_MIME_WORKSPACE = 'application/x-multicode-workspace'
 const DRAG_MIME_FOLDER = 'application/x-multicode-folder'
@@ -368,6 +378,61 @@ function workspaceHasOnDiskState(workspace: Workspace): boolean {
   return false
 }
 
+// The one fold idiom for older rows: hidden rows reveal FOLD_PAGE_SIZE at a
+// time ("Show 5 more" → 5 more → …), and whenever anything extra is revealed a
+// "Show fewer" affordance snaps the fold back to the at-rest view.
+function ShowOlderRow({
+  hiddenTotal,
+  revealed,
+  controlsId,
+  onShowMore,
+  onShowFewer,
+}: {
+  hiddenTotal: number
+  revealed: number
+  controlsId: string
+  onShowMore: () => void
+  onShowFewer: () => void
+}) {
+  const remaining = hiddenTotal - revealed
+  const rowClass =
+    'flex h-[26px] cursor-pointer select-none items-center gap-1.5 rounded-md text-[12px] text-[color:var(--text-muted)] transition-colors hover:bg-[color:var(--bg-surface-raised)] hover:text-[color:var(--text-default)]'
+  return (
+    <div className="mx-1.5 my-[1px] flex items-center gap-1">
+      {remaining > 0 ? (
+        <button
+          type="button"
+          onClick={onShowMore}
+          aria-expanded={revealed > 0}
+          aria-controls={controlsId}
+          className={`${rowClass} min-w-0 flex-1 pl-[30px] pr-1.5`}
+        >
+          <svg
+            viewBox="0 0 16 16"
+            fill="none"
+            className={`icon-xs shrink-0 text-[color:var(--text-disabled)] transition-transform ${
+              revealed > 0 ? '' : '-rotate-90'
+            }`}
+          >
+            <path d="M5 6L8 9L11 6" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
+          </svg>
+          <span className="truncate tabular-nums">{`Show ${Math.min(FOLD_PAGE_SIZE, remaining)} more`}</span>
+        </button>
+      ) : null}
+      {revealed > 0 ? (
+        <button
+          type="button"
+          onClick={onShowFewer}
+          aria-controls={controlsId}
+          className={`${rowClass} shrink-0 px-2 ${remaining > 0 ? '' : 'flex-1 pl-[30px]'}`}
+        >
+          Show fewer
+        </button>
+      ) : null}
+    </div>
+  )
+}
+
 export default function WorkspaceSidebar({
   workspaces,
   activeWorkspaceId,
@@ -417,11 +482,22 @@ export default function WorkspaceSidebar({
   // by WorkspaceManager) and reads its open state to carry aria-current.
   const openConnectorsSurface = useWorkspaceStore((s) => s.openConnectorsSurface)
   const connectorsSurfaceOpen = useWorkspaceStore((s) => s.connectorsSurface.open)
+  // The Sprints nav entry toggles the global Sprint Engines aside — the
+  // existing "all sprints across every project" survey panel mounted by
+  // WorkspaceManager — rather than a bespoke surface. Gated on the module.
+  const sprintEnginesAsideOpen = useWorkspaceStore((s) => s.sprintEnginesAsideOpen)
+  const setSprintEnginesAsideOpen = useWorkspaceStore((s) => s.setSprintEnginesAsideOpen)
+  const sprintEngineEnabled = useWorkspaceStore((s) =>
+    selectModuleEnabled(s.appSettings.modules, 'sprint-engine')
+  )
   const now = useRelativeNow()
 
   const [collapsedFolders, setCollapsedFolders] = useState<Record<string, boolean>>({})
-  const [expandedStaleFolders, setExpandedStaleFolders] = useState<Record<string, boolean>>({})
+  // How many folded (stale) rows each folder has revealed via "Show N older" —
+  // paged in FOLD_PAGE_SIZE steps rather than an all-or-nothing toggle.
+  const [revealedStaleFolders, setRevealedStaleFolders] = useState<Record<string, number>>({})
   const [starredCollapsed, setStarredCollapsed] = useState(false)
+  const [projectsCollapsed, setProjectsCollapsed] = useState(false)
   const [renamingId, setRenamingId] = useState<WorkspaceId | null>(null)
   const [renameValue, setRenameValue] = useState('')
   const [contextMenu, setContextMenu] = useState<{ workspaceId: WorkspaceId; x: number; y: number } | null>(null)
@@ -568,7 +644,10 @@ export default function WorkspaceSidebar({
   // keeps its place in the persisted order. Cross-workspace search now lives in
   // the global-search palette (T6), not a sidebar box.
   const railWorkspaces = useMemo(
-    () => workspaces.filter((workspace) => !isHiddenFromRail(workspace)),
+    () =>
+      workspaces.filter(
+        (workspace) => !isHiddenFromRail(workspace) && !isArchivedWorkspace(workspace)
+      ),
     [workspaces]
   )
 
@@ -1015,17 +1094,25 @@ export default function WorkspaceSidebar({
           />
         ) : null}
 
-        <span
-          className={`flex h-[20px] w-[20px] shrink-0 items-center justify-center rounded-md transition-colors ${
-            active || highlighted ? accent.chip : ''
-          }`}
-        >
-          <WorkspaceTypeIcon
-            mode={workspace.mode}
-            moduleOverrides={moduleOverrides}
-            className={`h-4 w-4 ${accent.glyph}`}
-          />
-        </span>
+        {/* Expanded rows drop the workspace-type icon chip so the title starts
+            flush with the row's content edge — in the narrow sidebar the chip
+            cost ~28px that the name needs more. Mode identity survives in the
+            colored left rail / accent (active + highlighted rows) and the
+            trailing run glyph; the collapsed icon rail keeps the glyph because
+            there it IS the row. */}
+        {sidebarCollapsed ? (
+          <span
+            className={`flex h-[20px] w-[20px] shrink-0 items-center justify-center rounded-md transition-colors ${
+              active || highlighted ? accent.chip : ''
+            }`}
+          >
+            <WorkspaceTypeIcon
+              mode={workspace.mode}
+              moduleOverrides={moduleOverrides}
+              className={`h-4 w-4 ${accent.glyph}`}
+            />
+          </span>
+        ) : null}
 
         {!sidebarCollapsed && (
           <>
@@ -1212,7 +1299,7 @@ export default function WorkspaceSidebar({
       )
     }
 
-    const staleExpanded = expandedStaleFolders[group.key] === true
+    const revealed = Math.min(revealedStaleFolders[group.key] ?? 0, stale.length)
     const olderListId = `ws-older-${group.key.replace(/[^a-z0-9]+/giu, '-')}`
 
     return (
@@ -1222,32 +1309,22 @@ export default function WorkspaceSidebar({
           id={olderListId}
           role="group"
           aria-label={`Older workspaces in ${group.displayName}`}
-          hidden={!staleExpanded}
+          hidden={revealed === 0}
         >
-          {stale.map((workspace) => renderWorkspaceRow(workspace, group.key))}
+          {stale.slice(0, revealed).map((workspace) => renderWorkspaceRow(workspace, group.key))}
         </div>
-        <button
-          type="button"
-          onClick={() =>
-            setExpandedStaleFolders((prev) => ({ ...prev, [group.key]: !staleExpanded }))
+        <ShowOlderRow
+          hiddenTotal={stale.length}
+          revealed={revealed}
+          controlsId={olderListId}
+          onShowMore={() =>
+            setRevealedStaleFolders((prev) => ({
+              ...prev,
+              [group.key]: Math.min((prev[group.key] ?? 0) + FOLD_PAGE_SIZE, stale.length),
+            }))
           }
-          aria-expanded={staleExpanded}
-          aria-controls={olderListId}
-          className="relative mx-1.5 my-[1px] flex h-[26px] w-[calc(100%-12px)] cursor-pointer select-none items-center gap-1.5 rounded-md pl-[30px] pr-1.5 text-[12px] text-[color:var(--text-muted)] transition-colors hover:bg-[color:var(--bg-surface-raised)] hover:text-[color:var(--text-default)]"
-        >
-          <svg
-            viewBox="0 0 16 16"
-            fill="none"
-            className={`icon-xs shrink-0 text-[color:var(--text-disabled)] transition-transform ${
-              staleExpanded ? '' : '-rotate-90'
-            }`}
-          >
-            <path d="M5 6L8 9L11 6" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
-          </svg>
-          <span className="tabular-nums">
-            {staleExpanded ? 'Show fewer' : `Show ${stale.length} older`}
-          </span>
-        </button>
+          onShowFewer={() => setRevealedStaleFolders((prev) => ({ ...prev, [group.key]: 0 }))}
+        />
       </div>
     )
   }
@@ -1339,9 +1416,11 @@ export default function WorkspaceSidebar({
           onDrop={handleTabDropOnNew}
         />
 
-        {/* Top nav (Cursor-parity order: New Agent → Automations → Connectors).
+        {/* Top nav (New Agent → Automations → Sprints → Connectors).
             Automations keeps its front-door picker; the gate stays so it only
-            appears when a host workspace exists. Connectors opens the T2 surface. */}
+            appears when a host workspace exists. Sprints toggles the global
+            Sprint Engines aside (all sprints across projects). Connectors opens
+            the T2 surface. */}
         {automationsEntryEnabled ? (
           <SidebarNavButton
             collapsed={sidebarCollapsed}
@@ -1351,6 +1430,19 @@ export default function WorkspaceSidebar({
             tooltip="Automations"
             tooltipWhenExpanded
             onClick={(event) => setAutomationsMenu({ x: event.clientX, y: event.clientY })}
+          />
+        ) : null}
+
+        {sprintEngineEnabled ? (
+          <SidebarNavButton
+            collapsed={sidebarCollapsed}
+            icon={<SprintEngineWorkspaceTypeIcon className="icon-xs pointer-events-none shrink-0" />}
+            label="Sprints"
+            ariaLabel="Sprints"
+            tooltip="Sprints — all projects"
+            tooltipWhenExpanded
+            active={sprintEnginesAsideOpen}
+            onClick={() => setSprintEnginesAsideOpen(!sprintEnginesAsideOpen)}
           />
         ) : null}
 
@@ -1366,19 +1458,32 @@ export default function WorkspaceSidebar({
         />
       </div>
 
-      {/* Repositories: the workspace tree (Starred first, then projects) —
-          behaviour unchanged; the hairline + label separate it from the top nav. */}
-      {!sidebarCollapsed ? (
-        <div className="mx-2 mt-2 mb-0.5">
-          <div aria-hidden="true" className="h-px bg-[color:var(--border-subtle)]" />
-          <div className="px-0 pt-1.5 text-[11px] font-semibold text-[color:var(--text-muted)]">
-            Repositories
-          </div>
-        </div>
-      ) : null}
-
-      {/* Tree */}
+      {/* Tree: Projects (Starred first, then folder groups). The section label
+          lives inside the scroll container and its header collapses the whole
+          area. Sprint workspaces list under their project like any other
+          workspace; the global sprint overview is the Sprints surface opened
+          from the top nav. */}
       <nav className="mt-1 flex-1 overflow-y-auto pb-2" role="tree">
+        {!sidebarCollapsed ? (
+          <div className="mx-2 mt-2 mb-0.5">
+            <div aria-hidden="true" className="h-px bg-[color:var(--border-subtle)]" />
+            <header
+              onClick={() => setProjectsCollapsed((prev) => !prev)}
+              className="flex cursor-pointer select-none items-center gap-1 pt-1.5 text-[11px] font-semibold text-[color:var(--text-muted)] hover:text-[color:var(--text-default)]"
+            >
+              <svg
+                viewBox="0 0 16 16"
+                fill="none"
+                className={`icon-xs shrink-0 text-[color:var(--text-disabled)] transition-transform ${
+                  projectsCollapsed ? '-rotate-90' : ''
+                }`}
+              >
+                <path d="M5 6L8 9L11 6" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
+              </svg>
+              <span className="min-w-0 flex-1 truncate">Projects</span>
+            </header>
+          </div>
+        ) : null}
         {starredWorkspaces.length > 0 && sidebarCollapsed ? (
           <section className="relative" aria-label="Starred workspaces">
             {starredWorkspaces.map((workspace) =>
@@ -1387,7 +1492,7 @@ export default function WorkspaceSidebar({
             <div aria-hidden="true" className="mx-2 my-1.5 h-px bg-[color:var(--border-subtle)]" />
           </section>
         ) : null}
-        {starredWorkspaces.length > 0 && !sidebarCollapsed ? (
+        {starredWorkspaces.length > 0 && !sidebarCollapsed && !projectsCollapsed ? (
           <section className="relative pt-1" aria-label="Starred workspaces">
             <header
               onClick={() =>
@@ -1416,7 +1521,7 @@ export default function WorkspaceSidebar({
               : null}
           </section>
         ) : null}
-        {groups.map((group) => {
+        {(sidebarCollapsed || !projectsCollapsed) && groups.map((group) => {
           const collapsed = collapsedFolders[group.key] === true
           // Each folder's rows are ordered by how recently each was worked on,
           // same as the Starred section — not by live status, so opening a row

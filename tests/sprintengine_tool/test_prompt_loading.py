@@ -512,9 +512,12 @@ def test_architect_join_prompt_requires_knowledge_backed_decision_checkpoint(tmp
             "Ask one decision-shaping question at a time",
             "why it matters, your recommended answer or default assumption",
             "If code or documented behavior contradicts the user's stated intent, surface the contradiction before planning.",
-            "## Knowledge-Backed Decision Checkpoint",
-            "If the repo can answer a question, inspect the repo instead of asking.",
-            "If a handover exists without a product intake conversation, treat it as incoming context, not as confirmation",
+            # Repo-first inspection lives in the Soul layer; the architect
+            # coordination prompt adds only the sprint-specific checkpoint.
+            "inspect those sources instead of asking the user",
+            "## Decision Checkpoint",
+            "run your Soul's knowledge-backed discovery loop",
+            "A handover without a product intake conversation is incoming context",
             "### Autonomous Planning Override",
             "Record defaults, risks, and skipped questions in `plan.md`",
         ],

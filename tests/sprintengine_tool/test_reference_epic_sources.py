@@ -146,6 +146,36 @@ def test_markdown_reference_handover_leaves_no_copy(tmp_path) -> None:
     assert state["source"]["path"] == "backlog/checkout-plan.md"
 
 
+def test_referenced_plan_init_mints_review_in_place_task_without_seeding_plan(tmp_path) -> None:
+    root = tmp_path / "project"
+    plan = _write(root / "backlog" / "checkout-plan.md", "# Checkout plan\n\nDetails.\n")
+    state_path = root / ".multi-code" / "sprintengine" / "checkout" / "run.yaml"
+    cli = SwarmCli(state_path, cwd=root)
+    cli.run(
+        "handover",
+        "--name", "checkout",
+        "--goal", "Checkout",
+        "--handover", str(plan),
+        "--source-plan-kind", "architect_plan",
+        "--reference-sources",
+    )
+    init_payload = cli.run("init", "--goal", "Checkout")
+    assert init_payload["ok"] is True
+
+    # The referenced backlog file is the canonical plan; plan.md is authored by
+    # the architect as a thin manifest, never seeded with a copy at init.
+    assert not (state_path.parent / "plan.md").exists()
+
+    plan_task = init_payload["planTask"]
+    assert plan_task["title"] == "Review referenced plan in place and create task graph"
+    assert "backlog/checkout-plan.md" in plan_task["description"]
+    joined_ac = " ".join(plan_task["acceptanceCriteria"])
+    assert "not re-authored into plan.md" in joined_ac
+    assert "plan.md is a manifest" in joined_ac
+    notes = " ".join(plan_task["implementationNotes"])
+    assert "worktree's copy of the referenced plan" in notes
+
+
 def test_text_handover_still_copies_into_run_store(tmp_path) -> None:
     state_path = tmp_path / "project" / ".multi-code" / "sprintengine" / "inline" / "run.yaml"
     cli = SwarmCli(state_path, cwd=tmp_path / "project")

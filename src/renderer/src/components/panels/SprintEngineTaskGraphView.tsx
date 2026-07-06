@@ -546,7 +546,7 @@ export function SprintEngineTaskGraphView({
 
  return (
  <div
- className="flex min-h-0 flex-1 flex-col overflow-hidden bg-[color:var(--bg-app)] focus:outline-none"
+ className="flex min-h-0 flex-1 flex-col overflow-hidden bg-[color:var(--bg-surface)] focus:outline-none"
  onKeyDown={handleGraphKeyDown}
  >
  <header className="flex shrink-0 flex-wrap items-center justify-between gap-x-4 gap-y-2 border-b border-[color:var(--border-default)] bg-[color:var(--bg-surface)] px-6 py-3">
@@ -949,7 +949,7 @@ export function SprintEngineTaskGraphView({
  // graph-overlay disclosure card so canvas pan/zoom keeps working.
  <div className="mt-1 rounded-md border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] p-2 backdrop-blur shadow-[var(--shadow-drawer)]">
  <div
- className="relative cursor-crosshair overflow-hidden rounded bg-[color:var(--bg-app)]"
+ className="relative cursor-crosshair overflow-hidden rounded bg-[color:var(--bg-surface)]"
  style={{ width: minimapInnerWidth, height: minimapInnerHeight }}
  onPointerDown={(event) => {
  if (event.button !== 0) return

@@ -6,12 +6,12 @@ import {
   InboxSearchInput,
   InlineNotice,
   LifecycleGlyph,
+  MenuItem,
   OverflowMenu,
   PanelHeader,
   Popover,
   PrimaryButton,
   Section,
-  Select,
   Skeleton,
   Tooltip,
   TruncatedText,
@@ -49,7 +49,7 @@ import {
   type BacklogRisk,
   type BacklogScanResult,
 } from '../../utils/backlog'
-import { getHighlightSwatch, HIGHLIGHT_COLORS } from '../../utils/highlight'
+import { getHighlightSwatch } from '../../utils/highlight'
 import { providerForBacklogLink } from '../../utils/backlogLinks'
 import {
   matchWorkspaceForBacklogRunLink,
@@ -86,7 +86,9 @@ import {
   BacklogItemContextMenu,
   CRITICALITY_EDIT_ITEMS,
   DIFFICULTY_EDIT_ITEMS,
+  MenuCheckGlyph,
   RISK_EDIT_ITEMS,
+  STATUS_MENU_CHOICES,
   type BacklogActions,
   type BacklogDependencyChoice,
   type BacklogEpicChoice,
@@ -140,6 +142,7 @@ const LIFECYCLE_LABEL: Partial<Record<BacklogItemStatus, string>> = {
 const VIEW_ITEMS: SelectItem<BacklogView>[] = [
   { value: 'active', label: 'Active' },
   { value: 'all', label: 'All items' },
+  { value: 'epics', label: 'Epics' },
   { value: 'quick_wins', label: 'Quick wins' },
   { value: 'strategic_bets', label: 'Strategic bets' },
   { value: 'defer', label: 'Defer candidates' },
@@ -151,6 +154,7 @@ const VIEW_ITEMS: SelectItem<BacklogView>[] = [
 const SORT_ITEMS: SelectItem<BacklogSort>[] = [
   { value: 'best', label: 'Best' },
   { value: 'recent', label: 'Recently updated' },
+  { value: 'created', label: 'Recently created' },
   { value: 'status', label: 'Status' },
   { value: 'priority', label: 'Priority' },
   { value: 'largest', label: 'Largest first' },
@@ -168,6 +172,7 @@ const GROUP_ITEMS: SelectItem<BacklogGroup>[] = [
 // Scope word shown next to the header count when a lens narrows the list, so a
 // bare number never reads as the whole backlog.
 const VIEW_SCOPE_LABEL: Partial<Record<BacklogView, string>> = {
+  epics: 'epics',
   quick_wins: 'quick wins',
   strategic_bets: 'strategic bets',
   defer: 'defer candidates',
@@ -1780,7 +1785,13 @@ function BacklogOptionRow({
           : `${swatch ? `${swatch.border}${litFill ? ` ${swatch.dimBg}` : ''}` : 'border-l-transparent'} hover:bg-[color:var(--bg-hover)]`
       } ${archived ? 'opacity-70' : ''}`}
     >
-      <BacklogRowContent item={item} now={now} runGlyph={runGlyph} isWaiting={isWaiting} />
+      <BacklogRowContent
+        item={item}
+        now={now}
+        runGlyph={runGlyph}
+        isWaiting={isWaiting}
+        epicMeta={indented ? undefined : epicMeta}
+      />
     </li>
   )
 }
@@ -2075,13 +2086,103 @@ function BacklogDetail({
             )
           })}
           <OverflowMenu
-            ariaLabel="Item actions"
+            ariaLabel="More actions"
+            triggerTooltip="More actions"
             items={[
               // The file-navigation actions were on their own buttons; folded in
               // here they free the row down to the primary action + this menu.
               { id: 'open-in-editor', label: 'Open in editor', onSelect: () => actions.openInEditor(selected) },
               { id: 'reveal-in-files', label: 'Reveal in Files', onSelect: () => actions.revealInFiles(selected) },
               { kind: 'separator' as const, id: 'sep-files' },
+              // Triage editors, moved out of the detail body into flyout submenus
+              // so the pane opens straight to content. Same choice lists, checks,
+              // and handlers as the row's right-click menu — each choice applies
+              // then closes the whole menu.
+              {
+                kind: 'flyout' as const,
+                id: 'set-status',
+                label: 'Status',
+                ariaLabel: 'Set status',
+                surfaceClassName: 'min-w-[180px]',
+                render: (close: () => void) =>
+                  STATUS_MENU_CHOICES.map((status) => (
+                    <MenuItem
+                      key={status}
+                      checked={selected.status === status}
+                      icon={<MenuCheckGlyph visible={selected.status === status} />}
+                      onClick={() => {
+                        actions.setStatus(selected, status)
+                        close()
+                      }}
+                    >
+                      {BACKLOG_STATUS_LABEL[status]}
+                    </MenuItem>
+                  )),
+              },
+              {
+                kind: 'flyout' as const,
+                id: 'set-priority',
+                label: 'Priority',
+                ariaLabel: 'Set priority',
+                surfaceClassName: 'min-w-[180px]',
+                render: (close: () => void) =>
+                  CRITICALITY_EDIT_ITEMS.map(({ value, label }) => (
+                    <MenuItem
+                      key={value}
+                      checked={(selected.criticality ?? 'unset') === value}
+                      icon={<MenuCheckGlyph visible={(selected.criticality ?? 'unset') === value} />}
+                      onClick={() => {
+                        actions.setCriticality(selected, value)
+                        close()
+                      }}
+                    >
+                      {label}
+                    </MenuItem>
+                  )),
+              },
+              {
+                kind: 'flyout' as const,
+                id: 'set-size',
+                label: 'Size',
+                ariaLabel: 'Set size',
+                surfaceClassName: 'min-w-[180px]',
+                render: (close: () => void) =>
+                  DIFFICULTY_EDIT_ITEMS.map(({ value, label }) => (
+                    <MenuItem
+                      key={value}
+                      checked={(selected.difficulty ?? 'unset') === value}
+                      icon={<MenuCheckGlyph visible={(selected.difficulty ?? 'unset') === value} />}
+                      onClick={() => {
+                        actions.setDifficulty(selected, value)
+                        close()
+                      }}
+                    >
+                      {label}
+                    </MenuItem>
+                  )),
+              },
+              {
+                kind: 'flyout' as const,
+                id: 'set-risk',
+                label: 'Risk',
+                ariaLabel: 'Set risk',
+                surfaceClassName: 'min-w-[180px]',
+                render: (close: () => void) =>
+                  RISK_EDIT_ITEMS.map(({ value, label }) => (
+                    <MenuItem
+                      key={value}
+                      checked={(selected.risk ?? 'unset') === value}
+                      icon={<MenuCheckGlyph visible={(selected.risk ?? 'unset') === value} />}
+                      onClick={() => {
+                        actions.setRisk(selected, value)
+                        close()
+                      }}
+                    >
+                      {label}
+                    </MenuItem>
+                  )),
+              },
+              { kind: 'separator' as const, id: 'sep-triage' },
               ...(selected.status !== 'archived' && selected.status !== 'completed'
                 ? [{ id: 'mark-completed', label: 'Mark completed', onSelect: () => actions.setStatus(selected, 'completed') }]
                 : []),
@@ -2097,6 +2198,21 @@ function BacklogDetail({
                     color: selected.highlight?.color ?? null,
                   }),
               },
+              // An epic carries an identity colour; it rides here as a swatch row
+              // (same control as the row's Highlight colour) instead of a section
+              // in the body, so the epic detail opens straight to its children.
+              ...(selected.isEpic
+                ? [
+                    {
+                      kind: 'swatch' as const,
+                      id: 'epic-color',
+                      label: 'Epic color',
+                      value: currentEpicColor,
+                      onPick: (color: BacklogHighlightColor) => actions.setEpicColor(selected, color),
+                      onClear: () => actions.setEpicColor(selected, null),
+                    },
+                  ]
+                : []),
               { id: 'rename', label: 'Rename…', onSelect: () => actions.rename(selected) },
               ...(selected.status === 'archived'
                 ? []
@@ -2114,23 +2230,18 @@ function BacklogDetail({
           Triage, Dependencies, epic roll-up) and the body all scroll together,
           so they don't permanently consume the viewport above the item text. */}
       <div className="min-h-0 flex-1 overflow-auto">
-        {/* Epic-only: identity colour + the navigable children roll-up lead the
-            detail, since they are the epic's primary content. The shared Links +
-            Triage sections still follow for every item (Triage hides its Epic
-            select for an epic — epics do not nest). */}
+        {/* Epic-only: the navigable children roll-up leads the detail, since it is
+            the epic's primary content (the identity colour moved to the header's
+            More-actions menu). The shared Links + Triage sections still follow for
+            every item (Triage hides its Epic select for an epic — epics do not
+            nest). */}
         {isEpic ? (
-          <>
-            <BacklogEpicColorPicker
-              current={currentEpicColor}
-              onPick={(color) => actions.setEpicColor(selected, color)}
-            />
-            <BacklogEpicChildren
-              members={epicChildren}
-              color={currentEpicColor}
-              runGlyphById={runGlyphById}
-              onSelectItem={onSelectItem}
-            />
-          </>
+          <BacklogEpicChildren
+            members={epicChildren}
+            color={currentEpicColor}
+            runGlyphById={runGlyphById}
+            onSelectItem={onSelectItem}
+          />
         ) : null}
 
         <BacklogLinksSection
@@ -2200,63 +2311,6 @@ function DetailState({
       </div>
       {cta}
     </div>
-  )
-}
-
-// Triage editor: size + priority + risk + epic are owned organization metadata.
-// Epic identity colour picker (epic detail only): the clear control plus the
-// seven canonical swatches as a radio group, writing the epic's `color:`
-// frontmatter through actions.setEpicColor. Distinct from the per-item highlight
-// picker in the row context menu — this colour is the epic's, inherited by its
-// members (the option-C row tint). Swatch hexes come from the shared swatch
-// helper via inline style, the same lint-safe pattern as MenuSwatchRow.
-function BacklogEpicColorPicker({
-  current,
-  onPick,
-}: {
-  current: BacklogHighlightColor | null
-  onPick: (color: BacklogHighlightColor | null) => void
-}): JSX.Element {
-  return (
-    <Section title="Epic colour" level={4} inset className="shrink-0 border-b border-[color:var(--border-subtle)] pb-3">
-      <div role="radiogroup" aria-label="Epic colour" className="flex items-center gap-2 px-3">
-        <Tooltip content="No colour">
-          <button
-            type="button"
-            role="radio"
-            aria-checked={current === null}
-            aria-label="No epic colour"
-            onClick={() => onPick(null)}
-            className={`interactive flex h-[18px] w-[18px] items-center justify-center rounded-full border border-dashed border-[color:var(--text-disabled)] text-[color:var(--text-disabled)] transition-colors hover:border-[color:var(--text-muted)] hover:text-[color:var(--text-muted)] ${
-              current === null ? 'ring-1 ring-[color:var(--text-default)]' : ''
-            }`}
-          >
-            <svg viewBox="0 0 16 16" fill="none" className="icon-xs" aria-hidden="true">
-              <path d="M4 12L12 4" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
-            </svg>
-          </button>
-        </Tooltip>
-        {HIGHLIGHT_COLORS.map((color) => {
-          const swatch = getHighlightSwatch(color)
-          const selected = current === color
-          return (
-            <Tooltip key={color} content={swatch.label}>
-              <button
-                type="button"
-                role="radio"
-                aria-checked={selected}
-                aria-label={`Epic colour ${swatch.label}`}
-                onClick={() => onPick(color)}
-                className={`interactive h-[18px] w-[18px] rounded-full transition-transform hover:scale-110 ${
-                  selected ? 'ring-2 ring-offset-1 ring-offset-[color:var(--bg-surface)]' : ''
-                }`}
-                style={{ backgroundColor: swatch.hex, ['--tw-ring-color' as never]: swatch.hex }}
-              />
-            </Tooltip>
-          )
-        })}
-      </div>
-    </Section>
   )
 }
 
@@ -2390,37 +2444,17 @@ function BacklogTriage({
   item: BacklogItem
   actions: BacklogActions
   epicChoices: ReadonlyArray<BacklogEpicChoice>
-}): JSX.Element {
+}): JSX.Element | null {
+  // Size / Priority / Risk / Status now live in the header's More-actions menu
+  // (flyout submenus), so the only editor left in the body is epic membership.
+  // Epics don't nest, so an epic item has no membership control and the section
+  // renders nothing at all.
+  if (item.isEpic) return null
   return (
-    <Section title="Triage" level={4} inset className="shrink-0 border-b border-[color:var(--border-subtle)] pb-3">
+    <Section title="Epic" level={4} inset className="shrink-0 border-b border-[color:var(--border-subtle)] pb-3">
       <div className="grid grid-cols-[3.5rem_minmax(0,16rem)] items-center gap-x-3 gap-y-2 px-3">
-        <span className="text-[11px] text-[color:var(--text-muted)]">Size</span>
-        <Select
-          ariaLabel="Set size"
-          items={DIFFICULTY_EDIT_ITEMS}
-          value={item.difficulty ?? 'unset'}
-          onChange={(value) => actions.setDifficulty(item, value)}
-        />
-        <span className="text-[11px] text-[color:var(--text-muted)]">Priority</span>
-        <Select
-          ariaLabel="Set priority"
-          items={CRITICALITY_EDIT_ITEMS}
-          value={item.criticality ?? 'unset'}
-          onChange={(value) => actions.setCriticality(item, value)}
-        />
-        <span className="text-[11px] text-[color:var(--text-muted)]">Risk</span>
-        <Select
-          ariaLabel="Set risk"
-          items={RISK_EDIT_ITEMS}
-          value={item.risk ?? 'unset'}
-          onChange={(value) => actions.setRisk(item, value)}
-        />
-        {!item.isEpic ? (
-          <>
-            <span className="text-[11px] text-[color:var(--text-muted)]">Epic</span>
-            <BacklogEpicSearchEditor item={item} actions={actions} epicChoices={epicChoices} />
-          </>
-        ) : null}
+        <span className="text-[11px] text-[color:var(--text-muted)]">Epic</span>
+        <BacklogEpicSearchEditor item={item} actions={actions} epicChoices={epicChoices} />
       </div>
     </Section>
   )

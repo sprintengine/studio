@@ -40,7 +40,9 @@ import {
   type OnboardingStep,
 } from '../onboardingState'
 import { SIDEBAR_DEFAULT_WIDTH, clampSidebarWidth } from '../../components/workspace/sidebarWidth'
+import { SPRINTS_ASIDE_DEFAULT_WIDTH, clampSprintsAsideWidth } from '../../components/workspace/sprintsAsideWidth'
 import { isAppTheme, type AppearanceSettings, type AppTheme } from '../../types/appTheme'
+import type { SprintsSort, SprintsView } from '../../utils/sprintEnginesNav'
 import { normalizeModuleOverrides } from '../../../../shared/modules/manifest'
 import { collapseDuplicateKeybindings } from '../../commands/keybindings'
 
@@ -56,6 +58,15 @@ export type RunSummaryOverlayState = {
   open: boolean
   /** Which workspace's run summary the overlay is showing. */
   workspaceId: string | null
+}
+
+// The Sprints aside's view lens / project filter / sort. Store-level (not
+// component state) so the choice survives closing and reopening the aside;
+// transient across app restarts (not in extractSettingsFields).
+export type SprintsAsideViewState = {
+  view: SprintsView
+  project: string | null
+  sort: SprintsSort
 }
 
 export type ConnectorsSurfaceState = {
@@ -921,6 +932,10 @@ export interface SettingsSliceState {
   // App-level (not per-workspace layout) because the aside surveys every
   // workspace and must survive workspace switches.
   sprintEnginesAsideOpen: boolean
+  // User-resizable width of the Sprint Engines aside, in px. Persisted like
+  // sidebarWidth so the panel reopens at the width the user dragged it to.
+  sprintsAsideWidth: number
+  sprintsAsideView: SprintsAsideViewState
   // Sticky "where do files open" preference. When true, opening a file routes to
   // the external editor window (a tabbed pop-up) instead of a workspace tab.
   // Set by user action — popping a tab out turns it on, docking a file back
@@ -942,6 +957,8 @@ export interface SettingsSliceActions {
   setSidebarWidth: (width: number) => void
   setSprintEngineRoleRegistry: (registry: SprintEngineRoleRegistry | null) => void
   setSprintEnginesAsideOpen: (open: boolean) => void
+  setSprintsAsideView: (patch: Partial<SprintsAsideViewState>) => void
+  setSprintsAsideWidth: (width: number) => void
   setOpenFilesInExternalWindow: (enabled: boolean) => void
   openSettingsOverlay: (opts?: { initialTab?: string | null; checkForUpdates?: boolean }) => void
   closeSettingsOverlay: () => void
@@ -1037,6 +1054,8 @@ export function createSettingsSlice(set: SettingsSliceSet): SettingsSlice {
     sidebarCollapsed: false,
     sidebarWidth: SIDEBAR_DEFAULT_WIDTH,
     sprintEnginesAsideOpen: false,
+    sprintsAsideWidth: SPRINTS_ASIDE_DEFAULT_WIDTH,
+    sprintsAsideView: { view: 'active', project: null, sort: 'attention' },
     openFilesInExternalWindow: DEFAULT_OPEN_FILES_IN_EXTERNAL_WINDOW,
     sprintEngineRoleRegistry: null,
     agentConfigAdoptionResult: null,
@@ -1099,6 +1118,16 @@ export function createSettingsSlice(set: SettingsSliceSet): SettingsSlice {
       set((state) => {
         state.runSummaryOverlay.open = false
         state.runSummaryOverlay.workspaceId = null
+      }),
+
+    setSprintsAsideView: (patch) =>
+      set((state) => {
+        state.sprintsAsideView = { ...state.sprintsAsideView, ...patch }
+      }),
+
+    setSprintsAsideWidth: (width) =>
+      set((state) => {
+        state.sprintsAsideWidth = clampSprintsAsideWidth(width)
       }),
 
     openConnectorsSurface: () =>

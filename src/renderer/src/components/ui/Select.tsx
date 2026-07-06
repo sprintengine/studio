@@ -37,6 +37,11 @@ type SelectProps<V extends string = string> = {
   disabled?: boolean
   placeholder?: string
   className?: string
+  /** Trigger min-width floor. Defaults to `min-w-[140px]` so shrink-wrapped
+   *  selects keep a usable hit target; pass `min-w-0` for width-constrained
+   *  layouts (e.g. a grid column that can drop below 140px) so the trigger
+   *  truncates inside its track instead of overflowing under a neighbor. */
+  triggerMinWidthClassName?: string
 }
 
 const TYPEAHEAD_RESET_MS = 500
@@ -49,6 +54,7 @@ export function Select<V extends string = string>({
   disabled = false,
   placeholder = 'Select…',
   className,
+  triggerMinWidthClassName = 'min-w-[140px]',
 }: SelectProps<V>) {
   const [open, setOpen] = useState(false)
   const initialActive = useMemo(() => {
@@ -227,7 +233,8 @@ export function Select<V extends string = string>({
           onKeyDown={onKey}
           style={selectedTone ? { backgroundColor: TONE_SOFT_VAR[selectedTone] } : undefined}
           className={[
-            'interactive inline-flex h-7 w-full min-w-[140px] items-center justify-between gap-2',
+            'interactive inline-flex h-7 w-full items-center justify-between gap-2',
+            triggerMinWidthClassName,
             'rounded-[5px] border px-2 text-left text-[12px]',
             selectedTone
               ? 'border-transparent'

@@ -127,7 +127,7 @@ export default function SprintEnginePlanReaderPanel({ workspaceId, onClose }: Pr
   return (
     <section
       aria-labelledby={TITLE_ID}
-      className="flex h-full min-h-0 flex-col bg-[color:var(--bg-app)] text-[color:var(--text-default)]"
+      className="flex h-full min-h-0 flex-col bg-[color:var(--bg-surface)] text-[color:var(--text-default)]"
     >
       <div className="relative shrink-0 bg-[color:var(--bg-surface)]">
         <PanelHeader
@@ -164,7 +164,7 @@ export default function SprintEnginePlanReaderPanel({ workspaceId, onClose }: Pr
             </div>
           ) : null}
           {status === 'ready' && mode === 'source' ? (
-            <pre className="min-h-[420px] overflow-x-auto rounded-md border border-[color:var(--border-default)] bg-[color:var(--bg-app)] p-4 text-[13px] leading-6 text-[color:var(--text-default)]">
+            <pre className="min-h-[420px] overflow-x-auto rounded-md border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] p-4 text-[13px] leading-6 text-[color:var(--text-default)]">
               <code>{content}</code>
             </pre>
           ) : null}

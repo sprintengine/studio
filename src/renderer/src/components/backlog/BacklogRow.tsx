@@ -9,7 +9,7 @@ import type {
   BacklogItem,
   BacklogItemStatus,
 } from '../../utils/backlog'
-import type { BacklogEpicGroup } from '../../utils/backlogEpics'
+import type { BacklogEpicGroup, BacklogEpicMeta } from '../../utils/backlogEpics'
 import { getHighlightSwatch } from '../../utils/highlight'
 import type { SprintEngineRunGlyph } from '../../utils/sprintengine'
 import {
@@ -114,6 +114,7 @@ export const BacklogRowContent = memo(function BacklogRowContent({
   now,
   runGlyph,
   isWaiting = false,
+  epicMeta,
 }: {
   item: BacklogItem
   now: number
@@ -124,6 +125,10 @@ export const BacklogRowContent = memo(function BacklogRowContent({
    *  prerequisite, so it earns the "Waiting" badge. Off for done/non-blocked
    *  items and for the source picker, which passes no dependency graph. */
   isWaiting?: boolean
+  /** The parent epic's identity (title/colour/id), passed only in the flat
+   *  (ungrouped) list so a member surfaces its epic as a small coloured pill.
+   *  The grouped list omits it — the epic group header already names it. */
+  epicMeta?: BacklogEpicMeta
 }): JSX.Element {
   const lifecycle = runGlyph?.state ?? backlogStatusToLifecycle(item.status)
   const statusLabel = runGlyph?.label ?? BACKLOG_STATUS_LABEL[item.status]
@@ -176,7 +181,19 @@ export const BacklogRowContent = memo(function BacklogRowContent({
         ) : null}
         <DifficultyIndicator difficulty={item.difficulty} />
         <CriticalityIndicator criticality={item.criticality} />
-        <span className="ml-auto shrink-0 tabular-nums text-[color:var(--text-subtle)]">
+        {/* The parent-epic pill sits in the gap between the triage tokens and the
+            right-aligned time. Its container carries the ml-auto (so the pill is
+            pushed toward the time and the empty gap opens to its left) and clips
+            on overflow; the time keeps a hard pl-2 gap so the pill can never
+            touch it on a compressed panel. */}
+        {epicMeta ? (
+          <div className="ml-auto flex min-w-0 shrink items-center overflow-hidden">
+            <EpicPill epic={epicMeta} />
+          </div>
+        ) : null}
+        <span
+          className={`${epicMeta ? 'pl-2' : 'ml-auto'} shrink-0 tabular-nums text-[color:var(--text-subtle)]`}
+        >
           {formatRelativeMsAgo(item.modifiedAt, now) || 'unknown'}
         </span>
       </div>
@@ -209,6 +226,36 @@ function WaitingBadge(): JSX.Element {
       </svg>
       Waiting
     </span>
+  )
+}
+
+// Flat-list member badge: a small pill labelled with the parent epic's display
+// id (e.g. `MC-240`) and carrying the epic's identity colour, so a member row
+// reads its epic at a glance when no group header is in view. Colour is a subtle
+// tint over the row (never colour alone — the id text is the label); the full
+// epic title rides in the hover tooltip and the accessible name. Falls back to
+// the epic title as the label only when the scan has not allocated a display id.
+function EpicPill({ epic }: { epic: BacklogEpicMeta }): JSX.Element {
+  const swatch = epic.color ? getHighlightSwatch(epic.color) : null
+  const label = epic.displayId ?? epic.title
+  return (
+    <Tooltip content={epic.title} placement="top" wrapperClassName="inline-flex min-w-0 shrink">
+      <span
+        role="img"
+        aria-label={`Epic: ${epic.title}`}
+        className="inline-flex min-w-0 max-w-[14ch] shrink items-center gap-1 rounded-full border px-1.5 py-[1px] text-[10px] font-medium text-[color:var(--text-muted)]"
+        style={
+          swatch
+            ? { borderColor: `${swatch.hex}59`, backgroundColor: `${swatch.hex}1f` }
+            : { borderColor: 'var(--border-default)' }
+        }
+      >
+        <EpicColorDot color={epic.color} size={6} />
+        <span aria-hidden="true" className="min-w-0 truncate font-mono tabular-nums">
+          {label}
+        </span>
+      </span>
+    </Tooltip>
   )
 }
 

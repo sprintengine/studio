@@ -306,6 +306,8 @@ const carrier = {
   sidebarCollapsed: false,
   sidebarWidth: 280,
   sprintEnginesAsideOpen: false,
+  sprintsAsideWidth: 296,
+  sprintsAsideView: { view: 'active' as const, project: null, sort: 'attention' as const },
   openFilesInExternalWindow: true,
   sprintEngineRoleRegistry: null,
   agentConfigAdoptionResult: null,
@@ -322,6 +324,15 @@ slice.openConnectorsSurface()
 assert.equal(carrier.connectorsSurface.open, true)
 slice.closeConnectorsSurface()
 assert.equal(carrier.connectorsSurface.open, false)
+
+// Sprints aside view: partial patches merge into the existing axes so setting
+// one axis never resets the others.
+slice.setSprintsAsideView({ view: 'archived' })
+assert.deepEqual(carrier.sprintsAsideView, { view: 'archived', project: null, sort: 'attention' })
+slice.setSprintsAsideView({ project: 'my-app', sort: 'updated_desc' })
+assert.deepEqual(carrier.sprintsAsideView, { view: 'archived', project: 'my-app', sort: 'updated_desc' })
+slice.setSprintsAsideView({ view: 'active', project: null, sort: 'attention' })
+assert.deepEqual(carrier.sprintsAsideView, { view: 'active', project: null, sort: 'attention' })
 
 // T3: the MCPs / Skill packs / Extensions settings tabs folded into the
 // Connectors surface. A deep-link that once opened one of those tabs (by tab
@@ -388,6 +399,8 @@ const permissionCarrier = {
   sidebarCollapsed: false,
   sidebarWidth: 280,
   sprintEnginesAsideOpen: false,
+  sprintsAsideWidth: 296,
+  sprintsAsideView: { view: 'active' as const, project: null, sort: 'attention' as const },
   openFilesInExternalWindow: true,
   sprintEngineRoleRegistry: null,
   agentConfigAdoptionResult: null,

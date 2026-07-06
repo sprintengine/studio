@@ -38,6 +38,7 @@ const baseItem: BacklogItem = {
   links: [],
   excerpt: '',
   modifiedAt: 1,
+  createdAtMs: 1,
   size: 1,
   sourceContent: '# Run',
 }
