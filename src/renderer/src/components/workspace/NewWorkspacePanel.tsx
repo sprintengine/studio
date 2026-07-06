@@ -1284,10 +1284,11 @@ export default function NewWorkspacePanel({
     if (!seTeamNameTouched) setSeTeamName(value)
   }
 
-  const handleSelectFolder = (dir: string) => {
-    const folderName = basename(dir)
-    setFolderPath(dir)
-    setKnowledgeStepEligible(shouldShowKnowledgeStep(dir, projectKnowledgeRoots))
+  // Folder-scoped source state is invalidated whenever the target folder changes:
+  // a saved team, plan/bundle selection, or error message all belong to the old
+  // folder. Shared by every folder-change path (workspace step + chat chip) so the
+  // invariant holds no matter where the switch happens.
+  const resetFolderScopedSourceState = () => {
     setSeExistingTeam(null)
     setSeAgentCliOverrides({})
     setSePlanPath('')
@@ -1299,6 +1300,13 @@ export default function NewWorkspacePanel({
     setSeSourceFromFile(false)
     setSePlanError(null)
     setMlError(null)
+  }
+
+  const handleSelectFolder = (dir: string) => {
+    const folderName = basename(dir)
+    setFolderPath(dir)
+    setKnowledgeStepEligible(shouldShowKnowledgeStep(dir, projectKnowledgeRoots))
+    resetFolderScopedSourceState()
     if (!nameTouched) setName(folderName || 'workspace')
     if (!seTeamNameTouched) setSeTeamName(toTitleName(folderName) || 'Sprint Roster')
     setMlName(toTitleName(folderName) || 'Product Loop')
@@ -1343,6 +1351,9 @@ export default function NewWorkspacePanel({
     setFolderDraftPath(path)
     setFolderPathPinned(true)
     setKnowledgeStepEligible(shouldShowKnowledgeStep(path, projectKnowledgeRoots))
+    // Keep the folder-change invariant even though chat never reads this state:
+    // the user can switch to Sprint Engine after picking a project here.
+    resetFolderScopedSourceState()
   }
   const handleChatBrowseProject = async () => {
     const dir = await window.api.openDir()
