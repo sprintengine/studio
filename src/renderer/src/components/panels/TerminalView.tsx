@@ -822,7 +822,8 @@ export default function TerminalView({ workspaceId, agentId, sessionId: attached
         // The worktree-backed workspace's worktree is gone (merge cleanup, the
         // Worktree manager, or `git worktree prune`). executionRoot already fell
         // back to folderReadyPath; note it so the user is not silently in the
-        // parent instead of the worktree they expected.
+        // parent instead of the worktree they expected. Same red bracketed banner
+        // as Slice 2 (PlainTerminalPanel), showing the folder actually opened in.
         logPerfEvent('TerminalView', 'worktree-cwd-missing-fallback', {
           workspaceId,
           agentId,
@@ -831,7 +832,7 @@ export default function TerminalView({ workspaceId, agentId, sessionId: attached
           fallbackCwd: executionRoot.cwd ?? null,
         })
         term.write(
-          `\r\n\x1b[33mThis workspace's worktree folder is unavailable; starting in the workspace folder instead.\x1b[0m\r\n`,
+          `\r\n\x1b[31m[worktree missing — opened in main checkout: ${executionRoot.cwd ?? folderReadyPath ?? 'the workspace folder'}]\x1b[0m\r\n`,
         )
       }
       // The run worktree can be removed out from under a persisted agent (sprint
