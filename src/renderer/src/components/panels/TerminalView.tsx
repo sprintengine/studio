@@ -756,8 +756,16 @@ export default function TerminalView({ workspaceId, agentId, sessionId: attached
       if (postStatusContext.savedFolderPath && !folderReadyPath) return
 
       const resumeExistingPty = shouldResume && terminalStatus.processAlive
+      // Prefer the resume capability stamped + persisted on the agent (survives a
+      // cold restart), like the codex branch reads agent.cliResumeAvailable above.
+      // The catalog is only a fallback for a pre-upgrade agent whose flag predates
+      // this feature — reading it directly would be a startup race (the plugin
+      // catalog loads async, so an early launchTerminal could see it empty and
+      // silently spawn a claude-code/zai agent fresh, losing the conversation).
       const postStatusResumeCaps = resumeCapabilitiesForCli(postStatusCli, useWorkspaceStore.getState().pluginCatalogEntries)
-      const shouldResumeClaudeConversation = agentCliUsesStableSessionIdForResume(postStatusResumeCaps) && shouldResume
+      const usesStableSessionId = postStatusAgent.cliUsesStableSessionId
+        ?? agentCliUsesStableSessionIdForResume(postStatusResumeCaps)
+      const shouldResumeClaudeConversation = usesStableSessionId && shouldResume
       const shouldResumeCli = resumeExistingPty || shouldResumeClaudeConversation || shouldResumeCodexConversation
       // Reopening a suspended agent must NOT silently respawn it: the reaper
       // suspended it to reclaim memory, the painted scrollback is still on the
@@ -1099,9 +1107,13 @@ export default function TerminalView({ workspaceId, agentId, sessionId: attached
           })
         }
       }
+      // assign_session stamps cliResumeAvailable authoritatively from the main
+      // registry (reliably loaded, unlike the async renderer catalog), so we no
+      // longer echo a catalog-derived cliResumeAvailable here — doing so raced
+      // the stamp and could overwrite a resume-capable agent with false during
+      // startup. Only the prompt flag remains as a launch-state follow-up.
       void workspaceSyncClient.dispatchAssignTerminalSession(workspaceId, agentId, sessionId, finalCli)
       const launchState: Parameters<typeof workspaceSyncClient.dispatchUpdateTerminalLaunchState>[2] = {}
-      if (!agentCliSupportsConversationResume(finalResumeCaps)) launchState.cliResumeAvailable = false
       if (launchInitialPrompt) launchState.cliOnboardingPromptSent = true
       if (Object.keys(launchState).length > 0) {
         void workspaceSyncClient.dispatchUpdateTerminalLaunchState(workspaceId, agentId, launchState)

@@ -121,6 +121,31 @@ assert.equal(persistedAgent.streamBuffer, '')
 // Specialist agents that have not yet sent their onboarding prompt keep cliStartupPrompt.
 assert.equal(persistedAgent.cliStartupPrompt, 'kept')
 
+// Durable resume identity survives the persist normalize so a cold restart can
+// resume without waiting on the async plugin catalog (MC-1465): the stamped
+// cliResumeAvailable AND cliUsesStableSessionId must both round-trip.
+const withResumableAgent = baseWorkspace({
+  agents: {
+    'claude-1': {
+      id: 'claude-1',
+      name: 'Claude',
+      kind: 'general',
+      cli: 'claude-code',
+      status: 'idle',
+      streamBuffer: '',
+      cliHasLaunched: true,
+      cliSessionId: 'sess-claude',
+      cliResumeAvailable: true,
+      cliUsesStableSessionId: true,
+    },
+  } as unknown as Workspace['agents'],
+})
+const resumableCleaned = normalizeWorkspaceForPartialize(withResumableAgent)
+const persistedResumable = (resumableCleaned.agents as Record<string, { cliResumeAvailable?: boolean; cliUsesStableSessionId?: boolean; cliHasLaunched?: boolean }>)['claude-1']
+assert.equal(persistedResumable.cliHasLaunched, true, 'cliHasLaunched survives persist')
+assert.equal(persistedResumable.cliResumeAvailable, true, 'cliResumeAvailable survives persist')
+assert.equal(persistedResumable.cliUsesStableSessionId, true, 'cliUsesStableSessionId survives persist (cold-restart resume gate)')
+
 const withAgentAlreadyOnboarded = baseWorkspace({
   agents: {
     'agent-2': {
