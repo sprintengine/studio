@@ -175,8 +175,10 @@ sprintengine roster configure --id architect --roles-json '[
 
 - `--roles-json` (required) is a JSON array of `{"role", "cli", "model"}`
   objects; `"model": null` pins the CLI default (no `--model`).
-- `configuredRoles` becomes the union of the submitted roles and the run's
-  planning role; `roleRuntimes` is set from the submitted `{cli, model}` pairs.
+- `configuredRoles` is **replaced** by the union of the submitted roles and the
+  run's planning role — this enabled set is what gates roles. `roleRuntimes` is
+  **merged** over the existing map, so a revision that drops a role leaves that
+  role's stale runtime entry behind (harmless, since `configuredRoles` gates).
 - The command is rejected when: the run is not `rosterSource: architect`
   (`roster_configure_requires_architect_roster_source`); the plan is already
   approved (`roster_locked_after_plan_approval` — route post-approval changes

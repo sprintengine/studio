@@ -334,9 +334,11 @@ plan-approval gate is not yet `done`, else `roster_locked_after_plan_approval`
 (post-approval changes route through `needs_input(user)`); (4) every submitted
 role resolves in the registry; (5) each `{cli, model}` exactly matches an entry
 in the run's `allowedRuntimes` palette, else `runtime_not_allowed_for_run`.
-On success `configuredRoles` becomes `union(submitted roles, planning role)`,
-`roleRuntimes` is set from the submitted pairs, and a `roster_configured` event
-is appended. The CLI equivalent is `sprintengine roster configure --roles-json`.
+On success `configuredRoles` is **replaced** by `union(submitted roles, planning
+role)` (the enabled set that gates roles), `roleRuntimes` is **merged** over the
+existing map (a dropped role keeps its stale entry, harmless since
+`configuredRoles` gates), and a `roster_configured` event is appended. The CLI
+equivalent is `sprintengine roster configure --roles-json`.
 
 MCP response contract (`sprintengine_mcp/response_shapes.py`): MCP responses
 carry deltas and references, not state echoes — the run store stays the source
