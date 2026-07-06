@@ -392,6 +392,11 @@ def apply_gate_verdict(
             task["ownerAgentId"] = None
         if next_status == "done":
             task["completedAt"] = now_iso()
+            # A gate verdict that routes the task to done must also resolve any
+            # draft plan/product placeholder it still owns. Imported lazily to
+            # avoid an artifacts<->gates import cycle (as elsewhere in this file).
+            from sprintengine_core.tool.artifacts import supersede_stale_gate_placeholder_on_completion
+            supersede_stale_gate_placeholder_on_completion(state, task, actor)
         else:
             task["completedAt"] = None
         task.pop("needsInput", None)
