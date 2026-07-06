@@ -4,6 +4,7 @@ import { FitAddon } from '@xterm/addon-fit'
 import '@xterm/xterm/css/xterm.css'
 import { useWorkspaceStore } from '../../store/workspaceStore'
 import { useWorkspaceFolderStatus } from '../../hooks/useWorkspaceFolderStatus'
+import { resolveWorkspaceTerminalCwd, resolveWorkspaceWorktree } from '../../utils/workspaceWorktree'
 import { publishDiagnosticSync } from '../../utils/diagnostics'
 import { logPerfEvent } from '../../utils/perfDiagnostics'
 import { recordReplayProfile } from '../../utils/diagnostics/replayProfileStore'
@@ -55,6 +56,13 @@ export default function PlainTerminalPanel({
   const sprintEngineContext = useWorkspaceStore((s) =>
     s.workspaces.find((w) => w.id === workspaceId)?.sprintEngineContext ?? null
   )
+  // Derived string, not the workspace object: sprintEngineState re-projects
+  // ~every 4s and churns object identity, but the gitRoot string is stable, so
+  // the spawn effect below re-runs at most once (null -> path).
+  const workspaceWorktreeGitRoot = useWorkspaceStore((s) => {
+    const ws = s.workspaces.find((w) => w.id === workspaceId)
+    return ws ? resolveWorkspaceWorktree(ws)?.gitRoot ?? null : null
+  })
   const workspaceName = useWorkspaceStore((s) =>
     s.workspaces.find((w) => w.id === workspaceId)?.name
   )
@@ -204,72 +212,89 @@ export default function PlainTerminalPanel({
     })
 
     if (cwdOverride || !(savedFolderPath && !folderReadyPath)) {
-      const terminalCwd = cwdOverride ?? folderReadyPath ?? undefined
-      const sprintEngineStatePath = cwdOverride ? undefined : folderReadyPath ? sprintEngineContext?.statePath : undefined
-      void window.api.terminalStatus(sessionId).then((status) => {
-        logPerfEvent('PlainTerminalPanel', status.processAlive ? 'terminal-reattach-existing-session' : 'terminal-spawn-fresh', {
-          sessionId,
-          workspaceId,
-          terminalId,
-          kind: 'terminal',
-          processAlive: status.processAlive,
-          resumeRequested: false,
-          willSpawnFresh: !status.processAlive,
-        })
-      }).catch(() => {})
-      replayGate.beginReplayWait()
-      void window.api.terminalSpawn(
-        sessionId,
-        term.cols,
-        term.rows,
-        terminalCwd,
-        false,
-        sprintEngineStatePath,
-        undefined,
-        undefined,
-        undefined,
-        true,
-        {
-          kind: 'terminal',
-          workspaceId,
-          terminalId,
-          visible: true,
+      void (async () => {
+        // Redirect the spawn into the run worktree when this workspace is
+        // worktree-backed; short-circuits (no fs probe) for normal, worktree-
+        // opened, and connector-chat workspaces. Awaited before spawn so the pty
+        // starts in the right directory.
+        const resolved = await resolveWorkspaceTerminalCwd(
+          workspaceWorktreeGitRoot,
+          folderReadyPath,
+          window.api.pathExists,
+        )
+        if (disposed) return
+        const terminalCwd = cwdOverride ?? resolved.cwd ?? folderReadyPath ?? undefined
+        const sprintEngineStatePath = cwdOverride ? undefined : folderReadyPath ? sprintEngineContext?.statePath : undefined
+        if (resolved.missing) {
+          term.write(
+            `\r\n\x1b[31m[worktree missing — opened in main checkout: ${terminalCwd ?? savedFolderPath ?? 'the workspace folder'}]\x1b[0m\r\n`
+          )
         }
-      ).then((spawnResult) => {
-        replayGate.finishReplayWait()
-        if (spawnResult.ok) return
-        if (!reportedTerminalFailure) {
+        void window.api.terminalStatus(sessionId).then((status) => {
+          logPerfEvent('PlainTerminalPanel', status.processAlive ? 'terminal-reattach-existing-session' : 'terminal-spawn-fresh', {
+            sessionId,
+            workspaceId,
+            terminalId,
+            kind: 'terminal',
+            processAlive: status.processAlive,
+            resumeRequested: false,
+            willSpawnFresh: !status.processAlive,
+          })
+        }).catch(() => {})
+        replayGate.beginReplayWait()
+        void window.api.terminalSpawn(
+          sessionId,
+          term.cols,
+          term.rows,
+          terminalCwd,
+          false,
+          sprintEngineStatePath,
+          undefined,
+          undefined,
+          undefined,
+          true,
+          {
+            kind: 'terminal',
+            workspaceId,
+            terminalId,
+            visible: true,
+          }
+        ).then((spawnResult) => {
+          replayGate.finishReplayWait()
+          if (spawnResult.ok) return
+          if (!reportedTerminalFailure) {
+            reportedTerminalFailure = true
+            publishDiagnosticSync({
+              level: 'error',
+              source: 'terminal',
+              title: 'Terminal was not started',
+              message: spawnResult.message,
+              details: [
+                `Session: ${sessionId}`,
+                `Workspace path: ${terminalCwd ?? savedFolderPath ?? 'default app path'}`,
+                sprintEngineStatePath ? `Sprint state: ${sprintEngineStatePath}` : null,
+              ].filter(Boolean).join('\n'),
+              workspaceId,
+              workspaceName,
+              sessionId,
+            })
+          }
+        }).catch((error) => {
+          replayGate.finishReplayWait()
+          if (reportedTerminalFailure) return
           reportedTerminalFailure = true
           publishDiagnosticSync({
             level: 'error',
             source: 'terminal',
             title: 'Terminal was not started',
-            message: spawnResult.message,
-            details: [
-              `Session: ${sessionId}`,
-              `Workspace path: ${terminalCwd ?? savedFolderPath ?? 'default app path'}`,
-              sprintEngineStatePath ? `Sprint state: ${sprintEngineStatePath}` : null,
-            ].filter(Boolean).join('\n'),
+            message: error instanceof Error ? error.message : 'Failed to start terminal.',
+            details: `Session: ${sessionId}`,
             workspaceId,
             workspaceName,
             sessionId,
           })
-        }
-      }).catch((error) => {
-        replayGate.finishReplayWait()
-        if (reportedTerminalFailure) return
-        reportedTerminalFailure = true
-        publishDiagnosticSync({
-          level: 'error',
-          source: 'terminal',
-          title: 'Terminal was not started',
-          message: error instanceof Error ? error.message : 'Failed to start terminal.',
-          details: `Session: ${sessionId}`,
-          workspaceId,
-          workspaceName,
-          sessionId,
         })
-      })
+      })()
     }
     const settleTimer = window.setTimeout(() => {
       fitTerminal()
@@ -310,7 +335,7 @@ export default function PlainTerminalPanel({
         void window.api.terminalSetVisible(sessionId, false).catch(() => {})
       }
     }
-  }, [cwdOverride, folderReadyPath, killOnUnmount, savedFolderPath, shouldKillOnUnmount, sprintEngineContext?.statePath, terminalId, workspaceId, workspaceName])
+  }, [cwdOverride, folderReadyPath, killOnUnmount, savedFolderPath, shouldKillOnUnmount, sprintEngineContext?.statePath, terminalId, workspaceId, workspaceName, workspaceWorktreeGitRoot])
 
   const folderBlocked = Boolean(!cwdOverride && savedFolderPath && !folderReadyPath)
   const handleDragOver = (event: React.DragEvent<HTMLDivElement>) => {

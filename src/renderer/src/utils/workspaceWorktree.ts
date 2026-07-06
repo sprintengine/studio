@@ -45,6 +45,37 @@ export function resolveWorkspaceWorktree(
   return null
 }
 
+export type WorkspaceTerminalCwd =
+  | { cwd: string; missing: false }
+  | { cwd: null; missing: boolean }
+
+/**
+ * Derive the cwd a terminal opened in a worktree-backed workspace should spawn
+ * into, given the workspace's PRE-DERIVED git root (from
+ * `resolveWorkspaceWorktree(ws)?.gitRoot ?? null`).
+ *
+ * Taking the string, not the `Workspace`, is deliberate: it forces callers into
+ * the churn-safe selector pattern so the value stays referentially stable across
+ * the ~4s `sprintEngineState` re-projections that recreate the workspace object.
+ *
+ * - `null` gitRoot → not worktree-backed; no override (`{cwd:null, missing:false}`).
+ * - gitRoot === folderPath → the workspace folder already IS the worktree
+ *   (worktree-opened / connector-chat workspaces); no override needed.
+ * - gitRoot present and on disk → spawn into it (`{cwd:gitRoot, missing:false}`).
+ * - gitRoot present but gone → `{cwd:null, missing:true}` so the caller can
+ *   surface the removed worktree instead of spawning into a vanished directory.
+ */
+export async function resolveWorkspaceTerminalCwd(
+  worktreeGitRoot: string | null,
+  folderPath: string | null,
+  pathExists: (path: string) => Promise<boolean>,
+): Promise<WorkspaceTerminalCwd> {
+  if (!worktreeGitRoot) return { cwd: null, missing: false }
+  if (samePath(worktreeGitRoot, folderPath)) return { cwd: null, missing: false }
+  if (await pathExists(worktreeGitRoot)) return { cwd: worktreeGitRoot, missing: false }
+  return { cwd: null, missing: true }
+}
+
 export type WorktreeSpawnFallback = {
   /** True when the agent's worktree cwd was gone and we fell back. */
   fellBack: boolean

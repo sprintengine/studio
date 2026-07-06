@@ -285,17 +285,15 @@ function WorkspaceLayout({ workspaceId, onStartFuturePlan, agentClis, onSpawnAge
     s.workspaces.find((w) => w.id === workspaceId)?.lastTerminalActivityAt ?? null
   )
   // Worktree-backed workspace (a sprint run worktree, or a worktree opened as a
-  // workspace). The branch glyph is applied *per agent* on the tabs below, not
-  // blanket across the workspace: an agent only earns the glyph when it is
-  // actually running on the worktree (see the per-agent resolution in
-  // `renderTab`). Selected as primitives so the panel doesn't re-render on
-  // unrelated workspace churn.
+  // workspace). The branch glyph is workspace-level on the tabs below: every
+  // terminal/agent tab earns it when the workspace is worktree-backed, because
+  // after the cwd-redirect slices every terminal actually runs in the worktree
+  // (see the resolution in `renderTab`). Selected as primitives so the panel
+  // doesn't re-render on unrelated workspace churn.
   //   - `worktreeGitRoot`: absolute git root of the workspace's worktree (null
-  //      when not worktree-backed). Used as the fallback cwd for the tooltip.
-  //   - `isWorktreeOpenedWorkspace`: the whole folder *is* a worktree (opened via
-  //      the Worktree manager). Every agent/terminal in it runs on the worktree,
-  //      even though their `execution.mode` stays `current_workspace` (the cwd is
-  //      never redirected because the folder already is the worktree).
+  //      when not worktree-backed). The tab glyph condition + tooltip cwd. Covers
+  //      both worktree-opened workspaces (where it equals `folderPath`) and sprint
+  //      run worktrees (where it is redirected onto the run worktree).
   const worktreeGitRoot = useWorkspaceStore((s) => {
     const ws = s.workspaces.find((w) => w.id === workspaceId)
     return ws ? resolveWorkspaceWorktree(ws)?.gitRoot ?? null : null
@@ -304,10 +302,32 @@ function WorkspaceLayout({ workspaceId, onStartFuturePlan, agentClis, onSpawnAge
     const ws = s.workspaces.find((w) => w.id === workspaceId)
     return ws ? resolveWorkspaceWorktree(ws)?.branch ?? null : null
   })
-  const isWorktreeOpenedWorkspace = useWorkspaceStore((s) => {
-    const ws = s.workspaces.find((w) => w.id === workspaceId)
-    return Boolean(ws?.worktree)
-  })
+  // A worktree-backed workspace's worktree can be removed out from under it
+  // (merge cleanup, the Worktree manager, `git worktree prune`). When it is gone,
+  // the tab glyph flips to the danger token and new terminals fall back to the
+  // main checkout (Slices 2-3 enforce the fallback; this is the visible signal).
+  // Checked on mount, whenever the resolved worktree root changes, and on window
+  // focus — no polling loop, since a worktree only vanishes via an out-of-app
+  // action the user returns to the window from.
+  const [worktreeMissing, setWorktreeMissing] = useState(false)
+  useEffect(() => {
+    if (!worktreeGitRoot) {
+      setWorktreeMissing(false)
+      return
+    }
+    let cancelled = false
+    const check = (): void => {
+      void window.api.pathExists(worktreeGitRoot).then((exists) => {
+        if (!cancelled) setWorktreeMissing(!exists)
+      })
+    }
+    check()
+    window.addEventListener('focus', check)
+    return () => {
+      cancelled = true
+      window.removeEventListener('focus', check)
+    }
+  }, [worktreeGitRoot])
   const terminalSessions = useTerminalSessions()
   const now = useRelativeNow()
   const updateLayout = useWorkspaceStore((s) => s.updateLayout)
@@ -883,19 +903,29 @@ function WorkspaceLayout({ workspaceId, onStartFuturePlan, agentClis, onSpawnAge
   const renderTab = useCallback(
     (node: TabNode, renderValues: ITabRenderValues) => {
       // Prepend a worktree branch glyph to a tab's leading slot (preserving any
-      // role/specialist/highlight icon) when *this* tab is running on a worktree.
-      // `wt` is the resolved worktree for the tab (null → no glyph); its `cwd` is
+      // role/specialist/highlight icon) when this tab's workspace is worktree-
+      // backed. `wt` is the resolved worktree (null → no glyph); its `cwd` is
       // surfaced in the hover tooltip so the worktree's location is discoverable.
+      // When `missing`, the worktree directory is gone: the glyph switches to the
+      // danger token and the tooltip explains new terminals fall back to the main
+      // checkout. The tooltip text carries the missing state independent of color
+      // (a11y — pairs with the in-terminal fallback banner).
       const withWorktreeGlyph = (
         existing: React.ReactNode,
         wt: { cwd: string | null; branch: string | null } | null,
+        missing = false,
       ): React.ReactNode => {
         if (!wt) return existing
         const heading = wt.branch ? `Worktree · ${wt.branch}` : 'Running in a git worktree'
-        const title = wt.cwd ? `${heading}\n${wt.cwd}` : heading
+        const title = missing
+          ? `Worktree removed — ${wt.cwd ?? ''}\nNew terminals open in the main checkout.`
+          : wt.cwd
+            ? `${heading}\n${wt.cwd}`
+            : heading
         const glyph = (
           <span
-            className="flex h-4 w-3.5 shrink-0 items-center justify-center text-[color:var(--text-muted)]"
+            role="img"
+            className={`flex h-4 w-3.5 shrink-0 items-center justify-center ${missing ? 'text-[color:var(--tone-error)]' : 'text-[color:var(--text-muted)]'}`}
             title={title}
             aria-label={title}
           >
@@ -1047,13 +1077,13 @@ function WorkspaceLayout({ workspaceId, onStartFuturePlan, agentClis, onSpawnAge
               />
             )
           }
-          // A plain terminal only genuinely runs on the worktree when the whole
-          // workspace folder *is* one (opened via the Worktree manager). In a
-          // sprint run-worktree workspace the terminal runs in the parent
-          // checkout, not the run worktree, so it gets no glyph.
+          // Workspace-level: every plain terminal in a worktree-backed workspace
+          // runs in the worktree (the cwd-redirect slices), so all of them earn
+          // the glyph — not just folder-is-a-worktree workspaces.
           renderValues.leading = withWorktreeGlyph(
             renderValues.leading,
-            isWorktreeOpenedWorkspace ? { cwd: worktreeGitRoot, branch: worktreeBranch } : null,
+            worktreeGitRoot ? { cwd: worktreeGitRoot, branch: worktreeBranch } : null,
+            worktreeMissing,
           )
           const terminalId = config?.terminalId ?? node.getId()
           const session = terminalSessions.find((s) => s.sessionId === `terminal-${terminalId}`)
@@ -1177,23 +1207,18 @@ function WorkspaceLayout({ workspaceId, onStartFuturePlan, agentClis, onSpawnAge
       } else {
         renderValues.leading = null
       }
-      // Per-agent worktree glyph: an agent earns it only when it is actually
-      // running on a worktree. Two ways that happens:
-      //   1. The workspace folder itself is a worktree (opened via the Worktree
-      //      manager) → every agent in it runs on the worktree, even though
-      //      `execution.mode` stays `current_workspace` (cwd is never redirected).
-      //   2. A sprint run-worktree agent whose `execution.mode === 'worktree'`
-      //      and cwd points into the run worktree. A manually-spawned agent in
-      //      the same workspace stays on the main checkout → no glyph.
+      // Worktree glyph. Workspace-level: any agent in a worktree-backed workspace
+      // earns it, because the cwd-redirect slices run every terminal in the
+      // worktree. Plus the standalone per-agent persisted case: an agent whose
+      // `execution.mode === 'worktree'` earns it even in a workspace that is not
+      // itself worktree-backed (a persisted worktree agent), reading its own cwd.
       const agentWorktree: { cwd: string | null; branch: string | null } | null =
-        !worktreeGitRoot
-          ? null
-          : isWorktreeOpenedWorkspace
-            ? { cwd: worktreeGitRoot, branch: worktreeBranch }
-            : agent?.execution.mode === 'worktree'
-              ? { cwd: agent.execution.cwd ?? worktreeGitRoot, branch: worktreeBranch }
-              : null
-      renderValues.leading = withWorktreeGlyph(renderValues.leading, agentWorktree)
+        worktreeGitRoot
+          ? { cwd: worktreeGitRoot, branch: worktreeBranch }
+          : agent?.execution.mode === 'worktree'
+            ? { cwd: agent.execution.cwd ?? null, branch: worktreeBranch }
+            : null
+      renderValues.leading = withWorktreeGlyph(renderValues.leading, agentWorktree, worktreeMissing)
 
       // Recency only when NOT working and NOT a Sprint Engine run. Active agents
       // show the pulsing green dot; sprint agents show run lifecycle.
@@ -1298,7 +1323,7 @@ function WorkspaceLayout({ workspaceId, onStartFuturePlan, agentClis, onSpawnAge
         </AgentTabIdentityPopover>
       )
     },
-    [commitRename, editorOpenFiles, hideTab, isWorktreeOpenedWorkspace, lastTerminalActivityAt, moduleOverrides, now, renameValue, renamingTabId, showTabContextMenu, sprintEngineAgents, startRename, terminalSessions, workspaceAgents, worktreeBranch, worktreeGitRoot, workspaceId]
+    [commitRename, editorOpenFiles, hideTab, lastTerminalActivityAt, moduleOverrides, now, renameValue, renamingTabId, showTabContextMenu, sprintEngineAgents, startRename, terminalSessions, workspaceAgents, worktreeBranch, worktreeGitRoot, worktreeMissing, workspaceId]
   )
 
   const handleContextMenu = useCallback<NodeMouseEvent>((node, event) => {
