@@ -798,6 +798,7 @@ export function createSprintEngineArtifactHandlers(deps: SprintEngineArtifactDep
           artifactId,
           id: actor.id,
           ...(feedback ? { feedback } : {}),
+          ...(action === 'approve' ? { approvalMode: mode === 'auto-run' ? 'policy' : 'manual' } : {}),
         }
         const toolName = action === 'approve' ? 'sprintengine.artifact.approve' : 'sprintengine.artifact.request_changes'
 

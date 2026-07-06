@@ -842,6 +842,7 @@ def build_parser() -> argparse.ArgumentParser:
     p = artifact_sub.add_parser("approve", help="Approve an artifact and complete its task when all linked artifacts are approved.")
     p.add_argument("--artifact-id", required=True)
     p.add_argument("--id", required=True, help="Approving actor id.")
+    p.add_argument("--approval-mode", choices=sorted(VALID_APPROVAL_MODES), help="Approval provenance: 'manual' (human) or 'policy' (run auto-approval). Optional; omit for a plain approval.")
     p.set_defaults(handler=artifact_commands.approve)
 
     p = artifact_sub.add_parser("request-changes", help="Request artifact changes, record feedback, and reopen the linked task.")

@@ -198,7 +198,7 @@ def command_payload_to_namespace(
         base.update(artifact_id=payload["artifactId"], id=payload["id"])
         add_feedback_defaults(base, payload)
     elif tool_name == "sprintengine.artifact.approve":
-        base.update(artifact_id=payload["artifactId"], id=payload["id"])
+        base.update(artifact_id=payload["artifactId"], id=payload["id"], approval_mode=payload.get("approvalMode"))
     elif tool_name == "sprintengine.artifact.request_changes":
         base.update(artifact_id=payload["artifactId"], id=payload["id"], feedback=payload["feedback"])
     elif tool_name == "sprintengine.vcs.status":

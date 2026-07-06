@@ -151,6 +151,44 @@ def test_projection_configured_roles_null_for_legacy_run(tmp_path) -> None:
     assert projection["run"]["configuredRoles"] is None
 
 
+def test_projection_emits_source_and_source_bundle(tmp_path) -> None:
+    fixture = create_team(tmp_path, "projection-source", [task("T1", "Build", "developer")])
+    state = read_state(fixture.state_path)
+    state["source"] = {
+        "kind": "markdown",
+        "origin": "file",
+        "planKind": "epic",
+        "path": "product-requirements.md",
+        "originalPath": "docs/plan.md",
+        "capturedAt": "2026-07-05T00:00:00Z",
+    }
+    state["sourceBundle"] = [
+        {
+            "kind": "html_mockup",
+            "origin": "reference",
+            "path": "docs/mockup.html",
+            "capturedAt": "2026-07-05T00:00:00Z",
+        }
+    ]
+    write_state(fixture.state_path, state)
+
+    projection = store_module.build_projection(fixture.state_path.parent, state_path=fixture.state_path)
+    assert projection["run"]["source"] == state["source"]
+    assert projection["run"]["sourceBundle"] == state["sourceBundle"]
+
+
+def test_projection_omits_source_keys_for_legacy_run(tmp_path) -> None:
+    fixture = create_team(tmp_path, "projection-legacy-source", [task("T1", "Build", "developer")])
+    state = read_state(fixture.state_path)
+    state.pop("source", None)
+    state.pop("sourceBundle", None)
+    write_state(fixture.state_path, state)
+
+    projection = store_module.build_projection(fixture.state_path.parent, state_path=fixture.state_path)
+    assert "source" not in projection["run"]
+    assert "sourceBundle" not in projection["run"]
+
+
 def test_claim_stamps_model_from_role_runtime_map(tmp_path) -> None:
     fixture = create_team(tmp_path, "claim-role-model", [task("T1", "Build", "developer")])
     state = read_state(fixture.state_path)
