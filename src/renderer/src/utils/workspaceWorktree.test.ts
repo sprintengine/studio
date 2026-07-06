@@ -7,6 +7,7 @@ import {
   connectorWorktreePaths,
   connectorWorktreeSlug,
   findHealthyWorktreeScope,
+  resolveWorkspaceTerminalCwd,
   resolveWorkspaceWorktree,
   resolveWorktreeSpawnFallback,
   worktreeContainerPath,
@@ -291,6 +292,51 @@ void (async () => {
   {
     const result = await resolveWorktreeSpawnFallback('worktree', '/gone/worktree', null, existsNever)
     assert.deepEqual(result, { fellBack: true, cwd: undefined })
+  }
+
+  // --- resolveWorkspaceTerminalCwd ---
+
+  // 24. Null gitRoot → not worktree-backed, no override, never probes the fs.
+  {
+    let probed = false
+    const result = await resolveWorkspaceTerminalCwd(null, '/proj', async () => {
+      probed = true
+      return true
+    })
+    assert.deepEqual(result, { cwd: null, missing: false })
+    assert.equal(probed, false, 'null gitRoot must not stat')
+  }
+
+  // 25. gitRoot === folderPath → the workspace folder already IS the worktree
+  //     (worktree-opened / connector-chat), so no override and no fs probe.
+  {
+    let probed = false
+    const result = await resolveWorkspaceTerminalCwd('/wt/spike', '/wt/spike', async () => {
+      probed = true
+      return true
+    })
+    assert.deepEqual(result, { cwd: null, missing: false })
+    assert.equal(probed, false, 'samePath short-circuits before probing')
+  }
+
+  // 26. Distinct gitRoot present on disk → spawn into the worktree.
+  {
+    const result = await resolveWorkspaceTerminalCwd(
+      '/proj/.multi-code/sprintengine/a/worktree',
+      '/proj',
+      existsAlways,
+    )
+    assert.deepEqual(result, { cwd: '/proj/.multi-code/sprintengine/a/worktree', missing: false })
+  }
+
+  // 27. Distinct gitRoot gone from disk → missing, no cwd override.
+  {
+    const result = await resolveWorkspaceTerminalCwd(
+      '/proj/.multi-code/sprintengine/a/worktree',
+      '/proj',
+      existsNever,
+    )
+    assert.deepEqual(result, { cwd: null, missing: true })
   }
 
   console.log('workspaceWorktree.test.ts: ok')
