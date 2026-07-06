@@ -40,6 +40,11 @@ export type AgentComposerProps = {
   // Confirm creates the chat (host maps to its spawn handlers); close discards.
   onConfirm: (confirm: AgentComposerConfirm) => void
   onClose: () => void
+  // Hosted inside another panel (the New workspace door) that already owns the
+  // title and Close. When true, the composer drops its own "New chat" title and
+  // Close so the surface reads as one panel, not a panel-within-a-panel; the
+  // project-scope chip stays as the config region's scoping control.
+  embedded?: boolean
 }
 
 /**
@@ -66,6 +71,7 @@ export default function AgentComposer({
   onChangeDebugMode,
   onConfirm,
   onClose,
+  embedded = false,
 }: AgentComposerProps) {
   const composer = useAgentComposer({
     mode: 'specialist',
@@ -111,7 +117,9 @@ export default function AgentComposer({
   return (
     <div className="flex h-full min-h-0 w-full flex-col bg-[color:var(--bg-surface)]">
       <div className="flex items-center gap-3 border-b border-[color:var(--border-subtle)] px-4 py-2.5">
-        <span className="text-[13px] font-semibold text-[color:var(--text-strong)]">New chat</span>
+        {embedded ? null : (
+          <span className="text-[13px] font-semibold text-[color:var(--text-strong)]">New chat</span>
+        )}
         <ProjectScopeChip
           folderPath={folderPath}
           folderLabel={folderLabel}
@@ -119,16 +127,18 @@ export default function AgentComposer({
           onSelectProject={onSelectProject}
           onBrowseProject={onBrowseProject}
         />
-        <button
-          type="button"
-          onClick={onClose}
-          aria-label="Close"
-          className="ml-auto rounded p-1 text-[color:var(--text-disabled)] transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-default)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--accent-primary)]"
-        >
-          <svg viewBox="0 0 16 16" fill="none" className="icon-sm" aria-hidden="true">
-            <path d="M4 4l8 8M12 4l-8 8" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
-          </svg>
-        </button>
+        {embedded ? null : (
+          <button
+            type="button"
+            onClick={onClose}
+            aria-label="Close"
+            className="ml-auto rounded p-1 text-[color:var(--text-disabled)] transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-default)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--accent-primary)]"
+          >
+            <svg viewBox="0 0 16 16" fill="none" className="icon-sm" aria-hidden="true">
+              <path d="M4 4l8 8M12 4l-8 8" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
+            </svg>
+          </button>
+        )}
       </div>
 
       <div className="grid min-h-0 flex-1 grid-cols-[292px_1fr]">

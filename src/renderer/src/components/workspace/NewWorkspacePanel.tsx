@@ -151,8 +151,8 @@ const STEP_HEADING: Record<StepId, { title: string; subtitle: string }> = {
     subtitle: 'Give it a name and pick the folder it lives in.',
   },
   mode: {
-    title: 'Choose a mode',
-    subtitle: 'How will you use this workspace?',
+    title: 'What do you want to start?',
+    subtitle: 'Pick a workspace type to get going.',
   },
   'mcp-servers': {
     title: 'Pick tool integrations',
@@ -2265,7 +2265,7 @@ export default function NewWorkspacePanel({
       <main ref={stepBodyRef} className="relative min-h-0 flex-1 overflow-y-auto">
         <div
           key={step}
-          className={`mx-auto flex w-full ${step === 'sprintengine-roster' ? 'max-w-[1040px]' : step === 'mode' && isChat ? 'max-w-[760px]' : 'max-w-[520px]'} flex-col gap-7 px-6 pt-10 pb-14 ${stepAnimationClass}`}
+          className={`mx-auto flex w-full ${step === 'sprintengine-roster' ? 'max-w-[1040px]' : step === 'mode' ? 'max-w-[760px]' : 'max-w-[520px]'} flex-col gap-7 px-6 pt-10 pb-14 ${stepAnimationClass}`}
         >
           {stepIndex > 0 ? (
             <button
@@ -2373,6 +2373,7 @@ export default function NewWorkspacePanel({
                 onChangeDebugMode={chatComposer.onChangeDebugMode}
                 onConfirm={(confirm) => chatComposer.onConfirm(confirm, folderPath)}
                 onClose={requestClose}
+                embedded
               />
             </div>
           ) : null}
@@ -2815,7 +2816,7 @@ function ModeStep({
           team in this folder. {mode === suggested ? 'Selected for you.' : 'Select it to load.'}
         </p>
       ) : null}
-      <div role="radiogroup" aria-label="Workspace mode" className="grid grid-cols-2 gap-2.5">
+      <div role="radiogroup" aria-label="Workspace type" className="grid grid-cols-3 gap-2.5">
         {modeModels.map((model) => (
           <ModeCard key={model.id} model={model} active={mode === model.id} onSelect={onSelect} />
         ))}
