@@ -35,10 +35,13 @@ function normalizeModelId(value: unknown): string | null {
   return trimmed.length > 0 ? trimmed : null
 }
 
-// Dedupe key over cli+model. JSON encoding is injective over (string, string|null),
-// so null (CLI default) stays distinct from every string model — including one
-// that happens to look like a separator — with no fragile sentinel.
-function catalogEntryKey(cli: string, model: string | null): string {
+// Dedupe/identity key over cli+model. JSON encoding is injective over
+// (string, string|null), so null (CLI default) stays distinct from every string
+// model — including one that happens to look like a separator — with no fragile
+// sentinel. Exported as the single keying scheme the wizard's per-sprint model
+// selection reuses, so the catalog and the selection cannot drift on how they
+// identify an entry.
+export function modelCatalogEntryKey(cli: string, model: string | null): string {
   return JSON.stringify([cli, model])
 }
 
@@ -52,7 +55,7 @@ export function normalizeSprintEngineModelCatalog(value: unknown): SprintEngineM
     const cli = typeof candidate.cli === 'string' ? candidate.cli.trim() : ''
     if (!cli) continue
     const model = normalizeModelId(candidate.model)
-    const key = catalogEntryKey(cli, model)
+    const key = modelCatalogEntryKey(cli, model)
     if (seen.has(key)) continue
     seen.add(key)
     const note = typeof candidate.note === 'string' ? candidate.note.trim() : ''

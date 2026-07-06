@@ -155,7 +155,34 @@ export function buildSprintEngineNewTeamCreation(
       ...sprintEngineAutoStateFromRunOptions(input),
       cliPermissionPreset: input.cliPermissionPreset,
       maxConcurrentAgents: clampSprintEngineMaxParallelAgents(input.maxParallelAgents),
+      // Prompt-only "Guidance for the architect" (architect-roster runs only).
+      // Rides auto state, not run.yaml — the engine never sees it.
+      ...(input.rosterSource === 'architect' && input.architectGuidance?.trim()
+        ? { architectGuidance: input.architectGuidance.trim() }
+        : {}),
     },
+  }
+}
+
+// The architect-roster init overrides: only the architect is seated, its runtime
+// is pinned from the wizard seat picker, and the ticked palette becomes the run's
+// allowedRuntimes. Returns null in user mode so the caller keeps its existing
+// wizard-composed roster wiring untouched (byte-identical for rosterSource:'user').
+function architectRosterInitOverrides(input: SprintEngineNewTeamInput): {
+  roleRuntimes: Record<string, { model?: string | null; cli?: string | null }>
+  enabledRoles: string[]
+  rosterSource: 'architect'
+  allowedRuntimes: Array<{ cli: string; model: string | null }>
+} | null {
+  if (input.rosterSource !== 'architect') return null
+  const seat = input.architectSeat
+  return {
+    roleRuntimes: seat
+      ? { architect: { cli: seat.cli, model: seat.model } }
+      : {},
+    enabledRoles: ['architect'],
+    rosterSource: 'architect',
+    allowedRuntimes: input.allowedRuntimes ?? [],
   }
 }
 
@@ -187,6 +214,8 @@ export async function runSprintEngineNewTeamCreation(
     throw new SprintEngineNewTeamCreationError('team-exists')
   }
 
+  const architectOverrides = architectRosterInitOverrides(input)
+
   try {
     const initResult = await ports.initializeSprintEngineState({
       statePath: args.sprintEngineContext.statePath,
@@ -199,10 +228,22 @@ export async function runSprintEngineNewTeamCreation(
       useWorktrees: input.useWorktrees === true,
       // Record the roster's per-role model selection so claimed tasks get
       // stamped with the model that worked them (same as the plan-sourced path).
-      roleRuntimes: buildSprintEngineRoleRuntimes(input.roleModelOverrides, input.roleCliDefaults),
+      // Architect-roster runs pin only the architect seat instead.
+      roleRuntimes: architectOverrides
+        ? architectOverrides.roleRuntimes
+        : buildSprintEngineRoleRuntimes(input.roleModelOverrides, input.roleCliDefaults),
       // Persist the enabled role set so Python derives quality gates for the
-      // configured-but-not-yet-seated roles under the lazy roster.
-      enabledRoles: sprintEngineEnabledRoles(args.sprintEngineState.roleCounts),
+      // configured-but-not-yet-seated roles under the lazy roster. Architect
+      // mode enables only the architect; the architect grows the roster later
+      // via roster.configure.
+      enabledRoles: architectOverrides
+        ? architectOverrides.enabledRoles
+        : sprintEngineEnabledRoles(args.sprintEngineState.roleCounts),
+      // Architect-roster metadata: the roster-source mode and the ticked model
+      // palette the engine enforces. Omitted (undefined) in user mode.
+      ...(architectOverrides
+        ? { rosterSource: architectOverrides.rosterSource, allowedRuntimes: architectOverrides.allowedRuntimes }
+        : {}),
     })
     if (!initResult.ok) {
       const wrapped = new SprintEngineNewTeamCreationError('init-failed')

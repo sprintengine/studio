@@ -1577,6 +1577,12 @@ export async function spawnAutoRunCandidate(
         sprintEngineStatePath,
         rosterArgs: buildSprintEngineRosterCommandArgs(sprintEngineState),
         configuredRoles: sprintEngineState.configuredRoles,
+        // Architect-roster inputs (see agentPrompt): mode + palette ride the
+        // projection; scores from the global catalog, guidance from auto state.
+        rosterSource: sprintEngineState.rosterSource,
+        allowedRuntimes: sprintEngineState.allowedRuntimes,
+        modelCatalog: currentState.appSettings.sprintEngineModelCatalog,
+        architectGuidance: autoState.architectGuidance,
         commandMode: getSprintEngineStartupCommandMode(nextRun.role, nextRun.agentId, sprintEngineState),
         autonomousPlanningOverride: nextRun.role === 'architect' && sprintEngineArtifactApprovalDesired(autoState),
         useWorktrees: sprintEngineState.useWorktrees === true,

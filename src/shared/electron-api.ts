@@ -1615,6 +1615,18 @@ export type SprintEngineStateInitializeInput = {
   // quality gates for configured-but-not-yet-seated roles under the lazy
   // (architect-only) roster. Empty => no derived gates.
   enabledRoles?: string[]
+  // How the roster is composed: 'architect' ("Architect picks the team") seats
+  // only the architect and lets it choose the team via roster.configure; 'user'
+  // (default/absent) means the wizard-composed roster. Written to run.yaml
+  // `rosterSource` via the `--roster-source` init flag; CLI-init-only, never
+  // MCP-mutable.
+  rosterSource?: 'user' | 'architect'
+  // The sprint's allowed runtime palette for an architect-roster run: the
+  // `{cli, model}` set the user ticked (model null = the CLI's own default).
+  // Written to run.yaml `allowedRuntimes` via `--allowed-runtimes-json`; the
+  // engine hard-rejects any roster.configure assignment outside it. Omitted for
+  // user-mode runs.
+  allowedRuntimes?: Array<{ cli: string; model: string | null }>
 }
 
 export type SprintEngineCliWatchPolling = 'enabled' | 'disabled'

@@ -13,6 +13,7 @@ import type {
   SprintEngineRoleId,
   SprintEngineRoleModelOverrides,
   SprintEngineRoleRegistry,
+  SprintEngineRosterSource,
   SprintEngineRosterTeam,
 } from '../../../types/workspace'
 import { sprintEngineAutomationModeOptions } from '../../../utils/sprintengineAutomation'
@@ -127,6 +128,46 @@ export function PathRadio({
   )
 }
 
+// Two-way choice at the top of the roster step: compose the roster by hand, or
+// let the architect pick the team from the per-sprint model selection. The
+// architect option is disabled (with a cause-specific hint) when no catalog model
+// is available, so the mode is never silently defaulted on.
+function RosterModeChoice({
+  value,
+  onChange,
+  architectAvailable,
+  architectDisabledHint,
+}: {
+  value: SprintEngineRosterSource
+  onChange: (source: SprintEngineRosterSource) => void
+  architectAvailable: boolean
+  architectDisabledHint?: string
+}) {
+  return (
+    <div role="radiogroup" aria-label="How the team is chosen" className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+      <PathRadio
+        checked={value === 'user'}
+        label="Pick the team yourself"
+        hint="Choose the roles and a CLI + model for each one. Saved teams apply here."
+        onSelect={() => onChange('user')}
+      />
+      <PathRadio
+        checked={value === 'architect'}
+        disabled={!architectAvailable}
+        label="Architect picks the team"
+        hint={
+          architectAvailable
+            ? 'The architect surveys the work, chooses the roles and models from your selection below, and records the team in the plan for your approval.'
+            : architectDisabledHint ?? 'Add at least one model to your catalog in Settings to turn this on.'
+        }
+        onSelect={() => {
+          if (architectAvailable) onChange('architect')
+        }}
+      />
+    </div>
+  )
+}
+
 // The roster + run-settings surface shared by the Sprint Engine wizard step and
 // the Guided Brief build handoff. Both let the user size the specialist roster,
 // pick each role's default CLI, and set how the run continues after the
@@ -163,6 +204,11 @@ export function RosterAndRunSettings({
   worktreesDisabled,
   maxParallelAgents,
   onChangeMaxParallelAgents,
+  rosterSource,
+  onChangeRosterSource,
+  architectModeAvailable,
+  architectModeDisabledHint,
+  architectCard,
 }: {
   roleCounts: SprintEngineRoleCounts
   roleCliDefaults: Required<SprintEngineRoleCliDefaults>
@@ -207,6 +253,16 @@ export function RosterAndRunSettings({
   // retired per-role count ceiling). Omitted by surfaces without run options.
   maxParallelAgents?: number
   onChangeMaxParallelAgents?: (value: number) => void
+  // "Architect picks the team" mode. When `onChangeRosterSource` is provided (the
+  // Sprint Engine wizard, not the Guided Brief handoff) the roster area gains a
+  // two-way choice above it; picking 'architect' swaps the roster table for
+  // `architectCard`. The architect option is disabled with
+  // `architectModeDisabledHint` when no catalog model is available.
+  rosterSource?: SprintEngineRosterSource
+  onChangeRosterSource?: (source: SprintEngineRosterSource) => void
+  architectModeAvailable?: boolean
+  architectModeDisabledHint?: string
+  architectCard?: React.ReactNode
 }) {
   // The saved-teams rail (two-column layout) is available only where team
   // management is wired up — the Sprint Engine wizard. The Guided Brief handoff
@@ -247,48 +303,62 @@ export function RosterAndRunSettings({
       }
     />
   )
+  // Architect-roster mode replaces the whole roster body (rail, picker, table)
+  // with the architect card; saved teams and per-role pickers do not apply.
+  const architectMode = Boolean(onChangeRosterSource) && rosterSource === 'architect'
+  const rosterBody = architectMode ? (
+    architectCard
+  ) : showTeamRail ? (
+    <div className="grid grid-cols-[236px_minmax(0,1fr)] items-start gap-4">
+      <RosterTeamsRail
+        roleCounts={roleCounts}
+        registry={registry}
+        teams={teams ?? []}
+        selectedTeamId={selectedTeamId ?? null}
+        selectedTeamDirty={selectedTeamDirty ?? false}
+        onSelectTeam={onSelectTeam!}
+        onSaveTeam={onSaveTeam!}
+        onUpdateTeam={onUpdateTeam}
+        onRenameTeam={onRenameTeam}
+        onDeleteTeam={onDeleteTeam}
+      />
+      <div className="flex min-w-0 flex-col gap-2">
+        <div className="flex items-baseline justify-between">
+          <Field.Label>Roster</Field.Label>
+          {rosterCount}
+        </div>
+        {rosterTable}
+      </div>
+    </div>
+  ) : (
+    <>
+      <div className="flex items-baseline justify-between">
+        <Field.Label>Roster</Field.Label>
+        {rosterCount}
+      </div>
+      {onSelectTeam && !countDisabled && (teams?.length ?? 0) > 0 ? (
+        <RosterTeamPicker
+          teams={teams ?? []}
+          selectedTeamId={selectedTeamId ?? null}
+          selectedTeamDirty={selectedTeamDirty ?? false}
+          onSelectTeam={onSelectTeam}
+        />
+      ) : null}
+      {rosterTable}
+    </>
+  )
   return (
     <>
-      <div className="flex flex-col gap-2">
-        {showTeamRail ? (
-          <div className="grid grid-cols-[236px_minmax(0,1fr)] items-start gap-4">
-            <RosterTeamsRail
-              roleCounts={roleCounts}
-              registry={registry}
-              teams={teams ?? []}
-              selectedTeamId={selectedTeamId ?? null}
-              selectedTeamDirty={selectedTeamDirty ?? false}
-              onSelectTeam={onSelectTeam!}
-              onSaveTeam={onSaveTeam!}
-              onUpdateTeam={onUpdateTeam}
-              onRenameTeam={onRenameTeam}
-              onDeleteTeam={onDeleteTeam}
-            />
-            <div className="flex min-w-0 flex-col gap-2">
-              <div className="flex items-baseline justify-between">
-                <Field.Label>Roster</Field.Label>
-                {rosterCount}
-              </div>
-              {rosterTable}
-            </div>
-          </div>
-        ) : (
-          <>
-            <div className="flex items-baseline justify-between">
-              <Field.Label>Roster</Field.Label>
-              {rosterCount}
-            </div>
-            {onSelectTeam && !countDisabled && (teams?.length ?? 0) > 0 ? (
-              <RosterTeamPicker
-                teams={teams ?? []}
-                selectedTeamId={selectedTeamId ?? null}
-                selectedTeamDirty={selectedTeamDirty ?? false}
-                onSelectTeam={onSelectTeam}
-              />
-            ) : null}
-            {rosterTable}
-          </>
-        )}
+      <div className="flex flex-col gap-3">
+        {onChangeRosterSource ? (
+          <RosterModeChoice
+            value={rosterSource ?? 'user'}
+            onChange={onChangeRosterSource}
+            architectAvailable={architectModeAvailable ?? false}
+            architectDisabledHint={architectModeDisabledHint}
+          />
+        ) : null}
+        {rosterBody}
       </div>
 
       <div className="flex flex-col gap-2">

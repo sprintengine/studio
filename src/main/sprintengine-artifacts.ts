@@ -113,6 +113,8 @@ type SerializableSprintEngineStatePayload = {
   useWorktrees: boolean
   roleRuntimes: Record<string, { model?: string | null; cli?: string | null }>
   enabledRoles: string[]
+  rosterSource: 'user' | 'architect' | null
+  allowedRuntimes: Array<{ cli: string; model: string | null }>
   source: SprintEngineStateInitializeSource | null
   sourceBundle: SprintEngineStateInitializeSourceBundleItem[]
 }
@@ -385,6 +387,8 @@ function resolveInitialSprintEngineStatePayload(payload: SprintEngineStateInitia
     useWorktrees: payload?.useWorktrees === true,
     roleRuntimes: resolveRoleRuntimes(payload?.roleRuntimes),
     enabledRoles: resolveEnabledRoles(payload?.enabledRoles),
+    rosterSource: resolveRosterSource(payload?.rosterSource),
+    allowedRuntimes: resolveAllowedRuntimes(payload?.allowedRuntimes),
     source: resolveInitSource(payload?.source),
     sourceBundle: resolveInitSourceBundle(payload?.sourceBundle),
   }
@@ -460,6 +464,33 @@ function resolveRoleRuntimes(
   return out
 }
 
+// Only the two known roster-source modes survive; anything else (including
+// user-mode) leaves the flag off so Python keeps its default 'user' semantics.
+function resolveRosterSource(
+  input: SprintEngineStateInitializeInput['rosterSource'],
+): 'user' | 'architect' | null {
+  return input === 'architect' || input === 'user' ? input : null
+}
+
+// The sprint's ticked model palette. Drops entries with no usable cli and
+// collapses each model to a trimmed string or null (the CLI's own default),
+// mirroring the engine's `apply_allowed_runtimes` parse so what we forward is
+// exactly what the run stores.
+function resolveAllowedRuntimes(
+  input: SprintEngineStateInitializeInput['allowedRuntimes'],
+): Array<{ cli: string; model: string | null }> {
+  if (!Array.isArray(input)) return []
+  const out: Array<{ cli: string; model: string | null }> = []
+  for (const entry of input) {
+    if (!entry || typeof entry !== 'object') continue
+    const cli = typeof entry.cli === 'string' ? entry.cli.trim() : ''
+    if (!cli) continue
+    const model = typeof entry.model === 'string' && entry.model.trim() ? entry.model.trim() : null
+    out.push({ cli, model })
+  }
+  return out
+}
+
 function getSprintEngineMcpRuntimeRoot(): string {
   return findSprintEngineRuntimeRoot() ?? process.cwd()
 }
@@ -504,6 +535,12 @@ function sprintEngineInitArgs(state: ValidSprintEngineStatePath, payload: Serial
   }
   if (payload.enabledRoles.length > 0) {
     args.push('--configured-roles-json', JSON.stringify(payload.enabledRoles))
+  }
+  if (payload.rosterSource) {
+    args.push('--roster-source', payload.rosterSource)
+  }
+  if (payload.allowedRuntimes.length > 0) {
+    args.push('--allowed-runtimes-json', JSON.stringify(payload.allowedRuntimes))
   }
   if (payload.source) {
     args.push('--source-json', JSON.stringify(payload.source))
