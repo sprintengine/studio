@@ -7,6 +7,7 @@ import {
   draftRowToEntry,
   entryToDraftRow,
   isCatalogCliUnavailable,
+  modelCatalogRowEmphasis,
   type ModelCatalogDraftRow,
 } from './modelCatalogRows'
 import { normalizeSprintEngineModelCatalog } from '../../utils/modelCatalog'
@@ -107,6 +108,18 @@ run('isCatalogCliUnavailable only greys a known-uninstalled CLI when detection i
   assert.equal(isCatalogCliUnavailable('codex', map, 'loading'), false)
   assert.equal(isCatalogCliUnavailable('codex', null, 'ready'), false)
   assert.equal(isCatalogCliUnavailable('codex', availability({ codex: false }), 'ready'), false)
+})
+
+run('modelCatalogRowEmphasis greys an unavailable row (recessed bg + muted data text) and leaves an available row at full strength', () => {
+  const off = modelCatalogRowEmphasis(true)
+  assert.equal(off.rowBg, 'bg-[color:var(--bg-app)]')
+  assert.equal(off.cellText, 'text-[color:var(--text-muted)]')
+  const on = modelCatalogRowEmphasis(false)
+  assert.equal(on.rowBg, 'bg-[color:var(--bg-surface-raised)]')
+  assert.equal(on.cellText, 'text-[color:var(--text-strong)]')
+  // The two states must be visually distinct, or "greyed" is not conveyed.
+  assert.notEqual(off.rowBg, on.rowBg)
+  assert.notEqual(off.cellText, on.cellText)
 })
 
 // --- Rendered surface: required column copy + unavailable hint ---

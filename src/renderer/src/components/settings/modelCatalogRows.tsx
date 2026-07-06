@@ -123,8 +123,21 @@ export function ModelCatalogHeaderRow() {
   )
 }
 
-const CELL_INPUT_CLASS =
-  'h-7 w-full rounded-md border border-[color:var(--border-default)] bg-[color:var(--bg-app)] px-2 text-[12px] text-[color:var(--text-strong)] outline-none placeholder:text-[color:var(--text-disabled)] focus:border-[color:var(--accent-primary)] disabled:opacity-45'
+// Unavailable rows read as recessed and de-emphasized at a glance — a recessed
+// background plus muted (still AA-contrast, not opacity-dimmed) data text — so
+// an uninstalled-CLI row is unmistakable from an active one without failing
+// contrast. The CLI picker, toggle, and remove stay at full strength so the
+// user can still fix the row (switch to an installed CLI) or delete it.
+export function modelCatalogRowEmphasis(unavailable: boolean): { rowBg: string; cellText: string } {
+  return unavailable
+    ? { rowBg: 'bg-[color:var(--bg-app)]', cellText: 'text-[color:var(--text-muted)]' }
+    : { rowBg: 'bg-[color:var(--bg-surface-raised)]', cellText: 'text-[color:var(--text-strong)]' }
+}
+
+// Text color is applied per-row (muted for an unavailable row) so the base
+// carries everything else.
+const CELL_INPUT_BASE =
+  'h-7 w-full rounded-md border border-[color:var(--border-default)] bg-[color:var(--bg-app)] px-2 text-[12px] outline-none placeholder:text-[color:var(--text-disabled)] focus:border-[color:var(--accent-primary)] disabled:opacity-45'
 
 export function ModelCatalogRow({
   row,
@@ -145,8 +158,9 @@ export function ModelCatalogRow({
 }) {
   const cliLabel = cliOption?.label ?? labelForCliRuntime(row.cli)
   const rowScopeLabel = `${cliLabel}${row.model ? ` ${row.model}` : ''}`
+  const { rowBg, cellText } = modelCatalogRowEmphasis(unavailable)
   return (
-    <div className={`${GRID_TEMPLATE} bg-[color:var(--bg-surface-raised)] py-2`}>
+    <div className={`${GRID_TEMPLATE} py-2 ${rowBg}`}>
       <Switch
         checked={row.offeredByDefault}
         onChange={(next) => onUpdate({ offeredByDefault: next })}
@@ -179,7 +193,7 @@ export function ModelCatalogRow({
           onBlur={onReconcile}
           inputMode="numeric"
           aria-label={`${axis.label} score (1–10) for ${rowScopeLabel}`}
-          className={`${CELL_INPUT_CLASS} text-right font-mono tabular-nums`}
+          className={`${CELL_INPUT_BASE} ${cellText} text-right font-mono tabular-nums`}
         />
       ))}
 
@@ -189,7 +203,7 @@ export function ModelCatalogRow({
         onBlur={onReconcile}
         inputMode="decimal"
         aria-label={`Cost multiplier for ${rowScopeLabel}`}
-        className={`${CELL_INPUT_CLASS} text-right font-mono tabular-nums`}
+        className={`${CELL_INPUT_BASE} ${cellText} text-right font-mono tabular-nums`}
       />
 
       <div className="min-w-0">
@@ -199,11 +213,11 @@ export function ModelCatalogRow({
           onBlur={onReconcile}
           placeholder="Optional guidance"
           aria-label={`Note for ${rowScopeLabel}`}
-          className={CELL_INPUT_CLASS}
+          className={`${CELL_INPUT_BASE} ${cellText}`}
         />
         {unavailable ? (
           <div className="mt-1 flex items-center gap-1.5">
-            <span className="rounded-[3px] bg-[color:var(--tone-warn-soft,rgba(252,192,48,0.14))] px-1.5 py-px text-[10px] font-medium text-[color:var(--tone-warn)]">
+            <span className="rounded-[3px] bg-[color:var(--tone-warn-soft)] px-1.5 py-px text-[10px] font-medium text-[color:var(--tone-warn)]">
               CLI not installed
             </span>
             <span className="truncate text-[11px] text-[color:var(--text-subtle)]">
