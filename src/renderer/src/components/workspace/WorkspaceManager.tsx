@@ -2535,7 +2535,6 @@ export default function WorkspaceManager() {
         onForgetFolder={handleForgetFolder}
         onNewWorkspace={openNewWorkspacePanel}
         onNewWorkspaceInFolder={openNewWorkspacePanelForFolder}
-        onNewChat={() => openNewChatPanel()}
         onNewChatInFolder={(folderPath) => openNewChatPanel(folderPath)}
         onRevealFolder={handleRevealFolder}
         onSetSidebarCollapsed={setSidebarCollapsed}
