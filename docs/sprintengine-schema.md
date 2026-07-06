@@ -76,6 +76,16 @@ commands.
 - `sourceBundle`: attached reference seed documents, each with `kind`, `origin`,
   `path`, and optional `originalPath`/`capturedAt`. Present only when references
   were attached.
+- `rosterSource`: who composes the roster — `"user"` (the operator picked the
+  team in the wizard) or `"architect"` ("Architect picks the team" — the
+  architect enables roles via `sprintengine.roster.configure`). Written once at
+  init from `--roster-source`; absent on legacy/user-mode runs (default `user`
+  semantics). Not MCP-mutable.
+- `allowedRuntimes`: on an `architect`-source run, the sprint's allowed runtime
+  palette — a JSON array of `{"cli", "model"}` objects (`"model": null` = that
+  CLI's default). Written once at init from `--allowed-runtimes-json`;
+  `roster.configure` rejects any role `{cli, model}` outside it. Absent on
+  legacy/user-mode runs. Not MCP-mutable.
 - `updatedAt`: UTC timestamp of the latest store sync.
 
 The graph mirror lets readiness refresh validate dependency references and
@@ -84,7 +94,11 @@ cycles without requiring consumers to parse every task folder.
 `source` and `sourceBundle` round-trip through `run.yaml` and are re-emitted on
 the normalized projection's `run` payload (alongside `roleRuntimes` and
 `configuredRoles`), omitted cleanly when absent, so the renderer can surface the
-seed docs a run started from.
+seed docs a run started from. `rosterSource` and `allowedRuntimes`
+(`RUN_ROSTER_SOURCE_KEYS`) round-trip and re-emit the same way; `rosterSource`
+is additionally surfaced on the `sprintengine.agent.join`/`sprintengine.run.get`
+`run` metadata so a joined architect can self-check whether it must compose the
+team via `sprintengine.roster.configure`.
 
 ## Role Registry Boundary
 
@@ -291,8 +305,38 @@ Active operation names:
   tool: it exists for the UI, which reads `projection.json` from disk, and
   over MCP it returned more tokens than an agent context window. The CLI
   `projection` command is unaffected.
+- Roster: `sprintengine.roster.add`, `sprintengine.roster.configure`,
+  `sprintengine.roster.retire`, `sprintengine.roster.replenish`,
+  `sprintengine.roster.list`. `sprintengine.roster.configure` is the
+  "Architect picks the team" mutation: it enables roles and pins each role's
+  `{cli, model}` in one call on an `architect`-source run (see below).
 - Support: `sprintengine.init`, `sprintengine.recover`, roster tools,
   `sprintengine.summary`, feedback tools, and `sprintengine.health`.
+
+`sprintengine.roster.configure` takes `{ roles, id? }`, where `roles` is a JSON
+array of `{ "role", "cli", "model" }` objects (`"model": null` = the CLI's own
+default):
+
+```json
+{
+  "roles": [
+    { "role": "developer", "cli": "claude-code", "model": "claude-opus-4-8" },
+    { "role": "tester", "cli": "claude-code", "model": null }
+  ],
+  "id": "architect"
+}
+```
+
+It validates in order: (1) caller is the planning role — enforced by the
+capability table (architect-only surface); (2) the run is `rosterSource:
+architect`, else `roster_configure_requires_architect_roster_source`; (3) the
+plan-approval gate is not yet `done`, else `roster_locked_after_plan_approval`
+(post-approval changes route through `needs_input(user)`); (4) every submitted
+role resolves in the registry; (5) each `{cli, model}` exactly matches an entry
+in the run's `allowedRuntimes` palette, else `runtime_not_allowed_for_run`.
+On success `configuredRoles` becomes `union(submitted roles, planning role)`,
+`roleRuntimes` is set from the submitted pairs, and a `roster_configured` event
+is appended. The CLI equivalent is `sprintengine roster configure --roles-json`.
 
 MCP response contract (`sprintengine_mcp/response_shapes.py`): MCP responses
 carry deltas and references, not state echoes — the run store stays the source

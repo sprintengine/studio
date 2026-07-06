@@ -148,6 +148,48 @@ sprintengine --backend mcp-local roles list --extra-dir ./plugin/.sprintengine
 sprintengine mcp serve --workspace . --extra-dir ./plugin/.sprintengine
 ```
 
+## Roster Composition
+
+Two `sprintengine init` flags decide who composes the team and which runtimes
+are in play. Both are written once at init (the app forwards them from the
+sprint wizard) and are **not MCP-mutable**:
+
+- `--roster-source <user|architect>`: who composes the roster. `user` (the
+  default; absent/legacy runs behave as `user`) means the operator picked the
+  team in the wizard. `architect` ("Architect picks the team") means the
+  architect enables roles via `sprintengine roster configure` during planning.
+- `--allowed-runtimes-json '<json>'`: the sprint's allowed runtime palette — a
+  JSON array of `{"cli", "model"}` objects (`"model": null` = that CLI's own
+  default). `roster configure` hard-rejects any role assignment whose
+  `{cli, model}` is not an exact entry here. Absent on `user`/legacy runs.
+
+On an `architect`-source run the architect enables roles and pins each role's
+runtime in one sanctioned mutation, before creating task cards:
+
+```bash
+sprintengine roster configure --id architect --roles-json '[
+  {"role": "developer", "cli": "claude-code", "model": "claude-opus-4-8"},
+  {"role": "tester", "cli": "claude-code", "model": null}
+]'
+```
+
+- `--roles-json` (required) is a JSON array of `{"role", "cli", "model"}`
+  objects; `"model": null` pins the CLI default (no `--model`).
+- `configuredRoles` becomes the union of the submitted roles and the run's
+  planning role; `roleRuntimes` is set from the submitted `{cli, model}` pairs.
+- The command is rejected when: the run is not `rosterSource: architect`
+  (`roster_configure_requires_architect_roster_source`); the plan is already
+  approved (`roster_locked_after_plan_approval` — route post-approval changes
+  through `needs_input(user)`); a submitted role is unknown to the registry; or
+  a `{cli, model}` is outside `--allowed-runtimes-json`
+  (`runtime_not_allowed_for_run`). Re-run the command to revise the team until
+  the plan is approved.
+
+Over MCP the same operation is `sprintengine.roster.configure` with
+`{ roles: [{ role, cli, model }, ...], id? }`. It is architect-only in the role
+capability table (withheld from a `general` identity alongside the other
+roster-growth tools), so only the run's planning architect can seat the team.
+
 ## Command Groups
 
 Inspect help before scripting a command:
@@ -166,7 +208,7 @@ Current command groups:
 - `recover`: run an integrity recovery audit prompt.
 - `projection`: read the normalized run projection.
 - `runner`: read or update the durable runner policy.
-- `roster`: add or list canonical roster members.
+- `roster`: add, configure (architect team composition), or list canonical roster members.
 - `join`: receive the role prompt and next directive.
 - `triage`: inspect architect-actionable blockers.
 - `mcp`: run the local stdio MCP server.
