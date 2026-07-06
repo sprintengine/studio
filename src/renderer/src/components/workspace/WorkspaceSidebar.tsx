@@ -69,6 +69,10 @@ type WorkspaceSidebarProps = {
   workspaceWindowId: string
   isDetachedWindow: boolean
   sidebarCollapsed: boolean
+  // The sidebar's own top strip (SidebarChrome) — window controls that run to the
+  // top of the full-height sidebar. Rendered as the first child inside the aside
+  // so it shares the column's exact width and resize behavior.
+  chromeSlot?: React.ReactNode
   activityByWorkspaceId: Record<WorkspaceId, Activity>
   // Workspaces whose agents are resident (live PTY) right now — bolded as "hot"
   // (instant switch) versus suspended/exited rows that re-launch on open.
@@ -370,6 +374,7 @@ export default function WorkspaceSidebar({
   workspaceWindowId,
   isDetachedWindow,
   sidebarCollapsed,
+  chromeSlot,
   activityByWorkspaceId,
   residentWorkspaceIds,
   terminalRecencyByWorkspaceId,
@@ -434,11 +439,22 @@ export default function WorkspaceSidebar({
   // glide so the rail tracks the pointer instead of lagging behind a 150ms
   // transition.
   const [isResizingSidebar, setIsResizingSidebar] = useState(false)
+  // Live width during an active drag. The drag writes width straight to the
+  // sidebar element's style (see apply()) instead of the store, so no frame
+  // pays for a store mutation — which in this app means re-serializing the whole
+  // persisted workspace registry (~3× per frame in the persist adapter) plus a
+  // full WorkspaceManager re-render. This ref is the drag's source of truth so a
+  // stray re-render mid-drag (e.g. a workspace status tick) re-reads the live
+  // width instead of snapping back to the stale store value. Committed to the
+  // store once on pointer-up.
+  const dragWidthRef = useRef<number | null>(null)
 
   // Drag the right-edge handle to resize the expanded sidebar; drag it close to
   // the left and the rail collapses to the icon strip. Pointer math is shared
   // with the store via resolveSidebarResize so the snap threshold is single-
-  // sourced. rAF-coalesced so a fast drag does at most one update per frame.
+  // sourced. rAF-coalesced so a fast drag does at most one update per frame, and
+  // each frame is a pure DOM width write — the store is touched only on
+  // pointer-up (final width) and when crossing the collapse/expand boundary.
   const handleResizePointerDown = useCallback(
     (event: React.PointerEvent<HTMLDivElement>) => {
       if (event.button !== 0) return
@@ -448,6 +464,7 @@ export default function WorkspaceSidebar({
       let collapsed = sidebarCollapsed
       let frame: number | null = null
       let pendingX = startX
+      dragWidthRef.current = startWidth
 
       const apply = () => {
         frame = null
@@ -455,6 +472,7 @@ export default function WorkspaceSidebar({
         if (outcome.kind === 'collapse') {
           if (!collapsed) {
             collapsed = true
+            dragWidthRef.current = null
             onSetSidebarCollapsed(true)
           }
           return
@@ -463,7 +481,10 @@ export default function WorkspaceSidebar({
           collapsed = false
           onSetSidebarCollapsed(false)
         }
-        onSetSidebarWidth(outcome.width)
+        // Per-frame update stays in the DOM: no store mutation, so no registry
+        // re-serialization and no app-wide re-render while dragging.
+        dragWidthRef.current = outcome.width
+        if (sidebarRef.current) sidebarRef.current.style.width = `${outcome.width}px`
       }
       const onMove = (e: PointerEvent) => {
         pendingX = e.clientX
@@ -475,6 +496,11 @@ export default function WorkspaceSidebar({
         window.removeEventListener('pointerup', onUp)
         document.body.style.cursor = ''
         document.body.style.userSelect = ''
+        // Commit the final width to the store exactly once (skipped if the drag
+        // ended in the collapsed state, which already updated the store).
+        const finalWidth = dragWidthRef.current
+        dragWidthRef.current = null
+        if (finalWidth !== null && !collapsed) onSetSidebarWidth(finalWidth)
         setIsResizingSidebar(false)
       }
       setIsResizingSidebar(true)
@@ -1019,7 +1045,7 @@ export default function WorkspaceSidebar({
               />
             ) : (
               <span
-                className={`flex min-w-0 flex-1 items-center gap-1.5 truncate ${folderMissing ? 'line-through decoration-[color:var(--text-subtle)]' : ''}`}
+                className={`flex min-w-0 flex-1 items-center gap-1.5 ${folderMissing ? 'line-through decoration-[color:var(--text-subtle)]' : ''}`}
               >
                 {starred ? (
                   <StarGlyph
@@ -1031,7 +1057,7 @@ export default function WorkspaceSidebar({
                 <TruncatedText
                   as="span"
                   text={workspace.name}
-                  className={`min-w-0 ${resident ? 'font-semibold text-[color:var(--text-strong)]' : ''}`}
+                  className={`min-w-0 flex-1 ${resident ? 'font-semibold text-[color:var(--text-strong)]' : ''}`}
                 />
                 {resident ? <span className="sr-only"> (agents resident)</span> : null}
               </span>
@@ -1246,10 +1272,23 @@ export default function WorkspaceSidebar({
       // Width is class-driven when collapsed (fixed icon rail) and style-driven
       // when expanded (user-resizable). The width glide is suppressed mid-drag
       // so the rail tracks the pointer instead of lagging the 150ms transition.
-      style={sidebarCollapsed ? undefined : { width: clampSidebarWidth(sidebarWidth) }}
+      // During a drag the live width comes from dragWidthRef (the drag writes it
+      // straight to this element and never to the store), so an unrelated
+      // re-render mid-drag keeps the current width instead of the stale store one.
+      style={
+        sidebarCollapsed
+          ? undefined
+          : {
+              width: clampSidebarWidth(
+                isResizingSidebar && dragWidthRef.current !== null
+                  ? dragWidthRef.current
+                  : sidebarWidth
+              ),
+            }
+      }
       className={`relative flex shrink-0 flex-col bg-[color:var(--bg-app)] ${
         isResizingSidebar ? '' : 'transition-[width] duration-150 ease-out motion-reduce:transition-none'
-      } ${sidebarCollapsed ? 'w-[44px]' : ''}`}
+      } ${sidebarCollapsed ? 'hidden' : ''}`}
     >
       {/* Drag the right edge to resize; drag it close to the left to collapse. */}
       <div
@@ -1270,12 +1309,14 @@ export default function WorkspaceSidebar({
         />
       </div>
       {/*
-       * The Files / Git / Backlog panel switches and the sidebar-collapse toggle
-       * both moved into the window title bar (AppTitleBar → PanelSwitches), so
-       * the sidebar's first row is now the creation entry. One nav toolbar, one
-       * collapse button.
+       * The sidebar runs to the top of the window, so its own top strip
+       * (SidebarChrome) leads: window controls (collapse, search, back/forward,
+       * and on win/linux the app menu) that used to sit in the full-width title
+       * bar. The Files / Git / Backlog panel switches live in the workspace
+       * header over the content, not here.
        */}
-      <div className={`mt-2 flex flex-col gap-1.5 ${sidebarCollapsed ? 'mx-1.5' : 'mx-2'}`}>
+      {chromeSlot}
+      <div className={`mt-1 flex flex-col gap-1.5 ${sidebarCollapsed ? 'mx-1.5' : 'mx-2'}`}>
         {/* New Agent — one quiet nav row matching Automations / Connectors
             (SidebarNavButton). It carries the tab-extract drop target and the
             Ctrl+T accelerator (surfaced in the tooltip). Chat now lives inside
@@ -1290,7 +1331,7 @@ export default function WorkspaceSidebar({
           }
           label={tabDropTarget?.kind === 'new' ? 'Drop to extract' : 'New Agent'}
           ariaLabel="New Agent"
-          tooltip="New Agent (Ctrl+T) — drop a tab here to extract it"
+          tooltip="New Agent (Ctrl+T)"
           tooltipWhenExpanded
           onClick={onNewWorkspace}
           onDragOver={handleTabDragOverNew}
@@ -1308,6 +1349,7 @@ export default function WorkspaceSidebar({
             label="Automations"
             ariaLabel="Automations"
             tooltip="Automations"
+            tooltipWhenExpanded
             onClick={(event) => setAutomationsMenu({ x: event.clientX, y: event.clientY })}
           />
         ) : null}
@@ -1318,6 +1360,7 @@ export default function WorkspaceSidebar({
           label="Connectors"
           ariaLabel="Connectors"
           tooltip="Connectors"
+          tooltipWhenExpanded
           active={connectorsSurfaceOpen}
           onClick={() => openConnectorsSurface()}
         />
@@ -1859,8 +1902,12 @@ function SidebarNavButton({
     )
   }
   if (tooltipWhenExpanded) {
+    // `right` (matching the collapsed rail) keeps the tip beside the row over the
+    // content column. The default `top` sent the topmost row's (New Agent) tip up
+    // into the macOS traffic-light zone, where the viewport clamp pinned it to the
+    // window's top-left corner.
     return (
-      <Tooltip content={tooltip} wrapperClassName="flex">
+      <Tooltip content={tooltip} placement="right" wrapperClassName="flex">
         {button}
       </Tooltip>
     )

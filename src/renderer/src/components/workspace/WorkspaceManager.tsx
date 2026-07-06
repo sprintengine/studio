@@ -85,7 +85,9 @@ import SprintEnginesAside from './SprintEnginesAside'
 import { beginSidebarTransition } from '../../utils/sidebarTransition'
 import { isHiddenFromRail } from '../../utils/workspaceVisibility'
 import { WORKSPACE_LAYER_REVEAL_EVENT } from '../../utils/terminalFitScheduler'
-import { AppTitleBar } from './AppTitleBar'
+import { SidebarChrome } from './SidebarChrome'
+import { WorkspaceHeader } from './WorkspaceHeader'
+import { WindowControls } from './WindowControls'
 import { WorkspaceIdentity } from './WorkspaceIdentity'
 import { WorkspaceActions, type SessionItem } from './WorkspaceActions'
 import { AGENT_SPAWN_PERMISSION_OPTIONS } from './agentComposer/agentSpawnShared'
@@ -1902,7 +1904,8 @@ export default function WorkspaceManager() {
       return true
     }
     if (commandId === 'app.updates.check') {
-      openSettings(true)
+      // Updates folded into the General tab; land there and run the check.
+      openSettings(true, 'general')
       return true
     }
     if (commandId === 'commandPalette.open') {
@@ -2480,25 +2483,75 @@ export default function WorkspaceManager() {
           : null
       ))}
 
-      <AppTitleBar
+      <div className="relative flex min-h-0 flex-1 flex-row">
+      <WorkspaceSidebar
+        workspaces={visibleWorkspaces}
+        activeWorkspaceId={windowActiveWorkspaceId}
+        workspaceWindowId={workspaceWindowId}
+        isDetachedWindow={!isPrimaryWorkspaceWindow}
+        sidebarCollapsed={sidebarCollapsed}
+        chromeSlot={
+          <SidebarChrome
+            isMac={window.api.platform === 'darwin'}
+            isFullScreen={windowState.isFullScreen}
+            onToggleSidebar={() => runCommand('workspace.sidebar.toggle')}
+            onNavigateBack={() => runCommand('workspace.history.back')}
+            onNavigateForward={() => runCommand('workspace.history.forward')}
+            onOpenSearch={() => runCommand('commandPalette.open')}
+            menuItems={window.api.platform === 'darwin' ? [] : MENU_BAR_ITEMS}
+            onShowMenu={(event, label) => void handleShowMenubarMenu(event, label)}
+          />
+        }
+        activityByWorkspaceId={activityByWorkspaceId}
+        residentWorkspaceIds={residentWorkspaceIds}
+        terminalRecencyByWorkspaceId={terminalRecencyByWorkspaceId}
+        onSelectWorkspace={(id) => {
+          setShowNewWorkspacePanel(false)
+          setActiveWorkspaceForWindow(workspaceWindowId, id)
+        }}
+        onMoveWorkspaceToNewWindow={(id, placement) => void moveWorkspaceToNewWindow(id, placement)}
+        onMoveWorkspaceToMainWindow={moveWorkspaceToPrimaryWindow}
+        onCloseWorkspace={closeWorkspaceById}
+        onDeleteWorkspaceWithState={deleteWorkspaceWithState}
+        onForgetFolder={handleForgetFolder}
+        onNewWorkspace={openNewWorkspacePanel}
+        onNewWorkspaceInFolder={openNewWorkspacePanelForFolder}
+        onNewChatInFolder={(folderPath) => openNewChatPanel(folderPath)}
+        onRevealFolder={handleRevealFolder}
+        onSetSidebarCollapsed={setSidebarCollapsed}
+        sidebarWidth={sidebarWidth}
+        onSetSidebarWidth={setSidebarWidth}
+        authState={authState}
+        authMessage={authMessage}
+        accountOpen={accountOpen}
+        setAccountOpen={setAccountOpen}
+        startLogin={startLogin}
+        refreshAuthState={refreshAuthState}
+        logout={logout}
+        openSettings={openSettings}
+        settingsOpen={settingsOpen}
+      />
+      {/* Content column: the workspace header (identity + controls) sits above
+          the active workspace's card, so the chrome reads as tied to the
+          workspace rather than floating in a full-width bar. */}
+      <div className="flex min-w-0 flex-1 flex-col">
+      <WorkspaceHeader
+        activeWorkspaceId={windowActiveWorkspaceId}
         isMac={window.api.platform === 'darwin'}
-        isMaximized={windowState.isMaximized}
         isFullScreen={windowState.isFullScreen}
-        menuItems={MENU_BAR_ITEMS}
-        onShowMenu={(event, label) => void handleShowMenubarMenu(event, label)}
         sidebarCollapsed={sidebarCollapsed}
         onToggleSidebar={() => runCommand('workspace.sidebar.toggle')}
-        activeWorkspaceId={windowActiveWorkspaceId}
-        onNavigateBack={() => runCommand('workspace.history.back')}
-        onNavigateForward={() => runCommand('workspace.history.forward')}
         onOpenSearch={() => runCommand('commandPalette.open')}
-        sprintEnginesToggle={
-          sprintEngineEnabled
-            ? {
-                open: sprintEnginesAsideOpen,
-                onToggle: () => setSprintEnginesAsideOpen(!sprintEnginesAsideOpen),
-              }
-            : null
+        onNewAgent={openNewWorkspacePanel}
+        menuItems={window.api.platform === 'darwin' ? [] : MENU_BAR_ITEMS}
+        onShowMenu={(event, label) => void handleShowMenubarMenu(event, label)}
+        identitySlot={
+          <WorkspaceIdentity
+            activeWorkspace={activeWorkspace}
+            activeWorkspaceId={windowActiveWorkspaceId}
+            sidebarCollapsed={sidebarCollapsed}
+            onToggleSidebar={() => runCommand('workspace.sidebar.toggle')}
+          />
         }
         attentionQueue={{
           items: attentionItems,
@@ -2509,15 +2562,20 @@ export default function WorkspaceManager() {
           activeWorkspaceId: windowActiveWorkspaceId,
           onOpenItem: openSession,
         }}
+        sprintEnginesToggle={
+          sprintEngineEnabled
+            ? {
+                open: sprintEnginesAsideOpen,
+                onToggle: () => setSprintEnginesAsideOpen(!sprintEnginesAsideOpen),
+              }
+            : null
+        }
         onOpenDiagnostics={
           window.api.isDevelopment || window.api.isDiagnosticsEnabled
             ? () => setDiagnosticsOpen(true)
             : null
         }
-        centerSlot={
-          <WorkspaceIdentity activeWorkspace={activeWorkspace} activeWorkspaceId={windowActiveWorkspaceId} />
-        }
-        rightClusterPrefix={
+        actionsSlot={
           <WorkspaceActions
             workspaces={visibleWorkspaces}
             activeWorkspace={activeWorkspace}
@@ -2573,58 +2631,20 @@ export default function WorkspaceManager() {
           />
         }
       />
-
-      <div className="flex min-h-0 flex-1 flex-row">
-      <WorkspaceSidebar
-        workspaces={visibleWorkspaces}
-        activeWorkspaceId={windowActiveWorkspaceId}
-        workspaceWindowId={workspaceWindowId}
-        isDetachedWindow={!isPrimaryWorkspaceWindow}
-        sidebarCollapsed={sidebarCollapsed}
-        activityByWorkspaceId={activityByWorkspaceId}
-        residentWorkspaceIds={residentWorkspaceIds}
-        terminalRecencyByWorkspaceId={terminalRecencyByWorkspaceId}
-        onSelectWorkspace={(id) => {
-          setShowNewWorkspacePanel(false)
-          setActiveWorkspaceForWindow(workspaceWindowId, id)
-        }}
-        onMoveWorkspaceToNewWindow={(id, placement) => void moveWorkspaceToNewWindow(id, placement)}
-        onMoveWorkspaceToMainWindow={moveWorkspaceToPrimaryWindow}
-        onCloseWorkspace={closeWorkspaceById}
-        onDeleteWorkspaceWithState={deleteWorkspaceWithState}
-        onForgetFolder={handleForgetFolder}
-        onNewWorkspace={openNewWorkspacePanel}
-        onNewWorkspaceInFolder={openNewWorkspacePanelForFolder}
-        onNewChatInFolder={(folderPath) => openNewChatPanel(folderPath)}
-        onRevealFolder={handleRevealFolder}
-        onSetSidebarCollapsed={setSidebarCollapsed}
-        sidebarWidth={sidebarWidth}
-        onSetSidebarWidth={setSidebarWidth}
-        authState={authState}
-        authMessage={authMessage}
-        accountOpen={accountOpen}
-        setAccountOpen={setAccountOpen}
-        startLogin={startLogin}
-        refreshAuthState={refreshAuthState}
-        logout={logout}
-        openSettings={openSettings}
-        settingsOpen={settingsOpen}
-      />
       {/* The workspace card: everything inside the rounded surface belongs to
           the active workspace. With the Sprint Engines aside open the card
           also rounds its right edge, reading as a card floating between two
           pieces of app-level chrome (sidebar left, aside right). */}
       <div
-        className={`flex min-w-0 flex-1 flex-col overflow-hidden rounded-tl-[10px] rounded-bl-[10px] bg-[color:var(--bg-surface)] ${
+        className={`flex min-w-0 flex-1 flex-col overflow-hidden rounded-bl-[10px] bg-[color:var(--bg-surface)] ${
           showSprintEnginesAside
-            ? 'rounded-tr-[10px] rounded-br-[10px] shadow-[inset_1px_0_0_rgba(255,255,255,0.04),inset_-1px_0_0_rgba(255,255,255,0.04)]'
-            : 'shadow-[inset_1px_0_0_rgba(255,255,255,0.04)]'
+            ? 'rounded-br-[10px] shadow-[inset_-1px_0_0_rgba(255,255,255,0.04)]'
+            : ''
         }`}
       >
-      {/* The workspace identity + control groups formerly rendered here as a
-          separate 48px WorkspaceTopBar row now live in the merged AppTitleBar
-          title strip (WorkspaceIdentity / WorkspaceActions slots), so the card
-          opens directly with content. */}
+      {/* The workspace identity + control groups live in the WorkspaceHeader
+          above this card (WorkspaceIdentity / WorkspaceActions slots), so the
+          card opens directly with content. */}
       <div className="relative min-h-0 flex-1">
         <div
           className="absolute inset-0"
@@ -2746,6 +2766,7 @@ export default function WorkspaceManager() {
         />
       </div>
       </div>
+      </div>
       {showSprintEnginesAside ? (
         <SprintEnginesAside
           activeWorkspaceId={windowActiveWorkspaceId}
@@ -2756,6 +2777,14 @@ export default function WorkspaceManager() {
           }}
           onClose={() => setSprintEnginesAsideOpen(false)}
         />
+      ) : null}
+      {/* Win/linux caption buttons pin to the window's absolute top-right corner
+          (above whatever column owns that edge — content or the Sprint Engines
+          aside), since the split chrome has no full-width bar to host them. */}
+      {window.api.platform !== 'darwin' ? (
+        <div className="app-no-drag absolute right-0 top-0 z-30 flex h-[36px] items-center">
+          <WindowControls isMaximized={windowState.isMaximized} />
+        </div>
       ) : null}
       </div>
 

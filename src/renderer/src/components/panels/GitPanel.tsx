@@ -10,7 +10,7 @@ import { basename, samePath, trimPath } from '../../utils/paths'
 import { findHealthyWorktreeScope, resolveWorkspaceWorktree } from '../../utils/workspaceWorktree'
 import WorktreeManager from '../worktree/WorktreeManager'
 import PlainTerminalPanel from './PlainTerminalPanel'
-import { IconButton, InboxRow, LifecycleGlyph, Select, Skeleton, Tooltip, type LifecycleState } from '../ui'
+import { IconButton, InboxRow, PanelHeader, Select, Skeleton, Tooltip, type LifecycleState } from '../ui'
 import { useConfirmDialog } from '../ui/ConfirmDialog'
 import { GitGraphView, type GitCommitActions, type GitGraphState, type GitMergeTarget } from './GitGraphView'
 import type { GitPanelView } from '../../types/workspace'
@@ -1097,26 +1097,19 @@ export default function GitPanel({ workspaceId }: { workspaceId: string }) {
   return (
     <div className="flex h-full flex-col overflow-hidden bg-[color:var(--bg-surface)] text-[color:var(--text-default)]">
       {/*
-       * Contextual header. Sync state reads (and acts) like an editor's
-       * branch+sync widget: scope health only shows when the checkout
-       * is unhealthy (otherwise no mark), ahead/behind are the Pull/Push
-       * affordances rather than dead text, and the dropdowns below are captioned
-       * (GitHub Desktop) so "Branch" / "Worktree" read without guessing. The nav
-       * rail already names the panel, so there is no redundant "Git" title bar.
+       * Contextual header on the shared PanelHeader so Git reads with the same
+       * identity row as every other panel. Title is "Git"; the subtitle carries
+       * sync state the usual editor way — scope health when the checkout
+       * is unhealthy, otherwise the ahead/behind summary. Pull/Push stay live
+       * affordances (not dead text) in the header actions; the captioned Branch /
+       * Worktree dropdowns follow in the secondary strip (GitHub Desktop) so each
+       * reads without guessing.
        */}
-      <div className="border-b border-[color:var(--border-default)] bg-[color:var(--bg-surface-raised)]">
-        <div className="flex h-8 shrink-0 items-center justify-between gap-2 px-3">
-          <div className="flex min-w-0 items-center gap-1.5 text-[11px]" title={activeScopePath}>
-            {scopeHealth ? (
-              <span className="flex min-w-0 items-center gap-1 text-[color:var(--text-default)]">
-                <LifecycleGlyph state={scopeHealth.state} live={false} label={scopeHealth.label} />
-                <span className="truncate">{scopeHealth.label}</span>
-              </span>
-            ) : syncSummary ? (
-              <span className="min-w-0 truncate text-[color:var(--text-subtle)]">{syncSummary}</span>
-            ) : null}
-          </div>
-          <div className="flex shrink-0 items-center gap-1">
+      <PanelHeader
+        title="Git"
+        subtitle={scopeHealth?.label ?? syncSummary ?? undefined}
+        overflow={
+          <>
             {behind > 0 ? (
               <Tooltip content={`Pull ${behind} commit${behind === 1 ? '' : 's'}${upstreamLabel ? ` from ${upstreamLabel}` : ''}`} placement="bottom">
                 <button
@@ -1152,10 +1145,11 @@ export default function GitPanel({ workspaceId }: { workspaceId: string }) {
                 <RefreshGitIcon />
               </IconButton>
             </Tooltip>
-          </div>
-        </div>
-        <div className="space-y-1 px-3 pb-2">
-          <div className="grid grid-cols-[auto_minmax(0,1fr)] items-center gap-2">
+          </>
+        }
+      />
+      <div className="space-y-1 border-b border-[color:var(--border-subtle)] px-3 pb-2 pt-2">
+          <div className="grid grid-cols-[4rem_minmax(0,1fr)] items-center gap-2">
             <span className="text-[11px] text-[color:var(--text-subtle)]">Branch</span>
             <Select<string>
               ariaLabel="Current branch"
@@ -1179,7 +1173,10 @@ export default function GitPanel({ workspaceId }: { workspaceId: string }) {
            * point — never as a permanently greyed-out button.
            */}
           {worktreeCount > 0 && activeView !== 'worktrees' ? (
-            <div className="grid grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-2" title={activeScopePath}>
+            <div
+              className={`grid ${activeScope?.kind === 'worktree' ? 'grid-cols-[4rem_minmax(0,1fr)_auto]' : 'grid-cols-[4rem_minmax(0,1fr)]'} items-center gap-2`}
+              title={activeScopePath}
+            >
               <span className="text-[11px] text-[color:var(--text-subtle)]">Worktree</span>
               <Select<string>
                 ariaLabel="Active worktree"
@@ -1211,7 +1208,6 @@ export default function GitPanel({ workspaceId }: { workspaceId: string }) {
             </div>
           ) : null}
         </div>
-      </div>
 
       <div className="flex min-h-0 flex-1 flex-col">
         <div className="flex h-9 shrink-0 items-center gap-1 border-b border-[color:var(--border-subtle)] bg-[color:var(--bg-surface)] px-3" role="tablist" aria-label="Git panel views">

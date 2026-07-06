@@ -1423,7 +1423,7 @@ export default function BacklogPanel({ workspaceId, onStartFuturePlan }: Workspa
   return (
     <section
       ref={rootRef}
-      className="flex h-full min-h-0 flex-col bg-[color:var(--bg-app)] text-[color:var(--text-default)]"
+      className="flex h-full min-h-0 flex-col overflow-hidden bg-[color:var(--bg-surface)] text-[color:var(--text-default)]"
       aria-label="Backlog"
     >
       <PanelHeader
@@ -1434,9 +1434,9 @@ export default function BacklogPanel({ workspaceId, onStartFuturePlan }: Workspa
         overflow={refreshButton}
       />
 
-      <div className="flex shrink-0 flex-wrap items-center gap-2 border-b border-[color:var(--border-subtle)] px-3 py-2">
+      <div className="flex shrink-0 items-center gap-2 border-b border-[color:var(--border-subtle)] px-3 py-2">
         <div
-          className="flex min-w-[8rem] flex-1 basis-[10rem]"
+          className="flex min-w-0 flex-1 basis-[10rem]"
           onKeyDown={(event) => {
             // Esc clears the query while the search field is focused (design §8).
             if (event.key === 'Escape' && search) {
@@ -1519,7 +1519,7 @@ export default function BacklogPanel({ workspaceId, onStartFuturePlan }: Workspa
           <div className="min-h-0 flex-1">{detailPane}</div>
         </div>
       ) : (
-        <div className="min-h-0 flex-1">
+        <div className="flex min-h-0 flex-1 flex-col">
           {showDetailInSingle && selected ? detailPane : listPane}
         </div>
       )}
@@ -1673,7 +1673,7 @@ function BacklogList({
       // Active-descendant so screen readers announce the active plan as j/k/arrow
       // navigation moves selection while focus stays on the listbox.
       aria-activedescendant={activeIndex >= 0 ? `backlog-opt-${activeIndex}` : undefined}
-      className="min-h-0 flex-1 overflow-auto py-1 outline-none focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[color:var(--border-focus)]"
+      className="min-h-0 flex-1 overflow-y-auto py-1 outline-none focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[color:var(--border-focus)]"
     >
       {groupedRows
         ? groupedRows.map((row) =>

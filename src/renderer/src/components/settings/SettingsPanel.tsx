@@ -46,6 +46,23 @@ import CliIcon from '../CliIcon'
 import { cliRuntimeForPlugin, orderInstalledPlugins } from '../workspace/newWorkspace/cliRuntimeOptions'
 import { CliInstallControl } from './CliInstallControl'
 import MulticodeMark from '../brand/MulticodeMark'
+import {
+  GeneralSettingsIcon,
+  ProfileSettingsIcon,
+  AppearanceSettingsIcon,
+  ShortcutsSettingsIcon,
+  AgentsSettingsIcon,
+  ProvidersSettingsIcon,
+  RolesSettingsIcon,
+  SpecialistPacksSettingsIcon,
+  GithubSettingsIcon,
+  KnowledgeGraphSettingsIcon,
+  ModulesSettingsIcon,
+  MobileSettingsIcon,
+  VoiceDictationSettingsIcon,
+  LearnSettingsIcon,
+} from '../AppIcons'
+import { hasActiveProPlan } from '../workspace/workspaceManagerHelpers'
 import { getSettingDescriptor, type SettingDescriptor } from './settingsRegistry'
 import {
   authoringFieldErrors,
@@ -110,10 +127,11 @@ const VOICE_LANGUAGE_ITEMS: SelectItem<string>[] = [
 ]
 
 type SettingsTabId =
+  | 'general'
+  | 'profile'
   | 'appearance'
   | 'shortcuts'
   | 'modules'
-  | 'updates'
   | 'github'
   | 'agents'
   | 'providers'
@@ -123,38 +141,42 @@ type SettingsTabId =
   | 'learn'
   | 'mobile'
   | 'voice-dictation'
-  | 'telemetry'
+
+// Line-weight rail glyph. Built-in tabs carry one from AppIcons; module sections
+// reuse their own contributed `moduleSection.icon` (same shape).
+type SettingsTabIcon = React.ComponentType<{ className?: string }>
 
 // Declared in rail order: the flat order of this array (filtered to visible
 // tabs, then module sections appended) drives index-based roving focus, so it
 // must match the grouped visual order in `settingsTabGroups` below. Built-in
-// tabs carry no description — the rail label orients, and each tab body
+// tabs carry no description — the rail label + glyph orient, and each tab body
 // self-titles via its own section headings; only module-contributed sections
 // take a host-supplied page header (see `bodyContent`).
-const settingsTabs: Array<{ id: SettingsTabId; label: string }> = [
-  { id: 'appearance', label: 'Appearance' },
-  { id: 'shortcuts', label: 'Shortcuts' },
-  { id: 'updates', label: 'Updates' },
-  { id: 'telemetry', label: 'Telemetry' },
-  { id: 'agents', label: 'Agents' },
-  { id: 'providers', label: 'Providers' },
-  { id: 'roles', label: 'Roles' },
-  { id: 'specialist-packs', label: 'Specialist packs' },
-  { id: 'github', label: 'GitHub' },
-  { id: 'knowledge-graph', label: 'Knowledge graph' },
-  { id: 'modules', label: 'Modules' },
-  { id: 'mobile', label: 'Mobile' },
-  { id: 'voice-dictation', label: 'Voice dictation' },
-  { id: 'learn', label: 'Learn' },
+const settingsTabs: Array<{ id: SettingsTabId; label: string; icon: SettingsTabIcon }> = [
+  { id: 'general', label: 'General', icon: GeneralSettingsIcon },
+  { id: 'profile', label: 'Profile', icon: ProfileSettingsIcon },
+  { id: 'appearance', label: 'Appearance', icon: AppearanceSettingsIcon },
+  { id: 'shortcuts', label: 'Shortcuts', icon: ShortcutsSettingsIcon },
+  { id: 'agents', label: 'Agents', icon: AgentsSettingsIcon },
+  { id: 'providers', label: 'Providers', icon: ProvidersSettingsIcon },
+  { id: 'roles', label: 'Roles', icon: RolesSettingsIcon },
+  { id: 'specialist-packs', label: 'Specialist packs', icon: SpecialistPacksSettingsIcon },
+  { id: 'github', label: 'GitHub', icon: GithubSettingsIcon },
+  { id: 'knowledge-graph', label: 'Knowledge graph', icon: KnowledgeGraphSettingsIcon },
+  { id: 'modules', label: 'Modules', icon: ModulesSettingsIcon },
+  { id: 'mobile', label: 'Mobile', icon: MobileSettingsIcon },
+  { id: 'voice-dictation', label: 'Voice dictation', icon: VoiceDictationSettingsIcon },
+  { id: 'learn', label: 'Learn', icon: LearnSettingsIcon },
 ]
 
-// Rail groups (sentence-case micro labels). Module-contributed sections render
-// after these in a trailing "Extensions" group.
+// Rail groups. Labels are internal keys only — the rail separates groups by
+// whitespace rather than printing a header (Cursor-parity). Module-contributed
+// sections render after these under the trailing 'extensions' group.
 const settingsTabGroups: Array<{ label: string; ids: SettingsTabId[] }> = [
-  { label: 'App', ids: ['appearance', 'shortcuts', 'updates', 'telemetry'] },
-  { label: 'Agents', ids: ['agents', 'providers', 'roles', 'specialist-packs'] },
-  { label: 'Workspace', ids: ['github', 'knowledge-graph', 'modules'] },
-  { label: 'Companion', ids: ['mobile', 'voice-dictation', 'learn'] },
+  { label: 'app', ids: ['general', 'profile', 'appearance', 'shortcuts'] },
+  { label: 'agents', ids: ['agents', 'providers', 'roles', 'specialist-packs'] },
+  { label: 'workspace', ids: ['github', 'knowledge-graph', 'modules'] },
+  { label: 'companion', ids: ['mobile', 'voice-dictation', 'learn'] },
 ]
 
 // A rail entry: a built-in tab, or a module-contributed section rendered after
@@ -163,6 +185,9 @@ const settingsTabGroups: Array<{ label: string; ids: SettingsTabId[] }> = [
 type SettingsTabDescriptor = {
   id: string
   label: string
+  // Rail glyph: built-in tabs carry one directly; module sections fall back to
+  // their contributed `moduleSection.icon` at render time.
+  icon?: SettingsTabIcon
   // Only module-contributed sections carry a description; the host renders it in
   // the section's page header (built-in tabs self-title and take no header).
   description?: string
@@ -177,10 +202,11 @@ function moduleSectionTabId(sectionId: string): string {
 
 function isSettingsTabId(value: unknown): value is SettingsTabId {
   return (
-    value === 'appearance'
+    value === 'general'
+    || value === 'profile'
+    || value === 'appearance'
     || value === 'shortcuts'
     || value === 'modules'
-    || value === 'updates'
     || value === 'github'
     || value === 'agents'
     || value === 'providers'
@@ -190,8 +216,19 @@ function isSettingsTabId(value: unknown): value is SettingsTabId {
     || value === 'learn'
     || value === 'mobile'
     || value === 'voice-dictation'
-    || value === 'telemetry'
   )
+}
+
+// The 'updates' and 'telemetry' tabs folded into 'general' (their content now
+// renders as sections on the General page). Map any legacy deep-link that named
+// the old tabs onto 'general' so bookmarked/menu routes still land correctly.
+const GENERAL_FOLDED_SETTINGS_TABS = ['updates', 'telemetry'] as const
+
+function resolveInitialSettingsTab(initialTab: string | null | undefined): string | null {
+  if (initialTab && (GENERAL_FOLDED_SETTINGS_TABS as readonly string[]).includes(initialTab)) {
+    return 'general'
+  }
+  return initialTab ?? null
 }
 
 const INPUT_CLASS =
@@ -934,6 +971,12 @@ export default function SettingsPanel({
   )
   const projectKnowledgeRoots = useWorkspaceStore((s) => s.appSettings.projectKnowledgeRoots ?? EMPTY_PROJECT_KNOWLEDGE_ROOTS)
   const usageTelemetry = useWorkspaceStore((s) => s.appSettings.usageTelemetry)
+  // Profile tab reads the shared auth projection and drives the same auth IPC as
+  // the sidebar account popover — no new state, just a fuller management surface.
+  const authState = useWorkspaceStore((s) => s.authState)
+  const setAuthState = useWorkspaceStore((s) => s.setAuthState)
+  const [profileMessage, setProfileMessage] = useState<string | null>(null)
+  const [profilePending, setProfilePending] = useState(false)
   const sprintEngineRoleSettings = useWorkspaceStore((s) => s.appSettings.sprintEngineRoleSettings)
   // The Mobile tab gates on the mobile-relay module; hide it when disabled.
   const mobileRelayEnabled = useWorkspaceStore((s) => selectModuleEnabled(s.appSettings.modules, 'mobile-relay'))
@@ -1017,17 +1060,19 @@ export default function SettingsPanel({
   // initialTab may name either; unknown values fall back to the default tab.
   // (Deep-links to the folded MCPs / Skill packs / Extensions tabs are routed to
   // the Connectors surface upstream in the store, so they never reach here.)
-  const [activeSettingsTab, setActiveSettingsTab] = useState<string>(
-    isSettingsTabId(initialTab) ? initialTab : 'updates'
-  )
+  const [activeSettingsTab, setActiveSettingsTab] = useState<string>(() => {
+    const resolved = resolveInitialSettingsTab(initialTab)
+    return isSettingsTabId(resolved) ? resolved : 'general'
+  })
 
   useEffect(() => {
+    const resolved = resolveInitialSettingsTab(initialTab)
     if (
-      isSettingsTabId(initialTab) ||
-      (typeof initialTab === 'string' && initialTab.startsWith(MODULE_SECTION_TAB_PREFIX))
+      isSettingsTabId(resolved) ||
+      (typeof resolved === 'string' && resolved.startsWith(MODULE_SECTION_TAB_PREFIX))
     ) {
-      setActiveSettingsTab(initialTab)
-      window.requestAnimationFrame(() => tabRefs.current[initialTab]?.focus())
+      setActiveSettingsTab(resolved)
+      window.requestAnimationFrame(() => tabRefs.current[resolved]?.focus())
     }
   }, [initialTab])
 
@@ -1043,7 +1088,7 @@ export default function SettingsPanel({
   // body never goes blank on a hidden tab.
   useEffect(() => {
     if (!visibleSettingsTabs.some((tab) => tab.id === activeSettingsTab)) {
-      setActiveSettingsTab(visibleSettingsTabs[0]?.id ?? 'updates')
+      setActiveSettingsTab(visibleSettingsTabs[0]?.id ?? 'general')
     }
   }, [visibleSettingsTabs, activeSettingsTab])
   // Keyed by tab id; contributed `module-section:*` ids join the built-ins, so
@@ -1162,6 +1207,48 @@ export default function SettingsPanel({
     } finally {
       setUpdateActionPending(false)
     }
+  }, [])
+
+  // Profile actions — thin wrappers over the same auth IPC the sidebar account
+  // menu uses, kept local so the Settings panel needs no auth props threaded in.
+  const onProfileSignIn = useCallback(async () => {
+    setProfileMessage('Opening sign-in.')
+    setProfilePending(true)
+    try {
+      await window.api.authLogin(authState.selectedOrganization?.id ?? null)
+      setProfileMessage(null)
+    } catch (error) {
+      setProfileMessage(error instanceof Error ? error.message : String(error))
+    } finally {
+      setProfilePending(false)
+    }
+  }, [authState.selectedOrganization?.id])
+
+  const onProfileRefresh = useCallback(async () => {
+    setProfileMessage('Checking access.')
+    setProfilePending(true)
+    try {
+      setAuthState(await window.api.authRefreshEntitlements())
+      setProfileMessage(null)
+    } catch (error) {
+      setProfileMessage(error instanceof Error ? error.message : String(error))
+    } finally {
+      setProfilePending(false)
+    }
+  }, [setAuthState])
+
+  const onProfileSignOut = useCallback(async () => {
+    setProfilePending(true)
+    try {
+      await window.api.authLogout()
+      setProfileMessage(null)
+    } finally {
+      setProfilePending(false)
+    }
+  }, [])
+
+  const onProfileUpgrade = useCallback(() => {
+    void window.api.authOpenUpgrade('sprintengine')
   }, [])
 
   useEffect(() => {
@@ -1568,8 +1655,8 @@ export default function SettingsPanel({
   // Flat index into visibleSettingsTabs for roving focus; the grouped rail
   // renders in the same order, so arrow keys move in visual order.
   const tabIndexById = new Map(visibleSettingsTabs.map((tab, index) => [tab.id, index] as const))
-  // Module-contributed sections trail the built-in groups under one "Extensions"
-  // header. (The built-in Extensions tab folded into the Connectors surface — T3.)
+  // Module-contributed sections trail the built-in groups as one final group.
+  // (The built-in Extensions tab folded into the Connectors surface — T3.)
   const moduleSectionTabs = visibleSettingsTabs.filter((tab) => tab.moduleSection)
   const railGroups = [
     ...settingsTabGroups
@@ -1580,14 +1667,15 @@ export default function SettingsPanel({
           .filter((tab): tab is SettingsTabDescriptor => tab !== undefined),
       }))
       .filter((group) => group.tabs.length > 0),
-    ...(moduleSectionTabs.length > 0 ? [{ label: 'Extensions', tabs: moduleSectionTabs }] : []),
+    ...(moduleSectionTabs.length > 0 ? [{ label: 'extensions', tabs: moduleSectionTabs }] : []),
   ]
 
+  // Groups carry no printed header — they read as one list separated by a
+  // whitespace gap (Cursor-parity). `label` stays as the React key only.
   const sidebarNode = (
     <div role="tablist" aria-label="Settings categories" aria-orientation="vertical">
       {railGroups.map((group) => (
-        <div key={group.label} className="mt-3.5 first:mt-0">
-          <div className="px-2 pb-1 text-[11px] text-[color:var(--text-subtle)]">{group.label}</div>
+        <div key={group.label} className="mt-3 first:mt-0">
           <div className="grid grid-cols-2 gap-0.5 md:grid-cols-1">
             {group.tabs.map((tab) => (
               <SettingsTabButton
@@ -1648,78 +1736,151 @@ export default function SettingsPanel({
         </div>
       ) : null}
 
-      {activeSettingsTab === 'updates' ? (
+      {activeSettingsTab === 'profile' ? (
         <div
           role="tabpanel"
-          id="settings-panel-updates"
-          aria-labelledby="settings-tab-updates"
+          id="settings-panel-profile"
+          aria-labelledby="settings-tab-profile"
           className="space-y-4"
         >
-          {/* Identity row with one state-driven action: the update flow is a
-              line (check → download → restart), so only the current step's
-              action renders instead of three buttons with two disabled. */}
-          <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[color:var(--border-subtle)] pb-3.5">
-            <div className="flex min-w-0 items-center gap-2.5">
-              <MulticodeMark className="h-4 w-4 shrink-0" />
-              <div className="min-w-0">
-                <div className="text-[13px] font-medium text-[color:var(--text-strong)]">
-                  Multicode <span className="tabular-nums">{updateState?.version ?? '…'}</span>
-                </div>
-                <div className="mt-0.5 text-[12px] text-[color:var(--text-muted)]">
-                  {formatUpdateChannel(updateState?.channel)} channel · last checked {formatNullableDate(updateState?.lastCheckedAt)}
+          <ProfileSection
+            authState={authState}
+            message={profileMessage}
+            pending={profilePending}
+            onSignIn={() => void onProfileSignIn()}
+            onSignOut={() => void onProfileSignOut()}
+            onRefresh={() => void onProfileRefresh()}
+            onUpgrade={onProfileUpgrade}
+          />
+        </div>
+      ) : null}
+
+      {activeSettingsTab === 'general' ? (
+        <div
+          role="tabpanel"
+          id="settings-panel-general"
+          aria-labelledby="settings-tab-general"
+          className="space-y-8"
+        >
+          <section className="space-y-4">
+            <SettingsSectionTitle>Updates</SettingsSectionTitle>
+            {/* Identity row with one state-driven action: the update flow is a
+                line (check → download → restart), so only the current step's
+                action renders instead of three buttons with two disabled. */}
+            <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[color:var(--border-subtle)] pb-3.5">
+              <div className="flex min-w-0 items-center gap-2.5">
+                <MulticodeMark className="h-4 w-4 shrink-0" />
+                <div className="min-w-0">
+                  <div className="text-[13px] font-medium text-[color:var(--text-strong)]">
+                    Multicode <span className="tabular-nums">{updateState?.version ?? '…'}</span>
+                  </div>
+                  <div className="mt-0.5 text-[12px] text-[color:var(--text-muted)]">
+                    {formatUpdateChannel(updateState?.channel)} channel · last checked {formatNullableDate(updateState?.lastCheckedAt)}
+                  </div>
                 </div>
               </div>
-            </div>
-            <div className="flex shrink-0 items-center gap-3">
-              <button
-                type="button"
-                onClick={() => void window.api.updateOpenReleaseNotes()}
-                className="text-[12px] font-medium text-[color:var(--text-muted)] hover:text-[color:var(--text-strong)] focus:outline-none focus-visible:underline"
-              >
-                Release notes
-              </button>
-              {updateState && !updateState.packaged ? null : nextUpdateAction === 'restart' ? (
-                <PrimaryButton size="md" onClick={() => void restartToInstall()} disabled={updateActionPending}>
-                  Restart to install
-                </PrimaryButton>
-              ) : nextUpdateAction === 'download' ? (
-                <PrimaryButton
-                  size="md"
-                  onClick={() => void downloadUpdate()}
-                  disabled={updateActionPending || updateState?.status === 'downloading'}
+              <div className="flex shrink-0 items-center gap-3">
+                <button
+                  type="button"
+                  onClick={() => void window.api.updateOpenReleaseNotes()}
+                  className="text-[12px] font-medium text-[color:var(--text-muted)] hover:text-[color:var(--text-strong)] focus:outline-none focus-visible:underline"
                 >
-                  {updateState?.updateVersion ? `Download ${updateState.updateVersion}` : 'Download update'}
-                </PrimaryButton>
-              ) : (
-                <GhostButton
-                  size="md"
-                  onClick={() => void checkForUpdates()}
-                  disabled={updateActionPending || updateState?.status === 'checking' || updateState?.status === 'downloading'}
-                  className="border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] text-[color:var(--text-default)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]"
-                >
-                  {updateState?.status === 'error' ? 'Retry check' : 'Check for updates'}
-                </GhostButton>
-              )}
+                  Release notes
+                </button>
+                {updateState && !updateState.packaged ? null : nextUpdateAction === 'restart' ? (
+                  <PrimaryButton size="md" onClick={() => void restartToInstall()} disabled={updateActionPending}>
+                    Restart to install
+                  </PrimaryButton>
+                ) : nextUpdateAction === 'download' ? (
+                  <PrimaryButton
+                    size="md"
+                    onClick={() => void downloadUpdate()}
+                    disabled={updateActionPending || updateState?.status === 'downloading'}
+                  >
+                    {updateState?.updateVersion ? `Download ${updateState.updateVersion}` : 'Download update'}
+                  </PrimaryButton>
+                ) : (
+                  <GhostButton
+                    size="md"
+                    onClick={() => void checkForUpdates()}
+                    disabled={updateActionPending || updateState?.status === 'checking' || updateState?.status === 'downloading'}
+                    className="border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] text-[color:var(--text-default)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]"
+                  >
+                    {updateState?.status === 'error' ? 'Retry check' : 'Check for updates'}
+                  </GhostButton>
+                )}
+              </div>
             </div>
-          </div>
 
-          <p
-            className={`text-[12px] leading-5 ${
-              updateState?.status === 'error'
-                ? 'text-[color:var(--tone-error)]'
-                : 'text-[color:var(--text-muted)]'
-            }`}
-          >
-            {formatUpdateStatus(updateState)}
-          </p>
-          {updateState?.progress ? (
-            <div className="h-1 overflow-hidden rounded-full bg-[color:var(--bg-active)]">
-              <div
-                className="h-full rounded-full bg-[color:var(--accent-primary)]"
-                style={{ width: `${Math.max(0, Math.min(100, updateState.progress.percent))}%` }}
+            <p
+              className={`text-[12px] leading-5 ${
+                updateState?.status === 'error'
+                  ? 'text-[color:var(--tone-error)]'
+                  : 'text-[color:var(--text-muted)]'
+              }`}
+            >
+              {formatUpdateStatus(updateState)}
+            </p>
+            {updateState?.progress ? (
+              <div className="h-1 overflow-hidden rounded-full bg-[color:var(--bg-active)]">
+                <div
+                  className="h-full rounded-full bg-[color:var(--accent-primary)]"
+                  style={{ width: `${Math.max(0, Math.min(100, updateState.progress.percent))}%` }}
+                />
+              </div>
+            ) : null}
+          </section>
+
+          <section className="space-y-4">
+            <SettingsSectionTitle>Privacy &amp; telemetry</SettingsSectionTitle>
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div className="min-w-0 text-sm font-semibold text-[color:var(--text-strong)]">
+                SprintEngine usage data and diagnostics
+              </div>
+              <StatusTag
+                tone={import.meta.env.DEV ? 'warn' : 'neutral'}
+                label={import.meta.env.DEV ? 'Development build' : 'Production build'}
               />
             </div>
-          ) : null}
+
+            <div className="divide-y divide-[color:var(--border-subtle)]">
+              {telemetrySendDescriptor ? (
+                <RegistrySwitchRow
+                  descriptor={telemetrySendDescriptor}
+                  checked={usageTelemetry.sendUsageData}
+                  onChange={(enabled) => setUsageTelemetrySettings({ sendUsageData: enabled })}
+                />
+              ) : null}
+              {telemetryLocalDescriptor ? (
+                <RegistrySwitchRow
+                  descriptor={telemetryLocalDescriptor}
+                  checked={usageTelemetry.localDevExportEnabled}
+                  onChange={(enabled) => setUsageTelemetrySettings({ localDevExportEnabled: enabled })}
+                />
+              ) : null}
+              {telemetryDiagnosticsDescriptor ? (
+                <RegistrySwitchRow
+                  descriptor={telemetryDiagnosticsDescriptor}
+                  checked={usageTelemetry.exportDiagnostics}
+                  onChange={(enabled) => setUsageTelemetrySettings({ exportDiagnostics: enabled })}
+                />
+              ) : null}
+            </div>
+
+            <p className="text-[12px] leading-5 text-[color:var(--text-muted)]">
+              Raw source, prompts, transcripts, artifact bodies, descriptions, notes, and file contents are not collected by default.
+              Production upload is separate from local export and remains disabled until you turn on Send anonymous usage data.
+            </p>
+
+            <div className="grid gap-x-6 gap-y-3 border-t border-[color:var(--border-subtle)] pt-4 text-sm sm:grid-cols-2">
+              <MetaCell label="Last local export" value={formatNullableDate(usageTelemetry.lastExportAt)} />
+              <MetaCell
+                label="Upload consent"
+                value={usageTelemetry.sendUsageData ? 'Enabled' : 'Disabled'}
+                tone={usageTelemetry.sendUsageData ? 'positive' : undefined}
+              />
+            </div>
+          </section>
         </div>
       ) : null}
 
@@ -2369,63 +2530,6 @@ export default function SettingsPanel({
         </div>
       ) : null}
 
-      {activeSettingsTab === 'telemetry' ? (
-        <div
-          role="tabpanel"
-          id="settings-panel-telemetry"
-          aria-labelledby="settings-tab-telemetry"
-          className="space-y-4"
-        >
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <div className="min-w-0 text-sm font-semibold text-[color:var(--text-strong)]">
-              SprintEngine usage data and diagnostics
-            </div>
-            <StatusTag
-              tone={import.meta.env.DEV ? 'warn' : 'neutral'}
-              label={import.meta.env.DEV ? 'Development build' : 'Production build'}
-            />
-          </div>
-
-          <div className="divide-y divide-[color:var(--border-subtle)]">
-            {telemetrySendDescriptor ? (
-              <RegistrySwitchRow
-                descriptor={telemetrySendDescriptor}
-                checked={usageTelemetry.sendUsageData}
-                onChange={(enabled) => setUsageTelemetrySettings({ sendUsageData: enabled })}
-              />
-            ) : null}
-            {telemetryLocalDescriptor ? (
-              <RegistrySwitchRow
-                descriptor={telemetryLocalDescriptor}
-                checked={usageTelemetry.localDevExportEnabled}
-                onChange={(enabled) => setUsageTelemetrySettings({ localDevExportEnabled: enabled })}
-              />
-            ) : null}
-            {telemetryDiagnosticsDescriptor ? (
-              <RegistrySwitchRow
-                descriptor={telemetryDiagnosticsDescriptor}
-                checked={usageTelemetry.exportDiagnostics}
-                onChange={(enabled) => setUsageTelemetrySettings({ exportDiagnostics: enabled })}
-              />
-            ) : null}
-          </div>
-
-          <p className="text-[12px] leading-5 text-[color:var(--text-muted)]">
-            Raw source, prompts, transcripts, artifact bodies, descriptions, notes, and file contents are not collected by default.
-            Production upload is separate from local export and remains disabled until you turn on Send anonymous usage data.
-          </p>
-
-          <div className="grid gap-x-6 gap-y-3 border-t border-[color:var(--border-subtle)] pt-4 text-sm sm:grid-cols-2">
-            <MetaCell label="Last local export" value={formatNullableDate(usageTelemetry.lastExportAt)} />
-            <MetaCell
-              label="Upload consent"
-              value={usageTelemetry.sendUsageData ? 'Enabled' : 'Disabled'}
-              tone={usageTelemetry.sendUsageData ? 'positive' : undefined}
-            />
-          </div>
-        </div>
-      ) : null}
-
       {activeTab.moduleSection ? (
         <div
           role="tabpanel"
@@ -2488,14 +2592,123 @@ export default function SettingsPanel({
   )
 }
 
-// Single-line rail item — the label alone, no subtitle. The rail orients; tab
-// bodies carry their own section headings.
+// Two-letter avatar initials from the account display name or email.
+function profileInitials(user: MulticodeAuthState['user']): string {
+  const source = user?.displayName?.trim() || user?.email?.trim() || ''
+  if (!source) return '?'
+  const words = source.split(/\s+/).filter(Boolean)
+  if (words.length >= 2) return `${words[0][0]}${words[1][0]}`.toUpperCase()
+  return source[0].toUpperCase()
+}
+
+// Human plan label for the Profile meta grid ("Pro plan" / "Free plan" / a
+// non-active entitlement status).
+function profilePlanLabel(authState: MulticodeAuthState): string {
+  const plan = authState.entitlements?.plan ?? null
+  if (!plan) return 'Free plan'
+  if (plan.status === 'active') {
+    const code = plan.code ? plan.code[0].toUpperCase() + plan.code.slice(1) : 'Pro'
+    return `${code} plan`
+  }
+  return plan.status ? plan.status[0].toUpperCase() + plan.status.slice(1) : 'Unknown'
+}
+
+// Profile tab body: a fuller account-management surface over the shared auth
+// projection. Drives the same auth IPC as the sidebar account popover; the two
+// coexist (quick glance vs. full management).
+function ProfileSection({
+  authState,
+  message,
+  pending,
+  onSignIn,
+  onSignOut,
+  onRefresh,
+  onUpgrade,
+}: {
+  authState: MulticodeAuthState
+  message: string | null
+  pending: boolean
+  onSignIn: () => void
+  onSignOut: () => void
+  onRefresh: () => void
+  onUpgrade: () => void
+}) {
+  if (!authState.authenticated) {
+    return (
+      <div className="space-y-4">
+        <SettingsSectionTitle>Account</SettingsSectionTitle>
+        <p className="text-[12px] leading-5 text-[color:var(--text-muted)]">
+          Sign in to your Multicode account to sync entitlements and unlock Pro features.
+        </p>
+        <PrimaryButton size="md" onClick={onSignIn} disabled={pending || authState.status === 'checking'}>
+          Sign in
+        </PrimaryButton>
+        {message ? <p className="text-[12px] leading-5 text-[color:var(--text-muted)]">{message}</p> : null}
+      </div>
+    )
+  }
+
+  const pro = hasActiveProPlan(authState)
+  const name = authState.user?.displayName ?? authState.user?.email ?? 'Multicode account'
+  const email = authState.user?.displayName ? authState.user?.email : null
+  const orgName = authState.selectedOrganization?.name ?? null
+  const accessStale = Boolean(message) || authState.entitlementStatus !== 'fresh'
+
+  return (
+    <div className="space-y-5">
+      <SettingsSectionTitle>Account</SettingsSectionTitle>
+      <div className="flex items-center gap-3">
+        <span
+          aria-hidden="true"
+          className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] text-[15px] font-semibold text-[color:var(--text-strong)]"
+        >
+          {profileInitials(authState.user)}
+        </span>
+        <div className="min-w-0">
+          <div className="truncate text-[14px] font-medium text-[color:var(--text-strong)]">{name}</div>
+          {email ? <div className="truncate text-[12px] text-[color:var(--text-muted)]">{email}</div> : null}
+        </div>
+      </div>
+
+      <div className="grid gap-x-6 gap-y-3 border-t border-[color:var(--border-subtle)] pt-4 text-sm sm:grid-cols-2">
+        <MetaCell label="Plan" value={profilePlanLabel(authState)} tone={pro ? 'positive' : undefined} />
+        {orgName ? <MetaCell label="Organization" value={orgName} /> : null}
+      </div>
+
+      {message ? <p className="text-[12px] leading-5 text-[color:var(--text-muted)]">{message}</p> : null}
+
+      <div className="flex flex-wrap items-center gap-3 border-t border-[color:var(--border-subtle)] pt-4">
+        {!pro ? (
+          <PrimaryButton size="md" onClick={onUpgrade} disabled={pending}>
+            Upgrade to Pro
+          </PrimaryButton>
+        ) : null}
+        <GhostButton
+          size="md"
+          onClick={onRefresh}
+          disabled={pending}
+          className="border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] text-[color:var(--text-default)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]"
+        >
+          {accessStale ? 'Check access again' : 'Refresh access'}
+        </GhostButton>
+        <GhostButton size="md" onClick={onSignOut} disabled={pending} className="ml-auto">
+          Sign out
+        </GhostButton>
+      </div>
+    </div>
+  )
+}
+
+// Single-line rail item — a leading glyph + label, no subtitle. The rail
+// orients; tab bodies carry their own section headings. Built-in tabs pass an
+// `icon`; module sections fall back to their contributed `moduleSection.icon`.
 const SettingsTabButton = React.forwardRef<HTMLButtonElement, {
-  tab: { id: string; label: string }
+  tab: SettingsTabDescriptor
   active: boolean
   onClick: () => void
   onKeyDown: (event: React.KeyboardEvent<HTMLButtonElement>) => void
 }>(function SettingsTabButton({ tab, active, onClick, onKeyDown }, ref) {
+  const Icon = tab.icon ?? tab.moduleSection?.icon
   return (
     <button
       ref={ref}
@@ -2507,13 +2720,18 @@ const SettingsTabButton = React.forwardRef<HTMLButtonElement, {
       tabIndex={active ? 0 : -1}
       onClick={onClick}
       onKeyDown={onKeyDown}
-      className={`interactive block w-full truncate rounded-[5px] px-2 py-[5px] text-left text-[13px] leading-[18px] focus:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--border-focus)] ${
+      className={`interactive flex w-full items-center gap-2 rounded-[5px] px-2 py-[5px] text-left text-[13px] leading-[18px] focus:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--border-focus)] ${
         active
           ? 'bg-[color:var(--accent-primary-soft)] font-medium text-[color:var(--text-strong)]'
           : 'text-[color:var(--text-muted)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-default)]'
       }`}
     >
-      {tab.label}
+      {Icon ? (
+        <Icon
+          className={`h-4 w-4 shrink-0 ${active ? 'text-[color:var(--text-strong)]' : 'text-[color:var(--text-subtle)]'}`}
+        />
+      ) : null}
+      <span className="min-w-0 truncate">{tab.label}</span>
     </button>
   )
 })

@@ -838,7 +838,10 @@
     0 1px 3px rgba(24, 32, 16, 0.07),
     0 8px 24px -6px rgba(24, 32, 16, 0.14);
 
-  --terminal-bg: #ecf0e0;
+  /* Warm parchment (= --bg-surface-raised), not sage: the terminal is a working
+     card, so it floats warm on the cool sage canvas like every other card
+     rather than joining the chrome family. */
+  --terminal-bg: #fcf4e8;
   --terminal-fg: #242818;
 
   /* Faint emerald atmosphere leans the graph into the green identity. */
@@ -2414,8 +2417,8 @@ samp,
 .terminal-focus-ring::after {
   content: '';
   position: absolute;
-  inset: 6px;
-  border: 1px solid var(--accent-primary);
+  inset: 3px;
+  border: 2px solid var(--accent-primary);
   border-radius: 6px;
   opacity: 0;
   pointer-events: none;
@@ -2433,6 +2436,20 @@ samp,
 .flexlayout__splitter:hover,
 .flexlayout__splitter_drag {
   background: var(--bg-selected);
+}
+
+/* Herbarium: the resting inter-panel gutter uses the warm panel surface instead
+   of the sage canvas. Sage stays the identity of the sidebar + tab chrome (cards
+   floating on a cool field); the interior grid reads as calm parchment seams
+   divided by each panel's own border, not a loud green lattice. Hover still lifts
+   to a neutral tone so the divider stays discoverable. */
+:root[data-theme="herbarium"] .flexlayout__splitter {
+  background: var(--bg-surface);
+}
+
+:root[data-theme="herbarium"] .flexlayout__splitter:hover,
+:root[data-theme="herbarium"] .flexlayout__splitter_drag {
+  background: var(--border-default);
 }
 
 .flexlayout__tab {

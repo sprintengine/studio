@@ -16,7 +16,6 @@ import {
   CRITICALITY_LABEL,
   DIFFICULTY_LABEL,
   DIFFICULTY_WORD,
-  TYPE_LABEL,
 } from '../../utils/backlogTriage'
 import { formatRelativeMsAgo } from '../../utils/relativeTime'
 
@@ -67,9 +66,13 @@ export type BacklogRunGlyph = SprintEngineRunGlyph
 // consumer; only the visual content lives here.
 //
 // Primary line: a leading readiness glyph is the row's status marker, then the
-// title, then the triage column (size + criticality) the eye can scan straight
-// down. Supporting line: the real excerpt (title already stripped), or the path
-// when a capture has no body yet, with how long ago it was touched on the right.
+// title claims the whole width, then the triage column (size + criticality bars)
+// the eye can scan straight down on the right. Supporting line: the `KEY-n` id,
+// then the real excerpt (title already stripped), or the path when a capture has
+// no body yet, with how long ago it was touched on the right. The id rides the
+// supporting line — not the primary one — so the title stays legible even when
+// the panel is squeezed narrow; the type (feature/bug/…) lives in metadata and
+// no longer earns a glyph, keeping the row's chrome budget for the title.
 // React.memo so a panel re-render (e.g. a Sprint Engine projection tick) only
 // reconciles rows whose props actually changed. `item` is referentially stable
 // between scans, `now` ticks every 30s, and `runGlyph` is undefined for the
@@ -134,9 +137,6 @@ export const BacklogRowContent = memo(function BacklogRowContent({
   // The leading glyph is the item's status — except for an epic, whose lifecycle
   // is derived from its children, so it earns a dedicated type glyph instead of
   // the (misleading) "idea" ring it would otherwise show.
-  // Leaf items keep their status glyph and carry a small type glyph beside the id
-  // so the type stays legible now that the `KEY-n` id no longer encodes it.
-  const leafType = !item.isEpic && item.type && item.type !== 'epic' ? item.type : null
   return (
     <>
       <div className="flex items-center gap-2">
@@ -150,20 +150,6 @@ export const BacklogRowContent = memo(function BacklogRowContent({
           </Tooltip>
         )}
         <span className="flex min-w-0 flex-1 items-center gap-1.5">
-          {item.displayId ? (
-            <span className="shrink-0 font-mono text-[11px] tabular-nums text-[color:var(--text-subtle)]">
-              {item.displayId}
-            </span>
-          ) : null}
-          {leafType ? (
-            <Tooltip content={TYPE_LABEL[leafType]} placement="top">
-              <BacklogTypeGlyph
-                type={leafType}
-                label={TYPE_LABEL[leafType]}
-                className="icon-xs text-[color:var(--text-disabled)]"
-              />
-            </Tooltip>
-          ) : null}
           <TruncatedText
             as="span"
             text={item.title}
@@ -185,6 +171,11 @@ export const BacklogRowContent = memo(function BacklogRowContent({
         <CriticalityIndicator criticality={item.criticality} />
       </div>
       <div className="mt-0.5 flex items-center gap-2 pl-[22px] text-[11px]">
+        {item.displayId ? (
+          <span className="shrink-0 font-mono tabular-nums text-[color:var(--text-subtle)]">
+            {item.displayId}
+          </span>
+        ) : null}
         {epicChip ? (
           <span className="flex min-w-0 shrink items-center gap-1 text-[color:var(--text-subtle)]">
             <EpicColorDot color={epicChip.color} />
@@ -235,46 +226,55 @@ function WaitingBadge(): JSX.Element {
 
 // Size reads as the t-shirt token itself (XS/S/M/L/XL) — text is the signal, so
 // it never depends on color. Right-aligned, fixed-width, tabular so the column
-// scans straight down; unestimated is a calm dash, never a warning.
+// scans straight down; unestimated is a calm dash, never a warning. The tooltip
+// spells the size out in full (the row shows no other size label).
 export function DifficultyIndicator({ difficulty }: { difficulty?: BacklogDifficulty }): JSX.Element {
   return (
-    <span
-      role="img"
-      aria-label={difficulty ? `Size ${DIFFICULTY_WORD[difficulty]}` : 'Size unestimated'}
-      className={`w-[2.25ch] shrink-0 text-right font-mono text-[11px] tabular-nums ${
-        difficulty ? 'text-[color:var(--text-muted)]' : 'text-[color:var(--text-disabled)]'
-      }`}
-    >
-      {difficulty ? DIFFICULTY_LABEL[difficulty] : '–'}
-    </span>
+    <Tooltip content={difficulty ? `Size: ${DIFFICULTY_WORD[difficulty]}` : 'Size unestimated'} placement="top" wrapperClassName="inline-flex shrink-0">
+      <span
+        role="img"
+        aria-label={difficulty ? `Size ${DIFFICULTY_WORD[difficulty]}` : 'Size unestimated'}
+        className={`w-[2.25ch] shrink-0 text-right font-mono text-[11px] tabular-nums ${
+          difficulty ? 'text-[color:var(--text-muted)]' : 'text-[color:var(--text-disabled)]'
+        }`}
+      >
+        {difficulty ? DIFFICULTY_LABEL[difficulty] : '–'}
+      </span>
+    </Tooltip>
   )
 }
 
-// Criticality pairs a shape-coded glyph (ascending bars / urgent mark — level by
-// shape, never color alone) with the level word, satisfying the text+glyph rule
-// while staying compact. Unset renders a calm dash, not an alert.
+// Criticality is a shape-coded glyph only — ascending bars / urgent mark, level
+// by shape, never color alone. The level word moved to the tooltip so the bars
+// sit tight beside the size column instead of reserving a wide label track; that
+// reclaimed width goes to the title. Unset renders a calm dash, not an alert.
 export function CriticalityIndicator({ criticality }: { criticality?: BacklogCriticality }): JSX.Element {
   if (!criticality) {
     return (
-      <span
-        role="img"
-        aria-label="No priority set"
-        className="w-[5.5rem] shrink-0 text-right text-[11px] text-[color:var(--text-disabled)]"
-      >
-        –
-      </span>
+      <Tooltip content="No priority set" placement="top" wrapperClassName="inline-flex shrink-0">
+        <span
+          role="img"
+          aria-label="No priority set"
+          className="w-4 shrink-0 text-right text-[11px] text-[color:var(--text-disabled)]"
+        >
+          –
+        </span>
+      </Tooltip>
     )
   }
   const urgent = criticality === 'high' || criticality === 'critical'
   return (
-    <span
-      className={`inline-flex w-[5.5rem] shrink-0 items-center justify-end gap-1 text-[11px] ${
-        urgent ? 'font-medium text-[color:var(--text-default)]' : 'text-[color:var(--text-subtle)]'
-      }`}
-    >
-      <CriticalityGlyph criticality={criticality} />
-      {CRITICALITY_LABEL[criticality]}
-    </span>
+    <Tooltip content={`Priority: ${CRITICALITY_LABEL[criticality]}`} placement="top" wrapperClassName="inline-flex shrink-0">
+      <span
+        role="img"
+        aria-label={`Priority ${CRITICALITY_LABEL[criticality]}`}
+        className={`inline-flex w-4 shrink-0 items-center justify-end ${
+          urgent ? 'text-[color:var(--text-default)]' : 'text-[color:var(--text-subtle)]'
+        }`}
+      >
+        <CriticalityGlyph criticality={criticality} />
+      </span>
+    </Tooltip>
   )
 }
 

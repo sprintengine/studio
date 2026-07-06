@@ -1264,7 +1264,7 @@ export default function TerminalView({ workspaceId, agentId, sessionId: attached
       onDragOver={handleDragOver}
       onDragLeave={handleDragLeave}
       onDrop={(event) => void handleDrop(event)}
-      className="terminal-focus-ring absolute inset-0 overflow-hidden p-2 pb-4 cursor-text"
+      className="terminal-focus-ring absolute inset-0 overflow-hidden bg-[color:var(--terminal-bg)] p-2 pb-4 cursor-text"
     >
       {/* No replay skeleton on terminals: an xterm renders its own content
           progressively (and a revealed cold terminal resyncs in place), so a

@@ -693,3 +693,147 @@ export function ArrowRightIcon({ className }: IconProps) {
     </svg>
   )
 }
+
+// ── Settings rail glyphs ──────────────────────────────────────────────────
+// One line-weight glyph per Settings category, sharing the house stroke so the
+// rail reads as a single set. Consumed by SettingsPanel's `settingsTabs`.
+
+export function GeneralSettingsIcon({ className }: IconProps) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="none" aria-hidden="true">
+      <path d="M4 8H7.4M11.6 8H20" stroke="currentColor" strokeWidth={iconStroke} strokeLinecap="round" />
+      <circle cx="9.5" cy="8" r="2.1" stroke="currentColor" strokeWidth={iconStroke} />
+      <path d="M4 16H13.4M17.6 16H20" stroke="currentColor" strokeWidth={iconStroke} strokeLinecap="round" />
+      <circle cx="15.5" cy="16" r="2.1" stroke="currentColor" strokeWidth={iconStroke} />
+    </svg>
+  )
+}
+
+export function ProfileSettingsIcon({ className }: IconProps) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="none" aria-hidden="true">
+      <circle cx="12" cy="8.4" r="3.5" stroke="currentColor" strokeWidth={iconStroke} />
+      <path d="M5.6 19c0-3.3 2.9-5.4 6.4-5.4s6.4 2.1 6.4 5.4" stroke="currentColor" strokeWidth={iconStroke} strokeLinecap="round" />
+    </svg>
+  )
+}
+
+export function AppearanceSettingsIcon({ className }: IconProps) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="none" aria-hidden="true">
+      <circle cx="12" cy="12" r="8" stroke="currentColor" strokeWidth={iconStroke} />
+      <path d="M12 4a8 8 0 0 1 0 16Z" fill="currentColor" />
+    </svg>
+  )
+}
+
+export function ShortcutsSettingsIcon({ className }: IconProps) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="none" aria-hidden="true">
+      <rect x="3" y="6.5" width="18" height="11" rx="2" stroke="currentColor" strokeWidth={iconStroke} />
+      <path d="M7 10.5h.01M11 10.5h.01M15 10.5h.01M7.5 14h9" stroke="currentColor" strokeWidth={iconStroke} strokeLinecap="round" />
+    </svg>
+  )
+}
+
+export function AgentsSettingsIcon({ className }: IconProps) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="none" aria-hidden="true">
+      <rect x="5" y="8" width="14" height="11" rx="3" stroke="currentColor" strokeWidth={iconStroke} />
+      <path d="M12 5v3" stroke="currentColor" strokeWidth={iconStroke} strokeLinecap="round" />
+      <circle cx="12" cy="4" r="1.2" stroke="currentColor" strokeWidth={iconStroke} />
+      <path d="M9.5 13h.01M14.5 13h.01" stroke="currentColor" strokeWidth={iconStroke} strokeLinecap="round" />
+    </svg>
+  )
+}
+
+export function ProvidersSettingsIcon({ className }: IconProps) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="none" aria-hidden="true">
+      <path d="M8.5 3v3.5M15.5 3v3.5" stroke="currentColor" strokeWidth={iconStroke} strokeLinecap="round" />
+      <path d="M6.5 6.5h11V10a5.5 5.5 0 0 1-11 0Z" stroke="currentColor" strokeWidth={iconStroke} strokeLinejoin="round" />
+      <path d="M12 15.5V21" stroke="currentColor" strokeWidth={iconStroke} strokeLinecap="round" />
+    </svg>
+  )
+}
+
+export function RolesSettingsIcon({ className }: IconProps) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="none" aria-hidden="true">
+      <rect x="4" y="5" width="16" height="14" rx="2" stroke="currentColor" strokeWidth={iconStroke} />
+      <circle cx="9" cy="11" r="2" stroke="currentColor" strokeWidth={iconStroke} />
+      <path d="M6 16c0-1.7 1.3-2.6 3-2.6s3 .9 3 2.6" stroke="currentColor" strokeWidth={iconStroke} strokeLinecap="round" />
+      <path d="M14.5 10h3.5M14.5 13.5h3.5" stroke="currentColor" strokeWidth={iconStroke} strokeLinecap="round" />
+    </svg>
+  )
+}
+
+export function SpecialistPacksSettingsIcon({ className }: IconProps) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="none" aria-hidden="true">
+      <path d="M12 3.2l7.5 4.3v8.9L12 20.8 4.5 16.4V7.5z" stroke="currentColor" strokeWidth={iconStroke} strokeLinejoin="round" />
+      <path d="M4.6 7.6L12 11.9l7.4-4.3M12 11.9V20.8" stroke="currentColor" strokeWidth={iconStroke} strokeLinejoin="round" />
+    </svg>
+  )
+}
+
+export function GithubSettingsIcon({ className }: IconProps) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="none" aria-hidden="true">
+      <path d="M7 4.5v9.6" stroke="currentColor" strokeWidth={iconStroke} strokeLinecap="round" />
+      <circle cx="7" cy="17.5" r="2.3" stroke="currentColor" strokeWidth={iconStroke} />
+      <circle cx="17" cy="6.5" r="2.3" stroke="currentColor" strokeWidth={iconStroke} />
+      <path d="M17 8.8a8.7 8.7 0 0 1-8.6 8.7" stroke="currentColor" strokeWidth={iconStroke} strokeLinecap="round" />
+    </svg>
+  )
+}
+
+export function KnowledgeGraphSettingsIcon({ className }: IconProps) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="none" aria-hidden="true">
+      <circle cx="6" cy="7" r="2.2" stroke="currentColor" strokeWidth={iconStroke} />
+      <circle cx="18" cy="7" r="2.2" stroke="currentColor" strokeWidth={iconStroke} />
+      <circle cx="12" cy="17" r="2.2" stroke="currentColor" strokeWidth={iconStroke} />
+      <path d="M8.2 7h7.6M7.6 8.7l3.1 6.6M16.4 8.7l-3.1 6.6" stroke="currentColor" strokeWidth={iconStroke} strokeLinecap="round" />
+    </svg>
+  )
+}
+
+export function ModulesSettingsIcon({ className }: IconProps) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="none" aria-hidden="true">
+      <rect x="4" y="4" width="7" height="7" rx="1.5" stroke="currentColor" strokeWidth={iconStroke} />
+      <rect x="13" y="4" width="7" height="7" rx="1.5" stroke="currentColor" strokeWidth={iconStroke} />
+      <rect x="4" y="13" width="7" height="7" rx="1.5" stroke="currentColor" strokeWidth={iconStroke} />
+      <rect x="13" y="13" width="7" height="7" rx="1.5" stroke="currentColor" strokeWidth={iconStroke} />
+    </svg>
+  )
+}
+
+export function MobileSettingsIcon({ className }: IconProps) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="none" aria-hidden="true">
+      <rect x="7" y="3" width="10" height="18" rx="2.5" stroke="currentColor" strokeWidth={iconStroke} />
+      <path d="M11 17.5h2" stroke="currentColor" strokeWidth={iconStroke} strokeLinecap="round" />
+    </svg>
+  )
+}
+
+export function VoiceDictationSettingsIcon({ className }: IconProps) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="none" aria-hidden="true">
+      <rect x="9.5" y="3" width="5" height="10" rx="2.5" stroke="currentColor" strokeWidth={iconStroke} />
+      <path d="M6.5 11a5.5 5.5 0 0 0 11 0" stroke="currentColor" strokeWidth={iconStroke} strokeLinecap="round" />
+      <path d="M12 16.5V20M9 20h6" stroke="currentColor" strokeWidth={iconStroke} strokeLinecap="round" />
+    </svg>
+  )
+}
+
+export function LearnSettingsIcon({ className }: IconProps) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="none" aria-hidden="true">
+      <path d="M12 6.5C10.5 5 7.5 4.5 5 5v13c2.5-.5 5.5 0 7 1.5" stroke="currentColor" strokeWidth={iconStroke} strokeLinejoin="round" />
+      <path d="M12 6.5C13.5 5 16.5 4.5 19 5v13c-2.5-.5-5.5 0-7 1.5" stroke="currentColor" strokeWidth={iconStroke} strokeLinejoin="round" />
+    </svg>
+  )
+}

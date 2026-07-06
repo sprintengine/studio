@@ -12,6 +12,8 @@ import { fileExplorerSelectionFromVerticalRange, fileExplorerSelectionRange } fr
 import { slugifySprintEngineName } from '../../utils/sprintengineStateFile'
 import { setFileDropData } from '../../utils/terminalDrop'
 import { IconButton } from '../ui/Buttons'
+import { PanelHeader } from '../ui/PanelHeader'
+import { InboxSearchInput } from '../ui/InboxSearchInput'
 import { Skeleton } from '../ui/Skeleton'
 import { Tooltip } from '../ui/Tooltip'
 import { Toast } from '../ui/Toast'
@@ -2297,58 +2299,58 @@ export default function FileExplorer({ workspaceId, onStartFuturePlan }: Props) 
   return (
     <div className="flex h-full flex-col overflow-hidden bg-[color:var(--bg-surface)] text-[color:var(--text-default)]">
       {rootName && (
-        <div className="border-b border-[color:var(--border-default)] bg-[color:var(--bg-surface-raised)]">
-          <div className="flex h-8 shrink-0 items-center justify-between gap-2 px-3">
-            <span className="min-w-0 truncate font-mono text-[11px] text-[color:var(--text-muted)]" title={folderPath ?? undefined}>
-              {rootName}
-            </span>
-            {folderReadyPath && (
-              <div className="flex shrink-0 items-center gap-1">
-                <Tooltip content="New file" placement="bottom">
-                  <IconButton aria-label="New file" onClick={() => requestCreateEntry('file')}>
-                    <NewFileIcon />
-                  </IconButton>
-                </Tooltip>
-                <Tooltip content="New folder" placement="bottom">
-                  <IconButton aria-label="New folder" onClick={() => requestCreateEntry('dir')}>
-                    <NewFolderIcon />
-                  </IconButton>
-                </Tooltip>
-                <Tooltip content={canRevealActiveFile ? 'Reveal active file' : 'No active file to reveal'} placement="bottom">
-                  <IconButton
-                    aria-label="Reveal active file"
-                    onClick={revealActiveFile}
-                    disabled={!canRevealActiveFile}
-                  >
-                    <RevealActiveFileIcon />
-                  </IconButton>
-                </Tooltip>
-                <Tooltip content="Refresh files" placement="bottom">
-                  <IconButton
-                    aria-label="Refresh files"
-                    onClick={() => {
-                      setRefreshToken((current) => current + 1)
-                      void refreshGitStatus()
-                    }}
-                  >
-                    <RefreshFilesIcon />
-                  </IconButton>
-                </Tooltip>
-              </div>
-            )}
-          </div>
+        <>
+          <PanelHeader
+            title={rootName}
+            overflow={
+              folderReadyPath ? (
+                <>
+                  <Tooltip content="New file" placement="bottom">
+                    <IconButton aria-label="New file" onClick={() => requestCreateEntry('file')}>
+                      <NewFileIcon />
+                    </IconButton>
+                  </Tooltip>
+                  <Tooltip content="New folder" placement="bottom">
+                    <IconButton aria-label="New folder" onClick={() => requestCreateEntry('dir')}>
+                      <NewFolderIcon />
+                    </IconButton>
+                  </Tooltip>
+                  <Tooltip content={canRevealActiveFile ? 'Reveal active file' : 'No active file to reveal'} placement="bottom">
+                    <IconButton
+                      aria-label="Reveal active file"
+                      onClick={revealActiveFile}
+                      disabled={!canRevealActiveFile}
+                    >
+                      <RevealActiveFileIcon />
+                    </IconButton>
+                  </Tooltip>
+                  <Tooltip content="Refresh files" placement="bottom">
+                    <IconButton
+                      aria-label="Refresh files"
+                      onClick={() => {
+                        setRefreshToken((current) => current + 1)
+                        void refreshGitStatus()
+                      }}
+                    >
+                      <RefreshFilesIcon />
+                    </IconButton>
+                  </Tooltip>
+                </>
+              ) : undefined
+            }
+          />
 
           {folderReadyPath && (
-            <div className="px-3 pb-2">
-              <input
+            <div className="flex shrink-0 items-center gap-2 border-b border-[color:var(--border-subtle)] px-3 py-2">
+              <InboxSearchInput
                 value={query}
-                onChange={(event) => setQuery(event.target.value)}
-                placeholder="Search files..."
-                className="h-8 w-full rounded-md border border-[color:var(--bg-selected)] bg-[color:var(--bg-app)] px-3 text-[12px] text-[color:var(--text-strong)] placeholder-[color:var(--text-disabled)] outline-none transition-colors focus:border-[color:var(--border-strong)]"
+                onChange={setQuery}
+                ariaLabel="Search files"
+                placeholder="Search files…"
               />
             </div>
           )}
-        </div>
+        </>
       )}
 
       <div className="flex-1 overflow-y-auto">
