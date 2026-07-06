@@ -296,6 +296,23 @@ assert.equal(assignClaudeCodeSession.status, 'applied')
 const assignedClaudeCodeAgent = assignClaudeCodeSession.state.workspaces.find((candidate) => candidate.id === 'ws-one')?.agents['agent-claude-code']
 assert.equal(assignedClaudeCodeAgent?.cliResumeAvailable, true)
 
+const assignZaiSession = applyWorkspaceSyncEvent(
+  assignClaudeCodeSession.state,
+  event<Extract<WorkspaceSyncEvent, { type: 'agent_terminal.session_assigned' }>>({
+    type: 'agent_terminal.session_assigned',
+    sequence: 18,
+    payload: {
+      workspaceId: 'ws-one',
+      agentId: 'agent-zai',
+      sessionId: 'session-from-zai-event',
+      cli: 'zai',
+    },
+  })
+)
+assert.equal(assignZaiSession.status, 'applied')
+const assignedZaiAgent = assignZaiSession.state.workspaces.find((candidate) => candidate.id === 'ws-one')?.agents['agent-zai']
+assert.equal(assignedZaiAgent?.cliResumeAvailable, true)
+
 const launchUpdate = applyWorkspaceSyncEvent(
   assignSession.state,
   event<Extract<WorkspaceSyncEvent, { type: 'agent_terminal.launch_state_updated' }>>({

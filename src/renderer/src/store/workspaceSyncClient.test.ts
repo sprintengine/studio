@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
 
 import { createWorkspaceSyncService } from '../../../main/workspace-sync-service'
+import { agentCliSupportsConversationResume } from '../../../shared/agent-cli-resume'
 import {
   createWorkspaceSyncClient,
   type WorkspaceActiveChangedApply,
@@ -143,7 +144,7 @@ function createFakeStore(windows: WorkspaceWindowState[], activeWorkspaceId: Wor
         cli,
         cliStartRequested: true,
         cliHasLaunched: true,
-        cliResumeAvailable: cli === 'codex' || cli === 'claude-code',
+        cliResumeAvailable: agentCliSupportsConversationResume(cli),
       } as AgentState
     },
     applyTerminalLaunchState({ workspaceId, agentId, ...update }: AgentTerminalLaunchStateApply): void {

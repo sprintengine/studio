@@ -7,6 +7,7 @@ import type {
   WorkspaceWindowId,
   WorkspaceWindowState,
 } from '../renderer/src/types/workspace'
+import { agentCliSupportsConversationResume } from './agent-cli-resume'
 
 export type WindowPlacement = Pick<WorkspaceWindowState, 'bounds' | 'isMaximized' | 'displayId'>
 
@@ -444,10 +445,6 @@ function updateAgentTerminalLaunchState(
     agent.cliOnboardingPromptSent = payload.cliOnboardingPromptSent
   }
   if (payload.cliResumeAvailable !== undefined) agent.cliResumeAvailable = payload.cliResumeAvailable
-}
-
-function agentCliSupportsConversationResume(cli: AgentCli | undefined): boolean {
-  return cli === 'codex' || cli === 'claude-code'
 }
 
 function findOrCreateAgent(

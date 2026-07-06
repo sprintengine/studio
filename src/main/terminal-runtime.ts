@@ -192,7 +192,12 @@ let snapshotSidecars: TerminalRuntimeOptions['snapshotSidecars']
 // runtime ingestion is identical. All install differences are handled in the
 // service.
 function agentStateSupportsCli(cli: string | undefined): cli is string {
-  return cli === 'claude-code' || cli === 'codex' || cli === 'opencode'
+  if (cli === 'claude-code' || cli === 'codex' || cli === 'opencode') return true
+  if (!cli) return false
+  // Any other CLI that runs on the Claude harness (e.g. zai: the same
+  // `claude` binary against a redirected endpoint) uses the same
+  // settings-hook reporter as claude-code, so install it for those too.
+  return getPluginById(pluginIdForCli(cli))?.manifest.skillIntegration?.harnessId === 'claude'
 }
 
 // True when the CLI resumes using the session id WE mint and pass at launch
