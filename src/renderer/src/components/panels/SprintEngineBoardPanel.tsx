@@ -1521,6 +1521,7 @@ function SprintEngineBoardPanelContent({
  workspace,
  agents,
  sprintEngineState,
+ pluginCatalogEntries,
  rosterById,
  architectAgentId,
  specialistReviewAgents,

@@ -86,6 +86,10 @@ export type AgentTerminalSessionApply = {
   agentId: AgentId
   sessionId: string
   cli: AgentCli
+  // Stamped main-side from the plugin registry (see workspace-sync-service);
+  // the store applier stores these instead of re-deriving resume from `cli`.
+  cliResumeAvailable: boolean
+  cliUsesStableSessionId: boolean
 }
 
 export type AgentTerminalLaunchStateApply = {

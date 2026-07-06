@@ -6,9 +6,6 @@ import {
   setEditorBuffer,
 } from '../../utils/editorBuffers'
 import { pickRandomAgentName } from '../../utils/agentNames'
-import {
-  agentCliSupportsConversationResume,
-} from '../../utils/agentCliResume'
 import { normalizeCliPermissionPreset } from './settingsSlice'
 import type {
   AgentTerminalLaunchStateApply,
@@ -184,17 +181,20 @@ export function createAgentsSlice(set: AgentsSliceSet): AgentsSlice {
         ws.agents[agentId].execution = normalizeAgentExecution(ws.agents[agentId].execution)
       }),
 
-    applyAgentTerminalSessionEvent: ({ workspaceId, agentId, sessionId, cli }) =>
+    applyAgentTerminalSessionEvent: ({ workspaceId, agentId, sessionId, cli, cliResumeAvailable, cliUsesStableSessionId }) =>
       set((state) => {
         const ws = state.workspaces.find((w) => w.id === workspaceId)
         if (!ws) return
         if (!ws.agents[agentId]) ws.agents[agentId] = defaultAgent(agentId)
+        // Resume capabilities are stamped main-side from the plugin registry and
+        // travel on the event payload; store them rather than re-deriving.
         Object.assign(ws.agents[agentId], {
           cliSessionId: sessionId,
           cli,
           cliStartRequested: true,
           cliHasLaunched: true,
-          cliResumeAvailable: agentCliSupportsConversationResume(cli),
+          cliResumeAvailable,
+          cliUsesStableSessionId,
         })
         ws.agents[agentId].execution = normalizeAgentExecution(ws.agents[agentId].execution)
       }),
@@ -323,9 +323,10 @@ export function createAgentsSlice(set: AgentsSliceSet): AgentsSlice {
               agent.cliResumeAvailable = false
               continue
             }
-            if (agent.cliHasLaunched && agentCliSupportsConversationResume(agent.cli)) {
+            // Post-launch: rely on the resume flag already stamped from the
+            // manifest capability at session assign, not a re-derivation from cli.
+            if (agent.cliHasLaunched && agent.cliResumeAvailable) {
               agent.cliStartRequested = true
-              agent.cliResumeAvailable = true
               continue
             }
             agent.cliStartRequested = false

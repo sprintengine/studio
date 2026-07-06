@@ -80,13 +80,23 @@ export type WorkspaceWindowClosedEventPayload = Extract<
   { type: 'workspace_window.close' }
 >['payload'] & { movedWorkspaceIds: WorkspaceId[] }
 
+// The broadcast session_assigned event extends the command with resume
+// capabilities the main process resolves from the plugin registry (the
+// authoritative manifest source). The applier stores these instead of
+// re-deriving resume behavior from `cli`, so a new CLI resumes purely by
+// declaring its manifest capabilities. See agent-cli-resume.ts.
+export type AgentTerminalSessionAssignedEventPayload = Extract<
+  WorkspaceSyncCommand,
+  { type: 'agent_terminal.assign_session' }
+>['payload'] & { cliResumeAvailable: boolean; cliUsesStableSessionId: boolean }
+
 export type WorkspaceSyncEvent =
   | WorkspaceSyncBaseEvent<'workspace_window.active_changed', Extract<WorkspaceSyncCommand, { type: 'workspace_window.set_active' }>['payload']>
   | WorkspaceSyncBaseEvent<'workspace.moved_to_window', Extract<WorkspaceSyncCommand, { type: 'workspace.move_to_window' }>['payload']>
   | WorkspaceSyncBaseEvent<'workspace_window.placement_updated', Extract<WorkspaceSyncCommand, { type: 'workspace_window.update_placement' }>['payload']>
   | WorkspaceSyncBaseEvent<'workspace_window.closed', WorkspaceWindowClosedEventPayload>
   | WorkspaceSyncBaseEvent<'workspace.created', Extract<WorkspaceSyncCommand, { type: 'workspace.created' }>['payload']>
-  | WorkspaceSyncBaseEvent<'agent_terminal.session_assigned', Extract<WorkspaceSyncCommand, { type: 'agent_terminal.assign_session' }>['payload']>
+  | WorkspaceSyncBaseEvent<'agent_terminal.session_assigned', AgentTerminalSessionAssignedEventPayload>
   | WorkspaceSyncBaseEvent<'agent_terminal.launch_state_updated', Extract<WorkspaceSyncCommand, { type: 'agent_terminal.update_launch_state' }>['payload']>
 
 export type WorkspaceSyncBaseEvent<
@@ -420,7 +430,7 @@ function addCreatedWorkspace(
 
 function assignAgentTerminalSession(
   state: WorkspaceSyncState,
-  payload: Extract<WorkspaceSyncCommand, { type: 'agent_terminal.assign_session' }>['payload']
+  payload: AgentTerminalSessionAssignedEventPayload
 ): void {
   const agent = findOrCreateAgent(state, payload.workspaceId, payload.agentId)
   if (!agent) return
@@ -428,7 +438,8 @@ function assignAgentTerminalSession(
   agent.cli = payload.cli
   agent.cliStartRequested = true
   agent.cliHasLaunched = true
-  agent.cliResumeAvailable = agentCliSupportsConversationResume(payload.cli)
+  agent.cliResumeAvailable = payload.cliResumeAvailable
+  agent.cliUsesStableSessionId = payload.cliUsesStableSessionId
 }
 
 function updateAgentTerminalLaunchState(
@@ -444,10 +455,6 @@ function updateAgentTerminalLaunchState(
     agent.cliOnboardingPromptSent = payload.cliOnboardingPromptSent
   }
   if (payload.cliResumeAvailable !== undefined) agent.cliResumeAvailable = payload.cliResumeAvailable
-}
-
-function agentCliSupportsConversationResume(cli: AgentCli | undefined): boolean {
-  return cli === 'codex' || cli === 'claude-code'
 }
 
 function findOrCreateAgent(

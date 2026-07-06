@@ -128,7 +128,7 @@ function createFakeStore(windows: WorkspaceWindowState[], activeWorkspaceId: Wor
       if (Number.isFinite(createdAt)) target.lastFocusedAt = createdAt
       if (isCurrentWindowTarget) state.activeWorkspaceId = workspace.id
     },
-    applyTerminalSession({ workspaceId, agentId, sessionId, cli }: AgentTerminalSessionApply): void {
+    applyTerminalSession({ workspaceId, agentId, sessionId, cli, cliResumeAvailable, cliUsesStableSessionId }: AgentTerminalSessionApply): void {
       const workspace = state.workspaces.find((candidate) => candidate.id === workspaceId)
       if (!workspace) return
       workspace.agents[agentId] = {
@@ -143,7 +143,8 @@ function createFakeStore(windows: WorkspaceWindowState[], activeWorkspaceId: Wor
         cli,
         cliStartRequested: true,
         cliHasLaunched: true,
-        cliResumeAvailable: cli === 'codex' || cli === 'claude-code',
+        cliResumeAvailable,
+        cliUsesStableSessionId,
       } as AgentState
     },
     applyTerminalLaunchState({ workspaceId, agentId, ...update }: AgentTerminalLaunchStateApply): void {

@@ -74,6 +74,7 @@ import {
   normalizeSprintEngineAutomationRuntimeState,
 } from './sprintengineAutomationLifecycle'
 import { agentCliSupportsConversationResume } from './agentCliResume'
+import type { ResumeCapabilities } from './agentCliResume'
 import type { LifecycleState } from '../components/ui/LifecycleGlyph'
 
 // Sprint Engine board column → the shared lifecycle vocabulary. The pipeline
@@ -210,9 +211,12 @@ export function willResumeRecordedRosterSession(input: {
   autoRuntimeState: SprintEngineAutomationRuntimeState | undefined
   recorded: SprintEngineRosterSession | null | undefined
   agentId: AgentId
+  // Resume capabilities for `recorded.cli`, resolved by the caller from the
+  // plugin catalog (resumeCapabilitiesForCli). Keeps this util catalog-agnostic.
+  resumeCapabilities: ResumeCapabilities | undefined
 }): boolean {
   const { recorded } = input
-  if (!recorded?.cliSessionId || !agentCliSupportsConversationResume(recorded.cli)) return false
+  if (!recorded?.cliSessionId || !agentCliSupportsConversationResume(input.resumeCapabilities)) return false
   return shouldResumeRecordedRosterSession({
     sprintEngineState: input.sprintEngineState,
     autoRuntimeState: input.autoRuntimeState,

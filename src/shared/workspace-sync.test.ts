@@ -268,6 +268,10 @@ const assignSession = applyWorkspaceSyncEvent(
       agentId: 'agent-one',
       sessionId: 'session-from-event',
       cli: 'claude-code',
+      // Capabilities are stamped main-side onto the event; the applier stores
+      // them verbatim rather than re-deriving resume behavior from `cli`.
+      cliResumeAvailable: true,
+      cliUsesStableSessionId: true,
     },
   })
 )
@@ -278,6 +282,7 @@ assert.equal(assignedAgent?.cli, 'claude-code')
 assert.equal(assignedAgent?.cliStartRequested, true)
 assert.equal(assignedAgent?.cliHasLaunched, true)
 assert.equal(assignedAgent?.cliResumeAvailable, true)
+assert.equal(assignedAgent?.cliUsesStableSessionId, true)
 
 const assignClaudeCodeSession = applyWorkspaceSyncEvent(
   assignSession.state,
@@ -289,12 +294,78 @@ const assignClaudeCodeSession = applyWorkspaceSyncEvent(
       agentId: 'agent-claude-code',
       sessionId: 'session-from-claude-code-event',
       cli: 'claude-code',
+      cliResumeAvailable: true,
+      cliUsesStableSessionId: true,
     },
   })
 )
 assert.equal(assignClaudeCodeSession.status, 'applied')
 const assignedClaudeCodeAgent = assignClaudeCodeSession.state.workspaces.find((candidate) => candidate.id === 'ws-one')?.agents['agent-claude-code']
 assert.equal(assignedClaudeCodeAgent?.cliResumeAvailable, true)
+assert.equal(assignedClaudeCodeAgent?.cliUsesStableSessionId, true)
+
+const assignZaiSession = applyWorkspaceSyncEvent(
+  assignClaudeCodeSession.state,
+  event<Extract<WorkspaceSyncEvent, { type: 'agent_terminal.session_assigned' }>>({
+    type: 'agent_terminal.session_assigned',
+    sequence: 18,
+    payload: {
+      workspaceId: 'ws-one',
+      agentId: 'agent-zai',
+      sessionId: 'session-from-zai-event',
+      cli: 'zai',
+      cliResumeAvailable: true,
+      cliUsesStableSessionId: true,
+    },
+  })
+)
+assert.equal(assignZaiSession.status, 'applied')
+const assignedZaiAgent = assignZaiSession.state.workspaces.find((candidate) => candidate.id === 'ws-one')?.agents['agent-zai']
+assert.equal(assignedZaiAgent?.cliResumeAvailable, true)
+assert.equal(assignedZaiAgent?.cliUsesStableSessionId, true)
+
+// The applier stores exactly what the payload carries — it must NOT re-derive
+// from `cli`. A codex-shaped payload (resume yes, stable-session no) and a
+// generic-shell-shaped payload (both off) prove the seam is manifest-driven.
+const assignCodexSession = applyWorkspaceSyncEvent(
+  assignZaiSession.state,
+  event<Extract<WorkspaceSyncEvent, { type: 'agent_terminal.session_assigned' }>>({
+    type: 'agent_terminal.session_assigned',
+    sequence: 19,
+    payload: {
+      workspaceId: 'ws-one',
+      agentId: 'agent-codex',
+      sessionId: 'session-from-codex-event',
+      cli: 'codex',
+      cliResumeAvailable: true,
+      cliUsesStableSessionId: false,
+    },
+  })
+)
+assert.equal(assignCodexSession.status, 'applied')
+const assignedCodexAgent = assignCodexSession.state.workspaces.find((candidate) => candidate.id === 'ws-one')?.agents['agent-codex']
+assert.equal(assignedCodexAgent?.cliResumeAvailable, true)
+assert.equal(assignedCodexAgent?.cliUsesStableSessionId, false)
+
+const assignShellSession = applyWorkspaceSyncEvent(
+  assignCodexSession.state,
+  event<Extract<WorkspaceSyncEvent, { type: 'agent_terminal.session_assigned' }>>({
+    type: 'agent_terminal.session_assigned',
+    sequence: 20,
+    payload: {
+      workspaceId: 'ws-one',
+      agentId: 'agent-shell',
+      sessionId: 'session-from-shell-event',
+      cli: 'generic-shell',
+      cliResumeAvailable: false,
+      cliUsesStableSessionId: false,
+    },
+  })
+)
+assert.equal(assignShellSession.status, 'applied')
+const assignedShellAgent = assignShellSession.state.workspaces.find((candidate) => candidate.id === 'ws-one')?.agents['agent-shell']
+assert.equal(assignedShellAgent?.cliResumeAvailable, false)
+assert.equal(assignedShellAgent?.cliUsesStableSessionId, false)
 
 const launchUpdate = applyWorkspaceSyncEvent(
   assignSession.state,

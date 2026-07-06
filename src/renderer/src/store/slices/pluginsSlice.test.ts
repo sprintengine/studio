@@ -5,8 +5,10 @@ import {
   __workspaceStorePartializeForTests,
   useWorkspaceStore,
 } from '../workspaceStore'
+import type { PluginCatalogEntry } from '../../types/workspace'
 import {
   createPluginsSlice,
+  resumeCapabilitiesForCli,
   subscribePluginCatalogRefreshOnFocus,
   type PluginsSliceState,
 } from './pluginsSlice'
@@ -208,6 +210,19 @@ async function main(): Promise<void> {
   unsubscribe()
   assert.equal(fakeWin.handlers.has('focus'), false, 'focus listener removed on cleanup')
   assert.equal(fakeDoc.handlers.has('visibilitychange'), false, 'visibility listener removed on cleanup')
+
+  // resumeCapabilitiesForCli resolves a cli to its projected caps (cli id ==
+  // plugin id). Unknown or undefined cli → undefined (predicates then read off).
+  const catalog: PluginCatalogEntry[] = [
+    { id: 'claude-code', displayName: 'Claude Code', source: 'bundled', version: 1, binary: 'claude', resumeSession: true, sessionIdFromCaller: true },
+    { id: 'codex', displayName: 'Codex', source: 'bundled', version: 1, binary: 'codex', resumeSession: true, sessionIdFromCaller: false },
+    { id: 'generic-shell', displayName: 'Shell', source: 'bundled', version: 1, binary: 'sh', resumeSession: false, sessionIdFromCaller: false },
+  ]
+  assert.deepEqual(resumeCapabilitiesForCli('claude-code', catalog), { resumeSession: true, sessionIdFromCaller: true })
+  assert.deepEqual(resumeCapabilitiesForCli('codex', catalog), { resumeSession: true, sessionIdFromCaller: false })
+  assert.deepEqual(resumeCapabilitiesForCli('generic-shell', catalog), { resumeSession: false, sessionIdFromCaller: false })
+  assert.equal(resumeCapabilitiesForCli('unknown-cli', catalog), undefined, 'absent cli → undefined')
+  assert.equal(resumeCapabilitiesForCli(undefined, catalog), undefined, 'no cli → undefined')
 
   console.log('pluginsSlice.test.ts: ok')
 }
