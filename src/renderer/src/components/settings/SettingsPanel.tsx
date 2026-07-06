@@ -45,6 +45,7 @@ import { ProjectKnowledgeList } from './ProjectKnowledgeList'
 import CliIcon from '../CliIcon'
 import { cliRuntimeForPlugin, orderInstalledPlugins } from '../workspace/newWorkspace/cliRuntimeOptions'
 import { CliInstallControl } from './CliInstallControl'
+import { ModelCatalogSection } from './ModelCatalogSection'
 import MulticodeMark from '../brand/MulticodeMark'
 import {
   GeneralSettingsIcon,
@@ -2158,6 +2159,8 @@ export default function SettingsPanel({
               <IdleSuspendField descriptor={idleSuspendDescriptor} />
             </div>
           ) : null}
+
+          <ModelCatalogSection />
         </div>
       ) : null}
 
