@@ -1,19 +1,23 @@
 // The app-wide title strip across the top of the window. Cursor-parity chrome:
 // a slim strip that carries window navigation on the left (sidebar-collapse
-// toggle + workspace back/forward) and app-level surface toggles on the right
-// (global search + the Sprint Engines aside, the "secondary side bar" idiom).
+// toggle + workspace back/forward + the Files/Git/Backlog panel switches, the
+// single nav toolbar) and app-level surface toggles on the right (global search
+// + the Sprint Engines aside, the "secondary side bar" idiom).
 // The whole strip is a drag region; only the control clusters opt back out with
 // `app-no-drag`, and on macOS the leftmost slice is reserved for the native
 // traffic lights inset by the hiddenInset window frame.
 //
 // The right edge is the home for app-level (cross-workspace) surface toggles —
 // matching the common "secondary side bar" idiom: a global panel gets
-// a global toggle, never a slot in the per-workspace PanelRail.
+// a global toggle here, distinct from the per-workspace panel switches (Files /
+// Git / Backlog) that sit on the left with the window nav.
 
 import React from 'react'
 import { Tooltip } from '../ui'
 import { AttentionQueuePopover, type AttentionQueueSurface } from './AttentionQueuePopover'
+import { PanelSwitches } from './PanelSwitches'
 import { WindowControls } from './WindowControls'
+import type { WorkspaceId } from '../../types/workspace'
 
 // The native traffic lights are pinned at y:11 by the hiddenInset frame
 // (window-factory.ts), so the strip stays 36px to keep them vertically
@@ -43,6 +47,10 @@ type AppTitleBarProps<MenuItem extends string> = {
   // command so the collapse control leads the frame, as in most desktop editors.
   sidebarCollapsed: boolean
   onToggleSidebar: () => void
+  // Window-scoped active workspace: the panel switches derive their active
+  // accent + git badge from it (null while no workspace is active). Passed in
+  // rather than read from the store because "active" is per-window.
+  activeWorkspaceId: WorkspaceId | null
   // Workspace back/forward, wired to the workspaceNavigationHistory commands
   // (workspace.history.back / .forward) that mouse buttons and shortcuts share.
   onNavigateBack: () => void
@@ -65,8 +73,8 @@ function SidebarCollapseButton({ collapsed, onToggle }: { collapsed: boolean; on
   return (
     <Tooltip content={label} placement="bottom">
       <button type="button" onClick={onToggle} aria-label={label} className={STRIP_BUTTON}>
-        {/* Standard `panel-left` sidebar glyph — the shared idiom from the
-            PanelRail collapse toggle; one glyph for both states. */}
+        {/* Standard `panel-left` sidebar glyph — the sole collapse toggle now
+            that the rail's second one is gone; one glyph for both states. */}
         <svg viewBox="0 0 16 16" fill="none" className="icon-sm" aria-hidden="true">
           <rect x="2.5" y="3" width="11" height="10" rx="1.5" stroke="currentColor" strokeWidth="1.5" />
           <path d="M6 3V13" stroke="currentColor" strokeWidth="1.5" />
@@ -159,6 +167,7 @@ export function AppTitleBar<MenuItem extends string>({
   onShowMenu,
   sidebarCollapsed,
   onToggleSidebar,
+  activeWorkspaceId,
   onNavigateBack,
   onNavigateForward,
   onOpenSearch,
@@ -177,6 +186,7 @@ export function AppTitleBar<MenuItem extends string>({
           <SidebarCollapseButton collapsed={sidebarCollapsed} onToggle={onToggleSidebar} />
           <NavHistoryButton direction="back" onClick={onNavigateBack} />
           <NavHistoryButton direction="forward" onClick={onNavigateForward} />
+          <PanelSwitches activeWorkspaceId={activeWorkspaceId} />
         </div>
         {!isMac ? (
           <div className="flex min-w-0 items-center gap-1 pl-1">

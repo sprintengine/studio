@@ -23,7 +23,6 @@ import {
   type Tone,
 } from '../ui'
 import { Modal, ModalBody, ModalButton, ModalFooter, ModalHeader } from '../ui/Modal'
-import PanelRail from './PanelRail'
 import SidebarAccountBar from './SidebarAccountBar'
 import { useWorkspaceStore } from '../../store/workspaceStore'
 import {
@@ -52,7 +51,6 @@ import { useRelativeNow } from '../../hooks/useRelativeNow'
 import { formatRelativeMs, formatRelativeMsAgo } from '../../utils/relativeTime'
 import { deriveWorkspaceRunGlyph, workspaceHasRunGlyphProvider } from '../../utils/workspaceRunGlyph'
 import { partitionWorkspacesByRecency, sortWorkspacesByActivity } from '../../utils/workspaceRecency'
-import { beginSidebarTransition } from '../../utils/sidebarTransition'
 import { isHiddenFromRail } from '../../utils/workspaceVisibility'
 import { listAutomationsHostWorkspaces } from '../../utils/automationsEntry'
 
@@ -1275,24 +1273,11 @@ export default function WorkspaceSidebar({
         />
       </div>
       {/*
-       * Top chrome row: Files / Editor / Git / Knowledge Graph switches scoped
-       * to the active workspace, plus the collapse toggle pinned to its right
-       * edge. The brand moved to the window title bar, so the rail is the
-       * sidebar's first row. It renders even with no active workspace so the
-       * collapse toggle stays reachable.
+       * The Files / Git / Backlog panel switches and the sidebar-collapse toggle
+       * both moved into the window title bar (AppTitleBar → PanelSwitches), so
+       * the sidebar's first row is now the creation entry. One nav toolbar, one
+       * collapse button.
        */}
-      <PanelRail
-        workspaceId={activeWorkspaceId}
-        collapsed={sidebarCollapsed}
-        onToggleCollapse={() => {
-          // Protect the width-transition window: hold heavy panel resize work
-          // (xterm fit, PTY resize, Monaco layout) until the glide lands, so it
-          // runs once instead of every animation frame.
-          beginSidebarTransition()
-          onSetSidebarCollapsed(!sidebarCollapsed)
-        }}
-      />
-
       <div className={`mt-2 flex flex-col gap-1.5 ${sidebarCollapsed ? 'mx-1.5' : 'mx-2'}`}>
         {sidebarCollapsed ? (
           <>

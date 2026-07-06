@@ -2482,6 +2482,7 @@ export default function WorkspaceManager() {
         onShowMenu={(event, label) => void handleShowMenubarMenu(event, label)}
         sidebarCollapsed={sidebarCollapsed}
         onToggleSidebar={() => runCommand('workspace.sidebar.toggle')}
+        activeWorkspaceId={windowActiveWorkspaceId}
         onNavigateBack={() => runCommand('workspace.history.back')}
         onNavigateForward={() => runCommand('workspace.history.forward')}
         onOpenSearch={() => runCommand('commandPalette.open')}
