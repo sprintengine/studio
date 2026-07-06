@@ -1,0 +1,4 @@
+interface:
+  display_name: "Use Codex"
+  short_description: "Delegate non-UI implementation, second-opinion reviews, and image generation to the local Codex CLI."
+  default_prompt: "Use $use-codex to delegate suitable work to the Codex CLI."
