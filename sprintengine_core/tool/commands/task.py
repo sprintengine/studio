@@ -5,7 +5,11 @@ import argparse
 from typing import Any, Dict, List, Optional, Tuple
 
 from sprintengine_core import store as folder_store
-from sprintengine_core.tool.artifacts import release_task_from_owner, resolve_task_input
+from sprintengine_core.tool.artifacts import (
+    release_task_from_owner,
+    resolve_task_input,
+    supersede_stale_gate_placeholder_on_completion,
+)
 from sprintengine_core.tool.common import parse_json_object_arg
 from sprintengine_core.tool.constants import ACTIVE_TASK_STATUSES, ARCHITECT_ROUTED_NEEDS_INPUT_KINDS, NEEDS_INPUT_KIND_DEFAULT_REASONS, VALID_NEEDS_INPUT_KINDS
 from sprintengine_core.tool.feedback import (
@@ -499,6 +503,7 @@ def cmd_task_status(args: argparse.Namespace) -> Dict[str, Any]:
             ensure_evidence(task)["summary"] = args.summary
         commit_sha = None
         if args.status == "done":
+            supersede_stale_gate_placeholder_on_completion(state, task, str(actor))
             refresh_task_diff_evidence(state, args.state, task, str(actor))
             commit_sha = commit_task_changes_if_needed(state, args.state, task, str(actor))
         if task.get("ownerAgentId"):

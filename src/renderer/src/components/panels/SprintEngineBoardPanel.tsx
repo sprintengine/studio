@@ -2138,6 +2138,8 @@ function SprintEngineBoardPanelContent({
  sprintEngineState={sprintEngineState}
  reviewArtifacts={reviewArtifacts}
  runPhase={runPhase}
+ workspaceId={workspaceId}
+ folderPath={folderPath}
  selectedArtifactId={selectedArtifactId}
  onSelectArtifact={setSelectedArtifactId}
  onSelectTask={setSelectedTaskId}

@@ -7,7 +7,7 @@ the run itself, so the gate is a `general` plan gate the General self-approves.
 
 from __future__ import annotations
 
-from helpers import create_team, get_artifact, get_task, read_state, write_state
+from helpers import create_team, get_artifact, get_task, read_state, task, write_state
 from sprintengine_core.tool.plans import (
     apply_plan_gate_dependency,
     ensure_plan_approval_gate,
@@ -137,3 +137,131 @@ def test_general_self_approves_its_plan_gate(tmp_path) -> None:
     final_state = read_state(fixture.state_path)
     assert get_task(final_state, "T0")["status"] == "done"
     assert get_artifact(final_state, "A1")["approvedBy"] == "general-1"
+
+
+def test_gate_task_completion_supersedes_stuck_draft_placeholder(tmp_path) -> None:
+    """Regression: a plan approval-gate placeholder seeded as `draft` must not
+    survive as a live draft once its gate task is marked done directly. That is
+    the task-completes-later path (the placeholder was never published or
+    approved), which artifact approval never reaches."""
+    fixture = create_team(tmp_path, "gate-stuck-draft", [])
+    state = seed_plan_gate(fixture, "architect", "developer")
+    plan_task = find_architect_plan_gate(state, fixture.state_path)["task"]
+    assert plan_task["id"] == "T0"
+    assert get_artifact(state, "A1")["kind"] == "architect_plan"
+    assert get_artifact(state, "A1")["status"] == "draft"
+
+    # The gate task is completed directly rather than via artifact approval,
+    # leaving the placeholder unpublished.
+    plan_task["status"] = "in_progress"
+    plan_task["ownerAgentId"] = "architect-1"
+    write_state(fixture.state_path, state)
+
+    done = fixture.cli.run(
+        "task", "status", "--task-id", "T0", "--status", "done", "--id", "architect-1"
+    )
+    assert done["ok"] is True
+
+    final_state = read_state(fixture.state_path)
+    assert get_task(final_state, "T0")["status"] == "done"
+    resolved = get_artifact(final_state, "A1")
+    # No artifact may remain `draft` while its task is `done`.
+    assert resolved["status"] == "superseded"
+    assert any(entry.get("action") == "superseded" for entry in resolved["reviewHistory"])
+
+
+def test_publishing_gate_task_supersedes_stuck_draft_placeholder(tmp_path) -> None:
+    """A plan/product gate task has no quality gates, so `task publish` routes it
+    straight to done. That publish-driven completion must also resolve the draft
+    placeholder so the done-while-draft invariant holds on every done path."""
+    fixture = create_team(tmp_path, "gate-publish-draft", [])
+    state = seed_plan_gate(fixture, "architect", "developer")
+    plan_task = find_architect_plan_gate(state, fixture.state_path)["task"]
+    assert plan_task["id"] == "T0"
+    assert get_artifact(state, "A1")["status"] == "draft"
+    plan_task["status"] = "in_progress"
+    plan_task["ownerAgentId"] = "architect-1"
+    write_state(fixture.state_path, state)
+
+    published = fixture.cli.run(
+        "task", "publish", "--task-id", "T0", "--id", "architect-1", "--summary", "Plan approved."
+    )
+    assert published["nextStatus"] == "done"
+
+    final_state = read_state(fixture.state_path)
+    assert get_task(final_state, "T0")["status"] == "done"
+    assert get_artifact(final_state, "A1")["status"] == "superseded"
+
+
+def test_gate_verdict_completion_supersedes_stuck_draft_placeholder(tmp_path) -> None:
+    """A gate verdict that routes a task to done (gates.py apply_gate_verdict) must
+    also resolve a draft plan/product placeholder the task still owns; the done
+    routing ignores artifact status, so without the hook the placeholder stays
+    draft while the task is done."""
+    gated = task("T1", "Gated plan work", "developer", "review", owner="developer-1")
+    gated["qualityGates"] = [{
+        "id": "G1", "phase": "review", "role": "code_reviewer", "status": "pending",
+        "required": True, "allowSelfReview": False, "focus": "Review.", "attempts": [],
+    }]
+    fixture = create_team(tmp_path, "gate-verdict-draft", [gated])
+    state = read_state(fixture.state_path)
+    state.setdefault("sprintengine", {})["rosterConfigured"] = True
+    state["configuredRoles"] = ["developer", "code_reviewer", "tester"]
+    state["agents"] = {"developer-1": {"role": "developer", "status": "idle"}}
+    state.setdefault("artifacts", []).append({
+        "id": "A1",
+        "kind": "architect_plan",
+        "title": "Architect Plan",
+        "path": "plan.md",
+        "status": "draft",
+        "createdBy": "architect-1",
+        "taskId": "T1",
+        "reviewHistory": [{"action": "created", "actor": "architect-1", "timestamp": "2026-07-05T00:00:00Z"}],
+        "recommendedTasks": [],
+    })
+    write_state(fixture.state_path, state)
+
+    claim = fixture.cli.run("task", "gate", "next", "--role", "code_reviewer", "--id", "code_reviewer")
+    assert claim["claimed"] is True
+    fixture.cli.run(
+        "task", "gate", "verdict",
+        "--task-id", "T1", "--gate-id", "G1",
+        "--role", "code_reviewer", "--id", "code_reviewer",
+        "--verdict", "approved", "--summary", "Approved.",
+    )
+
+    final_state = read_state(fixture.state_path)
+    assert get_task(final_state, "T1")["status"] == "done"
+    assert get_artifact(final_state, "A1")["status"] == "superseded"
+
+
+def test_gate_completion_leaves_unrelated_draft_artifacts_untouched(tmp_path) -> None:
+    """The self-heal is bounded to the plan/product placeholder kinds: a draft
+    artifact of an unrelated kind owned by the completed task is not superseded."""
+    fixture = create_team(tmp_path, "gate-bounded-supersede", [])
+    state = seed_plan_gate(fixture, "architect", "developer")
+    plan_task = find_architect_plan_gate(state, fixture.state_path)["task"]
+    plan_task["status"] = "in_progress"
+    plan_task["ownerAgentId"] = "architect-1"
+    state.setdefault("artifacts", []).append({
+        "id": "A2",
+        "kind": "design_notes",
+        "title": "Design Notes",
+        "path": "design.md",
+        "status": "draft",
+        "createdBy": "architect-1",
+        "taskId": "T0",
+        "reviewHistory": [{"action": "created", "actor": "architect-1", "timestamp": "2026-07-05T00:00:00Z"}],
+        "recommendedTasks": [],
+    })
+    write_state(fixture.state_path, state)
+
+    done = fixture.cli.run(
+        "task", "status", "--task-id", "T0", "--status", "done", "--id", "architect-1"
+    )
+    assert done["ok"] is True
+
+    final_state = read_state(fixture.state_path)
+    assert get_artifact(final_state, "A1")["status"] == "superseded"
+    # A non-placeholder draft artifact is out of scope and left as-is.
+    assert get_artifact(final_state, "A2")["status"] == "draft"

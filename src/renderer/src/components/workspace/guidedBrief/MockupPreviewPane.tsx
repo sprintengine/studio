@@ -5,6 +5,9 @@ import type { DesignerMockupFile } from './useDesignerSession'
 type Props = {
   mockups: DesignerMockupFile[]
   watchDirectoryPath: string
+  // Opt-in Preview/Source toggle for the "Started from" seed preview. Default
+  // off keeps the Design Wizard usage unchanged.
+  enableSourceView?: boolean
 }
 
 type FrameState =
@@ -42,6 +45,41 @@ export function nextHtmlPreviewZoom(zoom: HtmlPreviewZoom): HtmlPreviewZoom {
   return PREVIEW_ZOOMS[(index + 1) % PREVIEW_ZOOMS.length]
 }
 
+// The Source view is an opt-in mode (default off) so the Design Wizard preview
+// is unchanged. When it is off the frame behaves exactly as before: no toggle,
+// always the rendered iframe, all preview controls. Source only exists to read
+// the raw HTML text, so it hides the preview-only controls (viewport, zoom,
+// allow-scripts) that shape the rendered iframe and never itself run scripts.
+export type HtmlArtifactViewMode = 'preview' | 'source'
+
+export type HtmlArtifactView = {
+  showToggle: boolean
+  mode: HtmlArtifactViewMode
+  showsRenderedFrame: boolean
+  showsSource: boolean
+  showsPreviewControls: boolean
+}
+
+export function resolveHtmlArtifactView(
+  enableSourceView: boolean,
+  viewMode: HtmlArtifactViewMode,
+): HtmlArtifactView {
+  const mode: HtmlArtifactViewMode = enableSourceView ? viewMode : 'preview'
+  const isSource = mode === 'source'
+  return {
+    showToggle: enableSourceView,
+    mode,
+    showsRenderedFrame: !isSource,
+    showsSource: isSource,
+    showsPreviewControls: !isSource,
+  }
+}
+
+const HTML_ARTIFACT_VIEW_MODES: ReadonlyArray<{ id: HtmlArtifactViewMode; label: string }> = [
+  { id: 'preview', label: 'Preview' },
+  { id: 'source', label: 'Source' },
+]
+
 export function browserOpenFailureMessage(
   relativePath: string,
   failure: 'missing' | 'handler',
@@ -77,12 +115,15 @@ export function HtmlArtifactFrame({
   absolutePath,
   relativePath,
   watchDirectoryPath,
+  enableSourceView = false,
 }: {
   absolutePath: string
   relativePath: string
   watchDirectoryPath: string
+  enableSourceView?: boolean
 }) {
   const [allowScripts, setAllowScripts] = useState(false)
+  const [viewMode, setViewMode] = useState<HtmlArtifactViewMode>('preview')
   const [frameState, setFrameState] = useState<FrameState>({ kind: 'loading' })
   const [browserOpenState, setBrowserOpenState] = useState<BrowserOpenState>({ kind: 'idle' })
   const [copiedPath, setCopiedPath] = useState(false)
@@ -189,6 +230,8 @@ export function HtmlArtifactFrame({
     }
   }
 
+  const view = resolveHtmlArtifactView(enableSourceView, viewMode)
+
   return (
     <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-md border border-[color:var(--border-default)] bg-[color:var(--bg-surface)]">
       <div className="flex shrink-0 items-center gap-2 border-b border-[color:var(--border-subtle)] px-3 py-2">
@@ -198,37 +241,62 @@ export function HtmlArtifactFrame({
           className="min-w-0 font-mono text-[11px] text-[color:var(--text-muted)]"
         />
         <span className="ml-auto flex shrink-0 items-center gap-1">
-          <span role="group" aria-label="Viewport width" className="flex items-center gap-0.5">
-            {PREVIEW_VIEWPORTS.map((option) => (
+          {view.showToggle ? (
+            <span role="group" aria-label="View mode" className="flex items-center gap-0.5">
+              {HTML_ARTIFACT_VIEW_MODES.map((option) => (
+                <button
+                  key={option.id}
+                  type="button"
+                  onClick={() => setViewMode(option.id)}
+                  aria-pressed={view.mode === option.id}
+                  className={`
+                    inline-flex h-6 items-center rounded-sm px-1.5 text-[11px]
+                    transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--accent-primary)]
+                    ${view.mode === option.id
+                      ? 'bg-[color:var(--bg-surface-raised)] text-[color:var(--text-strong)]'
+                      : 'text-[color:var(--text-subtle)] hover:text-[color:var(--text-default)]'}
+                  `}
+                >
+                  {option.label}
+                </button>
+              ))}
+            </span>
+          ) : null}
+          {view.showsPreviewControls ? (
+            <>
+              <span role="group" aria-label="Viewport width" className="flex items-center gap-0.5">
+                {PREVIEW_VIEWPORTS.map((option) => (
+                  <button
+                    key={option.label}
+                    type="button"
+                    onClick={() => setViewport(option.id)}
+                    aria-pressed={viewport === option.id}
+                    className={`
+                      inline-flex h-6 items-center rounded-sm px-1.5 text-[11px] tabular-nums
+                      transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--accent-primary)]
+                      ${viewport === option.id
+                        ? 'bg-[color:var(--bg-surface-raised)] text-[color:var(--text-strong)]'
+                        : 'text-[color:var(--text-subtle)] hover:text-[color:var(--text-default)]'}
+                    `}
+                  >
+                    {option.label}
+                  </button>
+                ))}
+              </span>
               <button
-                key={option.label}
                 type="button"
-                onClick={() => setViewport(option.id)}
-                aria-pressed={viewport === option.id}
-                className={`
-                  inline-flex h-6 items-center rounded-sm px-1.5 text-[11px] tabular-nums
-                  transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--accent-primary)]
-                  ${viewport === option.id
-                    ? 'bg-[color:var(--bg-surface-raised)] text-[color:var(--text-strong)]'
-                    : 'text-[color:var(--text-subtle)] hover:text-[color:var(--text-default)]'}
-                `}
+                onClick={() => setZoom((value) => nextHtmlPreviewZoom(value))}
+                aria-label={`Zoom ${Math.round(zoom * 100)} percent`}
+                className="
+                  inline-flex h-6 items-center rounded-sm px-1.5 text-[11px] tabular-nums text-[color:var(--text-muted)]
+                  transition-colors hover:bg-[color:var(--bg-surface-raised)] hover:text-[color:var(--text-default)]
+                  focus:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--accent-primary)]
+                "
               >
-                {option.label}
+                {Math.round(zoom * 100)}%
               </button>
-            ))}
-          </span>
-          <button
-            type="button"
-            onClick={() => setZoom((value) => nextHtmlPreviewZoom(value))}
-            aria-label={`Zoom ${Math.round(zoom * 100)} percent`}
-            className="
-              inline-flex h-6 items-center rounded-sm px-1.5 text-[11px] tabular-nums text-[color:var(--text-muted)]
-              transition-colors hover:bg-[color:var(--bg-surface-raised)] hover:text-[color:var(--text-default)]
-              focus:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--accent-primary)]
-            "
-          >
-            {Math.round(zoom * 100)}%
-          </button>
+            </>
+          ) : null}
           <Tooltip content="Reload">
             <button
               type="button"
@@ -263,32 +331,34 @@ export function HtmlArtifactFrame({
               </svg>
             </button>
           </Tooltip>
-          <button
-            type="button"
-            onClick={() => setAllowScripts((value) => !value)}
-            aria-pressed={allowScripts}
-            className={`
-              inline-flex h-6 items-center gap-1 rounded-sm px-1.5 text-[11px]
-              transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--accent-primary)]
-              ${allowScripts
-                ? 'bg-[color:var(--tone-warn-soft)] text-[color:var(--tone-warn)]'
-                : 'text-[color:var(--text-muted)] hover:bg-[color:var(--bg-surface-raised)] hover:text-[color:var(--text-default)]'}
-            `}
-          >
-            {allowScripts ? (
-              <>
-                <span
-                  aria-hidden="true"
-                  className="inline-flex h-3 w-3 items-center justify-center rounded-full border border-current text-[9px] font-bold leading-none"
-                >
-                  !
-                </span>
-                Scripts on
-              </>
-            ) : (
-              <>Allow interactive demo</>
-            )}
-          </button>
+          {view.showsPreviewControls ? (
+            <button
+              type="button"
+              onClick={() => setAllowScripts((value) => !value)}
+              aria-pressed={allowScripts}
+              className={`
+                inline-flex h-6 items-center gap-1 rounded-sm px-1.5 text-[11px]
+                transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--accent-primary)]
+                ${allowScripts
+                  ? 'bg-[color:var(--tone-warn-soft)] text-[color:var(--tone-warn)]'
+                  : 'text-[color:var(--text-muted)] hover:bg-[color:var(--bg-surface-raised)] hover:text-[color:var(--text-default)]'}
+              `}
+            >
+              {allowScripts ? (
+                <>
+                  <span
+                    aria-hidden="true"
+                    className="inline-flex h-3 w-3 items-center justify-center rounded-full border border-current text-[9px] font-bold leading-none"
+                  >
+                    !
+                  </span>
+                  Scripts on
+                </>
+              ) : (
+                <>Allow interactive demo</>
+              )}
+            </button>
+          ) : null}
           <button
             type="button"
             onClick={() => void onOpenInBrowser()}
@@ -314,7 +384,11 @@ export function HtmlArtifactFrame({
         </div>
       ) : null}
       <div className="relative min-h-0 flex-1 overflow-auto bg-[color:var(--bg-app)]">
-        {frameState.kind === 'ready' ? (
+        {frameState.kind === 'ready' && view.showsSource ? (
+          <pre className="m-0 min-h-full whitespace-pre px-4 py-3 font-mono text-[11px] leading-5 text-[color:var(--text-default)]">
+            {frameState.content}
+          </pre>
+        ) : frameState.kind === 'ready' ? (
           <div
             className={viewport === 'fit' ? 'h-full w-full' : 'flex min-h-full justify-center px-4 py-4'}
           >
@@ -357,7 +431,7 @@ export function HtmlArtifactFrame({
   )
 }
 
-export function MockupPreviewPane({ mockups, watchDirectoryPath }: Props) {
+export function MockupPreviewPane({ mockups, watchDirectoryPath, enableSourceView = false }: Props) {
   const [activeRelativePath, setActiveRelativePath] = useState<string | null>(null)
 
   const activeMockup = useMemo(
@@ -399,6 +473,7 @@ export function MockupPreviewPane({ mockups, watchDirectoryPath }: Props) {
           absolutePath={activeMockup.absolutePath}
           relativePath={activeMockup.relativePath}
           watchDirectoryPath={watchDirectoryPath}
+          enableSourceView={enableSourceView}
         />
       ) : (
         <div className="flex min-h-0 flex-1 flex-col items-center justify-center gap-2 rounded-md border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] px-6 text-center">

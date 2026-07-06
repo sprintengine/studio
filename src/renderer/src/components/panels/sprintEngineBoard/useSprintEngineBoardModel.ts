@@ -14,7 +14,7 @@ import {
   buildSprintEngineAddMemberOptions,
   type SprintEngineAddMemberOption,
 } from '../../../utils/sprintengineRoleOptions'
-import { getSprintEngineInboxArtifacts, type RuntimeAgentView } from '../sprintEngineInspector'
+import { getSprintEngineInboxBadgeCount, type RuntimeAgentView } from '../sprintEngineInspector'
 import type {
   AgentState,
   SprintEngineArtifact,
@@ -179,7 +179,7 @@ export function useSprintEngineBoardModel(input: SprintEngineBoardModelInput): S
   )
 
   const inboxArtifactCount = useMemo(
-    () => getSprintEngineInboxArtifacts(reviewArtifacts).length,
+    () => getSprintEngineInboxBadgeCount(reviewArtifacts),
     [reviewArtifacts],
   )
 

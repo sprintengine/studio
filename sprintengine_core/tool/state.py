@@ -122,6 +122,39 @@ def apply_configured_roles(state: Dict[str, Any], raw_json: Optional[str]) -> No
     state["configuredRoles"] = roles
 
 
+def apply_init_source(
+    state: Dict[str, Any],
+    source_json: Optional[str],
+    source_bundle_json: Optional[str],
+) -> None:
+    """Seed the sprint source at creation time (app-created runs).
+
+    Multicode passes the already-resolved source metadata so the seed lands in
+    run.yaml at t=0 — the Sprint Inbox has an honest "Started from" the moment the
+    run exists, independent of any agent later running `handover`. Both carry the
+    same shapes the handover command writes: `source` a single dict (kind/origin/
+    path/planKind/capturedAt), `sourceBundle` a list of those dicts. Blank/absent
+    input leaves state untouched, so CLI/headless and re-init runs (which seed via
+    handover) are unaffected.
+    """
+    if source_json and str(source_json).strip():
+        try:
+            source = json.loads(source_json)
+        except (TypeError, ValueError) as error:
+            raise SystemExit(f"--source-json must be a JSON object: {error}")
+        if not isinstance(source, dict):
+            raise SystemExit("--source-json must be a JSON object of source metadata.")
+        state["source"] = source
+    if source_bundle_json and str(source_bundle_json).strip():
+        try:
+            bundle = json.loads(source_bundle_json)
+        except (TypeError, ValueError) as error:
+            raise SystemExit(f"--source-bundle-json must be a JSON array: {error}")
+        if not isinstance(bundle, list):
+            raise SystemExit("--source-bundle-json must be a JSON array of source bundle items.")
+        state["sourceBundle"] = [item for item in bundle if isinstance(item, dict)]
+
+
 def roster_roles(state: Dict[str, Any]) -> set[str]:
     return {
         str(agent.get("role")).strip()

@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { AutomationsWorkspaceTypeIcon, NewChatIcon, WorkspaceTypeIcon, resolveEnabledWorkspaceType } from '../AppIcons'
+import { AutomationsWorkspaceTypeIcon, WorkspaceTypeIcon, resolveEnabledWorkspaceType } from '../AppIcons'
 import { FOCUS_RING_CLASS } from '../ui/tokens'
 import {
   SIDEBAR_COLLAPSED_WIDTH,
@@ -23,7 +23,6 @@ import {
   type Tone,
 } from '../ui'
 import { Modal, ModalBody, ModalButton, ModalFooter, ModalHeader } from '../ui/Modal'
-import PanelRail from './PanelRail'
 import SidebarAccountBar from './SidebarAccountBar'
 import { useWorkspaceStore } from '../../store/workspaceStore'
 import {
@@ -52,7 +51,6 @@ import { useRelativeNow } from '../../hooks/useRelativeNow'
 import { formatRelativeMs, formatRelativeMsAgo } from '../../utils/relativeTime'
 import { deriveWorkspaceRunGlyph, workspaceHasRunGlyphProvider } from '../../utils/workspaceRunGlyph'
 import { partitionWorkspacesByRecency, sortWorkspacesByActivity } from '../../utils/workspaceRecency'
-import { beginSidebarTransition } from '../../utils/sidebarTransition'
 import { isHiddenFromRail } from '../../utils/workspaceVisibility'
 import { listAutomationsHostWorkspaces } from '../../utils/automationsEntry'
 
@@ -84,10 +82,8 @@ type WorkspaceSidebarProps = {
   onForgetFolder: (folderPath: string) => void
   onNewWorkspace: () => void
   onNewWorkspaceInFolder: (folderPath: string) => void
-  // Open the pre-creation New Chat panel. `onNewChat` inherits the active
-  // workspace's folder; `onNewChatInFolder` scopes the chat to that project.
+  // Scope a new chat to a specific project folder (workspace-row context menu).
   // The panel owns the agent/engine choice — the sidebar only opens it.
-  onNewChat: () => void
   onNewChatInFolder: (folderPath: string) => void
   onRevealFolder: (folderPath: string) => void
   onSetSidebarCollapsed: (collapsed: boolean) => void
@@ -385,7 +381,6 @@ export default function WorkspaceSidebar({
   onForgetFolder,
   onNewWorkspace,
   onNewWorkspaceInFolder,
-  onNewChat,
   onNewChatInFolder,
   onRevealFolder,
   onSetSidebarCollapsed,
@@ -1275,112 +1270,33 @@ export default function WorkspaceSidebar({
         />
       </div>
       {/*
-       * Top chrome row: Files / Editor / Git / Knowledge Graph switches scoped
-       * to the active workspace, plus the collapse toggle pinned to its right
-       * edge. The brand moved to the window title bar, so the rail is the
-       * sidebar's first row. It renders even with no active workspace so the
-       * collapse toggle stays reachable.
+       * The Files / Git / Backlog panel switches and the sidebar-collapse toggle
+       * both moved into the window title bar (AppTitleBar → PanelSwitches), so
+       * the sidebar's first row is now the creation entry. One nav toolbar, one
+       * collapse button.
        */}
-      <PanelRail
-        workspaceId={activeWorkspaceId}
-        collapsed={sidebarCollapsed}
-        onToggleCollapse={() => {
-          // Protect the width-transition window: hold heavy panel resize work
-          // (xterm fit, PTY resize, Monaco layout) until the glide lands, so it
-          // runs once instead of every animation frame.
-          beginSidebarTransition()
-          onSetSidebarCollapsed(!sidebarCollapsed)
-        }}
-      />
-
       <div className={`mt-2 flex flex-col gap-1.5 ${sidebarCollapsed ? 'mx-1.5' : 'mx-2'}`}>
-        {sidebarCollapsed ? (
-          <>
-            {/* New workspace — canonical create + tab-extract drop target */}
-            <Tooltip content="New Agent (Ctrl+T) — drop a tab here to extract it" wrapperClassName="flex">
-              <button
-                type="button"
-                onClick={onNewWorkspace}
-                onDragOver={handleTabDragOverNew}
-                onDragLeave={handleTabDragLeaveNew}
-                onDrop={handleTabDropOnNew}
-                className={`flex h-[34px] w-full shrink-0 items-center justify-center rounded-md border transition-colors ${
-                  tabDropTarget?.kind === 'new'
-                    ? 'border-[color:var(--accent-primary)] bg-[color:var(--bg-hover)] text-[color:var(--text-strong)]'
-                    : 'border-[color:var(--border-default)] bg-[color:var(--bg-surface-raised)] text-[color:var(--text-default)] hover:border-[color:var(--border-strong)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]'
-                }`}
-                aria-label="New Agent"
-              >
-                <svg viewBox="0 0 16 16" fill="none" className="icon-xs pointer-events-none">
-                  <path d="M8 3.5V12.5M3.5 8H12.5" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
-                </svg>
-              </button>
-            </Tooltip>
-
-            {/* New chat — quiet solo-agent quick spawn, subordinate to New
-               workspace. Opens the New Chat panel to pick agent + engine. */}
-            <Tooltip content="New chat" wrapperClassName="flex">
-              <button
-                type="button"
-                onClick={onNewChat}
-                className="flex h-[30px] w-full shrink-0 items-center justify-center rounded-md text-[color:var(--text-default)] transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]"
-                aria-label="New chat"
-              >
-                <NewChatIcon className="icon-xs pointer-events-none" />
-              </button>
-            </Tooltip>
-          </>
-        ) : (
-          // Single creation row: New workspace is the labeled primary (Ctrl+T,
-          // tab-extract drop target); New chat is an attached compact segment
-          // that spawns a solo-agent workspace. One row, one visual priority.
-          <div
-            className={`flex h-[34px] w-full shrink-0 overflow-hidden rounded-md border transition-colors ${
-              tabDropTarget?.kind === 'new'
-                ? 'border-[color:var(--accent-primary)] bg-[color:var(--bg-hover)]'
-                : 'border-[color:var(--border-default)] bg-[color:var(--bg-surface-raised)]'
-            }`}
-          >
-            <Tooltip
-              content="New Agent (Ctrl+T) — drop a tab here to extract it"
-              wrapperClassName="flex min-w-0 flex-1"
-            >
-              <button
-                type="button"
-                onClick={onNewWorkspace}
-                onDragOver={handleTabDragOverNew}
-                onDragLeave={handleTabDragLeaveNew}
-                onDrop={handleTabDropOnNew}
-                className={`flex h-full w-full items-center justify-center gap-2 px-3 text-[12px] font-medium transition-colors ${
-                  tabDropTarget?.kind === 'new'
-                    ? 'text-[color:var(--text-strong)]'
-                    : 'text-[color:var(--text-default)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]'
-                }`}
-                aria-label="New Agent"
-              >
-                <svg viewBox="0 0 16 16" fill="none" className="icon-xs pointer-events-none">
-                  <path d="M8 3.5V12.5M3.5 8H12.5" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
-                </svg>
-                <span className="pointer-events-none truncate">
-                  {tabDropTarget?.kind === 'new' ? 'Drop to extract' : 'New Agent'}
-                </span>
-              </button>
-            </Tooltip>
-
-            <span aria-hidden="true" className="w-px self-stretch bg-[color:var(--border-subtle)]" />
-
-            <Tooltip content="New chat" wrapperClassName="flex">
-              <button
-                type="button"
-                onClick={onNewChat}
-                className="flex h-full w-9 shrink-0 items-center justify-center text-[color:var(--text-default)] transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]"
-                aria-label="New chat"
-              >
-                <NewChatIcon className="icon-xs pointer-events-none" />
-              </button>
-            </Tooltip>
-          </div>
-        )}
+        {/* New Agent — one quiet nav row matching Automations / Connectors
+            (SidebarNavButton). It carries the tab-extract drop target and the
+            Ctrl+T accelerator (surfaced in the tooltip). Chat now lives inside
+            the unified New Agent panel, so there is no separate pencil segment. */}
+        <SidebarNavButton
+          collapsed={sidebarCollapsed}
+          dropActive={tabDropTarget?.kind === 'new'}
+          icon={
+            <svg viewBox="0 0 16 16" fill="none" className="icon-xs pointer-events-none shrink-0">
+              <path d="M8 3.5V12.5M3.5 8H12.5" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+            </svg>
+          }
+          label={tabDropTarget?.kind === 'new' ? 'Drop to extract' : 'New Agent'}
+          ariaLabel="New Agent"
+          tooltip="New Agent (Ctrl+T) — drop a tab here to extract it"
+          tooltipWhenExpanded
+          onClick={onNewWorkspace}
+          onDragOver={handleTabDragOverNew}
+          onDragLeave={handleTabDragLeaveNew}
+          onDrop={handleTabDropOnNew}
+        />
 
         {/* Top nav (Cursor-parity order: New Agent → Automations → Connectors).
             Automations keeps its front-door picker; the gate stays so it only
@@ -1885,30 +1801,48 @@ function ConnectorsNavIcon({ className }: { className?: string }) {
 function SidebarNavButton({
   collapsed,
   active,
+  dropActive,
   label,
   ariaLabel,
   tooltip,
+  tooltipWhenExpanded,
   onClick,
+  onDragOver,
+  onDragLeave,
+  onDrop,
   icon,
 }: {
   collapsed: boolean
   active?: boolean
+  // Transient drop-target highlight (e.g. tab-extract); styled like `active`
+  // but without claiming aria-current, since it is not a persistent selection.
+  dropActive?: boolean
   label: string
   ariaLabel: string
   tooltip: string
+  // Show the tooltip in the expanded state too, not only when collapsed —
+  // used to surface an accelerator/drop hint the visible label omits.
+  tooltipWhenExpanded?: boolean
   onClick: (event: React.MouseEvent<HTMLButtonElement>) => void
+  onDragOver?: (event: React.DragEvent<HTMLButtonElement>) => void
+  onDragLeave?: (event: React.DragEvent<HTMLButtonElement>) => void
+  onDrop?: (event: React.DragEvent<HTMLButtonElement>) => void
   icon: React.ReactNode
 }) {
+  const highlighted = Boolean(active) || Boolean(dropActive)
   const button = (
     <button
       type="button"
       onClick={onClick}
+      onDragOver={onDragOver}
+      onDragLeave={onDragLeave}
+      onDrop={onDrop}
       aria-current={active ? 'true' : undefined}
       aria-label={collapsed ? ariaLabel : undefined}
       className={`flex h-[30px] w-full items-center rounded-md text-[12px] font-medium transition-colors ${FOCUS_RING_CLASS} ${
         collapsed ? 'justify-center' : 'gap-2 px-2 text-left'
       } ${
-        active
+        highlighted
           ? 'bg-[color:var(--bg-selected)] text-[color:var(--text-strong)]'
           : 'text-[color:var(--text-muted)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]'
       }`}
@@ -1920,6 +1854,13 @@ function SidebarNavButton({
   if (collapsed) {
     return (
       <Tooltip content={tooltip} placement="right" wrapperClassName="flex">
+        {button}
+      </Tooltip>
+    )
+  }
+  if (tooltipWhenExpanded) {
+    return (
+      <Tooltip content={tooltip} wrapperClassName="flex">
         {button}
       </Tooltip>
     )

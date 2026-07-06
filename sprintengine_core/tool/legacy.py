@@ -447,6 +447,16 @@ def build_parser() -> argparse.ArgumentParser:
         default=False,
         help="Run this team in one shared git worktree + branch so all agents work in the same isolated checkout and commit per task.",
     )
+    p.add_argument(
+        "--source-json",
+        dest="source_json",
+        help="JSON object of the resolved root source metadata (kind/origin/path/planKind/capturedAt). App-created runs seed it into run.yaml so the Sprint Inbox shows the source before any agent runs handover.",
+    )
+    p.add_argument(
+        "--source-bundle-json",
+        dest="source_bundle_json",
+        help="JSON array of resolved source bundle items (kind/origin/path/capturedAt) seeded into run.yaml alongside --source-json.",
+    )
     p.set_defaults(handler=run_commands.init)
 
     # recover
@@ -842,6 +852,7 @@ def build_parser() -> argparse.ArgumentParser:
     p = artifact_sub.add_parser("approve", help="Approve an artifact and complete its task when all linked artifacts are approved.")
     p.add_argument("--artifact-id", required=True)
     p.add_argument("--id", required=True, help="Approving actor id.")
+    p.add_argument("--approval-mode", choices=sorted(VALID_APPROVAL_MODES), help="Approval provenance: 'manual' (human) or 'policy' (run auto-approval). Optional; omit for a plain approval.")
     p.set_defaults(handler=artifact_commands.approve)
 
     p = artifact_sub.add_parser("request-changes", help="Request artifact changes, record feedback, and reopen the linked task.")

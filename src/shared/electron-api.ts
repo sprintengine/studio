@@ -1569,6 +1569,27 @@ export type SprintEngineTaskStatusSetInput = {
   status: string
 }
 
+// The resolved sprint source seed, mirroring the shape the Python handover
+// command writes to run.yaml. App-created (reference-mode) runs pass this into
+// init so the seed is persisted at t=0 and the Sprint Inbox shows an honest
+// "Started from" before any agent runs handover.
+export type SprintEngineStateInitializeSource = {
+  kind: string
+  origin: string
+  path: string
+  planKind?: string
+  originalPath?: string
+  capturedAt?: string
+}
+
+export type SprintEngineStateInitializeSourceBundleItem = {
+  kind: string
+  origin: string
+  path: string
+  originalPath?: string
+  capturedAt?: string
+}
+
 export type SprintEngineStateInitializeInput = {
   statePath: string
   name: string
@@ -1577,6 +1598,11 @@ export type SprintEngineStateInitializeInput = {
   tasks?: unknown[]
   events?: unknown[]
   artifacts?: unknown[]
+  // The root source seed and its bundle, persisted into run.yaml at creation.
+  // Set only for app-created reference-mode launches (backlog/plan-sourced); the
+  // Guided Brief and CLI/headless paths seed the source through handover instead.
+  source?: SprintEngineStateInitializeSource
+  sourceBundle?: SprintEngineStateInitializeSourceBundleItem[]
   // When true, Sprint Engine creates one shared git worktree + branch for the
   // whole team before any task runs, and all agents work and commit there.
   useWorktrees?: boolean

@@ -12,7 +12,12 @@ import type {
   WorkspaceId,
   WorkspaceWindowId,
 } from '../types/workspace'
-import type { SprintEngineArtifactCommandResult, SprintEngineStateInitializeInput } from '../../../shared/electron-api'
+import type {
+  SprintEngineArtifactCommandResult,
+  SprintEngineStateInitializeInput,
+  SprintEngineStateInitializeSource,
+  SprintEngineStateInitializeSourceBundleItem,
+} from '../../../shared/electron-api'
 import {
   buildSprintEngineAgentRosterForState,
   buildSprintEngineRosterCommandArgs,
@@ -120,6 +125,37 @@ export function buildSprintEngineRoleRuntimes(
   return roleRuntimes
 }
 
+// Build the source seed persisted into run.yaml at creation (reference-mode
+// launches only). Mirrors the shape the Python handover command writes so the
+// Sprint Inbox shows an honest "Started from" the moment the run exists, before
+// any agent runs handover. Paths are the project-root-relative references the
+// caller already resolved; `capturedAt` is stamped now (launch time).
+function buildSprintEngineInitSourceSeed(
+  sourcePath: string,
+  sourcePlanKind: SprintEngineSourcePlanKind,
+  sourceBundle: SprintEngineSourceBundleItem[] | undefined,
+): {
+  source: SprintEngineStateInitializeSource
+  sourceBundle: SprintEngineStateInitializeSourceBundleItem[]
+} {
+  const capturedAt = new Date().toISOString()
+  return {
+    source: {
+      kind: 'markdown',
+      origin: 'reference',
+      path: sourcePath,
+      planKind: sourcePlanKind,
+      capturedAt,
+    },
+    sourceBundle: (sourceBundle ?? []).map((item) => ({
+      kind: item.kind,
+      origin: 'reference',
+      path: item.sourceRelativePath,
+      capturedAt,
+    })),
+  }
+}
+
 export async function createPlanSourcedSprintEngineWorkspace({
   rootPath,
   teamName,
@@ -167,6 +203,15 @@ export async function createPlanSourcedSprintEngineWorkspace({
   const architect = buildSprintEngineAgentRosterForState(sprintEngineState).find((agent) => agent.role === 'architect')
   if (!architect) throw new PlanSourcedSprintEngineWorkspaceError('missing-architect')
 
+  // Reference-mode (backlog/plan-sourced) launches seed the source into run.yaml
+  // at init, so the run carries its "Started from" seed at t=0 and the architect
+  // startup prompt drops the (now redundant, and on a second call erroring)
+  // handover step. Copy-mode paths (Guided Brief) still seed via handover.
+  const seedSourceAtInit = sourceReference === true && Boolean(initializeSprintEngineState)
+  const initSourceSeed = seedSourceAtInit
+    ? buildSprintEngineInitSourceSeed(trimmedSourcePath, sourcePlanKind, sourceBundle)
+    : null
+
   if (initializeSprintEngineState) {
     const initResult = await initializeSprintEngineState({
       statePath: sprintEngineContext.statePath,
@@ -179,6 +224,9 @@ export async function createPlanSourcedSprintEngineWorkspace({
       useWorktrees: useWorktrees === true,
       roleRuntimes: buildSprintEngineRoleRuntimes(roleModelOverrides, roleCliDefaults),
       enabledRoles: sprintEngineEnabledRoles(sprintEngineState.roleCounts),
+      ...(initSourceSeed
+        ? { source: initSourceSeed.source, sourceBundle: initSourceSeed.sourceBundle }
+        : {}),
     })
     if (!initResult.ok) {
       throw new Error(initResult.message || 'Could not initialize sprint run state.')
@@ -214,6 +262,7 @@ export async function createPlanSourcedSprintEngineWorkspace({
     autoRunRequested: deriveSprintEngineAutomationDesiredMode(sprintEngineAutoState) !== 'manual',
     useWorktrees: useWorktrees === true,
     reference: sourceReference === true,
+    seedAlreadyPersisted: seedSourceAtInit,
   })
 
   useWorkspaceStore.getState().updateAgent(workspaceId, architect.id, {

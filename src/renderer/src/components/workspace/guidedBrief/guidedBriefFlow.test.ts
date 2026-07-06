@@ -30,6 +30,7 @@ import {
 import {
   browserOpenFailureMessage,
   htmlArtifactFrameSandbox,
+  resolveHtmlArtifactView,
 } from './MockupPreviewPane'
 import { nextDesignerStageForReadiness } from './useDesignerSession'
 
@@ -483,6 +484,42 @@ assert.equal(
   htmlArtifactFrameSandbox(true).includes('allow-same-origin'),
   false,
   'interactive preview never grants same-origin privileges to generated HTML',
+)
+
+// Preview/Source toggle (T4): opt-in Source mode on the shared HtmlArtifactFrame.
+// Default off (Design Wizard usage) never shows the toggle and always renders the
+// iframe with its preview controls; the view mode is forced to preview even if a
+// stale 'source' value is passed. Opting in exposes the toggle and lets Source
+// swap the iframe for raw HTML text while hiding the preview-only controls.
+const defaultView = resolveHtmlArtifactView(false, 'preview')
+assert.equal(defaultView.showToggle, false, 'toggle is hidden when Source view is not opted in')
+assert.equal(defaultView.mode, 'preview', 'default is the rendered preview')
+assert.equal(defaultView.showsRenderedFrame, true, 'default renders the sandboxed iframe')
+assert.equal(defaultView.showsSource, false, 'default never shows raw source')
+assert.equal(defaultView.showsPreviewControls, true, 'default keeps the preview toolbar controls')
+
+assert.equal(
+  resolveHtmlArtifactView(false, 'source').mode,
+  'preview',
+  'a stale source mode is forced back to preview when the toggle is off',
+)
+assert.equal(resolveHtmlArtifactView(false, 'source').showsSource, false)
+
+const previewOptedIn = resolveHtmlArtifactView(true, 'preview')
+assert.equal(previewOptedIn.showToggle, true, 'opting in exposes the Preview/Source toggle')
+assert.equal(previewOptedIn.showsRenderedFrame, true, 'preview mode still renders the iframe')
+assert.equal(previewOptedIn.showsSource, false)
+assert.equal(previewOptedIn.showsPreviewControls, true, 'preview mode keeps viewport/zoom/allow-scripts')
+
+const sourceOptedIn = resolveHtmlArtifactView(true, 'source')
+assert.equal(sourceOptedIn.showToggle, true)
+assert.equal(sourceOptedIn.mode, 'source')
+assert.equal(sourceOptedIn.showsRenderedFrame, false, 'source mode unmounts the iframe (no script execution)')
+assert.equal(sourceOptedIn.showsSource, true, 'source mode shows the raw HTML text')
+assert.equal(
+  sourceOptedIn.showsPreviewControls,
+  false,
+  'source mode hides the preview-only controls that shape the iframe',
 )
 
 assert.match(

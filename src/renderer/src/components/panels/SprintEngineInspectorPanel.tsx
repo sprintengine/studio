@@ -448,6 +448,17 @@ export function SprintEngineInboxRow({
   id?: string
 }) {
   const lifecycle = sprintEngineInboxRowLifecycle(artifact)
+  // Screen readers only get the word (the row glyph is aria-hidden), so speak
+  // the artifact status vocabulary — "Approved" / "Approved automatically" —
+  // rather than the generic lifecycle "Done", keeping the row aligned with the
+  // detail Status word. Scoped to approved; every other status keeps its
+  // lifecycle label.
+  const spokenStatus =
+    artifact.status === 'approved'
+      ? lifecycle === 'approved_auto'
+        ? LIFECYCLE_LABEL.approved_auto
+        : sprintEngineArtifactStatusLabels.approved
+      : LIFECYCLE_LABEL[lifecycle]
   const timestamp = artifact.createdAt ?? artifact.updatedAt
   const relativeTimestamp = timestamp ? formatRelativeTime(timestamp) : '—'
   const title = (
@@ -467,7 +478,7 @@ export function SprintEngineInboxRow({
       trailing={relativeTimestamp}
       selected={selected}
       onSelect={onSelect}
-      ariaLabel={`${artifact.id} ${artifact.title}, ${LIFECYCLE_LABEL[lifecycle]}`}
+      ariaLabel={`${artifact.id} ${artifact.title}, ${spokenStatus}`}
     />
   )
 }
@@ -652,6 +663,16 @@ function SprintEngineArtifactInspector({
             <div className="mb-2 text-[10px] font-bold text-[color:var(--text-disabled)]">Mobile decision</div>
             <div className="text-[12px] leading-5 text-[color:var(--text-default)]">
               {formatMobileArtifactDecision(mobileDecision)}
+            </div>
+          </div>
+        ) : null}
+
+        {artifact.status === 'approved' && artifact.approvalMode === 'policy' ? (
+          <div>
+            <div className="mb-2 text-[10px] font-bold text-[color:var(--text-disabled)]">Approval</div>
+            <div className="text-[12px] leading-5 text-[color:var(--text-default)]">
+              Approved automatically by run policy · on your behalf
+              {artifact.approvedAt ? ` · ${formatRelativeTime(artifact.approvedAt)}` : ''}
             </div>
           </div>
         ) : null}

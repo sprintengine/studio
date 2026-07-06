@@ -1374,6 +1374,12 @@ def build_projection(
             "configuredRoles": (
                 run.get("configuredRoles") if isinstance(run.get("configuredRoles"), list) else None
             ),
+            # Seed docs recorded at run creation (source = root plan doc,
+            # sourceBundle = attached reference docs), round-tripped through
+            # run.yaml via RUN_SOURCE_KEYS. The renderer's Sprint Inbox surfaces
+            # them as "Started from", so the projection must carry them. Omitted
+            # cleanly when absent so legacy runs stay unaffected.
+            **{key: run[key] for key in RUN_SOURCE_KEYS if key in run},
         },
         "roster": roster if isinstance(roster, dict) else {},
         "tasks": tasks,

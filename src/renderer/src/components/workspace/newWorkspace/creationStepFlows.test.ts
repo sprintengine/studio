@@ -5,6 +5,13 @@ import { STEPS_BY_MODE, isAdvancedSetupStep, stepsForMode } from './creationStep
 // 'standard' is shell-owned and resolves to the standard flow directly.
 assert.deepEqual(stepsForMode('standard'), STEPS_BY_MODE.standard, 'standard resolves to the standard flow')
 
+// T2 AC1/AC2: 'chat' is a shell-owned pseudo-type — not a registered workspace
+// type and with no creationStepsId — so it resolves inline (like 'standard') to a
+// flow that ends at the 'mode' step, where NewWorkspacePanel embeds AgentComposer
+// as the chat config surface. It must not fall through to the standard flow.
+assert.deepEqual(stepsForMode('chat'), ['workspace', 'mode'], 'chat resolves to the shell-owned workspace→mode flow ending at the mode step')
+assert.equal(stepsForMode('chat').at(-1), 'mode', 'chat flow ends at the mode step (composer-hosted, no post-mode wizard steps)')
+
 // Contributed types resolve through their registry creationStepsId. The bundled
 // modules register eagerly when ./creationStepFlows pulls in ../../../modules.
 assert.deepEqual(stepsForMode('switchboard'), STEPS_BY_MODE.switchboard, 'switchboard resolves via the registry')

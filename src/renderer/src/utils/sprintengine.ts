@@ -1,6 +1,7 @@
 import type {
   AgentId,
   SprintEngineArtifact,
+  SprintEngineArtifactApprovalMode,
   SprintEngineArtifactKind,
   SprintEngineArtifactReviewHistoryEntry,
   SprintEngineArtifactStatus,
@@ -31,6 +32,8 @@ import type {
   SprintEngineRoleSettings,
   SprintEngineRunnerPolicy,
   SprintEngineRuntimeAgent,
+  SprintEngineSource,
+  SprintEngineSourceBundleStateItem,
   SprintEngineVcs,
   SprintEngineSkillMap,
   SprintEngineTaskActivityEntry,
@@ -525,11 +528,14 @@ export function sprintEngineArtifactKindLabel(kind: string): string {
     : kind
 }
 
+// Plain-human, sentence-case status vocabulary (no Title-Case chrome). Row and
+// detail surfaces read from this one map so their words can't drift.
 export const sprintEngineArtifactStatusLabels: Record<SprintEngineArtifactStatus, string> = {
   draft: 'Draft',
-  ready_for_review: 'Ready For Review',
+  recorded: 'Recorded',
+  ready_for_review: 'Ready for review',
   approved: 'Approved',
-  changes_requested: 'Changes Requested',
+  changes_requested: 'Changes requested',
   superseded: 'Superseded',
 }
 
@@ -623,11 +629,18 @@ export function applyUserDisabledSprintEngineRoleCounts(
 
 const sprintEngineArtifactStatuses: readonly SprintEngineArtifactStatus[] = [
   'draft',
+  'recorded',
   'ready_for_review',
   'approved',
   'changes_requested',
   'superseded',
 ]
+
+const sprintEngineArtifactApprovalModes: readonly SprintEngineArtifactApprovalMode[] = ['manual', 'policy']
+
+function isSprintEngineArtifactApprovalMode(value: unknown): value is SprintEngineArtifactApprovalMode {
+  return sprintEngineArtifactApprovalModes.includes(value as SprintEngineArtifactApprovalMode)
+}
 
 const feedbackIssueCategories: readonly SprintEngineTaskFeedbackIssueCategory[] = [
   'system_prompt',
@@ -1713,6 +1726,7 @@ function normalizeSprintEngineArtifacts(value: unknown): SprintEngineArtifact[] 
       updatedAt: stringOrNull(record.updatedAt),
       ...(record.approvedBy === undefined ? {} : { approvedBy: stringOrNull(record.approvedBy) }),
       ...(record.approvedAt === undefined ? {} : { approvedAt: stringOrNull(record.approvedAt) }),
+      ...(isSprintEngineArtifactApprovalMode(record.approvalMode) ? { approvalMode: record.approvalMode } : {}),
       ...(record.changesRequestedBy === undefined ? {} : { changesRequestedBy: stringOrNull(record.changesRequestedBy) }),
       ...(record.changesRequestedAt === undefined ? {} : { changesRequestedAt: stringOrNull(record.changesRequestedAt) }),
     }]
@@ -2478,6 +2492,53 @@ function normalizeProjectionLocks(value: unknown): SprintEngineProjectionLocks |
   return { locks, warnings }
 }
 
+// Seed docs recorded at run creation, carried on the projected run payload:
+// `source` is the root plan doc, `sourceBundle` the attached reference docs.
+// A valid item always carries kind/origin/path (see run.py); drop anything
+// missing them rather than fabricating, so the "Started from" UI never shows a
+// half-formed seed doc.
+function normalizeSprintEngineSource(value: unknown): SprintEngineSource | undefined {
+  if (!value || typeof value !== 'object') return undefined
+  const record = value as Record<string, unknown>
+  const kind = optionalTrimmedString(record.kind)
+  const origin = optionalTrimmedString(record.origin)
+  const path = optionalTrimmedString(record.path)
+  if (!kind || !origin || !path) return undefined
+  const planKind = optionalTrimmedString(record.planKind)
+  const originalPath = optionalTrimmedString(record.originalPath)
+  const capturedAt = optionalTrimmedString(record.capturedAt)
+  return {
+    kind,
+    origin,
+    path,
+    ...(planKind ? { planKind } : {}),
+    ...(originalPath ? { originalPath } : {}),
+    ...(capturedAt ? { capturedAt } : {}),
+  }
+}
+
+function normalizeSprintEngineSourceBundle(value: unknown): SprintEngineSourceBundleStateItem[] | undefined {
+  if (!Array.isArray(value)) return undefined
+  const items = value.flatMap((entry): SprintEngineSourceBundleStateItem[] => {
+    if (!entry || typeof entry !== 'object') return []
+    const record = entry as Record<string, unknown>
+    const kind = optionalTrimmedString(record.kind)
+    const origin = optionalTrimmedString(record.origin)
+    const path = optionalTrimmedString(record.path)
+    if (!kind || !origin || !path) return []
+    const originalPath = optionalTrimmedString(record.originalPath)
+    const capturedAt = optionalTrimmedString(record.capturedAt)
+    return [{
+      kind,
+      origin,
+      path,
+      ...(originalPath ? { originalPath } : {}),
+      ...(capturedAt ? { capturedAt } : {}),
+    }]
+  })
+  return items.length > 0 ? items : undefined
+}
+
 function normalizeProjectionCreation(value: unknown): SprintEngineProjectionCreation | undefined {
   if (!value || typeof value !== 'object') return undefined
   const record = value as Record<string, unknown>
@@ -2658,6 +2719,14 @@ export function normalizeSprintEngineProjection(
     ...((): Partial<Pick<SprintEngineState, 'configuredRoles'>> => {
       const configuredRoles = normalizeSprintEngineConfiguredRoles(runRecord.configuredRoles)
       return configuredRoles ? { configuredRoles } : {}
+    })(),
+    ...((): Partial<Pick<SprintEngineState, 'source'>> => {
+      const source = normalizeSprintEngineSource(runRecord.source)
+      return source ? { source } : {}
+    })(),
+    ...((): Partial<Pick<SprintEngineState, 'sourceBundle'>> => {
+      const sourceBundle = normalizeSprintEngineSourceBundle(runRecord.sourceBundle)
+      return sourceBundle ? { sourceBundle } : {}
     })(),
   }
 

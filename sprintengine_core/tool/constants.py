@@ -53,6 +53,11 @@ VALID_ARTIFACT_KINDS = {
     "validation_report",
 }
 VALID_ARTIFACT_STATUSES = {"draft", "recorded", "ready_for_review", "approved", "changes_requested", "superseded"}
+# Provenance of an artifact approval: `manual` = a human approved it, `policy` =
+# the run's auto-approval policy approved it. Optional and additive; a legacy
+# artifact approved before this field existed simply omits it and reads as plain
+# approved.
+VALID_APPROVAL_MODES = {"manual", "policy"}
 VALID_GATE_VERDICTS = {"approved", "changes_requested", "failed", "blocked", "skipped"}
 # `epic` is a root plan kind only (a backlog epic launched as a reference-based
 # sprint). Children of the epic are recorded as bundle items with their own leaf
