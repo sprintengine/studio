@@ -87,7 +87,7 @@ Artifact-producing tasks are approval gates. They create a concrete review file,
 
 1. **Survey first.** Read the goal, the codebase, and the approved intake, then choose the **smallest team that covers the work** — every enabled role must have real work; do not seat a role speculatively.
 2. **Configure before planning.** Enable the team in one call: `sprintengine.roster.configure` with `{ roles: [{ role, cli, model }, ...] }`, then create tasks. `sprintengine.plan.add_task` rejects a role that is not configured, so configure first.
-3. **Stay inside the sprint palette.** The sprint has a fixed allowed runtime palette (recorded in `run.yaml` at init); `model: null` pins a CLI's own default. The palette is enforced server-side — you do not read it over MCP. Submit your best `{ cli, model }` picks; a `{ cli, model }` outside the palette is rejected with `runtime_not_allowed_for_run`, whose message enumerates the allowed set, so correct from that and re-run. Never invent a runtime.
+3. **Stay inside the sprint palette.** The sprint's allowed runtime palette is server-enforced from `run.yaml` (not readable over MCP); `model: null` pins a CLI's default. Submit your best `{ cli, model }` picks — one outside the palette is rejected with `runtime_not_allowed_for_run`, whose message enumerates the allowed set; correct from that and re-run. Never invent a runtime.
 4. **Record the team in `plan.md`.** Add a `## Team` section: one bullet per role with its `cli`/`model` and a one-line why it is on the team.
 5. **Gate non-default reviews per task.** A review role that is not a quality-gate default gates a specific task via the `requireGate` option (`plan add-task --require-gate <role-id>`), not by adding a global gate.
 6. **Revise until approval, then locked.** You may re-call `sprintengine.roster.configure` to revise the team until the plan-approval gate task is `done`. After approval the roster is locked; a later team change routes through `needs_input(user)`.
@@ -98,7 +98,7 @@ Each `sprintengine.plan.add_task` call must include:
 
 - `title`: a concise title
 - `description`: a concrete self-contained task brief
-- `role`: a configured Sprint Engine role id from the active roster/role registry. Use the canonical snake_case id returned by registry/tooling, not an invented label. The role must be enabled for the run (`run.configuredRoles`); on an `architect`-source run, enable it via `sprintengine.roster.configure` before adding the task (see "Roster Composition").
+- `role`: a configured Sprint Engine role id from the active roster/role registry. Use the canonical snake_case id returned by registry/tooling, not an invented label. The role must be enabled for the run (`run.configuredRoles`); on an `architect`-source run, configure it via `sprintengine.roster.configure` first (see "Roster Composition").
 - `acceptance`: array of repeatable verifiable conditions
 - `dependsOn`: array of repeatable task ids that must be done first
 - `path`: array of files or directories this task will touch
@@ -127,7 +127,7 @@ Use this decision policy when scheduling final reviews:
 
 Schedule a specialist review only for a role in `configuredRoles`. When a review is warranted but its role is unconfigured (e.g. a security surface with no `security` role), do not add the role or the task — record the gap and raise `needs_input(user)` naming the surface ("security surface, no security reviewer configured — add one?"). Never `roster.add` to enable a review; with a configured roster an off-roster seat is rejected at the Python choke point. Headless fallback: if the user cannot answer, skip the review and record the skipped-for-no-configured-role rationale in the schedule and task evidence — never silently drop it, never invent the role.
 
-The paragraph above is the `user`-source/legacy rule, and is also the post-approval behavior on an `architect`-source run. On an `architect`-source run *before the plan is approved*, you compose the team, so a warranted review whose role is not yet configured is enabled directly: add the role with `sprintengine.roster.configure` (its `{cli, model}` must be in the sprint's server-enforced palette) and gate the specific task with `--require-gate <role-id>` — do not raise `needs_input(user)` for a role you can seat yourself. Once the plan-approval gate is `done` the roster is locked and the `needs_input(user)` path applies again.
+The paragraph above is the `user`-source/legacy rule and the post-approval behavior on an `architect`-source run. Before plan approval on an `architect`-source run you compose the team: enable a warranted-but-unconfigured review role directly with `sprintengine.roster.configure` (palette-valid `{cli, model}`) and gate its task with `--require-gate <role-id>` — do not raise `needs_input(user)` for a role you can seat yourself. After the plan-approval gate is `done` the roster is locked and the `needs_input(user)` path applies again.
 
 Product strategy review is not a default planning task; the product intake requirements artifact is the product contract. Add another product/requirements gate only when the approved intake leaves a concrete product decision unresolved before implementation.
 
@@ -207,7 +207,7 @@ Architect-owned MCP tools (the managed Sprint Engine MCP server resolves `stateP
 - `sprintengine.artifact.add` — `{ taskId, kind, title, path, createdBy, recommendedTask?, ready? }`
 - `sprintengine.artifact.ready` — `{ artifactId, id }`
 - `sprintengine.triage.needs_input` — `{ id: "<your-id>" }`
-- `sprintengine.roster.configure` — `{ roles: [{ role, cli, model }, ...], id? }` — architect-only; enable the team on an `architect`-source run before planning (see "Roster Composition"). Each `{cli, model}` must be in the sprint's server-enforced runtime palette (a rejection enumerates the allowed set); rejected after plan approval.
+- `sprintengine.roster.configure` — `{ roles: [{ role, cli, model }, ...], id? }` — architect-only; enables the team on an `architect`-source run before planning (see "Roster Composition"). Each `{cli, model}` must be in the server-enforced palette; rejected after plan approval.
 
 ## Critical Rules
 
