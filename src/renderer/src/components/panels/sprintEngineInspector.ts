@@ -201,15 +201,42 @@ export function artifactTimestampMs(artifact: SprintEngineArtifact): number {
 
 export const SOURCE_HANDOFF_ARTIFACT_ID = 'source-handoff'
 
+// Artifact statuses that represent a pending human decision. These are the
+// only statuses the Inbox tab badge counts: a fresh sprint whose sole artifact
+// is a draft plan placeholder is an expected state, not a queue demanding
+// attention, so its badge reads 0.
+const INBOX_ACTIONABLE_STATUSES: ReadonlySet<SprintEngineArtifact['status']> = new Set([
+  'ready_for_review',
+  'changes_requested',
+])
+
 export function getSprintEngineInboxArtifacts(artifacts: SprintEngineArtifact[]): SprintEngineArtifact[] {
-  return [...artifacts].sort((a, b) => {
-    const aIsHandoff = a.id === SOURCE_HANDOFF_ARTIFACT_ID
-    const bIsHandoff = b.id === SOURCE_HANDOFF_ARTIFACT_ID
-    if (aIsHandoff !== bIsHandoff) return aIsHandoff ? -1 : 1
-    const timestampDelta = artifactTimestampMs(b) - artifactTimestampMs(a)
-    if (timestampDelta !== 0) return timestampDelta
-    return a.title.localeCompare(b.title)
-  })
+  // Draft artifacts (e.g. the seed plan placeholder written before the
+  // architect fills it in) are work-in-progress, not review-queue items, so
+  // they are excluded from the Inbox list. The plan stays reachable via the
+  // board's Read-plan action. The source handoff is always kept.
+  return artifacts
+    .filter(
+      (artifact) => artifact.id === SOURCE_HANDOFF_ARTIFACT_ID || artifact.status !== 'draft',
+    )
+    .sort((a, b) => {
+      const aIsHandoff = a.id === SOURCE_HANDOFF_ARTIFACT_ID
+      const bIsHandoff = b.id === SOURCE_HANDOFF_ARTIFACT_ID
+      if (aIsHandoff !== bIsHandoff) return aIsHandoff ? -1 : 1
+      const timestampDelta = artifactTimestampMs(b) - artifactTimestampMs(a)
+      if (timestampDelta !== 0) return timestampDelta
+      return a.title.localeCompare(b.title)
+    })
+}
+
+// Inbox tab badge count: only artifacts awaiting a human decision
+// (ready_for_review + changes_requested). Approved/draft artifacts stay
+// visible in the list but do not inflate the badge, so the count reflects
+// outstanding review work rather than total list length.
+export function getSprintEngineInboxBadgeCount(artifacts: SprintEngineArtifact[]): number {
+  return getSprintEngineInboxArtifacts(artifacts).filter((artifact) =>
+    INBOX_ACTIONABLE_STATUSES.has(artifact.status),
+  ).length
 }
 
 export type MobileArtifactDecision = {
