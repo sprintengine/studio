@@ -13,7 +13,7 @@
 // Git / Backlog) that sit on the left with the window nav.
 
 import React from 'react'
-import { Tooltip } from '../ui'
+import { Popover, Tooltip } from '../ui'
 import { AttentionQueuePopover, type AttentionQueueSurface } from './AttentionQueuePopover'
 import { PanelSwitches } from './PanelSwitches'
 import { WindowControls } from './WindowControls'
@@ -175,6 +175,81 @@ function SprintEnginesAsideToggle({ open, onToggle }: SprintEnginesToggle) {
   )
 }
 
+// The win/linux menu bar. At >= 900px it renders the five top-level labels
+// inline (File / Edit / … idiom); below 900px it collapses to a single hamburger
+// that opens a popover of the same labels — the usual narrow-window
+// idiom — so the menu bar can never over-subscribe the 800px minimum width and
+// clip. Both variants are always in the DOM and CSS-toggled by the media query,
+// and both call the same `onShowMenu(label)` that pops the native submenu, so
+// every menu stays reachable with its behavior intact.
+function WindowsMenuBar<MenuItem extends string>({
+  menuItems,
+  onShowMenu,
+}: {
+  menuItems: readonly MenuItem[]
+  onShowMenu: (event: React.MouseEvent<HTMLButtonElement>, label: MenuItem) => void
+}) {
+  const [menuOpen, setMenuOpen] = React.useState(false)
+  return (
+    <>
+      <div className="hidden shrink-0 items-center gap-1 pl-1 min-[900px]:flex">
+        {menuItems.map((label) => (
+          <button
+            key={label}
+            type="button"
+            onClick={(event) => onShowMenu(event, label)}
+            className="app-no-drag inline-flex h-7 items-center rounded-md px-2.5 text-[12px] text-[color:var(--text-muted)] transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]"
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+      <div className="flex shrink-0 items-center pl-1 min-[900px]:hidden">
+        <Popover
+          open={menuOpen}
+          onOpenChange={setMenuOpen}
+          ariaLabel="Application menu"
+          popupRole="menu"
+          placement="bottom-start"
+          renderTrigger={({ ref, triggerProps, togglePopover }) => (
+            <Tooltip content="Menu" placement="bottom">
+              <button
+                ref={ref}
+                type="button"
+                onClick={togglePopover}
+                aria-label="Application menu"
+                className="app-no-drag inline-flex h-7 w-7 items-center justify-center rounded-md text-[color:var(--text-muted)] transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]"
+                {...triggerProps}
+              >
+                <svg viewBox="0 0 16 16" fill="none" className="icon-sm" aria-hidden="true">
+                  <path d="M2.5 4.5h11M2.5 8h11M2.5 11.5h11" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+                </svg>
+              </button>
+            </Tooltip>
+          )}
+        >
+          <div className="w-44 p-1">
+            {menuItems.map((label) => (
+              <button
+                key={label}
+                type="button"
+                role="menuitem"
+                onClick={(event) => {
+                  setMenuOpen(false)
+                  onShowMenu(event, label)
+                }}
+                className="flex w-full items-center rounded px-2.5 py-1.5 text-left text-[13px] text-[color:var(--text-default)] transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]"
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+        </Popover>
+      </div>
+    </>
+  )
+}
+
 export function AppTitleBar<MenuItem extends string>({
   isMac,
   isMaximized,
@@ -211,20 +286,7 @@ export function AppTitleBar<MenuItem extends string>({
           <NavHistoryButton direction="forward" onClick={onNavigateForward} />
           <PanelSwitches activeWorkspaceId={activeWorkspaceId} />
         </div>
-        {!isMac ? (
-          <div className="flex shrink-0 items-center gap-1 pl-1">
-            {menuItems.map((label) => (
-              <button
-                key={label}
-                type="button"
-                onClick={(event) => onShowMenu(event, label)}
-                className="app-no-drag inline-flex h-7 items-center rounded-md px-2.5 text-[12px] text-[color:var(--text-muted)] transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]"
-              >
-                {label}
-              </button>
-            ))}
-          </div>
-        ) : null}
+        {!isMac ? <WindowsMenuBar menuItems={menuItems} onShowMenu={onShowMenu} /> : null}
         {/* Workspace identity cluster (min-w-0 so it truncates before the
             right-side controls are reached). */}
         <div className="flex min-w-0 items-center pl-1 pr-2">{centerSlot}</div>

@@ -114,9 +114,16 @@ export function WorkspaceIdentity({
        * shrink-1) keeps its content until the others are exhausted. Each segment
        * grows to its full content when the bar has room; cropping only kicks in
        * as the cluster approaches the right-side controls.
+       *
+       * The name also carries a `min-w-[7ch]` floor so identity never fully
+       * collapses at the 800px window minimum (or the 600px detached width) under
+       * a full control load: path and branch still yield to nothing first, but the
+       * name keeps a few legible characters instead of shrinking to a single glyph.
+       * The floor is only reachable because the right-side controls condense first
+       * (WorkspaceActions View→icon-only, win/linux menu bar→hamburger).
        */}
       <span
-        className="flex min-w-0"
+        className="flex min-w-[7ch]"
         style={highlightHex ? { boxShadow: `inset 0 -1.5px 0 ${highlightHex}` } : undefined}
       >
         <TruncatedText
@@ -162,7 +169,7 @@ export function WorkspaceIdentity({
               className={`app-no-drag interactive flex min-w-0 items-center gap-1 text-[12px] text-[color:var(--text-muted)] hover:text-[color:var(--text-default)] ${FOCUS_RING_CLASS}`}
             >
               <GitBranchGlyph className="icon-xs shrink-0" />
-              <span className="min-w-0 truncate">{branchName ?? 'detached'}</span>
+              <span className="min-w-0 max-w-[22ch] truncate">{branchName ?? 'detached'}</span>
             </button>
           </Tooltip>
         ) : (

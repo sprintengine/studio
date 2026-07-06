@@ -611,7 +611,14 @@ export function WorkspaceActions({
                     ref={ref}
                     type="button"
                     onClick={togglePopover}
-                    className={`inline-flex h-8 items-center gap-1.5 rounded-md border px-2.5 transition-colors ${
+                    /*
+                     * Condenses to an icon-only 32px square below ~1000px so the
+                     * right cluster gives way before the hoisted workspace name is
+                     * squeezed out at narrow widths (the label + chevron re-appear
+                     * at >= 1000px). The tooltip + aria-label carry the meaning, so
+                     * the icon-only state stays accessible.
+                     */
+                    className={`inline-flex h-8 w-8 items-center justify-center gap-1.5 rounded-md border transition-colors min-[1000px]:w-auto min-[1000px]:justify-start min-[1000px]:px-2.5 ${
                       viewMenuOpen
                         ? 'border-[color:var(--color-5)] bg-[color:var(--bg-hover)] text-[color:var(--text-strong)]'
                         : 'border-[color:var(--bg-selected)] bg-[color:var(--bg-surface-raised)] text-[color:var(--text-muted)] hover:border-[color:var(--color-5)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-default)]'
@@ -619,13 +626,13 @@ export function WorkspaceActions({
                     aria-label="Toggle workspace panels"
                     {...triggerProps}
                   >
-                    <svg className="h-[14px] w-[14px]" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+                    <svg className="h-[14px] w-[14px] shrink-0" viewBox="0 0 16 16" fill="none" aria-hidden="true">
                       <rect x="2" y="2" width="5" height="12" rx="1" stroke="currentColor" strokeWidth="1.4" />
                       <rect x="9" y="2" width="5" height="6" rx="1" stroke="currentColor" strokeWidth="1.4" />
                       <rect x="9" y="10" width="5" height="4" rx="1" stroke="currentColor" strokeWidth="1.4" />
                     </svg>
-                    <span className="text-[12px] font-semibold">{activeWorkspaceViews?.label ?? 'View'}</span>
-                    <svg className={`icon-xs transition-transform ${viewMenuOpen ? 'rotate-180' : ''}`} viewBox="0 0 20 20" fill="none" aria-hidden="true">
+                    <span className="hidden text-[12px] font-semibold min-[1000px]:inline">{activeWorkspaceViews?.label ?? 'View'}</span>
+                    <svg className={`hidden icon-xs transition-transform min-[1000px]:block ${viewMenuOpen ? 'rotate-180' : ''}`} viewBox="0 0 20 20" fill="none" aria-hidden="true">
                       <path d="M5 7.5L10 12.5L15 7.5" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
                     </svg>
                   </button>

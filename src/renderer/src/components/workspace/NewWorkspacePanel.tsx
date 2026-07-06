@@ -1719,7 +1719,7 @@ export default function NewWorkspacePanel({
 
   const handleCreate = async () => {
     // 'chat' has no wizard create path: it is created by the embedded composer's
-    // own confirm (host solo-chat create). Guard so an Enter that reaches the
+    // own confirmation path (host solo-chat create). Guard so an Enter that reaches the
     // section handler on the chat mode step can never fall through to Standard.
     if (isChat) return
     if (!sprintEngineRosterReady && mode === 'sprintengine') return
