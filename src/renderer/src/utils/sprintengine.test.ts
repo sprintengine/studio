@@ -311,6 +311,48 @@ assert.deepEqual(
 // Legacy payload without the list normalizes cleanly with the field absent.
 assert.equal(normalizeSprintEngineProjection(fakeProjection())!.configuredRoles, undefined)
 
+// run.source / run.sourceBundle (seed docs recorded at run creation) ride the
+// projection so the Sprint Inbox "Started from" section can surface them.
+// Validated per-item (kind/origin/path required); malformed entries drop.
+const sourceState = normalizeSprintEngineProjection(fakeProjection({
+  run: {
+    id: 'run-id', name: 'Sample Run', goal: 'Test goal', status: 'executing',
+    rosterConfigured: true, updatedAt: '2026-05-16T20:00:00Z',
+    source: {
+      kind: 'markdown', origin: 'file', planKind: 'epic',
+      path: 'product-requirements.md', originalPath: 'docs/plan.md',
+      capturedAt: '2026-05-16T20:00:00Z',
+    },
+    sourceBundle: [
+      { kind: 'html_mockup', origin: 'reference', path: 'docs/mockup.html', capturedAt: '2026-05-16T20:00:00Z' },
+      { kind: 'design_notes', origin: 'file', path: '' },
+      'bogus-not-an-object',
+    ],
+  },
+}))
+assert.deepEqual(sourceState!.source, {
+  kind: 'markdown', origin: 'file', planKind: 'epic',
+  path: 'product-requirements.md', originalPath: 'docs/plan.md',
+  capturedAt: '2026-05-16T20:00:00Z',
+})
+assert.deepEqual(sourceState!.sourceBundle, [
+  { kind: 'html_mockup', origin: 'reference', path: 'docs/mockup.html', capturedAt: '2026-05-16T20:00:00Z' },
+])
+assert.deepEqual(normalizeSprintEngineState(sourceState)!.source, sourceState!.source)
+assert.deepEqual(normalizeSprintEngineState(sourceState)!.sourceBundle, sourceState!.sourceBundle)
+// A source missing a required field drops entirely rather than half-forming.
+const partialSourceState = normalizeSprintEngineProjection(fakeProjection({
+  run: {
+    id: 'run-id', name: 'Sample Run', goal: 'Test goal', status: 'executing',
+    rosterConfigured: true, updatedAt: '2026-05-16T20:00:00Z',
+    source: { kind: 'markdown', origin: 'file' },
+  },
+}))
+assert.equal(partialSourceState!.source, undefined)
+// Legacy payload without seed docs normalizes cleanly with both fields absent.
+assert.equal(normalizeSprintEngineProjection(fakeProjection())!.source, undefined)
+assert.equal(normalizeSprintEngineProjection(fakeProjection())!.sourceBundle, undefined)
+
 const externalNeedsInputState = normalizeSprintEngineProjection(fakeProjection({
   tasks: [
     {
