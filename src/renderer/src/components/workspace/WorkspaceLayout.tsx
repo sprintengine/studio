@@ -924,6 +924,7 @@ function WorkspaceLayout({ workspaceId, onStartFuturePlan, agentClis, onSpawnAge
             : heading
         const glyph = (
           <span
+            role="img"
             className={`flex h-4 w-3.5 shrink-0 items-center justify-center ${missing ? 'text-[color:var(--tone-error)]' : 'text-[color:var(--text-muted)]'}`}
             title={title}
             aria-label={title}
