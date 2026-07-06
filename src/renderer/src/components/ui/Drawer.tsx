@@ -167,7 +167,7 @@ function DrawerRoot({ open, onClose, title, ariaLabel, width = 360, children }: 
     <div className="fixed inset-0 z-40">
       <div
         aria-hidden="true"
-        className="absolute inset-0 bg-[color:var(--surface-overlay-backdrop)] transition-opacity duration-200"
+        className="absolute inset-0 bg-[color:var(--surface-overlay-backdrop)] backdrop-blur-sm transition-opacity duration-200"
         style={{ opacity: lifecycle === 'open' ? 1 : 0 }}
         onMouseDown={onClose}
       />

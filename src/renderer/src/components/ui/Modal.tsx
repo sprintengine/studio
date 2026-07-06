@@ -49,11 +49,11 @@ export function Modal({ open, onClose, labelledBy, width = 560, children, contai
 
   return (
     <div
-      // No backdrop-blur: a full-window backdrop-filter repaints the whole
-      // surface on every hover/compositing frame (visible lag on the dialog's
-      // own buttons). The translucent scrim carries the dim; blur is decorative
-      // and not part of the app vocabulary.
-      className={`${contained ? 'absolute' : 'fixed'} inset-0 z-50 flex items-center justify-center bg-[color:var(--surface-overlay-backdrop)] p-6`}
+      // Scrim: translucent dim + a light `backdrop-blur-sm` (4px), matching the
+      // Command Palette and every other full-screen overlay so modals read as
+      // one system. The blur is deliberately kept at `-sm` — heavier radii make
+      // the full-window backdrop-filter expensive to recomposite.
+      className={`${contained ? 'absolute' : 'fixed'} inset-0 z-50 flex items-center justify-center bg-[color:var(--surface-overlay-backdrop)] p-6 backdrop-blur-sm`}
       onMouseDown={(event) => {
         if (event.target === event.currentTarget) onClose()
       }}

@@ -161,7 +161,7 @@ export default function SettingsOverlay() {
       aria-modal="true"
       aria-labelledby={titleId}
       data-state={lifecycle}
-      className="settings-route fixed inset-0 z-50 flex items-center justify-center bg-[color:var(--surface-overlay-backdrop)] p-4 outline-none sm:p-8 lg:p-12"
+      className="settings-route fixed inset-0 z-50 flex items-center justify-center bg-[color:var(--surface-overlay-backdrop)] p-4 outline-none backdrop-blur-sm sm:p-8 lg:p-12"
       onMouseDown={(event) => {
         if (event.target === event.currentTarget) closeSettingsOverlay()
       }}

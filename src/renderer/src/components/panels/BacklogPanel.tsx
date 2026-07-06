@@ -1764,9 +1764,6 @@ function BacklogOptionRow({
   // hand-set highlight, above the ambient risk heat — see resolveBacklogRowColor).
   const { color: stripeColor, litFill } = resolveBacklogRowColor(item, epicMeta?.color ?? null)
   const swatch = stripeColor ? getHighlightSwatch(stripeColor) : null
-  // The grouped list already names the epic on its header, so the per-row chip is
-  // only earned in the flat list (when this row is not nested under a header).
-  const epicChip = !indented && item.epic && epicMeta ? epicMeta : undefined
   return (
     <li
       id={`backlog-opt-${optionIndex}`}
@@ -1783,7 +1780,7 @@ function BacklogOptionRow({
           : `${swatch ? `${swatch.border}${litFill ? ` ${swatch.dimBg}` : ''}` : 'border-l-transparent'} hover:bg-[color:var(--bg-hover)]`
       } ${archived ? 'opacity-70' : ''}`}
     >
-      <BacklogRowContent item={item} now={now} runGlyph={runGlyph} epicChip={epicChip} isWaiting={isWaiting} />
+      <BacklogRowContent item={item} now={now} runGlyph={runGlyph} isWaiting={isWaiting} />
     </li>
   )
 }
@@ -1973,54 +1970,44 @@ function BacklogDetail({
   const parentEpicColor = parentEpic && selected.epic ? epicMetaBySlug.get(selected.epic)?.color ?? null : null
   const epicChildren = isEpic ? childrenOfEpic(items, epicSlug(selected)) : []
   const currentEpicColor = isEpic ? epicMetaBySlug.get(epicSlug(selected))?.color ?? null : null
+  // Full timestamp for the relative-time tooltip ("2h ago" → the actual date).
+  const modifiedAbsolute =
+    typeof selected.modifiedAt === 'number' && Number.isFinite(selected.modifiedAt)
+      ? new Date(selected.modifiedAt).toLocaleString()
+      : 'Unknown time'
 
   return (
     <div className="flex h-full min-h-0 flex-col">
       <header className="shrink-0 border-b border-[color:var(--border-default)] px-4 py-3">
-        {/* Identity row: the back affordance, lifecycle glyph, title, and
-            modified-time share one line so the pinned header stays compact.
-            The title flexes to fill and truncates; the time holds the right. */}
-        <div className="flex min-w-0 items-center gap-2">
+        {/* Nav + metadata row: the single back affordance leads, then the status
+            glyph, id, status word, time, and file path — all the chrome the title
+            used to share its line, moved up here so the title below can own a full
+            line. The status glyph sits beside the id (its tooltip names the state);
+            the time carries the absolute timestamp; the path truncates with its
+            own tooltip. */}
+        <div className="flex min-w-0 items-center gap-2 text-[11px] text-[color:var(--text-muted)]">
           {showBack ? (
             <button
               type="button"
               onClick={onBack}
               aria-label="Back to list"
-              className="interactive -ml-1 inline-flex h-6 w-6 shrink-0 items-center justify-center rounded text-[color:var(--text-muted)] transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]"
+              className="interactive -ml-1 inline-flex h-5 w-5 shrink-0 items-center justify-center rounded text-[color:var(--text-muted)] transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]"
             >
               <svg viewBox="0 0 16 16" fill="none" className="icon-xs" aria-hidden="true">
                 <path d="M10 4L6 8l4 4" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
               </svg>
             </button>
           ) : null}
-          <Tooltip content={selectedRunGlyph?.label ?? BACKLOG_STATUS_LABEL[selected.status]} placement="top">
+          <Tooltip
+            content={selectedRunGlyph?.label ?? BACKLOG_STATUS_LABEL[selected.status]}
+            placement="top"
+            wrapperClassName="inline-flex shrink-0"
+          >
             <LifecycleGlyph
               state={selectedRunGlyph?.state ?? backlogStatusToLifecycle(selected.status)}
               live={selectedRunGlyph?.live ?? true}
             />
           </Tooltip>
-          <TruncatedText as="h3" text={selected.title} className="min-w-0 flex-1 text-[14px] font-semibold text-[color:var(--text-strong)]" />
-          <span className="shrink-0 tabular-nums text-[11px] text-[color:var(--text-subtle)]">
-            {formatRelativeMsAgo(selected.modifiedAt, now) || 'unknown'}
-          </span>
-        </div>
-        {/* Child -> epic crumb: a member links back up to its epic. Carries the
-            epic's identity colour so the relationship reads at a glance. */}
-        {parentEpic ? (
-          <button
-            type="button"
-            onClick={() => onSelectItem(parentEpic.id)}
-            aria-label={`Open epic ${parentEpic.title}`}
-            className="interactive mt-1.5 -ml-1.5 inline-flex max-w-full items-center gap-1.5 rounded px-1.5 py-0.5 text-[11.5px] font-medium text-[color:var(--text-muted)] transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]"
-          >
-            <svg viewBox="0 0 16 16" fill="none" className="icon-xs shrink-0" aria-hidden="true">
-              <path d="M10 4L6 8l4 4" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
-            </svg>
-            <EpicColorDot color={parentEpicColor} size={7} />
-            <TruncatedText as="span" text={parentEpic.title} className="min-w-0" />
-          </button>
-        ) : null}
-        <div className="mt-1 flex min-w-0 items-center gap-2 text-[11px] text-[color:var(--text-muted)]">
           {selected.displayId ? (
             <>
               <span className="shrink-0 whitespace-nowrap font-mono tabular-nums text-[color:var(--text-subtle)]">
@@ -2037,12 +2024,42 @@ function BacklogDetail({
               <span aria-hidden="true" className="shrink-0 text-[color:var(--text-disabled)]">·</span>
             </>
           ) : null}
+          <Tooltip content={modifiedAbsolute} placement="top" wrapperClassName="inline-flex shrink-0">
+            <span className="whitespace-nowrap tabular-nums">
+              {formatRelativeMsAgo(selected.modifiedAt, now) || 'unknown'}
+            </span>
+          </Tooltip>
+          <span aria-hidden="true" className="shrink-0 text-[color:var(--text-disabled)]">·</span>
           <TruncatedText
             as="span"
             text={selected.relativePath}
             className="min-w-0 flex-1 font-mono tabular-nums"
           />
         </div>
+        {/* The title is the header's one clear priority: a full-width line of its
+            own (no glyph, no back button) that wraps to two lines and reveals the
+            full text in a tooltip when clamped. */}
+        <TruncatedText
+          as="h3"
+          multiline
+          text={selected.title}
+          placement="bottom"
+          className="mt-1.5 line-clamp-2 text-[14px] font-semibold leading-snug text-[color:var(--text-strong)]"
+        />
+        {/* Child → epic link: a plain link up to the parent epic (no back arrow —
+            it navigates sideways to a sibling concept, not "back"). Carries the
+            epic's identity colour, and its full name in a tooltip when clipped. */}
+        {parentEpic ? (
+          <button
+            type="button"
+            onClick={() => onSelectItem(parentEpic.id)}
+            aria-label={`Open epic ${parentEpic.title}`}
+            className="interactive mt-1.5 -ml-1.5 flex max-w-full items-center gap-1.5 rounded px-1.5 py-0.5 text-[11.5px] font-medium text-[color:var(--text-muted)] transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]"
+          >
+            <EpicColorDot color={parentEpicColor} size={7} />
+            <TruncatedText as="span" text={parentEpic.title} className="min-w-0" />
+          </button>
+        ) : null}
 
         <div className="mt-3 flex flex-wrap items-center gap-1.5">
           {externalActions.map(({ action, disabled, run }, index) => {
@@ -2057,11 +2074,14 @@ function BacklogDetail({
               </Button>
             )
           })}
-          <GhostButton onClick={() => actions.openInEditor(selected)}>Open in editor</GhostButton>
-          <GhostButton onClick={() => actions.revealInFiles(selected)}>Reveal in Files</GhostButton>
           <OverflowMenu
             ariaLabel="Item actions"
             items={[
+              // The file-navigation actions were on their own buttons; folded in
+              // here they free the row down to the primary action + this menu.
+              { id: 'open-in-editor', label: 'Open in editor', onSelect: () => actions.openInEditor(selected) },
+              { id: 'reveal-in-files', label: 'Reveal in Files', onSelect: () => actions.revealInFiles(selected) },
+              { kind: 'separator' as const, id: 'sep-files' },
               ...(selected.status !== 'archived' && selected.status !== 'completed'
                 ? [{ id: 'mark-completed', label: 'Mark completed', onSelect: () => actions.setStatus(selected, 'completed') }]
                 : []),

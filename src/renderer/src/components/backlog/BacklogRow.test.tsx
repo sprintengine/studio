@@ -72,7 +72,9 @@ run('the shared row interior keeps its columns with the star present (panel + so
   assert.match(markup, /Checkout flow/, 'title renders')
   assert.match(markup, /aria-label="Size unestimated"/, 'size column intact')
   assert.match(markup, /aria-label="No priority set"/, 'priority column intact')
-  assert.match(markup, /Rework the payment step\./, 'excerpt line intact')
+  // The excerpt was intentionally dropped from the row — at list width it only
+  // showed a few clipped words, so the space now goes to the full-width title.
+  assert.ok(!markup.includes('Rework the payment step.'), 'no excerpt on the row anymore')
 })
 
 run('star and color never affect list order — comparator ignores highlight for every sort', () => {

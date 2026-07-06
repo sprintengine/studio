@@ -9,7 +9,7 @@ import type {
   BacklogItem,
   BacklogItemStatus,
 } from '../../utils/backlog'
-import type { BacklogEpicGroup, BacklogEpicMeta } from '../../utils/backlogEpics'
+import type { BacklogEpicGroup } from '../../utils/backlogEpics'
 import { getHighlightSwatch } from '../../utils/highlight'
 import type { SprintEngineRunGlyph } from '../../utils/sprintengine'
 import {
@@ -66,13 +66,13 @@ export type BacklogRunGlyph = SprintEngineRunGlyph
 // consumer; only the visual content lives here.
 //
 // Primary line: a leading readiness glyph is the row's status marker, then the
-// title claims the whole width, then the triage column (size + criticality bars)
-// the eye can scan straight down on the right. Supporting line: the `KEY-n` id,
-// then the real excerpt (title already stripped), or the path when a capture has
-// no body yet, with how long ago it was touched on the right. The id rides the
-// supporting line — not the primary one — so the title stays legible even when
-// the panel is squeezed narrow; the type (feature/bug/…) lives in metadata and
-// no longer earns a glyph, keeping the row's chrome budget for the title.
+// title — the row's one priority — claims the entire width. Supporting line: the
+// `KEY-n` id, size, and criticality bars flow from the left, with how long ago
+// the item was touched holding the right. Everything except the glyph and title
+// rides the supporting line so the title stays legible even when the panel is
+// squeezed narrow; the type (feature/bug/…) lives in metadata and no longer
+// earns a glyph, and the excerpt is dropped — at this width it only ever showed
+// a few clipped words, so its space goes to the title instead.
 // React.memo so a panel re-render (e.g. a Sprint Engine projection tick) only
 // reconciles rows whose props actually changed. `item` is referentially stable
 // between scans, `now` ticks every 30s, and `runGlyph` is undefined for the
@@ -113,7 +113,6 @@ export const BacklogRowContent = memo(function BacklogRowContent({
   item,
   now,
   runGlyph,
-  epicChip,
   isWaiting = false,
 }: {
   item: BacklogItem
@@ -121,9 +120,6 @@ export const BacklogRowContent = memo(function BacklogRowContent({
   /** Live Sprint Engine run state, when this item is linked to an observable
    *  run. Overrides the item-status glyph so the row reflects the runner. */
   runGlyph?: BacklogRunGlyph
-  /** The row's epic identity (dot + name), shown on the supporting line in the
-   *  flat list only — the grouped list names the epic on its header instead. */
-  epicChip?: BacklogEpicMeta
   /** Derived (never persisted): the item is active and has ≥1 unresolved
    *  prerequisite, so it earns the "Waiting" badge. Off for done/non-blocked
    *  items and for the source picker, which passes no dependency graph. */
@@ -167,28 +163,20 @@ export const BacklogRowContent = memo(function BacklogRowContent({
           ) : null}
         </span>
         {isWaiting ? <WaitingBadge /> : null}
-        <DifficultyIndicator difficulty={item.difficulty} />
-        <CriticalityIndicator criticality={item.criticality} />
       </div>
+      {/* Supporting line: the triage metadata the title displaced — id, size,
+          priority — flows from the left, and how long ago the item was touched
+          holds the right. No excerpt: at this width it only ever showed a few
+          clipped words, so the space goes to the title above instead. */}
       <div className="mt-0.5 flex items-center gap-2 pl-[22px] text-[11px]">
         {item.displayId ? (
           <span className="shrink-0 font-mono tabular-nums text-[color:var(--text-subtle)]">
             {item.displayId}
           </span>
         ) : null}
-        {epicChip ? (
-          <span className="flex min-w-0 shrink items-center gap-1 text-[color:var(--text-subtle)]">
-            <EpicColorDot color={epicChip.color} />
-            <TruncatedText as="span" text={epicChip.title} className="min-w-0 max-w-[12rem]" />
-            <span aria-hidden="true" className="text-[color:var(--text-disabled)]">·</span>
-          </span>
-        ) : null}
-        <TruncatedText
-          as="span"
-          text={item.excerpt || item.relativePath}
-          className="min-w-0 flex-1 text-[color:var(--text-disabled)]"
-        />
-        <span className="shrink-0 tabular-nums text-[color:var(--text-subtle)]">
+        <DifficultyIndicator difficulty={item.difficulty} />
+        <CriticalityIndicator criticality={item.criticality} />
+        <span className="ml-auto shrink-0 tabular-nums text-[color:var(--text-subtle)]">
           {formatRelativeMsAgo(item.modifiedAt, now) || 'unknown'}
         </span>
       </div>

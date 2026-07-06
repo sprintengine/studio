@@ -158,7 +158,7 @@ export default function AutomationsPanel({ workspaceId }: { workspaceId: string 
     // controls stay reachable instead of clipping offscreen.
     <section
       aria-labelledby={titleId}
-      className="flex h-full min-h-0 flex-col overflow-x-auto bg-[color:var(--bg-app)] text-[color:var(--text-default)]"
+      className="flex h-full min-h-0 flex-col overflow-x-auto bg-[color:var(--bg-surface)] text-[color:var(--text-default)]"
     >
       <div className="flex h-full min-h-0 w-full min-w-[16rem] flex-col">
         <PanelHeader
