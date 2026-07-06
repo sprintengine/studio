@@ -4,6 +4,7 @@ import { detectLanguage } from '../../utils/files'
 import { MONO_FONT_STACK } from '../../utils/fonts'
 import { useMonacoBaseTheme } from '../../hooks/useAppTheme'
 import { renderMarkdown } from '../../utils/markdown'
+import { TITLE_BAR_HEIGHT, TRAFFIC_LIGHT_INSET } from '../workspace/AppTitleBar'
 import { IconButton, Tooltip } from '../ui'
 import {
   createExternalFileLoadingBuffer,
@@ -177,8 +178,8 @@ export default function ExternalEditorWindow({ incoming, nonce }: Props) {
   return (
     <div className="flex h-screen w-screen flex-col bg-[color:var(--bg-app)] text-[color:var(--text-default)]">
       <div
-        className={`app-drag flex h-[36px] shrink-0 items-center gap-1 border-b border-[color:var(--border-default)] bg-[color:var(--bg-surface)] pr-2 ${
-          isMac ? 'pl-[78px]' : 'pl-2'
+        className={`app-drag flex ${TITLE_BAR_HEIGHT} shrink-0 items-center gap-1 border-b border-[color:var(--border-default)] bg-[color:var(--bg-surface)] pr-2 ${
+          isMac ? TRAFFIC_LIGHT_INSET : 'pl-2'
         }`}
       >
         <div className="flex min-w-0 flex-1 items-stretch gap-0.5 overflow-x-auto">

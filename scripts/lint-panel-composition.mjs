@@ -10,12 +10,13 @@
 //       density, and accent treatment — so this guard catches the composition
 //       regression that the design-token lint cannot see.
 //
-//   (b) `WorkspaceTopBar` declares at most five at-rest control groups via
+//   (b) `WorkspaceActions` declares at most five at-rest control groups via
 //       `{/* top-bar-group: <name> */}` JSX comment markers. The cap matches
 //       the architect plan and BRAND-APP rule "≤ 5 controls per panel header".
 //       Adding a sixth marker fails this guard; renaming or removing one
 //       requires the brand docs (panel-design-system.md TopBar inventory) to
-//       move in lockstep.
+//       move in lockstep. (These groups were hoisted out of the retired
+//       WorkspaceTopBar row into the merged AppTitleBar title strip.)
 //
 // Usage:
 //   node scripts/lint-panel-composition.mjs           # exit 1 on violation
@@ -27,7 +28,7 @@ import { resolve, join } from 'node:path'
 const PANELS_DIR = resolve(process.cwd(), 'src/renderer/src/components/panels')
 const WORKSPACE_TOPBAR_PATH = resolve(
   process.cwd(),
-  'src/renderer/src/components/workspace/WorkspaceTopBar.tsx',
+  'src/renderer/src/components/workspace/WorkspaceActions.tsx',
 )
 const TOP_BAR_GROUP_MARKER = /\btop-bar-group:\s*([a-z0-9-]+)\b/g
 const TOP_BAR_GROUP_CAP = 5
@@ -134,7 +135,7 @@ if (findings.length > 0) {
   )
 }
 
-// (b) WorkspaceTopBar at-rest control-group cap.
+// (b) WorkspaceActions at-rest control-group cap.
 let topBarFindings = 0
 try {
   const topBarSrc = readFileSync(WORKSPACE_TOPBAR_PATH, 'utf8')
@@ -147,7 +148,7 @@ try {
   const unique = new Set(seenGroups)
   const unexpected = [...unique].filter((g) => !CANONICAL_TOP_BAR_GROUPS.has(g))
   const missing = [...CANONICAL_TOP_BAR_GROUPS].filter((g) => !unique.has(g))
-  process.stdout.write('\nWorkspaceTopBar control-group cap\n')
+  process.stdout.write('\nWorkspaceActions control-group cap\n')
   process.stdout.write(`  cap:        ≤ ${TOP_BAR_GROUP_CAP} at-rest groups (BRAND-APP)\n`)
   process.stdout.write(`  declared:   ${seenGroups.length} marker(s); ${unique.size} unique\n`)
   process.stdout.write(`  canonical:  ${[...CANONICAL_TOP_BAR_GROUPS].join(', ')}\n`)
@@ -179,7 +180,7 @@ try {
   }
 } catch (error) {
   process.stdout.write(
-    `\nWorkspaceTopBar control-group cap: skipped (could not read ${WORKSPACE_TOPBAR_PATH}: ${error.message})\n`,
+    `\nWorkspaceActions control-group cap: skipped (could not read ${WORKSPACE_TOPBAR_PATH}: ${error.message})\n`,
   )
   topBarFindings += 1
 }

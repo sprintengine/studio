@@ -5,7 +5,7 @@ import {
   deriveSessionStatus,
   sessionsAttentionTone,
 } from './workspaceManagerHelpers'
-import type { SessionItem } from './WorkspaceTopBar'
+import type { SessionItem } from './WorkspaceActions'
 
 void main()
 

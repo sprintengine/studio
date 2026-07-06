@@ -11,6 +11,7 @@ import {
   type DiffFileItem,
 } from './diffFileList'
 import { nextDiffPosition, resolveEdgeHunkIndex } from './diffNavigation'
+import { TITLE_BAR_HEIGHT, TRAFFIC_LIGHT_INSET } from '../workspace/AppTitleBar'
 
 type Props = {
   repoRoot: string
@@ -327,8 +328,8 @@ export default function DiffViewerWindow({ repoRoot, focusPath, focusKind }: Pro
   return (
     <div className="flex h-screen w-screen flex-col bg-[color:var(--bg-app)] text-[color:var(--text-default)]">
       <div
-        className={`app-drag relative flex h-[36px] shrink-0 items-center gap-2 border-b border-[color:var(--border-default)] bg-[color:var(--bg-surface)] pr-2 ${
-          isMac ? 'pl-[78px]' : 'pl-3'
+        className={`app-drag relative flex ${TITLE_BAR_HEIGHT} shrink-0 items-center gap-2 border-b border-[color:var(--border-default)] bg-[color:var(--bg-surface)] pr-2 ${
+          isMac ? TRAFFIC_LIGHT_INSET : 'pl-3'
         }`}
       >
         <div className="flex min-w-0 flex-1 items-center gap-2">
