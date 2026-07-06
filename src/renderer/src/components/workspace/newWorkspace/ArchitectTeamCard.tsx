@@ -52,6 +52,14 @@ export function ArchitectTeamCard({
       <ArchRow label="Models for this sprint" hint="scores live in Settings" align="start">
         <fieldset className="flex min-w-0 flex-1 flex-col gap-1.5 border-0 p-0">
           <legend className="sr-only">Models the architect may assign for this sprint</legend>
+          {availableEntries.length === 0 ? (
+            // Guards the rare mid-session case where the catalog empties or every
+            // CLI flips uninstalled while architect mode is already selected: the
+            // row explains the block in-place instead of rendering blank.
+            <p className="text-[11px] leading-4 text-[color:var(--text-muted)]">
+              No models available — add one to your catalog in Settings.
+            </p>
+          ) : null}
           <div className="flex flex-wrap gap-1.5">
             {availableEntries.map((entry) => {
               const key = modelCatalogEntryKey(entry.cli, entry.model)
@@ -86,7 +94,9 @@ export function ArchitectTeamCard({
                     <span className="text-[11px] text-[color:var(--text-subtle)]">{labelForCliRuntime(entry.cli)}</span>
                     <span className="font-mono text-[11px] text-[color:var(--text-default)]">{modelLabel}</span>
                     <span className="text-[10px] tabular-nums text-[color:var(--text-subtle)]">intel {entry.intelligence}</span>
-                    <span className="text-[10px] tabular-nums text-[color:var(--tone-warn)]">{entry.cost}×</span>
+                    {/* Cost is neutral, not a warning: matches the Settings catalog
+                        (modelCatalogRows.tsx) and never grades the cheapest model as flagged. */}
+                    <span className="text-[10px] tabular-nums text-[color:var(--text-subtle)]">{entry.cost}×</span>
                   </span>
                 </button>
               )

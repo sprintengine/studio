@@ -62,6 +62,26 @@ run('reflects the ticked/unticked state per entry', () => {
   assert.ok(html.includes('CLI default'))
   assert.ok(html.includes('intel 9'))
   assert.ok(html.includes('10×'))
+  // Cost is neutral, never the reserved warning tone (consistency with Settings).
+  assert.ok(!html.includes('tone-warn'))
+})
+
+run('shows an in-card empty hint when no models are available', () => {
+  const html = renderToStaticMarkup(
+    <ArchitectTeamCard
+      seat={{ cli: 'claude-code', model: null }}
+      seatDefaultedFromCatalog={false}
+      cliOptions={CLI_OPTIONS}
+      onChangeSeat={() => {}}
+      availableEntries={[]}
+      selectedKeys={new Set()}
+      onToggleEntry={() => {}}
+      guidance=""
+      onChangeGuidance={() => {}}
+    />,
+  )
+  assert.ok(html.includes('No models available — add one to your catalog in Settings.'))
+  assert.ok(!html.includes('role="checkbox"'))
 })
 
 run('shows the guidance value in the input', () => {
