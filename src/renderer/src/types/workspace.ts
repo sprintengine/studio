@@ -746,6 +746,13 @@ export type SprintEngineAutoState = {
   // expansion / a chained follow-up sprint), re-arming teardown for the next
   // completion. Persisted with the rest of the auto state.
   completionTeardownAt?: number
+  // Optional free-text "Guidance for the architect" captured in the wizard for an
+  // architect-roster run (rosterSource === 'architect'). Prompt-only: quoted
+  // verbatim into the architect's startup prompt to shape team size/spend
+  // posture, never persisted by the engine. Lives here (renderer-owned run
+  // config) rather than on SprintEngineState so the ~4s projection rebuild never
+  // clobbers it. Absent for user-mode runs.
+  architectGuidance?: string
 }
 
 export type MultiloopAutoPendingSpawn = {
@@ -1120,7 +1127,33 @@ export type SprintEngineState = {
    * (`roleCounts`).
    */
   configuredRoles?: SprintEngineRoleId[]
+  /**
+   * How this run's roster was composed (run.yaml `rosterSource`, projection-owned;
+   * the renderer reads it, never writes it onto state — the wizard forwards it as
+   * an init flag). `'architect'` means the architect picks the team via
+   * `sprintengine.roster.configure` within `allowedRuntimes`; `'user'` (and
+   * absent/legacy) means the user composed the roster in the wizard. Drives the
+   * architect startup-prompt branch and the board provenance chip.
+   */
+  rosterSource?: SprintEngineRosterSource
+  /**
+   * The sprint's allowed runtime palette (run.yaml `allowedRuntimes`,
+   * projection-owned). The `{cli, model}` set the user ticked for an
+   * architect-roster run; the engine hard-rejects any role assignment outside
+   * it. Absent for user-mode/legacy runs. A `null` model means the CLI's own
+   * default. Scores/notes for these entries live in the global model catalog,
+   * not here — the prompt joins the two.
+   */
+  allowedRuntimes?: SprintEngineAllowedRuntime[]
 }
+
+export type SprintEngineRosterSource = 'user' | 'architect'
+
+// One ticked entry in an architect-roster run's per-sprint model palette. Mirrors
+// the `{cli, model}` shape the engine stores in run.yaml `allowedRuntimes`
+// (`model: null` = the CLI's own default). Descriptive scores/notes are NOT here;
+// they live in the global model catalog and are matched by cli+model when needed.
+export type SprintEngineAllowedRuntime = { cli: AgentCli; model: string | null }
 
 export type SprintEngineRoleRuntime = { model?: string | null; cli?: string | null }
 export type SprintEngineRoleRuntimes = Partial<Record<SprintEngineRoleId, SprintEngineRoleRuntime>>
@@ -1261,6 +1294,24 @@ export type CliRuntimeSettings = {
   // User-added model ids for this CLI, merged with the plugin manifest's seed
   // options in pickers. Mirrors the shared electron-api type.
   models?: string[]
+}
+
+// A global Sprint Engine "model catalog" entry: user-entered facts about one
+// CLI+model pairing, entered once in Settings and stable across sprints. It
+// holds facts (scores, cost, note, an offered-by-default toggle), NOT which
+// models a given sprint may use — that is the wizard's per-sprint selection.
+// Enforcement is structural elsewhere (the ticked selection becomes a run's
+// allowed runtimes); scores and the note are descriptive guidance only.
+export type SprintEngineModelCatalogEntry = {
+  cli: AgentCli // plugin id, e.g. 'claude-code', 'codex', 'zai'
+  model: string | null // model id; null = the CLI's own default (no --model flag)
+  offeredByDefault: boolean // seeds the wizard's per-sprint checkbox
+  intelligence: number // 1–10 — reasoning/planning/review rigor
+  frontendDesign: number // 1–10 — UI/UX design and frontend taste
+  mobile: number // 1–10 — mobile app development
+  speed: number // 1–10 — throughput/latency
+  cost: number // relative multiplier, positive; ratios are the meaning
+  note?: string // free-text descriptive guidance only, never enforcement
 }
 
 // Whether an agent CLI's binary is actually installed/runnable on this machine,
@@ -1564,6 +1615,13 @@ export type AppSettings = {
    */
   specialistPacks: { disabled: string[] }
   sprintEngineRoleSettings: SprintEngineRoleSettings
+  /**
+   * Global Sprint Engine model catalog: user-entered facts about CLI+model
+   * pairings (scores, cost, note, offered-by-default). Default `[]`; the app
+   * ships no seeded entries. Read through `getAvailableModelCatalogEntries`
+   * downstream so uninstalled-CLI entries are never offered for a sprint.
+   */
+  sprintEngineModelCatalog: SprintEngineModelCatalogEntry[]
   /**
    * Local operator preferences for an existing Sprint Engine run, keyed by the
    * normalized absolute `run.yaml` path. These intentionally stay in app-local

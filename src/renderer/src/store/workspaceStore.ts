@@ -29,6 +29,7 @@ import type {
   SprintEngineRosterSession,
   SprintEngineRoleCounts,
   SprintEngineRoleModelOverrides,
+  SprintEngineModelCatalogEntry,
   AgentCli,
   AgentCliModelSelection,
   AgentConfigAdoptionResult,
@@ -251,6 +252,7 @@ export interface WorkspaceStore extends PluginsSlice, CliAvailabilitySlice {
   renameSprintEngineRosterTeam: (id: string, name: string) => void
   deleteSprintEngineRosterTeam: (id: string) => void
   setSprintEngineLastSelectedTeam: (id: string | null) => void
+  setSprintEngineModelCatalog: (catalog: SprintEngineModelCatalogEntry[]) => void
   setModuleEnabled: (moduleId: string, enabled: boolean) => void
   /** Write one value in a module's `module:<id>` settings namespace; `undefined` deletes the key. */
   setModuleSettingValue: (moduleId: string, key: string, value: unknown) => void

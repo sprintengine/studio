@@ -15,6 +15,7 @@ import type {
   MultiloopRole,
   NewChatAgentChoice,
   SprintEngineRoleId,
+  SprintEngineModelCatalogEntry,
   AgentConversationRuntime,
   SprintEngineRoleCliDefaults,
   SprintEngineRoleModelOverrides,
@@ -39,6 +40,7 @@ import {
   resolveInitialOnboardingStep,
   type OnboardingStep,
 } from '../onboardingState'
+import { normalizeSprintEngineModelCatalog } from '../../utils/modelCatalog'
 import { SIDEBAR_DEFAULT_WIDTH, clampSidebarWidth } from '../../components/workspace/sidebarWidth'
 import { SPRINTS_ASIDE_DEFAULT_WIDTH, clampSprintsAsideWidth } from '../../components/workspace/sprintsAsideWidth'
 import { isAppTheme, type AppearanceSettings, type AppTheme } from '../../types/appTheme'
@@ -829,6 +831,7 @@ export const defaultAppSettings = (): AppSettings => ({
   specialistOrder: [],
   specialistPacks: { disabled: [] },
   sprintEngineRoleSettings: defaultSprintEngineRoleSettings(),
+  sprintEngineModelCatalog: [],
   sprintEngineRunSettings: {},
   searchExcludes: [],
   projectKnowledgeRoots: {},
@@ -884,6 +887,7 @@ export function normalizeAppSettings(settings: Partial<AppSettings> | undefined,
     specialistOrder: normalizeSpecialistOrder(settings?.specialistOrder),
     specialistPacks: normalizeSpecialistPacks(settings?.specialistPacks),
     sprintEngineRoleSettings: normalizeSprintEngineRoleSettings(settings?.sprintEngineRoleSettings),
+    sprintEngineModelCatalog: normalizeSprintEngineModelCatalog(settings?.sprintEngineModelCatalog),
     sprintEngineRunSettings: normalizeSprintEngineRunSettings(settings?.sprintEngineRunSettings),
     searchExcludes: normalizeSearchExcludes(settings?.searchExcludes),
     projectKnowledgeRoots: normalizeProjectKnowledgeRoots(settings?.projectKnowledgeRoots, workspaces),
@@ -1010,6 +1014,12 @@ export interface SettingsSliceActions {
   renameSprintEngineRosterTeam: (id: string, name: string) => void
   deleteSprintEngineRosterTeam: (id: string) => void
   setSprintEngineLastSelectedTeam: (id: string | null) => void
+  /**
+   * Replace the global Sprint Engine model catalog. The Settings UI owns the
+   * array (add/edit/remove rows) and passes the whole list; the store
+   * normalizes it, so persisted state is always clean regardless of caller.
+   */
+  setSprintEngineModelCatalog: (catalog: SprintEngineModelCatalogEntry[]) => void
   setModuleEnabled: (moduleId: string, enabled: boolean) => void
   /**
    * Write one value in a module's settings namespace (`module:<moduleId>`).
@@ -1475,6 +1485,11 @@ export function createSettingsSlice(set: SettingsSliceSet): SettingsSlice {
               }
             : current.savedRoster,
         }
+      }),
+
+    setSprintEngineModelCatalog: (catalog) =>
+      set((state) => {
+        state.appSettings.sprintEngineModelCatalog = normalizeSprintEngineModelCatalog(catalog)
       }),
 
     setModuleEnabled: (moduleId, enabled) =>

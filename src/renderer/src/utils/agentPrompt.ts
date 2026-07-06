@@ -1,4 +1,10 @@
-import type { SprintEngineRoleId, SprintEngineState } from '../types/workspace'
+import type {
+  SprintEngineAllowedRuntime,
+  SprintEngineModelCatalogEntry,
+  SprintEngineRoleId,
+  SprintEngineRosterSource,
+  SprintEngineState,
+} from '../types/workspace'
 
 export function normalizeAgentIdentifier(value: string): string {
   return value.trim().replace(/\s+/g, ' ')
@@ -32,6 +38,55 @@ function jsonBlock(payload: Record<string, unknown>): string {
   return ['```json', JSON.stringify(payload, null, 2), '```'].join('\n')
 }
 
+// One palette line for an architect-roster startup prompt: the ticked runtime
+// joined to its global-model-catalog scores by cli+model. Scores/notes are never
+// stored on the run — they live in the catalog — so an entry the user deleted
+// since creation degrades to a scoreless line rather than vanishing.
+function formatSprintPaletteLine(
+  runtime: SprintEngineAllowedRuntime,
+  catalog: SprintEngineModelCatalogEntry[],
+): string {
+  const modelLabel = runtime.model ?? '(CLI default)'
+  const head = `${runtime.cli} / ${modelLabel}`
+  const entry = catalog.find((candidate) => candidate.cli === runtime.cli && candidate.model === runtime.model)
+  if (!entry) return `- ${head} — scores not in your model catalog`
+  const scores = `intelligence ${entry.intelligence} · frontend design ${entry.frontendDesign} · mobile ${entry.mobile} · speed ${entry.speed} · cost ${entry.cost}x`
+  return `- ${head} — ${scores}${entry.note ? ` — ${entry.note}` : ''}`
+}
+
+// The architect-roster boundary block: replaces the fixed-roster boundary line
+// (MC-1454) only when the run's roster is architect-chosen. States the ticked
+// model palette as the closed set the engine enforces, quotes the user's
+// guidance verbatim when set, and gives the configure-then-plan sequence. Pure
+// text — no statePath/workspaceRoot, preserving the autonomous-payload invariant.
+function buildArchitectRosterBoundaryBlock(
+  allowedRuntimes: SprintEngineAllowedRuntime[],
+  modelCatalog: SprintEngineModelCatalogEntry[],
+  guidance: string | undefined,
+): string {
+  const paletteLines = allowedRuntimes.length > 0
+    ? allowedRuntimes.map((runtime) => formatSprintPaletteLine(runtime, modelCatalog))
+    : ['- (no models were selected for this run)']
+  const trimmedGuidance = guidance?.trim()
+  return [
+    '## Your Run\'s Team — You Pick It',
+    'This run\'s roster is not preset. Survey the work, then choose the roles and one model per role and record the team for the user to approve. Only your own architect seat is fixed (it runs this planning session).',
+    'Models for this sprint — the ONLY models you may assign to a role; `sprintengine.roster.configure` rejects anything else:',
+    paletteLines.join('\n'),
+    'Match each role to the score its work exercises: planning → intelligence; frontend/creative/UI-heavy tasks → frontend design; mobile surfaces → mobile; mechanical, well-specified tasks → speed and cost. Reviews are where quality is enforced — give review-capability roles the highest-intelligence model you can justify against its cost multiplier, and name that trade-off in the Team table. Pick the cheapest model that clears each role\'s bar. Notes are guidance to weigh, not rules.',
+    trimmedGuidance ? `The user's guidance for this sprint: "${trimmedGuidance}"` : null,
+    'Do this, in order:',
+    [
+      '1. Survey the goal and codebase before choosing anyone.',
+      '2. List the available roles with the role-read tools, then pick the SMALLEST team that covers the work.',
+      '3. Call `sprintengine.roster.configure` with your chosen roles and one cli/model each (from the palette above) BEFORE creating any task.',
+      '4. Record the team in `plan.md` under a `## Team` section: one row per role with its cli/model and a one-line why — including which review roles you chose and why, and which you deliberately left off.',
+      '5. Non-default review roles (security, performance, ui_ux_reviewer, cross_platform, production_readiness_reviewer) only gate a task when you attach them with `plan add-task --require-gate <role-id>`.',
+      '6. You may revise the team with another `sprintengine.roster.configure` call until the plan is approved; after approval the roster is locked and any later gap routes to needs_input(user).',
+    ].join('\n'),
+  ].filter(Boolean).join('\n')
+}
+
 export function buildSprintEngineStartupPrompt(
   role: string,
   agentId: string,
@@ -42,6 +97,15 @@ export function buildSprintEngineStartupPrompt(
     sprintEngineStatePath?: string
     rosterArgs?: string[]
     configuredRoles?: SprintEngineRoleId[]
+    // Architect-roster ("Architect picks the team") inputs. When rosterSource is
+    // 'architect' and the role is architect, the fixed-roster boundary line is
+    // replaced by the configure-then-plan block built from the ticked model
+    // palette (allowedRuntimes joined to modelCatalog for scores) and the
+    // optional guidance line. Absent/'user' keeps the existing boundary line.
+    rosterSource?: SprintEngineRosterSource
+    allowedRuntimes?: SprintEngineAllowedRuntime[]
+    modelCatalog?: SprintEngineModelCatalogEntry[]
+    architectGuidance?: string
     commandMode?: 'init' | 'join'
     autonomousPlanningOverride?: boolean
     useWorktrees?: boolean
@@ -154,9 +218,15 @@ export function buildSprintEngineStartupPrompt(
     // wake), not just init: the roster is an enforced invariant, so a woken
     // architect planning later tasks must keep scheduling only for the run's
     // roles and escalate to the user rather than inventing an off-roster role.
-    role === 'architect' && options.configuredRoles?.length
-      ? `Your run's roles are: ${options.configuredRoles.join(', ')}. Create tasks and schedule reviews only for these roles. If the work needs a role you don't have, raise needs_input to the user rather than adding the role.`
-      : null,
+    role === 'architect' && options.rosterSource === 'architect'
+      ? buildArchitectRosterBoundaryBlock(
+        options.allowedRuntimes ?? [],
+        options.modelCatalog ?? [],
+        options.architectGuidance,
+      )
+      : role === 'architect' && options.configuredRoles?.length
+        ? `Your run's roles are: ${options.configuredRoles.join(', ')}. Create tasks and schedule reviews only for these roles. If the work needs a role you don't have, raise needs_input to the user rather than adding the role.`
+        : null,
   ].filter(Boolean)
   const autonomousPlanningOverride = options.autonomousPlanningOverride
     ? [

@@ -105,7 +105,11 @@ def test_summary_fields_advertise_no_max_length() -> None:
 
 
 PROMPT_BYTE_CEILINGS = {
-    "architect.md": 18_000,
+    # Ceilings are ratcheted tight to the post-prune baselines. architect.md is the
+    # exception: it carries the mandatory architect-picks-the-team roster-composition
+    # guidance, which grows the merged file past the general prune baseline, so its
+    # ceiling sits just above the real green size rather than at the shared floor.
+    "architect.md": 23_000,
     "code_reviewer.md": 6_000,
     "cross_platform.md": 4_500,
     "developer.md": 4_000,

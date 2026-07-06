@@ -10,10 +10,12 @@ import type {
   MultiloopWorkspaceContext,
   SprintEngineAutoState,
   SprintEngineCliPermissionPreset,
+  SprintEngineAllowedRuntime,
   SprintEngineRoleCliDefaults,
   SprintEngineRoleCounts,
   SprintEngineRoleId,
   SprintEngineRoleModelOverrides,
+  SprintEngineRosterSource,
   SprintEngineSourceBundleItem,
   SprintEngineSourcePlanKind,
   SprintEngineState,
@@ -137,6 +139,15 @@ export type SprintEngineNewTeamInput = {
   useWorktrees?: boolean
   cliPermissionPreset: SprintEngineCliPermissionPreset
   workspaceWindowId?: WorkspaceWindowId | null
+  // "Architect picks the team" fields. When rosterSource is 'architect' the
+  // controller seats only the architect (roleCounts/enabledRoles collapse to
+  // ['architect']), pins its runtime from `architectSeat`, forwards the ticked
+  // `allowedRuntimes` palette to init, and records the prompt-only guidance on
+  // auto state. Absent/'user' keeps the wizard-composed roster untouched.
+  rosterSource?: SprintEngineRosterSource
+  architectSeat?: SprintEngineAllowedRuntime
+  allowedRuntimes?: SprintEngineAllowedRuntime[]
+  architectGuidance?: string
 }
 
 export type SprintEngineNewTeamPorts = {

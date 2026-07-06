@@ -302,6 +302,112 @@ async function testSprintEngineNewTeamInitializesRunState(): Promise<void> {
   assert.equal(args.sprintEngineAutoState?.desiredMode, 'run_agents')
 }
 
+// The full-roster (user-mode) init must be untouched by the new fields: no
+// rosterSource/allowedRuntimes flags, and roleRuntimes still built from every
+// role's cli/model. Regression guard for "rosterSource: 'user' is byte-identical".
+async function testSprintEngineNewTeamUserModeInitArgsUnchanged(): Promise<void> {
+  const captured: Array<Record<string, unknown>> = []
+  await runSprintEngineNewTeamCreation(
+    {
+      folderPath: '/p',
+      teamName: 'Ship Squad',
+      goal: 'Ship the things',
+      roleCounts: { architect: 1, developer: 1, frontend: 0, code_reviewer: 0, spec_reviewer: 0, performance: 0, cross_platform: 0, tester: 0, security: 0, product: 0 },
+      visibleRoleCounts: { architect: 1, developer: 1, frontend: 0, code_reviewer: 0, spec_reviewer: 0, performance: 0, cross_platform: 0, tester: 0, security: 0, product: 0 },
+      maxParallelAgents: 2,
+      roleCliDefaults: { architect: 'claude-code', developer: 'codex', frontend: 'claude-code', code_reviewer: 'claude-code', spec_reviewer: 'claude-code', performance: 'claude-code', cross_platform: 'claude-code', tester: 'claude-code', security: 'claude-code', product: 'claude-code' },
+      roleModelOverrides: { developer: 'gpt-5.5-codex' },
+      startRunner: false,
+      autoApproveArtifacts: false,
+      cliPermissionPreset: 'default',
+    },
+    {
+      pathExists: async () => false,
+      initializeSprintEngineState: async (input) => {
+        captured.push({
+          roleRuntimes: input.roleRuntimes,
+          enabledRoles: input.enabledRoles,
+          rosterSource: input.rosterSource,
+          allowedRuntimes: input.allowedRuntimes,
+        })
+        return { ok: true, data: { projectionContent: JSON.stringify(sprintEngineProjectionFixture({ name: 'Ship Squad', goal: 'Ship the things' })) } }
+      },
+    },
+  )
+  assert.equal(captured.length, 1)
+  const init = captured[0]
+  assert.equal(init.rosterSource, undefined, 'user mode sends no roster-source flag')
+  assert.equal(init.allowedRuntimes, undefined, 'user mode sends no allowed-runtimes flag')
+  assert.deepEqual(init.enabledRoles, ['architect', 'developer'], 'enabled roles derive from the roster')
+  // roleRuntimes is built from the full role-cli-defaults map (unchanged
+  // behavior): every role's cli/model, not just the enabled ones.
+  const roleRuntimes = init.roleRuntimes as Record<string, { model?: string | null; cli?: string | null }>
+  assert.deepEqual(roleRuntimes.architect, { model: null, cli: 'claude-code' })
+  assert.deepEqual(roleRuntimes.developer, { model: 'gpt-5.5-codex', cli: 'codex' })
+}
+
+// AC1: an architect-roster run inits with configuredRoles=['architect'],
+// rosterSource: 'architect', roleRuntimes pinning only the architect seat, and
+// allowedRuntimes = exactly the ticked palette. Asserted at the init-args layer.
+async function testSprintEngineArchitectRosterInitArgs(): Promise<void> {
+  const captured: Array<Record<string, unknown>> = []
+  const args = await runSprintEngineNewTeamCreation(
+    {
+      folderPath: '/p',
+      teamName: 'Ship Squad',
+      goal: 'Ship the things',
+      // Architect mode: the wizard collapses the roster to the architect seat.
+      roleCounts: { architect: 1, developer: 0, frontend: 0, code_reviewer: 0, spec_reviewer: 0, performance: 0, cross_platform: 0, tester: 0, security: 0, product: 0 },
+      visibleRoleCounts: { architect: 1, developer: 0, frontend: 0, code_reviewer: 0, spec_reviewer: 0, performance: 0, cross_platform: 0, tester: 0, security: 0, product: 0 },
+      maxParallelAgents: 2,
+      // Full defaults are still passed but must be ignored in architect mode.
+      roleCliDefaults: { architect: 'claude-code', developer: 'codex', frontend: 'claude-code', code_reviewer: 'claude-code', spec_reviewer: 'claude-code', performance: 'claude-code', cross_platform: 'claude-code', tester: 'claude-code', security: 'claude-code', product: 'claude-code' },
+      roleModelOverrides: { developer: 'gpt-5.5-codex' },
+      initialSpawnRoles: ['architect'],
+      startRunner: true,
+      autoApproveArtifacts: false,
+      cliPermissionPreset: 'default',
+      rosterSource: 'architect',
+      architectSeat: { cli: 'claude-code', model: 'claude-fable-5' },
+      allowedRuntimes: [
+        { cli: 'claude-code', model: 'claude-opus-4-8' },
+        { cli: 'zai', model: null },
+      ],
+      architectGuidance: '  Quality matters  ',
+    },
+    {
+      pathExists: async () => false,
+      initializeSprintEngineState: async (input) => {
+        captured.push({
+          roleRuntimes: input.roleRuntimes,
+          enabledRoles: input.enabledRoles,
+          rosterSource: input.rosterSource,
+          allowedRuntimes: input.allowedRuntimes,
+          agentIds: Object.keys(input.agents),
+        })
+        return { ok: true, data: { projectionContent: JSON.stringify(sprintEngineProjectionFixture({ name: 'Ship Squad', goal: 'Ship the things' })) } }
+      },
+    },
+  )
+  assert.equal(captured.length, 1)
+  const init = captured[0]
+  assert.deepEqual(init.agentIds, ['architect'], 'only the architect is seated at init')
+  assert.deepEqual(init.enabledRoles, ['architect'], 'configuredRoles collapse to the architect')
+  assert.equal(init.rosterSource, 'architect')
+  assert.deepEqual(
+    init.roleRuntimes,
+    { architect: { cli: 'claude-code', model: 'claude-fable-5' } },
+    'only the architect seat is pinned — the full role defaults are ignored',
+  )
+  assert.deepEqual(
+    init.allowedRuntimes,
+    [{ cli: 'claude-code', model: 'claude-opus-4-8' }, { cli: 'zai', model: null }],
+    'allowedRuntimes is exactly the ticked palette',
+  )
+  // Guidance rides prompt-only auto state (trimmed), never the engine init.
+  assert.equal(args.sprintEngineAutoState?.architectGuidance, 'Quality matters')
+}
+
 async function testSprintEngineNewTeamInitFailuresBlockWorkspaceArgs(): Promise<void> {
   const input = {
     folderPath: '/p',
@@ -1311,6 +1417,8 @@ async function main(): Promise<void> {
   testBuildSprintEngineExistingTeamCreation()
   testBuildSprintEngineNewTeamCreation()
   await testSprintEngineNewTeamInitializesRunState()
+  await testSprintEngineNewTeamUserModeInitArgsUnchanged()
+  await testSprintEngineArchitectRosterInitArgs()
   await testSprintEngineNewTeamInitFailuresBlockWorkspaceArgs()
   testSprintEngineEffectiveSpawnAtStartRoles()
   await testSprintEnginePlanSourcedValidation()

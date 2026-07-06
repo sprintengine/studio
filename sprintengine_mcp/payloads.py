@@ -40,6 +40,8 @@ def command_payload_to_namespace(
         base.update(role=payload["role"], id=payload["agentId"], attempts=payload.get("attempts") or 1)
     elif tool_name == "sprintengine.roster.add":
         base.update(role=payload["role"], id=payload["id"], actor=payload.get("actor") or _actor_id(actor, "architect"))
+    elif tool_name == "sprintengine.roster.configure":
+        base.update(roles=list(payload.get("roles") or []), id=payload.get("id") or _actor_id(actor, "architect"))
     elif tool_name == "sprintengine.roster.retire":
         base.update(id=payload["id"], reason=payload["reason"], actor=payload.get("actor") or _actor_id(actor, payload["id"]))
     elif tool_name == "sprintengine.roster.replenish":

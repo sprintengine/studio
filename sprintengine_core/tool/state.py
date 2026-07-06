@@ -122,6 +122,75 @@ def apply_configured_roles(state: Dict[str, Any], raw_json: Optional[str]) -> No
     state["configuredRoles"] = roles
 
 
+def apply_roster_source(state: Dict[str, Any], value: Optional[str]) -> None:
+    """Persist the run's roster-source mode at init (CLI-init-only).
+
+    `'architect'` means the architect picks the team via `roster.configure`;
+    `'user'` (and absent/legacy) means the user composed the roster in the
+    wizard. Mirrors `apply_configured_roles`: blank/absent input leaves the key
+    untouched so legacy runs stay absent (default `'user'` semantics), and the
+    round-trip re-emits it only when present. App-written like
+    `--role-runtimes-json`; never MCP-mutable.
+    """
+    clean = str(value or "").strip()
+    if not clean:
+        return
+    if clean not in {"user", "architect"}:
+        raise SystemExit("--roster-source must be 'user' or 'architect'.")
+    state["rosterSource"] = clean
+
+
+def apply_allowed_runtimes(state: Dict[str, Any], raw_json: Optional[str]) -> None:
+    """Persist the sprint's allowed runtime palette at init (CLI-init-only).
+
+    `raw_json` is a JSON array of `{cli, model}` objects (`model: null` = that
+    CLI's own default, recorded as `None`) — the models the user ticked for this
+    sprint. This is the hard boundary `roster.configure` enforces: the architect
+    may only assign a role a `{cli, model}` that exactly matches an entry here.
+    Entries with no usable `cli` are dropped, and duplicates are collapsed.
+    Blank/absent input leaves the key untouched so non-architect runs stay
+    absent. App-written like `--role-runtimes-json`; never MCP-mutable.
+    """
+    if not raw_json or not str(raw_json).strip():
+        return
+    try:
+        parsed = json.loads(raw_json)
+    except (TypeError, ValueError) as error:
+        raise SystemExit(f"--allowed-runtimes-json must be a JSON array: {error}")
+    if not isinstance(parsed, list):
+        raise SystemExit("--allowed-runtimes-json must be a JSON array of {cli, model} objects.")
+    allowed: List[Dict[str, Any]] = []
+    for entry in parsed:
+        if not isinstance(entry, dict):
+            continue
+        cli = str(entry.get("cli") or "").strip()
+        if not cli:
+            continue
+        raw_model = entry.get("model")
+        model = str(raw_model).strip() or None if raw_model is not None else None
+        normalized = {"cli": cli, "model": model}
+        if normalized not in allowed:
+            allowed.append(normalized)
+    state["allowedRuntimes"] = allowed
+
+
+def runtime_matches_allowed(allowed: Any, cli: str, model: Optional[str]) -> bool:
+    """True when `{cli, model}` exactly matches an entry in the allowed palette.
+
+    `model` is compared as-is: `None` (CLI default) matches only a `None` entry,
+    a string matches only that string. Used by `roster.configure` to reject any
+    role assignment outside the sprint's ticked selection.
+    """
+    if not isinstance(allowed, list):
+        return False
+    return any(
+        isinstance(entry, dict)
+        and str(entry.get("cli") or "").strip() == cli
+        and (entry.get("model") or None) == (model or None)
+        for entry in allowed
+    )
+
+
 def apply_init_source(
     state: Dict[str, Any],
     source_json: Optional[str],
