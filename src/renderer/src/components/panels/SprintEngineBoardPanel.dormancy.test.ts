@@ -169,6 +169,12 @@ function testReopenResumesRecordedSessionWhileDormant(): void {
     recordedAt: 500,
   }
   const dormantState: SprintEngineState | null = null // cold reopen: projection not hydrated
+  // Resume capabilities are resolved from the manifest by the caller; both
+  // claude-code and codex declare resumeSession, so both resume.
+  const capsByCli = {
+    'claude-code': { resumeSession: true, sessionIdFromCaller: true },
+    codex: { resumeSession: true, sessionIdFromCaller: false },
+  } as const
   for (const cli of ['claude-code', 'codex'] as const) {
     assert.equal(
       willResumeRecordedRosterSession({
@@ -176,6 +182,7 @@ function testReopenResumesRecordedSessionWhileDormant(): void {
         autoRuntimeState: 'complete',
         recorded: { ...recorded, cli },
         agentId: 'developer-1',
+        resumeCapabilities: capsByCli[cli],
       }),
       true,
       `${cli} resumes its recorded session when the run is dormant`,
@@ -190,6 +197,7 @@ function testReopenResumesRecordedSessionWhileDormant(): void {
       autoRuntimeState: 'complete',
       recorded: { ...recorded, cliSessionId: '' },
       agentId: 'developer-1',
+      resumeCapabilities: capsByCli['claude-code'],
     }),
     false,
     'a recorded entry without a session id cannot resume',

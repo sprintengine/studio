@@ -534,6 +534,7 @@ function preserveAgentTerminalMetadata(incomingWorkspace: Workspace, currentWork
       cliHasLaunched: currentAgent.cliHasLaunched,
       cliOnboardingPromptSent: currentAgent.cliOnboardingPromptSent,
       cliResumeAvailable: currentAgent.cliResumeAvailable,
+      cliUsesStableSessionId: currentAgent.cliUsesStableSessionId,
       cli: currentAgent.cli ?? incomingAgent.cli,
     }
     changed = true

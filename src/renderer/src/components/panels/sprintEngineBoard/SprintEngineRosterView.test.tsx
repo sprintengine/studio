@@ -137,8 +137,9 @@ assert.ok(html.includes('aria-expanded="false"'), 'a quiet role group renders co
 assert.ok(html.includes('aria-label="Developer agents"'), 'developer group list is role-labeled')
 assert.ok(html.includes('aria-label="Tester agents"'), 'tester group list is role-labeled')
 
-// Live-session count badge on the role header.
-assert.ok(html.includes('1 active'), 'role header shows the live-session count')
+// Role header subtitle is a seat census ("1 of 2 active"), never a task line —
+// task ownership renders on the member rows only.
+assert.ok(/\d+ of \d+ active/.test(html), 'role header shows the seat census')
 
 // Newest-first ordering within a group: developer-2 before developer-1.
 assert.ok(
@@ -146,10 +147,17 @@ assert.ok(
   'group entries render newest-first',
 )
 
-// Persistent reviewer (bare `tester`, never assigned a task) is tagged; the
-// bare `frontend` id owns T5 so it stays a worker, and no per-task worker is
-// tagged -> exactly one Reviewer tag.
-assert.equal((html.match(/>Reviewer</g) || []).length, 1, 'only the persistent reviewer entry is tagged')
+// Member rows carry no right-aligned seat/role tag (the group header already
+// names the role); the old "Reviewer" tag is gone. The persistent review-only
+// seat stays distinguishable via a "Review seat" note on its meta line —
+// exactly one: bare `tester` (never assigned a task) qualifies, the bare
+// `frontend` id owns T5 so it stays a worker.
+assert.equal((html.match(/>Reviewer</g) || []).length, 0, 'member rows render no seat/role tag')
+assert.equal(
+  (html.match(/>Review seat</g) || []).length,
+  1,
+  'the persistent reviewer is marked once on its meta line',
+)
 
 // Primary action splits three ways by liveness + resumability.
 // Live member: Open, and the row menu is labeled.

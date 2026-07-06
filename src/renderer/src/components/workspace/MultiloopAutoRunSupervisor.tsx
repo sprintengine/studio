@@ -22,6 +22,7 @@ import {
   agentCliSupportsConversationResume,
   agentCliUsesStableSessionIdForResume,
 } from '../../utils/agentCliResume'
+import { resumeCapabilitiesForCli } from '../../store/slices/pluginsSlice'
 import {
   buildMultiloopAutoStartupPrompt,
   selectMultiloopAutoRunCandidates,
@@ -184,8 +185,11 @@ async function reconcileWorkspaceSessions(workspace: Workspace): Promise<void> {
     const status = await window.api.terminalStatus(agent.cliSessionId)
     if (status.processAlive) continue
 
-    const canResume = agentCliSupportsConversationResume(agent.cli)
-    const preserveSessionId = canResume || agentCliUsesStableSessionIdForResume(agent.cli)
+    // These agents have already launched (guarded above), so rely on the resume
+    // capabilities stamped from the manifest at session assign, not a
+    // re-derivation from cli.
+    const canResume = agent.cliResumeAvailable ?? false
+    const preserveSessionId = canResume || (agent.cliUsesStableSessionId ?? false)
     useWorkspaceStore.getState().updateAgent(workspace.id, agent.id, {
       cliSessionId: preserveSessionId ? agent.cliSessionId : undefined,
       cliStartRequested: preserveSessionId,
@@ -252,6 +256,7 @@ async function spawnMultiloopAutoRunCandidate(
   const currentWorkspace = currentState.workspaces.find((item) => item.id === workspace.id)
   const currentAgent = currentWorkspace?.agents[candidate.agentId]
   const selectedCli = currentAgent?.cli
+  const selectedResumeCaps = resumeCapabilitiesForCli(selectedCli, currentState.pluginCatalogEntries)
   const sessionId = crypto.randomUUID()
 
   inFlightSpawns.current.add(spawnKey)
@@ -367,7 +372,8 @@ async function spawnMultiloopAutoRunCandidate(
       cliSessionId: sessionId,
       cliHasLaunched: true,
       cliOnboardingPromptSent: true,
-      cliResumeAvailable: agentCliSupportsConversationResume(selectedCli),
+      cliResumeAvailable: agentCliSupportsConversationResume(selectedResumeCaps),
+      cliUsesStableSessionId: agentCliUsesStableSessionIdForResume(selectedResumeCaps),
       cli: selectedCli,
       cliPermissionPreset: workspace.multiloopAutoState.cliPermissionPreset,
       cliStartupPrompt: undefined,
@@ -481,7 +487,7 @@ async function spawnMultiloopAutoRunCandidate(
     void workspaceSyncClient.dispatchAssignTerminalSession(workspace.id, candidate.agentId, sessionId, selectedCli)
     void workspaceSyncClient.dispatchUpdateTerminalLaunchState(workspace.id, candidate.agentId, {
       cliOnboardingPromptSent: true,
-      cliResumeAvailable: agentCliSupportsConversationResume(selectedCli),
+      cliResumeAvailable: agentCliSupportsConversationResume(selectedResumeCaps),
     })
     revealMultiloopAgentTerminal(workspace.id, candidate.agentId, candidate.label)
     return 'started'

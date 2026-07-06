@@ -1,22 +1,28 @@
-import type { AgentCli } from './electron-api'
+import type { PluginCapabilities } from './plugin-manifest'
 
-// Which CLIs can resume a recorded conversation after their process is gone
+// The two plugin-manifest capabilities that decide conversation-resume
+// behavior, declared per CLI in resources/plugins/<id>/plugin.json. The
+// predicates below are pure functions of these booleans, so any CLI that
+// declares the capability resumes with zero code edits — there is no per-CLI
+// allowlist to maintain (forgetting one silently lost the user's conversation,
+// the MC-1464 Z.AI bug). Renderer call sites resolve a cli to these caps via
+// `resumeCapabilitiesForCli` (pluginsSlice) against the projected catalog; the
+// main process resolves them from the registry and stamps them onto the
+// agent-terminal sync payload.
+export type ResumeCapabilities = Pick<PluginCapabilities, 'resumeSession' | 'sessionIdFromCaller'>
+
+// Whether a CLI can resume a recorded conversation after its process is gone
 // (app restart, freeze-the-view reap, Sprint Engine idle-retirement). Mirrors
-// `capabilities.resumeSession` in resources/plugins/<id>/plugin.json. Kept as
-// a static list because these predicates run synchronously inside store
-// reducers and sync appliers where the main-process plugin registry is not
-// reachable; the manifest-driven generalization is deferred to
-// backlog/2026-07-05-manifest-driven-cli-resume-predicates.md.
-export function agentCliSupportsConversationResume(cli: AgentCli | undefined): boolean {
-  return cli === 'codex' || cli === 'claude-code' || cli === 'zai'
+// `capabilities.resumeSession`.
+export function agentCliSupportsConversationResume(caps: ResumeCapabilities | undefined): boolean {
+  return caps?.resumeSession ?? false
 }
 
-// Which CLIs resume with the session id WE mint and pass at launch
-// (`--session-id <id>` on launch, `--resume <id>` on relaunch), so our
-// terminal key doubles as the resume token. Mirrors
-// `capabilities.sessionIdFromCaller`. Z.AI runs the same `claude` binary as
-// claude-code (endpoint redirected via launch.env), so it shares this
-// stable-session contract; codex mints its own ids and must stay excluded.
-export function agentCliUsesStableSessionIdForResume(cli: AgentCli | undefined): boolean {
-  return cli === 'claude-code' || cli === 'zai'
+// Whether a CLI resumes with the session id WE mint and pass at launch
+// (`--session-id <id>` on launch, `--resume <id>` on relaunch), so our terminal
+// key doubles as the resume token. Mirrors `capabilities.sessionIdFromCaller`.
+// CLIs that mint their own id (Codex) must stay false — a bare `resume` (last
+// session) is their correct default instead.
+export function agentCliUsesStableSessionIdForResume(caps: ResumeCapabilities | undefined): boolean {
+  return caps?.sessionIdFromCaller ?? false
 }

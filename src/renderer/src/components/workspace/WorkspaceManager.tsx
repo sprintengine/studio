@@ -15,7 +15,7 @@ import { shouldOpenStartupTipOnComplete } from '../../store/onboardingState'
 import type { SoloChatSeed } from '../../store/slices/workspacesSlice'
 import { normalizeSelectedCli } from '../../store/slices/settingsSlice'
 import { resolveAvailableAgentCli, resolveSurfaceModel, resolveTemplateAgentCli, selectAgentCliCatalog } from './newWorkspace/cliRuntimeOptions'
-import { subscribePluginCatalogRefreshOnFocus } from '../../store/slices/pluginsSlice'
+import { resumeCapabilitiesForCli, subscribePluginCatalogRefreshOnFocus } from '../../store/slices/pluginsSlice'
 import { getRendererHost, selectModuleEnabled } from '../../modules'
 import { resolveNotificationActions as resolveNotificationActionsFor } from '../../utils/notificationActions'
 import {
@@ -66,7 +66,7 @@ import { logPerfEvent } from '../../utils/perfDiagnostics'
 import { applySprintEngineAutomationStopReason } from '../../utils/sprintengineSupervisorNotifications'
 import { addAgentTabTiled, addTerminalTab, focusOrAddAgentTab, focusOrAddFileTab, focusOrAddTerminalTab, getModel, jsonModelHasComponent, revealNavRailComponent, togglePanelRailComponent } from '../../utils/modelRegistry'
 import { MULTICODE_DISABLE_SPRINTENGINE_SYNC } from '../../utils/runtimeFlags'
-import { agentCliSupportsConversationResume } from '../../utils/agentCliResume'
+import { agentCliSupportsConversationResume, agentCliUsesStableSessionIdForResume } from '../../utils/agentCliResume'
 import { useConfirmDialog } from '../ui/ConfirmDialog'
 import { type NewWorkspacePanelInitialState } from './NewWorkspacePanel'
 import { type AgentComposerConfirm, type AgentComposerSelection } from './agentComposer/AgentComposer'
@@ -2352,13 +2352,15 @@ export default function WorkspaceManager() {
     }
 
     if (item.agentId) {
+      const itemResumeCaps = resumeCapabilitiesForCli(item.cli, pluginCatalogEntries)
       updateAgent(item.workspace.id, item.agentId, {
         name: item.label,
         cli: item.cli,
         cliSessionId: item.sessionId,
         cliStartRequested: true,
         cliHasLaunched: true,
-        cliResumeAvailable: agentCliSupportsConversationResume(item.cli) ? true : undefined,
+        cliResumeAvailable: agentCliSupportsConversationResume(itemResumeCaps) ? true : undefined,
+        cliUsesStableSessionId: agentCliUsesStableSessionIdForResume(itemResumeCaps) ? true : undefined,
       })
     }
 

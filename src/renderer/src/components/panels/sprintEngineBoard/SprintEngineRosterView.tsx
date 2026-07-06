@@ -1,4 +1,5 @@
 import React, { useState } from 'react'
+import CliIcon from '../../CliIcon'
 import {
   CliModelListbox,
   ContextMenu,
@@ -297,15 +298,14 @@ export function SprintEngineRosterView({
                 const expanded = expandOverrides[role] ?? defaultExpanded
                 const listId = `roster-group-${role}`
                 const roleLabel = roleLabelFor(role)
-                // Newest activity summary: the newest attention entry (else the
-                // newest entry), shown as its owned task or its status.
-                const lead =
-                  descriptors.find((entry) => isAttentionStatus(entry.statusKey)) ?? descriptors[0] ?? null
-                const summary = lead
-                  ? lead.tasks[0]
-                    ? `${lead.tasks[0].id}${lead.tasks[0].title ? ` · ${lead.tasks[0].title}` : ''}`
-                    : lead.statusLabel
-                  : 'No sessions yet'
+                // Header subtitle is a seat census, not an activity feed: task
+                // ownership and status live on the member rows (and the task is
+                // already visible in the member's terminal), so the group row
+                // stays quiet — "1 of 2 active" — and never repeats a task line.
+                const summary =
+                  entries.length === 0
+                    ? 'No sessions yet'
+                    : `${liveCount} of ${entries.length} active`
                 return (
                   <section key={role} className="border-b border-[color:var(--border-default)]">
                     <button
@@ -332,22 +332,15 @@ export function SprintEngineRosterView({
                       </svg>
                       <RoleAvatar role={role} size="sm" ariaLabel="" />
                       <span className="min-w-0 flex-1 space-y-0.5">
-                        <span className="flex min-w-0 items-baseline gap-2">
-                          <TruncatedText
-                            as="span"
-                            text={roleLabel}
-                            className="min-w-0 flex-1 text-[13px] font-medium text-[color:var(--text-strong)]"
-                          />
-                          {liveCount > 0 ? (
-                            <span className="shrink-0 text-[11px] tabular-nums text-[color:var(--text-muted)]">
-                              {liveCount} active
-                            </span>
-                          ) : null}
-                        </span>
+                        <TruncatedText
+                          as="span"
+                          text={roleLabel}
+                          className="block min-w-0 text-[13px] font-medium text-[color:var(--text-strong)]"
+                        />
                         <TruncatedText
                           as="span"
                           text={summary}
-                          className="block text-[11px] text-[color:var(--text-subtle)]"
+                          className="block text-[11px] tabular-nums text-[color:var(--text-subtle)]"
                         />
                       </span>
                     </button>
@@ -507,11 +500,23 @@ export function SprintEngineRosterView({
   // of the pre-grouping flat row: identity, earned status, CLI/model summary,
   // owned task list, primary open/spawn action, and the ⋮ lifecycle menu.
   function renderAgentRow(descriptor: RosterEntryDescriptor): React.ReactNode {
-    const { agent, spawnPending, resumable, statusKey, statusLabel, displayName, roleSlotLabel, isReviewer, tasks } =
+    const { agent, spawnPending, resumable, statusKey, statusLabel, displayName, isReviewer, tasks } =
       descriptor
     const hasLiveTerminal = descriptor.hasLiveTerminal
     const lifecycle = rosterLifecycle(statusKey, spawnPending)
     const runtimeSummary = runtimeSummaryFor(agent.id)
+    // The runtime line leads with the CLI's brand mark instead of spelling the
+    // CLI name; the visible text is just the model — icon-only when no model is
+    // configured (never the CLI name in the model slot). The full "CLI · model"
+    // summary stays as the hover/AT label so nothing is lost to the icon.
+    const rowCli = agentRuntimeCli(agent.id)
+    const rowCliLabel = cliOptions.find((option) => option.value === rowCli)?.label ?? rowCli
+    const runtimeModelText =
+      runtimeSummary && runtimeSummary.startsWith(`${rowCliLabel} · `)
+        ? runtimeSummary.slice(rowCliLabel.length + 3)
+        : runtimeSummary === rowCliLabel
+          ? null
+          : runtimeSummary
     const selected = selectedAgentId === agent.id
     return (
       <li key={agent.id}>
@@ -535,22 +540,11 @@ export function SprintEngineRosterView({
             }`}
           >
             <span className="min-w-0 flex-1 space-y-0.5">
-              <span className="flex min-w-0 items-baseline gap-2">
-                <TruncatedText
-                  as="span"
-                  text={displayName}
-                  className="min-w-0 flex-1 text-[13px] font-medium"
-                />
-                {isReviewer ? (
-                  <span className="shrink-0 text-[11px] text-[color:var(--text-muted)]">Reviewer</span>
-                ) : roleSlotLabel ? (
-                  <TruncatedText
-                    as="span"
-                    text={roleSlotLabel}
-                    className="min-w-0 shrink text-[11px] text-[color:var(--text-muted)]"
-                  />
-                ) : null}
-              </span>
+              <TruncatedText
+                as="span"
+                text={displayName}
+                className="block min-w-0 text-[13px] font-medium"
+              />
               <span className="flex min-w-0 items-center gap-2 text-[11px] text-[color:var(--text-subtle)]">
                 {lifecycle ? (
                   <span className="flex shrink-0 items-center gap-1.5">
@@ -565,8 +559,23 @@ export function SprintEngineRosterView({
                     <span>{statusLabel}</span>
                   </span>
                 ) : null}
+                {isReviewer ? (
+                  // The persistent review-only seat must stay distinguishable
+                  // from task-owning workers in the same group (retiring it by
+                  // mistake silently removes the run's review coverage).
+                  <span className="shrink-0 text-[color:var(--text-muted)]">Review seat</span>
+                ) : null}
                 {runtimeSummary ? (
-                  <TruncatedText as="span" text={runtimeSummary} className="shrink-0 text-[color:var(--text-muted)]" />
+                  <span
+                    className="flex min-w-0 shrink-0 items-center gap-1.5 text-[color:var(--text-muted)]"
+                    title={runtimeSummary}
+                    aria-label={runtimeSummary}
+                  >
+                    <CliIcon cli={rowCli} className="icon-xs shrink-0" />
+                    {runtimeModelText ? (
+                      <TruncatedText as="span" text={runtimeModelText} className="min-w-0" />
+                    ) : null}
+                  </span>
                 ) : null}
               </span>
               {tasks.length > 0 ? (

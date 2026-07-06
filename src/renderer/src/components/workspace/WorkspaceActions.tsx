@@ -444,6 +444,27 @@ export type WorkspaceActionsProps = {
   runComposerSpawn: (confirm: AgentComposerConfirm) => void
 }
 
+// Branch-fork glyph for the header identity cluster. Stroke idiom matches the
+// Git panel's local icons (1.3px round strokes on a 16px box) so the two Git
+// surfaces read as one family.
+export function GitBranchGlyph({ className }: { className?: string }) {
+  return (
+    <svg viewBox="0 0 16 16" aria-hidden="true" className={className} fill="none">
+      <circle cx="5" cy="3.6" r="1.55" stroke="currentColor" strokeWidth="1.3" />
+      <circle cx="5" cy="12.4" r="1.55" stroke="currentColor" strokeWidth="1.3" />
+      <circle cx="11" cy="4.2" r="1.55" stroke="currentColor" strokeWidth="1.3" />
+      <path d="M5 5.15v5.7" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" />
+      <path
+        d="M11 5.75v.7a3.1 3.1 0 0 1-3.1 3.1H6.5"
+        stroke="currentColor"
+        strokeWidth="1.3"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  )
+}
+
 export function WorkspaceActions({
   workspaces,
   activeWorkspace,

@@ -2928,6 +2928,11 @@ type FakeTask = { role: string; status: SprintEngineTask['status'] }
 
   const completeRun = state([task('T1', 'done')], {})
 
+  // Resume capability is now resolved from the manifest by the caller and passed
+  // in; these mirror the bundled values (claude-code/codex resume, unknown off).
+  const claudeCaps = { resumeSession: true, sessionIdFromCaller: true }
+  const codexCaps = { resumeSession: true, sessionIdFromCaller: false }
+
   // 1. Run wants resume + recorded resume-capable session → resume.
   assert.equal(
     willResumeRecordedRosterSession({
@@ -2935,6 +2940,7 @@ type FakeTask = { role: string; status: SprintEngineTask['status'] }
       autoRuntimeState: undefined,
       recorded: session('claude-code', 'sess-1'),
       agentId: 'developer-1',
+      resumeCapabilities: claudeCaps,
     }),
     true,
     'a completed run with a recorded resume-capable session resumes',
@@ -2948,18 +2954,20 @@ type FakeTask = { role: string; status: SprintEngineTask['status'] }
       autoRuntimeState: undefined,
       recorded: undefined,
       agentId: 'developer-1',
+      resumeCapabilities: undefined,
     }),
     false,
     'a post-completion id with no recorded session spawns fresh, not Resume',
   )
 
-  // 3. Recorded session but a resume-incapable CLI → fresh.
+  // 3. Recorded session but a resume-incapable CLI (no manifest caps) → fresh.
   assert.equal(
     willResumeRecordedRosterSession({
       sprintEngineState: completeRun,
       autoRuntimeState: undefined,
       recorded: session('gemini', 'sess-1'),
       agentId: 'developer-1',
+      resumeCapabilities: undefined,
     }),
     false,
     'a resume-incapable recorded CLI spawns fresh',
@@ -2972,6 +2980,7 @@ type FakeTask = { role: string; status: SprintEngineTask['status'] }
       autoRuntimeState: undefined,
       recorded: { cli: 'claude-code', cliSessionId: '', recordedAt: 0 } as SprintEngineRosterSession,
       agentId: 'developer-1',
+      resumeCapabilities: claudeCaps,
     }),
     false,
     'a recorded session without a cliSessionId spawns fresh',
@@ -2985,6 +2994,7 @@ type FakeTask = { role: string; status: SprintEngineTask['status'] }
       autoRuntimeState: undefined,
       recorded: session('claude-code', 'sess-1'),
       agentId: 'developer-1',
+      resumeCapabilities: claudeCaps,
     }),
     false,
     'a recorded session does not resume while the lifecycle wants a fresh spawn',
@@ -3000,6 +3010,7 @@ type FakeTask = { role: string; status: SprintEngineTask['status'] }
       autoRuntimeState: undefined,
       recorded: session('codex', 'sess-1'),
       agentId: 'developer-1',
+      resumeCapabilities: codexCaps,
     }),
     true,
     'a mid-run departed worker with a resumable session resumes',

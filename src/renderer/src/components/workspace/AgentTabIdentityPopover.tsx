@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react'
 import { IconButton, PointerPopover, StatusDot, type Tone } from '../ui'
 import CliIcon from '../CliIcon'
+import { GitBranchGlyph } from './WorkspaceActions'
 import type { AgentCli } from '../../types/workspace'
 
 // Identity shown for an agent terminal tab. Assembled by the caller from the
@@ -52,14 +53,10 @@ const CopyGlyph = ({ done }: { done: boolean }) =>
     </svg>
   )
 
-// The branch-node worktree mark, matching the tab's leading worktree glyph.
+// The branch-node worktree mark, matching the tab's leading worktree glyph —
+// the shared GitBranchGlyph fork, not a local drawing.
 const BranchGlyph = () => (
-  <svg viewBox="0 0 16 16" className="icon-xs shrink-0 text-[color:var(--text-muted)]" fill="none" stroke="currentColor" strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-    <circle cx="4" cy="3" r="1.6" />
-    <circle cx="4" cy="13" r="1.6" />
-    <circle cx="12" cy="6" r="1.6" />
-    <path d="M4 4.6v6.8M4 9.5a4 4 0 0 0 4-4 2.5 2.5 0 0 1 2.5-2.5" />
-  </svg>
+  <GitBranchGlyph className="icon-xs shrink-0 text-[color:var(--text-muted)]" />
 )
 
 function IdentityRow({ label, children }: { label: string; children: React.ReactNode }) {

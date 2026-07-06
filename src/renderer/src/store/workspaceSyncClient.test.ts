@@ -1,7 +1,6 @@
 import assert from 'node:assert/strict'
 
 import { createWorkspaceSyncService } from '../../../main/workspace-sync-service'
-import { agentCliSupportsConversationResume } from '../../../shared/agent-cli-resume'
 import {
   createWorkspaceSyncClient,
   type WorkspaceActiveChangedApply,
@@ -129,7 +128,7 @@ function createFakeStore(windows: WorkspaceWindowState[], activeWorkspaceId: Wor
       if (Number.isFinite(createdAt)) target.lastFocusedAt = createdAt
       if (isCurrentWindowTarget) state.activeWorkspaceId = workspace.id
     },
-    applyTerminalSession({ workspaceId, agentId, sessionId, cli }: AgentTerminalSessionApply): void {
+    applyTerminalSession({ workspaceId, agentId, sessionId, cli, cliResumeAvailable, cliUsesStableSessionId }: AgentTerminalSessionApply): void {
       const workspace = state.workspaces.find((candidate) => candidate.id === workspaceId)
       if (!workspace) return
       workspace.agents[agentId] = {
@@ -144,7 +143,8 @@ function createFakeStore(windows: WorkspaceWindowState[], activeWorkspaceId: Wor
         cli,
         cliStartRequested: true,
         cliHasLaunched: true,
-        cliResumeAvailable: agentCliSupportsConversationResume(cli),
+        cliResumeAvailable,
+        cliUsesStableSessionId,
       } as AgentState
     },
     applyTerminalLaunchState({ workspaceId, agentId, ...update }: AgentTerminalLaunchStateApply): void {

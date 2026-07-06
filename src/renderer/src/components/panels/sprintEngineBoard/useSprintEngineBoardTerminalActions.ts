@@ -3,11 +3,13 @@ import type {
   AgentCli,
   AgentExecution,
   AgentState,
+  PluginCatalogEntry,
   SprintEngineState,
   Workspace,
   WorkspaceId,
 } from '../../../types/workspace'
 import { addAgentTabTiled, focusOrAddAgentTab, hasAgentTab } from '../../../utils/modelRegistry'
+import { resumeCapabilitiesForCli } from '../../../store/slices/pluginsSlice'
 import { getSprintEngineRoleLabel, willResumeRecordedRosterSession, type SprintEngineAgentRosterItem } from '../../../utils/sprintengine'
 import { prependAgentIdentifier } from '../../../utils/agentPrompt'
 import { publishDiagnostic } from '../../../utils/diagnostics'
@@ -48,6 +50,8 @@ export type SprintEngineBoardTerminalActionsInput = {
   workspace: Workspace | null | undefined
   agents: Record<string, AgentState>
   sprintEngineState: SprintEngineState | null | undefined
+  // Projected plugin catalog, for resolving a recorded CLI's resume capabilities.
+  pluginCatalogEntries: readonly PluginCatalogEntry[]
   rosterById: Record<string, SprintEngineAgentRosterItem | undefined>
   architectAgentId: string | null
   specialistReviewAgents: SprintEngineAgentRosterItem[]
@@ -113,6 +117,7 @@ export function useSprintEngineBoardTerminalActions(
     workspace,
     agents,
     sprintEngineState,
+    pluginCatalogEntries,
     rosterById,
     architectAgentId,
     specialistReviewAgents,
@@ -375,6 +380,10 @@ export function useSprintEngineBoardTerminalActions(
       autoRuntimeState: workspace?.sprintEngineAutoState?.runtimeState,
       recorded: workspace?.sprintEngineRosterSessions?.[agentId],
       agentId,
+      resumeCapabilities: resumeCapabilitiesForCli(
+        workspace?.sprintEngineRosterSessions?.[agentId]?.cli,
+        pluginCatalogEntries,
+      ),
     })
 
   const spawnAgent: SprintEngineBoardTerminalActions['spawnAgent'] = async (agentId) => {

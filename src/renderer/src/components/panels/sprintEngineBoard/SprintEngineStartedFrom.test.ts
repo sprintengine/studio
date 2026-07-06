@@ -180,5 +180,88 @@ assert.equal(sprintEngineSeedKindLabel({ kind: 'unknown', isEpicRoot: false }), 
   )
 }
 
+// 7. MC-1467: the review artifact preview routes HTML artifacts to the same
+// sandboxed frame as the seed preview (raw-source rendering was the bug).
+// React-coupled, so pinned as source contracts like section 6.
+{
+  const inspectorSource = readFileSync(
+    join(process.cwd(), 'src/renderer/src/components/panels/SprintEngineInspectorPanel.tsx'),
+    'utf8',
+  )
+  // The routing decision reuses the seed preview-kind helper, so both
+  // surfaces classify HTML identically by construction.
+  assert.ok(
+    inspectorSource.includes(
+      "sprintEngineSeedPreviewKind(selection.artifact.relativePath) === 'html'",
+    ),
+    'artifact preview classifies HTML via the shared seed preview-kind helper',
+  )
+  assert.ok(
+    inspectorSource.includes('<HtmlArtifactFrame') &&
+      inspectorSource.includes('enableSourceView'),
+    'HTML artifacts route to the sandboxed frame with the opt-in Source toggle',
+  )
+  assert.ok(
+    inspectorSource.includes('watchDirectoryPath={parentPath(selection.artifact.path)}'),
+    'the frame watches the artifact directory for live reload during revisions',
+  )
+
+  // FilePreviewPane keeps its default extension-based body unless a caller
+  // opts into the body override (header chrome stays shared either way).
+  const panePreviewSource = readFileSync(
+    join(process.cwd(), 'src/renderer/src/components/ui/FilePreviewPane.tsx'),
+    'utf8',
+  )
+  assert.ok(
+    panePreviewSource.includes('body?: React.ReactNode'),
+    'FilePreviewPane body override is opt-in',
+  )
+  assert.ok(
+    panePreviewSource.includes('{renderAsMarkdown ? ('),
+    'FilePreviewPane retains the markdown/plain-text default body',
+  )
+
+  // openArtifact must carry the artifact's recorded path so the preview can
+  // classify and display it; the absolute path stays the IO handle.
+  const actionsSource = readFileSync(
+    join(
+      process.cwd(),
+      'src/renderer/src/components/panels/sprintEngineBoard/useSprintEngineBoardArtifactActions.ts',
+    ),
+    'utf8',
+  )
+  assert.ok(
+    actionsSource.includes('relativePath: artifact.path'),
+    'openArtifact records the artifact-relative path alongside the resolved absolute path',
+  )
+}
+
+// 8. MC-1469: a task's artifacts are its outputs — the task detail renders
+// them first-class (after the review surfaces), not inside the collapsed
+// "More" reference section, and only when the task actually has artifacts.
+{
+  const inspectorSource = readFileSync(
+    join(process.cwd(), 'src/renderer/src/components/panels/SprintEngineInspectorPanel.tsx'),
+    'utf8',
+  )
+  const listSites = inspectorSource.match(/<SprintEngineArtifactList/g) ?? []
+  assert.equal(listSites.length, 1, 'the task detail renders exactly one artifact list')
+  const listIndex = inspectorSource.indexOf('<SprintEngineArtifactList')
+  const moreIndex = inspectorSource.indexOf('<details className="group mt-4">')
+  assert.ok(moreIndex > -1, 'the More disclosure still exists for reference sections')
+  assert.ok(
+    listIndex > -1 && listIndex < moreIndex,
+    'the artifact list renders above the More disclosure, not inside it',
+  )
+  assert.ok(
+    inspectorSource.includes('selectedTaskArtifacts.length > 0 ? ('),
+    'the Artifacts section hides entirely for tasks with no artifacts',
+  )
+  assert.ok(
+    inspectorSource.includes('title="Artifacts"'),
+    'the promoted section is titled plainly ("Artifacts")',
+  )
+}
+
 // eslint-disable-next-line no-console
 console.log('SprintEngineStartedFrom.test.ts: ok')

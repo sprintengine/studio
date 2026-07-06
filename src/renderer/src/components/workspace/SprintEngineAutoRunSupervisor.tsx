@@ -93,6 +93,7 @@ import {
   agentCliSupportsConversationResume,
   agentCliUsesStableSessionIdForResume,
 } from '../../utils/agentCliResume'
+import { resumeCapabilitiesForCli } from '../../store/slices/pluginsSlice'
 
 export { TerminalListIpcError } from '../../utils/sprintengineAutoRunExecutor'
 
@@ -647,11 +648,13 @@ async function getRunningAutoRunAgentIds(
     if (!agent?.cliStartRequested || agent.cliSessionId !== session.sessionId) {
       const effectiveCli = session.cli ?? agent?.cli
       if (!effectiveCli) continue
+      const resumeCaps = resumeCapabilitiesForCli(effectiveCli, useWorkspaceStore.getState().pluginCatalogEntries)
       useWorkspaceStore.getState().updateAgent(workspace.id, session.agentId, {
         cliSessionId: session.sessionId,
         cliStartRequested: true,
         cliHasLaunched: true,
-        cliResumeAvailable: agentCliSupportsConversationResume(effectiveCli),
+        cliResumeAvailable: agentCliSupportsConversationResume(resumeCaps),
+        cliUsesStableSessionId: agentCliUsesStableSessionIdForResume(resumeCaps),
         cli: effectiveCli,
         kind: 'sprintengine',
       })
@@ -1082,12 +1085,15 @@ export async function executeSprintEngineDispatchPlan(
     // is the harness id the session captured, falling back to the terminal
     // key only for CLIs whose resume id IS our minted key (claude-code). No
     // token → fall through to the full clear (fresh-brief respawn).
-    const effectiveCli = session.cli ?? workspace.agents[retirement.agentId]?.cli
+    // Post-launch consumer: read the resume capabilities already stamped on the
+    // retiring agent (from session assign) rather than re-resolving from the
+    // catalog, which may not be loaded in this background path.
+    const retiringAgent = workspace.agents[retirement.agentId]
     const resumeToken = retirement.retainResumeState
       ? (session.cliSessionId
-        ?? (agentCliUsesStableSessionIdForResume(effectiveCli) ? session.sessionId : undefined))
+        ?? (retiringAgent?.cliUsesStableSessionId ? session.sessionId : undefined))
       : undefined
-    const retainedResume = Boolean(resumeToken && agentCliSupportsConversationResume(effectiveCli))
+    const retainedResume = Boolean(resumeToken && retiringAgent?.cliResumeAvailable)
     defaultExecutorPorts.updateAgent(workspace.id, retirement.agentId, {
       cliSessionId: retainedResume ? resumeToken : undefined,
       cliStartRequested: false,
@@ -1295,11 +1301,13 @@ async function reconcileDuplicateAgentSessions(workspace: Workspace): Promise<Te
     if (agent?.cliSessionId !== preferredSession.sessionId || !agent?.cliStartRequested) {
       const effectiveCli = preferredSession.cli ?? agent?.cli
       if (!effectiveCli) continue
+      const resumeCaps = resumeCapabilitiesForCli(effectiveCli, useWorkspaceStore.getState().pluginCatalogEntries)
       useWorkspaceStore.getState().updateAgent(workspace.id, agentId, {
         cliSessionId: preferredSession.sessionId,
         cliStartRequested: true,
         cliHasLaunched: true,
-        cliResumeAvailable: agentCliSupportsConversationResume(effectiveCli),
+        cliResumeAvailable: agentCliSupportsConversationResume(resumeCaps),
+        cliUsesStableSessionId: agentCliUsesStableSessionIdForResume(resumeCaps),
         cli: effectiveCli,
         kind: 'sprintengine',
       })
@@ -1438,7 +1446,6 @@ export async function spawnAutoRunCandidate(
     && currentAgent.cliSessionId
     && !currentAgent.cliHasLaunched
     && !currentAgent.cliStartRequested
-    && agentCliSupportsConversationResume(selectedCli)
       ? currentAgent.cliSessionId
       : undefined
   const workspaceFolderPath = workspace.folderPath

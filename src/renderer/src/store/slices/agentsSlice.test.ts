@@ -163,12 +163,17 @@ carrier.workspaces[0].agents['live-agent'] = {
   cliHasLaunched: true,
   cliSessionId: 'live-session',
 }
+// Reconcile is now manifest-driven: it trusts the resume flag stamped at
+// session assign (agent.cliResumeAvailable), not a re-derivation from cli. A
+// launched resume-capable agent carries the stamped flag, so reconcile keeps it
+// start-requested (resumable) when its session is not currently live.
 carrier.workspaces[0].agents['codex-agent'] = {
   ...defaultAgent('codex-agent'),
   cli: 'codex',
   cliStartRequested: true,
   cliHasLaunched: true,
   cliSessionId: 'missing-codex',
+  cliResumeAvailable: true,
 }
 carrier.workspaces[0].agents['claude-agent'] = {
   ...defaultAgent('claude-agent'),
@@ -176,7 +181,7 @@ carrier.workspaces[0].agents['claude-agent'] = {
   cliStartRequested: false,
   cliHasLaunched: true,
   cliSessionId: 'stable-claude',
-  cliResumeAvailable: false,
+  cliResumeAvailable: true,
 }
 carrier.workspaces[0].agents['claude-code-agent'] = {
   ...defaultAgent('claude-code-agent'),
@@ -184,7 +189,7 @@ carrier.workspaces[0].agents['claude-code-agent'] = {
   cliStartRequested: false,
   cliHasLaunched: true,
   cliSessionId: 'stable-claude-code',
-  cliResumeAvailable: false,
+  cliResumeAvailable: true,
 }
 carrier.workspaces[0].agents['sprintengine-agent'] = {
   ...defaultAgent('sprintengine-agent'),
@@ -219,16 +224,22 @@ assert.equal(carrier.workspaces[0].agents['sprintengine-agent'].cliHasLaunched, 
 assert.equal(carrier.workspaces[0].agents['sprintengine-agent'].cliSessionId, undefined)
 assert.equal(carrier.workspaces[0].agents['sprintengine-agent'].cliResumeAvailable, false)
 
+// The session event carries resume capabilities stamped main-side; the applier
+// stores them verbatim (codex: resume yes, stable-session no) rather than
+// re-deriving from cli.
 directSlice.applyAgentTerminalSessionEvent({
   workspaceId: 'ws-direct',
   agentId: 'event-agent',
   sessionId: 'event-session',
   cli: 'codex',
+  cliResumeAvailable: true,
+  cliUsesStableSessionId: false,
 })
 assert.equal(carrier.workspaces[0].agents['event-agent'].cliSessionId, 'event-session')
 assert.equal(carrier.workspaces[0].agents['event-agent'].cliStartRequested, true)
 assert.equal(carrier.workspaces[0].agents['event-agent'].cliHasLaunched, true)
 assert.equal(carrier.workspaces[0].agents['event-agent'].cliResumeAvailable, true)
+assert.equal(carrier.workspaces[0].agents['event-agent'].cliUsesStableSessionId, false)
 
 directSlice.applyAgentTerminalLaunchStateEvent({
   workspaceId: 'ws-direct',

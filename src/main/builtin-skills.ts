@@ -93,6 +93,17 @@ export const BUILTIN_SKILLS: BuiltinSkill[] = [
     // just .agents/. launchConnectorChat ensure-installs it at spawn.
     targetPolicy: ALL_NATIVE_TARGET_POLICY,
   },
+  {
+    id: 'use-codex',
+    name: 'Use Codex',
+    version: '1.0.0',
+    description:
+      'Delegate non-UI implementation, second-opinion reviews, image generation, and chores to the local Codex CLI.',
+    // Deliberately not all-native: installing "delegate to Codex" into
+    // .codex/skills would tell Codex to delegate to itself. Static targets
+    // only — .agents plus Claude Code's native skill dir.
+    harnesses: ['agents', 'claude'],
+  },
 ]
 
 type BuiltinSkillManagerOptions = {
