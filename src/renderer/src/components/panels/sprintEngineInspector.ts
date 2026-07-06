@@ -179,7 +179,10 @@ export function formatTaskSyncStatusDescription(task: SprintEngineTask): string 
 
 export function formatArtifactSummary(artifacts: SprintEngineArtifact[]): string {
   const pendingCount = artifacts.filter((artifact) =>
-    artifact.status !== 'approved' && artifact.status !== 'superseded'
+    artifact.status !== 'approved'
+    && artifact.status !== 'superseded'
+    // Recorded evidence is filed, not awaiting a decision — never "pending".
+    && artifact.status !== 'recorded'
   ).length
   const approvedCount = artifacts.filter((artifact) => artifact.status === 'approved').length
 
@@ -201,7 +204,16 @@ export function artifactTimestampMs(artifact: SprintEngineArtifact): number {
 
 export const SOURCE_HANDOFF_ARTIFACT_ID = 'source-handoff'
 
-export function getSprintEngineInboxArtifacts(artifacts: SprintEngineArtifact[]): SprintEngineArtifact[] {
+// Artifact statuses that represent a pending human decision. These are the
+// only statuses the Inbox tab badge counts: a fresh sprint whose sole artifact
+// is a draft plan placeholder is an expected state, not a queue demanding
+// attention, so its badge reads 0.
+const INBOX_ACTIONABLE_STATUSES: ReadonlySet<SprintEngineArtifact['status']> = new Set([
+  'ready_for_review',
+  'changes_requested',
+])
+
+function sortInboxArtifacts(artifacts: SprintEngineArtifact[]): SprintEngineArtifact[] {
   return [...artifacts].sort((a, b) => {
     const aIsHandoff = a.id === SOURCE_HANDOFF_ARTIFACT_ID
     const bIsHandoff = b.id === SOURCE_HANDOFF_ARTIFACT_ID
@@ -210,6 +222,44 @@ export function getSprintEngineInboxArtifacts(artifacts: SprintEngineArtifact[])
     if (timestampDelta !== 0) return timestampDelta
     return a.title.localeCompare(b.title)
   })
+}
+
+export function getSprintEngineInboxArtifacts(artifacts: SprintEngineArtifact[]): SprintEngineArtifact[] {
+  // The Inbox list is the actionable/review queue. Two statuses are held out:
+  //   - `draft` — work-in-progress (e.g. the seed plan placeholder written
+  //     before the architect fills it in), reachable via the board's Read-plan
+  //     action, not a review item;
+  //   - `recorded` — filed gate/evidence records, which surface in the separate
+  //     read-only Evidence grouping instead (getSprintEngineEvidenceArtifacts).
+  // The source handoff is always kept, whatever its status.
+  return sortInboxArtifacts(
+    artifacts.filter(
+      (artifact) =>
+        artifact.id === SOURCE_HANDOFF_ARTIFACT_ID
+        || (artifact.status !== 'draft' && artifact.status !== 'recorded'),
+    ),
+  )
+}
+
+// Recorded evidence records, split out of the actionable queue into their own
+// read-only Evidence grouping. The source handoff is never evidence — it leads
+// the review queue — so it is excluded even if it ever carried a recorded status.
+export function getSprintEngineEvidenceArtifacts(artifacts: SprintEngineArtifact[]): SprintEngineArtifact[] {
+  return sortInboxArtifacts(
+    artifacts.filter(
+      (artifact) => artifact.id !== SOURCE_HANDOFF_ARTIFACT_ID && artifact.status === 'recorded',
+    ),
+  )
+}
+
+// Inbox tab badge count: only artifacts awaiting a human decision
+// (ready_for_review + changes_requested). Approved/draft artifacts stay
+// visible in the list but do not inflate the badge, so the count reflects
+// outstanding review work rather than total list length.
+export function getSprintEngineInboxBadgeCount(artifacts: SprintEngineArtifact[]): number {
+  return getSprintEngineInboxArtifacts(artifacts).filter((artifact) =>
+    INBOX_ACTIONABLE_STATUSES.has(artifact.status),
+  ).length
 }
 
 export type MobileArtifactDecision = {
@@ -316,15 +366,22 @@ export function sprintEngineInboxRowLifecycle(artifact: SprintEngineArtifact): L
   if (artifact.id === SOURCE_HANDOFF_ARTIFACT_ID) return 'ready'
   switch (artifact.status) {
     case 'approved':
-      return 'done'
+      // Manual (or legacy/absent-mode) approvals get the filled green tick;
+      // policy auto-approvals get the lighter outline tick.
+      return artifact.approvalMode === 'policy' ? 'approved_auto' : 'done'
     case 'ready_for_review':
       return 'review'
     case 'changes_requested':
       return 'changes_requested'
+    case 'recorded':
+      return 'recorded'
     case 'superseded':
       return 'archived'
     case 'draft':
-      return 'in_progress'
+      // Drafts are filtered out of the Inbox list, so this is only reached
+      // defensively — render a quiet not-started ring, never the live spinner
+      // the old draft→in_progress mapping produced.
+      return 'todo'
   }
 }
 

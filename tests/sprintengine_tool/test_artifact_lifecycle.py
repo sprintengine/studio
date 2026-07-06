@@ -418,3 +418,117 @@ def test_mcp_artifact_add_rejects_unknown_kind_with_corrective_error(tmp_path) -
     )
     assert accepted["ok"] is True
     assert accepted["result"]["artifact"]["kind"] == "design_notes"
+
+
+def _approve_with_mode(base_path, approval_mode: str) -> dict:
+    """Seed a ready code_review artifact and CLI-approve it with approvalMode."""
+    fixture_task = task("T1", "Review artifact", "developer", "needs_input", owner="developer-fixture")
+    fixture = create_team(base_path, f"artifact-approval-mode-{approval_mode}", [fixture_task])
+    write_team_file(fixture, "review.md", "# Review\n")
+    state = read_state(fixture.state_path)
+    state["artifacts"] = [
+        {
+            "id": "A1",
+            "kind": "code_review",
+            "title": "Code Review",
+            "path": "review.md",
+            "status": "ready_for_review",
+            "createdBy": "code-reviewer-fixture",
+            "taskId": "T1",
+            "reviewHistory": [],
+            "recommendedTasks": [],
+        }
+    ]
+    write_state(fixture.state_path, state)
+    fixture.cli.run("artifact", "approve", "--artifact-id", "A1", "--id", "user", "--approval-mode", approval_mode)
+    return get_artifact(read_state(fixture.state_path), "A1")
+
+
+def test_artifact_approve_persists_approval_mode_for_both_values(tmp_path) -> None:
+    for approval_mode in ("manual", "policy"):
+        artifact = _approve_with_mode(tmp_path / approval_mode, approval_mode)
+        assert artifact["status"] == "approved"
+        assert artifact["approvalMode"] == approval_mode
+        approved_history = [entry for entry in artifact["reviewHistory"] if entry["action"] == "approved"]
+        assert approved_history[-1]["note"] == f"Approval mode: {approval_mode}."
+
+
+def test_artifact_approve_without_mode_stays_back_compatible(tmp_path) -> None:
+    fixture = create_team(
+        tmp_path,
+        "artifact-approval-no-mode",
+        [task("T1", "Review artifact", "developer", "needs_input", owner="developer-fixture")],
+    )
+    write_team_file(fixture, "review.md", "# Review\n")
+    state = read_state(fixture.state_path)
+    state["artifacts"] = [
+        {
+            "id": "A1",
+            "kind": "code_review",
+            "title": "Code Review",
+            "path": "review.md",
+            "status": "ready_for_review",
+            "createdBy": "code-reviewer-fixture",
+            "taskId": "T1",
+            "reviewHistory": [],
+            "recommendedTasks": [],
+        }
+    ]
+    write_state(fixture.state_path, state)
+
+    fixture.cli.run("artifact", "approve", "--artifact-id", "A1", "--id", "user")
+
+    artifact = get_artifact(read_state(fixture.state_path), "A1")
+    assert artifact["status"] == "approved"
+    # Legacy back-compat: an approval without a mode omits the field entirely and
+    # its approve history entry carries no mode note.
+    assert "approvalMode" not in artifact
+    approved_history = [entry for entry in artifact["reviewHistory"] if entry["action"] == "approved"]
+    assert "note" not in approved_history[-1]
+
+
+def test_mcp_artifact_approve_forwards_and_validates_approval_mode(tmp_path) -> None:
+    # The MCP payload adapter builds the argparse namespace directly and bypasses
+    # the CLI choices, so approvalMode must be validated at the mutation path
+    # (mirrors the artifact-kind validation regression).
+    fixture = create_team(
+        tmp_path,
+        "mcp-artifact-approval-mode",
+        [task("T1", "Review artifact", "developer", "needs_input", owner="developer-fixture")],
+    )
+    write_team_file(fixture, "review.md", "# Review\n")
+    state = read_state(fixture.state_path)
+    state["artifacts"] = [
+        {
+            "id": "A1",
+            "kind": "code_review",
+            "title": "Code Review",
+            "path": "review.md",
+            "status": "ready_for_review",
+            "createdBy": "code-reviewer-fixture",
+            "taskId": "T1",
+            "reviewHistory": [],
+            "recommendedTasks": [],
+        }
+    ]
+    write_state(fixture.state_path, state)
+    server = SprintEngineMcpServer(allowed_roots=[tmp_path])
+    actor_context = {"id": "workspace-user", "role": "user", "authenticated": True, "mcpAuthorized": True}
+
+    rejected = server.call_tool(
+        "sprintengine.artifact.approve",
+        {"statePath": str(fixture.state_path), "artifactId": "A1", "id": "user", "approvalMode": "auto"},
+        actor_context,
+    )
+    assert rejected["ok"] is False
+    assert "Invalid approvalMode: auto" in rejected["error"]["message"]
+    assert_artifact_status(read_state(fixture.state_path), "A1", "ready_for_review")
+
+    approved = server.call_tool(
+        "sprintengine.artifact.approve",
+        {"statePath": str(fixture.state_path), "artifactId": "A1", "id": "user", "approvalMode": "policy"},
+        actor_context,
+    )
+    assert approved["ok"] is True
+    artifact = get_artifact(read_state(fixture.state_path), "A1")
+    assert artifact["approvalMode"] == "policy"

@@ -65,6 +65,12 @@ def publish_task(
     task.pop("needsInput", None)
     if next_status == "done":
         task["completedAt"] = published_at
+        # A plan/product gate task has no quality gates, so publishing it drives
+        # it straight to done; resolve its draft placeholder like the other
+        # task-done transitions. Imported lazily to avoid an artifacts<->tasks
+        # import cycle.
+        from sprintengine_core.tool.artifacts import supersede_stale_gate_placeholder_on_completion
+        supersede_stale_gate_placeholder_on_completion(state, task, actor)
     else:
         task["completedAt"] = None
     cleared = clear_task_refs(state, str(task.get("id")))

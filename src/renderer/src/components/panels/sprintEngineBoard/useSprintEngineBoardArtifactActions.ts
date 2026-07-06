@@ -266,12 +266,14 @@ export function useSprintEngineBoardArtifactActions(
           message: 'Opened in preview.',
         })
       } catch (error) {
+        // A per-artifact open failure (e.g. a missing file) is an inline action
+        // error, not a board-sync failure — route it only to this artifact's
+        // actionState so it does not flip the board banner to "Refresh failed".
         const message = error instanceof Error ? error.message : 'Failed to open artifact.'
         setArtifactAction(artifact.id, { kind: 'open', status: 'error', message })
-        setSyncState({ status: 'error', message })
       }
     },
-    [requireArtifactStatePath, setArtifactAction, setPreviewedArtifact, setSyncState, api],
+    [requireArtifactStatePath, setArtifactAction, setPreviewedArtifact, api],
   )
 
   // Pop the previewed artifact out into a real flexlayout file-editor tab.

@@ -70,10 +70,21 @@ commands.
   and completion settings.
 - `agents`: durable agent lifecycle records keyed by stable agent id.
 - `creation`: run creation metadata such as source and timestamp.
+- `source`: the root seed document recorded at run creation (`kind`, `origin`,
+  `path`, optional `planKind`/`originalPath`/`capturedAt`). Present only when the
+  run was seeded from a doc.
+- `sourceBundle`: attached reference seed documents, each with `kind`, `origin`,
+  `path`, and optional `originalPath`/`capturedAt`. Present only when references
+  were attached.
 - `updatedAt`: UTC timestamp of the latest store sync.
 
 The graph mirror lets readiness refresh validate dependency references and
 cycles without requiring consumers to parse every task folder.
+
+`source` and `sourceBundle` round-trip through `run.yaml` and are re-emitted on
+the normalized projection's `run` payload (alongside `roleRuntimes` and
+`configuredRoles`), omitted cleanly when absent, so the renderer can surface the
+seed docs a run started from.
 
 ## Role Registry Boundary
 
@@ -632,11 +643,18 @@ Artifact records include:
 - `recommendedTasks`
 - `createdAt`, `updatedAt`
 - `approvedBy`, `approvedAt`
+- `approvalMode`: optional approval provenance, `manual` (a human approved it) or
+  `policy` (the run auto-approval policy approved it). Set by `sprintengine
+  artifact approve --approval-mode` / the `approvalMode` payload field. Additive
+  and back-compatible: an approval that omits it stays a plain approved artifact.
 - `gateId`: optional gate id for recorded gate evidence.
 
 Register artifacts through `sprintengine artifact add`, `sprintengine artifact
 ready`, `sprintengine artifact approve`, or `sprintengine artifact
-request-changes`.
+request-changes`. `sprintengine artifact approve` accepts an optional
+`--approval-mode manual|policy` to record approval provenance; the value is
+validated at the mutation path (the MCP `approvalMode` payload field bypasses
+argparse choices, so an invalid mode is rejected there too).
 
 Artifact review actions are command-mediated mutations, not renderer writes to
 the folder store and not terminal handoffs to the artifact producer. Manual

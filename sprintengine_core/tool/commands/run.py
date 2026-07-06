@@ -42,6 +42,7 @@ from sprintengine_core.tool.state import (
     append_event,
     apply_agent_specs,
     apply_configured_roles,
+    apply_init_source,
     apply_role_runtimes,
     clear_non_active_task_owner_claims,
     ensure_agent_in_roster,
@@ -308,6 +309,14 @@ def cmd_init(args: argparse.Namespace) -> Dict[str, Any]:
         apply_agent_specs(state, getattr(args, "agent", None))
         apply_role_runtimes(state, getattr(args, "role_runtimes_json", None))
         apply_configured_roles(state, getattr(args, "configured_roles_json", None))
+        # Seed the sprint source at creation (app-created runs) so run.yaml carries
+        # the "Started from" seed before any agent runs handover. write_run persists
+        # state[source]/[sourceBundle] via RUN_SOURCE_KEYS.
+        apply_init_source(
+            state,
+            getattr(args, "source_json", None),
+            getattr(args, "source_bundle_json", None),
+        )
         sprintengine = state.setdefault("sprintengine", {})
         if not sprintengine.get("name"):
             sprintengine["name"] = default_name

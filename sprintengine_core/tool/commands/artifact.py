@@ -18,6 +18,7 @@ from sprintengine_core.tool.artifacts import (
     reopen_task_for_artifact_changes,
     supersede_duplicate_artifacts,
 )
+from sprintengine_core.tool.constants import VALID_APPROVAL_MODES
 from sprintengine_core.tool.feedback import append_feedback_record, attach_feedback_payload, build_feedback_payload
 from sprintengine_core.tool.paths import now_iso
 from sprintengine_core.tool.state import (
@@ -148,7 +149,25 @@ def cmd_artifact_ready(args: argparse.Namespace) -> Dict[str, Any]:
         result["feedbackMetricsPath"] = append_feedback_record(args.state, feedback_record)
     return result
 
+def normalize_approval_mode(raw: Any) -> str | None:
+    # The CLI could enforce this via argparse choices, but the MCP server builds
+    # the namespace directly and bypasses them, so validate here like
+    # build_artifact_from_args does for artifact kind. Absent/blank means a
+    # back-compatible approval that omits the field entirely.
+    if raw is None:
+        return None
+    mode = str(raw).strip()
+    if not mode:
+        return None
+    if mode not in VALID_APPROVAL_MODES:
+        raise SystemExit(
+            f"Invalid approvalMode: {mode}. Valid values: {', '.join(sorted(VALID_APPROVAL_MODES))}."
+        )
+    return mode
+
 def cmd_artifact_approve(args: argparse.Namespace) -> Dict[str, Any]:
+    approval_mode = normalize_approval_mode(getattr(args, "approval_mode", None))
+
     def run(state: Dict[str, Any]) -> Dict[str, Any]:
         artifact = find_artifact(state, args.artifact_id)
         if artifact.get("status") == "superseded":
@@ -161,7 +180,10 @@ def cmd_artifact_approve(args: argparse.Namespace) -> Dict[str, Any]:
         artifact["approvedBy"] = args.id
         artifact["approvedAt"] = now_iso()
         artifact["updatedAt"] = artifact["approvedAt"]
-        append_artifact_history(artifact, "approved", args.id)
+        if approval_mode is not None:
+            artifact["approvalMode"] = approval_mode
+        history_note = f"Approval mode: {approval_mode}." if approval_mode else None
+        append_artifact_history(artifact, "approved", args.id, history_note)
         owner_id = str(task.get("ownerAgentId") or "").strip()
         superseded_artifact_ids = supersede_duplicate_artifacts(state, artifact, args.state, args.id)
         task_completed = mark_task_done_if_artifacts_approved(state, task)

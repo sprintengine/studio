@@ -133,6 +133,7 @@ async function testMutationResponsesIncludeProjectionAndEventMetadata(): Promise
   assert.equal(result.ok, true)
   if (!result.ok) return
   assert.equal(calls[0]?.tool, 'sprintengine.artifact.approve')
+  assert.equal(calls[0]?.payload.approvalMode, 'manual', 'manual IPC approval must record manual provenance')
   assert.equal(result.data.projectionContent, JSON.stringify({
     tasks: [],
     agents: {
@@ -227,6 +228,7 @@ async function testAutoRunApprovalEnforcesEligibilityBeforeMcpCall(): Promise<vo
   assert.equal(calls.length, 1, 'auto-run approval should call MCP exactly once')
   assert.equal(calls[0]?.tool, 'sprintengine.artifact.approve')
   assert.equal(calls[0]?.payload.artifactId, 'A1')
+  assert.equal(calls[0]?.payload.approvalMode, 'policy', 'auto-run approval must record policy provenance')
   assert.equal((result.data as { mode: string }).mode, 'auto-run')
   assert.equal(result.data.latestEventId, 'EVT-31')
   const events = result.data.events as Array<{ id: string; type?: string }>
