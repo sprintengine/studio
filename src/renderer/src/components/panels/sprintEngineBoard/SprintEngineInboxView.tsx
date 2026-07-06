@@ -4,6 +4,7 @@ import { isEditableTarget } from '../../../utils/keyboard'
 import { getSprintEngineArtifactDependencyBlockers } from '../../../utils/sprintengine'
 import type { SprintEngineArtifact, SprintEngineState } from '../../../types/workspace'
 import {
+  getSprintEngineEvidenceArtifacts,
   getSprintEngineInboxArtifacts,
   sprintEngineInboxEmptyMessage,
 } from '../sprintEngineInspector'
@@ -44,11 +45,13 @@ export function SprintEngineInboxView({
     () => getSprintEngineInboxArtifacts(reviewArtifacts),
     [reviewArtifacts]
   )
+  const evidenceArtifacts = useMemo(
+    () => getSprintEngineEvidenceArtifacts(reviewArtifacts),
+    [reviewArtifacts]
+  )
   const [search, setSearch] = useState('')
-  const visibleArtifacts = useMemo(() => {
-    const query = search.trim().toLowerCase()
-    if (!query) return inboxArtifacts
-    return inboxArtifacts.filter((artifact) => {
+  const matchesSearch = useCallback(
+    (artifact: SprintEngineArtifact, query: string) => {
       const task = tasksById[artifact.taskId]
       const haystack = [
         artifact.id,
@@ -62,8 +65,19 @@ export function SprintEngineInboxView({
         .join(' ')
         .toLowerCase()
       return haystack.includes(query)
-    })
-  }, [inboxArtifacts, search, tasksById])
+    },
+    [tasksById]
+  )
+  const visibleArtifacts = useMemo(() => {
+    const query = search.trim().toLowerCase()
+    if (!query) return inboxArtifacts
+    return inboxArtifacts.filter((artifact) => matchesSearch(artifact, query))
+  }, [inboxArtifacts, search, matchesSearch])
+  const visibleEvidence = useMemo(() => {
+    const query = search.trim().toLowerCase()
+    if (!query) return evidenceArtifacts
+    return evidenceArtifacts.filter((artifact) => matchesSearch(artifact, query))
+  }, [evidenceArtifacts, search, matchesSearch])
   const blockedByArtifacts = useMemo(() => (
     sprintEngineState.tasks
       .map((task) => ({
@@ -81,12 +95,17 @@ export function SprintEngineInboxView({
       : inboxEmptyMessage
 
   // Drop a selection when the search has filtered it out so the inspector
-  // never shows an artifact that isn't visible in the list.
+  // never shows an artifact that isn't visible in either grouping (queue or
+  // evidence).
   useEffect(() => {
-    if (selectedArtifactId && !visibleArtifacts.some((artifact) => artifact.id === selectedArtifactId)) {
+    if (
+      selectedArtifactId
+      && !visibleArtifacts.some((artifact) => artifact.id === selectedArtifactId)
+      && !visibleEvidence.some((artifact) => artifact.id === selectedArtifactId)
+    ) {
       onSelectArtifact(null)
     }
-  }, [selectedArtifactId, visibleArtifacts, onSelectArtifact])
+  }, [selectedArtifactId, visibleArtifacts, visibleEvidence, onSelectArtifact])
   const handleInboxKeyDown = useCallback(
     (event: React.KeyboardEvent<HTMLDivElement>) => {
       if (isEditableTarget(event.target)) return
@@ -146,9 +165,14 @@ export function SprintEngineInboxView({
               aria-label="Inbox artifacts (use arrow keys)"
             >
               {visibleArtifacts.length === 0 ? (
-                <div className="px-3 py-6 text-[12px] leading-5 text-[color:var(--text-muted)]">
-                  {emptyMessage}
-                </div>
+                // The queue is empty. Suppress the empty copy when evidence is
+                // present below, so it never reads as "nothing here" over a
+                // populated Evidence grouping.
+                visibleEvidence.length === 0 ? (
+                  <div className="px-3 py-6 text-[12px] leading-5 text-[color:var(--text-muted)]">
+                    {emptyMessage}
+                  </div>
+                ) : null
               ) : (
                 <ul>
                   {visibleArtifacts.map((artifact) => (
@@ -164,6 +188,31 @@ export function SprintEngineInboxView({
                 </ul>
               )}
             </div>
+
+            {visibleEvidence.length > 0 ? (
+              <div role="region" aria-label="Recorded evidence">
+                <Section
+                  title="Evidence"
+                  count={visibleEvidence.length}
+                  level={3}
+                  inset={false}
+                  className="border-t border-[color:var(--border-default)]"
+                >
+                  <ul>
+                    {visibleEvidence.map((artifact) => (
+                      <li key={artifact.id}>
+                        <SprintEngineInboxRow
+                          artifact={artifact}
+                          task={tasksById[artifact.taskId]}
+                          selected={selectedArtifactId === artifact.id}
+                          onSelect={() => onSelectArtifact(artifact.id)}
+                        />
+                      </li>
+                    ))}
+                  </ul>
+                </Section>
+              </div>
+            ) : null}
 
             {blockedByArtifacts.length > 0 ? (
               <div role="region" aria-label="Tasks blocked by review">

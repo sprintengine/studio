@@ -17,7 +17,15 @@ export type LifecycleState =
   | 'product'
   | 'changes_requested'
   | 'needs_input'
+  // A filed evidence/gate record — a document mark with a tick. Read-only,
+  // never a pending decision and never a spinner. Neutral ink (Sprint Engine
+  // recorded artifacts map here).
+  | 'recorded'
   | 'done'
+  // Approved by automated policy rather than a human hand — the same green tick
+  // as `done` but drawn as an outline ring, so "approved on your behalf" reads a
+  // shade lighter than a manual approval's filled disc.
+  | 'approved_auto'
   // Complete but not yet merged — a green git-branch fork, signalling "work is
   // sitting on a branch / PR" (GitHub's iconography), distinct by shape from the
   // filled `done` disc used for on-main completions.
@@ -40,7 +48,9 @@ export const LIFECYCLE_LABEL: Record<LifecycleState, string> = {
   product: 'Product gate',
   changes_requested: 'Changes requested',
   needs_input: 'Needs input',
+  recorded: 'Recorded',
   done: 'Done',
+  approved_auto: 'Approved automatically',
   done_unmerged: 'Complete · not merged',
   done_merged: 'Merged',
   archived: 'Archived',
@@ -60,7 +70,10 @@ const TONE: Record<LifecycleState, string> = {
   product: 'text-[color:var(--accent-primary)]',
   changes_requested: 'text-[color:var(--tone-warn)]',
   needs_input: 'text-[color:var(--tone-warn)]',
+  // Recorded evidence is neutral, not a status the user must act on.
+  recorded: 'text-[color:var(--text-subtle)]',
   done: 'text-[color:var(--tone-good)]',
+  approved_auto: 'text-[color:var(--tone-good)]',
   done_unmerged: 'text-[color:var(--tone-good)]',
   done_merged: 'text-[color:var(--tone-merged)]',
   archived: 'text-[color:var(--text-disabled)]',
@@ -107,6 +120,40 @@ export function LifecycleGlyph({
           d="M5.5 8.2l1.7 1.7 3.4-3.9"
           className="[stroke:var(--bg-app)]"
           strokeWidth="1.5"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        />
+      </>
+    ) : state === 'approved_auto' ? (
+      // Approved by policy: the `done` check, but on an outline ring instead of a
+      // filled disc, so an automatic approval reads a shade lighter than a manual
+      // one while staying unmistakably a green tick.
+      <>
+        <circle cx="8" cy="8" r="5.25" stroke="currentColor" strokeWidth="1.4" />
+        <path
+          d="M5.5 8.2l1.7 1.7 3.4-3.9"
+          stroke="currentColor"
+          strokeWidth="1.5"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        />
+      </>
+    ) : state === 'recorded' ? (
+      // Filed evidence: a document mark (page + folded corner) with a small tick,
+      // so it reads as "recorded / on file", never as a pending review or a
+      // spinning draft.
+      <>
+        <path
+          d="M4.75 2.75h3.9l2.6 2.6v7.15a.75.75 0 0 1-.75.75h-5.75a.75.75 0 0 1-.75-.75V3.5a.75.75 0 0 1 .75-.75z"
+          stroke="currentColor"
+          strokeWidth="1.2"
+          strokeLinejoin="round"
+        />
+        <path d="M8.5 2.9v2.15a.6.6 0 0 0 .6.6h2.05" stroke="currentColor" strokeWidth="1.2" strokeLinejoin="round" />
+        <path
+          d="M5.7 9.7l1.35 1.35 2.6-2.9"
+          stroke="currentColor"
+          strokeWidth="1.25"
           strokeLinecap="round"
           strokeLinejoin="round"
         />

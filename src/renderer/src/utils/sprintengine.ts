@@ -1,6 +1,7 @@
 import type {
   AgentId,
   SprintEngineArtifact,
+  SprintEngineArtifactApprovalMode,
   SprintEngineArtifactKind,
   SprintEngineArtifactReviewHistoryEntry,
   SprintEngineArtifactStatus,
@@ -527,11 +528,14 @@ export function sprintEngineArtifactKindLabel(kind: string): string {
     : kind
 }
 
+// Plain-human, sentence-case status vocabulary (no Title-Case chrome). Row and
+// detail surfaces read from this one map so their words can't drift.
 export const sprintEngineArtifactStatusLabels: Record<SprintEngineArtifactStatus, string> = {
   draft: 'Draft',
-  ready_for_review: 'Ready For Review',
+  recorded: 'Recorded',
+  ready_for_review: 'Ready for review',
   approved: 'Approved',
-  changes_requested: 'Changes Requested',
+  changes_requested: 'Changes requested',
   superseded: 'Superseded',
 }
 
@@ -625,11 +629,18 @@ export function applyUserDisabledSprintEngineRoleCounts(
 
 const sprintEngineArtifactStatuses: readonly SprintEngineArtifactStatus[] = [
   'draft',
+  'recorded',
   'ready_for_review',
   'approved',
   'changes_requested',
   'superseded',
 ]
+
+const sprintEngineArtifactApprovalModes: readonly SprintEngineArtifactApprovalMode[] = ['manual', 'policy']
+
+function isSprintEngineArtifactApprovalMode(value: unknown): value is SprintEngineArtifactApprovalMode {
+  return sprintEngineArtifactApprovalModes.includes(value as SprintEngineArtifactApprovalMode)
+}
 
 const feedbackIssueCategories: readonly SprintEngineTaskFeedbackIssueCategory[] = [
   'system_prompt',
@@ -1715,6 +1726,7 @@ function normalizeSprintEngineArtifacts(value: unknown): SprintEngineArtifact[] 
       updatedAt: stringOrNull(record.updatedAt),
       ...(record.approvedBy === undefined ? {} : { approvedBy: stringOrNull(record.approvedBy) }),
       ...(record.approvedAt === undefined ? {} : { approvedAt: stringOrNull(record.approvedAt) }),
+      ...(isSprintEngineArtifactApprovalMode(record.approvalMode) ? { approvalMode: record.approvalMode } : {}),
       ...(record.changesRequestedBy === undefined ? {} : { changesRequestedBy: stringOrNull(record.changesRequestedBy) }),
       ...(record.changesRequestedAt === undefined ? {} : { changesRequestedAt: stringOrNull(record.changesRequestedAt) }),
     }]

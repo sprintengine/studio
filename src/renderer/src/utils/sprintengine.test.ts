@@ -311,6 +311,26 @@ assert.deepEqual(
 // Legacy payload without the list normalizes cleanly with the field absent.
 assert.equal(normalizeSprintEngineProjection(fakeProjection())!.configuredRoles, undefined)
 
+// T6 (Slice 3: status vocabulary). `recorded` is a real Python artifact status
+// the projection emits; the renderer used to drop it as unknown. It must now
+// survive normalization, and the optional `approvalMode` (manual|policy) must
+// ride through so the Inbox can split the approved glyph.
+const artifactStatusState = normalizeSprintEngineProjection(fakeProjection({
+  artifacts: [
+    { id: 'A-recorded', kind: 'code_review', title: 'Gate evidence', path: 'evidence/a.md', status: 'recorded', createdBy: 'nuclear_reviewer', taskId: 'T1' },
+    { id: 'A-manual', kind: 'design_notes', title: 'Manual', path: 'd.md', status: 'approved', createdBy: 'frontend', taskId: 'T1', approvedAt: '2026-05-16T20:00:00Z', approvalMode: 'manual' },
+    { id: 'A-policy', kind: 'design_notes', title: 'Policy', path: 'p.md', status: 'approved', createdBy: 'frontend', taskId: 'T1', approvedAt: '2026-05-16T20:00:00Z', approvalMode: 'policy' },
+    { id: 'A-legacy', kind: 'design_notes', title: 'Legacy', path: 'l.md', status: 'approved', createdBy: 'frontend', taskId: 'T1' },
+    { id: 'A-bogusmode', kind: 'design_notes', title: 'Bogus', path: 'b.md', status: 'approved', createdBy: 'frontend', taskId: 'T1', approvalMode: 'sideways' },
+  ],
+}))
+const artifactsById = Object.fromEntries((artifactStatusState!.artifacts ?? []).map((a) => [a.id, a]))
+assert.equal(artifactsById['A-recorded']?.status, 'recorded', 'recorded artifact survives normalization (not dropped)')
+assert.equal(artifactsById['A-manual']?.approvalMode, 'manual', 'manual approvalMode rides through')
+assert.equal(artifactsById['A-policy']?.approvalMode, 'policy', 'policy approvalMode rides through')
+assert.equal(artifactsById['A-legacy']?.approvalMode, undefined, 'a legacy approval omits approvalMode')
+assert.equal(artifactsById['A-bogusmode']?.approvalMode, undefined, 'an out-of-enum approvalMode is dropped, not carried')
+
 // run.source / run.sourceBundle (seed docs recorded at run creation) ride the
 // projection so the Sprint Inbox "Started from" section can surface them.
 // Validated per-item (kind/origin/path required); malformed entries drop.

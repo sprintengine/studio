@@ -239,10 +239,20 @@ export type SprintEngineArtifactKind =
 
 export type SprintEngineArtifactStatus =
   | 'draft'
+  // A gate/evidence record filed against a task (never a pending decision) — a
+  // real Python status the projection emits; the renderer must keep it rather
+  // than drop it as unknown.
+  | 'recorded'
   | 'ready_for_review'
   | 'approved'
   | 'changes_requested'
   | 'superseded'
+
+// Provenance of an approved artifact: `manual` = a human approved it, `policy` =
+// the run's auto-approval policy approved it on the user's behalf. Optional and
+// additive — an approval recorded before this field existed omits it and reads
+// as a plain (manual) approval.
+export type SprintEngineArtifactApprovalMode = 'manual' | 'policy'
 
 export type SprintEngineEvent = {
   id: string
@@ -281,6 +291,7 @@ export type SprintEngineArtifact = {
   updatedAt: string | null
   approvedBy?: string | null
   approvedAt?: string | null
+  approvalMode?: SprintEngineArtifactApprovalMode
   changesRequestedBy?: string | null
   changesRequestedAt?: string | null
 }

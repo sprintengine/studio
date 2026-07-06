@@ -656,6 +656,16 @@ function SprintEngineArtifactInspector({
           </div>
         ) : null}
 
+        {artifact.status === 'approved' && artifact.approvalMode === 'policy' ? (
+          <div>
+            <div className="mb-2 text-[10px] font-bold text-[color:var(--text-disabled)]">Approval</div>
+            <div className="text-[12px] leading-5 text-[color:var(--text-default)]">
+              Approved automatically by run policy · on your behalf
+              {artifact.approvedAt ? ` · ${formatRelativeTime(artifact.approvedAt)}` : ''}
+            </div>
+          </div>
+        ) : null}
+
         {readyForReview && autoApproval.label ? (
           <div>
             <div className="mb-2 text-[10px] font-bold text-[color:var(--text-disabled)]">Auto-approval</div>
