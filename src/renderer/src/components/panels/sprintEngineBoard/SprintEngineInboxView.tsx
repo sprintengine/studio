@@ -504,18 +504,27 @@ function SprintEngineSeedRowButton({
             </span>
           ) : null}
         </span>
-        <span className="flex min-w-0 items-center gap-1 text-[11px] text-[color:var(--text-muted)]">
-          <span className="shrink-0">{row.kindLabel}</span>
-          <span aria-hidden="true">·</span>
-          <span className="min-w-0 truncate font-mono text-[color:var(--text-subtle)]">{row.path}</span>
-          <span aria-hidden="true">·</span>
-          <span className="shrink-0">{modeLabel}</span>
-          {capturedLabel ? (
-            <>
-              <span aria-hidden="true">·</span>
-              <span className="shrink-0">{capturedLabel}</span>
-            </>
-          ) : null}
+        {/* Path on its own truncating line, then the short labels wrap — so
+            every metadata item stays visible with no horizontal overflow even
+            at the Inbox column's 320px minimum width. */}
+        <span className="flex min-w-0 flex-col gap-0.5 text-[11px] text-[color:var(--text-muted)]">
+          <span
+            className="min-w-0 truncate font-mono text-[color:var(--text-subtle)]"
+            title={row.path}
+          >
+            {row.path}
+          </span>
+          <span className="flex min-w-0 flex-wrap items-center gap-x-1 gap-y-0.5">
+            <span>{row.kindLabel}</span>
+            <span aria-hidden="true">·</span>
+            <span>{modeLabel}</span>
+            {capturedLabel ? (
+              <>
+                <span aria-hidden="true">·</span>
+                <span>{capturedLabel}</span>
+              </>
+            ) : null}
+          </span>
         </span>
       </button>
       {row.backlogPath ? (
