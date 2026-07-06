@@ -158,6 +158,26 @@ assert.equal(sprintEngineSeedKindLabel({ kind: 'unknown', isEpicRoot: false }), 
       viewSource.includes('dispatchBacklogReveal({ workspaceId, relativePath: backlogPath })'),
     'Open in Backlog reveals the panel and latches the item',
   )
+  // T14/1 (a11y): each Open-in-Backlog button carries a distinct accessible
+  // name naming its seed file, so keyboard/SR users can tell the rows apart.
+  assert.ok(
+    viewSource.includes('aria-label={`Open ${row.fileName} in Backlog`}'),
+    'Open-in-Backlog button aria-label names the seed file',
+  )
+  // T14/2 (responsive): the expanded seed list is height-bounded with an
+  // internal scroll, so a tall bundle / short viewport cannot push the collapse
+  // toggle or lowest rows off the pane and trap the operator.
+  assert.ok(
+    viewSource.includes('<ul className="max-h-[40vh] overflow-y-auto pb-1">'),
+    'expanded seed list is height-bounded with internal scroll',
+  )
+  // T14/4 (polish): incomplete epic children reserve the tick's width so child
+  // filenames share one left margin (no ragged left edge). The completed tick
+  // and the reserved spacer both carry the icon-xs width.
+  assert.ok(
+    viewSource.includes('<span aria-hidden="true" className="icon-xs shrink-0" />'),
+    'incomplete epic children reserve a fixed-width tick spacer',
+  )
 }
 
 // eslint-disable-next-line no-console

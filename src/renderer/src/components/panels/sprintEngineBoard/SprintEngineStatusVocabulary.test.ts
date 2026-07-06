@@ -154,6 +154,20 @@ function artifact(
     rowBody.includes('sprintEngineInboxRowLifecycle(artifact)'),
     'the inbox row derives its glyph from the shared mapper',
   )
+  // T14/3 (consistency): the row's spoken status word for an approved artifact
+  // must speak the artifact vocabulary ("Approved" / "Approved automatically"),
+  // aligned with the detail Status word, not the generic lifecycle "Done". The
+  // row glyph is aria-hidden, so the word is the only status a SR reads.
+  assert.ok(
+    rowBody.includes("artifact.status === 'approved'") &&
+      rowBody.includes('sprintEngineArtifactStatusLabels.approved') &&
+      rowBody.includes('LIFECYCLE_LABEL.approved_auto'),
+    'the approved row speaks the artifact vocabulary, split on approved_auto',
+  )
+  assert.ok(
+    rowBody.includes(', ${spokenStatus}`}'),
+    'the row aria-label speaks the derived spokenStatus word',
+  )
   const inspectorBody = panelSource.slice(inspectorStart)
   assert.ok(
     inspectorBody.includes('sprintEngineInboxRowLifecycle(artifact)'),
