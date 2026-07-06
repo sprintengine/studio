@@ -15,8 +15,8 @@ because roles are plugin-extensible:
   ``architect``): full agent surface including plan/roster/run-level tools.
 - ``general`` — the soulless ``general`` identity that plans, builds, reviews,
   and tests a sprint by itself: the planning surface minus the roster-growth
-  tools (``roster.add`` / ``roster.replenish``), so a General can never expand
-  the team. No registry manifest required.
+  tools (``roster.add`` / ``roster.configure`` / ``roster.replenish``), so a
+  General can never expand the team. No registry manifest required.
 - ``reviewer`` — any role whose manifest declares a ``review`` capability:
   agent-common plus the gate/review tools.
 - ``worker`` — every other resolvable role, and the conservative fallback for
@@ -36,9 +36,12 @@ RoleClassification = str  # "operator" | "architect" | "general" | "reviewer" | 
 
 # Roster-growth tools withheld from a General so it can never expand the team —
 # the structural fix for the soulless-General sprint (a General keeps
-# `roster.list` for visibility).
+# `roster.list` for visibility). `roster.configure` ('Architect picks the team')
+# is architect-only for the same reason: only the run's planning architect seats
+# the team, and a wizard architect-roster run always seats an architect.
 ROSTER_GROWTH_TOOLS: frozenset[str] = frozenset({
     "sprintengine.roster.add",
+    "sprintengine.roster.configure",
     "sprintengine.roster.replenish",
 })
 
@@ -113,6 +116,7 @@ PLANNING_TOOLS: frozenset[str] = frozenset({
     "sprintengine.plan.read",
     "sprintengine.triage.needs_input",
     "sprintengine.roster.add",
+    "sprintengine.roster.configure",
     "sprintengine.roster.replenish",
     "sprintengine.roster.list",
     "sprintengine.summary",

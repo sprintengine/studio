@@ -41,9 +41,11 @@ from sprintengine_core.tool.state import (
     agent_is_retired,
     append_event,
     apply_agent_specs,
+    apply_allowed_runtimes,
     apply_configured_roles,
     apply_init_source,
     apply_role_runtimes,
+    apply_roster_source,
     clear_non_active_task_owner_claims,
     ensure_agent_in_roster,
     find_task,
@@ -309,6 +311,12 @@ def cmd_init(args: argparse.Namespace) -> Dict[str, Any]:
         apply_agent_specs(state, getattr(args, "agent", None))
         apply_role_runtimes(state, getattr(args, "role_runtimes_json", None))
         apply_configured_roles(state, getattr(args, "configured_roles_json", None))
+        # "Architect picks the team": the wizard forwards the roster-source mode
+        # and the sprint's ticked model palette. Both are CLI-init-only and
+        # persist top-level in run.yaml (RUN_ROSTER_SOURCE_KEYS); roster.configure
+        # later enforces allowedRuntimes as the hard boundary on role assignment.
+        apply_roster_source(state, getattr(args, "roster_source", None))
+        apply_allowed_runtimes(state, getattr(args, "allowed_runtimes_json", None))
         # Seed the sprint source at creation (app-created runs) so run.yaml carries
         # the "Started from" seed before any agent runs handover. write_run persists
         # state[source]/[sourceBundle] via RUN_SOURCE_KEYS.

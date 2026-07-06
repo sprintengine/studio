@@ -11,6 +11,7 @@ AUDITED_TOOLS = {
     "sprintengine.init",
     "sprintengine.recover",
     "sprintengine.roster.add",
+    "sprintengine.roster.configure",
     "sprintengine.roster.retire",
     "sprintengine.roster.replenish",
     "sprintengine.roster.list",

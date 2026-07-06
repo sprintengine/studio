@@ -38,6 +38,7 @@ export const SPRINTENGINE_TOOL_NAMES = [
   'sprintengine.roles.get',
   'sprintengine.roles.list',
   'sprintengine.roster.add',
+  'sprintengine.roster.configure',
   'sprintengine.roster.list',
   'sprintengine.roster.replenish',
   'sprintengine.roster.retire',

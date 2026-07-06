@@ -196,6 +196,7 @@ Entry points (CLI/human/headless compatibility; autonomous Multicode agents use 
 
 Roster commands:
   sprintengine roster add --role security --id security
+  sprintengine roster configure --id architect --roles-json '[{"role":"developer","cli":"claude-code","model":"claude-opus-4-8"}]'
   sprintengine roster list
 
 Registry inspection commands:
@@ -442,6 +443,16 @@ def build_parser() -> argparse.ArgumentParser:
         help="JSON array of the roster's enabled role ids. Quality-gate derivation selects gate roles from this set, so a lazy (architect-only) roster still derives its required reviewer/tester gates. Distinct from the seated agents and from --role-runtimes-json (which includes CLI-default roles).",
     )
     p.add_argument(
+        "--roster-source",
+        dest="roster_source",
+        help="Who composes the roster: 'user' (default; picked in the wizard) or 'architect' ('Architect picks the team' — the architect enables roles via sprintengine.roster.configure). CLI-init-only; not MCP-mutable.",
+    )
+    p.add_argument(
+        "--allowed-runtimes-json",
+        dest="allowed_runtimes_json",
+        help='JSON array of the sprint\'s allowed {"cli", "model"} runtimes (model null = the CLI default). The ticked per-sprint model selection; roster.configure hard-rejects any role assignment outside it. CLI-init-only; not MCP-mutable.',
+    )
+    p.add_argument(
         "--use-worktrees",
         type=parse_bool,
         default=False,
@@ -476,6 +487,16 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--id", required=True, help="Stable agent id, e.g. security or developer-2.")
     p.add_argument("--actor", default="architect")
     p.set_defaults(handler=roster_commands.add)
+
+    p = roster_sub.add_parser("configure", help="Architect: enable roles + pick each role's cli/model ('Architect picks the team' runs, pre-plan-approval).")
+    p.add_argument("--id", default="architect", help="Architect actor id recording the configuration.")
+    p.add_argument(
+        "--roles-json",
+        dest="roles_json",
+        required=True,
+        help='JSON array of {"role", "cli", "model"} objects (model null = the CLI default). Each cli/model must exactly match an entry in the sprint\'s allowedRuntimes palette.',
+    )
+    p.set_defaults(handler=roster_commands.configure)
 
     p = roster_sub.add_parser("retire", help="Mark a roster member retired so it cannot claim more Sprint Engine work.")
     p.add_argument("--id", required=True, help="Stable agent id, e.g. developer-1.")

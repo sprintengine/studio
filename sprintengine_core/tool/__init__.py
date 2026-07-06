@@ -29,6 +29,7 @@ from .commands.plan import (
 )
 from .commands.roster import (
     cmd_roster_add,
+    cmd_roster_configure,
     cmd_roster_list,
     cmd_roster_replenish,
     cmd_roster_retire,
