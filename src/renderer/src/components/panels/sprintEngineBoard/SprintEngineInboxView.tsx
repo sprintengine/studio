@@ -414,7 +414,11 @@ function SprintEngineStartedFromSection({
       </button>
 
       {collapsed ? null : (
-        <ul className="pb-1">
+        // Bound the height so a large bundle fully expanded via "Show N more",
+        // or a short viewport, scrolls internally instead of pushing the last
+        // rows and the collapse toggle past the pane — the queue above keeps
+        // its own independent scroll. "Show N more" stays the primary reveal.
+        <ul className="max-h-[40vh] overflow-y-auto pb-1">
           {visibleRows.map((row) => (
             <li key={row.key}>
               <SprintEngineSeedRowButton
@@ -494,6 +498,10 @@ function SprintEngineSeedRowButton({
             >
               <path d="M3.5 8.5l3 3 6-6.5" strokeLinecap="round" strokeLinejoin="round" />
             </svg>
+          ) : isChild ? (
+            // Reserve the tick's width so incomplete children share the one
+            // left margin as completed siblings — no ragged left edge.
+            <span aria-hidden="true" className="icon-xs shrink-0" />
           ) : null}
           <span className="min-w-0 truncate text-[12px] font-medium text-[color:var(--text-strong)]">
             {row.fileName}
@@ -531,6 +539,7 @@ function SprintEngineSeedRowButton({
         <button
           type="button"
           onClick={() => onOpenInBacklog(row.backlogPath as string)}
+          aria-label={`Open ${row.fileName} in Backlog`}
           className="interactive mr-2 shrink-0 self-center rounded px-1.5 py-1 text-[11px] font-medium text-[color:var(--text-muted)] opacity-0 transition-opacity transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)] focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[color:var(--accent-primary-soft)] group-hover:opacity-100 group-focus-within:opacity-100"
         >
           Open in Backlog
