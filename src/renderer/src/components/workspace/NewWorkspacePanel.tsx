@@ -3,7 +3,7 @@ import { LAYOUT_TEMPLATES } from '../../layouts/templates'
 import { userLayoutTemplateToTemplate } from '../../layouts/userTemplates'
 import { useWorkspaceStore } from '../../store/workspaceStore'
 import { getRendererHost, selectModuleEnabled } from '../../modules'
-import { StandardWorkspaceTypeIcon } from '../AppIcons'
+import { CommentIcon, StandardWorkspaceTypeIcon } from '../AppIcons'
 import { createMultiloopTemplate } from '../../modules/multiloop-workspace-types'
 import { createGuidedBriefTemplate } from '../../modules/sprint-engine-workspace-types'
 import { AUTOMATIONS_HOST_WORKSPACE_MODE } from '../../types/workspace'
@@ -70,6 +70,11 @@ import {
   resolveDefaultParentPath,
 } from './newWorkspace/folderCreation'
 import { ModeCard } from './newWorkspace/ModeCard'
+import AgentComposer, {
+  type AgentComposerConfirm,
+  type AgentComposerSelection,
+  type ComposerProjectOption,
+} from './agentComposer/AgentComposer'
 import { RecentFolderRow, isSameFolder } from './newWorkspace/RecentFolderRow'
 import { type SprintEngineCliOption } from './newWorkspace/SprintEngineRosterTable'
 import { sprintEngineRosterHasPlanningRole, sprintEngineRosterRoleFloor } from '../../utils/sprintengineRoleOptions'
@@ -129,14 +134,25 @@ const STANDARD_MODE_MODEL: ModeCardModel = {
   icon: StandardWorkspaceTypeIcon,
 }
 
+// 'chat' is a shell-owned pseudo-type, not a registered workspace type: selecting
+// it embeds the existing AgentComposer as the chat config surface (see the mode
+// step) and creates a solo-agent chat via the same path as today's New chat. It
+// leads the picker so New Agent opens on the lightest choice.
+const CHAT_MODE_MODEL: ModeCardModel = {
+  id: 'chat',
+  label: 'Chat',
+  description: 'A single agent you chat with, scoped to this project.',
+  icon: CommentIcon,
+}
+
 const STEP_HEADING: Record<StepId, { title: string; subtitle: string }> = {
   workspace: {
     title: 'Name your workspace',
     subtitle: 'Give it a name and pick the folder it lives in.',
   },
   mode: {
-    title: 'Choose a mode',
-    subtitle: 'How will you use this workspace?',
+    title: 'What do you want to start?',
+    subtitle: 'Pick a workspace type to get going.',
   },
   'mcp-servers': {
     title: 'Pick tool integrations',
@@ -363,6 +379,21 @@ export type NewWorkspacePanelInitialState = {
   futurePlanSource?: FuturePlanWorkspaceSource | null
 }
 
+// Host wiring for the embedded Chat composer (the 'chat' pseudo-type). The panel
+// owns the folder (chosen on the workspace step) and feeds it to the composer; the
+// host supplies the remembered agent, the shared spawn settings, the open-project
+// options, and the confirm that maps to the existing solo-chat create path. Folder
+// is threaded to onConfirm so the host spawns in the panel's chosen folder.
+export type NewWorkspaceChatComposer = {
+  projectOptions: ComposerProjectOption[]
+  initialSelection: AgentComposerSelection
+  permissionPreset: SprintEngineCliPermissionPreset
+  onChangePermissionPreset: (preset: SprintEngineCliPermissionPreset) => void
+  debugMode: boolean
+  onChangeDebugMode: (next: boolean) => void
+  onConfirm: (confirm: AgentComposerConfirm, folderPath: string | null) => void
+}
+
 interface Props {
   onCreate: (args: {
     template: LayoutTemplate
@@ -380,6 +411,7 @@ interface Props {
   workspaceWindowId: WorkspaceWindowId
   allowClose?: boolean
   initialState?: NewWorkspacePanelInitialState | null
+  chatComposer: NewWorkspaceChatComposer
 }
 
 export default function NewWorkspacePanel({
@@ -388,6 +420,7 @@ export default function NewWorkspacePanel({
   workspaceWindowId,
   allowClose = true,
   initialState = null,
+  chatComposer,
 }: Props) {
   const authState = useWorkspaceStore((s) => s.authState)
   const setAuthState = useWorkspaceStore((s) => s.setAuthState)
@@ -897,6 +930,9 @@ export default function NewWorkspacePanel({
   }, [setAuthState])
 
   const isSprintEngine = mode === 'sprintengine'
+  // 'chat' is the shell-owned pseudo-type: on the mode step it swaps the config
+  // region for the embedded AgentComposer, which owns the chat's create action.
+  const isChat = mode === 'chat'
   const folderScan = useFolderScan(folderPath)
   const backlogScan = useBacklogScan(isSprintEngine ? folderPath : null)
   const totalAgents = countSprintEngineAgents(visibleSprintEngineRoleCounts)
@@ -1248,10 +1284,11 @@ export default function NewWorkspacePanel({
     if (!seTeamNameTouched) setSeTeamName(value)
   }
 
-  const handleSelectFolder = (dir: string) => {
-    const folderName = basename(dir)
-    setFolderPath(dir)
-    setKnowledgeStepEligible(shouldShowKnowledgeStep(dir, projectKnowledgeRoots))
+  // Folder-scoped source state is invalidated whenever the target folder changes:
+  // a saved team, plan/bundle selection, or error message all belong to the old
+  // folder. Shared by every folder-change path (workspace step + chat chip) so the
+  // invariant holds no matter where the switch happens.
+  const resetFolderScopedSourceState = () => {
     setSeExistingTeam(null)
     setSeAgentCliOverrides({})
     setSePlanPath('')
@@ -1263,6 +1300,13 @@ export default function NewWorkspacePanel({
     setSeSourceFromFile(false)
     setSePlanError(null)
     setMlError(null)
+  }
+
+  const handleSelectFolder = (dir: string) => {
+    const folderName = basename(dir)
+    setFolderPath(dir)
+    setKnowledgeStepEligible(shouldShowKnowledgeStep(dir, projectKnowledgeRoots))
+    resetFolderScopedSourceState()
     if (!nameTouched) setName(folderName || 'workspace')
     if (!seTeamNameTouched) setSeTeamName(toTitleName(folderName) || 'Sprint Roster')
     setMlName(toTitleName(folderName) || 'Product Loop')
@@ -1296,6 +1340,24 @@ export default function NewWorkspacePanel({
     setFolderPathPinned(true)
     setFolderDraftPath(dir)
     setFolderError(null)
+  }
+
+  // The embedded Chat composer's project chip retargets the panel's already-
+  // materialized folder (chosen on the workspace step). It edits the same folder
+  // state Back would show, so switching project here and stepping back stay in
+  // sync; the folder is passed straight to the solo-chat create on confirm.
+  const handleChatSelectProject = (path: string) => {
+    setFolderPath(path)
+    setFolderDraftPath(path)
+    setFolderPathPinned(true)
+    setKnowledgeStepEligible(shouldShowKnowledgeStep(path, projectKnowledgeRoots))
+    // Keep the folder-change invariant even though chat never reads this state:
+    // the user can switch to Sprint Engine after picking a project here.
+    resetFolderScopedSourceState()
+  }
+  const handleChatBrowseProject = async () => {
+    const dir = await window.api.openDir()
+    if (dir) handleChatSelectProject(dir)
   }
 
   // Materialize the unified folder field into a concrete folder before leaving
@@ -1656,6 +1718,10 @@ export default function NewWorkspacePanel({
   )
 
   const handleCreate = async () => {
+    // 'chat' has no wizard create path: it is created by the embedded composer's
+    // own confirm (host solo-chat create). Guard so an Enter that reaches the
+    // section handler on the chat mode step can never fall through to Standard.
+    if (isChat) return
     if (!sprintEngineRosterReady && mode === 'sprintengine') return
     if (mode === 'sprintengine') setSePlanError(null)
 
@@ -2199,7 +2265,7 @@ export default function NewWorkspacePanel({
       <main ref={stepBodyRef} className="relative min-h-0 flex-1 overflow-y-auto">
         <div
           key={step}
-          className={`mx-auto flex w-full ${step === 'sprintengine-roster' ? 'max-w-[1040px]' : 'max-w-[520px]'} flex-col gap-7 px-6 pt-10 pb-14 ${stepAnimationClass}`}
+          className={`mx-auto flex w-full ${step === 'sprintengine-roster' ? 'max-w-[1040px]' : step === 'mode' ? 'max-w-[760px]' : 'max-w-[520px]'} flex-col gap-7 px-6 pt-10 pb-14 ${stepAnimationClass}`}
         >
           {stepIndex > 0 ? (
             <button
@@ -2286,6 +2352,30 @@ export default function NewWorkspacePanel({
               folderPath={folderPath}
               folderHint={folderPath ? folderHints.get(folderPath) ?? null : null}
             />
+          ) : null}
+
+          {step === 'mode' && isChat ? (
+            // Chat's config region: the same AgentComposer the standalone New chat
+            // panel wraps. It carries its own project chip and Start-chat action, so
+            // the wizard hides its shared footer for this step (below) to avoid a
+            // duplicate CTA. Confirm routes to the host's solo-chat create path.
+            <div className="h-[min(560px,62vh)] overflow-hidden rounded-lg border border-[color:var(--border-default)]">
+              <AgentComposer
+                folderPath={folderPath}
+                folderLabel={folderPath ? basename(folderPath) : null}
+                projectOptions={chatComposer.projectOptions}
+                onSelectProject={handleChatSelectProject}
+                onBrowseProject={() => void handleChatBrowseProject()}
+                initialSelection={chatComposer.initialSelection}
+                permissionPreset={chatComposer.permissionPreset}
+                onChangePermissionPreset={chatComposer.onChangePermissionPreset}
+                debugMode={chatComposer.debugMode}
+                onChangeDebugMode={chatComposer.onChangeDebugMode}
+                onConfirm={(confirm) => chatComposer.onConfirm(confirm, folderPath)}
+                onClose={requestClose}
+                embedded
+              />
+            </div>
           ) : null}
 
           {step === 'standard-layout' ? (
@@ -2487,6 +2577,7 @@ export default function NewWorkspacePanel({
             </div>
           ) : null}
 
+          {step === 'mode' && isChat ? null : (
           <div className="flex items-center justify-between gap-3 pt-1">
             <p className="min-w-0 flex-1 truncate text-[12px] leading-5 text-[color:var(--text-subtle)]">
               {blockingMessage}
@@ -2516,6 +2607,7 @@ export default function NewWorkspacePanel({
               ) : null}
             </button>
           </div>
+          )}
         </div>
       </main>
       <GuidedBriefCloseConfirmation
@@ -2695,7 +2787,17 @@ function ModeStep({
         description: definition.description,
         icon: definition.icon,
       }))
-    return [STANDARD_MODE_MODEL, ...contributed]
+    // Lead with the shell-owned Chat pseudo-card, then surface Sprint Engine and
+    // Design Wizard ahead of the rest (both gated by the sprint-engine module, so
+    // absent when it is disabled). The remaining contributed types keep their
+    // pickerOrder after the shell-owned Standard card.
+    const featuredIds = ['sprintengine', 'guided-brief']
+    const byId = new Map(contributed.map((model) => [model.id, model]))
+    const featured = featuredIds
+      .map((id) => byId.get(id))
+      .filter((model): model is ModeCardModel => model !== undefined)
+    const rest = contributed.filter((model) => !featuredIds.includes(model.id))
+    return [CHAT_MODE_MODEL, ...featured, STANDARD_MODE_MODEL, ...rest]
   }, [moduleOverrides])
 
   const suggested: CreationMode | null = (() => {
@@ -2714,7 +2816,7 @@ function ModeStep({
           team in this folder. {mode === suggested ? 'Selected for you.' : 'Select it to load.'}
         </p>
       ) : null}
-      <div role="radiogroup" aria-label="Workspace mode" className="grid grid-cols-2 gap-2.5">
+      <div role="radiogroup" aria-label="Workspace type" className="grid grid-cols-3 gap-2.5">
         {modeModels.map((model) => (
           <ModeCard key={model.id} model={model} active={mode === model.id} onSelect={onSelect} />
         ))}
@@ -4309,14 +4411,18 @@ function createLabelFor(mode: CreationMode, isCreating: boolean, hasExistingTeam
   if (isCreating) return 'Creating…'
   if (mode === 'sprintengine' && hasExistingTeam) return 'Load team'
   switch (mode) {
+    // 'chat' drives create from the embedded composer's own CTA, not this footer,
+    // so the footer is hidden for it; the label is defined for completeness.
+    case 'chat':
+      return 'Start chat'
     case 'sprintengine':
-      return 'Run a Sprint'
+      return 'Start sprint'
     case 'switchboard':
       return 'Create Switchboard'
     case 'multiloop':
       return 'Create Multiloop'
     case 'guided-brief':
-      return 'Continue'
+      return 'Start design'
     case 'standard':
       return 'Create workspace'
     default:
