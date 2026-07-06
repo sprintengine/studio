@@ -39,7 +39,7 @@ import { resolveProjectKnowledgeConfig } from '../../utils/projectKnowledge'
 import { resolveAgentCliPermissionPreset } from '../../utils/agentCliPermissions'
 import { agentCliSupportsConversationResume, agentCliUsesStableSessionIdForResume } from '../../utils/agentCliResume'
 import { deriveSprintEngineAutomationDesiredMode } from '../../utils/sprintengineAutomationLifecycle'
-import { resolveWorktreeSpawnFallback } from '../../utils/workspaceWorktree'
+import { resolveWorkspaceTerminalCwd, resolveWorkspaceWorktree, resolveWorktreeSpawnFallback } from '../../utils/workspaceWorktree'
 import type { McpSettings } from '../../types/workspace'
 import { CursorErrorPopover } from '../ui/CursorErrorPopover'
 import { workspaceSyncClient } from '../../store/workspaceSyncClient'
@@ -71,11 +71,17 @@ const EMPTY_MCP_SETTINGS: McpSettings = { syncEnabled: false, servers: {} }
 function resolveAgentExecutionRoot(
   execution: AgentExecution | undefined,
   storedWorktreePath: string | undefined,
-  workspaceReadyPath: string | null
+  workspaceReadyPath: string | null,
+  workspaceWorktreeCwd: string | null
 ): AgentExecutionRoot {
   if (execution?.mode !== 'worktree') {
+    // A non-worktree agent (manually-added conversation agent, agent whose
+    // execution predates baked worktree metadata, or cleared execution) in a
+    // worktree-backed workspace still belongs in that workspace's worktree, not
+    // its parent folderPath. Redirect only the cwd; the mode stays
+    // 'current_workspace' (Decision 6) and agent.execution is not mutated.
     return {
-      cwd: workspaceReadyPath ?? undefined,
+      cwd: workspaceWorktreeCwd ?? workspaceReadyPath ?? undefined,
       mode: 'current_workspace',
       worktreeId: undefined,
       worktreePath: undefined,
@@ -235,6 +241,13 @@ export default function TerminalView({ workspaceId, agentId, sessionId: attached
     const worktreeId = workspace?.agents[agentId]?.execution.worktreeId
     return worktreeId ? workspace?.worktreeState.entries[worktreeId]?.path : undefined
   })
+  // Derived string, not the workspace object: sprintEngineState re-projects
+  // ~every 4s and churns object identity, but the worktree gitRoot string is
+  // stable, so the launch effect below re-runs at most once (null -> path).
+  const workspaceWorktreeGitRoot = useWorkspaceStore((s) => {
+    const ws = s.workspaces.find((w) => w.id === workspaceId)
+    return ws ? resolveWorkspaceWorktree(ws)?.gitRoot ?? null : null
+  })
   const cliRuntimes = useWorkspaceStore((s) => s.appSettings.cliRuntimes)
   const mcpSettings = useWorkspaceStore((s) => s.appSettings.mcp ?? EMPTY_MCP_SETTINGS)
   const cli = agent?.cli
@@ -258,7 +271,7 @@ export default function TerminalView({ workspaceId, agentId, sessionId: attached
       agentId,
       workspace.sprintEngineState.goal,
       {
-        executionCwd: resolveAgentExecutionRoot(currentAgent?.execution, storedExecutionWorktreePath, folderReadyPath).cwd,
+        executionCwd: resolveAgentExecutionRoot(currentAgent?.execution, storedExecutionWorktreePath, folderReadyPath, null).cwd,
         workspaceRoot: folderReadyPath ?? undefined,
         sprintEngineStatePath: workspace.sprintEngineContext?.statePath,
         rosterArgs: buildSprintEngineRosterCommandArgs(workspace.sprintEngineState),
@@ -455,7 +468,8 @@ export default function TerminalView({ workspaceId, agentId, sessionId: attached
     const linkExecutionRoot = resolveAgentExecutionRoot(
       currentContext().agent?.execution,
       currentContext().storedExecutionWorktreePath,
-      folderReadyPath
+      folderReadyPath,
+      null
     )
     const fileLinkDisposable = term.registerLinkProvider(createTerminalFileLinkProvider({
       terminal: term,
@@ -784,11 +798,43 @@ export default function TerminalView({ workspaceId, agentId, sessionId: attached
       const launchCli = launchContext.cli
       if (!launchAgent || !launchCli) return
       const sprintEngineStatePath = folderReadyPath ? launchContext.sprintEngineContext?.statePath : undefined
+      // Redirect a non-worktree agent's spawn into the workspace's worktree.
+      // Resolve the worktree cwd once here (one `pathExists`); a persisted
+      // mode:'worktree' agent skips this — resolveAgentExecutionRoot ignores the
+      // value on its worktree branch and resolveWorktreeSpawnFallback below
+      // already guards that agent's own cwd, so resolving here would double-call
+      // pathExists.
+      const workspaceWorktreeCwd = launchAgent.execution?.mode === 'worktree'
+        ? { cwd: null, missing: false }
+        : await resolveWorkspaceTerminalCwd(
+            workspaceWorktreeGitRoot,
+            folderReadyPath,
+            window.api.pathExists,
+          )
+      if (disposed) return
       let executionRoot = resolveAgentExecutionRoot(
         launchAgent.execution,
         launchContext.storedExecutionWorktreePath,
-        folderReadyPath
+        folderReadyPath,
+        workspaceWorktreeCwd.cwd
       )
+      if (workspaceWorktreeCwd.missing) {
+        // The worktree-backed workspace's worktree is gone (merge cleanup, the
+        // Worktree manager, or `git worktree prune`). executionRoot already fell
+        // back to folderReadyPath; note it so the user is not silently in the
+        // parent instead of the worktree they expected. Same red bracketed banner
+        // as Slice 2 (PlainTerminalPanel), showing the folder actually opened in.
+        logPerfEvent('TerminalView', 'worktree-cwd-missing-fallback', {
+          workspaceId,
+          agentId,
+          kind: 'agent',
+          missingCwd: workspaceWorktreeGitRoot,
+          fallbackCwd: executionRoot.cwd ?? null,
+        })
+        term.write(
+          `\r\n\x1b[31m[worktree missing — opened in main checkout: ${executionRoot.cwd ?? folderReadyPath ?? 'the workspace folder'}]\x1b[0m\r\n`,
+        )
+      }
       // The run worktree can be removed out from under a persisted agent (sprint
       // merge cleanup, the Worktree manager, or `git worktree prune`). Spawning
       // into the vanished directory exits the terminal with code 1 on reopen.
@@ -1113,6 +1159,7 @@ export default function TerminalView({ workspaceId, agentId, sessionId: attached
     agent?.execution.worktreeId,
     agent?.execution.cwd,
     folderReadyPath,
+    workspaceWorktreeGitRoot,
     shouldKillOnUnmount,
   ])
 
