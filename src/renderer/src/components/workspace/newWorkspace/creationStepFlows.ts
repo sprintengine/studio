@@ -58,6 +58,13 @@ function isCreationStepsId(value: string | undefined): value is CreationStepsId 
 // is not a known flow) falls back to standard so the wizard never crashes.
 export function stepsForMode(mode: CreationMode): StepId[] {
   if (mode === 'standard') return STEPS_BY_MODE.standard
+  // 'chat' is a shell-owned pseudo-type: it is not a registered workspace type and
+  // has no creationStepsId, so it is resolved here (like 'standard') rather than
+  // through STEPS_BY_MODE. It ends at the 'mode' step, where NewWorkspacePanel
+  // embeds the existing AgentComposer as the chat config surface and the composer
+  // owns its own create action. The 'workspace'→'mode' prefix matches every other
+  // flow so the step index is stable when switching types on the mode step.
+  if (mode === 'chat') return ['workspace', 'mode']
   const stepsId = getRendererHost().getWorkspaceType(mode)?.creationStepsId
   return STEPS_BY_MODE[isCreationStepsId(stepsId) ? stepsId : 'standard']
 }

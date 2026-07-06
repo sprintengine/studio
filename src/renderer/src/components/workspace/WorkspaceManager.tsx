@@ -1865,8 +1865,12 @@ export default function WorkspaceManager() {
   }, [windowActiveWorkspaceId])
   // Map the composer's confirm to the existing new-chat spawn handlers (which
   // persist lastNewChatAgent and seed the solo workspace), then close the panel.
-  const confirmNewChat = (confirm: AgentComposerConfirm) => {
-    const folderPath = newChatPanelState?.folderPath ?? null
+  // `folderPathOverride` lets the embedded composer in the unified New Agent panel
+  // (the 'chat' pseudo-type) spawn in the wizard's chosen folder rather than the
+  // standalone panel's; omitting it keeps the standalone New chat behavior.
+  const confirmNewChat = (confirm: AgentComposerConfirm, folderPathOverride?: string | null) => {
+    const folderPath =
+      folderPathOverride !== undefined ? folderPathOverride : newChatPanelState?.folderPath ?? null
     switch (confirm.kind) {
       case 'terminal':
         pickNewChatTerminal(folderPath)
@@ -2629,6 +2633,15 @@ export default function WorkspaceManager() {
                 workspaceWindowId={workspaceWindowId}
                 allowClose={railWorkspaces.length > 0}
                 initialState={newWorkspacePanelInitialState}
+                chatComposer={{
+                  projectOptions: newChatProjectOptions,
+                  initialSelection: lastNewChatAgent ?? { kind: 'general' },
+                  permissionPreset: agentSpawnPermissionPreset,
+                  onChangePermissionPreset: setAgentSpawnPermissionPreset,
+                  debugMode: agentSpawnDebugMode,
+                  onChangeDebugMode: setAgentSpawnDebugMode,
+                  onConfirm: confirmNewChat,
+                }}
               />
             </React.Suspense>
           ) : (
