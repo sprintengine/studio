@@ -132,7 +132,7 @@ export function PathRadio({
 // let the architect pick the team from the per-sprint model selection. The
 // architect option is disabled (with a cause-specific hint) when no catalog model
 // is available, so the mode is never silently defaulted on.
-function RosterModeChoice({
+export function RosterModeChoice({
   value,
   onChange,
   architectAvailable,
