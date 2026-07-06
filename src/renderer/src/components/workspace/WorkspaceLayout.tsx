@@ -46,6 +46,7 @@ import { AgentTabIdentityPopover, type AgentTabIdentity } from './AgentTabIdenti
 import type { AgentCliCatalogOption } from './newWorkspace/cliRuntimeOptions'
 import { labelForCliRuntime } from './newWorkspace/cliRuntimeOptions'
 import { panelTabAccentClass } from './panelTabAccent'
+import { GitBranchGlyph } from './WorkspaceTopBar'
 import { LifecycleGlyph, type LifecycleState, StatusDot, type Tone } from '../ui'
 import MulticodeSpinner from '../brand/MulticodeSpinner'
 import AgentPanel from '../panels/AgentPanel'
@@ -929,12 +930,7 @@ function WorkspaceLayout({ workspaceId, onStartFuturePlan, agentClis, onSpawnAge
             title={title}
             aria-label={title}
           >
-            <svg viewBox="0 0 16 16" className="icon-sm" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-              <circle cx="4" cy="3" r="1.6" />
-              <circle cx="4" cy="13" r="1.6" />
-              <circle cx="12" cy="6" r="1.6" />
-              <path d="M4 4.6v6.8M4 9.5a4 4 0 0 0 4-4 2.5 2.5 0 0 1 2.5-2.5" />
-            </svg>
+            <GitBranchGlyph className="icon-sm" />
           </span>
         )
         return existing ? (

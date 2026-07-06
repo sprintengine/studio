@@ -7,10 +7,13 @@ import { basename, isAbsoluteFilePath, joinFilePath, parentPath } from '../../..
 import { focusOrAddFileTab } from '../../../utils/modelRegistry'
 import type {
   ArtifactActionState,
+  SprintEnginePreviewedArtifact,
   TaskCommentActionState,
   TaskInputActionState,
 } from '../sprintEngineInspector'
 import type { SprintEngineArtifact } from '../../../types/workspace'
+
+export type { SprintEnginePreviewedArtifact } from '../sprintEngineInspector'
 
 const artifactEditorPathHelpers = {
   parentPath,
@@ -21,13 +24,6 @@ const artifactEditorPathHelpers = {
 export type SprintEngineArtifactSyncMessage = {
   status: 'idle' | 'syncing' | 'live' | 'error'
   message: string
-}
-
-export type SprintEnginePreviewedArtifact = {
-  id: string
-  path: string
-  name: string
-  content: string
 }
 
 export type SprintEngineRequestChangesDialog = {
@@ -257,6 +253,7 @@ export function useSprintEngineBoardArtifactActions(
         setPreviewedArtifact({
           id: artifact.id,
           path: artifactPath,
+          relativePath: artifact.path,
           name: basename(artifactPath) || artifact.title || artifact.id,
           content,
         })

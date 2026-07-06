@@ -105,6 +105,9 @@ import {
   type RuntimeAgentView,
   type SprintEngineInspectorSelection,
 } from './sprintEngineInspector'
+import { HtmlArtifactFrame } from '../workspace/guidedBrief/MockupPreviewPane'
+import { sprintEngineSeedPreviewKind } from './sprintEngineBoard/sprintEngineStartedFrom'
+import { parentPath } from '../../utils/paths'
 
 function SectionList({
   title,
@@ -2842,6 +2845,12 @@ export function SprintEngineInspectorPanel({
   onToggleExpand: () => void
 }) {
   if (selection.kind === 'artifact-preview') {
+    // HTML artifacts (mockups) render in the sandboxed frame the Inbox seed
+    // preview already uses — same preview-kind helper, so the two surfaces
+    // route identically by construction. Everything else keeps the
+    // extension-based markdown/plain-text body.
+    const isHtmlArtifact =
+      sprintEngineSeedPreviewKind(selection.artifact.relativePath) === 'html'
     return (
       <FilePreviewPane
         title={
@@ -2853,6 +2862,17 @@ export function SprintEngineInspectorPanel({
         content={selection.artifact.content}
         onBack={onBackFromArtifact}
         onPopOut={onPopOutArtifact}
+        onClose={onClose}
+        body={
+          isHtmlArtifact ? (
+            <HtmlArtifactFrame
+              absolutePath={selection.artifact.path}
+              relativePath={selection.artifact.relativePath}
+              watchDirectoryPath={parentPath(selection.artifact.path)}
+              enableSourceView
+            />
+          ) : undefined
+        }
       />
     )
   }
@@ -3149,6 +3169,24 @@ function SprintEngineTaskBody({
         onOpenAgentTerminal={onOpenAgentTerminal}
       />
 
+      {/* MC-1469: artifacts are the task's outputs, not reference metadata —
+          they render first-class after the review surfaces rather than inside
+          the collapsed More section. Hidden entirely when a task has none so
+          artifact-less tasks stay quiet. */}
+      {selectedTaskArtifacts.length > 0 ? (
+        <SprintEngineArtifactList
+          artifacts={selectedTaskArtifacts}
+          tasksById={tasksById}
+          actions={artifactActions}
+          title="Artifacts"
+          emptyLabel=""
+          onSelectTask={onSelectTask}
+          onOpenArtifact={(artifact) => void onOpenArtifact(artifact)}
+          onApproveArtifact={(artifact) => void onApproveArtifact(artifact)}
+          onRequestArtifactChanges={onRequestArtifactChanges}
+        />
+      ) : null}
+
       <div ref={findingsAnchorRef}>
         <TaskOpenFindings issues={openIssues} findings={openFindings} />
       </div>
@@ -3286,17 +3324,6 @@ function SprintEngineTaskBody({
             {selectedTask.notes.length > 0 ? (
               <SectionList title="Planning notes" items={selectedTask.notes} emptyLabel="" />
             ) : null}
-
-            <SprintEngineArtifactList
-              artifacts={selectedTaskArtifacts}
-              tasksById={tasksById}
-              actions={artifactActions}
-              emptyLabel="No review artifacts are attached to this task."
-              onSelectTask={onSelectTask}
-              onOpenArtifact={(artifact) => void onOpenArtifact(artifact)}
-              onApproveArtifact={(artifact) => void onApproveArtifact(artifact)}
-              onRequestArtifactChanges={onRequestArtifactChanges}
-            />
 
             <div>
               <div className="mb-2 text-[11px] font-semibold text-[color:var(--text-muted)]">

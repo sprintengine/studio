@@ -258,6 +258,10 @@ export default function SidebarAccountBar({
       ariaLabel="Account"
       popupRole="menu"
       placement="top-start"
+      // The popover's trigger wrapper is inline-flex and shrink-wraps, which
+      // would park the Settings gear right beside the account text instead of
+      // at the row's right edge — grow it so the account trigger fills the row.
+      className={collapsed ? undefined : 'min-w-0 flex-1'}
       onOpenAutoFocus={(surface) => {
         surface.querySelector<HTMLButtonElement>('[data-account-item="true"]')?.focus()
       }}

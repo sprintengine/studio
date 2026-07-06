@@ -448,7 +448,7 @@ export type WorkspaceTopBarProps = {
 // Branch-fork glyph for the header identity cluster. Stroke idiom matches the
 // Git panel's local icons (1.3px round strokes on a 16px box) so the two Git
 // surfaces read as one family.
-function GitBranchGlyph({ className }: { className?: string }) {
+export function GitBranchGlyph({ className }: { className?: string }) {
   return (
     <svg viewBox="0 0 16 16" aria-hidden="true" className={className} fill="none">
       <circle cx="5" cy="3.6" r="1.55" stroke="currentColor" strokeWidth="1.3" />

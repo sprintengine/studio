@@ -1,5 +1,6 @@
 import React from 'react'
 import { Tooltip } from './Tooltip'
+import { CloseIconButton } from './Buttons'
 import { renderMarkdown } from '../../utils/markdown'
 
 // FilePreviewPane — canonical inline file/artifact preview surface.
@@ -32,6 +33,14 @@ type FilePreviewPaneProps = {
   onBack: () => void
   /** Optional "Open in editor tab" handler. Hides the button when omitted. */
   onPopOut?: () => void
+  /** Optional close handler. Renders the canonical top-right X so the pane
+   *  keeps its dismiss affordance when the preview replaces an inspector
+   *  view that had one. Back returns one level; close dismisses the pane. */
+  onClose?: () => void
+  /** Opt-in body override: replaces the extension-based content rendering
+   *  while keeping the shared header chrome. Used for previews that manage
+   *  their own scrolling (e.g. the sandboxed HTML artifact frame). */
+  body?: React.ReactNode
 }
 
 const MARKDOWN_PREVIEW_MAX_CHARS = 2 * 1024 * 1024
@@ -42,6 +51,8 @@ export function FilePreviewPane({
   content,
   onBack,
   onPopOut,
+  onClose,
+  body,
 }: FilePreviewPaneProps) {
   const isMarkdown = path.toLowerCase().endsWith('.md')
   const renderAsMarkdown = isMarkdown && content.length <= MARKDOWN_PREVIEW_MAX_CHARS
@@ -49,58 +60,66 @@ export function FilePreviewPane({
     <div className="flex h-full min-h-0 flex-col">
       <header className="flex shrink-0 items-center justify-between gap-2 border-b border-[color:var(--border-default)] px-5 py-3">
         <div className="flex min-w-0 items-center gap-2">
-          <button
-            type="button"
-            onClick={onBack}
-            className="inline-flex h-7 shrink-0 items-center gap-1 rounded px-2 text-[12px] font-semibold text-[color:var(--text-muted)] interactive transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]"
-            aria-label="Back"
-          >
-            <svg viewBox="0 0 16 16" fill="none" className="icon-xs">
-              <path
-                d="M10 4L6 8L10 12"
-                stroke="currentColor"
-                strokeWidth="1.6"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              />
-            </svg>
-            Back
-          </button>
-          <span className="min-w-0 truncate" title={path}>
-            {title}
-          </span>
-        </div>
-        {onPopOut ? (
-          <Tooltip content="Open in editor tab">
+          <Tooltip content="Back">
             <button
               type="button"
-              onClick={onPopOut}
-              className="inline-flex h-7 shrink-0 items-center gap-1 rounded px-2 text-[11px] font-semibold text-[color:var(--text-muted)] interactive transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]"
-              aria-label="Open in editor tab"
+              onClick={onBack}
+              className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded text-[color:var(--text-muted)] interactive transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]"
+              aria-label="Back"
             >
               <svg viewBox="0 0 16 16" fill="none" className="icon-xs">
                 <path
-                  d="M9 3H13V7M13 3L7.5 8.5M6 4H4C3.45 4 3 4.45 3 5V12C3 12.55 3.45 13 4 13H11C11.55 13 12 12.55 12 12V10"
+                  d="M10 4L6 8L10 12"
                   stroke="currentColor"
-                  strokeWidth="1.5"
+                  strokeWidth="1.6"
                   strokeLinecap="round"
                   strokeLinejoin="round"
                 />
               </svg>
-              Open in editor
             </button>
           </Tooltip>
-        ) : null}
+          <span className="min-w-0 truncate" title={path}>
+            {title}
+          </span>
+        </div>
+        <div className="flex shrink-0 items-center gap-1">
+          {onPopOut ? (
+            <Tooltip content="Open in editor tab">
+              <button
+                type="button"
+                onClick={onPopOut}
+                className="inline-flex h-7 shrink-0 items-center gap-1 rounded px-2 text-[11px] font-semibold text-[color:var(--text-muted)] interactive transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]"
+                aria-label="Open in editor tab"
+              >
+                <svg viewBox="0 0 16 16" fill="none" className="icon-xs">
+                  <path
+                    d="M9 3H13V7M13 3L7.5 8.5M6 4H4C3.45 4 3 4.45 3 5V12C3 12.55 3.45 13 4 13H11C11.55 13 12 12.55 12 12V10"
+                    stroke="currentColor"
+                    strokeWidth="1.5"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  />
+                </svg>
+                Open in editor
+              </button>
+            </Tooltip>
+          ) : null}
+          {onClose ? <CloseIconButton aria-label="Close preview" onClick={onClose} /> : null}
+        </div>
       </header>
-      <div className="flex-1 overflow-auto px-5 py-4 text-[13px] leading-6 text-[color:var(--text-default)]">
-        {renderAsMarkdown ? (
-          <div className="markdown-body">{renderMarkdown(content)}</div>
-        ) : (
-          <pre className="whitespace-pre-wrap break-words font-mono text-[12.5px] leading-5 text-[color:var(--text-default)]">
-            {content}
-          </pre>
-        )}
-      </div>
+      {body ? (
+        <div className="flex min-h-0 flex-1 flex-col p-3">{body}</div>
+      ) : (
+        <div className="flex-1 overflow-auto px-5 py-4 text-[13px] leading-6 text-[color:var(--text-default)]">
+          {renderAsMarkdown ? (
+            <div className="markdown-body">{renderMarkdown(content)}</div>
+          ) : (
+            <pre className="whitespace-pre-wrap break-words font-mono text-[12.5px] leading-5 text-[color:var(--text-default)]">
+              {content}
+            </pre>
+          )}
+        </div>
+      )}
     </div>
   )
 }

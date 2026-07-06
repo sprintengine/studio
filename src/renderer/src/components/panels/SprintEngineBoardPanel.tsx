@@ -115,8 +115,16 @@ import { SprintEngineRosterView } from './sprintEngineBoard/SprintEngineRosterVi
 import { SprintEngineTasksKanbanView } from './sprintEngineBoard/SprintEngineTasksKanbanView'
 import { RunCompletePullRequestAction, RunPullRequestViewChip, useRunPullRequestMergePoll } from './runPullRequest'
 import { useSprintEngineBoardModel } from './sprintEngineBoard/useSprintEngineBoardModel'
-import { useSprintEngineBoardArtifactActions } from './sprintEngineBoard/useSprintEngineBoardArtifactActions'
+import {
+  useSprintEngineBoardArtifactActions,
+  type SprintEnginePreviewedArtifact,
+} from './sprintEngineBoard/useSprintEngineBoardArtifactActions'
 import { useSprintEngineBoardTerminalActions } from './sprintEngineBoard/useSprintEngineBoardTerminalActions'
+import {
+  clampInspectorPaneWidth,
+  loadInspectorPaneWidth,
+  saveInspectorPaneWidth,
+} from './sprintEngineBoard/inspectorPaneWidth'
 
 
 
@@ -579,12 +587,11 @@ function SprintEngineBoardPanelContent({
  recheckFolder,
  } = useWorkspaceFolderStatus(workspaceId)
  const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null)
- const [previewedArtifact, setPreviewedArtifact] = useState<{
- id: string
- path: string
- name: string
- content: string
- } | null>(null)
+ // Drag-resized inspector width; null keeps SidePane's responsive preset.
+ // Persisted app-wide (not per workspace): pane width is a reading preference.
+ const [inspectorWidthPx, setInspectorWidthPx] = useState<number | null>(() => loadInspectorPaneWidth())
+ const inspectorWidthSaveTimer = useRef<number | null>(null)
+ const [previewedArtifact, setPreviewedArtifact] = useState<SprintEnginePreviewedArtifact | null>(null)
  // The inbox row → inspector binding. Set by SprintEngineProjectView when
  // the user clicks an inbox artifact. Cleared whenever task/agent
  // selection changes so the inspector lights up the most recent intent.
@@ -1211,7 +1218,27 @@ function SprintEngineBoardPanelContent({
  const panel = renderInspectorPanel()
  if (!panel) return null
  return (
- <SidePane side="right" width="md" expanded={inspectorExpanded} ariaLabel="Sprint inspector">
+ <SidePane
+ side="right"
+ width="md"
+ expanded={inspectorExpanded}
+ ariaLabel="Sprint inspector"
+ widthPx={inspectorWidthPx}
+ onResizeWidth={(px) => {
+ const next = clampInspectorPaneWidth(px)
+ setInspectorWidthPx(next)
+ // Persist debounced: onResizeWidth fires per animation frame during a
+ // drag, and a synchronous localStorage write per frame stutters it.
+ if (inspectorWidthSaveTimer.current !== null) window.clearTimeout(inspectorWidthSaveTimer.current)
+ inspectorWidthSaveTimer.current = window.setTimeout(() => saveInspectorPaneWidth(next), 250)
+ }}
+ onResizeReset={() => {
+ if (inspectorWidthSaveTimer.current !== null) window.clearTimeout(inspectorWidthSaveTimer.current)
+ setInspectorWidthPx(null)
+ saveInspectorPaneWidth(null)
+ }}
+ resizeLabel="Resize inspector"
+ >
  {panel}
  </SidePane>
  )

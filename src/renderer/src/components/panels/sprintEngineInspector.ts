@@ -38,14 +38,23 @@ export type RuntimeAgentView = {
   currentTaskId: string | null
 }
 
+// The in-place document preview payload built by `openArtifact` (see
+// useSprintEngineBoardArtifactActions). `path` is the resolved absolute path
+// used for IO (read/watch/pop-out); `relativePath` is the artifact's own
+// recorded path used for display and preview-kind detection.
+export type SprintEnginePreviewedArtifact = {
+  id: string
+  path: string
+  relativePath: string
+  name: string
+  content: string
+}
+
 export type SprintEngineInspectorSelection =
   | { kind: 'task'; task: SprintEngineTask }
   | { kind: 'agent'; agent: SprintEngineAgentRosterItem }
   | { kind: 'artifact'; artifact: SprintEngineArtifact }
-  | {
-      kind: 'artifact-preview'
-      artifact: { id: string; path: string; name: string; content: string }
-    }
+  | { kind: 'artifact-preview'; artifact: SprintEnginePreviewedArtifact }
 
 export type SprintEngineGateAttemptVisualState =
   | 'approved'

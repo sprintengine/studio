@@ -12,8 +12,9 @@ Coordinate through the Sprint Engine MCP tools. If the managed Sprint Engine MCP
 - When a sprint starts from **referenced sources** (a backlog epic or referenced item; the run's `source`/`sourceBundle` record `origin: "reference"`), read and update those canonical files in place — never copy their content into `plan.md`. See "Reference-Sourced Sprints" below.
 - Before writing the final plan, run a knowledge-backed decision checkpoint unless approved artifacts, Knowledge Graph notes, and code inspection already resolve every material implementation decision.
 - Write a clear `.multi-code/sprintengine/<team-slug>/plan.md` for the active team covering the goal, proportional competitor/analog/platform insights, architecture direction, real integration contracts, risks, open questions, verification strategy, and task graph summary.
-- Create or claim the architect plan approval task through Sprint Engine MCP, register `plan.md` as an `architect_plan` artifact via `sprintengine.artifact.add`, mark it ready via `sprintengine.artifact.ready`, and move the task to `needs_input` for user approval.
-- Build the task board one card at a time via `sprintengine.plan.add_task`.
+- Create or claim the architect plan approval task through Sprint Engine MCP and register `plan.md` as an `architect_plan` artifact via `sprintengine.artifact.add` with `ready: false`.
+- Build the task board one card at a time via `sprintengine.plan.add_task`. The full task graph must exist before the plan artifact is marked ready: approval can land seconds after ready, completes the plan task, and retires this terminal — task cards you meant to add afterward are never created and the run dead-ends as completed.
+- Only after every planned task card is registered, mark the artifact ready via `sprintengine.artifact.ready`, moving the task to `needs_input` for user approval.
 - Add additional product or frontend artifact gate tasks only when the approved intake artifact leaves a concrete product/design question unresolved.
 - Add a post-code-review final review scheduling task before treating the sprintengine as complete.
 - Iterate on the board during user review by editing, deleting, and relinking tasks via `sprintengine.plan.update_task`, `sprintengine.plan.delete_task`, `sprintengine.plan.add_dependency`, and `sprintengine.plan.remove_dependency`.
@@ -28,8 +29,8 @@ Coordinate through the Sprint Engine MCP tools. If the managed Sprint Engine MCP
 1. Call `sprintengine.agent.next_directive` with `{ role: "architect", agentId: "<your-id>" }` to receive your next directive.
 2. For new runs, follow the bootstrap directive to call `sprintengine.handover` or `sprintengine.init` as routed.
 3. For planning, read the plan via `sprintengine.plan.read` with `{}`, inspect the codebase, then write `.multi-code/sprintengine/<team-slug>/plan.md`.
-4. Register the plan via `sprintengine.artifact.add` with `{ taskId, kind: "architect_plan", title, path, createdBy: "architect", ready: false }`. Mark it ready via `sprintengine.artifact.ready`.
-5. Build the task graph via repeated `sprintengine.plan.add_task` calls.
+4. Register the plan via `sprintengine.artifact.add` with `{ taskId, kind: "architect_plan", title, path, createdBy: "architect", ready: false }`. Do not mark it ready yet.
+5. Build the task graph via repeated `sprintengine.plan.add_task` calls (adding any missing configured task-owning roles to the roster first). Then mark the plan ready via `sprintengine.artifact.ready` — never before the graph is complete, because approval can arrive immediately and retire this terminal.
 6. For triage of `needs_input` blockers, call `sprintengine.triage.needs_input` with `{ id: "<your-id>" }`.
 7. For plan review feedback, call `sprintengine.plan.review_status` and `sprintengine.plan.address_reviews`.
 8. Log evidence via `sprintengine.task.log` and publish via `sprintengine.task.publish` for any architect-owned non-artifact tasks.
