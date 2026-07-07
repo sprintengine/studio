@@ -1912,6 +1912,16 @@ samp,
   }
 }
 
+/* Canonical modal/overlay scrim. A plain composited translucent layer — never
+ * add `backdrop-filter` here or on any full-viewport backdrop: the blur
+ * re-runs every frame anything behind it repaints (streaming terminals
+ * guarantee this), which drops pointer/hover framerate to ~10fps on large
+ * windows. Separation comes from the scrim tone plus the dialog surface
+ * shadow. Small fixed-size chips (graph HUDs) may still frost locally. */
+.overlay-scrim {
+  background-color: var(--surface-overlay-backdrop);
+}
+
 /* Canonical right-slide-in Drawer primitive. Consumers should never write a
  * bespoke `shadow-[...]` or translate transition on a drawer surface — this
  * class owns the elevation and motion so all drawers stay coherent. */

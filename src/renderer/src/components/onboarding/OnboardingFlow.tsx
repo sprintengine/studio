@@ -126,7 +126,7 @@ export default function OnboardingFlow({
       role="dialog"
       aria-modal="true"
       aria-labelledby={titleId}
-      className="fixed inset-0 z-50 flex items-center justify-center bg-[color:var(--surface-overlay-backdrop)] p-4 backdrop-blur-sm sm:p-8"
+      className="overlay-scrim fixed inset-0 z-50 flex items-center justify-center p-4 sm:p-8"
     >
       <div data-focus-sentinel="true" tabIndex={0} onFocus={trapFocus('start')} className="sr-only" />
 

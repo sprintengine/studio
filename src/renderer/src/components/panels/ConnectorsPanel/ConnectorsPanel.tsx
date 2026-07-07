@@ -140,7 +140,7 @@ export default function ConnectorsSurface(props: ConnectorsSurfaceProps): JSX.El
       role="dialog"
       aria-modal="true"
       aria-label="Connectors"
-      className="fixed inset-0 z-50 flex items-center justify-center bg-[color:var(--surface-overlay-backdrop)] p-4 outline-none backdrop-blur-sm sm:p-8 lg:p-12"
+      className="overlay-scrim fixed inset-0 z-50 flex items-center justify-center p-4 outline-none sm:p-8 lg:p-12"
       onMouseDown={(event) => {
         if (event.target === event.currentTarget) closeConnectorsSurface()
       }}

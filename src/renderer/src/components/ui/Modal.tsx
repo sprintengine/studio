@@ -49,11 +49,10 @@ export function Modal({ open, onClose, labelledBy, width = 560, children, contai
 
   return (
     <div
-      // Scrim: translucent dim + a light `backdrop-blur-sm` (4px), matching the
-      // Command Palette and every other full-screen overlay so modals read as
-      // one system. The blur is deliberately kept at `-sm` — heavier radii make
-      // the full-window backdrop-filter expensive to recomposite.
-      className={`${contained ? 'absolute' : 'fixed'} inset-0 z-50 flex items-center justify-center bg-[color:var(--surface-overlay-backdrop)] p-6 backdrop-blur-sm`}
+      // Scrim: `.overlay-scrim`, matching the Command Palette and every other
+      // full-screen overlay so modals read as one system. No backdrop-filter —
+      // see the class definition for the framerate cliff it causes.
+      className={`overlay-scrim ${contained ? 'absolute' : 'fixed'} inset-0 z-50 flex items-center justify-center p-6`}
       onMouseDown={(event) => {
         if (event.target === event.currentTarget) onClose()
       }}

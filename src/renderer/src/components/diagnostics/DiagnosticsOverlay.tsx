@@ -49,7 +49,7 @@ export default function DiagnosticsOverlay({ onClose }: Props) {
 
   return (
     <div
-      className="fixed inset-0 z-[60] flex items-center justify-center bg-[color:var(--surface-overlay-backdrop)] p-6 backdrop-blur-sm"
+      className="overlay-scrim fixed inset-0 z-[60] flex items-center justify-center p-6"
       onClick={handleBackdropClick}
     >
       <div
