@@ -322,8 +322,25 @@ function backlogRelativePath(rootPath: string, filePath: string): string | null 
 
 function parseFileDropPayload(dataTransfer: DataTransfer): FileDropPayload | null {
   const raw = dataTransfer.getData(MULTICODE_FILE_DROP_MIME)
+  // Only fall back to native Files when the Multicode MIME entry is entirely
+  // absent — a present-but-malformed entry stays a rejection.
   if (!raw) return parseNativeFileDropPayload(dataTransfer)
+  return parseFileDropJson(raw)
+}
 
+/**
+ * The published module-facing parse (mirrored verbatim by @multicode/module-sdk
+ * and parity-tested against it): strictly the Multicode MIME entry — no
+ * native-Files fallback — returning null on a missing entry, unparseable JSON,
+ * an unknown version, or an invalid shape. Never throws.
+ */
+export function readFileDropPayload(dataTransfer: DataTransfer): FileDropPayload | null {
+  const raw = dataTransfer.getData(MULTICODE_FILE_DROP_MIME)
+  if (!raw) return null
+  return parseFileDropJson(raw)
+}
+
+function parseFileDropJson(raw: string): FileDropPayload | null {
   try {
     const value = JSON.parse(raw) as Partial<FileDropPayload>
     if (
@@ -335,13 +352,26 @@ function parseFileDropPayload(dataTransfer: DataTransfer): FileDropPayload | nul
     }
     if (!Array.isArray(value.files)) return null
 
-    const files = value.files
-      .filter((file): file is { path: string; name: string; isDir?: boolean } => (
-        Boolean(file)
-        && typeof file.path === 'string'
-        && file.path.trim().length > 0
-        && typeof file.name === 'string'
-      ))
+    // Entries are rebuilt, never passed through: an invalid or non-boolean
+    // isDir is skipped (`file.isDir ?` downstream must never see a truthy
+    // non-boolean like 'false'), and unknown extra properties are dropped.
+    const files: FileDropPayload['files'] = []
+    for (const file of value.files) {
+      if (
+        !file
+        || typeof file.path !== 'string'
+        || file.path.trim().length === 0
+        || typeof file.name !== 'string'
+        || (file.isDir !== undefined && typeof file.isDir !== 'boolean')
+      ) {
+        continue
+      }
+      files.push({
+        path: file.path,
+        name: file.name,
+        ...(file.isDir === undefined ? {} : { isDir: file.isDir }),
+      })
+    }
 
     if (!files.length) return null
     return {

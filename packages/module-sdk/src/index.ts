@@ -102,6 +102,10 @@ export type CapabilityPermission =
   | 'backlog.read'
   | 'backlog.write'
   | 'backlog.link.open'
+  // Create and manage the module's own automations through the SDK's scoped
+  // Automations service. Disclosure-level like every other scope: the service
+  // does not runtime-check it.
+  | 'automations.manage'
   | (string & {})
 
 export const KNOWN_CAPABILITY_PERMISSIONS: readonly string[] = [
@@ -118,6 +122,7 @@ export const KNOWN_CAPABILITY_PERMISSIONS: readonly string[] = [
   'backlog.read',
   'backlog.write',
   'backlog.link.open',
+  'automations.manage',
 ]
 
 // ── Notifications ────────────────────────────────────────────────────────────
@@ -259,6 +264,17 @@ export type ScheduleTriggerConfig = {
     | { type: 'interval'; everyMinutes: number }
     | { type: 'daily'; timeLocal: string }
     | { type: 'weekly'; timeLocal: string; daysOfWeek: number[] }
+    /**
+     * One-shot: run once at `datetime` — ISO-8601 local wall-clock
+     * (`YYYY-MM-DDTHH:mm`, seconds optional and ignored, NO trailing `Z` or
+     * offset; the config's `timezone` field is the sole timezone authority,
+     * matching daily/weekly). Once the fire time passes, `computeNextRun`
+     * returns null and the automation never fires again — it stays listed
+     * with no upcoming run. A past datetime is valid and simply never fires.
+     * A wall-clock that falls in a DST spring-forward gap resolves to the
+     * first instant after the gap, the same rule daily/weekly use.
+     */
+    | { type: 'at'; datetime: string }
     | { type: 'cron'; expression: string }
   timezone: string
 }
@@ -372,6 +388,165 @@ export function registerAutomationTrigger(host: MainHost, provider: AutomationTr
 
 export function registerAutomationAction(host: MainHost, provider: AutomationActionProvider): string {
   return host.requireService(automationsProviderRegistryToken).registerActionProvider(host.moduleId, provider)
+}
+
+// ── Scoped Automations service (owned CRUD + run events) ─────────────────────
+
+export type AutomationDefinition = {
+  id: string
+  name: string
+  status: AutomationStatus
+  trigger: { kind: TriggerKind; config: unknown }
+  condition?: { kind: string; config: unknown }
+  action: { kind: ActionKind; config: unknown }
+  autonomyDefault: 'review_only' | 'allow_changes'
+  /**
+   * The capability module that created this automation through the SDK's
+   * scoped Automations service; absent ⇒ user-owned. Stamped server-side from
+   * the creating module's identity — never accepted from the renderer — and
+   * immutable thereafter (patches cannot carry it). The user outranks the
+   * module: panel edits to module-owned automations stay allowed; only the
+   * module service enforces ownership.
+   */
+  ownerModuleId?: string
+  /**
+   * Whether an agent-backed run executes in its own per-run git worktree (branch
+   * isolation from the user's checkout, and the prerequisite for opening a PR —
+   * a non-worktree run has no branch to review). Absent ⇒ true, so existing
+   * automations keep running in a worktree.
+   */
+  runInWorktree?: boolean
+  nextRunAt: string | null
+  lastRunAt: string | null
+  lastRunId: string | null
+  createdAt: string
+  updatedAt: string
+}
+
+export type AutomationDefinitionDraft = {
+  id?: string
+  name: string
+  status: AutomationStatus
+  trigger: { kind: TriggerKind; config: unknown }
+  condition?: { kind: string; config: unknown }
+  action: { kind: ActionKind; config: unknown }
+  autonomyDefault: AutomationDefinition['autonomyDefault']
+  runInWorktree?: boolean
+  /**
+   * Owning module for drafts created through the SDK's scoped Automations
+   * service. Optional echo of the creating module's own id — a draft claiming
+   * a different module is refused, and ownership is always stamped by the
+   * host. The user-facing IPC create path ignores it entirely.
+   */
+  ownerModuleId?: string
+}
+
+export type AutomationDefinitionPatch = Partial<Omit<AutomationDefinitionDraft, 'id' | 'ownerModuleId'>>
+
+export type AutomationRunEventStatus = Extract<AutomationRunStatus, 'completed' | 'failed' | 'blocked'>
+export type AutomationRunEventTrigger = 'timer' | 'manual'
+
+export type AutomationsRunEvent = {
+  automationId: string
+  runId: string
+  workspaceId: string
+  agentId?: string
+  definitionName: string
+  status: AutomationRunEventStatus
+  trigger: AutomationRunEventTrigger
+}
+
+export type ModuleAutomationsError =
+  | 'invalid_draft'
+  | 'invalid_workspace'
+  | 'not_found'
+  | 'not_owner'
+  | 'store_error'
+  | 'engine_unavailable'
+
+export type ModuleAutomationsResult<T> =
+  | ({ ok: true } & T)
+  | { ok: false; code: ModuleAutomationsError; message: string }
+
+/**
+ * Owned automation CRUD + run events for a module's `entry.main`, obtained via
+ * `getAutomationsService(host)`. Every method is pre-scoped to your module:
+ * `create` stamps `ownerModuleId`, mutations refuse records your module does
+ * not own (`not_owner` — user-created automations included), `list` returns
+ * only owned records, and `onRunEvent` fires only for owned automations.
+ * Declare the `automations.manage` permission (install-time disclosure) and
+ * `dependsOn: ['automations']` so the service exists before your entry runs.
+ */
+export type ModuleAutomationsService = {
+  /** Create an automation owned by this module (`ownerModuleId` is stamped). */
+  create(input: {
+    workspaceRoot: string
+    draft: AutomationDefinitionDraft
+  }): Promise<ModuleAutomationsResult<{ automation: AutomationDefinition }>>
+  update(input: {
+    workspaceRoot: string
+    automationId: string
+    patch: AutomationDefinitionPatch
+  }): Promise<ModuleAutomationsResult<{ automation: AutomationDefinition }>>
+  delete(input: {
+    workspaceRoot: string
+    automationId: string
+  }): Promise<ModuleAutomationsResult<object>>
+  /** Automations this module owns in the workspace (never other modules' or the user's). */
+  list(input: {
+    workspaceRoot: string
+  }): Promise<ModuleAutomationsResult<{ automations: AutomationDefinition[] }>>
+  listRuns(input: {
+    workspaceRoot: string
+    automationId: string
+  }): Promise<ModuleAutomationsResult<{ runs: AutomationRun[] }>>
+  /** Subscribe to run events for automations this module owns. Returns the unsubscriber; call it in `onShutdown`. */
+  onRunEvent(listener: (event: AutomationsRunEvent) => void): () => void
+}
+
+type AutomationsModuleRegistry = {
+  create(
+    moduleId: string,
+    input: { workspaceRoot: string; draft: unknown }
+  ): Promise<ModuleAutomationsResult<{ automation: AutomationDefinition }>>
+  update(
+    moduleId: string,
+    input: { workspaceRoot: string; automationId: string; patch: unknown }
+  ): Promise<ModuleAutomationsResult<{ automation: AutomationDefinition }>>
+  delete(
+    moduleId: string,
+    input: { workspaceRoot: string; automationId: string }
+  ): Promise<ModuleAutomationsResult<object>>
+  list(
+    moduleId: string,
+    input: { workspaceRoot: string }
+  ): Promise<ModuleAutomationsResult<{ automations: AutomationDefinition[] }>>
+  listRuns(
+    moduleId: string,
+    input: { workspaceRoot: string; automationId: string }
+  ): Promise<ModuleAutomationsResult<{ runs: AutomationRun[] }>>
+  onRunEvent(moduleId: string, listener: (event: AutomationsRunEvent) => void): () => void
+}
+
+const automationsModuleServiceToken: ServiceToken<AutomationsModuleRegistry> =
+  createServiceToken<AutomationsModuleRegistry>('automations.module-service')
+
+/**
+ * The scoped Automations service for `host`'s module. The raw host registry
+ * takes a module id on every call; this helper closes over `host.moduleId`
+ * exactly like `registerAutomationTrigger`/`registerAutomationAction`.
+ */
+export function getAutomationsService(host: MainHost): ModuleAutomationsService {
+  const registry = host.requireService(automationsModuleServiceToken)
+  const moduleId = host.moduleId
+  return {
+    create: (input) => registry.create(moduleId, input),
+    update: (input) => registry.update(moduleId, input),
+    delete: (input) => registry.delete(moduleId, input),
+    list: (input) => registry.list(moduleId, input),
+    listRuns: (input) => registry.listRuns(moduleId, input),
+    onRunEvent: (listener) => registry.onRunEvent(moduleId, listener),
+  }
 }
 
 // ── Renderer host (entry.renderer) ───────────────────────────────────────────
@@ -638,7 +813,182 @@ export type RendererHost = {
   registerBacklogLinkProvider(provider: BacklogLinkProvider): void
   registerCommand(definition: ModuleCommandDefinition): void
   registerSettingsSection(definition: SettingsSectionDefinition): void
+  /**
+   * The workspace's Backlog items as read-only views. Declare the
+   * `backlog.read` permission (install-time disclosure). Mutations go through
+   * `BacklogItemActionContext` (Backlog actions) or the item's file — never
+   * through this read surface. Rejects when the backlog module is disabled.
+   */
+  listBacklogItems(workspaceId: string): Promise<BacklogItemView[]>
+  /**
+   * Observe the workspace's Backlog: `cb` fires once with the current
+   * snapshot, then on every change (scans are debounced ~300ms behind file
+   * edits). Returns the unsubscriber — call it when your panel unmounts.
+   * Throws when the backlog module is disabled. Declare `backlog.read`.
+   */
+  watchBacklogItems(workspaceId: string, cb: (items: BacklogItemView[]) => void): () => void
+  /**
+   * Invoke an IPC channel this module's own `entry.main` registered via
+   * `MainHost.registerIpc`, e.g. `host.invoke('my-module:save', data)`.
+   *
+   * The channel MUST start with `<moduleId>:` (your own module id); other
+   * channel names throw before IPC happens. The host additionally routes only
+   * to channels owned by third-party modules whose manifest declares the
+   * `ipc:invoke` permission. A refused invoke rejects with an Error whose
+   * `code` property carries the `ModuleBridgeRefusalCode`, so callers can
+   * branch on the refusal kind without parsing the message.
+   *
+   * This bridge is a contract, not a security boundary: all renderer code
+   * shares one world. Trust gating (only `trusted` modules execute) remains
+   * the actual boundary.
+   */
+  invoke(channel: string, payload?: unknown): Promise<unknown>
 }
+
+/**
+ * Why the host refused a `RendererHost.invoke`, attached as `code` on the
+ * rejection Error: the channel was never registered (`unknown_channel`), it is
+ * not `<ownerModuleId>:`-prefixed or not owned by a third-party module
+ * (`not_bridgeable`), or the owner does not declare `ipc:invoke`
+ * (`permission_missing`).
+ */
+export type ModuleBridgeRefusalCode = 'unknown_channel' | 'not_bridgeable' | 'permission_missing'
+
+// ── File-drop drag-and-drop contract ─────────────────────────────────────────
+// The payload the Backlog panel and Files tree put on a drag (and the terminal
+// accepts). Published so a module can accept those drags — or originate
+// compatible ones — against a drift-guarded contract instead of an internal
+// MIME string. Self-contained mirror of the app's terminalDrop contract.
+
+export const MULTICODE_FILE_DROP_MIME = 'application/x-multicode-file-drop'
+
+export type FileDropPayload = {
+  version: 1
+  workspaceId: string | null
+  rootPath: string
+  files: Array<{
+    path: string
+    name: string
+    isDir?: boolean
+  }>
+}
+
+/** Put a file-drop payload on a drag the app's drop targets (terminals) accept. */
+export function setFileDropData(dataTransfer: DataTransfer, payload: FileDropPayload): void {
+  const fileText = payload.files.map((file) => file.path).join('\n')
+  dataTransfer.effectAllowed = 'copy'
+  dataTransfer.setData(MULTICODE_FILE_DROP_MIME, JSON.stringify(payload))
+  dataTransfer.setData('text/plain', fileText)
+}
+
+/**
+ * Whether a drag carries the Multicode file-drop payload (or native OS files).
+ * Use this during `dragover` — the HTML DnD protected mode blanks `getData`
+ * there, so `readFileDropPayload` only works inside the `drop` handler.
+ */
+export function hasFileDropData(dataTransfer: DataTransfer): boolean {
+  const types = Array.from(dataTransfer.types)
+  return types.includes(MULTICODE_FILE_DROP_MIME) || types.includes('Files')
+}
+
+/**
+ * Read a Multicode file-drop payload off a drop event's dataTransfer. Returns
+ * null — never throws — when the MIME entry is absent, the JSON is
+ * unparseable, the version is unknown (future versions ⇒ null; handle it), or
+ * the shape is invalid. A Backlog-item drag carries the item's markdown file
+ * path in `files[0].path`, resolvable back to the item.
+ */
+export function readFileDropPayload(dataTransfer: DataTransfer): FileDropPayload | null {
+  const raw = dataTransfer.getData(MULTICODE_FILE_DROP_MIME)
+  if (!raw) return null
+
+  try {
+    const value = JSON.parse(raw) as Partial<FileDropPayload>
+    if (
+      value.version !== 1
+      || (value.workspaceId !== null && typeof value.workspaceId !== 'string')
+      || typeof value.rootPath !== 'string'
+    ) {
+      return null
+    }
+    if (!Array.isArray(value.files)) return null
+
+    // Entries are rebuilt, never passed through: an invalid or non-boolean
+    // isDir is skipped, and unknown extra properties are dropped.
+    const files: FileDropPayload['files'] = []
+    for (const file of value.files) {
+      if (
+        !file
+        || typeof file.path !== 'string'
+        || file.path.trim().length === 0
+        || typeof file.name !== 'string'
+        || (file.isDir !== undefined && typeof file.isDir !== 'boolean')
+      ) {
+        continue
+      }
+      files.push({
+        path: file.path,
+        name: file.name,
+        ...(file.isDir === undefined ? {} : { isDir: file.isDir }),
+      })
+    }
+
+    if (!files.length) return null
+    return {
+      version: 1,
+      workspaceId: value.workspaceId,
+      rootPath: value.rootPath,
+      files,
+    }
+  } catch {
+    return null
+  }
+}
+
+// ── Theme tokens ─────────────────────────────────────────────────────────────
+
+/**
+ * The theme CSS custom properties guaranteed present in every app theme.
+ * Consume them as CSS variables — Tailwind arbitrary values
+ * (`bg-[var(--bg-surface)]`) or plain `var()` — so module UI re-skins with the
+ * active theme automatically. Only the NAMES are contract: values differ per
+ * theme and may be retuned in each release; never read or cache resolved values
+ * in JS, and never hard-code a hex. `--focus-ring` is a full box-shadow value,
+ * not a color. Presence is enforced per theme by a repo gate
+ * (test:sdk:theme-tokens).
+ */
+export const THEME_TOKENS = [
+  // Chrome (backgrounds)
+  '--bg-app',
+  '--bg-surface',
+  '--bg-surface-raised',
+  '--bg-hover',
+  '--bg-selected',
+  // Borders
+  '--border-subtle',
+  '--border-default',
+  '--border-strong',
+  // Text
+  '--text-strong',
+  '--text-default',
+  '--text-muted',
+  '--text-subtle',
+  '--text-disabled',
+  '--text-on-accent',
+  // Accent + focus
+  '--accent-primary',
+  '--accent-primary-soft',
+  '--focus-ring',
+  // Semantic tones
+  '--tone-neutral',
+  '--tone-accent',
+  '--tone-warn',
+  '--tone-good',
+  '--tone-error',
+  '--tone-merged',
+] as const
+
+export type ThemeToken = (typeof THEME_TOKENS)[number]
 
 /** The export contract of `entry.renderer`: `export function registerRenderer(host) { … }`. */
 export type RegisterRenderer = (host: RendererHost) => void

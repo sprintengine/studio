@@ -370,3 +370,169 @@ assert.deepEqual(
 )
 
 console.log('renderer host notification action provider tests passed')
+
+// ── Renderer→module-main bridge invoke ───────────────────────────────────────
+// invoke validates the module-id prefix before any IPC and unwraps the
+// structured bridge result from window.api.moduleBridgeInvoke.
+
+async function testBridgeInvoke(): Promise<void> {
+  const bridgeCalls: Array<{ channel: string; payload: unknown }> = []
+  let bridgeOutcome: { ok: true; result: unknown } | { ok: false; code: string; message: string } = {
+    ok: true,
+    result: { summary: 'clear' },
+  }
+  ;(globalThis as { window?: unknown }).window = {
+    api: {
+      moduleBridgeInvoke: async (channel: string, payload?: unknown) => {
+        bridgeCalls.push({ channel, payload })
+        return bridgeOutcome
+      },
+    },
+  }
+
+  try {
+    const invokeHost = createRendererHost().hostFor('weather-deck')
+
+    await assert.rejects(
+      () => invokeHost.invoke('automations:list'),
+      /Module "weather-deck" may only invoke its own channels \("weather-deck:\*"\); got "automations:list"\./,
+      'invoking outside the module namespace throws before IPC',
+    )
+    assert.equal(bridgeCalls.length, 0, 'prefix validation happens before any bridge call')
+
+    const result = await invokeHost.invoke('weather-deck:forecast', 'Dublin')
+    assert.deepEqual(result, { summary: 'clear' }, 'a successful bridge result is unwrapped')
+    assert.deepEqual(
+      bridgeCalls,
+      [{ channel: 'weather-deck:forecast', payload: 'Dublin' }],
+      'invoke forwards channel and payload to the preload bridge',
+    )
+
+    bridgeOutcome = { ok: false, code: 'permission_missing', message: 'Module "weather-deck" does not declare "ipc:invoke".' }
+    await assert.rejects(
+      () => invokeHost.invoke('weather-deck:forecast'),
+      (error: unknown) =>
+        error instanceof Error
+        && /does not declare "ipc:invoke"/.test(error.message)
+        && (error as Error & { code?: string }).code === 'permission_missing',
+      'a refusal surfaces as a thrown Error carrying the message and the structured code',
+    )
+  } finally {
+    delete (globalThis as { window?: unknown }).window
+  }
+  console.log('renderer host bridge invoke tests passed')
+}
+
+testBridgeInvoke().catch((err) => {
+  console.error(err)
+  process.exitCode = 1
+})
+
+// ── Backlog reader seam ──────────────────────────────────────────────────────
+// The kernel owns the slot and the gating; the backlog module owns the
+// implementation. Errors name the actual cause (no reader vs disabled).
+
+async function testBacklogReaderSeam(): Promise<void> {
+  const kernel = createRendererHost()
+  const consumer = kernel.hostFor('weather-deck')
+
+  await assert.rejects(
+    () => consumer.listBacklogItems('ws-1'),
+    /No Backlog reader is registered/,
+    'a missing reader is named as the cause',
+  )
+  assert.throws(
+    () => consumer.watchBacklogItems('ws-1', () => {}),
+    /No Backlog reader is registered/,
+    'watch fails the same way synchronously',
+  )
+
+  const listed: string[] = []
+  const watched: string[] = []
+  const fakeItems = [{ id: 'item-1' }, { id: 'item-2' }] as unknown as Awaited<
+    ReturnType<typeof consumer.listBacklogItems>
+  >
+  kernel.hostFor('backlog').provideBacklogReader({
+    list: async (workspaceId) => {
+      listed.push(workspaceId)
+      return fakeItems
+    },
+    watch: (workspaceId, cb) => {
+      watched.push(workspaceId)
+      cb(fakeItems)
+      return () => watched.push(`off:${workspaceId}`)
+    },
+  })
+
+  assert.throws(
+    () => kernel.hostFor('impostor').provideBacklogReader({ list: async () => [], watch: () => () => {} }),
+    /already provided by module "backlog"/,
+    'the reader slot is single-occupancy with a named owner',
+  )
+
+  assert.deepEqual(await consumer.listBacklogItems('ws-1'), fakeItems, 'list routes through the provided reader')
+  assert.deepEqual(listed, ['ws-1'])
+
+  let seen: unknown = null
+  const off = consumer.watchBacklogItems('ws-2', (items) => {
+    seen = items
+  })
+  assert.deepEqual(seen, fakeItems, 'watch fires immediately with the current snapshot')
+  off()
+  assert.deepEqual(watched, ['ws-2', 'off:ws-2'], 'the unsubscribe closure reaches the reader')
+
+  // Live enablement gates both methods once a resolver is wired.
+  kernel.setModuleEnablementResolver((moduleId) => moduleId !== 'backlog')
+  await assert.rejects(
+    () => consumer.listBacklogItems('ws-1'),
+    /Backlog module is disabled/,
+    'a disabled backlog module is named as the cause',
+  )
+  assert.throws(
+    () => consumer.watchBacklogItems('ws-1', () => {}),
+    /Backlog module is disabled/,
+  )
+  kernel.setModuleEnablementResolver(() => true)
+  assert.equal((await consumer.listBacklogItems('ws-3')).length, 2, 're-enabling restores access')
+
+  // An active watch is re-gated per delivery: disabling stops the stream
+  // mid-subscription (and re-enabling resumes it) instead of the watch
+  // outliving the toggle.
+  const liveEmitters: Array<(items: typeof fakeItems) => void> = []
+  const emitToAll = (): void => liveEmitters.forEach((emit) => emit(fakeItems))
+  const gatedKernel = createRendererHost()
+  gatedKernel.hostFor('backlog').provideBacklogReader({
+    list: async () => fakeItems,
+    watch: (_workspaceId, cb) => {
+      liveEmitters.push(cb)
+      return () => {}
+    },
+  })
+  let backlogEnabled = true
+  gatedKernel.setModuleEnablementResolver((moduleId) => moduleId !== 'backlog' || backlogEnabled)
+  const delivered: number[] = []
+  gatedKernel.hostFor('weather-deck').watchBacklogItems('ws-1', (items) => delivered.push(items.length))
+  emitToAll()
+  backlogEnabled = false
+  emitToAll()
+  backlogEnabled = true
+  emitToAll()
+  assert.deepEqual(delivered, [2, 2], 'deliveries stop while the backlog module is disabled and resume after')
+
+  // A throwing module callback never breaks the shared emit loop: the exploding
+  // subscriber is contained by the kernel wrapper, and the healthy subscriber
+  // still receives the same emit.
+  const explodingOff = gatedKernel.hostFor('weather-deck').watchBacklogItems('ws-1', () => {
+    throw new Error('module bug')
+  })
+  emitToAll()
+  assert.deepEqual(delivered, [2, 2, 2], 'the healthy subscriber still receives the emit the throwing one broke out of')
+  explodingOff()
+
+  console.log('renderer host backlog reader seam tests passed')
+}
+
+testBacklogReaderSeam().catch((err) => {
+  console.error(err)
+  process.exitCode = 1
+})

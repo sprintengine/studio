@@ -17,7 +17,7 @@ import { normalizeReportPath } from '../../shared/automations/contracts'
 import type { WorkspaceSyncSnapshot } from '../../shared/workspace-sync'
 import { AutomationsStore, type AutomationStoreProblem, type AutomationStoreState } from './store'
 import type { AutomationPullRequestResult } from './pull-request'
-import { computeNextRun, validateScheduleTriggerConfig } from './schedule'
+import { computeNextRun, scheduleCadenceCanExhaust, validateScheduleTriggerConfig } from './schedule'
 import { evaluatePollingTriggerDefinition } from './polling-trigger-runner'
 import { parseRunSignal, runSignalPath, type RunSignal } from './run-signal'
 import { enqueueTriggerEventRun, type TriggerEventRunResult } from './trigger-event-runner'
@@ -111,7 +111,14 @@ export type AutomationsEngineOptions = {
   createRunId?: (input: { workspaceRoot: string; automationId: string; dueAt: string }) => string
   pollIntervalMs?: number
   onEvaluation?: (result: AutomationsEngineEvaluationResult) => void
-  onRunEvent?: (event: AutomationsRunEvent) => void
+  /**
+   * Run-lifecycle event sink. `definition` is the automation the event belongs
+   * to, handed through from the emit site so subscribers needing definition
+   * metadata (e.g. `ownerModuleId` for module-scoped fan-out) never re-derive
+   * it from the event's workspaceId — which can be the run-hosting workspace,
+   * not the one whose store holds the definition.
+   */
+  onRunEvent?: (event: AutomationsRunEvent, definition: AutomationDefinition) => void
   // Agent-backed run finalize collaborators (injected for testability).
   openRunPullRequest?: AutomationRunPullRequestOpener
   removeRunWorktree?: AutomationRunWorktreeRemover
@@ -157,7 +164,7 @@ export class AutomationsEngine {
   private readonly createRunId: (input: { workspaceRoot: string; automationId: string; dueAt: string }) => string
   private readonly pollIntervalMs: number
   private readonly onEvaluation?: (result: AutomationsEngineEvaluationResult) => void
-  private readonly onRunEvent?: (event: AutomationsRunEvent) => void
+  private readonly onRunEvent?: (event: AutomationsRunEvent, definition: AutomationDefinition) => void
   private readonly openRunPullRequest?: AutomationRunPullRequestOpener
   private readonly removeRunWorktree?: AutomationRunWorktreeRemover
   private readonly disposeRunAgent?: AutomationRunAgentDisposer
@@ -359,6 +366,7 @@ export class AutomationsEngine {
         state,
         input.workspaceRoot,
         definition,
+        validation.value,
         finalRun,
         nextRunAt,
         completedAt,
@@ -962,6 +970,9 @@ export class AutomationsEngine {
   ): Promise<void> {
     const nextRunAt = nextRunIso(config, after)
     if (!nextRunAt) {
+      // A one-shot whose fire time has passed simply has no upcoming run —
+      // documented terminal state, nothing to persist and nothing to report.
+      if (scheduleCadenceCanExhaust(config)) return
       result.problems.push({
         workspaceRoot,
         automationId: definition.id,
@@ -1015,7 +1026,7 @@ export class AutomationsEngine {
     }
 
     const nextRunAt = nextRunIso(config, now)
-    const updated = await this.updateDefinitionAfterRun(store, state, workspaceRoot, definition, run, nextRunAt, now, result)
+    const updated = await this.updateDefinitionAfterRun(store, state, workspaceRoot, definition, config, run, nextRunAt, now, result)
     if (updated) result.skipped.push({ workspaceRoot, automationId: definition.id, runId: run.id, status: run.status })
   }
 
@@ -1073,7 +1084,7 @@ export class AutomationsEngine {
       })
 
       const nextRunAt = nextRunIso(config, Date.parse(completedAt))
-      const updated = await this.updateDefinitionAfterRun(store, state, workspaceRoot, definition, finalRun, nextRunAt, Date.parse(completedAt), result)
+      const updated = await this.updateDefinitionAfterRun(store, state, workspaceRoot, definition, config, finalRun, nextRunAt, Date.parse(completedAt), result)
       if (updated) result.fired.push({ workspaceRoot, automationId: definition.id, runId: finalRun.id, status: finalRun.status })
     } catch (error) {
       const failedAt = new Date(this.now()).toISOString()
@@ -1094,7 +1105,7 @@ export class AutomationsEngine {
       }
 
       const nextRunAt = nextRunIso(config, Date.parse(failedAt))
-      const updated = await this.updateDefinitionAfterRun(store, state, workspaceRoot, definition, failedRun, nextRunAt, Date.parse(failedAt), result)
+      const updated = await this.updateDefinitionAfterRun(store, state, workspaceRoot, definition, config, failedRun, nextRunAt, Date.parse(failedAt), result)
       if (updated) result.fired.push({ workspaceRoot, automationId: definition.id, runId: failedRun.id, status: failedRun.status })
     } finally {
       this.inFlight.delete(inFlightKey)
@@ -1106,12 +1117,13 @@ export class AutomationsEngine {
     state: AutomationStoreState,
     workspaceRoot: string,
     definition: AutomationDefinition,
+    config: ScheduleTriggerConfig,
     run: AutomationRun,
     nextRunAt: string | null,
     updatedAt: number,
     result: AutomationsEngineEvaluationResult
   ): Promise<boolean> {
-    if (!nextRunAt) {
+    if (!nextRunAt && !scheduleCadenceCanExhaust(config)) {
       result.problems.push({
         workspaceRoot,
         automationId: definition.id,
@@ -1121,6 +1133,9 @@ export class AutomationsEngine {
       return false
     }
 
+    // A null nextRunAt here is a fired (or already-past) one-shot: persisting
+    // the null — definition AND state cache — is exactly what makes it fire
+    // exactly once instead of staying due forever.
     const updated = await store.updateDefinition({
       ...definition,
       nextRunAt,
@@ -1139,7 +1154,7 @@ export class AutomationsEngine {
       result.problems.push(storeProblem(workspaceRoot, stateWrite.error, definition.id))
       return false
     }
-    result.scheduled.push({ workspaceRoot, automationId: definition.id, nextRunAt })
+    if (nextRunAt) result.scheduled.push({ workspaceRoot, automationId: definition.id, nextRunAt })
     return true
   }
 
@@ -1180,7 +1195,7 @@ export class AutomationsEngine {
       trigger: input.trigger,
     }
     try {
-      this.onRunEvent(event)
+      this.onRunEvent(event, input.definition)
     } catch {
       // Renderer delivery is best-effort; run records and IPC results are authoritative.
     }

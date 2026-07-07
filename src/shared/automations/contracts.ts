@@ -18,6 +18,7 @@ export const AUTOMATIONS_RUN_FINALIZE_CHANNEL = 'automations:run:finalize'
 export const AUTOMATIONS_PROVIDERS_LIST_CHANNEL = 'automations:providers:list'
 export const AUTOMATIONS_ENGINE_STATUS_CHANNEL = 'automations:engine-status'
 export const AUTOMATIONS_RUN_EVENT_CHANNEL = 'automations:run-event'
+export const AUTOMATIONS_DEFINITIONS_CHANGED_CHANNEL = 'automations:definitions-changed'
 
 export type AutomationStatus = 'enabled' | 'paused' | 'blocked'
 
@@ -31,6 +32,13 @@ export type AutomationRunStatus =
 
 export type AutomationRunEventStatus = Extract<AutomationRunStatus, 'completed' | 'failed' | 'blocked'>
 export type AutomationRunEventTrigger = 'timer' | 'manual'
+
+// Broadcast to every window after any definition write — user IPC or the
+// module-scoped service — so an open Automations panel refreshes when a
+// module (or another window) creates, updates, or deletes an automation.
+export type AutomationsDefinitionsChangedEvent = {
+  workspaceRoot: string
+}
 
 export type AutomationsRunEvent = {
   automationId: string
@@ -58,6 +66,17 @@ export type ScheduleTriggerConfig = {
     | { type: 'interval'; everyMinutes: number }
     | { type: 'daily'; timeLocal: string }
     | { type: 'weekly'; timeLocal: string; daysOfWeek: number[] }
+    /**
+     * One-shot: run once at `datetime` — ISO-8601 local wall-clock
+     * (`YYYY-MM-DDTHH:mm`, seconds optional and ignored, NO trailing `Z` or
+     * offset; the config's `timezone` field is the sole timezone authority,
+     * matching daily/weekly). Once the fire time passes, `computeNextRun`
+     * returns null and the automation never fires again — it stays listed
+     * with no upcoming run. A past datetime is valid and simply never fires.
+     * A wall-clock that falls in a DST spring-forward gap resolves to the
+     * first instant after the gap, the same rule daily/weekly use.
+     */
+    | { type: 'at'; datetime: string }
     | { type: 'cron'; expression: string }
   timezone: string
 }
@@ -159,6 +178,15 @@ export type AutomationDefinition = {
   action: { kind: ActionKind; config: unknown }
   autonomyDefault: 'review_only' | 'allow_changes'
   /**
+   * The capability module that created this automation through the SDK's
+   * scoped Automations service; absent ⇒ user-owned. Stamped server-side from
+   * the creating module's identity — never accepted from the renderer — and
+   * immutable thereafter (patches cannot carry it). The user outranks the
+   * module: panel edits to module-owned automations stay allowed; only the
+   * module service enforces ownership.
+   */
+  ownerModuleId?: string
+  /**
    * Whether an agent-backed run executes in its own per-run git worktree (branch
    * isolation from the user's checkout, and the prerequisite for opening a PR —
    * a non-worktree run has no branch to review). Absent ⇒ true, so existing
@@ -216,9 +244,61 @@ export type AutomationDefinitionDraft = {
   action: { kind: ActionKind; config: unknown }
   autonomyDefault: AutomationDefinition['autonomyDefault']
   runInWorktree?: boolean
+  /**
+   * Owning module for drafts created through the SDK's scoped Automations
+   * service. Optional echo of the creating module's own id — a draft claiming
+   * a different module is refused, and ownership is always stamped by the
+   * host. The user-facing IPC create path ignores it entirely.
+   */
+  ownerModuleId?: string
 }
 
-export type AutomationDefinitionPatch = Partial<Omit<AutomationDefinitionDraft, 'id'>>
+export type AutomationDefinitionPatch = Partial<Omit<AutomationDefinitionDraft, 'id' | 'ownerModuleId'>>
+
+// ── Scoped Automations service for capability modules ────────────────────────
+// A module's entry.main consumes this via the SDK's `getAutomationsService`
+// helper (service token 'automations.module-service'); every method is
+// pre-scoped to the calling module's id, and mutations refuse records the
+// module does not own. Mirrored exactly by the SDK; the drift guard enforces.
+
+export type ModuleAutomationsError =
+  | 'invalid_draft'
+  | 'invalid_workspace'
+  | 'not_found'
+  | 'not_owner'
+  | 'store_error'
+  | 'engine_unavailable'
+
+export type ModuleAutomationsResult<T> =
+  | ({ ok: true } & T)
+  | { ok: false; code: ModuleAutomationsError; message: string }
+
+export type ModuleAutomationsService = {
+  /** Create an automation owned by this module (`ownerModuleId` is stamped). */
+  create(input: {
+    workspaceRoot: string
+    draft: AutomationDefinitionDraft
+  }): Promise<ModuleAutomationsResult<{ automation: AutomationDefinition }>>
+  update(input: {
+    workspaceRoot: string
+    automationId: string
+    patch: AutomationDefinitionPatch
+  }): Promise<ModuleAutomationsResult<{ automation: AutomationDefinition }>>
+  delete(input: {
+    workspaceRoot: string
+    automationId: string
+  }): Promise<ModuleAutomationsResult<object>>
+  /** Automations this module owns in the workspace (never other modules' or the user's). */
+  list(input: {
+    workspaceRoot: string
+  }): Promise<ModuleAutomationsResult<{ automations: AutomationDefinition[] }>>
+  listRuns(input: {
+    workspaceRoot: string
+    automationId: string
+  }): Promise<ModuleAutomationsResult<{ runs: AutomationRun[] }>>
+  /** Subscribe to run events for automations this module owns. Returns the unsubscriber; call it in `onShutdown`. */
+  onRunEvent(listener: (event: AutomationsRunEvent) => void): () => void
+}
 
 export type AutomationsWorkspaceInput = {
   workspaceRoot: string

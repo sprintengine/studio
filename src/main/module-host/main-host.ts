@@ -1,6 +1,11 @@
 import type { IpcMain, IpcMainInvokeEvent } from 'electron'
 
 import {
+  MODULE_BRIDGE_INVOKE_CHANNEL,
+  type ModuleBridgeInvokeResult,
+} from '../../shared/modules/bridge'
+import type { CapabilityManifest } from '../../shared/modules/manifest'
+import {
   MODULE_NOTIFICATIONS_EVENT_CHANNEL,
   validateModuleNotifyInput,
   type ModuleNotification,
@@ -164,6 +169,13 @@ export type MainKernelOptions = {
   deliverNotification?: (notification: ModuleNotification) => void
   /** Clock override for flood-bound tests. */
   now?: () => number
+  /**
+   * Resolves a module id to its manifest, for the renderer→module-main bridge's
+   * source/permission checks. The kernel has no manifest knowledge of its own;
+   * load-modules passes its registry. Absent (or resolving to nothing) every
+   * bridge invoke is refused as not bridgeable.
+   */
+  resolveModuleManifest?: (moduleId: string) => CapabilityManifest | undefined
 }
 
 // Flood bounds: a module may emit at most this many notifications per window;
@@ -201,8 +213,14 @@ type ServiceEntry = {
   value: unknown
 }
 
+// One record per registered channel: ownership for collision reports and
+// teardown, plus the handler itself — ipcMain cannot be invoked in-process,
+// and the bridge dispatcher needs to call owned handlers directly. Reserved
+// event channels (owner '@host', no invoke handler) have no `handler`.
+type ChannelEntry = { owner: string; handler?: IpcInvokeHandler }
+
 export function createMainKernel(ipcMain: IpcMain, options: MainKernelOptions = {}): MainKernel {
-  const channels = new Map<string, string>()
+  const channels = new Map<string, ChannelEntry>()
   const services = new Map<string, ServiceEntry>()
   let startupHooks: HookEntry<StartupHook>[] = []
   let shutdownBeginHooks: HookEntry<ShutdownBeginHook>[] = []
@@ -215,7 +233,57 @@ export function createMainKernel(ipcMain: IpcMain, options: MainKernelOptions = 
 
   // The notifications event channel belongs to the host kernel; reserving it
   // here makes a module's attempt to claim the name a registration error.
-  channels.set(MODULE_NOTIFICATIONS_EVENT_CHANNEL, '@host')
+  channels.set(MODULE_NOTIFICATIONS_EVENT_CHANNEL, { owner: '@host' })
+
+  // The renderer→module-main bridge dispatcher. Routes an invoke to a channel
+  // a third-party module registered via registerIpc, applying the four
+  // bridgeability rules; every refusal is structured data (see bridge.ts).
+  // This is defense in depth for a contract, not a security boundary — the
+  // renderer-side host already validates the module-id prefix before IPC.
+  // Registered through the kernel's own registerIpc so the dispatcher channel
+  // shares every other channel's ownership tracking and lifecycle.
+  async function dispatchBridgeInvoke(
+    event: IpcMainInvokeEvent,
+    request: unknown
+  ): Promise<ModuleBridgeInvokeResult> {
+    const channel =
+      typeof (request as { channel?: unknown } | undefined)?.channel === 'string'
+        ? (request as { channel: string }).channel
+        : ''
+    const payload = (request as { payload?: unknown } | undefined)?.payload
+    const entry = channels.get(channel)
+    if (!entry?.handler) {
+      return {
+        ok: false,
+        code: 'unknown_channel',
+        message: `No module has registered the IPC channel "${channel}".`,
+      }
+    }
+    if (!channel.startsWith(`${entry.owner}:`)) {
+      return {
+        ok: false,
+        code: 'not_bridgeable',
+        message: `Channel "${channel}" is not bridgeable: bridged channels must be prefixed with their owning module's id ("${entry.owner}:").`,
+      }
+    }
+    const manifest = options.resolveModuleManifest?.(entry.owner)
+    if (manifest?.source !== 'third-party') {
+      return {
+        ok: false,
+        code: 'not_bridgeable',
+        message: `Channel "${channel}" is not bridgeable: the bridge routes only to channels owned by third-party modules.`,
+      }
+    }
+    if (!manifest.permissions?.includes('ipc:invoke')) {
+      return {
+        ok: false,
+        code: 'permission_missing',
+        message: `Module "${entry.owner}" does not declare the "ipc:invoke" permission, so its channels cannot be bridged.`,
+      }
+    }
+    return { ok: true, result: await entry.handler(event, payload) }
+  }
+  hostFor('@host').registerIpc(MODULE_BRIDGE_INVOKE_CHANNEL, dispatchBridgeInvoke)
 
   function emitNotification(sourceModuleId: string, input: ModuleNotifyInput): void {
     const validated = validateModuleNotifyInput(input)
@@ -339,13 +407,13 @@ export function createMainKernel(ipcMain: IpcMain, options: MainKernelOptions = 
       moduleId,
       ipcMain,
       registerIpc(channel, handler) {
-        const existingOwner = channels.get(channel)
-        if (existingOwner) {
+        const existing = channels.get(channel)
+        if (existing) {
           throw new Error(
-            `IPC channel "${channel}" is already registered by module "${existingOwner}".`
+            `IPC channel "${channel}" is already registered by module "${existing.owner}".`
           )
         }
-        channels.set(channel, moduleId)
+        channels.set(channel, { owner: moduleId, handler })
         ipcMain.handle(channel, handler)
       },
       provideService<T>(token: ServiceToken<T>, factory: (host: MainHost) => T): T {
@@ -438,8 +506,8 @@ export function createMainKernel(ipcMain: IpcMain, options: MainKernelOptions = 
     for (const [sidecarId, entry] of [...sidecarEntries]) {
       if (entry.moduleId === moduleId) sidecarEntries.delete(sidecarId)
     }
-    for (const [channel, owner] of [...channels]) {
-      if (owner !== moduleId) continue
+    for (const [channel, entry] of [...channels]) {
+      if (entry.owner !== moduleId) continue
       channels.delete(channel)
       ipcMain.removeHandler(channel)
     }
@@ -450,7 +518,7 @@ export function createMainKernel(ipcMain: IpcMain, options: MainKernelOptions = 
 
   return {
     hostFor,
-    ownedChannels: () => channels,
+    ownedChannels: () => new Map([...channels].map(([channel, entry]) => [channel, entry.owner])),
     startupHooks: () => startupHooks.map((entry) => entry.hook),
     shutdownBeginHooks: () => shutdownBeginHooks.map((entry) => entry.hook),
     shutdownHooks: () => shutdownHooks.map((entry) => entry.hook),

@@ -5,6 +5,11 @@ import type {
   ModuleEnablementWriteResult,
 } from '../../shared/electron-api'
 import type {
+  ModuleBridgeInvokeRequest,
+  ModuleBridgeInvokeResult,
+} from '../../shared/modules/bridge'
+import { MODULE_BRIDGE_INVOKE_CHANNEL } from '../../shared/modules/bridge'
+import type {
   ThirdPartyModuleInstallResult,
   ThirdPartyModuleListResult,
   ThirdPartyModuleTrustResult,
@@ -21,6 +26,10 @@ type ModulesIpcRenderer = {
     payload: { id: string; trusted: boolean }
   ): Promise<ThirdPartyModuleTrustResult>
   invoke(channel: typeof THIRD_PARTY_RENDERER_ENTRIES_CHANNEL): Promise<ThirdPartyRendererEntriesResult>
+  invoke(
+    channel: typeof MODULE_BRIDGE_INVOKE_CHANNEL,
+    request: ModuleBridgeInvokeRequest
+  ): Promise<ModuleBridgeInvokeResult>
 }
 
 export function createModulesApi(renderer: ModulesIpcRenderer) {
@@ -36,6 +45,8 @@ export function createModulesApi(renderer: ModulesIpcRenderer) {
       renderer.invoke('modules:third-party:set-trust', { id, trusted }),
     listThirdPartyRendererEntries: (): Promise<ThirdPartyRendererEntriesResult> =>
       renderer.invoke(THIRD_PARTY_RENDERER_ENTRIES_CHANNEL),
+    moduleBridgeInvoke: (channel: string, payload?: unknown): Promise<ModuleBridgeInvokeResult> =>
+      renderer.invoke(MODULE_BRIDGE_INVOKE_CHANNEL, { channel, payload }),
   } satisfies Pick<
     ElectronApi,
     | 'setModuleEnablement'
@@ -43,6 +54,7 @@ export function createModulesApi(renderer: ModulesIpcRenderer) {
     | 'installThirdPartyModuleFolder'
     | 'setThirdPartyModuleTrust'
     | 'listThirdPartyRendererEntries'
+    | 'moduleBridgeInvoke'
   >
 }
 

@@ -20,7 +20,7 @@ repository a drift guard (`drift/sdk-drift-guard.ts`, run in the verify
 pipeline) fails the build whenever these declarations diverge from the in-app
 contracts, so a published version always matches the app version it ships with.
 
-## v1 support surface
+## Support surface (v0.4)
 
 - **Manifest** (`CapabilityManifest`): id, displayName, integer version,
   publisher, category, summary, `defaultEnabled`, `dependsOn`/`conflictsWith`,
@@ -28,23 +28,31 @@ contracts, so a published version always matches the app version it ships with.
 - **Entries**: `entry.main` (CommonJS, `export registerMain(host)`) runs in the
   main process for **trusted** modules; `entry.renderer` (single-file ESM
   bundle, `export registerRenderer(host)`) loads in the renderer for trusted
-  modules. **`entry.preload` is reserved and NOT loaded in v1** — the manifest
+  modules. **`entry.preload` is reserved and NOT loaded** — the manifest
   field exists for forward compatibility only.
 - **Trust**: only `trusted` modules execute code. Signing is detached ed25519
   over the canonical manifest; trust binds to manifest content (changing the
   manifest voids trust).
 - **Permissions are install-time disclosure, not runtime enforcement.** The
   consent UI shows what your module declares; it does not sandbox it. Prefer
-  the tiered `ipc:*` scopes; `ipc:invoke` is the legacy broad scope and is
-  flagged as broad to the user.
+  the tiered `ipc:*` scopes when they cover what you touch; `ipc:invoke` is
+  the broad scope (flagged as broad to the user) and is also the declared
+  gate for `RendererHost.invoke` — the one surface where the host actually
+  checks the declaration. Declare it if and only if your module uses the
+  bridge or genuinely needs the broad legacy surface.
 - **Main host**: `registerIpc` (channel ownership enforced), service tokens,
   startup/shutdown hooks, `registerSidecar`, and `notify(severity, title,
   body?)` (identity stamped by the host, per-module flood-bounded).
 - **Renderer host**: `registerPanel`, `registerWorkspaceType`,
   `registerBacklogItemAction`, `registerBacklogLinkProvider`,
-  `registerCommand` (registered id is namespaced `<moduleId>.<id>`), and
+  `registerCommand` (registered id is namespaced `<moduleId>.<id>`),
   `registerSettingsSection` (values persist in the module's own
-  `module:<id>` settings namespace).
+  `module:<id>` settings namespace), `invoke` (call your own
+  `entry.main`'s `registerIpc` channels; see below), and the Backlog read
+  API — `listBacklogItems(workspaceId)` / `watchBacklogItems(workspaceId, cb)`
+  return `BacklogItemView`s from the same scan the Backlog panel uses (watch
+  fires with the current snapshot, then on change; declare `backlog.read`;
+  both fail with a named cause when the backlog module is disabled).
 - **Automations providers**: `registerAutomationTrigger` and
   `registerAutomationAction` register trusted module providers with the
   Automations registry using the current `host.moduleId`. Declare
@@ -55,7 +63,7 @@ contracts, so a published version always matches the app version it ships with.
   as an optional peer dependency) and bundle your renderer entry as ESM with
   React marked external.
 
-## Intentional narrowings (v1)
+## Intentional narrowings
 
 These app capabilities exist but are not in the published surface; the drift
 guard verifies the narrowings stay *sound* (an SDK-typed module is always
@@ -85,6 +93,79 @@ install the module folder under `~/.multicode/modules/<id>/`. See
 `test-fixtures/external-project/` in the repository for a complete minimal
 module compiled against this package.
 
+## Calling your entry.main from the renderer
+
+`MainHost.registerIpc` and `RendererHost.invoke` pair up: your `entry.main`
+registers a channel (with Node access), and your renderer code — a panel, a
+command handler, a Backlog action — calls it:
+
+```ts
+// entry.main
+export const registerMain: RegisterMain = (host) => {
+  host.registerIpc('my-module:save-events', async (_event, payload) => {
+    // Node APIs available here (fs, etc.)
+    return { saved: true }
+  })
+}
+
+// entry.renderer (panel or command code)
+const result = await host.invoke('my-module:save-events', { events })
+```
+
+The channel must start with `<moduleId>:` — your own module id. The host
+routes an invoke only when the channel is registered via `registerIpc`, is
+prefixed with its owning module's id, the owner is a third-party module, and
+the owner's manifest declares the `ipc:invoke` permission. A refused invoke
+rejects with an Error whose `code` property is a `ModuleBridgeRefusalCode`
+(`unknown_channel` | `not_bridgeable` | `permission_missing`), so your code
+can branch on the refusal kind instead of parsing the message.
+
+**This bridge is a contract, not a security boundary.** All renderer code runs
+in one shared world; the bridge does not isolate modules from each other or
+from the app. Trust gating — only `trusted` modules execute at all — remains
+the actual boundary.
+
+## Accepting drags from the Backlog and Files panels
+
+Backlog rows and Files-tree entries put a published payload on their drags
+under `MULTICODE_FILE_DROP_MIME`. `readFileDropPayload` is the safe reader:
+it returns `null` — never throws — for a missing entry, unparseable JSON, an
+invalid shape, or an unknown `version` (only `version: 1` exists today;
+future versions parse to `null`, so always handle it). A Backlog-item drag
+carries the item's markdown file path in `files[0].path`. `setFileDropData`
+originates a drag the app's own drop targets (agent terminals) accept, and
+`hasFileDropData` is the `dragover`-safe presence check (the DnD protected
+mode blanks `getData` until the drop, so gate `preventDefault` on it).
+
+```ts
+import { readFileDropPayload, setFileDropData } from '@multicode/module-sdk'
+
+onDrop={(event) => {
+  const payload = readFileDropPayload(event.dataTransfer)
+  if (payload) schedule(payload.files[0].path, payload.rootPath)
+}}
+```
+
+The contract is drift-guarded: the repo gate fails if the app's MIME, payload
+shape, or parse semantics ever diverge from this package.
+
+## Theme tokens
+
+`THEME_TOKENS` (with the `ThemeToken` string-literal union) lists the theme
+CSS custom properties guaranteed present in every app theme — a repo gate
+verifies each one per theme. Consume them as CSS variables, via Tailwind
+arbitrary values (`bg-[var(--bg-surface)]`) or plain `var()`. Only the names
+are contract: values differ per theme and are retuned freely, so never read
+or cache resolved values in JS, and never hard-code a hex.
+
+| Family | Tokens | Use for |
+|---|---|---|
+| Chrome | `--bg-app`, `--bg-surface`, `--bg-surface-raised`, `--bg-hover`, `--bg-selected` | Window, panels/cards, raised controls, hover and selection fills |
+| Border | `--border-subtle`, `--border-default`, `--border-strong` | Hairlines, control outlines, emphasized edges |
+| Text | `--text-strong`, `--text-default`, `--text-muted`, `--text-subtle`, `--text-disabled`, `--text-on-accent` | Headings → body → secondary → hints → disabled; text on accent fills |
+| Accent | `--accent-primary`, `--accent-primary-soft`, `--focus-ring` | Primary actions/selection, soft accent fills; `--focus-ring` is a full box-shadow value |
+| Tone | `--tone-neutral`, `--tone-accent`, `--tone-warn`, `--tone-good`, `--tone-error`, `--tone-merged` | Semantic status: idle/neutral, active/info, caution, success, failure, merged/PR-purple |
+
 ## Programmatic workspace creation
 
 A module's `entry.main` can create a workspace through the always-on app core,
@@ -106,6 +187,47 @@ export const registerMain: RegisterMain = (host) => {
 bus, so the returned id is always a real, confirmed workspace (or an explicit
 failure). The service is provided by the always-on `agent-runtime` core, so
 `requireService` never throws for it.
+
+## Creating automations from a module
+
+Beyond registering trigger/action *kinds* (below), a module's `entry.main` can
+create and manage real automation *records* — its own only — through the
+scoped Automations service. Declare the `automations.manage` permission
+(install-time disclosure) and `dependsOn: ['automations']`:
+
+```ts
+import { getAutomationsService, type RegisterMain } from '@multicode/module-sdk'
+
+export const registerMain: RegisterMain = (host) => {
+  host.registerIpc('my-module:schedule-digest', async (_event, workspaceRoot: unknown) => {
+    const automations = getAutomationsService(host)
+    const created = await automations.create({
+      workspaceRoot: workspaceRoot as string,
+      draft: {
+        name: 'Daily digest',
+        status: 'enabled',
+        // Cadences: interval, daily, weekly, or the one-shot
+        // { type: 'at', datetime: '2026-07-09T09:30' } — local wall-clock in
+        // `timezone`, fires once, then the automation shows no upcoming run.
+        trigger: { kind: 'schedule', config: { kind: 'schedule', cadence: { type: 'daily', timeLocal: '09:00' }, timezone: 'UTC' } },
+        action: { kind: 'my-module.build-digest', config: {} },
+        autonomyDefault: 'review_only',
+      },
+    })
+    return created // { ok: true, automation } | { ok: false, code, message }
+  })
+  const off = getAutomationsService(host).onRunEvent((event) => {
+    // Only events for automations this module owns.
+  })
+  host.onShutdown(() => off())
+}
+```
+
+Every method is pre-scoped to your module: `create` stamps `ownerModuleId`
+(the Automations panel shows a "via <module>" attribution), `list` returns
+only your records, and `update`/`delete`/`listRuns` refuse records you do not
+own — including the user's (`not_owner`). The user outranks your module: they
+can edit or delete module-created automations from the panel.
 
 ## Automations provider registration
 

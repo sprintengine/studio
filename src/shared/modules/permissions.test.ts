@@ -82,7 +82,9 @@ function testLegacyBroadScopeRetainedAndFlagged(): void {
   assert.equal(isBroadCapabilityPermission('ipc:invoke'), true, 'ipc:invoke is flagged broad')
   const description = describeCapabilityPermission('ipc:invoke')
   assert.match(description, /broad/i, 'description marks the scope as broad')
-  assert.match(description, /legacy/i, 'description marks the scope as legacy')
+  // No longer marked "legacy": the scope also gates the renderer→module-main
+  // bridge, so the consent copy discloses both meanings.
+  assert.match(description, /its own background code/i, 'description discloses the bridge meaning')
   const legacyManifest = validateCapabilityPermissions(['ipc:invoke', 'network'])
   assert.equal(legacyManifest.ok, true, 'existing manifests using ipc:invoke keep validating')
 }

@@ -90,6 +90,7 @@ export function loadMainModules(options: {
   const kernel = createMainKernel(ipcMain, {
     deliverNotification: options.deliverNotification,
     now: options.now,
+    resolveModuleManifest: (moduleId) => byId.get(moduleId)?.manifest,
   })
   const hostScope = kernel.hostFor('@host')
   hostScope.registerIpc(MODULE_NOTIFICATIONS_RECENT_CHANNEL, () => kernel.recentNotifications())

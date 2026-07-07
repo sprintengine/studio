@@ -42,7 +42,7 @@ export function backlogRecordInput(item: BacklogItem): BacklogItemRecordInput {
   }
 }
 
-type BacklogScanSnapshot = {
+export type BacklogScanSnapshot = {
   scan: BacklogScanResult | null
   loading: boolean
 }
@@ -233,10 +233,15 @@ function stopBacklogWatch(subscription: BacklogScanSubscription): void {
   }
 }
 
-function getSubscription(folderPath: string): BacklogScanSubscription {
+function getSubscription(folderPath: string, startWatcher = true): BacklogScanSubscription {
   const key = subscriptionKey(folderPath)
   const existing = backlogScanSubscriptions.get(key)
-  if (existing) return existing
+  if (existing) {
+    // A watcher-wanting consumer joining a watcher-less (one-shot-created)
+    // entry upgrades it; the reverse never downgrades.
+    if (startWatcher) startBacklogWatch(existing)
+    return existing
+  }
 
   const subscription: BacklogScanSubscription = {
     folderPath,
@@ -251,13 +256,27 @@ function getSubscription(folderPath: string): BacklogScanSubscription {
   }
   backlogScanSubscriptions.set(key, subscription)
   void refreshSubscription(subscription)
-  startBacklogWatch(subscription)
+  if (startWatcher) startBacklogWatch(subscription)
   return subscription
 }
 
-function subscribeBacklogScan(folderPath: string, subscriber: BacklogScanSubscriber): () => void {
+export type SubscribeBacklogScanOptions = {
+  /**
+   * Skip starting the filesystem watcher when this subscription creates the
+   * entry (one-shot readers that unsubscribe immediately — a watcher created
+   * and torn down one microtask later is pure IPC churn). A later
+   * watcher-wanting subscriber on the same folder still starts it.
+   */
+  startWatcher?: boolean
+}
+
+export function subscribeBacklogScan(
+  folderPath: string,
+  subscriber: BacklogScanSubscriber,
+  options: SubscribeBacklogScanOptions = {}
+): () => void {
   const key = subscriptionKey(folderPath)
-  const subscription = getSubscription(folderPath)
+  const subscription = getSubscription(folderPath, options.startWatcher !== false)
   subscription.subscribers.add(subscriber)
   // Hand the new subscriber the current snapshot immediately: if a sibling
   // panel already populated this folder, the result is shown with no re-scan.

@@ -12,6 +12,7 @@ import {
   triggerDetail,
   triggerFamilyLabel,
 } from './automationsFormat'
+import { ModuleAttribution } from './ModuleAttribution'
 
 type DefinitionListProps = {
   definitions: AutomationDefinition[]
@@ -137,6 +138,7 @@ function DefinitionRow({
         <div className="min-w-0 flex-1">
           <div className="flex items-baseline justify-between gap-2">
             <TruncatedText as="span" text={def.name} className="text-[12px] font-medium text-[color:var(--text-strong)]" />
+            {def.ownerModuleId ? <ModuleAttribution moduleId={def.ownerModuleId} className="text-[10px]" /> : null}
             {showStatusText ? (
               <span
                 className={[

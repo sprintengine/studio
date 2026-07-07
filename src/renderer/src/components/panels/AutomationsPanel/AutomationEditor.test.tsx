@@ -11,6 +11,7 @@ import {
   buildRepoEventConfig,
   buildWebhookConfig,
   repoEventFormFromConfig,
+  isAuthorableTrigger,
   resolveSubmitTrigger,
   shouldSendWebhookTrigger,
   triggersEquivalent,
@@ -27,6 +28,7 @@ function triggerForm(overrides: Partial<SubmitTriggerForm>): SubmitTriggerForm {
     everyMinutes: 30,
     timeLocal: '09:00',
     daysOfWeek: [1, 2, 3, 4, 5],
+    atDatetime: '',
     repoEvent: { ...EMPTY_REPO_EVENT_FORM },
     webhook: { ...EMPTY_WEBHOOK_FORM },
     ...overrides,
@@ -212,6 +214,24 @@ assert.deepEqual(
   { kind: 'schedule', timezone: 'Europe/London', cadence: { type: 'weekly', timeLocal: '08:30', daysOfWeek: [1, 3] } },
   'an editable schedule builds from the cadence form and keeps the loaded timezone',
 )
+
+// The one-shot `at` cadence builds from its datetime-local field, and a loaded
+// `at` schedule stays editable (unlike cron) — it round-trips through the form.
+const atResolved = resolveSubmitTrigger(
+  { mode: 'create' },
+  triggerForm({ triggerKind: 'schedule', cadenceType: 'at', atDatetime: '2026-07-09T09:30' }),
+  'Europe/Dublin',
+)
+assert.deepEqual(
+  atResolved.config,
+  { kind: 'schedule', timezone: 'Europe/Dublin', cadence: { type: 'at', datetime: '2026-07-09T09:30' } },
+  'a one-time schedule builds from the datetime-local field',
+)
+const atTrigger = {
+  kind: 'schedule',
+  config: { kind: 'schedule', timezone: 'UTC', cadence: { type: 'at', datetime: '2026-07-09T09:30' } },
+}
+assert.equal(isAuthorableTrigger(atTrigger), true, 'a loaded at schedule remains editable')
 
 console.log('AutomationEditor trigger round-trip tests passed')
 

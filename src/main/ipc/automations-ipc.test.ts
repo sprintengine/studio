@@ -185,6 +185,14 @@ async function testProviderList(): Promise<void> {
                     },
                   },
                 },
+                {
+                  type: 'object',
+                  required: ['type', 'datetime'],
+                  properties: {
+                    type: { const: 'at' },
+                    datetime: { type: 'string', pattern: '^(\\d{4})-(\\d{2})-(\\d{2})T([01]\\d|2[0-3]):([0-5]\\d)(?::[0-5]\\d)?$' },
+                  },
+                },
               ],
             },
           },

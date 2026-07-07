@@ -15,6 +15,7 @@ import {
   parseTime,
   relativeFromNow,
 } from './automationsFormat'
+import { ModuleAttribution } from './ModuleAttribution'
 
 // Selected definition's run timeline + summary. Loads run history through the
 // `window.api` automations bridge; reloads whenever the definition's lastRunId
@@ -107,6 +108,9 @@ export function AutomationDetailPane({
             label={DEFINITION_STATUS_LABEL[definition.status]}
           />
           <h3 className="truncate text-[13px] font-semibold text-[color:var(--text-strong)]">{definition.name}</h3>
+          {definition.ownerModuleId ? (
+            <ModuleAttribution moduleId={definition.ownerModuleId} className="text-[11px]" />
+          ) : null}
         </div>
         <dl className="mt-2 grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-[11px]">
           <Meta label="Trigger" value={cadenceSummary(definition.trigger)} />

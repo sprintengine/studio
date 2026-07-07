@@ -210,6 +210,16 @@ export type RegisteredSettingsSection = SettingsSectionDefinition & {
   moduleId: string
 }
 
+// Read access to the workspace's Backlog for module renderers. The kernel owns
+// only the seam: the backlog module provides the implementation (shared scan +
+// watcher), and the scoped host methods below route through it — the kernel
+// never imports backlog internals.
+export type BacklogReader = {
+  list(workspaceId: string): Promise<BacklogItem[]>
+  /** Fires once with the current snapshot, then on every change; returns the unsubscriber. */
+  watch(workspaceId: string, cb: (items: BacklogItem[]) => void): () => void
+}
+
 export type RendererHost = {
   registerPanel(componentId: string, component: WorkspacePanelComponent): void
   registerWorkspaceType(definition: WorkspaceTypeDefinition): void
@@ -218,6 +228,23 @@ export type RendererHost = {
   registerNotificationActionProvider(provider: NotificationActionProvider): void
   registerCommand(definition: ModuleCommandDefinition): void
   registerSettingsSection(definition: SettingsSectionDefinition): void
+  /**
+   * Invoke an IPC channel this module's own `entry.main` registered via
+   * `MainHost.registerIpc`. The channel must be `<moduleId>:`-prefixed —
+   * validated here before any IPC, and again by the main-side dispatcher,
+   * which also requires the owning module to be third-party and to declare
+   * the `ipc:invoke` permission. A contract, not a security boundary.
+   */
+  invoke(channel: string, payload?: unknown): Promise<unknown>
+  /**
+   * Provide the Backlog read implementation (backlog module only — a single
+   * slot, ownership-guarded like registerBacklogLinkProvider).
+   */
+  provideBacklogReader(reader: BacklogReader): void
+  /** The workspace's Backlog items (read-only views; mutate via BacklogItemActionContext). */
+  listBacklogItems(workspaceId: string): Promise<BacklogItem[]>
+  /** Observe the workspace's Backlog: fires with the current snapshot, then on change. */
+  watchBacklogItems(workspaceId: string, cb: (items: BacklogItem[]) => void): () => void
 }
 
 // The kernel owns the registries and is consumed by the factory/rail. Modules
@@ -255,6 +282,13 @@ export type RendererKernel = {
    * the same across reloads. The overlay renders these after built-in tabs.
    */
   getSettingsSections(moduleEnabled?: (moduleId: string) => boolean): RegisteredSettingsSection[]
+  /**
+   * Enablement source for host methods that must gate on a module's live
+   * enablement without a caller-supplied predicate (the Backlog read API).
+   * Wired once at boot by modules/index.ts from the workspace store; absent
+   * (early boot, tests) the reader's owning module is treated as enabled.
+   */
+  setModuleEnablementResolver(resolver: (moduleId: string) => boolean): void
 }
 
 const SHELL_COMMAND_IDS: ReadonlySet<string> = new Set(COMMAND_REGISTRY.map((command) => command.id))
@@ -268,6 +302,20 @@ export function createRendererHost(): RendererKernel {
   const notificationActionProviders = new Map<DiagnosticSource, RegisteredNotificationActionProvider>()
   const moduleCommands = new Map<string, RegisteredModuleCommand>()
   const settingsSections = new Map<string, RegisteredSettingsSection>()
+  let backlogReader: { moduleId: string; reader: BacklogReader } | null = null
+  let moduleEnabledResolver: ((moduleId: string) => boolean) | null = null
+  // Shared gate for the Backlog read methods: the error names the actual cause
+  // so a module author can tell "nothing provides this" from "the user turned
+  // the backlog module off".
+  const requireBacklogReader = (): BacklogReader => {
+    if (!backlogReader) {
+      throw new Error('No Backlog reader is registered — the backlog module did not load.')
+    }
+    if (moduleEnabledResolver && !moduleEnabledResolver(backlogReader.moduleId)) {
+      throw new Error('The Backlog module is disabled.')
+    }
+    return backlogReader.reader
+  }
   const enabledModuleCommands = (moduleEnabled?: (moduleId: string) => boolean): RegisteredModuleCommand[] =>
     [...moduleCommands.values()]
       .filter((command) => !moduleEnabled || moduleEnabled(command.moduleId))
@@ -368,6 +416,54 @@ export function createRendererHost(): RendererKernel {
           }
           settingsSections.set(definition.id, { ...definition, moduleId })
         },
+        provideBacklogReader(reader) {
+          if (backlogReader) {
+            throw new Error(
+              `The Backlog reader is already provided by module "${backlogReader.moduleId}".`
+            )
+          }
+          backlogReader = { moduleId, reader }
+        },
+        async listBacklogItems(workspaceId) {
+          return requireBacklogReader().list(workspaceId)
+        },
+        watchBacklogItems(workspaceId, cb) {
+          const reader = requireBacklogReader()
+          return reader.watch(workspaceId, (items) => {
+            // Live gate on every delivery, not just at subscribe: an active
+            // watch stops streaming the moment the user disables the backlog
+            // module (and resumes on re-enable) instead of outliving the
+            // toggle. The provider is re-read so the gate follows ownership.
+            if (
+              backlogReader
+              && moduleEnabledResolver
+              && !moduleEnabledResolver(backlogReader.moduleId)
+            ) {
+              return
+            }
+            try {
+              cb(items)
+            } catch (error) {
+              // A throwing module callback must not break the shared scan's
+              // emit loop for sibling subscribers (the Backlog panel included).
+              console.error(`[modules] backlog watch callback from module "${moduleId}" threw:`, error)
+            }
+          })
+        },
+        async invoke(channel, payload) {
+          if (!channel.startsWith(`${moduleId}:`)) {
+            throw new Error(
+              `Module "${moduleId}" may only invoke its own channels ("${moduleId}:*"); got "${channel}".`
+            )
+          }
+          const outcome = await window.api.moduleBridgeInvoke(channel, payload)
+          if (!outcome.ok) {
+            // Keep the structured refusal code on the thrown error so module
+            // code can branch on the refusal kind without parsing prose.
+            throw Object.assign(new Error(outcome.message), { code: outcome.code })
+          }
+          return outcome.result
+        },
       }
     },
     getPanel(componentId) {
@@ -432,6 +528,9 @@ export function createRendererHost(): RendererKernel {
           const order = (a.order ?? 100) - (b.order ?? 100)
           return order === 0 ? a.id.localeCompare(b.id) : order
         })
+    },
+    setModuleEnablementResolver(resolver) {
+      moduleEnabledResolver = resolver
     },
   }
 }

@@ -14,10 +14,13 @@ import {
   executableTriggerProviders,
   type AutomationProviderPermissionChecker,
 } from '../automations/provider-registry'
+import { createModuleAutomationsRegistry } from '../automations/module-service'
+import { AutomationsStore } from '../automations/store'
 import { registerAutomationsIpc } from '../ipc/automations-ipc'
 import {
   AutomationDelegateToken,
   AutomationsEngineToken,
+  AutomationsModuleServiceToken,
   AutomationsProviderRegistryToken,
   SprintEngineAutomationFrontDoorsToken,
   SwitchboardAutomationFrontDoorsToken,
@@ -26,7 +29,9 @@ import {
 } from '../module-host/service-tokens'
 import type { CapabilityModule } from '../module-host/load-modules'
 import {
+  AUTOMATIONS_DEFINITIONS_CHANGED_CHANNEL,
   AUTOMATIONS_RUN_EVENT_CHANNEL,
+  type AutomationsDefinitionsChangedEvent,
   type AutomationsRunEvent,
 } from '../../shared/automations/contracts'
 import {
@@ -50,7 +55,7 @@ type RunEventWindow = {
   isDestroyed(): boolean
   webContents: {
     isDestroyed(): boolean
-    send(channel: string, payload: AutomationsRunEvent): void
+    send(channel: string, payload: AutomationsRunEvent | AutomationsDefinitionsChangedEvent): void
   }
 }
 
@@ -64,6 +69,20 @@ export function broadcastAutomationsRunEvent(
       window.webContents.send(AUTOMATIONS_RUN_EVENT_CHANNEL, event)
     } catch {
       // Keep run-event delivery best-effort per renderer window.
+    }
+  }
+}
+
+export function broadcastAutomationsDefinitionsChanged(
+  event: AutomationsDefinitionsChangedEvent,
+  windows: readonly RunEventWindow[] = BrowserWindow.getAllWindows()
+): void {
+  for (const window of windows) {
+    if (window.isDestroyed() || window.webContents.isDestroyed()) continue
+    try {
+      window.webContents.send(AUTOMATIONS_DEFINITIONS_CHANGED_CHANNEL, event)
+    } catch {
+      // Keep delivery best-effort per renderer window.
     }
   }
 }
@@ -111,13 +130,22 @@ export function createAutomationsModule(options: AutomationsModuleOptions = {}):
         getActionProviderRegistrations,
         checkProviderPermission,
       })
+      // Late-bound: the registry needs the webhook receiver's refresh (created
+      // below, after the engine), while the engine's run-event callback needs
+      // the registry. The renderer broadcast is unchanged; module subscribers
+      // are notified alongside it, filtered by automation ownership.
+      let moduleAutomations: ReturnType<typeof createModuleAutomationsRegistry> | undefined
+      const deliverRunEvent = options.deliverRunEvent ?? broadcastAutomationsRunEvent
       const engine = host.provideService(AutomationsEngineToken, () =>
         (options.createEngine ?? createAutomationsEngine)({
           getWorkspaceSnapshot: () => workspaceSyncService.getSnapshot(),
           getTriggerProviders,
           isIntegrationAvailable,
           runAutomation,
-          onRunEvent: options.deliverRunEvent ?? broadcastAutomationsRunEvent,
+          onRunEvent: (event, definition) => {
+            deliverRunEvent(event)
+            moduleAutomations?.deliverRunEvent(event, definition)
+          },
           openRunPullRequest: (input) =>
             openAutomationRunPullRequest({
               worktreePath: input.worktreePath,
@@ -150,6 +178,33 @@ export function createAutomationsModule(options: AutomationsModuleOptions = {}):
         getProjectFolders: () => projectFoldersFromWorkspaceSyncSnapshot(workspaceSyncService.getSnapshot()),
         deliverTriggerEvent: (input) => engine.deliverTriggerEvent(input),
       })
+
+      // The module-scoped Automations service (SDK getAutomationsService).
+      // Shares the write-path deps with registerAutomationsIpc below so both
+      // front doors run the same definition-write core.
+      // Runs after every definition write from either front door: refresh the
+      // webhook receiver, then tell every window so an open Automations panel
+      // reflects module-driven (and other-window) writes without a remount.
+      const onDefinitionsChanged = async (workspaceRoot: string): Promise<void> => {
+        try {
+          await webhookReceiver.refresh()
+        } finally {
+          broadcastAutomationsDefinitionsChanged({ workspaceRoot })
+        }
+      }
+      moduleAutomations = host.provideService(AutomationsModuleServiceToken, () =>
+        createModuleAutomationsRegistry({
+          createStore: (workspaceRoot) => new AutomationsStore(workspaceRoot),
+          getTriggerProviderRegistrations,
+          getActionProviderRegistrations,
+          checkProviderPermission,
+          now: Date.now,
+          onDefinitionsChanged,
+          getWorkspaceSyncSnapshot: () => workspaceSyncService.getSnapshot(),
+        })
+      )
+      const moduleAutomationsRegistry = moduleAutomations
+      host.onShutdown(() => moduleAutomationsRegistry.dispose())
 
       const engineSidecar = host.registerSidecar(
         {
@@ -185,9 +240,7 @@ export function createAutomationsModule(options: AutomationsModuleOptions = {}):
         isIntegrationAvailable,
         getWorkspaceSyncSnapshot: () => workspaceSyncService.getSnapshot(),
         getEngineSidecarStatus: () => engineSidecar.status(),
-        onDefinitionsChanged: async () => {
-          await webhookReceiver.refresh()
-        },
+        onDefinitionsChanged,
       })
     },
   }

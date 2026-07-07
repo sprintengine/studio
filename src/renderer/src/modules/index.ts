@@ -85,6 +85,25 @@ for (const module of ACTIVE_RENDERER_MODULES) {
   module.registerRenderer?.(rendererHost.hostFor(module.manifest.id))
 }
 
+// Host methods that gate on live enablement without a caller-supplied
+// predicate (the Backlog read API) resolve it through this hook. The store
+// import is deferred so the eager module-registry graph stays store-free
+// (unit-test bundles construct this module without the store); until it lands
+// (a microtask after boot, before the React root renders any panel) the
+// kernel treats providers as enabled — and watches re-check on every
+// delivery, so nothing started in that window outlives the resolver.
+if (typeof window !== 'undefined') {
+  import('../store/workspaceStore')
+    .then(({ useWorkspaceStore }) => {
+      rendererHost.setModuleEnablementResolver((moduleId) =>
+        selectModuleEnabled(useWorkspaceStore.getState().appSettings.modules, moduleId)
+      )
+    })
+    .catch(() => {
+      // Windowless bundles (unit tests) have no store; the kernel default applies.
+    })
+}
+
 export function getRendererHost(): ReturnType<typeof createRendererHost> {
   return rendererHost
 }

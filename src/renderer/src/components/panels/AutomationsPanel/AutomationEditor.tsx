@@ -19,6 +19,7 @@ import type {
   TriggerKind,
 } from '../../../../../shared/automations/contracts'
 import {
+  formatAtDatetime,
   EMPTY_REPO_EVENT_FORM,
   EMPTY_WEBHOOK_FORM,
   REPO_EVENT_TRIGGER_KIND,
@@ -36,12 +37,14 @@ import {
   webhookTriggerError,
   type EditorState,
   type RepoEventForm,
-  type ScheduleCadenceType,
+  type ScheduleCadenceForm,
   type WebhookForm,
 } from './automationsFormat'
 import { TriggerFields, selectedFamilyUnavailableReason } from './TriggerFields'
 
-type EditorFormState = {
+// Composes ScheduleCadenceForm (the authoritative cadence sub-state shape in
+// automationsFormat.ts) so a new cadence field is declared exactly once.
+type EditorFormState = ScheduleCadenceForm & {
   name: string
   enabled: boolean
   autonomy: AutomationDefinition['autonomyDefault']
@@ -52,10 +55,6 @@ type EditorFormState = {
   // Discriminates the active trigger family. Each family is authored from its own
   // sub-state below; resolveSubmitTrigger builds the trigger from the active one.
   triggerKind: TriggerKind
-  cadenceType: ScheduleCadenceType
-  everyMinutes: number
-  timeLocal: string
-  daysOfWeek: number[]
   repoEvent: RepoEventForm
   webhook: WebhookForm
   config: Record<string, string>
@@ -134,7 +133,7 @@ type ConnectorLoad =
 
 const EMPTY_FORM: EditorFormState = {
   name: '', enabled: true, autonomy: 'review_only', runInWorktree: true, actionKind: '', triggerKind: 'schedule',
-  cadenceType: 'interval', everyMinutes: 30, timeLocal: '09:00', daysOfWeek: [1, 2, 3, 4, 5],
+  cadenceType: 'interval', everyMinutes: 30, timeLocal: '09:00', daysOfWeek: [1, 2, 3, 4, 5], atDatetime: '',
   repoEvent: { ...EMPTY_REPO_EVENT_FORM }, webhook: { ...EMPTY_WEBHOOK_FORM }, config: {},
 }
 
@@ -164,10 +163,11 @@ function initialFormState(editor: EditorState, providers: AutomationsProviders):
     runInWorktree: def.runInWorktree ?? true,
     actionKind: def.action.kind,
     triggerKind: def.trigger.kind,
-    cadenceType: cadence?.type === 'daily' || cadence?.type === 'weekly' ? cadence.type : 'interval',
+    cadenceType: cadence?.type === 'daily' || cadence?.type === 'weekly' || cadence?.type === 'at' ? cadence.type : 'interval',
     everyMinutes: cadence?.type === 'interval' ? cadence.everyMinutes : 30,
     timeLocal: cadence && (cadence.type === 'daily' || cadence.type === 'weekly') ? cadence.timeLocal : '09:00',
     daysOfWeek: cadence?.type === 'weekly' ? cadence.daysOfWeek : [1, 2, 3, 4, 5],
+    atDatetime: cadence?.type === 'at' ? cadence.datetime : '',
     repoEvent: def.trigger.kind === REPO_EVENT_TRIGGER_KIND
       ? repoEventFormFromConfig(def.trigger.config)
       : { ...EMPTY_REPO_EVENT_FORM },
@@ -308,7 +308,9 @@ export function AutomationEditor({
       ? `Runs ${
           form.cadenceType === 'interval'
             ? `every ${form.everyMinutes} min`
-            : `${form.cadenceType === 'weekly' ? 'weekly' : 'daily'} at ${form.timeLocal}`
+            : form.cadenceType === 'at'
+              ? `once at ${form.atDatetime ? formatAtDatetime(form.atDatetime) : '…'}`
+              : `${form.cadenceType === 'weekly' ? 'weekly' : 'daily'} at ${form.timeLocal}`
         }, ${selectedSpecialist ? `spawns ${selectedSpecialist.shortLabel}` : 'runs a general agent'} on ${selectedCliLabel}.`
       : null
 
@@ -360,6 +362,7 @@ export function AutomationEditor({
     if (!triggerReadOnly && form.triggerKind === 'schedule') {
       if (form.cadenceType === 'interval' && form.everyMinutes < 5) return 'Interval must be at least 5 minutes.'
       if (form.cadenceType === 'weekly' && form.daysOfWeek.length === 0) return 'Pick at least one day for a weekly schedule.'
+      if (form.cadenceType === 'at' && !form.atDatetime.trim()) return 'Pick a date and time for a one-time schedule.'
     }
     if (configKeys.includes('cli')) {
       const cliError = automationCliFieldError(form.config.cli, cliCatalog)

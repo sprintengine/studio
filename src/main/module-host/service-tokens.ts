@@ -1,5 +1,6 @@
 import type { AppServices } from '../app-services'
 import type { AutomationsEngine } from '../automations/engine'
+import type { ModuleAutomationsRegistry } from '../automations/module-service'
 import type { AutomationProviderRegistryService } from '../automations/provider-registry'
 import type { SprintEngineAutomationFrontDoors } from '../automations/actions/sprint-engine'
 import type { SwitchboardAutomationFrontDoors } from '../automations/actions/switchboard'
@@ -37,6 +38,10 @@ export const AutomationsEngineToken = createServiceToken<AutomationsEngine>(
 // Key mirrors the private service token used by module-sdk's Automations helpers.
 export const AutomationsProviderRegistryToken = createServiceToken<AutomationProviderRegistryService>(
   'automations.provider-registry'
+)
+// Key mirrors the private token behind the SDK's getAutomationsService helper.
+export const AutomationsModuleServiceToken = createServiceToken<ModuleAutomationsRegistry>(
+  'automations.module-service'
 )
 export const SwitchboardAutomationFrontDoorsToken = createServiceToken<SwitchboardAutomationFrontDoors>(
   'switchboard.automation-front-doors'

@@ -9,6 +9,13 @@ import type {
 } from '../../../../../shared/automations/contracts'
 import { aggregateFeedRuns, type AsyncState, type AutomationFeedRun } from './automationsFormat'
 
+// Loose path identity for matching a broadcast's workspaceRoot against this
+// panel's folderPath — both come from the workspace-sync snapshot, but guard
+// against separator/case drift the same way the main process normalizes roots.
+function normalizeRootPath(value: string): string {
+  return value.replace(/\\/g, '/').replace(/\/+$/u, '').toLowerCase()
+}
+
 // A rejected IPC invoke (channel error, thrown handler) never returns an
 // `{ ok: false }` result, so without this the loading/busy state would hang.
 // Turn any throw into a readable message.
@@ -98,6 +105,18 @@ export function useAutomationsController(input: { folderPath: string | null; wor
   useEffect(() => {
     void load()
   }, [load])
+
+  // Definition writes can originate outside this panel — a module's entry.main
+  // through the scoped Automations service, or another window — so reload when
+  // the main process announces a change for this workspace's store.
+  useEffect(() => {
+    if (!folderPath || typeof window.api.onAutomationsDefinitionsChanged !== 'function') return
+    const off = window.api.onAutomationsDefinitionsChanged((event) => {
+      if (normalizeRootPath(event.workspaceRoot) !== normalizeRootPath(folderPath)) return
+      void load()
+    })
+    return off
+  }, [folderPath, load])
 
   // Shared mutation runner: single-flights on the row, surfaces both handled
   // ({ ok: false }) and thrown IPC failures, and always clears the busy state so

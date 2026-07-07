@@ -1,6 +1,61 @@
 # Changelog
 
-## Unreleased
+## 0.4.0 — 2026-07-07
+
+Calendar-class workspace parity: a module's renderer can now reach its own
+`entry.main` (IPC bridge), create and observe real automations (scoped
+service + one-shot `at` cadence), enumerate and watch the Backlog, accept
+Backlog/Files drags, and style against published theme tokens.
+
+- File-drop drag-and-drop contract: `MULTICODE_FILE_DROP_MIME`,
+  `FileDropPayload`, `setFileDropData`, `hasFileDropData` (the dragover-safe
+  presence check), and the null-safe `readFileDropPayload` (missing entry,
+  bad JSON, unknown version, or invalid shape ⇒ `null`, never a throw; file
+  entries are rebuilt, dropping unknown properties). Backlog-panel and
+  Files-tree drags are now a supported module surface, drift-guarded against
+  the app implementation.
+- Theme token contract: `THEME_TOKENS` + `ThemeToken` publish the CSS
+  custom-property names guaranteed present in every app theme (chrome,
+  border, text, accent, and semantic tone families). Names only — values are
+  theme-specific and retuned freely. A repo gate verifies presence per theme.
+
+- Backlog read API on `RendererHost`: `listBacklogItems(workspaceId)` and
+  `watchBacklogItems(workspaceId, cb)` expose the workspace's Backlog as
+  read-only `BacklogItemView`s, backed by the same shared scan + watcher the
+  Backlog panel uses. `watch` fires with the current snapshot, then on every
+  change; unsubscribe via the returned closure. Declare the `backlog.read`
+  disclosure permission. Both methods fail with a named cause when the
+  backlog module is disabled or absent.
+
+- `ScheduleTriggerConfig` gains the one-shot `at` cadence:
+  `{ type: 'at', datetime: 'YYYY-MM-DDTHH:mm' }` — local wall-clock resolved
+  in the config's `timezone` (seconds optional and ignored; a trailing
+  `Z`/offset is rejected). Fires exactly once; after the fire time the
+  automation stays listed with no upcoming run. A wall-clock inside a DST
+  spring-forward gap resolves to the first instant after the gap, matching
+  daily/weekly.
+
+- Scoped Automations service: `getAutomationsService(host)` returns a
+  `ModuleAutomationsService` with owned CRUD (`create`/`update`/`delete`/
+  `list`/`listRuns`) and ownership-filtered `onRunEvent`. New mirrored types:
+  `AutomationDefinition`, `AutomationDefinitionDraft`,
+  `AutomationDefinitionPatch`, `AutomationsRunEvent`,
+  `AutomationRunEventStatus`, `AutomationRunEventTrigger`,
+  `ModuleAutomationsError`, `ModuleAutomationsResult`. Every method returns a
+  structured result (`invalid_workspace` covers roots the app does not have
+  open); writes require the workspace folder to be open in the app.
+  `AutomationDefinition` gains `ownerModuleId` (stamped server-side;
+  module-created automations show a "via <module>" attribution in the panel,
+  and open panels refresh live when a module writes). New
+  `automations.manage` disclosure permission.
+
+- `RendererHost.invoke(channel, payload?)`: renderer→module-main IPC bridge.
+  A module's renderer code can now call channels its own `entry.main`
+  registered via `MainHost.registerIpc`. Channels must be `<moduleId>:`-
+  prefixed; the host routes only to third-party-owned channels whose module
+  declares `ipc:invoke`. Refused invokes reject with an Error carrying a
+  structured `code` (new exported type `ModuleBridgeRefusalCode`). A
+  contract, not a security boundary — trust gating remains the boundary.
 
 - Licensed MIT (`LICENSE` added, `license` field set, included in published
   files). Permits building and selling modules, including closed-source;

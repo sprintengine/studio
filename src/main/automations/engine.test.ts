@@ -37,6 +37,11 @@ void main().catch((error) => {
 async function main(): Promise<void> {
   assertIntervalDailyWeeklyNextRuns()
   assertDstRules()
+  assertAtCadenceNextRuns()
+  assertAtCadenceDstGapRule()
+  assertAtCadenceValidationMatrix()
+  await assertAtCadenceFiresExactlyOnceThroughTheEngine()
+  await assertPastAtCadenceNeverFiresAndStaysQuiet()
   assertInvalidIntervalIsRejected()
   assertWorkspaceSnapshotFolderExtraction()
   await assertDueAutomationSkipsOverlappingTickAndPreservesSingleFlight()
@@ -117,6 +122,14 @@ function weeklyConfig(timeLocal: string, daysOfWeek: number[]): ScheduleTriggerC
     kind: 'schedule',
     timezone: 'UTC',
     cadence: { type: 'weekly', timeLocal, daysOfWeek },
+  }
+}
+
+function atConfig(datetime: string, timezone = 'UTC'): ScheduleTriggerConfig {
+  return {
+    kind: 'schedule',
+    timezone,
+    cadence: { type: 'at', datetime },
   }
 }
 
@@ -229,6 +242,139 @@ function assertDstRules(): void {
     Date.parse('2026-10-24T12:00:00.000Z')
   )
   assert.equal(new Date(ambiguousLocalTime ?? 0).toISOString(), '2026-10-25T00:30:00.000Z')
+}
+
+function assertAtCadenceNextRuns(): void {
+  const after = Date.parse('2026-06-17T10:00:00.000Z')
+
+  // Strictly in the future → the configured instant, resolved in the config's
+  // timezone (UTC here; a zoned case follows).
+  assert.equal(
+    new Date(computeNextRun(atConfig('2026-06-17T10:30'), after) ?? 0).toISOString(),
+    '2026-06-17T10:30:00.000Z'
+  )
+  // Seconds are accepted and truncated to the minute (engine granularity).
+  assert.equal(
+    new Date(computeNextRun(atConfig('2026-06-17T10:30:45'), after) ?? 0).toISOString(),
+    '2026-06-17T10:30:00.000Z'
+  )
+  // Exactly `after` and anything earlier never fire again — a past datetime is
+  // valid config that simply has no upcoming run.
+  assert.equal(computeNextRun(atConfig('2026-06-17T10:00'), after), null)
+  assert.equal(computeNextRun(atConfig('2026-06-16T09:00'), after), null)
+  assert.equal(validateScheduleTriggerConfig(atConfig('2026-06-16T09:00')).ok, true, 'a past datetime validates')
+
+  // Wall-clock resolves in the configured timezone: 09:30 Dublin summer time
+  // is 08:30 UTC.
+  assert.equal(
+    new Date(computeNextRun(atConfig('2026-07-09T09:30', 'Europe/Dublin'), after) ?? 0).toISOString(),
+    '2026-07-09T08:30:00.000Z'
+  )
+}
+
+function assertAtCadenceDstGapRule(): void {
+  // Dublin springs forward 2026-03-29 01:00 → 02:00: 01:30 does not exist that
+  // day. Pin the same resolution the daily helper uses — the first instant
+  // after the gap (02:00 IST == 01:00Z).
+  const resolved = computeNextRun(
+    atConfig('2026-03-29T01:30', 'Europe/Dublin'),
+    Date.parse('2026-03-28T12:00:00.000Z')
+  )
+  assert.equal(new Date(resolved ?? 0).toISOString(), '2026-03-29T01:00:00.000Z')
+}
+
+function assertAtCadenceValidationMatrix(): void {
+  const valid = ['2026-07-09T09:30', '2026-07-09T09:30:15', '2026-12-31T23:59']
+  for (const datetime of valid) {
+    const validation = validateScheduleTriggerConfig(atConfig(datetime))
+    assert.equal(validation.ok, true, `"${datetime}" must validate`)
+  }
+
+  const malformed = [
+    '',
+    '2026-07-09',
+    '09:30',
+    '2026-07-09 09:30',
+    '2026-07-09T24:00',
+    '2026-07-09T09:30Z',
+    '2026-07-09T09:30+01:00',
+    '2026-07-09T09:30:15.000Z',
+  ]
+  for (const datetime of malformed) {
+    const validation = validateScheduleTriggerConfig(atConfig(datetime))
+    assert.equal(validation.ok, false, `"${datetime}" must be rejected`)
+    assert.match(validation.ok ? '' : validation.error, /YYYY-MM-DDTHH:mm/, 'the message says what shape is expected')
+    assert.equal(computeNextRun(atConfig(datetime), 0), null)
+  }
+
+  const impossibleDate = validateScheduleTriggerConfig(atConfig('2026-02-30T10:00'))
+  assert.equal(impossibleDate.ok, false)
+  assert.match(impossibleDate.ok ? '' : impossibleDate.error, /not a real calendar date/)
+}
+
+// Exactly-once through the real engine: fire → nextRunAt cleared to null (no
+// problem reported) → later ticks stay quiet. Regression for the null-next-run
+// path updateDefinitionAfterRun/persistNextRun special-case for one-shots.
+async function assertAtCadenceFiresExactlyOnceThroughTheEngine(): Promise<void> {
+  const fireAt = Date.parse('2026-06-17T10:30:00.000Z')
+  let now = fireAt + 30_000
+  const root = await createWorkspace()
+  const store = new AutomationsStore(root)
+  assert.equal((await store.createDefinition(definition({
+    trigger: { kind: 'schedule', config: atConfig('2026-06-17T10:30') },
+    nextRunAt: new Date(fireAt).toISOString(),
+  }))).ok, true)
+
+  let runs = 0
+  const engine = new AutomationsEngine({
+    getProjectFolders: () => [{ workspaceId: 'ws-at-once', folderPath: root }],
+    now: () => now,
+    createRunId: () => `run-at-${runs}`,
+    runAutomation: async () => {
+      runs += 1
+      return { status: 'completed', summary: 'One-shot completed.' }
+    },
+  })
+
+  const first = await engine.tick()
+  assert.equal(runs, 1, 'the one-shot fires at its time')
+  assert.deepEqual(first.problems, [], 'firing a one-shot reports no problems')
+  const fired = await store.getDefinition('nightly-review')
+  assert.equal(fired.ok, true)
+  if (fired.ok) {
+    assert.equal(fired.value.nextRunAt, null, 'the fired one-shot has no upcoming run')
+    assert.equal(fired.value.lastRunId, 'run-at-0', 'the fired run is recorded on the definition')
+  }
+
+  now += 5 * 60_000
+  const second = await engine.tick()
+  assert.equal(runs, 1, 'a fired one-shot never fires again')
+  assert.deepEqual(second.problems, [], 'ticks after the fire stay quiet')
+}
+
+// A past-dated enabled one-shot is valid config that simply never fires — the
+// engine must not spawn it, and must not spam next_run_unavailable problems.
+async function assertPastAtCadenceNeverFiresAndStaysQuiet(): Promise<void> {
+  const now = Date.parse('2026-06-17T10:00:00.000Z')
+  const root = await createWorkspace()
+  const store = new AutomationsStore(root)
+  assert.equal((await store.createDefinition(definition({
+    trigger: { kind: 'schedule', config: atConfig('2026-06-16T09:00') },
+    nextRunAt: null,
+  }))).ok, true)
+
+  let runs = 0
+  const engine = new AutomationsEngine({
+    getProjectFolders: () => [{ workspaceId: 'ws-at-past', folderPath: root }],
+    now: () => now,
+    runAutomation: async () => {
+      runs += 1
+      return { status: 'completed' }
+    },
+  })
+  const result = await engine.tick()
+  assert.equal(runs, 0, 'a past-dated one-shot never fires')
+  assert.deepEqual(result.problems, [], 'and its evaluation reports no problems')
 }
 
 function assertInvalidIntervalIsRejected(): void {

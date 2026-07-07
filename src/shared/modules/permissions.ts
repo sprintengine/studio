@@ -42,6 +42,12 @@
 // session, external-URL opening) are disclosed today only by the legacy broad
 // scope. `ipc:invoke` remains valid for existing manifests and means "any
 // internal API, including everything above"; the consent UI flags it as broad.
+// It is also the declared gate for the renderer→module-main bridge
+// (`RendererHost.invoke` → the module's own `registerIpc` channels; see
+// shared/modules/bridge.ts) — the one place the main-side dispatcher actually
+// checks the declaration, because the bridge is the highest-capability surface
+// and the check is one map lookup. A module that only uses the bridge still
+// declares `ipc:invoke`.
 // Unknown scopes stay forward-compatible: they validate structurally and are
 // surfaced verbatim as unrecognized.
 
@@ -62,6 +68,10 @@ export type CapabilityPermission =
   | 'backlog.read'
   | 'backlog.write'
   | 'backlog.link.open'
+  // Create and manage the module's own automations through the SDK's scoped
+  // Automations service. Disclosure-level like every other scope: the service
+  // does not runtime-check it.
+  | 'automations.manage'
   // Extensible: unknown scopes validate structurally but are flagged as unknown
   // so the consent UI can warn rather than silently grant something opaque.
   | (string & {})
@@ -80,6 +90,7 @@ export const KNOWN_CAPABILITY_PERMISSIONS: readonly string[] = [
   'backlog.read',
   'backlog.write',
   'backlog.link.open',
+  'automations.manage',
 ]
 
 // Plain, sentence-case descriptions for the install/trust consent prompt.
@@ -95,19 +106,22 @@ const PERMISSION_DESCRIPTIONS: Record<string, string> = {
   'ipc:workspace-write': 'Create and change workspaces, files, and tasks through Multicode APIs',
   'ipc:agents': 'Launch and control agents and terminals',
   'ipc:settings': 'Read and change Multicode settings and integrations',
-  'ipc:invoke': "Call any of Multicode's internal APIs (broad legacy scope)",
+  'ipc:invoke': "Call any of Multicode's internal APIs, including its own background code (broad scope)",
   'backlog.read': 'Read Backlog item details and source content',
   'backlog.write': 'Change Backlog item status, links, and metadata',
   'backlog.link.open': 'Open links and targets attached to Backlog items',
+  'automations.manage': 'Create and manage its own scheduled automations',
 }
 
 export function isKnownCapabilityPermission(value: string): boolean {
   return KNOWN_CAPABILITY_PERMISSIONS.includes(value)
 }
 
-// The legacy everything-scope. Kept valid so existing manifests do not break,
-// but the consent UI flags it as broad; authors should declare the `ipc:*`
-// tiers that match what they actually touch.
+// The legacy everything-scope, and the declared gate for the renderer→module-
+// main bridge (RendererHost.invoke). Kept valid so existing manifests do not
+// break, and the consent UI flags it as broad; authors whose module does not
+// use the bridge should declare the `ipc:*` tiers that match what they
+// actually touch instead.
 export function isBroadCapabilityPermission(value: string): boolean {
   return value === 'ipc:invoke'
 }

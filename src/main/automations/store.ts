@@ -527,6 +527,7 @@ function isAutomationDefinition(value: unknown): value is AutomationDefinition {
     && (value.condition === undefined || isKindConfig(value.condition))
     && isKindConfig(value.action)
     && (value.autonomyDefault === 'review_only' || value.autonomyDefault === 'allow_changes')
+    && isOptionalString(value.ownerModuleId)
     && isNullableString(value.nextRunAt)
     && isNullableString(value.lastRunAt)
     && isNullableString(value.lastRunId)

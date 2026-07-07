@@ -33,9 +33,17 @@ import type {
   ActionContext as AppActionContext,
   ActionKind as AppActionKind,
   AutomationActionProvider as AppAutomationActionProvider,
+  AutomationDefinition as AppAutomationDefinition,
+  AutomationDefinitionDraft as AppAutomationDefinitionDraft,
+  AutomationDefinitionPatch as AppAutomationDefinitionPatch,
   AutomationRun as AppAutomationRun,
+  AutomationRunEventStatus as AppAutomationRunEventStatus,
+  AutomationRunEventTrigger as AppAutomationRunEventTrigger,
   AutomationRunStatus as AppAutomationRunStatus,
+  AutomationsRunEvent as AppAutomationsRunEvent,
   AutomationStatus as AppAutomationStatus,
+  ModuleAutomationsError as AppModuleAutomationsError,
+  ModuleAutomationsService as AppModuleAutomationsService,
   AutomationTriggerPollContext as AppAutomationTriggerPollContext,
   AutomationTriggerPollEvent as AppAutomationTriggerPollEvent,
   AutomationTriggerPollResult as AppAutomationTriggerPollResult,
@@ -44,6 +52,9 @@ import type {
   ScheduleTriggerConfig as AppScheduleTriggerConfig,
   TriggerKind as AppTriggerKind,
 } from '../../../src/shared/automations/contracts'
+import type { ModuleBridgeRefusalCode as AppModuleBridgeRefusalCode } from '../../../src/shared/modules/bridge'
+import type { FileDropPayload as AppFileDropPayload } from '../../../src/renderer/src/utils/terminalDrop'
+import { MULTICODE_FILE_DROP_MIME as APP_FILE_DROP_MIME } from '../../../src/renderer/src/utils/terminalDrop'
 import type {
   ModuleNotification as AppModuleNotification,
   ModuleNotificationSeverity as AppModuleNotificationSeverity,
@@ -85,15 +96,25 @@ import type {
   ActionContext as SdkActionContext,
   ActionKind as SdkActionKind,
   AutomationActionProvider as SdkAutomationActionProvider,
+  AutomationDefinition as SdkAutomationDefinition,
+  AutomationDefinitionDraft as SdkAutomationDefinitionDraft,
+  AutomationDefinitionPatch as SdkAutomationDefinitionPatch,
   AutomationRun as SdkAutomationRun,
+  AutomationRunEventStatus as SdkAutomationRunEventStatus,
+  AutomationRunEventTrigger as SdkAutomationRunEventTrigger,
   AutomationRunStatus as SdkAutomationRunStatus,
+  AutomationsRunEvent as SdkAutomationsRunEvent,
   AutomationStatus as SdkAutomationStatus,
+  ModuleAutomationsError as SdkModuleAutomationsError,
+  ModuleAutomationsService as SdkModuleAutomationsService,
   AutomationTriggerPollContext as SdkAutomationTriggerPollContext,
   AutomationTriggerPollEvent as SdkAutomationTriggerPollEvent,
   AutomationTriggerPollResult as SdkAutomationTriggerPollResult,
   AutomationTriggerProvider as SdkAutomationTriggerProvider,
   JsonSchema as SdkJsonSchema,
+  FileDropPayload as SdkFileDropPayload,
   MainHost as SdkMainHost,
+  ModuleBridgeRefusalCode as SdkModuleBridgeRefusalCode,
   ModuleCommandDefinition as SdkModuleCommandDefinition,
   ModuleEntry as SdkModuleEntry,
   ModuleNotification as SdkModuleNotification,
@@ -113,7 +134,7 @@ import type {
   WorkspacePanelComponent as SdkWorkspacePanelComponent,
   WorkspaceTypeDefinition as SdkWorkspaceTypeDefinition,
 } from '../src/index'
-import { BUNDLED_MODULE_IDS as SDK_BUNDLED_MODULE_IDS, KNOWN_CAPABILITY_PERMISSIONS as SDK_KNOWN_CAPABILITY_PERMISSIONS } from '../src/index'
+import { BUNDLED_MODULE_IDS as SDK_BUNDLED_MODULE_IDS, KNOWN_CAPABILITY_PERMISSIONS as SDK_KNOWN_CAPABILITY_PERMISSIONS, MULTICODE_FILE_DROP_MIME as SDK_FILE_DROP_MIME } from '../src/index'
 
 type Extends<A, B> = [A] extends [B] ? true : false
 // Type identity via the generic-function-identity trick: detects added/removed
@@ -132,6 +153,8 @@ expectType<IsExact<AppModuleSignature, SdkModuleSignature>>()
 expectType<IsExact<AppModuleSource, SdkModuleSource>>()
 expectType<IsExact<AppModuleTrustStatus, SdkModuleTrustStatus>>()
 expectType<IsExact<AppCapabilityPermission, SdkCapabilityPermission>>()
+expectType<IsExact<AppModuleBridgeRefusalCode, SdkModuleBridgeRefusalCode>>()
+expectType<IsExact<AppFileDropPayload, SdkFileDropPayload>>()
 expectType<IsExact<AppModuleNotification, SdkModuleNotification>>()
 expectType<IsExact<AppModuleNotifyInput, SdkModuleNotifyInput>>()
 expectType<IsExact<AppModuleNotificationSeverity, SdkModuleNotificationSeverity>>()
@@ -154,6 +177,14 @@ expectType<IsExact<AppAutomationTriggerPollResult, SdkAutomationTriggerPollResul
 expectType<IsExact<AppAutomationTriggerProvider, SdkAutomationTriggerProvider>>()
 expectType<IsExact<AppActionKind, SdkActionKind>>()
 expectType<IsExact<AppAutomationRun, SdkAutomationRun>>()
+expectType<IsExact<AppAutomationDefinition, SdkAutomationDefinition>>()
+expectType<IsExact<AppAutomationDefinitionDraft, SdkAutomationDefinitionDraft>>()
+expectType<IsExact<AppAutomationDefinitionPatch, SdkAutomationDefinitionPatch>>()
+expectType<IsExact<AppAutomationRunEventStatus, SdkAutomationRunEventStatus>>()
+expectType<IsExact<AppAutomationRunEventTrigger, SdkAutomationRunEventTrigger>>()
+expectType<IsExact<AppAutomationsRunEvent, SdkAutomationsRunEvent>>()
+expectType<IsExact<AppModuleAutomationsError, SdkModuleAutomationsError>>()
+expectType<IsExact<AppModuleAutomationsService, SdkModuleAutomationsService>>()
 expectType<IsExact<AppActionContext, SdkActionContext>>()
 expectType<IsExact<AppAutomationActionProvider, SdkAutomationActionProvider>>()
 
@@ -182,6 +213,7 @@ assert.deepEqual(
   [...APP_KNOWN_CAPABILITY_PERMISSIONS],
   'KNOWN_CAPABILITY_PERMISSIONS drifted between SDK and app'
 )
+assert.equal(SDK_FILE_DROP_MIME, APP_FILE_DROP_MIME, 'MULTICODE_FILE_DROP_MIME drifted between SDK and app')
 
 // The published surface must not contain `any` (the source is also compiled
 // with strict settings; this guards the emitted declarations the tarball ships).
@@ -201,6 +233,11 @@ assert.equal(
   publicTypes.includes('AutomationsProviderRegistry'),
   false,
   'SDK public surface must not expose the raw Automations provider registry contract'
+)
+assert.equal(
+  publicTypes.includes('AutomationsModuleRegistry'),
+  false,
+  'SDK public surface must not expose the raw moduleId-first Automations service registry'
 )
 
 console.log('module-sdk drift guard passed')

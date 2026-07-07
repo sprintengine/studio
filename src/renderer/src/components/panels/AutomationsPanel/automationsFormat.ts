@@ -142,6 +142,12 @@ export const TRIGGER_FAMILY_LABEL: Record<string, string> = {
   webhook: 'Webhook',
 }
 
+// The one rendering rule for an `at` datetime ("2026-07-09 09:30") — shared by
+// the cadence summary and the editor read-back so they can never drift.
+export function formatAtDatetime(datetime: string): string {
+  return datetime.replace('T', ' ')
+}
+
 export function triggerFamilyLabel(trigger: AutomationDefinition['trigger']): string {
   return TRIGGER_FAMILY_LABEL[trigger.kind] ?? trigger.kind
 }
@@ -162,6 +168,8 @@ export function cadenceSummary(trigger: AutomationDefinition['trigger']): string
       const days = [...cadence.daysOfWeek].sort((a, b) => a - b).map((d) => WEEKDAY_SHORT[d] ?? d).join(', ')
       return `Weekly · ${days} at ${cadence.timeLocal}`
     }
+    case 'at':
+      return `Once at ${formatAtDatetime(cadence.datetime)}`
     case 'cron':
       return `Cron · ${cadence.expression}`
   }
@@ -218,13 +226,13 @@ export function triggerDetail(trigger: AutomationDefinition['trigger']): string 
 // Trigger round-trip — build the trigger to persist without rewriting families
 // the editor cannot author yet.
 // ---------------------------------------------------------------------------
-// The schedule editor only authors interval/daily/weekly cadences. A loaded
+// The schedule editor authors interval/daily/weekly/at cadences. A loaded
 // repo-event/webhook trigger (no editor until T4) or a cron schedule (no cron
 // authoring control) must survive an edit verbatim instead of being silently
 // rewritten to an interval schedule. These helpers are pure so the round-trip
 // guarantee is unit-testable without rendering the form.
 
-export type ScheduleCadenceType = 'interval' | 'daily' | 'weekly'
+export type ScheduleCadenceType = 'interval' | 'daily' | 'weekly' | 'at'
 
 // The cadence sub-state the schedule editor controls. A loaded cron cadence is
 // not represented here — it is preserved verbatim, not edited.
@@ -233,11 +241,13 @@ export type ScheduleCadenceForm = {
   everyMinutes: number
   timeLocal: string
   daysOfWeek: number[]
+  /** One-shot fire time as the datetime-local control's value (YYYY-MM-DDTHH:mm). */
+  atDatetime: string
 }
 
 // True only when the loaded trigger is a schedule whose cadence the editor can
-// actually author (interval/daily/weekly). Cron, repo-event, webhook, and any
-// other family are read-only here.
+// actually author (interval/daily/weekly/at). Cron, repo-event, webhook, and
+// any other family are read-only here.
 export function isEditableScheduleTrigger(trigger: AutomationDefinition['trigger']): boolean {
   if (trigger.kind !== SCHEDULE_TRIGGER_KIND || !isScheduleConfig(trigger.config)) return false
   return trigger.config.cadence.type !== 'cron'
@@ -246,12 +256,13 @@ export function isEditableScheduleTrigger(trigger: AutomationDefinition['trigger
 export function buildScheduleCadence(form: ScheduleCadenceForm): ScheduleTriggerConfig['cadence'] {
   if (form.cadenceType === 'daily') return { type: 'daily', timeLocal: form.timeLocal }
   if (form.cadenceType === 'weekly') return { type: 'weekly', timeLocal: form.timeLocal, daysOfWeek: form.daysOfWeek }
+  if (form.cadenceType === 'at') return { type: 'at', datetime: form.atDatetime }
   return { type: 'interval', everyMinutes: form.everyMinutes }
 }
 
 // ---------------------------------------------------------------------------
-// Trigger families the editor can author (T4). Schedule (interval/daily/weekly),
-// repo-event, and webhook are authored from their own form sub-state. A loaded
+// Trigger families the editor can author (T4). Schedule (interval/daily/weekly/
+// at), repo-event, and webhook are authored from their own form sub-state. A loaded
 // cron schedule (the engine rejects cron — schedule.ts has no cron cadence) and
 // any unknown third-party family stay read-only and round-trip verbatim.
 // ---------------------------------------------------------------------------

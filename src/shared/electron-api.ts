@@ -12,6 +12,7 @@ import type {
   AutomationsEngineStatusResult,
   AutomationsListResult,
   AutomationsProvidersResult,
+  AutomationsDefinitionsChangedEvent,
   AutomationsRunEvent,
   AutomationsRunFinalizeInput,
   AutomationsRunFinalizeResult,
@@ -97,6 +98,7 @@ import type {
   ConversationStartSessionResult,
   ConversationStopSessionInput,
 } from './conversation-runtime'
+import type { ModuleBridgeInvokeResult } from './modules/bridge'
 import type {
   ModuleTrustStatus,
   ThirdPartyModuleInstallResult,
@@ -2160,6 +2162,8 @@ export type ElectronApi = {
   // center indicator. Never mutates; main reads kernel sidecar status (T5).
   getAutomationsEngineStatus: () => Promise<AutomationsEngineStatusResult>
   onAutomationRunEvent: (cb: (event: AutomationsRunEvent) => void) => () => void
+  /** Fires after any automation-definition write (user IPC or module service); panels reload their list. */
+  onAutomationsDefinitionsChanged: (cb: (event: AutomationsDefinitionsChangedEvent) => void) => () => void
   authGetState: () => Promise<MulticodeAuthState>
   authLogin: (organizationId?: string | null) => Promise<{ state: string; authorizationUrl: string }>
   authLogout: () => Promise<{ loggedOut: true }>
@@ -2405,6 +2409,8 @@ export type ElectronApi = {
   setThirdPartyModuleTrust: (id: string, trusted: boolean) => Promise<ThirdPartyModuleTrustResult>
   /** Serve trusted third-party modules' entry.renderer bundles for the renderer loader. */
   listThirdPartyRendererEntries: () => Promise<ThirdPartyRendererEntriesResult>
+  /** Renderer→module-main bridge: invoke a channel a third-party module registered via registerIpc. Refusals are structured, not rejections. */
+  moduleBridgeInvoke: (channel: string, payload?: unknown) => Promise<ModuleBridgeInvokeResult>
   readSprintEngineDispatch: (input: SprintEngineDispatchReadInput) => Promise<SprintEngineMcpReadResult>
   /** Sanitized per-run + per-agent feedback analysis for the run summary (read-only). */
   summarizeSprintEngineFeedback: (statePath: string) => Promise<SprintEngineMcpReadResult>

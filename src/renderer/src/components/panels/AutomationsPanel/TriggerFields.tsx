@@ -18,6 +18,7 @@ import {
   type RepoEventForm,
   type RepoEventProvider,
   type RepoEventType,
+  type ScheduleCadenceForm,
   type ScheduleCadenceType,
   type WebhookForm,
 } from './automationsFormat'
@@ -41,12 +42,10 @@ const CONTROL_BASE =
 const INPUT_CLASS = `w-full ${CONTROL_BASE}`
 const NARROW_CONTROL = `w-32 tabular-nums ${CONTROL_BASE}`
 
-export type TriggerFieldsValue = {
+// Composes ScheduleCadenceForm so a new cadence field has exactly one
+// authoritative declaration (automationsFormat.ts) instead of parallel copies.
+export type TriggerFieldsValue = ScheduleCadenceForm & {
   triggerKind: TriggerKind
-  cadenceType: ScheduleCadenceType
-  everyMinutes: number
-  timeLocal: string
-  daysOfWeek: number[]
   repoEvent: RepoEventForm
   webhook: WebhookForm
 }
@@ -151,6 +150,7 @@ function ScheduleFields({
             { value: 'interval', label: 'Every N minutes' },
             { value: 'daily', label: 'Daily' },
             { value: 'weekly', label: 'Weekly' },
+            { value: 'at', label: 'Once, at a date and time' },
           ]}
         />
       </Field>
@@ -163,6 +163,22 @@ function ScheduleFields({
             value={value.everyMinutes}
             onChange={(e) => onChange({ everyMinutes: Number(e.target.value) || 0 })}
             className={NARROW_CONTROL}
+          />
+        </Field>
+      ) : value.cadenceType === 'at' ? (
+        <Field
+          label="Date and time"
+          htmlFor="automation-at-datetime"
+          help="Runs once, then stays listed with no upcoming run."
+        >
+          <input
+            id="automation-at-datetime"
+            type="datetime-local"
+            value={value.atDatetime}
+            onChange={(e) => onChange({ atDatetime: e.target.value })}
+            // Wider than the HH:MM control: a datetime-local renders full
+            // date + time segments plus the picker glyph.
+            className={`w-52 tabular-nums ${CONTROL_BASE} time-control`}
           />
         </Field>
       ) : (

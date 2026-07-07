@@ -8,6 +8,7 @@ import type {
   AutomationsEngineStatusResult,
   AutomationsListResult,
   AutomationsProvidersResult,
+  AutomationsDefinitionsChangedEvent,
   AutomationsRunEvent,
   AutomationsRunFinalizeInput,
   AutomationsRunFinalizeResult,
@@ -19,6 +20,7 @@ import type {
 } from '../../shared/automations/contracts'
 import {
   AUTOMATIONS_CREATE_CHANNEL,
+  AUTOMATIONS_DEFINITIONS_CHANGED_CHANNEL,
   AUTOMATIONS_DELETE_CHANNEL,
   AUTOMATIONS_ENGINE_STATUS_CHANNEL,
   AUTOMATIONS_GET_CHANNEL,
@@ -53,6 +55,7 @@ export function createAutomationsApi(renderer: AutomationsIpcRenderer): Pick<
   | 'listAutomationProviders'
   | 'getAutomationsEngineStatus'
   | 'onAutomationRunEvent'
+  | 'onAutomationsDefinitionsChanged'
 > {
   return {
     listAutomations: (input: AutomationsWorkspaceInput): Promise<AutomationsListResult> =>
@@ -79,6 +82,11 @@ export function createAutomationsApi(renderer: AutomationsIpcRenderer): Pick<
       const handler = (_event: IpcRendererEvent, payload: unknown) => cb(payload as AutomationsRunEvent)
       renderer.on(AUTOMATIONS_RUN_EVENT_CHANNEL, handler)
       return () => renderer.removeListener(AUTOMATIONS_RUN_EVENT_CHANNEL, handler)
+    },
+    onAutomationsDefinitionsChanged: (cb: (event: AutomationsDefinitionsChangedEvent) => void): (() => void) => {
+      const handler = (_event: IpcRendererEvent, payload: unknown): void => cb(payload as AutomationsDefinitionsChangedEvent)
+      renderer.on(AUTOMATIONS_DEFINITIONS_CHANGED_CHANNEL, handler)
+      return () => renderer.removeListener(AUTOMATIONS_DEFINITIONS_CHANGED_CHANNEL, handler)
     },
   }
 }
