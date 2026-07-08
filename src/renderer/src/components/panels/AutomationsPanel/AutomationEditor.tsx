@@ -7,7 +7,7 @@ import { orderSpecialistActions } from '../../../specialists/specialistActions'
 import { listSpecialistPacks, resolveEnabledSpecialists } from '../../../specialists/specialistPacks'
 import AgentComposerPopover from '../../workspace/agentComposer/AgentComposerPopover'
 import type { AgentComposerSelection } from '../../workspace/agentComposer/AgentComposer'
-import { AGENT_SPAWN_PERMISSION_OPTIONS } from '../../workspace/agentComposer/agentSpawnShared'
+import { PermissionPresetChips } from '../../workspace/agentComposer/agentSpawnShared'
 import { SpecialistActionIcon } from '../../AppIcons'
 import type { AgentCli, SpecialistActionId, SprintEngineCliPermissionPreset } from '../../../types/workspace'
 import type {
@@ -234,9 +234,6 @@ export function AutomationEditor({
     : null
   const selectedCli = (form.config.cli || cliCatalog[0]?.value || 'claude-code') as AgentCli
   const selectedCliLabel = cliCatalog.find((option) => option.value === selectedCli)?.label ?? selectedCli
-  const permissionLabel =
-    AGENT_SPAWN_PERMISSION_OPTIONS.find((option) => option.value === (form.config.permissionPreset || 'default'))?.label
-    ?? 'Default permissions'
   const showAgentPicker = !actionUnavailableReason && configKeys.includes('cli')
 
   // Connector target — a spawn-agent run can be pinned to an installed connector
@@ -561,7 +558,9 @@ export function AutomationEditor({
                       onClose={() => setAgentPickerOpen(false)}
                     />
                   </Popover>
-                  <div className="flex items-center gap-2 border-t border-[color:var(--border-subtle)] px-2.5 py-2">
+                  {/* flex-wrap: in a narrow pane the permissions group drops to
+                      its own line instead of the Bypass chip clipping invisibly. */}
+                  <div className="flex flex-wrap items-center gap-x-2 gap-y-1 border-t border-[color:var(--border-subtle)] px-2.5 py-2">
                     <span className="text-[11px] text-[color:var(--text-subtle)]">Runtime</span>
                     <CliModelPickerButton
                       ariaLabel="Agent runtime"
@@ -571,7 +570,15 @@ export function AutomationEditor({
                       onSelectCli={(cli) => update('config', { ...form.config, cli, cliModel: '' })}
                       onSelectModel={(cli, model) => update('config', { ...form.config, cli, cliModel: model ?? '' })}
                     />
-                    <span className="ml-auto truncate text-[11px] text-[color:var(--text-subtle)]">Permissions · {permissionLabel}</span>
+                    {/* Inline preset chips (not a read-only summary): permissions
+                        must be settable without diving into the picker popover. */}
+                    <div className="ml-auto flex items-center gap-1">
+                      <span className="text-[11px] text-[color:var(--text-subtle)]">Permissions</span>
+                      <PermissionPresetChips
+                        value={(form.config.permissionPreset as SprintEngineCliPermissionPreset) || 'default'}
+                        onChange={(preset) => update('config', { ...form.config, permissionPreset: preset })}
+                      />
+                    </div>
                   </div>
                 </div>
                 <span className="text-[11px] text-[color:var(--text-subtle)]">Same roster, runtimes, and permission presets as the spawn menu.</span>

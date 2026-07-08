@@ -32,6 +32,14 @@ const BAKED_SOCKET = '__MULTICODE_AGENT_STATE_SOCKET__'
 // of the quoted token) can never rewrite this guard value.
 const RAW_TOKEN = '__MULTICODE' + '_AGENT_STATE_SOCKET__'
 const CONNECT_TIMEOUT_MS = 1000
+// Bounded retry, mirroring multicode-agent-state.mjs: a transiently busy
+// listener must not eat a frame (a lost final `idle` parks the agent as
+// working until the reap policy's stalled-expiry backstop). Capped by
+// attempts AND an absolute deadline; a dead socket fails fast. Duplicate
+// delivery is harmless (identical phase/ts re-ingest is a no-op).
+const WRITE_ATTEMPTS = 3
+const RETRY_BACKOFF_MS = 200
+const TOTAL_DEADLINE_MS = 2000
 
 function resolveSocketPath() {
   if (process.env.MULTICODE_AGENT_STATE_SOCKET) return process.env.MULTICODE_AGENT_STATE_SOCKET
@@ -71,32 +79,41 @@ function sessionIdFromEvent(event) {
   return null
 }
 
-function writeFrame(socketPath, frame) {
+function writeFrameOnce(socketPath, frame) {
   return new Promise((res) => {
     let settled = false
-    const done = () => {
+    const done = (delivered) => {
       if (settled) return
       settled = true
-      res()
+      res(delivered)
     }
     let socket
     try {
       socket = connect(socketPath)
     } catch {
-      done()
+      done(false)
       return
     }
     socket.setTimeout(CONNECT_TIMEOUT_MS)
     socket.on('timeout', () => {
       socket.destroy()
-      done()
+      done(false)
     })
-    socket.on('error', () => done())
+    socket.on('error', () => done(false))
     socket.on('connect', () => {
       socket.write(JSON.stringify(frame) + '\n', () => socket.end())
     })
-    socket.on('close', () => done())
+    socket.on('close', () => done(true))
   })
+}
+
+async function writeFrame(socketPath, frame) {
+  const startedAt = Date.now()
+  for (let attempt = 0; attempt < WRITE_ATTEMPTS; attempt += 1) {
+    if (await writeFrameOnce(socketPath, frame)) return
+    if (Date.now() - startedAt + RETRY_BACKOFF_MS >= TOTAL_DEADLINE_MS) return
+    await new Promise((r) => setTimeout(r, RETRY_BACKOFF_MS))
+  }
 }
 
 // Captured once, then frozen. `opencode run` is one process = one root session

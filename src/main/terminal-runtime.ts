@@ -16,7 +16,7 @@ import type {
   LiveAgentExecution,
 } from '../shared/agent-runtime'
 import { createAgentStreamWatcher } from './agent-stream-watcher'
-import { deriveActivityFromPhase, evaluateAgentStall, isAuthoritativeWorkingPhase, selectAgentStateTarget, type AgentStateFrame } from './agent-state'
+import { deriveActivityFromPhase, evaluateAgentStall, isAtRestAgentPhase, isAuthoritativeWorkingPhase, selectAgentStateTarget, type AgentStateFrame } from './agent-state'
 import type { TerminalSpawnPayload } from './ipc/terminal-ipc'
 import {
   cleanupTerminalStartupScript,
@@ -59,6 +59,7 @@ import { createTerminalDiagnostics } from './terminal-diagnostics'
 import { createTerminalOutputBuffer } from './terminal-output-buffer'
 import { createTerminalMobileCommandService } from './terminal-mobile-command-service'
 import {
+  explainSessionReapDecision,
   selectReapableSessions,
   clampSuspendIdleAfterMs,
   DEFAULT_SUSPEND_IDLE_AFTER_MS,
@@ -129,6 +130,21 @@ type TerminalRuntimeOptions = {
   // when unwired (tests): suspend/quit skip persistence and rehydration never
   // finds anything — in-process behavior is unchanged.
   snapshotSidecars?: TerminalSnapshotSidecarStore
+  // Persists reaper decisions to the daily diagnostics JSONL: every reap
+  // action, plus rate-limited "parked past threshold by gate X" skips. The
+  // in-memory ring buffer (terminal-reap-log) dies with the process; the
+  // 2026-07-07 parked-agents incident was only diagnosable via timer-alignment
+  // forensics because no durable decision trail existed. Best-effort and
+  // absent in tests (no-op).
+  logDiagnostic?(input: {
+    level: 'info' | 'warning'
+    title: string
+    message: string
+    details?: string
+    workspaceId?: string
+    agentId?: string
+    sessionId?: string
+  }): void
 }
 
 type TerminalIpcHandlers = {
@@ -184,6 +200,7 @@ let ensureBuiltinSkillInstalled: TerminalRuntimeOptions['ensureBuiltinSkillInsta
 let excludeWorktreeMcpConfig: TerminalRuntimeOptions['excludeWorktreeMcpConfig']
 let prepareAgentStateHook: TerminalRuntimeOptions['prepareAgentStateHook']
 let snapshotSidecars: TerminalRuntimeOptions['snapshotSidecars']
+let logReapDiagnostic: TerminalRuntimeOptions['logDiagnostic']
 
 // CLIs the agent-state reporter can install into. Claude Code and Codex share a
 // stdin-filter reporter (same hook_event_name/session_id payload; only the
@@ -325,6 +342,8 @@ export function createTerminalRuntime(options: TerminalRuntimeOptions): Terminal
   excludeWorktreeMcpConfig = options.excludeWorktreeMcpConfig
   prepareAgentStateHook = options.prepareAgentStateHook
   snapshotSidecars = options.snapshotSidecars
+  logReapDiagnostic = options.logDiagnostic
+  reapSkipLogState.clear()
   sprintEngineMcpRunRefCounts.clear()
   sprintEngineMcpWorkspaceRefCounts.clear()
   pendingSprintEngineMcpRunReleases.clear()
@@ -881,6 +900,18 @@ export function reapStaleTerminals(now = Date.now()): string[] {
       kind: session.kind,
       unseenMs,
     })
+    logReapDiagnostic?.({
+      level: 'info',
+      title: 'Terminal reaper',
+      message: 'Stale backstop disposed a terminal',
+      details: [
+        `Unseen for ${Math.round(unseenMs / 3_600_000)}h`,
+        `Kind: ${session.kind}; CLI: ${session.cli ?? 'unknown'}`,
+      ].join('\n'),
+      ...(session.workspaceId ? { workspaceId: session.workspaceId } : {}),
+      ...(session.agentId ? { agentId: session.agentId } : {}),
+      sessionId,
+    })
     disposeTerminal(sessionId)
   }
   return staleSessionIds
@@ -904,6 +935,15 @@ export function reapStaleTerminals(now = Date.now()): string[] {
 // and the agent silently relaunched. The 24h `reapStaleTerminals` backstop still
 // disposes, reclaiming the retained buffer once the history is no longer worth
 // keeping.
+// Rate limit for persisted "parked past threshold by gate X" skip entries: one
+// per session per hour, re-logged sooner only when the holding gate CHANGES.
+// Bounds volume (a working agent on a long autonomous run legitimately parks
+// past the keystroke threshold for hours) while keeping the forensic trail the
+// 2026-07-07 incident lacked. Entries for sessions that left the terminals map
+// are pruned each sweep.
+const REAP_SKIP_LOG_INTERVAL_MS = 60 * 60 * 1000
+const reapSkipLogState = new Map<string, { hold: string; loggedAt: number }>()
+
 export function runIdleAgentReapSweep(now = Date.now()): string[] {
   const lastInteractionAt = (session: TerminalSession): number =>
     Math.max(session.startedAt, session.lastInputAt ?? 0)
@@ -918,37 +958,79 @@ export function runIdleAgentReapSweep(now = Date.now()): string[] {
     // repaint, so feeding it to the reaper would reintroduce the repaint
     // masquerade this policy is built to avoid. When no authoritative phase
     // exists (hookless CLI, or before the first frame), agentPhase stays null and
-    // the keystroke-recency floor decides. Only an at-rest 'idle' agent is
-    // reapable; working/awaiting_input/stalled are protected.
+    // the keystroke-recency floor decides. At-rest phases — 'idle', and
+    // 'stalled' after its own full rest threshold — are reapable;
+    // working/awaiting_input are protected.
     agentPhase: session.agentState?.phase ?? null,
     lastInteractionAt: lastInteractionAt(session),
-    // When the agent went idle — keeps a just-finished agent alive until it has
-    // actually been idle past the threshold.
-    idleSince: session.agentState?.phase === 'idle' ? session.agentState.since : null,
+    // When the agent went to rest — keeps a just-finished (or just-stalled)
+    // agent alive until it has actually rested past the threshold.
+    idleSince: isAtRestAgentPhase(session.agentState?.phase) ? (session.agentState?.since ?? null) : null,
     // A SprintEngine agent is protected from this sweep when EITHER its run's
     // dispatch loop is actively running (the claim-aware 5-min AutoRun retirement
     // owns those — disposing from here would race the dispatch: flapping, or
-    // dropping an in-flight claim + `--resume` conversation) OR its idle is not
+    // dropping an in-flight claim + `--resume` conversation) OR its rest is not
     // AUTHORITATIVELY known. `agentState.phase` comes from a lifecycle hook; a
     // hookless/BYO sprint CLI (or the pre-first-frame window) has `phase === null`,
     // which the policy's phase gate skips, falling to the keystroke floor — and a
     // sprint agent on a long autonomous turn has no keystrokes, so that floor would
-    // dispose it mid-work. So we only reap a sprint agent that is BOTH in an inactive
-    // run AND authoritatively `idle`. Those we DISPOSE (branch below) → `agent.leave`
-    // (→ `left`) → the dispatch revival path respawns them when work returns. This
-    // closes the parked-until-teardown gap for completed/stopped runs without
-    // touching active ones. (Empty set before the renderer first syncs ⇒ runs look
-    // inactive ⇒ only authoritatively-idle agents reap, the safe default.)
+    // dispose it mid-work. So we only reap a sprint agent that is BOTH in an
+    // inactive run AND authoritatively at rest: 'idle', or 'stalled' — a worker
+    // whose Stop frame was lost lands in 'stalled', and it must expire like idle
+    // or it parks until app quit (the 2026-07-07 incident). Those we DISPOSE
+    // (branch below) → `agent.leave` (→ `left`) → the dispatch revival path
+    // respawns them when work returns. This closes the parked-until-teardown gap
+    // for completed/stopped/manual runs without touching active ones. (Empty set
+    // before the renderer first syncs ⇒ runs look inactive ⇒ only
+    // authoritatively-at-rest agents reap, the safe default.)
     inActiveRun:
       Boolean(session.sprintEngineStatePath)
       && (activeSprintRunStatePaths.has(session.sprintEngineStatePath ?? '')
-        || session.agentState?.phase !== 'idle'),
+        || !isAtRestAgentPhase(session.agentState?.phase)),
   }))
 
   const decision = selectReapableSessions(candidates, {
     now,
     idleThresholdMs: configuredSuspendIdleAfterMs,
   })
+
+  // Skip audit: persist which gate is holding an agent that has otherwise
+  // rested past the threshold ("would have been reaped but for X"). Routine
+  // "not idle long enough yet" skips are noise and never logged. Rate-limited
+  // per session (see REAP_SKIP_LOG_INTERVAL_MS); state pruned for sessions
+  // that left the map so it cannot grow unbounded.
+  for (const staleKey of reapSkipLogState.keys()) {
+    if (!terminals.has(staleKey)) reapSkipLogState.delete(staleKey)
+  }
+  if (logReapDiagnostic) {
+    for (const candidate of candidates) {
+      if (candidate.kind !== 'agent') continue
+      const explanation = explainSessionReapDecision(candidate, {
+        now,
+        idleThresholdMs: configuredSuspendIdleAfterMs,
+      })
+      if (explanation.verdict !== 'held') continue
+      if (explanation.hold === 'resting_recently' || explanation.hold === 'dead_process') continue
+      if (explanation.restingForMs <= configuredSuspendIdleAfterMs) continue
+      const previous = reapSkipLogState.get(candidate.sessionId)
+      if (previous && previous.hold === explanation.hold && now - previous.loggedAt < REAP_SKIP_LOG_INTERVAL_MS) {
+        continue
+      }
+      reapSkipLogState.set(candidate.sessionId, { hold: explanation.hold, loggedAt: now })
+      logReapDiagnostic({
+        level: 'info',
+        title: 'Terminal reaper',
+        message: `Idle sweep kept a rested agent: ${explanation.hold}`,
+        details: [
+          `Resting for ${Math.round(explanation.restingForMs / 60_000)}m (threshold ${Math.round(configuredSuspendIdleAfterMs / 60_000)}m)`,
+          `Phase: ${candidate.agentPhase ?? 'none (hookless)'}`,
+          `CLI: ${candidate.cli ?? 'unknown'}`,
+        ].join('\n'),
+        ...(candidate.workspaceId ? { workspaceId: candidate.workspaceId } : {}),
+        sessionId: candidate.sessionId,
+      })
+    }
+  }
 
   for (const sessionId of decision.reapableSessionIds) {
     const session = terminals.get(sessionId)
@@ -983,6 +1065,19 @@ export function runIdleAgentReapSweep(now = Date.now()): string[] {
       cli: session.cli ?? null,
       kind: session.kind,
       idleMs,
+    })
+    logReapDiagnostic?.({
+      level: 'info',
+      title: 'Terminal reaper',
+      message: reclaimByDispose ? 'Idle sweep disposed a sprint agent' : 'Idle sweep suspended an agent',
+      details: [
+        `Idle for ${Math.round(idleMs / 60_000)}m (threshold ${Math.round(configuredSuspendIdleAfterMs / 60_000)}m)`,
+        `Phase: ${session.agentState?.phase ?? 'none (hookless)'}`,
+        `CLI: ${session.cli ?? 'unknown'}`,
+      ].join('\n'),
+      ...(session.workspaceId ? { workspaceId: session.workspaceId } : {}),
+      ...(session.agentId ? { agentId: session.agentId } : {}),
+      sessionId,
     })
     if (reclaimByDispose) disposeTerminal(sessionId)
     else suspendTerminal(sessionId)
@@ -1193,10 +1288,12 @@ function resolveSessionForAgentStateFrame(frame: AgentStateFrame): TerminalSessi
   return selectAgentStateTarget(candidates, frame)
 }
 
-// A hook-reported working agent silent for this long — no follow-up frame and no
-// terminal output — is flagged as (inferred) stalled. Conservative: long but
-// silent legitimate tools (a quiet build) are rare, and the flag is a soft,
-// inference-sourced hint, not an authoritative state.
+// A hook-reported working agent (starting/thinking/tool_use) silent for this
+// long — no follow-up frame and no terminal output — is flagged as (inferred)
+// stalled. Conservative: long but silent legitimate tools (a quiet build) are
+// rare, and the flag is a soft, inference-sourced hint, not an authoritative
+// state. Stalled is also the reaper's expiry path for sessions whose final
+// frame was lost: it rides the full idle threshold again before reclaim.
 const AGENT_STALL_THRESHOLD_MS = 90_000
 
 function scheduleAgentStallCheck(session: TerminalSession): void {
@@ -1204,9 +1301,12 @@ function scheduleAgentStallCheck(session: TerminalSession): void {
   if (!isTerminalProcessAlive(session)) return
   const state = session.agentState
   // Only arm for a hook-driven working phase; idle/awaiting/terminal/inferred
-  // phases are not "stuck mid-work".
+  // phases are not "stuck mid-work". 'starting' is armed too: a resumed session
+  // that never receives a prompt has SessionStart as its ONLY frame (no Stop
+  // ever follows), so without conversion to 'stalled' it would read as working
+  // — and be protected from the idle reaper — forever.
   if (!state || state.source !== 'hook') return
-  if (state.phase !== 'thinking' && state.phase !== 'tool_use') return
+  if (state.phase !== 'starting' && state.phase !== 'thinking' && state.phase !== 'tool_use') return
   session.agentStallTimer = setTimeout(() => runAgentStallCheck(session), AGENT_STALL_THRESHOLD_MS)
 }
 

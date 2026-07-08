@@ -141,6 +141,13 @@ export type WorkspaceSyncRoutingSnapshot = {
   // projectFoldersFromWorkspaceSyncSnapshot) can't match it. Optional and
   // best-effort, mirroring workspaceNames; a missing entry restores folder-less.
   workspaceFolderPaths?: Record<string, string>
+  // Non-standard workspace modes by workspace id, captured at persist time.
+  // Without this, every workspace restored from the routing snapshot rehydrates
+  // as a 'standard' placeholder, so mode-gated resolution (the automation
+  // executor's per-project 'automations-host' lookup) can never match a restored
+  // workspace and mints a duplicate host after each app restart. Optional and
+  // best-effort, mirroring workspaceNames; a missing entry restores 'standard'.
+  workspaceModes?: Record<string, Workspace['mode']>
 }
 
 export type WorkspaceSyncCommandResult =

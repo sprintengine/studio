@@ -11,6 +11,17 @@ import { getModel, removeAgentTab, revealAgentTab, type AgentTabRevealTarget } f
 import { buildSpecialistDirectiveStartupPrompt, getSpecialistAction } from '../specialists/specialistActions'
 import { isAutomationsHostWorkspace } from '../utils/workspaceVisibility'
 import { resolveConnectorLaunch } from '../utils/connectorLaunch'
+import {
+  SPRINT_ENGINE_DEFAULT_MAX_PARALLEL_AGENTS,
+  SprintEngineNewTeamCreationError,
+  runSprintEngineNewTeamCreation,
+} from '../components/workspace/newWorkspace/controllers/sprintEngineController'
+import {
+  DEFAULT_SPRINT_ENGINE_ROLE_CLI_DEFAULTS,
+  DEFAULT_SPRINT_ENGINE_ROLE_COUNTS,
+  resolveInitialSprintEngineRoster,
+} from '../components/workspace/newWorkspace/savedTeams'
+import type { OnCreateArgs } from '../components/workspace/newWorkspace/controllers/types'
 import { createAutomationsTemplate } from '../modules/automations-workspace-types'
 import { AUTOMATIONS_HOST_WORKSPACE_MODE, type SpecialistActionId, type WorkspaceWindowId } from '../types/workspace'
 
@@ -61,6 +72,8 @@ async function handleAutomationRequest(request: AutomationRendererRequest): Prom
       return launchAgent(request)
     case 'agent.dispose':
       return disposeAgent(request)
+    case 'sprint.create':
+      return createSprint(request)
     default:
       return {
         ok: false,
@@ -68,6 +81,92 @@ async function handleAutomationRequest(request: AutomationRendererRequest): Prom
         message: `Unsupported automation request kind "${(request as { kind?: string }).kind ?? 'unknown'}".`,
       }
   }
+}
+
+// Create + start a Sprint Engine run the way the wizard does: resolve the
+// roster (last saved team, else the built-in default), run the new-team
+// controller (main's one-shot Python init writes run.yaml), add the workspace,
+// then activate it so the board panel mounts — the mount effect is what
+// consumes initial spawns and launches the architect. Waiting for the layout
+// model here is the renderer-side half of that start guarantee; main confirms
+// the architect's live terminal session before reporting success.
+async function createSprint(
+  request: Extract<AutomationRendererRequest, { kind: 'sprint.create' }>
+): Promise<AutomationRendererResponse> {
+  const store = useWorkspaceStore.getState()
+  const roleSettings = store.appSettings.sprintEngineRoleSettings
+  const roster = resolveInitialSprintEngineRoster({
+    savedTeams: roleSettings?.savedTeams ?? [],
+    lastSelectedTeamId: roleSettings?.lastSelectedTeamId ?? null,
+    savedRoster: roleSettings?.savedRoster ?? null,
+    defaultRoleCounts: DEFAULT_SPRINT_ENGINE_ROLE_COUNTS,
+    defaultRoleCliDefaults: DEFAULT_SPRINT_ENGINE_ROLE_CLI_DEFAULTS,
+  })
+
+  let args: OnCreateArgs
+  try {
+    args = await runSprintEngineNewTeamCreation(
+      {
+        folderPath: request.folderPath,
+        teamName: request.name?.trim() ?? '',
+        goal: request.goal,
+        roleCounts: roster.roleCounts,
+        visibleRoleCounts: roster.roleCounts,
+        maxParallelAgents: SPRINT_ENGINE_DEFAULT_MAX_PARALLEL_AGENTS,
+        roleCliDefaults: roster.roleCliDefaults,
+        roleModelOverrides: roster.roleModelOverrides,
+        // Only a non-manual run carries a start-at-launch intent; a manual run
+        // deliberately sits idle until a person opens it.
+        initialSpawnRoles: request.startRunner === true ? ['architect'] : null,
+        startRunner: request.startRunner === true,
+        autoApproveArtifacts: request.autoApproveArtifacts === true,
+        useWorktrees: request.useWorktrees === true,
+        // External creation never escalates CLI permissions.
+        cliPermissionPreset: 'default',
+        rosterSource: 'user',
+      },
+      {
+        pathExists: window.api.pathExists,
+        initializeSprintEngineState: window.api.initializeSprintEngineState,
+      }
+    )
+  } catch (error) {
+    if (error instanceof SprintEngineNewTeamCreationError) {
+      return {
+        ok: false,
+        code: `sprint_${error.code.replace(/-/g, '_')}`,
+        message: error.message === error.code
+          ? `Sprint run creation failed: ${error.code}.`
+          : error.message,
+      }
+    }
+    throw error
+  }
+
+  const workspaceId = useWorkspaceStore.getState().addWorkspace(args.template, {
+    name: args.name,
+    folderPath: args.folderPath,
+    windowId: 'primary',
+    sprintEngineState: args.sprintEngineState,
+    sprintEngineContext: args.sprintEngineContext,
+    sprintEngineRoleCliDefaults: args.sprintEngineRoleCliDefaults,
+    sprintEngineRoleModelOverrides: args.sprintEngineRoleModelOverrides,
+    sprintEngineInitialSpawnRoles: args.sprintEngineInitialSpawnRoles,
+    sprintEngineAutoState: args.sprintEngineAutoState,
+  })
+  const state = useWorkspaceStore.getState()
+  if (state.activeWorkspaceId !== workspaceId) {
+    state.setActiveWorkspace(workspaceId)
+  }
+  const model = await waitForLayoutModel(workspaceId)
+  if (!model) {
+    return {
+      ok: false,
+      code: 'workspace_layout_unavailable',
+      message: `Sprint workspace "${workspaceId}" was created (run state is on disk) but its layout did not mount within ${LAYOUT_MODEL_WAIT_MS}ms, so the board could not start the run.`,
+    }
+  }
+  return { ok: true, workspaceId }
 }
 
 function createWorkspace(
@@ -95,9 +194,17 @@ function createWorkspace(
     windowId: 'primary',
     // An explicit mode (e.g. the automations executor's hidden 'automations-host'
     // host) wins over standard-derivation; omitted falls through to standard.
+    // A mode-typed create may also REUSE an existing same-folder workspace of
+    // that mode (automations-host, switchboard) instead of minting one.
     mode: request.mode,
   })
-  return { ok: true, workspaceId }
+  // Report the actual mode from the registry: main restores restart-survivor
+  // workspaces as 'standard' routing placeholders, so a reused host's mode is
+  // only knowable renderer-side. Callers assert against this, not the snapshot.
+  const workspaceMode = useWorkspaceStore.getState().workspaces.find(
+    (candidate) => candidate.id === workspaceId,
+  )?.mode
+  return { ok: true, workspaceId, ...(workspaceMode ? { workspaceMode } : {}) }
 }
 
 async function launchAgent(

@@ -308,6 +308,69 @@ async function assertDefaultRunReusesExistingHostWorkspace(): Promise<void> {
   assert.equal(launch.kind === 'agent.launch' ? launch.workspaceId : '', 'ws-host')
 }
 
+async function assertDefaultRunReusesRestartRestoredHostViaRendererMode(): Promise<void> {
+  // After an app restart, main's sync snapshot restores workspaces as routing
+  // placeholders. A pre-workspaceModes snapshot (or a lost one) reads the host
+  // as mode 'standard', so the executor's host-by-folder lookup misses and it
+  // delegates workspace.create — the renderer then REUSES the real host and
+  // reports its actual mode on the response. The executor must trust that
+  // renderer-reported mode over the stale placeholder, or every run for a
+  // pre-existing project fails its host-mode assertion.
+  const stalePlaceholderHost = workspace('ws-restored-host', '/repo/a', { mode: 'standard' })
+  const requests: AutomationRendererRequest[] = []
+  const workspaces = [stalePlaceholderHost]
+  const delegateToRenderer = async (request: AutomationRendererRequest): Promise<AutomationRendererResponse> => {
+    requests.push(request)
+    if (request.kind === 'workspace.create') {
+      // Renderer-side one-host-per-folder reuse: same id back, real mode stamped.
+      return { ok: true, workspaceId: 'ws-restored-host', workspaceMode: 'automations-host' }
+    }
+    if (request.kind === 'agent.launch') {
+      const target = workspaces.find((candidate) => candidate.id === request.workspaceId)
+      if (!target) return { ok: false, code: 'unknown_workspace', message: 'unknown workspace' }
+      target.agents['agent-1'] = {
+        id: 'agent-1',
+        name: request.name ?? 'agent-1',
+        status: 'idle',
+        execution: { mode: 'current_workspace', worktreeId: null, cwd: null },
+        messages: [],
+        streamBuffer: '',
+        runtimeKind: 'terminal',
+      } as Workspace['agents'][string]
+      return { ok: true, workspaceId: request.workspaceId, agentId: 'agent-1' }
+    }
+    return { ok: false, code: 'unsupported', message: 'unsupported request' }
+  }
+  const executor = createLocalAutomationExecutor({
+    delegateToRenderer,
+    getWorkspaceSyncSnapshot: () => snapshot(workspaces),
+    now: (() => {
+      let current = 0
+      return () => {
+        current += 30_000
+        return current
+      }
+    })(),
+    sleep: async () => undefined,
+    createRunWorktree: async () => null,
+  })
+  const result = await executor({
+    workspaceRoot: '/repo/a',
+    definition: definition(),
+    run: run(),
+    triggerPayload: { kind: 'schedule' },
+  })
+
+  assert.equal(result.status, 'running', `restored-host run must launch, got: ${result.summary ?? result.blockedReason ?? ''}`)
+  assert.equal(result.workspaceId, 'ws-restored-host')
+  assert.deepEqual(requests.map((request) => request.kind), ['workspace.create', 'agent.launch'])
+  assert.equal(
+    requests[0].kind === 'workspace.create' ? requests[0].name : '',
+    'Automations',
+    'an executor-created host carries the stable surface name, never the run agent name',
+  )
+}
+
 async function assertDefaultRunNeverHijacksStandardWorkspace(): Promise<void> {
   // A folder-matched standard workspace must not be reused or mutated by a
   // default automation run; the run creates its own host instead.
@@ -1099,6 +1162,7 @@ async function main(): Promise<void> {
   assertBuiltInProviderRegistryUsesNamespacedIdsAndRejectsDuplicates()
   await assertDefaultRunCreatesHostWorkspaceAndLaunchesOnBus()
   await assertDefaultRunReusesExistingHostWorkspace()
+  await assertDefaultRunReusesRestartRestoredHostViaRendererMode()
   await assertDefaultRunNeverHijacksStandardWorkspace()
   await assertExplicitConfigWorkspaceIdLaunchesIntoNamedWorkspace()
   await assertRunWorktreeIsThreadedToLaunchAndPatch()

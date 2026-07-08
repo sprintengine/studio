@@ -14,6 +14,7 @@ import {
   installAgentStateHook,
   installCodexAgentStateHook,
   installOpencodeAgentStateHook,
+  isAtRestAgentPhase,
   isAuthoritativeWorkingPhase,
   mapHookEventToPhase,
   mapOpencodeEventToPhase,
@@ -55,7 +56,6 @@ async function run(): Promise<void> {
   assert.equal(mapHookEventToPhase('UserPromptSubmit'), 'thinking')
   assert.equal(mapHookEventToPhase('PreToolUse'), 'tool_use')
   assert.equal(mapHookEventToPhase('PostToolUse'), 'thinking')
-  assert.equal(mapHookEventToPhase('Notification'), 'awaiting_input')
   assert.equal(mapHookEventToPhase('PermissionRequest'), 'awaiting_input')
   assert.equal(mapHookEventToPhase('Stop'), 'idle')
   assert.equal(mapHookEventToPhase('SubagentStop'), 'idle')
@@ -63,18 +63,24 @@ async function run(): Promise<void> {
   assert.equal(mapHookEventToPhase('NotAnEvent'), null)
 
   // --- Notification notification_type discrimination ----------------------
-  // Informational notifications (esp. the idle "waiting for your input" nudge)
-  // must NOT report awaiting_input — that was the false attention-glyph bug.
+  // Only ALLOW-LISTED blocking types report awaiting_input. awaiting_input is
+  // sticky for a dormant agent (no later frame clears it), so an unknown or
+  // absent type must DROP — promoting it parked sessions as falsely
+  // "needs input" and exempted them from the idle reaper forever (2026-07-07).
+  assert.equal(mapHookEventToPhase('Notification', 'permission_prompt'), 'awaiting_input')
+  assert.equal(mapHookEventToPhase('Notification', 'elicitation_dialog'), 'awaiting_input')
+  assert.equal(mapHookEventToPhase('Notification', 'agent_needs_input'), 'awaiting_input')
+  // Informational types drop.
   assert.equal(mapHookEventToPhase('Notification', 'idle_prompt'), null)
   assert.equal(mapHookEventToPhase('Notification', 'auth_success'), null)
   assert.equal(mapHookEventToPhase('Notification', 'elicitation_complete'), null)
   assert.equal(mapHookEventToPhase('Notification', 'elicitation_response'), null)
-  // Real prompts (and unknown/absent types, conservatively) stay awaiting_input.
-  assert.equal(mapHookEventToPhase('Notification', 'permission_prompt'), 'awaiting_input')
-  assert.equal(mapHookEventToPhase('Notification', 'elicitation_dialog'), 'awaiting_input')
-  assert.equal(mapHookEventToPhase('Notification', 'some_future_type'), 'awaiting_input')
-  assert.equal(mapHookEventToPhase('Notification', null), 'awaiting_input')
-  assert.equal(mapHookEventToPhase('Notification', undefined), 'awaiting_input')
+  assert.equal(mapHookEventToPhase('Notification', 'agent_completed'), null)
+  // Unknown and untyped notifications drop too — the sticky-phase trap.
+  assert.equal(mapHookEventToPhase('Notification', 'some_future_type'), null)
+  assert.equal(mapHookEventToPhase('Notification', null), null)
+  assert.equal(mapHookEventToPhase('Notification', undefined), null)
+  assert.equal(mapHookEventToPhase('Notification'), null)
   // notification_type is only consulted for Notification.
   assert.equal(mapHookEventToPhase('PermissionRequest', 'idle_prompt'), 'awaiting_input')
 
@@ -177,6 +183,14 @@ async function run(): Promise<void> {
   // Working + quiet past the threshold → stalled.
   assert.deepEqual(evaluateAgentStall({ ...stallBase, phase: 'tool_use', source: 'hook' }), { action: 'stalled' })
   assert.deepEqual(evaluateAgentStall({ ...stallBase, phase: 'thinking', source: 'hook' }), { action: 'stalled' })
+  // 'starting' arms too: a resumed session that never receives a prompt has
+  // SessionStart as its only frame (no Stop follows), so it must convert to
+  // stalled — and then expire via the reap policy — instead of parking forever.
+  assert.deepEqual(evaluateAgentStall({ ...stallBase, phase: 'starting', source: 'hook' }), { action: 'stalled' })
+  assert.deepEqual(
+    evaluateAgentStall({ phase: 'starting', source: 'hook', phaseSince: 80_000, lastOutputAt: null, now: 100_000, thresholdMs: 90_000 }),
+    { action: 'recheck', afterMs: 70_000 }
+  )
   // Recent output (streaming tool) keeps it alive — recheck after the remainder.
   assert.deepEqual(
     evaluateAgentStall({ phase: 'tool_use', source: 'hook', phaseSince: 0, lastOutputAt: 70_000, now: 100_000, thresholdMs: 90_000 }),
@@ -187,6 +201,18 @@ async function run(): Promise<void> {
     evaluateAgentStall({ phase: 'thinking', source: 'hook', phaseSince: 80_000, lastOutputAt: null, now: 100_000, thresholdMs: 90_000 }),
     { action: 'recheck', afterMs: 70_000 }
   )
+
+  // --- at-rest vocabulary (reaper) ----------------------------------------
+  // 'idle' and 'stalled' are the reapable rest states; everything else —
+  // including null/undefined (hookless) — is not "at rest" (the reaper's
+  // keystroke floor handles hookless separately).
+  assert.equal(isAtRestAgentPhase('idle'), true)
+  assert.equal(isAtRestAgentPhase('stalled'), true)
+  for (const phase of ['starting', 'thinking', 'tool_use', 'awaiting_input', 'exited', 'failed'] as const) {
+    assert.equal(isAtRestAgentPhase(phase), false, `expected not at rest: ${phase}`)
+  }
+  assert.equal(isAtRestAgentPhase(null), false)
+  assert.equal(isAtRestAgentPhase(undefined), false)
 
   // --- heuristic cutover guard --------------------------------------------
   // Only a hook-driven working phase suppresses the legacy idle-timer flip.

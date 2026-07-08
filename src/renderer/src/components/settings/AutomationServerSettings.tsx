@@ -41,7 +41,7 @@ export function AutomationServerSettings() {
       <SettingsSectionTitle>Automation</SettingsSectionTitle>
       <SettingToggle
         label="Local automation server"
-        description="Lets local MCP clients create workspaces, launch agents, and read status in this app. Local socket only, off by default."
+        description="Lets local MCP clients create workspaces, launch agents, read status, manage Backlog items, create and run Automations (which can launch agents), and create and monitor Sprint Engine runs in this app. Local socket only, off by default."
         enabled={status.enabled}
         disabled={pending}
         onChange={(next) => void setEnabled(next)}
@@ -54,7 +54,7 @@ export function AutomationServerSettings() {
           {status.bridgeScriptPath ? (
             <div>
               Connect a stdio MCP client (Claude Code, Codex) through the bridge script:{' '}
-              <span className="font-mono text-[color:var(--text-default)]">
+              <span className="break-all font-mono text-[color:var(--text-default)]">
                 claude mcp add multicode -- node {status.bridgeScriptPath}
               </span>
             </div>

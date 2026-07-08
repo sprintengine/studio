@@ -7,7 +7,9 @@ import { parseBacklogFrontmatter } from '../shared/backlog/frontmatter'
 import {
   addOrUpdateBacklogLink,
   createBacklogEpic,
+  listBacklogItems,
   moveBacklogObjectSource,
+  readBacklogItem,
   planBacklogStoreMigration,
   readBacklogObjectStore,
   removeBacklogLink,
@@ -731,7 +733,76 @@ async function assertLazyMigrationMatrix(): Promise<void> {
   }
 }
 
-main().catch((error) => {
-  console.error(error)
-  process.exit(1)
-})
+// Read-only listing/reading for the automation server's backlog tools: files +
+// frontmatter are the whole read model, and neither call may create or touch
+// .multi-code state (an external read tool must not mutate the app's stores).
+async function testListAndReadBacklogItemsAreReadOnly(): Promise<void> {
+  const tempRoot = await mkdtemp(join(tmpdir(), 'multicode-backlog-list-'))
+  try {
+    await mkdir(join(tempRoot, 'backlog', 'epics'), { recursive: true })
+    await writeFile(
+      join(tempRoot, 'backlog', '2026-07-08-ship-thing.md'),
+      '---\ntype: feature\nstatus: ready\ndifficulty: m\ncriticality: high\nrisk: low\nepic: things\nid: 12\n---\n\n# Ship the thing\n\nBody text.\n',
+      'utf-8'
+    )
+    await writeFile(join(tempRoot, 'backlog', 'no-frontmatter.md'), '# Bare capture\n', 'utf-8')
+    await writeFile(join(tempRoot, 'backlog', 'old.md'), '---\nstatus: archived\n---\n# Old\n', 'utf-8')
+    await writeFile(join(tempRoot, 'backlog', 'epics', 'things.md'), '---\ntype: epic\n---\n# Things\n', 'utf-8')
+
+    const listed = await listBacklogItems(tempRoot)
+    assert.equal(listed.ok, true)
+    if (!listed.ok) return
+    assert.equal(listed.key, null, 'no config.json yet -> key is null')
+    assert.deepEqual(listed.items, [
+      {
+        relativePath: 'backlog/2026-07-08-ship-thing.md',
+        title: 'Ship the thing',
+        id: 12,
+        isEpic: false,
+        status: 'ready',
+        type: 'feature',
+        difficulty: 'm',
+        criticality: 'high',
+        risk: 'low',
+        epic: 'things',
+      },
+      { relativePath: 'backlog/epics/things.md', title: 'Things', isEpic: true, status: 'idea', type: 'epic' },
+      { relativePath: 'backlog/no-frontmatter.md', title: 'Bare capture', isEpic: false, status: 'idea' },
+    ])
+    // Read-only means read-only: listing registers nothing and persists no key.
+    await assert.rejects(() => stat(join(tempRoot, '.multi-code')), /ENOENT/, 'listing must not create .multi-code')
+
+    await mkdir(join(tempRoot, '.multi-code', 'backlog'), { recursive: true })
+    await writeFile(join(tempRoot, '.multi-code', 'backlog', 'config.json'), '{"key":"MC"}\n', 'utf-8')
+    const keyed = await listBacklogItems(tempRoot)
+    assert.equal(keyed.ok && keyed.key, 'MC')
+
+    const read = await readBacklogItem(tempRoot, 'backlog/2026-07-08-ship-thing.md')
+    assert.equal(read.ok, true)
+    if (read.ok) {
+      assert.equal(read.item.title, 'Ship the thing')
+      assert.equal(read.item.id, 12)
+      assert.equal(read.item.status, 'ready')
+      assert.match(read.body, /^# Ship the thing/m)
+      assert.doesNotMatch(read.body, /^---/, 'body excludes the frontmatter block')
+    }
+
+    const missing = await readBacklogItem(tempRoot, 'backlog/gone.md')
+    assert.equal(missing.ok, false)
+    assert.match(missing.ok ? '' : missing.message, /does not exist/)
+
+    for (const bad of ['backlog/../package.json', '/etc/passwd', 'src/main/index.ts']) {
+      const denied = await readBacklogItem(tempRoot, bad)
+      assert.equal(denied.ok, false, `path "${bad}" is rejected`)
+    }
+  } finally {
+    await rm(tempRoot, { force: true, recursive: true })
+  }
+}
+
+main()
+  .then(() => testListAndReadBacklogItemsAreReadOnly())
+  .catch((error) => {
+    console.error(error)
+    process.exit(1)
+  })

@@ -4,6 +4,7 @@ import type { ModuleAutomationsRegistry } from '../automations/module-service'
 import type { AutomationProviderRegistryService } from '../automations/provider-registry'
 import type { SprintEngineAutomationFrontDoors } from '../automations/actions/sprint-engine'
 import type { SwitchboardAutomationFrontDoors } from '../automations/actions/switchboard'
+import type { AutomationsAppFrontDoor } from '../ipc/automations-ipc'
 import type { ModuleWorkspaceService } from '../modules/module-workspace-service'
 import { createServiceToken } from './main-host'
 
@@ -42,6 +43,11 @@ export const AutomationsProviderRegistryToken = createServiceToken<AutomationPro
 // Key mirrors the private token behind the SDK's getAutomationsService helper.
 export const AutomationsModuleServiceToken = createServiceToken<ModuleAutomationsRegistry>(
   'automations.module-service'
+)
+// The IPC-equivalent create/run-now pipeline for app-level (non-module)
+// callers — today the automation server's automation.create/automation.run.
+export const AutomationsAppFrontDoorToken = createServiceToken<AutomationsAppFrontDoor>(
+  'automations.app-front-door'
 )
 export const SwitchboardAutomationFrontDoorsToken = createServiceToken<SwitchboardAutomationFrontDoors>(
   'switchboard.automation-front-doors'

@@ -691,12 +691,14 @@ async function assertIdleSweepDisposesIdleSprintEngineAgent(runtimeModule: Runti
   const workspaceRoot = await mkdtemp(join(tmpdir(), 'multicode-terminal-runtime-sprintengine-idle-dispose-'))
   const sprintEngineStatePath = join(workspaceRoot, '.multi-code', 'sprintengine', 'run.yaml')
   const toolCalls: ToolCallInput[] = []
+  const reapDiagnostics: Array<{ message: string; sessionId?: string }> = []
   mockPty.spawnCalls = []
   mockSender.sent = []
 
   const runtime = runtimeModule.createTerminalRuntime({
     diagnosticsEnabled: false,
     requireAuthenticatedUser: () => undefined,
+    logDiagnostic: (diagnostic) => reapDiagnostics.push(diagnostic),
     logMainPerfEvent: () => undefined,
     syncMcpConfig: async (): Promise<SyncResult> => ({
       ok: true,
@@ -737,6 +739,12 @@ async function assertIdleSweepDisposesIdleSprintEngineAgent(runtimeModule: Runti
       [],
       'a hookless (null-phase) sprint agent is protected from the reaper',
     )
+    // The skip audit persists WHICH gate held a rested agent (once per hour).
+    assert.equal(reapDiagnostics.length, 1, 'a rested-but-held agent logs exactly one skip entry')
+    assert.ok(
+      reapDiagnostics[0].message.includes('in_active_run'),
+      `skip entry names the holding gate: ${reapDiagnostics[0].message}`,
+    )
 
     // Now an authoritative `idle` hook frame marks it genuinely at-rest.
     runtime.ingestAgentStateFrame({
@@ -761,6 +769,8 @@ async function assertIdleSweepDisposesIdleSprintEngineAgent(runtimeModule: Runti
       [],
       'an idle sprint agent whose run is actively dispatching is protected',
     )
+    // Same holding gate within the rate window: not re-logged (volume bound).
+    assert.equal(reapDiagnostics.length, 1, 'an unchanged hold within the hour is deduped')
 
     // Once its run is no longer active (completed/stopped), the agent is
     // reclaimable past the threshold (the parked-until-teardown gap this closes).
@@ -769,6 +779,12 @@ async function assertIdleSweepDisposesIdleSprintEngineAgent(runtimeModule: Runti
       runtimeModule.runIdleAgentReapSweep(wellPastIdle),
       ['session_sprint_idle'],
       'an authoritatively-idle sprint agent of an INACTIVE run past the threshold is reaped',
+    )
+    // The reap ACTION is persisted alongside the in-memory ring buffer.
+    assert.equal(reapDiagnostics.length, 2, 'the reap action lands in the diagnostics trail')
+    assert.ok(
+      reapDiagnostics[1].message.includes('disposed a sprint agent'),
+      `action entry describes the dispose: ${reapDiagnostics[1].message}`,
     )
 
     mockPty.spawnCalls[0]?.process.emitExit({ exitCode: 0 })

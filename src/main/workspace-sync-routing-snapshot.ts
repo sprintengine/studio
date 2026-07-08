@@ -52,6 +52,9 @@ export function createWorkspaceSyncRoutingSnapshotStore(options: {
           workspaceWindows: parsed.workspaceWindows.filter(isWorkspaceWindowState),
           workspaceNames: sanitizeIdStringMap(parsed.workspaceNames),
           workspaceFolderPaths: sanitizeIdStringMap(parsed.workspaceFolderPaths),
+          // Modes must survive the read or hydration restores every workspace as
+          // 'standard' and mode-gated lookups (the automations host) break.
+          workspaceModes: sanitizeIdStringMap(parsed.workspaceModes) as WorkspaceSyncRoutingSnapshot['workspaceModes'],
         }
       } catch (error) {
         options.logDiagnostic?.({

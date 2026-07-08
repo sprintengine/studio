@@ -2,6 +2,7 @@ import { basename, isAbsolute, join, resolve } from 'path'
 import { readdir, readFile } from 'fs/promises'
 
 import { ensureBacklogObjectRecords, readBacklogFrontmatterFields, readBacklogObjectStore } from '../../backlog-service'
+import { backlogTitleFromPath, extractBacklogTitle, stripBacklogFrontmatter } from '../../../shared/backlog/frontmatter'
 import type { BacklogFrontmatterFields } from '../../backlog-service'
 import type { BacklogObjectRecordPayload } from '../../../shared/electron-api'
 import type {
@@ -106,7 +107,7 @@ export async function resolveBacklogStartPrompt(
     )
   }
 
-  const body = stripFrontmatter(raw).trim()
+  const body = stripBacklogFrontmatter(raw).trim()
   if (!body) {
     throw new MobileSprintEngineCommandError(
       'invalid_payload',
@@ -116,7 +117,7 @@ export async function resolveBacklogStartPrompt(
   }
 
   return {
-    title: extractTitle(body, normalized),
+    title: extractBacklogTitle(body, normalized),
     prompt: body.slice(0, maxStartPromptCharacters),
   }
 }
@@ -164,7 +165,7 @@ async function toBacklogItemSnapshot(
   } catch {
     raw = null
   }
-  const body = raw !== null ? stripFrontmatter(raw) : null
+  const body = raw !== null ? stripBacklogFrontmatter(raw) : null
   // Frontmatter is the v2 source of truth for lifecycle/triage/epic; fall back to
   // the sidecar record only for items not yet migrated to frontmatter.
   const fields: BacklogFrontmatterFields = raw !== null ? readBacklogFrontmatterFields(raw) : {}
@@ -176,7 +177,7 @@ async function toBacklogItemSnapshot(
   return {
     itemId: record.id,
     relativePath: record.source.relativePath,
-    title: body ? extractTitle(body, record.source.relativePath) : titleFromPath(record.source.relativePath),
+    title: body ? extractBacklogTitle(body, record.source.relativePath) : backlogTitleFromPath(record.source.relativePath),
     ...(body ? { excerpt: extractExcerpt(body) } : {}),
     status,
     ...(type ? { type } : {}),
@@ -197,28 +198,6 @@ function emptyBacklogWorkspaceSnapshot(root: string, generatedAt: string): Mobil
   }
 }
 
-function stripFrontmatter(raw: string): string {
-  if (!raw.startsWith('---')) {
-    return raw
-  }
-  const end = raw.indexOf('\n---', 3)
-  return end === -1 ? raw : raw.slice(raw.indexOf('\n', end + 1) + 1)
-}
-
-function extractTitle(body: string, relativePath: string): string {
-  for (const line of body.split(/\r?\n/)) {
-    const heading = line.match(/^#\s+(.+)$/)
-    if (heading) {
-      return heading[1].trim()
-    }
-  }
-  return titleFromPath(relativePath)
-}
-
-function titleFromPath(relativePath: string): string {
-  const stem = basename(relativePath).replace(/\.md$/i, '')
-  return stem.replace(/^\d{4}-\d{2}-\d{2}-/, '').replace(/[-_]+/g, ' ').trim() || stem
-}
 
 function extractExcerpt(body: string): string {
   const lines = body.split(/\r?\n/)

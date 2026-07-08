@@ -71,9 +71,38 @@ export type AutomationRendererRequest =
       workspaceId: string
       agentId: string
     }
+  | {
+      // Create a new Sprint Engine run: a sprintengine-mode workspace whose
+      // run.yaml is initialized through the same controller path the wizard
+      // uses (main spawns the one-shot Python init). Roster defaults resolve
+      // like the wizard's roster step (last saved team, else the built-in
+      // default). The board-panel mount owns launching the architect, so the
+      // renderer activates the new workspace before answering.
+      kind: 'sprint.create'
+      folderPath: string
+      goal: string
+      /** Team name; defaults to the wizard's 'Sprint Roster'. */
+      name?: string
+      /** Start the auto-runner (spawns the architect at mount). Default false: a manual run sits idle until opened. */
+      startRunner?: boolean
+      autoApproveArtifacts?: boolean
+      useWorktrees?: boolean
+    }
 
 export type AutomationRendererResponse =
-  | { ok: true; workspaceId: string; agentId?: string }
+  | {
+      ok: true
+      workspaceId: string
+      agentId?: string
+      /**
+       * Actual mode of the created-or-reused workspace, from the renderer's
+       * registry (the domain source of truth). Main's sync snapshot restores
+       * restart-survivor workspaces as routing placeholders whose mode is not
+       * authoritative, so mode assertions after workspace.create must use this
+       * field, never the snapshot placeholder.
+       */
+      workspaceMode?: WorkspaceMode
+    }
   | { ok: false; code: string; message: string }
 
 export const AUTOMATION_REQUEST_CHANNEL = 'automation:request'

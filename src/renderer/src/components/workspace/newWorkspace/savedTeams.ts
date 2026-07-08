@@ -14,6 +14,33 @@ import type {
 // so divergence comparison resolves an absent default the same way the rows do.
 const DEFAULT_CLI: AgentCli = 'claude-code'
 
+// Default first-run team for a from-scratch Sprint Engine: a runnable
+// plan -> build -> review loop, not just planners. A novice who lands on the
+// roster step can press Continue and get a team that actually implements and
+// reviews work. Saved teams override this; it only seeds when none exists.
+// Shared with the automation server's sprint.create so an externally created
+// run gets the same roster a wizard Continue would.
+export const DEFAULT_SPRINT_ENGINE_ROLE_COUNTS: SprintEngineRoleCounts = {
+  architect: 1,
+  product: 1,
+  frontend: 0,
+  ui_ux_reviewer: 0,
+  developer: 1,
+  code_reviewer: 1,
+  spec_reviewer: 0,
+  performance: 0,
+  production_readiness_reviewer: 0,
+  cross_platform: 0,
+  tester: 0,
+  security: 0,
+}
+
+// Every known role (the counts map's keys plus the count-less nuclear
+// reviewer) mapped to the stock CLI — the wizard's Required<> seed map.
+export const DEFAULT_SPRINT_ENGINE_ROLE_CLI_DEFAULTS: Required<SprintEngineRoleCliDefaults> = Object.fromEntries(
+  [...Object.keys(DEFAULT_SPRINT_ENGINE_ROLE_COUNTS), 'nuclear_reviewer'].map((role) => [role, DEFAULT_CLI])
+) as Required<SprintEngineRoleCliDefaults>
+
 export type ResolvedInitialSprintEngineRoster = {
   selectedTeamId: string | null
   roleCounts: SprintEngineRoleCounts

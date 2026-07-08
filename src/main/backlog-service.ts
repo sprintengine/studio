@@ -1,17 +1,20 @@
-import { mkdir, readFile, realpath, stat, writeFile } from 'node:fs/promises'
+import { mkdir, readdir, readFile, realpath, stat, writeFile } from 'node:fs/promises'
 import { basename, dirname, isAbsolute, join, relative, resolve } from 'node:path'
 
 import {
+  extractBacklogTitle,
   formatBacklogCsvList,
   isValidBacklogSlug,
   parseBacklogFrontmatter,
   serializeBacklogFrontmatterFields,
+  stripBacklogFrontmatter,
   type BacklogFrontmatterUpdates,
 } from '../shared/backlog/frontmatter'
 import {
   deriveDefaultBacklogKey,
   formatBacklogNumericId,
   isValidBacklogKey,
+  parseBacklogNumericId,
   planBacklogIdAllocation,
 } from '../shared/backlog/item-id'
 import type {
@@ -316,6 +319,135 @@ export function readBacklogFrontmatterFields(content: string): BacklogFrontmatte
   }
 }
 
+// Read-only listing for non-panel consumers (the automation server's
+// `backlog.list`): files on disk are the item universe, frontmatter the only
+// metadata source. Unlike the mobile snapshot read this NEVER writes — no
+// object-store registration, no workspace-key persistence — because an
+// external read tool must not mutate app state as a side effect.
+export type BacklogListedItem = {
+  relativePath: string
+  title: string
+  /** Frontmatter numeric id when assigned (display id = `<key>-<id>`). */
+  id?: number
+  isEpic: boolean
+  status: BacklogObjectRecord['status']
+  type?: BacklogObjectRecord['type']
+  difficulty?: BacklogObjectRecord['difficulty']
+  criticality?: BacklogObjectRecord['criticality']
+  risk?: BacklogObjectRecord['risk']
+  epic?: string
+}
+
+export type BacklogListItemsResult =
+  | { ok: true; key: string | null; items: BacklogListedItem[] }
+  | { ok: false; message: string }
+
+export async function listBacklogItems(workspaceRoot: string): Promise<BacklogListItemsResult> {
+  try {
+    const workspace = await validateWorkspaceRoot(workspaceRoot)
+    const paths = [
+      ...(await listMarkdownFiles(join(workspace.root, 'backlog'), BACKLOG_PREFIX)),
+      ...(await listMarkdownFiles(join(workspace.root, 'backlog', 'epics'), EPICS_PREFIX)),
+    ]
+    const items: BacklogListedItem[] = []
+    for (const relativePath of paths) {
+      let raw: string
+      try {
+        raw = await readFile(join(workspace.root, relativePath), 'utf-8')
+      } catch {
+        continue
+      }
+      const fields = readBacklogFrontmatterFields(raw)
+      const status = fields.status ?? 'idea'
+      if (status === 'archived') continue
+      const { fields: rawFields } = parseBacklogFrontmatter(raw)
+      const numericId = parseBacklogNumericId(rawFields.id)
+      const body = stripBacklogFrontmatter(raw)
+      items.push({
+        relativePath,
+        title: extractBacklogTitle(body, relativePath),
+        ...(numericId !== undefined ? { id: numericId } : {}),
+        isEpic: relativePath.startsWith(EPICS_PREFIX) || fields.type === 'epic',
+        status,
+        ...(fields.type ? { type: fields.type } : {}),
+        ...(fields.difficulty ? { difficulty: fields.difficulty } : {}),
+        ...(fields.criticality ? { criticality: fields.criticality } : {}),
+        ...(fields.risk ? { risk: fields.risk } : {}),
+        ...(fields.epic ? { epic: fields.epic } : {}),
+      })
+    }
+    items.sort((left, right) => left.relativePath.localeCompare(right.relativePath))
+    return { ok: true, key: await peekBacklogWorkspaceKey(workspace), items }
+  } catch (error) {
+    return { ok: false, message: errorMessage(error) }
+  }
+}
+
+export type BacklogReadItemResult =
+  | { ok: true; item: BacklogListedItem; body: string }
+  | { ok: false; message: string }
+
+export async function readBacklogItem(workspaceRoot: string, relativePath: string): Promise<BacklogReadItemResult> {
+  try {
+    const workspace = await validateWorkspaceRoot(workspaceRoot)
+    const normalized = validateBacklogRelativePath(relativePath)
+    const target = resolve(join(workspace.root, normalized))
+    if (!isPathInside(workspace.root, target)) throw new Error('Backlog item path escaped the workspace root.')
+    let raw: string
+    try {
+      raw = await readFile(target, 'utf-8')
+    } catch {
+      return { ok: false, message: `Backlog item ${normalized} does not exist in this workspace.` }
+    }
+    const fields = readBacklogFrontmatterFields(raw)
+    const { fields: rawFields } = parseBacklogFrontmatter(raw)
+    const numericId = parseBacklogNumericId(rawFields.id)
+    const body = stripBacklogFrontmatter(raw)
+    return {
+      ok: true,
+      item: {
+        relativePath: normalized,
+        title: extractBacklogTitle(body, normalized),
+        ...(numericId !== undefined ? { id: numericId } : {}),
+        isEpic: normalized.startsWith(EPICS_PREFIX) || fields.type === 'epic',
+        status: fields.status ?? 'idea',
+        ...(fields.type ? { type: fields.type } : {}),
+        ...(fields.difficulty ? { difficulty: fields.difficulty } : {}),
+        ...(fields.criticality ? { criticality: fields.criticality } : {}),
+        ...(fields.risk ? { risk: fields.risk } : {}),
+        ...(fields.epic ? { epic: fields.epic } : {}),
+      },
+      body,
+    }
+  } catch (error) {
+    return { ok: false, message: errorMessage(error) }
+  }
+}
+
+async function listMarkdownFiles(dir: string, prefix: string): Promise<string[]> {
+  let entries
+  try {
+    entries = await readdir(dir, { withFileTypes: true })
+  } catch {
+    return []
+  }
+  return entries
+    .filter((entry) => entry.isFile() && entry.name.toLowerCase().endsWith('.md'))
+    .map((entry) => `${prefix}${entry.name}`)
+}
+
+// The workspace key without the persist-on-first-read behavior of
+// readBacklogWorkspaceKey — a pure peek for read-only surfaces.
+async function peekBacklogWorkspaceKey(workspace: ValidWorkspace): Promise<string | null> {
+  try {
+    const raw = await readFile(join(workspace.root, ...CONFIG_PATH), 'utf-8')
+    const parsed = JSON.parse(raw) as { key?: unknown }
+    return isValidBacklogKey(parsed.key) ? parsed.key : null
+  } catch {
+    return null
+  }
+}
+
 export type BacklogCreateInput = {
   workspaceRoot: string
   title: string
@@ -323,15 +455,22 @@ export type BacklogCreateInput = {
   type?: string
   difficulty?: string
   criticality?: string
+  risk?: string
+  epic?: string
 }
 
 export type BacklogCreateResult =
   | { ok: true; id: string; relativePath: string; store: BacklogObjectStorePayload }
   | { ok: false; message: string }
 
-// Creates a brand-new Backlog item from the phone: writes the real `.md` file
-// AND upserts the items.json record. Filename mirrors the desktop renderer's
-// `${today}-${slug(title)}.md` convention and dedups against the current store.
+// Creates a brand-new Backlog item (mobile bridge + automation server):
+// writes the real `.md` file AND upserts the items.json record. Filename
+// mirrors the desktop renderer's `${today}-${slug(title)}.md` convention and
+// dedups against the current store. v2-native: lifecycle/triage go into the
+// new file's frontmatter (the source of truth) and the sidecar record stays
+// minimal — seeding lifecycle there would hand the lazy migrator stale
+// defaults to write back later. Invalid axis values are dropped, matching the
+// tolerant mobile intake; strict vocabularies belong to the callers.
 export async function createBacklogItem(input: BacklogCreateInput): Promise<BacklogCreateResult> {
   const title = input.title.trim()
   if (!title) return { ok: false, message: 'Enter a title for the new Backlog item.' }
@@ -343,21 +482,29 @@ export async function createBacklogItem(input: BacklogCreateInput): Promise<Back
     const target = resolve(join(workspace.root, relativePath))
     if (!isPathInside(workspace.root, target)) throw new Error('Backlog item path escaped the workspace root.')
 
+    const frontmatter: Array<[key: string, value: string | undefined]> = [
+      ['type', isBacklogType(input.type) ? input.type : undefined],
+      ['status', 'idea'],
+      ['difficulty', isBacklogDifficulty(input.difficulty) ? input.difficulty : undefined],
+      ['criticality', isBacklogCriticality(input.criticality) ? input.criticality : undefined],
+      ['risk', isBacklogRisk(input.risk) ? input.risk : undefined],
+      ['epic', isValidEpicSlug(input.epic) ? input.epic : undefined],
+    ]
+    const frontmatterBlock = `---\n${frontmatter
+      .filter((entry): entry is [string, string] => entry[1] !== undefined)
+      .map(([key, value]) => `${key}: ${value}`)
+      .join('\n')}\n---\n`
     const description = input.description?.trim()
     const body = description ? `# ${title}\n\n${description}\n` : `# ${title}\n`
     await mkdir(dirname(target), { recursive: true })
     // `wx` fails instead of clobbering if a file appears between the uniqueness
     // check and the write.
-    await writeFile(target, body, { encoding: 'utf-8', flag: 'wx' })
+    await writeFile(target, `${frontmatterBlock}\n${body}`, { encoding: 'utf-8', flag: 'wx' })
 
     const now = new Date().toISOString()
     const record: BacklogObjectRecord = {
       id: stableBacklogObjectId(relativePath),
       source: { type: 'file', relativePath },
-      status: 'idea',
-      type: isBacklogType(input.type) ? input.type : undefined,
-      difficulty: isBacklogDifficulty(input.difficulty) ? input.difficulty : undefined,
-      criticality: isBacklogCriticality(input.criticality) ? input.criticality : undefined,
       metadata: {},
       links: [],
       createdAt: now,

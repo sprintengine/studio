@@ -371,4 +371,35 @@ const migratedAutomationsOnly = migratePersistedWorkspaceState(v61AutomationsOnl
 assert.equal(migratedAutomationsOnly.workspaces.length, 0, 'automations-only account migrates to an empty list')
 assert.equal(migratedAutomationsOnly.activeWorkspaceId, null, 'active pointer is cleared when nothing survives')
 
+// v63: before the sync bus persisted workspace modes, each app restart's first
+// automation run minted a duplicate per-project host. The migration keeps the
+// earliest-created host per folder (normalized key: slashes, trailing slash,
+// case) and drops the duplicates; hosts for other folders and non-host
+// workspaces are untouched.
+const v62DuplicateHostsState = {
+  workspaces: [
+    { id: 'ws-standard', mode: 'standard', folderPath: '/repo/app', agents: {}, createdAt: 1 },
+    { id: 'ws-host-original', mode: 'automations-host', folderPath: '/repo/app', agents: {}, createdAt: 10 },
+    { id: 'ws-host-dup-1', mode: 'automations-host', folderPath: '/repo/app/', agents: {}, createdAt: 20 },
+    { id: 'ws-host-dup-2', mode: 'automations-host', folderPath: '/REPO/app', agents: {}, createdAt: 30 },
+    { id: 'ws-host-other', mode: 'automations-host', folderPath: '/repo/other', agents: {}, createdAt: 40 },
+    { id: 'ws-host-folderless', mode: 'automations-host', folderPath: null, agents: {}, createdAt: 50 },
+  ],
+  activeWorkspaceId: 'ws-host-dup-2',
+}
+const migratedHostDedup = migratePersistedWorkspaceState(v62DuplicateHostsState, 62) as {
+  workspaces: Array<{ id: string; mode: string }>
+  activeWorkspaceId: string | null
+}
+assert.deepEqual(
+  migratedHostDedup.workspaces.map((ws) => ws.id),
+  ['ws-standard', 'ws-host-original', 'ws-host-other', 'ws-host-folderless'],
+  'v63 keeps the earliest host per folder and every non-duplicate workspace',
+)
+assert.equal(
+  migratedHostDedup.activeWorkspaceId,
+  'ws-standard',
+  'v63 reconciles a dangling active pointer to a surviving workspace',
+)
+
 console.log('persistenceSlice.test.ts: ok')

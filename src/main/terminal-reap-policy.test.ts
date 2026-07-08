@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
 import {
   DEFAULT_SUSPEND_IDLE_AFTER_MS,
+  explainSessionReapDecision,
   isSessionReapable,
   selectReapableSessions,
   type ReapCandidate,
@@ -85,9 +86,48 @@ run('an agent awaiting user input is never reaped', () => {
   )
 })
 
-run('a stalled agent is never reaped (may be a long in-flight tool call)', () => {
+run('a stalled agent expires: reapable only after resting past the threshold', () => {
+  // Stalled is inference-sourced — a lost Stop frame lands a genuinely-finished
+  // agent here, so it must expire like idle rather than protect forever
+  // (the 2026-07-07 parked-agents incident). It still rides the full idle
+  // clock from the stall flag: freshly stalled (possibly a long silent tool
+  // call) is kept…
   assert.equal(
-    isSessionReapable(reapable({ agentPhase: 'stalled', idleSince: null }), POLICY),
+    isSessionReapable(reapable({ agentPhase: 'stalled', idleSince: NOW - 1000 }), POLICY),
+    false,
+  )
+  // …a recent keystroke also keeps it…
+  assert.equal(
+    isSessionReapable(reapable({ agentPhase: 'stalled', idleSince: STALE, lastInteractionAt: NOW - 1000 }), POLICY),
+    false,
+  )
+  // …but stalled AND rested past the threshold is reclaimed.
+  assert.equal(
+    isSessionReapable(reapable({ agentPhase: 'stalled', idleSince: STALE }), POLICY),
+    true,
+  )
+  // Boundary: expiry uses the same strict > threshold clock as idle.
+  assert.equal(
+    isSessionReapable(
+      reapable({ agentPhase: 'stalled', idleSince: NOW - (DEFAULT_SUSPEND_IDLE_AFTER_MS - 1000) }),
+      POLICY,
+    ),
+    false,
+  )
+  assert.equal(
+    isSessionReapable(
+      reapable({ agentPhase: 'stalled', idleSince: NOW - (DEFAULT_SUSPEND_IDLE_AFTER_MS + 1000) }),
+      POLICY,
+    ),
+    true,
+  )
+})
+
+run('a stalled agent in an active managed run stays protected (inActiveRun gate)', () => {
+  // The runtime maps a sprint agent of an ACTIVE run to inActiveRun=true no
+  // matter the phase; stalled-expiry only reclaims inactive-run agents.
+  assert.equal(
+    isSessionReapable(reapable({ agentPhase: 'stalled', idleSince: STALE, inActiveRun: true }), POLICY),
     false,
   )
 })
@@ -150,6 +190,32 @@ run('selectReapableSessions reaps only the dormant agents, keeping working/await
   ]
   const decision = selectReapableSessions(candidates, { now: NOW })
   assert.deepEqual(decision.reapableSessionIds.sort(), ['idle-a', 'idle-b'])
+})
+
+run('explainSessionReapDecision names the holding gate (skip-audit contract)', () => {
+  const cases: Array<[Partial<ReapCandidate>, string]> = [
+    [{ processAlive: false }, 'dead_process'],
+    [{ kind: 'terminal' }, 'not_agent'],
+    [{ workspaceId: null }, 'no_workspace'],
+    [{ inActiveRun: true }, 'in_active_run'],
+    [{ agentPhase: 'awaiting_input', idleSince: null }, 'phase_awaiting_input'],
+    [{ agentPhase: 'starting', idleSince: null }, 'phase_working'],
+    [{ agentPhase: 'thinking', idleSince: null }, 'phase_working'],
+    [{ agentPhase: 'tool_use', idleSince: null }, 'phase_working'],
+    [{ agentPhase: 'exited', idleSince: null }, 'phase_unrestful'],
+    [{ lastInteractionAt: NOW - 1000, idleSince: NOW - 1000 }, 'resting_recently'],
+  ]
+  for (const [override, expectedHold] of cases) {
+    const explanation = explainSessionReapDecision(reapable(override), POLICY)
+    assert.equal(explanation.verdict, 'held', `expected held for ${expectedHold}`)
+    if (explanation.verdict === 'held') assert.equal(explanation.hold, expectedHold)
+  }
+  // The boolean projection agrees with the explanation (single source of truth).
+  const open = explainSessionReapDecision(reapable(), POLICY)
+  assert.equal(open.verdict, 'reapable')
+  assert.equal(isSessionReapable(reapable(), POLICY), true)
+  // restingForMs reflects the same clock the decision uses.
+  assert.equal(open.restingForMs, NOW - STALE)
 })
 
 run('default idle threshold is applied when not overridden', () => {

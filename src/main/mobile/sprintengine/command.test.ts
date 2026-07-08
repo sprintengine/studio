@@ -891,18 +891,23 @@ async function assertBacklogCreateWritesFileAndRecord(): Promise<void> {
   assert.match(data!.relativePath, /^backlog\/\d{4}-\d{2}-\d{2}-ship-the-phone-widget\.md$/)
   assert.ok(data!.id.startsWith('backlog_'), 'create returns a stable backlog id')
 
+  // v2-native create: lifecycle/triage live in the new file's frontmatter (the
+  // source of truth), the sidecar record stays minimal app-owned churn.
   const fileBody = await readFile(join(workspaceRoot, data!.relativePath), 'utf8')
-  assert.equal(fileBody, '# Ship the phone widget\n\nUsers need the widget on the phone.\n')
+  assert.equal(
+    fileBody,
+    '---\ntype: spike\nstatus: idea\ndifficulty: m\ncriticality: high\n---\n\n# Ship the phone widget\n\nUsers need the widget on the phone.\n'
+  )
 
   const store = JSON.parse(await readFile(join(workspaceRoot, '.multi-code', 'backlog', 'items.json'), 'utf8')) as {
     items: Array<{ id: string; source: { relativePath: string }; status?: string; type?: string; difficulty?: string; criticality?: string }>
   }
   const record = store.items.find((item) => item.source.relativePath === data!.relativePath)
   assert.ok(record, 'backlog.create should upsert a real items.json record')
-  assert.equal(record?.status, 'idea')
-  assert.equal(record?.type, 'spike')
-  assert.equal(record?.difficulty, 'm')
-  assert.equal(record?.criticality, 'high')
+  assert.equal(record?.status, undefined, 'lifecycle must not be seeded into the sidecar record')
+  assert.equal(record?.type, undefined)
+  assert.equal(record?.difficulty, undefined)
+  assert.equal(record?.criticality, undefined)
   assert.equal(record?.id, data!.id)
 }
 

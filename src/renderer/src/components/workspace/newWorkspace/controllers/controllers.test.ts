@@ -8,9 +8,11 @@ import {
   DesignSystemScaffoldError,
   GuidedBriefScaffoldError,
   GuidedBriefStartBuildError,
+  ModuleTypeControllerError,
   SprintEngineNewTeamCreationError,
   SprintEnginePlanSourcedError,
   SwitchboardControllerError,
+  buildModuleTypeCreation,
   buildSprintEngineEffectiveSpawnAtStartRoles,
   buildSprintEngineExistingTeamCreation,
   buildSprintEngineNewTeamCreation,
@@ -22,6 +24,7 @@ import {
   runSprintEngineNewTeamCreation,
   runSprintEnginePlanSourcedCreation,
 } from './index'
+import { getRendererHost } from '../../../../modules'
 import type { GuidedBriefScaffoldPorts, GuidedBriefStartBuildPorts } from './types'
 
 function createMemoryFilesystem(): GuidedBriefScaffoldPorts['filesystem'] & { files: Map<string, string>; dirs: Set<string> } {
@@ -148,6 +151,46 @@ function testBuildStandardCreation(): void {
   assert.equal(args.name, 'Project', 'trims workspace name')
   assert.equal(args.folderPath, '/path')
   assert.ok(args.template, 'falls back to first layout template')
+}
+
+function testBuildModuleTypeCreation(): void {
+  // Module-contributed types (no shell controller) create from the registered
+  // definition's createTemplate(). Register a fake third-party type the way
+  // the third-party loader does — through the kernel's hostFor scope.
+  getRendererHost()
+    .hostFor('controller-test-module')
+    .registerWorkspaceType({
+      id: 'controller-test-module',
+      label: 'Controller Test',
+      description: 'Module type used by controller tests.',
+      icon: () => null,
+      createTemplate: () => ({
+        id: 'controller-test-template',
+        name: 'Controller Test',
+        description: 'test',
+        previewSlots: [],
+        layout: { layout: { type: 'row', children: [] } },
+      }),
+    })
+
+  const args = buildModuleTypeCreation({ mode: 'controller-test-module', name: '  Cal  ', folderPath: '/p' })
+  assert.equal(args.mode, 'controller-test-module')
+  assert.equal(args.name, 'Cal', 'trims workspace name')
+  assert.equal(args.template.id, 'controller-test-template', 'uses the registered createTemplate()')
+
+  const fallback = buildModuleTypeCreation({ mode: 'controller-test-module', name: '   ', folderPath: '/p' })
+  assert.equal(fallback.name, 'Controller Test', 'falls back to the type label when name is blank')
+
+  assert.throws(
+    () => buildModuleTypeCreation({ mode: 'controller-test-module', name: 'x', folderPath: null }),
+    (error) => error instanceof ModuleTypeControllerError && error.code === 'missing-folder',
+    'throws when folder is missing'
+  )
+  assert.throws(
+    () => buildModuleTypeCreation({ mode: 'never-registered-mode', name: 'x', folderPath: '/p' }),
+    (error) => error instanceof ModuleTypeControllerError && error.code === 'unknown-type',
+    'throws for an unregistered mode'
+  )
 }
 
 function testBuildSwitchboardCreation(): void {
@@ -1413,6 +1456,7 @@ async function testGuidedBriefStartBuildAdvancedSetupFailsClosed(): Promise<void
 
 async function main(): Promise<void> {
   testBuildStandardCreation()
+  testBuildModuleTypeCreation()
   testBuildSwitchboardCreation()
   testBuildSprintEngineExistingTeamCreation()
   testBuildSprintEngineNewTeamCreation()

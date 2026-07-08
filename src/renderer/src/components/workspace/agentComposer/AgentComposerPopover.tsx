@@ -4,8 +4,8 @@ import CliIcon from '../../CliIcon'
 import { CliModelListbox, Tooltip, TruncatedText } from '../../ui'
 import type { AgentCli, SpecialistActionId, SprintEngineCliPermissionPreset } from '../../../types/workspace'
 import {
-  AGENT_SPAWN_PERMISSION_OPTIONS,
   ConversationProviderIcon,
+  PermissionPresetChips,
   SpawnDebugToggle,
   TerminalSessionIcon,
 } from './agentSpawnShared'
@@ -309,27 +309,7 @@ export default function AgentComposerPopover({
           fixed info strip. Each row's runtime stays discoverable via its engine
           chip tooltip. */}
       <div className="flex items-center gap-1 border-t border-[color:var(--border-subtle)] px-2 py-1.5">
-        {AGENT_SPAWN_PERMISSION_OPTIONS.map((option) => {
-          const active = option.value === action.permissionPreset
-          const isBypass = option.value === 'bypass_all'
-          return (
-            <Tooltip key={option.value} content={option.title} placement="bottom">
-              <button
-                type="button"
-                onClick={() => action.onChangePermissionPreset(option.value)}
-                className={`rounded px-2 py-0.5 text-[11px] font-medium transition-colors ${
-                  active
-                    ? isBypass
-                      ? 'bg-[color:var(--tone-warn)]/12 text-[color:var(--tone-warn-on-tint)]'
-                      : 'bg-[color:var(--accent-primary-soft)] text-[color:var(--text-strong)]'
-                    : 'text-[color:var(--text-disabled)] hover:text-[color:var(--text-muted)]'
-                }`}
-              >
-                {option.value === 'default' ? 'Default' : option.value === 'auto_workspace' ? 'Auto' : 'Bypass'}
-              </button>
-            </Tooltip>
-          )
-        })}
+        <PermissionPresetChips value={action.permissionPreset} onChange={action.onChangePermissionPreset} />
         {action.kind === 'spawn' ? (
           <SpawnDebugToggle active={action.debugMode} onChange={action.onChangeDebugMode} />
         ) : null}

@@ -68,18 +68,22 @@ export const AGENT_STATE_HOOK_EVENTS: ReadonlyArray<{ event: string; matcher?: s
 // for purely informational reasons — most importantly the `idle_prompt` "waiting
 // for your input" nudge that fires ~60s after the agent already Stopped (→ idle).
 // The documented, stable `notification_type` field distinguishes them
-// (https://code.claude.com/docs/en/hooks.md). Mapping every Notification to
-// `awaiting_input` lit the attention glyph for an idle agent with nothing left to
-// clear it (no further PostToolUse/Stop), leaving the engine falsely "needs
-// input". We deny-list the known informational types rather than allow-list the
-// attention ones, so an unknown/absent `notification_type` (older Claude builds,
-// future types) conservatively stays `awaiting_input` and a real prompt is never
-// suppressed. The reporters (.mjs) MUST mirror this set.
-export const INFORMATIONAL_NOTIFICATION_TYPES: ReadonlySet<string> = new Set([
-  'idle_prompt',
-  'auth_success',
-  'elicitation_complete',
-  'elicitation_response',
+// (https://code.claude.com/docs/en/hooks.md). We ALLOW-LIST the genuinely
+// blocking types rather than deny-listing informational ones: `awaiting_input`
+// is sticky for a dormant agent (only a later PostToolUse/Stop clears it, and a
+// stopped agent emits neither), so one unlisted informational type used to park
+// a session as falsely "needs input" forever — including exempting it from the
+// idle reaper (the 2026-07-07 parked-agents incident). An unknown/absent
+// `notification_type` now drops (prior phase stands); if a future Claude build
+// adds a new BLOCKING type, add it here — the failure mode until then is an
+// agent that reads idle while prompting, recoverable via resume-on-keystroke.
+// Documented types as of 2026-07-08: permission_prompt, idle_prompt,
+// auth_success, elicitation_dialog, elicitation_complete, elicitation_response,
+// agent_needs_input, agent_completed. The reporters (.mjs) MUST mirror this set.
+export const AWAITING_INPUT_NOTIFICATION_TYPES: ReadonlySet<string> = new Set([
+  'permission_prompt',
+  'elicitation_dialog',
+  'agent_needs_input',
 ])
 
 export function mapHookEventToPhase(event: string, notificationType?: string | null): AgentPhase | null {
@@ -95,10 +99,11 @@ export function mapHookEventToPhase(event: string, notificationType?: string | n
       // finishing and the next PreToolUse/Stop is the model thinking.
       return 'thinking'
     case 'Notification':
-      // Informational notifications (incl. the idle "waiting for input" nudge)
-      // are not an attention request — drop them so the prior phase stands.
-      if (notificationType && INFORMATIONAL_NOTIFICATION_TYPES.has(notificationType)) return null
-      return 'awaiting_input'
+      // Only a known-blocking notification is an attention request; anything
+      // else (informational, unknown, or untyped) drops so the prior phase
+      // stands — see the allow-list rationale above.
+      if (notificationType && AWAITING_INPUT_NOTIFICATION_TYPES.has(notificationType)) return 'awaiting_input'
+      return null
     case 'PermissionRequest':
       return 'awaiting_input'
     case 'Stop':
@@ -129,6 +134,16 @@ export function isAuthoritativeWorkingPhase(state: AgentState | undefined): bool
   return state?.source === 'hook' && (state.phase === 'tool_use' || state.phase === 'thinking')
 }
 
+// At-rest phases the idle reaper may reclaim once rested past its threshold:
+// 'idle' (authoritative turn end) and 'stalled' (inferred quiet ≥90s). Stalled
+// counts as rest deliberately — a lost Stop frame lands a genuinely-finished
+// agent there, and treating stalled as protected parked sessions forever
+// (2026-07-07 incident). Shared by the reap candidate mapping and the
+// sprint-agent inactive-run guard so the two can't drift.
+export function isAtRestAgentPhase(phase: AgentPhase | null | undefined): boolean {
+  return phase === 'idle' || phase === 'stalled'
+}
+
 export function deriveActivityFromPhase(phase: AgentPhase, since: number): SessionActivity | null {
   switch (phase) {
     case 'starting':
@@ -150,10 +165,14 @@ export function deriveActivityFromPhase(phase: AgentPhase, since: number): Sessi
 // =============================================================================
 // Stall evaluation (pure; the runtime drives the timer from this decision)
 //
-// A hook-reported working phase (`thinking`/`tool_use`) that goes quiet — no
-// newer frame and no terminal output — past the threshold is treated as stalled.
-// Output advancing `lastOutputAt` (a streaming tool) or a newer frame keeps it
-// alive; the runtime re-checks after the returned delay rather than firing once.
+// A hook-reported working phase (`starting`/`thinking`/`tool_use`) that goes
+// quiet — no newer frame and no terminal output — past the threshold is treated
+// as stalled. Output advancing `lastOutputAt` (a streaming tool, a startup
+// banner) or a newer frame keeps it alive; the runtime re-checks after the
+// returned delay rather than firing once. `starting` is included so a resumed
+// session that never receives a prompt (SessionStart is its only frame — no
+// Stop ever follows) converts to `stalled` and becomes reclaimable via the
+// reap policy's stalled expiry, instead of parking as "working" forever.
 // =============================================================================
 
 export type StallEvaluation =
@@ -172,7 +191,9 @@ export function evaluateAgentStall(input: {
   // Only a hook-driven working phase can stall; anything else means the agent is
   // responsive (idle/awaiting), already terminal, or running on inference.
   if (input.source !== 'hook') return { action: 'clear' }
-  if (input.phase !== 'thinking' && input.phase !== 'tool_use') return { action: 'clear' }
+  if (input.phase !== 'starting' && input.phase !== 'thinking' && input.phase !== 'tool_use') {
+    return { action: 'clear' }
+  }
   const lastActivityAt = Math.max(input.phaseSince, input.lastOutputAt ?? 0)
   const quietForMs = input.now - lastActivityAt
   if (quietForMs >= input.thresholdMs) return { action: 'stalled' }

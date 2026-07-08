@@ -57,7 +57,15 @@ export async function createWorkspaceConfirmed(
   const deadline = now() + WORKSPACE_CREATE_CONFIRM_TIMEOUT_MS
   for (;;) {
     const found = findWorkspace(delegated.workspaceId)
-    if (found) return { ok: true, workspaceId: delegated.workspaceId, workspace: found }
+    if (found) {
+      // The renderer registry owns workspace domain state; the sync snapshot may
+      // hold a restart-restored routing placeholder whose mode reads 'standard'
+      // regardless of the real mode (a reused automations-host, for example).
+      // Overlay the renderer-reported mode so callers' mode assertions judge the
+      // actual workspace, not the placeholder.
+      const workspace = delegated.workspaceMode ? { ...found, mode: delegated.workspaceMode } : found
+      return { ok: true, workspaceId: delegated.workspaceId, workspace }
+    }
     if (now() >= deadline) {
       return {
         ok: false,

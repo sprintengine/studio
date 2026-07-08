@@ -14,6 +14,9 @@ import {
 // registerAutomationIpc. Missing window and timeout are explicit failures.
 
 const RESPONSE_TIMEOUT_MS = 15_000
+// Sprint creation spawns the one-shot Python state init inside the renderer
+// round-trip; a cold managed-runtime start can blow the default budget.
+const SPRINT_CREATE_TIMEOUT_MS = 60_000
 
 export type RendererAutomationDelegate = {
   request(request: AutomationRendererRequest): Promise<AutomationRendererResponse>
@@ -37,6 +40,7 @@ export function createRendererAutomationDelegate(
         message: 'No primary Multicode window is available to perform this operation.',
       })
     }
+    const timeoutMs = payload.kind === 'sprint.create' ? Math.max(responseTimeoutMs, SPRINT_CREATE_TIMEOUT_MS) : responseTimeoutMs
     const requestId = randomUUID()
     return new Promise<AutomationRendererResponse>((resolve) => {
       const timer = setTimeout(() => {
@@ -44,9 +48,9 @@ export function createRendererAutomationDelegate(
         resolve({
           ok: false,
           code: 'renderer_timeout',
-          message: `The renderer did not answer the automation request within ${responseTimeoutMs}ms.`,
+          message: `The renderer did not answer the automation request within ${timeoutMs}ms.`,
         })
-      }, responseTimeoutMs)
+      }, timeoutMs)
       pending.set(requestId, { resolve, timer })
       window.webContents.send(AUTOMATION_REQUEST_CHANNEL, requestId, payload)
     })

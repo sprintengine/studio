@@ -481,6 +481,77 @@ async function main(): Promise<void> {
     'persisted routing snapshot carries folder paths by id',
   )
 
+  // Workspace modes round-trip through the routing snapshot. Without this, every
+  // restored workspace rehydrates as 'standard' and the automation executor's
+  // per-project 'automations-host' folder lookup can never match after a restart
+  // — the duplicate-host bug.
+  const modeRoutingSnapshot: WorkspaceSyncRoutingSnapshot = {
+    sequence: 50,
+    primaryWorkspaceWindowId: 'primary',
+    workspaceWindows: [
+      {
+        id: 'primary',
+        kind: 'primary',
+        workspaceIds: ['ws-host'],
+        activeWorkspaceId: 'ws-host',
+        bounds: null,
+        isMaximized: false,
+        displayId: null,
+        createdAt: 1,
+        lastFocusedAt: 1,
+      },
+    ],
+    workspaceFolderPaths: { 'ws-host': '/Users/example/project' },
+    workspaceModes: { 'ws-host': 'automations-host' },
+  }
+  const modePersisted: WorkspaceSyncRoutingSnapshot[] = []
+  const modeService = createWorkspaceSyncService({
+    initialRoutingSnapshot: modeRoutingSnapshot,
+    persistDebounceMs: 60_000,
+    persistRoutingSnapshot: (persisted) => {
+      modePersisted.push(persisted)
+    },
+    now: () => 5000,
+  })
+  assert.equal(
+    modeService.getSnapshot().state.workspaces.find((ws) => ws.id === 'ws-host')?.mode,
+    'automations-host',
+    'routing snapshot modes hydrate onto the restored placeholder workspace',
+  )
+
+  const createHost = modeService.dispatch({
+    sourceWindowId: 'primary',
+    command: {
+      type: 'workspace.created',
+      payload: {
+        workspace: { ...workspace('ws-new-host', '/Users/example/other'), mode: 'automations-host' as const },
+        windowId: 'primary',
+        insert: { kind: 'folder_head', folderPath: '/Users/example/other' },
+      },
+    },
+  })
+  assert.equal(createHost.ok, true)
+  const createStandard = modeService.dispatch({
+    sourceWindowId: 'primary',
+    command: {
+      type: 'workspace.created',
+      payload: {
+        workspace: workspace('ws-plain', '/Users/example/plain'),
+        windowId: 'primary',
+        insert: { kind: 'folder_head', folderPath: '/Users/example/plain' },
+      },
+    },
+  })
+  assert.equal(createStandard.ok, true)
+  await modeService.flushRoutingSnapshot()
+  const modeSnapshot = modePersisted.at(-1)
+  assert.ok(modeSnapshot)
+  assert.deepEqual(
+    modeSnapshot.workspaceModes,
+    { 'ws-host': 'automations-host', 'ws-new-host': 'automations-host' },
+    'persisted routing snapshot carries non-standard modes by id; standard stays implicit',
+  )
+
   console.log('workspace-sync-service.test.ts: ok')
 }
 

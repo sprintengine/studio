@@ -30,6 +30,16 @@
 import { connect } from 'node:net'
 
 const CONNECT_TIMEOUT_MS = 1000
+// Bounded retry: a transiently busy listener must not silently eat a frame —
+// a lost `Stop` is the worst case (it is what makes a dormant agent
+// reclaimable by the idle reaper; the reap policy's stalled-expiry is the
+// backstop, but that costs ~17 extra minutes of held RAM). Retries are capped
+// by attempts AND an absolute deadline so the hook still exits promptly; a
+// permanently dead socket fails fast (connect error) and never waits out the
+// full deadline.
+const WRITE_ATTEMPTS = 3
+const RETRY_BACKOFF_MS = 200
+const TOTAL_DEADLINE_MS = 2000
 
 function readStdin() {
   return new Promise((res) => {
@@ -55,15 +65,18 @@ function parseArgs(argv) {
   return args
 }
 
-// Must mirror INFORMATIONAL_NOTIFICATION_TYPES in src/main/agent-state.ts.
+// Must mirror AWAITING_INPUT_NOTIFICATION_TYPES in src/main/agent-state.ts.
 // Claude Code's `Notification` fires for both real prompts and informational
-// nudges (e.g. `idle_prompt` "waiting for your input"); only the latter set is
-// dropped so an idle agent does not falsely read as awaiting_input.
-const INFORMATIONAL_NOTIFICATION_TYPES = new Set([
-  'idle_prompt',
-  'auth_success',
-  'elicitation_complete',
-  'elicitation_response',
+// nudges; only the ALLOW-LISTED blocking types map to awaiting_input. Anything
+// else (informational, unknown, or untyped) is dropped: awaiting_input is
+// sticky for a dormant agent (no later frame clears it), so one unlisted
+// informational type used to park a session as falsely "needs input" — and
+// exempt it from the idle reaper — forever. If a future Claude build adds a
+// new BLOCKING notification type, extend BOTH copies of this set.
+const AWAITING_INPUT_NOTIFICATION_TYPES = new Set([
+  'permission_prompt',
+  'elicitation_dialog',
+  'agent_needs_input',
 ])
 
 // Must mirror mapHookEventToPhase in src/main/agent-state.ts.
@@ -78,8 +91,8 @@ function mapEventToPhase(event, notificationType) {
     case 'PostToolUse':
       return 'thinking'
     case 'Notification':
-      if (notificationType && INFORMATIONAL_NOTIFICATION_TYPES.has(notificationType)) return null
-      return 'awaiting_input'
+      if (notificationType && AWAITING_INPUT_NOTIFICATION_TYPES.has(notificationType)) return 'awaiting_input'
+      return null
     case 'PermissionRequest':
       return 'awaiting_input'
     case 'Stop':
@@ -92,36 +105,48 @@ function mapEventToPhase(event, notificationType) {
   }
 }
 
-function writeFrame(socketPath, frame) {
+function writeFrameOnce(socketPath, frame) {
   return new Promise((res) => {
     let settled = false
-    const done = () => {
+    const done = (delivered) => {
       if (settled) return
       settled = true
-      res()
+      res(delivered)
     }
     let socket
     try {
       socket = connect(socketPath)
     } catch {
-      done()
+      done(false)
       return
     }
     socket.setTimeout(CONNECT_TIMEOUT_MS)
     socket.on('timeout', () => {
       socket.destroy()
-      done()
+      done(false)
     })
     socket.on('error', () => {
-      done()
+      done(false)
     })
     socket.on('connect', () => {
       socket.write(JSON.stringify(frame) + '\n', () => {
         socket.end()
       })
     })
-    socket.on('close', () => done())
+    socket.on('close', () => done(true))
   })
+}
+
+// A duplicate delivery (write landed but the ack path errored, then a retry
+// re-sent) is harmless: the runtime re-ingests the identical phase/ts, a no-op
+// — so no send-side idempotency is needed. Total failure stays silent (exit 0).
+async function writeFrame(socketPath, frame) {
+  const startedAt = Date.now()
+  for (let attempt = 0; attempt < WRITE_ATTEMPTS; attempt += 1) {
+    if (await writeFrameOnce(socketPath, frame)) return
+    if (Date.now() - startedAt + RETRY_BACKOFF_MS >= TOTAL_DEADLINE_MS) return
+    await new Promise((r) => setTimeout(r, RETRY_BACKOFF_MS))
+  }
 }
 
 async function main() {

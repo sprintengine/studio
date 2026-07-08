@@ -216,9 +216,12 @@ async function spawnAgent(
   options: LocalAutomationExecutorOptions
 ): Promise<{ workspaceId: string; agentId: string; executionId?: string }> {
   const target = input.resolvedTarget ?? resolveLaunchTarget(input, options)
+  // The host is the durable per-project Automations workspace, so it carries the
+  // stable surface name — never the launching run's agent name, which would brand
+  // the shared host after whichever automation happened to create it.
   const workspaceId = target.workspaceId ?? await createWorkspace({
     folderPath: target.folderPath,
-    name: input.name,
+    name: 'Automations',
   }, options)
 
   const delegated = await options.delegateToRenderer({

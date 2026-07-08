@@ -3,66 +3,27 @@ import { findWorkspaceForAgentPreferring } from './agentLocation'
 import type { BacklogLinkProviderInput } from '../modules/renderer-host'
 import type { Workspace } from '../types/workspace'
 
-// Owned by the always-on core module so agent links never go dark through
-// module disablement.
-export const AGENT_RUNTIME_MODULE_ID = 'agent-runtime'
-export const AGENT_TERMINAL_TARGET_KIND = 'agent.terminal'
-// Fixed per-item link id: the Backlog service upserts by link id, so re-handing
-// an item to a different agent replaces the link (most-recent-agent-wins) rather
-// than piling up stale agent links.
-export const WORKING_AGENT_LINK_ID = 'agent-runtime:working-agent'
-
-// The link target identity is workspaceId + agentId — the only durable
-// navigation key (PTY/CLI session ids are reaped or change across relaunch).
-// Both are opaque ids without '/' today; the encode/parse pair is the single
-// place that knows the composite format.
-export function encodeAgentLinkTargetId(workspaceId: string, agentId: string): string {
-  return `${workspaceId}/${agentId}`
-}
-
-export function parseAgentLinkTargetId(
-  targetId: string,
-): { workspaceId: string; agentId: string } | null {
-  const separator = targetId.indexOf('/')
-  if (separator <= 0 || separator >= targetId.length - 1) return null
-  const workspaceId = targetId.slice(0, separator)
-  const agentId = targetId.slice(separator + 1)
-  if (!workspaceId || !agentId || agentId.includes('/')) return null
-  return { workspaceId, agentId }
-}
-
-const AGENT_LABEL_PREFIX = 'Agent: '
-
-export function agentLinkLabel(agentName: string): string {
-  return `${AGENT_LABEL_PREFIX}${agentName}`
-}
-
-// Recover a display name from a stored link without a store read — used as the
-// tab-rename fallback when opening (the agent usually already has a tab).
-export function agentNameFromLink(link: BacklogItemLink): string {
-  return link.label.startsWith(AGENT_LABEL_PREFIX)
-    ? link.label.slice(AGENT_LABEL_PREFIX.length)
-    : link.label
-}
-
-// The agent link recorded on a Backlog item when it is handed to an agent.
-export function buildAgentBacklogLink(input: {
-  workspaceId: string
-  agentId: string
-  agentName: string
-}): BacklogItemLink {
-  return {
-    id: WORKING_AGENT_LINK_ID,
-    moduleId: AGENT_RUNTIME_MODULE_ID,
-    type: 'agent',
-    label: agentLinkLabel(input.agentName),
-    target: {
-      kind: AGENT_TERMINAL_TARGET_KIND,
-      id: encodeAgentLinkTargetId(input.workspaceId, input.agentId),
-    },
-    updatedAt: new Date().toISOString(),
-  }
-}
+// The link shape itself (constants, target-id codec, label, builder) is
+// single-sourced in the shared module so the main-process automation server
+// (backlog.assign) builds byte-identical links; this file keeps the
+// renderer-only halves: resolving a link against live workspaces and opening
+// the agent terminal.
+export {
+  AGENT_RUNTIME_MODULE_ID,
+  AGENT_TERMINAL_TARGET_KIND,
+  WORKING_AGENT_LINK_ID,
+  agentLinkLabel,
+  agentNameFromLink,
+  buildAgentBacklogLink,
+  encodeAgentLinkTargetId,
+  parseAgentLinkTargetId,
+} from '../../../shared/backlog/agent-links'
+import {
+  AGENT_RUNTIME_MODULE_ID,
+  AGENT_TERMINAL_TARGET_KIND,
+  agentNameFromLink,
+  parseAgentLinkTargetId,
+} from '../../../shared/backlog/agent-links'
 
 export function agentLinkForItem(item: Pick<BacklogItem, 'links'>): BacklogItemLink | null {
   return item.links.find((link) =>

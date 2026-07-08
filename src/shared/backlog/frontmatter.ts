@@ -146,6 +146,34 @@ export function formatBacklogCsvList(values: string[]): string {
   return values.join(', ')
 }
 
+// The markdown body with the frontmatter block removed — the item content a
+// reader shows. Shared by every non-panel consumer (mobile bridge, automation
+// server) so "body" means the same bytes everywhere.
+export function stripBacklogFrontmatter(raw: string): string {
+  if (!raw.startsWith('---')) {
+    return raw
+  }
+  const end = raw.indexOf('\n---', 3)
+  return end === -1 ? raw : raw.slice(raw.indexOf('\n', end + 1) + 1)
+}
+
+// An item's display title: the first `# Heading` of the body, else a
+// humanized filename stem (date prefix dropped, dashes to spaces).
+export function extractBacklogTitle(body: string, relativePath: string): string {
+  for (const line of body.split(/\r?\n/)) {
+    const heading = line.match(/^#\s+(.+)$/)
+    if (heading) {
+      return heading[1].trim()
+    }
+  }
+  return backlogTitleFromPath(relativePath)
+}
+
+export function backlogTitleFromPath(relativePath: string): string {
+  const stem = (relativePath.split(/[\\/]/).pop() ?? relativePath).replace(/\.md$/i, '')
+  return stem.replace(/^\d{4}-\d{2}-\d{2}-/, '').replace(/[-_]+/g, ' ').trim() || stem
+}
+
 function normalizeUpdates(updates: BacklogFrontmatterUpdates): {
   sets: Map<string, string>
   clears: Set<string>

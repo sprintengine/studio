@@ -73,6 +73,20 @@ type BackendsOverrides = {
   workspaces?: Workspace[]
   sessions?: TerminalSessionSnapshot[]
   delegate?: (request: AutomationRendererRequest) => Promise<AutomationRendererResponse>
+  listBacklogItems?: AutomationBackends['listBacklogItems']
+  readBacklogItem?: AutomationBackends['readBacklogItem']
+  listAutomationDefinitions?: AutomationBackends['listAutomationDefinitions']
+  listAutomationRuns?: AutomationBackends['listAutomationRuns']
+  backlogWrite?: Partial<AutomationBackends['backlogWrite']>
+  getAutomationsFrontDoor?: AutomationBackends['getAutomationsFrontDoor']
+  listSprintRunStatePaths?: AutomationBackends['listSprintRunStatePaths']
+  readSprintEngineProjection?: AutomationBackends['readSprintEngineProjection']
+}
+
+function unexpectedCall(name: string): () => never {
+  return () => {
+    throw new Error(`unexpected backlogWrite.${name} call`)
+  }
 }
 
 function backendsOf(overrides: BackendsOverrides = {}): AutomationBackends {
@@ -82,6 +96,25 @@ function backendsOf(overrides: BackendsOverrides = {}): AutomationBackends {
     delegateToRenderer:
       overrides.delegate
       ?? (async () => ({ ok: false, code: 'no_primary_window', message: 'no window in test' })),
+    listBacklogItems: overrides.listBacklogItems ?? (async () => ({ ok: true, key: null, items: [] })),
+    readBacklogItem:
+      overrides.readBacklogItem ?? (async (_root, relativePath) => ({ ok: false, message: `no item ${relativePath}` })),
+    listAutomationDefinitions: overrides.listAutomationDefinitions ?? (async () => ({ ok: true, values: [] })),
+    listAutomationRuns: overrides.listAutomationRuns ?? (async () => ({ ok: true, values: [] })),
+    backlogWrite: {
+      createItem: unexpectedCall('createItem'),
+      createEpic: unexpectedCall('createEpic'),
+      updateStatus: unexpectedCall('updateStatus'),
+      updateType: unexpectedCall('updateType'),
+      updateTriage: unexpectedCall('updateTriage'),
+      updateEpic: unexpectedCall('updateEpic'),
+      addOrUpdateLink: unexpectedCall('addOrUpdateLink'),
+      ...overrides.backlogWrite,
+    },
+    getAutomationsFrontDoor: overrides.getAutomationsFrontDoor ?? (() => null),
+    listSprintRunStatePaths: overrides.listSprintRunStatePaths ?? (async () => []),
+    readSprintEngineProjection:
+      overrides.readSprintEngineProjection ?? (async () => ({ ok: false, message: 'no projection in test' })),
     // Confirmation polling is exercised against static snapshots; collapse the
     // wait so timeout paths run instantly.
     sleep: async () => {},
@@ -118,11 +151,29 @@ async function testSettingsDefaultOffAndRoundTrip(): Promise<void> {
   }
 }
 
-async function testToolListNamesTheV1Surface(): Promise<void> {
+async function testToolListNamesTheToolSurface(): Promise<void> {
   const tools = createAutomationTools(backendsOf())
   assert.deepEqual(
     tools.map((registration) => registration.name).sort(),
-    ['agent.launch', 'agent.status', 'workspace.create', 'workspace.list', 'workspace.status']
+    [
+      'agent.launch',
+      'agent.status',
+      'automation.create',
+      'automation.list',
+      'automation.run',
+      'automation.runs',
+      'backlog.assign',
+      'backlog.create',
+      'backlog.list',
+      'backlog.read',
+      'backlog.update',
+      'sprint.create',
+      'sprint.list',
+      'sprint.status',
+      'workspace.create',
+      'workspace.list',
+      'workspace.status',
+    ]
   )
 }
 
@@ -476,10 +527,449 @@ async function testBridgeReportsStaleDiscoveryFile(): Promise<void> {
   rmSync(dir, { recursive: true, force: true })
 }
 
+async function testReadToolsResolveWorkspaceRootThroughSnapshot(): Promise<void> {
+  const seenRoots: string[] = []
+  const tools = createAutomationTools(
+    backendsOf({
+      workspaces: [
+        testWorkspace('ws-1', { folderPath: '/tmp/project-a' }),
+        testWorkspace('ws-routing', { templateId: 'workspace-sync-routing-placeholder', folderPath: '/tmp/stale' }),
+        testWorkspace('ws-folderless', { folderPath: null }),
+      ],
+      listBacklogItems: async (root) => {
+        seenRoots.push(root)
+        return {
+          ok: true,
+          key: 'MC',
+          items: [
+            {
+              relativePath: 'backlog/2026-07-08-example.md',
+              title: 'Example',
+              id: 7,
+              isEpic: false,
+              status: 'ready',
+            },
+          ],
+        }
+      },
+      listAutomationDefinitions: async (root) => {
+        seenRoots.push(root)
+        return { ok: true, values: [] }
+      },
+    })
+  )
+
+  const listed = await tool(tools, 'backlog.list').handler({ workspaceId: 'ws-1' })
+  assert.equal(listed.isError, undefined)
+  assert.deepEqual(listed.structuredContent, {
+    workspaceKey: 'MC',
+    items: [
+      { relativePath: 'backlog/2026-07-08-example.md', title: 'Example', id: 7, isEpic: false, status: 'ready' },
+    ],
+  })
+
+  const automations = await tool(tools, 'automation.list').handler({ workspaceId: 'ws-1' })
+  assert.deepEqual(automations.structuredContent, { automations: [] })
+  assert.deepEqual(seenRoots, ['/tmp/project-a', '/tmp/project-a'], 'both tools resolve the snapshot folderPath')
+
+  const unknown = await tool(tools, 'backlog.list').handler({ workspaceId: 'nope' })
+  assert.equal(unknown.isError, true)
+  assert.equal((unknown.structuredContent as { error: { code: string } }).error.code, 'unknown_workspace')
+
+  const routing = await tool(tools, 'backlog.list').handler({ workspaceId: 'ws-routing' })
+  assert.equal((routing.structuredContent as { error: { code: string } }).error.code, 'workspace_without_folder')
+
+  const folderless = await tool(tools, 'automation.list').handler({ workspaceId: 'ws-folderless' })
+  assert.equal((folderless.structuredContent as { error: { code: string } }).error.code, 'workspace_without_folder')
+}
+
+async function testBacklogCreateRoutesItemsAndEpics(): Promise<void> {
+  const createdItems: Array<Record<string, unknown>> = []
+  const createdEpics: Array<Record<string, unknown>> = []
+  const tools = createAutomationTools(
+    backendsOf({
+      workspaces: [testWorkspace('ws-1', { folderPath: '/tmp/project-a' })],
+      backlogWrite: {
+        createItem: async (input) => {
+          createdItems.push(input)
+          return { ok: true, id: 'backlog_x', relativePath: 'backlog/2026-07-08-new-thing.md', store: { schemaVersion: 1, items: [] } }
+        },
+        createEpic: async (input) => {
+          createdEpics.push(input)
+          return { ok: true, slug: 'new-epic', relativePath: 'backlog/epics/new-epic.md' }
+        },
+      },
+    })
+  )
+  const create = tool(tools, 'backlog.create')
+
+  const item = await create.handler({
+    workspaceId: 'ws-1',
+    title: 'New thing',
+    description: 'Body.',
+    type: 'feature',
+    difficulty: 'm',
+    risk: 'low',
+    epic: 'things',
+  })
+  assert.equal(item.isError, undefined)
+  assert.deepEqual(item.structuredContent, { item: { relativePath: 'backlog/2026-07-08-new-thing.md' } })
+  assert.deepEqual(createdItems, [
+    {
+      workspaceRoot: '/tmp/project-a',
+      title: 'New thing',
+      description: 'Body.',
+      type: 'feature',
+      difficulty: 'm',
+      criticality: undefined,
+      risk: 'low',
+      epic: 'things',
+    },
+  ])
+
+  const epic = await create.handler({ workspaceId: 'ws-1', title: 'New epic', type: 'epic' })
+  assert.deepEqual(epic.structuredContent, { epic: { slug: 'new-epic', relativePath: 'backlog/epics/new-epic.md' } })
+  assert.deepEqual(createdEpics, [{ workspaceRoot: '/tmp/project-a', title: 'New epic' }])
+
+  const epicWithTriage = await create.handler({ workspaceId: 'ws-1', title: 'Bad epic', type: 'epic', risk: 'low' })
+  assert.equal(epicWithTriage.isError, true)
+  assert.equal((epicWithTriage.structuredContent as { error: { code: string } }).error.code, 'invalid_arguments')
+
+  const badVocabulary = await create.handler({ workspaceId: 'ws-1', title: 'Bad', difficulty: 'huge' })
+  assert.equal(badVocabulary.isError, true)
+  assert.match((badVocabulary.structuredContent as { error: { message: string } }).error.message, /must be one of/)
+}
+
+async function testBacklogUpdateAppliesInOrderAndStopsOnFailure(): Promise<void> {
+  const calls: string[] = []
+  const tools = createAutomationTools(
+    backendsOf({
+      workspaces: [testWorkspace('ws-1', { folderPath: '/tmp/project-a' })],
+      backlogWrite: {
+        updateStatus: async (input) => {
+          calls.push(`status:${input.status}`)
+          return { ok: true, store: { schemaVersion: 1, items: [] } }
+        },
+        updateType: async () => {
+          calls.push('type')
+          return { ok: false, message: 'Enter a valid Backlog item type.' }
+        },
+        updateEpic: async () => {
+          calls.push('epic')
+          return { ok: true, store: { schemaVersion: 1, items: [] } }
+        },
+      },
+    })
+  )
+  const update = tool(tools, 'backlog.update')
+
+  const failed = await update.handler({
+    workspaceId: 'ws-1',
+    path: 'backlog/example.md',
+    status: 'in_progress',
+    type: 'feature',
+    epic: null,
+  })
+  assert.equal(failed.isError, true)
+  assert.equal((failed.structuredContent as { error: { code: string } }).error.code, 'backlog_update_failed')
+  assert.deepEqual(calls, ['status:in_progress', 'type'], 'stops at the first failing write; epic never runs')
+
+  const empty = await update.handler({ workspaceId: 'ws-1', path: 'backlog/example.md' })
+  assert.equal((empty.structuredContent as { error: { code: string } }).error.code, 'invalid_arguments')
+
+  const nullStatus = await update.handler({ workspaceId: 'ws-1', path: 'backlog/example.md', status: null })
+  assert.equal((nullStatus.structuredContent as { error: { code: string } }).error.code, 'invalid_arguments')
+}
+
+async function testBacklogAssignBuildsTheCanonicalLink(): Promise<void> {
+  const linked: Array<Record<string, unknown>> = []
+  const workspace = testWorkspace('ws-1', {
+    folderPath: '/tmp/project-a',
+    agents: {
+      'agent-7': { name: 'Paddy', cli: 'claude-code' } as never,
+    },
+  })
+  const tools = createAutomationTools(
+    backendsOf({
+      workspaces: [workspace],
+      backlogWrite: {
+        addOrUpdateLink: async (input) => {
+          linked.push(input as unknown as Record<string, unknown>)
+          return { ok: true, store: { schemaVersion: 1, items: [] } }
+        },
+      },
+    })
+  )
+  const assign = tool(tools, 'backlog.assign')
+
+  const assigned = await assign.handler({ workspaceId: 'ws-1', path: 'backlog/example.md', agentId: 'agent-7' })
+  assert.equal(assigned.isError, undefined)
+  assert.equal(linked.length, 1)
+  const input = linked[0] as {
+    workspaceRoot: string
+    relativePath: string
+    status?: unknown
+    link: { id: string; moduleId: string; type: string; label: string; target: { kind: string; id: string } }
+  }
+  assert.equal(input.workspaceRoot, '/tmp/project-a')
+  assert.equal(input.relativePath, 'backlog/example.md')
+  assert.equal(input.status, undefined, 'assignment is lifecycle-neutral; it must never move item status')
+  assert.equal(input.link.id, 'agent-runtime:working-agent')
+  assert.equal(input.link.moduleId, 'agent-runtime')
+  assert.equal(input.link.type, 'agent')
+  assert.equal(input.link.label, 'Agent: Paddy')
+  assert.deepEqual(
+    { kind: input.link.target.kind, id: input.link.target.id },
+    { kind: 'agent.terminal', id: 'ws-1/agent-7' }
+  )
+
+  const unknownAgent = await assign.handler({ workspaceId: 'ws-1', path: 'backlog/example.md', agentId: 'nope' })
+  assert.equal((unknownAgent.structuredContent as { error: { code: string } }).error.code, 'unknown_agent')
+}
+
+async function testAutomationMutationToolsGateOnPresetAndModule(): Promise<void> {
+  const created: unknown[] = []
+  const ran: unknown[] = []
+  const withFrontDoor = createAutomationTools(
+    backendsOf({
+      workspaces: [testWorkspace('ws-1', { folderPath: '/tmp/project-a' })],
+      getAutomationsFrontDoor: () => ({
+        createDefinition: async (input) => {
+          created.push(input)
+          return { ok: true, value: { id: 'auto-1', name: 'Nightly' } as never }
+        },
+        runNow: async (input) => {
+          ran.push(input)
+          return { ok: true, value: { definition: { id: 'auto-1' }, run: { runId: 'run-1' } } as never }
+        },
+      }),
+    })
+  )
+
+  const definition = {
+    name: 'Nightly',
+    trigger: { kind: 'schedule', config: { cadence: 'daily' } },
+    action: { kind: 'spawn-agent', config: { prompt: 'do it', permissionPreset: 'auto_workspace' } },
+  }
+  const ok = await tool(withFrontDoor, 'automation.create').handler({ workspaceId: 'ws-1', definition })
+  assert.equal(ok.isError, undefined)
+  assert.deepEqual(created, [{ workspaceRoot: '/tmp/project-a', definition }])
+  assert.deepEqual(ok.structuredContent, { automation: { id: 'auto-1', name: 'Nightly' } })
+
+  const okRun = await tool(withFrontDoor, 'automation.run').handler({ workspaceId: 'ws-1', automationId: 'auto-1' })
+  assert.deepEqual(ran, [{ workspaceRoot: '/tmp/project-a', automationId: 'auto-1' }])
+  assert.deepEqual(okRun.structuredContent, { definition: { id: 'auto-1' }, run: { runId: 'run-1' } })
+
+  // bypass_all is refused before the front door ever sees the draft.
+  const bypass = await tool(withFrontDoor, 'automation.create').handler({
+    workspaceId: 'ws-1',
+    definition: {
+      ...definition,
+      action: { kind: 'spawn-agent', config: { prompt: 'do it', permissionPreset: 'bypass_all' } },
+    },
+  })
+  assert.equal(bypass.isError, true)
+  assert.equal(
+    (bypass.structuredContent as { error: { code: string } }).error.code,
+    'permission_preset_not_allowed'
+  )
+  assert.equal(created.length, 1, 'the refused draft never reached the front door')
+
+  // Module disabled/not loaded ⇒ explicit failure, never buffering.
+  const withoutModule = createAutomationTools(
+    backendsOf({ workspaces: [testWorkspace('ws-1', { folderPath: '/tmp/project-a' })] })
+  )
+  for (const [name, args] of [
+    ['automation.create', { workspaceId: 'ws-1', definition }],
+    ['automation.run', { workspaceId: 'ws-1', automationId: 'auto-1' }],
+  ] as const) {
+    const result = await tool(withoutModule, name).handler(args as Record<string, unknown>)
+    assert.equal(result.isError, true)
+    assert.equal(
+      (result.structuredContent as { error: { code: string } }).error.code,
+      'automations_module_unavailable'
+    )
+  }
+}
+
+async function testAutomationMutationToolsPassPipelineFailuresThrough(): Promise<void> {
+  const tools = createAutomationTools(
+    backendsOf({
+      workspaces: [testWorkspace('ws-1', { folderPath: '/tmp/project-a' })],
+      getAutomationsFrontDoor: () => ({
+        createDefinition: async () => ({ ok: false, code: 'workspace_root_untrusted', message: 'Folder is not an open workspace.' }),
+        runNow: async () => ({ ok: false, code: 'unsupported_trigger', message: 'Run now needs a schedule trigger.' }),
+      }),
+    })
+  )
+  const created = await tool(tools, 'automation.create').handler({
+    workspaceId: 'ws-1',
+    definition: { name: 'X', trigger: { kind: 'schedule', config: {} }, action: { kind: 'spawn-agent', config: {} } },
+  })
+  assert.equal((created.structuredContent as { error: { code: string } }).error.code, 'workspace_root_untrusted')
+
+  const ran = await tool(tools, 'automation.run').handler({ workspaceId: 'ws-1', automationId: 'auto-1' })
+  assert.equal((ran.structuredContent as { error: { code: string } }).error.code, 'unsupported_trigger')
+}
+
+async function testSprintReadToolsAnswerFromDisk(): Promise<void> {
+  const tools = createAutomationTools(
+    backendsOf({
+      workspaces: [testWorkspace('ws-1', { folderPath: '/tmp/project-a' })],
+      listSprintRunStatePaths: async (root) => [
+        `${root}/.multi-code/sprintengine/checkout-flow/run.yaml`,
+        `${root}/.multi-code/sprintengine/older-run/run.yaml`,
+      ],
+      readSprintEngineProjection: async (statePath) =>
+        statePath === '/tmp/project-a/.multi-code/sprintengine/checkout-flow/run.yaml'
+          ? { ok: true, data: { goal: 'Ship checkout', tasks: [] }, token: '123:456' }
+          : { ok: false, message: `no projection at ${statePath}` },
+    })
+  )
+
+  const listed = await tool(tools, 'sprint.list').handler({ workspaceId: 'ws-1' })
+  assert.deepEqual(listed.structuredContent, {
+    runs: [
+      { slug: 'checkout-flow', statePath: '.multi-code/sprintengine/checkout-flow/run.yaml' },
+      { slug: 'older-run', statePath: '.multi-code/sprintengine/older-run/run.yaml' },
+    ],
+  })
+
+  const status = await tool(tools, 'sprint.status').handler({ workspaceId: 'ws-1', slug: 'checkout-flow' })
+  assert.deepEqual(status.structuredContent, {
+    slug: 'checkout-flow',
+    projection: { goal: 'Ship checkout', tasks: [] },
+    changeToken: '123:456',
+  })
+
+  const missing = await tool(tools, 'sprint.status').handler({ workspaceId: 'ws-1', slug: 'gone' })
+  assert.equal(missing.isError, true)
+  assert.equal((missing.structuredContent as { error: { code: string } }).error.code, 'sprint_status_failed')
+
+  for (const slug of ['..', 'a/b', 'a\\b', '.']) {
+    const denied = await tool(tools, 'sprint.status').handler({ workspaceId: 'ws-1', slug })
+    assert.equal(denied.isError, true, `slug "${slug}" is rejected`)
+    assert.equal((denied.structuredContent as { error: { code: string } }).error.code, 'invalid_arguments')
+  }
+}
+
+async function testSprintCreateDelegatesAndConfirms(): Promise<void> {
+  const requests: AutomationRendererRequest[] = []
+  let workspaceVisible = false
+  let architectAlive = false
+  // What the next delegate call sets the live-session flag to — lets the
+  // timeout path model a run whose architect never comes up.
+  let nextArchitectAlive = true
+  const workspace = testWorkspace('ws-sprint', { folderPath: '/tmp/project-a', mode: 'sprintengine' as never })
+  const session: TerminalSessionSnapshot = {
+    sessionId: 'pty-1',
+    kind: 'agent',
+    workspaceId: 'ws-sprint',
+    agentId: 'agent-architect',
+    processAlive: true,
+    startedAt: 1,
+    lastOutputAt: 1,
+  } as never
+  const tools = createAutomationTools({
+    ...backendsOf(),
+    getWorkspaceSyncSnapshot: () => snapshotOf(workspaceVisible ? [workspace] : []),
+    listTerminalSessions: () => (architectAlive ? [session] : []),
+    delegateToRenderer: async (request) => {
+      requests.push(request)
+      workspaceVisible = true
+      architectAlive = nextArchitectAlive
+      return { ok: true, workspaceId: 'ws-sprint' }
+    },
+  })
+
+  const started = await tool(tools, 'sprint.create').handler({
+    folderPath: '/tmp/project-a',
+    goal: 'Ship checkout',
+    startRunner: true,
+  })
+  assert.equal(started.isError, undefined, JSON.stringify(started.structuredContent))
+  assert.deepEqual(started.structuredContent, { workspaceId: 'ws-sprint', started: true })
+  assert.deepEqual(requests, [
+    {
+      kind: 'sprint.create',
+      folderPath: '/tmp/project-a',
+      goal: 'Ship checkout',
+      name: undefined,
+      startRunner: true,
+      autoApproveArtifacts: false,
+      useWorktrees: false,
+    },
+  ])
+
+  // A started run with no live agent session inside the budget is an explicit
+  // launch_confirmation_timeout, never a fake success.
+  nextArchitectAlive = false
+  const unconfirmed = await tool(tools, 'sprint.create').handler({
+    folderPath: '/tmp/project-a',
+    goal: 'Ship checkout',
+    startRunner: true,
+  })
+  assert.equal(unconfirmed.isError, true)
+  assert.equal(
+    (unconfirmed.structuredContent as { error: { code: string } }).error.code,
+    'launch_confirmation_timeout'
+  )
+
+  // A manual run confirms on the workspace alone — nothing was launched.
+  const manual = await tool(tools, 'sprint.create').handler({ folderPath: '/tmp/project-a', goal: 'Ship checkout' })
+  assert.deepEqual(manual.structuredContent, { workspaceId: 'ws-sprint', started: false })
+
+  // Delegate failures pass through verbatim (no window, controller errors).
+  const failing = createAutomationTools({
+    ...backendsOf(),
+    delegateToRenderer: async () => ({ ok: false, code: 'sprint_team_exists', message: 'That team already exists.' }),
+  })
+  const failed = await tool(failing, 'sprint.create').handler({ folderPath: '/tmp/p', goal: 'g' })
+  assert.equal((failed.structuredContent as { error: { code: string } }).error.code, 'sprint_team_exists')
+}
+
+async function testReadToolsPassServiceFailuresThrough(): Promise<void> {
+  const tools = createAutomationTools(
+    backendsOf({
+      workspaces: [testWorkspace('ws-1', { folderPath: '/tmp/project-a' })],
+      readBacklogItem: async () => ({ ok: false, message: 'Backlog item backlog/gone.md does not exist in this workspace.' }),
+      listAutomationRuns: async () => ({
+        ok: false,
+        errors: [{ code: 'io_error', message: 'runs folder unreadable' } as never],
+      }),
+    })
+  )
+
+  const read = await tool(tools, 'backlog.read').handler({ workspaceId: 'ws-1', path: 'backlog/gone.md' })
+  assert.equal(read.isError, true)
+  const readError = (read.structuredContent as { error: { code: string; message: string } }).error
+  assert.equal(readError.code, 'backlog_read_failed')
+  assert.match(readError.message, /does not exist/)
+
+  const runs = await tool(tools, 'automation.runs').handler({ workspaceId: 'ws-1', automationId: 'auto-1' })
+  assert.equal(runs.isError, true)
+  const runsError = (runs.structuredContent as { error: { code: string; message: string } }).error
+  assert.equal(runsError.code, 'automations_unavailable')
+  assert.match(runsError.message, /runs folder unreadable/)
+
+  // Missing/blank arguments stay explicit invalid_arguments failures.
+  const missing = await tool(tools, 'automation.runs').handler({ workspaceId: 'ws-1' })
+  assert.equal((missing.structuredContent as { error: { code: string } }).error.code, 'invalid_arguments')
+}
+
 const tests = [
   testSettingsDefaultOffAndRoundTrip,
-  testToolListNamesTheV1Surface,
+  testToolListNamesTheToolSurface,
   testReadToolsAnswerFromSnapshot,
+  testReadToolsResolveWorkspaceRootThroughSnapshot,
+  testReadToolsPassServiceFailuresThrough,
+  testBacklogCreateRoutesItemsAndEpics,
+  testBacklogUpdateAppliesInOrderAndStopsOnFailure,
+  testBacklogAssignBuildsTheCanonicalLink,
+  testAutomationMutationToolsGateOnPresetAndModule,
+  testAutomationMutationToolsPassPipelineFailuresThrough,
+  testSprintReadToolsAnswerFromDisk,
+  testSprintCreateDelegatesAndConfirms,
   testInvalidRequestsReturnExplicitErrors,
   testCreateDelegatesAndConfirmsOnTheBus,
   testCreateNeverFakesSuccessWithoutBusConfirmation,

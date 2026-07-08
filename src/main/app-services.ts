@@ -6,10 +6,24 @@ import { createAgentStateService } from './agent-state-service'
 import { createAutomationService } from './automation/automation-service'
 import { createAutomationTools } from './automation/automation-tools'
 import { createRendererAutomationDelegate } from './automation/renderer-delegate'
+import { AutomationsStore } from './automations/store'
+import type { AutomationsAppFrontDoor } from './ipc/automations-ipc'
+import {
+  addOrUpdateBacklogLink,
+  createBacklogEpic,
+  createBacklogItem,
+  listBacklogItems,
+  readBacklogItem,
+  updateBacklogEpic,
+  updateBacklogStatus,
+  updateBacklogTriage,
+  updateBacklogType,
+} from './backlog-service'
 import { createBuiltinSkillManager } from './builtin-skills'
 import { installMulticodeCliTools } from './cli-install'
 import { MulticodeAuthBridge } from './auth-service'
 import { createMainDiagnostics } from './main-diagnostics'
+import { discoverMobileSprintEngineStatePaths } from './mobile-sprintengine-discovery'
 import { createMcpConfigService } from './mcp-config-service'
 import { createSkillPackService } from './skill-pack-service'
 import { createSprintEngineArtifactHandlers } from './sprintengine-artifacts'
@@ -101,6 +115,11 @@ export function createAppServices(diagnosticsEnabled: boolean) {
         void writeDiagnosticLog({ ...diagnostic, source: 'terminal' })
       },
     }),
+    // Reaper decision trail (actions + rate-limited skips) into the daily
+    // diagnostics JSONL — the in-memory reap ring buffer dies with the process.
+    logDiagnostic: (diagnostic) => {
+      void writeDiagnosticLog({ ...diagnostic, source: 'terminal' })
+    },
     syncMcpConfig: (input) => syncManagedSprintEngineMcpConfig(input, { mcpConfigService, sprintEngineMcpHub }),
     callManagedSprintEngineTool: (input) => sprintEngineMcpHub.callRunTool(input),
     // Debug Mode: make the `debug` skill present in the session CLI's native
@@ -173,6 +192,11 @@ export function createAppServices(diagnosticsEnabled: boolean) {
   // they run the same store actions as the UI. Off by default; the persisted
   // setting gates startServer in automationService.initialize().
   const automationDelegate = createRendererAutomationDelegate()
+  // The Automations module (and its app front door) registers on the module
+  // kernel AFTER app services are constructed; index.ts injects the resolver
+  // once the kernel is up. Until then the automation tools report the module
+  // as unavailable rather than buffering.
+  let resolveAutomationsAppFrontDoor: () => AutomationsAppFrontDoor | null = () => null
   const automationService = createAutomationService({
     resolveUserDataDir: () => app.getPath('userData'),
     appVersion: app.getVersion(),
@@ -186,6 +210,24 @@ export function createAppServices(diagnosticsEnabled: boolean) {
       getWorkspaceSyncSnapshot: () => workspaceSyncService.getSnapshot(),
       listTerminalSessions: () => terminalRuntime.ipcHandlers.listTerminals(),
       delegateToRenderer: (request) => automationDelegate.request(request),
+      listBacklogItems: (workspaceRoot) => listBacklogItems(workspaceRoot),
+      readBacklogItem: (workspaceRoot, relativePath) => readBacklogItem(workspaceRoot, relativePath),
+      // Same filesystem store the Automations IPC front door reads; roots are
+      // snapshot-resolved, so only open workspaces are reachable.
+      listAutomationDefinitions: (workspaceRoot) => new AutomationsStore(workspaceRoot).listDefinitions(),
+      listAutomationRuns: (workspaceRoot, automationId) => new AutomationsStore(workspaceRoot).listRuns(automationId),
+      backlogWrite: {
+        createItem: createBacklogItem,
+        createEpic: createBacklogEpic,
+        updateStatus: updateBacklogStatus,
+        updateType: updateBacklogType,
+        updateTriage: updateBacklogTriage,
+        updateEpic: updateBacklogEpic,
+        addOrUpdateLink: addOrUpdateBacklogLink,
+      },
+      getAutomationsFrontDoor: () => resolveAutomationsAppFrontDoor(),
+      listSprintRunStatePaths: (workspaceRoot) => discoverMobileSprintEngineStatePaths([workspaceRoot]),
+      readSprintEngineProjection: (statePath) => sprintEngineArtifacts.readProjection({ statePath }),
     }),
     logDiagnostic: (diagnostic) => {
       void writeDiagnosticLog({ ...diagnostic, source: 'workspace' })
@@ -197,6 +239,9 @@ export function createAppServices(diagnosticsEnabled: boolean) {
     agentStateService,
     automationDelegate,
     automationService,
+    setAutomationsAppFrontDoorResolver(resolver: () => AutomationsAppFrontDoor | null): void {
+      resolveAutomationsAppFrontDoor = resolver
+    },
     builtinSkillManager,
     conversationRuntime,
     githubTokenStore,

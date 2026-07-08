@@ -1,4 +1,5 @@
 import type { IJsonModel } from 'flexlayout-react'
+import { current } from 'immer'
 import { nanoid } from 'nanoid'
 import {
   buildSprintEngineAgentRosterForState,
@@ -931,10 +932,12 @@ export function createWorkspacesSlice(
 
     addWorkspace: (template, options) => {
       let id = nanoid()
-      // Captured only for a genuinely new workspace (not the Switchboard-reuse
-      // early return) so creation is broadcast through main as a workspace.created
-      // event. Local creation stays the functional path; storage-event sync is the
-      // rollback. Fire-and-forget after the synchronous set().
+      // Captured for a genuinely new workspace (not the Switchboard-reuse early
+      // return) so creation is broadcast through main as a workspace.created
+      // event — and for an Automations-host reuse, where the offer heals a main
+      // process whose routing snapshot forgot the host. Local creation stays the
+      // functional path; storage-event sync is the rollback. Fire-and-forget
+      // after the synchronous set().
       let createdEventPayload:
         | { workspace: Workspace; windowId: WorkspaceWindowId; folderPath: string | null }
         | null = null
@@ -979,6 +982,51 @@ export function createWorkspacesSlice(
           }
           targetWindow.activeWorkspaceId = existingSwitchboard.id
           normalizeWindowAssignments(state)
+          return
+        }
+        // The Automations host is strictly one-per-project (same contract as
+        // Switchboard): every creation path — the New-workspace mode card and the
+        // automation executor's workspace.create — funnels here, so reusing the
+        // folder's existing host at this boundary is what guarantees a duplicate
+        // can never be minted, whatever the caller believed.
+        const automationsHostFolderKey = isAutomationsHost ? workspaceFolderKey(folderPath) : null
+        const existingAutomationsHost = automationsHostFolderKey
+          ? state.workspaces.find((workspace) =>
+            workspace.mode === AUTOMATIONS_HOST_WORKSPACE_MODE
+            && workspaceFolderKey(workspace.folderPath) === automationsHostFolderKey
+          )
+          : null
+        if (existingAutomationsHost) {
+          if (folderPath) {
+            state.appSettings.recentWorkspaceFolders = normalizeRecentWorkspaceFolders(
+              [folderPath],
+              state.appSettings.recentWorkspaceFolders
+            )
+          }
+          id = existingAutomationsHost.id
+          existingAutomationsHost.folderMissing = false
+          state.activeWorkspaceId = existingAutomationsHost.id
+          const targetWindow = ensureWorkspaceWindow(
+            state,
+            options?.windowId ?? findWorkspaceWindow(state, existingAutomationsHost.id)?.id ?? targetWindowId,
+          )
+          if (!targetWindow.workspaceIds.includes(existingAutomationsHost.id)) {
+            targetWindow.workspaceIds.push(existingAutomationsHost.id)
+          }
+          targetWindow.activeWorkspaceId = existingAutomationsHost.id
+          normalizeWindowAssignments(state)
+          // Offer the reused host to main as a workspace.created command. When
+          // main already tracks it this is rejected (workspace_already_exists —
+          // a logged no-op); when main's routing snapshot was lost or predates
+          // mode persistence, the accept heals main's membership AND mode so
+          // the automation executor's host-by-folder lookup works next run.
+          // `current()` detaches the payload from the immer draft, which is
+          // revoked once set() returns.
+          createdEventPayload = {
+            workspace: current(existingAutomationsHost),
+            windowId: targetWindow.id,
+            folderPath,
+          }
           return
         }
         const sprintEngineState = isSprintEngine

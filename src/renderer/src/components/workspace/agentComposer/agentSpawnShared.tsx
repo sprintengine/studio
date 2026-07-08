@@ -30,6 +30,44 @@ export const AGENT_SPAWN_PERMISSION_OPTIONS: Array<{
   },
 ]
 
+// The Default / Auto / Bypass preset chip row — the one interactive permission
+// control every spawn surface renders (composer panel, picker popover footer,
+// Automations editor runtime row), so the options and their tone can't drift.
+// Bypass carries the warn tone when active; inactive chips stay quiet.
+export function PermissionPresetChips({
+  value,
+  onChange,
+}: {
+  value: SprintEngineCliPermissionPreset
+  onChange: (preset: SprintEngineCliPermissionPreset) => void
+}) {
+  return (
+    <>
+      {AGENT_SPAWN_PERMISSION_OPTIONS.map((option) => {
+        const active = option.value === value
+        const isBypass = option.value === 'bypass_all'
+        return (
+          <Tooltip key={option.value} content={option.title} placement="bottom">
+            <button
+              type="button"
+              onClick={() => onChange(option.value)}
+              className={`rounded px-2 py-0.5 text-[11px] font-medium transition-colors ${
+                active
+                  ? isBypass
+                    ? 'bg-[color:var(--tone-warn)]/12 text-[color:var(--tone-warn-on-tint)]'
+                    : 'bg-[color:var(--accent-primary-soft)] text-[color:var(--text-strong)]'
+                  : 'text-[color:var(--text-disabled)] hover:text-[color:var(--text-muted)]'
+              }`}
+            >
+              {option.value === 'default' ? 'Default' : option.value === 'auto_workspace' ? 'Auto' : 'Bypass'}
+            </button>
+          </Tooltip>
+        )
+      })}
+    </>
+  )
+}
+
 // The error-tone Debug Mode toggle in the picker's mode row. An independent
 // on/off control sitting beside the permission-preset group — it does not
 // change the selected preset. State is signalled by the literal "DEBUG" label

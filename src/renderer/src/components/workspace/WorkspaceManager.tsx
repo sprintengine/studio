@@ -803,19 +803,27 @@ export default function WorkspaceManager() {
       agentCliCatalog,
     )
     // Ride the remembered General model when it belongs to the spawning CLI —
-    // the same mechanism as a specialist. Seed it via an agentPatch (no tabName,
-    // so the layout is untouched) only when present, so a plain default-model
-    // chat still takes the no-seed path unchanged.
+    // the same mechanism as a specialist. Seeded via an agentPatch (no tabName,
+    // so the layout is untouched). The patch always carries the composer's
+    // permission preset and debug mode: a General chat honors the picked
+    // Default/Auto/Bypass exactly like a specialist chat does.
     const cliModel = resolveSurfaceModel(templateAgentCli, specialistModelDefaults[GENERAL_AGENT_ENGINE_KEY])
     createSoloChatWorkspace({
       folderPath,
       templateAgentCli,
-      seedAgent: cliModel ? { agentPatch: { cliModel } } : undefined,
+      seedAgent: {
+        agentPatch: {
+          ...(cliModel ? { cliModel } : {}),
+          cliPermissionPreset: agentSpawnPermissionPreset,
+          debugMode: agentSpawnDebugMode,
+        },
+      },
     })
     // Remember an explicit pick as General's own default — never the shared
     // lastSelectedCli, so a new-chat CLI never bleeds into the specialists.
     if (chosenCli) setSpecialistCliDefault(GENERAL_AGENT_ENGINE_KEY, chosenCli)
-  }, [agentCliCatalog, createSoloChatWorkspace, specialistCliDefaults, specialistModelDefaults, lastSelectedCli, setSpecialistCliDefault])
+    if (agentSpawnDebugMode) setAgentSpawnDebugMode(false)
+  }, [agentCliCatalog, agentSpawnDebugMode, agentSpawnPermissionPreset, createSoloChatWorkspace, specialistCliDefaults, specialistModelDefaults, lastSelectedCli, setSpecialistCliDefault])
 
   // Launch an isolated connector chat for any catalog entry carrying a `skill`
   // link: a fresh worktree on `connector/<id>-<uid>`, opened as a worktree-backed

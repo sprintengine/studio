@@ -19,6 +19,7 @@ import { AutomationsStore } from '../automations/store'
 import { registerAutomationsIpc } from '../ipc/automations-ipc'
 import {
   AutomationDelegateToken,
+  AutomationsAppFrontDoorToken,
   AutomationsEngineToken,
   AutomationsModuleServiceToken,
   AutomationsProviderRegistryToken,
@@ -232,7 +233,7 @@ export function createAutomationsModule(options: AutomationsModuleOptions = {}):
         }
       )
 
-      registerAutomationsIpc(host, {
+      const appFrontDoor = registerAutomationsIpc(host, {
         engine,
         getTriggerProviderRegistrations,
         getActionProviderRegistrations,
@@ -242,6 +243,9 @@ export function createAutomationsModule(options: AutomationsModuleOptions = {}):
         getEngineSidecarStatus: () => engineSidecar.status(),
         onDefinitionsChanged,
       })
+      // The automation server's automation.create/automation.run resolve this
+      // lazily; module disabled ⇒ token absent ⇒ explicit tool failure.
+      host.provideService(AutomationsAppFrontDoorToken, () => appFrontDoor)
     },
   }
 }

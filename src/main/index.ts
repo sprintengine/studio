@@ -9,6 +9,7 @@ import type { ModuleEnablementLiveApplier } from './ipc/module-enablement-ipc'
 import { activeForChannel } from '../shared/modules/dev-only'
 import { loadMainModules } from './module-host/load-modules'
 import { readModuleOverridesSync } from './module-host/enablement-store'
+import { AutomationsAppFrontDoorToken } from './module-host/service-tokens'
 import { createAgentRuntimeModule } from './modules/agent-runtime-module'
 import { createBundledMainModules } from './modules'
 import { isFirstPartyAutomationProviderModule, type AutomationProviderPermissionChecker } from './automations/provider-registry'
@@ -81,6 +82,12 @@ applyModuleEnablementLive = async (overrides) => {
   if (automationsError) return { ok: false, message: automationsError.message }
   return { ok: true }
 }
+// Automation server ← Automations module: resolved per tool call so a live
+// module disable/enable cycle is reflected immediately (token absent ⇒ tools
+// report automations_module_unavailable).
+services.setAutomationsAppFrontDoorResolver(
+  () => moduleLoad.kernel.hostFor('@host').getService(AutomationsAppFrontDoorToken) ?? null
+)
 recordThirdPartyMainLaunchReport(
   thirdPartyMainLoad.modules.map((module) => module.manifest.id),
   moduleLoad.report

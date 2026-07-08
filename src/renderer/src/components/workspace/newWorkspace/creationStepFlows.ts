@@ -64,6 +64,12 @@ export function stepsForMode(mode: CreationMode): StepId[] {
   // than through STEPS_BY_MODE. Its pane embeds the existing AgentComposer,
   // which owns the chat's whole config and create action — no config steps.
   if (mode === 'chat') return ['workspace']
-  const stepsId = getRendererHost().getWorkspaceType(mode)?.creationStepsId
-  return STEPS_BY_MODE[isCreationStepsId(stepsId) ? stepsId : 'standard']
+  const definition = getRendererHost().getWorkspaceType(mode)
+  const stepsId = definition?.creationStepsId
+  if (isCreationStepsId(stepsId)) return STEPS_BY_MODE[stepsId]
+  // A registered type with no shell flow (module-contributed types) ships its
+  // own createTemplate(): zero-config like switchboard — showing the standard
+  // layout picker would override the type's template with an IDE layout.
+  if (definition) return ['workspace']
+  return STEPS_BY_MODE.standard
 }

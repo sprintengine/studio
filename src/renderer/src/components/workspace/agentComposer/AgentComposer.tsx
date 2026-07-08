@@ -1,11 +1,11 @@
 import React from 'react'
 import { SpecialistActionIcon } from '../../AppIcons'
 import CliIcon from '../../CliIcon'
-import { CliModelListbox, Popover, Tooltip, TruncatedText } from '../../ui'
+import { CliModelListbox, Popover, TruncatedText } from '../../ui'
 import { getSpecialistAction, type SpecialistAction } from '../../../specialists/specialistActions'
 import type { AgentCli, SprintEngineCliPermissionPreset } from '../../../types/workspace'
 import { selectAgentCliCatalog } from '../newWorkspace/cliRuntimeOptions'
-import { AGENT_SPAWN_PERMISSION_OPTIONS, SpawnDebugToggle, TerminalSessionIcon } from './agentSpawnShared'
+import { PermissionPresetChips, SpawnDebugToggle, TerminalSessionIcon } from './agentSpawnShared'
 import {
   useAgentComposer,
   rowMatchesSelection,
@@ -475,27 +475,7 @@ function ComposerConfig({
 
       <div className="mt-5 border-t border-[color:var(--border-subtle)] pt-3">
         <div className="flex flex-wrap items-center gap-1">
-          {AGENT_SPAWN_PERMISSION_OPTIONS.map((option) => {
-            const active = option.value === permissionPreset
-            const isBypass = option.value === 'bypass_all'
-            return (
-              <Tooltip key={option.value} content={option.title} placement="bottom">
-                <button
-                  type="button"
-                  onClick={() => onChangePermissionPreset(option.value)}
-                  className={`rounded px-2 py-0.5 text-[11px] font-medium transition-colors ${
-                    active
-                      ? isBypass
-                        ? 'bg-[color:var(--tone-warn)]/12 text-[color:var(--tone-warn-on-tint)]'
-                        : 'bg-[color:var(--accent-primary-soft)] text-[color:var(--text-strong)]'
-                      : 'text-[color:var(--text-disabled)] hover:text-[color:var(--text-muted)]'
-                  }`}
-                >
-                  {option.value === 'default' ? 'Default' : option.value === 'auto_workspace' ? 'Auto' : 'Bypass'}
-                </button>
-              </Tooltip>
-            )
-          })}
+          <PermissionPresetChips value={permissionPreset} onChange={onChangePermissionPreset} />
           <SpawnDebugToggle active={debugMode} onChange={onChangeDebugMode} />
         </div>
       </div>

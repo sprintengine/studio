@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict'
 
+import { getRendererHost } from '../../../modules'
 import { STEPS_BY_MODE, stepsForMode } from './creationStepFlows'
 
 // 'standard' is shell-owned and resolves to the standard flow directly.
@@ -47,5 +48,32 @@ assert.deepEqual(STEPS_BY_MODE['guided-brief'], ['workspace', 'guided-idea'])
 // config steps; see NewWorkspacePanel's showAdvancedSetup).
 assert.deepEqual(STEPS_BY_MODE.switchboard, ['workspace'])
 assert.deepEqual(STEPS_BY_MODE.automations, ['workspace'])
+
+// A registered type with no creationStepsId (module-contributed workspace
+// types) resolves to the zero-config flow: its createTemplate() is the layout,
+// so the standard layout-picker step must not appear and override it. Unknown
+// UNREGISTERED ids still fall back to standard (asserted above).
+{
+  getRendererHost()
+    .hostFor('flow-test-module')
+    .registerWorkspaceType({
+      id: 'flow-test-module',
+      label: 'Flow Test',
+      description: 'Module-contributed type used by creationStepFlows tests.',
+      icon: () => null,
+      createTemplate: () => ({
+        id: 'flow-test',
+        name: 'Flow Test',
+        description: 'test',
+        previewSlots: [],
+        layout: { layout: { type: 'row', children: [] } },
+      }),
+    })
+  assert.deepEqual(
+    stepsForMode('flow-test-module'),
+    ['workspace'],
+    'module-contributed type with no creationStepsId gets the zero-config flow'
+  )
+}
 
 console.log('creation step flow tests passed')

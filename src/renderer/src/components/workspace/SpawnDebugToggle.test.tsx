@@ -143,6 +143,17 @@ run('WorkspaceManager carries the toggle into the spawn payload, resets it, and 
   )
 })
 
+run('every new-chat spawn path seeds the shared permission preset onto the agent record', () => {
+  // The composer's Default/Auto/Bypass pick must reach the launched agent on
+  // BOTH New Chat paths — the specialist seed and the General seed. The General
+  // path silently dropped it (launching Bypass picks with default permissions)
+  // until createNewChat seeded the preset like the specialist path does.
+  assert.ok(
+    (managerSource.match(/cliPermissionPreset: agentSpawnPermissionPreset/g) ?? []).length >= 5,
+    'the shared preset rides every CLI spawn path, including the General new-chat seed',
+  )
+})
+
 run('TerminalView forwards the agent debugMode into the launch metadata', () => {
   assert.match(
     terminalSource,

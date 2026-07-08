@@ -54,7 +54,7 @@ import { clearSprintEngineAgentLaunchState, mapMigrationWorkspaces } from './nor
 
 export const WORKSPACE_STORAGE_KEY = 'multicode-workspaces'
 export const APP_SETTINGS_STORAGE_KEY = 'multicode-app-settings'
-export const WORKSPACE_STORE_VERSION = 62
+export const WORKSPACE_STORE_VERSION = 63
 export const PRIMARY_WORKSPACE_WINDOW_ID: WorkspaceWindowId = 'primary'
 const LEGACY_WORKSPACE_STORAGE_KEY = ['free', 'ai', 'ide', 'workspaces'].join('-')
 
@@ -969,6 +969,39 @@ export function migratePersistedWorkspaceState(
     // Don't leave the active pointer dangling at a dropped automations workspace.
     // (Window-level active ids are reconciled by normalizeWorkspaceWindows; this
     // keeps the top-level pointer honest too.)
+    if (
+      migrationState.activeWorkspaceId
+      && !migrationState.workspaces.some((ws) => ws.id === migrationState.activeWorkspaceId)
+    ) {
+      migrationState.activeWorkspaceId = migrationState.workspaces[0]?.id ?? null
+    }
+  }
+  if (version < 63) {
+    // The per-project Automations host is one-per-folder, but before v63 the
+    // automation executor could not see restored hosts' modes on the sync bus
+    // (main rehydrated every workspace as 'standard'), so each restart's first
+    // run minted a duplicate host. Keep the earliest-created host per folder —
+    // the one the user most likely arranged — and drop the duplicates. Nothing
+    // durable is lost: automation definitions and run history live on disk under
+    // each project's `.multi-code/automations/`, and host agents are finalized
+    // runs whose launch state is cleared on load anyway. Window membership is
+    // reconciled by normalizeWorkspaceWindows during merge.
+    const keptHostByFolder = new Map<string, WorkspaceId>()
+    const folderKey = (value: string | null | undefined): string | null => {
+      const trimmed = value?.trim()
+      return trimmed ? trimmed.replace(/\\/g, '/').replace(/\/+$/u, '').toLowerCase() : null
+    }
+    const hosts = (migrationState.workspaces ?? []).filter((ws) => ws.mode === 'automations-host')
+    for (const host of [...hosts].sort((a, b) => (a.createdAt ?? 0) - (b.createdAt ?? 0))) {
+      const key = folderKey(host.folderPath)
+      if (key === null) continue
+      if (!keptHostByFolder.has(key)) keptHostByFolder.set(key, host.id)
+    }
+    migrationState.workspaces = (migrationState.workspaces ?? []).filter((ws) => {
+      if (ws.mode !== 'automations-host') return true
+      const key = folderKey(ws.folderPath)
+      return key === null || keptHostByFolder.get(key) === ws.id
+    })
     if (
       migrationState.activeWorkspaceId
       && !migrationState.workspaces.some((ws) => ws.id === migrationState.activeWorkspaceId)

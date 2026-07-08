@@ -82,7 +82,7 @@ export type AutomationsIpcDependencies = {
   createAutomationId?: (draft: AutomationDefinitionDraft) => string
 }
 
-export function registerAutomationsIpc(host: AutomationsIpcHost, deps: AutomationsIpcDependencies): void {
+export function registerAutomationsIpc(host: AutomationsIpcHost, deps: AutomationsIpcDependencies): AutomationsAppFrontDoor {
   const createStore = deps.createStore ?? ((workspaceRoot) => new AutomationsStore(workspaceRoot))
   const staticTriggerProviders = deps.triggerProviders ?? []
   const staticActionProviders = deps.actionProviders ?? []
@@ -126,13 +126,27 @@ export function registerAutomationsIpc(host: AutomationsIpcHost, deps: Automatio
     return ok(definitionForRenderer(definition.value))
   })
 
-  host.registerIpc(AUTOMATIONS_CREATE_CHANNEL, async (_event, input: unknown): Promise<AutomationsDefinitionResult> => {
+  // Shared by the IPC channel and the app-level front door (automation server
+  // tools): one parse+write pipeline, so external creates get the identical
+  // validation, ownership stamping, and post-write refresh.
+  const createDefinition = async (input: unknown): Promise<AutomationsDefinitionResult> => {
     const parsed = parseCreateInput(input, deps.getWorkspaceSyncSnapshot)
     if (!parsed.ok) return parsed
 
     const created = withPostWriteFailure(await writeCore.create(parsed.value.workspaceRoot, parsed.value.definition))
     if (!created.ok) return created
     return ok(definitionForRenderer(created.value))
+  }
+
+  const runNow = async (input: unknown): Promise<AutomationsRunNowIpcResult> => {
+    const parsed = parseDefinitionInput(input, deps.getWorkspaceSyncSnapshot)
+    if (!parsed.ok) return parsed
+    const result = await deps.engine.runNow(parsed.value)
+    return engineRunNowResult(result)
+  }
+
+  host.registerIpc(AUTOMATIONS_CREATE_CHANNEL, async (_event, input: unknown): Promise<AutomationsDefinitionResult> => {
+    return createDefinition(input)
   })
 
   host.registerIpc(AUTOMATIONS_UPDATE_CHANNEL, async (_event, input: unknown): Promise<AutomationsDefinitionResult> => {
@@ -158,10 +172,7 @@ export function registerAutomationsIpc(host: AutomationsIpcHost, deps: Automatio
   })
 
   host.registerIpc(AUTOMATIONS_RUN_NOW_CHANNEL, async (_event, input: unknown): Promise<AutomationsRunNowIpcResult> => {
-    const parsed = parseDefinitionInput(input, deps.getWorkspaceSyncSnapshot)
-    if (!parsed.ok) return parsed
-    const result = await deps.engine.runNow(parsed.value)
-    return engineRunNowResult(result)
+    return runNow(input)
   })
 
   host.registerIpc(AUTOMATIONS_RUN_FINALIZE_CHANNEL, async (_event, input: unknown): Promise<AutomationsRunFinalizeResult> => {
@@ -195,6 +206,17 @@ export function registerAutomationsIpc(host: AutomationsIpcHost, deps: Automatio
     if (!status) return ok({ state: 'unavailable' })
     return ok({ state: status.state, ...(status.error ? { error: status.error } : {}) })
   })
+
+  return { createDefinition, runNow }
+}
+
+// App-level front door over the exact IPC pipeline (parse, workspace-root
+// trust, write core, engine). The automations module provides it as a kernel
+// service so the automation server's tools mutate through the same path the
+// UI does; inputs stay `unknown` because the pipeline owns validation.
+export type AutomationsAppFrontDoor = {
+  createDefinition(input: unknown): Promise<AutomationsDefinitionResult>
+  runNow(input: unknown): Promise<AutomationsRunNowIpcResult>
 }
 
 function providerView(

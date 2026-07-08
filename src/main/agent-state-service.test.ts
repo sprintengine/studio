@@ -175,7 +175,11 @@ async function run(): Promise<void> {
             ...process.env,
             MULTICODE_AGENT_ID: 'prec-agent',
             MULTICODE_WORKSPACE_ID: 'prec-ws',
-            ...(envSocket ? { MULTICODE_AGENT_STATE_SOCKET: envSocket } : {}),
+            // Always override: when this test itself runs inside a Multicode
+            // agent session, the launch env carries the LIVE app's socket —
+            // inheriting it would silently redirect the "fallback" run to the
+            // real app. Empty string is falsy, so the reporter falls to --socket.
+            MULTICODE_AGENT_STATE_SOCKET: envSocket ?? '',
           },
           stdio: ['pipe', 'ignore', 'ignore'],
         })
@@ -204,6 +208,27 @@ async function run(): Promise<void> {
 
     envServer.close()
     argServer.close()
+
+    // --- reporter bounded retry -------------------------------------------
+    // First attempt fails (no listener yet: ENOENT fast-fail), the listener
+    // appears during the ~200ms backoff, and the retry delivers the frame.
+    const lateSockPath = join(sockDir, 'late-instance.sock')
+    const lateFrames: string[] = []
+    const reporterRun = runReporter(lateSockPath, join(sockDir, 'never-exists.sock'))
+    await new Promise((r) => setTimeout(r, 80))
+    const lateServer = await listenLines(lateSockPath, lateFrames)
+    await reporterRun
+    await waitFor(() => lateFrames.length >= 1)
+    const lateFrame = JSON.parse(lateFrames[0]) as { phase?: string }
+    assert.equal(lateFrame.phase, 'idle', 'retry delivered the Stop frame once the listener appeared')
+    lateServer.close()
+
+    // Permanently dead socket: still exits 0 (never throws into the CLI) and
+    // stays well inside the bounded deadline (fast connect failures + backoff,
+    // not the full per-attempt timeout).
+    const deadStart = Date.now()
+    await runReporter(join(sockDir, 'gone-a.sock'), join(sockDir, 'gone-b.sock'))
+    assert.ok(Date.now() - deadStart < 3000, 'dead-socket reporter run must stay inside the retry deadline')
   }
 
   console.log('agent-state-service.test.ts: all assertions passed')

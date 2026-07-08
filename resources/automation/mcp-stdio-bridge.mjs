@@ -19,7 +19,7 @@
 //
 // Standalone by design: only node: builtins, runs on any recent Node.
 
-import { readFileSync } from 'node:fs'
+import { existsSync, readFileSync } from 'node:fs'
 import { connect } from 'node:net'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
@@ -50,14 +50,20 @@ function parseInfoPathArg(argv) {
   return infoPath
 }
 
-function defaultUserDataDir() {
-  if (process.platform === 'darwin') return join(homedir(), 'Library', 'Application Support', 'Multicode')
+// Electron derives userData from package.json's `name` ("multicode",
+// lowercase). "Multicode" is kept as a fallback for case-sensitive
+// filesystems in case a future release promotes productName to the app name.
+function defaultUserDataDirs() {
+  if (process.platform === 'darwin') {
+    const base = join(homedir(), 'Library', 'Application Support')
+    return [join(base, 'multicode'), join(base, 'Multicode')]
+  }
   if (process.platform === 'win32') {
     const appData = process.env.APPDATA
-    return appData ? join(appData, 'Multicode') : null
+    return appData ? [join(appData, 'multicode'), join(appData, 'Multicode')] : []
   }
   const configHome = process.env.XDG_CONFIG_HOME || join(homedir(), '.config')
-  return join(configHome, 'Multicode')
+  return [join(configHome, 'multicode'), join(configHome, 'Multicode')]
 }
 
 function resolveInfoPath() {
@@ -65,9 +71,9 @@ function resolveInfoPath() {
   if (explicit) return explicit
   const envDir = process.env.MULTICODE_USER_DATA_DIR?.trim()
   if (envDir) return join(envDir, INFO_FILENAME)
-  const defaultDir = defaultUserDataDir()
-  if (!defaultDir) fail('Could not resolve the Multicode data directory; pass --info-path.')
-  return join(defaultDir, INFO_FILENAME)
+  const candidates = defaultUserDataDirs().map((dir) => join(dir, INFO_FILENAME))
+  if (candidates.length === 0) fail('Could not resolve the Multicode data directory; pass --info-path.')
+  return candidates.find((candidate) => existsSync(candidate)) ?? candidates[0]
 }
 
 function readServerInfo(infoPath) {
@@ -108,13 +114,18 @@ const infoPath = resolveInfoPath()
 const info = readServerInfo(infoPath)
 
 const socket = connect(info.socketPath)
+let connected = false
 
 socket.on('connect', () => {
+  connected = true
   process.stdin.pipe(socket)
   socket.pipe(process.stdout)
 })
 
 socket.on('error', (error) => {
+  if (connected) {
+    fail(`Connection to the Multicode automation server was lost: ${error.message}`)
+  }
   const alive = appearsAlive(info.pid)
   if (alive === false) {
     fail(

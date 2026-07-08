@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type MutableRefObjec
 import { LAYOUT_TEMPLATES } from '../../layouts/templates'
 import { userLayoutTemplateToTemplate } from '../../layouts/userTemplates'
 import { useWorkspaceStore } from '../../store/workspaceStore'
+import { getRendererHost } from '../../modules'
 import { createMultiloopTemplate } from '../../modules/multiloop-workspace-types'
 import { createGuidedBriefTemplate } from '../../modules/sprint-engine-workspace-types'
 import { AUTOMATIONS_HOST_WORKSPACE_MODE } from '../../types/workspace'
@@ -95,7 +96,7 @@ import { shouldShowKnowledgeStep } from './newWorkspace/knowledgeFolders'
 import { normalizeProjectRootKey } from '../../utils/projectKnowledge'
 import { CliPermissionPresetRow, PathRadio, RosterAndRunSettings } from './newWorkspace/WizardControls'
 import { ArchitectTeamCard } from './newWorkspace/ArchitectTeamCard'
-import { pruneSprintEngineRoleCliDefaults, pruneSprintEngineRoleModelOverrides, resolveInitialSprintEngineRoster, sprintEngineRosterMatchesTeam } from './newWorkspace/savedTeams'
+import { DEFAULT_SPRINT_ENGINE_ROLE_CLI_DEFAULTS, DEFAULT_SPRINT_ENGINE_ROLE_COUNTS, pruneSprintEngineRoleCliDefaults, pruneSprintEngineRoleModelOverrides, resolveInitialSprintEngineRoster, sprintEngineRosterMatchesTeam } from './newWorkspace/savedTeams'
 import {
   resolveAvailableAgentCli,
   selectAgentCliCatalog,
@@ -112,6 +113,7 @@ import {
   buildSprintEngineEffectiveSpawnAtStartRoles,
   buildSprintEngineExistingTeamCreation,
   buildAutomationsCreation,
+  buildModuleTypeCreation,
   buildStandardCreation,
   buildSwitchboardCreation,
   runDesignSystemScaffold,
@@ -198,40 +200,11 @@ const SOURCE_BUNDLE_KIND_OPTIONS: Array<{ value: SprintEngineSourceBundleKind; l
   { value: 'generic_context', label: SOURCE_BUNDLE_KIND_LABELS.generic_context },
 ]
 
-// Default first-run team for a from-scratch Sprint Engine: a runnable
-// plan -> build -> review loop, not just planners. A novice who lands on the
-// roster step can press Continue and get a team that actually implements and
-// reviews work. Saved teams override this; it only seeds when none exists.
-const initialSprintEngineRoleCounts: SprintEngineRoleCounts = {
-  architect: 1,
-  product: 1,
-  frontend: 0,
-  ui_ux_reviewer: 0,
-  developer: 1,
-  code_reviewer: 1,
-  spec_reviewer: 0,
-  performance: 0,
-  production_readiness_reviewer: 0,
-  cross_platform: 0,
-  tester: 0,
-  security: 0,
-}
-
-const initialSprintEngineRoleCliDefaults: Required<SprintEngineRoleCliDefaults> = {
-  architect: 'claude-code',
-  product: 'claude-code',
-  frontend: 'claude-code',
-  ui_ux_reviewer: 'claude-code',
-  developer: 'claude-code',
-  code_reviewer: 'claude-code',
-  nuclear_reviewer: 'claude-code',
-  spec_reviewer: 'claude-code',
-  performance: 'claude-code',
-  production_readiness_reviewer: 'claude-code',
-  cross_platform: 'claude-code',
-  tester: 'claude-code',
-  security: 'claude-code',
-}
+// Default first-run team + CLI map moved to newWorkspace/savedTeams.ts so the
+// automation server's sprint.create seeds the identical roster; these aliases
+// keep the wizard's local vocabulary.
+const initialSprintEngineRoleCounts = DEFAULT_SPRINT_ENGINE_ROLE_COUNTS
+const initialSprintEngineRoleCliDefaults = DEFAULT_SPRINT_ENGINE_ROLE_CLI_DEFAULTS
 
 function cloneSprintEngineRoleCounts(roleCounts: SprintEngineRoleCounts): SprintEngineRoleCounts {
   return { ...roleCounts }
@@ -2142,6 +2115,23 @@ export default function NewWorkspacePanel({
             error instanceof Error ? error.message : 'Could not create the sprint workspace.',
           )
         }
+      } finally {
+        setIsCreating(false)
+      }
+      return
+    }
+
+    // Module-contributed workspace types (no shell branch above): the
+    // registered definition's createTemplate() is the layout; the flow showed
+    // no layout picker (see stepsForMode), so nothing here overrides it.
+    if (mode !== 'standard' && getRendererHost().getWorkspaceType(mode)) {
+      if (!folderPath) return
+      const args = buildModuleTypeCreation({ mode, name, folderPath })
+      setIsCreating(true)
+      try {
+        if (await persistAdvancedSetup(folderPath)) return
+        onCreate(args)
+        onClose()
       } finally {
         setIsCreating(false)
       }

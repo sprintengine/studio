@@ -346,6 +346,40 @@ assert.equal(
   false,
 )
 
+// The Automations host is one-per-project, same contract as Switchboard: a
+// second create for the same folder (mode card or automation executor) reuses
+// the existing host instead of minting a duplicate.
+const firstHostId = useWorkspaceStore.getState().addWorkspace(standardTemplate, {
+  name: 'Automations',
+  folderPath: '/Users/example/automations',
+  mode: 'automations-host',
+})
+useWorkspaceStore.getState().setFolderMissing(firstHostId, true)
+const reusedHostId = useWorkspaceStore.getState().addWorkspace(standardTemplate, {
+  name: 'Nightly reviewer',
+  folderPath: '/Users/example/automations/',
+  mode: 'automations-host',
+})
+state = useWorkspaceStore.getState()
+assert.equal(reusedHostId, firstHostId, 'a same-folder automations-host create reuses the existing host')
+assert.equal(state.workspaces.filter((workspace) => workspace.mode === 'automations-host').length, 1)
+assert.equal(state.workspaces.find((workspace) => workspace.id === firstHostId)?.folderMissing, false)
+assert.equal(
+  state.workspaces.find((workspace) => workspace.id === firstHostId)?.name,
+  'Automations',
+  'reuse keeps the existing host untouched — the second create\'s name never rebrands it',
+)
+assert.equal(state.activeWorkspaceId, firstHostId)
+// A different folder still gets its own host.
+const secondFolderHostId = useWorkspaceStore.getState().addWorkspace(standardTemplate, {
+  name: 'Automations',
+  folderPath: '/Users/example/other-project',
+  mode: 'automations-host',
+})
+assert.notEqual(secondFolderHostId, firstHostId)
+useWorkspaceStore.getState().removeWorkspace(firstHostId)
+useWorkspaceStore.getState().removeWorkspace(secondFolderHostId)
+
 const guidedBriefState: GuidedBriefRuntimeState = {
   workspaceRoot: '/Users/example/guided',
   workspaceName: 'Guided Project',
