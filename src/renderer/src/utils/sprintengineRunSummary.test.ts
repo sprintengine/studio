@@ -143,15 +143,11 @@ function testBuildRunReportDerivesStatusesNeedsInputAndFindings(): void {
             schemaVersion: 1,
             capturedAt: '',
             source: 'reviewer_assessment',
-            agentId: 'code_reviewer-1',
+            agentId: 'security-1',
             role: 'developer',
             scores: {},
             findings: [{ id: 'F2', kind: 'security_issue', severity: 'critical', area: 'security', title: 'sev', detail: '' }],
           },
-        ],
-        qualityGates: [
-          { id: 'g1', phase: 'review', role: 'code_reviewer', status: 'approved', required: true, allowSelfReview: false, attempts: [] },
-          { id: 'g2', phase: 'testing', role: 'tester', status: 'pending', required: true, allowSelfReview: false, attempts: [] },
         ],
       }),
       makeTask({
@@ -161,7 +157,7 @@ function testBuildRunReportDerivesStatusesNeedsInputAndFindings(): void {
         needsInput: { kind: 'user', question: 'Which datastore?' },
         notes: ['Pending a decision on persistence'],
       }),
-      makeTask({ id: 'T3', status: 'changes_requested', role: 'developer' }),
+      makeTask({ id: 'T3', status: 'review', role: 'developer' }),
     ],
   })
 
@@ -170,7 +166,7 @@ function testBuildRunReportDerivesStatusesNeedsInputAndFindings(): void {
   assert.equal(report.totalTasks, 3)
   assert.equal(report.doneTasks, 1)
   assert.equal(report.statusCounts.needs_input, 1)
-  assert.equal(report.statusCounts.changes_requested, 1)
+  assert.equal(report.statusCounts.review, 1)
 
   assert.equal(report.needsInput.length, 1)
   assert.equal(report.needsInput[0].reason, 'Which datastore?', 'needs-input reason comes from the question')
@@ -189,8 +185,6 @@ function testBuildRunReportDerivesStatusesNeedsInputAndFindings(): void {
   assert.equal(report.metrics.commands, 1)
   assert.equal(report.metrics.validations, 1)
   assert.equal(report.metrics.findings, 2)
-  assert.equal(report.metrics.gatesApproved, 1)
-  assert.equal(report.metrics.gatesTotal, 2)
 
   assert.equal(report.runDurationMs, 3 * 3600_000 + 42 * 60_000)
 }
@@ -327,7 +321,7 @@ function testBuildAgentTaskDetailJoinsTasksCountsAndFindings(): void {
           schemaVersion: 1,
           capturedAt: '',
           source: 'reviewer_assessment',
-          agentId: 'code_reviewer-1',
+          agentId: 'security-1',
           role: 'developer',
           scores: {},
           findings: [
@@ -484,7 +478,7 @@ function testAgentTypeSummaryGroupsByRoleAndCli(): void {
       T6: { reviewSampleCount: 1, counts: {} },
     }),
     // Reviewer + planner rows must be excluded from an implementation headline.
-    { agentId: 'code_reviewer-1', role: 'code_reviewer', status: 'done', tasksDone: 2, metrics: null },
+    { agentId: 'security-1', role: 'security', status: 'done', tasksDone: 2, metrics: null },
     { agentId: 'ui_ux_reviewer-1', role: 'ui_ux_reviewer', status: 'done', tasksDone: 1, metrics: null },
     { agentId: 'architect-1', role: 'architect', status: 'done', tasksDone: 2, metrics: null },
   ]
@@ -492,7 +486,7 @@ function testAgentTypeSummaryGroupsByRoleAndCli(): void {
     'developer-1': 'codex',
     'developer-2': 'codex',
     'frontend-1': 'claude-code',
-    'code_reviewer-1': 'claude-code',
+    'security-1': 'claude-code',
     'ui_ux_reviewer-1': 'claude-code',
     'architect-1': 'codex',
   }
@@ -628,8 +622,8 @@ function testBuildAgentActivityTimelineDerivesHandoffs(): void {
       activity: [
         activityEntry('2026-06-03T10:00:00Z', 'developer-1', 'claim'),
         activityEntry('2026-06-03T10:05:00Z', 'developer-1', 'evidence'),
-        activityEntry('2026-06-03T10:30:00Z', 'code_reviewer-1', 'status_change', 'review'),
-        activityEntry('2026-06-03T10:40:00Z', 'code_reviewer-1', 'status_change', 'done'),
+        activityEntry('2026-06-03T10:30:00Z', 'security-1', 'status_change', 'review'),
+        activityEntry('2026-06-03T10:40:00Z', 'security-1', 'status_change', 'done'),
       ],
     }),
     // No activity log: falls back to the implementer's started→completed window.
@@ -647,10 +641,10 @@ function testBuildAgentActivityTimelineDerivesHandoffs(): void {
       creation: { createdAt: '2026-06-03T09:55:00Z', updatedAt: '2026-06-03T11:15:00Z' },
       sprintEngineAgents: {
         'developer-1': agentRecord('developer', { joinedAt: '2026-06-03T09:58:00Z' }),
-        'code_reviewer-1': agentRecord('code_reviewer', { joinedAt: '2026-06-03T10:25:00Z' }),
+        'security-1': agentRecord('security', { joinedAt: '2026-06-03T10:25:00Z' }),
       },
     }),
-    { 'developer-1': 'developer', 'code_reviewer-1': 'code_reviewer' }
+    { 'developer-1': 'developer', 'security-1': 'security' }
   )
   assert.ok(timeline, 'timeline builds when activity/timing exist')
 
@@ -658,28 +652,27 @@ function testBuildAgentActivityTimelineDerivesHandoffs(): void {
   assert.equal(timeline!.startMs, Date.parse('2026-06-03T09:55:00Z'))
   assert.equal(timeline!.endMs, Date.parse('2026-06-03T11:15:00Z'))
 
+  // MC-1542 single-owner tasks: every phase of a task — implementation and its
+  // own review — belongs to the one agent that owns it. The reviewer-authored
+  // status_change entries do NOT give security-1 its own lane; the review
+  // phase is attributed to the implementer, so only developer-1 gets a lane.
   const dev = timeline!.rows.find((r) => r.agentId === 'developer-1')
-  const reviewer = timeline!.rows.find((r) => r.agentId === 'code_reviewer-1')
-  assert.ok(dev && reviewer, 'both actors get a lane')
+  const reviewer = timeline!.rows.find((r) => r.agentId === 'security-1')
+  assert.ok(dev, 'the implementer gets a lane')
+  assert.ok(!reviewer, 'a status-change-only reviewer never gets its own lane under single-owner tasks')
+  assert.equal(timeline!.rows.length, 1, 'only the implementer holds task time')
 
-  // dev's claim+evidence slivers on T1 merge into one in_progress bar [10:00,10:30],
-  // and the activity-less T2 adds a second bar [10:50,11:10].
+  // dev's implementation + review slivers on T1 merge into one contiguous bar
+  // [10:00,10:40], and the activity-less T2 adds a second bar [10:50,11:10].
   assert.equal(dev!.role, 'developer')
   assert.deepEqual(
     dev!.segments.map((s) => [s.taskId, s.status, s.startMs, s.endMs]),
     [
-      ['T1', 'in_progress', Date.parse('2026-06-03T10:00:00Z'), Date.parse('2026-06-03T10:30:00Z')],
+      ['T1', 'in_progress', Date.parse('2026-06-03T10:00:00Z'), Date.parse('2026-06-03T10:40:00Z')],
       ['T2', 'in_progress', Date.parse('2026-06-03T10:50:00Z'), Date.parse('2026-06-03T11:10:00Z')],
     ]
   )
-  assert.equal(dev!.activeMs, 30 * 60000 + 20 * 60000, 'active time sums both bars')
-
-  // Reviewer holds T1 through the review phase [10:30,10:40]; the trailing
-  // done-at-completion entry is zero-length and dropped.
-  assert.deepEqual(
-    reviewer!.segments.map((s) => [s.taskId, s.status]),
-    [['T1', 'review']]
-  )
+  assert.equal(dev!.activeMs, 40 * 60000 + 20 * 60000, 'active time sums both bars')
 
   // Earliest-active agent leads the lane order.
   assert.equal(timeline!.rows[0].agentId, 'developer-1')
@@ -736,9 +729,9 @@ function testBuildAgentActivityTimelineAttributesByPhase(): void {
         activityEntry('2026-06-03T10:20:00Z', 'architect-1', 'feedback'),
         activityEntry('2026-06-03T10:40:00Z', 'developer-1', 'evidence'),
         activityEntry('2026-06-03T10:50:00Z', 'developer-1', 'status_change', 'review'),
-        activityEntry('2026-06-03T10:52:00Z', 'spec_reviewer-1', 'gate_claim'),
-        activityEntry('2026-06-03T11:00:00Z', 'spec_reviewer-1', 'gate_verdict'),
-        activityEntry('2026-06-03T11:00:00Z', 'spec_reviewer-1', 'status_change', 'done'),
+        activityEntry('2026-06-03T10:52:00Z', 'performance-1', 'gate_claim'),
+        activityEntry('2026-06-03T11:00:00Z', 'performance-1', 'gate_verdict'),
+        activityEntry('2026-06-03T11:00:00Z', 'performance-1', 'status_change', 'done'),
       ],
     }),
   ]
@@ -749,32 +742,30 @@ function testBuildAgentActivityTimelineAttributesByPhase(): void {
       sprintEngineAgents: {
         'developer-1': agentRecord('developer', { joinedAt: '2026-06-03T09:59:00Z' }),
         'architect-1': agentRecord('architect', { joinedAt: '2026-06-03T09:59:00Z' }),
-        'spec_reviewer-1': agentRecord('spec_reviewer', { joinedAt: '2026-06-03T09:59:00Z' }),
+        'performance-1': agentRecord('performance', { joinedAt: '2026-06-03T09:59:00Z' }),
       },
     }),
-    { 'developer-1': 'developer', 'architect-1': 'architect', 'spec_reviewer-1': 'spec_reviewer' }
+    { 'developer-1': 'developer', 'architect-1': 'architect', 'performance-1': 'performance' }
   )
   assert.ok(timeline)
 
-  // Developer owns the whole implementation phase [10:00,10:50] as ONE bar — the
-  // architect feedback and the user artifact in between do not split it.
+  // MC-1542 single-owner tasks: the implementer owns every phase of its task —
+  // both implementation and its own review. The mid-build architect feedback and
+  // user artifact do not split the bar, and the reviewer-authored status_change
+  // entries do not hand the review phase to another lane. developer-1's
+  // implementation [10:00,10:50] and review [10:50,11:00] merge into ONE bar.
   const dev = timeline!.rows.find((r) => r.agentId === 'developer-1')
   assert.deepEqual(
     dev!.segments.map((s) => [s.taskId, s.status, s.startMs, s.endMs]),
-    [['T1', 'in_progress', Date.parse('2026-06-03T10:00:00Z'), Date.parse('2026-06-03T10:50:00Z')]]
+    [['T1', 'in_progress', Date.parse('2026-06-03T10:00:00Z'), Date.parse('2026-06-03T11:00:00Z')]]
   )
 
-  // The review phase belongs to the reviewer who worked it.
-  const reviewer = timeline!.rows.find((r) => r.agentId === 'spec_reviewer-1')
-  assert.deepEqual(
-    reviewer!.segments.map((s) => [s.taskId, s.status]),
-    [['T1', 'review']]
-  )
-
-  // The architect (only a mid-build commenter) gets NO bar and no lane; the
-  // non-roster user actor never appears.
+  // No one but the implementer holds task time: the reviewer, the mid-build
+  // architect commenter, and the non-roster user actor all get no lane.
+  assert.equal(timeline!.rows.find((r) => r.agentId === 'performance-1'), undefined)
   assert.equal(timeline!.rows.find((r) => r.agentId === 'architect-1'), undefined)
   assert.equal(timeline!.rows.find((r) => r.agentId === 'usr_abc'), undefined)
+  assert.equal(timeline!.rows.length, 1, 'only the implementer holds task time')
 }
 
 function testBuildAgentActivityTimelineEmptyCases(): void {

@@ -9,12 +9,10 @@ import {
   getNextSprintEngineAgentId,
   sprintEngineEnabledRoles,
   formatSprintEngineLockAge,
-  getActiveSprintEngineLifecyclePhases,
   getLatestSprintEngineTaskComment,
   getOpenSprintEngineFeedbackComments,
   getOpenSprintEngineFeedbackFindings,
   getOpenSprintEngineFeedbackIssues,
-  getOpenSprintEngineQualityGates,
   getSprintEngineBoardRunPhase,
   getSprintEngineKanbanEmptyMessage,
   getSprintEngineRoleAccent,
@@ -27,10 +25,7 @@ import {
   getSprintEngineTaskOwnerLabel,
   getReviewableSprintEngineArtifacts,
   getSprintEngineArtifactAutoApprovalEligibility,
-  getSprintEngineTaskQualityGates,
-  getSprintEngineTasksReviewedByAgent,
   getSprintEngineTasksWorkedOnByAgent,
-  getSprintEngineVisibleBoardColumns,
   getUserDisabledSprintEngineRoleIds,
   humanizeSprintEngineRoleId,
   isBundledSprintEngineRole,
@@ -52,7 +47,6 @@ import {
   willResumeRecordedRosterSession,
 } from './sprintengine'
 import { taskGraphEdgeStyle, taskGraphEndEdgeStyle } from '../components/panels/sprintEngineTaskGraph'
-import { sprintEngineGateAttemptVisualState } from '../components/panels/sprintEngineInspector'
 import {
   BUNDLED_SPRINT_ENGINE_ADDABLE_ROLES,
   BUNDLED_SPRINT_ENGINE_BOARD_ROLE_SUMMARIES,
@@ -145,13 +139,13 @@ function fakeProjection(overrides: Partial<Record<string, unknown>> = {}): Recor
       },
       {
         id: 'T3',
-        title: 'Rework task',
+        title: 'Task under self-review',
         description: '',
         role: 'developer',
-        status: 'changes_requested',
-        folderStatus: 'changes_requested',
-        stateStatus: 'changes_requested',
-        boardColumn: 'changes_requested',
+        status: 'review',
+        folderStatus: 'review',
+        stateStatus: 'review',
+        boardColumn: 'review',
         ownedPaths: [],
         dependsOn: ['T1'],
         acceptanceCriteria: [],
@@ -261,9 +255,9 @@ assert.equal(
   'the next worker steps past developer-1',
 )
 assert.equal(
-  getNextSprintEngineAgentId('nuclear_reviewer', { nuclear_reviewer: rt('nuclear_reviewer') }),
-  'nuclear_reviewer-2',
-  'a seated bare reviewer id counts as index 1, so a worker mint steps to -2',
+  getNextSprintEngineAgentId('security', { security: rt('security') }),
+  'security-2',
+  'a seated bare role id counts as index 1, so a worker mint steps to -2',
 )
 
 // MC-1450: run.roleRuntimes (run.yaml per-role {model, cli}) rides the
@@ -294,16 +288,16 @@ assert.deepEqual(reNormalized!.roleRuntimes, roleRuntimesState!.roleRuntimes)
 assert.equal(normalizeSprintEngineProjection(fakeProjection())!.roleRuntimes, undefined)
 
 // run.configuredRoles (the run's enabled role set) rides the projection so the
-// roster view can show configured-but-unseated reviewer roles under the lazy
+// roster view can show configured-but-unseated roles under the lazy
 // roster. De-duped, registry-validated, order-stable, and survives re-normalize.
 const configuredRolesState = normalizeSprintEngineProjection(fakeProjection({
   run: {
     id: 'run-id', name: 'Sample Run', goal: 'Test goal', status: 'executing',
     rosterConfigured: true, updatedAt: '2026-05-16T20:00:00Z',
-    configuredRoles: ['architect', 'developer', 'nuclear_reviewer', 'developer', 'tester', '  ', 42],
+    configuredRoles: ['architect', 'developer', 'security', 'developer', 'tester', '  ', 42],
   },
 }))
-assert.deepEqual(configuredRolesState!.configuredRoles, ['architect', 'developer', 'nuclear_reviewer', 'tester'])
+assert.deepEqual(configuredRolesState!.configuredRoles, ['architect', 'developer', 'security', 'tester'])
 assert.deepEqual(
   normalizeSprintEngineState(configuredRolesState)!.configuredRoles,
   configuredRolesState!.configuredRoles,
@@ -317,7 +311,7 @@ assert.equal(normalizeSprintEngineProjection(fakeProjection())!.configuredRoles,
 // ride through so the Inbox can split the approved glyph.
 const artifactStatusState = normalizeSprintEngineProjection(fakeProjection({
   artifacts: [
-    { id: 'A-recorded', kind: 'code_review', title: 'Gate evidence', path: 'evidence/a.md', status: 'recorded', createdBy: 'nuclear_reviewer', taskId: 'T1' },
+    { id: 'A-recorded', kind: 'code_review', title: 'Gate evidence', path: 'evidence/a.md', status: 'recorded', createdBy: 'security', taskId: 'T1' },
     { id: 'A-manual', kind: 'design_notes', title: 'Manual', path: 'd.md', status: 'approved', createdBy: 'frontend', taskId: 'T1', approvedAt: '2026-05-16T20:00:00Z', approvalMode: 'manual' },
     { id: 'A-policy', kind: 'design_notes', title: 'Policy', path: 'p.md', status: 'approved', createdBy: 'frontend', taskId: 'T1', approvedAt: '2026-05-16T20:00:00Z', approvalMode: 'policy' },
     { id: 'A-legacy', kind: 'design_notes', title: 'Legacy', path: 'l.md', status: 'approved', createdBy: 'frontend', taskId: 'T1' },
@@ -501,13 +495,14 @@ assert.equal(
   deriveSprintEngineRunGlyph({ sprintEngineState: { tasks: [boardTask('done')] }, autoState: pausedRunner })?.state,
   'done',
 )
-// Changes requested outranks a plain in-progress task — review churn is not hidden.
+// A task in `review` is active work: its own owner is reviewing the diff it just
+// published, so the run reads as in progress rather than idle.
 assert.deepEqual(
   deriveSprintEngineRunGlyph({
-    sprintEngineState: { tasks: [boardTask('changes_requested'), boardTask('in_progress')] },
+    sprintEngineState: { tasks: [boardTask('review'), boardTask('in_progress')] },
     autoState: manualIdle,
   }),
-  { state: 'changes_requested', live: false, label: 'Changes requested' },
+  { state: 'in_progress', live: false, label: 'In progress' },
 )
 // Some done + nothing running → paused.
 assert.equal(
@@ -563,12 +558,6 @@ const dispatchState = normalizeSprintEngineProjection(fakeProjection({
       role: 'frontend',
       status: 'running',
       currentTaskId: 'T4',
-      currentGateId: 'tester',
-      currentGate: {
-        taskId: 'T4',
-        gateId: 'tester',
-        attemptId: 'GA-001',
-      },
       currentDispatch: {
         dispatchId: 'DISP-6ed51f5daa40b4bd',
         targetKind: 'task',
@@ -587,12 +576,6 @@ assert.deepEqual(dispatchState?.sprintEngineAgents['frontend-3']?.currentDispatc
   reason: 'task_claimed',
   taskId: 'T4',
   assignedAt: '2026-05-20T21:49:44Z',
-})
-assert.equal(dispatchState?.sprintEngineAgents['frontend-3']?.currentGateId, 'tester')
-assert.deepEqual(dispatchState?.sprintEngineAgents['frontend-3']?.currentGate, {
-  taskId: 'T4',
-  gateId: 'tester',
-  attemptId: 'GA-001',
 })
 
 const runnerState = normalizeSprintEngineProjection(fakeProjection({
@@ -697,15 +680,15 @@ assert.equal(readyTask.stateStatus, 'todo')
 // Semantic status mirrors stateStatus when present, not the board column.
 assert.equal(readyTask.status, 'todo')
 
-const changesRequestedTask = state!.tasks.find((task) => task.id === 'T3')!
-assert.equal(changesRequestedTask.boardColumn, 'changes_requested')
-assert.equal(changesRequestedTask.folderStatus, 'changes_requested')
-assert.equal(changesRequestedTask.stateStatus, 'changes_requested')
-assert.equal(changesRequestedTask.status, 'changes_requested')
+const reviewTask = state!.tasks.find((task) => task.id === 'T3')!
+assert.equal(reviewTask.boardColumn, 'review')
+assert.equal(reviewTask.folderStatus, 'review')
+assert.equal(reviewTask.stateStatus, 'review')
+assert.equal(reviewTask.status, 'review')
 
 // getSprintEngineTaskBoardColumn prefers the projection's authoritative boardColumn.
 assert.equal(getSprintEngineTaskBoardColumn(readyTask, state!.tasks), 'ready')
-assert.equal(getSprintEngineTaskBoardColumn(changesRequestedTask, state!.tasks), 'changes_requested')
+assert.equal(getSprintEngineTaskBoardColumn(reviewTask, state!.tasks), 'review')
 assert.equal(getSprintEngineTaskBoardColumn(doneTask, state!.tasks), 'done')
 assert.deepEqual(
   orderSprintEngineBoardColumnTasks('done', [
@@ -725,7 +708,8 @@ assert.deepEqual(
   ['SECOND', 'FIRST'],
 )
 assert.equal(isSprintEngineTaskLaunchable(readyTask, state!), true)
-assert.equal(isSprintEngineTaskLaunchable(changesRequestedTask, state!), true)
+// A task in `review` is owned by its implementer through `done` — never free work.
+assert.equal(isSprintEngineTaskLaunchable(reviewTask, state!), false)
 assert.equal(isSprintEngineTaskLaunchable(doneTask, state!), false)
 
 assert.equal(getSprintEngineStartupCommandMode('developer', 'developer-1', state), 'join')
@@ -829,9 +813,13 @@ const unavailable = normalizeSprintEngineProjection({
 })
 assert.equal(unavailable?.projection?.source, 'unavailable')
 
-// --- Quality gate projection normalization ---
-
-const gatedProjection = fakeProjection({
+// --- Review-task projection normalization ---
+// MC-1542 single-owner tasks deleted quality gates (qualityPolicy / qualityGates
+// / qualityGateSummary and the changes_requested / testing / product statuses).
+// What survives — and this block still pins — is the `review` board column
+// round-trip, stateStatus driving the semantic status while a task lives in the
+// review folder, and the comment / feedback / recorded-artifact surfaces.
+const reviewProjection = fakeProjection({
   run: {
     id: 'run-id',
     name: 'Sample Run',
@@ -839,27 +827,16 @@ const gatedProjection = fakeProjection({
     status: 'executing',
     rosterConfigured: true,
     updatedAt: '2026-05-16T20:00:00Z',
-    qualityPolicy: {
-      enabled: true,
-      rosterDriven: true,
-      lifecyclePhases: ['review', 'testing'],
-      gates: {
-        code_reviewer: { phase: 'review', role: 'code_reviewer', required: true, focus: 'integration risk' },
-        tester: { phase: 'testing', role: 'tester', required: true },
-      },
-    },
   },
   roster: {
     architect: { role: 'architect', status: 'idle', currentTaskId: null },
-    code_reviewer: { role: 'code_reviewer', status: 'idle', currentTaskId: null },
-    tester: { role: 'tester', status: 'idle', currentTaskId: null },
     'developer-1': { role: 'developer', status: 'running', currentTaskId: 'G1' },
   },
   tasks: [
     {
       id: 'G1',
-      title: 'Gated implementation',
-      description: 'Task waiting on review gate',
+      title: 'Implementation under review',
+      description: 'Task whose owner is reviewing its own diff',
       role: 'developer',
       status: 'review',
       folderStatus: 'review',
@@ -884,9 +861,9 @@ const gatedProjection = fakeProjection({
         {
           id: 'C2',
           type: 'review_feedback',
-          actor: 'code_reviewer',
-          authorAgentId: 'code_reviewer',
-          authorRole: 'code_reviewer',
+          actor: 'security',
+          authorAgentId: 'security',
+          authorRole: 'security',
           source: 'agent',
           body: 'Found a missing edge case in projection normalization.',
           createdAt: '2026-05-16T19:55:00Z',
@@ -897,9 +874,9 @@ const gatedProjection = fakeProjection({
         {
           id: 'C2',
           type: 'review_feedback',
-          actor: 'code_reviewer',
-          authorAgentId: 'code_reviewer',
-          authorRole: 'code_reviewer',
+          actor: 'security',
+          authorAgentId: 'security',
+          authorRole: 'security',
           source: 'agent',
           body: 'Found a missing edge case in projection normalization.',
           createdAt: '2026-05-16T19:55:00Z',
@@ -910,9 +887,9 @@ const gatedProjection = fakeProjection({
         {
           id: 'C2',
           type: 'review_feedback',
-          actor: 'code_reviewer',
-          authorAgentId: 'code_reviewer',
-          authorRole: 'code_reviewer',
+          actor: 'security',
+          authorAgentId: 'security',
+          authorRole: 'security',
           source: 'agent',
           body: 'Found a missing edge case in projection normalization.',
           createdAt: '2026-05-16T19:55:00Z',
@@ -924,316 +901,39 @@ const gatedProjection = fakeProjection({
       startedAt: '2026-05-16T19:30:00Z',
       completedAt: null,
       ownerAgentId: 'developer-1',
-      qualityGates: [
-        {
-          id: 'code_reviewer',
-          phase: 'review',
-          role: 'code_reviewer',
-          status: 'changes_requested',
-          required: true,
-          allowSelfReview: false,
-          focus: 'integration risk',
-          attempts: [
-            {
-              id: 'A1',
-              status: 'changes_requested',
-              actor: 'code_reviewer',
-              verdict: 'changes_requested',
-              startedAt: '2026-05-16T19:50:00Z',
-              completedAt: '2026-05-16T19:55:00Z',
-            },
-          ],
-        },
-        {
-          id: 'tester',
-          phase: 'testing',
-          role: 'tester',
-          status: 'pending',
-          required: true,
-          allowSelfReview: false,
-          attempts: [],
-        },
-      ],
-      qualityGateSummary: {
-        total: 2,
-        required: 2,
-        openRequired: 2,
-        byPhase: { review: 1, testing: 1 },
-        byStatus: { changes_requested: 1, pending: 1 },
-      },
       recordedArtifacts: [
         {
           id: 'R1',
           kind: 'code_review',
-          title: 'Code review pass 1',
+          title: 'Self review pass 1',
           path: '.multi-code/sprintengine/run-id/reviews/code-review-1.md',
-          gateId: 'code_reviewer',
-          createdBy: 'code_reviewer',
+          createdBy: 'developer-1',
           createdAt: '2026-05-16T19:55:00Z',
         },
       ],
     },
-    {
-      id: 'CR1',
-      title: 'Rework after review',
-      description: 'Rework after a code review verdict',
-      role: 'developer',
-      status: 'changes_requested',
-      folderStatus: 'changes_requested',
-      stateStatus: 'changes_requested',
-      boardColumn: 'changes_requested',
-      ownedPaths: [],
-      dependsOn: [],
-      acceptanceCriteria: [],
-      implementationNotes: [],
-      notes: [],
-      comments: [],
-      evidence: { summary: '', touchedFiles: [], commandsRan: [], results: [] },
-      activity: [],
-      startedAt: null,
-      completedAt: null,
-      ownerAgentId: null,
-    },
   ],
 })
 
-const gatedState = normalizeSprintEngineProjection(gatedProjection)
-assert.ok(gatedState, 'gated projection should normalize')
-assert.deepEqual(
-  gatedState!.qualityPolicy?.lifecyclePhases,
-  ['review', 'testing'],
-  'qualityPolicy.lifecyclePhases passes through normalization'
-)
-assert.equal(gatedState!.qualityPolicy?.gates.code_reviewer?.focus, 'integration risk')
+const reviewState = normalizeSprintEngineProjection(reviewProjection)
+assert.ok(reviewState, 'review projection should normalize')
 
-const gatedTask = gatedState!.tasks.find((task) => task.id === 'G1')!
-assert.equal(gatedTask.boardColumn, 'review', 'review boardColumn round-trips')
-assert.equal(gatedTask.status, 'in_progress', 'semantic stateStatus drives status while task lives in review folder')
-assert.equal(getSprintEngineTaskBoardColumn(gatedTask, gatedState!.tasks), 'review')
+const reviewFolderTask = reviewState!.tasks.find((task) => task.id === 'G1')!
+assert.equal(reviewFolderTask.boardColumn, 'review', 'review boardColumn round-trips')
+assert.equal(reviewFolderTask.status, 'in_progress', 'semantic stateStatus drives status while task lives in review folder')
+assert.equal(getSprintEngineTaskBoardColumn(reviewFolderTask, reviewState!.tasks), 'review')
 
-const gates = getSprintEngineTaskQualityGates(gatedTask)
-assert.equal(gates.length, 2)
-assert.equal(gates[0].id, 'code_reviewer')
-assert.equal(gates[0].status, 'changes_requested')
-assert.equal(gates[0].attempts.length, 1)
-assert.equal(gates[0].attempts[0].verdict, 'changes_requested')
-assert.equal(getOpenSprintEngineQualityGates(gatedTask).length, 2, 'pending + changes_requested gates both count as open')
-
-const latestSummary = getLatestSprintEngineTaskComment(gatedTask, 'implementation_summary')
+const latestSummary = getLatestSprintEngineTaskComment(reviewFolderTask, 'implementation_summary')
 assert.ok(latestSummary, 'implementation_summary surfaces via getLatestSprintEngineTaskComment')
 assert.equal(latestSummary!.actor, 'developer-1')
 
-const openFeedback = getOpenSprintEngineFeedbackComments(gatedTask)
+const openFeedback = getOpenSprintEngineFeedbackComments(reviewFolderTask)
 assert.equal(openFeedback.length, 1)
 assert.equal(openFeedback[0].type, 'review_feedback')
-assert.equal(openFeedback[0].authorAgentId, 'code_reviewer')
+assert.equal(openFeedback[0].authorAgentId, 'security')
 
-assert.equal(gatedTask.recordedArtifacts?.length, 1)
-assert.equal(gatedTask.recordedArtifacts?.[0]?.gateId, 'code_reviewer')
-
-// changes_requested stays distinct from ready in the task graph + board projection.
-const reworkTask = gatedState!.tasks.find((task) => task.id === 'CR1')!
-assert.equal(reworkTask.status, 'changes_requested')
-assert.equal(getSprintEngineTaskBoardColumn(reworkTask, gatedState!.tasks), 'changes_requested')
-assert.equal(isSprintEngineTaskLaunchable(reworkTask, gatedState!), true, 'rework task is launchable')
-
-// Lifecycle phase column visibility: review appears because the gated task lives in
-// the review folder; testing appears because the policy declared it; product is
-// hidden because neither policy nor any active task requires it.
-const visiblePhases = getActiveSprintEngineLifecyclePhases(gatedState!)
-assert.deepEqual(visiblePhases, ['review', 'testing'])
-const visibleColumns = getSprintEngineVisibleBoardColumns(gatedState!).map((column) => column.key)
-assert.deepEqual(
-  visibleColumns,
-  ['todo', 'ready', 'changes_requested', 'in_progress', 'review', 'testing', 'needs_input', 'done'],
-)
-
-const noProductRosterState = normalizeSprintEngineProjection(fakeProjection({
-  run: {
-    id: 'run-id',
-    name: 'No Product Roster Run',
-    goal: 'Test goal',
-    status: 'executing',
-    rosterConfigured: true,
-    updatedAt: '2026-05-16T20:00:00Z',
-    qualityPolicy: {
-      enabled: true,
-      rosterDriven: true,
-      lifecyclePhases: ['review', 'testing', 'product'],
-      gates: {
-        architect: { phase: 'review', role: 'architect', required: true },
-        code_reviewer: { phase: 'review', role: 'code_reviewer', required: true },
-        spec_reviewer: { phase: 'review', role: 'spec_reviewer', required: true },
-        tester: { phase: 'testing', role: 'tester', required: true },
-        product: { phase: 'product', role: 'product', required: true },
-      },
-    },
-  },
-  roster: {
-    architect: { role: 'architect', status: 'idle', currentTaskId: null },
-    code_reviewer: { role: 'code_reviewer', status: 'idle', currentTaskId: null },
-    spec_reviewer: { role: 'spec_reviewer', status: 'idle', currentTaskId: null },
-    tester: { role: 'tester', status: 'idle', currentTaskId: null },
-    'developer-1': { role: 'developer', status: 'idle', currentTaskId: null },
-  },
-  tasks: [],
-}))
-assert.deepEqual(
-  getActiveSprintEngineLifecyclePhases(noProductRosterState!),
-  ['review', 'testing'],
-  'roster-driven policy hides product when no product role is rostered'
-)
-assert.deepEqual(
-  getSprintEngineVisibleBoardColumns(noProductRosterState!).map((column) => column.key),
-  ['todo', 'ready', 'changes_requested', 'in_progress', 'review', 'testing', 'needs_input', 'done'],
-)
-
-const frontendOnlyGateState = normalizeSprintEngineProjection(fakeProjection({
-  run: {
-    id: 'run-id',
-    name: 'Frontend Gate Run',
-    goal: 'Test goal',
-    status: 'executing',
-    rosterConfigured: true,
-    updatedAt: '2026-05-16T20:00:00Z',
-    qualityPolicy: {
-      enabled: true,
-      rosterDriven: true,
-      lifecyclePhases: ['review', 'testing', 'product'],
-      gates: {
-        code_reviewer: { phase: 'review', role: 'code_reviewer', required: true },
-        tester: { phase: 'testing', role: 'tester', required: true },
-        product: { phase: 'product', role: 'product', required: true },
-      },
-    },
-  },
-  roster: {
-    frontend: { role: 'frontend', status: 'idle', currentTaskId: null },
-    'developer-1': { role: 'developer', status: 'idle', currentTaskId: null },
-  },
-  tasks: [
-    {
-      id: 'F1',
-      title: 'Frontend implementation',
-      description: '',
-      role: 'frontend',
-      status: 'todo',
-      folderStatus: 'todo',
-      stateStatus: 'todo',
-      boardColumn: 'todo',
-      ownedPaths: ['src/renderer/src/components/Foo.tsx'],
-      dependsOn: [],
-      acceptanceCriteria: [],
-      implementationNotes: [],
-      notes: [],
-      comments: [],
-      evidence: { summary: '', touchedFiles: [], commandsRan: [], results: [] },
-      activity: [],
-      startedAt: null,
-      completedAt: null,
-      ownerAgentId: null,
-      qualityGates: [
-        {
-          id: 'frontend_review',
-          phase: 'review',
-          role: 'frontend',
-          status: 'pending',
-          required: true,
-          allowSelfReview: true,
-          attempts: [],
-        },
-      ],
-    },
-  ],
-}))
-assert.deepEqual(
-  getActiveSprintEngineLifecyclePhases(frontendOnlyGateState!),
-  ['review'],
-  'task-level frontend gates keep review visible even when static policy roles are absent'
-)
-
-const noProductRosterWithActiveProductTask = normalizeSprintEngineProjection(fakeProjection({
-  run: {
-    id: 'run-id',
-    name: 'Active Product Task Run',
-    goal: 'Test goal',
-    status: 'executing',
-    rosterConfigured: true,
-    updatedAt: '2026-05-16T20:00:00Z',
-    qualityPolicy: noProductRosterState!.qualityPolicy,
-  },
-  roster: {
-    architect: { role: 'architect', status: 'idle', currentTaskId: null },
-    tester: { role: 'tester', status: 'idle', currentTaskId: null },
-  },
-  tasks: [
-    {
-      id: 'P1',
-      title: 'Legacy task in product',
-      description: '',
-      role: 'developer',
-      status: 'product',
-      folderStatus: 'product',
-      stateStatus: 'in_progress',
-      boardColumn: 'product',
-      ownedPaths: [],
-      dependsOn: [],
-      acceptanceCriteria: [],
-      implementationNotes: [],
-      notes: [],
-      comments: [],
-      evidence: { summary: '', touchedFiles: [], commandsRan: [], results: [] },
-      activity: [],
-      startedAt: '2026-05-16T19:30:00Z',
-      completedAt: null,
-      ownerAgentId: 'developer-1',
-    },
-  ],
-}))
-assert.deepEqual(
-  getActiveSprintEngineLifecyclePhases(noProductRosterWithActiveProductTask!),
-  ['review', 'testing', 'product'],
-  'active product-folder tasks keep the product column visible for compatibility'
-)
-
-const reviewTaskWithoutBoardColumnState = normalizeSprintEngineProjection({
-  ...fakeProjection({
-    run: { rosterConfigured: false },
-    tasks: [
-      {
-        id: 'LEGACY-REVIEW',
-        title: 'Task in review without board column',
-        description: '',
-        role: 'developer',
-        status: 'review',
-        ownedPaths: [],
-        dependsOn: [],
-        acceptanceCriteria: [],
-        implementationNotes: [],
-        notes: [],
-        comments: [],
-        evidence: { summary: '', touchedFiles: [], commandsRan: [], results: [] },
-        startedAt: null,
-        completedAt: null,
-        ownerAgentId: 'developer-1',
-      },
-    ],
-  }),
-})
-assert.deepEqual(
-  getActiveSprintEngineLifecyclePhases(reviewTaskWithoutBoardColumnState!),
-  ['review'],
-  'review status keeps review column visible even without boardColumn'
-)
-
-// When neither policy nor tasks call for lifecycle phases, the board hides
-// review/testing/product entirely.
-const ungatedState = normalizeSprintEngineProjection(fakeProjection())
-const ungatedVisibleColumns = getSprintEngineVisibleBoardColumns(ungatedState!).map((column) => column.key)
-assert.deepEqual(
-  ungatedVisibleColumns,
-  ['todo', 'ready', 'changes_requested', 'in_progress', 'needs_input', 'done'],
-)
+assert.equal(reviewFolderTask.recordedArtifacts?.length, 1)
+assert.equal(reviewFolderTask.recordedArtifacts?.[0]?.kind, 'code_review')
 
 // --- Registry-keyed role behavior (T2) ---
 
@@ -1351,14 +1051,6 @@ const customRoleProjection = fakeProjection({
     status: 'executing',
     rosterConfigured: true,
     updatedAt: '2026-05-20T20:00:00Z',
-    qualityPolicy: {
-      enabled: true,
-      rosterDriven: true,
-      lifecyclePhases: ['review'],
-      gates: {
-        marketer_review: { phase: 'review', role: 'marketer', required: true, focus: 'launch readiness' },
-      },
-    },
   },
   roster: {
     architect: { role: 'architect', status: 'idle', currentTaskId: null },
@@ -1391,17 +1083,6 @@ const customRoleProjection = fakeProjection({
         },
       ],
       evidence: { summary: '', touchedFiles: [], commandsRan: [], results: [] },
-      qualityGates: [
-        {
-          id: 'GATE-1',
-          phase: 'review',
-          role: 'marketer',
-          status: 'pending',
-          required: true,
-          allowSelfReview: false,
-          attempts: [],
-        },
-      ],
       feedback: {
         schemaVersion: 1,
         capturedAt: '2026-05-20T20:01:30Z',
@@ -1434,12 +1115,10 @@ const customRoleState = normalizeSprintEngineProjection(customRoleProjection)
 assert.ok(customRoleState, 'custom-role projection normalizes')
 const customRoleTask = customRoleState!.tasks.find((task) => task.id === 'M1')!
 assert.equal(customRoleTask.role, 'marketer', 'task.role preserved as custom id')
-assert.equal(customRoleTask.qualityGates?.[0]?.role, 'marketer', 'gate.role preserved')
 assert.equal(customRoleTask.comments[0]?.authorRole, 'marketer', 'comment.authorRole preserved')
 assert.equal(customRoleTask.feedback?.role, 'marketer', 'feedback.role preserved')
 assert.equal(customRoleTask.triage?.suggestedRole, 'marketer', 'triage.suggestedRole preserved')
 assert.equal(customRoleState!.sprintEngineAgents.marketer?.role, 'marketer', 'runtime agent role preserved')
-assert.equal(customRoleState!.qualityPolicy?.gates.marketer_review?.role, 'marketer', 'policy gate.role preserved')
 assert.equal(
   taskGraphEndEdgeStyle(customRoleTask).color,
   sprintEngineNeutralRoleAccent,
@@ -1471,17 +1150,8 @@ const customRosterWithRegistry = buildSprintEngineAgentRosterFromRuntimeAgents(
 const marketerWithRegistry = customRosterWithRegistry.find((agent) => agent.role === 'marketer')!
 assert.equal(marketerWithRegistry.label, 'Brand Marketer', 'registry label wins when available')
 
-// Unknown but configured role ids do not crash the lifecycle-phase
-// resolver: the policy gate's `marketer` role is part of the configured
-// roster, so the review column stays visible.
-assert.deepEqual(
-  getActiveSprintEngineLifecyclePhases(customRoleState!),
-  ['review'],
-  'custom-role policy gate keeps review column visible',
-)
-
-// Malformed comment/gate entries with empty or missing role are dropped
-// during normalization, but valid sibling entries still survive.
+// Malformed comment entries with empty or missing role are dropped during
+// normalization, but valid sibling entries still survive.
 const malformedProjection = fakeProjection({
   tasks: [
     {
@@ -1504,12 +1174,6 @@ const malformedProjection = fakeProjection({
         // Valid registry role — survives intact.
         { id: 'C2', actor: 'marketer', source: 'agent', body: 'kept-with-role', createdAt: '2026-05-20T20:02:30Z', authorRole: 'marketer' },
       ],
-      qualityGates: [
-        // Missing role — dropped.
-        { id: 'BAD', phase: 'review', role: '', status: 'pending', required: true, allowSelfReview: false, attempts: [] },
-        // Custom role — preserved.
-        { id: 'OK', phase: 'review', role: 'marketer', status: 'pending', required: true, allowSelfReview: false, attempts: [] },
-      ],
       evidence: { summary: '', touchedFiles: [], commandsRan: [], results: [] },
       activity: [],
       startedAt: null,
@@ -1523,8 +1187,6 @@ const malformedTask = malformedState!.tasks.find((task) => task.id === 'MAL')!
 assert.equal(malformedTask.comments.length, 2, 'comment bodies survive even when authorRole is malformed')
 assert.equal(malformedTask.comments[0]?.authorRole, undefined, 'empty authorRole dropped')
 assert.equal(malformedTask.comments[1]?.authorRole, 'marketer', 'valid custom authorRole preserved')
-assert.equal(malformedTask.qualityGates?.length, 1, 'gate with missing role dropped')
-assert.equal(malformedTask.qualityGates?.[0]?.role, 'marketer', 'custom-role gate preserved')
 
 // --- Settings role enablement (T3) -----------------------------------------
 // `getUserDisabledSprintEngineRoleIds` collects user-toggled-off ids and
@@ -1646,8 +1308,8 @@ type FakeTask = { role: string; status: SprintEngineTask['status'] }
 {
   assert.deepEqual(
     [...BUNDLED_SPRINT_ENGINE_ADDABLE_ROLES],
-    ['architect', 'product', 'frontend', 'ui_ux_reviewer', 'developer', 'code_reviewer', 'nuclear_reviewer', 'spec_reviewer', 'performance', 'production_readiness_reviewer', 'cross_platform', 'tester', 'security'],
-    'bundled addable roles match historical board list',
+    ['architect', 'product', 'frontend', 'ui_ux_reviewer', 'developer', 'performance', 'production_readiness_reviewer', 'cross_platform', 'tester', 'security'],
+    'bundled addable roles match historical board list (MC-1542: code/spec/nuclear reviewers retired)',
   )
 }
 
@@ -2029,281 +1691,10 @@ type FakeTask = { role: string; status: SprintEngineTask['status'] }
 // Agent inspector aggregation helpers
 // ---------------------------------------------------------------------------
 
-// Gate attempts normalize claimedBy, role, and summary; previously claimedBy
-// was dropped which broke per-agent review attribution.
-{
-  const projection = fakeProjection({
-    tasks: [
-      {
-        id: 'T1',
-        title: 'Reviewed task',
-        role: 'developer',
-        status: 'done',
-        stateStatus: 'done',
-        ownerAgentId: null,
-        dependsOn: [],
-        ownedPaths: [],
-        acceptanceCriteria: [],
-        implementationNotes: [],
-        evidence: { summary: '', touchedFiles: [], commandsRan: [], results: [] },
-        notes: [],
-        comments: [],
-        startedAt: null,
-        completedAt: null,
-        activity: [],
-        qualityGates: [
-          {
-            id: 'code_reviewer',
-            phase: 'review',
-            role: 'code_reviewer',
-            status: 'approved',
-            required: true,
-            allowSelfReview: true,
-            attempts: [
-              {
-                id: 'GA-001',
-                status: 'approved',
-                role: 'code_reviewer',
-                claimedBy: 'code_reviewer-1',
-                startedAt: '2026-05-27T07:24:00Z',
-                completedAt: '2026-05-27T07:25:00Z',
-                verdict: 'approved',
-                summary: 'Reviewed evidence; LGTM.',
-              },
-            ],
-          },
-        ],
-      },
-    ],
-  })
-  const state = normalizeSprintEngineProjection(projection)
-  assert.ok(state, 'projection normalizes')
-  const attempt = state!.tasks[0]?.qualityGates?.[0]?.attempts?.[0]
-  assert.equal(attempt?.claimedBy, 'code_reviewer-1', 'claimedBy survives normalization')
-  assert.equal(attempt?.role, 'code_reviewer', 'role survives normalization')
-  assert.equal(attempt?.summary, 'Reviewed evidence; LGTM.', 'summary survives normalization')
-}
-
-// Released/superseded/failed gate attempts are closed states. The inspector
-// glyph trail must not fall back to a live spinner just because the value is
-// not one of the ordinary gate rollup statuses.
-{
-  const projection = fakeProjection({
-    tasks: [
-      {
-        id: 'T1',
-        title: 'Reviewed task',
-        role: 'developer',
-        status: 'testing',
-        stateStatus: 'testing',
-        ownerAgentId: null,
-        dependsOn: [],
-        ownedPaths: [],
-        acceptanceCriteria: [],
-        implementationNotes: [],
-        evidence: { summary: '', touchedFiles: [], commandsRan: [], results: [] },
-        notes: [],
-        comments: [],
-        startedAt: null,
-        completedAt: null,
-        activity: [],
-        qualityGates: [
-          {
-            id: 'code_reviewer',
-            phase: 'review',
-            role: 'code_reviewer',
-            status: 'approved',
-            required: true,
-            allowSelfReview: true,
-            attempts: [
-              {
-                id: 'GA-001',
-                status: 'released',
-                role: 'code_reviewer',
-                claimedBy: 'code_reviewer',
-                startedAt: '2026-06-14T21:55:58Z',
-                completedAt: '2026-06-14T22:09:47Z',
-              },
-              {
-                id: 'GA-002',
-                status: 'approved',
-                role: 'code_reviewer',
-                claimedBy: 'code_reviewer',
-                startedAt: '2026-06-14T22:15:11Z',
-                completedAt: '2026-06-14T22:18:45Z',
-                verdict: 'approved',
-                summary: 'Approved.',
-              },
-            ],
-          },
-          {
-            id: 'spec_reviewer',
-            phase: 'review',
-            role: 'spec_reviewer',
-            status: 'pending',
-            required: true,
-            allowSelfReview: true,
-            attempts: [
-              {
-                id: 'GA-001',
-                status: 'superseded',
-                role: 'spec_reviewer',
-                claimedBy: 'spec_reviewer',
-                startedAt: '2026-06-14T21:55:58Z',
-                completedAt: '2026-06-14T22:09:47Z',
-              },
-            ],
-          },
-          {
-            id: 'nuclear_reviewer',
-            phase: 'review',
-            role: 'nuclear_reviewer',
-            status: 'changes_requested',
-            required: true,
-            allowSelfReview: true,
-            attempts: [
-              {
-                id: 'GA-001',
-                status: 'failed',
-                role: 'nuclear_reviewer',
-                claimedBy: 'nuclear_reviewer',
-                startedAt: '2026-06-14T21:55:58Z',
-                completedAt: '2026-06-14T22:09:47Z',
-                verdict: 'failed',
-              },
-            ],
-          },
-        ],
-      },
-    ],
-  })
-  const state = normalizeSprintEngineProjection(projection)
-  assert.ok(state, 'projection normalizes')
-  const gates = state!.tasks[0]!.qualityGates!
-  assert.deepEqual(
-    gates[0]!.attempts.map((attempt) => sprintEngineGateAttemptVisualState(attempt)),
-    ['released', 'approved'],
-    'released attempts render as closed before later approval',
-  )
-  assert.equal(
-    sprintEngineGateAttemptVisualState(gates[1]!.attempts[0]!),
-    'superseded',
-    'superseded attempts render as closed',
-  )
-  assert.equal(
-    sprintEngineGateAttemptVisualState(gates[2]!.attempts[0]!),
-    'failed',
-    'failed attempts render as closed warning states',
-  )
-}
-
-// getSprintEngineTasksReviewedByAgent matches by claimedBy (and actor for legacy
-// records), returns latest-first, and includes the summary on the attempt.
-{
-  const tasks: SprintEngineTask[] = [
-    {
-      id: 'T1',
-      title: 'First',
-      description: '',
-      role: 'developer',
-      status: 'done',
-      ownerAgentId: null,
-      dependsOn: [],
-      ownedPaths: [],
-      acceptanceCriteria: [],
-      implementationNotes: [],
-      evidence: { summary: '', touchedFiles: [], commandsRan: [], results: [] },
-      notes: [],
-      comments: [],
-      startedAt: null,
-      completedAt: null,
-      qualityGates: [
-        {
-          id: 'code_reviewer',
-          phase: 'review',
-          role: 'code_reviewer',
-          status: 'approved',
-          required: true,
-          allowSelfReview: true,
-          attempts: [
-            {
-              id: 'GA-001',
-              status: 'approved',
-              role: 'code_reviewer',
-              claimedBy: 'code_reviewer-1',
-              startedAt: '2026-05-27T07:24:00Z',
-              completedAt: '2026-05-27T07:25:00Z',
-              verdict: 'approved',
-              summary: 'first review',
-            },
-          ],
-        },
-      ],
-    },
-    {
-      id: 'T2',
-      title: 'Second',
-      description: '',
-      role: 'developer',
-      status: 'review',
-      ownerAgentId: null,
-      dependsOn: [],
-      ownedPaths: [],
-      acceptanceCriteria: [],
-      implementationNotes: [],
-      evidence: { summary: '', touchedFiles: [], commandsRan: [], results: [] },
-      notes: [],
-      comments: [],
-      startedAt: null,
-      completedAt: null,
-      qualityGates: [
-        {
-          id: 'code_reviewer',
-          phase: 'review',
-          role: 'code_reviewer',
-          status: 'in_progress',
-          required: true,
-          allowSelfReview: true,
-          attempts: [
-            {
-              id: 'GA-001',
-              status: 'in_progress',
-              role: 'code_reviewer',
-              claimedBy: 'code_reviewer-1',
-              startedAt: '2026-05-27T09:00:00Z',
-            },
-          ],
-        },
-      ],
-    },
-    {
-      id: 'T3',
-      title: 'Untouched',
-      description: '',
-      role: 'developer',
-      status: 'todo',
-      ownerAgentId: null,
-      dependsOn: [],
-      ownedPaths: [],
-      acceptanceCriteria: [],
-      implementationNotes: [],
-      evidence: { summary: '', touchedFiles: [], commandsRan: [], results: [] },
-      notes: [],
-      comments: [],
-      startedAt: null,
-      completedAt: null,
-      qualityGates: [],
-    },
-  ]
-  const reviewed = getSprintEngineTasksReviewedByAgent('code_reviewer-1', tasks)
-  assert.equal(reviewed.length, 2, 'returns both reviewed tasks')
-  assert.equal(reviewed[0]?.task.id, 'T2', 'most recent attempt first')
-  assert.equal(reviewed[1]?.task.id, 'T1', 'older attempt second')
-  assert.equal(reviewed[1]?.attempts[0]?.summary, 'first review', 'summary surfaced on attempt')
-
-  const otherAgent = getSprintEngineTasksReviewedByAgent('code_reviewer-2', tasks)
-  assert.equal(otherAgent.length, 0, 'agents with no attempts get no rows')
-}
+// Removed: gate-attempt normalization, gate-attempt visual-state, and
+// getSprintEngineTasksReviewedByAgent tests exercised deleted quality-gate
+// machinery (MC-1542 single-owner tasks — quality gates and their attempts no
+// longer exist).
 
 // getSprintEngineTasksWorkedOnByAgent collects every task where the agent
 // appears as an activity actor, including tasks now in `done` (covering the
@@ -2518,8 +1909,8 @@ type FakeTask = { role: string; status: SprintEngineTask['status'] }
     'done + no owner → role label',
   )
 
-  // Detached owner: review/testing/product all resolve to the last implementer.
-  for (const status of ['review', 'testing', 'product'] as const) {
+  // Detached owner: a review task resolves to the last implementer.
+  for (const status of ['review'] as const) {
     const detached = {
       ownerAgentId: null,
       lastImplementedByAgentId: 'developer-1',
@@ -2584,7 +1975,7 @@ type FakeTask = { role: string; status: SprintEngineTask['status'] }
         lastImplementedByAgentId: 'developer-1',
         comments: [
           { type: 'implementation_summary', authorAgentId: 'developer-1', createdAt: '2026-05-16T19:50:00Z' },
-          { type: 'review_feedback', authorAgentId: 'code_reviewer-1', createdAt: '2026-05-16T19:52:00Z' },
+          { type: 'review_feedback', authorAgentId: 'security-1', createdAt: '2026-05-16T19:52:00Z' },
         ],
       } as TimelineTask,
       runtime,
@@ -2700,21 +2091,15 @@ type FakeTask = { role: string; status: SprintEngineTask['status'] }
   )
 }
 
-// getSprintEngineKanbanEmptyMessage covers every board column.
+// getSprintEngineKanbanEmptyMessage covers every board column (MC-1542: the
+// changes_requested/testing/product columns were deleted with quality gates).
 {
   assert.match(getSprintEngineKanbanEmptyMessage('ready'), /No ready work/)
-  assert.match(getSprintEngineKanbanEmptyMessage('changes_requested'), /No rework/)
   assert.match(getSprintEngineKanbanEmptyMessage('in_progress'), /actively claiming/)
-  assert.match(getSprintEngineKanbanEmptyMessage('review'), /awaiting review/)
-  assert.match(getSprintEngineKanbanEmptyMessage('testing'), /test verification/)
-  assert.match(getSprintEngineKanbanEmptyMessage('product'), /product acceptance/)
+  assert.match(getSprintEngineKanbanEmptyMessage('review'), /reviewing their own work/)
   assert.match(getSprintEngineKanbanEmptyMessage('needs_input'), /No blocked tasks/)
   assert.match(getSprintEngineKanbanEmptyMessage('done'), /Completed work/)
-  assert.match(
-    getSprintEngineKanbanEmptyMessage('todo' as unknown as Parameters<typeof getSprintEngineKanbanEmptyMessage>[0]),
-    /waiting on dependencies/,
-    'unknown column falls back to the planned-task copy',
-  )
+  assert.match(getSprintEngineKanbanEmptyMessage('todo'), /waiting on dependencies/)
 }
 
 // bracketedTerminalPaste wraps text in xterm bracketed-paste markers and

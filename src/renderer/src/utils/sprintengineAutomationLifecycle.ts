@@ -131,15 +131,13 @@ export function sprintEngineAutomationInitialStateForMode(
  * programmatically through the same DELETE_TAB path a user close takes).
  *
  * "Live run work" means: the roster says the agent currently holds a task
- * claim (`currentTaskId`), a gate claim (`currentGateId` — reviewers carry a
- * gate with no task claim), or an active dispatch (`currentDispatch` —
- * assigned work it may not have claimed yet); or a task it owns is actively
- * being worked (`in_progress` / `needs_input`); or the auto-run supervisor
- * has a pending spawn for it (a just-spawned worker that has not claimed yet
- * — projection lag must not misclassify an early close as routine). Tasks
- * sitting in `review`/`testing` do NOT count: MC-1444 disposes the
- * implementer's window in that publish→verdict gap by design, so teardown
- * there is routine.
+ * claim (`currentTaskId`) or an active dispatch (`currentDispatch` — assigned
+ * work it may not have claimed yet); or a task it owns is actively being worked
+ * (`in_progress` / `needs_input`); or the auto-run supervisor has a pending
+ * spawn for it (a just-spawned worker that has not claimed yet — projection lag
+ * must not misclassify an early close as routine). A task in its `review` phase
+ * is still held by its single owner, so it is covered by the `currentTaskId`
+ * claim above rather than by the owned-task status check.
  *
  * Closing a workless agent's terminal stays lifecycle-neutral — the PTY kill
  * and launch-flag reset still happen; the run keeps going.
@@ -151,7 +149,7 @@ export function sprintEngineAgentHasLiveRunWork(
 ): boolean {
   if (!agentId || !sprintEngineState) return false
   const rosterAgent = sprintEngineState.sprintEngineAgents?.[agentId]
-  if (rosterAgent?.currentTaskId || rosterAgent?.currentGateId || rosterAgent?.currentDispatch) return true
+  if (rosterAgent?.currentTaskId || rosterAgent?.currentDispatch) return true
   if (sprintEngineState.tasks?.some((task) =>
     task.ownerAgentId === agentId
     && (task.status === 'in_progress' || task.status === 'needs_input')

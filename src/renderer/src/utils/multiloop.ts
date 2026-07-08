@@ -350,7 +350,7 @@ function buildMultiloopRoleCommandLines(
     ]
   }
 
-  if (role && !['product', 'tester', 'security', 'code_reviewer', 'performance'].includes(role)) {
+  if (role && !['product', 'tester', 'security', 'performance'].includes(role)) {
     if (sprintEngineStatePath) {
       const joinPayload = JSON.stringify({ statePath: sprintEngineStatePath, role, agentId })
       const claimPayload = JSON.stringify({ statePath: sprintEngineStatePath, role, id: agentId })
@@ -371,7 +371,7 @@ function buildMultiloopRoleCommandLines(
       })
       return [
         `Register with the managed Sprint Engine MCP server first: call \`sprintengine.agent.join\` with ${joinPayload}.`,
-        `Then claim your work: call \`sprintengine.task.next\` with ${claimPayload}. If it returns no claim, call \`sprintengine.gate.next\` once with the same payload. Work what the claim returns; if neither returns work, stop.`,
+        `Then claim your work: call \`sprintengine.task.next\` with ${claimPayload}. Work what the claim returns; if it returns no claim, stop.`,
         `Log evidence before handoff: call \`sprintengine.task.log\` with ${logPayload}.`,
         `Publish completion after evidence: call \`sprintengine.task.publish\` with ${publishPayload}.`,
         'Use the managed Sprint Engine MCP tools for autonomous sprint work.',
@@ -401,7 +401,6 @@ function isMultiloopRole(role: string | null | undefined): role is MultiloopRole
     'frontend',
     'tester',
     'security',
-    'code_reviewer',
     'performance',
     'coordinator',
   ].includes(role)
@@ -762,16 +761,10 @@ function evidenceSortKey(task: MultiloopTask): string {
 
 function sprintEngineTaskToMultiloopTask(task: SprintEngineTask, sprintEngineState: SprintEngineState, milestoneId: string): MultiloopTask {
   const boardColumn = getSprintEngineTaskBoardColumn(task, sprintEngineState.tasks)
-  // Lifecycle gate columns (review/testing/product) and product-acceptance flows
-  // map to in_progress for legacy multiloop consumers that only understand the
-  // pre-gates status vocabulary. Changes-requested maps to ready so rework stays
-  // immediately claimable in the multiloop projection.
-  const status =
-    boardColumn === 'changes_requested'
-      ? 'ready'
-      : boardColumn === 'review' || boardColumn === 'testing' || boardColumn === 'product'
-      ? 'in_progress'
-      : boardColumn
+  // `review` maps to in_progress for legacy multiloop consumers, whose status
+  // vocabulary has no phase concept — and it is honest: the task's owner is still
+  // actively working it, reviewing the diff it just published.
+  const status = boardColumn === 'review' ? 'in_progress' : boardColumn
   return {
     id: task.id,
     milestoneId,

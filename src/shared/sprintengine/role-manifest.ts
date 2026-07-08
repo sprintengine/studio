@@ -59,8 +59,8 @@ export type RoleManifestValidationResult =
   | { ok: true; manifest: RoleManifest }
   | { ok: false; issues: RoleManifestValidationIssue[] }
 
-// snake_case ids (architect, code_reviewer). Aliases additionally allow hyphens
-// (code-reviewer). Bounded length so a manifest can't carry pathological keys.
+// snake_case ids (architect, production_readiness_reviewer). Aliases additionally
+// allow hyphens (ui-ux-review). Bounded length so a manifest can't carry pathological keys.
 const ID_PATTERN = /^[a-z][a-z0-9_]{0,62}$/
 const ALIAS_PATTERN = /^[a-z][a-z0-9_-]{0,62}$/
 const DIRECTIVE_KEYS = ['implement', ...DIRECTIVE_PHASES] as const

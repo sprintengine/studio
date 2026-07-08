@@ -1,3 +1,10 @@
+"""Folder-store layout, ready-queue materialization, and projection (MC-1542).
+
+The store's status folders are exactly `store.TASK_STATUSES` — the gate-era
+`testing`, `product`, and `changes_requested` folders are gone, and so is the
+`qualityPolicy` block in run.yaml. `ready` remains the one derived folder: a
+materialized view of `todo` tasks whose dependencies are done.
+"""
 from __future__ import annotations
 
 import json
@@ -19,6 +26,9 @@ from sprintengine_core.tool.state import (
 )
 
 
+RETIRED_TASK_FOLDERS = ("testing", "product", "changes_requested")
+
+
 def test_init_creates_folder_store_layout(tmp_path) -> None:
     state_path = tmp_path / ".multi-code" / "sprintengine" / "folder-layout" / "run.yaml"
     payload = SwarmCli(state_path).run("init", "--goal", "Create a folder store")
@@ -30,8 +40,8 @@ def test_init_creates_folder_store_layout(tmp_path) -> None:
     assert (team_dir / "dispatch.jsonl").is_file()
     for status in store.TASK_STATUSES:
         assert (team_dir / "tasks" / status).is_dir()
-    for lifecycle_status in ("review", "testing", "product"):
-        assert (team_dir / "tasks" / lifecycle_status).is_dir()
+    for retired in RETIRED_TASK_FOLDERS:
+        assert not (team_dir / "tasks" / retired).exists()
     for status in store.ARTIFACT_STATUSES:
         assert (team_dir / "artifacts" / status).is_dir()
     for folder in store.SUPPORT_DIRS:
@@ -40,6 +50,9 @@ def test_init_creates_folder_store_layout(tmp_path) -> None:
     for lock_file in store.LOCK_STATE_FILES:
         lock_state = json.loads((team_dir / lock_file).read_text(encoding="utf-8"))
         assert lock_state["status"] == "idle"
+    run = store.load_run_yaml(team_dir)
+    assert run["schemaVersion"] == store.RUN_SCHEMA_VERSION
+    assert "qualityPolicy" not in run
 
 
 def test_handover_creates_folder_store_layout(tmp_path) -> None:
@@ -58,8 +71,8 @@ def test_handover_creates_folder_store_layout(tmp_path) -> None:
     assert (state_path.parent / "run.yaml").is_file()
     assert (state_path.parent / "tasks" / "ready").is_dir()
     assert (state_path.parent / "tasks" / "review").is_dir()
-    assert (state_path.parent / "tasks" / "testing").is_dir()
-    assert (state_path.parent / "tasks" / "product").is_dir()
+    for retired in RETIRED_TASK_FOLDERS:
+        assert not (state_path.parent / "tasks" / retired).exists()
     assert (state_path.parent / "artifacts" / "recorded").is_dir()
     assert (state_path.parent / "events.jsonl").is_file()
     assert (state_path.parent / "dispatch.jsonl").is_file()
@@ -96,49 +109,6 @@ def test_task_claim_normalizes_agent_lifecycle_and_dispatch_ledger(tmp_path) -> 
 
     resumed = fixture.cli.run("task", "next", "--role", "developer", "--id", "developer-1")
     assert resumed["reason"] == "agent_already_has_active_task"
-    assert len(store.read_jsonl_file(fixture.team_dir / "dispatch.jsonl")) == 1
-
-
-def test_gate_claim_records_current_gate_mirror_and_dispatch_ledger(tmp_path) -> None:
-    record = task("T1", "Review backend", "developer", "review")
-    record["qualityGates"] = [
-        {
-            "id": "code_reviewer",
-            "phase": "review",
-            "role": "code_reviewer",
-            "status": "pending",
-            "required": True,
-            "allowSelfReview": True,
-            "focus": "Review code.",
-            "attempts": [],
-        }
-    ]
-    fixture = create_team(tmp_path, "agent-lifecycle-gate-dispatch", [record])
-
-    claimed = fixture.cli.run("task", "gate", "next", "--role", "code_reviewer", "--id", "code-reviewer")
-    run = store.load_run_yaml(fixture.team_dir)
-    agent = run["agents"]["code-reviewer"]
-    dispatches = store.read_jsonl_file(fixture.team_dir / "dispatch.jsonl")
-
-    assert claimed["claimed"] is True
-    assert agent["status"] == "running"
-    assert agent["currentTaskId"] == "T1"
-    assert agent["currentGateId"] == "code_reviewer"
-    assert agent["currentGate"] == {"taskId": "T1", "gateId": "code_reviewer", "attemptId": "GA-001"}
-    assert agent["currentDispatch"]["targetKind"] == "gate"
-    assert agent["currentDispatch"]["gateId"] == "code_reviewer"
-    assert agent["currentDispatch"]["attemptId"] == "GA-001"
-    assert len(dispatches) == 1
-    assert dispatches[0]["id"] == agent["currentDispatch"]["dispatchId"]
-    assert dispatches[0]["target"] == {
-        "kind": "gate",
-        "taskId": "T1",
-        "gateId": "code_reviewer",
-        "attemptId": "GA-001",
-    }
-
-    resumed = fixture.cli.run("task", "gate", "next", "--role", "code_reviewer", "--id", "code-reviewer")
-    assert resumed["resumed"] is True
     assert len(store.read_jsonl_file(fixture.team_dir / "dispatch.jsonl")) == 1
 
 
@@ -181,7 +151,7 @@ def test_legacy_left_dead_agent_status_normalizes_to_idle_on_load(tmp_path) -> N
     state = read_state(fixture.state_path)
     state["agents"] = {
         "developer-1": {"role": "developer", "status": "left", "leftAt": "2000-01-01T00:00:00Z", "lastOwnedTaskId": "T0", "ownedTaskIds": ["T0"]},
-        "reviewer-1": {"role": "code_reviewer", "status": "dead", "deadAt": "2000-01-01T00:00:00Z"},
+        "reviewer-1": {"role": "security", "status": "dead", "deadAt": "2000-01-01T00:00:00Z"},
         "developer-2": {"role": "developer", "status": "running"},
         "architect": {"role": "architect", "status": "retired"},
     }
@@ -234,59 +204,36 @@ def test_agent_reactivation_clears_terminal_state_metadata(tmp_path) -> None:
     assert "leaveReason" not in persisted
 
 
-def test_lifecycle_statuses_materialize_and_project_without_ready_claimability(tmp_path) -> None:
+def test_review_status_materializes_and_projects_without_ready_claimability(tmp_path) -> None:
+    # `review` is the one post-implementation phase and an OWNED status: it gets a
+    # status folder and a board column, but never joins the ready queue.
     fixture = create_team(
         tmp_path,
-        "quality-lifecycle-statuses",
+        "review-lifecycle-status",
         [
-            task("T1", "In review", "developer", "review"),
-            task("T2", "In testing", "developer", "testing"),
-            task("T3", "In product", "developer", "product"),
-            task("T4", "Ready implementation", "developer"),
+            task("T1", "In review", "developer", "review", owner="developer-1"),
+            task("T2", "Ready implementation", "developer"),
         ],
     )
 
     payload = fixture.cli.run("task", "refresh-ready")
     projection = fixture.cli.run("projection")
 
-    assert payload["readyTaskIds"] == ["T4"]
+    assert payload["readyTaskIds"] == ["T2"]
     assert (fixture.team_dir / "tasks" / "review" / "0001-T1.json").is_file()
-    assert (fixture.team_dir / "tasks" / "testing" / "0002-T2.json").is_file()
-    assert (fixture.team_dir / "tasks" / "product" / "0003-T3.json").is_file()
     assert projection["board"]["counts"]["review"] == 1
-    assert projection["board"]["counts"]["testing"] == 1
-    assert projection["board"]["counts"]["product"] == 1
     assert projection["counts"]["tasks"]["review"] == 1
+    assert "changesRequested" not in projection["counts"]
     assert store.validate_task_status("review") == "review"
+    for retired in RETIRED_TASK_FOLDERS:
+        with pytest.raises(ValueError):
+            store.validate_task_status(retired)
 
 
-def test_quality_policy_and_gates_skip_absent_roster_roles(tmp_path) -> None:
+def test_plan_add_task_requires_a_configured_roster(tmp_path) -> None:
     fixture = create_team(
         tmp_path,
-        "quality-roster-skip",
-        [task("T1", "Normal implementation", "developer", owned_paths=["src/server.py"])],
-    )
-    state = read_state(fixture.state_path)
-    state["sprintengine"]["rosterConfigured"] = True
-    state["agents"] = {
-        "developer-fixture": {"role": "developer", "status": "idle", "currentTaskId": None},
-        "architect": {"role": "architect", "status": "idle", "currentTaskId": None},
-    }
-    store.sync_state_to_store(fixture.team_dir, state, state_path=fixture.state_path)
-
-    projection = fixture.cli.run("projection")
-    task_record = next(record for record in projection["tasks"] if record["id"] == "T1")
-    run = store.load_run_yaml(fixture.team_dir)
-
-    assert run["qualityPolicy"]["rosterDriven"] is True
-    assert run["qualityPolicy"]["lifecyclePhases"] == ["review", "testing", "product"]
-    assert task_record["qualityGates"] == []
-
-
-def test_plan_add_task_requires_configured_roster_for_quality_gated_runs(tmp_path) -> None:
-    fixture = create_team(
-        tmp_path,
-        "quality-no-unconfigured-plan-add",
+        "plan-add-unconfigured-roster",
         [],
     )
 
@@ -301,7 +248,7 @@ def test_plan_add_task_requires_configured_roster_for_quality_gated_runs(tmp_pat
         "sprintengine_core/tool.py",
     )
 
-    assert "Cannot add quality-gated Sprint Engine tasks before configuring a roster" in rejected.stderr
+    assert "Cannot add Sprint Engine tasks before configuring a roster" in rejected.stderr
 
 
 def test_plan_add_task_roots_new_tasks_on_the_plan_gate(tmp_path) -> None:
@@ -379,245 +326,74 @@ def test_plan_add_task_keeps_empty_dependencies_without_a_plan_gate(tmp_path) ->
     assert added["task"]["dependsOn"] == []
 
 
-def test_cross_cutting_tasks_get_architect_quality_gate_when_rostered(tmp_path) -> None:
-    fixture = create_team(
-        tmp_path,
-        "quality-architect-gate",
-        [],
-    )
+def _rostered(fixture, agents: dict) -> None:
     state = read_state(fixture.state_path)
     state["sprintengine"]["rosterConfigured"] = True
-    state["agents"] = {
-        "developer-fixture": {"role": "developer", "status": "idle", "currentTaskId": None},
-        "architect": {"role": "architect", "status": "idle", "currentTaskId": None},
-    }
+    state["agents"] = agents
     store.sync_state_to_store(fixture.team_dir, state, state_path=fixture.state_path)
+
+
+def test_planned_tasks_carry_no_quality_gate_state(tmp_path) -> None:
+    # Gate derivation is gone: a task's post-implementation work is its `phases`
+    # list, never a per-path/per-role gate set derived at plan time.
+    fixture = create_team(tmp_path, "plan-no-gates", [])
+    _rostered(
+        fixture,
+        {
+            "developer-fixture": {"role": "developer", "status": "idle", "currentTaskId": None},
+            "architect": {"role": "architect", "status": "idle", "currentTaskId": None},
+            "frontend": {"role": "frontend", "status": "idle", "currentTaskId": None},
+        },
+    )
 
     added = fixture.cli.run(
         "plan",
         "add-task",
         "--title",
-        "Touch Sprint Engine store",
+        "Touch Sprint Engine store and the board UI",
         "--role",
         "developer",
         "--path",
         "sprintengine_core/store.py",
-    )
-    gate = added["task"]["qualityGates"][0]
-
-    assert [entry["id"] for entry in added["task"]["qualityGates"]] == ["architect_review"]
-    assert gate["phase"] == "review"
-    assert gate["role"] == "architect"
-    assert gate["required"] is True
-    assert gate["status"] == "pending"
-    assert gate["allowSelfReview"] is True
-
-
-def test_frontend_paths_get_frontend_review_gate_when_frontend_rostered(tmp_path) -> None:
-    fixture = create_team(tmp_path, "quality-frontend-review-gate", [])
-    state = read_state(fixture.state_path)
-    state["sprintengine"]["rosterConfigured"] = True
-    state["agents"] = {
-        "frontend": {"role": "frontend", "status": "idle", "currentTaskId": None},
-        "developer-fixture": {"role": "developer", "status": "idle", "currentTaskId": None},
-    }
-    store.sync_state_to_store(fixture.team_dir, state, state_path=fixture.state_path)
-
-    added = fixture.cli.run(
-        "plan",
-        "add-task",
-        "--title",
-        "Update board UI",
-        "--role",
-        "developer",
         "--path",
         "src/renderer/src/components/panels/SprintEngineBoardPanel.tsx",
     )
 
-    assert [gate["id"] for gate in added["task"]["qualityGates"]] == ["frontend_review"]
-    gate = added["task"]["qualityGates"][0]
-    assert gate["phase"] == "review"
-    assert gate["role"] == "frontend"
-    assert gate["allowSelfReview"] is True
+    assert "qualityGates" not in added["task"]
+    # Absent `phases` means "inherit the run's defaultPhases" (i.e. review).
+    assert "phases" not in added["task"]
+    projected = next(record for record in fixture.cli.run("projection")["tasks"] if record["id"] == added["task"]["id"])
+    assert "qualityGates" not in projected
+    assert "qualityGateSummary" not in projected
 
 
-def test_produces_implementation_flag_opts_non_developer_task_into_gates(tmp_path) -> None:
-    fixture = create_team(tmp_path, "quality-produces-implementation-flag", [])
-    state = read_state(fixture.state_path)
-    state["sprintengine"]["rosterConfigured"] = True
-    state["agents"] = {
-        "architect": {"role": "architect", "status": "idle", "currentTaskId": None},
-        "code-reviewer": {"role": "code_reviewer", "status": "idle", "currentTaskId": None},
-    }
-    store.sync_state_to_store(fixture.team_dir, state, state_path=fixture.state_path)
-
-    added = fixture.cli.run(
-        "plan",
-        "add-task",
-        "--title",
-        "Architect edits workflow prompt",
-        "--role",
-        "architect",
-        "--path",
-        ".agents/skills/sprintengine/SKILL.md",
-        "--produces-implementation",
+def test_plan_add_and_update_persist_product_facing_and_produces_implementation(tmp_path) -> None:
+    # Both flags survive as plain persisted task metadata. They no longer derive
+    # gates; nothing in the engine reads them today.
+    fixture = create_team(tmp_path, "plan-task-flags", [])
+    _rostered(
+        fixture,
+        {
+            "developer-fixture": {"role": "developer", "status": "idle", "currentTaskId": None},
+            "architect": {"role": "architect", "status": "idle", "currentTaskId": None},
+        },
     )
 
-    assert added["task"]["producesImplementation"] is True
-    assert [gate["id"] for gate in added["task"]["qualityGates"]] == ["architect_review", "code_reviewer"]
-
-
-def test_quality_gate_override_flags_filter_and_require_gates(tmp_path) -> None:
-    fixture = create_team(tmp_path, "quality-override-flags", [])
-    state = read_state(fixture.state_path)
-    state["sprintengine"]["rosterConfigured"] = True
-    state["agents"] = {
-        "developer-fixture": {"role": "developer", "status": "idle", "currentTaskId": None},
-        "code-reviewer": {"role": "code_reviewer", "status": "idle", "currentTaskId": None},
-        "tester": {"role": "tester", "status": "idle", "currentTaskId": None},
-        "product": {"role": "product", "status": "idle", "currentTaskId": None},
-    }
-    store.sync_state_to_store(fixture.team_dir, state, state_path=fixture.state_path)
-
-    added = fixture.cli.run(
-        "plan",
-        "add-task",
-        "--title",
-        "Backend implementation",
-        "--role",
-        "developer",
-        "--path",
-        "sprintengine_core/tool.py",
-        "--product-facing",
-        "--no-review",
-        "--no-product-acceptance",
-        "--require-gate",
-        "tester",
+    internal = fixture.cli.run(
+        "plan", "add-task", "--title", "Refine internal CLI lifecycle",
+        "--role", "developer", "--path", "sprintengine_core/tool.py", "--not-product-facing",
     )
+    assert internal["task"]["productFacing"] is False
 
-    assert [gate["id"] for gate in added["task"]["qualityGates"]] == ["tester"]
-    assert added["task"]["qualityGates"][0]["phase"] == "testing"
-
-
-def test_no_quality_gates_and_skip_gate_flags_persist_explicit_gate_list(tmp_path) -> None:
-    fixture = create_team(tmp_path, "quality-no-gates-skip-gate", [])
-    state = read_state(fixture.state_path)
-    state["sprintengine"]["rosterConfigured"] = True
-    state["agents"] = {
-        "developer-fixture": {"role": "developer", "status": "idle", "currentTaskId": None},
-        "code-reviewer": {"role": "code_reviewer", "status": "idle", "currentTaskId": None},
-        "tester": {"role": "tester", "status": "idle", "currentTaskId": None},
-    }
-    store.sync_state_to_store(fixture.team_dir, state, state_path=fixture.state_path)
-
-    no_gates = fixture.cli.run(
-        "plan",
-        "add-task",
-        "--title",
-        "Docs-only implementation note",
-        "--role",
-        "developer",
-        "--path",
-        "docs/sprintengine-cli.md",
-        "--no-quality-gates",
+    architect_impl = fixture.cli.run(
+        "plan", "add-task", "--title", "Architect edits workflow prompt",
+        "--role", "architect", "--path", ".agents/skills/sprintengine/SKILL.md", "--produces-implementation",
     )
-    skipped = fixture.cli.run(
-        "plan",
-        "add-task",
-        "--title",
-        "CLI implementation",
-        "--role",
-        "developer",
-        "--path",
-        "sprintengine_core/tool.py",
-        "--skip-gate",
-        "code-reviewer",
-    )
+    assert architect_impl["task"]["producesImplementation"] is True
 
-    assert no_gates["task"]["qualityGates"] == []
-    assert [gate["id"] for gate in skipped["task"]["qualityGates"]] == ["tester"]
-
-
-def test_product_rostered_internal_tasks_skip_product_gate_by_default(tmp_path) -> None:
-    fixture = create_team(tmp_path, "quality-product-skips-internal", [])
-    state = read_state(fixture.state_path)
-    state["sprintengine"]["rosterConfigured"] = True
-    state["agents"] = {
-        "developer-fixture": {"role": "developer", "status": "idle", "currentTaskId": None},
-        "product": {"role": "product", "status": "idle", "currentTaskId": None},
-    }
-    store.sync_state_to_store(fixture.team_dir, state, state_path=fixture.state_path)
-
-    added = fixture.cli.run(
-        "plan",
-        "add-task",
-        "--title",
-        "Refine internal CLI lifecycle",
-        "--role",
-        "developer",
-        "--path",
-        "sprintengine_core/tool.py",
-        "--not-product-facing",
-    )
-
-    assert added["task"]["productFacing"] is False
-    assert [gate["id"] for gate in added["task"]["qualityGates"]] == []
-
-
-def test_product_facing_tasks_get_product_gate_when_product_is_rostered(tmp_path) -> None:
-    fixture = create_team(tmp_path, "quality-product-facing-gate", [])
-    state = read_state(fixture.state_path)
-    state["sprintengine"]["rosterConfigured"] = True
-    state["agents"] = {
-        "developer-fixture": {"role": "developer", "status": "idle", "currentTaskId": None},
-        "product": {"role": "product", "status": "idle", "currentTaskId": None},
-    }
-    store.sync_state_to_store(fixture.team_dir, state, state_path=fixture.state_path)
-
-    added = fixture.cli.run(
-        "plan",
-        "add-task",
-        "--title",
-        "Ship user-visible status panel",
-        "--role",
-        "developer",
-        "--path",
-        "src/renderer/src/components/StatusPanel.tsx",
-        "--product-facing",
-    )
-
-    assert added["task"]["productFacing"] is True
-    assert [gate["id"] for gate in added["task"]["qualityGates"]] == ["product"]
-    gate = added["task"]["qualityGates"][0]
-    assert gate["phase"] == "product"
-    assert gate["role"] == "product"
-    assert gate["required"] is True
-
-
-def test_plan_update_persists_product_facing_signal_and_recomputes_gates(tmp_path) -> None:
-    fixture = create_team(tmp_path, "quality-product-facing-update", [])
-    state = read_state(fixture.state_path)
-    state["sprintengine"]["rosterConfigured"] = True
-    state["agents"] = {
-        "developer-fixture": {"role": "developer", "status": "idle", "currentTaskId": None},
-        "product": {"role": "product", "status": "idle", "currentTaskId": None},
-    }
-    store.sync_state_to_store(fixture.team_dir, state, state_path=fixture.state_path)
-    added = fixture.cli.run(
-        "plan",
-        "add-task",
-        "--title",
-        "Tune status labels",
-        "--role",
-        "developer",
-        "--path",
-        "src/renderer/src/components/StatusPanel.tsx",
-    )
-
-    updated = fixture.cli.run("plan", "update-task", "--task-id", added["task"]["id"], "--product-facing")
-
+    updated = fixture.cli.run("plan", "update-task", "--task-id", internal["task"]["id"], "--product-facing")
     assert updated["task"]["productFacing"] is True
-    assert [gate["id"] for gate in updated["task"]["qualityGates"]] == ["product"]
+    assert "qualityGates" not in updated["task"]
 
 
 def test_folder_store_path_validation_rejects_machine_specific_paths() -> None:
@@ -807,75 +583,6 @@ def test_ready_queue_keeps_needs_triage_tasks_in_todo_projection(tmp_path) -> No
     assert triage_projection["boardColumn"] == "todo"
     assert ready_projection["needsTriage"] is False
     assert projection["board"]["columns"]["todo"]["taskIds"] == ["T2"]
-
-
-def test_changes_requested_tasks_stay_in_changes_requested_folder_and_are_claimable(tmp_path) -> None:
-    fixture = create_team(
-        tmp_path,
-        "changes-requested-ready",
-        [
-            task("T1", "Dependency", "developer", "done"),
-            task("T2", "Needs revision", "developer", "changes_requested", depends_on=["T1"]),
-        ],
-    )
-
-    listed = fixture.cli.run("task", "list", "--role", "developer")
-    refreshed = fixture.cli.run("task", "refresh-ready")
-
-    assert refreshed["readyTaskIds"] == ["T2"]
-    assert ready_queue_ids(fixture.team_dir) == []
-    assert (fixture.team_dir / "tasks" / "changes_requested" / "0002-T2.json").is_file()
-    stored = json.loads((fixture.team_dir / "tasks" / "changes_requested" / "0002-T2.json").read_text(encoding="utf-8"))
-    assert stored["status"] == "changes_requested"
-    claimed = fixture.cli.run("task", "next", "--role", "developer", "--id", "developer-fixture")
-
-    assert [entry["id"] for entry in listed["readyTasks"]] == ["T2"]
-    assert listed["readyTasks"][0]["status"] == "changes_requested"
-    assert claimed["claimed"] is True
-    assert claimed["task"]["id"] == "T2"
-    assert claimed["task"]["status"] == "in_progress"
-
-
-def test_task_next_prioritizes_changes_requested_before_normal_ready(tmp_path) -> None:
-    fixture = create_team(
-        tmp_path,
-        "changes-requested-priority",
-        [
-            task("T1", "Dependency", "developer", "done"),
-            task("T2", "Normal ready", "developer", depends_on=["T1"]),
-            task("T3", "Needs revision", "developer", "changes_requested", depends_on=["T1"]),
-        ],
-    )
-    fixture.cli.run("task", "refresh-ready")
-
-    claimed = fixture.cli.run("task", "next", "--role", "developer", "--id", "developer-fixture")
-
-    assert claimed["claimed"] is True
-    assert claimed["task"]["id"] == "T3"
-    assert (fixture.team_dir / "tasks" / "in_progress" / "0003-T3.json").is_file()
-    assert (fixture.team_dir / "tasks" / "ready" / "0002-T2.json").is_file()
-
-
-def test_projection_reports_changes_requested_distinctly(tmp_path) -> None:
-    fixture = create_team(
-        tmp_path,
-        "changes-requested-projection",
-        [
-            task("T1", "Dependency", "developer", "done"),
-            task("T2", "Needs revision", "developer", "changes_requested", depends_on=["T1"]),
-            task("T3", "Normal ready", "developer", depends_on=["T1"]),
-        ],
-    )
-    fixture.cli.run("task", "refresh-ready")
-
-    projection = fixture.cli.run("projection")
-    tasks = {task["id"]: task for task in projection["tasks"]}
-
-    assert projection["board"]["counts"]["changes_requested"] == 1
-    assert projection["counts"]["changesRequested"] == 1
-    assert tasks["T2"]["status"] == "changes_requested"
-    assert tasks["T2"]["stateStatus"] == "changes_requested"
-    assert tasks["T3"]["status"] == "ready"
 
 
 def test_folder_store_mutation_requires_run_yaml(tmp_path) -> None:

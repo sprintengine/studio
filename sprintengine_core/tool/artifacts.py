@@ -8,7 +8,6 @@ from typing import Any, Dict, List, Optional
 
 from sprintengine_core.tool.common import path_is_relative_to, unique_strings
 from sprintengine_core.tool.constants import *  # noqa: F403,F401
-from sprintengine_core.tool.gates import open_required_quality_gates
 from sprintengine_core.tool.paths import MULTICODE_DIR_NAME, SPRINTENGINE_DIR_NAME, now_iso
 from sprintengine_core.tool.state import *  # noqa: F403,F401
 
@@ -197,8 +196,6 @@ def mark_task_done_if_artifacts_approved(state: Dict[str, Any], task: Dict[str, 
     linked_artifacts = blocking_artifacts_for_task(state, str(task.get("id")))
     if not linked_artifacts or any(a.get("status") != "approved" for a in linked_artifacts):
         return False
-    if open_required_quality_gates(task):
-        return False
 
     task["status"] = "done"
     task.pop("needsInput", None)
@@ -211,6 +208,9 @@ def mark_task_done_if_artifacts_approved(state: Dict[str, Any], task: Dict[str, 
     for agent_id in cleared:
         if agent_id != owner_id:
             set_agent_idle(ensure_agent(state, agent_id))
+    # A done task holds no owner. One of five independent task->done writers; each
+    # must clear it, because there is no single choke point to hook.
+    task["ownerAgentId"] = None
     return True
 
 def find_reusable_artifact(
@@ -334,6 +334,13 @@ def resolve_task_input(
     resolution: str,
     complete: bool = False,
 ) -> Dict[str, Any]:
+    """Unblock a needs_input task and hand it back to its owner.
+
+    A mid-phase `escalate` recorded the phase it escalated FROM
+    (`needsInput.originatingStatus`), so resolution returns the task to THAT phase,
+    not to `in_progress` — the owner resumes reviewing, it does not re-implement.
+    Anything else resumes implementation.
+    """
     if task.get("status") != "needs_input":
         raise SystemExit("Only needs_input tasks can be resolved.")
     owner_id = str(task.get("ownerAgentId") or "").strip()
@@ -342,6 +349,8 @@ def resolve_task_input(
     now = now_iso()
     needs_input = task.get("needsInput") if isinstance(task.get("needsInput"), dict) else {}
     needs_input = dict(needs_input)
+    originating_status = str(needs_input.get("originatingStatus") or "").strip()
+    resume_status = originating_status if originating_status in VALID_TASK_PHASES else "in_progress"
     needs_input.update({
         "resolvedBy": actor,
         "resolvedAt": now,
@@ -350,7 +359,7 @@ def resolve_task_input(
     })
     task["needsInput"] = needs_input
     task.setdefault("notes", []).append(f"INPUT RESOLVED by {actor}: {resolution}")
-    append_task_activity(task, "needs_input", actor, f"Input resolved: {resolution}", {"status": "done" if complete else "in_progress"})
+    append_task_activity(task, "needs_input", actor, f"Input resolved: {resolution}", {"status": "done" if complete else resume_status})
 
     if complete:
         task["status"] = "done"
@@ -359,9 +368,11 @@ def resolve_task_input(
         if owner_id:
             set_agent_idle(ensure_agent(state, owner_id, task.get("role")))
         clear_task_refs(state, str(task.get("id")))
-        return {"status": "done", "ownerAgentId": owner_id or None}
+        # A done task holds no owner (see mark_task_done_if_artifacts_approved).
+        task["ownerAgentId"] = None
+        return {"status": "done", "ownerAgentId": owner_id or None, "resumePhase": None}
 
-    task["status"] = "in_progress"
+    task["status"] = resume_status
     task["completedAt"] = None
     if not task.get("startedAt"):
         task["startedAt"] = now
@@ -369,11 +380,23 @@ def resolve_task_input(
         agent = ensure_agent(state, owner_id, task.get("role"))
         agent["status"] = "running"
         agent["currentTaskId"] = task.get("id")
-    return {"status": "in_progress", "ownerAgentId": owner_id or None}
+    return {
+        "status": resume_status,
+        "ownerAgentId": owner_id or None,
+        "resumePhase": resume_status if resume_status != "in_progress" else None,
+    }
 
 def release_task_from_owner(state: Dict[str, Any], task: Dict[str, Any], actor: str, reason: str) -> Dict[str, Any]:
+    """Architect override: take a task off its owner and return it to the queue.
+
+    Allowed from any owned status, including `review` — an owner stuck mid-phase is
+    exactly what this exists for. The task restarts from `todo`: a fresh owner claims
+    it, re-implements or confirms, and re-enters the walk at its next publish.
+    """
     if task.get("status") not in ACTIVE_TASK_STATUSES:
-        raise SystemExit("Only in_progress or needs_input tasks can be released.")
+        raise SystemExit(
+            f"Only owned tasks ({', '.join(sorted(ACTIVE_TASK_STATUSES))}) can be released."
+        )
     previous_owner_id = str(task.get("ownerAgentId") or "").strip()
     if previous_owner_id:
         set_agent_idle(ensure_agent(state, previous_owner_id, task.get("role")))

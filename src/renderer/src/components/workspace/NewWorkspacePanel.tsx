@@ -249,8 +249,6 @@ const guidedBriefSprintEngineRoleCounts: SprintEngineRoleCounts = {
   frontend: 1,
   ui_ux_reviewer: 0,
   developer: 1,
-  code_reviewer: 1,
-  spec_reviewer: 1,
   performance: 0,
   production_readiness_reviewer: 0,
   cross_platform: 0,

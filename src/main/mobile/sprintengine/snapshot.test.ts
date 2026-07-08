@@ -28,7 +28,7 @@ void main()
 async function main(): Promise<void> {
   await assertFixtureSnapshotMatchesDesktopBoardCounts()
   await assertMigratedProjectionSnapshotIsPreferred()
-  await assertGatedProjectionSnapshotExposesQualityContext()
+  await assertReviewProjectionSnapshotExposesReviewContext()
   await assertProjectionSnapshotPassesProtocolValidation()
   await assertSnapshotIncludesDesktopWorkspaceEntries()
   await assertSnapshotIncludesWorkspaceBacklog()
@@ -122,12 +122,8 @@ async function assertFixtureSnapshotMatchesDesktopBoardCounts(): Promise<void> {
     todo: 1,
     ready: 1,
     inProgress: 1,
-    changesRequested: 0,
     review: 0,
-    testing: 0,
-    product: 0,
     needsInput: 1,
-    blocked: 0,
     done: 2,
   })
   assert.equal(snapshot.tasks.find((candidate) => candidate.taskId === 'T2')?.status, 'ready')
@@ -153,12 +149,12 @@ async function assertMigratedProjectionSnapshotIsPreferred(): Promise<void> {
       'developer-1': { role: 'developer', status: 'running', currentTaskId: 'T2' },
     },
     board: {
-      counts: { todo: 0, ready: 1, in_progress: 1, changes_requested: 1, needs_input: 1, done: 1 },
+      counts: { todo: 0, ready: 1, in_progress: 1, review: 1, needs_input: 1, done: 1 },
     },
     tasks: [
       { id: 'T1', title: 'Foundation', role: 'developer', status: 'done', dependsOn: [] },
       { id: 'T2', title: 'Ready work', role: 'developer', status: 'ready', dependsOn: ['T1'] },
-      { id: 'T2R', title: 'Rework', role: 'developer', status: 'changes_requested', stateStatus: 'changes_requested', dependsOn: ['T1'] },
+      { id: 'T2R', title: 'Owner review', role: 'developer', status: 'review', stateStatus: 'review', dependsOn: ['T1'] },
       {
         id: 'T3',
         title: 'Waiting review',
@@ -177,7 +173,7 @@ async function assertMigratedProjectionSnapshotIsPreferred(): Promise<void> {
       warnings: [{ name: 'readyQueue', message: 'readyQueue lock appears stale.' }],
     },
     activity: [{ type: 'artifact_ready_for_review', timestamp: generatedAt }],
-    counts: { ready: 1, needsInput: 1, changesRequested: 1 },
+    counts: { ready: 1, needsInput: 1 },
     runSummary: { status: 'executing' },
   }, null, 2)}\n`, 'utf8')
 
@@ -188,25 +184,27 @@ async function assertMigratedProjectionSnapshotIsPreferred(): Promise<void> {
     todo: 0,
     ready: 1,
     inProgress: 1,
-    changesRequested: 1,
-    review: 0,
-    testing: 0,
-    product: 0,
+    review: 1,
     needsInput: 1,
-    blocked: 0,
     done: 1,
   })
   assert.equal(snapshot.tasks.find((candidate) => candidate.taskId === 'T2')?.status, 'ready')
-  assert.equal(snapshot.tasks.find((candidate) => candidate.taskId === 'T2R')?.status, 'changes_requested')
+  assert.equal(snapshot.tasks.find((candidate) => candidate.taskId === 'T2R')?.status, 'review')
   assert.equal(snapshot.tasks.find((candidate) => candidate.taskId === 'T3')?.needsInput?.artifactId, 'A1')
   assert.equal(snapshot.artifacts[0].status, 'ready_for_review')
   assert.equal(snapshot.locks?.warnings?.length, 1)
   assert.equal(snapshot.activity?.count, 1)
   assert.equal(snapshot.counts?.ready, 1)
-  assert.equal(snapshot.counts?.changesRequested, 1)
+  assert.equal(snapshot.counts?.needsInput, 1)
 }
 
-async function assertGatedProjectionSnapshotExposesQualityContext(): Promise<void> {
+// MC-1542 single-owner tasks deleted quality gates: the qualityPolicy /
+// qualityGates / qualityGateSummary wire fields and the changes_requested /
+// testing / product statuses are gone. What survives — and this test still
+// pins — is the `review` board column round-trip and the review-context comment
+// / feedback / recorded-artifact surfaces the mobile snapshot exposes for a task
+// its single owner is reviewing.
+async function assertReviewProjectionSnapshotExposesReviewContext(): Promise<void> {
   const statePath = await writeStateText('not-real-state\n')
   const teamDirectory = dirname(statePath)
   await writeFile(join(teamDirectory, 'projection.json'), JSON.stringify({
@@ -215,63 +213,27 @@ async function assertGatedProjectionSnapshotExposesQualityContext(): Promise<voi
     source: 'folder_store',
     updatedAt: generatedAt,
     run: {
-      id: 'gated-team',
-      name: 'Gated Team',
+      id: 'review-team',
+      name: 'Review Team',
       status: 'executing',
       updatedAt: generatedAt,
-      qualityPolicy: {
-        enabled: true,
-        rosterDriven: true,
-        lifecyclePhases: ['review', 'testing'],
-        gates: {
-          code_reviewer: { phase: 'review', role: 'code_reviewer', required: true },
-          tester: { phase: 'testing', role: 'tester', required: true },
-        },
-      },
     },
     tasks: [
       {
         id: 'G1',
-        title: 'Gated implementation',
+        title: 'Implementation under review',
         role: 'developer',
         status: 'review',
-        stateStatus: 'in_progress',
+        stateStatus: 'review',
         boardColumn: 'review',
         dependsOn: [],
-        qualityGates: [
-          {
-            id: 'code_reviewer',
-            phase: 'review',
-            role: 'code_reviewer',
-            status: 'changes_requested',
-            required: true,
-            attempts: [
-              { id: 'A1', status: 'changes_requested', actor: 'code_reviewer', verdict: 'changes_requested' },
-            ],
-          },
-          {
-            id: 'tester',
-            phase: 'testing',
-            role: 'tester',
-            status: 'pending',
-            required: true,
-            attempts: [],
-          },
-        ],
-        qualityGateSummary: {
-          total: 2,
-          required: 2,
-          openRequired: 2,
-          byPhase: { review: 1, testing: 1 },
-          byStatus: { changes_requested: 1, pending: 1 },
-        },
         latestComments: [
           {
             id: 'C1',
             type: 'review_feedback',
-            actor: 'code_reviewer',
-            authorAgentId: 'code_reviewer',
-            authorRole: 'code_reviewer',
+            actor: 'developer-1',
+            authorAgentId: 'developer-1',
+            authorRole: 'developer',
             source: 'agent',
             body: 'Need an extra null check.',
             createdAt: generatedAt,
@@ -281,9 +243,9 @@ async function assertGatedProjectionSnapshotExposesQualityContext(): Promise<voi
           {
             id: 'C1',
             type: 'review_feedback',
-            actor: 'code_reviewer',
-            authorAgentId: 'code_reviewer',
-            authorRole: 'code_reviewer',
+            actor: 'developer-1',
+            authorAgentId: 'developer-1',
+            authorRole: 'developer',
             source: 'agent',
             body: 'Need an extra null check.',
             createdAt: generatedAt,
@@ -294,33 +256,11 @@ async function assertGatedProjectionSnapshotExposesQualityContext(): Promise<voi
           {
             id: 'R1',
             kind: 'code_review',
-            title: 'Code review pass 1',
-            path: '.multi-code/sprintengine/gated-team/reviews/code-review-1.md',
-            gateId: 'code_reviewer',
+            title: 'Self review pass 1',
+            path: '.multi-code/sprintengine/review-team/reviews/code-review-1.md',
             createdAt: generatedAt,
           },
         ],
-      },
-      {
-        id: 'TT1',
-        title: 'Testing phase task',
-        role: 'developer',
-        status: 'testing',
-        stateStatus: 'in_progress',
-        boardColumn: 'testing',
-        dependsOn: [],
-        qualityGates: [
-          { id: 'tester', phase: 'testing', role: 'tester', status: 'pending', required: true, attempts: [] },
-        ],
-      },
-      {
-        id: 'CR1',
-        title: 'Rework',
-        role: 'developer',
-        status: 'changes_requested',
-        stateStatus: 'changes_requested',
-        boardColumn: 'changes_requested',
-        dependsOn: [],
       },
     ],
     artifacts: [],
@@ -330,26 +270,15 @@ async function assertGatedProjectionSnapshotExposesQualityContext(): Promise<voi
 
   const snapshot = await readSprintEngineSnapshot(statePath)
   assert.equal(snapshot.board.review, 1, 'review column counted from boardColumn')
-  assert.equal(snapshot.board.testing, 1, 'testing column counted from boardColumn')
-  assert.equal(snapshot.board.product, 0)
-  assert.equal(snapshot.board.changesRequested, 1, 'rework stays distinct from ready')
-  assert.equal(snapshot.qualityPolicy?.enabled, true)
-  assert.deepEqual(snapshot.qualityPolicy?.lifecyclePhases, ['review', 'testing'])
 
-  const gatedTask = snapshot.tasks.find((task) => task.taskId === 'G1')
-  assert.ok(gatedTask, 'gated task is present')
-  assert.equal(gatedTask!.status, 'review')
-  assert.equal(gatedTask!.qualityGateSummary?.total, 2)
-  assert.equal(gatedTask!.qualityGateSummary?.openRequired, 2)
-  assert.equal(gatedTask!.qualityGates?.length, 2)
-  assert.equal(gatedTask!.qualityGates?.[0].status, 'changes_requested')
-  assert.equal(gatedTask!.qualityGates?.[0].latestVerdict, 'changes_requested')
-  assert.equal(gatedTask!.qualityGates?.[0].attemptCount, 1)
-  assert.equal(gatedTask!.latestComments?.length, 1)
-  assert.equal(gatedTask!.latestOpenFeedback?.length, 1)
-  assert.equal(gatedTask!.latestOpenFeedback?.[0].type, 'review_feedback')
-  assert.equal(gatedTask!.recordedArtifacts?.length, 1)
-  assert.equal(gatedTask!.recordedArtifacts?.[0].gateId, 'code_reviewer')
+  const reviewTask = snapshot.tasks.find((task) => task.taskId === 'G1')
+  assert.ok(reviewTask, 'review task is present')
+  assert.equal(reviewTask!.status, 'review')
+  assert.equal(reviewTask!.latestComments?.length, 1)
+  assert.equal(reviewTask!.latestOpenFeedback?.length, 1)
+  assert.equal(reviewTask!.latestOpenFeedback?.[0].type, 'review_feedback')
+  assert.equal(reviewTask!.recordedArtifacts?.length, 1)
+  assert.equal(reviewTask!.recordedArtifacts?.[0].kind, 'code_review')
 }
 
 async function assertSnapshotIncludesDesktopWorkspaceEntries(): Promise<void> {

@@ -1,4 +1,4 @@
-"""Run-state, roster, task, gate, and lock helpers for Sprint Engine."""
+"""Run-state, roster, task, and lock helpers for Sprint Engine."""
 
 from __future__ import annotations
 
@@ -98,13 +98,12 @@ def apply_configured_roles(state: Dict[str, Any], raw_json: Optional[str]) -> No
     """Persist the run's explicit enabled-role set at init.
 
     `raw_json` is a JSON array of role ids supplied by Multicode from the
-    workspace roster's enabled roles. This is the source of truth for quality-gate
-    derivation (see store.configured_gate_roles), so a lazy, architect-only roster
-    still derives its required reviewer/tester gates: the gate role need only be
-    enabled here, not currently seated in `agents`. Deliberately distinct from
-    `roleRuntimes`, whose keys include CLI-default roles. Blank/absent input
-    leaves the key untouched so legacy runs fall back to the seated-roster roles.
-    An explicit empty array records an empty enabled set (no derived gates).
+    workspace roster's enabled roles. Post-MC-1542 this is the run's LEGAL ROLE SET:
+    the roles a task may be tagged with (`plan.add_task` enforces membership). The
+    role need only be enabled here, not currently seated in `agents`, so a lazy
+    architect-only roster still admits its planned tasks. Deliberately distinct from
+    `roleRuntimes`, whose keys include CLI-default roles. Blank/absent input leaves
+    the key untouched so the roster boundary no-ops.
     """
     if not raw_json or not str(raw_json).strip():
         return
@@ -152,6 +151,117 @@ def run_default_phases(state: Dict[str, Any]) -> List[str]:
         return folder_store.run_default_phases(state)
     except ValueError as error:
         raise SystemExit(str(error)) from error
+
+
+def apply_phase_runtimes(state: Dict[str, Any], raw_json: Optional[str]) -> None:
+    """Persist per-phase runtime bindings at init (MC-1543, CLI-init-only).
+
+    `raw_json` is `{phase: {"cli": str, "model": str|null}}` — the operator paying
+    for a stronger model to review each task's diff as a fresh, diff-seeded session.
+    Validated against `allowedRuntimes` (the sprint palette) exactly as
+    `roster.configure` validates a role binding, and against the shipped phase
+    vocabulary. An entry with no `cli` is dropped: a binding with no CLI cannot spawn
+    a session, and silently ignoring it would leave the operator believing they had
+    bought independent review. Absent/blank leaves the key off, so ZERO extra
+    sessions are created (the MC-1542 default).
+    """
+    if not raw_json or not str(raw_json).strip():
+        return
+    try:
+        parsed = json.loads(raw_json)
+    except (TypeError, ValueError) as error:
+        raise SystemExit(f"--phase-runtimes-json must be a JSON object: {error}")
+    if not isinstance(parsed, dict):
+        raise SystemExit("--phase-runtimes-json must be a JSON object of phase -> {cli, model}.")
+    allowed = state.get("allowedRuntimes")
+    runtimes: Dict[str, Dict[str, Any]] = {}
+    for raw_phase, raw_entry in parsed.items():
+        phase = str(raw_phase or "").strip()
+        if phase not in VALID_TASK_PHASES:
+            raise SystemExit(
+                f"--phase-runtimes-json names unknown phase {phase!r}; expected one of: {', '.join(VALID_TASK_PHASES)}."
+            )
+        if not isinstance(raw_entry, dict):
+            raise SystemExit(f"--phase-runtimes-json entry for {phase!r} must be an object of {{cli, model}}.")
+        cli = str(raw_entry.get("cli") or "").strip()
+        if not cli:
+            raise SystemExit(f"--phase-runtimes-json entry for {phase!r} requires a cli.")
+        raw_model = raw_entry.get("model")
+        model: Optional[str] = str(raw_model).strip() or None if raw_model is not None else None
+        if isinstance(allowed, list) and not runtime_matches_allowed(allowed, cli, model):
+            raise SystemExit(
+                f"runtime_not_allowed_for_run: phase {phase!r} requested runtime "
+                f"{cli}/{model or '(cli default)'}, which is not in this sprint's selection."
+            )
+        runtimes[phase] = {"cli": cli, "model": model}
+    if runtimes:
+        state["phaseRuntimes"] = runtimes
+
+
+def phase_runtime(state: Dict[str, Any], phase: str) -> Dict[str, Any]:
+    """The `{cli, model}` bound to `phase`, or `{}` when it runs in-session."""
+    return folder_store.phase_runtime(state, phase)
+
+
+def phase_needs_own_session(state: Dict[str, Any], task: Dict[str, Any], phase: str) -> bool:
+    """True when `phase` must run as a FRESH session on a different runtime.
+
+    Absent binding, or a binding equal to the runtime the task is already stamped
+    with, falls through to the in-session default: the owner is mid-tool-call and
+    gets the directive inline. Only a genuinely different `{cli, model}` buys a new
+    session — the operator pays per bound phase per task, and never by accident.
+    """
+    binding = phase_runtime(state, phase)
+    if not binding:
+        return False
+    bound_cli = str(binding.get("cli") or "").strip()
+    bound_model = binding.get("model") or None
+    task_cli = str(task.get("cli") or "").strip()
+    task_model = str(task.get("model") or "").strip() or None
+    return (bound_cli, bound_model) != (task_cli, task_model)
+
+
+def apply_required_sweeps(state: Dict[str, Any], raw_json: Optional[str]) -> None:
+    """Persist the operator's mandated sweep roles at init (CLI-init-only).
+
+    `raw_json` is a JSON array of sweep role ids the operator ticked in the wizard's
+    "Final sweeps" panel. Sweep inclusion is normally the architect's risk-tiered
+    call; a mandated sweep is not negotiable — the planning directive must plan one
+    task per required role, and the run cannot complete until it has. Every id is
+    checked against the role registry's sweep roles, so a typo (or a worker role)
+    fails at init rather than silently never being planned. Blank/absent input, and
+    an explicit empty array, leave the key off entirely.
+    """
+    if not raw_json or not str(raw_json).strip():
+        return
+    try:
+        parsed = json.loads(raw_json)
+    except (TypeError, ValueError) as error:
+        raise SystemExit(f"--required-sweeps-json must be a JSON array: {error}")
+    if not isinstance(parsed, list):
+        raise SystemExit("--required-sweeps-json must be a JSON array of sweep role ids.")
+    roles: List[str] = []
+    for raw_role in parsed:
+        role = require_configured_role(str(raw_role or "").strip(), context="--required-sweeps-json")
+        if role not in roles:
+            roles.append(role)
+    if not roles:
+        return
+    from sprintengine_core.role_registry import discover_role_registry
+
+    sweep_ids = {manifest.id for manifest in discover_role_registry().sweep_roles()}
+    not_sweeps = [role for role in roles if role not in sweep_ids]
+    if not_sweeps:
+        raise SystemExit(
+            f"--required-sweeps-json names non-sweep role(s): {', '.join(not_sweeps)}. "
+            f"Sweep roles declare a `sweep` block in their manifest. Known sweeps: {', '.join(sorted(sweep_ids))}."
+        )
+    state["requiredSweeps"] = roles
+
+
+def run_required_sweeps(state: Dict[str, Any]) -> List[str]:
+    """Sweep roles the operator mandated for this run."""
+    return folder_store.run_required_sweeps(state)
 
 
 def apply_roster_source(state: Dict[str, Any], value: Optional[str]) -> None:
@@ -278,7 +388,7 @@ PLANNING_ROLE_IDS = {"architect", "general"}
 def configured_role_set(state: Dict[str, Any]) -> Optional[set[str]]:
     """The run's enforced enabled-role set, or None when unconfigured.
 
-    Read inline here rather than via store.configured_gate_roles to avoid a
+    Read inline here rather than through the folder store to avoid a
     state->store import cycle. `configuredRoles` is stored canonical, so callers
     membership-test canonical role ids directly. An absent key or an empty/blank
     list returns None so the roster boundary no-ops for legacy/headless runs.
@@ -320,36 +430,6 @@ def ensure_agent_in_roster(state: Dict[str, Any], agent_id: str, role: str, *, a
         raise SystemExit(f"Agent {agent_id!r} is not in this Sprint Engine roster.")
     if existing_agent.get("role") != role:
         raise SystemExit(f"Agent {agent_id!r} is rostered as {existing_agent.get('role')!r}, not {role!r}.")
-
-
-def lazily_register_reviewer_id(state: Dict[str, Any], agent_id: str, role: str, *, actor: str = "sprintengine") -> bool:
-    """Register a reviewer role's persistent id on its first gate claim.
-
-    Gate work never mints a fresh id per gate: the first gate dispatch/claim for a
-    role whose persistent reviewer id is not yet seated registers that exact id in
-    run.yaml (under the gate-queue lock the caller already holds), and every later
-    gate claim by the same role reuses it. The id the caller supplies is the role's
-    deterministic reviewer id (bare ``<role>``), so the renderer can target it for
-    spawn. Registration goes through the normal agent path and never appends to
-    ``ownedTaskIds``, so a reviewer id is never task-capped. Returns True when a new
-    roster entry was created (so the caller can persist the write).
-
-    A legacy/headless run with no configured roster keeps ad-hoc identity: presence
-    is not required and downstream ``ensure_agent`` creates the record, so this does
-    not flip such a run into configured-roster mode.
-    """
-    role = require_configured_role(role, context="Gate role")
-    existing = state.get("agents", {}).get(agent_id)
-    if agent_is_retired(existing):
-        raise SystemExit(f"Agent {agent_id!r} is retired and cannot claim more Sprint Engine work.")
-    if not roster_is_configured(state):
-        return False
-    if isinstance(existing, dict):
-        if existing.get("role") != role:
-            raise SystemExit(f"Agent {agent_id!r} is rostered as {existing.get('role')!r}, not {role!r}.")
-        return False
-    add_roster_agent(state, role, agent_id, actor)
-    return True
 
 
 def planning_seat_taken(agents: Dict[str, Any], role: str) -> bool:
@@ -421,10 +501,10 @@ def next_replacement_agent_id(state: Dict[str, Any], role: str) -> str:
         if not match:
             continue
         highest = max(highest, int(match.group(1) or "1"))
-    # D-Naming: the first minted worker of a role is `<role>-1` (no seeded
-    # `<role>-1` original under the lazy roster). A bare `<role>` reviewer id
-    # counts as index 1, so a mint steps past it to `-2`. Mirrors the renderer
-    # allocator (getNextSprintEngineAgentId).
+    # D-Naming: the first minted worker of a role is `<role>-1`. MC-1542 removed the
+    # reviewer carve-out (a reserved bare `<role>` id), but a bare id from an older
+    # run still counts as index 1 so a mint never collides with it. Mirrors the
+    # renderer allocator (getNextSprintEngineAgentId) — TS/Python drift here has bitten before.
     candidate_index = highest + 1
     while True:
         candidate = f"{role}-{candidate_index}"
@@ -439,9 +519,6 @@ def role_has_open_work(state: Dict[str, Any], role: str) -> bool:
             continue
         if task.get("role") == role and task.get("status") not in {"done", "canceled"}:
             return True
-        for gate in task_quality_gates(task):
-            if gate.get("role") == role and gate.get("status") in {"pending", "in_progress", "changes_requested", "blocked"}:
-                return True
     return False
 
 
@@ -706,12 +783,6 @@ def clear_terminal_state_metadata(agent: Dict[str, Any]) -> bool:
 def set_agent_idle(agent: Dict[str, Any]) -> bool:
     changed = set_if_changed(agent, "status", "idle")
     changed = set_if_changed(agent, "currentTaskId", None) or changed
-    if "currentGateId" in agent:
-        agent.pop("currentGateId", None)
-        changed = True
-    if "currentGate" in agent:
-        agent.pop("currentGate", None)
-        changed = True
     changed = set_if_changed(agent, "currentDispatch", None) or changed
     changed = set_if_changed(agent, "heartbeatAt", now_iso()) or changed
     return changed
@@ -861,24 +932,14 @@ def agent_is_expired(state: Dict[str, Any], agent: Dict[str, Any], *, now: Optio
     return (current - heartbeat).total_seconds() > agent_liveness_timeout_seconds(state)
 
 
-def current_gate_reference(agent: Dict[str, Any]) -> Dict[str, Any]:
-    current_gate = agent.get("currentGate") if isinstance(agent.get("currentGate"), dict) else {}
-    return {
-        "taskId": current_gate.get("taskId") or agent.get("currentTaskId"),
-        "gateId": current_gate.get("gateId") or agent.get("currentGateId"),
-        "attemptId": current_gate.get("attemptId"),
-    }
-
-
 def agent_has_target_mirror(agent: Dict[str, Any]) -> bool:
-    """True while an agent record still points at a task or gate to release.
+    """True while an agent record still points at a task to release.
 
     A departed agent reset to idle-no-target has no mirror, so the expiry sweep
     skips it on later passes — the derived-liveness idempotency guard.
     """
     dispatch = agent.get("currentDispatch") if isinstance(agent.get("currentDispatch"), dict) else {}
-    gate_ref = current_gate_reference(agent)
-    return bool(agent.get("currentTaskId") or dispatch.get("targetKind") or gate_ref.get("gateId"))
+    return bool(agent.get("currentTaskId") or dispatch.get("targetKind"))
 
 
 def release_agent_targets(
@@ -891,11 +952,17 @@ def release_agent_targets(
     """Free every target a departing agent holds and reset it to idle.
 
     The single authority for releasing an agent's owned work, shared by the MCP
-    agent.leave path and the headless expiry sweep. Frees the owned in_progress
-    task (-> todo, ownerAgentId cleared, startedAt/completedAt reset) and any
-    live gate claim (gate -> pending, attempt -> released), preserving the
-    needs_input-stays-owned exclusion, then resets the agent to idle WITHOUT
-    stamping any terminal status: liveness is derived by Main, never stored here.
+    agent.leave path and the headless expiry sweep. Frees the owned `in_progress`
+    task (-> todo, ownerAgentId cleared, startedAt/completedAt reset), then resets
+    the agent to idle WITHOUT stamping any terminal status: liveness is derived by
+    Main, never stored here.
+
+    A task in `review` STAYS OWNED (MC-1542 Flow 6). Its diff is published and its
+    phase is half-walked; releasing it to `todo` would hand a stranger a task whose
+    work is already done and whose ready-queue entry claims otherwise. The owner is
+    instead revived under the same id with a phase brief. `needs_input` stays owned
+    for the same reason it always did — the blocker is on the human.
+
     ownedTaskIds/lastOwnedTaskId are left intact so a departed worker stays
     task-capped and replenish still mints a replacement. Returns one canonical
     descriptor per released target (empty when the agent held none); callers
@@ -909,15 +976,13 @@ def release_agent_targets(
         if not isinstance(task, dict) or task.get("ownerAgentId") != agent_id:
             continue
         status = str(task.get("status") or "")
-        # needs_input tasks stay owned: the blocker is on the human and input
-        # resolution routes the answer back to this owner. Only live-work
-        # statuses release.
-        if status not in {"in_progress", "changes_requested"}:
+        # Only un-started implementation work returns to the queue. `review` and
+        # `needs_input` stay owned (see the docstring).
+        if status != "in_progress":
             continue
         task["ownerAgentId"] = None
-        task["status"] = "todo" if status == "in_progress" else status
-        if status == "in_progress":
-            task["startedAt"] = None
+        task["status"] = "todo"
+        task["startedAt"] = None
         task["completedAt"] = None
         append_task_activity(
             task,
@@ -933,42 +998,6 @@ def release_agent_targets(
             "fromStatus": status,
             "status": task.get("status"),
         })
-
-    for task in state.get("tasks", []) or []:
-        if not isinstance(task, dict):
-            continue
-        for gate in task_quality_gates(task):
-            if gate.get("status") != "in_progress":
-                continue
-            claim = next(
-                (
-                    attempt
-                    for attempt in reversed(gate_attempts(gate))
-                    if isinstance(attempt, dict)
-                    and attempt.get("status") == "in_progress"
-                    and attempt.get("claimedBy") == agent_id
-                ),
-                None,
-            )
-            if claim is None:
-                continue
-            claim["status"] = "released"
-            claim["completedAt"] = now_iso()
-            gate["status"] = "pending"
-            append_task_activity(
-                task,
-                "gate_release",
-                actor,
-                f"{actor} released gate claim {gate.get('id')} from {agent_id}: {reason}",
-                {"gateId": gate.get("id"), "attemptId": claim.get("id"), "previousOwnerAgentId": agent_id, "reason": reason},
-            )
-            released.append({
-                "kind": "gate",
-                "taskId": task.get("id"),
-                "gateId": gate.get("id"),
-                "attemptId": claim.get("id"),
-                "previousOwnerAgentId": agent_id,
-            })
 
     if isinstance(agent, dict):
         set_agent_idle(agent)
@@ -1014,16 +1043,16 @@ def release_expired_agent_targets(
                 role=role,
                 target_kind=kind or "agent",
                 task_id=str(entry.get("taskId") or ""),
-                gate_id=str(entry.get("gateId") or ""),
                 reason="agent_expired_release",
             )
-            target: Dict[str, Any] = {"agentId": str(agent_id), "role": role, "targetKind": kind, "taskId": entry.get("taskId")}
-            if kind == "gate":
-                target["gateId"] = entry.get("gateId")
-            else:
-                target["fromStatus"] = entry.get("fromStatus")
-                target["status"] = entry.get("status")
-            released.append(target)
+            released.append({
+                "agentId": str(agent_id),
+                "role": role,
+                "targetKind": kind,
+                "taskId": entry.get("taskId"),
+                "fromStatus": entry.get("fromStatus"),
+                "status": entry.get("status"),
+            })
 
     if released:
         append_event(
@@ -1042,10 +1071,6 @@ def clear_task_refs(state: Dict[str, Any], task_id: str) -> List[str]:
         if isinstance(agent, dict) and agent.get("currentTaskId") == task_id:
             if agent_is_retired(agent):
                 set_if_changed(agent, "currentTaskId", None)
-                if "currentGateId" in agent:
-                    agent.pop("currentGateId", None)
-                if "currentGate" in agent:
-                    agent.pop("currentGate", None)
                 set_if_changed(agent, "currentDispatch", None)
             else:
                 set_agent_idle(agent)
@@ -1095,8 +1120,6 @@ def current_dispatch_payload(
     role: str,
     reason: str,
     task_id: Optional[str] = None,
-    gate_id: Optional[str] = None,
-    attempt_id: Optional[str] = None,
     assigned_at: Optional[str] = None,
 ) -> Dict[str, Any]:
     payload = {
@@ -1108,10 +1131,6 @@ def current_dispatch_payload(
     }
     if task_id:
         payload["taskId"] = task_id
-    if gate_id:
-        payload["gateId"] = gate_id
-    if attempt_id:
-        payload["attemptId"] = attempt_id
     return payload
 
 
@@ -1124,28 +1143,18 @@ def queue_dispatch_record(
     reason: str,
     task_id: Optional[str] = None,
     task_status: Optional[str] = None,
-    gate_id: Optional[str] = None,
-    gate_status: Optional[str] = None,
-    attempt_id: Optional[str] = None,
 ) -> Dict[str, Any]:
     timestamp = now_iso()
     target = {"kind": target_kind}
     if task_id:
         target["taskId"] = task_id
-    if gate_id:
-        target["gateId"] = gate_id
-    if attempt_id:
-        target["attemptId"] = attempt_id
     record = {
         "timestamp": timestamp,
         "agentId": agent_id,
         "role": role,
         "target": target,
         "reason": reason,
-        "state": {
-            "taskStatus": task_status,
-            "gateStatus": gate_status,
-        },
+        "state": {"taskStatus": task_status},
         "outcome": "dispatched",
         "source": "core",
     }
@@ -1154,9 +1163,8 @@ def queue_dispatch_record(
     return record
 
 
-def dispatch_target_key(target_kind: str, task_id: Any = None, gate_id: Any = None) -> str:
-    if target_kind == "gate":
-        return f"gate:{task_id}:{gate_id}"
+def dispatch_target_key(target_kind: str, task_id: Any = None) -> str:
+    del target_kind
     return f"task:{task_id}"
 
 
@@ -1185,109 +1193,16 @@ def record_dispatch_cursor(state: Dict[str, Any], *, role: str, target_kind: str
         cursors[f"{role}:{target_kind}"] = target_key
 
 
-def latest_rework_gate_attempt(task: Dict[str, Any]) -> dict[str, str]:
-    latest: dict[str, str] = {}
-    latest_completed = ""
-    for gate in task.get("qualityGates") or []:
-        if not isinstance(gate, dict):
-            continue
-        gate_id = str(gate.get("id") or "")
-        for attempt in gate.get("attempts") or []:
-            if not isinstance(attempt, dict):
-                continue
-            verdict = str(attempt.get("verdict") or attempt.get("status") or "")
-            completed_at = str(attempt.get("completedAt") or "")
-            attempt_id = str(attempt.get("id") or "")
-            if verdict not in {"changes_requested", "failed"} or not attempt_id:
-                continue
-            if not latest or completed_at >= latest_completed:
-                latest_completed = completed_at
-                latest = {"gateId": gate_id, "attemptId": attempt_id}
-    return latest
-
-
-def current_dispatch_matches_task(
-    agent: Dict[str, Any],
-    task: Dict[str, Any],
-    reason: str,
-    *,
-    gate_id: Optional[str] = None,
-    attempt_id: Optional[str] = None,
-) -> bool:
+def current_dispatch_matches_task(agent: Dict[str, Any], task: Dict[str, Any], reason: str) -> bool:
     dispatch = agent.get("currentDispatch")
     if not isinstance(dispatch, dict):
         return False
-    matches = (
+    return (
         dispatch.get("targetKind") == "task"
         and dispatch.get("taskId") == task.get("id")
         and dispatch.get("reason") == reason
         and bool(dispatch.get("dispatchId"))
     )
-    if gate_id is not None:
-        matches = matches and dispatch.get("gateId") == gate_id
-    if attempt_id is not None:
-        matches = matches and dispatch.get("attemptId") == attempt_id
-    return matches
-
-
-def current_dispatch_matches_gate(
-    agent: Dict[str, Any],
-    task: Dict[str, Any],
-    gate: Dict[str, Any],
-    attempt: Dict[str, Any],
-    reason: str,
-) -> bool:
-    dispatch = agent.get("currentDispatch")
-    if not isinstance(dispatch, dict):
-        return False
-    return (
-        dispatch.get("targetKind") == "gate"
-        and dispatch.get("taskId") == task.get("id")
-        and dispatch.get("gateId") == gate.get("id")
-        and dispatch.get("attemptId") == attempt.get("id")
-        and dispatch.get("reason") == reason
-        and bool(dispatch.get("dispatchId"))
-    )
-
-
-def ensure_gate_dispatch(
-    state: Dict[str, Any],
-    agent: Dict[str, Any],
-    task: Dict[str, Any],
-    gate: Dict[str, Any],
-    attempt: Dict[str, Any],
-    agent_id: str,
-    role: str,
-) -> bool:
-    if gate.get("status") != "in_progress" or attempt.get("status") != "in_progress":
-        return False
-    reason = "gate_claimed"
-    if current_dispatch_matches_gate(agent, task, gate, attempt, reason):
-        return False
-    dispatch = queue_dispatch_record(
-        state,
-        agent_id=agent_id,
-        role=role,
-        target_kind="gate",
-        task_id=str(task.get("id") or ""),
-        task_status=str(task.get("status") or ""),
-        gate_id=str(gate.get("id") or ""),
-        gate_status=str(gate.get("status") or ""),
-        attempt_id=str(attempt.get("id") or ""),
-        reason=reason,
-    )
-    agent["currentDispatch"] = current_dispatch_payload(
-        dispatch_id=dispatch["id"],
-        target_kind="gate",
-        role=role,
-        reason=reason,
-        task_id=str(task.get("id") or ""),
-        gate_id=str(gate.get("id") or ""),
-        attempt_id=str(attempt.get("id") or ""),
-        assigned_at=dispatch["timestamp"],
-    )
-    agent["lastDirectiveAt"] = dispatch["timestamp"]
-    return True
 
 
 def reconcile_agent(state: Dict[str, Any], agent_id: str, role: str) -> Dict[str, Any]:
@@ -1320,9 +1235,6 @@ def reconcile_agent(state: Dict[str, Any], agent_id: str, role: str) -> Dict[str
 
     if agent_is_retired(agent):
         dirty = set_if_changed(agent, "currentTaskId", None) or dirty
-        if "currentGateId" in agent:
-            agent.pop("currentGateId", None)
-            dirty = True
         return {"agent": agent, "activeTask": None, "repairs": repairs, "dirty": dirty}
 
     if agent.get("status") == "done":
@@ -1334,8 +1246,14 @@ def reconcile_agent(state: Dict[str, Any], agent_id: str, role: str) -> Dict[str
 
 
 def clear_non_active_task_owner_claims(state: Dict[str, Any]) -> bool:
+    """Repair pass: a terminal task must not hold an owner.
+
+    Under the single-owner lifecycle `review` is an OWNED status, so only `done`
+    (and `canceled`) can carry a stale claim — publish/advance clear the owner as
+    they land it.
+    """
     dirty = False
-    non_active_owned_statuses = {"review", "testing", "product", "changes_requested", "done"}
+    non_active_owned_statuses = {"done", "canceled"}
     for task in state.get("tasks", []) or []:
         if not isinstance(task, dict):
             continue
@@ -1391,7 +1309,7 @@ def stamp_task_execution_identity(
     (`role_runtime`). Last-write-wins; a blank never clobbers a good value, so a
     role on the CLI default (empty runtime) records nothing. Called wherever a
     task is activated for a worker — both `assign_task` (worker claims) and the
-    architect plan-gate / product-intake tasks that are activated directly.
+    architect plan-approval / product-intake tasks that are activated directly.
     """
     runtime = role_runtime(state, task.get("role"))
     resolved_model = (model or "").strip() or str(runtime.get("model") or "").strip()
@@ -1444,37 +1362,6 @@ def assign_task(
     )
     append_task_activity(task, "claim", agent_id, f"{agent_id} claimed {task.get('id')}.")
     return {"agent": agent}
-
-
-def next_gate_attempt_id(gate: Dict[str, Any]) -> str:
-    attempts = gate.setdefault("attempts", [])
-    if not isinstance(attempts, list):
-        gate["attempts"] = []
-        attempts = gate["attempts"]
-    max_index = 0
-    for attempt in attempts:
-        if not isinstance(attempt, dict):
-            continue
-        match = re.fullmatch(r"GA-(\d+)", str(attempt.get("id") or ""))
-        if match:
-            max_index = max(max_index, int(match.group(1)))
-    return f"GA-{max_index + 1:03d}"
-
-
-def task_quality_gates(task: Dict[str, Any]) -> List[Dict[str, Any]]:
-    gates = task.setdefault("qualityGates", [])
-    if not isinstance(gates, list):
-        task["qualityGates"] = []
-        return task["qualityGates"]
-    return [gate for gate in gates if isinstance(gate, dict)]
-
-
-def gate_attempts(gate: Dict[str, Any]) -> List[Dict[str, Any]]:
-    attempts = gate.setdefault("attempts", [])
-    if not isinstance(attempts, list):
-        gate["attempts"] = []
-        return gate["attempts"]
-    return attempts
 
 
 def next_comment_id(task: Dict[str, Any]) -> str:

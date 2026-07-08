@@ -5,9 +5,9 @@ import {
   getSprintEngineArtifactDependencyBlockers,
   getSprintEngineArtifactsByTaskId,
   getSprintEngineTaskBoardColumn,
-  getSprintEngineVisibleBoardColumns,
   isSprintEngineTaskLaunchable,
   orderSprintEngineBoardColumnTasks,
+  sprintEngineTaskBoardColumns,
   type SprintEngineAgentRosterItem,
 } from '../../../utils/sprintengine'
 import {
@@ -138,7 +138,7 @@ export function useSprintEngineBoardModel(input: SprintEngineBoardModelInput): S
 
   const boardColumns = useMemo<SprintEngineBoardColumn[]>(() => {
     if (!sprintEngineState) return []
-    return getSprintEngineVisibleBoardColumns(sprintEngineState).map((column) => ({
+    return sprintEngineTaskBoardColumns.map((column) => ({
       ...column,
       cards: orderSprintEngineBoardColumnTasks(
         column.key,

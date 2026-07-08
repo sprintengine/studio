@@ -176,7 +176,7 @@ function testIdCollisionBlocksInCreateMode(): void {
 function testIdCollisionAgainstAliasBlocks(): void {
   const result = validateRoleAuthoringDraft(validDraft({ id: 'reviewer' }), {
     mode: createMode,
-    existingIdsAndAliases: ['code_reviewer', 'reviewer'],
+    existingIdsAndAliases: ['security', 'reviewer'],
   })
   assert.equal(result.ok, false)
   if (!result.ok) assert.ok(result.errors.id)

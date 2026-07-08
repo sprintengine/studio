@@ -110,30 +110,8 @@ assert.equal(
   'unrelated roster roles still wait',
 )
 
-const testingGateState = normalizeSprintEngineProjection(projection([
-  task({
-    id: 'T2',
-    role: 'developer',
-    status: 'testing',
-    boardColumn: 'testing',
-    qualityGates: [
-      {
-        id: 'gate-tester',
-        phase: 'testing',
-        role: 'tester',
-        status: 'pending',
-        required: true,
-        allowSelfReview: false,
-        attempts: [],
-      },
-    ],
-  }),
-]), 'Initial Spawn Run')
-assert.ok(testingGateState)
-assert.equal(
-  canLaunchSprintEngineInitialSpawn('tester', testingGateState),
-  true,
-  'a non-architect role can launch when its quality gate is claimable',
-)
+// Removed: the quality-gate-claimable launch case tested deleted gate machinery
+// (MC-1542 single-owner tasks — a role's only launchable work is now a task
+// assigned to it, never a separate reviewer-shaped gate).
 
 console.log('sprintengineInitialSpawns.test.ts: ok')

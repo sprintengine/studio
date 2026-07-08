@@ -92,8 +92,6 @@ const validTaskRoles = new Set<SprintEngineTaskMutationRole>([
   'frontend',
   'tester',
   'security',
-  'code_reviewer',
-  'spec_reviewer',
   'performance',
   'production_readiness_reviewer',
 ])
@@ -118,6 +116,8 @@ type SerializableSprintEngineStatePayload = {
   allowedRuntimes: Array<{ cli: string; model: string | null }>
   // `null` = absent (engine default applies); `[]` = an explicit no-review run.
   defaultPhases: string[] | null
+  requiredSweeps: string[]
+  phaseRuntimes: Record<string, { cli: string; model: string | null }> | null
   source: SprintEngineStateInitializeSource | null
   sourceBundle: SprintEngineStateInitializeSourceBundleItem[]
 }
@@ -393,6 +393,8 @@ function resolveInitialSprintEngineStatePayload(payload: SprintEngineStateInitia
     rosterSource: resolveRosterSource(payload?.rosterSource),
     allowedRuntimes: resolveAllowedRuntimes(payload?.allowedRuntimes),
     defaultPhases: resolveDefaultPhases(payload?.defaultPhases),
+    requiredSweeps: resolveRequiredSweeps(payload?.requiredSweeps),
+    phaseRuntimes: resolvePhaseRuntimes(payload?.phaseRuntimes),
     source: resolveInitSource(payload?.source),
     sourceBundle: resolveInitSourceBundle(payload?.sourceBundle),
   }
@@ -405,6 +407,37 @@ function resolveInitialSprintEngineStatePayload(payload: SprintEngineStateInitia
 function resolveDefaultPhases(input: SprintEngineStateInitializeInput['defaultPhases']): string[] | null {
   if (!Array.isArray(input)) return null
   return input.filter((phase): phase is string => typeof phase === 'string' && phase.trim().length > 0)
+}
+
+// Mandated sweep roles. Unlike `defaultPhases`, an empty list is the same as absent
+// (no mandate), so this collapses to a plain array and the flag is only forwarded
+// when non-empty. The engine rejects any id that is not a registry sweep role.
+function resolveRequiredSweeps(input: SprintEngineStateInitializeInput['requiredSweeps']): string[] {
+  if (!Array.isArray(input)) return []
+  const seen = new Set<string>()
+  for (const role of input) {
+    if (typeof role === 'string' && role.trim()) seen.add(role.trim())
+  }
+  return [...seen]
+}
+
+// Per-phase runtime bindings (MC-1543). An entry with no `cli` cannot spawn a
+// session, so it is dropped here rather than forwarded — the engine would reject it
+// anyway, and a half-honoured premium mode is worse than none. Returns `null` when
+// nothing survives, so the flag is omitted and zero extra sessions are created.
+function resolvePhaseRuntimes(
+  input: SprintEngineStateInitializeInput['phaseRuntimes'],
+): Record<string, { cli: string; model: string | null }> | null {
+  if (!input || typeof input !== 'object' || Array.isArray(input)) return null
+  const resolved: Record<string, { cli: string; model: string | null }> = {}
+  for (const [phase, binding] of Object.entries(input)) {
+    if (!phase.trim() || !binding || typeof binding !== 'object') continue
+    const cli = typeof binding.cli === 'string' ? binding.cli.trim() : ''
+    if (!cli) continue
+    const model = typeof binding.model === 'string' && binding.model.trim() ? binding.model.trim() : null
+    resolved[phase.trim()] = { cli, model }
+  }
+  return Object.keys(resolved).length > 0 ? resolved : null
 }
 
 // Keep only source entries with the non-empty string fields Python persists.
@@ -444,8 +477,8 @@ function resolveInitSourceBundle(
 
 // The enabled role ids (architect always included) forwarded to Python init as
 // `configuredRoles`. Trim, drop empties, and dedupe while preserving order so
-// the run.yaml list is stable; an empty result sends no flag (legacy behavior:
-// gates derive from the seated roster).
+// the run.yaml list is stable; an empty result sends no flag (the architect
+// then seats the team itself under the lazy roster).
 function resolveEnabledRoles(input: SprintEngineStateInitializeInput['enabledRoles']): string[] {
   if (!Array.isArray(input)) return []
   const seen = new Set<string>()
@@ -595,6 +628,13 @@ function sprintEngineInitArgs(state: ValidSprintEngineStatePath, payload: Serial
   // presence, not truthiness, unlike every other array flag above.
   if (payload.defaultPhases !== null) {
     args.push('--default-phases-json', JSON.stringify(payload.defaultPhases))
+  }
+  if (payload.requiredSweeps.length > 0) {
+    args.push('--required-sweeps-json', JSON.stringify(payload.requiredSweeps))
+  }
+  // Must follow --allowed-runtimes-json: the engine validates bindings against the palette.
+  if (payload.phaseRuntimes) {
+    args.push('--phase-runtimes-json', JSON.stringify(payload.phaseRuntimes))
   }
   if (payload.source) {
     args.push('--source-json', JSON.stringify(payload.source))

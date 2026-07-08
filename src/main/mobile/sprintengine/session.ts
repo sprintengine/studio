@@ -72,8 +72,6 @@ const bundledSprintEngineRoleLabels: Record<string, string> = {
   ui_ux_reviewer: 'UI/UX Reviewer',
   tester: 'Tester',
   security: 'Security Specialist',
-  code_reviewer: 'Code Reviewer',
-  spec_reviewer: 'Spec Reviewer',
   performance: 'Performance Engineer',
   production_readiness_reviewer: 'Production Readiness Reviewer',
 }
@@ -297,12 +295,12 @@ function buildStartupPrompt(input: {
     `${input.label}: ${input.label} - Fetch the canonical Sprint Engine instructions from the managed Sprint Engine MCP server.`,
     `Worker cwd: ${input.executionCwd}`,
     `Shared sprint state: ${input.statePath}`,
-    `You are assigned role: ${input.role}. Only claim and work sprint tasks or quality gates whose role exactly matches ${input.role}. Sprint work runs through the managed Sprint Engine MCP server in this terminal.`,
+    `You are assigned role: ${input.role}. Only claim and work sprint tasks whose role exactly matches ${input.role}, and own each one from claim to done. Sprint work runs through the managed Sprint Engine MCP server in this terminal.`,
     'Register this agent with `sprintengine.agent.join`:',
     ['```json', joinPayload, '```'].join('\n'),
     'Then claim your work with `sprintengine.task.next`:',
     ['```json', claimPayload, '```'].join('\n'),
-    'The claim returns your next ready task, or your active one to resume. Work what it returns. If it returns no claim, call `sprintengine.gate.next` once with the same payload; if neither returns work, reply that no work was claimed and stop — the caller/runtime owns later continuation. Do not claim, complete, mark ready, or otherwise advance tasks assigned to any other role.',
+    'The claim returns your next ready task, or your active one to resume. Work what it returns. If it returns no claim, reply that no work was claimed and stop — the caller/runtime owns later continuation. Do not claim, complete, mark ready, or otherwise advance tasks assigned to any other role.',
   ].join('\n\n')
 }
 

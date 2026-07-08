@@ -156,13 +156,15 @@ def test_mcp_backend_join_watch_preserves_cli_directive_shape(tmp_path) -> None:
     assert [row["operation_name"] for row in rows] == ["sprintengine.join"]
 
 
-def test_plan_add_task_adds_rostered_nuclear_reviewer_gate(tmp_path) -> None:
-    fixture = create_team(tmp_path, "cli-nuclear-review-gate", [])
+def test_plan_add_task_records_no_gate_configuration(tmp_path) -> None:
+    """MC-1542: roster-driven gates, `qualityPolicy`, and `--require-gate` are gone.
+    A task's only review lever is its `phases` list."""
+    fixture = create_team(tmp_path, "cli-plan-no-gates", [])
     state = read_state(fixture.state_path)
     state["sprintengine"]["rosterConfigured"] = True
     state["agents"] = {
         "developer-1": {"id": "developer-1", "role": "developer", "status": "idle"},
-        "nuclear-reviewer-1": {"id": "nuclear-reviewer-1", "role": "nuclear_reviewer", "status": "idle"},
+        "nuclear-reviewer-1": {"id": "nuclear-reviewer-1", "role": "security", "status": "idle"},
     }
     write_state(fixture.state_path, state)
 
@@ -179,54 +181,37 @@ def test_plan_add_task_adds_rostered_nuclear_reviewer_gate(tmp_path) -> None:
         "Implementation publishes through real Sprint Engine paths.",
     )
 
-    gates = payload["task"]["qualityGates"]
-    assert [gate["role"] for gate in gates] == ["nuclear_reviewer"]
-    assert gates[0]["id"] == "nuclear_reviewer"
-    assert "structural maintainability" in gates[0]["focus"]
+    # A rostered reviewer no longer attaches a gate to somebody else's task.
+    assert "qualityGates" not in payload["task"]
+    assert "phases" not in payload["task"]  # inherits the run default
 
 
-def test_custom_quality_policy_gate_uses_workspace_role(tmp_path) -> None:
-    workspace = tmp_path / "workspace"
-    write_workspace_role(workspace, "marketer")
-    fixture = create_workspace_team(tmp_path, "workspace", "cli-custom-review-gate", [])
+def test_plan_add_task_rejects_the_retired_gate_flags(tmp_path) -> None:
+    fixture = create_team(tmp_path, "cli-plan-retired-flags", [])
     state = read_state(fixture.state_path)
     state["sprintengine"]["rosterConfigured"] = True
-    state["sprintengine"]["qualityPolicy"] = {
-        "enabled": True,
-        "rosterDriven": True,
-        "gates": {
-            "launch_review": {
-                "phase": "review",
-                "role": "marketer",
-                "required": True,
-                "focus": "launch messaging and adoption risk",
-            },
-        },
-    }
-    state["agents"] = {
-        "developer-1": {"id": "developer-1", "role": "developer", "status": "idle"},
-        "marketer-1": {"id": "marketer-1", "role": "marketer", "status": "idle"},
-    }
+    state["agents"] = {"developer-1": {"id": "developer-1", "role": "developer", "status": "idle"}}
     write_state(fixture.state_path, state)
 
-    payload = fixture.cli.run(
-        "plan",
-        "add-task",
-        "--title",
-        "Implement launch surface",
-        "--role",
-        "developer",
-        "--path",
-        "src/renderer/src/App.tsx",
-        "--acceptance",
-        "Launch surface renders from real app state.",
-    )
-
-    gates = payload["task"]["qualityGates"]
-    assert any(gate["id"] == "launch_review" and gate["role"] == "marketer" for gate in gates)
+    for flag, value in (
+        ("--no-quality-gates", None),
+        ("--require-gate", "security"),
+        ("--skip-gate", "security"),
+        ("--no-review", None),
+        ("--no-testing", None),
+        ("--no-product-acceptance", None),
+    ):
+        args = ["plan", "add-task", "--title", "Work", "--role", "developer", flag]
+        if value is not None:
+            args.append(value)
+        rejected = fixture.cli.run_failure(*args)
+        assert "unrecognized arguments" in rejected.stderr, flag
 
 
-def test_custom_sweep_role_can_be_required_as_gate(tmp_path) -> None:
+def test_custom_workspace_role_carries_sweep_metadata_but_no_gate(tmp_path) -> None:
+    """A `sweep` role is a fix-forward sweep, never a gate a task can require."""
+    from sprintengine_core.role_registry import discover_role_registry
+
     workspace = tmp_path / "workspace"
     write_workspace_role(
         workspace,
@@ -236,7 +221,7 @@ def test_custom_sweep_role_can_be_required_as_gate(tmp_path) -> None:
             "when": "the run touches a marketing surface",
         },
     )
-    fixture = create_workspace_team(tmp_path, "workspace", "cli-capability-review-gate", [])
+    fixture = create_workspace_team(tmp_path, "workspace", "cli-sweep-role", [])
     state = read_state(fixture.state_path)
     state["sprintengine"]["rosterConfigured"] = True
     state["agents"] = {
@@ -244,6 +229,11 @@ def test_custom_sweep_role_can_be_required_as_gate(tmp_path) -> None:
         "creative-director-1": {"id": "creative-director-1", "role": "creative_director", "status": "idle"},
     }
     write_state(fixture.state_path, state)
+
+    manifest = discover_role_registry(workspace_root=workspace).get_role("creative_director")
+    assert manifest.is_sweep is True
+    assert manifest.sweep.focus == "brand consistency and campaign readiness"
+    assert manifest.sweep.when == "the run touches a marketing surface"
 
     payload = fixture.cli.run(
         "plan",
@@ -254,76 +244,8 @@ def test_custom_sweep_role_can_be_required_as_gate(tmp_path) -> None:
         "developer",
         "--path",
         "src/renderer/src/campaign.tsx",
-        "--require-gate",
-        "creative_director",
     )
-
-    assert payload["task"]["qualityGates"] == [
-        {
-            "allowSelfReview": True,
-            "attempts": [],
-            "focus": "brand consistency and campaign readiness",
-            "id": "creative_director",
-            "phase": "review",
-            "required": True,
-            "role": "creative_director",
-            "status": "pending",
-        }
-    ]
-
-
-def test_custom_role_without_sweep_metadata_is_not_a_gate(tmp_path) -> None:
-    workspace = tmp_path / "workspace"
-    write_workspace_role(workspace, "marketer")
-    fixture = create_workspace_team(tmp_path, "workspace", "cli-custom-role-not-gate", [])
-    state = read_state(fixture.state_path)
-    state["sprintengine"]["rosterConfigured"] = True
-    state["agents"] = {
-        "developer-1": {"id": "developer-1", "role": "developer", "status": "idle"},
-        "marketer-1": {"id": "marketer-1", "role": "marketer", "status": "idle"},
-    }
-    write_state(fixture.state_path, state)
-
-    rejected = fixture.cli.run_failure(
-        "plan",
-        "add-task",
-        "--title",
-        "Implement campaign page",
-        "--role",
-        "developer",
-        "--path",
-        "src/renderer/src/campaign.tsx",
-        "--require-gate",
-        "marketer",
-    )
-
-    assert "Unknown quality gate 'marketer'" in rejected.stderr
-
-
-def test_nuclear_reviewer_gate_claim_gets_gate_feedback_prompt(tmp_path) -> None:
-    task_record = task("T1", "Review structural risk", "developer", status="review")
-    task_record["lastImplementedByAgentId"] = "developer-1"
-    task_record["qualityGates"] = [
-        {
-            "id": "nuclear_reviewer",
-            "phase": "review",
-            "role": "nuclear_reviewer",
-            "status": "pending",
-            "required": True,
-            "allowSelfReview": False,
-            "focus": "structural maintainability and abstraction quality",
-            "attempts": [],
-        }
-    ]
-    fixture = create_team(tmp_path, "cli-nuclear-review-claim", [task_record])
-
-    payload = fixture.cli.run("task", "gate", "next", "--role", "nuclear_reviewer", "--id", "nuclear-reviewer-1")
-
-    assert payload["ok"] is True
-    assert payload["claimed"] is True
-    assert payload["gate"]["role"] == "nuclear_reviewer"
-    assert "# Sprint Engine Gate Feedback" in payload["prompt"]
-    assert "claimsChecked" in payload["prompt"]
+    assert "qualityGates" not in payload["task"]
 
 
 def test_registry_inspection_commands_work_from_repo_root() -> None:
@@ -444,21 +366,10 @@ def test_mcp_backend_soul_get_unknown_role_error_includes_known_ids() -> None:
     assert "developer" in soul.stderr
 
 
-def test_mcp_backend_task_gate_next_uses_gate_lifecycle_tool(tmp_path) -> None:
+def test_mcp_backend_task_advance_uses_the_advance_lifecycle_tool(tmp_path) -> None:
     task_record = task("T1", "Reviewable", "developer", "review", owner="developer-a")
-    task_record["qualityGates"] = [
-        {
-            "id": "code-review",
-            "phase": "review",
-            "role": "code_reviewer",
-            "status": "pending",
-            "required": True,
-            "allowSelfReview": True,
-            "focus": "Review implementation.",
-            "attempts": [],
-        }
-    ]
-    fixture = create_team(tmp_path, "cli-mcp-gate-next", [task_record])
+    task_record["startedAt"] = "2026-07-08T00:00:00Z"
+    fixture = create_team(tmp_path, "cli-mcp-advance", [task_record])
 
     completed = run_swarm(
         [
@@ -467,12 +378,17 @@ def test_mcp_backend_task_gate_next_uses_gate_lifecycle_tool(tmp_path) -> None:
             "--state",
             str(fixture.state_path),
             "task",
-            "gate",
-            "next",
-            "--role",
-            "code_reviewer",
+            "advance",
+            "--task-id",
+            "T1",
             "--id",
-            "reviewer-a",
+            "developer-a",
+            "--phase",
+            "review",
+            "--outcome",
+            "pass",
+            "--summary",
+            "Self-reviewed.",
         ],
         env={
             "SPRINTENGINE_MCP_ALLOWED_ROOT": str(tmp_path),
@@ -483,11 +399,10 @@ def test_mcp_backend_task_gate_next_uses_gate_lifecycle_tool(tmp_path) -> None:
 
     payload = parse_stdout_json(completed)
     assert payload["ok"] is True
-    assert payload["claimed"] is True
-    assert payload["gate"]["id"] == "code-review"
-    assert payload["currentDispatch"]["targetKind"] == "gate"
+    assert payload["phase"] == "review"
+    assert payload["nextStatus"] == "done"
     rows = audit_rows(fixture.team_dir)
-    assert [row["operation_name"] for row in rows] == ["sprintengine.gate.next"]
+    assert [row["operation_name"] for row in rows] == ["sprintengine.task.advance"]
 
 
 def test_explicit_mcp_backend_rejects_missing_user_id(tmp_path) -> None:

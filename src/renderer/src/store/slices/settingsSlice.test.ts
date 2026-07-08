@@ -758,28 +758,18 @@ assert.equal(
   orderSpecialistActions([]).length,
   'reordering never adds or drops specialists vs the canonical roster',
 )
-assert.ok(
-  orderSpecialistActions([]).some((action) => action.id === 'nuclear-review'),
-  'Nuclear Reviewer appears in the canonical specialist roster',
-)
+// MC-1542: the code-review / spec-review / nuclear-review specialists were
+// retired alongside their reviewer souls; their soul-startup-prompt assertions
+// are removed. A surviving manual specialist still exercises the prompt path.
 {
-  const codeReviewPrompt = buildSpecialistSoulStartupPrompt(getSpecialistAction('code-review'))
-  const specReviewPrompt = buildSpecialistSoulStartupPrompt(getSpecialistAction('spec-review'))
-  const nuclearReviewPrompt = buildSpecialistSoulStartupPrompt(getSpecialistAction('nuclear-review'))
-  assert.equal(codeReviewPrompt.includes('souls get code_reviewer'), true)
-  assert.equal(specReviewPrompt.includes('souls get spec_reviewer'), true)
-  assert.equal(nuclearReviewPrompt.includes('souls get nuclear_reviewer'), true)
+  const performancePrompt = buildSpecialistSoulStartupPrompt(getSpecialistAction('performance'))
+  assert.equal(performancePrompt.includes('souls get performance'), true)
   assert.equal(
-    nuclearReviewPrompt.includes('wait for the user to give you a task or question'),
+    performancePrompt.includes('wait for the user to give you a task or question'),
     true,
     'manual specialist launch waits for an explicit user task after loading the Soul',
   )
-  assert.equal(nuclearReviewPrompt.includes('git diff'), false, 'manual Nuclear Reviewer launch does not auto-review diffs')
-  assert.equal(
-    nuclearReviewPrompt.replace('souls get nuclear_reviewer', 'souls get code_reviewer'),
-    codeReviewPrompt,
-    'Nuclear Reviewer startup prompt matches Slop Cop aside from the Soul role',
-  )
+  assert.equal(performancePrompt.includes('git diff'), false, 'manual specialist launch does not auto-review diffs')
 }
 
 // The persisted setter normalizes whatever the drag handler hands it: dupes and

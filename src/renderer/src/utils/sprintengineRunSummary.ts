@@ -288,9 +288,6 @@ const agentRoleOrder: SprintEngineRoleId[] = [
   'frontend',
   'tester',
   'security',
-  'code_reviewer',
-  'nuclear_reviewer',
-  'spec_reviewer',
   'performance',
   'cross_platform',
 ]
@@ -353,8 +350,6 @@ export type SprintEngineRunReport = {
     commands: number
     validations: number
     findings: number
-    gatesApproved: number
-    gatesTotal: number
   }
   agentRows: SprintEngineAgentRow[]
 }
@@ -497,7 +492,7 @@ export type SprintEngineActivityTimeline = {
 }
 
 const ACTIVITY_TASK_STATUSES: ReadonlySet<string> = new Set<SprintEngineTaskStatus>([
-  'todo', 'in_progress', 'changes_requested', 'review', 'testing', 'product', 'needs_input', 'done',
+  'todo', 'in_progress', 'review', 'needs_input', 'done', 'canceled',
 ])
 
 // Coalesce contiguous same-task slivers for one agent into a single bar, so a
@@ -515,8 +510,6 @@ function mergeActivitySegments(segments: SprintEngineActivitySegment[]): SprintE
   }
   return merged
 }
-
-const GATE_PHASES: ReadonlySet<SprintEngineTaskStatus> = new Set(['review', 'testing', 'product'])
 
 /**
  * Per-agent activity timeline: the time each agent spent assigned to a task.
@@ -591,18 +584,11 @@ export function buildAgentActivityTimeline(
 
     for (const phase of phases) {
       if (phase.status === 'done') continue
-      let holder: string | null
-      if (GATE_PHASES.has(phase.status)) {
-        // The reviewer/tester for this gate is whoever did the most in the window.
-        const counts = new Map<string, number>()
-        for (const entry of entries) {
-          if (entry.atMs < phase.startMs || entry.atMs > phase.endMs || !isRoster(entry.actor)) continue
-          counts.set(entry.actor, (counts.get(entry.actor) ?? 0) + 1)
-        }
-        holder = [...counts.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] ?? implementer
-      } else {
-        holder = implementer
-      }
+      // Under the single-owner lifecycle every phase of a task — implementation and
+      // its own review — belongs to the one agent that owns it. The old
+      // "whoever-was-busiest-in-the-window" heuristic existed to guess which
+      // reviewer held a gate; there are no reviewers to guess between any more.
+      const holder: string | null = implementer
       add(holder, { taskId: task.id, startMs: phase.startMs, endMs: phase.endMs, status: phase.status })
     }
   }
@@ -846,15 +832,6 @@ export function buildRunReport(
   }
   for (const finding of findings) findingSeverityCounts[finding.severity] += 1
 
-  let gatesApproved = 0
-  let gatesTotal = 0
-  for (const task of tasks) {
-    for (const gate of task.qualityGates ?? []) {
-      gatesTotal += 1
-      if (gate.status === 'approved') gatesApproved += 1
-    }
-  }
-
   const touchedFiles = uniqueStrings(tasks.flatMap((task) => task.evidence.touchedFiles))
   const commandsRan = uniqueStrings(tasks.flatMap((task) => task.evidence.commandsRan))
   const validations = tasks.reduce((total, task) => total + task.evidence.results.length, 0)
@@ -875,8 +852,6 @@ export function buildRunReport(
       commands: commandsRan.length,
       validations,
       findings: findings.length,
-      gatesApproved,
-      gatesTotal,
     },
     agentRows,
   }
@@ -934,7 +909,7 @@ export const measuredCountLabels: Record<string, string> = {
 }
 
 // Agents are grouped into work-type tables: implementers produce reviewed code,
-// reviewers run gates, planners shape the work. Each surfaces different metrics.
+// reviewers audit it, planners shape the work. Each surfaces different metrics.
 export type SprintEngineWorkType = 'implementation' | 'review' | 'planning'
 
 const roleWorkType: Record<string, SprintEngineWorkType> = {
@@ -944,9 +919,6 @@ const roleWorkType: Record<string, SprintEngineWorkType> = {
   cross_platform: 'implementation',
   production_readiness_reviewer: 'review',
   ui_ux_reviewer: 'review',
-  code_reviewer: 'review',
-  nuclear_reviewer: 'review',
-  spec_reviewer: 'review',
   tester: 'review',
   security: 'review',
   architect: 'planning',
@@ -957,7 +929,7 @@ export function agentWorkType(row: SprintEngineAgentRow): SprintEngineWorkType {
   // A reviewer role that also did review work stays review; an agent with only
   // reviewer activity (no implementation role) is review too. Otherwise fall
   // back to the role map, defaulting unknown/custom roles to implementation.
-  return roleWorkType[row.role] ?? (row.metrics?.reviewer ? 'review' : 'implementation')
+  return roleWorkType[row.role] ?? (row.metrics?.sweep ? 'review' : 'implementation')
 }
 
 export function bucketAgentRowsByWorkType(rows: SprintEngineAgentRow[]): Record<

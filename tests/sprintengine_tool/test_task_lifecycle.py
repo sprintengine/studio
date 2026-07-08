@@ -1,3 +1,15 @@
+"""Task lifecycle through the CLI surface (MC-1542 single-owner tasks).
+
+`test_single_owner_lifecycle.py` pins the routing/walk invariants at the function
+level; this module pins the same lifecycle as an agent actually drives it —
+`task next` -> `task log` -> `task publish` -> `task advance` -> done — plus the
+surrounding machinery the walk depends on: task-scoped roster capacity, agent
+expiry and release, needs_input routing/resolution, `task status` repair
+transitions, and the dispatch ledger.
+
+There are no reviewers, no gate claims, and no `changes_requested`: the agent
+that claims a task owns it through `review` to `done`.
+"""
 from __future__ import annotations
 
 import argparse
@@ -159,7 +171,7 @@ def test_task_status_needs_input_records_routing_metadata_and_triage_prompt(tmp_
 
 def test_task_status_needs_input_records_reason_and_artifact_id(tmp_path) -> None:
     fixture = create_team(tmp_path, "needs-input-artifact-review-routing", [
-        task("T1", "Review phase output", "code_reviewer", "in_progress", owner="code_reviewer"),
+        task("T1", "Review phase output", "security", "in_progress", owner="security"),
     ])
 
     payload = fixture.cli.run(
@@ -170,7 +182,7 @@ def test_task_status_needs_input_records_reason_and_artifact_id(tmp_path) -> Non
         "--status",
         "needs_input",
         "--id",
-        "code_reviewer",
+        "security",
         "--needs-input-kind",
         "architect",
         "--needs-input-reason",
@@ -195,12 +207,12 @@ def test_task_status_needs_input_records_reason_and_artifact_id(tmp_path) -> Non
 
 
 def test_artifact_review_needs_input_routes_to_architect_triage(tmp_path) -> None:
-    blocked_task = task("T1", "Review artifact", "code_reviewer", "needs_input", owner="code_reviewer")
+    blocked_task = task("T1", "Review artifact", "security", "needs_input", owner="security")
     blocked_task["needsInput"] = {
         "kind": "architect",
         "reason": "artifact_review",
         "question": "Artifact A6 is ready for review.",
-        "reportedBy": "code_reviewer",
+        "reportedBy": "security",
         "reportedAt": "2026-05-14T00:00:00Z",
     }
     fixture = create_team(tmp_path, "artifact-review-routes-to-architect", [blocked_task])
@@ -234,30 +246,17 @@ def test_task_status_rejects_needs_input_fields_for_other_statuses(tmp_path) -> 
     assert "Needs-input fields are only supported with --status needs_input" in rejected.stderr
 
 
-def gated_task(status: str = "in_progress", owner: str | None = "developer-fixture") -> dict:
-    record = task("T1", "Gated implementation", "developer", status, owner=owner)
-    record["qualityGates"] = [
-        {
-            "id": "code-review",
-            "phase": "review",
-            "role": "code_reviewer",
-            "status": "pending",
-            "required": True,
-            "allowSelfReview": False,
-            "focus": "Review implementation.",
-            "attempts": [],
-        },
-        {
-            "id": "test",
-            "phase": "testing",
-            "role": "tester",
-            "status": "pending",
-            "required": True,
-            "allowSelfReview": False,
-            "focus": "Validate behavior.",
-            "attempts": [],
-        },
-    ]
+def owned_task(status: str = "in_progress", owner: str | None = "developer-fixture", phases: list[str] | None = None) -> dict:
+    """A task bound to one owner from claim to done.
+
+    `phases=[]` opts the task out of review, so publish routes straight to `done`
+    (the docs-only / no-review exit). Omit it to inherit the run's `defaultPhases`.
+    """
+    record = task("T1", "Single-owner implementation", "developer", status, owner=owner)
+    if phases is not None:
+        record["phases"] = phases
+    if status != "todo":
+        record["startedAt"] = "2026-07-08T00:00:00Z"
     return record
 
 
@@ -341,7 +340,7 @@ def test_task_note_from_non_architect_actor_uses_user_note_type(tmp_path) -> Non
 
 
 def test_task_publish_requires_summary_before_leaving_in_progress(tmp_path) -> None:
-    fixture = create_team(tmp_path, "publish-summary-required", [gated_task()])
+    fixture = create_team(tmp_path, "publish-summary-required", [owned_task()])
 
     rejected = fixture.cli.run_failure(
         "task",
@@ -359,8 +358,10 @@ def test_task_publish_requires_summary_before_leaving_in_progress(tmp_path) -> N
     assert_task_status(state, "T1", "in_progress")
 
 
-def test_task_publish_records_implementation_summary_and_routes_to_next_phase(tmp_path) -> None:
-    fixture = create_team(tmp_path, "publish-routes-review", [gated_task()])
+def test_task_publish_records_implementation_summary_and_enters_the_review_phase(tmp_path) -> None:
+    # A task that produced changes enters phases[0] and the OWNER STAYS BOUND: it
+    # is mid-tool-call and gets its phase directive back inline.
+    fixture = create_team(tmp_path, "publish-routes-review", [owned_task()])
     fixture.cli.run("runner", "set", "--mode", "auto")
 
     payload = fixture.cli.run(
@@ -377,6 +378,9 @@ def test_task_publish_records_implementation_summary_and_routes_to_next_phase(tm
     )
 
     assert payload["nextStatus"] == "review"
+    assert payload["producedChanges"] is True
+    assert payload["phases"] == ["review"]
+    assert payload["nextDirective"]
     assert payload["committed"] is False
     assert payload["commitSha"] is None
     assert payload["nextCommand"] == "sprintengine join --role developer --id developer-fixture --watch"
@@ -389,55 +393,119 @@ def test_task_publish_records_implementation_summary_and_routes_to_next_phase(tm
     state = read_state(fixture.state_path)
     task_record = get_task(state, "T1")
     assert task_record["status"] == "review"
-    assert task_record["ownerAgentId"] is None
+    assert task_record["ownerAgentId"] == "developer-fixture"
     assert task_record["lastImplementedByAgentId"] == "developer-fixture"
     assert task_record["lastPublishedAt"]
     assert task_record["completedAt"] is None
     assert task_record["comments"][0]["body"] == "Implemented the backend path."
+    assert state["agents"]["developer-fixture"]["currentTaskId"] == "T1"
 
 
-def test_gate_self_review_uses_implementation_attribution_after_publish_clears_owner(tmp_path) -> None:
-    fixture = create_team(tmp_path, "self-review-attribution", [gated_task()])
-    fixture.cli.run(
+def test_task_advance_out_of_review_completes_the_task(tmp_path) -> None:
+    fixture = create_team(tmp_path, "advance-completes", [owned_task()])
+    fixture.cli.run("runner", "set", "--mode", "auto")
+    fixture.cli.run("task", "publish", "--task-id", "T1", "--id", "developer-fixture", "--summary", "Implemented it.")
+
+    payload = fixture.cli.run(
         "task",
-        "publish",
+        "advance",
         "--task-id",
         "T1",
         "--id",
         "developer-fixture",
+        "--phase",
+        "review",
+        "--outcome",
+        "pass_with_fixes",
         "--summary",
-        "Ready for review.",
+        "Reviewed my diff; fixed a nil guard.",
     )
 
-    rejected = fixture.cli.run(
-        "task",
-        "gate",
-        "next",
-        "--role",
-        "code_reviewer",
-        "--id",
-        "developer-fixture",
-    )
-    claimed = fixture.cli.run(
-        "task",
-        "gate",
-        "next",
-        "--role",
-        "code_reviewer",
-        "--id",
-        "code-reviewer",
-    )
+    assert payload["nextStatus"] == "done"
+    assert "nextPhase" not in payload
+    assert "nextDirective" not in payload
+    assert payload["nextCommand"] == "sprintengine join --role developer --id developer-fixture --watch"
+    state = read_state(fixture.state_path)
+    task_record = get_task(state, "T1")
+    assert task_record["status"] == "done"
+    assert task_record["completedAt"]
+    assert task_record["ownerAgentId"] is None
+    assert state["agents"]["developer-fixture"]["status"] == "idle"
+    assert_event_type(state, "task_phase_advanced")
 
-    assert rejected["claimed"] is False
-    assert rejected["reason"] == "no_ready_gate"
-    assert claimed["claimed"] is True
-    assert claimed["gate"]["id"] == "code-review"
+
+def test_task_advance_is_owner_only_and_guards_on_the_current_phase(tmp_path) -> None:
+    fixture = create_team(tmp_path, "advance-guards", [owned_task("review")])
+
+    not_owner = fixture.cli.run_failure(
+        "task", "advance", "--task-id", "T1", "--id", "developer-2",
+        "--phase", "review", "--outcome", "pass", "--summary", "Looks fine.",
+    )
+    assert "not_task_owner" in not_owner.stderr
+
+    fixture.cli.run(
+        "task", "advance", "--task-id", "T1", "--id", "developer-fixture",
+        "--phase", "review", "--outcome", "pass", "--summary", "Reviewed.",
+    )
+    replayed = fixture.cli.run_failure(
+        "task", "advance", "--task-id", "T1", "--id", "developer-fixture",
+        "--phase", "review", "--outcome", "pass", "--summary", "Reviewed again.",
+    )
+    assert "phase_mismatch" in replayed.stderr
+    assert_task_status(read_state(fixture.state_path), "T1", "done")
+
+
+def test_task_advance_escalate_parks_the_task_and_resolution_returns_it_to_review(tmp_path) -> None:
+    # Invariant 7c: an escalation from a phase remembers that phase, so resolving
+    # the input resumes the review — it does not re-open implementation.
+    fixture = create_team(tmp_path, "advance-escalate", [owned_task("review")])
+
+    escalated = fixture.cli.run(
+        "task", "advance", "--task-id", "T1", "--id", "developer-fixture",
+        "--phase", "review", "--outcome", "escalate", "--summary", "Contract is ambiguous.",
+        "--needs-input-kind", "architect",
+        "--needs-input-question", "Which contract owns the retry budget?",
+    )
+    assert escalated["nextStatus"] == "needs_input"
+
+    state = read_state(fixture.state_path)
+    task_record = get_task(state, "T1")
+    assert task_record["needsInput"]["originatingStatus"] == "review"
+    assert task_record["ownerAgentId"] == "developer-fixture"
+
+    resolved = fixture.cli.run(
+        "task", "resolve-input", "--task-id", "T1", "--id", "architect",
+        "--resolution", "The caller owns it. Continue reviewing.",
+    )
+    assert resolved["transition"] == {
+        "status": "review",
+        "ownerAgentId": "developer-fixture",
+        "resumePhase": "review",
+    }
+    assert_task_status(read_state(fixture.state_path), "T1", "review")
+
+
+def test_task_publish_with_no_phases_completes_the_task(tmp_path) -> None:
+    # `--phases ""` on a docs-only task: publish routes straight to done, no review.
+    fixture = create_team(tmp_path, "publish-no-phases", [owned_task(phases=[])])
+
+    payload = fixture.cli.run("task", "publish", "--task-id", "T1", "--id", "developer-fixture", "--summary", "Docs only.")
+
+    assert payload["nextStatus"] == "done"
+    assert payload["producedChanges"] is True
+    assert payload["phases"] == []
+    assert "nextDirective" not in payload
+    state = read_state(fixture.state_path)
+    assert_task_status(state, "T1", "done")
+    task_record = get_task(state, "T1")
+    assert task_record["completedAt"]
+    assert task_record["ownerAgentId"] is None
 
 
 def test_task_publish_captures_diff_evidence_for_declared_paths(tmp_path) -> None:
     init_git_repo(tmp_path)
     commit_file(tmp_path, "src/example.py", "def value():\n    return 'old'\n")
-    record = gated_task()
+    record = owned_task()
     fixture = create_team(tmp_path, "publish-diff-evidence", [record])
     (tmp_path / "src" / "example.py").write_text("def value():\n    return 'new'\n", encoding="utf-8")
 
@@ -468,7 +536,7 @@ def test_task_publish_captures_diff_evidence_for_declared_paths(tmp_path) -> Non
 def test_task_publish_skips_secret_sensitive_diff_content(tmp_path) -> None:
     init_git_repo(tmp_path)
     commit_file(tmp_path, ".env", "TOKEN=old\n")
-    record = gated_task()
+    record = owned_task()
     fixture = create_team(tmp_path, "publish-secret-diff-skip", [record])
     (tmp_path / ".env").write_text("TOKEN=new\n", encoding="utf-8")
 
@@ -504,7 +572,7 @@ def test_task_publish_skips_secret_sensitive_diff_content(tmp_path) -> None:
 
 
 def test_task_publish_persists_structured_summary_data(tmp_path) -> None:
-    fixture = create_team(tmp_path, "publish-summary-data", [gated_task()])
+    fixture = create_team(tmp_path, "publish-summary-data", [owned_task()])
 
     payload = fixture.cli.run(
         "task",
@@ -539,7 +607,6 @@ def test_plan_add_and_update_task_persist_architect_difficulty_estimate(tmp_path
         "Implement difficult feature",
         "--role",
         "developer",
-        "--no-quality-gates",
         "--difficulty-pct",
         "42",
         "--difficulty-reason",
@@ -567,7 +634,7 @@ def test_plan_add_and_update_task_persist_architect_difficulty_estimate(tmp_path
 
 
 def test_task_publish_records_implementer_actual_difficulty(tmp_path) -> None:
-    fixture = create_team(tmp_path, "publish-actual-difficulty", [gated_task()])
+    fixture = create_team(tmp_path, "publish-actual-difficulty", [owned_task()])
 
     payload = fixture.cli.run(
         "task",
@@ -603,75 +670,43 @@ def test_old_task_without_difficulty_still_loads_and_dispatches(tmp_path) -> Non
     assert "difficulty" not in payload["task"]
 
 
-def test_task_publish_skips_missing_phase_gates_and_can_complete(tmp_path) -> None:
-    record = gated_task()
-    record["qualityGates"] = [
-        {
-            "id": "test",
-            "phase": "testing",
-            "role": "tester",
-            "status": "pending",
-            "required": True,
-            "allowSelfReview": False,
-            "focus": "Validate behavior.",
-            "attempts": [],
-        }
-    ]
-    fixture = create_team(tmp_path, "publish-skips-review", [record])
+def test_task_publish_with_no_changes_completes_the_task(tmp_path) -> None:
+    # The clean-sweep / analysis-only exit: change detection finds no diff, every
+    # phase is skipped, the task lands on done. Publish routes on CHANGE
+    # DETECTION, never on role or configuration.
+    init_git_repo(tmp_path)
+    commit_file(tmp_path, "src/untouched.py", "value = 1\n")
+    record = owned_task()
+    record["ownedPaths"] = ["src/untouched.py"]
+    fixture = create_team(tmp_path, "publish-no-changes", [record])
 
-    first = fixture.cli.run("task", "publish", "--task-id", "T1", "--id", "developer-fixture", "--summary", "Ready for testing.")
-    state = read_state(fixture.state_path)
-    get_task(state, "T1")["qualityGates"][0]["status"] = "approved"
-    get_task(state, "T1")["status"] = "in_progress"
-    write_state(fixture.state_path, state)
-    second = fixture.cli.run("task", "publish", "--task-id", "T1", "--id", "developer-fixture", "--summary", "Testing passed.")
+    payload = fixture.cli.run(
+        "task", "publish", "--task-id", "T1", "--id", "developer-fixture", "--summary", "Swept; nothing to change.",
+    )
 
-    assert first["nextStatus"] == "testing"
-    assert second["nextStatus"] == "done"
+    assert payload["producedChanges"] is False
+    assert payload["nextStatus"] == "done"
+    assert payload["phases"] == []
     final_state = read_state(fixture.state_path)
     assert_task_status(final_state, "T1", "done")
     assert get_task(final_state, "T1")["completedAt"]
 
 
-def test_rework_publish_reopens_only_changes_requested_gates(tmp_path) -> None:
-    # A rework publish must re-open only the gate that requested changes. A gate
-    # that already approved stays approved (the reviewer is done and is not
-    # re-run, which is what stops one change request from cascading into a full
-    # re-review), and a review still in flight is never cancelled mid-flight.
-    record = gated_task("changes_requested", owner="developer-fixture")
-    record["qualityGates"][0]["status"] = "changes_requested"
-    record["qualityGates"][1]["status"] = "approved"
-    record["qualityGates"].append(
-        {
-            "id": "nuclear-review",
-            "phase": "review",
-            "role": "nuclear_reviewer",
-            "status": "in_progress",
-            "required": True,
-            "allowSelfReview": False,
-            "focus": "Deep review.",
-            "attempts": [
-                {
-                    "id": "GA-001",
-                    "status": "in_progress",
-                    "role": "nuclear_reviewer",
-                    "claimedBy": "nuclear-reviewer",
-                    "startedAt": "2026-05-17T00:00:00Z",
-                }
-            ],
-        }
-    )
+def test_republish_after_human_feedback_records_a_response_and_re_enters_review(tmp_path) -> None:
+    # Flow 5: human feedback re-opens implementation. The rework publish answers
+    # the open feedback comment (`implementation_response`) and restarts the walk
+    # at phases[0] — the whole diff is reviewed again, which is cheap and safe.
+    record = owned_task()
     record["comments"] = [
         {
             "id": "C1",
             "type": "review_feedback",
-            "actor": "code-reviewer",
-            "authorAgentId": "code-reviewer",
-            "authorRole": "code_reviewer",
-            "source": "agent",
-            "body": "Fix validation.",
-            "createdAt": "2026-05-17T00:00:00Z",
-            "data": {"status": "open"},
+            "actor": "user",
+            "authorAgentId": "user",
+            "source": "user",
+            "body": "Tweak the copy.",
+            "createdAt": "2026-07-08T00:00:00Z",
+            "data": {"status": "open", "reason": "Tweak the copy."},
         }
     ]
     fixture = create_team(tmp_path, "publish-rework-response", [record])
@@ -684,64 +719,23 @@ def test_rework_publish_reopens_only_changes_requested_gates(tmp_path) -> None:
         "--id",
         "developer-fixture",
         "--summary",
-        "Addressed the validation feedback.",
+        "Tweaked the copy.",
     )
 
     assert payload["nextStatus"] == "review"
     assert payload["comment"]["type"] == "implementation_response"
     assert payload["comment"]["data"]["feedbackCommentIds"] == ["C1"]
-    state = read_state(fixture.state_path)
-    task_record = get_task(state, "T1")
-    assert task_record["ownerAgentId"] is None
-    assert task_record["lastImplementedByAgentId"] == "developer-fixture"
-    gates_by_id = {gate["id"]: gate for gate in task_record["qualityGates"]}
-    # changes_requested → reopened; approved → untouched; in_progress → left running.
-    assert gates_by_id["code-review"]["status"] == "pending"
-    assert gates_by_id["test"]["status"] == "approved"
-    assert gates_by_id["nuclear-review"]["status"] == "in_progress"
-    # The in-flight attempt is not superseded by the rework publish.
-    assert gates_by_id["nuclear-review"]["attempts"][0]["status"] == "in_progress"
-    assert "completedAt" not in gates_by_id["nuclear-review"]["attempts"][0]
-
-
-def test_rework_publish_with_no_gate_verdict_reopens_approved_gates(tmp_path) -> None:
-    # A task-level request_changes reopens the task (status changes_requested,
-    # open feedback) without setting any gate to changes_requested. Publishing
-    # from changes_requested must still re-review — otherwise the rework would
-    # route straight to done with the feedback unreviewed. Both gates approved.
-    record = gated_task("changes_requested", owner=None)
-    record["qualityGates"][0]["status"] = "approved"
-    record["qualityGates"][1]["status"] = "approved"
-    record["comments"] = [
-        {
-            "id": "C1",
-            "type": "review_feedback",
-            "actor": "user",
-            "authorAgentId": "user",
-            "source": "user",
-            "body": "Tweak the copy.",
-            "createdAt": "2026-05-17T00:00:00Z",
-            "data": {"status": "open", "reason": "Tweak the copy."},
-        }
-    ]
-    fixture = create_team(tmp_path, "publish-rework-no-gate-verdict", [record])
-
-    payload = fixture.cli.run(
-        "task", "publish", "--task-id", "T1", "--id", "developer-fixture", "--summary", "Tweaked the copy."
-    )
-
-    assert payload["nextStatus"] == "review"
-    state = read_state(fixture.state_path)
-    task_record = get_task(state, "T1")
+    task_record = get_task(read_state(fixture.state_path), "T1")
     assert task_record["status"] == "review"
-    assert [gate["status"] for gate in task_record["qualityGates"]] == ["pending", "pending"]
+    # The republisher owns the task through its restarted walk.
+    assert task_record["ownerAgentId"] == "developer-fixture"
+    assert task_record["lastImplementedByAgentId"] == "developer-fixture"
 
 
 def test_rework_publish_refreshes_latest_diff_snapshot(tmp_path) -> None:
     init_git_repo(tmp_path)
     commit_file(tmp_path, "src/rework.py", "value = 'base'\n")
-    record = gated_task("changes_requested", owner="developer-fixture")
-    record["qualityGates"][0]["status"] = "changes_requested"
+    record = owned_task()
     record["evidence"]["touchedFiles"] = ["src/rework.py"]
     record["evidence"]["diffs"] = [
         {
@@ -749,7 +743,7 @@ def test_rework_publish_refreshes_latest_diff_snapshot(tmp_path) -> None:
             "status": "modified",
             "additions": 1,
             "deletions": 1,
-            "capturedAt": "2026-05-17T00:00:00Z",
+            "capturedAt": "2026-07-08T00:00:00Z",
             "capturedBy": "developer-fixture",
             "source": "working_tree",
             "binary": False,
@@ -788,73 +782,6 @@ def test_rework_publish_refreshes_latest_diff_snapshot(tmp_path) -> None:
     assert not any("stale" in line["content"] for line in lines)
 
 
-def test_republish_after_blocked_needs_input_reopens_only_the_blocked_gate(tmp_path) -> None:
-    record = gated_task("in_progress", owner="developer-fixture")
-    record["qualityGates"][0]["status"] = "approved"
-    record["qualityGates"][0]["attempts"] = [
-        {
-            "id": "GA-001",
-            "status": "approved",
-            "role": "code_reviewer",
-            "claimedBy": "code-reviewer",
-            "startedAt": "2026-05-17T00:00:00Z",
-            "completedAt": "2026-05-17T00:01:00Z",
-            "summary": "Approved before later rework.",
-        }
-    ]
-    record["qualityGates"][1]["id"] = "spec-review"
-    record["qualityGates"][1]["phase"] = "review"
-    record["qualityGates"][1]["role"] = "spec_reviewer"
-    record["qualityGates"][1]["status"] = "blocked"
-    record["qualityGates"][1]["attempts"] = [
-        {
-            "id": "GA-001",
-            "status": "blocked",
-            "role": "spec_reviewer",
-            "claimedBy": "spec-reviewer",
-            "startedAt": "2026-05-17T00:02:00Z",
-            "completedAt": "2026-05-17T00:03:00Z",
-            "summary": "Blocked on architect scope.",
-        }
-    ]
-    record["comments"] = [
-        {
-            "id": "C1",
-            "type": "needs_input",
-            "actor": "spec-reviewer",
-            "authorAgentId": "spec-reviewer",
-            "authorRole": "spec_reviewer",
-            "source": "agent",
-            "body": "Blocked on architect scope.",
-            "createdAt": "2026-05-17T00:03:00Z",
-            "data": {"gateId": "spec-review", "verdict": "blocked"},
-        }
-    ]
-    fixture = create_team(tmp_path, "publish-after-blocked-needs-input", [record])
-
-    payload = fixture.cli.run(
-        "task",
-        "publish",
-        "--task-id",
-        "T1",
-        "--id",
-        "developer-fixture",
-        "--summary",
-        "Addressed architect scope resolution.",
-    )
-
-    assert payload["nextStatus"] == "review"
-    assert payload["comment"]["type"] == "implementation_response"
-    assert payload["comment"]["data"]["feedbackCommentIds"] == ["C1"]
-    state = read_state(fixture.state_path)
-    task_record = get_task(state, "T1")
-    # The blocked gate reopens for re-review; the gate that approved earlier stays
-    # approved and is not re-run (approvers are done — accepted residual risk that
-    # a later scope change is not re-seen by an earlier approver).
-    assert [gate["status"] for gate in task_record["qualityGates"]] == ["approved", "pending"]
-    assert_task_status(state, "T1", "review")
-
-
 def test_runner_set_persists_policy_and_projection(tmp_path) -> None:
     fixture = create_team(tmp_path, "runner-policy", [task("T1", "Implement", "developer")])
 
@@ -888,102 +815,56 @@ def test_join_watch_returns_idle_when_auto_mode_is_off_without_work(tmp_path) ->
     assert "CLI watch polling is disabled" in payload["message"]
 
 
-def test_join_watch_returns_ready_gate_before_normal_task(tmp_path) -> None:
-    review_task = gated_task("review", owner="developer-fixture")
-    review_task["qualityGates"][0]["id"] = "spec-review"
-    review_task["qualityGates"][0]["role"] = "spec_reviewer"
-    normal_task = task("T2", "Spec reviewer normal task", "spec_reviewer")
-    fixture = create_team(tmp_path, "join-watch-gate-first", [review_task, normal_task])
+def test_join_watch_resumes_an_owner_parked_in_its_review_phase(tmp_path) -> None:
+    # `review` is owned, so its owner reconnects to it rather than being offered
+    # the ready task queued behind it. A stranger sees no ready work at all.
+    review_task = owned_task("review", owner="developer-fixture")
+    fixture = create_team(tmp_path, "join-watch-review-resume", [review_task])
     fixture.cli.run("runner", "set", "--mode", "auto")
 
-    payload = fixture.cli.run("join", "--role", "spec_reviewer", "--id", "spec_reviewer", "--watch", "--max-wait-seconds", "0")
+    owner = fixture.cli.run("join", "--role", "developer", "--id", "developer-fixture", "--watch", "--max-wait-seconds", "0")
+    stranger = fixture.cli.run("join", "--role", "developer", "--id", "developer-2", "--watch", "--max-wait-seconds", "0")
 
-    assert payload["action"] == "gate_work"
-    assert payload["gate"]["role"] == "spec_reviewer"
-    assert payload["task"]["id"] == "T1"
+    assert owner["action"] == "resume"
+    assert owner["task"]["id"] == "T1"
+    assert "`review` phase" in owner["prompt"]
+    assert stranger["action"] == "idle"
+    assert get_task(read_state(fixture.state_path), "T1")["ownerAgentId"] == "developer-fixture"
 
 
-def test_temporary_marketer_role_can_claim_and_complete_quality_gates_by_phase(tmp_path) -> None:
-    review_task = task("T1", "Custom reviewed implementation", "developer", "review", owner="developer-fixture")
-    review_task["qualityGates"] = [
-        {
-            "id": "editorial-review",
-            "phase": "review",
-            "role": "growth-marketer",
-            "status": "pending",
-            "required": True,
-            "allowSelfReview": True,
-            "focus": "Review writing quality.",
-            "attempts": [],
-        },
-        {
-            "id": "editorial-validation",
-            "phase": "testing",
-            "role": "growth-marketer",
-            "status": "pending",
-            "required": True,
-            "allowSelfReview": True,
-            "focus": "Validate publishing readiness.",
-            "attempts": [],
-        },
-    ]
-    fixture = create_workspace_team(tmp_path, "custom-gate-workspace", "custom-gate-role", [review_task])
-    write_workspace_role(fixture.team_dir.parents[2], "marketer", aliases=["growth-marketer"])
+def test_temporary_marketer_role_owns_a_task_through_its_review_phase(tmp_path) -> None:
+    # A workspace-layer role gets the same single-owner walk as a built-in one:
+    # it claims, publishes into its own review, and advances itself to done. Its
+    # `directives.review` pack rides the phase directive.
+    workspace = tmp_path / "custom-role-workspace"
+    write_workspace_role(workspace, "marketer", aliases=["growth-marketer"], review_skill="marketer_review")
+    review_skill_dir = workspace / ".sprintengine" / "skills" / "marketer_review"
+    review_skill_dir.mkdir(parents=True, exist_ok=True)
+    (review_skill_dir / "SKILL.md").write_text("# marketer_review\n\nCheck the headline reads as a product statement.", encoding="utf-8")
+
+    marketer_task = task("T1", "Draft launch post", "marketer")
+    fixture = create_workspace_team(tmp_path, "custom-role-workspace", "custom-role-phases", [marketer_task])
     state = read_state(fixture.state_path)
     state["sprintengine"]["rosterConfigured"] = True
-    state["agents"] = {
-        "developer-fixture": {"role": "developer", "status": "idle", "currentTaskId": None},
-        "marketer-1": {"role": "marketer", "status": "idle", "currentTaskId": None},
-    }
+    state["agents"] = {"marketer-1": {"role": "marketer", "status": "idle", "currentTaskId": None}}
     write_state(fixture.state_path, state)
 
-    claimed = fixture.cli.run("task", "gate", "next", "--role", "growth-marketer", "--id", "marketer-1")
+    claimed = fixture.cli.run("task", "next", "--role", "growth-marketer", "--id", "marketer-1")
     assert claimed["claimed"] is True
-    assert claimed["gate"]["id"] == "editorial-review"
-    assert claimed["gate"]["role"] == "marketer"
-    assert "Tester Gate Expectations" not in claimed["prompt"]
+    assert claimed["task"]["role"] == "marketer"
 
-    reviewed = fixture.cli.run(
-        "task",
-        "gate",
-        "verdict",
-        "--task-id",
-        "T1",
-        "--gate-id",
-        "editorial-review",
-        "--role",
-        "growth-marketer",
-        "--id",
-        "marketer-1",
-        "--verdict",
-        "approved",
-        "--summary",
-        "Editorial review passed.",
-    )
-    assert reviewed["nextStatus"] == "testing"
-
-    validated = fixture.cli.run("task", "gate", "next", "--role", "growth-marketer", "--id", "marketer-1")
-    assert validated["claimed"] is True
-    assert validated["gate"]["id"] == "editorial-validation"
+    published = fixture.cli.run("task", "publish", "--task-id", "T1", "--id", "marketer-1", "--summary", "Drafted the post.")
+    assert published["nextStatus"] == "review"
+    assert "marketer additions for this phase" in published["nextDirective"]
+    assert "reads as a product statement" in published["nextDirective"]
+    assert get_task(read_state(fixture.state_path), "T1")["ownerAgentId"] == "marketer-1"
 
     completed = fixture.cli.run(
-        "task",
-        "gate",
-        "verdict",
-        "--task-id",
-        "T1",
-        "--gate-id",
-        "editorial-validation",
-        "--role",
-        "growth-marketer",
-        "--id",
-        "marketer-1",
-        "--verdict",
-        "approved",
-        "--summary",
-        "Editorial validation passed.",
+        "task", "advance", "--task-id", "T1", "--id", "marketer-1",
+        "--phase", "review", "--outcome", "pass", "--summary", "Headline reads clean.",
     )
     assert completed["nextStatus"] == "done"
+    assert_task_status(read_state(fixture.state_path), "T1", "done")
 
 
 def test_join_watch_routes_architect_needs_input_before_ready_task(tmp_path) -> None:
@@ -1070,64 +951,14 @@ def test_task_next_stops_owner_on_unresolved_needs_input(tmp_path) -> None:
     assert "prompt" not in payload
 
 
-def test_task_status_done_rejects_open_required_quality_gates(tmp_path) -> None:
-    for gate_status in ["pending", "in_progress", "changes_requested", "blocked"]:
-        record = gated_task()
-        record["qualityGates"][0]["status"] = gate_status
-        if gate_status == "in_progress":
-            record["qualityGates"][0]["attempts"] = [
-                {"id": "GA-001", "status": "in_progress", "role": "code_reviewer", "claimedBy": "code-reviewer"}
-            ]
-        fixture = create_team(tmp_path, f"done-rejects-{gate_status.replace('_', '-')}", [record])
-        state = read_state(fixture.state_path)
-        state["sprintengine"]["rosterConfigured"] = True
-        write_state(fixture.state_path, state)
-
-        rejected = fixture.cli.run_failure(
-            "task",
-            "status",
-            "--task-id",
-            "T1",
-            "--status",
-            "done",
-            "--id",
-            "developer-fixture",
-        )
-
-        assert "Cannot mark task done while required quality gates remain open" in rejected.stderr
-        assert f"code-review:{gate_status}" in rejected.stderr
-        state = read_state(fixture.state_path)
-        task_record = get_task(state, "T1")
-        assert task_record["status"] == "in_progress"
-        assert task_record["completedAt"] is None
-        assert task_record["ownerAgentId"] == "developer-fixture"
-        assert task_record["qualityGates"][0]["status"] == gate_status
-
-
-def test_task_status_done_rejects_explicit_gates_without_roster_configured(tmp_path) -> None:
-    fixture = create_team(tmp_path, "done-rejects-explicit-gate-unrostered", [gated_task()])
-
-    rejected = fixture.cli.run_failure(
-        "task",
-        "status",
-        "--task-id",
-        "T1",
-        "--status",
-        "done",
-        "--id",
-        "developer-fixture",
+def test_task_status_done_completes_an_owned_task_and_releases_its_owner(tmp_path) -> None:
+    # `task status --status done` is the direct-completion repair transition, kept
+    # for tasks that never entered the walk. Nothing gates it any more.
+    fixture = create_team(
+        tmp_path,
+        "status-done-releases-owner",
+        [task("T1", "Directly completed task", "developer", "in_progress", owner="developer-fixture")],
     )
-
-    assert "Cannot mark task done while required quality gates remain open" in rejected.stderr
-    state = read_state(fixture.state_path)
-    task_record = get_task(state, "T1")
-    assert task_record["status"] == "in_progress"
-    assert task_record["completedAt"] is None
-
-
-def test_task_status_done_allows_legacy_and_closed_gate_tasks(tmp_path) -> None:
-    legacy = task("T1", "Legacy task", "developer", "in_progress", owner="developer-fixture")
-    fixture = create_team(tmp_path, "done-allows-legacy", [legacy])
 
     payload = fixture.cli.run("task", "status", "--task-id", "T1", "--status", "done", "--id", "developer-fixture")
 
@@ -1138,10 +969,13 @@ def test_task_status_done_allows_legacy_and_closed_gate_tasks(tmp_path) -> None:
     assert get_task(state, "T1")["ownerAgentId"] is None
     assert get_task(state, "T1")["lastImplementedByAgentId"] == "developer-fixture"
 
-    closed = gated_task(owner="developer-fixture")
-    closed["qualityGates"][0]["status"] = "approved"
-    closed["qualityGates"][1]["status"] = "skipped"
-    fixture = create_team(tmp_path, "done-allows-closed-gates", [closed])
+    # Completing straight out of `review` is allowed too, and in Auto Mode the
+    # worker is handed its next command.
+    fixture = create_team(
+        tmp_path,
+        "status-done-auto-mode",
+        [task("T1", "Completed from review", "developer", "review", owner="developer-fixture")],
+    )
     fixture.cli.run("runner", "set", "--mode", "auto")
 
     payload = fixture.cli.run("task", "status", "--task-id", "T1", "--status", "done", "--id", "developer-fixture")
@@ -1152,6 +986,7 @@ def test_task_status_done_allows_legacy_and_closed_gate_tasks(tmp_path) -> None:
     state = read_state(fixture.state_path)
     assert_task_status(state, "T1", "done")
     assert get_task(state, "T1")["ownerAgentId"] is None
+    assert get_task(state, "T1")["lastImplementedByAgentId"] == "developer-fixture"
 
 
 def test_task_status_done_captures_diff_evidence_before_completion(tmp_path) -> None:
@@ -1181,44 +1016,10 @@ def test_task_status_done_captures_diff_evidence_before_completion(tmp_path) -> 
     assert any(line["type"] == "added" and "after" in line["content"] for line in diffs[0]["hunks"][0]["lines"])
 
 
-def test_artifact_approval_does_not_bypass_open_quality_gates(tmp_path) -> None:
-    record = gated_task(owner="developer-fixture")
-    fixture = create_team(tmp_path, "artifact-approval-open-gates", [record])
-    artifact_path = fixture.team_dir / "reviews" / "handoff.md"
-    artifact_path.parent.mkdir(parents=True, exist_ok=True)
-    artifact_path.write_text("# Handoff\n", encoding="utf-8")
-
-    fixture.cli.run(
-        "artifact",
-        "add",
-        "--actor",
-        "developer-fixture",
-        "--artifact-id",
-        "A1",
-        "--task-id",
-        "T1",
-        "--kind",
-        "code_review",
-        "--title",
-        "Handoff",
-        "--path",
-        "reviews/handoff.md",
-        "--created-by",
-        "developer-fixture",
-        "--ready",
-    )
-    approved = fixture.cli.run("artifact", "approve", "--artifact-id", "A1", "--id", "user")
-
-    assert approved["taskCompleted"] is False
-    state = read_state(fixture.state_path)
-    task_record = get_task(state, "T1")
-    assert task_record["status"] == "needs_input"
-    assert task_record["completedAt"] is None
-    assert [gate["status"] for gate in task_record["qualityGates"]] == ["pending", "pending"]
-
-
-def test_gated_phase_and_rework_statuses_keep_run_executing(tmp_path) -> None:
-    for status in ["review", "testing", "product", "changes_requested"]:
+def test_active_task_statuses_keep_the_run_executing_and_keep_the_owner(tmp_path) -> None:
+    # ACTIVE_TASK_STATUSES is exactly {in_progress, review, needs_input}: each keeps
+    # the run executing, and each keeps the task bound to its owner.
+    for status in ["review", "needs_input"]:
         record = task("T1", f"{status} work", "developer", "in_progress", owner="developer-fixture")
         fixture = create_team(tmp_path, f"run-executing-{status.replace('_', '-')}", [record])
         state = read_state(fixture.state_path)
@@ -1230,11 +1031,12 @@ def test_gated_phase_and_rework_statuses_keep_run_executing(tmp_path) -> None:
         state = read_state(fixture.state_path)
         assert state["sprintengine"]["status"] == "executing"
         assert_task_status(state, "T1", status)
-        assert get_task(state, "T1")["ownerAgentId"] is None
+        assert get_task(state, "T1")["ownerAgentId"] == "developer-fixture"
+        assert state["agents"]["developer-fixture"]["currentTaskId"] == "T1"
 
 
 def test_task_publish_to_review_keeps_run_executing(tmp_path) -> None:
-    fixture = create_team(tmp_path, "publish-review-run-executing", [gated_task()])
+    fixture = create_team(tmp_path, "publish-review-run-executing", [owned_task()])
     state = read_state(fixture.state_path)
     state["sprintengine"]["status"] = "planned"
     write_state(fixture.state_path, state)
@@ -1365,7 +1167,8 @@ def test_task_resolve_input_resumes_original_owner_with_notification(tmp_path) -
     )
 
     assert payload["ok"] is True
-    assert payload["transition"] == {"status": "in_progress", "ownerAgentId": "frontend-1"}
+    # No `originatingStatus`, so the owner resumes implementation rather than a phase.
+    assert payload["transition"] == {"status": "in_progress", "ownerAgentId": "frontend-1", "resumePhase": None}
     state = read_state(fixture.state_path)
     task_record = get_task(state, "T1")
     assert task_record["status"] == "in_progress"
@@ -1383,12 +1186,12 @@ def test_task_resolve_input_resumes_original_owner_with_notification(tmp_path) -
 
 
 def test_task_resolve_input_complete_marks_done_and_notifies_owner(tmp_path) -> None:
-    blocked_task = task("T1", "Review gate", "code_reviewer", "needs_input", owner="code_reviewer")
+    blocked_task = task("T1", "Blocked on an artifact decision", "developer", "needs_input", owner="developer-1")
     blocked_task["needsInput"] = {
         "kind": "architect",
         "reason": "artifact_review",
         "question": "Artifact needs adjudication.",
-        "reportedBy": "code_reviewer",
+        "reportedBy": "developer-1",
         "reportedAt": "2026-05-14T00:00:00Z",
     }
     fixture = create_team(tmp_path, "resolve-input-completes-task", [blocked_task])
@@ -1401,17 +1204,17 @@ def test_task_resolve_input_complete_marks_done_and_notifies_owner(tmp_path) -> 
         "--id",
         "architect",
         "--resolution",
-        "Artifact adjudicated; review gate complete.",
+        "Artifact adjudicated; nothing left to do.",
         "--complete",
     )
 
     assert payload["ok"] is True
-    assert payload["transition"] == {"status": "done", "ownerAgentId": "code_reviewer"}
+    assert payload["transition"] == {"status": "done", "ownerAgentId": "developer-1", "resumePhase": None}
     state = read_state(fixture.state_path)
     task_record = get_task(state, "T1")
     assert task_record["status"] == "done"
     assert task_record["completedAt"]
-    assert state["agents"]["code_reviewer"]["status"] == "idle"
+    assert state["agents"]["developer-1"]["status"] == "idle"
     notification = state["events"][-1]
     assert notification["type"] == "agent_notification_requested"
     assert notification["notificationKind"] == "task_completed_after_input_resolution"
@@ -1520,7 +1323,7 @@ def test_bare_needs_input_keeps_legacy_status_without_routing_metadata(tmp_path)
     assert "needsInput" not in task_record
 
 
-def test_product_and_architect_approval_gates_control_downstream_readiness(tmp_path) -> None:
+def test_product_and_architect_artifact_approvals_control_downstream_readiness(tmp_path) -> None:
     state_path = tmp_path / ".multi-code" / "sprintengine" / "approval-gates" / "run.yaml"
     cli = SwarmCli(state_path)
 
@@ -1577,7 +1380,7 @@ def test_product_and_architect_approval_gates_control_downstream_readiness(tmp_p
     assert_event_type(plan_approved, "artifact_approved")
 
 
-def test_init_respects_selected_roster_without_product_gate(tmp_path) -> None:
+def test_init_respects_selected_roster_without_a_product_intake_task(tmp_path) -> None:
     state_path = tmp_path / ".multi-code" / "sprintengine" / "rostered-team" / "run.yaml"
     cli = SwarmCli(state_path)
 
@@ -1714,9 +1517,11 @@ def test_temporary_marketer_role_flows_through_core_cli(tmp_path) -> None:
         "growth-marketer",
         "--description",
         "Write the launch post.",
-        "--no-quality-gates",
+        "--phases",
+        "",
     )
     assert accepted["task"]["role"] == "marketer"
+    assert accepted["task"]["phases"] == []
 
     # Planned work roots on the architect plan gate: the marketer task is not
     # claimable until the plan gate completes.
@@ -1834,10 +1639,12 @@ def test_active_task_reconnect_and_join_do_not_rewrite_state(tmp_path) -> None:
     assert join_payload["task"]["id"] == "T1"
 
 
-def test_join_clears_stale_owned_changes_requested_rework_for_normal_claim(tmp_path) -> None:
-    rework_task = task("T1", "Needs implementation rework", "frontend", "changes_requested")
-    rework_task["ownerAgentId"] = "frontend-1"
-    fixture = create_team(tmp_path, "owned-rework-resume", [rework_task])
+def test_join_leaves_an_owned_review_task_with_its_owner(tmp_path) -> None:
+    # The stale-owner repair pass only touches terminal tasks. A published task in
+    # `review` is owned work in flight: another agent joining must not inherit it,
+    # and must not see it as ready.
+    review_task = task("T1", "Published, mid review", "frontend", "review", owner="frontend-1")
+    fixture = create_team(tmp_path, "owned-review-not-stolen", [review_task])
 
     other_agent = fixture.cli.run(
         "join",
@@ -1849,11 +1656,11 @@ def test_join_clears_stale_owned_changes_requested_rework_for_normal_claim(tmp_p
         "--max-wait-seconds",
         "0",
     )
-    assert other_agent["action"] == "work"
+    assert other_agent["action"] == "idle"
     state = read_state(fixture.state_path)
-    assert get_task(state, "T1")["ownerAgentId"] is None
+    assert get_task(state, "T1")["ownerAgentId"] == "frontend-1"
 
-    join_payload = fixture.cli.run(
+    owner = fixture.cli.run(
         "join",
         "--role",
         "frontend",
@@ -1863,22 +1670,25 @@ def test_join_clears_stale_owned_changes_requested_rework_for_normal_claim(tmp_p
         "--max-wait-seconds",
         "0",
     )
-    assert join_payload["action"] == "work"
-    assert join_payload["readyTaskCount"] == 1
+    assert owner["action"] == "resume"
+    assert owner["task"]["id"] == "T1"
 
     next_payload = fixture.cli.run("task", "next", "--role", "frontend", "--id", "frontend-2")
-    assert next_payload["claimed"] is True
-    assert next_payload["task"]["id"] == "T1"
-    assert next_payload["task"]["ownerAgentId"] == "frontend-2"
+    assert next_payload["claimed"] is False
+    assert next_payload["reason"] == "no_ready_task"
 
 
 def test_stale_owner_cleanup_preserves_retired_and_idles_legacy_dead(tmp_path) -> None:
-    # Clearing a stale active-owner claim preserves the one terminal status
-    # (retired) while a legacy 'dead' id normalizes to idle on load and then has
-    # its stale refs cleared like any other non-retired agent.
-    rework_task = task("T1", "Needs implementation rework", "frontend", "changes_requested")
-    rework_task["ownerAgentId"] = "frontend-1"
-    fixture = create_team(tmp_path, "stale-owner-terminal-statuses", [rework_task])
+    # Clearing a stale owner claim off a terminal task preserves the one terminal
+    # agent status (retired) while a legacy 'dead' id normalizes to idle on load and
+    # then has its stale refs cleared like any other non-retired agent.
+    stale_task = task("T1", "Already completed", "frontend", "done")
+    stale_task["ownerAgentId"] = "frontend-1"
+    fixture = create_team(
+        tmp_path,
+        "stale-owner-terminal-statuses",
+        [stale_task, task("T2", "Still to do", "frontend")],
+    )
     state = read_state(fixture.state_path)
     state["agents"]["frontend-1"] = {
         "role": "frontend",
@@ -1956,121 +1766,30 @@ def test_claimed_task_current_dispatch_is_idempotent(tmp_path) -> None:
     assert run["agents"]["developer-fixture"]["currentDispatch"]["taskId"] == "T1"
 
 
-def test_claimed_gate_current_dispatch_is_idempotent(tmp_path) -> None:
-    fixture = create_team(tmp_path, "claimed-gate-dispatch-idempotent", [gated_task("review", owner="developer-fixture")])
-
-    claimed = fixture.cli.run("task", "gate", "next", "--role", "code_reviewer", "--id", "code-reviewer")
-    state = read_state(fixture.state_path)
-    state["agents"]["code-reviewer"]["currentDispatch"] = None
-    write_state(fixture.state_path, state)
-    resumed = fixture.cli.run("task", "gate", "next", "--role", "code_reviewer", "--id", "code-reviewer")
-
-    assert claimed["claimed"] is True
-    assert claimed["resumed"] is False
-    assert resumed["claimed"] is True
-    assert resumed["resumed"] is True
-    run = store.load_run_yaml(fixture.team_dir)
-    dispatches = [
-        record
-        for record in store.read_jsonl_file(fixture.team_dir / "dispatch.jsonl")
-        if record["reason"] == "gate_claimed"
-    ]
-    assert len(dispatches) == 1
-    assert run["agents"]["code-reviewer"]["currentDispatch"]["dispatchId"] == dispatches[0]["id"]
-    assert run["agents"]["code-reviewer"]["currentDispatch"]["targetKind"] == "gate"
-    assert run["agents"]["code-reviewer"]["currentDispatch"]["taskId"] == "T1"
-    assert run["agents"]["code-reviewer"]["currentDispatch"]["gateId"] == "code-review"
-    assert run["agents"]["code-reviewer"]["currentDispatch"]["attemptId"] == "GA-001"
-
-
-def test_changes_requested_rework_is_ownerless_normal_role_work(tmp_path) -> None:
-    fixture = create_team(tmp_path, "changes-requested-rework-dispatch", [gated_task("todo", owner=None)])
+def test_a_published_task_records_no_second_dispatch(tmp_path) -> None:
+    # Publishing does not hand the task to anyone: no reviewer dispatch is
+    # queued, and the owner's `task_claimed` dispatch is still the only one.
+    fixture = create_team(tmp_path, "publish-no-second-dispatch", [task("T1", "Implementation", "developer")])
 
     fixture.cli.run("task", "next", "--role", "developer", "--id", "developer-fixture")
-    fixture.cli.run("task", "publish", "--task-id", "T1", "--id", "developer-fixture", "--summary", "Ready.")
-    fixture.cli.run("task", "gate", "next", "--role", "code_reviewer", "--id", "code-reviewer")
-    fixture.cli.run(
-        "task",
-        "gate",
-        "verdict",
-        "--task-id",
-        "T1",
-        "--gate-id",
-        "code-review",
-        "--role",
-        "code_reviewer",
-        "--id",
-        "code-reviewer",
-        "--verdict",
-        "changes_requested",
-        "--summary",
-        "Needs rework.",
-        "--required-action",
-        "Address review feedback.",
-    )
-
-    state = read_state(fixture.state_path)
-    rework_task = get_task(state, "T1")
-    assert rework_task["status"] == "changes_requested"
-    assert rework_task["ownerAgentId"] is None
-
-    joined = fixture.cli.run(
-        "join",
-        "--role",
-        "developer",
-        "--id",
-        "developer-2",
-        "--watch",
-        "--max-wait-seconds",
-        "0",
-    )
-    assert joined["action"] == "work"
-    assert joined["readyTaskCount"] == 1
-
-    claimed = fixture.cli.run("task", "next", "--role", "developer", "--id", "developer-2")
-    assert claimed["claimed"] is True
-    assert claimed["task"]["status"] == "in_progress"
-    assert claimed["task"]["ownerAgentId"] == "developer-2"
+    published = fixture.cli.run("task", "publish", "--task-id", "T1", "--id", "developer-fixture", "--summary", "Ready for my own review.")
+    assert published["nextStatus"] == "review"
 
     run = store.load_run_yaml(fixture.team_dir)
     dispatches = store.read_jsonl_file(fixture.team_dir / "dispatch.jsonl")
-    rework_dispatches = [record for record in dispatches if record["reason"] == "changes_requested_rework"]
-    assert rework_dispatches == []
-    assert run["agents"]["developer-2"]["currentDispatch"]["reason"] == "task_claimed"
+    assert [record["reason"] for record in dispatches] == ["task_claimed"]
+    assert run["agents"]["developer-fixture"]["currentDispatch"]["reason"] == "task_claimed"
+    assert run["agents"]["developer-fixture"]["currentDispatch"]["targetKind"] == "task"
+    assert run["agents"]["developer-fixture"]["currentTaskId"] == "T1"
 
     projection = fixture.cli.run("projection")
-    assert projection["roster"]["developer-2"]["currentDispatch"]["reason"] == "task_claimed"
-
-    fixture.cli.run("task", "publish", "--task-id", "T1", "--id", "developer-2", "--summary", "Reworked.")
-    fixture.cli.run("task", "gate", "next", "--role", "code_reviewer", "--id", "code-reviewer")
+    assert projection["roster"]["developer-fixture"]["currentDispatch"]["reason"] == "task_claimed"
+    # The advance that completes the task queues no dispatch either.
     fixture.cli.run(
-        "task",
-        "gate",
-        "verdict",
-        "--task-id",
-        "T1",
-        "--gate-id",
-        "code-review",
-        "--role",
-        "code_reviewer",
-        "--id",
-        "code-reviewer",
-        "--verdict",
-        "changes_requested",
-        "--summary",
-        "Needs another rework.",
-        "--required-action",
-        "Address second review feedback.",
+        "task", "advance", "--task-id", "T1", "--id", "developer-fixture",
+        "--phase", "review", "--outcome", "pass", "--summary", "Reviewed.",
     )
-    state = read_state(fixture.state_path)
-    assert get_task(state, "T1")["ownerAgentId"] is None
-    fixture.cli.run("task", "next", "--role", "developer", "--id", "developer-3")
-    second_cycle_dispatches = [
-        record
-        for record in store.read_jsonl_file(fixture.team_dir / "dispatch.jsonl")
-        if record["reason"] == "changes_requested_rework"
-    ]
-    assert second_cycle_dispatches == []
+    assert len(store.read_jsonl_file(fixture.team_dir / "dispatch.jsonl")) == 1
 
 
 def test_ready_task_dispatch_rotates_after_released_target(tmp_path) -> None:
@@ -2118,31 +1837,6 @@ def test_expired_agent_releases_task_and_redispatches_with_ledger_evidence(tmp_p
     assert any(event["type"] == "agent_targets_released" for event in state["events"])
 
 
-def test_expired_agent_releases_gate_attempt_for_redispatch(tmp_path) -> None:
-    record = gated_task("review", owner=None)
-    fixture = create_team(tmp_path, "expired-agent-gate-release", [record])
-    fixture.cli.run("task", "gate", "next", "--role", "code_reviewer", "--id", "reviewer-1")
-
-    state = read_state(fixture.state_path)
-    state["sprintengine"]["agentTimeoutSeconds"] = 1
-    state["agents"]["reviewer-1"]["heartbeatAt"] = "2000-01-01T00:00:00Z"
-    write_state(fixture.state_path, state)
-
-    claimed = fixture.cli.run("task", "gate", "next", "--role", "code_reviewer", "--id", "reviewer-2")
-    assert claimed["gate"]["id"] == "code-review"
-    assert claimed["attempt"]["id"] == "GA-002"
-    assert claimed["releasedExpired"][0]["agentId"] == "reviewer-1"
-
-    state = read_state(fixture.state_path)
-    gate = get_task(state, "T1")["qualityGates"][0]
-    assert gate["status"] == "in_progress"
-    assert gate["attempts"][0]["status"] == "released"
-    assert gate["attempts"][1]["status"] == "in_progress"
-    assert state["agents"]["reviewer-1"]["status"] == "idle"
-    dispatches = store.read_jsonl_file(fixture.team_dir / "dispatch.jsonl")
-    assert any(record["reason"] == "agent_expired_release" and record["target"]["gateId"] == "code-review" for record in dispatches)
-
-
 def test_expired_agent_released_to_idle_reflects_in_projection(tmp_path) -> None:
     # Derived liveness: an expired worker is released to idle-no-target (no stored
     # terminal status), its task freed and re-dispatched, and the projection
@@ -2167,86 +1861,38 @@ def test_expired_agent_released_to_idle_reflects_in_projection(tmp_path) -> None
     assert state["agents"]["developer-2"]["currentTaskId"] == "T1"
     dispatches = store.read_jsonl_file(fixture.team_dir / "dispatch.jsonl")
     assert any(record["reason"] == "agent_expired_release" and record["agentId"] == "developer-1" for record in dispatches)
+    # Gate claims are gone: an agent record never carries a gate mirror.
+    assert "currentGateId" not in departed
+    assert "currentGate" not in departed
     projection = fixture.cli.run("projection")
     assert projection["roster"]["developer-1"]["status"] == "idle"
     assert projection["roster"]["developer-1"]["currentTaskId"] is None
     assert projection["roster"]["developer-1"]["currentDispatch"] is None
 
 
-def test_expired_gate_reviewer_released_to_idle_reflects_in_projection(tmp_path) -> None:
-    record = gated_task("review", owner=None)
-    fixture = create_team(tmp_path, "expired-gate-reviewer-idle", [record])
-    fixture.cli.run("task", "gate", "next", "--role", "code_reviewer", "--id", "reviewer-1")
+def test_expired_owner_of_a_review_task_keeps_the_task(tmp_path) -> None:
+    # The expiry sweep uses the same release authority as agent.leave, so it frees
+    # `in_progress` work only. A published task keeps its owner and never becomes
+    # claimable by a fresh id — the owner is revived under the same id instead.
+    fixture = create_team(tmp_path, "expired-review-owner", [task("T1", "Implementation", "developer")])
+    fixture.cli.run("task", "next", "--role", "developer", "--id", "developer-1")
+    fixture.cli.run("task", "publish", "--task-id", "T1", "--id", "developer-1", "--summary", "Ready for my review.")
 
     state = read_state(fixture.state_path)
+    assert get_task(state, "T1")["status"] == "review"
     state["sprintengine"]["agentTimeoutSeconds"] = 1
-    state["agents"]["reviewer-1"]["heartbeatAt"] = "2000-01-01T00:00:00Z"
+    state["agents"]["developer-1"]["heartbeatAt"] = "2000-01-01T00:00:00Z"
     write_state(fixture.state_path, state)
 
-    claimed = fixture.cli.run("task", "gate", "next", "--role", "code_reviewer", "--id", "reviewer-2")
-    assert claimed["gate"]["id"] == "code-review"
-    assert claimed["attempt"]["id"] == "GA-002"
-    assert claimed["releasedExpired"][0]["agentId"] == "reviewer-1"
+    refused = fixture.cli.run("task", "next", "--role", "developer", "--id", "developer-2")
+    assert refused["claimed"] is False
+    assert refused["reason"] == "no_ready_task"
+    assert refused["releasedExpired"] == []
 
     state = read_state(fixture.state_path)
-    departed = state["agents"]["reviewer-1"]
-    assert departed["status"] == "idle"
-    assert departed["currentTaskId"] is None
-    assert departed["currentDispatch"] is None
-    assert "currentGateId" not in departed
-    assert "currentGate" not in departed
-    gate = get_task(state, "T1")["qualityGates"][0]
-    assert gate["status"] == "in_progress"
-    assert gate["attempts"][0]["status"] == "released"
-    assert gate["attempts"][1]["status"] == "in_progress"
-    dispatches = store.read_jsonl_file(fixture.team_dir / "dispatch.jsonl")
-    assert any(record["reason"] == "agent_expired_release" and record["target"]["gateId"] == "code-review" for record in dispatches)
-    projection = fixture.cli.run("projection")
-    assert projection["roster"]["reviewer-1"]["status"] == "idle"
-    assert projection["roster"]["reviewer-1"]["currentTaskId"] is None
-    assert projection["roster"]["reviewer-1"]["currentDispatch"] is None
-
-
-def test_expired_gate_claim_without_current_dispatch_released_via_attempt(tmp_path) -> None:
-    # The gate claim is found by the attempt's claimedBy, not the dispatch
-    # mirror, so an expired reviewer with a cleared currentDispatch is still
-    # released and re-dispatched.
-    record = gated_task("review", owner=None)
-    fixture = create_team(tmp_path, "expired-gate-no-current-dispatch", [record])
-    fixture.cli.run("task", "gate", "next", "--role", "code_reviewer", "--id", "reviewer-1")
-
-    state = read_state(fixture.state_path)
-    state["sprintengine"]["agentTimeoutSeconds"] = 1
-    state["agents"]["reviewer-1"]["heartbeatAt"] = "2000-01-01T00:00:00Z"
-    state["agents"]["reviewer-1"]["currentDispatch"] = None
-    write_state(fixture.state_path, state)
-
-    claimed = fixture.cli.run("task", "gate", "next", "--role", "code_reviewer", "--id", "reviewer-2")
-    assert claimed["gate"]["id"] == "code-review"
-    assert claimed["attempt"]["id"] == "GA-002"
-    assert claimed["releasedExpired"] == [
-        {"agentId": "reviewer-1", "role": "code_reviewer", "targetKind": "gate", "taskId": "T1", "gateId": "code-review"}
-    ]
-
-    state = read_state(fixture.state_path)
-    departed = state["agents"]["reviewer-1"]
-    assert departed["status"] == "idle"
-    assert departed["currentTaskId"] is None
-    assert departed["currentDispatch"] is None
-    assert "currentGateId" not in departed
-    assert "currentGate" not in departed
-    gate = get_task(state, "T1")["qualityGates"][0]
-    assert gate["status"] == "in_progress"
-    assert gate["attempts"][0]["status"] == "released"
-    assert gate["attempts"][1]["status"] == "in_progress"
-    dispatches = store.read_jsonl_file(fixture.team_dir / "dispatch.jsonl")
-    release_dispatches = [record for record in dispatches if record["reason"] == "agent_expired_release"]
-    assert len(release_dispatches) == 1
-    assert release_dispatches[0]["target"] == {"kind": "gate", "taskId": "T1", "gateId": "code-review"}
-    projection = fixture.cli.run("projection")
-    assert projection["roster"]["reviewer-1"]["status"] == "idle"
-    assert projection["roster"]["reviewer-1"]["currentTaskId"] is None
-    assert projection["roster"]["reviewer-1"]["currentDispatch"] is None
+    task_record = get_task(state, "T1")
+    assert task_record["status"] == "review"
+    assert task_record["ownerAgentId"] == "developer-1"
 
 
 def test_completed_agent_ids_cannot_recycle_onto_a_second_task(tmp_path) -> None:
@@ -2262,7 +1908,8 @@ def test_completed_agent_ids_cannot_recycle_onto_a_second_task(tmp_path) -> None
         ],
     )
     state = read_state(fixture.state_path)
-    state["sprintengine"]["qualityPolicy"] = {"enabled": False}
+    # No review step: publish is the whole walk, so T1 completes in one call.
+    state["defaultPhases"] = []
     write_state(fixture.state_path, state)
 
     fixture.cli.run("task", "next", "--role", "developer", "--id", "developer-fixture")
@@ -2282,7 +1929,8 @@ def test_completed_agent_ids_cannot_recycle_onto_a_second_task(tmp_path) -> None
         "--result",
         "Passed",
     )
-    fixture.cli.run("task", "status", "--task-id", "T1", "--status", "done", "--id", "developer-fixture")
+    published = fixture.cli.run("task", "publish", "--task-id", "T1", "--id", "developer-fixture", "--summary", "Shipped T1.")
+    assert published["nextStatus"] == "done"
 
     refused = fixture.cli.run("task", "next", "--role", "developer", "--id", "developer-fixture")
     assert refused["claimed"] is False
@@ -2310,7 +1958,7 @@ def test_retired_agent_ids_cannot_claim_more_work(tmp_path) -> None:
         ],
     )
     state = read_state(fixture.state_path)
-    state["sprintengine"]["qualityPolicy"] = {"enabled": False}
+    state["defaultPhases"] = []
     write_state(fixture.state_path, state)
 
     fixture.cli.run("task", "next", "--role", "developer", "--id", "developer-fixture")
@@ -2330,7 +1978,7 @@ def test_retired_agent_ids_cannot_claim_more_work(tmp_path) -> None:
         "--result",
         "Passed",
     )
-    fixture.cli.run("task", "status", "--task-id", "T1", "--status", "done", "--id", "developer-fixture")
+    fixture.cli.run("task", "publish", "--task-id", "T1", "--id", "developer-fixture", "--summary", "Shipped T1.")
 
     retired = fixture.cli.run(
         "roster",
@@ -2505,15 +2153,15 @@ def test_roster_replenish_combined_retired_and_queue_depth_passes_do_not_double_
     assert created[1].get("reason") == "queue_depth"
 
 
-def test_roster_replenish_queue_depth_skips_covered_rework_and_planning_roles(tmp_path) -> None:
-    # A changes_requested task whose bound previous owner still exists is
-    # served by that agent (owner-affinity respawn) — no surplus id. Planning
-    # roles never mint parallel capacity.
+def test_roster_replenish_queue_depth_skips_in_flight_work_and_planning_roles(tmp_path) -> None:
+    # A task in `review` is owned by its implementer for the rest of its walk, so
+    # it is neither ready work nor a deficit — no surplus id is minted for it.
+    # Planning roles never mint parallel capacity either.
     fixture = create_team(
         tmp_path,
         "queue-depth-covered",
         [
-            task("T1", "Rework round", "developer", "changes_requested"),
+            task("T1", "Published, mid review", "developer", "review", owner="developer-1"),
             task("G1", "General-owned work", "general"),
         ],
     )
@@ -2521,7 +2169,7 @@ def test_roster_replenish_queue_depth_skips_covered_rework_and_planning_roles(tm
     state["agents"] = {
         # No general agent at all: the ready G1 task would show a deficit, but
         # planning roles are skipped — a General owns a whole sprint solo.
-        "developer-1": {"role": "developer", "status": "idle", "currentTaskId": None, "lastOwnedTaskId": "T1"},
+        "developer-1": {"role": "developer", "status": "running", "currentTaskId": "T1", "lastOwnedTaskId": "T1"},
     }
     state["sprintengine"]["rosterConfigured"] = True
     write_state(fixture.state_path, state)
@@ -2706,7 +2354,7 @@ def test_task_log_records_scope_expansions_and_summary_surfaces_them(tmp_path) -
         ],
     )
     state = read_state(fixture.state_path)
-    state["sprintengine"]["qualityPolicy"] = {"enabled": False}
+    state["defaultPhases"] = []
     write_state(fixture.state_path, state)
 
     payload = fixture.cli.run(
@@ -2727,7 +2375,7 @@ def test_task_log_records_scope_expansions_and_summary_surfaces_them(tmp_path) -
     )
     assert payload["ok"] is True
 
-    fixture.cli.run("task", "status", "--task-id", "T1", "--status", "done", "--id", "developer-fixture")
+    fixture.cli.run("task", "publish", "--task-id", "T1", "--id", "developer-fixture", "--summary", "Shipped with companion test.")
 
     state = read_state(fixture.state_path)
     task_record = get_task(state, "T1")

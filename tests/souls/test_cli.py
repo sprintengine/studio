@@ -44,8 +44,6 @@ def test_souls_list_includes_canonical_roles() -> None:
         "blog_writer",
         "tester",
         "security",
-        "code_reviewer",
-        "spec_reviewer",
         "performance",
         "production_readiness_reviewer",
         "presentation",

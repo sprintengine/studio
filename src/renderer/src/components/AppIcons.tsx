@@ -217,12 +217,6 @@ export function SprintEngineRoleIcon({
       return <TestIcon className={className} />
     case 'security':
       return <SecurityIcon className={className} />
-    case 'code_reviewer':
-      return <SpaghettiIcon className={className} />
-    case 'nuclear_reviewer':
-      return <NuclearExplosionIcon className={className} />
-    case 'spec_reviewer':
-      return <ReviewIcon className={className} />
     case 'performance':
       return <PerformanceIcon className={className} />
     case 'production_readiness_reviewer':

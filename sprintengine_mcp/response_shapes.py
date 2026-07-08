@@ -6,7 +6,7 @@ agent-facing responses return a slim task card once and minimal acks
 thereafter. Shaping happens only at the MCP boundary: the human/debug CLI
 keeps the full command output shapes.
 
-Shapers build new dicts and never mutate the task/gate/state objects that
+Shapers build new dicts and never mutate the task/state objects that
 command results reference — those objects belong to the persisted run state.
 """
 
@@ -19,7 +19,6 @@ from sprintengine_core.tool.comments import (
     newest_comments,
     open_feedback_comments,
 )
-from sprintengine_core.tool.state import task_quality_gates
 
 # Newest open review_feedback/user_note comments included in mutation acks so
 # a working agent still notices feedback posted mid-task. Before slimming this
@@ -60,7 +59,7 @@ MUTATION_ACK_TOOLS = {
     "sprintengine.task.status",
     "sprintengine.task.resolve_input",
     "sprintengine.task.release",
-    "sprintengine.task.request_changes",
+    "sprintengine.task.advance",
     "sprintengine.plan.add_task",
     "sprintengine.plan.update_task",
     "sprintengine.plan.add_dependency",
@@ -69,7 +68,6 @@ MUTATION_ACK_TOOLS = {
     "sprintengine.artifact.ready",
     "sprintengine.artifact.approve",
     "sprintengine.artifact.request_changes",
-    "sprintengine.gate.verdict",
 }
 
 # Read tools whose `task` payload becomes the slim card. The server-composed
@@ -78,8 +76,6 @@ MUTATION_ACK_TOOLS = {
 SLIM_CARD_TOOLS = {
     "sprintengine.task.next",
     "sprintengine.task.claim",
-    "sprintengine.gate.next",
-    "sprintengine.gate.claim",
 }
 
 
@@ -157,17 +153,6 @@ def _slim_needs_input(needs_input: Any) -> tuple[dict[str, Any] | None, bool]:
     return slim, truncated
 
 
-def gate_summary(gate: Any) -> dict[str, Any] | None:
-    if not isinstance(gate, dict):
-        return None
-    return {
-        "id": gate.get("id"),
-        "role": gate.get("role"),
-        "phase": gate.get("phase"),
-        "status": gate.get("status"),
-    }
-
-
 def task_stub(task: Any) -> dict[str, Any] | None:
     if not isinstance(task, dict):
         return None
@@ -177,10 +162,6 @@ def task_stub(task: Any) -> dict[str, Any] | None:
         "status": task.get("status"),
         "role": task.get("role"),
     }
-
-
-def gate_stub(gate: Any) -> dict[str, Any] | None:
-    return gate_summary(gate)
 
 
 def slim_task_card(task: Any) -> dict[str, Any] | None:
@@ -225,9 +206,9 @@ def slim_task_card(task: Any) -> dict[str, Any] | None:
     implementation = latest_implementation_comment(task)
     if implementation is not None:
         card["latestImplementationComment"] = _comment_delta(implementation)
-    gates = [summary for summary in (gate_summary(gate) for gate in task_quality_gates(task)) if summary]
-    if gates:
-        card["qualityGates"] = gates
+    phases = task.get("phases")
+    if isinstance(phases, list):
+        card["phases"] = list(phases)
     return card
 
 
@@ -261,16 +242,6 @@ def expanded_task_card(task: Any, include: list[str]) -> dict[str, Any] | None:
     return card
 
 
-def _attempt_summary(attempt: Any) -> dict[str, Any] | None:
-    if not isinstance(attempt, dict):
-        return None
-    return {
-        "id": attempt.get("id"),
-        "status": attempt.get("status"),
-        **({"verdict": attempt.get("verdict")} if attempt.get("verdict") is not None else {}),
-    }
-
-
 # Prose payload fields whose card surfaces cap at CARD_TEXT_LIMIT. Acks flag
 # over-limit writes so the author learns the overflow is truncated for
 # downstream agents — advisory only, the evidence itself is never rejected.
@@ -290,12 +261,6 @@ def _mutation_ack(result: dict[str, Any], payload: dict[str, Any], tool_name: st
         feedback = open_feedback_delta(task, ACK_OPEN_FEEDBACK_LIMIT)
         if feedback:
             shaped["openFeedback"] = feedback
-    gate = shaped.get("gate")
-    if isinstance(gate, dict):
-        shaped["gate"] = gate_summary(gate)
-    attempt = shaped.get("attempt")
-    if isinstance(attempt, dict):
-        shaped["attempt"] = _attempt_summary(attempt)
     comment = shaped.get("comment")
     if isinstance(comment, dict):
         # The author already knows what it wrote; the ack carries the delta
@@ -319,16 +284,6 @@ def _slim_card_response(result: dict[str, Any]) -> dict[str, Any]:
     shaped = dict(result)
     if isinstance(shaped.get("task"), dict):
         shaped["task"] = slim_task_card(shaped["task"])
-    gate = shaped.get("gate")
-    if isinstance(gate, dict):
-        # Reviewers get prior attempts and full evidence inside the
-        # server-composed review prompt; the gate payload stays a summary.
-        shaped["gate"] = {
-            **{key: gate.get(key) for key in ("id", "role", "phase", "status", "required", "allowSelfReview", "focus") if gate.get(key) is not None},
-        }
-    attempt = shaped.get("attempt")
-    if isinstance(attempt, dict):
-        shaped["attempt"] = _attempt_summary(attempt)
     return shaped
 
 
@@ -336,8 +291,6 @@ def _directive_response(result: dict[str, Any]) -> dict[str, Any]:
     shaped = dict(result)
     if isinstance(shaped.get("task"), dict):
         shaped["task"] = task_stub(shaped["task"])
-    if isinstance(shaped.get("gate"), dict):
-        shaped["gate"] = gate_stub(shaped["gate"])
     if shaped.get("releasedExpired") == []:
         del shaped["releasedExpired"]
     return shaped
@@ -358,9 +311,8 @@ def dispatch_record_stub(record: Any) -> dict[str, Any] | None:
         "reason": record.get("reason"),
         "assignedAt": record.get("timestamp"),
     }
-    for key in ("taskId", "gateId", "attemptId"):
-        if target.get(key):
-            stub[key] = target[key]
+    if target.get("taskId"):
+        stub["taskId"] = target["taskId"]
     return stub
 
 
@@ -435,7 +387,7 @@ def shape_tool_result(tool_name: str, payload: dict[str, Any], result: Any) -> A
     """Shape a successful tool result at the MCP boundary.
 
     Error results (`ok` is not True) keep their original shape — they are
-    already small and their `task`/`gate` fields are identity stubs.
+    already small and their `task` fields are identity stubs.
     """
     if not isinstance(result, dict) or result.get("ok") is not True:
         return result

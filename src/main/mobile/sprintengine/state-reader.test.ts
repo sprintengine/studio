@@ -17,7 +17,6 @@ async function main(): Promise<void> {
   await assertProjectionIsRequired()
   await assertMalformedProjectionFails()
   await assertFindReadyTaskAcceptsProjectionReadyStatus()
-  await assertFindReadyTaskPreservesChangesRequestedStatus()
   await assertFindReadyTaskBlocksWhenDependencyNotDone()
   await assertFindReadyTaskRejectsAlreadyOwnedTask()
   await assertFindReadyTaskRejectsRoleMismatch()
@@ -124,22 +123,9 @@ async function assertFindReadyTaskAcceptsProjectionReadyStatus(): Promise<void> 
   assert.equal(task.ownerAgentId, null)
 }
 
-async function assertFindReadyTaskPreservesChangesRequestedStatus(): Promise<void> {
-  const projection = {
-    tasks: [
-      { id: 'T1', role: 'developer', status: 'done', stateStatus: 'done', dependsOn: [] },
-      { id: 'T2', role: 'frontend', status: 'changes_requested', stateStatus: 'changes_requested', dependsOn: ['T1'] },
-    ],
-    artifacts: [],
-    roster: {},
-  }
-  const { statePath } = await writeFixture({ projection })
-  const validated = validateSprintEngineStatePath(statePath)
-  const task = await findReadySprintEngineTask(validated, 'T2', 'frontend')
-  assert.equal(task.id, 'T2')
-  assert.equal(task.status, 'changes_requested')
-  assert.equal(task.ownerAgentId, null)
-}
+// Removed: the changes_requested "ready to start" case tested deleted gate
+// machinery (MC-1542 single-owner tasks — changes_requested is no longer a task
+// status and only `todo` tasks are startable).
 
 async function assertFindReadyTaskBlocksWhenDependencyNotDone(): Promise<void> {
   const projection = {

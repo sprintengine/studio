@@ -168,17 +168,15 @@ def test_feedback_summary_reports_benchmark_rates_and_difficulty_analytics() -> 
                         "pct": 80,
                         "dimension": "implementation",
                         "reviewer_agent_id": "code-reviewer",
-                        "reviewer_role": "code_reviewer",
-                        "gate_id": "code_reviewer",
-                        "gate_attempt_id": "GA-001",
+                        "reviewer_role": "security",
+                        "phase": "review",
                     },
                     {
                         "pct": 60,
                         "dimension": "implementation",
                         "reviewer_agent_id": "architect",
                         "reviewer_role": "architect",
-                        "gate_id": "architect_review",
-                        "gate_attempt_id": "GA-001",
+                        "phase": "review",
                     },
                 ],
             },
@@ -204,9 +202,8 @@ def test_feedback_summary_reports_benchmark_rates_and_difficulty_analytics() -> 
                         "pct": 55,
                         "dimension": "review",
                         "reviewer_agent_id": "spec-reviewer",
-                        "reviewer_role": "spec_reviewer",
-                        "gate_id": "spec_reviewer",
-                        "gate_attempt_id": "GA-001",
+                        "reviewer_role": "performance",
+                        "phase": "review",
                     }
                 ],
             },
@@ -234,7 +231,6 @@ def test_feedback_summary_reports_benchmark_rates_and_difficulty_analytics() -> 
     assert reviewer["mean_difficulty_pct"] == 65.0
     assert reviewer["byDimension"]["implementation"] == {"sampleCount": 2, "mean_difficulty_pct": 70.0}
     assert reviewer["byTaskRole"]["developer"] == {"sampleCount": 3, "mean_difficulty_pct": 65.0}
-    assert reviewer["byGateRole"]["code_reviewer"] == {"sampleCount": 1, "mean_difficulty_pct": 80.0}
     assert reviewer["disagreement"] == {"sampleCount": 1, "mean_range_pct": 20.0, "max_range_pct": 20}
 
 
@@ -248,8 +244,7 @@ def test_feedback_summary_deduplicates_cumulative_difficulty_snapshots() -> None
                 "dimension": "implementation",
                 "reviewer_agent_id": "architect",
                 "reviewer_role": "architect",
-                "gate_id": "architect_review",
-                "gate_attempt_id": "GA-001",
+                        "phase": "review",
             }
         ],
     }
@@ -261,9 +256,8 @@ def test_feedback_summary_deduplicates_cumulative_difficulty_snapshots() -> None
                 "pct": 60,
                 "dimension": "implementation",
                 "reviewer_agent_id": "code-reviewer",
-                "reviewer_role": "code_reviewer",
-                "gate_id": "code_reviewer",
-                "gate_attempt_id": "GA-001",
+                "reviewer_role": "security",
+                        "phase": "review",
             },
         ],
     }
@@ -285,7 +279,7 @@ def test_feedback_summary_deduplicates_cumulative_difficulty_snapshots() -> None
     assert reviewer["mean_difficulty_pct"] == 70.0
     assert reviewer["byReviewerRole"] == {
         "architect": {"sampleCount": 1, "mean_difficulty_pct": 80.0},
-        "code_reviewer": {"sampleCount": 1, "mean_difficulty_pct": 60.0},
+        "security": {"sampleCount": 1, "mean_difficulty_pct": 60.0},
     }
     assert reviewer["disagreement"] == {"sampleCount": 1, "mean_range_pct": 20.0, "max_range_pct": 20}
 
@@ -391,12 +385,12 @@ def test_aggregate_by_agent_attributes_measured_signals_to_the_implementer() -> 
         },
         {
             "source": "reviewer_assessment",
-            "agent_id": "code_reviewer-1",
+            "agent_id": "security-1",
             "role": "developer",
             "task_id": "T1",
             "review_target_agent_id": "developer-1",
-            "reviewer_agent_id": "code_reviewer-1",
-            "reviewer_role": "code_reviewer",
+            "reviewer_agent_id": "security-1",
+            "reviewer_role": "security",
             "scores": {"correctness_pct": 60, "code_quality_pct": 55},
             "counts": {
                 "claims_checked": 10,
@@ -414,7 +408,7 @@ def test_aggregate_by_agent_attributes_measured_signals_to_the_implementer() -> 
     summary = summarize_feedback_records(records)
     by_agent = summary["aggregateByAgent"]
 
-    assert set(by_agent) == {"developer-1", "code_reviewer-1"}
+    assert set(by_agent) == {"developer-1", "security-1"}
 
     dev = by_agent["developer-1"]
     assert dev["role"] == "developer"
@@ -434,7 +428,7 @@ def test_aggregate_by_agent_attributes_measured_signals_to_the_implementer() -> 
     # The worker authored no review findings.
     assert dev["findingsRaised"] == 0
 
-    reviewer = by_agent["code_reviewer-1"]
+    reviewer = by_agent["security-1"]
     # The reviewer accrues no self-report and no measured-against-its-work data,
     # only the findings it raised while reviewing.
     assert reviewer["selfReported"]["sampleCount"] == 0
@@ -478,7 +472,7 @@ def test_aggregate_by_agent_emits_per_task_counts_for_drilldown() -> None:
     records = [
         {
             "source": "gate_verdict_assessment",
-            "agent_id": "code_reviewer-1",
+            "agent_id": "security-1",
             "role": "developer",
             "task_id": "T7",
             "review_target_task_id": "T7",
@@ -496,7 +490,7 @@ def test_aggregate_by_agent_emits_per_task_counts_for_drilldown() -> None:
         },
         {
             "source": "gate_verdict_assessment",
-            "agent_id": "spec_reviewer-1",
+            "agent_id": "performance-1",
             "role": "developer",
             "task_id": "T2",
             "review_target_task_id": "T2",
@@ -516,27 +510,55 @@ def test_aggregate_by_agent_emits_per_task_counts_for_drilldown() -> None:
     assert task_counts["T2"]["counts"] == {}
 
 
-def test_aggregate_by_agent_emits_reviewer_activity() -> None:
+def test_aggregate_by_agent_emits_sweep_activity() -> None:
+    """A SWEEP audits other agents' tasks and passes the --review-target-* trio."""
     records = [
         {
-            "source": "gate_verdict_assessment", "agent_id": "code_reviewer-1", "role": "developer",
+            "source": "reviewer_assessment", "agent_id": "security-1", "role": "developer",
             "task_id": "T1", "review_target_task_id": "T1", "review_target_agent_id": "developer-1",
-            "reviewer_agent_id": "code_reviewer-1", "gate_verdict": "changes_requested",
+            "reviewer_agent_id": "security-1", "phase_outcome": "pass_with_fixes",
         },
         {
-            "source": "gate_verdict_assessment", "agent_id": "code_reviewer-1", "role": "developer",
+            "source": "reviewer_assessment", "agent_id": "security-1", "role": "developer",
             "task_id": "T2", "review_target_task_id": "T2", "review_target_agent_id": "developer-1",
-            "reviewer_agent_id": "code_reviewer-1", "gate_verdict": "approved",
+            "reviewer_agent_id": "security-1", "phase_outcome": "pass",
         },
         {
-            "source": "gate_verdict_assessment", "agent_id": "code_reviewer-1", "role": "developer",
+            "source": "reviewer_assessment", "agent_id": "security-1", "role": "developer",
             "task_id": "T1", "review_target_task_id": "T1", "review_target_agent_id": "developer-1",
-            "reviewer_agent_id": "code_reviewer-1", "gate_verdict": "approved",
+            "reviewer_agent_id": "security-1", "phase_outcome": "escalate",
         },
     ]
-    reviewer = summarize_feedback_records(records)["aggregateByAgent"]["code_reviewer-1"]["reviewer"]
-    assert reviewer["reviewsPerformed"] == 3
-    assert reviewer["tasksReviewed"] == 2  # T1, T2
-    assert reviewer["approved"] == 2
-    assert reviewer["changesRequested"] == 1
-    assert reviewer["blocked"] == 0
+    sweep = summarize_feedback_records(records)["aggregateByAgent"]["security-1"]["sweep"]
+    assert sweep["assessmentsRecorded"] == 3
+    assert sweep["tasksAudited"] == 2  # T1, T2
+    assert sweep["passed"] == 1
+    assert sweep["fixedForward"] == 1
+    assert sweep["escalated"] == 1
+
+
+def test_aggregate_by_agent_emits_self_review_activity() -> None:
+    """A phase advance is the owner reporting on its own diff (MC-1542): its findings
+    are the review signal gate verdicts used to supply."""
+    records = [
+        {
+            "source": "phase_advance_self_review", "agent_id": "developer-1", "role": "developer",
+            "task_id": "T1", "phase": "review", "phase_outcome": "pass_with_fixes",
+            "findings": [
+                {"kind": "code_bug", "severity": "high", "area": "backend"},
+                {"kind": "test_gap", "severity": "low", "area": "testing"},
+            ],
+        },
+        {
+            "source": "phase_advance_self_review", "agent_id": "developer-1", "role": "developer",
+            "task_id": "T2", "phase": "review", "phase_outcome": "pass",
+        },
+    ]
+    row = summarize_feedback_records(records)["aggregateByAgent"]["developer-1"]
+    assert row["selfReview"] == {"phasesClosed": 2, "passed": 1, "fixedForward": 1, "escalated": 0}
+    # The owner's own findings count as raised — and as found against its own work.
+    assert row["findingsRaised"] == 2
+    # A self-review is a self-report, never a "measured" external assessment.
+    assert row["selfReported"]["sampleCount"] == 2
+    assert row["measured"]["reviewSampleCount"] == 0
+    assert "sweep" not in row

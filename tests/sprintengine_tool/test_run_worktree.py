@@ -51,6 +51,21 @@ def _actor(agent_id: str, role: str = "user") -> dict[str, object]:
     return {"id": agent_id, "role": role, "mcpAuthorized": True}
 
 
+def _claim(fixture: SwarmTeamFixture, task_id: str, agent_id: str, role: str = "developer") -> None:
+    """Close the architect plan gate, then let `agent_id` claim `task_id` for real.
+
+    Post-MC-1542 `task status --status in_progress` no longer force-starts a
+    never-claimed task (an unowned `in_progress` task is unclaimable, so it is
+    returned to `todo`). A real claim is the only way into `in_progress`.
+    """
+    fixture.cli.run("task", "status", "--task-id", "T0", "--status", "done", "--id", "architect-1")
+    claimed = fixture.cli.run("task", "next", "--role", role, "--id", agent_id)
+    assert claimed["claimed"] is True
+    assert claimed["task"]["id"] == task_id
+    assert claimed["task"]["status"] == "in_progress"
+    assert claimed["task"]["ownerAgentId"] == agent_id
+
+
 def test_init_creates_shared_run_worktree(tmp_path) -> None:
     workspace = tmp_path / "ws"
     _init_git_repo(workspace)
@@ -92,9 +107,8 @@ def test_vcs_commit_stages_only_task_owned_paths(tmp_path) -> None:
     _init_git_repo(workspace)
     fixture = _worktree_team(workspace, "alpha")
     fixture.cli.run("init", "--goal", "Build alpha", "--use-worktrees", "true", "--agent", "developer:developer-1")
-    fixture.cli.run("plan", "add-task", "--title", "Feature", "--role", "developer", "--task-id", "T1", "--path", "src/feature.ts", "--no-quality-gates")
-    status = fixture.cli.run("task", "status", "--task-id", "T1", "--status", "in_progress", "--id", "developer-1")
-    assert status["task"]["status"] == "in_progress"
+    fixture.cli.run("plan", "add-task", "--title", "Feature", "--role", "developer", "--task-id", "T1", "--path", "src/feature.ts")
+    _claim(fixture, "T1", "developer-1")
 
     worktree = _worktree_dir(fixture)
     (worktree / "src").mkdir(parents=True, exist_ok=True)
@@ -118,9 +132,8 @@ def test_vcs_commit_includes_extra_path(tmp_path) -> None:
     _init_git_repo(workspace)
     fixture = _worktree_team(workspace, "alpha")
     fixture.cli.run("init", "--goal", "Build alpha", "--use-worktrees", "true", "--agent", "developer:developer-1")
-    fixture.cli.run("plan", "add-task", "--title", "Feature", "--role", "developer", "--task-id", "T1", "--path", "src/feature.ts", "--no-quality-gates")
-    status = fixture.cli.run("task", "status", "--task-id", "T1", "--status", "in_progress", "--id", "developer-1")
-    assert status["task"]["status"] == "in_progress"
+    fixture.cli.run("plan", "add-task", "--title", "Feature", "--role", "developer", "--task-id", "T1", "--path", "src/feature.ts")
+    _claim(fixture, "T1", "developer-1")
 
     worktree = _worktree_dir(fixture)
     (worktree / "src").mkdir(parents=True, exist_ok=True)
@@ -143,8 +156,8 @@ def test_vcs_commit_warns_on_orphaned_new_directory(tmp_path) -> None:
     _init_git_repo(workspace)
     fixture = _worktree_team(workspace, "alpha")
     fixture.cli.run("init", "--goal", "Build alpha", "--use-worktrees", "true", "--agent", "developer:developer-1")
-    fixture.cli.run("plan", "add-task", "--title", "Panel", "--role", "developer", "--task-id", "T1", "--path", "src/Panel.tsx", "--no-quality-gates")
-    fixture.cli.run("task", "status", "--task-id", "T1", "--status", "in_progress", "--id", "developer-1")
+    fixture.cli.run("plan", "add-task", "--title", "Panel", "--role", "developer", "--task-id", "T1", "--path", "src/Panel.tsx")
+    _claim(fixture, "T1", "developer-1")
 
     worktree = _worktree_dir(fixture)
     (worktree / "src").mkdir(parents=True, exist_ok=True)
@@ -170,9 +183,9 @@ def test_vcs_commit_does_not_flag_another_tasks_paths_as_orphaned(tmp_path) -> N
     _init_git_repo(workspace)
     fixture = _worktree_team(workspace, "alpha")
     fixture.cli.run("init", "--goal", "Build alpha", "--use-worktrees", "true", "--agent", "developer:developer-1")
-    fixture.cli.run("plan", "add-task", "--title", "Feature", "--role", "developer", "--task-id", "T1", "--path", "src/feature.ts", "--no-quality-gates")
-    fixture.cli.run("plan", "add-task", "--title", "Other", "--role", "developer", "--task-id", "T2", "--path", "src/other.ts", "--no-quality-gates")
-    fixture.cli.run("task", "status", "--task-id", "T1", "--status", "in_progress", "--id", "developer-1")
+    fixture.cli.run("plan", "add-task", "--title", "Feature", "--role", "developer", "--task-id", "T1", "--path", "src/feature.ts")
+    fixture.cli.run("plan", "add-task", "--title", "Other", "--role", "developer", "--task-id", "T2", "--path", "src/other.ts")
+    _claim(fixture, "T1", "developer-1")
 
     worktree = _worktree_dir(fixture)
     (worktree / "src").mkdir(parents=True, exist_ok=True)
@@ -191,8 +204,8 @@ def test_task_publish_blocks_on_orphaned_uncommitted_paths(tmp_path) -> None:
     _init_git_repo(workspace)
     fixture = _worktree_team(workspace, "alpha")
     fixture.cli.run("init", "--goal", "Build alpha", "--use-worktrees", "true", "--agent", "developer:developer-1")
-    fixture.cli.run("plan", "add-task", "--title", "Panel", "--role", "developer", "--task-id", "T1", "--path", "src/Panel.tsx", "--no-quality-gates")
-    fixture.cli.run("task", "status", "--task-id", "T1", "--status", "in_progress", "--id", "developer-1")
+    fixture.cli.run("plan", "add-task", "--title", "Panel", "--role", "developer", "--task-id", "T1", "--path", "src/Panel.tsx")
+    _claim(fixture, "T1", "developer-1")
 
     worktree = _worktree_dir(fixture)
     (worktree / "src").mkdir(parents=True, exist_ok=True)
@@ -226,9 +239,8 @@ def test_vcs_commit_noop_when_no_in_scope_changes(tmp_path) -> None:
     _init_git_repo(workspace)
     fixture = _worktree_team(workspace, "alpha")
     fixture.cli.run("init", "--goal", "Build alpha", "--use-worktrees", "true", "--agent", "developer:developer-1")
-    fixture.cli.run("plan", "add-task", "--title", "Feature", "--role", "developer", "--task-id", "T1", "--path", "src/feature.ts", "--no-quality-gates")
-    status = fixture.cli.run("task", "status", "--task-id", "T1", "--status", "in_progress", "--id", "developer-1")
-    assert status["task"]["status"] == "in_progress"
+    fixture.cli.run("plan", "add-task", "--title", "Feature", "--role", "developer", "--task-id", "T1", "--path", "src/feature.ts")
+    _claim(fixture, "T1", "developer-1")
 
     # Only an unrelated file is dirty; T1 owns nothing dirty.
     worktree = _worktree_dir(fixture)
@@ -244,9 +256,8 @@ def test_task_publish_commits_task_paths_before_routing(tmp_path) -> None:
     _init_git_repo(workspace)
     fixture = _worktree_team(workspace, "alpha")
     fixture.cli.run("init", "--goal", "Build alpha", "--use-worktrees", "true", "--agent", "developer:developer-1")
-    fixture.cli.run("plan", "add-task", "--title", "Feature", "--role", "developer", "--task-id", "T1", "--path", "src/feature.ts", "--no-quality-gates")
-    status = fixture.cli.run("task", "status", "--task-id", "T1", "--status", "in_progress", "--id", "developer-1")
-    assert status["task"]["status"] == "in_progress"
+    fixture.cli.run("plan", "add-task", "--title", "Feature", "--role", "developer", "--task-id", "T1", "--path", "src/feature.ts")
+    _claim(fixture, "T1", "developer-1")
 
     worktree = _worktree_dir(fixture)
     (worktree / "src").mkdir(parents=True, exist_ok=True)
@@ -266,15 +277,20 @@ def test_task_publish_commits_task_paths_before_routing(tmp_path) -> None:
         "src/feature.ts",
     )
 
-    assert result["nextStatus"] == "done"
+    # The commit lands BEFORE routing, so worktree-mode change detection reads it
+    # off `evidence.commits` and routes the task into its review phase, owner intact.
     assert result["committed"] is True
     assert result["commitSha"]
+    assert result["producedChanges"] is True
+    assert result["nextStatus"] == "review"
+    assert result["nextDirective"]
     committed = _git(worktree, "show", "--name-only", "--format=", "HEAD").stdout.split()
     assert committed == ["src/feature.ts"]
     status = _git(worktree, "status", "--porcelain").stdout
     assert "unrelated.txt" in status
     persisted = next(task for task in read_state(fixture.state_path)["tasks"] if task.get("id") == "T1")
     assert result["commitSha"] in persisted["evidence"]["commits"]
+    assert persisted["ownerAgentId"] == "developer-1"
 
 
 def test_mcp_task_publish_commits_task_paths_before_routing(tmp_path) -> None:
@@ -282,9 +298,8 @@ def test_mcp_task_publish_commits_task_paths_before_routing(tmp_path) -> None:
     _init_git_repo(workspace)
     fixture = _worktree_team(workspace, "alpha")
     fixture.cli.run("init", "--goal", "Build alpha", "--use-worktrees", "true", "--agent", "developer:developer-1")
-    fixture.cli.run("plan", "add-task", "--title", "Feature", "--role", "developer", "--task-id", "T1", "--path", "src/feature.ts", "--no-quality-gates")
-    status = fixture.cli.run("task", "status", "--task-id", "T1", "--status", "in_progress", "--id", "developer-1")
-    assert status["task"]["status"] == "in_progress"
+    fixture.cli.run("plan", "add-task", "--title", "Feature", "--role", "developer", "--task-id", "T1", "--path", "src/feature.ts")
+    _claim(fixture, "T1", "developer-1")
 
     worktree = _worktree_dir(fixture)
     (worktree / "src").mkdir(parents=True, exist_ok=True)
@@ -306,7 +321,8 @@ def test_mcp_task_publish_commits_task_paths_before_routing(tmp_path) -> None:
 
     assert published["ok"] is True
     assert published["result"]["taskId"] == "T1"
-    assert published["result"]["taskStatus"] == "done"
+    assert published["result"]["taskStatus"] == "review"
+    assert published["result"]["producedChanges"] is True
     assert published["result"]["committed"] is True
     assert published["result"]["commitSha"]
     committed = _git(worktree, "show", "--name-only", "--format=", "HEAD").stdout.split()
@@ -348,12 +364,18 @@ def _completed_worktree_run(workspace: Path):
     _init_git_repo(workspace)
     fixture = _worktree_team(workspace, "alpha")
     fixture.cli.run("init", "--goal", "Build alpha", "--use-worktrees", "true", "--agent", "developer:developer-1")
-    fixture.cli.run("plan", "add-task", "--title", "Feature", "--role", "developer", "--task-id", "T1", "--path", "src/feature.ts", "--no-quality-gates")
-    fixture.cli.run("task", "status", "--task-id", "T1", "--status", "in_progress", "--id", "developer-1")
+    fixture.cli.run("plan", "add-task", "--title", "Feature", "--role", "developer", "--task-id", "T1", "--path", "src/feature.ts")
+    _claim(fixture, "T1", "developer-1")
     worktree = _worktree_dir(fixture)
     (worktree / "src").mkdir(parents=True, exist_ok=True)
     (worktree / "src" / "feature.ts").write_text("export const f = 1\n", encoding="utf-8")
     fixture.cli.run("task", "publish", "--task-id", "T1", "--id", "developer-1", "--summary", "Done.")
+    # The diff routes T1 into review; its owner closes the phase to reach `done`.
+    fixture.cli.run(
+        "task", "advance",
+        "--task-id", "T1", "--id", "developer-1",
+        "--phase", "review", "--outcome", "pass", "--summary", "Self-reviewed.",
+    )
     return fixture, worktree
 
 
@@ -484,7 +506,8 @@ def test_build_run_pull_request_body_lists_delivered_tasks(tmp_path) -> None:
     state = read_state(fixture.state_path)
     body = build_run_pull_request_body(state, "sprintengine/alpha")
     assert "**Goal:**" in body
-    assert "Tasks delivered (1)" in body
+    # T0 (the architect plan gate, closed by `_claim`) and T1 both reached `done`.
+    assert "Tasks delivered (2)" in body
     assert "Feature" in body  # the task title
     assert "_(developer)_" in body  # the task role
 

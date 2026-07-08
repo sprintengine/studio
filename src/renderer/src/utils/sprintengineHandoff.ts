@@ -87,7 +87,7 @@ function sourceTypeGuidance(
     if (reference) return referencedArchitectPlanGuidance
     return 'Source plan type: implementation plan. `sprintengine.init` should seed plan.md for architect review. The architect should review it against the current codebase, update stale details, then create task cards.'
   }
-  return 'Source plan type: generic handoff. The sprint should use the normal product intake and architect planning gates.'
+  return 'Source plan type: generic handoff. The sprint should use the normal product intake and architect plan approval tasks.'
 }
 
 export function buildPlanFileSprintEngineHandoffPrompt({
@@ -193,7 +193,7 @@ export function buildPlanFileSprintEngineHandoffPrompt({
       ].join('\n\n')
       : null,
     reference
-      ? 'After initialization, agents continue through the managed MCP server: register with `sprintengine.agent.join`, then claim work with `sprintengine.task.next` (implementation and planning tasks) or `sprintengine.gate.next` (quality gates) using `{role, id}`. Work what the claim returns; if it returns no claim, stop — Multicode re-engages the terminal when work is ready. Product and architect agents must read the referenced source file(s) at the project-root-relative paths listed in their claimed task, treat them as canonical incoming context, and update them in place rather than copying them.'
-      : 'After initialization, agents continue through the managed MCP server: register with `sprintengine.agent.join`, then claim work with `sprintengine.task.next` (implementation and planning tasks) or `sprintengine.gate.next` (quality gates) using `{role, id}`. Work what the claim returns; if it returns no claim, stop — Multicode re-engages the terminal when work is ready. Product and architect agents must read the imported source file(s) in the Sprint Engine team folder when their own work is claimed, and should treat those files as incoming context.',
+      ? 'After initialization, agents continue through the managed MCP server: register with `sprintengine.agent.join`, then claim work with `sprintengine.task.next` using `{role, id}`. Work what the claim returns; if it returns no claim, stop — Multicode re-engages the terminal when work is ready. Product and architect agents must read the referenced source file(s) at the project-root-relative paths listed in their claimed task, treat them as canonical incoming context, and update them in place rather than copying them.'
+      : 'After initialization, agents continue through the managed MCP server: register with `sprintengine.agent.join`, then claim work with `sprintengine.task.next` using `{role, id}`. Work what the claim returns; if it returns no claim, stop — Multicode re-engages the terminal when work is ready. Product and architect agents must read the imported source file(s) in the Sprint Engine team folder when their own work is claimed, and should treat those files as incoming context.',
   ].filter((line): line is string => line !== null).join('\n\n')
 }

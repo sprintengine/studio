@@ -128,16 +128,9 @@ function taskGraphNodeStatusLabel(
  taskStatus: SprintEngineTaskStatus,
  boardColumn: SprintEngineTaskBoardColumn,
 ): string {
- // Preserve gated phase columns (review/testing/product) and rework over the
- // semantic task status so the graph mirrors the board lane rather than
- // flattening lifecycle phases back to ready/in_progress.
- if (
- boardColumn === 'ready'
- || boardColumn === 'changes_requested'
- || boardColumn === 'review'
- || boardColumn === 'testing'
- || boardColumn === 'product'
- ) {
+ // Preserve the `ready` and `review` columns over the semantic task status so the
+ // graph mirrors the board lane rather than flattening them to todo/in_progress.
+ if (boardColumn === 'ready' || boardColumn === 'review') {
  return sprintEngineTaskBoardColumns.find((column) => column.key === boardColumn)?.label
  ?? sprintEngineTaskStateLabel[taskStatus]
  }
@@ -368,10 +361,6 @@ export function SprintEngineTaskGraphView({
  () => sprintEngineState.tasks.filter((task) => boardColumnByTaskId.get(task.id) === 'ready').length,
  [sprintEngineState.tasks, boardColumnByTaskId]
  )
- const changesRequestedCount = useMemo(
- () => sprintEngineState.tasks.filter((task) => boardColumnByTaskId.get(task.id) === 'changes_requested').length,
- [sprintEngineState.tasks, boardColumnByTaskId]
- )
  const doneCount = useMemo(
  () => sprintEngineState.tasks.filter((task) => task.status === 'done').length,
  [sprintEngineState.tasks]
@@ -384,14 +373,6 @@ export function SprintEngineTaskGraphView({
  )
  const reviewCount = useMemo(
  () => sprintEngineState.tasks.filter((task) => boardColumnByTaskId.get(task.id) === 'review').length,
- [sprintEngineState.tasks, boardColumnByTaskId]
- )
- const testingCount = useMemo(
- () => sprintEngineState.tasks.filter((task) => boardColumnByTaskId.get(task.id) === 'testing').length,
- [sprintEngineState.tasks, boardColumnByTaskId]
- )
- const productCount = useMemo(
- () => sprintEngineState.tasks.filter((task) => boardColumnByTaskId.get(task.id) === 'product').length,
  [sprintEngineState.tasks, boardColumnByTaskId]
  )
 
@@ -563,11 +544,6 @@ export function SprintEngineTaskGraphView({
  <span className="font-semibold">{readyCount}</span> ready
  </span>
  ) : null}
- {changesRequestedCount > 0 ? (
- <span className="text-[color:var(--tone-warn)]">
- <span className="font-semibold">{changesRequestedCount}</span> rework
- </span>
- ) : null}
  {inFlightCount > 0 ? (
  <span className="text-[color:var(--tone-warn)]">
  <span className="font-semibold">{inFlightCount}</span> in flight
@@ -576,16 +552,6 @@ export function SprintEngineTaskGraphView({
  {reviewCount > 0 ? (
  <span className="text-[color:var(--tone-warn)]">
  <span className="font-semibold">{reviewCount}</span> review
- </span>
- ) : null}
- {testingCount > 0 ? (
- <span className="text-[color:var(--tone-warn)]">
- <span className="font-semibold">{testingCount}</span> testing
- </span>
- ) : null}
- {productCount > 0 ? (
- <span className="text-[color:var(--tone-warn)]">
- <span className="font-semibold">{productCount}</span> product
  </span>
  ) : null}
  {doneCount > 0 ? (

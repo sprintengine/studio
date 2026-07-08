@@ -4,6 +4,12 @@ The dispatch planner distinguishes "worker finished a task" from "worker never
 had one" via agent.lastOwnedTaskId. Unlike currentTaskId it must survive
 set_agent_idle, agent leave, and reconcile, and it must reach the renderer
 through the projection roster.
+
+Under single-owner tasks (MC-1542) a roster id is spent the moment it owns a
+task and is never recycled: it holds that task from claim through `review` to
+`done`, and only a fresh id takes the next one. The only release that returns a
+task to the queue is an `in_progress` release; `review` and `needs_input` stay
+owned.
 """
 from __future__ import annotations
 
@@ -44,14 +50,29 @@ def test_last_owned_task_id_written_on_assignment_and_survives_idle() -> None:
     assert agent["lastOwnedTaskId"] == "T1"
 
 
+def test_reconcile_keeps_the_owner_bound_through_the_review_phase() -> None:
+    # Publish leaves the task in `review` still owned (MC-1542 decision 1), so
+    # reconcile re-adopts it as the agent's active task rather than clearing the
+    # ref: `review` is an ACTIVE status, not spare capacity.
+    state = _state_with_task("in_progress")
+    agent = ensure_agent(state, "developer-1", "developer")
+    set_agent_active(agent, state["tasks"][0])
+
+    state["tasks"][0]["status"] = "review"
+    result = reconcile_agent(state, "developer-1", "developer")
+    assert result["activeTask"]["id"] == "T1"
+    assert result["agent"]["currentTaskId"] == "T1"
+    assert result["agent"]["lastOwnedTaskId"] == "T1"
+
+
 def test_last_owned_task_id_survives_reconcile_and_leave() -> None:
     state = _state_with_task("in_progress")
     agent = ensure_agent(state, "developer-1", "developer")
     set_agent_active(agent, state["tasks"][0])
 
-    # Task moved on (published); reconcile clears the stale live ref but must
-    # keep the durable ownership record the planner reads.
-    state["tasks"][0]["status"] = "review"
+    # Task completed; reconcile clears the stale live ref but must keep the
+    # durable ownership record the planner reads.
+    state["tasks"][0]["status"] = "done"
     state["tasks"][0]["ownerAgentId"] = None
     result = reconcile_agent(state, "developer-1", "developer")
     assert result["agent"]["currentTaskId"] is None
@@ -77,35 +98,38 @@ def test_last_owned_task_id_tracks_reassignment() -> None:
     assert agent["lastOwnedTaskId"] == "T2"
 
 
-def _state_with_gate_claim(agent_id: str) -> dict:
-    return {
-        "agents": {agent_id: {"role": "code_reviewer", "status": "running", "currentTaskId": "T1",
-                              "currentGateId": "code-review",
-                              "currentGate": {"taskId": "T1", "gateId": "code-review", "attemptId": "GA-001"}}},
-        "tasks": [{
-            "id": "T1", "status": "review", "role": "developer",
-            "qualityGates": [{
-                "id": "code-review", "status": "in_progress",
-                "attempts": [{"id": "GA-001", "status": "in_progress", "claimedBy": agent_id}],
-            }],
-        }],
-    }
+def test_release_agent_targets_frees_an_in_progress_task_and_resets_agent_idle() -> None:
+    # The single release authority. Only un-started implementation work returns to
+    # the queue; the agent is reset to idle-no-target with no stored terminal status.
+    state = _state_with_task("in_progress")
+    agent = ensure_agent(state, "developer-1", "developer")
+    set_agent_active(agent, state["tasks"][0])
 
-
-def test_release_agent_targets_frees_gate_and_resets_agent_idle() -> None:
-    state = _state_with_gate_claim("code_reviewer-1")
-    released = release_agent_targets(state, "code_reviewer-1", reason="terminal closed", actor="code_reviewer-1")
+    released = release_agent_targets(state, "developer-1", reason="terminal closed", actor="developer-1")
     assert released == [
-        {"kind": "gate", "taskId": "T1", "gateId": "code-review", "attemptId": "GA-001", "previousOwnerAgentId": "code_reviewer-1"}
+        {"kind": "task", "taskId": "T1", "previousOwnerAgentId": "developer-1", "fromStatus": "in_progress", "status": "todo"}
     ]
-    gate = state["tasks"][0]["qualityGates"][0]
-    assert gate["status"] == "pending"
-    assert gate["attempts"][0]["status"] == "released"
-    agent = state["agents"]["code_reviewer-1"]
-    assert agent["status"] == "idle"
-    assert agent["currentTaskId"] is None
-    assert "currentGateId" not in agent
-    assert "currentGate" not in agent
+    assert state["tasks"][0]["status"] == "todo"
+    assert state["tasks"][0]["ownerAgentId"] is None
+    departed = state["agents"]["developer-1"]
+    assert departed["status"] == "idle"
+    assert departed["currentTaskId"] is None
+    # The id stays spent even though the task went back to the queue.
+    assert departed["lastOwnedTaskId"] == "T1"
+
+
+def test_release_agent_targets_preserves_review_ownership() -> None:
+    # A published task's diff is already on the record and its walk half done;
+    # releasing it to `todo` would hand a stranger work that is already finished.
+    # The owner is revived under the same id with a phase brief instead.
+    state = _state_with_task("review")
+    agent = ensure_agent(state, "developer-1", "developer")
+    set_agent_active(agent, state["tasks"][0])
+
+    assert release_agent_targets(state, "developer-1", reason="terminal closed", actor="developer-1") == []
+    assert state["tasks"][0]["ownerAgentId"] == "developer-1"
+    assert state["tasks"][0]["status"] == "review"
+    assert state["agents"]["developer-1"]["status"] == "idle"
 
 
 def test_release_agent_targets_preserves_needs_input_ownership() -> None:
@@ -220,10 +244,15 @@ def test_allocator_counts_legacy_bare_id() -> None:
     ) == "developer-3"
 
 
-def _disable_gates_and_seed(fixture, agents: dict) -> None:
+def _seed_roster(fixture, agents: dict) -> None:
+    """Configure the roster and pin `defaultPhases: []` so publish lands on done.
+
+    These tests are about roster capacity, not the phase walk, so the runs opt out
+    of review the same way a cheap-and-fast run does.
+    """
     state = read_state(fixture.state_path)
-    state["sprintengine"]["qualityPolicy"] = {"enabled": False}
     state["sprintengine"]["rosterConfigured"] = True
+    state["defaultPhases"] = []
     state["agents"] = agents
     from fixtures import write_state
 
@@ -245,7 +274,7 @@ def test_assignment_op_mints_fresh_id_per_serial_task_no_recycling(tmp_path) -> 
             task("T3", "Third", "developer", depends_on=["T2"]),
         ],
     )
-    _disable_gates_and_seed(
+    _seed_roster(
         fixture,
         {"developer-1": {"role": "developer", "status": "left", "currentTaskId": None, "lastOwnedTaskId": "T0", "ownedTaskIds": ["T0"]}},
     )
@@ -259,7 +288,8 @@ def test_assignment_op_mints_fresh_id_per_serial_task_no_recycling(tmp_path) -> 
         claimed = fixture.cli.run("task", "next", "--role", "developer", "--id", agent_id)
         assert claimed["claimed"] is True
         assert claimed["task"]["id"] == task_id
-        fixture.cli.run("task", "status", "--task-id", task_id, "--status", "done", "--id", agent_id)
+        published = fixture.cli.run("task", "publish", "--task-id", task_id, "--id", agent_id, "--summary", "Shipped.")
+        assert published["nextStatus"] == "done"
 
     assert len(set(minted)) == 3
     state = read_state(fixture.state_path)
@@ -277,7 +307,7 @@ def test_assignment_op_returns_one_assignment_per_parallel_task_bounded_by_budge
         "assignment-parallel",
         [task("P1", "One", "developer"), task("P2", "Two", "developer")],
     )
-    _disable_gates_and_seed(fixture, {})
+    _seed_roster(fixture, {})
 
     # Zero budget mints nothing.
     zero = fixture.cli.run("roster", "replenish", "--actor", "runner", "--queue-depth", "--max-new", "0")
@@ -290,32 +320,32 @@ def test_assignment_op_returns_one_assignment_per_parallel_task_bounded_by_budge
     assert len({a["agentId"] for a in both["assignments"]}) == 2
 
 
-def test_assignment_op_ignores_gate_reviewers_and_never_caps_gate_claims(tmp_path) -> None:
-    # gate.next is untouched: a reviewer id owns no task, so the per_task cap
-    # never applies to gate claims, and the assignment op mints only for ready
-    # role TASKS — never for reviewer/gate work.
-    review_task = task("T1", "In review", "developer", "review")
-    review_task["qualityGates"] = [
-        {"id": "code-review", "phase": "review", "role": "code_reviewer", "status": "pending", "required": True, "allowSelfReview": False, "focus": "Review.", "attempts": []},
-    ]
+def test_assignment_op_mints_only_for_ready_tasks_not_for_in_flight_review(tmp_path) -> None:
+    # A task in `review` is owned and mid-walk: it is neither ready work nor spare
+    # capacity, so it mints nothing. Its owner is spent and cannot absorb the ready
+    # task either — only a fresh id can. An idle id of another role is not developer
+    # capacity.
     fixture = create_team(
         tmp_path,
-        "assignment-reviewers",
-        [review_task, task("T2", "Ready dev work", "developer")],
+        "assignment-review-in-flight",
+        [
+            task("T1", "In review", "developer", "review", owner="developer-1"),
+            task("T2", "Ready dev work", "developer"),
+        ],
     )
-    _disable_gates_and_seed(
+    _seed_roster(
         fixture,
-        {"code_reviewer-1": {"role": "code_reviewer", "status": "idle", "currentTaskId": None}},
+        {
+            "developer-1": {"role": "developer", "status": "running", "currentTaskId": "T1", "lastOwnedTaskId": "T1", "ownedTaskIds": ["T1"]},
+            "tester-1": {"role": "tester", "status": "idle", "currentTaskId": None},
+        },
     )
 
     replenished = fixture.cli.run("roster", "replenish", "--actor", "runner", "--queue-depth", "--max-new", "5")
-    # Only the ready developer task mints; the in-review/gate work does not, and
-    # code_reviewer-1 is not developer capacity.
+
     assert [a["taskId"] for a in replenished["assignments"]] == ["T2"]
     assert all(a["role"] == "developer" for a in replenished["assignments"])
-
-    claimed = fixture.cli.run("task", "gate", "next", "--role", "code_reviewer", "--id", "code_reviewer-1")
-    assert claimed["claimed"] is True
     state = read_state(fixture.state_path)
-    # Holding a gate never marks the reviewer as owning a task.
-    assert task_claim_exceeds_worker_capacity(state, state["agents"]["code_reviewer-1"], "T1") is False
+    # The review owner is spent: it may re-enter T1 but never claim T2.
+    assert task_claim_exceeds_worker_capacity(state, state["agents"]["developer-1"], "T1") is False
+    assert task_claim_exceeds_worker_capacity(state, state["agents"]["developer-1"], "T2") is True

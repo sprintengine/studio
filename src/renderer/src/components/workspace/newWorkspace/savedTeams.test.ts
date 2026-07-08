@@ -160,11 +160,11 @@ assert.equal(sprintEngineTeamNameTaken(teams, '   '), false, 'a blank name is ne
 
 // --- resolveInitialSprintEngineRoster ------------------------------------
 // The wizard's default-selection contract: open pre-selected on a runnable team.
-const DEFAULT_COUNTS: SprintEngineRoleCounts = { architect: 1, developer: 1, code_reviewer: 1 }
+const DEFAULT_COUNTS: SprintEngineRoleCounts = { architect: 1, developer: 1, security: 1 }
 const DEFAULT_CLIS = {
   architect: 'claude-code',
   developer: 'claude-code',
-  code_reviewer: 'claude-code',
+  security: 'claude-code',
 } as Required<SprintEngineRoleCliDefaults>
 
 // Fresh install (no saved teams, no saved roster) → built-in default, Custom.
@@ -184,7 +184,7 @@ const DEFAULT_CLIS = {
 
 // lastSelectedTeamId resolves to that team, which becomes the selection.
 {
-  const picked = team({ id: 'b', name: 'Reviewers', roleCounts: { architect: 1, developer: 2, code_reviewer: 1 }, roleCliDefaults: { developer: 'codex' } })
+  const picked = team({ id: 'b', name: 'Reviewers', roleCounts: { architect: 1, developer: 2, security: 1 }, roleCliDefaults: { developer: 'codex' } })
   const resolved = resolveInitialSprintEngineRoster({
     savedTeams: [team({ id: 'a' }), picked],
     lastSelectedTeamId: 'b',
@@ -193,11 +193,11 @@ const DEFAULT_CLIS = {
     defaultRoleCliDefaults: DEFAULT_CLIS,
   })
   assert.equal(resolved.selectedTeamId, 'b', 'lastSelectedTeamId selects the matching saved team')
-  assert.deepEqual(resolved.roleCounts, { architect: 1, developer: 2, code_reviewer: 1 }, 'counts come from the selected team')
+  assert.deepEqual(resolved.roleCounts, { architect: 1, developer: 2, security: 1 }, 'counts come from the selected team')
   // CLI defaults layer the team subset over the full default map.
   assert.deepEqual(
     resolved.roleCliDefaults,
-    { architect: 'claude-code', developer: 'codex', code_reviewer: 'claude-code' },
+    { architect: 'claude-code', developer: 'codex', security: 'claude-code' },
     'team CLI subset layers over the default map',
   )
 }
@@ -246,7 +246,7 @@ const DEFAULT_CLIS = {
   assert.deepEqual(resolved.roleCounts, { architect: 1, developer: 1 }, 'falls back to the legacy saved roster counts')
   assert.deepEqual(
     resolved.roleCliDefaults,
-    { architect: 'codex', developer: 'claude-code', code_reviewer: 'claude-code' },
+    { architect: 'codex', developer: 'claude-code', security: 'claude-code' },
     'legacy roster CLI subset layers over the default map',
   )
 }

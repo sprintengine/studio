@@ -321,14 +321,6 @@ export const COMMAND_REGISTRY = [
     handlerPath: { kind: 'workspace-manager', handler: "addNewSpecialist('frontend-design-review')" },
   }),
   command({
-    id: 'specialist.spawn.nuclear-review',
-    title: 'Spawn Nuclear Reviewer Specialist',
-    category: 'specialist',
-    scopes: ['workspace'],
-    availability: ['activeWorkspace'],
-    handlerPath: { kind: 'workspace-manager', handler: "addNewSpecialist('nuclear-review')" },
-  }),
-  command({
     id: 'sprintengine.verify.progress',
     title: 'Sprint: Verify Progress',
     category: 'sprintengine',

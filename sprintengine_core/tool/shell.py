@@ -352,6 +352,42 @@ def task_scoped_orphaned_dirty_paths(
     ]
 
 
+def task_scoped_dirty_paths(state: Dict[str, Any], state_path: Path, task: Dict[str, Any]) -> List[str]:
+    """Uncommitted paths inside this task's owned + declared scope, non-worktree mode.
+
+    The non-worktree half of publish-time change detection (MC-1542 decision 7). No
+    per-task commits exist here, so "did this task produce a diff?" is answered from
+    the working tree, scoped exactly the way a task commit would be scoped:
+    ``ownedPaths`` plus everything the task declared (logged touched files, publish
+    ``--path``). Untracked files count — a task whose only output is a new file has
+    very much produced a diff.
+
+    Returns ``[]`` when the workspace is not a git repository at all; the caller
+    treats that as "cannot tell" and routes to review rather than skipping it.
+    """
+    from sprintengine_core.tool.tasks import task_diff_declared_paths
+
+    workspace = workspace_root_for_state_path(state_path)
+    declared = task_diff_declared_paths(task)
+    owned = [str(path) for path in task.get("ownedPaths", []) or []]
+    pathspec = _normalize_commit_pathspec(workspace, [*declared, *owned])
+    if not pathspec:
+        return []
+    status = run_git_checked(
+        workspace, ["status", "--porcelain", "-z", "--untracked-files=all"], allow_failure=True
+    )
+    if status.returncode != 0:
+        return []
+    dirty = _parse_porcelain_z(status.stdout)
+    return sorted({record["path"] for record in dirty if _path_in_scope(record["path"], pathspec)})
+
+
+def workspace_is_git_repository(state_path: Path) -> bool:
+    workspace = workspace_root_for_state_path(state_path)
+    result = run_git_checked(workspace, ["rev-parse", "--git-dir"], allow_failure=True)
+    return result.returncode == 0
+
+
 def build_run_pull_request_body(state: Dict[str, Any], branch: str) -> str:
     """Default PR description: the run goal plus the tasks it delivered.
 

@@ -389,8 +389,8 @@ const guidedBriefState: GuidedBriefRuntimeState = {
   wantsArchitectureDiscussion: true,
   wantsFrontendDiscussion: true,
   guidedRoleCliDefaults: { product: 'codex', architect: 'codex', frontend: 'claude-code' },
-  buildRoleCounts: { architect: 1, product: 1, frontend: 1, developer: 1, code_reviewer: 0, spec_reviewer: 0, performance: 0, cross_platform: 0, tester: 1, security: 0 },
-  buildRoleCliDefaults: { architect: 'codex', product: 'codex', frontend: 'claude-code', developer: 'codex', code_reviewer: 'codex', spec_reviewer: 'codex', performance: 'codex', cross_platform: 'codex', tester: 'codex', security: 'codex' },
+  buildRoleCounts: { architect: 1, product: 1, frontend: 1, developer: 1, performance: 0, cross_platform: 0, tester: 1, security: 0 },
+  buildRoleCliDefaults: { architect: 'codex', product: 'codex', frontend: 'claude-code', developer: 'codex', performance: 'codex', cross_platform: 'codex', tester: 'codex', security: 'codex' },
   buildCliPermissionPreset: 'default',
   buildStartRunner: false,
   buildAutoApproveArtifacts: false,
@@ -824,14 +824,14 @@ assert.equal(firstTab({ layoutModel: seedSource } as never)?.component, 'agent')
 // must NOT throw in addWorkspace. addWorkspace runs AFTER
 // initializeSprintEngineState has already written run.yaml and (in worktree
 // mode) created the git worktree+branch, so a throw orphaned a real on-disk run
-// with no workspace — observed with plans whose roster included nuclear_reviewer
-// (which was absent from the defaults map). nuclear_reviewer now resolves from
-// the completed map; an open-ended/custom role (SprintEngineRoleId is `string`)
-// falls back to the team's architect CLI instead of aborting creation.
+// with no workspace — observed with plans whose roster included a custom role
+// (which was absent from the defaults map). An open-ended/custom role
+// (SprintEngineRoleId is `string`) falls back to the team's architect CLI
+// instead of aborting creation.
 const openRoleState = createInitialSprintEngineState({
   name: 'Open Role Team',
   goal: 'Roster includes roles outside the CLI-defaults map.',
-  roleCounts: { architect: 1, nuclear_reviewer: 1, qa_lead: 1 },
+  roleCounts: { architect: 1, growth_engineer: 1, qa_lead: 1 },
 })
 let openRoleId: string | undefined
 assert.doesNotThrow(() => {
@@ -839,8 +839,8 @@ assert.doesNotThrow(() => {
     name: 'Open Role Team',
     folderPath: '/Users/example/open-role',
     sprintEngineState: openRoleState,
-    // Deliberately supply only the architect default; nuclear_reviewer and the
-    // custom qa_lead role are left to the completed map / fallback respectively.
+    // Deliberately supply only the architect default; the custom growth_engineer
+    // and qa_lead roles are left to the fallback respectively.
     sprintEngineRoleCliDefaults: { architect: 'codex' },
   })
 }, 'a roster role missing from the CLI-defaults map never throws in addWorkspace')

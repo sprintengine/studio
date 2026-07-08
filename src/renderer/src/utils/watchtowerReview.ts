@@ -58,9 +58,6 @@ export const WATCHTOWER_REVIEW_SPECIALIST_FOCUS: Record<SpecialistActionId, Watc
   'frontend-design-review': ['frontend_design', 'accessibility', 'brand_alignment', 'cross_platform'],
   'ui-ux-review': ['frontend_design', 'brand_alignment', 'accessibility', 'cross_platform'],
   'blog-writer': ['documentation', 'brand_alignment'],
-  'code-review': ['code_review', 'ai_slop', 'architecture_quality', 'documentation'],
-  'nuclear-review': ['code_review', 'architecture_quality', 'ai_slop'],
-  'spec-review': ['spec_review', 'qa_testing', 'documentation'],
 }
 
 export const WATCHTOWER_REVIEW_PRESETS: WatchtowerReviewPreset[] = [
@@ -69,8 +66,6 @@ export const WATCHTOWER_REVIEW_PRESETS: WatchtowerReviewPreset[] = [
     label: 'Lean Code Review',
     description: 'Fast quality pass for code, tests, and performance risk.',
     agents: {
-      'spec-review': ['spec_review'],
-      'code-review': ['ai_slop'],
       'qa-test': ['qa_testing'],
       performance: ['performance'],
       'production-readiness-review': ['production_readiness'],
@@ -83,7 +78,6 @@ export const WATCHTOWER_REVIEW_PRESETS: WatchtowerReviewPreset[] = [
     agents: {
       'ui-ux-review': ['frontend_design', 'brand_alignment', 'accessibility', 'cross_platform'],
       'product-strategist': ['brand_alignment', 'product_strategy'],
-      'code-review': ['ai_slop'],
     },
   },
   {
@@ -93,8 +87,6 @@ export const WATCHTOWER_REVIEW_PRESETS: WatchtowerReviewPreset[] = [
     agents: {
       performance: ['performance', 'cross_platform'],
       'devops-infra': ['infrastructure', 'performance', 'cross_platform'],
-      'spec-review': ['spec_review'],
-      'code-review': ['code_review', 'architecture_quality'],
       'qa-test': ['qa_testing'],
     },
   },
@@ -104,8 +96,6 @@ export const WATCHTOWER_REVIEW_PRESETS: WatchtowerReviewPreset[] = [
     description: 'Security-led review with quality and test coverage support.',
     agents: {
       'security-review': ['security'],
-      'spec-review': ['spec_review'],
-      'code-review': ['ai_slop'],
       'qa-test': ['qa_testing'],
     },
   },
@@ -120,8 +110,6 @@ export const WATCHTOWER_REVIEW_PRESETS: WatchtowerReviewPreset[] = [
       'security-review': ['security'],
       performance: ['performance'],
       'production-readiness-review': ['production_readiness', 'infrastructure', 'security', 'performance'],
-      'spec-review': ['spec_review'],
-      'code-review': ['code_review', 'ai_slop', 'architecture_quality'],
       'devops-infra': ['infrastructure'],
     },
   },
@@ -175,12 +163,6 @@ export function defaultSectorsForSpecialist(specialistId: SpecialistActionId): W
       return ['frontend_design', 'brand_alignment', 'accessibility']
     case 'blog-writer':
       return ['documentation', 'brand_alignment']
-    case 'code-review':
-      return ['code_review', 'ai_slop']
-    case 'nuclear-review':
-      return ['code_review', 'architecture_quality', 'ai_slop']
-    case 'spec-review':
-      return ['spec_review']
     default:
       // Registry-discovered specialists have no curated default sector set.
       return []

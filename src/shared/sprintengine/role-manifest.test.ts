@@ -11,17 +11,17 @@ import {
 
 function testValidMinimal(): void {
   const result = validateRoleManifest({
-    id: 'code_reviewer',
-    label: 'Code reviewer',
-    directives: { implement: [{ skill: 'code_reviewer' }, { skill: 'project_relative_paths' }] },
+    id: 'security',
+    label: 'Security',
+    directives: { implement: [{ skill: 'security' }, { skill: 'project_relative_paths' }] },
   })
   assert.equal(result.ok, true)
   if (result.ok) {
-    assert.equal(result.manifest.id, 'code_reviewer')
+    assert.equal(result.manifest.id, 'security')
     assert.equal(result.manifest.summary, undefined)
     assert.equal(result.manifest.sweep, undefined)
     assert.deepEqual(result.manifest.directives, {
-      implement: [{ skill: 'code_reviewer' }, { skill: 'project_relative_paths' }],
+      implement: [{ skill: 'security' }, { skill: 'project_relative_paths' }],
     })
   }
 }

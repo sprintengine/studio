@@ -2,9 +2,15 @@
 
 from __future__ import annotations
 
-VALID_TASK_STATUSES = {"todo", "in_progress", "review", "testing", "product", "changes_requested", "needs_input", "done", "canceled"}
-ACTIVE_TASK_STATUSES = {"in_progress", "needs_input"}
-RUN_EXECUTING_TASK_STATUSES = ACTIVE_TASK_STATUSES | {"review", "testing", "product", "changes_requested"}
+# Single-owner lifecycle (MC-1542). `review` means "the owner is reviewing the work
+# it just made, in the same session". `changes_requested`, `testing`, and `product`
+# were deleted outright — there is no read-side tolerance for them (decision 8).
+VALID_TASK_STATUSES = {"todo", "in_progress", "review", "needs_input", "done", "canceled"}
+# Statuses in which a task is OWNED by a live agent. `review` belongs here: the
+# owner stays bound to its task from claim through `done`, so a task in review is
+# not free for another agent to claim, and its owner's session is not spare capacity.
+ACTIVE_TASK_STATUSES = {"in_progress", "review", "needs_input"}
+RUN_EXECUTING_TASK_STATUSES = set(ACTIVE_TASK_STATUSES)
 # Post-implementation phase vocabulary (MC-1542). MIRRORS
 # sprintengine_core.store.VALID_TASK_PHASES / DEFAULT_RUN_PHASES; the two cannot be
 # a single import (store <-> tool import cycle), so

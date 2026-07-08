@@ -7,7 +7,6 @@ from typing import Any, Dict, List, Optional
 
 from sprintengine_core import store as folder_store
 from sprintengine_core.tool.constants import ACTIVE_TASK_STATUSES
-from sprintengine_core.tool.gates import find_active_gate_claim
 from sprintengine_core.tool.paths import now_iso
 from sprintengine_core.tool.plans import find_architect_plan_gate, resolve_planning_role
 from sprintengine_core.tool.roles import configured_role_ids, require_configured_role
@@ -249,17 +248,9 @@ def cmd_roster_retire(args: argparse.Namespace) -> Dict[str, Any]:
                 "finish it, route it to needs_input, or have the architect release it before retiring."
             )
 
-        active_gate = find_active_gate_claim(state, clean_id, role)
-        if active_gate:
-            raise SystemExit(
-                f"Agent {clean_id!r} still owns active gate {active_gate['gate'].get('id')!r} "
-                f"on task {active_gate['task'].get('id')!r}; submit a verdict before retiring."
-            )
-
         already_retired = agent_is_retired(agent)
         agent["status"] = "retired"
         agent["currentTaskId"] = None
-        agent.pop("currentGateId", None)
         agent.setdefault("retiredAt", now_iso())
         agent["retiredReason"] = reason
         actor = (args.actor or clean_id).strip() or clean_id
@@ -353,29 +344,17 @@ def cmd_roster_replenish(args: argparse.Namespace) -> Dict[str, Any]:
                 for agent_id in (getattr(args, "busy_agents", None) or [])
                 if str(agent_id).strip()
             }
+            # Only `todo` tasks are ready (MC-1542), and a reopened task is re-bound
+            # to its previous owner rather than returned to the queue, so no ready
+            # task can already be covered by a live agent. The old
+            # `changes_requested`-covered exclusion is therefore gone.
             tasks = [task for task in state.get("tasks", []) or [] if isinstance(task, dict)]
-            # A changes_requested task whose bound previous owner still exists
-            # is already covered by that agent (live wake or owner-affinity
-            # respawn) — it must not add queue depth, or every rework round
-            # would mint a surplus id.
-            covered_task_ids = {
-                str(agent.get("lastOwnedTaskId"))
-                for agent in state.get("agents", {}).values()
-                if isinstance(agent, dict)
-                and not agent_is_retired(agent)
-                and agent.get("lastOwnedTaskId")
-            }
             for role in roles:
                 if remaining <= 0:
                     break
                 if role in PLANNING_ROLE_IDS:
                     continue
-                ready_tasks = [
-                    task for task in tasks
-                    if task.get("role") == role
-                    and task_is_ready(state, task)
-                    and not (task.get("status") == "changes_requested" and str(task.get("id")) in covered_task_ids)
-                ]
+                ready_tasks = [task for task in tasks if task.get("role") == role and task_is_ready(state, task)]
                 if not ready_tasks:
                     continue
                 # Never-owned spawnable ids already absorb the head of the ready

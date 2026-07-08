@@ -11,7 +11,6 @@ const SPECIALIST_COMMAND_BY_ID: Readonly<Record<string, CommandId>> = {
   architect: 'specialist.spawn.architect',
   performance: 'specialist.spawn.performance',
   'frontend-design-review': 'specialist.spawn.frontend-design-review',
-  'nuclear-review': 'specialist.spawn.nuclear-review',
 }
 
 export function platformKeybindingsFromApiPlatform(platform: string): KeybindingPlatform {

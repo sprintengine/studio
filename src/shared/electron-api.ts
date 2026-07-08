@@ -1123,9 +1123,6 @@ export type SpecialistActionId =
   | 'security-review'
   | 'frontend-design-review'
   | 'ui-ux-review'
-  | 'code-review'
-  | 'nuclear-review'
-  | 'spec-review'
   | (string & {})
 
 export type SoulPromptResult =
@@ -1140,7 +1137,6 @@ export type MultiloopRole =
   | 'frontend'
   | 'tester'
   | 'security'
-  | 'code_reviewer'
   | 'performance'
   | 'cross_platform'
 
@@ -1524,8 +1520,6 @@ export type SprintEngineTaskMutationRole =
   | 'frontend'
   | 'tester'
   | 'security'
-  | 'code_reviewer'
-  | 'spec_reviewer'
   | 'performance'
   | 'production_readiness_reviewer'
   | 'cross_platform'
@@ -1568,10 +1562,9 @@ export type SprintEngineTaskStatusSetInput = {
   statePath: string
   taskId: string
   // A value from the engine's task-status vocabulary (todo, in_progress,
-  // changes_requested, review, testing, product, needs_input, done, canceled).
-  // The backend rejects illegal transitions (e.g. done with open gates), so the
-  // renderer only sends gate-legal targets — today `changes_requested`, which
-  // sends a task back for rework and lands it in a claimable column for re-pickup.
+  // review, needs_input, done, canceled). The backend rejects illegal
+  // transitions, so the renderer only sends legal targets — today `in_progress`,
+  // which reopens a reviewed/done task for rework under its original owner.
   status: string
 }
 
@@ -1617,9 +1610,8 @@ export type SprintEngineStateInitializeInput = {
   // with no explicit model (CLI default) is omitted / left null.
   roleRuntimes?: Record<string, { model?: string | null; cli?: string | null }>
   // The enabled role ids (architect always included) the user turned on for
-  // this run. Written to run.yaml `configuredRoles` at init so Python derives
-  // quality gates for configured-but-not-yet-seated roles under the lazy
-  // (architect-only) roster. Empty => no derived gates.
+  // this run. Written to run.yaml `configuredRoles` at init so Python knows
+  // which roles the architect may seat under the lazy (architect-only) roster.
   enabledRoles?: string[]
   // How the roster is composed: 'architect' ("Architect picks the team") seats
   // only the architect and lets it choose the team via roster.configure; 'user'
@@ -1640,6 +1632,17 @@ export type SprintEngineStateInitializeInput = {
   // guarantee. `undefined` leaves the key absent and the engine default
   // (`['review']`) applies; `[]` is a meaningful, recorded value.
   defaultPhases?: string[]
+  // Sweep role ids the operator mandates for this run (the wizard's "Final
+  // sweeps" panel). Written to run.yaml `requiredSweeps` via
+  // `--required-sweeps-json`. The architect must plan one task per required role,
+  // and the run cannot complete until it has. Omitted when none are mandated.
+  requiredSweeps?: string[]
+  // MC-1543 premium mode: per-phase runtime bindings, e.g.
+  // `{ review: { cli: 'claude-code', model: 'fable' } }` — a stronger model reviews
+  // each task's diff as a fresh, diff-seeded session while cheap models build.
+  // Written to run.yaml `phaseRuntimes` via `--phase-runtimes-json` and validated
+  // against `allowedRuntimes`. ABSENT means zero extra sessions are created.
+  phaseRuntimes?: Record<string, { cli: string; model: string | null }>
 }
 
 export type SprintEngineCliWatchPolling = 'enabled' | 'disabled'

@@ -47,7 +47,6 @@ import {
   getAutoApprovalIntentArtifacts,
   getSprintEngineAutoRunOccupiedAgentIds,
   isSprintEngineRunBlockedOnExternalInput,
-  isSprintEngineAutoPendingSpawnStillRelevant,
   pickNextAutoRuns,
   pickSprintEngineBootstrapCandidate,
   type AutoRunCandidate,
@@ -705,7 +704,7 @@ async function getRunningContinuationCapacityByRole(
     // Task-scoped workers (MC-1444) only ever wake for their own task, so a
     // used live terminal is NOT generic role capacity: counting it made the
     // continuation-grace reservation hold back ready tasks it can never take,
-    // and left its own rework unreserved (review finding). It still joins
+    // and left its own task unreserved (review finding). It still joins
     // countedAgentIds — that set is the planner's idle-agent universe, which
     // must keep seeing used agents for own-task wake and retirement.
     if (runtimeAgent.lastOwnedTaskId && !isSprintEnginePlanningRole(runtimeAgent.role)) continue
@@ -979,7 +978,6 @@ export async function executeSprintEngineDispatchPlan(
         label: respawn.label,
         role: respawn.role,
         taskId: respawn.taskId,
-        ...(respawn.gateId ? { gateId: respawn.gateId } : {}),
       },
       spawnContext.cliRuntimes,
       spawnContext.mcpSettings,
@@ -1079,9 +1077,10 @@ export async function executeSprintEngineDispatchPlan(
     // is retired again every tick (an idle-retirement storm).
     //
     // Window disposal (MC-1444 Phase 2): when the planner marked the
-    // retirement retainResumeState (the agent's own task is still in its
-    // publish→verdict window), keep a resume token in cliSessionId so a late
-    // changes_requested respawn resumes the original conversation. The token
+    // retirement retainResumeState (the agent still holds its own task, which
+    // under single-owner tasks spans review, needs_input, and a re-opened
+    // in_progress), keep a resume token in cliSessionId so a later respawn
+    // resumes the original conversation. The token
     // is the harness id the session captured, falling back to the terminal
     // key only for CLIs whose resume id IS our minted key (claude-code). No
     // token → fall through to the full clear (fresh-brief respawn).
@@ -1238,23 +1237,6 @@ export async function escalateStalledLiveIdleAgents(
   return result.restarted ? 'restarted' : 'none'
 }
 
-export async function sendGateContinuationPromptsToAgents(
-  workspace: Workspace,
-  sprintEngineState: SprintEngineState,
-  runningAgentIds: Set<string>,
-  continuationCapacity: RunningContinuationCapacity,
-  sentContinuationMessages: MutableRefObject<Map<string, RoleContinuationMessage>>
-): Promise<void> {
-  await runSprintEngineDispatchPaths({
-    workspace,
-    sprintEngineState,
-    paths: ['gate'],
-    runningAgentIds,
-    idleAgentIds: continuationCapacity.agentIds,
-    ledgers: { continuation: sentContinuationMessages, dispatch: null },
-  })
-}
-
 export async function sendDispatchPromptsToRunningAgents(
   workspace: Workspace,
   sprintEngineState: SprintEngineState,
@@ -1347,9 +1329,7 @@ async function reconcileAutoRunPendingSpawns(
   for (const pending of pendingSpawns) {
     const pendingTask = sprintEngineState.tasks.find((task) => task.id === pending.taskId)
     const pendingTaskStillReady = pendingTask
-      ? pending.gateId
-        ? isSprintEngineAutoPendingSpawnStillRelevant(pending, pendingTask, sprintEngineState.tasks)
-        : isSprintEngineTaskLaunchable(pendingTask, sprintEngineState)
+      ? isSprintEngineTaskLaunchable(pendingTask, sprintEngineState)
       : false
     const pendingAgent = workspace.agents[pending.agentId]
     const pendingAgentHasProcess = await agentHasRunningProcess(workspace, pending.agentId)
@@ -1405,8 +1385,12 @@ export async function spawnAutoRunCandidate(
     nextRun.role,
     currentAgent,
   )
-  const selectedCli = resolvedRuntime.cli
-  const selectedCliModel = resolvedRuntime.cliModel
+  // MC-1543: a phase-session Birth forces the spawn onto the phase's bound
+  // runtime (the operator's stronger review model), overriding the role default.
+  // Only ever set for an `awaitingPhaseSession` task, so the ordinary spawn path
+  // is unchanged and no run without `phaseRuntimes` ever takes this branch.
+  const selectedCli = nextRun.runtimeOverride?.cli ?? resolvedRuntime.cli
+  const selectedCliModel = nextRun.runtimeOverride ? nextRun.runtimeOverride.model : resolvedRuntime.cliModel
   const sessionId = crypto.randomUUID()
   const spawnKey = `${workspace.id}:${nextRun.agentId}`
   if (inFlightSpawns.current.has(spawnKey)) return 'skipped'
@@ -1430,18 +1414,17 @@ export async function spawnAutoRunCandidate(
     })
     return 'failed'
   }
-  // Resume-aware rework respawn (MC-1444 Phase 2): spawning the previous
+  // Resume-aware owner respawn (MC-1444 Phase 2): spawning the previous
   // owner back onto its OWN task after a window disposal relaunches the
-  // original conversation (`--resume <token>`) instead of a fresh brief, so a
-  // late changes_requested verdict gets back the diff context it references.
+  // original conversation (`--resume <token>`) instead of a fresh brief, so the
+  // resumed session gets back the diff context its task feedback references.
   // Deliberately narrow: the retained-resume state is only ever shaped by the
   // window-disposal retirement (cliResumeAvailable + cliSessionId with
   // cliHasLaunched/cliStartRequested cleared); every other spawn — new task,
-  // gate, crashed live session — stays a fresh conversation. Resume failure
+  // crashed live session — stays a fresh conversation. Resume failure
   // in the CLI degrades to a new session on the same startup text — a fresh brief.
   const resumeToken =
-    !nextRun.gateId
-    && sprintEngineState.sprintEngineAgents[nextRun.agentId]?.lastOwnedTaskId === nextRun.taskId
+    sprintEngineState.sprintEngineAgents[nextRun.agentId]?.lastOwnedTaskId === nextRun.taskId
     && currentAgent?.cliResumeAvailable
     && currentAgent.cliSessionId
     && !currentAgent.cliHasLaunched
@@ -1452,7 +1435,6 @@ export async function spawnAutoRunCandidate(
   const sprintEngineStatePath = workspace.sprintEngineContext.statePath
   const pendingSpawn = {
     taskId: nextRun.taskId,
-    ...(nextRun.gateId ? { gateId: nextRun.gateId } : {}),
     agentId: nextRun.agentId,
     startedAt: Date.now(),
   }
@@ -1586,7 +1568,6 @@ export async function spawnAutoRunCandidate(
         commandMode: getSprintEngineStartupCommandMode(nextRun.role, nextRun.agentId, sprintEngineState),
         autonomousPlanningOverride: nextRun.role === 'architect' && sprintEngineArtifactApprovalDesired(autoState),
         useWorktrees: sprintEngineState.useWorktrees === true,
-        claimTool: nextRun.gateId ? 'sprintengine.gate.next' : 'sprintengine.task.next',
       }),
       nextRun.label,
       getSprintEngineRoleLabel(nextRun.role)
@@ -1725,7 +1706,7 @@ const bootstrapStallNoticeKeys = new Set<string>()
  * spawn is pure planner logic in `pickSprintEngineBootstrapCandidate`; this
  * wrapper owns the IPC side effects (terminal liveness check, diagnostics,
  * the actual spawn). All other spawning is work-driven and capped: ready
- * tasks, rework, and quality gates through `pickNextAutoRuns`, notification
+ * tasks through `pickNextAutoRuns`, notification
  * targets through `deliverAgentNotificationEvents`, and needs-input triage
  * through `signalArchitectForNeedsInputTriage`.
  */
@@ -1899,8 +1880,8 @@ async function replenishRetiredRosterCapacity(
 
 /**
  * Clear stale retained-resume state (MC-1444 review finding): a window
- * disposal keeps a resume token on the agent record for late rework, but when
- * the verdict lands as APPROVAL after disposal the agent is never respawned —
+ * disposal keeps a resume token on the agent record while the owner still holds
+ * its task, but once that task reaches `done` the agent is never respawned —
  * the stale token would leak into unrelated consumers of cliSessionId
  * (completed-run teardown records it as a resumable roster session, so a
  * board reopen would resume the finished task's conversation). Once the
@@ -2271,7 +2252,7 @@ export async function superviseRunnerActiveCycle(input: RunnerActiveCycleInput):
 
   // One reconcile pass for every re-engagement decision and recovery action:
   // notification deliveries (paste or spawn), durable-dispatch prompts,
-  // ready-task wakes, gate continuations, active-assignment rescues, stalled
+  // ready-task wakes, active-assignment rescues, stalled
   // restarts, and dead-claimant respawns come from a single plan with
   // per-agent dedup (a terminal never gets two instructions — or a paste and
   // a kill — in one pass). It runs
@@ -2281,7 +2262,7 @@ export async function superviseRunnerActiveCycle(input: RunnerActiveCycleInput):
   const dispatchResult = await runSprintEngineDispatchPaths({
     workspace,
     sprintEngineState,
-    paths: ['notification', 'dispatch', 'task_wake', 'gate', 'active_assignment', 'restart', 'respawn', 'idle_retire'],
+    paths: ['notification', 'dispatch', 'task_wake', 'active_assignment', 'restart', 'respawn', 'idle_retire'],
     runningAgentIds,
     idleAgentIds: continuationCapacity.agentIds,
     ledgers: { continuation: sentContinuationMessages, dispatch: sentDispatchMessages },

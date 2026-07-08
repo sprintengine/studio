@@ -17,11 +17,13 @@ because roles are plugin-extensible:
   and tests a sprint by itself: the planning surface minus the roster-growth
   tools (``roster.add`` / ``roster.configure`` / ``roster.replenish``), so a
   General can never expand the team. No registry manifest required.
-- ``reviewer`` — any role whose manifest declares a ``sweep`` block: agent-common
-  plus the gate/review tools. Retired with the gate machine in MC-1542 Stage 4,
-  when a sweep role becomes an ordinary owner.
-- ``worker`` — every other resolvable role, and the conservative fallback for
+- ``owner`` — every other resolvable role, and the conservative fallback for
   roles the registry cannot resolve (such a role cannot join anyway).
+
+MC-1542 collapsed the old ``reviewer`` classification into ``owner``. A sweep role
+is a full implementer with the same tool surface as any worker: it claims its own
+task, fixes what it finds, and closes its phases with ``task.advance``. There is
+no longer any tool a reviewer needs and a worker must not have.
 """
 
 from __future__ import annotations
@@ -33,7 +35,7 @@ from typing import Any, Iterable
 
 from sprintengine_core.role_registry import discover_role_registry, normalize_role_id
 
-RoleClassification = str  # "operator" | "architect" | "general" | "reviewer" | "worker"
+RoleClassification = str  # "operator" | "architect" | "general" | "owner"
 
 # Roster-growth tools withheld from a General so it can never expand the team —
 # the structural fix for the soulless-General sprint (a General keeps
@@ -47,17 +49,11 @@ ROSTER_GROWTH_TOOLS: frozenset[str] = frozenset({
 })
 
 # Tools every joined agent needs to receive, work, evidence, and finish a task
-# or stop safely (including self-retirement near context capacity). Gate tools
-# are common, not reviewer-only: quality gates carry their own role (a
-# `frontend_review` gate is claimed by the frontend worker), and
-# `gate_is_claimable_for_role` already enforces that a caller only claims
-# gates assigned to its role.
+# or stop safely (including self-retirement near context capacity). One agent owns
+# a task from claim through `done` (MC-1542), so `task.publish` and `task.advance`
+# are the whole lifecycle surface — there is no separate reviewer tool set.
 AGENT_COMMON_TOOLS: frozenset[str] = frozenset({
     "sprintengine.help",
-    "sprintengine.gate.list",
-    "sprintengine.gate.next",
-    "sprintengine.gate.claim",
-    "sprintengine.gate.verdict",
     "sprintengine.agent.join",
     "sprintengine.agent.next_directive",
     "sprintengine.agent.heartbeat",
@@ -73,6 +69,7 @@ AGENT_COMMON_TOOLS: frozenset[str] = frozenset({
     "sprintengine.task.status",
     "sprintengine.task.log",
     "sprintengine.task.publish",
+    "sprintengine.task.advance",
     "sprintengine.task.note",
     "sprintengine.task.comment",
     "sprintengine.task.comment.list",
@@ -91,13 +88,6 @@ AGENT_COMMON_TOOLS: frozenset[str] = frozenset({
     "sprintengine.skills.list",
     "sprintengine.roles.get",
     "sprintengine.health",
-})
-
-# Reviewer privileges beyond the common surface: requesting rework outside an
-# active gate. Granted to roles whose manifest declares a `review` capability.
-REVIEW_TOOLS: frozenset[str] = frozenset({
-    "sprintengine.task.request_changes",
-    "sprintengine.artifact.request_changes",
 })
 
 # Planning/run-administration surface: the architect (and the operator).
@@ -125,14 +115,16 @@ PLANNING_TOOLS: frozenset[str] = frozenset({
     "sprintengine.feedback.recommend_actions",
     "sprintengine.roles.list",
     "sprintengine.artifact.approve",
+    # Artifact review stays a planner/operator action: the human Inbox loop and the
+    # architect adjudicate artifacts. It is not a rework channel back onto a task.
+    "sprintengine.artifact.request_changes",
     "sprintengine.vcs.pr",
 })
 
 # Operator-only compatibility surface. `sprintengine.join` backs the human
 # `sprintengine --backend mcp-local join --watch` CLI flow and must keep its
-# response shape; managed autonomous agents use `agent.join` followed by the
-# claim tool their prompt names (`task.next`/`gate.next`), while headless CLI
-# agents route through `agent.next_directive`.
+# response shape; managed autonomous agents use `agent.join` followed by
+# `task.next`, while headless CLI agents route through `agent.next_directive`.
 OPERATOR_ONLY_TOOLS: frozenset[str] = frozenset({
     "sprintengine.join",
 })
@@ -144,9 +136,6 @@ CALLER_ROLE_PAYLOAD_TOOLS: frozenset[str] = frozenset({
     "sprintengine.agent.join",
     "sprintengine.agent.next_directive",
     "sprintengine.task.next",
-    "sprintengine.gate.next",
-    "sprintengine.gate.claim",
-    "sprintengine.gate.verdict",
 })
 
 # Suggested alternatives surfaced in tool_not_permitted_for_role errors for
@@ -155,7 +144,6 @@ PERMITTED_ALTERNATIVES: dict[str, str] = {
     "sprintengine.join": "sprintengine.agent.join",
     "sprintengine.plan.add_task": "sprintengine.task.comment (suggest the task to the architect)",
     "sprintengine.plan.update_task": "sprintengine.task.comment (suggest the change to the architect)",
-    "sprintengine.task.request_changes": "sprintengine.task.comment",
     "sprintengine.summary": "sprintengine.task.get",
     "sprintengine.triage.needs_input": "sprintengine.task.status with status=needs_input",
 }
@@ -165,11 +153,9 @@ def allowed_tools_for_classification(classification: RoleClassification, all_too
     if classification == "operator":
         return frozenset(all_tools)
     if classification == "architect":
-        return AGENT_COMMON_TOOLS | REVIEW_TOOLS | PLANNING_TOOLS
+        return AGENT_COMMON_TOOLS | PLANNING_TOOLS
     if classification == "general":
-        return AGENT_COMMON_TOOLS | REVIEW_TOOLS | (PLANNING_TOOLS - ROSTER_GROWTH_TOOLS)
-    if classification == "reviewer":
-        return AGENT_COMMON_TOOLS | REVIEW_TOOLS
+        return AGENT_COMMON_TOOLS | (PLANNING_TOOLS - ROSTER_GROWTH_TOOLS)
     return AGENT_COMMON_TOOLS
 
 
@@ -222,14 +208,13 @@ def _classify_registry_role(
         )
         manifest = registry.role_entry(normalized_role).value
     except Exception:
-        # Unresolvable roles cannot join a run; give them the conservative
-        # worker surface instead of failing every call with a registry error.
-        return "worker"
+        # Unresolvable roles cannot join a run; give them the conservative owner
+        # surface instead of failing every call with a registry error.
+        return "owner"
     if manifest.normalized_id == "architect":
         return "architect"
-    if manifest.is_sweep:
-        return "reviewer"
-    return "worker"
+    # A sweep role is an owner like any other: same tools, same lifecycle.
+    return "owner"
 
 
 def permitted_alternative(tool_name: str) -> str | None:

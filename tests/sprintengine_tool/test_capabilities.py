@@ -4,6 +4,14 @@ Visibility and authorization share one capability table
 (`sprintengine_mcp/capabilities.py`): a tool hidden from a role's
 `tools/list` must also fail when called by name, and the listed surface must
 match the table exactly so the two can never drift apart.
+
+MC-1542 collapsed the `reviewer` classification into `owner`. The classifications
+are now `operator | architect | general | owner`, and there is no tool a reviewer
+needs that an owner must not have: one agent owns a task from claim to `done`,
+closing its own phases with `sprintengine.task.advance`. These tests pin that the
+owner surface is exactly `AGENT_COMMON_TOOLS`, that a sweep role gets the same
+surface as any other worker, and that the retired gate / `task.request_changes`
+tool names are unknown rather than merely hidden.
 """
 
 from __future__ import annotations
@@ -20,7 +28,6 @@ from sprintengine_mcp.auth import ActorContext
 from sprintengine_mcp.capabilities import (
     AGENT_COMMON_TOOLS,
     PLANNING_TOOLS,
-    REVIEW_TOOLS,
     ROSTER_GROWTH_TOOLS,
     allowed_tools_for_classification,
     classify_role,
@@ -29,6 +36,19 @@ from sprintengine_mcp.capabilities import (
 from sprintengine_mcp.http_server import SESSION_HEADER, SprintEngineHttpMcpServer
 from sprintengine_mcp.schemas import TOOL_SCHEMAS
 from sprintengine_mcp.tool_contracts import MCP_TOOL_CONTRACTS
+
+# Every tool name MC-1542 deleted. They must be gone from the contracts, the
+# schemas, and every classification's surface — hiding them is not enough,
+# because a hidden-but-live tool is a live tool for an operator session.
+RETIRED_TOOL_NAMES = (
+    "sprintengine.gate.list",
+    "sprintengine.gate.next",
+    "sprintengine.gate.claim",
+    "sprintengine.gate.verdict",
+    "sprintengine.gate.publish",
+    "sprintengine.gate.skip",
+    "sprintengine.task.request_changes",
+)
 
 
 def actor(agent_id: str, role: str) -> dict[str, object]:
@@ -50,14 +70,37 @@ def listed_names(server: SprintEngineMcpServer, context: McpRequestContext | Non
     return {schema["name"] for schema in server.list_tools(context)}
 
 
+def owned_review_task(task_id: str, role: str, owner: str) -> dict:
+    record = task(task_id, "Reviewable change", role, "review", owner=owner)
+    record["startedAt"] = "2026-07-08T00:00:00Z"
+    return record
+
+
 def test_capability_table_stays_within_active_contracts() -> None:
     all_tools = set(MCP_TOOL_CONTRACTS)
     assert AGENT_COMMON_TOOLS <= all_tools
-    assert REVIEW_TOOLS <= all_tools
     assert PLANNING_TOOLS <= all_tools
     assert ROSTER_GROWTH_TOOLS <= PLANNING_TOOLS
     # Every active tool is reachable by some classification (operator gets all).
     assert allowed_tools_for_classification("operator", all_tools) == all_tools
+
+
+def test_retired_tool_names_are_unknown_not_merely_hidden(tmp_path) -> None:
+    fixture = create_team(tmp_path, "cap-retired", [owned_review_task("T1", "developer", "developer-a")])
+    server = SprintEngineMcpServer(allowed_roots=[tmp_path])
+
+    for name in RETIRED_TOOL_NAMES:
+        assert name not in MCP_TOOL_CONTRACTS, name
+        assert name not in TOOL_SCHEMAS, name
+        assert name not in AGENT_COMMON_TOOLS, name
+        assert name not in PLANNING_TOOLS, name
+        removed = server.call_tool(
+            name,
+            {"statePath": str(fixture.state_path), "taskId": "T1", "id": "developer-a"},
+            actor("developer-a", "developer"),
+        )
+        assert removed["ok"] is False, name
+        assert removed["error"]["code"] == "unknown_tool", name
 
 
 def test_listing_matches_capability_table_per_role(tmp_path) -> None:
@@ -65,10 +108,12 @@ def test_listing_matches_capability_table_per_role(tmp_path) -> None:
     fixture = create_team(tmp_path, "cap-listing", [task("T1", "Work", "developer")])
     server = SprintEngineMcpServer(allowed_roots=[tmp_path])
 
+    # The old `reviewer` classification is gone: a security and a product
+    # role are owners with exactly the worker surface.
     expectations = {
-        "developer": "worker",
-        "code_reviewer": "reviewer",
-        "product": "reviewer",
+        "developer": "owner",
+        "security": "owner",
+        "product": "owner",
         "architect": "architect",
     }
     for role, classification in expectations.items():
@@ -76,27 +121,31 @@ def test_listing_matches_capability_table_per_role(tmp_path) -> None:
         listed = listed_names(server, make_context(fixture, tmp_path, role=role))
         assert listed == allowed_tools_for_classification(classification, TOOL_SCHEMAS), role
 
-    # Worker surface: no plan/run-admin/rework-request tools, no CLI
-    # compatibility join. Gate tools stay common because quality gates carry
-    # their own role (a frontend_review gate is claimed by the frontend
-    # worker) and gate claimability already enforces the role match.
-    worker = listed_names(server, make_context(fixture, tmp_path, role="developer"))
-    for hidden in ("sprintengine.plan.add_task", "sprintengine.task.request_changes", "sprintengine.summary", "sprintengine.join", "sprintengine.artifact.approve"):
-        assert hidden not in worker
-    assert "sprintengine.task.next" in worker
-    assert "sprintengine.gate.verdict" in worker
-    assert "sprintengine.roster.retire" in worker
+    # Owner surface: the whole lifecycle (claim -> publish -> advance -> done)
+    # and nothing else. No planning, no run admin, no artifact adjudication,
+    # no CLI-compatibility join.
+    owner = listed_names(server, make_context(fixture, tmp_path, role="developer"))
+    assert owner == AGENT_COMMON_TOOLS & set(TOOL_SCHEMAS)
+    for hidden in (
+        "sprintengine.plan.add_task",
+        "sprintengine.summary",
+        "sprintengine.join",
+        "sprintengine.artifact.approve",
+        "sprintengine.artifact.request_changes",
+    ):
+        assert hidden not in owner
+    for granted in ("sprintengine.task.next", "sprintengine.task.publish", "sprintengine.task.advance", "sprintengine.roster.retire"):
+        assert granted in owner
 
-    # Reviewer surface adds the rework-request privileges, still no plan tools.
-    reviewer = listed_names(server, make_context(fixture, tmp_path, role="code_reviewer"))
-    assert "sprintengine.task.request_changes" in reviewer
-    assert "sprintengine.artifact.request_changes" in reviewer
-    assert "sprintengine.plan.add_task" not in reviewer
+    # A reviewer role gets no extra privilege over any other owner.
+    assert listed_names(server, make_context(fixture, tmp_path, role="security")) == owner
 
-    # Architect gets planning and review, but not the operator-only CLI join.
+    # Architect gets planning (including artifact adjudication), but not the
+    # operator-only CLI join.
     architect = listed_names(server, make_context(fixture, tmp_path, role="architect"))
     assert "sprintengine.plan.add_task" in architect
     assert "sprintengine.summary" in architect
+    assert "sprintengine.artifact.request_changes" in architect
     assert "sprintengine.join" not in architect
 
     # Run-scoped sessions (no bound role) and stdio keep the full surface.
@@ -105,10 +154,10 @@ def test_listing_matches_capability_table_per_role(tmp_path) -> None:
 
 
 def test_general_gets_planning_surface_without_roster_growth(tmp_path) -> None:
-    """A soulless General plans, builds, reviews, and tests a run by itself, so
-    it gets the planning + review surface — but never `roster.add` /
-    `roster.replenish`, the structural fence that stops it growing the team. It
-    needs no registry manifest, and architect classification is unchanged."""
+    """A soulless General plans, builds, and reviews a run by itself, so it gets
+    the planning surface — but never `roster.add` / `roster.replenish`, the
+    structural fence that stops it growing the team. It needs no registry
+    manifest, and architect classification is unchanged."""
     clear_role_classification_cache()
     fixture = create_team(tmp_path, "cap-general", [task("T1", "Work", "developer")])
     server = SprintEngineMcpServer(allowed_roots=[tmp_path])
@@ -117,13 +166,18 @@ def test_general_gets_planning_surface_without_roster_growth(tmp_path) -> None:
     # No manifest exists for `general`; recognition is by id alone.
     assert classify_role("architect", workspace_root=tmp_path) == "architect"
 
-    expected = AGENT_COMMON_TOOLS | REVIEW_TOOLS | (PLANNING_TOOLS - ROSTER_GROWTH_TOOLS)
+    expected = AGENT_COMMON_TOOLS | (PLANNING_TOOLS - ROSTER_GROWTH_TOOLS)
     listed = listed_names(server, make_context(fixture, tmp_path, role="general"))
     assert listed == allowed_tools_for_classification("general", TOOL_SCHEMAS)
     assert listed == expected
 
-    # Planning + gate + review surface is present.
-    for granted in ("sprintengine.plan.add_task", "sprintengine.gate.verdict", "sprintengine.task.request_changes", "sprintengine.roster.list"):
+    # Planning + lifecycle + artifact adjudication surface is present.
+    for granted in (
+        "sprintengine.plan.add_task",
+        "sprintengine.task.advance",
+        "sprintengine.artifact.request_changes",
+        "sprintengine.roster.list",
+    ):
         assert granted in listed, granted
     # The team-growth fence: withheld for a General, kept for the architect.
     for withheld in ROSTER_GROWTH_TOOLS:
@@ -171,7 +225,7 @@ def test_hidden_tools_fail_when_called_by_name(tmp_path) -> None:
     state["agents"] = {
         "architect": {"role": "architect", "status": "idle", "currentTaskId": None},
         "developer-a": {"role": "developer", "status": "idle", "currentTaskId": None},
-        "reviewer-a": {"role": "code_reviewer", "status": "idle", "currentTaskId": None},
+        "reviewer-a": {"role": "security", "status": "idle", "currentTaskId": None},
     }
     write_state(fixture.state_path, state)
     server = SprintEngineMcpServer(allowed_roots=[tmp_path])
@@ -190,18 +244,20 @@ def test_hidden_tools_fail_when_called_by_name(tmp_path) -> None:
     reviewer_denied = server.call_tool(
         "sprintengine.summary",
         {"statePath": str(fixture.state_path)},
-        actor("reviewer-a", "code_reviewer"),
+        actor("reviewer-a", "security"),
     )
     assert reviewer_denied["ok"] is False
     assert reviewer_denied["error"]["code"] == "tool_not_permitted_for_role"
 
-    worker_rework_denied = server.call_tool(
-        "sprintengine.task.request_changes",
-        {"statePath": str(fixture.state_path), "taskId": "T1", "id": "developer-a", "reason": "Not my call."},
+    # Artifact adjudication is a planner/operator action, not a rework channel a
+    # worker can pull on its own task.
+    worker_artifact_denied = server.call_tool(
+        "sprintengine.artifact.request_changes",
+        {"statePath": str(fixture.state_path), "artifactId": "A1", "id": "developer-a", "feedback": "Not my call."},
         actor("developer-a", "developer"),
     )
-    assert worker_rework_denied["ok"] is False
-    assert worker_rework_denied["error"]["code"] == "tool_not_permitted_for_role"
+    assert worker_artifact_denied["ok"] is False
+    assert worker_artifact_denied["error"]["code"] == "tool_not_permitted_for_role"
 
     # The permitted side of the same roles keeps working.
     claimed = server.call_tool(
@@ -220,7 +276,10 @@ def test_hidden_tools_fail_when_called_by_name(tmp_path) -> None:
     assert architect_plan["ok"] is True
 
 
-def test_plugin_sweep_role_gets_reviewer_surface(tmp_path) -> None:
+def test_plugin_sweep_role_gets_the_plain_owner_surface(tmp_path) -> None:
+    """A sweep role is a full implementer: it claims its own task, fixes what it
+    finds, and closes its phases with `task.advance`. Its manifest `sweep` block
+    schedules it; it grants no tool a plain worker lacks."""
     clear_role_classification_cache()
     workspace = tmp_path / "plugin-ws"
     write_workspace_role(
@@ -232,20 +291,26 @@ def test_plugin_sweep_role_gets_reviewer_surface(tmp_path) -> None:
     fixture = create_workspace_team(tmp_path, "plugin-ws", "cap-plugin", [task("T1", "Work", "developer")])
     server = SprintEngineMcpServer(allowed_roots=[tmp_path])
 
-    assert classify_role("compliance_reviewer", workspace_root=workspace) == "reviewer"
-    assert classify_role("data_engineer", workspace_root=workspace) == "worker"
-    assert classify_role("never_registered_role", workspace_root=workspace) == "worker"
+    assert classify_role("compliance_reviewer", workspace_root=workspace) == "owner"
+    assert classify_role("data_engineer", workspace_root=workspace) == "owner"
+    assert classify_role("never_registered_role", workspace_root=workspace) == "owner"
 
-    context = McpRequestContext(
-        actor=ActorContext(id="multicode-app", role="user"),
-        state_path=fixture.state_path,
-        workspace_root=workspace,
-        allowed_roots=(tmp_path,),
-        role="compliance_reviewer",
-    )
-    listed = listed_names(server, context)
-    assert "sprintengine.gate.verdict" in listed
-    assert "sprintengine.plan.add_task" not in listed
+    def surface(role: str) -> set[str]:
+        return listed_names(
+            server,
+            McpRequestContext(
+                actor=ActorContext(id="multicode-app", role="user"),
+                state_path=fixture.state_path,
+                workspace_root=workspace,
+                allowed_roots=(tmp_path,),
+                role=role,
+            ),
+        )
+
+    sweep_surface = surface("compliance_reviewer")
+    assert sweep_surface == surface("data_engineer")
+    assert "sprintengine.task.advance" in sweep_surface
+    assert "sprintengine.plan.add_task" not in sweep_surface
 
 
 def test_role_bound_session_cannot_impersonate_another_role(tmp_path) -> None:
@@ -271,106 +336,58 @@ def test_role_bound_session_cannot_impersonate_another_role(tmp_path) -> None:
     assert matched["ok"] is True
 
 
-def test_gate_aliases_are_gone_and_verdict_skipped_replaces_skip(tmp_path) -> None:
-    assert "sprintengine.gate.publish" not in MCP_TOOL_CONTRACTS
-    assert "sprintengine.gate.skip" not in MCP_TOOL_CONTRACTS
-    assert "sprintengine.gate.publish" not in TOOL_SCHEMAS
-    assert "sprintengine.gate.skip" not in TOOL_SCHEMAS
-
-    record = task("T1", "Reviewable", "developer", "review")
-    record["qualityGates"] = [
-        {
-            "id": "code-review",
-            "phase": "review",
-            "role": "code_reviewer",
-            "status": "pending",
-            "required": True,
-            "allowSelfReview": True,
-            "focus": "Review.",
-            "attempts": [],
-        }
-    ]
-    fixture = create_team(tmp_path, "cap-gate-skip", [record])
-    server = SprintEngineMcpServer(allowed_roots=[tmp_path])
-
-    removed = server.call_tool(
-        "sprintengine.gate.publish",
-        {"statePath": str(fixture.state_path), "taskId": "T1", "gateId": "code-review", "role": "code_reviewer", "id": "reviewer-a", "verdict": "approved", "summary": "ok"},
-        actor("reviewer-a", "code_reviewer"),
-    )
-    assert removed["ok"] is False
-    assert removed["error"]["code"] == "unknown_tool"
-
-    claimed = server.call_tool(
-        "sprintengine.gate.next",
-        {"statePath": str(fixture.state_path), "role": "code_reviewer", "id": "reviewer-a"},
-        actor("reviewer-a", "code_reviewer"),
-    )
-    assert claimed["ok"] is True
-    skipped = server.call_tool(
-        "sprintengine.gate.verdict",
-        {
-            "statePath": str(fixture.state_path),
-            "taskId": "T1",
-            "gateId": "code-review",
-            "role": "code_reviewer",
-            "id": "reviewer-a",
-            "verdict": "skipped",
-            "summary": "Redundant for this documented follow-up.",
-        },
-        actor("reviewer-a", "code_reviewer"),
-    )
-    assert skipped["ok"] is True
-    persisted_gate = read_state(fixture.state_path)["tasks"][0]["qualityGates"][0]
-    assert persisted_gate["status"] == "skipped"
-    assert persisted_gate["skipRationale"] == "Redundant for this documented follow-up."
-
-
-def test_worker_role_can_claim_and_verdict_its_own_gate(tmp_path) -> None:
-    """Regression: quality gates carry their own role — a frontend_review
-    gate is claimed and verdicted by the frontend worker (observed in real
-    runs). The capability table must not fence gate tools behind manifest
-    sweep metadata."""
+def test_a_worker_closes_its_own_review_phase(tmp_path) -> None:
+    """Regression, restated for MC-1542: the frontend worker used to claim and
+    verdict its own `frontend_review` gate. Now it simply advances out of its own
+    `review` phase. `task.advance` must therefore live in the common surface with
+    no reviewer classification behind it, and owner-only enforcement (not role
+    matching) is what protects the transition."""
     clear_role_classification_cache()
-    record = task("T1", "Frontend change", "frontend", "review")
-    record["qualityGates"] = [
-        {
-            "id": "frontend_review",
-            "phase": "review",
-            "role": "frontend",
-            "status": "pending",
-            "required": True,
-            "allowSelfReview": True,
-            "focus": "Frontend review.",
-            "attempts": [],
-        }
-    ]
-    fixture = create_team(tmp_path, "cap-worker-gate", [record])
+    fixture = create_team(tmp_path, "cap-worker-review", [owned_review_task("T1", "frontend", "frontend")])
     server = SprintEngineMcpServer(allowed_roots=[tmp_path])
 
-    assert classify_role("frontend", workspace_root=tmp_path) == "worker"
-    claimed = server.call_tool(
-        "sprintengine.gate.next",
-        {"statePath": str(fixture.state_path), "role": "frontend", "id": "frontend"},
-        actor("frontend", "frontend"),
-    )
-    assert claimed["ok"] is True
-    assert claimed["result"]["claimed"] is True
-    verdict = server.call_tool(
-        "sprintengine.gate.verdict",
+    assert classify_role("frontend", workspace_root=tmp_path) == "owner"
+    assert "sprintengine.task.advance" in listed_names(server, make_context(fixture, tmp_path, role="frontend"))
+
+    advanced = server.call_tool(
+        "sprintengine.task.advance",
         {
             "statePath": str(fixture.state_path),
             "taskId": "T1",
-            "gateId": "frontend_review",
-            "role": "frontend",
             "id": "frontend",
-            "verdict": "approved",
-            "summary": "Looks right.",
+            "phase": "review",
+            "outcome": "pass",
+            "summary": "Reviewed my own change; looks right.",
         },
         actor("frontend", "frontend"),
     )
-    assert verdict["ok"] is True
-    assert read_state(fixture.state_path)["tasks"][0]["qualityGates"][0]["status"] == "approved"
+    assert advanced["ok"] is True, advanced.get("error")
+    assert advanced["result"]["nextStatus"] == "done"
+    assert read_state(fixture.state_path)["tasks"][0]["status"] == "done"
+
+
+def test_a_non_owner_cannot_advance_someone_elses_review(tmp_path) -> None:
+    """The capability table lets every owner call `task.advance`; owner-binding is
+    what stops a stranger closing a phase on a task it does not hold."""
+    clear_role_classification_cache()
+    fixture = create_team(tmp_path, "cap-advance-owner", [owned_review_task("T1", "frontend", "frontend-1")])
+    server = SprintEngineMcpServer(allowed_roots=[tmp_path])
+
+    denied = server.call_tool(
+        "sprintengine.task.advance",
+        {
+            "statePath": str(fixture.state_path),
+            "taskId": "T1",
+            "id": "frontend-2",
+            "phase": "review",
+            "outcome": "pass",
+            "summary": "Not mine to close.",
+        },
+        actor("frontend-2", "frontend"),
+    )
+    assert denied["ok"] is False
+    assert "not_task_owner" in json.dumps(denied["error"])
+    assert read_state(fixture.state_path)["tasks"][0]["status"] == "review"
 
 
 def test_operator_keeps_cli_compatibility_join(tmp_path) -> None:
@@ -401,11 +418,11 @@ def test_worker_tool_listing_stays_under_byte_budget(tmp_path) -> None:
 
     worker_listing = server.list_tools(make_context(fixture, tmp_path, role="developer"))
     serialized = len(json.dumps(worker_listing))
-    # The token-efficiency plan targeted ~6k tokens (~24k chars) for workers;
-    # gate tools stayed in the common surface for correctness (worker-role
-    # gates like frontend_review are real), which costs ~4.5k chars more.
-    # Budget guards against regression toward the old ~62k-char full listing.
-    assert serialized < 30_000, f"worker tools/list serialized to {serialized} chars"
+    # The token-efficiency plan targeted ~6k tokens (~24k chars) for workers.
+    # Replacing the four gate tools with the single `task.advance` bought some of
+    # that back (measured ~27.7k), so the ceiling ratchets from 30k to 28k. It
+    # guards against regression toward the old ~62k-char full listing.
+    assert serialized < 28_000, f"worker tools/list serialized to {serialized} chars"
     full_listing = len(json.dumps(server.list_tools(None)))
     assert serialized < full_listing
 
@@ -462,9 +479,9 @@ def test_http_agent_scoped_registration_filters_listing_and_enforces_calls(tmp_p
         _, listing = post(base_url, run["runToken"], {"jsonrpc": "2.0", "id": 2, "method": "tools/list"}, session_id)
         names = {tool["name"] for tool in listing["result"]["tools"]}
         assert "sprintengine.task.next" in names
-        assert "sprintengine.gate.verdict" in names
+        assert "sprintengine.task.advance" in names
         assert "sprintengine.plan.add_task" not in names
-        assert "sprintengine.task.request_changes" not in names
+        assert "sprintengine.artifact.request_changes" not in names
 
         _, denied = post(base_url, run["runToken"], {
             "jsonrpc": "2.0",

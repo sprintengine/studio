@@ -87,6 +87,19 @@ def command_payload_to_namespace(
             summary_data_json=json.dumps(payload.get("data")) if isinstance(payload.get("data"), dict) else payload.get("summaryDataJson"),
         )
         add_implementer_difficulty_defaults(base, payload)
+    elif tool_name == "sprintengine.task.advance":
+        base.update(
+            task_id=payload["taskId"],
+            id=payload["id"],
+            phase=payload["phase"],
+            outcome=payload["outcome"],
+            summary=payload["summary"],
+            needs_input_kind=payload.get("needsInputKind"),
+            needs_input_reason=payload.get("needsInputReason"),
+            needs_input_question=payload.get("needsInputQuestion"),
+            needs_input_suggested_resolution=payload.get("needsInputSuggestedResolution"),
+        )
+        add_feedback_defaults(base, payload)
     elif tool_name == "sprintengine.task.note":
         base.update(task_id=payload["taskId"], id=payload["id"], note=payload["note"])
     elif tool_name == "sprintengine.task.comment":
@@ -103,31 +116,6 @@ def command_payload_to_namespace(
         base.update(task_id=payload["taskId"])
     elif tool_name == "sprintengine.task.list":
         base["role"] = payload.get("role")
-    elif tool_name == "sprintengine.gate.list":
-        base.update(task_id=payload.get("taskId"), role=payload.get("role"))
-    elif tool_name == "sprintengine.gate.next":
-        base.update(role=payload["role"], id=payload["id"])
-    elif tool_name == "sprintengine.gate.claim":
-        base.update(task_id=payload["taskId"], gate_id=payload["gateId"], role=payload["role"], id=payload["id"])
-    elif tool_name == "sprintengine.gate.verdict":
-        base.update(
-            task_id=payload["taskId"],
-            gate_id=payload["gateId"],
-            role=payload["role"],
-            id=payload["id"],
-            verdict=payload["verdict"],
-            summary=payload["summary"],
-            required_action=list(payload.get("requiredAction") or []),
-            artifact_path=payload.get("artifactPath"),
-            artifact_title=payload.get("artifactTitle"),
-            artifact_kind=payload.get("artifactKind"),
-            needs_input_kind=payload.get("needsInputKind"),
-            needs_input_reason=payload.get("needsInputReason"),
-            needs_input_question=payload.get("needsInputQuestion"),
-            needs_input_suggested_resolution=payload.get("needsInputSuggestedResolution"),
-        )
-        add_reviewer_difficulty_defaults(base, payload)
-        add_feedback_defaults(base, payload)
     elif tool_name == "sprintengine.plan.add_task":
         base.update(
             actor=payload.get("actor") or _actor_id(actor, "architect"),
@@ -142,14 +130,11 @@ def command_payload_to_namespace(
             task_note=list(payload.get("taskNote") or []),
             produces_implementation=bool(payload.get("producesImplementation", False)),
             needs_triage=bool(payload.get("needsTriage", False)),
-            no_quality_gates=bool(payload.get("noQualityGates", False)),
-            no_review=bool(payload.get("noReview", False)),
-            no_testing=bool(payload.get("noTesting", False)),
+            # `[]` is an explicit "no phases", so presence — not truthiness — decides
+            # whether the task overrides the run default.
+            phases=payload["phases"] if "phases" in payload else None,
             product_facing=bool(payload.get("productFacing", False)),
             not_product_facing=bool(payload.get("notProductFacing", False)),
-            no_product_acceptance=bool(payload.get("noProductAcceptance", False)),
-            require_gate=list(payload.get("requireGate") or []),
-            skip_gate=list(payload.get("skipGate") or []),
         )
         add_architect_difficulty_defaults(base, payload)
     elif tool_name == "sprintengine.plan.update_task":
@@ -170,15 +155,10 @@ def command_payload_to_namespace(
             clear_task_notes=bool(payload.get("clearTaskNotes", False)),
             produces_implementation=bool(payload.get("producesImplementation", False)),
             needs_triage=payload.get("needsTriage") if "needsTriage" in payload else None,
+            phases=payload["phases"] if "phases" in payload else None,
             clear_needs_triage=bool(payload.get("clearNeedsTriage", False)),
-            no_quality_gates=bool(payload.get("noQualityGates", False)),
-            no_review=bool(payload.get("noReview", False)),
-            no_testing=bool(payload.get("noTesting", False)),
             product_facing=bool(payload.get("productFacing", False)),
             not_product_facing=bool(payload.get("notProductFacing", False)),
-            no_product_acceptance=bool(payload.get("noProductAcceptance", False)),
-            require_gate=list(payload.get("requireGate") or []),
-            skip_gate=list(payload.get("skipGate") or []),
             force=bool(payload.get("force", False)),
         )
         add_architect_difficulty_defaults(base, payload)

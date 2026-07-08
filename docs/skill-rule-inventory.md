@@ -48,6 +48,21 @@ Not part of any role's soul: the engine resolves a phase's base pack by id
 | `escalation-default` | `sprintengine_phase_review` | "Never escalate to have your work confirmed" |
 | `forward-only-walk` | `sprintengine_phase_review` | "A phase is visited at most once" |
 
+## Sweep layer (MC-1542)
+
+`sprintengine_sweep_workflow` is a HOST layer, not a manifest reference: it is
+composed onto any role whose manifest declares a `sweep` block (bundled or
+custom), by `skill_layers.sprintengine_extra_skills_for_role`. That is what lets a
+third-party sweep pack declare `sweep: {focus, when}` and inherit the mandate for
+free, without coupling its manifest to Sprint Engine. Pinned by
+`tests/sprintengine_tool/test_sweeps.py`.
+
+| Rule ID | Canonical home | Anchor phrase(s) |
+|---|---|---|
+| `sweep-fix-forward` | `sprintengine_sweep_workflow` | "Patch what you find, directly." |
+| `sweep-no-hostage` | `sprintengine_sweep_workflow` | "Never take the whole sprint hostage over one finding." |
+| `sweep-chained` | `sprintengine_sweep_workflow` | "never hosts two sweeps editing at once" |
+
 Relocation ledger — the retired reviewer souls (`code_reviewer`, `spec_reviewer`,
 `nuclear_reviewer`) are deleted in MC-1542 Stage 4. Their rules move as follows:
 

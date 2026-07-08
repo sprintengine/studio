@@ -4,7 +4,6 @@ import {
   pickSprintEngineBootstrapCandidate,
 } from './sprintengineAutoRun'
 import type {
-  SprintEngineQualityGate,
   SprintEngineRuntimeAgent,
   SprintEngineState,
   SprintEngineTask,
@@ -12,20 +11,6 @@ import type {
 } from '../types/workspace'
 
 // Minimal fixtures (the sprintengineAutoRun.test.ts equivalents are file-local).
-function gate(overrides: Partial<SprintEngineQualityGate> = {}): SprintEngineQualityGate {
-  return {
-    id: 'general_review',
-    phase: 'review',
-    role: 'general',
-    status: 'pending',
-    required: true,
-    allowSelfReview: true,
-    focus: '',
-    attempts: [],
-    ...overrides,
-  }
-}
-
 function task(overrides: Partial<SprintEngineTask> = {}): SprintEngineTask {
   return {
     id: 'T1',
@@ -44,7 +29,6 @@ function task(overrides: Partial<SprintEngineTask> = {}): SprintEngineTask {
     startedAt: null,
     completedAt: null,
     boardColumn: 'review',
-    qualityGates: [],
     ...overrides,
   } as SprintEngineTask
 }
@@ -56,7 +40,6 @@ function readyTask(overrides: Partial<SprintEngineTask> = {}): SprintEngineTask 
     boardColumn: 'ready',
     ownerAgentId: null,
     dependsOn: [],
-    qualityGates: [],
     ...overrides,
   })
 }
@@ -108,70 +91,45 @@ function bootstrapOptions(): Parameters<typeof pickSprintEngineBootstrapCandidat
   return { runningAgentIds: new Set<string>(), inFlightSpawnKeys: new Set<string>() }
 }
 
-// (1) One General: a pending self-review gate on its own task is ordered AHEAD
-// of a fresh ready task, so the planner wakes it for the GATE, not the task.
-function testIdleGeneralIsRoutedToItsGateBeforeAReadyTask(): void {
-  const reviewTask = task({ id: 'T-review', status: 'review', boardColumn: 'review', qualityGates: [gate()] })
+// (1) Single-owner tasks (MC-1542): a task in `review` still belongs to the agent
+// that published it — the picker never re-dispatches it (its owner finishes it
+// through the dispatch/respawn paths). The idle General takes the ready task.
+function testOwnedReviewTaskIsNotRedispatchedAndReadyTaskIsTaken(): void {
+  const reviewTask = task({ id: 'T-review', status: 'review', boardColumn: 'review', ownerAgentId: 'general-1' })
   const candidates = pickNextAutoRuns(
     workspace(),
     state({ tasks: [readyTask(), reviewTask], sprintEngineAgents: { 'general-1': agent('general') } }),
     pickInput()
   )
   assert.equal(candidates.length, 1, 'the single General is routed to exactly one piece of work')
-  assert.equal(candidates[0].taskId, 'T-review', 'it is routed to the review task, not the ready task')
-  assert.equal(candidates[0].gateId, 'general_review', 'specifically to the pending self-review gate')
+  assert.equal(candidates[0].taskId, 'T-ready', 'the owner-held review task is not re-dispatched')
   assert.equal(candidates[0].role, 'general')
   assert.equal(candidates[0].agentId, 'general-1')
 }
 
-// (2) Two Generals: one is routed to the gate and the other to the ready task —
-// gates are claimed one-per-agent, so the work load-balances with no coordinator.
-function testTwoGeneralsSplitGateAndReadyTask(): void {
-  const reviewTask = task({ id: 'T-review', status: 'review', boardColumn: 'review', qualityGates: [gate()] })
+// (2) Specialist runs: each role's ready task goes to its own idle agent, one
+// task per agent per pass.
+function testSpecialistReadyTasksSplitAcrossRoles(): void {
   const candidates = pickNextAutoRuns(
     workspace(),
     state({
-      tasks: [readyTask(), reviewTask],
-      sprintEngineAgents: { 'general-1': agent('general'), 'general-2': agent('general') },
-    }),
-    pickInput()
-  )
-  assert.equal(candidates.length, 2, 'both Generals get work')
-  const gateCandidate = candidates.find((candidate) => candidate.gateId === 'general_review')
-  const readyCandidate = candidates.find((candidate) => candidate.taskId === 'T-ready')
-  assert.ok(gateCandidate, 'one General is routed to the gate')
-  assert.ok(readyCandidate, 'the other General is routed to the ready task')
-  assert.notEqual(gateCandidate!.agentId, readyCandidate!.agentId, 'the two Generals take different work')
-}
-
-// (4) Specialist runs have no General, so the pre-pass is a no-op: the developer
-// still takes the ready task and the reviewer takes the gate (today's order).
-function testSpecialistDispatchOrderIsUnchanged(): void {
-  const reviewTask = task({
-    id: 'T-review',
-    role: 'developer',
-    status: 'review',
-    boardColumn: 'review',
-    ownerAgentId: 'developer-1',
-    qualityGates: [gate({ id: 'code_reviewer', role: 'code_reviewer' })],
-  })
-  const candidates = pickNextAutoRuns(
-    workspace(),
-    state({
-      tasks: [readyTask({ role: 'developer' }), reviewTask],
+      tasks: [
+        readyTask({ id: 'T-dev', role: 'developer' }),
+        readyTask({ id: 'T-test', role: 'tester' }),
+      ],
       sprintEngineAgents: {
         'developer-1': agent('developer'),
-        'code_reviewer-1': agent('code_reviewer'),
+        'tester-1': agent('tester'),
       },
     }),
     pickInput()
   )
-  const readyCandidate = candidates.find((candidate) => candidate.taskId === 'T-ready')
-  const gateCandidate = candidates.find((candidate) => candidate.gateId === 'code_reviewer')
-  assert.ok(readyCandidate, 'developer still takes the ready task')
-  assert.equal(readyCandidate!.agentId, 'developer-1')
-  assert.ok(gateCandidate, 'code reviewer still takes its gate')
-  assert.equal(gateCandidate!.agentId, 'code_reviewer-1')
+  const devCandidate = candidates.find((candidate) => candidate.taskId === 'T-dev')
+  const testerCandidate = candidates.find((candidate) => candidate.taskId === 'T-test')
+  assert.ok(devCandidate, 'developer takes its ready task')
+  assert.equal(devCandidate!.agentId, 'developer-1')
+  assert.ok(testerCandidate, 'tester takes its ready task')
+  assert.equal(testerCandidate!.agentId, 'tester-1')
 }
 
 // (Bootstrap) A fresh one-General run plans itself: the General bootstraps
@@ -196,9 +154,8 @@ function testOneGeneralRunBootstrapsTheGeneral(): void {
   assert.deepEqual(stall, { kind: 'stall', reason: 'no_planner' }, 'no architect and no General stalls as no_planner')
 }
 
-testIdleGeneralIsRoutedToItsGateBeforeAReadyTask()
-testTwoGeneralsSplitGateAndReadyTask()
-testSpecialistDispatchOrderIsUnchanged()
+testOwnedReviewTaskIsNotRedispatchedAndReadyTaskIsTaken()
+testSpecialistReadyTasksSplitAcrossRoles()
 testOneGeneralRunBootstrapsTheGeneral()
 
 console.log('sprintengineAutoRunGeneralOrdering.test.ts: ok')

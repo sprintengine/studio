@@ -54,13 +54,10 @@ from .commands.run import (
     runner_watch_delay_seconds,
 )
 from .commands.task import (
+    cmd_task_advance,
     cmd_task_claim,
     cmd_task_comment,
     cmd_task_comment_list,
-    cmd_task_gate_claim,
-    cmd_task_gate_list,
-    cmd_task_gate_next,
-    cmd_task_gate_verdict,
     cmd_task_list,
     cmd_task_log,
     cmd_task_next,

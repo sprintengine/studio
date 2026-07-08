@@ -102,8 +102,9 @@ export type SprintEngineBoardArtifactActions = {
   /**
    * Post a comment on a task, optionally sending it back for rework. Comment
    * lands via `sprintengine.task.comment`; `reopenForRework` additionally sets
-   * the task to `changes_requested` (`sprintengine.task.status`), which moves it
-   * into a claimable column so the auto-runner re-dispatches the owner role.
+   * the task to `in_progress` (`sprintengine.task.status`). Under the single-owner
+   * lifecycle the task is re-bound to the agent that implemented it, and the
+   * supervisor re-engages that owner rather than routing it to a rework column.
    * Resolves `true` only when every requested mutation succeeded.
    */
   postTaskComment: (
@@ -459,9 +460,9 @@ export function useSprintEngineBoardArtifactActions(
 
   // Add a comment to any task, optionally sending it back for rework. Both are
   // authenticated Sprint Engine mutations (`task.comment`, then `task.status
-  // changes_requested`); the supervisor's actor id is attached in main. When
-  // rework is requested and only the comment lands, the comment is still
-  // reflected and the partial failure is surfaced rather than hidden.
+  // in_progress` to reopen it under its owner); the supervisor's actor id is
+  // attached in main. When rework is requested and only the comment lands, the
+  // comment is still reflected and the partial failure is surfaced rather than hidden.
   const postTaskComment = useCallback(
     async (
       taskId: string,
@@ -504,7 +505,7 @@ export function useSprintEngineBoardArtifactActions(
           const statusResult = await api.setSprintEngineTaskStatus({
             statePath: ensuredStatePath,
             taskId,
-            status: 'changes_requested',
+            status: 'in_progress',
           })
           if (!statusResult.ok) {
             // The comment landed; reflect it and report the partial failure.

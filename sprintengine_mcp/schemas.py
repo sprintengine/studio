@@ -8,9 +8,10 @@ from sprintengine_core.tool.constants import (
     FEEDBACK_COUNT_FIELDS,
     FEEDBACK_SCORE_FIELDS,
     FEEDBACK_TEXT_FIELDS,
-    VALID_DIFFICULTY_REVIEWER_DIMENSIONS,
-    VALID_GATE_VERDICTS,
     VALID_NEEDS_INPUT_KINDS,
+    VALID_NEEDS_INPUT_REASONS,
+    VALID_PHASE_OUTCOMES,
+    VALID_TASK_PHASES,
     VALID_TASK_STATUSES,
 )
 
@@ -57,7 +58,6 @@ EXTRA_DIRS_PROPERTY = {
 }
 
 TASK_ID_PROPERTY = {"type": "string", "description": "Sprint Engine task id, for example T3."}
-GATE_ID_PROPERTY = {"type": "string", "description": "Sprint Engine quality gate id."}
 ARTIFACT_ID_PROPERTY = {"type": "string", "description": "Sprint Engine artifact id."}
 DISPATCH_ID_PROPERTY = {"type": "string", "description": "Stable idempotent dispatch ledger id."}
 
@@ -137,20 +137,17 @@ def implementer_difficulty_properties() -> dict[str, Any]:
     }
 
 
-def reviewer_difficulty_properties() -> dict[str, Any]:
-    dimension_schema = {"type": "string", "enum": sorted(VALID_DIFFICULTY_REVIEWER_DIMENSIONS)}
-    return {
-        "reviewedDifficultyPct": {"type": "integer", "minimum": 0, "maximum": 100},
-        "reviewedDifficultyDimension": dimension_schema,
-        "reviewedDifficultyReason": {"type": "string"},
-    }
-
-
 IMPLEMENTER_DIFFICULTY_PROPERTIES = implementer_difficulty_properties()
-REVIEWER_DIFFICULTY_PROPERTIES = reviewer_difficulty_properties()
 ARCHITECT_DIFFICULTY_PROPERTIES = {
     "difficultyPct": {"type": "integer", "minimum": 0, "maximum": 100},
     "difficultyReason": {"type": "string"},
+}
+# A task's post-implementation phases. Absent inherits the run's `defaultPhases`;
+# `[]` routes publish straight to `done`. Must be a subset of the run's list.
+PHASES_PROPERTY = {
+    "type": "array",
+    "items": {"type": "string", "enum": sorted(VALID_TASK_PHASES)},
+    "description": "Ordered post-implementation phases for this task. Omit to inherit the run default; [] for none. Must be a subset of the run's defaultPhases.",
 }
 
 
@@ -162,7 +159,7 @@ MCP_V1_CONTRACT_SCHEMAS: dict[str, dict[str, Any]] = {
             "agentId": AGENT_ID_PROPERTY,
             "topic": {
                 "type": "string",
-                "enum": ["agent_workflow", "tools", "needs_input", "artifacts", "gates"],
+                "enum": ["agent_workflow", "tools", "needs_input", "artifacts", "phases"],
                 "description": "Optional help topic. Defaults to agent_workflow.",
             },
         },
@@ -291,13 +288,23 @@ MCP_V1_CONTRACT_SCHEMAS: dict[str, dict[str, Any]] = {
     "sprintengine.task.comment.list": object_schema(["statePath", "taskId"], {"taskId": TASK_ID_PROPERTY, "limit": {"type": "integer", "minimum": 1, "description": "Maximum comments returned, newest last. Defaults to 20."}}),
     "sprintengine.task.list": object_schema(["statePath"], {"role": ROLE_PROPERTY, "status": {"type": "string"}, "includeDone": {"type": "boolean"}}),
     "sprintengine.task.publish": object_schema(["statePath", "taskId", "id", "summary"], {"taskId": TASK_ID_PROPERTY, "id": AGENT_ID_PROPERTY, "summary": {"type": "string"}, "path": {"type": "array", "items": {"type": "string"}}, "file": {"type": "array", "items": {"type": "string"}}, "data": {"type": "object"}, "summaryDataJson": {"type": "string"}, **IMPLEMENTER_DIFFICULTY_PROPERTIES}),
-    "sprintengine.task.request_changes": object_schema(["statePath", "taskId", "id", "reason"], {"taskId": TASK_ID_PROPERTY, "id": AGENT_ID_PROPERTY, "reason": {"type": "string"}, "source": {"type": "string"}, "paths": {"type": "array", "items": {"type": "string"}}}),
-    "sprintengine.gate.list": object_schema(["statePath"], {"taskId": TASK_ID_PROPERTY, "phase": {"type": "string"}, "role": ROLE_PROPERTY}),
-    "sprintengine.gate.next": object_schema(["statePath", "role", "id"], {"role": ROLE_PROPERTY, "id": AGENT_ID_PROPERTY}),
-    "sprintengine.gate.claim": object_schema(["statePath", "taskId", "gateId", "role", "id"], {"taskId": TASK_ID_PROPERTY, "gateId": GATE_ID_PROPERTY, "role": ROLE_PROPERTY, "id": AGENT_ID_PROPERTY}),
-    "sprintengine.gate.verdict": object_schema(["statePath", "taskId", "gateId", "role", "id", "verdict", "summary"], {"taskId": TASK_ID_PROPERTY, "gateId": GATE_ID_PROPERTY, "role": ROLE_PROPERTY, "id": AGENT_ID_PROPERTY, "verdict": {"type": "string", "enum": sorted(VALID_GATE_VERDICTS)}, "summary": {"type": "string"}, "requiredAction": {"type": "array", "items": {"type": "string"}}, "artifactPath": {"type": "string"}, "artifactTitle": {"type": "string"}, "artifactKind": {"type": "string"}, "needsInputKind": {"type": "string", "enum": sorted(VALID_NEEDS_INPUT_KINDS)}, "needsInputReason": {"type": "string"}, "needsInputQuestion": {"type": "string"}, "needsInputSuggestedResolution": {"type": "string"}, **REVIEWER_DIFFICULTY_PROPERTIES, **FEEDBACK_PROPERTIES}),
-    "sprintengine.plan.add_task": object_schema(["statePath", "title", "role"], {"actor": {"type": "string"}, "taskId": {"type": "string"}, "title": {"type": "string"}, "description": {"type": "string"}, "role": {"type": "string"}, "dependsOn": {"type": "array"}, "path": {"type": "array"}, "acceptance": {"type": "array"}, "note": {"type": "array"}, "taskNote": {"type": "array"}, "producesImplementation": {"type": "boolean"}, "needsTriage": {"type": "boolean"}, "noQualityGates": {"type": "boolean"}, "noReview": {"type": "boolean"}, "noTesting": {"type": "boolean"}, "productFacing": {"type": "boolean"}, "notProductFacing": {"type": "boolean"}, "noProductAcceptance": {"type": "boolean"}, "requireGate": {"type": "array"}, "skipGate": {"type": "array"}, **ARCHITECT_DIFFICULTY_PROPERTIES}),
-    "sprintengine.plan.update_task": object_schema(["statePath", "taskId"], {"actor": {"type": "string"}, "taskId": {"type": "string"}, "title": {"type": "string"}, "description": {"type": "string"}, "role": {"type": "string"}, "path": {"type": "array"}, "acceptance": {"type": "array"}, "note": {"type": "array"}, "taskNote": {"type": "array"}, "clearTaskNotes": {"type": "boolean"}, "producesImplementation": {"type": "boolean"}, "needsTriage": {"type": "boolean"}, "clearNeedsTriage": {"type": "boolean"}, "noQualityGates": {"type": "boolean"}, "noReview": {"type": "boolean"}, "noTesting": {"type": "boolean"}, "productFacing": {"type": "boolean"}, "notProductFacing": {"type": "boolean"}, "noProductAcceptance": {"type": "boolean"}, "requireGate": {"type": "array"}, "skipGate": {"type": "array"}, **ARCHITECT_DIFFICULTY_PROPERTIES}),
+    "sprintengine.task.advance": object_schema(
+        ["statePath", "taskId", "id", "phase", "outcome", "summary"],
+        {
+            "taskId": TASK_ID_PROPERTY,
+            "id": AGENT_ID_PROPERTY,
+            "phase": {"type": "string", "enum": sorted(VALID_TASK_PHASES), "description": "The phase you are closing. Must equal the task's current status."},
+            "outcome": {"type": "string", "enum": sorted(VALID_PHASE_OUTCOMES), "description": "pass = nothing to fix; pass_with_fixes = you found and fixed issues; escalate = a plan/scope/product decision blocks you."},
+            "summary": {"type": "string", "description": "Short rationale for agent readers (~280 chars)."},
+            "needsInputKind": {"type": "string", "enum": sorted(VALID_NEEDS_INPUT_KINDS)},
+            "needsInputReason": {"type": "string", "enum": sorted(VALID_NEEDS_INPUT_REASONS)},
+            "needsInputQuestion": {"type": "string", "description": "Required with outcome=escalate."},
+            "needsInputSuggestedResolution": {"type": "string"},
+            **FEEDBACK_PROPERTIES,
+        },
+    ),
+    "sprintengine.plan.add_task": object_schema(["statePath", "title", "role"], {"actor": {"type": "string"}, "taskId": {"type": "string"}, "title": {"type": "string"}, "description": {"type": "string"}, "role": {"type": "string"}, "dependsOn": {"type": "array"}, "path": {"type": "array"}, "acceptance": {"type": "array"}, "note": {"type": "array"}, "taskNote": {"type": "array"}, "producesImplementation": {"type": "boolean"}, "needsTriage": {"type": "boolean"}, "phases": PHASES_PROPERTY, "productFacing": {"type": "boolean"}, "notProductFacing": {"type": "boolean"}, **ARCHITECT_DIFFICULTY_PROPERTIES}),
+    "sprintengine.plan.update_task": object_schema(["statePath", "taskId"], {"actor": {"type": "string"}, "taskId": {"type": "string"}, "title": {"type": "string"}, "description": {"type": "string"}, "role": {"type": "string"}, "path": {"type": "array"}, "acceptance": {"type": "array"}, "note": {"type": "array"}, "taskNote": {"type": "array"}, "clearTaskNotes": {"type": "boolean"}, "producesImplementation": {"type": "boolean"}, "needsTriage": {"type": "boolean"}, "clearNeedsTriage": {"type": "boolean"}, "phases": PHASES_PROPERTY, "productFacing": {"type": "boolean"}, "notProductFacing": {"type": "boolean"}, **ARCHITECT_DIFFICULTY_PROPERTIES}),
     "sprintengine.plan.delete_task": object_schema(["statePath", "taskId"], {"actor": {"type": "string"}, "taskId": {"type": "string"}, "unlinkDependents": {"type": "boolean"}}),
     "sprintengine.plan.add_dependency": object_schema(["statePath", "taskId", "dependsOn"], {"actor": {"type": "string"}, "taskId": {"type": "string"}, "dependsOn": {"type": "array"}}),
     "sprintengine.plan.remove_dependency": object_schema(["statePath", "taskId", "dependsOn"], {"actor": {"type": "string"}, "taskId": {"type": "string"}, "dependsOn": {"type": "array"}}),

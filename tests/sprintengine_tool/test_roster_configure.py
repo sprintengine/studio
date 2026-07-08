@@ -142,14 +142,14 @@ def test_configure_unions_planner_and_merges_runtimes(tmp_path) -> None:
         [
             {"role": "developer", "cli": "claude-code", "model": "claude-opus-4-8"},
             {"role": "tester", "cli": "zai", "model": "glm-5.2"},
-            {"role": "nuclear_reviewer", "cli": "claude-code", "model": None},
+            {"role": "security", "cli": "claude-code", "model": None},
         ],
     )
     assert result["ok"] is True
     configured = result["result"]["configuredRoles"]
     # Planning role unioned in, submitted roles present.
     assert configured[0] == "architect"
-    assert set(configured) == {"architect", "developer", "tester", "nuclear_reviewer"}
+    assert set(configured) == {"architect", "developer", "tester", "security"}
 
     state = read_state(state_path)
     # roleRuntimes merged: architect seat preserved, submitted roles added.
@@ -157,7 +157,7 @@ def test_configure_unions_planner_and_merges_runtimes(tmp_path) -> None:
     assert state["roleRuntimes"]["developer"] == {"cli": "claude-code", "model": "claude-opus-4-8"}
     assert state["roleRuntimes"]["tester"] == {"cli": "zai", "model": "glm-5.2"}
     # model: null records the cli only (CLI default, no --model fabricated).
-    assert state["roleRuntimes"]["nuclear_reviewer"] == {"cli": "claude-code"}
+    assert state["roleRuntimes"]["security"] == {"cli": "claude-code"}
     assert any(event.get("type") == "roster_configured" for event in state["events"])
 
 

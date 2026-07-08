@@ -98,7 +98,7 @@ export async function findReadySprintEngineTask(
     throw new MobileSprintEngineCommandError('task_not_ready', 'Requested task is already owned by an agent.', false)
   }
 
-  if (task.status !== 'todo' && task.status !== 'changes_requested') {
+  if (task.status !== 'todo') {
     throw new MobileSprintEngineCommandError('task_not_ready', 'Requested task is not ready to start.', false)
   }
 

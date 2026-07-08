@@ -7,7 +7,6 @@ from typing import Any, Dict
 from sprintengine_core import store as folder_store
 from sprintengine_core.tool.artifacts import project_relative_display_path
 from sprintengine_core.tool.feedback import set_architect_difficulty_estimate
-from sprintengine_core.tool.gates import sync_product_quality_gate
 from pathlib import Path
 
 from sprintengine_core.tool.plans import (
@@ -27,7 +26,6 @@ from sprintengine_core.tool.roles import require_configured_role
 from sprintengine_core.tool.state import append_event, clear_task_refs, ensure_role_in_roster, find_task, load_mutation_state, with_locked_state
 from sprintengine_core.tool.tasks import (
     add_unique_values,
-    apply_quality_gate_cli_overrides,
     assert_phases_within_run_ceiling,
     build_task_from_args,
     ensure_task_can_be_replanned,
@@ -111,13 +109,6 @@ def cmd_plan_update_task(args: argparse.Namespace) -> Dict[str, Any]:
             getattr(args, "difficulty_pct", None),
             getattr(args, "difficulty_reason", "") or "",
         )
-
-        policy = folder_store.normalize_quality_fields(state)
-        task["qualityGates"] = folder_store.normalize_task_quality_gates(task, state, policy)
-        if args.product_facing or args.not_product_facing:
-            sync_product_quality_gate(task, state, policy)
-            task["qualityGates"] = folder_store.normalize_task_quality_gates(task, state, policy)
-        apply_quality_gate_cli_overrides(task, state, policy, args)
 
         try:
             folder_store.validate_acyclic_task_graph([candidate for candidate in state.get("tasks", []) if isinstance(candidate, dict)])

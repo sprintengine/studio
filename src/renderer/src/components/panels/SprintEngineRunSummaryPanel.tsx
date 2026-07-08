@@ -79,12 +79,10 @@ function cliLabel(cli: string): string {
 const STATUS_LABEL: Record<SprintEngineTaskStatus, string> = {
   todo: 'To do',
   in_progress: 'In progress',
-  changes_requested: 'Changes requested',
   review: 'In review',
-  testing: 'In testing',
-  product: 'Product check',
   needs_input: 'Needs input',
   done: 'Done',
+  canceled: 'Canceled',
 }
 
 // Task status → the shared shape-coded lifecycle vocabulary, so the summary's
@@ -93,10 +91,8 @@ const STATUS_LABEL: Record<SprintEngineTaskStatus, string> = {
 const STATUS_LIFECYCLE: Record<SprintEngineTaskStatus, LifecycleState> = {
   todo: 'todo',
   in_progress: 'in_progress',
-  changes_requested: 'changes_requested',
   review: 'review',
-  testing: 'testing',
-  product: 'product',
+  canceled: 'todo',
   needs_input: 'needs_input',
   done: 'done',
 }
@@ -244,8 +240,7 @@ export default function SprintEngineRunSummaryPanel({
   const durationLabel = formatRunDuration(report.runDurationMs)
   const issueTotals = buildIssueTotals(report.agentRows)
   const allDone = report.totalTasks > 0 && report.doneTasks === report.totalTasks
-  const changesRequested = report.statusCounts.changes_requested ?? 0
-  const attention = report.needsInput.length > 0 || changesRequested > 0
+  const attention = report.needsInput.length > 0
   // A worktree run that's done but not yet merged is "Ready for review", not
   // "Complete" — it only becomes Complete once its pull request merges. A
   // non-worktree run (no branch to review) is Complete the moment work is done.
@@ -299,7 +294,6 @@ export default function SprintEngineRunSummaryPanel({
             {report.needsInput.length > 0 ? (
               <Crumb>{`${report.needsInput.length} need input`}</Crumb>
             ) : null}
-            {changesRequested > 0 ? <Crumb>{`${changesRequested} changes requested`}</Crumb> : null}
             {durationLabel ? <Crumb>{`ran ${durationLabel}`}</Crumb> : null}
           </span>
         ) : null}
@@ -479,10 +473,10 @@ const MEASURED_ISSUE_HINTS: Record<string, string> = {
 // Definitions for the review-throughput columns: "reviews" counts passes (a task
 // can be reviewed more than once) while "tasks reviewed" counts distinct tasks.
 const REVIEW_COLUMN_HINTS = {
-  reviews: 'Total review passes this agent performed; a single task can be reviewed more than once.',
-  tasksReviewed: 'Distinct tasks this agent reviewed at least once.',
-  approved: 'Reviews where this agent passed the work.',
-  changesRequested: 'Reviews where this agent sent the work back for changes.',
+  tasksAudited: 'Distinct tasks this sweep read at least once.',
+  passed: 'Audits where the sweep found nothing to fix.',
+  fixedForward: 'Audits where the sweep found problems and fixed them itself.',
+  escalated: 'Findings too large to fix in place, escalated to the architect or the user.',
 } as const
 
 // Definitions for the plan & setup quality dimensions, keyed by the score key in
@@ -695,7 +689,7 @@ function ImplementationTable({
 function ReviewTable({ rows }: { rows: SprintEngineAgentRow[] }) {
   return (
     <div className="mt-5">
-      <WorkTypeHeading label="Review" count={rows.length} />
+      <WorkTypeHeading label="Sweeps" count={rows.length} />
       <div className="overflow-x-auto">
         <table className={TABLE_CLASS} style={tableStyleFor(4)}>
           <ColGroup numCols={4} />
@@ -705,43 +699,43 @@ function ReviewTable({ rows }: { rows: SprintEngineAgentRow[] }) {
                 Agent
               </th>
               <th scope="col" className={`${NUM_HEADER} ${COL_SEP}`}>
-                Reviews
-                <ColumnHint label="Reviews" hint={REVIEW_COLUMN_HINTS.reviews} />
+                Tasks audited
+                <ColumnHint label="Tasks audited" hint={REVIEW_COLUMN_HINTS.tasksAudited} />
               </th>
               <th scope="col" className={NUM_HEADER}>
-                Tasks reviewed
-                <ColumnHint label="Tasks reviewed" hint={REVIEW_COLUMN_HINTS.tasksReviewed} />
+                Clean
+                <ColumnHint label="Clean" hint={REVIEW_COLUMN_HINTS.passed} />
               </th>
               <th scope="col" className={NUM_HEADER}>
-                Approved
-                <ColumnHint label="Approved" hint={REVIEW_COLUMN_HINTS.approved} />
+                Fixed
+                <ColumnHint label="Fixed" hint={REVIEW_COLUMN_HINTS.fixedForward} />
               </th>
               <th scope="col" className={NUM_HEADER}>
-                Changes requested
-                <ColumnHint label="Changes requested" hint={REVIEW_COLUMN_HINTS.changesRequested} />
+                Escalated
+                <ColumnHint label="Escalated" hint={REVIEW_COLUMN_HINTS.escalated} />
               </th>
             </tr>
           </thead>
           <tbody>
             {rows.map((row) => {
-              const reviewer = row.metrics?.reviewer
+              const sweep = row.metrics?.sweep
               const border = 'border-b border-[color:var(--border-subtle)]'
-              const changes = reviewer?.changesRequested ?? 0
+              const escalated = sweep?.escalated ?? 0
               return (
                 <tr key={row.agentId}>
                   <td className={`${border} py-[7px] pr-6`}>
                     <AgentName role={row.role} agentId={row.agentId} />
                   </td>
                   <NumCellB border={border} sep={COL_SEP}>
-                    {reviewer ? reviewer.reviewsPerformed : NA}
+                    {sweep ? sweep.tasksAudited : NA}
                   </NumCellB>
-                  <NumCellB border={border}>{reviewer ? reviewer.tasksReviewed : NA}</NumCellB>
-                  <NumCellB border={border}>{reviewer ? reviewer.approved : NA}</NumCellB>
+                  <NumCellB border={border}>{sweep ? sweep.passed : NA}</NumCellB>
+                  <NumCellB border={border}>{sweep ? sweep.fixedForward : NA}</NumCellB>
                   <NumCellB border={border}>
-                    {!reviewer ? (
+                    {!sweep ? (
                       NA
-                    ) : changes > 0 ? (
-                      <span className="text-[color:var(--tone-warn)]">{changes}</span>
+                    ) : escalated > 0 ? (
+                      <span className="text-[color:var(--tone-warn)]">{escalated}</span>
                     ) : (
                       <span className="text-[color:var(--text-disabled)]">0</span>
                     )}
@@ -1334,10 +1328,6 @@ function RunOverviewSection({
 }) {
   const completionPct =
     report.totalTasks > 0 ? Math.round((report.doneTasks / report.totalTasks) * 100) : 0
-  const gatesPct =
-    report.metrics.gatesTotal > 0
-      ? Math.round((report.metrics.gatesApproved / report.metrics.gatesTotal) * 100)
-      : 0
   return (
     <Section title="Run overview" level={3}>
       <div className="flex flex-wrap items-center gap-x-8 gap-y-5">
@@ -1349,15 +1339,6 @@ function RunOverviewSection({
             caption="Tasks done"
             tone="good"
           />
-          {report.metrics.gatesTotal > 0 ? (
-            <ProgressRing
-              valuePct={gatesPct}
-              primaryLabel={`${gatesPct}%`}
-              sublabel={`${report.metrics.gatesApproved} / ${report.metrics.gatesTotal}`}
-              caption="Gates passed"
-              tone="accent"
-            />
-          ) : null}
         </div>
         {burnup ? (
           <div className="min-w-[280px] flex-1">
@@ -1374,18 +1355,11 @@ function RunMetricsSection({ report }: { report: SprintEngineRunReport }) {
     { label: 'Files touched', value: report.metrics.filesTouched },
     { label: 'Commands', value: report.metrics.commands },
     { label: 'Validations', value: report.metrics.validations },
-    {
-      label: 'Gates passed',
-      value:
-        report.metrics.gatesTotal > 0
-          ? `${report.metrics.gatesApproved} / ${report.metrics.gatesTotal}`
-          : '—',
-    },
   ]
   return (
     <SectionDivider>
       <Section title="Run metrics" level={3}>
-        <StatStrip cells={cells} columns="md:grid-cols-4" />
+        <StatStrip cells={cells} columns="md:grid-cols-3" />
       </Section>
     </SectionDivider>
   )

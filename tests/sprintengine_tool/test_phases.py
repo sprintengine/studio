@@ -230,6 +230,17 @@ def test_store_schema_version_matches_the_main_process_mirror() -> None:
     assert int(match.group(1)) == folder_store.RUN_SCHEMA_VERSION
 
 
+def test_approval_tasks_carry_an_explicit_empty_phase_list() -> None:
+    """Regression: the plan-approval and product-intake tasks are approval surfaces,
+    not implementation work. Left to inherit `defaultPhases`, their author would end
+    up self-reviewing a plan document, and the draft placeholder would survive."""
+    source = (REPO_ROOT / "sprintengine_core/tool/plans.py").read_text(encoding="utf-8")
+    # Both `normalize_task({...})` literals must set `phases: []`.
+    assert source.count('"phases": [],') == 2, (
+        "ensure_plan_approval_gate and ensure_product_intake_gate must each pin `phases: []`"
+    )
+
+
 def test_pre_1542_store_raises_a_readable_cli_error_not_a_traceback(tmp_path: Path) -> None:
     """The CLI/MCP boundary converts the loader's ValueError into a clean SystemExit."""
     from sprintengine_core.tool.state import load_mutation_state

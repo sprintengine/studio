@@ -13,19 +13,9 @@ from helpers import (
 
 
 def review_phase_task() -> dict:
-    record = task("T1", "Implement gated feature", "developer", "review", owner="developer-fixture")
-    record["qualityGates"] = [
-        {
-            "id": "code_reviewer",
-            "phase": "review",
-            "role": "code_reviewer",
-            "status": "pending",
-            "required": True,
-            "allowSelfReview": False,
-            "focus": "code quality",
-            "attempts": [],
-        }
-    ]
+    """A published task in its review phase, still owned by its implementer."""
+    record = task("T1", "Implement feature", "developer", "review", owner="developer-fixture")
+    record["startedAt"] = "2026-07-08T00:00:00Z"
     return record
 
 
@@ -152,7 +142,7 @@ def test_done_status_records_reviewer_target_feedback_on_reviewed_task(tmp_path)
         "reviewer-target-feedback",
         [
             task("T1", "Implement feature", "developer", "done", owner="developer-fixture"),
-            task("T2", "Review feature", "code_reviewer", "in_progress", owner="reviewer-fixture"),
+            task("T2", "Review feature", "security", "in_progress", owner="reviewer-fixture"),
         ],
     )
 
@@ -210,28 +200,24 @@ def test_done_status_records_reviewer_target_feedback_on_reviewed_task(tmp_path)
     assert "hallucination_pct" not in record
 
 
-def test_gate_verdict_records_queryable_feedback_metrics(tmp_path) -> None:
+def test_phase_advance_records_queryable_feedback_metrics(tmp_path) -> None:
     fixture = create_team(
         tmp_path,
-        "gate-verdict-feedback",
+        "phase-advance-feedback",
         [review_phase_task()],
     )
-    fixture.cli.run("task", "gate", "next", "--role", "code_reviewer", "--id", "reviewer-fixture")
 
     payload = fixture.cli.run(
         "task",
-        "gate",
-        "verdict",
+        "advance",
         "--task-id",
         "T1",
-        "--gate-id",
-        "code_reviewer",
-        "--role",
-        "code_reviewer",
         "--id",
-        "reviewer-fixture",
-        "--verdict",
-        "approved",
+        "developer-fixture",
+        "--phase",
+        "review",
+        "--outcome",
+        "pass",
         "--summary",
         "Implementation is correct.",
         "--correctness-pct",
@@ -247,28 +233,54 @@ def test_gate_verdict_records_queryable_feedback_metrics(tmp_path) -> None:
     assert payload["feedbackRecorded"] is True
     state = read_state(fixture.state_path)
     reviewed = get_task(state, "T1")
-    assessment = reviewed["feedbackAssessments"][0]
-    assert assessment["source"] == "gate_verdict_assessment"
-    assert assessment["gate"] == {
-        "phase": "review",
-        "gateId": "code_reviewer",
-        "attemptId": "GA-001",
-        "verdict": "approved",
-    }
-    assert assessment["scores"]["correctnessPct"] == 93
-    assert assessment["counts"]["claimsChecked"] == 7
+    # The owner reviewed its own work: a self-report, not a reviewer assessment.
+    assert "feedbackAssessments" not in reviewed
+    feedback = reviewed["feedback"]
+    assert feedback["source"] == "phase_advance_self_review"
+    assert feedback["phase"] == {"phase": "review", "outcome": "pass"}
+    assert feedback["scores"]["correctnessPct"] == 93
+    assert feedback["counts"]["claimsChecked"] == 7
 
-    record = assert_feedback_record(fixture.team_dir, "T1", "reviewer-fixture")
-    assert record["source"] == "gate_verdict_assessment"
+    record = assert_feedback_record(fixture.team_dir, "T1", "developer-fixture")
+    assert record["source"] == "phase_advance_self_review"
     assert record["task_id"] == "T1"
-    assert record["agent_id"] == "reviewer-fixture"
-    assert record["gate_phase"] == "review"
-    assert record["gate_id"] == "code_reviewer"
-    assert record["gate_attempt_id"] == "GA-001"
-    assert record["gate_verdict"] == "approved"
-    assert record["reviewer_role"] == "code_reviewer"
+    assert record["agent_id"] == "developer-fixture"
+    assert record["phase"] == "review"
+    assert record["phase_outcome"] == "pass"
+    assert record["role"] == "developer"
     assert record["scores"]["correctness_pct"] == 93
     assert record["counts"]["claims_checked"] == 7
+    # The retired gate keys must not survive under new spellings.
+    for retired in ("gate", "gate_phase", "gate_id", "gate_attempt_id", "gate_verdict"):
+        assert retired not in record
+
+
+def test_phase_advance_feedback_is_best_effort_and_never_blocks_the_transition(tmp_path) -> None:
+    """Decision 4: a bad telemetry sub-field is dropped with a warning; the
+    operational transition still lands. The self-report path is the only one that
+    relaxes strict validation."""
+    fixture = create_team(tmp_path, "phase-advance-best-effort", [review_phase_task()])
+
+    payload = fixture.cli.run(
+        "task",
+        "advance",
+        "--task-id",
+        "T1",
+        "--id",
+        "developer-fixture",
+        "--phase",
+        "review",
+        "--outcome",
+        "pass_with_fixes",
+        "--summary",
+        "Fixed a null guard.",
+        "--finding-json",
+        json.dumps({"kind": "code_bug", "severity": "not-a-severity", "area": "backend", "title": "x"}),
+    )
+
+    assert payload["nextStatus"] == "done"
+    assert payload["feedbackWarnings"]
+    assert get_task(read_state(fixture.state_path), "T1")["status"] == "done"
 
 
 def test_feedback_metrics_include_difficulty_snapshot_when_recorded(tmp_path) -> None:
@@ -306,64 +318,11 @@ def test_feedback_metrics_include_difficulty_snapshot_when_recorded(tmp_path) ->
     assert record["difficulty"]["implementer_actual_reason"] == "Touched several state transition paths."
 
 
-def test_gate_verdict_records_reviewer_difficulty_assessment_and_metrics_snapshot(tmp_path) -> None:
-    fixture = create_team(
-        tmp_path,
-        "gate-reviewer-difficulty",
-        [review_phase_task()],
-    )
-    fixture.cli.run("task", "gate", "next", "--role", "code_reviewer", "--id", "reviewer-fixture")
-
-    payload = fixture.cli.run(
-        "task",
-        "gate",
-        "verdict",
-        "--task-id",
-        "T1",
-        "--gate-id",
-        "code_reviewer",
-        "--role",
-        "code_reviewer",
-        "--id",
-        "reviewer-fixture",
-        "--verdict",
-        "approved",
-        "--summary",
-        "Implementation is correct.",
-        "--reviewed-difficulty-pct",
-        "71",
-        "--reviewed-difficulty-dimension",
-        "implementation",
-        "--reviewed-difficulty-reason",
-        "Moderate state-model coordination.",
-        "--claims-checked",
-        "7",
-    )
-
-    assert payload["feedbackRecorded"] is True
-    state = read_state(fixture.state_path)
-    assessment = get_task(state, "T1")["difficulty"]["reviewerAssessments"][0]
-    assert assessment["pct"] == 71
-    assert assessment["dimension"] == "implementation"
-    assert assessment["reviewerAgentId"] == "reviewer-fixture"
-    assert assessment["reviewerRole"] == "code_reviewer"
-    assert assessment["gateId"] == "code_reviewer"
-    assert assessment["gateAttemptId"] == "GA-001"
-    assert assessment["capturedAt"]
-
-    record = assert_feedback_record(fixture.team_dir, "T1", "reviewer-fixture")
-    reviewer_assessment = record["difficulty"]["reviewer_assessments"][0]
-    assert reviewer_assessment["pct"] == 71
-    assert reviewer_assessment["dimension"] == "implementation"
-    assert reviewer_assessment["reviewer_agent_id"] == "reviewer-fixture"
-    assert reviewer_assessment["gate_attempt_id"] == "GA-001"
-
-
 def test_reviewer_target_feedback_rejects_missing_target_task(tmp_path) -> None:
     fixture = create_team(
         tmp_path,
         "reviewer-target-missing",
-        [task("T1", "Review feature", "code_reviewer", "in_progress", owner="reviewer-fixture")],
+        [task("T1", "Review feature", "security", "in_progress", owner="reviewer-fixture")],
     )
 
     rejected = fixture.cli.run_failure(
@@ -395,7 +354,7 @@ def test_reviewer_target_feedback_requires_complete_target_metadata(tmp_path) ->
         "reviewer-target-partial",
         [
             task("T1", "Implement feature", "developer", "done", owner="developer-fixture"),
-            task("T2", "Review feature", "code_reviewer", "in_progress", owner="reviewer-fixture"),
+            task("T2", "Review feature", "security", "in_progress", owner="reviewer-fixture"),
         ],
     )
 
@@ -424,7 +383,7 @@ def test_review_target_flags_are_rejected_on_non_done_status(tmp_path) -> None:
     fixture = create_team(
         tmp_path,
         "reviewer-target-status-gate",
-        [task("T1", "Review feature", "code_reviewer", "todo", owner="reviewer-fixture")],
+        [task("T1", "Review feature", "security", "todo", owner="reviewer-fixture")],
     )
 
     rejected = fixture.cli.run_failure(

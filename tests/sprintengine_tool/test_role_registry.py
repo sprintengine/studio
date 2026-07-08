@@ -462,14 +462,11 @@ def test_bundled_sweep_roles_match_the_shipped_disposition() -> None:
     discovery = discover_role_registry(workspace_root=Path("/unused/workspace"), user_root=Path("/unused/user"))
 
     assert [role.id for role in discovery.sweep_roles()] == [
-        # Retired in Stage 4; still resolvable (and still reviewers) until then.
-        "code_reviewer",
-        "nuclear_reviewer",
+        # code_reviewer / nuclear_reviewer / spec_reviewer retired in Stage 4 (MC-1542).
         "performance",
         "product",
         "production_readiness_reviewer",
         "security",
-        "spec_reviewer",
         "tester",
         "ui_ux_reviewer",
     ]

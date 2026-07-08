@@ -1,6 +1,6 @@
 {
   "id": "production_readiness_reviewer",
-  "label": "Production Readiness Reviewer",
+  "label": "Production readiness",
   "aliases": [
     "production-readiness",
     "production-ready",

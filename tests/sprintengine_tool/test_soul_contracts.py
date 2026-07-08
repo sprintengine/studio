@@ -40,7 +40,6 @@ SKILL_ANCHORS: dict[str, tuple[str, ...]] = {
     # Role identity anchors.
     "developer": ("principal software engineer",),
     "security": ("principal application security engineer",),
-    "code_reviewer": ("principal-level code quality reviewer",),
     "tester": ("principal QA engineer",),
     "architect": ("expert software architect",),
     "product": ("principal product strategist",),
@@ -50,9 +49,9 @@ SKILL_ANCHORS: dict[str, tuple[str, ...]] = {
     "presentation": ("senior product storyteller",),
     "creative": ("senior creative engineer",),
     "cross_platform": ("principal cross-platform compatibility engineer",),
-    "nuclear_reviewer": ("Nuclear Reviewer",),
+    # code_reviewer / nuclear_reviewer / spec_reviewer role souls retired in MC-1542;
+    # their scar-tissue rules live in PHASE_REVIEW_ANCHORS below.
     "production_readiness_reviewer": ("principal production readiness reviewer",),
-    "spec_reviewer": ("principal-level specification reviewer",),
     "ui_ux_reviewer": ("senior frontend UI/UX reviewer",),
     "coordinator": ("principal-level coordination agent",),
     "blog_writer": ("senior blog writer",),

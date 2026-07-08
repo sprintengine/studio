@@ -75,12 +75,7 @@ export function SprintEngineTasksKanbanView({
                     ? 'good'
                     : task.status === 'needs_input'
                       ? 'warn'
-                      : task.status === 'in_progress'
-                        || boardColumn === 'ready'
-                        || boardColumn === 'changes_requested'
-                        || boardColumn === 'review'
-                        || boardColumn === 'testing'
-                        || boardColumn === 'product'
+                      : task.status === 'in_progress' || boardColumn === 'ready' || boardColumn === 'review'
                         ? 'accent'
                         : 'neutral'
                 const taskSelected = selectedTaskId === task.id

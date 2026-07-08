@@ -16,6 +16,7 @@ from sprintengine_core.role_registry import (
 from sprintengine_core.skill_layers import (
     SPRINTENGINE_GENERAL_SKILLS,
     SPRINTENGINE_SOUL_EXTRA_SKILLS,
+    sprintengine_extra_skills_for_role,
 )
 
 
@@ -24,18 +25,20 @@ SPRINTENGINE_IMPLEMENTATION_ROLES = {"blog_writer", "coordinator", "creative", "
 
 
 def load_soul_prompt(role: str) -> Optional[str]:
-    # Role manifests carry only the portable soul identity. A Sprint Engine
-    # dispatch layers the Multicode product skills and Sprint Engine quality
-    # norms on top so the rendered soul carries the full quality bar.
+    # Role manifests carry only the portable role identity. A Sprint Engine dispatch
+    # layers the Multicode product skills, the Sprint Engine quality norms, and (for
+    # a sweep role) the fix-forward mandate on top, so the rendered brief carries the
+    # full quality bar without any of it being baked into the manifest.
     if normalize_role_id(role) == "general":
         # `general` has no role manifest; render its soulless layer (norms +
         # orchestration) so this shared chokepoint never drops the norms for a
         # General on the CLI-join or plan-review composition paths.
         return load_general_soul_prompt()
     try:
+        discovery = discover_role_registry()
         return (
-            discover_role_registry()
-            .render_soul(role, workspace_root=REPO_ROOT, extra_skills=SPRINTENGINE_SOUL_EXTRA_SKILLS)
+            discovery
+            .render_soul(role, workspace_root=REPO_ROOT, extra_skills=sprintengine_extra_skills_for_role(discovery, role))
             .content
         )
     except (KeyError, SoulRenderError):
@@ -80,14 +83,12 @@ def load_sprintengine_runtime_skill(skill_id: str) -> str:
     return path.read_text(encoding="utf-8").strip()
 
 
-def sprintengine_runtime_skill_ids(role: str, *, include_gate_feedback: bool = False) -> list[str]:
+def sprintengine_runtime_skill_ids(role: str) -> list[str]:
     skill_ids = ["sprintengine_workflow"]
     if role == "architect":
         skill_ids.append("sprintengine_architect_workflow")
     if role in SPRINTENGINE_IMPLEMENTATION_ROLES:
         skill_ids.append("sprintengine_publish_feedback")
-    if include_gate_feedback:
-        skill_ids.append("sprintengine_gate_feedback")
     return skill_ids
 
 
@@ -95,11 +96,11 @@ def generic_role_swarm_prompt(role: str) -> str:
     return "\n\n".join([
         f"# {role.replace('_', ' ').title()}",
         "",
-        "You are a configured Sprint Engine specialist. Follow your rendered Soul guidance for domain judgment, and follow the Sprint Engine coordination rules for all task, gate, artifact, evidence, and handoff mechanics.",
+        "You are a configured Sprint Engine specialist. Follow your rendered Soul guidance for domain judgment, and follow the Sprint Engine coordination rules for all task, artifact, evidence, and handoff mechanics.",
         "",
         "## Responsibilities",
         "",
-        f"- Claim tasks and gates assigned exactly to the `{role}` role.",
+        f"- Claim tasks assigned exactly to the `{role}` role, and own each one from claim to `done`.",
         "- Read the task description, acceptance criteria, implementation notes, owned paths, evidence, and latest feedback before acting.",
         "- Keep edits scoped to owned paths unless a directly required companion edit is logged as a scope expansion.",
         "- Verify the real product path before publishing or completing work.",
@@ -109,29 +110,28 @@ def generic_role_swarm_prompt(role: str) -> str:
         "",
         "Coordinate through the Sprint Engine MCP tools. Do not run `sprintengine` shell commands for autonomous work — the CLI is reserved for human and debug operators.",
         "",
-        f"1. Claim work with the claim tool your prompt names — `sprintengine.task.next` for tasks or `sprintengine.gate.next` for quality gates — using `{{ role: \"{role}\", id: \"<your-id>\" }}`.",
-        "2. Work what the claim returns; it resumes your active item or claims the next ready one.",
+        f"1. Claim work with `sprintengine.task.next` using `{{ role: \"{role}\", id: \"<your-id>\" }}`.",
+        "2. Work what the claim returns; it resumes your active task or claims the next ready one.",
         "3. Log evidence via `sprintengine.task.log` with `{ taskId, id, summary, file, command, result }`.",
         "4. Publish implementation evidence via `sprintengine.task.publish` with `{ taskId, id, summary, path, data }`.",
-        "5. Record gate verdicts via `sprintengine.gate.verdict` with `{ taskId, gateId, role, id, verdict, summary }`.",
-        "6. After each completion or verdict, stop — Multicode re-engages this terminal when more work is ready.",
+        "5. If the publish response carries a `nextDirective`, your task entered its review phase: follow the directive, fix what you find, then close the phase with `sprintengine.task.advance` with `{ taskId, id, phase, outcome, summary }`.",
+        "6. Once the task is `done`, stop — Multicode re-engages this terminal when more work is ready.",
         "",
         "## Quality Standards",
         "",
         "- Do not edit Sprint Engine run-store files directly.",
         "- Do not claim work assigned to another role.",
         "- Do not mark work complete when the main behavior depends on sample data, fake responses, mocked transports, stubbed commands, placeholder persistence, or disconnected local state.",
-        "- If real verification is blocked, route the task or gate to `needs_input` via `sprintengine.task.status` with the appropriate actor, reason, and question.",
+        "- If real verification is blocked, route the task to `needs_input` via `sprintengine.task.status` with the appropriate actor, reason, and question.",
         "- If `MULTICODE_KNOWLEDGE_ROOT` is set and your change affects a behavior, contract, file layout, or convention documented in the Knowledge Graph, update the relevant note in the same publish. Log the note path as `sprintengine.task.log` `file` evidence. See the `workspace_knowledge` skill for the full read/update workflow and the env-var gate.",
     ])
 
 
-def load_sprintengine_coordination_prompt(role: str, *, include_gate_feedback: bool = False) -> str:
+def load_sprintengine_coordination_prompt(role: str) -> str:
     path = PROMPTS_DIR / f"{role}.md"
     role_prompt = path.read_text(encoding="utf-8").strip() if path.exists() else generic_role_swarm_prompt(role)
     runtime_skills = [
-        load_sprintengine_runtime_skill(skill_id)
-        for skill_id in sprintengine_runtime_skill_ids(role, include_gate_feedback=include_gate_feedback)
+        load_sprintengine_runtime_skill(skill_id) for skill_id in sprintengine_runtime_skill_ids(role)
     ]
     return "\n\n---\n\n".join([
         *runtime_skills,
@@ -253,10 +253,10 @@ def compose_prompt(
     ])
 
 
-def load_prompt(role: str, *, include_gate_feedback: bool = False) -> str:
+def load_prompt(role: str) -> str:
     return compose_prompt(
         "# SprintEngine Coordination Rules",
-        load_sprintengine_coordination_prompt(role, include_gate_feedback=include_gate_feedback),
+        load_sprintengine_coordination_prompt(role),
         load_soul_prompt(role),
         (
             "Use the Soul prompt above for role personality, judgment, and quality bar. "
@@ -287,7 +287,7 @@ def artifact_registration_instruction(agent_id: str) -> str:
         "production-readiness release reviews, `cross_platform_review` for compatibility reviews, "
         "`validation_report` for validation reports, "
         "`requirements` or `product_strategy` for product outputs, `design_notes` or `html_mockup` "
-        "for frontend outputs, and `architect_plan` for plan gates. If a review artifact approves "
+        "for frontend outputs, and `architect_plan` for the plan approval task. If a review artifact approves "
         "the work with no findings, register the artifact, log evidence, and follow the completion "
         "rule below."
     )

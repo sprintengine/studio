@@ -2,7 +2,7 @@
 
 Artifact length budgets are guidance-only by decision (2026-06-12): the
 prompts and skills direct agents to write terse summaries, but the server
-never rejects an oversized write — `task.publish` and `gate.verdict` are the
+never rejects an oversized write — `task.publish` and `task.advance` are the
 critical autonomous lifecycle transitions and must not gain failure modes.
 These tests guard that decision (oversized writes are accepted, schemas
 advertise no maxLength a client could pre-validate against) and keep the
@@ -24,57 +24,65 @@ def make_server(tmp_path) -> SprintEngineMcpServer:
     return SprintEngineMcpServer(allowed_roots=[tmp_path])
 
 
-def review_task_with_pending_gate() -> dict[str, object]:
-    record = task("T1", "Implement feature", "developer", status="review")
+def reviewing_task() -> dict[str, object]:
+    """A published task sitting in its review phase, still owned by its implementer."""
+    record = task("T1", "Implement feature", "developer", status="review", owner="developer-a")
     record["evidence"]["summary"] = "Working summary"
-    record["qualityGates"] = [
-        {
-            "id": "code_reviewer",
-            "role": "code_reviewer",
-            "phase": "review",
-            "status": "pending",
-            "required": True,
-            "allowSelfReview": False,
-            "focus": "Review the change.",
-            "attempts": [],
-        }
-    ]
+    record["startedAt"] = "2026-07-08T00:00:00Z"
     return record
 
 
-def test_oversized_verdict_summary_is_accepted(tmp_path) -> None:
-    fixture = create_team(tmp_path, "budget-verdict-summary", [review_task_with_pending_gate()])
+def test_oversized_advance_summary_is_accepted(tmp_path) -> None:
+    fixture = create_team(tmp_path, "budget-advance-summary", [reviewing_task()])
     server = make_server(tmp_path)
 
-    claimed = server.call_tool(
-        "sprintengine.gate.next",
-        {"statePath": str(fixture.state_path), "role": "code_reviewer", "id": "reviewer-a"},
-        actor("reviewer-a", "code_reviewer"),
-    )
-    assert claimed["ok"] is True
-    assert claimed["result"]["claimed"] is True
-
     long_summary = "x" * 10_000
-    verdict = server.call_tool(
-        "sprintengine.gate.verdict",
+    advanced = server.call_tool(
+        "sprintengine.task.advance",
         {
             "statePath": str(fixture.state_path),
             "taskId": "T1",
-            "gateId": "code_reviewer",
-            "id": "reviewer-a",
-            "role": "code_reviewer",
-            "verdict": "changes_requested",
+            "id": "developer-a",
+            "phase": "review",
+            "outcome": "pass_with_fixes",
             "summary": long_summary,
-            "requiredAction": ["fix " + "y" * 2_000],
         },
-        actor("reviewer-a", "code_reviewer"),
+        actor("developer-a", "developer"),
     )
 
-    assert verdict["ok"] is True
+    assert advanced["ok"] is True
     persisted = get_task(read_state(fixture.state_path), "T1")
-    gate = persisted["qualityGates"][0]
-    assert gate["status"] == "changes_requested"
-    assert gate["attempts"][-1]["summary"] == long_summary
+    assert persisted["status"] == "done"
+    assert persisted["comments"][-1]["body"] == long_summary
+
+
+def test_oversized_escalation_question_is_accepted(tmp_path) -> None:
+    # `escalate` is the other autonomous exit from a phase; an oversized question
+    # or suggested resolution must park the task, never reject the transition.
+    fixture = create_team(tmp_path, "budget-advance-escalate", [reviewing_task()])
+    server = make_server(tmp_path)
+
+    long_question = "why " * 3_000
+    advanced = server.call_tool(
+        "sprintengine.task.advance",
+        {
+            "statePath": str(fixture.state_path),
+            "taskId": "T1",
+            "id": "developer-a",
+            "phase": "review",
+            "outcome": "escalate",
+            "summary": "Blocked on a product call.",
+            "needsInputKind": "user",
+            "needsInputQuestion": long_question,
+            "needsInputSuggestedResolution": "z" * 5_000,
+        },
+        actor("developer-a", "developer"),
+    )
+
+    assert advanced["ok"] is True
+    persisted = get_task(read_state(fixture.state_path), "T1")
+    assert persisted["status"] == "needs_input"
+    assert persisted["needsInput"]["question"] == long_question.strip()
 
 
 def test_oversized_publish_summary_is_accepted(tmp_path) -> None:
@@ -97,36 +105,40 @@ def test_oversized_publish_summary_is_accepted(tmp_path) -> None:
 def test_summary_fields_advertise_no_max_length() -> None:
     # A maxLength here would let MCP clients pre-validate and hard-block the
     # call client-side, recreating the rejected-by-decision write cap.
-    verdict_properties = TOOL_SCHEMAS["sprintengine.gate.verdict"]["properties"]
-    assert "maxLength" not in verdict_properties["summary"]
-    assert "maxLength" not in verdict_properties["requiredAction"]["items"]
+    advance_properties = TOOL_SCHEMAS["sprintengine.task.advance"]["properties"]
+    assert "maxLength" not in advance_properties["summary"]
+    assert "maxLength" not in advance_properties["needsInputQuestion"]
+    assert "maxLength" not in advance_properties["needsInputSuggestedResolution"]
     publish_properties = TOOL_SCHEMAS["sprintengine.task.publish"]["properties"]
     assert "maxLength" not in publish_properties["summary"]
 
 
 PROMPT_BYTE_CEILINGS = {
-    # Ceilings are ratcheted tight to the post-prune baselines. architect.md is the
-    # exception: it carries the mandatory architect-picks-the-team roster-composition
-    # guidance, which grows the merged file past the general prune baseline, so its
-    # ceiling sits just above the real green size rather than at the shared floor.
-    "architect.md": 23_000,
-    "code_reviewer.md": 6_000,
-    "cross_platform.md": 4_500,
-    "developer.md": 4_000,
-    "frontend.md": 5_500,
-    "performance.md": 4_000,
-    "product.md": 9_000,
-    "production_readiness_reviewer.md": 7_000,
-    "security.md": 4_000,
-    "spec_reviewer.md": 5_500,
-    "tester.md": 3_500,
+    # Ceilings are ratcheted tight to the current green sizes: each one sits at the
+    # next 250-byte step above the real file, so any growth has to be argued for
+    # (and the ceiling re-ratcheted DOWN, never up). architect.md is the outlier by
+    # content, not by slack — it carries the mandatory architect-picks-the-team
+    # roster-composition guidance.
+    "architect.md": 22_250,
+    "cross_platform.md": 3_500,
+    "developer.md": 3_000,
+    "frontend.md": 4_750,
+    "performance.md": 3_000,
+    "product.md": 8_000,
+    "production_readiness_reviewer.md": 6_000,
+    "security.md": 3_000,
+    "tester.md": 2_750,
 }
 
 SKILL_BYTE_CEILINGS = {
+    # `sprintengine_gate_feedback` was deleted with the gate protocol (MC-1542); its
+    # phase-walk guidance moved into `sprintengine_workflow`. Ceilings still only ever
+    # ratchet DOWN — a consolidation is not a licence to grow the surviving file.
     "sprintengine_workflow": 4_000,
-    "sprintengine_gate_feedback": 4_000,
-    "sprintengine_publish_feedback": 4_000,
-    "sprintengine_architect_workflow": 4_000,
+    "sprintengine_publish_feedback": 1_000,
+    "sprintengine_architect_workflow": 750,
+    # MC-1542: the shared review base pack every phase directive is composed from.
+    "sprintengine_phase_review": 4_800,
 }
 
 

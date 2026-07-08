@@ -2109,12 +2109,6 @@ export default function WorkspaceManager() {
       void addNewSpecialist('frontend-design-review')
       return true
     }
-    if (commandId === 'specialist.spawn.nuclear-review') {
-      setLastSelectedSpecialist('nuclear-review')
-      setSpecialistMenuOpen(false)
-      void addNewSpecialist('nuclear-review')
-      return true
-    }
     // Module-contributed commands carry their handler callback directly; an
     // exact registry hit wins over the panel-command prefix heuristic below.
     // Enablement is re-checked at dispatch so a stale binding cannot fire a

@@ -31,8 +31,6 @@ const guidedBriefInput = {
     product: 'codex',
     frontend: 'claude-code',
     developer: 'claude-code',
-    code_reviewer: 'codex',
-    spec_reviewer: 'claude-code',
     tester: 'claude-code',
     security: 'my-custom-cli',
   },

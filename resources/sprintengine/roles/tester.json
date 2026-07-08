@@ -1,6 +1,6 @@
 {
   "id": "tester",
-  "label": "Tester",
+  "label": "QA",
   "aliases": [
     "qa-test"
   ],

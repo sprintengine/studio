@@ -1,7 +1,7 @@
 export type SprintEngineTaskRecord = {
   id: string
   role: string
-  status: 'todo' | 'changes_requested' | 'in_progress' | 'needs_input' | 'done'
+  status: 'todo' | 'in_progress' | 'review' | 'needs_input' | 'done' | 'canceled'
   ownerAgentId: string | null
   dependsOn: string[]
 }
@@ -37,8 +37,8 @@ export function normalizeSprintEngineTasks(value: unknown): SprintEngineTaskReco
     if (typeof record.id !== 'string' || !record.id.trim()) return []
     if (typeof record.role !== 'string' || !record.role.trim()) return []
 
-    // Command readiness only needs the semantic status (it must keep
-    // changes_requested instead of flattening it to the board's "ready").
+    // Command readiness only needs the semantic status, not the board lane
+    // (folder-store records mirror the board column into `status`).
     return [{
       id: record.id,
       role: record.role,
@@ -54,6 +54,6 @@ export function normalizeSprintEngineTasks(value: unknown): SprintEngineTaskReco
 }
 
 function normalizeTaskStatus(value: unknown): SprintEngineTaskRecord['status'] {
-  if (value === 'changes_requested' || value === 'in_progress' || value === 'needs_input' || value === 'done') return value
+  if (value === 'in_progress' || value === 'review' || value === 'needs_input' || value === 'done' || value === 'canceled') return value
   return 'todo'
 }

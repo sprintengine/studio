@@ -196,47 +196,25 @@ def _task_payload(action: str, args, base: dict) -> tuple[str, dict]:
         return "sprintengine.task.next", {**base, "role": args.role, "id": args.id}
     if action == "claim":
         return "sprintengine.task.claim", {**base, "taskId": args.task_id, "id": args.id}
-    if action == "gate":
-        gate_action = args.gate_action
-        payload = {**base}
-        if hasattr(args, "task_id"):
-            payload["taskId"] = args.task_id
-        if hasattr(args, "gate_id"):
-            payload["gateId"] = args.gate_id
-        if hasattr(args, "role"):
-            payload["role"] = args.role
-        if hasattr(args, "id"):
-            payload["id"] = args.id
-        if hasattr(args, "verdict"):
-            payload["verdict"] = args.verdict
-        if hasattr(args, "summary"):
-            payload["summary"] = args.summary
-        if hasattr(args, "artifact_path"):
-            payload["artifactPath"] = args.artifact_path
-        if hasattr(args, "artifact_title"):
-            payload["artifactTitle"] = args.artifact_title
-        if hasattr(args, "artifact_kind"):
-            payload["artifactKind"] = args.artifact_kind
-        if hasattr(args, "needs_input_kind"):
-            payload["needsInputKind"] = args.needs_input_kind
-        if hasattr(args, "needs_input_reason"):
-            payload["needsInputReason"] = args.needs_input_reason
-        if hasattr(args, "needs_input_question"):
-            payload["needsInputQuestion"] = args.needs_input_question
-        if hasattr(args, "needs_input_suggested_resolution"):
-            payload["needsInputSuggestedResolution"] = args.needs_input_suggested_resolution
-        if hasattr(args, "required_action"):
-            payload["requiredAction"] = args.required_action or []
+    if action == "advance":
+        payload = {
+            **base,
+            "taskId": args.task_id,
+            "id": args.id,
+            "phase": args.phase,
+            "outcome": args.outcome,
+            "summary": args.summary,
+        }
+        for attribute, key in (
+            ("needs_input_kind", "needsInputKind"),
+            ("needs_input_reason", "needsInputReason"),
+            ("needs_input_question", "needsInputQuestion"),
+            ("needs_input_suggested_resolution", "needsInputSuggestedResolution"),
+        ):
+            if getattr(args, attribute, None):
+                payload[key] = getattr(args, attribute)
         payload.update(_feedback_payload(args))
-        if gate_action == "list":
-            return "sprintengine.gate.list", payload
-        if gate_action == "next":
-            return "sprintengine.gate.next", payload
-        if gate_action == "claim":
-            return "sprintengine.gate.claim", payload
-        if gate_action == "verdict":
-            return "sprintengine.gate.verdict", payload
-        raise SystemExit(f"MCP backend does not support task gate action: {gate_action}")
+        return "sprintengine.task.advance", payload
     if action == "status":
         payload = {**base, "taskId": args.task_id, "status": args.status, "id": args.id, "summary": args.summary}
         if getattr(args, "needs_input_kind", None):

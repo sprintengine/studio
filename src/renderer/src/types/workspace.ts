@@ -59,7 +59,7 @@ export type LayoutTemplate = {
 // defined under workspace / user / plugin layers. Those fields use
 // `SprintEngineRoleId` below so unknown configured ids round-trip through
 // normalization without being coerced or dropped.
-export type SprintEngineRole = 'architect' | 'product' | 'developer' | 'frontend' | 'ui_ux_reviewer' | 'tester' | 'security' | 'code_reviewer' | 'nuclear_reviewer' | 'spec_reviewer' | 'performance' | 'production_readiness_reviewer' | 'cross_platform'
+export type SprintEngineRole = 'architect' | 'product' | 'developer' | 'frontend' | 'ui_ux_reviewer' | 'tester' | 'security' | 'performance' | 'production_readiness_reviewer' | 'cross_platform'
 
 // Registry-keyed role identifier. Any non-empty string the role registry
 // emitted (bundled, workspace, user, or plugin layer). UI/runtime surfaces
@@ -112,9 +112,18 @@ export type SprintEngineRoleRegistry = {
 export type SprintEngineSkillMap = Record<SprintEngineRole, string[]>
 export type SprintEngineRoleCounts = Record<SprintEngineRoleId, number>
 
-export type SprintEngineTaskStatus = 'todo' | 'changes_requested' | 'in_progress' | 'review' | 'testing' | 'product' | 'needs_input' | 'done'
+/**
+ * Task lifecycle statuses (MC-1542 single-owner tasks). One agent owns a task
+ * from claim to `done`; `review` means "the owner is reviewing the work it just
+ * made, in the same session". `changes_requested`, `testing`, and `product` were
+ * deleted outright — there is NO read-side tolerance for them (decision 8), and a
+ * pre-MC-1542 run store is rejected before its tasks are ever normalized.
+ * MIRRORS `VALID_TASK_STATUSES` in sprintengine_core/tool/constants.py.
+ */
+export type SprintEngineTaskStatus = 'todo' | 'in_progress' | 'review' | 'needs_input' | 'done' | 'canceled'
 
-export type SprintEngineTaskBoardColumn = 'todo' | 'ready' | 'changes_requested' | 'in_progress' | 'review' | 'testing' | 'product' | 'needs_input' | 'done'
+/** Board columns: todo -> ready -> in progress -> in review -> done, plus needs_input. */
+export type SprintEngineTaskBoardColumn = 'todo' | 'ready' | 'in_progress' | 'review' | 'needs_input' | 'done'
 
 /**
  * Post-implementation phases a task's single owner walks after `task.publish`
@@ -124,67 +133,6 @@ export type SprintEngineTaskBoardColumn = 'todo' | 'ready' | 'changes_requested'
  * in the other.
  */
 export type SprintEngineTaskPhase = 'review'
-
-export type SprintEngineQualityGatePhase = 'review' | 'testing' | 'product'
-
-export type SprintEngineQualityGateStatus =
-  | 'pending'
-  | 'in_progress'
-  | 'approved'
-  | 'changes_requested'
-  | 'blocked'
-  | 'skipped'
-  | 'released'
-  | 'superseded'
-
-export type SprintEngineQualityGateAttemptStatus = SprintEngineQualityGateStatus | 'failed'
-
-export type SprintEngineQualityGateAttempt = {
-  id?: string
-  status?: SprintEngineQualityGateAttemptStatus
-  actor?: string
-  role?: SprintEngineRoleId
-  claimedBy?: string
-  startedAt?: string
-  completedAt?: string
-  verdict?: string
-  note?: string
-  /** Reviewer prose attached on gate verdict (the review itself). */
-  summary?: string
-}
-
-export type SprintEngineQualityGate = {
-  id: string
-  phase: SprintEngineQualityGatePhase
-  role: SprintEngineRoleId
-  status: SprintEngineQualityGateStatus
-  required: boolean
-  allowSelfReview: boolean
-  focus?: string
-  attempts: SprintEngineQualityGateAttempt[]
-}
-
-export type SprintEngineQualityGateSummary = {
-  total: number
-  required: number
-  openRequired: number
-  byPhase: Record<string, number>
-  byStatus: Record<string, number>
-}
-
-export type SprintEngineQualityPolicyGate = {
-  phase: SprintEngineQualityGatePhase
-  role: SprintEngineRoleId
-  required: boolean
-  focus?: string
-}
-
-export type SprintEngineQualityPolicy = {
-  enabled: boolean
-  rosterDriven: boolean
-  lifecyclePhases: SprintEngineQualityGatePhase[]
-  gates: Record<string, SprintEngineQualityPolicyGate>
-}
 
 export type SprintEngineCliWatchPolling = 'enabled' | 'disabled'
 
@@ -216,7 +164,6 @@ export type SprintEngineRecordedArtifact = {
   kind?: string
   title?: string
   path?: string
-  gateId?: string
   createdBy?: string
   createdAt?: string
 }
@@ -502,12 +449,25 @@ export type SprintEngineAgentMeasuredMetrics = {
 }
 
 /** Reviewer-side activity for an agent that performed reviews. */
-export type SprintEngineAgentReviewerMetrics = {
-  reviewsPerformed: number
-  tasksReviewed: number
-  approved: number
-  changesRequested: number
-  blocked: number
+/**
+ * A fix-forward sweep's activity: the tasks it audited and what it did about what
+ * it found. MC-1542 replaced the reviewer/gate-verdict tables with this — a sweep
+ * fixes what it finds rather than sending work back.
+ */
+export type SprintEngineAgentSweepMetrics = {
+  tasksAudited: number
+  assessmentsRecorded: number
+  passed: number
+  fixedForward: number
+  escalated: number
+}
+
+/** What an agent found (and fixed) reviewing its OWN diff, per `task.advance`. */
+export type SprintEngineAgentSelfReviewMetrics = {
+  phasesClosed: number
+  passed: number
+  fixedForward: number
+  escalated: number
 }
 
 export type SprintEngineAgentMetrics = {
@@ -518,7 +478,8 @@ export type SprintEngineAgentMetrics = {
   }
   measured: SprintEngineAgentMeasuredMetrics
   findingsRaised: number
-  reviewer?: SprintEngineAgentReviewerMetrics
+  sweep?: SprintEngineAgentSweepMetrics
+  selfReview?: SprintEngineAgentSelfReviewMetrics
 }
 
 /** Architect difficulty-estimation accuracy (run-wide planning-quality signal). */
@@ -603,9 +564,7 @@ export type SprintEngineCurrentDispatch = {
   role?: SprintEngineRoleId
   reason?: string
   taskId?: string
-  gateId?: string
   artifactId?: string
-  attemptId?: string
   assignedAt?: string
 }
 
@@ -620,12 +579,6 @@ export type SprintEngineRuntimeAgent = {
    * from one that never had one.
    */
   lastOwnedTaskId?: string | null
-  currentGateId?: string | null
-  currentGate?: {
-    taskId?: string
-    gateId?: string
-    attemptId?: string
-  } | null
   lastDirectiveAt?: string | null
   currentDispatch?: SprintEngineCurrentDispatch | null
 }
@@ -688,7 +641,6 @@ export type SprintEngineProjectionStatus = {
 
 export type SprintEngineAutoPendingSpawn = {
   taskId: string
-  gateId?: string
   agentId: string
   startedAt?: number
 }
@@ -1037,9 +989,17 @@ export type SprintEngineTask = {
   source?: SprintEngineTaskSource
   ownerAgentId: string | null
   /** Worker who last published an implementation pass. Retained after the task
-   *  leaves the worker's hands (review/testing/product) so the owning worker
-   *  stays visible while `ownerAgentId` is null. */
+   *  leaves the worker's hands (a `review` phase, or a bound phase session) so
+   *  the owning worker stays visible while `ownerAgentId` is null. */
   lastImplementedByAgentId?: string | null
+  /**
+   * MC-1543 premium review: set when a phase's bound runtime differs from the
+   * owner's, so the task is released (`ownerAgentId: null`) to await a fresh
+   * session on `runtime`. The supervisor Birth-path spawns that session; it
+   * claims the task through `task next` (`claim_phase_session`) without rewinding
+   * the status. Absent for every task in a run with no `phaseRuntimes`.
+   */
+  awaitingPhaseSession?: { phase: SprintEngineTaskPhase; runtime: SprintEngineAllowedRuntime } | null
   /** CLI model that worked this task (e.g. `claude-fable-5`, `opus[1m]`),
    *  stamped at claim from the roster's per-role model selection. Retained
    *  through handoff for attribution and per-task usage metrics. Absent when
@@ -1076,15 +1036,11 @@ export type SprintEngineTask = {
    * `resolveSprintEngineTaskPhases` rather than reading this directly.
    */
   phases?: SprintEngineTaskPhase[]
-  /** Configured quality gates derived from policy + roster. */
-  qualityGates?: SprintEngineQualityGate[]
-  /** Backend-computed aggregate of gate counts by phase/status. */
-  qualityGateSummary?: SprintEngineQualityGateSummary
   /** Newest-first short list of recent comments (any type). */
   latestComments?: SprintEngineTaskComment[]
   /** Newest-first list of feedback comments whose data.status is still open. */
   latestOpenFeedback?: SprintEngineTaskComment[]
-  /** Recorded review/test/product artifacts attached to gate attempts. */
+  /** Review/validation artifacts the task's owner filed against it. */
   recordedArtifacts?: SprintEngineRecordedArtifact[]
 }
 
@@ -1106,8 +1062,6 @@ export type SprintEngineState = {
   locks?: SprintEngineProjectionLocks
   /** Run creation metadata recorded by the folder store. */
   creation?: SprintEngineProjectionCreation
-  /** Roster-driven quality policy from run.yaml; drives lifecycle column visibility. */
-  qualityPolicy?: SprintEngineQualityPolicy
   /** Durable agent polling policy from run.yaml. */
   runner?: SprintEngineRunnerPolicy
   /**
@@ -1170,6 +1124,22 @@ export type SprintEngineState = {
    * the engine default, `['review']`.
    */
   defaultPhases?: SprintEngineTaskPhase[]
+  /**
+   * Sweep role ids the operator mandated for this run (run.yaml `requiredSweeps`,
+   * projection-owned; the wizard forwards it as an init flag). The architect's
+   * planning directive treats them as non-negotiable, and the engine refuses to
+   * complete the run while a required sweep role has no planned task. Absent when
+   * the operator mandated none.
+   */
+  requiredSweeps?: SprintEngineRoleId[]
+  /**
+   * Per-phase runtime bindings (MC-1543, run.yaml `phaseRuntimes`,
+   * projection-owned). When a phase is bound to a runtime that differs from a
+   * task's own, that phase runs as a FRESH, diff-seeded session on the bound
+   * runtime — the operator explicitly paying for independent review. Absent means
+   * every phase runs in-session on the owner's runtime and no extra sessions exist.
+   */
+  phaseRuntimes?: Record<SprintEngineTaskPhase, SprintEngineAllowedRuntime>
 }
 
 export type SprintEngineRosterSource = 'user' | 'architect'
@@ -1282,7 +1252,6 @@ export type MultiloopRole =
   | 'frontend'
   | 'tester'
   | 'security'
-  | 'code_reviewer'
   | 'performance'
   | 'cross_platform'
 
@@ -1303,9 +1272,6 @@ export type BundledSpecialistActionId =
   | 'security-review'
   | 'frontend-design-review'
   | 'ui-ux-review'
-  | 'code-review'
-  | 'nuclear-review'
-  | 'spec-review'
 
 // A specialist id is either a bundled action id or a registry-discovered role id
 // (from a workspace / user / plugin specialist pack). The `(string & {})` arm

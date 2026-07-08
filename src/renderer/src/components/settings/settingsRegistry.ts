@@ -120,9 +120,6 @@ const SPECIALIST_OPTIONS: ReadonlyArray<SelectOption<SpecialistActionId>> = [
   { value: 'security-review', label: 'Security review' },
   { value: 'frontend-design-review', label: 'Frontend designer' },
   { value: 'ui-ux-review', label: 'UI/UX review' },
-  { value: 'code-review', label: 'Code review' },
-  { value: 'nuclear-review', label: 'Nuclear Reviewer' },
-  { value: 'spec-review', label: 'Spec review' },
 ]
 
 const APP_THEME_OPTIONS: ReadonlyArray<SelectOption<AppTheme>> = APP_THEMES.map(
@@ -137,7 +134,6 @@ const MULTILOOP_ROLE_OPTIONS: ReadonlyArray<SelectOption<MultiloopRole>> = [
   { value: 'frontend', label: 'Frontend' },
   { value: 'tester', label: 'Tester' },
   { value: 'security', label: 'Security' },
-  { value: 'code_reviewer', label: 'Code reviewer' },
   { value: 'performance', label: 'Performance' },
   { value: 'cross_platform', label: 'Cross-platform' },
 ]

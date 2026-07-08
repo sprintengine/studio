@@ -73,7 +73,7 @@ function buildArchitectRosterBoundaryBlock(
     'This run\'s roster is not preset. Survey the work, then choose the roles and one model per role and record the team for the user to approve. Only your own architect seat is fixed (it runs this planning session).',
     'Models for this sprint — the ONLY models you may assign to a role; `sprintengine.roster.configure` rejects anything else:',
     paletteLines.join('\n'),
-    'Match each role to the score its work exercises: planning → intelligence; frontend/creative/UI-heavy tasks → frontend design; mobile surfaces → mobile; mechanical, well-specified tasks → speed and cost. Reviews are where quality is enforced — give review-capability roles the highest-intelligence model you can justify against its cost multiplier, and name that trade-off in the Team table. Pick the cheapest model that clears each role\'s bar. Notes are guidance to weigh, not rules.',
+    'Match each role to the score its work exercises: planning → intelligence; frontend/creative/UI-heavy tasks → frontend design; mobile surfaces → mobile; mechanical, well-specified tasks → speed and cost. Sweeps are where cross-cutting quality is enforced — give sweep roles the highest-intelligence model you can justify against its cost multiplier, and name that trade-off in the Team table. Pick the cheapest model that clears each role\'s bar. Notes are guidance to weigh, not rules.',
     trimmedGuidance ? `The user's guidance for this sprint: "${trimmedGuidance}"` : null,
     'Do this, in order:',
     [
@@ -81,7 +81,7 @@ function buildArchitectRosterBoundaryBlock(
       '2. List the available roles with the role-read tools, then pick the SMALLEST team that covers the work.',
       '3. Call `sprintengine.roster.configure` with your chosen roles and one cli/model each (from the palette above) BEFORE creating any task.',
       '4. Record the team in `plan.md` under a `## Team` section: one row per role with its cli/model and a one-line why — including which review roles you chose and why, and which you deliberately left off.',
-      '5. Non-default review roles (security, performance, ui_ux_reviewer, cross_platform, production_readiness_reviewer) only gate a task when you attach them with `plan add-task --require-gate <role-id>`.',
+      '5. A sweep role (security, performance, ui_ux_reviewer, production_readiness_reviewer, tester, product) does its work as its own task late in the graph, depending on the work it audits — never as a gate on someone else\'s task. Enable it here only if you will plan a task for it.',
       '6. You may revise the team with another `sprintengine.roster.configure` call until the plan is approved; after approval the roster is locked and any later gap routes to needs_input(user).',
     ].join('\n'),
   ].filter(Boolean).join('\n')
@@ -109,7 +109,6 @@ export function buildSprintEngineStartupPrompt(
     commandMode?: 'init' | 'join'
     autonomousPlanningOverride?: boolean
     useWorktrees?: boolean
-    claimTool?: 'sprintengine.task.next' | 'sprintengine.gate.next'
   } = {}
 ): string {
   const commandMode = options.commandMode ?? (role === 'architect' ? 'init' : 'join')
@@ -118,10 +117,9 @@ export function buildSprintEngineStartupPrompt(
   // wiring (managed MCP + state path) is identical to a specialist; only the
   // role and the soul-less join result differ.
   const isGeneral = role === 'general' && commandMode !== 'init'
-  const claimTool = options.claimTool ?? 'sprintengine.task.next'
-  const fallbackClaimTool = claimTool === 'sprintengine.task.next'
-    ? 'sprintengine.gate.next'
-    : 'sprintengine.task.next'
+  // One claim tool. MC-1542 deleted `gate.next`: an agent owns its task from claim
+  // to done, so there is no second queue to fall back to.
+  const claimTool = 'sprintengine.task.next'
 
   // The managed Sprint Engine MCP server resolves run and workspace routing
   // from the HTTP run context. Agents do not pass statePath or
@@ -173,8 +171,8 @@ export function buildSprintEngineStartupPrompt(
   const noClaimFallback = commandMode === 'init'
     ? 'If it returns no claim, reply that no work was claimed and stop — Multicode re-engages this terminal when work is ready.'
     : isGeneral
-      ? `If it returns no claim, call \`${fallbackClaimTool}\` once with the same payload — prefer satisfying your own pending review/testing gates before starting new work. If neither returns work and the run has no task graph yet, you are the planner: create the tasks and their quality gates, self-approve the plan gate, then claim your first task. If a plan already exists and nothing is claimable, reply that no work was claimed and stop — Multicode re-engages this terminal when work is ready.`
-      : `If it returns no claim, call \`${fallbackClaimTool}\` once with the same payload. If neither returns work, reply that no work was claimed and stop — Multicode re-engages this terminal when work is ready.`
+      ? 'If it returns no claim and the run has no task graph yet, you are the planner: create the tasks, self-approve the plan artifact, then claim your first task. If a plan already exists and nothing is claimable, reply that no work was claimed and stop — Multicode re-engages this terminal when work is ready.'
+      : 'If it returns no claim, reply that no work was claimed and stop — Multicode re-engages this terminal when work is ready.'
 
   const claimContract = [
     '## Claim Contract',
@@ -189,16 +187,16 @@ export function buildSprintEngineStartupPrompt(
   const generalLoopBlock = isGeneral
     ? [
       '## General Orchestration',
-      'You are a General: one soul-less agent that owns this whole sprint. With no architect and no specialists, you plan the work, implement it, review it, test it, and publish it yourself. When several Generals run, you share the work by claiming tasks and gates — no central coordinator assigns anything.',
-      'Drive every piece of work through the same loop, in order: plan → build → self-review → test → publish. Finish and review/test your open tasks through to done before claiming new ready work, and prefer your own pending review/testing gates over starting a fresh task.',
-      'When the run has no task graph yet, you are the planner: author the tasks with their quality gates (typically a self-review gate and a testing gate), self-approve the plan gate, then implement. Multicode owns run initialization — you never initialize the run yourself.',
+      'You are a General: one soul-less agent that owns this whole sprint. With no architect and no specialists, you plan the work, implement it, review it, test it, and publish it yourself. When several Generals run, you share the work by claiming tasks — no central coordinator assigns anything.',
+      'Drive every piece of work through the same loop, in order: plan → build → publish → self-review → advance. You own a task from claim to done: carry each one through to done before claiming new ready work.',
+      'When the run has no task graph yet, you are the planner: author the tasks, plan validation where testing is actually meaningful (one whole-flow task at the end, or one per milestone), self-approve the plan artifact, then implement. Multicode owns run initialization — you never initialize the run yourself.',
       'Keep the team exactly the size the user set: never add roster members or specialists. Read your full role rules from the `sprintengine.agent.join` response.',
     ].join('\n')
     : null
 
   const autoModeBlock = [
     '## Completion Handling',
-    'After you finish one task or gate, publish evidence or a gate verdict as described by `sprintengine.help`, then stop.',
+    'After a task reaches `done`, stop. `sprintengine.help` describes the publish → review → advance lifecycle.',
     'Multicode owns dispatch and continuation: it re-engages this terminal when more work is ready. Do not keep checking for work.',
   ].join('\n')
 
@@ -231,7 +229,7 @@ export function buildSprintEngineStartupPrompt(
   const autonomousPlanningOverride = options.autonomousPlanningOverride
     ? [
       '## Autonomous Planning Override',
-      'Sprint automation mode is Run agents + approve artifacts. Treat this as user intent for non-interactive planning and artifact-gate progression.',
+      'Sprint automation mode is Run agents + approve artifacts. Treat this as user intent for non-interactive planning and artifact-approval progression.',
       'Agent automation controls spawning; artifact approval automation is the signal to skip normal grilling.',
       'Use approved artifacts, the Knowledge Graph, current code, tests, and commands to answer discovery questions yourself where possible.',
       'Do not pause for ordinary preference, naming, scope-shaping, or plan-review questions. Proceed with conservative defaults, record them in `plan.md`, and only ask the user if a decision is unsafe to default, destructive, privacy/security-sensitive, legally sensitive, impossible to verify, or blocked by a missing dependency.',

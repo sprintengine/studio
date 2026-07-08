@@ -93,9 +93,6 @@ const defaultSprintEngineRoleCliDefaults = (): Required<SprintEngineRoleCliDefau
   frontend: 'claude-code',
   ui_ux_reviewer: 'claude-code',
   developer: 'claude-code',
-  code_reviewer: 'claude-code',
-  nuclear_reviewer: 'claude-code',
-  spec_reviewer: 'claude-code',
   performance: 'claude-code',
   production_readiness_reviewer: 'claude-code',
   cross_platform: 'claude-code',
@@ -190,7 +187,6 @@ function normalizeSprintEngineAutoPendingSpawn(
   return typeof input?.taskId === 'string' && typeof input.agentId === 'string'
     ? {
       taskId: input.taskId,
-      ...(typeof input.gateId === 'string' && input.gateId ? { gateId: input.gateId } : {}),
       agentId: input.agentId,
       ...(typeof input.startedAt === 'number' ? { startedAt: input.startedAt } : {}),
     }

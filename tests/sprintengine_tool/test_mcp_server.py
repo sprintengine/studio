@@ -192,11 +192,7 @@ def test_mcp_tool_schemas_cover_swarm_command_groups() -> None:
         "sprintengine.task.comment",
         "sprintengine.task.comment.list",
         "sprintengine.task.list",
-        "sprintengine.task.request_changes",
-        "sprintengine.gate.list",
-        "sprintengine.gate.next",
-        "sprintengine.gate.claim",
-        "sprintengine.gate.verdict",
+        "sprintengine.task.advance",
         "sprintengine.plan.add_task",
         "sprintengine.plan.update_task",
         "sprintengine.plan.delete_task",
@@ -258,10 +254,7 @@ def test_mcp_contract_registry_covers_schemas_and_payload_adapters(tmp_path) -> 
         "sprintengine.task.comment": {"taskId": "T1", "id": "developer-1", "body": "comment"},
         "sprintengine.task.comment.list": {"taskId": "T1"},
         "sprintengine.task.list": {},
-        "sprintengine.gate.list": {},
-        "sprintengine.gate.next": {"role": "tester", "id": "tester"},
-        "sprintengine.gate.claim": {"taskId": "T1", "gateId": "tester", "role": "tester", "id": "tester"},
-        "sprintengine.gate.verdict": {"taskId": "T1", "gateId": "tester", "role": "tester", "id": "tester", "verdict": "approved", "summary": "ok"},
+        "sprintengine.task.advance": {"taskId": "T1", "id": "developer-1", "phase": "review", "outcome": "pass", "summary": "ok"},
         "sprintengine.plan.add_task": {"title": "Task", "role": "developer"},
         "sprintengine.plan.update_task": {"taskId": "T1"},
         "sprintengine.plan.delete_task": {"taskId": "T1"},
@@ -311,11 +304,14 @@ def test_mcp_help_returns_versioned_agent_workflow_without_state_path() -> None:
     assert "sprintengine.task.next" in result["markdown"]
     assert "needsInputKind" in result["markdown"]
     assert "sprintengine.artifact.add" in result["markdown"]
-    assert "sprintengine.gate.verdict" in result["markdown"]
-    assert "sprintengine.task.request_changes" in result["markdown"]
-    assert "outside an active gate" in result["markdown"]
-    assert "task.publish commits task-scoped changes under the git commit lock" in result["markdown"]
+    assert "sprintengine.task.advance" in result["markdown"]
+    assert "You own your task from claim to done" in result["markdown"]
+    assert "commits task-scoped changes under the git commit lock" in result["markdown"]
     assert "sprintengine.vcs.commit" in result["markdown"]
+    # MC-1542: the retired review protocol must not linger in the workflow an
+    # agent reads on every join.
+    assert "sprintengine.gate." not in result["markdown"]
+    assert "request_changes" not in result["markdown"]
 
 
 def test_mcp_v1_contract_schemas_include_planned_lifecycle_and_dispatch_tools() -> None:
@@ -337,8 +333,7 @@ def test_mcp_v1_contract_schemas_include_planned_lifecycle_and_dispatch_tools() 
         "sprintengine.skill.get",
         "sprintengine.task.get",
         "sprintengine.task.publish",
-        "sprintengine.task.request_changes",
-        "sprintengine.gate.list",
+        "sprintengine.task.advance",
         "sprintengine.run.get",
         "sprintengine.run.policy.get",
         "sprintengine.run.subscribe",
@@ -350,14 +345,19 @@ def test_mcp_v1_contract_schemas_include_planned_lifecycle_and_dispatch_tools() 
     assert planned <= set(MCP_V1_CONTRACT_SCHEMAS)
     assert active_now <= set(TOOL_SCHEMAS)
     assert MCP_V1_CONTRACT_SCHEMAS["sprintengine.task.status"]["properties"]["status"]["enum"]
-    assert MCP_V1_CONTRACT_SCHEMAS["sprintengine.gate.verdict"]["properties"]["verdict"]["enum"]
-    assert "needsInputKind" not in MCP_V1_CONTRACT_SCHEMAS["sprintengine.task.request_changes"]["properties"]
+    advance = MCP_V1_CONTRACT_SCHEMAS["sprintengine.task.advance"]["properties"]
+    assert advance["phase"]["enum"] == ["review"]
+    assert advance["outcome"]["enum"] == ["escalate", "pass", "pass_with_fixes"]
+    # `escalate` is the only needs-input route out of a phase, so advance carries
+    # the needs-input fields the retired request_changes tool refused.
+    assert "needsInputKind" in advance
+    assert "needsInputQuestion" in advance
 
 
 def test_mcp_feedback_schemas_expose_known_feedback_fields() -> None:
     feedback_tools = [
         "sprintengine.task.status",
-        "sprintengine.gate.verdict",
+        "sprintengine.task.advance",
         "sprintengine.artifact.ready",
     ]
 
@@ -380,13 +380,11 @@ def test_mcp_feedback_schemas_expose_known_feedback_fields() -> None:
         assert "issueJson" in properties
         assert "finding_json" not in properties
         assert "findingJson" in properties
-    for tool_name in ("sprintengine.gate.verdict",):
-        properties = MCP_V1_CONTRACT_SCHEMAS[tool_name]["properties"]
-        assert "reviewed_difficulty_pct" not in properties
-        assert properties["reviewedDifficultyPct"]["type"] == "integer"
-        assert properties["reviewedDifficultyPct"]["maximum"] == 100
-        assert "implementation" in properties["reviewedDifficultyDimension"]["enum"]
-        assert properties["reviewedDifficultyReason"]["type"] == "string"
+    # MC-1542 deleted the reviewer-difficulty assessment with the reviewer role:
+    # a phase advance is the owner reporting on its own work, so there is no
+    # second party to score the difficulty of.
+    advance_properties = MCP_V1_CONTRACT_SCHEMAS["sprintengine.task.advance"]["properties"]
+    assert not [name for name in advance_properties if name.startswith("reviewedDifficulty")]
     for tool_name in ("sprintengine.plan.add_task", "sprintengine.plan.update_task"):
         properties = MCP_V1_CONTRACT_SCHEMAS[tool_name]["properties"]
         assert "difficulty_pct" not in properties
@@ -541,185 +539,117 @@ def test_mcp_dispatch_next_returns_only_requested_agent_rows(tmp_path) -> None:
     assert after_seen["result"]["dispatches"] == []
 
 
-def test_mcp_gate_claim_and_verdict_use_core_lifecycle_and_audit(tmp_path) -> None:
-    task_record = task("T1", "Reviewable", "developer", "review", owner="developer-a")
-    task_record["qualityGates"] = [
-        {
-            "id": "code-review",
-            "phase": "review",
-            "role": "code_reviewer",
-            "status": "pending",
-            "required": True,
-            "allowSelfReview": True,
-            "focus": "Review implementation.",
-            "attempts": [],
-        }
-    ]
-    fixture = create_team(tmp_path, "mcp-gate-lifecycle", [task_record])
+def reviewing_task() -> dict:
+    """A published task in its review phase, still owned by its implementer."""
+    record = task("T1", "Reviewable", "developer", "review", owner="developer-a")
+    record["startedAt"] = "2026-07-08T00:00:00Z"
+    return record
+
+
+def test_mcp_task_advance_uses_core_lifecycle_and_audit(tmp_path) -> None:
+    fixture = create_team(tmp_path, "mcp-advance-lifecycle", [reviewing_task()])
     server = SprintEngineMcpServer(allowed_roots=[tmp_path])
 
-    listed = server.call_tool(
-        "sprintengine.gate.list",
-        {"statePath": str(fixture.state_path), "role": "code_reviewer"},
-        actor("workspace-user", "user"),
-    )
-    claimed = server.call_tool(
-        "sprintengine.gate.next",
-        {"statePath": str(fixture.state_path), "role": "code_reviewer", "id": "reviewer-a"},
-        actor("workspace-user", "user"),
-    )
-    verdict = server.call_tool(
-        "sprintengine.gate.verdict",
+    advanced = server.call_tool(
+        "sprintengine.task.advance",
         {
             "statePath": str(fixture.state_path),
             "taskId": "T1",
-            "gateId": "code-review",
-            "role": "code_reviewer",
-            "id": "reviewer-a",
-            "verdict": "approved",
+            "id": "developer-a",
+            "phase": "review",
+            "outcome": "pass",
             "summary": "Implementation matches the task card.",
         },
         actor("workspace-user", "user"),
     )
 
-    assert listed["ok"] is True
-    assert [gate["id"] for gate in listed["result"]["gates"]] == ["code-review"]
-    assert claimed["ok"] is True
-    assert claimed["result"]["state"] == "dispatched"
-    assert claimed["result"]["currentDispatch"]["targetKind"] == "gate"
-    assert claimed["result"]["attempt"]["id"] == "GA-001"
-    assert verdict["ok"] is True
-    assert verdict["result"]["gate"]["status"] == "approved"
-    assert verdict["result"]["progression"]["state"] == "idle"
-    assert [row["operation_name"] for row in audit_rows(fixture.team_dir)] == [
-        "sprintengine.gate.next",
-        "sprintengine.gate.verdict",
-    ]
+    assert advanced["ok"] is True
+    assert advanced["result"]["phase"] == "review"
+    assert advanced["result"]["outcome"] == "pass"
+    assert advanced["result"]["nextStatus"] == "done"
+    # Terminal phase: no next phase, so no directive to hand back.
+    assert "nextPhase" not in advanced["result"]
+    assert "nextDirective" not in advanced["result"]
+    assert advanced["result"]["progression"]["state"] == "idle"
+    assert [row["operation_name"] for row in audit_rows(fixture.team_dir)] == ["sprintengine.task.advance"]
+
+    persisted = get_task(read_state(fixture.state_path), "T1")
+    assert persisted["status"] == "done"
+    assert persisted["ownerAgentId"] is None
 
 
-def test_mcp_gate_verdict_forwards_feedback_count_fields_to_metrics(tmp_path) -> None:
-    def run_verdict(team_name: str, payload_counts: dict[str, int]) -> tuple[dict, dict]:
-        task_record = task("T1", "Reviewable", "developer", "review", owner="developer-a")
-        task_record["qualityGates"] = [
-            {
-                "id": "code-review",
-                "phase": "review",
-                "role": "code_reviewer",
-                "status": "pending",
-                "required": True,
-                "allowSelfReview": True,
-                "focus": "Review implementation.",
-                "attempts": [],
-            }
-        ]
-        fixture = create_team(tmp_path, team_name, [task_record])
+def test_mcp_task_advance_forwards_feedback_count_fields_to_metrics(tmp_path) -> None:
+    def run_advance(team_name: str, payload_counts: dict[str, int]) -> tuple[dict, dict]:
+        fixture = create_team(tmp_path, team_name, [reviewing_task()])
         server = SprintEngineMcpServer(allowed_roots=[tmp_path])
-        claimed = server.call_tool(
-            "sprintengine.gate.next",
-            {"statePath": str(fixture.state_path), "role": "code_reviewer", "id": "reviewer-a"},
-            actor("workspace-user", "user"),
-        )
-        verdict = server.call_tool(
-            "sprintengine.gate.verdict",
+        advanced = server.call_tool(
+            "sprintengine.task.advance",
             {
                 "statePath": str(fixture.state_path),
                 "taskId": "T1",
-                "gateId": "code-review",
-                "role": "code_reviewer",
-                "id": "reviewer-a",
-                "verdict": "approved",
+                "id": "developer-a",
+                "phase": "review",
+                "outcome": "pass",
                 "summary": "Implementation matches the task card.",
                 **payload_counts,
             },
             actor("workspace-user", "user"),
         )
 
-        assert claimed["ok"] is True
-        assert verdict["ok"] is True
-        assert verdict["result"]["feedbackRecorded"] is True
+        assert advanced["ok"] is True
+        assert advanced["result"]["feedbackRecorded"] is True
         record = feedback_rows(fixture.team_dir)[0]
+        # A phase advance is the OWNER reporting on its own work, so the feedback
+        # lands as a self-report, not as a reviewer assessment of someone else.
+        assert record["source"] == "phase_advance_self_review"
+        assert record["phase"] == "review"
+        assert record["phase_outcome"] == "pass"
         reviewed = get_task(read_state(fixture.state_path), "T1")
-        return record, reviewed["feedbackAssessments"][0]
+        assert "feedbackAssessments" not in reviewed
+        return record, reviewed["feedback"]
 
-    camel_record, camel_assessment = run_verdict(
-        "mcp-gate-camel-counts",
+    camel_record, camel_feedback = run_advance(
+        "mcp-advance-camel-counts",
         {camel: index + 1 for index, (_, camel, _) in enumerate(FEEDBACK_COUNT_FIELDS)},
     )
-    snake_record, snake_assessment = run_verdict(
-        "mcp-gate-snake-counts",
+    snake_record, snake_feedback = run_advance(
+        "mcp-advance-snake-counts",
         {attr: index + 11 for index, (attr, _, _) in enumerate(FEEDBACK_COUNT_FIELDS)},
     )
 
     for index, (_, state_key, json_key) in enumerate(FEEDBACK_COUNT_FIELDS):
         assert camel_record["counts"][json_key] == index + 1
-        assert camel_assessment["counts"][state_key] == index + 1
+        assert camel_feedback["counts"][state_key] == index + 1
         assert snake_record["counts"][json_key] == index + 11
-        assert snake_assessment["counts"][state_key] == index + 11
+        assert snake_feedback["counts"][state_key] == index + 11
 
 
-def test_mcp_gate_publish_records_reviewer_difficulty_assessment(tmp_path) -> None:
-    task_record = task("T1", "Reviewable", "developer", "review", owner="developer-a")
-    task_record["qualityGates"] = [
-        {
-            "id": "code-review",
-            "phase": "review",
-            "role": "code_reviewer",
-            "status": "pending",
-            "required": True,
-            "allowSelfReview": True,
-            "focus": "Review implementation.",
-            "attempts": [],
-        }
-    ]
-    fixture = create_team(tmp_path, "mcp-gate-publish-difficulty", [task_record])
+def test_mcp_task_advance_records_the_phase_on_the_state_feedback(tmp_path) -> None:
+    fixture = create_team(tmp_path, "mcp-advance-phase-context", [reviewing_task()])
     server = SprintEngineMcpServer(allowed_roots=[tmp_path])
 
-    claimed = server.call_tool(
-        "sprintengine.gate.next",
-        {"statePath": str(fixture.state_path), "role": "code_reviewer", "id": "reviewer-a"},
-        actor("workspace-user", "user"),
-    )
-    verdict = server.call_tool(
-        "sprintengine.gate.verdict",
+    advanced = server.call_tool(
+        "sprintengine.task.advance",
         {
             "statePath": str(fixture.state_path),
             "taskId": "T1",
-            "gateId": "code-review",
-            "role": "code_reviewer",
-            "id": "reviewer-a",
-            "verdict": "approved",
-            "summary": "Implementation matches the task card.",
-            "reviewedDifficultyPct": 74,
-            "reviewedDifficultyDimension": "implementation",
-            "reviewedDifficultyReason": "MCP gate publish covered several coordination paths.",
+            "id": "developer-a",
+            "phase": "review",
+            "outcome": "pass_with_fixes",
+            "summary": "Fixed a null guard I missed.",
             "claimsChecked": 6,
         },
         actor("workspace-user", "user"),
     )
 
-    assert claimed["ok"] is True
-    assert verdict["ok"] is True
-    assert verdict["result"]["feedbackRecorded"] is True
-    reviewed = get_task(read_state(fixture.state_path), "T1")
-    assessment = reviewed["difficulty"]["reviewerAssessments"][0]
-    assert assessment["pct"] == 74
-    assert assessment["dimension"] == "implementation"
-    assert assessment["reason"] == "MCP gate publish covered several coordination paths."
-    assert assessment["reviewerAgentId"] == "reviewer-a"
-    assert assessment["reviewerRole"] == "code_reviewer"
-    assert assessment["gateId"] == "code-review"
-    assert assessment["gateAttemptId"] == "GA-001"
-    assert assessment["capturedAt"]
-
-    record = feedback_rows(fixture.team_dir)[0]
-    reviewer_assessment = record["difficulty"]["reviewer_assessments"][0]
-    assert reviewer_assessment["pct"] == 74
-    assert reviewer_assessment["dimension"] == "implementation"
-    assert reviewer_assessment["reviewer_agent_id"] == "reviewer-a"
-    assert reviewer_assessment["gate_attempt_id"] == "GA-001"
+    assert advanced["ok"] is True
+    feedback = get_task(read_state(fixture.state_path), "T1")["feedback"]
+    assert feedback["source"] == "phase_advance_self_review"
+    assert feedback["phase"] == {"phase": "review", "outcome": "pass_with_fixes"}
+    assert feedback["counts"]["claimsChecked"] == 6
 
 
-def test_mcp_task_get_comment_publish_and_request_changes_cover_agent_paths(tmp_path) -> None:
+def test_mcp_task_get_comment_publish_and_advance_cover_agent_paths(tmp_path) -> None:
     fixture = create_team(
         tmp_path,
         "mcp-task-coverage",
@@ -747,63 +677,93 @@ def test_mcp_task_get_comment_publish_and_request_changes_cover_agent_paths(tmp_
         {"statePath": str(fixture.state_path), "taskId": "T1", "id": "developer-a", "summary": "Ready for review.", "path": ["sprintengine_mcp/server.py"]},
         actor("workspace-user", "user"),
     )
-    changes = server.call_tool(
-        "sprintengine.task.request_changes",
-        {"statePath": str(fixture.state_path), "taskId": "T1", "id": "reviewer-a", "reason": "Add MCP gate coverage."},
-        actor("workspace-user", "user"),
-    )
 
     assert comment["ok"] is True
     assert comments["result"]["comments"][0]["body"] == "Implementation note."
     assert fetched["result"]["task"]["id"] == "T1"
     assert published["ok"] is True
-    assert published["result"]["nextStatus"] == "done"
-    assert published["result"]["progression"]["state"] == "idle"
+    # The task produced a diff, so publish routes it into review and the owner
+    # keeps it — the phase directive rides back inline.
+    assert published["result"]["nextStatus"] == "review"
+    assert published["result"]["nextDirective"]
     # Mutation tools return acks, not task echoes.
     assert "task" not in published["result"]
     assert published["result"]["taskId"] == "T1"
-    assert changes["ok"] is True
-    assert "task" not in changes["result"]
-    assert changes["result"]["taskId"] == "T1"
-    assert changes["result"]["taskStatus"] == "changes_requested"
-    assert changes["result"]["comment"]["type"] == "review_feedback"
-    assert changes["result"]["comment"]["data"]["status"] == "open"
-    assert changes["result"]["comment"]["data"]["reason"] == "Add MCP gate coverage."
-    # The open review feedback travels in the ack delta (newest first) and in the store.
-    assert changes["result"]["openFeedback"][0]["body"] == "Add MCP gate coverage."
+    mid_walk = get_task(read_state(fixture.state_path), "T1")
+    assert mid_walk["status"] == "review"
+    assert mid_walk["ownerAgentId"] == "developer-a"
+
+    advanced = server.call_tool(
+        "sprintengine.task.advance",
+        {
+            "statePath": str(fixture.state_path),
+            "taskId": "T1",
+            "id": "developer-a",
+            "phase": "review",
+            "outcome": "pass_with_fixes",
+            "summary": "Found and fixed a missing MCP path.",
+        },
+        actor("workspace-user", "user"),
+    )
+
+    assert advanced["ok"] is True
+    assert "task" not in advanced["result"]
+    assert advanced["result"]["taskId"] == "T1"
+    assert advanced["result"]["nextStatus"] == "done"
+    assert advanced["result"]["comment"]["type"] == "implementation_summary"
+    assert advanced["result"]["progression"]["state"] == "idle"
     persisted = get_task(read_state(fixture.state_path), "T1")
-    assert persisted["status"] == "changes_requested"
+    assert persisted["status"] == "done"
     assert "needsInput" not in persisted
     assert persisted["ownerAgentId"] is None
 
 
-def test_mcp_task_request_changes_rejects_needs_input_fields(tmp_path) -> None:
-    fixture = create_team(
-        tmp_path,
-        "mcp-request-changes-needs-input-fields",
-        [task("T1", "Publishable", "developer", status="in_progress", owner="developer-a")],
-    )
+def test_mcp_task_advance_is_owner_only(tmp_path) -> None:
+    """The single-owner replacement for the reviewer-only gate.verdict guard."""
+    fixture = create_team(tmp_path, "mcp-advance-owner-only", [reviewing_task()])
     server = SprintEngineMcpServer(allowed_roots=[tmp_path])
 
     response = server.call_tool(
-        "sprintengine.task.request_changes",
+        "sprintengine.task.advance",
         {
             "statePath": str(fixture.state_path),
             "taskId": "T1",
             "id": "reviewer-a",
-            "reason": "Compile fails.",
-            "needsInputKind": "owner",
-            "needsInputQuestion": "Please fix the compile failure.",
+            "phase": "review",
+            "outcome": "pass",
+            "summary": "Looks fine to me.",
         },
         actor("workspace-user", "user"),
     )
 
     assert response["ok"] is False
-    assert response["error"]["code"] == "invalid_payload"
-    assert "routes ordinary rework to changes_requested" in response["error"]["message"]
-    state = read_state(fixture.state_path)
-    task_record = get_task(state, "T1")
-    assert task_record["status"] == "in_progress"
+    assert "not_task_owner" in response["error"]["message"]
+    task_record = get_task(read_state(fixture.state_path), "T1")
+    assert task_record["status"] == "review"
+    assert task_record["ownerAgentId"] == "developer-a"
+
+
+def test_mcp_task_advance_escalate_requires_a_question(tmp_path) -> None:
+    fixture = create_team(tmp_path, "mcp-advance-escalate-guard", [reviewing_task()])
+    server = SprintEngineMcpServer(allowed_roots=[tmp_path])
+
+    response = server.call_tool(
+        "sprintengine.task.advance",
+        {
+            "statePath": str(fixture.state_path),
+            "taskId": "T1",
+            "id": "developer-a",
+            "phase": "review",
+            "outcome": "escalate",
+            "summary": "The plan contradicts the contract.",
+        },
+        actor("workspace-user", "user"),
+    )
+
+    assert response["ok"] is False
+    assert "needs-input question" in response["error"]["message"]
+    task_record = get_task(read_state(fixture.state_path), "T1")
+    assert task_record["status"] == "review"
     assert task_record["ownerAgentId"] == "developer-a"
 
 
@@ -840,7 +800,7 @@ def test_mcp_agent_join_returns_prompt_registry_run_and_dispatch_context(tmp_pat
     assert "# SprintEngine Coordination Rules" in result["prompt"]
     # The MCP-coordination rule lives in the shared sprintengine_workflow skill;
     # role prompts no longer restate it.
-    assert "Coordinate through Sprint Engine MCP tools rather than editing run-store files directly" in result["prompt"]
+    assert "Coordinate through Sprint Engine MCP tools; never edit run-store files directly" in result["prompt"]
     assert "# Sprint Engine Workflow" in result["prompt"]
     assert "# Sprint Engine Publish Feedback" in result["prompt"]
     assert "# Sprint Engine Architect Workflow" not in result["prompt"]
@@ -857,7 +817,7 @@ def test_mcp_run_metadata_carries_configured_roles(tmp_path) -> None:
     # runs carry the list; legacy runs omit the field.
     configured = create_team(tmp_path, "mcp-configured-roles", [task("T1", "Build", "developer")])
     state = read_state(configured.state_path)
-    state["configuredRoles"] = ["architect", "developer", "nuclear_reviewer", "tester"]
+    state["configuredRoles"] = ["architect", "developer", "security", "tester"]
     write_state(configured.state_path, state)
     server = SprintEngineMcpServer(allowed_roots=[tmp_path, REPO_ROOT])
 
@@ -880,13 +840,13 @@ def test_mcp_run_metadata_carries_configured_roles(tmp_path) -> None:
     assert joined["result"]["run"]["configuredRoles"] == [
         "architect",
         "developer",
-        "nuclear_reviewer",
+        "security",
         "tester",
     ]
     assert run["result"]["run"]["configuredRoles"] == [
         "architect",
         "developer",
-        "nuclear_reviewer",
+        "security",
         "tester",
     ]
 
@@ -930,7 +890,7 @@ def test_mcp_agent_join_injects_role_specific_runtime_skills_without_gate_contex
         {
             "statePath": str(fixture.state_path),
             "workspaceRoot": str(REPO_ROOT),
-            "role": "spec_reviewer",
+            "role": "security",
             "agentId": "spec-reviewer-a",
         },
         actor("workspace-user", "user"),
@@ -989,31 +949,21 @@ def test_mcp_next_directive_matches_join_for_active_and_ready_tasks(tmp_path) ->
     assert active["task"]["id"] == "T1"
 
 
-def test_mcp_next_directive_matches_join_for_gate_work(tmp_path) -> None:
-    task_record = task("T1", "Reviewable task", "developer", "review", owner="developer-a")
-    task_record["qualityGates"] = [
-        {
-            "id": "code-review",
-            "phase": "review",
-            "role": "code_reviewer",
-            "status": "pending",
-            "required": True,
-            "allowSelfReview": True,
-            "focus": "Review implementation.",
-            "attempts": [],
-        }
-    ]
-    fixture = create_team(tmp_path, "mcp-next-directive-gate", [task_record])
+def test_mcp_next_directive_matches_join_for_a_task_in_review(tmp_path) -> None:
+    """MC-1542 Flow 6: a task in `review` stays owned, so its owner rejoining is a
+    plain resume — there is no separate reviewer to route a gate directive to."""
+    fixture = create_team(tmp_path, "mcp-next-directive-review", [reviewing_task()])
     server = SprintEngineMcpServer(allowed_roots=[tmp_path])
 
-    joined = fixture.cli.run("join", "--role", "code_reviewer", "--id", "reviewer-a")
-    directive = next_directive(server, fixture, "code_reviewer", "reviewer-a")
+    joined = fixture.cli.run("join", "--role", "developer", "--id", "developer-a")
+    directive = next_directive(server, fixture, "developer", "developer-a")
 
-    assert joined["action"] == "gate_work"
+    assert joined["action"] == "resume"
     assert directive["joinAction"] == joined["action"]
-    assert directive["directiveType"] == "gate_work"
-    assert directive["nextMcpToolName"] == "sprintengine.gate.next"
-    assert directive["gate"]["id"] == "code-review"
+    assert directive["directiveType"] == "resume"
+    assert directive["task"]["id"] == "T1"
+    assert directive["task"]["status"] == "review"
+    assert "gate" not in directive
 
 
 def test_mcp_next_directive_matches_join_for_needs_input_idle_complete_blocked_and_error(tmp_path) -> None:
@@ -1501,44 +1451,26 @@ def test_mcp_agent_leave_releases_owned_active_task_when_agent_ref_is_stale(tmp_
     assert task_record["ownerAgentId"] is None
 
 
-def test_mcp_agent_leave_releases_active_gate_without_blocked_attempt(tmp_path) -> None:
-    task_record = task("T1", "Reviewable task", "developer", "review", owner="developer-a")
-    task_record["qualityGates"] = [
-        {
-            "id": "code-review",
-            "phase": "review",
-            "role": "code_reviewer",
-            "status": "pending",
-            "required": True,
-            "allowSelfReview": True,
-            "focus": "Review implementation.",
-            "attempts": [],
-        }
-    ]
-    fixture = create_team(tmp_path, "mcp-agent-leave-gate-release", [task_record])
-    fixture.cli.run("task", "gate", "next", "--role", "code_reviewer", "--id", "code-reviewer-a")
+def test_mcp_agent_leave_keeps_a_review_task_bound_to_its_owner(tmp_path) -> None:
+    """MC-1542 Flow 6: releasing a `review` task to `todo` would hand a stranger a
+    task whose diff is already published. The owner is revived under the same id."""
+    fixture = create_team(tmp_path, "mcp-agent-leave-review", [reviewing_task()])
+    state = read_state(fixture.state_path)
+    state["agents"] = {"developer-a": {"role": "developer", "status": "running", "currentTaskId": "T1"}}
+    write_state(fixture.state_path, state)
     server = SprintEngineMcpServer(allowed_roots=[tmp_path])
 
     response = server.call_tool(
         "sprintengine.agent.leave",
-        {"statePath": str(fixture.state_path), "agentId": "code-reviewer-a", "reason": "terminal closed"},
+        {"statePath": str(fixture.state_path), "agentId": "developer-a", "reason": "terminal closed"},
         actor("workspace-user", "user"),
     )
 
     assert response["ok"] is True
-    assert response["result"]["releasedTargets"] == [
-        {"kind": "gate", "taskId": "T1", "gateId": "code-review", "attemptId": "GA-001"}
-    ]
-    state = read_state(fixture.state_path)
-    gate = get_task(state, "T1")["qualityGates"][0]
-    assert gate["status"] == "pending"
-    assert gate["attempts"][0]["status"] == "released"
-    assert gate["attempts"][0]["status"] != "blocked"
-
-    reclaimed = fixture.cli.run("task", "gate", "next", "--role", "code_reviewer", "--id", "code-reviewer-b")
-    assert reclaimed["claimed"] is True
-    assert reclaimed["gate"]["status"] == "in_progress"
-    assert reclaimed["attempt"]["id"] == "GA-002"
+    assert response["result"]["releasedTargets"] == []
+    task_record = get_task(read_state(fixture.state_path), "T1")
+    assert task_record["status"] == "review"
+    assert task_record["ownerAgentId"] == "developer-a"
 
 
 def test_mcp_registry_discovery_returns_roles_skills_brief_and_warnings(tmp_path) -> None:
@@ -1657,34 +1589,63 @@ def test_mcp_plan_add_and_update_task_forward_needs_triage(tmp_path) -> None:
     assert updated_record["difficulty"]["architectEstimatePct"] == 55
 
 
-def test_mcp_plan_add_task_forwards_quality_gate_flags(tmp_path) -> None:
-    fixture = create_team(tmp_path, "mcp-plan-quality-flags", [])
+def test_mcp_plan_add_task_forwards_phases(tmp_path) -> None:
+    fixture = create_team(tmp_path, "mcp-plan-phases", [])
     state = read_state(fixture.state_path)
     state["sprintengine"]["rosterConfigured"] = True
-    state["agents"] = {
-        "architect": {"role": "architect", "status": "idle", "currentTaskId": None},
-        "code-reviewer": {"role": "code_reviewer", "status": "idle", "currentTaskId": None},
-    }
+    state["agents"] = {"architect": {"role": "architect", "status": "idle", "currentTaskId": None}}
+    write_state(fixture.state_path, state)
+    server = SprintEngineMcpServer(allowed_roots=[tmp_path])
+
+    trimmed = server.call_tool(
+        "sprintengine.plan.add_task",
+        {
+            "statePath": str(fixture.state_path),
+            "title": "Docs only",
+            "role": "architect",
+            "path": ["docs/sprintengine-cli.md"],
+            "producesImplementation": True,
+            # `[]` is an explicit "no review phase", not an absent key.
+            "phases": [],
+        },
+        actor("workspace-user", "user"),
+    )
+
+    assert trimmed["ok"] is True
+    trimmed_record = get_task(read_state(fixture.state_path), trimmed["result"]["taskId"])
+    assert trimmed_record["producesImplementation"] is True
+    assert trimmed_record["phases"] == []
+    assert "qualityGates" not in trimmed_record
+
+    inherited = server.call_tool(
+        "sprintengine.plan.add_task",
+        {"statePath": str(fixture.state_path), "title": "Real work", "role": "architect"},
+        actor("workspace-user", "user"),
+    )
+
+    assert inherited["ok"] is True
+    # An absent `phases` inherits the run default rather than pinning a copy.
+    inherited_record = get_task(read_state(fixture.state_path), inherited["result"]["taskId"])
+    assert "phases" not in inherited_record
+
+
+def test_mcp_plan_add_task_rejects_a_phase_outside_the_run_ceiling(tmp_path) -> None:
+    fixture = create_team(tmp_path, "mcp-plan-phase-ceiling", [])
+    state = read_state(fixture.state_path)
+    state["sprintengine"]["rosterConfigured"] = True
+    state["agents"] = {"architect": {"role": "architect", "status": "idle", "currentTaskId": None}}
+    state["defaultPhases"] = []
     write_state(fixture.state_path, state)
     server = SprintEngineMcpServer(allowed_roots=[tmp_path])
 
     response = server.call_tool(
         "sprintengine.plan.add_task",
-        {
-            "statePath": str(fixture.state_path),
-            "title": "Architect implementation",
-            "role": "architect",
-            "path": ["docs/sprintengine-cli.md"],
-            "producesImplementation": True,
-            "requireGate": ["code-reviewer"],
-        },
+        {"statePath": str(fixture.state_path), "title": "Sneaky review", "role": "architect", "phases": ["review"]},
         actor("workspace-user", "user"),
     )
 
-    assert response["ok"] is True
-    task_record = get_task(read_state(fixture.state_path), response["result"]["taskId"])
-    assert task_record["producesImplementation"] is True
-    assert [gate["id"] for gate in task_record["qualityGates"]] == ["code_reviewer"]
+    assert response["ok"] is False
+    assert "phase_not_configured_for_run" in response["error"]["message"]
 
 
 def test_mcp_plan_update_task_edits_execution_details_and_preserves_source(tmp_path) -> None:

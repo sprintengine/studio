@@ -22,8 +22,6 @@ PLAN_REVIEW_FOCUS = {
     "ui_ux_reviewer": "rendered frontend UX/UI quality, brand alignment, panel consistency, responsive behavior, visual artifacts, and current mockup fidelity",
     "tester": "test strategy, acceptance criteria, regression coverage, edge cases, and release confidence",
     "security": "trust boundaries, command safety, secrets, permissions, abuse cases, and hardening",
-    "code_reviewer": "code correctness, integration risk, maintainability, regressions, and evidence quality",
-    "spec_reviewer": "specification conformance, acceptance coverage, behavioral gaps, and verification completeness",
     "performance": "latency, CPU, memory, bundle/runtime resource use, measurement quality, and likely bottlenecks",
 }
 
@@ -357,6 +355,8 @@ def ensure_product_intake_gate(state: Dict[str, Any], state_path: Path, actor: s
             "ownerAgentId": None,
             "dependsOn": [],
             "ownedPaths": [requirements_path_value],
+            # Approval task, not implementation work — see ensure_plan_approval_gate.
+            "phases": [],
             "acceptanceCriteria": [
                 "Product artifact captures the goal, requirements, constraints, and acceptance expectations.",
                 "If no meaningful product strategy is needed, artifact states that clearly and records non-goals and handoff constraints.",
@@ -458,6 +458,11 @@ def ensure_plan_approval_gate(
             "ownerAgentId": actor if start_active else None,
             "dependsOn": [depends_on] if depends_on else [],
             "ownedPaths": [plan_path_value],
+            # An approval task, not implementation work: the plan is adjudicated by
+            # the human (or auto-approval) through its artifact, never by a review
+            # phase. Without this it would inherit the run's `defaultPhases` and its
+            # author would end up self-reviewing a plan document.
+            "phases": [],
             "acceptanceCriteria": [
                 f"{role_noun} plan describes the execution approach and task graph.",
                 f"{role_noun} plan artifact is written at the active team path `{plan_path_value}`.",

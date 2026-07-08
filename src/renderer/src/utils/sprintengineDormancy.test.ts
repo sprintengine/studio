@@ -204,7 +204,7 @@ async function testForcedRefreshIsDisplayOnlyOnDormantRun(): Promise<void> {
     updatedAt: '2026-06-07T15:00:00Z',
     run: { id: 'dormant-refresh', name: 'Dormant', goal: '', status: 'complete', rosterConfigured: true },
     roster: {},
-    tasks: [{ id: 'T1', title: 'Done', role: 'developer', status: 'done', dependsOn: [], qualityGates: [], activity: [] }],
+    tasks: [{ id: 'T1', title: 'Done', role: 'developer', status: 'done', dependsOn: [], activity: [] }],
     artifacts: [],
     activity: [],
   }
@@ -343,7 +343,7 @@ async function testInterruptedTeardownHealsOnReload(): Promise<void> {
     updatedAt: '2026-06-07T15:00:00Z',
     run: { id: 'interrupted', name: 'Done', goal: '', status: 'complete', rosterConfigured: true },
     roster: {},
-    tasks: [{ id: 'T1', title: 'Done', role: 'developer', status: 'done', dependsOn: [], qualityGates: [], activity: [] }],
+    tasks: [{ id: 'T1', title: 'Done', role: 'developer', status: 'done', dependsOn: [], activity: [] }],
     artifacts: [],
     activity: [],
   }

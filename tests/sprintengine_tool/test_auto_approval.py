@@ -236,7 +236,7 @@ def test_auto_approval_policy_allows_only_approved_artifact_kinds(tmp_path) -> N
         tmp_path,
         "auto-approval-kind-policy",
         [
-            task("T1", "Code review gate", "code_reviewer", "needs_input", owner="code-reviewer-fixture"),
+            task("T1", "Code review gate", "security", "needs_input", owner="code-reviewer-fixture"),
             task("T2", "Unknown review gate", "tester", "needs_input", owner="tester-fixture"),
         ],
     )
