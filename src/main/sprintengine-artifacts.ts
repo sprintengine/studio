@@ -531,6 +531,42 @@ function validateWorkspaceRoot(input: unknown): string {
   return workspaceRoot
 }
 
+// The run-store schema version this build understands. MIRRORS `RUN_SCHEMA_VERSION`
+// in sprintengine_core/store.py. Bumped to 2 by MC-1542 (single-owner tasks), which
+// deleted quality gates and the `changes_requested`/`testing`/`product` statuses.
+export const SPRINT_ENGINE_RUN_SCHEMA_VERSION = 2
+
+/**
+ * Reject a pre-MC-1542 run store, returning a readable message (or null when the
+ * store is current).
+ *
+ * Decision 8 is a pre-release clean break: old stores are local runtime state and
+ * are never migrated. The one requirement is that the rejection is LOUD at every
+ * surface that reads a store. The renderer reads `projection.json` straight off
+ * disk without going through Python, so this guard — not the Python loader — is
+ * what stops the board, wizard, backlog links, and module mount from silently
+ * rendering gate-era data.
+ *
+ * A projection carrying a `run` object with no `schemaVersion` predates the field
+ * and is therefore version 1. A payload with no `run` object at all is not a
+ * projection; that is malformed input, judged downstream by
+ * `normalizeSprintEngineProjection`, and this guard stays silent rather than
+ * blaming it on an old Multicode.
+ */
+export function describeUnsupportedSprintEngineStore(projection: unknown, teamDirectory: string): string | null {
+  if (!projection || typeof projection !== 'object') return null
+  const run = (projection as { run?: unknown }).run
+  if (!run || typeof run !== 'object' || Array.isArray(run)) return null
+  const rawVersion = (run as { schemaVersion?: unknown }).schemaVersion
+  const version = typeof rawVersion === 'number' && Number.isFinite(rawVersion) ? rawVersion : 1
+  if (version >= SPRINT_ENGINE_RUN_SCHEMA_VERSION) return null
+  return (
+    `This sprint was created by an older version of Multicode (run store v${version}, ` +
+    `this build reads v${SPRINT_ENGINE_RUN_SCHEMA_VERSION}). Single-owner tasks replaced quality gates, ` +
+    `so the run cannot be opened. Delete "${teamDirectory}" and start the sprint again.`
+  )
+}
+
 function sprintEngineInitArgs(state: ValidSprintEngineStatePath, payload: SerializableSprintEngineStatePayload): string[] {
   const args = ['--state', state.statePath, 'init', '--name', payload.name, '--goal', payload.goal || payload.name]
   if (payload.useWorktrees) {
@@ -1451,7 +1487,10 @@ export function createSprintEngineArtifactHandlers(deps: SprintEngineArtifactDep
           return { ok: true, data: null, token, unchanged: true }
         }
         const projectionContent = await readFile(projectionPath, 'utf8')
-        return { ok: true, data: JSON.parse(projectionContent), token }
+        const projection = JSON.parse(projectionContent)
+        const rejection = describeUnsupportedSprintEngineStore(projection, state.teamDirectory)
+        if (rejection) return { ok: false, message: rejection }
+        return { ok: true, data: projection, token }
       } catch (error) {
         return { ok: false, message: error instanceof Error ? error.message : String(error) }
       }

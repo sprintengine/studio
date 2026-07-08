@@ -526,7 +526,13 @@ def _resolve_mutation_state(path: Path, *, initial_state: Optional[Dict[str, Any
     if _legacy_projection_is_current(path):
         return _load_legacy_state_projection(path)
     if folder_store_is_ready_for_state(path):
-        return folder_store.state_from_folder_store(path.parent)
+        try:
+            return folder_store.state_from_folder_store(path.parent)
+        except folder_store.RunStoreVersionError as exc:
+            # A pre-MC-1542 store is rejected, not migrated (decision 8). Surface it
+            # as a readable CLI error rather than a traceback; the app surfaces the
+            # same message through the projection's schemaVersion guard.
+            raise SystemExit(str(exc)) from exc
     if _uses_legacy_state_projection(path) and path.exists():
         return _load_legacy_state_projection(path)
     if initial_state is not None:

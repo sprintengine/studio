@@ -1432,6 +1432,12 @@ def build_projection(
         "updatedAt": updated_at,
         "run": {
             "id": team_dir.name,
+            # The store's schema version, carried into the projection so the app can
+            # reject a pre-MC-1542 run WITHOUT calling Python: the renderer reads
+            # projection.json straight off disk (src/main/sprintengine-artifacts.ts
+            # readProjection), so a version guard that only lives in the Python
+            # loader would let a stale board render gate-era columns silently.
+            "schemaVersion": RUN_SCHEMA_VERSION,
             "name": run.get("name") or team_dir.name,
             "goal": run.get("goal") or "",
             "status": run.get("status") or "planning",

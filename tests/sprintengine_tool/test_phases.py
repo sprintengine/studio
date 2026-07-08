@@ -211,3 +211,34 @@ def test_fresh_store_is_stamped_with_the_current_schema_version(tmp_path: Path) 
     fixture = create_team(tmp_path, "fresh-store", [task("T1", "Work", "developer")])
     run = folder_store.load_run_yaml(fixture.team_dir)
     assert run["schemaVersion"] == folder_store.RUN_SCHEMA_VERSION == 2
+
+
+def test_projection_carries_the_store_schema_version(tmp_path: Path) -> None:
+    """The renderer reads projection.json off disk without calling Python, so the
+    version must ride the projection or the app cannot reject an old store."""
+    fixture = create_team(tmp_path, "projection-version", [task("T1", "Work", "developer")])
+    projection = json.loads((fixture.team_dir / folder_store.PROJECTION_FILE).read_text(encoding="utf-8"))
+    assert projection["run"]["schemaVersion"] == folder_store.RUN_SCHEMA_VERSION
+
+
+def test_store_schema_version_matches_the_main_process_mirror() -> None:
+    """`SPRINT_ENGINE_RUN_SCHEMA_VERSION` in src/main/sprintengine-artifacts.ts is
+    what actually rejects a stale store at the app surfaces. Pin the pair."""
+    source = (REPO_ROOT / "src/main/sprintengine-artifacts.ts").read_text(encoding="utf-8")
+    match = re.search(r"export const SPRINT_ENGINE_RUN_SCHEMA_VERSION = (\d+)", source)
+    assert match, "SPRINT_ENGINE_RUN_SCHEMA_VERSION not found in src/main/sprintengine-artifacts.ts"
+    assert int(match.group(1)) == folder_store.RUN_SCHEMA_VERSION
+
+
+def test_pre_1542_store_raises_a_readable_cli_error_not_a_traceback(tmp_path: Path) -> None:
+    """The CLI/MCP boundary converts the loader's ValueError into a clean SystemExit."""
+    from sprintengine_core.tool.state import load_mutation_state
+
+    fixture = create_team(tmp_path, "cli-old-store", [task("T1", "Work", "developer")])
+    run = folder_store.load_run_yaml(fixture.team_dir)
+    run["schemaVersion"] = 1
+    folder_store.atomic_write_yaml(fixture.team_dir / folder_store.RUN_FILE, run)
+
+    with pytest.raises(SystemExit) as error:
+        load_mutation_state(fixture.state_path)
+    assert "Pre-MC-1542" in str(error.value.code)

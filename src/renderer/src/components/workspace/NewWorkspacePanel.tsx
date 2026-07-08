@@ -89,7 +89,7 @@ import { compareBacklogItems } from '../../utils/backlogTriage'
 import { childrenOfEpic, epicSlug } from '../../utils/backlogEpics'
 import { slugifySprintEngineName } from '../../utils/sprintengineStateFile'
 import { basename, folderKey, planBasename, markdownTitle, toTitleName, inferSourcePlanKind, workspaceRelativePath } from './newWorkspace/helpers'
-import type { CreationMode, ExistingTeam, GuidedBriefHasUi, SprintEnginePath } from './newWorkspace/types'
+import type { CreationMode, ExistingTeam, GuidedBriefHasUi, SprintEnginePath, UnreadableTeam } from './newWorkspace/types'
 import { stepsForMode, type StepId } from './newWorkspace/creationStepFlows'
 import { KnowledgeStep } from './newWorkspace/KnowledgeStep'
 import { shouldShowKnowledgeStep } from './newWorkspace/knowledgeFolders'
@@ -2454,6 +2454,7 @@ export default function NewWorkspacePanel({
               folderPath={folderPath}
               isScanning={folderScan.isScanning}
               existingTeams={folderScan.result.teams}
+              unreadableTeams={folderScan.result.unreadableTeams}
               backlogScan={backlogScan.result}
               backlogScanning={backlogScan.isScanning}
               sourceFromFile={seSourceFromFile}
@@ -3920,6 +3921,7 @@ function SprintEngineTeamStep(props: {
   folderPath: string | null
   isScanning: boolean
   existingTeams: ExistingTeam[]
+  unreadableTeams: UnreadableTeam[]
   backlogScan: BacklogScanResult
   backlogScanning: boolean
   sourceFromFile: boolean
@@ -3948,6 +3950,7 @@ function SprintEngineTeamStep(props: {
     folderPath,
     isScanning,
     existingTeams,
+    unreadableTeams,
     backlogScan,
     backlogScanning,
     sourceFromFile,
@@ -4030,6 +4033,20 @@ function SprintEngineTeamStep(props: {
           onSelect={() => onChangePath('plan')}
         />
       </div>
+
+      {/* A sprint the app found but refuses to open (today: a run store from an
+          older Multicode). Dropping it from the picker with no message reads as a
+          lost sprint, so it is named here with its remedy. */}
+      {unreadableTeams.length > 0 ? (
+        <div className="flex flex-col gap-1 rounded-[var(--radius-md)] border border-[color:var(--tone-warn)] px-3 py-2">
+          {unreadableTeams.map((team) => (
+            <p key={team.slug} className="text-[11px] leading-4 text-[color:var(--text-muted)]">
+              <span className="font-medium text-[color:var(--text-strong)]">{team.slug}</span> can’t be opened.{' '}
+              {team.message}
+            </p>
+          ))}
+        </div>
+      ) : null}
 
       {path === 'existing' ? (
         <div className="flex flex-col gap-2">
