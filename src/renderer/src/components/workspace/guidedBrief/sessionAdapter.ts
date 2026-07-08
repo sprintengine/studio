@@ -8,6 +8,7 @@ import { DESIGN_SYSTEM_MANIFEST_FILENAME } from '../../../../../shared/design-sy
 import type { DesignSystemSeedSource } from '../../../types/workspace'
 import {
   buildGuidedBriefSpecialistStartupPrompt,
+  type GuidedBriefInterviewProtocol,
   type GuidedBriefSpecialistKind,
 } from '../../../specialists/specialistActions'
 import { stripAnsiAndOverwrites } from './parseStream'
@@ -157,6 +158,13 @@ export type GuidedBriefSpecialistSession = {
   prompt: string
   stop: () => Promise<void>
   dispose: () => void
+  // How the session runs: a PTY the raw terminal binds to, or a conversation
+  // session (Claude Agent SDK) rendered as streamed chat + question cards.
+  transport: 'terminal' | 'conversation'
+  // Conversation transport only: answer the current pending interview
+  // question (structured respond, not keystrokes). Resolves false when no
+  // question is pending.
+  answer?: (text: string) => Promise<boolean>
 }
 
 export type StartGuidedBriefSpecialistSessionResult =
@@ -200,13 +208,18 @@ export function createGuidedBriefSessionId(): string {
   return createSessionId()
 }
 
-function promptForInput(input: StartGuidedBriefSpecialistSessionInput, marker: string): string {
+export function promptForInput(
+  input: StartGuidedBriefSpecialistSessionInput,
+  marker: string,
+  interviewProtocol: GuidedBriefInterviewProtocol = 'terminal-markers',
+): string {
   if (input.kind === 'strategist') {
     return buildGuidedBriefSpecialistStartupPrompt({
       kind: 'strategist',
       ideaSeedPath: input.ideaSeedPath,
       requirementsPath: input.requirementsPath,
       marker,
+      interviewProtocol,
     })
   }
 
@@ -217,6 +230,7 @@ function promptForInput(input: StartGuidedBriefSpecialistSessionInput, marker: s
       acceptedBriefSnapshotPath: input.acceptedBriefSnapshotPath,
       architecturePlanPath: input.architecturePlanPath,
       marker,
+      interviewProtocol,
     })
   }
 
@@ -230,15 +244,16 @@ function promptForInput(input: StartGuidedBriefSpecialistSessionInput, marker: s
     designSystemAttached: input.designSystemAttached,
     designSystem: input.designSystem,
     marker,
+    interviewProtocol,
   })
 }
 
-function markerForInput(input: StartGuidedBriefSpecialistSessionInput): string {
+export function markerForInput(input: StartGuidedBriefSpecialistSessionInput): string {
   if (input.kind === 'designer' && input.designSystem) return GUIDED_BRIEF_DESIGN_SYSTEM_MARKER
   return GUIDED_BRIEF_SPECIALIST_MARKERS[input.kind]
 }
 
-function markerDetectionForInput(input: StartGuidedBriefSpecialistSessionInput, marker: string): GuidedBriefMarkerDetection {
+export function markerDetectionForInput(input: StartGuidedBriefSpecialistSessionInput, marker: string): GuidedBriefMarkerDetection {
   if (input.kind === 'strategist') {
     const artifactPath = input.requirementsPath ?? 'product/requirements.md'
     return {
@@ -415,6 +430,7 @@ export async function startGuidedBriefSpecialistSession(
       prompt,
       stop: () => options.terminalApi.terminalKill(sessionId),
       dispose,
+      transport: 'terminal',
     },
   }
 }

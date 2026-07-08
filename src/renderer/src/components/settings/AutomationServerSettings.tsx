@@ -47,8 +47,18 @@ export function AutomationServerSettings() {
         onChange={(next) => void setEnabled(next)}
       />
       {status.running && status.socketPath ? (
-        <div className="text-[12px] leading-5 text-[color:var(--text-muted)]">
-          Listening on <span className="font-mono text-[color:var(--text-default)]">{status.socketPath}</span>
+        <div className="space-y-1 text-[12px] leading-5 text-[color:var(--text-muted)]">
+          <div>
+            Listening on <span className="font-mono text-[color:var(--text-default)]">{status.socketPath}</span>
+          </div>
+          {status.bridgeScriptPath ? (
+            <div>
+              Connect a stdio MCP client (Claude Code, Codex) through the bridge script:{' '}
+              <span className="font-mono text-[color:var(--text-default)]">
+                claude mcp add multicode -- node {status.bridgeScriptPath}
+              </span>
+            </div>
+          ) : null}
         </div>
       ) : null}
       {status.lastError ? (

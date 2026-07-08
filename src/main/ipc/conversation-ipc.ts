@@ -12,8 +12,10 @@ import type {
   ConversationSecretStatusResult,
 } from '../../shared/electron-api'
 import type {
+  ConversationCliRuntimeOverrides,
   ConversationEvent,
   ConversationInterruptInput,
+  ConversationProvidersListInput,
   ConversationListSessionsInput,
   ConversationListSessionsResult,
   ConversationProviderTestInput,
@@ -24,14 +26,17 @@ import type {
   ConversationStartSessionInput,
   ConversationStartSessionResult,
   ConversationStopSessionInput,
+  ConversationTranscriptInput,
+  ConversationTranscriptResult,
 } from '../../shared/conversation-runtime'
 import { ConversationRuntime } from '../conversation-runtime'
+import { detectCli } from '../cli-runtime-install'
 import { getConversationProviderById, listConversationProviderRegistryEntries } from '../plugin-registry-instance'
 import { listOpenAiCompatibleModels, testOpenAiCompatibleConnection } from '../providers/openai-compatible-provider'
 import { getSharedCredentialStore } from '../secret-store'
 
 export type ConversationIpcHandlers = {
-  listProviders(): ConversationProviderListResult
+  listProviders(input?: ConversationProvidersListInput): Promise<ConversationProviderListResult>
   listProviderModels(input: ConversationProviderModelsInput): Promise<ConversationProviderModelsResult>
   testProvider(input: ConversationProviderTestInput): Promise<ConversationProviderTestResult>
   getSecretStatus(input: ConversationSecretStatusInput): Promise<ConversationSecretStatusResult>
@@ -43,16 +48,74 @@ export type ConversationIpcHandlers = {
   respondToRequest(input: ConversationRespondToRequestInput): Promise<ConversationSessionActionResult>
   stopSession(input: ConversationStopSessionInput): Promise<ConversationSessionActionResult>
   listSessions(input?: ConversationListSessionsInput): ConversationListSessionsResult
+  readTranscript(input: ConversationTranscriptInput): Promise<ConversationTranscriptResult>
   onEvent(listener: (event: ConversationEvent) => void): () => void
 }
 
-export function createConversationIpcHandlers(): ConversationIpcHandlers {
+// Agent-harness conversation providers ride a local CLI; when that CLI is not
+// installed the provider is hidden from the picker instead of failing at
+// session start.
+const AGENT_HARNESS_CLI_BY_PROVIDER: Record<string, 'claude-code'> = {
+  'claude-agent': 'claude-code',
+}
+
+const CLI_AVAILABLE_TTL_MS = 60_000
+// Negatives expire faster than positives so a just-installed CLI shows up
+// quickly — but not so fast that every provider-list call re-runs the
+// multi-second shell probes while the CLI is genuinely absent (the provider
+// stays listed with its `unavailable` reason meanwhile).
+const CLI_UNAVAILABLE_TTL_MS = 30_000
+
+export function createConversationIpcHandlers(
+  // The app passes its shared runtime (owned by app-services so shutdown and
+  // diagnostics reach it); constructing one here keeps tests/legacy callers
+  // working standalone.
+  runtime: ConversationRuntime = new ConversationRuntime({ secretStore: getSharedCredentialStore() })
+): ConversationIpcHandlers {
   const secretStore = getSharedCredentialStore()
-  const runtime = new ConversationRuntime({ secretStore })
+  const cliChecks = new Map<string, { at: number; installed: boolean }>()
+
+  async function isHarnessCliInstalled(
+    cli: 'claude-code',
+    cliRuntimes?: ConversationCliRuntimeOverrides
+  ): Promise<boolean> {
+    const override = cliRuntimes?.[cli]
+    const cacheKey = `${cli}:${override?.command?.trim() ?? ''}:${override?.useWsl === true}`
+    const cached = cliChecks.get(cacheKey)
+    if (cached && Date.now() - cached.at < (cached.installed ? CLI_AVAILABLE_TTL_MS : CLI_UNAVAILABLE_TTL_MS)) {
+      return cached.installed
+    }
+    try {
+      const detection = await detectCli(cli, override)
+      const installed = detection.installed && Boolean(detection.resolvedPath)
+      cliChecks.set(cacheKey, { at: Date.now(), installed })
+      return installed
+    } catch {
+      // Fail open: a probe error must not silently hide the provider — a
+      // missing CLI still fails loudly (and actionably) at session start.
+      return true
+    }
+  }
+
   return {
-    listProviders(): ConversationProviderListResult {
+    async listProviders(input?: ConversationProvidersListInput): Promise<ConversationProviderListResult> {
       try {
-        return { ok: true, providers: listConversationProviderRegistryEntries() }
+        const providers = listConversationProviderRegistryEntries()
+        const listed: typeof providers = []
+        for (const provider of providers) {
+          const harnessCli = AGENT_HARNESS_CLI_BY_PROVIDER[provider.id]
+          if (harnessCli && !(await isHarnessCliInstalled(harnessCli, input?.cliRuntimes))) {
+            // Never hide the provider: an undetectable CLI is annotated so the
+            // picker can say WHY it is unavailable (spawn defaults skip it).
+            listed.push({
+              ...provider,
+              unavailable: `The ${provider.displayName} CLI wasn’t found from the app. Launch Multicode from a terminal, or set a command override in Settings → CLI runtimes.`,
+            })
+            continue
+          }
+          listed.push(provider)
+        }
+        return { ok: true, providers: listed }
       } catch (err) {
         return { ok: false, message: formatError(err) }
       }
@@ -99,6 +162,9 @@ export function createConversationIpcHandlers(): ConversationIpcHandlers {
     listSessions(input?: ConversationListSessionsInput): ConversationListSessionsResult {
       return runtime.listSessions(input)
     },
+    readTranscript(input: ConversationTranscriptInput): Promise<ConversationTranscriptResult> {
+      return runtime.readTranscript(input)
+    },
     onEvent(listener: (event: ConversationEvent) => void): () => void {
       return runtime.onEvent(listener)
     },
@@ -115,9 +181,10 @@ export function registerConversationIpc(
     removeDestroyedListener: () => void
   }>()
 
-  ipcMain.handle('conversation:providers:list', async (): Promise<ConversationProviderListResult> => {
+  ipcMain.handle('conversation:providers:list', async (_, input: unknown): Promise<ConversationProviderListResult> => {
+    if (input !== undefined && !isObject(input)) return { ok: false, message: 'Provider list input must be an object.' }
     try {
-      return handlers.listProviders()
+      return await handlers.listProviders(input as ConversationProvidersListInput | undefined)
     } catch (err) {
       return { ok: false, message: formatError(err) }
     }
@@ -238,6 +305,16 @@ export function registerConversationIpc(
     }
   })
 
+  ipcMain.handle('conversation:transcript', async (_, input: unknown): Promise<ConversationTranscriptResult> => {
+    const parsed = parseTranscriptInput(input)
+    if (!parsed.ok) return parsed
+    try {
+      return await handlers.readTranscript(parsed.input)
+    } catch (err) {
+      return { ok: false, message: formatError(err) }
+    }
+  })
+
   ipcMain.handle('conversation:events:subscribe', (event): { ok: true; subscriptionId: string } => {
     const sender = event.sender
     const subscriptionId = `conversation-subscription-${++nextSubscriptionId}`
@@ -326,12 +403,27 @@ function parseStartSessionInput(input: unknown):
   | { ok: true; input: ConversationStartSessionInput }
   | { ok: false; message: string } {
   if (!isObject(input)) return { ok: false, message: 'Start session input must be an object.' }
-  const { workspaceRoot, workspaceId, agentId, providerId, modelId } = input
+  const { workspaceRoot, workspaceId, agentId, providerId, modelId, cliRuntimes, permissionPreset, allowedTools } = input
   if (typeof workspaceRoot !== 'string') return { ok: false, message: 'workspaceRoot is required.' }
   if (typeof workspaceId !== 'string') return { ok: false, message: 'workspaceId is required.' }
   if (typeof agentId !== 'string') return { ok: false, message: 'agentId is required.' }
   if (typeof providerId !== 'string') return { ok: false, message: 'providerId is required.' }
   if (typeof modelId !== 'string') return { ok: false, message: 'modelId is required.' }
+  if (cliRuntimes !== undefined && !isObject(cliRuntimes)) {
+    return { ok: false, message: 'cliRuntimes must be an object when present.' }
+  }
+  if (
+    permissionPreset !== undefined
+    && (typeof permissionPreset !== 'string' || !['default', 'auto_workspace', 'bypass_all'].includes(permissionPreset))
+  ) {
+    return { ok: false, message: 'permissionPreset must be default, auto_workspace, or bypass_all.' }
+  }
+  if (
+    allowedTools !== undefined
+    && (!Array.isArray(allowedTools) || allowedTools.some((tool) => typeof tool !== 'string'))
+  ) {
+    return { ok: false, message: 'allowedTools must be an array of tool names.' }
+  }
   return {
     ok: true,
     input: {
@@ -340,8 +432,24 @@ function parseStartSessionInput(input: unknown):
       agentId,
       providerId,
       modelId,
+      ...(isObject(cliRuntimes) ? { cliRuntimes: cliRuntimes as ConversationCliRuntimeOverrides } : {}),
+      ...(typeof permissionPreset === 'string'
+        ? { permissionPreset: permissionPreset as ConversationStartSessionInput['permissionPreset'] }
+        : {}),
+      ...(Array.isArray(allowedTools) ? { allowedTools: allowedTools as string[] } : {}),
     },
   }
+}
+
+function parseTranscriptInput(input: unknown):
+  | { ok: true; input: ConversationTranscriptInput }
+  | { ok: false; message: string } {
+  if (!isObject(input)) return { ok: false, message: 'Transcript input must be an object.' }
+  const { workspaceRoot, workspaceId, agentId } = input
+  if (typeof workspaceRoot !== 'string') return { ok: false, message: 'workspaceRoot is required.' }
+  if (typeof workspaceId !== 'string') return { ok: false, message: 'workspaceId is required.' }
+  if (typeof agentId !== 'string') return { ok: false, message: 'agentId is required.' }
+  return { ok: true, input: { workspaceRoot, workspaceId, agentId } }
 }
 
 function parseSendTurnInput(input: unknown):
@@ -350,7 +458,17 @@ function parseSendTurnInput(input: unknown):
   const session = parseSessionIdInput(input)
   if (!session.ok) return session
   if (!isObject(input) || typeof input.message !== 'string') return { ok: false, message: 'message is required.' }
-  return { ok: true, input: { sessionId: session.input.sessionId, message: input.message } }
+  if ('localTurnId' in input && input.localTurnId !== undefined && typeof input.localTurnId !== 'string') {
+    return { ok: false, message: 'localTurnId must be a string when present.' }
+  }
+  return {
+    ok: true,
+    input: {
+      sessionId: session.input.sessionId,
+      message: input.message,
+      ...(typeof input.localTurnId === 'string' ? { localTurnId: input.localTurnId } : {}),
+    },
+  }
 }
 
 function parseSessionIdInput(input: unknown):
@@ -367,8 +485,20 @@ function parseRespondToRequestInput(input: unknown):
   if (!session.ok) return session
   if (!isObject(input) || typeof input.requestId !== 'string') return { ok: false, message: 'requestId is required.' }
   if (typeof input.approved !== 'boolean') return { ok: false, message: 'approved is required.' }
+  let answers: Record<string, string> | undefined
+  if ('answers' in input && input.answers !== undefined) {
+    if (!isObject(input.answers) || Object.values(input.answers).some((value) => typeof value !== 'string')) {
+      return { ok: false, message: 'answers must map question text to answer strings.' }
+    }
+    answers = input.answers as Record<string, string>
+  }
   return {
     ok: true,
-    input: { sessionId: session.input.sessionId, requestId: input.requestId, approved: input.approved },
+    input: {
+      sessionId: session.input.sessionId,
+      requestId: input.requestId,
+      approved: input.approved,
+      ...(answers ? { answers } : {}),
+    },
   }
 }

@@ -17,6 +17,8 @@ import { createGatedSprintEngineMcpHub, createSprintEngineMcpHubService } from '
 import { syncManagedSprintEngineMcpConfig } from './sprintengine-managed-mcp-sync'
 import { excludeMcpConfigFromWorktree } from './git'
 import { cliResumeCapabilities, createTerminalRuntime } from './terminal-runtime'
+import { ConversationRuntime } from './conversation-runtime'
+import { getSharedCredentialStore } from './secret-store'
 import { createTerminalSnapshotSidecarStore } from './terminal-snapshot-sidecar'
 import { MulticodeUpdateService } from './update-service'
 import { GitHubTokenStore } from './github-token-store'
@@ -80,6 +82,12 @@ export function createAppServices(diagnosticsEnabled: boolean) {
       void writeDiagnosticLog({ ...diagnostic, source: 'workspace' })
     },
   })
+
+  // Conversation-agent runtime (chat sessions, incl. headless Claude child
+  // processes). Owned here — not inside the IPC factory — so app shutdown can
+  // dispose its child processes and diagnostics can inventory them.
+  const conversationRuntime = new ConversationRuntime({ secretStore: getSharedCredentialStore() })
+  conversationRuntime.startIdleSweep()
 
   const terminalRuntime = createTerminalRuntime({
     diagnosticsEnabled,
@@ -168,6 +176,12 @@ export function createAppServices(diagnosticsEnabled: boolean) {
   const automationService = createAutomationService({
     resolveUserDataDir: () => app.getPath('userData'),
     appVersion: app.getVersion(),
+    // Dev runs serve the script straight from the repo; packaged builds ship
+    // it via the electron-builder extraResources entry (resources/automation).
+    resolveBridgeScriptPath: () =>
+      app.isPackaged
+        ? join(process.resourcesPath, 'automation', 'mcp-stdio-bridge.mjs')
+        : join(app.getAppPath(), 'resources', 'automation', 'mcp-stdio-bridge.mjs'),
     tools: createAutomationTools({
       getWorkspaceSyncSnapshot: () => workspaceSyncService.getSnapshot(),
       listTerminalSessions: () => terminalRuntime.ipcHandlers.listTerminals(),
@@ -184,6 +198,7 @@ export function createAppServices(diagnosticsEnabled: boolean) {
     automationDelegate,
     automationService,
     builtinSkillManager,
+    conversationRuntime,
     githubTokenStore,
     logMainPerfEvent,
     mcpConfigService,

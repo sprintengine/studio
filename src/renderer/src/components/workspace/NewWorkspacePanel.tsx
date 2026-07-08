@@ -2,8 +2,6 @@ import { useCallback, useEffect, useMemo, useRef, useState, type MutableRefObjec
 import { LAYOUT_TEMPLATES } from '../../layouts/templates'
 import { userLayoutTemplateToTemplate } from '../../layouts/userTemplates'
 import { useWorkspaceStore } from '../../store/workspaceStore'
-import { getRendererHost, selectModuleEnabled } from '../../modules'
-import { CommentIcon, StandardWorkspaceTypeIcon } from '../AppIcons'
 import { createMultiloopTemplate } from '../../modules/multiloop-workspace-types'
 import { createGuidedBriefTemplate } from '../../modules/sprint-engine-workspace-types'
 import { AUTOMATIONS_HOST_WORKSPACE_MODE } from '../../types/workspace'
@@ -64,15 +62,15 @@ import {
   sprintEngineRoleOrder,
 } from '../../utils/sprintengine'
 import MulticodeMark from '../brand/MulticodeMark'
-import MulticodeWordmark from '../brand/MulticodeWordmark'
 import { CreationBackdrop } from '../backdrops/CreationBackdrop'
-import { CliModelPickerButton, CloseIconButton, Field, GhostButton, Select, TruncatedText, WizardProgress } from '../ui'
+import { CliModelPickerButton, CloseIconButton, Field, GhostButton, Select, TruncatedText } from '../ui'
 import {
   analyzeWorkspaceTargetPath,
   defaultWorkspaceFolderPath,
   resolveDefaultParentPath,
 } from './newWorkspace/folderCreation'
-import { ModeCard } from './newWorkspace/ModeCard'
+import { CreationRail } from './newWorkspace/CreationRail'
+import { STANDARD_MODE_MODEL, buildModeModels } from './newWorkspace/modeModels'
 import AgentComposer, {
   type AgentComposerConfirm,
   type AgentComposerSelection,
@@ -90,12 +88,11 @@ import { compareBacklogItems } from '../../utils/backlogTriage'
 import { childrenOfEpic, epicSlug } from '../../utils/backlogEpics'
 import { slugifySprintEngineName } from '../../utils/sprintengineStateFile'
 import { basename, folderKey, planBasename, markdownTitle, toTitleName, inferSourcePlanKind, workspaceRelativePath } from './newWorkspace/helpers'
-import type { CreationMode, ExistingTeam, GuidedBriefHasUi, ModeCardModel, SprintEnginePath } from './newWorkspace/types'
-import { isAdvancedSetupStep, stepsForMode, type StepId } from './newWorkspace/creationStepFlows'
+import type { CreationMode, ExistingTeam, GuidedBriefHasUi, SprintEnginePath } from './newWorkspace/types'
+import { stepsForMode, type StepId } from './newWorkspace/creationStepFlows'
 import { KnowledgeStep } from './newWorkspace/KnowledgeStep'
 import { shouldShowKnowledgeStep } from './newWorkspace/knowledgeFolders'
 import { normalizeProjectRootKey } from '../../utils/projectKnowledge'
-import { folderHintAutoSelectMode } from './newWorkspace/folderHintMode'
 import { CliPermissionPresetRow, PathRadio, RosterAndRunSettings } from './newWorkspace/WizardControls'
 import { ArchitectTeamCard } from './newWorkspace/ArchitectTeamCard'
 import { pruneSprintEngineRoleCliDefaults, pruneSprintEngineRoleModelOverrides, resolveInitialSprintEngineRoster, sprintEngineRosterMatchesTeam } from './newWorkspace/savedTeams'
@@ -130,34 +127,13 @@ import {
   type PremiumFeatureAccessState,
 } from '../../utils/premiumAccess'
 
-// 'standard' is shell-owned (never a registered workspace type), so the picker
-// seeds it here and appends the registry-contributed types after it.
-const STANDARD_MODE_MODEL: ModeCardModel = {
-  id: 'standard',
-  label: 'Standard',
-  description: 'IDE layout with editor, terminals, and file explorer for direct work.',
-  icon: StandardWorkspaceTypeIcon,
-}
-
-// 'chat' is a shell-owned pseudo-type, not a registered workspace type: selecting
-// it embeds the existing AgentComposer as the chat config surface (see the mode
-// step) and creates a solo-agent chat via the same path as today's New chat. It
-// leads the picker so New Agent opens on the lightest choice.
-const CHAT_MODE_MODEL: ModeCardModel = {
-  id: 'chat',
-  label: 'Chat',
-  description: 'A single agent you chat with, scoped to this project.',
-  icon: CommentIcon,
-}
+// The shell-owned mode models (chat, standard) and the rail ordering live in
+// newWorkspace/modeModels.ts, shared with the CreationRail contract test.
 
 const STEP_HEADING: Record<StepId, { title: string; subtitle: string }> = {
   workspace: {
     title: 'Name your workspace',
     subtitle: 'Give it a name and pick the folder it lives in.',
-  },
-  mode: {
-    title: 'What do you want to start?',
-    subtitle: 'Pick a workspace type to get going.',
   },
   'mcp-servers': {
     title: 'Pick tool integrations',
@@ -185,7 +161,7 @@ const STEP_HEADING: Record<StepId, { title: string; subtitle: string }> = {
   },
   'sprintengine-roster': {
     title: 'Your AI team',
-    subtitle: 'A balanced team is ready to go. Adjust it below, or just continue.',
+    subtitle: 'A balanced team is ready to go. Adjust it below if you like.',
   },
   'guided-idea': {
     title: 'Tell us about your idea',
@@ -464,8 +440,12 @@ export default function NewWorkspacePanel({
   const initialMode: CreationMode =
     initialState?.mode ?? (initialFuturePlan ? 'sprintengine' : 'standard')
   const initialFolderPath = initialState?.folderPath ?? initialFuturePlan?.folderPath ?? null
-  const initialWorkspaceName =
-    initialFuturePlan ? '' : initialFolderPath ? basename(initialFolderPath) || 'workspace' : ''
+  // The hub always shows the name field (the step wizard skipped it for
+  // future-plan intake), so a pre-seeded folder — future-plan included — seeds
+  // a workable default name instead of blocking create on an empty field.
+  const initialWorkspaceName = initialFolderPath
+    ? basename(initialFolderPath) || 'workspace'
+    : ''
 
   const [mode, setMode] = useState<CreationMode>(initialMode)
   const [folderPath, setFolderPath] = useState<string | null>(initialFolderPath)
@@ -473,6 +453,10 @@ export default function NewWorkspacePanel({
   // continue if it doesn't exist, or opened if it does. `folderPathPinned`
   // freezes name→path derivation once the user edits the path or browses.
   const [folderDraftPath, setFolderDraftPath] = useState<string>(initialFolderPath ?? '')
+  // Mirror of folderDraftPath for async adopters (field blur) that must check
+  // the field's CURRENT value at resolve time, not their closure's copy.
+  const folderDraftPathRef = useRef(initialFolderPath ?? '')
+  folderDraftPathRef.current = folderDraftPath
   const [folderPathPinned, setFolderPathPinned] = useState<boolean>(Boolean(initialFolderPath))
   const [folderDraftExists, setFolderDraftExists] = useState<boolean | null>(null)
   const [folderError, setFolderError] = useState<string | null>(null)
@@ -742,8 +726,6 @@ export default function NewWorkspacePanel({
     else next.add(key)
     setSeSprintModelSelection(next)
   }
-  const sprintEngineModuleEnabled = useWorkspaceStore((s) => selectModuleEnabled(s.appSettings.modules, 'sprint-engine'))
-  const multiloopModuleEnabled = useWorkspaceStore((s) => selectModuleEnabled(s.appSettings.modules, 'multiloop'))
   const sprintEngineDisabledRoleIds = useMemo(
     () => getUserDisabledSprintEngineRoleIds(sprintEngineRoleSettings),
     [sprintEngineRoleSettings],
@@ -990,6 +972,11 @@ export default function NewWorkspacePanel({
   )
 
   const [isCreating, setIsCreating] = useState(false)
+  // Set once folder materialization succeeds; the effect below runs the create
+  // on the NEXT render so handleCreate's closure reads the fresh folderPath. A
+  // brand-new folder is created inside the primary action, and creating +
+  // reading in one closure would hand every mode branch a stale null folder.
+  const [pendingCreate, setPendingCreate] = useState(false)
 
   useEffect(() => {
     let cancelled = false
@@ -1011,19 +998,32 @@ export default function NewWorkspacePanel({
   const backlogScan = useBacklogScan(isSprintEngine ? folderPath : null)
   const totalAgents = countSprintEngineAgents(visibleSprintEngineRoleCounts)
 
-  const [step, setStep] = useState<StepId>(initialFuturePlan ? 'sprintengine-team' : 'workspace')
-  const [direction, setDirection] = useState<'forward' | 'backward'>('forward')
-
   const steps = useMemo(() => {
     const base = stepsForMode(mode)
     return knowledgeStepEligible ? base : base.filter((id) => id !== 'knowledge')
   }, [mode, knowledgeStepEligible])
-  const stepIndex = Math.max(0, steps.indexOf(step))
-  const isLastStep = stepIndex >= steps.length - 1
-  // The optional Advanced setup disclosure rides the flow's final step but never
-  // the 'mode' pivot (see isAdvancedSetupStep): the zero-config quick flows end
-  // at 'mode', and config belongs off that decision screen.
-  const showAdvancedSetup = isAdvancedSetupStep(steps, step)
+  // The hub renders a mode's whole flow as one pane: the name+folder fields
+  // ('workspace') first, then every config step stacked in flow order.
+  const configSteps = useMemo(
+    () => steps.filter((id) => id !== 'workspace'),
+    [steps],
+  )
+  // The optional Advanced setup disclosure renders for any flow with real
+  // config steps; the zero-config quick flows (chat, switchboard, automations)
+  // defer that configuration to Settings, exactly as before.
+  const showAdvancedSetup = configSteps.length > 0
+
+  // The rail's type list — shell-owned Chat + Workspace, then the enabled
+  // registry-contributed types (see modeModels.ts for the ordering contract).
+  const moduleOverrides = useWorkspaceStore((s) => s.appSettings.modules)
+  const modeModels = useMemo(() => buildModeModels(moduleOverrides), [moduleOverrides])
+  const currentModeModel = modeModels.find((model) => model.id === mode) ?? STANDARD_MODE_MODEL
+
+  // If the selected mode's module is disabled while the hub is open, fall back
+  // to the always-available Workspace pane instead of rendering a ghost type.
+  useEffect(() => {
+    if (!modeModels.some((model) => model.id === mode)) setMode('standard')
+  }, [modeModels, mode])
 
   const handleCommitKnowledgeRoot = useCallback(
     (relativeRoot: string | null) => {
@@ -1038,8 +1038,6 @@ export default function NewWorkspacePanel({
   const headingRef = useRef<HTMLHeadingElement | null>(null)
   const nameInputRef = useRef<HTMLInputElement | null>(null)
   const stepBodyRef = useRef<HTMLElement | null>(null)
-  const logoOuterRef = useRef<HTMLDivElement | null>(null)
-  const logoInnerRef = useRef<HTMLDivElement | null>(null)
 
   const recentFolders = useMemo(() => {
     const seen = new Set<string>()
@@ -1181,83 +1179,27 @@ export default function NewWorkspacePanel({
     // rather than bouncing the user back to 'new'.
   }, [isSprintEngine, sePath, folderScan.result, folderScan.isScanning, sePlanPath])
 
-  // When the step list changes (mode switch, or the knowledge step dropping out
-  // for an already-configured folder), keep the current step valid.
-  useEffect(() => {
-    if (!steps.includes(step)) {
-      const fallback = steps.includes('mode') ? 'mode' : steps[0]
-      setStep(fallback as StepId)
-    }
-  }, [steps, step])
-
-  // Move focus to the step heading and reset scroll on step change.
+  // Move focus to the pane heading and reset the pane scroll on type change.
   useEffect(() => {
     if (stepBodyRef.current) stepBodyRef.current.scrollTop = 0
     headingRef.current?.focus({ preventScroll: true })
-  }, [step])
+  }, [mode])
 
-  // Auto-focus the name input when entering the workspace step.
+  // Auto-focus the name input on every non-chat pane (the chat pane's focus
+  // belongs to the embedded composer) — unless focus is inside the rail: a
+  // keyboard user arrowing through the type list keeps roving focus there,
+  // and stealing it into the input would end the navigation after one press.
   useEffect(() => {
-    if (step === 'workspace') {
-      const id = window.setTimeout(() => nameInputRef.current?.focus(), 60)
+    if (!isChat) {
+      const id = window.setTimeout(() => {
+        const active = document.activeElement
+        if (active instanceof HTMLElement && active.closest('[role="tablist"]')) return
+        nameInputRef.current?.focus()
+      }, 60)
       return () => window.clearTimeout(id)
     }
     return undefined
-  }, [step])
-
-  // Mouse-reactive tilt for the welcome logo on the workspace step.
-  useEffect(() => {
-    if (step !== 'workspace') return
-    if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return
-    const main = stepBodyRef.current
-    if (!main) return
-
-    let rafId: number | null = null
-    const onMove = (event: MouseEvent) => {
-      if (rafId != null) return
-      rafId = window.requestAnimationFrame(() => {
-        rafId = null
-        const inner = logoInnerRef.current
-        const outer = logoOuterRef.current
-        if (!inner || !outer) return
-        const rect = outer.getBoundingClientRect()
-        const cx = rect.left + rect.width / 2
-        const cy = rect.top + rect.height / 2
-        // Tilt — normalize over a ~320px radius then clamp to [-1, 1].
-        const dx = Math.max(-1, Math.min(1, (event.clientX - cx) / 320))
-        const dy = Math.max(-1, Math.min(1, (event.clientY - cy) / 320))
-        const rotateY = dx * 12
-        const rotateX = -dy * 10
-        inner.style.transform = `rotateX(${rotateX}deg) rotateY(${rotateY}deg)`
-        // Spotlight — clamp cursor to pedestal bounds in percent.
-        const localX = Math.max(0, Math.min(100, ((event.clientX - rect.left) / rect.width) * 100))
-        const localY = Math.max(0, Math.min(100, ((event.clientY - rect.top) / rect.height) * 100))
-        outer.style.setProperty('--mx', `${localX}%`)
-        outer.style.setProperty('--my', `${localY}%`)
-      })
-    }
-    const onLeave = () => {
-      if (rafId != null) {
-        window.cancelAnimationFrame(rafId)
-        rafId = null
-      }
-      if (logoInnerRef.current) {
-        logoInnerRef.current.style.transform = 'rotateX(0deg) rotateY(0deg)'
-      }
-      if (logoOuterRef.current) {
-        logoOuterRef.current.style.setProperty('--mx', '50%')
-        logoOuterRef.current.style.setProperty('--my', '50%')
-      }
-    }
-
-    main.addEventListener('mousemove', onMove)
-    main.addEventListener('mouseleave', onLeave)
-    return () => {
-      main.removeEventListener('mousemove', onMove)
-      main.removeEventListener('mouseleave', onLeave)
-      if (rafId != null) window.cancelAnimationFrame(rafId)
-    }
-  }, [step])
+  }, [isChat, mode])
 
   const sprintEngineAccess = getSprintEngineAccessState(authState)
 
@@ -1304,18 +1246,25 @@ export default function NewWorkspacePanel({
     guidedPreset !== 'design-system' || guidedSeedMode === 'blank' || guidedSeedSource != null
   const guidedIdeaReady = guidedIdea.trim().length > 0 && guidedHasUi != null && guidedSeedReady
 
-  const canAdvanceFromCurrent = isStepReady(step, {
+  const stepReadiness = {
     workspaceStepReady,
     standardLayoutStepReady,
     multiloopGoalReady,
     sprintEngineTeamReady,
     sprintEngineRosterReady,
     guidedIdeaReady,
-  })
+  }
+  // Every non-chat create requires the name+folder fields plus the mode's own
+  // config steps; the first unready one drives the footer's blocking hint.
+  // Chat has no hub create path — the embedded composer owns its own CTA.
+  const requiredStepIds: StepId[] = ['workspace', ...configSteps]
+  const firstBlockedStepId = isChat
+    ? null
+    : requiredStepIds.find((id) => !isStepReady(id, stepReadiness)) ?? null
+  const createReady = !isChat && firstBlockedStepId == null
 
   const blockingMessage = getStepBlockingMessage({
-    step,
-    mode,
+    step: firstBlockedStepId ?? configSteps[configSteps.length - 1] ?? 'workspace',
     workspaceFolderReady: folderTargetUsable,
     name,
     mlGoal,
@@ -1337,6 +1286,9 @@ export default function NewWorkspacePanel({
   })
 
   const handleSelectMode = (next: CreationMode) => {
+    // A type switch during an in-flight create would hand the deferred
+    // handleCreate a different mode than the one the user confirmed.
+    if (isCreating || pendingCreate) return
     setMode(next)
     if (next === 'standard' && !nameTouched) setName(basename(folderPath ?? '') || 'workspace')
     if (next === 'switchboard' && !nameTouched)
@@ -1355,6 +1307,19 @@ export default function NewWorkspacePanel({
       setViewingIdeaAfterCommit(false)
     }
   }
+
+  // The hub stays mounted while open, so a host preselect fired at an
+  // already-open panel (the sidebar "+" menu, launcher Sprint entry) must sync
+  // in as a rail selection — the useState initializer only reads the mount-time
+  // value. Each opener builds a fresh initialState object, so identity is the
+  // "a preselect happened" signal. Routed through handleSelectMode so the
+  // name-seeding side effects and the in-flight-create guard apply.
+  useEffect(() => {
+    const nextMode = initialState?.mode
+    if (nextMode && nextMode !== mode) handleSelectMode(nextMode)
+    // Only a NEW initialState (a fresh open/preselect) may re-route the rail.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [initialState])
 
   const handleChangeName = (value: string) => {
     setName(value)
@@ -1392,14 +1357,9 @@ export default function NewWorkspacePanel({
     if (!nameTouched) setName(folderName || 'workspace')
     if (!seTeamNameTouched) setSeTeamName(toTitleName(folderName) || 'Sprint Roster')
     setMlName(toTitleName(folderName) || 'Product Loop')
-
-    // Don't auto-select a mode whose module the user disabled, and only seed a
-    // mode when the user hasn't already named the workspace.
-    const autoMode = folderHintAutoSelectMode(folderHints.get(dir), {
-      sprintEngineEnabled: sprintEngineModuleEnabled,
-      multiloopEnabled: multiloopModuleEnabled,
-    })
-    if (!nameTouched && autoMode) handleSelectMode(autoMode)
+    // The hub picks the type first (the rail), so a folder hint never
+    // auto-switches the selected pane out from under the user; the Recent rows
+    // still surface sprint/multiloop hints on the folder itself.
   }
 
   // Unified folder field edits. Editing or browsing pins the path so the
@@ -1410,18 +1370,51 @@ export default function NewWorkspacePanel({
     setFolderError(null)
   }
 
+  // Adopt (materialize) an existing folder into `folderPath` so the
+  // folder-scoped surfaces — sprint team/backlog scans, knowledge eligibility,
+  // the chat composer's project — track the pick while the user is still
+  // configuring the pane. Adoption happens only on DELIBERATE picks (Browse,
+  // a Recent row, leaving the folder field), never while typing: a debounced
+  // or prefix-matched materialization would silently retarget folderPath and
+  // wipe mode-scoped selections mid-keystroke. Same-folder adoption is a
+  // no-op, so selections only reset on a real folder switch.
+  const adoptFolderDraft = (dir: string) => {
+    setFolderPathPinned(true)
+    setFolderDraftPath(dir)
+    setFolderError(null)
+    if (!(folderPath && isSameFolder(dir, folderPath))) handleSelectFolder(dir)
+  }
+
   const pickFolder = async () => {
     const dir = await window.api.openDir()
     if (!dir) return
-    setFolderPathPinned(true)
-    setFolderDraftPath(dir)
-    setFolderError(null)
+    adoptFolderDraft(dir)
   }
 
   const handleSelectRecentFolder = (dir: string) => {
-    setFolderPathPinned(true)
-    setFolderDraftPath(dir)
-    setFolderError(null)
+    // Recents were real folders when recorded; adopt optimistically — the
+    // scans degrade gracefully if the folder has since vanished, and create
+    // recreates it exactly as the old wizard's Continue did.
+    adoptFolderDraft(dir)
+  }
+
+  // Leaving the folder field with a typed path that exists adopts it (a fresh
+  // existence check, not the 250ms-debounced display flag — that flag can be
+  // stale mid-edit). A still-nonexistent path stays a draft until create.
+  const handleFolderDraftBlur = () => {
+    const target = folderDraftPath.trim()
+    if (!target) return
+    if (folderPath && isSameFolder(target, folderPath)) return
+    void window.api
+      .pathExists(target)
+      .then((exists) => {
+        // Re-read the field via state at resolve time: adopt only if the user
+        // hasn't kept typing since the blur.
+        if (exists && folderDraftPathRef.current.trim() === target) {
+          adoptFolderDraft(target)
+        }
+      })
+      .catch(() => {})
   }
 
   // The embedded Chat composer's project chip retargets the panel's already-
@@ -1459,7 +1452,9 @@ export default function NewWorkspacePanel({
       exists = false
     }
     if (exists) {
-      handleSelectFolder(target)
+      // Already materialized to this exact folder — don't re-run selection,
+      // which would reset mode-scoped source state on the way into create.
+      if (!(folderPath && isSameFolder(target, folderPath))) handleSelectFolder(target)
       return true
     }
     const analysis = analyzeWorkspaceTargetPath(target)
@@ -2164,46 +2159,43 @@ export default function NewWorkspacePanel({
     }
   }
 
-  const goNext = () => {
-    if (!canAdvanceFromCurrent || isCreating) return
-    if (isLastStep) {
-      void handleCreate()
-      return
-    }
-    // Leaving the workspace step materializes the folder (create-if-missing /
-    // open-if-exists) so `folderPath` is concrete before the mode step renders.
-    if (step === 'workspace') {
-      void (async () => {
-        setIsCreating(true)
-        try {
-          if (!(await materializeWorkspaceFolder())) return
-          setDirection('forward')
-          setStep(steps[stepIndex + 1])
-        } finally {
-          setIsCreating(false)
-        }
-      })()
-      return
-    }
-    setDirection('forward')
-    setStep(steps[stepIndex + 1])
+  // The hub's single primary action: materialize the folder field
+  // (create-if-missing / open-if-exists), then run the mode's create on the
+  // next render (see pendingCreate above).
+  const handlePrimaryAction = () => {
+    if (isChat || isCreating || pendingCreate || !createReady) return
+    void (async () => {
+      setIsCreating(true)
+      try {
+        if (!(await materializeWorkspaceFolder())) return
+      } finally {
+        setIsCreating(false)
+      }
+      setPendingCreate(true)
+    })()
   }
 
-  const goBack = () => {
-    if (stepIndex === 0) return
-    setDirection('backward')
-    setStep(steps[stepIndex - 1])
-  }
-
-  // Back-jump from the progress bar: only to an already-completed (earlier) step,
-  // and never mid-create. The step-change effect handles focus + scroll reset.
-  const jumpToStep = (index: number) => {
-    if (isCreating) return
-    if (index < 0 || index >= stepIndex) return
-    setDirection('backward')
-    setStep(steps[index])
-  }
-  const stepLabels = useMemo(() => steps.map((id) => STEP_HEADING[id].title), [steps])
+  useEffect(() => {
+    if (!pendingCreate) return
+    // Materializing a NEW folder re-runs handleSelectFolder, which resets
+    // mode-scoped source state (a plan/team picked for the previous folder is
+    // not valid for the new one). createReady here is from the post-reset
+    // render, so a create invalidated by that reset aborts visibly — the
+    // footer's blocking hint explains what to re-pick — instead of silently
+    // creating something the user didn't configure.
+    if (!createReady || isChat) {
+      setPendingCreate(false)
+      return
+    }
+    // pendingCreate stays true (button disabled, rail locked) until the whole
+    // create settles: several create branches await network/IPC work before
+    // they set isCreating themselves, and a re-enabled button in that gap
+    // creates duplicates.
+    void handleCreate().finally(() => setPendingCreate(false))
+    // handleCreate/createReady are re-created per render; this effect fires
+    // only on the pendingCreate flip, with the freshest closures.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pendingCreate])
 
   const handleSectionKeyDown = (event: React.KeyboardEvent<HTMLElement>) => {
     if (event.key !== 'Enter' || event.isDefaultPrevented()) return
@@ -2213,10 +2205,10 @@ export default function NewWorkspacePanel({
     if (tag === 'BUTTON') return
     // Selects use Enter to open/close the dropdown.
     if (tag === 'SELECT') return
-    // Textareas insert newlines on Enter; Cmd/Ctrl+Enter advances.
+    // Textareas insert newlines on Enter; Cmd/Ctrl+Enter creates.
     if (tag === 'TEXTAREA' && !(event.metaKey || event.ctrlKey)) return
     event.preventDefault()
-    goNext()
+    handlePrimaryAction()
   }
 
   const startLogin = async () => {
@@ -2293,13 +2285,7 @@ export default function NewWorkspacePanel({
     onClose()
   }
 
-  const primaryLabel = isLastStep
-    ? createLabelFor(mode, isCreating, seExistingTeam != null)
-    : 'Continue'
-
-  const stepHeading = STEP_HEADING[step]
-  const stepAnimationClass =
-    direction === 'forward' ? 'wizard-step-in-forward' : 'wizard-step-in-backward'
+  const primaryLabel = createLabelFor(mode, isCreating || pendingCreate, seExistingTeam != null)
 
   const guidedFlowVisible = guidedRuntimeState != null && !viewingIdeaAfterCommit
 
@@ -2333,106 +2319,107 @@ export default function NewWorkspacePanel({
           />
         </div>
       ) : null}
-      <header className="flex shrink-0 items-center gap-3 border-b border-[color:var(--bg-surface-raised)] px-5 py-3">
-        <div className="flex shrink-0 items-center gap-2">
-          <MulticodeMark className="h-[18px] w-[18px]" variant="mono" />
-          <h2
-            id="new-workspace-title"
-            className="text-[13px] font-semibold text-[color:var(--text-strong)]"
-          >
-            New workspace
-          </h2>
-        </div>
-        <WizardProgress
-          total={steps.length}
-          active={stepIndex}
-          currentStepLabel={stepHeading.title}
-          stepLabels={stepLabels}
-          onStepSelect={jumpToStep}
-        />
-        {allowClose ? (
-          <CloseIconButton
-            size="md"
-            aria-label="Close"
-            onClick={requestClose}
-            className="ml-2"
-          />
-        ) : null}
-      </header>
-
-      <main ref={stepBodyRef} className="relative min-h-0 flex-1 overflow-y-auto">
-        <div
-          key={step}
-          className={`mx-auto flex w-full ${step === 'sprintengine-roster' ? 'max-w-[1040px]' : step === 'mode' ? 'max-w-[760px]' : 'max-w-[520px]'} flex-col gap-7 px-6 pt-10 pb-14 ${stepAnimationClass}`}
-        >
-          {stepIndex > 0 ? (
-            <button
-              type="button"
-              onClick={goBack}
-              className="
-                -ml-1.5 inline-flex h-7 w-fit items-center gap-1 rounded-md px-1.5 text-[12px] font-medium text-[color:var(--text-subtle)]
-                transition-colors hover:bg-[color:var(--bg-surface-raised)] hover:text-[color:var(--text-strong)]
-                focus:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--accent-primary)]
-              "
-            >
-              <svg className="icon-sm" viewBox="0 0 12 12" fill="none" aria-hidden="true">
-                <path
-                  d="M7.5 3L4.5 6L7.5 9"
-                  stroke="currentColor"
-                  strokeWidth="1.6"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                />
-              </svg>
-              Back
-            </button>
-          ) : null}
-          <header className="flex flex-col gap-1.5">
-            {step === 'workspace' ? (
-              <div
-                aria-hidden="true"
-                className="logo-rise mx-auto mb-6 flex flex-col items-center gap-3"
+      {/* The hub modal floats on the creation backdrop: the wallpaper stays
+          visible around a fixed-size surface (the Settings-overlay shell
+          contract), and each type's whole config lives in one pane with a
+          pinned primary action — no step chain. */}
+      <div className="flex min-h-0 flex-1 items-center justify-center p-4 sm:p-6">
+        <div className="flex h-full max-h-[min(680px,100%)] w-full max-w-[1040px] flex-col overflow-hidden rounded-[8px] border border-[color:var(--border-subtle)] bg-[color:var(--bg-surface)] shadow-[var(--shadow-drawer)]">
+          <header className="flex shrink-0 items-center justify-between gap-3 border-b border-[color:var(--border-subtle)] px-5 py-3">
+            <div className="flex min-w-0 items-center gap-2">
+              <MulticodeMark className="h-[18px] w-[18px]" variant="mono" />
+              <h2
+                id="new-workspace-title"
+                className="text-[13px] font-semibold text-[color:var(--text-strong)]"
               >
-                <div
-                  ref={logoOuterRef}
-                  className="h-16 w-16"
-                  style={{ perspective: '420px' }}
-                >
-                  <div
-                    ref={logoInnerRef}
-                    className="h-full w-full will-change-transform"
-                    style={{
-                      transformStyle: 'preserve-3d',
-                      transition: 'transform 140ms cubic-bezier(0.2, 0.8, 0.2, 1)',
-                      filter: 'drop-shadow(0 6px 14px rgba(0, 0, 0, 0.45))',
-                    }}
-                  >
-                    <MulticodeMark
-                      className="h-full w-full"
-                      variant="gradient"
-                      title="Multicode"
+                New
+              </h2>
+            </div>
+            {allowClose ? (
+              <CloseIconButton
+                size="md"
+                aria-label="Close"
+                onClick={requestClose}
+              />
+            ) : null}
+          </header>
+
+          <div className="flex min-h-0 flex-1">
+            <CreationRail models={modeModels} mode={mode} onSelect={handleSelectMode} />
+
+            <div
+              role="tabpanel"
+              aria-labelledby={`creation-tab-${mode}`}
+              className="flex min-w-0 flex-1 flex-col"
+            >
+              {isChat ? (
+                <div className="flex min-h-0 flex-1 flex-col gap-4 px-6 py-5">
+                  <header className="flex flex-col gap-1">
+                    <h3
+                      ref={headingRef}
+                      tabIndex={-1}
+                      className="text-[17px] font-semibold leading-6 tracking-tight text-[color:var(--text-strong)] outline-none"
+                    >
+                      {currentModeModel.label}
+                    </h3>
+                    <p className="text-[12.5px] leading-5 text-[color:var(--text-muted)]">
+                      {currentModeModel.description}
+                    </p>
+                  </header>
+                  {/* Chat's config region: the same AgentComposer the standalone
+                      New chat panel wraps. It carries its own project chip and
+                      Start-chat action, so the hub renders no shared footer for
+                      this pane. Confirm routes to the host's solo-chat create. */}
+                  <div className="min-h-0 flex-1 overflow-hidden rounded-lg border border-[color:var(--border-default)]">
+                    <AgentComposer
+                      folderPath={folderPath}
+                      folderLabel={folderPath ? basename(folderPath) : null}
+                      projectOptions={chatComposer.projectOptions}
+                      onSelectProject={handleChatSelectProject}
+                      onBrowseProject={() => void handleChatBrowseProject()}
+                      initialSelection={chatComposer.initialSelection}
+                      permissionPreset={chatComposer.permissionPreset}
+                      onChangePermissionPreset={chatComposer.onChangePermissionPreset}
+                      debugMode={chatComposer.debugMode}
+                      onChangeDebugMode={chatComposer.onChangeDebugMode}
+                      onConfirm={(confirm) => chatComposer.onConfirm(confirm, folderPath)}
+                      onClose={requestClose}
+                      embedded
                     />
                   </div>
                 </div>
-                <MulticodeWordmark className="h-5 text-[color:var(--text-strong)]" />
-              </div>
-            ) : null}
-            <h3
-              ref={headingRef}
-              tabIndex={-1}
-              className="text-[22px] font-semibold leading-7 tracking-tight text-[color:var(--text-strong)] outline-none"
-            >
-              {stepHeading.title}
-            </h3>
-            <p className="text-[13px] leading-5 text-[color:var(--text-muted)]">{stepHeading.subtitle}</p>
-          </header>
+              ) : (
+                <>
+                  <main ref={stepBodyRef} className="relative min-h-0 flex-1 overflow-y-auto">
+                    <div
+                      key={mode}
+                      className={`flex w-full ${isSprintEngine ? '' : 'max-w-[560px]'} flex-col gap-7 px-6 py-5`}
+                    >
+                      {/* The Sprint pane is the one full-width pane (its team
+                          picker and roster tables need the room), but its
+                          heading and form fields keep the same 560px measure
+                          as every other pane so the shared fields read
+                          identically across the rail. */}
+                      <div className={`flex w-full flex-col gap-7 ${isSprintEngine ? 'max-w-[560px]' : ''}`}>
+                        <header className="flex flex-col gap-1.5">
+                          <h3
+                            ref={headingRef}
+                            tabIndex={-1}
+                            className="text-[17px] font-semibold leading-6 tracking-tight text-[color:var(--text-strong)] outline-none"
+                          >
+                            {currentModeModel.label}
+                          </h3>
+                          <p className="text-[12.5px] leading-5 text-[color:var(--text-muted)]">
+                            {currentModeModel.description}
+                          </p>
+                        </header>
 
-          {step === 'workspace' ? (
-            <WorkspaceStep
+                        <WorkspaceStep
               name={name}
               onChangeName={handleChangeName}
               folderDraftPath={folderDraftPath}
               onChangeFolderDraftPath={handleChangeFolderDraftPath}
+              onBlurFolderDraftPath={handleFolderDraftBlur}
               onBrowseFolder={() => void pickFolder()}
               folderDraftExists={folderDraftExists}
               folderError={folderError}
@@ -2441,51 +2428,21 @@ export default function NewWorkspacePanel({
               folderHints={folderHints}
               inputRef={nameInputRef}
             />
-          ) : null}
+                      </div>
 
-          {step === 'mode' ? (
-            <ModeStep
-              mode={mode}
-              onSelect={handleSelectMode}
-              folderPath={folderPath}
-              folderHint={folderPath ? folderHints.get(folderPath) ?? null : null}
-            />
-          ) : null}
-
-          {step === 'mode' && isChat ? (
-            // Chat's config region: the same AgentComposer the standalone New chat
-            // panel wraps. It carries its own project chip and Start-chat action, so
-            // the wizard hides its shared footer for this step (below) to avoid a
-            // duplicate CTA. Confirm routes to the host's solo-chat create path.
-            <div className="h-[min(560px,62vh)] overflow-hidden rounded-lg border border-[color:var(--border-default)]">
-              <AgentComposer
-                folderPath={folderPath}
-                folderLabel={folderPath ? basename(folderPath) : null}
-                projectOptions={chatComposer.projectOptions}
-                onSelectProject={handleChatSelectProject}
-                onBrowseProject={() => void handleChatBrowseProject()}
-                initialSelection={chatComposer.initialSelection}
-                permissionPreset={chatComposer.permissionPreset}
-                onChangePermissionPreset={chatComposer.onChangePermissionPreset}
-                debugMode={chatComposer.debugMode}
-                onChangeDebugMode={chatComposer.onChangeDebugMode}
-                onConfirm={(confirm) => chatComposer.onConfirm(confirm, folderPath)}
-                onClose={requestClose}
-                embedded
-              />
-            </div>
-          ) : null}
-
-          {step === 'standard-layout' ? (
+          {configSteps.includes('standard-layout') ? (
+            <ConfigStepSection stepId="standard-layout">
             <StandardLayoutStep
               layoutId={layoutId}
               onChange={setLayoutId}
               userTemplates={userLayoutTemplates}
               onTemplatesChanged={loadUserLayoutTemplates}
             />
+            </ConfigStepSection>
           ) : null}
 
-          {step === 'multiloop-goal' ? (
+          {configSteps.includes('multiloop-goal') ? (
+            <ConfigStepSection stepId="multiloop-goal">
             <MultiloopGoalStep
               goal={mlGoal}
               onChangeGoal={(value) => {
@@ -2496,9 +2453,11 @@ export default function NewWorkspacePanel({
               onChangeCliPermissionPreset={setCliPermissionPreset}
               error={mlError}
             />
+            </ConfigStepSection>
           ) : null}
 
-          {step === 'sprintengine-team' ? (
+          {configSteps.includes('sprintengine-team') ? (
+            <ConfigStepSection stepId="sprintengine-team">
             <SprintEngineTeamStep
               access={sprintEngineAccess}
               onSignIn={() => void startLogin()}
@@ -2563,9 +2522,11 @@ export default function NewWorkspacePanel({
                 setSePlanError(null)
               }}
             />
+            </ConfigStepSection>
           ) : null}
 
-          {step === 'guided-idea' ? (
+          {configSteps.includes('guided-idea') ? (
+            <ConfigStepSection stepId="guided-idea">
             <GuidedIdeaStep
               idea={guidedIdea}
               preset={guidedPreset}
@@ -2603,9 +2564,11 @@ export default function NewWorkspacePanel({
               folderPath={folderPath}
               error={guidedError}
             />
+            </ConfigStepSection>
           ) : null}
 
-          {step === 'sprintengine-roster' ? (
+          {configSteps.includes('sprintengine-roster') ? (
+            <ConfigStepSection stepId="sprintengine-roster">
             <SprintEngineRosterStep
               access={sprintEngineAccess}
               onSignIn={() => void startLogin()}
@@ -2661,6 +2624,7 @@ export default function NewWorkspacePanel({
                 />
               }
             />
+            </ConfigStepSection>
           ) : null}
 
           {showAdvancedSetup ? (
@@ -2693,40 +2657,36 @@ export default function NewWorkspacePanel({
               {advancedSetupError}
             </div>
           ) : null}
+                    </div>
+                  </main>
 
-          {step === 'mode' && isChat ? null : (
-          <div className="flex items-center justify-between gap-3 pt-1">
-            <p className="min-w-0 flex-1 truncate text-[12px] leading-5 text-[color:var(--text-subtle)]">
-              {blockingMessage}
-            </p>
-            <button
-              type="button"
-              onClick={goNext}
-              disabled={!canAdvanceFromCurrent || isCreating}
-              className="
-                inline-flex h-9 shrink-0 items-center gap-1.5 rounded-md bg-[color:var(--accent-primary)] px-4 text-[13px] font-semibold text-[color:var(--bg-app)]
-                transition-colors hover:bg-[color:var(--accent-primary-hover)]
-                disabled:cursor-not-allowed disabled:bg-[color:var(--bg-surface-raised)] disabled:text-[color:var(--text-disabled)]
-                focus:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--accent-primary)]
-              "
-            >
-              {primaryLabel}
-              {!isLastStep ? (
-                <svg className="icon-sm" viewBox="0 0 12 12" fill="none" aria-hidden="true">
-                  <path
-                    d="M4.5 3L7.5 6L4.5 9"
-                    stroke="currentColor"
-                    strokeWidth="1.8"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                  />
-                </svg>
-              ) : null}
-            </button>
+                  {/* Pinned footer: the pane body scrolls above it, so the
+                      primary action never leaves the viewport on tall panes
+                      (the sprint roster, the guided idea, the loop goal). */}
+                  <footer className="flex shrink-0 items-center justify-between gap-3 border-t border-[color:var(--border-subtle)] px-6 py-3">
+                    <p className="min-w-0 flex-1 truncate text-[12px] leading-5 text-[color:var(--text-subtle)]">
+                      {blockingMessage}
+                    </p>
+                    <button
+                      type="button"
+                      onClick={handlePrimaryAction}
+                      disabled={!createReady || isCreating || pendingCreate}
+                      className="
+                        inline-flex h-9 shrink-0 items-center gap-1.5 rounded-md bg-[color:var(--accent-primary)] px-4 text-[13px] font-semibold text-[color:var(--bg-app)]
+                        transition-colors hover:bg-[color:var(--accent-primary-hover)]
+                        disabled:cursor-not-allowed disabled:bg-[color:var(--bg-surface-raised)] disabled:text-[color:var(--text-disabled)]
+                        focus:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--accent-primary)]
+                      "
+                    >
+                      {primaryLabel}
+                    </button>
+                  </footer>
+                </>
+              )}
+            </div>
           </div>
-          )}
         </div>
-      </main>
+      </div>
       <GuidedBriefCloseConfirmation
         open={closeConfirmation}
         stage={guidedRuntimeState?.stage ?? null}
@@ -2756,6 +2716,7 @@ function WorkspaceStep({
   onChangeName,
   folderDraftPath,
   onChangeFolderDraftPath,
+  onBlurFolderDraftPath,
   onBrowseFolder,
   folderDraftExists,
   folderError,
@@ -2768,6 +2729,7 @@ function WorkspaceStep({
   onChangeName: (value: string) => void
   folderDraftPath: string
   onChangeFolderDraftPath: (value: string) => void
+  onBlurFolderDraftPath: () => void
   onBrowseFolder: () => void
   folderDraftExists: boolean | null
   folderError: string | null
@@ -2791,7 +2753,7 @@ function WorkspaceStep({
         : targetError
           ? { tone: 'muted', text: targetError }
           : folderDraftExists === false
-            ? { tone: 'muted', text: 'New — this folder will be created on continue.' }
+            ? { tone: 'muted', text: 'New — this folder will be created.' }
             : null
 
   return (
@@ -2818,6 +2780,7 @@ function WorkspaceStep({
           <input
             value={folderDraftPath}
             onChange={(event) => onChangeFolderDraftPath(event.target.value)}
+            onBlur={onBlurFolderDraftPath}
             placeholder="/path/to/workspace"
             spellCheck={false}
             autoComplete="off"
@@ -2873,72 +2836,20 @@ function WorkspaceStep({
   )
 }
 
-function ModeStep({
-  mode,
-  onSelect,
-  folderPath,
-  folderHint,
-}: {
-  mode: CreationMode
-  onSelect: (mode: CreationMode) => void
-  folderPath: string | null
-  folderHint: { hasSprintEngineTeam?: boolean; hasMultiloop?: boolean } | null
-}) {
-  const moduleOverrides = useWorkspaceStore((s) => s.appSettings.modules)
-  // guided-brief hands its build off to a Sprint Engine run, so it depends on
-  // the sprint-engine module and is hidden when Sprint Engine is disabled.
-  const sprintEngineEnabled = selectModuleEnabled(moduleOverrides, 'sprint-engine')
-
-  // 'standard' (shell-owned) plus the enabled registry-contributed types, in
-  // pickerOrder. getWorkspaceTypes returns a fresh array, so the derived list is
-  // memoised from the stable moduleOverrides reference (Zustand v5: selectors and
-  // selector-derived arrays must not return fresh arrays/objects each render).
-  // Each definition's moduleId drives gating, so disabling sprint-engine drops
-  // both sprintengine and guided-brief, exactly as the prior hardcoded list did.
-  const modeModels = useMemo<ModeCardModel[]>(() => {
-    const contributed = getRendererHost()
-      .getWorkspaceTypes((moduleId) => selectModuleEnabled(moduleOverrides, moduleId))
-      .map<ModeCardModel>((definition) => ({
-        id: definition.id,
-        label: definition.label,
-        description: definition.description,
-        icon: definition.icon,
-      }))
-    // Lead with the shell-owned Chat pseudo-card, then surface Sprint Engine and
-    // Design Wizard ahead of the rest (both gated by the sprint-engine module, so
-    // absent when it is disabled). The remaining contributed types keep their
-    // pickerOrder after the shell-owned Standard card.
-    const featuredIds = ['sprintengine', 'guided-brief']
-    const byId = new Map(contributed.map((model) => [model.id, model]))
-    const featured = featuredIds
-      .map((id) => byId.get(id))
-      .filter((model): model is ModeCardModel => model !== undefined)
-    const rest = contributed.filter((model) => !featuredIds.includes(model.id))
-    return [CHAT_MODE_MODEL, ...featured, STANDARD_MODE_MODEL, ...rest]
-  }, [moduleOverrides])
-
-  const suggested: CreationMode | null = (() => {
-    if (!folderHint) return null
-    if (folderHint.hasSprintEngineTeam) return sprintEngineEnabled ? 'sprintengine' : null
-    if (folderHint.hasMultiloop) return selectModuleEnabled(moduleOverrides, 'multiloop') ? 'multiloop' : null
-    return null
-  })()
-
+// One config step's section inside a hub pane: the step heading scaled to a
+// section header, over the same step body the step wizard rendered full-page.
+function ConfigStepSection({ stepId, children }: { stepId: StepId; children: ReactNode }) {
+  const heading = STEP_HEADING[stepId]
   return (
-    <div className="flex flex-col gap-3">
-      {folderPath && suggested ? (
-        <p className="rounded-md border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] px-3 py-2 text-[12px] leading-5 text-[color:var(--text-muted)]">
-          We found a saved{' '}
-          <span className="font-semibold text-[color:var(--text-strong)]">{labelFor(suggested)}</span>{' '}
-          team in this folder. {mode === suggested ? 'Selected for you.' : 'Select it to load.'}
-        </p>
-      ) : null}
-      <div role="radiogroup" aria-label="Workspace type" className="grid grid-cols-3 gap-2.5">
-        {modeModels.map((model) => (
-          <ModeCard key={model.id} model={model} active={mode === model.id} onSelect={onSelect} />
-        ))}
-      </div>
-    </div>
+    <section className="flex flex-col gap-4">
+      <header className="flex flex-col gap-1">
+        <h4 className="text-[14px] font-semibold leading-5 text-[color:var(--text-strong)]">
+          {heading.title}
+        </h4>
+        <p className="text-[12px] leading-5 text-[color:var(--text-muted)]">{heading.subtitle}</p>
+      </header>
+      {children}
+    </section>
   )
 }
 
@@ -4532,13 +4443,6 @@ function guidedBriefStartBuildErrorMessage(error: GuidedBriefStartBuildError): s
   }
 }
 
-function labelFor(mode: CreationMode): string {
-  if (mode === 'standard') return 'Standard'
-  // Contributed types carry their own label; fall back to the id for an
-  // unrecognised mode rather than throwing on the open CreationMode union.
-  return getRendererHost().getWorkspaceType(mode)?.label ?? mode
-}
-
 function createLabelFor(mode: CreationMode, isCreating: boolean, hasExistingTeam: boolean): string {
   if (isCreating) return 'Creating…'
   if (mode === 'sprintengine' && hasExistingTeam) return 'Load team'
@@ -4576,8 +4480,6 @@ function isStepReady(
   switch (step) {
     case 'workspace':
       return readiness.workspaceStepReady
-    case 'mode':
-      return true
     case 'mcp-servers':
       return true
     case 'skill-packs':
@@ -4599,7 +4501,6 @@ function isStepReady(
 
 function getStepBlockingMessage(args: {
   step: StepId
-  mode: CreationMode
   workspaceFolderReady: boolean
   name: string
   mlGoal: string
@@ -4621,7 +4522,6 @@ function getStepBlockingMessage(args: {
 }): string {
   const {
     step,
-    mode,
     workspaceFolderReady,
     name,
     mlGoal,
@@ -4647,9 +4547,7 @@ function getStepBlockingMessage(args: {
       if (!workspaceFolderReady && !name.trim()) return 'Add a name and choose a folder.'
       if (!workspaceFolderReady) return 'Choose a folder to continue.'
       if (!name.trim()) return 'Give the workspace a name.'
-      return 'Press Continue to choose a mode.'
-    case 'mode':
-      return `Continue with ${labelFor(mode)}, or pick another.`
+      return 'Ready to create.'
     case 'mcp-servers':
       return 'Pick tool integrations, or skip to add them later from Settings.'
     case 'skill-packs':

@@ -7,10 +7,10 @@
 // (`window.api.mcpListCatalog`, the launchable connectors) and the marketplace
 // registry (`window.api.readMarketplaceRegistry`, installable mcp/skills plugins).
 // The merge / facet / search / state-machine logic lives in the DOM-free
-// `connectorsFacets` view-model; this file is presentation + IPC wiring only, and
-// reuses the existing storefront pieces (McpCatalogTile/McpInfoPanel and the
-// storefront PluginCard/PluginDetailPanel install-flow) rather than reimplementing
-// install/trust logic.
+// `connectorsFacets` view-model; this file is presentation + IPC wiring only. The
+// browse list renders the shared ConnectorRow in category sections, and reuses
+// the existing detail panels (McpInfoPanel and the storefront PluginDetailPanel
+// install-flow) rather than reimplementing install/trust logic.
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
@@ -33,18 +33,20 @@ import {
 } from '../../ui'
 import {
   McpBrandIcon,
-  McpCatalogTile,
   McpInfoPanel,
   mcpIconSlug,
   mcpServerFromCatalog,
 } from '../../settings/McpCatalog'
-import { PluginCard, PluginDetailPanel } from '../../settings/BrowseStorefront'
+import { PluginDetailPanel } from '../../settings/BrowseStorefront'
 import { ConnectorsManage } from './ConnectorsManage'
+import { ConnectorEntryRow, ConnectorSectionHeading } from './ConnectorRow'
 import {
   CONNECTOR_FACETS,
   deriveConnectorsView,
+  sectionConnectors,
   type ConnectorEntry,
   type ConnectorFacet,
+  type ConnectorSection,
   type ConnectorsView,
   type SourceLoad,
 } from './connectorsFacets'
@@ -364,6 +366,7 @@ function ConnectorsBrowser({
           <TabPanel idPrefix={FACET_TABS_PREFIX} tabId={facet} active>
             <ConnectorsBody
               view={browseView}
+              facet={facet}
               registryUrl={registryUrl}
               workspaceRoot={activeWorkspaceRoot}
               mcpSettings={mcpSettings}
@@ -382,7 +385,12 @@ function ConnectorsBrowser({
         </TabPanel>
 
         <TabPanel idPrefix={SURFACE_VIEW_PREFIX} tabId="installed" active={view === 'installed'}>
-          <ConnectorsManage activeWorkspaceRoot={activeWorkspaceRoot} />
+          <ConnectorsManage
+            activeWorkspaceRoot={activeWorkspaceRoot}
+            catalogServers={catalogLoad.status === 'ready' ? catalogLoad.data : []}
+            onLaunchConnector={onLaunchConnector}
+            onUseInAutomation={onUseInAutomation}
+          />
         </TabPanel>
       </div>
     </div>
@@ -403,18 +411,14 @@ export function ReadyConnectorsRail({
   if (connectors.length === 0) return null
   return (
     <section className="mt-4 space-y-2">
-      <div className="flex items-center gap-3">
-        <span className="text-[12px] font-medium text-[color:var(--text-muted)]">Ready to launch</span>
-        <span className="h-px flex-1 bg-[color:var(--border-subtle)]" />
-        <span className="tabular-nums font-mono text-[10px] text-[color:var(--text-subtle)]">{connectors.length}</span>
-      </div>
+      <ConnectorSectionHeading label="Ready to launch" count={connectors.length} />
       <ul className="space-y-1">
         {connectors.map((server) => (
           <li
             key={server.id}
             className="group flex items-center gap-3 rounded-md border border-[color:var(--border-subtle)] bg-[color:var(--bg-surface)] px-3 py-2"
           >
-            <McpBrandIcon slug={mcpIconSlug(server.id)} name={server.name} size={28} />
+            <McpBrandIcon slug={mcpIconSlug(server.id)} name={server.name} icon={server.icon} size={28} />
             <div className="min-w-0 flex-1">
               <TruncatedText
                 as="div"
@@ -475,6 +479,7 @@ export function FacetTabs({
 
 export function ConnectorsBody({
   view,
+  facet,
   registryUrl,
   workspaceRoot,
   mcpSettings,
@@ -490,6 +495,7 @@ export function ConnectorsBody({
   retry,
 }: {
   view: ConnectorsView
+  facet: ConnectorFacet
   registryUrl: string | null
   workspaceRoot: string | null
   mcpSettings: McpSettings
@@ -542,29 +548,33 @@ export function ConnectorsBody({
   }
 
   const detailOpen = Boolean(selectedEntry)
+  const sections = sectionConnectors(view.entries, facet)
+  const renderRow = (entry: ConnectorEntry) => (
+    <ConnectorEntryRow
+      key={entry.key}
+      entry={entry}
+      registryUrl={registryUrl}
+      selected={selectedKey === entry.key}
+      onOpen={() => onSelect(entry.key)}
+      onToggleInstalled={
+        entry.source === 'catalog' && entry.catalogServer
+          ? () => onToggleCatalogServer(entry.catalogServer!)
+          : undefined
+      }
+      onLaunch={entry.canLaunch ? () => onLaunchConnector(entry.id) : undefined}
+    />
+  )
   return (
     <div className="mt-4 flex gap-4">
-      <div className={`grid min-w-0 flex-1 grid-cols-2 gap-2 sm:grid-cols-3 ${detailOpen ? '' : 'lg:grid-cols-4'}`}>
-        {view.entries.map((entry) =>
-          entry.source === 'catalog' && entry.catalogServer ? (
-            <McpCatalogTile
-              key={entry.key}
-              server={entry.catalogServer}
-              installed={entry.installed}
-              selected={selectedKey === entry.key}
-              onToggle={() => onToggleCatalogServer(entry.catalogServer!)}
-              onInfo={() => onSelect(entry.key)}
-            />
-          ) : entry.plugin ? (
-            <PluginCard
-              key={entry.key}
-              plugin={entry.plugin}
-              registryUrl={registryUrl}
-              selected={selectedKey === entry.key}
-              onOpen={() => onSelect(entry.key)}
-            />
-          ) : null,
-        )}
+      <div className="min-w-0 flex-1 space-y-5">
+        {sections.map((section) => (
+          <ConnectorSectionBlock
+            key={section.title}
+            section={section}
+            detailOpen={detailOpen}
+            renderRow={renderRow}
+          />
+        ))}
       </div>
 
       {selectedEntry && selectedEntry.source === 'catalog' && selectedEntry.catalogServer ? (
@@ -589,5 +599,39 @@ export function ConnectorsBody({
         />
       ) : null}
     </div>
+  )
+}
+
+// How many rows a collapsed section shows before its "Show N more" toggle.
+const SECTION_COLLAPSE_LIMIT = 6
+
+// One category section: the shared heading treatment (label · hairline · count)
+// over a two-column row list. The show-all state is local to the section, and the
+// section remounts (keyed by title) when the facet or search changes the set.
+function ConnectorSectionBlock({
+  section,
+  detailOpen,
+  renderRow,
+}: {
+  section: ConnectorSection
+  detailOpen: boolean
+  renderRow: (entry: ConnectorEntry) => JSX.Element
+}) {
+  const [showAll, setShowAll] = useState(false)
+  const expanded = section.expanded || showAll
+  const visible = expanded ? section.entries : section.entries.slice(0, SECTION_COLLAPSE_LIMIT)
+  const hiddenCount = section.entries.length - visible.length
+  return (
+    <section className="space-y-2">
+      <ConnectorSectionHeading label={section.title} count={section.entries.length} />
+      <div className={`grid gap-2 ${detailOpen ? 'grid-cols-1' : 'grid-cols-1 sm:grid-cols-2'}`}>
+        {visible.map(renderRow)}
+      </div>
+      {!section.expanded && section.entries.length > SECTION_COLLAPSE_LIMIT ? (
+        <GhostButton size="sm" onClick={() => setShowAll((value) => !value)}>
+          {showAll ? 'Show fewer' : `Show ${hiddenCount} more`}
+        </GhostButton>
+      ) : null}
+    </section>
   )
 }

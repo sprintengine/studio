@@ -21,6 +21,8 @@ type AutomationServiceOptions = {
   resolveUserDataDir: () => string
   appVersion: string
   tools: McpToolRegistration[]
+  /** Absolute path of the shipped stdio bridge script, when the app knows it. */
+  resolveBridgeScriptPath?: () => string | null
   logDiagnostic?: (diagnostic: { level: 'warning'; title: string; message: string; details?: string }) => void
 }
 
@@ -51,6 +53,7 @@ export function createAutomationService(options: AutomationServiceOptions) {
       running: server?.isRunning() ?? false,
       socketPath: server?.isRunning() ? socketPath : null,
       lastError,
+      bridgeScriptPath: options.resolveBridgeScriptPath?.() ?? null,
     }
   }
 

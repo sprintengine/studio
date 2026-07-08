@@ -11,19 +11,18 @@
 
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react'
 
-import type { BuiltinSkill, BuiltinSkillStatus, SkillPackEntry } from '../../../../../shared/electron-api'
+import type { BuiltinSkill, BuiltinSkillStatus, McpCatalogServer, SkillPackEntry } from '../../../../../shared/electron-api'
 import type {
-  McpServerConfig,
   McpSettings,
   SkillPackCatalogEntry,
   SkillPackSettings,
 } from '../../../types/workspace'
 import { useWorkspaceStore } from '../../../store/workspaceStore'
 import { Field, GhostButton, Select, type SelectItem } from '../../ui'
-import { McpBrandIcon, mcpIconSlug } from '../../settings/McpCatalog'
-import { SkillPackInfoPanel, SkillPackTile, groupSkillPackCatalog } from '../../settings/SkillPacksCatalog'
+import { McpBrandIcon } from '../../settings/McpCatalog'
+import { SkillPackInfoPanel, SkillPackMonogram, groupSkillPackCatalog } from '../../settings/SkillPacksCatalog'
 import { AutomationServerSettings } from '../../settings/AutomationServerSettings'
-import { SettingsSectionTitle } from '../../settings/SettingsAtoms'
+import { ConnectorRow, ConnectorSectionHeading } from './ConnectorRow'
 import { InstalledExtensionsInventory } from './InstalledExtensionsInventory'
 
 const EMPTY_MCP_SETTINGS: McpSettings = { syncEnabled: false, servers: {} }
@@ -55,7 +54,19 @@ function ManageNote({ tone, children }: { tone: NoteTone; children: ReactNode })
   )
 }
 
-export function ConnectorsManage({ activeWorkspaceRoot }: { activeWorkspaceRoot: string | null }) {
+export function ConnectorsManage({
+  activeWorkspaceRoot,
+  catalogServers = [],
+  onLaunchConnector,
+  onUseInAutomation,
+}: {
+  activeWorkspaceRoot: string | null
+  // The MCP catalog (already loaded by the surface) — enriches installed rows
+  // with real icons and marks skill-linked entries launchable.
+  catalogServers?: McpCatalogServer[]
+  onLaunchConnector?: (serverId: string) => void
+  onUseInAutomation?: (serverId: string) => void
+}) {
   const mcpSettings = useWorkspaceStore((s) => s.appSettings.mcp ?? EMPTY_MCP_SETTINGS)
   const upsertMcpServer = useWorkspaceStore((s) => s.upsertMcpServer)
   const removeMcpServer = useWorkspaceStore((s) => s.removeMcpServer)
@@ -83,6 +94,10 @@ export function ConnectorsManage({ activeWorkspaceRoot }: { activeWorkspaceRoot:
   const [skillPackMessage, setSkillPackMessage] = useState<string | null>(null)
   const [skillPackPendingId, setSkillPackPendingId] = useState<string | null>(null)
   const [selectedSkillPackId, setSelectedSkillPackId] = useState<string | null>(null)
+  // The inventory lists skill packs over IPC, so a successful install/remove
+  // bumps this to remount it and re-list; MCP rows ride the store and need no
+  // refresh.
+  const [inventoryRefresh, setInventoryRefresh] = useState(0)
 
   // Bundled built-in skills: list them always; probe per-workspace install status
   // only when a workspace is open (status is workspace-scoped).
@@ -240,6 +255,7 @@ export function ConnectorsManage({ activeWorkspaceRoot }: { activeWorkspaceRoot:
           if (result.ok) {
             removeSkillPackFromStore(pack.id)
             setSkillPackMessage(`${pack.name} removed.`)
+            setInventoryRefresh((count) => count + 1)
           } else {
             setSkillPackMessage(result.message)
           }
@@ -265,6 +281,7 @@ export function ConnectorsManage({ activeWorkspaceRoot }: { activeWorkspaceRoot:
             setSkillPackMessage(
               pack.setupNotes ? `${pack.name} installed. ${pack.setupNotes}` : `${pack.name} installed.`,
             )
+            setInventoryRefresh((count) => count + 1)
           } else {
             setSkillPackMessage(result.message)
           }
@@ -278,51 +295,59 @@ export function ConnectorsManage({ activeWorkspaceRoot }: { activeWorkspaceRoot:
     [activeWorkspaceRoot, removeSkillPackFromStore, skillPackSettings.installed, upsertSkillPack],
   )
 
-  const activeMcpServers = useMemo(
-    () => Object.values(mcpSettings.servers).filter((server) => server.enabled),
-    [mcpSettings.servers],
+  // Inventory rows key skill packs by slug; resolve back to the catalog entry
+  // (or the store's installed record) and route through the existing
+  // toggleSkillPack removal path — no new IPC.
+  const removeSkillPackBySlug = useCallback(
+    (slug: string) => {
+      const catalogEntry = skillPackCatalog.find((entry) => entry.slug === slug)
+      if (catalogEntry) {
+        void toggleSkillPack(catalogEntry)
+        return
+      }
+      const pack = Object.values(skillPackSettings.installed).find((entry) => entry.slug === slug)
+      if (pack) {
+        void toggleSkillPack({
+          id: pack.id,
+          slug: pack.slug,
+          name: pack.name,
+          installedDirName: pack.installedDirName,
+          harnesses: pack.harnesses,
+        })
+      }
+    },
+    [skillPackCatalog, skillPackSettings.installed, toggleSkillPack],
   )
+
   const groupedSkillPackCatalog = useMemo(() => groupSkillPackCatalog(skillPackCatalog), [skillPackCatalog])
   const selectedSkillPack = selectedSkillPackId
     ? skillPackCatalog.find((pack) => pack.id === selectedSkillPackId) ?? null
     : null
-  const installedSkillPacks = Object.values(skillPackSettings.installed)
   const mcpServers = useMemo(() => Object.values(mcpSettings.servers), [mcpSettings.servers])
 
   return (
     <div className="mt-4 space-y-6">
       <section className="space-y-2">
-        <SettingsSectionTitle>Installed</SettingsSectionTitle>
         <InstalledExtensionsInventory
+          key={inventoryRefresh}
           mcpServers={mcpServers}
           moduleOverrides={moduleEnablement}
           workspaceRoot={activeWorkspaceRoot}
+          catalogServers={catalogServers}
+          onLaunchConnector={onLaunchConnector}
+          onUseInAutomation={onUseInAutomation}
+          onRemoveMcpServer={(serverId) => {
+            removeMcpServer(serverId)
+            setMcpMessage(null)
+          }}
+          onRemoveSkillPack={removeSkillPackBySlug}
         />
       </section>
 
       <section className="space-y-3 border-t border-[color:var(--border-subtle)] pt-5">
-        <SettingsSectionTitle count={activeMcpServers.length}>MCP servers</SettingsSectionTitle>
-        {activeMcpServers.length === 0 ? (
-          <ManageNote tone="neutral">
-            Nothing active yet. Get an MCP connector from the Browse grid, or add a custom server below.
-          </ManageNote>
-        ) : (
-          <ul className="divide-y divide-[color:var(--border-subtle)]">
-            {activeMcpServers.map((server) => (
-              <McpServerRow
-                key={server.id}
-                server={server}
-                onRemove={() => {
-                  removeMcpServer(server.id)
-                  setMcpMessage(null)
-                }}
-              />
-            ))}
-          </ul>
-        )}
-
         <details className="group space-y-3 [&[open]]:space-y-3">
-          <summary className="flex cursor-pointer list-none items-center justify-between gap-3 text-sm font-semibold text-[color:var(--text-strong)] focus:outline-none focus-visible:underline">
+          {/* Row-sized affordance matching the inventory rows above it. */}
+          <summary className="interactive flex cursor-pointer list-none items-center justify-between gap-3 rounded-md border border-[color:var(--border-subtle)] bg-[color:var(--bg-surface)] p-2.5 text-[13px] font-semibold text-[color:var(--text-strong)] hover:border-[color:var(--border-strong)] hover:bg-[color:var(--bg-surface-raised)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--border-focus)]">
             <span>Add a custom MCP</span>
             <span aria-hidden className="text-[10px] font-medium text-[color:var(--text-subtle)] transition-transform group-open:rotate-180">▾</span>
           </summary>
@@ -410,168 +435,117 @@ export function ConnectorsManage({ activeWorkspaceRoot }: { activeWorkspaceRoot:
         <AutomationServerSettings />
       </section>
 
-      <section className="space-y-3 border-t border-[color:var(--border-subtle)] pt-5">
-        <SettingsSectionTitle count={builtinSkills.length}>Bundled skills</SettingsSectionTitle>
-        <p className="text-[12px] leading-5 text-[color:var(--text-muted)]">
-          First-party workflow skills, installed into the workspace targets each agent CLI supports.
-        </p>
-        <div className="divide-y divide-[color:var(--border-subtle)]">
-          {builtinSkills.length ? builtinSkills.map((skill) => {
-            const status = builtinSkillStatuses[skill.id] ?? null
-            const installBlocked =
-              !activeWorkspaceRoot
-              || !status
-              || !status.ok
-              || status.status === 'installed'
-              || status.status === 'modified'
-              || status.status === 'local'
-            return (
-              <div key={skill.id} className="flex flex-wrap items-center justify-between gap-3 py-2.5">
-                <div className="min-w-0 flex-1">
-                  <div className="truncate text-[13px] font-medium text-[color:var(--text-strong)]">{skill.name}</div>
-                  <div className="mt-0.5 text-[12px] leading-5 text-[color:var(--text-muted)]">{skill.description}</div>
-                  <div className="mt-0.5 text-[11px] leading-4 text-[color:var(--text-subtle)]">
-                    {formatBuiltinSkillStatus(status, skill.id)}
-                  </div>
-                </div>
-                <GhostButton
-                  size="md"
-                  onClick={() => void installBuiltinSkill(skill)}
-                  disabled={builtinSkillPendingId !== null || installBlocked}
-                  className="border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] text-[color:var(--text-default)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]"
-                >
-                  {status?.ok && status.status === 'update-available' ? 'Update' : 'Install'}
-                </GhostButton>
-              </div>
-            )
-          }) : (
-            <p className="py-2.5 text-[12px] leading-5 text-[color:var(--text-muted)]">
-              Built-in skills have not loaded yet.
-            </p>
-          )}
-        </div>
+      <section className="space-y-2 border-t border-[color:var(--border-subtle)] pt-5">
+        <ConnectorSectionHeading label="Bundled skills" count={builtinSkills.length} />
+        {builtinSkills.length ? (
+          <div className="divide-y divide-[color:var(--border-subtle)] overflow-hidden rounded-md border border-[color:var(--border-subtle)] bg-[color:var(--bg-surface)]">
+            {builtinSkills.map((skill) => {
+              const status = builtinSkillStatuses[skill.id] ?? null
+              const actionable =
+                Boolean(activeWorkspaceRoot)
+                && status?.ok === true
+                && (status.status === 'missing' || status.status === 'update-available')
+              return (
+                <ConnectorRow
+                  key={skill.id}
+                  variant="compact"
+                  icon={<McpBrandIcon slug={null} name={skill.name} size={24} />}
+                  name={skill.name}
+                  // The full description + install detail live in the hover
+                  // tooltip; the row keeps a short status only.
+                  summary={`${skill.description} — ${formatBuiltinSkillStatus(status, skill.id)}`}
+                  status={<span>{builtinSkillShortStatus(status)}</span>}
+                  actions={
+                    actionable ? (
+                      <GhostButton
+                        size="sm"
+                        onClick={() => void installBuiltinSkill(skill)}
+                        disabled={builtinSkillPendingId !== null}
+                        className="border border-[color:var(--border-default)]"
+                      >
+                        {status?.ok && status.status === 'update-available' ? 'Update' : 'Install'}
+                      </GhostButton>
+                    ) : undefined
+                  }
+                />
+              )
+            })}
+          </div>
+        ) : (
+          <p className="py-1 text-[12px] leading-5 text-[color:var(--text-muted)]">
+            Built-in skills have not loaded yet.
+          </p>
+        )}
         {builtinSkillMessage ? <ManageNote tone="warn">{builtinSkillMessage}</ManageNote> : null}
       </section>
 
+      {/* Installed skill packs live in the inventory above (with Remove); the
+          get-more ecosystem catalog stays collapsed until asked for, matching
+          the Add-a-custom-MCP affordance. */}
       <section className="space-y-3 border-t border-[color:var(--border-subtle)] pt-5">
-        <SettingsSectionTitle count={installedSkillPacks.length}>Skill packs</SettingsSectionTitle>
-        {installedSkillPacks.length === 0 ? (
-          <p className="text-[12px] leading-5 text-[color:var(--text-muted)]">
-            Nothing installed yet. Pick a pack from the ecosystem catalog below.
-          </p>
-        ) : (
-          <ul className="divide-y divide-[color:var(--border-subtle)]">
-            {installedSkillPacks.map((pack) => (
-              <li key={pack.id} className="flex flex-wrap items-center justify-between gap-3 py-2.5">
-                <div className="min-w-0 flex-1">
-                  <div className="truncate text-[13px] font-semibold text-[color:var(--text-strong)]">{pack.name}</div>
-                  <div className="mt-0.5 truncate font-mono text-[11px] leading-4 text-[color:var(--text-subtle)]">
-                    {pack.slug}
-                    {pack.harnesses.length ? ` · ${pack.harnesses.join(', ')}` : ''}
-                  </div>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => {
-                    const catalogEntry = skillPackCatalog.find((entry) => entry.id === pack.id)
-                    if (catalogEntry) {
-                      void toggleSkillPack(catalogEntry)
-                      return
-                    }
-                    void toggleSkillPack({
-                      id: pack.id,
-                      slug: pack.slug,
-                      name: pack.name,
-                      installedDirName: pack.installedDirName,
-                      harnesses: pack.harnesses,
-                    })
-                  }}
-                  disabled={skillPackPendingId === pack.id}
-                  className="text-[12px] font-semibold text-[color:var(--text-subtle)] hover:text-[color:var(--text-strong)] focus:outline-none focus-visible:underline disabled:cursor-progress"
-                >
-                  {skillPackPendingId === pack.id ? 'Removing' : 'Remove'}
-                </button>
-              </li>
-            ))}
-          </ul>
-        )}
-
-        <div className="flex gap-4">
-          <section className="min-w-0 flex-1 space-y-4">
-            <div className="space-y-1">
-              <SettingsSectionTitle count={skillPackCatalog.length}>Ecosystem catalog</SettingsSectionTitle>
-              <p className="text-[12px] leading-5 text-[color:var(--text-muted)]">
-                Install runs <code className="font-mono">npx skills add &lt;slug&gt;</code> in the workspace root.
-              </p>
-            </div>
-            <div className="space-y-5">
+        <details className="group space-y-3 [&[open]]:space-y-3">
+          <summary className="interactive flex cursor-pointer list-none items-center justify-between gap-3 rounded-md border border-[color:var(--border-subtle)] bg-[color:var(--bg-surface)] p-2.5 text-[13px] font-semibold text-[color:var(--text-strong)] hover:border-[color:var(--border-strong)] hover:bg-[color:var(--bg-surface-raised)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--border-focus)]">
+            <span>Get more skill packs</span>
+            <span className="flex items-center gap-2">
+              <span className="tabular-nums font-mono text-[10px] font-normal text-[color:var(--text-subtle)]">
+                {skillPackCatalog.length}
+              </span>
+              <span aria-hidden className="text-[10px] font-medium text-[color:var(--text-subtle)] transition-transform group-open:rotate-180">▾</span>
+            </span>
+          </summary>
+          <div className="flex gap-4">
+            <div className="min-w-0 flex-1 space-y-4">
               {groupedSkillPackCatalog.map(([category, packs]) => (
                 <div key={category} className="space-y-2">
-                  <div className="flex items-center gap-3">
-                    <span className="text-[12px] font-medium text-[color:var(--text-muted)]">{category}</span>
-                    <span className="h-px flex-1 bg-[color:var(--border-subtle)]" />
-                    <span className="tabular-nums font-mono text-[10px] text-[color:var(--text-subtle)]">
-                      {packs.length}
-                    </span>
-                  </div>
-                  <div className={`grid grid-cols-2 gap-2 sm:grid-cols-3 ${selectedSkillPack ? '' : 'lg:grid-cols-4'}`}>
-                    {packs.map((pack) => (
-                      <SkillPackTile
-                        key={pack.id}
-                        pack={pack}
-                        installed={Boolean(skillPackSettings.installed[pack.id])}
-                        pending={skillPackPendingId === pack.id}
-                        selected={selectedSkillPackId === pack.id}
-                        onToggle={() => void toggleSkillPack(pack)}
-                        onInfo={() => setSelectedSkillPackId((current) => (current === pack.id ? null : pack.id))}
-                      />
-                    ))}
+                  <ConnectorSectionHeading label={category} count={packs.length} />
+                  <div className="divide-y divide-[color:var(--border-subtle)] overflow-hidden rounded-md border border-[color:var(--border-subtle)] bg-[color:var(--bg-surface)]">
+                    {packs.map((pack) => {
+                      const installed = Boolean(skillPackSettings.installed[pack.id])
+                      const pending = skillPackPendingId === pack.id
+                      return (
+                        <ConnectorRow
+                          key={pack.id}
+                          variant="compact"
+                          icon={<SkillPackMonogram name={pack.name} size={24} />}
+                          name={pack.name}
+                          summary={pack.description}
+                          selected={selectedSkillPackId === pack.id}
+                          onOpen={() =>
+                            setSelectedSkillPackId((current) => (current === pack.id ? null : pack.id))
+                          }
+                          status={installed ? <span>Installed</span> : undefined}
+                          actions={
+                            <GhostButton
+                              size="sm"
+                              onClick={() => void toggleSkillPack(pack)}
+                              disabled={pending}
+                              className="border border-[color:var(--border-default)]"
+                            >
+                              {pending ? (installed ? 'Removing…' : 'Installing…') : installed ? 'Remove' : 'Install'}
+                            </GhostButton>
+                          }
+                        />
+                      )
+                    })}
                   </div>
                 </div>
               ))}
             </div>
-          </section>
-          {selectedSkillPack ? (
-            <SkillPackInfoPanel
-              pack={selectedSkillPack}
-              installed={Boolean(skillPackSettings.installed[selectedSkillPack.id])}
-              pending={skillPackPendingId === selectedSkillPack.id}
-              onToggle={() => void toggleSkillPack(selectedSkillPack)}
-              onClose={() => setSelectedSkillPackId(null)}
-            />
-          ) : null}
-        </div>
+            {selectedSkillPack ? (
+              <SkillPackInfoPanel
+                pack={selectedSkillPack}
+                installed={Boolean(skillPackSettings.installed[selectedSkillPack.id])}
+                pending={skillPackPendingId === selectedSkillPack.id}
+                onToggle={() => void toggleSkillPack(selectedSkillPack)}
+                onClose={() => setSelectedSkillPackId(null)}
+              />
+            ) : null}
+          </div>
+        </details>
 
         {skillPackMessage ? <ManageNote tone="accent">{skillPackMessage}</ManageNote> : null}
       </section>
     </div>
-  )
-}
-
-function McpServerRow({ server, onRemove }: { server: McpServerConfig; onRemove: () => void }) {
-  return (
-    <li className="flex flex-wrap items-center justify-between gap-3 py-2.5">
-      <div className="flex min-w-0 flex-1 items-center gap-3">
-        <McpBrandIcon
-          slug={server.source === 'bundled' ? mcpIconSlug(server.id) : null}
-          name={server.name}
-          size={24}
-        />
-        <div className="min-w-0">
-          <div className="truncate text-[13px] font-semibold text-[color:var(--text-strong)]">{server.name}</div>
-          <div className="mt-0.5 truncate font-mono text-[11px] leading-4 text-[color:var(--text-subtle)]">
-            {server.id} · {server.transport} · {server.clients.join(', ')}
-          </div>
-        </div>
-      </div>
-      <button
-        type="button"
-        onClick={onRemove}
-        className="text-[12px] font-semibold text-[color:var(--text-subtle)] hover:text-[color:var(--text-strong)] focus:outline-none focus-visible:underline"
-      >
-        Remove
-      </button>
-    </li>
   )
 }
 
@@ -587,6 +561,27 @@ function parseEnvNames(value: string): string[] {
     .split(/\r?\n|,/u)
     .map((item) => item.trim())
     .filter(Boolean)
+}
+
+// The compact row's visible status — one or two words; the long sentence from
+// formatBuiltinSkillStatus rides the row tooltip instead.
+function builtinSkillShortStatus(status: BuiltinSkillStatus | null): string {
+  if (!status) return ''
+  if (!status.ok) return 'Unavailable'
+  switch (status.status) {
+    case 'missing':
+      return 'Not installed'
+    case 'installed':
+      return 'Installed'
+    case 'update-available':
+      return 'Update available'
+    case 'modified':
+      return 'Modified locally'
+    case 'local':
+      return 'Local copy'
+    default:
+      return ''
+  }
 }
 
 function formatBuiltinSkillStatus(status: BuiltinSkillStatus | null, skillId: string): string {

@@ -239,6 +239,7 @@ export interface WorkspaceStore extends PluginsSlice, CliAvailabilitySlice {
   setSearchExcludes: (patterns: string[]) => void
   setProjectKnowledgeRoot: (projectRoot: string, relativeRoot: string | null) => void
   setTerminalIdleSuspendMinutes: (minutes: number) => void
+  setGuidedBriefConversationSessions: (enabled: boolean) => void
   setUsageTelemetrySettings: (update: Partial<UsageTelemetrySettings>) => void
   setVoiceDictationSettings: (update: Partial<VoiceDictationSettings>) => void
   setSprintEngineRoleEnabled: (role: SprintEngineRoleId, enabled: boolean) => void

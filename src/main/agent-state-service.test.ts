@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict'
-import { connect } from 'node:net'
+import { spawn } from 'node:child_process'
+import { connect, createServer, type Server } from 'node:net'
 import { mkdtemp, readFile, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -144,6 +145,66 @@ async function run(): Promise<void> {
   })
   await noScriptSvc.installForWorkspace(noScriptWs, 'claude-code') // must not throw
   await noScriptSvc.installForWorkspace(noScriptWs, 'opencode') // must not throw
+
+  // --- reporter socket precedence: launch env wins over the baked arg ----
+  // Executes the REAL bundled reporter script. The env address is injected
+  // per-process by the launching instance; the --socket arg is baked into the
+  // repo-shared settings.local.json, which another app instance may have
+  // rewritten (last-writer-wins) — so env must win, arg is the fallback for
+  // sessions launched outside the app.
+  if (process.platform !== 'win32') {
+    const reporterScript = join(process.cwd(), 'resources', 'hooks', 'multicode-agent-state.mjs')
+    const sockDir = await mkdtemp(join(tmpdir(), 'multicode-agent-state-prec-'))
+
+    const listenLines = async (socketPath: string, sink: string[]): Promise<Server> => {
+      const server = createServer((socket) => {
+        socket.setEncoding('utf8')
+        socket.on('data', (chunk: string) => sink.push(...chunk.split('\n').filter(Boolean)))
+      })
+      await new Promise<void>((resolve, reject) => {
+        server.on('error', reject)
+        server.listen(socketPath, resolve)
+      })
+      return server
+    }
+
+    const runReporter = (envSocket: string | undefined, argSocket: string): Promise<void> =>
+      new Promise((resolve, reject) => {
+        const child = spawn(process.execPath, [reporterScript, '--socket', argSocket], {
+          env: {
+            ...process.env,
+            MULTICODE_AGENT_ID: 'prec-agent',
+            MULTICODE_WORKSPACE_ID: 'prec-ws',
+            ...(envSocket ? { MULTICODE_AGENT_STATE_SOCKET: envSocket } : {}),
+          },
+          stdio: ['pipe', 'ignore', 'ignore'],
+        })
+        child.on('error', reject)
+        child.on('exit', () => resolve())
+        child.stdin.end(JSON.stringify({ hook_event_name: 'Stop', session_id: 'prec-session' }))
+      })
+
+    const envSockPath = join(sockDir, 'env-instance.sock')
+    const argSockPath = join(sockDir, 'arg-instance.sock')
+    const envFrames: string[] = []
+    const argFrames: string[] = []
+    const envServer = await listenLines(envSockPath, envFrames)
+    const argServer = await listenLines(argSockPath, argFrames)
+
+    await runReporter(envSockPath, argSockPath)
+    await waitFor(() => envFrames.length >= 1)
+    assert.equal(argFrames.length, 0, 'env address set: baked --socket must receive nothing')
+    const envFrame = JSON.parse(envFrames[0]) as { phase?: string; agentId?: string }
+    assert.equal(envFrame.phase, 'idle', 'Stop maps to idle')
+    assert.equal(envFrame.agentId, 'prec-agent')
+
+    await runReporter(undefined, argSockPath)
+    await waitFor(() => argFrames.length >= 1)
+    assert.equal(envFrames.length, 1, 'no env address: frame falls back to the baked --socket')
+
+    envServer.close()
+    argServer.close()
+  }
 
   console.log('agent-state-service.test.ts: all assertions passed')
 }

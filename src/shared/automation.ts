@@ -20,6 +20,12 @@ export type AutomationServerStatus = {
   socketPath: string | null
   /** Last start/stop failure, surfaced instead of silently staying off. */
   lastError: string | null
+  /**
+   * Absolute path of the repo/app-shipped stdio bridge script stock MCP
+   * clients launch to reach the socket (`node <bridgeScriptPath>`). Static
+   * app knowledge, present whether or not the server is running.
+   */
+  bridgeScriptPath: string | null
 }
 
 // Mutations the automation server may ask the primary renderer to perform.

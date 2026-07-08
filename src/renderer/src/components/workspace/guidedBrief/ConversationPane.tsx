@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { StatusDot, TruncatedText } from '../../ui'
 import { GuidedBriefRawTerminal } from './GuidedBriefRawTerminal'
 import { InterviewQuestionCard, ResolvedDecisionsList } from './InterviewPane'
@@ -14,8 +14,12 @@ type Props = {
   working: boolean
   /** Structured interview from the session stream; omit to render terminal-only. */
   interview?: GuidedInterviewState
-  /** Writes an answer into the PTY stdin. Required for the question card. */
-  onAnswer?: (answerText: string) => void
+  /** Answers the current question (PTY stdin or conversation respond). A
+   * false / resolved-false return means the answer was NOT delivered — the
+   * card unlocks so the user can retry. */
+  onAnswer?: (answerText: string) => void | boolean | Promise<boolean>
+  /** Conversation transport only: recent streamed assistant text. */
+  transcriptTail?: string
 }
 
 // The terminal is the transport and the fallback, never hidden — only
@@ -33,9 +37,11 @@ export function ConversationPane({
   working,
   interview,
   onAnswer,
+  transcriptTail,
 }: Props) {
   const [terminalPreference, setTerminalPreference] = useState<TerminalPreference>('auto')
   const [answeredQuestionId, setAnsweredQuestionId] = useState<string | null>(null)
+  const conversationTransport = session?.transport === 'conversation'
 
   const question = working ? interview?.currentQuestion ?? null : null
   const interviewActive = Boolean(question && onAnswer && session)
@@ -55,8 +61,17 @@ export function ConversationPane({
 
   const answer = (text: string) => {
     if (!question || !onAnswer) return
-    setAnsweredQuestionId(question.id)
-    onAnswer(text)
+    const questionId = question.id
+    setAnsweredQuestionId(questionId)
+    void Promise.resolve(onAnswer(text))
+      .then((delivered) => {
+        if (delivered === false) {
+          setAnsweredQuestionId((current) => (current === questionId ? null : current))
+        }
+      })
+      .catch(() => {
+        setAnsweredQuestionId((current) => (current === questionId ? null : current))
+      })
   }
 
   return (
@@ -101,17 +116,27 @@ export function ConversationPane({
                 />
               </div>
             ) : null}
-            <div
-              className={
-                terminalVisible ? 'flex min-h-0 flex-1 flex-col' : 'h-0 overflow-hidden'
-              }
-            >
-              <GuidedBriefRawTerminal sessionId={session.sessionId} className="px-3 py-2" />
-            </div>
+            {conversationTransport ? (
+              <div
+                className={
+                  terminalVisible ? 'flex min-h-0 flex-1 flex-col' : 'h-0 overflow-hidden'
+                }
+              >
+                <ConversationTranscript text={transcriptTail ?? ''} working={working} />
+              </div>
+            ) : (
+              <div
+                className={
+                  terminalVisible ? 'flex min-h-0 flex-1 flex-col' : 'h-0 overflow-hidden'
+                }
+              >
+                <GuidedBriefRawTerminal sessionId={session.sessionId} className="px-3 py-2" />
+              </div>
+            )}
             {interviewActive ? (
               <div className="flex shrink-0 items-center gap-2 border-t border-[color:var(--border-subtle)] px-3 py-1.5">
                 <span className="truncate text-[11px] text-[color:var(--text-subtle)]">
-                  Terminal · live
+                  {conversationTransport ? 'Conversation · live' : 'Terminal · live'}
                 </span>
                 <button
                   type="button"
@@ -137,6 +162,28 @@ export function ConversationPane({
           />
         )}
       </div>
+    </div>
+  )
+}
+
+// Streamed assistant text for conversation-transport sessions: a plain
+// auto-following text pane (the specialist narrates its work between
+// question cards; artifacts land on disk, not here).
+function ConversationTranscript({ text, working }: { text: string; working: boolean }) {
+  const scrollRef = useRef<HTMLDivElement | null>(null)
+  useEffect(() => {
+    const node = scrollRef.current
+    if (node) node.scrollTop = node.scrollHeight
+  }, [text])
+  return (
+    <div ref={scrollRef} className="min-h-0 flex-1 overflow-y-auto px-3 py-2">
+      {text ? (
+        <p className="whitespace-pre-wrap text-[12px] leading-5 text-[color:var(--text-default)]">{text}</p>
+      ) : (
+        <p className="text-[12px] leading-5 text-[color:var(--text-muted)]">
+          {working ? 'The specialist is working…' : 'No activity yet.'}
+        </p>
+      )}
     </div>
   )
 }

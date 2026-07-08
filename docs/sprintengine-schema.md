@@ -340,6 +340,14 @@ existing map (a dropped role keeps its stale entry, harmless since
 `configuredRoles` gates), and a `roster_configured` event is appended. The CLI
 equivalent is `sprintengine roster configure --roles-json`.
 
+The operator counterpart is CLI-only `sprintengine roster runtime --role --cli
+[--model] --actor ui` (MC-1516, the app-owned mid-run role runtime edit): it
+merges the one role into `roleRuntimes` in a locked transaction and appends a
+`role_runtime_changed` event (`{role, cli, model, previous}`). It is not an MCP
+tool and none of validations (1)–(3)/(5) apply — the role must only resolve in
+the registry and be in `configuredRoles` when that set exists
+(`role_not_enabled_for_run`).
+
 MCP response contract (`sprintengine_mcp/response_shapes.py`): MCP responses
 carry deltas and references, not state echoes — the run store stays the source
 of truth and the UI keeps reading it from disk. Mutation tools (`task.log`,

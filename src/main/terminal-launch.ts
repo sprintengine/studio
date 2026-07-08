@@ -5,6 +5,7 @@ import { join } from 'path'
 import type { AgentCli, CliRuntimeSettings, SprintEngineCliPermissionPreset, TerminalPathStyle } from '../shared/electron-api'
 import { applyDebugDirective } from '../shared/debug-directive'
 import { buildAgentShellCommand, pluginIdForCli, renderAgentLaunchArgv, renderCliLaunchEnv, resolveCliRuntimeSettings, resolveDebugSkillInvocation } from './agent-launch-render'
+import { resolveAgentStateSocketPath } from './agent-state-service'
 import { getPluginById, getPluginSprintEngineRegistryRoots } from './plugin-registry-instance'
 import { withMulticodeCliPath } from './cli-install'
 import { getColorScheme } from './color-scheme-store'
@@ -46,6 +47,14 @@ export function getTerminalEnv(): Record<string, string> {
 // for the link label. Only non-empty values are emitted, so a plain terminal or
 // an identity-less launch adds nothing. Mirrors how `withSprintEngineEnv` places
 // MULTICODE_* values directly on the session env record.
+//
+// Agent launches also carry THIS instance's agent-state socket address. The
+// reporter hook prefers the env address over the `--socket` arg baked into the
+// repo's shared `.claude/settings.local.json`, because that file is
+// last-writer-wins across app instances (a second dev instance or E2E profile
+// rewrites it and every other instance's agents then report phases to a dead
+// socket — the 2026-07-07 parked-agents incident). Env is per-process, so an
+// agent always reports to the instance that launched it.
 export function agentIdentityEnv(input: {
   workspaceId?: string
   agentId?: string
@@ -54,10 +63,24 @@ export function agentIdentityEnv(input: {
   const workspaceId = input.workspaceId?.trim()
   const agentId = input.agentId?.trim()
   const agentName = input.agentName?.trim()
+  const agentStateSocketPath = agentId ? agentStateSocketPathForLaunch() : null
   return {
     ...(workspaceId ? { MULTICODE_WORKSPACE_ID: workspaceId } : {}),
     ...(agentId ? { MULTICODE_AGENT_ID: agentId } : {}),
     ...(agentName ? { MULTICODE_AGENT_NAME: agentName } : {}),
+    ...(agentStateSocketPath ? { MULTICODE_AGENT_STATE_SOCKET: agentStateSocketPath } : {}),
+  }
+}
+
+// Same resolution the agent-state service uses (deterministic from the profile
+// dir), so the launch env and the live listener always agree. Lazy + guarded:
+// outside a real Electron app (unit tests bundling this module) `app.getPath`
+// is unavailable — identity env then simply omits the socket address.
+function agentStateSocketPathForLaunch(): string | null {
+  try {
+    return resolveAgentStateSocketPath(app.getPath('userData'))
+  } catch {
+    return null
   }
 }
 
@@ -65,7 +88,7 @@ export function agentIdentityEnv(input: {
 // session's own identity is applied, so a stale `MULTICODE_AGENT_ID` inherited
 // by the app's own process (e.g. the app launched from inside an agent shell)
 // never leaks into a plain terminal or the wrong agent.
-const AGENT_IDENTITY_ENV_KEYS = ['MULTICODE_WORKSPACE_ID', 'MULTICODE_AGENT_ID', 'MULTICODE_AGENT_NAME'] as const
+const AGENT_IDENTITY_ENV_KEYS = ['MULTICODE_WORKSPACE_ID', 'MULTICODE_AGENT_ID', 'MULTICODE_AGENT_NAME', 'MULTICODE_AGENT_STATE_SOCKET'] as const
 
 // Apply this session's agent identity onto a base env: strip any inherited
 // identity first (no leak), then set this session's values. A non-agent launch

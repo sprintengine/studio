@@ -1418,7 +1418,6 @@ export default function BacklogPanel({ workspaceId, onStartFuturePlan }: Workspa
       epicChoices={epicChoices}
       items={items}
       epicMetaBySlug={epicMeta}
-      onSelectItem={handleSelectRow}
       dependencyNode={selected ? dependencyGraph.byItemId.get(selected.id) ?? null : null}
       dependencyChoices={dependencyChoices}
       onNavigate={navigateToBacklogItem}
@@ -1869,7 +1868,6 @@ function BacklogDetail({
   epicChoices,
   items,
   epicMetaBySlug,
-  onSelectItem,
   dependencyNode,
   dependencyChoices,
   onNavigate,
@@ -1895,12 +1893,13 @@ function BacklogDetail({
   // detail can resolve its parent epic for the crumb (both derived, never stored).
   items: BacklogItem[]
   epicMetaBySlug: ReadonlyMap<string, BacklogEpicMeta>
-  // Navigate the list selection to another item (epic -> child, child -> epic).
-  onSelectItem: (id: string) => void
   // The selected item's derived dependency record (T2), or null for an epic /
   // no selection. Drives the Prerequisites/Blocks section + cycle warning.
   dependencyNode: BacklogDependencyNode | null
   dependencyChoices: ReadonlyArray<BacklogDependencyChoice>
+  // All detail cross-navigation (epic -> child, child -> epic crumb,
+  // prerequisite/blocked links): the target may sit outside the active
+  // lens/search, so this must be the widening navigate, never a plain select.
   onNavigate: (itemId: string) => void
 }): JSX.Element {
   if (!folderPath) {
@@ -2063,7 +2062,7 @@ function BacklogDetail({
         {parentEpic ? (
           <button
             type="button"
-            onClick={() => onSelectItem(parentEpic.id)}
+            onClick={() => onNavigate(parentEpic.id)}
             aria-label={`Open epic ${parentEpic.title}`}
             className="interactive mt-1.5 -ml-1.5 flex max-w-full items-center gap-1.5 rounded px-1.5 py-0.5 text-[11.5px] font-medium text-[color:var(--text-muted)] transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]"
           >
@@ -2240,7 +2239,7 @@ function BacklogDetail({
             members={epicChildren}
             color={currentEpicColor}
             runGlyphById={runGlyphById}
-            onSelectItem={onSelectItem}
+            onNavigate={onNavigate}
           />
         ) : null}
 
@@ -2350,19 +2349,21 @@ function deriveEpicRunGlyphFromChildren(
 
 // Epic -> children roll-up (epic detail only): a flat done/total progress track
 // in the epic's identity colour, then each member as a navigable row (status
-// glyph + title + size + priority). Selecting a row drives onSelectItem so the
-// list moves to that child — the inverse of the child's parent-epic crumb. The
-// children query is derived from the live scan on every render, never stored.
+// glyph + title + size + priority). Selecting a row drives onNavigate so the
+// list moves to that child — the inverse of the child's parent-epic crumb —
+// widening the lens when the child is hidden by it (a completed child under the
+// Active lens). The children query is derived from the live scan on every
+// render, never stored.
 function BacklogEpicChildren({
   members,
   color,
   runGlyphById,
-  onSelectItem,
+  onNavigate,
 }: {
   members: BacklogItem[]
   color: BacklogHighlightColor | null
   runGlyphById?: ReadonlyMap<string, BacklogRunGlyph>
-  onSelectItem: (id: string) => void
+  onNavigate: (id: string) => void
 }): JSX.Element {
   const total = members.length
   const done = members.reduce((count, child) => (child.status === 'completed' ? count + 1 : count), 0)
@@ -2401,7 +2402,7 @@ function BacklogEpicChildren({
               <li key={child.id}>
                 <button
                   type="button"
-                  onClick={() => onSelectItem(child.id)}
+                  onClick={() => onNavigate(child.id)}
                   title={child.relativePath}
                   className="interactive flex w-full items-center gap-2 rounded-md px-1.5 py-1.5 text-left transition-colors hover:bg-[color:var(--bg-hover)]"
                 >

@@ -77,6 +77,25 @@ export function SprintEngineWorkspaceTypeIcon({ className }: IconProps) {
   )
 }
 
+// The SprintEngine brand mark (assets/brand/sprintengine/sprintengine-mark.svg)
+// as an inline component: the comet head with a knocked-out engine port and
+// three trailing motion streaks. Single-color via currentColor — pair it with
+// --tool-sprintengine-ink so it stays legible on light and dark themes.
+export function SprintEngineMarkIcon({ className }: IconProps) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+      <path
+        fillRule="evenodd"
+        clipRule="evenodd"
+        d="M4.4 12 L13 5 C17.4 6 20 8.6 20 12 C20 15.4 17.4 18 13 19 Z M16.6 12 C16.6 10.6 15.5 9.5 14.1 9.5 C12.7 9.5 11.6 10.6 11.6 12 C11.6 13.4 12.7 14.5 14.1 14.5 C15.5 14.5 16.6 13.4 16.6 12 Z"
+      />
+      <path d="M5.4 11.2 L5.4 12.8 L0.8 12 Z" />
+      <path d="M6.2 8.3 L6.2 9.7 L2.4 7.1 Z" />
+      <path d="M6.2 14.3 L6.2 15.7 L2.4 16.9 Z" />
+    </svg>
+  )
+}
+
 export function MultiloopWorkspaceTypeIcon({ className }: IconProps) {
   return (
     <svg className={className} viewBox="0 0 24 24" fill="none" aria-hidden="true">

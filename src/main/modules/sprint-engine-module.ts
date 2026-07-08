@@ -73,6 +73,7 @@ export const sprintEngineModule: CapabilityModule = {
       refreshPullRequestStatus: artifacts.refreshPullRequestStatus,
       replenishRoster: artifacts.replenishRoster,
       addRosterMember: artifacts.addRosterMember,
+      setRoleRuntime: artifacts.setRoleRuntime,
       readProjection: artifacts.readProjection,
       readRegistryRoles: artifacts.readRegistryRoles,
       readRegistryRole: artifacts.readRegistryRole,

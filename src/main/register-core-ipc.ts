@@ -8,7 +8,7 @@ import { registerBacklogIpc } from './ipc/backlog-ipc'
 import { registerBuiltinSkillsIpc } from './ipc/builtin-skills-ipc'
 import { registerCliRuntimeIpc } from './ipc/cli-runtime-ipc'
 import { registerClipboardIpc } from './ipc/clipboard-ipc'
-import { registerConversationIpc } from './ipc/conversation-ipc'
+import { createConversationIpcHandlers, registerConversationIpc } from './ipc/conversation-ipc'
 import { registerCredentialIpc } from './ipc/credential-ipc'
 import { registerDiagnosticsIpc } from './ipc/diagnostics-ipc'
 import { registerFilesystemMutationIpc } from './ipc/filesystem-mutation-ipc'
@@ -91,6 +91,7 @@ export function registerCoreIpc(
     openDiagnosticsWindow: () => {
       createDiagnosticsWindow()
     },
+    listConversationRoots: () => services.conversationRuntime.listLiveConversationRoots(),
   })
   registerUpdateIpc(ipcMain, { updateService: services.updateService })
   registerSoulsIpc(ipcMain, {
@@ -111,7 +112,7 @@ export function registerCoreIpc(
   registerMarketplaceRegistryIpc(ipcMain)
   registerMarketplacePluginIpc(ipcMain, services)
   registerPluginIpc(ipcMain)
-  registerConversationIpc(ipcMain)
+  registerConversationIpc(ipcMain, createConversationIpcHandlers(services.conversationRuntime))
   registerCredentialIpc(ipcMain)
   registerSprintEngineRoleRegistryIpc(ipcMain)
   registerLayoutTemplateRegistryIpc(ipcMain)

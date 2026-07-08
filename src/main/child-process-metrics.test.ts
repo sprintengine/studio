@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict'
 import {
+  classifyChildProcess,
   collectChildProcessMetrics,
   parsePsProcessRows,
   sampleChildProcessMetrics,
@@ -74,6 +75,27 @@ async function main(): Promise<void> {
       runPs: async () => PS_OUTPUT,
     })
     assert.equal(metrics.some((metric) => metric.name === 'Claude CLI'), true)
+  })
+
+  await run('headless SDK sessions (stream-json) classify as Claude conversation', () => {
+    const conversation = classifyChildProcess({
+      pid: 200,
+      ppid: 100,
+      rssBytes: 1,
+      cpuPercent: 0,
+      command: '/Users/someone/.local/bin/claude',
+      args: 'claude --output-format stream-json --verbose --input-format stream-json',
+    })
+    assert.deepEqual(conversation, { kind: 'agent', name: 'Claude conversation' })
+    const terminal = classifyChildProcess({
+      pid: 201,
+      ppid: 100,
+      rssBytes: 1,
+      cpuPercent: 0,
+      command: '/Users/someone/.local/bin/claude',
+      args: 'claude --resume abc',
+    })
+    assert.deepEqual(terminal, { kind: 'agent', name: 'Claude CLI' })
   })
 
   console.log('child-process-metrics tests passed')

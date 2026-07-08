@@ -24,6 +24,7 @@ export function CliModelPickerButton({
   cli,
   effectiveModelFor,
   disabled,
+  quiet,
   onSelectCli,
   onSelectModel,
 }: {
@@ -32,6 +33,13 @@ export function CliModelPickerButton({
   cli: AgentCli
   effectiveModelFor: (cli: AgentCli) => string | undefined
   disabled?: boolean
+  /**
+   * Opt-in low-emphasis trigger for in-place property editing (the Sprint
+   * Engine roster's role bands): renders as plain muted text until hover or
+   * focus reveal the control chrome. Default (undefined/false) keeps the
+   * bordered form-control trigger unchanged for existing hosts.
+   */
+  quiet?: boolean
   onSelectCli: (cli: AgentCli) => void
   onSelectModel: (cli: AgentCli, model: string | null) => void
 }) {
@@ -63,20 +71,37 @@ export function CliModelPickerButton({
             aria-label={`${ariaLabel}: ${triggerLabel}`}
             disabled={disabled}
             onClick={togglePopover}
-            className="
-              interactive inline-flex h-7 min-w-[140px] max-w-[220px] items-center justify-between gap-2 rounded-md border border-[color:var(--color-5)]
-              bg-[color:var(--bg-surface-raised)] px-2 text-left text-[12px] text-[color:var(--text-default)] transition-colors
-              hover:border-[color:var(--border-strong)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]
-              focus:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--accent-primary)]
-              disabled:cursor-not-allowed disabled:opacity-45
-            "
+            className={
+              quiet
+                ? `
+                  interactive group/pill inline-flex h-6 max-w-[220px] items-center justify-between gap-1.5 rounded border border-transparent
+                  px-1.5 text-left text-[11px] text-[color:var(--text-muted)] transition-colors
+                  hover:border-[color:var(--border-default)] hover:bg-[color:var(--bg-surface)] hover:text-[color:var(--text-default)]
+                  focus:outline-none focus-visible:border-[color:var(--border-default)] focus-visible:ring-1 focus-visible:ring-[color:var(--accent-primary)]
+                  disabled:cursor-not-allowed disabled:opacity-45
+                `
+                : `
+                  interactive inline-flex h-7 min-w-[140px] max-w-[220px] items-center justify-between gap-2 rounded-md border border-[color:var(--color-5)]
+                  bg-[color:var(--bg-surface-raised)] px-2 text-left text-[12px] text-[color:var(--text-default)] transition-colors
+                  hover:border-[color:var(--border-strong)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]
+                  focus:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--accent-primary)]
+                  disabled:cursor-not-allowed disabled:opacity-45
+                `
+            }
             {...triggerProps}
           >
             <span className="flex min-w-0 items-center gap-2">
               <CliIcon cli={selected.value} className="h-3.5 w-3.5 shrink-0 text-[color:var(--text-muted)]" />
               <span className="truncate">{triggerLabel}</span>
             </span>
-            <span aria-hidden="true" className="shrink-0 text-[10px] text-[color:var(--text-disabled)]">▾</span>
+            <span
+              aria-hidden="true"
+              className={`shrink-0 text-[10px] text-[color:var(--text-disabled)] ${
+                quiet ? 'opacity-0 transition-opacity group-hover/pill:opacity-100 group-focus-visible/pill:opacity-100' : ''
+              }`}
+            >
+              ▾
+            </span>
           </button>
         </Tooltip>
       )}

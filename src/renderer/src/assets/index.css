@@ -28,6 +28,14 @@
      elevated floor to skirt OLED PWM at minimum luminance.
 
      Surfaces. */
+  /* Icon plate for connector/plugin brand marks (McpBrandIcon, PluginIcon).
+     Deliberately light in every theme — brand-color logos (including
+     near-black marks like GitHub or Vercel) must read on dark themes too, so
+     the plate stays a paper tone rather than following the surface ramp.
+     Defined once here; themes inherit unless they override. */
+  --icon-chip-bg: #f4f4f4;
+  --icon-chip-border: rgba(12, 12, 16, 0.12);
+  --icon-chip-ink: #3c3c44;
   --bg-app: #08080c;
   --bg-surface: #0c0c10;
   --bg-surface-raised: #101418;
@@ -136,6 +144,11 @@
   --tool-watchtower: #d87858;
   --tool-sprintengine: #fcc030;
   --tool-multiloop: #38d8fc;
+  /* Sprint mark ink: the brand yellow pulled toward the theme's strongest text
+     color, so small glyphs stay legible everywhere — pure #fcc030 vanishes on
+     light backgrounds. Derived, so every theme (and any future one) adapts
+     without its own override. */
+  --tool-sprintengine-ink: color-mix(in srgb, var(--tool-sprintengine) 60%, var(--text-strong));
 
   /* Scrollbar surfaces. Pull from the ink scale so each theme can re-tune. */
   --scrollbar-thumb: #24242c;
@@ -1992,6 +2005,46 @@ samp,
   animation: status-dot-pulse 1800ms cubic-bezier(0.4, 0, 0.6, 1) infinite;
 }
 
+/* Agent-working marker — three staggered accent dots on a workspace row while
+ * an agent is actively working (AgentWorkingDots). Opacity/translate keyframes
+ * only — cheap to composite, no per-frame JS. Reduced motion collapses the
+ * marker to one static accent dot below. */
+@keyframes agent-working-dot {
+  0%, 60%, 100% {
+    opacity: 0.35;
+    transform: translateY(0);
+  }
+  30% {
+    opacity: 1;
+    transform: translateY(-1.5px);
+  }
+}
+
+.agent-working-dot {
+  animation: agent-working-dot 1200ms ease-in-out infinite;
+}
+.agent-working-dot:nth-child(2) {
+  animation-delay: 150ms;
+}
+.agent-working-dot:nth-child(3) {
+  animation-delay: 300ms;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .agent-working-dots .agent-working-dot {
+    animation: none;
+    opacity: 1;
+  }
+  .agent-working-dots .agent-working-dot:nth-child(1),
+  .agent-working-dots .agent-working-dot:nth-child(3) {
+    display: none;
+  }
+  .agent-working-dots .agent-working-dot:nth-child(2) {
+    width: 6px;
+    height: 6px;
+  }
+}
+
 /* Lifecycle spinner — the one "working right now" motion, shared by the
  * LifecycleGlyph in-progress state and the standalone Spinner primitive. A
  * single continuous rotation; reduced-motion freezes it to its at-rest arc.
@@ -2034,6 +2087,23 @@ samp,
   .conversation-row-enter {
     animation: conversation-row-enter var(--motion-normal) var(--motion-ease) both;
   }
+
+  /* Streaming status line: a quiet text shimmer. The gradient text trick only
+   * applies here, so reduced-motion keeps the element's plain muted color. */
+  .chat-shimmer {
+    background: linear-gradient(90deg, var(--text-subtle) 30%, var(--text-strong) 50%, var(--text-subtle) 70%);
+    background-size: 200% 100%;
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+    animation: chat-shimmer 2s linear infinite;
+  }
+}
+
+@keyframes chat-shimmer {
+  to {
+    background-position: -200% 0;
+  }
 }
 
 @keyframes conversation-row-enter {
@@ -2047,60 +2117,12 @@ samp,
   }
 }
 
-@keyframes logo-rise {
-  from {
-    opacity: 0;
-    transform: scale(0.84);
-  }
-  to {
-    opacity: 1;
-    transform: scale(1);
-  }
-}
-
-.logo-rise {
-  animation: logo-rise 560ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
-}
-
-@keyframes wizard-step-in-forward {
-  from {
-    opacity: 0;
-    transform: translateX(10px);
-  }
-  to {
-    opacity: 1;
-    transform: translateX(0);
-  }
-}
-
-@keyframes wizard-step-in-backward {
-  from {
-    opacity: 0;
-    transform: translateX(-10px);
-  }
-  to {
-    opacity: 1;
-    transform: translateX(0);
-  }
-}
-
-.wizard-step-in-forward {
-  animation: wizard-step-in-forward 220ms cubic-bezier(0.2, 0.8, 0.2, 1);
-}
-
-.wizard-step-in-backward {
-  animation: wizard-step-in-backward 220ms cubic-bezier(0.2, 0.8, 0.2, 1);
-}
-
 @media (prefers-reduced-motion: reduce) {
   .chip-enter,
   .toast-enter,
   .popover-enter,
   .skeleton-shimmer,
-  .status-dot-pulse,
-  .wizard-step-in-forward,
-  .wizard-step-in-backward,
-  .logo-rise {
+  .status-dot-pulse {
     animation: none;
   }
   .interactive:active:not(:disabled):not([aria-disabled="true"]) {
@@ -2132,10 +2154,10 @@ samp,
   --color-overflow: var(--text-muted);
   --color-icon: var(--text-muted);
 
-  --color-tabset-background: var(--bg-surface);
-  --color-tabset-background-selected: var(--bg-surface-raised);
-  --color-tabset-background-maximized: var(--bg-hover);
-  --color-tabset-divider-line: var(--border-default);
+  --color-tabset-background: var(--terminal-bg);
+  --color-tabset-background-selected: var(--terminal-bg);
+  --color-tabset-background-maximized: var(--terminal-bg);
+  --color-tabset-divider-line: var(--border-subtle);
   --color-tabset-header-background: var(--bg-surface);
   --color-tabset-header: var(--text-strong);
 
@@ -2145,8 +2167,8 @@ samp,
 
   --color-tab-content: var(--bg-app);
   --color-tab-selected: var(--text-strong);
-  --color-tab-selected-background: var(--bg-hover);
-  --color-tab-unselected: var(--text-muted);
+  --color-tab-selected-background: transparent;
+  --color-tab-unselected: var(--text-subtle);
   --color-tab-unselected-background: transparent;
   --color-tab-textbox: var(--text-strong);
   --color-tab-textbox-background: var(--bg-hover);
@@ -2187,56 +2209,98 @@ samp,
   --size-mini-scroll-indicator: 3px;
 }
 
+/* NOTE: flexlayout puts `flexlayout__tabset-selected` on the tab STRIP
+   element (tabbar_outer), not the tabset container — strip-focus styling
+   lives with the strip rules below. */
 .flexlayout__tabset_header,
-.flexlayout__tabset-selected,
 .flexlayout__tabset {
   background: var(--bg-surface);
   background-image: none !important;
 }
 
-.flexlayout__tab_button {
-  margin: 3px 2px 0;
+/* Tabs are flat captions on the terminal ground — no filled pills, no borders,
+   no radius (MC-1477). Identity is carried by ink weight plus the underline.
+
+   Every selector below is prefixed with `.flexlayout__layout` because
+   flexlayout's own combined.css is bundled AFTER this file (WorkspaceLayout
+   imports it, and main.tsx imports index.css first), so a bare same-
+   specificity selector here silently loses the cascade to combined.css. */
+.flexlayout__layout .flexlayout__tab_button {
+  position: relative;
+  margin: 0;
   padding: 0 12px;
   height: 28px;
   display: inline-flex;
   align-items: center;
   gap: 6px;
   font-size: 12px;
-  border: 1px solid transparent;
-  border-bottom: none;
-  border-radius: 7px 7px 0 0;
-  background: var(--bg-surface-raised);
+  border: none;
+  border-radius: 0;
+  background: transparent;
   background-image: none !important;
+  transition: color 120ms ease;
 }
 
-.flexlayout__tab_button--selected {
-  background: var(--bg-hover);
-  color: var(--text-strong);
-  border-color: var(--border-strong);
-  position: relative;
-  top: 1px;
+/* Active tab: ink change + the same 2px inset underline the panel switches
+   use (PanelSwitches.tsx). The accent belongs to the focused tabset only; in
+   an unfocused tabset the active tab keeps a neutral underline + default ink
+   so tiled grids stay quiet. Focus is never color-only — underline hue and
+   ink weight move together. */
+.flexlayout__layout .flexlayout__tab_button--selected {
+  background: transparent;
+  color: var(--text-default);
   box-shadow: none;
 }
 
-.flexlayout__tab_button--unselected {
-  color: var(--text-muted);
-  border-color: var(--border-default);
+.flexlayout__layout .flexlayout__tab_button--selected::after {
+  content: "";
+  position: absolute;
+  left: 10px;
+  right: 10px;
+  bottom: 0;
+  height: 2px;
+  border-radius: 2px 2px 0 0;
+  background: var(--border-strong);
+  pointer-events: none;
+}
+
+.flexlayout__layout .flexlayout__tabset-selected .flexlayout__tab_button--selected {
+  color: var(--text-strong);
+}
+
+.flexlayout__layout .flexlayout__tabset-selected .flexlayout__tab_button--selected::after {
+  background: var(--accent-primary);
+}
+
+.flexlayout__layout .flexlayout__tab_button--unselected {
+  color: var(--text-subtle);
+}
+
+@media (hover: hover) {
+  .flexlayout__layout .flexlayout__tab_button--unselected:hover {
+    color: var(--text-default);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .flexlayout__layout .flexlayout__tab_button {
+    transition: none;
+  }
 }
 
 /* Semantic "needs input" amber stays literal — it's a status idiom, not
    surface chrome. Sprint Engine gold for an unrelated identity dot is in
    the same hue family but distinct in scale and role.
    design-tokens-allow-block: semantic needs-input amber + spawn emerald */
-.flexlayout__tab_button.agent-tab-needs-input {
-  border-color: #ffbf2f;
+.flexlayout__layout .flexlayout__tab_button.agent-tab-needs-input {
   color: #ffe0a3;
-  box-shadow: inset 0 0 0 1px rgba(255, 191, 47, 0.18);
 }
 
-.flexlayout__tab_button.agent-tab-needs-input.flexlayout__tab_button--selected {
-  background: var(--bg-hover);
-  border-color: #ffbf2f;
-  box-shadow: inset 0 0 0 1px rgba(255, 191, 47, 0.18);
+/* Selected + needs-input: the underline goes amber instead of stacking a
+   second bar under the accent. Beats the focused-tabset accent rule on
+   specificity (four classes vs three). */
+.flexlayout__layout .flexlayout__tab_button.agent-tab-needs-input.flexlayout__tab_button--selected::after {
+  background: #ffbf2f;
 }
 
 .flexlayout__tab_button.agent-tab-spawn-flash {
@@ -2369,6 +2433,13 @@ samp,
 }
 /* design-tokens-allow-end */
 
+/* A highlighted tab's selected underline keeps its user-chosen hue (the inset
+   box-shadow rules above); suppress the accent ::after so two underlines never
+   stack. */
+.flexlayout__layout .flexlayout__tab_button[class*="tab-highlight-"].flexlayout__tab_button--selected::after {
+  display: none;
+}
+
 .flexlayout__tab_button_content {
   font-size: 12px;
 }
@@ -2389,10 +2460,20 @@ samp,
   justify-content: center;
 }
 
-.flexlayout__tabset_tabbar_outer {
-  border-bottom: 1px solid var(--border-default);
-  background: var(--bg-surface);
+/* The strip sits flat on the terminal ground under a hairline — a slim caption
+   row (~29px: 28px tabs + the hairline), not a raised toolbar. Focus is
+   signaled per-tab (accent underline + ink), so the focused tabset gets no
+   raised bar of its own. */
+.flexlayout__layout .flexlayout__tabset_tabbar_outer {
+  border-bottom: 1px solid var(--border-subtle);
+  background: var(--terminal-bg);
   background-image: none !important;
+}
+
+/* combined.css reserves a 2px transparent border above the tabs; zero it so
+   the strip stays at caption height. */
+.flexlayout__layout .flexlayout__tabset_tabbar_inner_tab_container_top {
+  border-top: none;
 }
 
 .flexlayout__tabset {
@@ -2402,19 +2483,14 @@ samp,
   box-shadow: inset 0 0 0 1px var(--border-subtle);
 }
 
-.flexlayout__tabset-selected {
-  background-color: var(--bg-surface) !important;
+/* Focused strip stays flat and identical to an unfocused one — focus is
+   carried by the active tab's accent underline + strong ink, never a raised
+   bar. (`tabset-selected` sits on the strip element itself, so this is a
+   compound selector, not a descendant one.) */
+.flexlayout__layout .flexlayout__tabset_tabbar_outer.flexlayout__tabset-selected {
+  background: var(--terminal-bg);
   background-image: none !important;
-  border-color: var(--border-strong);
-  box-shadow:
-    inset 0 0 0 1px var(--border-subtle),
-    0 0 0 1px var(--border-subtle);
-}
-
-.flexlayout__tabset-selected .flexlayout__tabset_tabbar_outer {
-  background: var(--bg-surface-raised);
-  background-image: none !important;
-  border-bottom-color: var(--border-strong);
+  border-bottom-color: var(--border-subtle);
 }
 
 /* Focus ring for the terminal you're currently using. Driven by :focus-within

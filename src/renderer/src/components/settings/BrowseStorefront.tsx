@@ -3,16 +3,10 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import type { MarketplacePluginEntry } from '../../../../shared/marketplace/manifest'
 import type { CapabilityPermission } from '../../../../shared/modules/permissions'
 import type { McpServerConfig, McpSettings } from '../../types/workspace'
-import { CloseIconButton, GhostButton, InboxSearchInput, InlineNotice, PrimaryButton, Spinner, StatusDot, TruncatedText } from '../ui'
-import { SettingsSectionTitle } from './SettingsAtoms'
+import { CloseIconButton, GhostButton, InlineNotice, PrimaryButton, Spinner, StatusDot, TruncatedText } from '../ui'
 import { mcpMonogram } from './McpCatalog'
 import { PermissionChips } from './ThirdPartyModuleList'
-import {
-  type BrowseLoad,
-  componentKindLabels,
-  deriveBrowseView,
-  externalSourceHref,
-} from './storefrontView'
+import { componentKindLabels, externalSourceHref } from './storefrontView'
 import {
   classifyVerification,
   deriveInstallView,
@@ -20,303 +14,18 @@ import {
   type InstallFlowState,
 } from './installFlow'
 
-// Settings → Extensions → Browse: the storefront over the first-party registry.
-// The grid/detail data comes from the T2.1 RegistryClient (the registry INDEX
-// only, so cards show real components-carried + version). The detail panel hosts
-// the Phase-3 trust-gate install flow: clicking Install runs the T3.4
+// The registry plugin detail panel + trust-gate install flow, rendered by the
+// Connectors surface next to its browse rows. The detail data comes from the
+// T2.1 RegistryClient (the registry INDEX only, so it shows real
+// components-carried + version). Clicking Install runs the T3.4
 // verifyMarketplacePlugin IPC (real download + ed25519-verify, no install), then
 // verified plugins install directly, signed community plugins show a trust prompt
 // populated with the REAL verified permissions before install, and unsigned/
 // invalid bundles hard-block with no install affordance. No permission is ever
 // fabricated (the index omits them; they come only from the verified signed
-// manifest), and there are no purchase/Buy affordances (D4). The browse state
-// machine lives in `storefrontView`; the install state machine lives in the
-// DOM-free `installFlow` view-model.
-
-export function BrowseStorefront({
-  workspaceRoot,
-  mcpSettings,
-  onInstalled,
-  onUpsertMcpServer,
-}: {
-  workspaceRoot: string | null
-  mcpSettings: McpSettings
-  // Re-list the Installed tab's IPC sources after a successful install so the
-  // new plugin's components appear without a reload (AC4).
-  onInstalled: () => void
-  // Push the install result's MCP servers into the workspace store so MCP
-  // components reflect in the Installed inventory (its rows read store servers).
-  onUpsertMcpServer: (server: McpServerConfig) => void
-}) {
-  const [load, setLoad] = useState<BrowseLoad>({ status: 'loading' })
-  const [query, setQuery] = useState('')
-  const [selectedId, setSelectedId] = useState<string | null>(null)
-
-  const loadRegistry = useCallback(async (forceRefresh?: boolean) => {
-    if (typeof window.api.readMarketplaceRegistry !== 'function') {
-      setLoad({ status: 'unsupported' })
-      return
-    }
-    setLoad({ status: 'loading' })
-    try {
-      const result = await window.api.readMarketplaceRegistry(forceRefresh ? { forceRefresh: true } : undefined)
-      setLoad({ status: 'result', result })
-    } catch (error) {
-      setLoad({
-        status: 'threw',
-        message: error instanceof Error ? error.message : 'Could not read the extensions registry.',
-      })
-    }
-  }, [])
-
-  useEffect(() => {
-    void loadRegistry()
-  }, [loadRegistry])
-
-  const view = deriveBrowseView(load, query)
-
-  // The loaded index (for icon-URL resolution and detail lookup) lives on the raw
-  // result; the view-model intentionally does not surface transport details.
-  const okResult = load.status === 'result' && load.result.ok ? load.result : null
-  const plugins = okResult?.marketplace.plugins ?? []
-  const registryUrl = okResult?.registryUrl ?? null
-
-  // Show the detail aside only while its plugin is in the current visible set
-  // (featured + categorized), so a search that hides the selected card also hides
-  // its orphaned panel; the selection persists, so clearing the search restores it.
-  const visible =
-    view.status === 'ready'
-      ? new Set([...view.featured.map((p) => p.id), ...view.groups.flatMap((g) => g.plugins.map((p) => p.id))])
-      : null
-  const selected = selectedId && visible?.has(selectedId) ? plugins.find((p) => p.id === selectedId) ?? null : null
-
-  const closeDetail = useCallback(() => {
-    const trigger = selectedId ? document.getElementById(pluginCardId(selectedId)) : null
-    setSelectedId(null)
-    // Restore focus to the card that opened the panel (TD1 a11y contract).
-    trigger?.focus()
-  }, [selectedId])
-
-  const showToolbar = view.status === 'ready' || view.status === 'no-match'
-  const retry = (
-    <GhostButton size="sm" onClick={() => void loadRegistry(true)} className="border border-[color:var(--border-default)]">
-      Retry
-    </GhostButton>
-  )
-
-  return (
-    <div className="space-y-4">
-      {showToolbar ? (
-        <div className="flex flex-wrap items-center gap-3">
-          <SettingsSectionTitle count={view.status === 'ready' ? view.total : 0}>Browse</SettingsSectionTitle>
-          <div className="min-w-0 flex-1">
-            <InboxSearchInput
-              value={query}
-              onChange={setQuery}
-              ariaLabel="Search extensions by name, category, publisher, or description"
-              placeholder="Search extensions"
-            />
-          </div>
-        </div>
-      ) : null}
-
-      {view.status === 'loading' ? (
-        <div className="flex items-center gap-2 py-6 text-[12px] text-[color:var(--text-muted)]">
-          <Spinner size={14} />
-          Loading the extensions registry…
-        </div>
-      ) : null}
-
-      {view.status === 'unsupported' ? (
-        <InlineNotice tone="warn">
-          Browsing extensions needs a newer app build. Update Multicode and restart to see the storefront.
-        </InlineNotice>
-      ) : null}
-
-      {view.status === 'offline' ? (
-        <InlineNotice tone="warn" action={retry}>
-          {view.message}
-        </InlineNotice>
-      ) : null}
-
-      {view.status === 'error' ? (
-        <InlineNotice tone="error" action={retry}>
-          <div>{view.message}</div>
-          {view.issues?.length ? (
-            <ul className="mt-1 list-disc pl-4">
-              {view.issues.slice(0, 4).map((issue) => (
-                <li key={issue}>{issue}</li>
-              ))}
-            </ul>
-          ) : null}
-        </InlineNotice>
-      ) : null}
-
-      {view.status === 'empty' ? (
-        <>
-          {view.staleNotice ? (
-            <InlineNotice tone="warn" action={retry}>
-              {view.staleNotice}
-            </InlineNotice>
-          ) : null}
-          <p className="px-1 py-6 text-center text-[12px] text-[color:var(--text-muted)]">
-            No extensions published yet.
-          </p>
-        </>
-      ) : null}
-
-      {view.status === 'no-match' ? (
-        <>
-          {view.staleNotice ? (
-            <InlineNotice tone="warn" action={retry}>
-              {view.staleNotice}
-            </InlineNotice>
-          ) : null}
-          <p className="px-1 py-6 text-center text-[12px] text-[color:var(--text-muted)]">
-            No extensions match “{view.query}”.
-          </p>
-        </>
-      ) : null}
-
-      {view.status === 'ready' ? (
-        <>
-          {view.staleNotice ? (
-            <InlineNotice tone="warn" action={retry}>
-              {view.staleNotice}
-            </InlineNotice>
-          ) : null}
-          <div className="flex gap-4">
-            <div className="min-w-0 flex-1 space-y-5">
-              {view.featured.length > 0 ? (
-                <section className="space-y-2">
-                  <SettingsSectionTitle>Featured</SettingsSectionTitle>
-                  <PluginGrid
-                    plugins={view.featured}
-                    registryUrl={registryUrl}
-                    selectedId={selectedId}
-                    detailOpen={Boolean(selected)}
-                    onOpen={setSelectedId}
-                  />
-                </section>
-              ) : null}
-              {view.groups.map((group) => (
-                <section key={group.category} className="space-y-2">
-                  <div className="flex items-center gap-3">
-                    <span className="text-[12px] font-medium text-[color:var(--text-muted)]">{group.category}</span>
-                    <span className="h-px flex-1 bg-[color:var(--border-subtle)]" />
-                    <span className="tabular-nums font-mono text-[10px] text-[color:var(--text-subtle)]">
-                      {group.plugins.length}
-                    </span>
-                  </div>
-                  <PluginGrid
-                    plugins={group.plugins}
-                    registryUrl={registryUrl}
-                    selectedId={selectedId}
-                    detailOpen={Boolean(selected)}
-                    onOpen={setSelectedId}
-                  />
-                </section>
-              ))}
-            </div>
-            {selected ? (
-              <PluginDetailPanel
-                // Key by plugin id so switching the selected plugin remounts the
-                // panel: a verify/install in flight for the previous plugin can't
-                // resolve onto the new plugin's flow state (stale-closure race).
-                key={selected.id}
-                plugin={selected}
-                registryUrl={registryUrl}
-                workspaceRoot={workspaceRoot}
-                mcpSettings={mcpSettings}
-                onInstalled={onInstalled}
-                onUpsertMcpServer={onUpsertMcpServer}
-                onClose={closeDetail}
-              />
-            ) : null}
-          </div>
-        </>
-      ) : null}
-    </div>
-  )
-}
-
-function pluginCardId(id: string): string {
-  return `plugin-card-${id}`
-}
-
-function PluginGrid({
-  plugins,
-  registryUrl,
-  selectedId,
-  detailOpen,
-  onOpen,
-}: {
-  plugins: MarketplacePluginEntry[]
-  registryUrl: string | null
-  selectedId: string | null
-  detailOpen: boolean
-  onOpen: (id: string) => void
-}) {
-  return (
-    <div className={`grid grid-cols-2 gap-2 sm:grid-cols-3 ${detailOpen ? '' : 'lg:grid-cols-4'}`}>
-      {plugins.map((plugin) => (
-        <PluginCard
-          key={plugin.id}
-          plugin={plugin}
-          registryUrl={registryUrl}
-          selected={selectedId === plugin.id}
-          onOpen={() => onOpen(plugin.id)}
-        />
-      ))}
-    </div>
-  )
-}
-
-export function PluginCard({
-  plugin,
-  registryUrl,
-  selected,
-  onOpen,
-}: {
-  plugin: MarketplacePluginEntry
-  registryUrl: string | null
-  selected: boolean
-  onOpen: () => void
-}) {
-  const trust = pluginTrust(plugin)
-  return (
-    <button
-      type="button"
-      id={pluginCardId(plugin.id)}
-      onClick={onOpen}
-      aria-expanded={selected}
-      aria-label={`Show details for ${plugin.name}`}
-      className={`interactive flex aspect-square w-full flex-col items-start justify-between rounded-md border p-3 text-left focus:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--border-focus)] ${
-        selected
-          ? 'border-[color:var(--border-strong)] bg-[color:var(--bg-surface-raised)]'
-          : 'border-[color:var(--border-subtle)] bg-[color:var(--bg-surface)] hover:border-[color:var(--border-strong)] hover:bg-[color:var(--bg-surface-raised)]'
-      }`}
-    >
-      <PluginIcon iconUrl={resolveIconUrl(registryUrl, plugin.icon)} name={plugin.name} size={36} />
-      <div className="w-full min-w-0">
-        <TruncatedText
-          as="div"
-          text={plugin.name}
-          className="text-[13px] font-semibold leading-5 text-[color:var(--text-strong)]"
-        />
-        <div className="mt-0.5 flex items-center gap-1.5 text-[11px] leading-4 text-[color:var(--text-subtle)]">
-          {/* Decorative: the adjacent label names the trust state. Verified is the
-              quiet default — the lower tiers surface the dot to earn attention. */}
-          {trust.tier === 'verified' ? null : <StatusDot tone={trust.tone} />}
-          <TruncatedText
-            as="span"
-            text={trust.tier === 'verified' ? plugin.publisher.name : `${plugin.publisher.name} · ${trust.label}`}
-          />
-        </div>
-      </div>
-    </button>
-  )
-}
+// manifest), and there are no purchase/Buy affordances (D4). The install state
+// machine lives in the DOM-free `installFlow` view-model. The old aspect-square
+// browse grid lived here too; the Connectors ConnectorRow replaced it.
 
 export function PluginDetailPanel({
   plugin,
@@ -468,14 +177,26 @@ export function PluginDetailPanel({
       ) : null}
 
       <div className="mt-3">
-        <div className="text-[11px] font-semibold text-[color:var(--text-muted)]">Components</div>
-        <ul className="mt-1 space-y-0.5 text-[12px] text-[color:var(--text-muted)]">
-          {components.map((label) => (
-            <li key={label} className="flex gap-1.5">
-              <span aria-hidden className="text-[color:var(--text-subtle)]">·</span>
-              <span>{label}</span>
-            </li>
-          ))}
+        <div className="text-[11px] font-semibold text-[color:var(--text-muted)]">Provides</div>
+        <ul className="mt-1 space-y-1 text-[12px] text-[color:var(--text-muted)]">
+          {/* Inline-MCP entries name the actual servers the trust grant adds; the
+              registry index carries no per-skill metadata pre-install, so bundle
+              entries list their component kinds. */}
+          {inlineServers.length > 0
+            ? inlineServers.map((server) => (
+                <li key={server.id} className="flex min-w-0 items-center gap-1.5">
+                  <TruncatedText as="span" text={server.name} className="min-w-0" />
+                  <span className="shrink-0 rounded-full bg-[color:var(--bg-active)] px-1.5 py-0.5 text-[10px] leading-3 text-[color:var(--text-subtle)]">
+                    {server.transport}
+                  </span>
+                </li>
+              ))
+            : components.map((label) => (
+                <li key={label} className="flex gap-1.5">
+                  <span aria-hidden className="text-[color:var(--text-subtle)]">·</span>
+                  <span>{label}</span>
+                </li>
+              ))}
         </ul>
       </div>
 
@@ -642,7 +363,7 @@ function pluginTrust(plugin: MarketplacePluginEntry): PluginTrust {
     : { tier: 'community', tone: 'neutral', label: 'Community' }
 }
 
-function resolveIconUrl(registryUrl: string | null, icon: string): string | null {
+export function resolveIconUrl(registryUrl: string | null, icon: string): string | null {
   if (!registryUrl || !icon) return null
   try {
     return new URL(icon, registryUrl).toString()
@@ -651,30 +372,35 @@ function resolveIconUrl(registryUrl: string | null, icon: string): string | null
   }
 }
 
-function PluginIcon({ iconUrl, name, size = 36 }: { iconUrl: string | null; name: string; size?: number }) {
+export function PluginIcon({ iconUrl, name, size = 36 }: { iconUrl: string | null; name: string; size?: number }) {
   const [failed, setFailed] = useState(false)
-  if (!iconUrl || failed) {
-    return (
-      <span
-        aria-hidden
-        style={{ width: size, height: size, fontSize: Math.round(size * 0.42) }}
-        className="grid place-items-center rounded-md bg-[color:var(--bg-active)] font-mono font-semibold text-[color:var(--text-default)]"
-      >
-        {mcpMonogram(name)}
-      </span>
-    )
-  }
+  // Same neutral chip as McpBrandIcon so catalog and registry entries read as
+  // one system, and low-contrast brand art stays visible on every theme.
   return (
-    <img
-      src={iconUrl}
-      alt=""
+    <span
       aria-hidden
-      width={size}
-      height={size}
-      loading="lazy"
-      decoding="async"
-      onError={() => setFailed(true)}
-      className="pointer-events-none select-none rounded-md"
-    />
+      style={{ width: size, height: size }}
+      className="grid shrink-0 place-items-center overflow-hidden rounded-lg border border-[color:var(--icon-chip-border)] bg-[color:var(--icon-chip-bg)]"
+    >
+      {!iconUrl || failed ? (
+        <span
+          style={{ fontSize: Math.round(size * 0.42) }}
+          className="font-mono font-semibold text-[color:var(--icon-chip-ink)]"
+        >
+          {mcpMonogram(name)}
+        </span>
+      ) : (
+        <img
+          src={iconUrl}
+          alt=""
+          width={Math.round(size * 0.62)}
+          height={Math.round(size * 0.62)}
+          loading="lazy"
+          decoding="async"
+          onError={() => setFailed(true)}
+          className="pointer-events-none select-none rounded-[4px]"
+        />
+      )}
+    </span>
   )
 }

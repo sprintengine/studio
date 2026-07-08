@@ -14,6 +14,7 @@ import type {
   PluginManifest,
 } from '../shared/plugin-manifest'
 import { getPluginManifest } from './plugin-registry-instance'
+import { withMulticodeCliPath } from './cli-install'
 import {
   currentRuntimeEnv,
   ensureManagedRuntimeShims,
@@ -102,6 +103,44 @@ export function buildProbeDescriptor(input: {
   return shellDescriptorForScript(target, script)
 }
 
+// Fallback probe through the user's own login+interactive shell. The primary
+// probe runs `bash -lc`, which never sources zsh config — so a `claude` whose
+// PATH entry lives only in ~/.zshrc/~/.zprofile (nvm, homebrew) is visible in
+// every PTY terminal (they spawn the user's real shell) but invisible to the
+// probe when the app was launched from the Dock. Returns null when the setup
+// has no such shell to consult (Windows/WSL, fish, no $SHELL), so callers
+// simply keep the primary verdict.
+export function buildUserShellProbeDescriptor(input: {
+  binary: string
+  versionArgs: string[]
+  target: PluginInstallPlatform
+  shell: string | undefined
+}): SpawnDescriptor | null {
+  const { binary, versionArgs, target, shell } = input
+  if (target !== 'darwin' && target !== 'linux') return null
+  const shellPath = shell?.trim()
+  if (!shellPath) return null
+  const shellName = shellPath.split('/').pop()
+  // Only POSIX-syntax shells: the probe script uses `command -v` + POSIX
+  // quoting, which fish would misparse.
+  if (shellName !== 'zsh' && shellName !== 'bash') return null
+  const bin = posixSingleQuote(binary)
+  const versionPart = versionArgs.map(posixSingleQuote).join(' ')
+  // In an interactive shell `command -v` also matches aliases and functions
+  // (printing the alias text or the bare name, not a path). Those cannot be
+  // spawned headlessly, so the probe only accepts an absolute executable path
+  // — anything else reads as not-found.
+  const script = [
+    `p="$(command -v ${bin})" || exit ${NOT_FOUND_EXIT}`,
+    `case "$p" in /*) [ -x "$p" ] || exit ${NOT_FOUND_EXIT} ;; *) exit ${NOT_FOUND_EXIT} ;; esac`,
+    `printf '${PATH_SENTINEL}%s\\n' "$p"`,
+    `"$p" ${versionPart} 2>&1 || true`,
+  ].join('\n')
+  // -i so interactive-only config (~/.zshrc) is sourced too — that's where
+  // PATH edits usually live; a PTY terminal sources the same files.
+  return { file: shellPath, args: ['-ilc', script] }
+}
+
 // Builds a script that exits NOT_FOUND_EXIT when a prerequisite binary (npm,
 // brew, curl, …) is absent, without invoking it.
 export function buildExistsDescriptor(input: {
@@ -158,6 +197,10 @@ function runDescriptor(
   desc: SpawnDescriptor,
   onData?: (chunk: string) => void,
   env: NodeJS.ProcessEnv = process.env,
+  // When set, the child is killed at the deadline and the outcome reads as
+  // not-found — a probe that hangs (e.g. a slow interactive shell profile)
+  // must never wedge the caller.
+  timeoutMs?: number,
 ): Promise<RunOutcome> {
   return new Promise((resolve) => {
     const child = spawn(desc.file, desc.args, {
@@ -167,6 +210,17 @@ function runDescriptor(
     })
     let stdout = ''
     let stderr = ''
+    let timedOut = false
+    const timer = timeoutMs
+      ? setTimeout(() => {
+          timedOut = true
+          child.kill('SIGKILL')
+        }, timeoutMs)
+      : null
+    const settle = (outcome: RunOutcome) => {
+      if (timer) clearTimeout(timer)
+      resolve(outcome)
+    }
     child.stdout?.on('data', (chunk) => {
       const text = chunk.toString()
       stdout += text
@@ -178,10 +232,14 @@ function runDescriptor(
       onData?.(text)
     })
     child.on('error', (error) => {
-      resolve({ code: 1, stdout, stderr: stderr + (error.message ?? String(error)) })
+      settle({ code: 1, stdout, stderr: stderr + (error.message ?? String(error)) })
     })
     child.on('close', (code) => {
-      resolve({ code: code ?? 1, stdout, stderr })
+      if (timedOut) {
+        settle({ code: NOT_FOUND_EXIT, stdout: '', stderr: `${stderr}\nprobe timed out after ${timeoutMs}ms` })
+        return
+      }
+      settle({ code: code ?? 1, stdout, stderr })
     })
   })
 }
@@ -197,14 +255,24 @@ function resolveBinary(manifest: PluginManifest, runtime?: Partial<CliRuntimeSet
 // Node, and the freshly installed binary is discoverable on the next probe.
 // Returns null when no managed runtime is vendored, so callers fall back to the
 // user's own PATH unchanged.
+function stringProcessEnv(): Record<string, string> {
+  return Object.fromEntries(
+    Object.entries(process.env).filter((entry): entry is [string, string] => typeof entry[1] === 'string'),
+  )
+}
+
+// Probes run shells whose profiles we do not control; hard deadlines keep a
+// pathological config (a ~/.bash_profile that starts tmux, prompts, or waits
+// on a network mount) from wedging provider listing or availability checks.
+// The primary login probe gets a longer budget than the interactive fallback.
+const PROBE_TIMEOUT_MS = 10_000
+const USER_SHELL_PROBE_TIMEOUT_MS = 5_000
+
 function managedInstallEnv(): Record<string, string> | null {
   const runtimeEnv = currentRuntimeEnv()
   const shims = ensureManagedRuntimeShims(runtimeEnv)
   if (!shims) return null
-  const base = Object.fromEntries(
-    Object.entries(process.env).filter((entry): entry is [string, string] => typeof entry[1] === 'string'),
-  )
-  const withShims = withManagedRuntimePath(base, shims.shimDir, runtimeEnv.platform)
+  const withShims = withManagedRuntimePath(stringProcessEnv(), shims.shimDir, runtimeEnv.platform)
   return withManagedRuntimePath(withShims, shims.prefixBinDir, runtimeEnv.platform)
 }
 
@@ -230,8 +298,30 @@ export async function detectCli(
   const target = resolveInstallPlatform(process.platform, useWsl)
   const versionArgs = manifest.detect?.versionArgs ?? ['--version']
   try {
-    const outcome = await runDescriptor(buildProbeDescriptor({ binary, versionArgs, target }), undefined, env)
-    const parsed = parseProbeOutput(outcome.code, outcome.stdout)
+    // Probe with the same PATH augmentation terminal launches get (managed
+    // runtime shims + the Multicode CLI bin dir), so a managed install is
+    // never invisible to detection. An explicit caller env still wins.
+    const probeEnv = env ?? withMulticodeCliPath(managedInstallEnv() ?? stringProcessEnv())
+    const outcome = await runDescriptor(
+      buildProbeDescriptor({ binary, versionArgs, target }),
+      undefined,
+      probeEnv,
+      PROBE_TIMEOUT_MS,
+    )
+    let parsed = parseProbeOutput(outcome.code, outcome.stdout)
+    if (!parsed.installed) {
+      // Terminal-parity fallback: PTY terminals resolve the binary through the
+      // user's own shell config; consult it before concluding "not installed".
+      // Only an absolute executable path is accepted (the script enforces it),
+      // so an alias/function-only setup reads as not-found rather than
+      // producing a resolvedPath that cannot be spawned.
+      const fallback = buildUserShellProbeDescriptor({ binary, versionArgs, target, shell: process.env.SHELL })
+      if (fallback) {
+        const fallbackOutcome = await runDescriptor(fallback, undefined, probeEnv, USER_SHELL_PROBE_TIMEOUT_MS)
+        const fallbackParsed = parseProbeOutput(fallbackOutcome.code, fallbackOutcome.stdout)
+        if (fallbackParsed.installed && fallbackParsed.resolvedPath?.startsWith('/')) parsed = fallbackParsed
+      }
+    }
     return {
       cli,
       binary,

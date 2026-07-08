@@ -11,6 +11,11 @@ type RegisterAppLifecycleOptions = {
   terminalRuntime: {
     shutdown(): Promise<void>
   }
+  // Conversation-agent runtime: quit must dispose its headless child
+  // processes too — they live outside the PTY reaper's sight.
+  conversationRuntime?: {
+    shutdown(): Promise<void>
+  }
   automationService?: {
     initialize(): Promise<unknown>
     shutdown(): Promise<void>
@@ -43,6 +48,7 @@ export function registerAppLifecycle({
   diagnosticsEnabled,
   allowMultipleInstances = false,
   terminalRuntime,
+  conversationRuntime,
   automationService,
   agentStateService,
   workspaceSyncService,
@@ -124,6 +130,7 @@ export function registerAppLifecycle({
       await automationService?.shutdown()
       await agentStateService?.shutdown()
       await terminalRuntime.shutdown()
+      await conversationRuntime?.shutdown()
       await workspaceSyncService?.flushRoutingSnapshot()
       await releaseAllWorkspaceRunnerLocks()
       // Module-owned shutdown runs here via each module's onShutdown hook —

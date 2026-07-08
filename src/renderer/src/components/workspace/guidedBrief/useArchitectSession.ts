@@ -6,6 +6,7 @@ import {
   type GuidedBriefSessionLifecycle,
   type GuidedBriefSpecialistSession,
 } from './sessionAdapter'
+import { startGuidedBriefConversationSession } from './conversationSessionAdapter'
 import {
   EMPTY_GUIDED_INTERVIEW_STATE,
   type GuidedInterviewState,
@@ -35,6 +36,10 @@ export type UseArchitectSessionInput = {
   enabled: boolean
   sessionId: string | null
   onAssignSessionId: (sessionId: string) => void
+  // 'conversation' runs the specialist as a Claude conversation session
+  // (structured question cards, no PTY); requires workspaceId.
+  transport?: 'terminal' | 'conversation'
+  workspaceId?: string
 }
 
 export type UseArchitectSessionResult = {
@@ -48,6 +53,8 @@ export type UseArchitectSessionResult = {
   overviewFileReady: boolean
   /** Structured interview parsed from the session stream (replay included). */
   interview: GuidedInterviewState
+  /** Conversation transport only: recent streamed assistant text for the chat pane. */
+  transcriptTail: string
 }
 
 const ARCHITECTURE_PLAN_RELATIVE_PATH = 'architecture/plan.md'
@@ -68,6 +75,8 @@ export function useArchitectSession({
   enabled,
   sessionId,
   onAssignSessionId,
+  transport = 'terminal',
+  workspaceId,
 }: UseArchitectSessionInput): UseArchitectSessionResult {
   const [status, setStatus] = useState<ArchitectSessionStatus>('idle')
   const [error, setError] = useState<string | null>(null)
@@ -75,6 +84,7 @@ export function useArchitectSession({
   const [fileReady, setFileReady] = useState(false)
   const [session, setSession] = useState<GuidedBriefSpecialistSession | null>(null)
   const [interview, setInterview] = useState<GuidedInterviewState>(EMPTY_GUIDED_INTERVIEW_STATE)
+  const [transcriptTail, setTranscriptTail] = useState('')
   const [overviewFileReady, setOverviewFileReady] = useState(false)
 
   const overviewAbsolutePath = joinWorkspacePath(workspaceRoot, ARCHITECTURE_OVERVIEW_RELATIVE_PATH)
@@ -99,48 +109,60 @@ export function useArchitectSession({
     }
 
     setStatus('starting')
-    void startGuidedBriefSpecialistSession(
-      {
-        kind: 'architect',
-        workspaceRoot,
-        acceptedBriefSnapshotPath,
-        sessionId: resolvedSessionId,
-        cli,
-        cliModel,
-        ideaSeedPath: IDEA_SEED_RELATIVE_PATH,
-        architecturePlanPath: ARCHITECTURE_PLAN_RELATIVE_PATH,
+    const sessionInput = {
+      kind: 'architect' as const,
+      workspaceRoot,
+      acceptedBriefSnapshotPath,
+      sessionId: resolvedSessionId,
+      cli,
+      cliModel,
+      ideaSeedPath: IDEA_SEED_RELATIVE_PATH,
+      architecturePlanPath: ARCHITECTURE_PLAN_RELATIVE_PATH,
+    }
+    const sessionCallbacks = {
+      cliRuntimes,
+      onLifecycle: (next: GuidedBriefSessionLifecycle) => {
+        if (cancelled) return
+        if (next === 'ready') setMarkerReceived(true)
+        if (next === 'error') return
+        setStatus(next === 'starting' ? 'starting' : next)
       },
-      {
-        terminalApi: {
-          terminalSpawn: window.api.terminalSpawn,
-          terminalKill: window.api.terminalKill,
-          onTerminalReplay: window.api.onTerminalReplay,
-          onTerminalData: window.api.onTerminalData,
-          onTerminalExit: window.api.onTerminalExit,
-          onTerminalError: window.api.onTerminalError,
-        },
-        cliRuntimes,
-        onLifecycle: (next: GuidedBriefSessionLifecycle) => {
-          if (cancelled) return
-          if (next === 'ready') setMarkerReceived(true)
-          if (next === 'error') return
-          setStatus(next === 'starting' ? 'starting' : next)
-        },
-        onMarker: () => {
-          if (cancelled) return
-          setMarkerReceived(true)
-        },
-        onInterview: (state) => {
-          if (cancelled) return
-          setInterview(state)
-        },
-        onError: (message) => {
-          if (cancelled) return
-          setError(message)
-          setStatus('error')
-        },
+      onMarker: () => {
+        if (cancelled) return
+        setMarkerReceived(true)
       },
-    ).then((result) => {
+      onInterview: (state: GuidedInterviewState) => {
+        if (cancelled) return
+        setInterview(state)
+      },
+      onOutput: (chunk: { chunk: string }) => {
+        if (cancelled || transport !== 'conversation') return
+        setTranscriptTail((current) => `${current}${chunk.chunk}`.slice(-8000))
+      },
+      onError: (message: string) => {
+        if (cancelled) return
+        setError(message)
+        setStatus('error')
+      },
+    }
+    const startPromise =
+      transport === 'conversation' && workspaceId
+        ? startGuidedBriefConversationSession(
+            { ...sessionInput, workspaceId },
+            { ...sessionCallbacks, conversationApi: window.api }
+          )
+        : startGuidedBriefSpecialistSession(sessionInput, {
+            ...sessionCallbacks,
+            terminalApi: {
+              terminalSpawn: window.api.terminalSpawn,
+              terminalKill: window.api.terminalKill,
+              onTerminalReplay: window.api.onTerminalReplay,
+              onTerminalData: window.api.onTerminalData,
+              onTerminalExit: window.api.onTerminalExit,
+              onTerminalError: window.api.onTerminalError,
+            },
+          })
+    void startPromise.then((result) => {
       if (cancelled) return
       if (!result.ok) {
         setError(result.message)
@@ -225,5 +247,6 @@ export function useArchitectSession({
     overviewPath: overviewAbsolutePath,
     overviewFileReady,
     interview,
+    transcriptTail,
   }
 }

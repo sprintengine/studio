@@ -101,7 +101,10 @@ function input(overrides: Partial<ExtensionsInstalledInput> = {}): ExtensionsIns
   assert.equal(rows[0].enabled, true)
   assert.equal(rows[1].source, 'Custom')
   assert.equal(rows[1].enabled, false)
-  assert.ok(rows[0].detail?.includes('stdio'), 'mcp detail names the transport')
+  assert.ok(rows[0].chips.includes('stdio'), 'mcp chips name the transport')
+  // Bundled is the default and earns no chip; non-default provenance does.
+  assert.ok(!rows[0].chips.includes('Bundled'), 'default provenance carries no chip')
+  assert.ok(rows[1].chips.includes('Custom'), 'custom provenance is chipped')
   assert.equal(rows[0].key, 'mcp:context7')
 }
 

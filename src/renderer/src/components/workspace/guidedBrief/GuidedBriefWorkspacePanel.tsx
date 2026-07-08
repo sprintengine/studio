@@ -206,6 +206,7 @@ export default function GuidedBriefWorkspacePanel({ workspaceId }: Props) {
   return (
     <GuidedBriefFlow
       runtimeState={runtimeState}
+      workspaceId={workspaceId}
       onChange={(next) => setGuidedBriefState(workspaceId, next)}
       onBackToIdea={() => setViewingIdea(true)}
       onStartBuild={startBuild}

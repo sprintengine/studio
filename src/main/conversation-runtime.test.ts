@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { once } from 'node:events'
-import { mkdtemp, readFile, rm } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -25,8 +25,499 @@ async function main(): Promise<void> {
   await testMultiTurnHistoryAccumulates()
   await testInterruptSuppressesLateAsyncProviderEvents()
   await testStopSessionSuppressesLateAsyncProviderEvents()
+  await testStatefulProviderMidTurnApprovalAndNoHistoryReplay()
+  await testStatefulProviderResumeCursorReadFromTranscript()
+  await testReadTranscriptClosesUnfinishedTurns()
+  await testTurnFailureWithDanglingApprovalDoesNotWedgeTheSession()
+  await testIdleSweepDisposesOnlyTrulyIdleSessions()
+  await testShutdownStopsSessionsAndDisposesChildren()
+  await testListLiveConversationRootsMapsAdapterInventory()
 
   console.log('conversation-runtime tests passed')
+}
+
+// Stateful adapter with the optional lifecycle surface, for idle-sweep and
+// shutdown coverage. `sendTurn('ask')` blocks on a mid-turn approval;
+// anything else completes immediately.
+function createLifecycleProvider(capture: {
+  disposedChildren: string[]
+  disposeAllCalls: number
+  stoppedSessions: string[]
+  live: Array<Record<string, unknown>>
+}): ConversationProviderAdapter {
+  let pending: { requestId: string; resolve: (approved: boolean) => void } | null = null
+  return {
+    id: 'lifecycle-provider',
+    sessions: 'stateful',
+    listModels: () => ['lifecycle-model'],
+    startSession(input) {
+      return [runtimeEvent(input, 'session_started'), runtimeEvent(input, 'session_ready')]
+    },
+    async *sendTurn(input: MockAdapterTurnInput) {
+      yield runtimeEvent(input, 'turn_started', { turnId: input.turnId })
+      if (input.message === 'ask') {
+        yield runtimeEvent(input, 'approval_requested', {
+          turnId: input.turnId,
+          requestId: input.requestId,
+          action: 'Bash',
+          summary: 'Bash: ls',
+        })
+        const approved = await new Promise<boolean>((resolve) => {
+          pending = { requestId: input.requestId, resolve }
+        })
+        yield runtimeEvent(input, 'approval_resolved', { turnId: input.turnId, requestId: input.requestId, approved })
+      }
+      yield runtimeEvent(input, 'turn_completed', { turnId: input.turnId })
+    },
+    resolveApproval(input) {
+      if (pending && pending.requestId === input.requestId) {
+        const resolve = pending.resolve
+        pending = null
+        resolve(input.approved)
+      }
+      return []
+    },
+    interrupt(input) {
+      return [runtimeEvent(input, 'turn_failed', { reason: 'interrupted' })]
+    },
+    stopSession(input) {
+      capture.stoppedSessions.push(input.sessionId)
+      return [runtimeEvent(input, 'session_closed')]
+    },
+    listLiveSessions() {
+      return capture.live as never
+    },
+    disposeChildProcess(sessionId: string) {
+      capture.disposedChildren.push(sessionId)
+      return true
+    },
+    disposeAll() {
+      capture.disposeAllCalls += 1
+    },
+  }
+}
+
+function lifecycleCapture(): {
+  disposedChildren: string[]
+  disposeAllCalls: number
+  stoppedSessions: string[]
+  live: Array<Record<string, unknown>>
+} {
+  return { disposedChildren: [], disposeAllCalls: 0, stoppedSessions: [], live: [] }
+}
+
+// A provider child that dies while a permission card is pending emits
+// approval_requested with no resolution, then turn_failed. The terminal event
+// must win: the session ends 'failed' (not wedged in awaiting_approval) and
+// the next send is accepted.
+async function testTurnFailureWithDanglingApprovalDoesNotWedgeTheSession(): Promise<void> {
+  const workspaceRoot = await mkdtemp(join(tmpdir(), 'multicode-conversation-runtime-'))
+  try {
+    const crashingProvider: ConversationProviderAdapter = {
+      id: 'crashing-provider',
+      sessions: 'stateful',
+      listModels: () => ['crash-model'],
+      startSession(input) {
+        return [runtimeEvent(input, 'session_started'), runtimeEvent(input, 'session_ready')]
+      },
+      sendTurn(input: MockAdapterTurnInput) {
+        if (input.message === 'crash') {
+          return [
+            runtimeEvent(input, 'turn_started', { turnId: input.turnId }),
+            runtimeEvent(input, 'approval_requested', {
+              turnId: input.turnId,
+              requestId: input.requestId,
+              action: 'Bash',
+              summary: 'Bash: ls',
+            }),
+            runtimeEvent(input, 'turn_failed', { turnId: input.turnId, reason: 'provider', message: 'child died' }),
+          ]
+        }
+        return [
+          runtimeEvent(input, 'turn_started', { turnId: input.turnId }),
+          runtimeEvent(input, 'turn_completed', { turnId: input.turnId }),
+        ]
+      },
+      resolveApproval() {
+        return []
+      },
+      interrupt(input) {
+        return [runtimeEvent(input, 'turn_failed', { reason: 'interrupted' })]
+      },
+      stopSession(input) {
+        return [runtimeEvent(input, 'session_closed')]
+      },
+    }
+    const runtime = new ConversationRuntime({
+      getProviderById: () => undefined,
+      secretStore: unusedSecretStore(),
+      adapters: [crashingProvider],
+    })
+    const started = await runtime.startSession({
+      workspaceRoot,
+      workspaceId: 'workspace',
+      agentId: 'agent',
+      providerId: 'crashing-provider',
+      modelId: 'crash-model',
+    })
+    assert.equal(started.ok, true)
+    if (!started.ok) return
+    const sessionId = started.session.sessionId
+
+    const crashed = await runtime.sendTurn({ sessionId, message: 'crash' })
+    assert.equal(crashed.ok, true)
+    if (!crashed.ok) return
+    assert.equal(crashed.session.status, 'failed', 'terminal event outranks the dangling approval')
+
+    // The session is not wedged: the next send is accepted and completes.
+    const retried = await runtime.sendTurn({ sessionId, message: 'retry' })
+    assert.equal(retried.ok, true)
+    if (!retried.ok) return
+    assert.equal(retried.session.status, 'ready')
+  } finally {
+    await rm(workspaceRoot, { recursive: true, force: true })
+  }
+}
+
+async function testIdleSweepDisposesOnlyTrulyIdleSessions(): Promise<void> {
+  const workspaceRoot = await mkdtemp(join(tmpdir(), 'multicode-conversation-runtime-'))
+  try {
+    let clock = 1_000_000
+    const capture = lifecycleCapture()
+    const runtime = new ConversationRuntime({
+      now: () => clock,
+      getProviderById: () => undefined,
+      secretStore: unusedSecretStore(),
+      adapters: [createLifecycleProvider(capture)],
+    })
+    runtime.setIdleThresholdMs(60_000)
+    const events: string[] = []
+    runtime.onEvent((event) => events.push(event.type))
+    const started = await runtime.startSession({
+      workspaceRoot,
+      workspaceId: 'workspace',
+      agentId: 'agent',
+      providerId: 'lifecycle-provider',
+      modelId: 'lifecycle-model',
+    })
+    assert.equal(started.ok, true)
+    if (!started.ok) return
+    const sessionId = started.session.sessionId
+
+    await runtime.sendTurn({ sessionId, message: 'hello' })
+    const completedAt = clock
+
+    // Not yet past the threshold: nothing disposed.
+    assert.deepEqual(runtime.sweepIdleSessions(completedAt + 59_000), [])
+    // Past the threshold: the idle child goes away, session survives.
+    assert.deepEqual(runtime.sweepIdleSessions(completedAt + 61_000), [sessionId])
+    assert.deepEqual(capture.disposedChildren, [sessionId])
+    const listed = runtime.listSessions({ workspaceId: 'workspace' })
+    assert.equal(listed.ok && listed.sessions[0]?.status, 'ready')
+
+    // A pending approval/question card blocks disposal no matter how idle.
+    const askPromise = runtime.sendTurn({ sessionId, message: 'ask' })
+    await waitForEvent(events, 'approval_requested')
+    assert.deepEqual(runtime.sweepIdleSessions(clock + 10_000_000), [])
+    const requestEvent = await readLastEvent(workspaceRoot, 'workspace', 'agent')
+    await runtime.respondToRequest({
+      sessionId,
+      requestId: requestEvent.payload?.requestId as string,
+      approved: true,
+    })
+    await askPromise
+    // Answered and idle again → disposable.
+    clock += 1
+    assert.deepEqual(runtime.sweepIdleSessions(clock + 61_000), [sessionId])
+  } finally {
+    await rm(workspaceRoot, { recursive: true, force: true })
+  }
+}
+
+async function testShutdownStopsSessionsAndDisposesChildren(): Promise<void> {
+  const workspaceRoot = await mkdtemp(join(tmpdir(), 'multicode-conversation-runtime-'))
+  try {
+    const capture = lifecycleCapture()
+    const runtime = new ConversationRuntime({
+      getProviderById: () => undefined,
+      secretStore: unusedSecretStore(),
+      adapters: [createLifecycleProvider(capture)],
+    })
+    const first = await runtime.startSession({
+      workspaceRoot,
+      workspaceId: 'workspace',
+      agentId: 'agent-one',
+      providerId: 'lifecycle-provider',
+      modelId: 'lifecycle-model',
+    })
+    const second = await runtime.startSession({
+      workspaceRoot,
+      workspaceId: 'workspace',
+      agentId: 'agent-two',
+      providerId: 'lifecycle-provider',
+      modelId: 'lifecycle-model',
+    })
+    assert.equal(first.ok && second.ok, true)
+
+    await runtime.shutdown()
+    assert.equal(capture.stoppedSessions.length, 2)
+    assert.equal(capture.disposeAllCalls, 1)
+    const listed = runtime.listSessions({})
+    assert.equal(listed.ok && listed.sessions.every((session) => session.status === 'stopped'), true)
+  } finally {
+    await rm(workspaceRoot, { recursive: true, force: true })
+  }
+}
+
+async function testListLiveConversationRootsMapsAdapterInventory(): Promise<void> {
+  const capture = lifecycleCapture()
+  capture.live.push(
+    {
+      sessionId: 'conv_live',
+      workspaceId: 'workspace',
+      agentId: 'agent-one',
+      workspaceRoot: '/tmp/x',
+      providerSessionId: 'cursor',
+      hasChildProcess: true,
+      childPid: 4242,
+      turnActive: true,
+      pendingApproval: false,
+      lastActivityAt: 5,
+      spawnedAt: 3,
+    },
+    // No child process → not a root.
+    {
+      sessionId: 'conv_idle',
+      workspaceId: 'workspace',
+      agentId: 'agent-two',
+      workspaceRoot: '/tmp/x',
+      providerSessionId: null,
+      hasChildProcess: false,
+      childPid: null,
+      turnActive: false,
+      pendingApproval: false,
+      lastActivityAt: 9,
+      spawnedAt: null,
+    },
+  )
+  const runtime = new ConversationRuntime({
+    getProviderById: () => undefined,
+    secretStore: unusedSecretStore(),
+    adapters: [createLifecycleProvider(capture)],
+  })
+  const roots = runtime.listLiveConversationRoots()
+  assert.equal(roots.length, 1)
+  assert.deepEqual(roots[0], {
+    sessionId: 'conv_live',
+    rootPid: 4242,
+    workspaceId: 'workspace',
+    agentId: 'agent-one',
+    terminalId: null,
+    kind: 'agent',
+    cli: 'claude-code',
+    activityKind: 'working',
+    processAlive: true,
+    startedAt: 3,
+  })
+}
+
+// A minimal stateful adapter: owns its own history (asserts the runtime does
+// NOT replay any), emits a mid-turn approval that must resolve through
+// resolveApproval while the same sendTurn stream keeps going.
+function createStatefulProvider(capture: {
+  resumeSessionIds: Array<string | undefined>
+  messages: Array<ConversationMessage[] | undefined>
+}): ConversationProviderAdapter {
+  let pending: { requestId: string; resolve: (approved: boolean) => void } | null = null
+  return {
+    id: 'stateful-provider',
+    sessions: 'stateful',
+    listModels: () => ['stateful-model'],
+    startSession(input) {
+      capture.resumeSessionIds.push(input.resumeSessionId)
+      return [
+        runtimeEvent(input, 'session_started', { providerSessionId: input.resumeSessionId ?? null }),
+        runtimeEvent(input, 'session_ready'),
+      ]
+    },
+    async *sendTurn(input: MockAdapterTurnInput) {
+      capture.messages.push(input.messages)
+      yield runtimeEvent(input, 'turn_started', { turnId: input.turnId })
+      yield runtimeEvent(input, 'session_updated', { providerSessionId: 'provider-cursor-1' })
+      yield runtimeEvent(input, 'approval_requested', {
+        turnId: input.turnId,
+        requestId: input.requestId,
+        action: 'Bash',
+        summary: 'Bash: ls',
+      })
+      const approved = await new Promise<boolean>((resolve) => {
+        pending = { requestId: input.requestId, resolve }
+      })
+      yield runtimeEvent(input, 'approval_resolved', { turnId: input.turnId, requestId: input.requestId, approved })
+      yield runtimeEvent(input, 'content_delta', { turnId: input.turnId, text: approved ? 'done' : 'skipped' })
+      yield runtimeEvent(input, 'turn_completed', { turnId: input.turnId })
+    },
+    resolveApproval(input) {
+      if (pending && pending.requestId === input.requestId) {
+        const resolve = pending.resolve
+        pending = null
+        resolve(input.approved)
+      }
+      return []
+    },
+    interrupt(input) {
+      return [runtimeEvent(input, 'turn_failed', { reason: 'interrupted' })]
+    },
+    stopSession(input) {
+      return [runtimeEvent(input, 'session_closed')]
+    },
+  }
+}
+
+async function testStatefulProviderMidTurnApprovalAndNoHistoryReplay(): Promise<void> {
+  const workspaceRoot = await mkdtemp(join(tmpdir(), 'multicode-conversation-runtime-'))
+  try {
+    let id = 0
+    const capture: { resumeSessionIds: Array<string | undefined>; messages: Array<ConversationMessage[] | undefined> } = {
+      resumeSessionIds: [],
+      messages: [],
+    }
+    const runtime = new ConversationRuntime({
+      randomId: () => `${++id}`,
+      getProviderById: () => undefined,
+      secretStore: unusedSecretStore(),
+      adapters: [createStatefulProvider(capture)],
+    })
+    const events: string[] = []
+    runtime.onEvent((event) => events.push(event.type))
+    const started = await runtime.startSession({
+      workspaceRoot,
+      workspaceId: 'workspace',
+      agentId: 'agent',
+      providerId: 'stateful-provider',
+      modelId: 'stateful-model',
+    })
+    assert.equal(started.ok, true)
+    if (!started.ok) return
+    assert.deepEqual(capture.resumeSessionIds, [undefined])
+
+    const sessionId = started.session.sessionId
+    const sentPromise = runtime.sendTurn({ sessionId, message: 'run ls' })
+    await waitForEvent(events, 'approval_requested')
+
+    // While the approval is pending the turn is still live: a second send must
+    // be rejected, and the pending request must be resolvable.
+    const rejected = await runtime.sendTurn({ sessionId, message: 'too soon' })
+    assert.equal(rejected.ok, false)
+
+    const responded = await runtime.respondToRequest({ sessionId, requestId: 'approval_3', approved: true })
+    assert.equal(responded.ok, true)
+    if (!responded.ok) return
+    assert.equal(responded.session.status, 'active')
+
+    const sent = await sentPromise
+    assert.equal(sent.ok, true)
+    if (!sent.ok) return
+    assert.equal(sent.session.status, 'ready')
+    // Stateful turns never receive replayed history.
+    assert.deepEqual(capture.messages, [undefined])
+    assert.deepEqual(events, [
+      'session_started',
+      'session_ready',
+      'user_message',
+      'turn_started',
+      'session_updated',
+      'approval_requested',
+      'approval_resolved',
+      'content_delta',
+      'turn_completed',
+    ])
+
+    // A second turn still gets no history (the adapter owns it).
+    const respondAgain = runtime.sendTurn({ sessionId, message: 'again' })
+    for (let i = 0; i < 100; i += 1) {
+      if (events.filter((type) => type === 'approval_requested').length >= 2) break
+      await new Promise((resolve) => setTimeout(resolve, 0))
+    }
+    await runtime.respondToRequest({ sessionId, requestId: 'approval_5', approved: false })
+    const second = await respondAgain
+    assert.equal(second.ok, true)
+    assert.deepEqual(capture.messages, [undefined, undefined])
+  } finally {
+    await rm(workspaceRoot, { recursive: true, force: true })
+  }
+}
+
+async function testStatefulProviderResumeCursorReadFromTranscript(): Promise<void> {
+  const workspaceRoot = await mkdtemp(join(tmpdir(), 'multicode-conversation-runtime-'))
+  try {
+    const capture: { resumeSessionIds: Array<string | undefined>; messages: Array<ConversationMessage[] | undefined> } = {
+      resumeSessionIds: [],
+      messages: [],
+    }
+    // Simulate a previous app run's transcript carrying the provider cursor.
+    const dir = join(workspaceRoot, '.multi-code', 'conversations', 'workspace')
+    await mkdir(dir, { recursive: true })
+    const priorEvents = [
+      { id: 'old_1', sessionId: 'conv_old', workspaceId: 'workspace', agentId: 'agent', providerId: 'stateful-provider', modelId: 'stateful-model', type: 'session_started', createdAt: 1, payload: { providerSessionId: null } },
+      { id: 'old_2', sessionId: 'conv_old', workspaceId: 'workspace', agentId: 'agent', providerId: 'stateful-provider', modelId: 'stateful-model', type: 'session_updated', createdAt: 2, payload: { providerSessionId: 'cursor-from-disk' } },
+    ]
+    await writeFile(join(dir, 'agent.jsonl'), priorEvents.map((event) => JSON.stringify(event)).join('\n') + '\n', 'utf-8')
+
+    const runtime = new ConversationRuntime({
+      getProviderById: () => undefined,
+      secretStore: unusedSecretStore(),
+      adapters: [createStatefulProvider(capture)],
+    })
+    const started = await runtime.startSession({
+      workspaceRoot,
+      workspaceId: 'workspace',
+      agentId: 'agent',
+      providerId: 'stateful-provider',
+      modelId: 'stateful-model',
+    })
+    assert.equal(started.ok, true)
+    assert.deepEqual(capture.resumeSessionIds, ['cursor-from-disk'])
+  } finally {
+    await rm(workspaceRoot, { recursive: true, force: true })
+  }
+}
+
+async function testReadTranscriptClosesUnfinishedTurns(): Promise<void> {
+  const workspaceRoot = await mkdtemp(join(tmpdir(), 'multicode-conversation-runtime-'))
+  try {
+    const dir = join(workspaceRoot, '.multi-code', 'conversations', 'workspace')
+    await mkdir(dir, { recursive: true })
+    const base = { sessionId: 'conv_x', workspaceId: 'workspace', agentId: 'agent', providerId: 'p', modelId: 'm' }
+    const lines = [
+      { id: 'e1', ...base, type: 'user_message', createdAt: 1, payload: { turnId: 't1', text: 'hi' } },
+      { id: 'e2', ...base, type: 'turn_started', createdAt: 2, payload: { turnId: 't1' } },
+      { id: 'e3', ...base, type: 'turn_completed', createdAt: 3, payload: { turnId: 't1' } },
+      { id: 'e4', ...base, type: 'user_message', createdAt: 4, payload: { turnId: 't2', text: 'killed mid-turn' } },
+      { id: 'e5', ...base, type: 'turn_started', createdAt: 5, payload: { turnId: 't2' } },
+    ]
+    await writeFile(join(dir, 'agent.jsonl'), lines.map((line) => JSON.stringify(line)).join('\n') + '\n', 'utf-8')
+
+    const runtime = new ConversationRuntime({
+      getProviderById: () => undefined,
+      secretStore: unusedSecretStore(),
+      adapters: [],
+    })
+    const transcript = await runtime.readTranscript({ workspaceRoot, workspaceId: 'workspace', agentId: 'agent' })
+    assert.equal(transcript.ok, true)
+    if (!transcript.ok) return
+    assert.equal(transcript.events.length, 6)
+    const closure = transcript.events.at(-1)
+    assert.equal(closure?.type, 'turn_failed')
+    assert.equal(closure?.payload?.turnId, 't2')
+    assert.equal(closure?.payload?.reason, 'interrupted')
+
+    // Missing transcript file → empty replay, not an error.
+    const missing = await runtime.readTranscript({ workspaceRoot, workspaceId: 'workspace', agentId: 'nobody' })
+    assert.deepEqual(missing, { ok: true, events: [] })
+  } finally {
+    await rm(workspaceRoot, { recursive: true, force: true })
+  }
 }
 
 async function testInterruptSuppressesLateAsyncProviderEvents(): Promise<void> {
@@ -63,7 +554,7 @@ async function testInterruptSuppressesLateAsyncProviderEvents(): Promise<void> {
     assert.equal(sent.ok, true)
     if (!sent.ok) return
     assert.equal(sent.session.status, 'ready')
-    assert.deepEqual(events, ['session_started', 'session_ready', 'turn_started', 'turn_failed'])
+    assert.deepEqual(events, ['session_started', 'session_ready', 'user_message', 'turn_started', 'turn_failed'])
     const persisted = await readConversationEvents(workspaceRoot, 'workspace', 'agent')
     assert.deepEqual(persisted.map((event) => event.type), events)
     assert.equal(JSON.stringify(persisted).includes('late output'), false)
@@ -106,7 +597,7 @@ async function testStopSessionSuppressesLateAsyncProviderEvents(): Promise<void>
     assert.equal(sent.ok, true)
     if (!sent.ok) return
     assert.equal(sent.session.status, 'stopped')
-    assert.deepEqual(events, ['session_started', 'session_ready', 'turn_started', 'turn_failed', 'session_closed'])
+    assert.deepEqual(events, ['session_started', 'session_ready', 'user_message', 'turn_started', 'turn_failed', 'session_closed'])
     const persisted = await readConversationEvents(workspaceRoot, 'workspace', 'agent')
     assert.deepEqual(persisted.map((event) => event.type), events)
     assert.equal(JSON.stringify(persisted).includes('late output'), false)
@@ -164,6 +655,7 @@ async function testOpenAiCompatibleRuntimeTurnCompletesThroughLocalEndpoint(): P
     assert.deepEqual(events, [
       'session_started',
       'session_ready',
+      'user_message',
       'turn_started',
       'content_delta',
       'content_delta',
@@ -241,12 +733,14 @@ async function testMockSessionTurnApprovalInterruptStopAndPersistence(): Promise
     assert.deepEqual(events, [
       'session_started',
       'session_ready',
+      'user_message',
       'turn_started',
       'content_delta',
       'approval_requested',
       'approval_resolved',
       'usage_updated',
       'turn_completed',
+      'user_message',
       'turn_started',
       'content_delta',
       'approval_requested',

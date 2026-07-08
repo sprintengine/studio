@@ -19,6 +19,7 @@ from sprintengine_core.tool.state import (
     append_event,
     apply_configured_roles,
     apply_role_runtimes,
+    configured_role_set,
     next_replacement_agent_id,
     retired_agent_has_live_replacement,
     role_has_open_work,
@@ -172,6 +173,50 @@ def cmd_roster_configure(args: argparse.Namespace) -> Dict[str, Any]:
         return {"ok": True, "configuredRoles": list(state.get("configuredRoles") or [])}
 
     return with_locked_state(args.state, run)
+
+def cmd_roster_runtime(args: argparse.Namespace) -> Dict[str, Any]:
+    """Operator edit of one role's execution runtime (cli/model) mid-run.
+
+    This is the app-owned, user-driven counterpart to roster.configure: it is
+    invoked from the board UI (--actor ui), is deliberately NOT exposed on the
+    MCP capability surface, and is NOT subject to the architect-mode
+    rosterSource / plan-approval-lock / allowedRuntimes guards — the palette
+    constrains the architect, never the operator. The merge lands in
+    roleRuntimes, so every future spawn (reconcile) and claim
+    (stamp_task_execution_identity) resolves the new runtime; live agents keep
+    their launched runtime until they next start.
+    """
+    def run(state: Dict[str, Any]) -> Dict[str, Any]:
+        role = require_configured_role(str(args.role or ""), context="roster runtime")
+        configured = configured_role_set(state)
+        if configured is not None and role not in configured:
+            raise SystemExit(
+                f"role_not_enabled_for_run: role {role!r} is not enabled for this run; "
+                "add it to the roster before setting its runtime."
+            )
+        cli = str(args.cli or "").strip()
+        if not cli:
+            raise SystemExit(
+                "roster runtime requires --cli (pass the role's current CLI when changing only the model)."
+            )
+        raw_model = getattr(args, "model", None)
+        model: Optional[str] = str(raw_model).strip() or None if raw_model is not None else None
+        actor = str(getattr(args, "actor", None) or "user").strip() or "user"
+        runtimes = state.get("roleRuntimes")
+        previous = dict(runtimes.get(role)) if isinstance(runtimes, dict) and isinstance(runtimes.get(role), dict) else {}
+        apply_role_runtimes(state, json.dumps({role: {"cli": cli, "model": model}}))
+        current = dict((state.get("roleRuntimes") or {}).get(role) or {})
+        append_event(
+            state,
+            "role_runtime_changed",
+            actor,
+            f"{actor} set the {role} runtime to {cli}/{model or '(cli default)'}.",
+            {"role": role, "cli": cli, "model": model, "previous": previous},
+        )
+        return {"ok": True, "role": role, "runtime": current, "previous": previous}
+
+    return with_locked_state(args.state, run)
+
 
 def cmd_roster_retire(args: argparse.Namespace) -> Dict[str, Any]:
     def run(state: Dict[str, Any]) -> Dict[str, Any]:
@@ -381,6 +426,7 @@ def cmd_roster_list(args: argparse.Namespace) -> Dict[str, Any]:
 
 add = cmd_roster_add
 configure = cmd_roster_configure
+runtime = cmd_roster_runtime
 retire = cmd_roster_retire
 replenish = cmd_roster_replenish
 list_roster = cmd_roster_list

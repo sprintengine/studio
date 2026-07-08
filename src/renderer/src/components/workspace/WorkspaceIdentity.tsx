@@ -1,35 +1,24 @@
-// The active workspace's identity cluster — mode icon, star, name, project
+// The active workspace's identity cluster — star toggle, name, project
 // (folder-name) chip, and branch chip — hoisted out of the retired 48px WorkspaceTopBar
 // row into the merged AppTitleBar title strip (it fills the title bar's centre
 // slot). It is a display surface, not a control group, so it sits outside the
 // top-bar-group cap (knowledge/brand/panel-design-system.md TopBar inventory).
 //
-// The project and branch segments double as panel shortcuts (reveal Files /
-// Git) when the owning capability module is enabled; those two buttons opt out
-// of the title strip's drag region with `app-no-drag`, while the non-interactive
-// icon/star/name stay draggable to preserve the window grab area.
+// The star, project, and branch segments are interactive (toggle starred /
+// reveal Files / reveal Git) and opt out of the title strip's drag region with
+// `app-no-drag`; the name keeps its sidebar-toggle role (or degrades to a
+// draggable span) to preserve the window grab area.
 
 import React from 'react'
-import { WorkspaceTypeIcon, resolveEnabledWorkspaceType } from '../AppIcons'
-import type { ModuleEnablementOverrides } from '../../../../shared/modules/manifest'
 import { FOCUS_RING_CLASS, StarGlyph, Tooltip } from '../ui'
 import { useWorkspaceStore } from '../../store/workspaceStore'
 import { useGitBranch } from '../../hooks/useGitBranch'
 import { useGitStatus } from '../../hooks/useGitStatus'
 import { resolveWorkspaceWorktree } from '../../utils/workspaceWorktree'
 import { selectModuleEnabled } from '../../modules'
-import { getHighlightSwatch } from '../../utils/highlight'
+import { getHighlightSwatch, isStarred } from '../../utils/highlight'
 import { revealNavRailComponent } from '../../utils/modelRegistry'
 import type { Workspace } from '../../types/workspace'
-
-// Tab accent comes from the enabled workspace type's accentToken; a disabled
-// module, an unknown id, or shell-owned 'standard' falls back to the muted
-// default. Matches the prior per-mode mapping for the bundled types while
-// degrading disabled-module workspaces to the generic accent.
-function workspaceTabIconClass(mode: Workspace['mode'], moduleOverrides: ModuleEnablementOverrides): string {
-  const token = resolveEnabledWorkspaceType(mode, moduleOverrides)?.accentToken ?? '--text-muted'
-  return `text-[color:var(${token})]`
-}
 
 // Branch-fork glyph for the header identity cluster. Stroke idiom matches the
 // Git panel's local icons (1.3px round strokes on a 16px box) so the two Git
@@ -83,6 +72,7 @@ export function WorkspaceIdentity({
   onToggleSidebar?: () => void
 }) {
   const moduleOverrides = useWorkspaceStore((state) => state.appSettings.modules)
+  const setWorkspaceHighlight = useWorkspaceStore((state) => state.setWorkspaceHighlight)
   const gitBranch = useGitBranch(activeWorkspace?.folderPath ?? null)
   const { status: gitFileStatus, repoState: gitRepoState } = useGitStatus(
     activeWorkspace?.folderPath ?? null
@@ -120,12 +110,13 @@ export function WorkspaceIdentity({
 
   if (!activeWorkspace) return null
 
+  const starred = isStarred(activeWorkspace.highlight)
+
   // Per-workspace highlight: the retired 48px row tinted its bottom border, but
   // that strip is now the full-width app title bar, where an app-wide bottom
   // tint reads too subtly. Re-home the accent onto the identity cluster itself —
-  // the mode icon takes the highlight hex and the name carries a matching
-  // underline — so the current workspace's colour stays legible without chroming
-  // the whole strip.
+  // the name carries an underline in the highlight colour — so the current
+  // workspace's colour stays legible without chroming the whole strip.
   const highlightHex = activeWorkspace.highlight?.color
     ? getHighlightSwatch(activeWorkspace.highlight.color).hex
     : null
@@ -167,10 +158,37 @@ export function WorkspaceIdentity({
        * open. When no toggle handler is supplied it degrades to a plain draggable
        * span so the window keeps a grab area and other mount sites still work.
        */}
+      {/*
+       * The star is its own control, not a passive badge inside the name chip:
+       * filled when starred, a quiet outline when not, and clicking it toggles
+       * the same `highlight.starred` the sidebar's context menu drives. It
+       * replaces the workspace-type icon that used to lead the cluster — when
+       * you're already inside the workspace the mode glyph earned nothing, and
+       * highlight identity survives on the name's underline.
+       */}
       <span
-        className="flex min-w-[7ch]"
+        className="flex min-w-[7ch] items-center gap-0.5"
         style={highlightHex ? { boxShadow: `inset 0 -1.5px 0 ${highlightHex}` } : undefined}
       >
+        <Tooltip content={starred ? 'Unstar workspace' : 'Star workspace'} placement="bottom">
+          <button
+            type="button"
+            onClick={() => setWorkspaceHighlight(activeWorkspace.id, { starred: !starred })}
+            aria-pressed={starred}
+            aria-label={starred ? 'Unstar workspace' : 'Star workspace'}
+            className={`app-no-drag interactive group/star flex h-[22px] w-[22px] shrink-0 items-center justify-center rounded-[5px] hover:bg-[color:var(--bg-hover)] ${FOCUS_RING_CLASS}`}
+          >
+            <StarGlyph
+              filled={starred}
+              stroked={!starred}
+              className={`icon-xs shrink-0 transition-colors ${
+                starred
+                  ? 'text-[color:var(--tone-warn)]'
+                  : 'text-[color:var(--text-subtle)] group-hover/star:text-[color:var(--text-default)]'
+              }`}
+            />
+          </button>
+        </Tooltip>
         <Tooltip
           content={onToggleSidebar ? (sidebarCollapsed ? 'Open sidebar' : 'Close sidebar') : activeWorkspace.name}
           placement="bottom"
@@ -181,32 +199,14 @@ export function WorkspaceIdentity({
               type="button"
               onClick={onToggleSidebar}
               aria-label={sidebarCollapsed ? 'Open sidebar' : 'Close sidebar'}
-              className={`app-no-drag interactive flex min-w-0 items-center gap-1.5 rounded-[5px] px-1.5 py-0.5 hover:bg-[color:var(--bg-hover)] ${FOCUS_RING_CLASS}`}
+              className={`app-no-drag interactive flex min-w-0 items-center rounded-[5px] px-1.5 py-0.5 hover:bg-[color:var(--bg-hover)] ${FOCUS_RING_CLASS}`}
             >
-              <span
-                className={`shrink-0 ${highlightHex ? '' : workspaceTabIconClass(activeWorkspace.mode, moduleOverrides)}`}
-                style={{ color: highlightHex ?? undefined }}
-              >
-                <WorkspaceTypeIcon mode={activeWorkspace.mode} moduleOverrides={moduleOverrides} className="icon-sm" />
-              </span>
-              {activeWorkspace.highlight?.starred ? (
-                <StarGlyph filled className="icon-xs shrink-0 text-[color:var(--tone-warn)]" label="Starred workspace" />
-              ) : null}
               <span className="min-w-0 truncate text-[13px] font-semibold text-[color:var(--text-strong)]">
                 {activeWorkspace.name}
               </span>
             </button>
           ) : (
-            <span className="flex min-w-0 items-center gap-1.5">
-              <span
-                className={`shrink-0 ${highlightHex ? '' : workspaceTabIconClass(activeWorkspace.mode, moduleOverrides)}`}
-                style={{ color: highlightHex ?? undefined }}
-              >
-                <WorkspaceTypeIcon mode={activeWorkspace.mode} moduleOverrides={moduleOverrides} className="icon-sm" />
-              </span>
-              {activeWorkspace.highlight?.starred ? (
-                <StarGlyph filled className="icon-xs shrink-0 text-[color:var(--tone-warn)]" label="Starred workspace" />
-              ) : null}
+            <span className="flex min-w-0 items-center px-1.5 py-0.5">
               <span className="min-w-0 truncate text-[13px] font-semibold text-[color:var(--text-strong)]">
                 {activeWorkspace.name}
               </span>

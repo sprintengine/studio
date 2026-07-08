@@ -1,9 +1,11 @@
-import { mkdir, stat, appendFile } from 'fs/promises'
+import { mkdir, stat, appendFile, readFile } from 'fs/promises'
 import { join } from 'path'
 
 import type {
+  ConversationCliRuntimeOverrides,
   ConversationEvent,
   ConversationInterruptInput,
+  ConversationPermissionPreset,
   ConversationListSessionsInput,
   ConversationListSessionsResult,
   ConversationRespondToRequestInput,
@@ -13,9 +15,13 @@ import type {
   ConversationStartSessionInput,
   ConversationStartSessionResult,
   ConversationStopSessionInput,
+  ConversationTranscriptInput,
+  ConversationTranscriptResult,
 } from '../shared/conversation-runtime'
 import { getConversationProviderById } from './plugin-registry-instance'
 import { ProviderSecretStore } from './secret-store'
+import { clampSuspendIdleAfterMs, DEFAULT_SUSPEND_IDLE_AFTER_MS } from './terminal-reap-policy'
+import type { TerminalRootInfo } from './workspace-memory'
 import {
   createMockConversationProvider,
   type ConversationMessage,
@@ -23,6 +29,7 @@ import {
   type ConversationProviderEventStream,
 } from './providers/mock-conversation-provider'
 import { createOpenAiCompatibleProvider } from './providers/openai-compatible-provider'
+import { createClaudeAgentProvider } from './providers/claude-agent-provider'
 
 type RuntimeSession = ConversationSessionSummary & {
   workspaceRoot: string
@@ -33,6 +40,19 @@ type RuntimeSession = ConversationSessionSummary & {
   // Completed turns only, in send order, so each new turn carries prior context.
   // A failed/interrupted turn is not recorded, so a retry re-sends cleanly.
   history: ConversationMessage[]
+  // True when the provider adapter owns history/resume (sessions: 'stateful').
+  // Stateful sessions never replay history and resolve approvals mid-turn.
+  stateful: boolean
+  // The requestId allocated at turn start. For stateful sessions it doubles as
+  // the send lock while a turn is streaming; mid-turn approvals temporarily
+  // override pendingRequestId with their own ids.
+  turnLockRequestId: string | null
+  // All approval request ids currently unresolved on a stateful turn (the
+  // provider can hold several permission callbacks open at once).
+  pendingApprovalRequestIds: Set<string>
+  cliRuntimes?: ConversationCliRuntimeOverrides
+  permissionPreset?: ConversationPermissionPreset
+  allowedTools?: string[]
 }
 
 type ConversationRuntimeOptions = {
@@ -42,11 +62,21 @@ type ConversationRuntimeOptions = {
   stat?: typeof stat
   mkdir?: typeof mkdir
   appendFile?: typeof appendFile
+  readFile?: typeof readFile
   now?: () => number
   randomId?: () => string
 }
 
 type ConversationRuntimeListener = (event: ConversationEvent) => void
+
+// Cap on how many persisted events a transcript replay returns to the
+// renderer; the JSONL on disk keeps everything.
+const MAX_TRANSCRIPT_REPLAY_EVENTS = 2000
+
+// Same cadence as the terminal runtime's stale-terminal sweep: often enough
+// that an idle child process does not outlive the threshold by much, rare
+// enough to be free.
+const IDLE_SWEEP_INTERVAL_MS = 3 * 60 * 1000
 
 export class ConversationRuntime {
   private readonly adapters = new Map<string, ConversationProviderAdapter>()
@@ -55,11 +85,17 @@ export class ConversationRuntime {
   private readonly stat: typeof stat
   private readonly mkdir: typeof mkdir
   private readonly appendFile: typeof appendFile
+  private readonly readFile: typeof readFile
   private readonly now: () => number
   private readonly randomId: () => string
   private readonly sessions = new Map<string, RuntimeSession>()
   private readonly listeners = new Set<ConversationRuntimeListener>()
   private eventSequence = 0
+  // Event ids must stay unique across app restarts: the persisted transcript
+  // is replayed into the renderer, which dedupes live pushes against it by id.
+  private readonly eventEpoch: string
+  private idleThresholdMs = DEFAULT_SUSPEND_IDLE_AFTER_MS
+  private idleSweepTimer: NodeJS.Timeout | null = null
 
   constructor(options: ConversationRuntimeOptions = {}) {
     this.secretStore = options.secretStore ?? new ProviderSecretStore()
@@ -70,6 +106,7 @@ export class ConversationRuntime {
         getProviderById: this.getProviderById,
         resolveSecret: (providerId) => this.resolveSecret(providerId),
       }),
+      createClaudeAgentProvider(),
     ]
     for (const adapter of options.adapters ?? defaultAdapters) {
       this.adapters.set(adapter.id, adapter)
@@ -77,8 +114,12 @@ export class ConversationRuntime {
     this.stat = options.stat ?? stat
     this.mkdir = options.mkdir ?? mkdir
     this.appendFile = options.appendFile ?? appendFile
+    this.readFile = options.readFile ?? readFile
     this.now = options.now ?? Date.now
     this.randomId = options.randomId ?? (() => Math.random().toString(36).slice(2, 10))
+    // Startup-time epoch (not randomId — tests inject deterministic id
+    // sequences that must not be consumed by construction).
+    this.eventEpoch = this.now().toString(36)
   }
 
   onEvent(listener: ConversationRuntimeListener): () => void {
@@ -94,6 +135,7 @@ export class ConversationRuntime {
 
     const sessionId = `conv_${this.randomId()}`
     const now = this.now()
+    const stateful = validation.adapter.sessions === 'stateful'
     const session: RuntimeSession = {
       sessionId,
       workspaceId: input.workspaceId.trim(),
@@ -109,10 +151,21 @@ export class ConversationRuntime {
       activeTurnAbort: null,
       canceledTurnIds: new Set(),
       history: [],
+      stateful,
+      turnLockRequestId: null,
+      pendingApprovalRequestIds: new Set(),
+      cliRuntimes: input.cliRuntimes,
+      permissionPreset: input.permissionPreset,
+      allowedTools: input.allowedTools,
     }
     this.sessions.set(sessionId, session)
 
-    await this.emitAll(session, validation.adapter.startSession(session))
+    // Stateful providers resume their own durable session; the latest cursor
+    // lives in the JSONL transcript this runtime already writes.
+    const resumeSessionId = stateful
+      ? await this.readResumeCursor(session.workspaceRoot, session.workspaceId, session.agentId)
+      : undefined
+    await this.emitAll(session, validation.adapter.startSession({ ...session, resumeSessionId }))
     session.status = 'ready'
     session.updatedAt = this.now()
     return { ok: true, session: this.toSummary(session) }
@@ -134,11 +187,27 @@ export class ConversationRuntime {
     const turnAbort = new AbortController()
     session.activeTurnId = turnId
     session.pendingRequestId = requestId
+    session.turnLockRequestId = requestId
     session.activeTurnAbort = turnAbort
     session.status = 'active'
     session.updatedAt = this.now()
+    // Persist the user's side of the exchange so the JSONL transcript replays
+    // as a complete conversation after a restart.
+    await this.emit(
+      session,
+      this.eventForSession(session, 'user_message', {
+        turnId,
+        text: message,
+        ...(input.localTurnId ? { localTurnId: input.localTurnId } : {}),
+      }),
+      { turnId }
+    )
     // The model sees prior completed turns plus this message, so it has memory.
-    const messages: ConversationMessage[] = [...session.history, { role: 'user', content: message }]
+    // Stateful providers own their history natively — replaying ours would
+    // duplicate context and defeat resume, so they get only the new message.
+    const messages: ConversationMessage[] | undefined = session.stateful
+      ? undefined
+      : [...session.history, { role: 'user', content: message }]
     const events = await this.emitAll(
       session,
       adapter.sendTurn({ ...session, turnId, requestId, message, messages, signal: turnAbort.signal }),
@@ -155,9 +224,10 @@ export class ConversationRuntime {
       currentSession.activeTurnAbort = null
       // Record only a cleanly completed turn (no failure) into history, so a
       // failed turn leaves history untouched and a retry re-sends without
-      // duplicating the user message.
+      // duplicating the user message. Stateful providers keep their own.
       const completed =
-        events.some((event) => event.type === 'turn_completed')
+        !currentSession.stateful
+        && events.some((event) => event.type === 'turn_completed')
         && !events.some((event) => event.type === 'turn_failed')
       if (completed) {
         currentSession.history.push({ role: 'user', content: message })
@@ -174,7 +244,9 @@ export class ConversationRuntime {
   async respondToRequest(input: ConversationRespondToRequestInput): Promise<ConversationSessionActionResult> {
     const session = this.sessions.get(input.sessionId)
     if (!session) return { ok: false, message: 'Conversation session is invalid.' }
-    if (!session.activeTurnId || session.pendingRequestId !== input.requestId) {
+    const requestIsPending =
+      session.pendingRequestId === input.requestId || session.pendingApprovalRequestIds.has(input.requestId)
+    if (!session.activeTurnId || !requestIsPending) {
       return { ok: false, message: 'Conversation approval request is invalid.' }
     }
     const adapter = this.getAdapterForProviderId(session.providerId)
@@ -187,8 +259,18 @@ export class ConversationRuntime {
         turnId: session.activeTurnId,
         requestId: input.requestId,
         approved: input.approved,
+        answers: input.answers,
       })
     )
+    if (session.stateful) {
+      // The turn is still streaming inside the adapter (the approval resolved
+      // a mid-turn permission callback); restore the turn lock and let the
+      // in-flight sendTurn stream carry the resolution + remaining events.
+      session.pendingRequestId = session.turnLockRequestId
+      session.status = 'active'
+      session.updatedAt = this.now()
+      return { ok: true, session: this.toSummary(session) }
+    }
     session.activeTurnId = null
     session.pendingRequestId = null
     session.status = input.approved ? 'ready' : 'failed'
@@ -208,6 +290,8 @@ export class ConversationRuntime {
     await this.emitAll(session, adapter.interrupt(session), { allowCanceledTurnId: turnId })
     session.activeTurnId = null
     session.pendingRequestId = null
+    session.turnLockRequestId = null
+    session.pendingApprovalRequestIds.clear()
     session.activeTurnAbort = null
     session.status = 'ready'
     session.updatedAt = this.now()
@@ -232,6 +316,8 @@ export class ConversationRuntime {
     await this.emitAll(session, adapter.stopSession(session), { allowCanceledTurnId: turnId })
     session.activeTurnId = null
     session.pendingRequestId = null
+    session.turnLockRequestId = null
+    session.pendingApprovalRequestIds.clear()
     session.activeTurnAbort = null
     session.status = 'stopped'
     session.updatedAt = this.now()
@@ -244,6 +330,83 @@ export class ConversationRuntime {
       .filter((session) => !input.agentId || session.agentId === input.agentId)
       .map((session) => this.toSummary(session))
     return { ok: true, sessions }
+  }
+
+  // ── Lifecycle parity (idle disposal, quit disposal, process inventory) ────
+
+  setIdleThresholdMs(value: unknown): void {
+    this.idleThresholdMs = clampSuspendIdleAfterMs(value)
+  }
+
+  startIdleSweep(): void {
+    if (this.idleSweepTimer) return
+    this.idleSweepTimer = setInterval(() => {
+      this.sweepIdleSessions()
+    }, IDLE_SWEEP_INTERVAL_MS)
+    this.idleSweepTimer.unref?.()
+  }
+
+  stopIdleSweep(): void {
+    if (!this.idleSweepTimer) return
+    clearInterval(this.idleSweepTimer)
+    this.idleSweepTimer = null
+  }
+
+  // Dispose the child process of every idle stateful session, keeping the
+  // session (and its resume cursor) so the next turn transparently respawns.
+  // Never disposes mid-turn or while an approval/question card is pending.
+  sweepIdleSessions(now: number = this.now()): string[] {
+    const disposed: string[] = []
+    for (const session of this.sessions.values()) {
+      if (!session.stateful) continue
+      if (session.status !== 'ready' && session.status !== 'failed') continue
+      if (session.activeTurnId || session.pendingRequestId) continue
+      if (now - session.updatedAt < this.idleThresholdMs) continue
+      const adapter = this.getAdapterForProviderId(session.providerId)
+      if (adapter?.disposeChildProcess?.(session.sessionId)) disposed.push(session.sessionId)
+    }
+    return disposed
+  }
+
+  // Live child processes across all adapters, shaped like terminal roots so
+  // workspace-memory attribution and the process tree can consume them as-is.
+  listLiveConversationRoots(): TerminalRootInfo[] {
+    const roots: TerminalRootInfo[] = []
+    for (const adapter of this.adapters.values()) {
+      for (const live of adapter.listLiveSessions?.() ?? []) {
+        if (!live.childPid) continue
+        roots.push({
+          sessionId: live.sessionId,
+          rootPid: live.childPid,
+          workspaceId: live.workspaceId || null,
+          agentId: live.agentId || null,
+          terminalId: null,
+          kind: 'agent',
+          cli: 'claude-code',
+          activityKind: live.turnActive ? 'working' : 'idle',
+          processAlive: true,
+          startedAt: live.spawnedAt ?? live.lastActivityAt,
+        })
+      }
+    }
+    return roots
+  }
+
+  // App-quit disposal: stop every live session so no headless child outlives
+  // the app. Sessions keep their resume cursors in the JSONL transcripts.
+  async shutdown(): Promise<void> {
+    this.stopIdleSweep()
+    for (const session of Array.from(this.sessions.values())) {
+      if (session.status === 'stopped') continue
+      try {
+        await this.stopSession({ sessionId: session.sessionId })
+      } catch {
+        // Best-effort: adapter disposeAll below is the backstop.
+      }
+    }
+    for (const adapter of this.adapters.values()) {
+      adapter.disposeAll?.()
+    }
   }
 
   private async validateStartInput(input: ConversationStartSessionInput): Promise<
@@ -272,9 +435,14 @@ export class ConversationRuntime {
 
     // Providers with a live catalog (e.g. OpenRouter) accept any model id from
     // their `/models` endpoint, which is not in the static seed list — so only
-    // enforce seed membership for static-only providers. A truly invalid model is
+    // enforce seed membership for static-only providers. Agent-harness
+    // providers ride a local CLI whose model vocabulary (aliases like
+    // 'opus[1m]', full model ids, custom ids) is far wider than the manifest
+    // seed, so the CLI is the validator there too. A truly invalid model is
     // surfaced by the provider as a `turn_failed` model error at call time.
-    const supportsDynamicModels = Boolean(registryProvider?.manifest.openaiCompatible?.modelsPath)
+    const supportsDynamicModels =
+      Boolean(registryProvider?.manifest.openaiCompatible?.modelsPath)
+      || registryProvider?.manifest.providerType === 'agent-harness'
     if (!input.modelId.trim()) return { ok: false, message: 'Conversation model is invalid.' }
     if (!supportsDynamicModels) {
       const models = registryProvider?.manifest.models.map((model) => model.id) ?? adapter?.listModels() ?? []
@@ -343,12 +511,44 @@ export class ConversationRuntime {
     if (this.shouldSuppressEvent(session, event, options)) return null
     const stamped: ConversationEvent = {
       ...event,
-      id: `conv_evt_${++this.eventSequence}`,
+      id: `conv_evt_${this.eventEpoch}_${++this.eventSequence}`,
       createdAt: this.now(),
     }
+    this.trackStatefulSessionEvent(session, stamped)
     await this.persistEvent(session, stamped)
     for (const listener of this.listeners) listener(stamped)
     return stamped
+  }
+
+  // Stateful adapters surface approvals mid-stream (the provider turn blocks
+  // inside a permission callback while its event stream stays open), so the
+  // pending-request cursor has to follow the events rather than the
+  // end-of-stream summary that stateless turns use.
+  private trackStatefulSessionEvent(session: RuntimeSession, event: ConversationEvent): void {
+    if (!session.stateful) return
+    if (event.type === 'approval_requested') {
+      const requestId = typeof event.payload?.requestId === 'string' ? event.payload.requestId : null
+      if (requestId) {
+        session.pendingApprovalRequestIds.add(requestId)
+        session.pendingRequestId = requestId
+        session.status = 'awaiting_approval'
+        session.updatedAt = this.now()
+      }
+    } else if (event.type === 'approval_resolved') {
+      const requestId = typeof event.payload?.requestId === 'string' ? event.payload.requestId : null
+      if (requestId) session.pendingApprovalRequestIds.delete(requestId)
+      const remaining = Array.from(session.pendingApprovalRequestIds)
+      if (remaining.length > 0) {
+        session.pendingRequestId = remaining[remaining.length - 1]
+        session.status = 'awaiting_approval'
+      } else {
+        session.pendingRequestId = session.turnLockRequestId
+        if (session.status === 'awaiting_approval') session.status = 'active'
+      }
+      session.updatedAt = this.now()
+    } else if (event.type === 'turn_failed' || event.type === 'turn_completed') {
+      session.pendingApprovalRequestIds.clear()
+    }
   }
 
   private shouldSuppressEvent(
@@ -385,20 +585,32 @@ export class ConversationRuntime {
   }
 
   private applyTurnState(session: RuntimeSession, events: ConversationEvent[], requestId: string): void {
-    if (events.some((event) => event.type === 'approval_requested')) {
-      session.pendingRequestId = requestId
+    // A terminal event always wins: a dead turn cannot keep an approval
+    // pending (e.g. the provider child crashed while a card was up — leaving
+    // the session in awaiting_approval would wedge it forever, since the
+    // adapter-side permission no longer exists to resolve).
+    const failed = events.some((event) => event.type === 'turn_failed')
+    const completed = events.some((event) => event.type === 'turn_completed')
+    if (failed || completed) {
+      session.pendingRequestId = null
+      session.pendingApprovalRequestIds.clear()
+      session.status = failed ? 'failed' : 'ready'
+      session.activeTurnId = null
+      session.turnLockRequestId = null
+      session.updatedAt = this.now()
+      return
+    }
+    // An approval is pending at end-of-stream only when a request was never
+    // resolved. Stateless turns end their stream at the request; stateful
+    // turns resolve requests mid-stream and keep going.
+    const requested = events.filter((event) => event.type === 'approval_requested').length
+    const resolved = events.filter((event) => event.type === 'approval_resolved').length
+    if (requested > resolved) {
+      session.pendingRequestId = session.stateful ? session.pendingRequestId : requestId
       session.status = 'awaiting_approval'
     } else {
       session.pendingRequestId = null
-      if (events.some((event) => event.type === 'turn_failed')) {
-        session.status = 'failed'
-        session.activeTurnId = null
-      } else if (events.some((event) => event.type === 'turn_completed')) {
-        session.status = 'ready'
-        session.activeTurnId = null
-      } else {
-        session.status = 'active'
-      }
+      session.status = 'active'
     }
     session.updatedAt = this.now()
   }
@@ -413,6 +625,61 @@ export class ConversationRuntime {
     )
   }
 
+  private transcriptPath(workspaceRoot: string, workspaceId: string, agentId: string): string {
+    return join(
+      workspaceRoot,
+      '.multi-code',
+      'conversations',
+      safeSegment(workspaceId),
+      `${safeSegment(agentId)}.jsonl`
+    )
+  }
+
+  // Replay the persisted transcript for one agent, bounded to the most recent
+  // events so a long-lived chat cannot flood the renderer.
+  async readTranscript(input: ConversationTranscriptInput): Promise<ConversationTranscriptResult> {
+    if (!input.workspaceRoot?.trim() || !input.workspaceId?.trim() || !input.agentId?.trim()) {
+      return { ok: false, message: 'Conversation transcript request is invalid.' }
+    }
+    let raw: string
+    try {
+      raw = await this.readFile(this.transcriptPath(input.workspaceRoot, input.workspaceId, input.agentId), 'utf-8') as string
+    } catch {
+      return { ok: true, events: [] }
+    }
+    const events: ConversationEvent[] = []
+    for (const line of raw.split('\n')) {
+      const trimmed = line.trim()
+      if (!trimmed) continue
+      try {
+        const parsed = JSON.parse(trimmed) as ConversationEvent
+        if (parsed && typeof parsed.type === 'string') events.push(parsed)
+      } catch {
+        // Skip torn/corrupt lines (e.g. a crash mid-append).
+      }
+    }
+    const bounded = events.slice(-MAX_TRANSCRIPT_REPLAY_EVENTS)
+    return { ok: true, events: [...bounded, ...syntheticTurnClosures(bounded)] }
+  }
+
+  // The latest provider-session cursor recorded in the transcript; stateful
+  // providers use it to natively resume after a restart.
+  private async readResumeCursor(
+    workspaceRoot: string,
+    workspaceId: string,
+    agentId: string
+  ): Promise<string | undefined> {
+    const transcript = await this.readTranscript({ workspaceRoot, workspaceId, agentId })
+    if (!transcript.ok) return undefined
+    for (let index = transcript.events.length - 1; index >= 0; index -= 1) {
+      const event = transcript.events[index]
+      if (event.type !== 'session_updated' && event.type !== 'session_started') continue
+      const cursor = event.payload?.providerSessionId
+      if (typeof cursor === 'string' && cursor.trim()) return cursor.trim()
+    }
+    return undefined
+  }
+
   private toSummary(session: RuntimeSession): ConversationSessionSummary {
     const { sessionId, workspaceId, agentId, providerId, modelId, status, createdAt, updatedAt } = session
     return { sessionId, workspaceId, agentId, providerId, modelId, status, createdAt, updatedAt }
@@ -421,6 +688,35 @@ export class ConversationRuntime {
 
 function safeSegment(value: string): string {
   return encodeURIComponent(value.trim().replace(/[\\/]/g, '-'))
+}
+
+// A transcript can end mid-turn (the app died while streaming). Replaying it
+// verbatim would leave the projection permanently "streaming" and block the
+// composer, so unfinished turns are closed with synthetic interrupt events —
+// not persisted, only appended to the replay result.
+function syntheticTurnClosures(events: ConversationEvent[]): ConversationEvent[] {
+  const openTurns = new Map<string, ConversationEvent>()
+  for (const event of events) {
+    const turnId = typeof event.payload?.turnId === 'string' ? event.payload.turnId : null
+    if (!turnId) continue
+    if (event.type === 'turn_started' || event.type === 'user_message') {
+      if (!openTurns.has(turnId)) openTurns.set(turnId, event)
+    } else if (event.type === 'turn_completed' || event.type === 'turn_failed') {
+      openTurns.delete(turnId)
+    }
+  }
+  let sequence = 0
+  return Array.from(openTurns.entries()).map(([turnId, source]) => ({
+    id: `conv_evt_replay_close_${++sequence}`,
+    sessionId: source.sessionId,
+    workspaceId: source.workspaceId,
+    agentId: source.agentId,
+    providerId: source.providerId,
+    modelId: source.modelId,
+    type: 'turn_failed',
+    createdAt: source.createdAt,
+    payload: { turnId, reason: 'interrupted', message: 'The app closed while this turn was streaming.' },
+  }))
 }
 
 function isAsyncIterable(value: ConversationEvent[] | AsyncIterable<ConversationEvent>): value is AsyncIterable<ConversationEvent> {

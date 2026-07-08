@@ -1,21 +1,22 @@
 // The installed-extensions inventory, relocated from the (removed) Settings →
-// Extensions tab into the Connectors surface (T3). It is the aggregated,
-// read-only roll-up of everything installed across the four extension primitives
-// — MCP servers, skill packs, agent CLIs, and capability modules — so the
-// Connectors "Installed" view has one honest "what do I have" surface. Browsing
-// and installing happen on the Connectors Browse grid; this view never mutates,
-// so the two can never disagree. The list-building lives in the DOM-free
-// `extensionsInstalled` view-model for unit coverage; this component owns only
-// the IPC loading and rendering.
+// Extensions tab into the Connectors surface (T3). It is the aggregated roll-up
+// of everything installed across the four extension primitives — MCP servers,
+// skill packs, agent CLIs, and capability modules — so the Connectors
+// "Installed" view has one honest "what do I have" surface. Rows render the same
+// ConnectorRow as Browse so the whole surface reads as one system. The
+// list-building lives in the DOM-free `extensionsInstalled` view-model for unit
+// coverage; this component owns the IPC loading and rendering, and its per-row
+// actions (launch / automation / remove) only delegate to handlers the host
+// already owns — a primitive with no handler simply shows no action.
 
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useState, type ReactNode } from 'react'
 
 import type { ModuleEnablementOverrides, ThirdPartyModuleListResult } from '../../../../../shared/modules/manifest'
-import type { SkillPackEntry } from '../../../../../shared/electron-api'
+import type { McpCatalogServer, SkillPackEntry } from '../../../../../shared/electron-api'
 import type { PluginRegistryListEntry } from '../../../../../shared/plugin-manifest'
 import type { McpServerConfig } from '../../../types/workspace'
-import { InlineNotice, Spinner, StatusDot } from '../../ui'
-import { SettingsRow } from '../../settings/SettingsAtoms'
+import { GhostButton, InlineNotice, PrimaryButton, Spinner, StatusDot } from '../../ui'
+import { McpBrandIcon, mcpIconSlug } from '../../settings/McpCatalog'
 import { TRUST_PRESENTATION } from '../../settings/ThirdPartyModuleList'
 import {
   deriveInstalledExtensions,
@@ -24,18 +25,33 @@ import {
   type LoadedSource,
   type SourceNotice,
 } from '../../settings/extensionsInstalled'
+import { ConnectorRow, ConnectorSectionHeading } from './ConnectorRow'
+
+// Per-row actions, all optional: the host wires only the handlers that exist
+// today (no new IPC), and rows without a matching handler carry no affordance.
+type InventoryActions = {
+  // Catalog entries enrich MCP rows: real icon, and skill-linked entries get the
+  // launch affordances.
+  catalogServers?: McpCatalogServer[]
+  onLaunchConnector?: (serverId: string) => void
+  onUseInAutomation?: (serverId: string) => void
+  onRemoveMcpServer?: (serverId: string) => void
+  // Keyed by the pack slug (the inventory row id for skill packs).
+  onRemoveSkillPack?: (slug: string) => void
+}
 
 export function InstalledExtensionsInventory({
   mcpServers,
   moduleOverrides,
   workspaceRoot,
+  ...actions
 }: {
   // MCP servers reflect the store live, so the inventory's MCP group updates
   // without a re-list when a server is added or removed elsewhere on the surface.
   mcpServers: McpServerConfig[]
   moduleOverrides: ModuleEnablementOverrides
   workspaceRoot: string | null
-}) {
+} & InventoryActions) {
   const [modules, setModules] = useState<LoadedSource<ThirdPartyModuleListResult>>({ status: 'loading' })
   const [skillPacks, setSkillPacks] = useState<LoadedSource<SkillPackEntry[]>>({ status: 'loading' })
   const [clis, setClis] = useState<LoadedSource<PluginRegistryListEntry[]>>({ status: 'loading' })
@@ -104,7 +120,7 @@ export function InstalledExtensionsInventory({
     clis,
   })
 
-  return <InstalledView view={view} />
+  return <InstalledView view={view} actions={actions} />
 }
 
 function NoticeList({ notices }: { notices: SourceNotice[] }) {
@@ -119,7 +135,7 @@ function NoticeList({ notices }: { notices: SourceNotice[] }) {
   )
 }
 
-function InstalledView({ view }: { view: ExtensionsInstalledView }) {
+function InstalledView({ view, actions }: { view: ExtensionsInstalledView; actions: InventoryActions }) {
   if (view.status === 'loading') {
     return (
       <div className="flex items-center gap-2 py-6 text-[12px] text-[color:var(--text-muted)]">
@@ -146,7 +162,7 @@ function InstalledView({ view }: { view: ExtensionsInstalledView }) {
   if (view.status === 'empty') {
     return (
       <div className="border-l-2 border-[color:var(--border-strong)] pl-3 text-[12px] leading-5 text-[color:var(--text-muted)]">
-        Nothing installed yet. Get MCP servers, skill packs, agent CLIs, or modules from the Browse grid and they appear
+        Nothing installed yet. Get MCP servers, skill packs, agent CLIs, or modules from the Browse view and they appear
         here.
       </div>
     )
@@ -158,16 +174,10 @@ function InstalledView({ view }: { view: ExtensionsInstalledView }) {
       <div className="space-y-5">
         {view.groups.map((group) => (
           <section key={group.kind} className="space-y-2">
-            <div className="flex items-center gap-3">
-              <span className="text-[12px] font-medium text-[color:var(--text-muted)]">{group.label}</span>
-              <span className="h-px flex-1 bg-[color:var(--border-subtle)]" />
-              <span className="tabular-nums font-mono text-[10px] text-[color:var(--text-subtle)]">
-                {group.items.length}
-              </span>
-            </div>
-            <div className="divide-y divide-[color:var(--border-subtle)] border-y border-[color:var(--border-subtle)]">
+            <ConnectorSectionHeading label={group.label} count={group.items.length} />
+            <div className="divide-y divide-[color:var(--border-subtle)] overflow-hidden rounded-md border border-[color:var(--border-subtle)] bg-[color:var(--bg-surface)]">
               {group.items.map((item) => (
-                <InstalledRow key={item.key} item={item} />
+                <InstalledRow key={item.key} item={item} actions={actions} />
               ))}
             </div>
           </section>
@@ -177,53 +187,110 @@ function InstalledView({ view }: { view: ExtensionsInstalledView }) {
   )
 }
 
-// One inventory row, composed from the canonical `SettingsRow` (label + help on
-// the left, a compact status on the right) so the inventory shares the one
-// settings-row grammar rather than forking a second. The right-side control slot
-// carries the row's decision-relevant status — trust for capability modules,
-// active/inactive for MCP servers — as a StatusDot always paired with its text
-// label, so status is never colour-only. Skill packs and CLIs have no such axis
-// (presence is the only state), so they carry no dot. Module enablement is
-// secondary and rides the help meta line as plain text, never a second dot.
-function InstalledRow({ item }: { item: InstalledExtension }) {
-  const meta = [item.source, item.detail, moduleEnabledMeta(item)].filter(Boolean).join(' · ')
+// One inventory row on the shared ConnectorRow: icon chip · name · human summary
+// · neutral metadata chips · plain-language status · actions revealed on
+// hover/focus. Actions exist only where a real handler does: launch/automation
+// for skill-linked catalog MCP entries, remove for MCP servers and skill packs.
+function InstalledRow({ item, actions }: { item: InstalledExtension; actions: InventoryActions }) {
+  const catalogEntry =
+    item.kind === 'mcp' ? actions.catalogServers?.find((server) => server.id === item.id) : undefined
+  const launchable = Boolean(catalogEntry?.skill) && item.enabled === true
+
+  const rowActions: ReactNode[] = []
+  if (item.kind === 'mcp') {
+    if (launchable && actions.onUseInAutomation) {
+      rowActions.push(
+        <GhostButton key="automation" size="sm" onClick={() => actions.onUseInAutomation!(item.id)}>
+          Use in automation
+        </GhostButton>,
+      )
+    }
+    if (launchable && actions.onLaunchConnector) {
+      rowActions.push(
+        <PrimaryButton key="launch" size="sm" onClick={() => actions.onLaunchConnector!(item.id)}>
+          New chat
+        </PrimaryButton>,
+      )
+    }
+    if (actions.onRemoveMcpServer) {
+      rowActions.push(
+        <GhostButton
+          key="remove"
+          size="sm"
+          onClick={() => actions.onRemoveMcpServer!(item.id)}
+          className="border border-[color:var(--border-default)]"
+          aria-label={`Remove ${item.name}`}
+        >
+          Remove
+        </GhostButton>,
+      )
+    }
+  } else if (item.kind === 'skill-pack' && actions.onRemoveSkillPack) {
+    rowActions.push(
+      <GhostButton
+        key="remove"
+        size="sm"
+        onClick={() => actions.onRemoveSkillPack!(item.id)}
+        className="border border-[color:var(--border-default)]"
+        aria-label={`Remove ${item.name}`}
+      >
+        Remove
+      </GhostButton>,
+    )
+  }
+
   return (
-    <SettingsRow
-      label={item.name}
-      help={<span className="font-mono text-[11px] text-[color:var(--text-subtle)]">{meta}</span>}
-    >
-      <RowStatus item={item} />
-    </SettingsRow>
+    <ConnectorRow
+      variant="compact"
+      icon={
+        <McpBrandIcon
+          slug={item.kind === 'mcp' && item.source === 'Bundled' ? mcpIconSlug(item.id) : null}
+          name={item.name}
+          icon={catalogEntry?.icon}
+          size={24}
+        />
+      }
+      name={item.name}
+      summary={item.summary}
+      chips={item.chips}
+      status={
+        item.kind === 'mcp' || (item.kind === 'module' && item.trust) ? <RowStatus item={item} /> : undefined
+      }
+      actions={
+        rowActions.length > 0 ? (
+          <span className="flex items-center gap-2 opacity-0 transition-opacity focus-within:opacity-100 group-hover:opacity-100">
+            {rowActions}
+          </span>
+        ) : undefined
+      }
+    />
   )
 }
 
+// The row's decision-relevant status — trust for capability modules,
+// active/inactive for MCP servers — as a StatusDot always paired with its text
+// label, so status is never colour-only. Skill packs and CLIs have no such axis
+// (presence is the only state), so they carry no dot.
 function RowStatus({ item }: { item: InstalledExtension }) {
   if (item.kind === 'module' && item.trust) {
     const trust = TRUST_PRESENTATION[item.trust]
     return (
-      <span className="inline-flex items-center gap-1.5 text-[12px] text-[color:var(--text-muted)]">
+      <>
         {/* Decorative: the adjacent label already names the trust state. */}
         <StatusDot tone={trust.tone} />
         {trust.label}
-      </span>
+      </>
     )
   }
   if (item.kind === 'mcp') {
     return (
-      <span className="inline-flex items-center gap-1.5 text-[12px] text-[color:var(--text-muted)]">
+      <>
         <StatusDot tone={item.enabled ? 'good' : 'neutral'} />
-        {item.enabled ? 'Active' : 'Inactive'}
-      </span>
+        {item.enabled ? 'Active' : 'Not active'}
+      </>
     )
   }
   return null
-}
-
-// Module enablement as a plain meta word (only meaningful once trusted — a
-// trust-blocked module never loads regardless of intent).
-function moduleEnabledMeta(item: InstalledExtension): string | undefined {
-  if (item.kind !== 'module' || item.trust !== 'trusted') return undefined
-  return item.enabled ? 'Enabled' : 'Disabled'
 }
 
 function errorMessage(error: unknown, fallback: string): string {

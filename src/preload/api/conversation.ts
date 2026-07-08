@@ -25,10 +25,13 @@ import type {
   ConversationStartSessionInput,
   ConversationStartSessionResult,
   ConversationStopSessionInput,
+  ConversationProvidersListInput,
+  ConversationTranscriptInput,
+  ConversationTranscriptResult,
 } from '../../shared/conversation-runtime'
 
 type ConversationIpcRenderer = {
-  invoke(channel: 'conversation:providers:list'): Promise<ConversationProviderListResult>
+  invoke(channel: 'conversation:providers:list', input?: ConversationProvidersListInput): Promise<ConversationProviderListResult>
   invoke(channel: 'conversation:providers:models', input: ConversationProviderModelsInput): Promise<ConversationProviderModelsResult>
   invoke(channel: 'conversation:providers:test', input: ConversationProviderTestInput): Promise<ConversationProviderTestResult>
   invoke(channel: 'conversation:secrets:status', input: ConversationSecretStatusInput): Promise<ConversationSecretStatusResult>
@@ -43,6 +46,7 @@ type ConversationIpcRenderer = {
   ): Promise<ConversationSessionActionResult>
   invoke(channel: 'conversation:sessions:stop', input: ConversationStopSessionInput): Promise<ConversationSessionActionResult>
   invoke(channel: 'conversation:sessions:list', input?: ConversationListSessionsInput): Promise<ConversationListSessionsResult>
+  invoke(channel: 'conversation:transcript', input: ConversationTranscriptInput): Promise<ConversationTranscriptResult>
   invoke(channel: 'conversation:events:subscribe'): Promise<{ ok: true; subscriptionId: string }>
   invoke(channel: 'conversation:events:unsubscribe', input: { subscriptionId: string }): Promise<{ ok: true } | { ok: false; message: string }>
   on(channel: 'conversation:event', listener: (event: IpcRendererEvent, payload: ConversationEvent) => void): void
@@ -54,8 +58,8 @@ type ConversationIpcRenderer = {
 
 export function createConversationApi(renderer: ConversationIpcRenderer) {
   return {
-    conversationProvidersList: (): Promise<ConversationProviderListResult> =>
-      renderer.invoke('conversation:providers:list'),
+    conversationProvidersList: (input?: ConversationProvidersListInput): Promise<ConversationProviderListResult> =>
+      renderer.invoke('conversation:providers:list', input),
     conversationProviderModels: (input: ConversationProviderModelsInput): Promise<ConversationProviderModelsResult> =>
       renderer.invoke('conversation:providers:models', input),
     conversationProviderTest: (input: ConversationProviderTestInput): Promise<ConversationProviderTestResult> =>
@@ -80,6 +84,8 @@ export function createConversationApi(renderer: ConversationIpcRenderer) {
       renderer.invoke('conversation:sessions:stop', input),
     conversationSessionsList: (input?: ConversationListSessionsInput): Promise<ConversationListSessionsResult> =>
       renderer.invoke('conversation:sessions:list', input),
+    conversationTranscript: (input: ConversationTranscriptInput): Promise<ConversationTranscriptResult> =>
+      renderer.invoke('conversation:transcript', input),
     onConversationEvent: (cb: (event: ConversationEvent) => void): (() => void) => {
       const listener = (_event: IpcRendererEvent, payload: ConversationEvent) => cb(payload)
       renderer.on('conversation:event', listener)
@@ -105,6 +111,7 @@ export function createConversationApi(renderer: ConversationIpcRenderer) {
     | 'conversationSessionRespondToRequest'
     | 'conversationSessionStop'
     | 'conversationSessionsList'
+    | 'conversationTranscript'
     | 'onConversationEvent'
   >
 }

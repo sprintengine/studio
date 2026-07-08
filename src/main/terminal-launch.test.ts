@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 
-import { mergeProviderLaunchEnv } from './terminal-launch'
+import { applyAgentIdentityEnv, mergeProviderLaunchEnv } from './terminal-launch'
 
 async function main(): Promise<void> {
   testNoOpWithoutProviderEnv()
@@ -9,6 +9,8 @@ async function main(): Promise<void> {
   testStripsApiKeyWhenTokenSet()
   testKeepsApiKeyWhenNoAnthropicRedirect()
   testNeverOverridesProtectedKeys()
+  testStripsInheritedAgentStateSocket()
+  testSocketNeverClobberedByProviderEnv()
   console.log('terminal-launch tests passed')
 }
 
@@ -71,6 +73,40 @@ function testNeverOverridesProtectedKeys(): void {
   assert.equal(out.TERM, 'xterm-256color', 'TERM is protected')
   assert.equal(out.MULTICODE_AGENT_ID, 'agent-1', 'agent identity is protected')
   assert.equal(out.ANTHROPIC_BASE_URL, 'https://api.z.ai/api/anthropic', 'non-protected keys still apply')
+}
+
+// A stale MULTICODE_AGENT_STATE_SOCKET inherited by the app's own process (the
+// app launched from inside an agent shell) must never leak into a launched
+// session: an identity-less launch carries none, and an agent launch replaces
+// it with this instance's own address (unresolvable outside Electron, where it
+// is simply omitted — never the inherited value).
+function testStripsInheritedAgentStateSocket(): void {
+  const base = {
+    PATH: '/bin',
+    MULTICODE_AGENT_STATE_SOCKET: '/tmp/other-instance.sock',
+    MULTICODE_AGENT_ID: 'stale-agent',
+  }
+  const plain = applyAgentIdentityEnv(base, {})
+  assert.equal('MULTICODE_AGENT_STATE_SOCKET' in plain, false, 'identity-less launch drops inherited socket')
+  assert.equal('MULTICODE_AGENT_ID' in plain, false, 'identity-less launch drops inherited agent id')
+
+  const agent = applyAgentIdentityEnv(base, { workspaceId: 'ws-1', agentId: 'agent-1' })
+  assert.equal(agent.MULTICODE_AGENT_ID, 'agent-1')
+  assert.notEqual(
+    agent.MULTICODE_AGENT_STATE_SOCKET,
+    '/tmp/other-instance.sock',
+    'inherited socket address must never survive onto an agent launch'
+  )
+}
+
+// The socket address is app-owned launch identity: a CLI manifest's launch.env
+// must not be able to redirect agent-state reporting to another socket.
+function testSocketNeverClobberedByProviderEnv(): void {
+  const out = mergeProviderLaunchEnv(
+    { MULTICODE_AGENT_STATE_SOCKET: '/tmp/ours.sock', PATH: '/bin' },
+    { MULTICODE_AGENT_STATE_SOCKET: '/tmp/theirs.sock' }
+  )
+  assert.equal(out.MULTICODE_AGENT_STATE_SOCKET, '/tmp/ours.sock', 'socket address is protected')
 }
 
 main().catch((err) => {

@@ -7,6 +7,7 @@ import {
   type GuidedBriefSessionLifecycle,
   type GuidedBriefSpecialistSession,
 } from './sessionAdapter'
+import { startGuidedBriefConversationSession } from './conversationSessionAdapter'
 import {
   EMPTY_GUIDED_INTERVIEW_STATE,
   type GuidedInterviewState,
@@ -86,6 +87,10 @@ export type UseDesignerSessionInput = {
   // process reattaches to the existing session and replays its buffer.
   sessionId: string | null
   onAssignSessionId: (sessionId: string) => void
+  // 'conversation' runs the specialist as a Claude conversation session
+  // (structured question cards, no PTY); requires workspaceId.
+  transport?: 'terminal' | 'conversation'
+  workspaceId?: string
 }
 
 export type UseDesignerSessionResult = {
@@ -101,6 +106,8 @@ export type UseDesignerSessionResult = {
   designArtifactsStatus: DesignArtifactsStatus
   /** Structured interview parsed from the session stream (replay included). */
   interview: GuidedInterviewState
+  /** Conversation transport only: recent streamed assistant text for the chat pane. */
+  transcriptTail: string
 }
 
 const PRIMARY_MOCKUP_RELATIVE_PATH = 'mockups/app.html'
@@ -130,6 +137,8 @@ export function useDesignerSession({
   designSystemSeedSource = null,
   sessionId,
   onAssignSessionId,
+  transport = 'terminal',
+  workspaceId,
 }: UseDesignerSessionInput): UseDesignerSessionResult {
   const [status, setStatus] = useState<DesignerSessionStatus>('idle')
   const [error, setError] = useState<string | null>(null)
@@ -143,6 +152,7 @@ export function useDesignerSession({
   const [uiDirectionReady, setUiDirectionReady] = useState(false)
   const [session, setSession] = useState<GuidedBriefSpecialistSession | null>(null)
   const [interview, setInterview] = useState<GuidedInterviewState>(EMPTY_GUIDED_INTERVIEW_STATE)
+  const [transcriptTail, setTranscriptTail] = useState('')
 
   const uiDirectionAbsolutePath = joinWorkspacePath(workspaceRoot, UI_DIRECTION_RELATIVE_PATH)
   const mockupsDirectoryPath = joinWorkspacePath(workspaceRoot, MOCKUPS_DIRECTORY_NAME)
@@ -180,9 +190,9 @@ export function useDesignerSession({
         .pathExists(joinWorkspacePath(workspaceRoot, DESIGN_SYSTEM_BUNDLE_DIRECTORY_NAME))
         .catch(() => false)
     }
-    void resolveDesignSystemAttached().then((designSystemAttached) => startGuidedBriefSpecialistSession(
-      {
-        kind: 'designer',
+    void resolveDesignSystemAttached().then((designSystemAttached) => {
+      const sessionInput = {
+        kind: 'designer' as const,
         workspaceRoot,
         acceptedBriefSnapshotPath,
         acceptedArchitecturePlanPath,
@@ -202,16 +212,8 @@ export function useDesignerSession({
               },
             }
           : {}),
-      },
-      {
-        terminalApi: {
-          terminalSpawn: window.api.terminalSpawn,
-          terminalKill: window.api.terminalKill,
-          onTerminalReplay: window.api.onTerminalReplay,
-          onTerminalData: window.api.onTerminalData,
-          onTerminalExit: window.api.onTerminalExit,
-          onTerminalError: window.api.onTerminalError,
-        },
+      }
+      const sessionCallbacks = {
         cliRuntimes,
         onLifecycle: (next: GuidedBriefSessionLifecycle) => {
           if (cancelled) return
@@ -223,17 +225,38 @@ export function useDesignerSession({
           if (cancelled) return
           setMarkerReceived(true)
         },
-        onInterview: (state) => {
+        onInterview: (state: GuidedInterviewState) => {
           if (cancelled) return
           setInterview(state)
         },
-        onError: (message) => {
+        onOutput: (chunk: { chunk: string }) => {
+          if (cancelled || transport !== 'conversation') return
+          setTranscriptTail((current) => `${current}${chunk.chunk}`.slice(-8000))
+        },
+        onError: (message: string) => {
           if (cancelled) return
           setError(message)
           setStatus('error')
         },
-      },
-    ).then((result) => {
+      }
+      const startPromise =
+        transport === 'conversation' && workspaceId
+          ? startGuidedBriefConversationSession(
+              { ...sessionInput, workspaceId },
+              { ...sessionCallbacks, conversationApi: window.api }
+            )
+          : startGuidedBriefSpecialistSession(sessionInput, {
+              ...sessionCallbacks,
+              terminalApi: {
+                terminalSpawn: window.api.terminalSpawn,
+                terminalKill: window.api.terminalKill,
+                onTerminalReplay: window.api.onTerminalReplay,
+                onTerminalData: window.api.onTerminalData,
+                onTerminalExit: window.api.onTerminalExit,
+                onTerminalError: window.api.onTerminalError,
+              },
+            })
+      return startPromise.then((result) => {
       if (cancelled) {
         // PTY survives across remounts — explicit teardown happens on stage
         // transitions and on user-confirmed close, not on cleanup.
@@ -249,7 +272,8 @@ export function useDesignerSession({
       // Defensive: same id we passed in. Call again to self-heal any closure
       // skew between mount and resolve.
       assignSessionIdRef.current(result.session.sessionId)
-    }))
+      })
+    })
 
     return () => {
       cancelled = true
@@ -433,5 +457,6 @@ export function useDesignerSession({
     designArtifacts,
     designArtifactsStatus,
     interview,
+    transcriptTail,
   }
 }

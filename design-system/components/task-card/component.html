@@ -1,0 +1,82 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Task card</title>
+<link rel="stylesheet" href="../../foundations/tokens.css" />
+<link rel="stylesheet" href="component.css" />
+<style>
+  body {
+    margin: 0;
+    font-family: var(--sem-font-family-ui);
+  }
+  .demo-stage {
+    padding: 24px;
+    background: var(--sem-color-bg-app);
+    color: var(--sem-color-text-default);
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    max-width: 380px;
+  }
+  .demo-label {
+    margin: 0 0 4px;
+    font-size: var(--sem-font-size-meta);
+    color: var(--sem-color-text-subtle);
+  }
+</style>
+</head>
+<body>
+<div class="demo-stage" data-mode="light">
+  <p class="demo-label">Light</p>
+  <button type="button" class="ds-task-card">
+    <span class="ds-task-card-dot" aria-hidden="true"></span>
+    <span class="ds-task-card-id">MC-1487</span>
+    <span class="ds-task-card-title">Module SDK epic</span>
+    <span class="ds-task-card-trailing">2d</span>
+  </button>
+  <button type="button" class="ds-task-card ds-task-card--selected" aria-pressed="true">
+    <span class="ds-task-card-dot ds-task-card-dot--good" aria-hidden="true"></span>
+    <span class="ds-task-card-id">MC-1450</span>
+    <span class="ds-task-card-title">Roster model honored across projections</span>
+  </button>
+  <button type="button" class="ds-task-card">
+    <span class="ds-task-card-dot ds-task-card-dot--warn" aria-hidden="true"></span>
+    <span class="ds-task-card-id">MC-1465</span>
+    <span class="ds-task-card-title">Resume predicates need input on manifest capabilities and a longer title to show truncation</span>
+  </button>
+  <button type="button" class="ds-task-card">
+    <span class="ds-task-card-dot ds-task-card-dot--danger" aria-hidden="true"></span>
+    <span class="ds-task-card-id">MC-1416</span>
+    <span class="ds-task-card-title">Worktree diff resolution failed</span>
+    <span class="ds-task-card-trailing">1h</span>
+  </button>
+</div>
+<div class="demo-stage" data-mode="dark">
+  <p class="demo-label">Dark</p>
+  <button type="button" class="ds-task-card">
+    <span class="ds-task-card-dot" aria-hidden="true"></span>
+    <span class="ds-task-card-id">MC-1487</span>
+    <span class="ds-task-card-title">Module SDK epic</span>
+    <span class="ds-task-card-trailing">2d</span>
+  </button>
+  <button type="button" class="ds-task-card ds-task-card--selected" aria-pressed="true">
+    <span class="ds-task-card-dot ds-task-card-dot--good" aria-hidden="true"></span>
+    <span class="ds-task-card-id">MC-1450</span>
+    <span class="ds-task-card-title">Roster model honored across projections</span>
+  </button>
+  <button type="button" class="ds-task-card">
+    <span class="ds-task-card-dot ds-task-card-dot--warn" aria-hidden="true"></span>
+    <span class="ds-task-card-id">MC-1465</span>
+    <span class="ds-task-card-title">Resume predicates need input on manifest capabilities and a longer title to show truncation</span>
+  </button>
+  <button type="button" class="ds-task-card">
+    <span class="ds-task-card-dot ds-task-card-dot--danger" aria-hidden="true"></span>
+    <span class="ds-task-card-id">MC-1416</span>
+    <span class="ds-task-card-title">Worktree diff resolution failed</span>
+    <span class="ds-task-card-trailing">1h</span>
+  </button>
+</div>
+</body>
+</html>

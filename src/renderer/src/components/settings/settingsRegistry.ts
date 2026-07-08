@@ -219,6 +219,16 @@ export const settingsRegistry: ReadonlyArray<SettingDescriptor> = [
     storeSetter: 'setTerminalIdleSuspendMinutes',
   },
   {
+    id: 'guided-brief-conversation-sessions',
+    label: 'Design Wizard chat sessions',
+    help: 'Run Design Wizard specialists on Claude as chat sessions with clickable question cards. Turn off to use raw terminals for every wizard role.',
+    scope: 'app',
+    group: 'agents',
+    field: { type: 'switch' },
+    storePath: 'appSettings.guidedBriefConversationSessions',
+    storeSetter: 'setGuidedBriefConversationSessions',
+  },
+  {
     id: 'last-selected-specialist',
     label: 'Default specialist action',
     help: 'Preselected specialist when running a one-off task from the palette.',

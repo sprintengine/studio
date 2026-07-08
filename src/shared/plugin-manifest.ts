@@ -384,4 +384,9 @@ export type ConversationProviderListEntry = {
   // of blocking on static membership.
   supportsDynamicModels: boolean
   adapter: ConversationProviderAdapterClassification
+  // Plain-language reason this provider cannot start sessions right now (e.g.
+  // its agent-harness CLI was not found). An unavailable provider is still
+  // listed — never silently hidden — but spawn defaults skip it and the model
+  // picker renders it disabled with this reason.
+  unavailable?: string
 }

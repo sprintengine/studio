@@ -1568,17 +1568,6 @@ function SprintEngineBoardPanelContent({
  getLiveAgentTerminalSession,
  })
 
- // "CLI · model" summary for roster rows; null when the agent has no CLI yet.
- const runtimeSummaryFor = (agentId: string): string | null => {
- const agent = agents[agentId]
- if (!agent?.cli) return null
- const option = cliOptions.find((candidate) => candidate.value === agent.cli)
- const cliLabel = option?.label ?? agent.cli
- if (!agent.cliModel) return cliLabel
- const modelLabel = option?.modelSelection?.options.find((entry) => entry.id === agent.cliModel)?.label ?? agent.cliModel
- return `${cliLabel} · ${modelLabel}`
- }
-
  // The CLI a member is configured to launch with: its own saved CLI, else the
  // role's default, else the last-used CLI. Drives the roster row's right-click
  // runtime picker, which shares the spawn dialog's CLI/model semantics.
@@ -1608,6 +1597,71 @@ function SprintEngineBoardPanelContent({
  }
  const selectAgentModel = (agentId: string, cli: AgentCli, model: string | null) => {
    updateAgent(workspaceId, agentId, { cli, cliModel: model ?? undefined, cliRuntimeOverride: { cli, model } })
+ }
+
+ // Role-level runtime, read from the run's canonical roleRuntimes projection.
+ // A role with no configured entry reads as its default CLI on that CLI's own
+ // default model (no --model flag), matching what a spawn would launch.
+ const roleRuntimeCli = (role: SprintEngineRoleId): AgentCli => {
+   const configured = sprintEngineState.roleRuntimes?.[role]?.cli
+   if (typeof configured === 'string' && configured.trim()) return configured.trim() as AgentCli
+   return addMemberRoleDefaultCli(role as SprintEngineRole)
+ }
+ const roleRuntimeModel = (role: SprintEngineRoleId, cli: AgentCli): string | undefined => {
+   if (cli !== roleRuntimeCli(role)) return undefined
+   const model = sprintEngineState.roleRuntimes?.[role]?.model
+   return typeof model === 'string' && model.trim() ? model.trim() : undefined
+ }
+
+ // Mid-run role runtime edit (MC-1516): one canonical mutation through the
+ // operator-actor engine verb (roster runtime --actor ui). Role edit wins —
+ // on success this role's per-agent overrides are cleared and the new runtime
+ // is stamped locally so rows update ahead of the projection tick; running
+ // sessions keep their launched runtime until they next start (rows surface
+ // the divergence and an idle restart offer). Legacy runs without a canonical
+ // state path keep the per-agent picker only.
+ const applyRoleRuntimeEdit = async (role: SprintEngineRoleId, cli: AgentCli, model: string | null) => {
+   if (!sprintEngineContext) return
+   const result = await window.api.setSprintEngineRoleRuntime({
+     statePath: sprintEngineContext.statePath,
+     role,
+     cli,
+     model,
+   })
+   if (!result.ok) {
+     void publishDiagnostic({
+       level: 'error',
+       source: 'terminal',
+       title: 'Role model was not changed',
+       message: result.message,
+       details: [
+         `Workspace ID: ${workspaceId}`,
+         `Role: ${role}`,
+         `Runtime: ${cli}${model ? ` · ${model}` : ''}`,
+       ].join('\n'),
+       workspaceId,
+       workspaceName: workspace?.name,
+     })
+     return
+   }
+   for (const item of roster) {
+     if (item.role !== role) continue
+     updateAgent(workspaceId, item.id, { cli, cliModel: model ?? undefined, cliRuntimeOverride: undefined })
+   }
+   if (workspace) {
+     void refreshSprintEngineWorkspaceProjection({
+       workspace,
+       tokens: new Map(),
+       cause: 'manual',
+       force: true,
+     })
+   }
+ }
+ const selectRoleCli = (role: SprintEngineRoleId, cli: AgentCli) => {
+   void applyRoleRuntimeEdit(role, cli, null)
+ }
+ const selectRoleModel = (role: SprintEngineRoleId, cli: AgentCli, model: string | null) => {
+   void applyRoleRuntimeEdit(role, cli, model)
  }
 
  // Kill = stop the app-owned terminal process and release Sprint Engine
@@ -2189,15 +2243,16 @@ function SprintEngineBoardPanelContent({
  roster={roster}
  agents={agents}
  runtimeAgents={runtimeAgents}
- selectedAgentId={selectedAgentId}
- onSelectAgent={(agentId) => setSelectedAgentId(agentId)}
  onAddRole={(role) => {
  void confirmAddMember(role)
  }}
  addMemberOptions={addMemberOptions}
  isAgentTerminalLive={isAgentTerminalLive}
- runtimeSummaryFor={runtimeSummaryFor}
  cliOptions={cliOptions}
+ roleRuntimeCli={roleRuntimeCli}
+ roleRuntimeModel={roleRuntimeModel}
+ onSelectRoleCli={selectRoleCli}
+ onSelectRoleModel={selectRoleModel}
  agentRuntimeCli={agentRuntimeCli}
  effectiveModelForAgent={effectiveModelForAgent}
  onSelectAgentCli={selectAgentCli}
@@ -2211,8 +2266,6 @@ function SprintEngineBoardPanelContent({
  onKillAgent={(agentId) => {
  void killAgentTerminal(agentId)
  }}
- inspectorContent={renderInspectorPanel()}
- inspectorExpanded={inspectorExpanded}
  />
  </div>
  ) : null}

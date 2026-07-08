@@ -1,0 +1,46 @@
+{
+  "schemaVersion": 1,
+  "name": "multicode",
+  "version": "0.1.0",
+  "summary": "I want you to generate a design system from the current application.",
+  "modes": [
+    "light",
+    "dark"
+  ],
+  "namingGrammar": {
+    "tokens": "<tier>.<group...>.<name> — tier is 'ref' or 'sem'; every segment is lowercase kebab-case; nesting follows DTCG groups; aliases reference the full dotted path as {tier.group.name}",
+    "cssVariables": "'--' plus the token path with '.' replaced by '-' (sem.color.bg.app -> --sem-color-bg-app); components consume only the --sem-* set",
+    "components": "kebab-case directory under components/, containing component.html, component.css, and component.md",
+    "glyphs": "kebab-case concept name, one concept per SVG; strokes and fills use currentColor"
+  },
+  "contents": {
+    "foundations": [
+      "foundations/tokens.tokens.json",
+      "foundations/principles.md"
+    ],
+    "components": [
+      "button",
+      "input",
+      "task-card"
+    ],
+    "patterns": [],
+    "glyphs": [
+      "glyphs/close.svg",
+      "glyphs/multicode-mark.svg",
+      "glyphs/search.svg",
+      "glyphs/spinner.svg"
+    ],
+    "assets": []
+  },
+  "derived": {
+    "foundations/tokens.css": "scripts/build-tokens.mjs",
+    "catalog/index.html": "scripts/build-catalog.mjs"
+  },
+  "provenance": {
+    "authoredBy": "multicode-design-wizard",
+    "sourceLibraryId": null,
+    "sourceLibraryVersion": null,
+    "releasedAt": null,
+    "attachedAt": null
+  }
+}

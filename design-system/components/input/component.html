@@ -1,0 +1,66 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Input</title>
+<link rel="stylesheet" href="../../foundations/tokens.css" />
+<link rel="stylesheet" href="component.css" />
+<style>
+  body {
+    margin: 0;
+    font-family: var(--sem-font-family-ui);
+  }
+  .demo-stage {
+    padding: 24px;
+    background: var(--sem-color-bg-app);
+    color: var(--sem-color-text-default);
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+    max-width: 340px;
+  }
+  .demo-label {
+    margin: 0;
+    font-size: var(--sem-font-size-meta);
+    color: var(--sem-color-text-subtle);
+  }
+</style>
+</head>
+<body>
+<div class="demo-stage" data-mode="light">
+  <p class="demo-label">Light</p>
+  <div class="ds-field">
+    <label class="ds-field-label" for="ws-name-light">Workspace name<span class="ds-field-required" aria-hidden="true">*</span></label>
+    <input class="ds-input" id="ws-name-light" type="text" placeholder="my-project" aria-required="true" aria-describedby="ws-name-light-help" />
+    <p class="ds-field-help" id="ws-name-light-help">Shown in the sidebar and the switcher.</p>
+  </div>
+  <div class="ds-field">
+    <label class="ds-field-label" for="ws-path-light">Folder path</label>
+    <input class="ds-input" id="ws-path-light" type="text" value="/tmp/nowhere" aria-invalid="true" aria-describedby="ws-path-light-error" />
+    <p class="ds-field-error" id="ws-path-light-error">That folder does not exist.</p>
+  </div>
+  <div class="ds-field">
+    <label class="ds-field-label" for="ws-locked-light">Locked field</label>
+    <input class="ds-input" id="ws-locked-light" type="text" value="read-only value" disabled />
+  </div>
+</div>
+<div class="demo-stage" data-mode="dark">
+  <p class="demo-label">Dark</p>
+  <div class="ds-field">
+    <label class="ds-field-label" for="ws-name-dark">Workspace name<span class="ds-field-required" aria-hidden="true">*</span></label>
+    <input class="ds-input" id="ws-name-dark" type="text" placeholder="my-project" aria-required="true" aria-describedby="ws-name-dark-help" />
+    <p class="ds-field-help" id="ws-name-dark-help">Shown in the sidebar and the switcher.</p>
+  </div>
+  <div class="ds-field">
+    <label class="ds-field-label" for="ws-path-dark">Folder path</label>
+    <input class="ds-input" id="ws-path-dark" type="text" value="/tmp/nowhere" aria-invalid="true" aria-describedby="ws-path-dark-error" />
+    <p class="ds-field-error" id="ws-path-dark-error">That folder does not exist.</p>
+  </div>
+  <div class="ds-field">
+    <label class="ds-field-label" for="ws-locked-dark">Locked field</label>
+    <input class="ds-input" id="ws-locked-dark" type="text" value="read-only value" disabled />
+  </div>
+</div>
+</body>
+</html>

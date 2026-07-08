@@ -42,12 +42,14 @@ assert.deepEqual(
     {
       providerId: 'openai-compatible',
       providerLabel: 'OpenAI Compatible API',
+      providerType: 'model-provider',
       modelId: 'gpt-4o-mini',
       modelLabel: 'GPT-4o mini',
     },
     {
       providerId: 'openai-compatible',
       providerLabel: 'OpenAI Compatible API',
+      providerType: 'model-provider',
       modelId: 'gpt-4o',
       modelLabel: 'GPT-4o',
     },
@@ -66,6 +68,7 @@ assert.deepEqual(
     {
       providerId: 'openai-compatible',
       providerLabel: 'OpenAI Compatible API',
+      providerType: 'model-provider',
       modelId: 'local-model',
       modelLabel: 'local-model',
     },
@@ -129,6 +132,7 @@ assert.deepEqual(
   {
     providerId: 'openai-compatible',
     providerLabel: 'OpenAI Compatible API',
+    providerType: 'model-provider',
     modelId: 'anthropic/claude-live-only',
     modelLabel: 'anthropic/claude-live-only',
   },
@@ -141,6 +145,100 @@ assert.equal(
   )?.modelId,
   'gpt-4o-mini',
   'without the dynamic flag, an unknown remembered model still falls back to the first option',
+)
+
+// Subscription first: with an agent-harness provider installed, a new spawn
+// defaults to it even when the last conversation used a metered API provider.
+const withHarness = buildConversationSpawnOptions({
+  ok: true,
+  providers: [
+    provider({
+      models: [
+        { id: 'gpt-4o-mini', displayName: 'GPT-4o mini' },
+        { id: 'gpt-4o', displayName: 'GPT-4o' },
+      ],
+    }),
+    provider({
+      id: 'claude-agent',
+      displayName: 'Claude Code',
+      providerType: 'agent-harness',
+      models: [
+        { id: 'sonnet', displayName: 'Sonnet' },
+        { id: 'opus', displayName: 'Opus' },
+      ],
+    }),
+  ],
+})
+assert.deepEqual(
+  resolveDefaultConversationOption(withHarness, { providerId: 'openai-compatible', modelId: 'gpt-4o' }),
+  {
+    providerId: 'claude-agent',
+    providerLabel: 'Claude Code',
+    providerType: 'agent-harness',
+    modelId: 'sonnet',
+    modelLabel: 'Sonnet',
+  },
+  'a metered remembered model never silently seeds a spawn while the subscription harness is installed',
+)
+assert.equal(
+  resolveDefaultConversationOption(withHarness, { providerId: 'claude-agent', modelId: 'opus' })?.modelId,
+  'opus',
+  'the remembered model is honored within the harness provider',
+)
+assert.equal(
+  resolveDefaultConversationOption(withHarness, null)?.providerId,
+  'claude-agent',
+  'no remembered pair defaults straight to the harness provider',
+)
+
+// An unavailable provider (e.g. harness CLI not found) keeps its rows, marked
+// with the reason — default resolution must be able to tell "no subscription
+// installed" apart from "subscription installed but currently undetectable".
+const withUnavailableHarness = buildConversationSpawnOptions({
+  ok: true,
+  providers: [
+    provider({ models: [{ id: 'gpt-4o-mini', displayName: 'GPT-4o mini' }] }),
+    provider({
+      id: 'claude-agent',
+      displayName: 'Claude Code',
+      providerType: 'agent-harness',
+      models: [{ id: 'sonnet', displayName: 'Sonnet' }],
+      unavailable: 'The Claude Code CLI wasn’t found from the app.',
+    }),
+  ],
+})
+assert.equal(
+  withUnavailableHarness.find((option) => option.providerId === 'claude-agent')?.unavailable,
+  'The Claude Code CLI wasn’t found from the app.',
+  'unavailable providers keep their rows, marked with the reason',
+)
+// Fail closed, never open: an installed-but-undetectable subscription harness
+// yields NO spawn default — a probe false-negative must not silently re-route
+// new conversations onto a metered API provider.
+assert.equal(
+  resolveDefaultConversationOption(withUnavailableHarness, null),
+  null,
+  'an unavailable harness suppresses the spawn default instead of falling through to metered',
+)
+assert.equal(
+  resolveDefaultConversationOption(withUnavailableHarness, { providerId: 'claude-agent', modelId: 'sonnet' }),
+  null,
+  'a remembered harness model on an unavailable harness also fails closed',
+)
+// With no harness installed at all, unavailable metered rows are skipped too.
+const onlyUnavailableMetered = buildConversationSpawnOptions({
+  ok: true,
+  providers: [
+    provider({
+      models: [{ id: 'gpt-4o', displayName: 'GPT-4o' }],
+      unavailable: 'unreachable',
+    }),
+  ],
+})
+assert.equal(
+  resolveDefaultConversationOption(onlyUnavailableMetered, null),
+  null,
+  'no available options yields null',
 )
 
 // The spawn patch opts the agent into the conversation runtime and clears every

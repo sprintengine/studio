@@ -13,9 +13,16 @@
 // output timing. The agent's identity comes from the MULTICODE_* env the app
 // injects at launch.
 //
-// Args:
-//   --socket <path>   Agent-state socket (unix domain socket / named pipe).
-//                     Falls back to MULTICODE_AGENT_STATE_SOCKET.
+// Socket address resolution — env FIRST, arg as fallback:
+//   MULTICODE_AGENT_STATE_SOCKET   Injected into the launch env by the app
+//                     instance that spawned this agent. Wins because it is
+//                     per-process and cannot be clobbered: the --socket arg
+//                     below lives in the repo's shared settings.local.json,
+//                     which is last-writer-wins across app instances, so it
+//                     may point at another (possibly dead) instance's socket.
+//   --socket <path>   Agent-state socket (unix domain socket / named pipe)
+//                     baked in at install time. Fallback for sessions launched
+//                     outside the app (no MULTICODE_* env).
 //
 // The script ALWAYS exits 0 and never blocks meaningfully: a reporter failure
 // must never break or stall the agent.
@@ -119,7 +126,7 @@ function writeFrame(socketPath, frame) {
 
 async function main() {
   const args = parseArgs(process.argv.slice(2))
-  const socketPath = args.socket || process.env.MULTICODE_AGENT_STATE_SOCKET
+  const socketPath = process.env.MULTICODE_AGENT_STATE_SOCKET || args.socket
   if (!socketPath) return
 
   const agentId = process.env.MULTICODE_AGENT_ID

@@ -11,9 +11,12 @@
 // unchanged.
 //
 // Agent identity comes from the MULTICODE_* env the app injects at launch. The
-// socket path is baked in at install time (the quoted token below is replaced
-// with the live path); the plugin also honours MULTICODE_AGENT_STATE_SOCKET as a
-// fallback.
+// socket address prefers MULTICODE_AGENT_STATE_SOCKET from that same env — it
+// is per-process, so the agent always reports to the instance that launched it.
+// The install-time baked path (the quoted token below, replaced with the live
+// path) is the fallback for sessions launched outside the app: the baked copy
+// lives in the shared workspace root and is last-writer-wins across app
+// instances, so it may point at another (possibly dead) instance's socket.
 //
 // This file is loaded by OpenCode's runtime, so it stays dependency-free and
 // NEVER throws into the host. It MUST mirror mapOpencodeEventToPhase and
@@ -31,8 +34,9 @@ const RAW_TOKEN = '__MULTICODE' + '_AGENT_STATE_SOCKET__'
 const CONNECT_TIMEOUT_MS = 1000
 
 function resolveSocketPath() {
+  if (process.env.MULTICODE_AGENT_STATE_SOCKET) return process.env.MULTICODE_AGENT_STATE_SOCKET
   if (BAKED_SOCKET && BAKED_SOCKET !== RAW_TOKEN) return BAKED_SOCKET
-  return process.env.MULTICODE_AGENT_STATE_SOCKET || null
+  return null
 }
 
 // Must mirror mapOpencodeEventToPhase in src/main/agent-state.ts.

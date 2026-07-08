@@ -50,6 +50,12 @@ export function classifyChildProcess(row: PsProcessRow): ChildProcessClassificat
   const command = commandBase(row)
   const args = row.args.toLowerCase()
   if (command === 'claude' || args.startsWith('claude ') || args.includes('/claude ')) {
+    // Headless conversation sessions run the same binary in stream-json mode
+    // (the Claude Agent SDK's wire format); label them distinctly so the
+    // process tree tells terminals and chat agents apart.
+    if (args.includes('stream-json')) {
+      return { kind: 'agent', name: 'Claude conversation' }
+    }
     return { kind: 'agent', name: 'Claude CLI' }
   }
   if (command === 'codex' || args.startsWith('codex ') || args.includes('/codex ')) {

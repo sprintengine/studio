@@ -9,6 +9,7 @@ import type {
   SprintEngineRegistryRolesReadInput,
   SprintEngineRosterAddInput,
   SprintEngineRosterReplenishInput,
+  SprintEngineRosterRuntimeInput,
   SprintEngineStateInitializeInput,
   SprintEngineRunnerSetInput,
   SprintEngineTaskCommentInput,
@@ -90,6 +91,10 @@ export const sprintEngineApi = {
     input: SprintEngineRosterAddInput
   ): Promise<SprintEngineArtifactCommandResult> =>
     ipcRenderer.invoke('sprintengine:roster:add', input),
+  setSprintEngineRoleRuntime: (
+    input: SprintEngineRosterRuntimeInput
+  ): Promise<SprintEngineArtifactCommandResult> =>
+    ipcRenderer.invoke('sprintengine:roster:runtime', input),
   readSprintEngineProjection: (
     statePath: string,
     knownToken?: string
@@ -137,6 +142,7 @@ export const sprintEngineApi = {
   | 'refreshSprintEnginePullRequestStatus'
   | 'replenishSprintEngineRoster'
   | 'addSprintEngineRosterMember'
+  | 'setSprintEngineRoleRuntime'
   | 'readSprintEngineProjection'
   | 'readSprintEngineRegistryRoles'
   | 'readSprintEngineRegistryRole'

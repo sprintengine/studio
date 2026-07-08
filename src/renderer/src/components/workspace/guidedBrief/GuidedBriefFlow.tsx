@@ -19,6 +19,7 @@ import { CloseIconButton, LifecycleGlyph, Tabs, Tooltip, TruncatedText, type Tab
 import { parentPath } from '../../../utils/paths'
 import { RosterAndRunSettings } from '../newWorkspace/WizardControls'
 import { ConversationPane } from './ConversationPane'
+import { useWorkspaceStore } from '../../../store/workspaceStore'
 import { HtmlArtifactFrame, MockupPreviewPane } from './MockupPreviewPane'
 import { DesignFilesPane } from './DesignFilesPane'
 import { DesignArtifactPreviewPane } from './DesignArtifactPreviewPane'
@@ -80,6 +81,10 @@ export type GuidedBriefRunOptions = {
 type Props = {
   runtimeState: GuidedBriefRuntimeState
   onChange: (next: GuidedBriefRuntimeState) => void
+  // Enables the conversation transport for Claude specialists (their sessions
+  // ride the shared ConversationRuntime, keyed by this workspace id). Absent →
+  // legacy terminal transport for every role.
+  workspaceId?: string
   onBackToIdea: () => void
   onClose?: () => void
   onStartBuild: (
@@ -98,6 +103,7 @@ type Props = {
 export function GuidedBriefFlow({
   runtimeState,
   onChange,
+  workspaceId,
   onBackToIdea,
   onClose,
   onStartBuild,
@@ -138,12 +144,24 @@ export function GuidedBriefFlow({
   const inArchitectStage = stage === 'architect-working' || stage === 'architect-ready'
   const inDesignerStage = stage === 'designer-working' || stage === 'designer-ready'
 
+  // Conversation transport: Claude specialists run as conversation sessions
+  // (structured question cards, streamed chat) unless the user turned the
+  // setting off; other CLIs keep the terminal path. The raw-terminal fallback
+  // stays one setting away until conversation runs have proven artifact parity.
+  const conversationSessionsEnabled = useWorkspaceStore(
+    (s) => s.appSettings.guidedBriefConversationSessions !== false,
+  )
+  const transportForCli = (cli: AgentCli): 'terminal' | 'conversation' =>
+    conversationSessionsEnabled && workspaceId && cli === 'claude-code' ? 'conversation' : 'terminal'
+
   const strategist = useStrategistSession({
     workspaceRoot,
     cli: runtimeState.guidedRoleCliDefaults.product,
     cliModel: runtimeState.guidedRoleModelOverrides?.product ?? undefined,
     cliRuntimes,
     enabled: inStrategistStage,
+    transport: transportForCli(runtimeState.guidedRoleCliDefaults.product),
+    workspaceId,
     sessionId: runtimeState.strategistSessionId,
     onAssignSessionId: (id) => {
       updateRuntimeState((prev) =>
@@ -160,6 +178,8 @@ export function GuidedBriefFlow({
     cliModel: runtimeState.guidedRoleModelOverrides?.architect ?? undefined,
     cliRuntimes,
     enabled: inArchitectStage,
+    transport: transportForCli(runtimeState.guidedRoleCliDefaults.architect),
+    workspaceId,
     sessionId: runtimeState.architectSessionId,
     onAssignSessionId: (id) => {
       updateRuntimeState((prev) =>
@@ -185,6 +205,8 @@ export function GuidedBriefFlow({
       inDesignerStage,
     designSystem: runtimeState.preset === 'design-system',
     designSystemSeedSource: runtimeState.designSystemSeedSource ?? null,
+    transport: transportForCli(runtimeState.guidedRoleCliDefaults.frontend),
+    workspaceId,
     sessionId: runtimeState.designerSessionId,
     onAssignSessionId: (id) => {
       updateRuntimeState((prev) =>
@@ -279,11 +301,28 @@ export function GuidedBriefFlow({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [designer.interview.decisions])
 
-  // Writes a question-card answer into the specialist's PTY stdin — the same
-  // transport as typing in the terminal, so either surface can answer.
-  const answerViaTerminal = (session: GuidedBriefSpecialistSession | null) => (text: string) => {
-    if (!session) return
+  // Stops a specialist session through the transport its persisted id belongs
+  // to: conversation session ids are runtime-minted (`conv_…`), PTY ids are
+  // wizard-minted uuids. Both calls no-op harmlessly on an unknown id.
+  const stopSpecialistSessionById = (sessionId: string) => {
+    if (sessionId.startsWith('conv_')) {
+      void window.api.conversationSessionStop({ sessionId }).catch(() => {})
+      return
+    }
+    void window.api.terminalKill(sessionId).catch(() => {})
+  }
+
+  // Answers a question card through the session's own transport: a structured
+  // conversation respond, or PTY stdin keystrokes (same as typing).
+  const answerViaSession = (session: GuidedBriefSpecialistSession | null) => (text: string): boolean | Promise<boolean> => {
+    if (!session) return false
+    if (session.transport === 'conversation') {
+      // Propagate delivery: a false resolution unlocks the question card so
+      // the user can retry instead of the answer silently vanishing.
+      return session.answer?.(text) ?? false
+    }
     window.api.terminalWriteFast(session.sessionId, `${text}\r`)
+    return true
   }
 
   // Read-only review of an already-accepted step, entered from the step rail.
@@ -416,7 +455,7 @@ export function GuidedBriefFlow({
       }
       onChange(nextState)
       if (strategistSessionIdToKill) {
-        void window.api.terminalKill(strategistSessionIdToKill).catch(() => {})
+        stopSpecialistSessionById(strategistSessionIdToKill)
       }
     } catch (error) {
       setAcceptError(formatAcceptError(error, 'brief'))
@@ -507,7 +546,7 @@ export function GuidedBriefFlow({
       }
       onChange(nextState)
       if (architectSessionIdToKill) {
-        void window.api.terminalKill(architectSessionIdToKill).catch(() => {})
+        stopSpecialistSessionById(architectSessionIdToKill)
       }
     } catch (error) {
       setAcceptError(formatAcceptError(error, 'plan'))
@@ -593,7 +632,7 @@ export function GuidedBriefFlow({
         designerSessionId: null,
       })
       if (designerSessionIdToKill) {
-        void window.api.terminalKill(designerSessionIdToKill).catch(() => {})
+        stopSpecialistSessionById(designerSessionIdToKill)
       }
     } catch (error) {
       setAcceptError(formatAcceptError(error, 'mockup'))
@@ -694,7 +733,7 @@ export function GuidedBriefFlow({
       ].filter((id): id is string => Boolean(id))
       onChange(nextState)
       sessionsToKill.forEach((sessionId) => {
-        void window.api.terminalKill(sessionId).catch(() => {})
+        stopSpecialistSessionById(sessionId)
       })
     } catch (error) {
       setSkipError(error instanceof Error ? error.message : 'Could not skip to the roster.')
@@ -775,7 +814,8 @@ export function GuidedBriefFlow({
             overviewPath={strategist.overviewPath}
             overviewFileReady={strategist.overviewFileReady}
             interview={strategist.interview}
-            onAnswer={answerViaTerminal(strategist.session)}
+            onAnswer={answerViaSession(strategist.session)}
+            transcriptTail={strategist.transcriptTail}
             requirementsPath={strategist.requirementsPath}
             productDirectoryPath={joinWorkspacePath(workspaceRoot, 'product')}
           />
@@ -790,7 +830,8 @@ export function GuidedBriefFlow({
             overviewPath={architect.overviewPath}
             overviewFileReady={architect.overviewFileReady}
             interview={architect.interview}
-            onAnswer={answerViaTerminal(architect.session)}
+            onAnswer={answerViaSession(architect.session)}
+            transcriptTail={architect.transcriptTail}
             architecturePlanPath={architect.architecturePlanPath}
             architectureDirectoryPath={joinWorkspacePath(workspaceRoot, 'architecture')}
           />
@@ -801,7 +842,8 @@ export function GuidedBriefFlow({
             errorMessage={designer.error}
             working={stage === 'designer-working'}
             interview={designer.interview}
-            onAnswer={answerViaTerminal(designer.session)}
+            onAnswer={answerViaSession(designer.session)}
+            transcriptTail={designer.transcriptTail}
             mockupCount={designer.mockups.length}
             designSystem={isDesignSystemPreset}
             designArtifacts={designer.designArtifacts}
@@ -1326,6 +1368,7 @@ function StrategistBody({
   overviewFileReady,
   interview,
   onAnswer,
+  transcriptTail,
   requirementsPath,
   productDirectoryPath,
 }: {
@@ -1339,6 +1382,7 @@ function StrategistBody({
   overviewFileReady: boolean
   interview: GuidedInterviewState
   onAnswer: (answerText: string) => void
+  transcriptTail?: string
   requirementsPath: string
   productDirectoryPath: string
 }) {
@@ -1357,6 +1401,7 @@ function StrategistBody({
       working={working}
       interview={interview}
       onAnswer={onAnswer}
+      transcriptTail={transcriptTail}
       ready={ready}
       plan={{
         name: 'requirements.md',
@@ -1391,6 +1436,7 @@ function ArchitectBody({
   overviewFileReady,
   interview,
   onAnswer,
+  transcriptTail,
   architecturePlanPath,
   architectureDirectoryPath,
 }: {
@@ -1404,6 +1450,7 @@ function ArchitectBody({
   overviewFileReady: boolean
   interview: GuidedInterviewState
   onAnswer: (answerText: string) => void
+  transcriptTail?: string
   architecturePlanPath: string
   architectureDirectoryPath: string
 }) {
@@ -1422,6 +1469,7 @@ function ArchitectBody({
       working={working}
       interview={interview}
       onAnswer={onAnswer}
+      transcriptTail={transcriptTail}
       ready={ready}
       plan={{
         name: 'plan.md',
@@ -1458,6 +1506,7 @@ function TextStageStudioBody({
   working,
   interview,
   onAnswer,
+  transcriptTail,
   ready,
   plan,
   overview,
@@ -1471,6 +1520,7 @@ function TextStageStudioBody({
   working: boolean
   interview: GuidedInterviewState
   onAnswer: (answerText: string) => void
+  transcriptTail?: string
   ready: boolean
   plan: {
     name: string
@@ -1530,6 +1580,7 @@ function TextStageStudioBody({
           working={working}
           interview={interview}
           onAnswer={onAnswer}
+          transcriptTail={transcriptTail}
         />
       }
       artifacts={
@@ -1572,6 +1623,7 @@ function DesignStudioBody({
   working,
   interview,
   onAnswer,
+  transcriptTail,
   mockupCount,
   designSystem = false,
   designArtifacts,
@@ -1585,6 +1637,7 @@ function DesignStudioBody({
   working: boolean
   interview: GuidedInterviewState
   onAnswer: (answerText: string) => void
+  transcriptTail?: string
   mockupCount: number
   designSystem?: boolean
   designArtifacts: DesignArtifactIndex
@@ -1614,6 +1667,7 @@ function DesignStudioBody({
           working={working}
           interview={interview}
           onAnswer={onAnswer}
+          transcriptTail={transcriptTail}
         />
       }
       artifacts={

@@ -9,6 +9,7 @@ import {
   facetCounts,
   filterByFacet,
   searchConnectors,
+  sectionConnectors,
   type SourceLoad,
 } from './connectorsFacets'
 
@@ -224,5 +225,37 @@ assert.equal(deriveConnectorsView(ready([]), ready([]), new Set(), '', 'All').st
   const view = deriveConnectorsView(ready([server()]), ready([]), new Set(), '', 'Payments')
   assert.equal(view.status, 'no-match')
 }
+
+// --- category sections ------------------------------------------------------
+
+// All tab: one collapsed section per non-empty facet bucket, tab-strip order,
+// unmapped bucket last under a plain "More" heading. Empty buckets are dropped.
+{
+  const entries = buildConnectorEntries(
+    [server(), server({ id: 'weather', name: 'Weather', category: 'Weather' })],
+    [plugin()],
+    new Set(),
+  )
+  const sections = sectionConnectors(entries, 'All')
+  assert.deepEqual(
+    sections.map((section) => section.title),
+    ['Infrastructure', 'Payments', 'More'],
+  )
+  assert.ok(sections.every((section) => !section.expanded))
+  assert.deepEqual(sections[0].entries.map((entry) => entry.id), ['railway'])
+  assert.deepEqual(sections[2].entries.map((entry) => entry.id), ['weather'])
+}
+
+// A specific facet tab renders as a single expanded section (no show-more cutoff).
+{
+  const entries = filterByFacet(buildConnectorEntries([server()], [plugin()], new Set()), 'Payments')
+  const sections = sectionConnectors(entries, 'Payments')
+  assert.equal(sections.length, 1)
+  assert.equal(sections[0].title, 'Payments')
+  assert.equal(sections[0].expanded, true)
+}
+
+// No entries → no sections (the panel's empty/no-match states own that copy).
+assert.deepEqual(sectionConnectors([], 'All'), [])
 
 console.log('connectors-facets guard passed')

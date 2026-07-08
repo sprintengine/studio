@@ -846,6 +846,7 @@ export const defaultAppSettings = (): AppSettings => ({
   onboardingStep: 'welcome',
   pendingAgentConfigAdoption: null,
   terminalIdleSuspendMinutes: DEFAULT_TERMINAL_IDLE_SUSPEND_MINUTES,
+  guidedBriefConversationSessions: true,
 })
 
 // Accept a persisted adoption selection only when it is the expected shape (two
@@ -914,6 +915,7 @@ export function normalizeAppSettings(settings: Partial<AppSettings> | undefined,
     }),
     pendingAgentConfigAdoption: normalizePendingAgentConfigAdoption(settings?.pendingAgentConfigAdoption),
     terminalIdleSuspendMinutes: normalizeTerminalIdleSuspendMinutes(settings?.terminalIdleSuspendMinutes),
+    guidedBriefConversationSessions: settings?.guidedBriefConversationSessions !== false,
   }
 }
 
@@ -1041,6 +1043,7 @@ export interface SettingsSliceActions {
   setSearchExcludes: (patterns: string[]) => void
   /** Set how long an idle agent terminal waits before it is paused (minutes). */
   setTerminalIdleSuspendMinutes: (minutes: number) => void
+  setGuidedBriefConversationSessions: (enabled: boolean) => void
   setUsageTelemetrySettings: (update: Partial<UsageTelemetrySettings>) => void
   setVoiceDictationSettings: (update: Partial<VoiceDictationSettings>) => void
   setLearningShowTipsOnStartup: (enabled: boolean) => void
@@ -1558,6 +1561,11 @@ export function createSettingsSlice(set: SettingsSliceSet): SettingsSlice {
     setTerminalIdleSuspendMinutes: (minutes) =>
       set((state) => {
         state.appSettings.terminalIdleSuspendMinutes = normalizeTerminalIdleSuspendMinutes(minutes)
+      }),
+
+    setGuidedBriefConversationSessions: (enabled) =>
+      set((state) => {
+        state.appSettings.guidedBriefConversationSessions = enabled !== false
       }),
 
     setUsageTelemetrySettings: (update) =>

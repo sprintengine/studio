@@ -1,0 +1,76 @@
+/* Input — extracted from the source product's Field wrapper and the 28px
+ * input chrome (src/renderer/src/components/ui/Field.tsx, InboxSearchInput.tsx). */
+
+.ds-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-family: var(--sem-font-family-ui);
+}
+
+.ds-field-label {
+  font-size: var(--sem-font-size-body);
+  font-weight: var(--sem-font-weight-medium);
+  color: var(--sem-color-text-default);
+}
+
+.ds-field-required {
+  margin-left: 4px;
+  color: var(--sem-color-status-danger);
+}
+
+.ds-input {
+  height: 28px;
+  padding: 0 8px;
+  border: 1px solid var(--sem-color-border-default);
+  border-radius: var(--sem-radius-control);
+  background: var(--sem-color-bg-surface-raised);
+  color: var(--sem-color-text-default);
+  font-family: inherit;
+  font-size: var(--sem-font-size-body);
+  transition: border-color var(--sem-motion-duration-fast) var(--sem-motion-ease-standard);
+}
+
+.ds-input::placeholder {
+  color: var(--sem-color-text-subtle);
+}
+
+/* Focus signals with both the accent border and the ring, so it never reads
+ * by color shift alone. */
+.ds-input:focus {
+  outline: none;
+  border-color: var(--sem-color-accent-primary);
+}
+
+.ds-input:focus-visible {
+  box-shadow: 0 0 0 2px var(--sem-color-border-focus);
+}
+
+.ds-input[aria-invalid='true'] {
+  border-color: var(--sem-color-status-danger);
+}
+
+.ds-input:disabled {
+  color: var(--sem-color-text-disabled);
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
+/* One supporting message at a time: help hides when an error shows. */
+.ds-field-help {
+  margin: 0;
+  font-size: var(--sem-font-size-meta);
+  color: var(--sem-color-text-subtle);
+}
+
+.ds-field-error {
+  margin: 0;
+  font-size: var(--sem-font-size-meta);
+  color: var(--sem-color-status-danger);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ds-input {
+    transition: none;
+  }
+}

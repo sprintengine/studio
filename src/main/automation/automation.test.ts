@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict'
+import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process'
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { connect } from 'node:net'
 import { tmpdir } from 'node:os'
@@ -364,6 +365,117 @@ async function testStaleSocketFileIsReplacedOnStart(): Promise<void> {
   rmSync(dir, { recursive: true, force: true })
 }
 
+// The stdio bridge is a standalone script (never bundled with the app), so
+// these tests spawn it as a real child process. Tests run from the repo root
+// via the npm script, so cwd-relative resolution is stable.
+const BRIDGE_SCRIPT = join(process.cwd(), 'resources', 'automation', 'mcp-stdio-bridge.mjs')
+
+type BridgeExit = { code: number | null; stdoutLines: Array<Record<string, unknown>>; stderr: string }
+
+function spawnBridge(infoPath: string): {
+  child: ChildProcessWithoutNullStreams
+  stdoutLines: Array<Record<string, unknown>>
+  stderrChunks: string[]
+  exited: Promise<BridgeExit>
+} {
+  const child = spawn(process.execPath, [BRIDGE_SCRIPT, '--info-path', infoPath], { stdio: 'pipe' })
+  const stdoutLines: Array<Record<string, unknown>> = []
+  const stderrChunks: string[] = []
+  let buffer = ''
+  child.stdout.setEncoding('utf8')
+  child.stderr.setEncoding('utf8')
+  child.stdout.on('data', (chunk: string) => {
+    buffer += chunk
+    let newline = buffer.indexOf('\n')
+    while (newline !== -1) {
+      const line = buffer.slice(0, newline).trim()
+      buffer = buffer.slice(newline + 1)
+      if (line) stdoutLines.push(JSON.parse(line))
+      newline = buffer.indexOf('\n')
+    }
+  })
+  child.stderr.on('data', (chunk: string) => stderrChunks.push(chunk))
+  const exited = new Promise<BridgeExit>((resolve) => {
+    child.once('exit', (code) => resolve({ code, stdoutLines, stderr: stderrChunks.join('') }))
+  })
+  return { child, stdoutLines, stderrChunks, exited }
+}
+
+async function waitUntil(what: string, probe: () => boolean): Promise<void> {
+  const deadline = Date.now() + 5_000
+  while (!probe()) {
+    if (Date.now() > deadline) throw new Error(`timed out waiting for ${what}`)
+    await new Promise((resolve) => setTimeout(resolve, 10))
+  }
+}
+
+async function testBridgePipesStdioToSocketAndExitsOnServerStop(): Promise<void> {
+  const dir = mkdtempSync(join(tmpdir(), 'multicode-automation-bridge-'))
+  const socketPath = join(dir, 'automation.sock')
+  const infoPath = join(dir, 'automation-server-info.json')
+  const server = createMcpSocketServer({
+    socketPath,
+    serverName: 'multicode-automation',
+    serverVersion: '0.0.0-test',
+    tools: [
+      {
+        name: 'workspace.list',
+        description: 'test tool',
+        inputSchema: { type: 'object', properties: {} },
+        handler: async () => ({ content: [{ type: 'text', text: '{}' }], structuredContent: { workspaces: [] } }),
+      },
+    ],
+  })
+  await server.start()
+  writeFileSync(infoPath, JSON.stringify({ socketPath, protocol: 'mcp-jsonrpc-ndjson', pid: process.pid }))
+  const bridge = spawnBridge(infoPath)
+  try {
+    bridge.child.stdin.write(
+      `${JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'initialize', params: { protocolVersion: '2025-03-26' } })}\n`
+    )
+    bridge.child.stdin.write(`${JSON.stringify({ jsonrpc: '2.0', id: 2, method: 'tools/list' })}\n`)
+    await waitUntil('bridge responses', () => bridge.stdoutLines.length >= 2)
+
+    const byId = new Map(bridge.stdoutLines.map((response) => [response.id, response]))
+    const init = byId.get(1) as { result: { serverInfo: { name: string } } }
+    assert.equal(init.result.serverInfo.name, 'multicode-automation')
+    const tools = byId.get(2) as { result: { tools: Array<{ name: string }> } }
+    assert.deepEqual(tools.result.tools.map((entry) => entry.name), ['workspace.list'])
+  } finally {
+    // Server stop closes the socket; the bridge must exit cleanly, the way MCP
+    // clients expect a server shutdown to look.
+    await server.stop()
+  }
+  const exit = await bridge.exited
+  assert.equal(exit.code, 0, `bridge exits 0 on server stop (stderr: ${exit.stderr})`)
+  rmSync(dir, { recursive: true, force: true })
+}
+
+async function testBridgeFailsClearlyWithoutDiscoveryFile(): Promise<void> {
+  const dir = mkdtempSync(join(tmpdir(), 'multicode-automation-bridge-off-'))
+  const bridge = spawnBridge(join(dir, 'automation-server-info.json'))
+  const exit = await bridge.exited
+  assert.equal(exit.code, 1, 'missing discovery file is a hard failure')
+  assert.match(exit.stderr, /not running|disabled/i)
+  rmSync(dir, { recursive: true, force: true })
+}
+
+async function testBridgeReportsStaleDiscoveryFile(): Promise<void> {
+  const dir = mkdtempSync(join(tmpdir(), 'multicode-automation-bridge-stale-'))
+  // A freshly-exited child gives a pid that is certainly not alive.
+  const dead = spawn(process.execPath, ['-e', ''])
+  await new Promise<void>((resolve) => dead.once('exit', () => resolve()))
+  writeFileSync(
+    join(dir, 'automation-server-info.json'),
+    JSON.stringify({ socketPath: join(dir, 'gone.sock'), pid: dead.pid })
+  )
+  const bridge = spawnBridge(join(dir, 'automation-server-info.json'))
+  const exit = await bridge.exited
+  assert.equal(exit.code, 1)
+  assert.match(exit.stderr, /stale/i)
+  rmSync(dir, { recursive: true, force: true })
+}
+
 const tests = [
   testSettingsDefaultOffAndRoundTrip,
   testToolListNamesTheV1Surface,
@@ -374,6 +486,9 @@ const tests = [
   testDelegateFailurePassesThrough,
   testSocketServerSpeaksMcpAndOnlyWhenStarted,
   testStaleSocketFileIsReplacedOnStart,
+  testBridgePipesStdioToSocketAndExitsOnServerStop,
+  testBridgeFailsClearlyWithoutDiscoveryFile,
+  testBridgeReportsStaleDiscoveryFile,
 ]
 
 async function main(): Promise<void> {

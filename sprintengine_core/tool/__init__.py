@@ -33,6 +33,7 @@ from .commands.roster import (
     cmd_roster_list,
     cmd_roster_replenish,
     cmd_roster_retire,
+    cmd_roster_runtime,
 )
 from .commands.run import (
     build_agent_next_directive,

@@ -1,0 +1,68 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Button</title>
+<link rel="stylesheet" href="../../foundations/tokens.css" />
+<link rel="stylesheet" href="component.css" />
+<style>
+  body {
+    margin: 0;
+    font-family: var(--sem-font-family-ui);
+  }
+  .demo-stage {
+    padding: 24px;
+    background: var(--sem-color-bg-app);
+    color: var(--sem-color-text-default);
+  }
+  .demo-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-wrap: wrap;
+    margin: 0 0 12px;
+  }
+  .demo-row:last-child {
+    margin-bottom: 0;
+  }
+  .demo-label {
+    font-size: var(--sem-font-size-meta);
+    color: var(--sem-color-text-subtle);
+    width: 100%;
+  }
+</style>
+</head>
+<body>
+<div class="demo-stage" data-mode="light">
+  <p class="demo-label">Light</p>
+  <div class="demo-row">
+    <button type="button" class="ds-button ds-button--primary">Create workspace</button>
+    <button type="button" class="ds-button ds-button--ghost">Cancel</button>
+    <button type="button" class="ds-button ds-button--icon" aria-label="Close">
+      <svg viewBox="0 0 14 14" fill="none" aria-hidden="true"><path d="M3.25 3.25L10.75 10.75M10.75 3.25L3.25 10.75" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>
+    </button>
+  </div>
+  <div class="demo-row">
+    <button type="button" class="ds-button ds-button--primary ds-button--md">Medium primary</button>
+    <button type="button" class="ds-button ds-button--primary" disabled>Disabled</button>
+    <button type="button" class="ds-button ds-button--ghost" disabled>Disabled ghost</button>
+  </div>
+</div>
+<div class="demo-stage" data-mode="dark">
+  <p class="demo-label">Dark</p>
+  <div class="demo-row">
+    <button type="button" class="ds-button ds-button--primary">Create workspace</button>
+    <button type="button" class="ds-button ds-button--ghost">Cancel</button>
+    <button type="button" class="ds-button ds-button--icon" aria-label="Close">
+      <svg viewBox="0 0 14 14" fill="none" aria-hidden="true"><path d="M3.25 3.25L10.75 10.75M10.75 3.25L3.25 10.75" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>
+    </button>
+  </div>
+  <div class="demo-row">
+    <button type="button" class="ds-button ds-button--primary ds-button--md">Medium primary</button>
+    <button type="button" class="ds-button ds-button--primary" disabled>Disabled</button>
+    <button type="button" class="ds-button ds-button--ghost" disabled>Disabled ghost</button>
+  </div>
+</div>
+</body>
+</html>

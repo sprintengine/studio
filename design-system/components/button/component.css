@@ -1,0 +1,90 @@
+/* Button — extracted from the source product's PrimaryButton / GhostButton /
+ * IconButton primitives (src/renderer/src/components/ui/Buttons.tsx). */
+
+.ds-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  height: 28px;
+  padding: 0 12px;
+  border: none;
+  border-radius: var(--sem-radius-control);
+  font-family: var(--sem-font-family-ui);
+  font-size: var(--sem-font-size-body);
+  font-weight: var(--sem-font-weight-medium);
+  line-height: var(--sem-font-line-tight);
+  cursor: pointer;
+  transition:
+    background-color var(--sem-motion-duration-fast) var(--sem-motion-ease-standard),
+    color var(--sem-motion-duration-fast) var(--sem-motion-ease-standard),
+    transform var(--sem-motion-duration-fast) var(--sem-motion-ease-standard);
+}
+
+.ds-button:active:not(:disabled) {
+  transform: scale(0.97);
+}
+
+.ds-button:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px var(--sem-color-border-focus);
+}
+
+.ds-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+
+/* Primary — the accent fill; selection and primary action share this hue. */
+.ds-button--primary {
+  background: var(--sem-color-accent-primary);
+  color: var(--sem-color-text-on-accent);
+}
+
+.ds-button--primary:hover:not(:disabled) {
+  background: var(--sem-color-accent-hover);
+}
+
+/* Ghost — quiet secondary action; hover lifts ink and background together. */
+.ds-button--ghost {
+  background: transparent;
+  color: var(--sem-color-text-muted);
+}
+
+.ds-button--ghost:hover:not(:disabled) {
+  background: var(--sem-color-bg-hover);
+  color: var(--sem-color-text-primary);
+}
+
+/* Sizes: sm (28px, default) and md (32px). */
+.ds-button--md {
+  height: 32px;
+}
+
+/* Icon — square, borderless; requires an accessible name on the button. */
+.ds-button--icon {
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  background: transparent;
+  color: var(--sem-color-text-muted);
+}
+
+.ds-button--icon:hover:not(:disabled) {
+  background: var(--sem-color-bg-hover);
+  color: var(--sem-color-text-primary);
+}
+
+.ds-button--icon svg {
+  width: var(--sem-icon-size-sm);
+  height: var(--sem-icon-size-sm);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ds-button {
+    transition: none;
+  }
+  .ds-button:active:not(:disabled) {
+    transform: none;
+  }
+}

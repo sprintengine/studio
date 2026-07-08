@@ -48,8 +48,12 @@ export type InstalledExtension = {
   source: string
   trust?: ModuleTrustStatus
   enabled?: boolean
-  /** One pre-formatted muted meta line (ids, transport, version). */
-  detail?: string
+  /** Human one-line summary (catalog description, module summary, pack description). */
+  summary?: string
+  /** At most a couple of small neutral chips — the transport for MCP servers and
+   *  provenance only when it is NOT the default 'Bundled'. Anything more is
+   *  plumbing and lives in tooltips/detail surfaces, never on the row. */
+  chips: string[]
 }
 
 export type InstalledExtensionGroup = {
@@ -123,8 +127,16 @@ export function mcpToInstalled(servers: McpServerConfig[]): InstalledExtension[]
     kind: 'mcp' as const,
     source: sourceLabel(server.source),
     enabled: server.enabled,
-    detail: [server.id, server.transport, ...(server.clients.length ? [server.clients.join(', ')] : [])].join(' · '),
+    summary: server.description,
+    chips: [server.transport, ...nonDefaultSource(server.source)],
   }))
+}
+
+// Provenance chip only when it says something: 'Bundled' is the default and
+// earns no chip; 'User'/'Custom' do.
+function nonDefaultSource(source: string | undefined): string[] {
+  const label = sourceLabel(source)
+  return label === 'Bundled' ? [] : [label]
 }
 
 export function modulesToInstalled(
@@ -146,7 +158,15 @@ export function modulesToInstalled(
       module.trust === 'trusted'
         ? (overrides[module.manifest.id] ?? module.manifest.defaultEnabled)
         : false,
-    detail: module.manifest.summary,
+    summary: module.manifest.summary,
+    chips: [
+      ...nonDefaultSource(module.manifest.source),
+      // Only the non-default state earns a chip: enabled-and-trusted is the
+      // norm, and a trust-blocked module's real state is its trust label.
+      ...(module.trust === 'trusted' && !(overrides[module.manifest.id] ?? module.manifest.defaultEnabled)
+        ? ['Disabled']
+        : []),
+    ],
   }))
 }
 
@@ -157,9 +177,8 @@ export function skillPacksToInstalled(packs: SkillPackEntry[]): InstalledExtensi
     name: pack.name,
     kind: 'skill-pack' as const,
     source: sourceLabel(pack.source),
-    detail: [pack.slug, ...(pack.version ? [`v${pack.version}`] : []), pack.harnesses.join(', ')]
-      .filter(Boolean)
-      .join(' · '),
+    summary: pack.description,
+    chips: nonDefaultSource(pack.source),
   }))
 }
 
@@ -170,7 +189,7 @@ export function clisToInstalled(plugins: PluginRegistryListEntry[]): InstalledEx
     name: plugin.displayName,
     kind: 'cli' as const,
     source: sourceLabel(plugin.source),
-    detail: `${plugin.id} · v${plugin.version}`,
+    chips: nonDefaultSource(plugin.source),
   }))
 }
 

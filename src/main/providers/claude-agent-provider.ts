@@ -1,0 +1,856 @@
+// Stateful conversation provider backed by the Claude Agent SDK.
+//
+// Spawns the user's own installed Claude Code CLI headlessly (subscription
+// auth — whatever `claude auth login` already holds; no API key touches this
+// path) and maps the SDK's message stream onto Multicode's canonical
+// ConversationEvents. One long-lived child process per session, kept across
+// turns via the SDK's streaming-input mode; the CLI session id is surfaced as
+// `session_updated` events so the runtime can resume natively after the
+// process (or the whole app) goes away.
+//
+// All Claude Agent SDK types are confined to this file on purpose — the SDK
+// moves fast, so version churn must not leak past this adapter. The package
+// is ESM-only and the main bundle is CJS, so the SDK is loaded via dynamic
+// import on first use.
+import { spawn } from 'child_process'
+
+import type {
+  Options,
+  PermissionResult,
+  Query,
+  SDKUserMessage,
+  SpawnedProcess,
+  SpawnOptions,
+} from '@anthropic-ai/claude-agent-sdk'
+
+import type {
+  ConversationCliRuntimeOverrides,
+  ConversationEvent,
+  ConversationPermissionPreset,
+  ConversationQuestion,
+} from '../../shared/conversation-runtime'
+import type {
+  ConversationProviderAdapter,
+  ConversationProviderLiveSession,
+  MockAdapterApprovalInput,
+  MockAdapterSessionInput,
+  MockAdapterTurnInput,
+} from './mock-conversation-provider'
+
+export const CLAUDE_AGENT_PROVIDER_ID = 'claude-agent'
+// The CLI accepts these model aliases on --model regardless of account tier;
+// they track the CLI's own vocabulary rather than a remote catalog.
+export const CLAUDE_AGENT_MODELS = ['sonnet', 'opus', 'haiku'] as const
+
+// Env marker so process-tree diagnostics can attribute the headless child to
+// its conversation session (the SDK exposes no child PID).
+export const CLAUDE_AGENT_SESSION_ENV_KEY = 'MULTICODE_CONVERSATION_SESSION_ID'
+
+type SdkQueryFunction = typeof import('@anthropic-ai/claude-agent-sdk').query
+
+export type ClaudeAgentProviderOptions = {
+  // Injectable seams for tests; defaults wire the real SDK + CLI detection.
+  loadQuery?: () => Promise<SdkQueryFunction>
+  resolveExecutable?: (cliRuntimes?: ConversationCliRuntimeOverrides) => Promise<string>
+  buildEnv?: (input: { workspaceId: string; agentId: string; sessionId: string }) => Record<string, string>
+  now?: () => number
+}
+
+export type ClaudeAgentProviderAdapter = ConversationProviderAdapter & {
+  listLiveSessions(): ConversationProviderLiveSession[]
+  disposeChildProcess(sessionId: string): boolean
+  disposeAll(): void
+}
+
+type PermissionDecision = {
+  approved: boolean
+  answers?: Record<string, string>
+}
+
+type PendingPermissionResolve = (decision: PermissionDecision) => void
+
+type ActiveTurn = {
+  turnId: string
+  requestId: string
+  approvalSequence: number
+  queue: PushStream<ConversationEvent>
+}
+
+type SessionState = {
+  sessionId: string
+  workspaceId: string
+  agentId: string
+  providerId: string
+  modelId: string
+  workspaceRoot: string
+  cliRuntimes?: ConversationCliRuntimeOverrides
+  permissionPreset: ConversationPermissionPreset
+  allowedTools?: string[]
+  providerSessionId: string | null
+  query: Query | null
+  inputQueue: PushStream<SDKUserMessage> | null
+  abort: AbortController | null
+  childPid: number | null
+  spawnedAt: number | null
+  turn: ActiveTurn | null
+  // Claude Code can hold several permission callbacks open at once (parallel
+  // tool_use blocks), so pending permissions are keyed by requestId.
+  pendingPermissions: Map<string, PendingPermissionResolve>
+  // Session-level events (resume cursor updates) that arrived while no turn
+  // stream was open to carry them; flushed at the next turn start.
+  pendingSessionEvents: ConversationEvent[]
+  lastActivityAt: number
+  stderrTail: string
+}
+
+// Minimal push-based async iterable: producers push/end, one consumer drains.
+class PushStream<T> implements AsyncIterable<T> {
+  private readonly queue: T[] = []
+  private readonly resolvers: Array<(result: IteratorResult<T>) => void> = []
+  private ended = false
+
+  push(value: T): void {
+    if (this.ended) return
+    const resolve = this.resolvers.shift()
+    if (resolve) resolve({ value, done: false })
+    else this.queue.push(value)
+  }
+
+  end(): void {
+    if (this.ended) return
+    this.ended = true
+    for (const resolve of this.resolvers.splice(0)) {
+      resolve({ value: undefined as never, done: true })
+    }
+  }
+
+  [Symbol.asyncIterator](): AsyncIterator<T> {
+    return {
+      next: (): Promise<IteratorResult<T>> => {
+        const value = this.queue.shift()
+        if (value !== undefined) return Promise.resolve({ value, done: false })
+        if (this.ended) return Promise.resolve({ value: undefined as never, done: true })
+        return new Promise((resolve) => this.resolvers.push(resolve))
+      },
+      return: (): Promise<IteratorResult<T>> => {
+        this.end()
+        return Promise.resolve({ value: undefined as never, done: true })
+      },
+    }
+  }
+}
+
+export function createClaudeAgentProvider(options: ClaudeAgentProviderOptions = {}): ClaudeAgentProviderAdapter {
+  const loadQuery = options.loadQuery ?? defaultLoadQuery
+  const resolveExecutable = options.resolveExecutable ?? defaultResolveExecutable
+  const buildEnv = options.buildEnv ?? defaultBuildEnv
+  const now = options.now ?? Date.now
+  const sessions = new Map<string, SessionState>()
+
+  function deliver(state: SessionState, events: ConversationEvent[]): void {
+    for (const event of events) {
+      if (state.turn) {
+        state.turn.queue.push(event)
+      } else if (event.type === 'session_updated') {
+        state.pendingSessionEvents.push(event)
+      }
+      // Non-session events with no open turn stream have nowhere to go (the
+      // turn they belonged to was interrupted); drop them.
+    }
+  }
+
+  function endTurn(state: SessionState): void {
+    state.turn?.queue.end()
+    state.lastActivityAt = now()
+  }
+
+  function resolveAllPendingPermissions(state: SessionState, decision: PermissionDecision): void {
+    const pending = Array.from(state.pendingPermissions.values())
+    state.pendingPermissions.clear()
+    for (const resolve of pending) resolve(decision)
+  }
+
+  function disposeChild(state: SessionState): boolean {
+    const hadChild = state.query !== null
+    resolveAllPendingPermissions(state, { approved: false })
+    endTurn(state)
+    state.turn = null
+    state.inputQueue?.end()
+    state.inputQueue = null
+    state.abort?.abort()
+    state.abort = null
+    state.query = null
+    state.childPid = null
+    state.spawnedAt = null
+    return hadChild
+  }
+
+  async function pump(state: SessionState, q: Query): Promise<void> {
+    try {
+      for await (const message of q as AsyncIterable<Record<string, unknown>>) {
+        if (state.query !== q) return
+        deliver(state, mapSdkMessage(state, message))
+        if (message.type === 'result') endTurn(state)
+      }
+    } catch (error) {
+      if (state.query !== q) return
+      if (state.turn) {
+        deliver(state, [
+          eventFor(state, 'turn_failed', {
+            turnId: state.turn.turnId,
+            reason: 'provider',
+            message: describeSpawnFailure(error, state.stderrTail),
+          }),
+        ])
+      }
+    } finally {
+      if (state.query === q) {
+        // Child process ended (crash, auth failure, natural exit): close the
+        // turn stream so a pending sendTurn resolves, keep the resume cursor.
+        if (state.turn) {
+          deliver(state, [
+            eventFor(state, 'turn_failed', {
+              turnId: state.turn.turnId,
+              reason: 'provider',
+              message: describeSpawnFailure(null, state.stderrTail),
+            }),
+          ])
+        }
+        disposeChild(state)
+      }
+    }
+  }
+
+  async function ensureQuery(state: SessionState): Promise<void> {
+    if (state.query) return
+    if (state.cliRuntimes?.['claude-code']?.useWsl) {
+      throw new Error('Claude conversation agents are not supported for WSL-configured CLI runtimes yet.')
+    }
+    const executablePath = await resolveExecutable(state.cliRuntimes)
+    const sdkQuery = await loadQuery()
+    const inputQueue = new PushStream<SDKUserMessage>()
+    const abort = new AbortController()
+    const permissionMode = SDK_PERMISSION_MODE_BY_PRESET[state.permissionPreset]
+    const queryOptions: Options = {
+      cwd: state.workspaceRoot,
+      pathToClaudeCodeExecutable: executablePath,
+      model: state.modelId,
+      includePartialMessages: true,
+      permissionMode,
+      ...(permissionMode === 'bypassPermissions' ? { allowDangerouslySkipPermissions: true } : {}),
+      ...(state.allowedTools?.length ? { allowedTools: state.allowedTools } : {}),
+      systemPrompt: { type: 'preset', preset: 'claude_code' },
+      env: buildEnv({ workspaceId: state.workspaceId, agentId: state.agentId, sessionId: state.sessionId }),
+      abortController: abort,
+      canUseTool: (toolName, toolInput, callbackOptions) =>
+        handleCanUseTool(state, toolName, toolInput, callbackOptions?.signal),
+      // Spawn the child ourselves (same command/args the SDK computed) so the
+      // PID is known: process-tree diagnostics attribute the headless child to
+      // this session, and the SDK exposes no PID of its own.
+      spawnClaudeCodeProcess: (spawnInput: SpawnOptions): SpawnedProcess =>
+        spawnTrackedChild(state, spawnInput, now),
+      ...(state.providerSessionId ? { resume: state.providerSessionId } : {}),
+    }
+    const q = sdkQuery({ prompt: inputQueue, options: queryOptions })
+    state.query = q
+    state.inputQueue = inputQueue
+    state.abort = abort
+    void pump(state, q)
+  }
+
+  async function handleCanUseTool(
+    state: SessionState,
+    toolName: string,
+    toolInput: Record<string, unknown>,
+    signal?: AbortSignal
+  ): Promise<PermissionResult> {
+    const turn = state.turn
+    if (!turn) return { behavior: 'deny', message: 'Conversation turn is not active.' }
+    turn.approvalSequence += 1
+    const requestId = turn.approvalSequence === 1 ? turn.requestId : `${turn.requestId}_${turn.approvalSequence}`
+
+    // Interactive tools become structured cards instead of plain allow/deny:
+    // AskUserQuestion renders its options as buttons, ExitPlanMode shows the
+    // plan for approval. Everything else is a generic tool-permission card.
+    const questions = toolName === 'AskUserQuestion' ? parseAskUserQuestions(toolInput) : null
+    const plan = toolName === 'ExitPlanMode' ? readPlanText(toolInput) : null
+    const requestPayload: Record<string, unknown> = {
+      turnId: turn.turnId,
+      requestId,
+      action: toolName,
+      summary: questions
+        ? questions[0]?.question ?? 'The agent has a question.'
+        : plan !== null
+          ? 'The agent proposed a plan.'
+          : summarizeToolInput(toolName, toolInput),
+      kind: questions ? 'question' : plan !== null ? 'plan' : 'tool',
+      ...(questions ? { questions } : {}),
+      ...(plan !== null ? { plan } : {}),
+    }
+    turn.queue.push(eventFor(state, 'approval_requested', requestPayload))
+
+    const decision = await new Promise<PermissionDecision>((resolve) => {
+      state.pendingPermissions.set(requestId, resolve)
+      signal?.addEventListener(
+        'abort',
+        () => {
+          if (state.pendingPermissions.delete(requestId)) resolve({ approved: false })
+        },
+        { once: true }
+      )
+    })
+    state.pendingPermissions.delete(requestId)
+    turn.queue.push(
+      eventFor(state, 'approval_resolved', {
+        turnId: turn.turnId,
+        requestId,
+        approved: decision.approved,
+        ...(decision.answers ? { answers: decision.answers } : {}),
+      })
+    )
+    if (!decision.approved) {
+      return {
+        behavior: 'deny',
+        message: questions
+          ? 'The user dismissed the question without answering.'
+          : plan !== null
+            ? 'The user rejected this plan. Revise it and keep planning.'
+            : 'The user denied this tool use in Multicode.',
+      }
+    }
+    if (questions) {
+      // AskUserQuestion completes headlessly when the answers ride the input:
+      // the CLI-side tool returns them to the model without prompting.
+      return { behavior: 'allow', updatedInput: { ...toolInput, answers: decision.answers ?? {} } }
+    }
+    return { behavior: 'allow', updatedInput: toolInput }
+  }
+
+  const adapter: ClaudeAgentProviderAdapter = {
+    id: CLAUDE_AGENT_PROVIDER_ID,
+    sessions: 'stateful',
+    listModels: () => [...CLAUDE_AGENT_MODELS],
+
+    startSession(input: MockAdapterSessionInput) {
+      const state: SessionState = {
+        sessionId: input.sessionId,
+        workspaceId: input.workspaceId,
+        agentId: input.agentId,
+        providerId: input.providerId,
+        modelId: input.modelId,
+        workspaceRoot: input.workspaceRoot ?? '',
+        cliRuntimes: input.cliRuntimes,
+        permissionPreset: input.permissionPreset ?? 'default',
+        allowedTools: input.allowedTools,
+        providerSessionId: input.resumeSessionId?.trim() || null,
+        query: null,
+        inputQueue: null,
+        abort: null,
+        childPid: null,
+        spawnedAt: null,
+        turn: null,
+        pendingPermissions: new Map(),
+        pendingSessionEvents: [],
+        lastActivityAt: now(),
+        stderrTail: '',
+      }
+      sessions.set(input.sessionId, state)
+      return [
+        eventFor(state, 'session_started', {
+          providerSessionId: state.providerSessionId,
+          resumed: state.providerSessionId !== null,
+        }),
+        eventFor(state, 'session_ready'),
+      ]
+    },
+
+    async *sendTurn(input: MockAdapterTurnInput): AsyncIterable<ConversationEvent> {
+      const state = sessions.get(input.sessionId)
+      if (!state) {
+        yield turnFailure(input, 'invalid_session', 'Conversation session is not registered with the Claude provider.')
+        return
+      }
+      yield eventFor(state, 'turn_started', { turnId: input.turnId })
+      try {
+        await ensureQuery(state)
+      } catch (error) {
+        yield eventFor(state, 'turn_failed', {
+          turnId: input.turnId,
+          reason: 'spawn',
+          message: error instanceof Error ? error.message : 'Claude Code could not be started.',
+        })
+        return
+      }
+      const turn: ActiveTurn = {
+        turnId: input.turnId,
+        requestId: input.requestId,
+        approvalSequence: 0,
+        queue: new PushStream<ConversationEvent>(),
+      }
+      state.turn = turn
+      state.lastActivityAt = now()
+      for (const pendingEvent of state.pendingSessionEvents.splice(0)) turn.queue.push(pendingEvent)
+
+      const onAbort = (): void => {
+        void state.query?.interrupt().catch(() => undefined)
+        resolveAllPendingPermissions(state, { approved: false })
+        turn.queue.end()
+      }
+      if (input.signal?.aborted) {
+        onAbort()
+      } else {
+        input.signal?.addEventListener('abort', onAbort, { once: true })
+      }
+
+      state.inputQueue?.push({
+        type: 'user',
+        message: { role: 'user', content: input.message },
+        parent_tool_use_id: null,
+        session_id: state.providerSessionId ?? '',
+      })
+
+      try {
+        for await (const event of turn.queue) yield event
+      } finally {
+        input.signal?.removeEventListener('abort', onAbort)
+        if (state.turn === turn) {
+          state.turn = null
+          // A permission that never resolved (turn torn down first) must not
+          // leave the child blocked forever.
+          resolveAllPendingPermissions(state, { approved: false })
+        }
+        state.lastActivityAt = now()
+      }
+    },
+
+    resolveApproval(input: MockAdapterApprovalInput) {
+      const state = sessions.get(input.sessionId)
+      if (!state) return []
+      const resolve = state.pendingPermissions.get(input.requestId)
+      if (!resolve) return []
+      state.pendingPermissions.delete(input.requestId)
+      resolve({ approved: input.approved, answers: input.answers })
+      // approval_resolved is emitted through the still-open turn stream so the
+      // transcript stays ordered; nothing to return here.
+      return []
+    },
+
+    interrupt(input: MockAdapterSessionInput) {
+      const state = sessions.get(input.sessionId)
+      if (!state) return []
+      const turnId = state.turn?.turnId
+      void state.query?.interrupt().catch(() => undefined)
+      resolveAllPendingPermissions(state, { approved: false })
+      endTurn(state)
+      state.turn = null
+      return [eventFor(state, 'turn_failed', { ...(turnId ? { turnId } : {}), reason: 'interrupted' })]
+    },
+
+    stopSession(input: MockAdapterSessionInput) {
+      const state = sessions.get(input.sessionId)
+      if (!state) return []
+      disposeChild(state)
+      sessions.delete(input.sessionId)
+      return [eventFor(state, 'session_closed')]
+    },
+
+    listLiveSessions(): ConversationProviderLiveSession[] {
+      return Array.from(sessions.values()).map((state) => ({
+        sessionId: state.sessionId,
+        workspaceId: state.workspaceId,
+        agentId: state.agentId,
+        workspaceRoot: state.workspaceRoot,
+        providerSessionId: state.providerSessionId,
+        hasChildProcess: state.query !== null,
+        childPid: state.childPid,
+        turnActive: state.turn !== null,
+        pendingApproval: state.pendingPermissions.size > 0,
+        lastActivityAt: state.lastActivityAt,
+        spawnedAt: state.spawnedAt,
+      }))
+    },
+
+    disposeChildProcess(sessionId: string): boolean {
+      const state = sessions.get(sessionId)
+      if (!state || state.query === null) return false
+      return disposeChild(state)
+    },
+
+    disposeAll(): void {
+      for (const state of sessions.values()) disposeChild(state)
+    },
+  }
+
+  return adapter
+}
+
+// Terminal-preset → SDK permission-mode mapping, mirroring the claude-code
+// plugin manifest's permissionPresets flags (`--permission-mode auto` /
+// `--permission-mode bypassPermissions`).
+const SDK_PERMISSION_MODE_BY_PRESET: Record<ConversationPermissionPreset, 'default' | 'auto' | 'bypassPermissions'> = {
+  default: 'default',
+  auto_workspace: 'auto',
+  bypass_all: 'bypassPermissions',
+}
+
+// Sanitize the CLI tool's AskUserQuestion input into the provider-neutral
+// question payload. Returns null when the shape is unrecognized so the call
+// degrades to a generic tool approval instead of a broken card.
+function parseAskUserQuestions(toolInput: Record<string, unknown>): ConversationQuestion[] | null {
+  const rawQuestions = toolInput.questions
+  if (!Array.isArray(rawQuestions) || rawQuestions.length === 0) return null
+  const questions: ConversationQuestion[] = []
+  for (const rawQuestion of rawQuestions) {
+    const record = asRecord(rawQuestion)
+    if (!record || typeof record.question !== 'string' || !record.question.trim()) return null
+    const rawOptions = Array.isArray(record.options) ? record.options : []
+    const options = rawOptions
+      .map((rawOption) => {
+        const option = asRecord(rawOption)
+        if (!option || typeof option.label !== 'string' || !option.label.trim()) return null
+        return {
+          label: option.label,
+          ...(typeof option.description === 'string' && option.description.trim()
+            ? { description: option.description }
+            : {}),
+        }
+      })
+      .filter((option): option is { label: string; description?: string } => option !== null)
+    if (options.length === 0) return null
+    questions.push({
+      question: record.question,
+      ...(typeof record.header === 'string' && record.header.trim() ? { header: record.header } : {}),
+      multiSelect: record.multiSelect === true,
+      // The CLI's own question UI always offers a free-text "Other"; mirror it.
+      allowFreeText: true,
+      options,
+    })
+  }
+  return questions.length > 0 ? questions : null
+}
+
+function readPlanText(toolInput: Record<string, unknown>): string {
+  return typeof toolInput.plan === 'string' ? toolInput.plan : ''
+}
+
+// Spawn the SDK-computed command ourselves so the child PID lands on the
+// session state (the default SDK spawn hides it). Also owns stderr capture:
+// the SDK's `stderr` option only applies to its internal spawn path.
+function spawnTrackedChild(
+  state: SessionState,
+  spawnInput: SpawnOptions,
+  now: () => number
+): SpawnedProcess {
+  const child = spawn(spawnInput.command, spawnInput.args, {
+    cwd: spawnInput.cwd,
+    env: spawnInput.env as NodeJS.ProcessEnv,
+    stdio: ['pipe', 'pipe', 'pipe'],
+    signal: spawnInput.signal,
+    windowsHide: true,
+  })
+  state.childPid = child.pid ?? null
+  state.spawnedAt = now()
+  child.stderr?.on('data', (data: Buffer) => {
+    state.stderrTail = `${state.stderrTail}${data.toString()}`.slice(-4000)
+  })
+  child.once('exit', () => {
+    if (state.childPid === child.pid) state.childPid = null
+  })
+  return {
+    stdin: child.stdin!,
+    stdout: child.stdout!,
+    get killed() {
+      return child.killed
+    },
+    get exitCode() {
+      return child.exitCode
+    },
+    kill: (signal: NodeJS.Signals) => child.kill(signal),
+    on: child.on.bind(child),
+    once: child.once.bind(child),
+    off: child.off.bind(child),
+  }
+}
+
+async function defaultLoadQuery(): Promise<SdkQueryFunction> {
+  const sdk = await import('@anthropic-ai/claude-agent-sdk')
+  return sdk.query
+}
+
+async function defaultResolveExecutable(cliRuntimes?: ConversationCliRuntimeOverrides): Promise<string> {
+  const { detectCli } = await import('../cli-runtime-install')
+  const detection = await detectCli('claude-code', cliRuntimes?.['claude-code'])
+  if (!detection.installed || !detection.resolvedPath) {
+    throw new Error('Claude Code CLI is not installed. Install it (or set a command override in Settings) to use Claude conversation agents.')
+  }
+  return detection.resolvedPath
+}
+
+// Auth env this provider must never pass to the child. The conversation path
+// is subscription-auth by contract: the CLI binds its own `claude login`
+// credentials only when ANTHROPIC_API_KEY is absent — an inherited key wins
+// silently and bills API usage with no visible banner (headless chat shows no
+// CLI chrome). AUTH_TOKEN/BASE_URL redirect the CLI to third-party endpoints;
+// they belong to the terminal zai/GLM launch path, never to this provider.
+export const STRIPPED_ANTHROPIC_AUTH_ENV_KEYS = ['ANTHROPIC_API_KEY', 'ANTHROPIC_AUTH_TOKEN', 'ANTHROPIC_BASE_URL'] as const
+
+export function stripAnthropicAuthEnv(env: Record<string, string>): Record<string, string> {
+  const next = { ...env }
+  for (const key of STRIPPED_ANTHROPIC_AUTH_ENV_KEYS) delete next[key]
+  return next
+}
+
+function defaultBuildEnv(input: { workspaceId: string; agentId: string; sessionId: string }): Record<string, string> {
+  // Deferred require keeps terminal-launch (and its transitive pty imports)
+  // out of unit tests that only exercise the mapping logic.
+  const { getTerminalEnv, applyAgentIdentityEnv } = require('../terminal-launch') as {
+    getTerminalEnv: () => Record<string, string>
+    applyAgentIdentityEnv: (
+      env: Record<string, string>,
+      identity: { workspaceId: string; agentId: string }
+    ) => Record<string, string>
+  }
+  const env = applyAgentIdentityEnv(stripAnthropicAuthEnv(getTerminalEnv()), {
+    workspaceId: input.workspaceId,
+    agentId: input.agentId,
+  })
+  env[CLAUDE_AGENT_SESSION_ENV_KEY] = input.sessionId
+  return env
+}
+
+// --- SDKMessage → ConversationEvent mapping (structural on purpose: the SDK
+// message union churns across versions; unknown shapes are dropped) ---
+
+export function mapSdkMessage(
+  state: {
+    sessionId: string
+    workspaceId: string
+    agentId: string
+    providerId: string
+    modelId: string
+    providerSessionId: string | null
+    turn: { turnId: string } | null
+  },
+  message: Record<string, unknown>
+): ConversationEvent[] {
+  const turnId = state.turn?.turnId
+  const events: ConversationEvent[] = []
+  const messageSessionId = typeof message.session_id === 'string' ? message.session_id : null
+
+  // The CLI init message reports which credential source the child actually
+  // bound (`none` = the subscription login this provider guarantees). Ride it
+  // on `session_updated` so the chat can warn when a session is somehow not
+  // metering against the subscription.
+  const apiKeySource =
+    message.type === 'system' && message.subtype === 'init' && typeof message.apiKeySource === 'string'
+      ? message.apiKeySource
+      : null
+
+  if (messageSessionId && messageSessionId !== state.providerSessionId) {
+    state.providerSessionId = messageSessionId
+    events.push(
+      eventFor(state, 'session_updated', {
+        providerSessionId: messageSessionId,
+        ...(apiKeySource ? { apiKeySource } : {}),
+      })
+    )
+  } else if (apiKeySource) {
+    events.push(eventFor(state, 'session_updated', { providerSessionId: state.providerSessionId, apiKeySource }))
+  }
+
+  switch (message.type) {
+    case 'stream_event': {
+      if (message.parent_tool_use_id) break
+      const streamEvent = asRecord(message.event)
+      if (streamEvent?.type !== 'content_block_delta') break
+      const delta = asRecord(streamEvent.delta)
+      if (!delta) break
+      if (delta.type === 'text_delta' && typeof delta.text === 'string' && delta.text) {
+        events.push(eventFor(state, 'content_delta', { turnId, text: delta.text }))
+      } else if (delta.type === 'thinking_delta' && typeof delta.thinking === 'string' && delta.thinking) {
+        events.push(eventFor(state, 'reasoning_delta', { turnId, text: delta.thinking }))
+      }
+      break
+    }
+    case 'assistant': {
+      if (message.parent_tool_use_id) break
+      const content = asRecord(message.message)?.content
+      if (!Array.isArray(content)) break
+      for (const rawBlock of content) {
+        const block = asRecord(rawBlock)
+        if (block?.type !== 'tool_use' || typeof block.name !== 'string') continue
+        const toolInput = asRecord(block.input) ?? {}
+        events.push(
+          eventFor(state, 'tool_started', {
+            turnId,
+            toolCallId: typeof block.id === 'string' ? block.id : undefined,
+            tool: block.name,
+            summary: summarizeToolInput(block.name, toolInput),
+            ...(computeEditDiffCounts(block.name, toolInput) ?? {}),
+          })
+        )
+      }
+      break
+    }
+    case 'user': {
+      if (message.parent_tool_use_id) break
+      const content = asRecord(message.message)?.content
+      if (!Array.isArray(content)) break
+      for (const rawBlock of content) {
+        const block = asRecord(rawBlock)
+        if (block?.type !== 'tool_result') continue
+        events.push(
+          eventFor(state, 'tool_output', {
+            turnId,
+            toolCallId: typeof block.tool_use_id === 'string' ? block.tool_use_id : undefined,
+            output: truncate(extractResultText(block.content), 4000),
+            isError: block.is_error === true,
+          })
+        )
+      }
+      break
+    }
+    case 'result': {
+      const usage = asRecord(message.usage)
+      if (usage) {
+        const inputTokens =
+          numberOr(usage.input_tokens, 0) + numberOr(usage.cache_creation_input_tokens, 0) + numberOr(usage.cache_read_input_tokens, 0)
+        const outputTokens = numberOr(usage.output_tokens, 0)
+        events.push(
+          eventFor(state, 'usage_updated', {
+            turnId,
+            inputTokens,
+            outputTokens,
+            totalTokens: inputTokens + outputTokens,
+          })
+        )
+      }
+      const isError = message.is_error === true || message.subtype !== 'success'
+      if (isError) {
+        const errors = Array.isArray(message.errors) ? message.errors.filter((entry) => typeof entry === 'string') : []
+        const resultText = typeof message.result === 'string' ? message.result : ''
+        events.push(
+          eventFor(state, 'turn_failed', {
+            turnId,
+            reason: typeof message.subtype === 'string' && message.subtype !== 'success' ? message.subtype : 'provider',
+            message: errors.join('; ') || resultText || 'Claude Code reported an error for this turn.',
+          })
+        )
+      } else {
+        events.push(eventFor(state, 'turn_completed', { turnId }))
+      }
+      break
+    }
+    default:
+      break
+  }
+  return events
+}
+
+function eventFor(
+  state: { sessionId: string; workspaceId: string; agentId: string; providerId: string; modelId: string },
+  type: ConversationEvent['type'],
+  payload?: Record<string, unknown>
+): ConversationEvent {
+  return {
+    id: '',
+    sessionId: state.sessionId,
+    workspaceId: state.workspaceId,
+    agentId: state.agentId,
+    providerId: state.providerId,
+    modelId: state.modelId,
+    type,
+    createdAt: 0,
+    payload,
+  }
+}
+
+function turnFailure(input: MockAdapterTurnInput, reason: string, message: string): ConversationEvent {
+  return {
+    id: '',
+    sessionId: input.sessionId,
+    workspaceId: input.workspaceId,
+    agentId: input.agentId,
+    providerId: input.providerId,
+    modelId: input.modelId,
+    type: 'turn_failed',
+    createdAt: 0,
+    payload: { turnId: input.turnId, reason, message },
+  }
+}
+
+// Line-count deltas for edit-shaped tool calls, shipped on `tool_started` so
+// the chat's work timeline can render `+N −N` chips without re-reading files.
+// Write reports additions only (the file's previous content is not visible
+// here); unknown tools return null and ship no counts.
+export function computeEditDiffCounts(
+  tool: string,
+  input: Record<string, unknown>
+): { addedLines: number; removedLines?: number } | null {
+  if (tool === 'Edit') {
+    return { addedLines: countLines(input.new_string), removedLines: countLines(input.old_string) }
+  }
+  if (tool === 'MultiEdit' && Array.isArray(input.edits)) {
+    let addedLines = 0
+    let removedLines = 0
+    for (const rawEdit of input.edits) {
+      const edit = asRecord(rawEdit)
+      if (!edit) continue
+      addedLines += countLines(edit.new_string)
+      removedLines += countLines(edit.old_string)
+    }
+    return { addedLines, removedLines }
+  }
+  if (tool === 'Write') {
+    return { addedLines: countLines(input.content) }
+  }
+  return null
+}
+
+function countLines(value: unknown): number {
+  return typeof value === 'string' && value.length > 0 ? value.split('\n').length : 0
+}
+
+export function summarizeToolInput(tool: string, input: Record<string, unknown>): string {
+  for (const key of ['command', 'file_path', 'path', 'url', 'pattern', 'query', 'description', 'prompt']) {
+    const value = input[key]
+    if (typeof value === 'string' && value.trim()) return `${tool}: ${truncate(value.trim(), 200)}`
+  }
+  let json = ''
+  try {
+    json = JSON.stringify(input) ?? ''
+  } catch {
+    json = ''
+  }
+  return json && json !== '{}' ? `${tool}: ${truncate(json, 200)}` : tool
+}
+
+function extractResultText(content: unknown): string {
+  if (typeof content === 'string') return content
+  if (!Array.isArray(content)) return ''
+  return content
+    .map((entry) => {
+      const block = asRecord(entry)
+      return block?.type === 'text' && typeof block.text === 'string' ? block.text : ''
+    })
+    .filter(Boolean)
+    .join('\n')
+}
+
+function describeSpawnFailure(error: unknown, stderrTail: string): string {
+  const base = error instanceof Error && error.message ? error.message : 'Claude Code exited unexpectedly.'
+  const tail = stderrTail.trim().split('\n').slice(-3).join('\n').trim()
+  return tail ? `${base} (${truncate(tail, 300)})` : base
+}
+
+function truncate(value: string, max: number): string {
+  return value.length > max ? `${value.slice(0, max - 1)}…` : value
+}
+
+function asRecord(value: unknown): Record<string, unknown> | null {
+  return typeof value === 'object' && value !== null && !Array.isArray(value) ? (value as Record<string, unknown>) : null
+}
+
+function numberOr(value: unknown, fallback: number): number {
+  return typeof value === 'number' && Number.isFinite(value) ? value : fallback
+}

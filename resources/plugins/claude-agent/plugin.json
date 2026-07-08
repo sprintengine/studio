@@ -1,0 +1,25 @@
+{
+  "kind": "provider",
+  "id": "claude-agent",
+  "displayName": "Claude Code",
+  "publisher": "multicode",
+  "version": 1,
+  "providerType": "agent-harness",
+  "models": [
+    {
+      "id": "sonnet",
+      "displayName": "Sonnet"
+    },
+    {
+      "id": "opus",
+      "displayName": "Opus"
+    },
+    {
+      "id": "haiku",
+      "displayName": "Haiku"
+    }
+  ],
+  "adapter": {
+    "kind": "declarative"
+  }
+}

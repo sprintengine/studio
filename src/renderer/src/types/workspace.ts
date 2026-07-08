@@ -1364,6 +1364,8 @@ export type McpCatalogServer = Omit<McpServerConfig, 'enabled' | 'scope' | 'sour
   defaultClients?: McpClientTarget[]
   recommendedScope?: McpScope
   setupNotes?: string
+  skill?: string
+  icon?: string
 }
 
 export type SkillPackHarness = 'claude' | 'codex' | 'cursor' | 'gemini' | 'opencode' | 'agents'
@@ -1677,6 +1679,12 @@ export type AppSettings = {
    * [1 minute, 24 hours]. See terminal-reap-policy.ts.
    */
   terminalIdleSuspendMinutes: number
+  /**
+   * Design Wizard specialists on Claude run as conversation sessions
+   * (structured question cards, streamed chat) instead of raw terminals.
+   * Turning this off restores the terminal transport for every role.
+   */
+  guidedBriefConversationSessions: boolean
 }
 
 export type PendingAgentConfigAdoption = {
@@ -1934,6 +1942,14 @@ export type AgentState = {
   // Without this marker the reconcile could not tell a user's mid-run pick
   // from a stale snapshot and would revert the pick on the next projection.
   cliRuntimeOverride?: { cli?: AgentCli; model?: string | null }
+  // The runtime the live terminal was actually launched with, stamped at spawn
+  // success (TerminalView). The record's `cli`/`cliModel` are re-stamped from
+  // the run's `roleRuntimes` on every reconcile, so after a mid-run role edit
+  // they reflect the NEW config while the running session still uses the old
+  // one; this stamp preserves what the session is really on, powering the
+  // roster's "on <old model>" divergence label and restart offer. Never
+  // cleared on exit — consumers must gate on terminal liveness.
+  cliLaunchedRuntime?: { cli?: AgentCli; model?: string | null }
   // Orthogonal Debug Mode toggle (the agent picker). Set per-spawn from the
   // transient spawn-UI state; the launch boundary prepends the debug directive
   // to the initial prompt when true. Not persisted-by-default UI: defaults off

@@ -1,0 +1,1645 @@
+<!doctype html>
+<!-- GENERATED FILE — do not edit by hand.
+     Derived from this bundle's manifest, tokens, components, patterns, and
+     glyphs by scripts/build-catalog.mjs. Regenerate with:
+       node scripts/build-catalog.mjs -->
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>multicode — design system catalog</title>
+<style>
+/* foundations/tokens.css (inlined verbatim) */
+/* GENERATED FILE — do not edit by hand.
+ * Derived from foundations/tokens.tokens.json by scripts/build-tokens.mjs.
+ * Emission contract: knowledge/multicode/design-system-bundle.md.
+ * :root carries the light (default) mode; [data-mode="dark"] overrides the
+ * tokens whose values differ in dark mode. */
+:root {
+  --ref-color-ink-950: #08080c;
+  --ref-color-ink-900: #0c0c10;
+  --ref-color-ink-875: #101418;
+  --ref-color-ink-850: #18181c;
+  --ref-color-ink-825: #1c2024;
+  --ref-color-ink-800: #24242c;
+  --ref-color-paper-100: #ececec;
+  --ref-color-paper-200: #c8c8d0;
+  --ref-color-paper-400: #9c9ca4;
+  --ref-color-paper-500: #707078;
+  --ref-color-paper-600: #5c5c64;
+  --ref-color-white: #ffffff;
+  --ref-color-mist-100: #eaeef2;
+  --ref-color-mist-150: #f0f0f4;
+  --ref-color-mist-200: #e0e4e8;
+  --ref-color-mist-250: #d8dce0;
+  --ref-color-slate-900: #202428;
+  --ref-color-slate-700: #3c444c;
+  --ref-color-slate-500: #646c78;
+  --ref-color-slate-550: #5f6772;
+  --ref-color-slate-400: #838b97;
+  --ref-color-green-400: #4daf7d;
+  --ref-color-green-500: #3f9468;
+  --ref-color-green-700: #2f6a4a;
+  --ref-color-green-800: #275842;
+  --ref-color-emerald-400: #30d058;
+  --ref-color-emerald-700: #157f37;
+  --ref-color-amber-400: #fcc030;
+  --ref-color-amber-800: #9a6000;
+  --ref-color-coral-400: #fc787c;
+  --ref-color-red-600: #d92d2d;
+  --ref-color-violet-500: #8957e5;
+  --ref-color-gray-500: #6b7280;
+  --sem-color-bg-app: var(--ref-color-mist-100);
+  --sem-color-bg-surface: var(--ref-color-white);
+  --sem-color-bg-surface-raised: var(--ref-color-white);
+  --sem-color-bg-hover: var(--ref-color-mist-150);
+  --sem-color-bg-active: var(--ref-color-mist-200);
+  --sem-color-bg-selected: var(--ref-color-mist-250);
+  --sem-color-text-primary: var(--ref-color-slate-900);
+  --sem-color-text-default: var(--ref-color-slate-700);
+  --sem-color-text-muted: var(--ref-color-slate-500);
+  --sem-color-text-subtle: var(--ref-color-slate-550);
+  --sem-color-text-disabled: var(--ref-color-slate-400);
+  --sem-color-text-on-accent: var(--ref-color-white);
+  --sem-color-border-subtle: rgba(32, 36, 40, 0.10);
+  --sem-color-border-default: rgba(32, 36, 40, 0.20);
+  --sem-color-border-strong: rgba(32, 36, 40, 0.30);
+  --sem-color-border-focus: rgba(47, 106, 74, 0.55);
+  --sem-color-accent-primary: var(--ref-color-green-700);
+  --sem-color-accent-hover: var(--ref-color-green-800);
+  --sem-color-accent-soft: rgba(47, 106, 74, 0.10);
+  --sem-color-accent-soft-strong: rgba(47, 106, 74, 0.18);
+  --sem-color-status-neutral: var(--ref-color-gray-500);
+  --sem-color-status-good: var(--ref-color-emerald-700);
+  --sem-color-status-warn: var(--ref-color-amber-800);
+  --sem-color-status-danger: var(--ref-color-red-600);
+  --sem-color-status-merged: var(--ref-color-violet-500);
+  --sem-color-status-neutral-soft: rgba(100, 108, 120, 0.14);
+  --sem-color-status-good-soft: rgba(21, 127, 55, 0.20);
+  --sem-color-status-warn-soft: rgba(204, 132, 0, 0.20);
+  --sem-color-status-danger-soft: rgba(220, 40, 40, 0.16);
+  --sem-color-overlay-scrim: rgba(20, 24, 28, 0.42);
+  --sem-shadow-drawer: 0 1px 3px rgba(16, 20, 24, 0.06), 0 8px 24px -6px rgba(16, 20, 24, 0.10);
+  --sem-font-family-ui: Inter, "SF Pro Text", "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  --sem-font-family-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, "SF Mono", "Cascadia Code", Menlo, Consolas, monospace;
+  --sem-font-size-micro: 10.5px;
+  --sem-font-size-meta: 11px;
+  --sem-font-size-body: 12px;
+  --sem-font-size-heading: 13px;
+  --sem-font-size-title: 15px;
+  --sem-font-weight-regular: 400;
+  --sem-font-weight-medium: 500;
+  --sem-font-weight-emphasis: 600;
+  --sem-font-line-tight: 1.25;
+  --sem-font-line-default: 1.4;
+  --sem-font-line-relaxed: 1.5;
+  --sem-icon-size-xs: 12px;
+  --sem-icon-size-sm: 14px;
+  --sem-icon-size-md: 16px;
+  --sem-icon-size-lg: 20px;
+  --sem-radius-chip: 3px;
+  --sem-radius-control: 5px;
+  --sem-radius-overlay: 7px;
+  --sem-radius-shell: 9px;
+  --sem-motion-duration-fast: 120ms;
+  --sem-motion-duration-normal: 180ms;
+  --sem-motion-duration-deliberate: 260ms;
+  --sem-motion-ease-standard: cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+[data-mode="dark"] {
+  --sem-color-bg-app: var(--ref-color-ink-950);
+  --sem-color-bg-surface: var(--ref-color-ink-900);
+  --sem-color-bg-surface-raised: var(--ref-color-ink-875);
+  --sem-color-bg-hover: var(--ref-color-ink-850);
+  --sem-color-bg-active: var(--ref-color-ink-825);
+  --sem-color-bg-selected: var(--ref-color-ink-800);
+  --sem-color-text-primary: var(--ref-color-paper-100);
+  --sem-color-text-default: var(--ref-color-paper-200);
+  --sem-color-text-muted: var(--ref-color-paper-400);
+  --sem-color-text-subtle: var(--ref-color-paper-500);
+  --sem-color-text-disabled: var(--ref-color-paper-600);
+  --sem-color-text-on-accent: var(--ref-color-ink-950);
+  --sem-color-border-subtle: rgba(252, 252, 252, 0.06);
+  --sem-color-border-default: rgba(252, 252, 252, 0.08);
+  --sem-color-border-strong: rgba(252, 252, 252, 0.12);
+  --sem-color-border-focus: rgba(63, 148, 104, 0.6);
+  --sem-color-accent-primary: var(--ref-color-green-500);
+  --sem-color-accent-hover: var(--ref-color-green-400);
+  --sem-color-accent-soft: rgba(63, 148, 104, 0.14);
+  --sem-color-accent-soft-strong: rgba(63, 148, 104, 0.22);
+  --sem-color-status-neutral: var(--ref-color-paper-400);
+  --sem-color-status-good: var(--ref-color-emerald-400);
+  --sem-color-status-warn: var(--ref-color-amber-400);
+  --sem-color-status-danger: var(--ref-color-coral-400);
+  --sem-color-status-neutral-soft: rgba(156, 156, 164, 0.18);
+  --sem-color-status-good-soft: rgba(48, 208, 88, 0.18);
+  --sem-color-status-warn-soft: rgba(252, 192, 48, 0.18);
+  --sem-color-status-danger-soft: rgba(252, 120, 124, 0.18);
+  --sem-color-overlay-scrim: rgba(8, 8, 12, 0.7);
+  --sem-shadow-drawer: 0 8px 24px -12px rgba(0, 0, 0, 0.6);
+}
+</style>
+<style>
+/* CSS-only mode toggle: the hidden checkbox re-declares the dark overrides. */
+#ds-mode-dark:checked ~ .ds-catalog {
+  --sem-color-bg-app: var(--ref-color-ink-950);
+  --sem-color-bg-surface: var(--ref-color-ink-900);
+  --sem-color-bg-surface-raised: var(--ref-color-ink-875);
+  --sem-color-bg-hover: var(--ref-color-ink-850);
+  --sem-color-bg-active: var(--ref-color-ink-825);
+  --sem-color-bg-selected: var(--ref-color-ink-800);
+  --sem-color-text-primary: var(--ref-color-paper-100);
+  --sem-color-text-default: var(--ref-color-paper-200);
+  --sem-color-text-muted: var(--ref-color-paper-400);
+  --sem-color-text-subtle: var(--ref-color-paper-500);
+  --sem-color-text-disabled: var(--ref-color-paper-600);
+  --sem-color-text-on-accent: var(--ref-color-ink-950);
+  --sem-color-border-subtle: rgba(252, 252, 252, 0.06);
+  --sem-color-border-default: rgba(252, 252, 252, 0.08);
+  --sem-color-border-strong: rgba(252, 252, 252, 0.12);
+  --sem-color-border-focus: rgba(63, 148, 104, 0.6);
+  --sem-color-accent-primary: var(--ref-color-green-500);
+  --sem-color-accent-hover: var(--ref-color-green-400);
+  --sem-color-accent-soft: rgba(63, 148, 104, 0.14);
+  --sem-color-accent-soft-strong: rgba(63, 148, 104, 0.22);
+  --sem-color-status-neutral: var(--ref-color-paper-400);
+  --sem-color-status-good: var(--ref-color-emerald-400);
+  --sem-color-status-warn: var(--ref-color-amber-400);
+  --sem-color-status-danger: var(--ref-color-coral-400);
+  --sem-color-status-neutral-soft: rgba(156, 156, 164, 0.18);
+  --sem-color-status-good-soft: rgba(48, 208, 88, 0.18);
+  --sem-color-status-warn-soft: rgba(252, 192, 48, 0.18);
+  --sem-color-status-danger-soft: rgba(252, 120, 124, 0.18);
+  --sem-color-overlay-scrim: rgba(8, 8, 12, 0.7);
+  --sem-shadow-drawer: 0 8px 24px -12px rgba(0, 0, 0, 0.6);
+}
+#ds-mode-dark:checked ~ .ds-catalog [data-mode="light"] {
+  --sem-color-bg-app: var(--ref-color-mist-100);
+  --sem-color-bg-surface: var(--ref-color-white);
+  --sem-color-bg-surface-raised: var(--ref-color-white);
+  --sem-color-bg-hover: var(--ref-color-mist-150);
+  --sem-color-bg-active: var(--ref-color-mist-200);
+  --sem-color-bg-selected: var(--ref-color-mist-250);
+  --sem-color-text-primary: var(--ref-color-slate-900);
+  --sem-color-text-default: var(--ref-color-slate-700);
+  --sem-color-text-muted: var(--ref-color-slate-500);
+  --sem-color-text-subtle: var(--ref-color-slate-550);
+  --sem-color-text-disabled: var(--ref-color-slate-400);
+  --sem-color-text-on-accent: var(--ref-color-white);
+  --sem-color-border-subtle: rgba(32, 36, 40, 0.10);
+  --sem-color-border-default: rgba(32, 36, 40, 0.20);
+  --sem-color-border-strong: rgba(32, 36, 40, 0.30);
+  --sem-color-border-focus: rgba(47, 106, 74, 0.55);
+  --sem-color-accent-primary: var(--ref-color-green-700);
+  --sem-color-accent-hover: var(--ref-color-green-800);
+  --sem-color-accent-soft: rgba(47, 106, 74, 0.10);
+  --sem-color-accent-soft-strong: rgba(47, 106, 74, 0.18);
+  --sem-color-status-neutral: var(--ref-color-gray-500);
+  --sem-color-status-good: var(--ref-color-emerald-700);
+  --sem-color-status-warn: var(--ref-color-amber-800);
+  --sem-color-status-danger: var(--ref-color-red-600);
+  --sem-color-status-neutral-soft: rgba(100, 108, 120, 0.14);
+  --sem-color-status-good-soft: rgba(21, 127, 55, 0.20);
+  --sem-color-status-warn-soft: rgba(204, 132, 0, 0.20);
+  --sem-color-status-danger-soft: rgba(220, 40, 40, 0.16);
+  --sem-color-overlay-scrim: rgba(20, 24, 28, 0.42);
+  --sem-shadow-drawer: 0 1px 3px rgba(16, 20, 24, 0.06), 0 8px 24px -6px rgba(16, 20, 24, 0.10);
+}
+</style>
+<style>
+/* Catalog chrome — consumes the bundle's own semantic tokens. */
+body { margin: 0; }
+.ds-catalog {
+  min-height: 100vh;
+  background: var(--sem-color-bg-app, #ffffff);
+  color: var(--sem-color-text-primary, #17170f);
+  font-family: var(--sem-font-family-ui, system-ui, sans-serif);
+  font-size: var(--sem-font-size-body, 14px);
+  line-height: 1.5;
+}
+#ds-mode-dark, .ds-view-switch {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+}
+.catalog-header {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  flex-wrap: wrap;
+  padding: 20px 28px 16px;
+  border-bottom: 1px solid var(--sem-color-border-default, #dddddd);
+}
+.catalog-header h1 { margin: 0; font-size: 20px; }
+.catalog-header .catalog-version { color: var(--sem-color-text-muted, #666666); }
+.catalog-header .catalog-summary { flex-basis: 100%; margin: 2px 0 0; color: var(--sem-color-text-muted, #666666); }
+.catalog-mode-toggle {
+  margin-left: auto;
+  padding: 4px 12px;
+  border: 1px solid var(--sem-color-border-default, #dddddd);
+  border-radius: var(--sem-radius-control, 5px);
+  cursor: pointer;
+  user-select: none;
+  white-space: nowrap;
+}
+.catalog-mode-when-dark { display: none; }
+#ds-mode-dark:checked ~ .ds-catalog .catalog-mode-when-light { display: none; }
+#ds-mode-dark:checked ~ .ds-catalog .catalog-mode-when-dark { display: inline; }
+#ds-mode-dark:focus-visible ~ .ds-catalog .catalog-mode-toggle {
+  outline: 2px solid var(--sem-color-accent-hover, #275842);
+  outline-offset: 2px;
+}
+.catalog-layout { display: flex; align-items: flex-start; }
+.catalog-nav {
+  position: sticky;
+  top: 0;
+  flex: 0 0 200px;
+  max-height: 100vh;
+  overflow-y: auto;
+  padding: 20px 20px 28px 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+/* Left padding is the gutter for the selected item's inset bar. */
+.catalog-nav-item {
+  color: var(--sem-color-text-primary, #17170f);
+  padding: 2px 0 2px 8px;
+  cursor: pointer;
+}
+.catalog-nav-item:hover { color: var(--sem-color-accent-primary, #2f6a4a); }
+.catalog-nav-group {
+  margin: 14px 0 4px;
+  padding-left: 8px;
+  font-weight: var(--sem-font-weight-emphasis, 600);
+  color: var(--sem-color-text-muted, #666666);
+  cursor: pointer;
+}
+.catalog-nav-group:hover { color: var(--sem-color-text-primary, #17170f); }
+.catalog-nav-group:first-child { margin-top: 0; }
+.catalog-nav-empty { color: var(--sem-color-text-muted, #666666); }
+.catalog-main { flex: 1; min-width: 0; padding: 24px 28px 64px; }
+/* Views are radio-driven: everything is hidden until its nav radio shows it. */
+.catalog-group { display: none; }
+.catalog-view { display: none; margin: 0 0 36px; }
+/* Structural headings only — child combinators keep embedded demo markup untouched. */
+.catalog-main > section > h2 {
+  margin: 0 0 16px;
+  padding-bottom: 8px;
+  font-size: 17px;
+  border-bottom: 1px solid var(--sem-color-border-default, #dddddd);
+}
+.catalog-view > h3 { margin: 0 0 10px; font-size: 15px; }
+.catalog-tier-heading { margin: 18px 0 8px; }
+.catalog-empty { color: var(--sem-color-text-muted, #666666); }
+.catalog-token-row {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 7px 0;
+  border-bottom: 1px solid var(--sem-color-border-default, #dddddd);
+}
+.catalog-token-text { min-width: 0; }
+.catalog-token-name { margin: 0; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.catalog-token-value { color: var(--sem-color-text-muted, #666666); }
+.catalog-token-meta { margin: 2px 0 0; font-size: 0.92em; color: var(--sem-color-text-muted, #666666); }
+.catalog-badge {
+  padding: 1px 7px;
+  border: 1px solid var(--sem-color-border-default, #dddddd);
+  border-radius: 999px;
+  font-size: 0.85em;
+  color: var(--sem-color-text-muted, #666666);
+}
+.catalog-badge--deprecated {
+  color: var(--sem-color-status-danger, #b8433a);
+  border-color: var(--sem-color-status-danger, #b8433a);
+}
+.catalog-chip-pair { display: inline-flex; flex: none; }
+/* Mode-stable hairline: chip fills can equal border.default or the page
+   background in either mode, so the swatch edge must not ride the tokens
+   it is displaying. */
+.catalog-chip {
+  width: 34px;
+  height: 26px;
+  border: 1px solid rgba(127, 127, 127, 0.55);
+}
+.catalog-chip-pair .catalog-chip + .catalog-chip { border-left: 0; }
+.catalog-type-specimen { flex: none; width: 72px; text-align: center; }
+.catalog-space-bar {
+  flex: none;
+  height: 12px;
+  background: var(--sem-color-accent-primary, #2f6a4a);
+}
+.catalog-radius-box {
+  flex: none;
+  width: 34px;
+  height: 26px;
+  border: 1px solid var(--sem-color-text-muted, #666666);
+}
+.catalog-specimen-blank { flex: none; width: 34px; }
+.catalog-glyph-grid { display: flex; flex-wrap: wrap; gap: 10px; }
+.catalog-glyph {
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  width: 84px;
+  padding: 12px 6px 8px;
+  border: 1px solid var(--sem-color-border-default, #dddddd);
+  border-radius: var(--sem-radius-overlay, 7px);
+}
+.catalog-glyph svg { width: 20px; height: 20px; }
+.catalog-glyph figcaption { font-size: 0.85em; color: var(--sem-color-text-muted, #666666); }
+.catalog-component-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 3fr) minmax(0, 2fr);
+  gap: 18px;
+  align-items: start;
+}
+@media (max-width: 900px) { .catalog-component-grid { grid-template-columns: 1fr; } }
+.catalog-stage {
+  border: 1px solid var(--sem-color-border-default, #dddddd);
+  border-radius: var(--sem-radius-overlay, 7px);
+  overflow: hidden;
+  /* Embedded demos are source-faithful and may not wrap; let narrow panes
+     scroll to overflowing specimens instead of clipping them. */
+  overflow-x: auto;
+}
+.catalog-doc h4 { margin: 14px 0 6px; font-size: 13px; }
+.catalog-doc h4:first-child { margin-top: 0; }
+.catalog-doc p, .catalog-doc ul { margin: 0 0 8px; }
+.catalog-doc ul { padding-left: 18px; }
+.catalog-doc-card { max-width: 720px; }
+.catalog-doc-card h4 { margin: 16px 0 6px; }
+.catalog-doc-card ul { padding-left: 18px; }
+.catalog-source { margin-top: 10px; }
+.catalog-source summary { cursor: pointer; color: var(--sem-color-text-muted, #666666); }
+.catalog-source pre {
+  margin: 8px 0 0;
+  padding: 12px;
+  overflow-x: auto;
+  border: 1px solid var(--sem-color-border-default, #dddddd);
+  border-radius: var(--sem-radius-control, 5px);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.9em;
+  line-height: 1.45;
+}
+code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.95em;
+}
+/* Narrow-pane layout: the catalog's primary home is the studio preview pane,
+   a narrow column. Stack the layout and let token rows wrap. */
+@media (max-width: 640px) {
+  .catalog-layout { flex-direction: column; }
+  .catalog-nav {
+    position: static;
+    flex: none;
+    max-height: none;
+    flex-direction: row;
+    flex-wrap: wrap;
+    align-items: baseline;
+    column-gap: 14px;
+    padding: 14px 20px 10px;
+    border-bottom: 1px solid var(--sem-color-border-default, #dddddd);
+  }
+  .catalog-nav .catalog-nav-group { margin: 0; }
+  .catalog-main { padding: 20px 20px 48px; }
+  .catalog-token-row { flex-wrap: wrap; }
+}
+</style>
+<style>
+/* CSS-only nav: each rule shows the view selected by its hidden radio. */
+#ds-view-foundations:checked ~ .ds-catalog #foundations { display: block; }
+#ds-view-foundations:checked ~ .ds-catalog #foundations .catalog-view { display: block; }
+#ds-view-foundations-palette:checked ~ .ds-catalog #foundations { display: block; }
+#ds-view-foundations-palette:checked ~ .ds-catalog #foundations-palette { display: block; }
+#ds-view-foundations-type:checked ~ .ds-catalog #foundations { display: block; }
+#ds-view-foundations-type:checked ~ .ds-catalog #foundations-type { display: block; }
+#ds-view-foundations-spacing:checked ~ .ds-catalog #foundations { display: block; }
+#ds-view-foundations-spacing:checked ~ .ds-catalog #foundations-spacing { display: block; }
+#ds-view-foundations-other-tokens:checked ~ .ds-catalog #foundations { display: block; }
+#ds-view-foundations-other-tokens:checked ~ .ds-catalog #foundations-other-tokens { display: block; }
+#ds-view-foundations-glyphs:checked ~ .ds-catalog #foundations { display: block; }
+#ds-view-foundations-glyphs:checked ~ .ds-catalog #foundations-glyphs { display: block; }
+#ds-view-foundations-doc-principles:checked ~ .ds-catalog #foundations { display: block; }
+#ds-view-foundations-doc-principles:checked ~ .ds-catalog #foundations-doc-principles { display: block; }
+#ds-view-foundations:checked ~ .ds-catalog .catalog-nav label[for="ds-view-foundations"] { color: var(--sem-color-accent-primary, #2f6a4a); font-weight: var(--sem-font-weight-emphasis, 600); box-shadow: inset 2px 0 0 currentColor; }
+#ds-view-foundations:focus-visible ~ .ds-catalog .catalog-nav label[for="ds-view-foundations"] { outline: 2px solid var(--sem-color-accent-hover, #275842); outline-offset: 2px; }
+#ds-view-foundations-palette:checked ~ .ds-catalog .catalog-nav label[for="ds-view-foundations-palette"] { color: var(--sem-color-accent-primary, #2f6a4a); font-weight: var(--sem-font-weight-emphasis, 600); box-shadow: inset 2px 0 0 currentColor; }
+#ds-view-foundations-palette:focus-visible ~ .ds-catalog .catalog-nav label[for="ds-view-foundations-palette"] { outline: 2px solid var(--sem-color-accent-hover, #275842); outline-offset: 2px; }
+#ds-view-foundations-type:checked ~ .ds-catalog .catalog-nav label[for="ds-view-foundations-type"] { color: var(--sem-color-accent-primary, #2f6a4a); font-weight: var(--sem-font-weight-emphasis, 600); box-shadow: inset 2px 0 0 currentColor; }
+#ds-view-foundations-type:focus-visible ~ .ds-catalog .catalog-nav label[for="ds-view-foundations-type"] { outline: 2px solid var(--sem-color-accent-hover, #275842); outline-offset: 2px; }
+#ds-view-foundations-spacing:checked ~ .ds-catalog .catalog-nav label[for="ds-view-foundations-spacing"] { color: var(--sem-color-accent-primary, #2f6a4a); font-weight: var(--sem-font-weight-emphasis, 600); box-shadow: inset 2px 0 0 currentColor; }
+#ds-view-foundations-spacing:focus-visible ~ .ds-catalog .catalog-nav label[for="ds-view-foundations-spacing"] { outline: 2px solid var(--sem-color-accent-hover, #275842); outline-offset: 2px; }
+#ds-view-foundations-other-tokens:checked ~ .ds-catalog .catalog-nav label[for="ds-view-foundations-other-tokens"] { color: var(--sem-color-accent-primary, #2f6a4a); font-weight: var(--sem-font-weight-emphasis, 600); box-shadow: inset 2px 0 0 currentColor; }
+#ds-view-foundations-other-tokens:focus-visible ~ .ds-catalog .catalog-nav label[for="ds-view-foundations-other-tokens"] { outline: 2px solid var(--sem-color-accent-hover, #275842); outline-offset: 2px; }
+#ds-view-foundations-glyphs:checked ~ .ds-catalog .catalog-nav label[for="ds-view-foundations-glyphs"] { color: var(--sem-color-accent-primary, #2f6a4a); font-weight: var(--sem-font-weight-emphasis, 600); box-shadow: inset 2px 0 0 currentColor; }
+#ds-view-foundations-glyphs:focus-visible ~ .ds-catalog .catalog-nav label[for="ds-view-foundations-glyphs"] { outline: 2px solid var(--sem-color-accent-hover, #275842); outline-offset: 2px; }
+#ds-view-foundations-doc-principles:checked ~ .ds-catalog .catalog-nav label[for="ds-view-foundations-doc-principles"] { color: var(--sem-color-accent-primary, #2f6a4a); font-weight: var(--sem-font-weight-emphasis, 600); box-shadow: inset 2px 0 0 currentColor; }
+#ds-view-foundations-doc-principles:focus-visible ~ .ds-catalog .catalog-nav label[for="ds-view-foundations-doc-principles"] { outline: 2px solid var(--sem-color-accent-hover, #275842); outline-offset: 2px; }
+#ds-view-components:checked ~ .ds-catalog #components { display: block; }
+#ds-view-components:checked ~ .ds-catalog #components .catalog-view { display: block; }
+#ds-view-component-button:checked ~ .ds-catalog #components { display: block; }
+#ds-view-component-button:checked ~ .ds-catalog #component-button { display: block; }
+#ds-view-component-input:checked ~ .ds-catalog #components { display: block; }
+#ds-view-component-input:checked ~ .ds-catalog #component-input { display: block; }
+#ds-view-component-task-card:checked ~ .ds-catalog #components { display: block; }
+#ds-view-component-task-card:checked ~ .ds-catalog #component-task-card { display: block; }
+#ds-view-components:checked ~ .ds-catalog .catalog-nav label[for="ds-view-components"] { color: var(--sem-color-accent-primary, #2f6a4a); font-weight: var(--sem-font-weight-emphasis, 600); box-shadow: inset 2px 0 0 currentColor; }
+#ds-view-components:focus-visible ~ .ds-catalog .catalog-nav label[for="ds-view-components"] { outline: 2px solid var(--sem-color-accent-hover, #275842); outline-offset: 2px; }
+#ds-view-component-button:checked ~ .ds-catalog .catalog-nav label[for="ds-view-component-button"] { color: var(--sem-color-accent-primary, #2f6a4a); font-weight: var(--sem-font-weight-emphasis, 600); box-shadow: inset 2px 0 0 currentColor; }
+#ds-view-component-button:focus-visible ~ .ds-catalog .catalog-nav label[for="ds-view-component-button"] { outline: 2px solid var(--sem-color-accent-hover, #275842); outline-offset: 2px; }
+#ds-view-component-input:checked ~ .ds-catalog .catalog-nav label[for="ds-view-component-input"] { color: var(--sem-color-accent-primary, #2f6a4a); font-weight: var(--sem-font-weight-emphasis, 600); box-shadow: inset 2px 0 0 currentColor; }
+#ds-view-component-input:focus-visible ~ .ds-catalog .catalog-nav label[for="ds-view-component-input"] { outline: 2px solid var(--sem-color-accent-hover, #275842); outline-offset: 2px; }
+#ds-view-component-task-card:checked ~ .ds-catalog .catalog-nav label[for="ds-view-component-task-card"] { color: var(--sem-color-accent-primary, #2f6a4a); font-weight: var(--sem-font-weight-emphasis, 600); box-shadow: inset 2px 0 0 currentColor; }
+#ds-view-component-task-card:focus-visible ~ .ds-catalog .catalog-nav label[for="ds-view-component-task-card"] { outline: 2px solid var(--sem-color-accent-hover, #275842); outline-offset: 2px; }
+#ds-view-patterns:checked ~ .ds-catalog #patterns { display: block; }
+#ds-view-patterns:checked ~ .ds-catalog #patterns .catalog-view { display: block; }
+#ds-view-patterns:checked ~ .ds-catalog .catalog-nav label[for="ds-view-patterns"] { color: var(--sem-color-accent-primary, #2f6a4a); font-weight: var(--sem-font-weight-emphasis, 600); box-shadow: inset 2px 0 0 currentColor; }
+#ds-view-patterns:focus-visible ~ .ds-catalog .catalog-nav label[for="ds-view-patterns"] { outline: 2px solid var(--sem-color-accent-hover, #275842); outline-offset: 2px; }
+</style>
+<style>
+/* components/button/component.css */
+/* Button — extracted from the source product's PrimaryButton / GhostButton /
+ * IconButton primitives (src/renderer/src/components/ui/Buttons.tsx). */
+
+.ds-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  height: 28px;
+  padding: 0 12px;
+  border: none;
+  border-radius: var(--sem-radius-control);
+  font-family: var(--sem-font-family-ui);
+  font-size: var(--sem-font-size-body);
+  font-weight: var(--sem-font-weight-medium);
+  line-height: var(--sem-font-line-tight);
+  cursor: pointer;
+  transition:
+    background-color var(--sem-motion-duration-fast) var(--sem-motion-ease-standard),
+    color var(--sem-motion-duration-fast) var(--sem-motion-ease-standard),
+    transform var(--sem-motion-duration-fast) var(--sem-motion-ease-standard);
+}
+
+.ds-button:active:not(:disabled) {
+  transform: scale(0.97);
+}
+
+.ds-button:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px var(--sem-color-border-focus);
+}
+
+.ds-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+
+/* Primary — the accent fill; selection and primary action share this hue. */
+.ds-button--primary {
+  background: var(--sem-color-accent-primary);
+  color: var(--sem-color-text-on-accent);
+}
+
+.ds-button--primary:hover:not(:disabled) {
+  background: var(--sem-color-accent-hover);
+}
+
+/* Ghost — quiet secondary action; hover lifts ink and background together. */
+.ds-button--ghost {
+  background: transparent;
+  color: var(--sem-color-text-muted);
+}
+
+.ds-button--ghost:hover:not(:disabled) {
+  background: var(--sem-color-bg-hover);
+  color: var(--sem-color-text-primary);
+}
+
+/* Sizes: sm (28px, default) and md (32px). */
+.ds-button--md {
+  height: 32px;
+}
+
+/* Icon — square, borderless; requires an accessible name on the button. */
+.ds-button--icon {
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  background: transparent;
+  color: var(--sem-color-text-muted);
+}
+
+.ds-button--icon:hover:not(:disabled) {
+  background: var(--sem-color-bg-hover);
+  color: var(--sem-color-text-primary);
+}
+
+.ds-button--icon svg {
+  width: var(--sem-icon-size-sm);
+  height: var(--sem-icon-size-sm);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ds-button {
+    transition: none;
+  }
+  .ds-button:active:not(:disabled) {
+    transform: none;
+  }
+}
+
+/* components/input/component.css */
+/* Input — extracted from the source product's Field wrapper and the 28px
+ * input chrome (src/renderer/src/components/ui/Field.tsx, InboxSearchInput.tsx). */
+
+.ds-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-family: var(--sem-font-family-ui);
+}
+
+.ds-field-label {
+  font-size: var(--sem-font-size-body);
+  font-weight: var(--sem-font-weight-medium);
+  color: var(--sem-color-text-default);
+}
+
+.ds-field-required {
+  margin-left: 4px;
+  color: var(--sem-color-status-danger);
+}
+
+.ds-input {
+  height: 28px;
+  padding: 0 8px;
+  border: 1px solid var(--sem-color-border-default);
+  border-radius: var(--sem-radius-control);
+  background: var(--sem-color-bg-surface-raised);
+  color: var(--sem-color-text-default);
+  font-family: inherit;
+  font-size: var(--sem-font-size-body);
+  transition: border-color var(--sem-motion-duration-fast) var(--sem-motion-ease-standard);
+}
+
+.ds-input::placeholder {
+  color: var(--sem-color-text-subtle);
+}
+
+/* Focus signals with both the accent border and the ring, so it never reads
+ * by color shift alone. */
+.ds-input:focus {
+  outline: none;
+  border-color: var(--sem-color-accent-primary);
+}
+
+.ds-input:focus-visible {
+  box-shadow: 0 0 0 2px var(--sem-color-border-focus);
+}
+
+.ds-input[aria-invalid='true'] {
+  border-color: var(--sem-color-status-danger);
+}
+
+.ds-input:disabled {
+  color: var(--sem-color-text-disabled);
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
+/* One supporting message at a time: help hides when an error shows. */
+.ds-field-help {
+  margin: 0;
+  font-size: var(--sem-font-size-meta);
+  color: var(--sem-color-text-subtle);
+}
+
+.ds-field-error {
+  margin: 0;
+  font-size: var(--sem-font-size-meta);
+  color: var(--sem-color-status-danger);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ds-input {
+    transition: none;
+  }
+}
+
+/* components/task-card/component.css */
+/* Task card — extracted from the source product's TaskCard primitive
+ * (src/renderer/src/components/ui/TaskCard.tsx), the canonical board-card /
+ * inbox-row surface. Family contract: 6px status dot, mono identifier,
+ * medium title, accent-soft + left-bar selection, background-only hover. */
+
+.ds-task-card {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  background: var(--sem-color-bg-surface);
+  border: 1px solid var(--sem-color-border-subtle);
+  border-left: 2px solid transparent;
+  border-radius: var(--sem-radius-control);
+  font-family: var(--sem-font-family-ui);
+  text-align: left;
+  width: 100%;
+  cursor: pointer;
+  transition: background-color var(--sem-motion-duration-fast) var(--sem-motion-ease-standard);
+}
+
+/* Hover is a background change only — no shadow, no scale, no glow. */
+.ds-task-card:hover {
+  background: var(--sem-color-bg-hover);
+}
+
+.ds-task-card:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px var(--sem-color-border-focus);
+}
+
+/* Selection: accent-soft fill plus the 2px left accent bar. */
+.ds-task-card--selected {
+  background: var(--sem-color-accent-soft);
+  border-left-color: var(--sem-color-accent-primary);
+}
+
+/* 6px status dot. Status only — never decoration or category coding. */
+.ds-task-card-dot {
+  flex: none;
+  width: 6px;
+  height: 6px;
+  border-radius: 999px;
+  background: var(--sem-color-status-neutral);
+}
+
+.ds-task-card-dot--good {
+  background: var(--sem-color-status-good);
+}
+
+.ds-task-card-dot--warn {
+  background: var(--sem-color-status-warn);
+}
+
+.ds-task-card-dot--danger {
+  background: var(--sem-color-status-danger);
+}
+
+.ds-task-card-id {
+  flex: none;
+  font-family: var(--sem-font-family-mono);
+  font-variant-numeric: tabular-nums;
+  font-size: var(--sem-font-size-meta);
+  color: var(--sem-color-text-subtle);
+}
+
+.ds-task-card-title {
+  min-width: 0;
+  flex: 1;
+  font-size: var(--sem-font-size-body);
+  font-weight: var(--sem-font-weight-medium);
+  color: var(--sem-color-text-default);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.ds-task-card--selected .ds-task-card-title {
+  color: var(--sem-color-text-primary);
+}
+
+/* Display-only trailing slot (never interactive — the card is the target). */
+.ds-task-card-trailing {
+  flex: none;
+  font-size: var(--sem-font-size-meta);
+  color: var(--sem-color-text-muted);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ds-task-card {
+    transition: none;
+  }
+}
+
+</style>
+<style>
+/* Demo and pattern scaffolding, scoped to each embed wrapper. */
+.ds-embed-component-button {
+    margin: 0;
+    font-family: var(--sem-font-family-ui);
+  }
+.ds-embed-component-button .demo-stage {
+    padding: 24px;
+    background: var(--sem-color-bg-app);
+    color: var(--sem-color-text-default);
+  }
+.ds-embed-component-button .demo-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-wrap: wrap;
+    margin: 0 0 12px;
+  }
+.ds-embed-component-button .demo-row:last-child {
+    margin-bottom: 0;
+  }
+.ds-embed-component-button .demo-label {
+    font-size: var(--sem-font-size-meta);
+    color: var(--sem-color-text-subtle);
+    width: 100%;
+  }
+.ds-embed-component-input {
+    margin: 0;
+    font-family: var(--sem-font-family-ui);
+  }
+.ds-embed-component-input .demo-stage {
+    padding: 24px;
+    background: var(--sem-color-bg-app);
+    color: var(--sem-color-text-default);
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+    max-width: 340px;
+  }
+.ds-embed-component-input .demo-label {
+    margin: 0;
+    font-size: var(--sem-font-size-meta);
+    color: var(--sem-color-text-subtle);
+  }
+.ds-embed-component-task-card {
+    margin: 0;
+    font-family: var(--sem-font-family-ui);
+  }
+.ds-embed-component-task-card .demo-stage {
+    padding: 24px;
+    background: var(--sem-color-bg-app);
+    color: var(--sem-color-text-default);
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    max-width: 380px;
+  }
+.ds-embed-component-task-card .demo-label {
+    margin: 0 0 4px;
+    font-size: var(--sem-font-size-meta);
+    color: var(--sem-color-text-subtle);
+  }
+</style>
+</head>
+<body>
+<input type="checkbox" id="ds-mode-dark" />
+<input type="radio" name="ds-view" class="ds-view-switch" id="ds-view-foundations" checked />
+<input type="radio" name="ds-view" class="ds-view-switch" id="ds-view-foundations-palette" />
+<input type="radio" name="ds-view" class="ds-view-switch" id="ds-view-foundations-type" />
+<input type="radio" name="ds-view" class="ds-view-switch" id="ds-view-foundations-spacing" />
+<input type="radio" name="ds-view" class="ds-view-switch" id="ds-view-foundations-other-tokens" />
+<input type="radio" name="ds-view" class="ds-view-switch" id="ds-view-foundations-glyphs" />
+<input type="radio" name="ds-view" class="ds-view-switch" id="ds-view-foundations-doc-principles" />
+<input type="radio" name="ds-view" class="ds-view-switch" id="ds-view-components" />
+<input type="radio" name="ds-view" class="ds-view-switch" id="ds-view-component-button" />
+<input type="radio" name="ds-view" class="ds-view-switch" id="ds-view-component-input" />
+<input type="radio" name="ds-view" class="ds-view-switch" id="ds-view-component-task-card" />
+<input type="radio" name="ds-view" class="ds-view-switch" id="ds-view-patterns" />
+<div class="ds-catalog">
+<header class="catalog-header">
+<h1>multicode</h1>
+<span class="catalog-version">v0.1.0</span>
+<label class="catalog-mode-toggle" for="ds-mode-dark"><span class="catalog-mode-when-light">Light mode — switch to dark</span><span class="catalog-mode-when-dark">Dark mode — switch to light</span></label>
+<p class="catalog-summary">I want you to generate a design system from the current application.</p>
+</header>
+<div class="catalog-layout">
+<nav class="catalog-nav" aria-label="Catalog">
+<label class="catalog-nav-group" for="ds-view-foundations">Foundations</label>
+<label class="catalog-nav-item" for="ds-view-foundations-palette">Palette</label>
+<label class="catalog-nav-item" for="ds-view-foundations-type">Type</label>
+<label class="catalog-nav-item" for="ds-view-foundations-spacing">Spacing</label>
+<label class="catalog-nav-item" for="ds-view-foundations-other-tokens">Other tokens</label>
+<label class="catalog-nav-item" for="ds-view-foundations-glyphs">Glyphs</label>
+<label class="catalog-nav-item" for="ds-view-foundations-doc-principles">Principles</label>
+<label class="catalog-nav-group" for="ds-view-components">Components</label>
+<label class="catalog-nav-item" for="ds-view-component-button">Button</label>
+<label class="catalog-nav-item" for="ds-view-component-input">Input</label>
+<label class="catalog-nav-item" for="ds-view-component-task-card">Task card</label>
+<label class="catalog-nav-group" for="ds-view-patterns">Patterns</label>
+<span class="catalog-nav-empty">none yet</span>
+</nav>
+<main class="catalog-main">
+<section id="foundations" class="catalog-group">
+<h2>Foundations</h2>
+<div id="foundations-palette" class="catalog-view">
+<h3>Palette</h3>
+<h4 class="catalog-tier-heading"><code>ref</code> colors</h4><div class="catalog-token-row"><span class="catalog-chip-pair"><span class="catalog-chip" style="background: var(--ref-color-ink-950)"></span></span><div class="catalog-token-text"><p class="catalog-token-name"><code>ref.color.ink-950</code><code class="catalog-token-value">#08080c</code></p><p class="catalog-token-meta">Darkest warm ink. Source: dark --bg-app / dark --text-on-accent.</p></div></div>
+<div class="catalog-token-row"><span class="catalog-chip-pair"><span class="catalog-chip" style="background: var(--ref-color-ink-900)"></span></span><div class="catalog-token-text"><p class="catalog-token-name"><code>ref.color.ink-900</code><code class="catalog-token-value">#0c0c10</code></p><p class="catalog-token-meta">Ink step above 950. Source: dark --bg-surface.</p></div></div>
+<div class="catalog-token-row"><span class="catalog-chip-pair"><span class="catalog-chip" style="background: var(--ref-color-ink-875)"></span></span><div class="catalog-token-text"><p class="catalog-token-name"><code>ref.color.ink-875</code><code class="catalog-token-value">#101418</code></p><p class="catalog-token-meta">Raised ink step. Source: dark --bg-surface-raised.</p></div></div>
+<div class="catalog-token-row"><span class="catalog-chip-pair"><span class="catalog-chip" style="background: var(--ref-color-ink-850)"></span></span><div class="catalog-token-text"><p class="catalog-token-name"><code>ref.color.ink-850</code><code class="catalog-token-value">#18181c</code></p><p class="catalog-token-meta">Hover ink step. Source: dark --bg-hover.</p></div></div>
+<div class="catalog-token-row"><span class="catalog-chip-pair"><span class="catalog-chip" style="background: var(--ref-color-ink-825)"></span></span><div class="catalog-token-text"><p class="catalog-token-name"><code>ref.color.ink-825</code><code class="catalog-token-value">#1c2024</code></p><p class="catalog-token-meta">Active ink step. Source: dark --bg-active.</p></div></div>
+<div class="catalog-token-row"><span class="catalog-chip-pair"><span class="catalog-chip" style="background: var(--ref-color-ink-800)"></span></span><div class="catalog-token-text"><p class="catalog-token-name"><code>ref.color.ink-800</code><code class="catalog-token-value">#24242c</code></p><p class="catalog-token-meta">Selected ink step. Source: dark --bg-selected.</p></div></div>
+<div class="catalog-token-row"><span class="catalog-chip-pair"><span class="catalog-chip" style="background: var(--ref-color-paper-100)"></span></span><div class="catalog-token-text"><p class="catalog-token-name"><code>ref.color.paper-100</code><code class="catalog-token-value">#ececec</code></p><p class="catalog-token-meta">Brightest text ink on dark surfaces. Source: dark --text-strong.</p></div></div>
+<div class="catalog-token-row"><span class="catalog-chip-pair"><span class="catalog-chip" style="background: var(--ref-color-paper-200)"></span></span><div class="catalog-token-text"><p class="catalog-token-name"><code>ref.color.paper-200</code><code class="catalog-token-value">#c8c8d0</code></p><p class="catalog-token-meta">Body text ink on dark surfaces. Source: dark --text-default.</p></div></div>
+<div class="catalog-token-row"><span class="catalog-chip-pair"><span class="catalog-chip" style="background: var(--ref-color-paper-400)"></span></span><div class="catalog-token-text"><p class="catalog-token-name"><code>ref.color.paper-400</code><code class="catalog-token-value">#9c9ca4</code></p><p class="catalog-token-meta">Muted text ink on dark surfaces. Source: dark --text-muted / --tone-neutral.</p></div></div>
+<div class="catalog-token-row"><span class="catalog-chip-pair"><span class="catalog-chip" style="background: var(--ref-color-paper-500)"></span></span><div class="catalog-token-text"><p class="catalog-token-name"><code>ref.color.paper-500</code><code class="catalog-token-value">#707078</code></p><p class="catalog-token-meta">Subtle text ink on dark surfaces. Source: dark --text-subtle.</p></div></div>
+<div class="catalog-token-row"><span class="catalog-chip-pair"><span class="catalog-chip" style="background: var(--ref-color-paper-600)"></span></span><div class="catalog-token-text"><p class="catalog-token-name"><code>ref.color.paper-600</code><code class="catalog-token-value">#5c5c64</code></p><p class="catalog-token-meta">Disabled text ink on dark surfaces. Source: dark --text-disabled.</p></div></div>
+<div class="catalog-token-row"><span class="catalog-chip-pair"><span class="catalog-chip" style="background: var(--ref-color-white)"></span></span><div class="catalog-token-text"><p class="catalog-token-name"><code>ref.color.white</code><code class="catalog-token-value">#ffffff</code></p><p class="catalog-token-meta">Pure white. Source: light --bg-surface / light --text-on-accent.</p></div></div>
+<div class="catalog-token-row"><span class="catalog-chip-pair"><span class="catalog-chip" style="background: var(--ref-color-mist-100)"></span></span><div class="catalog-token-text"><p class="catalog-token-name"><code>ref.color.mist-100</code><code class="catalog-token-value">#eaeef2</code></p><p class="catalog-token-meta">Cool near-white canvas, a step greyer than white cards. Source: light --bg-app.</p></div></div>
+<div class="catalog-token-row"><span class="catalog-chip-pair"><span class="catalog-chip" style="background: var(--ref-color-mist-150)"></span></span><div class="catalog-token-text"><p class="catalog-token-name"><code>ref.color.mist-150</code><code class="catalog-token-value">#f0f0f4</code></p><p class="catalog-token-meta">Light hover step. Source: light --bg-hover.</p></div></div>
+<div class="catalog-token-row"><span class="catalog-chip-pair"><span class="catalog-chip" style="background: var(--ref-color-mist-200)"></span></span><div class="catalog-token-text"><p class="catalog-token-name"><code>ref.color.mist-200</code><code class="catalog-token-value">#e0e4e8</code></p><p class="catalog-token-meta">Light active step. Source: light --bg-active.</p></div></div>
+<div class="catalog-token-row"><span class="catalog-chip-pair"><span class="catalog-chip" style="background: var(--ref-color-mist-250)"></span></span><div class="catalog-token-text"><p class="catalog-token-name"><code>ref.color.mist-250</code><code class="catalog-token-value">#d8dce0</code></p><p class="catalog-token-meta">Light selected step. Source: light --bg-selected.</p></div></div>
+<div class="catalog-token-row"><span class="catalog-chip-pair"><span class="catalog-chip" style="background: var(--ref-color-slate-900)"></span></span><div class="catalog-token-text"><p class="catalog-token-name"><code>ref.color.slate-900</code><code class="catalog-token-value">#202428</code></p><p class="catalog-token-meta">Near-black text ink on light surfaces. Source: light --text-strong.</p></div></div>
+<div class="catalog-token-row"><span class="catalog-chip-pair"><span class="catalog-chip" style="background: var(--ref-color-slate-700)"></span></span><div class="catalog-token-text"><p class="catalog-token-name"><code>ref.color.slate-700</code><code class="catalog-token-value">#3c444c</code></p><p class="catalog-token-meta">Body text ink on light surfaces. Source: light --text-default.</p></div></div>
+<div class="catalog-token-row"><span class="catalog-chip-pair"><span class="catalog-chip" style="background: var(--ref-color-slate-500)"></span></span><div class="catalog-token-text"><p class="catalog-token-name"><code>ref.color.slate-500</code><code class="catalog-token-value">#646c78</code></p><p class="catalog-token-meta">Muted text ink on light surfaces. Source: light --text-muted.</p></div></div>
+<div class="catalog-token-row"><span class="catalog-chip-pair"><span class="catalog-chip" style="background: var(--ref-color-slate-550)"></span></span><div class="catalog-token-text"><p class="catalog-token-name"><code>ref.color.slate-550</code><code class="catalog-token-value">#5f6772</code></p><p class="catalog-token-meta">Subtle text ink on light surfaces, darkened to clear AA body. Source: light --text-subtle.</p></div></div>
+<div class="catalog-token-row"><span class="catalog-chip-pair"><span class="catalog-chip" style="background: var(--ref-color-slate-400)"></span></span><div class="catalog-token-text"><p class="catalog-token-name"><code>ref.color.slate-400</code><code class="catalog-token-value">#838b97</code></p><p class="catalog-token-meta">Disabled text ink on light surfaces (3.44:1 on white, AA-large). Source: light --text-disabled.</p></div></div>
+<div class="catalog-token-row"><span class="catalog-chip-pair"><span class="catalog-chip" style="background: var(--ref-color-green-400)"></span></span><div class="catalog-token-text"><p class="catalog-token-name"><code>ref.color.green-400</code><code class="catalog-token-value">#4daf7d</code></p><p class="catalog-token-meta">Signature green, hover step on dark. Source: dark --accent-primary-hover.</p></div></div>
+<div class="catalog-token-row"><span class="catalog-chip-pair"><span class="catalog-chip" style="background: var(--ref-color-green-500)"></span></span><div class="catalog-token-text"><p class="catalog-token-name"><code>ref.color.green-500</code><code class="catalog-token-value">#3f9468</code></p><p class="catalog-token-meta">Signature green on dark surfaces. Source: dark --accent-primary.</p></div></div>
+<div class="catalog-token-row"><span class="catalog-chip-pair"><span class="catalog-chip" style="background: var(--ref-color-green-700)"></span></span><div class="catalog-token-text"><p class="catalog-token-name"><code>ref.color.green-700</code><code class="catalog-token-value">#2f6a4a</code></p><p class="catalog-token-meta">Deep forest green on light surfaces. Source: light --accent-primary.</p></div></div>
+<div class="catalog-token-row"><span class="catalog-chip-pair"><span class="catalog-chip" style="background: var(--ref-color-green-800)"></span></span><div class="catalog-token-text"><p class="catalog-token-name"><code>ref.color.green-800</code><code class="catalog-token-value">#275842</code></p><p class="catalog-token-meta">Deep forest green, hover step on light. Source: light --accent-primary-hover.</p></div></div>
+<div class="catalog-token-row"><span class="catalog-chip-pair"><span class="catalog-chip" style="background: var(--ref-color-emerald-400)"></span></span><div class="catalog-token-text"><p class="catalog-token-name"><code>ref.color.emerald-400</code><code class="catalog-token-value">#30d058</code></p><p class="catalog-token-meta">Luminous success emerald for dark surfaces. Source: dark --tone-good.</p></div></div>
+<div class="catalog-token-row"><span class="catalog-chip-pair"><span class="catalog-chip" style="background: var(--ref-color-emerald-700)"></span></span><div class="catalog-token-text"><p class="catalog-token-name"><code>ref.color.emerald-700</code><code class="catalog-token-value">#157f37</code></p><p class="catalog-token-meta">Deep success emerald for light surfaces (5.09:1 with white text). Source: light --tone-good.</p></div></div>
+<div class="catalog-token-row"><span class="catalog-chip-pair"><span class="catalog-chip" style="background: var(--ref-color-amber-400)"></span></span><div class="catalog-token-text"><p class="catalog-token-name"><code>ref.color.amber-400</code><code class="catalog-token-value">#fcc030</code></p><p class="catalog-token-meta">Luminous warning amber for dark surfaces. Source: dark --tone-warn.</p></div></div>
+<div class="catalog-token-row"><span class="catalog-chip-pair"><span class="catalog-chip" style="background: var(--ref-color-amber-800)"></span></span><div class="catalog-token-text"><p class="catalog-token-name"><code>ref.color.amber-800</code><code class="catalog-token-value">#9a6000</code></p><p class="catalog-token-meta">Deep warning amber for light surfaces. Source: light --tone-warn.</p></div></div>
+<div class="catalog-token-row"><span class="catalog-chip-pair"><span class="catalog-chip" style="background: var(--ref-color-coral-400)"></span></span><div class="catalog-token-text"><p class="catalog-token-name"><code>ref.color.coral-400</code><code class="catalog-token-value">#fc787c</code></p><p class="catalog-token-meta">Luminous error coral for dark surfaces. Source: dark --tone-error.</p></div></div>
+<div class="catalog-token-row"><span class="catalog-chip-pair"><span class="catalog-chip" style="background: var(--ref-color-red-600)"></span></span><div class="catalog-token-text"><p class="catalog-token-name"><code>ref.color.red-600</code><code class="catalog-token-value">#d92d2d</code></p><p class="catalog-token-meta">Deep error red for light surfaces, carries white ink. Source: light --tone-error.</p></div></div>
+<div class="catalog-token-row"><span class="catalog-chip-pair"><span class="catalog-chip" style="background: var(--ref-color-violet-500)"></span></span><div class="catalog-token-text"><p class="catalog-token-name"><code>ref.color.violet-500</code><code class="catalog-token-value">#8957e5</code></p><p class="catalog-token-meta">Merged-branch purple, constant across modes (GitHub-family semantic). Source: --tone-merged.</p></div></div>
+<div class="catalog-token-row"><span class="catalog-chip-pair"><span class="catalog-chip" style="background: var(--ref-color-gray-500)"></span></span><div class="catalog-token-text"><p class="catalog-token-name"><code>ref.color.gray-500</code><code class="catalog-token-value">#6b7280</code></p><p class="catalog-token-meta">Neutral status grey for light surfaces. Source: light --tone-neutral.</p></div></div><h4 class="catalog-tier-heading"><code>sem</code> colors</h4><div class="catalog-token-row"><span class="catalog-chip-pair"><span class="catalog-chip" data-mode="light" style="background: var(--sem-color-bg-app)" title="light"></span><span class="catalog-chip" data-mode="dark" style="background: var(--sem-color-bg-app)" title="dark"></span></span><div class="catalog-token-text"><p class="catalog-token-name"><code>sem.color.bg.app</code><code class="catalog-token-value">{ref.color.mist-100}</code><span class="catalog-badge">surface</span></p><p class="catalog-token-meta">Root/page background — the canvas every panel sits on. Root and page background, the base layer of every view. <strong>Do not:</strong> Cards or raised chrome — use bg.surface / bg.surface-raised so panels read as elevated.</p></div></div>
+<div class="catalog-token-row"><span class="catalog-chip-pair"><span class="catalog-chip" data-mode="light" style="background: var(--sem-color-bg-surface)" title="light"></span><span class="catalog-chip" data-mode="dark" style="background: var(--sem-color-bg-surface)" title="dark"></span></span><div class="catalog-token-text"><p class="catalog-token-name"><code>sem.color.bg.surface</code><code class="catalog-token-value">{ref.color.white}</code><span class="catalog-badge">surface</span></p><p class="catalog-token-meta">Panel, section, and default card surface — one step above the app canvas. Panels, sections, cards — the default working surface.</p></div></div>
+<div class="catalog-token-row"><span class="catalog-chip-pair"><span class="catalog-chip" data-mode="light" style="background: var(--sem-color-bg-surface-raised)" title="light"></span><span class="catalog-chip" data-mode="dark" style="background: var(--sem-color-bg-surface-raised)" title="dark"></span></span><div class="catalog-token-text"><p class="catalog-token-name"><code>sem.color.bg.surface-raised</code><code class="catalog-token-value">{ref.color.white}</code><span class="catalog-badge">surface</span></p><p class="catalog-token-meta">Raised chrome: tab strips, inputs, popovers, drawers. Inputs, popovers, drawers, and other chrome raised above the panel surface.</p></div></div>
+<div class="catalog-token-row"><span class="catalog-chip-pair"><span class="catalog-chip" data-mode="light" style="background: var(--sem-color-bg-hover)" title="light"></span><span class="catalog-chip" data-mode="dark" style="background: var(--sem-color-bg-hover)" title="dark"></span></span><div class="catalog-token-text"><p class="catalog-token-name"><code>sem.color.bg.hover</code><code class="catalog-token-value">{ref.color.mist-150}</code><span class="catalog-badge">interaction</span></p><p class="catalog-token-meta">Hover fill on rows, buttons, and list items — the only hover treatment (no shadow, scale, or glow). Hover background on any interactive row, button, or list item.</p></div></div>
+<div class="catalog-token-row"><span class="catalog-chip-pair"><span class="catalog-chip" data-mode="light" style="background: var(--sem-color-bg-active)" title="light"></span><span class="catalog-chip" data-mode="dark" style="background: var(--sem-color-bg-active)" title="dark"></span></span><div class="catalog-token-text"><p class="catalog-token-name"><code>sem.color.bg.active</code><code class="catalog-token-value">{ref.color.mist-200}</code><span class="catalog-badge">interaction</span></p><p class="catalog-token-meta">Pressed / active background. Pressed state background on interactive surfaces.</p></div></div>
+<div class="catalog-token-row"><span class="catalog-chip-pair"><span class="catalog-chip" data-mode="light" style="background: var(--sem-color-bg-selected)" title="light"></span><span class="catalog-chip" data-mode="dark" style="background: var(--sem-color-bg-selected)" title="dark"></span></span><div class="catalog-token-text"><p class="catalog-token-name"><code>sem.color.bg.selected</code><code class="catalog-token-value">{ref.color.mist-250}</code><span class="catalog-badge">interaction</span></p><p class="catalog-token-meta">Neutral selection background where the accent soft fill would be too strong. Neutral selected-row background in dense chrome. <strong>Do not:</strong> Primary selection — that pairs accent.soft with a left accent bar.</p></div></div>
+<div class="catalog-token-row"><span class="catalog-chip-pair"><span class="catalog-chip" data-mode="light" style="background: var(--sem-color-text-primary)" title="light"></span><span class="catalog-chip" data-mode="dark" style="background: var(--sem-color-text-primary)" title="dark"></span></span><div class="catalog-token-text"><p class="catalog-token-name"><code>sem.color.text.primary</code><code class="catalog-token-value">{ref.color.slate-900}</code><span class="catalog-badge">text</span></p><p class="catalog-token-meta">Primary content ink: titles, selected-row foreground, headings. Panel titles, primary content, selected-row foreground.</p></div></div>
+<div class="catalog-token-row"><span class="catalog-chip-pair"><span class="catalog-chip" data-mode="light" style="background: var(--sem-color-text-default)" title="light"></span><span class="catalog-chip" data-mode="dark" style="background: var(--sem-color-text-default)" title="dark"></span></span><div class="catalog-token-text"><p class="catalog-token-name"><code>sem.color.text.default</code><code class="catalog-token-value">{ref.color.slate-700}</code><span class="catalog-badge">text</span></p><p class="catalog-token-meta">Body text and default row labels. Body copy, row labels, field labels.</p></div></div>
+<div class="catalog-token-row"><span class="catalog-chip-pair"><span class="catalog-chip" data-mode="light" style="background: var(--sem-color-text-muted)" title="light"></span><span class="catalog-chip" data-mode="dark" style="background: var(--sem-color-text-muted)" title="dark"></span></span><div class="catalog-token-text"><p class="catalog-token-name"><code>sem.color.text.muted</code><code class="catalog-token-value">{ref.color.slate-500}</code><span class="catalog-badge">text</span></p><p class="catalog-token-meta">Secondary and supporting copy, meta text. Secondary copy, counts, meta rows, ghost-button labels.</p></div></div>
+<div class="catalog-token-row"><span class="catalog-chip-pair"><span class="catalog-chip" data-mode="light" style="background: var(--sem-color-text-subtle)" title="light"></span><span class="catalog-chip" data-mode="dark" style="background: var(--sem-color-text-subtle)" title="dark"></span></span><div class="catalog-token-text"><p class="catalog-token-name"><code>sem.color.text.subtle</code><code class="catalog-token-value">{ref.color.slate-550}</code><span class="catalog-badge">text</span></p><p class="catalog-token-meta">Tertiary ink: identifiers, de-emphasized meta. Identifiers, placeholders, tertiary meta. <strong>Do not:</strong> Actionable copy on its own — pair with primary text or an affordance.</p></div></div>
+<div class="catalog-token-row"><span class="catalog-chip-pair"><span class="catalog-chip" data-mode="light" style="background: var(--sem-color-text-disabled)" title="light"></span><span class="catalog-chip" data-mode="dark" style="background: var(--sem-color-text-disabled)" title="dark"></span></span><div class="catalog-token-text"><p class="catalog-token-name"><code>sem.color.text.disabled</code><code class="catalog-token-value">{ref.color.slate-400}</code><span class="catalog-badge">text</span></p><p class="catalog-token-meta">Disabled controls and empty-state copy. Disabled control labels, empty-state hints. <strong>Do not:</strong> Body copy — this step is below the AA body-contrast floor by design.</p></div></div>
+<div class="catalog-token-row"><span class="catalog-chip-pair"><span class="catalog-chip" data-mode="light" style="background: var(--sem-color-text-on-accent)" title="light"></span><span class="catalog-chip" data-mode="dark" style="background: var(--sem-color-text-on-accent)" title="dark"></span></span><div class="catalog-token-text"><p class="catalog-token-name"><code>sem.color.text.on-accent</code><code class="catalog-token-value">{ref.color.white}</code><span class="catalog-badge">text</span></p><p class="catalog-token-meta">Label ink on the accent fill. Flips by mode: white on the deep light-mode green, near-black on the brighter dark-mode green. Text and icons sitting on accent.primary fills (primary buttons).</p></div></div>
+<div class="catalog-token-row"><span class="catalog-chip-pair"><span class="catalog-chip" data-mode="light" style="background: var(--sem-color-border-subtle)" title="light"></span><span class="catalog-chip" data-mode="dark" style="background: var(--sem-color-border-subtle)" title="dark"></span></span><div class="catalog-token-text"><p class="catalog-token-name"><code>sem.color.border.subtle</code><code class="catalog-token-value">rgba(32, 36, 40, 0.10)</code><span class="catalog-badge">border</span></p><p class="catalog-token-meta">Default panel/section divider hairline. Section dividers and quiet card edges — borders carry the structure, not shadows.</p></div></div>
+<div class="catalog-token-row"><span class="catalog-chip-pair"><span class="catalog-chip" data-mode="light" style="background: var(--sem-color-border-default)" title="light"></span><span class="catalog-chip" data-mode="dark" style="background: var(--sem-color-border-default)" title="dark"></span></span><div class="catalog-token-text"><p class="catalog-token-name"><code>sem.color.border.default</code><code class="catalog-token-value">rgba(32, 36, 40, 0.20)</code><span class="catalog-badge">border</span></p><p class="catalog-token-meta">Raised-surface divider, popover and input edge. Input borders, popover edges, clear hairlines.</p></div></div>
+<div class="catalog-token-row"><span class="catalog-chip-pair"><span class="catalog-chip" data-mode="light" style="background: var(--sem-color-border-strong)" title="light"></span><span class="catalog-chip" data-mode="dark" style="background: var(--sem-color-border-strong)" title="dark"></span></span><div class="catalog-token-text"><p class="catalog-token-name"><code>sem.color.border.strong</code><code class="catalog-token-value">rgba(32, 36, 40, 0.30)</code><span class="catalog-badge">border</span></p><p class="catalog-token-meta">Hover emphasis and structural separators. Hover-emphasized edges, structural separators, ghost-button borders.</p></div></div>
+<div class="catalog-token-row"><span class="catalog-chip-pair"><span class="catalog-chip" data-mode="light" style="background: var(--sem-color-border-focus)" title="light"></span><span class="catalog-chip" data-mode="dark" style="background: var(--sem-color-border-focus)" title="dark"></span></span><div class="catalog-token-text"><p class="catalog-token-name"><code>sem.color.border.focus</code><code class="catalog-token-value">rgba(47, 106, 74, 0.55)</code><span class="catalog-badge">border</span></p><p class="catalog-token-meta">Focus ring color on every focusable primitive (green family, tracks the accent). The 2px focus-visible ring on every focusable primitive. <strong>Do not:</strong> Resting borders or dividers — focus only.</p></div></div>
+<div class="catalog-token-row"><span class="catalog-chip-pair"><span class="catalog-chip" data-mode="light" style="background: var(--sem-color-accent-primary)" title="light"></span><span class="catalog-chip" data-mode="dark" style="background: var(--sem-color-accent-primary)" title="dark"></span></span><div class="catalog-token-text"><p class="catalog-token-name"><code>sem.color.accent.primary</code><code class="catalog-token-value">{ref.color.green-700}</code><span class="catalog-badge">accent</span></p><p class="catalog-token-meta">The single product accent — signature green. Selection and primary action share it. Primary CTA fill, active selection chrome, active-tab underline. <strong>Do not:</strong> Decoration, category coding, or a second accent hue anywhere in a view.</p></div></div>
+<div class="catalog-token-row"><span class="catalog-chip-pair"><span class="catalog-chip" data-mode="light" style="background: var(--sem-color-accent-hover)" title="light"></span><span class="catalog-chip" data-mode="dark" style="background: var(--sem-color-accent-hover)" title="dark"></span></span><div class="catalog-token-text"><p class="catalog-token-name"><code>sem.color.accent.hover</code><code class="catalog-token-value">{ref.color.green-800}</code><span class="catalog-badge">accent</span></p><p class="catalog-token-meta">Accent hover step: deepens on light, brightens on dark. Hover state of accent.primary fills.</p></div></div>
+<div class="catalog-token-row"><span class="catalog-chip-pair"><span class="catalog-chip" data-mode="light" style="background: var(--sem-color-accent-soft)" title="light"></span><span class="catalog-chip" data-mode="dark" style="background: var(--sem-color-accent-soft)" title="dark"></span></span><div class="catalog-token-text"><p class="catalog-token-name"><code>sem.color.accent.soft</code><code class="catalog-token-value">rgba(47, 106, 74, 0.10)</code><span class="catalog-badge">accent</span></p><p class="catalog-token-meta">Soft accent fill for selected rows. Selected-row fill, paired with a 2px left bar of accent.primary.</p></div></div>
+<div class="catalog-token-row"><span class="catalog-chip-pair"><span class="catalog-chip" data-mode="light" style="background: var(--sem-color-accent-soft-strong)" title="light"></span><span class="catalog-chip" data-mode="dark" style="background: var(--sem-color-accent-soft-strong)" title="dark"></span></span><div class="catalog-token-text"><p class="catalog-token-name"><code>sem.color.accent.soft-strong</code><code class="catalog-token-value">rgba(47, 106, 74, 0.18)</code><span class="catalog-badge">accent</span></p><p class="catalog-token-meta">Stronger soft accent fill for selected-card emphasis. Selected-card border fill where soft is too faint.</p></div></div>
+<div class="catalog-token-row"><span class="catalog-chip-pair"><span class="catalog-chip" data-mode="light" style="background: var(--sem-color-status-neutral)" title="light"></span><span class="catalog-chip" data-mode="dark" style="background: var(--sem-color-status-neutral)" title="dark"></span></span><div class="catalog-token-text"><p class="catalog-token-name"><code>sem.color.status.neutral</code><code class="catalog-token-value">{ref.color.gray-500}</code><span class="catalog-badge">status</span></p><p class="catalog-token-meta">Idle / neutral status mark. Idle or unknown status dots and inline status copy. <strong>Do not:</strong> Button fills, chrome tints, or category coding — status only.</p></div></div>
+<div class="catalog-token-row"><span class="catalog-chip-pair"><span class="catalog-chip" data-mode="light" style="background: var(--sem-color-status-good)" title="light"></span><span class="catalog-chip" data-mode="dark" style="background: var(--sem-color-status-good)" title="dark"></span></span><div class="catalog-token-text"><p class="catalog-token-name"><code>sem.color.status.good</code><code class="catalog-token-value">{ref.color.emerald-700}</code><span class="catalog-badge">status</span></p><p class="catalog-token-meta">Done / ready / healthy. Kept apart from the forest accent by brightness and saturation. Completion and health marks: done discs, success dots. <strong>Do not:</strong> Anything decorative; never retune toward the accent green.</p></div></div>
+<div class="catalog-token-row"><span class="catalog-chip-pair"><span class="catalog-chip" data-mode="light" style="background: var(--sem-color-status-warn)" title="light"></span><span class="catalog-chip" data-mode="dark" style="background: var(--sem-color-status-warn)" title="dark"></span></span><div class="catalog-token-text"><p class="catalog-token-name"><code>sem.color.status.warn</code><code class="catalog-token-value">{ref.color.amber-800}</code><span class="catalog-badge">status</span></p><p class="catalog-token-meta">Warning / needs-input. Needs-input and warning marks. <strong>Do not:</strong> Button fills or chrome tints — status only.</p></div></div>
+<div class="catalog-token-row"><span class="catalog-chip-pair"><span class="catalog-chip" data-mode="light" style="background: var(--sem-color-status-danger)" title="light"></span><span class="catalog-chip" data-mode="dark" style="background: var(--sem-color-status-danger)" title="dark"></span></span><div class="catalog-token-text"><p class="catalog-token-name"><code>sem.color.status.danger</code><code class="catalog-token-value">{ref.color.red-600}</code><span class="catalog-badge">status</span></p><p class="catalog-token-meta">Error / blocked / failed; destructive-action fill. Error marks, failed states, destructive-button fills, invalid-field borders.</p></div></div>
+<div class="catalog-token-row"><span class="catalog-chip-pair"><span class="catalog-chip" style="background: var(--sem-color-status-merged)"></span></span><div class="catalog-token-text"><p class="catalog-token-name"><code>sem.color.status.merged</code><code class="catalog-token-value">{ref.color.violet-500}</code><span class="catalog-badge">status</span></p><p class="catalog-token-meta">Merged-and-complete purple, constant across modes so 'merged' stays recognisable (GitHub-family semantic). Completed-and-merged marks, distinct from the plain green done.</p></div></div>
+<div class="catalog-token-row"><span class="catalog-chip-pair"><span class="catalog-chip" data-mode="light" style="background: var(--sem-color-status-neutral-soft)" title="light"></span><span class="catalog-chip" data-mode="dark" style="background: var(--sem-color-status-neutral-soft)" title="dark"></span></span><div class="catalog-token-text"><p class="catalog-token-name"><code>sem.color.status.neutral-soft</code><code class="catalog-token-value">rgba(100, 108, 120, 0.14)</code><span class="catalog-badge">status</span></p><p class="catalog-token-meta">Soft neutral fill for banners and chips. Neutral banner and chip fills in inspectors and drawers. <strong>Do not:</strong> Default panel chrome.</p></div></div>
+<div class="catalog-token-row"><span class="catalog-chip-pair"><span class="catalog-chip" data-mode="light" style="background: var(--sem-color-status-good-soft)" title="light"></span><span class="catalog-chip" data-mode="dark" style="background: var(--sem-color-status-good-soft)" title="dark"></span></span><div class="catalog-token-text"><p class="catalog-token-name"><code>sem.color.status.good-soft</code><code class="catalog-token-value">rgba(21, 127, 55, 0.20)</code><span class="catalog-badge">status</span></p><p class="catalog-token-meta">Soft success fill for banners and chips. Success banner and chip fills in inspectors and drawers. <strong>Do not:</strong> Default panel chrome.</p></div></div>
+<div class="catalog-token-row"><span class="catalog-chip-pair"><span class="catalog-chip" data-mode="light" style="background: var(--sem-color-status-warn-soft)" title="light"></span><span class="catalog-chip" data-mode="dark" style="background: var(--sem-color-status-warn-soft)" title="dark"></span></span><div class="catalog-token-text"><p class="catalog-token-name"><code>sem.color.status.warn-soft</code><code class="catalog-token-value">rgba(204, 132, 0, 0.20)</code><span class="catalog-badge">status</span></p><p class="catalog-token-meta">Soft warning fill for banners and chips. Warning banner and chip fills in inspectors and drawers. <strong>Do not:</strong> Default panel chrome.</p></div></div>
+<div class="catalog-token-row"><span class="catalog-chip-pair"><span class="catalog-chip" data-mode="light" style="background: var(--sem-color-status-danger-soft)" title="light"></span><span class="catalog-chip" data-mode="dark" style="background: var(--sem-color-status-danger-soft)" title="dark"></span></span><div class="catalog-token-text"><p class="catalog-token-name"><code>sem.color.status.danger-soft</code><code class="catalog-token-value">rgba(220, 40, 40, 0.16)</code><span class="catalog-badge">status</span></p><p class="catalog-token-meta">Soft error fill for banners and chips. Error banner and chip fills in inspectors and drawers. <strong>Do not:</strong> Default panel chrome.</p></div></div>
+<div class="catalog-token-row"><span class="catalog-chip-pair"><span class="catalog-chip" data-mode="light" style="background: var(--sem-color-overlay-scrim)" title="light"></span><span class="catalog-chip" data-mode="dark" style="background: var(--sem-color-overlay-scrim)" title="dark"></span></span><div class="catalog-token-text"><p class="catalog-token-name"><code>sem.color.overlay.scrim</code><code class="catalog-token-value">rgba(20, 24, 28, 0.42)</code><span class="catalog-badge">overlay</span></p><p class="catalog-token-meta">Modal/dialog backdrop above panel chrome. A plain translucent layer — never add backdrop-filter to a full-viewport scrim. The backdrop layer behind modals, dialogs, and drawers. <strong>Do not:</strong> Combining with backdrop-filter blur — full-viewport blur re-renders every frame and tanks pointer framerate.</p></div></div>
+</div>
+<div id="foundations-type" class="catalog-view">
+<h3>Type</h3>
+<div class="catalog-token-row"><span class="catalog-type-specimen" style="font-family: var(--sem-font-family-ui)">AaBb</span><div class="catalog-token-text"><p class="catalog-token-name"><code>sem.font.family.ui</code><code class="catalog-token-value">Inter, SF Pro Text, Segoe UI, Roboto, Helvetica, Arial, sans-serif</code><span class="catalog-badge">typography</span></p><p class="catalog-token-meta">Default UI face for prose, labels, and chrome. Load Inter with font-feature-settings 'cv11', 'ss01', 'ss03'. All UI text: labels, body, headings, chrome.</p></div></div>
+<div class="catalog-token-row"><span class="catalog-type-specimen" style="font-family: var(--sem-font-family-mono)">AaBb</span><div class="catalog-token-text"><p class="catalog-token-name"><code>sem.font.family.mono</code><code class="catalog-token-value">JetBrains Mono, ui-monospace, SFMono-Regular, SF Mono, Cascadia Code, Menlo, Consolas, monospace</code><span class="catalog-badge">typography</span></p><p class="catalog-token-meta">Monospace face for identifiers, code, kbd, and terminals. Load with font-feature-settings 'tnum', 'zero'. Identifiers, code, keyboard shortcuts, numeric IDs.</p></div></div>
+<div class="catalog-token-row"><span class="catalog-type-specimen" style="font-size: var(--sem-font-size-micro)">AaBb</span><div class="catalog-token-text"><p class="catalog-token-name"><code>sem.font.size.micro</code><code class="catalog-token-value">10.5px</code><span class="catalog-badge">typography</span></p><p class="catalog-token-meta">Micro labels: kbd shortcuts in dense chrome. Micro labels only — kbd shortcuts, dense chrome.</p></div></div>
+<div class="catalog-token-row"><span class="catalog-type-specimen" style="font-size: var(--sem-font-size-meta)">AaBb</span><div class="catalog-token-text"><p class="catalog-token-name"><code>sem.font.size.meta</code><code class="catalog-token-value">11px</code><span class="catalog-badge">typography</span></p><p class="catalog-token-meta">IDs, meta, and supporting copy. Identifiers, meta rows, help and error text.</p></div></div>
+<div class="catalog-token-row"><span class="catalog-type-specimen" style="font-size: var(--sem-font-size-body)">AaBb</span><div class="catalog-token-text"><p class="catalog-token-name"><code>sem.font.size.body</code><code class="catalog-token-value">12px</code><span class="catalog-badge">typography</span></p><p class="catalog-token-meta">Default body, card titles, row labels, buttons. The default text size for body copy, labels, and controls.</p></div></div>
+<div class="catalog-token-row"><span class="catalog-type-specimen" style="font-size: var(--sem-font-size-heading)">AaBb</span><div class="catalog-token-text"><p class="catalog-token-name"><code>sem.font.size.heading</code><code class="catalog-token-value">13px</code><span class="catalog-badge">typography</span></p><p class="catalog-token-meta">Section headings and drawer body. Section headings inside panels and drawers.</p></div></div>
+<div class="catalog-token-row"><span class="catalog-type-specimen" style="font-size: var(--sem-font-size-title)">AaBb</span><div class="catalog-token-text"><p class="catalog-token-name"><code>sem.font.size.title</code><code class="catalog-token-value">15px</code><span class="catalog-badge">typography</span></p><p class="catalog-token-meta">Panel and inspector titles. Panel titles (H2) and inspector titles — keep at most 3 sizes per view.</p></div></div>
+<div class="catalog-token-row"><span class="catalog-type-specimen" style="font-weight: var(--sem-font-weight-regular)">AaBb</span><div class="catalog-token-text"><p class="catalog-token-name"><code>sem.font.weight.regular</code><code class="catalog-token-value">400</code><span class="catalog-badge">typography</span></p><p class="catalog-token-meta">Regular body weight. Body copy and meta text.</p></div></div>
+<div class="catalog-token-row"><span class="catalog-type-specimen" style="font-weight: var(--sem-font-weight-medium)">AaBb</span><div class="catalog-token-text"><p class="catalog-token-name"><code>sem.font.weight.medium</code><code class="catalog-token-value">500</code><span class="catalog-badge">typography</span></p><p class="catalog-token-meta">Medium weight for labels, buttons, and card titles. Button labels, field labels, row titles.</p></div></div>
+<div class="catalog-token-row"><span class="catalog-type-specimen" style="font-weight: var(--sem-font-weight-emphasis)">AaBb</span><div class="catalog-token-text"><p class="catalog-token-name"><code>sem.font.weight.emphasis</code><code class="catalog-token-value">600</code><span class="catalog-badge">typography</span></p><p class="catalog-token-meta">Semibold for headings and selected emphasis. Headings and selected-state emphasis where weight must move with color.</p></div></div>
+<div class="catalog-token-row"><span class="catalog-type-specimen" style="font-size: var(--sem-font-line-tight)">AaBb</span><div class="catalog-token-text"><p class="catalog-token-name"><code>sem.font.line.tight</code><code class="catalog-token-value">1.25</code><span class="catalog-badge">typography</span></p><p class="catalog-token-meta">Display and panel-title line height. Titles and single-line labels.</p></div></div>
+<div class="catalog-token-row"><span class="catalog-type-specimen" style="font-size: var(--sem-font-line-default)">AaBb</span><div class="catalog-token-text"><p class="catalog-token-name"><code>sem.font.line.default</code><code class="catalog-token-value">1.4</code><span class="catalog-badge">typography</span></p><p class="catalog-token-meta">Body and row-label line height. Body copy and row labels.</p></div></div>
+<div class="catalog-token-row"><span class="catalog-type-specimen" style="font-size: var(--sem-font-line-relaxed)">AaBb</span><div class="catalog-token-text"><p class="catalog-token-name"><code>sem.font.line.relaxed</code><code class="catalog-token-value">1.5</code><span class="catalog-badge">typography</span></p><p class="catalog-token-meta">Long-form prose line height. Long-form prose in inspectors and docs.</p></div></div>
+</div>
+<div id="foundations-spacing" class="catalog-view">
+<h3>Spacing</h3>
+<p class="catalog-empty">This system defines no spacing tokens.</p>
+</div>
+<div id="foundations-other-tokens" class="catalog-view">
+<h3>Other tokens</h3>
+<div class="catalog-token-row"><span class="catalog-specimen-blank"></span><div class="catalog-token-text"><p class="catalog-token-name"><code>sem.shadow.drawer</code><code class="catalog-token-value">0 1px 3px rgba(16, 20, 24, 0.06), 0 8px 24px -6px rgba(16, 20, 24, 0.10)</code><span class="catalog-badge">elevation</span></p><p class="catalog-token-meta">The one canonical elevation shadow, shared by drawers and overlay panels. Drawer and overlay-panel elevation — the only drop shadow in the system. <strong>Do not:</strong> Cards, rows, or hover states — structure comes from hairline borders.</p></div></div>
+<div class="catalog-token-row"><span class="catalog-specimen-blank"></span><div class="catalog-token-text"><p class="catalog-token-name"><code>sem.icon.size.xs</code><code class="catalog-token-value">12px</code><span class="catalog-badge">iconography</span></p><p class="catalog-token-meta">Inline glyphs next to body/meta copy. Inline glyphs beside meta copy and inside chips.</p></div></div>
+<div class="catalog-token-row"><span class="catalog-specimen-blank"></span><div class="catalog-token-text"><p class="catalog-token-name"><code>sem.icon.size.sm</code><code class="catalog-token-value">14px</code><span class="catalog-badge">iconography</span></p><p class="catalog-token-meta">Default list-row and toolbar icons. The default icon size for rows, toolbars, and close glyphs.</p></div></div>
+<div class="catalog-token-row"><span class="catalog-specimen-blank"></span><div class="catalog-token-text"><p class="catalog-token-name"><code>sem.icon.size.md</code><code class="catalog-token-value">16px</code><span class="catalog-badge">iconography</span></p><p class="catalog-token-meta">Button-pair icons and panel-header chrome. Icons paired with button labels and panel-header affordances.</p></div></div>
+<div class="catalog-token-row"><span class="catalog-specimen-blank"></span><div class="catalog-token-text"><p class="catalog-token-name"><code>sem.icon.size.lg</code><code class="catalog-token-value">20px</code><span class="catalog-badge">iconography</span></p><p class="catalog-token-meta">Prominent affordances and empty-state glyphs. Empty-state glyphs and large overlay close buttons.</p></div></div>
+<div class="catalog-token-row"><span class="catalog-radius-box" style="border-radius: var(--sem-radius-chip)"></span><div class="catalog-token-text"><p class="catalog-token-name"><code>sem.radius.chip</code><code class="catalog-token-value">3px</code><span class="catalog-badge">shape</span></p><p class="catalog-token-meta">Inner chips (rarely needed). Small inner chips nested inside a rounded parent.</p></div></div>
+<div class="catalog-token-row"><span class="catalog-radius-box" style="border-radius: var(--sem-radius-control)"></span><div class="catalog-token-text"><p class="catalog-token-name"><code>sem.radius.control</code><code class="catalog-token-value">5px</code><span class="catalog-badge">shape</span></p><p class="catalog-token-meta">Cards, rows, buttons, and inputs in panel chrome. The default control radius: buttons, inputs, cards, rows — keep at most 2 radii per view.</p></div></div>
+<div class="catalog-token-row"><span class="catalog-radius-box" style="border-radius: var(--sem-radius-overlay)"></span><div class="catalog-token-text"><p class="catalog-token-name"><code>sem.radius.overlay</code><code class="catalog-token-value">7px</code><span class="catalog-badge">shape</span></p><p class="catalog-token-meta">Popovers and drawers. Popovers, drawers, and floating surfaces.</p></div></div>
+<div class="catalog-token-row"><span class="catalog-radius-box" style="border-radius: var(--sem-radius-shell)"></span><div class="catalog-token-text"><p class="catalog-token-name"><code>sem.radius.shell</code><code class="catalog-token-value">9px</code><span class="catalog-badge">shape</span></p><p class="catalog-token-meta">Large overlay and modal shells. Modal shells and the largest overlay surfaces. <strong>Do not:</strong> Operational chrome — larger radii are marketing-only.</p></div></div>
+<div class="catalog-token-row"><span class="catalog-specimen-blank"></span><div class="catalog-token-text"><p class="catalog-token-name"><code>sem.motion.duration.fast</code><code class="catalog-token-value">120ms</code><span class="catalog-badge">motion</span></p><p class="catalog-token-meta">Hover, focus, and small state flips. Hover and focus transitions, small state flips.</p></div></div>
+<div class="catalog-token-row"><span class="catalog-specimen-blank"></span><div class="catalog-token-text"><p class="catalog-token-name"><code>sem.motion.duration.normal</code><code class="catalog-token-value">180ms</code><span class="catalog-badge">motion</span></p><p class="catalog-token-meta">Reorder and popover enter. Popover enters and list reorders.</p></div></div>
+<div class="catalog-token-row"><span class="catalog-specimen-blank"></span><div class="catalog-token-text"><p class="catalog-token-name"><code>sem.motion.duration.deliberate</code><code class="catalog-token-value">260ms</code><span class="catalog-badge">motion</span></p><p class="catalog-token-meta">Drawer enter/exit. Drawer and large-surface enter/exit.</p></div></div>
+<div class="catalog-token-row"><span class="catalog-specimen-blank"></span><div class="catalog-token-text"><p class="catalog-token-name"><code>sem.motion.ease.standard</code><code class="catalog-token-value">cubic-bezier(0.2, 0.8, 0.2, 1)</code><span class="catalog-badge">motion</span></p><p class="catalog-token-meta">The single easing curve for all UI motion. Every transition and animation — one ease, no exceptions. <strong>Do not:</strong> Introducing a second easing curve.</p></div></div>
+</div>
+<div id="foundations-glyphs" class="catalog-view">
+<h3>Glyphs</h3>
+<div class="catalog-glyph-grid">
+<figure class="catalog-glyph"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 14 14" fill="none">
+  <path d="M3.25 3.25L10.75 10.75M10.75 3.25L3.25 10.75" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/>
+</svg><figcaption>close</figcaption></figure>
+<figure class="catalog-glyph"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" fill="none">
+  <path d="M4 3.5 L16 13.5 L16 28.5 L4 28.5 Z" fill="currentColor"/>
+  <path d="M28 3.5 L16 13.5 L16 28.5 L28 28.5 Z" fill="currentColor" fill-opacity="0.72"/>
+</svg><figcaption>multicode-mark</figcaption></figure>
+<figure class="catalog-glyph"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 11 11" fill="none">
+  <circle cx="4.5" cy="4.5" r="3" stroke="currentColor" stroke-width="1.2" fill="none"/>
+  <path d="M7 7l2.5 2.5" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/>
+</svg><figcaption>search</figcaption></figure>
+<figure class="catalog-glyph"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="none">
+  <circle cx="8" cy="8" r="5" stroke="currentColor" stroke-width="1.5" stroke-opacity="0.22"/>
+  <path d="M8 3a5 5 0 0 1 5 5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+</svg><figcaption>spinner</figcaption></figure>
+</div>
+</div>
+<div id="foundations-doc-principles" class="catalog-view catalog-doc-card">
+<h3>Principles</h3>
+<p>Extracted from the Multicode app's documented design language (<code>knowledge/brand/</code> and <code>src/renderer/src/assets/index.css</code> in the source product). These are the source's de-facto rules restated for this bundle; each is a proposal until confirmed in review.</p>
+<h4>One accent</h4>
+<ul><li>One accent hue per view: the signature green (<code>sem.color.accent.primary</code>). Active selection and primary action share it; hover lifts to <code>accent.hover</code>.</li><li>Boxed selection is a 2px left bar of <code>accent.primary</code> over an <code>accent.soft</code> fill — never a full accent-filled row.</li><li>Status colors are not accents: never use <code>sem.color.status.*</code> as button backgrounds, section borders, chrome tints, or category coding.</li></ul>
+<h4>Hairlines carry the structure</h4>
+<ul><li>Borders do the structural work. Cards, badges, and shadows do not.</li><li>The only drop shadow is <code>sem.shadow.drawer</code>, on drawers and overlay panels.</li><li>Hover is a background change (<code>sem.color.bg.hover</code>) only — no shadow, no scale, no glow.</li></ul>
+<h4>Coarse, deliberate scales</h4>
+<ul><li>The surface ramp (<code>bg.app</code> → <code>bg.selected</code>) is intentionally coarse; do not invent intermediate steps or blue-shifted variants.</li><li>At most 2 border radii per view; <code>radius.control</code> (5px) is the default, larger radii belong to overlays and modal shells only.</li><li>At most 3 text sizes per view; the rhythm repeats title / body / meta.</li></ul>
+<h4>Type</h4>
+<ul><li>Inter for UI, JetBrains Mono for identifiers, code, and <code>kbd</code>.</li><li>Sentence case everywhere except keyboard shortcuts. No uppercase-tracking chrome.</li><li>Tabular numerals on every numeric column; identifiers use mono at <code>font.size.meta</code> in <code>text.subtle</code>.</li></ul>
+<h4>Status is earned</h4>
+<ul><li>Status reads by shape first, color second — every state must survive grayscale. Done/healthy items render no mark by default.</li><li>Only genuinely live work animates (a single spinner or pulsing dot); nothing ambient.</li><li>The accent green (forest) and the success green (bright emerald) are kept apart by brightness and saturation; do not retune one toward the other.</li></ul>
+<h4>Motion is rare and earned</h4>
+<ul><li>One easing curve (<code>motion.ease.standard</code>), three durations. Hover/focus at <code>fast</code>, popovers at <code>normal</code>, drawers at <code>deliberate</code>.</li><li>Every animation honors <code>prefers-reduced-motion: reduce</code>.</li><li>Never put <code>backdrop-filter</code> on a full-viewport scrim; separation comes from the scrim tone plus the drawer shadow.</li></ul>
+<h4>Modes</h4>
+<ul><li>Light and dark ship from the same semantic tokens; consumers style with <code>--sem-*</code> only and never write per-mode overrides.</li><li>Contrast floors are load-bearing: body text clears AA on its surface; <code>text.subtle</code> and <code>text.disabled</code> never carry actionable copy alone.</li><li>Dark-mode values keep the source's anti-dither discipline (solid channel values on multiples of 4, no pure black surfaces).</li></ul>
+<h4>Tokens or nothing</h4>
+<ul><li>Never hard-code a color. Every color resolves from a <code>--sem-*</code> variable; pick tokens by their documented role and use, not by their looks.</li></ul>
+</div>
+</section>
+<section id="components" class="catalog-group">
+<h2>Components</h2>
+<div id="component-button" class="catalog-view catalog-component">
+<h3>Button</h3>
+<div class="catalog-component-grid">
+<div class="catalog-stage ds-embed-component-button">
+<div class="demo-stage" data-mode="light">
+  <p class="demo-label">Light</p>
+  <div class="demo-row">
+    <button type="button" class="ds-button ds-button--primary">Create workspace</button>
+    <button type="button" class="ds-button ds-button--ghost">Cancel</button>
+    <button type="button" class="ds-button ds-button--icon" aria-label="Close">
+      <svg viewBox="0 0 14 14" fill="none" aria-hidden="true"><path d="M3.25 3.25L10.75 10.75M10.75 3.25L3.25 10.75" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>
+    </button>
+  </div>
+  <div class="demo-row">
+    <button type="button" class="ds-button ds-button--primary ds-button--md">Medium primary</button>
+    <button type="button" class="ds-button ds-button--primary" disabled>Disabled</button>
+    <button type="button" class="ds-button ds-button--ghost" disabled>Disabled ghost</button>
+  </div>
+</div>
+<div class="demo-stage" data-mode="dark">
+  <p class="demo-label">Dark</p>
+  <div class="demo-row">
+    <button type="button" class="ds-button ds-button--primary">Create workspace</button>
+    <button type="button" class="ds-button ds-button--ghost">Cancel</button>
+    <button type="button" class="ds-button ds-button--icon" aria-label="Close">
+      <svg viewBox="0 0 14 14" fill="none" aria-hidden="true"><path d="M3.25 3.25L10.75 10.75M10.75 3.25L3.25 10.75" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>
+    </button>
+  </div>
+  <div class="demo-row">
+    <button type="button" class="ds-button ds-button--primary ds-button--md">Medium primary</button>
+    <button type="button" class="ds-button ds-button--primary" disabled>Disabled</button>
+    <button type="button" class="ds-button ds-button--ghost" disabled>Disabled ghost</button>
+  </div>
+</div>
+</div>
+<div class="catalog-doc">
+<p>Extracted from the source product's <code>PrimaryButton</code>, <code>GhostButton</code>, and <code>IconButton</code> primitives. One accent rule applies: a view has at most one primary button, and it shares its hue with selection chrome.</p>
+<h4>Anatomy</h4>
+<ul><li>A single <code>&lt;button&gt;</code> element with the base class <code>ds-button</code> plus one variant modifier.</li><li>Optional leading icon sized by <code>sem.icon.size.sm</code>, gap 6px.</li><li>Label set in <code>font.size.body</code> at <code>font.weight.medium</code>, sentence case.</li></ul>
+<h4>Variants</h4>
+<ul><li><code>ds-button--primary</code> — accent fill (<code>accent.primary</code>), <code>text.on-accent</code> label. The single primary action of a view.</li><li><code>ds-button--ghost</code> — transparent, <code>text.muted</code> label; hover lifts to <code>bg.hover</code> + <code>text.primary</code>. Secondary and tertiary actions.</li><li><code>ds-button--icon</code> — 24px square, borderless, icon-only. Must carry an <code>aria-label</code>. The canonical close affordance uses the <code>close</code> glyph.</li><li>Sizes: default sm (28px) and <code>ds-button--md</code> (32px).</li></ul>
+<h4>States</h4>
+<ul><li>Hover: primary deepens/brightens to <code>accent.hover</code>; ghost and icon gain <code>bg.hover</code> and stronger ink. No shadow, scale, or glow on hover.</li><li>Active: scale(0.97) press, removed under reduced motion.</li><li>Focus-visible: 2px ring of <code>border.focus</code>; never remove the ring without replacing it.</li><li>Disabled: 45% opacity, <code>not-allowed</code> cursor, hover suppressed.</li></ul>
+<h4>Usage</h4>
+<ul><li>One primary button per view; everything else is ghost or icon.</li><li>Destructive confirmation buttons swap the fill to <code>status.danger</code> — do not invent a third neutral-filled variant.</li><li>Keep labels to sentence case verbs (&quot;Create workspace&quot;, not &quot;CREATE&quot;).</li></ul>
+<h4>Accessibility</h4>
+<ul><li>Icon-only buttons require <code>aria-label</code>.</li><li>Focus is always visible via the <code>border.focus</code> ring.</li><li>The press animation is disabled under <code>prefers-reduced-motion: reduce</code>.</li><li>Contrast: label-on-fill clears AA in both modes (<code>text.on-accent</code> flips between white and near-black with the mode).</li></ul>
+</div>
+</div>
+<details class="catalog-source"><summary>components/button/component.css</summary><pre><code>/* Button — extracted from the source product's PrimaryButton / GhostButton /
+ * IconButton primitives (src/renderer/src/components/ui/Buttons.tsx). */
+
+.ds-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  height: 28px;
+  padding: 0 12px;
+  border: none;
+  border-radius: var(--sem-radius-control);
+  font-family: var(--sem-font-family-ui);
+  font-size: var(--sem-font-size-body);
+  font-weight: var(--sem-font-weight-medium);
+  line-height: var(--sem-font-line-tight);
+  cursor: pointer;
+  transition:
+    background-color var(--sem-motion-duration-fast) var(--sem-motion-ease-standard),
+    color var(--sem-motion-duration-fast) var(--sem-motion-ease-standard),
+    transform var(--sem-motion-duration-fast) var(--sem-motion-ease-standard);
+}
+
+.ds-button:active:not(:disabled) {
+  transform: scale(0.97);
+}
+
+.ds-button:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px var(--sem-color-border-focus);
+}
+
+.ds-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+
+/* Primary — the accent fill; selection and primary action share this hue. */
+.ds-button--primary {
+  background: var(--sem-color-accent-primary);
+  color: var(--sem-color-text-on-accent);
+}
+
+.ds-button--primary:hover:not(:disabled) {
+  background: var(--sem-color-accent-hover);
+}
+
+/* Ghost — quiet secondary action; hover lifts ink and background together. */
+.ds-button--ghost {
+  background: transparent;
+  color: var(--sem-color-text-muted);
+}
+
+.ds-button--ghost:hover:not(:disabled) {
+  background: var(--sem-color-bg-hover);
+  color: var(--sem-color-text-primary);
+}
+
+/* Sizes: sm (28px, default) and md (32px). */
+.ds-button--md {
+  height: 32px;
+}
+
+/* Icon — square, borderless; requires an accessible name on the button. */
+.ds-button--icon {
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  background: transparent;
+  color: var(--sem-color-text-muted);
+}
+
+.ds-button--icon:hover:not(:disabled) {
+  background: var(--sem-color-bg-hover);
+  color: var(--sem-color-text-primary);
+}
+
+.ds-button--icon svg {
+  width: var(--sem-icon-size-sm);
+  height: var(--sem-icon-size-sm);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ds-button {
+    transition: none;
+  }
+  .ds-button:active:not(:disabled) {
+    transform: none;
+  }
+}
+</code></pre></details>
+<details class="catalog-source"><summary>components/button/component.html (demo)</summary><pre><code>&lt;!doctype html&gt;
+&lt;html lang=&quot;en&quot;&gt;
+&lt;head&gt;
+&lt;meta charset=&quot;utf-8&quot; /&gt;
+&lt;meta name=&quot;viewport&quot; content=&quot;width=device-width, initial-scale=1&quot; /&gt;
+&lt;title&gt;Button&lt;/title&gt;
+&lt;link rel=&quot;stylesheet&quot; href=&quot;../../foundations/tokens.css&quot; /&gt;
+&lt;link rel=&quot;stylesheet&quot; href=&quot;component.css&quot; /&gt;
+&lt;style&gt;
+  body {
+    margin: 0;
+    font-family: var(--sem-font-family-ui);
+  }
+  .demo-stage {
+    padding: 24px;
+    background: var(--sem-color-bg-app);
+    color: var(--sem-color-text-default);
+  }
+  .demo-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-wrap: wrap;
+    margin: 0 0 12px;
+  }
+  .demo-row:last-child {
+    margin-bottom: 0;
+  }
+  .demo-label {
+    font-size: var(--sem-font-size-meta);
+    color: var(--sem-color-text-subtle);
+    width: 100%;
+  }
+&lt;/style&gt;
+&lt;/head&gt;
+&lt;body&gt;
+&lt;div class=&quot;demo-stage&quot; data-mode=&quot;light&quot;&gt;
+  &lt;p class=&quot;demo-label&quot;&gt;Light&lt;/p&gt;
+  &lt;div class=&quot;demo-row&quot;&gt;
+    &lt;button type=&quot;button&quot; class=&quot;ds-button ds-button--primary&quot;&gt;Create workspace&lt;/button&gt;
+    &lt;button type=&quot;button&quot; class=&quot;ds-button ds-button--ghost&quot;&gt;Cancel&lt;/button&gt;
+    &lt;button type=&quot;button&quot; class=&quot;ds-button ds-button--icon&quot; aria-label=&quot;Close&quot;&gt;
+      &lt;svg viewBox=&quot;0 0 14 14&quot; fill=&quot;none&quot; aria-hidden=&quot;true&quot;&gt;&lt;path d=&quot;M3.25 3.25L10.75 10.75M10.75 3.25L3.25 10.75&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.4&quot; stroke-linecap=&quot;round&quot;/&gt;&lt;/svg&gt;
+    &lt;/button&gt;
+  &lt;/div&gt;
+  &lt;div class=&quot;demo-row&quot;&gt;
+    &lt;button type=&quot;button&quot; class=&quot;ds-button ds-button--primary ds-button--md&quot;&gt;Medium primary&lt;/button&gt;
+    &lt;button type=&quot;button&quot; class=&quot;ds-button ds-button--primary&quot; disabled&gt;Disabled&lt;/button&gt;
+    &lt;button type=&quot;button&quot; class=&quot;ds-button ds-button--ghost&quot; disabled&gt;Disabled ghost&lt;/button&gt;
+  &lt;/div&gt;
+&lt;/div&gt;
+&lt;div class=&quot;demo-stage&quot; data-mode=&quot;dark&quot;&gt;
+  &lt;p class=&quot;demo-label&quot;&gt;Dark&lt;/p&gt;
+  &lt;div class=&quot;demo-row&quot;&gt;
+    &lt;button type=&quot;button&quot; class=&quot;ds-button ds-button--primary&quot;&gt;Create workspace&lt;/button&gt;
+    &lt;button type=&quot;button&quot; class=&quot;ds-button ds-button--ghost&quot;&gt;Cancel&lt;/button&gt;
+    &lt;button type=&quot;button&quot; class=&quot;ds-button ds-button--icon&quot; aria-label=&quot;Close&quot;&gt;
+      &lt;svg viewBox=&quot;0 0 14 14&quot; fill=&quot;none&quot; aria-hidden=&quot;true&quot;&gt;&lt;path d=&quot;M3.25 3.25L10.75 10.75M10.75 3.25L3.25 10.75&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.4&quot; stroke-linecap=&quot;round&quot;/&gt;&lt;/svg&gt;
+    &lt;/button&gt;
+  &lt;/div&gt;
+  &lt;div class=&quot;demo-row&quot;&gt;
+    &lt;button type=&quot;button&quot; class=&quot;ds-button ds-button--primary ds-button--md&quot;&gt;Medium primary&lt;/button&gt;
+    &lt;button type=&quot;button&quot; class=&quot;ds-button ds-button--primary&quot; disabled&gt;Disabled&lt;/button&gt;
+    &lt;button type=&quot;button&quot; class=&quot;ds-button ds-button--ghost&quot; disabled&gt;Disabled ghost&lt;/button&gt;
+  &lt;/div&gt;
+&lt;/div&gt;
+&lt;/body&gt;
+&lt;/html&gt;
+</code></pre></details>
+</div>
+<div id="component-input" class="catalog-view catalog-component">
+<h3>Input</h3>
+<div class="catalog-component-grid">
+<div class="catalog-stage ds-embed-component-input">
+<div class="demo-stage" data-mode="light">
+  <p class="demo-label">Light</p>
+  <div class="ds-field">
+    <label class="ds-field-label" for="ws-name-light">Workspace name<span class="ds-field-required" aria-hidden="true">*</span></label>
+    <input class="ds-input" id="ws-name-light" type="text" placeholder="my-project" aria-required="true" aria-describedby="ws-name-light-help" />
+    <p class="ds-field-help" id="ws-name-light-help">Shown in the sidebar and the switcher.</p>
+  </div>
+  <div class="ds-field">
+    <label class="ds-field-label" for="ws-path-light">Folder path</label>
+    <input class="ds-input" id="ws-path-light" type="text" value="/tmp/nowhere" aria-invalid="true" aria-describedby="ws-path-light-error" />
+    <p class="ds-field-error" id="ws-path-light-error">That folder does not exist.</p>
+  </div>
+  <div class="ds-field">
+    <label class="ds-field-label" for="ws-locked-light">Locked field</label>
+    <input class="ds-input" id="ws-locked-light" type="text" value="read-only value" disabled />
+  </div>
+</div>
+<div class="demo-stage" data-mode="dark">
+  <p class="demo-label">Dark</p>
+  <div class="ds-field">
+    <label class="ds-field-label" for="ws-name-dark">Workspace name<span class="ds-field-required" aria-hidden="true">*</span></label>
+    <input class="ds-input" id="ws-name-dark" type="text" placeholder="my-project" aria-required="true" aria-describedby="ws-name-dark-help" />
+    <p class="ds-field-help" id="ws-name-dark-help">Shown in the sidebar and the switcher.</p>
+  </div>
+  <div class="ds-field">
+    <label class="ds-field-label" for="ws-path-dark">Folder path</label>
+    <input class="ds-input" id="ws-path-dark" type="text" value="/tmp/nowhere" aria-invalid="true" aria-describedby="ws-path-dark-error" />
+    <p class="ds-field-error" id="ws-path-dark-error">That folder does not exist.</p>
+  </div>
+  <div class="ds-field">
+    <label class="ds-field-label" for="ws-locked-dark">Locked field</label>
+    <input class="ds-input" id="ws-locked-dark" type="text" value="read-only value" disabled />
+  </div>
+</div>
+</div>
+<div class="catalog-doc">
+<p>Extracted from the source product's <code>Field</code> wrapper (label + control + one supporting message) and its 28px raised input chrome.</p>
+<h4>Anatomy</h4>
+<ul><li><code>ds-field</code> — vertical stack, 6px gap: label, control, one supporting message.</li><li><code>ds-field-label</code> — <code>font.size.body</code> at <code>font.weight.medium</code> in <code>text.default</code>; a required mark (<code>*</code>) in <code>status.danger</code> is <code>aria-hidden</code> and mirrored by <code>aria-required</code> on the control.</li><li><code>ds-input</code> — 28px control on <code>bg.surface-raised</code> with a <code>border.default</code> hairline and <code>radius.control</code>.</li><li><code>ds-field-help</code> / <code>ds-field-error</code> — <code>font.size.meta</code>; help in <code>text.subtle</code>, error in <code>status.danger</code>.</li></ul>
+<h4>Variants</h4>
+<ul><li>Default text input. The same chrome serves search inputs (add a leading <code>search</code> glyph) and other single-line controls.</li></ul>
+<h4>States</h4>
+<ul><li>Focus: border moves to <code>accent.primary</code>; keyboard focus adds the 2px <code>border.focus</code> ring.</li><li>Invalid: <code>aria-invalid=&quot;true&quot;</code> moves the border to <code>status.danger</code>; the error message replaces the help text (never both).</li><li>Disabled: <code>text.disabled</code> ink, reduced opacity, <code>not-allowed</code> cursor.</li><li>Placeholder: <code>text.subtle</code>.</li></ul>
+<h4>Usage</h4>
+<ul><li>Exactly one supporting message at a time — help hides while an error shows.</li><li>Labels are sentence case, no trailing colon.</li><li>Do not stretch inputs beyond their content column; 28px height is the panel-chrome standard.</li></ul>
+<h4>Accessibility</h4>
+<ul><li>The label is a real <code>&lt;label for&gt;</code> pointing at the control.</li><li><code>aria-describedby</code> points at the visible help or error message, whichever is shown.</li><li>Invalid state is conveyed by <code>aria-invalid</code>, not color alone (the error text names the problem).</li></ul>
+</div>
+</div>
+<details class="catalog-source"><summary>components/input/component.css</summary><pre><code>/* Input — extracted from the source product's Field wrapper and the 28px
+ * input chrome (src/renderer/src/components/ui/Field.tsx, InboxSearchInput.tsx). */
+
+.ds-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-family: var(--sem-font-family-ui);
+}
+
+.ds-field-label {
+  font-size: var(--sem-font-size-body);
+  font-weight: var(--sem-font-weight-medium);
+  color: var(--sem-color-text-default);
+}
+
+.ds-field-required {
+  margin-left: 4px;
+  color: var(--sem-color-status-danger);
+}
+
+.ds-input {
+  height: 28px;
+  padding: 0 8px;
+  border: 1px solid var(--sem-color-border-default);
+  border-radius: var(--sem-radius-control);
+  background: var(--sem-color-bg-surface-raised);
+  color: var(--sem-color-text-default);
+  font-family: inherit;
+  font-size: var(--sem-font-size-body);
+  transition: border-color var(--sem-motion-duration-fast) var(--sem-motion-ease-standard);
+}
+
+.ds-input::placeholder {
+  color: var(--sem-color-text-subtle);
+}
+
+/* Focus signals with both the accent border and the ring, so it never reads
+ * by color shift alone. */
+.ds-input:focus {
+  outline: none;
+  border-color: var(--sem-color-accent-primary);
+}
+
+.ds-input:focus-visible {
+  box-shadow: 0 0 0 2px var(--sem-color-border-focus);
+}
+
+.ds-input[aria-invalid='true'] {
+  border-color: var(--sem-color-status-danger);
+}
+
+.ds-input:disabled {
+  color: var(--sem-color-text-disabled);
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
+/* One supporting message at a time: help hides when an error shows. */
+.ds-field-help {
+  margin: 0;
+  font-size: var(--sem-font-size-meta);
+  color: var(--sem-color-text-subtle);
+}
+
+.ds-field-error {
+  margin: 0;
+  font-size: var(--sem-font-size-meta);
+  color: var(--sem-color-status-danger);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ds-input {
+    transition: none;
+  }
+}
+</code></pre></details>
+<details class="catalog-source"><summary>components/input/component.html (demo)</summary><pre><code>&lt;!doctype html&gt;
+&lt;html lang=&quot;en&quot;&gt;
+&lt;head&gt;
+&lt;meta charset=&quot;utf-8&quot; /&gt;
+&lt;meta name=&quot;viewport&quot; content=&quot;width=device-width, initial-scale=1&quot; /&gt;
+&lt;title&gt;Input&lt;/title&gt;
+&lt;link rel=&quot;stylesheet&quot; href=&quot;../../foundations/tokens.css&quot; /&gt;
+&lt;link rel=&quot;stylesheet&quot; href=&quot;component.css&quot; /&gt;
+&lt;style&gt;
+  body {
+    margin: 0;
+    font-family: var(--sem-font-family-ui);
+  }
+  .demo-stage {
+    padding: 24px;
+    background: var(--sem-color-bg-app);
+    color: var(--sem-color-text-default);
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+    max-width: 340px;
+  }
+  .demo-label {
+    margin: 0;
+    font-size: var(--sem-font-size-meta);
+    color: var(--sem-color-text-subtle);
+  }
+&lt;/style&gt;
+&lt;/head&gt;
+&lt;body&gt;
+&lt;div class=&quot;demo-stage&quot; data-mode=&quot;light&quot;&gt;
+  &lt;p class=&quot;demo-label&quot;&gt;Light&lt;/p&gt;
+  &lt;div class=&quot;ds-field&quot;&gt;
+    &lt;label class=&quot;ds-field-label&quot; for=&quot;ws-name-light&quot;&gt;Workspace name&lt;span class=&quot;ds-field-required&quot; aria-hidden=&quot;true&quot;&gt;*&lt;/span&gt;&lt;/label&gt;
+    &lt;input class=&quot;ds-input&quot; id=&quot;ws-name-light&quot; type=&quot;text&quot; placeholder=&quot;my-project&quot; aria-required=&quot;true&quot; aria-describedby=&quot;ws-name-light-help&quot; /&gt;
+    &lt;p class=&quot;ds-field-help&quot; id=&quot;ws-name-light-help&quot;&gt;Shown in the sidebar and the switcher.&lt;/p&gt;
+  &lt;/div&gt;
+  &lt;div class=&quot;ds-field&quot;&gt;
+    &lt;label class=&quot;ds-field-label&quot; for=&quot;ws-path-light&quot;&gt;Folder path&lt;/label&gt;
+    &lt;input class=&quot;ds-input&quot; id=&quot;ws-path-light&quot; type=&quot;text&quot; value=&quot;/tmp/nowhere&quot; aria-invalid=&quot;true&quot; aria-describedby=&quot;ws-path-light-error&quot; /&gt;
+    &lt;p class=&quot;ds-field-error&quot; id=&quot;ws-path-light-error&quot;&gt;That folder does not exist.&lt;/p&gt;
+  &lt;/div&gt;
+  &lt;div class=&quot;ds-field&quot;&gt;
+    &lt;label class=&quot;ds-field-label&quot; for=&quot;ws-locked-light&quot;&gt;Locked field&lt;/label&gt;
+    &lt;input class=&quot;ds-input&quot; id=&quot;ws-locked-light&quot; type=&quot;text&quot; value=&quot;read-only value&quot; disabled /&gt;
+  &lt;/div&gt;
+&lt;/div&gt;
+&lt;div class=&quot;demo-stage&quot; data-mode=&quot;dark&quot;&gt;
+  &lt;p class=&quot;demo-label&quot;&gt;Dark&lt;/p&gt;
+  &lt;div class=&quot;ds-field&quot;&gt;
+    &lt;label class=&quot;ds-field-label&quot; for=&quot;ws-name-dark&quot;&gt;Workspace name&lt;span class=&quot;ds-field-required&quot; aria-hidden=&quot;true&quot;&gt;*&lt;/span&gt;&lt;/label&gt;
+    &lt;input class=&quot;ds-input&quot; id=&quot;ws-name-dark&quot; type=&quot;text&quot; placeholder=&quot;my-project&quot; aria-required=&quot;true&quot; aria-describedby=&quot;ws-name-dark-help&quot; /&gt;
+    &lt;p class=&quot;ds-field-help&quot; id=&quot;ws-name-dark-help&quot;&gt;Shown in the sidebar and the switcher.&lt;/p&gt;
+  &lt;/div&gt;
+  &lt;div class=&quot;ds-field&quot;&gt;
+    &lt;label class=&quot;ds-field-label&quot; for=&quot;ws-path-dark&quot;&gt;Folder path&lt;/label&gt;
+    &lt;input class=&quot;ds-input&quot; id=&quot;ws-path-dark&quot; type=&quot;text&quot; value=&quot;/tmp/nowhere&quot; aria-invalid=&quot;true&quot; aria-describedby=&quot;ws-path-dark-error&quot; /&gt;
+    &lt;p class=&quot;ds-field-error&quot; id=&quot;ws-path-dark-error&quot;&gt;That folder does not exist.&lt;/p&gt;
+  &lt;/div&gt;
+  &lt;div class=&quot;ds-field&quot;&gt;
+    &lt;label class=&quot;ds-field-label&quot; for=&quot;ws-locked-dark&quot;&gt;Locked field&lt;/label&gt;
+    &lt;input class=&quot;ds-input&quot; id=&quot;ws-locked-dark&quot; type=&quot;text&quot; value=&quot;read-only value&quot; disabled /&gt;
+  &lt;/div&gt;
+&lt;/div&gt;
+&lt;/body&gt;
+&lt;/html&gt;
+</code></pre></details>
+</div>
+<div id="component-task-card" class="catalog-view catalog-component">
+<h3>Task card</h3>
+<div class="catalog-component-grid">
+<div class="catalog-stage ds-embed-component-task-card">
+<div class="demo-stage" data-mode="light">
+  <p class="demo-label">Light</p>
+  <button type="button" class="ds-task-card">
+    <span class="ds-task-card-dot" aria-hidden="true"></span>
+    <span class="ds-task-card-id">MC-1487</span>
+    <span class="ds-task-card-title">Module SDK epic</span>
+    <span class="ds-task-card-trailing">2d</span>
+  </button>
+  <button type="button" class="ds-task-card ds-task-card--selected" aria-pressed="true">
+    <span class="ds-task-card-dot ds-task-card-dot--good" aria-hidden="true"></span>
+    <span class="ds-task-card-id">MC-1450</span>
+    <span class="ds-task-card-title">Roster model honored across projections</span>
+  </button>
+  <button type="button" class="ds-task-card">
+    <span class="ds-task-card-dot ds-task-card-dot--warn" aria-hidden="true"></span>
+    <span class="ds-task-card-id">MC-1465</span>
+    <span class="ds-task-card-title">Resume predicates need input on manifest capabilities and a longer title to show truncation</span>
+  </button>
+  <button type="button" class="ds-task-card">
+    <span class="ds-task-card-dot ds-task-card-dot--danger" aria-hidden="true"></span>
+    <span class="ds-task-card-id">MC-1416</span>
+    <span class="ds-task-card-title">Worktree diff resolution failed</span>
+    <span class="ds-task-card-trailing">1h</span>
+  </button>
+</div>
+<div class="demo-stage" data-mode="dark">
+  <p class="demo-label">Dark</p>
+  <button type="button" class="ds-task-card">
+    <span class="ds-task-card-dot" aria-hidden="true"></span>
+    <span class="ds-task-card-id">MC-1487</span>
+    <span class="ds-task-card-title">Module SDK epic</span>
+    <span class="ds-task-card-trailing">2d</span>
+  </button>
+  <button type="button" class="ds-task-card ds-task-card--selected" aria-pressed="true">
+    <span class="ds-task-card-dot ds-task-card-dot--good" aria-hidden="true"></span>
+    <span class="ds-task-card-id">MC-1450</span>
+    <span class="ds-task-card-title">Roster model honored across projections</span>
+  </button>
+  <button type="button" class="ds-task-card">
+    <span class="ds-task-card-dot ds-task-card-dot--warn" aria-hidden="true"></span>
+    <span class="ds-task-card-id">MC-1465</span>
+    <span class="ds-task-card-title">Resume predicates need input on manifest capabilities and a longer title to show truncation</span>
+  </button>
+  <button type="button" class="ds-task-card">
+    <span class="ds-task-card-dot ds-task-card-dot--danger" aria-hidden="true"></span>
+    <span class="ds-task-card-id">MC-1416</span>
+    <span class="ds-task-card-title">Worktree diff resolution failed</span>
+    <span class="ds-task-card-trailing">1h</span>
+  </button>
+</div>
+</div>
+<div class="catalog-doc">
+<p>Extracted from the source product's <code>TaskCard</code> primitive — the canonical board-card and inbox-row surface. Its family contract keeps every worklist in the product reading as one system.</p>
+<h4>Anatomy</h4>
+<ul><li>The card itself is the single interactive element (a <code>&lt;button&gt;</code> or a row with one click target) on <code>bg.surface</code> with a <code>border.subtle</code> hairline and <code>radius.control</code>.</li><li>Leading: an optional 6px status dot (<code>ds-task-card-dot</code>). Status only — omit it when the surrounding column or text already states the status.</li><li>Identifier: mono, tabular numerals, <code>font.size.meta</code>, <code>text.subtle</code>.</li><li>Title: <code>font.size.body</code> at <code>font.weight.medium</code>, truncating to one line.</li><li>Trailing: display-only meta (age, count) in <code>text.muted</code>; never interactive.</li></ul>
+<h4>Variants</h4>
+<ul><li>Row (shown): one line, identifier and title share the baseline.</li><li>Card: identifier above the title, title clamps to two lines — same tokens, different stacking; rebuild per layout need.</li><li>Dot tones: default neutral, <code>--good</code>, <code>--warn</code>, <code>--danger</code>.</li></ul>
+<h4>States</h4>
+<ul><li>Hover: <code>bg.hover</code> only — no shadow, scale, or glow.</li><li>Selected: <code>accent.soft</code> fill plus a 2px left bar of <code>accent.primary</code>; title ink lifts to <code>text.primary</code>.</li><li>Focus-visible: 2px <code>border.focus</code> ring.</li></ul>
+<h4>Usage</h4>
+<ul><li>The dot is a status signal, not decoration or category color; done/healthy rows usually carry no mark at all.</li><li>Do not add a second interactive element inside the card; actions live in a context menu or the detail surface.</li><li>Keep the trailing slot to short meta (relative age, a count).</li></ul>
+<h4>Accessibility</h4>
+<ul><li>The card exposes one accessible name combining identifier and title.</li><li>Selection is conveyed with <code>aria-pressed</code> (or <code>aria-selected</code> in list semantics), not color alone — the left bar doubles as the non-color cue.</li><li>Status dots are <code>aria-hidden</code> when adjacent text already carries the state; otherwise give them a <code>role=&quot;img&quot;</code> label.</li></ul>
+</div>
+</div>
+<details class="catalog-source"><summary>components/task-card/component.css</summary><pre><code>/* Task card — extracted from the source product's TaskCard primitive
+ * (src/renderer/src/components/ui/TaskCard.tsx), the canonical board-card /
+ * inbox-row surface. Family contract: 6px status dot, mono identifier,
+ * medium title, accent-soft + left-bar selection, background-only hover. */
+
+.ds-task-card {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  background: var(--sem-color-bg-surface);
+  border: 1px solid var(--sem-color-border-subtle);
+  border-left: 2px solid transparent;
+  border-radius: var(--sem-radius-control);
+  font-family: var(--sem-font-family-ui);
+  text-align: left;
+  width: 100%;
+  cursor: pointer;
+  transition: background-color var(--sem-motion-duration-fast) var(--sem-motion-ease-standard);
+}
+
+/* Hover is a background change only — no shadow, no scale, no glow. */
+.ds-task-card:hover {
+  background: var(--sem-color-bg-hover);
+}
+
+.ds-task-card:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px var(--sem-color-border-focus);
+}
+
+/* Selection: accent-soft fill plus the 2px left accent bar. */
+.ds-task-card--selected {
+  background: var(--sem-color-accent-soft);
+  border-left-color: var(--sem-color-accent-primary);
+}
+
+/* 6px status dot. Status only — never decoration or category coding. */
+.ds-task-card-dot {
+  flex: none;
+  width: 6px;
+  height: 6px;
+  border-radius: 999px;
+  background: var(--sem-color-status-neutral);
+}
+
+.ds-task-card-dot--good {
+  background: var(--sem-color-status-good);
+}
+
+.ds-task-card-dot--warn {
+  background: var(--sem-color-status-warn);
+}
+
+.ds-task-card-dot--danger {
+  background: var(--sem-color-status-danger);
+}
+
+.ds-task-card-id {
+  flex: none;
+  font-family: var(--sem-font-family-mono);
+  font-variant-numeric: tabular-nums;
+  font-size: var(--sem-font-size-meta);
+  color: var(--sem-color-text-subtle);
+}
+
+.ds-task-card-title {
+  min-width: 0;
+  flex: 1;
+  font-size: var(--sem-font-size-body);
+  font-weight: var(--sem-font-weight-medium);
+  color: var(--sem-color-text-default);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.ds-task-card--selected .ds-task-card-title {
+  color: var(--sem-color-text-primary);
+}
+
+/* Display-only trailing slot (never interactive — the card is the target). */
+.ds-task-card-trailing {
+  flex: none;
+  font-size: var(--sem-font-size-meta);
+  color: var(--sem-color-text-muted);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ds-task-card {
+    transition: none;
+  }
+}
+</code></pre></details>
+<details class="catalog-source"><summary>components/task-card/component.html (demo)</summary><pre><code>&lt;!doctype html&gt;
+&lt;html lang=&quot;en&quot;&gt;
+&lt;head&gt;
+&lt;meta charset=&quot;utf-8&quot; /&gt;
+&lt;meta name=&quot;viewport&quot; content=&quot;width=device-width, initial-scale=1&quot; /&gt;
+&lt;title&gt;Task card&lt;/title&gt;
+&lt;link rel=&quot;stylesheet&quot; href=&quot;../../foundations/tokens.css&quot; /&gt;
+&lt;link rel=&quot;stylesheet&quot; href=&quot;component.css&quot; /&gt;
+&lt;style&gt;
+  body {
+    margin: 0;
+    font-family: var(--sem-font-family-ui);
+  }
+  .demo-stage {
+    padding: 24px;
+    background: var(--sem-color-bg-app);
+    color: var(--sem-color-text-default);
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    max-width: 380px;
+  }
+  .demo-label {
+    margin: 0 0 4px;
+    font-size: var(--sem-font-size-meta);
+    color: var(--sem-color-text-subtle);
+  }
+&lt;/style&gt;
+&lt;/head&gt;
+&lt;body&gt;
+&lt;div class=&quot;demo-stage&quot; data-mode=&quot;light&quot;&gt;
+  &lt;p class=&quot;demo-label&quot;&gt;Light&lt;/p&gt;
+  &lt;button type=&quot;button&quot; class=&quot;ds-task-card&quot;&gt;
+    &lt;span class=&quot;ds-task-card-dot&quot; aria-hidden=&quot;true&quot;&gt;&lt;/span&gt;
+    &lt;span class=&quot;ds-task-card-id&quot;&gt;MC-1487&lt;/span&gt;
+    &lt;span class=&quot;ds-task-card-title&quot;&gt;Module SDK epic&lt;/span&gt;
+    &lt;span class=&quot;ds-task-card-trailing&quot;&gt;2d&lt;/span&gt;
+  &lt;/button&gt;
+  &lt;button type=&quot;button&quot; class=&quot;ds-task-card ds-task-card--selected&quot; aria-pressed=&quot;true&quot;&gt;
+    &lt;span class=&quot;ds-task-card-dot ds-task-card-dot--good&quot; aria-hidden=&quot;true&quot;&gt;&lt;/span&gt;
+    &lt;span class=&quot;ds-task-card-id&quot;&gt;MC-1450&lt;/span&gt;
+    &lt;span class=&quot;ds-task-card-title&quot;&gt;Roster model honored across projections&lt;/span&gt;
+  &lt;/button&gt;
+  &lt;button type=&quot;button&quot; class=&quot;ds-task-card&quot;&gt;
+    &lt;span class=&quot;ds-task-card-dot ds-task-card-dot--warn&quot; aria-hidden=&quot;true&quot;&gt;&lt;/span&gt;
+    &lt;span class=&quot;ds-task-card-id&quot;&gt;MC-1465&lt;/span&gt;
+    &lt;span class=&quot;ds-task-card-title&quot;&gt;Resume predicates need input on manifest capabilities and a longer title to show truncation&lt;/span&gt;
+  &lt;/button&gt;
+  &lt;button type=&quot;button&quot; class=&quot;ds-task-card&quot;&gt;
+    &lt;span class=&quot;ds-task-card-dot ds-task-card-dot--danger&quot; aria-hidden=&quot;true&quot;&gt;&lt;/span&gt;
+    &lt;span class=&quot;ds-task-card-id&quot;&gt;MC-1416&lt;/span&gt;
+    &lt;span class=&quot;ds-task-card-title&quot;&gt;Worktree diff resolution failed&lt;/span&gt;
+    &lt;span class=&quot;ds-task-card-trailing&quot;&gt;1h&lt;/span&gt;
+  &lt;/button&gt;
+&lt;/div&gt;
+&lt;div class=&quot;demo-stage&quot; data-mode=&quot;dark&quot;&gt;
+  &lt;p class=&quot;demo-label&quot;&gt;Dark&lt;/p&gt;
+  &lt;button type=&quot;button&quot; class=&quot;ds-task-card&quot;&gt;
+    &lt;span class=&quot;ds-task-card-dot&quot; aria-hidden=&quot;true&quot;&gt;&lt;/span&gt;
+    &lt;span class=&quot;ds-task-card-id&quot;&gt;MC-1487&lt;/span&gt;
+    &lt;span class=&quot;ds-task-card-title&quot;&gt;Module SDK epic&lt;/span&gt;
+    &lt;span class=&quot;ds-task-card-trailing&quot;&gt;2d&lt;/span&gt;
+  &lt;/button&gt;
+  &lt;button type=&quot;button&quot; class=&quot;ds-task-card ds-task-card--selected&quot; aria-pressed=&quot;true&quot;&gt;
+    &lt;span class=&quot;ds-task-card-dot ds-task-card-dot--good&quot; aria-hidden=&quot;true&quot;&gt;&lt;/span&gt;
+    &lt;span class=&quot;ds-task-card-id&quot;&gt;MC-1450&lt;/span&gt;
+    &lt;span class=&quot;ds-task-card-title&quot;&gt;Roster model honored across projections&lt;/span&gt;
+  &lt;/button&gt;
+  &lt;button type=&quot;button&quot; class=&quot;ds-task-card&quot;&gt;
+    &lt;span class=&quot;ds-task-card-dot ds-task-card-dot--warn&quot; aria-hidden=&quot;true&quot;&gt;&lt;/span&gt;
+    &lt;span class=&quot;ds-task-card-id&quot;&gt;MC-1465&lt;/span&gt;
+    &lt;span class=&quot;ds-task-card-title&quot;&gt;Resume predicates need input on manifest capabilities and a longer title to show truncation&lt;/span&gt;
+  &lt;/button&gt;
+  &lt;button type=&quot;button&quot; class=&quot;ds-task-card&quot;&gt;
+    &lt;span class=&quot;ds-task-card-dot ds-task-card-dot--danger&quot; aria-hidden=&quot;true&quot;&gt;&lt;/span&gt;
+    &lt;span class=&quot;ds-task-card-id&quot;&gt;MC-1416&lt;/span&gt;
+    &lt;span class=&quot;ds-task-card-title&quot;&gt;Worktree diff resolution failed&lt;/span&gt;
+    &lt;span class=&quot;ds-task-card-trailing&quot;&gt;1h&lt;/span&gt;
+  &lt;/button&gt;
+&lt;/div&gt;
+&lt;/body&gt;
+&lt;/html&gt;
+</code></pre></details>
+</div>
+</section>
+<section id="patterns" class="catalog-group">
+<h2>Patterns</h2>
+<p class="catalog-view catalog-empty">No patterns yet. Add <code>patterns/&lt;name&gt;.html</code> and re-run <code>node scripts/build-catalog.mjs</code>.</p>
+</section>
+</main>
+</div>
+</div>
+</body>
+</html>

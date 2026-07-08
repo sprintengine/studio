@@ -5,11 +5,11 @@ import { renderToStaticMarkup } from 'react-dom/server'
 import type { McpCatalogServer } from '../../../../../shared/electron-api'
 import type { MarketplacePluginEntry } from '../../../../../shared/marketplace/manifest'
 import { ConnectorsBody, FacetTabs, ReadyConnectorsRail } from './ConnectorsPanel'
-import { deriveConnectorsView, type SourceLoad } from './connectorsFacets'
+import { deriveConnectorsView, type ConnectorFacet, type SourceLoad } from './connectorsFacets'
 
 // A static-render smoke test: full Electron drive is not available in the shared
-// run worktree, so this exercises the real presentation tree (the reused
-// McpCatalogTile / PluginCard and every view state) to catch render-time crashes
+// run worktree, so this exercises the real presentation tree (the shared
+// ConnectorRow sections and every view state) to catch render-time crashes
 // and confirm each state surfaces the right copy — the layer typecheck can't see.
 
 const railway: McpCatalogServer = {
@@ -39,12 +39,17 @@ const ready = <T,>(data: T): SourceLoad<T> => ({ status: 'ready', data })
 const noop = () => {}
 const retry = <button type="button">Retry</button>
 
-function body(view: ReturnType<typeof deriveConnectorsView>, selectedKey: string | null = null): string {
+function body(
+  view: ReturnType<typeof deriveConnectorsView>,
+  selectedKey: string | null = null,
+  facet: ConnectorFacet = 'All',
+): string {
   const entries = view.status === 'ready' ? view.entries : []
   const selectedEntry = entries.find((entry) => entry.key === selectedKey) ?? null
   return renderToStaticMarkup(
     <ConnectorsBody
       view={view}
+      facet={facet}
       registryUrl={null}
       workspaceRoot={'/repo'}
       mcpSettings={{ syncEnabled: true, servers: {} }}
@@ -89,18 +94,33 @@ assert.match(
   /No connectors match/,
 )
 
-// --- ready grid renders both sources' tiles --------------------------------
+// --- ready list renders both sources' rows in category sections ------------
 
 {
   const markup = body(deriveConnectorsView(ready([railway]), ready([stripePlugin]), new Set(), '', 'All'))
   assert.match(markup, /Railway/)
   assert.match(markup, /Stripe/)
+  // Rows carry the one-line summary from each source, not bare names.
+  assert.match(markup, /Deploys, services, logs/)
+  assert.match(markup, /Payments, billing, customers/)
+  // Category section headings from the facet buckets.
+  assert.match(markup, /Infrastructure/)
+  assert.match(markup, /Payments/)
+  // Source-appropriate affordances: catalog adds in place, registry routes to Get.
+  assert.match(markup, /Add Railway/)
+  assert.match(markup, /Get/)
+  // Transport plumbing stays off the row face.
+  assert.doesNotMatch(markup, />http</)
 }
 
 // A launchable catalog entry selected → its detail exposes New chat + Use in
 // automation (the T1 launch route + the T8 automation route).
 {
-  const markup = body(deriveConnectorsView(ready([railway]), ready([]), new Set(), '', 'Featured'), 'catalog:railway')
+  const markup = body(
+    deriveConnectorsView(ready([railway]), ready([]), new Set(), '', 'Featured'),
+    'catalog:railway',
+    'Featured',
+  )
   assert.match(markup, /New chat/)
   assert.match(markup, /Use in automation/)
 }

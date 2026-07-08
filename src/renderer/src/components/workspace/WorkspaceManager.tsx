@@ -16,6 +16,7 @@ import type { SoloChatSeed } from '../../store/slices/workspacesSlice'
 import { normalizeSelectedCli } from '../../store/slices/settingsSlice'
 import { resolveAvailableAgentCli, resolveSurfaceModel, resolveTemplateAgentCli, selectAgentCliCatalog } from './newWorkspace/cliRuntimeOptions'
 import { resumeCapabilitiesForCli, subscribePluginCatalogRefreshOnFocus } from '../../store/slices/pluginsSlice'
+import type { ConversationCliRuntimeOverrides } from '../../../../shared/conversation-runtime'
 import { getRendererHost, selectModuleEnabled } from '../../modules'
 import { resolveNotificationActions as resolveNotificationActionsFor } from '../../utils/notificationActions'
 import {
@@ -29,6 +30,7 @@ import {
 import { useAppTheme } from '../../hooks/useAppTheme'
 import { useAutomationRequests } from '../../hooks/useAutomationRequests'
 import { useVoiceDictation } from '../../hooks/useVoiceDictation'
+import { useConversationSessions } from '../../hooks/useConversationSessions'
 import {
   MULTILOOP_ROLES,
   GENERAL_AGENT_ENGINE_KEY,
@@ -50,6 +52,7 @@ import type {
   SprintEngineRoleId,
   SprintEngineRoleModelOverrides,
   Workspace,
+  WorkspaceMode,
   WorkspaceWindowId,
   WorkspaceWorktree,
 } from '../../types/workspace'
@@ -480,6 +483,9 @@ export default function WorkspaceManager() {
   const [accountOpen, setAccountOpen] = useState(false)
   const [authMessage, setAuthMessage] = useState<string | null>(null)
   const [terminalSessions, setTerminalSessions] = useState<TerminalSessionSnapshot[]>([])
+  // Conversation (chat) agents live outside the terminal runtime; their
+  // session summaries feed the session manager alongside PTY snapshots.
+  const conversationSessions = useConversationSessions()
   const [mountedWorkspaceIds, setMountedWorkspaceIds] = useState<string[]>([])
   const [workspaceLayoutRetentionTick, setWorkspaceLayoutRetentionTick] = useState(0)
   const [windowState, setWindowState] = useState<WindowState>({
@@ -585,6 +591,7 @@ export default function WorkspaceManager() {
   const sessions = getSessionItems(
     useWorkspaceStore.getState().workspaces.filter((workspace) => visibleWorkspaceIdSet.has(workspace.id)),
     terminalSessions,
+    conversationSessions,
   )
   const sidebarWorkspaceOrder = useMemo(
     () => buildSidebarWorkspaceOrder(railWorkspaces),
@@ -694,7 +701,7 @@ export default function WorkspaceManager() {
     }
     let cancelled = false
     void window.api
-      .conversationProvidersList()
+      .conversationProvidersList({ cliRuntimes: cliRuntimes as ConversationCliRuntimeOverrides })
       .then((result) => {
         if (!cancelled) setConversationProviderResult(result)
       })
@@ -704,7 +711,7 @@ export default function WorkspaceManager() {
     return () => {
       cancelled = true
     }
-  }, [specialistMenuOpen, conversationSpawnEnabled])
+  }, [specialistMenuOpen, conversationSpawnEnabled, cliRuntimes])
   const conversationSpawnOptions = useMemo<ConversationSpawnOption[]>(
     () => buildConversationSpawnOptions(conversationProviderResult),
     [conversationProviderResult],
@@ -929,6 +936,15 @@ export default function WorkspaceManager() {
 
   const openNewWorkspacePanelForFolder = useCallback((folderPath: string) => {
     setNewWorkspacePanelInitialState({ folderPath })
+    setShowNewWorkspacePanel(true)
+    closeSettingsOverlay()
+    setSpecialistMenuOpen(false)
+    setNotificationsOpen(false)
+  }, [closeSettingsOverlay])
+
+  // Open the creation hub preselected on a type — the sidebar "+" menu rows.
+  const openNewWorkspacePanelWithMode = useCallback((mode: WorkspaceMode) => {
+    setNewWorkspacePanelInitialState({ mode })
     setShowNewWorkspacePanel(true)
     closeSettingsOverlay()
     setSpecialistMenuOpen(false)
@@ -1836,6 +1852,11 @@ export default function WorkspaceManager() {
   const openNewChatPanel = useCallback((folderPath?: string | null) => {
     const resolved = folderPath === undefined ? activeWorkspace?.folderPath ?? null : folderPath
     setNewChatPanelState({ folderPath: resolved, folderLabel: resolved ? newChatFolderLabel(resolved) : null })
+    // The New Chat panel renders only in the non-hub branch: leaving the
+    // creation hub open would make this click a visible no-op and leave the
+    // armed panel to pop up later (first-run keeps the hub pinned open).
+    setShowNewWorkspacePanel(false)
+    setNewWorkspacePanelInitialState(null)
     closeSettingsOverlay()
     setSpecialistMenuOpen(false)
     setNotificationsOpen(false)
@@ -2523,6 +2544,8 @@ export default function WorkspaceManager() {
         onForgetFolder={handleForgetFolder}
         onNewWorkspace={openNewWorkspacePanel}
         onNewWorkspaceInFolder={openNewWorkspacePanelForFolder}
+        onNewChat={() => openNewChatPanel()}
+        onNewWorkspaceMode={openNewWorkspacePanelWithMode}
         onNewChatInFolder={(folderPath) => openNewChatPanel(folderPath)}
         onRevealFolder={handleRevealFolder}
         onSetSidebarCollapsed={setSidebarCollapsed}

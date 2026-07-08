@@ -33,100 +33,10 @@ export function SkillPackMonogram({
     <span
       aria-hidden
       style={{ width: size, height: size, fontSize: Math.round(size * 0.38) }}
-      className="grid place-items-center rounded-md bg-[color:var(--bg-active)] font-mono font-semibold text-[color:var(--text-default)]"
+      className="grid place-items-center rounded-lg border border-[color:var(--icon-chip-border)] bg-[color:var(--icon-chip-bg)] font-mono font-semibold text-[color:var(--icon-chip-ink)]"
     >
       {skillPackMonogram(name)}
     </span>
-  )
-}
-
-export function SkillPackTile({
-  pack,
-  installed,
-  pending,
-  selected,
-  onToggle,
-  onInfo,
-}: {
-  pack: SkillPackCatalogEntry
-  installed: boolean
-  pending: boolean
-  selected: boolean
-  onToggle: () => void
-  onInfo: () => void
-}) {
-  const tileClass = installed
-    ? 'border-[color:var(--accent-primary)] bg-[color:var(--accent-primary-soft)]'
-    : selected
-      ? 'border-[color:var(--border-strong)] bg-[color:var(--bg-surface-raised)]'
-      : 'border-[color:var(--border-subtle)] bg-[color:var(--bg-surface)] hover:border-[color:var(--border-strong)] hover:bg-[color:var(--bg-surface-raised)]'
-  return (
-    <div className="relative aspect-square">
-      <button
-        type="button"
-        onClick={onToggle}
-        aria-pressed={installed}
-        aria-busy={pending}
-        aria-label={installed ? `Remove ${pack.name}` : `Install ${pack.name}`}
-        disabled={pending}
-        className={`interactive flex h-full w-full flex-col items-start justify-between rounded-md border p-3 text-left focus:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--border-focus)] disabled:cursor-progress ${tileClass}`}
-      >
-        <SkillPackMonogram name={pack.name} size={36} />
-        {installed ? (
-          <span
-            aria-hidden
-            className="absolute right-2 top-2 grid h-4 w-4 place-items-center rounded-full bg-[color:var(--accent-primary)] text-[color:var(--text-on-accent)]"
-          >
-            <svg
-              viewBox="0 0 10 10"
-              className="h-2.5 w-2.5"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              aria-hidden="true"
-            >
-              <polyline points="1.5,5 4,7.5 8.5,2.5" />
-            </svg>
-          </span>
-        ) : pending ? (
-          <span
-            aria-hidden
-            className="absolute right-2 top-2 grid h-4 w-4 place-items-center rounded-full bg-[color:var(--bg-active)] text-[color:var(--text-subtle)]"
-          >
-            <span className="block h-1.5 w-1.5 animate-pulse rounded-full bg-current" />
-          </span>
-        ) : null}
-        <div className="w-full min-w-0 pr-6">
-          <TruncatedText
-            as="div"
-            text={pack.name}
-            className="text-[13px] font-semibold leading-5 text-[color:var(--text-strong)]"
-          />
-          <TruncatedText
-            as="div"
-            text={pack.slug}
-            className="mt-0.5 font-mono text-[10px] leading-3 text-[color:var(--text-subtle)]"
-          />
-        </div>
-      </button>
-      <button
-        type="button"
-        onClick={onInfo}
-        aria-label={`Show details for ${pack.name}`}
-        aria-expanded={selected}
-        className={`interactive absolute bottom-2 right-2 z-10 grid h-5 w-5 place-items-center rounded-full focus:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--border-focus)] ${
-          selected
-            ? 'bg-[color:var(--accent-primary-soft)] text-[color:var(--accent-primary)]'
-            : 'text-[color:var(--text-subtle)] hover:bg-[color:var(--bg-active)] hover:text-[color:var(--text-default)]'
-        }`}
-      >
-        <svg viewBox="0 0 16 16" className="icon-sm" fill="currentColor" aria-hidden="true">
-          <path d="M8 1a7 7 0 100 14A7 7 0 008 1zm0 12.5A5.5 5.5 0 118 2.5a5.5 5.5 0 010 11zM7.25 5.5a.75.75 0 111.5 0 .75.75 0 01-1.5 0zM7.25 7.25a.75.75 0 011.5 0v4a.75.75 0 01-1.5 0v-4z" />
-        </svg>
-      </button>
-    </div>
   )
 }
 
@@ -171,7 +81,7 @@ export function SkillPackInfoPanel({
             <TruncatedText
               as="div"
               text={`${pack.slug}${pack.version ? ` · v${pack.version}` : ''}`}
-              className="mt-0.5 font-mono text-[11px] text-[color:var(--text-subtle)]"
+              className="mt-0.5 text-[11px] text-[color:var(--text-subtle)]"
             />
           </div>
         </div>
@@ -192,9 +102,14 @@ export function SkillPackInfoPanel({
       {pack.harnesses.length ? (
         <div className="mt-3">
           <div className="text-[11px] font-semibold text-[color:var(--text-muted)]">Harnesses</div>
-          <div className="mt-1 flex flex-wrap gap-x-2 gap-y-0.5 font-mono text-[11px] text-[color:var(--text-muted)]">
+          <div className="mt-1 flex flex-wrap gap-1">
             {pack.harnesses.map((harness) => (
-              <span key={harness}>{HARNESS_LABEL[harness]}</span>
+              <span
+                key={harness}
+                className="rounded-full bg-[color:var(--bg-active)] px-1.5 py-0.5 text-[10px] leading-3 text-[color:var(--text-subtle)]"
+              >
+                {HARNESS_LABEL[harness]}
+              </span>
             ))}
           </div>
         </div>

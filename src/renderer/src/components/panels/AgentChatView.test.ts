@@ -4,10 +4,15 @@ import type { ConversationEvent, ConversationEventType } from '../../../../share
 import {
   activeConversationStage,
   deriveConversationTimelineRows,
+  formatStepDuration,
+  isAuthShapedFailure,
   isConversationModelLocked,
+  parseOptionLabel,
   projectConversation,
   readinessLabel,
   stopDisabledForPending,
+  toolObject,
+  toolVerb,
   type ConversationTimelineRow,
   type TranscriptEntry,
 } from './AgentChatView'
@@ -76,7 +81,7 @@ assert.equal(streamingRows.filter((entry) => entry.kind === 'working').length, 1
 const thinkingOnly = projectConversation([ev('turn_started', { turnId: T1 })])
 assert.equal(activeConversationStage(thinkingOnly.entries, thinkingOnly.activeTurn), 'thinking')
 const thinkingRows = deriveConversationTimelineRows(thinkingOnly.entries, thinkingOnly.activeTurn)
-assert.equal(row(thinkingRows, 'working').label, 'Working')
+assert.equal(row(thinkingRows, 'working').label, 'Thinking…')
 
 // --- approval requested -> approved -> usage -> completed ------------------
 
@@ -181,18 +186,27 @@ assert.equal(toolEntry.name, 'search')
 assert.equal(toolEntry.status, 'done')
 assert.equal(toolEntry.output, 'result rows')
 const toolRows = deriveConversationTimelineRows(withTool.entries, withTool.activeTurn)
-const activity = row(toolRows, 'activity')
-assert.equal(activity.tools.length, 2, 'consecutive tool calls are grouped into one activity row')
-assert.equal(toolRows.some((entry) => entry.kind === 'assistant'), false, 'tool-only completed turn does not render an empty assistant row')
+const toolTurnRow = row(toolRows, 'assistant')
+assert.equal(toolTurnRow.tools.length, 2, 'consecutive tool calls are grouped onto the turn row')
+assert.equal(toolTurnRow.entry.text, '', 'tool-only turn still renders its work timeline')
+
+// Tool steps carry timestamps so the timeline can show per-step durations.
+const [firstTool, secondTool] = toolTurnRow.tools
+assert.ok(firstTool && typeof firstTool.startedAt === 'number', 'tool start timestamp recorded')
+assert.ok(firstTool && typeof firstTool.completedAt === 'number' && firstTool.completedAt > (firstTool.startedAt ?? 0))
+assert.ok(secondTool && typeof secondTool.completedAt === 'number')
 
 const runningTool = projectConversation([
   ev('turn_started', { turnId: T1 }),
   ev('tool_started', { turnId: T1, callId: 'c1', name: 'search' }),
 ])
 assert.equal(activeConversationStage(runningTool.entries, runningTool.activeTurn), 'tool')
-assert.equal(row(deriveConversationTimelineRows(runningTool.entries, runningTool.activeTurn), 'working').label, 'Running search')
+assert.equal(
+  row(deriveConversationTimelineRows(runningTool.entries, runningTool.activeTurn), 'working').label,
+  'Calling search…',
+)
 
-// --- reasoning is activity, not assistant prose ----------------------------
+// --- reasoning rides the turn row, separate from prose ---------------------
 
 const withReasoning = projectConversation([
   ev('turn_started', { turnId: T1 }),
@@ -200,9 +214,14 @@ const withReasoning = projectConversation([
   ev('content_delta', { turnId: T1, text: 'Found the brand guide.' }),
   ev('turn_completed', { turnId: T1 }),
 ])
-const reasoningRows = deriveConversationTimelineRows(withReasoning.entries, withReasoning.activeTurn)
-assert.equal(row(reasoningRows, 'activity').reasoning, 'Checking repo docs.')
-assert.equal(row(reasoningRows, 'assistant').entry.text, 'Found the brand guide.')
+const reasoningRow = row(deriveConversationTimelineRows(withReasoning.entries, withReasoning.activeTurn), 'assistant')
+assert.equal(reasoningRow.entry.reasoning, 'Checking repo docs.')
+assert.equal(reasoningRow.entry.text, 'Found the brand guide.')
+// Reasoning window: first reasoning_delta -> first non-reasoning event.
+assert.ok(
+  typeof reasoningRow.entry.reasoningDurationMs === 'number' && reasoningRow.entry.reasoningDurationMs > 0,
+  'reasoning duration derives from event timestamps',
+)
 
 // --- session closed --------------------------------------------------------
 
@@ -229,5 +248,229 @@ assert.equal(stopDisabledForPending(null), false)
 assert.equal(isConversationModelLocked(0, null), false, 'model is editable before the first turn with no session')
 assert.equal(isConversationModelLocked(1, null), true, 'model locks after the first user turn')
 assert.equal(isConversationModelLocked(0, 'session-1'), true, 'model locks once a session exists')
+// After an app restart userTurns/sessionId are empty local state, but replayed
+// history means the conversation has started: the pill must stay locked.
+assert.equal(isConversationModelLocked(0, null, true), true, 'replayed transcript history locks the model')
+
+// --- Tool rows carry the provider's input summary ---------------------------
+
+const toolSummaryProjection = projectConversation(
+  [
+    ev('session_started'),
+    ev('session_ready'),
+    ev('turn_started', { turnId: 'turn-tool' }),
+    ev('tool_started', { turnId: 'turn-tool', toolCallId: 'tu-1', tool: 'Bash', summary: 'Bash: npm test' }),
+    ev('tool_output', { turnId: 'turn-tool', toolCallId: 'tu-1', output: '2 passing' }),
+    ev('turn_completed', { turnId: 'turn-tool' }),
+  ],
+  [{ id: 'u-t', text: 'run the tests' }],
+)
+const summarizedToolEntry = toolSummaryProjection.entries.find(
+  (entry): entry is Extract<TranscriptEntry, { kind: 'tool' }> => entry.kind === 'tool',
+)
+assert.equal(summarizedToolEntry?.name, 'Bash')
+assert.equal(summarizedToolEntry?.summary, 'Bash: npm test')
+assert.equal(summarizedToolEntry?.output, '2 passing')
+assert.equal(summarizedToolEntry?.status, 'done')
+
+// --- Structured question card (approval kind: question) --------------------
+
+const TQ = 'turn-q'
+const questionPayload = {
+  turnId: TQ,
+  requestId: 'req-q',
+  action: 'AskUserQuestion',
+  kind: 'question',
+  summary: 'Which auth method?',
+  questions: [
+    {
+      question: 'Which auth method?',
+      header: 'Auth',
+      multiSelect: false,
+      allowFreeText: true,
+      options: [
+        { label: 'OAuth', description: 'Redirect flow' },
+        { label: 'API key' },
+      ],
+    },
+  ],
+}
+const questionPending = projectConversation(
+  [
+    ev('session_started'),
+    ev('session_ready'),
+    ev('turn_started', { turnId: TQ }),
+    ev('approval_requested', questionPayload),
+  ],
+  [{ id: 'u-q', text: 'help me pick' }],
+)
+assert.equal(questionPending.awaitingApproval, true)
+const pendingQuestionEntry = questionPending.entries.find(
+  (entry): entry is Extract<TranscriptEntry, { kind: 'approval' }> => entry.kind === 'approval',
+)
+assert.ok(pendingQuestionEntry)
+assert.equal(pendingQuestionEntry.requestKind, 'question')
+assert.equal(pendingQuestionEntry.questions?.length, 1)
+assert.equal(pendingQuestionEntry.questions?.[0]?.options.length, 2)
+assert.equal(pendingQuestionEntry.questions?.[0]?.options[0]?.label, 'OAuth')
+assert.equal(pendingQuestionEntry.status, 'pending')
+
+const questionResolved = projectConversation(
+  [
+    ev('session_started'),
+    ev('session_ready'),
+    ev('turn_started', { turnId: TQ }),
+    ev('approval_requested', questionPayload),
+    ev('approval_resolved', { turnId: TQ, requestId: 'req-q', approved: true, answers: { 'Which auth method?': 'OAuth' } }),
+    ev('content_delta', { turnId: TQ, text: 'Using OAuth then.' }),
+    ev('turn_completed', { turnId: TQ }),
+  ],
+  [{ id: 'u-q', text: 'help me pick' }],
+)
+assert.equal(questionResolved.awaitingApproval, false)
+const resolvedQuestionEntry = questionResolved.entries.find(
+  (entry): entry is Extract<TranscriptEntry, { kind: 'approval' }> => entry.kind === 'approval',
+)
+assert.equal(resolvedQuestionEntry?.status, 'approved')
+assert.deepEqual(resolvedQuestionEntry?.answers, { 'Which auth method?': 'OAuth' })
+
+// --- Plan approval card (approval kind: plan) -------------------------------
+
+const planProjection = projectConversation(
+  [
+    ev('session_started'),
+    ev('session_ready'),
+    ev('turn_started', { turnId: 'turn-p' }),
+    ev('approval_requested', {
+      turnId: 'turn-p',
+      requestId: 'req-p',
+      action: 'ExitPlanMode',
+      kind: 'plan',
+      summary: 'The agent proposed a plan.',
+      plan: '## Plan\n1. Step one',
+    }),
+  ],
+  [{ id: 'u-p', text: 'plan it' }],
+)
+const planEntry = planProjection.entries.find(
+  (entry): entry is Extract<TranscriptEntry, { kind: 'approval' }> => entry.kind === 'approval',
+)
+assert.equal(planEntry?.requestKind, 'plan')
+assert.equal(planEntry?.plan, '## Plan\n1. Step one')
+
+// --- Persisted user_message events drive user bubbles (replay) --------------
+
+const replayProjection = projectConversation(
+  [
+    ev('session_started'),
+    ev('session_ready'),
+    ev('user_message', { turnId: 'turn-r1', text: 'first question', localTurnId: 'local-1' }),
+    ev('turn_started', { turnId: 'turn-r1' }),
+    ev('content_delta', { turnId: 'turn-r1', text: 'first answer' }),
+    ev('turn_completed', { turnId: 'turn-r1' }),
+  ],
+  // Locals are empty after a reload: user bubbles must come from events.
+  [],
+)
+const replayUsers = replayProjection.entries.filter((entry) => entry.kind === 'user')
+assert.equal(replayUsers.length, 1)
+assert.equal(replayUsers[0]?.kind === 'user' && replayUsers[0].text, 'first question')
+
+// Live path: the represented local is not duplicated; a brand-new optimistic
+// local (no user_message yet) still renders at the tail.
+const optimisticProjection = projectConversation(
+  [
+    ev('session_started'),
+    ev('session_ready'),
+    ev('user_message', { turnId: 'turn-r1', text: 'first question', localTurnId: 'local-1' }),
+    ev('turn_started', { turnId: 'turn-r1' }),
+    ev('turn_completed', { turnId: 'turn-r1' }),
+  ],
+  [
+    { id: 'local-1', text: 'first question' },
+    { id: 'local-2', text: 'second question in flight' },
+  ],
+)
+const optimisticUsers = optimisticProjection.entries.filter((entry) => entry.kind === 'user')
+assert.equal(optimisticUsers.length, 2)
+assert.equal(optimisticUsers[1]?.kind === 'user' && optimisticUsers[1].text, 'second question in flight')
+
+// --- work-timeline vocabulary (pure helpers) ---------------------------------
+
+assert.equal(toolVerb('Read', false), 'Read')
+assert.equal(toolVerb('Grep', false), 'Searched')
+assert.equal(toolVerb('Edit', false), 'Edited')
+assert.equal(toolVerb('Edit', true), 'Editing')
+assert.equal(toolVerb('Bash', false), 'Ran')
+assert.equal(toolVerb('Bash', true), 'Running')
+assert.equal(toolVerb('CustomTool', false), 'Called CustomTool')
+assert.equal(toolVerb('CustomTool', true), 'Calling CustomTool')
+
+assert.equal(toolObject({ name: 'Bash', summary: 'Bash: npm test' }), 'npm test', 'summary prefix strips to the object')
+assert.equal(toolObject({ name: 'Bash', summary: 'plain summary' }), 'plain summary')
+assert.equal(toolObject({ name: 'Bash' }), '')
+
+assert.deepEqual(parseOptionLabel('OAuth (Recommended)'), { text: 'OAuth', recommended: true })
+assert.deepEqual(parseOptionLabel('OAuth (recommended)'), { text: 'OAuth', recommended: true })
+assert.deepEqual(parseOptionLabel('API keys'), { text: 'API keys', recommended: false })
+
+assert.equal(formatStepDuration(200), '0.2s')
+assert.equal(formatStepDuration(3000), '3s')
+assert.equal(formatStepDuration(21_000), '21s')
+assert.equal(formatStepDuration(83_000), '1m 23s')
+
+assert.equal(isAuthShapedFailure('OAuth token expired. Run `claude login`.'), true)
+assert.equal(isAuthShapedFailure('HTTP 401 from provider'), true)
+assert.equal(isAuthShapedFailure('network timeout'), false)
+assert.equal(isAuthShapedFailure(undefined), false)
+
+// --- diff chips + permission action + failure detail ride the projection ----
+
+const richTurn = projectConversation([
+  ev('turn_started', { turnId: 'turn-rich' }),
+  ev('tool_started', { turnId: 'turn-rich', toolCallId: 'e1', tool: 'Edit', summary: 'Edit: src/sync/worker.ts', addedLines: 34, removedLines: 6 }),
+  ev('tool_output', { turnId: 'turn-rich', toolCallId: 'e1', output: 'ok' }),
+  ev('approval_requested', { turnId: 'turn-rich', requestId: 'req-b', action: 'Bash', kind: 'tool', summary: 'Bash: git rm stale.ts' }),
+  ev('approval_resolved', { turnId: 'turn-rich', requestId: 'req-b', approved: true }),
+  ev('turn_failed', { turnId: 'turn-rich', reason: 'provider', message: 'exit 1 · OAuth token expired' }),
+])
+const richTool = richTurn.entries.find((entry): entry is Extract<TranscriptEntry, { kind: 'tool' }> => entry.kind === 'tool')
+assert.equal(richTool?.addedLines, 34)
+assert.equal(richTool?.removedLines, 6)
+const richApproval = richTurn.entries.find((entry): entry is Extract<TranscriptEntry, { kind: 'approval' }> => entry.kind === 'approval')
+assert.equal(richApproval?.action, 'Bash', 'the tool behind a permission request is preserved')
+const richAssistant = assistant(richTurn.entries, 'turn-rich')
+assert.equal(richAssistant.failureReason, 'provider')
+assert.equal(richAssistant.failureDetail, 'exit 1 · OAuth token expired', 'full provider message kept for Show details')
+
+// --- turn byline: modelId is captured from the turn's events -----------------
+
+const modelTurnEvents: ConversationEvent[] = [
+  { ...ev('turn_started', { turnId: 'turn-m' }), modelId: 'sonnet' },
+  ev('content_delta', { turnId: 'turn-m', text: 'hi' }),
+  ev('turn_completed', { turnId: 'turn-m' }),
+]
+assert.equal(assistant(projectConversation(modelTurnEvents).entries, 'turn-m').modelId, 'sonnet')
+
+// --- apiKeySource rides session_updated (subscription-auth guarantee) -------
+
+assert.equal(empty.apiKeySource, null, 'no session_updated means no reported auth source')
+
+const subscriptionAuth = projectConversation([
+  ev('session_started'),
+  ev('session_ready'),
+  ev('session_updated', { providerSessionId: 'cli-1', apiKeySource: 'none' }),
+])
+assert.equal(subscriptionAuth.apiKeySource, 'none')
+
+const apiKeyAuth = projectConversation([
+  ev('session_started'),
+  ev('session_ready'),
+  // A cursor-only update (no auth info) must not erase a later init's source.
+  ev('session_updated', { providerSessionId: 'cli-1' }),
+  ev('session_updated', { providerSessionId: 'cli-1', apiKeySource: 'ANTHROPIC_API_KEY' }),
+  ev('session_updated', { providerSessionId: 'cli-2' }),
+])
+assert.equal(apiKeyAuth.apiKeySource, 'ANTHROPIC_API_KEY', 'latest reported source wins; cursor-only updates keep it')
 
 console.log('AgentChatView.test.ts: ok')

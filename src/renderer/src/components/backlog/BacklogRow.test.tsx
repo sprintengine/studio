@@ -462,6 +462,13 @@ run('detail cross-navigation widens the lens so a filtered-out target never dead
     'a hidden target widens to a lens that contains it (Completed/Archived for terminal items, else Active)',
   )
   assert.match(backlogPanelSource, /setSearch\(''\)/, 'the search is cleared so the navigated row stays visible')
+  // Epic <-> child links are cross-navigation too: a completed child under the
+  // Active lens (or the parent epic of a filtered row) sits outside `filtered`,
+  // so both must route through the same widening handler — a plain row-select
+  // dead-clicks back to the bare list.
+  assert.match(backlogPanelSource, /onClick=\{\(\) => onNavigate\(parentEpic\.id\)\}/, 'the child -> parent-epic crumb navigates through the widening handler')
+  assert.match(backlogPanelSource, /onClick=\{\(\) => onNavigate\(child\.id\)\}/, 'the epic -> child roll-up rows navigate through the widening handler')
+  assert.ok(!backlogPanelSource.includes('onSelectItem'), 'the detail pane has no plain-select escape hatch; all its cross-navigation widens')
 })
 
 run('the row waiting badge is derived (never persisted) and wired through the list', () => {

@@ -94,9 +94,12 @@ import type {
   ConversationRespondToRequestInput,
   ConversationSendTurnInput,
   ConversationSessionActionResult,
+  ConversationProvidersListInput,
   ConversationStartSessionInput,
   ConversationStartSessionResult,
   ConversationStopSessionInput,
+  ConversationTranscriptInput,
+  ConversationTranscriptResult,
 } from './conversation-runtime'
 import type { ModuleBridgeInvokeResult } from './modules/bridge'
 import type {
@@ -651,6 +654,7 @@ export type McpCatalogServer = Omit<McpServerConfig, 'enabled' | 'scope' | 'sour
   recommendedScope?: McpScope
   setupNotes?: string
   skill?: string
+  icon?: string
 }
 
 export type McpCatalogResult =
@@ -1675,6 +1679,16 @@ export type SprintEngineRosterAddInput = {
   role: string
 }
 
+export type SprintEngineRosterRuntimeInput = {
+  statePath: string
+  /** Registry role id; the CLI canonicalizes it and rejects unknown/off-roster roles. */
+  role: string
+  /** CLI id, e.g. `claude-code`. Required — pass the role's current CLI when changing only the model. */
+  cli: string
+  /** Model id; null/absent pins the CLI's default model (launches with no --model flag). */
+  model?: string | null
+}
+
 export type MultiloopInitInput = {
   workspaceRoot: string
   loopName: string
@@ -2247,7 +2261,7 @@ export type ElectronApi = {
   updateMarketplacePluginFromRegistry: (input: MarketplacePluginRegistryInstallInput) => Promise<MarketplacePluginRegistryInstallResult>
   uninstallMarketplacePlugin: (input: MarketplacePluginUninstallInput) => Promise<MarketplacePluginUninstallResult>
   reloadPlugins: () => Promise<PluginRegistryListResult>
-  conversationProvidersList: () => Promise<ConversationProviderListResult>
+  conversationProvidersList: (input?: ConversationProvidersListInput) => Promise<ConversationProviderListResult>
   conversationProviderModels: (input: ConversationProviderModelsInput) => Promise<ConversationProviderModelsResult>
   conversationProviderTest: (input: ConversationProviderTestInput) => Promise<ConversationProviderTestResult>
   conversationSecretStatus: (input: ConversationSecretStatusInput) => Promise<ConversationSecretStatusResult>
@@ -2264,6 +2278,7 @@ export type ElectronApi = {
   ) => Promise<ConversationSessionActionResult>
   conversationSessionStop: (input: ConversationStopSessionInput) => Promise<ConversationSessionActionResult>
   conversationSessionsList: (input?: ConversationListSessionsInput) => Promise<ConversationListSessionsResult>
+  conversationTranscript: (input: ConversationTranscriptInput) => Promise<ConversationTranscriptResult>
   onConversationEvent: (cb: (event: ConversationEvent) => void) => () => void
   logDiagnostic: (input: DiagnosticLogInput) => Promise<DiagnosticLogEntry>
   openDiagnosticsLogsFolder: () => Promise<{ opened: true; path: string }>
@@ -2368,6 +2383,8 @@ export type ElectronApi = {
   refreshSprintEnginePullRequestStatus: (statePath: string) => Promise<SprintEngineArtifactCommandResult>
   replenishSprintEngineRoster: (input: SprintEngineRosterReplenishInput) => Promise<SprintEngineArtifactCommandResult>
   addSprintEngineRosterMember: (input: SprintEngineRosterAddInput) => Promise<SprintEngineArtifactCommandResult>
+  /** Operator edit of one role's cli/model mid-run; merges into the run's canonical roleRuntimes. */
+  setSprintEngineRoleRuntime: (input: SprintEngineRosterRuntimeInput) => Promise<SprintEngineArtifactCommandResult>
   readSprintEngineProjection: (statePath: string, knownToken?: string) => Promise<SprintEngineProjectionReadResult>
   readSprintEngineRegistryRoles: (input: SprintEngineRegistryRolesReadInput) => Promise<SprintEngineMcpReadResult>
   readSprintEngineRegistryRole: (input: SprintEngineRegistryRoleReadInput) => Promise<SprintEngineMcpReadResult>

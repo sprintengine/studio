@@ -13,7 +13,7 @@ import { sampleSystemMemory, SYSTEM_MEMORY_SAMPLE_THROTTLE_MS } from '../system-
 import { sampleThreadCounts, THREAD_SAMPLE_THROTTLE_MS } from '../thread-counts'
 import { listTerminalRoots } from '../terminal-runtime'
 import { listRecentReapEvents } from '../terminal-reap-log'
-import { sampleWorkspaceMemory, WORKSPACE_MEMORY_SAMPLE_THROTTLE_MS } from '../workspace-memory'
+import { sampleWorkspaceMemory, WORKSPACE_MEMORY_SAMPLE_THROTTLE_MS, type TerminalRootInfo } from '../workspace-memory'
 
 // Thread counts come from the OS (getAppMetrics has none), which on macOS means a
 // `ps` spawn. To keep that off the 1s metrics poll, the latest counts are cached
@@ -76,7 +76,7 @@ function maybeRefreshWorkspaceMemory(): void {
   if (workspaceMemorySampleInFlight) return
   if (Date.now() - workspaceMemorySampledAt < WORKSPACE_MEMORY_SAMPLE_THROTTLE_MS) return
   workspaceMemorySampleInFlight = true
-  void sampleWorkspaceMemory(listTerminalRoots())
+  void sampleWorkspaceMemory(collectAttributionRoots())
     .then((samples) => {
       workspaceMemoryCache = samples
       workspaceMemorySampledAt = Date.now()
@@ -110,12 +110,29 @@ type DiagnosticsIpcDependencies = {
   writeDiagnosticLog(input: DiagnosticLogInput): Promise<DiagnosticLogEntry>
   openDiagnosticsLogsFolder(): Promise<{ opened: true; path: string }>
   openDiagnosticsWindow(): void
+  // Headless conversation child processes (Claude SDK sessions) — shaped like
+  // terminal roots so workspace-memory attribution covers them too.
+  listConversationRoots?: () => TerminalRootInfo[]
+}
+
+let listConversationRootsDep: (() => TerminalRootInfo[]) | undefined
+
+function collectAttributionRoots(): TerminalRootInfo[] {
+  const conversationRoots = (() => {
+    try {
+      return listConversationRootsDep?.() ?? []
+    } catch {
+      return []
+    }
+  })()
+  return [...listTerminalRoots(), ...conversationRoots]
 }
 
 export function registerDiagnosticsIpc(
   ipcMain: IpcMain,
   deps: DiagnosticsIpcDependencies
 ): void {
+  listConversationRootsDep = deps.listConversationRoots
   ipcMain.handle('diagnostics:log', async (_, input: DiagnosticLogInput) => {
     return deps.writeDiagnosticLog(input)
   })

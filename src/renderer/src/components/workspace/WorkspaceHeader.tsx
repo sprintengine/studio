@@ -120,12 +120,12 @@ function LauncherSearchButton({ onOpen }: { onOpen: () => void }) {
   )
 }
 
-// New Agent "+" — the collapsed launcher's creation entry (Cursor keeps this when
-// the sidebar is hidden), opening the same New Agent flow as the sidebar row.
+// "New" + — the collapsed launcher's creation entry (Cursor keeps this when
+// the sidebar is hidden), opening the same creation hub as the sidebar cluster.
 function NewAgentButton({ onClick }: { onClick: () => void }) {
   return (
-    <Tooltip content="New Agent" placement="bottom">
-      <button type="button" onClick={onClick} aria-label="New Agent" className={STRIP_BUTTON}>
+    <Tooltip content="New…" placement="bottom">
+      <button type="button" onClick={onClick} aria-label="New…" className={STRIP_BUTTON}>
         <svg viewBox="0 0 16 16" fill="none" className="icon-sm" aria-hidden="true">
           <path d="M8 3.5V12.5M3.5 8H12.5" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
         </svg>

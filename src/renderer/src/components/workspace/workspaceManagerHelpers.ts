@@ -19,6 +19,10 @@ import {
 import type { Workspace } from '../../types/workspace'
 import type { MultiloopRoleDescriptor } from '../../specialists/specialistActions'
 import type { SessionItem } from './WorkspaceActions'
+import type {
+  ConversationSessionStatus,
+  ConversationSessionSummary,
+} from '../../../../shared/conversation-runtime'
 
 export type WorkspaceActivity = 'needs-input' | 'working' | 'failed' | 'idle'
 export type SessionStatus = 'needs-input' | 'working' | 'idle' | 'failed'
@@ -128,6 +132,31 @@ export function deriveSessionStatus(
   }
 }
 
+// Conversation-agent status → session-manager vocabulary. `stopped` sessions
+// drop out of the list entirely (null); a pending approval/question card is
+// the conversation equivalent of an awaiting-input hook phase.
+export const CONVERSATION_SESSION_STATUS: Record<ConversationSessionStatus, SessionStatus | null> = {
+  starting: 'working',
+  ready: 'idle',
+  active: 'working',
+  awaiting_approval: 'needs-input',
+  failed: 'failed',
+  stopped: null,
+}
+
+// Readable names for conversation sessions with no AgentState (the Design
+// Wizard's specialist sessions use stable agent ids, not workspace agents).
+const CONVERSATION_AGENT_LABELS: Record<string, string> = {
+  'guided-brief-strategist': 'Product Strategist',
+  'guided-brief-architect': 'Architect',
+  'guided-brief-designer': 'Frontend Designer',
+  'guided-brief-design-system': 'Design System Designer',
+}
+
+export function conversationAgentFallbackLabel(agentId: string): string {
+  return CONVERSATION_AGENT_LABELS[agentId] ?? agentId
+}
+
 // Attention-first comparator for rows within a workspace group: needs-input →
 // failed → working → idle, then most-recently-active first within a tier.
 export function compareSessionItemsByAttention(a: SessionItem, b: SessionItem): number {
@@ -188,7 +217,46 @@ export function terminalSessionLabel(terminalId: string): string {
 export function getSessionItems(
   workspaces: Workspace[],
   terminalSessions: TerminalSessionSnapshot[],
+  // Conversation (chat) agents have no PTY snapshot; their runtime session
+  // summaries are a second, equally truthful status source.
+  conversationSessions: ConversationSessionSummary[] = [],
 ): SessionItem[] {
+  const conversationItems = conversationSessions.flatMap((summary): SessionItem[] => {
+    const status = CONVERSATION_SESSION_STATUS[summary.status]
+    if (!status) return []
+    const workspace =
+      findWorkspaceForAgentPreferring(workspaces, summary.agentId, summary.workspaceId)
+      ?? workspaces.find((candidate) => candidate.id === summary.workspaceId)
+    if (!workspace) return []
+    // Wizard specialist sessions (guided-brief-*) have no AgentState entry —
+    // like their terminal twins, they must still be visible in the session
+    // manager, so the agent lookup is a label source, not a gate.
+    const agent = workspace.agents[summary.agentId]
+    return [
+      {
+        workspace,
+        kind: 'agent',
+        agentId: summary.agentId,
+        terminalId: null,
+        label: agent?.name || conversationAgentFallbackLabel(summary.agentId),
+        // The claude-agent provider rides the Claude Code CLI; use its icon.
+        cli: summary.providerId === 'claude-agent' ? 'claude-code' : '',
+        // The runtime session state is authoritative (it observes the provider
+        // stream directly), so it reads as a hook-grade signal.
+        status,
+        source: 'hook',
+        activitySince: summary.updatedAt,
+        lastActivityAt: summary.updatedAt,
+        exitCode: null,
+        role: null,
+        specialistId: null,
+        multiloopRole: null,
+        taskId: null,
+        sessionId: summary.sessionId,
+      },
+    ]
+  })
+
   return terminalSessions
     .filter(
       (session) =>
@@ -270,6 +338,7 @@ export function getSessionItems(
         },
       ]
     })
+    .concat(conversationItems)
 }
 
 /**

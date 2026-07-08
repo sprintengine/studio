@@ -318,12 +318,19 @@ export async function resolveDesignSystemAttachedPromptLine(
 
 export type GuidedBriefSpecialistKind = 'strategist' | 'architect' | 'designer'
 
+// How the interview reaches the user: 'terminal-markers' mirrors questions as
+// GUIDED_QUESTION stdout blocks the app scrapes from the PTY (legacy path);
+// 'ask-user-question' uses the CLI's AskUserQuestion tool, which conversation
+// sessions intercept and render as native question cards.
+export type GuidedBriefInterviewProtocol = 'terminal-markers' | 'ask-user-question'
+
 export type GuidedBriefSpecialistPromptInput =
   | {
       kind: 'strategist'
       ideaSeedPath?: string
       requirementsPath?: string
       marker?: string
+      interviewProtocol?: GuidedBriefInterviewProtocol
     }
   | {
       kind: 'architect'
@@ -331,6 +338,7 @@ export type GuidedBriefSpecialistPromptInput =
       acceptedBriefSnapshotPath?: string | null
       architecturePlanPath?: string
       marker?: string
+      interviewProtocol?: GuidedBriefInterviewProtocol
     }
   | {
       kind: 'designer'
@@ -340,6 +348,7 @@ export type GuidedBriefSpecialistPromptInput =
       uiDirectionPath?: string
       mockupPath?: string
       marker?: string
+      interviewProtocol?: GuidedBriefInterviewProtocol
       // True when `design-system/` exists in the workspace (an attached
       // bundle): the mockup designer must conform to it instead of inventing
       // styles. Never set for the design-system authoring studio, which owns
@@ -360,8 +369,9 @@ export type GuidedBriefSpecialistPromptInput =
 
 function guidedBriefInterviewInstructions(
   role: 'product strategist' | 'architect' | 'frontend designer' | 'design-system designer',
+  protocol: GuidedBriefInterviewProtocol = 'terminal-markers',
 ): string[] {
-  return [
+  const shared = [
     `Conduct a guided ${role} interview before writing the artifact.`,
     'Ask exactly one question at a time.',
     'For each question, give 2-4 concrete multiple-choice options the user can pick from, with the recommended option first and clearly labeled "Recommended".',
@@ -371,6 +381,19 @@ function guidedBriefInterviewInstructions(
     'If a question can be answered by inspecting the project files, docs, Knowledge Graph, or existing commands, inspect those sources before asking. If this is a new codebase and no source exists, say the assumption you are making.',
     'Continue interviewing until you and the user have a shared, explicit understanding of the artifact you are about to write.',
     'Do not ask bundled questionnaires. Do not skip unresolved branches by hiding them as assumptions.',
+  ]
+  if (protocol === 'ask-user-question') {
+    return [
+      ...shared,
+      // Conversation sessions intercept AskUserQuestion and render native
+      // option cards — no stdout mirroring, no marker scraping.
+      'Ask every interview question with the AskUserQuestion tool (one question per call): put the recommendation and its tradeoff in each option\'s description, and mark the recommended option by putting it first with "(Recommended)" appended to its label.',
+      'Never print questions as plain text or as machine-readable stdout blocks; the AskUserQuestion tool is the only interview channel.',
+      'After each answer, briefly acknowledge the decision in one sentence, then continue to the next question.',
+    ]
+  }
+  return [
+    ...shared,
     // Machine-readable mirror of the interview so the app renders native
     // question cards (parsed by interviewProtocol.ts). The fence tokens must
     // never appear alone on a line inside these instructions — the parser
@@ -400,7 +423,7 @@ export function buildGuidedBriefSpecialistStartupPrompt(input: GuidedBriefSpecia
       'Treat the returned text as your role, judgment, and quality bar.',
       '',
       `Read \`${ideaSeedPath}\` before asking follow-up questions.`,
-      ...guidedBriefInterviewInstructions('product strategist'),
+      ...guidedBriefInterviewInstructions('product strategist', input.interviewProtocol),
       `Write the accepted product brief to \`${requirementsPath}\`.`,
       'After the brief is complete, additionally write a navigable HTML overview of it to `product/overview.html`: one self-contained file with no external dependencies (no CDN assets, web fonts, or scripts required to read it), summarizing users, scope, user flows, and MVP cut lines with anchor navigation between sections.',
       'Style the overview as a calm dark technical document: near-black background, one accent color, hairline borders, sentence case — no gradients or decorative motion.',
@@ -432,7 +455,7 @@ export function buildGuidedBriefSpecialistStartupPrompt(input: GuidedBriefSpecia
       input.acceptedBriefSnapshotPath
         ? `Read the accepted product brief snapshot at \`${input.acceptedBriefSnapshotPath}\` before planning.`
         : 'No accepted product brief is available; use the idea seed as the product source of truth and make uncertainty explicit.',
-      ...guidedBriefInterviewInstructions('architect'),
+      ...guidedBriefInterviewInstructions('architect', input.interviewProtocol),
       `Write the accepted architecture plan to \`${architecturePlanPath}\`.`,
       'The architecture plan must cover goal, confirmed requirements, assumptions, open questions, architecture direction, real data/source-of-truth contracts, UI/API/service contracts where relevant, implementation tasks, verification strategy, risks, migration or rollback notes where relevant, and deferred work.',
       'The plan must not depend on template data, sample data, hardcoded demo entities, fake API responses, placeholder persistence, mocked services, or stubbed commands outside tests.',
@@ -480,7 +503,7 @@ export function buildGuidedBriefSpecialistStartupPrompt(input: GuidedBriefSpecia
       `Read \`${bundle}/USAGE.md\` before authoring anything — it is the bundle's consume-and-contribute contract, and every contribution you make must follow it: the naming grammar in \`${bundle}/design-system.json\`, full semantic metadata on tokens, the per-component template, and the lint gate.`,
       `If the user has dropped inspiration files into \`${inspirationDirectoryPath}\`, read them through the existing CLI image-input path before drafting.`,
       ...seedSourceLines,
-      ...guidedBriefInterviewInstructions('design-system designer'),
+      ...guidedBriefInterviewInstructions('design-system designer', input.interviewProtocol),
       `Author the system as real files inside \`${bundle}/\`, walking it in this order with the user: design rules and principles (\`foundations/principles.md\`), design tokens (\`foundations/tokens.tokens.json\` — two tiers \`ref\`/\`sem\`, explicit \`$type\` and \`$description\` on every token, \`sem.*\` tokens carrying role/use metadata and light+dark modes as USAGE.md specifies), glyphs (\`glyphs/*.svg\`, one concept per file, currentColor), an open-ended component set (\`components/<name>/\` with component.html, component.css, component.md), and exemplar patterns (\`patterns/*.html\`).`,
       `Register every authored piece in \`${bundle}/design-system.json\` under \`contents\` as you go.`,
       `Never hand-edit the derived files (\`foundations/tokens.css\`, \`catalog/index.html\`). Regenerate them with the bundle's own scripts after source edits: \`node ${bundle}/scripts/build-tokens.mjs\` after token changes, \`node ${bundle}/scripts/build-catalog.mjs\` after component or pattern changes (skip it if that script is not present yet).`,
@@ -516,7 +539,7 @@ export function buildGuidedBriefSpecialistStartupPrompt(input: GuidedBriefSpecia
         : 'No accepted product brief or architecture plan is available; read `product/idea-seed.md` and make uncertainty explicit.',
     ...(input.designSystemAttached ? [DESIGN_SYSTEM_ATTACHED_PROMPT_LINE] : []),
     `If the user has dropped inspiration files into \`${inspirationDirectoryPath}\`, read them through the existing CLI image-input path before drafting.`,
-    ...guidedBriefInterviewInstructions('frontend designer'),
+    ...guidedBriefInterviewInstructions('frontend designer', input.interviewProtocol),
     `Write UX direction to \`${uiDirectionPath}\`.`,
     `Write the reviewable HTML mockup to \`${mockupPath}\`.`,
     `When and only when \`${uiDirectionPath}\` and the mockup HTML exist and are ready for user review, emit this exact marker on its own line:`,

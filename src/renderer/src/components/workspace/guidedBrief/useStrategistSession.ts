@@ -6,6 +6,7 @@ import {
   type GuidedBriefSessionLifecycle,
   type GuidedBriefSpecialistSession,
 } from './sessionAdapter'
+import { startGuidedBriefConversationSession } from './conversationSessionAdapter'
 import {
   EMPTY_GUIDED_INTERVIEW_STATE,
   type GuidedInterviewState,
@@ -36,6 +37,11 @@ export type UseStrategistSessionInput = {
   // process reattaches to the existing session and replays its buffer.
   sessionId: string | null
   onAssignSessionId: (sessionId: string) => void
+  // 'conversation' runs the specialist as a Claude conversation session
+  // (structured question cards, no PTY); requires workspaceId. Defaults to
+  // the legacy terminal transport.
+  transport?: 'terminal' | 'conversation'
+  workspaceId?: string
 }
 
 export type UseStrategistSessionResult = {
@@ -49,6 +55,8 @@ export type UseStrategistSessionResult = {
   overviewFileReady: boolean
   /** Structured interview parsed from the session stream (replay included). */
   interview: GuidedInterviewState
+  /** Conversation transport only: recent streamed assistant text for the chat pane. */
+  transcriptTail: string
 }
 
 const REQUIREMENTS_RELATIVE_PATH = 'product/requirements.md'
@@ -67,6 +75,8 @@ export function useStrategistSession({
   enabled = true,
   sessionId,
   onAssignSessionId,
+  transport = 'terminal',
+  workspaceId,
 }: UseStrategistSessionInput): UseStrategistSessionResult {
   const [status, setStatus] = useState<StrategistSessionStatus>('idle')
   const [error, setError] = useState<string | null>(null)
@@ -74,6 +84,7 @@ export function useStrategistSession({
   const [fileReady, setFileReady] = useState(false)
   const [session, setSession] = useState<GuidedBriefSpecialistSession | null>(null)
   const [interview, setInterview] = useState<GuidedInterviewState>(EMPTY_GUIDED_INTERVIEW_STATE)
+  const [transcriptTail, setTranscriptTail] = useState('')
   const [overviewFileReady, setOverviewFileReady] = useState(false)
 
   const requirementsAbsolutePath = joinWorkspacePath(workspaceRoot, REQUIREMENTS_RELATIVE_PATH)
@@ -106,47 +117,59 @@ export function useStrategistSession({
     }
 
     setStatus('starting')
-    void startGuidedBriefSpecialistSession(
-      {
-        kind: 'strategist',
-        workspaceRoot,
-        sessionId: resolvedSessionId,
-        cli,
-        cliModel,
-        ideaSeedPath: IDEA_SEED_RELATIVE_PATH,
-        requirementsPath: REQUIREMENTS_RELATIVE_PATH,
+    const sessionInput = {
+      kind: 'strategist' as const,
+      workspaceRoot,
+      sessionId: resolvedSessionId,
+      cli,
+      cliModel,
+      ideaSeedPath: IDEA_SEED_RELATIVE_PATH,
+      requirementsPath: REQUIREMENTS_RELATIVE_PATH,
+    }
+    const sessionCallbacks = {
+      cliRuntimes,
+      onLifecycle: (next: GuidedBriefSessionLifecycle) => {
+        if (cancelled) return
+        if (next === 'ready') setMarkerReceived(true)
+        if (next === 'error') return
+        setStatus(next === 'starting' ? 'starting' : next)
       },
-      {
-        terminalApi: {
-          terminalSpawn: window.api.terminalSpawn,
-          terminalKill: window.api.terminalKill,
-          onTerminalReplay: window.api.onTerminalReplay,
-          onTerminalData: window.api.onTerminalData,
-          onTerminalExit: window.api.onTerminalExit,
-          onTerminalError: window.api.onTerminalError,
-        },
-        cliRuntimes,
-        onLifecycle: (next: GuidedBriefSessionLifecycle) => {
-          if (cancelled) return
-          if (next === 'ready') setMarkerReceived(true)
-          if (next === 'error') return
-          setStatus(next === 'starting' ? 'starting' : next)
-        },
-        onMarker: () => {
-          if (cancelled) return
-          setMarkerReceived(true)
-        },
-        onInterview: (state) => {
-          if (cancelled) return
-          setInterview(state)
-        },
-        onError: (message) => {
-          if (cancelled) return
-          setError(message)
-          setStatus('error')
-        },
+      onMarker: () => {
+        if (cancelled) return
+        setMarkerReceived(true)
       },
-    ).then((result) => {
+      onInterview: (state: GuidedInterviewState) => {
+        if (cancelled) return
+        setInterview(state)
+      },
+      onOutput: (chunk: { chunk: string }) => {
+        if (cancelled || transport !== 'conversation') return
+        setTranscriptTail((current) => `${current}${chunk.chunk}`.slice(-8000))
+      },
+      onError: (message: string) => {
+        if (cancelled) return
+        setError(message)
+        setStatus('error')
+      },
+    }
+    const startPromise =
+      transport === 'conversation' && workspaceId
+        ? startGuidedBriefConversationSession(
+            { ...sessionInput, workspaceId },
+            { ...sessionCallbacks, conversationApi: window.api }
+          )
+        : startGuidedBriefSpecialistSession(sessionInput, {
+            ...sessionCallbacks,
+            terminalApi: {
+              terminalSpawn: window.api.terminalSpawn,
+              terminalKill: window.api.terminalKill,
+              onTerminalReplay: window.api.onTerminalReplay,
+              onTerminalData: window.api.onTerminalData,
+              onTerminalExit: window.api.onTerminalExit,
+              onTerminalError: window.api.onTerminalError,
+            },
+          })
+    void startPromise.then((result) => {
       if (cancelled) {
         // Do not kill the PTY here — the session id stays in runtime state so
         // the next mount can reattach. Explicit teardown happens on stage
@@ -237,5 +260,6 @@ export function useStrategistSession({
     overviewPath: overviewAbsolutePath,
     overviewFileReady,
     interview,
+    transcriptTail,
   }
 }

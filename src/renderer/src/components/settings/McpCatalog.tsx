@@ -1,14 +1,13 @@
-// MCP catalog tile + info panel + brand icon — extracted from SettingsPanel.tsx
-// so the catalog grid stays composable and the settings shell stays focused on
-// tab routing and state coordination. Pure presentation: takes data via props
-// and emits intents (`onToggle`, `onInfo`, `onClose`) that the settings shell
-// translates into IPC calls.
+// MCP catalog info panel + brand icon — pure presentation shared by the
+// Connectors surface (browse rows, detail aside, installed rows). Takes data via
+// props and emits intents (`onToggle`, `onClose`) that the host surface
+// translates into IPC calls. The old aspect-square tile grid lived here too; the
+// Connectors ConnectorRow replaced it.
 
 import React, { useEffect, useState } from 'react'
+import type { BuiltinSkill } from '../../../../shared/electron-api'
 import type { McpCatalogServer, McpServerConfig } from '../../types/workspace'
-import { GhostButton, InboxSearchInput, PrimaryButton, TruncatedText } from '../ui'
-import { SettingsSectionTitle } from './SettingsAtoms'
-import { filterMcpCatalog } from './mcpCatalogFilter'
+import { GhostButton, PrimaryButton, TruncatedText } from '../ui'
 import { mcpMonogram } from './mcpMonogram'
 
 export function mcpServerFromCatalog(server: McpCatalogServer): McpServerConfig {
@@ -36,13 +35,11 @@ export function mcpServerFromCatalog(server: McpCatalogServer): McpServerConfig 
   }
 }
 
-export function groupMcpCatalog(servers: McpCatalogServer[]): Array<[string, McpCatalogServer[]]> {
-  const groups = new Map<string, McpCatalogServer[]>()
-  for (const server of servers) {
-    const category = server.category?.trim() || 'Other'
-    groups.set(category, [...(groups.get(category) ?? []), server])
-  }
-  return Array.from(groups.entries()).sort(([left], [right]) => left.localeCompare(right))
+// The first sentence of a skill description — the Provides section shows what a
+// skill does at a glance and leaves the full text to the skill's own docs.
+function firstSentence(text: string): string {
+  const match = text.trim().match(/^[^.!?]*[.!?]/)
+  return match ? match[0].trim() : text.trim()
 }
 
 function mcpIconSlug(id: string): string | null {
@@ -55,115 +52,46 @@ function mcpIconSlug(id: string): string | null {
 export function McpBrandIcon({
   slug,
   name,
+  icon,
   size = 36,
 }: {
   slug: string | null
   name: string
+  icon?: string
   size?: number
 }) {
   const [failed, setFailed] = useState(false)
-  if (!slug || failed) {
-    return (
-      <span
-        aria-hidden
-        style={{ width: size, height: size, fontSize: Math.round(size * 0.42) }}
-        className="grid place-items-center rounded-md bg-[color:var(--bg-active)] font-mono font-semibold text-[color:var(--text-default)]"
-      >
-        {mcpMonogram(name)}
-      </span>
-    )
-  }
+  // Per-entry icon (data URI or https URL) wins; else the brand-color Simple
+  // Icons glyph (no tint segment — a baked tint is invisible on the opposite
+  // theme); else the monogram. All three sit on the same neutral chip so brand
+  // colors stay readable on every theme.
+  const src = failed ? null : icon || (slug ? `https://cdn.simpleicons.org/${slug}` : null)
   return (
-    <img
-      src={`https://cdn.simpleicons.org/${slug}/e5e7eb`}
-      alt=""
+    <span
       aria-hidden
-      width={size}
-      height={size}
-      loading="lazy"
-      decoding="async"
-      onError={() => setFailed(true)}
-      className="pointer-events-none select-none"
-    />
-  )
-}
-
-export function McpCatalogTile({
-  server,
-  installed,
-  selected,
-  onToggle,
-  onInfo,
-}: {
-  server: McpCatalogServer
-  installed: boolean
-  selected: boolean
-  onToggle: () => void
-  onInfo: () => void
-}) {
-  const tileClass = installed
-    ? 'border-[color:var(--accent-primary)] bg-[color:var(--accent-primary-soft)]'
-    : selected
-      ? 'border-[color:var(--border-strong)] bg-[color:var(--bg-surface-raised)]'
-      : 'border-[color:var(--border-subtle)] bg-[color:var(--bg-surface)] hover:border-[color:var(--border-strong)] hover:bg-[color:var(--bg-surface-raised)]'
-  return (
-    <div className="relative aspect-square">
-      <button
-        type="button"
-        onClick={onToggle}
-        aria-pressed={installed}
-        aria-label={installed ? `Remove ${server.name}` : `Add ${server.name}`}
-        className={`interactive flex h-full w-full flex-col items-start justify-between rounded-md border p-3 text-left focus:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--border-focus)] ${tileClass}`}
-      >
-        <McpBrandIcon slug={mcpIconSlug(server.id)} name={server.name} size={36} />
-        {installed ? (
-          <span
-            aria-hidden
-            className="absolute right-2 top-2 grid h-4 w-4 place-items-center rounded-full bg-[color:var(--accent-primary)] text-[color:var(--text-on-accent)]"
-          >
-            <svg
-              viewBox="0 0 10 10"
-              className="h-2.5 w-2.5"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              aria-hidden="true"
-            >
-              <polyline points="1.5,5 4,7.5 8.5,2.5" />
-            </svg>
-          </span>
-        ) : null}
-        <div className="w-full min-w-0 pr-6">
-          <TruncatedText
-            as="div"
-            text={server.name}
-            className="text-[13px] font-semibold leading-5 text-[color:var(--text-strong)]"
-          />
-          <TruncatedText
-            as="div"
-            text={server.transport}
-            className="mt-0.5 font-mono text-[10px] leading-3 text-[color:var(--text-subtle)]"
-          />
-        </div>
-      </button>
-      <button
-        type="button"
-        onClick={onInfo}
-        aria-label={`Show details for ${server.name}`}
-        aria-expanded={selected}
-        className={`interactive absolute bottom-2 right-2 z-10 grid h-5 w-5 place-items-center rounded-full focus:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--border-focus)] ${
-          selected
-            ? 'bg-[color:var(--accent-primary-soft)] text-[color:var(--accent-primary)]'
-            : 'text-[color:var(--text-subtle)] hover:bg-[color:var(--bg-active)] hover:text-[color:var(--text-default)]'
-        }`}
-      >
-        <svg viewBox="0 0 16 16" className="icon-sm" fill="currentColor" aria-hidden="true">
-          <path d="M8 1a7 7 0 100 14A7 7 0 008 1zm0 12.5A5.5 5.5 0 118 2.5a5.5 5.5 0 010 11zM7.25 5.5a.75.75 0 111.5 0 .75.75 0 01-1.5 0zM7.25 7.25a.75.75 0 011.5 0v4a.75.75 0 01-1.5 0v-4z" />
-        </svg>
-      </button>
-    </div>
+      style={{ width: size, height: size }}
+      className="grid shrink-0 place-items-center rounded-lg border border-[color:var(--icon-chip-border)] bg-[color:var(--icon-chip-bg)]"
+    >
+      {src ? (
+        <img
+          src={src}
+          alt=""
+          width={Math.round(size * 0.62)}
+          height={Math.round(size * 0.62)}
+          loading="lazy"
+          decoding="async"
+          onError={() => setFailed(true)}
+          className="pointer-events-none select-none"
+        />
+      ) : (
+        <span
+          style={{ fontSize: Math.round(size * 0.42) }}
+          className="font-mono font-semibold text-[color:var(--icon-chip-ink)]"
+        >
+          {mcpMonogram(name)}
+        </span>
+      )}
+    </span>
   )
 }
 
@@ -196,6 +124,25 @@ export function McpInfoPanel({
     return () => document.removeEventListener('keydown', onKey)
   }, [onClose])
 
+  // The driving skill's real name + description for the Provides section,
+  // resolved from the same bundled-skill inventory the launch path installs
+  // from. Best-effort: until (or unless) it resolves, the skill id stands in.
+  const [drivingSkill, setDrivingSkill] = useState<BuiltinSkill | null>(null)
+  useEffect(() => {
+    setDrivingSkill(null)
+    if (!server.skill || typeof window.api.builtinSkillsList !== 'function') return undefined
+    let cancelled = false
+    window.api
+      .builtinSkillsList()
+      .then((skills) => {
+        if (!cancelled) setDrivingSkill(skills.find((skill) => skill.id === server.skill) ?? null)
+      })
+      .catch(() => {})
+    return () => {
+      cancelled = true
+    }
+  }, [server.skill])
+
   const hasAuth = Boolean(server.auth && server.auth.trim().toLowerCase() !== 'none')
 
   return (
@@ -205,18 +152,20 @@ export function McpInfoPanel({
     >
       <div className="flex items-start justify-between gap-3">
         <div className="flex min-w-0 items-center gap-3">
-          <McpBrandIcon slug={mcpIconSlug(server.id)} name={server.name} size={32} />
+          <McpBrandIcon slug={mcpIconSlug(server.id)} name={server.name} icon={server.icon} size={32} />
           <div className="min-w-0">
             <TruncatedText
               as="h5"
               text={server.name}
               className="text-[14px] font-semibold leading-5 text-[color:var(--text-strong)]"
             />
-            <TruncatedText
-              as="div"
-              text={server.transport}
-              className="mt-0.5 font-mono text-[11px] text-[color:var(--text-subtle)]"
-            />
+            {server.category ? (
+              <TruncatedText
+                as="div"
+                text={server.category}
+                className="mt-0.5 text-[11px] text-[color:var(--text-subtle)]"
+              />
+            ) : null}
           </div>
         </div>
         <button
@@ -231,14 +180,39 @@ export function McpInfoPanel({
         </button>
       </div>
       {server.description ? (
-        <p className="mt-3 text-[12px] leading-5 text-[color:var(--text-muted)]">{server.description}</p>
-      ) : null}
-      {hasAuth ? (
         <div className="mt-3">
-          <div className="text-[11px] font-semibold text-[color:var(--text-muted)]">Auth</div>
-          <div className="mt-1 text-[12px] text-[color:var(--tone-warn)]">{server.auth}</div>
+          <div className="text-[11px] font-semibold text-[color:var(--text-muted)]">About</div>
+          <p className="mt-1 text-[12px] leading-5 text-[color:var(--text-muted)]">{server.description}</p>
         </div>
       ) : null}
+      <div className="mt-3">
+        <div className="text-[11px] font-semibold text-[color:var(--text-muted)]">Provides</div>
+        <ul className="mt-1 space-y-1.5 text-[12px] text-[color:var(--text-muted)]">
+          <li className="flex items-center gap-1.5">
+            <span>MCP server</span>
+            <span className="rounded-full bg-[color:var(--bg-active)] px-1.5 py-0.5 text-[10px] leading-3 text-[color:var(--text-subtle)]">
+              {server.transport}
+            </span>
+          </li>
+          {server.skill ? (
+            <li>
+              <div className="flex items-center gap-1.5">
+                <span className="font-medium text-[color:var(--text-default)]">
+                  {drivingSkill?.name ?? server.skill}
+                </span>
+                <span className="rounded-full bg-[color:var(--bg-active)] px-1.5 py-0.5 text-[10px] leading-3 text-[color:var(--text-subtle)]">
+                  Skill
+                </span>
+              </div>
+              {drivingSkill?.description ? (
+                <div className="mt-0.5 text-[11px] leading-4 text-[color:var(--text-subtle)]">
+                  {firstSentence(drivingSkill.description)}
+                </div>
+              ) : null}
+            </li>
+          ) : null}
+        </ul>
+      </div>
       {server.capabilities?.length ? (
         <div className="mt-3">
           <div className="text-[11px] font-semibold text-[color:var(--text-muted)]">Capabilities</div>
@@ -252,20 +226,31 @@ export function McpInfoPanel({
           </ul>
         </div>
       ) : null}
+      {server.sourceUrl ? (
+        <div className="mt-3">
+          <div className="text-[11px] font-semibold text-[color:var(--text-muted)]">Publisher &amp; source</div>
+          <a
+            href={server.sourceUrl}
+            target="_blank"
+            rel="noreferrer"
+            className="mt-1 inline-flex text-[12px] font-semibold text-[color:var(--accent-primary)] hover:text-[color:var(--accent-primary-hover)] focus:outline-none focus-visible:underline"
+          >
+            Source docs
+          </a>
+        </div>
+      ) : null}
+      {hasAuth ? (
+        <div className="mt-3">
+          <div className="text-[11px] font-semibold text-[color:var(--text-muted)]">Auth</div>
+          <div className="mt-1 text-[12px] text-[color:var(--text-subtle)]">
+            {server.auth} — authenticates in chat on first use
+          </div>
+        </div>
+      ) : null}
       {server.setupNotes ? (
         <p className="mt-3 border-l-2 border-[color:var(--border-strong)] pl-2 text-[11px] leading-4 text-[color:var(--text-subtle)]">
           {server.setupNotes}
         </p>
-      ) : null}
-      {server.sourceUrl ? (
-        <a
-          href={server.sourceUrl}
-          target="_blank"
-          rel="noreferrer"
-          className="mt-3 inline-flex text-[12px] font-semibold text-[color:var(--accent-primary)] hover:text-[color:var(--accent-primary-hover)] focus:outline-none focus-visible:underline"
-        >
-          Source docs
-        </a>
       ) : null}
       <div className="mt-4 space-y-2">
         {onNewChat ? (
@@ -307,96 +292,6 @@ export function McpInfoPanel({
         )}
       </div>
     </aside>
-  )
-}
-
-// Settings → MCPs "Bundled catalog": the searchable tile grid plus its detail
-// aside. Owns the search query and the open-detail selection; the parent owns
-// install state and the toggle mutation (emitted via `onToggle`). Reuses the
-// shared `InboxSearchInput` search idiom rather than a bespoke one.
-export function McpCatalogBrowser({
-  servers,
-  isInstalled,
-  onToggle,
-}: {
-  servers: McpCatalogServer[]
-  isInstalled: (id: string) => boolean
-  onToggle: (server: McpCatalogServer) => void
-}) {
-  const [query, setQuery] = useState('')
-  const [selectedId, setSelectedId] = useState<string | null>(null)
-
-  const filtered = filterMcpCatalog(servers, query)
-  const groups = groupMcpCatalog(filtered)
-  // Only show the detail aside while its server is in the filtered set, so a
-  // search that hides the selected tile also hides its now-orphaned panel; the
-  // selection itself persists, so clearing the search restores it.
-  const selected =
-    selectedId && filtered.some((server) => server.id === selectedId)
-      ? servers.find((server) => server.id === selectedId) ?? null
-      : null
-  const trimmed = query.trim()
-
-  return (
-    <div className="space-y-4 border-t border-[color:var(--border-subtle)] pt-4">
-      <div className="flex flex-wrap items-center gap-3">
-        <SettingsSectionTitle count={filtered.length}>Bundled catalog</SettingsSectionTitle>
-        <div className="min-w-0 flex-1">
-          <InboxSearchInput
-            value={query}
-            onChange={setQuery}
-            ariaLabel="Search MCP servers by name, category, or description"
-            placeholder="Search MCP servers"
-          />
-        </div>
-      </div>
-
-      <div className="flex gap-4">
-        <section className="min-w-0 flex-1 space-y-4">
-          {groups.length === 0 ? (
-            <p className="px-1 py-6 text-center text-[12px] text-[color:var(--text-muted)]">
-              {trimmed ? `No MCP servers match “${trimmed}”.` : 'No MCP servers available.'}
-            </p>
-          ) : (
-            <div className="space-y-5">
-              {groups.map(([category, categoryServers]) => (
-                <div key={category} className="space-y-2">
-                  <div className="flex items-center gap-3">
-                    <span className="text-[12px] font-medium text-[color:var(--text-muted)]">{category}</span>
-                    <span className="h-px flex-1 bg-[color:var(--border-subtle)]" />
-                    <span className="tabular-nums font-mono text-[10px] text-[color:var(--text-subtle)]">
-                      {categoryServers.length}
-                    </span>
-                  </div>
-                  <div className={`grid grid-cols-2 gap-2 sm:grid-cols-3 ${selected ? '' : 'lg:grid-cols-4'}`}>
-                    {categoryServers.map((server) => (
-                      <McpCatalogTile
-                        key={server.id}
-                        server={server}
-                        installed={isInstalled(server.id)}
-                        selected={selectedId === server.id}
-                        onToggle={() => onToggle(server)}
-                        onInfo={() =>
-                          setSelectedId((current) => (current === server.id ? null : server.id))
-                        }
-                      />
-                    ))}
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
-        </section>
-        {selected ? (
-          <McpInfoPanel
-            server={selected}
-            installed={isInstalled(selected.id)}
-            onToggle={() => onToggle(selected)}
-            onClose={() => setSelectedId(null)}
-          />
-        ) : null}
-      </div>
-    </div>
   )
 }
 

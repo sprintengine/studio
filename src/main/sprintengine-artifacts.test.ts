@@ -820,6 +820,7 @@ async function testIpcRegistersReadOnlyBridgeChannels(): Promise<void> {
     refreshPullRequestStatus: async () => ({ ok: true, data: {} }),
     replenishRoster: async () => ({ ok: true, data: {} }),
     addRosterMember: async () => ({ ok: true, data: {} }),
+    setRoleRuntime: async () => ({ ok: true, data: {} }),
     readProjection: async () => ({ ok: true, data: null }),
     readRegistryRoles: async () => {
       calls.push('roles')

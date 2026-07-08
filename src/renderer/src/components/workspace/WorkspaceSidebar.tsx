@@ -1,10 +1,13 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   AutomationsWorkspaceTypeIcon,
+  NewChatIcon,
+  SprintEngineMarkIcon,
   SprintEngineWorkspaceTypeIcon,
   WorkspaceTypeIcon,
   resolveEnabledWorkspaceType,
 } from '../AppIcons'
+import { buildModeModels } from './newWorkspace/modeModels'
 import { selectModuleEnabled } from '../../modules'
 import { FOCUS_RING_CLASS } from '../ui/tokens'
 import {
@@ -19,6 +22,7 @@ import {
   ContextMenu,
   LifecycleGlyph,
   MenuDivider,
+  AgentWorkingDots,
   MenuItem,
   MenuSwatchRow,
   PointerPopover,
@@ -92,6 +96,11 @@ type WorkspaceSidebarProps = {
   onForgetFolder: (folderPath: string) => void
   onNewWorkspace: () => void
   onNewWorkspaceInFolder: (folderPath: string) => void
+  // Open the pre-creation New Chat panel scoped to the active workspace's
+  // folder — the split create control's primary click.
+  onNewChat: () => void
+  // Open the creation hub preselected on a type (the "+" menu rows).
+  onNewWorkspaceMode: (mode: Workspace['mode']) => void
   // Scope a new chat to a specific project folder (workspace-row context menu).
   // The panel owns the agent/engine choice — the sidebar only opens it.
   onNewChatInFolder: (folderPath: string) => void
@@ -451,6 +460,8 @@ export default function WorkspaceSidebar({
   onForgetFolder,
   onNewWorkspace,
   onNewWorkspaceInFolder,
+  onNewChat,
+  onNewWorkspaceMode,
   onNewChatInFolder,
   onRevealFolder,
   onSetSidebarCollapsed,
@@ -478,6 +489,8 @@ export default function WorkspaceSidebar({
   // Passed to WorkspaceTypeIcon so a disabled-module workspace row degrades to
   // the generic glyph (AC4) instead of its tool icon.
   const moduleOverrides = useWorkspaceStore((s) => s.appSettings.modules)
+  // Rows for the "+" create menu, matching the creation hub rail's list/order.
+  const createMenuModels = useMemo(() => buildModeModels(moduleOverrides), [moduleOverrides])
   // The Connectors nav entry opens the store-level Connectors surface (mounted
   // by WorkspaceManager) and reads its open state to carry aria-current.
   const openConnectorsSurface = useWorkspaceStore((s) => s.openConnectorsSurface)
@@ -497,13 +510,16 @@ export default function WorkspaceSidebar({
   // paged in FOLD_PAGE_SIZE steps rather than an all-or-nothing toggle.
   const [revealedStaleFolders, setRevealedStaleFolders] = useState<Record<string, number>>({})
   const [starredCollapsed, setStarredCollapsed] = useState(false)
-  const [projectsCollapsed, setProjectsCollapsed] = useState(false)
   const [renamingId, setRenamingId] = useState<WorkspaceId | null>(null)
   const [renameValue, setRenameValue] = useState('')
   const [contextMenu, setContextMenu] = useState<{ workspaceId: WorkspaceId; x: number; y: number } | null>(null)
   const [folderMenu, setFolderMenu] = useState<{ folderKey: string; x: number; y: number } | null>(null)
   // Front-door project picker anchor for the bottom Automations utility rail.
   const [automationsMenu, setAutomationsMenu] = useState<{ x: number; y: number } | null>(null)
+  // The "+" create menu beside New chat: one row per creatable type, each
+  // opening the creation hub preselected (chat/standard route to their own
+  // dedicated openers).
+  const [createMenu, setCreateMenu] = useState<{ x: number; y: number } | null>(null)
   const [confirmClose, setConfirmClose] = useState<WorkspaceId | null>(null)
   const [confirmDelete, setConfirmDelete] = useState<WorkspaceId | null>(null)
   const [confirmForget, setConfirmForget] = useState<string | null>(null)
@@ -1068,7 +1084,7 @@ export default function WorkspaceSidebar({
         className={`group relative mx-1.5 my-[1px] flex h-[30px] cursor-pointer select-none items-center gap-2 rounded-md text-[13px] transition-colors ${
           sidebarCollapsed
             ? 'justify-center px-0'
-            : 'border-l-[4px] border-l-transparent pl-[29px] pr-1.5'
+            : 'border-l-[4px] border-l-transparent pl-[26px] pr-1.5'
         } ${
           active
             ? sidebarCollapsed
@@ -1099,7 +1115,9 @@ export default function WorkspaceSidebar({
             cost ~28px that the name needs more. Mode identity survives in the
             colored left rail / accent (active + highlighted rows) and the
             trailing run glyph; the collapsed icon rail keeps the glyph because
-            there it IS the row. */}
+            there it IS the row. Sprint rows are the one exception: they carry
+            the small sprint glyph inline (below) so a sprint reads as a sprint
+            at a glance. */}
         {sidebarCollapsed ? (
           <span
             className={`flex h-[20px] w-[20px] shrink-0 items-center justify-center rounded-md transition-colors ${
@@ -1141,6 +1159,9 @@ export default function WorkspaceSidebar({
                     label="Starred"
                   />
                 ) : null}
+                {workspace.mode === 'sprintengine' ? (
+                  <SprintEngineMarkIcon className="icon-xs shrink-0 text-[color:var(--tool-sprintengine-ink)]" />
+                ) : null}
                 <TruncatedText
                   as="span"
                   text={workspace.name}
@@ -1169,7 +1190,15 @@ export default function WorkspaceSidebar({
                     <LifecycleGlyph state={runGlyph.state} live={runGlyph.live} label={runGlyphLabel} />
                   </Tooltip>
                 ) : null}
-                {!runGlyph && tone ? <StatusDot tone={tone.tone} pulse={tone.pulse} label={activityLabel(activity)} /> : null}
+                {/* Active work earns the three-dot working marker; the other
+                    attention states keep the tone dot. */}
+                {!runGlyph && tone ? (
+                  activity === 'working' ? (
+                    <AgentWorkingDots label={activityLabel(activity)} />
+                  ) : (
+                    <StatusDot tone={tone.tone} pulse={tone.pulse} label={activityLabel(activity)} />
+                  )
+                ) : null}
                 {showRecencyText ? (
                   <span
                     className="text-[10px] tabular-nums text-[color:var(--text-subtle)]"
@@ -1394,29 +1423,84 @@ export default function WorkspaceSidebar({
        */}
       {chromeSlot}
       <div className={`mt-1 flex flex-col gap-1.5 ${sidebarCollapsed ? 'mx-1.5' : 'mx-2'}`}>
-        {/* New Agent — one quiet nav row matching Automations / Connectors
-            (SidebarNavButton). It carries the tab-extract drop target and the
-            Ctrl+T accelerator (surfaced in the tooltip). Chat now lives inside
-            the unified New Agent panel, so there is no separate pencil segment. */}
-        <SidebarNavButton
-          collapsed={sidebarCollapsed}
-          dropActive={tabDropTarget?.kind === 'new'}
-          icon={
-            <svg viewBox="0 0 16 16" fill="none" className="icon-xs pointer-events-none shrink-0">
-              <path d="M8 3.5V12.5M3.5 8H12.5" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
-            </svg>
-          }
-          label={tabDropTarget?.kind === 'new' ? 'Drop to extract' : 'New Agent'}
-          ariaLabel="New Agent"
-          tooltip="New Agent (Ctrl+T)"
-          tooltipWhenExpanded
-          onClick={onNewWorkspace}
-          onDragOver={handleTabDragOverNew}
-          onDragLeave={handleTabDragLeaveNew}
-          onDrop={handleTabDropOnNew}
-        />
+        {/* Create cluster — New chat is the primary click (the most common
+            create), and the attached "+" opens a menu of everything else; each
+            menu row opens the creation hub preselected on that type (the
+            Linear "+" idiom). The primary row keeps the tab-extract drop
+            target; Ctrl+T still opens the hub on Workspace. */}
+        {sidebarCollapsed ? (
+          <>
+            <SidebarNavButton
+              collapsed={sidebarCollapsed}
+              dropActive={tabDropTarget?.kind === 'new'}
+              icon={<NewChatIcon className="icon-xs pointer-events-none shrink-0" />}
+              label={tabDropTarget?.kind === 'new' ? 'Drop to extract' : 'New chat'}
+              ariaLabel="New chat"
+              tooltip="New chat"
+              onClick={onNewChat}
+              onDragOver={handleTabDragOverNew}
+              onDragLeave={handleTabDragLeaveNew}
+              onDrop={handleTabDropOnNew}
+            />
+            <SidebarNavButton
+              collapsed={sidebarCollapsed}
+              icon={
+                <svg viewBox="0 0 16 16" fill="none" className="icon-xs pointer-events-none shrink-0">
+                  <path d="M8 3.5V12.5M3.5 8H12.5" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+                </svg>
+              }
+              label="New…"
+              ariaLabel="New…"
+              tooltip="New… (Ctrl+T for workspace)"
+              onClick={(event) => {
+                // Anchor to the button, not the pointer — a keyboard-activated
+                // click reports clientX/Y of 0,0.
+                const rect = (event.currentTarget as HTMLElement).getBoundingClientRect()
+                setCreateMenu({ x: rect.right, y: rect.top })
+              }}
+            />
+          </>
+        ) : (
+          <div className="flex items-stretch gap-px">
+            <Tooltip content="New chat" placement="right" wrapperClassName="flex min-w-0 flex-1">
+              <button
+                type="button"
+                onClick={onNewChat}
+                onDragOver={handleTabDragOverNew}
+                onDragLeave={handleTabDragLeaveNew}
+                onDrop={handleTabDropOnNew}
+                className={`flex h-[30px] min-w-0 flex-1 items-center gap-2 rounded-l-md px-2 text-left text-[12px] font-medium transition-colors ${FOCUS_RING_CLASS} ${
+                  tabDropTarget?.kind === 'new'
+                    ? 'bg-[color:var(--bg-selected)] text-[color:var(--text-strong)]'
+                    : 'text-[color:var(--text-muted)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]'
+                }`}
+              >
+                <NewChatIcon className="icon-xs pointer-events-none shrink-0" />
+                <span className="min-w-0 flex-1 truncate">
+                  {tabDropTarget?.kind === 'new' ? 'Drop to extract' : 'New chat'}
+                </span>
+              </button>
+            </Tooltip>
+            <Tooltip content="New… (Ctrl+T for workspace)" placement="right" wrapperClassName="flex">
+              <button
+                type="button"
+                aria-label="New…"
+                aria-haspopup="menu"
+                onClick={(event) => {
+                  const rect = (event.currentTarget as HTMLElement).getBoundingClientRect()
+                  setCreateMenu({ x: rect.right, y: rect.bottom })
+                }}
+                className={`flex h-[30px] w-[26px] shrink-0 items-center justify-center rounded-r-md transition-colors ${FOCUS_RING_CLASS} text-[color:var(--text-muted)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]`}
+              >
+                <svg viewBox="0 0 16 16" fill="none" className="icon-xs pointer-events-none shrink-0">
+                  <path d="M8 3.5V12.5M3.5 8H12.5" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+                </svg>
+              </button>
+            </Tooltip>
+          </div>
+        )}
 
-        {/* Top nav (New Agent → Automations → Sprints → Connectors).
+        {/* Top nav (Create → Automations → Sprints → Connectors).
             Automations keeps its front-door picker; the gate stays so it only
             appears when a host workspace exists. Sprints toggles the global
             Sprint Engines aside (all sprints across projects). Connectors opens
@@ -1458,32 +1542,18 @@ export default function WorkspaceSidebar({
         />
       </div>
 
-      {/* Tree: Projects (Starred first, then folder groups). The section label
-          lives inside the scroll container and its header collapses the whole
-          area. Sprint workspaces list under their project like any other
-          workspace; the global sprint overview is the Sprints surface opened
-          from the top nav. */}
+      {/* Tree: Starred first, then folder groups directly — no "Projects"
+          umbrella header; the folder headers are the top level (Cursor-parity).
+          Sprint workspaces list under their project like any other workspace;
+          the global sprint overview is the Sprints surface opened from the top
+          nav.
+
+          Alignment grid: every text column starts 36px from the sidebar edge —
+          top-nav labels (mx-2 + px-2 + 12px icon + gap-2), section-header
+          labels (pl-4 + 14px icon slot + gap-1.5), workspace-row content
+          (mx-1.5 + 4px rail + pl-[26px]) and the fold row's chevron
+          (mx-1.5 + pl-[30px]). Keep these in step when touching any one. */}
       <nav className="mt-1 flex-1 overflow-y-auto pb-2" role="tree">
-        {!sidebarCollapsed ? (
-          <div className="mx-2 mt-2 mb-0.5">
-            <div aria-hidden="true" className="h-px bg-[color:var(--border-subtle)]" />
-            <header
-              onClick={() => setProjectsCollapsed((prev) => !prev)}
-              className="flex cursor-pointer select-none items-center gap-1 pt-1.5 text-[11px] font-semibold text-[color:var(--text-muted)] hover:text-[color:var(--text-default)]"
-            >
-              <svg
-                viewBox="0 0 16 16"
-                fill="none"
-                className={`icon-xs shrink-0 text-[color:var(--text-disabled)] transition-transform ${
-                  projectsCollapsed ? '-rotate-90' : ''
-                }`}
-              >
-                <path d="M5 6L8 9L11 6" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
-              </svg>
-              <span className="min-w-0 flex-1 truncate">Projects</span>
-            </header>
-          </div>
-        ) : null}
         {starredWorkspaces.length > 0 && sidebarCollapsed ? (
           <section className="relative" aria-label="Starred workspaces">
             {starredWorkspaces.map((workspace) =>
@@ -1492,24 +1562,32 @@ export default function WorkspaceSidebar({
             <div aria-hidden="true" className="mx-2 my-1.5 h-px bg-[color:var(--border-subtle)]" />
           </section>
         ) : null}
-        {starredWorkspaces.length > 0 && !sidebarCollapsed && !projectsCollapsed ? (
+        {starredWorkspaces.length > 0 && !sidebarCollapsed ? (
           <section className="relative pt-1" aria-label="Starred workspaces">
             <header
               onClick={() =>
                 setStarredCollapsed((prev) => !prev)
               }
-              className="group/folder relative flex h-[26px] cursor-pointer select-none items-center gap-1.5 px-2 text-[color:var(--text-muted)] hover:text-[color:var(--text-default)]"
+              className="group/folder relative flex h-[26px] cursor-pointer select-none items-center gap-1.5 pl-4 pr-2 text-[color:var(--text-muted)] hover:text-[color:var(--text-default)]"
             >
-              <svg
-                viewBox="0 0 16 16"
-                fill="none"
-                className={`icon-xs shrink-0 text-[color:var(--text-disabled)] transition-transform ${
-                  starredCollapsed ? '-rotate-90' : ''
-                }`}
-              >
-                <path d="M5 6L8 9L11 6" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
-              </svg>
-              <StarGlyph filled className="icon-sm shrink-0 text-[color:var(--tone-warn)]" />
+              {/* One icon slot, Cursor-style: the star at rest, the collapse
+                  chevron swapped in on hover — no dedicated chevron column, so
+                  child rows don't have to indent past it. */}
+              <span className="relative flex h-[14px] w-[14px] shrink-0 items-center justify-center">
+                <StarGlyph
+                  filled
+                  className="icon-sm shrink-0 text-[color:var(--tone-warn)] transition-opacity group-hover/folder:opacity-0"
+                />
+                <svg
+                  viewBox="0 0 16 16"
+                  fill="none"
+                  className={`icon-xs absolute inset-0 m-auto text-[color:var(--text-muted)] opacity-0 transition-[opacity,transform] group-hover/folder:opacity-100 ${
+                    starredCollapsed ? '-rotate-90' : ''
+                  }`}
+                >
+                  <path d="M5 6L8 9L11 6" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
+                </svg>
+              </span>
               <span className="min-w-0 flex-1 truncate text-[12px] font-semibold text-[color:var(--text-strong)]">
                 Starred
               </span>
@@ -1521,7 +1599,7 @@ export default function WorkspaceSidebar({
               : null}
           </section>
         ) : null}
-        {(sidebarCollapsed || !projectsCollapsed) && groups.map((group) => {
+        {groups.map((group) => {
           const collapsed = collapsedFolders[group.key] === true
           // Each folder's rows are ordered by how recently each was worked on,
           // same as the Starred section — not by live status, so opening a row
@@ -1555,7 +1633,7 @@ export default function WorkspaceSidebar({
                     event.preventDefault()
                     setFolderMenu({ folderKey: group.key, x: event.clientX, y: event.clientY })
                   }}
-                  className={`group/folder relative flex h-[26px] cursor-pointer select-none items-center gap-1.5 px-2 text-[color:var(--text-muted)] hover:text-[color:var(--text-default)] ${
+                  className={`group/folder relative flex h-[26px] cursor-pointer select-none items-center gap-1.5 pl-4 pr-2 text-[color:var(--text-muted)] hover:text-[color:var(--text-default)] ${
                     group.missing ? 'text-[color:var(--tone-warn)] hover:text-[color:var(--tone-warn)]' : ''
                   }`}
                 >
@@ -1565,22 +1643,30 @@ export default function WorkspaceSidebar({
                   {dropMark === 'after' ? (
                     <span aria-hidden="true" className="absolute inset-x-1 bottom-[-1px] h-[2px] rounded bg-[color:var(--accent-primary)]" />
                   ) : null}
-                  <svg
-                    viewBox="0 0 16 16"
-                    fill="none"
-                    className={`icon-xs shrink-0 text-[color:var(--text-disabled)] transition-transform ${
-                      collapsed ? '-rotate-90' : ''
-                    }`}
-                  >
-                    <path d="M5 6L8 9L11 6" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
-                  </svg>
-                  <svg viewBox="0 0 16 16" fill="none" className="icon-sm shrink-0">
-                    <path
-                      d="M2 4.5C2 3.67 2.67 3 3.5 3H6.5L8 4.5H12.5C13.33 4.5 14 5.17 14 6V11.5C14 12.33 13.33 13 12.5 13H3.5C2.67 13 2 12.33 2 11.5V4.5Z"
-                      stroke="currentColor"
-                      strokeWidth="1.4"
-                    />
-                  </svg>
+                  {/* One icon slot, Cursor-style: the folder glyph at rest, the
+                      collapse chevron swapped in on hover. */}
+                  <span className="relative flex h-[14px] w-[14px] shrink-0 items-center justify-center">
+                    <svg
+                      viewBox="0 0 16 16"
+                      fill="none"
+                      className="icon-sm shrink-0 transition-opacity group-hover/folder:opacity-0"
+                    >
+                      <path
+                        d="M2 4.5C2 3.67 2.67 3 3.5 3H6.5L8 4.5H12.5C13.33 4.5 14 5.17 14 6V11.5C14 12.33 13.33 13 12.5 13H3.5C2.67 13 2 12.33 2 11.5V4.5Z"
+                        stroke="currentColor"
+                        strokeWidth="1.4"
+                      />
+                    </svg>
+                    <svg
+                      viewBox="0 0 16 16"
+                      fill="none"
+                      className={`icon-xs absolute inset-0 m-auto text-[color:var(--text-muted)] opacity-0 transition-[opacity,transform] group-hover/folder:opacity-100 ${
+                        collapsed ? '-rotate-90' : ''
+                      }`}
+                    >
+                      <path d="M5 6L8 9L11 6" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
+                    </svg>
+                  </span>
                   <span
                     className="min-w-0 flex-1 truncate text-[12px] font-semibold text-[color:var(--text-strong)]"
                     title={group.fullPath ?? 'Workspaces with no folder'}
@@ -1643,6 +1729,44 @@ export default function WorkspaceSidebar({
       {/* Front-door picker: jump to an existing project's Automations workspace.
           Reveal-only — creating an Automations workspace is the New-workspace
           mode card's job, not this rail. */}
+      {/* The "+" create menu: one row per creatable type, mirroring the
+          creation hub rail's list and order (buildModeModels). Chat routes to
+          the dedicated New Chat panel; everything else opens the hub
+          preselected on that type. */}
+      {createMenu ? (
+        <PointerPopover
+          x={createMenu.x}
+          y={createMenu.y}
+          ariaLabel="Create"
+          onClose={() => setCreateMenu(null)}
+        >
+          <div className="min-w-[200px] max-w-[280px] py-1">
+            {createMenuModels.map((model) => {
+              const Icon = model.icon
+              return (
+                <button
+                  key={model.id}
+                  type="button"
+                  onClick={() => {
+                    setCreateMenu(null)
+                    if (model.id === 'chat') onNewChat()
+                    else if (model.id === 'standard') onNewWorkspace()
+                    else onNewWorkspaceMode(model.id)
+                  }}
+                  className={`flex w-full items-center gap-2 px-3 py-1.5 text-left text-[13px] text-[color:var(--text-default)] transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)] ${FOCUS_RING_CLASS}`}
+                >
+                  <Icon className="icon-xs pointer-events-none shrink-0 text-[color:var(--text-subtle)]" />
+                  <span className="min-w-0 flex-1 truncate">{`New ${model.label.toLowerCase()}`}</span>
+                  {model.id === 'standard' ? (
+                    <kbd className="shrink-0 font-mono text-[10px] text-[color:var(--text-disabled)]">Ctrl+T</kbd>
+                  ) : null}
+                </button>
+              )
+            })}
+          </div>
+        </PointerPopover>
+      ) : null}
+
       {automationsMenu ? (
         <PointerPopover
           x={automationsMenu.x}

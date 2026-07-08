@@ -1,0 +1,933 @@
+{
+  "ref": {
+    "color": {
+      "ink-950": {
+        "$type": "color",
+        "$value": "#08080c",
+        "$description": "Darkest warm ink. Source: dark --bg-app / dark --text-on-accent."
+      },
+      "ink-900": {
+        "$type": "color",
+        "$value": "#0c0c10",
+        "$description": "Ink step above 950. Source: dark --bg-surface."
+      },
+      "ink-875": {
+        "$type": "color",
+        "$value": "#101418",
+        "$description": "Raised ink step. Source: dark --bg-surface-raised."
+      },
+      "ink-850": {
+        "$type": "color",
+        "$value": "#18181c",
+        "$description": "Hover ink step. Source: dark --bg-hover."
+      },
+      "ink-825": {
+        "$type": "color",
+        "$value": "#1c2024",
+        "$description": "Active ink step. Source: dark --bg-active."
+      },
+      "ink-800": {
+        "$type": "color",
+        "$value": "#24242c",
+        "$description": "Selected ink step. Source: dark --bg-selected."
+      },
+      "paper-100": {
+        "$type": "color",
+        "$value": "#ececec",
+        "$description": "Brightest text ink on dark surfaces. Source: dark --text-strong."
+      },
+      "paper-200": {
+        "$type": "color",
+        "$value": "#c8c8d0",
+        "$description": "Body text ink on dark surfaces. Source: dark --text-default."
+      },
+      "paper-400": {
+        "$type": "color",
+        "$value": "#9c9ca4",
+        "$description": "Muted text ink on dark surfaces. Source: dark --text-muted / --tone-neutral."
+      },
+      "paper-500": {
+        "$type": "color",
+        "$value": "#707078",
+        "$description": "Subtle text ink on dark surfaces. Source: dark --text-subtle."
+      },
+      "paper-600": {
+        "$type": "color",
+        "$value": "#5c5c64",
+        "$description": "Disabled text ink on dark surfaces. Source: dark --text-disabled."
+      },
+      "white": {
+        "$type": "color",
+        "$value": "#ffffff",
+        "$description": "Pure white. Source: light --bg-surface / light --text-on-accent."
+      },
+      "mist-100": {
+        "$type": "color",
+        "$value": "#eaeef2",
+        "$description": "Cool near-white canvas, a step greyer than white cards. Source: light --bg-app."
+      },
+      "mist-150": {
+        "$type": "color",
+        "$value": "#f0f0f4",
+        "$description": "Light hover step. Source: light --bg-hover."
+      },
+      "mist-200": {
+        "$type": "color",
+        "$value": "#e0e4e8",
+        "$description": "Light active step. Source: light --bg-active."
+      },
+      "mist-250": {
+        "$type": "color",
+        "$value": "#d8dce0",
+        "$description": "Light selected step. Source: light --bg-selected."
+      },
+      "slate-900": {
+        "$type": "color",
+        "$value": "#202428",
+        "$description": "Near-black text ink on light surfaces. Source: light --text-strong."
+      },
+      "slate-700": {
+        "$type": "color",
+        "$value": "#3c444c",
+        "$description": "Body text ink on light surfaces. Source: light --text-default."
+      },
+      "slate-500": {
+        "$type": "color",
+        "$value": "#646c78",
+        "$description": "Muted text ink on light surfaces. Source: light --text-muted."
+      },
+      "slate-550": {
+        "$type": "color",
+        "$value": "#5f6772",
+        "$description": "Subtle text ink on light surfaces, darkened to clear AA body. Source: light --text-subtle."
+      },
+      "slate-400": {
+        "$type": "color",
+        "$value": "#838b97",
+        "$description": "Disabled text ink on light surfaces (3.44:1 on white, AA-large). Source: light --text-disabled."
+      },
+      "green-400": {
+        "$type": "color",
+        "$value": "#4daf7d",
+        "$description": "Signature green, hover step on dark. Source: dark --accent-primary-hover."
+      },
+      "green-500": {
+        "$type": "color",
+        "$value": "#3f9468",
+        "$description": "Signature green on dark surfaces. Source: dark --accent-primary."
+      },
+      "green-700": {
+        "$type": "color",
+        "$value": "#2f6a4a",
+        "$description": "Deep forest green on light surfaces. Source: light --accent-primary."
+      },
+      "green-800": {
+        "$type": "color",
+        "$value": "#275842",
+        "$description": "Deep forest green, hover step on light. Source: light --accent-primary-hover."
+      },
+      "emerald-400": {
+        "$type": "color",
+        "$value": "#30d058",
+        "$description": "Luminous success emerald for dark surfaces. Source: dark --tone-good."
+      },
+      "emerald-700": {
+        "$type": "color",
+        "$value": "#157f37",
+        "$description": "Deep success emerald for light surfaces (5.09:1 with white text). Source: light --tone-good."
+      },
+      "amber-400": {
+        "$type": "color",
+        "$value": "#fcc030",
+        "$description": "Luminous warning amber for dark surfaces. Source: dark --tone-warn."
+      },
+      "amber-800": {
+        "$type": "color",
+        "$value": "#9a6000",
+        "$description": "Deep warning amber for light surfaces. Source: light --tone-warn."
+      },
+      "coral-400": {
+        "$type": "color",
+        "$value": "#fc787c",
+        "$description": "Luminous error coral for dark surfaces. Source: dark --tone-error."
+      },
+      "red-600": {
+        "$type": "color",
+        "$value": "#d92d2d",
+        "$description": "Deep error red for light surfaces, carries white ink. Source: light --tone-error."
+      },
+      "violet-500": {
+        "$type": "color",
+        "$value": "#8957e5",
+        "$description": "Merged-branch purple, constant across modes (GitHub-family semantic). Source: --tone-merged."
+      },
+      "gray-500": {
+        "$type": "color",
+        "$value": "#6b7280",
+        "$description": "Neutral status grey for light surfaces. Source: light --tone-neutral."
+      }
+    }
+  },
+  "sem": {
+    "color": {
+      "bg": {
+        "app": {
+          "$type": "color",
+          "$value": "{ref.color.mist-100}",
+          "$description": "Root/page background — the canvas every panel sits on.",
+          "$extensions": {
+            "com.multicode": {
+              "seeded": true,
+              "role": "surface",
+              "use": "Root and page background, the base layer of every view.",
+              "doNotUse": "Cards or raised chrome — use bg.surface / bg.surface-raised so panels read as elevated.",
+              "modes": { "light": "{ref.color.mist-100}", "dark": "{ref.color.ink-950}" }
+            }
+          }
+        },
+        "surface": {
+          "$type": "color",
+          "$value": "{ref.color.white}",
+          "$description": "Panel, section, and default card surface — one step above the app canvas.",
+          "$extensions": {
+            "com.multicode": {
+              "seeded": true,
+              "role": "surface",
+              "use": "Panels, sections, cards — the default working surface.",
+              "modes": { "light": "{ref.color.white}", "dark": "{ref.color.ink-900}" }
+            }
+          }
+        },
+        "surface-raised": {
+          "$type": "color",
+          "$value": "{ref.color.white}",
+          "$description": "Raised chrome: tab strips, inputs, popovers, drawers.",
+          "$extensions": {
+            "com.multicode": {
+              "seeded": true,
+              "role": "surface",
+              "use": "Inputs, popovers, drawers, and other chrome raised above the panel surface.",
+              "modes": { "light": "{ref.color.white}", "dark": "{ref.color.ink-875}" }
+            }
+          }
+        },
+        "hover": {
+          "$type": "color",
+          "$value": "{ref.color.mist-150}",
+          "$description": "Hover fill on rows, buttons, and list items — the only hover treatment (no shadow, scale, or glow).",
+          "$extensions": {
+            "com.multicode": {
+              "seeded": true,
+              "role": "interaction",
+              "use": "Hover background on any interactive row, button, or list item.",
+              "modes": { "light": "{ref.color.mist-150}", "dark": "{ref.color.ink-850}" }
+            }
+          }
+        },
+        "active": {
+          "$type": "color",
+          "$value": "{ref.color.mist-200}",
+          "$description": "Pressed / active background.",
+          "$extensions": {
+            "com.multicode": {
+              "seeded": true,
+              "role": "interaction",
+              "use": "Pressed state background on interactive surfaces.",
+              "modes": { "light": "{ref.color.mist-200}", "dark": "{ref.color.ink-825}" }
+            }
+          }
+        },
+        "selected": {
+          "$type": "color",
+          "$value": "{ref.color.mist-250}",
+          "$description": "Neutral selection background where the accent soft fill would be too strong.",
+          "$extensions": {
+            "com.multicode": {
+              "seeded": true,
+              "role": "interaction",
+              "use": "Neutral selected-row background in dense chrome.",
+              "doNotUse": "Primary selection — that pairs accent.soft with a left accent bar.",
+              "modes": { "light": "{ref.color.mist-250}", "dark": "{ref.color.ink-800}" }
+            }
+          }
+        }
+      },
+      "text": {
+        "primary": {
+          "$type": "color",
+          "$value": "{ref.color.slate-900}",
+          "$description": "Primary content ink: titles, selected-row foreground, headings.",
+          "$extensions": {
+            "com.multicode": {
+              "seeded": true,
+              "role": "text",
+              "use": "Panel titles, primary content, selected-row foreground.",
+              "modes": { "light": "{ref.color.slate-900}", "dark": "{ref.color.paper-100}" }
+            }
+          }
+        },
+        "default": {
+          "$type": "color",
+          "$value": "{ref.color.slate-700}",
+          "$description": "Body text and default row labels.",
+          "$extensions": {
+            "com.multicode": {
+              "seeded": true,
+              "role": "text",
+              "use": "Body copy, row labels, field labels.",
+              "modes": { "light": "{ref.color.slate-700}", "dark": "{ref.color.paper-200}" }
+            }
+          }
+        },
+        "muted": {
+          "$type": "color",
+          "$value": "{ref.color.slate-500}",
+          "$description": "Secondary and supporting copy, meta text.",
+          "$extensions": {
+            "com.multicode": {
+              "seeded": true,
+              "role": "text",
+              "use": "Secondary copy, counts, meta rows, ghost-button labels.",
+              "modes": { "light": "{ref.color.slate-500}", "dark": "{ref.color.paper-400}" }
+            }
+          }
+        },
+        "subtle": {
+          "$type": "color",
+          "$value": "{ref.color.slate-550}",
+          "$description": "Tertiary ink: identifiers, de-emphasized meta.",
+          "$extensions": {
+            "com.multicode": {
+              "seeded": true,
+              "role": "text",
+              "use": "Identifiers, placeholders, tertiary meta.",
+              "doNotUse": "Actionable copy on its own — pair with primary text or an affordance.",
+              "modes": { "light": "{ref.color.slate-550}", "dark": "{ref.color.paper-500}" }
+            }
+          }
+        },
+        "disabled": {
+          "$type": "color",
+          "$value": "{ref.color.slate-400}",
+          "$description": "Disabled controls and empty-state copy.",
+          "$extensions": {
+            "com.multicode": {
+              "seeded": true,
+              "role": "text",
+              "use": "Disabled control labels, empty-state hints.",
+              "doNotUse": "Body copy — this step is below the AA body-contrast floor by design.",
+              "modes": { "light": "{ref.color.slate-400}", "dark": "{ref.color.paper-600}" }
+            }
+          }
+        },
+        "on-accent": {
+          "$type": "color",
+          "$value": "{ref.color.white}",
+          "$description": "Label ink on the accent fill. Flips by mode: white on the deep light-mode green, near-black on the brighter dark-mode green.",
+          "$extensions": {
+            "com.multicode": {
+              "seeded": true,
+              "role": "text",
+              "use": "Text and icons sitting on accent.primary fills (primary buttons).",
+              "modes": { "light": "{ref.color.white}", "dark": "{ref.color.ink-950}" }
+            }
+          }
+        }
+      },
+      "border": {
+        "subtle": {
+          "$type": "color",
+          "$value": "rgba(32, 36, 40, 0.10)",
+          "$description": "Default panel/section divider hairline.",
+          "$extensions": {
+            "com.multicode": {
+              "seeded": true,
+              "role": "border",
+              "use": "Section dividers and quiet card edges — borders carry the structure, not shadows.",
+              "modes": { "light": "rgba(32, 36, 40, 0.10)", "dark": "rgba(252, 252, 252, 0.06)" }
+            }
+          }
+        },
+        "default": {
+          "$type": "color",
+          "$value": "rgba(32, 36, 40, 0.20)",
+          "$description": "Raised-surface divider, popover and input edge.",
+          "$extensions": {
+            "com.multicode": {
+              "seeded": true,
+              "role": "border",
+              "use": "Input borders, popover edges, clear hairlines.",
+              "modes": { "light": "rgba(32, 36, 40, 0.20)", "dark": "rgba(252, 252, 252, 0.08)" }
+            }
+          }
+        },
+        "strong": {
+          "$type": "color",
+          "$value": "rgba(32, 36, 40, 0.30)",
+          "$description": "Hover emphasis and structural separators.",
+          "$extensions": {
+            "com.multicode": {
+              "seeded": true,
+              "role": "border",
+              "use": "Hover-emphasized edges, structural separators, ghost-button borders.",
+              "modes": { "light": "rgba(32, 36, 40, 0.30)", "dark": "rgba(252, 252, 252, 0.12)" }
+            }
+          }
+        },
+        "focus": {
+          "$type": "color",
+          "$value": "rgba(47, 106, 74, 0.55)",
+          "$description": "Focus ring color on every focusable primitive (green family, tracks the accent).",
+          "$extensions": {
+            "com.multicode": {
+              "seeded": true,
+              "role": "border",
+              "use": "The 2px focus-visible ring on every focusable primitive.",
+              "doNotUse": "Resting borders or dividers — focus only.",
+              "modes": { "light": "rgba(47, 106, 74, 0.55)", "dark": "rgba(63, 148, 104, 0.6)" }
+            }
+          }
+        }
+      },
+      "accent": {
+        "primary": {
+          "$type": "color",
+          "$value": "{ref.color.green-700}",
+          "$description": "The single product accent — signature green. Selection and primary action share it.",
+          "$extensions": {
+            "com.multicode": {
+              "seeded": true,
+              "role": "accent",
+              "use": "Primary CTA fill, active selection chrome, active-tab underline.",
+              "doNotUse": "Decoration, category coding, or a second accent hue anywhere in a view.",
+              "modes": { "light": "{ref.color.green-700}", "dark": "{ref.color.green-500}" }
+            }
+          }
+        },
+        "hover": {
+          "$type": "color",
+          "$value": "{ref.color.green-800}",
+          "$description": "Accent hover step: deepens on light, brightens on dark.",
+          "$extensions": {
+            "com.multicode": {
+              "seeded": true,
+              "role": "accent",
+              "use": "Hover state of accent.primary fills.",
+              "modes": { "light": "{ref.color.green-800}", "dark": "{ref.color.green-400}" }
+            }
+          }
+        },
+        "soft": {
+          "$type": "color",
+          "$value": "rgba(47, 106, 74, 0.10)",
+          "$description": "Soft accent fill for selected rows.",
+          "$extensions": {
+            "com.multicode": {
+              "seeded": true,
+              "role": "accent",
+              "use": "Selected-row fill, paired with a 2px left bar of accent.primary.",
+              "modes": { "light": "rgba(47, 106, 74, 0.10)", "dark": "rgba(63, 148, 104, 0.14)" }
+            }
+          }
+        },
+        "soft-strong": {
+          "$type": "color",
+          "$value": "rgba(47, 106, 74, 0.18)",
+          "$description": "Stronger soft accent fill for selected-card emphasis.",
+          "$extensions": {
+            "com.multicode": {
+              "seeded": true,
+              "role": "accent",
+              "use": "Selected-card border fill where soft is too faint.",
+              "modes": { "light": "rgba(47, 106, 74, 0.18)", "dark": "rgba(63, 148, 104, 0.22)" }
+            }
+          }
+        }
+      },
+      "status": {
+        "neutral": {
+          "$type": "color",
+          "$value": "{ref.color.gray-500}",
+          "$description": "Idle / neutral status mark.",
+          "$extensions": {
+            "com.multicode": {
+              "seeded": true,
+              "role": "status",
+              "use": "Idle or unknown status dots and inline status copy.",
+              "doNotUse": "Button fills, chrome tints, or category coding — status only.",
+              "modes": { "light": "{ref.color.gray-500}", "dark": "{ref.color.paper-400}" }
+            }
+          }
+        },
+        "good": {
+          "$type": "color",
+          "$value": "{ref.color.emerald-700}",
+          "$description": "Done / ready / healthy. Kept apart from the forest accent by brightness and saturation.",
+          "$extensions": {
+            "com.multicode": {
+              "seeded": true,
+              "role": "status",
+              "use": "Completion and health marks: done discs, success dots.",
+              "doNotUse": "Anything decorative; never retune toward the accent green.",
+              "modes": { "light": "{ref.color.emerald-700}", "dark": "{ref.color.emerald-400}" }
+            }
+          }
+        },
+        "warn": {
+          "$type": "color",
+          "$value": "{ref.color.amber-800}",
+          "$description": "Warning / needs-input.",
+          "$extensions": {
+            "com.multicode": {
+              "seeded": true,
+              "role": "status",
+              "use": "Needs-input and warning marks.",
+              "doNotUse": "Button fills or chrome tints — status only.",
+              "modes": { "light": "{ref.color.amber-800}", "dark": "{ref.color.amber-400}" }
+            }
+          }
+        },
+        "danger": {
+          "$type": "color",
+          "$value": "{ref.color.red-600}",
+          "$description": "Error / blocked / failed; destructive-action fill.",
+          "$extensions": {
+            "com.multicode": {
+              "seeded": true,
+              "role": "status",
+              "use": "Error marks, failed states, destructive-button fills, invalid-field borders.",
+              "modes": { "light": "{ref.color.red-600}", "dark": "{ref.color.coral-400}" }
+            }
+          }
+        },
+        "merged": {
+          "$type": "color",
+          "$value": "{ref.color.violet-500}",
+          "$description": "Merged-and-complete purple, constant across modes so 'merged' stays recognisable (GitHub-family semantic).",
+          "$extensions": {
+            "com.multicode": {
+              "seeded": true,
+              "role": "status",
+              "use": "Completed-and-merged marks, distinct from the plain green done."
+            }
+          }
+        },
+        "neutral-soft": {
+          "$type": "color",
+          "$value": "rgba(100, 108, 120, 0.14)",
+          "$description": "Soft neutral fill for banners and chips.",
+          "$extensions": {
+            "com.multicode": {
+              "seeded": true,
+              "role": "status",
+              "use": "Neutral banner and chip fills in inspectors and drawers.",
+              "doNotUse": "Default panel chrome.",
+              "modes": { "light": "rgba(100, 108, 120, 0.14)", "dark": "rgba(156, 156, 164, 0.18)" }
+            }
+          }
+        },
+        "good-soft": {
+          "$type": "color",
+          "$value": "rgba(21, 127, 55, 0.20)",
+          "$description": "Soft success fill for banners and chips.",
+          "$extensions": {
+            "com.multicode": {
+              "seeded": true,
+              "role": "status",
+              "use": "Success banner and chip fills in inspectors and drawers.",
+              "doNotUse": "Default panel chrome.",
+              "modes": { "light": "rgba(21, 127, 55, 0.20)", "dark": "rgba(48, 208, 88, 0.18)" }
+            }
+          }
+        },
+        "warn-soft": {
+          "$type": "color",
+          "$value": "rgba(204, 132, 0, 0.20)",
+          "$description": "Soft warning fill for banners and chips.",
+          "$extensions": {
+            "com.multicode": {
+              "seeded": true,
+              "role": "status",
+              "use": "Warning banner and chip fills in inspectors and drawers.",
+              "doNotUse": "Default panel chrome.",
+              "modes": { "light": "rgba(204, 132, 0, 0.20)", "dark": "rgba(252, 192, 48, 0.18)" }
+            }
+          }
+        },
+        "danger-soft": {
+          "$type": "color",
+          "$value": "rgba(220, 40, 40, 0.16)",
+          "$description": "Soft error fill for banners and chips.",
+          "$extensions": {
+            "com.multicode": {
+              "seeded": true,
+              "role": "status",
+              "use": "Error banner and chip fills in inspectors and drawers.",
+              "doNotUse": "Default panel chrome.",
+              "modes": { "light": "rgba(220, 40, 40, 0.16)", "dark": "rgba(252, 120, 124, 0.18)" }
+            }
+          }
+        }
+      },
+      "overlay": {
+        "scrim": {
+          "$type": "color",
+          "$value": "rgba(20, 24, 28, 0.42)",
+          "$description": "Modal/dialog backdrop above panel chrome. A plain translucent layer — never add backdrop-filter to a full-viewport scrim.",
+          "$extensions": {
+            "com.multicode": {
+              "seeded": true,
+              "role": "overlay",
+              "use": "The backdrop layer behind modals, dialogs, and drawers.",
+              "doNotUse": "Combining with backdrop-filter blur — full-viewport blur re-renders every frame and tanks pointer framerate.",
+              "modes": { "light": "rgba(20, 24, 28, 0.42)", "dark": "rgba(8, 8, 12, 0.7)" }
+            }
+          }
+        }
+      }
+    },
+    "shadow": {
+      "drawer": {
+        "$type": "shadow",
+        "$value": "0 1px 3px rgba(16, 20, 24, 0.06), 0 8px 24px -6px rgba(16, 20, 24, 0.10)",
+        "$description": "The one canonical elevation shadow, shared by drawers and overlay panels.",
+        "$extensions": {
+          "com.multicode": {
+            "seeded": true,
+            "role": "elevation",
+            "use": "Drawer and overlay-panel elevation — the only drop shadow in the system.",
+            "doNotUse": "Cards, rows, or hover states — structure comes from hairline borders.",
+            "modes": {
+              "light": "0 1px 3px rgba(16, 20, 24, 0.06), 0 8px 24px -6px rgba(16, 20, 24, 0.10)",
+              "dark": "0 8px 24px -12px rgba(0, 0, 0, 0.6)"
+            }
+          }
+        }
+      }
+    },
+    "font": {
+      "family": {
+        "ui": {
+          "$type": "fontFamily",
+          "$value": ["Inter", "SF Pro Text", "Segoe UI", "Roboto", "Helvetica", "Arial", "sans-serif"],
+          "$description": "Default UI face for prose, labels, and chrome. Load Inter with font-feature-settings 'cv11', 'ss01', 'ss03'.",
+          "$extensions": {
+            "com.multicode": {
+              "seeded": true,
+              "role": "typography",
+              "use": "All UI text: labels, body, headings, chrome."
+            }
+          }
+        },
+        "mono": {
+          "$type": "fontFamily",
+          "$value": ["JetBrains Mono", "ui-monospace", "SFMono-Regular", "SF Mono", "Cascadia Code", "Menlo", "Consolas", "monospace"],
+          "$description": "Monospace face for identifiers, code, kbd, and terminals. Load with font-feature-settings 'tnum', 'zero'.",
+          "$extensions": {
+            "com.multicode": {
+              "seeded": true,
+              "role": "typography",
+              "use": "Identifiers, code, keyboard shortcuts, numeric IDs."
+            }
+          }
+        }
+      },
+      "size": {
+        "micro": {
+          "$type": "dimension",
+          "$value": "10.5px",
+          "$description": "Micro labels: kbd shortcuts in dense chrome.",
+          "$extensions": {
+            "com.multicode": {
+              "seeded": true,
+              "role": "typography",
+              "use": "Micro labels only — kbd shortcuts, dense chrome."
+            }
+          }
+        },
+        "meta": {
+          "$type": "dimension",
+          "$value": "11px",
+          "$description": "IDs, meta, and supporting copy.",
+          "$extensions": {
+            "com.multicode": {
+              "seeded": true,
+              "role": "typography",
+              "use": "Identifiers, meta rows, help and error text."
+            }
+          }
+        },
+        "body": {
+          "$type": "dimension",
+          "$value": "12px",
+          "$description": "Default body, card titles, row labels, buttons.",
+          "$extensions": {
+            "com.multicode": {
+              "seeded": true,
+              "role": "typography",
+              "use": "The default text size for body copy, labels, and controls."
+            }
+          }
+        },
+        "heading": {
+          "$type": "dimension",
+          "$value": "13px",
+          "$description": "Section headings and drawer body.",
+          "$extensions": {
+            "com.multicode": {
+              "seeded": true,
+              "role": "typography",
+              "use": "Section headings inside panels and drawers."
+            }
+          }
+        },
+        "title": {
+          "$type": "dimension",
+          "$value": "15px",
+          "$description": "Panel and inspector titles.",
+          "$extensions": {
+            "com.multicode": {
+              "seeded": true,
+              "role": "typography",
+              "use": "Panel titles (H2) and inspector titles — keep at most 3 sizes per view."
+            }
+          }
+        }
+      },
+      "weight": {
+        "regular": {
+          "$type": "fontWeight",
+          "$value": 400,
+          "$description": "Regular body weight.",
+          "$extensions": {
+            "com.multicode": {
+              "seeded": true,
+              "role": "typography",
+              "use": "Body copy and meta text."
+            }
+          }
+        },
+        "medium": {
+          "$type": "fontWeight",
+          "$value": 500,
+          "$description": "Medium weight for labels, buttons, and card titles.",
+          "$extensions": {
+            "com.multicode": {
+              "seeded": true,
+              "role": "typography",
+              "use": "Button labels, field labels, row titles."
+            }
+          }
+        },
+        "emphasis": {
+          "$type": "fontWeight",
+          "$value": 600,
+          "$description": "Semibold for headings and selected emphasis.",
+          "$extensions": {
+            "com.multicode": {
+              "seeded": true,
+              "role": "typography",
+              "use": "Headings and selected-state emphasis where weight must move with color."
+            }
+          }
+        }
+      },
+      "line": {
+        "tight": {
+          "$type": "number",
+          "$value": 1.25,
+          "$description": "Display and panel-title line height.",
+          "$extensions": {
+            "com.multicode": {
+              "seeded": true,
+              "role": "typography",
+              "use": "Titles and single-line labels."
+            }
+          }
+        },
+        "default": {
+          "$type": "number",
+          "$value": 1.4,
+          "$description": "Body and row-label line height.",
+          "$extensions": {
+            "com.multicode": {
+              "seeded": true,
+              "role": "typography",
+              "use": "Body copy and row labels."
+            }
+          }
+        },
+        "relaxed": {
+          "$type": "number",
+          "$value": 1.5,
+          "$description": "Long-form prose line height.",
+          "$extensions": {
+            "com.multicode": {
+              "seeded": true,
+              "role": "typography",
+              "use": "Long-form prose in inspectors and docs."
+            }
+          }
+        }
+      }
+    },
+    "icon": {
+      "size": {
+        "xs": {
+          "$type": "dimension",
+          "$value": "12px",
+          "$description": "Inline glyphs next to body/meta copy.",
+          "$extensions": {
+            "com.multicode": {
+              "seeded": true,
+              "role": "iconography",
+              "use": "Inline glyphs beside meta copy and inside chips."
+            }
+          }
+        },
+        "sm": {
+          "$type": "dimension",
+          "$value": "14px",
+          "$description": "Default list-row and toolbar icons.",
+          "$extensions": {
+            "com.multicode": {
+              "seeded": true,
+              "role": "iconography",
+              "use": "The default icon size for rows, toolbars, and close glyphs."
+            }
+          }
+        },
+        "md": {
+          "$type": "dimension",
+          "$value": "16px",
+          "$description": "Button-pair icons and panel-header chrome.",
+          "$extensions": {
+            "com.multicode": {
+              "seeded": true,
+              "role": "iconography",
+              "use": "Icons paired with button labels and panel-header affordances."
+            }
+          }
+        },
+        "lg": {
+          "$type": "dimension",
+          "$value": "20px",
+          "$description": "Prominent affordances and empty-state glyphs.",
+          "$extensions": {
+            "com.multicode": {
+              "seeded": true,
+              "role": "iconography",
+              "use": "Empty-state glyphs and large overlay close buttons."
+            }
+          }
+        }
+      }
+    },
+    "radius": {
+      "chip": {
+        "$type": "dimension",
+        "$value": "3px",
+        "$description": "Inner chips (rarely needed).",
+        "$extensions": {
+          "com.multicode": {
+            "seeded": true,
+            "role": "shape",
+            "use": "Small inner chips nested inside a rounded parent."
+          }
+        }
+      },
+      "control": {
+        "$type": "dimension",
+        "$value": "5px",
+        "$description": "Cards, rows, buttons, and inputs in panel chrome.",
+        "$extensions": {
+          "com.multicode": {
+            "seeded": true,
+            "role": "shape",
+            "use": "The default control radius: buttons, inputs, cards, rows — keep at most 2 radii per view."
+          }
+        }
+      },
+      "overlay": {
+        "$type": "dimension",
+        "$value": "7px",
+        "$description": "Popovers and drawers.",
+        "$extensions": {
+          "com.multicode": {
+            "seeded": true,
+            "role": "shape",
+            "use": "Popovers, drawers, and floating surfaces."
+          }
+        }
+      },
+      "shell": {
+        "$type": "dimension",
+        "$value": "9px",
+        "$description": "Large overlay and modal shells.",
+        "$extensions": {
+          "com.multicode": {
+            "seeded": true,
+            "role": "shape",
+            "use": "Modal shells and the largest overlay surfaces.",
+            "doNotUse": "Operational chrome — larger radii are marketing-only."
+          }
+        }
+      }
+    },
+    "motion": {
+      "duration": {
+        "fast": {
+          "$type": "duration",
+          "$value": "120ms",
+          "$description": "Hover, focus, and small state flips.",
+          "$extensions": {
+            "com.multicode": {
+              "seeded": true,
+              "role": "motion",
+              "use": "Hover and focus transitions, small state flips."
+            }
+          }
+        },
+        "normal": {
+          "$type": "duration",
+          "$value": "180ms",
+          "$description": "Reorder and popover enter.",
+          "$extensions": {
+            "com.multicode": {
+              "seeded": true,
+              "role": "motion",
+              "use": "Popover enters and list reorders."
+            }
+          }
+        },
+        "deliberate": {
+          "$type": "duration",
+          "$value": "260ms",
+          "$description": "Drawer enter/exit.",
+          "$extensions": {
+            "com.multicode": {
+              "seeded": true,
+              "role": "motion",
+              "use": "Drawer and large-surface enter/exit."
+            }
+          }
+        }
+      },
+      "ease": {
+        "standard": {
+          "$type": "cubicBezier",
+          "$value": "cubic-bezier(0.2, 0.8, 0.2, 1)",
+          "$description": "The single easing curve for all UI motion.",
+          "$extensions": {
+            "com.multicode": {
+              "seeded": true,
+              "role": "motion",
+              "use": "Every transition and animation — one ease, no exceptions.",
+              "doNotUse": "Introducing a second easing curve."
+            }
+          }
+        }
+      }
+    }
+  }
+}

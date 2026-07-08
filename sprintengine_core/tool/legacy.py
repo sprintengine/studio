@@ -498,6 +498,13 @@ def build_parser() -> argparse.ArgumentParser:
     )
     p.set_defaults(handler=roster_commands.configure)
 
+    p = roster_sub.add_parser("runtime", help="Operator: set one role's cli/model mid-run. Applies to future spawns and claims; live agents switch when they next start. App-owned (--actor ui), not an agent tool.")
+    p.add_argument("--role", required=True)
+    p.add_argument("--cli", required=True, help="CLI id, e.g. claude-code. Pass the role's current CLI when changing only the model.")
+    p.add_argument("--model", help="Model id; omit for the CLI's default model (launches with no --model flag).")
+    p.add_argument("--actor", default="user")
+    p.set_defaults(handler=roster_commands.runtime)
+
     p = roster_sub.add_parser("retire", help="Mark a roster member retired so it cannot claim more Sprint Engine work.")
     p.add_argument("--id", required=True, help="Stable agent id, e.g. developer-1.")
     p.add_argument("--reason", required=True, help="Why this agent is retiring, e.g. context capacity near limit.")

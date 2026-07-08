@@ -180,6 +180,31 @@ export function facetCounts(entries: ConnectorEntry[]): Record<ConnectorFacet, n
   return counts
 }
 
+// One category section of the browse list: a heading + its rows. `expanded`
+// sections render every row; collapsed ones cut off at the panel's per-section
+// limit behind a "Show N more" toggle.
+export type ConnectorSection = {
+  title: string
+  entries: ConnectorEntry[]
+  expanded: boolean
+}
+
+const SECTION_ORDER: readonly NamedFacet[] = ['Infrastructure', 'Payments', 'Productivity', 'Data', 'Other']
+
+// Group the (already searched + faceted) entries into category sections. On the
+// All tab every non-empty facet bucket gets a collapsed section, in the tab-strip
+// order, with the unmapped bucket last; on a specific tab the entries are that
+// facet already, so they render as one expanded section.
+export function sectionConnectors(entries: ConnectorEntry[], facet: ConnectorFacet): ConnectorSection[] {
+  if (entries.length === 0) return []
+  if (facet !== 'All') return [{ title: facet, entries, expanded: true }]
+  return SECTION_ORDER.map((bucket) => ({
+    title: bucket === 'Other' ? 'More' : bucket,
+    entries: entries.filter((entry) => entry.facet === bucket),
+    expanded: false,
+  })).filter((section) => section.entries.length > 0)
+}
+
 // Per-source async load. `undefined`-free: each source resolves to loading, a
 // reachable failure, or ready data, so a partial failure (one source down) is a
 // first-class state rather than a silent empty grid.

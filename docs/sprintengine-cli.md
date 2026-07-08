@@ -192,6 +192,29 @@ Over MCP the same operation is `sprintengine.roster.configure` with
 capability table (withheld from a `general` identity alongside the other
 roster-growth tools), so only the run's planning architect can seat the team.
 
+### Operator runtime edits (`roster runtime`, MC-1516)
+
+The **operator** (never an agent) can change one role's runtime at any point in
+the run, including after plan approval — this is the app-owned path behind the
+board's Roster tab role bands:
+
+```bash
+sprintengine roster runtime --role developer --cli claude-code --model claude-haiku-4-5 --actor ui
+```
+
+- `--cli` is required (pass the role's current CLI when changing only the
+  model); omitting `--model` pins the CLI's own default (no `--model` flag at
+  launch).
+- Merges the one role into `roleRuntimes` in a locked transaction and appends a
+  `role_runtime_changed` event carrying the previous value.
+- Deliberately **not** an MCP tool and **not** subject to the
+  `rosterSource`/plan-approval-lock/`allowedRuntimes` guards above — the
+  palette constrains the architect, never the operator. The role must resolve
+  in the registry and, on configured rosters, be in `configuredRoles`
+  (`role_not_enabled_for_run`).
+- Applies to every future spawn and claim of the role; live sessions keep the
+  runtime they launched with until they next start.
+
 ## Command Groups
 
 Inspect help before scripting a command:

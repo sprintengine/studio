@@ -165,6 +165,7 @@ registerAppLifecycle({
     process.env['MULTICODE_ALLOW_MULTI_INSTANCE'] === '1' &&
     Boolean(process.env['MULTICODE_USER_DATA_DIR']?.trim()),
   terminalRuntime: services.terminalRuntime,
+  conversationRuntime: services.conversationRuntime,
   automationService: services.automationService,
   agentStateService: services.agentStateService,
   workspaceSyncService: services.workspaceSyncService,

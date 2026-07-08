@@ -1,8 +1,11 @@
 import assert from 'node:assert/strict'
 import type { AgentState, SessionActivity, TerminalSessionSnapshot } from '../../../../shared/electron-api'
+import type { ConversationSessionSummary } from '../../../../shared/conversation-runtime'
+import type { Workspace } from '../../types/workspace'
 import {
   compareSessionItemsByAttention,
   deriveSessionStatus,
+  getSessionItems,
   sessionsAttentionTone,
 } from './workspaceManagerHelpers'
 import type { SessionItem } from './WorkspaceActions'
@@ -17,7 +20,64 @@ function main(): void {
   assertLastActivityIsMaxOfOutputAndInput()
   assertAttentionFirstOrdering()
   assertAttentionToneNeverLies()
+  assertConversationSessionsSurfaceInSessionItems()
   console.log('workspaceManagerHelpers.test.ts: all assertions passed')
+}
+
+// Conversation (chat) agents have no PTY snapshot; their runtime summaries
+// must still produce session rows with truthful status mapping.
+function assertConversationSessionsSurfaceInSessionItems(): void {
+  const workspace = {
+    id: 'ws-1',
+    name: 'Workspace One',
+    agents: {
+      'chat-1': { id: 'chat-1', name: 'Sonnet chat', runtimeKind: 'conversation' },
+    },
+  } as unknown as Workspace
+  const summary = (status: ConversationSessionSummary['status']): ConversationSessionSummary => ({
+    sessionId: `conv-${status}`,
+    workspaceId: 'ws-1',
+    agentId: 'chat-1',
+    providerId: 'claude-agent',
+    modelId: 'sonnet',
+    status,
+    createdAt: 10,
+    updatedAt: 20,
+  })
+
+  const awaiting = getSessionItems([workspace], [], [summary('awaiting_approval')])
+  assert.equal(awaiting.length, 1)
+  assert.equal(awaiting[0]?.status, 'needs-input', 'pending approval/question reads as needs-input')
+  assert.equal(awaiting[0]?.agentId, 'chat-1')
+  assert.equal(awaiting[0]?.label, 'Sonnet chat')
+  assert.equal(awaiting[0]?.cli, 'claude-code', 'claude-agent provider surfaces the Claude icon')
+
+  assert.equal(getSessionItems([workspace], [], [summary('active')])[0]?.status, 'working')
+  assert.equal(getSessionItems([workspace], [], [summary('ready')])[0]?.status, 'idle')
+  assert.equal(getSessionItems([workspace], [], [summary('failed')])[0]?.status, 'failed')
+  assert.equal(getSessionItems([workspace], [], [summary('stopped')]).length, 0, 'stopped sessions drop out')
+  assert.equal(
+    getSessionItems([], [], [summary('active')]).length,
+    0,
+    'summaries without a matching workspace are ignored',
+  )
+
+  // Wizard specialist sessions have no AgentState entry but must stay visible
+  // in the session manager, with a readable role label.
+  const wizardSummary: ConversationSessionSummary = {
+    sessionId: 'conv-wizard',
+    workspaceId: 'ws-1',
+    agentId: 'guided-brief-strategist',
+    providerId: 'claude-agent',
+    modelId: 'sonnet',
+    status: 'awaiting_approval',
+    createdAt: 10,
+    updatedAt: 20,
+  }
+  const wizardItems = getSessionItems([workspace], [], [wizardSummary])
+  assert.equal(wizardItems.length, 1, 'agent-less conversation session still surfaces')
+  assert.equal(wizardItems[0]?.label, 'Product Strategist')
+  assert.equal(wizardItems[0]?.status, 'needs-input')
 }
 
 function snap(partial: {
