@@ -79,6 +79,11 @@ import AgentComposer, {
 } from './agentComposer/AgentComposer'
 import { RecentFolderRow, isSameFolder } from './newWorkspace/RecentFolderRow'
 import { type SprintEngineCliOption } from './newWorkspace/SprintEngineRosterTable'
+import { SprintEngineWorkflowPanels } from './newWorkspace/SprintEngineWorkflowPanels'
+import {
+  buildSprintEngineWorkflowInitKeys,
+  type SprintEngineReviewRuntime,
+} from './newWorkspace/sprintengineWorkflowConfig'
 import { sprintEngineRosterHasPlanningRole, sprintEngineRosterRoleFloor } from '../../utils/sprintengineRoleOptions'
 import { useFolderHints, useFolderScan } from './newWorkspace/useNewWorkspaceFolder'
 import { useBacklogScan } from './newWorkspace/useBacklogScan'
@@ -540,6 +545,23 @@ export default function NewWorkspacePanel({
   const [seArchitectSeat, setSeArchitectSeat] = useState<SprintEngineAllowedRuntime | null>(null)
   const [seSprintModelSelection, setSeSprintModelSelection] = useState<ReadonlySet<string> | null>(null)
   const [seArchitectGuidance, setSeArchitectGuidance] = useState('')
+  // "Workflow steps" + "Final sweeps" panels (MC-1542 / MC-1543). Defaults
+  // match the engine defaults, so an untouched run omits all three init keys:
+  // self-review ON (defaultPhases absent), reviewer = same agent (no
+  // phaseRuntimes), no mandated sweeps (requiredSweeps absent).
+  const [seSelfReviewEnabled, setSeSelfReviewEnabled] = useState(true)
+  const [seReviewRuntime, setSeReviewRuntime] = useState<SprintEngineReviewRuntime | null>(null)
+  const [seRequiredSweeps, setSeRequiredSweeps] = useState<ReadonlySet<SprintEngineRoleId>>(
+    () => new Set<SprintEngineRoleId>(),
+  )
+  const toggleSprintEngineRequiredSweep = (role: SprintEngineRoleId, next: boolean) => {
+    setSeRequiredSweeps((prev) => {
+      const updated = new Set(prev)
+      if (next) updated.add(role)
+      else updated.delete(role)
+      return updated
+    })
+  }
 
   const [mlName, setMlName] = useState('')
   const [mlGoal, setMlGoal] = useState('')
@@ -2090,6 +2112,13 @@ export default function NewWorkspacePanel({
             useWorktrees: seUseWorktrees,
             cliPermissionPreset,
             rosterSource: seRosterSource,
+            // "Workflow steps" + "Final sweeps" panels. Each key is present only
+            // when it diverges from the engine default, so a plain run sends none.
+            ...buildSprintEngineWorkflowInitKeys({
+              selfReviewEnabled: seSelfReviewEnabled,
+              reviewRuntime: seReviewRuntime,
+              requiredSweepRoleIds: [...seRequiredSweeps],
+            }),
             ...(architectMode
               ? {
                 architectSeat: effectiveArchitectSeat,
@@ -2599,6 +2628,12 @@ export default function NewWorkspacePanel({
               onChangeRosterSource={seExistingTeam != null ? undefined : setSeRosterSource}
               architectModeAvailable={architectModeAvailable}
               architectModeDisabledHint={architectModeDisabledHint}
+              selfReviewEnabled={seSelfReviewEnabled}
+              onChangeSelfReviewEnabled={setSeSelfReviewEnabled}
+              reviewRuntime={seReviewRuntime}
+              onChangeReviewRuntime={setSeReviewRuntime}
+              requiredSweeps={seRequiredSweeps}
+              onToggleRequiredSweep={toggleSprintEngineRequiredSweep}
               architectCard={
                 <ArchitectTeamCard
                   seat={effectiveArchitectSeat}
@@ -4281,6 +4316,14 @@ function SprintEngineRosterStep(props: {
   onChangeRosterSource?: (source: SprintEngineRosterSource) => void
   architectModeAvailable: boolean
   architectModeDisabledHint: string
+  // "Workflow steps" + "Final sweeps" panels (MC-1542 / MC-1543). Omitted for an
+  // existing team (its run is already initialized).
+  selfReviewEnabled: boolean
+  onChangeSelfReviewEnabled: (value: boolean) => void
+  reviewRuntime: SprintEngineReviewRuntime | null
+  onChangeReviewRuntime: (runtime: SprintEngineReviewRuntime | null) => void
+  requiredSweeps: ReadonlySet<SprintEngineRoleId>
+  onToggleRequiredSweep: (role: SprintEngineRoleId, next: boolean) => void
   architectCard: React.ReactNode
 }) {
   const {
@@ -4322,6 +4365,12 @@ function SprintEngineRosterStep(props: {
     onChangeRosterSource,
     architectModeAvailable,
     architectModeDisabledHint,
+    selfReviewEnabled,
+    onChangeSelfReviewEnabled,
+    reviewRuntime,
+    onChangeReviewRuntime,
+    requiredSweeps,
+    onToggleRequiredSweep,
     architectCard,
   } = props
 
@@ -4380,6 +4429,24 @@ function SprintEngineRosterStep(props: {
         architectModeDisabledHint={architectModeDisabledHint}
         architectCard={architectCard}
       />
+
+      {!hasExistingTeam ? (
+        <SprintEngineWorkflowPanels
+          cliOptions={cliOptions}
+          registry={registry}
+          disabledRoleIds={disabledRoleIds}
+          selfReviewEnabled={selfReviewEnabled}
+          onChangeSelfReviewEnabled={onChangeSelfReviewEnabled}
+          reviewRuntime={reviewRuntime}
+          onChangeReviewRuntime={onChangeReviewRuntime}
+          requiredSweepRoleIds={requiredSweeps}
+          onToggleRequiredSweep={onToggleRequiredSweep}
+          roleCliDefaults={roleCliDefaults}
+          roleModelOverrides={roleModelOverrides}
+          onSetRoleCli={onSetRoleCli}
+          onSetRoleModel={onSetRoleModel}
+        />
+      ) : null}
     </div>
   )
 }

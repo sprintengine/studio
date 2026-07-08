@@ -188,6 +188,51 @@ export function listSprintEngineWizardRoles(
   return [...roles.slice(0, insertAt), SPRINT_ENGINE_GENERAL_ROLE_ID, ...roles.slice(insertAt)]
 }
 
+// The bundled roles whose manifest declares a `sweep` block (they audit the
+// finished work as a late task instead of building). Last-resort fallback used
+// only when no `SprintEngineRoleRegistry` is available — the registry's per-role
+// `isSweep` flag is the runtime authority, mirroring the addable-role fallback
+// policy above. Keep in sync with the `"sweep"` blocks in
+// `resources/sprintengine/roles/*.json`.
+export const BUNDLED_SPRINT_ENGINE_SWEEP_ROLE_IDS: readonly SprintEngineRoleId[] = [
+  'product',
+  'ui_ux_reviewer',
+  'performance',
+  'production_readiness_reviewer',
+  'tester',
+  'security',
+]
+
+const BUNDLED_SPRINT_ENGINE_SWEEP_ROLE_ID_SET: ReadonlySet<SprintEngineRoleId> = new Set(
+  BUNDLED_SPRINT_ENGINE_SWEEP_ROLE_IDS,
+)
+
+// True when a role is a sweep (audits finished work): the registry's `isSweep`
+// flag when the registry knows the role, else the bundled fallback set. Custom
+// workspace-layer sweep roles are recognised via the registry flag.
+export function isSprintEngineSweepRole(
+  roleId: SprintEngineRoleId,
+  registry?: SprintEngineRoleRegistry | null,
+): boolean {
+  const metadata = registry?.roles?.[roleId]
+  if (metadata && typeof metadata.isSweep === 'boolean') return metadata.isSweep
+  return BUNDLED_SPRINT_ENGINE_SWEEP_ROLE_ID_SET.has(roleId)
+}
+
+// Registry-visible sweep roles for the new-workspace wizard's "Final sweeps"
+// panel: the ordered addable roles filtered to sweeps (bundled AND custom
+// workspace-layer). The soulless `general` planner is never a sweep, so it is
+// excluded implicitly. Falls back to the bundled sweep order when no registry
+// is available.
+export function listSprintEngineWizardSweepRoles(
+  registry?: SprintEngineRoleRegistry | null,
+  disabledRoleIds?: ReadonlySet<SprintEngineRoleId> | null,
+): SprintEngineRoleId[] {
+  return listSprintEngineAddableRoles(registry, disabledRoleIds).filter((role) =>
+    isSprintEngineSweepRole(role, registry),
+  )
+}
+
 export function buildSprintEngineAddMemberOptions(
   input: SprintEngineAddMemberOptionsInput,
 ): SprintEngineAddMemberOption[] {

@@ -276,21 +276,60 @@ def test_advancing_to_done_clears_the_awaiting_marker(tmp_path: Path) -> None:
     assert "awaitingPhaseSession" not in read_state(fixture.state_path)["tasks"][0]
 
 
-# --- task.next routes the bound session to its phase --------------------------
+# --- task.claim routes the bound session to its phase (pinned by task id) -----
 
 
-def test_task_next_hands_the_bound_session_its_diff_seeded_brief(tmp_path: Path) -> None:
-    from sprintengine_core.tool.commands.task import cmd_task_next
+def test_task_claim_hands_the_bound_session_its_diff_seeded_brief(tmp_path: Path) -> None:
+    # MC-1543: the bound session claims BY TASK ID via task.claim (not task.next),
+    # so a concurrent cheap same-role session cannot grab the review off it.
+    from sprintengine_core.tool.commands.task import cmd_task_claim
 
     record = _owned(status="review", cli="claude-code", model="haiku")
     record["evidence"]["summary"] = "Rewired the panel."
     record["evidence"]["touchedFiles"] = ["src/panel.tsx"]
-    fixture = _team(tmp_path, "handoff-next", [record], phaseRuntimes={"review": FABLE})
+    fixture = _team(tmp_path, "handoff-claim-next", [record], phaseRuntimes={"review": FABLE})
 
     def prepare(state):
         candidate = get_task(state, "T1")
         candidate["ownerAgentId"] = None
         candidate["lastImplementedByAgentId"] = "developer-1"
+        candidate["awaitingPhaseSession"] = {"phase": "review", "runtime": FABLE}
+        return {}
+
+    _mutate(fixture, prepare)
+
+    class Args:
+        state = fixture.state_path
+        task_id = "T1"
+        id = "developer-2"
+        model = None
+        cli = None
+
+    result = cmd_task_claim(Args())
+    assert result["ok"] is True
+    assert result["phase"] == "review"
+    prompt = result["prompt"]
+    assert "Sprint Engine Phase Handover" in prompt
+    assert "Rewired the panel." in prompt          # the diff-seeded brief
+    assert "src/panel.tsx" in prompt
+    assert "read it as if a stranger wrote it" in prompt
+
+    claimed = read_state(fixture.state_path)["tasks"][0]
+    assert claimed["ownerAgentId"] == "developer-2"
+    assert claimed["model"] == "fable"
+
+
+def test_task_next_never_claims_a_phase_session(tmp_path: Path) -> None:
+    # F1 regression: a fresh same-role session calling task.next must NOT grab an
+    # awaiting phase session (that let a cheap session silently downgrade the paid
+    # review). task.next only serves ready work now; the phase waits for task.claim.
+    from sprintengine_core.tool.commands.task import cmd_task_next
+
+    fixture = _team(tmp_path, "handoff-next-skips", [_owned(status="review", cli="claude-code", model="haiku")], phaseRuntimes={"review": FABLE})
+
+    def prepare(state):
+        candidate = get_task(state, "T1")
+        candidate["ownerAgentId"] = None
         candidate["awaitingPhaseSession"] = {"phase": "review", "runtime": FABLE}
         return {}
 
@@ -304,22 +343,15 @@ def test_task_next_hands_the_bound_session_its_diff_seeded_brief(tmp_path: Path)
         cli = None
 
     result = cmd_task_next(Args())
-    assert result["claimed"] is True
-    assert result["phase"] == "review"
-    prompt = result["prompt"]
-    assert "Sprint Engine Phase Handover" in prompt
-    assert "Rewired the panel." in prompt          # the diff-seeded brief
-    assert "src/panel.tsx" in prompt
-    assert "read it as if a stranger wrote it" in prompt
-
-    claimed = read_state(fixture.state_path)["tasks"][0]
-    assert claimed["ownerAgentId"] == "developer-2"
-    assert claimed["model"] == "fable"
+    assert result.get("claimed") is not True, "task.next must not claim a phase session"
+    record = read_state(fixture.state_path)["tasks"][0]
+    assert record["ownerAgentId"] is None, "the phase task stays unowned for its bound task.claim"
+    assert task_awaiting_phase_session(record) == "review"
 
 
 def test_a_spent_worker_id_cannot_run_a_phase_session(tmp_path: Path) -> None:
     """The per_task capacity guard still holds: a fresh id must run the phase."""
-    from sprintengine_core.tool.commands.task import cmd_task_next
+    from sprintengine_core.tool.commands.task import cmd_task_claim
 
     fixture = _team(tmp_path, "handoff-capacity", [_owned(status="review")], phaseRuntimes={"review": FABLE})
 
@@ -335,12 +367,12 @@ def test_a_spent_worker_id_cannot_run_a_phase_session(tmp_path: Path) -> None:
 
     class Args:
         state = fixture.state_path
-        role = "developer"
+        task_id = "T1"
         id = "developer-2"
         model = None
         cli = None
 
-    result = cmd_task_next(Args())
-    assert result["claimed"] is False
+    result = cmd_task_claim(Args())
+    assert result["ok"] is False
     assert result["reason"] == "worker_task_capacity_reached"
     assert read_state(fixture.state_path)["tasks"][0]["ownerAgentId"] is None

@@ -1018,8 +1018,10 @@ def test_task_status_done_captures_diff_evidence_before_completion(tmp_path) -> 
 
 def test_active_task_statuses_keep_the_run_executing_and_keep_the_owner(tmp_path) -> None:
     # ACTIVE_TASK_STATUSES is exactly {in_progress, review, needs_input}: each keeps
-    # the run executing, and each keeps the task bound to its owner.
-    for status in ["review", "needs_input"]:
+    # the run executing, and each keeps the task bound to its owner. `review` is a
+    # phase status entered only by publish/advance (never `task status` — see
+    # test_task_publish_to_review_keeps_run_executing), so it is exercised there.
+    for status in ["needs_input"]:
         record = task("T1", f"{status} work", "developer", "in_progress", owner="developer-fixture")
         fixture = create_team(tmp_path, f"run-executing-{status.replace('_', '-')}", [record])
         state = read_state(fixture.state_path)

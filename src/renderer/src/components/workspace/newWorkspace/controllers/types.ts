@@ -148,6 +148,13 @@ export type SprintEngineNewTeamInput = {
   architectSeat?: SprintEngineAllowedRuntime
   allowedRuntimes?: SprintEngineAllowedRuntime[]
   architectGuidance?: string
+  // MC-1542 / MC-1543 "Workflow steps" + "Final sweeps" panels. Each is
+  // pre-computed by the wizard (see `buildSprintEngineWorkflowInitKeys`) and
+  // forwarded verbatim into the run init; each is present ONLY when it diverges
+  // from the engine default, so a plain run sends none of them.
+  defaultPhases?: string[]
+  requiredSweeps?: string[]
+  phaseRuntimes?: Record<string, { cli: string; model: string | null }>
 }
 
 export type SprintEngineNewTeamPorts = {

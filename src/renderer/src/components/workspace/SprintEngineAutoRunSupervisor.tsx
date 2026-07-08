@@ -970,6 +970,25 @@ export async function executeSprintEngineDispatchPlan(
       logPerfEvent('SprintEngineAutoRun', 'respawn-skipped-no-context', { ...base, ...respawn.data })
       continue
     }
+    // MC-1543: a phase-bound task stamps its owner's runtime (`task.cli`/
+    // `task.model`) at claim time. If that owner's terminal dies, respawn must
+    // re-bind the SAME runtime rather than fall through to the cheap role
+    // default — otherwise a crash silently downgrades the premium review.
+    // Normal tasks stamp the role default, so this override is a no-op for them.
+    const respawnTask = spawnContext.sprintEngineState.tasks.find((t) => t.id === respawn.taskId)
+    const respawnRoleDefault = resolveSprintEngineAgentRuntime(
+      spawnContext.sprintEngineState.roleRuntimes,
+      respawn.role,
+      undefined,
+    )
+    const respawnStampedCli = respawnTask?.cli ?? null
+    const respawnStampedModel = respawnTask?.model ?? null
+    const respawnRuntimeOverride =
+      respawnStampedCli
+      && (respawnStampedCli !== respawnRoleDefault.cli
+        || respawnStampedModel !== (respawnRoleDefault.cliModel ?? null))
+        ? { cli: respawnStampedCli as AgentCli, model: respawnStampedModel }
+        : undefined
     const result = await spawnAutoRunCandidate(
       workspace,
       spawnContext.sprintEngineState,
@@ -978,6 +997,7 @@ export async function executeSprintEngineDispatchPlan(
         label: respawn.label,
         role: respawn.role,
         taskId: respawn.taskId,
+        ...(respawnRuntimeOverride ? { runtimeOverride: respawnRuntimeOverride } : {}),
       },
       spawnContext.cliRuntimes,
       spawnContext.mcpSettings,

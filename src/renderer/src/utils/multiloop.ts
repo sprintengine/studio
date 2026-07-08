@@ -764,7 +764,14 @@ function sprintEngineTaskToMultiloopTask(task: SprintEngineTask, sprintEngineSta
   // `review` maps to in_progress for legacy multiloop consumers, whose status
   // vocabulary has no phase concept — and it is honest: the task's owner is still
   // actively working it, reviewing the diff it just published.
-  const status = boardColumn === 'review' ? 'in_progress' : boardColumn
+  const status =
+    boardColumn === 'review'
+      ? 'in_progress'
+      : boardColumn === 'canceled'
+        // Legacy multiloop has no cancel concept; a canceled task is terminal
+        // (not active work), so surface it in the terminal `done` bucket.
+        ? 'done'
+        : boardColumn
   return {
     id: task.id,
     milestoneId,

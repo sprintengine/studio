@@ -98,6 +98,11 @@ export type SprintEngineRoleRegistryMetadata = {
   shadowedSources?: { layer: SprintEngineRoleRegistrySourceLayer }[]
   warnings?: SprintEngineRoleRegistryWarning[]
   enabled?: boolean
+  // True when the role manifest declares a `sweep` block — i.e. it audits the
+  // finished work as its own late task (reviewers + QA), rather than building.
+  // The wizard's "Final sweeps" panel enumerates these; derived from the
+  // `sweep` field on the `sprintengine.roles.list` payload.
+  isSweep?: boolean
 }
 
 // Read-only directory the renderer builds from a registry payload. Indexed
@@ -123,7 +128,7 @@ export type SprintEngineRoleCounts = Record<SprintEngineRoleId, number>
 export type SprintEngineTaskStatus = 'todo' | 'in_progress' | 'review' | 'needs_input' | 'done' | 'canceled'
 
 /** Board columns: todo -> ready -> in progress -> in review -> done, plus needs_input. */
-export type SprintEngineTaskBoardColumn = 'todo' | 'ready' | 'in_progress' | 'review' | 'needs_input' | 'done'
+export type SprintEngineTaskBoardColumn = 'todo' | 'ready' | 'in_progress' | 'review' | 'needs_input' | 'done' | 'canceled'
 
 /**
  * Post-implementation phases a task's single owner walks after `task.publish`

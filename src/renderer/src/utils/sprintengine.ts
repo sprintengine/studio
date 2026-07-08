@@ -90,6 +90,8 @@ export function taskBoardColumnToLifecycle(column: SprintEngineTaskBoardColumn):
       return 'needs_input'
     case 'done':
       return 'done'
+    case 'canceled':
+      return 'archived'
   }
 }
 
@@ -648,6 +650,7 @@ const sprintEngineTaskBoardColumnSet: readonly SprintEngineTaskBoardColumn[] = [
   'review',
   'needs_input',
   'done',
+  'canceled',
 ]
 
 export const sprintEngineTaskActivityLabels: Record<SprintEngineTaskActivityType, string> = {
@@ -1009,6 +1012,8 @@ function normalizeSprintEngineRoleRegistryMetadata(raw: unknown): SprintEngineRo
       })
     : []
   const enabled = typeof record.enabled === 'boolean' ? record.enabled : undefined
+  // A role is a sweep when its manifest carries a (non-null) `sweep` block.
+  const isSweep = record.sweep != null && typeof record.sweep === 'object'
   return {
     id,
     label,
@@ -1019,6 +1024,7 @@ function normalizeSprintEngineRoleRegistryMetadata(raw: unknown): SprintEngineRo
     ...(shadowedSources.length > 0 ? { shadowedSources } : {}),
     ...(warnings.length > 0 ? { warnings } : {}),
     ...(enabled !== undefined ? { enabled } : {}),
+    ...(isSweep ? { isSweep } : {}),
   }
 }
 
@@ -1897,6 +1903,7 @@ export function getSprintEngineTaskBoardColumn(
     || task.status === 'review'
     || task.status === 'needs_input'
     || task.status === 'done'
+    || task.status === 'canceled'
   ) {
     return task.status
   }
@@ -2222,6 +2229,7 @@ export function normalizeSprintEngineState(input: SprintEngineState | null | und
     const boardColumn = isSprintEngineTaskBoardColumn(task.boardColumn) ? task.boardColumn : undefined
     const folderStatus = optionalTrimmedString(task.folderStatus)
     const taskRecord = task as unknown as Record<string, unknown>
+    const awaitingPhaseSession = normalizeSprintEngineAwaitingPhaseSession(taskRecord.awaitingPhaseSession)
     const phases = normalizeSprintEngineDefaultPhases(taskRecord.phases)
     const latestComments = normalizeSprintEngineTaskComments(taskRecord.latestComments)
     const latestOpenFeedback = normalizeSprintEngineTaskComments(taskRecord.latestOpenFeedback)
@@ -2241,9 +2249,7 @@ export function normalizeSprintEngineState(input: SprintEngineState | null | und
       ...(source ? { source } : {}),
       ownerAgentId: task.ownerAgentId ?? null,
       ...(task.lastImplementedByAgentId ? { lastImplementedByAgentId: task.lastImplementedByAgentId } : {}),
-      ...(normalizeSprintEngineAwaitingPhaseSession(taskRecord.awaitingPhaseSession)
-        ? { awaitingPhaseSession: normalizeSprintEngineAwaitingPhaseSession(taskRecord.awaitingPhaseSession) }
-        : {}),
+      ...(awaitingPhaseSession ? { awaitingPhaseSession } : {}),
       ...(typeof task.model === 'string' && task.model.trim() ? { model: task.model.trim() } : {}),
       ...(typeof task.cli === 'string' && task.cli.trim() ? { cli: task.cli.trim() } : {}),
       dependsOn: stringArray(task.dependsOn),
@@ -2929,6 +2935,8 @@ export function getSprintEngineKanbanEmptyMessage(column: SprintEngineTaskBoardC
       return 'Completed work will collect here.'
     case 'todo':
       return 'Planned tasks that are waiting on dependencies appear here.'
+    case 'canceled':
+      return 'Canceled tasks are not shown on the board.'
   }
 }
 

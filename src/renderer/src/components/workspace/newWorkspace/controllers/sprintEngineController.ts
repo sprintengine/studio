@@ -244,6 +244,12 @@ export async function runSprintEngineNewTeamCreation(
       ...(architectOverrides
         ? { rosterSource: architectOverrides.rosterSource, allowedRuntimes: architectOverrides.allowedRuntimes }
         : {}),
+      // "Workflow steps" + "Final sweeps" panels (MC-1542 / MC-1543). The wizard
+      // already omits each value when it is at its default, so forward only the
+      // keys it actually set — a plain run stays byte-identical to today.
+      ...(input.defaultPhases !== undefined ? { defaultPhases: input.defaultPhases } : {}),
+      ...(input.requiredSweeps !== undefined ? { requiredSweeps: input.requiredSweeps } : {}),
+      ...(input.phaseRuntimes !== undefined ? { phaseRuntimes: input.phaseRuntimes } : {}),
     })
     if (!initResult.ok) {
       const wrapped = new SprintEngineNewTeamCreationError('init-failed')

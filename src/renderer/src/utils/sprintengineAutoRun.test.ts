@@ -43,6 +43,7 @@ import {
   type RoleContinuationGrace,
   type SprintEngineDispatchAttempt,
   type SprintEngineDispatchPath,
+  type SprintEngineDispatchPlan,
 } from './sprintengineAutoRun'
 import { normalizeSprintEngineState, normalizeSprintEngineProjection } from './sprintengine'
 import { buildSprintEngineStartupPrompt, getSprintEngineStartupCommandMode } from './agentPrompt'
@@ -165,6 +166,7 @@ async function main(): Promise<void> {
   await testSuperviseRunnerCycleReengagesStalledLiveIdleAgentForReadyTask()
   await testRespawnsDeadTaskClaimantAfterRestart()
   await testRespawnSkipsLiveCappedNeedsInputAndCoolingClaimants()
+  await testRespawnCarriesStampedRuntimeOverride()
   testRevivesDepartedWorkerForOwnTask()
   testRevivesDepartedPlanningAgentForNewReadyTask()
   testLegacyLeftDeadAgentStatusCoercesToIdle()
@@ -182,6 +184,121 @@ async function main(): Promise<void> {
   await testHardCompletionGateEntersDormancyExactlyOnceViaHelper()
   await testHardCompletionGateIgnoresIncompleteRun()
   await testAutoRunPollerControllerArmsOnlyWhenNeededAndReArms()
+}
+
+async function testRespawnCarriesStampedRuntimeOverride(): Promise<void> {
+  // MC-1543 (F2): a phase-bound task stamps its owner's premium runtime at claim
+  // time. When that owner's terminal dies, the respawn pass must re-bind the SAME
+  // runtime rather than fall through to the cheaper role default. A task carrying
+  // no stamp (a plain run) must be unaffected.
+  const spawns: Array<{ sessionId: string; cli?: AgentCli; metadata?: { cliModel?: string } }> = []
+  installTestWindow({
+    terminalList: async () => [],
+    terminalStatus: async () => ({ processAlive: false }),
+    pathExists: async () => true,
+    memoryResolveRoot: async () => ({ ok: false, status: 'disabled', relativeRoot: null }),
+    terminalSpawn: async (
+      sessionId: string,
+      _cols: number,
+      _rows: number,
+      _cwd?: string,
+      _resume?: boolean,
+      _statePath?: string,
+      cli?: AgentCli,
+      _initialPrompt?: string,
+      _cliRuntimes?: unknown,
+      _shellOnly?: boolean,
+      metadata?: { cliModel?: string },
+    ) => {
+      spawns.push({ sessionId, cli, metadata })
+      return { ok: true, sessionId }
+    },
+    logDiagnostic: async (input) => input,
+  })
+
+  const supervisor = await loadSupervisor()
+  const workspace = workspaceFixture({
+    agents: { 'developer-1': sprintAgent('developer-1', 'Dev One', 'claude-code') },
+    sprintEngineAutoState: {
+      desiredMode: 'run_agents',
+      runtimeState: 'running',
+      cliPermissionPreset: 'default',
+      maxConcurrentAgents: 3,
+      pendingSpawns: [],
+      deliveredAgentNotificationEventKeys: [],
+    },
+  })
+  // Role default is the cheap build model; the task under review is stamped with a
+  // premium review model (the bound phase runtime).
+  const premiumState = sprintEngineStateFixture({
+    roleRuntimes: { developer: { cli: 'claude-code', model: 'cheap-build-model' } } as SprintEngineState['roleRuntimes'],
+    tasks: [task({ id: 'T-review', role: 'developer', status: 'review', boardColumn: 'review', ownerAgentId: null, cli: 'claude-code', model: 'premium-review-model' })],
+    sprintEngineAgents: { 'developer-1': runtimeAgent('developer', { lastOwnedTaskId: 'T-review' }) },
+  })
+  installWorkspaceStore({ ...workspace, sprintEngineState: premiumState })
+
+  const cliRuntimes = { codex: { command: 'codex', useWsl: false }, 'claude-code': { command: 'claude', useWsl: false } } as Record<AgentCli, { command: string; useWsl: boolean }>
+  const respawnPlan = (taskId: string): SprintEngineDispatchPlan => ({
+    ledgerDeletes: [],
+    skips: [],
+    pastes: [],
+    restarts: [],
+    respawns: [{
+      agentId: 'developer-1',
+      label: 'Dev One',
+      role: 'developer',
+      taskId,
+      key: `respawn:${taskId}`,
+      data: {},
+      diagnostic: { title: 'Reviving owner', message: '', details: '', taskId },
+    }],
+    diagnostics: [],
+    notificationDeliveries: [],
+    notificationResolutions: [],
+    retirements: [],
+  })
+  const spawnContext = (state: SprintEngineState) => ({
+    sprintEngineState: state,
+    cliRuntimes,
+    mcpSettings: emptyMcpSettings,
+    inFlightSpawns: mutableRef(new Set<string>()),
+  })
+
+  await supervisor.executeSprintEngineDispatchPlan(
+    workspace,
+    respawnPlan('T-review'),
+    { continuation: mutableRef(new Map()), dispatch: mutableRef(new Map()) },
+    spawnContext(premiumState),
+  )
+  assert.equal(spawns.length, 1, 'the dead owner is respawned for its stamped task')
+  assert.equal(spawns[0].cli, 'claude-code', 'respawn keeps the stamped CLI')
+  assert.equal(
+    spawns[0].metadata?.cliModel,
+    'premium-review-model',
+    'respawn carries the stamped premium runtime rather than downgrading to the cheap role default',
+  )
+
+  // A plain, unstamped task (no task.cli) must fall through to the role default —
+  // the override is conditional and never fires for ordinary runs.
+  spawns.length = 0
+  const plainState = sprintEngineStateFixture({
+    roleRuntimes: { developer: { cli: 'claude-code', model: 'cheap-build-model' } } as SprintEngineState['roleRuntimes'],
+    tasks: [task({ id: 'T-plain', role: 'developer', status: 'review', boardColumn: 'review', ownerAgentId: null })],
+    sprintEngineAgents: { 'developer-1': runtimeAgent('developer', { lastOwnedTaskId: 'T-plain' }) },
+  })
+  installWorkspaceStore({ ...workspace, sprintEngineState: plainState })
+  await supervisor.executeSprintEngineDispatchPlan(
+    workspace,
+    respawnPlan('T-plain'),
+    { continuation: mutableRef(new Map()), dispatch: mutableRef(new Map()) },
+    spawnContext(plainState),
+  )
+  assert.equal(spawns.length, 1, 'the unstamped task is still respawned')
+  assert.equal(
+    spawns[0].metadata?.cliModel,
+    'cheap-build-model',
+    'an unstamped task keeps the role default runtime (override is a no-op for plain runs)',
+  )
 }
 
 function testAgentTerminalBackgroundPolicyDoesNotSelectOrCreateTabs(): void {
@@ -5703,8 +5820,12 @@ function testPickNextAutoRunsBirthsPhaseSessionOnBoundRuntime(): void {
   assert.equal(birth.runtimeOverride?.cli, 'claude-code')
   assert.equal(birth.runtimeOverride?.model, 'claude-fable-5')
   assert.ok(
-    birth.startupPromptOverride && birth.startupPromptOverride.includes('sprintengine.task.next'),
-    'the Birth prompt points the session at task next to claim its phase',
+    birth.startupPromptOverride && birth.startupPromptOverride.includes('sprintengine.task.claim'),
+    'the Birth prompt points the session at task.claim (pinned by task id) to claim its phase',
+  )
+  assert.ok(
+    birth.startupPromptOverride && birth.startupPromptOverride.includes('T-phase'),
+    'the Birth prompt names the specific task id so a cheap session cannot grab it',
   )
 }
 

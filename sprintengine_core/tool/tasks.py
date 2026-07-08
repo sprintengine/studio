@@ -41,6 +41,13 @@ def task_produced_changes(state: Dict[str, Any], state_path: Path, task: Dict[st
         return bool(isinstance(commits, list) and commits)
     if not workspace_is_git_repository(state_path):
         return True
+    # Non-worktree change detection is scoped to the task's declared + owned paths.
+    # If the task declared NO scope at all, we cannot tell what it touched -> route
+    # to review, the same failure-safe direction as "no git repo" (E3 review finding).
+    declared = task_diff_declared_paths(task)
+    owned = [str(path) for path in task.get("ownedPaths", []) or []]
+    if not declared and not owned:
+        return True
     return bool(task_scoped_dirty_paths(state, state_path, task))
 
 
@@ -230,9 +237,22 @@ def advance_task(
     if outcome not in VALID_PHASE_OUTCOMES:
         raise SystemExit(f"Invalid outcome {outcome!r}; expected one of: {', '.join(sorted(VALID_PHASE_OUTCOMES))}.")
     owner = str(task.get("ownerAgentId") or "")
-    if owner and owner != actor:
+    if task_awaiting_phase_session(task):
+        # MC-1543: the phase was released to a bound runtime and no session has
+        # claimed it yet. A stale implementer (or any non-owner) must not advance
+        # past the paid-for review — the bound session claims via `task.claim` first.
         raise SystemExit(
-            f"not_task_owner: {actor} does not own {task.get('id')} ({owner or 'unowned'} does). "
+            f"awaiting_phase_session: {task.get('id')} is waiting for its bound "
+            f"{task.get('status')} session to claim it; advance is not permitted until then."
+        )
+    if not owner:
+        raise SystemExit(
+            f"not_task_owner: {actor} cannot advance unowned task {task.get('id')}. "
+            "Only a task's owner advances its phases."
+        )
+    if owner != actor:
+        raise SystemExit(
+            f"not_task_owner: {actor} does not own {task.get('id')} ({owner} does). "
             "Only a task's owner advances its phases."
         )
     clean_summary = str(summary or "").strip()

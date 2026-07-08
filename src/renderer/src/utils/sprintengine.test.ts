@@ -43,6 +43,7 @@ import {
   deriveSprintEngineRunGlyph,
   sprintEngineRoleOrder,
   sprintEngineRunAwaitsHumanInput,
+  sprintEngineTaskBoardColumns,
   shouldResumeRecordedRosterSession,
   willResumeRecordedRosterSession,
 } from './sprintengine'
@@ -760,6 +761,37 @@ const taskWithoutBoardColumn: SprintEngineTask = {
   completedAt: null,
 }
 assert.equal(getSprintEngineTaskBoardColumn(taskWithoutBoardColumn, state!.tasks), 'ready')
+
+// MC-1542 (R1): a canceled task is terminal. Its authoritative board column is
+// preserved, it is never launchable, and it never falls through to ready/todo —
+// even when its dependencies are complete, which a pre-fix build would have
+// materialized into the ready queue and counted as remaining/launchable work.
+const canceledTaskWithColumn: SprintEngineTask = {
+  ...taskWithoutBoardColumn,
+  id: 'C1',
+  title: 'Canceled task (authoritative column)',
+  status: 'canceled',
+  boardColumn: 'canceled',
+  dependsOn: [],
+}
+assert.equal(getSprintEngineTaskBoardColumn(canceledTaskWithColumn, state!.tasks), 'canceled')
+assert.equal(isSprintEngineTaskLaunchable(canceledTaskWithColumn, state!), false)
+
+// No projected boardColumn, deps satisfied (T1 is done): status pass-through must
+// still return 'canceled' rather than recomputing 'ready'.
+const canceledTaskDepsDone: SprintEngineTask = {
+  ...taskWithoutBoardColumn,
+  id: 'C2',
+  title: 'Canceled task (deps done, no board column)',
+  status: 'canceled',
+  dependsOn: ['T1'],
+}
+assert.equal(getSprintEngineTaskBoardColumn(canceledTaskDepsDone, state!.tasks), 'canceled')
+assert.notEqual(getSprintEngineTaskBoardColumn(canceledTaskDepsDone, state!.tasks), 'ready')
+assert.equal(isSprintEngineTaskLaunchable(canceledTaskDepsDone, state!), false)
+// Terminal, not active work: excluded from the rendered board lanes entirely, so
+// it can never land in a to-do/ready/in-progress column count.
+assert.equal(sprintEngineTaskBoardColumns.some((column) => column.key === 'canceled'), false)
 
 // Activity is returned newest-first.
 const sortedActivity = getSprintEngineTaskActivityDescending(doneTask)
@@ -2100,6 +2132,7 @@ type FakeTask = { role: string; status: SprintEngineTask['status'] }
   assert.match(getSprintEngineKanbanEmptyMessage('needs_input'), /No blocked tasks/)
   assert.match(getSprintEngineKanbanEmptyMessage('done'), /Completed work/)
   assert.match(getSprintEngineKanbanEmptyMessage('todo'), /waiting on dependencies/)
+  assert.match(getSprintEngineKanbanEmptyMessage('canceled'), /Canceled tasks/)
 }
 
 // bracketedTerminalPaste wraps text in xterm bracketed-paste markers and

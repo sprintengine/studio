@@ -1690,11 +1690,19 @@ export function buildSprintEnginePhaseSessionPrompt(
   agentId: string,
   phase: string
 ): string {
+  // Claim BY TASK ID via task.claim — pinned to this session so a concurrent
+  // cheaper same-role session cannot grab the review off the bound runtime (a
+  // plain task.next never claims a phase session). The claim returns the
+  // diff-seeded brief inline.
   return [
     `Sprint Engine assigned you the ${phase} phase of a ${task.role} task on this runtime.`,
     `Task: ${task.id} - ${task.title}`,
-    buildSprintEngineClaimInstructionBlock('sprintengine.task.next', task.role, agentId),
-    `Claiming returns the published diff and the ${phase} directive; review that diff, fix what you find in place, then advance the phase.`,
+    'Call `sprintengine.task.claim` once to take over this phase:',
+    '`sprintengine.task.claim`',
+    '```json',
+    JSON.stringify({ taskId: task.id, id: agentId }, null, 2),
+    '```',
+    `It returns the published diff and the ${phase} directive; review that diff, fix what you find in place, then advance the phase.`,
   ].join('\n')
 }
 

@@ -166,50 +166,11 @@ def cmd_task_next(args: argparse.Namespace) -> Dict[str, Any]:
                     "write": runtime["dirty"] or expired["dirty"] or stale_owner_dirty,
                 }
 
-            # MC-1543 — a task whose next phase is bound to a different runtime waits
-            # here, ownerless, for the session the supervisor spawned on that runtime.
-            # Checked BEFORE the ready queue: a published diff waiting on its bound
-            # reviewer outranks starting fresh work.
-            phase_task = next(
-                (
-                    candidate
-                    for candidate in state.get("tasks", []) or []
-                    if isinstance(candidate, dict)
-                    and candidate.get("role") == args.role
-                    and task_awaiting_phase_session(candidate)
-                ),
-                None,
-            )
-            if phase_task is not None:
-                if task_claim_exceeds_worker_capacity(state, agent, phase_task.get("id")):
-                    phase_dirty = recompute_phase(state)
-                    return {
-                        "ok": True,
-                        "claimed": False,
-                        "reason": "worker_task_capacity_reached",
-                        "message": f"{args.id} already owns a task; a fresh roster id must run the phase on {phase_task.get('id')}.",
-                        "task": {"id": phase_task.get("id"), "status": phase_task.get("status")},
-                        "agent": agent,
-                        "releasedExpired": expired["released"],
-                        "write": runtime["dirty"] or phase_dirty or expired["dirty"] or stale_owner_dirty,
-                    }
-                claimed_phase = claim_phase_session(state, phase_task, args.id)
-                recompute_phase(state)
-                event = append_event(
-                    state, "task_phase_session_claimed", args.id,
-                    f"{args.id} claimed the {claimed_phase['phase']} phase of {phase_task.get('id')}.",
-                )
-                return {
-                    "ok": True,
-                    "claimed": True,
-                    "task": phase_task,
-                    "agent": claimed_phase["agent"],
-                    "phase": claimed_phase["phase"],
-                    "prompt": build_phase_respawn_brief(state, args.state, phase_task, claimed_phase["phase"]),
-                    "event": event,
-                    "releasedExpired": expired["released"],
-                }
-
+            # MC-1543 phase sessions are claimed by task id via `task.claim` (pinned
+            # to the exact bound-runtime session the supervisor spawned), NOT
+            # auto-grabbed here: matching on role alone let a concurrent CHEAP
+            # same-role session win the review and silently downgrade the paid-for
+            # runtime. `task.next` therefore only serves ready work now.
             ready_ids = read_ready_task_ids(state)
             tasks_by_id = {
                 str(t.get("id")): t
@@ -260,6 +221,35 @@ def cmd_task_claim(args: argparse.Namespace) -> Dict[str, Any]:
     def run(state: Dict[str, Any]) -> Dict[str, Any]:
         with folder_store.FolderLock(args.state.parent / folder_store.CLAIM_QUEUE_LOCK_FILE):
             task = find_task(state, args.task_id)
+            # MC-1543: an awaiting phase session is claimed here, pinned to THIS task
+            # id, by the fresh session the supervisor spawned on the phase's bound
+            # runtime. claim_phase_session re-stamps the bound runtime and returns the
+            # diff-seeded brief WITHOUT rewinding the phase status. A fresh id need not
+            # be pre-rostered (ensure_agent seats it), mirroring the old task.next path.
+            if task_awaiting_phase_session(task):
+                agent = ensure_agent(state, args.id, task.get("role"))
+                if task_claim_exceeds_worker_capacity(state, agent, task.get("id")):
+                    return {
+                        "ok": False,
+                        "error": "Worker already owns a task; a fresh roster id must run this phase.",
+                        "reason": "worker_task_capacity_reached",
+                        "task": {"id": task.get("id"), "status": task.get("status")},
+                        "write": False,
+                    }
+                claimed_phase = claim_phase_session(state, task, args.id)
+                recompute_phase(state)
+                event = append_event(
+                    state, "task_phase_session_claimed", args.id,
+                    f"{args.id} claimed the {claimed_phase['phase']} phase of {task.get('id')}.",
+                )
+                return {
+                    "ok": True,
+                    "task": task,
+                    "agent": claimed_phase["agent"],
+                    "phase": claimed_phase["phase"],
+                    "prompt": build_phase_respawn_brief(state, args.state, task, claimed_phase["phase"]),
+                    "event": event,
+                }
             ensure_agent_in_roster(state, args.id, str(task.get("role") or ""))
             agent = ensure_agent(state, args.id, task.get("role"))
             clear_non_active_task_owner_claims(state)
@@ -287,6 +277,14 @@ def cmd_task_status(args: argparse.Namespace) -> Dict[str, Any]:
         actor = args.id or task.get("ownerAgentId") or task.get("role") or "agent"
         previous_status = task.get("status")
         previous_owner_id = task.get("ownerAgentId")
+        if args.status in VALID_TASK_PHASES:
+            # A phase status is entered only by `task.publish` (which composes the
+            # phase directive and runs change detection) and stepped by `task.advance`
+            # — never hand-set here, which would skip the whole diff-driven walk.
+            raise SystemExit(
+                f"{args.status!r} is a review phase entered via publish/advance, "
+                "not a status you set directly."
+            )
         if feedback_args_present(args) and args.status != "done":
             raise SystemExit("Feedback flags on `sprintengine task status` are only supported with --status done.")
         if args.status != "needs_input" and (
