@@ -5,21 +5,15 @@
     "performance-engineer"
   ],
   "summary": "Reviews performance, scalability, and resource-use risks.",
-  "capabilities": [
-    {
-      "kind": "review",
-      "phase": "review",
-      "reviews": [
-        "performance",
-        "scalability",
-        "resource_use"
-      ],
-      "defaultFocus": "performance, scalability, and resource-use risks"
-    }
-  ],
-  "soul": [
-    {
-      "skill": "performance"
-    }
-  ]
+  "directives": {
+    "implement": [
+      {
+        "skill": "performance"
+      }
+    ]
+  },
+  "sweep": {
+    "focus": "hot paths, algorithmic complexity, render/repaint cost, allocation churn, and resource leaks",
+    "when": "the run touches a hot path, a large-N loop, rendering, or long-lived resources"
+  }
 }

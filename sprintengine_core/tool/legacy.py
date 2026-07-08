@@ -34,7 +34,7 @@ from sprintengine_core.tool.tasks import *  # noqa: F403,F401
 from sprintengine_core.tool.feedback import *  # noqa: F403,F401
 from sprintengine_core.tool.artifacts import *  # noqa: F403,F401
 from sprintengine_core.tool.plans import *  # noqa: F403,F401
-from sprintengine_core.tool.review_prompts import *  # noqa: F403,F401
+from sprintengine_core.tool.phase_prompts import *  # noqa: F403,F401
 
 
 
@@ -453,6 +453,11 @@ def build_parser() -> argparse.ArgumentParser:
         help='JSON array of the sprint\'s allowed {"cli", "model"} runtimes (model null = the CLI default). The ticked per-sprint model selection; roster.configure hard-rejects any role assignment outside it. CLI-init-only; not MCP-mutable.',
     )
     p.add_argument(
+        "--default-phases-json",
+        dest="default_phases_json",
+        help='JSON array of the post-implementation phases every task inherits, e.g. ["review"]. Default AND ceiling: a task may trim its phases with `plan add-task --phases`, never add one outside this set. `[]` means no review step (every publish with changes routes straight to done). Absent = ["review"]. CLI-init-only; not MCP-mutable.',
+    )
+    p.add_argument(
         "--use-worktrees",
         type=parse_bool,
         default=False,
@@ -780,6 +785,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--require-gate", action="append", default=[], help="Require a named quality gate for this task.")
     p.add_argument("--skip-gate", action="append", default=[], help="Remove a named quality gate for this task.")
     p.add_argument("--needs-triage", action="store_true", help="Create the task as an architect-triage candidate that is not claimable until cleared.")
+    p.add_argument("--phases", help="Comma-separated post-implementation phases for this task (e.g. \"review\"). Must be a subset of the run\'s defaultPhases. Pass \"\" for none (publish routes straight to done). Omit to inherit the run default.")
     add_architect_difficulty_arguments(p)
     p.set_defaults(handler=plan_commands.add_task)
 
@@ -809,6 +815,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--skip-gate", action="append", default=[], help="Remove a named quality gate for this task.")
     p.add_argument("--needs-triage", action="store_true", help="Mark the task as an architect-triage candidate that is not claimable until cleared.")
     p.add_argument("--clear-needs-triage", action="store_true", help="Clear the task's architect-triage candidate flag.")
+    p.add_argument("--phases", help="Comma-separated post-implementation phases for this task (e.g. \"review\"). Must be a subset of the run\'s defaultPhases. Pass \"\" for none (publish routes straight to done). Omit to inherit the run default.")
     add_architect_difficulty_arguments(p)
     p.add_argument("--force", action="store_true", help="Allow editing an active or completed task.")
     p.set_defaults(handler=plan_commands.update_task)

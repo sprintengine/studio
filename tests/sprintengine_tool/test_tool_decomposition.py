@@ -1,7 +1,7 @@
 from pathlib import Path
 
 import sprintengine_core.tool as tool
-from sprintengine_core.tool import artifacts, feedback, plans, review_prompts, tasks
+from sprintengine_core.tool import artifacts, feedback, phase_prompts, plans, tasks
 from sprintengine_core.role_registry import RoleSkillRegistry
 from sprintengine_core.tool.roles import DEFAULT_ROLE_REGISTRY, VALID_ROLES, configured_soul_role_ids, dispatchable_role_ids
 
@@ -41,8 +41,8 @@ def test_command_modules_import_focused_helpers_without_legacy_dependency() -> N
 
 
 def test_required_helper_domains_are_rehomed_outside_legacy() -> None:
-    assert review_prompts.build_rework_prompt.__module__ == "sprintengine_core.tool.review_prompts"
-    assert review_prompts.build_gate_review_prompt.__module__ == "sprintengine_core.tool.review_prompts"
+    assert phase_prompts.build_rework_prompt.__module__ == "sprintengine_core.tool.phase_prompts"
+    assert phase_prompts.build_phase_directive.__module__ == "sprintengine_core.tool.phase_prompts"
     assert plans.build_plan_review_prompt.__module__ == "sprintengine_core.tool.plans"
     assert plans.plan_path_for_state.__module__ == "sprintengine_core.tool.plans"
     assert plans.source_path_for_kind.__module__ == "sprintengine_core.tool.plans"
@@ -63,7 +63,7 @@ def test_custom_registry_roles_are_dispatchable_without_bundled_compatibility_re
     (root / "roles").mkdir(parents=True)
     (root / "skills" / "marketer").mkdir(parents=True)
     (root / "roles" / "marketer.json").write_text(
-        '{"id":"marketer","label":"Marketer","soul":[{"skill":"marketer"}]}',
+        '{"id":"marketer","label":"Marketer","directives":{"implement":[{"skill":"marketer"}]}}',
         encoding="utf-8",
     )
     (root / "skills" / "marketer" / "SKILL.md").write_text("# Marketer\n\nLaunch campaigns.", encoding="utf-8")

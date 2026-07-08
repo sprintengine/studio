@@ -30,6 +30,36 @@ Rules for editing skills:
 | `kg-opt-in-gate` | `workspace_knowledge` | "MULTICODE_KNOWLEDGE_ROOT" |
 | `lifecycle-truthful` | `multicode_backlog` | "part of the work, not optional bookkeeping"; "needs_input" |
 
+## Phase directive packs (MC-1542)
+
+Not part of any role's soul: the engine resolves a phase's base pack by id
+(`sprintengine_phase_<phase>`) and delivers it inside the owner's own
+`task.publish` / `task.advance` tool response. Pinned by
+`test_phase_review_base_pack_carries_folded_reviewer_rules` via
+`PHASE_REVIEW_ANCHORS`, not by the per-soul anchor tests.
+
+| Rule ID | Canonical home | Anchor phrase(s) |
+|---|---|---|
+| `adversarial-self-review` | `sprintengine_phase_review` | "read it as if a stranger wrote it" |
+| `contract-drift-blocking` | `sprintengine_phase_review` | "Contract drift is blocking"; "in the same publish" |
+| `requirements-coverage` | `sprintengine_phase_review` | "Requirements coverage" |
+| `smoke-not-validation` | `sprintengine_phase_review` | "quick smoke check"; "planned QA tasks own that" |
+| `fix-forward` | `sprintengine_phase_review` | "Fix everything you find, now" |
+| `escalation-default` | `sprintengine_phase_review` | "Never escalate to have your work confirmed" |
+| `forward-only-walk` | `sprintengine_phase_review` | "A phase is visited at most once" |
+
+Relocation ledger — the retired reviewer souls (`code_reviewer`, `spec_reviewer`,
+`nuclear_reviewer`) are deleted in MC-1542 Stage 4. Their rules move as follows:
+
+| From | Rule | New home |
+|---|---|---|
+| `nuclear_reviewer` | structural-decay bar, large-file risk, special-case sprawl | `sprintengine_phase_review` ("Structure" bullet) |
+| `nuclear_reviewer` | contract-drift blocking, KG note in the same publish | `sprintengine_phase_review` (`contract-drift-blocking`) |
+| `code_reviewer` | correctness, regressions, fallback-masking, evidence quality | `sprintengine_phase_review` (`fix-forward` + `explicit-failure` citation) |
+| `spec_reviewer` | acceptance-criteria coverage, behaviour gaps, missing tests | `sprintengine_phase_review` (`requirements-coverage`) |
+| `tester` | real-path validation, regression coverage, `validation_report` | `tester` (QA sweep role's `directives.implement`) — kept, not folded |
+| `sprintengine_gate_feedback` | finding telemetry vocabulary, ~280-char summary budget | `sprintengine_phase_review` (`<supporting-info>`) |
+
 ## Duplicate occurrences and their dispositions
 
 Recorded at the time of the 2026-06 dedup pass (see

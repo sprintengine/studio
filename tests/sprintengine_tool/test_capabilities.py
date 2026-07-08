@@ -220,13 +220,13 @@ def test_hidden_tools_fail_when_called_by_name(tmp_path) -> None:
     assert architect_plan["ok"] is True
 
 
-def test_plugin_role_with_review_capability_gets_reviewer_surface(tmp_path) -> None:
+def test_plugin_sweep_role_gets_reviewer_surface(tmp_path) -> None:
     clear_role_classification_cache()
     workspace = tmp_path / "plugin-ws"
     write_workspace_role(
         workspace,
         "compliance_reviewer",
-        capabilities=[{"kind": "review", "phase": "review"}],
+        sweep={"focus": "compliance controls", "when": "the run touches regulated data"},
     )
     write_workspace_role(workspace, "data_engineer")
     fixture = create_workspace_team(tmp_path, "plugin-ws", "cap-plugin", [task("T1", "Work", "developer")])
@@ -330,7 +330,7 @@ def test_worker_role_can_claim_and_verdict_its_own_gate(tmp_path) -> None:
     """Regression: quality gates carry their own role — a frontend_review
     gate is claimed and verdicted by the frontend worker (observed in real
     runs). The capability table must not fence gate tools behind manifest
-    review capabilities."""
+    sweep metadata."""
     clear_role_classification_cache()
     record = task("T1", "Frontend change", "frontend", "review")
     record["qualityGates"] = [

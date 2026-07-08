@@ -13,7 +13,29 @@ REGISTRY_DIRNAME = ".sprintengine"
 BUNDLED_REGISTRY_ROOT = Path(__file__).resolve().parents[1] / "resources" / "sprintengine"
 SUPPORTED_TEMPLATE_VARIABLES = frozenset({"role", "role_label", "workspace_root", "run_id"})
 TEMPLATE_PATTERN = re.compile(r"{{\s*([^{}]+?)\s*}}")
-CAPABILITY_TAG_PATTERN = re.compile(r"^[a-z][a-z0-9_]{0,62}$")
+
+# v2 manifest vocabulary (MC-1542). A role is routing + directive packs:
+# `directives.implement` composes the owner's startup brief, and one entry per
+# post-implementation phase composes that phase's directive. The shipped phase
+# vocabulary is `review` only; the map is keyed by phase name so a future phase
+# needs no schema change.
+IMPLEMENT_DIRECTIVE = "implement"
+DIRECTIVE_PHASES: tuple[str, ...] = ("review",)
+DIRECTIVE_KEYS: tuple[str, ...] = (IMPLEMENT_DIRECTIVE, *DIRECTIVE_PHASES)
+
+# v1 keys removed by MC-1542. Parsing rejects them by name so a stale pack fails
+# loudly with its v2 replacement rather than silently losing its identity.
+REMOVED_MANIFEST_KEYS: dict[str, str] = {
+    "soul": (
+        "'soul' was removed in the v2 role manifest. Use "
+        "\"directives\": {\"implement\": [{\"skill\": \"<id>\"}]}."
+    ),
+    "capabilities": (
+        "'capabilities' was removed in the v2 role manifest. Review-only roles no longer exist: "
+        "declare \"sweep\": {\"focus\": \"...\", \"when\": \"...\"} for a sweep role, and put "
+        "role-scoped review content in \"directives\": {\"review\": [{\"skill\": \"<id>\"}]}."
+    ),
+}
 
 
 def normalize_role_id(value: str) -> str:
@@ -58,16 +80,21 @@ class PluginRegistryRoot:
 
 
 @dataclass(frozen=True)
-class SoulSkillEntry:
+class DirectiveSkillEntry:
     skill: str
 
 
 @dataclass(frozen=True)
-class RoleCapability:
-    kind: str
-    phase: str | None = None
-    reviews: tuple[str, ...] = ()
-    default_focus: str | None = None
+class RoleSweep:
+    """Sweep metadata: what this role audits, and when a run needs it.
+
+    Present only on sweep roles. The architect's planning directive reads it to
+    decide which fix-forward sweep tasks a run needs. A sweep role is a full
+    implementer — same tool surface as any worker.
+    """
+
+    focus: str
+    when: str
 
 
 @dataclass(frozen=True)
@@ -77,8 +104,9 @@ class RoleManifest:
     aliases: tuple[str, ...]
     summary: str | None
     icon: str | None
-    soul: tuple[SoulSkillEntry, ...]
-    capabilities: tuple[RoleCapability, ...] = ()
+    # phase key -> ordered skills. Always carries a non-empty `implement` entry.
+    directives: Mapping[str, tuple[DirectiveSkillEntry, ...]]
+    sweep: RoleSweep | None = None
 
     @property
     def normalized_id(self) -> str:
@@ -86,6 +114,21 @@ class RoleManifest:
 
     def all_lookup_names(self) -> tuple[str, ...]:
         return (self.id, *self.aliases)
+
+    @property
+    def implement_directives(self) -> tuple[DirectiveSkillEntry, ...]:
+        return self.directives.get(IMPLEMENT_DIRECTIVE, ())
+
+    def directives_for_phase(self, phase: str) -> tuple[DirectiveSkillEntry, ...]:
+        """Role-specific additions appended to a phase's shared base pack."""
+        return self.directives.get(normalize_role_id(phase), ())
+
+    def all_directive_skills(self) -> tuple[DirectiveSkillEntry, ...]:
+        return tuple(entry for key in DIRECTIVE_KEYS for entry in self.directives.get(key, ()))
+
+    @property
+    def is_sweep(self) -> bool:
+        return self.sweep is not None
 
 
 @dataclass(frozen=True)
@@ -139,11 +182,25 @@ class RegistryDiscovery:
     def referenced_skills(self, role_or_alias: str) -> tuple[SkillDocument, ...]:
         role = self.get_role(role_or_alias)
         documents: list[SkillDocument] = []
-        for soul_entry in role.soul:
-            entry = self.skills.get(normalize_role_id(soul_entry.skill))
+        for directive_entry in role.implement_directives:
+            entry = self.skills.get(normalize_role_id(directive_entry.skill))
             if entry is not None and isinstance(entry.value, SkillDocument):
                 documents.append(entry.value)
         return tuple(documents)
+
+    def sweep_roles(self) -> tuple[RoleManifest, ...]:
+        """Every registry-visible sweep role, bundled and custom, id-sorted.
+
+        The wizard's sweeps panel and the architect's planning directive both
+        enumerate sweeps from here, so a workspace-layer custom sweep role shows
+        up with no engine change.
+        """
+        roles = [
+            entry.value
+            for _, entry in sorted(self.roles.items())
+            if isinstance(entry.value, RoleManifest) and entry.value.is_sweep
+        ]
+        return tuple(roles)
 
     def render_soul(
         self,
@@ -153,15 +210,19 @@ class RegistryDiscovery:
         run_id: str = "",
         extra_skills: Iterable[str] = (),
     ) -> RenderedSoul:
-        """Render a role's soul prompt.
+        """Render a role's startup brief.
 
-        The manifest ``soul`` list is the portable agent identity, composed
-        first. ``extra_skills`` are host-supplied layer skills (Multicode
-        product skills, Sprint Engine quality norms) appended after the soul so
-        a pack author never has to reference them. A missing manifest skill is a
-        hard render error (the soul is broken); a missing ``extra_skills`` entry
-        is a warning and is skipped, since host layers must degrade rather than
-        block a spawn.
+        The manifest's ``directives.implement`` skills are the role's working
+        identity, composed first. ``extra_skills`` are host-supplied layer skills
+        (Multicode product skills, Sprint Engine quality norms) appended after
+        them so a pack author never has to reference them. A missing manifest
+        skill is a hard render error (the brief is broken); a missing
+        ``extra_skills`` entry is a warning and is skipped, since host layers must
+        degrade rather than block a spawn.
+
+        Phase directives (``directives.review``) are NOT composed here — they are
+        delivered later, inside the owner's ``publish``/``advance`` tool responses
+        (see ``sprintengine_core.tool.phase_prompts``).
         """
         role = self.get_role(role_or_alias)
         warnings: list[RegistryWarning] = []
@@ -173,22 +234,22 @@ class RegistryDiscovery:
             "run_id": run_id,
         }
 
-        for soul_entry in role.soul:
-            skill_id = normalize_role_id(soul_entry.skill)
+        for directive_entry in role.implement_directives:
+            skill_id = normalize_role_id(directive_entry.skill)
             entry = self.skills.get(skill_id)
             if entry is None or not isinstance(entry.value, SkillDocument):
                 warning = RegistryWarning(
                     code="missing_render_skill",
-                    message=f"Role {role.id!r} cannot render because skill {soul_entry.skill!r} is missing or invalid.",
+                    message=f"Role {role.id!r} cannot render because skill {directive_entry.skill!r} is missing or invalid.",
                     role_id=role.id,
-                    skill_id=soul_entry.skill,
+                    skill_id=directive_entry.skill,
                 )
                 raise SoulRenderError(warning.message, (*self.warnings, warning))
             body = entry.value.body.strip()
             if body:
                 content_parts.append(_wrap_skill_envelope(skill_id, body))
 
-        seen_skill_ids = {normalize_role_id(soul_entry.skill) for soul_entry in role.soul}
+        seen_skill_ids = {normalize_role_id(entry.skill) for entry in role.implement_directives}
         for raw_skill in extra_skills:
             skill_id = normalize_role_id(raw_skill)
             if skill_id in seen_skill_ids:
@@ -333,19 +394,36 @@ class RoleSkillRegistry:
             role = entry.value
             if not isinstance(role, RoleManifest):
                 continue
-            for soul_entry in role.soul:
-                skill_id = normalize_role_id(soul_entry.skill)
+            for directive_entry in role.all_directive_skills():
+                skill_id = normalize_role_id(directive_entry.skill)
                 if skill_id not in skills:
                     warnings.append(
                         RegistryWarning(
                             code="missing_referenced_skill",
-                            message=f"Role {role.id!r} references missing skill {soul_entry.skill!r}.",
+                            message=f"Role {role.id!r} references missing skill {directive_entry.skill!r}.",
                             path=entry.source.path,
                             role_id=role.id,
-                            skill_id=soul_entry.skill,
+                            skill_id=directive_entry.skill,
                             source_layer=entry.source.layer.name,
                         )
                     )
+
+
+def role_manifest_payload(role: RoleManifest) -> dict[str, Any]:
+    """The wire shape of a v2 role manifest, shared by the CLI and MCP surfaces."""
+    return {
+        "id": role.id,
+        "label": role.label,
+        "aliases": list(role.aliases),
+        "summary": role.summary,
+        "icon": role.icon,
+        "directives": {
+            key: [{"skill": entry.skill} for entry in role.directives[key]]
+            for key in DIRECTIVE_KEYS
+            if key in role.directives
+        },
+        "sweep": {"focus": role.sweep.focus, "when": role.sweep.when} if role.sweep else None,
+    }
 
 
 def discover_role_registry(
@@ -428,29 +506,29 @@ def _load_role_manifest(path: Path, layer: SourceLayer, warnings: list[RegistryW
         warnings.append(_role_warning("invalid_role_manifest", "Role aliases must be a list of non-empty strings.", path, layer, role_id))
         return None
 
-    soul = raw.get("soul")
-    if not isinstance(soul, list) or not soul:
-        warnings.append(_role_warning("invalid_role_manifest", "Role soul must be a non-empty list.", path, layer, role_id))
+    for removed_key, guidance in REMOVED_MANIFEST_KEYS.items():
+        if removed_key in raw:
+            warnings.append(_role_warning("v1_role_manifest", guidance, path, layer, role_id))
+            return None
+
+    directives = _parse_role_directives(raw.get("directives"))
+    if directives is None:
+        warnings.append(
+            _role_warning(
+                "invalid_role_manifest",
+                "Role directives must be an object with a non-empty 'implement' list of {\"skill\": id} entries; "
+                f"optional phase keys are limited to: {', '.join(DIRECTIVE_PHASES)}.",
+                path,
+                layer,
+                role_id,
+            )
+        )
         return None
 
-    soul_entries: list[SoulSkillEntry] = []
-    for index, entry in enumerate(soul):
-        if not isinstance(entry, dict):
-            warnings.append(_role_warning("invalid_soul_entry", f"Soul entry {index} must be an object.", path, layer, role_id))
-            return None
-        skill = entry.get("skill")
-        if not isinstance(skill, str) or not skill.strip() or set(entry) != {"skill"}:
-            warnings.append(
-                _role_warning(
-                    "invalid_soul_entry",
-                    f"Soul entry {index} must contain only a non-empty skill string.",
-                    path,
-                    layer,
-                    role_id,
-                )
-            )
-            return None
-        soul_entries.append(SoulSkillEntry(skill=normalize_role_id(skill)))
+    sweep, sweep_error = _parse_role_sweep(raw.get("sweep"))
+    if sweep_error is not None:
+        warnings.append(_role_warning("invalid_role_manifest", sweep_error, path, layer, role_id))
+        return None
 
     summary = raw.get("summary")
     icon = raw.get("icon")
@@ -460,21 +538,6 @@ def _load_role_manifest(path: Path, layer: SourceLayer, warnings: list[RegistryW
     if icon is not None and not isinstance(icon, str):
         warnings.append(_role_warning("invalid_role_manifest", "Role icon must be a string when present.", path, layer, role_id))
         return None
-    capabilities = raw.get("capabilities", [])
-    if capabilities is None:
-        capabilities = []
-    parsed_capabilities = _parse_role_capabilities(capabilities)
-    if parsed_capabilities is None:
-        warnings.append(
-            _role_warning(
-                "invalid_role_manifest",
-                "Role capabilities must be a list of capability objects.",
-                path,
-                layer,
-                role_id,
-            )
-        )
-        return None
 
     return RoleManifest(
         id=normalize_role_id(role_id),
@@ -482,49 +545,60 @@ def _load_role_manifest(path: Path, layer: SourceLayer, warnings: list[RegistryW
         aliases=tuple(alias.strip() for alias in aliases),
         summary=summary.strip() if isinstance(summary, str) and summary.strip() else None,
         icon=icon.strip() if isinstance(icon, str) and icon.strip() else None,
-        soul=tuple(soul_entries),
-        capabilities=tuple(parsed_capabilities),
+        directives=directives,
+        sweep=sweep,
     )
 
 
-def _parse_role_capabilities(raw: Any) -> list[RoleCapability] | None:
-    if not isinstance(raw, list):
+def _parse_directive_entries(raw: Any) -> tuple[DirectiveSkillEntry, ...] | None:
+    if not isinstance(raw, list) or not raw:
         return None
-    parsed: list[RoleCapability] = []
+    entries: list[DirectiveSkillEntry] = []
     for entry in raw:
-        if not isinstance(entry, dict):
+        if not isinstance(entry, dict) or set(entry) != {"skill"}:
             return None
-        kind = entry.get("kind")
-        if kind != "review":
+        skill = entry.get("skill")
+        if not isinstance(skill, str) or not skill.strip():
             return None
-        allowed_keys = {"kind", "phase", "reviews", "defaultFocus"}
-        if any(key not in allowed_keys for key in entry):
+        entries.append(DirectiveSkillEntry(skill=normalize_role_id(skill)))
+    return tuple(entries)
+
+
+def _parse_role_directives(raw: Any) -> dict[str, tuple[DirectiveSkillEntry, ...]] | None:
+    """Parse `directives`, or None when malformed.
+
+    `implement` is required and non-empty. Any other key must name a shipped
+    phase; an unknown key is a hard reject so a typo never silently drops a
+    directive pack.
+    """
+    if not isinstance(raw, dict) or not raw:
+        return None
+    if any(key not in DIRECTIVE_KEYS for key in raw):
+        return None
+    parsed: dict[str, tuple[DirectiveSkillEntry, ...]] = {}
+    for key in DIRECTIVE_KEYS:
+        if key not in raw:
+            continue
+        entries = _parse_directive_entries(raw[key])
+        if entries is None:
             return None
-        phase = entry.get("phase", "review")
-        if not isinstance(phase, str) or phase.strip() not in {"review", "testing", "product"}:
-            return None
-        reviews = entry.get("reviews", [])
-        if reviews is None:
-            reviews = []
-        if not isinstance(reviews, list):
-            return None
-        normalized_reviews: list[str] = []
-        for review in reviews:
-            if not isinstance(review, str) or CAPABILITY_TAG_PATTERN.fullmatch(review) is None:
-                return None
-            normalized_reviews.append(review)
-        default_focus = entry.get("defaultFocus")
-        if default_focus is not None and not isinstance(default_focus, str):
-            return None
-        parsed.append(
-            RoleCapability(
-                kind="review",
-                phase=phase.strip(),
-                reviews=tuple(normalized_reviews),
-                default_focus=default_focus.strip() if isinstance(default_focus, str) and default_focus.strip() else None,
-            )
-        )
+        parsed[key] = entries
+    if IMPLEMENT_DIRECTIVE not in parsed:
+        return None
     return parsed
+
+
+def _parse_role_sweep(raw: Any) -> tuple[RoleSweep | None, str | None]:
+    """Parse the optional `sweep` block. Returns `(sweep, error_message)`."""
+    if raw is None:
+        return None, None
+    if not isinstance(raw, dict) or set(raw) != {"focus", "when"}:
+        return None, "Role sweep must be null or an object with exactly {\"focus\", \"when\"} string fields."
+    focus = raw.get("focus")
+    when = raw.get("when")
+    if not isinstance(focus, str) or not focus.strip() or not isinstance(when, str) or not when.strip():
+        return None, "Role sweep 'focus' and 'when' must be non-empty strings."
+    return RoleSweep(focus=focus.strip(), when=when.strip()), None
 
 
 def _load_skill_document(

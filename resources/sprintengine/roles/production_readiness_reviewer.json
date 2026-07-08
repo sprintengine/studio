@@ -9,27 +9,15 @@
     "launch-readiness"
   ],
   "summary": "Reviews whether a product is ready to release to production with real integrations, deployment, data, observability, rollback, scale, and user setup accounted for.",
-  "capabilities": [
-    {
-      "kind": "review",
-      "phase": "review",
-      "reviews": [
-        "production_readiness",
-        "release_readiness",
-        "deployment",
-        "operational_readiness",
-        "real_integrations",
-        "database_migrations",
-        "observability",
-        "rollback",
-        "scalability"
-      ],
-      "defaultFocus": "go/no-go production readiness across real integrations, deployment configuration, data safety, observability, rollback, scalability, and user setup"
-    }
-  ],
-  "soul": [
-    {
-      "skill": "production_readiness_reviewer"
-    }
-  ]
+  "directives": {
+    "implement": [
+      {
+        "skill": "production_readiness_reviewer"
+      }
+    ]
+  },
+  "sweep": {
+    "focus": "real integrations, deployment configuration, data safety, observability, rollback, scalability, and user setup",
+    "when": "the run changes deployment, data migration, external integrations, or anything on the release path"
+  }
 }

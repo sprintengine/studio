@@ -6,21 +6,15 @@
     "spec-reviewer"
   ],
   "summary": "Reviews implementation coverage against requirements and acceptance criteria.",
-  "capabilities": [
-    {
-      "kind": "review",
-      "phase": "review",
-      "reviews": [
-        "requirements",
-        "acceptance_criteria",
-        "behavior"
-      ],
-      "defaultFocus": "requirements coverage, acceptance criteria, behavior gaps, and missing tests"
-    }
-  ],
-  "soul": [
-    {
-      "skill": "spec_reviewer"
-    }
-  ]
+  "directives": {
+    "implement": [
+      {
+        "skill": "spec_reviewer"
+      }
+    ]
+  },
+  "sweep": {
+    "focus": "requirements coverage, acceptance criteria, behavior gaps, and missing tests",
+    "when": "retired by MC-1542 \u2014 folded into the base review pack"
+  }
 }

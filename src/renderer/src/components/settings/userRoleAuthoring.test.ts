@@ -5,7 +5,7 @@ import {
   authoringStatusReducer,
   createRoleAuthoringDraft,
   editRoleAuthoringDraft,
-  emptyCapabilityDraft,
+  emptySweepDraft,
   idleAuthoringStatus,
   isAuthoringBusy,
   mapIssuesToFieldErrors,
@@ -22,7 +22,7 @@ function validDraft(overrides: Partial<RoleAuthoringDraft> = {}): RoleAuthoringD
     label: 'Auditor',
     summary: '',
     aliasesText: '',
-    capability: emptyCapabilityDraft(),
+    sweep: emptySweepDraft(),
     body: 'You audit the change.',
     ...overrides,
   }
@@ -36,8 +36,8 @@ const noExisting: string[] = []
 function testCreateDraftSeedsStarterBody(): void {
   const draft = createRoleAuthoringDraft()
   assert.equal(draft.id, '')
-  assert.equal(draft.capability.enabled, false)
-  // Seeded with the starter soul template, not a blank textarea.
+  assert.equal(draft.sweep.enabled, false)
+  // Seeded with the starter template, not a blank textarea.
   assert.ok(draft.body.includes('<what-to-do>'))
   assert.ok(draft.body.includes('<supporting-info>'))
 }
@@ -49,19 +49,19 @@ function testEditDraftPrefillsAndLocksId(): void {
       label: 'Code auditor',
       summary: 'Audits diffs.',
       aliases: ['auditor', 'reviewer_x'],
-      soul: [{ skill: 'code_auditor' }],
-      capabilities: [{ kind: 'review', phase: 'testing', defaultFocus: 'regressions' }],
+      directives: { implement: [{ skill: 'code_auditor' }] },
+      sweep: { focus: 'regressions', when: 'always' },
     },
-    'Soul body here.',
+    'Instructions here.',
   )
   assert.equal(draft.id, 'code_auditor')
   assert.equal(draft.label, 'Code auditor')
   assert.equal(draft.summary, 'Audits diffs.')
   assert.equal(draft.aliasesText, 'auditor, reviewer_x')
-  assert.equal(draft.capability.enabled, true)
-  assert.equal(draft.capability.phase, 'testing')
-  assert.equal(draft.capability.defaultFocus, 'regressions')
-  assert.equal(draft.body, 'Soul body here.')
+  assert.equal(draft.sweep.enabled, true)
+  assert.equal(draft.sweep.focus, 'regressions')
+  assert.equal(draft.sweep.when, 'always')
+  assert.equal(draft.body, 'Instructions here.')
 }
 
 // --- aliases parsing -----------------------------------------------------
@@ -78,36 +78,40 @@ function testSaveInputOmitsEmptyOptionals(): void {
   assert.deepEqual(input, { id: 'auditor', label: 'Auditor', body: 'You audit the change.' })
   assert.equal('summary' in input, false)
   assert.equal('aliases' in input, false)
-  assert.equal('capability' in input, false)
+  assert.equal('sweep' in input, false)
 }
 
-// --- capability disclosure ----------------------------------------------
+// --- sweep disclosure ----------------------------------------------------
 
-function testCapabilityDisclosureOffEmitsNoCapability(): void {
+function testSweepDisclosureOffEmitsNoSweep(): void {
   const result = validateRoleAuthoringDraft(
-    validDraft({ capability: { enabled: false, phase: 'product', defaultFocus: 'x' } }),
+    validDraft({ sweep: { enabled: false, focus: 'x', when: 'y' } }),
     { mode: createMode, existingIdsAndAliases: noExisting },
   )
   assert.equal(result.ok, true)
-  if (result.ok) assert.equal('capability' in result.input, false)
+  if (result.ok) assert.equal('sweep' in result.input, false)
 }
 
-function testCapabilityDisclosureOnEmitsCapability(): void {
+function testSweepDisclosureOnEmitsTrimmedSweep(): void {
   const result = validateRoleAuthoringDraft(
-    validDraft({ capability: { enabled: true, phase: 'review', defaultFocus: '  edge cases  ' } }),
+    validDraft({ sweep: { enabled: true, focus: '  edge cases  ', when: '  always  ' } }),
     { mode: createMode, existingIdsAndAliases: noExisting },
   )
   assert.equal(result.ok, true)
   if (result.ok) {
-    assert.deepEqual(result.input.capability, { phase: 'review', defaultFocus: 'edge cases' })
+    assert.deepEqual(result.input.sweep, { focus: 'edge cases', when: 'always' })
   }
 }
 
-function testCapabilityFocusOptionalWhenEnabled(): void {
-  const input = toUserRoleSaveInput(
-    validDraft({ capability: { enabled: true, phase: 'testing', defaultFocus: '   ' } }),
+// An enabled-but-blank sweep must surface as an inline error on the sweep field,
+// never silently drop the sweep the author asked for.
+function testEnabledSweepWithBlankFieldsIsBlocking(): void {
+  const result = validateRoleAuthoringDraft(
+    validDraft({ sweep: { enabled: true, focus: '   ', when: '' } }),
+    { mode: createMode, existingIdsAndAliases: noExisting },
   )
-  assert.deepEqual(input.capability, { phase: 'testing' })
+  assert.equal(result.ok, false)
+  if (!result.ok) assert.ok(result.errors.sweep)
 }
 
 // --- validation ----------------------------------------------------------
@@ -195,12 +199,12 @@ function testMapIssuesKeepsFirstPerField(): void {
     { path: 'id', message: 'first id' },
     { path: 'id', message: 'second id' },
     { path: 'aliases[0]', message: 'bad alias' },
-    { path: 'capabilities[0].phase', message: 'bad phase' },
+    { path: 'sweep.when', message: 'bad when' },
     { path: 'mystery', message: 'unhomed' },
   ])
   assert.equal(errors.id, 'first id')
   assert.equal(errors.aliases, 'bad alias')
-  assert.equal(errors.capability, 'bad phase')
+  assert.equal(errors.sweep, 'bad when')
   assert.equal(errors.form, 'unhomed')
 }
 
@@ -259,9 +263,9 @@ testCreateDraftSeedsStarterBody()
 testEditDraftPrefillsAndLocksId()
 testParseAliases()
 testSaveInputOmitsEmptyOptionals()
-testCapabilityDisclosureOffEmitsNoCapability()
-testCapabilityDisclosureOnEmitsCapability()
-testCapabilityFocusOptionalWhenEnabled()
+testSweepDisclosureOffEmitsNoSweep()
+testSweepDisclosureOnEmitsTrimmedSweep()
+testEnabledSweepWithBlankFieldsIsBlocking()
 testValidDraftPasses()
 testInvalidIdMapsToIdField()
 testEmptyLabelMapsToLabelField()

@@ -6,21 +6,15 @@
     "code-reviewer"
   ],
   "summary": "Reviews implementation correctness, maintainability, and evidence.",
-  "capabilities": [
-    {
-      "kind": "review",
-      "phase": "review",
-      "reviews": [
-        "implementation",
-        "code_quality",
-        "evidence"
-      ],
-      "defaultFocus": "correctness, integration risk, maintainability, regressions, and evidence quality"
-    }
-  ],
-  "soul": [
-    {
-      "skill": "code_reviewer"
-    }
-  ]
+  "directives": {
+    "implement": [
+      {
+        "skill": "code_reviewer"
+      }
+    ]
+  },
+  "sweep": {
+    "focus": "correctness, integration risk, maintainability, regressions, and evidence quality",
+    "when": "retired by MC-1542 \u2014 folded into the base review pack"
+  }
 }

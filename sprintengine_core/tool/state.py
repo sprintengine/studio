@@ -122,6 +122,38 @@ def apply_configured_roles(state: Dict[str, Any], raw_json: Optional[str]) -> No
     state["configuredRoles"] = roles
 
 
+def apply_default_phases(state: Dict[str, Any], raw_json: Optional[str]) -> None:
+    """Persist the run's phase list at init (CLI-init-only).
+
+    `raw_json` is a JSON array of phase names — the list every task inherits when
+    `plan add-task` passes no `--phases`, and the ceiling a per-task list must be a
+    subset of. `"[]"` is meaningful and recorded (no review step on this run: every
+    publish with changes routes straight to `done`), so unlike the other init keys
+    an explicit empty array is NOT treated as absent. A blank/absent flag leaves the
+    key off entirely and the engine default (`["review"]`) applies. App-written;
+    never MCP-mutable — "agents on this run don't review their own work" is an
+    operator guarantee, not a preference the architect can override.
+    """
+    if raw_json is None or not str(raw_json).strip():
+        return
+    try:
+        parsed = json.loads(raw_json)
+    except (TypeError, ValueError) as error:
+        raise SystemExit(f"--default-phases-json must be a JSON array: {error}")
+    try:
+        state["defaultPhases"] = folder_store.normalize_phase_list(parsed, field="--default-phases-json")
+    except ValueError as error:
+        raise SystemExit(str(error)) from error
+
+
+def run_default_phases(state: Dict[str, Any]) -> List[str]:
+    """The run's phase list (default for tasks, and their ceiling)."""
+    try:
+        return folder_store.run_default_phases(state)
+    except ValueError as error:
+        raise SystemExit(str(error)) from error
+
+
 def apply_roster_source(state: Dict[str, Any], value: Optional[str]) -> None:
     """Persist the run's roster-source mode at init (CLI-init-only).
 

@@ -84,10 +84,10 @@ def test_souls_get_returns_prompt_for_alias() -> None:
     assert "principal QA engineer" in payload["content"]
 
 
-def test_bundled_role_manifests_carry_only_the_portable_soul() -> None:
-    # A pack ships only the agent identity. Host/Sprint Engine layer skills
-    # (Backlog, Knowledge Graph, quality norms) are composed on top at spawn
-    # time, never baked into the manifest, so a soul stays portable.
+def test_bundled_role_manifests_carry_only_the_portable_implement_pack() -> None:
+    # A pack ships only the role's own directive packs. Host/Sprint Engine layer
+    # skills (Backlog, Knowledge Graph, quality norms) are composed on top at spawn
+    # time, never baked into the manifest, so a role stays portable.
     registry_root = Path("resources/sprintengine")
     manifests = sorted((registry_root / "roles").glob("*.json"))
     assert manifests
@@ -95,7 +95,7 @@ def test_bundled_role_manifests_carry_only_the_portable_soul() -> None:
     layer_skills = set(SPRINTENGINE_SOUL_EXTRA_SKILLS)
     for manifest_path in manifests:
         manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-        skills = [entry["skill"] for entry in manifest["soul"]]
+        skills = [entry["skill"] for entry in manifest["directives"]["implement"]]
 
         assert skills == [manifest["id"]], manifest["id"]
         assert not layer_skills.intersection(skills), manifest["id"]
@@ -218,7 +218,14 @@ def test_workspace_marketer_soul_renders_through_registry_without_dispatch_role(
     (root / "roles").mkdir(parents=True)
     (root / "skills" / "marketer").mkdir(parents=True)
     (root / "roles" / "marketer.json").write_text(
-        json.dumps({"id": "marketer", "label": "Marketer", "aliases": ["growth-marketer"], "soul": [{"skill": "marketer"}]}),
+        json.dumps(
+            {
+                "id": "marketer",
+                "label": "Marketer",
+                "aliases": ["growth-marketer"],
+                "directives": {"implement": [{"skill": "marketer"}]},
+            }
+        ),
         encoding="utf-8",
     )
     (root / "skills" / "marketer" / "SKILL.md").write_text(
@@ -260,7 +267,7 @@ def test_validate_fails_migrated_role_with_missing_registry_skill(tmp_path: Path
                 "id": "tester",
                 "label": "Tester",
                 "aliases": ["qa-test"],
-                "soul": [{"skill": "missing_tester_skill"}],
+                "directives": {"implement": [{"skill": "missing_tester_skill"}]},
             }
         ),
         encoding="utf-8",
@@ -324,7 +331,7 @@ def test_session_plugin_root_specialist_renders_through_souls(tmp_path, monkeypa
     (plugin / "roles").mkdir(parents=True)
     (plugin / "skills" / "growth").mkdir(parents=True)
     (plugin / "roles" / "growth.json").write_text(
-        json.dumps({"id": "growth", "label": "Growth", "soul": [{"skill": "growth"}]}),
+        json.dumps({"id": "growth", "label": "Growth", "directives": {"implement": [{"skill": "growth"}]}}),
         encoding="utf-8",
     )
     (plugin / "skills" / "growth" / "SKILL.md").write_text(

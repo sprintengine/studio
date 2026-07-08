@@ -1,9 +1,25 @@
-"""Task, gate, merge, and workspace prompt builders."""
+"""Task, phase, merge, and workspace prompt builders.
+
+Phase directives are the MC-1542 replacement for gate review prompts. A task's
+owner implements, publishes, and then walks its `phases` in the SAME session; the
+directive for each phase is composed here and returned inline in the owner's own
+`task.publish` / `task.advance` tool response. There are exactly two delivery
+channels — that inline response for a live owner, and the respawn startup brief
+for an owner that died mid-phase. No phase transition is ever announced by pasting
+into a terminal.
+"""
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
+from sprintengine_core.role_registry import (
+    RegistryDiscovery,
+    RoleManifest,
+    SkillDocument,
+    discover_role_registry,
+    normalize_role_id,
+)
 from sprintengine_core.tool.artifacts import artifacts_for_task, project_relative_display_path
 from sprintengine_core.tool.comments import *  # noqa: F403,F401
 from sprintengine_core.tool.paths import project_relative_path, workspace_root_for_state_path
@@ -130,6 +146,159 @@ def build_rework_prompt(state_path: Path, task: Dict[str, Any]) -> str:
         "",
         "Use the open feedback as the rework queue. Address newer feedback first when comments conflict, and publish an `implementation_response` when the changes are ready.",
     ])
+
+# ---------------------------------------------------------------------------
+# Phase directives (MC-1542)
+# ---------------------------------------------------------------------------
+
+# The shared base pack for a phase, resolved through the role registry so a
+# workspace layer can shadow `sprintengine_phase_review` and change the review
+# lens for every task on the run without touching the engine.
+def phase_base_pack_skill_id(phase: str) -> str:
+    return f"sprintengine_phase_{normalize_role_id(phase)}"
+
+
+def _registry_skill_body(registry: RegistryDiscovery, skill_id: str) -> Optional[str]:
+    entry = registry.skills.get(normalize_role_id(skill_id))
+    if entry is None or not isinstance(entry.value, SkillDocument):
+        return None
+    body = entry.value.body.strip()
+    return body or None
+
+
+def _role_phase_directive_bodies(registry: RegistryDiscovery, role: str, phase: str) -> List[str]:
+    """The role's own additions for `phase`, appended after the base pack.
+
+    An unresolvable role or a missing skill degrades to no additions: the base
+    pack alone is a complete directive, and a broken pack must not block a live
+    owner mid-transition.
+    """
+    try:
+        manifest = registry.get_role(role)
+    except KeyError:
+        return []
+    if not isinstance(manifest, RoleManifest):
+        return []
+    bodies: List[str] = []
+    for entry in manifest.directives_for_phase(phase):
+        body = _registry_skill_body(registry, entry.skill)
+        if body:
+            bodies.append(body)
+    return bodies
+
+
+PHASE_HEADERS: Dict[str, str] = {
+    "review": (
+        "Your task has entered review — you are now reviewing your own work. "
+        "No other agent will review it."
+    ),
+}
+
+
+def phase_header(phase: str) -> str:
+    return PHASE_HEADERS.get(
+        normalize_role_id(phase),
+        f"Your task has entered the {phase} phase.",
+    )
+
+
+def build_phase_directive(
+    state: Dict[str, Any],
+    state_path: Path,
+    task: Dict[str, Any],
+    phase: str,
+) -> str:
+    """Compose the directive an owner receives on entering `phase`.
+
+    Phase header, the shared base pack, the role's `directives.<phase>` additions,
+    the task's acceptance criteria, and any open feedback comments. Returned inline
+    in the `publish`/`advance` response, so it deliberately omits the diff and the
+    task description the owner already has in context; the respawn brief
+    (`build_phase_respawn_brief`) adds them back for an owner starting cold.
+    """
+    registry = discover_role_registry(workspace_root=workspace_root_for_state_path(state_path))
+    role = str(task.get("role") or "")
+    base_pack = _registry_skill_body(registry, phase_base_pack_skill_id(phase))
+    open_feedback = newest_comments(open_feedback_comments(task), limit=10)
+
+    sections: List[str] = [
+        f"# {phase_header(phase)}",
+        "",
+        f"Task: `{task.get('id')}` - {task.get('title')}",
+        f"Phase: `{phase}`",
+        "",
+    ]
+    if base_pack:
+        sections.extend([base_pack, ""])
+    for body in _role_phase_directive_bodies(registry, role, phase):
+        sections.extend([f"## {role} additions for this phase", "", body, ""])
+    sections.extend(
+        prompt_list(
+            "Acceptance Criteria",
+            [f"- {item}" for item in task.get("acceptanceCriteria", []) or []],
+            empty="None recorded — review against the task description and plan.",
+        )
+    )
+    if open_feedback:
+        sections.extend([
+            "",
+            *prompt_list(
+                "Open Feedback (address before you advance)",
+                [comment_prompt_line(comment) for comment in open_feedback],
+            ),
+        ])
+    sections.extend([
+        "",
+        f"Close this phase with `sprintengine.task.advance` "
+        f"`{{ taskId: \"{task.get('id')}\", phase: \"{phase}\", outcome, summary }}`.",
+    ])
+    return "\n".join(sections)
+
+
+def build_phase_respawn_brief(
+    state: Dict[str, Any],
+    state_path: Path,
+    task: Dict[str, Any],
+    phase: str,
+) -> str:
+    """The startup brief for an owner revived mid-phase (Flow 6).
+
+    The live-owner directive assumes the diff is already in context. A revived
+    owner has nothing, so this prepends the task card and the published diff
+    evidence before the same directive body.
+    """
+    evidence = ensure_evidence(task)
+    plan_path = plan_prompt_path(state_path)
+    return "\n".join([
+        "# Sprint Engine Phase Handover",
+        "",
+        f"You previously owned `{task.get('id')}` and are resuming it mid-phase. "
+        "The work below is yours; the diff is already committed to the task.",
+        "",
+        f"Plan path: `{plan_path}`",
+        f"Task role: `{task.get('role')}`",
+        "",
+        *prompt_list("Task Card", [
+            f"- Description: {task.get('description') or ''}",
+            *[f"- Implementation note: {item}" for item in task.get("implementationNotes", []) or []],
+        ]),
+        "",
+        *prompt_list("Owned Paths", [f"- `{path}`" for path in task.get("ownedPaths", []) or []]),
+        "",
+        *prompt_list("Implementation Evidence", [
+            f"- Summary: {evidence.get('summary') or ''}",
+            *[f"- Touched file: `{path}`" for path in evidence.get("touchedFiles", []) or []],
+            *[f"- Command: `{cmd}`" for cmd in evidence.get("commandsRan", []) or []],
+            *[f"- Result: {result}" for result in evidence.get("results", []) or []],
+        ]),
+        "",
+        *prompt_list("Diff Evidence", diff_prompt_lines(evidence)),
+        "",
+        "---",
+        "",
+        build_phase_directive(state, state_path, task, phase),
+    ])
+
 
 def build_gate_review_prompt(
     state: Dict[str, Any],

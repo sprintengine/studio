@@ -17,8 +17,9 @@ because roles are plugin-extensible:
   and tests a sprint by itself: the planning surface minus the roster-growth
   tools (``roster.add`` / ``roster.configure`` / ``roster.replenish``), so a
   General can never expand the team. No registry manifest required.
-- ``reviewer`` — any role whose manifest declares a ``review`` capability:
-  agent-common plus the gate/review tools.
+- ``reviewer`` — any role whose manifest declares a ``sweep`` block: agent-common
+  plus the gate/review tools. Retired with the gate machine in MC-1542 Stage 4,
+  when a sweep role becomes an ordinary owner.
 - ``worker`` — every other resolvable role, and the conservative fallback for
   roles the registry cannot resolve (such a role cannot join anyway).
 """
@@ -226,7 +227,7 @@ def _classify_registry_role(
         return "worker"
     if manifest.normalized_id == "architect":
         return "architect"
-    if any(capability.kind == "review" for capability in manifest.capabilities):
+    if manifest.is_sweep:
         return "reviewer"
     return "worker"
 

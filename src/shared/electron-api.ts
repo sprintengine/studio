@@ -1633,6 +1633,13 @@ export type SprintEngineStateInitializeInput = {
   // engine hard-rejects any roster.configure assignment outside it. Omitted for
   // user-mode runs.
   allowedRuntimes?: Array<{ cli: string; model: string | null }>
+  // The post-implementation phases every task inherits (MC-1542). Written to
+  // run.yaml `defaultPhases` via `--default-phases-json`. It is the DEFAULT and
+  // the CEILING: a task may trim its phases, never add one outside this set, so
+  // "agents on this run don't review their own work" (`[]`) is an operator
+  // guarantee. `undefined` leaves the key absent and the engine default
+  // (`['review']`) applies; `[]` is a meaningful, recorded value.
+  defaultPhases?: string[]
 }
 
 export type SprintEngineCliWatchPolling = 'enabled' | 'disabled'

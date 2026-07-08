@@ -15,6 +15,7 @@ import type {
   SprintEngineQualityGateAttempt,
   SprintEngineQualityGateAttemptStatus,
   SprintEngineQualityGatePhase,
+  SprintEngineTaskPhase,
   SprintEngineQualityGateStatus,
   SprintEngineQualityGateSummary,
   SprintEngineAllowedRuntime,
@@ -408,6 +409,27 @@ export const sprintEngineTaskBoardColumns: { key: SprintEngineTaskBoardColumn; l
   { key: 'needs_input', label: 'Needs Input' },
   { key: 'done', label: 'Done' },
 ]
+
+/**
+ * Post-implementation phases a task's single owner walks after `task.publish`
+ * (MC-1542). MIRRORS `VALID_TASK_PHASES` in sprintengine_core/store.py and
+ * sprintengine_core/tool/constants.py — `tests/sprintengine_tool/test_phases.py`
+ * pins all three equal, because status/phase enum drift across the TS/Python
+ * boundary is this subsystem's known bug class.
+ */
+export const sprintEngineTaskPhases = ['review'] as const satisfies readonly SprintEngineTaskPhase[]
+
+/** The run's phase list when `run.defaultPhases` is absent. */
+export const sprintEngineDefaultRunPhases: readonly SprintEngineTaskPhase[] = ['review']
+
+/** The phases a task actually walks: its own list when set, else the run's. */
+export function resolveSprintEngineTaskPhases(
+  task: Pick<SprintEngineTask, 'phases'>,
+  run: Pick<SprintEngineState, 'defaultPhases'>
+): readonly SprintEngineTaskPhase[] {
+  if (task.phases) return task.phases
+  return run.defaultPhases ?? sprintEngineDefaultRunPhases
+}
 
 const sprintEngineLifecyclePhaseColumns: SprintEngineQualityGatePhase[] = ['review', 'testing', 'product']
 
@@ -2348,6 +2370,18 @@ export function normalizeSprintEngineRosterSource(value: unknown): SprintEngineR
   return value === 'architect' || value === 'user' ? value : null
 }
 
+// Tolerant read of run.yaml/projection `defaultPhases` — the run's phase list
+// (MC-1542). Unlike every other optional run key, an EMPTY array is meaningful
+// ("agents on this run don't review their own work") and must survive, so this
+// returns null only when the key is absent or not an array. Unknown phase names
+// are dropped; the engine is the authority and rejects them at write time.
+export function normalizeSprintEngineDefaultPhases(value: unknown): SprintEngineTaskPhase[] | null {
+  if (!Array.isArray(value)) return null
+  return value.filter((phase): phase is SprintEngineTaskPhase =>
+    sprintEngineTaskPhases.includes(phase as SprintEngineTaskPhase)
+  )
+}
+
 // Tolerant read of run.yaml/projection `allowedRuntimes` — the architect-roster
 // run's ticked model palette. Drops entries with no usable cli; a missing/blank
 // model becomes null (the CLI's own default). Returns null when absent/empty so
@@ -2391,6 +2425,7 @@ export function normalizeSprintEngineState(input: SprintEngineState | null | und
     const boardColumn = isSprintEngineTaskBoardColumn(task.boardColumn) ? task.boardColumn : undefined
     const folderStatus = optionalTrimmedString(task.folderStatus)
     const taskRecord = task as unknown as Record<string, unknown>
+    const phases = normalizeSprintEngineDefaultPhases(taskRecord.phases)
     const qualityGates = normalizeSprintEngineQualityGates(taskRecord.qualityGates)
     const qualityGateSummary = normalizeSprintEngineQualityGateSummary(taskRecord.qualityGateSummary)
     const latestComments = normalizeSprintEngineTaskComments(taskRecord.latestComments)
@@ -2427,6 +2462,9 @@ export function normalizeSprintEngineState(input: SprintEngineState | null | und
       startedAt: task.startedAt ?? null,
       completedAt: task.completedAt ?? null,
       ...(activity.length > 0 ? { activity } : {}),
+      // `phases` is null when the task inherits the run default and `[]` when the
+      // architect explicitly trimmed every phase — the two must not collapse.
+      ...(phases ? { phases } : {}),
       ...(qualityGates.length > 0 ? { qualityGates } : {}),
       ...(qualityGateSummary ? { qualityGateSummary } : {}),
       ...(latestComments.length > 0 ? { latestComments } : {}),
@@ -2480,6 +2518,11 @@ export function normalizeSprintEngineState(input: SprintEngineState | null | und
     ...((): Partial<Pick<SprintEngineState, 'allowedRuntimes'>> => {
       const allowedRuntimes = normalizeSprintEngineAllowedRuntimes(input.allowedRuntimes)
       return allowedRuntimes ? { allowedRuntimes } : {}
+    })(),
+    ...((): Partial<Pick<SprintEngineState, 'defaultPhases'>> => {
+      // An empty array is truthy, so an explicit no-review run survives here.
+      const defaultPhases = normalizeSprintEngineDefaultPhases(input.defaultPhases)
+      return defaultPhases ? { defaultPhases } : {}
     })(),
   }
 }
@@ -2766,6 +2809,10 @@ export function normalizeSprintEngineProjection(
     ...((): Partial<Pick<SprintEngineState, 'allowedRuntimes'>> => {
       const allowedRuntimes = normalizeSprintEngineAllowedRuntimes(runRecord.allowedRuntimes)
       return allowedRuntimes ? { allowedRuntimes } : {}
+    })(),
+    ...((): Partial<Pick<SprintEngineState, 'defaultPhases'>> => {
+      const defaultPhases = normalizeSprintEngineDefaultPhases(runRecord.defaultPhases)
+      return defaultPhases ? { defaultPhases } : {}
     })(),
     ...((): Partial<Pick<SprintEngineState, 'source'>> => {
       const source = normalizeSprintEngineSource(runRecord.source)

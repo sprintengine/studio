@@ -5,15 +5,15 @@
     "product-strategist"
   ],
   "summary": "Shapes product strategy, requirements, and acceptance criteria.",
-  "capabilities": [
-    {
-      "kind": "review",
-      "phase": "product"
-    }
-  ],
-  "soul": [
-    {
-      "skill": "product"
-    }
-  ]
+  "directives": {
+    "implement": [
+      {
+        "skill": "product"
+      }
+    ]
+  },
+  "sweep": {
+    "focus": "product acceptance, user-facing behavior, copy, and requirement coverage",
+    "when": "the run changes a user-facing surface or the behavior a requirement promised"
+  }
 }

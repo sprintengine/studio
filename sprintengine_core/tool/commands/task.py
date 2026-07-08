@@ -30,7 +30,7 @@ from sprintengine_core.tool.gates import (
     task_status_done_requires_closed_gates,
 )
 from sprintengine_core.tool.paths import now_iso
-from sprintengine_core.tool.review_prompts import build_gate_review_prompt, build_rework_prompt
+from sprintengine_core.tool.phase_prompts import build_gate_review_prompt, build_rework_prompt
 from sprintengine_core.tool.roles import require_configured_role
 from sprintengine_core.tool.shell import commit_task_changes_if_needed
 from sprintengine_core.tool.state import (

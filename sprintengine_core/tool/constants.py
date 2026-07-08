@@ -5,6 +5,14 @@ from __future__ import annotations
 VALID_TASK_STATUSES = {"todo", "in_progress", "review", "testing", "product", "changes_requested", "needs_input", "done", "canceled"}
 ACTIVE_TASK_STATUSES = {"in_progress", "needs_input"}
 RUN_EXECUTING_TASK_STATUSES = ACTIVE_TASK_STATUSES | {"review", "testing", "product", "changes_requested"}
+# Post-implementation phase vocabulary (MC-1542). MIRRORS
+# sprintengine_core.store.VALID_TASK_PHASES / DEFAULT_RUN_PHASES; the two cannot be
+# a single import (store <-> tool import cycle), so
+# tests/sprintengine_tool/test_task_lifecycle.py pins them equal. The renderer's
+# copy in src/renderer/src/utils/sprintengine.ts is pinned by the same class of test.
+VALID_TASK_PHASES = ("review",)
+DEFAULT_RUN_PHASES = ("review",)
+VALID_PHASE_OUTCOMES = {"pass", "pass_with_fixes", "escalate"}
 TERMINAL_AGENT_STATUSES = {"retired"}
 VALID_TASK_COMMENT_TYPES = {
     "implementation_summary",

@@ -62,6 +62,23 @@ RUN_SOURCE_KEYS = ("source", "sourceBundle")
 # runs, so they round-trip through run.yaml and the projection only when present,
 # exactly like RUN_SOURCE_KEYS.
 RUN_ROSTER_SOURCE_KEYS = ("rosterSource", "allowedRuntimes")
+
+# Run-store schema version. Bumped to 2 by MC-1542 (single-owner tasks): the task
+# status enum lost `changes_requested`/`testing`/`product`, `qualityGates` was
+# replaced by `phases`, and roles became routing + directive packs. Pre-release
+# clean break — a version-1 store is REJECTED, never migrated (`assert_store_is_current`).
+RUN_SCHEMA_VERSION = 2
+
+# Post-implementation phase vocabulary. `review` is the only shipped phase; the
+# list shape is kept so a future phase slots in without a schema change.
+# MIRRORED in sprintengine_core/tool/constants.py (VALID_TASK_PHASES) and
+# src/renderer/src/utils/sprintengine.ts — a contract test pins all three.
+VALID_TASK_PHASES = ("review",)
+# The phase list a task inherits when the run records no `defaultPhases`.
+DEFAULT_RUN_PHASES = ("review",)
+# The run's phase ceiling, written once at init. Optional: absent means the engine
+# default. Round-trips through run.yaml + projection like RUN_SOURCE_KEYS.
+RUN_PHASE_KEYS = ("defaultPhases",)
 DEFAULT_QUALITY_POLICY = {
     "enabled": True,
     "rosterDriven": True,
@@ -164,6 +181,66 @@ def validate_project_relative_path(value: str, *, field: str = "path") -> str:
     if any(part == ".." for part in path.parts):
         raise ValueError(f"{field} must not traverse outside the project root: {raw}")
     return path.as_posix()
+
+
+def normalize_phase_list(raw: Any, *, field: str) -> list[str]:
+    """Validate an ordered, de-duplicated phase list.
+
+    An empty list is meaningful (`[]` = no post-implementation phase), so callers
+    distinguish "absent" (inherit) from "explicitly empty" before calling here.
+    """
+    if not isinstance(raw, list):
+        raise ValueError(f"{field} must be an array of phase names.")
+    phases: list[str] = []
+    for entry in raw:
+        phase = str(entry or "").strip()
+        if not phase:
+            continue
+        if phase not in VALID_TASK_PHASES:
+            raise ValueError(
+                f"{field} contains unknown phase {phase!r}; expected one of: {', '.join(VALID_TASK_PHASES)}."
+            )
+        if phase not in phases:
+            phases.append(phase)
+    return phases
+
+
+def run_default_phases(state: dict[str, Any]) -> list[str]:
+    """The run's phase list: default for tasks that pass none, and their ceiling.
+
+    An absent key reads as the engine default. An explicitly empty list is
+    honoured: every publish with changes then routes straight to `done`.
+    """
+    raw = state.get("defaultPhases")
+    if not isinstance(raw, list):
+        return list(DEFAULT_RUN_PHASES)
+    return normalize_phase_list(raw, field="defaultPhases")
+
+
+class RunStoreVersionError(ValueError):
+    """A run store written before the current schema version."""
+
+
+def assert_store_is_current(run: dict[str, Any], team_dir: Path) -> None:
+    """Reject a pre-MC-1542 run store loudly, at every surface that reads one.
+
+    Decision 8 (pre-release clean break): old stores are local runtime state and
+    are never migrated. The remedy is deleting the team folder. Raising here — in
+    the one function both `state_from_folder_store` and `build_projection` call —
+    means the board, wizard, backlog links, and CLI all get the same readable
+    message instead of a silent crash or a blank board.
+    """
+    try:
+        version = int(run.get("schemaVersion") or 1)
+    except (TypeError, ValueError):
+        version = 1
+    if version >= RUN_SCHEMA_VERSION:
+        return
+    raise RunStoreVersionError(
+        f"Pre-MC-1542 Sprint Engine run store (schemaVersion {version}, expected {RUN_SCHEMA_VERSION}). "
+        "Single-owner tasks replaced quality gates, so this run cannot be read. "
+        f"Delete `{team_dir}` and re-run the sprint."
+    )
 
 
 def _bool_value(value: Any, default: bool) -> bool:
@@ -675,7 +752,7 @@ def initialize_run_store(
         atomic_write_yaml(
             run_path,
             {
-                "schemaVersion": 1,
+                "schemaVersion": RUN_SCHEMA_VERSION,
                 "name": name,
                 "goal": goal,
                 "status": status,
@@ -856,7 +933,7 @@ def sync_run_yaml_from_state(team_dir: Path, state: dict[str, Any]) -> None:
     quality_policy = normalize_quality_fields(state, run)
     run.update(
         {
-            "schemaVersion": run.get("schemaVersion") or 1,
+            "schemaVersion": RUN_SCHEMA_VERSION,
             "name": sprintengine.get("name") or team_dir.name,
             "goal": sprintengine.get("goal") or "",
             "status": sprintengine.get("status") or "planning",
@@ -893,7 +970,7 @@ def sync_run_yaml_from_state(team_dir: Path, state: dict[str, Any]) -> None:
             "updatedAt": now_iso(),
         }
     )
-    for key in RUN_SOURCE_KEYS + RUN_ROSTER_SOURCE_KEYS:
+    for key in RUN_SOURCE_KEYS + RUN_ROSTER_SOURCE_KEYS + RUN_PHASE_KEYS:
         if key in state:
             run[key] = state[key]
     if configured_roles is not None:
@@ -1080,6 +1157,7 @@ def state_from_folder_store(team_dir: Path) -> dict[str, Any]:
     run = load_run_yaml(team_dir)
     if not run:
         raise FileNotFoundError(team_dir / RUN_FILE)
+    assert_store_is_current(run, team_dir)
 
     sprintengine = run.get("sprintengine") if isinstance(run.get("sprintengine"), dict) else {}
     reconstructed_sprintengine = dict(sprintengine)
@@ -1116,7 +1194,7 @@ def state_from_folder_store(team_dir: Path) -> dict[str, Any]:
     # and gate derivation falls back to the seated roster.
     if isinstance(run.get("configuredRoles"), list):
         state["configuredRoles"] = run["configuredRoles"]
-    for key in RUN_SOURCE_KEYS + RUN_ROSTER_SOURCE_KEYS:
+    for key in RUN_SOURCE_KEYS + RUN_ROSTER_SOURCE_KEYS + RUN_PHASE_KEYS:
         if key in run:
             state[key] = run[key]
     normalize_quality_fields(state, run)
@@ -1314,6 +1392,7 @@ def build_projection(
     if folder_store_ready:
         source = "folder_store"
         run = load_run_yaml(team_dir)
+        assert_store_is_current(run, team_dir)
         raw_tasks = _tasks_from_folder_store(team_dir)
         tasks = [_normalize_projection_task(task, board_column=str(task.get("folderStatus") or task.get("status") or "todo")) for task in raw_tasks]
         artifacts = _artifacts_from_folder_store(team_dir)
@@ -1391,6 +1470,10 @@ def build_projection(
             # sprint palette. Written once at init; re-emitted only when present
             # so user-mode/legacy runs stay unaffected.
             **{key: run[key] for key in RUN_ROSTER_SOURCE_KEYS if key in run},
+            # The run's phase list (default AND ceiling for every task). The
+            # wizard's "Agents review their own work" toggle writes it; the board
+            # and architect prompt read it. Absent = the engine default.
+            **{key: run[key] for key in RUN_PHASE_KEYS if key in run},
         },
         "roster": roster if isinstance(roster, dict) else {},
         "tasks": tasks,

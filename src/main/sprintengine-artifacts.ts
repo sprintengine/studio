@@ -116,6 +116,8 @@ type SerializableSprintEngineStatePayload = {
   enabledRoles: string[]
   rosterSource: 'user' | 'architect' | null
   allowedRuntimes: Array<{ cli: string; model: string | null }>
+  // `null` = absent (engine default applies); `[]` = an explicit no-review run.
+  defaultPhases: string[] | null
   source: SprintEngineStateInitializeSource | null
   sourceBundle: SprintEngineStateInitializeSourceBundleItem[]
 }
@@ -390,9 +392,19 @@ function resolveInitialSprintEngineStatePayload(payload: SprintEngineStateInitia
     enabledRoles: resolveEnabledRoles(payload?.enabledRoles),
     rosterSource: resolveRosterSource(payload?.rosterSource),
     allowedRuntimes: resolveAllowedRuntimes(payload?.allowedRuntimes),
+    defaultPhases: resolveDefaultPhases(payload?.defaultPhases),
     source: resolveInitSource(payload?.source),
     sourceBundle: resolveInitSourceBundle(payload?.sourceBundle),
   }
+}
+
+// The run's phase list. `undefined` stays `null` (absent -> engine default);
+// an array — INCLUDING the empty one — is forwarded verbatim, because `[]` is the
+// operator saying "no review step on this run". Non-string entries are dropped;
+// the engine rejects any unknown phase name by contract.
+function resolveDefaultPhases(input: SprintEngineStateInitializeInput['defaultPhases']): string[] | null {
+  if (!Array.isArray(input)) return null
+  return input.filter((phase): phase is string => typeof phase === 'string' && phase.trim().length > 0)
 }
 
 // Keep only source entries with the non-empty string fields Python persists.
@@ -542,6 +554,11 @@ function sprintEngineInitArgs(state: ValidSprintEngineStatePath, payload: Serial
   }
   if (payload.allowedRuntimes.length > 0) {
     args.push('--allowed-runtimes-json', JSON.stringify(payload.allowedRuntimes))
+  }
+  // `[]` must reach the engine (an explicit no-review run), so this branches on
+  // presence, not truthiness, unlike every other array flag above.
+  if (payload.defaultPhases !== null) {
+    args.push('--default-phases-json', JSON.stringify(payload.defaultPhases))
   }
   if (payload.source) {
     args.push('--source-json', JSON.stringify(payload.source))

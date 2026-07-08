@@ -25,10 +25,10 @@ const VALID_ROLE = JSON.stringify({
   id: 'auditor',
   label: 'Auditor',
   summary: 'Audits the change.',
-  soul: [{ skill: 'auditor' }],
+  directives: { implement: [{ skill: 'auditor' }] },
 })
 
-const INVALID_ROLE = JSON.stringify({ id: 'Bad Id', label: '', soul: [] })
+const INVALID_ROLE = JSON.stringify({ id: 'Bad Id', label: '', directives: { implement: [] } })
 
 async function withTempDir<T>(fn: (dir: string) => Promise<T>): Promise<T> {
   const dir = await mkdtemp(join(tmpdir(), 'mc-roles-'))
@@ -107,7 +107,7 @@ async function testSaveGetRoundTrip(): Promise<void> {
         label: 'Auditor',
         summary: 'Audits the change.',
         aliases: ['audit'],
-        capability: { phase: 'review', defaultFocus: 'Security review.' },
+        sweep: { focus: 'security review', when: 'always' },
         body: '<what-to-do>\n# Role\nYou are Auditor.\n</what-to-do>\n',
       },
       root
@@ -124,11 +124,9 @@ async function testSaveGetRoundTrip(): Promise<void> {
     assert.equal(fetched.ok, true)
     if (fetched.ok) {
       assert.equal(fetched.manifest.id, 'auditor')
-      assert.deepEqual(fetched.manifest.soul, [{ skill: 'auditor' }])
+      assert.deepEqual(fetched.manifest.directives, { implement: [{ skill: 'auditor' }] })
       assert.deepEqual(fetched.manifest.aliases, ['audit'])
-      assert.deepEqual(fetched.manifest.capabilities, [
-        { kind: 'review', phase: 'review', defaultFocus: 'Security review.' },
-      ])
+      assert.deepEqual(fetched.manifest.sweep, { focus: 'security review', when: 'always' })
       assert.ok(fetched.body.includes('You are Auditor.'))
     }
 

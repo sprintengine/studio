@@ -3,9 +3,12 @@
   "label": "Developer",
   "aliases": [],
   "summary": "Implements reliable backend and core software changes.",
-  "soul": [
-    {
-      "skill": "developer"
-    }
-  ]
+  "directives": {
+    "implement": [
+      {
+        "skill": "developer"
+      }
+    ]
+  },
+  "sweep": null
 }

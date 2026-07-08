@@ -3,9 +3,12 @@
   "label": "Architect",
   "aliases": [],
   "summary": "Plans production software work and task decomposition.",
-  "soul": [
-    {
-      "skill": "architect"
-    }
-  ]
+  "directives": {
+    "implement": [
+      {
+        "skill": "architect"
+      }
+    ]
+  },
+  "sweep": null
 }

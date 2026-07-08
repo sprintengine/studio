@@ -436,6 +436,9 @@ def normalize_task(raw: Dict[str, Any]) -> Dict[str, Any]:
         task["difficulty"] = difficulty
     if isinstance(raw.get("triage"), dict):
         task["triage"] = raw["triage"]
+    phases = normalize_task_phases(raw.get("phases"), task_id)
+    if phases is not None:
+        task["phases"] = phases
     if isinstance(raw.get("qualityGates"), list):
         task["qualityGates"] = [
             gate
@@ -443,6 +446,67 @@ def normalize_task(raw: Dict[str, Any]) -> Dict[str, Any]:
             if (gate := folder_store.normalize_quality_gate(raw_gate, f"gate-{index + 1}")) is not None
         ]
     return task
+
+def parse_phases_arg(raw: Any) -> Optional[List[str]]:
+    """Read a `--phases` / `phases` argument into an ordered list, or None.
+
+    `None` (flag absent) inherits the run's `defaultPhases`. MCP passes a native
+    array — including `[]` for "no phases". The CLI passes a comma-separated
+    string, where `--phases ""` is the same explicit empty list. A bare string is
+    NOT spread char-by-char (the house array-field scar tissue).
+    """
+    if raw is None:
+        return None
+    if isinstance(raw, list):
+        candidates = [str(entry).strip() for entry in raw]
+    elif isinstance(raw, str):
+        candidates = [part.strip() for part in raw.split(",")]
+    else:
+        raise SystemExit("--phases must be a comma-separated string or an array of phase names.")
+    values = [value for value in candidates if value]
+    try:
+        return folder_store.normalize_phase_list(values, field="--phases")
+    except ValueError as exc:
+        raise SystemExit(str(exc)) from exc
+
+
+def normalize_task_phases(raw: Any, task_id: str) -> Optional[List[str]]:
+    """The task's ordered post-implementation phases, or None when unset.
+
+    None means "inherit the run's `defaultPhases`" and is what a task written
+    before the field existed reads as. `[]` is an explicit "no phases": publish
+    routes straight to `done`.
+    """
+    if raw is None:
+        return None
+    try:
+        return folder_store.normalize_phase_list(raw, field=f"Task {task_id} phases")
+    except ValueError as exc:
+        raise SystemExit(str(exc)) from exc
+
+
+def resolve_task_phases(state: Dict[str, Any], task: Dict[str, Any]) -> List[str]:
+    """The phases this task actually walks: its own list, else the run's default."""
+    phases = task.get("phases")
+    if isinstance(phases, list):
+        return [str(phase) for phase in phases]
+    return run_default_phases(state)
+
+
+def assert_phases_within_run_ceiling(state: Dict[str, Any], phases: List[str], task_id: str) -> None:
+    """`defaultPhases` is default AND ceiling: a task may trim, never add.
+
+    Rejecting here (rather than silently intersecting) is what makes "this run has
+    no review step" an operator guarantee the architect cannot override.
+    """
+    allowed = run_default_phases(state)
+    outside = [phase for phase in phases if phase not in allowed]
+    if outside:
+        raise SystemExit(
+            f"phase_not_configured_for_run: task {task_id} requests phase(s) {', '.join(outside)}, "
+            f"but this run's phases are {', '.join(allowed) or '(none)'}. A task may trim phases, never add them."
+        )
+
 
 def reject_absolute_path_values(values: Optional[List[str]], field: str) -> None:
     if not values:
@@ -518,17 +582,14 @@ def quality_gate_spec_for_id(
     except KeyError:
         return None
     role = role_entry.value
-    if not isinstance(role, RoleManifest):
-        return None
-    review_capability = next((capability for capability in role.capabilities if capability.kind == "review"), None)
-    if review_capability is None:
+    if not isinstance(role, RoleManifest) or role.sweep is None:
         return None
     return {
         "id": canonical,
-        "phase": review_capability.phase or "review",
+        "phase": "review",
         "role": role.normalized_id,
         "required": True,
-        "focus": review_capability.default_focus or role.summary or f"{role.label} review",
+        "focus": role.sweep.focus or role.summary or f"{role.label} review",
     }
 
 def build_quality_gate_from_spec(
@@ -624,6 +685,10 @@ def build_task_from_args(args: argparse.Namespace, state: Dict[str, Any]) -> Dic
         raw["producesImplementation"] = True
     if getattr(args, "needs_triage", False):
         raw["needsTriage"] = True
+    phases = parse_phases_arg(getattr(args, "phases", None))
+    if phases is not None:
+        assert_phases_within_run_ceiling(state, phases, task_id)
+        raw["phases"] = phases
     if getattr(args, "difficulty_pct", None) is not None or str(getattr(args, "difficulty_reason", "") or "").strip():
         raw["difficulty"] = {}
         if getattr(args, "difficulty_pct", None) is not None:

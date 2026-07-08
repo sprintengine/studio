@@ -226,19 +226,15 @@ def test_custom_quality_policy_gate_uses_workspace_role(tmp_path) -> None:
     assert any(gate["id"] == "launch_review" and gate["role"] == "marketer" for gate in gates)
 
 
-def test_custom_review_capability_role_can_be_required_as_gate(tmp_path) -> None:
+def test_custom_sweep_role_can_be_required_as_gate(tmp_path) -> None:
     workspace = tmp_path / "workspace"
     write_workspace_role(
         workspace,
         "creative_director",
-        capabilities=[
-            {
-                "kind": "review",
-                "phase": "review",
-                "reviews": ["brand", "marketing_material"],
-                "defaultFocus": "brand consistency and campaign readiness",
-            }
-        ],
+        sweep={
+            "focus": "brand consistency and campaign readiness",
+            "when": "the run touches a marketing surface",
+        },
     )
     fixture = create_workspace_team(tmp_path, "workspace", "cli-capability-review-gate", [])
     state = read_state(fixture.state_path)
@@ -276,7 +272,7 @@ def test_custom_review_capability_role_can_be_required_as_gate(tmp_path) -> None
     ]
 
 
-def test_custom_role_without_review_capability_is_not_a_gate(tmp_path) -> None:
+def test_custom_role_without_sweep_metadata_is_not_a_gate(tmp_path) -> None:
     workspace = tmp_path / "workspace"
     write_workspace_role(workspace, "marketer")
     fixture = create_workspace_team(tmp_path, "workspace", "cli-custom-role-not-gate", [])
@@ -376,7 +372,14 @@ def test_registry_inspection_accepts_explicit_plugin_extra_dir(tmp_path) -> None
     (plugin_root / "roles").mkdir(parents=True)
     (plugin_root / "skills" / "plugin_writer").mkdir(parents=True)
     (plugin_root / "roles" / "plugin_writer.json").write_text(
-        json.dumps({"id": "plugin_writer", "label": "Plugin Writer", "aliases": [], "soul": [{"skill": "plugin_writer"}]}),
+        json.dumps(
+            {
+                "id": "plugin_writer",
+                "label": "Plugin Writer",
+                "aliases": [],
+                "directives": {"implement": [{"skill": "plugin_writer"}]},
+            }
+        ),
         encoding="utf-8",
     )
     (plugin_root / "skills" / "plugin_writer" / "SKILL.md").write_text("# Plugin writer\n", encoding="utf-8")

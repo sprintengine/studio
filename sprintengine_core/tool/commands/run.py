@@ -37,7 +37,7 @@ from sprintengine_core.tool.plans import (
 )
 from sprintengine_core.tool.prompts import artifact_registration_instruction, completion_reality_instruction, load_prompt
 from sprintengine_core.tool.roles import require_configured_role
-from sprintengine_core.tool.review_prompts import build_merge_start_prompt, worker_execution_workspace_block
+from sprintengine_core.tool.phase_prompts import build_merge_start_prompt, worker_execution_workspace_block
 from sprintengine_core.tool.shell import ensure_run_worktree, get_run_vcs
 from sprintengine_core.tool.state import (
     agent_is_retired,
@@ -47,6 +47,7 @@ from sprintengine_core.tool.state import (
     apply_configured_roles,
     apply_init_source,
     apply_role_runtimes,
+    apply_default_phases,
     apply_roster_source,
     clear_non_active_task_owner_claims,
     ensure_agent_in_roster,
@@ -319,6 +320,9 @@ def cmd_init(args: argparse.Namespace) -> Dict[str, Any]:
         # later enforces allowedRuntimes as the hard boundary on role assignment.
         apply_roster_source(state, getattr(args, "roster_source", None))
         apply_allowed_runtimes(state, getattr(args, "allowed_runtimes_json", None))
+        # The run's phase list, from the wizard's "Agents review their own work"
+        # toggle. Default AND ceiling for every task (assert_phases_within_run_ceiling).
+        apply_default_phases(state, getattr(args, "default_phases_json", None))
         # Seed the sprint source at creation (app-created runs) so run.yaml carries
         # the "Started from" seed before any agent runs handover. write_run persists
         # state[source]/[sourceBundle] via RUN_SOURCE_KEYS.

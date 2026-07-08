@@ -116,6 +116,15 @@ export type SprintEngineTaskStatus = 'todo' | 'changes_requested' | 'in_progress
 
 export type SprintEngineTaskBoardColumn = 'todo' | 'ready' | 'changes_requested' | 'in_progress' | 'review' | 'testing' | 'product' | 'needs_input' | 'done'
 
+/**
+ * Post-implementation phases a task's single owner walks after `task.publish`
+ * (MC-1542). Mirrors `VALID_TASK_PHASES` in sprintengine_core/store.py; the
+ * runtime list lives at `sprintEngineTaskPhases` in utils/sprintengine.ts and is
+ * `satisfies`-bound to this union, so adding a phase in one place fails the build
+ * in the other.
+ */
+export type SprintEngineTaskPhase = 'review'
+
 export type SprintEngineQualityGatePhase = 'review' | 'testing' | 'product'
 
 export type SprintEngineQualityGateStatus =
@@ -1060,6 +1069,13 @@ export type SprintEngineTask = {
   stateStatus?: SprintEngineTaskStatus
   /** Canonical handoff timeline, oldest first. */
   activity?: SprintEngineTaskActivityEntry[]
+  /**
+   * The ordered post-implementation phases this task's owner walks after
+   * `task.publish` produces a diff (MC-1542). Absent means "inherit the run's
+   * `defaultPhases`"; `[]` means publish routes straight to `done`. Use
+   * `resolveSprintEngineTaskPhases` rather than reading this directly.
+   */
+  phases?: SprintEngineTaskPhase[]
   /** Configured quality gates derived from policy + roster. */
   qualityGates?: SprintEngineQualityGate[]
   /** Backend-computed aggregate of gate counts by phase/status. */
@@ -1145,6 +1161,15 @@ export type SprintEngineState = {
    * not here — the prompt joins the two.
    */
   allowedRuntimes?: SprintEngineAllowedRuntime[]
+  /**
+   * The post-implementation phases every task on this run inherits (run.yaml
+   * `defaultPhases`, projection-owned; the wizard forwards it as an init flag).
+   * It is the DEFAULT and the CEILING — a task may trim its `phases`, never add
+   * one outside this set, so `[]` ("agents on this run don't review their own
+   * work") is an operator guarantee, not an architect preference. Absent means
+   * the engine default, `['review']`.
+   */
+  defaultPhases?: SprintEngineTaskPhase[]
 }
 
 export type SprintEngineRosterSource = 'user' | 'architect'

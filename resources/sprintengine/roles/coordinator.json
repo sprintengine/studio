@@ -5,9 +5,12 @@
     "multiloop-coordinator"
   ],
   "summary": "Coordinates multi-agent work across Multicode sessions.",
-  "soul": [
-    {
-      "skill": "coordinator"
-    }
-  ]
+  "directives": {
+    "implement": [
+      {
+        "skill": "coordinator"
+      }
+    ]
+  },
+  "sweep": null
 }

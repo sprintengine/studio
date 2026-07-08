@@ -58,6 +58,70 @@ SKILL_ANCHORS: dict[str, tuple[str, ...]] = {
     "blog_writer": ("senior blog writer",),
 }
 
+# The MC-1542 base review pack. It is not referenced by any role manifest — the
+# engine resolves it per phase — so it needs its own contract test (below). These
+# anchors are the scar-tissue rules folded in from the retired reviewer souls, and
+# the invariants the single-owner trade-off rests on.
+PHASE_REVIEW_ANCHORS: tuple[str, ...] = (
+    # The adversarial framing that stands in for an independent reviewer.
+    "read it as if a stranger wrote it",
+    # nuclear_reviewer: contract drift blocks; the KG note lands in the same publish.
+    "Contract drift is blocking",
+    "in the same publish",
+    # code_reviewer / fallback_discipline: no fallback-masking.
+    "explicit failure over surprising fallback",
+    # spec_reviewer: requirements coverage.
+    "Requirements coverage",
+    # tester boundary: a smoke check here; exhaustive validation is a planned QA task.
+    "quick smoke check",
+    "planned QA tasks own that",
+    # Decision 2: fix-forward, never route work back.
+    "Fix everything you find, now",
+    # Decision 5 (escalation default).
+    "Never escalate to have your work confirmed",
+    # Phase-walk invariant: strictly forward, no re-entry.
+    "A phase is visited at most once",
+)
+
+
+def test_phase_review_base_pack_carries_folded_reviewer_rules() -> None:
+    """The retired reviewer souls' rules are relocated here, never dropped.
+
+    `sprintengine_phase_review` is the one review lens every task now gets. If a
+    prompt-prune hollows it out, the code/spec/nuclear reviewer scar tissue leaves
+    the product silently — this test is the only thing standing in the way.
+    """
+    body = (BUNDLED_REGISTRY_ROOT / "skills" / "sprintengine_phase_review" / "SKILL.md").read_text(encoding="utf-8")
+    missing = [anchor for anchor in PHASE_REVIEW_ANCHORS if anchor not in body]
+    assert not missing, (
+        "Base review-pack rules missing (register anchors in docs/skill-rule-inventory.md): "
+        f"{missing}"
+    )
+
+
+def test_phase_review_base_pack_resolves_through_registry_layering(tmp_path: Path) -> None:
+    """A workspace layer can shadow the base pack, changing every task's review lens."""
+    from sprintengine_core.tool.phase_prompts import phase_base_pack_skill_id
+
+    skill_id = phase_base_pack_skill_id("review")
+    assert skill_id == "sprintengine_phase_review"
+
+    workspace = tmp_path / "workspace"
+    override_dir = workspace / ".sprintengine" / "skills" / skill_id
+    override_dir.mkdir(parents=True)
+    (override_dir / "SKILL.md").write_text("# House review lens\n", encoding="utf-8")
+
+    discovery = RoleSkillRegistry(
+        workspace_root=workspace,
+        user_root=tmp_path / "user",
+        bundled_root=BUNDLED_REGISTRY_ROOT,
+    ).discover()
+
+    entry = discovery.skills[skill_id]
+    assert entry.source.layer.name == "workspace"
+    assert "House review lens" in entry.value.body
+    assert [shadow.layer.name for shadow in entry.shadowed] == ["bundled"]
+
 
 @pytest.fixture()
 def bundled_discovery(tmp_path: Path):
@@ -70,9 +134,9 @@ def bundled_discovery(tmp_path: Path):
 
 def test_every_bundled_soul_skill_has_registered_anchors(bundled_discovery) -> None:
     referenced = {
-        soul_entry.skill
+        entry_skill.skill
         for entry in bundled_discovery.roles.values()
-        for soul_entry in entry.value.soul
+        for entry_skill in entry.value.all_directive_skills()
     }
     unregistered = sorted(referenced - set(SKILL_ANCHORS))
     assert not unregistered, (
@@ -86,9 +150,9 @@ WHAT_TO_DO_MAX_NONEMPTY_LINES = 16
 
 def test_bundled_soul_skills_have_wellformed_emphasis_tags(bundled_discovery) -> None:
     referenced = {
-        soul_entry.skill
+        entry_skill.skill
         for entry in bundled_discovery.roles.values()
-        for soul_entry in entry.value.soul
+        for entry_skill in entry.value.all_directive_skills()
     }
     problems: list[str] = []
     for skill_id in sorted(referenced):
@@ -117,9 +181,9 @@ def test_rendered_souls_carry_legend_and_skill_provenance(bundled_discovery, tmp
         )
         assert rendered.content.count("<soul-legend>") == 1, role_id
         role = bundled_discovery.get_role(role_id)
-        for soul_entry in role.soul:
-            assert f'<skill name="{soul_entry.skill}">' in rendered.content, (
-                f"{role_id}: missing envelope for {soul_entry.skill}"
+        for directive_entry in role.implement_directives:
+            assert f'<skill name="{directive_entry.skill}">' in rendered.content, (
+                f"{role_id}: missing envelope for {directive_entry.skill}"
             )
 
 
@@ -130,10 +194,10 @@ def test_every_rendered_soul_contains_required_rule_anchors(bundled_discovery, t
             role_id, workspace_root=tmp_path / "workspace", run_id="contract"
         )
         role = bundled_discovery.get_role(role_id)
-        for soul_entry in role.soul:
-            for anchor in SKILL_ANCHORS.get(soul_entry.skill, ()):
+        for directive_entry in role.implement_directives:
+            for anchor in SKILL_ANCHORS.get(directive_entry.skill, ()):
                 if anchor not in rendered.content:
-                    missing.append(f"{role_id}: [{soul_entry.skill}] {anchor!r}")
+                    missing.append(f"{role_id}: [{directive_entry.skill}] {anchor!r}")
     assert not missing, "Rule anchors missing from rendered souls:\n" + "\n".join(missing)
 
 

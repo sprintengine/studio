@@ -5,9 +5,12 @@
     "frontend-design-review"
   ],
   "summary": "Builds and reviews user-facing application experiences.",
-  "soul": [
-    {
-      "skill": "frontend"
-    }
-  ]
+  "directives": {
+    "implement": [
+      {
+        "skill": "frontend"
+      }
+    ]
+  },
+  "sweep": null
 }

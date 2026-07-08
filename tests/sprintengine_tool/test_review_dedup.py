@@ -12,7 +12,7 @@ from pathlib import Path
 
 from helpers import create_team, task
 from sprintengine_core.tool.comments import comment_prompt_line, shared_finding_lines
-from sprintengine_core.tool.review_prompts import build_rework_prompt
+from sprintengine_core.tool.phase_prompts import build_rework_prompt
 
 CONFIRM_GUIDANCE = "confirm it by comment id in"
 

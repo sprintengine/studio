@@ -28,8 +28,10 @@ from sprintengine_core.tool.state import append_event, clear_task_refs, ensure_r
 from sprintengine_core.tool.tasks import (
     add_unique_values,
     apply_quality_gate_cli_overrides,
+    assert_phases_within_run_ceiling,
     build_task_from_args,
     ensure_task_can_be_replanned,
+    parse_phases_arg,
     recompute_phase,
     remove_values,
     set_unique_list,
@@ -100,6 +102,10 @@ def cmd_plan_update_task(args: argparse.Namespace) -> Dict[str, Any]:
             task["needsTriage"] = True
         elif getattr(args, "clear_needs_triage", False):
             task["needsTriage"] = False
+        phases = parse_phases_arg(getattr(args, "phases", None))
+        if phases is not None:
+            assert_phases_within_run_ceiling(state, phases, str(task.get("id") or args.task_id))
+            task["phases"] = phases
         set_architect_difficulty_estimate(
             task,
             getattr(args, "difficulty_pct", None),
