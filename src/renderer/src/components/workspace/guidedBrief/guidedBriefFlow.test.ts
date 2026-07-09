@@ -1,6 +1,8 @@
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
+import { createElement } from 'react'
+import { renderToStaticMarkup } from 'react-dom/server'
 import {
   guidedBriefHandoffChecklist,
   guidedBriefPlanningDecisionNotes,
@@ -77,6 +79,8 @@ import {
   updateAnnotationMessage,
 } from './annotate/annotateModel'
 import { ANNOTATE_MESSAGE_CHANNEL, pageRectToOverlayRect } from './annotate/bridge'
+import { AnnotateOverlay } from './annotate/AnnotateOverlay'
+import { AnnotateTray } from './annotate/AnnotateTray'
 import type { MockupAnnotation } from './annotate/types'
 
 const guidedDefaults = {
@@ -1155,11 +1159,226 @@ function testComponentGalleryModel() {
   console.log('component gallery model: ok')
 }
 
+// ---------------------------------------------------------------------------
+// Annotate frame UI (MC-1468 part 2, T10): the toggle/pins/composer/tray render
+// from these pure decisions, so availability, sandbox selection, batch edits,
+// and pin geometry are asserted here rather than in the DOM.
+// ---------------------------------------------------------------------------
+function testAnnotateFrameModel() {
+  // Availability maps every frame file-state to an explicit answer; the only
+  // annotatable state is a rendered document, and file-missing carries the
+  // human copy the disabled toggle shows.
+  assert.deepEqual(annotateAvailability('ready'), { available: true })
+  for (const kind of ['loading', 'generating', 'deleted', 'error'] as const) {
+    const unavailable = annotateAvailability(kind)
+    assert.equal(unavailable.available, false, `${kind} never enables annotate`)
+    if (!unavailable.available) {
+      assert.ok(unavailable.reason.length > 0, `${kind} carries explicit copy for the disabled toggle`)
+    }
+  }
+  const missing = annotateAvailability('deleted')
+  assert.ok(!missing.available && /isn’t on disk/.test(missing.reason), 'file-missing names the real cause')
+
+  // Sandbox regression contract (acceptance #5): with annotate OFF the frame
+  // uses exactly the existing scripts-off default / interactive toggle — the
+  // shared helper's output, byte for byte. Annotate ON grants scripts only
+  // (the composed srcDoc neutralizes author scripts; same-origin is never granted).
+  assert.equal(annotateFrameSandbox(false, false), htmlArtifactFrameSandbox(false), 'annotate off + scripts off is unchanged')
+  assert.equal(annotateFrameSandbox(false, true), htmlArtifactFrameSandbox(true), 'annotate off + interactive demo is unchanged')
+  assert.equal(annotateFrameSandbox(true, false), 'allow-scripts', 'annotate mode runs the injected picker')
+  assert.equal(
+    annotateFrameSandbox(true, true).includes('allow-same-origin'),
+    false,
+    'annotate mode never grants same-origin privileges',
+  )
+
+  // A picker selection promotes to a page-coord anchor (viewport rect + scroll).
+  const anchor = anchorFromSelect({
+    channel: ANNOTATE_MESSAGE_CHANNEL,
+    type: 'select',
+    selector: 'body > main > h2.p-h',
+    tagName: 'h2',
+    snippet: '<h2 class="p-h">Today’s jobs</h2>',
+    rect: { x: 10, y: 20, width: 120, height: 18 },
+    scrollOffset: { x: 5, y: 300 },
+  })
+  assert.deepEqual(anchor.rect, { x: 15, y: 320, width: 120, height: 18 }, 'anchor rect is page coords')
+
+  // Batch edits are immutable and renumber naturally: pin numbers are the batch
+  // index + 1, mirrored in the tray list (non-color-only identity).
+  const note = (message: string): MockupAnnotation => ({ ...anchor, message })
+  const one = addAnnotation([], note('tighten the header'))
+  const two = addAnnotation(one, note('demote the CTA'))
+  assert.equal(one.length, 1)
+  assert.equal(two.length, 2, 'addAnnotation returns a new batch')
+  const edited = updateAnnotationMessage(two, 1, 'demote the CTA to secondary')
+  assert.equal(edited[1].message, 'demote the CTA to secondary')
+  assert.equal(two[1].message, 'demote the CTA', 'updateAnnotationMessage does not mutate the input')
+  const removed = removeAnnotation(edited, 0)
+  assert.equal(removed.length, 1)
+  assert.equal(removed[0].message, 'demote the CTA to secondary', 'remaining notes renumber from 1')
+
+  // Display anchoring: the freshest located rect wins, an un-located selector
+  // falls back to its capture rect, and an explicit null means unanchored (the
+  // pin hides; the tray row flags it instead of silently vanishing).
+  const located = { x: 40, y: 40, width: 100, height: 20 }
+  assert.deepEqual(annotationDisplayRect(anchor, { [anchor.selector]: located }), located)
+  assert.deepEqual(annotationDisplayRect(anchor, {}), anchor.rect, 'no locate answer yet → capture rect')
+  assert.equal(annotationDisplayRect(anchor, { [anchor.selector]: null }), null, 'orphaned selector → unanchored')
+
+  // Pin projection under every zoom and both viewport shapes goes through the
+  // substrate's single transform helper (acceptance #1): a page rect projects
+  // to (page − scroll) × zoom, and the pin centers on its top-right corner.
+  const pageRect = { x: 200, y: 400, width: 100, height: 40 }
+  for (const zoom of [1, 0.75, 0.5] as const) {
+    const overlay = pageRectToOverlayRect(pageRect, { zoom, scroll: { x: 0, y: 150 }, offsetX: 0, offsetY: 0 })
+    assert.equal(overlay.x, 200 * zoom)
+    assert.equal(overlay.y, 250 * zoom)
+    const pin = pinPlacement(overlay, { width: 1280, height: 800 })
+    assert.equal(pin.left, (200 + 100) * zoom - 10, `pin rides the scaled top-right corner at zoom ${zoom}`)
+    assert.equal(pin.top, 250 * zoom - 10)
+  }
+  // Edge clamping: a pin on a viewport-edge element stays inside the stage.
+  assert.deepEqual(pinPlacement({ x: -30, y: -30, width: 10, height: 10 }, { width: 390, height: 400 }), {
+    left: 2,
+    top: 2,
+  })
+  assert.deepEqual(pinPlacement({ x: 500, y: 500, width: 40, height: 10 }, { width: 390, height: 400 }), {
+    left: 390 - 20 - 2,
+    top: 400 - 20 - 2,
+  })
+
+  // Composer placement: below the element by default, flipped above when there
+  // is no room beneath, clamped to the stage horizontally.
+  const below = composerPlacement({ x: 20, y: 30, width: 100, height: 40 }, { width: 800, height: 600 })
+  assert.deepEqual(below, { left: 20, top: 78 }, 'composer anchors below the element')
+  const flipped = composerPlacement({ x: 700, y: 520, width: 100, height: 40 }, { width: 800, height: 600 })
+  assert.equal(flipped.top, 520 - 150 - 8, 'no room below → the composer flips above')
+  assert.equal(flipped.left, 800 - 260 - 8, 'the composer never overflows the right edge')
+
+  // Batch copy: one count, mirrored everywhere it appears.
+  assert.equal(annotateCountLabel(1), '1 note')
+  assert.equal(annotateSubmitLabel(3), 'Send 3 notes')
+
+  // A failed submit names the cause when known and always promises the batch
+  // is kept — the retry contract (acceptance #3).
+  assert.match(submitFailureMessage(new Error('session is gone')), /session is gone/)
+  assert.match(submitFailureMessage(new Error('session is gone')), /kept here/)
+  assert.match(submitFailureMessage('weird throw'), /were not sent/, 'a non-Error failure still reads as a failure')
+
+  console.log('annotate frame model: ok')
+}
+
+// Static render smoke: the tray and overlay produce real markup with the
+// numbered, mirrored identity (pins ↔ list rows) and the designed states.
+function testAnnotateSurfacesRender() {
+  const rect = { x: 40, y: 60, width: 120, height: 24 }
+  const notes: MockupAnnotation[] = [
+    { selector: 'body > h1', snippet: '<h1>Hi</h1>', message: 'tighten the header', rect },
+    { selector: '#gone', snippet: '<p>old</p>', message: 'drop this row', rect },
+  ]
+  const noop = () => {}
+
+  const tray = renderToStaticMarkup(
+    createElement(AnnotateTray, {
+      annotations: notes,
+      anchors: { '#gone': null },
+      submitState: { kind: 'failed', reason: 'Your notes were not sent. They are kept here — try again.' },
+      listOpen: true,
+      onToggleList: noop,
+      onEdit: noop,
+      onRemove: noop,
+      onClear: noop,
+      onSend: noop,
+    }),
+  )
+  assert.match(tray, /Send 2 notes/, 'the batch leaves as one labeled action')
+  assert.match(tray, /Unanchored — this element is no longer in the file/, 'an orphaned note is flagged, not dropped')
+  assert.match(tray, /role="alert"/, 'a failed submit is announced')
+  assert.match(tray, /kept here/, 'failure copy promises the batch is preserved')
+  assert.match(tray, /aria-expanded="true"/, 'the list disclosure is a real toggle')
+
+  const overlay = renderToStaticMarkup(
+    createElement(AnnotateOverlay, {
+      annotations: notes,
+      anchors: {},
+      transform: { zoom: 1, scroll: { x: 0, y: 0 }, offsetX: 0, offsetY: 0 },
+      composer: { kind: 'edit', index: 0, message: 'tighten the header' },
+      busy: false,
+      onOpenEdit: noop,
+      onComposerMessageChange: noop,
+      onComposerCancel: noop,
+      onComposerCommit: noop,
+      onComposerRemove: noop,
+    }),
+  )
+  assert.match(overlay, /aria-label="Edit note 1: tighten the header"/, 'pins carry an accessible name')
+  assert.match(overlay, /aria-label="Edit note 2: drop this row"/, 'pin numbers mirror the list order')
+  assert.match(overlay, /role="dialog"/, 'the composer is a dialog')
+  assert.match(overlay, /Describe the change/, 'the composer prompts for the instruction')
+  assert.match(overlay, />Remove</, 'editing an existing note offers removal')
+
+  console.log('annotate surfaces render: ok')
+}
+
+// Seam source-contract (acceptance #2): the shared frame collects and submits
+// batches only through the onSubmitAnnotations callback — it must never import
+// sprint or wizard feedback plumbing. The moment it knows about sprint verdicts
+// or wizard chats, the hosting surfaces are coupled (MC-1468 decision 2).
+function testAnnotateSeamSourceContract() {
+  const guidedBriefDir = 'src/renderer/src/components/workspace/guidedBrief'
+  const frameSources = [
+    `${guidedBriefDir}/MockupPreviewPane.tsx`,
+    `${guidedBriefDir}/annotate/annotateModel.ts`,
+    `${guidedBriefDir}/annotate/AnnotateOverlay.tsx`,
+    `${guidedBriefDir}/annotate/AnnotateTray.tsx`,
+    `${guidedBriefDir}/annotate/annotateSrcDoc.ts`,
+    `${guidedBriefDir}/annotate/bridge.ts`,
+    `${guidedBriefDir}/annotate/pickerRuntime.ts`,
+    `${guidedBriefDir}/annotate/selector.ts`,
+    `${guidedBriefDir}/annotate/types.ts`,
+  ].map((relativePath) => ({ relativePath, source: readFileSync(join(process.cwd(), relativePath), 'utf8') }))
+
+  // Feedback-routing modules the frame must stay blind to: sprint review
+  // surfaces and the wizard's session/feedback plumbing.
+  const forbiddenImports = [
+    /from\s+['"].*sprintEngine/i,
+    /from\s+['"].*sessionAdapter['"]/,
+    /from\s+['"].*conversationSessionAdapter['"]/,
+    /from\s+['"].*specialistActions/,
+    /from\s+['"].*useStrategistSession/,
+    /from\s+['"].*useArchitectSession/,
+    /from\s+['"].*\/handoff['"]/,
+  ]
+  for (const { relativePath, source } of frameSources) {
+    for (const forbidden of forbiddenImports) {
+      assert.doesNotMatch(source, forbidden, `${relativePath} must not import feedback plumbing (${forbidden})`)
+    }
+  }
+
+  const frameSource = frameSources[0].source
+  assert.match(
+    frameSource,
+    /onSubmitAnnotations\?:\s*\(annotations: MockupAnnotation\[\]\)\s*=>\s*Promise<void>/,
+    'the frame exposes the onSubmitAnnotations seam (the host owns routing)',
+  )
+  assert.match(
+    frameSource,
+    /await onSubmitAnnotations\(batch\)/,
+    'the batch leaves the frame only through the callback seam',
+  )
+
+  console.log('annotate seam source contract: ok')
+}
+
 void testCollectDesignArtifacts()
   .then(() => testCollectDesignSystemBundleArtifacts())
   .then(() => testRunScopedDiscovery())
   .then(() => testCanvasStudioModel())
   .then(() => testComponentGalleryModel())
+  .then(() => testAnnotateFrameModel())
+  .then(() => testAnnotateSurfacesRender())
+  .then(() => testAnnotateSeamSourceContract())
   .catch((error) => {
     console.error(error)
     process.exit(1)

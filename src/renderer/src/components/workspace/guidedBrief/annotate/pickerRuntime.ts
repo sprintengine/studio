@@ -45,7 +45,11 @@ function elementToSelectorNode(el: Element): SelectorNode {
 // Installed once when the frame loads. Draws a hover outline + identity chip
 // inside the frame and reports hover/selection out to the parent via
 // postMessage. Selection reporting is un-scaled (frame-viewport rect + scroll);
-// the parent applies the zoom/offset transform (see bridge).
+// the parent applies the zoom/offset transform (see bridge). It also answers
+// the parent's `locate` requests with current page-coord rects (null when a
+// selector no longer matches), re-answers after in-frame resizes (a zoom or
+// viewport change reflows the document), and streams scroll offsets — the
+// three signals that keep parent-rendered pins glued to their elements.
 function installAnnotatePicker(config: PickerConfig): void {
   const channel = config.channel
   const doc = document
@@ -131,9 +135,64 @@ function installAnnotatePicker(config: PickerConfig): void {
     })
   }
 
+  // --- Anchor tracking: locate requests, scroll offsets, resize re-reports ---
+
+  const pageRect = (el: Element): { x: number; y: number; width: number; height: number } => {
+    const r = el.getBoundingClientRect()
+    return { x: r.left + window.scrollX, y: r.top + window.scrollY, width: r.width, height: r.height }
+  }
+
+  let locatedSelectors: string[] = []
+
+  const postAnchors = (): void => {
+    const anchors = locatedSelectors.map((selector) => {
+      let el: Element | null = null
+      try {
+        el = doc.querySelector(selector)
+      } catch {
+        el = null // an invalid selector is simply unanchored, never a crash
+      }
+      return { selector, rect: el ? pageRect(el) : null }
+    })
+    post({ type: 'anchors', anchors, scrollOffset: { x: window.scrollX, y: window.scrollY } })
+  }
+
+  let scrollFrame = 0
+  const onScroll = (): void => {
+    if (scrollFrame) return
+    scrollFrame = window.requestAnimationFrame(() => {
+      scrollFrame = 0
+      post({ type: 'scroll', scrollOffset: { x: window.scrollX, y: window.scrollY } })
+    })
+  }
+
+  let resizeFrame = 0
+  const onResize = (): void => {
+    if (resizeFrame) return
+    resizeFrame = window.requestAnimationFrame(() => {
+      resizeFrame = 0
+      if (locatedSelectors.length > 0) postAnchors()
+    })
+  }
+
+  // Only the embedding parent window is trusted, mirroring the parent's own
+  // source-identity check; anything else (including our own frame) is ignored.
+  const onParentMessage = (event: MessageEvent): void => {
+    if (event.source !== window.parent) return
+    const data = event.data as { channel?: unknown; type?: unknown; selectors?: unknown } | null
+    if (!data || typeof data !== 'object') return
+    if (data.channel !== channel || data.type !== 'locate') return
+    if (!Array.isArray(data.selectors)) return
+    locatedSelectors = data.selectors.filter((entry): entry is string => typeof entry === 'string')
+    postAnchors()
+  }
+
   doc.addEventListener('mousemove', onMove, true)
   doc.addEventListener('mouseleave', clearHover, true)
   doc.addEventListener('click', onClick, true)
+  doc.addEventListener('scroll', onScroll, true)
+  window.addEventListener('resize', onResize)
+  window.addEventListener('message', onParentMessage)
   post({ type: 'ready' })
 }
 

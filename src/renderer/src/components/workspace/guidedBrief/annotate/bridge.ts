@@ -11,6 +11,24 @@ import type { AnnotationRect } from './types'
 /** Channel tag on every annotate message; a first-line filter before source ID. */
 export const ANNOTATE_MESSAGE_CHANNEL = 'multicode-annotate' as const
 
+/**
+ * Parent → frame request: re-report current page-coord rects for these
+ * selectors. The picker answers with an `anchors` message (and re-answers on
+ * its own after in-frame layout resizes), which is what keeps pins glued when
+ * zoom or a viewport preset reflows the document. Built here so the parent and
+ * the picker agree on one shape; the picker validates it independently (it
+ * cannot import this module across the opaque-origin boundary).
+ */
+export type AnnotateLocateRequest = {
+  channel: typeof ANNOTATE_MESSAGE_CHANNEL
+  type: 'locate'
+  selectors: string[]
+}
+
+export function buildAnnotateLocateRequest(selectors: readonly string[]): AnnotateLocateRequest {
+  return { channel: ANNOTATE_MESSAGE_CHANNEL, type: 'locate', selectors: [...selectors] }
+}
+
 export type ScrollOffset = { x: number; y: number }
 
 /** Element rect relative to the frame's own viewport (pre-zoom, pre-offset). */
@@ -43,11 +61,26 @@ export type AnnotateSelectMessage = ChannelTag & {
   scrollOffset: ScrollOffset
 }
 
+/** Frame document scrolled — the parent re-projects pins with the new offset. */
+export type AnnotateScrollMessage = ChannelTag & { type: 'scroll'; scrollOffset: ScrollOffset }
+
+/** One located anchor: current page-coord rect, or null when the selector no longer matches (unanchored). */
+export type AnnotateAnchor = { selector: string; rect: AnnotationRect | null }
+
+/** Answer to a locate request (also re-sent after in-frame resizes): page-coord rects per selector. */
+export type AnnotateAnchorsMessage = ChannelTag & {
+  type: 'anchors'
+  anchors: AnnotateAnchor[]
+  scrollOffset: ScrollOffset
+}
+
 export type AnnotateMessage =
   | AnnotateReadyMessage
   | AnnotateHoverMessage
   | AnnotateHoverEndMessage
   | AnnotateSelectMessage
+  | AnnotateScrollMessage
+  | AnnotateAnchorsMessage
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null
@@ -64,6 +97,18 @@ function isRect(value: unknown): value is FrameRect {
     isFiniteNumber(value.y) &&
     isFiniteNumber(value.width) &&
     isFiniteNumber(value.height)
+  )
+}
+
+function isScrollOffset(value: unknown): value is ScrollOffset {
+  return isRecord(value) && isFiniteNumber(value.x) && isFiniteNumber(value.y)
+}
+
+function isAnchor(value: unknown): value is AnnotateAnchor {
+  return (
+    isRecord(value) &&
+    typeof value.selector === 'string' &&
+    (value.rect === null || isRect(value.rect))
   )
 }
 
@@ -92,8 +137,7 @@ export function parseAnnotateMessage(data: unknown): AnnotateMessage | null {
     case 'select':
       if (typeof data.selector !== 'string' || typeof data.tagName !== 'string') return null
       if (typeof data.snippet !== 'string' || !isRect(data.rect)) return null
-      if (!isRecord(data.scrollOffset) || !isFiniteNumber(data.scrollOffset.x) || !isFiniteNumber(data.scrollOffset.y))
-        return null
+      if (!isScrollOffset(data.scrollOffset)) return null
       return {
         channel: ANNOTATE_MESSAGE_CHANNEL,
         type: 'select',
@@ -103,6 +147,27 @@ export function parseAnnotateMessage(data: unknown): AnnotateMessage | null {
         rect: data.rect,
         scrollOffset: { x: data.scrollOffset.x, y: data.scrollOffset.y },
       }
+    case 'scroll':
+      if (!isScrollOffset(data.scrollOffset)) return null
+      return {
+        channel: ANNOTATE_MESSAGE_CHANNEL,
+        type: 'scroll',
+        scrollOffset: { x: data.scrollOffset.x, y: data.scrollOffset.y },
+      }
+    case 'anchors': {
+      if (!Array.isArray(data.anchors) || !isScrollOffset(data.scrollOffset)) return null
+      const anchors: AnnotateAnchor[] = []
+      for (const entry of data.anchors) {
+        if (!isAnchor(entry)) return null
+        anchors.push({ selector: entry.selector, rect: entry.rect })
+      }
+      return {
+        channel: ANNOTATE_MESSAGE_CHANNEL,
+        type: 'anchors',
+        anchors,
+        scrollOffset: { x: data.scrollOffset.x, y: data.scrollOffset.y },
+      }
+    }
     default:
       return null
   }

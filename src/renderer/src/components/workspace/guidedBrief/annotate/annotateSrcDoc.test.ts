@@ -6,6 +6,7 @@ import {
 import { buildAnnotatePickerSource } from './pickerRuntime'
 import {
   ANNOTATE_MESSAGE_CHANNEL,
+  buildAnnotateLocateRequest,
   overlayRectToPageRect,
   pageRectToOverlayRect,
   parseAnnotateMessage,
@@ -172,6 +173,63 @@ assert.deepEqual(parseAnnotateMessage({ channel: ANNOTATE_MESSAGE_CHANNEL, type:
   channel: ANNOTATE_MESSAGE_CHANNEL,
   type: 'ready',
 })
+
+// Scroll stream (frame → parent): valid offsets pass, malformed are rejected.
+assert.deepEqual(
+  parseAnnotateMessage({ channel: ANNOTATE_MESSAGE_CHANNEL, type: 'scroll', scrollOffset: { x: 3, y: 140 } }),
+  { channel: ANNOTATE_MESSAGE_CHANNEL, type: 'scroll', scrollOffset: { x: 3, y: 140 } },
+)
+assert.equal(
+  parseAnnotateMessage({ channel: ANNOTATE_MESSAGE_CHANNEL, type: 'scroll', scrollOffset: { x: 'NaN?', y: 1 } }),
+  null,
+  'non-numeric scroll message rejected',
+)
+
+// Anchors answer (frame → parent): page rects per selector, null = unanchored.
+const validAnchors = {
+  channel: ANNOTATE_MESSAGE_CHANNEL,
+  type: 'anchors',
+  anchors: [
+    { selector: 'body > h1', rect: { x: 10, y: 20, width: 30, height: 40 } },
+    { selector: '#gone', rect: null },
+  ],
+  scrollOffset: { x: 0, y: 12 },
+}
+const parsedAnchors = parseAnnotateMessage(validAnchors)
+assert.equal(parsedAnchors?.type, 'anchors')
+if (parsedAnchors?.type === 'anchors') {
+  assert.equal(parsedAnchors.anchors.length, 2)
+  assert.deepEqual(parsedAnchors.anchors[0].rect, { x: 10, y: 20, width: 30, height: 40 })
+  assert.equal(parsedAnchors.anchors[1].rect, null, 'a null rect (unanchored selector) is preserved')
+}
+assert.equal(
+  parseAnnotateMessage({ ...validAnchors, anchors: [{ selector: 'ok', rect: { x: 1 } }] }),
+  null,
+  'a malformed anchor entry rejects the whole message',
+)
+assert.equal(
+  parseAnnotateMessage({ ...validAnchors, scrollOffset: null }),
+  null,
+  'anchors without a scroll offset are rejected',
+)
+
+// Locate request (parent → frame): well-formed, defensively copied, and never
+// itself accepted as a frame→parent message (an echoed request cannot spoof).
+const locateSelectors = ['body > h1', '#cta']
+const locate = buildAnnotateLocateRequest(locateSelectors)
+assert.deepEqual(locate, { channel: ANNOTATE_MESSAGE_CHANNEL, type: 'locate', selectors: ['body > h1', '#cta'] })
+assert.notEqual(locate.selectors, locateSelectors, 'the request owns a copy of the selector list')
+assert.equal(parseAnnotateMessage(locate), null, 'a locate request is not a valid frame→parent message')
+
+// The injected picker handles the anchor-tracking protocol: it answers locate
+// requests, streams scroll offsets, and re-reports after in-frame resizes.
+// (Quote style can vary under bundling, so match the bare literals.)
+for (const marker of ['locate', 'anchors', 'scroll', 'resize']) {
+  assert.ok(
+    buildAnnotatePickerSource().includes(marker),
+    `picker source carries the ${marker} protocol handling`,
+  )
+}
 
 // Coordinate transform round-trips under every zoom and non-zero scroll/offset.
 const pageRect: AnnotationRect = { x: 120.5, y: 84.25, width: 220, height: 48 }
