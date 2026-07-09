@@ -69,6 +69,12 @@ class HttpMcpRunRegistry:
         # surface), which keeps older app builds working.
         agent_id = str(payload.get("agentId") or "").strip()
         agent_role = str(payload.get("role") or "").strip()
+        # Compose-time gate for the workspace_knowledge layer skill. Tri-state:
+        # key absent (older caller) -> None -> the server falls back to its env;
+        # key present -> truthiness of the workspace's configured knowledge root.
+        knowledge_root_configured: bool | None = None
+        if "knowledgeRoot" in payload:
+            knowledge_root_configured = bool(str(payload.get("knowledgeRoot") or "").strip())
         context = McpRequestContext(
             actor=actor,
             state_path=state_path,
@@ -79,6 +85,7 @@ class HttpMcpRunRegistry:
             actor_id=actor_id,
             agent_id=agent_id,
             role=agent_role,
+            knowledge_root_configured=knowledge_root_configured,
         )
         token = secrets.token_urlsafe(32)
         run = HttpMcpRegisteredRun(id=run_id, token=token, context=context)

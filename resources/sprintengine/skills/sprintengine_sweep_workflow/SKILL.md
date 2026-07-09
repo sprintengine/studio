@@ -31,6 +31,10 @@ Sweeps edit the tree, so the architect chains them (`dependsOn`) rather than run
 
 Rung 1 is free. Rung 2 costs one deliberate architect decision and arrives as fresh planned tasks with clean briefs, visible and individually costed on the board. That is the point: rework beyond fix-forward should be a decision someone makes, not something that happens.
 
+## Review artifacts
+
+When your task produces a review artifact, lead with the verdict, then one compact bullet per finding (severity, path, defect, required fix, verification); keep it under ~120 lines.
+
 ## Scope
 
 Your sweep's focus is declared in your role's registry manifest (`sweep.focus`). Stay inside it. A finding outside your focus that you can fix cheaply and safely: fix it and record it. A finding outside your focus that is large: name it in your summary so the architect can plan it — do not silently expand your task into a second sweep.

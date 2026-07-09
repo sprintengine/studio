@@ -95,6 +95,7 @@ type TerminalRuntimeOptions = {
       agentId?: string
       role?: string
       cli?: AgentCli
+      knowledgeRoot?: string
       http?: {
         url: string
         authTokenEnvVar?: string
@@ -302,6 +303,7 @@ export function buildManagedSprintEngineSyncInputForLaunch(
     agentId?: string
     role?: string
     cli?: AgentCli
+    knowledgeRoot?: string
   }
 ): NonNullable<Parameters<NonNullable<TerminalRuntimeOptions['syncMcpConfig']>>[0]['managedSprintEngine']> {
   const registrationRoot = deriveSprintEngineRegistrationRoot(statePath, launchCwd)
@@ -316,6 +318,7 @@ export function buildManagedSprintEngineSyncInputForLaunch(
     agentId: launch?.agentId,
     role: launch?.role,
     cli: launch?.cli,
+    knowledgeRoot: launch?.knowledgeRoot ?? '',
   }
 }
 
@@ -2647,6 +2650,7 @@ async function spawnTerminalFromIpc(
                 agentId: agentId || sessionId,
                 role: sprintEngineRoleForLaunch(agentSession?.role, agentId),
                 cli,
+                knowledgeRoot: memoryRootPath ?? '',
               })
             : undefined,
         })

@@ -17,7 +17,10 @@
   },
   "modelSelection": {
     "args": ["--model", "{{model}}"],
-    "options": [{ "id": "grok-4.5", "label": "Grok 4.5" }],
+    "options": [
+      { "id": "grok-4.5", "label": "Grok 4.5" },
+      { "id": "grok-build-0.1", "label": "Grok Build 0.1" }
+    ],
     "allowCustomId": true
   },
   "launch": {

@@ -220,7 +220,7 @@ Task commands:
   sprintengine task refresh-ready
 
 Plan commands (architect only):
-  sprintengine plan add-task --title "..." --role developer --description "Concrete worker brief..." --path src/foo --acceptance "..." --note "Implementation detail..."
+  sprintengine plan add-task --title "..." --role developer --description "Concrete worker brief..." --path src/foo --acceptance "..." (add --note only for non-obvious details the description does not carry)
   sprintengine plan add-task --title "Review performance" --role performance --depends-on T4 --path src/foo --acceptance "Performance review artifact documents measured evidence, findings, or approval"
   sprintengine plan update-task --task-id T1 --title "..." --description "Concrete worker brief..." --path src/foo --acceptance "..." --note "Implementation detail..."
   sprintengine plan add-dependency --task-id T2 --depends-on T1
@@ -739,12 +739,12 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--actor", default="architect")
     p.add_argument("--task-id")
     p.add_argument("--title", required=True)
-    p.add_argument("--description", default="", help="Concrete task brief for the worker.")
+    p.add_argument("--description", default="", help="Concrete task brief for the worker: what changes, target behavior, boundary, non-goals.")
     p.add_argument("--role", required=True)
     p.add_argument("--depends-on", action="append", default=[])
     p.add_argument("--path", action="append", default=[], help="Owned path or directory.")
-    p.add_argument("--acceptance", action="append", default=[], help="Acceptance criterion.")
-    p.add_argument("--note", action="append", default=[], help="Repeatable implementation detail from the plan.")
+    p.add_argument("--acceptance", action="append", default=[], help="Externally verifiable acceptance criterion; never a restatement of the description.")
+    p.add_argument("--note", action="append", default=[], help="Repeatable non-obvious implementation detail the description does not already carry; omit when the description suffices.")
     p.add_argument("--task-note", action="append", default=[], help="Repeatable task note.")
     p.add_argument("--produces-implementation", action="store_true", help="Mark this task as implementation-producing even when its role is not developer/frontend.")
     p.add_argument("--product-facing", action="store_true", help="Mark this task as requiring product acceptance when product is rostered.")
@@ -765,7 +765,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--clear-paths", action="store_true")
     p.add_argument("--acceptance", action="append", help="Replace acceptance criteria with this repeatable list.")
     p.add_argument("--clear-acceptance", action="store_true")
-    p.add_argument("--note", action="append", help="Replace implementation notes with this repeatable list of details from the plan.")
+    p.add_argument("--note", action="append", help="Replace implementation notes with this repeatable list; only non-obvious details the description does not already carry.")
     p.add_argument("--clear-notes", action="store_true")
     p.add_argument("--task-note", action="append", help="Replace task notes with this repeatable list.")
     p.add_argument("--clear-task-notes", action="store_true")

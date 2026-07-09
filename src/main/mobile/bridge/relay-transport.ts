@@ -31,6 +31,8 @@ const RELAY_COMMAND_TYPES: Record<RelayCommandType, true> = {
   'backlog.update': true,
   'backlog.startSprintEngine': true,
   'backlog.create': true,
+  'sprintengine.openPullRequest': true,
+  'sprintengine.setAutomationMode': true,
 }
 
 export const RELAY_SUPPORTED_COMMANDS = Object.keys(RELAY_COMMAND_TYPES) as RelayCommandType[]

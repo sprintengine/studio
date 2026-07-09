@@ -47,6 +47,56 @@ export type BacklogContextItemAction = {
   run: () => void
 }
 
+// The Send-to-agent choice list: one MenuItem per agent terminal target, with
+// dead sessions disabled. Shared by the row context menu and the detail pane's
+// More-actions menu so the two Send-to-agent surfaces cannot drift. The caller
+// owns closing its menu (each host closes differently), so `onPick` receives
+// the chosen session and the host follows with its own dismiss.
+export function AgentTargetMenuItems({
+  agentTargets,
+  agentSessions,
+  onPick,
+}: {
+  agentTargets: ReadonlyArray<AgentState & { cliSessionId: string }>
+  agentSessions: TerminalSessionSnapshot[] | null
+  onPick: (sessionId: string) => void
+}): JSX.Element {
+  if (agentTargets.length === 0) {
+    return (
+      <MenuItem disabled onClick={() => {}}>
+        No running agents
+      </MenuItem>
+    )
+  }
+  return (
+    <>
+      {agentTargets.map((agent) => {
+        const session = agentSessions?.find(
+          (candidate) => candidate.sessionId === agent.cliSessionId,
+        )
+        // Unknown liveness (list not fetched / fetch failed) keeps the row
+        // enabled — the send core re-verifies before writing, so a dead
+        // session still fails loudly instead of being mislabeled here.
+        const dead = agentSessions !== null && session?.processAlive !== true
+        return (
+          <MenuItem
+            key={agent.id}
+            disabled={dead}
+            icon={
+              agent.cli ? (
+                <CliIcon cli={agent.cli} className="icon-sm shrink-0 text-[color:var(--text-muted)]" />
+              ) : undefined
+            }
+            onClick={() => onPick(agent.cliSessionId)}
+          >
+            {agent.name}
+          </MenuItem>
+        )
+      })}
+    </>
+  )
+}
+
 // Toggle one prerequisite slug in an item's `dependsOn` set (add if absent,
 // remove if present), preserving order. Both the context menu and the detail
 // editor route through this so the two surfaces compute the next set identically.
@@ -209,38 +259,14 @@ export function BacklogItemContextMenu({
           if (open) onFlyoutOpen()
         }}
       >
-        {agentTargets.length === 0 ? (
-          <MenuItem disabled onClick={() => {}}>
-            No running agents
-          </MenuItem>
-        ) : (
-          agentTargets.map((agent) => {
-            const session = agentSessions?.find(
-              (candidate) => candidate.sessionId === agent.cliSessionId,
-            )
-            // Unknown liveness (list not fetched / fetch failed) keeps the row
-            // enabled — the send core re-verifies before writing, so a dead
-            // session still fails loudly instead of being mislabeled here.
-            const dead = agentSessions !== null && session?.processAlive !== true
-            return (
-              <MenuItem
-                key={agent.id}
-                disabled={dead}
-                icon={
-                  agent.cli ? (
-                    <CliIcon cli={agent.cli} className="icon-sm shrink-0 text-[color:var(--text-muted)]" />
-                  ) : undefined
-                }
-                onClick={() => {
-                  onSendToAgent(item, agent.cliSessionId)
-                  onClose()
-                }}
-              >
-                {agent.name}
-              </MenuItem>
-            )
-          })
-        )}
+        <AgentTargetMenuItems
+          agentTargets={agentTargets}
+          agentSessions={agentSessions}
+          onPick={(sessionId) => {
+            onSendToAgent(item, sessionId)
+            onClose()
+          }}
+        />
       </MenuFlyoutItem>
       <MenuDivider />
       <MenuItem

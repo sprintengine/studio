@@ -15,7 +15,9 @@ export type MobileControlCommandType =
   | "device.revoke"
   | "backlog.update"
   | "backlog.startSprintEngine"
-  | "backlog.create";
+  | "backlog.create"
+  | "sprintengine.openPullRequest"
+  | "sprintengine.setAutomationMode";
 
 export type MobileControlEventType =
   | "snapshot.updated"
@@ -35,7 +37,9 @@ export type MobileControlCapability =
   | "devices.revoke"
   | "backlog.update"
   | "backlog.start"
-  | "backlog.create";
+  | "backlog.create"
+  | "sprintengines.pr"
+  | "sprintengines.automation";
 
 export type MobileControlErrorCode =
   | "unsupported_protocol_version"
@@ -256,6 +260,25 @@ export type BacklogCreateCommand = MobileControlCommandBase<
   }
 >;
 
+// Open (or return the existing) pull request for a completed worktree run
+// (MC-1496). Idempotent: a second call returns the same URL without a second PR.
+export type SprintEngineOpenPullRequestCommand = MobileControlCommandBase<
+  "sprintengine.openPullRequest",
+  {
+    sprintEngineId: string;
+  }
+>;
+
+// Set the run's three-state automation mode (MC-1497). The mode is the authority
+// the desktop supervisor reads; the executor routes to the desktop session.
+export type SprintEngineSetAutomationModeCommand = MobileControlCommandBase<
+  "sprintengine.setAutomationMode",
+  {
+    sprintEngineId: string;
+    mode: MobileControlAutomationMode;
+  }
+>;
+
 export type MobileControlCommand =
   | SnapshotRequestCommand
   | ArtifactReadCommand
@@ -267,7 +290,9 @@ export type MobileControlCommand =
   | DeviceRevokeCommand
   | BacklogUpdateCommand
   | BacklogStartSprintEngineCommand
-  | BacklogCreateCommand;
+  | BacklogCreateCommand
+  | SprintEngineOpenPullRequestCommand
+  | SprintEngineSetAutomationModeCommand;
 
 export type MobileControlNeedsInputKind = "architect" | "user" | "owner" | "external_validation";
 
@@ -398,6 +423,55 @@ export interface MobileControlSprintEngineCounts {
   needsInput?: number;
 }
 
+// The three-state Sprint Engine automation mode, mirroring the renderer's
+// `SprintEngineAutomationMode` (renderer/src/types/workspace.ts). Carried on the
+// snapshot so the phone control renders the truth; set by
+// `sprintengine.setAutomationMode` (MC-1497).
+export type MobileControlAutomationMode = "manual" | "run_agents" | "run_agents_and_approve_artifacts";
+
+// Worktree / pull-request state for a run, mirroring the desktop `SprintEngineVcs`
+// (renderer/src/types/workspace.ts). Present only for worktree runs; the phone
+// uses it to decide "Open pull request" vs "View pull request" (MC-1496/MC-1498).
+export interface MobileControlSprintEngineVcsState {
+  /** True when the run executes on its own git worktree/branch. */
+  worktree: boolean;
+  /** The run branch, when a worktree has been initialized. */
+  branch?: string;
+  pullRequestUrl?: string;
+  /** Merge/lifecycle state of the PR: open · merged · closed (from `pullRequestState`/`status`). */
+  pullRequestStatus?: string;
+  /** Reason the last PR-open attempt failed, surfaced with a Retry affordance. */
+  pullRequestError?: string;
+}
+
+// One "Started from" provenance row — a real on-disk seed document the run was
+// launched from. Mirrors the desktop `SprintEngineSeedRow`
+// (renderer .../sprintEngineStartedFrom.ts), trimmed to what the phone renders.
+export interface MobileControlSprintEngineStartedFromRow {
+  /** Project-relative on-disk path (read/previewed via `artifact.read`). */
+  path: string;
+  fileName: string;
+  kindLabel: string;
+  role: "primary" | "epic-child" | "supporting";
+  isPrimary: boolean;
+  /** ISO capture time, surfaced only for reference-mode rows. */
+  capturedAt?: string;
+  /** Project-relative `backlog/…` path when the row is a backlog item/epic child. */
+  backlogPath?: string;
+}
+
+// The run's launch provenance (the desktop Inbox "Started from" section). Rows are
+// capped at the desktop's "4 + show more" convention; bodies are fetched on
+// demand, never shipped inline.
+export interface MobileControlSprintEngineStartedFrom {
+  /** True when the launch seed is a backlog epic (children nest under it). */
+  epic: boolean;
+  subtitle: string;
+  rows: MobileControlSprintEngineStartedFromRow[];
+  /** Rows omitted past the cap, for a "show N more on desktop" hint. */
+  omitted?: number;
+}
+
 export interface MobileControlSprintEngineSnapshot {
   sprintEngineId: string;
   name: string;
@@ -419,6 +493,12 @@ export interface MobileControlSprintEngineSnapshot {
   roster?: Record<string, MobileControlRosterEntry>;
   runSummary?: Record<string, string | number | boolean | null>;
   planReview?: Record<string, string | number | boolean | null>;
+  /** Current automation mode (MC-1497), so the phone control renders the truth. */
+  automationMode?: MobileControlAutomationMode;
+  /** Worktree/PR state for the run (MC-1496/MC-1498); absent for non-worktree runs. */
+  vcs?: MobileControlSprintEngineVcsState;
+  /** Launch provenance — the "Started from" seed docs (MC-1498). */
+  startedFrom?: MobileControlSprintEngineStartedFrom;
   /** Folder-store lock reports and stale-lock warnings. */
   locks?: MobileControlSprintEngineLockState;
   /** Latest projection activity entry plus total event count. */
@@ -590,12 +670,31 @@ export interface MobileControlBacklogItemSnapshot {
   updatedAt?: string;
 }
 
+// Per-workspace epic metadata (MC-1498). Items carry only the `epic` up-slug; the
+// phone renders desktop-parity epic chips and color bands, which need the epic's
+// display id and color. Kept as a per-workspace block rather than denormalized
+// onto every item.
+export interface MobileControlBacklogEpicSnapshot {
+  /** The epic slug (matches an item's `epic` up-slug). */
+  slug: string;
+  /** The epic's display id, e.g. `MC-1493`, when the epic file carries an `id`. */
+  displayId?: string;
+  title?: string;
+  /** One of the desktop seven-color highlight set, when the epic sets `color`. */
+  color?: string;
+  /** Rollup over the epic's member items. */
+  doneCount: number;
+  totalCount: number;
+}
+
 export interface MobileControlBacklogWorkspaceSnapshot {
   workspaceId: string;
   workspacePath: string;
   workspaceName: string;
   updatedAt: string;
   items: MobileControlBacklogItemSnapshot[];
+  /** Epic metadata for the workspace's epics (MC-1498). */
+  epics?: MobileControlBacklogEpicSnapshot[];
 }
 
 export interface MobileControlSnapshot {
@@ -723,6 +822,8 @@ const commandTypes = [
   "backlog.update",
   "backlog.startSprintEngine",
   "backlog.create",
+  "sprintengine.openPullRequest",
+  "sprintengine.setAutomationMode",
 ] as const satisfies readonly MobileControlCommandType[];
 
 const eventTypes = [
@@ -745,6 +846,8 @@ const capabilities = [
   "backlog.update",
   "backlog.start",
   "backlog.create",
+  "sprintengines.pr",
+  "sprintengines.automation",
 ] as const satisfies readonly MobileControlCapability[];
 
 // `satisfies` only proves the entries are valid, not that the list is
@@ -1190,8 +1293,14 @@ function validateCommandPayload(type: MobileControlCommandType, payload: Record<
         optionalString(payload, "difficulty") ??
         optionalString(payload, "criticality")
       );
+    case "sprintengine.openPullRequest":
+      return requireString(payload, "sprintEngineId");
+    case "sprintengine.setAutomationMode":
+      return requireString(payload, "sprintEngineId") ?? requireLiteral(payload, "mode", automationModeValues);
   }
 }
+
+const automationModeValues = ["manual", "run_agents", "run_agents_and_approve_artifacts"] as const;
 
 function validateEventPayload(type: MobileControlEventType, payload: Record<string, unknown>): string | null {
   switch (type) {

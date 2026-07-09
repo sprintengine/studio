@@ -106,9 +106,30 @@ export type MobileSprintEngineFollowUpResult = {
   acceptedAt: string
 }
 
+export type SprintEngineAutomationMode = 'manual' | 'run_agents' | 'run_agents_and_approve_artifacts'
+
+export type MobileSprintEngineSetAutomationModeRequest = {
+  sprintEngineId: string
+  statePath: string
+  teamDirectory: string
+  workspaceRoot: string
+  mode: SprintEngineAutomationMode
+  deviceId: string
+  commandId: string
+}
+
+export type MobileSprintEngineSetAutomationModeResult = {
+  mode: SprintEngineAutomationMode
+  appliedAt: string
+}
+
 export type MobileSprintEngineSessionOrchestrator = {
   startTask(request: MobileSprintEngineTaskStartRequest): Promise<MobileSprintEngineTaskStartResult>
   sendFollowUp(request: MobileSprintEngineFollowUpRequest): Promise<MobileSprintEngineFollowUpResult>
+  // Renderer-owned automation state (MC-1497). Optional so a service built without
+  // a desktop session (headless/tests) rejects the command instead of forking the
+  // authoritative state machine that lives in the renderer store.
+  setAutomationMode?(request: MobileSprintEngineSetAutomationModeRequest): Promise<MobileSprintEngineSetAutomationModeResult>
 }
 
 const defaultCommandTtlMs = 30_000
@@ -123,6 +144,8 @@ const allowedCommandTypes = new Set<MobileControlCommandType>([
   'backlog.update',
   'backlog.startSprintEngine',
   'backlog.create',
+  'sprintengine.openPullRequest',
+  'sprintengine.setAutomationMode',
 ])
 export type SprintEngineArtifactReviewAction = 'approve' | 'request-changes'
 
@@ -295,6 +318,10 @@ export class MobileSprintEngineCommandService {
         return this.executeBacklogStartSprintEngineCommand(command, scope)
       case 'backlog.create':
         return this.executeBacklogCreateCommand(command, scope)
+      case 'sprintengine.openPullRequest':
+        return this.executeOpenPullRequestCommand(command, scope)
+      case 'sprintengine.setAutomationMode':
+        return this.executeSetAutomationModeCommand(command, scope)
       case 'task.start':
         return this.executeTaskStartCommand(command, scope)
       case 'agent.followUp':
@@ -409,6 +436,69 @@ export class MobileSprintEngineCommandService {
     })
 
     return this.invokeTool(command, args, state.workspaceRoot, state, artifact.id)
+  }
+
+  // MC-1496: open (or return the existing) pull request for the run. The Sprint
+  // Engine CLI `vcs pr` owns the PR lifecycle and is the single source of truth:
+  // it is idempotent (a second call returns the same URL without a second PR),
+  // refuses a run with no worktree branch, and records `pullRequestError` on
+  // failure. `vcs pr` rebuilds the projection, so the follow-up snapshot carries
+  // the new PR URL/status — no separate `pr-status` refresh is needed here.
+  private async executeOpenPullRequestCommand(
+    command: Extract<MobileControlCommand, { type: 'sprintengine.openPullRequest' }>,
+    scope: MobileSprintEngineCommandScope
+  ): Promise<MobileSprintEngineCommandResult> {
+    const state = await this.resolveStateForSprintEngine(command.payload.sprintEngineId, scope)
+    await assertExpectedSnapshotVersion({
+      expectedSnapshotVersion: command.expectedSnapshotVersion,
+      statePath: state.statePath,
+    })
+
+    const args = ['--state', state.statePath, 'vcs', 'pr', '--id', mobileActorId(command.deviceId)]
+    return this.invokeTool(command, args, state.workspaceRoot, state)
+  }
+
+  // MC-1497: set the run's three-state automation mode. The authoritative state
+  // machine lives in the renderer store (`sprintEngineAutoState.desiredMode`),
+  // which the supervisor reads — the CLI runner flag only hints headless agents.
+  // So this routes to the desktop session (Option A); with no live desktop the
+  // command is rejected honestly rather than writing a state the supervisor won't
+  // read.
+  private async executeSetAutomationModeCommand(
+    command: Extract<MobileControlCommand, { type: 'sprintengine.setAutomationMode' }>,
+    scope: MobileSprintEngineCommandScope
+  ): Promise<MobileSprintEngineCommandResult> {
+    if (!this.sessionOrchestrator?.setAutomationMode) {
+      return this.resultRecorder.reject(
+        command,
+        'command_not_supported',
+        'Setting the automation mode requires the desktop app to be open (the mode lives in the desktop store).',
+        false
+      )
+    }
+
+    const state = await this.resolveStateForSprintEngine(command.payload.sprintEngineId, scope)
+    await assertExpectedSnapshotVersion({
+      expectedSnapshotVersion: command.expectedSnapshotVersion,
+      statePath: state.statePath,
+    })
+
+    const data = await this.sessionOrchestrator.setAutomationMode({
+      sprintEngineId: command.payload.sprintEngineId,
+      statePath: state.statePath,
+      teamDirectory: state.teamDirectory,
+      workspaceRoot: state.workspaceRoot,
+      mode: command.payload.mode,
+      deviceId: command.deviceId,
+      commandId: command.commandId,
+    })
+
+    return this.resultRecorder.acceptSessionCommand(
+      command,
+      data,
+      state,
+      'Mobile automation-mode change was accepted by desktop session orchestration.'
+    )
   }
 
   // Expands the optional sprint config into `handover` CLI args. teamName is

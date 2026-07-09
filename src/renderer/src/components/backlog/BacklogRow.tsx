@@ -9,7 +9,7 @@ import type {
   BacklogItem,
   BacklogItemStatus,
 } from '../../utils/backlog'
-import type { BacklogEpicGroup, BacklogEpicMeta } from '../../utils/backlogEpics'
+import type { BacklogEpicGroup, BacklogEpicMeta, BacklogEpicProgress } from '../../utils/backlogEpics'
 import { getHighlightSwatch } from '../../utils/highlight'
 import type { SprintEngineRunGlyph } from '../../utils/sprintengine'
 import {
@@ -109,12 +109,47 @@ export function EpicColorDot({
   )
 }
 
+// Hover card for a backlog list row: the full (unclipped) title, the status
+// word with the id (and an epic's completion), and the file path. The Backlog
+// panel wraps each row in a Tooltip carrying this card, replacing the native
+// `title` path tooltip; since the card always shows the full title, the host
+// also sets `plainTitle` on the row content so the clipped-title tooltip
+// doesn't stack a second popover over this one.
+export function BacklogRowHoverCard({
+  item,
+  runGlyph,
+  epicProgress,
+}: {
+  item: BacklogItem
+  runGlyph?: BacklogRunGlyph
+  epicProgress?: BacklogEpicProgress
+}): JSX.Element {
+  const statusLabel = runGlyph?.label ?? BACKLOG_STATUS_LABEL[item.status]
+  return (
+    <span className="flex max-w-[300px] flex-col gap-0.5 py-0.5">
+      <span className="whitespace-normal text-[11.5px] font-medium leading-snug text-[color:var(--text-strong)]">
+        {item.title}
+      </span>
+      <span className="whitespace-normal text-[color:var(--text-muted)]">
+        {statusLabel}
+        {item.displayId ? ` · ${item.displayId}` : ''}
+        {item.isEpic && epicProgress ? ` · ${epicProgress.done}/${epicProgress.total} complete` : ''}
+      </span>
+      <span className="whitespace-normal break-all font-mono text-[10px] text-[color:var(--text-subtle)]">
+        {item.relativePath}
+      </span>
+    </span>
+  )
+}
+
 export const BacklogRowContent = memo(function BacklogRowContent({
   item,
   now,
   runGlyph,
   isWaiting = false,
   epicMeta,
+  epicProgress,
+  plainTitle = false,
 }: {
   item: BacklogItem
   now: number
@@ -125,37 +160,65 @@ export const BacklogRowContent = memo(function BacklogRowContent({
    *  prerequisite, so it earns the "Waiting" badge. Off for done/non-blocked
    *  items and for the source picker, which passes no dependency graph. */
   isWaiting?: boolean
-  /** The parent epic's identity (title/colour/id), passed only in the flat
-   *  (ungrouped) list so a member surfaces its epic as a small coloured pill.
-   *  The grouped list omits it — the epic group header already names it. */
+  /** The epic identity (title/colour/id) this row renders with. For a member
+   *  it is the PARENT epic, passed only in the flat (ungrouped) list so the
+   *  member surfaces it as a small coloured pill (the grouped list omits it —
+   *  the header already names it). For an epic row it is the epic's OWN
+   *  identity, tinting the layers glyph and the progress meter. */
   epicMeta?: BacklogEpicMeta
+  /** An epic row's true completion (completed/total children over the full
+   *  scan). Leaf rows and surfaces without the rollup (source picker) omit it. */
+  epicProgress?: BacklogEpicProgress
+  /** Skip the clipped-title tooltip. Set by hosts that wrap the whole row in a
+   *  hover card (which already carries the full title), so a clipped title
+   *  never stacks two tooltips. */
+  plainTitle?: boolean
 }): JSX.Element {
   const lifecycle = runGlyph?.state ?? backlogStatusToLifecycle(item.status)
   const statusLabel = runGlyph?.label ?? BACKLOG_STATUS_LABEL[item.status]
-  // Default true keeps the standalone in_progress item spinning; a run override
-  // earns the spinner only when the runner is genuinely running.
-  const live = runGlyph?.live ?? true
-  // The leading glyph is the item's status — except for an epic, whose lifecycle
-  // is derived from its children, so it earns a dedicated type glyph instead of
-  // the (misleading) "idea" ring it would otherwise show.
+  // The spinner means "an agent is actively working on this": only a live run
+  // glyph earns the animation. A bare in_progress status (no observable run)
+  // renders the same quarter arc, static — per the glyph-system rule that
+  // in_progress animates "only when genuinely live".
+  const live = runGlyph?.live ?? false
+  // Every row leads with its status glyph (the glyph-system placement rule) —
+  // an epic included, so in-progress/completed/archived epics read at a glance.
+  // The epic keeps its stacked-layers mark as a second, identity-coloured glyph
+  // so the container still stands apart from its members.
   return (
     <>
       <div className="flex items-center gap-2">
+        <Tooltip content={statusLabel} placement="top">
+          <LifecycleGlyph state={lifecycle} live={live} />
+        </Tooltip>
         {item.isEpic ? (
-          <Tooltip content="Epic" placement="top">
-            <BacklogTypeGlyph type="epic" label="Epic" className="icon-sm text-[color:var(--text-muted)]" />
+          <Tooltip content="Epic" placement="top" wrapperClassName="inline-flex shrink-0">
+            <span
+              className="inline-flex shrink-0"
+              style={epicMeta?.color ? { color: getHighlightSwatch(epicMeta.color).hex } : undefined}
+            >
+              <BacklogTypeGlyph
+                type="epic"
+                label="Epic"
+                className={`icon-sm ${epicMeta?.color ? '' : 'text-[color:var(--text-muted)]'}`}
+              />
+            </span>
           </Tooltip>
-        ) : (
-          <Tooltip content={statusLabel} placement="top">
-            <LifecycleGlyph state={lifecycle} live={live} />
-          </Tooltip>
-        )}
+        ) : null}
         <span className="flex min-w-0 flex-1 items-center gap-1.5">
-          <TruncatedText
-            as="span"
-            text={item.title}
-            className="min-w-0 text-[12px] font-medium text-[color:var(--text-strong)]"
-          />
+          {plainTitle ? (
+            <span
+              className={`min-w-0 truncate text-[12px] ${item.isEpic ? 'font-semibold' : 'font-medium'} text-[color:var(--text-strong)]`}
+            >
+              {item.title}
+            </span>
+          ) : (
+            <TruncatedText
+              as="span"
+              text={item.title}
+              className={`min-w-0 text-[12px] ${item.isEpic ? 'font-semibold' : 'font-medium'} text-[color:var(--text-strong)]`}
+            />
+          )}
           {/* Earned mark: the star exists only when starred — no placeholder
               outline on idle rows, same rule as the status dot. Matches the
               sidebar's starred-workspace glyph (color, size, name). */}
@@ -172,27 +235,36 @@ export const BacklogRowContent = memo(function BacklogRowContent({
       {/* Supporting line: the triage metadata the title displaced — id, size,
           priority — flows from the left, and how long ago the item was touched
           holds the right. No excerpt: at this width it only ever showed a few
-          clipped words, so the space goes to the title above instead. */}
+          clipped words, so the space goes to the title above instead. An epic
+          carries no size/priority (it is a container, not a work item), so its
+          slot holds the completion meter instead. */}
       <div className="mt-0.5 flex items-center gap-2 pl-[22px] text-[11px]">
         {item.displayId ? (
           <span className="shrink-0 font-mono tabular-nums text-[color:var(--text-subtle)]">
             {item.displayId}
           </span>
         ) : null}
-        <DifficultyIndicator difficulty={item.difficulty} />
-        <CriticalityIndicator criticality={item.criticality} />
+        {item.isEpic ? (
+          epicProgress ? <EpicProgressMeter progress={epicProgress} color={epicMeta?.color ?? null} /> : null
+        ) : (
+          <>
+            <DifficultyIndicator difficulty={item.difficulty} />
+            <CriticalityIndicator criticality={item.criticality} />
+          </>
+        )}
         {/* The parent-epic pill sits in the gap between the triage tokens and the
             right-aligned time. Its container carries the ml-auto (so the pill is
             pushed toward the time and the empty gap opens to its left) and clips
             on overflow; the time keeps a hard pl-2 gap so the pill can never
-            touch it on a compressed panel. */}
-        {epicMeta ? (
+            touch it on a compressed panel. An epic row's epicMeta is its own
+            identity, not a parent, so it never pills itself. */}
+        {epicMeta && !item.isEpic ? (
           <div className="ml-auto flex min-w-0 shrink items-center overflow-hidden">
             <EpicPill epic={epicMeta} />
           </div>
         ) : null}
         <span
-          className={`${epicMeta ? 'pl-2' : 'ml-auto'} shrink-0 tabular-nums text-[color:var(--text-subtle)]`}
+          className={`${epicMeta && !item.isEpic ? 'pl-2' : 'ml-auto'} shrink-0 tabular-nums text-[color:var(--text-subtle)]`}
         >
           {formatRelativeMsAgo(item.modifiedAt, now) || 'unknown'}
         </span>
@@ -200,6 +272,43 @@ export const BacklogRowContent = memo(function BacklogRowContent({
     </>
   )
 })
+
+// The epic completion readout: a slim identity-coloured fill bar beside the
+// `done/total` fraction. The numbers are the signal (the bar is decorative and
+// aria-hidden inside the one accessible name), so meaning never rides on colour
+// alone; an epic with no `color:` fills in the accent. Shared by the flat epic
+// row and the grouped epic header so the two readouts can't drift.
+export function EpicProgressMeter({
+  progress,
+  color,
+}: {
+  progress: BacklogEpicProgress
+  color: BacklogHighlightColor | null
+}): JSX.Element {
+  const { done, total } = progress
+  const percent = total > 0 ? Math.round((done / total) * 100) : 0
+  const fill = color ? getHighlightSwatch(color).hex : 'var(--accent-primary)'
+  return (
+    <span
+      role="img"
+      aria-label={`${done} of ${total} complete`}
+      // No min-w-0 here: the meter's floor is its min-content — the fraction
+      // text — so a squeezed panel collapses the BAR (min-w-0, down to nothing)
+      // and the numbers never paint over the right-aligned time.
+      className="inline-flex shrink items-center gap-1.5"
+    >
+      <span
+        aria-hidden="true"
+        className="h-[3px] w-16 min-w-0 shrink overflow-hidden rounded-full bg-[color:var(--border-default)]"
+      >
+        <span className="block h-full rounded-full" style={{ width: `${percent}%`, backgroundColor: fill }} />
+      </span>
+      <span aria-hidden="true" className="shrink-0 font-mono tabular-nums text-[color:var(--text-muted)]">
+        {done}/{total}
+      </span>
+    </span>
+  )
+}
 
 // Derived "waiting" marker: this item is active and at least one prerequisite is
 // unresolved (see backlogDependencies). The word carries the meaning — never
@@ -351,20 +460,28 @@ function CriticalityGlyph({ criticality }: { criticality: BacklogCriticality }):
 }
 
 // Interior of an epic-group header row (the panel owns the selectable <li> and
-// its left color stripe). A disclosure chevron toggles the group; the title sits
-// in heavier weight than a leaf row so headers read as structure, and the
-// `done/total` rollup is tabular so the column scans straight down. Unknown
+// its left color stripe). A disclosure chevron toggles the group; an epic header
+// then carries the epic's own status glyph (so in-progress/completed/archived
+// read without expanding), the title sits in heavier weight than a leaf row so
+// headers read as structure, and the completion rollup is the true full-scan
+// `progress` when the panel supplies it — the group's own child list is the
+// FILTERED view, so counting it zeroes the fraction under any lens that hides
+// members (Epics hides all of them; Active hides the completed ones). Unknown
 // groups surface their dangling slug so an orphaned `epic:` is identifiable.
 export function BacklogEpicHeaderContent({
   group,
   collapsed,
   onToggleCollapse,
+  progress,
 }: {
   group: BacklogEpicGroup
   collapsed: boolean
   onToggleCollapse: () => void
+  /** True full-scan completion for this group's slug; falls back to the
+   *  view-relative group rollup when absent (the no-epic bucket). */
+  progress?: BacklogEpicProgress
 }): JSX.Element {
-  const { done, total } = group.progress
+  const { done, total } = progress ?? group.progress
   return (
     <div className="flex items-center gap-1.5">
       <button
@@ -384,6 +501,11 @@ export function BacklogEpicHeaderContent({
       >
         <DisclosureChevron expanded={!collapsed} />
       </button>
+      {group.kind === 'epic' && group.epic ? (
+        <Tooltip content={BACKLOG_STATUS_LABEL[group.epic.status]} placement="top">
+          <LifecycleGlyph state={backlogStatusToLifecycle(group.epic.status)} />
+        </Tooltip>
+      ) : null}
       <TruncatedText
         as="span"
         text={group.title}
@@ -396,12 +518,18 @@ export function BacklogEpicHeaderContent({
           className="max-w-[10rem] shrink-0 font-mono text-[11px] text-[color:var(--text-disabled)]"
         />
       ) : null}
-      <span
-        className="shrink-0 tabular-nums text-[11px] text-[color:var(--text-subtle)]"
-        aria-label={`${done} of ${total} complete`}
-      >
-        {done}/{total}
-      </span>
+      {group.kind === 'epic' ? (
+        <span className="shrink-0 text-[11px]">
+          <EpicProgressMeter progress={{ done, total }} color={group.color} />
+        </span>
+      ) : (
+        <span
+          className="shrink-0 tabular-nums text-[11px] text-[color:var(--text-subtle)]"
+          aria-label={`${done} of ${total} complete`}
+        >
+          {done}/{total}
+        </span>
+      )}
     </div>
   )
 }

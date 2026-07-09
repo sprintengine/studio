@@ -22,6 +22,8 @@ const commandTypes = new Set<MobileControlCommandType>([
   'backlog.update',
   'backlog.startSprintEngine',
   'backlog.create',
+  'sprintengine.openPullRequest',
+  'sprintengine.setAutomationMode',
 ])
 const worktreeIsolationValues = new Set(['required', 'preferred', 'disabled'])
 
@@ -176,8 +178,14 @@ function validateCommandPayload(type: MobileControlCommandType, payload: Record<
         optionalString(payload, 'difficulty') ??
         optionalString(payload, 'criticality')
       )
+    case 'sprintengine.openPullRequest':
+      return requireString(payload, 'sprintEngineId')
+    case 'sprintengine.setAutomationMode':
+      return requireString(payload, 'sprintEngineId') ?? requireOneOf(payload, 'mode', automationModeValues)
   }
 }
+
+const automationModeValues = new Set(['manual', 'run_agents', 'run_agents_and_approve_artifacts'])
 
 function requireString(record: Record<string, unknown>, field: string): string | null {
   return typeof record[field] === 'string' && record[field].length > 0 ? null : `${field} must be a non-empty string`

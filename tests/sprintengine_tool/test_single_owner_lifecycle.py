@@ -505,7 +505,10 @@ def test_publish_returns_the_phase_directive_inline(tmp_path: Path) -> None:
     directive = result["nextDirective"]
     assert "reviewing your own work" in directive
     assert "read it as if a stranger wrote it" in directive
-    assert "The widget renders." in directive  # acceptance criteria ride the directive
+    # Item 1566: the directive references the card's acceptance criteria instead
+    # of re-serializing bodies the live owner already holds.
+    assert "The widget renders." not in directive
+    assert "Review against your task card's acceptance criteria" in directive
     assert "sprintengine.task.advance" in directive
 
 

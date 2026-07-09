@@ -457,7 +457,14 @@ only bounded newest notes and bounded needs-input prose. `task.get` accepts
 `include: ["activity", "comments", "evidence_log", "diffs", "notes",
 "needs_input"]` for deep reads.
 Directives carry `{id, title, status, role}` stubs. Server-composed phase and
-rework prompts are built from full store state and are unaffected. The
+rework prompts are built from full store state, and since item 1566 they
+reference — never re-list — content the same response already carries: the
+rework prompt names the open-feedback count and points at the card's
+`openFeedback`; the phase directive points at the card's acceptance criteria
+and the ack's `openFeedback` delta. The respawn brief (the one cold-start
+payload) re-lists the card including acceptance criteria, with capped evidence
+tails and diff line counts (`RESPAWN_*` limits,
+`sprintengine_core/tool/phase_prompts.py`) and explicit elision markers. The
 human/debug CLI keeps full command output shapes. Response-shape regression
 tests live in `tests/sprintengine_tool/test_response_shapes.py`.
 

@@ -4,7 +4,7 @@ import { join } from 'node:path'
 
 import { renderToStaticMarkup } from 'react-dom/server'
 
-import { BacklogRowContent } from './BacklogRow'
+import { BacklogRowContent, BacklogRowHoverCard } from './BacklogRow'
 import { BacklogDependenciesSection } from './BacklogDependenciesSection'
 import type { BacklogActions } from './BacklogItemContextMenu'
 import { filterBacklogItemSearchOptions } from './BacklogItemSearchPicker'
@@ -132,6 +132,90 @@ run('the epic pill falls back to the epic title when no display id is allocated'
 run('a row without epicMeta renders no epic pill — the badge is earned', () => {
   const markup = renderToStaticMarkup(<BacklogRowContent item={itemWith()} now={NOW} />)
   assert.ok(!markup.includes('aria-label="Epic:'), 'no epic pill when the item has no parent epic')
+})
+
+// ---- Epic row banner (status glyph + true completion meter) -----------------
+
+function epicItem(status: string) {
+  return createBacklogItem({
+    path: '/repo/backlog/epics/single-owner.md',
+    relativePath: 'backlog/epics/single-owner.md',
+    sourceContent: `---\ntype: epic\nstatus: ${status}\n---\n# Single-owner tasks`,
+    stats: { modifiedAtMs: 1_000, sizeBytes: 64 },
+  })
+}
+
+run('an epic row leads with its status glyph (static without a live run) and keeps the layers mark', () => {
+  const markup = renderToStaticMarkup(
+    <BacklogRowContent
+      item={epicItem('in_progress')}
+      now={NOW}
+      epicMeta={{ title: 'Single-owner tasks', color: 'red' }}
+      epicProgress={{ done: 9, total: 12 }}
+    />,
+  )
+  // The lifecycle glyph is back on epic rows: the in_progress quarter arc —
+  // but STATIC, because the spinner means "an agent is working right now" and
+  // a bare in_progress status has no live run attached.
+  assert.match(markup, /M8 3a5 5 0 0 1 5 5/, 'the in-progress quarter arc renders')
+  assert.ok(!markup.includes('lifecycle-spin'), 'no spinner without a live run glyph')
+  assert.match(markup, /aria-label="Epic"/, 'the layers identity mark still names the container')
+  assert.match(markup, /font-semibold/, 'the epic title sits heavier than a leaf row')
+})
+
+run('a row with a LIVE run glyph spins; without one, in_progress stays static', () => {
+  const base = { ...itemWith(), status: 'in_progress' as const }
+  const liveMarkup = renderToStaticMarkup(
+    <BacklogRowContent
+      item={base}
+      now={NOW}
+      runGlyph={{ state: 'in_progress', label: 'Running', live: true }}
+    />,
+  )
+  assert.match(liveMarkup, /lifecycle-spin/, 'a live runner earns the spinner')
+  const idleMarkup = renderToStaticMarkup(<BacklogRowContent item={base} now={NOW} />)
+  assert.ok(!idleMarkup.includes('lifecycle-spin'), 'no agent attached → no spin')
+})
+
+run('an epic row shows its true completion as a meter: fraction + accessible name, no triage tokens', () => {
+  const markup = renderToStaticMarkup(
+    <BacklogRowContent item={epicItem('in_progress')} now={NOW} epicProgress={{ done: 9, total: 12 }} />,
+  )
+  assert.match(markup, /aria-label="9 of 12 complete"/, 'the meter carries one accessible name')
+  assert.match(markup, /9\/12/, 'the visible fraction is the signal, never colour alone')
+  // An epic is a container, not a work item — no size/priority dashes.
+  assert.ok(!markup.includes('aria-label="Size unestimated"'), 'no size token on an epic row')
+  assert.ok(!markup.includes('aria-label="No priority set"'), 'no priority token on an epic row')
+})
+
+run('an epic row given its OWN identity as epicMeta never pills itself', () => {
+  const markup = renderToStaticMarkup(
+    <BacklogRowContent
+      item={epicItem('completed')}
+      now={NOW}
+      epicMeta={{ title: 'Single-owner tasks', color: 'red', displayId: 'MC-1544' }}
+      epicProgress={{ done: 12, total: 12 }}
+    />,
+  )
+  assert.ok(!markup.includes('aria-label="Epic:'), 'the member pill is for parents only')
+})
+
+// ---- Row hover card ---------------------------------------------------------
+
+run('the row hover card carries the full title, status word, id, and path', () => {
+  const item = { ...itemWith(), displayId: 'MC-1500' }
+  const markup = renderToStaticMarkup(<BacklogRowHoverCard item={item} />)
+  assert.match(markup, /Checkout flow/, 'the full (unclipped) title leads the card')
+  assert.match(markup, /Idea/, 'the status word is on the card')
+  assert.match(markup, /MC-1500/, 'the display id is on the card')
+  assert.match(markup, /backlog\/checkout\.md/, 'the path (the old native title) survives on the card')
+})
+
+run('an epic hover card adds its true completion fraction', () => {
+  const markup = renderToStaticMarkup(
+    <BacklogRowHoverCard item={epicItem('in_progress')} epicProgress={{ done: 9, total: 12 }} />,
+  )
+  assert.match(markup, /9\/12 complete/, 'the fraction reads on the card')
 })
 
 // Build a real BacklogItem with status + dependsOn frontmatter so the detail
@@ -303,6 +387,49 @@ run('grouped render and cross-group selection run through the flattened nav orde
     backlogPanelSource,
     /currentRow\?\.kind === 'header'/,
     'Enter/Arrow toggles a header, otherwise opens the leaf detail',
+  )
+})
+
+run('epic completion derives from the FULL scan and threads to rows + group headers', () => {
+  assert.match(
+    backlogPanelSource,
+    /epicProgressBySlug\(items\)/,
+    'the progress map derives over the full scan, never the filtered view',
+  )
+  assert.match(
+    backlogPanelSource,
+    /epicProgressBySlug\.get\(epicSlug\(item\)\)/,
+    'flat epic rows read their true completion',
+  )
+  assert.match(
+    backlogPanelSource,
+    /epicProgressBySlug\.get\(row\.group\.slug\)/,
+    'group headers read the same full-scan map, so a lens that hides children can no longer zero the fraction',
+  )
+})
+
+run('panel rows wrap in the hover card and suppress the clipped-title tooltip', () => {
+  assert.match(backlogPanelSource, /<BacklogRowHoverCard item=\{item\}/, 'each list row carries the hover card')
+  assert.match(backlogPanelSource, /plainTitle/, 'the row content skips its own clipped-title tooltip (no stacked popovers)')
+  assert.ok(!backlogPanelSource.includes('title={item.relativePath}'), 'the native path title attribute is retired for rows')
+})
+
+run('the detail More-actions menu carries the shared Send-to-agent flyout', () => {
+  // The same choice list as the row's right-click menu (AgentTargetMenuItems),
+  // with the same liveness refresh-on-open, so an item can be handed to an
+  // agent from inside its detail without returning to the list.
+  assert.match(backlogPanelSource, /id: 'send-to-agent'/, 'the detail menu has a Send to agent flyout')
+  assert.match(backlogPanelSource, /<AgentTargetMenuItems/, 'it renders the shared agent choice list')
+  assert.match(backlogPanelSource, /if \(open\) onAgentFlyoutOpen\(\)/, 'opening the flyout refreshes session liveness')
+  assert.match(backlogPanelSource, /onSendToAgent\(selected, sessionId\)/, 'a pick sends the SELECTED item through the shared send path')
+  assert.match(contextMenuSource, /<AgentTargetMenuItems/, 'the row context menu renders the same shared list (no drift)')
+})
+
+run('the Epics lens renders flat epic rows, never childless group headers', () => {
+  assert.match(
+    backlogPanelSource,
+    /if \(view === 'epics'\) return null/,
+    'by-epic grouping is a no-op under the Epics lens (every group would be an arrow that expands to nothing)',
   )
 })
 

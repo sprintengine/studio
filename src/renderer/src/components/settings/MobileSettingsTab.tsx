@@ -14,6 +14,8 @@ type MobileControlCommandType =
   | 'backlog.update'
   | 'backlog.startSprintEngine'
   | 'backlog.create'
+  | 'sprintengine.openPullRequest'
+  | 'sprintengine.setAutomationMode'
 
 type MobileControlCapability =
   | 'snapshots.read'
@@ -26,6 +28,8 @@ type MobileControlCapability =
   | 'backlog.update'
   | 'backlog.start'
   | 'backlog.create'
+  | 'sprintengines.pr'
+  | 'sprintengines.automation'
 
 type MobileControlDevice = {
   protocolVersion: 2
@@ -595,6 +599,8 @@ function commandLabel(commandType: MobileControlCommandType): string {
       return 'Sprint started from backlog'
     case 'backlog.create':
       return 'Backlog item created'
+    case 'sprintengine.openPullRequest':
+      return 'Pull request opened'
   }
 }
 

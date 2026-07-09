@@ -116,18 +116,20 @@ def test_summary_fields_advertise_no_max_length() -> None:
 PROMPT_BYTE_CEILINGS = {
     # Ceilings are ratcheted tight to the current green sizes: each one sits at the
     # next 250-byte step above the real file, so any growth has to be argued for
-    # (and the ceiling re-ratcheted DOWN, never up). architect.md is the outlier by
-    # content, not by slack — it carries the mandatory architect-picks-the-team
-    # roster-composition guidance.
-    "architect.md": 22_250,
-    "cross_platform.md": 3_500,
-    "developer.md": 3_000,
-    "frontend.md": 4_750,
-    "performance.md": 3_000,
-    "product.md": 8_000,
-    "production_readiness_reviewer.md": 6_000,
-    "security.md": 3_000,
-    "tester.md": 2_750,
+    # (and the ceiling re-ratcheted DOWN, never up). Re-ratcheted 2026-07-09 (token
+    # diet, backlog item 1566): role prompts carry single-owner role mechanics only —
+    # claim/publish/advance, scope-expansion, and self-feedback mechanics live in
+    # `sprintengine_workflow`. architect.md is the outlier by content, not by slack —
+    # it carries the mandatory architect-picks-the-team roster-composition guidance.
+    "architect.md": 18_750,
+    "cross_platform.md": 1_500,
+    "developer.md": 750,
+    "frontend.md": 1_750,
+    "performance.md": 1_000,
+    "product.md": 3_250,
+    "production_readiness_reviewer.md": 2_750,
+    "security.md": 1_000,
+    "tester.md": 750,
 }
 
 SKILL_BYTE_CEILINGS = {
@@ -140,6 +142,28 @@ SKILL_BYTE_CEILINGS = {
     # MC-1542: the shared review base pack every phase directive is composed from.
     "sprintengine_phase_review": 4_800,
 }
+
+
+# The serialized `tools/list` payload rides into EVERY agent session once, so
+# schema prose is a per-session token cost. Audited 2026-07-09 (item 1566):
+# tool descriptions are generated 2-4 word strings, property descriptions are
+# terse contract documentation (the only field docs agents get), and the
+# feedback properties are bare type schemas — nothing left to trim without
+# deleting semantics. This ceiling exists to stop future creep; it ratchets
+# DOWN like the prompt ceilings, never up without an argued exception.
+TOOLS_LIST_BYTE_CEILING = 42_000
+
+
+def test_serialized_tool_schemas_stay_within_byte_ceiling() -> None:
+    import json
+
+    from sprintengine_mcp.schemas import list_tool_schemas
+
+    total = sum(len(json.dumps(tool)) for tool in list_tool_schemas())
+    assert total <= TOOLS_LIST_BYTE_CEILING, (
+        f"tools/list serializes to {total} bytes (ceiling {TOOLS_LIST_BYTE_CEILING}); "
+        "trim schema prose before growing it — this text lands in every agent session"
+    )
 
 
 def test_prompt_sources_stay_within_byte_ceilings() -> None:

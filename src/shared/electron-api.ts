@@ -698,6 +698,9 @@ export type McpSyncInput = {
     agentId?: string
     role?: string
     cli?: McpClientTarget
+    // Workspace Knowledge Graph root ('' when unset); lets the MCP server gate
+    // the workspace_knowledge prompt layer at compose time.
+    knowledgeRoot?: string
     http?: {
       url: string
       authTokenEnvVar?: string
@@ -1875,6 +1878,8 @@ export type MobileControlCommandType =
   | 'backlog.update'
   | 'backlog.startSprintEngine'
   | 'backlog.create'
+  | 'sprintengine.openPullRequest'
+  | 'sprintengine.setAutomationMode'
 
 export type MobileControlCapability =
   | 'snapshots.read'
@@ -1887,6 +1892,8 @@ export type MobileControlCapability =
   | 'backlog.update'
   | 'backlog.start'
   | 'backlog.create'
+  | 'sprintengines.pr'
+  | 'sprintengines.automation'
 
 export type MobileControlDevice = {
   protocolVersion: 2

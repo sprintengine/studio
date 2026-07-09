@@ -15,6 +15,7 @@ import {
   setEditorBuffer,
 } from '../../utils/editorBuffers'
 import { detectLanguage } from '../../utils/files'
+import { isPlaceholderAgentName } from '../../utils/agentNames'
 import { shouldAutoArchiveWorkspace } from '../../utils/workspaceAutoArchive'
 import { normalizeProjectRootKey } from '../../utils/projectKnowledge'
 import {
@@ -1089,10 +1090,17 @@ export function createWorkspacesSlice(
               : state.appSettings.lastSelectedCli
           const agentPatch = options?.seedAgent?.agentPatch
           collectTemplateAgentTabs(template).forEach((agent, index) => {
+            // A generic template tab label ("Agent", "Agent 2", "A1") is a slot
+            // placeholder, never an identity — general agents get a real picked
+            // name exactly like specialists (the layout tab renames itself to
+            // agent.name on render). A distinctive name from a user-saved
+            // template survives.
+            const templateName =
+              agent.name && !isPlaceholderAgentName(agent.name) ? agent.name : undefined
             const base = {
               ...deps.defaultAgent(
                 agent.id,
-                agent.name ?? deps.pickWorkspaceAgentName(agents),
+                templateName ?? deps.pickWorkspaceAgentName(agents),
                 'general'
               ),
               cli: templateAgentCli,

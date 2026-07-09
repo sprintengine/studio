@@ -46,6 +46,90 @@ async function main(): Promise<void> {
   await assertBacklogCreateRejectsEmptyTitle()
   await assertBacklogCreateKeepsGeneratedPathUnderBacklog()
   await assertFilesystemMutationHandlersProtectSprintEngineStateAliases()
+  await assertOpenPullRequestInvokesVcsPr()
+  await assertSetAutomationModeRoutesToDesktopSession()
+  await assertSetAutomationModeRejectsWhenHeadless()
+}
+
+async function assertSetAutomationModeRoutesToDesktopSession(): Promise<void> {
+  // MC-1497: the mode is renderer-owned, so the command routes to the desktop
+  // session orchestrator rather than the CLI.
+  const fixture = await writeSprintEngineFixture('automation-team', '.multi-code/sprintengine/automation-team/documents/requirements.md')
+  const calls: Array<{ mode: string; sprintEngineId: string; statePath: string }> = []
+  const service = new MobileSprintEngineCommandService({
+    workspaceRoot: fixture.workspaceRoot,
+    statePaths: [fixture.statePath],
+    now: () => now,
+    execute: async () => {
+      throw new Error('Sprint Engine tool should not run for automation-mode changes')
+    },
+    sessionOrchestrator: {
+      startTask: async () => {
+        throw new Error('startTask should not run')
+      },
+      sendFollowUp: async () => {
+        throw new Error('sendFollowUp should not run')
+      },
+      setAutomationMode: async (request) => {
+        calls.push({ mode: request.mode, sprintEngineId: request.sprintEngineId, statePath: request.statePath })
+        return { mode: request.mode, appliedAt: now.toISOString() }
+      },
+    },
+  })
+
+  const result = await service.dispatch(command('sprintengine.setAutomationMode', {
+    sprintEngineId: 'automation-team',
+    mode: 'run_agents_and_approve_artifacts',
+  }))
+
+  assert.equal(result.ok, true)
+  assert.equal(calls.length, 1)
+  assert.equal(calls[0].mode, 'run_agents_and_approve_artifacts')
+  assert.equal(calls[0].statePath, fixture.statePath)
+}
+
+async function assertSetAutomationModeRejectsWhenHeadless(): Promise<void> {
+  // With no desktop session (no orchestrator wire), the command must reject
+  // cleanly rather than write a value the supervisor won't read.
+  const fixture = await writeSprintEngineFixture('automation-headless-team', '.multi-code/sprintengine/automation-headless-team/documents/requirements.md')
+  const service = new MobileSprintEngineCommandService({
+    workspaceRoot: fixture.workspaceRoot,
+    statePaths: [fixture.statePath],
+    now: () => now,
+    execute: async () => ({ exitCode: 0, stdout: '{"ok":true}', stderr: '' }),
+  })
+
+  const result = await service.dispatch(command('sprintengine.setAutomationMode', {
+    sprintEngineId: 'automation-headless-team',
+    mode: 'manual',
+  }))
+
+  assert.equal(result.ok, false)
+  assert.equal(result.ok === false ? result.error.code : '', 'command_not_supported')
+}
+
+async function assertOpenPullRequestInvokesVcsPr(): Promise<void> {
+  // MC-1496: the mobile openPullRequest command shells the Sprint Engine CLI
+  // `vcs pr` with the mobile actor id; the CLI owns idempotency + guards.
+  const fixture = await writeSprintEngineFixture('pr-team', '.multi-code/sprintengine/pr-team/documents/requirements.md')
+  const invocations: Array<{ args: string[]; cwd: string }> = []
+  const service = new MobileSprintEngineCommandService({
+    workspaceRoot: fixture.workspaceRoot,
+    statePaths: [fixture.statePath],
+    now: () => now,
+    execute: async (invocation) => {
+      invocations.push(invocation)
+      return { exitCode: 0, stdout: '{"ok":true,"data":{"pullRequestUrl":"https://github.com/acme/repo/pull/9"}}', stderr: '' }
+    },
+  })
+
+  const result = await service.dispatch(command('sprintengine.openPullRequest', { sprintEngineId: 'pr-team' }))
+
+  assert.equal(result.ok, true)
+  assert.equal(invocations.length, 1)
+  assert.deepEqual(invocations[0].args, ['--state', fixture.statePath, 'vcs', 'pr', '--id', 'mobile:device_1'])
+  assert.equal(invocations[0].cwd, fixture.workspaceRoot)
+  assert.equal(service.getAuditLog()[0].status, 'accepted')
 }
 
 async function assertArtifactApproveInvokesSprintEngineTool(): Promise<void> {

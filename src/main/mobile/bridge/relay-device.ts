@@ -19,6 +19,8 @@ const CAPABILITY_BY_RELAY_SCOPE: Record<MobileRelayScope, MobileControlCapabilit
   'relay:backlog:update': 'backlog.update',
   'relay:backlog:start': 'backlog.start',
   'relay:backlog:create': 'backlog.create',
+  'relay:sprintengine:pr': 'sprintengines.pr',
+  'relay:sprintengine:automation': 'sprintengines.automation',
 }
 
 export function relayDeviceCapabilities(device: MobileRelayAuthenticatedDevice): MobileControlCapability[] {

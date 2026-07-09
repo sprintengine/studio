@@ -237,6 +237,38 @@ export function epicMetaBySlug(items: BacklogItem[]): Map<string, BacklogEpicMet
   return map
 }
 
+// True completion rollup per epic slug, derived from the FULL scan — never a
+// filtered view. `done` = completed children, `total` = all children. Group
+// headers and flat epic rows both read this map, so a lens that hides children
+// (Epics shows only the containers; Active hides completed members) can no
+// longer zero the fraction the way the view-relative group progress did.
+// Dangling slugs (children whose epic file is missing) roll up too, so an
+// Unknown-epic header stays accurate.
+export type BacklogEpicProgress = { done: number; total: number }
+
+export function epicProgressBySlug(items: BacklogItem[]): Map<string, BacklogEpicProgress> {
+  const map = new Map<string, BacklogEpicProgress>()
+  const entryFor = (slug: string): BacklogEpicProgress => {
+    const existing = map.get(slug)
+    if (existing) return existing
+    const created = { done: 0, total: 0 }
+    map.set(slug, created)
+    return created
+  }
+  for (const item of items) {
+    if (item.isEpic) {
+      // Ensure a childless epic still resolves to an accurate 0/0.
+      entryFor(epicSlug(item))
+      continue
+    }
+    if (!item.epic) continue
+    const entry = entryFor(item.epic)
+    entry.total += 1
+    if (item.status === 'completed') entry.done += 1
+  }
+  return map
+}
+
 // Epic header styling lives in the epic file's frontmatter: optional `color:`
 // (one of the 7 highlight colors) and `order:` (sort key among epic groups).
 function parseEpicMeta(epic: BacklogItem): { color: BacklogHighlightColor | null; order: number } {

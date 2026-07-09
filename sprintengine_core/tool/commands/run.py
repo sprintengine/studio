@@ -35,6 +35,7 @@ from sprintengine_core.tool.plans import (
     sources_dir_for_state,
     state_has_source_kind,
 )
+from sprintengine_core.skill_layers import run_is_backlog_sourced
 from sprintengine_core.tool.prompts import artifact_registration_instruction, completion_reality_instruction, load_prompt
 from sprintengine_core.tool.roles import require_configured_role
 from sprintengine_core.tool.phase_prompts import build_merge_start_prompt, worker_execution_workspace_block
@@ -785,7 +786,7 @@ def cmd_join(args: argparse.Namespace) -> Dict[str, Any]:
         active = runtime["activeTask"]
         ready = [t for t in state.get("tasks", []) if t.get("role") == args.role and task_is_ready(state, t)]
 
-        prompt = load_prompt(args.role)
+        prompt = load_prompt(args.role, backlog_sourced=run_is_backlog_sourced(state))
         policy = runner_policy(state)
 
         if active:

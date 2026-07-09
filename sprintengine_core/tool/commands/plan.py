@@ -5,6 +5,7 @@ import argparse
 from typing import Any, Dict
 
 from sprintengine_core import store as folder_store
+from sprintengine_core.skill_layers import run_is_backlog_sourced
 from sprintengine_core.tool.artifacts import project_relative_display_path
 from sprintengine_core.tool.feedback import set_architect_difficulty_estimate
 from pathlib import Path
@@ -267,6 +268,7 @@ def cmd_plan_start_review(args: argparse.Namespace) -> Dict[str, Any]:
         review_path,
         fingerprint,
         existing_review,
+        backlog_sourced=run_is_backlog_sourced(state),
     )
     known_reviewers = expected_plan_reviewers(state)
     return {

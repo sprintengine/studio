@@ -109,6 +109,7 @@ import {
 } from './slices/pluginsSlice'
 import {
   dedupeAutomationsHostWorkspaces,
+  nameGenericWorkspaceAgents,
   normalizeWorkspaceForPartialize,
   preserveNewerSprintEngineAutomationState,
 } from './slices/normalizers'
@@ -1228,7 +1229,9 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
         // the migrate ladder will never look at again — exactly how the v63
         // dedupe was bypassed in the wild. merge() runs on every hydration
         // regardless of version, so the invariant self-heals here.
-        const rawWorkspaces = dedupeAutomationsHostWorkspaces(state?.workspaces ?? current.workspaces)
+        const rawWorkspaces = nameGenericWorkspaceAgents(
+          dedupeAutomationsHostWorkspaces(state?.workspaces ?? current.workspaces),
+        )
         const hydrated = hydrateSprintEngineLocalRunSettings(
           rawWorkspaces,
           normalizeAppSettings(state?.appSettings, rawWorkspaces),

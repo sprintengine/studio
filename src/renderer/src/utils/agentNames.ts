@@ -225,6 +225,14 @@ function agentNameAt(index: number): string {
 
 const AGENT_NAME_COUNT = AGENT_FIRST_NAMES.length * AGENT_SURNAMES.length
 
+// Generic layout-template tab labels ("Agent", "Agent 2", "A1"…) are slot
+// placeholders, not identities. Workspace creation treats them as unnamed so
+// every agent — general included — gets a real name like the specialists do;
+// any other template name (a user-saved template's "Reviewer") is kept.
+export function isPlaceholderAgentName(name: string): boolean {
+  return /^(agent(\s+\d+)?|a\d+)$/i.test(name.trim())
+}
+
 export function pickRandomAgentName(takenNames: Iterable<string> = []): string {
   const taken = new Set(Array.from(takenNames, normalizeName).filter(Boolean))
   const availableIndexes: number[] = []

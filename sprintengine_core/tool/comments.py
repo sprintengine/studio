@@ -30,25 +30,6 @@ def task_comments(task: Dict[str, Any]) -> List[Dict[str, Any]]:
 def newest_comments(comments: List[Dict[str, Any]], limit: int = 5) -> List[Dict[str, Any]]:
     return sorted(comments, key=lambda comment: str(comment.get("createdAt") or ""), reverse=True)[:limit]
 
-def comment_prompt_line(comment: Dict[str, Any]) -> str:
-    data = comment.get("data") if isinstance(comment.get("data"), dict) else {}
-    bits = []
-    if comment.get("id"):
-        bits.append(str(comment.get("id")))
-    bits.extend([
-        str(comment.get("createdAt") or "unknown-time"),
-        str(comment.get("type") or "comment"),
-        str(comment.get("actor") or "unknown-actor"),
-    ])
-    if data.get("phase"):
-        bits.append(f"phase={data.get('phase')}")
-    if data.get("outcome"):
-        bits.append(f"outcome={data.get('outcome')}")
-    if data.get("status"):
-        bits.append(f"status={data.get('status')}")
-    return f"- [{' | '.join(bits)}] {str(comment.get('body') or '').strip()}"
-
-
 def diff_prompt_lines(evidence: Dict[str, Any]) -> List[str]:
     diffs = evidence.get("diffs") if isinstance(evidence.get("diffs"), list) else []
     lines: List[str] = []
