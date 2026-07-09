@@ -18,6 +18,7 @@ import {
   isAuthoritativeWorkingPhase,
   mapHookEventToPhase,
   mapOpencodeEventToPhase,
+  MAX_WAKEUP_DELAY_SECONDS,
   mergeCodexAgentStateHooks,
   mergeAgentStateHooks,
   opencodeSessionIdFromEvent,
@@ -117,6 +118,23 @@ async function run(): Promise<void> {
   assert.equal(parseAgentStateFrame({ type: 'agent_state', agentId: 'a1', phase: 'nope' }, 1), null)
   assert.equal(parseAgentStateFrame('not-json-object', 1), null)
   assert.equal(parseAgentStateFrame(null, 1), null)
+
+  // --- self-scheduled wakeup (ScheduleWakeup PostToolUse frame) -----------
+  const base = { type: 'agent_state', agentId: 'a1', phase: 'thinking', event: 'PostToolUse', ts: 123 }
+  // A schedule and a stop both survive validation…
+  assert.deepEqual(parseAgentStateFrame({ ...base, wakeup: { delaySeconds: 1200 } }, 999)?.wakeup, { delaySeconds: 1200 })
+  assert.deepEqual(parseAgentStateFrame({ ...base, wakeup: { stop: true } }, 999)?.wakeup, { stop: true })
+  // …an implausible delay is clamped (one bad frame must not park a session)…
+  assert.deepEqual(
+    parseAgentStateFrame({ ...base, wakeup: { delaySeconds: 10 * MAX_WAKEUP_DELAY_SECONDS } }, 999)?.wakeup,
+    { delaySeconds: MAX_WAKEUP_DELAY_SECONDS }
+  )
+  // …and a malformed wakeup drops while the frame itself stands.
+  for (const bad of [{ delaySeconds: -5 }, { delaySeconds: 'soon' }, { stop: false }, 'junk', 42, {}]) {
+    const frame = parseAgentStateFrame({ ...base, wakeup: bad }, 999)
+    assert.ok(frame, `frame must survive malformed wakeup: ${JSON.stringify(bad)}`)
+    assert.equal(frame?.wakeup, undefined, `malformed wakeup must drop: ${JSON.stringify(bad)}`)
+  }
 
   // --- future-dated ts is clamped to server arrival (phase-freeze bug) ----
   // A reporter cannot legitimately be ahead of the main-process clock. Without

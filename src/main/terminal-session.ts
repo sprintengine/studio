@@ -72,6 +72,12 @@ export type TerminalSession = {
   // reports it. Layered on top of `activity` (which stays the inference floor);
   // absent until the first hook frame arrives. See agent-state.ts.
   agentState?: AgentState
+  // When the agent self-scheduled a wakeup (ScheduleWakeup hook frame), the
+  // epoch-ms time it fires. The timer lives inside the CLI process, so the idle
+  // reaper holds the session until then (terminal-reap-policy). Cleared by a
+  // stop frame, a SessionStart frame (a fresh/resumed process has no timer
+  // from its previous life), or naturally by expiry.
+  pendingWakeupAt?: number | null
   outputChunks: string[]
   outputChunkBytes: number[]
   outputChunkStart: number

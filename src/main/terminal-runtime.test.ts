@@ -28,6 +28,7 @@ type SentEvent = {
 }
 
 type MockPtyProcess = {
+  pid: number
   write(data: string): void
   resize(cols: number, rows: number): void
   kill(): void
@@ -132,6 +133,8 @@ async function main(): Promise<void> {
     await assertAgentSessionExitListenerFiresSystemTaggedForAnySystem(runtimeModule)
     await assertResolveAgentExecutionIdMatchesLiveSession(runtimeModule)
     await assertLaunchRegistryRootsIncludeUserRolesWhenPresent(runtimeModule)
+    await assertGuardedSweepHoldsSessionsWithLiveSubtreeWork(runtimeModule)
+    await assertPendingWakeupFrameHoldsIdleReaper(runtimeModule)
   } finally {
     moduleWithLoad._load = originalLoad
   }
@@ -163,6 +166,162 @@ async function assertLaunchRegistryRootsIncludeUserRolesWhenPresent(
   } finally {
     if (originalHome === undefined) delete process.env.HOME
     else process.env.HOME = originalHome
+  }
+}
+
+// A ScheduleWakeup hook frame must hold the idle reaper until the wake time:
+// the timer lives inside the CLI process, and the agent reads as 'idle' while
+// waiting — the exact state the reaper hunts. The hold rides the PURE policy
+// (no probe), so even the unguarded sync sweep respects it; a stop frame
+// disarms it and the session reaps normally.
+async function assertPendingWakeupFrameHoldsIdleReaper(runtimeModule: RuntimeModule): Promise<void> {
+  const workspaceRoot = await mkdtemp(join(tmpdir(), 'multicode-terminal-runtime-wakeup-hold-'))
+  mockPty.spawnCalls = []
+  mockSender.sent = []
+
+  const runtime = runtimeModule.createTerminalRuntime({
+    diagnosticsEnabled: false,
+    requireAuthenticatedUser: () => undefined,
+    logMainPerfEvent: () => undefined,
+  })
+
+  const spawnResult = await runtime.ipcHandlers.spawnTerminal(mockSender as unknown as WebContents, {
+    sessionId: 'session-wakeup',
+    cols: 120,
+    rows: 30,
+    cwd: workspaceRoot,
+    cli: 'codex',
+    kind: 'agent',
+    shellOnly: false,
+    workspaceId: 'ws-wakeup',
+    agentId: 'session-wakeup',
+    visible: false,
+    mcpSettings: { syncEnabled: false, servers: {} } satisfies McpSettings,
+  })
+  assert.equal(spawnResult.ok, true, JSON.stringify(spawnResult))
+
+  try {
+    const scheduledAt = Date.now()
+    // The agent schedules a 40-minute wakeup mid-turn (PostToolUse), then its
+    // turn ends (Stop → idle). The Stop must NOT clear the pending wakeup.
+    runtime.ingestAgentStateFrame({
+      type: 'agent_state',
+      agentId: 'session-wakeup',
+      workspaceId: 'ws-wakeup',
+      sessionId: null,
+      phase: 'thinking',
+      event: 'PostToolUse',
+      ts: scheduledAt,
+      wakeup: { delaySeconds: 40 * 60 },
+    })
+    runtime.ingestAgentStateFrame({
+      type: 'agent_state',
+      agentId: 'session-wakeup',
+      workspaceId: 'ws-wakeup',
+      sessionId: null,
+      phase: 'idle',
+      event: 'Stop',
+      ts: scheduledAt + 1_000,
+    })
+
+    // 30 minutes on: rested well past the 15m idle threshold, but the wakeup
+    // fires at +40m — the pure policy must hold it.
+    const restedButPending = scheduledAt + 30 * 60 * 1000
+    assert.ok(
+      !runtimeModule.runIdleAgentReapSweep(restedButPending).includes('session-wakeup'),
+      'an idle agent with a pending wakeup must be held by the pure policy'
+    )
+
+    // 70 minutes on: the wake time passed with no re-arm — reaps normally.
+    const wakeupExpired = scheduledAt + 70 * 60 * 1000
+    assert.ok(
+      runtimeModule.runIdleAgentReapSweep(wakeupExpired).includes('session-wakeup'),
+      'an expired wakeup must not park the session'
+    )
+  } finally {
+    runtime.ipcHandlers.killTerminal('session-wakeup')
+  }
+}
+
+// The guarded sweep must HOLD an idle-past-threshold agent whose pty subtree
+// still has live work under it — the canonical case is a `run_in_background`
+// shell idling toward a result (0% CPU, no port; only the shell-snapshot
+// wrapper signature marks it). Killing the CLI would kill that shell and the
+// resumed session would report "No completion record was found for this
+// background shell command". Once the subtree probes clean, the same session
+// reaps normally on the next sweep.
+async function assertGuardedSweepHoldsSessionsWithLiveSubtreeWork(runtimeModule: RuntimeModule): Promise<void> {
+  const workspaceRoot = await mkdtemp(join(tmpdir(), 'multicode-terminal-runtime-guarded-sweep-'))
+  mockPty.spawnCalls = []
+  mockSender.sent = []
+
+  const runtime = runtimeModule.createTerminalRuntime({
+    diagnosticsEnabled: false,
+    requireAuthenticatedUser: () => undefined,
+    logMainPerfEvent: () => undefined,
+  })
+
+  const spawnHiddenAgent = async (sessionId: string, agentWorkspaceId: string): Promise<MockPtyProcess> => {
+    const result = await runtime.ipcHandlers.spawnTerminal(mockSender as unknown as WebContents, {
+      sessionId,
+      cols: 120,
+      rows: 30,
+      cwd: workspaceRoot,
+      cli: 'codex',
+      kind: 'agent',
+      shellOnly: false,
+      workspaceId: agentWorkspaceId,
+      agentId: sessionId,
+      visible: false,
+      mcpSettings: { syncEnabled: false, servers: {} } satisfies McpSettings,
+    })
+    assert.equal(result.ok, true, JSON.stringify(result))
+    const spawned = mockPty.spawnCalls[mockPty.spawnCalls.length - 1]?.process
+    assert.ok(spawned, `expected a pty for ${sessionId}`)
+    return spawned
+  }
+
+  try {
+    const busyProcess = await spawnHiddenAgent('session-bg-shell', 'ws-guard-busy')
+    await spawnHiddenAgent('session-guard-quiet', 'ws-guard-quiet')
+
+    const wellPastIdle = Date.now() + 30 * 60 * 1000 + 1_000
+    // ps tree: the busy agent's pty root has a Claude tool-shell child (a
+    // backgrounded `sleep`-style waiter: 0% CPU, no listening port).
+    const busyPsTree = [
+      `${busyProcess.pid} 1 0.0 /bin/zsh -l startup.sh`,
+      `${busyProcess.pid + 100_000} ${busyProcess.pid} 0.0 /bin/zsh -c source /Users/dev/.claude/shell-snapshots/snapshot-zsh-1.sh && eval 'sleep 300'`,
+    ].join('\n')
+
+    const heldSweep = await runtimeModule.runGuardedTerminalReapSweeps(wellPastIdle, {
+      subtree: { platform: 'darwin', runPs: async () => busyPsTree, runLsofListening: async () => '' },
+    })
+    assert.ok(
+      !heldSweep.idleReaped.includes('session-bg-shell'),
+      'an idle agent with a live background tool shell must be held, not reaped'
+    )
+    assert.ok(
+      heldSweep.idleReaped.includes('session-guard-quiet'),
+      'an idle agent whose subtree probes clean must still reap in the same sweep'
+    )
+    assert.equal(busyProcess.killed, false, 'holding must not touch the pty')
+
+    // The background shell finished: the subtree probes clean and the same
+    // session now reaps normally.
+    const cleanSweep = await runtimeModule.runGuardedTerminalReapSweeps(wellPastIdle + 1_000, {
+      subtree: {
+        platform: 'darwin',
+        runPs: async () => `${busyProcess.pid} 1 0.0 /bin/zsh -l startup.sh`,
+        runLsofListening: async () => '',
+      },
+    })
+    assert.ok(
+      cleanSweep.idleReaped.includes('session-bg-shell'),
+      'once the background work finishes the held session must reap on the next sweep'
+    )
+  } finally {
+    runtime.ipcHandlers.killTerminal('session-bg-shell')
+    runtime.ipcHandlers.killTerminal('session-guard-quiet')
   }
 }
 
@@ -2046,10 +2205,13 @@ function createMockWebContents(): { isDestroyed(): boolean, send(channel: string
   }
 }
 
+let nextMockPtyPid = 50_000
+
 function createMockPtyProcess(): MockPtyProcess {
   const dataCallbacks = new Set<(data: string) => void>()
   const exitCallbacks = new Set<(event: { exitCode: number, signal?: number }) => void>()
   return {
+    pid: nextMockPtyPid++,
     writes: [],
     killed: false,
     write(data: string): void {

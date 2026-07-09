@@ -95,6 +95,13 @@ export type ReapCandidate = {
   // Caller-supplied: the terminal belongs to an active managed run (e.g. a
   // SprintEngine agent). Defaults to the SAFE value (true) when unsure.
   inActiveRun: boolean
+  // When the agent self-scheduled a wakeup (ScheduleWakeup hook frame), the
+  // epoch-ms time it fires; null when none is pending. The timer lives inside
+  // the CLI process — reaping cancels it and nothing ever wakes the agent — so
+  // a future wakeup holds the session regardless of how long it has rested.
+  // A past wakeup never holds: either it fired (any follow-up work shows up
+  // through the phase gates) or the process died — both reap-safe.
+  pendingWakeupAt: number | null
 }
 
 export type ReapPolicyOptions = {
@@ -116,6 +123,7 @@ export type ReapHold =
   | 'not_agent'
   | 'no_workspace'
   | 'in_active_run'
+  | 'pending_wakeup'
   | 'phase_awaiting_input'
   | 'phase_working'
   | 'phase_unrestful'
@@ -142,6 +150,9 @@ export function explainSessionReapDecision(
   if (candidate.kind !== 'agent') return { verdict: 'held', hold: 'not_agent', restingForMs }
   if (candidate.workspaceId === null) return { verdict: 'held', hold: 'no_workspace', restingForMs }
   if (candidate.inActiveRun) return { verdict: 'held', hold: 'in_active_run', restingForMs }
+  if (candidate.pendingWakeupAt !== null && candidate.pendingWakeupAt > options.now) {
+    return { verdict: 'held', hold: 'pending_wakeup', restingForMs }
+  }
 
   const phase = candidate.agentPhase
   if (phase !== null) {

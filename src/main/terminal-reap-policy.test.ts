@@ -34,6 +34,7 @@ function reapable(overrides: Partial<ReapCandidate> = {}): ReapCandidate {
     lastInteractionAt: STALE,
     idleSince: STALE,
     inActiveRun: false,
+    pendingWakeupAt: null,
     ...overrides,
   }
 }
@@ -65,6 +66,19 @@ run('each safety gate independently keeps the terminal alive', () => {
       `expected NOT reapable: ${label}`,
     )
   }
+})
+
+run('a pending self-scheduled wakeup holds an otherwise-reapable agent until it fires', () => {
+  // The ScheduleWakeup timer lives inside the CLI process; the agent is idle
+  // while waiting, which is exactly what the reaper hunts. A future wake time
+  // must hold regardless of rest, and the gate is named for the skip audit.
+  const held = explainSessionReapDecision(reapable({ pendingWakeupAt: NOW + 60_000 }), POLICY)
+  assert.deepEqual(held.verdict, 'held')
+  assert.equal(held.verdict === 'held' ? held.hold : null, 'pending_wakeup')
+  // A wakeup whose time has passed never holds: it either fired (follow-up
+  // work re-protects via the phase gates) or the process is gone.
+  assert.equal(isSessionReapable(reapable({ pendingWakeupAt: NOW - 1000 }), POLICY), true)
+  assert.equal(isSessionReapable(reapable({ pendingWakeupAt: null }), POLICY), true)
 })
 
 run('a working agent is never reaped, even when idle past the threshold by keystroke', () => {

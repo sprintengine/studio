@@ -1,12 +1,22 @@
-// Phase 1 safety detector: before suspending an idle agent terminal, confirm
-// there is nothing live running under its pty — most importantly a dev server
-// the agent (or user) started. Killing the terminal kills that child tree.
+// Safety detector for the idle reaper: before suspending/disposing an idle
+// agent terminal, confirm there is nothing live running under its pty. Killing
+// the terminal kills the CLI process, and the CLI's shutdown kills every
+// background task it is tracking — so reaping a session with live background
+// work aborts that work mid-flight (the resumed session then reports "No
+// completion record was found for this background shell command").
 //
-// The precise "there is a server here" signal is a LISTENING TCP socket held by
-// any process in the pty subtree: dev servers (vite/webpack/next/…) hold a port,
-// while stdio MCP servers do NOT, so this doesn't false-positive on the MCP
-// helpers every agent spawns. A second signal — a subtree process burning CPU —
-// catches a busy non-server command (a build/test) that holds no port.
+// Three signals mark a subtree as holding live work:
+//   1. A LISTENING TCP socket held by any subtree process — dev servers
+//      (vite/webpack/next/…) hold a port, while stdio MCP servers do NOT, so
+//      this doesn't false-positive on the MCP helpers every agent spawns.
+//   2. A subtree process burning CPU — catches a busy non-server command (a
+//      build/test) that holds no port.
+//   3. A Claude Code tool shell (`~/.claude/shell-snapshots/…` wrapper) — the
+//      signature of every shell the agent's Bash tool runs, foreground or
+//      `run_in_background`. This is what protects the quiet waiters signals 1
+//      and 2 cannot see: a backgrounded `sleep`/poll/blocked-on-IO shell burns
+//      ~0% CPU and holds no port, but killing the CLI still kills it. MCP
+//      helpers never match it, so idle sessions stay reapable.
 //
 // Pure core (testable without spawning); the OS reads (`ps`, `lsof`) are
 // injected. Runs once per sweep over the small set of reap candidates, not per
@@ -19,16 +29,30 @@ import { execFile } from 'node:child_process'
 // High enough to ignore idle MCP/helper jitter, low enough to catch a build.
 export const SUBTREE_BUSY_CPU_PERCENT = 15
 
-export type ProcRow = { pid: number; ppid: number; cpuPercent: number }
+// Every shell the Claude Code Bash tool runs — foreground or backgrounded —
+// sources its snapshot from this directory, making it a precise marker for
+// "the agent has a shell command in flight" that idle MCP servers never match.
+export const CLAUDE_TOOL_SHELL_SIGNATURE = '.claude/shell-snapshots/'
+
+export type ProcRow = { pid: number; ppid: number; cpuPercent: number; command: string }
+
+// Why a subtree counts as live. Carried into the reap skip audit so a held
+// session names the evidence ("tool_shell" vs "listening_port" vs "busy_cpu").
+export type SubtreeLiveReason = 'listening_port' | 'busy_cpu' | 'tool_shell'
 
 export function parsePsTree(stdout: string): ProcRow[] {
   const rows: ProcRow[] = []
   for (const raw of stdout.split('\n')) {
     const line = raw.trim()
     if (!line) continue
-    const match = line.match(/^(\d+)\s+(\d+)\s+([\d.]+)$/)
+    const match = line.match(/^(\d+)\s+(\d+)\s+([\d.]+)\s+(.*)$/)
     if (!match) continue
-    rows.push({ pid: Number(match[1]), ppid: Number(match[2]), cpuPercent: Number(match[3]) })
+    rows.push({
+      pid: Number(match[1]),
+      ppid: Number(match[2]),
+      cpuPercent: Number(match[3]),
+      command: match[4],
+    })
   }
   return rows
 }
@@ -44,15 +68,15 @@ export function parseListeningPids(stdout: string): Set<number> {
   return pids
 }
 
-// True when `rootPid`'s descendant tree contains a process that is listening on
-// a TCP port or is busy. The root itself (the pty shell) is not counted — we are
-// asking whether something the shell launched is still live.
-export function subtreeHasLiveProcess(
+// The first live-work reason found in `rootPid`'s descendant tree, or null when
+// the subtree holds nothing live. The root itself (the pty shell) is not
+// counted — we are asking whether something the shell launched is still live.
+export function subtreeLiveReason(
   rootPid: number,
   procs: readonly ProcRow[],
   listeningPids: ReadonlySet<number>,
   options: { busyCpuPercent?: number } = {}
-): boolean {
+): SubtreeLiveReason | null {
   const busyCpuPercent = options.busyCpuPercent ?? SUBTREE_BUSY_CPU_PERCENT
   const childrenByParent = new Map<number, ProcRow[]>()
   for (const proc of procs) {
@@ -67,12 +91,22 @@ export function subtreeHasLiveProcess(
     const proc = stack.pop()!
     if (seen.has(proc.pid)) continue
     seen.add(proc.pid)
-    if (listeningPids.has(proc.pid)) return true
-    if (proc.cpuPercent > busyCpuPercent) return true
+    if (listeningPids.has(proc.pid)) return 'listening_port'
+    if (proc.cpuPercent > busyCpuPercent) return 'busy_cpu'
+    if (proc.command.includes(CLAUDE_TOOL_SHELL_SIGNATURE)) return 'tool_shell'
     const children = childrenByParent.get(proc.pid)
     if (children) stack.push(...children)
   }
-  return false
+  return null
+}
+
+export function subtreeHasLiveProcess(
+  rootPid: number,
+  procs: readonly ProcRow[],
+  listeningPids: ReadonlySet<number>,
+  options: { busyCpuPercent?: number } = {}
+): boolean {
+  return subtreeLiveReason(rootPid, procs, listeningPids, options) !== null
 }
 
 // Resolves to null on any error so the caller can tell "command failed" apart
@@ -80,7 +114,7 @@ export function subtreeHasLiveProcess(
 // result must NOT be read as "no servers" when lsof simply failed/was missing.
 function execFileTextOrNull(command: string, args: string[]): Promise<string | null> {
   return new Promise((resolve) => {
-    execFile(command, args, { timeout: 3_000, maxBuffer: 4 * 1024 * 1024 }, (error, stdout) =>
+    execFile(command, args, { timeout: 3_000, maxBuffer: 8 * 1024 * 1024 }, (error, stdout) =>
       resolve(error ? null : stdout)
     )
   })
@@ -92,19 +126,19 @@ export type SubtreeProbeDeps = {
   runLsofListening?: () => Promise<string | null>
 }
 
-// Resolves each root pid to whether its subtree has a live process. A root
-// absent from the returned map (or any failure) means "undetermined" — callers
-// MUST treat that as live/keep-alive.
-export async function probeSubtreesForLiveProcesses(
+// Resolves each root pid to the live-work reason found in its subtree (null =
+// probed clean, safe to reap). A root absent from the returned map (or any
+// failure) means "undetermined" — callers MUST treat that as live/keep-alive.
+export async function probeSubtreesForLiveWork(
   rootPids: readonly number[],
   deps: SubtreeProbeDeps = {}
-): Promise<Map<number, boolean>> {
+): Promise<Map<number, SubtreeLiveReason | null>> {
   const platform = deps.platform ?? process.platform
-  const result = new Map<number, boolean>()
+  const result = new Map<number, SubtreeLiveReason | null>()
   if (rootPids.length === 0) return result
   if (platform !== 'darwin' && platform !== 'linux') return result // undetermined → keep-alive
 
-  const runPs = deps.runPs ?? (() => execFileTextOrNull('ps', ['-axo', 'pid=,ppid=,pcpu=']))
+  const runPs = deps.runPs ?? (() => execFileTextOrNull('ps', ['-axo', 'pid=,ppid=,pcpu=,args=']))
   const runLsofListening =
     deps.runLsofListening ?? (() => execFileTextOrNull('lsof', ['-nP', '-iTCP', '-sTCP:LISTEN', '-t']))
 
@@ -117,10 +151,21 @@ export async function probeSubtreesForLiveProcesses(
     if (procs.length === 0) return result // ps yielded nothing usable → undetermined
     const listening = parseListeningPids(lsofOut)
     for (const rootPid of rootPids) {
-      result.set(rootPid, subtreeHasLiveProcess(rootPid, procs, listening))
+      result.set(rootPid, subtreeLiveReason(rootPid, procs, listening))
     }
   } catch {
     return new Map() // undetermined → keep-alive
   }
+  return result
+}
+
+// Boolean projection kept for callers that only need live/not-live.
+export async function probeSubtreesForLiveProcesses(
+  rootPids: readonly number[],
+  deps: SubtreeProbeDeps = {}
+): Promise<Map<number, boolean>> {
+  const reasons = await probeSubtreesForLiveWork(rootPids, deps)
+  const result = new Map<number, boolean>()
+  for (const [pid, reason] of reasons) result.set(pid, reason !== null)
   return result
 }

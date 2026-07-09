@@ -208,6 +208,17 @@ export function evaluateAgentStall(input: {
 // beyond the typed fields below.
 // =============================================================================
 
+// A self-scheduled wakeup reported by the CLI's PostToolUse hook (Claude Code's
+// ScheduleWakeup tool; Codex shares the hook payload schema, and the OpenCode
+// adapter can emit the same field if that CLI grows an equivalent). `stop`
+// tears the loop down; `delaySeconds` arms a timer inside the CLI process.
+export type AgentStateFrameWakeup = { stop: true } | { delaySeconds: number }
+
+// ScheduleWakeup's runtime clamps delaySeconds to [60, 3600]. Anything past
+// clamp+slack is a reporter/clock anomaly — cap it so one bad frame cannot
+// park a session on a far-future hold.
+export const MAX_WAKEUP_DELAY_SECONDS = 2 * 3600
+
 export type AgentStateFrame = {
   type: 'agent_state'
   agentId: string
@@ -216,6 +227,7 @@ export type AgentStateFrame = {
   phase: AgentPhase
   event: string | null
   ts: number
+  wakeup?: AgentStateFrameWakeup
 }
 
 const VALID_PHASES: ReadonlySet<AgentPhase> = new Set<AgentPhase>([
@@ -250,7 +262,7 @@ export function parseAgentStateFrame(raw: unknown, now: number): AgentStateFrame
   // ts would pin the phase forever and future-date "working since"; a reporter
   // cannot legitimately be ahead of now, so cap it.
   const ts = typeof raw.ts === 'number' && Number.isFinite(raw.ts) ? Math.min(raw.ts, now) : now
-  return {
+  const frame: AgentStateFrame = {
     type: 'agent_state',
     agentId,
     workspaceId: optionalString(raw.workspaceId),
@@ -259,6 +271,20 @@ export function parseAgentStateFrame(raw: unknown, now: number): AgentStateFrame
     event: optionalString(raw.event),
     ts,
   }
+  const wakeup = parseFrameWakeup(raw.wakeup)
+  if (wakeup) frame.wakeup = wakeup
+  return frame
+}
+
+// A malformed wakeup drops (frame stands without it) — the reporter is
+// untrusted, and a bogus hold is worse than a missed one: it parks a session.
+function parseFrameWakeup(raw: unknown): AgentStateFrameWakeup | null {
+  if (!isRecord(raw)) return null
+  if (raw.stop === true) return { stop: true }
+  if (typeof raw.delaySeconds === 'number' && Number.isFinite(raw.delaySeconds) && raw.delaySeconds > 0) {
+    return { delaySeconds: Math.min(raw.delaySeconds, MAX_WAKEUP_DELAY_SECONDS) }
+  }
+  return null
 }
 
 // =============================================================================

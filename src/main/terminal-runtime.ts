@@ -54,6 +54,7 @@ import {
   type TerminalSession,
 } from './terminal-session'
 import { buildReplaySnapshot } from './terminal-replay-snapshot'
+import { probeSubtreesForLiveWork, type SubtreeProbeDeps } from './terminal-subtree-probe'
 import type { TerminalSnapshotSidecarStore } from './terminal-snapshot-sidecar'
 import { createTerminalDiagnostics } from './terminal-diagnostics'
 import { createTerminalOutputBuffer } from './terminal-output-buffer'
@@ -849,9 +850,10 @@ function startStaleTerminalSweep(): void {
   staleTerminalSweepTimer = setInterval(() => {
     // 24h coarse backstop (catches anything ancient), then the recency policy
     // sweep that suspends idle agent terminals (hook-state-driven) within a
-    // session.
-    reapStaleTerminals()
-    runIdleAgentReapSweep()
+    // session. Guarded: sessions whose pty subtree holds live work (background
+    // shells, dev servers, busy builds) or whose agent has a pending
+    // self-scheduled wakeup are held — killing the CLI would abort that work.
+    void runGuardedTerminalReapSweeps().catch(() => undefined)
     // Reclaim snapshot sidecars past their TTL (painted history nobody
     // reopened). Piggybacked here rather than owning another timer.
     snapshotSidecars?.sweepExpired()
@@ -869,9 +871,16 @@ function stopStaleTerminalSweep(): void {
 // no user input, and no process output. Disposing through `disposeTerminal`
 // deliberately skips the renderer `terminal:exit` event, so agent launch flags
 // stay intact and reopening the workspace re-launches the CLI with resume.
-export function reapStaleTerminals(now = Date.now()): string[] {
+// `guardHolds` (sessionId → hold reason, built by the guarded sweep) names
+// sessions that must NOT be reaped this pass because killing the CLI would
+// abort live work under it; absent (legacy/test callers) means unguarded.
+export function reapStaleTerminals(
+  now = Date.now(),
+  guardHolds?: ReadonlyMap<string, string>
+): string[] {
   const staleSessionIds = [...terminals.values()]
     .filter((session) => isTerminalSessionStale(session, now))
+    .filter((session) => !recordGuardHoldSkip(session.sessionId, guardHolds, now, 'stale backstop'))
     .map((session) => session.sessionId)
 
   for (const sessionId of staleSessionIds) {
@@ -944,10 +953,54 @@ export function reapStaleTerminals(now = Date.now()): string[] {
 const REAP_SKIP_LOG_INTERVAL_MS = 60 * 60 * 1000
 const reapSkipLogState = new Map<string, { hold: string; loggedAt: number }>()
 
-export function runIdleAgentReapSweep(now = Date.now()): string[] {
-  const lastInteractionAt = (session: TerminalSession): number =>
-    Math.max(session.startedAt, session.lastInputAt ?? 0)
-  const candidates: ReapCandidate[] = [...terminals.values()].map((session) => ({
+// True when `guardHolds` names this session, meaning the caller must skip it
+// this pass. Logs the skip (rate-limited like the gate audit above) so a
+// session parked by live work leaves the forensic trail the 2026-07-07
+// incident lacked.
+function recordGuardHoldSkip(
+  sessionId: string,
+  guardHolds: ReadonlyMap<string, string> | undefined,
+  now: number,
+  sweep: string
+): boolean {
+  const hold = guardHolds?.get(sessionId)
+  if (hold === undefined) return false
+  const previous = reapSkipLogState.get(sessionId)
+  if (!previous || previous.hold !== hold || now - previous.loggedAt >= REAP_SKIP_LOG_INTERVAL_MS) {
+    reapSkipLogState.set(sessionId, { hold, loggedAt: now })
+    const session = terminals.get(sessionId)
+    logMainPerfEvent('TerminalRuntime', 'terminal-reap-held', {
+      sessionId,
+      hold,
+      sweep,
+      cli: session?.cli ?? null,
+      workspaceId: session?.workspaceId ?? null,
+    })
+    logReapDiagnostic?.({
+      level: 'info',
+      title: 'Terminal reaper',
+      message: `Reap held: ${hold}`,
+      details: [
+        `Sweep: ${sweep}`,
+        `CLI: ${session?.cli ?? 'unknown'}`,
+        'Killing the CLI would abort live work under it; re-evaluated next sweep.',
+      ].join('\n'),
+      ...(session?.workspaceId ? { workspaceId: session.workspaceId } : {}),
+      ...(session?.agentId ? { agentId: session.agentId } : {}),
+      sessionId,
+    })
+  }
+  return true
+}
+
+function terminalLastInteractionAt(session: TerminalSession): number {
+  return Math.max(session.startedAt, session.lastInputAt ?? 0)
+}
+
+// Maps live sessions to pure reap-policy candidates. Shared by the sync sweep
+// and the guarded wrapper (which needs the would-reap set BEFORE probing).
+function buildReapCandidates(): ReapCandidate[] {
+  return [...terminals.values()].map((session) => ({
     sessionId: session.sessionId,
     workspaceId: session.workspaceId ?? null,
     kind: session.kind,
@@ -962,7 +1015,7 @@ export function runIdleAgentReapSweep(now = Date.now()): string[] {
     // 'stalled' after its own full rest threshold — are reapable;
     // working/awaiting_input are protected.
     agentPhase: session.agentState?.phase ?? null,
-    lastInteractionAt: lastInteractionAt(session),
+    lastInteractionAt: terminalLastInteractionAt(session),
     // When the agent went to rest — keeps a just-finished (or just-stalled)
     // agent alive until it has actually rested past the threshold.
     idleSince: isAtRestAgentPhase(session.agentState?.phase) ? (session.agentState?.since ?? null) : null,
@@ -987,8 +1040,17 @@ export function runIdleAgentReapSweep(now = Date.now()): string[] {
       Boolean(session.sprintEngineStatePath)
       && (activeSprintRunStatePaths.has(session.sprintEngineStatePath ?? '')
         || !isAtRestAgentPhase(session.agentState?.phase)),
+    // Hook-reported self-scheduled wakeup (see ingestAgentStateFrame): a future
+    // wake time holds the session in the pure policy.
+    pendingWakeupAt: session.pendingWakeupAt ?? null,
   }))
+}
 
+export function runIdleAgentReapSweep(
+  now = Date.now(),
+  guardHolds?: ReadonlyMap<string, string>
+): string[] {
+  const candidates = buildReapCandidates()
   const decision = selectReapableSessions(candidates, {
     now,
     idleThresholdMs: configuredSuspendIdleAfterMs,
@@ -1032,10 +1094,17 @@ export function runIdleAgentReapSweep(now = Date.now()): string[] {
     }
   }
 
-  for (const sessionId of decision.reapableSessionIds) {
+  // Guard holds (live subtree work / pending wakeup) trump the pure decision:
+  // killing the CLI would abort real work, so the session waits for a sweep
+  // where the work has finished.
+  const actionableSessionIds = decision.reapableSessionIds.filter(
+    (sessionId) => !recordGuardHoldSkip(sessionId, guardHolds, now, 'idle sweep')
+  )
+
+  for (const sessionId of actionableSessionIds) {
     const session = terminals.get(sessionId)
     if (!session || session.isDisposed) continue
-    const idleMs = now - lastInteractionAt(session)
+    const idleMs = now - terminalLastInteractionAt(session)
     // SprintEngine agents are orchestrator-driven (no user keystroke to resume on),
     // so freeze-the-view suspend is the wrong reclaim action for them: it would
     // keep the dead session around without marking the agent `left`, breaking the
@@ -1050,7 +1119,7 @@ export function runIdleAgentReapSweep(now = Date.now()): string[] {
       workspaceId: session.workspaceId,
       agentId: session.agentId,
       cli: session.cli,
-      lastInteractionAt: lastInteractionAt(session),
+      lastInteractionAt: terminalLastInteractionAt(session),
       agentPhase: session.agentState?.phase ?? null,
       idleMs,
       action: reclaimByDispose ? 'dispose' : 'suspend',
@@ -1082,7 +1151,68 @@ export function runIdleAgentReapSweep(now = Date.now()): string[] {
     if (reclaimByDispose) disposeTerminal(sessionId)
     else suspendTerminal(sessionId)
   }
-  return decision.reapableSessionIds
+  return actionableSessionIds
+}
+
+// One guarded pass of both reap sweeps — the production path (the 3-minute
+// interval). The pure sweeps above stay synchronous and unguarded for direct
+// callers/tests; here, every session a sweep WOULD act on is first probed for
+// live work the phase gates cannot see: a `run_in_background` shell idling
+// toward a result, a dev server holding a port, a busy build. The agent's hook
+// phase is 'idle' while these run (its turn ended), but killing the CLI kills
+// them and the resumed session reports "No completion record was found…".
+// (Self-scheduled wakeups need no probe: they arrive as hook frames and hold
+// inside the pure policy — see ReapCandidate.pendingWakeupAt.)
+// Held sessions are skipped this pass and re-evaluated next sweep, so they
+// reap normally once the work completes. Fail-safe: an undetermined subtree
+// probe (ps/lsof failure) holds the session rather than risking live work.
+export async function runGuardedTerminalReapSweeps(
+  now = Date.now(),
+  deps: { subtree?: SubtreeProbeDeps } = {}
+): Promise<{ staleReaped: string[]; idleReaped: string[] }> {
+  const staleTargets = [...terminals.values()]
+    .filter((session) => isTerminalSessionStale(session, now))
+    .map((session) => session.sessionId)
+  const idleDecision = selectReapableSessions(buildReapCandidates(), {
+    now,
+    idleThresholdMs: configuredSuspendIdleAfterMs,
+  })
+  const targets = new Set([...staleTargets, ...idleDecision.reapableSessionIds])
+  const guardHolds = await buildReapGuardHolds(targets, deps)
+  return {
+    staleReaped: reapStaleTerminals(now, guardHolds),
+    idleReaped: runIdleAgentReapSweep(now, guardHolds),
+  }
+}
+
+// Probes the would-reap set and names every session that must be held. Only a
+// LIVE pty can hold live work: suspended placeholders and exited sessions have
+// nothing left to kill, and the stale backstop must stay free to reclaim their
+// retained buffers.
+async function buildReapGuardHolds(
+  targetSessionIds: ReadonlySet<string>,
+  deps: { subtree?: SubtreeProbeDeps }
+): Promise<Map<string, string>> {
+  const holds = new Map<string, string>()
+  const subtreeTargets: { sessionId: string; pid: number }[] = []
+  for (const sessionId of targetSessionIds) {
+    const session = terminals.get(sessionId)
+    if (!session || session.isDisposed || !isTerminalProcessAlive(session)) continue
+    const pid = session.process.pid
+    if (typeof pid === 'number' && pid > 0) subtreeTargets.push({ sessionId, pid })
+  }
+  if (subtreeTargets.length > 0) {
+    const verdicts = await probeSubtreesForLiveWork(
+      subtreeTargets.map((target) => target.pid),
+      deps.subtree
+    )
+    for (const target of subtreeTargets) {
+      const reason = verdicts.get(target.pid)
+      if (reason === undefined) holds.set(target.sessionId, 'subtree_undetermined')
+      else if (reason !== null) holds.set(target.sessionId, `live_subtree_${reason}`)
+    }
+  }
+  return holds
 }
 
 // Live terminal sessions reduced to what per-workspace memory attribution needs:
@@ -1345,6 +1475,16 @@ function ingestAgentStateFrame(frame: AgentStateFrame): void {
 
   const previousPhase = session.agentState?.phase
   session.agentState = { phase: frame.phase, since: frame.ts, source: 'hook' }
+
+  // Self-scheduled wakeup bookkeeping: a schedule frame arms the reap hold, a
+  // stop frame disarms it, and SessionStart clears — a fresh or resumed CLI
+  // process carries no timer from its previous life, so a stale hold would
+  // park the session for nothing. Expiry needs no handling here: the policy
+  // compares pendingWakeupAt against `now`.
+  if (frame.event === 'SessionStart') session.pendingWakeupAt = null
+  if (frame.wakeup) {
+    session.pendingWakeupAt = 'stop' in frame.wakeup ? null : frame.ts + frame.wakeup.delaySeconds * 1000
+  }
 
   // Capture the agent's own session id within its CLI/harness (Claude's equals
   // our terminal id since we mint and pass it; Codex/others mint their own and

@@ -1028,9 +1028,17 @@ export type SprintEngineTask = {
   source?: SprintEngineTaskSource
   ownerAgentId: string | null
   /** Worker who last published an implementation pass. Retained after the task
-   *  leaves the worker's hands (review/testing/product) so the owning worker
-   *  stays visible while `ownerAgentId` is null. */
+   *  leaves the worker's hands (a `review` phase, or a bound phase session) so
+   *  the owning worker stays visible while `ownerAgentId` is null. */
   lastImplementedByAgentId?: string | null
+  /**
+   * MC-1543 premium review: set when a phase's bound runtime differs from the
+   * owner's, so the task is released (`ownerAgentId: null`) to await a fresh
+   * session on `runtime`. The supervisor Birth-path spawns that session; it
+   * claims the task through `task next` (`claim_phase_session`) without rewinding
+   * the status. Absent for every task in a run with no `phaseRuntimes`.
+   */
+  awaitingPhaseSession?: { phase: SprintEngineTaskPhase; runtime: SprintEngineAllowedRuntime } | null
   /** CLI model that worked this task (e.g. `claude-fable-5`, `opus[1m]`),
    *  stamped at claim from the roster's per-role model selection. Retained
    *  through handoff for attribution and per-task usage metrics. Absent when
