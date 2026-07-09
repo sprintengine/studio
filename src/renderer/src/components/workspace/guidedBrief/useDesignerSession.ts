@@ -18,11 +18,15 @@ import {
   EMPTY_DESIGN_ARTIFACT_INDEX,
   INSPIRATION_DIRECTORY_NAME,
   MOCKUPS_DIRECTORY_NAME,
+  SCAFFOLD_BASELINE_RELATIVE_PATH,
   UI_DIRECTION_RELATIVE_PATH,
   collectDesignArtifacts,
+  designArtifactRootsForPreset,
+  parseScaffoldBaseline,
   type DesignArtifactEntry,
   type DesignArtifactIndex,
   type DesignArtifactsStatus,
+  type ScaffoldBaseline,
 } from './designArtifacts'
 import { DESIGN_SYSTEM_IDEA_SEED_RELATIVE_PATH } from '../../../utils/guidedBriefWorkspace'
 
@@ -194,6 +198,9 @@ export function useDesignerSession({
       const sessionInput = {
         kind: 'designer' as const,
         workspaceRoot,
+        // Also threaded into the PTY spawn metadata so the session manager
+        // inventories the fallback-transport session.
+        ...(workspaceId ? { workspaceId } : {}),
         acceptedBriefSnapshotPath,
         acceptedArchitecturePlanPath,
         sessionId: resolvedSessionId,
@@ -286,14 +293,24 @@ export function useDesignerSession({
   // Build the real design-artifact index from disk and keep it fresh. The HTML
   // pages drive the existing designer readiness (mockupsAvailable); the broader
   // index (stylesheets, scripts, assets, notes, inspiration) is for studio
-  // browsing and selection. Watch all three source roots — the mockups tree,
-  // product/ (for ui-direction.md), and the inspiration tree — plus a poll
-  // fallback because macOS fs.watch can miss create events on a directory that
-  // was empty when the watcher started.
+  // browsing and selection. Discovery is run-scoped (MC-1502): roots are
+  // preset-scoped, and the shared-root presets filter pre-existing seed-repo
+  // files via the scaffold baseline (loaded once — it is written exactly once,
+  // at scaffold time; missing = legacy run, no filtering). Watch each indexed
+  // root, plus a poll fallback because macOS fs.watch can miss create events
+  // on a directory that was empty when the watcher started.
   useEffect(() => {
     if (!enabled) return
     let cancelled = false
     const stopWatchers: Array<() => Promise<void>> = []
+
+    const roots = designArtifactRootsForPreset(designSystem ? 'design-system' : 'frontend-design')
+    const baselinePromise: Promise<ScaffoldBaseline | null> = designSystem
+      ? Promise.resolve(null)
+      : window.api
+          .readfile(joinWorkspacePath(workspaceRoot, SCAFFOLD_BASELINE_RELATIVE_PATH))
+          .then((content) => parseScaffoldBaseline(content))
+          .catch(() => null)
 
     const refresh = async () => {
       try {
@@ -305,6 +322,7 @@ export function useDesignerSession({
           setDesignArtifactsStatus('unavailable')
           return
         }
+        const baseline = await baselinePromise
         const index = await collectDesignArtifacts(
           workspaceRoot,
           {
@@ -312,7 +330,7 @@ export function useDesignerSession({
             pathExists: window.api.pathExists,
             statPath: window.api.statPath,
           },
-          { includeDesignSystemBundle: designSystem },
+          { roots, baseline },
         )
         if (cancelled) return
         setDesignArtifacts(index)
@@ -329,10 +347,10 @@ export function useDesignerSession({
     }
 
     const watchDirectories = [
-      mockupsDirectoryPath,
-      joinWorkspacePath(workspaceRoot, 'product'),
-      joinWorkspacePath(workspaceRoot, INSPIRATION_DIRECTORY_NAME),
-      ...(designSystem
+      ...(roots.mockups ? [mockupsDirectoryPath] : []),
+      ...(roots.uiDirection ? [joinWorkspacePath(workspaceRoot, 'product')] : []),
+      ...(roots.inspiration ? [joinWorkspacePath(workspaceRoot, INSPIRATION_DIRECTORY_NAME)] : []),
+      ...(roots.designSystemBundle
         ? [joinWorkspacePath(workspaceRoot, DESIGN_SYSTEM_BUNDLE_DIRECTORY_NAME)]
         : []),
     ]

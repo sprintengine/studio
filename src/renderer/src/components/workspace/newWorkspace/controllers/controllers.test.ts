@@ -51,6 +51,24 @@ function createMemoryFilesystem(): GuidedBriefScaffoldPorts['filesystem'] & { fi
   }
 }
 
+// Scaffold-baseline discovery fake (MC-1502): `entries` maps a directory path
+// to its listing; `stats` maps a file path to its mtime/size. An empty
+// discovery models a fresh empty folder.
+function createDiscovery(
+  entries: Record<string, { name: string; isDir: boolean }[]> = {},
+  stats: Record<string, { modifiedAtMs: number; sizeBytes: number }> = {},
+): GuidedBriefScaffoldPorts['discovery'] {
+  return {
+    readdir: async (path) => entries[path] ?? [],
+    pathExists: async (path) => path in stats,
+    statPath: async (path) => {
+      const stat = stats[path]
+      if (!stat) throw new Error(`Missing stat: ${path}`)
+      return { modifiedAt: new Date(stat.modifiedAtMs).toISOString(), ...stat }
+    },
+  }
+}
+
 function sprintEngineProjectionFixture(input: {
   name: string
   goal: string
@@ -993,6 +1011,7 @@ async function testSprintEngineEpicSourcedLinksEpicAndFlagsChildren(): Promise<v
 async function testGuidedBriefScaffoldValidation(): Promise<void> {
   const ports: GuidedBriefScaffoldPorts = {
     filesystem: createMemoryFilesystem(),
+    discovery: createDiscovery(),
   }
 
   await assert.rejects(
@@ -1027,6 +1046,7 @@ async function testGuidedBriefScaffoldHappyPath(): Promise<void> {
   const fs = createMemoryFilesystem()
   const ports: GuidedBriefScaffoldPorts = {
     filesystem: fs,
+    discovery: createDiscovery(),
   }
 
   // Skip all discussions → initial stage is 'handoff', which causes
@@ -1057,12 +1077,26 @@ async function testGuidedBriefScaffoldHappyPath(): Promise<void> {
   assert.equal(runtimeState.activeDesignArtifactPath, null)
   assert.ok(fs.files.has('/workspace/product/idea-seed.md'), 'idea seed is written by scaffold')
   assert.ok(fs.files.has('/workspace/product/build-handoff.md'), 'build handoff is written for the skipped path')
+  assert.deepEqual(
+    JSON.parse(fs.files.get('/workspace/.guided-brief/scaffold-baseline.json') ?? 'null'),
+    { version: 1, files: {} },
+    'a fresh empty folder scaffolds an empty baseline manifest',
+  )
 }
 
 async function testGuidedBriefDesignPresetScaffold(): Promise<void> {
   const fs = createMemoryFilesystem()
+  // Seeded repo: a pre-existing mockup and ui-direction.md must land in the
+  // baseline manifest so run-scoped discovery hides them from the studio.
   const ports: GuidedBriefScaffoldPorts = {
     filesystem: fs,
+    discovery: createDiscovery(
+      { '/design/mockups': [{ name: 'legacy.html', isDir: false }] },
+      {
+        '/design/mockups/legacy.html': { modifiedAtMs: 1000, sizeBytes: 42 },
+        '/design/product/ui-direction.md': { modifiedAtMs: 2000, sizeBytes: 7 },
+      },
+    ),
   }
 
   // The frontend-design preset forces the design-only path: UI is implied even
@@ -1098,6 +1132,17 @@ async function testGuidedBriefDesignPresetScaffold(): Promise<void> {
   assert.equal(runtimeState.activeDesignArtifactPath, null)
   assert.ok(fs.files.has('/design/product/idea-seed.md'), 'idea seed is written by scaffold')
   assert.ok(!fs.files.has('/design/product/build-handoff.md'), 'design preset does not write a premature handoff')
+  assert.deepEqual(
+    JSON.parse(fs.files.get('/design/.guided-brief/scaffold-baseline.json') ?? 'null'),
+    {
+      version: 1,
+      files: {
+        'mockups/legacy.html': { mtimeMs: 1000, size: 42 },
+        'product/ui-direction.md': { mtimeMs: 2000, size: 7 },
+      },
+    },
+    'pre-existing files under the shared roots are recorded in the scaffold baseline',
+  )
 }
 
 async function testDesignSystemScaffoldValidationAndFailure(): Promise<void> {

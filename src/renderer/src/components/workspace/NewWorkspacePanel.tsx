@@ -1872,6 +1872,11 @@ export default function NewWorkspacePanel({
               },
               {
                 filesystem: guidedFilesystem,
+                discovery: {
+                  readdir: window.api.readdir,
+                  pathExists: window.api.pathExists,
+                  statPath: window.api.statPath,
+                },
               },
             )
         onCreate({

@@ -14,6 +14,10 @@ import {
   rethrowGuidedScaffoldFailure,
 } from './guidedBriefScaffolding'
 import {
+  buildScaffoldBaseline,
+  writeScaffoldBaseline,
+} from '../../guidedBrief/designArtifacts'
+import {
   PlanSourcedSprintEngineWorkspaceError,
   createPlanSourcedSprintEngineWorkspace,
 } from '../../../../utils/sprintengineWorkspaceCreation'
@@ -74,12 +78,19 @@ export async function runGuidedBriefScaffold(
   const wantsArchitecture = isDesignPreset ? false : input.wantsArchitecture
 
   try {
+    // Baseline first (MC-1502): record what already exists under the shared
+    // roots before anything is written, so run-scoped discovery can hide the
+    // seed repo's own files. (Scaffold writes never land under those roots —
+    // idea-seed.md is not indexed and .versions/ is dotfile-skipped — but
+    // "before any write" is the honest reading of 'pre-existing'.)
+    const baseline = await buildScaffoldBaseline(folderPath, ports.discovery)
     await scaffoldGuidedBriefWorkspace({
       workspaceRoot: folderPath,
       idea: input.idea,
       hasUi,
       filesystem: ports.filesystem,
     })
+    await writeScaffoldBaseline(folderPath, baseline, ports.filesystem)
   } catch (error) {
     rethrowGuidedScaffoldFailure(error, (message) => {
       const wrapped = new GuidedBriefScaffoldError('unknown')

@@ -18,14 +18,21 @@ import {
 import {
   applyDesignArtifactSelection,
   buildDesignArtifactIndex,
+  buildScaffoldBaseline,
   classifyMockupFile,
   collectDesignArtifacts,
+  designArtifactRootsForPreset,
+  designSystemBundleFileCount,
   findDesignArtifact,
   isHtmlDesignArtifact,
+  isNewOrModifiedSinceBaseline,
+  parseScaffoldBaseline,
   previewKindForArtifact,
+  serializeScaffoldBaseline,
   type DesignArtifactEntry,
   type DesignArtifactFsPort,
   type DesignArtifactKind,
+  type ScaffoldBaseline,
 } from './designArtifacts'
 import {
   browserOpenFailureMessage,
@@ -560,6 +567,7 @@ async function testCollectDesignArtifacts(): Promise<void> {
     statPath: async (path) => ({
       modifiedAt: path.endsWith('app.html') ? '2026-06-07T09:30:00.000Z' : '2026-06-07T10:00:00.000Z',
       modifiedAtMs: path.endsWith('app.html') ? 1780824600000 : 1780826400000,
+      sizeBytes: 128,
     }),
   }
 
@@ -643,12 +651,15 @@ async function testCollectDesignSystemBundleArtifacts(): Promise<void> {
     pathExists: async () => false,
   }
 
-  // Without opting in, the bundle tree stays out of the index — full-brief and
-  // frontend-design workspaces are untouched by the design-system preset.
+  // With the default (shared-root) roots, the bundle tree stays out of the
+  // index — full-brief and frontend-design workspaces are untouched by the
+  // design-system preset.
   const defaultIndex = await collectDesignArtifacts('/ds', ports)
-  assert.equal(defaultIndex.count, 0, 'bundle files are not indexed without the option')
+  assert.equal(defaultIndex.count, 0, 'bundle files are not indexed without the design-system roots')
 
-  const index = await collectDesignArtifacts('/ds', ports, { includeDesignSystemBundle: true })
+  const index = await collectDesignArtifacts('/ds', ports, {
+    roots: designArtifactRootsForPreset('design-system'),
+  })
   assert.deepEqual(
     index.groups.find((group) => group.id === 'pages')?.entries.map((entry) => entry.relativePath),
     ['design-system/components/button/component.html'],
@@ -681,8 +692,214 @@ async function testCollectDesignSystemBundleArtifacts(): Promise<void> {
   console.log('designArtifacts design-system bundle: ok')
 }
 
+// --- Run-scoped discovery (MC-1502) ----------------------------------------
+
+// Per-preset root selection: the design-system studio owns only the bundle and
+// inspiration trees; the shared-root presets keep mockups + ui-direction.
+{
+  const designSystemRoots = designArtifactRootsForPreset('design-system')
+  assert.deepEqual(
+    designSystemRoots,
+    { mockups: false, uiDirection: false, inspiration: true, designSystemBundle: true },
+    'design-system preset drops mockups/ and product/ui-direction.md from its roots',
+  )
+  const fullBriefRoots = designArtifactRootsForPreset('full-brief')
+  assert.deepEqual(
+    fullBriefRoots,
+    { mockups: true, uiDirection: true, inspiration: true, designSystemBundle: false },
+    'full-brief keeps the shared roots and never indexes the bundle tree',
+  )
+  assert.deepEqual(
+    designArtifactRootsForPreset('frontend-design'),
+    fullBriefRoots,
+    'frontend-design shares the full-brief roots',
+  )
+}
+
+// Baseline diff decisions: new / modified (mtime or size) / untouched, and the
+// no-baseline (legacy run) passthrough.
+{
+  const baseline: ScaffoldBaseline = {
+    version: 1,
+    files: { 'mockups/legacy.html': { mtimeMs: 1000, size: 42 } },
+  }
+  assert.equal(
+    isNewOrModifiedSinceBaseline(baseline, 'mockups/new.html', { modifiedAtMs: 5000, sizeBytes: 10 }),
+    true,
+    'a file absent from the baseline is new',
+  )
+  assert.equal(
+    isNewOrModifiedSinceBaseline(baseline, 'mockups/legacy.html', { modifiedAtMs: 9999, sizeBytes: 42 }),
+    true,
+    'an mtime change marks a baseline file as modified',
+  )
+  assert.equal(
+    isNewOrModifiedSinceBaseline(baseline, 'mockups/legacy.html', { modifiedAtMs: 1000, sizeBytes: 43 }),
+    true,
+    'a size change marks a baseline file as modified even when mtime is unchanged (git checkout)',
+  )
+  assert.equal(
+    isNewOrModifiedSinceBaseline(baseline, 'mockups/legacy.html', { modifiedAtMs: 1000, sizeBytes: 42 }),
+    false,
+    'an untouched baseline file stays hidden',
+  )
+  assert.equal(
+    isNewOrModifiedSinceBaseline(baseline, 'mockups/legacy.html', null),
+    false,
+    'a baseline file with unavailable stats counts as untouched, not run output',
+  )
+  assert.equal(
+    isNewOrModifiedSinceBaseline(null, 'mockups/legacy.html', null),
+    true,
+    'no baseline (legacy run) means no filtering',
+  )
+}
+
+// Baseline serialization round-trip and strict parse.
+{
+  const baseline: ScaffoldBaseline = {
+    version: 1,
+    files: { 'mockups/a.html': { mtimeMs: 1, size: 2 } },
+  }
+  assert.deepEqual(parseScaffoldBaseline(serializeScaffoldBaseline(baseline)), baseline)
+  assert.equal(parseScaffoldBaseline('not json'), null, 'malformed JSON parses to null (no filtering)')
+  assert.equal(parseScaffoldBaseline('{"version":2,"files":{}}'), null, 'unknown versions are rejected')
+  assert.equal(
+    parseScaffoldBaseline('{"version":1,"files":{"a":{"mtimeMs":"soon","size":1}}}'),
+    null,
+    'shape drift inside files is rejected',
+  )
+}
+
+async function testRunScopedDiscovery(): Promise<void> {
+  // Seeded design-system run: the seed repo has its own mockups/*.html and a
+  // product/ui-direction.md; the wizard bundle and an inspiration drop exist too.
+  const dirs: Record<string, { name: string; isDir: boolean }[]> = {
+    '/seeded/mockups': [
+      { name: 'legacy-a.html', isDir: false },
+      { name: 'legacy-b.html', isDir: false },
+    ],
+    '/seeded/design-system': [
+      { name: 'design-system.json', isDir: false },
+      { name: 'USAGE.md', isDir: false },
+    ],
+    '/seeded/.guided-brief/inspiration': [{ name: 'ref.png', isDir: false }],
+  }
+  const stats: Record<string, { modifiedAtMs: number; sizeBytes: number }> = {
+    '/seeded/mockups/legacy-a.html': { modifiedAtMs: 100, sizeBytes: 10 },
+    '/seeded/mockups/legacy-b.html': { modifiedAtMs: 200, sizeBytes: 20 },
+    '/seeded/product/ui-direction.md': { modifiedAtMs: 300, sizeBytes: 30 },
+    '/seeded/design-system/design-system.json': { modifiedAtMs: 400, sizeBytes: 40 },
+    '/seeded/design-system/USAGE.md': { modifiedAtMs: 500, sizeBytes: 50 },
+    '/seeded/.guided-brief/inspiration/ref.png': { modifiedAtMs: 600, sizeBytes: 60 },
+  }
+  const ports: DesignArtifactFsPort = {
+    readdir: async (path) => dirs[path] ?? [],
+    pathExists: async (path) => path in stats,
+    statPath: async (path) => {
+      const stat = stats[path]
+      if (!stat) throw new Error(`missing stat: ${path}`)
+      return { modifiedAt: new Date(stat.modifiedAtMs).toISOString(), ...stat }
+    },
+  }
+
+  const designSystemIndex = await collectDesignArtifacts('/seeded', ports, {
+    roots: designArtifactRootsForPreset('design-system'),
+  })
+  assert.equal(
+    designSystemIndex.entries.some((entry) => entry.relativePath.startsWith('mockups/')),
+    false,
+    'a seeded design-system run indexes zero repo mockups',
+  )
+  assert.equal(
+    designSystemIndex.entries.some((entry) => entry.relativePath === 'product/ui-direction.md'),
+    false,
+    'the seed repo ui-direction.md is source material, not a run artifact',
+  )
+  assert.equal(
+    designSystemBundleFileCount(designSystemIndex),
+    2,
+    'the bundle count equals the files under design-system/',
+  )
+  assert.equal(designSystemIndex.count, 3, 'inspiration is listed in the index')
+  assert.ok(
+    designSystemBundleFileCount(designSystemIndex) < designSystemIndex.count,
+    'inspiration files are never counted as bundle content',
+  )
+
+  // frontend-design run over the same seeded repo, with a scaffold baseline:
+  // pre-existing untouched files disappear, a modified pre-existing file and a
+  // post-scaffold file appear, and a deleted baseline file never surfaces.
+  const baseline: ScaffoldBaseline = {
+    version: 1,
+    files: {
+      'mockups/legacy-a.html': { mtimeMs: 100, size: 10 },
+      'mockups/legacy-b.html': { mtimeMs: 200, size: 20 },
+      'mockups/deleted.html': { mtimeMs: 250, size: 25 },
+      'product/ui-direction.md': { mtimeMs: 300, size: 30 },
+    },
+  }
+  dirs['/seeded/mockups'].push({ name: 'fresh.html', isDir: false })
+  stats['/seeded/mockups/fresh.html'] = { modifiedAtMs: 900, sizeBytes: 90 }
+  stats['/seeded/mockups/legacy-b.html'] = { modifiedAtMs: 950, sizeBytes: 21 } // agent modified it
+
+  const filteredIndex = await collectDesignArtifacts('/seeded', ports, {
+    roots: designArtifactRootsForPreset('frontend-design'),
+    baseline,
+  })
+  assert.deepEqual(
+    filteredIndex.groups.find((group) => group.id === 'pages')?.entries.map((entry) => entry.relativePath),
+    ['mockups/fresh.html', 'mockups/legacy-b.html'],
+    'baseline filtering keeps only files written or modified after scaffold',
+  )
+  assert.equal(
+    filteredIndex.entries.some((entry) => entry.relativePath === 'product/ui-direction.md'),
+    false,
+    'an untouched pre-existing ui-direction.md is filtered by the baseline',
+  )
+
+  // Same run without a baseline file (existing pre-MC-1502 workspace): no
+  // filtering, no crash — every discovered file appears as before.
+  const unfilteredIndex = await collectDesignArtifacts('/seeded', ports, {
+    roots: designArtifactRootsForPreset('frontend-design'),
+  })
+  assert.deepEqual(
+    unfilteredIndex.groups.find((group) => group.id === 'pages')?.entries.map((entry) => entry.relativePath),
+    ['mockups/fresh.html', 'mockups/legacy-a.html', 'mockups/legacy-b.html'],
+    'a run without a baseline keeps the unfiltered index',
+  )
+  assert.equal(
+    unfilteredIndex.entries.some((entry) => entry.relativePath === 'product/ui-direction.md'),
+    true,
+    'ui-direction.md stays indexed when no baseline exists',
+  )
+
+  // buildScaffoldBaseline records exactly the current shared-root files.
+  const built = await buildScaffoldBaseline('/seeded', {
+    readdir: async (path) => dirs[path] ?? [],
+    pathExists: async (path) => path in stats,
+    statPath: async (path) => {
+      const stat = stats[path]
+      if (!stat) throw new Error(`missing stat: ${path}`)
+      return { modifiedAt: new Date(stat.modifiedAtMs).toISOString(), ...stat }
+    },
+  })
+  assert.deepEqual(built, {
+    version: 1,
+    files: {
+      'mockups/legacy-a.html': { mtimeMs: 100, size: 10 },
+      'mockups/legacy-b.html': { mtimeMs: 950, size: 21 },
+      'mockups/fresh.html': { mtimeMs: 900, size: 90 },
+      'product/ui-direction.md': { mtimeMs: 300, size: 30 },
+    },
+  }, 'the baseline records path + mtime + size for every file under the shared roots')
+
+  console.log('run-scoped discovery: ok')
+}
+
 void testCollectDesignArtifacts()
   .then(() => testCollectDesignSystemBundleArtifacts())
+  .then(() => testRunScopedDiscovery())
   .catch((error) => {
     console.error(error)
     process.exit(1)

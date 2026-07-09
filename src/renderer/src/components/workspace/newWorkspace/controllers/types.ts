@@ -238,6 +238,14 @@ export type GuidedBriefScaffoldInput = {
 
 export type GuidedBriefScaffoldPorts = {
   filesystem: GuidedBriefFilesystemPort
+  /**
+   * Read-only walker for the scaffold baseline (MC-1502): records every file
+   * already under the preset's shared roots (`mockups/**`,
+   * `product/ui-direction.md`) so run-scoped discovery can hide seed-repo
+   * files. Required — a scaffold that cannot enumerate pre-existing files
+   * would silently regress to leaking them into the studio index.
+   */
+  discovery: import('../../guidedBrief/designArtifacts').ScaffoldBaselinePort
 }
 
 export type GuidedBriefScaffoldResult = {

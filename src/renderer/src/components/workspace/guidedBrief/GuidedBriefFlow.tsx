@@ -28,6 +28,7 @@ import { StageStudioBody } from './StageStudioBody'
 import { StageArtifactsPane, type StageArtifactFile } from './StageArtifactsPane'
 import {
   applyDesignArtifactSelection,
+  designSystemBundleFileCount,
   findDesignArtifact,
   DESIGN_SYSTEM_BUNDLE_DIRECTORY_NAME,
   type DesignArtifactEntry,
@@ -1646,6 +1647,9 @@ function DesignStudioBody({
   onSelectDesignArtifact: (entry: DesignArtifactEntry) => void
 }) {
   const selectedEntry = findDesignArtifact(designArtifacts, activeDesignArtifactPath)
+  // Honest bundle count (MC-1502): only files under design-system/ are "in the
+  // bundle" — inspiration files are listed in their group but never counted.
+  const bundleFileCount = designSystemBundleFileCount(designArtifacts)
 
   return (
     <StageStudioBody
@@ -1657,11 +1661,11 @@ function DesignStudioBody({
           specialistName={designSystem ? 'Design System Designer' : 'Frontend Designer'}
           specialistSubline={
             designSystem
-              ? designArtifacts.count > 0
-                ? `${designArtifacts.count} file${designArtifacts.count === 1 ? '' : 's'} in the bundle · ask for changes anytime`
+              ? bundleFileCount > 0
+                ? `${bundleFileCount} file${bundleFileCount === 1 ? '' : 's'} in the bundle · ask for changes anytime`
                 : 'Describe the system you want — tokens, components, and patterns land as real files'
               : mockupCount > 0
-                ? `${mockupCount} screen${mockupCount === 1 ? '' : 's'} on disk · ask for changes anytime`
+                ? `${mockupCount} screen${mockupCount === 1 ? '' : 's'} in this run · ask for changes anytime`
                 : 'Describe the screens you want — files and preview update as they’re written'
           }
           working={working}

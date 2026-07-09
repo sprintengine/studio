@@ -119,7 +119,7 @@ export function DesignFilesPane({ index, status, selectedPath, onSelect }: Props
         </span>
         <span className="truncate text-[12px] text-[color:var(--text-muted)]">
           {status === 'ready' && index.count > 0
-            ? `${index.count} file${index.count === 1 ? '' : 's'} on disk`
+            ? `${index.count} file${index.count === 1 ? '' : 's'} in this run`
             : 'Real files from the workspace'}
         </span>
       </header>

@@ -1,4 +1,5 @@
 import { DESIGN_SYSTEM_BUNDLE_DIRECTORY_NAME } from '../../../../../shared/design-system/bundle-scaffold'
+import type { GuidedBriefPreset } from '../../../types/workspace'
 import { basename, joinWorkspacePath } from './paths'
 
 // Deterministic, path-based index of the real design artifacts a Multicode
@@ -60,7 +61,9 @@ export type DesignArtifactsStatus = 'loading' | 'ready' | 'unavailable'
 export type DesignArtifactFsPort = {
   readdir: (path: string) => Promise<{ name: string; isDir: boolean }[]>
   pathExists: (path: string) => Promise<boolean>
-  statPath?: (path: string) => Promise<{ modifiedAt: string; modifiedAtMs: number }>
+  statPath?: (
+    path: string,
+  ) => Promise<{ modifiedAt: string; modifiedAtMs: number; sizeBytes: number }>
 }
 
 export const EMPTY_DESIGN_ARTIFACT_INDEX: DesignArtifactIndex = {
@@ -75,6 +78,174 @@ export const INSPIRATION_DIRECTORY_NAME = '.guided-brief/inspiration'
 // Canonical definition lives on the shared main↔renderer boundary (the
 // main-process scaffold writes it; this indexer watches it).
 export { DESIGN_SYSTEM_BUNDLE_DIRECTORY_NAME }
+
+// Which workspace roots a preset's studio indexes as run artifacts (MC-1502).
+// A seeded/pre-existing repo may already contain files under the shared roots
+// (`mockups/`, `product/ui-direction.md`), so each preset declares only the
+// trees its wizard run actually owns.
+export type DesignArtifactRoots = {
+  mockups: boolean
+  uiDirection: boolean
+  inspiration: boolean
+  designSystemBundle: boolean
+}
+
+// full-brief / frontend-design author `mockups/` + `product/ui-direction.md`;
+// pre-existing files there are filtered by the scaffold baseline instead of
+// dropping the roots (the run legitimately writes into them).
+const SHARED_ROOT_DESIGN_ARTIFACT_ROOTS: DesignArtifactRoots = {
+  mockups: true,
+  uiDirection: true,
+  inspiration: true,
+  designSystemBundle: false,
+}
+
+// The design-system studio's product is the bundle: the seed repo's `mockups/`
+// and `product/ui-direction.md` are the agent's source material, never run
+// artifacts, so they are not roots at all for this preset.
+const DESIGN_SYSTEM_DESIGN_ARTIFACT_ROOTS: DesignArtifactRoots = {
+  mockups: false,
+  uiDirection: false,
+  inspiration: true,
+  designSystemBundle: true,
+}
+
+export function designArtifactRootsForPreset(preset: GuidedBriefPreset): DesignArtifactRoots {
+  return preset === 'design-system'
+    ? DESIGN_SYSTEM_DESIGN_ARTIFACT_ROOTS
+    : SHARED_ROOT_DESIGN_ARTIFACT_ROOTS
+}
+
+// --- Scaffold baseline (MC-1502) -------------------------------------------
+//
+// Written once by the guided-brief scaffold (full-brief / frontend-design)
+// before the designer session starts: a manifest of every file that already
+// existed under the shared roots. Discovery then shows only files that are new
+// or modified since the baseline. A missing or unreadable baseline (runs
+// created before this shipped) means no filtering — current behavior, no
+// migration. mtime alone is not trusted (git checkout resets it); size is
+// recorded alongside so either changing marks the file as run output.
+
+export const SCAFFOLD_BASELINE_RELATIVE_PATH = '.guided-brief/scaffold-baseline.json'
+
+export type ScaffoldBaselineFile = {
+  mtimeMs: number
+  size: number
+}
+
+export type ScaffoldBaseline = {
+  version: 1
+  /** Workspace-root-relative path (forward slashes) → pre-existing file stats. */
+  files: Record<string, ScaffoldBaselineFile>
+}
+
+/** A fs port that can stat — building an honest baseline requires real mtimes/sizes. */
+export type ScaffoldBaselinePort = DesignArtifactFsPort & {
+  statPath: NonNullable<DesignArtifactFsPort['statPath']>
+}
+
+export function serializeScaffoldBaseline(baseline: ScaffoldBaseline): string {
+  return JSON.stringify(baseline, null, 2)
+}
+
+/** Strict parse: any shape drift yields null (= no filtering), never a crash. */
+export function parseScaffoldBaseline(content: string): ScaffoldBaseline | null {
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(content)
+  } catch {
+    return null
+  }
+  if (typeof parsed !== 'object' || parsed === null) return null
+  const candidate = parsed as { version?: unknown; files?: unknown }
+  if (candidate.version !== 1) return null
+  if (typeof candidate.files !== 'object' || candidate.files === null) return null
+  const files: Record<string, ScaffoldBaselineFile> = {}
+  for (const [path, value] of Object.entries(candidate.files as Record<string, unknown>)) {
+    if (typeof value !== 'object' || value === null) return null
+    const record = value as { mtimeMs?: unknown; size?: unknown }
+    if (typeof record.mtimeMs !== 'number' || typeof record.size !== 'number') return null
+    files[path] = { mtimeMs: record.mtimeMs, size: record.size }
+  }
+  return { version: 1, files }
+}
+
+/**
+ * True when a file under a baseline-covered root belongs to this run: it is
+ * absent from the baseline (new) or its mtime/size differ (modified). A
+ * baseline-listed file whose current stats are unavailable counts as
+ * untouched — pre-existing files stay hidden unless demonstrably changed.
+ */
+export function isNewOrModifiedSinceBaseline(
+  baseline: ScaffoldBaseline | null | undefined,
+  relativePath: string,
+  stats: { modifiedAtMs: number; sizeBytes: number } | null,
+): boolean {
+  if (!baseline) return true
+  const recorded = baseline.files[relativePath]
+  if (!recorded) return true
+  if (!stats) return false
+  return stats.modifiedAtMs !== recorded.mtimeMs || stats.sizeBytes !== recorded.size
+}
+
+/**
+ * Record every file currently under the shared roots (`mockups/**`,
+ * `product/ui-direction.md`) with its mtime + size. Called at scaffold time,
+ * before the designer session writes anything, so the manifest is exactly the
+ * seed repo's pre-existing files. Files that vanish mid-walk are skipped —
+ * they no longer exist to leak into the index.
+ */
+export async function buildScaffoldBaseline(
+  workspaceRoot: string,
+  ports: ScaffoldBaselinePort,
+): Promise<ScaffoldBaseline> {
+  const files: Record<string, ScaffoldBaselineFile> = {}
+  const record = async (absolutePath: string, relativePath: string): Promise<void> => {
+    try {
+      const stats = await ports.statPath(absolutePath)
+      files[relativePath] = { mtimeMs: stats.modifiedAtMs, size: stats.sizeBytes }
+    } catch {
+      // Deleted between readdir and stat — nothing to baseline.
+    }
+  }
+
+  const mockupFiles = await collectFilesUnder(
+    joinWorkspacePath(workspaceRoot, MOCKUPS_DIRECTORY_NAME),
+    MOCKUPS_DIRECTORY_NAME,
+    ports,
+    0,
+  )
+  for (const file of mockupFiles) {
+    await record(file.absolutePath, file.relativePath)
+  }
+
+  const uiDirectionAbsolutePath = joinWorkspacePath(workspaceRoot, UI_DIRECTION_RELATIVE_PATH)
+  const uiDirectionExists = await ports.pathExists(uiDirectionAbsolutePath).catch(() => false)
+  if (uiDirectionExists) {
+    await record(uiDirectionAbsolutePath, UI_DIRECTION_RELATIVE_PATH)
+  }
+
+  return { version: 1, files }
+}
+
+/**
+ * Write the baseline manifest under `.guided-brief/` (app metadata, beside the
+ * inspiration drop dir) so it never ships inside run artifacts.
+ */
+export async function writeScaffoldBaseline(
+  workspaceRoot: string,
+  baseline: ScaffoldBaseline,
+  filesystem: {
+    ensureDir: (parent: string, name: string) => Promise<string>
+    writeFile: (path: string, content: string) => Promise<void>
+  },
+): Promise<void> {
+  await filesystem.ensureDir(workspaceRoot, '.guided-brief')
+  await filesystem.writeFile(
+    joinWorkspacePath(workspaceRoot, SCAFFOLD_BASELINE_RELATIVE_PATH),
+    serializeScaffoldBaseline(baseline),
+  )
+}
 
 // Recursion is shallow-bounded so a runaway tree can't lock the renderer —
 // matches the existing mockup walker in useDesignerSession.
@@ -137,17 +308,22 @@ function typeLabelFor(name: string, kind: DesignArtifactKind): string {
   return ext ? ext.toUpperCase() : 'File'
 }
 
-async function metadataFor(
+async function statFor(
   absolutePath: string,
   ports: DesignArtifactFsPort,
-): Promise<Pick<DesignArtifactEntry, 'modifiedAt' | 'modifiedAtMs'>> {
-  if (!ports.statPath) return {}
+): Promise<{ modifiedAt: string; modifiedAtMs: number; sizeBytes: number } | null> {
+  if (!ports.statPath) return null
   try {
-    const stats = await ports.statPath(absolutePath)
-    return { modifiedAt: stats.modifiedAt, modifiedAtMs: stats.modifiedAtMs }
+    return await ports.statPath(absolutePath)
   } catch {
-    return {}
+    return null
   }
+}
+
+function metadataFrom(
+  stats: { modifiedAt: string; modifiedAtMs: number } | null,
+): Pick<DesignArtifactEntry, 'modifiedAt' | 'modifiedAtMs'> {
+  return stats ? { modifiedAt: stats.modifiedAt, modifiedAtMs: stats.modifiedAtMs } : {}
 }
 
 // How a selected artifact should be previewed. Drives DesignArtifactPreviewPane:
@@ -235,74 +411,96 @@ async function collectFilesUnder(
 
 export type CollectDesignArtifactsOptions = {
   /**
-   * Also index the `design-system/` bundle tree. Passed only by design-system
-   * preset studios so full-brief / frontend-design workspaces keep their
-   * existing index untouched.
+   * Which workspace roots to index. Defaults to the shared roots
+   * (`mockups/**`, `product/ui-direction.md`, inspiration) used by the
+   * full-brief / frontend-design presets; design-system studios pass
+   * `designArtifactRootsForPreset('design-system')`.
    */
-  includeDesignSystemBundle?: boolean
+  roots?: DesignArtifactRoots
+  /**
+   * Scaffold-time manifest of files that pre-existed under the shared roots.
+   * When present, `mockups/**` and `product/ui-direction.md` are filtered to
+   * files new or modified since the baseline. Absent (runs created before the
+   * baseline shipped) → no filtering.
+   */
+  baseline?: ScaffoldBaseline | null
 }
 
 /**
  * Walk the real workspace for design artifacts and return a grouped index.
- * Covers `mockups/**` (classified by extension), `product/ui-direction.md`
- * (when present), `.guided-brief/inspiration/**` (any file), and — for
- * design-system preset studios — the `design-system/**` bundle tree. All
- * paths are read through the injected port so the collector is testable with
- * an in-memory filesystem and reuses `window.api` in the renderer.
+ * Roots are preset-scoped (MC-1502): `mockups/**` (classified by extension)
+ * and `product/ui-direction.md` for the shared-root presets — filtered by the
+ * scaffold baseline when one exists — `.guided-brief/inspiration/**` (any
+ * file), and the `design-system/**` bundle tree for design-system studios.
+ * All paths are read through the injected port so the collector is testable
+ * with an in-memory filesystem and reuses `window.api` in the renderer.
  */
 export async function collectDesignArtifacts(
   workspaceRoot: string,
   ports: DesignArtifactFsPort,
   options: CollectDesignArtifactsOptions = {},
 ): Promise<DesignArtifactIndex> {
+  const roots = options.roots ?? SHARED_ROOT_DESIGN_ARTIFACT_ROOTS
+  const baseline = options.baseline ?? null
   const entries: DesignArtifactEntry[] = []
 
-  const mockupFiles = await collectFilesUnder(
-    joinWorkspacePath(workspaceRoot, MOCKUPS_DIRECTORY_NAME),
-    MOCKUPS_DIRECTORY_NAME,
-    ports,
-    0,
-  )
-  for (const file of mockupFiles) {
-    const kind = classifyMockupFile(file.name)
-    if (!kind) continue
-    entries.push({
-      ...file,
-      kind,
-      typeLabel: typeLabelFor(file.name, kind),
-      ...(await metadataFor(file.absolutePath, ports)),
-    })
+  if (roots.mockups) {
+    const mockupFiles = await collectFilesUnder(
+      joinWorkspacePath(workspaceRoot, MOCKUPS_DIRECTORY_NAME),
+      MOCKUPS_DIRECTORY_NAME,
+      ports,
+      0,
+    )
+    for (const file of mockupFiles) {
+      const kind = classifyMockupFile(file.name)
+      if (!kind) continue
+      const stats = await statFor(file.absolutePath, ports)
+      if (!isNewOrModifiedSinceBaseline(baseline, file.relativePath, stats)) continue
+      entries.push({
+        ...file,
+        kind,
+        typeLabel: typeLabelFor(file.name, kind),
+        ...metadataFrom(stats),
+      })
+    }
   }
 
-  const uiDirectionAbsolutePath = joinWorkspacePath(workspaceRoot, UI_DIRECTION_RELATIVE_PATH)
-  const uiDirectionExists = await ports.pathExists(uiDirectionAbsolutePath).catch(() => false)
-  if (uiDirectionExists) {
-    entries.push({
-      name: basename(UI_DIRECTION_RELATIVE_PATH),
-      relativePath: UI_DIRECTION_RELATIVE_PATH,
-      absolutePath: uiDirectionAbsolutePath,
-      kind: 'notes',
-      typeLabel: typeLabelFor(UI_DIRECTION_RELATIVE_PATH, 'notes'),
-      ...(await metadataFor(uiDirectionAbsolutePath, ports)),
-    })
+  if (roots.uiDirection) {
+    const uiDirectionAbsolutePath = joinWorkspacePath(workspaceRoot, UI_DIRECTION_RELATIVE_PATH)
+    const uiDirectionExists = await ports.pathExists(uiDirectionAbsolutePath).catch(() => false)
+    if (uiDirectionExists) {
+      const stats = await statFor(uiDirectionAbsolutePath, ports)
+      if (isNewOrModifiedSinceBaseline(baseline, UI_DIRECTION_RELATIVE_PATH, stats)) {
+        entries.push({
+          name: basename(UI_DIRECTION_RELATIVE_PATH),
+          relativePath: UI_DIRECTION_RELATIVE_PATH,
+          absolutePath: uiDirectionAbsolutePath,
+          kind: 'notes',
+          typeLabel: typeLabelFor(UI_DIRECTION_RELATIVE_PATH, 'notes'),
+          ...metadataFrom(stats),
+        })
+      }
+    }
   }
 
-  const inspirationFiles = await collectFilesUnder(
-    joinWorkspacePath(workspaceRoot, INSPIRATION_DIRECTORY_NAME),
-    INSPIRATION_DIRECTORY_NAME,
-    ports,
-    0,
-  )
-  for (const file of inspirationFiles) {
-    entries.push({
-      ...file,
-      kind: 'inspiration',
-      typeLabel: typeLabelFor(file.name, 'inspiration'),
-      ...(await metadataFor(file.absolutePath, ports)),
-    })
+  if (roots.inspiration) {
+    const inspirationFiles = await collectFilesUnder(
+      joinWorkspacePath(workspaceRoot, INSPIRATION_DIRECTORY_NAME),
+      INSPIRATION_DIRECTORY_NAME,
+      ports,
+      0,
+    )
+    for (const file of inspirationFiles) {
+      entries.push({
+        ...file,
+        kind: 'inspiration',
+        typeLabel: typeLabelFor(file.name, 'inspiration'),
+        ...metadataFrom(await statFor(file.absolutePath, ports)),
+      })
+    }
   }
 
-  if (options.includeDesignSystemBundle) {
+  if (roots.designSystemBundle) {
     const bundleFiles = await collectFilesUnder(
       joinWorkspacePath(workspaceRoot, DESIGN_SYSTEM_BUNDLE_DIRECTORY_NAME),
       DESIGN_SYSTEM_BUNDLE_DIRECTORY_NAME,
@@ -316,10 +514,16 @@ export async function collectDesignArtifacts(
         ...file,
         kind,
         typeLabel: typeLabelFor(file.name, kind),
-        ...(await metadataFor(file.absolutePath, ports)),
+        ...metadataFrom(await statFor(file.absolutePath, ports)),
       })
     }
   }
 
   return buildDesignArtifactIndex(entries)
+}
+
+/** Count only files under `design-system/` — the honest "in the bundle" count. */
+export function designSystemBundleFileCount(index: DesignArtifactIndex): number {
+  const bundlePrefix = `${DESIGN_SYSTEM_BUNDLE_DIRECTORY_NAME}/`
+  return index.entries.filter((entry) => entry.relativePath.startsWith(bundlePrefix)).length
 }
