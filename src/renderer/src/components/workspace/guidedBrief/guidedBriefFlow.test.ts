@@ -23,6 +23,7 @@ import {
   collectDesignArtifacts,
   designArtifactRootsForPreset,
   designSystemBundleFileCount,
+  EMPTY_DESIGN_ARTIFACT_INDEX,
   findDesignArtifact,
   isHtmlDesignArtifact,
   isNewOrModifiedSinceBaseline,
@@ -34,6 +35,13 @@ import {
   type DesignArtifactKind,
   type ScaffoldBaseline,
 } from './designArtifacts'
+import {
+  buildComponentGalleryModel,
+  componentSectionCountLabel,
+  componentTitleFromMarkdown,
+  galleryComponentTitle,
+  humanizeComponentName,
+} from './componentGallery'
 import {
   browserOpenFailureMessage,
   htmlArtifactFrameSandbox,
@@ -981,10 +989,119 @@ function testCanvasStudioModel() {
   console.log('canvas-first studio model: ok')
 }
 
+// ---------------------------------------------------------------------------
+// Live component gallery (MC-1509): the gallery re-derives its sections from the
+// run-scoped design index, so the grouping/keying/counting decisions are pure
+// and asserted here rather than in the DOM.
+// ---------------------------------------------------------------------------
+function testComponentGalleryModel() {
+  assert.equal(humanizeComponentName('button'), 'Button', 'a single word is sentence-cased')
+  assert.equal(humanizeComponentName('task-card'), 'Task card', 'kebab dir names become sentence case')
+  assert.equal(humanizeComponentName('empty_state'), 'Empty state', 'snake dir names become sentence case')
+
+  assert.equal(componentTitleFromMarkdown('# Button\n\nThe action control.'), 'Button', 'title is the first h1')
+  assert.equal(
+    componentTitleFromMarkdown('intro\n\n#  Task card  \nbody'),
+    'Task card',
+    'a later h1 is found and trimmed',
+  )
+  assert.equal(componentTitleFromMarkdown('## Anatomy\nno h1 here'), null, 'no h1 yields no title')
+  assert.equal(componentTitleFromMarkdown(''), null, 'empty markdown yields no title')
+
+  function dsEntry(relativePath: string, kind: DesignArtifactKind, modifiedAtMs: number): DesignArtifactEntry {
+    const name = relativePath.split('/').at(-1) ?? relativePath
+    return { name, relativePath, absolutePath: `/ds/${relativePath}`, kind, typeLabel: 'X', modifiedAtMs }
+  }
+
+  const index = buildDesignArtifactIndex([
+    dsEntry('design-system/components/button/component.html', 'page', 100),
+    dsEntry('design-system/components/button/component.md', 'notes', 90),
+    dsEntry('design-system/components/button/component.css', 'stylesheet', 80),
+    // badge exists (css + md) but has no component.html yet → building.
+    dsEntry('design-system/components/badge/component.md', 'notes', 70),
+    dsEntry('design-system/components/badge/component.css', 'stylesheet', 60),
+    dsEntry('design-system/glyphs/search.svg', 'image', 50),
+    dsEntry('design-system/glyphs/close.svg', 'image', 40),
+    dsEntry('design-system/foundations/tokens.tokens.json', 'script', 30),
+    dsEntry('design-system/foundations/tokens.css', 'stylesheet', 20),
+    dsEntry('design-system/foundations/principles.md', 'notes', 10),
+  ])
+  const model = buildComponentGalleryModel(index)
+
+  assert.deepEqual(
+    model.components.map((component) => component.name),
+    ['badge', 'button'],
+    'components are the distinct component directories, sorted by name',
+  )
+  assert.deepEqual(
+    model.components.map((component) => component.state),
+    ['building', 'ready'],
+    'a directory without component.html is building; one with it is ready',
+  )
+  assert.equal(model.builtCount, 1)
+  assert.equal(model.buildingCount, 1)
+  assert.equal(componentSectionCountLabel(model), '1 built · 1 building', 'the count is honest about both states')
+
+  const button = model.components.find((component) => component.name === 'button')
+  assert.ok(button)
+  assert.equal(button?.htmlRelativePath, 'design-system/components/button/component.html')
+  assert.equal(button?.htmlAbsolutePath, '/ds/design-system/components/button/component.html')
+  assert.equal(
+    button?.renderKey,
+    'design-system/components/button/component.html::100',
+    'the render key is path+mtime so only a changed html re-renders the card',
+  )
+  assert.equal(button?.mdKey, 'design-system/components/button/component.md::90')
+
+  const badge = model.components.find((component) => component.name === 'badge')
+  assert.equal(badge?.htmlRelativePath, null, 'a building component has no html to render')
+  assert.equal(badge?.renderKey, 'design-system/components/badge::building', 'building cards get a stable non-mtime key')
+
+  // Title resolves from component.md when read, else the sentence-case dir name.
+  assert.equal(galleryComponentTitle(button!, '# Primary button\n'), 'Primary button', 'a read md heading wins')
+  assert.equal(galleryComponentTitle(button!, undefined), 'Button', 'an unread md falls back to the dir name')
+
+  assert.deepEqual(
+    model.glyphs.map((glyph) => glyph.name),
+    ['close', 'search'],
+    'glyphs are the svgs under glyphs/, sorted by path, extension stripped',
+  )
+  assert.equal(model.glyphs[0].key, 'design-system/glyphs/close.svg::40', 'glyph reads are cached by path+mtime')
+
+  assert.deepEqual(
+    model.foundations.map((foundation) => foundation.id),
+    ['tokens', 'principles'],
+    'foundations expose the tokens source and the principles doc',
+  )
+  assert.equal(
+    model.foundations[0].relativePath,
+    'design-system/foundations/tokens.tokens.json',
+    'the editable token source is preferred over the derived css',
+  )
+  assert.equal(model.isEmpty, false)
+
+  // An empty bundle yields the designed empty state, never a fabricated card.
+  const empty = buildComponentGalleryModel(EMPTY_DESIGN_ARTIFACT_INDEX)
+  assert.equal(empty.isEmpty, true, 'no bundle files → empty gallery')
+  assert.equal(empty.components.length, 0)
+  assert.equal(componentSectionCountLabel(empty), '0')
+
+  // A tokens.css-only bundle (no editable source) still surfaces the tokens card.
+  const cssOnly = buildComponentGalleryModel(
+    buildDesignArtifactIndex([dsEntry('design-system/foundations/tokens.css', 'stylesheet', 5)]),
+  )
+  assert.deepEqual(cssOnly.foundations.map((foundation) => foundation.relativePath), [
+    'design-system/foundations/tokens.css',
+  ], 'the derived tokens.css is the fallback link when no source exists')
+
+  console.log('component gallery model: ok')
+}
+
 void testCollectDesignArtifacts()
   .then(() => testCollectDesignSystemBundleArtifacts())
   .then(() => testRunScopedDiscovery())
   .then(() => testCanvasStudioModel())
+  .then(() => testComponentGalleryModel())
   .catch((error) => {
     console.error(error)
     process.exit(1)

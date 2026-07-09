@@ -1,6 +1,11 @@
 import { useEffect, useMemo, useState } from 'react'
-import { Tabs, Tooltip, TruncatedText, type TabItem } from '../../ui'
+import { htmlArtifactFrameSandbox, Tabs, Tooltip, TruncatedText, type TabItem } from '../../ui'
 import type { DesignerMockupFile } from './useDesignerSession'
+
+// The scripts-off sandbox policy is defined once in the shared HtmlPreviewCard
+// home (ui/) and reused here — re-exported so existing importers of the helper
+// (and the sandbox unit tests) keep resolving it from this module.
+export { htmlArtifactFrameSandbox }
 
 type Props = {
   mockups: DesignerMockupFile[]
@@ -19,10 +24,6 @@ type BrowserOpenState =
   | { kind: 'idle' }
   | { kind: 'opening' }
   | { kind: 'failed'; reason: string }
-
-export function htmlArtifactFrameSandbox(allowScripts: boolean): string {
-  return allowScripts ? 'allow-scripts' : ''
-}
 
 // Reviewing a responsive mockup needs real device widths, not whatever width
 // the pane happens to be. Fixed widths render the iframe on a centered,

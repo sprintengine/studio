@@ -22,11 +22,13 @@ import { ConversationPane } from './ConversationPane'
 import { useWorkspaceStore } from '../../../store/workspaceStore'
 import { HtmlArtifactFrame, MockupPreviewPane } from './MockupPreviewPane'
 import { DesignArtifactPreviewPane } from './DesignArtifactPreviewPane'
+import { ComponentGalleryPane } from './ComponentGalleryPane'
 import { RenderedBriefPane } from './RenderedBriefPane'
 import {
   CanvasStudio,
   canvasScreensFromIndex,
   type CanvasStudioNav,
+  type DesignSystemViewMode,
 } from './CanvasStudio'
 import {
   applyDesignArtifactSelection,
@@ -1653,16 +1655,27 @@ function DesignStudioBody({
   onSelectDesignArtifact: (entry: DesignArtifactEntry) => void
 }) {
   const selectedEntry = findDesignArtifact(designArtifacts, activeDesignArtifactPath)
+  // The design-system preset opens in the live component gallery (MC-1509);
+  // selecting any card or bundle file switches to the single-file (File) view.
+  // frontend-design has no gallery — its canvas is always the selected screen.
+  const [designSystemView, setDesignSystemView] = useState<DesignSystemViewMode>('gallery')
   // Canvas-first means a design fills the surface as soon as one exists: when
   // nothing is selected yet, default to the first indexed artifact (pages sort
   // first, so frontend-design lands on a screen) instead of an empty canvas.
-  // This also gives the design-system preset a visible canvas before its
-  // Screen/Gallery navigation lands (MC-1509/T6).
+  // The design-system preset opens in Gallery regardless, so this only primes
+  // the File view's selection.
   useEffect(() => {
     if (activeDesignArtifactPath) return
     const first = designArtifacts.entries[0]
     if (first) onSelectDesignArtifact(first)
   }, [activeDesignArtifactPath, designArtifacts, onSelectDesignArtifact])
+
+  const openBundleFile = (relativePath: string) => {
+    const entry = findDesignArtifact(designArtifacts, relativePath)
+    if (!entry) return
+    onSelectDesignArtifact(entry)
+    setDesignSystemView('file')
+  }
   // Honest bundle count (MC-1502): only files under design-system/ are "in the
   // bundle" — inspiration files are listed in their group but never counted.
   const bundleFileCount = designSystemBundleFileCount(designArtifacts)
@@ -1677,11 +1690,11 @@ function DesignStudioBody({
       : 'Describe the screens you want — files and preview update as they’re written'
 
   // frontend-design navigates its real HTML pages inline (≤6) or via the
-  // screens drawer (7+). design-system swaps the switcher for the Screen/Gallery
-  // toggle — gallery lands with MC-1509 (T6); until then it is a placeholder and
-  // the canvas shows the selected artifact.
+  // screens drawer (7+). design-system swaps the switcher for the Gallery/File
+  // toggle (MC-1509): Gallery is the live component grid, File the single-file
+  // preview of the selected bundle file.
   const nav: CanvasStudioNav = designSystem
-    ? { kind: 'gallery' }
+    ? { kind: 'gallery', mode: designSystemView, onSelectMode: setDesignSystemView }
     : {
         kind: 'screens',
         screens: canvasScreensFromIndex(designArtifacts),
@@ -1717,7 +1730,11 @@ function DesignStudioBody({
         ),
       }}
     >
-      <DesignArtifactPreviewPane entry={selectedEntry} />
+      {designSystem && designSystemView === 'gallery' ? (
+        <ComponentGalleryPane designArtifacts={designArtifacts} onOpenFile={openBundleFile} />
+      ) : (
+        <DesignArtifactPreviewPane entry={selectedEntry} />
+      )}
     </CanvasStudio>
   )
 }
