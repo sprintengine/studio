@@ -964,6 +964,10 @@ export type TerminalSessionSnapshot = {
   pathStyle?: TerminalPathStyle
   workspaceId?: string
   agentId?: string
+  // Display name from spawn metadata. The session-manager label for agent
+  // sessions whose agentId has no workspace.agents record (e.g. the Design
+  // Wizard's guided-brief-* specialists).
+  agentName?: string
   terminalId?: string
   // The agent's session id within its own CLI/harness (the id used to resume the
   // conversation), captured from lifecycle hooks. Distinct from `sessionId`,

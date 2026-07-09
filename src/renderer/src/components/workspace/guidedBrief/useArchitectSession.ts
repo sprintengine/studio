@@ -112,6 +112,9 @@ export function useArchitectSession({
     const sessionInput = {
       kind: 'architect' as const,
       workspaceRoot,
+      // Also threaded into the PTY spawn metadata so the session manager
+      // inventories the fallback-transport session.
+      ...(workspaceId ? { workspaceId } : {}),
       acceptedBriefSnapshotPath,
       sessionId: resolvedSessionId,
       cli,

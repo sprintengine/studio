@@ -2495,11 +2495,17 @@ export default function WorkspaceManager() {
   }
 
   const openSession = async (item: SessionItem) => {
+    // Wizard specialist rows (guided-brief-*) carry an agentId that has no
+    // workspace.agents record; updateAgent would fabricate one and
+    // focusOrAddAgentTab would open a pane for it. For those rows activation
+    // is plain workspace focus only.
+    const agentId =
+      item.agentId && item.workspace.agents[item.agentId] ? item.agentId : null
     const status = await window.api.terminalStatus(item.sessionId)
     if (!status.processAlive) {
       setTerminalSessions((sessions) => sessions.filter((session) => session.sessionId !== item.sessionId))
-      if (item.agentId) {
-        updateAgent(item.workspace.id, item.agentId, {
+      if (agentId) {
+        updateAgent(item.workspace.id, agentId, {
           cliStartRequested: false,
           cliHasLaunched: false,
           cliOnboardingPromptSent: false,
@@ -2508,9 +2514,9 @@ export default function WorkspaceManager() {
       return
     }
 
-    if (item.agentId) {
+    if (agentId) {
       const itemResumeCaps = resumeCapabilitiesForCli(item.cli, pluginCatalogEntries)
-      updateAgent(item.workspace.id, item.agentId, {
+      updateAgent(item.workspace.id, agentId, {
         name: item.label,
         cli: item.cli,
         cliSessionId: item.sessionId,
@@ -2525,16 +2531,17 @@ export default function WorkspaceManager() {
     setActiveWorkspaceForWindow(workspaceWindowId, item.workspace.id)
     setSessionsOpen(false)
 
+    if (!agentId && !item.terminalId) return
     requestAnimationFrame(() => {
-      const opened = item.agentId
-        ? focusOrAddAgentTab(item.workspace.id, item.agentId, item.label)
+      const opened = agentId
+        ? focusOrAddAgentTab(item.workspace.id, agentId, item.label)
         : item.terminalId
         ? focusOrAddTerminalTab(item.workspace.id, item.terminalId, item.label)
           : false
       if (opened) return
       window.setTimeout(() => {
-        if (item.agentId) {
-          focusOrAddAgentTab(item.workspace.id, item.agentId, item.label)
+        if (agentId) {
+          focusOrAddAgentTab(item.workspace.id, agentId, item.label)
         } else if (item.terminalId) {
         focusOrAddTerminalTab(item.workspace.id, item.terminalId, item.label)
         }
@@ -2552,7 +2559,9 @@ export default function WorkspaceManager() {
         ...(item.agentId ? { agentId: item.agentId } : {}),
       })
     }
-    if (item.agentId) {
+    // Guarded like openSession: a wizard row's agentId has no
+    // workspace.agents record, and updateAgent would fabricate one.
+    if (item.agentId && item.workspace.agents[item.agentId]) {
       updateAgent(item.workspace.id, item.agentId, {
         cliStartRequested: false,
         cliHasLaunched: false,

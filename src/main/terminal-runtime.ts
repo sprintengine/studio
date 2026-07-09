@@ -1634,6 +1634,7 @@ function retainFailedTerminalSession(input: {
   pathStyle?: TerminalSession['pathStyle']
   workspaceId?: string
   agentId?: string
+  agentName?: string
   terminalId?: string
   cli?: TerminalSession['cli']
   cwd?: string
@@ -2468,6 +2469,7 @@ async function spawnTerminalFromIpc(
       existingSession.sender = sender
       existingSession.workspaceId = workspaceId ?? existingSession.workspaceId
       existingSession.agentId = agentId ?? existingSession.agentId
+      existingSession.agentName = agentName ?? existingSession.agentName
       existingSession.terminalId = terminalId ?? existingSession.terminalId
       existingSession.kind = kind ?? existingSession.kind
       existingSession.executionMode = executionMode ?? existingSession.executionMode
@@ -2531,6 +2533,7 @@ async function spawnTerminalFromIpc(
             kind: kind ?? (shellOnly ? 'terminal' : 'agent'),
             workspaceId,
             agentId,
+            agentName,
             terminalId,
             cli: shellOnly ? undefined : cli,
             cwd: workingDirectory,
@@ -2564,6 +2567,7 @@ async function spawnTerminalFromIpc(
           kind: kind ?? (shellOnly ? 'terminal' : 'agent'),
           workspaceId,
           agentId,
+          agentName,
           terminalId,
           cli: shellOnly ? undefined : cli,
           cwd: workingDirectory,
@@ -2613,6 +2617,7 @@ async function spawnTerminalFromIpc(
             kind: kind ?? (shellOnly ? 'terminal' : 'agent'),
             workspaceId,
             agentId,
+            agentName,
             terminalId,
             cli: shellOnly ? undefined : cli,
             cwd: workingDirectory,
@@ -2779,6 +2784,7 @@ async function spawnTerminalFromIpc(
         pathStyle,
         workspaceId,
         agentId,
+        agentName,
         terminalId,
         // Seed the harness session id from the resume payload so it is known
         // (and snapshotted) immediately; the lifecycle hook refreshes it once
@@ -2822,6 +2828,7 @@ async function spawnTerminalFromIpc(
         kind: kind ?? (shellOnly ? 'terminal' : 'agent'),
         workspaceId,
         agentId,
+        agentName,
         terminalId,
         cli: shellOnly ? undefined : cli,
         cwd: cwd || process.cwd(),

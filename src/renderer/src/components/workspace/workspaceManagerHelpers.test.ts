@@ -21,7 +21,65 @@ function main(): void {
   assertAttentionFirstOrdering()
   assertAttentionToneNeverLies()
   assertConversationSessionsSurfaceInSessionItems()
+  assertWizardPtySessionsSurfaceWithHumanLabel()
   console.log('workspaceManagerHelpers.test.ts: all assertions passed')
+}
+
+// Wizard specialists on the PTY fallback transport spawn with workspaceId and
+// agentName in the snapshot but no workspace.agents record. They must surface
+// as labeled rows, and a conversation session for the same agent id must win
+// over a stale PTY twin instead of duplicating the row.
+function assertWizardPtySessionsSurfaceWithHumanLabel(): void {
+  const workspace = {
+    id: 'ws-wizard',
+    name: 'Design System Studio',
+    agents: {},
+  } as unknown as Workspace
+  const wizardPtySnap = {
+    sessionId: 'pty-wizard-1',
+    processAlive: true,
+    kind: 'agent',
+    workspaceId: 'ws-wizard',
+    agentId: 'guided-brief-design-system',
+    agentName: 'Design System Designer',
+    cli: 'claude-code',
+    activity: { kind: 'working', since: 10 },
+    lastOutputAt: 20,
+    lastInputAt: null,
+  } as unknown as TerminalSessionSnapshot
+
+  const items = getSessionItems([workspace], [wizardPtySnap], [])
+  assert.equal(items.length, 1, 'wizard PTY session with workspaceId surfaces')
+  assert.equal(items[0]?.label, 'Design System Designer', 'labels from snapshot agentName, not the raw agent id')
+  assert.equal(items[0]?.status, 'working')
+  assert.equal(items[0]?.agentId, 'guided-brief-design-system')
+
+  // Retained crash: the failed row keeps its human label too.
+  const failedSnap = {
+    ...(wizardPtySnap as unknown as Record<string, unknown>),
+    processAlive: false,
+    activity: { kind: 'failed', at: 30, exitCode: 1 },
+  } as unknown as TerminalSessionSnapshot
+  const failedItems = getSessionItems([workspace], [failedSnap], [])
+  assert.equal(failedItems.length, 1, 'crashed wizard session is retained')
+  assert.equal(failedItems[0]?.status, 'failed')
+  assert.equal(failedItems[0]?.label, 'Design System Designer')
+
+  // Same agent id on both transports: the conversation row wins, no duplicate.
+  const conversationTwin: ConversationSessionSummary = {
+    sessionId: 'conv-wizard-1',
+    workspaceId: 'ws-wizard',
+    agentId: 'guided-brief-design-system',
+    providerId: 'claude-agent',
+    modelId: 'sonnet',
+    status: 'active',
+    createdAt: 40,
+    updatedAt: 50,
+  }
+  const merged = getSessionItems([workspace], [wizardPtySnap], [conversationTwin])
+  assert.equal(merged.length, 1, 'stale PTY twin is deduplicated against the conversation session')
+  assert.equal(merged[0]?.sessionId, 'conv-wizard-1', 'the conversation row is the one kept')
+  assert.equal(merged[0]?.label, 'Design System Designer')
 }
 
 // Conversation (chat) agents have no PTY snapshot; their runtime summaries

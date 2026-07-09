@@ -16,6 +16,7 @@ import {
   deriveWorkspaceDisplayActivity,
   isLiveTerminal,
 } from '../../hooks/useTerminalSessions'
+import { GUIDED_BRIEF_AGENT_LABELS } from './guidedBrief/sessionAdapter'
 import type { Workspace } from '../../types/workspace'
 import type { MultiloopRoleDescriptor } from '../../specialists/specialistActions'
 import type { SessionItem } from './WorkspaceActions'
@@ -144,17 +145,12 @@ export const CONVERSATION_SESSION_STATUS: Record<ConversationSessionStatus, Sess
   stopped: null,
 }
 
-// Readable names for conversation sessions with no AgentState (the Design
+// Readable names for sessions with no workspace.agents record (the Design
 // Wizard's specialist sessions use stable agent ids, not workspace agents).
-const CONVERSATION_AGENT_LABELS: Record<string, string> = {
-  'guided-brief-strategist': 'Product Strategist',
-  'guided-brief-architect': 'Architect',
-  'guided-brief-designer': 'Frontend Designer',
-  'guided-brief-design-system': 'Design System Designer',
-}
-
+// Shared with the wizard's session adapters so both transports label from
+// one map.
 export function conversationAgentFallbackLabel(agentId: string): string {
-  return CONVERSATION_AGENT_LABELS[agentId] ?? agentId
+  return GUIDED_BRIEF_AGENT_LABELS[agentId] ?? agentId
 }
 
 // Attention-first comparator for rows within a workspace group: needs-input →
@@ -257,6 +253,14 @@ export function getSessionItems(
     ]
   })
 
+  // A specialist can leave a stale PTY session behind and run again on the
+  // conversation transport under the same agent id (both transports share the
+  // guided-brief-* ids). The conversation summary is the current run — drop
+  // the terminal twin instead of listing the agent twice.
+  const conversationAgentKeys = new Set(
+    conversationItems.map((item) => `${item.workspace.id} ${item.agentId}`),
+  )
+
   return terminalSessions
     .filter(
       (session) =>
@@ -282,6 +286,7 @@ export function getSessionItems(
 
       if (session.kind === 'agent') {
         if (!session.agentId) return []
+        if (conversationAgentKeys.has(`${workspace.id} ${session.agentId}`)) return []
         const agent = workspace.agents[session.agentId]
         const runtime = workspace.sprintEngineState?.sprintEngineAgents[session.agentId]
         const statusInfo = deriveSessionStatus(session, runtime?.status === 'needs_input')
@@ -297,7 +302,10 @@ export function getSessionItems(
             kind: session.kind,
             agentId: session.agentId,
             terminalId: null,
-            label: agent?.name || session.agentId,
+            // Wizard specialists (and any agent spawned with only snapshot
+            // metadata) have no workspace.agents record — label from the
+            // snapshot's agentName before falling back to the raw id.
+            label: agent?.name || session.agentName || session.agentId,
             cli: session.cli ?? agent?.cli ?? '',
             status: statusInfo.status,
             source: statusInfo.source,

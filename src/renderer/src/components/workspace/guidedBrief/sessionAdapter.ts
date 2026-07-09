@@ -79,6 +79,10 @@ export type GuidedBriefTerminalApi = {
 export type GuidedBriefStrategistSessionInput = {
   kind: 'strategist'
   workspaceRoot: string
+  // Owning workspace, threaded into the PTY spawn metadata so the session
+  // manager inventories the session (getSessionItems drops terminal sessions
+  // without a workspaceId).
+  workspaceId?: string
   sessionId?: string
   cli?: AgentCli
   cliModel?: string
@@ -91,6 +95,8 @@ export type GuidedBriefStrategistSessionInput = {
 export type GuidedBriefDesignerSessionInput = {
   kind: 'designer'
   workspaceRoot: string
+  // See GuidedBriefStrategistSessionInput.workspaceId.
+  workspaceId?: string
   acceptedBriefSnapshotPath?: string
   acceptedArchitecturePlanPath?: string | null
   sessionId?: string
@@ -120,6 +126,8 @@ export type GuidedBriefDesignerSessionInput = {
 export type GuidedBriefArchitectSessionInput = {
   kind: 'architect'
   workspaceRoot: string
+  // See GuidedBriefStrategistSessionInput.workspaceId.
+  workspaceId?: string
   acceptedBriefSnapshotPath?: string | null
   sessionId?: string
   cli?: AgentCli
@@ -248,6 +256,26 @@ export function promptForInput(
   })
 }
 
+// Stable per-specialist agent id, shared by BOTH transports: the conversation
+// transcript's resume cursor and the PTY spawn metadata key off the same id,
+// so the session manager never shows the same specialist under two identities.
+export function guidedBriefSpecialistAgentId(
+  input: Pick<GuidedBriefDesignerSessionInput, 'kind' | 'designSystem'> | { kind: Exclude<GuidedBriefSpecialistKind, 'designer'> },
+): string {
+  if (input.kind === 'designer' && input.designSystem) return 'guided-brief-design-system'
+  return `guided-brief-${input.kind}`
+}
+
+// Human session-manager labels for wizard specialists, keyed by the agent id
+// above. Wizard agents are never registered in workspace.agents, so both
+// transports label their session rows from this one map.
+export const GUIDED_BRIEF_AGENT_LABELS: Record<string, string> = {
+  'guided-brief-strategist': 'Product Strategist',
+  'guided-brief-architect': 'Architect',
+  'guided-brief-designer': 'Frontend Designer',
+  'guided-brief-design-system': 'Design System Designer',
+}
+
 export function markerForInput(input: StartGuidedBriefSpecialistSessionInput): string {
   if (input.kind === 'designer' && input.designSystem) return GUIDED_BRIEF_DESIGN_SYSTEM_MARKER
   return GUIDED_BRIEF_SPECIALIST_MARKERS[input.kind]
@@ -322,6 +350,8 @@ export async function startGuidedBriefSpecialistSession(
   const marker = markerForInput(input)
   const prompt = promptForInput(input, marker)
   const markerDetection = markerDetectionForInput(input, marker)
+  const agentId = guidedBriefSpecialistAgentId(input)
+  const agentName = GUIDED_BRIEF_AGENT_LABELS[agentId]
   const disposers: Array<() => void> = []
   let outputBuffer = ''
   let markerEmitted = false
@@ -385,7 +415,12 @@ export async function startGuidedBriefSpecialistSession(
     false,
     {
       kind: 'agent',
-      agentId: `guided-brief-${input.kind}`,
+      agentId,
+      // Inventory identity: the session manager only lists terminal sessions
+      // whose snapshot carries a workspaceId, and labels agent rows without a
+      // workspace.agents record from agentName.
+      ...(input.workspaceId ? { workspaceId: input.workspaceId } : {}),
+      ...(agentName ? { agentName } : {}),
       // All guided-brief specialists run unattended in a workspace the user is
       // actively watching — they read project files, search the web, and write a
       // couple of artifacts. Without bypass they stall on per-tool permission

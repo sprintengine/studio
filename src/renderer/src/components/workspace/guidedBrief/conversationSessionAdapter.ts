@@ -28,6 +28,7 @@ import type {
   GuidedInterviewQuestion,
 } from './interviewProtocol'
 import {
+  guidedBriefSpecialistAgentId,
   markerDetectionForInput,
   markerForInput,
   promptForInput,
@@ -70,10 +71,10 @@ export const GUIDED_BRIEF_ALLOWED_TOOLS = [
 
 // Stable per-role conversation agent id: the transcript (and its resume
 // cursor) live under this id, so re-entering a stage resumes the same CLI
-// session after a reload or restart.
+// session after a reload or restart. Delegates to the shared derivation so
+// both transports address one identity per specialist.
 export function guidedBriefConversationAgentId(input: StartGuidedBriefSpecialistSessionInput): string {
-  if (input.kind === 'designer' && input.designSystem) return 'guided-brief-design-system'
-  return `guided-brief-${input.kind}`
+  return guidedBriefSpecialistAgentId(input)
 }
 
 type PendingInterview = {

@@ -120,6 +120,9 @@ export function useStrategistSession({
     const sessionInput = {
       kind: 'strategist' as const,
       workspaceRoot,
+      // Also threaded into the PTY spawn metadata so the session manager
+      // inventories the fallback-transport session.
+      ...(workspaceId ? { workspaceId } : {}),
       sessionId: resolvedSessionId,
       cli,
       cliModel,
