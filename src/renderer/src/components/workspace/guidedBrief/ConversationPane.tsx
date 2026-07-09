@@ -27,6 +27,10 @@ type Props = {
   onAnswer?: (answerText: string) => void | boolean | Promise<boolean>
   /** Conversation transport only: recent streamed assistant text. */
   transcriptTail?: string
+  /** When hosted in the floating agent bubble (MC-1510), renders a minimize
+   * control in the header that collapses the card back to the bubble. Omit for
+   * the inline placements that have no bubble to collapse to. */
+  onCollapse?: () => void
 }
 
 // The terminal is the transport and the fallback, never hidden — only
@@ -47,6 +51,7 @@ export function ConversationPane({
   interview,
   onAnswer,
   transcriptTail,
+  onCollapse,
 }: Props) {
   const [terminalPreference, setTerminalPreference] = useState<TerminalPreference>('auto')
   const [answeredQuestionId, setAnsweredQuestionId] = useState<string | null>(null)
@@ -108,6 +113,18 @@ export function ConversationPane({
         </div>
         {liveStatus && !errorMessage ? (
           <StageStatusChip state={stageChipState(liveStatus, ready)} />
+        ) : null}
+        {onCollapse ? (
+          <button
+            type="button"
+            onClick={onCollapse}
+            aria-label="Minimize the conversation"
+            className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-[color:var(--text-muted)] transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-default)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--border-focus)]"
+          >
+            <svg viewBox="0 0 12 12" className="icon-xs" aria-hidden="true">
+              <path d="M2.5 6h7" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+            </svg>
+          </button>
         ) : null}
       </div>
 

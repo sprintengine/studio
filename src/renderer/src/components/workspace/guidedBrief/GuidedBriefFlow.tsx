@@ -21,11 +21,13 @@ import { RosterAndRunSettings } from '../newWorkspace/WizardControls'
 import { ConversationPane } from './ConversationPane'
 import { useWorkspaceStore } from '../../../store/workspaceStore'
 import { HtmlArtifactFrame, MockupPreviewPane } from './MockupPreviewPane'
-import { DesignFilesPane } from './DesignFilesPane'
 import { DesignArtifactPreviewPane } from './DesignArtifactPreviewPane'
 import { RenderedBriefPane } from './RenderedBriefPane'
-import { StageStudioBody } from './StageStudioBody'
-import { StageArtifactsPane, type StageArtifactFile } from './StageArtifactsPane'
+import {
+  CanvasStudio,
+  canvasScreensFromIndex,
+  type CanvasStudioNav,
+} from './CanvasStudio'
 import {
   applyDesignArtifactSelection,
   designSystemBundleFileCount,
@@ -33,7 +35,6 @@ import {
   DESIGN_SYSTEM_BUNDLE_DIRECTORY_NAME,
   type DesignArtifactEntry,
   type DesignArtifactIndex,
-  type DesignArtifactsStatus,
 } from './designArtifacts'
 import {
   canRelease,
@@ -853,7 +854,6 @@ export function GuidedBriefFlow({
             mockupCount={designer.mockups.length}
             designSystem={isDesignSystemPreset}
             designArtifacts={designer.designArtifacts}
-            designArtifactsStatus={designer.designArtifactsStatus}
             activeDesignArtifactPath={runtimeState.activeDesignArtifactPath ?? null}
             onSelectDesignArtifact={handleSelectDesignArtifact}
           />
@@ -1555,83 +1555,72 @@ function TextStageStudioBody({
   watchDirectoryPath: string
 }) {
   const [selectedPath, setSelectedPath] = useState<string | null>(null)
-  const stateFor = (fileReady: boolean): StageArtifactFile['state'] =>
-    !fileReady ? 'missing' : ready ? 'ready' : 'in-progress'
-  const files: StageArtifactFile[] = [
-    {
-      entry: {
-        name: plan.name,
-        relativePath: plan.relativePath,
-        absolutePath: plan.absolutePath,
-        kind: 'notes',
-        typeLabel: 'Markdown',
-      },
-      state: stateFor(plan.fileReady),
-    },
-    {
-      entry: {
-        name: overview.name,
-        relativePath: overview.relativePath,
-        absolutePath: overview.absolutePath,
-        kind: 'page',
-        typeLabel: 'HTML',
-      },
-      state: stateFor(overview.fileReady),
-    },
-  ]
   const effectiveSelected =
     selectedPath ?? (ready && overview.fileReady ? overview.relativePath : plan.relativePath)
 
+  // The stage's small fixed document set on the canvas: the canonical markdown
+  // (brief / plan) and the agent-produced HTML preview. The pill toggles which
+  // one the canvas renders; a not-yet-written document shows its own unavailable
+  // state, never a blank tab.
+  const nav: CanvasStudioNav = {
+    kind: 'documents',
+    documents: [
+      { id: plan.relativePath, label: plan.title },
+      { id: overview.relativePath, label: 'Preview' },
+    ],
+    activeId: effectiveSelected,
+    onSelect: setSelectedPath,
+  }
+
   return (
-    <StageStudioBody
-      activity={
-        <ConversationPane
-          session={session}
-          starting={starting}
-          errorMessage={errorMessage}
-          specialistName={specialistName}
-          specialistSubline={specialistSubline}
-          working={working}
-          liveStatus={liveStatus}
-          ready={ready}
-          interview={interview}
-          onAnswer={onAnswer}
-          transcriptTail={transcriptTail}
-        />
-      }
-      artifacts={
-        <StageArtifactsPane
-          files={files}
-          selectedPath={effectiveSelected}
-          onSelect={(entry) => setSelectedPath(entry.relativePath)}
-        />
-      }
-      preview={
-        effectiveSelected === overview.relativePath ? (
-          <HtmlArtifactFrame
-            absolutePath={overview.absolutePath}
-            relativePath={overview.relativePath}
-            watchDirectoryPath={watchDirectoryPath}
+    <CanvasStudio
+      nav={nav}
+      agent={{
+        name: specialistName,
+        liveStatus,
+        ready,
+        renderConversation: ({ onCollapse }) => (
+          <ConversationPane
+            session={session}
+            starting={starting}
+            errorMessage={errorMessage}
+            specialistName={specialistName}
+            specialistSubline={specialistSubline}
+            working={working}
+            liveStatus={liveStatus}
+            ready={ready}
+            interview={interview}
+            onAnswer={onAnswer}
+            transcriptTail={transcriptTail}
+            onCollapse={onCollapse}
           />
-        ) : (
-          <RenderedBriefPane
-            briefPath={plan.absolutePath}
-            watchDirectoryPath={watchDirectoryPath}
-            title={plan.title}
-            displayPath={plan.relativePath}
-            unavailableTitle={plan.unavailableTitle}
-            missingReason={plan.missingReason}
-            emptyReason={plan.emptyReason}
-          />
-        )
-      }
-    />
+        ),
+      }}
+    >
+      {effectiveSelected === overview.relativePath ? (
+        <HtmlArtifactFrame
+          absolutePath={overview.absolutePath}
+          relativePath={overview.relativePath}
+          watchDirectoryPath={watchDirectoryPath}
+        />
+      ) : (
+        <RenderedBriefPane
+          briefPath={plan.absolutePath}
+          watchDirectoryPath={watchDirectoryPath}
+          title={plan.title}
+          displayPath={plan.relativePath}
+          unavailableTitle={plan.unavailableTitle}
+          missingReason={plan.missingReason}
+          emptyReason={plan.emptyReason}
+        />
+      )}
+    </CanvasStudio>
   )
 }
 
-// Designer studio (both presets): Activity (live designer terminal), Design
-// Files (real on-disk index), and Preview (selected artifact) shown
-// concurrently on the shared StageStudioBody shell.
+// Designer studio (both presets): the selected artifact fills the canvas, the
+// screens switcher / gallery placeholder rides the floating pill, and the
+// designer lives in the floating agent bubble (CanvasStudio shell, MC-1510).
 function DesignStudioBody({
   session,
   starting,
@@ -1645,7 +1634,6 @@ function DesignStudioBody({
   mockupCount,
   designSystem = false,
   designArtifacts,
-  designArtifactsStatus,
   activeDesignArtifactPath,
   onSelectDesignArtifact,
 }: {
@@ -1661,7 +1649,6 @@ function DesignStudioBody({
   mockupCount: number
   designSystem?: boolean
   designArtifacts: DesignArtifactIndex
-  designArtifactsStatus: DesignArtifactsStatus
   activeDesignArtifactPath: string | null
   onSelectDesignArtifact: (entry: DesignArtifactEntry) => void
 }) {
@@ -1670,41 +1657,58 @@ function DesignStudioBody({
   // bundle" — inspiration files are listed in their group but never counted.
   const bundleFileCount = designSystemBundleFileCount(designArtifacts)
 
+  const specialistName = designSystem ? 'Design System Designer' : 'Frontend Designer'
+  const specialistSubline = designSystem
+    ? bundleFileCount > 0
+      ? `${bundleFileCount} file${bundleFileCount === 1 ? '' : 's'} in the bundle · ask for changes anytime`
+      : 'Describe the system you want — tokens, components, and patterns land as real files'
+    : mockupCount > 0
+      ? `${mockupCount} screen${mockupCount === 1 ? '' : 's'} in this run · ask for changes anytime`
+      : 'Describe the screens you want — files and preview update as they’re written'
+
+  // frontend-design navigates its real HTML pages inline (≤6) or via the
+  // screens drawer (7+). design-system swaps the switcher for the Screen/Gallery
+  // toggle — gallery lands with MC-1509 (T6); until then it is a placeholder and
+  // the canvas shows the selected artifact.
+  const nav: CanvasStudioNav = designSystem
+    ? { kind: 'gallery' }
+    : {
+        kind: 'screens',
+        screens: canvasScreensFromIndex(designArtifacts),
+        activeId: activeDesignArtifactPath,
+        onSelect: (id) => {
+          const entry = findDesignArtifact(designArtifacts, id)
+          if (entry) onSelectDesignArtifact(entry)
+        },
+      }
+
   return (
-    <StageStudioBody
-      activity={
-        <ConversationPane
-          session={session}
-          starting={starting}
-          errorMessage={errorMessage}
-          specialistName={designSystem ? 'Design System Designer' : 'Frontend Designer'}
-          specialistSubline={
-            designSystem
-              ? bundleFileCount > 0
-                ? `${bundleFileCount} file${bundleFileCount === 1 ? '' : 's'} in the bundle · ask for changes anytime`
-                : 'Describe the system you want — tokens, components, and patterns land as real files'
-              : mockupCount > 0
-                ? `${mockupCount} screen${mockupCount === 1 ? '' : 's'} in this run · ask for changes anytime`
-                : 'Describe the screens you want — files and preview update as they’re written'
-          }
-          working={working}
-          liveStatus={liveStatus}
-          ready={ready}
-          interview={interview}
-          onAnswer={onAnswer}
-          transcriptTail={transcriptTail}
-        />
-      }
-      artifacts={
-        <DesignFilesPane
-          index={designArtifacts}
-          status={designArtifactsStatus}
-          selectedPath={activeDesignArtifactPath}
-          onSelect={onSelectDesignArtifact}
-        />
-      }
-      preview={<DesignArtifactPreviewPane entry={selectedEntry} />}
-    />
+    <CanvasStudio
+      nav={nav}
+      agent={{
+        name: specialistName,
+        liveStatus,
+        ready,
+        renderConversation: ({ onCollapse }) => (
+          <ConversationPane
+            session={session}
+            starting={starting}
+            errorMessage={errorMessage}
+            specialistName={specialistName}
+            specialistSubline={specialistSubline}
+            working={working}
+            liveStatus={liveStatus}
+            ready={ready}
+            interview={interview}
+            onAnswer={onAnswer}
+            transcriptTail={transcriptTail}
+            onCollapse={onCollapse}
+          />
+        ),
+      }}
+    >
+      <DesignArtifactPreviewPane entry={selectedEntry} />
+    </CanvasStudio>
   )
 }
 

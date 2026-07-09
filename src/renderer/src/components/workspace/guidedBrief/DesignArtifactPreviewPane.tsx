@@ -6,7 +6,7 @@ import { RenderedBriefPane } from './RenderedBriefPane'
 import { previewKindForArtifact, type DesignArtifactEntry } from './designArtifacts'
 
 type Props = {
-  /** The artifact selected in DesignFilesPane, or null when nothing is selected. */
+  /** The artifact selected via the canvas screen switcher, or null when nothing is selected. */
   entry: DesignArtifactEntry | null
 }
 
@@ -279,7 +279,7 @@ function SourceArtifactView({ entry }: { entry: DesignArtifactEntry }) {
 }
 
 /**
- * Previews the real design artifact selected in DesignFilesPane, dispatching by
+ * Previews the real design artifact selected via the canvas screen switcher, dispatching by
  * type: HTML through the shared sandboxed iframe, markdown through the existing
  * rendered-markdown pane, images inline, and CSS/JS/JSON/text as read-only
  * source. There is no separate preview list — the pane only reflects the
@@ -290,8 +290,8 @@ export function DesignArtifactPreviewPane({ entry }: Props) {
     return (
       <div className="flex h-full min-h-0 flex-col overflow-hidden rounded-md border border-[color:var(--border-default)] bg-[color:var(--bg-surface)]">
         <CenteredState
-          title="No file selected"
-          body="Pick a file in Design files to preview it here."
+          title="No screen selected"
+          body="Pick a screen from the toolbar to preview it here."
         />
       </div>
     )

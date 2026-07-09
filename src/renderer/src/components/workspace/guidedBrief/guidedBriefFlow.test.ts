@@ -40,6 +40,15 @@ import {
   resolveHtmlArtifactView,
 } from './MockupPreviewPane'
 import { nextDesignerStageForReadiness } from './useDesignerSession'
+import {
+  agentInitials,
+  bubbleDotTone,
+  bubbleNeedsAttention,
+  bubbleStatusLine,
+  canvasScreensFromIndex,
+  INLINE_SCREEN_SWITCHER_MAX,
+  screenSwitcherMode,
+} from './CanvasStudio/canvasStudioModel'
 
 const guidedDefaults = {
   guidedRoleCliDefaults: {
@@ -897,9 +906,85 @@ async function testRunScopedDiscovery(): Promise<void> {
   console.log('run-scoped discovery: ok')
 }
 
+// ---------------------------------------------------------------------------
+// Canvas-first studio shell (MC-1510): the switcher/bubble decisions the
+// CanvasStudio renders from are pure, so they are asserted here rather than in
+// the DOM.
+// ---------------------------------------------------------------------------
+function testCanvasStudioModel() {
+  // Screen switcher: ≤6 screens ride inline in the pill; 7+ collapse to the
+  // drawer. The boundary sits exactly at INLINE_SCREEN_SWITCHER_MAX.
+  assert.equal(INLINE_SCREEN_SWITCHER_MAX, 6, 'inline switcher caps at 6 screens')
+  assert.equal(screenSwitcherMode(0), 'inline', 'no screens stays inline')
+  assert.equal(screenSwitcherMode(6), 'inline', '6 screens ride inline in the pill')
+  assert.equal(screenSwitcherMode(7), 'drawer', '7 screens collapse to the drawer')
+
+  // Screens are the real HTML pages (the `pages` group), in index order; other
+  // groups (styles, notes) never appear in the switcher.
+  const index = {
+    groups: [
+      {
+        id: 'pages' as const,
+        label: 'Pages',
+        entries: [
+          { name: 'onboarding.html', relativePath: 'mockups/onboarding.html', absolutePath: '/w/mockups/onboarding.html', kind: 'page' as const, typeLabel: 'HTML' },
+          { name: 'jobs.html', relativePath: 'mockups/jobs.html', absolutePath: '/w/mockups/jobs.html', kind: 'page' as const, typeLabel: 'HTML' },
+        ],
+      },
+      {
+        id: 'stylesheets' as const,
+        label: 'Styles',
+        entries: [
+          { name: 'app.css', relativePath: 'mockups/app.css', absolutePath: '/w/mockups/app.css', kind: 'stylesheet' as const, typeLabel: 'CSS' },
+        ],
+      },
+    ],
+    entries: [],
+    count: 3,
+  }
+  assert.deepEqual(
+    canvasScreensFromIndex(index),
+    [
+      { id: 'mockups/onboarding.html', name: 'onboarding.html' },
+      { id: 'mockups/jobs.html', name: 'jobs.html' },
+    ],
+    'only HTML pages become canvas screens, in index order',
+  )
+  assert.deepEqual(
+    canvasScreensFromIndex({ groups: [], entries: [], count: 0 }),
+    [],
+    'an index with no pages yields no screens',
+  )
+
+  // Collapsed bubble status line + dot tone come from the same live stage status
+  // (MC-1503) the header chip shows — the stage-ready flip wins over live status.
+  assert.equal(bubbleStatusLine('working', false), 'Working', 'working reads as Working')
+  assert.equal(
+    bubbleStatusLine('needs-input', false),
+    'Waiting for your input',
+    'a pending question reads as waiting',
+  )
+  assert.equal(bubbleStatusLine('idle', true), 'Ready for review', 'the ready flip wins over idle')
+  assert.equal(bubbleStatusLine(undefined, false), 'Idle', 'an absent session rests at Idle')
+  assert.equal(bubbleDotTone('needs-input', false), 'var(--tone-warn)', 'waiting dot is warn-toned')
+  assert.equal(bubbleDotTone('idle', true), 'var(--tone-good)', 'ready dot is good-toned')
+
+  // Only a live pending question pulls the eye (attention ring).
+  assert.equal(bubbleNeedsAttention('needs-input'), true, 'a pending question needs attention')
+  assert.equal(bubbleNeedsAttention('working'), false, 'a working agent does not')
+  assert.equal(bubbleNeedsAttention(undefined), false, 'an absent session does not')
+
+  // Avatar initials: two words → first letters; one word → first two letters.
+  assert.equal(agentInitials('Frontend Designer'), 'FD', 'two words take their initials')
+  assert.equal(agentInitials('Architect'), 'AR', 'one word takes its first two letters')
+
+  console.log('canvas-first studio model: ok')
+}
+
 void testCollectDesignArtifacts()
   .then(() => testCollectDesignSystemBundleArtifacts())
   .then(() => testRunScopedDiscovery())
+  .then(() => testCanvasStudioModel())
   .catch((error) => {
     console.error(error)
     process.exit(1)
