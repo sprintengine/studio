@@ -1,8 +1,14 @@
-// Compose the srcDoc for annotate mode. The security invariant that lets us turn
-// `allow-scripts` on for this mode: neutralize every author <script> so the only
-// code that runs is our injected picker. `allow-same-origin` is never granted,
-// so the frame stays an opaque origin regardless. The normal scripts-off preview
-// path (MockupPreviewPane) does not use this composer and is untouched.
+// Compose the srcDoc for annotate mode. The LOAD-BEARING security control is
+// that `allow-same-origin` is never granted, so the frame is always an opaque
+// origin and any author code that does run cannot reach the parent DOM, app
+// cookies, storage, or same-origin backends. Neutralizing author <script> tags
+// is defense-in-depth on top of that, not the boundary: it removes the common
+// script path, but inline `on*` handlers and `javascript:` URLs are NOT stripped
+// and still execute under `allow-scripts` (same as the pre-existing
+// interactive-demo toggle, which runs raw author scripts under this same
+// sandbox). See composeAnnotateSrcDoc for the residual surface and T14's
+// security review. The normal scripts-off preview path (MockupPreviewPane) does
+// not use this composer and is untouched.
 
 import { buildAnnotatePickerSource } from './pickerRuntime'
 
