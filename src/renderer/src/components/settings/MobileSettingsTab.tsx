@@ -28,7 +28,7 @@ type MobileControlCapability =
   | 'backlog.create'
 
 type MobileControlDevice = {
-  protocolVersion: 1
+  protocolVersion: 2
   deviceId: string
   displayName: string
   platform: 'ios' | 'android' | 'web'
@@ -91,7 +91,7 @@ type MobileBridgeState = {
   pairingChallenge: Omit<MobileBridgePairingChallenge, 'pairingCode' | 'pairingUri'> | null
   pairedDevices: MobileControlDevice[]
   capabilities: {
-    protocolVersion: 1
+    protocolVersion: 2
     deviceId: string
     commands: MobileControlCommandType[]
     capabilities: MobileControlCapability[]

@@ -110,7 +110,7 @@ async function assertCommandFailureAndDesktopOfflinePublishNotifications(): Prom
 
 function snapshot(sprintEngines: MobileSprintEngineSnapshot[]): MobileControlSnapshot {
   return {
-    protocolVersion: 1,
+    protocolVersion: 2,
     generatedAt: now.toISOString(),
     desktopSessionId: 'desktop_1',
     sprintEngines,

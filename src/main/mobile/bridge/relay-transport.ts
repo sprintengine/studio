@@ -11,7 +11,7 @@ import type {
   RelayPairingChallengeResult,
 } from './index'
 
-const mobileControlProtocolVersion = 1 as const
+const mobileControlProtocolVersion = 2 as const
 
 const RELAY_SUPPORTED_COMMANDS: RelayCommandType[] = [
   'snapshot.request',
@@ -263,7 +263,7 @@ function optionalPairingPayload(
   }
 
   return {
-    mobileControlProtocolVersion: 1,
+    mobileControlProtocolVersion: 2,
     pairingChallengeId: requireRelayString(pairingPayload, 'pairingChallengeId'),
     relayUrl: requireRelayString(pairingPayload, 'relayUrl'),
     pairingSecret: requireRelayString(pairingPayload, 'pairingSecret'),

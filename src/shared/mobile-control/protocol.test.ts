@@ -325,7 +325,7 @@ assert.equal(validateMobileControlCommand(validCommand).ok, true);
 assert.equal(validateMobileControlCommand(validTaskStartCommand).ok, true);
 assert.equal(validateMobileControlSnapshot(validSnapshot).ok, true);
 
-assertInvalid("unknown protocol version", validateMobileControlCommand({ ...validCommand, protocolVersion: 2 }));
+assertInvalid("unknown protocol version", validateMobileControlCommand({ ...validCommand, protocolVersion: 999 }));
 assertInvalid("unknown command type", validateMobileControlCommand({ ...validCommand, type: "terminal.write" }));
 assertInvalid(
   "missing command payload field",

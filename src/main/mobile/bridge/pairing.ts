@@ -1,5 +1,5 @@
 type PairingPayload = {
-  mobileControlProtocolVersion: 1
+  mobileControlProtocolVersion: 2
   pairingChallengeId: string
   relayUrl: string
   pairingSecret: string
@@ -47,7 +47,7 @@ export function manualPairingValueFromRelayChallenge(challenge: PairingChallenge
 function isCurrentMobilePairingUri(pairingUri: string): boolean {
   try {
     const params = new URL(pairingUri).searchParams
-    return params.get('mobileControlProtocolVersion') === '1'
+    return params.get('mobileControlProtocolVersion') === '2'
       && Boolean(params.get('pairingChallengeId')?.trim())
       && Boolean(params.get('relayUrl')?.trim() || params.get('relay')?.trim())
       && Boolean(params.get('pairingSecret')?.trim())

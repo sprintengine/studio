@@ -12,7 +12,7 @@ import type {
 import { relayCommandTypeToMobile } from './relay-command'
 import { deepRedactLocalPaths } from '../sprintengine/relay-path-safety'
 
-const mobileControlProtocolVersion = 1 as const
+const mobileControlProtocolVersion = 2 as const
 export const relayResultSummaryMaxBytes = 256 * 1024
 
 export function relaySummaryByteLength(value: unknown): number {

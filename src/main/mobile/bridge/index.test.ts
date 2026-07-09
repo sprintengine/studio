@@ -556,7 +556,7 @@ class PairingChallengeRelayTransport extends FakeRelayTransport {
         }).toString(),
       ].join(''),
       pairingPayload: {
-        mobileControlProtocolVersion: 1 as const,
+        mobileControlProtocolVersion: 2 as const,
         pairingChallengeId: 'pcha_current',
         relayUrl: 'https://relay.test',
         pairingSecret: 'psec_current',
@@ -691,7 +691,7 @@ class RelayServiceBackedTransport implements MobileRelayTransport {
       desktopInstanceId: input.desktopInstanceId,
       displayName: input.displayName,
       capabilities: {
-        mobileControlProtocolVersion: 1,
+        mobileControlProtocolVersion: 2,
         commands: input.commands,
       },
     })

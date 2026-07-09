@@ -2,7 +2,7 @@ import { createHash, randomUUID } from 'crypto'
 import type { MobileSprintEngineCommandAuditEntry } from './command'
 import type { MobileControlSnapshot, MobileSprintEngineArtifactSnapshot, MobileSprintEngineSnapshot, MobileSprintEngineTaskSnapshot } from './snapshot'
 
-const mobileControlProtocolVersion = 1 as const
+const mobileControlProtocolVersion = 2 as const
 
 export type MobileNotificationCategory =
   | 'artifact.ready'

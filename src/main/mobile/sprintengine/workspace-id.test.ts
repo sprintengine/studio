@@ -31,7 +31,7 @@ async function main(): Promise<void> {
 
 function buildSnapshotFixture(root: string): MobileControlSnapshot {
   return {
-    protocolVersion: 1,
+    protocolVersion: 2,
     generatedAt: '2026-06-27T00:00:00.000Z',
     desktopSessionId: 'sess',
     sprintEngines: [

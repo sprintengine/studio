@@ -1,4 +1,4 @@
-export const mobileControlProtocolVersion = 1 as const;
+export const mobileControlProtocolVersion = 2 as const;
 export const mobileControlWorkspaceSnapshotVersion = 2 as const;
 
 export type MobileControlProtocolVersion = typeof mobileControlProtocolVersion;

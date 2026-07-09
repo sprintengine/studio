@@ -10,7 +10,7 @@ import {
   redactPushRegistration,
 } from './validation'
 
-const mobileControlProtocolVersion = 1 as const
+const mobileControlProtocolVersion = 2 as const
 
 export function registerMobilePushToken(
   pairedDevices: MobileControlDevice[],

@@ -1844,7 +1844,7 @@ export type MobileControlCapability =
   | 'backlog.create'
 
 export type MobileControlDevice = {
-  protocolVersion: 1
+  protocolVersion: 2
   deviceId: string
   displayName: string
   platform: 'ios' | 'android' | 'web'
@@ -1856,7 +1856,7 @@ export type MobileControlDevice = {
 }
 
 export type MobileControlCapabilities = {
-  protocolVersion: 1
+  protocolVersion: 2
   deviceId: string
   commands: MobileControlCommandType[]
   capabilities: MobileControlCapability[]
