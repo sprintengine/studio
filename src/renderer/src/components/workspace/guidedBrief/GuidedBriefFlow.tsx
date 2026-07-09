@@ -1199,13 +1199,9 @@ function DesignSystemReleaseCard({
     phase.kind === 'released'
       ? displayLibraryPath(phase.release.path)
       : releaseDestinationDisplay(bundleName, version)
-  const saveDisabledReason = inFlight
-    ? null
-    : phase.kind === 'lint-failed'
-      ? 'Saving is blocked until the bundle passes lint.'
-      : !versionValid
-        ? 'Enter a semver version like 1.0.0.'
-        : null
+  // Reasons for the version row only — the lint-failed state renders its own
+  // action pair (ask-designer primary + disabled save) instead of this row.
+  const saveDisabledReason = inFlight ? null : !versionValid ? 'Enter a semver version like 1.0.0.' : null
   const buttonLabel = releaseButtonLabel(phase)
 
   const versionRow = (
@@ -1213,7 +1209,7 @@ function DesignSystemReleaseCard({
       <input
         value={version}
         onChange={(event) => onChangeVersion(event.target.value)}
-        disabled={inFlight || phase.kind === 'lint-failed'}
+        disabled={inFlight}
         aria-label="Release version"
         aria-invalid={!versionValid}
         aria-describedby={RELEASE_VERSION_HINT_ID}
@@ -1230,7 +1226,7 @@ function DesignSystemReleaseCard({
       />
       <PrimaryButton
         onClick={onRelease}
-        disabled={!armed || phase.kind === 'lint-failed'}
+        disabled={!armed}
         aria-label={saveDisabledReason ? `${buttonLabel} — ${saveDisabledReason}` : undefined}
       >
         {buttonLabel}

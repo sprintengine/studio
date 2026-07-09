@@ -1,4 +1,6 @@
 import assert from 'node:assert/strict'
+import { readFileSync } from 'node:fs'
+import { join } from 'node:path'
 import {
   guidedBriefHandoffChecklist,
   guidedBriefPlanningDecisionNotes,
@@ -60,6 +62,22 @@ import {
   INLINE_SCREEN_SWITCHER_MAX,
   screenSwitcherMode,
 } from './CanvasStudio/canvasStudioModel'
+import {
+  addAnnotation,
+  anchorFromSelect,
+  annotateAvailability,
+  annotateCountLabel,
+  annotateFrameSandbox,
+  annotateSubmitLabel,
+  annotationDisplayRect,
+  composerPlacement,
+  pinPlacement,
+  removeAnnotation,
+  submitFailureMessage,
+  updateAnnotationMessage,
+} from './annotate/annotateModel'
+import { ANNOTATE_MESSAGE_CHANNEL, pageRectToOverlayRect } from './annotate/bridge'
+import type { MockupAnnotation } from './annotate/types'
 
 const guidedDefaults = {
   guidedRoleCliDefaults: {
