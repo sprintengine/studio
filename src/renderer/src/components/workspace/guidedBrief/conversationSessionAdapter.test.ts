@@ -26,8 +26,109 @@ async function main(): Promise<void> {
   await testLiveSessionIsAdoptedInsteadOfDuplicated()
   await testResumeSendsContinuationInsteadOfPrompt()
   testStageReadinessTruthTable()
+  await testConversationAdversarialMarkerSequences()
 
   console.log('conversationSessionAdapter tests passed')
+}
+
+// MC-1506 layer 2, conversation transport: the marker-detection regression net
+// over the clean content_delta stream (no ANSI, no prompt chrome). Pairs with
+// sessionAdapter.test.ts, which covers the same adversarial cases over the messy
+// PTY stream. The marker is only the re-validation trigger; readiness is the
+// truth table above — these assert the transport never manufactures a marker it
+// should not, and never loses one it should catch.
+async function testConversationAdversarialMarkerSequences(): Promise<void> {
+  // marker quoted in prose: a line equal to the marker flips; the marker
+  // mentioned inside a sentence never does.
+  {
+    const fake = createFakeApi()
+    const markers: string[] = []
+    const lifecycles: string[] = []
+    const result = await startGuidedBriefConversationSession(STRATEGIST_INPUT, {
+      conversationApi: fake.api,
+      onMarker: (marker) => markers.push(marker),
+      onLifecycle: (state) => lifecycles.push(state),
+    })
+    assert.equal(result.ok, true)
+    fake.pushEvent({ type: 'content_delta', payload: { turnId: 't1', text: "I'll print BRIEF_READY once the brief is written.\n" } })
+    fake.pushEvent({ type: 'content_delta', payload: { turnId: 't1', text: 'Until then BRIEF_READY stays unprinted.\n' } })
+    assert.deepEqual(markers, [], 'the marker quoted inside prose must never flip the stage')
+    assert.equal(lifecycles.includes('ready'), false)
+  }
+
+  // artifacts-without-marker: the specialist finishes its output without ever
+  // emitting the marker line, then the session closes. The stream signal is
+  // `exited`, not `ready` — readiness then rests on files + a quiet agent (the
+  // truth table), where the marker is demoted, never on the stream alone.
+  {
+    const fake = createFakeApi()
+    const markers: string[] = []
+    const lifecycles: string[] = []
+    const result = await startGuidedBriefConversationSession(STRATEGIST_INPUT, {
+      conversationApi: fake.api,
+      onMarker: (marker) => markers.push(marker),
+      onLifecycle: (state) => lifecycles.push(state),
+    })
+    assert.equal(result.ok, true)
+    fake.pushEvent({ type: 'content_delta', payload: { turnId: 't1', text: 'Wrote product/requirements.md. Done.\n' } })
+    fake.pushEvent({ type: 'session_closed', payload: { turnId: 't1' } })
+    assert.deepEqual(markers, [], 'no marker was ever printed')
+    assert.equal(lifecycles.at(-1), 'exited', 'a clean close without a marker is exited, not ready')
+  }
+
+  // crash mid-write: a partial marker line is torn off by the session closing.
+  // It must not complete, and the close is `exited`.
+  {
+    const fake = createFakeApi()
+    const markers: string[] = []
+    const lifecycles: string[] = []
+    const result = await startGuidedBriefConversationSession(STRATEGIST_INPUT, {
+      conversationApi: fake.api,
+      onMarker: (marker) => markers.push(marker),
+      onLifecycle: (state) => lifecycles.push(state),
+    })
+    assert.equal(result.ok, true)
+    fake.pushEvent({ type: 'content_delta', payload: { turnId: 't1', text: 'Draft in progress\nBRIEF_' } })
+    fake.pushEvent({ type: 'session_closed', payload: { turnId: 't1' } })
+    assert.deepEqual(markers, [], 'a torn-off partial marker never completes')
+    assert.equal(lifecycles.at(-1), 'exited', 'a crash before the marker completes ends exited, not ready')
+  }
+
+  // question-pending vs readiness: a pending question is surfaced but is not a
+  // readiness signal — no marker fires while the specialist waits on the user.
+  {
+    const fake = createFakeApi()
+    const markers: string[] = []
+    const interviews: GuidedInterviewState[] = []
+    const result = await startGuidedBriefConversationSession(STRATEGIST_INPUT, {
+      conversationApi: fake.api,
+      onMarker: (marker) => markers.push(marker),
+      onInterview: (state) => interviews.push(state),
+    })
+    assert.equal(result.ok, true)
+    fake.pushEvent({
+      type: 'approval_requested',
+      payload: {
+        turnId: 't1',
+        requestId: 'req-q',
+        kind: 'question',
+        summary: 'Which platform first?',
+        questions: [{ question: 'Which platform first?', multiSelect: false, options: [{ label: 'Web' }, { label: 'iOS' }] }],
+      },
+    })
+    assert.equal(interviews.at(-1)?.currentQuestion?.question, 'Which platform first?')
+    assert.deepEqual(markers, [], 'a pending question is not a readiness signal — no marker fires')
+  }
+
+  // marker-with-invalid-bundle (both transports, via the shared readiness gate):
+  // a DESIGN_SYSTEM_READY marker over a bundle whose lint fails must NOT flip the
+  // stage. This is the case that regresses the instant anyone reverts readiness to
+  // marker-only — the marker is demoted, the lint finding wins.
+  const readyOverBrokenBundle = isStageReady({
+    artifactsValid: designSystemArtifactsValid({ manifestParses: true, lintClean: false }),
+    agentQuiet: isAgentQuiet('idle'),
+  })
+  assert.equal(readyOverBrokenBundle, false, 'a marker over a lint-failing bundle must never flip the stage')
 }
 
 // MC-1503: readiness = validated artifacts AND a quiet agent, with the marker
