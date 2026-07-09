@@ -1100,7 +1100,7 @@ async function testGuidedBriefScaffoldSurvivesBaselineFailure(): Promise<void> {
     guidedRoleCliDefaults: { product: 'claude-code', architect: 'claude-code', frontend: 'claude-code' },
     buildRoleCounts: { architect: 1, product: 1, frontend: 0, developer: 0, performance: 0, cross_platform: 0, tester: 0, security: 0 },
     buildRoleCliDefaults: { architect: 'claude-code', product: 'claude-code', frontend: 'claude-code', developer: 'claude-code', performance: 'claude-code', cross_platform: 'claude-code', tester: 'claude-code', security: 'claude-code' },
-    buildCliPermissionPreset: 'default',
+    buildCliPermissionPreset: 'default' as const,
     buildStartRunner: false,
     buildAutoApproveArtifacts: false,
   }
