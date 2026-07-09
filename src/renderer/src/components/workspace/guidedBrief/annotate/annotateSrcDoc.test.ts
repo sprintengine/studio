@@ -12,7 +12,7 @@ import {
   readTrustedAnnotateMessage,
   type OverlayTransform,
 } from './bridge'
-import type { AnnotationRect } from './types'
+import type { AnnotationRect, MockupAnnotation } from './types'
 import {
   buildSnippetExcerpt,
   buildUniqueSelector,
@@ -186,5 +186,16 @@ for (const zoom of [1, 0.75, 0.5]) {
     )
   }
 }
+
+// MockupAnnotation is exactly the item's v1 anchor shape: {selector, snippet,
+// message, rect}. The type annotation compile-checks the shape; the runtime
+// key check locks it against silent additions the sinks (T11) would serialize.
+const annotation: MockupAnnotation = {
+  selector: 'body > h1',
+  snippet: '<h1>Hi</h1>',
+  message: 'make it bigger',
+  rect: { x: 0, y: 0, width: 100, height: 40 },
+}
+assert.deepEqual(Object.keys(annotation).sort(), ['message', 'rect', 'selector', 'snippet'])
 
 console.log('annotateSrcDoc.test.ts: ok')
