@@ -13,10 +13,11 @@ import { startGuidedBriefConversationSession } from './conversationSessionAdapte
 import { DESIGN_SYSTEM_MANIFEST_FILENAME } from '../../../../../shared/design-system/manifest'
 import { useStageLiveStatus } from './useStageLiveStatus'
 import {
-  designSystemArtifactsValid,
+  classifyDesignSystemBundle,
   frontendDesignArtifactsValid,
   isAgentQuiet,
   isStageReady,
+  type DesignSystemValidationState,
   type StageLiveStatus,
 } from './stageReadiness'
 import {
@@ -73,6 +74,13 @@ export type DesignerSessionReadiness = {
   mockupsAvailable: boolean
   uiDirectionReady: boolean
   isReady: boolean
+  /**
+   * design-system preset only: why the bundle contract passed or failed on the
+   * last quiet-edge validation, so the studio can say WHY the stage is
+   * un-ready (lint findings vs broken manifest vs nothing authored yet).
+   * Always 'pending' for the other presets.
+   */
+  designSystemValidation: DesignSystemValidationState
 }
 
 export type DesignerSessionStatus =
@@ -172,7 +180,9 @@ export function useDesignerSession({
   const [transcriptTail, setTranscriptTail] = useState('')
   // design-system preset only: the bundle manifest parses AND the bundle lint
   // reports no findings, evaluated on quiet edges (see the validation effect).
-  const [designSystemValid, setDesignSystemValid] = useState(false)
+  // The classified state keeps WHY it failed so the footer can surface it.
+  const [designSystemValidation, setDesignSystemValidation] =
+    useState<DesignSystemValidationState>('pending')
 
   const uiDirectionAbsolutePath = joinWorkspacePath(workspaceRoot, UI_DIRECTION_RELATIVE_PATH)
   const mockupsDirectoryPath = joinWorkspacePath(workspaceRoot, MOCKUPS_DIRECTORY_NAME)
@@ -515,14 +525,29 @@ export function useDesignerSession({
     // `markerReceived` re-checks ui-direction the moment the marker lands.
   }, [enabled, uiDirectionAbsolutePath, workspaceRoot, designSystem, markerReceived])
 
+  // Identity of the on-disk bundle as the artifact index last saw it. Feeding
+  // this into the validation effect re-validates when bundle files change
+  // WHILE the agent is quiet (a user deleting design-system.json in Finder,
+  // hand-edits) — without it the stage keeps a stale 'valid' until the next
+  // quiet/marker edge. Agent writes happen while it is working (not quiet), so
+  // this preserves the quiet-edges-only lint-fork bound: the index poll
+  // coalesces changes and the signature is unchanged on no-op ticks.
+  const designSystemBundleSignature = designSystem
+    ? designArtifacts.entries
+        .map((entry) => `${entry.relativePath}::${entry.modifiedAtMs ?? 0}`)
+        .join('|')
+    : ''
+
   // design-system readiness contract (MC-1503): the bundle manifest parses AND
   // the real bundle lint returns no findings. Evaluated only on quiet edges —
-  // when the agent goes quiet, and again when the marker lands — never on every
-  // write (the lint forks a process). A mid-write agent, a malformed manifest,
-  // or a deleted design-system.json all leave this false.
+  // when the agent goes quiet, when the marker lands, and when the on-disk
+  // bundle changes while quiet — never on every agent write (the lint forks a
+  // process). A mid-write agent, a malformed manifest, or a deleted
+  // design-system.json all leave this un-valid, and the classified state keeps
+  // the reason for the footer hint.
   useEffect(() => {
     if (!enabled || !designSystem || !agentQuiet) {
-      setDesignSystemValid(false)
+      setDesignSystemValidation('pending')
       return
     }
     let cancelled = false
@@ -531,7 +556,7 @@ export function useDesignerSession({
       workspaceRoot,
       `${DESIGN_SYSTEM_BUNDLE_DIRECTORY_NAME}/${DESIGN_SYSTEM_MANIFEST_FILENAME}`,
     )
-    const validate = async (): Promise<boolean> => {
+    const validate = async (): Promise<DesignSystemValidationState> => {
       const content = await window.api.readfile(manifestPath).catch(() => null)
       let manifestParses = false
       if (content !== null) {
@@ -543,19 +568,19 @@ export function useDesignerSession({
         }
       }
       // Skip the fork when the manifest is missing/broken — nothing to lint.
-      const lintClean = manifestParses
-        ? Boolean((await window.api.lintDesignSystemBundle(bundleDir).catch(() => null))?.ok)
-        : false
-      return designSystemArtifactsValid({ manifestParses, lintClean })
+      const lintResult = manifestParses
+        ? await window.api.lintDesignSystemBundle(bundleDir).catch(() => null)
+        : null
+      return classifyDesignSystemBundle({ manifestContent: content, lintResult })
     }
-    void validate().then((valid) => {
-      if (!cancelled) setDesignSystemValid(valid)
+    void validate().then((state) => {
+      if (!cancelled) setDesignSystemValidation(state)
     })
     return () => {
       cancelled = true
     }
     // `markerReceived` re-runs the validation the moment the marker lands.
-  }, [enabled, designSystem, agentQuiet, workspaceRoot, markerReceived])
+  }, [enabled, designSystem, agentQuiet, workspaceRoot, markerReceived, designSystemBundleSignature])
 
   const mockupsAvailable = mockups.length > 0
   // Readiness = validated artifact set AND a quiet agent (MC-1503). The marker
@@ -565,7 +590,7 @@ export function useDesignerSession({
   // (intended change from the old `mockupsAvailable`-alone rule). Accept remains
   // gated on real files only — see GuidedBriefFlow.acceptDesigner.
   const artifactsValid = designSystem
-    ? designSystemValid
+    ? designSystemValidation === 'valid'
     : frontendDesignArtifactsValid({
         pageCount: mockups.length,
         uiDirectionNonEmpty: uiDirectionReady,
@@ -596,7 +621,7 @@ export function useDesignerSession({
   return {
     status,
     error,
-    readiness: { markerReceived, mockupsAvailable, uiDirectionReady, isReady },
+    readiness: { markerReceived, mockupsAvailable, uiDirectionReady, isReady, designSystemValidation },
     liveStatus,
     session,
     uiDirectionPath: uiDirectionAbsolutePath,

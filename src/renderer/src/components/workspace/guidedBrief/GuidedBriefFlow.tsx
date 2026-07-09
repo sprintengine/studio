@@ -85,7 +85,7 @@ import {
 } from './types'
 import type { GuidedInterviewState } from './interviewProtocol'
 import type { GuidedBriefSpecialistSession } from './sessionAdapter'
-import type { StageLiveStatus } from './stageReadiness'
+import { designSystemReadinessHint, type StageLiveStatus } from './stageReadiness'
 
 export type GuidedBriefRunOptions = {
   startRunner: boolean
@@ -1497,16 +1497,12 @@ function DesignerReadinessHint({
   if (designSystem) {
     // Design-system studios have no UI-direction artifact; readiness is the
     // validated bundle contract (manifest parses + lint clean + quiet agent).
-    if (readiness.isReady) {
-      return (
-        <span className="shrink-0 truncate text-[12px] text-[color:var(--text-subtle)]">
-          Ask for changes anytime — the gallery updates as files change.
-        </span>
-      )
-    }
+    // The un-ready copy names the real cause (lint findings, broken manifest)
+    // so a lint that never passes reads as "fix the lint", never as an
+    // eternal "waiting for files" — see designSystemReadinessHint.
     return (
       <span className="shrink-0 truncate text-[12px] text-[color:var(--text-subtle)]">
-        Waiting for the first design-system files.
+        {designSystemReadinessHint(readiness.isReady, readiness.designSystemValidation)}
       </span>
     )
   }

@@ -8,7 +8,9 @@ import {
   type GuidedBriefConversationApi,
 } from './conversationSessionAdapter'
 import {
+  classifyDesignSystemBundle,
   designSystemArtifactsValid,
+  designSystemReadinessHint,
   frontendDesignArtifactsValid,
   isAgentQuiet,
   isStageReady,
@@ -26,6 +28,7 @@ async function main(): Promise<void> {
   await testLiveSessionIsAdoptedInsteadOfDuplicated()
   await testResumeSendsContinuationInsteadOfPrompt()
   testStageReadinessTruthTable()
+  testDesignSystemValidationClassificationAndHint()
   await testConversationAdversarialMarkerSequences()
 
   console.log('conversationSessionAdapter tests passed')
@@ -192,6 +195,66 @@ function testStageReadinessTruthTable(): void {
   assert.equal(stageChipState('failed', false), 'failed')
   assert.equal(stageChipState('idle', false), 'idle')
   assert.equal(stageChipState('absent', false), 'idle')
+}
+
+// Failure-mode surfacing (T18): the design-system validation state names WHY
+// the contract failed, and the footer hint copy for each failure names its
+// cause — a lint that never passes must read as "fix the lint", never as an
+// eternal "waiting for files" (silent-stall guard).
+function testDesignSystemValidationClassificationAndHint(): void {
+  // Classification: missing manifest, broken manifest, lint findings, lint
+  // runner failure, and the passing bundle.
+  assert.equal(
+    classifyDesignSystemBundle({ manifestContent: null, lintResult: null }),
+    'manifest-missing',
+    'deleted/unreadable manifest ⇒ manifest-missing',
+  )
+  assert.equal(
+    classifyDesignSystemBundle({ manifestContent: '{not json', lintResult: null }),
+    'manifest-invalid',
+    'hand-broken manifest ⇒ manifest-invalid',
+  )
+  assert.equal(
+    classifyDesignSystemBundle({ manifestContent: '{}', lintResult: { ok: false, kind: 'findings' } }),
+    'lint-findings',
+  )
+  assert.equal(
+    classifyDesignSystemBundle({ manifestContent: '{}', lintResult: { ok: false, kind: 'error' } }),
+    'lint-error',
+    'lint could not run ⇒ lint-error, never valid',
+  )
+  assert.equal(
+    classifyDesignSystemBundle({ manifestContent: '{}', lintResult: null }),
+    'lint-error',
+    'lint IPC failure ⇒ lint-error, never valid',
+  )
+  assert.equal(
+    classifyDesignSystemBundle({ manifestContent: '{}', lintResult: { ok: true } }),
+    'valid',
+  )
+
+  // Only 'valid' satisfies the readiness contract.
+  for (const state of ['pending', 'manifest-missing', 'manifest-invalid', 'lint-findings', 'lint-error'] as const) {
+    assert.equal(
+      isStageReady({ artifactsValid: (state as string) === 'valid', agentQuiet: true }),
+      false,
+      `${state} ⇒ not ready`,
+    )
+  }
+
+  // Hint copy: ready wins; each failure names its cause; only the
+  // genuinely-indeterminate states keep the waiting copy.
+  assert.match(designSystemReadinessHint(true, 'valid'), /Ask for changes anytime/)
+  assert.match(designSystemReadinessHint(false, 'lint-findings'), /lint found issues/)
+  assert.match(designSystemReadinessHint(false, 'lint-error'), /lint could not run/)
+  assert.match(designSystemReadinessHint(false, 'manifest-invalid'), /syntax error/)
+  assert.match(designSystemReadinessHint(false, 'manifest-missing'), /Waiting for the first design-system files/)
+  assert.match(designSystemReadinessHint(false, 'pending'), /Waiting for the first design-system files/)
+  assert.doesNotMatch(
+    designSystemReadinessHint(false, 'lint-findings'),
+    /Waiting for/,
+    'a lint stall must never present as waiting-for-files',
+  )
 }
 
 type FakeApi = {
