@@ -40,14 +40,24 @@ import {
 } from './designArtifacts'
 import {
   canRelease,
+  displayLibraryPath,
   initialReleaseVersion,
+  isReleaseInFlight,
   isValidReleaseVersion,
+  lintFixRequestMessage,
+  lintIssueCountLabel,
+  parseLintFindings,
   releaseButtonLabel,
+  releaseDestinationDisplay,
   releasePhaseAfterLint,
   releasePhaseAfterRelease,
   releaseStatusLine,
   type DesignSystemReleasePhase,
 } from './designSystemRelease'
+import {
+  DESIGN_SYSTEM_MANIFEST_FILENAME,
+  parseDesignSystemManifest,
+} from '../../../../../shared/design-system/manifest'
 import { useArchitectSession } from './useArchitectSession'
 import {
   useDesignerSession,
@@ -647,9 +657,10 @@ export function GuidedBriefFlow({
   }
 
   // The design-system studio has no build tail: authoring continues in place
-  // and the "Save as design system" release action replaces the primary
-  // action. Version prefill: last released version (bump to re-release), or
-  // 1.0.0 for a first release.
+  // and the release card floating over the canvas is the completion surface
+  // (the approved "release card → canvas overlay" placement, MC-1505 §4).
+  // Version prefill: last released version (bump to re-release), or 1.0.0 for
+  // a first release.
   const releaseVersion =
     releaseVersionDraft ?? initialReleaseVersion(runtimeState.designSystemLastRelease ?? null)
   const releaseArmed = canRelease({
@@ -657,6 +668,69 @@ export function GuidedBriefFlow({
     designerReady: designer.readiness.isReady,
     version: releaseVersion,
   })
+
+  // Destination line identity: the bundle manifest's real name, read when the
+  // stage reaches ready (readiness itself proved the manifest parses — see
+  // useDesignerSession's design-system contract). Unknown name → the card
+  // omits the destination rather than invent one.
+  const designSystemReady = isDesignSystemPreset && designer.readiness.isReady
+  const [bundleName, setBundleName] = useState<string | null>(null)
+  useEffect(() => {
+    if (!designSystemReady) return
+    let cancelled = false
+    const manifestPath = joinWorkspacePath(
+      workspaceRoot,
+      `${DESIGN_SYSTEM_BUNDLE_DIRECTORY_NAME}/${DESIGN_SYSTEM_MANIFEST_FILENAME}`,
+    )
+    void window.api
+      .readfile(manifestPath)
+      .then((content) => {
+        if (cancelled) return
+        try {
+          setBundleName(parseDesignSystemManifest(content).name)
+        } catch {
+          setBundleName(null)
+        }
+      })
+      .catch(() => {
+        if (!cancelled) setBundleName(null)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [designSystemReady, workspaceRoot])
+
+  // Blocked-card primary action: the lint findings go to the designer as one
+  // message (the user never hand-fixes bundle files). Sending hands the queue
+  // to the designer, so the card returns to idle for the next attempt; a
+  // delivery failure surfaces as an explicit error phase.
+  const askDesignerToFixLint = () => {
+    if (releasePhase.kind !== 'lint-failed') return
+    const session = designer.session
+    if (!session) return
+    const message = lintFixRequestMessage(releasePhase.findings, session.transport)
+    if (session.transport === 'conversation') {
+      void window.api
+        .conversationSessionSendTurn({ sessionId: session.sessionId, message })
+        .then((result) => {
+          if (!result.ok) {
+            setReleasePhase({
+              kind: 'error',
+              message: `Could not send the lint findings to the designer. ${result.message}`,
+            })
+          }
+        })
+        .catch(() => {
+          setReleasePhase({
+            kind: 'error',
+            message: 'Could not send the lint findings to the designer.',
+          })
+        })
+    } else {
+      window.api.terminalWriteFast(session.sessionId, `${message}\r`)
+    }
+    setReleasePhase({ kind: 'idle' })
+  }
 
   const releaseDesignSystem = async () => {
     if (!releaseArmed) return
@@ -683,15 +757,24 @@ export function GuidedBriefFlow({
     }
   }
 
+  // The design-system release action lives on the canvas (release card), not
+  // in the footer — only in the ready state, per the approved mockup: before
+  // that there is nothing lint-clean to save, and the footer hint says so.
+  const releaseCard = designSystemReady ? (
+    <DesignSystemReleaseCard
+      phase={releasePhase}
+      version={releaseVersion}
+      armed={releaseArmed}
+      bundleName={bundleName}
+      designerSessionLive={designer.session !== null}
+      onChangeVersion={(value) => setReleaseVersionDraft(value)}
+      onRelease={() => void releaseDesignSystem()}
+      onAskDesigner={askDesignerToFixLint}
+    />
+  ) : null
+
   const primaryAction = isDesignSystemPreset
-    ? renderDesignSystemReleaseAction({
-        phase: releasePhase,
-        version: releaseVersion,
-        designerReady: designer.readiness.isReady,
-        armed: releaseArmed,
-        onChangeVersion: (value) => setReleaseVersionDraft(value),
-        onRelease: () => void releaseDesignSystem(),
-      })
+    ? null
     : renderPrimaryAction({
         stage,
         accepting,
@@ -858,6 +941,7 @@ export function GuidedBriefFlow({
             designArtifacts={designer.designArtifacts}
             activeDesignArtifactPath={runtimeState.activeDesignArtifactPath ?? null}
             onSelectDesignArtifact={handleSelectDesignArtifact}
+            releaseCard={releaseCard}
           />
         ) : (
           <HandoffBody
@@ -869,25 +953,6 @@ export function GuidedBriefFlow({
           />
         )}
       </main>
-
-      {isDesignSystemPreset && releasePhase.kind === 'lint-failed' ? (
-        <div
-          role="region"
-          aria-label="Design-system lint findings"
-          className="shrink-0 border-t border-[color:var(--bg-surface-raised)] bg-[color:var(--bg-surface)] px-5 py-3"
-        >
-          <span className="text-[12px] font-semibold text-[color:var(--text-strong)]">
-            Lint findings — release blocked
-          </span>
-          {/* Focusable so keyboard users can scroll findings that overflow. */}
-          <pre
-            tabIndex={0}
-            className="mt-2 max-h-40 overflow-auto whitespace-pre-wrap font-mono text-[11px] leading-4 text-[color:var(--text-default)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--accent-primary)]"
-          >
-            {releasePhase.findings}
-          </pre>
-        </div>
-      ) : null}
 
       <footer className="flex shrink-0 items-center gap-3 border-t border-[color:var(--bg-surface-raised)] px-5 py-3">
         {reviewing && reviewingStage ? (
@@ -902,23 +967,7 @@ export function GuidedBriefFlow({
         ) : (
           <>
             <span className="flex min-w-0 flex-1 items-center gap-3">
-              {isDesignSystemPreset && releasePhase.kind !== 'idle' ? (
-                // Live region wraps the truncated line (TruncatedText does not
-                // forward ARIA props), so phase changes are announced.
-                <span aria-live="polite" className="flex min-w-0 flex-1">
-                  <TruncatedText
-                    as="span"
-                    text={releaseStatusLine(releasePhase) ?? ''}
-                    className={`text-[12px] ${
-                      releasePhase.kind === 'lint-failed' || releasePhase.kind === 'error'
-                        ? 'text-[color:var(--tone-error)]'
-                        : releasePhase.kind === 'released'
-                          ? 'text-[color:var(--text-default)]'
-                          : 'text-[color:var(--text-subtle)]'
-                    }`}
-                  />
-                </span>
-              ) : stage === 'designer-working' || stage === 'designer-ready' ? (
+              {stage === 'designer-working' || stage === 'designer-ready' ? (
                 <DesignerReadinessHint
                   readiness={designer.readiness}
                   designSystem={isDesignSystemPreset}
@@ -1110,64 +1159,68 @@ function ReviewBody({
   )
 }
 
-// Completion action for the design-system studio: a semver input + the
-// release button, replacing the Sprint Engine build tail for this preset.
-// Disabled reasons must stay reachable without hover (a disabled button is
-// unfocusable): the tooltip is the sighted shortcut, while the same reason
-// rides an always-present aria-label on the button (mirroring the waiting
-// Continue button) and the version format hint is tied to the input via
-// aria-describedby. Phase labels come from designSystemRelease.ts so the five
-// states (validating / releasing / released / lint-failed / error) stay
-// text-distinct.
+// The design-system studio's completion surface (MC-1505 §4, approved T4
+// mockup): a card floating over the canvas, replacing the old footer
+// version-input row. Rendered only in the ready state — readiness itself
+// proved the manifest parses and the bundle lint is clean (useDesignerSession's
+// design-system contract), so the idle card's "Lint clean" chip surfaces that
+// computation instead of re-running the lint. Phase lifecycle and copy come
+// from designSystemRelease.ts; every state is explicit: a lint failure shows
+// the report's own rows and routes them to the designer as one message, and a
+// pipeline error names itself with a retry — never a silent fallback.
+// Disabled reasons stay reachable without hover (a disabled button is
+// unfocusable): the reason rides an always-present aria-label on the button,
+// and the version format hint is tied to the input via aria-describedby and
+// becomes visible text while the version is invalid.
 const RELEASE_VERSION_HINT_ID = 'design-system-release-version-hint'
 
-function renderDesignSystemReleaseAction({
+function DesignSystemReleaseCard({
   phase,
   version,
-  designerReady,
   armed,
+  bundleName,
+  designerSessionLive,
   onChangeVersion,
   onRelease,
+  onAskDesigner,
 }: {
   phase: DesignSystemReleasePhase
   version: string
-  designerReady: boolean
   armed: boolean
+  bundleName: string | null
+  designerSessionLive: boolean
   onChangeVersion: (value: string) => void
   onRelease: () => void
+  onAskDesigner: () => void
 }) {
-  const inFlight = phase.kind === 'validating' || phase.kind === 'releasing'
+  const inFlight = isReleaseInFlight(phase)
   const versionValid = isValidReleaseVersion(version)
-  const disabledReason = inFlight
+  const destination =
+    phase.kind === 'released'
+      ? displayLibraryPath(phase.release.path)
+      : releaseDestinationDisplay(bundleName, version)
+  const saveDisabledReason = inFlight
     ? null
-    : !designerReady
-      ? 'Available once the designer signals the bundle is ready.'
+    : phase.kind === 'lint-failed'
+      ? 'Saving is blocked until the bundle passes lint.'
       : !versionValid
         ? 'Enter a semver version like 1.0.0.'
         : null
   const buttonLabel = releaseButtonLabel(phase)
-  const button = (
-    <PrimaryButton
-      onClick={onRelease}
-      disabled={!armed}
-      aria-label={disabledReason ? `${buttonLabel} — ${disabledReason}` : undefined}
-    >
-      {buttonLabel}
-    </PrimaryButton>
-  )
-  return (
-    <span className="flex shrink-0 items-center gap-2">
+
+  const versionRow = (
+    <div className="mt-3 flex items-center gap-2">
       <input
         value={version}
         onChange={(event) => onChangeVersion(event.target.value)}
-        disabled={inFlight}
+        disabled={inFlight || phase.kind === 'lint-failed'}
         aria-label="Release version"
         aria-invalid={!versionValid}
         aria-describedby={RELEASE_VERSION_HINT_ID}
         placeholder="1.0.0"
         spellCheck={false}
         className={`
-          h-9 w-24 rounded-md border bg-[color:var(--bg-surface)] px-2.5 text-center font-mono text-[12px] tabular-nums
+          h-8 w-24 rounded-md border bg-[color:var(--bg-surface)] px-2.5 text-center font-mono text-[12px] tabular-nums
           text-[color:var(--text-strong)] outline-none transition-colors
           placeholder:text-[color:var(--text-disabled)]
           disabled:cursor-not-allowed disabled:text-[color:var(--text-disabled)]
@@ -1175,11 +1228,176 @@ function renderDesignSystemReleaseAction({
           ${versionValid ? 'border-[color:var(--border-default)]' : 'border-[color:var(--tone-error)]'}
         `}
       />
-      <span id={RELEASE_VERSION_HINT_ID} className="sr-only">
-        Version must be semver, like 1.0.0.
-      </span>
-      {disabledReason ? <Tooltip content={disabledReason}>{button}</Tooltip> : button}
+      <PrimaryButton
+        onClick={onRelease}
+        disabled={!armed || phase.kind === 'lint-failed'}
+        aria-label={saveDisabledReason ? `${buttonLabel} — ${saveDisabledReason}` : undefined}
+      >
+        {buttonLabel}
+      </PrimaryButton>
+    </div>
+  )
+  // The format hint doubles as the visible inline error while invalid; it
+  // stays in the DOM (sr-only) otherwise so aria-describedby always resolves.
+  const versionHint = (
+    <span
+      id={RELEASE_VERSION_HINT_ID}
+      className={versionValid ? 'sr-only' : 'mt-1.5 block text-[11px] text-[color:var(--tone-error)]'}
+    >
+      Version must be semver, like 1.0.0.
     </span>
+  )
+
+  return (
+    <section
+      aria-label="Save to your design system library"
+      className="absolute bottom-5 left-5 z-20 w-[400px] max-w-[calc(100%-2.5rem)] rounded-[14px] border border-[color:var(--border-default)] bg-[color:var(--bg-surface-raised)] p-4 shadow-[var(--shadow-drawer)]"
+    >
+      {phase.kind === 'released' ? (
+        <>
+          <p role="status" className="flex items-center gap-2 text-[12px] font-semibold text-[color:var(--text-strong)]">
+            <span aria-hidden="true" className="text-[11px] text-[color:var(--tone-good)]">✓</span>
+            Saved{' '}
+            <code className="font-mono text-[11px] font-normal">
+              {phase.release.name}@{phase.release.version}
+            </code>{' '}
+            to your library
+          </p>
+          <button
+            type="button"
+            onClick={() => void window.api.showItemInFolder(phase.release.path)}
+            aria-label={`Show ${phase.release.name}@${phase.release.version} in your file manager`}
+            className="mt-2 block max-w-full truncate font-mono text-[11px] text-[color:var(--text-subtle)] underline decoration-[color:var(--border-default)] underline-offset-2 transition-colors hover:text-[color:var(--text-default)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--accent-primary)]"
+          >
+            {destination}
+          </button>
+          <p className="mt-2 text-[11px] leading-4 text-[color:var(--text-subtle)]">
+            This version is immutable. Attach it from Settings → Design systems in any workspace so
+            agents build with it — or keep iterating here and save the next version.
+          </p>
+          {versionRow}
+          {versionHint}
+        </>
+      ) : (
+        <>
+          <div className="flex items-center gap-2">
+            <span className="min-w-0 flex-1 truncate text-[12px] font-semibold text-[color:var(--text-strong)]">
+              Save to your design system library
+            </span>
+            {phase.kind === 'idle' ? (
+              <span className="inline-flex shrink-0 items-center gap-1 text-[11px] text-[color:var(--tone-good)]">
+                <span aria-hidden="true" className="text-[10px]">✓</span>
+                Lint clean · 0 issues
+              </span>
+            ) : phase.kind === 'validating' ? (
+              <span role="status" className="shrink-0 text-[11px] text-[color:var(--text-subtle)]">
+                Validating…
+              </span>
+            ) : phase.kind === 'releasing' ? (
+              <span className="inline-flex shrink-0 items-center gap-1 text-[11px] text-[color:var(--tone-good)]">
+                <span aria-hidden="true" className="text-[10px]">✓</span>
+                Lint clean
+              </span>
+            ) : phase.kind === 'lint-failed' ? (
+              <span className="shrink-0 text-[11px] text-[color:var(--tone-error)]">
+                {lintIssueCountLabel(parseLintFindings(phase.findings))}
+              </span>
+            ) : null}
+          </div>
+
+          {phase.kind === 'validating' || phase.kind === 'releasing' ? (
+            <p role="status" className="mt-2 text-[11px] text-[color:var(--text-muted)]">
+              {releaseStatusLine(phase)}
+            </p>
+          ) : null}
+          {phase.kind === 'error' ? (
+            <p role="status" className="mt-2 text-[12px] leading-4 text-[color:var(--tone-error)]">
+              {phase.message}
+            </p>
+          ) : null}
+
+          {phase.kind === 'lint-failed' ? (
+            <LintFindingsList findings={phase.findings} />
+          ) : destination ? (
+            <p className="mt-2 truncate font-mono text-[11px] text-[color:var(--text-subtle)]">{destination}</p>
+          ) : null}
+
+          {phase.kind === 'lint-failed' ? (
+            <div className="mt-3 flex items-center gap-2">
+              <PrimaryButton
+                onClick={onAskDesigner}
+                disabled={!designerSessionLive}
+                aria-label={
+                  designerSessionLive
+                    ? undefined
+                    : 'Ask the designer to fix these — the designer session is not connected.'
+                }
+              >
+                Ask the designer to fix these
+              </PrimaryButton>
+              <SecondaryButton onClick={onRelease} disabled>
+                {buttonLabel}
+              </SecondaryButton>
+            </div>
+          ) : (
+            <>
+              {versionRow}
+              {versionHint}
+            </>
+          )}
+
+          {phase.kind === 'idle' ? (
+            <p className="mt-2 text-[11px] leading-4 text-[color:var(--text-subtle)]">
+              Saved versions are immutable. Attach this system in any workspace so agents build with it.
+            </p>
+          ) : null}
+          {phase.kind === 'lint-failed' ? (
+            <p className="mt-2 text-[11px] leading-4 text-[color:var(--text-subtle)]">
+              Saving is blocked until the bundle passes lint — the issues above go to the designer as
+              one message.
+            </p>
+          ) : null}
+        </>
+      )}
+    </section>
+  )
+}
+
+// The lint report rendered as rows (file + the report's own finding text).
+// Parsing is presentation-only (parseLintFindings); a report the parser does
+// not recognize falls back to the raw text verbatim, never an invented row.
+function LintFindingsList({ findings }: { findings: string }) {
+  const parsed = parseLintFindings(findings)
+  if (parsed.issues.length === 0) {
+    return (
+      <pre
+        tabIndex={0}
+        aria-label="Lint report"
+        className="mt-2 max-h-40 overflow-auto whitespace-pre-wrap font-mono text-[11px] leading-4 text-[color:var(--text-default)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--accent-primary)]"
+      >
+        {findings}
+      </pre>
+    )
+  }
+  return (
+    <ul
+      tabIndex={0}
+      aria-label="Lint findings"
+      className="mt-2 max-h-40 overflow-auto focus:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--accent-primary)]"
+    >
+      {parsed.issues.map((issue, index) => (
+        <li
+          key={`${issue.file}:${issue.detail}:${index}`}
+          className="flex items-start gap-2 border-b border-[color:var(--border-subtle)] py-1.5 text-[11px] leading-4 text-[color:var(--text-default)] last:border-b-0"
+        >
+          <span aria-hidden="true" className="mt-px shrink-0 text-[9px] text-[color:var(--tone-error)]">▲</span>
+          <span className="min-w-0">
+            {issue.detail}{' '}
+            <code className="font-mono text-[10px] text-[color:var(--text-subtle)]">{issue.file}</code>
+          </span>
+        </li>
+      ))}
+    </ul>
   )
 }
 
@@ -1280,8 +1498,14 @@ function DesignerReadinessHint({
 }) {
   if (designSystem) {
     // Design-system studios have no UI-direction artifact; readiness is the
-    // designer's marker or real bundle pages (components, patterns, catalog).
-    if (readiness.isReady) return null
+    // validated bundle contract (manifest parses + lint clean + quiet agent).
+    if (readiness.isReady) {
+      return (
+        <span className="shrink-0 truncate text-[12px] text-[color:var(--text-subtle)]">
+          Ask for changes anytime — the gallery updates as files change.
+        </span>
+      )
+    }
     return (
       <span className="shrink-0 truncate text-[12px] text-[color:var(--text-subtle)]">
         Waiting for the first design-system files.
@@ -1695,6 +1919,7 @@ function DesignStudioBody({
   designArtifacts,
   activeDesignArtifactPath,
   onSelectDesignArtifact,
+  releaseCard = null,
 }: {
   session: ReturnType<typeof useDesignerSession>['session']
   starting: boolean
@@ -1710,6 +1935,9 @@ function DesignStudioBody({
   designArtifacts: DesignArtifactIndex
   activeDesignArtifactPath: string | null
   onSelectDesignArtifact: (entry: DesignArtifactEntry) => void
+  /** Design-system completion surface, floated over the canvas (MC-1505 §4).
+   * Sits between the canvas content and the agent bubble in tab order. */
+  releaseCard?: React.ReactNode
 }) {
   const selectedEntry = findDesignArtifact(designArtifacts, activeDesignArtifactPath)
   // The design-system preset opens in the live component gallery (MC-1509);
@@ -1801,6 +2029,7 @@ function DesignStudioBody({
       ) : (
         <DesignArtifactPreviewPane entry={selectedEntry} />
       )}
+      {releaseCard}
     </CanvasStudio>
   )
 }
