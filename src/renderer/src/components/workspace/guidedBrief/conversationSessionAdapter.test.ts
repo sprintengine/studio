@@ -12,6 +12,7 @@ import {
   frontendDesignArtifactsValid,
   isAgentQuiet,
   isStageReady,
+  stageChipState,
   type StageLiveStatus,
 } from './stageReadiness'
 import type { GuidedInterviewState } from './interviewProtocol'
@@ -81,6 +82,15 @@ function testStageReadinessTruthTable(): void {
     isStageReady({ artifactsValid: frontendDesignArtifactsValid(input), agentQuiet: isAgentQuiet(status) })
   assert.equal(feReady({ pageCount: 1, uiDirectionNonEmpty: true }, 'idle'), true)
   assert.equal(feReady({ pageCount: 1, uiDirectionNonEmpty: false }, 'idle'), false, 'page alone ⇒ not ready')
+
+  // Header chip state: ready wins over live status; otherwise 1:1 with the live
+  // status, idle/absent folding into the resting idle chip.
+  assert.equal(stageChipState('working', true), 'ready', 'ready flip wins')
+  assert.equal(stageChipState('working', false), 'working')
+  assert.equal(stageChipState('needs-input', false), 'needs-input')
+  assert.equal(stageChipState('failed', false), 'failed')
+  assert.equal(stageChipState('idle', false), 'idle')
+  assert.equal(stageChipState('absent', false), 'idle')
 }
 
 type FakeApi = {

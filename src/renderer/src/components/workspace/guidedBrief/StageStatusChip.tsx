@@ -1,4 +1,6 @@
-import type { StageLiveStatus } from './stageReadiness'
+import { stageChipState, type StageChipState } from './stageReadiness'
+
+export { stageChipState }
 
 // The stage-header status chip (MC-1503). It combines the specialist's live
 // session status with the stage-ready flip: a ready stage shows the check chip,
@@ -6,16 +8,8 @@ import type { StageLiveStatus } from './stageReadiness'
 // shape (pulsing dot / square / check / triangle / hollow dot) so it survives
 // grayscale — plus a plain-language label and role="status" so the change is
 // announced. Visual reference: the stage-header chip states in
-// mockups/2026-07-07-design-studio-premium.html.
-export type StageChipState = 'working' | 'needs-input' | 'idle' | 'failed' | 'ready'
-
-export function stageChipState(liveStatus: StageLiveStatus, ready: boolean): StageChipState {
-  if (ready) return 'ready'
-  if (liveStatus === 'working') return 'working'
-  if (liveStatus === 'needs-input') return 'needs-input'
-  if (liveStatus === 'failed') return 'failed'
-  return 'idle'
-}
+// mockups/2026-07-07-design-studio-premium.html. State derivation lives in
+// stageReadiness.ts (pure, unit-tested).
 
 const CHIP_LABEL: Record<StageChipState, string> = {
   working: 'Working',

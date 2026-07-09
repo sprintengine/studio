@@ -1,7 +1,9 @@
 import { useEffect, useRef, useState } from 'react'
-import { StatusDot, TruncatedText } from '../../ui'
+import { TruncatedText } from '../../ui'
 import { GuidedBriefRawTerminal } from './GuidedBriefRawTerminal'
 import { InterviewQuestionCard, ResolvedDecisionsList } from './InterviewPane'
+import { StageStatusChip, stageChipState } from './StageStatusChip'
+import type { StageLiveStatus } from './stageReadiness'
 import type { GuidedInterviewState } from './interviewProtocol'
 import type { GuidedBriefSpecialistSession } from './sessionAdapter'
 
@@ -12,6 +14,11 @@ type Props = {
   specialistName: string
   specialistSubline: string
   working: boolean
+  /** Live specialist status from the transport's own session signal (MC-1503):
+   * drives the header status chip and the "needs your input" attention ring. */
+  liveStatus?: StageLiveStatus
+  /** Whether the stage's validated artifacts are ready (chip shows the check). */
+  ready?: boolean
   /** Structured interview from the session stream; omit to render terminal-only. */
   interview?: GuidedInterviewState
   /** Answers the current question (PTY stdin or conversation respond). A
@@ -35,6 +42,8 @@ export function ConversationPane({
   specialistName,
   specialistSubline,
   working,
+  liveStatus,
+  ready = false,
   interview,
   onAnswer,
   transcriptTail,
@@ -42,6 +51,7 @@ export function ConversationPane({
   const [terminalPreference, setTerminalPreference] = useState<TerminalPreference>('auto')
   const [answeredQuestionId, setAnsweredQuestionId] = useState<string | null>(null)
   const conversationTransport = session?.transport === 'conversation'
+  const needsAttention = liveStatus === 'needs-input'
 
   const question = working ? interview?.currentQuestion ?? null : null
   const interviewActive = Boolean(question && onAnswer && session)
@@ -96,10 +106,18 @@ export function ConversationPane({
             className="text-[12px] text-[color:var(--text-muted)]"
           />
         </div>
-        {working && session && !errorMessage ? <StatusDot tone="good" pulse label="Working" /> : null}
+        {liveStatus && !errorMessage ? (
+          <StageStatusChip state={stageChipState(liveStatus, ready)} />
+        ) : null}
       </div>
 
-      <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-md border border-[color:var(--border-default)] bg-[color:var(--bg-app)]">
+      <div
+        className={`flex min-h-0 flex-1 flex-col overflow-hidden rounded-md border bg-[color:var(--bg-app)] ${
+          needsAttention
+            ? 'border-[color:var(--tone-warn)] ring-1 ring-[color:var(--tone-warn)]'
+            : 'border-[color:var(--border-default)]'
+        }`}
+      >
         {session ? (
           <>
             {interviewActive && question ? (

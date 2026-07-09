@@ -53,3 +53,16 @@ export function designSystemArtifactsValid(input: {
 }): boolean {
   return input.manifestParses && input.lintClean
 }
+
+// The stage-header chip state (rendered by StageStatusChip): the stage-ready
+// flip wins (check chip), otherwise the live status maps 1:1, with idle/absent
+// folded into the resting `idle` chip.
+export type StageChipState = 'working' | 'needs-input' | 'idle' | 'failed' | 'ready'
+
+export function stageChipState(liveStatus: StageLiveStatus, ready: boolean): StageChipState {
+  if (ready) return 'ready'
+  if (liveStatus === 'working') return 'working'
+  if (liveStatus === 'needs-input') return 'needs-input'
+  if (liveStatus === 'failed') return 'failed'
+  return 'idle'
+}
