@@ -13,16 +13,27 @@ import type {
 
 const mobileControlProtocolVersion = 2 as const
 
-const RELAY_SUPPORTED_COMMANDS: RelayCommandType[] = [
-  'snapshot.request',
-  'artifact.read',
-  'sprintengine.create',
-  'task.start',
-  'artifact.approve',
-  'artifact.requestChanges',
-  'agent.followup',
-  'device.revoke',
-]
+// Canonical relay command whitelist: parseRelayCommandEnvelope accepts these
+// inbound and MobileRelayBridge advertises the same list on connect (imported
+// from here — a stale duplicate in index.ts once silently dropped the three
+// backlog commands, killing every backlog mutation at delivery). The Record
+// keeps this exhaustive: adding a RelayCommandType member without listing it
+// here is a compile error.
+const RELAY_COMMAND_TYPES: Record<RelayCommandType, true> = {
+  'snapshot.request': true,
+  'artifact.read': true,
+  'sprintengine.create': true,
+  'task.start': true,
+  'artifact.approve': true,
+  'artifact.requestChanges': true,
+  'agent.followup': true,
+  'device.revoke': true,
+  'backlog.update': true,
+  'backlog.startSprintEngine': true,
+  'backlog.create': true,
+}
+
+export const RELAY_SUPPORTED_COMMANDS = Object.keys(RELAY_COMMAND_TYPES) as RelayCommandType[]
 
 export class FetchMobileRelayTransport implements MobileRelayTransport {
   async connectDesktop(input: {

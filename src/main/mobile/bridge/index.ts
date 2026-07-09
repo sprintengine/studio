@@ -10,7 +10,7 @@ import { getErrorMessage } from '../../error-message'
 import { hashSecret } from './crypto'
 import { getDesktopDisplayName } from './desktop'
 import { manualPairingValueFromRelayChallenge } from './pairing'
-import { FetchMobileRelayTransport } from './relay-transport'
+import { FetchMobileRelayTransport, RELAY_SUPPORTED_COMMANDS } from './relay-transport'
 import {
   isMobileBridgePresence,
 } from './validation'
@@ -377,20 +377,6 @@ const SUPPORTED_COMMANDS: MobileControlCommandType[] = [
   'backlog.startSprintEngine',
   'backlog.create',
 ]
-const RELAY_SUPPORTED_COMMANDS: RelayCommandType[] = [
-  'snapshot.request',
-  'artifact.read',
-  'sprintengine.create',
-  'task.start',
-  'artifact.approve',
-  'artifact.requestChanges',
-  'agent.followup',
-  'device.revoke',
-  'backlog.update',
-  'backlog.startSprintEngine',
-  'backlog.create',
-]
-
 function normalizeRelayUrlUpdate(value: string | null | undefined): string | null {
   if (value === undefined || value === null) return null
   const trimmed = value.trim().replace(/\/+$/u, '')

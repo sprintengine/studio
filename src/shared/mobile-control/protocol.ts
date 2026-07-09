@@ -712,7 +712,23 @@ const capabilities = [
   "artifacts.review",
   "agents.followUp",
   "devices.revoke",
+  "backlog.update",
+  "backlog.start",
+  "backlog.create",
 ] as const satisfies readonly MobileControlCapability[];
+
+// `satisfies` only proves the entries are valid, not that the list is
+// complete — the backlog trio above was once missing here (MC-1499), so
+// validateCapabilityArray rejected device payloads carrying scopes that
+// pairing actually grants. This alias turns a missing member into a compile
+// error.
+type _AssertCapabilityListComplete = [
+  Exclude<MobileControlCapability, (typeof capabilities)[number]>,
+] extends [never]
+  ? true
+  : ["capabilities const is missing", Exclude<MobileControlCapability, (typeof capabilities)[number]>];
+const _capabilityListComplete: _AssertCapabilityListComplete = true;
+void _capabilityListComplete;
 
 const errorCodes = [
   "unsupported_protocol_version",
