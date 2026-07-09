@@ -54,6 +54,10 @@ import {
   type TerminalSession,
 } from './terminal-session'
 import { buildReplaySnapshot } from './terminal-replay-snapshot'
+import {
+  recordSprintSessionForTokenLedger,
+  sampleSprintSessionTokenUsage,
+} from './sprintengine-token-sampling'
 import { probeSubtreesForLiveWork, type SubtreeProbeDeps } from './terminal-subtree-probe'
 import type { TerminalSnapshotSidecarStore } from './terminal-snapshot-sidecar'
 import { createTerminalDiagnostics } from './terminal-diagnostics'
@@ -117,7 +121,7 @@ type TerminalRuntimeOptions = {
   ensureBuiltinSkillInstalled?(workspaceRoot: string, skillId: string): Promise<void>
   // Keeps the generated managed MCP config (`.mcp.json` / `.codex/config.toml`)
   // out of a connector chat's worktree git by appending them to the worktree's
-  // info/exclude. Invoked at a connector spawn (connectorSkillId set) after the
+  // info/exclude. Invoked at a connector spawn (connectorLaunch set) after the
   // per-spawn MCP sync writes those files. Best-effort: the caller swallows
   // failures so an exclude write never blocks a launch. Absent in tests (no-op).
   excludeWorktreeMcpConfig?(worktreePath: string): Promise<void>
@@ -207,14 +211,16 @@ let prepareAgentStateHook: TerminalRuntimeOptions['prepareAgentStateHook']
 let snapshotSidecars: TerminalRuntimeOptions['snapshotSidecars']
 let logReapDiagnostic: TerminalRuntimeOptions['logDiagnostic']
 
-// CLIs the agent-state reporter can install into. Claude Code and Codex share a
-// stdin-filter reporter (same hook_event_name/session_id payload; only the
-// install target differs). OpenCode has no command hooks, so it gets an
-// in-process plugin reporter instead — it still emits the same socket frame, so
-// runtime ingestion is identical. All install differences are handled in the
-// service.
+// CLIs the agent-state reporter can install into. Claude Code, Codex, and Grok
+// Build share a stdin-filter reporter (the same hook payload contract —
+// snake_case for Claude/Codex, camelCase for Grok, both read by one script;
+// only the install target differs). OpenCode has no command hooks, so it gets
+// an in-process plugin reporter instead — it still emits the same socket frame,
+// so runtime ingestion is identical. All install differences are handled in the
+// service; this gate and the service's installer dispatch MUST list the same
+// CLIs or the install path is silently dead for the missing one.
 function agentStateSupportsCli(cli: string | undefined): cli is string {
-  if (cli === 'claude-code' || cli === 'codex' || cli === 'opencode') return true
+  if (cli === 'claude-code' || cli === 'codex' || cli === 'opencode' || cli === 'grok') return true
   if (!cli) return false
   // Any other CLI that runs on the Claude harness (e.g. zai: the same
   // `claude` binary against a redirected endpoint) uses the same
@@ -789,6 +795,12 @@ function disposeTerminal(sessionId: string): void {
   // App-quit teardown deliberately does NOT run through here (disposeAllTerminals
   // inlines its own loop), so quit never erases the sidecars it just wrote.
   snapshotSidecars?.remove(sessionId)
+  // Token accounting: dispose is the single choke point every sprint terminal
+  // passes through (single-owner teardown, run completion, reap, resume) — the
+  // last chance to snapshot this session's cumulative usage into the run's
+  // durable ledger. Fire-and-forget; a mid-session dispose (resume relaunch)
+  // just writes an interim sample that a later one supersedes.
+  void sampleSprintSessionTokenUsage(session, 'teardown')
   void queueSprintEngineTerminalTeardown(session, 'terminal disposed')
   cleanupTerminalStartupScript(session.startupScriptPath)
   terminalOutput.flush(sessionId, 'dispose')
@@ -1344,6 +1356,11 @@ async function disposeAllTerminals(): Promise<void> {
   const teardownPromises: Promise<void>[] = []
   for (const session of sessions) {
     teardownPromises.push(queueSprintEngineTerminalTeardown(session, 'terminal runtime shutdown'))
+    // Token accounting: app quit bypasses disposeTerminal (deliberately, so
+    // sidecars survive), so snapshot each sprint session's cumulative usage
+    // here — awaited below, the last durable write before transcripts can be
+    // pruned and the only one an OpenCode-style server-backed source gets.
+    teardownPromises.push(sampleSprintSessionTokenUsage(session, 'teardown'))
     cleanupTerminalStartupScript(session.startupScriptPath)
     terminalOutput.flush(session.sessionId, 'dispose')
     terminalDiagnostics.clear(session.sessionId)
@@ -1560,7 +1577,17 @@ function runAgentStallCheck(session: TerminalSession): void {
 
 function ingestAgentStateFrame(frame: AgentStateFrame): void {
   const session = resolveSessionForAgentStateFrame(frame)
-  if (!session || !isTerminalProcessAlive(session)) return
+  if (!session) return
+
+  // Token accounting flush: SessionEnd fires while the CLI shuts down and can
+  // race the pty exit (and the stale-frame guard below), so snapshot the
+  // session's cumulative usage BEFORE the liveness/ordering guards — this is
+  // the warm-source moment and must never be dropped. Fire-and-forget.
+  if (session.sprintEngineStatePath && frame.event === 'SessionEnd') {
+    void sampleSprintSessionTokenUsage(session, 'session-end')
+  }
+
+  if (!isTerminalProcessAlive(session)) return
 
   // A stale frame (older than the phase we already recorded) is ignored so
   // out-of-order socket delivery can't roll the phase backward.
@@ -1588,6 +1615,19 @@ function ingestAgentStateFrame(frame: AgentStateFrame): void {
   const cliSessionIdChanged =
     !!frame.sessionId && frame.sessionId !== session.cliSessionId
   if (cliSessionIdChanged) session.cliSessionId = frame.sessionId ?? session.cliSessionId
+
+  // Token accounting (sprint-managed agents only): every captured session id
+  // is appended to the run's durable token ledger — a resume mints a new id
+  // whose cumulative counter restarts at zero, so all ids must be kept. The
+  // SessionStart trigger covers resume-seeded sessions whose id was already
+  // known at spawn (cliSessionIdChanged never fires for those); the reader
+  // folds repeated records. Fire-and-forget, never affects the transition.
+  if (
+    session.sprintEngineStatePath
+    && (cliSessionIdChanged || frame.event === 'SessionStart')
+  ) {
+    recordSprintSessionForTokenLedger(session)
+  }
 
   // Bridge to the legacy activity field so existing consumers (sidebar bolding,
   // reaping, diagnostics) reflect the authoritative phase. Suppress its own
@@ -2449,6 +2489,7 @@ async function spawnTerminalFromIpc(
     agentSession,
     visible = true,
     mcpSettings,
+    connectorLaunch,
     connectorSkillId,
     spawnSkillId,
   }: TerminalSpawnPayload
@@ -2591,11 +2632,15 @@ async function spawnTerminalFromIpc(
             ? mcpSettingsForManagedSprintEngineLaunch(mcpSettings)
             : mcpSettings ?? { syncEnabled: false, servers: {} },
           clients: [cli],
-          // A connector launch (connectorSkillId set, always paired with the
+          // A connector launch (connectorLaunch set, paired with the
           // single-server connectorMcpSettings) writes an isolated worktree
           // config that must contain only the connector — prune any MCP server
           // the base repo committed into the worktree, never merge it in.
-          pruneUnlistedServers: connectorSkillId != null,
+          // connectorLaunch is the ONLY isolation signal: connectorSkillId is
+          // the orthogonal skill-install concern and must never imply pruning
+          // (a skill-only spawn would otherwise wipe the workspace's MCP
+          // config).
+          pruneUnlistedServers: connectorLaunch === true,
           managedSprintEngine: sprintEngineStatePath
             ? buildManagedSprintEngineSyncInputForLaunch(sprintEngineStatePath, workingDirectory, {
                 workspaceId,
@@ -2676,7 +2721,7 @@ async function spawnTerminalFromIpc(
           }
         }
       }
-      if (connectorSkillId && !shellOnly) {
+      if (connectorLaunch && !shellOnly) {
         if (excludeWorktreeMcpConfig) {
           try {
             await excludeWorktreeMcpConfig(workingDirectory)

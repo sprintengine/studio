@@ -1,0 +1,7 @@
+[
+  { "info": { "role": "user", "id": "m1" }, "parts": [] },
+  { "info": { "role": "assistant", "modelID": "big-pickle", "providerID": "opencode", "tokens": { "total": 7896, "input": 7882, "output": 3, "reasoning": 11, "cache": { "read": 0, "write": 0 } } }, "parts": [] },
+  { "info": { "role": "assistant", "modelID": "big-pickle", "providerID": "opencode", "tokens": { "input": 100, "output": 20, "reasoning": 5, "cache": { "read": 50, "write": 10 } } }, "parts": [] },
+  { "info": { "role": "assistant", "modelID": "claude-sonnet-4-6", "providerID": "anthropic", "tokens": { "input": 500, "output": 75, "reasoning": 0, "cache": { "read": 1000, "write": 200 } } }, "parts": [] },
+  { "info": { "role": "assistant", "modelID": "big-pickle", "tokens": null }, "parts": [] }
+]

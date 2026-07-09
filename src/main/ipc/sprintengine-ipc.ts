@@ -17,6 +17,7 @@ import type {
   SprintEngineTaskStatusSetInput,
   SprintEngineTaskUpdateInput,
 } from '../../shared/electron-api'
+import type { SprintEngineTokenUsageReport } from '../../shared/sprintengine-token-usage'
 
 export type SprintEngineArtifactOpenPayload = {
   statePath: string
@@ -67,6 +68,7 @@ type SprintEngineIpcDependencies = {
   readRegistryRole(payload: SprintEngineRegistryRoleReadInput): Promise<SprintEngineMcpReadResult>
   readDispatch(payload: SprintEngineDispatchReadInput): Promise<SprintEngineMcpReadResult>
   summarizeFeedback(payload: SprintEngineProjectionReadPayload): Promise<SprintEngineMcpReadResult>
+  readTokenUsage(payload: SprintEngineVcsPayload): Promise<SprintEngineTokenUsageReport>
 }
 
 export function registerSprintEngineIpc(ipcMain: IpcMain, deps: SprintEngineIpcDependencies): void {
@@ -152,5 +154,9 @@ export function registerSprintEngineIpc(ipcMain: IpcMain, deps: SprintEngineIpcD
 
   ipcMain.handle('sprintengine:feedback:summarize', async (_, payload: SprintEngineProjectionReadPayload): Promise<SprintEngineMcpReadResult> => {
     return deps.summarizeFeedback(payload)
+  })
+
+  ipcMain.handle('sprintengine:token-usage:read', async (_, payload: SprintEngineVcsPayload): Promise<SprintEngineTokenUsageReport> => {
+    return deps.readTokenUsage(payload)
   })
 }
