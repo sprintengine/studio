@@ -156,6 +156,13 @@ export type StartGuidedBriefSpecialistSessionOptions = {
    * chunk whose parse changed the current question or decisions.
    */
   onInterview?: (state: GuidedInterviewState) => void
+  /**
+   * Install the curated frontend-design skill into the workspace's Claude skill
+   * dir before the session starts. Called only when guidedBriefUsesDesignSkill
+   * holds (Claude designer sessions); best-effort — a failure degrades craft
+   * quality but never blocks the session.
+   */
+  ensureDesignSkillInstalled?: () => Promise<void>
 }
 
 export type GuidedBriefSpecialistSession = {
@@ -216,10 +223,33 @@ export function createGuidedBriefSessionId(): string {
   return createSessionId()
 }
 
+// Built-in skill id for the curated design-craft guidance. The wizard installs
+// it into .claude/skills/ before a Claude designer session starts and names it
+// in the startup prompt (see guidedBriefUsesDesignSkill).
+export const GUIDED_BRIEF_DESIGN_SKILL_ID = 'frontend-design'
+
+// Claude Code's CLI id. Conversation transport is Claude-only by construction;
+// the PTY transport runs whatever CLI the user picked, so the design skill is
+// gated on this id there.
+const CLAUDE_CODE_CLI = 'claude-code'
+
+// The frontend-design skill ships to the designer specialists (mockup +
+// design-system authoring) running on Claude Code only. Conversation sessions
+// are always Claude; PTY sessions must match the Claude CLI id. Other roles and
+// other CLIs get no install and no activation line.
+export function guidedBriefUsesDesignSkill(
+  input: StartGuidedBriefSpecialistSessionInput,
+  transport: 'terminal' | 'conversation',
+): boolean {
+  if (input.kind !== 'designer') return false
+  return transport === 'conversation' || input.cli === CLAUDE_CODE_CLI
+}
+
 export function promptForInput(
   input: StartGuidedBriefSpecialistSessionInput,
   marker: string,
   interviewProtocol: GuidedBriefInterviewProtocol = 'terminal-markers',
+  designSkillActivation = false,
 ): string {
   if (input.kind === 'strategist') {
     return buildGuidedBriefSpecialistStartupPrompt({
@@ -249,6 +279,7 @@ export function promptForInput(
     inspirationDirectoryPath: input.inspirationDirectoryPath,
     uiDirectionPath: input.uiDirectionPath,
     mockupPath: input.mockupPath,
+    designSkillActivation,
     designSystemAttached: input.designSystemAttached,
     designSystem: input.designSystem,
     marker,
@@ -348,7 +379,8 @@ export async function startGuidedBriefSpecialistSession(
 ): Promise<StartGuidedBriefSpecialistSessionResult> {
   const sessionId = input.sessionId ?? createSessionId()
   const marker = markerForInput(input)
-  const prompt = promptForInput(input, marker)
+  const usesDesignSkill = guidedBriefUsesDesignSkill(input, 'terminal')
+  const prompt = promptForInput(input, marker, 'terminal-markers', usesDesignSkill)
   const markerDetection = markerDetectionForInput(input, marker)
   const agentId = guidedBriefSpecialistAgentId(input)
   const agentName = GUIDED_BRIEF_AGENT_LABELS[agentId]
@@ -402,6 +434,14 @@ export async function startGuidedBriefSpecialistSession(
   }
 
   options.onLifecycle?.('starting')
+  // Install the design skill before spawn so Claude Code discovers it in
+  // .claude/skills/ at startup. Best-effort: the activation line is already in
+  // the prompt, and a missing skill degrades craft, it never breaks the run.
+  if (usesDesignSkill && options.ensureDesignSkillInstalled) {
+    await options.ensureDesignSkillInstalled().catch((error) => {
+      console.warn('[guided-brief] frontend-design skill install failed', error)
+    })
+  }
   const spawnResult = await options.terminalApi.terminalSpawn(
     sessionId,
     input.cols ?? 100,

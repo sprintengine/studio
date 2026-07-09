@@ -5,6 +5,7 @@ import {
   createGuidedBriefSessionId,
   guidedBriefSpecialistAgentId,
   startGuidedBriefSpecialistSession,
+  GUIDED_BRIEF_DESIGN_SKILL_ID,
   type GuidedBriefSessionLifecycle,
   type GuidedBriefSpecialistSession,
 } from './sessionAdapter'
@@ -257,6 +258,14 @@ export function useDesignerSession({
       }
       const sessionCallbacks = {
         cliRuntimes,
+        // Install the curated design skill into .claude/skills/ before the
+        // session spawns. The adapter only invokes this for Claude designer
+        // sessions (guidedBriefUsesDesignSkill); here it just performs the
+        // install and swallows its result — the adapter handles failure.
+        ensureDesignSkillInstalled: () =>
+          window.api
+            .builtinSkillInstall({ workspaceRoot, skillId: GUIDED_BRIEF_DESIGN_SKILL_ID })
+            .then(() => undefined),
         onLifecycle: (next: GuidedBriefSessionLifecycle) => {
           if (cancelled) return
           if (next === 'ready') setMarkerReceived(true)

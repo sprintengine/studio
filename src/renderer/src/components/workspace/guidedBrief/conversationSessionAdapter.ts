@@ -29,6 +29,7 @@ import type {
 } from './interviewProtocol'
 import {
   guidedBriefSpecialistAgentId,
+  guidedBriefUsesDesignSkill,
   markerDetectionForInput,
   markerForInput,
   promptForInput,
@@ -108,7 +109,8 @@ export async function startGuidedBriefConversationSession(
   const api = options.conversationApi
   const agentId = guidedBriefConversationAgentId(input)
   const marker = markerForInput(input)
-  const prompt = promptForInput(input, marker, 'ask-user-question')
+  const usesDesignSkill = guidedBriefUsesDesignSkill(input, 'conversation')
+  const prompt = promptForInput(input, marker, 'ask-user-question', usesDesignSkill)
   const markerDetection = markerDetectionForInput(input, marker)
   const state: ConversationSessionRuntimeState = {
     outputTail: '',
@@ -263,6 +265,15 @@ export async function startGuidedBriefConversationSession(
   }
 
   if (!adoptedLiveSession) {
+    // Install the design skill before the fresh session starts so Claude Code
+    // discovers it in .claude/skills/ at startup. Best-effort: the activation
+    // line is already in the prompt; a missing skill degrades craft, never
+    // blocks the session. A resumed live session already has it from launch.
+    if (usesDesignSkill && options.ensureDesignSkillInstalled) {
+      await options.ensureDesignSkillInstalled().catch((error) => {
+        console.warn('[guided-brief] frontend-design skill install failed', error)
+      })
+    }
     const started = await api
       .conversationSessionStart({
         workspaceRoot: input.workspaceRoot,
