@@ -4,10 +4,20 @@ import { parentPath } from '../../../utils/paths'
 import { HtmlArtifactFrame, PreviewState, humanizeFileTitle } from './MockupPreviewPane'
 import { RenderedBriefPane } from './RenderedBriefPane'
 import { previewKindForArtifact, type DesignArtifactEntry } from './designArtifacts'
+import type { MockupAnnotation } from './annotate/types'
 
 type Props = {
   /** The artifact selected via the canvas screen switcher, or null when nothing is selected. */
   entry: DesignArtifactEntry | null
+  /**
+   * Opt-in annotate mode (MC-1468), forwarded to the HTML frame: element-pinned
+   * notes collected on a rendered page leave as one batch through this
+   * callback. Only HTML artifacts have an annotate surface; the host decides
+   * where a batch goes (here: the designer session's chat).
+   */
+  onSubmitAnnotations?: (annotations: MockupAnnotation[]) => Promise<void>
+  /** Host-named tray send action, forwarded with the sink ("Send to designer"). */
+  annotateSubmitLabel?: string
 }
 
 // The preview title bar: the file's human title leads, the path is demoted
@@ -290,7 +300,7 @@ function SourceArtifactView({ entry }: { entry: DesignArtifactEntry }) {
  * source. There is no separate preview list — the pane only reflects the
  * selected file. Read failures surface as explicit designed states, never a void.
  */
-export function DesignArtifactPreviewPane({ entry }: Props) {
+export function DesignArtifactPreviewPane({ entry, onSubmitAnnotations, annotateSubmitLabel }: Props) {
   if (!entry) {
     return (
       <div className="flex h-full min-h-0 flex-col overflow-hidden rounded-md border border-[color:var(--border-default)] bg-[color:var(--bg-surface)]">
@@ -311,6 +321,8 @@ export function DesignArtifactPreviewPane({ entry }: Props) {
         absolutePath={entry.absolutePath}
         relativePath={entry.relativePath}
         watchDirectoryPath={watchDirectoryPath}
+        onSubmitAnnotations={onSubmitAnnotations}
+        annotateSubmitLabel={annotateSubmitLabel}
       />
     )
   }

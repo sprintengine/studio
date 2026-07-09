@@ -3,12 +3,11 @@ import { TruncatedText } from '../../../ui'
 import { screenSwitcherMode, type CanvasStudioNav } from './canvasStudioModel'
 
 // The one floating pill that chromes the canvas (MC-1510): the screen/document
-// switcher on the left, then the Comment toggle. Viewport/zoom/reload stay in
-// the artifact frame's own header (existing HtmlArtifactFrame chrome) rather
-// than being duplicated here. The Comment and design-system Screen/Gallery
-// controls are placeholders this sprint — T10 wires Comment (annotate), T6
-// wires Gallery — so they render visibly disabled, never as dead controls that
-// look live.
+// switcher. Viewport/zoom/reload stay in the artifact frame's own header
+// (existing HtmlArtifactFrame chrome) rather than being duplicated here, and
+// so does the live Comment (annotate) toggle — T11 wired the sinks, so the
+// pill's earlier disabled Comment placeholder is gone (never two toggles for
+// one mode).
 
 type Props = {
   nav: CanvasStudioNav
@@ -19,11 +18,13 @@ type Props = {
 }
 
 export function StudioToolbar({ nav, drawerOpen, onToggleDrawer, screensButtonRef }: Props) {
+  // With no trailing controls, a nav-less pill would be an empty capsule.
+  if (nav.kind === 'none') return null
   return (
     <div
       role="group"
       aria-label="Canvas controls"
-      className="absolute left-1/2 top-3.5 z-20 flex max-w-[calc(100%-2rem)] -translate-x-1/2 items-center gap-2.5 rounded-full border border-[color:var(--border-default)] bg-[color:var(--bg-surface-raised)] py-1.5 pl-3.5 pr-2 shadow-[var(--shadow-drawer)]"
+      className="absolute left-1/2 top-3.5 z-20 flex max-w-[calc(100%-2rem)] -translate-x-1/2 items-center gap-2.5 rounded-full border border-[color:var(--border-default)] bg-[color:var(--bg-surface-raised)] px-3.5 py-1.5 shadow-[var(--shadow-drawer)]"
     >
       <NavRegion
         nav={nav}
@@ -31,8 +32,6 @@ export function StudioToolbar({ nav, drawerOpen, onToggleDrawer, screensButtonRe
         onToggleDrawer={onToggleDrawer}
         screensButtonRef={screensButtonRef}
       />
-      {nav.kind !== 'none' ? <Separator /> : null}
-      <CommentPlaceholder />
     </div>
   )
 }
@@ -110,24 +109,17 @@ function PillSegmented({
   options,
   activeId,
   onSelect,
-  disabled = false,
-  disabledTitle,
 }: {
   ariaLabel: string
   options: Array<{ id: string; label: string }>
   activeId: string | null
   onSelect: (id: string) => void
-  disabled?: boolean
-  disabledTitle?: string
 }) {
   return (
     <div
       role="group"
       aria-label={ariaLabel}
-      title={disabled ? disabledTitle : undefined}
-      className={`inline-flex min-w-0 overflow-hidden rounded-full border border-[color:var(--border-default)] ${
-        disabled ? 'opacity-45' : ''
-      }`}
+      className="inline-flex min-w-0 overflow-hidden rounded-full border border-[color:var(--border-default)]"
     >
       {options.map((option, index) => {
         const isActive = option.id === activeId
@@ -135,7 +127,6 @@ function PillSegmented({
           <button
             key={option.id}
             type="button"
-            disabled={disabled}
             aria-pressed={isActive}
             onClick={() => onSelect(option.id)}
             className={`
@@ -158,31 +149,3 @@ function PillSegmented({
   )
 }
 
-function Separator() {
-  return <span aria-hidden="true" className="h-4 w-px bg-[color:var(--border-subtle)]" />
-}
-
-// Comment mode (annotate) is wired by T10; until then this reads as a disabled
-// affordance, not a live control.
-function CommentPlaceholder() {
-  return (
-    <button
-      type="button"
-      disabled
-      aria-disabled="true"
-      aria-label="Comment mode is not available yet"
-      className="inline-flex shrink-0 cursor-not-allowed items-center gap-1.5 rounded-full border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] px-3 py-1 text-[11px] font-medium text-[color:var(--text-muted)] opacity-45"
-    >
-      <svg viewBox="0 0 14 14" className="icon-xs" aria-hidden="true">
-        <path
-          d="M9.5 2.5 11.5 4.5 5 11l-2.5.5L3 9z"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth="1.3"
-          strokeLinejoin="round"
-        />
-      </svg>
-      Comment
-    </button>
-  )
-}

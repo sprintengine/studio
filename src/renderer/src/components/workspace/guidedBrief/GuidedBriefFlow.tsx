@@ -2054,6 +2054,7 @@ function DesignStudioBody({
         <DesignArtifactPreviewPane
           entry={selectedEntry}
           onSubmitAnnotations={submitAnnotationsToDesigner}
+          annotateSubmitLabel="Send to designer"
         />
       )}
       {releaseCard}

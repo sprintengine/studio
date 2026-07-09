@@ -87,7 +87,10 @@ export function ScreensDrawer({ screens, activeId, onSelect, onClose }: Props) {
                 rowRefs.current[index] = element
               }}
               type="button"
-              aria-selected={isSelected}
+              // aria-current, not aria-selected: these are plain buttons (not
+              // listbox options), where aria-selected is invalid ARIA and never
+              // announced — aria-current marks the shown screen for readers.
+              aria-current={isSelected ? 'true' : undefined}
               tabIndex={index === focusIndex ? 0 : -1}
               onFocus={() => setFocusIndex(index)}
               onClick={() => {

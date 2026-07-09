@@ -81,6 +81,7 @@ import {
 import { ANNOTATE_MESSAGE_CHANNEL, pageRectToOverlayRect } from './annotate/bridge'
 import { AnnotateOverlay } from './annotate/AnnotateOverlay'
 import { AnnotateTray } from './annotate/AnnotateTray'
+import { designerAnnotationMessage, sprintAnnotationFeedback } from './annotate/serialize'
 import type { MockupAnnotation } from './annotate/types'
 
 const guidedDefaults = {
@@ -1321,6 +1322,116 @@ function testAnnotateSurfacesRender() {
   console.log('annotate surfaces render: ok')
 }
 
+// Serialization formats for the two sinks (MC-1468 part 3): the sprint
+// request-changes prefill is structured blocks (selector + snippet excerpt +
+// message per pin); the designer chat message is the same blocks behind a
+// revise instruction on the conversation transport, and one single line on the
+// PTY transport (stdin submits on every newline).
+function testAnnotateSinkSerialization() {
+  const rect = { x: 0, y: 0, width: 10, height: 10 }
+  const notes: MockupAnnotation[] = [
+    {
+      selector: 'body > main > h2.p-h',
+      snippet: '<h2 class="p-h">Today’s jobs</h2>',
+      message: 'tighten the header',
+      rect,
+    },
+    { selector: '#cta', snippet: '<button id="cta">Add job</button>', message: 'demote to secondary', rect },
+    { selector: 'footer', snippet: '<footer>\n  fine print\n</footer>', message: 'drop this', rect },
+  ]
+
+  const feedback = sprintAnnotationFeedback('mockups/app.html', notes)
+  assert.match(feedback, /^Annotated mockup review of mockups\/app\.html — 3 pinned notes:/)
+  assert.match(
+    feedback,
+    /1\. Element: body > main > h2\.p-h\n {3}Snippet: <h2 class="p-h">Today’s jobs<\/h2>\n {3}Change: tighten the header/,
+    'each pin is one structured block: selector + snippet excerpt + message',
+  )
+  assert.match(feedback, /2\. Element: #cta/)
+  assert.match(
+    feedback,
+    /3\. Element: footer\n {3}Snippet: <footer> fine print <\/footer>/,
+    'a multi-line snippet flattens to one line inside its block',
+  )
+  assert.match(
+    sprintAnnotationFeedback('mockups/app.html', notes.slice(0, 1)),
+    /1 pinned note:/,
+    'the count reads naturally in the singular',
+  )
+
+  const chat = designerAnnotationMessage('mockups/app.html', notes, 'conversation')
+  assert.match(chat, /^Please revise mockups\/app\.html — 3 pinned notes from the mockup preview:/)
+  assert.match(chat, /1\. Element: body > main > h2\.p-h/)
+  assert.match(chat, /Change: drop this/, 'every pin rides the one composed message')
+
+  const pty = designerAnnotationMessage('mockups/app.html', notes, 'terminal')
+  assert.equal(pty.includes('\n'), false, 'PTY stdin submits on newline — the terminal message is one line')
+  assert.match(pty, /\[1\] body > main > h2\.p-h: tighten the header/)
+  assert.match(pty, /\[3\] footer: drop this/)
+
+  console.log('annotate sink serialization: ok')
+}
+
+// Sink source-contracts (MC-1468 part 3): both hosts wire onSubmitAnnotations —
+// sprint review pre-fills the request-changes dialog with the serialized batch
+// and only settles the send when the dialog lands (cancel hands the notes
+// back); the wizard composes one designer chat message over the session's own
+// transport. Asserted on source text, like the seam contract below, because
+// the hosts are full panels the node harness cannot render.
+function testAnnotateSinkSourceContracts() {
+  const read = (relativePath: string) => readFileSync(join(process.cwd(), relativePath), 'utf8')
+
+  const inspector = read('src/renderer/src/components/panels/SprintEngineInspectorPanel.tsx')
+  assert.match(
+    inspector,
+    /onSubmitAnnotations=\{onSubmitPreviewAnnotations\}/,
+    'the artifact preview frame receives the sprint annotate sink',
+  )
+
+  const board = read('src/renderer/src/components/panels/SprintEngineBoardPanel.tsx')
+  assert.match(
+    board,
+    /sprintAnnotationFeedback\(previewedArtifact\.relativePath, annotations\)/,
+    'a submitted batch pre-fills the request-changes dialog with the serialized blocks',
+  )
+  assert.match(
+    board,
+    /onSubmitPreviewAnnotations=\{submitPreviewAnnotations\}/,
+    'the board passes the sink into the inspector panel',
+  )
+  assert.match(
+    board,
+    /settlePreviewAnnotationSend\(new Error\('The change request was cancelled\.'\)\)/,
+    'cancelling the dialog rejects the pending send so the batch returns to the tray',
+  )
+
+  const flow = read('src/renderer/src/components/workspace/guidedBrief/GuidedBriefFlow.tsx')
+  assert.match(
+    flow,
+    /designerAnnotationMessage\(\s*selectedEntry\.relativePath,\s*annotations,\s*session\.transport,?\s*\)/,
+    'the wizard composes the batch into one designer chat message',
+  )
+  assert.match(
+    flow,
+    /onSubmitAnnotations=\{submitAnnotationsToDesigner\}/,
+    'the wizard preview receives the designer-session sink',
+  )
+  assert.match(
+    flow,
+    /annotateSubmitLabel="Send to designer"/,
+    'the wizard names the tray send destination (canvas mockup of record copy)',
+  )
+
+  const previewPane = read('src/renderer/src/components/workspace/guidedBrief/DesignArtifactPreviewPane.tsx')
+  assert.match(
+    previewPane,
+    /onSubmitAnnotations=\{onSubmitAnnotations\}/,
+    'the wizard preview pane forwards the sink to the HTML frame only',
+  )
+
+  console.log('annotate sink source contracts: ok')
+}
+
 // Seam source-contract (acceptance #2): the shared frame collects and submits
 // batches only through the onSubmitAnnotations callback — it must never import
 // sprint or wizard feedback plumbing. The moment it knows about sprint verdicts
@@ -1336,6 +1447,7 @@ function testAnnotateSeamSourceContract() {
     `${guidedBriefDir}/annotate/bridge.ts`,
     `${guidedBriefDir}/annotate/pickerRuntime.ts`,
     `${guidedBriefDir}/annotate/selector.ts`,
+    `${guidedBriefDir}/annotate/serialize.ts`,
     `${guidedBriefDir}/annotate/types.ts`,
   ].map((relativePath) => ({ relativePath, source: readFileSync(join(process.cwd(), relativePath), 'utf8') }))
 
@@ -1367,6 +1479,11 @@ function testAnnotateSeamSourceContract() {
     /await onSubmitAnnotations\(batch\)/,
     'the batch leaves the frame only through the callback seam',
   )
+  assert.doesNotMatch(
+    frameSource,
+    /annotate\/serialize/,
+    'the frame never serializes batches — sink formats are host-side only',
+  )
 
   console.log('annotate seam source contract: ok')
 }
@@ -1378,6 +1495,8 @@ void testCollectDesignArtifacts()
   .then(() => testComponentGalleryModel())
   .then(() => testAnnotateFrameModel())
   .then(() => testAnnotateSurfacesRender())
+  .then(() => testAnnotateSinkSerialization())
+  .then(() => testAnnotateSinkSourceContracts())
   .then(() => testAnnotateSeamSourceContract())
   .catch((error) => {
     console.error(error)

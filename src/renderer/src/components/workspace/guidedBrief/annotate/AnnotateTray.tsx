@@ -18,6 +18,9 @@ type Props = {
   anchors: Readonly<Record<string, AnnotationRect | null>>
   submitState: AnnotateSubmitState
   listOpen: boolean
+  /** Host-named send action ("Send to designer"); defaults to "Send N notes".
+   * The count still reads on the tray's leading chip either way. */
+  submitLabel?: string
   onToggleList: () => void
   onEdit: (index: number) => void
   onRemove: (index: number) => void
@@ -30,6 +33,7 @@ export function AnnotateTray({
   anchors,
   submitState,
   listOpen,
+  submitLabel,
   onToggleList,
   onEdit,
   onRemove,
@@ -161,7 +165,7 @@ export function AnnotateTray({
             focus:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--border-focus)]
           "
         >
-          {submitting ? 'Sending…' : annotateSubmitLabel(annotations.length)}
+          {submitting ? 'Sending…' : submitLabel ?? annotateSubmitLabel(annotations.length)}
         </button>
       </div>
     </div>

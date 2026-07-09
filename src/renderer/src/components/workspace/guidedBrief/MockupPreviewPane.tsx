@@ -177,6 +177,7 @@ export function HtmlArtifactFrame({
   watchDirectoryPath,
   enableSourceView = false,
   onSubmitAnnotations,
+  annotateSubmitLabel,
 }: {
   absolutePath: string
   relativePath: string
@@ -191,6 +192,9 @@ export function HtmlArtifactFrame({
    * host's decision (sprint request-changes, wizard chat, …).
    */
   onSubmitAnnotations?: (annotations: MockupAnnotation[]) => Promise<void>
+  /** Host-named tray send action ("Send to designer" in the wizard); the
+   * routing-agnostic frame cannot name the destination itself. */
+  annotateSubmitLabel?: string
 }) {
   const [allowScripts, setAllowScripts] = useState(false)
   const [viewMode, setViewMode] = useState<HtmlArtifactViewMode>('preview')
@@ -426,9 +430,12 @@ export function HtmlArtifactFrame({
   }
 
   // Escape exits Comment mode and returns focus to its toggle. The composer
-  // and the tray list handle their own Escape first (and stop propagation).
+  // and the tray list handle their own Escape first (and stop propagation);
+  // this handler stops propagation too, so one press never also collapses the
+  // shell's expanded bubble or drawer — Escape peels exactly one layer.
   const onFrameKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
     if (event.key !== 'Escape' || !annotateActive) return
+    event.stopPropagation()
     setAnnotateOn(false)
     commentToggleRef.current?.focus()
   }
@@ -492,7 +499,10 @@ export function HtmlArtifactFrame({
       onKeyDown={onFrameKeyDown}
       className="relative flex min-h-0 flex-1 flex-col overflow-hidden rounded-md border border-[color:var(--border-default)] bg-[color:var(--bg-surface)]"
     >
-      <div className="flex shrink-0 items-center gap-3 border-b border-[color:var(--border-subtle)] px-3 py-2">
+      {/* flex-wrap: narrow hosts (e.g. the sprint inspector pane) fit fewer
+          controls than the full cluster — wrapping to a second row keeps every
+          control reachable instead of clipping under overflow-hidden. */}
+      <div className="flex shrink-0 flex-wrap items-center gap-3 gap-y-1 border-b border-[color:var(--border-subtle)] px-3 py-2">
         <span className="flex min-w-0 flex-col leading-tight">
           <TruncatedText
             as="span"
@@ -505,7 +515,7 @@ export function HtmlArtifactFrame({
             className="min-w-0 font-mono text-[10px] text-[color:var(--text-subtle)]"
           />
         </span>
-        <span className="ml-auto flex shrink-0 items-center gap-1">
+        <span className="ml-auto flex min-w-0 flex-wrap items-center justify-end gap-1">
           {view.showToggle ? (
             <span role="group" aria-label="View mode" className="flex items-center gap-0.5">
               {HTML_ARTIFACT_VIEW_MODES.map((option) => (
@@ -742,6 +752,7 @@ export function HtmlArtifactFrame({
           anchors={anchorRects}
           submitState={submitState}
           listOpen={trayListOpen}
+          submitLabel={annotateSubmitLabel}
           onToggleList={() => setTrayListOpen((value) => !value)}
           onEdit={onEditAnnotation}
           onRemove={(index) => setBatch(removeAnnotation(batch, index))}
