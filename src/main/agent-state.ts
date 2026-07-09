@@ -636,6 +636,100 @@ export async function uninstallCodexAgentStateHook(
 }
 
 // =============================================================================
+// Grok Build install path
+//
+// Grok Build (xAI's `grok` CLI) ships Claude Code-style lifecycle hooks with
+// the same event vocabulary and stdin-payload contract, with two differences:
+//   1. Discovery is per-file — project hooks live in standalone JSON files
+//      under .grok/hooks/*.json rather than merged into a shared settings
+//      file. We therefore own our config file outright: install is a plain
+//      write of .grok/hooks/multicode-agent-state.json, uninstall a plain
+//      remove — no merge/unmerge bookkeeping.
+//   2. The stdin payload names fields camelCase (hookEventName / sessionId /
+//      toolName); the shared reporter (multicode-agent-state.mjs) reads both
+//      spellings, so the reporter script and the socket ingestion are
+//      unchanged.
+// Project hooks only run once the folder is trusted; the bundled grok plugin
+// manifest passes --trust at launch for exactly this reason.
+//
+// Grok's `Notification` payload types are UNVERIFIED against the
+// awaiting-input allow-list (its docs name no notification_type values), so
+// until confirmed live a Grok permission prompt may read as idle — the
+// deliberate fail-safe direction (see AWAITING_INPUT_NOTIFICATION_TYPES: a
+// false "needs input" parks a session forever; a false idle is recoverable).
+// =============================================================================
+
+export const GROK_HOOKS_CONFIG_REL = join('.grok', 'hooks', 'multicode-agent-state.json')
+
+// The whole-file hook config Grok Build discovers from .grok/hooks/*.json. The
+// per-event structure ({ matcher?, hooks: [{ type: 'command', command }] })
+// matches Grok's documented format, which mirrors Claude Code's settings hooks.
+// The registration set is Claude's own AGENT_STATE_HOOK_EVENTS — Grok Build
+// fires all of those events, and PreToolUse is dropped / PostToolUse kept for
+// the same reasons.
+export function renderGrokAgentStateHooksConfig(command: string): string {
+  const hooks: Record<string, Array<Record<string, unknown>>> = {}
+  for (const { event, matcher } of AGENT_STATE_HOOK_EVENTS) {
+    const block: Record<string, unknown> = {}
+    if (matcher !== undefined) block.matcher = matcher
+    block.hooks = [{ type: 'command', command }]
+    hooks[event] = [block]
+  }
+  return JSON.stringify({ hooks }, null, 2) + '\n'
+}
+
+export async function installGrokAgentStateHook(
+  workspaceRoot: string,
+  options: { sourceScriptPath: string; socketPath: string }
+): Promise<AgentStateInstallResult> {
+  if (!workspaceRoot?.trim()) return { ok: false, message: 'Workspace root is required.' }
+  if (!options.socketPath?.trim()) return { ok: false, message: 'Agent-state socket path is required.' }
+  if (!options.sourceScriptPath || !existsSync(options.sourceScriptPath)) {
+    return { ok: false, message: 'Agent-state reporter script is missing from this build.' }
+  }
+
+  try {
+    const hookDir = resolve(workspaceRoot, '.multicode', 'hooks')
+    await mkdir(hookDir, { recursive: true })
+    const destScript = resolve(workspaceRoot, AGENT_STATE_HOOK_SCRIPT_REL)
+    await copyFile(options.sourceScriptPath, destScript)
+
+    // Absolute reporter path for the same no-guaranteed-cwd reason as the
+    // Claude and Codex installs above.
+    const command = buildAgentStateReporterCommand(destScript, options.socketPath)
+    const configPath = resolve(workspaceRoot, GROK_HOOKS_CONFIG_REL)
+    await mkdir(resolve(configPath, '..'), { recursive: true })
+    await writeFile(configPath, renderGrokAgentStateHooksConfig(command), 'utf8')
+
+    return { ok: true, settingsPath: configPath, hookScriptPath: destScript }
+  } catch (error) {
+    return {
+      ok: false,
+      message: error instanceof Error ? error.message : 'Failed to install Grok agent-state hook.',
+    }
+  }
+}
+
+export async function uninstallGrokAgentStateHook(
+  workspaceRoot: string
+): Promise<{ ok: true } | { ok: false; message: string }> {
+  if (!workspaceRoot?.trim()) return { ok: false, message: 'Workspace root is required.' }
+  try {
+    // Remove only our own config file. The copied reporter script at
+    // AGENT_STATE_HOOK_SCRIPT_REL is shared with the Claude/Codex installs in
+    // the same workspace, so it is left for uninstallAgentStateHook to own.
+    const configPath = resolve(workspaceRoot, GROK_HOOKS_CONFIG_REL)
+    if (existsSync(configPath)) await rm(configPath, { force: true })
+    return { ok: true }
+  } catch (error) {
+    return {
+      ok: false,
+      message: error instanceof Error ? error.message : 'Failed to uninstall Grok agent-state hook.',
+    }
+  }
+}
+
+// =============================================================================
 // OpenCode install path (Phase 3)
 //
 // OpenCode has no command-hook mechanism like Claude/Codex (no per-event command

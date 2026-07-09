@@ -1,0 +1,146 @@
+{
+  "id": "grok",
+  "displayName": "Grok Build",
+  "publisher": "xai",
+  "version": 1,
+  "binary": "grok",
+  "permissionPresets": {
+    "default": {
+      "label": "Default (Grok prompts for approvals)",
+      "args": []
+    },
+    "bypass_all": {
+      "$comment": "--trust rides this preset, never the default launch argv: it does not just enable Multicode's own .grok/hooks agent-state reporter — it trusts EVERY project-level .grok config, including hooks committed in the repo itself, so a freshly cloned untrusted repo must not get it under the safe default. Without trust Grok skips project hooks and agent status falls back to output-timing inference (recoverable); the user can grant trust in the TUI via /hooks-trust.",
+      "label": "Bypass all approvals (dangerous)",
+      "args": ["--always-approve", "--trust"]
+    }
+  },
+  "modelSelection": {
+    "args": ["--model", "{{model}}"],
+    "options": [{ "id": "grok-4.5", "label": "Grok 4.5" }],
+    "allowCustomId": true
+  },
+  "launch": {
+    "argv": [
+      "{{binary}}",
+      { "spreadIf": "permissionArgs" },
+      { "spreadIf": "modelArgs" },
+      "--session-id",
+      "{{sessionId}}"
+    ]
+  },
+  "resume": {
+    "supported": true,
+    "argv": [
+      "{{binary}}",
+      { "spreadIf": "permissionArgs" },
+      { "spreadIf": "modelArgs" },
+      "--resume",
+      "{{sessionId}}"
+    ]
+  },
+  "promptInjection": {
+    "$comment": "Grok Build's interactive TUI documents no positional prompt argument (headless -p is a one-shot, not a session). The pattern (?!) never matches by design: Grok's real input-ready marker is unknown, and any guessable pattern (e.g. the brand name) matches the startup banner before the TUI accepts input — injecting there both swallows the keystrokes and cancels the timeout fallback, while a post-timeout late match would inject a second copy. Never-match makes delivery deterministic: exactly one injection, via the runtime's timeout fallback, after the TUI has had timeoutMs to become ready. If a real install confirms `grok \"prompt\"` works interactively (Claude Code parity), flip mode to positional-arg — config-only change.",
+    "mode": "send-after-ready",
+    "readiness": {
+      "type": "output-match",
+      "pattern": "(?!)",
+      "timeoutMs": 8000
+    }
+  },
+  "completion": {
+    "mode": "process-exit"
+  },
+  "mcpConfig": {
+    "path": "{{workspaceRoot}}/.mcp.json",
+    "format": "claude-code"
+  },
+  "skillIntegration": {
+    "support": "native",
+    "harnessId": "grok",
+    "installTargets": [
+      {
+        "scope": "workspace",
+        "path": "{{workspaceRoot}}/.grok/skills/{{skillId}}",
+        "format": "claude-code",
+        "restartRequired": true
+      }
+    ],
+    "invocation": {
+      "fileDropTemplate": "/{{skillId}} {{path}}",
+      "explicitTemplate": "/{{skillId}}",
+      "nativeSlashCommand": true
+    }
+  },
+  "detect": {
+    "versionArgs": ["--version"]
+  },
+  "install": {
+    "darwin": [
+      {
+        "id": "official",
+        "label": "Official installer (recommended)",
+        "shell": "curl -fsSL https://x.ai/cli/install.sh | bash",
+        "recommended": true,
+        "requires": "curl"
+      },
+      {
+        "id": "npm",
+        "label": "npm (requires Node.js)",
+        "shell": "npm install -g @xai-official/grok",
+        "requires": "npm"
+      }
+    ],
+    "linux": [
+      {
+        "id": "official",
+        "label": "Official installer (recommended)",
+        "shell": "curl -fsSL https://x.ai/cli/install.sh | bash",
+        "recommended": true,
+        "requires": "curl"
+      },
+      {
+        "id": "npm",
+        "label": "npm (requires Node.js)",
+        "shell": "npm install -g @xai-official/grok",
+        "requires": "npm"
+      }
+    ],
+    "wsl": [
+      {
+        "id": "official",
+        "label": "Official installer in WSL (recommended)",
+        "shell": "curl -fsSL https://x.ai/cli/install.sh | bash",
+        "recommended": true,
+        "requires": "curl"
+      },
+      {
+        "id": "npm",
+        "label": "npm in WSL (requires Node.js)",
+        "shell": "npm install -g @xai-official/grok",
+        "requires": "npm"
+      }
+    ],
+    "win32": [
+      {
+        "id": "official",
+        "label": "Official installer (recommended)",
+        "shell": "irm https://x.ai/cli/install.ps1 | iex",
+        "recommended": true
+      },
+      {
+        "id": "npm",
+        "label": "npm (requires Node.js)",
+        "shell": "npm install -g @xai-official/grok",
+        "requires": "npm"
+      }
+    ]
+  },
+  "capabilities": {
+    "$comment": "resumeSession is intentionally false pending end-to-end verification (the MC-1464/MC-1465 discipline: an unverified resume path must not risk a lost conversation). Grok Build documents claude-style resume (-s/--session-id at launch, -r/--resume <id> on relaunch) and the resume argv above is wired for it, so once resume is verified against a real Grok Build install, flip this to true — no code change needed. sessionIdFromCaller is true because launch passes our minted --session-id.",
+    "resumeSession": false,
+    "sessionIdFromCaller": true,
+    "toolUse": true,
+    "mcpServers": true
+  }
+}

@@ -1,13 +1,17 @@
 #!/usr/bin/env node
-// Multicode authoritative-agent-state reporter for Claude Code.
+// Multicode authoritative-agent-state reporter for Claude Code, Codex, and
+// Grok Build.
 //
 // Registered for the agent lifecycle events (SessionStart, UserPromptSubmit,
 // PostToolUse, Notification, Stop, SubagentStop, SessionEnd). The per-tool-call
 // PreToolUse event is intentionally NOT registered (see AGENT_STATE_HOOK_EVENTS
 // in src/main/agent-state.ts); PostToolUse is kept because its → thinking frame
 // clears the awaiting_input state after a permission is answered. The reporter
-// still maps PreToolUse if one ever arrives. Reads Claude's hook JSON from stdin,
-// maps `hook_event_name` to an agent phase, and
+// still maps PreToolUse if one ever arrives. Reads the CLI's hook JSON from
+// stdin — Claude Code and Codex name the fields snake_case (`hook_event_name`,
+// `session_id`); Grok Build ships the same hook contract with camelCase names
+// (`hookEventName`, `sessionId`), so every field is read under both spellings —
+// maps the event to an agent phase, and
 // writes a single newline-delimited JSON frame to the Multicode agent-state
 // socket so the app learns the agent's true phase instead of guessing from
 // output timing. The agent's identity comes from the MULTICODE_* env the app
@@ -169,8 +173,12 @@ async function main() {
     return
   }
 
-  const event = typeof payload?.hook_event_name === 'string' ? payload.hook_event_name : null
-  const notificationType = typeof payload?.notification_type === 'string' ? payload.notification_type : null
+  // Claude Code / Codex use snake_case payload fields; Grok Build uses
+  // camelCase for the same contract. Read both so one reporter serves all
+  // stdin-filter CLIs.
+  const str = (value) => (typeof value === 'string' ? value : null)
+  const event = str(payload?.hook_event_name) ?? str(payload?.hookEventName)
+  const notificationType = str(payload?.notification_type) ?? str(payload?.notificationType)
   const phase = event ? mapEventToPhase(event, notificationType) : null
   if (!phase) return
 
@@ -178,7 +186,7 @@ async function main() {
     type: 'agent_state',
     agentId,
     workspaceId: process.env.MULTICODE_WORKSPACE_ID ?? null,
-    sessionId: typeof payload?.session_id === 'string' ? payload.session_id : null,
+    sessionId: str(payload?.session_id) ?? str(payload?.sessionId),
     phase,
     event,
     ts: Date.now(),
@@ -191,8 +199,9 @@ async function main() {
   // the schedule (and the stop) so the app can hold the reaper until it fires.
   // Must mirror parseAgentStateFrame's wakeup validation in
   // src/main/agent-state.ts.
-  if (event === 'PostToolUse' && payload?.tool_name === 'ScheduleWakeup') {
-    const input = payload?.tool_input
+  const toolName = str(payload?.tool_name) ?? str(payload?.toolName)
+  if (event === 'PostToolUse' && toolName === 'ScheduleWakeup') {
+    const input = payload?.tool_input ?? payload?.toolInput
     if (input && typeof input === 'object') {
       if (input.stop === true) frame.wakeup = { stop: true }
       else if (typeof input.delaySeconds === 'number' && Number.isFinite(input.delaySeconds) && input.delaySeconds > 0) {
