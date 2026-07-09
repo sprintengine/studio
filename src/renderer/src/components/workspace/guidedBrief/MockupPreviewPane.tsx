@@ -348,6 +348,15 @@ export function HtmlArtifactFrame({
     })
   }
 
+  // Everything the overlay anchors to: the batch plus an open draft's anchor,
+  // so a draft composer re-anchors under reflow/scroll exactly like a pin.
+  const draftSelector = composer.kind === 'new' ? composer.anchor.selector : null
+  const anchoredSelectors = () => {
+    const selectors = batch.map((annotation) => annotation.selector)
+    if (draftSelector && !selectors.includes(draftSelector)) selectors.push(draftSelector)
+    return selectors
+  }
+
   const postLocate = (selectors: readonly string[]) => {
     iframeRef.current?.contentWindow?.postMessage(buildAnnotateLocateRequest(selectors), '*')
   }
@@ -363,7 +372,7 @@ export function HtmlArtifactFrame({
         case 'ready':
           // A (re)loaded document starts unscrolled; re-anchor the batch in it.
           setFrameScroll({ x: 0, y: 0 })
-          postLocate(batch.map((annotation) => annotation.selector))
+          postLocate(anchoredSelectors())
           break
         case 'scroll':
           setFrameScroll(message.scrollOffset)
@@ -396,14 +405,14 @@ export function HtmlArtifactFrame({
     }
     window.addEventListener('message', onMessage)
     return () => window.removeEventListener('message', onMessage)
-  }, [annotateActive, batch, submitting])
+  }, [annotateActive, batch, draftSelector, submitting])
 
-  // Re-anchor whenever the batch or the projection inputs change; the picker
-  // itself re-reports after in-frame reflows (zoom/viewport resize).
+  // Re-anchor whenever the anchored set or the projection inputs change; the
+  // picker itself re-reports after in-frame reflows and scrolls.
   useEffect(() => {
     if (!annotateActive) return
-    postLocate(batch.map((annotation) => annotation.selector))
-  }, [annotateActive, batch, zoom, viewport])
+    postLocate(anchoredSelectors())
+  }, [annotateActive, batch, draftSelector, zoom, viewport])
 
   const onToggleAnnotate = () => {
     setComposer({ kind: 'closed' })

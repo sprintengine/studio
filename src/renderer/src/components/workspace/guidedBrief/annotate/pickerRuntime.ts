@@ -157,12 +157,17 @@ function installAnnotatePicker(config: PickerConfig): void {
     post({ type: 'anchors', anchors, scrollOffset: { x: window.scrollX, y: window.scrollY } })
   }
 
+  // Captured at document level so nested scrollable containers report too. A
+  // nested scroll moves elements without changing window.scroll, so fresh
+  // anchors (not just the offset) are what keep pins glued; the plain scroll
+  // offset still updates the parent's projection of a not-yet-pinned draft.
   let scrollFrame = 0
   const onScroll = (): void => {
     if (scrollFrame) return
     scrollFrame = window.requestAnimationFrame(() => {
       scrollFrame = 0
       post({ type: 'scroll', scrollOffset: { x: window.scrollX, y: window.scrollY } })
+      if (locatedSelectors.length > 0) postAnchors()
     })
   }
 
