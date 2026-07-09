@@ -3,11 +3,21 @@ import type { AgentCli, CliRuntimeSettings } from '../../../../../shared/electro
 import type { DesignSystemSeedSource, GuidedBriefRuntimeState } from '../../../types/workspace'
 import {
   createGuidedBriefSessionId,
+  guidedBriefSpecialistAgentId,
   startGuidedBriefSpecialistSession,
   type GuidedBriefSessionLifecycle,
   type GuidedBriefSpecialistSession,
 } from './sessionAdapter'
 import { startGuidedBriefConversationSession } from './conversationSessionAdapter'
+import { DESIGN_SYSTEM_MANIFEST_FILENAME } from '../../../../../shared/design-system/manifest'
+import { useStageLiveStatus } from './useStageLiveStatus'
+import {
+  designSystemArtifactsValid,
+  frontendDesignArtifactsValid,
+  isAgentQuiet,
+  isStageReady,
+  type StageLiveStatus,
+} from './stageReadiness'
 import {
   EMPTY_GUIDED_INTERVIEW_STATE,
   type GuidedInterviewState,
@@ -101,6 +111,8 @@ export type UseDesignerSessionResult = {
   status: DesignerSessionStatus
   error: string | null
   readiness: DesignerSessionReadiness
+  /** Live specialist status from the transport's own session signal (MC-1503). */
+  liveStatus: StageLiveStatus
   session: GuidedBriefSpecialistSession | null
   uiDirectionPath: string
   mockupsDirectoryPath: string
@@ -157,9 +169,32 @@ export function useDesignerSession({
   const [session, setSession] = useState<GuidedBriefSpecialistSession | null>(null)
   const [interview, setInterview] = useState<GuidedInterviewState>(EMPTY_GUIDED_INTERVIEW_STATE)
   const [transcriptTail, setTranscriptTail] = useState('')
+  // design-system preset only: the bundle manifest parses AND the bundle lint
+  // reports no findings, evaluated on quiet edges (see the validation effect).
+  const [designSystemValid, setDesignSystemValid] = useState(false)
 
   const uiDirectionAbsolutePath = joinWorkspacePath(workspaceRoot, UI_DIRECTION_RELATIVE_PATH)
   const mockupsDirectoryPath = joinWorkspacePath(workspaceRoot, MOCKUPS_DIRECTORY_NAME)
+
+  // Liveness from the transport's live session status (not "is output
+  // streaming"): quiet gates readiness so a mid-write agent never flips the stage.
+  const liveStatus = useStageLiveStatus({
+    workspaceId,
+    agentId: guidedBriefSpecialistAgentId(
+      designSystem
+        ? {
+            kind: 'designer',
+            designSystem: {
+              bundleDirectoryPath: DESIGN_SYSTEM_BUNDLE_DIRECTORY_NAME,
+              ideaSeedPath: DESIGN_SYSTEM_IDEA_SEED_RELATIVE_PATH,
+            },
+          }
+        : { kind: 'designer' },
+    ),
+    transport,
+    enabled,
+  })
+  const agentQuiet = isAgentQuiet(liveStatus)
 
   const startedRef = useRef(false)
   const assignSessionIdRef = useRef(onAssignSessionId)
@@ -382,7 +417,9 @@ export function useDesignerSession({
       clearInterval(pollHandle)
       for (const stop of stopWatchers) void stop()
     }
-  }, [enabled, workspaceRoot, mockupsDirectoryPath, designSystem])
+    // `markerReceived` re-runs discovery the moment the marker lands (marker
+    // demoted to an extra validation trigger).
+  }, [enabled, workspaceRoot, mockupsDirectoryPath, designSystem, markerReceived])
 
   // Watch product/ui-direction.md for non-empty content. Design-system
   // studios have no UI-direction artifact — readiness there is the marker or
@@ -434,14 +471,65 @@ export function useDesignerSession({
       clearInterval(pollHandle)
       if (stopWatch) void stopWatch()
     }
-  }, [enabled, uiDirectionAbsolutePath, workspaceRoot, designSystem])
+    // `markerReceived` re-checks ui-direction the moment the marker lands.
+  }, [enabled, uiDirectionAbsolutePath, workspaceRoot, designSystem, markerReceived])
+
+  // design-system readiness contract (MC-1503): the bundle manifest parses AND
+  // the real bundle lint returns no findings. Evaluated only on quiet edges —
+  // when the agent goes quiet, and again when the marker lands — never on every
+  // write (the lint forks a process). A mid-write agent, a malformed manifest,
+  // or a deleted design-system.json all leave this false.
+  useEffect(() => {
+    if (!enabled || !designSystem || !agentQuiet) {
+      setDesignSystemValid(false)
+      return
+    }
+    let cancelled = false
+    const bundleDir = joinWorkspacePath(workspaceRoot, DESIGN_SYSTEM_BUNDLE_DIRECTORY_NAME)
+    const manifestPath = joinWorkspacePath(
+      workspaceRoot,
+      `${DESIGN_SYSTEM_BUNDLE_DIRECTORY_NAME}/${DESIGN_SYSTEM_MANIFEST_FILENAME}`,
+    )
+    const validate = async (): Promise<boolean> => {
+      const content = await window.api.readfile(manifestPath).catch(() => null)
+      let manifestParses = false
+      if (content !== null) {
+        try {
+          JSON.parse(content)
+          manifestParses = true
+        } catch {
+          manifestParses = false
+        }
+      }
+      // Skip the fork when the manifest is missing/broken — nothing to lint.
+      const lintClean = manifestParses
+        ? Boolean((await window.api.lintDesignSystemBundle(bundleDir).catch(() => null))?.ok)
+        : false
+      return designSystemArtifactsValid({ manifestParses, lintClean })
+    }
+    void validate().then((valid) => {
+      if (!cancelled) setDesignSystemValid(valid)
+    })
+    return () => {
+      cancelled = true
+    }
+    // `markerReceived` re-runs the validation the moment the marker lands.
+  }, [enabled, designSystem, agentQuiet, workspaceRoot, markerReceived])
 
   const mockupsAvailable = mockups.length > 0
-  // Spec: marker OR real mockup file readiness. We treat "real readiness" as
-  // the presence of at least one .html mockup file on disk; the marker is the
-  // agent's own ready signal. Either flips the UI to ready state. Accept
-  // remains gated on real files only — see GuidedBriefFlow.acceptDesigner.
-  const isReady = markerReceived || mockupsAvailable
+  // Readiness = validated artifact set AND a quiet agent (MC-1503). The marker
+  // is only a re-validation trigger, never a readiness signal, so a marker over
+  // a broken/absent artifact set can't flip the stage. frontend-design needs a
+  // real page AND a non-empty UI direction — a page alone no longer counts
+  // (intended change from the old `mockupsAvailable`-alone rule). Accept remains
+  // gated on real files only — see GuidedBriefFlow.acceptDesigner.
+  const artifactsValid = designSystem
+    ? designSystemValid
+    : frontendDesignArtifactsValid({
+        pageCount: mockups.length,
+        uiDirectionNonEmpty: uiDirectionReady,
+      })
+  const isReady = isStageReady({ artifactsValid, agentQuiet })
 
   // Designer-turn completion edge: regenerate design-system derived files
   // (tokens.css, catalog) for any bundle in the workspace by running the
@@ -468,6 +556,7 @@ export function useDesignerSession({
     status,
     error,
     readiness: { markerReceived, mockupsAvailable, uiDirectionReady, isReady },
+    liveStatus,
     session,
     uiDirectionPath: uiDirectionAbsolutePath,
     mockupsDirectoryPath,

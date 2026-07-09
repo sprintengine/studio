@@ -70,6 +70,7 @@ import {
 } from './types'
 import type { GuidedInterviewState } from './interviewProtocol'
 import type { GuidedBriefSpecialistSession } from './sessionAdapter'
+import type { StageLiveStatus } from './stageReadiness'
 
 export type GuidedBriefRunOptions = {
   startRunner: boolean
@@ -811,6 +812,7 @@ export function GuidedBriefFlow({
             starting={strategist.status === 'starting' || strategist.status === 'idle'}
             errorMessage={strategist.error}
             working={stage === 'strategist-working'}
+            liveStatus={strategist.liveStatus}
             fileReady={strategist.readiness.fileReady}
             overviewPath={strategist.overviewPath}
             overviewFileReady={strategist.overviewFileReady}
@@ -827,6 +829,7 @@ export function GuidedBriefFlow({
             starting={architect.status === 'starting' || architect.status === 'idle'}
             errorMessage={architect.error}
             working={stage === 'architect-working'}
+            liveStatus={architect.liveStatus}
             fileReady={architect.readiness.fileReady}
             overviewPath={architect.overviewPath}
             overviewFileReady={architect.overviewFileReady}
@@ -842,6 +845,8 @@ export function GuidedBriefFlow({
             starting={designer.status === 'starting' || designer.status === 'idle'}
             errorMessage={designer.error}
             working={stage === 'designer-working'}
+            liveStatus={designer.liveStatus}
+            ready={designer.readiness.isReady}
             interview={designer.interview}
             onAnswer={answerViaSession(designer.session)}
             transcriptTail={designer.transcriptTail}
@@ -1364,6 +1369,7 @@ function StrategistBody({
   starting,
   errorMessage,
   working,
+  liveStatus,
   fileReady,
   overviewPath,
   overviewFileReady,
@@ -1378,6 +1384,7 @@ function StrategistBody({
   starting: boolean
   errorMessage: string | null
   working: boolean
+  liveStatus: StageLiveStatus
   fileReady: boolean
   overviewPath: string
   overviewFileReady: boolean
@@ -1400,6 +1407,7 @@ function StrategistBody({
       starting={starting}
       errorMessage={errorMessage}
       working={working}
+      liveStatus={liveStatus}
       interview={interview}
       onAnswer={onAnswer}
       transcriptTail={transcriptTail}
@@ -1432,6 +1440,7 @@ function ArchitectBody({
   starting,
   errorMessage,
   working,
+  liveStatus,
   fileReady,
   overviewPath,
   overviewFileReady,
@@ -1446,6 +1455,7 @@ function ArchitectBody({
   starting: boolean
   errorMessage: string | null
   working: boolean
+  liveStatus: StageLiveStatus
   fileReady: boolean
   overviewPath: string
   overviewFileReady: boolean
@@ -1468,6 +1478,7 @@ function ArchitectBody({
       starting={starting}
       errorMessage={errorMessage}
       working={working}
+      liveStatus={liveStatus}
       interview={interview}
       onAnswer={onAnswer}
       transcriptTail={transcriptTail}
@@ -1505,6 +1516,7 @@ function TextStageStudioBody({
   starting,
   errorMessage,
   working,
+  liveStatus,
   interview,
   onAnswer,
   transcriptTail,
@@ -1519,6 +1531,7 @@ function TextStageStudioBody({
   starting: boolean
   errorMessage: string | null
   working: boolean
+  liveStatus: StageLiveStatus
   interview: GuidedInterviewState
   onAnswer: (answerText: string) => void
   transcriptTail?: string
@@ -1579,6 +1592,8 @@ function TextStageStudioBody({
           specialistName={specialistName}
           specialistSubline={specialistSubline}
           working={working}
+          liveStatus={liveStatus}
+          ready={ready}
           interview={interview}
           onAnswer={onAnswer}
           transcriptTail={transcriptTail}
@@ -1622,6 +1637,8 @@ function DesignStudioBody({
   starting,
   errorMessage,
   working,
+  liveStatus,
+  ready,
   interview,
   onAnswer,
   transcriptTail,
@@ -1636,6 +1653,8 @@ function DesignStudioBody({
   starting: boolean
   errorMessage: string | null
   working: boolean
+  liveStatus: StageLiveStatus
+  ready: boolean
   interview: GuidedInterviewState
   onAnswer: (answerText: string) => void
   transcriptTail?: string
@@ -1669,6 +1688,8 @@ function DesignStudioBody({
                 : 'Describe the screens you want — files and preview update as they’re written'
           }
           working={working}
+          liveStatus={liveStatus}
+          ready={ready}
           interview={interview}
           onAnswer={onAnswer}
           transcriptTail={transcriptTail}

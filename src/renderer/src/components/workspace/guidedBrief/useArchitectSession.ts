@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import type { AgentCli, CliRuntimeSettings } from '../../../../../shared/electron-api'
 import {
   createGuidedBriefSessionId,
+  guidedBriefSpecialistAgentId,
   startGuidedBriefSpecialistSession,
   type GuidedBriefSessionLifecycle,
   type GuidedBriefSpecialistSession,
@@ -12,6 +13,8 @@ import {
   type GuidedInterviewState,
 } from './interviewProtocol'
 import { joinWorkspacePath } from './paths'
+import { useStageLiveStatus } from './useStageLiveStatus'
+import { isAgentQuiet, isStageReady, type StageLiveStatus } from './stageReadiness'
 
 export type ArchitectSessionReadiness = {
   markerReceived: boolean
@@ -46,6 +49,8 @@ export type UseArchitectSessionResult = {
   status: ArchitectSessionStatus
   error: string | null
   readiness: ArchitectSessionReadiness
+  /** Live specialist status from the transport's own session signal (MC-1503). */
+  liveStatus: StageLiveStatus
   session: GuidedBriefSpecialistSession | null
   architecturePlanPath: string
   /** Optional agent-produced HTML overview of the plan (`architecture/overview.html`). */
@@ -90,6 +95,16 @@ export function useArchitectSession({
   const overviewAbsolutePath = joinWorkspacePath(workspaceRoot, ARCHITECTURE_OVERVIEW_RELATIVE_PATH)
   const architecturePlanAbsolutePath = joinWorkspacePath(workspaceRoot, ARCHITECTURE_PLAN_RELATIVE_PATH)
   const architectureDirectoryPath = joinWorkspacePath(workspaceRoot, 'architecture')
+
+  // Liveness from the transport's live session status (not "is output
+  // streaming"): quiet gates readiness so a mid-write agent never flips the stage.
+  const liveStatus = useStageLiveStatus({
+    workspaceId,
+    agentId: guidedBriefSpecialistAgentId({ kind: 'architect' }),
+    transport,
+    enabled,
+  })
+  const agentQuiet = isAgentQuiet(liveStatus)
 
   const startedRef = useRef(false)
   const assignSessionIdRef = useRef(onAssignSessionId)
@@ -237,14 +252,20 @@ export function useArchitectSession({
       clearInterval(pollHandle)
       if (stopWatch) void stopWatch()
     }
-  }, [enabled, architectureDirectoryPath, architecturePlanAbsolutePath, overviewAbsolutePath])
+    // `markerReceived` re-runs the file check the moment the marker lands
+    // (marker demoted to an extra validation trigger), never a readiness signal
+    // on its own.
+  }, [enabled, architectureDirectoryPath, architecturePlanAbsolutePath, overviewAbsolutePath, markerReceived])
 
-  const isReady = markerReceived || fileReady
+  // Readiness = validated artifact (non-empty plan) AND a quiet agent. The
+  // marker is only a re-validation trigger above.
+  const isReady = isStageReady({ artifactsValid: fileReady, agentQuiet })
 
   return {
     status,
     error,
     readiness: { markerReceived, fileReady, isReady },
+    liveStatus,
     session,
     architecturePlanPath: architecturePlanAbsolutePath,
     overviewPath: overviewAbsolutePath,

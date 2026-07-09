@@ -7,6 +7,13 @@ import {
   startGuidedBriefConversationSession,
   type GuidedBriefConversationApi,
 } from './conversationSessionAdapter'
+import {
+  designSystemArtifactsValid,
+  frontendDesignArtifactsValid,
+  isAgentQuiet,
+  isStageReady,
+  type StageLiveStatus,
+} from './stageReadiness'
 import type { GuidedInterviewState } from './interviewProtocol'
 
 async function main(): Promise<void> {
@@ -17,8 +24,63 @@ async function main(): Promise<void> {
   await testNonQuestionApprovalsAutoRespond()
   await testLiveSessionIsAdoptedInsteadOfDuplicated()
   await testResumeSendsContinuationInsteadOfPrompt()
+  testStageReadinessTruthTable()
 
   console.log('conversationSessionAdapter tests passed')
+}
+
+// MC-1503: readiness = validated artifacts AND a quiet agent, with the marker
+// demoted to a re-validation trigger (never an input). This covers the
+// live-status × artifact-state truth table the stage machine consumes.
+function testStageReadinessTruthTable(): void {
+  // Liveness → quiet. idle/absent (session ended) are quiet; a working agent or
+  // one holding a pending question/approval, or a failed agent, are not.
+  const quietByStatus: Record<StageLiveStatus, boolean> = {
+    idle: true,
+    absent: true,
+    working: false,
+    'needs-input': false,
+    failed: false,
+  }
+  for (const [status, expected] of Object.entries(quietByStatus) as [StageLiveStatus, boolean][]) {
+    assert.equal(isAgentQuiet(status), expected, `isAgentQuiet(${status})`)
+  }
+
+  // frontend-design contract: a page AND a non-empty UI direction. A page alone
+  // no longer counts (intended change from the old mockupsAvailable rule).
+  assert.equal(frontendDesignArtifactsValid({ pageCount: 1, uiDirectionNonEmpty: true }), true)
+  assert.equal(frontendDesignArtifactsValid({ pageCount: 2, uiDirectionNonEmpty: false }), false, 'page alone ⇒ not valid')
+  assert.equal(frontendDesignArtifactsValid({ pageCount: 0, uiDirectionNonEmpty: true }), false, 'direction alone ⇒ not valid')
+  assert.equal(frontendDesignArtifactsValid({ pageCount: 0, uiDirectionNonEmpty: false }), false)
+
+  // design-system contract: manifest parses AND lint clean. A marker over a
+  // broken bundle (lint fails) or a deleted manifest never validates.
+  assert.equal(designSystemArtifactsValid({ manifestParses: true, lintClean: true }), true)
+  assert.equal(designSystemArtifactsValid({ manifestParses: true, lintClean: false }), false, 'lint findings ⇒ not valid')
+  assert.equal(designSystemArtifactsValid({ manifestParses: false, lintClean: false }), false, 'missing/broken manifest ⇒ not valid')
+
+  // Stage flip combines the two. Ready only on validated artifacts AND quiet.
+  assert.equal(isStageReady({ artifactsValid: true, agentQuiet: true }), true)
+  assert.equal(isStageReady({ artifactsValid: true, agentQuiet: false }), false, 'valid but mid-write ⇒ not ready')
+  assert.equal(isStageReady({ artifactsValid: false, agentQuiet: true }), false, 'quiet but no artifacts ⇒ not ready')
+
+  // AC1 end-to-end shape: a lint-clean bundle + quiet agent flips; the same
+  // bundle with lint findings does NOT, even though the agent is quiet (the
+  // marker-with-invalid-bundle case) and a mid-write quiet-false never flips.
+  const dsReady = (input: { manifestParses: boolean; lintClean: boolean }, status: StageLiveStatus): boolean =>
+    isStageReady({ artifactsValid: designSystemArtifactsValid(input), agentQuiet: isAgentQuiet(status) })
+  assert.equal(dsReady({ manifestParses: true, lintClean: true }, 'idle'), true)
+  assert.equal(dsReady({ manifestParses: true, lintClean: false }, 'idle'), false, 'marker over broken bundle ⇒ not ready')
+  assert.equal(dsReady({ manifestParses: false, lintClean: false }, 'idle'), false, 'deleted manifest ⇒ not ready')
+  assert.equal(dsReady({ manifestParses: true, lintClean: true }, 'working'), false, 'lint-clean but still writing ⇒ not ready')
+  assert.equal(dsReady({ manifestParses: true, lintClean: true }, 'needs-input'), false, 'pending question ⇒ not ready')
+
+  // AC3 end-to-end shape for frontend-design: page + direction while quiet ⇒
+  // ready; a page alone while quiet ⇒ not ready.
+  const feReady = (input: { pageCount: number; uiDirectionNonEmpty: boolean }, status: StageLiveStatus): boolean =>
+    isStageReady({ artifactsValid: frontendDesignArtifactsValid(input), agentQuiet: isAgentQuiet(status) })
+  assert.equal(feReady({ pageCount: 1, uiDirectionNonEmpty: true }, 'idle'), true)
+  assert.equal(feReady({ pageCount: 1, uiDirectionNonEmpty: false }, 'idle'), false, 'page alone ⇒ not ready')
 }
 
 type FakeApi = {
