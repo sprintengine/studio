@@ -232,13 +232,15 @@ export async function runSprintEngineNewTeamCreation(
       roleRuntimes: architectOverrides
         ? architectOverrides.roleRuntimes
         : buildSprintEngineRoleRuntimes(input.roleModelOverrides, input.roleCliDefaults),
-      // Persist the enabled role set so Python derives quality gates for the
-      // configured-but-not-yet-seated roles under the lazy roster. Architect
-      // mode enables only the architect; the architect grows the roster later
-      // via roster.configure.
+      // Persist the enabled role set (init `configuredRoles`, the run's legal
+      // role set for plan.add_task/seating) covering the configured-but-not-
+      // yet-seated roles under the lazy roster, plus any wizard-enabled extras
+      // (MC-1542: the sweep roles, so the architect can plan the audits the
+      // "Final sweeps" panel promises). Architect mode enables only the
+      // architect; the architect grows the roster later via roster.configure.
       enabledRoles: architectOverrides
         ? architectOverrides.enabledRoles
-        : sprintEngineEnabledRoles(args.sprintEngineState.roleCounts),
+        : sprintEngineEnabledRoles(args.sprintEngineState.roleCounts, input.additionalEnabledRoles),
       // Architect-roster metadata: the roster-source mode and the ticked model
       // palette the engine enforces. Omitted (undefined) in user mode.
       ...(architectOverrides
@@ -312,6 +314,7 @@ export async function runSprintEnginePlanSourcedCreation(
       roleCliDefaults: input.roleCliDefaults,
       roleModelOverrides: input.roleModelOverrides ?? null,
       initialSpawnRoles: input.initialSpawnRoles ?? null,
+      additionalEnabledRoles: input.additionalEnabledRoles,
       workspaceWindowId: input.workspaceWindowId,
       useWorktrees: input.useWorktrees === true,
       sourceReference: input.sourceReference === true,

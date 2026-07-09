@@ -84,7 +84,11 @@ import {
   buildSprintEngineWorkflowInitKeys,
   type SprintEngineReviewRuntime,
 } from './newWorkspace/sprintengineWorkflowConfig'
-import { sprintEngineRosterHasPlanningRole, sprintEngineRosterRoleFloor } from '../../utils/sprintengineRoleOptions'
+import {
+  listSprintEngineWizardSweepRoles,
+  sprintEngineRosterHasPlanningRole,
+  sprintEngineRosterRoleFloor,
+} from '../../utils/sprintengineRoleOptions'
 import { useFolderHints, useFolderScan } from './newWorkspace/useNewWorkspaceFolder'
 import { useBacklogScan } from './newWorkspace/useBacklogScan'
 import { BacklogRowContent } from '../backlog/BacklogRow'
@@ -735,6 +739,15 @@ export default function NewWorkspacePanel({
       ? applyUserDisabledSprintEngineRoleCounts(seRoleCounts, effectiveSprintEngineDisabledRoleIds)
       : seRoleCounts),
     [seRoleCounts, effectiveSprintEngineDisabledRoleIds],
+  )
+  // MC-1542 wizard reframe: the "Work types & models" panel no longer offers
+  // sweep roles as seats, so every registry-visible sweep role rides into
+  // enabledRoles -> configuredRoles at create. The architect can then plan the
+  // audits the "Final sweeps" panel promises ("leave all off to let the
+  // architect decide"), and a mandated requiredSweeps role is always plannable.
+  const sprintEngineSweepEnabledRoles = useMemo<SprintEngineRoleId[]>(
+    () => listSprintEngineWizardSweepRoles(seRoleRegistry, effectiveSprintEngineDisabledRoleIds),
+    [seRoleRegistry, effectiveSprintEngineDisabledRoleIds],
   )
 
   const mcpSettings = useWorkspaceStore((s) => s.appSettings.mcp)
@@ -2022,6 +2035,10 @@ export default function NewWorkspacePanel({
               roleCliDefaults: seRoleCliDefaults,
               roleModelOverrides: seRoleModelOverrides,
               initialSpawnRoles: seInitialSpawnRoles,
+              // Sweep roles are configured via the "Final sweeps" panel, not
+              // the work-types table; enable them all so the architect can
+              // plan whichever audits the work needs.
+              additionalEnabledRoles: sprintEngineSweepEnabledRoles,
               startRunner: seStartRunner,
               autoApproveArtifacts: seAutoApproveArtifacts,
               useWorktrees: seUseWorktrees,
@@ -2107,6 +2124,10 @@ export default function NewWorkspacePanel({
             roleCliDefaults: seRoleCliDefaults,
             roleModelOverrides: seRoleModelOverrides,
             initialSpawnRoles: architectMode ? ['architect'] : seInitialSpawnRoles,
+            // Sweep roles are configured via the "Final sweeps" panel, not the
+            // work-types table; enable them all so the architect can plan
+            // whichever audits the work needs (ignored in architect mode).
+            additionalEnabledRoles: sprintEngineSweepEnabledRoles,
             startRunner: seStartRunner,
             autoApproveArtifacts: seAutoApproveArtifacts,
             useWorktrees: seUseWorktrees,
@@ -4428,25 +4449,30 @@ function SprintEngineRosterStep(props: {
         architectModeAvailable={architectModeAvailable}
         architectModeDisabledHint={architectModeDisabledHint}
         architectCard={architectCard}
+        // MC-1542 wizard reframe: a fresh run's role table is the "Work types &
+        // models" panel (sweep roles live in the "Final sweeps" panel below).
+        // An existing team's roster is fixed and keeps the classic presentation.
+        workTypes={!hasExistingTeam}
+        workflowSection={
+          !hasExistingTeam ? (
+            <SprintEngineWorkflowPanels
+              cliOptions={cliOptions}
+              registry={registry}
+              disabledRoleIds={disabledRoleIds}
+              selfReviewEnabled={selfReviewEnabled}
+              onChangeSelfReviewEnabled={onChangeSelfReviewEnabled}
+              reviewRuntime={reviewRuntime}
+              onChangeReviewRuntime={onChangeReviewRuntime}
+              requiredSweepRoleIds={requiredSweeps}
+              onToggleRequiredSweep={onToggleRequiredSweep}
+              roleCliDefaults={roleCliDefaults}
+              roleModelOverrides={roleModelOverrides}
+              onSetRoleCli={onSetRoleCli}
+              onSetRoleModel={onSetRoleModel}
+            />
+          ) : null
+        }
       />
-
-      {!hasExistingTeam ? (
-        <SprintEngineWorkflowPanels
-          cliOptions={cliOptions}
-          registry={registry}
-          disabledRoleIds={disabledRoleIds}
-          selfReviewEnabled={selfReviewEnabled}
-          onChangeSelfReviewEnabled={onChangeSelfReviewEnabled}
-          reviewRuntime={reviewRuntime}
-          onChangeReviewRuntime={onChangeReviewRuntime}
-          requiredSweepRoleIds={requiredSweeps}
-          onToggleRequiredSweep={onToggleRequiredSweep}
-          roleCliDefaults={roleCliDefaults}
-          roleModelOverrides={roleModelOverrides}
-          onSetRoleCli={onSetRoleCli}
-          onSetRoleModel={onSetRoleModel}
-        />
-      ) : null}
     </div>
   )
 }
@@ -4649,7 +4675,7 @@ function getStepBlockingMessage(args: {
         if (!architectModeReady) return 'Tick at least one model for this sprint.'
         return 'Ready to create.'
       }
-      if (totalAgents === 0) return 'Add at least one specialist.'
+      if (totalAgents === 0) return 'Turn on at least one kind of work.'
       return 'Ready to create.'
     case 'guided-idea':
       if (!guidedIdea.trim()) return 'Describe the idea in a sentence or two.'

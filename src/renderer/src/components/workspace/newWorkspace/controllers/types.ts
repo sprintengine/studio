@@ -134,6 +134,12 @@ export type SprintEngineNewTeamInput = {
   roleCliDefaults: Required<SprintEngineRoleCliDefaults>
   roleModelOverrides?: SprintEngineRoleModelOverrides | null
   initialSpawnRoles?: SprintEngineRoleId[] | null
+  // Roles enabled outside the role table, merged into enabledRoles ->
+  // configuredRoles at init (MC-1542: the registry's sweep roles, so the
+  // architect can plan the audits the "Final sweeps" panel promises even when
+  // the operator mandated none). Ignored in architect mode, whose configured
+  // roles collapse to ['architect'] and grow via roster.configure.
+  additionalEnabledRoles?: SprintEngineRoleId[]
   startRunner: boolean
   autoApproveArtifacts: boolean
   useWorktrees?: boolean
@@ -179,6 +185,9 @@ export type SprintEnginePlanSourcedInput = {
   roleCliDefaults: Required<SprintEngineRoleCliDefaults>
   roleModelOverrides?: SprintEngineRoleModelOverrides | null
   initialSpawnRoles?: SprintEngineRoleId[] | null
+  // Extra roles for enabledRoles -> configuredRoles (MC-1542 sweep roles; see
+  // SprintEngineNewTeamInput.additionalEnabledRoles).
+  additionalEnabledRoles?: SprintEngineRoleId[]
   startRunner: boolean
   autoApproveArtifacts: boolean
   useWorktrees?: boolean

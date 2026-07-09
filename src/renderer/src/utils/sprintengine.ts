@@ -1670,15 +1670,23 @@ export function buildSprintEngineAgentRoster(
 }
 
 // The enabled role set encoded by the roster counts (architect always on).
-// Forwarded to Python init as `configuredRoles` so quality-gate derivation runs
-// against the roles the user actually turned on, even though the lazy roster
-// seeds only the architect. Empty of non-architect roles => no derived gates.
+// Forwarded to Python init as `configuredRoles` — the run's legal role set,
+// which `plan.add_task` and seat creation enforce — even though the lazy
+// roster seeds only the architect. `additionalRoles` admits roles the wizard
+// enables outside the role table (MC-1542: the registry's sweep roles, so the
+// architect can plan the audits the "Final sweeps" panel promises whether or
+// not the operator mandated any of them).
 export function sprintEngineEnabledRoles(
   roleCounts: SprintEngineRoleCounts,
+  additionalRoles?: readonly SprintEngineRoleId[],
 ): SprintEngineRoleId[] {
   const roles = new Set<SprintEngineRoleId>(['architect'])
   for (const [role, count] of Object.entries(roleCounts)) {
     if ((count ?? 0) > 0 && normalizeSprintEngineRoleId(role)) roles.add(role as SprintEngineRoleId)
+  }
+  for (const role of additionalRoles ?? []) {
+    const normalized = normalizeSprintEngineRoleId(role)
+    if (normalized) roles.add(normalized)
   }
   return [...roles]
 }

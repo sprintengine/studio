@@ -33,7 +33,7 @@ export const BUNDLED_SPRINT_ENGINE_ADDABLE_ROLES: readonly SprintEngineRole[] = 
 // `BUNDLED_SPRINT_ENGINE_WIZARD_ROLE_SUMMARIES` below) because that surface
 // is about staffing intent rather than describing the live actor.
 export const BUNDLED_SPRINT_ENGINE_BOARD_ROLE_SUMMARIES: Record<SprintEngineRole, string> = {
-  architect: 'Plans the run and gates readiness.',
+  architect: 'Plans the run and signs off on finished work.',
   product: 'Shapes scope, positioning, audience fit, and priority tradeoffs.',
   developer: 'Builds implementation and integration work.',
   frontend: 'Owns interaction design, visual quality, and UI implementation.',
@@ -49,7 +49,7 @@ export const BUNDLED_SPRINT_ENGINE_BOARD_ROLE_SUMMARIES: Record<SprintEngineRole
 // from the live-board copy so each surface can speak in the right tense
 // without forcing the other to change.
 export const BUNDLED_SPRINT_ENGINE_WIZARD_ROLE_SUMMARIES: Record<SprintEngineRole, string> = {
-  architect: 'Plans the work, owns dependencies, gates reviews.',
+  architect: 'Plans the work, owns dependencies, signs off at the end.',
   product: 'Clarifies scope, tradeoffs, and acceptance criteria.',
   frontend: 'Implements UI, interaction states, and polish.',
   ui_ux_reviewer: 'Reviews screens, panels, brand alignment, responsiveness, and visual artifacts.',
@@ -231,6 +231,31 @@ export function listSprintEngineWizardSweepRoles(
   return listSprintEngineAddableRoles(registry, disabledRoleIds).filter((role) =>
     isSprintEngineSweepRole(role, registry),
   )
+}
+
+// The "Work types & models" panel rows (MC-1542 wizard reframe): the wizard
+// roles minus the sweep roles. Sweeps audit finished work and are offered in
+// the "Final sweeps" panel, so listing them here would offer the same role in
+// two places with two different meanings.
+export function listSprintEngineWizardWorkRoles(
+  registry?: SprintEngineRoleRegistry | null,
+  disabledRoleIds?: ReadonlySet<SprintEngineRoleId> | null,
+): SprintEngineRoleId[] {
+  return listSprintEngineWizardRoles(registry, disabledRoleIds).filter(
+    (role) => !isSprintEngineSweepRole(role, registry),
+  )
+}
+
+// Staffed rows of the "Work types & models" panel: roles turned on in the
+// wizard, excluding sweeps (which have their own "Final sweeps" toggles). Feeds
+// the panel's "N kinds of work" count so it matches the rows actually shown.
+export function countSprintEngineStaffedWorkRoles(
+  roleCounts: Partial<Record<SprintEngineRoleId, number>>,
+  registry?: SprintEngineRoleRegistry | null,
+): number {
+  return Object.entries(roleCounts).filter(
+    ([role, count]) => (count ?? 0) > 0 && !isSprintEngineSweepRole(role, registry),
+  ).length
 }
 
 export function buildSprintEngineAddMemberOptions(

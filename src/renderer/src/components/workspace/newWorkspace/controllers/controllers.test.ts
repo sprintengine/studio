@@ -576,6 +576,61 @@ async function testSprintEngineWorkflowKeysFlowToInit(): Promise<void> {
   assert.equal(omitted[0].phaseRuntimes, undefined, 'no phaseRuntimes key when the wizard sets none')
 }
 
+// MC-1542 "Work types & models" panel: sweep roles are no longer offered as
+// seats, so the wizard forwards them via additionalEnabledRoles and they merge
+// (de-duplicated) into enabledRoles -> configuredRoles. Architect mode still
+// collapses to ['architect'] — the architect grows roles via roster.configure.
+async function testSprintEngineAdditionalEnabledRolesMergeIntoInit(): Promise<void> {
+  const baseInput = {
+    folderPath: '/p',
+    teamName: 'Ship Squad',
+    goal: 'Ship the things',
+    roleCounts: { architect: 1, developer: 1, frontend: 0, performance: 0, cross_platform: 0, tester: 0, security: 0, product: 0 },
+    visibleRoleCounts: { architect: 1, developer: 1, frontend: 0, performance: 0, cross_platform: 0, tester: 0, security: 0, product: 0 },
+    maxParallelAgents: 2,
+    roleCliDefaults: { architect: 'claude-code' as const, developer: 'claude-code' as const, frontend: 'claude-code' as const, performance: 'claude-code' as const, cross_platform: 'claude-code' as const, tester: 'claude-code' as const, security: 'claude-code' as const, product: 'claude-code' as const },
+    startRunner: false,
+    autoApproveArtifacts: false,
+    cliPermissionPreset: 'default' as const,
+  }
+  const captureInit = (bucket: Array<Record<string, unknown>>) => async (input: SprintEngineStateInitializeInput) => {
+    bucket.push({ enabledRoles: input.enabledRoles })
+    return { ok: true as const, data: { projectionContent: JSON.stringify(sprintEngineProjectionFixture({ name: 'Ship Squad', goal: 'Ship the things' })) } }
+  }
+
+  const userMode: Array<Record<string, unknown>> = []
+  await runSprintEngineNewTeamCreation(
+    { ...baseInput, additionalEnabledRoles: ['tester', 'security', 'developer'] },
+    { pathExists: async () => false, initializeSprintEngineState: captureInit(userMode) },
+  )
+  assert.equal(userMode.length, 1)
+  assert.deepEqual(
+    userMode[0].enabledRoles,
+    ['architect', 'developer', 'tester', 'security'],
+    'sweep roles merge into enabledRoles without duplicating staffed roles',
+  )
+
+  const architectMode: Array<Record<string, unknown>> = []
+  await runSprintEngineNewTeamCreation(
+    {
+      ...baseInput,
+      roleCounts: { architect: 1, developer: 0, frontend: 0, performance: 0, cross_platform: 0, tester: 0, security: 0, product: 0 },
+      visibleRoleCounts: { architect: 1, developer: 0, frontend: 0, performance: 0, cross_platform: 0, tester: 0, security: 0, product: 0 },
+      additionalEnabledRoles: ['tester', 'security'],
+      rosterSource: 'architect' as const,
+      architectSeat: { cli: 'claude-code', model: 'claude-fable-5' },
+      allowedRuntimes: [{ cli: 'claude-code', model: 'claude-fable-5' }],
+    },
+    { pathExists: async () => false, initializeSprintEngineState: captureInit(architectMode) },
+  )
+  assert.equal(architectMode.length, 1)
+  assert.deepEqual(
+    architectMode[0].enabledRoles,
+    ['architect'],
+    'architect mode ignores additionalEnabledRoles — roles grow via roster.configure',
+  )
+}
+
 async function testSprintEngineNewTeamInitFailuresBlockWorkspaceArgs(): Promise<void> {
   const input = {
     folderPath: '/p',
@@ -1590,6 +1645,7 @@ async function main(): Promise<void> {
   await testSprintEngineArchitectRosterInitArgs()
   testSprintEngineWorkflowInitKeys()
   await testSprintEngineWorkflowKeysFlowToInit()
+  await testSprintEngineAdditionalEnabledRolesMergeIntoInit()
   await testSprintEngineNewTeamInitFailuresBlockWorkspaceArgs()
   testSprintEngineEffectiveSpawnAtStartRoles()
   await testSprintEnginePlanSourcedValidation()
