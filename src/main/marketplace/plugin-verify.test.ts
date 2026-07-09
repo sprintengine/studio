@@ -262,6 +262,63 @@ async function testInvalidPreviewBlocksWithoutPermissions(): Promise<void> {
   })
 }
 
+
+async function testClaudePluginPreviewDisclosesSkillListing(): Promise<void> {
+  const stagingRoot = await mkdtemp(join(tmpdir(), 'mc-verify-claude-'))
+  try {
+    const sha = 'f'.repeat(40)
+    const api = (path: string) => `https://api.github.com/repos/acme/skills/contents/${path}?ref=${sha}`
+    const raw = (path: string) => `https://raw.githubusercontent.com/acme/skills/${sha}/${path}`
+    const fetcher: MarketplacePluginDownloadFetch = async (url) => {
+      if (url === 'https://api.github.com/repos/acme/skills/commits/HEAD') {
+        return new Response(JSON.stringify({ sha }))
+      }
+      if (url === api('.claude-plugin')) {
+        return new Response(JSON.stringify([
+          { type: 'file', path: '.claude-plugin/plugin.json', download_url: raw('.claude-plugin/plugin.json') },
+        ]))
+      }
+      if (url === api('skills')) {
+        return new Response(JSON.stringify([{ type: 'dir', path: 'skills/hf-cli', url: api('skills/hf-cli') }]))
+      }
+      if (url === api('skills/hf-cli')) {
+        return new Response(JSON.stringify([{ type: 'file', path: 'skills/hf-cli/SKILL.md', download_url: raw('skills/hf-cli/SKILL.md') }]))
+      }
+      if (url === raw('.claude-plugin/plugin.json')) return new Response(JSON.stringify({ name: 'acme-skills' }))
+      if (url === raw('skills/hf-cli/SKILL.md')) return new Response('---\nname: hf-cli\n---\n')
+      return new Response('not found', { status: 404 })
+    }
+    const verifier = createMarketplacePluginVerifier({
+      trustContext: () => ({ trustedModules: new Map() }),
+      stagingRoot,
+      fetcher,
+    })
+    const result = await verifier.verify({
+      id: 'acme-skills',
+      name: 'skills',
+      publisher: { name: 'Acme', verified: false },
+      summary: 'Acme skills plugin.',
+      category: 'Development',
+      icon: 'data:image/svg+xml;base64,PHN2Zy8+',
+      latest: 1,
+      provides: ['skills'],
+      tags: ['claude-plugin'],
+      source: 'https://github.com/acme/skills',
+    })
+    // Claude plugins verify as unsigned (they carry no Multicode manifest) and
+    // disclose the REAL skill listing the trust grant would install.
+    assert.equal(result.classification, 'unsigned')
+    assert.deepEqual(result.permissions, [])
+    assert.deepEqual(result.files, ['skills/hf-cli'])
+    // The listing's commit rides the result so the install can pin to it.
+    assert.equal(result.pinnedRef, sha)
+    // The pre-trust preview leaves no staged bytes behind.
+    assert.deepEqual(await readdir(stagingRoot), [])
+  } finally {
+    await rm(stagingRoot, { recursive: true, force: true })
+  }
+}
+
 async function main(): Promise<void> {
   await testVerifiedPreviewSurfacesPermissionsAndRemovesStage()
   await testCommunityPreviewSurfacesPermissionsForTrustPrompt()
@@ -269,6 +326,7 @@ async function main(): Promise<void> {
   await testUnsignedBundleUnderSignedEntryBlocksAsMismatch()
   await testUnsignedMcpPreviewSurfacesPermissionsAndRemovesStage()
   await testInvalidPreviewBlocksWithoutPermissions()
+  await testClaudePluginPreviewDisclosesSkillListing()
   console.log('marketplace plugin verify tests passed')
 }
 

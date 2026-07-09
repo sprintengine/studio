@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 
-import type { MarketplacePluginEntry } from '../../../../shared/marketplace/manifest'
+import { isClaudeCodePluginEntry, type MarketplacePluginEntry } from '../../../../shared/marketplace/manifest'
 import type { CapabilityPermission } from '../../../../shared/modules/permissions'
 import type { McpServerConfig, McpSettings } from '../../types/workspace'
 import { CloseIconButton, GhostButton, InlineNotice, PrimaryButton, Spinner, StatusDot, TruncatedText } from '../ui'
@@ -67,11 +67,11 @@ export function PluginDetailPanel({
   const trust = pluginTrust(plugin)
   const components = componentKindLabels(plugin.provides)
   const inlineServers = plugin.mcp?.servers ?? []
-  // Claude Code plugins (catalogue-generated, machine-tagged): their content
-  // lives in Claude's plugin format, which the download-install pipeline
-  // cannot consume yet — offering Install would end in a misleading hard
-  // block. Offer the honest affordances instead.
-  const claudePlugin = plugin.tags?.includes('claude-plugin') ?? false
+  // Claude Code plugins (catalogue-generated, machine-tagged) install through
+  // the claude-plugin adapter: their bundled skills copy into the workspace's
+  // Claude skill dirs behind the unsigned trust prompt, which discloses the
+  // real skill listing. The machine tag stays off the visible tag row.
+  const claudePlugin = isClaudeCodePluginEntry(plugin)
   const displayTags = plugin.tags?.filter((tag) => tag !== 'claude-plugin') ?? []
   // Fail closed: only render an external "View source" link for an http(s)
   // source. A non-http(s) value (file://, smb://, protocol-handler URL) would
@@ -85,7 +85,7 @@ export function PluginDetailPanel({
   const workspaceBlocked = needsWorkspace && !workspaceRoot
 
   const runInstall = useCallback(
-    async (trustGranted: boolean) => {
+    async (trustGranted: boolean, claudePluginRef?: string) => {
       setFlow({ status: 'installing' })
       try {
         const result = await window.api.installMarketplacePluginFromRegistry({
@@ -93,6 +93,9 @@ export function PluginDetailPanel({
           trustGranted,
           workspaceRoot: workspaceRoot ?? undefined,
           mcpSettings,
+          // Claude plugins: install exactly the commit the trust prompt
+          // disclosed, never whatever the source ref moved to since.
+          ...(claudePluginRef ? { claudePluginRef } : {}),
         })
         if (result.ok) {
           // Reflect installed MCP servers in the store so the Installed tab's
@@ -140,7 +143,12 @@ export function PluginDetailPanel({
       return
     }
     if (outcome.kind === 'needs-trust') {
-      setFlow({ status: 'needs-trust', permissions: outcome.permissions })
+      setFlow({
+        status: 'needs-trust',
+        permissions: outcome.permissions,
+        ...(outcome.files ? { files: outcome.files } : {}),
+        ...(outcome.pinnedRef ? { pinnedRef: outcome.pinnedRef } : {}),
+      })
       return
     }
     // Verified: install directly, no trust prompt.
@@ -225,7 +233,12 @@ export function PluginDetailPanel({
           no purchase/Buy affordance anywhere (D4). */}
       <div className="mt-4 space-y-2">
         {installView.trustPrompt ? (
-          <TrustPrompt tier={trust.tier} permissions={installView.permissions ?? []} inlineServers={inlineServers} />
+          <TrustPrompt
+            tier={trust.tier}
+            permissions={installView.permissions ?? []}
+            inlineServers={inlineServers}
+            files={installView.files}
+          />
         ) : null}
 
         {installView.notice ? (
@@ -263,22 +276,23 @@ export function PluginDetailPanel({
           </div>
         ) : null}
 
-        {claudePlugin ? (
+        {claudePlugin && installView.action?.kind === 'install' ? (
           <p className="text-[11px] leading-4 text-[color:var(--text-subtle)]">
-            This is a Claude Code plugin from Anthropic's official directory. Install it
-            with <code className="font-mono">/plugin</code> inside a Claude Code session —
-            one-click install in Multicode is coming.
+            Installing adds this plugin’s skills to the workspace for Claude Code
+            sessions. Its slash commands stay Claude-native.
           </p>
         ) : null}
 
-        {installView.action && !claudePlugin ? (
+        {installView.action ? (
           <div className={installView.trustPrompt ? 'flex gap-2' : ''}>
             <PrimaryButton
               size="md"
               className="h-9 w-full"
               disabled={workspaceBlocked}
               onClick={() =>
-                void (installView.action?.kind === 'trust-install' ? runInstall(true) : startInstall())
+                void (installView.action?.kind === 'trust-install'
+                  ? runInstall(true, installView.pinnedRef ?? undefined)
+                  : startInstall())
               }
             >
               {installView.action.label}
@@ -350,10 +364,14 @@ function TrustPrompt({
   tier,
   permissions,
   inlineServers,
+  files,
 }: {
   tier: PluginTrustTier
   permissions: CapabilityPermission[]
   inlineServers: McpServerConfig[]
+  // Real content listing for file-payload entries (Claude Code plugin skills):
+  // shown in place of permission chips, never alongside fabricated ones.
+  files?: string[] | null
 }) {
   const copy =
     tier === 'inline'
@@ -361,15 +379,20 @@ function TrustPrompt({
           heading: 'Inline MCP server — review it before trusting',
           body: 'This entry runs a local command or connects to a remote endpoint as an MCP server. Trusting it adds and starts the server below — review it before you continue.',
         }
-      : tier === 'unsigned'
+      : files?.length
         ? {
-            heading: 'Unsigned extension — review before trusting',
-            body: "This extension isn’t signed, so its publisher and contents can’t be verified. Trusting it installs it with the app’s access — install-time disclosure, not a runtime sandbox.",
+            heading: 'Unsigned plugin skills — review before trusting',
+            body: 'Skills are instruction files your agents read and follow. This plugin isn’t signed, so its contents can’t be verified — trusting it copies the skills below into this workspace for Claude Code sessions.',
           }
-        : {
-            heading: 'Community extension — review the access it requests',
-            body: 'This publisher isn’t verified. Trusting it lets its code run in Multicode with the app’s access — requested access is install-time disclosure, not a runtime sandbox.',
-          }
+        : tier === 'unsigned'
+          ? {
+              heading: 'Unsigned extension — review before trusting',
+              body: "This extension isn’t signed, so its publisher and contents can’t be verified. Trusting it installs it with the app’s access — install-time disclosure, not a runtime sandbox.",
+            }
+          : {
+              heading: 'Community extension — review the access it requests',
+              body: 'This publisher isn’t verified. Trusting it lets its code run in Multicode with the app’s access — requested access is install-time disclosure, not a runtime sandbox.',
+            }
   return (
     <div className="rounded-md border border-[color:var(--border-subtle)] bg-[color:var(--bg-surface-raised)] p-3">
       <div className="text-[11px] font-semibold text-[color:var(--text-default)]">{copy.heading}</div>
@@ -391,10 +414,41 @@ function TrustPrompt({
               </li>
             ))}
           </ul>
+        ) : files?.length ? (
+          <TrustFileListing files={files} />
         ) : (
           <PermissionChips permissions={permissions} />
         )}
       </div>
+    </div>
+  )
+}
+
+// How many trust-prompt file rows show before the remainder collapses into a
+// "+N more" line — the disclosure stays real without swallowing the panel.
+const TRUST_FILES_LIMIT = 8
+
+// The real file listing a trust grant installs (Claude Code plugin skill
+// folders), fetched by the pre-trust verify — the file-payload counterpart of
+// the permission chips.
+function TrustFileListing({ files }: { files: string[] }) {
+  const visible = files.slice(0, TRUST_FILES_LIMIT)
+  const hiddenCount = files.length - visible.length
+  return (
+    <div>
+      <div className="text-[10px] font-semibold uppercase tracking-wide text-[color:var(--text-subtle)]">
+        Adds {files.length} skill{files.length === 1 ? '' : 's'} to the workspace
+      </div>
+      <ul className="mt-1 space-y-0.5">
+        {visible.map((file) => (
+          <li key={file} className="min-w-0">
+            <TruncatedText as="div" text={file} className="font-mono text-[10px] leading-4 text-[color:var(--text-muted)]" />
+          </li>
+        ))}
+      </ul>
+      {hiddenCount > 0 ? (
+        <div className="mt-0.5 text-[10px] leading-4 text-[color:var(--text-subtle)]">+{hiddenCount} more</div>
+      ) : null}
     </div>
   )
 }

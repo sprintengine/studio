@@ -247,4 +247,23 @@ for (const state of allStates) {
   assert.ok('action' in v && 'busy' in v && 'notice' in v, `state ${state.status} derives a complete view`)
 }
 
+{
+  // A Claude Code plugin verify (unsigned skills payload) carries its real
+  // skill file listing into the trust prompt, and the view exposes it.
+  const outcome = classifyVerification(
+    verify({ classification: 'unsigned', permissions: [], files: ['skills/hf-cli', 'skills/hf-datasets'] }),
+    ['skills'],
+  )
+  assert.equal(outcome.kind, 'needs-trust')
+  if (outcome.kind === 'needs-trust') {
+    assert.deepEqual(outcome.files, ['skills/hf-cli', 'skills/hf-datasets'])
+    const view = deriveInstallView({ status: 'needs-trust', permissions: outcome.permissions, files: outcome.files })
+    assert.equal(view.trustPrompt, true)
+    assert.deepEqual(view.files, ['skills/hf-cli', 'skills/hf-datasets'])
+  }
+  // Permission-shaped trust prompts expose no file listing.
+  const permView = deriveInstallView({ status: 'needs-trust', permissions: [] })
+  assert.equal(permView.files, null)
+}
+
 console.log('installFlow.test.ts passed')

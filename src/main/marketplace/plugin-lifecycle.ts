@@ -13,12 +13,19 @@ import type {
   McpSettings,
 } from '../../shared/electron-api'
 import type { MarketplacePluginEntry } from '../../shared/marketplace'
-import { validateMarketplaceIndex } from '../../shared/marketplace'
+import { isClaudeCodePluginEntry, validateMarketplaceIndex } from '../../shared/marketplace'
+import type { SkillPackHarness } from '../../shared/electron-api'
+import { SKILL_HARNESS_DIR } from '../../shared/skill-harnesses'
 import { installMarketplacePlugin, type MarketplacePluginInstallerServices } from '../modules/plugin-bundle-installer'
 import { normalizeMcpClients, normalizeMcpServerConfig } from '../mcp-config-service'
 import { defaultUserModuleRoot, moduleInstallPath } from '../modules/user-module-registry'
 import { getPluginRegistryUserRoot, reloadPluginRegistry } from '../plugin-registry-instance'
-import { defaultMarketplacePluginStagingRoot, downloadMarketplacePluginBundle, type MarketplacePluginDownloadFetch } from './plugin-download'
+import {
+  defaultMarketplacePluginStagingRoot,
+  downloadClaudeCodePluginSource,
+  downloadMarketplacePluginBundle,
+  type MarketplacePluginDownloadFetch,
+} from './plugin-download'
 
 export const MARKETPLACE_PLUGIN_INSTALLS_FILENAME = 'marketplace-plugin-installs.json'
 const RECEIPT_COMPONENT_KINDS = new Set(['mcp', 'skills', 'module', 'cli'])
@@ -86,6 +93,13 @@ export async function installOrUpdateMarketplacePlugin(
   // Route them through the MCP config sync behind the same trust gate.
   if (entry.entry.mcp) {
     return installInlineMcpEntry(entry.entry, input, services, store, previous)
+  }
+
+  // Claude Code plugins are not Multicode bundles: their content is Claude's
+  // plugin format, so they route through the claude-plugin adapter (skills
+  // copied into workspace harness dirs) behind the same unsigned trust gate.
+  if (isClaudeCodePluginEntry(entry.entry)) {
+    return installClaudeCodePluginEntry(entry.entry, input, services, store, previous)
   }
 
   const download = await downloadMarketplacePluginBundle({
@@ -418,6 +432,234 @@ async function installInlineMcpEntry(
     }
   } finally {
     await rm(backupRoot, { recursive: true, force: true })
+  }
+}
+
+// Claude Code plugins install by copying each staged `skills/<dir>` into the
+// workspace's harness skill dirs — the same surface the driving-skill install
+// uses, so the skills appear in the workspace inventory and skill pickers.
+// Claude-format content targets Claude Code sessions by default (scope D of
+// MC-1561); callers can widen via input.skillHarnesses. Commands/agents in the
+// plugin are not installed — skills are the one component Multicode delivers.
+const DEFAULT_CLAUDE_PLUGIN_HARNESSES: SkillPackHarness[] = ['claude']
+
+async function installClaudeCodePluginEntry(
+  entry: MarketplacePluginEntry,
+  input: MarketplacePluginRegistryInstallInput,
+  services: MarketplacePluginLifecycleServices,
+  store: MarketplacePluginInstallStore,
+  previous: MarketplacePluginInstallReceipt | undefined
+): Promise<MarketplacePluginRegistryInstallResult> {
+  const updated = Boolean(previous)
+  const sourceUrl = entry.source?.trim() ?? ''
+  if (input.trustGranted !== true) {
+    return {
+      ok: false,
+      sourceUrl,
+      classification: 'unsigned',
+      trust: 'unsigned',
+      loadEligible: false,
+      updated,
+      message: 'Claude Code plugin requires trust approval before install.',
+      issues: [{ path: 'source', message: 'Grant trust in the marketplace trust gate before installing this plugin.' }],
+    }
+  }
+  const workspaceRoot = input.workspaceRoot?.trim()
+  if (!workspaceRoot) {
+    return { ok: false, sourceUrl, classification: 'unsigned', updated, message: 'Workspace root is required to install Claude Code plugin skills.' }
+  }
+
+  const download = await downloadClaudeCodePluginSource({
+    entry,
+    stagingRoot: services.stagingRoot ?? defaultMarketplacePluginStagingRoot(dirname(services.receiptStorePath)),
+    fetcher: services.fetcher,
+    // Install exactly what the trust prompt disclosed when the verify pin is
+    // present; otherwise the download resolves the source ref itself.
+    ...(input.claudePluginRef ? { refOverride: input.claudePluginRef } : {}),
+  })
+  if (!download.ok) {
+    return {
+      ok: false,
+      sourceUrl: download.sourceUrl,
+      classification: 'unsigned',
+      updated,
+      message: download.message,
+      issues: [{ path: 'source', message: download.message }],
+    }
+  }
+
+  const harnesses: SkillPackHarness[] = input.skillHarnesses?.length
+    ? input.skillHarnesses
+    : DEFAULT_CLAUDE_PLUGIN_HARNESSES
+  // Ownership is per dir AND per harness: a previous install owning "foo" in
+  // .claude says nothing about a hand-authored .agents/skills/foo.
+  const previousHarnessesByDir = new Map<string, Set<SkillPackHarness>>()
+  for (const component of previous?.components ?? []) {
+    if (component.kind !== 'skills') continue
+    const dir = component.installedDirName ?? component.id
+    const owned = previousHarnessesByDir.get(dir) ?? new Set<SkillPackHarness>()
+    for (const harness of component.harnesses ?? []) owned.add(harness)
+    previousHarnessesByDir.set(dir, owned)
+  }
+
+  const backupRoot = join(dirname(services.receiptStorePath), `${entry.id}-claude-previous-${Date.now()}`)
+  try {
+    // Pre-flight: never silently clobber a skill dir this plugin does not own
+    // (a hand-dropped custom skill or another pack sharing the name) — checked
+    // per harness, so widening the harness set cannot skip the check.
+    for (const dir of download.skillDirs) {
+      for (const harness of harnesses) {
+        if (previousHarnessesByDir.get(dir)?.has(harness)) continue
+        const target = join(workspaceRoot, SKILL_HARNESS_DIR[harness], 'skills', dir)
+        if (await pathExists(target)) {
+          return {
+            ok: false,
+            sourceUrl,
+            classification: 'unsigned',
+            updated,
+            message: `A skill folder named "${dir}" already exists in ${SKILL_HARNESS_DIR[harness]}/skills and is not owned by this plugin. Remove or rename it, then install again.`,
+          }
+        }
+      }
+    }
+
+    const previousSnapshot = previous
+      ? await createPreviousInstallSnapshot(previous, input, services, backupRoot)
+      : { ok: true as const, snapshot: undefined }
+    if (!previousSnapshot.ok) {
+      return { ok: false, sourceUrl, classification: 'unsigned', updated, message: `Could not snapshot previous marketplace plugin install: ${previousSnapshot.message}` }
+    }
+
+    const components: MarketplacePluginInstalledComponent[] = []
+    for (const dir of download.skillDirs) {
+      // Count each harness BEFORE its copy starts so a mid-copy failure still
+      // rolls back the partially written target — an untracked partial dir
+      // would otherwise survive as an orphan the next install refuses over.
+      const attempted: SkillPackHarness[] = []
+      try {
+        for (const harness of harnesses) {
+          attempted.push(harness)
+          const target = join(workspaceRoot, SKILL_HARNESS_DIR[harness], 'skills', dir)
+          await mkdir(dirname(target), { recursive: true })
+          await cp(join(download.stagedPath, 'skills', dir), target, { recursive: true, force: true })
+        }
+      } catch (error) {
+        const partial: MarketplacePluginInstalledComponent = {
+          kind: 'skills',
+          id: dir,
+          installedDirName: dir,
+          harnesses: attempted,
+          message: 'Partial copy rolled back.',
+        }
+        const rollback = await rollbackInstalledComponents(entry.id, [...components, partial], input, services, input.mcpSettings)
+        const restored = previousSnapshot.snapshot
+          ? await restorePreviousInstallSnapshot(previousSnapshot.snapshot, input, services)
+          : { ok: true as const }
+        return appendRestoreFailure(appendRollbackFailure({
+          ok: false,
+          sourceUrl,
+          classification: 'unsigned',
+          trust: 'unsigned',
+          loadEligible: false,
+          installed: components,
+          updated,
+          message: `Could not copy plugin skill "${dir}": ${formatError(error)}`,
+        }, rollback), restored)
+      }
+      components.push({
+        kind: 'skills',
+        id: dir,
+        installedDirName: dir,
+        harnesses,
+        message: `Installed for ${harnesses.join(', ')}.`,
+      })
+    }
+
+    const receipt: MarketplacePluginInstallReceipt = {
+      id: entry.id,
+      displayName: entry.name,
+      version: entry.latest,
+      sourceUrl,
+      classification: 'unsigned',
+      installedAt: new Date().toISOString(),
+      components,
+    }
+
+    if (previous) {
+      // Stale = previous skill dirs the new install no longer ships, PLUS —
+      // because componentsOverlap keys skills on dir name only — the harness
+      // copies a still-shipped dir no longer targets (else a harness change
+      // would strand untracked copies forever).
+      const staleDirs = componentsWithoutOverlap(previous.components, receipt.components)
+      const staleHarnessCopies = (previous.components ?? [])
+        .filter((component) => component.kind === 'skills')
+        .flatMap((component): MarketplacePluginInstalledComponent[] => {
+          const dir = component.installedDirName ?? component.id
+          if (!download.skillDirs.includes(dir)) return [] // whole dir already stale above
+          const removedHarnesses = (component.harnesses ?? []).filter((harness) => !harnesses.includes(harness))
+          return removedHarnesses.length > 0 ? [{ ...component, harnesses: removedHarnesses }] : []
+        })
+      const stale = [...staleDirs, ...staleHarnessCopies]
+      if (stale.length > 0) {
+        const removed = await uninstallReceipt(
+          { ...previous, components: stale },
+          { ...input, pluginId: previous.id },
+          services
+        )
+        if (!removed.ok) {
+          const rollback = await rollbackInstalledComponents(receipt.id, receipt.components, input, services, input.mcpSettings)
+          const restored = previousSnapshot.snapshot
+            ? await restorePreviousInstallSnapshot(previousSnapshot.snapshot, input, services)
+            : { ok: true as const }
+          return appendRestoreFailure(appendRollbackFailure({
+            ok: false,
+            sourceUrl,
+            classification: 'unsigned',
+            trust: 'unsigned',
+            loadEligible: false,
+            installed: receipt.components,
+            updated: true,
+            message: `Could not remove previous marketplace plugin components: ${removed.message}`,
+          }, rollback), restored)
+        }
+      }
+    }
+
+    store.plugins[receipt.id] = receipt
+    try {
+      await writeInstallStore(services.receiptStorePath, store)
+    } catch (error) {
+      const rollback = await rollbackInstalledComponents(receipt.id, receipt.components, input, services, input.mcpSettings)
+      const restored = previousSnapshot.snapshot
+        ? await restorePreviousInstallSnapshot(previousSnapshot.snapshot, input, services)
+        : { ok: true as const }
+      return appendRestoreFailure(appendRollbackFailure({
+        ok: false,
+        sourceUrl,
+        classification: 'unsigned',
+        trust: 'unsigned',
+        loadEligible: false,
+        installed: receipt.components,
+        updated,
+        message: `Could not write marketplace plugin install receipt: ${formatError(error)}`,
+      }, rollback), restored)
+    }
+
+    return {
+      ok: true,
+      id: receipt.id,
+      displayName: receipt.displayName,
+      version: receipt.version,
+      trust: 'unsigned',
+      loadEligible: false,
+      installed: receipt.components,
+      sourceUrl,
+      classification: 'unsigned',
+      updated,
+    }
+  } finally {
+    await rm(download.stagedPath, { recursive: true, force: true }).catch(() => undefined)
+    await rm(backupRoot, { recursive: true, force: true }).catch(() => undefined)
   }
 }
 

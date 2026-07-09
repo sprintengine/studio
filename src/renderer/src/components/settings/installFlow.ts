@@ -45,8 +45,10 @@ export type InstallFlowState =
   | { status: 'idle' }
   // verifyMarketplacePlugin in flight (download + ed25519-verify, no install).
   | { status: 'verifying' }
-  // Signed community plugin: show the trust prompt with the verified permissions.
-  | { status: 'needs-trust'; permissions: CapabilityPermission[] }
+  // Signed community plugin: show the trust prompt with the verified
+  // permissions. `files` carries the real content listing for entries whose
+  // payload is files rather than permissions (Claude Code plugin skills).
+  | { status: 'needs-trust'; permissions: CapabilityPermission[]; files?: string[]; pinnedRef?: string }
   // install-entry IPC in flight (verified direct, or community after trust).
   | { status: 'installing' }
   | { status: 'installed'; updated: boolean }
@@ -59,7 +61,7 @@ export type InstallFlowState =
 // What the component should do next once verify resolves.
 export type VerifyOutcome =
   | { kind: 'install' } // verified → install directly, no trust prompt
-  | { kind: 'needs-trust'; permissions: CapabilityPermission[] } // community → trust prompt
+  | { kind: 'needs-trust'; permissions: CapabilityPermission[]; files?: string[]; pinnedRef?: string } // community → trust prompt
   | { kind: 'blocked'; classification: BlockedClassification; message: string; issues?: string[] }
 
 function blockedFallbackMessage(classification: BlockedClassification): string {
@@ -81,7 +83,12 @@ export function classifyVerification(
     case 'verified':
       return { kind: 'install' }
     case 'community':
-      return { kind: 'needs-trust', permissions: verify.permissions }
+      return {
+        kind: 'needs-trust',
+        permissions: verify.permissions,
+        ...(verify.files?.length ? { files: verify.files } : {}),
+        ...(verify.pinnedRef ? { pinnedRef: verify.pinnedRef } : {}),
+      }
     case 'unsigned':
       // Code-bearing unsigned hard-blocks (the backend refuses it too); unsigned
       // mcp/skills-only earns the explicit trust prompt with its declared permissions.
@@ -93,7 +100,12 @@ export function classifyVerification(
           issues: verify.issues?.map((issue) => issue.message),
         }
       }
-      return { kind: 'needs-trust', permissions: verify.permissions }
+      return {
+        kind: 'needs-trust',
+        permissions: verify.permissions,
+        ...(verify.files?.length ? { files: verify.files } : {}),
+        ...(verify.pinnedRef ? { pinnedRef: verify.pinnedRef } : {}),
+      }
     case 'invalid':
       return {
         kind: 'blocked',
@@ -146,6 +158,12 @@ export type InstallFlowView = {
   // Real verified permissions to disclose at the trust prompt — never
   // fabricated. `null` outside the trust prompt; `[]` is a real "no access" list.
   permissions: CapabilityPermission[] | null
+  // Real content listing to disclose at the trust prompt (Claude Code plugin
+  // skill folders); null when the trust decision is permission-shaped.
+  files: string[] | null
+  // The commit the file listing came from; the trust-install passes it back so
+  // the install fetches exactly the disclosed content. Trust prompt only.
+  pinnedRef: string | null
   // An explanatory notice (success / blocked / error). Status is carried by the
   // message text + tone, never colour alone.
   notice: { tone: NoticeTone; message: string; issues?: string[] } | null
@@ -154,25 +172,29 @@ export type InstallFlowView = {
 export function deriveInstallView(state: InstallFlowState): InstallFlowView {
   switch (state.status) {
     case 'idle':
-      return { action: { kind: 'install', label: 'Install' }, busy: false, trustPrompt: false, permissions: null, notice: null }
+      return { action: { kind: 'install', label: 'Install' }, busy: false, trustPrompt: false, permissions: null, files: null, pinnedRef: null, notice: null }
     case 'verifying':
-      return { action: null, busy: true, busyLabel: 'Verifying…', trustPrompt: false, permissions: null, notice: null }
+      return { action: null, busy: true, busyLabel: 'Verifying…', trustPrompt: false, permissions: null, files: null, pinnedRef: null, notice: null }
     case 'needs-trust':
       return {
         action: { kind: 'trust-install', label: 'Trust and install' },
         busy: false,
         trustPrompt: true,
         permissions: state.permissions,
+        files: state.files ?? null,
+        pinnedRef: state.pinnedRef ?? null,
         notice: null,
       }
     case 'installing':
-      return { action: null, busy: true, busyLabel: 'Installing…', trustPrompt: false, permissions: null, notice: null }
+      return { action: null, busy: true, busyLabel: 'Installing…', trustPrompt: false, permissions: null, files: null, pinnedRef: null, notice: null }
     case 'installed':
       return {
         action: null,
         busy: false,
         trustPrompt: false,
         permissions: null,
+        files: null,
+        pinnedRef: null,
         notice: { tone: 'good', message: state.updated ? 'Updated to the latest version.' : 'Installed.' },
       }
     case 'blocked':
@@ -183,6 +205,8 @@ export function deriveInstallView(state: InstallFlowState): InstallFlowView {
         busy: false,
         trustPrompt: false,
         permissions: null,
+        files: null,
+        pinnedRef: null,
         notice: {
           tone: state.classification === 'invalid' ? 'error' : 'warn',
           message: state.message,
@@ -195,6 +219,8 @@ export function deriveInstallView(state: InstallFlowState): InstallFlowView {
         busy: false,
         trustPrompt: false,
         permissions: null,
+        files: null,
+        pinnedRef: null,
         notice: { tone: 'error', message: state.message, issues: state.issues },
       }
   }
