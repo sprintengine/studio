@@ -578,7 +578,12 @@ export interface MobileControlSnapshot {
   generatedAt: string;
   desktopSessionId: string;
   snapshotVersion?: string;
-  commands?: MobileControlCommandType[];
+  // Deliberately `string[]`, not MobileControlCommandType[]: the desktop may
+  // advertise commands newer than this client (dark-launched controls gate on
+  // them by raw string — see snapshotAdvertisesCapability). Rejecting unknown
+  // entries here would turn every desktop command addition into a client that
+  // can no longer read snapshots at all.
+  commands?: string[];
   sprintEngines: MobileControlSprintEngineSnapshot[];
   workspaces?: MobileControlWorkspaceSnapshot[];
   backlog?: MobileControlBacklogWorkspaceSnapshot[];
@@ -901,7 +906,10 @@ export function validateMobileControlSnapshot(input: unknown): ValidationResult<
   }
 
   if (snapshot.value.commands !== undefined) {
-    const commandError = validateStringLiteralArray(snapshot.value.commands, commandTypes, "snapshot.commands");
+    // Strings only, membership unchecked — unknown commands must flow through
+    // so dark-launched capability gates can see them (see the field comment on
+    // MobileControlSnapshot.commands).
+    const commandError = validateStringArray(snapshot.value.commands, "snapshot.commands");
     if (commandError) {
       return invalidPayload(commandError);
     }
