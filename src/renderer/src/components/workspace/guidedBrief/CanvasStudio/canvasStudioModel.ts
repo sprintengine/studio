@@ -20,10 +20,14 @@ export type CanvasScreen = {
 // (backlog/2026-07-07-canvas-first-studio.md, resolved question 1).
 export const INLINE_SCREEN_SWITCHER_MAX = 6
 
+// The design-system canvas has two views: the live component `gallery` grid and
+// the single-`file` preview. The toolbar toggle switches between them (MC-1509).
+export type DesignSystemViewMode = 'gallery' | 'file'
+
 // What the toolbar pill's leading region navigates on the canvas:
 // - `screens`   — frontend-design HTML pages (inline switcher ≤6, drawer 7+).
 // - `documents` — a text stage's small fixed document set (brief/plan/preview).
-// - `gallery`   — design-system Screen/Gallery toggle placeholder (T6 wires it).
+// - `gallery`   — design-system Gallery/File toggle (MC-1509).
 // - `none`      — no navigation (single artifact on the canvas).
 export type CanvasStudioNav =
   | {
@@ -38,7 +42,11 @@ export type CanvasStudioNav =
       activeId: string
       onSelect: (id: string) => void
     }
-  | { kind: 'gallery' }
+  | {
+      kind: 'gallery'
+      mode: DesignSystemViewMode
+      onSelectMode: (mode: DesignSystemViewMode) => void
+    }
   | { kind: 'none' }
 
 export function screenSwitcherMode(screenCount: number): 'inline' | 'drawer' {

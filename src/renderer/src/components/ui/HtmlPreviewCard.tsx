@@ -94,7 +94,7 @@ export function HtmlPreviewCard({
     >
       <span
         aria-hidden="true"
-        className="relative flex h-[108px] items-center justify-center overflow-hidden border-b border-[color:var(--border-subtle)] bg-[color:var(--bg-surface)]"
+        className="relative block h-[108px] overflow-hidden border-b border-[color:var(--border-subtle)] bg-[color:var(--bg-surface)]"
       >
         {state.kind === 'ready' ? (
           <iframe
@@ -103,10 +103,11 @@ export function HtmlPreviewCard({
             srcDoc={state.content}
             sandbox={htmlArtifactFrameSandbox(false)}
             onLoad={() => setFrameLoaded(true)}
-            // Zoomed-out thumbnail: render at 2× logical size and scale to half
-            // so the card shows more of the component than a top-left crop. The
-            // frame is inert (pointer-events off) so clicks reach the card.
-            className={`pointer-events-none border-0 bg-white transition-opacity duration-150 ${
+            // Zoomed-out thumbnail: render at 2× logical size anchored top-left
+            // and scale to half, so the card shows the component's top-left
+            // region filling the box. The frame is inert (pointer-events off) so
+            // clicks reach the card.
+            className={`pointer-events-none absolute left-0 top-0 border-0 bg-white transition-opacity duration-150 ${
               frameLoaded ? 'opacity-100' : 'opacity-0'
             }`}
             style={{
@@ -116,16 +117,18 @@ export function HtmlPreviewCard({
               transformOrigin: 'top left',
             }}
           />
-        ) : state.kind === 'loading' ? (
-          <span className="text-[10.5px] text-[color:var(--text-subtle)]">Loading…</span>
         ) : (
-          <span className="flex flex-col items-center gap-1 px-3 text-center">
-            <span aria-hidden="true" className="text-[13px] text-[color:var(--tone-error)]">
-              △
-            </span>
-            <span className="text-[10.5px] leading-4 text-[color:var(--text-muted)]">
-              Demo won’t render — open to see the file
-            </span>
+          <span className="absolute inset-0 flex flex-col items-center justify-center gap-1 px-3 text-center">
+            {state.kind === 'loading' ? (
+              <span className="text-[10.5px] text-[color:var(--text-subtle)]">Loading…</span>
+            ) : (
+              <>
+                <span className="text-[13px] text-[color:var(--tone-error)]">△</span>
+                <span className="text-[10.5px] leading-4 text-[color:var(--text-muted)]">
+                  Demo won’t render — open to see the file
+                </span>
+              </>
+            )}
           </span>
         )}
       </span>

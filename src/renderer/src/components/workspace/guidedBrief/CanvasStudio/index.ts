@@ -9,4 +9,5 @@ export {
   INLINE_SCREEN_SWITCHER_MAX,
   type CanvasScreen,
   type CanvasStudioNav,
+  type DesignSystemViewMode,
 } from './canvasStudioModel'

@@ -87,18 +87,17 @@ function NavRegion({ nav, drawerOpen, onToggleDrawer, screensButtonRef }: Props)
   }
 
   if (nav.kind === 'gallery') {
-    // design-system Screen/Gallery toggle — Gallery lands with MC-1509 (T6).
+    // design-system Gallery/File toggle (MC-1509): the live component gallery
+    // grid, or the single-file preview of the selected bundle file.
     return (
       <PillSegmented
         ariaLabel="View"
         options={[
-          { id: 'screen', label: 'Screen' },
           { id: 'gallery', label: 'Gallery' },
+          { id: 'file', label: 'File' },
         ]}
-        activeId="screen"
-        onSelect={() => {}}
-        disabled
-        disabledTitle="Gallery view is not available yet"
+        activeId={nav.mode}
+        onSelect={(id) => nav.onSelectMode(id === 'file' ? 'file' : 'gallery')}
       />
     )
   }
