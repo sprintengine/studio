@@ -26,6 +26,7 @@ import { createMainDiagnostics } from './main-diagnostics'
 import { discoverMobileSprintEngineStatePaths } from './mobile-sprintengine-discovery'
 import { createMcpConfigService } from './mcp-config-service'
 import { createSkillPackService } from './skill-pack-service'
+import { createWorkspaceSkillsService } from './workspace-skills-service'
 import { createSprintEngineArtifactHandlers } from './sprintengine-artifacts'
 import { createGatedSprintEngineMcpHub, createSprintEngineMcpHubService } from './sprintengine-mcp-hub'
 import { syncManagedSprintEngineMcpConfig } from './sprintengine-managed-mcp-sync'
@@ -64,6 +65,7 @@ export function createAppServices(diagnosticsEnabled: boolean) {
   // means the hub process cannot start, by explicit error rather than silence.
   const sprintEngineMcpHub = createGatedSprintEngineMcpHub(createSprintEngineMcpHubService({ logMainPerfEvent }))
   const skillPackService = createSkillPackService()
+  const workspaceSkillsService = createWorkspaceSkillsService({ skillPackService })
 
   function getAuthenticatedMulticodeUserId(): string | null {
     const state = multicodeAuth.getState()
@@ -255,6 +257,7 @@ export function createAppServices(diagnosticsEnabled: boolean) {
     updateService,
     withIpcDiagnostics,
     workspaceBackupService,
+    workspaceSkillsService,
     workspaceSyncService,
     workspaceSyncRoutingSnapshotStore,
   }

@@ -402,4 +402,38 @@ assert.equal(
   'v63 reconciles a dangling active pointer to a surviving workspace',
 )
 
+// v64: the v63 dedupe could be bypassed — backup recovery and cross-window
+// storage sync adopt workspace lists without the migrate ladder, and the next
+// persist write stamped the un-deduped state v63, so it never re-migrated.
+// v64 re-runs the dedupe on state already stamped 63 and re-brands the kept
+// host with the stable 'Automations' name.
+const v63BypassedState = {
+  workspaces: [
+    { id: 'ws-host-run-a', mode: 'automations-host', name: 'Pillars of code reviewer', folderPath: '/repo/app', agents: {}, createdAt: 10 },
+    { id: 'ws-host-run-b', mode: 'automations-host', name: 'Nightly performance reviewer', folderPath: '/repo/app', agents: {}, createdAt: 20 },
+    { id: 'ws-host-run-c', mode: 'automations-host', name: 'fable5 calendar', folderPath: '/repo/app/', agents: {}, createdAt: 30 },
+    { id: 'ws-standard', mode: 'standard', name: 'Chat', folderPath: '/repo/app', agents: {}, createdAt: 1 },
+  ],
+  activeWorkspaceId: 'ws-host-run-c',
+}
+const migratedV64 = migratePersistedWorkspaceState(v63BypassedState, 63) as {
+  workspaces: Array<{ id: string; name: string }>
+  activeWorkspaceId: string | null
+}
+assert.deepEqual(
+  migratedV64.workspaces.map((ws) => ws.id),
+  ['ws-host-run-a', 'ws-standard'],
+  'v64 re-runs the host dedupe on state already stamped v63',
+)
+assert.equal(
+  migratedV64.workspaces[0].name,
+  'Automations',
+  'v64 re-brands the surviving host with the stable surface name',
+)
+assert.equal(
+  migratedV64.activeWorkspaceId,
+  'ws-host-run-a',
+  'v64 reconciles a dangling active pointer to a surviving workspace',
+)
+
 console.log('persistenceSlice.test.ts: ok')

@@ -2,6 +2,7 @@ import assert from 'node:assert/strict'
 
 import type { Workspace } from '../../types/workspace'
 import {
+  dedupeAutomationsHostWorkspaces,
   mapMigrationWorkspaces,
   normalizeWorkspaceForPartialize,
   preserveNewerSprintEngineAutomationState,
@@ -349,5 +350,47 @@ assert.equal(
   undefined,
   'absent worktree marker stays absent (no-op for existing workspaces)',
 )
+
+// dedupeAutomationsHostWorkspaces — one host per folder, earliest wins, kept
+// host is re-branded 'Automations' (pre-v63 minting named hosts after runs).
+{
+  const hostA = baseWorkspace({ id: 'host-a', mode: 'automations-host', name: 'Pillars of code review', folderPath: '/Users/example/project', createdAt: 100 })
+  const hostB = baseWorkspace({ id: 'host-b', mode: 'automations-host', name: 'fable5 calendar', folderPath: '/Users/example/project/', createdAt: 300 })
+  const hostC = baseWorkspace({ id: 'host-c', mode: 'automations-host', name: 'Nightly reviewer', folderPath: '/USERS/EXAMPLE/PROJECT', createdAt: 200 })
+  const otherFolderHost = baseWorkspace({ id: 'host-other', mode: 'automations-host', name: 'Solo host', folderPath: '/Users/example/other', createdAt: 50 })
+  const standard = baseWorkspace({ id: 'std', mode: 'standard', folderPath: '/Users/example/project', createdAt: 10 })
+
+  const deduped = dedupeAutomationsHostWorkspaces([hostB, standard, hostA, hostC, otherFolderHost])
+  assert.deepEqual(
+    deduped.map((w) => w.id),
+    ['std', 'host-a', 'host-other'],
+    'earliest host per folder key survives (trailing slash + case insensitive), order preserved',
+  )
+  const kept = deduped.find((w) => w.id === 'host-a')
+  assert.equal(kept?.name, 'Automations', 'kept host is re-branded with the stable surface name')
+  assert.equal(
+    deduped.find((w) => w.id === 'host-other')?.name,
+    'Solo host',
+    'a folder with a single host is left untouched — no rename',
+  )
+}
+
+// No duplicates → the exact input array is returned (cheap no-op on hot paths).
+{
+  const solo = baseWorkspace({ id: 'solo', mode: 'automations-host', name: 'fable5 calendar', folderPath: '/p', createdAt: 1 })
+  const list = [solo, baseWorkspace({ id: 'std2', mode: 'standard' })]
+  assert.equal(dedupeAutomationsHostWorkspaces(list), list, 'no-dupe input returned by reference')
+}
+
+// Hosts without a folder cannot collide and all pass through.
+{
+  const nullA = baseWorkspace({ id: 'n-a', mode: 'automations-host', folderPath: null, createdAt: 1 })
+  const nullB = baseWorkspace({ id: 'n-b', mode: 'automations-host', folderPath: null, createdAt: 2 })
+  assert.deepEqual(
+    dedupeAutomationsHostWorkspaces([nullA, nullB]).map((w) => w.id),
+    ['n-a', 'n-b'],
+    'folderless hosts are never deduped',
+  )
+}
 
 console.log('normalizers.test.ts: ok')

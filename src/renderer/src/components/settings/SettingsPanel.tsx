@@ -601,26 +601,42 @@ function RegistrySwitchRow({
   )
 }
 
-// Number input for the "Pause idle terminals after" setting. Edits live in local
-// string state so a half-typed or briefly-empty value isn't clamped/rounded out
-// from under the user; the store (which clamps to the field's min/max) is written
-// on blur or Enter. A blank/invalid commit reverts to the persisted value.
-function IdleSuspendField({ descriptor }: { descriptor: SettingDescriptor }) {
-  const minutes = useWorkspaceStore((s) => s.appSettings.terminalIdleSuspendMinutes)
-  const setMinutes = useWorkspaceStore((s) => s.setTerminalIdleSuspendMinutes)
-  const [draft, setDraft] = useState<string>(String(minutes))
+// Number input for terminal-memory settings ("Pause idle terminals after",
+// "Always keep running"). Edits live in local string state so a half-typed or
+// briefly-empty value isn't clamped/rounded out from under the user; the store
+// (which clamps to the field's min/max) is written on blur or Enter. A
+// blank/invalid commit reverts to the persisted value.
+function CommittedNumberField({
+  descriptor,
+  value,
+  onCommit,
+}: {
+  descriptor: SettingDescriptor
+  value: number
+  onCommit: (value: number) => void
+}) {
+  const [draft, setDraft] = useState<string>(String(value))
   useEffect(() => {
-    setDraft(String(minutes))
-  }, [minutes])
+    setDraft(String(value))
+  }, [value])
   if (descriptor.field.type !== 'number') return null
   const { min, max, step } = descriptor.field
   const commit = (): void => {
     // Revert a blank/whitespace field to the persisted value — `Number('')` is 0
-    // (finite), which would otherwise clamp to the 1-minute floor rather than
+    // (finite), which would otherwise clamp to the field floor rather than
     // restore what the user had.
     const parsed = draft.trim() === '' ? NaN : Number(draft)
-    if (Number.isFinite(parsed)) setMinutes(parsed)
-    else setDraft(String(minutes))
+    if (!Number.isFinite(parsed)) {
+      setDraft(String(value))
+      return
+    }
+    // Clamp locally with the field's own bounds (they mirror the store
+    // normalizer): when the clamped result equals the stored value the store
+    // write is a no-op — no re-render, no sync effect — so the draft must be
+    // corrected here or it keeps displaying the out-of-range text.
+    const clamped = Math.max(min ?? -Infinity, Math.min(max ?? Infinity, Math.round(parsed)))
+    onCommit(clamped)
+    setDraft(String(clamped))
   }
   return (
     <Field label={descriptor.label} htmlFor={descriptor.id} help={descriptor.help}>
@@ -641,6 +657,18 @@ function IdleSuspendField({ descriptor }: { descriptor: SettingDescriptor }) {
       />
     </Field>
   )
+}
+
+function IdleSuspendField({ descriptor }: { descriptor: SettingDescriptor }) {
+  const minutes = useWorkspaceStore((s) => s.appSettings.terminalIdleSuspendMinutes)
+  const setMinutes = useWorkspaceStore((s) => s.setTerminalIdleSuspendMinutes)
+  return <CommittedNumberField descriptor={descriptor} value={minutes} onCommit={setMinutes} />
+}
+
+function KeepRecentAliveField({ descriptor }: { descriptor: SettingDescriptor }) {
+  const count = useWorkspaceStore((s) => s.appSettings.terminalKeepRecentAlive)
+  const setCount = useWorkspaceStore((s) => s.setTerminalKeepRecentAlive)
+  return <CommittedNumberField descriptor={descriptor} value={count} onCommit={setCount} />
 }
 
 // Compact, glanceable CLI tile: icon + name + source, then a one-line detection
@@ -1329,6 +1357,7 @@ export default function SettingsPanel({
   const registryRoles = orderedSprintEngineRoles(roleRegistry)
 
   const idleSuspendDescriptor = getSettingDescriptor('terminal-idle-suspend-minutes')
+  const keepRecentAliveDescriptor = getSettingDescriptor('terminal-keep-recent-alive')
   const telemetrySendDescriptor = getSettingDescriptor('usage-telemetry-send-data')
   const telemetryLocalDescriptor = getSettingDescriptor('usage-telemetry-local-export')
   const telemetryDiagnosticsDescriptor = getSettingDescriptor('usage-telemetry-export-diagnostics')
@@ -2151,6 +2180,9 @@ export default function SettingsPanel({
                 waiting on you or actively working are never paused.
               </p>
               <IdleSuspendField descriptor={idleSuspendDescriptor} />
+              {keepRecentAliveDescriptor ? (
+                <KeepRecentAliveField descriptor={keepRecentAliveDescriptor} />
+              ) : null}
             </div>
           ) : null}
 

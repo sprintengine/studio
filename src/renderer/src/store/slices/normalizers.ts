@@ -11,6 +11,7 @@ import {
   normalizeWorkspaceFileExplorerState,
   normalizeWorkspaceGitPanelState,
   normalizeWorkspaceMode,
+  workspaceFolderKey,
 } from './workspacesSlice'
 import { normalizeWorkspaceWorktreeState } from './worktreesSlice'
 
@@ -86,6 +87,57 @@ export function clearAutomationsHostAgentLaunchState(workspace: Workspace): Work
       ]),
     ),
   }
+}
+
+// The Automations host is strictly one-per-project, but the versioned migrate
+// ladder is not the only door into the store: backup recovery and cross-window
+// storage sync both apply workspace lists without running migrations, and
+// pre-v63 builds minted a fresh host per automation run (named after whichever
+// run created it). Every list-entry path applies this before accepting a list:
+// keep the earliest-created host per folder, drop the later duplicates, and
+// restore the kept host's stable 'Automations' surface name when duplicates
+// were dropped — a folder that minted duplicates also branded its hosts after
+// runs. Hosts with no folder cannot collide and pass through untouched.
+// Returns the input array unchanged when there is nothing to dedupe.
+export function dedupeAutomationsHostWorkspaces(workspaces: Workspace[]): Workspace[] {
+  const hostsByFolder = new Map<string, Workspace[]>()
+  for (const workspace of workspaces) {
+    if (workspace.mode !== AUTOMATIONS_HOST_WORKSPACE_MODE) continue
+    const key = workspaceFolderKey(workspace.folderPath)
+    if (key === null) continue
+    const group = hostsByFolder.get(key)
+    if (group) group.push(workspace)
+    else hostsByFolder.set(key, [workspace])
+  }
+
+  const keptByFolder = new Map<string, Workspace>()
+  for (const [key, group] of hostsByFolder) {
+    if (group.length < 2) continue
+    keptByFolder.set(
+      key,
+      group.reduce((earliest, candidate) =>
+        (candidate.createdAt ?? 0) < (earliest.createdAt ?? 0) ? candidate : earliest
+      ),
+    )
+  }
+  if (keptByFolder.size === 0) return workspaces
+
+  const result: Workspace[] = []
+  for (const workspace of workspaces) {
+    if (workspace.mode !== AUTOMATIONS_HOST_WORKSPACE_MODE) {
+      result.push(workspace)
+      continue
+    }
+    const key = workspaceFolderKey(workspace.folderPath)
+    const kept = key === null ? null : keptByFolder.get(key)
+    if (!kept) {
+      result.push(workspace)
+      continue
+    }
+    if (kept.id !== workspace.id) continue
+    result.push(workspace.name === 'Automations' ? workspace : { ...workspace, name: 'Automations' })
+  }
+  return result
 }
 
 export function preserveNewerSprintEngineAutomationState(

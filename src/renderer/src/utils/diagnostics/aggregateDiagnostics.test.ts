@@ -41,6 +41,7 @@ function session(overrides: Partial<TerminalSessionSnapshot> & { sessionId: stri
     agentSession: overrides.agentSession,
     visible: overrides.visible ?? false,
     suspended: overrides.suspended ?? false,
+    reapExempt: overrides.reapExempt ?? false,
     startedAt: overrides.startedAt ?? NOW,
     lastOutputAt: overrides.lastOutputAt ?? NOW,
     lastInputAt: overrides.lastInputAt ?? null,

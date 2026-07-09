@@ -42,6 +42,10 @@ export function getTerminalSessionsSignature(sessions: TerminalSessionSnapshot[]
       session.agentSession?.sessionId ?? '',
       session.agentSession?.executionId ?? '',
       session.exitedAt ?? null,
+      // User lock: flips alone (no co-varying field like suspend's
+      // processAlive), so it must be in the signature or toggling the lock
+      // never re-renders the control.
+      session.reapExempt,
       // The only authoritative-phase distinction the bridged `activity` cannot
       // express: awaiting_input reads as idle, yet needs attention. Including the
       // raw phase instead would defeat this signature's purpose — thinking ↔

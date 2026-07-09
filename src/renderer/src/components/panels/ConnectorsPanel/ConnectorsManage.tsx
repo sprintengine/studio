@@ -11,7 +11,7 @@
 
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react'
 
-import type { BuiltinSkill, BuiltinSkillStatus, McpCatalogServer, SkillPackEntry } from '../../../../../shared/electron-api'
+import type { BuiltinSkill, BuiltinSkillStatus, McpCatalogServer, SkillPackEntry, WorkspaceSkill } from '../../../../../shared/electron-api'
 import type {
   McpSettings,
   SkillPackCatalogEntry,
@@ -59,6 +59,7 @@ export function ConnectorsManage({
   catalogServers = [],
   onLaunchConnector,
   onUseInAutomation,
+  onUseSkillInNewAgent,
 }: {
   activeWorkspaceRoot: string | null
   // The MCP catalog (already loaded by the surface) — enriches installed rows
@@ -66,6 +67,7 @@ export function ConnectorsManage({
   catalogServers?: McpCatalogServer[]
   onLaunchConnector?: (serverId: string) => void
   onUseInAutomation?: (serverId: string) => void
+  onUseSkillInNewAgent?: (skill: WorkspaceSkill) => void
 }) {
   const mcpSettings = useWorkspaceStore((s) => s.appSettings.mcp ?? EMPTY_MCP_SETTINGS)
   const upsertMcpServer = useWorkspaceStore((s) => s.upsertMcpServer)
@@ -341,6 +343,7 @@ export function ConnectorsManage({
             setMcpMessage(null)
           }}
           onRemoveSkillPack={removeSkillPackBySlug}
+          onUseSkillInNewAgent={onUseSkillInNewAgent}
         />
       </section>
 

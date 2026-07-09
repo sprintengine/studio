@@ -19,9 +19,17 @@ import {
   selectAgentCliCatalog,
   type CliAvailabilityFilterStatus,
 } from '../workspace/newWorkspace/cliRuntimeOptions'
-import { PrimaryButton, Tooltip } from '../ui'
+import { PrimaryButton, SkillPickerPopover, StarGlyph, Tooltip } from '../ui'
 import { revealNavRailComponent } from '../../utils/modelRegistry'
 import { dispatchBacklogReveal } from '../../utils/backlogReveal'
+import { bracketedPaste } from '../../utils/terminalDrop'
+import {
+  ensureSkillForAgent,
+  hasInstalledNativeSkillTarget,
+  renderSkillInvocation,
+  skillInstalledForHarness,
+} from '../../utils/skillInvocation'
+import type { WorkspaceSkill } from '../../../../shared/electron-api'
 
 const TerminalView = React.lazy(() => import('./TerminalView'))
 const AgentChatView = React.lazy(() => import('./AgentChatView'))
@@ -160,6 +168,65 @@ export default function AgentPanel({
   const isTerminalLive = Boolean(terminalSession?.processAlive)
   // Only a live terminal can be suspended (not an exited or already-suspended one).
   const canSuspendTerminal = hasStarted && isTerminalLive && !isTerminalSuspended
+  // User lock ("keep running"): while locked the reaper never pauses this
+  // terminal, so the pause button gives way to the closed-lock control — the
+  // two actions are contradictory and only one should be offered at a time.
+  const isTerminalLocked = Boolean(terminalSession?.reapExempt)
+  // Same precondition as suspend on purpose: lock and pause are the two faces
+  // of the same live-terminal control cluster.
+  const canLockTerminal = canSuspendTerminal
+  const toggleTerminalLock = () => {
+    if (!effectiveSessionId) return
+    // Feature-guard: against an old preload (dev HMR, stale built renderer)
+    // the method is missing and an unguarded call would throw synchronously
+    // in the click handler — the .catch only covers the promise.
+    if (typeof window.api.setTerminalReapExempt !== 'function') return
+    void window.api.setTerminalReapExempt(effectiveSessionId, !isTerminalLocked).catch(() => {})
+  }
+  // "Use a skill": live PTY agents only. Worktree agents are excluded like the
+  // backlog file-drop path — ensure-install writes the main checkout's harness
+  // dirs, which a worktree CLI does not read.
+  const workspaceFolderPath = useWorkspaceStore(
+    (s) => s.workspaces.find((w) => w.id === workspaceId)?.folderPath ?? null
+  )
+  const openConnectorsSurface = useWorkspaceStore((s) => s.openConnectorsSurface)
+  const [skillPickerOpen, setSkillPickerOpen] = useState(false)
+  const isWorktreeAgent = agent?.execution.mode === 'worktree'
+  const canUseSkill =
+    canSuspendTerminal && !isConversationRuntime && !isWorktreeAgent && Boolean(workspaceFolderPath)
+  const useSkillInTerminal = async (skill: WorkspaceSkill) => {
+    const targetSessionId = effectiveSessionId
+    if (!targetSessionId || !workspaceFolderPath) return
+    // Refresh builtin native targets (the picker only installed catalog
+    // 'available' picks); then render the same per-CLI invocation the backlog
+    // file-drop uses — native template when the harness copy exists, plain
+    // prompt mention otherwise — and paste it unsubmitted.
+    const ensured = await ensureSkillForAgent({ workspaceRoot: workspaceFolderPath, skill })
+    if (!ensured.ok) {
+      publishDiagnosticSync({
+        level: 'error',
+        source: 'workspace',
+        title: 'Skill install failed',
+        message: ensured.message,
+        workspaceId,
+        workspaceName,
+      })
+      return
+    }
+    const integration = pluginCatalogEntries.find((entry) => entry.id === cli)?.skillIntegration
+    let nativeInstalled = skillInstalledForHarness(skill, integration)
+    if (!nativeInstalled && skill.source === 'builtin' && integration) {
+      const status = await window.api.builtinSkillStatus({
+        workspaceRoot: workspaceFolderPath,
+        skillId: skill.id,
+      })
+      if (status.ok) {
+        nativeInstalled = hasInstalledNativeSkillTarget(integration.harnessId, cli ?? '', status.targets)
+      }
+    }
+    const invocation = renderSkillInvocation({ skill, integration, nativeInstalled })
+    await window.api.terminalWrite(targetSessionId, bracketedPaste(`${invocation} `))
+  }
   const suspendTerminal = () => {
     if (!effectiveSessionId) return
     void window.api.terminalSuspend(effectiveSessionId).catch(() => {})
@@ -237,18 +304,44 @@ export default function AgentPanel({
   return (
     <div className={`flex h-full flex-col bg-[color:var(--bg-surface)] font-mono text-[12px] text-[color:var(--text-default)] ${cliShellTone}`}>
       <div className={`group relative flex flex-1 flex-col overflow-hidden bg-[color:var(--bg-app)] ${needsInput ? 'shadow-[inset_0_1px_0_var(--tone-warn-soft)]' : ''}`}>
-        {hasStarted && (canSuspendTerminal || backlogItemRef) ? (
+        {hasStarted && (canSuspendTerminal || canLockTerminal || backlogItemRef || canUseSkill) ? (
           // The positioning lives on this wrapper, not the buttons: Tooltip wraps
           // its child in a `position: relative` span, so an `absolute` child
           // would anchor to that zero-size span (off-screen) instead of the
           // terminal surface. Liveness shows on the workspace tab (single source
-          // of truth); here we keep only the suspend action + Backlog link. The
-          // suspended state is surfaced by the quiet footer below, not a button.
+          // of truth); here we keep the skill picker, pause, lock, and Backlog
+          // link. The suspended state is surfaced by the quiet footer below,
+          // not a button.
           <div className="absolute right-2 top-2 z-30 flex items-center gap-1.5">
-            {canSuspendTerminal ? (
+            {canUseSkill ? (
+              <SkillPickerPopover
+                open={skillPickerOpen}
+                onOpenChange={setSkillPickerOpen}
+                workspaceRoot={workspaceFolderPath}
+                onPick={(skill) => void useSkillInTerminal(skill)}
+                onManageSkills={() => openConnectorsSurface({ view: 'installed' })}
+                placement="bottom-end"
+                renderTrigger={({ ref, triggerProps, togglePopover, open }) => (
+                  <Tooltip content="Use a skill — inserts the invocation at the prompt" placement="bottom">
+                    <button
+                      ref={ref}
+                      type="button"
+                      onClick={togglePopover}
+                      aria-label="Use a skill"
+                      className={`interactive inline-flex h-7 w-7 items-center justify-center rounded-md border border-[color:var(--border-subtle)] bg-[color:var(--bg-surface-raised)] text-[color:var(--text-muted)] shadow-sm transition-opacity transition-colors hover:border-[color:var(--border-default)] hover:text-[color:var(--text-default)] focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[color:var(--accent-primary-soft)] group-hover:opacity-100 ${open ? 'opacity-100' : 'opacity-0'}`}
+                      {...triggerProps}
+                    >
+                      <StarGlyph filled={false} stroked className="h-[15px] w-[15px]" />
+                    </button>
+                  </Tooltip>
+                )}
+              />
+            ) : null}
+            {canSuspendTerminal && !isTerminalLocked ? (
               // Hover-revealed so it doesn't clutter the live terminal; the same
               // pause glyph as the suspended state (context disambiguates: a
-              // button while live, a status indicator once suspended).
+              // button while live, a status indicator once suspended). Hidden
+              // while locked — the lock's whole promise is "never paused".
               <Tooltip content="Suspend agent — free its memory, keep the output to read" placement="bottom">
                 <button
                   type="button"
@@ -260,6 +353,45 @@ export default function AgentPanel({
                     <rect x="5" y="4" width="2" height="8" rx="1" fill="currentColor" />
                     <rect x="9" y="4" width="2" height="8" rx="1" fill="currentColor" />
                   </svg>
+                </button>
+              </Tooltip>
+            ) : null}
+            {canLockTerminal ? (
+              // Lock ("keep running"): exempts this terminal from automatic
+              // pausing. Locked state stays visible as a standing status mark;
+              // unlocked is hover-revealed like its neighbors.
+              <Tooltip
+                content={
+                  isTerminalLocked
+                    ? 'Locked — never paused automatically. Click to unlock.'
+                    : 'Lock — keep this terminal running, never pause it automatically'
+                }
+                placement="bottom"
+              >
+                <button
+                  type="button"
+                  onClick={toggleTerminalLock}
+                  aria-label={isTerminalLocked ? 'Unlock terminal — allow automatic pausing' : 'Lock terminal — never pause automatically'}
+                  aria-pressed={isTerminalLocked}
+                  className={`interactive inline-flex h-7 w-7 items-center justify-center rounded-md border shadow-sm transition-opacity transition-colors focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[color:var(--accent-primary-soft)] group-hover:opacity-100 ${
+                    isTerminalLocked
+                      ? 'border-[color:var(--border-default)] bg-[color:var(--bg-surface-raised)] text-[color:var(--text-default)] opacity-100'
+                      : 'border-[color:var(--border-subtle)] bg-[color:var(--bg-surface-raised)] text-[color:var(--text-muted)] opacity-0 hover:border-[color:var(--border-default)] hover:text-[color:var(--text-default)]'
+                  }`}
+                >
+                  {isTerminalLocked ? (
+                    // Closed padlock: shackle seated on the body.
+                    <svg viewBox="0 0 16 16" fill="none" className="h-[15px] w-[15px]" aria-hidden="true">
+                      <rect x="3.75" y="7" width="8.5" height="5.75" rx="1.5" stroke="currentColor" strokeWidth="1.3" />
+                      <path d="M5.75 7V5.4a2.25 2.25 0 0 1 4.5 0V7" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" />
+                    </svg>
+                  ) : (
+                    // Open padlock: right leg of the shackle lifted clear of the body.
+                    <svg viewBox="0 0 16 16" fill="none" className="h-[15px] w-[15px]" aria-hidden="true">
+                      <rect x="3.75" y="7" width="8.5" height="5.75" rx="1.5" stroke="currentColor" strokeWidth="1.3" />
+                      <path d="M5.75 7V4.4a2.25 2.25 0 0 1 4.5 0v.35" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" />
+                    </svg>
+                  )}
                 </button>
               </Tooltip>
             ) : null}

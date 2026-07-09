@@ -974,6 +974,7 @@ export default function TerminalView({ workspaceId, agentId, sessionId: attached
           // appSettings.mcp. Ordinary agents fall through to the workspace's MCP.
           mcpSettings: finalAgent.connectorMcpSettings ?? finalContext.mcpSettings,
           connectorSkillId: finalAgent.connectorSkillId,
+          spawnSkillId: finalAgent.spawnSkillId,
           visible: true,
           ...(agentSession ? { agentSession } : {}),
         } as TerminalSpawnMetadata & {
@@ -1041,6 +1042,7 @@ export default function TerminalView({ workspaceId, agentId, sessionId: attached
           // appSettings.mcp. Ordinary agents fall through to the workspace's MCP.
           mcpSettings: finalAgent.connectorMcpSettings ?? finalContext.mcpSettings,
           connectorSkillId: finalAgent.connectorSkillId,
+          spawnSkillId: finalAgent.spawnSkillId,
           visible: true,
           ...(agentSession ? { agentSession } : {}),
         } as TerminalSpawnMetadata & {
@@ -1115,7 +1117,19 @@ export default function TerminalView({ workspaceId, agentId, sessionId: attached
                   cliStartupPrompt: undefined,
                 }
               : {}),
+            // One-shot: consumed by the paste below, cleared here so a
+            // relaunch never re-pastes it.
+            ...(finalAgent.cliPendingInput ? { cliPendingInput: undefined } : {}),
           })
+          // Skill-at-spawn prefill: park the invocation at the CLI prompt,
+          // bracketed and unsubmitted (the PTY buffers it until the CLI's
+          // input line is ready). Never auto-sent — the user finishes it.
+          if (finalAgent.cliPendingInput) {
+            const pendingInput = finalAgent.cliPendingInput
+            void window.api
+              .terminalWrite(sessionId, `\x1b[200~${pendingInput}\x1b[201~`)
+              .catch(() => {})
+          }
         }
       }
       // assign_session stamps cliResumeAvailable authoritatively from the main

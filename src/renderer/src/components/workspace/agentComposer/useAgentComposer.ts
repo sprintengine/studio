@@ -13,6 +13,7 @@ import type {
   MultiloopRole,
   SpecialistActionId,
 } from '../../../types/workspace'
+import type { WorkspaceSkill } from '../../../../../shared/electron-api'
 import {
   resolveAvailableAgentCli,
   resolveSurfaceModel,
@@ -41,12 +42,22 @@ export type AgentComposerSelection =
   | { kind: 'specialist'; specialistId: SpecialistActionId }
   | { kind: 'multiloop'; role: MultiloopRole }
 
-export type AgentComposerConfirm =
+export type AgentComposerConfirm = (
   | { kind: 'terminal' }
   | { kind: 'general'; cli: AgentCli }
   | { kind: 'conversation' }
   | { kind: 'specialist'; specialistId: SpecialistActionId; cli: AgentCli }
   | { kind: 'multiloop'; role: MultiloopRole; cli: AgentCli }
+) & {
+  // Optional "+ Skill" attachment: the spawn ensure-installs it and prefills
+  // the invocation as the agent's first input (never auto-sent). Terminal and
+  // multiloop confirms ignore it.
+  skill?: WorkspaceSkill
+  // Optional "+ Worktree" attachment (general/specialist only): the spawn
+  // creates a git worktree off the workspace repo and executes the agent in it.
+  // An empty name means "derive from the agent's name at spawn".
+  worktree?: { name: string }
+}
 
 // One roster row. Quick rows (terminal/general/conversation) precede the
 // specialist or multiloop roster; arrow keys rove this flat list so navigation
@@ -182,6 +193,12 @@ export function useAgentComposer({
   const [selection, setSelection] = React.useState<AgentComposerSelection>(() =>
     resolveInitialSelection(allRows, initialSelection),
   )
+  // Optional "+ Skill" attachment, carried onto the confirm. One per spawn;
+  // cleared by the surface when it closes (state dies with the composer).
+  const [skillAttachment, setSkillAttachment] = React.useState<WorkspaceSkill | null>(null)
+  // Optional "+ Worktree" attachment: null = off; a string (possibly empty =
+  // auto-name) means the spawn should create a worktree and run the agent there.
+  const [worktreeName, setWorktreeName] = React.useState<string | null>(null)
 
   const trimmedQuery = query.trim().toLowerCase()
   const visibleRows = React.useMemo(() => {
@@ -247,17 +264,22 @@ export function useAgentComposer({
 
   const buildConfirm = React.useCallback(
     (target: AgentComposerSelection): AgentComposerConfirm => {
+      const skill = skillAttachment ? { skill: skillAttachment } : {}
+      // Worktree execution only applies to CLI agents spawned into the active
+      // workspace: terminal/conversation have no agent execution; multiloop
+      // roles belong to the loop's shared checkout.
+      const worktree = worktreeName !== null ? { worktree: { name: worktreeName } } : {}
       if (target.kind === 'terminal') return { kind: 'terminal' }
-      if (target.kind === 'conversation') return { kind: 'conversation' }
+      if (target.kind === 'conversation') return { kind: 'conversation', ...skill }
       if (target.kind === 'specialist') {
-        return { kind: 'specialist', specialistId: target.specialistId, cli: cliForSelection(target) }
+        return { kind: 'specialist', specialistId: target.specialistId, cli: cliForSelection(target), ...skill, ...worktree }
       }
       if (target.kind === 'multiloop') {
         return { kind: 'multiloop', role: target.role, cli: cliForSelection(target) }
       }
-      return { kind: 'general', cli: cliForSelection(target) }
+      return { kind: 'general', cli: cliForSelection(target), ...skill, ...worktree }
     },
-    [cliForSelection],
+    [cliForSelection, skillAttachment, worktreeName],
   )
 
   const moveSelection = React.useCallback(
@@ -300,6 +322,10 @@ export function useAgentComposer({
   return {
     query,
     setQuery,
+    skillAttachment,
+    setSkillAttachment,
+    worktreeName,
+    setWorktreeName,
     visibleRows,
     hasResults: visibleRows.length > 0,
     selection,

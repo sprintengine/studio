@@ -63,6 +63,39 @@ async function main(): Promise<void> {
       },
     },
     {
+      // Mirrors the real bundled registry: zai rides the Claude harness and
+      // renders the SAME install path as claude-code. skillTargets must dedupe
+      // by resolved destination or install() cp's the path twice and the
+      // second copy dies ERR_FS_CP_EEXIST (the skill-picker Install bug).
+      source: 'bundled',
+      manifestPath: join(temp, 'plugins', 'zai', 'plugin.json'),
+      pluginRoot: join(temp, 'plugins', 'zai'),
+      manifest: {
+        id: 'zai',
+        displayName: 'Z.ai GLM',
+        version: 1,
+        binary: 'claude',
+        permissionPresets: { default: { label: 'Default', args: [] } },
+        launch: { argv: ['claude'] },
+        promptInjection: { mode: 'positional-arg' },
+        completion: { mode: 'process-exit' },
+        capabilities: { resumeSession: true, sessionIdFromCaller: true, toolUse: true, mcpServers: true },
+        skillIntegration: {
+          support: 'native',
+          harnessId: 'claude',
+          installTargets: [
+            {
+              scope: 'workspace',
+              path: '{{workspaceRoot}}/.claude/skills/{{skillId}}',
+              format: 'claude-code',
+              restartRequired: true,
+            },
+          ],
+          invocation: { fileDropTemplate: '/{{skillId}} {{path}}' },
+        },
+      },
+    },
+    {
       source: 'user',
       manifestPath: join(temp, 'plugins', 'pi', 'plugin.json'),
       pluginRoot: join(temp, 'plugins', 'pi'),
@@ -182,7 +215,16 @@ async function main(): Promise<void> {
   assert.equal(
     debugTargets.ok && debugTargets.targets.length,
     5,
-    'debug resolves all-native targets (.agents + claude + pi + shim + generic-shell)'
+    'debug resolves all-native targets (.agents + claude + pi + shim + generic-shell); zai dedupes into the claude path'
+  )
+  // Regression (skill-picker Install EEXIST): claude-code and zai render the
+  // same .claude destination — exactly one path-bearing target may survive.
+  const debugClaudePath = join(workspaceRoot, '.claude', 'skills', 'debug')
+  assert.equal(
+    debugTargets.ok
+      && debugTargets.targets.filter((target) => target.destinationPath === debugClaudePath).length,
+    1,
+    'duplicate plugin install paths dedupe to one target'
   )
 
   await writeAllSkillSources(sourceRoot, 'version two\n')

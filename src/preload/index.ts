@@ -33,6 +33,7 @@ import { updateApi } from './api/update'
 import { voiceApi } from './api/voice'
 import { windowApi } from './api/window'
 import { workspaceBackupApi } from './api/workspace-backup'
+import { workspaceSkillsApi } from './api/workspace-skills'
 import { workspaceSyncApi } from './api/workspace-sync'
 
 const diagnosticsEnabled =
@@ -75,6 +76,7 @@ const api = {
   ...voiceApi,
   ...appMenuApi,
   ...workspaceBackupApi,
+  ...workspaceSkillsApi,
   ...workspaceSyncApi,
 } satisfies ElectronApi
 

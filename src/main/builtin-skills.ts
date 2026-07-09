@@ -269,7 +269,15 @@ export function createBuiltinSkillManager(options: BuiltinSkillManagerOptions = 
     const seen = new Set<string>()
     const result: SkillTargetDescriptor[] = []
     for (const target of [...staticSkillTargets(workspaceRoot, skill), ...pluginSkillTargets(workspaceRoot, skill)]) {
-      const key = `${target.pluginId ?? ''}:${target.harness}:${target.destinationPath ?? target.status ?? ''}`
+      // Path-bearing targets dedupe on the resolved destination alone: several
+      // plugins can render the same native path (claude-code and zai both
+      // target .claude/skills/<id>), and install() cp's each listed target with
+      // errorOnExist — a duplicate path means the second copy dies EEXIST right
+      // after the first one succeeds. First declarer wins; status-only targets
+      // (prompt-shim/unsupported) keep their per-plugin identity.
+      const key = target.destinationPath
+        ? `path:${target.destinationPath}`
+        : `${target.pluginId ?? ''}:${target.harness}:${target.status ?? ''}`
       if (seen.has(key)) continue
       seen.add(key)
       result.push(target)

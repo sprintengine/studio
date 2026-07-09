@@ -4,7 +4,7 @@ import { useWorkspaceStore } from '../../store/workspaceStore'
 import type { WorktreeEntry as StoredWorktreeEntry } from '../../types/workspace'
 import { focusOrAddTerminalTab } from '../../utils/modelRegistry'
 import { pathJoin, samePath, trimPath } from '../../utils/paths'
-import { worktreeContainerPath } from '../../utils/workspaceWorktree'
+import { slugifyWorktreeName, worktreeContainerPath, worktreeIdFromPath } from '../../utils/workspaceWorktree'
 import { Field, LifecycleGlyph, OverflowMenu, Select, Spinner, type LifecycleState, type SelectItem } from '../ui'
 import { useConfirmDialog } from '../ui/ConfirmDialog'
 
@@ -41,20 +41,6 @@ type Props = {
 
 const terminalCols = 100
 const terminalRows = 30
-
-function slugifyWorktreeName(value: string): string {
-  return value
-    .trim()
-    .toLowerCase()
-    .replace(/[^a-z0-9._/-]+/g, '-')
-    .replace(/-{2,}/g, '-')
-    .replace(/^[-/]+|[-/]+$/g, '')
-}
-
-function worktreeIdFromPath(pathValue: string): string {
-  return `worktree-${slugifyWorktreeName(pathValue).replace(/[\\/.:]+/g, '-')}`
-}
-
 
 function branchLabel(row: WorktreeRow): string {
   if (row.branch) return row.branch

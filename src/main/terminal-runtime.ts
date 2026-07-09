@@ -63,7 +63,9 @@ import {
   explainSessionReapDecision,
   selectReapableSessions,
   clampSuspendIdleAfterMs,
+  clampKeepRecentTerminalsAlive,
   DEFAULT_SUSPEND_IDLE_AFTER_MS,
+  DEFAULT_KEEP_RECENT_TERMINALS_ALIVE,
   type ReapCandidate,
 } from './terminal-reap-policy'
 import { recordReapEvent } from './terminal-reap-log'
@@ -162,6 +164,8 @@ type TerminalIpcHandlers = {
   resumeTerminal(sender: WebContents, payload: TerminalSpawnPayload): Promise<TerminalSpawnResult>
   killTerminal(sessionId: string): void
   setIdleSuspendThresholdMs(value: unknown): void
+  setKeepRecentTerminalsAlive(value: unknown): void
+  setTerminalReapExempt(sessionId: string, exempt: boolean): void
   setActiveSprintRunStatePaths(value: unknown): void
 }
 
@@ -389,6 +393,8 @@ export function createTerminalRuntime(options: TerminalRuntimeOptions): Terminal
       resumeTerminal: resumeTerminal,
       killTerminal: disposeTerminal,
       setIdleSuspendThresholdMs: setIdleSuspendThresholdMs,
+      setKeepRecentTerminalsAlive: setKeepRecentTerminalsAlive,
+      setTerminalReapExempt: setTerminalReapExempt,
       setActiveSprintRunStatePaths: setActiveSprintRunStatePaths,
     },
   }
@@ -527,6 +533,14 @@ function setTerminalVisible(sessionId: string, visible: boolean, sender?: WebCon
   // reset + replay to resync. This is the cold-layer reveal path; warm/active
   // layers never go hidden so they never pay this.
   const becameVisible = visible && session.visible === false
+  // A suspended session's reveal must be IDEMPOTENT, not edge-triggered: a
+  // renderer window reload or a TerminalView remount that never delivered its
+  // unmount hide leaves `session.visible === true` in main, so the fresh xterm's
+  // reveal misses the hidden→visible edge and — with a dead pty that will never
+  // repaint — stays blank forever under the Paused footer. Resending the replay
+  // to a suspended session is cheap (no live output to duplicate) and the
+  // renderer replay gate resets before applying, so repeats are safe.
+  const shouldReplay = becameVisible || (visible && session.suspended === true)
   if (becameVisible) {
     // Drop any batch buffered-but-not-forwarded while hidden: it is already in
     // the retained replay we are about to send, so forwarding it after the
@@ -534,7 +548,7 @@ function setTerminalVisible(sessionId: string, visible: boolean, sender?: WebCon
     terminalOutput.flush(sessionId, 'visibility')
   }
   recordTerminalVisibility(session, visible)
-  if (becameVisible) {
+  if (shouldReplay) {
     // A suspended session prefers its faithful screen snapshot (alt-screen TUIs
     // don't reconstruct from the raw stream); live sessions have none and fall
     // back to the retained scrollback.
@@ -631,7 +645,6 @@ export function suspendTerminal(sessionId: string): void {
     // keep this from double-finalizing.
   }
   void buildReplaySnapshot(snapshotSource, snapshotCols, snapshotRows).then((snapshot) => {
-    if (!snapshot) return
     // Only attach if this exact session is still the suspended one (not disposed,
     // resumed, or replaced) — otherwise a stale snapshot could shadow live output.
     // Accept `suspending` too: it is set synchronously before the kill, while
@@ -644,7 +657,8 @@ export function suspendTerminal(sessionId: string): void {
       if (snapshot) session.replaySnapshot = snapshot
       // Durable freeze-the-view: give the snapshot a disk lifecycle so this
       // terminal reopens painted-and-paused after an app restart too. A failed
-      // render persists the raw stream instead; rehydration re-renders it.
+      // render (timeout, serialize error) persists the raw stream instead so
+      // the sidecar is never silently skipped; rehydration re-renders it.
       writeTerminalSnapshotSidecar(session, {
         snapshot: snapshot ?? undefined,
         rawReplay: snapshot ? undefined : snapshotSource,
@@ -826,6 +840,38 @@ export function getIdleSuspendThresholdMs(): number {
   return configuredSuspendIdleAfterMs
 }
 
+// User-configurable recency floor ("Always keep running"), set from the
+// renderer's setting. The idle sweep never suspends/disposes below this many
+// live agent terminals — the most recently used survive even once idle past
+// the threshold. Defaults until the renderer syncs its persisted value.
+let configuredKeepRecentAliveCount = DEFAULT_KEEP_RECENT_TERMINALS_ALIVE
+
+export function setKeepRecentTerminalsAlive(value: unknown): void {
+  configuredKeepRecentAliveCount = clampKeepRecentTerminalsAlive(value)
+}
+
+export function getKeepRecentTerminalsAlive(): number {
+  return configuredKeepRecentAliveCount
+}
+
+// Per-terminal user lock: while set, both reap sweeps skip this session. The
+// broadcast keeps every view's lock control in sync with the session snapshot.
+export function setTerminalReapExempt(sessionId: string, exempt: boolean): void {
+  const session = terminals.get(sessionId)
+  if (!session || session.isDisposed) return
+  const next = exempt === true
+  if ((session.reapExempt === true) === next) return
+  session.reapExempt = next
+  logMainPerfEvent('TerminalRuntime', 'terminal-reap-exempt-changed', {
+    sessionId,
+    workspaceId: session.workspaceId,
+    agentId: session.agentId,
+    kind: session.kind,
+    reapExempt: next,
+  })
+  broadcastTerminalSessionsChanged()
+}
+
 // SprintEngine run.yaml statePaths whose dispatch loop is currently ACTIVELY
 // running (pushed from the renderer, which owns run-active state). The idle
 // reaper protects sprint agents belonging to these — an active run's idle agents
@@ -876,10 +922,18 @@ function stopStaleTerminalSweep(): void {
 // abort live work under it; absent (legacy/test callers) means unguarded.
 export function reapStaleTerminals(
   now = Date.now(),
-  guardHolds?: ReadonlyMap<string, string>
+  guardHolds?: ReadonlyMap<string, string>,
+  probedSessionIds?: ReadonlySet<string>
 ): string[] {
   const staleSessionIds = [...terminals.values()]
     .filter((session) => isTerminalSessionStale(session, now))
+    // The user lock is absolute: a locked terminal survives even the coarse
+    // 24h backstop — "do not reap" means dispose too, not just suspend.
+    .filter((session) => session.reapExempt !== true)
+    // Guarded sweep: only act on sessions that went through the live-work
+    // probe. A session that became eligible during the probe await (e.g. its
+    // lock was released) was never probed; defer it to the next sweep.
+    .filter((session) => !probedSessionIds || probedSessionIds.has(session.sessionId))
     .filter((session) => !recordGuardHoldSkip(session.sessionId, guardHolds, now, 'stale backstop'))
     .map((session) => session.sessionId)
 
@@ -1040,6 +1094,8 @@ function buildReapCandidates(): ReapCandidate[] {
       Boolean(session.sprintEngineStatePath)
       && (activeSprintRunStatePaths.has(session.sprintEngineStatePath ?? '')
         || !isAtRestAgentPhase(session.agentState?.phase)),
+    sprintManaged: Boolean(session.sprintEngineStatePath),
+    reapExempt: session.reapExempt === true,
     // Hook-reported self-scheduled wakeup (see ingestAgentStateFrame): a future
     // wake time holds the session in the pure policy.
     pendingWakeupAt: session.pendingWakeupAt ?? null,
@@ -1048,12 +1104,14 @@ function buildReapCandidates(): ReapCandidate[] {
 
 export function runIdleAgentReapSweep(
   now = Date.now(),
-  guardHolds?: ReadonlyMap<string, string>
+  guardHolds?: ReadonlyMap<string, string>,
+  probedSessionIds?: ReadonlySet<string>
 ): string[] {
   const candidates = buildReapCandidates()
   const decision = selectReapableSessions(candidates, {
     now,
     idleThresholdMs: configuredSuspendIdleAfterMs,
+    keepRecentAliveCount: configuredKeepRecentAliveCount,
   })
 
   // Skip audit: persist which gate is holding an agent that has otherwise
@@ -1094,12 +1152,43 @@ export function runIdleAgentReapSweep(
     }
   }
 
+  // Recency-floor audit: these passed every per-session gate but sit inside the
+  // "always keep running" count. Same rate limit as the gate audit above.
+  if (logReapDiagnostic) {
+    for (const sessionId of decision.heldByRecencyFloorSessionIds) {
+      const session = terminals.get(sessionId)
+      if (!session) continue
+      const previous = reapSkipLogState.get(sessionId)
+      if (previous && previous.hold === 'recency_floor' && now - previous.loggedAt < REAP_SKIP_LOG_INTERVAL_MS) {
+        continue
+      }
+      reapSkipLogState.set(sessionId, { hold: 'recency_floor', loggedAt: now })
+      logReapDiagnostic({
+        level: 'info',
+        title: 'Terminal reaper',
+        message: 'Idle sweep kept a rested agent: recency_floor',
+        details: [
+          `Among the ${configuredKeepRecentAliveCount} most recently used live agents`,
+          `CLI: ${session.cli ?? 'unknown'}`,
+        ].join('\n'),
+        ...(session.workspaceId ? { workspaceId: session.workspaceId } : {}),
+        sessionId,
+      })
+    }
+  }
+
   // Guard holds (live subtree work / pending wakeup) trump the pure decision:
   // killing the CLI would abort real work, so the session waits for a sweep
-  // where the work has finished.
-  const actionableSessionIds = decision.reapableSessionIds.filter(
-    (sessionId) => !recordGuardHoldSkip(sessionId, guardHolds, now, 'idle sweep')
-  )
+  // where the work has finished. On the guarded path, additionally act ONLY on
+  // sessions the probe actually covered: the decision is recomputed after the
+  // probe await, and state changes during it (a keystroke, a phase frame, a
+  // released lock) can promote a previously floor-held or ineligible session
+  // into the reap slice — reaping it un-probed is exactly the live-work kill
+  // the guard exists to prevent. Deferred sessions are re-selected and probed
+  // on the next 3-minute sweep.
+  const actionableSessionIds = decision.reapableSessionIds
+    .filter((sessionId) => !probedSessionIds || probedSessionIds.has(sessionId))
+    .filter((sessionId) => !recordGuardHoldSkip(sessionId, guardHolds, now, 'idle sweep'))
 
   for (const sessionId of actionableSessionIds) {
     const session = terminals.get(sessionId)
@@ -1171,17 +1260,21 @@ export async function runGuardedTerminalReapSweeps(
   deps: { subtree?: SubtreeProbeDeps } = {}
 ): Promise<{ staleReaped: string[]; idleReaped: string[] }> {
   const staleTargets = [...terminals.values()]
-    .filter((session) => isTerminalSessionStale(session, now))
+    .filter((session) => isTerminalSessionStale(session, now) && session.reapExempt !== true)
     .map((session) => session.sessionId)
   const idleDecision = selectReapableSessions(buildReapCandidates(), {
     now,
     idleThresholdMs: configuredSuspendIdleAfterMs,
+    keepRecentAliveCount: configuredKeepRecentAliveCount,
   })
   const targets = new Set([...staleTargets, ...idleDecision.reapableSessionIds])
   const guardHolds = await buildReapGuardHolds(targets, deps)
+  // Pass the probed target set: the sweeps recompute their decisions after the
+  // await above, and any session that entered the reap set during it must be
+  // deferred to the next sweep (it was never probed for live subtree work).
   return {
-    staleReaped: reapStaleTerminals(now, guardHolds),
-    idleReaped: runIdleAgentReapSweep(now, guardHolds),
+    staleReaped: reapStaleTerminals(now, guardHolds, targets),
+    idleReaped: runIdleAgentReapSweep(now, guardHolds, targets),
   }
 }
 
@@ -2357,6 +2450,7 @@ async function spawnTerminalFromIpc(
     visible = true,
     mcpSettings,
     connectorSkillId,
+    spawnSkillId,
   }: TerminalSpawnPayload
 ): Promise<TerminalSpawnResult> {
     const existingSession = terminals.get(sessionId)
@@ -2561,24 +2655,28 @@ async function spawnTerminalFromIpc(
         }
       }
 
-      // Connector launch (e.g. Railway): install the named connector skill into
-      // the worktree so the seeded skill invocation resolves to a present skill,
-      // and keep the just-synced managed MCP config out of the connector
-      // worktree's git. Both are best-effort like the debug install — a failure
-      // is logged and never blocks the spawn.
-      if (connectorSkillId && !shellOnly) {
+      // Skill-at-spawn: install the named builtin skill into the working
+      // directory so the seeded/prefilled invocation resolves to a present
+      // skill. connectorSkillId (connector chats) and spawnSkillId (the
+      // composer's "+ Skill" attachment) share the install; only connector
+      // launches also get the MCP-config exclusion below. Best-effort like the
+      // debug install — a failure is logged and never blocks the spawn.
+      const skillIdToInstall = connectorSkillId ?? spawnSkillId
+      if (skillIdToInstall && !shellOnly) {
         if (ensureBuiltinSkillInstalled) {
           try {
-            await ensureBuiltinSkillInstalled(workingDirectory, connectorSkillId)
+            await ensureBuiltinSkillInstalled(workingDirectory, skillIdToInstall)
           } catch (error) {
             logMainPerfEvent('TerminalRuntime', 'connector-skill-install-failed', {
               sessionId,
               cli,
-              connectorSkillId,
+              connectorSkillId: skillIdToInstall,
               message: getErrorMessage(error),
             })
           }
         }
+      }
+      if (connectorSkillId && !shellOnly) {
         if (excludeWorktreeMcpConfig) {
           try {
             await excludeWorktreeMcpConfig(workingDirectory)

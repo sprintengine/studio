@@ -76,6 +76,10 @@ export type ConnectorsSurfaceState = {
    *  store-level overlay (like the settings overlay) so any surface — the
    *  sidebar entry, the command palette — opens it with one action. */
   open: boolean
+  /** Deep-link view for the next open (e.g. the skill picker's "Manage skills"
+   *  footer lands on Installed). Consumed by the panel on mount; null keeps the
+   *  panel's own default. */
+  initialView: 'browse' | 'installed' | null
 }
 
 export const defaultLearningSettings = (): LearningSettings => ({
@@ -807,6 +811,23 @@ export function normalizeTerminalIdleSuspendMinutes(value: unknown): number {
   )
 }
 
+// Recency floor for the idle-terminal pauser: the N most recently used agent
+// terminals are always left running, even once idle past the threshold. Bounds
+// mirror the main reap policy's clamp ([0, 20]); 0 means pause everything idle.
+export const DEFAULT_TERMINAL_KEEP_RECENT_ALIVE = 3
+export const MIN_TERMINAL_KEEP_RECENT_ALIVE = 0
+export const MAX_TERMINAL_KEEP_RECENT_ALIVE = 20
+
+export function normalizeTerminalKeepRecentAlive(value: unknown): number {
+  if (typeof value !== 'number' || !Number.isFinite(value)) {
+    return DEFAULT_TERMINAL_KEEP_RECENT_ALIVE
+  }
+  return Math.max(
+    MIN_TERMINAL_KEEP_RECENT_ALIVE,
+    Math.min(MAX_TERMINAL_KEEP_RECENT_ALIVE, Math.round(value))
+  )
+}
+
 export const defaultAppSettings = (): AppSettings => ({
   cliRuntimes: {
     codex: { command: 'codex', useWsl: false },
@@ -846,6 +867,7 @@ export const defaultAppSettings = (): AppSettings => ({
   onboardingStep: 'welcome',
   pendingAgentConfigAdoption: null,
   terminalIdleSuspendMinutes: DEFAULT_TERMINAL_IDLE_SUSPEND_MINUTES,
+  terminalKeepRecentAlive: DEFAULT_TERMINAL_KEEP_RECENT_ALIVE,
   guidedBriefConversationSessions: true,
 })
 
@@ -915,6 +937,7 @@ export function normalizeAppSettings(settings: Partial<AppSettings> | undefined,
     }),
     pendingAgentConfigAdoption: normalizePendingAgentConfigAdoption(settings?.pendingAgentConfigAdoption),
     terminalIdleSuspendMinutes: normalizeTerminalIdleSuspendMinutes(settings?.terminalIdleSuspendMinutes),
+    terminalKeepRecentAlive: normalizeTerminalKeepRecentAlive(settings?.terminalKeepRecentAlive),
     guidedBriefConversationSessions: settings?.guidedBriefConversationSessions !== false,
   }
 }
@@ -970,7 +993,7 @@ export interface SettingsSliceActions {
   closeSettingsOverlay: () => void
   openRunSummaryOverlay: (workspaceId: string) => void
   closeRunSummaryOverlay: () => void
-  openConnectorsSurface: () => void
+  openConnectorsSurface: (opts?: { view?: 'browse' | 'installed' }) => void
   closeConnectorsSurface: () => void
   setCliRuntime: (cli: AgentCli, update: Partial<CliRuntimeSettings>) => void
   setMcpSyncEnabled: (enabled: boolean) => void
@@ -1043,6 +1066,7 @@ export interface SettingsSliceActions {
   setSearchExcludes: (patterns: string[]) => void
   /** Set how long an idle agent terminal waits before it is paused (minutes). */
   setTerminalIdleSuspendMinutes: (minutes: number) => void
+  setTerminalKeepRecentAlive: (count: number) => void
   setGuidedBriefConversationSessions: (enabled: boolean) => void
   setUsageTelemetrySettings: (update: Partial<UsageTelemetrySettings>) => void
   setVoiceDictationSettings: (update: Partial<VoiceDictationSettings>) => void
@@ -1063,7 +1087,7 @@ export function createSettingsSlice(set: SettingsSliceSet): SettingsSlice {
     appSettings: defaultAppSettings(),
     settingsOverlay: { open: false, initialTab: null, checkForUpdatesRequestId: null },
     runSummaryOverlay: { open: false, workspaceId: null },
-    connectorsSurface: { open: false },
+    connectorsSurface: { open: false, initialView: null },
     sidebarCollapsed: false,
     sidebarWidth: SIDEBAR_DEFAULT_WIDTH,
     sprintEnginesAsideOpen: false,
@@ -1143,14 +1167,16 @@ export function createSettingsSlice(set: SettingsSliceSet): SettingsSlice {
         state.sprintsAsideWidth = clampSprintsAsideWidth(width)
       }),
 
-    openConnectorsSurface: () =>
+    openConnectorsSurface: (opts) =>
       set((state) => {
         state.connectorsSurface.open = true
+        state.connectorsSurface.initialView = opts?.view ?? null
       }),
 
     closeConnectorsSurface: () =>
       set((state) => {
         state.connectorsSurface.open = false
+        state.connectorsSurface.initialView = null
       }),
 
     setCliRuntime: (cli, update) =>
@@ -1561,6 +1587,11 @@ export function createSettingsSlice(set: SettingsSliceSet): SettingsSlice {
     setTerminalIdleSuspendMinutes: (minutes) =>
       set((state) => {
         state.appSettings.terminalIdleSuspendMinutes = normalizeTerminalIdleSuspendMinutes(minutes)
+      }),
+
+    setTerminalKeepRecentAlive: (count) =>
+      set((state) => {
+        state.appSettings.terminalKeepRecentAlive = normalizeTerminalKeepRecentAlive(count)
       }),
 
     setGuidedBriefConversationSessions: (enabled) =>

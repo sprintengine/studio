@@ -55,6 +55,7 @@ function terminalSession(input: Partial<TerminalSessionSnapshot> & { sessionId: 
     agentSession: input.agentSession,
     visible: input.visible ?? true,
     suspended: input.suspended ?? false,
+    reapExempt: input.reapExempt ?? false,
     startedAt: input.startedAt ?? 1,
     lastOutputAt: input.lastOutputAt ?? null,
     lastInputAt: input.lastInputAt ?? null,

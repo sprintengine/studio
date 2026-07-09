@@ -50,11 +50,15 @@ import {
 } from './settingsSlice'
 import { normalizeWorkspaceFileExplorerState, normalizeWorkspaceMode } from './workspacesSlice'
 import { normalizeWorkspaceWorktreeState } from './worktreesSlice'
-import { clearSprintEngineAgentLaunchState, mapMigrationWorkspaces } from './normalizers'
+import {
+  clearSprintEngineAgentLaunchState,
+  dedupeAutomationsHostWorkspaces,
+  mapMigrationWorkspaces,
+} from './normalizers'
 
 export const WORKSPACE_STORAGE_KEY = 'multicode-workspaces'
 export const APP_SETTINGS_STORAGE_KEY = 'multicode-app-settings'
-export const WORKSPACE_STORE_VERSION = 63
+export const WORKSPACE_STORE_VERSION = 64
 export const PRIMARY_WORKSPACE_WINDOW_ID: WorkspaceWindowId = 'primary'
 const LEGACY_WORKSPACE_STORAGE_KEY = ['free', 'ai', 'ide', 'workspaces'].join('-')
 
@@ -1002,6 +1006,22 @@ export function migratePersistedWorkspaceState(
       const key = folderKey(ws.folderPath)
       return key === null || keptHostByFolder.get(key) === ws.id
     })
+    if (
+      migrationState.activeWorkspaceId
+      && !migrationState.workspaces.some((ws) => ws.id === migrationState.activeWorkspaceId)
+    ) {
+      migrationState.activeWorkspaceId = migrationState.workspaces[0]?.id ?? null
+    }
+  }
+  if (version < 64) {
+    // Re-run the v63 host dedupe via the shared normalizer. v63 could be
+    // bypassed: backup recovery and cross-window storage sync both apply
+    // workspace lists without the migrate ladder, and the next persist write
+    // stamped the un-deduped state with the current version — leaving stores
+    // at v63 that still hold one host per automation run. The shared helper
+    // also restores the kept host's stable 'Automations' name, which v63 left
+    // branded after whichever run minted it.
+    migrationState.workspaces = dedupeAutomationsHostWorkspaces(migrationState.workspaces ?? [])
     if (
       migrationState.activeWorkspaceId
       && !migrationState.workspaces.some((ws) => ws.id === migrationState.activeWorkspaceId)

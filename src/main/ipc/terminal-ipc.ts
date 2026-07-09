@@ -48,6 +48,9 @@ export type TerminalSpawnPayload = {
   // skill. Generalizes the debug-skill install (which hardcodes 'debug');
   // best-effort, non-blocking. Unset for ordinary spawns.
   connectorSkillId?: string
+  // Skill-at-spawn for ordinary agents (the composer's "+ Skill" attachment):
+  // same ensure-install, none of the connector MCP coupling.
+  spawnSkillId?: string
 }
 
 type TerminalIpcDependencies = {
@@ -64,6 +67,8 @@ type TerminalIpcDependencies = {
   resumeTerminal(sender: WebContents, payload: TerminalSpawnPayload): Promise<TerminalSpawnResult>
   killTerminal(sessionId: string): void
   setIdleSuspendThresholdMs(value: unknown): void
+  setKeepRecentTerminalsAlive(value: unknown): void
+  setTerminalReapExempt(sessionId: string, exempt: boolean): void
   setActiveSprintRunStatePaths(value: unknown): void
 }
 
@@ -120,6 +125,22 @@ export function registerTerminalIpc(ipcMain: IpcMain, deps: TerminalIpcDependenc
   // default. Fire-and-forget — the next reap sweep reads the latest value.
   ipcMain.handle('terminal:set-idle-suspend-ms', (_, value: unknown): void => {
     deps.setIdleSuspendThresholdMs(value)
+  })
+
+  // Per-terminal user lock: while set, the reaper never suspends or disposes
+  // this session. Validated here — it arrives straight off a renderer click.
+  ipcMain.handle('terminal:set-reap-exempt', (_, payload: unknown): void => {
+    if (!payload || typeof payload !== 'object') return
+    const { sessionId, exempt } = payload as { sessionId?: unknown; exempt?: unknown }
+    if (typeof sessionId !== 'string' || typeof exempt !== 'boolean') return
+    deps.setTerminalReapExempt(sessionId, exempt)
+  })
+
+  // Renderer pushes the user's "Always keep running" count — the recency floor
+  // below which the idle reaper never suspends live agent terminals. The reap
+  // policy clamps it; out-of-range or non-numeric falls back to the default.
+  ipcMain.handle('terminal:set-keep-recent-alive-count', (_, value: unknown): void => {
+    deps.setKeepRecentTerminalsAlive(value)
   })
 
   // Renderer pushes the set of SprintEngine run statePaths whose dispatch loop is

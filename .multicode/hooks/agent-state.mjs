@@ -184,6 +184,23 @@ async function main() {
     ts: Date.now(),
   }
 
+  // Self-scheduled wakeup: the ScheduleWakeup tool arms a timer INSIDE the CLI
+  // process (self-paced loops — "wake me in 20 minutes"). Between the schedule
+  // and the firing the agent's phase is idle, which is exactly what the idle
+  // reaper hunts — and killing the process silently cancels the timer. Report
+  // the schedule (and the stop) so the app can hold the reaper until it fires.
+  // Must mirror parseAgentStateFrame's wakeup validation in
+  // src/main/agent-state.ts.
+  if (event === 'PostToolUse' && payload?.tool_name === 'ScheduleWakeup') {
+    const input = payload?.tool_input
+    if (input && typeof input === 'object') {
+      if (input.stop === true) frame.wakeup = { stop: true }
+      else if (typeof input.delaySeconds === 'number' && Number.isFinite(input.delaySeconds) && input.delaySeconds > 0) {
+        frame.wakeup = { delaySeconds: input.delaySeconds }
+      }
+    }
+  }
+
   await writeFrame(socketPath, frame)
 }
 

@@ -108,6 +108,7 @@ import {
   type PluginsSlice,
 } from './slices/pluginsSlice'
 import {
+  dedupeAutomationsHostWorkspaces,
   normalizeWorkspaceForPartialize,
   preserveNewerSprintEngineAutomationState,
 } from './slices/normalizers'
@@ -184,8 +185,9 @@ export interface WorkspaceStore extends PluginsSlice, CliAvailabilitySlice {
   closeRunSummaryOverlay: () => void
   connectorsSurface: {
     open: boolean
+    initialView: 'browse' | 'installed' | null
   }
-  openConnectorsSurface: () => void
+  openConnectorsSurface: (opts?: { view?: 'browse' | 'installed' }) => void
   closeConnectorsSurface: () => void
   reorderWorkspaces: (orderedIds: WorkspaceId[]) => void
   registerWorkspaceWindow: (windowId: WorkspaceWindowId, kind?: WorkspaceWindowState['kind']) => void
@@ -239,6 +241,7 @@ export interface WorkspaceStore extends PluginsSlice, CliAvailabilitySlice {
   setSearchExcludes: (patterns: string[]) => void
   setProjectKnowledgeRoot: (projectRoot: string, relativeRoot: string | null) => void
   setTerminalIdleSuspendMinutes: (minutes: number) => void
+  setTerminalKeepRecentAlive: (count: number) => void
   setGuidedBriefConversationSessions: (enabled: boolean) => void
   setUsageTelemetrySettings: (update: Partial<UsageTelemetrySettings>) => void
   setVoiceDictationSettings: (update: Partial<VoiceDictationSettings>) => void
@@ -1059,6 +1062,13 @@ async function attemptBackupRecovery(): Promise<void> {
     envelope.state.workspaces = envelope.state.workspaces.filter(
       (workspace) => (workspace as { mode?: string }).mode !== 'automations',
     )
+    // Same bypass applies to the one-host-per-project invariant (store v64):
+    // a recovered backup can carry one Automations host per automation run,
+    // and once recovery writes it back the state is stamped current-version so
+    // the migrate ladder never sees it again. Dedupe before adopting.
+    envelope.state.workspaces = dedupeAutomationsHostWorkspaces(
+      envelope.state.workspaces as Workspace[],
+    )
     if (envelope.state.workspaces.length === 0) {
       emitHydrationDiagnostic()
       return
@@ -1211,7 +1221,14 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
       },
       merge: (persisted, current) => {
         const state = persisted as Partial<WorkspaceMigrationState & { sidebarCollapsed?: boolean; sidebarWidth?: number; sprintEnginesAsideOpen?: boolean; sprintsAsideWidth?: number; sprintsAsideView?: unknown }> | undefined
-        const rawWorkspaces = state?.workspaces ?? current.workspaces
+        // Version-gated migrations cannot be the only enforcement of the
+        // one-host-per-project invariant: a dev-HMR module swap (or any write
+        // path that stamps WORKSPACE_STORE_VERSION onto un-migrated state)
+        // leaves duplicate Automations hosts in a "current-version" envelope
+        // the migrate ladder will never look at again — exactly how the v63
+        // dedupe was bypassed in the wild. merge() runs on every hydration
+        // regardless of version, so the invariant self-heals here.
+        const rawWorkspaces = dedupeAutomationsHostWorkspaces(state?.workspaces ?? current.workspaces)
         const hydrated = hydrateSprintEngineLocalRunSettings(
           rawWorkspaces,
           normalizeAppSettings(state?.appSettings, rawWorkspaces),
@@ -1224,11 +1241,20 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
           state?.activeWorkspaceId ?? current.activeWorkspaceId,
         )
 
+        // The persisted active pointer can reference a host the dedupe just
+        // dropped; fall back to a surviving workspace instead of dangling.
+        const persistedActiveWorkspaceId =
+          state?.activeWorkspaceId
+          && workspaces.some((workspace) => workspace.id === state.activeWorkspaceId)
+            ? state.activeWorkspaceId
+            : null
         return {
           ...current,
           ...(state ?? {}),
           workspaces,
-          activeWorkspaceId: state?.activeWorkspaceId ?? current.activeWorkspaceId,
+          activeWorkspaceId:
+            persistedActiveWorkspaceId
+            ?? (state?.activeWorkspaceId ? workspaces[0]?.id ?? null : current.activeWorkspaceId),
           workspaceWindows: normalizedWindows.windows,
           primaryWorkspaceWindowId: normalizedWindows.primaryWorkspaceWindowId,
           sidebarCollapsed:
@@ -1333,6 +1359,27 @@ function syncTerminalIdleSuspendToMain(): void {
 }
 syncTerminalIdleSuspendToMain()
 
+// Mirror the "Always keep running" recency floor to the main reap policy so the
+// next idle sweep never pauses below the user's N most recently used agents.
+// Renderer is the source of truth; pushed on startup and on every change
+// (deduped). Main clamps.
+function syncTerminalKeepRecentAliveToMain(): void {
+  if (typeof window === 'undefined') return
+  const api = window.api as { setTerminalKeepRecentAliveCount?: (count: number) => Promise<unknown> } | undefined
+  if (!api?.setTerminalKeepRecentAliveCount) return
+
+  let lastSent = NaN
+  const push = (count: number): void => {
+    if (count === lastSent) return
+    lastSent = count
+    void api.setTerminalKeepRecentAliveCount!(count)
+  }
+
+  push(useWorkspaceStore.getState().appSettings.terminalKeepRecentAlive)
+  useWorkspaceStore.subscribe((state) => push(state.appSettings.terminalKeepRecentAlive))
+}
+syncTerminalKeepRecentAliveToMain()
+
 // Mirror which SprintEngine runs are ACTIVELY dispatching to main, so the idle
 // reaper protects those runs' agents (owned by the claim-aware 5-min retirement)
 // and only disposes agents of inactive/completed runs. Renderer owns run-active
@@ -1374,12 +1421,18 @@ function syncWorkspaceRegistryAcrossWindows(): void {
     }
     const incoming = parsed?.state
     if (!incoming || !Array.isArray(incoming.workspaces)) return
+    // Cross-window sync adopts another window's list without the migrate
+    // ladder, so a writer still holding pre-dedupe state (store v64) would
+    // re-import duplicate Automations hosts here. Dedupe is deterministic
+    // (earliest host per folder wins), so every window converges on the same
+    // survivor regardless of which window wrote last.
+    const incomingWorkspaces = dedupeAutomationsHostWorkspaces(incoming.workspaces as Workspace[])
     let appliedRegistrySerialized: string | null = null
     suppressNextPersistWrite = true
     try {
       useWorkspaceStore.setState((current) => {
         const normalizedWindows = normalizeWorkspaceWindows(
-          incoming.workspaces as Workspace[],
+          incomingWorkspaces,
           incoming.workspaceWindows,
           incoming.primaryWorkspaceWindowId,
           incoming.activeWorkspaceId ?? current.activeWorkspaceId,
@@ -1389,7 +1442,7 @@ function syncWorkspaceRegistryAcrossWindows(): void {
         const incomingOwnedWindow = normalizedWindows.windows.find((windowState) => windowState.id === workspaceWindowId)
         const currentWorkspaceById = new Map(current.workspaces.map((workspace) => [workspace.id, workspace] as const))
         const currentOwnedWorkspaceIds = new Set(currentOwnedWindow?.workspaceIds ?? [])
-        let nextWorkspaces = (incoming.workspaces as Workspace[]).map((workspace) => {
+        let nextWorkspaces = incomingWorkspaces.map((workspace) => {
           const currentWorkspace = currentWorkspaceById.get(workspace.id)
           const automationSafe = preserveNewerSprintEngineAutomationState(workspace, currentWorkspace)
           return currentOwnedWorkspaceIds.has(workspace.id)
@@ -1419,10 +1472,17 @@ function syncWorkspaceRegistryAcrossWindows(): void {
           }
           incomingOwnedWindow.lastFocusedAt = currentOwnedWindow.lastFocusedAt
         }
+        // The incoming active pointer can reference a host the dedupe dropped;
+        // don't let it dangle.
+        const incomingActiveWorkspaceId =
+          incoming.activeWorkspaceId
+          && nextWorkspaces.some((workspace) => workspace.id === incoming.activeWorkspaceId)
+            ? incoming.activeWorkspaceId
+            : null
         const nextState = {
           ...current,
           workspaces: nextWorkspaces,
-          activeWorkspaceId: incoming.activeWorkspaceId ?? current.activeWorkspaceId,
+          activeWorkspaceId: incomingActiveWorkspaceId ?? current.activeWorkspaceId,
           workspaceWindows: normalizedWindows.windows,
           primaryWorkspaceWindowId: normalizedWindows.primaryWorkspaceWindowId,
           workspaceRegistryEmptyState:

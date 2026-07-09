@@ -5,7 +5,7 @@
 // top-bar-group cap (knowledge/brand/panel-design-system.md TopBar inventory).
 //
 // The star, project, and branch segments are interactive (toggle starred /
-// reveal Files / reveal Git) and opt out of the title strip's drag region with
+// toggle Files / toggle Git) and opt out of the title strip's drag region with
 // `app-no-drag`; the name keeps its sidebar-toggle role (or degrades to a
 // draggable span) to preserve the window grab area.
 
@@ -17,7 +17,7 @@ import { useGitStatus } from '../../hooks/useGitStatus'
 import { resolveWorkspaceWorktree } from '../../utils/workspaceWorktree'
 import { selectModuleEnabled } from '../../modules'
 import { getHighlightSwatch, isStarred } from '../../utils/highlight'
-import { revealNavRailComponent } from '../../utils/modelRegistry'
+import { toggleNavRailComponent } from '../../utils/modelRegistry'
 import type { Workspace } from '../../types/workspace'
 
 // Branch-fork glyph for the header identity cluster. Stroke idiom matches the
@@ -96,16 +96,17 @@ export function WorkspaceIdentity({
   const gitHasChanges = gitRepoState === 'ready' && gitChangeCount > 0
   const gitChangeLabel = String(Math.min(gitChangeCount, 999))
   // The header identity segments double as panel shortcuts: the folder path
-  // reveals the file explorer and the branch reveals the Git panel — but only
-  // when the owning capability module is enabled, so we never offer a click that
-  // resolves to nothing.
+  // toggles the file explorer and the branch toggles the Git panel — same
+  // open/close-on-second-click semantics as the Backlog panel switch. Only
+  // offered when the owning capability module is enabled, so we never offer a
+  // click that resolves to nothing.
   const filesPanelEnabled = selectModuleEnabled(moduleOverrides, 'dev-tools')
   const gitPanelEnabled = selectModuleEnabled(moduleOverrides, 'git')
-  const revealFilesPanel = React.useCallback(() => {
-    if (activeWorkspaceId) revealNavRailComponent(activeWorkspaceId, 'explorer', 'Files')
+  const toggleFilesPanel = React.useCallback(() => {
+    if (activeWorkspaceId) toggleNavRailComponent(activeWorkspaceId, 'explorer', 'Files')
   }, [activeWorkspaceId])
-  const revealGitPanel = React.useCallback(() => {
-    if (activeWorkspaceId) revealNavRailComponent(activeWorkspaceId, 'git', 'Git')
+  const toggleGitPanel = React.useCallback(() => {
+    if (activeWorkspaceId) toggleNavRailComponent(activeWorkspaceId, 'git', 'Git')
   }, [activeWorkspaceId])
 
   if (!activeWorkspace) return null
@@ -231,8 +232,8 @@ export function WorkspaceIdentity({
           >
             <button
               type="button"
-              onClick={revealFilesPanel}
-              aria-label={`Open file explorer, ${folderPath}`}
+              onClick={toggleFilesPanel}
+              aria-label={`Toggle file explorer, ${folderPath}`}
               className={`app-no-drag interactive flex min-w-0 items-center gap-1 rounded-[5px] px-1.5 py-0.5 text-[12px] text-[color:var(--text-muted)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-default)] ${FOCUS_RING_CLASS}`}
             >
               <FolderGlyph className="icon-xs shrink-0 text-[color:var(--text-subtle)]" />
@@ -255,8 +256,8 @@ export function WorkspaceIdentity({
           >
             <button
               type="button"
-              onClick={revealGitPanel}
-              aria-label={`${branchName ? `Open Git panel, branch ${branchName}` : 'Open Git panel, detached HEAD'}${
+              onClick={toggleGitPanel}
+              aria-label={`${branchName ? `Toggle Git panel, branch ${branchName}` : 'Toggle Git panel, detached HEAD'}${
                 gitHasChanges ? `, ${gitChangeCount} uncommitted ${gitChangeCount === 1 ? 'change' : 'changes'}` : ''
               }`}
               className={`app-no-drag interactive flex min-w-0 items-center gap-1 rounded-[5px] px-1.5 py-0.5 text-[12px] text-[color:var(--text-muted)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-default)] ${FOCUS_RING_CLASS}`}

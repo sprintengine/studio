@@ -69,6 +69,10 @@ export const terminalApi = {
   terminalKill: (sessionId: string) => ipcRenderer.invoke('terminal:kill', sessionId),
   setTerminalIdleSuspendMs: (ms: number): Promise<void> =>
     ipcRenderer.invoke('terminal:set-idle-suspend-ms', ms),
+  setTerminalKeepRecentAliveCount: (count: number): Promise<void> =>
+    ipcRenderer.invoke('terminal:set-keep-recent-alive-count', count),
+  setTerminalReapExempt: (sessionId: string, exempt: boolean): Promise<void> =>
+    ipcRenderer.invoke('terminal:set-reap-exempt', { sessionId, exempt }),
   setActiveSprintRunStatePaths: (statePaths: string[]): Promise<void> =>
     ipcRenderer.invoke('terminal:set-active-sprint-runs', statePaths),
   onTerminalReplay: (sessionId: string, cb: (data: string) => void): (() => void) => {
@@ -114,6 +118,8 @@ export const terminalApi = {
   | 'terminalResume'
   | 'terminalKill'
   | 'setTerminalIdleSuspendMs'
+  | 'setTerminalKeepRecentAliveCount'
+  | 'setTerminalReapExempt'
   | 'setActiveSprintRunStatePaths'
   | 'onTerminalReplay'
   | 'onTerminalData'

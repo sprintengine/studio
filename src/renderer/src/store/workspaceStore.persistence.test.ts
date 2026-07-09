@@ -999,5 +999,49 @@ assert.equal(
   'a workspace without a worktree marker stays without one (no-op for existing workspaces)',
 )
 
+// ── Duplicate Automations hosts in a CURRENT-version envelope ───────────────
+// The v63/v64 dedupe migrations only run on a version mismatch, but a dev-HMR
+// module swap (or any writer holding un-migrated state) can stamp the current
+// WORKSPACE_STORE_VERSION onto a registry that still carries one host per
+// automation run — the migrate ladder then never looks at it again. merge()
+// must therefore enforce the one-host-per-folder invariant on EVERY hydration:
+// earliest host survives, gets the stable 'Automations' name, and a dangling
+// active pointer falls back to a surviving workspace.
+{
+  const hostWorkspace = (id: string, name: string, createdAt: number): Workspace => ({
+    ...persistedWorkspace,
+    id,
+    name,
+    mode: 'automations-host',
+    folderPath: '/Users/example/project',
+    createdAt,
+    agents: {},
+  } as unknown as Workspace)
+  const currentVersionEnvelope = JSON.parse(stored['multicode-workspaces']) as RegistryRecord
+  stored['multicode-workspaces'] = JSON.stringify({
+    state: {
+      ...currentVersionEnvelope.state,
+      workspaces: [
+        { ...persistedWorkspace },
+        hostWorkspace('ws-host-early', 'Pillars of code reviewer', 100),
+        hostWorkspace('ws-host-late', 'fable5 calendar', 200),
+      ],
+      activeWorkspaceId: 'ws-host-late',
+    },
+    version: currentVersionEnvelope.version,
+  })
+  await useWorkspaceStore.persist.rehydrate()
+  const rehydrated = useWorkspaceStore.getState()
+  const hosts = rehydrated.workspaces.filter((ws) => ws.mode === 'automations-host')
+  assert.equal(hosts.length, 1, 'merge dedupes duplicate hosts even at the current store version')
+  assert.equal(hosts[0].id, 'ws-host-early', 'the earliest-created host survives')
+  assert.equal(hosts[0].name, 'Automations', 'the surviving host is re-branded with the stable name')
+  assert.notEqual(
+    rehydrated.activeWorkspaceId,
+    'ws-host-late',
+    'the active pointer does not dangle at a deduped host',
+  )
+}
+
 console.info = originalInfo
 console.log('workspaceStore.persistence.test.ts: ok')

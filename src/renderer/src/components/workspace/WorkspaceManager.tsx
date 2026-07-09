@@ -43,6 +43,7 @@ import {
 import type {
   AgentCli,
   AgentCliModelSelection,
+  AgentExecution,
   AppNotification,
   FuturePlanWorkspaceSource,
   LayoutTemplate,
@@ -57,11 +58,15 @@ import type {
   WorkspaceWorktree,
 } from '../../types/workspace'
 import {
+  agentWorktreePaths,
   connectorStartupPrompt,
   connectorWorktreePaths,
+  worktreeIdFromPath,
 } from '../../utils/workspaceWorktree'
 import { resolveConnectorLaunch } from '../../utils/connectorLaunch'
 import { resolveSkillInvocation } from '../../../../shared/skill-invocation'
+import { ensureSkillForAgent, renderChatSkillPrefill, skillSpawnAgentPatch } from '../../utils/skillInvocation'
+import type { WorkspaceSkill } from '../../../../shared/electron-api'
 import { pickRandomAgentName } from '../../utils/agentNames'
 import { normalizeAgentIdentifier, prependAgentIdentifier } from '../../utils/agentPrompt'
 import { publishDiagnosticSync } from '../../utils/diagnostics'
@@ -787,7 +792,7 @@ export default function WorkspaceManager() {
     workspaceWindowId,
   ])
 
-  const createNewChat = useCallback((folderPath?: string | null, cli?: AgentCli) => {
+  const createNewChat = useCallback((folderPath?: string | null, cli?: AgentCli, skill?: WorkspaceSkill) => {
     const chosenCli = cli && cli.trim() ? cli.trim() : null
     // A plain New chat is a General agent, so it rides General's own remembered
     // CLI (falling back to the global default), never the reverse. The result is
@@ -816,6 +821,9 @@ export default function WorkspaceManager() {
           ...(cliModel ? { cliModel } : {}),
           cliPermissionPreset: agentSpawnPermissionPreset,
           debugMode: agentSpawnDebugMode,
+          ...(skill
+            ? skillSpawnAgentPatch(skill, pluginCatalogEntries.find((entry) => entry.id === templateAgentCli)?.skillIntegration)
+            : {}),
         },
       },
     })
@@ -823,7 +831,7 @@ export default function WorkspaceManager() {
     // lastSelectedCli, so a new-chat CLI never bleeds into the specialists.
     if (chosenCli) setSpecialistCliDefault(GENERAL_AGENT_ENGINE_KEY, chosenCli)
     if (agentSpawnDebugMode) setAgentSpawnDebugMode(false)
-  }, [agentCliCatalog, agentSpawnDebugMode, agentSpawnPermissionPreset, createSoloChatWorkspace, specialistCliDefaults, specialistModelDefaults, lastSelectedCli, setSpecialistCliDefault])
+  }, [agentCliCatalog, agentSpawnDebugMode, agentSpawnPermissionPreset, createSoloChatWorkspace, pluginCatalogEntries, specialistCliDefaults, specialistModelDefaults, lastSelectedCli, setSpecialistCliDefault])
 
   // Launch an isolated connector chat for any catalog entry carrying a `skill`
   // link: a fresh worktree on `connector/<id>-<uid>`, opened as a worktree-backed
@@ -1603,10 +1611,83 @@ export default function WorkspaceManager() {
   }, [workspaces, terminalSessions])
 
 
+  // Create the git worktree an agent spawn requested ("+ Worktree" in the
+  // agent composer): placed under the shared worktree container on branch
+  // `agent/<slug>`, and registered in the workspace's worktree registry with
+  // the new agent as owner. Returns the agent's execution, or null after
+  // publishing a diagnostic — the caller aborts the spawn, because silently
+  // spawning into the main checkout would drop the isolation the user asked for.
+  const createAgentSpawnWorktree = async (
+    workspace: Workspace,
+    agentId: string,
+    tabName: string,
+    requestedName: string,
+  ): Promise<AgentExecution | null> => {
+    const spawnError = (title: string, message: string) =>
+      publishDiagnosticSync({
+        level: 'error',
+        source: 'workspace',
+        title,
+        message,
+        workspaceId: workspace.id,
+        workspaceName: workspace.name,
+      })
+
+    if (!workspace.folderPath) {
+      spawnError('Worktree needs a project', 'Open a project folder before spawning an agent on a worktree.')
+      return null
+    }
+    const repoRoot = await window.api.getGitRepoRoot(workspace.folderPath)
+    if (!repoRoot) {
+      spawnError(
+        'Worktree needs a git repository',
+        'This project is not a git repository, so an agent worktree cannot be created.',
+      )
+      return null
+    }
+    // A typed name is used verbatim; an empty one derives from the agent's tab
+    // name plus a short uid so repeat spawns never collide on the branch.
+    const name = requestedName.trim() || `${tabName}-${nanoid(4).toLowerCase()}`
+    const paths = agentWorktreePaths(repoRoot, name)
+    if (!paths) {
+      spawnError('Worktree name invalid', `"${name}" does not reduce to a usable worktree name.`)
+      return null
+    }
+    const result = await window.api.createGitWorktree({
+      repoRoot,
+      containerPath: paths.containerPath,
+      destinationPath: paths.destinationPath,
+      branchName: paths.branchName,
+      baseRef: 'HEAD',
+      copyIncludedFiles: true,
+    })
+    if (!result.ok) {
+      spawnError('Agent worktree failed', result.message)
+      return null
+    }
+
+    const store = useWorkspaceStore.getState()
+    store.setWorkspaceWorktreeState(workspace.id, { containerPath: paths.containerPath })
+    const now = Date.now()
+    const worktreeId = worktreeIdFromPath(result.data.path)
+    store.upsertWorktreeEntry(workspace.id, {
+      id: worktreeId,
+      path: result.data.path,
+      branch: result.data.branch ?? paths.branchName,
+      ownerAgentId: agentId,
+      status: 'assigned',
+      createdAt: now,
+      updatedAt: now,
+    })
+    return { mode: 'worktree', worktreeId, cwd: result.data.path }
+  }
+
   const addNewSpecialist = async (
     specialistId: SpecialistActionId = lastSelectedSpecialist,
     requestedName = '',
-    selectedCli?: AgentCli
+    selectedCli?: AgentCli,
+    skill?: WorkspaceSkill,
+    worktree?: { name: string }
   ) => {
     if (showNewWorkspacePanel || !windowActiveWorkspaceId) return
     const model = getModel(windowActiveWorkspaceId)
@@ -1625,10 +1706,19 @@ export default function WorkspaceManager() {
       normalizeSelectedCli(selectedCli ?? specialistCliDefaults[specialist.id], lastSelectedCli)
     )
 
+    let execution: AgentExecution | undefined
+    if (worktree) {
+      if (!activeWorkspace) return
+      const created = await createAgentSpawnWorktree(activeWorkspace, newId, tabName, worktree.name)
+      if (!created) return
+      execution = created
+    }
+
     updateAgent(windowActiveWorkspaceId, newId, {
       name: tabName,
       cli: cliForSpawn,
       cliModel: resolveSurfaceModel(cliForSpawn, specialistModelDefaults[specialist.id]),
+      ...(execution ? { execution } : {}),
       cliPermissionPreset: agentSpawnPermissionPreset,
       debugMode: agentSpawnDebugMode,
       kind: 'specialist',
@@ -1637,6 +1727,9 @@ export default function WorkspaceManager() {
       cliOnboardingPromptSent: false,
       cliHasLaunched: false,
       cliResumeAvailable: false,
+      ...(skill
+        ? skillSpawnAgentPatch(skill, pluginCatalogEntries.find((entry) => entry.id === cliForSpawn)?.skillIntegration)
+        : {}),
     })
     addAgentTabTiled(windowActiveWorkspaceId, newId, tabName)
     if (agentSpawnDebugMode) setAgentSpawnDebugMode(false)
@@ -1710,7 +1803,7 @@ export default function WorkspaceManager() {
     if (agentSpawnDebugMode) setAgentSpawnDebugMode(false)
   }
 
-  const addNewCliAgent = (cli: AgentCli, label: string) => {
+  const addNewCliAgent = async (cli: AgentCli, label: string, skill?: WorkspaceSkill, worktree?: { name: string }) => {
     if (showNewWorkspacePanel || !windowActiveWorkspaceId) return
     const model = getModel(windowActiveWorkspaceId)
     if (!model) return
@@ -1721,10 +1814,19 @@ export default function WorkspaceManager() {
     const newId = `agent-${spawnCli}-${nanoid(6)}`
     if (!(model.getActiveTabset() ?? firstTabset(model))) return
 
+    let execution: AgentExecution | undefined
+    if (worktree) {
+      if (!activeWorkspace) return
+      const created = await createAgentSpawnWorktree(activeWorkspace, newId, tabName, worktree.name)
+      if (!created) return
+      execution = created
+    }
+
     updateAgent(windowActiveWorkspaceId, newId, {
       name: tabName,
       cli: spawnCli,
       cliModel: resolveSurfaceModel(spawnCli, specialistModelDefaults[GENERAL_AGENT_ENGINE_KEY]),
+      ...(execution ? { execution } : {}),
       cliPermissionPreset: agentSpawnPermissionPreset,
       debugMode: agentSpawnDebugMode,
       kind: 'general',
@@ -1733,6 +1835,9 @@ export default function WorkspaceManager() {
       cliOnboardingPromptSent: false,
       cliHasLaunched: false,
       cliResumeAvailable: false,
+      ...(skill
+        ? skillSpawnAgentPatch(skill, pluginCatalogEntries.find((entry) => entry.id === spawnCli)?.skillIntegration)
+        : {}),
     })
     addAgentTabTiled(windowActiveWorkspaceId, newId, tabName)
     if (agentSpawnDebugMode) setAgentSpawnDebugMode(false)
@@ -1744,7 +1849,7 @@ export default function WorkspaceManager() {
   // `conversation`; no CLI session is created. The model is then switchable in
   // the chat composer until the first message, so spawning just needs a default
   // pair. Missing-key/unavailable states are handled downstream by AgentChatView.
-  const addNewConversationAgent = (providerId: string, modelId: string, modelLabel: string) => {
+  const addNewConversationAgent = (providerId: string, modelId: string, modelLabel: string, skill?: WorkspaceSkill) => {
     if (showNewWorkspacePanel || !windowActiveWorkspaceId) return
     const model = getModel(windowActiveWorkspaceId)
     if (!model) return
@@ -1756,9 +1861,16 @@ export default function WorkspaceManager() {
     const newId = `conversation-${providerId}-${nanoid(6)}`
     if (!(model.getActiveTabset() ?? firstTabset(model))) return
 
+    // Skill-at-spawn on the conversation transport: make the skill present in
+    // the workspace (best-effort) and seed the chat composer draft with the
+    // invocation — prefilled, never auto-sent.
+    if (skill && activeWorkspace.folderPath) {
+      void ensureSkillForAgent({ workspaceRoot: activeWorkspace.folderPath, skill })
+    }
     updateAgent(windowActiveWorkspaceId, newId, {
       name: tabName,
       ...conversationAgentRuntimePatch(providerId, modelId),
+      ...(skill ? { chatComposerPrefill: renderChatSkillPrefill(skill) } : {}),
     })
     addAgentTabTiled(windowActiveWorkspaceId, newId, tabName)
     setLastSelectedConversationModel({ providerId, modelId })
@@ -1767,12 +1879,13 @@ export default function WorkspaceManager() {
 
   // Single spawn-menu entry: open a conversation agent with the resolved default
   // model. No-op when no provider/model is available (entry stays hidden).
-  const spawnConversationAgent = () => {
+  const spawnConversationAgent = (skill?: WorkspaceSkill) => {
     if (!conversationDefaultOption) return
     addNewConversationAgent(
       conversationDefaultOption.providerId,
       conversationDefaultOption.modelId,
       conversationDefaultOption.modelLabel,
+      skill,
     )
   }
 
@@ -1788,12 +1901,14 @@ export default function WorkspaceManager() {
   // chat picker passes the right-clicked folder. Each mirrors its in-workspace
   // spawn counterpart, but seeds the agent at creation time via
   // createSoloChatWorkspace so it lands race-free before the new model mounts.
-  const openGeneralInNewChat = (cli?: AgentCli, folderPath?: string | null) => createNewChat(folderPath, cli)
+  const openGeneralInNewChat = (cli?: AgentCli, folderPath?: string | null, skill?: WorkspaceSkill) =>
+    createNewChat(folderPath, cli, skill)
 
   const openSpecialistInNewChat = (
     specialistId: SpecialistActionId,
     selectedCli?: AgentCli,
     folderPath?: string | null,
+    skill?: WorkspaceSkill,
   ) => {
     setLastSelectedSpecialist(specialistId)
     const specialist = getSpecialistAction(specialistId)
@@ -1819,6 +1934,9 @@ export default function WorkspaceManager() {
           cliOnboardingPromptSent: false,
           cliHasLaunched: false,
           cliResumeAvailable: false,
+          ...(skill
+            ? skillSpawnAgentPatch(skill, pluginCatalogEntries.find((entry) => entry.id === cliForSpawn)?.skillIntegration)
+            : {}),
         },
       },
     })
@@ -1840,17 +1958,18 @@ export default function WorkspaceManager() {
     setLastNewChatAgent({ kind: 'terminal' })
     openTerminalInNewChat(folderPath)
   }
-  const pickNewChatGeneral = (cli?: AgentCli, folderPath?: string | null) => {
+  const pickNewChatGeneral = (cli?: AgentCli, folderPath?: string | null, skill?: WorkspaceSkill) => {
     setLastNewChatAgent({ kind: 'general' })
-    openGeneralInNewChat(cli, folderPath)
+    openGeneralInNewChat(cli, folderPath, skill)
   }
   const pickNewChatSpecialist = (
     specialistId: SpecialistActionId,
     cli?: AgentCli,
     folderPath?: string | null,
+    skill?: WorkspaceSkill,
   ) => {
     setLastNewChatAgent({ kind: 'specialist', specialistId })
-    openSpecialistInNewChat(specialistId, cli, folderPath)
+    openSpecialistInNewChat(specialistId, cli, folderPath, skill)
   }
 
   // Open the pre-creation New Chat panel. `folderPath === undefined` inherits the
@@ -1913,10 +2032,10 @@ export default function WorkspaceManager() {
         pickNewChatTerminal(folderPath)
         break
       case 'specialist':
-        pickNewChatSpecialist(confirm.specialistId, confirm.cli, folderPath)
+        pickNewChatSpecialist(confirm.specialistId, confirm.cli, folderPath, confirm.skill)
         break
       case 'general':
-        pickNewChatGeneral(confirm.cli, folderPath)
+        pickNewChatGeneral(confirm.cli, folderPath, confirm.skill)
         break
       default:
         // The New Chat panel is specialist-mode with no conversation/multiloop
@@ -2270,10 +2389,15 @@ export default function WorkspaceManager() {
     void window.api.updateAppMenuAccelerators(updates).catch(() => {})
   }, [keybindingSettings])
 
-  const handleSelectSpecialist = (specialistId: SpecialistActionId, selectedCli?: AgentCli) => {
+  const handleSelectSpecialist = (
+    specialistId: SpecialistActionId,
+    selectedCli?: AgentCli,
+    skill?: WorkspaceSkill,
+    worktree?: { name: string },
+  ) => {
     setLastSelectedSpecialist(specialistId)
     setSpecialistMenuOpen(false)
-    void addNewSpecialist(specialistId, '', selectedCli)
+    void addNewSpecialist(specialistId, '', selectedCli, skill, worktree)
   }
 
   const handleSelectMultiloopRole = (role: MultiloopRole, selectedCli?: AgentCli) => {
@@ -2298,13 +2422,13 @@ export default function WorkspaceManager() {
         addNewTerminal()
         break
       case 'general':
-        addNewCliAgent(confirm.cli, 'General Agent')
+        void addNewCliAgent(confirm.cli, 'General Agent', confirm.skill, confirm.worktree)
         break
       case 'conversation':
-        spawnConversationAgent()
+        spawnConversationAgent(confirm.skill)
         break
       case 'specialist':
-        handleSelectSpecialist(confirm.specialistId, confirm.cli)
+        handleSelectSpecialist(confirm.specialistId, confirm.cli, confirm.skill, confirm.worktree)
         break
       case 'multiloop':
         handleSelectMultiloopRole(confirm.role, confirm.cli)
@@ -2775,6 +2899,21 @@ export default function WorkspaceManager() {
           <React.Suspense fallback={null}>
             <ConnectorsSurface
               onLaunchConnector={(serverId) => { void launchConnectorChat(serverId) }}
+              onUseSkillInNewAgent={(skill) => {
+                // "Use in agent → New agent…" on an installed skill row: a
+                // general agent on the General-engine default CLI, with the
+                // skill ensure-installed and its invocation prefilled.
+                closeConnectorsSurface()
+                addNewCliAgent(
+                  resolveTemplateAgentCli(
+                    specialistCliDefaults[GENERAL_AGENT_ENGINE_KEY],
+                    lastSelectedCli,
+                    agentCliCatalog,
+                  ),
+                  'General Agent',
+                  skill,
+                )
+              }}
               onUseInAutomation={() => {
                 // The route to author a connector automation; the connector
                 // pre-selection lands in T8. Close the surface and open the

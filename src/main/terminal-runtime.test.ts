@@ -105,6 +105,13 @@ moduleWithLoad._load = function loadWithMainProcessMocks(
 async function main(): Promise<void> {
   try {
     const runtimeModule = require('./terminal-runtime') as RuntimeModule
+    // The gate-behavior sweeps below spawn only a handful of agents, which the
+    // default recency floor (keep the N most recent alive) would spare wholesale.
+    // Disable the floor so each per-session gate is exercised in isolation; the
+    // dedicated floor assertion re-enables it.
+    runtimeModule.setKeepRecentTerminalsAlive(0)
+    await assertIdleSweepRecencyFloorSparesMostRecent(runtimeModule)
+    await assertUserLockHoldsReaperAndSuspendedRevealIsIdempotent(runtimeModule)
     await assertSprintEngineSpawnSyncsManagedMcpBeforePtySpawn(runtimeModule)
     await assertStandardAgentSpawnKeepsEnabledOptionalMcpSettings(runtimeModule)
     await assertSprintEngineSpawnDisablesOptionalMcpSettings(runtimeModule)
@@ -429,6 +436,180 @@ async function assertIdleSweepSuspendsRatherThanDisposes(runtimeModule: RuntimeM
       await runtime.ipcHandlers.getTerminalStatus('session-awaiting'),
       { processAlive: true, suspended: false },
       'an agent awaiting user input must never be suspended by the reaper'
+    )
+  } finally {
+    await runtime.shutdown()
+  }
+}
+
+// Recency floor ("Always keep running"): with the configured keep-alive count
+// set, an idle sweep reaps only down to that many live agent terminals, sparing
+// the most recently used — so a user's active set can never be paused wholesale.
+async function assertIdleSweepRecencyFloorSparesMostRecent(runtimeModule: RuntimeModule): Promise<void> {
+  const workspaceRoot = await mkdtemp(join(tmpdir(), 'multicode-terminal-runtime-recency-floor-'))
+  mockPty.spawnCalls = []
+  mockSender.sent = []
+
+  const runtime = runtimeModule.createTerminalRuntime({
+    diagnosticsEnabled: false,
+    requireAuthenticatedUser: () => undefined,
+    logMainPerfEvent: () => undefined,
+  })
+
+  const spawnHiddenAgent = async (sessionId: string, agentWorkspaceId: string): Promise<MockPtyProcess> => {
+    const result = await runtime.ipcHandlers.spawnTerminal(mockSender as unknown as WebContents, {
+      sessionId,
+      cols: 120,
+      rows: 30,
+      cwd: workspaceRoot,
+      cli: 'codex',
+      kind: 'agent',
+      shellOnly: false,
+      workspaceId: agentWorkspaceId,
+      agentId: sessionId,
+      visible: false,
+      mcpSettings: { syncEnabled: false, servers: {} } satisfies McpSettings,
+    })
+    assert.equal(result.ok, true, JSON.stringify(result))
+    const spawned = mockPty.spawnCalls[mockPty.spawnCalls.length - 1]?.process
+    assert.ok(spawned, `expected a pty for ${sessionId}`)
+    return spawned
+  }
+
+  try {
+    runtimeModule.setKeepRecentTerminalsAlive(2)
+
+    const oldProcess = await spawnHiddenAgent('floor-old', 'ws-floor-old')
+    await spawnHiddenAgent('floor-mid', 'ws-floor-mid')
+    await spawnHiddenAgent('floor-new', 'ws-floor-new')
+    // Stagger real keystrokes so the recency order is unambiguous (spawn
+    // timestamps can share a millisecond): mid, then new, most recent last.
+    await delay(5)
+    runtime.ipcHandlers.writeTerminal('floor-mid', 'x')
+    await delay(5)
+    runtime.ipcHandlers.writeTerminal('floor-new', 'x')
+
+    // All three are idle past the threshold, but the floor of 2 spares the two
+    // most recently used — only the oldest is suspended.
+    const wellPastIdle = Date.now() + 30 * 60 * 1000 + 1_000
+    assert.deepEqual(
+      runtimeModule.runIdleAgentReapSweep(wellPastIdle),
+      ['floor-old'],
+      'the sweep must reap only down to the keep-alive floor, oldest-rested first'
+    )
+
+    // Finalize the suspend (the killed pty reports exit) so the suspended
+    // session drops out of the live-agent population.
+    oldProcess.emitExit({ exitCode: 0 })
+    await delay(20)
+
+    // A later sweep still holds: the survivors ARE the floor.
+    assert.deepEqual(
+      runtimeModule.runIdleAgentReapSweep(wellPastIdle + 60_000),
+      [],
+      'the spared agents form the floor and must stay alive on subsequent sweeps'
+    )
+  } finally {
+    runtimeModule.setKeepRecentTerminalsAlive(0)
+    await runtime.shutdown()
+  }
+}
+
+// Per-terminal user lock + idempotent suspended reveal:
+// 1. A locked (reapExempt) agent survives the idle sweep and the 24h stale
+//    backstop; unlocking makes it reapable again.
+// 2. Revealing a suspended session resends the painted replay even when main
+//    already has visible=true (a renderer reload/remount can miss the unmount
+//    hide; edge-triggered reveal left the fresh xterm blank under "Paused").
+async function assertUserLockHoldsReaperAndSuspendedRevealIsIdempotent(
+  runtimeModule: RuntimeModule
+): Promise<void> {
+  const workspaceRoot = await mkdtemp(join(tmpdir(), 'multicode-terminal-runtime-lock-'))
+  mockPty.spawnCalls = []
+  mockSender.sent = []
+
+  const runtime = runtimeModule.createTerminalRuntime({
+    diagnosticsEnabled: false,
+    requireAuthenticatedUser: () => undefined,
+    logMainPerfEvent: () => undefined,
+  })
+
+  try {
+    for (const sessionId of ['session-lock-a', 'session-lock-b']) {
+      const spawned = await runtime.ipcHandlers.spawnTerminal(mockSender as unknown as WebContents, {
+        sessionId,
+        cols: 120,
+        rows: 30,
+        cwd: workspaceRoot,
+        cli: 'codex',
+        kind: 'agent',
+        shellOnly: false,
+        workspaceId: `ws-${sessionId}`,
+        agentId: sessionId,
+        visible: false,
+        mcpSettings: { syncEnabled: false, servers: {} } satisfies McpSettings,
+      })
+      assert.equal(spawned.ok, true, JSON.stringify(spawned))
+    }
+    mockPty.spawnCalls[0]?.process.emitData('painted output a\r\n')
+    mockPty.spawnCalls[1]?.process.emitData('painted output b\r\n')
+    await delay(20)
+
+    runtime.ipcHandlers.setTerminalReapExempt('session-lock-a', true)
+    assert.equal(
+      runtime.ipcHandlers.listTerminals().find((s) => s.sessionId === 'session-lock-a')?.reapExempt,
+      true,
+      'the lock must surface on the session snapshot for the renderer control'
+    )
+
+    // Idle sweep well past the threshold: only the unlocked agent is suspended.
+    const wellPastIdle = Date.now() + 30 * 60 * 1000 + 1_000
+    assert.deepEqual(
+      runtimeModule.runIdleAgentReapSweep(wellPastIdle),
+      ['session-lock-b'],
+      'the locked agent must survive the idle sweep'
+    )
+    mockPty.spawnCalls[1]?.process.emitExit({ exitCode: 0 })
+    await delay(20)
+    assert.deepEqual(
+      await runtime.ipcHandlers.getTerminalStatus('session-lock-b'),
+      { processAlive: false, suspended: true }
+    )
+
+    // Idempotent reveal: the first setVisible(true) is the hidden→visible edge;
+    // the second finds visible already true and must STILL resend the replay —
+    // a suspended pty is dead, so a fresh xterm that missed the edge can only
+    // be painted by this resend.
+    mockSender.sent = []
+    runtime.ipcHandlers.setTerminalVisible('session-lock-b', true, mockSender as unknown as WebContents)
+    runtime.ipcHandlers.setTerminalVisible('session-lock-b', true, mockSender as unknown as WebContents)
+    const replays = mockSender.sent.filter((event) => event.channel === 'terminal:replay:session-lock-b')
+    assert.equal(replays.length, 2, 'suspended reveal must resend the replay even when already visible')
+    assert.ok(
+      replays.every((event) => typeof event.payload === 'string' && event.payload.length > 0),
+      'suspended reveal replays must carry painted content'
+    )
+
+    // 24h stale backstop: the locked agent is hidden and unseen well past the
+    // stale window, but the lock is absolute — dispose is forbidden too.
+    const wellPastStale = Date.now() + 25 * 60 * 60 * 1000
+    const staleReaped = runtimeModule.reapStaleTerminals(wellPastStale)
+    assert.equal(
+      staleReaped.includes('session-lock-a'),
+      false,
+      'the locked agent must survive the stale backstop'
+    )
+    assert.ok(
+      runtime.ipcHandlers.listTerminals().some((s) => s.sessionId === 'session-lock-a'),
+      'the locked agent must still be listed after the stale sweep'
+    )
+
+    // Unlock → the very next idle sweep reclaims it.
+    runtime.ipcHandlers.setTerminalReapExempt('session-lock-a', false)
+    assert.deepEqual(
+      runtimeModule.runIdleAgentReapSweep(wellPastIdle),
+      ['session-lock-a'],
+      'unlocking must make the agent reapable again'
     )
   } finally {
     await runtime.shutdown()

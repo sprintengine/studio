@@ -836,6 +836,34 @@ export type SkillPackRemoveResult =
   | { ok: true; slug: string; log: string }
   | { ok: false; message: string; log?: string }
 
+// One entry in the unified workspace skill inventory: built-ins, installed
+// skill packs, hand-dropped custom skill dirs, and not-yet-installed catalog
+// entries, deduped by skill id across harness dirs. Name/description come from
+// the installed SKILL.md frontmatter when present, falling back to the catalog
+// or BUILTIN_SKILLS metadata, then the directory name.
+export type WorkspaceSkillSource = 'builtin' | 'pack' | 'custom' | 'plugin'
+export type WorkspaceSkillInstallState = 'installed' | 'available' | 'update-available'
+
+export type WorkspaceSkill = {
+  id: string
+  name: string
+  description?: string
+  source: WorkspaceSkillSource
+  harnesses: SkillPackHarness[]
+  installState: WorkspaceSkillInstallState
+  // For source 'pack': the catalog slug that drives skillPackInstall.
+  packSlug?: string
+  version?: string
+}
+
+export type WorkspaceSkillsListInput = {
+  workspaceRoot: string
+}
+
+export type WorkspaceSkillsListResult =
+  | { ok: true; skills: WorkspaceSkill[] }
+  | { ok: false; message: string }
+
 export type TerminalKind = 'agent' | 'terminal'
 export type TerminalPathStyle = 'posix' | 'windows' | 'wsl'
 export type AgentSessionSystem = 'switchboard' | 'watchtower' | 'sprintengine' | 'manual'
@@ -889,6 +917,11 @@ export type TerminalSpawnMetadata = {
   // skill. Generalizes the debug-skill install; best-effort at the launch
   // boundary. Undefined for ordinary spawns. See TerminalSpawnPayload.
   connectorSkillId?: string
+  // Skill-at-spawn for ordinary agents (the composer's "+ Skill" attachment):
+  // ensure-installs the named builtin like connectorSkillId, but WITHOUT the
+  // connector coupling (no MCP prune, no worktree .mcp.json exclude). The
+  // invocation itself is prefilled renderer-side, never auto-sent.
+  spawnSkillId?: string
 }
 
 export type SessionActivity =
@@ -948,6 +981,11 @@ export type TerminalSessionSnapshot = {
   // Freeze-the-view: agent process killed to reclaim memory, scrollback kept
   // painted, resumable on keystroke. `processAlive` is false while suspended.
   suspended: boolean
+  // User lock ("keep running"): the reaper never suspends or disposes this
+  // session while set. Session-scoped — toggled from the terminal's lock
+  // control; does not survive an app restart (the process it protects doesn't
+  // either).
+  reapExempt: boolean
   startedAt: number
   lastOutputAt: number | null
   lastInputAt: number | null
@@ -2370,6 +2408,7 @@ export type ElectronApi = {
   skillPackListInstalled: (input: SkillPackListInstalledInput) => Promise<SkillPackListInstalledResult>
   skillPackInstall: (input: SkillPackInstallInput) => Promise<SkillPackInstallResult>
   skillPackRemove: (input: SkillPackRemoveInput) => Promise<SkillPackRemoveResult>
+  workspaceSkillsList: (input: WorkspaceSkillsListInput) => Promise<WorkspaceSkillsListResult>
   cliDetect: (cli: AgentCli, runtime?: Partial<CliRuntimeSettings>) => Promise<CliDetectResult>
   cliInstallMethods: (cli: AgentCli, runtime?: Partial<CliRuntimeSettings>) => Promise<CliInstallMethodInfo[]>
   cliInstall: (input: CliInstallInput, runtime?: Partial<CliRuntimeSettings>) => Promise<CliInstallResult>
@@ -2509,6 +2548,13 @@ export type ElectronApi = {
   // Push the user's "Pause idle terminals after" setting (ms) to the main reap
   // policy. Clamped/validated in main; the next idle sweep uses the latest value.
   setTerminalIdleSuspendMs: (ms: number) => Promise<void>
+  // Push the user's "Always keep running" count — the recency floor below which
+  // the idle reaper never pauses live agent terminals. Clamped/validated in main.
+  setTerminalKeepRecentAliveCount: (count: number) => Promise<void>
+  // Toggle the per-terminal user lock: while set, the reaper never suspends or
+  // disposes this session. Broadcasts a sessions-changed snapshot so the lock
+  // state stays in sync across views.
+  setTerminalReapExempt: (sessionId: string, exempt: boolean) => Promise<void>
   // Push the SprintEngine run statePaths whose dispatch loop is actively running,
   // so the idle reaper protects those runs' agents and only reclaims inactive ones.
   setActiveSprintRunStatePaths: (statePaths: string[]) => Promise<void>

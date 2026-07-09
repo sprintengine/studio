@@ -2102,7 +2102,7 @@ function ExplorerTree({
           const isDropTarget = dropTargetPath === entry.path
           const gitStatusKind = getEntryGitStatus(gitStatus, directoryStatus, entry)
           const gitAppearance = getGitStatusAppearance(gitStatusKind)
-          const nameClassName = gitAppearance.textClass || (entry.isDir ? 'text-[color:var(--text-default)] group-hover:text-[color:var(--text-strong)]' : '')
+          const nameClassName = gitAppearance.textClass
 
           return (
             <div
@@ -2147,7 +2147,7 @@ function ExplorerTree({
                   ? isFocused
                     ? 'bg-[color:var(--accent-primary-soft)] text-[color:var(--text-strong)]'
                     : 'bg-[color:var(--bg-hover)] text-[color:var(--text-strong)]'
-                  : 'text-[color:var(--text-muted)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]'
+                  : 'text-[color:var(--text-default)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]'
               }`}
               style={{ paddingLeft: `${8 + depth * 14}px` }}
             >

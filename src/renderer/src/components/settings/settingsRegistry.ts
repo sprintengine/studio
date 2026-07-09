@@ -215,6 +215,16 @@ export const settingsRegistry: ReadonlyArray<SettingDescriptor> = [
     storeSetter: 'setTerminalIdleSuspendMinutes',
   },
   {
+    id: 'terminal-keep-recent-alive',
+    label: 'Always keep running',
+    help: 'Number of most recently used agent terminals that are never paused, even when idle. Set to 0 to allow pausing every idle terminal.',
+    scope: 'app',
+    group: 'agents',
+    field: { type: 'number', min: 0, max: 20, step: 1 },
+    storePath: 'appSettings.terminalKeepRecentAlive',
+    storeSetter: 'setTerminalKeepRecentAlive',
+  },
+  {
     id: 'guided-brief-conversation-sessions',
     label: 'Design Wizard chat sessions',
     help: 'Run Design Wizard specialists on Claude as chat sessions with clickable question cards. Turn off to use raw terminals for every wizard role.',

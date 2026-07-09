@@ -1,52 +1,57 @@
 ---
 name: workspace-knowledge
-description: Read and update a workspace-local Markdown knowledge graph. Use when Codex needs durable project, product, architecture, brand, ecosystem, or decision context from a configured knowledge folder, or when work creates lasting knowledge that should be added back to that knowledge graph.
+description: Read and update a workspace-local Markdown knowledge graph. Use when an agent needs durable project, product, architecture, brand, ecosystem, or decision context from a configured knowledge folder, or when work creates lasting knowledge that should be added back to that knowledge graph.
 ---
 
 # Workspace Knowledge
 
-Use the workspace's configured knowledge folder as a shallow Markdown knowledge graph for durable context. The folder is configurable per workspace; do not assume it is named `knowledge` unless the current runtime context or workspace settings say so.
+The workspace's configured knowledge folder is a shallow Markdown knowledge graph of small linked notes. Agents traverse it from the index, loading only the notes a task needs. Every note is written for agents, not humans: terse, dense, verifiable. The folder is configurable per workspace; do not assume it is named `knowledge` unless runtime context or workspace settings say so.
 
 ## Read Workflow
 
-1. Identify the configured knowledge root from runtime context, workspace settings, or user-provided instructions.
-2. Start with `<configured-knowledge-root>/README.md` when it exists.
-3. Follow relevant `[[wikilinks]]` before making assumptions about product, architecture, brand, ecosystem, or prior decisions.
-4. Treat knowledge as orientation, not implementation truth. Verify current behavior in source files, tests, docs, commands, or runtime state before making code claims.
-5. Prefer the smallest relevant set of notes. Do not bulk-read the whole graph unless the task is explicitly broad.
+1. Identify the configured knowledge root from runtime context, workspace settings, or user instructions.
+2. Start at `<knowledge-root>/README.md`; follow the smallest set of `[[wikilinks]]` relevant to the task.
+3. Knowledge is orientation, not implementation truth. Verify behavior in source/tests before making code claims.
+4. Do not bulk-read the graph unless the task is explicitly broad.
 
 ## Update Workflow
 
-Update knowledge when the work creates durable knowledge that should survive the current task, such as an architecture decision, product boundary, integration contract, brand rule, packaging rule, or operational convention.
+Update when work creates durable knowledge: an architecture boundary, contract, invariant, brand rule, or a non-obvious gotcha that cost time.
 
-- Prefer updating an existing note over creating a duplicate.
-- Create a new note only for a durable concept that does not fit an existing page.
-- Link new notes from an entry point such as `<configured-knowledge-root>/README.md`, an ecosystem map, or the most relevant product note.
-- Use Obsidian-style `[[wikilinks]]` for related knowledge notes.
-- Keep notes concise, factual, and navigable.
-- Use project-root-relative source paths such as `src/main/index.ts`.
+- Prefer updating an existing note over creating one; create a new note only for a durable concept with no home.
+- Link every new note from `README.md` or the nearest hub note, and cross-link with `[[wikilinks]]` (path form, no `.md`: `[[multicode/sprint-engine]]`).
+- Source anchors are repo-relative code spans (`src/main/index.ts`); sibling repos use `../repo/path`.
+
+## Prune On Touch
+
+Any time you open a note to update it, you also own its freshness:
+
+- Delete claims contradicted by code; fix or cut anchors whose files/symbols no longer exist.
+- Delete dated status text, changelog-style history, sprint narrations, and roadmap speculation. Git is the changelog; the graph holds only what is currently true.
+- Replace duplicated background with a `[[wikilink]]` to the note that owns it.
+- Deleting a stale note (and its inbound links) is a normal, good outcome.
+
+## Style
+
+- Bullets, not prose. No marketing language, no "This document describes...", no restating what file names already say. Every line is an actionable fact or a real constraint.
+- Default reading of a note is implemented behavior. Mark exceptions explicitly: `Direction (not built):` for intent, `Risk:` for open risks.
+- Note shape: `# Title`, one scope line, sections of bullets, `## Related` wikilink list at the end.
 
 ## Note Size
 
-Keep notes small so agents can traverse the graph from the index without loading large files.
-
-- Aim for ≤ 1,500 words (~2k tokens) per note.
-- Split any note over 5,000 words or 800 lines — it covers more than one concept; link the new sub-notes from an entry point and each other.
-- Measure words, not lines; line counts are gameable by rewrapping.
-- Check with the project's knowledge-size lint script when available.
+- Target ≤ 750 words / 140 lines per note (lint soft warn); hard fail at 1,500 words / 250 lines.
+- A note over the hard cap covers more than one concept — split it into linked sub-notes, never rewrap lines to game the count (words are what's measured).
+- Check with `npm run lint:knowledge-size` when available. Ceilings were set after a full-graph prune; never raise them.
 
 ## Do Not Store
 
-- Secrets, credentials, tokens, private keys, or session data.
-- Private customer data or regulated personal data unless the user explicitly asks and the repository policy allows it.
-- Temporary task logs, speculative guesses, or transient debugging notes.
-- Claims that were not verified or clearly labeled as assumptions.
+- Secrets, credentials, tokens, session data, or private customer/personal data.
+- Task logs, transient debugging notes, speculative guesses, or unverified claims presented as fact.
+- Mutable runtime state the code or a live system already owns.
 
 ## Completion Check
 
-Before finishing a knowledge update, confirm that:
-
-- The updated note links to related notes.
-- Any source paths are project-root-relative.
-- The note distinguishes confirmed facts from assumptions or ideas.
-- The change does not make knowledge a second source of truth for mutable runtime state.
+- Note is within size limits and in bullet style.
+- It links to related notes and is reachable from an entry point.
+- Anchors are repo-relative and were spot-checked to exist.
+- Stale content encountered along the way was pruned, not preserved.

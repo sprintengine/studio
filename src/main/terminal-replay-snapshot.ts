@@ -28,6 +28,22 @@ import { SerializeAddon } from '@xterm/addon-serialize'
 // the raw replay if needed. Keeps the serialized payload small.
 const SNAPSHOT_SCROLLBACK_ROWS = 1000
 
+// Guard against a pathological stream hanging the (async, off-critical-path)
+// suspend render — but scale with payload size: an agent TUI's retained stream
+// can be several MB of repaint traffic, and a reap sweep may render several
+// terminals concurrently on the same event loop. A flat 2s cap made big-but-
+// healthy renders time out, which is how painted-pause degraded to a blank
+// screen (no snapshot → raw alt-screen replay reconstructs nothing).
+const SNAPSHOT_RENDER_BASE_TIMEOUT_MS = 5_000
+const SNAPSHOT_RENDER_TIMEOUT_PER_MB_MS = 4_000
+const SNAPSHOT_RENDER_MAX_TIMEOUT_MS = 30_000
+
+function snapshotRenderTimeoutMs(dataLength: number): number {
+  const scaled = SNAPSHOT_RENDER_BASE_TIMEOUT_MS
+    + (dataLength / 1_048_576) * SNAPSHOT_RENDER_TIMEOUT_PER_MB_MS
+  return Math.min(SNAPSHOT_RENDER_MAX_TIMEOUT_MS, Math.round(scaled))
+}
+
 export async function buildReplaySnapshot(
   data: string,
   cols: number,
@@ -68,9 +84,10 @@ function renderAndSerialize(data: string, cols: number, rows: number): Promise<s
     term.loadAddon(serializer)
 
     // term.write parses asynchronously; the callback fires once the whole stream
-    // has been applied to the buffer. Guard with a timeout so a pathological
-    // stream can never hang the suspend path.
-    const timeout = setTimeout(() => finish(null), 2000)
+    // has been applied to the buffer. Guard with a size-scaled timeout so a
+    // pathological stream can never hang the suspend path, while a large-but-
+    // healthy TUI buffer gets the time its render actually needs.
+    const timeout = setTimeout(() => finish(null), snapshotRenderTimeoutMs(data.length))
     timeout.unref?.()
 
     term.write(data, () => {

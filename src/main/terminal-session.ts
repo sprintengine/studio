@@ -62,6 +62,10 @@ export type TerminalSession = {
   // so the pty `onExit` handler treats the death as a suspend, not a crash/exit.
   suspended?: boolean
   suspending?: boolean
+  // User lock ("keep running"): while set, the reaper's idle-suspend and stale-
+  // dispose sweeps skip this session entirely. Session-scoped; set over IPC from
+  // the terminal's lock control.
+  reapExempt?: boolean
   idleTimer?: ReturnType<typeof setTimeout>
   // Watches a hook-reported working phase for a stall: a `tool_use`/`thinking`
   // agent that goes silent (no follow-up frame and no output) past the threshold
@@ -464,6 +468,7 @@ export function getTerminalSnapshot(session: TerminalSession): TerminalSessionSn
     agentSession: session.agentSession,
     visible: session.visible,
     suspended: session.suspended ?? false,
+    reapExempt: session.reapExempt ?? false,
     startedAt: session.startedAt,
     lastOutputAt: session.lastOutputAt,
     lastInputAt: session.lastInputAt,

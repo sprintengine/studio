@@ -14,7 +14,7 @@
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
-import type { McpCatalogServer } from '../../../../../shared/electron-api'
+import type { McpCatalogServer, WorkspaceSkill } from '../../../../../shared/electron-api'
 import type { MarketplacePluginEntry } from '../../../../../shared/marketplace/manifest'
 import type { McpServerConfig, McpSettings } from '../../../types/workspace'
 import { useWorkspaceStore } from '../../../store/workspaceStore'
@@ -80,6 +80,9 @@ export type ConnectorsSurfaceProps = {
   // project open (install of workspace-scoped components is then blocked with an
   // honest hint by the reused storefront flow).
   activeWorkspaceRoot: string | null
+  // "Use in agent → New agent…" on an installed skill row: spawn a fresh agent
+  // with the skill attached (the host closes this surface and spawns).
+  onUseSkillInNewAgent?: (skill: WorkspaceSkill) => void
 }
 
 // The overlay shell: reads open-state from the store so any surface (sidebar
@@ -166,6 +169,7 @@ function ConnectorsBrowser({
   onLaunchConnector,
   onUseInAutomation,
   activeWorkspaceRoot,
+  onUseSkillInNewAgent,
   onClose,
 }: ConnectorsSurfaceProps & { onClose: () => void }) {
   const mcpSettings = useWorkspaceStore((s) => s.appSettings.mcp ?? EMPTY_MCP_SETTINGS)
@@ -184,8 +188,14 @@ function ConnectorsBrowser({
   // Top-level surface view: Browse is the catalog/marketplace Get grid; Installed
   // is the manage-what-you-have half folded in from the old MCPs / Skill packs /
   // Extensions settings tabs (T3). Browse leads because getting a connector is the
-  // surface's primary job.
-  const [view, setView] = useState<SurfaceView>('browse')
+  // surface's primary job; deep-links (the skill picker's "Manage skills" footer)
+  // can land on Installed via the store's initialView.
+  const initialView = useWorkspaceStore((s) => s.connectorsSurface.initialView)
+  const [view, setView] = useState<SurfaceView>(initialView ?? 'browse')
+  // Re-opening with a deep-link while already mounted still lands on it.
+  useEffect(() => {
+    if (initialView) setView(initialView)
+  }, [initialView])
 
   const loadCatalog = useCallback(async () => {
     if (typeof window.api.mcpListCatalog !== 'function') {
@@ -390,6 +400,7 @@ function ConnectorsBrowser({
             catalogServers={catalogLoad.status === 'ready' ? catalogLoad.data : []}
             onLaunchConnector={onLaunchConnector}
             onUseInAutomation={onUseInAutomation}
+            onUseSkillInNewAgent={onUseSkillInNewAgent}
           />
         </TabPanel>
       </div>

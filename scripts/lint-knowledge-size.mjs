@@ -13,8 +13,12 @@
 // only.
 //
 // Thresholds (configurable via env):
-//   SOFT  = 1,500 words / 250 lines  -> warn (a note getting large)
-//   HARD  = 5,000 words / 800 lines  -> fail (split this note into sub-notes)
+//   SOFT  =   750 words / 140 lines  -> warn (a note getting large)
+//   HARD  = 1,500 words / 250 lines  -> fail (split this note into sub-notes)
+//
+// Ratchet policy: these ceilings were tightened after the 2026-07 full-graph
+// prune (101k words -> small linked notes). Never re-raise them; a note that
+// wants more room covers more than one concept and should be split.
 //
 // Usage:
 //   node scripts/lint-knowledge-size.mjs            # fail (exit 1) on any HARD breach
@@ -28,10 +32,10 @@
 import { readFileSync, existsSync, readdirSync, statSync } from 'node:fs'
 import { resolve, join, sep } from 'node:path'
 
-const SOFT_WORDS = Number(process.env.KG_SIZE_SOFT_WORDS ?? 1500)
-const SOFT_LINES = Number(process.env.KG_SIZE_SOFT_LINES ?? 250)
-const HARD_WORDS = Number(process.env.KG_SIZE_HARD_WORDS ?? 5000)
-const HARD_LINES = Number(process.env.KG_SIZE_HARD_LINES ?? 800)
+const SOFT_WORDS = Number(process.env.KG_SIZE_SOFT_WORDS ?? 750)
+const SOFT_LINES = Number(process.env.KG_SIZE_SOFT_LINES ?? 140)
+const HARD_WORDS = Number(process.env.KG_SIZE_HARD_WORDS ?? 1500)
+const HARD_LINES = Number(process.env.KG_SIZE_HARD_LINES ?? 250)
 
 const args = process.argv.slice(2)
 const REPORT_ONLY = args.includes('--report')

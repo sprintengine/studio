@@ -27,6 +27,7 @@ import { registerMarketplaceRegistryIpc } from './ipc/marketplace-registry-ipc'
 import { registerModuleEnablementIpc, type ModuleEnablementLiveApplier } from './ipc/module-enablement-ipc'
 import { registerPluginIpc } from './ipc/plugins-ipc'
 import { registerSkillPackIpc } from './ipc/skill-pack-ipc'
+import { registerWorkspaceSkillsIpc } from './ipc/workspace-skills-ipc'
 import { registerSoulsIpc } from './ipc/souls-ipc'
 import { registerSprintEngineRoleRegistryIpc } from './ipc/sprintengine-role-registry-ipc'
 import { registerThirdPartyModuleIpc } from './ipc/third-party-module-ipc'
@@ -77,6 +78,7 @@ export function registerCoreIpc(
   registerMcpIpc(ipcMain, services.mcpConfigService)
   registerAgentConfigImportIpc(ipcMain, services.agentConfigImportService)
   registerSkillPackIpc(ipcMain, services.skillPackService)
+  registerWorkspaceSkillsIpc(ipcMain, services.workspaceSkillsService)
   registerFilesystemWatchSearchIpc(ipcMain, createFilesystemWatchSearchHandlers())
   registerFilesystemReadIpc(ipcMain, createFilesystemReadHandlers())
   // Memory/knowledge-graph backend is foundational: agent context injection

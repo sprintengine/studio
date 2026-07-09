@@ -25,7 +25,10 @@ import { useWorkspaceStore } from '../../store/workspaceStore'
 import { uniqueAgentName } from '../workspace/workspaceManagerHelpers'
 import { publishDiagnosticSync } from '../../utils/diagnostics'
 import { renderMarkdown } from '../../utils/markdown'
-import { FilterMenu, GhostButton, Popover, PrimaryButton, StatusDot, Tooltip, TruncatedText } from '../ui'
+import { FilterMenu, GhostButton, InlineSkillPicker, Popover, PrimaryButton, SkillPickerPopover, StatusDot, Tooltip, TruncatedText } from '../ui'
+import type { InlineSkillPickerHandle } from '../ui'
+import type { WorkspaceSkill } from '../../../../shared/electron-api'
+import { renderChatSkillPrefill } from '../../utils/skillInvocation'
 import { CreationBackdrop } from '../backdrops/CreationBackdrop'
 
 // ── Pure projection ─────────────────────────────────────────────────────────
@@ -710,14 +713,28 @@ export default function AgentChatView({ workspaceId, agentId }: Props) {
   const [sessionId, setSessionId] = useState<string | null>(null)
   const [events, setEvents] = useState<ConversationEvent[]>([])
   const [userTurns, setUserTurns] = useState<UserTurn[]>([])
-  const [draft, setDraft] = useState('')
+  // Skill-at-spawn seeds the first draft (prefill only — the user submits).
+  const [draft, setDraft] = useState(() => agent?.chatComposerPrefill ?? '')
   const [pending, setPending] = useState<PendingAction>(null)
   const [actionError, setActionError] = useState<string | null>(null)
+  const [skillsMenuOpen, setSkillsMenuOpen] = useState(false)
+  // Slash trigger: Escape or non-matching text sets dismissed so the slash
+  // stays literal; cleared once the draft no longer starts with '/'.
+  const [slashDismissed, setSlashDismissed] = useState(false)
+  const slashPickerRef = useRef<InlineSkillPickerHandle | null>(null)
+  const openConnectorsSurface = useWorkspaceStore((s) => s.openConnectorsSurface)
   const listRef = useRef<HTMLDivElement | null>(null)
   const composerRef = useRef<HTMLTextAreaElement | null>(null)
   // Completed assistant replies the user has "seen" (was at the bottom for);
   // the jump pill counts completions past this baseline while scrolled up.
   const repliesSeenRef = useRef(0)
+
+  // The prefill is one-shot: once the user has sent anything, clear it from the
+  // record so a later remount never re-seeds a stale invocation.
+  useEffect(() => {
+    if (!agent?.chatComposerPrefill || userTurns.length === 0) return
+    updateAgent(workspaceId, agentId, { chatComposerPrefill: undefined })
+  }, [agent?.chatComposerPrefill, userTurns.length, updateAgent, workspaceId, agentId])
 
   // Resolve provider/model/key readiness from the conversation IPC.
   useEffect(() => {
@@ -1085,6 +1102,17 @@ export default function AgentChatView({ workspaceId, agentId }: Props) {
   const providerEntry = providers.find((entry) => entry.id === conversation.providerId)
   const isAgentHarness = providerEntry?.providerType === 'agent-harness'
   const assistantName = isAgentHarness ? 'Claude' : currentModelLabel
+
+  // Skills doors (agent harness only — plain model chats run no tools):
+  // a '/' opening an otherwise-empty draft filters the same inventory the
+  // Skills chip shows. A space commits the text as literal (no skill picked).
+  const slashPickerActive =
+    isAgentHarness && !slashDismissed && draft.startsWith('/') && !/\s/.test(draft)
+  const applySkillPick = (skill: WorkspaceSkill) => {
+    setDraft(renderChatSkillPrefill(skill))
+    setSlashDismissed(true)
+    composerRef.current?.focus()
+  }
   const modelLabelFor = (modelId?: string): string => {
     if (!modelId) return currentModelLabel
     for (const group of modelGroups) {
@@ -1197,6 +1225,19 @@ export default function AgentChatView({ workspaceId, agentId }: Props) {
       </div>
 
       <div className="relative px-4 pb-3.5 pt-1">
+        {slashPickerActive ? (
+          <InlineSkillPicker
+            ref={slashPickerRef}
+            workspaceRoot={workspaceRoot}
+            query={draft.slice(1)}
+            onPick={applySkillPick}
+            onMatchCountChange={(count) => {
+              // Non-matching text dismisses; the slash stays literal.
+              if (count === 0 && draft.length > 1) setSlashDismissed(true)
+            }}
+            className="bottom-full left-4"
+          />
+        ) : null}
         {!atBottom && timelineRows.length > 0 ? (
           <button
             type="button"
@@ -1250,8 +1291,31 @@ export default function AgentChatView({ workspaceId, agentId }: Props) {
             ref={composerRef}
             id={`chat-composer-${agentId}`}
             value={draft}
-            onChange={(event) => setDraft(event.target.value)}
+            onChange={(event) => {
+              const value = event.target.value
+              setDraft(value)
+              if (!value.startsWith('/')) setSlashDismissed(false)
+            }}
             onKeyDown={(event) => {
+              // While the slash picker is up, the textarea keeps focus and
+              // forwards navigation; Enter picks instead of sending.
+              if (slashPickerActive) {
+                if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+                  if (slashPickerRef.current?.moveSelection(event.key === 'ArrowDown' ? 1 : -1)) {
+                    event.preventDefault()
+                    return
+                  }
+                } else if (event.key === 'Enter' && !event.shiftKey) {
+                  if (slashPickerRef.current?.pickActive()) {
+                    event.preventDefault()
+                    return
+                  }
+                } else if (event.key === 'Escape') {
+                  event.preventDefault()
+                  setSlashDismissed(true)
+                  return
+                }
+              }
               if (event.key === 'Enter' && !event.shiftKey) {
                 event.preventDefault()
                 void sendTurn(draft)
@@ -1264,6 +1328,15 @@ export default function AgentChatView({ workspaceId, agentId }: Props) {
           />
           <div className="flex items-center justify-between gap-2 px-2 pb-2 pt-0.5">
             <div className="flex min-w-0 items-center gap-1">
+              {isAgentHarness ? (
+                <SkillPickerPopover
+                  open={skillsMenuOpen}
+                  onOpenChange={setSkillsMenuOpen}
+                  workspaceRoot={workspaceRoot}
+                  onPick={applySkillPick}
+                  onManageSkills={() => openConnectorsSurface({ view: 'installed' })}
+                />
+              ) : null}
               <ModelPickerPill
                 label={currentModelLabel}
                 locked={modelLocked}

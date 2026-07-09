@@ -1676,6 +1676,13 @@ export type AppSettings = {
    */
   terminalIdleSuspendMinutes: number
   /**
+   * Recency floor for the idle-terminal pauser: the N most recently used agent
+   * terminals are always left running, even once idle past the threshold, so
+   * the reaper can never pause the user's whole active set. 0 disables the
+   * floor. Synced to the main reap policy, which clamps it to [0, 20].
+   */
+  terminalKeepRecentAlive: number
+  /**
    * Design Wizard specialists on Claude run as conversation sessions
    * (structured question cards, streamed chat) instead of raw terminals.
    * Turning this off restores the terminal transport for every role.
@@ -1961,6 +1968,17 @@ export type AgentState = {
   // at creation by launchConnectorChat and read by the TerminalView launch path.
   connectorMcpSettings?: McpSettings
   connectorSkillId?: string
+  // Skill-at-spawn (the composer's "+ Skill" attachment): ensure-installed at
+  // the launch boundary like connectorSkillId, but with none of the connector
+  // MCP coupling. Works for any agent spawn, not just connectors.
+  spawnSkillId?: string
+  // One-shot input pasted (bracketed, unsubmitted) into the PTY right after a
+  // successful launch — the skill invocation sits at the prompt with the caret
+  // ready for arguments. Cleared by TerminalView once pasted; never auto-sent.
+  cliPendingInput?: string
+  // Conversation-transport counterpart: seeds AgentChatView's draft on first
+  // mount (transcript empty). Prefill only — the user always submits.
+  chatComposerPrefill?: string
   kind?: AgentKind
   specialistId?: SpecialistActionId
   multiloopRole?: MultiloopRole

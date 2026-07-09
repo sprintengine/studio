@@ -63,6 +63,26 @@ export function clampSuspendIdleAfterMs(value: unknown): number {
   return Math.max(MIN_SUSPEND_IDLE_AFTER_MS, Math.min(MAX_SUSPEND_IDLE_AFTER_MS, value))
 }
 
+// Recency floor: the sweep never reaps below this many live agent terminals —
+// the N most recently used stay running even when they qualify for pausing, so
+// a user's active set of long-running agents can't all be reclaimed out from
+// under them. 0 restores the old reap-everything-idle behavior. All the
+// per-session gates above still apply; the floor only bounds how MANY of the
+// reapable set are acted on (oldest-rested first).
+export const DEFAULT_KEEP_RECENT_TERMINALS_ALIVE = 3
+export const MIN_KEEP_RECENT_TERMINALS_ALIVE = 0
+export const MAX_KEEP_RECENT_TERMINALS_ALIVE = 20
+
+// Coerce an arbitrary value to a valid keep-alive count, or return the default
+// when it isn't a usable finite number. Pure; reused on both sides.
+export function clampKeepRecentTerminalsAlive(value: unknown): number {
+  if (typeof value !== 'number' || !Number.isFinite(value)) return DEFAULT_KEEP_RECENT_TERMINALS_ALIVE
+  return Math.max(
+    MIN_KEEP_RECENT_TERMINALS_ALIVE,
+    Math.min(MAX_KEEP_RECENT_TERMINALS_ALIVE, Math.round(value))
+  )
+}
+
 // Phases in which the agent is actively doing work. Reaping one would kill an
 // in-flight command, so these are never reapable.
 const WORKING_PHASES: ReadonlySet<AgentPhase> = new Set(['starting', 'thinking', 'tool_use'])
@@ -95,6 +115,16 @@ export type ReapCandidate = {
   // Caller-supplied: the terminal belongs to an active managed run (e.g. a
   // SprintEngine agent). Defaults to the SAFE value (true) when unsure.
   inActiveRun: boolean
+  // Caller-supplied: an orchestrator-managed SprintEngine terminal (has a run
+  // statePath). Excluded from the recency floor entirely — the floor is a
+  // promise about the USER'S terminals: engine agents of a finished run must
+  // not occupy keep-alive slots (evicting the user's own terminals from their
+  // budget) nor be spared from the dispose path that closes the
+  // parked-until-teardown memory gap.
+  sprintManaged: boolean
+  // User lock ("keep running"): the user explicitly exempted this terminal from
+  // reaping via its lock control. Absolute — no idle clock ever overrides it.
+  reapExempt: boolean
   // When the agent self-scheduled a wakeup (ScheduleWakeup hook frame), the
   // epoch-ms time it fires; null when none is pending. The timer lives inside
   // the CLI process — reaping cancels it and nothing ever wakes the agent — so
@@ -107,11 +137,20 @@ export type ReapCandidate = {
 export type ReapPolicyOptions = {
   now?: number
   idleThresholdMs?: number
+  // Recency floor: never reap below this many live agent terminals. Omitted
+  // means NO floor (pure per-session gates only) — the runtime sweep always
+  // passes its configured value, which defaults to
+  // DEFAULT_KEEP_RECENT_TERMINALS_ALIVE.
+  keepRecentAliveCount?: number
 }
 
 export type ReapDecision = {
   // Sessions safe to suspend now.
   reapableSessionIds: string[]
+  // Sessions that passed every per-session gate but were spared by the recency
+  // floor (they are among the N most recently used live agents). Surfaced so
+  // the sweep's skip audit can name the floor as the holding reason.
+  heldByRecencyFloorSessionIds: string[]
 }
 
 // Which gate held a non-reapable session. Powers the persisted skip audit
@@ -122,6 +161,7 @@ export type ReapHold =
   | 'dead_process'
   | 'not_agent'
   | 'no_workspace'
+  | 'user_locked'
   | 'in_active_run'
   | 'pending_wakeup'
   | 'phase_awaiting_input'
@@ -149,6 +189,7 @@ export function explainSessionReapDecision(
   if (!candidate.processAlive) return { verdict: 'held', hold: 'dead_process', restingForMs }
   if (candidate.kind !== 'agent') return { verdict: 'held', hold: 'not_agent', restingForMs }
   if (candidate.workspaceId === null) return { verdict: 'held', hold: 'no_workspace', restingForMs }
+  if (candidate.reapExempt) return { verdict: 'held', hold: 'user_locked', restingForMs }
   if (candidate.inActiveRun) return { verdict: 'held', hold: 'in_active_run', restingForMs }
   if (candidate.pendingWakeupAt !== null && candidate.pendingWakeupAt > options.now) {
     return { verdict: 'held', hold: 'pending_wakeup', restingForMs }
@@ -188,10 +229,48 @@ export function selectReapableSessions(
 ): ReapDecision {
   const now = options.now ?? Date.now()
   const idleThresholdMs = options.idleThresholdMs ?? DEFAULT_SUSPEND_IDLE_AFTER_MS
+  const keepRecentAliveCount =
+    options.keepRecentAliveCount === undefined
+      ? 0
+      : clampKeepRecentTerminalsAlive(options.keepRecentAliveCount)
 
-  const reapableSessionIds = candidates
-    .filter((candidate) => isSessionReapable(candidate, { now, idleThresholdMs }))
-    .map((candidate) => candidate.sessionId)
+  const reapable = candidates.filter((candidate) =>
+    isSessionReapable(candidate, { now, idleThresholdMs })
+  )
 
-  return { reapableSessionIds }
+  // Recency floor: cap how many of the reapable set are acted on so at least
+  // `keepRecentAliveCount` live agent terminals remain after the sweep. The
+  // floor is a USER-terminal promise, so SprintEngine-managed sessions are out
+  // of scope on both sides: they neither occupy keep-alive slots (a finished
+  // run's engine agents must not evict the user's own terminals from their
+  // budget) nor gain protection (inactive-run agents are disposed to close the
+  // parked-until-teardown memory gap; the dispatch respawns them on demand).
+  // Held (working / awaiting-input / recently-rested) live user agents already
+  // count toward the floor — the cap only bites when reaping the full set would
+  // drop the live user-agent population below N. Oldest-rested reap first, so
+  // the spared remainder is always the most recently used.
+  const sprintReapable = reapable.filter((candidate) => candidate.sprintManaged)
+  const userReapable = reapable.filter((candidate) => !candidate.sprintManaged)
+  const liveUserAgentCount = candidates.filter(
+    (candidate) => candidate.processAlive && candidate.kind === 'agent' && !candidate.sprintManaged
+  ).length
+  const maxUserReapable = Math.max(0, liveUserAgentCount - keepRecentAliveCount)
+
+  if (userReapable.length <= maxUserReapable) {
+    return {
+      reapableSessionIds: reapable.map((candidate) => candidate.sessionId),
+      heldByRecencyFloorSessionIds: [],
+    }
+  }
+
+  const restingSince = (candidate: ReapCandidate): number =>
+    Math.max(candidate.lastInteractionAt, candidate.idleSince ?? 0)
+  const oldestFirst = [...userReapable].sort((a, b) => restingSince(a) - restingSince(b))
+  return {
+    reapableSessionIds: [
+      ...sprintReapable.map((candidate) => candidate.sessionId),
+      ...oldestFirst.slice(0, maxUserReapable).map((candidate) => candidate.sessionId),
+    ],
+    heldByRecencyFloorSessionIds: oldestFirst.slice(maxUserReapable).map((candidate) => candidate.sessionId),
+  }
 }

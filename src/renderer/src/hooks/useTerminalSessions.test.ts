@@ -652,6 +652,7 @@ function session(
     agentId: input.agentId ?? 'developer-1',
     visible: input.visible ?? true,
     suspended: input.suspended ?? false,
+    reapExempt: input.reapExempt ?? false,
     startedAt: input.startedAt ?? 0,
     lastOutputAt: input.lastOutputAt ?? null,
     lastInputAt: input.lastInputAt ?? null,

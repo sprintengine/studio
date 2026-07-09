@@ -1,7 +1,8 @@
 import React from 'react'
 import { SpecialistActionIcon } from '../../AppIcons'
 import CliIcon from '../../CliIcon'
-import { CliModelListbox, Tooltip, TruncatedText } from '../../ui'
+import { CliModelListbox, SkillPickerPopover, StarGlyph, Tooltip, TruncatedText } from '../../ui'
+import { useWorkspaceStore } from '../../../store/workspaceStore'
 import type { AgentCli, SpecialistActionId, SprintEngineCliPermissionPreset } from '../../../types/workspace'
 import {
   ConversationProviderIcon,
@@ -85,6 +86,36 @@ export default function AgentComposerPopover({
   const searchRef = React.useRef<HTMLInputElement>(null)
   // Which row's engine flyout is open (row key). One at a time across the menu.
   const [engineFlyoutRowKey, setEngineFlyoutRowKey] = React.useState<string | null>(null)
+  // "+ Skill" attachment (spawn mode, specialist roster): ensure-installed at
+  // spawn with the invocation prefilled as the agent's first input.
+  const [skillPickerOpen, setSkillPickerOpen] = React.useState(false)
+  const activeWorkspaceRoot = useWorkspaceStore(
+    (s) => s.workspaces.find((w) => w.id === s.activeWorkspaceId)?.folderPath ?? null,
+  )
+  const skillAttachAvailable = !selectMode && roster === 'specialist' && Boolean(activeWorkspaceRoot)
+  // "+ Worktree" is only offered when the active workspace folder is inside a
+  // git repository — probed once per open so a non-repo folder never shows a
+  // control whose spawn would fail.
+  const [workspaceIsGitRepo, setWorkspaceIsGitRepo] = React.useState(false)
+  React.useEffect(() => {
+    let cancelled = false
+    if (selectMode || roster !== 'specialist' || !activeWorkspaceRoot) {
+      setWorkspaceIsGitRepo(false)
+      return
+    }
+    void window.api
+      .getGitRepoRoot(activeWorkspaceRoot)
+      .then((root) => {
+        if (!cancelled) setWorkspaceIsGitRepo(Boolean(root))
+      })
+      .catch(() => {
+        if (!cancelled) setWorkspaceIsGitRepo(false)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [selectMode, roster, activeWorkspaceRoot])
+  const worktreeAttachAvailable = !selectMode && roster === 'specialist' && workspaceIsGitRepo
 
   React.useEffect(() => {
     const id = requestAnimationFrame(() => searchRef.current?.focus())
@@ -308,6 +339,84 @@ export default function AgentComposerPopover({
           PopoverRosterRow), so the roster stays compact instead of reserving a
           fixed info strip. Each row's runtime stays discoverable via its engine
           chip tooltip. */}
+      {skillAttachAvailable || worktreeAttachAvailable ? (
+        <div className="flex flex-wrap items-center gap-1.5 border-t border-[color:var(--border-subtle)] px-2 py-1.5">
+          {!skillAttachAvailable ? null : composer.skillAttachment ? (
+            <span className="inline-flex items-center gap-1.5 rounded-md bg-[color:var(--accent-primary-soft)] px-2 py-0.5 text-[11.5px] font-medium text-[color:var(--text-strong)]">
+              <StarGlyph filled className="icon-xs text-[color:var(--accent-primary)]" />
+              {composer.skillAttachment.name}
+              <button
+                type="button"
+                onClick={() => composer.setSkillAttachment(null)}
+                aria-label={`Remove skill ${composer.skillAttachment.name}`}
+                className="text-[color:var(--text-subtle)] transition-colors hover:text-[color:var(--text-default)]"
+              >
+                ×
+              </button>
+            </span>
+          ) : (
+            <SkillPickerPopover
+              open={skillPickerOpen}
+              onOpenChange={setSkillPickerOpen}
+              workspaceRoot={activeWorkspaceRoot}
+              onPick={(skill) => composer.setSkillAttachment(skill)}
+              placement="bottom-start"
+              renderTrigger={({ ref, triggerProps, togglePopover }) => (
+                <button
+                  ref={ref}
+                  type="button"
+                  onClick={togglePopover}
+                  className="inline-flex items-center gap-1 rounded-md border border-dashed border-[color:var(--border-strong)] px-2 py-0.5 text-[11.5px] text-[color:var(--text-muted)] transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-default)]"
+                  {...triggerProps}
+                >
+                  + Skill
+                </button>
+              )}
+            />
+          )}
+          {!worktreeAttachAvailable ? null : composer.worktreeName !== null ? (
+            <span className="inline-flex items-center gap-1.5 rounded-md bg-[color:var(--accent-primary-soft)] px-2 py-0.5 text-[11.5px] font-medium text-[color:var(--text-strong)]">
+              Worktree
+              <input
+                autoFocus
+                value={composer.worktreeName}
+                onChange={(event) => composer.setWorktreeName(event.currentTarget.value)}
+                onKeyDown={(event) => {
+                  if (event.key === 'Escape') {
+                    event.preventDefault()
+                    event.stopPropagation()
+                    composer.setWorktreeName(null)
+                  }
+                }}
+                placeholder="name (auto)"
+                aria-label="Worktree name — leave empty to derive from the agent's name"
+                className="w-24 min-w-0 bg-transparent font-normal text-[color:var(--text-default)] placeholder:text-[color:var(--text-subtle)] focus:outline-none"
+              />
+              <button
+                type="button"
+                onClick={() => composer.setWorktreeName(null)}
+                aria-label="Remove worktree"
+                className="text-[color:var(--text-subtle)] transition-colors hover:text-[color:var(--text-default)]"
+              >
+                ×
+              </button>
+            </span>
+          ) : (
+            <Tooltip
+              content="Create a git worktree for this agent and run it there, isolated from the workspace checkout. Leave the name empty to derive it from the agent's name."
+              placement="bottom"
+            >
+              <button
+                type="button"
+                onClick={() => composer.setWorktreeName('')}
+                className="inline-flex items-center gap-1 rounded-md border border-dashed border-[color:var(--border-strong)] px-2 py-0.5 text-[11.5px] text-[color:var(--text-muted)] transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-default)]"
+              >
+                + Worktree
+              </button>
+            </Tooltip>
+          )}
+        </div>
+      ) : null}
       <div className="flex items-center gap-1 border-t border-[color:var(--border-subtle)] px-2 py-1.5">
         <PermissionPresetChips value={action.permissionPreset} onChange={action.onChangePermissionPreset} />
         {action.kind === 'spawn' ? (

@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
 
 import {
+  agentWorktreePaths,
   connectorMcpSettings,
   connectorStartupPrompt,
   connectorWorktreeBranch,
@@ -10,7 +11,9 @@ import {
   resolveWorkspaceTerminalCwd,
   resolveWorkspaceWorktree,
   resolveWorktreeSpawnFallback,
+  slugifyWorktreeName,
   worktreeContainerPath,
+  worktreeIdFromPath,
   type WorktreeScopeCandidate,
 } from './workspaceWorktree'
 import { resolveSkillInvocation } from '../../../shared/skill-invocation'
@@ -235,6 +238,37 @@ const mainScope = scope({ id: 'main', path: '/Users/example/project', branch: 'm
     '/use-railway\n\nShow me my Railway environment and flag anything failing.',
   )
   assert.equal(connectorStartupPrompt(undefined, 'Show me my Railway environment.'), 'Show me my Railway environment.')
+}
+
+// --- agent spawn worktrees ---
+
+// 28. Slug + id derivation (shared with the Worktree manager): messy names
+//     reduce to a safe slug; ids are path-derived and separator-free.
+{
+  assert.equal(slugifyWorktreeName('  Fix Payments!! '), 'fix-payments')
+  assert.equal(slugifyWorktreeName('///'), '')
+  assert.equal(
+    worktreeIdFromPath('/Users/example/.multicode-worktrees/project/nova-x1'),
+    'worktree-users-example-multicode-worktrees-project-nova-x1',
+  )
+}
+
+// 29. Agent worktree paths land under the same shared container as the Worktree
+//     manager and connector chats, on an `agent/<slug>` branch.
+{
+  const paths = agentWorktreePaths('/Users/example/project', 'Fix Payments')
+  assert.deepEqual(paths, {
+    containerPath: '/Users/example/.multicode-worktrees/project',
+    destinationPath: '/Users/example/.multicode-worktrees/project/fix-payments',
+    slug: 'fix-payments',
+    branchName: 'agent/fix-payments',
+  })
+}
+
+// 30. A name that reduces to an empty slug → null (caller surfaces the error
+//     instead of creating a worktree at the container root).
+{
+  assert.equal(agentWorktreePaths('/Users/example/project', ' // '), null)
 }
 
 // --- resolveWorktreeSpawnFallback ---

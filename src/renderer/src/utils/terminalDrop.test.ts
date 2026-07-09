@@ -43,6 +43,7 @@ function session(input: Partial<TerminalSessionSnapshot>): TerminalSessionSnapsh
     retainedOutputBytes: 0,
     visible: true,
     suspended: false,
+    reapExempt: false,
     ...input,
   }
 }

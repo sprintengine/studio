@@ -21,6 +21,8 @@ export { Popover } from './Popover'
 export { FilterMenu } from './FilterMenu'
 export type { FilterMenuGroup } from './FilterMenu'
 export type { PopoverProps, PopoverPlacement } from './Popover'
+export { InlineSkillPicker, SkillPickerPopover } from './SkillPickerPopover'
+export type { InlineSkillPickerHandle, SkillPickerPopoverProps } from './SkillPickerPopover'
 export { OverflowMenu } from './OverflowMenu'
 export type { OverflowMenuItem } from './OverflowMenu'
 export {

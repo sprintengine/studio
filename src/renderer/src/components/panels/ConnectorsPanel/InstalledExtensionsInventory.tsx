@@ -12,10 +12,16 @@
 import { useCallback, useEffect, useState, type ReactNode } from 'react'
 
 import type { ModuleEnablementOverrides, ThirdPartyModuleListResult } from '../../../../../shared/modules/manifest'
-import type { McpCatalogServer, SkillPackEntry } from '../../../../../shared/electron-api'
+import type { McpCatalogServer, SkillPackEntry, WorkspaceSkill } from '../../../../../shared/electron-api'
 import type { PluginRegistryListEntry } from '../../../../../shared/plugin-manifest'
 import type { McpServerConfig } from '../../../types/workspace'
-import { GhostButton, InlineNotice, PrimaryButton, Spinner, StatusDot } from '../../ui'
+import { GhostButton, InlineNotice, Popover, PrimaryButton, Spinner, StatusDot } from '../../ui'
+import { bracketedPaste } from '../../../utils/terminalDrop'
+import {
+  ensureSkillForAgent,
+  renderSkillInvocation,
+  skillInstalledForHarness,
+} from '../../../utils/skillInvocation'
 import { McpBrandIcon, mcpIconSlug } from '../../settings/McpCatalog'
 import { TRUST_PRESENTATION } from '../../settings/ThirdPartyModuleList'
 import {
@@ -38,6 +44,10 @@ type InventoryActions = {
   onRemoveMcpServer?: (serverId: string) => void
   // Keyed by the pack slug (the inventory row id for skill packs).
   onRemoveSkillPack?: (slug: string) => void
+  // "Use in agent → New agent…": spawn a fresh agent with the skill attached
+  // (ensure-installed, invocation prefilled). Running-agent inserts are handled
+  // inside the row menu itself via the terminal APIs.
+  onUseSkillInNewAgent?: (skill: WorkspaceSkill) => void
 }
 
 export function InstalledExtensionsInventory({
@@ -120,7 +130,21 @@ export function InstalledExtensionsInventory({
     clis,
   })
 
-  return <InstalledView view={view} actions={actions} />
+  return (
+    <InstalledView
+      view={view}
+      actions={actions}
+      skillUse={{ workspaceRoot, clis: clis.status === 'ok' ? clis.value : [] }}
+    />
+  )
+}
+
+// Context the per-row "Use in agent" menu needs: the workspace whose skill
+// inventory resolves the row, and the CLI plugin list whose skillIntegration
+// templates render the per-CLI invocation.
+type SkillUseContext = {
+  workspaceRoot: string | null
+  clis: PluginRegistryListEntry[]
 }
 
 function NoticeList({ notices }: { notices: SourceNotice[] }) {
@@ -135,7 +159,15 @@ function NoticeList({ notices }: { notices: SourceNotice[] }) {
   )
 }
 
-function InstalledView({ view, actions }: { view: ExtensionsInstalledView; actions: InventoryActions }) {
+function InstalledView({
+  view,
+  actions,
+  skillUse,
+}: {
+  view: ExtensionsInstalledView
+  actions: InventoryActions
+  skillUse: SkillUseContext
+}) {
   if (view.status === 'loading') {
     return (
       <div className="flex items-center gap-2 py-6 text-[12px] text-[color:var(--text-muted)]">
@@ -177,7 +209,7 @@ function InstalledView({ view, actions }: { view: ExtensionsInstalledView; actio
             <ConnectorSectionHeading label={group.label} count={group.items.length} />
             <div className="divide-y divide-[color:var(--border-subtle)] overflow-hidden rounded-md border border-[color:var(--border-subtle)] bg-[color:var(--bg-surface)]">
               {group.items.map((item) => (
-                <InstalledRow key={item.key} item={item} actions={actions} />
+                <InstalledRow key={item.key} item={item} actions={actions} skillUse={skillUse} />
               ))}
             </div>
           </section>
@@ -191,7 +223,15 @@ function InstalledView({ view, actions }: { view: ExtensionsInstalledView; actio
 // · neutral metadata chips · plain-language status · actions revealed on
 // hover/focus. Actions exist only where a real handler does: launch/automation
 // for skill-linked catalog MCP entries, remove for MCP servers and skill packs.
-function InstalledRow({ item, actions }: { item: InstalledExtension; actions: InventoryActions }) {
+function InstalledRow({
+  item,
+  actions,
+  skillUse,
+}: {
+  item: InstalledExtension
+  actions: InventoryActions
+  skillUse: SkillUseContext
+}) {
   const catalogEntry =
     item.kind === 'mcp' ? actions.catalogServers?.find((server) => server.id === item.id) : undefined
   const launchable = Boolean(catalogEntry?.skill) && item.enabled === true
@@ -225,18 +265,31 @@ function InstalledRow({ item, actions }: { item: InstalledExtension; actions: In
         </GhostButton>,
       )
     }
-  } else if (item.kind === 'skill-pack' && actions.onRemoveSkillPack) {
-    rowActions.push(
-      <GhostButton
-        key="remove"
-        size="sm"
-        onClick={() => actions.onRemoveSkillPack!(item.id)}
-        className="border border-[color:var(--border-default)]"
-        aria-label={`Remove ${item.name}`}
-      >
-        Remove
-      </GhostButton>,
-    )
+  } else if (item.kind === 'skill-pack') {
+    if (skillUse.workspaceRoot) {
+      rowActions.push(
+        <UseSkillMenu
+          key="use"
+          slug={item.id}
+          name={item.name}
+          skillUse={skillUse}
+          onNewAgent={actions.onUseSkillInNewAgent}
+        />,
+      )
+    }
+    if (actions.onRemoveSkillPack) {
+      rowActions.push(
+        <GhostButton
+          key="remove"
+          size="sm"
+          onClick={() => actions.onRemoveSkillPack!(item.id)}
+          className="border border-[color:var(--border-default)]"
+          aria-label={`Remove ${item.name}`}
+        >
+          Remove
+        </GhostButton>,
+      )
+    }
   }
 
   return (
@@ -291,6 +344,190 @@ function RowStatus({ item }: { item: InstalledExtension }) {
     )
   }
   return null
+}
+
+// "Use in agent" on a skill row: a menu of running agent terminals by name
+// ("New agent…" always last). Picking a session ensure-installs the skill,
+// renders the per-CLI invocation via the plugin skillIntegration templates, and
+// bracket-pastes it at that agent's prompt — unsubmitted, like every other
+// door. Worktree agents are excluded (they don't read the main checkout's
+// harness dirs).
+function UseSkillMenu({
+  slug,
+  name,
+  skillUse,
+  onNewAgent,
+}: {
+  slug: string
+  name: string
+  skillUse: SkillUseContext
+  onNewAgent?: (skill: WorkspaceSkill) => void
+}) {
+  const [open, setOpen] = useState(false)
+  const [sessions, setSessions] = useState<TerminalSessionSnapshot[] | null>(null)
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  useEffect(() => {
+    if (!open) return
+    let cancelled = false
+    setSessions(null)
+    setError(null)
+    window.api
+      .terminalList()
+      .then((all) => {
+        if (cancelled) return
+        setSessions(
+          all.filter(
+            (session) =>
+              session.kind === 'agent'
+              && session.processAlive
+              && session.executionMode !== 'worktree'
+              && !session.worktreePath,
+          ),
+        )
+      })
+      .catch(() => {
+        if (!cancelled) setSessions([])
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [open])
+
+  // The row is a SkillPackEntry projection; the unified inventory record (with
+  // source, harnesses, install slug) is what the invocation machinery needs.
+  const resolveSkill = async (): Promise<WorkspaceSkill | null> => {
+    if (!skillUse.workspaceRoot) return null
+    const result = await window.api.workspaceSkillsList({ workspaceRoot: skillUse.workspaceRoot })
+    if (!result.ok) {
+      setError(result.message)
+      return null
+    }
+    return result.skills.find((skill) => skill.packSlug === slug || skill.id === slug) ?? null
+  }
+
+  const insertIntoSession = async (session: TerminalSessionSnapshot) => {
+    if (busy || !skillUse.workspaceRoot) return
+    setBusy(true)
+    setError(null)
+    try {
+      const skill = await resolveSkill()
+      if (!skill) {
+        setError((current) => current ?? 'This skill is missing from the workspace inventory.')
+        return
+      }
+      const ensured = await ensureSkillForAgent({ workspaceRoot: skillUse.workspaceRoot, skill })
+      if (!ensured.ok) {
+        setError(ensured.message)
+        return
+      }
+      const integration = session.cli
+        ? skillUse.clis.find((plugin) => plugin.id === session.cli)?.skillIntegration
+        : undefined
+      const invocation = renderSkillInvocation({
+        skill,
+        integration,
+        nativeInstalled: skillInstalledForHarness(skill, integration),
+      })
+      await window.api.terminalWrite(session.sessionId, bracketedPaste(`${invocation} `))
+      setOpen(false)
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const startNewAgent = async () => {
+    if (busy || !onNewAgent) return
+    setBusy(true)
+    setError(null)
+    try {
+      const skill = await resolveSkill()
+      if (!skill) {
+        setError((current) => current ?? 'This skill is missing from the workspace inventory.')
+        return
+      }
+      setOpen(false)
+      onNewAgent(skill)
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <Popover
+      open={open}
+      onOpenChange={setOpen}
+      ariaLabel={`Use ${name} in an agent`}
+      popupRole="menu"
+      placement="bottom-end"
+      renderTrigger={({ ref, triggerProps, togglePopover }) => (
+        <button
+          ref={ref}
+          type="button"
+          onClick={togglePopover}
+          className="interactive inline-flex h-7 items-center justify-center gap-1.5 rounded-[5px] border border-[color:var(--border-default)] px-2 text-[12px] font-medium text-[color:var(--accent-primary)] transition-colors hover:bg-[color:var(--bg-hover)]"
+          {...triggerProps}
+        >
+          Use in agent
+        </button>
+      )}
+    >
+      <div className="flex w-[240px] flex-col p-1">
+        {error ? (
+          <div className="px-2.5 py-1.5 text-[11.5px] text-[color:var(--tone-error)]" role="status">
+            {error}
+          </div>
+        ) : null}
+        {sessions === null ? (
+          <div className="flex items-center gap-2 px-2.5 py-2 text-[12px] text-[color:var(--text-muted)]" role="status">
+            <Spinner size={14} />
+            Finding running agents…
+          </div>
+        ) : (
+          <>
+            {sessions.length === 0 ? (
+              <div className="px-2.5 py-1.5 text-[11.5px] text-[color:var(--text-subtle)]">
+                No running agents
+              </div>
+            ) : (
+              sessions.map((session) => (
+                <button
+                  key={session.sessionId}
+                  type="button"
+                  role="menuitem"
+                  disabled={busy}
+                  onClick={() => void insertIntoSession(session)}
+                  className="flex w-full items-center gap-2 rounded px-2.5 py-1.5 text-left text-[12.5px] text-[color:var(--text-default)] transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)] disabled:cursor-wait disabled:opacity-60"
+                >
+                  <span className="min-w-0 flex-1 truncate">
+                    {session.agentSession?.displayName ?? session.agentId ?? session.sessionId}
+                  </span>
+                  {session.cli ? (
+                    <span className="shrink-0 text-[10.5px] text-[color:var(--text-subtle)]">{session.cli}</span>
+                  ) : null}
+                </button>
+              ))
+            )}
+            {onNewAgent ? (
+              <>
+                <div className="mx-2 my-1 border-t border-[color:var(--border-subtle)]" />
+                <button
+                  type="button"
+                  role="menuitem"
+                  disabled={busy}
+                  onClick={() => void startNewAgent()}
+                  className="flex w-full items-center rounded px-2.5 py-1.5 text-left text-[12.5px] text-[color:var(--text-default)] transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)] disabled:cursor-wait disabled:opacity-60"
+                >
+                  New agent…
+                </button>
+              </>
+            ) : null}
+          </>
+        )}
+      </div>
+    </Popover>
+  )
 }
 
 function errorMessage(error: unknown, fallback: string): string {

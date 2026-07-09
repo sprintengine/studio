@@ -1,5 +1,6 @@
 import type { BuiltinSkillTargetState, SkillPackHarness } from '../../../shared/electron-api'
 import type { PluginRegistryListEntry } from '../../../shared/plugin-manifest'
+import { hasInstalledNativeSkillTarget, renderSkillInvocationTemplate } from './skillInvocation'
 
 export const MULTICODE_FILE_DROP_MIME = 'application/x-multicode-file-drop'
 export const MULTICODE_COMMIT_DROP_MIME = 'application/x-multicode-commit-drop'
@@ -286,30 +287,6 @@ function isBacklogSkillDropCandidate(payload: FileDropPayload, session: Terminal
   return relativePath !== null && !relativePath.includes("'")
 }
 
-function hasInstalledNativeSkillTarget(
-  harnessId: string,
-  pluginId: string,
-  targets: readonly BuiltinSkillTargetState[]
-): boolean {
-  return targets.some((target) => (
-    target.status === 'installed'
-    || target.status === 'update-available'
-    || target.status === 'modified'
-    || target.status === 'local'
-  ) && target.support !== 'unsupported'
-    && (target.pluginId === pluginId || target.harness === harnessId))
-}
-
-function renderSkillInvocationTemplate(
-  template: string,
-  values: { skillId: string; skillName: string; path: string }
-): string {
-  return template
-    .replace(/\{\{\s*skillId\s*\}\}/g, values.skillId)
-    .replace(/\{\{\s*skillName\s*\}\}/g, values.skillName)
-    .replace(/\{\{\s*path\s*\}\}/g, values.path)
-}
-
 function backlogRelativePath(rootPath: string, filePath: string): string | null {
   const root = rootPath.replace(/\\/g, '/').replace(/\/+$/, '')
   const file = filePath.replace(/\\/g, '/')
@@ -438,7 +415,7 @@ function isSafeDroppedPath(pathValue: string): boolean {
   return !/[\x00-\x1F\x7F]/.test(pathValue)
 }
 
-function bracketedPaste(text: string): string {
+export function bracketedPaste(text: string): string {
   return `\x1b[200~${text}\x1b[201~`
 }
 
