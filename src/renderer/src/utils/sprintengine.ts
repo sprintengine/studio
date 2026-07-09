@@ -1673,9 +1673,10 @@ export function buildSprintEngineAgentRoster(
 // Forwarded to Python init as `configuredRoles` — the run's legal role set,
 // which `plan.add_task` and seat creation enforce — even though the lazy
 // roster seeds only the architect. `additionalRoles` admits roles the wizard
-// enables outside the role table (MC-1542: the registry's sweep roles, so the
-// architect can plan the audits the "Final sweeps" panel promises whether or
-// not the operator mandated any of them).
+// enables outside the role table: the sweep roles the operator turned ON in
+// the "Final sweeps" panel. The roster is the user's configuration — an
+// unselected sweep must not become plannable, or the architect will schedule
+// audits nobody asked for (the design-wizard-premium regression).
 export function sprintEngineEnabledRoles(
   roleCounts: SprintEngineRoleCounts,
   additionalRoles?: readonly SprintEngineRoleId[],

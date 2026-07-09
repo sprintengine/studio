@@ -232,6 +232,7 @@ const SKILL_PACK_HARNESSES: readonly SkillPackHarness[] = [
   'cursor',
   'gemini',
   'opencode',
+  'grok',
   'agents',
 ]
 

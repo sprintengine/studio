@@ -833,14 +833,15 @@ export default function WorkspaceManager() {
     if (agentSpawnDebugMode) setAgentSpawnDebugMode(false)
   }, [agentCliCatalog, agentSpawnDebugMode, agentSpawnPermissionPreset, createSoloChatWorkspace, pluginCatalogEntries, specialistCliDefaults, specialistModelDefaults, lastSelectedCli, setSpecialistCliDefault])
 
-  // Launch an isolated connector chat for any catalog entry carrying a `skill`
-  // link: a fresh worktree on `connector/<id>-<uid>`, opened as a worktree-backed
+  // Launch an isolated connector chat for any catalog entry or installed MCP
+  // server: a fresh worktree on `connector/<id>-<uid>`, opened as a worktree-backed
   // solo chat whose spawn carries ONLY that connector's MCP (never the global
-  // appSettings.mcp) plus its driving skill. Exactly one worktree per connector
-  // chat — a new id (and so a new worktree) is minted on every invocation. This is
-  // the single connector runtime: Railway's Command Palette entry, the Connectors
-  // surface, and connector automations all funnel through it. A catalog entry with
-  // no `skill` is not a connector and is refused (no silent fallback).
+  // appSettings.mcp). A catalog entry with a driving skill (e.g. Railway) also
+  // installs the skill and seeds its invocation; a plain MCP launches with a
+  // kickoff prompt naming the attached server instead. Exactly one worktree per
+  // connector chat — a new id (and so a new worktree) is minted on every
+  // invocation. This is the single connector runtime: Railway's Command Palette
+  // entry, the Connectors surface, and connector automations all funnel through it.
   const launchConnectorChat = useCallback(async (serverId: string) => {
     const connectorError = (title: string, message: string) =>
       publishDiagnosticSync({ level: 'error', source: 'workspace', title, message })
@@ -858,7 +859,10 @@ export default function WorkspaceManager() {
       )
       return
     }
-    const resolution = await resolveConnectorLaunch(serverId)
+    const resolution = await resolveConnectorLaunch(
+      serverId,
+      useWorkspaceStore.getState().appSettings.mcp?.servers,
+    )
     if (!resolution.ok) {
       connectorError(resolution.title, resolution.message)
       return
@@ -890,13 +894,19 @@ export default function WorkspaceManager() {
       agentCliCatalog,
     )
     const cliModel = resolveSurfaceModel(cli, specialistModelDefaults[GENERAL_AGENT_ENGINE_KEY])
-    const invocation = resolveSkillInvocation(
-      pluginCatalogEntries.find((entry) => entry.id === cli)?.skillIntegration,
-      skillId,
-    )
+    const invocation = skillId
+      ? resolveSkillInvocation(
+          pluginCatalogEntries.find((entry) => entry.id === cli)?.skillIntegration,
+          skillId,
+        )
+      : undefined
+    // With a driving skill the seeded turn runs its playbook; a plain MCP chat
+    // has none, so the kickoff just states which server is attached.
     const startupPrompt = connectorStartupPrompt(
       invocation,
-      `Show me my ${server.name} setup and flag anything that needs attention.`,
+      skillId
+        ? `Show me my ${server.name} setup and flag anything that needs attention.`
+        : `The ${server.name} MCP server is attached to this chat. Confirm you can reach it, then show me what it can do.`,
     )
 
     createSoloChatWorkspace({
@@ -908,7 +918,7 @@ export default function WorkspaceManager() {
         agentPatch: {
           ...(cliModel ? { cliModel } : {}),
           connectorMcpSettings: mcpSettings,
-          connectorSkillId: skillId,
+          ...(skillId ? { connectorSkillId: skillId } : {}),
           cliStartupPrompt: startupPrompt,
         },
       },

@@ -908,6 +908,70 @@ async function testSprintEnginePlanSourcedWorktreeModeFlowsThroughStateAndPrompt
   )
 }
 
+// Regression (design-wizard-premium): the plan-sourced path used to DROP the
+// "Workflow steps" + "Final sweeps" init keys entirely — a mandated sweep never
+// reached run.yaml `requiredSweeps` — while every registry sweep role was
+// force-merged into configuredRoles. The contract now: the keys forward exactly
+// like the new-team path, and enabledRoles carries only the architect, the
+// staffed work roles, and the user-selected sweeps.
+async function testSprintEnginePlanSourcedWorkflowKeysAndSweepRolesFlowToInit(): Promise<void> {
+  const initInputs: Array<{
+    enabledRoles?: string[]
+    defaultPhases?: string[]
+    requiredSweeps?: string[]
+    phaseRuntimes?: Record<string, { cli: string; model: string | null }>
+  }> = []
+  await runSprintEnginePlanSourcedCreation(
+    {
+      folderPath: '/p',
+      teamName: 'Sweep Keys Run',
+      goal: 'Ship the sweep work',
+      sourcePlanPath: '/p/backlog/sweep-plan.md',
+      sourcePlanRelativePath: 'backlog/sweep-plan.md',
+      sourcePlanContent: '# Plan',
+      sourcePlanKind: 'architect_plan',
+      sourceBundle: null,
+      visibleRoleCounts: { architect: 1, product: 1, frontend: 0, developer: 0, performance: 0, cross_platform: 0, tester: 0, security: 0 },
+      maxParallelAgents: 2,
+      roleCliDefaults: { architect: 'claude-code', product: 'claude-code', frontend: 'claude-code', developer: 'claude-code', performance: 'claude-code', cross_platform: 'claude-code', tester: 'claude-code', security: 'claude-code' },
+      startRunner: false,
+      autoApproveArtifacts: false,
+      cliPermissionPreset: 'default',
+      // Only the user-selected sweep rides in — never the full registry catalog.
+      additionalEnabledRoles: ['ui_ux_reviewer'],
+      defaultPhases: [],
+      requiredSweeps: ['ui_ux_reviewer'],
+      phaseRuntimes: { review: { cli: 'claude-code', model: 'opus[1m]' } },
+    },
+    {
+      pathExists: async (path) => path === '/p/backlog/sweep-plan.md',
+      initializeSprintEngineState: async (input) => {
+        initInputs.push({
+          enabledRoles: input.enabledRoles,
+          defaultPhases: input.defaultPhases,
+          requiredSweeps: input.requiredSweeps,
+          phaseRuntimes: input.phaseRuntimes,
+        })
+        return { ok: true, data: {} }
+      },
+    },
+  )
+
+  assert.equal(initInputs.length, 1, 'creation initializes run state exactly once')
+  assert.deepEqual(
+    initInputs[0].enabledRoles,
+    ['architect', 'product', 'ui_ux_reviewer'],
+    'configuredRoles = architect + staffed work roles + the user-selected sweeps only',
+  )
+  assert.deepEqual(initInputs[0].defaultPhases, [], 'defaultPhases forwarded on the plan-sourced path')
+  assert.deepEqual(initInputs[0].requiredSweeps, ['ui_ux_reviewer'], 'requiredSweeps forwarded on the plan-sourced path')
+  assert.deepEqual(
+    initInputs[0].phaseRuntimes,
+    { review: { cli: 'claude-code', model: 'opus[1m]' } },
+    'phaseRuntimes forwarded on the plan-sourced path',
+  )
+}
+
 async function testSprintEnginePlanSourcedSkipsNonBacklogLink(): Promise<void> {
   const events: string[] = []
   await runSprintEnginePlanSourcedCreation(
@@ -1651,6 +1715,7 @@ async function main(): Promise<void> {
   await testSprintEnginePlanSourcedValidation()
   await testSprintEnginePlanSourcedInitializesAndLinksBacklog()
   await testSprintEnginePlanSourcedWorktreeModeFlowsThroughStateAndPrompt()
+  await testSprintEnginePlanSourcedWorkflowKeysAndSweepRolesFlowToInit()
   await testSprintEnginePlanSourcedSkipsNonBacklogLink()
   await testSprintEngineEpicSourcedLinksEpicAndFlagsChildren()
   await testGuidedBriefScaffoldValidation()

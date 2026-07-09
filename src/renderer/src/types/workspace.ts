@@ -1364,7 +1364,7 @@ export type McpCatalogServer = Omit<McpServerConfig, 'enabled' | 'scope' | 'sour
   icon?: string
 }
 
-export type SkillPackHarness = 'claude' | 'codex' | 'cursor' | 'gemini' | 'opencode' | 'agents'
+export type SkillPackHarness = 'claude' | 'codex' | 'cursor' | 'gemini' | 'opencode' | 'grok' | 'agents'
 export type SkillPackSource = 'bundled' | 'custom'
 
 export type SkillPackEntry = {

@@ -185,12 +185,19 @@ export type SprintEnginePlanSourcedInput = {
   roleCliDefaults: Required<SprintEngineRoleCliDefaults>
   roleModelOverrides?: SprintEngineRoleModelOverrides | null
   initialSpawnRoles?: SprintEngineRoleId[] | null
-  // Extra roles for enabledRoles -> configuredRoles (MC-1542 sweep roles; see
-  // SprintEngineNewTeamInput.additionalEnabledRoles).
+  // Extra roles for enabledRoles -> configuredRoles (the user-selected "Final
+  // sweeps" roles; see SprintEngineNewTeamInput.additionalEnabledRoles).
   additionalEnabledRoles?: SprintEngineRoleId[]
   startRunner: boolean
   autoApproveArtifacts: boolean
   useWorktrees?: boolean
+  // "Workflow steps" + "Final sweeps" run-init keys (MC-1542 / MC-1543), same
+  // contract as SprintEngineNewTeamInput: forwarded verbatim, each present ONLY
+  // when it diverges from the engine default. The plan-sourced path historically
+  // dropped these, silently discarding the operator's sweep mandate.
+  defaultPhases?: string[]
+  requiredSweeps?: string[]
+  phaseRuntimes?: Record<string, { cli: string; model: string | null }>
   // Record file-backed sources as project-root-relative references (no copy).
   sourceReference?: boolean
   // For an epic launch: the project-root-relative paths of the epic's child items,

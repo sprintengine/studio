@@ -315,6 +315,11 @@ export async function runSprintEnginePlanSourcedCreation(
       roleModelOverrides: input.roleModelOverrides ?? null,
       initialSpawnRoles: input.initialSpawnRoles ?? null,
       additionalEnabledRoles: input.additionalEnabledRoles,
+      // "Workflow steps" + "Final sweeps" init keys — forwarded exactly like the
+      // new-team path so a plan-sourced launch honors the same panel choices.
+      ...(input.defaultPhases !== undefined ? { defaultPhases: input.defaultPhases } : {}),
+      ...(input.requiredSweeps !== undefined ? { requiredSweeps: input.requiredSweeps } : {}),
+      ...(input.phaseRuntimes !== undefined ? { phaseRuntimes: input.phaseRuntimes } : {}),
       workspaceWindowId: input.workspaceWindowId,
       useWorktrees: input.useWorktrees === true,
       sourceReference: input.sourceReference === true,

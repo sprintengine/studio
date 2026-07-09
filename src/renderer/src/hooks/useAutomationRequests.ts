@@ -232,12 +232,14 @@ async function launchAgent(
   }
 
   // A connector-backed automation run resolves the same way a connector chat does
-  // (catalog → single-server MCP + driving skill); the resolved settings ride the
-  // AgentState so the terminal launch writes the connector's .mcp.json into the
-  // run worktree and installs its skill. An unavailable/non-connector id is an
-  // explicit failure — never launch a plain agent that silently drops the
-  // connector environment.
-  const connector = request.connectorId ? await resolveConnectorLaunch(request.connectorId) : null
+  // (catalog or installed settings → single-server MCP, plus the driving skill
+  // when the catalog pairs one); the resolved settings ride the AgentState so the
+  // terminal launch writes the connector's .mcp.json into the run worktree. An
+  // unavailable id is an explicit failure — never launch a plain agent that
+  // silently drops the connector environment.
+  const connector = request.connectorId
+    ? await resolveConnectorLaunch(request.connectorId, store.appSettings.mcp?.servers)
+    : null
   if (connector && !connector.ok) {
     return { ok: false, code: 'connector_unavailable', message: connector.message }
   }
@@ -290,9 +292,13 @@ async function launchAgent(
       : {}),
     // Carry the resolved connector environment onto the AgentState so TerminalView
     // launches with the connector's single-server MCP (written into the worktree
-    // .mcp.json) and its driving skill — the connector-chat isolation invariant.
+    // .mcp.json) plus its driving skill when the catalog pairs one — the
+    // connector-chat isolation invariant.
     ...(connector?.ok
-      ? { connectorMcpSettings: connector.resolved.mcpSettings, connectorSkillId: connector.resolved.skillId }
+      ? {
+          connectorMcpSettings: connector.resolved.mcpSettings,
+          ...(connector.resolved.skillId ? { connectorSkillId: connector.resolved.skillId } : {}),
+        }
       : {}),
     cliStartupPrompt,
     cliOnboardingPromptSent: false,

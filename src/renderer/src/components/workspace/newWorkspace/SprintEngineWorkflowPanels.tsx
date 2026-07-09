@@ -138,7 +138,7 @@ export function SprintEngineWorkflowPanels({
         <div className="flex flex-col gap-2">
           <Field.Label>Final sweeps</Field.Label>
           <p className="text-[11px] leading-4 text-[color:var(--text-muted)]">
-            Specialists you always want to review the finished work at the end of the run. Leave all off to let the architect decide which reviews the work needs.
+            Specialist reviews of the finished work at the end of the run. Only the sweeps you turn on join the team and get scheduled — anything left off stays out of the run.
           </p>
           <div className="divide-y divide-[color:var(--border-default)] rounded-md border border-[color:var(--border-default)]">
             {sweepRoles.map((role) => {

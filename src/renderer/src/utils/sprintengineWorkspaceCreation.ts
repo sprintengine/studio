@@ -51,10 +51,18 @@ export type PlanSourcedSprintEngineWorkspaceArgs = {
   roleCliDefaults?: SprintEngineRoleCliDefaults
   roleModelOverrides?: SprintEngineRoleModelOverrides | null
   initialSpawnRoles?: SprintEngineRoleId[] | null
-  // Extra roles merged into enabledRoles -> configuredRoles at init (MC-1542:
-  // the registry's sweep roles, so the architect can plan the audits the
-  // wizard's "Final sweeps" panel promises even when none are mandated).
+  // Extra roles merged into enabledRoles -> configuredRoles at init: the sweep
+  // roles the user actually selected in the wizard's "Final sweeps" panel. The
+  // roster is the user's configuration — an unselected sweep role must not be
+  // seated or plannable (the architect raises needs_input if the work needs
+  // a role the run doesn't have).
   additionalEnabledRoles?: SprintEngineRoleId[]
+  // "Workflow steps" + "Final sweeps" run-init keys (MC-1542 / MC-1543),
+  // forwarded verbatim to init; each present only when it diverges from the
+  // engine default (same contract as the new-team path).
+  defaultPhases?: string[]
+  requiredSweeps?: string[]
+  phaseRuntimes?: Record<string, { cli: string; model: string | null }>
   sprintEngineAutoState?: Partial<SprintEngineAutoState> | null
   workspaceWindowId?: WorkspaceWindowId | null
   useWorktrees?: boolean
@@ -170,6 +178,9 @@ export async function createPlanSourcedSprintEngineWorkspace({
   roleModelOverrides,
   initialSpawnRoles,
   additionalEnabledRoles,
+  defaultPhases,
+  requiredSweeps,
+  phaseRuntimes,
   sprintEngineAutoState,
   workspaceWindowId,
   useWorktrees,
@@ -226,6 +237,12 @@ export async function createPlanSourcedSprintEngineWorkspace({
       useWorktrees: useWorktrees === true,
       roleRuntimes: buildSprintEngineRoleRuntimes(roleModelOverrides, roleCliDefaults),
       enabledRoles: sprintEngineEnabledRoles(sprintEngineState.roleCounts, additionalEnabledRoles),
+      // "Workflow steps" + "Final sweeps" keys, present only when set — the
+      // plan-sourced path used to drop these, so a mandated sweep never reached
+      // run.yaml `requiredSweeps`.
+      ...(defaultPhases !== undefined ? { defaultPhases } : {}),
+      ...(requiredSweeps !== undefined ? { requiredSweeps } : {}),
+      ...(phaseRuntimes !== undefined ? { phaseRuntimes } : {}),
       ...(initSourceSeed
         ? { source: initSourceSeed.source, sourceBundle: initSourceSeed.sourceBundle }
         : {}),

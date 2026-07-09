@@ -9,7 +9,8 @@ import AgentComposerPopover from '../../workspace/agentComposer/AgentComposerPop
 import type { AgentComposerSelection } from '../../workspace/agentComposer/AgentComposer'
 import { PermissionPresetChips } from '../../workspace/agentComposer/agentSpawnShared'
 import { SpecialistActionIcon } from '../../AppIcons'
-import type { AgentCli, SpecialistActionId, SprintEngineCliPermissionPreset } from '../../../types/workspace'
+import type { AgentCli, McpCatalogServer, SpecialistActionId, SprintEngineCliPermissionPreset } from '../../../types/workspace'
+import { launchableConnectors } from '../ConnectorsPanel/connectorsFacets'
 import type {
   AutomationDefinition,
   AutomationDefinitionDraft,
@@ -121,15 +122,18 @@ function schemaHasStringProp(schema: AutomationsProviderView['configSchema'], ke
   return Boolean(prop) && typeof prop === 'object' && (prop as { type?: unknown }).type === 'string'
 }
 
-// A launchable connector = an MCP catalog entry carrying a `skill` link (the same
-// rule as connectorLaunch.resolveConnectorLaunch and the Connectors surface). The
-// per-source load is undefined-free so a catalog failure renders an explicit
-// unavailable state rather than a silently empty picker.
-type ConnectorOption = { id: string; name: string }
+// A launchable connector follows connectorsFacets.connectorCanLaunch — a
+// catalog entry carrying a `skill` link, or any server installed (enabled) in
+// MCP settings; the picker population comes from the shared
+// launchableConnectors so it cannot drift from the Connectors surface. The
+// load carries the raw catalog so the installed merge happens reactively in
+// the picker memo; it is undefined-free so a catalog failure renders an
+// explicit notice (installed servers still list — they launch without the
+// catalog) rather than a silently empty picker.
 type ConnectorLoad =
   | { status: 'loading' }
   | { status: 'error'; message: string }
-  | { status: 'ready'; connectors: ConnectorOption[] }
+  | { status: 'ready'; connectors: McpCatalogServer[] }
 
 const EMPTY_FORM: EditorFormState = {
   name: '', enabled: true, autonomy: 'review_only', runInWorktree: true, actionKind: '', triggerKind: 'schedule',
@@ -236,10 +240,11 @@ export function AutomationEditor({
   const selectedCliLabel = cliCatalog.find((option) => option.value === selectedCli)?.label ?? selectedCli
   const showAgentPicker = !actionUnavailableReason && configKeys.includes('cli')
 
-  // Connector target — a spawn-agent run can be pinned to an installed connector
-  // (its isolated worktree + MCP + skill, wired by T7). The picker is populated
-  // from the real MCP catalog (entries with a skill link), never a placeholder
-  // list, and shown only for an action whose schema consumes `connectorId`.
+  // Connector target — a spawn-agent run can be pinned to a connector (its
+  // isolated worktree + MCP, plus the driving skill when the catalog pairs one).
+  // The picker is populated from the real MCP catalog and the installed MCP
+  // settings, never a placeholder list, and shown only for an action whose
+  // schema consumes `connectorId`.
   const showConnectorPicker =
     !actionUnavailableReason && actionProvider != null && schemaHasStringProp(actionProvider.configSchema, 'connectorId')
   const [connectorLoad, setConnectorLoad] = useState<ConnectorLoad>({ status: 'loading' })
@@ -252,10 +257,7 @@ export function AutomationEditor({
     void window.api.mcpListCatalog().then((result) => {
       if (cancelled) return
       if (result.ok) {
-        const connectors = result.servers
-          .filter((server) => server.skill)
-          .map((server) => ({ id: server.id, name: server.name }))
-        setConnectorLoad({ status: 'ready', connectors })
+        setConnectorLoad({ status: 'ready', connectors: result.servers })
       } else {
         setConnectorLoad({ status: 'error', message: result.message })
       }
@@ -271,10 +273,16 @@ export function AutomationEditor({
   }, [])
 
   const selectedConnectorId = form.config.connectorId ?? NO_CONNECTOR
+  const installedMcpServers = useWorkspaceStore((s) => s.appSettings.mcp?.servers)
   const connectorItems: SelectItem[] = useMemo(() => {
     const items: SelectItem[] = [{ value: NO_CONNECTOR, label: 'No connector' }]
-    if (connectorLoad.status === 'ready') {
-      for (const connector of connectorLoad.connectors) items.push({ value: connector.id, label: connector.name })
+    if (connectorLoad.status !== 'loading') {
+      // A failed catalog load still lists the installed servers — they launch
+      // without the catalog.
+      const catalog = connectorLoad.status === 'ready' ? connectorLoad.connectors : []
+      for (const server of launchableConnectors(catalog, installedMcpServers)) {
+        items.push({ value: server.id, label: server.name })
+      }
     }
     // A stored connector no longer in the catalog still round-trips and is shown
     // as unavailable (once the catalog has resolved) rather than silently dropped.
@@ -287,7 +295,7 @@ export function AutomationEditor({
       })
     }
     return items
-  }, [connectorLoad, selectedConnectorId])
+  }, [connectorLoad, selectedConnectorId, installedMcpServers])
 
   const onSelectConnector = useCallback((value: string) => {
     setForm((prev) => {
@@ -585,10 +593,11 @@ export function AutomationEditor({
               </div>
             ) : null}
 
-            {/* Connector target — pins the run to an installed connector's isolated
-                worktree + MCP + skill. Defaults to "No connector" (workspace run).
-                Mirrors the agent block's label/control/helper rhythm; the Select's
-                ariaLabel carries the accessible name. */}
+            {/* Connector target — pins the run to a connector's isolated worktree
+                + MCP (plus its driving skill when the catalog pairs one).
+                Defaults to "No connector" (workspace run). Mirrors the agent
+                block's label/control/helper rhythm; the Select's ariaLabel
+                carries the accessible name. */}
             {showConnectorPicker ? (
               <div className="flex flex-col gap-1.5">
                 <span className="text-[12px] font-medium text-[color:var(--text-default)]">Connector</span>
@@ -604,9 +613,9 @@ export function AutomationEditor({
                   <InlineNotice tone="warn">Connectors are unavailable: {connectorLoad.message}</InlineNotice>
                 ) : (
                   <span className="text-[11px] text-[color:var(--text-subtle)]">
-                    {connectorLoad.status === 'ready' && connectorLoad.connectors.length === 0
+                    {connectorLoad.status === 'ready' && connectorItems.length === 1
                       ? 'No connectors installed — the run uses the workspace defaults.'
-                      : 'Runs the agent against this connector’s isolated worktree, MCP, and skill.'}
+                      : 'Runs the agent against this connector’s isolated worktree and MCP server.'}
                   </span>
                 )}
               </div>
