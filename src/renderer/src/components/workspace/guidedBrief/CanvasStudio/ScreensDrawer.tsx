@@ -102,11 +102,18 @@ export function ScreensDrawer({ screens, activeId, onSelect, onClose }: Props) {
               `}
             >
               <ScreenThumbnail />
-              <TruncatedText
-                as="span"
-                text={screen.name}
-                className="min-w-0 font-mono text-[11.5px] text-[color:var(--text-strong)]"
-              />
+              <span className="flex min-w-0 flex-col leading-tight">
+                <TruncatedText
+                  as="span"
+                  text={screen.name}
+                  className="min-w-0 text-[12px] font-medium text-[color:var(--text-strong)]"
+                />
+                <TruncatedText
+                  as="span"
+                  text={screen.path}
+                  className="min-w-0 font-mono text-[10px] text-[color:var(--text-subtle)]"
+                />
+              </span>
             </button>
           )
         })}

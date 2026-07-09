@@ -1,5 +1,6 @@
-import { useEffect, useMemo, useState } from 'react'
-import { htmlArtifactFrameSandbox, Tabs, Tooltip, TruncatedText, type TabItem } from '../../ui'
+import { useEffect, useMemo, useState, type ReactNode } from 'react'
+import { htmlArtifactFrameSandbox, Skeleton, Tabs, Tooltip, TruncatedText, type TabItem } from '../../ui'
+import { basename } from './paths'
 import type { DesignerMockupFile } from './useDesignerSession'
 
 // The scripts-off sandbox policy is defined once in the shared HtmlPreviewCard
@@ -15,10 +16,17 @@ type Props = {
   enableSourceView?: boolean
 }
 
+// The preview never shows an undesigned void: every non-rendered situation maps
+// to one of four designed states derived from a real file signal (MC-1505).
+// `generating` = the file exists but is still empty (the agent is mid-write);
+// `deleted` = the selected file is gone from disk; `error` = it could not be
+// read. `loading` is the brief first read before any of these resolve.
 type FrameState =
   | { kind: 'loading' }
   | { kind: 'ready'; content: string }
-  | { kind: 'unavailable'; reason: string }
+  | { kind: 'generating' }
+  | { kind: 'deleted' }
+  | { kind: 'error'; reason: string }
 
 type BrowserOpenState =
   | { kind: 'idle' }
@@ -95,13 +103,39 @@ export function browserOpenFailureMessage(
     : `Could not open ${relativePath} in your browser. Check your default browser and try again.`
 }
 
-function titleFromFilename(name: string): string {
-  return name
-    .replace(/\.html?$/i, '')
+/**
+ * A human display title for a file, used as the fallback when no HTML `<title>`
+ * is present: drop the extension, strip a leading ISO date prefix
+ * (`2026-07-06-panel-header.html` → `Panel header`) so a raw date-prefixed
+ * filename never reads as a primary label (MC-1505), then sentence-case.
+ */
+export function humanizeFileTitle(name: string): string {
+  const base = basename(name)
+    .replace(/\.[a-z0-9]+$/i, '')
+    .replace(/^\d{4}-\d{2}-\d{2}[-_]?/, '')
     .replace(/[-_]+/g, ' ')
     .replace(/\s+/g, ' ')
     .trim()
-    .replace(/\b\w/g, (char) => char.toUpperCase())
+  if (!base) return basename(name)
+  return base.charAt(0).toUpperCase() + base.slice(1)
+}
+
+/** The `<title>` text of an HTML document, whitespace-collapsed; null when absent or empty. */
+export function pageTitleFromHtml(html: string): string | null {
+  const match = /<title[^>]*>([\s\S]*?)<\/title>/i.exec(html)
+  if (!match) return null
+  const text = match[1].replace(/\s+/g, ' ').trim()
+  return text || null
+}
+
+/**
+ * The preview title bar's primary label for an HTML file: its `<title>` when the
+ * content is loaded and has one, otherwise the humanized filename. The path is
+ * shown demoted beneath it, never as the primary label.
+ */
+export function htmlPreviewTitle(relativePath: string, content: string | null): string {
+  const fromDocument = content ? pageTitleFromHtml(content) : null
+  return fromDocument ?? humanizeFileTitle(relativePath)
 }
 
 /**
@@ -158,20 +192,22 @@ export function HtmlArtifactFrame({
         const exists = await window.api.pathExists(absolutePath)
         if (cancelled) return
         if (!exists) {
-          setFrameState({ kind: 'unavailable', reason: `${relativePath} is missing on disk.` })
+          setFrameState({ kind: 'deleted' })
           return
         }
         const content = await window.api.readfile(absolutePath)
         if (cancelled) return
         if (!content.trim()) {
-          setFrameState({ kind: 'unavailable', reason: `${relativePath} is empty.` })
+          // Exists but empty — the agent is still writing it. A designed
+          // generating state, never a black void.
+          setFrameState({ kind: 'generating' })
           return
         }
         setFrameState({ kind: 'ready', content })
       } catch (error) {
         if (cancelled) return
         setFrameState({
-          kind: 'unavailable',
+          kind: 'error',
           reason:
             error instanceof Error
               ? `Could not read ${relativePath}: ${error.message}`
@@ -232,15 +268,25 @@ export function HtmlArtifactFrame({
   }
 
   const view = resolveHtmlArtifactView(enableSourceView, viewMode)
+  // The page title (from the document's own <title>) leads; the path is demoted
+  // beneath it. Falls back to the humanized filename before the content loads.
+  const pageTitle = htmlPreviewTitle(relativePath, frameState.kind === 'ready' ? frameState.content : null)
 
   return (
     <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-md border border-[color:var(--border-default)] bg-[color:var(--bg-surface)]">
-      <div className="flex shrink-0 items-center gap-2 border-b border-[color:var(--border-subtle)] px-3 py-2">
-        <TruncatedText
-          as="span"
-          text={relativePath}
-          className="min-w-0 font-mono text-[11px] text-[color:var(--text-muted)]"
-        />
+      <div className="flex shrink-0 items-center gap-3 border-b border-[color:var(--border-subtle)] px-3 py-2">
+        <span className="flex min-w-0 flex-col leading-tight">
+          <TruncatedText
+            as="span"
+            text={pageTitle}
+            className="min-w-0 text-[12px] font-semibold text-[color:var(--text-strong)]"
+          />
+          <TruncatedText
+            as="span"
+            text={relativePath}
+            className="min-w-0 font-mono text-[10px] text-[color:var(--text-subtle)]"
+          />
+        </span>
         <span className="ml-auto flex shrink-0 items-center gap-1">
           {view.showToggle ? (
             <span role="group" aria-label="View mode" className="flex items-center gap-0.5">
@@ -296,6 +342,8 @@ export function HtmlArtifactFrame({
               >
                 {Math.round(zoom * 100)}%
               </button>
+              {/* Hairline between the viewport+zoom cluster and the actions cluster. */}
+              <span aria-hidden="true" className="mx-0.5 h-4 w-px bg-[color:var(--border-subtle)]" />
             </>
           ) : null}
           <Tooltip content="Reload">
@@ -399,7 +447,7 @@ export function HtmlArtifactFrame({
             >
               <iframe
                 key={`${absolutePath}::${allowScripts ? 'scripts' : 'no-scripts'}::${reloadNonce}`}
-                title={`Preview · ${relativePath}`}
+                title={`Preview · ${pageTitle}`}
                 srcDoc={frameState.content}
                 sandbox={htmlArtifactFrameSandbox(allowScripts)}
                 onLoad={() => setFrameLoaded(true)}
@@ -413,21 +461,128 @@ export function HtmlArtifactFrame({
               />
             </div>
           </div>
-        ) : frameState.kind === 'loading' ? (
-          <div className="flex h-full items-center justify-center text-[12px] text-[color:var(--text-muted)]">
-            Loading preview…
-          </div>
+        ) : frameState.kind === 'generating' ? (
+          <PreviewState
+            title="Building this page…"
+            body="The preview refreshes automatically as the file is written."
+            skeleton
+          />
+        ) : frameState.kind === 'deleted' ? (
+          <PreviewState
+            glyph="deleted"
+            title="This file isn’t on disk"
+            path={relativePath}
+            body="It may have been removed since you selected it, or not written yet. Pick another file, or reload."
+          />
+        ) : frameState.kind === 'error' ? (
+          <PreviewState glyph="error" tone="warn" title="This file can’t be previewed" body={frameState.reason} />
         ) : (
-          <div className="flex h-full flex-col items-center justify-center gap-2 px-6 text-center">
-            <span className="text-[12px] font-semibold text-[color:var(--tone-warn)]">
-              Preview unavailable
-            </span>
-            <span className="text-[12px] leading-5 text-[color:var(--text-muted)]">
-              {frameState.reason}
-            </span>
-          </div>
+          <PreviewState title="Loading preview…" skeleton />
         )}
+        {/* Paint gap: hold a shimmer over the dark stage until the iframe's own
+            document paints, so a dark mockup never flashes an undesigned void. */}
+        {frameState.kind === 'ready' && !view.showsSource && !frameLoaded ? (
+          <div className="pointer-events-none absolute inset-0 bg-[color:var(--bg-surface)]">
+            <PreviewSkeletonLines />
+          </div>
+        ) : null}
       </div>
+    </div>
+  )
+}
+
+type PreviewStateGlyph = 'deleted' | 'error'
+
+/**
+ * A designed non-render state shared by the HTML preview frame and the artifact
+ * preview pane (MC-1505): a shape glyph, a title, an optional demoted path, and
+ * body copy — neutral by default, warn-toned for a genuine failure. The glyph
+ * shape (not color) carries the meaning, so it survives grayscale. `skeleton`
+ * swaps the glyph for a shimmer stack for the generating/loading states.
+ */
+export function PreviewState({
+  glyph,
+  tone = 'neutral',
+  title,
+  path,
+  body,
+  skeleton = false,
+}: {
+  glyph?: PreviewStateGlyph
+  tone?: 'neutral' | 'warn'
+  title: string
+  path?: string
+  body?: ReactNode
+  skeleton?: boolean
+}) {
+  if (skeleton) {
+    return (
+      <div className="flex h-full flex-col items-center justify-center gap-4 px-6 text-center">
+        <span className="flex flex-col items-center gap-1">
+          <span className="text-[12px] font-semibold text-[color:var(--text-strong)]">{title}</span>
+          {body ? (
+            <span className="max-w-[360px] text-[12px] leading-5 text-[color:var(--text-muted)]">{body}</span>
+          ) : null}
+        </span>
+        <span className="flex w-full max-w-[280px] flex-col gap-2.5">
+          <Skeleton className="h-3 w-3/5 rounded bg-[color:var(--bg-surface-raised)]" />
+          <Skeleton className="h-3 w-4/5 rounded bg-[color:var(--bg-surface-raised)]" />
+          <Skeleton className="h-24 w-full rounded bg-[color:var(--bg-surface-raised)]" />
+          <Skeleton className="h-3 w-2/5 rounded bg-[color:var(--bg-surface-raised)]" />
+        </span>
+      </div>
+    )
+  }
+  return (
+    <div className="flex h-full flex-col items-center justify-center gap-2 px-6 text-center">
+      {glyph ? <PreviewGlyph glyph={glyph} tone={tone} /> : null}
+      <span
+        className={`text-[12px] font-semibold ${
+          tone === 'warn' ? 'text-[color:var(--tone-warn)]' : 'text-[color:var(--text-strong)]'
+        }`}
+      >
+        {title}
+      </span>
+      {path ? (
+        <span className="max-w-full truncate font-mono text-[11px] text-[color:var(--text-subtle)]">{path}</span>
+      ) : null}
+      {body ? (
+        <span className="max-w-[360px] text-[12px] leading-5 text-[color:var(--text-muted)]">{body}</span>
+      ) : null}
+    </div>
+  )
+}
+
+function PreviewGlyph({ glyph, tone }: { glyph: PreviewStateGlyph; tone: 'neutral' | 'warn' }) {
+  const color = tone === 'warn' ? 'var(--tone-warn)' : 'var(--text-subtle)'
+  if (glyph === 'error') {
+    return (
+      <svg viewBox="0 0 16 16" className="h-5 w-5" aria-hidden="true" style={{ color }}>
+        <path d="M8 2 15 14H1z" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinejoin="round" />
+        <path d="M8 6.5v3.4" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
+      </svg>
+    )
+  }
+  // deleted — a hollow circle with a diagonal slash (removed from the set).
+  return (
+    <svg viewBox="0 0 16 16" className="h-5 w-5" aria-hidden="true" style={{ color }}>
+      <circle cx="8" cy="8" r="6" fill="none" stroke="currentColor" strokeWidth="1.4" />
+      <path d="M4.2 11.8 11.8 4.2" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
+    </svg>
+  )
+}
+
+// Centered shimmer stack, filling its container — the paint-gap overlay behind
+// a not-yet-painted iframe. The shared Skeleton honors prefers-reduced-motion.
+function PreviewSkeletonLines() {
+  return (
+    <div className="flex h-full flex-col items-center justify-center gap-2.5 px-6">
+      <span className="flex w-full max-w-[280px] flex-col gap-2.5">
+        <Skeleton className="h-3 w-3/5 rounded bg-[color:var(--bg-surface-raised)]" />
+        <Skeleton className="h-3 w-4/5 rounded bg-[color:var(--bg-surface-raised)]" />
+        <Skeleton className="h-24 w-full rounded bg-[color:var(--bg-surface-raised)]" />
+        <Skeleton className="h-3 w-2/5 rounded bg-[color:var(--bg-surface-raised)]" />
+      </span>
     </div>
   )
 }
@@ -462,7 +617,7 @@ export function MockupPreviewPane({ mockups, watchDirectoryPath, enableSourceVie
           ariaLabel="Mockup screens"
           items={mockups.map((mockup, index): TabItem<string> => ({
             id: mockup.relativePath,
-            label: `${String(index + 1).padStart(2, '0')} · ${titleFromFilename(mockup.name)}`,
+            label: `${String(index + 1).padStart(2, '0')} · ${humanizeFileTitle(mockup.name)}`,
           }))}
           value={activeMockup?.relativePath ?? mockups[0]?.relativePath ?? ''}
           onChange={(id) => setActiveRelativePath(id)}

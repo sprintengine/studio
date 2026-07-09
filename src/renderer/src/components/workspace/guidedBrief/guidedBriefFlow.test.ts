@@ -45,6 +45,9 @@ import {
 import {
   browserOpenFailureMessage,
   htmlArtifactFrameSandbox,
+  humanizeFileTitle,
+  htmlPreviewTitle,
+  pageTitleFromHtml,
   resolveHtmlArtifactView,
 } from './MockupPreviewPane'
 import { nextDesignerStageForReadiness } from './useDesignerSession'
@@ -953,15 +956,52 @@ function testCanvasStudioModel() {
   assert.deepEqual(
     canvasScreensFromIndex(index),
     [
-      { id: 'mockups/onboarding.html', name: 'onboarding.html' },
-      { id: 'mockups/jobs.html', name: 'jobs.html' },
+      { id: 'mockups/onboarding.html', name: 'onboarding.html', path: 'mockups/onboarding.html' },
+      { id: 'mockups/jobs.html', name: 'jobs.html', path: 'mockups/jobs.html' },
     ],
-    'only HTML pages become canvas screens, in index order',
+    'only HTML pages become canvas screens, in index order, carrying the demoted path',
   )
   assert.deepEqual(
     canvasScreensFromIndex({ groups: [], entries: [], count: 0 }),
     [],
     'an index with no pages yields no screens',
+  )
+
+  // Preview title helpers (MC-1505): the page's <title> leads, a raw
+  // date-prefixed filename never becomes a primary label.
+  assert.equal(pageTitleFromHtml('<html><head><title>Onboarding</title></head></html>'), 'Onboarding')
+  assert.equal(
+    pageTitleFromHtml('<title>\n  Dashboard\n  overview  </title>'),
+    'Dashboard overview',
+    'title text is whitespace-collapsed',
+  )
+  assert.equal(pageTitleFromHtml('<TITLE>Cased</TITLE>'), 'Cased', 'the title tag match is case-insensitive')
+  assert.equal(pageTitleFromHtml('<title></title>'), null, 'an empty title is treated as absent')
+  assert.equal(pageTitleFromHtml('<div>no title here</div>'), null, 'no title tag yields null')
+
+  assert.equal(
+    humanizeFileTitle('2026-07-06-panel-header-normalization.html'),
+    'Panel header normalization',
+    'a leading ISO date prefix is stripped so it never reads as a primary label',
+  )
+  assert.equal(humanizeFileTitle('mockups/app_shell.html'), 'App shell', 'the basename is humanized')
+  assert.equal(humanizeFileTitle('tokens.tokens.json'), 'Tokens.tokens', 'only the final extension is dropped')
+  assert.equal(humanizeFileTitle('2026-07-06-.html'), '2026-07-06-.html', 'a name that is only a date keeps its raw basename')
+
+  assert.equal(
+    htmlPreviewTitle('mockups/app.html', '<title>Home</title>'),
+    'Home',
+    'a document title wins over the filename',
+  )
+  assert.equal(
+    htmlPreviewTitle('mockups/app-shell.html', null),
+    'App shell',
+    'before content loads, the humanized filename is the fallback title',
+  )
+  assert.equal(
+    htmlPreviewTitle('mockups/app-shell.html', '<div>no title</div>'),
+    'App shell',
+    'a document with no title falls back to the humanized filename',
   )
 
   // Collapsed bubble status line + dot tone come from the same live stage status

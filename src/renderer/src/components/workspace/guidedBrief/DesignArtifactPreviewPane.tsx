@@ -1,7 +1,7 @@
-import { useEffect, useState, type ReactNode } from 'react'
+import { useEffect, useState } from 'react'
 import { TruncatedText } from '../../ui'
 import { parentPath } from '../../../utils/paths'
-import { HtmlArtifactFrame } from './MockupPreviewPane'
+import { HtmlArtifactFrame, PreviewState, humanizeFileTitle } from './MockupPreviewPane'
 import { RenderedBriefPane } from './RenderedBriefPane'
 import { previewKindForArtifact, type DesignArtifactEntry } from './designArtifacts'
 
@@ -10,35 +10,17 @@ type Props = {
   entry: DesignArtifactEntry | null
 }
 
-function CenteredState({
-  title,
-  body,
-  tone = 'neutral',
-}: {
-  title: string
-  body: ReactNode
-  tone?: 'neutral' | 'warn'
-}) {
-  return (
-    <div className="flex h-full flex-col items-center justify-center gap-2 px-6 text-center">
-      <span
-        className={`text-[12px] font-semibold ${
-          tone === 'warn' ? 'text-[color:var(--tone-warn)]' : 'text-[color:var(--text-strong)]'
-        }`}
-      >
-        {title}
-      </span>
-      <span className="text-[12px] leading-5 text-[color:var(--text-muted)]">{body}</span>
-    </div>
-  )
-}
-
+// The preview title bar: the file's human title leads, the path is demoted
+// beneath it (never the primary label, per MC-1505). The type label and the
+// reload / copy-path actions sit in the trailing actions cluster.
 function PreviewHeader({
+  title,
   relativePath,
   typeLabel,
   onReload,
   onCopyPath,
 }: {
+  title: string
   relativePath: string
   typeLabel: string
   onReload?: () => void
@@ -58,13 +40,20 @@ function PreviewHeader({
   }
 
   return (
-    <div className="flex shrink-0 items-center justify-between gap-3 border-b border-[color:var(--border-subtle)] px-3 py-2">
-      <TruncatedText
-        as="span"
-        text={relativePath}
-        className="font-mono text-[11px] text-[color:var(--text-muted)]"
-      />
-      <span className="flex shrink-0 items-center gap-2">
+    <div className="flex shrink-0 items-center gap-3 border-b border-[color:var(--border-subtle)] px-3 py-2">
+      <span className="flex min-w-0 flex-col leading-tight">
+        <TruncatedText
+          as="span"
+          text={title}
+          className="min-w-0 text-[12px] font-semibold text-[color:var(--text-strong)]"
+        />
+        <TruncatedText
+          as="span"
+          text={relativePath}
+          className="min-w-0 font-mono text-[10px] text-[color:var(--text-subtle)]"
+        />
+      </span>
+      <span className="ml-auto flex shrink-0 items-center gap-2">
         <span className="text-[11px] text-[color:var(--text-muted)]">{typeLabel}</span>
         {onReload ? (
           <button
@@ -101,10 +90,13 @@ async function copyRelativePath(relativePath: string): Promise<void> {
   await window.api.clipboardWriteText(relativePath)
 }
 
+// Missing on disk → the selected file was deleted since it was picked; a read
+// failure → a genuine error. Both are designed states, never a bare void.
 type ImageState =
   | { kind: 'loading' }
   | { kind: 'ready'; dataUrl: string }
-  | { kind: 'unavailable'; reason: string }
+  | { kind: 'deleted' }
+  | { kind: 'error'; reason: string }
 
 function ImageArtifactView({ entry }: { entry: DesignArtifactEntry }) {
   const [state, setState] = useState<ImageState>({ kind: 'loading' })
@@ -120,20 +112,20 @@ function ImageArtifactView({ entry }: { entry: DesignArtifactEntry }) {
         const exists = await window.api.pathExists(entry.absolutePath)
         if (cancelled) return
         if (!exists) {
-          setState({ kind: 'unavailable', reason: `${entry.relativePath} is missing on disk.` })
+          setState({ kind: 'deleted' })
           return
         }
         const dataUrl = await window.api.readImageDataUrl(entry.absolutePath)
         if (cancelled) return
         if (!dataUrl) {
-          setState({ kind: 'unavailable', reason: `${entry.relativePath} could not be read as an image.` })
+          setState({ kind: 'error', reason: `${entry.relativePath} could not be read as an image.` })
           return
         }
         setState({ kind: 'ready', dataUrl })
       } catch (error) {
         if (cancelled) return
         setState({
-          kind: 'unavailable',
+          kind: 'error',
           reason:
             error instanceof Error
               ? `Could not read ${entry.relativePath}: ${error.message}`
@@ -165,6 +157,7 @@ function ImageArtifactView({ entry }: { entry: DesignArtifactEntry }) {
   return (
     <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-md border border-[color:var(--border-default)] bg-[color:var(--bg-surface)]">
       <PreviewHeader
+        title={humanizeFileTitle(entry.name)}
         relativePath={entry.relativePath}
         typeLabel={entry.typeLabel}
         onReload={() => setReloadNonce((nonce) => nonce + 1)}
@@ -178,11 +171,16 @@ function ImageArtifactView({ entry }: { entry: DesignArtifactEntry }) {
             className="mx-auto h-auto max-h-full w-auto max-w-full object-contain"
           />
         ) : state.kind === 'loading' ? (
-          <div className="flex h-full items-center justify-center text-[12px] text-[color:var(--text-muted)]">
-            Loading image…
-          </div>
+          <PreviewState title="Loading image…" skeleton />
+        ) : state.kind === 'deleted' ? (
+          <PreviewState
+            glyph="deleted"
+            title="This file isn’t on disk"
+            path={entry.relativePath}
+            body="It may have been removed since you selected it, or not written yet. Pick another file, or reload."
+          />
         ) : (
-          <CenteredState tone="warn" title="Image unavailable" body={state.reason} />
+          <PreviewState glyph="error" tone="warn" title="Image unavailable" body={state.reason} />
         )}
       </div>
     </div>
@@ -193,7 +191,8 @@ type SourceState =
   | { kind: 'loading' }
   | { kind: 'ready'; content: string }
   | { kind: 'empty' }
-  | { kind: 'unavailable'; reason: string }
+  | { kind: 'deleted' }
+  | { kind: 'error'; reason: string }
 
 function SourceArtifactView({ entry }: { entry: DesignArtifactEntry }) {
   const [state, setState] = useState<SourceState>({ kind: 'loading' })
@@ -209,7 +208,7 @@ function SourceArtifactView({ entry }: { entry: DesignArtifactEntry }) {
         const exists = await window.api.pathExists(entry.absolutePath)
         if (cancelled) return
         if (!exists) {
-          setState({ kind: 'unavailable', reason: `${entry.relativePath} is missing on disk.` })
+          setState({ kind: 'deleted' })
           return
         }
         const content = await window.api.readfile(entry.absolutePath)
@@ -222,7 +221,7 @@ function SourceArtifactView({ entry }: { entry: DesignArtifactEntry }) {
       } catch (error) {
         if (cancelled) return
         setState({
-          kind: 'unavailable',
+          kind: 'error',
           reason:
             error instanceof Error
               ? `Could not read ${entry.relativePath}: ${error.message}`
@@ -254,6 +253,7 @@ function SourceArtifactView({ entry }: { entry: DesignArtifactEntry }) {
   return (
     <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-md border border-[color:var(--border-default)] bg-[color:var(--bg-surface)]">
       <PreviewHeader
+        title={humanizeFileTitle(entry.name)}
         relativePath={entry.relativePath}
         typeLabel={entry.typeLabel}
         onReload={() => setReloadNonce((nonce) => nonce + 1)}
@@ -265,13 +265,18 @@ function SourceArtifactView({ entry }: { entry: DesignArtifactEntry }) {
             {state.content}
           </pre>
         ) : state.kind === 'loading' ? (
-          <div className="flex h-full items-center justify-center text-[12px] text-[color:var(--text-muted)]">
-            Loading source…
-          </div>
+          <PreviewState title="Loading source…" skeleton />
         ) : state.kind === 'empty' ? (
-          <CenteredState title="Empty file" body={`${entry.relativePath} is empty.`} />
+          <PreviewState title="Empty file" body={`${entry.relativePath} has no content yet.`} />
+        ) : state.kind === 'deleted' ? (
+          <PreviewState
+            glyph="deleted"
+            title="This file isn’t on disk"
+            path={entry.relativePath}
+            body="It may have been removed since you selected it, or not written yet. Pick another file, or reload."
+          />
         ) : (
-          <CenteredState tone="warn" title="File unavailable" body={state.reason} />
+          <PreviewState glyph="error" tone="warn" title="File unavailable" body={state.reason} />
         )}
       </div>
     </div>
@@ -283,15 +288,15 @@ function SourceArtifactView({ entry }: { entry: DesignArtifactEntry }) {
  * type: HTML through the shared sandboxed iframe, markdown through the existing
  * rendered-markdown pane, images inline, and CSS/JS/JSON/text as read-only
  * source. There is no separate preview list — the pane only reflects the
- * selected file. Read failures surface as explicit unavailable states.
+ * selected file. Read failures surface as explicit designed states, never a void.
  */
 export function DesignArtifactPreviewPane({ entry }: Props) {
   if (!entry) {
     return (
       <div className="flex h-full min-h-0 flex-col overflow-hidden rounded-md border border-[color:var(--border-default)] bg-[color:var(--bg-surface)]">
-        <CenteredState
+        <PreviewState
           title="Nothing to preview yet"
-          body="Screens and files appear here as the designer writes them."
+          body="The first file usually lands within a minute — it will render here as soon as it exists."
         />
       </div>
     )
@@ -315,7 +320,7 @@ export function DesignArtifactPreviewPane({ entry }: Props) {
       <RenderedBriefPane
         briefPath={entry.absolutePath}
         watchDirectoryPath={watchDirectoryPath}
-        title={entry.name}
+        title={humanizeFileTitle(entry.name)}
         unavailableTitle="Notes unavailable"
         missingReason={`${entry.relativePath} is missing on disk.`}
         emptyReason={`${entry.relativePath} is empty.`}
@@ -335,18 +340,15 @@ export function DesignArtifactPreviewPane({ entry }: Props) {
   return (
     <div className="flex h-full min-h-0 flex-col overflow-hidden rounded-md border border-[color:var(--border-default)] bg-[color:var(--bg-surface)]">
       <PreviewHeader
+        title={humanizeFileTitle(entry.name)}
         relativePath={entry.relativePath}
         typeLabel={entry.typeLabel}
         onCopyPath={() => copyRelativePath(entry.relativePath)}
       />
-      <CenteredState
+      <PreviewState
         title="Preview not supported"
-        body={
-          <>
-            <span className="font-mono">{entry.relativePath}</span> can’t be previewed here. Open it
-            from the workspace folder instead.
-          </>
-        }
+        path={entry.relativePath}
+        body="This file can’t be previewed here. Open it from the workspace folder instead."
       />
     </div>
   )

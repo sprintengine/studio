@@ -1,4 +1,4 @@
-import { Fragment, useEffect, useRef, useState } from 'react'
+import { Fragment, useEffect, useMemo, useRef, useState } from 'react'
 import type { AgentCli, CliRuntimeSettings } from '../../../../../shared/electron-api'
 import type {
   SprintEngineCliPermissionPreset,
@@ -20,7 +20,7 @@ import { parentPath } from '../../../utils/paths'
 import { RosterAndRunSettings } from '../newWorkspace/WizardControls'
 import { ConversationPane } from './ConversationPane'
 import { useWorkspaceStore } from '../../../store/workspaceStore'
-import { HtmlArtifactFrame, MockupPreviewPane } from './MockupPreviewPane'
+import { HtmlArtifactFrame, MockupPreviewPane, humanizeFileTitle, pageTitleFromHtml } from './MockupPreviewPane'
 import { DesignArtifactPreviewPane } from './DesignArtifactPreviewPane'
 import { ComponentGalleryPane } from './ComponentGalleryPane'
 import { RenderedBriefPane } from './RenderedBriefPane'
@@ -1620,6 +1620,63 @@ function TextStageStudioBody({
   )
 }
 
+// Resolve each real HTML page's <title> for the screen switcher (MC-1505),
+// keyed by path+mtime so a page is read once and re-read only when it changes —
+// the same one-shot cache pattern the component gallery uses. Reads reuse the
+// existing readfile IPC (no new watcher); the pages already re-collect on
+// useDesignerSession's watch/poll. Returns relativePath → resolved title, with
+// entries omitted when the page has no (or empty) <title>.
+function useScreenTitles(index: DesignArtifactIndex): Map<string, string> {
+  const requests = useMemo(() => {
+    const pages = index.groups.find((group) => group.id === 'pages')
+    if (!pages) return [] as Array<{ key: string; relativePath: string; absolutePath: string }>
+    return pages.entries.map((entry) => ({
+      key: `${entry.relativePath}::${entry.modifiedAtMs ?? 0}`,
+      relativePath: entry.relativePath,
+      absolutePath: entry.absolutePath,
+    }))
+  }, [index])
+  // key → resolved <title> ('' when the page has none); a present key means read.
+  const [titlesByKey, setTitlesByKey] = useState<Map<string, string>>(new Map())
+  const requestKey = requests.map((request) => request.key).join('|')
+
+  useEffect(() => {
+    let cancelled = false
+    const missing = requests.filter((request) => !titlesByKey.has(request.key))
+    if (missing.length === 0) return
+    void Promise.all(
+      missing.map(async (request): Promise<readonly [string, string]> => {
+        try {
+          return [request.key, pageTitleFromHtml(await window.api.readfile(request.absolutePath)) ?? ''] as const
+        } catch {
+          return [request.key, ''] as const
+        }
+      }),
+    ).then((pairs) => {
+      if (cancelled) return
+      setTitlesByKey((previous) => {
+        const next = new Map(previous)
+        for (const [key, value] of pairs) next.set(key, value)
+        return next
+      })
+    })
+    return () => {
+      cancelled = true
+    }
+    // requestKey captures the current key set; titlesByKey re-runs the guard after a set.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [requestKey, titlesByKey])
+
+  return useMemo(() => {
+    const byPath = new Map<string, string>()
+    for (const request of requests) {
+      const title = titlesByKey.get(request.key)
+      if (title) byPath.set(request.relativePath, title)
+    }
+    return byPath
+  }, [requests, titlesByKey])
+}
+
 // Designer studio (both presets): the selected artifact fills the canvas, the
 // screens switcher / gallery placeholder rides the floating pill, and the
 // designer lives in the floating agent bubble (CanvasStudio shell, MC-1510).
@@ -1689,6 +1746,15 @@ function DesignStudioBody({
       ? `${mockupCount} screen${mockupCount === 1 ? '' : 's'} in this run · ask for changes anytime`
       : 'Describe the screens you want — files and preview update as they’re written'
 
+  // Screen switcher labels are page titles, not raw filenames (MC-1505): read
+  // each real HTML page's <title>, then upgrade the switcher's display name
+  // from the filename fallback to the resolved title.
+  const screenTitles = useScreenTitles(designArtifacts)
+  const screens = canvasScreensFromIndex(designArtifacts).map((screen) => ({
+    ...screen,
+    name: screenTitles.get(screen.id) ?? humanizeFileTitle(screen.path),
+  }))
+
   // frontend-design navigates its real HTML pages inline (≤6) or via the
   // screens drawer (7+). design-system swaps the switcher for the Gallery/File
   // toggle (MC-1509): Gallery is the live component grid, File the single-file
@@ -1697,7 +1763,7 @@ function DesignStudioBody({
     ? { kind: 'gallery', mode: designSystemView, onSelectMode: setDesignSystemView }
     : {
         kind: 'screens',
-        screens: canvasScreensFromIndex(designArtifacts),
+        screens,
         activeId: activeDesignArtifactPath,
         onSelect: (id) => {
           const entry = findDesignArtifact(designArtifacts, id)

@@ -8,10 +8,14 @@ import { stageChipState } from '../stageReadiness'
 
 // A navigable screen on the canvas — one real HTML page in the frontend-design
 // preset. `id` is the workspace-root-relative path (the selection key that
-// drives `activeDesignArtifactPath`).
+// drives `activeDesignArtifactPath`). `name` is the display label the switcher
+// shows — the page's `<title>` when the studio has resolved it, otherwise the
+// humanized filename; `path` is the demoted workspace-relative path shown
+// beneath it in the drawer (MC-1505: a title over a path, never a raw filename).
 export type CanvasScreen = {
   id: string
   name: string
+  path: string
 }
 
 // The screen switcher rides inline in the toolbar pill up to this many screens;
@@ -56,11 +60,18 @@ export function screenSwitcherMode(screenCount: number): 'inline' | 'drawer' {
 // The screens the frontend-design switcher navigates: the real HTML pages from
 // the run's design index (the `pages` group), in index order. Non-page files
 // (styles, scripts, notes, inspiration) are not screens and never appear in the
-// switcher — the canvas is screen-first, per the decision record.
+// switcher — the canvas is screen-first, per the decision record. `name`
+// defaults to the filename here; the studio upgrades it to the page's resolved
+// `<title>` before rendering (a title read is async and file-content-based, so
+// it does not belong in this pure path-based builder).
 export function canvasScreensFromIndex(index: DesignArtifactIndex): CanvasScreen[] {
   const pages = index.groups.find((group) => group.id === 'pages')
   if (!pages) return []
-  return pages.entries.map((entry) => ({ id: entry.relativePath, name: entry.name }))
+  return pages.entries.map((entry) => ({
+    id: entry.relativePath,
+    name: entry.name,
+    path: entry.relativePath,
+  }))
 }
 
 // The collapsed agent-bubble status line, derived from the same live stage
