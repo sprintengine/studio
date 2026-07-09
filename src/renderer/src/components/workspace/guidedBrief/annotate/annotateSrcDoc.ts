@@ -12,10 +12,15 @@
 
 import { buildAnnotatePickerSource } from './pickerRuntime'
 
-// Matches a <script> start tag and captures its attributes. `[^>]*` stops at the
-// first '>', which is correct for the design mockups we render; a '>' inside an
-// attribute value is a documented edge (see composeAnnotateSrcDoc note).
-const SCRIPT_OPEN_TAG = /<script\b([^>]*)>/gi
+// Matches a <script> start tag and captures its attributes. The attribute body
+// is quote-aware — `"[^"]*"|'[^']*'` consume a quoted value whole, so a literal
+// '>' *inside* an attribute value no longer truncates the match and leave the
+// tail of the real tag (with its content) outside neutralization. That truncation
+// was a confirmed bypass (T14): `<script a=">payload//">` matched only `<script a=">`,
+// and the rewrite produced a *typeless* — therefore executable — inline script.
+// The alternatives are first-char-disjoint (`"`, `'`, else non-`>`), so the star
+// cannot backtrack catastrophically.
+const SCRIPT_OPEN_TAG = /<script\b((?:"[^"]*"|'[^']*'|[^>])*)>/gi
 const TYPE_ATTR = /\s+type\s*=\s*("[^"]*"|'[^']*'|[^\s>]+)/gi
 const CLOSING_BODY = /<\/body\s*>/i
 
@@ -39,10 +44,13 @@ export function neutralizeAuthorScripts(html: string): string {
  * never rewritten. Callers must still sandbox the frame with `allow-scripts`
  * and never `allow-same-origin`.
  *
- * Known edge: a literal '>' inside a script tag's attribute value truncates the
- * match; such a tag is left as-is. Author scripts are the trust surface tested
- * in annotateSrcDoc.test.ts; inline `on*` handlers and `javascript:` URLs remain
- * a residual surface flagged for the security sweep (T14).
+ * Author `<script>` tags are neutralized even when an attribute value contains a
+ * literal '>' (the quote-aware SCRIPT_OPEN_TAG; regression-tested against the
+ * confirmed bypass in annotateSrcDoc.test.ts). Neutralization is defense-in-depth,
+ * not the trust boundary: inline `on*` handlers and `javascript:` URLs still run
+ * under `allow-scripts`, so the boundary that actually contains author code is the
+ * sandbox — opaque origin, never `allow-same-origin`, no popups/top-nav/forms
+ * (T14 security review). Any code that does run is confined to this frame.
  */
 export function composeAnnotateSrcDoc(html: string): string {
   const neutralized = neutralizeAuthorScripts(html)
