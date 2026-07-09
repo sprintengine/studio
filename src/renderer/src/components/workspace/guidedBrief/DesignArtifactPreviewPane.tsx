@@ -290,8 +290,8 @@ export function DesignArtifactPreviewPane({ entry }: Props) {
     return (
       <div className="flex h-full min-h-0 flex-col overflow-hidden rounded-md border border-[color:var(--border-default)] bg-[color:var(--bg-surface)]">
         <CenteredState
-          title="No screen selected"
-          body="Pick a screen from the toolbar to preview it here."
+          title="Nothing to preview yet"
+          body="Screens and files appear here as the designer writes them."
         />
       </div>
     )

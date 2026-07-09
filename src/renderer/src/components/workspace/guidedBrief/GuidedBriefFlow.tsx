@@ -1653,6 +1653,16 @@ function DesignStudioBody({
   onSelectDesignArtifact: (entry: DesignArtifactEntry) => void
 }) {
   const selectedEntry = findDesignArtifact(designArtifacts, activeDesignArtifactPath)
+  // Canvas-first means a design fills the surface as soon as one exists: when
+  // nothing is selected yet, default to the first indexed artifact (pages sort
+  // first, so frontend-design lands on a screen) instead of an empty canvas.
+  // This also gives the design-system preset a visible canvas before its
+  // Screen/Gallery navigation lands (MC-1509/T6).
+  useEffect(() => {
+    if (activeDesignArtifactPath) return
+    const first = designArtifacts.entries[0]
+    if (first) onSelectDesignArtifact(first)
+  }, [activeDesignArtifactPath, designArtifacts, onSelectDesignArtifact])
   // Honest bundle count (MC-1502): only files under design-system/ are "in the
   // bundle" — inspiration files are listed in their group but never counted.
   const bundleFileCount = designSystemBundleFileCount(designArtifacts)
