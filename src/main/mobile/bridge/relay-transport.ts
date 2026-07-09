@@ -259,11 +259,13 @@ function optionalPairingPayload(
   }
   const desktopPayload = desktop as Record<string, unknown>
   if (pairingPayload.mobileControlProtocolVersion !== mobileControlProtocolVersion) {
-    throw new Error(`Relay response field ${field}.mobileControlProtocolVersion must be 1.`)
+    throw new Error(
+      `Relay response field ${field}.mobileControlProtocolVersion must be ${mobileControlProtocolVersion}.`,
+    )
   }
 
   return {
-    mobileControlProtocolVersion: 2,
+    mobileControlProtocolVersion,
     pairingChallengeId: requireRelayString(pairingPayload, 'pairingChallengeId'),
     relayUrl: requireRelayString(pairingPayload, 'relayUrl'),
     pairingSecret: requireRelayString(pairingPayload, 'pairingSecret'),
