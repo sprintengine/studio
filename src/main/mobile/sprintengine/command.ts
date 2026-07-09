@@ -411,6 +411,27 @@ export class MobileSprintEngineCommandService {
     return this.invokeTool(command, args, state.workspaceRoot, state, artifact.id)
   }
 
+  // Expands the optional sprint config into `handover` CLI args. teamName is
+  // slugified here (safeSlug) so bookkeeping (module metadata, audit args)
+  // records the same name the engine derives; roleCounts become the wizard's
+  // `role:role-N` seat specs — presence means the user composed the roster,
+  // absence leaves rosterConfigured false so the architect picks the team.
+  // Automation mode / permission presets / max-parallel / worktrees are
+  // desktop-app runner state this CLI path cannot honor (MC-1497 et al.) and
+  // are deliberately not on the wire.
+  private sprintEngineConfigArgs(config: { teamName?: string; roleCounts?: Record<string, number> } | undefined, fallbackTeamName: string): { teamName: string; extraArgs: string[] } {
+    const requestedName = config?.teamName?.trim()
+    const teamName = requestedName ? safeSlug(requestedName) : fallbackTeamName
+    const extraArgs: string[] = []
+    for (const [role, count] of Object.entries(config?.roleCounts ?? {})) {
+      const roleSlug = safeSlug(role)
+      for (let seat = 1; seat <= count; seat += 1) {
+        extraArgs.push('--agent', `${roleSlug}:${roleSlug}-${seat}`)
+      }
+    }
+    return { teamName, extraArgs }
+  }
+
   private async executeSprintEngineCreateCommand(
     command: Extract<MobileControlCommand, { type: 'sprintengine.create' }>,
     scope: MobileSprintEngineCommandScope
@@ -428,7 +449,10 @@ export class MobileSprintEngineCommandService {
       return this.resultRecorder.reject(command, 'invalid_payload', `Product prompt must be ${maxProductPromptCharacters} characters or less.`, false, undefined, undefined, workspacePath)
     }
 
-    const teamName = `mobile-${safeSlug(command.commandId)}`
+    const { teamName, extraArgs } = this.sprintEngineConfigArgs(
+      command.payload.config,
+      `mobile-${safeSlug(command.commandId)}`
+    )
     const args = [
       'handover',
       '--name',
@@ -439,6 +463,7 @@ export class MobileSprintEngineCommandService {
       productPrompt,
       '--actor',
       mobileActorId(command.deviceId),
+      ...extraArgs,
     ]
 
     return this.invokeTool(command, args, workspacePath, undefined, undefined, workspacePath)
@@ -508,7 +533,10 @@ export class MobileSprintEngineCommandService {
     const relativePath = assertBacklogRelativePath(command.payload.relativePath)
     const { title, prompt } = await resolveBacklogStartPrompt(workspacePath, relativePath)
 
-    const teamName = `backlog-${safeSlug(command.commandId)}`
+    const { teamName, extraArgs } = this.sprintEngineConfigArgs(
+      command.payload.config,
+      `backlog-${safeSlug(command.commandId)}`
+    )
     const args = [
       'handover',
       '--name',
@@ -519,6 +547,7 @@ export class MobileSprintEngineCommandService {
       prompt,
       '--actor',
       mobileActorId(command.deviceId),
+      ...extraArgs,
     ]
 
     const result = await this.invokeTool(command, args, workspacePath, undefined, undefined, workspacePath)

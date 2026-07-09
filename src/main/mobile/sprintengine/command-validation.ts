@@ -75,10 +75,64 @@ export function buildError(code: MobileControlError['code'], message: string, re
   }
 }
 
+// Mirrors validateSprintEngineCreateConfig in the shared protocol
+// (src/shared/mobile-control/protocol.ts) — same bounds, desktop-side gate.
+const sprintEngineTeamNameMaxChars = 64
+const sprintEngineRoleCountMax = 10
+const sprintEngineRosterMaxRoles = 12
+
+function validateSprintEngineCreateConfig(payload: Record<string, unknown>): string | null {
+  const config = payload.config
+  if (config === undefined) return null
+  if (typeof config !== 'object' || config === null || Array.isArray(config)) {
+    return 'config must be an object'
+  }
+
+  const record = config as Record<string, unknown>
+
+  if (record.teamName !== undefined) {
+    if (typeof record.teamName !== 'string' || record.teamName.trim().length === 0) {
+      return 'config.teamName must be a non-empty string'
+    }
+    if (record.teamName.trim().length > sprintEngineTeamNameMaxChars) {
+      return `config.teamName must be ${sprintEngineTeamNameMaxChars} characters or less`
+    }
+  }
+
+  if (record.roleCounts !== undefined) {
+    if (typeof record.roleCounts !== 'object' || record.roleCounts === null || Array.isArray(record.roleCounts)) {
+      return 'config.roleCounts must be an object of role id to seat count'
+    }
+    const entries = Object.entries(record.roleCounts as Record<string, unknown>)
+    if (entries.length === 0) {
+      return 'config.roleCounts must name at least one role when present'
+    }
+    if (entries.length > sprintEngineRosterMaxRoles) {
+      return `config.roleCounts must name ${sprintEngineRosterMaxRoles} roles or fewer`
+    }
+    for (const [role, count] of entries) {
+      if (role.trim().length === 0) {
+        return 'config.roleCounts role ids must be non-empty'
+      }
+      if (typeof count !== 'number' || !Number.isInteger(count) || count < 1 || count > sprintEngineRoleCountMax) {
+        return `config.roleCounts values must be integers from 1 to ${sprintEngineRoleCountMax}`
+      }
+    }
+  }
+
+  return null
+}
+
 function validateCommandPayload(type: MobileControlCommandType, payload: Record<string, unknown>): string | null {
   switch (type) {
     case 'sprintengine.create':
-      return requireString(payload, 'workspacePath') ?? requireString(payload, 'productPrompt') ?? optionalString(payload, 'requestedRole')
+      return (
+        requireString(payload, 'workspacePath') ??
+        requireString(payload, 'productPrompt') ??
+        // Tolerated for older clients; never read.
+        optionalString(payload, 'requestedRole') ??
+        validateSprintEngineCreateConfig(payload)
+      )
     case 'artifact.approve':
       return requireString(payload, 'sprintEngineId') ?? requireString(payload, 'artifactId') ?? optionalString(payload, 'feedback')
     case 'artifact.requestChanges':
@@ -108,7 +162,11 @@ function validateCommandPayload(type: MobileControlCommandType, payload: Record<
         optionalString(payload, 'criticality')
       )
     case 'backlog.startSprintEngine':
-      return requireString(payload, 'workspacePath') ?? requireString(payload, 'relativePath')
+      return (
+        requireString(payload, 'workspacePath') ??
+        requireString(payload, 'relativePath') ??
+        validateSprintEngineCreateConfig(payload)
+      )
     case 'backlog.create':
       return (
         requireString(payload, 'workspacePath') ??

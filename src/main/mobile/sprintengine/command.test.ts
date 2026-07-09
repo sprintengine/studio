@@ -30,6 +30,7 @@ async function main(): Promise<void> {
   await assertToolSuccessResponseLossRetryDoesNotReinvokeTool()
   await assertInvalidArtifactPathIsRejected()
   await assertSprintEngineCreateUsesControlledHandover()
+  await assertSprintEngineCreateHonorsSprintConfig()
   await assertTaskStartUsesDesktopSessionOrchestration()
   await assertTaskStartUsesAuthorizedDiscoveredStateOutsideServiceCwd()
   await assertTaskStartRejectsBlockedDependencies()
@@ -404,6 +405,56 @@ async function assertSprintEngineCreateUsesControlledHandover(): Promise<void> {
   assert.deepEqual(invocations[0].args.slice(0, 4), ['handover', '--name', 'mobile-cmd_create', '--goal'])
   assert.equal(invocations[0].args.includes('--handover-text'), true)
   assert.equal(invocations[0].args.includes('--actor'), true)
+}
+
+async function assertSprintEngineCreateHonorsSprintConfig(): Promise<void> {
+  const workspaceRoot = await mkdtemp(join(tmpdir(), 'multicode-mobile-command-create-config-'))
+  const invocations: Array<{ args: string[]; cwd: string }> = []
+  const service = new MobileSprintEngineCommandService({
+    workspaceRoot,
+    now: () => now,
+    execute: async (invocation) => {
+      invocations.push(invocation)
+      return { exitCode: 0, stdout: '{"ok":true,"action":"handover","team":"checkout-flow"}', stderr: '' }
+    },
+  })
+
+  const result = await service.dispatch(command('sprintengine.create', {
+    workspacePath: workspaceRoot,
+    productPrompt: 'Ship the checkout flow.',
+    config: {
+      teamName: 'Checkout Flow',
+      roleCounts: { developer: 2, tester: 1 },
+    },
+  }, {
+    commandId: 'cmd_create_config',
+    idempotencyKey: 'mobile:device_1:create-config',
+  }))
+
+  assert.equal(result.ok, true)
+  assert.equal(invocations.length, 1)
+  const args = invocations[0].args
+  // The requested name is slugified the same way the engine will slugify it.
+  assert.deepEqual(args.slice(0, 3), ['handover', '--name', 'checkout-flow'])
+  // Each role seat becomes a wizard-convention role:role-N spec.
+  const agentSpecs: string[] = []
+  for (let index = 0; index < args.length; index += 1) {
+    if (args[index] === '--agent') agentSpecs.push(args[index + 1])
+  }
+  assert.deepEqual(agentSpecs, ['developer:developer-1', 'developer:developer-2', 'tester:tester-1'])
+
+  // Out-of-bounds config is rejected before any tool invocation.
+  const rejected = await service.dispatch(command('sprintengine.create', {
+    workspacePath: workspaceRoot,
+    productPrompt: 'Ship the checkout flow.',
+    config: { roleCounts: { developer: 0 } },
+  }, {
+    commandId: 'cmd_create_config_bad',
+    idempotencyKey: 'mobile:device_1:create-config-bad',
+  }))
+  assert.equal(rejected.ok, false)
+  assert.equal(rejected.ok === false ? rejected.error.code : '', 'invalid_payload')
+  assert.equal(invocations.length, 1)
 }
 
 async function assertTaskStartUsesDesktopSessionOrchestration(): Promise<void> {
