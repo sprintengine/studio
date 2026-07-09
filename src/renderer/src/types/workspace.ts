@@ -1,5 +1,9 @@
 import type { IJsonModel } from 'flexlayout-react'
 import type { OnboardingStep } from '../store/onboardingState'
+import type {
+  SprintEngineAutoState,
+  SprintEngineCliPermissionPreset,
+} from '../../../shared/sprintengine/automation-types'
 
 export type WorkspaceId = string
 export type WorkspaceWindowId = string
@@ -644,82 +648,21 @@ export type SprintEngineProjectionStatus = {
   errorMessage?: string
 }
 
-export type SprintEngineAutoPendingSpawn = {
-  taskId: string
-  agentId: string
-  startedAt?: number
-}
-
-export type SprintEngineCliPermissionPreset = 'default' | 'auto_workspace' | 'bypass_all'
-export type SprintEngineAutomationMode = 'manual' | 'run_agents' | 'run_agents_and_approve_artifacts'
-export type SprintEngineAutomationDesiredMode = SprintEngineAutomationMode
-export type SprintEngineAutomationRuntimeState =
-  | 'idle'
-  | 'running'
-  | 'paused'
-  | 'blocked'
-  | 'failed'
-  | 'complete'
-
-export type SprintEngineAutomationStopReason =
-  | 'user_selected_manual'
-  | 'folder_missing'
-  | 'spawn_failed'
-  | 'blocked_on_input'
-  | 'all_tasks_done'
-  | 'terminal_closed'
-  | 'workspace_removed'
-  | 'startup'
-
-export type SprintEngineAutomationEvent =
-  | { type: 'user_set_mode'; mode: SprintEngineAutomationDesiredMode }
-  | { type: 'runner_started' }
-  | {
-    type: 'runner_paused'
-    reason: SprintEngineAutomationStopReason
-    message?: string
-    taskId?: string
-    agentId?: string
-  }
-  | { type: 'runner_blocked'; message: string; taskId?: string; agentId?: string }
-  | {
-    type: 'runner_failed'
-    reason: SprintEngineAutomationStopReason
-    message: string
-    taskId?: string
-    agentId?: string
-  }
-  | { type: 'runner_complete'; message?: string }
-  | { type: 'pending_spawns_changed'; pendingSpawns: SprintEngineAutoPendingSpawn[] }
-
-export type SprintEngineAutoState = {
-  desiredMode?: SprintEngineAutomationDesiredMode
-  runtimeState?: SprintEngineAutomationRuntimeState
-  reason?: SprintEngineAutomationStopReason
-  reasonMessage?: string
-  reasonTaskId?: string
-  reasonAgentId?: string
-  changedAt?: number
-  cliPermissionPreset: SprintEngineCliPermissionPreset
-  maxConcurrentAgents: number
-  pendingSpawns: SprintEngineAutoPendingSpawn[]
-  deliveredAgentNotificationEventKeys: string[]
-  // One-shot completion-teardown marker: set (to the teardown timestamp) after
-  // `tearDownCompletedSprintRunAgents` finished for the current completion, so
-  // the projection reconcile never re-fires teardown against panels the user
-  // re-opened afterwards (board resume, recovery audit, manual spawn). Cleared
-  // by the reconcile when the run's tasks are no longer all done (scope
-  // expansion / a chained follow-up sprint), re-arming teardown for the next
-  // completion. Persisted with the rest of the auto state.
-  completionTeardownAt?: number
-  // Optional free-text "Guidance for the architect" captured in the wizard for an
-  // architect-roster run (rosterSource === 'architect'). Prompt-only: quoted
-  // verbatim into the architect's startup prompt to shape team size/spend
-  // posture, never persisted by the engine. Lives here (renderer-owned run
-  // config) rather than on SprintEngineState so the ~4s projection rebuild never
-  // clobbers it. Absent for user-mode runs.
-  architectGuidance?: string
-}
+// The Sprint Engine automation vocabulary is shared with the main process
+// (MC-1567: the mode intent is main-owned). Canonical definitions — including
+// `SprintEngineAutoState` and its field documentation — live in
+// `src/shared/sprintengine/automation-types.ts`; these re-exports keep every
+// existing renderer import site working unchanged.
+export type {
+  SprintEngineAutoPendingSpawn,
+  SprintEngineAutoState,
+  SprintEngineAutomationDesiredMode,
+  SprintEngineAutomationEvent,
+  SprintEngineAutomationMode,
+  SprintEngineAutomationRuntimeState,
+  SprintEngineAutomationStopReason,
+  SprintEngineCliPermissionPreset,
+} from '../../../shared/sprintengine/automation-types'
 
 export type MultiloopAutoPendingSpawn = {
   // Accepts a fixed Multiloop role or any registry-keyed Sprint Engine role

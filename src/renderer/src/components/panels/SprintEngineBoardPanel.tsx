@@ -76,7 +76,6 @@ import { canLaunchSprintEngineInitialSpawn } from '../../utils/sprintengineIniti
 import {
  deriveSprintEngineAutomationMode,
  sprintEngineAutomationModeOptions,
- sprintEngineCliWatchPollingForAutomationMode,
 } from '../../utils/sprintengineAutomation'
 import { normalizeSprintEngineAutomationRuntimeState } from '../../utils/sprintengineAutomationLifecycle'
 import { applySprintEngineAutomationStopReason } from '../../utils/sprintengineSupervisorNotifications'
@@ -1061,7 +1060,6 @@ function SprintEngineBoardPanelContent({
  }
 
  const {
- applySprintEngineProjectionContent,
  openArtifact,
  popOutPreviewedArtifact,
  approveArtifact,
@@ -1291,51 +1289,14 @@ function SprintEngineBoardPanelContent({
  mode: nextMode,
  })
  }
- const nextCliWatchPolling = sprintEngineCliWatchPollingForAutomationMode(nextMode)
- if (sprintEngineState?.runner?.cliWatchPolling === nextCliWatchPolling) return null
- return window.api.setSprintEngineRunnerMode({
- statePath: sprintEngineContext.statePath,
- cliWatchPolling: nextCliWatchPolling,
- })
- })().then(async (result) => {
- if (!result) {
+ // The cliWatchPolling bridge to run.yaml is main's job now: the store
+ // action pushed the mode through `sprintengine:automation:set-mode`
+ // (MC-1567), and that one write path persists the intent and syncs the
+ // headless-CLI hint. Nothing left to await here.
  setPendingAutomationMode(null)
- return
- }
- if (!result.ok) {
- // The CLI-watch polling write to run.yaml failed. Keep the user's local
- // automation choice — the supervisor reads only local autoState, so the UI
- // is functionally correct. Surface a diagnostic so the user can retry if
- // they want the headless CLI co-existence flag synced.
- await publishDiagnostic({
- level: 'warning',
- source: 'sprintengine',
- title: 'CLI watch-polling flag was not synced to run.yaml',
- message: `${result.message} — local automation choice retained; toggle the mode again to retry the persist.`,
- workspaceId,
- workspaceName: workspace?.name,
- })
+ })().catch(() => {
  setPendingAutomationMode(null)
- return
- }
- const projectionApplied = applySprintEngineProjectionContent(
- (result.data as { projectionContent?: unknown } | undefined)?.projectionContent
- )
- if (!projectionApplied) await refreshSprintEngineState()
- setPendingAutomationMode(null)
- }).catch(async (error) => {
- // Same as the !result.ok branch: keep the user's local choice and surface
- // the failure rather than reverting silently.
- await publishDiagnostic({
- level: 'warning',
- source: 'sprintengine',
- title: 'CLI watch-polling flag was not synced to run.yaml',
- message: `${error instanceof Error ? error.message : String(error)} — local automation choice retained; toggle the mode again to retry the persist.`,
- workspaceId,
- workspaceName: workspace?.name,
  })
-  setPendingAutomationMode(null)
-  })
   }
 
   // Deep-link from the run-configuration popover to the task the runtime

@@ -21,6 +21,9 @@ export const GitHubTokenStoreToken = createServiceToken<AppServices['githubToken
 export const SprintEngineArtifactsToken = createServiceToken<AppServices['sprintEngineArtifacts']>(
   'core.sprintengine-artifacts'
 )
+export const SprintEngineAutomationServiceToken = createServiceToken<AppServices['sprintEngineAutomation']>(
+  'core.sprintengine-automation'
+)
 export const MulticodeAuthToken = createServiceToken<AppServices['multicodeAuth']>(
   'core.multicode-auth'
 )

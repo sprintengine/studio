@@ -342,7 +342,14 @@ export interface WorkspaceStore extends PluginsSlice, CliAvailabilitySlice {
   setSprintEngineAutomationMode: (
     workspaceId: WorkspaceId,
     mode: SprintEngineAutomationMode,
-    options?: { suppressManualAudit?: boolean; reason?: string; details?: string }
+    options?: {
+      suppressManualAudit?: boolean
+      reason?: string
+      details?: string
+      // Set by the automation-mode sync subscriber when adopting an
+      // authoritative main broadcast (MC-1567): no push back to main.
+      suppressMainSync?: boolean
+    }
   ) => void
   applySprintEngineAutomationEvent: (
     workspaceId: WorkspaceId,

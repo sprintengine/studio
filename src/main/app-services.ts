@@ -1,4 +1,4 @@
-import { app, shell } from 'electron'
+import { app, BrowserWindow, shell } from 'electron'
 import { existsSync } from 'fs'
 import { join } from 'path'
 import { createAgentConfigImportService } from './agent-config-import'
@@ -28,6 +28,8 @@ import { createMcpConfigService } from './mcp-config-service'
 import { createSkillPackService } from './skill-pack-service'
 import { createWorkspaceSkillsService } from './workspace-skills-service'
 import { createSprintEngineArtifactHandlers } from './sprintengine-artifacts'
+import { createSprintEngineAutomationService } from './sprintengine-automation-service'
+import { SPRINT_ENGINE_AUTOMATION_CHANGED_CHANNEL } from './ipc/sprintengine-automation-ipc'
 import { createGatedSprintEngineMcpHub, createSprintEngineMcpHubService } from './sprintengine-mcp-hub'
 import { syncManagedSprintEngineMcpConfig } from './sprintengine-managed-mcp-sync'
 import { excludeMcpConfigFromWorktree } from './git'
@@ -105,6 +107,34 @@ export function createAppServices(diagnosticsEnabled: boolean) {
   const conversationRuntime = new ConversationRuntime({ secretStore: getSharedCredentialStore() })
   conversationRuntime.startIdleSweep()
 
+  // Created before terminalRuntime: the automation service needs the runner
+  // CLI seam and the terminal runtime's mobile command service needs the
+  // automation write path (MC-1497 setAutomationMode, headless-capable).
+  const sprintEngineArtifacts = createSprintEngineArtifactHandlers({
+    getAuthenticatedUserId: getAuthenticatedMulticodeUserId,
+    openExternal: (url) => shell.openExternal(url),
+  })
+
+  // Main-owned Sprint Engine automation mode intent (MC-1567). The one write
+  // path for every mode writer: desktop UI (IPC), phone (mobile command), and
+  // any future scheduler/CLI. Persists `automation.json` beside run.yaml,
+  // audits manual transitions, bridges cliWatchPolling, and broadcasts.
+  const sprintEngineAutomation = createSprintEngineAutomationService({
+    setRunnerCliWatchPolling: async ({ statePath, cliWatchPolling }) => {
+      const result = await sprintEngineArtifacts.setRunnerMode({ statePath, cliWatchPolling })
+      return result.ok ? { ok: true } : { ok: false, message: result.message }
+    },
+    logDiagnostic: (diagnostic) => {
+      void writeDiagnosticLog(diagnostic)
+    },
+    broadcast: (event) => {
+      for (const window of BrowserWindow.getAllWindows()) {
+        if (window.isDestroyed() || window.webContents.isDestroyed()) continue
+        window.webContents.send(SPRINT_ENGINE_AUTOMATION_CHANGED_CHANNEL, event)
+      }
+    },
+  })
+
   const terminalRuntime = createTerminalRuntime({
     diagnosticsEnabled,
     requireAuthenticatedUser: requireAuthenticatedMulticodeUser,
@@ -146,6 +176,17 @@ export function createAppServices(diagnosticsEnabled: boolean) {
       }
     },
     prepareAgentStateHook: (workspaceRoot, cli) => agentStateService.installForWorkspace(workspaceRoot, cli),
+    // MC-1497: the phone's setAutomationMode writes the main-owned intent
+    // directly — no renderer round-trip, works headless.
+    setSprintEngineAutomationMode: async (input) => {
+      const result = await sprintEngineAutomation.setAutomationMode({
+        statePath: input.statePath,
+        mode: input.mode,
+        actor: 'mobile',
+      })
+      if (result.ok) return { ok: true }
+      return { ok: false, retryable: false, message: result.message }
+    },
   })
   const updateService = new MulticodeUpdateService({ writeDiagnosticLog })
   const agentConfigImportService = createAgentConfigImportService({
@@ -184,11 +225,6 @@ export function createAppServices(diagnosticsEnabled: boolean) {
     logDiagnostic: logWorkspaceSyncDiagnostic,
     resolveResumeCapabilities: cliResumeCapabilities,
   })
-  const sprintEngineArtifacts = createSprintEngineArtifactHandlers({
-    getAuthenticatedUserId: getAuthenticatedMulticodeUserId,
-    openExternal: (url) => shell.openExternal(url),
-  })
-
   // App-automation MCP surface: reads come from the workspace-sync snapshot
   // and terminal runtime; mutations are delegated to the primary renderer so
   // they run the same store actions as the UI. Off by default; the persisted
@@ -252,6 +288,7 @@ export function createAppServices(diagnosticsEnabled: boolean) {
     multicodeAuth,
     skillPackService,
     sprintEngineArtifacts,
+    sprintEngineAutomation,
     sprintEngineMcpHub,
     terminalRuntime,
     updateService,

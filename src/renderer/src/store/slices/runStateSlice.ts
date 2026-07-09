@@ -10,10 +10,8 @@ import {
   normalizeSprintEngineAutomationStopReason,
   transitionSprintEngineAutomation,
 } from '../../utils/sprintengineAutomationLifecycle'
-import {
-  auditSprintEngineLifecycleTransition,
-  auditSprintEngineManualModeTransition,
-} from '../../utils/sprintengineAutomationAudit'
+import { auditSprintEngineLifecycleTransition } from '../../utils/sprintengineAutomationAudit'
+import { pushSprintEngineAutomationModeIntent } from '../../utils/sprintengineAutomationIntentClient'
 import {
   getSprintEngineDirectoryPath,
   getSprintEngineStateFilePath,
@@ -525,7 +523,15 @@ export interface RunStateSliceActions {
   setSprintEngineAutomationMode: (
     workspaceId: WorkspaceId,
     mode: SprintEngineAutomationMode,
-    options?: { suppressManualAudit?: boolean; reason?: string; details?: string }
+    options?: {
+      suppressManualAudit?: boolean
+      reason?: string
+      details?: string
+      // Set by the automation-mode sync subscriber when adopting an
+      // authoritative main broadcast: applies the local transition without
+      // pushing the value back to main (the no-echo rule).
+      suppressMainSync?: boolean
+    }
   ) => void
   applySprintEngineAutomationEvent: (
     workspaceId: WorkspaceId,
@@ -740,23 +746,34 @@ export function createRunStateSlice(set: RunStateSliceSet): RunStateSlice {
           : defaultMultiloopAutoState()
       }),
 
-    setSprintEngineAutomationMode: (workspaceId, mode, options) =>
+    // The local transition stays synchronous (optimistic UI); the authoritative
+    // write — persistence, the manual-transition audit, the cliWatchPolling
+    // bridge, and the cross-window/phone broadcast — happens in main (MC-1567).
+    // The audit that used to be emitted here now has exactly one writer: main.
+    setSprintEngineAutomationMode: (workspaceId, mode, options) => {
+      const push: { current: { statePath: string; workspaceName?: string } | null } = { current: null }
       set((state) => {
         const ws = state.workspaces.find((w) => w.id === workspaceId)
         if (!ws) return
         const current = normalizeSprintEngineAutoState(ws.sprintEngineAutoState)
-        const previousMode = deriveSprintEngineAutomationMode(current)
         ws.sprintEngineAutoState = transitionSprintEngineAutomation(current, { type: 'user_set_mode', mode })
-        if (mode === 'manual' && !options?.suppressManualAudit) {
-          auditSprintEngineManualModeTransition({
-            workspaceId,
-            workspaceName: ws.name,
-            previousMode,
-            reason: options?.reason ?? 'Sprint automation mode was set to Manual.',
-            ...(options?.details ? { details: options.details } : {}),
-          })
+        const statePath = ws.sprintEngineContext?.statePath
+        if (statePath && !options?.suppressMainSync) {
+          push.current = { statePath, workspaceName: ws.name }
         }
-      }),
+      })
+      if (push.current) {
+        pushSprintEngineAutomationModeIntent({
+          statePath: push.current.statePath,
+          mode,
+          workspaceId,
+          ...(push.current.workspaceName ? { workspaceName: push.current.workspaceName } : {}),
+          ...(options?.reason ? { reason: options.reason } : {}),
+          ...(options?.details ? { details: options.details } : {}),
+          ...(options?.suppressManualAudit ? { suppressManualAudit: true } : {}),
+        })
+      }
+    },
 
     applySprintEngineAutomationEvent: (workspaceId, event) =>
       set((state) => {

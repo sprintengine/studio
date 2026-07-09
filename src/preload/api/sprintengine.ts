@@ -1,7 +1,14 @@
 import { ipcRenderer } from 'electron'
+import type { IpcRendererEvent } from 'electron'
 import type {
   ElectronApi,
   SprintEngineArtifactCommandResult,
+  SprintEngineAutomationChangedEvent,
+  SprintEngineAutomationHydrateInput,
+  SprintEngineAutomationReadInput,
+  SprintEngineAutomationReadResult,
+  SprintEngineAutomationSetModeInput,
+  SprintEngineAutomationWriteResult,
   SprintEngineDispatchReadInput,
   SprintEngineMcpReadResult,
   SprintEngineProjectionReadResult,
@@ -130,6 +137,26 @@ export const sprintEngineApi = {
     ipcRenderer.invoke('sprintengine:user-roles:delete', id),
   getUserSprintEngineRole: (id: string): Promise<UserRoleGetResult> =>
     ipcRenderer.invoke('sprintengine:user-roles:get', id),
+  readSprintEngineAutomationMode: (
+    input: SprintEngineAutomationReadInput
+  ): Promise<SprintEngineAutomationReadResult> =>
+    ipcRenderer.invoke('sprintengine:automation:read', input),
+  setSprintEngineAutomationMode: (
+    input: SprintEngineAutomationSetModeInput
+  ): Promise<SprintEngineAutomationWriteResult> =>
+    ipcRenderer.invoke('sprintengine:automation:set-mode', input),
+  hydrateSprintEngineAutomationMode: (
+    input: SprintEngineAutomationHydrateInput
+  ): Promise<SprintEngineAutomationWriteResult> =>
+    ipcRenderer.invoke('sprintengine:automation:hydrate', input),
+  onSprintEngineAutomationChanged: (
+    cb: (event: SprintEngineAutomationChangedEvent) => void
+  ): (() => void) => {
+    const ch = 'sprintengine:automation-changed'
+    const handler = (_: IpcRendererEvent, event: SprintEngineAutomationChangedEvent) => cb(event)
+    ipcRenderer.on(ch, handler)
+    return () => ipcRenderer.removeListener(ch, handler)
+  },
 } satisfies Pick<
   ElectronApi,
   | 'openSprintEngineArtifact'
@@ -143,6 +170,10 @@ export const sprintEngineApi = {
   | 'resolveSprintEngineTaskInput'
   | 'setSprintEngineTaskStatus'
   | 'setSprintEngineRunnerMode'
+  | 'readSprintEngineAutomationMode'
+  | 'setSprintEngineAutomationMode'
+  | 'hydrateSprintEngineAutomationMode'
+  | 'onSprintEngineAutomationChanged'
   | 'createSprintEnginePullRequest'
   | 'refreshSprintEnginePullRequestStatus'
   | 'replenishSprintEngineRoster'

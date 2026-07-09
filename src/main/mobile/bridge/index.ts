@@ -1011,6 +1011,7 @@ export class MobileBridge {
       case 'artifact.requestChanges':
       case 'agent.followUp':
       case 'sprintengine.openPullRequest':
+      case 'sprintengine.setAutomationMode':
         return this.dispatchSprintEngineMutation(command)
       case 'backlog.update':
       case 'backlog.startSprintEngine':

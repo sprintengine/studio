@@ -1,8 +1,9 @@
 import { registerSprintEngineIpc } from '../ipc/sprintengine-ipc'
+import { registerSprintEngineAutomationIpc } from '../ipc/sprintengine-automation-ipc'
 import { computeSprintEngineTokenUsageReport, tokenLedgerVersion } from '../sprintengine-token-usage'
 import { sprintTokenUsageDeps } from '../sprintengine-token-sampling'
 import type { SprintEngineTokenUsageReport } from '../../shared/sprintengine-token-usage'
-import { SprintEngineArtifactsToken, SprintEngineAutomationFrontDoorsToken, SprintEngineMcpHubToken } from '../module-host/service-tokens'
+import { SprintEngineArtifactsToken, SprintEngineAutomationFrontDoorsToken, SprintEngineAutomationServiceToken, SprintEngineMcpHubToken } from '../module-host/service-tokens'
 import type { CapabilityModule } from '../module-host/load-modules'
 import type { SidecarRunState } from '../module-host/main-host'
 import type { SprintEngineMcpHubStatus } from '../sprintengine-mcp-hub'
@@ -32,6 +33,7 @@ export const sprintEngineModule: CapabilityModule = {
   },
   registerMain(host) {
     const artifacts = host.requireService(SprintEngineArtifactsToken)
+    const automation = host.requireService(SprintEngineAutomationServiceToken)
     const mcpHub = host.requireService(SprintEngineMcpHubToken)
 
     host.provideService(SprintEngineAutomationFrontDoorsToken, () => ({
@@ -84,6 +86,10 @@ export const sprintEngineModule: CapabilityModule = {
       summarizeFeedback: artifacts.summarizeFeedback,
       readTokenUsage: ({ statePath }) => readTokenUsageCached(statePath),
     })
+
+    // MC-1567: the main-owned automation mode intent (read / set / one-time
+    // hydrate). Broadcasts ride `sprintengine:automation-changed`.
+    registerSprintEngineAutomationIpc(host.ipcMain, { automation })
   },
 }
 

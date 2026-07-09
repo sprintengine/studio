@@ -3,8 +3,11 @@ import type {
   SprintEngineAutomationMode,
   SprintEngineRunnerPolicy,
 } from '../types/workspace'
+import { sprintEngineAutomationModeLabel } from '../../../shared/sprintengine/automation-types'
 import { deriveSprintEngineAutomationDesiredMode } from './sprintengineAutomationLifecycle'
 
+// Labels come from the shared automation vocabulary so the main-process audit
+// and the renderer UI can never drift; the hints are UI-only copy.
 export const sprintEngineAutomationModeOptions: Array<{
   value: SprintEngineAutomationMode
   label: string
@@ -12,17 +15,17 @@ export const sprintEngineAutomationModeOptions: Array<{
 }> = [
   {
     value: 'manual',
-    label: 'Manual',
+    label: sprintEngineAutomationModeLabel('manual'),
     hint: 'Do not spawn agents or approve artifacts automatically.',
   },
   {
     value: 'run_agents',
-    label: 'Run agents',
+    label: sprintEngineAutomationModeLabel('run_agents'),
     hint: 'Spawn and monitor roster agents while artifact approvals stay manual.',
   },
   {
     value: 'run_agents_and_approve_artifacts',
-    label: 'Run agents + approve artifacts',
+    label: sprintEngineAutomationModeLabel('run_agents_and_approve_artifacts'),
     hint: 'Run roster agents and approve eligible review artifacts automatically.',
   },
 ]
@@ -44,15 +47,10 @@ export function deriveSprintEngineAutomationMode(
   return deriveSprintEngineAutomationDesiredMode(autoState)
 }
 
-export function sprintEngineCliWatchPollingForAutomationMode(
-  mode: SprintEngineAutomationMode,
-): SprintEngineRunnerPolicy['cliWatchPolling'] {
-  // Manual = headless `join --watch` exits when idle; any automation mode =
-  // headless `join --watch` keeps polling. The Multicode supervisor itself
-  // does not consult this value, but we bridge it so a headless CLI agent
-  // opened against the same run respects the user's intent.
-  return mode === 'manual' ? 'disabled' : 'enabled'
-}
+// The intent -> headless-CLI polling-flag bridge relocated to the shared
+// lifecycle module (MC-1567): the main-process set-mode path is the one writer
+// of the run.yaml hint now, and this re-export keeps renderer imports working.
+export { sprintEngineCliWatchPollingForAutomationMode } from '../../../shared/sprintengine/automation-lifecycle'
 
 export function patchSprintEngineAutoStateForMode(
   current: SprintEngineAutoState,

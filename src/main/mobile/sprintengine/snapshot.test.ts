@@ -40,6 +40,70 @@ async function main(): Promise<void> {
   await assertSnapshotOmitsNonMobileStatePayloads()
   await assertSnapshotSkipsMalformedStateFiles()
   await assertPublishingIsThrottled()
+  await assertAutomationIntentSidecarWinsOverRunnerHeuristic()
+  await assertAutomationIntentSidecarSurfacesOnStateFallback()
+}
+
+async function assertAutomationIntentSidecarWinsOverRunnerHeuristic(): Promise<void> {
+  // MC-1567: the main-owned `automation.json` intent is the exact automation
+  // mode — including the `run_agents_and_approve_artifacts` variant the
+  // cliWatchPolling heuristic can never express (enabled would read as
+  // run_agents below).
+  const statePath = await writeStateText('not-real-state\n')
+  const teamDirectory = dirname(statePath)
+  await writeFile(join(teamDirectory, 'projection.json'), JSON.stringify({
+    ok: true,
+    projectionVersion: 1,
+    source: 'folder_store',
+    updatedAt: generatedAt,
+    run: {
+      id: 'intent-team',
+      name: 'Intent Team',
+      status: 'executing',
+      updatedAt: generatedAt,
+      runner: { cliWatchPolling: 'enabled' },
+    },
+    tasks: [],
+    artifacts: [],
+  }), 'utf8')
+  await writeFile(join(teamDirectory, 'automation.json'), JSON.stringify({
+    schemaVersion: 1,
+    revision: 4,
+    desiredMode: 'run_agents_and_approve_artifacts',
+    changedAt: 1789000000000,
+    lastWrite: { actor: 'mobile', deviceId: 'device-1', at: generatedAt },
+  }), 'utf8')
+
+  const snapshot = await readSprintEngineSnapshot(statePath)
+  assert.equal(snapshot.automationMode, 'run_agents_and_approve_artifacts')
+
+  // A corrupt sidecar falls back to the legacy heuristic rather than failing.
+  await writeFile(join(teamDirectory, 'automation.json'), '{corrupt', 'utf8')
+  const fallback = await readSprintEngineSnapshot(statePath)
+  assert.equal(fallback.automationMode, 'run_agents')
+}
+
+async function assertAutomationIntentSidecarSurfacesOnStateFallback(): Promise<void> {
+  // The run.yaml fallback path (no projection.json) previously had no
+  // automationMode at all; the sidecar gives it the exact value too.
+  const statePath = await writeStateFixture({
+    schemaVersion: 2,
+    sprintengine: { name: 'Fallback Team', updatedAt: generatedAt },
+    tasks: [],
+    artifacts: [],
+  })
+  const before = await readSprintEngineSnapshot(statePath)
+  assert.equal(before.automationMode, undefined)
+
+  await writeFile(join(dirname(statePath), 'automation.json'), JSON.stringify({
+    schemaVersion: 1,
+    revision: 1,
+    desiredMode: 'manual',
+    changedAt: 1789000000000,
+    lastWrite: { actor: 'ui', deviceId: null, at: generatedAt },
+  }), 'utf8')
+  const after = await readSprintEngineSnapshot(statePath)
+  assert.equal(after.automationMode, 'manual')
 }
 
 async function assertProjectionSnapshotExposesProvenanceAndVcs(): Promise<void> {

@@ -72,6 +72,7 @@ import { normalizeAgentIdentifier, prependAgentIdentifier } from '../../utils/ag
 import { publishDiagnosticSync } from '../../utils/diagnostics'
 import { logPerfEvent } from '../../utils/perfDiagnostics'
 import { applySprintEngineAutomationStopReason } from '../../utils/sprintengineSupervisorNotifications'
+import { initSprintEngineAutomationModeSync } from '../../utils/sprintengineAutomationModeSync'
 import { addAgentTabTiled, addTerminalTab, focusOrAddAgentTab, focusOrAddFileTab, focusOrAddTerminalTab, getModel, jsonModelHasComponent, revealNavRailComponent, togglePanelRailComponent } from '../../utils/modelRegistry'
 import { MULTICODE_DISABLE_SPRINTENGINE_SYNC } from '../../utils/runtimeFlags'
 import { agentCliSupportsConversationResume, agentCliUsesStableSessionIdForResume } from '../../utils/agentCliResume'
@@ -260,6 +261,10 @@ export default function WorkspaceManager() {
   useEffect(() => {
     useWorkspaceStore.getState().archiveStaleWorkspaces()
   }, [])
+  // Main-owned automation mode intent (MC-1567): subscribe to authoritative
+  // broadcasts and run the one-time per-run hydration sweep. Idempotent across
+  // windows (main accepts the first hydration only).
+  useEffect(() => initSprintEngineAutomationModeSync(), [])
   const workspaces = useWorkspaceStore(useShallow((s) => selectWorkspaceManagerWorkspaces(s.workspaces)))
   const workspaceWindows = useWorkspaceStore((s) => s.workspaceWindows)
   const primaryWorkspaceWindowId = useWorkspaceStore((s) => s.primaryWorkspaceWindowId)

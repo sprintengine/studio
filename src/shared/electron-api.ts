@@ -1,4 +1,6 @@
 import type { TranscriptionRequestSettings, VoiceTranscribeResponse } from './voiceTranscription'
+import type { SprintEngineAutomationIntentRecord } from './sprintengine/automation-intent'
+import type { SprintEngineAutomationMode as SprintEngineAutomationIntentMode } from './sprintengine/automation-types'
 import type {
   AutomationRendererRequest,
   AutomationRendererResponse,
@@ -1705,6 +1707,44 @@ export type SprintEngineRunnerSetInput = {
   cliWatchPolling: SprintEngineCliWatchPolling
 }
 
+// ── Sprint Engine automation intent (MC-1567: main-owned mode ownership) ────
+// The authoritative three-state automation mode lives in a main-owned sidecar
+// (`automation.json` beside `run.yaml`); the renderer subscribes and pushes
+// writes through `sprintengine:automation:set-mode`. Record shape and revision
+// semantics: src/shared/sprintengine/automation-intent.ts.
+
+export type SprintEngineAutomationReadInput = {
+  statePath: string
+}
+
+export type SprintEngineAutomationSetModeInput = {
+  statePath: string
+  mode: SprintEngineAutomationIntentMode
+  reason?: string
+  details?: string
+  suppressManualAudit?: boolean
+  workspaceId?: string
+  workspaceName?: string
+}
+
+export type SprintEngineAutomationHydrateInput = {
+  statePath: string
+  mode: SprintEngineAutomationIntentMode
+}
+
+export type SprintEngineAutomationReadResult =
+  | { ok: true; record: SprintEngineAutomationIntentRecord | null }
+  | { ok: false; message: string }
+
+export type SprintEngineAutomationWriteResult =
+  | { ok: true; record: SprintEngineAutomationIntentRecord; changed: boolean }
+  | { ok: false; message: string }
+
+export type SprintEngineAutomationChangedEvent = {
+  statePath: string
+  record: SprintEngineAutomationIntentRecord
+}
+
 export type SprintEngineRosterReplenishInput = {
   statePath: string
   role?: SprintEngineTaskMutationRole
@@ -2442,6 +2482,14 @@ export type ElectronApi = {
   resolveSprintEngineTaskInput: (input: SprintEngineTaskResolveInput) => Promise<SprintEngineArtifactCommandResult>
   setSprintEngineTaskStatus: (input: SprintEngineTaskStatusSetInput) => Promise<SprintEngineArtifactCommandResult>
   setSprintEngineRunnerMode: (input: SprintEngineRunnerSetInput) => Promise<SprintEngineArtifactCommandResult>
+  /** Read the main-owned automation mode intent for a run (null until first write/hydration). */
+  readSprintEngineAutomationMode: (input: SprintEngineAutomationReadInput) => Promise<SprintEngineAutomationReadResult>
+  /** Write the automation mode through the one authoritative main-process path. */
+  setSprintEngineAutomationMode: (input: SprintEngineAutomationSetModeInput) => Promise<SprintEngineAutomationWriteResult>
+  /** One-time seed of the main-owned intent from the legacy renderer value; no-op when a record exists. */
+  hydrateSprintEngineAutomationMode: (input: SprintEngineAutomationHydrateInput) => Promise<SprintEngineAutomationWriteResult>
+  /** Authoritative automation-intent changes pushed from main (any writer: UI, phone, system). */
+  onSprintEngineAutomationChanged: (cb: (event: SprintEngineAutomationChangedEvent) => void) => () => void
   createSprintEnginePullRequest: (statePath: string) => Promise<SprintEngineArtifactCommandResult>
   refreshSprintEnginePullRequestStatus: (statePath: string) => Promise<SprintEngineArtifactCommandResult>
   replenishSprintEngineRoster: (input: SprintEngineRosterReplenishInput) => Promise<SprintEngineArtifactCommandResult>
