@@ -185,9 +185,9 @@ export function PluginDetailPanel({
       <div className="mt-3">
         <div className="text-[11px] font-semibold text-[color:var(--text-muted)]">Provides</div>
         <ul className="mt-1 space-y-1 text-[12px] text-[color:var(--text-muted)]">
-          {/* Inline-MCP entries name the actual servers the trust grant adds; the
-              registry index carries no per-skill metadata pre-install, so bundle
-              entries list their component kinds. */}
+          {/* Inline-MCP entries name the actual servers the trust grant adds;
+              bundle entries list their component kinds (their bundled skills,
+              when the catalogue enumerated them, get the section below). */}
           {inlineServers.length > 0
             ? inlineServers.map((server) => (
                 <li key={server.id} className="flex min-w-0 items-center gap-1.5">
@@ -205,6 +205,8 @@ export function PluginDetailPanel({
               ))}
         </ul>
       </div>
+
+      {plugin.skills?.length ? <PluginSkillsList skills={plugin.skills} /> : null}
 
       {sourceHref ? (
         <a
@@ -290,6 +292,52 @@ export function PluginDetailPanel({
         ) : null}
       </div>
     </aside>
+  )
+}
+
+// How many skills the detail panel shows before its "Show N more" toggle —
+// the same collapse idiom as the browse sections; some vendor plugins bundle
+// dozens (Hugging Face ships 25).
+const SKILLS_COLLAPSE_LIMIT = 6
+
+// The bundled skills a plugin carries: names + one-line descriptions
+// enumerated from the plugin's source repo at catalogue-snapshot build time
+// (display metadata, not install state — installing them is the plugin
+// install's job). Rendered only when the entry actually carries skills; a
+// plugin with none simply has no section, never a placeholder.
+function PluginSkillsList({ skills }: { skills: NonNullable<MarketplacePluginEntry['skills']> }) {
+  const [showAll, setShowAll] = useState(false)
+  const visible = showAll ? skills : skills.slice(0, SKILLS_COLLAPSE_LIMIT)
+  const hiddenCount = skills.length - visible.length
+  return (
+    <div className="mt-3">
+      <div className="text-[11px] font-semibold text-[color:var(--text-muted)]">Skills · {skills.length}</div>
+      <ul className="mt-1 space-y-1.5">
+        {/* The validator does not guarantee name/path uniqueness, so the index
+            rides the key; the list is display-only and never reorders. */}
+        {visible.map((skill, index) => (
+          <li key={`${skill.path ?? skill.name}-${index}`} className="min-w-0">
+            <TruncatedText
+              as="div"
+              text={skill.name}
+              className="text-[12px] font-medium leading-4 text-[color:var(--text-default)]"
+            />
+            {skill.description ? (
+              <TruncatedText
+                as="div"
+                text={skill.description}
+                className="mt-0.5 text-[11px] leading-4 text-[color:var(--text-subtle)]"
+              />
+            ) : null}
+          </li>
+        ))}
+      </ul>
+      {skills.length > SKILLS_COLLAPSE_LIMIT ? (
+        <GhostButton size="sm" className="mt-1.5" onClick={() => setShowAll((value) => !value)}>
+          {showAll ? 'Show fewer' : `Show ${hiddenCount} more`}
+        </GhostButton>
+      ) : null}
+    </div>
   )
 }
 

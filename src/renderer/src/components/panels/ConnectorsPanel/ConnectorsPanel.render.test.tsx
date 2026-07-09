@@ -126,6 +126,38 @@ assert.match(
   assert.match(markup, /Use in automation/)
 }
 
+// --- plugin detail: bundled skills section (MC-1565) ------------------------
+
+{
+  const skillNames = ['hf-cli', 'hf-datasets', 'hf-gradio', 'hf-papers', 'hf-spaces', 'hf-trainer', 'hf-eval', 'hf-mem']
+  const skilled: MarketplacePluginEntry = {
+    ...stripePlugin,
+    id: 'anthropic-huggingface-skills',
+    name: 'huggingface-skills',
+    tags: ['claude-plugin'],
+    source: 'https://github.com/huggingface/skills.git',
+    skills: skillNames.map((name) => ({
+      name,
+      description: `${name} does a thing on the Hub.`,
+      path: `skills/${name}`,
+    })),
+  }
+  const markup = body(
+    deriveConnectorsView(ready([]), ready([skilled]), new Set(), '', 'All'),
+    'registry:anthropic-huggingface-skills',
+  )
+  // Section heading carries the full count; the list collapses past six.
+  assert.match(markup, /Skills · 8/)
+  assert.match(markup, /hf-cli/)
+  assert.match(markup, /hf-cli does a thing on the Hub\./)
+  assert.match(markup, /Show 2 more/)
+  assert.doesNotMatch(markup, /hf-mem does a thing/)
+
+  // A plugin with no skills renders no Skills section — no placeholder copy.
+  const bare = body(deriveConnectorsView(ready([]), ready([stripePlugin]), new Set(), '', 'All'), 'registry:stripe-mcp')
+  assert.doesNotMatch(bare, /Skills ·/)
+}
+
 // --- facet tabs render all six, marking the active one ---------------------
 
 {
