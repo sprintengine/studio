@@ -27,6 +27,7 @@ from sprintengine_core.role_registry import (
     SoulRenderError,
     discover_role_registry,
     normalize_role_id,
+    role_manifest_payload,
 )
 from sprintengine_core.tool import (
     cmd_handover,
@@ -34,7 +35,7 @@ from sprintengine_core.tool import (
 )
 from sprintengine_core.tool.constants import VALID_ARTIFACT_KINDS
 from sprintengine_core.tool.plans import plan_path_for_state
-from sprintengine_core.skill_layers import SPRINTENGINE_SOUL_EXTRA_SKILLS
+from sprintengine_core.skill_layers import sprintengine_extra_skills_for_role
 from sprintengine_core.tool.prompts import (
     compose_prompt,
     load_general_soul_prompt,
@@ -89,8 +90,6 @@ _REQUEST_CONTEXT: ContextVar[McpRequestContext | None] = ContextVar("sprintengin
 
 def _leave_released_payload(entry: dict[str, Any]) -> dict[str, Any]:
     """Shape one release descriptor into the agent.leave releasedTargets item."""
-    if entry.get("kind") == "gate":
-        return {"kind": "gate", "taskId": entry.get("taskId"), "gateId": entry.get("gateId"), "attemptId": entry.get("attemptId")}
     return {"kind": "task", "taskId": entry.get("taskId"), "previousOwnerAgentId": entry.get("previousOwnerAgentId"), "status": entry.get("status")}
 
 
@@ -245,9 +244,6 @@ class SprintEngineMcpServer:
         if tool_name == "sprintengine.plan.read":
             assert state_path is not None
             return self._plan_read(state_path)
-        if tool_name == "sprintengine.task.request_changes":
-            assert state_path is not None
-            return self._task_request_changes(state_path, payload, actor)
         if tool_name in {
             "sprintengine.roles.list",
             "sprintengine.roles.get",
@@ -277,15 +273,17 @@ class SprintEngineMcpServer:
         role = str(payload.get("role") or "<role>").strip() or "<role>"
         agent_id = str(payload.get("agentId") or "<agent-id>").strip() or "<agent-id>"
         topic = str(payload.get("topic") or "agent_workflow").strip() or "agent_workflow"
-        if topic not in {"agent_workflow", "tools", "needs_input", "artifacts", "gates"}:
-            raise McpToolError("invalid_payload", "topic must be one of agent_workflow, tools, needs_input, artifacts, or gates.")
+        if topic not in {"agent_workflow", "tools", "needs_input", "artifacts", "phases"}:
+            raise McpToolError("invalid_payload", "topic must be one of agent_workflow, tools, needs_input, artifacts, or phases.")
 
         sections = {
             "agent_workflow": [
-                "After this help call, call sprintengine.agent.join, then claim work with the claim tool your prompt names — sprintengine.task.next for tasks, sprintengine.gate.next for quality gates — using {role, id}.",
-                "Work what the claim returns; it resumes your active item or claims the next ready one.",
+                "After this help call, call sprintengine.agent.join, then claim work with sprintengine.task.next using {role, id}.",
+                "Work what the claim returns; it resumes your active task or claims the next ready one.",
                 "If the claim returns no work, reply that no work was claimed and stop — Multicode re-engages this terminal when work is ready.",
-                "After a task or gate, publish evidence or a verdict, then stop. In worktree-mode runs, task.publish commits task-scoped changes under the git commit lock before routing the task onward. Multicode owns dispatch and continuation.",
+                "You own your task from claim to done. Implement, then sprintengine.task.publish. In worktree-mode runs that also commits your task-scoped changes under the git commit lock.",
+                "If your task produced a diff, publish routes it into its review phase and returns your review directive INLINE in the publish response (`nextDirective`). Follow it, fix what you find, then close the phase with sprintengine.task.advance. If it produced no diff, publish lands the task in done.",
+                "After the task is done, stop. Multicode owns dispatch and continuation.",
                 "Headless CLI agents outside the managed runtime use sprintengine.agent.next_directive for routing instead.",
                 "If Auto Mode is off, you are blocked, need user input, or are near context limit, stop after recording the appropriate note or status.",
             ],
@@ -294,7 +292,6 @@ class SprintEngineMcpServer:
             # tool outside its capability surface.
             "tools": [
                 f"Claim next ready role work: sprintengine.task.next with {{role: \"{role}\", id: \"{agent_id}\"}}.",
-                f"Claim next ready quality gate: sprintengine.gate.next with {{role: \"{role}\", id: \"{agent_id}\"}}.",
                 *(
                     [f"Architect-actionable triage: sprintengine.triage.needs_input with {{id: \"{agent_id}\"}}."]
                     if normalize_role_id(role) == "architect"
@@ -303,8 +300,8 @@ class SprintEngineMcpServer:
                 "Read a task card: sprintengine.task.get with {taskId}. The card is slim by default; pass include: [\"activity\", \"comments\", \"evidence_log\", \"diffs\"] for deep history.",
                 "Log evidence: sprintengine.task.log with {taskId, id, summary, file, command, result, scopeExpansionJson}.",
                 "Publish implementation evidence: sprintengine.task.publish with {taskId, id, summary, ...}; in worktree mode this also commits task-scoped changes under the git commit lock.",
+                "Close a phase: sprintengine.task.advance with {taskId, id, phase, outcome, summary, findingJson?}.",
                 "Inspect or manually commit the shared run worktree only when needed: sprintengine.vcs.status and sprintengine.vcs.commit.",
-                "Request ordinary task rework outside an active gate: sprintengine.task.request_changes with {taskId, id, reason, source?, paths?}.",
                 "Use sprintengine.task.status as a low-level repair/admin transition when a normal workflow tool cannot represent the correction.",
             ],
             "needs_input": [
@@ -314,20 +311,23 @@ class SprintEngineMcpServer:
                 "needsInputQuestion is shown verbatim to a person. When needsInputKind is user, write it for the human operator, not for another agent: plain language, and no tool names, command flags, code symbols, file paths, or acceptance-criteria shorthand unless it is essential and you explain it.",
                 "Structure a user question so it is scannable: open with one line naming the decision or action you need, then short '- ' bullet lines covering what is blocked, why you cannot resolve it yourself, and the concrete options or steps the user can take (recommended option first). End with the single thing you need back. Use line breaks and bullets, never one dense paragraph.",
                 "Put your recommended default in needsInputSuggestedResolution when there is a clear one. A question the operator cannot act on without reading the code is not finished.",
-                "Do not use needs_input for ordinary compile, test, review, or validation failures that an assigned role can fix; use gate.verdict changes_requested for an active gate or task.request_changes outside an active gate.",
+                "Do not use needs_input for ordinary compile, test, review, or validation failures. You own the task: fix them, then continue. Escalate only for a plan contradiction, a scope change, or a product decision you must not invent.",
             ],
             "artifacts": [
                 "Register an artifact with sprintengine.artifact.add and {taskId, kind, title, path, createdBy, ready}.",
                 f"kind must be one of: {', '.join(sorted(VALID_ARTIFACT_KINDS))}. Other values are rejected.",
                 "Set ready: true only when the artifact must wait for human approval.",
             ],
-            "gates": [
-                "Record a gate verdict with sprintengine.gate.verdict and {taskId, gateId, role, id, verdict, summary}.",
-                "Use approved when the gate passes; changes_requested or failed for rework; blocked when routed input is needed; skipped records the summary as the skip rationale.",
-                "If no active gate attempt is claimed but later evidence shows rework is needed, use sprintengine.task.request_changes instead of forcing a gate verdict.",
+            "phases": [
+                "Your task walks its `phases` after publish detects a diff. Today the only phase is `review`: you review the work you just made.",
+                "Close each phase with sprintengine.task.advance and {taskId, id, phase, outcome, summary}. `phase` must equal the task's current status, and only the task's owner may call it.",
+                "outcome: `pass` when you reviewed and found nothing to fix; `pass_with_fixes` when you found issues and fixed them in this session; `escalate` when a plan contradiction, scope change, or product decision blocks you.",
+                "Record what you found (including what you fixed) as categorical telemetry with repeatable findingJson: {kind, severity, area, title?}.",
+                "The walk is strictly forward and a phase is visited at most once. Fixes you make during a phase are smoke-checked in place, never re-reviewed by re-entering it.",
+                "An `escalate` parks the task in needs_input and remembers the phase you escalated from; resolving the input returns you to that phase, not to implementation.",
             ],
         }
-        ordered_topics = [topic] if topic != "agent_workflow" else ["agent_workflow", "tools", "needs_input", "artifacts", "gates"]
+        ordered_topics = [topic] if topic != "agent_workflow" else ["agent_workflow", "tools", "needs_input", "artifacts", "phases"]
         markdown_parts = [f"## {name.replace('_', ' ').title()}\n" + "\n".join(f"- {line}" for line in sections[name]) for name in ordered_topics]
         return {
             "ok": True,
@@ -431,7 +431,6 @@ class SprintEngineMcpServer:
                 "previous": {
                     "status": before.get("status"),
                     "currentTaskId": before.get("currentTaskId"),
-                    "currentGateId": before.get("currentGateId"),
                     "currentDispatch": before.get("currentDispatch"),
                 },
                 "write": True,
@@ -447,7 +446,6 @@ class SprintEngineMcpServer:
             "assignmentUnchanged": {
                 "status": bool(agent) and agent.get("status") == result["previous"].get("status"),
                 "currentTaskId": bool(agent) and agent.get("currentTaskId") == result["previous"].get("currentTaskId"),
-                "currentGateId": bool(agent) and agent.get("currentGateId") == result["previous"].get("currentGateId"),
                 "currentDispatch": bool(agent) and agent.get("currentDispatch") == result["previous"].get("currentDispatch"),
             },
         }
@@ -463,9 +461,10 @@ class SprintEngineMcpServer:
             agent = agents.get(agent_id)
             known = isinstance(agent, dict)
             # Single release authority: frees the departing agent's owned
-            # in_progress task and any live gate claim (needs_input tasks stay
-            # owned) and resets it to idle. Runs for unknown agents too, as
-            # defensive cleanup of stale ownership; it never mints a roster entry.
+            # `in_progress` task and resets it to idle. Tasks in `review` and
+            # `needs_input` stay owned — the owner is revived under the same id.
+            # Runs for unknown agents too, as defensive cleanup of stale ownership;
+            # it never mints a roster entry.
             released = [
                 _leave_released_payload(entry)
                 for entry in release_agent_targets(state, agent_id, reason=reason, actor=agent_id)
@@ -662,70 +661,6 @@ class SprintEngineMcpServer:
 
         return with_locked_state(state_path, run)
 
-    def _task_request_changes(self, state_path: Path, payload: dict[str, Any], actor: ActorContext | None) -> dict[str, Any]:
-        needs_input_fields = sorted(
-            field
-            for field in (
-                "needsInputKind",
-                "needsInputReason",
-                "needsInputArtifactId",
-                "needsInputQuestion",
-                "needsInputSuggestedResolution",
-            )
-            if payload.get(field) is not None
-        )
-        if needs_input_fields:
-            raise McpToolError(
-                "invalid_payload",
-                "sprintengine.task.request_changes routes ordinary rework to changes_requested. "
-                "Use sprintengine.task.status with status=\"needs_input\" for routed blockers.",
-                {"fields": needs_input_fields},
-            )
-        task_id = str(payload["taskId"])
-        requester_id = str(payload.get("id") or (actor.id if actor else "mcp")).strip() or "mcp"
-        reason = str(payload["reason"] or "").strip()
-        paths = list(payload.get("paths") or [])
-        source = str(payload.get("source") or "user").strip() or "user"
-
-        def mutate(state: dict[str, Any]) -> dict[str, Any]:
-            task = find_task(state, task_id)
-            previous_owner_id = task.get("ownerAgentId")
-            comment = create_task_comment(
-                state,
-                task,
-                actor=requester_id,
-                body=reason,
-                comment_type="review_feedback",
-                source=source,
-                paths=paths,
-                data={"status": "open", "reason": reason},
-            )
-            task["status"] = "changes_requested"
-            task["completedAt"] = None
-            task.pop("needsInput", None)
-            ensure_evidence(task)["summary"] = reason
-            cleared = clear_task_refs(state, task_id)
-            if previous_owner_id:
-                set_agent_idle(ensure_agent(state, previous_owner_id, task.get("role")))
-            task["ownerAgentId"] = None
-            append_task_activity(
-                task,
-                "status_change",
-                requester_id,
-                f"{requester_id} moved {task_id} to changes_requested.",
-                {"status": "changes_requested"},
-            )
-            recompute_phase(state)
-            event = append_event(
-                state,
-                "task_status_changed",
-                requester_id,
-                f"{requester_id} moved {task_id} to changes_requested.",
-            )
-            return {"ok": True, "comment": comment, "task": task, "event": event, "clearedAgents": cleared}
-
-        return with_locked_state(state_path, mutate)
-
     def _handover(self, state_path: Path, payload: dict[str, Any], actor: ActorContext | None) -> dict[str, Any]:
         handover_payload = dict(payload)
         workspace_root = self._workspace_root(payload, required=False) or _default_workspace_root(state_path)
@@ -862,7 +797,7 @@ class SprintEngineMcpServer:
             result.setdefault("events", events)
             result.setdefault("latestEvent", latest_event)
             result.setdefault("latestEventId", latest_event.get("id"))
-        if tool_name in {"sprintengine.task.next", "sprintengine.task.claim", "sprintengine.gate.next", "sprintengine.gate.claim"}:
+        if tool_name in {"sprintengine.task.next", "sprintengine.task.claim"}:
             agent = result.get("agent") if isinstance(result.get("agent"), dict) else {}
             current = agent.get("currentDispatch") if isinstance(agent, dict) else None
             result.setdefault("currentDispatch", current)
@@ -870,7 +805,7 @@ class SprintEngineMcpServer:
                 result.setdefault("state", "idle" if not result.get("claimed") else "blocked")
             else:
                 result.setdefault("state", "dispatched")
-        if tool_name in {"sprintengine.gate.verdict", "sprintengine.task.publish", "sprintengine.task.status"}:
+        if tool_name in {"sprintengine.task.publish", "sprintengine.task.advance", "sprintengine.task.status"}:
             next_command = result.get("nextCommand")
             result.setdefault("progression", {"nextCommand": next_command, "state": "continuation_available" if next_command else "idle"})
         return result
@@ -1281,7 +1216,7 @@ def _compose_registry_prompt(registry: RegistryDiscovery, role: str, workspace_r
                 role,
                 workspace_root=workspace_root,
                 run_id=run_id,
-                extra_skills=SPRINTENGINE_SOUL_EXTRA_SKILLS,
+                extra_skills=sprintengine_extra_skills_for_role(registry, role),
             ).content
         except (KeyError, SoulRenderError):
             soul_prompt = None
@@ -1320,30 +1255,16 @@ def _general_role_manifest_payload() -> dict[str, Any]:
         "aliases": [],
         "summary": "Soulless General agent that plans, builds, reviews, and tests a sprint by itself.",
         "icon": None,
-        "soul": [],
-        "capabilities": [],
+        # `general` composes its brief from SPRINTENGINE_GENERAL_SKILLS, not a
+        # manifest, so it carries no directive packs and is not a sweep role. The
+        # keys are still present so the payload shape matches a real v2 manifest.
+        "directives": {},
+        "sweep": None,
         "source": _source_payload("builtin"),
     }
 
 
-def _role_manifest_payload(role: RoleManifest) -> dict[str, Any]:
-    return {
-        "id": role.id,
-        "label": role.label,
-        "aliases": list(role.aliases),
-        "summary": role.summary,
-        "icon": role.icon,
-        "soul": [{"skill": entry.skill} for entry in role.soul],
-        "capabilities": [
-            {
-                "kind": capability.kind,
-                **({"phase": capability.phase} if capability.phase else {}),
-                **({"reviews": list(capability.reviews)} if capability.reviews else {}),
-                **({"defaultFocus": capability.default_focus} if capability.default_focus else {}),
-            }
-            for capability in role.capabilities
-        ],
-    }
+_role_manifest_payload = role_manifest_payload
 
 
 def _skill_payload(entry: RegistryEntry, *, include_body: bool) -> dict[str, Any]:

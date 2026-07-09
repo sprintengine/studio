@@ -302,8 +302,8 @@ export function createAgentsSlice(set: AgentsSliceSet): AgentsSlice {
               // MC-1444 window-disposal retention: the auto-run executor
               // deliberately parks a resume token (cliSessionId +
               // cliResumeAvailable with launch flags cleared) on a worker
-              // whose task awaits its verdict, so a late changes_requested
-              // respawn can resume the conversation. That shape has no live
+              // whose task is still open, so a later review-phase respawn can
+              // resume the conversation. That shape has no live
               // session BY DESIGN — wiping it here (mount-time reconcile,
               // second sync window) silently forfeits the rework context.
               // Leave it: the supervisor clears it once the task completes

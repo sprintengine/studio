@@ -17,8 +17,6 @@ BUNDLED_ROLE_IDS = frozenset({
     "ui_ux_reviewer",
     "tester",
     "security",
-    "code_reviewer",
-    "spec_reviewer",
     "performance",
     "production_readiness_reviewer",
     "cross_platform",

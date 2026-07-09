@@ -20,6 +20,7 @@ function render(props: {
   value: 'user' | 'architect'
   architectAvailable: boolean
   architectDisabledHint?: string
+  workTypes?: boolean
 }): string {
   return renderToStaticMarkup(
     <RosterModeChoice
@@ -27,6 +28,7 @@ function render(props: {
       onChange={() => {}}
       architectAvailable={props.architectAvailable}
       architectDisabledHint={props.architectDisabledHint}
+      workTypes={props.workTypes}
     />,
   )
 }
@@ -35,6 +37,29 @@ run('renders both mode options with exact copy', () => {
   const html = render({ value: 'user', architectAvailable: true })
   assert.ok(html.includes('Pick the team yourself'))
   assert.ok(html.includes('Architect picks the team'))
+})
+
+run('work-types mode reframes both options as work, not team composition', () => {
+  const html = render({ value: 'user', architectAvailable: true, workTypes: true })
+  assert.ok(html.includes('Pick the work yourself'))
+  assert.ok(html.includes('kinds of work this run includes'))
+  assert.ok(html.includes('Architect picks'))
+  assert.ok(html.includes('decides which kinds of work it needs'))
+  // The team-composition copy must not leak into the reframed panel.
+  assert.ok(!html.includes('Pick the team yourself'))
+  assert.ok(!html.includes('Architect picks the team'))
+  assert.ok(!html.includes('records the team in the plan'))
+})
+
+run('work-types mode keeps the verbatim disabled hint on the architect option', () => {
+  const html = render({
+    value: 'user',
+    architectAvailable: false,
+    architectDisabledHint: 'Add at least one model to your catalog in Settings',
+    workTypes: true,
+  })
+  assert.ok(html.includes('disabled=""'))
+  assert.ok(html.includes('Add at least one model to your catalog in Settings'))
 })
 
 run('architect option is enabled when a catalog model is available', () => {

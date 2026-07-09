@@ -10,7 +10,7 @@ from typing import Any, Dict, List, Optional
 
 from sprintengine_core import store as folder_store
 from sprintengine_core.tool.artifacts import artifacts_for_task, file_fingerprint, next_artifact_id, project_relative_display_path
-from sprintengine_core.tool.gates import find_active_gate_claim, gate_is_claimable_for_role
+from sprintengine_core.tool.constants import VALID_TASK_PHASES
 from sprintengine_core.tool.paths import now_iso, sprintengine_state_path_for
 from sprintengine_core.tool.plans import (
     build_run_summary,
@@ -37,7 +37,7 @@ from sprintengine_core.tool.plans import (
 )
 from sprintengine_core.tool.prompts import artifact_registration_instruction, completion_reality_instruction, load_prompt
 from sprintengine_core.tool.roles import require_configured_role
-from sprintengine_core.tool.review_prompts import build_merge_start_prompt, worker_execution_workspace_block
+from sprintengine_core.tool.phase_prompts import build_merge_start_prompt, worker_execution_workspace_block
 from sprintengine_core.tool.shell import ensure_run_worktree, get_run_vcs
 from sprintengine_core.tool.state import (
     agent_is_retired,
@@ -47,7 +47,11 @@ from sprintengine_core.tool.state import (
     apply_configured_roles,
     apply_init_source,
     apply_role_runtimes,
+    apply_default_phases,
+    apply_phase_runtimes,
+    apply_required_sweeps,
     apply_roster_source,
+    run_required_sweeps,
     clear_non_active_task_owner_claims,
     ensure_agent_in_roster,
     find_task,
@@ -57,7 +61,6 @@ from sprintengine_core.tool.state import (
     release_expired_agent_targets,
     roster_is_configured,
     roster_roles,
-    task_quality_gates,
     with_locked_state,
 )
 from sprintengine_core.tool.tasks import (
@@ -88,11 +91,9 @@ BENCHMARK_FEEDBACK_GUIDANCE = (
 
 DIFFICULTY_FEEDBACK_GUIDANCE = (
     "Use difficulty percentages only when you assessed the work: architects may estimate task difficulty with "
-    "`--difficulty-pct` and `--difficulty-reason`; implementers may report actual difficulty at publish/done time with "
-    "`--actual-difficulty-pct` and `--actual-difficulty-reason`; reviewers and testers may record reviewed difficulty "
-    "with `--reviewed-difficulty-pct`, `--reviewed-difficulty-dimension`, and `--reviewed-difficulty-reason`. "
-    "Valid reviewed dimensions are `implementation`, `review`, `verification`, `product_spec`, `security`, "
-    "`performance`, and `coordination`. Do not guess counts or difficulty values you did not evaluate."
+    "`--difficulty-pct` and `--difficulty-reason`; implementers report actual difficulty at publish time with "
+    "`--actual-difficulty-pct` and `--actual-difficulty-reason`. "
+    "Do not guess counts or difficulty values you did not evaluate."
 )
 
 def cmd_handover(args: argparse.Namespace) -> Dict[str, Any]:
@@ -319,6 +320,16 @@ def cmd_init(args: argparse.Namespace) -> Dict[str, Any]:
         # later enforces allowedRuntimes as the hard boundary on role assignment.
         apply_roster_source(state, getattr(args, "roster_source", None))
         apply_allowed_runtimes(state, getattr(args, "allowed_runtimes_json", None))
+        # The run's phase list, from the wizard's "Agents review their own work"
+        # toggle. Default AND ceiling for every task (assert_phases_within_run_ceiling).
+        apply_default_phases(state, getattr(args, "default_phases_json", None))
+        # Operator-mandated sweeps ("QA tests the finished work"). The architect's
+        # planning directive treats these as non-negotiable, and the run cannot
+        # complete until each has a planned task.
+        apply_required_sweeps(state, getattr(args, "required_sweeps_json", None))
+        # MC-1543 premium mode. Validated against allowedRuntimes, so this must run
+        # after apply_allowed_runtimes.
+        apply_phase_runtimes(state, getattr(args, "phase_runtimes_json", None))
         # Seed the sprint source at creation (app-created runs) so run.yaml carries
         # the "Started from" seed before any agent runs handover. write_run persists
         # state[source]/[sourceBundle] via RUN_SOURCE_KEYS.
@@ -449,7 +460,7 @@ def cmd_init(args: argparse.Namespace) -> Dict[str, Any]:
                 plan_task["title"] = "Review imported implementation plan and create task graph"
                 plan_task["description"] = (
                     f"Review the imported implementation plan at {plan_path_artifact_value(state_path)} against the current codebase. "
-                    "Update stale or incomplete details, then create or repair task cards, dependencies, acceptance criteria, and review gates from it."
+                    "Update stale or incomplete details, then create or repair task cards, dependencies, and acceptance criteria from it."
                 )
                 plan_task["acceptanceCriteria"] = [
                     "Imported implementation plan is reviewed against the current repository before task creation.",
@@ -597,26 +608,6 @@ def agent_next_directive_from_join(
             "task": task,
         }
 
-    if action in {"gate_resume", "gate_work"}:
-        next_args = _next_mcp_arguments(state_path, role=role, id=agent_id)
-        task = _directive_context(result.get("task"))
-        gate = _directive_context(result.get("gate"))
-        return {
-            **base,
-            "directiveType": "gate_work",
-            "message": (
-                "Resume the active Sprint Engine quality gate through the MCP gate context tool."
-                if action == "gate_resume"
-                else "Claim the next ready Sprint Engine quality gate for this role through the MCP gate context tool."
-            ),
-            "nextMcpToolName": "sprintengine.gate.next",
-            "nextMcpArguments": next_args,
-            "nextTool": _directive_next_tool("sprintengine.gate.next", next_args),
-            "readyGateCount": result.get("readyGateCount"),
-            "task": task,
-            "gate": gate,
-        }
-
     if action == "needs_input_triage":
         next_args = _next_mcp_arguments(state_path, id=agent_id)
         return {
@@ -724,7 +715,7 @@ def auto_mode_continuation(state: Dict[str, Any], role: str, agent_id: str) -> O
         "nextCommand": command,
         "nextAction": (
             "Auto Mode is on. Run the join watch command again so the Sprint Engine CLI can keep polling, "
-            "resume active work, or claim the next gate/task for this role."
+            "resume active work, or claim the next task for this role."
         ),
     }
 
@@ -736,25 +727,17 @@ def cmd_join(args: argparse.Namespace) -> Dict[str, Any]:
     print(f"[sprintengine] reading state from: {args.state}", file=sys.stderr)
 
     def completion_instruction() -> str:
-        if args.role in {"code_reviewer", "spec_reviewer"}:
-            review_kind = "specification conformance" if args.role == "spec_reviewer" else "code quality"
-            return (
-                f"When complete: produce the requested {review_kind} review evidence or artifact. Work read-only: "
-                "do not edit application or test code. If findings remain, record them with repeatable `--finding-json` and, when an "
-                "artifact is requested, `--recommended-task`; include severity, impact, recommended fix, owner role, "
-                "and verification steps. Move the task to `needs_input` only when the review output requires approval "
-                "or the task is blocked from meeting acceptance. "
-                f"{EVIDENCE_STYLE_GUIDANCE}"
-                f"{BENCHMARK_FEEDBACK_GUIDANCE} {DIFFICULTY_FEEDBACK_GUIDANCE} "
-            )
         return (
-            "When complete: if you produced findings, issues, or changes_requested, move the task back to "
-            "`needs_input` so the implementer/author can address them. If you move a task to `needs_input`, "
+            "When your implementation is complete, publish it with `sprintengine task publish`. The engine detects "
+            "whether you produced a diff: if you did, the task enters its review phase and the publish response carries "
+            "your review directive; if you did not, the task lands directly in `done`. You own the task through every "
+            "phase — fix what you find, then close each phase with `sprintengine task advance`. "
+            "If you move a task to `needs_input`, "
             "classify it with `--needs-input-kind`: use `architect` for stale plans, impossible acceptance criteria, "
             "wrong paths, or architectural scope mismatches; use `user` for product decisions, approvals, real hardware, "
             "credentials, or another outside check. Add `--needs-input-reason tooling` for "
             "missing commands/dependencies, or `--needs-input-reason verification` when real validation cannot be completed. "
-            "Include `--needs-input-question` and, when useful, `--needs-input-suggested-resolution`. Otherwise, mark it done. "
+            "Include `--needs-input-question` and, when useful, `--needs-input-suggested-resolution`. "
             "If the task is too large for one agent or needs decomposition, use `needs_input` with "
             "`--needs-input-kind architect --needs-input-reason task_scope`; do not retire to signal task scope problems. "
             "After you finish your current work and should not accept more work because of context capacity, run "
@@ -773,25 +756,6 @@ def cmd_join(args: argparse.Namespace) -> Dict[str, Any]:
             f"mutating commands for another role's task unless the user explicitly changes your assigned role. "
             f"You may inspect other roles read-only to diagnose blockers. If no task is ready for `{args.role}`, "
             f"stop and report the blocker id if one is visible."
-        )
-
-    def gate_boundary_instruction() -> str:
-        if args.role == "tester":
-            return (
-                f"You are assigned role `{args.role}` as a quality-gate QA tester. "
-                "Claim quality gates with `sprintengine task gate next`, not `sprintengine task next`. "
-                "A tester gate validates another role's completed task while the task remains in its lifecycle folder. "
-                "Run independent verification and, for UI or browser-visible work, use Playwright/browser MCP or equivalent browser automation when available and proportionate. "
-                "You may add narrow regression tests, fixtures, or test harness wiring when that is the smallest safe way to validate the task; keep edits tightly scoped and document any companion test edits in the verdict summary or a validation_report artifact. "
-                "If broader implementation changes are needed, request changes or block the gate instead of taking over the implementer's work. "
-                f"{BENCHMARK_FEEDBACK_GUIDANCE} {DIFFICULTY_FEEDBACK_GUIDANCE}"
-            )
-        return (
-            f"You are assigned role `{args.role}` as a quality-gate reviewer/tester/product reviewer. "
-            "Claim quality gates with `sprintengine task gate next`, not `sprintengine task next`. "
-            "A gate reviews another role's task while the task remains in its lifecycle folder; do not edit "
-            "application or test code unless the user explicitly changes your assignment. "
-            f"{BENCHMARK_FEEDBACK_GUIDANCE} {DIFFICULTY_FEEDBACK_GUIDANCE}"
         )
 
     def runner_policy(state: Dict[str, Any]) -> Dict[str, Any]:
@@ -819,36 +783,10 @@ def cmd_join(args: argparse.Namespace) -> Dict[str, Any]:
                 "write": runtime["dirty"] or expired["dirty"] or stale_owner_dirty,
             }
         active = runtime["activeTask"]
-        active_gate = find_active_gate_claim(state, args.id, args.role)
-        pending_gates = [
-            {"task": task, "gate": gate}
-            for task in state.get("tasks", []) or []
-            if isinstance(task, dict)
-            for gate in task_quality_gates(task)
-            if gate_is_claimable_for_role(task, gate, args.role, args.id)
-        ]
         ready = [t for t in state.get("tasks", []) if t.get("role") == args.role and task_is_ready(state, t)]
 
         prompt = load_prompt(args.role)
         policy = runner_policy(state)
-        if active_gate:
-            task = active_gate["task"]
-            gate = active_gate["gate"]
-            directive = (
-                f"\n\n---\n"
-                f"## Your First Action\n"
-                f"You are agent `{args.id}` with role `{args.role}`.\n"
-                f"You already have active gate `{gate.get('id')}` on task `{task.get('id')}`: {task.get('title') or '(untitled task)'}.\n\n"
-                f"Run:\n```\nsprintengine task gate next --role {args.role} --id {args.id}\n```\n\n"
-                f"This reconnects you to your existing active gate and returns the full review context.\n\n"
-                f"{gate_boundary_instruction()}\n\n"
-                f"{worker_execution_workspace_block(state, args.state)}\n\n"
-                f"When complete, submit the gate result with `sprintengine task gate verdict`, then run "
-                f"`sprintengine join --role {args.role} --id {args.id} --watch` again if Auto Mode is on; otherwise stop.\n\n"
-                "**IMPORTANT: Do not edit Sprint Engine run-store files directly. "
-                "All updates must go through the Sprint Engine tool.**"
-            )
-            return {"ok": True, "role": args.role, "agentId": args.id, "action": "gate_resume", "task": task, "gate": gate, "runner": policy, "prompt": prompt + directive, "releasedExpired": expired["released"], "write": runtime["dirty"] or expired["dirty"] or stale_owner_dirty}
 
         if active:
             task_id = active.get("id")
@@ -880,21 +818,28 @@ def cmd_join(args: argparse.Namespace) -> Dict[str, Any]:
                     "releasedExpired": expired["released"],
                     "write": runtime["dirty"] or expired["dirty"] or stale_owner_dirty,
                 }
+            in_phase = str(active.get("status") or "") in VALID_TASK_PHASES
+            resume_note = (
+                f"It is in its `{active.get('status')}` phase: you published a diff and are reviewing your own work. "
+                "The claim command returns your phase directive."
+                if in_phase
+                else "This reconnects you to your existing active task instead of claiming a new one. "
+                "Continue the task and log evidence."
+            )
             directive = (
                 f"\n\n---\n"
                 f"## Your First Action\n"
                 f"You are agent `{args.id}` with role `{args.role}`.\n"
                 f"You already have active task `{task_id}`: {task_title}.\n\n"
                 f"Run:\n```\nsprintengine task next --role {args.role} --id {args.id}\n```\n\n"
-                f"This reconnects you to your existing active task instead of claiming a new one. "
-                f"Continue the task and log evidence.\n\n"
+                f"{resume_note}\n\n"
                 f"{role_boundary_instruction()}\n\n"
                 f"{worker_execution_workspace_block(state, args.state)}\n\n"
                 f"{artifact_registration_instruction(args.id)}\n\n"
                 f"{completion_reality_instruction()}"
                 f"{completion_instruction()}"
                 f"If you notice a prompt or process issue that would help improve future Sprint Engine runs, include it with repeatable `--issue-json` on your final feedback command. "
-                f"If your role reviews work, report concrete bugs, security issues, requirement violations, or test gaps with repeatable `--finding-json`. "
+                f"Report concrete bugs, security issues, requirement violations, or test gaps you find and fix with repeatable `--finding-json`. "
                 f"After completion, run `sprintengine join --role {args.role} --id {args.id} --watch` again if Auto Mode is on; otherwise stop.\n\n"
                 "**IMPORTANT: Do not edit Sprint Engine run-store files directly. "
                 "All updates must go through the Sprint Engine tool.**"
@@ -915,24 +860,6 @@ def cmd_join(args: argparse.Namespace) -> Dict[str, Any]:
             )
             return {"ok": True, "role": args.role, "agentId": args.id, "action": "needs_input_triage", "runner": policy, "prompt": prompt + directive, "releasedExpired": expired["released"], "write": runtime["dirty"] or expired["dirty"] or stale_owner_dirty}
 
-        if pending_gates:
-            first = pending_gates[0]
-            directive = (
-                f"\n\n---\n"
-                f"## Your First Action\n"
-                f"You are agent `{args.id}` with role `{args.role}`.\n"
-                f"There are **{len(pending_gates)} quality gate(s)** ready for your role.\n\n"
-                f"Run:\n```\nsprintengine task gate next --role {args.role} --id {args.id}\n```\n\n"
-                "The command atomically claims one gate and returns the plan, task, evidence, comments, artifacts, and gate focus.\n\n"
-                f"{gate_boundary_instruction()}\n\n"
-                f"{worker_execution_workspace_block(state, args.state)}\n\n"
-                f"When complete, submit the gate result with `sprintengine task gate verdict`, then run "
-                f"`sprintengine join --role {args.role} --id {args.id} --watch` again if Auto Mode is on; otherwise stop.\n\n"
-                "**IMPORTANT: Do not edit Sprint Engine run-store files directly. "
-                "All updates must go through the Sprint Engine tool.**"
-            )
-            return {"ok": True, "role": args.role, "agentId": args.id, "action": "gate_work", "readyGateCount": len(pending_gates), "task": first["task"], "gate": first["gate"], "runner": policy, "prompt": prompt + directive, "releasedExpired": expired["released"], "write": runtime["dirty"] or expired["dirty"] or stale_owner_dirty}
-
         if not active and not ready:
             if policy.get("stopWhenComplete") and all_tasks_done(state):
                 finalize = finalize_completed_run(state, args.state, policy)
@@ -950,7 +877,7 @@ def cmd_join(args: argparse.Namespace) -> Dict[str, Any]:
                     if key in finalize:
                         completion[key] = finalize[key]
                 return completion
-            return {"ok": True, "role": args.role, "agentId": args.id, "action": "idle", "runner": policy, "message": f"No tasks or gates are currently ready for the '{args.role}' role.", "releasedExpired": expired["released"], "write": runtime["dirty"] or expired["dirty"] or stale_owner_dirty}
+            return {"ok": True, "role": args.role, "agentId": args.id, "action": "idle", "runner": policy, "message": f"No tasks are currently ready for the '{args.role}' role.", "releasedExpired": expired["released"], "write": runtime["dirty"] or expired["dirty"] or stale_owner_dirty}
 
         directive = (
             f"\n\n---\n"
@@ -1129,6 +1056,24 @@ def cmd_vcs_pr_status(args: argparse.Namespace) -> Dict[str, Any]:
     return with_locked_state(args.state, run)
 
 
+def missing_required_sweeps(state: Dict[str, Any]) -> List[str]:
+    """Mandated sweep roles with no planned task. Empty when the plan honours them.
+
+    The operator's mandate is enforced here rather than by a new gate mechanism: a
+    run whose architect never planned the QA sweep it was told to plan is not done.
+    A canceled task does not satisfy the mandate.
+    """
+    required = run_required_sweeps(state)
+    if not required:
+        return []
+    planned = {
+        str(task.get("role") or "")
+        for task in state.get("tasks", []) or []
+        if isinstance(task, dict) and str(task.get("status") or "") != "canceled"
+    }
+    return [role for role in required if role not in planned]
+
+
 def finalize_completed_run(state: Dict[str, Any], state_path: Path, policy: Dict[str, Any]) -> Dict[str, Any]:
     """Commit leftover task-scoped changes at completion and report run state.
 
@@ -1143,6 +1088,18 @@ def finalize_completed_run(state: Dict[str, Any], state_path: Path, policy: Dict
         get_run_vcs,
         worktree_orphaned_dirty_paths,
     )
+
+    missing_sweeps = missing_required_sweeps(state)
+    if missing_sweeps:
+        return {
+            "blocked": True,
+            "missingRequiredSweeps": missing_sweeps,
+            "message": (
+                "All tasks are done, but this run mandates sweep(s) the plan never included: "
+                f"{', '.join(missing_sweeps)}. The architect must plan one task per required sweep role, "
+                "depending on the work it audits, before the run can complete."
+            ),
+        }
 
     vcs = get_run_vcs(state)
     if not vcs:
@@ -1202,7 +1159,7 @@ def build_recovery_prompt(state: Dict[str, Any], state_path: Path, backup_path: 
         "- Do NOT run `sprintengine init`.",
         "- Do NOT rewrite the whole plan or start implementation.",
         "- Do NOT delete existing tasks unless the user explicitly requested board surgery.",
-        "- You MAY use `Sprint Engine plan update-task`, `Sprint Engine plan add-task`, `Sprint Engine plan add-dependency`, or `Sprint Engine plan remove-dependency` only to repair completion gates, add missing real-integration/verification tasks, or make dependencies block fake completion.",
+        "- You MAY use `Sprint Engine plan update-task`, `Sprint Engine plan add-task`, `Sprint Engine plan add-dependency`, or `Sprint Engine plan remove-dependency` only to repair acceptance criteria, add missing real-integration/verification tasks, or make dependencies block fake completion.",
         "- If a plan/task claims product completion through sample data, fake responses, mocked transports, stubbed commands, placeholder persistence, disconnected UI state, or documentation-only verification, correct the task graph or mark the affected task `needs_input` with a blocker.",
         "- Do NOT create a new plan file.",
         "- Do NOT inspect a different `plan.md` from another Sprint Engine team folder.",
@@ -1231,7 +1188,7 @@ def build_recovery_prompt(state: Dict[str, Any], state_path: Path, backup_path: 
         "- `sprintengine task log`",
         "- `sprintengine task note`",
         "- `Sprint Engine plan update-task` for tightening descriptions, paths, and acceptance criteria",
-        "- `Sprint Engine plan add-task` for missing real-integration or verification gates",
+        "- `Sprint Engine plan add-task` for missing real-integration or verification tasks",
         "- `Sprint Engine plan add-dependency` and `Sprint Engine plan remove-dependency` for dependency corrections",
         "",
         "If a needed command is unavailable or fails, stop and explain the blocker instead of editing Sprint Engine files directly.",

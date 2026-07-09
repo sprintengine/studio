@@ -17,7 +17,7 @@ import {
   toTitleName,
   workspaceRelativePath,
 } from './helpers'
-import type { ExistingTeam, FolderScanResult, MarkdownPlanOption } from './types'
+import type { ExistingTeam, FolderScanResult, MarkdownPlanOption, UnreadableTeam } from './types'
 
 const MAX_PLAN_FILES = 500
 
@@ -41,20 +41,33 @@ export function buildSprintEngineContext(
   }
 }
 
-async function scanExistingTeams(folderPath: string): Promise<ExistingTeam[]> {
+async function scanExistingTeams(
+  folderPath: string,
+): Promise<{ teams: ExistingTeam[]; unreadableTeams: UnreadableTeam[] }> {
   const entries = await window.api
     .readdir(joinPath(joinPath(folderPath, '.multi-code'), 'sprintengine'))
     .catch(() => [])
   const teams: ExistingTeam[] = []
+  const unreadableTeams: UnreadableTeam[] = []
   for (const entry of entries) {
     if (!entry.isDir) continue
     try {
       const projection = await window.api.readSprintEngineProjection(
         getExistingSprintEngineStateFilePath(folderPath, entry.name),
       )
-      if (!projection.ok) continue
+      // A folder with no readable projection is usually not a Sprint Engine state
+      // directory at all, so only a store the main process explicitly rejected
+      // (message present) is surfaced — silently dropping THAT would look like a
+      // vanished sprint. See describeUnsupportedSprintEngineStore.
+      if (!projection.ok) {
+        if (projection.message) unreadableTeams.push({ slug: entry.name, message: projection.message })
+        continue
+      }
       const state = normalizeSprintEngineProjection(projection.data, entry.name)
-      if (!state) continue
+      if (!state) {
+        unreadableTeams.push({ slug: entry.name, message: 'Sprint projection was malformed.' })
+        continue
+      }
       const displayName = getExistingTeamDisplayName(entry.name, state)
       teams.push({
         slug: entry.name,
@@ -66,7 +79,7 @@ async function scanExistingTeams(folderPath: string): Promise<ExistingTeam[]> {
       // Ignore folders that are not Sprint Engine state directories.
     }
   }
-  return teams
+  return { teams, unreadableTeams }
 }
 
 export async function scanSourceFiles(folderPath: string): Promise<MarkdownPlanOption[]> {
@@ -99,11 +112,11 @@ export async function scanSourceFiles(folderPath: string): Promise<MarkdownPlanO
 }
 
 export async function scanFolder(folderPath: string): Promise<FolderScanResult> {
-  const [teams, plans] = await Promise.all([
+  const [existing, plans] = await Promise.all([
     scanExistingTeams(folderPath),
     scanSourceFiles(folderPath),
   ])
-  return { teams, plans }
+  return { teams: existing.teams, unreadableTeams: existing.unreadableTeams, plans }
 }
 
 /**
@@ -168,12 +181,12 @@ export function useFolderScan(folderPath: string | null): {
   result: FolderScanResult
   rescan: () => Promise<void>
 } {
-  const [result, setResult] = useState<FolderScanResult>({ teams: [], plans: [] })
+  const [result, setResult] = useState<FolderScanResult>({ teams: [], unreadableTeams: [], plans: [] })
   const [isScanning, setIsScanning] = useState(false)
 
   const rescan = useCallback(async () => {
     if (!folderPath) {
-      setResult({ teams: [], plans: [] })
+      setResult({ teams: [], unreadableTeams: [], plans: [] })
       return
     }
     setIsScanning(true)

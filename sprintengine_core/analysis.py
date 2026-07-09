@@ -245,7 +245,8 @@ def _accumulate_findings(raw_findings: Any, bucket: dict[str, Any]) -> None:
 def _aggregate_by_agent(records: list[dict[str, Any]]) -> dict[str, Any]:
     """Per-agent metrics keyed by agentId.
 
-    Self-reported scores come from the worker's own ``agent_self_report`` records
+    Self-reported scores come from the worker's own ``agent_self_report`` and
+    ``phase_advance_self_review`` records
     (keyed by ``agent_id``). Measured signals come from reviewer/gate records and
     are attributed to the implementer being reviewed (``review_target_agent_id``),
     never to the reviewer who logged them. ``findingsRaised`` counts findings an
@@ -267,6 +268,8 @@ def _aggregate_by_agent(records: list[dict[str, Any]]) -> dict[str, Any]:
     reviews_performed: dict[str, int] = defaultdict(int)
     tasks_reviewed: dict[str, set[str]] = defaultdict(set)
     review_verdicts: dict[str, dict[str, int]] = defaultdict(lambda: defaultdict(int))
+    # `task.advance` outcomes an agent recorded closing a phase on its OWN task.
+    phase_outcomes: dict[str, dict[str, int]] = defaultdict(lambda: defaultdict(int))
     # Per-agent, per-task measured detail for the drill-down. Aggregates only
     # (review count + summed defect counts); finding prose stays in the renderer
     # projection, so this output remains sanitized.
@@ -282,16 +285,28 @@ def _aggregate_by_agent(records: list[dict[str, Any]]) -> dict[str, Any]:
         role = str(record.get("role") or "").strip()
         scores = normalized_scores(record)
 
-        if source == "agent_self_report":
+        # A phase advance is the OWNER reporting on its own work (MC-1542): it is a
+        # self-report, but unlike a plain `agent_self_report` it carries the findings
+        # the owner found AND fixed. Those findings are the review signal that gate
+        # verdicts used to supply — count them, attributed to the owner's own task.
+        if source in {"agent_self_report", "phase_advance_self_review"}:
             if not agent_id:
                 continue
             roles.setdefault(agent_id, role)
             self_record_count[agent_id] += 1
             for key, value in scores.items():
                 self_scores[agent_id][key].append(value)
+            if source == "phase_advance_self_review":
+                outcome = str(record.get("phase_outcome") or "").strip()
+                if outcome:
+                    phase_outcomes[agent_id][outcome] += 1
+                _accumulate_findings(record.get("findings"), findings_against[agent_id])
+                if isinstance(record.get("findings"), list):
+                    findings_raised[agent_id] += len(record["findings"])
             continue
 
-        # Reviewer / gate assessment → measured, attributed to the implementer.
+        # A SWEEP assessing another task still passes the --review-target-* trio →
+        # measured, attributed to the implementer of the audited task.
         target = str(record.get("review_target_agent_id") or "").strip()
         if target:
             roles.setdefault(target, role)  # role is the implementer (target task) role
@@ -322,9 +337,9 @@ def _aggregate_by_agent(records: list[dict[str, Any]]) -> dict[str, Any]:
             review_target_task = str(record.get("review_target_task_id") or record.get("task_id") or "").strip()
             if review_target_task:
                 tasks_reviewed[reviewer].add(review_target_task)
-            verdict = str(record.get("gate_verdict") or "").strip()
-            if verdict:
-                review_verdicts[reviewer][verdict] += 1
+            outcome = str(record.get("phase_outcome") or "").strip()
+            if outcome:
+                review_verdicts[reviewer][outcome] += 1
 
     agent_ids = (
         set(self_record_count)
@@ -375,14 +390,25 @@ def _aggregate_by_agent(records: list[dict[str, Any]]) -> dict[str, Any]:
             "measured": measured,
             "findingsRaised": findings_raised.get(agent_id, 0),
         }
+        # Sweep table: an agent that audited OTHER tasks (a fix-forward sweep) and
+        # what it did about what it found.
         if reviews_performed.get(agent_id, 0) > 0:
-            verdicts = review_verdicts.get(agent_id, {})
-            row["reviewer"] = {
-                "reviewsPerformed": reviews_performed[agent_id],
-                "tasksReviewed": len(tasks_reviewed.get(agent_id, set())),
-                "approved": verdicts.get("approved", 0),
-                "changesRequested": verdicts.get("changes_requested", 0),
-                "blocked": verdicts.get("blocked", 0),
+            outcomes = review_verdicts.get(agent_id, {})
+            row["sweep"] = {
+                "tasksAudited": len(tasks_reviewed.get(agent_id, set())),
+                "assessmentsRecorded": reviews_performed[agent_id],
+                "passed": outcomes.get("pass", 0),
+                "fixedForward": outcomes.get("pass_with_fixes", 0),
+                "escalated": outcomes.get("escalate", 0),
+            }
+        # Self-review table: what this agent found (and fixed) reviewing its OWN diff.
+        own = phase_outcomes.get(agent_id, {})
+        if own:
+            row["selfReview"] = {
+                "phasesClosed": sum(own.values()),
+                "passed": own.get("pass", 0),
+                "fixedForward": own.get("pass_with_fixes", 0),
+                "escalated": own.get("escalate", 0),
             }
         output[agent_id] = row
     return output
@@ -452,8 +478,7 @@ def _difficulty_record(record: dict[str, Any]) -> dict[str, Any] | None:
                     "dimension": str(assessment.get("dimension") or "unspecified"),
                     "reviewer_role": str(assessment.get("reviewer_role") or "unknown"),
                     "reviewer_agent_id": str(assessment.get("reviewer_agent_id") or "unknown"),
-                    "gate_id": str(assessment.get("gate_id") or ""),
-                    "gate_attempt_id": str(assessment.get("gate_attempt_id") or ""),
+                    "phase": str(assessment.get("phase") or ""),
                     "task_id": difficulty["task_id"],
                     "task_role": difficulty["role"],
                 }
@@ -476,7 +501,7 @@ def _difficulty_analytics(records: list[dict[str, Any]]) -> dict[str, Any]:
     architect_biases: list[int] = []
     reviewer_assessments: list[dict[str, Any]] = []
     seen_architect_tasks: set[str] = set()
-    seen_reviewer_assessments: set[tuple[str, str, str, str, str, str, int]] = set()
+    seen_reviewer_assessments: set[tuple[str, str, str, str, str, int]] = set()
     for record in records:
         architect_estimate = record.get("architect_estimate_pct")
         implementer_actual = record.get("implementer_actual_pct")
@@ -502,8 +527,7 @@ def _difficulty_analytics(records: list[dict[str, Any]]) -> dict[str, Any]:
                     str(assessment.get("task_id") or ""),
                     str(assessment.get("reviewer_agent_id") or ""),
                     str(assessment.get("reviewer_role") or ""),
-                    str(assessment.get("gate_id") or ""),
-                    str(assessment.get("gate_attempt_id") or ""),
+                    str(assessment.get("phase") or ""),
                     str(assessment.get("dimension") or "unspecified"),
                     pct,
                 )
@@ -527,7 +551,6 @@ def _difficulty_analytics(records: list[dict[str, Any]]) -> dict[str, Any]:
             "byDimension": _difficulty_groups(reviewer_assessments, "dimension"),
             "byReviewerRole": _difficulty_groups(reviewer_assessments, "reviewer_role"),
             "byTaskRole": _difficulty_groups(reviewer_assessments, "task_role"),
-            "byGateRole": _difficulty_groups(reviewer_assessments, "gate_id"),
         }
         disagreement = _reviewer_disagreement(reviewer_assessments)
         if disagreement:

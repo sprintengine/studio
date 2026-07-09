@@ -6,13 +6,20 @@ import { join } from 'node:path'
 import { registerSprintEngineIpc } from './ipc/sprintengine-ipc'
 import { createPluginRegistry } from './plugin-registry'
 import { __resetPluginRegistryForTest, __setPluginRegistryForTest } from './plugin-registry-instance'
-import { createSprintEngineArtifactHandlers, getArtifactAutoApprovalBlocker } from './sprintengine-artifacts'
+import {
+  createSprintEngineArtifactHandlers,
+  describeUnsupportedSprintEngineStore,
+  getArtifactAutoApprovalBlocker,
+  SPRINT_ENGINE_RUN_SCHEMA_VERSION,
+} from './sprintengine-artifacts'
 
 type IpcHandler = (_event: unknown, payload: unknown) => Promise<unknown>
 
 async function main(): Promise<void> {
   await testReadProjectionUsesProjectionFile()
   await testReadProjectionSurfacesUnavailableAndInvalidProjection()
+  await testReadProjectionRejectsPreMc1542Store()
+  testDescribeUnsupportedStoreOnlyJudgesRealProjections()
   await testMutationResponsesIncludeProjectionAndEventMetadata()
   await testFailedMutationDoesNotReturnProjectionContent()
   await testAutoRunApprovalEnforcesEligibilityBeforeMcpCall()
@@ -94,6 +101,55 @@ async function testReadProjectionSurfacesUnavailableAndInvalidProjection(): Prom
   const invalidProjection = await handlers.readProjection({ statePath })
   assert.equal(invalidProjection.ok, false)
   if (!invalidProjection.ok) assert.match(invalidProjection.message, /JSON|Unexpected|property name/u)
+}
+
+// Decision 8: a pre-MC-1542 store is rejected LOUDLY at every surface that reads
+// one. The renderer reads projection.json off disk without touching Python, so
+// this guard is the only thing between an old store and a board rendering
+// gate-era columns.
+async function testReadProjectionRejectsPreMc1542Store(): Promise<void> {
+  const { statePath, teamDir } = await createStateFixture()
+  const handlers = createHandlers(async () => {
+    throw new Error('projection reads must not call MCP')
+  })
+
+  await writeFile(
+    join(teamDir, 'projection.json'),
+    JSON.stringify({ run: { id: 'team', schemaVersion: 1 }, tasks: [] }),
+    'utf-8'
+  )
+  const stale = await handlers.readProjection({ statePath })
+  assert.equal(stale.ok, false)
+  if (!stale.ok) {
+    assert.match(stale.message, /older version of Multicode/u)
+    assert.match(stale.message, /Delete/u)
+    assert.ok(stale.message.includes(teamDir), 'the message must name the folder to delete')
+  }
+
+  // A run block with no schemaVersion predates the field: also version 1.
+  await writeFile(join(teamDir, 'projection.json'), JSON.stringify({ run: { id: 'team' }, tasks: [] }), 'utf-8')
+  const unversioned = await handlers.readProjection({ statePath })
+  assert.equal(unversioned.ok, false)
+
+  await writeFile(
+    join(teamDir, 'projection.json'),
+    JSON.stringify({ run: { id: 'team', schemaVersion: SPRINT_ENGINE_RUN_SCHEMA_VERSION }, tasks: [] }),
+    'utf-8'
+  )
+  const current = await handlers.readProjection({ statePath })
+  assert.equal(current.ok, true)
+}
+
+function testDescribeUnsupportedStoreOnlyJudgesRealProjections(): void {
+  // No `run` object => not a projection at all. Malformed input is judged
+  // downstream; blaming it on an old Multicode would be a lie.
+  assert.equal(describeUnsupportedSprintEngineStore(null, '/team'), null)
+  assert.equal(describeUnsupportedSprintEngineStore({ tasks: [] }, '/team'), null)
+  assert.equal(describeUnsupportedSprintEngineStore({ run: [] }, '/team'), null)
+  assert.equal(describeUnsupportedSprintEngineStore({ run: { schemaVersion: 2 } }, '/team'), null)
+  assert.equal(describeUnsupportedSprintEngineStore({ run: { schemaVersion: 3 } }, '/team'), null)
+  assert.ok(describeUnsupportedSprintEngineStore({ run: { schemaVersion: 1 } }, '/team'))
+  assert.ok(describeUnsupportedSprintEngineStore({ run: {} }, '/team'))
 }
 
 async function testMutationResponsesIncludeProjectionAndEventMetadata(): Promise<void> {
@@ -513,7 +569,7 @@ async function testReadRegistryRolesUsesRealMcpBridgeForBundledAndCustomRoles():
       label: 'Marketer',
       aliases: ['growth-marketer'],
       summary: 'Tests workspace custom role discovery.',
-      soul: [{ skill: 'marketer' }],
+      directives: { implement: [{ skill: 'marketer' }] },
     }, null, 2),
     'utf-8'
   )

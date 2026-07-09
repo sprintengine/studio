@@ -55,13 +55,13 @@ const TAB_ITEMS = [
   { id: 'disabled', label: 'Disabled', disabled: true },
 ]
 
-type RoleOption = 'architect' | 'frontend' | 'code_reviewer' | 'spec_reviewer' | 'tester'
+type RoleOption = 'architect' | 'frontend' | 'security' | 'performance' | 'tester'
 
 const SELECT_ROLE_ITEMS: SelectItem<RoleOption>[] = [
   { value: 'architect', label: 'Architect' },
   { value: 'frontend', label: 'Frontend' },
-  { value: 'code_reviewer', label: 'Code reviewer' },
-  { value: 'spec_reviewer', label: 'Spec reviewer' },
+  { value: 'security', label: 'Security' },
+  { value: 'performance', label: 'Performance' },
   { value: 'tester', label: 'Tester', disabled: true },
 ]
 
@@ -79,9 +79,6 @@ const ROLE_GLYPHS: SprintEngineRole[] = [
   'frontend',
   'ui_ux_reviewer',
   'developer',
-  'code_reviewer',
-  'nuclear_reviewer',
-  'spec_reviewer',
   'cross_platform',
   'tester',
   'security',

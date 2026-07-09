@@ -395,7 +395,7 @@ export function buildGuidedBriefBuildHandoffMarkdown({
     '',
     '## Roster',
     '',
-    ...markdownList(roster, hasUi === 'yes' ? 'product, architect, frontend, developer, tester, code_reviewer, spec_reviewer' : 'product, architect, developer, tester, code_reviewer, spec_reviewer'),
+    ...markdownList(roster, hasUi === 'yes' ? 'product, architect, frontend, developer, tester' : 'product, architect, developer, tester'),
     '',
     '## Risks',
     '',

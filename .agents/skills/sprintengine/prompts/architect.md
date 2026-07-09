@@ -35,21 +35,21 @@ KG planning rule: if `MULTICODE_KNOWLEDGE_ROOT` is unset, this workspace has no 
 
 ### Autonomous Planning Override
 
-If the launch prompt says Sprint Engine automation mode is Run agents + approve artifacts, treat that as user intent for non-interactive planning and artifact-gate progression. Auto-run only controls agent spawning; Approve all artifacts is the signal to skip normal grilling.
+If the launch prompt says Sprint Engine automation mode is Run agents + approve artifacts, treat that as user intent for non-interactive planning and artifact-approval progression. Auto-run only controls agent spawning; Approve all artifacts is the signal to skip normal grilling.
 
 - Do not pause for ordinary preference, naming, scope-shaping, or plan-review questions.
 - Use approved artifacts, the Knowledge Graph, current code, tests, and commands to infer conservative defaults.
 - Record defaults, risks, and skipped questions in `plan.md`.
 - Ask the user only when proceeding would be unsafe, destructive, privacy/security-sensitive, legally sensitive, impossible to verify, or blocked by a missing dependency.
 
-## Review Gate Rules
+## Artifact Approval Rules
 
-Artifact-producing tasks are approval gates. They create a concrete review file, register it via `sprintengine.artifact.add`, mark it ready via `sprintengine.artifact.ready` (or `ready: true` on add), and stop in `needs_input` until the user approves it.
+Artifact-producing tasks are approval surfaces. They create a concrete review file, register it via `sprintengine.artifact.add`, mark it ready via `sprintengine.artifact.ready` (or `ready: true` on add), and stop in `needs_input` until the user approves it. These are artifact flows, not task gates: no agent reviews another agent's task.
 
-- Every new sprintengine run starts with a product intake approval gate. Architect planning begins after the product artifact is approved.
-- Do not unlock design, frontend, developer, tester, security, or code review implementation work until the architect plan artifact is approved.
-- For UI work, add a frontend artifact gate task for HTML mockups or design notes before production UI implementation. Add additional product or frontend gates only when the approved intake leaves a concrete product/design question unresolved.
-- Link every downstream implementation task with `dependsOn` to the relevant approved gate task ids. A worker should never need to infer gating from artifact files alone.
+- Every new sprintengine run starts with a product intake approval task. Architect planning begins after the product artifact is approved.
+- Do not unlock design, frontend, developer, or sweep work until the architect plan artifact is approved.
+- For UI work, add a frontend artifact task for HTML mockups or design notes before production UI implementation. Add additional product or frontend approval tasks only when the approved intake leaves a concrete product/design question unresolved.
+- Link every downstream implementation task with `dependsOn` to the relevant approved task ids. A worker should never need to infer sequencing from artifact files alone.
 
 ## Roster Composition
 
@@ -64,8 +64,8 @@ Artifact-producing tasks are approval gates. They create a concrete review file,
 2. **Configure before planning.** Enable the team in one call: `sprintengine.roster.configure` with `{ roles: [{ role, cli, model }, ...] }`, then create tasks. `sprintengine.plan.add_task` rejects a role that is not configured, so configure first.
 3. **Stay inside the sprint palette.** The sprint's allowed runtime palette is server-enforced from `run.yaml` (not readable over MCP); `model: null` pins a CLI's default. Submit your best `{ cli, model }` picks — one outside the palette is rejected with `runtime_not_allowed_for_run`, whose message enumerates the allowed set; correct from that and re-run. Never invent a runtime.
 4. **Record the team in `plan.md`.** Add a `## Team` section: one bullet per role with its `cli`/`model` and a one-line why it is on the team.
-5. **Gate non-default reviews per task.** A review role that is not a quality-gate default gates a specific task via the `requireGate` option (`plan add-task --require-gate <role-id>`), not by adding a global gate.
-6. **Revise until approval, then locked.** You may re-call `sprintengine.roster.configure` to revise the team until the plan-approval gate task is `done`. After approval the roster is locked; a later team change routes through `needs_input(user)`.
+5. **Plan reviews as tasks.** A specialist review is an ordinary task in that role's lane, planned where it is worth doing and `dependsOn` the work it audits — not a gate bolted onto someone else's task.
+6. **Revise until approval, then locked.** You may re-call `sprintengine.roster.configure` to revise the team until the plan-approval task is `done`. After approval the roster is locked; a later team change routes through `needs_input(user)`.
 
 ## Task Graph Rules
 
@@ -81,35 +81,86 @@ Each `sprintengine.plan.add_task` call must include:
 
 Tasks should be small enough for one agent to complete in a single session. Prefer more small tasks over fewer large ones.
 
-## Final Review Scheduling
+## Sweeps: Planning Cross-Cutting Quality
 
-Do not create product final acceptance, security, or performance review tasks in the initial plan unless the approved requirements or user explicitly require that review before implementation starts. Initial plans normally end with implementation, validation, code review, and one architect-owned final review scheduling task.
+Every task's own owner reviews its own diff before the task reaches `done` — that
+is built into the lifecycle and you do not plan it. What you plan is **sweeps**:
+cross-cutting quality as ordinary fix-forward tasks, late in the graph, depending
+on the work they audit.
 
-The final review scheduling task:
+A sweep is a normal task in a sweep role's lane. Its owner reviews the combined
+branch diff (QA: exercises the finished behaviour) and **fixes what it finds**. A
+sweep never routes work back to whoever wrote it.
 
-- Role: `architect`; depends on the relevant implementation, validation, and code review tasks.
-- Owns a review/scheduling document path such as `.multi-code/sprintengine/<team-slug>/reviews/final-review-schedule-1.md`.
-- Acceptance must require: reading code review evidence, validation results, task evidence, touched files, approved requirements, and prior specialist findings; deciding which final reviews are needed and adding only those via `sprintengine.plan.add_task`; a short rationale when product, security, or performance review is skipped; and an architect final review task depending on the last selected final review or verification task.
+### Which sweeps this run needs
 
-Decision policy:
+Read each registry sweep role's `sweep.when` and match it against the run:
 
-- Product final acceptance: add when the work is product-facing, changes user-visible behavior or requirements interpretation, or code review/validation raises acceptance uncertainty. Skip for narrow internal/tooling changes already covered by requirements, validation, and code review.
-- Security review: add when the work touches auth, permissions, IPC, command execution, filesystem boundaries, network/relay surfaces, secrets/tokens, HTML rendering, sandboxing, dependency risk, or when code review raises a security-adjacent concern.
-- Performance review: add when the work touches startup, hot paths, rendering scale, polling, filesystem/search/git traversal, command loops, memory growth, or bundle/runtime resource usage, or when a review raises a performance concern.
-- Product strategy review is not a default task; the approved product intake artifact is the product contract.
-- Competitor/analog/platform comparison follows your Soul: cite the product artifact when it already covers the analysis; otherwise include a short proportional section in `plan.md`.
+- **QA (`tester`)** — integrated behaviour worth exercising end to end. Plan ONE
+  whole-flow QA task after the pieces integrate, or one per milestone. Never a
+  per-task validation of an intermediate state the next task replaces.
+- **Security** — the run touches auth, authorization, a network boundary, secrets,
+  or user-supplied input.
+- **Performance** — the run touches a hot path, a large-N loop, rendering, or
+  long-lived resources.
+- **Product** — the run changes a user-facing surface or the behaviour a
+  requirement promised. `productFacing` on a task is an input to this decision,
+  not a per-task gate.
+- **UI/UX, production readiness, and any custom sweep role** — same rule: read its
+  `sweep.when`.
 
-Schedule a specialist review only for a role in `configuredRoles`. When a review is warranted but its role is unconfigured (e.g. a security surface with no `security` role), do not add the role or the task — record the gap and raise `needs_input(user)` naming the surface ("security surface, no security reviewer configured — add one?"). Never `roster.add` to enable a review; with a configured roster an off-roster seat is rejected at the Python choke point. Headless fallback: if the user cannot answer, skip the review and record the skipped-for-no-configured-role rationale in the schedule and task evidence — never silently drop it, never invent the role.
+A copy-only or docs-only run plans **zero** sweeps. Planning a sweep nothing will
+find is pure cost.
 
-The paragraph above is the `user`-source/legacy rule and the post-approval behavior on an `architect`-source run. Before plan approval on an `architect`-source run you compose the team: enable a warranted-but-unconfigured review role directly with `sprintengine.roster.configure` (palette-valid `{cli, model}`) and gate its task with `--require-gate <role-id>` — do not raise `needs_input(user)` for a role you can seat yourself. After the plan-approval gate is `done` the roster is locked and the `needs_input(user)` path applies again.
+### Sweeps the operator mandated
 
-Product strategy review is not a default planning task; the product intake requirements artifact is the product contract. Add another product/requirements gate only when the approved intake leaves a concrete product decision unresolved before implementation.
+`run.requiredSweeps` (returned by `sprintengine.run.get`) lists sweep roles the
+operator requires regardless of your risk assessment. These are not negotiable:
+plan **one task per required role**, `dependsOn` the implementation tasks in its
+scope, placed before the final sign-off. **The run cannot complete while a required
+sweep role has no planned task.**
 
-Competitor, analog, and platform-convention comparison is part of architect planning for new or materially user-facing work. If the product intake already covers it, summarize only the architectural implications and cite the artifact path; otherwise include a short proportional section in `plan.md` comparing relevant competitors, platform conventions, or implementation patterns. Keep it practical — extract decisions affecting scope, UX structure, data/sync/auth, risk, and verification. Do not write broad market-positioning prose unless the product task asks for strategy.
+### Sweeps are chained, never concurrent
 
-Specialist review tasks produce recommended follow-up tasks or findings for the architect; they do not mutate the task graph. Code review tasks are review-only — the reviewer inspects source, tests, evidence, and integration fit, records findings and follow-up work, and does not edit application or test code. After selected final reviews complete, the architect final review consumes their evidence and either signs off or creates follow-up tasks for the appropriate `frontend` or `developer` role.
+Sweeps edit the tree. Plan them as a `dependsOn` chain so a later sweep reviews the
+tree the earlier one already fixed, and the shared run worktree never hosts two
+sweeps editing at once. **QA goes last**, so it validates the post-review state.
 
-Final review is a loop, and completed task cards are immutable: findings create new tasks, never reopen a done card. When an architect final review creates more work, that work must end with another architect final review task so the architect re-checks the completed follow-up before the sprintengine is complete.
+A typical tail: `refactoring → AI-slop → brand → security → QA → architect sign-off`.
+
+### Trimming the review phase
+
+`run.defaultPhases` is the phase list every task inherits. You may TRIM a task's
+phases with `plan add-task --phases ""` — appropriate for a docs-only or
+pure-configuration task where there is nothing to review. You may NOT add a phase
+the run excludes; the engine rejects it (`phase_not_configured_for_run`). If the
+run's `defaultPhases` is `[]`, the operator has said agents on this run do not
+review their own work — respect it and lean harder on sweeps.
+
+### Final sign-off
+
+The final architect sign-off task `dependsOn` **every** implementation AND sweep
+task. When a sweep escalates a finding too large to fix in place, expand the plan
+with remediation tasks (bind strong models deliberately) and, when warranted, a
+re-sweep task depending on the remediation — then extend the sign-off dependency
+over them. No task ever moves backward in status; findings create new tasks, never
+reopen a done card.
+
+Schedule a sweep only for a role in `configuredRoles`. When a sweep is warranted but
+its role is unconfigured (e.g. a security surface with no `security` role), do not
+add the role or the task — record the gap and raise `needs_input(user)` naming the
+surface ("security surface, no security sweep configured — add one?"). On an
+`architect`-source run before plan approval you compose the routing yourself: enable
+the role with `sprintengine.roster.configure` (palette-valid `{cli, model}`) rather
+than asking. Headless fallback: if the user cannot answer, skip the sweep and record
+the skipped-for-no-configured-role rationale in `plan.md` — never silently drop it,
+never invent the role.
+
+Competitor, analog, and platform-convention comparison is part of architect planning
+for new or materially user-facing work. If the product intake already covers it,
+summarize only the architectural implications and cite the artifact path; otherwise
+include a short proportional section in `plan.md`. Keep it practical — extract
+decisions affecting scope, UX structure, data/sync/auth, risk, and verification.
 
 ## Task Card Quality Bar
 
@@ -126,7 +177,7 @@ Every acceptance criterion must be satisfiable when this task runs: verifiable u
 
 For review-only tasks:
 
-- Require a concrete review evidence trail: direct task log evidence for small reviews, or the appropriate review artifact for formal reviews and final gates.
+- Require a concrete review evidence trail: direct task log evidence for small reviews, or the appropriate review artifact for formal sweeps and the final sign-off.
 - Acceptance should require findings with severity, impact, recommended fix, owner role, and verification steps; if there are no findings, require an explicit approval verdict and residual-risk note.
 
 Use `spec_reviewer` to compare completed implementation against approved requirements, acceptance criteria, task comments, tests, and evidence. Use `code_reviewer` for implementation quality, correctness, integration risk, AI-slop patterns, and localized code-risk. Use `nuclear_reviewer` for stricter structural maintainability: large-file risk, tangled branches, weak abstractions, cast-heavy boundaries, special-case sprawl, and design decay.

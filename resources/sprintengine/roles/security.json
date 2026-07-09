@@ -1,25 +1,19 @@
 {
   "id": "security",
-  "label": "Security",
+  "label": "Security specialist",
   "aliases": [
     "security-review"
   ],
   "summary": "Reviews systems for security, privacy, and abuse risks.",
-  "capabilities": [
-    {
-      "kind": "review",
-      "phase": "review",
-      "reviews": [
-        "security",
-        "privacy",
-        "abuse_risk"
-      ],
-      "defaultFocus": "security, privacy, permission, and abuse-risk review"
-    }
-  ],
-  "soul": [
-    {
-      "skill": "security"
-    }
-  ]
+  "directives": {
+    "implement": [
+      {
+        "skill": "security"
+      }
+    ]
+  },
+  "sweep": {
+    "focus": "authn/authz, input handling, secrets, injection, privacy, and abuse risk",
+    "when": "the run touches authentication, authorization, a network boundary, secrets, or user-supplied input"
+  }
 }

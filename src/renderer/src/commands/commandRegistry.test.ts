@@ -19,7 +19,7 @@ for (const id of [
   'panel.files.toggle',
   'panel.knowledge-graph.toggle',
   'specialist.spawn.architect',
-  'specialist.spawn.nuclear-review',
+  'specialist.spawn.performance',
   'voice.toggle',
   'sprintengine.refresh.board',
   'multiloop.open.settings',

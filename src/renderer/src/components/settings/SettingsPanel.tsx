@@ -68,7 +68,6 @@ import { getSettingDescriptor, type SettingDescriptor } from './settingsRegistry
 import {
   authoringFieldErrors,
   authoringStatusReducer,
-  CAPABILITY_PHASES,
   createRoleAuthoringDraft,
   editRoleAuthoringDraft,
   idleAuthoringStatus,
@@ -245,19 +244,11 @@ const INPUT_CLASS =
 const ROW_INPUT_CLASS =
   'h-8 max-w-full rounded-md border border-[color:var(--border-default)] bg-[color:var(--bg-app)] px-2.5 font-mono text-[12px] text-[color:var(--text-strong)] outline-none placeholder:text-[color:var(--text-disabled)] focus:border-[color:var(--accent-primary)] disabled:opacity-45'
 
-// Soul-body editor: the SKILL.md document the runtime parses, so it reads as a
+// Instructions editor: the SKILL.md document the runtime parses, so it reads as a
 // structured document (mono) rather than prose. Tall by default since the author
 // is filling in a multi-section scaffold.
 const TEXTAREA_CLASS =
   'min-h-[260px] w-full resize-y rounded-md border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] px-3 py-2 font-mono text-[12px] leading-5 text-[color:var(--text-strong)] outline-none placeholder:text-[color:var(--text-disabled)] focus:border-[color:var(--accent-primary)] disabled:opacity-45'
-
-// The optional review capability's phase. Sentence-case labels; the runtime maps
-// these to the gate phase a custom reviewer participates in.
-const CAPABILITY_PHASE_ITEMS: SelectItem<(typeof CAPABILITY_PHASES)[number]>[] = [
-  { value: 'review', label: 'Review' },
-  { value: 'testing', label: 'Testing' },
-  { value: 'product', label: 'Product' },
-]
 
 type MessageTone = 'neutral' | 'accent' | 'warn' | 'error'
 type RoleRegistryStatus = 'idle' | 'loading' | 'ready' | 'unavailable'
@@ -802,7 +793,7 @@ function UserRoleAuthoringForm({
   onCancel: () => void
 }) {
   const editing = mode.kind === 'edit'
-  const capabilityLabelId = React.useId()
+  const sweepLabelId = React.useId()
   return (
     <div className="space-y-4 rounded-[var(--radius-md)] border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] p-4">
       <div className="text-[13px] font-semibold text-[color:var(--text-strong)]">
@@ -870,51 +861,54 @@ function UserRoleAuthoringForm({
       <div className="space-y-3 rounded-[var(--radius-md)] border border-[color:var(--border-subtle)] p-3">
         <div className="flex items-start justify-between gap-4">
           <div className="min-w-0">
-            <span id={capabilityLabelId} className="block text-[13px] font-medium text-[color:var(--text-strong)]">
-              Review capability
+            <span id={sweepLabelId} className="block text-[13px] font-medium text-[color:var(--text-strong)]">
+              Reviews the finished work
             </span>
             <p className="mt-0.5 text-[12px] leading-5 text-[color:var(--text-muted)]">
-              Let this role act as a reviewer at a gate phase. Off for a regular contributor role.
+              This role gets its own task near the end of a run: it reviews everything the sprint changed and
+              fixes what it finds. Off for a role that builds its own features.
             </p>
           </div>
           <Switch
-            checked={draft.capability.enabled}
-            onChange={(next) => onChange({ capability: { ...draft.capability, enabled: next } })}
+            checked={draft.sweep.enabled}
+            onChange={(next) => onChange({ sweep: { ...draft.sweep, enabled: next } })}
             disabled={busy}
-            ariaLabelledBy={capabilityLabelId}
+            ariaLabelledBy={sweepLabelId}
             className="mt-0.5"
           />
         </div>
-        {draft.capability.enabled ? (
+        {draft.sweep.enabled ? (
           <div className="grid gap-4 sm:grid-cols-2">
-            <div className="flex flex-col gap-1.5">
-              <Field.Label>Phase</Field.Label>
-              <Select
-                ariaLabel="Review capability phase"
-                items={CAPABILITY_PHASE_ITEMS}
-                value={draft.capability.phase}
-                onChange={(phase) => onChange({ capability: { ...draft.capability, phase } })}
-                disabled={busy}
-              />
-            </div>
-            <Field label="Default focus" htmlFor="user-role-focus" help="Optional. What the review concentrates on.">
+            <Field label="What it looks for" htmlFor="user-role-sweep-focus" required>
               <input
-                value={draft.capability.defaultFocus}
-                onChange={(event) => onChange({ capability: { ...draft.capability, defaultFocus: event.target.value } })}
+                value={draft.sweep.focus}
+                onChange={(event) => onChange({ sweep: { ...draft.sweep, focus: event.target.value } })}
                 disabled={busy}
-                placeholder="regressions, edge cases"
+                placeholder="dead abstractions, boilerplate comments, hedging copy"
+                className={`${INPUT_CLASS} font-sans`}
+              />
+            </Field>
+            <Field
+              label="When a sprint needs it"
+              htmlFor="user-role-sweep-when"
+              required
+              help="The architect reads this to decide whether to plan the review."
+            >
+              <input
+                value={draft.sweep.when}
+                onChange={(event) => onChange({ sweep: { ...draft.sweep, when: event.target.value } })}
+                disabled={busy}
+                placeholder="always"
                 className={`${INPUT_CLASS} font-sans`}
               />
             </Field>
           </div>
         ) : null}
-        {errors.capability ? (
-          <p className="text-[11px] text-[color:var(--tone-error)]">{errors.capability}</p>
-        ) : null}
+        {errors.sweep ? <p className="text-[11px] text-[color:var(--tone-error)]">{errors.sweep}</p> : null}
       </div>
 
       <Field
-        label="Soul body"
+        label="Instructions"
         htmlFor="user-role-body"
         required
         error={errors.body}

@@ -1,6 +1,6 @@
 // DOM-free view-model for the Settings -> Roles custom-role authoring form.
 //
-// All validation, id-collision detection, capability disclosure mapping, and the
+// All validation, id-collision detection, sweep disclosure mapping, and the
 // idle/validating/saving/saved/error state machine live here so they can be unit
 // tested under the Node runner without rendering (mirroring extensionsInstalled.ts).
 // The renderer holds the draft in component state, calls these pure helpers, and
@@ -9,9 +9,10 @@
 // The single manifest validator (validateRoleManifest) stays canonical: this
 // module assembles the authored input, runs it through buildAuthoredRoleManifest +
 // validateRoleManifest, and maps the issue paths back onto form fields. Two checks
-// the manifest validator does not own — an empty soul body and an id that collides
-// with an already-registered role/alias — are enforced here so they surface inline
-// before any write, exactly as the save service would reject them on disk.
+// the manifest validator does not own — an empty instructions body and an id that
+// collides with an already-registered role/alias — are enforced here so they
+// surface inline before any write, exactly as the save service would reject them
+// on disk.
 
 import {
   buildAuthoredRoleManifest,
@@ -19,47 +20,43 @@ import {
   roleIdCollision,
   starterSoulTemplate,
   validateRoleManifest,
-  type RoleCapability,
   type RoleManifest,
   type RoleManifestValidationIssue,
   type UserRoleSaveInput,
 } from '../../../../shared/sprintengine/role-manifest'
 
-// Create seeds a fresh soul body; edit locks the id and prefills from the get
-// bridge. The mode also gates id-collision (only meaningful when creating).
+// Create seeds a fresh instructions body; edit locks the id and prefills from the
+// get bridge. The mode also gates id-collision (only meaningful when creating).
 export type RoleAuthoringMode = { kind: 'create' } | { kind: 'edit'; id: string }
 
-export type RoleCapabilityPhase = NonNullable<RoleCapability['phase']>
-
-export const CAPABILITY_PHASES: readonly RoleCapabilityPhase[] = ['review', 'testing', 'product']
-
-// The optional single review capability, disclosed behind a switch (default off
-// per plan D4). When disabled no capability is emitted at all.
-export type RoleCapabilityDraft = {
+// The optional sweep block, disclosed behind a switch (default off). A sweep role
+// reviews the whole branch diff at a planned point in the run and fixes what it
+// finds; when disabled no sweep is emitted and the role is an ordinary worker.
+export type RoleSweepDraft = {
   enabled: boolean
-  phase: RoleCapabilityPhase
-  defaultFocus: string
+  focus: string
+  when: string
 }
 
 // The editable form state. Aliases are a single free-text field parsed to an
-// array on save; body is the SKILL.md soul document.
+// array on save; body is the SKILL.md instructions document.
 export type RoleAuthoringDraft = {
   id: string
   label: string
   summary: string
   aliasesText: string
-  capability: RoleCapabilityDraft
+  sweep: RoleSweepDraft
   body: string
 }
 
 // Inline errors keyed by the form control they belong to. `form` carries any
-// issue with no obvious field home (it should not normally appear, since soul is
-// auto-assembled from the id).
+// issue with no obvious field home (it should not normally appear, since the
+// directive pack is auto-assembled from the id).
 export type RoleAuthoringFieldErrors = {
   id?: string
   label?: string
   aliases?: string
-  capability?: string
+  sweep?: string
   body?: string
   form?: string
 }
@@ -68,19 +65,19 @@ export type RoleAuthoringValidation =
   | { ok: true; input: UserRoleSaveInput }
   | { ok: false; errors: RoleAuthoringFieldErrors }
 
-export function emptyCapabilityDraft(): RoleCapabilityDraft {
-  return { enabled: false, phase: 'review', defaultFocus: '' }
+export function emptySweepDraft(): RoleSweepDraft {
+  return { enabled: false, focus: '', when: '' }
 }
 
-// A brand-new draft: the body is seeded with the starter soul template so the
-// author edits a labelled scaffold rather than a blank textarea.
+// A brand-new draft: the body is seeded with the starter template so the author
+// edits a labelled scaffold rather than a blank textarea.
 export function createRoleAuthoringDraft(): RoleAuthoringDraft {
   return {
     id: '',
     label: '',
     summary: '',
     aliasesText: '',
-    capability: emptyCapabilityDraft(),
+    sweep: emptySweepDraft(),
     body: starterSoulTemplate(''),
   }
 }
@@ -88,15 +85,13 @@ export function createRoleAuthoringDraft(): RoleAuthoringDraft {
 // Prefill a draft from an existing user-authored role (manifest + SKILL.md body)
 // for editing. The id is preserved verbatim and the caller keeps it locked.
 export function editRoleAuthoringDraft(manifest: RoleManifest, body: string): RoleAuthoringDraft {
-  const capability = manifest.capabilities?.[0]
+  const sweep = manifest.sweep
   return {
     id: manifest.id,
     label: manifest.label,
     summary: manifest.summary ?? '',
     aliasesText: (manifest.aliases ?? []).join(', '),
-    capability: capability
-      ? { enabled: true, phase: capability.phase ?? 'review', defaultFocus: capability.defaultFocus ?? '' }
-      : emptyCapabilityDraft(),
+    sweep: sweep ? { enabled: true, focus: sweep.focus, when: sweep.when } : emptySweepDraft(),
     body,
   }
 }
@@ -122,10 +117,8 @@ export function toUserRoleSaveInput(draft: RoleAuthoringDraft): UserRoleSaveInpu
   if (summary) input.summary = summary
   const aliases = parseAliasesText(draft.aliasesText)
   if (aliases.length > 0) input.aliases = aliases
-  if (draft.capability.enabled) {
-    input.capability = { phase: draft.capability.phase }
-    const focus = draft.capability.defaultFocus.trim()
-    if (focus) input.capability.defaultFocus = focus
+  if (draft.sweep.enabled) {
+    input.sweep = { focus: draft.sweep.focus.trim(), when: draft.sweep.when.trim() }
   }
   return input
 }
@@ -134,7 +127,7 @@ function fieldForIssuePath(path: string): keyof RoleAuthoringFieldErrors {
   if (path === 'id') return 'id'
   if (path === 'label') return 'label'
   if (path.startsWith('aliases')) return 'aliases'
-  if (path.startsWith('capabilities')) return 'capability'
+  if (path.startsWith('sweep')) return 'sweep'
   if (path === 'body') return 'body'
   return 'form'
 }
@@ -154,8 +147,8 @@ export function mapIssuesToFieldErrors(
 
 // Validate a draft fully before any write. Runs the assembled manifest through
 // the canonical validator, then layers the two write-blocking checks the
-// validator does not own: a non-empty soul body, and (create mode only) an id
-// that does not collide with an already-registered role id or alias.
+// validator does not own: a non-empty instructions body, and (create mode only)
+// an id that does not collide with an already-registered role id or alias.
 export function validateRoleAuthoringDraft(
   draft: RoleAuthoringDraft,
   context: { mode: RoleAuthoringMode; existingIdsAndAliases: Iterable<string> },
@@ -169,7 +162,7 @@ export function validateRoleAuthoringDraft(
   }
 
   if (input.body.trim().length === 0) {
-    errors.body = 'Soul body is required; describe what this role does.'
+    errors.body = 'Instructions are required; describe what this role does.'
   }
 
   // Edit locks the id, so a collision can only be authored when creating.

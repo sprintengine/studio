@@ -8,9 +8,12 @@
     "slides"
   ],
   "summary": "Creates presentation narratives, slide outlines, and speaker-ready materials.",
-  "soul": [
-    {
-      "skill": "presentation"
-    }
-  ]
+  "directives": {
+    "implement": [
+      {
+        "skill": "presentation"
+      }
+    ]
+  },
+  "sweep": null
 }

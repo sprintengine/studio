@@ -110,7 +110,7 @@ async function assertCommandFailureAndDesktopOfflinePublishNotifications(): Prom
 
 function snapshot(sprintEngines: MobileSprintEngineSnapshot[]): MobileControlSnapshot {
   return {
-    protocolVersion: 1,
+    protocolVersion: 2,
     generatedAt: now.toISOString(),
     desktopSessionId: 'desktop_1',
     sprintEngines,
@@ -133,12 +133,8 @@ function sprintengine(
       todo: 0,
       ready: 0,
       inProgress: input.tasks.filter((candidate) => candidate.status === 'in_progress').length,
-      changesRequested: input.tasks.filter((candidate) => candidate.status === 'changes_requested').length,
       review: 0,
-      testing: 0,
-      product: 0,
       needsInput: input.tasks.filter((candidate) => candidate.status === 'needs_input').length,
-      blocked: 0,
       done: input.tasks.filter((candidate) => candidate.status === 'done').length,
     },
     tasks: input.tasks,

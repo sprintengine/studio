@@ -20,7 +20,7 @@ import type { RuntimeAgentView } from '../sprintEngineInspector'
 // (status announced once via visually-hidden text).
 
 const sprintEngineState = {
-  roleCounts: { architect: 1, developer: 1, tester: 1, code_reviewer: 1 },
+  roleCounts: { architect: 1, developer: 1, tester: 1, security: 1 },
   roleRuntimes: {
     architect: { cli: 'claude-code', model: 'claude-opus-4-8' },
     developer: { cli: 'claude-code', model: 'claude-haiku-4-5' },
@@ -105,7 +105,7 @@ const html = renderToStaticMarkup(
       { role: 'developer', label: 'Developer', summary: 'Builds.', activeForRole: 3, openTasksForRole: 1 },
       { role: 'tester', label: 'Tester', summary: 'Validates.', activeForRole: 1, openTasksForRole: 0 },
       // Enabled but no sessions yet -> band with an empty state, never a chip.
-      { role: 'code_reviewer', label: 'Code Reviewer', summary: 'Reviews.', activeForRole: 0, openTasksForRole: 0 },
+      { role: 'security', label: 'Security Specialist', summary: 'Reviews.', activeForRole: 0, openTasksForRole: 0 },
       // Not enabled -> Add member menu entry only.
       { role: 'product', label: 'Product', summary: 'Shapes scope.', activeForRole: 0, openTasksForRole: 0 },
     ]}
@@ -173,10 +173,10 @@ assert.ok(
 )
 assert.ok(html.includes('Starting…'), 'pending row shows the Starting label')
 
-// The activity line carries the seat's task; the persistent reviewer tag and
-// the labeled ⋮ menu both survive the re-architecture.
+// The activity line carries the seat's task; the labeled ⋮ menu survives the
+// re-architecture. MC-1542: the persistent "Review seat" reviewer tag was
+// retired along with the standalone reviewer roles.
 assert.ok(html.includes('T2 · Wire the store'), 'a working seat shows its task on the activity line')
-assert.equal((html.match(/>Review seat</g) || []).length, 1, 'the persistent reviewer is marked once')
 assert.ok(html.includes('aria-label="Developer 2 actions"'), 'rows expose a labeled row menu')
 
 // The row StatusDot is decorative: status is announced once via the
@@ -185,7 +185,7 @@ assert.ok(!html.includes('aria-label="Running"'), 'the row StatusDot sets no sta
 
 // Enabled-but-unseated role renders as a band with an honest empty state; the
 // old add-chip tray is gone entirely.
-assert.ok(html.includes('Code Reviewer'), 'an enabled role with no seats still renders as a band')
+assert.ok(html.includes('Security Specialist'), 'an enabled role with no seats still renders as a band')
 assert.ok(html.includes('No seats yet'), 'an unseated band explains itself')
 assert.ok(!html.includes('aria-label="Add a role to the roster"'), 'the add-role chip tray is gone')
 assert.ok(!html.includes('aria-label="Add Product"'), 'no per-role add chips render')
@@ -193,7 +193,7 @@ assert.ok(!html.includes('aria-label="Add Product"'), 'no per-role add chips ren
 // configuredRoles (projected enabled-role set) still drives the bands: a
 // configured reviewer that has never spawned renders as an empty band.
 const configuredRolesState = {
-  configuredRoles: ['architect', 'developer', 'nuclear_reviewer'],
+  configuredRoles: ['architect', 'developer', 'performance'],
   roleCounts: { architect: 1, developer: 1 },
   tasks: [],
   sprintEngineAgents: {},
@@ -208,7 +208,7 @@ const configuredHtml = renderToStaticMarkup(
     addMemberOptions={[
       { role: 'architect', label: 'Architect', summary: 'Plans.', activeForRole: 1, openTasksForRole: 0 },
       { role: 'developer', label: 'Developer', summary: 'Builds.', activeForRole: 0, openTasksForRole: 0 },
-      { role: 'nuclear_reviewer', label: 'Nuclear Reviewer', summary: 'Reviews.', activeForRole: 0, openTasksForRole: 0 },
+      { role: 'performance', label: 'Performance Engineer', summary: 'Reviews.', activeForRole: 0, openTasksForRole: 0 },
     ]}
     isAgentTerminalLive={() => false}
     willResumeAgent={() => false}
@@ -227,9 +227,9 @@ const configuredHtml = renderToStaticMarkup(
     onKillAgent={() => {}}
   />,
 )
-assert.ok(configuredHtml.includes('Nuclear Reviewer'), 'a configured unseated role renders as a band')
+assert.ok(configuredHtml.includes('Performance Engineer'), 'a configured unseated role renders as a band')
 assert.ok(
-  configuredHtml.includes('aria-label="Nuclear Reviewer model: codex"'),
+  configuredHtml.includes('aria-label="Performance Engineer model: codex"'),
   'a configured unseated role still gets an editable model control',
 )
 

@@ -7,9 +7,12 @@
     "blogger"
   ],
   "summary": "Writes and edits publishable long-form content.",
-  "soul": [
-    {
-      "skill": "blog_writer"
-    }
-  ]
+  "directives": {
+    "implement": [
+      {
+        "skill": "blog_writer"
+      }
+    ]
+  },
+  "sweep": null
 }

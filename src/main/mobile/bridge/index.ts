@@ -43,7 +43,7 @@ import {
   revokePushRegistrationsForDevice,
 } from './push'
 
-const mobileControlProtocolVersion = 1 as const
+const mobileControlProtocolVersion = 2 as const
 
 export type MobileControlCommandType =
   | 'snapshot.request'
@@ -199,7 +199,7 @@ export type RelayPairingChallengeResult = {
   manualPairingCode?: string
   pairingUri: string
   pairingPayload?: {
-    mobileControlProtocolVersion: 1
+    mobileControlProtocolVersion: 2
     pairingChallengeId: string
     relayUrl: string
     pairingSecret: string

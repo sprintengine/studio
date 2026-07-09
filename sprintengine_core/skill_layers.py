@@ -12,6 +12,9 @@ mechanics:
 - ``SPRINTENGINE_NORM_SKILLS`` — the engineering quality bar Sprint Engine
   enforces. Owned by Sprint Engine and layered on only inside a Sprint Engine
   run; a raw standalone soul does not carry them.
+- ``SPRINTENGINE_SWEEP_SKILLS`` — the fix-forward mandate, layered onto sweep
+  roles only (``sweep`` present in the manifest). See
+  ``sprintengine_extra_skills_for_role``.
 
 These ids resolve against the same skill registry as soul skills, so the
 composed layer skills are wrapped in the identical ``<skill name="...">``
@@ -19,6 +22,8 @@ envelope as the soul.
 """
 
 from __future__ import annotations
+
+from typing import Any
 
 # Multicode product skills (Backlog, Knowledge Graph). Not soul-related; layered
 # by the host onto Multicode-managed agents when the matching feature is active.
@@ -45,6 +50,13 @@ SPRINTENGINE_SOUL_EXTRA_SKILLS: tuple[str, ...] = (
     *SPRINTENGINE_NORM_SKILLS,
 )
 
+# The fix-forward mandate + significant-findings ladder every sweep role carries.
+# A HOST layer, not a manifest reference: the rule is identical for every sweep
+# (bundled or custom), so stating it once here keeps the prompt-layer policy (one
+# behavior, one layer) and keeps a third-party sweep manifest portable — a pack
+# author declares `sweep: {focus, when}` and inherits the mandate for free.
+SPRINTENGINE_SWEEP_SKILLS: tuple[str, ...] = ("sprintengine_sweep_workflow",)
+
 # The full-loop orchestration skill that stands in for a role-personality Soul on
 # a soulless General. It drives one agent through plan -> build -> self-review ->
 # test -> publish and holds the team at the size the user set.
@@ -59,3 +71,21 @@ SPRINTENGINE_GENERAL_SKILLS: tuple[str, ...] = (
     SPRINTENGINE_GENERAL_WORKFLOW_SKILL,
     *SPRINTENGINE_SOUL_EXTRA_SKILLS,
 )
+
+
+def sprintengine_extra_skills_for_role(discovery: Any, role: str) -> tuple[str, ...]:
+    """Host layer skills for one role's startup brief.
+
+    Every dispatched agent gets the Multicode product layer + Sprint Engine quality
+    norms. A SWEEP role additionally gets the fix-forward mandate, layered here
+    rather than referenced from its manifest so a third-party sweep pack inherits it
+    by declaring `sweep: {focus, when}` and nothing else. An unresolvable role falls
+    back to the base layer — a broken manifest must not strip the quality bar.
+    """
+    try:
+        manifest = discovery.get_role(role)
+    except (KeyError, AttributeError):
+        return SPRINTENGINE_SOUL_EXTRA_SKILLS
+    if getattr(manifest, "is_sweep", False):
+        return (*SPRINTENGINE_SWEEP_SKILLS, *SPRINTENGINE_SOUL_EXTRA_SKILLS)
+    return SPRINTENGINE_SOUL_EXTRA_SKILLS

@@ -8,7 +8,7 @@ type ValidationResult<T> =
   | { ok: true; value: T }
   | { ok: false; error: MobileControlError }
 
-const mobileControlProtocolVersion = 1 as const
+const mobileControlProtocolVersion = 2 as const
 
 const commandTypes = new Set<MobileControlCommandType>([
   'snapshot.request',

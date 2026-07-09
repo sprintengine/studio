@@ -48,7 +48,7 @@ def test_general_join_carries_norms_and_orchestration_but_no_role_soul(tmp_path)
         assert f'<skill name="{skill_id}">' in prompt, skill_id
 
     # No role-personality Soul: a specialist's identity skill must not leak in.
-    for role_skill in ("developer", "architect", "tester", "code_reviewer"):
+    for role_skill in ("developer", "architect", "tester", "security"):
         assert f'<skill name="{role_skill}">' not in prompt, role_skill
 
     # The orchestration skill's two reinforced rules are present.
@@ -68,7 +68,12 @@ def test_general_join_succeeds_without_a_role_manifest(tmp_path) -> None:
     assert result["ok"] is True, result.get("error")
     manifest = result["result"]["roleManifest"]
     assert manifest["id"] == "general"
-    assert manifest["soul"] == []  # no role-personality soul
+    # `general` composes its brief from SPRINTENGINE_GENERAL_SKILLS, not a manifest,
+    # so it carries no directive packs and is not a sweep role. The v2 keys are still
+    # present so the payload shape matches a real role manifest.
+    assert manifest["directives"] == {}
+    assert manifest["sweep"] is None
+    assert "soul" not in manifest and "capabilities" not in manifest
     assert result["result"]["role"] == "general"
 
 

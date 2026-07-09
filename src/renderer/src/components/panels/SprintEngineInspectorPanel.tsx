@@ -4,10 +4,9 @@
 // the inspector owns its own rendering, sub-components, and detail formatting.
 //
 // Task-mode layout (after the 2026-05 redesign):
-//   header → owner line → conditional callouts (blocker / needs input /
-//   open findings) → description + AC → quality gates (with inline
-//   reviewer terminal) → scores line → activity feed (filter chips +
-//   chronological timeline) → compact details.
+//   header → owner line → conditional callouts (needs input / open findings)
+//   → description + AC → artifacts → scores line → activity feed (filter chips
+//   + chronological timeline) → compact details.
 //
 // Data shaping lives next door in `sprintEngineInspector.ts`; the orchestrator
 // passes hydrated derived values via props rather than letting the inspector
@@ -17,9 +16,6 @@ import React, { useCallback, useId, useMemo, useRef, useState } from 'react'
 import type {
   AgentState,
   SprintEngineArtifact,
-  SprintEngineQualityGate,
-  SprintEngineQualityGateAttempt,
-  SprintEngineQualityGatePhase,
   SprintEngineTask,
   SprintEngineTaskActivityEntry,
   SprintEngineTaskActivityType,
@@ -49,18 +45,13 @@ import {
   getSprintEngineAgentActivityDescending,
   getSprintEngineTaskActivityDescending,
   getSprintEngineTaskImplementerTimeline,
-  getSprintEngineTaskQualityGates,
-  getSprintEngineTasksReviewedByAgent,
   getSprintEngineTasksWorkedOnByAgent,
   getSprintEngineRoleLabel,
   sprintEngineArtifactKindLabel,
   sprintEngineArtifactStatusLabels,
-  sprintEngineQualityGatePhaseLabels,
-  sprintEngineQualityGateStatusLabels,
   sprintEngineTaskCommentTypeLabels,
   sprintEngineTaskStateLabel,
   taskBoardColumnToLifecycle,
-  type SprintEngineAgentReviewedTask,
   type SprintEngineAgentActivityEntry,
   type SprintEngineAgentWorkedOnTask,
   type SprintEngineTaskImplementerEntry,
@@ -96,7 +87,6 @@ import {
   formatTaskSyncStatusLabel,
   formatTimestamp,
   getMobileArtifactDecision,
-  sprintEngineGateAttemptVisualState,
   sprintEngineInboxRowSupporting,
   sprintEngineInboxRowLifecycle,
   type ArtifactActionState,
@@ -137,8 +127,7 @@ function SectionList({
   )
 }
 
-// Shared check glyph: an approved gate attempt and a completed implementation
-// pass read as the same "done" tick, so both reuse this one path.
+// Shared check glyph: a completed implementation pass reads as a "done" tick.
 // `label` drives the accessible name + tooltip. Omit it (decorative) when an
 // adjacent label or trail aria-label already names the glyph, to avoid a
 // screen reader announcing the same thing twice.
@@ -163,133 +152,6 @@ function CompletedCheckGlyph({ className, label }: GlyphProps) {
       />
     </svg>
   )
-}
-
-// Gate attempt glyph trail — shows the rework story (changes_requested →
-// approved) without repeating the verdict text. Tone-warn highlights only the
-// rework leg; approvals stay muted so a clean first-pass reads as calm.
-function GateAttemptGlyph({
-  attempt,
-  className,
-}: {
-  attempt: SprintEngineQualityGateAttempt
-  className?: string
-}) {
-  const state = sprintEngineGateAttemptVisualState(attempt)
-
-  if (state === 'approved') {
-    return <CompletedCheckGlyph className={className} label="approved" />
-  }
-
-  if (state === 'changes_requested' || state === 'failed') {
-    const label = state === 'failed' ? 'failed' : 'changes requested'
-    return (
-      <svg
-        className={className}
-        viewBox="0 0 12 12"
-        fill="none"
-        role="img"
-        aria-label={label}
-      >
-        <title>{label}</title>
-        <path
-          d="M9.2 6.4 a3.2 3.2 0 1 1 -1.1 -2.4"
-          stroke="currentColor"
-          strokeWidth="1.4"
-          strokeLinecap="round"
-        />
-        <path
-          d="M8.1 2.4 L8.1 4.0 L6.5 4.0"
-          stroke="currentColor"
-          strokeWidth="1.4"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-        />
-      </svg>
-    )
-  }
-
-  if (state === 'blocked') {
-    return (
-      <svg className={className} viewBox="0 0 12 12" fill="none" role="img" aria-label="blocked">
-        <title>blocked</title>
-        <circle cx="6" cy="6" r="3.5" stroke="currentColor" strokeWidth="1.4" />
-        <path
-          d="M3.6 8.4 L8.4 3.6"
-          stroke="currentColor"
-          strokeWidth="1.4"
-          strokeLinecap="round"
-        />
-      </svg>
-    )
-  }
-
-  if (state === 'released' || state === 'superseded') {
-    const label = state === 'released' ? 'released' : 'superseded'
-    return (
-      <svg className={className} viewBox="0 0 12 12" fill="none" role="img" aria-label={label}>
-        <title>{label}</title>
-        <circle cx="6" cy="6" r="3.5" stroke="currentColor" strokeWidth="1.3" />
-        <path d="M3.7 6 H8.3" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
-      </svg>
-    )
-  }
-
-  if (state === 'in_flight') {
-    // In-flight (open attempt, no verdict yet): the live Spinner — the reviewer is
-    // working right now. This is the only "working" mark on the gate row (the row
-    // no longer carries a leading dot or a status word), so it's the single motion.
-    return <Spinner size={12} label="in review" />
-  }
-
-  return (
-    <svg className={className} viewBox="0 0 12 12" fill="none" role="img" aria-label="unknown outcome">
-      <title>unknown outcome</title>
-      <circle cx="6" cy="6" r="3.5" stroke="currentColor" strokeWidth="1.3" />
-    </svg>
-  )
-}
-
-// Status glyph for a gate with no attempts yet, so a pending/just-started gate
-// still reads by shape now that the row carries no leading dot or status word.
-function GateStatusGlyph({ status }: { status: SprintEngineQualityGate['status'] }) {
-  if (status === 'in_progress') {
-    return <Spinner size={12} label="in progress" />
-  }
-  if (status === 'released' || status === 'superseded') {
-    const label = status === 'released' ? 'released' : 'superseded'
-    return (
-      <svg className="icon-xs text-[color:var(--text-disabled)]" viewBox="0 0 12 12" fill="none" role="img" aria-label={label}>
-        <title>{label}</title>
-        <circle cx="6" cy="6" r="3.5" stroke="currentColor" strokeWidth="1.3" />
-        <path d="M3.7 6 H8.3" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
-      </svg>
-    )
-  }
-  if (status === 'skipped') {
-    return (
-      <svg className="icon-xs text-[color:var(--text-disabled)]" viewBox="0 0 12 12" fill="none" role="img" aria-label="skipped">
-        <title>skipped</title>
-        <path d="M3 9 9 3" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" />
-      </svg>
-    )
-  }
-  // pending / awaiting (and any not-yet-started state): a muted hollow ring.
-  return (
-    <svg className="icon-xs text-[color:var(--text-disabled)]" viewBox="0 0 12 12" fill="none" role="img" aria-label="pending">
-      <title>pending</title>
-      <circle cx="6" cy="6" r="3.5" stroke="currentColor" strokeWidth="1.3" />
-    </svg>
-  )
-}
-
-function gateAttemptToneClass(attempt: SprintEngineQualityGateAttempt): string {
-  const state = sprintEngineGateAttemptVisualState(attempt)
-  if (state === 'in_flight') return 'text-[color:var(--text-muted)]'
-  if (state === 'changes_requested' || state === 'failed' || state === 'blocked') {
-    return 'text-[color:var(--tone-warn)]'
-  }
-  return 'text-[color:var(--text-disabled)]'
 }
 
 function AcceptanceCheckbox({ checked }: { checked: boolean }) {
@@ -325,24 +187,6 @@ function AcceptanceCheckbox({ checked }: { checked: boolean }) {
       <title>pending</title>
       <circle cx="6" cy="6" r="4.6" stroke="currentColor" strokeWidth="1.1" />
     </svg>
-  )
-}
-
-function GateAttemptTrail({ attempts }: { attempts: SprintEngineQualityGateAttempt[] }) {
-  if (attempts.length === 0) return null
-  return (
-    <span
-      className="inline-flex items-center gap-1"
-      aria-label={`${attempts.length} attempt${attempts.length === 1 ? '' : 's'}`}
-    >
-      {attempts.map((attempt, index) => (
-        <GateAttemptGlyph
-          key={attempt.id ?? `attempt-${index}`}
-          attempt={attempt}
-          className={`icon-xs ${gateAttemptToneClass(attempt)}`}
-        />
-      ))}
-    </span>
   )
 }
 
@@ -868,40 +712,10 @@ function ArtifactBlockerList({
 }
 
 // ──────────────────────────────────────────────────────────────────────────
-// Task body sub-components — owner, quality gates, scores, findings,
+// Task body sub-components — owner, scores, findings, artifacts,
 // activity feed, compact details. Each is small, single-purpose, and
 // designed for the 320–560 px side-pane the inspector lives in.
 // ──────────────────────────────────────────────────────────────────────────
-
-function findGateAgent(
-  gate: SprintEngineQualityGate,
-  task: SprintEngineTask,
-  runtimeAgents: RuntimeAgentView[],
-): RuntimeAgentView | null {
-  const claimed = gate.attempts
-    .map((attempt) => attempt.claimedBy)
-    .filter((id): id is string => Boolean(id))
-  for (const agentId of [...claimed].reverse()) {
-    const agent = runtimeAgents.find((entry) => entry.agentId === agentId)
-    if (agent) return agent
-  }
-  const byRoleOnThisTask = runtimeAgents.find(
-    (entry) => entry.role === gate.role && entry.currentTaskId === task.id,
-  )
-  if (byRoleOnThisTask) return byRoleOnThisTask
-
-  return runtimeAgents.find((entry) => entry.role === gate.role) ?? null
-}
-
-// When the reviewer last left this gate: the most recent attempt's completion
-// timestamp. Null while the gate is still open (no completed attempt yet), so
-// the row shows the live status label instead of a stale relative time.
-function latestGateCompletedAt(gate: SprintEngineQualityGate): string | null {
-  return gate.attempts.reduce<string | null>((latest, attempt) => {
-    if (!attempt.completedAt) return latest
-    return !latest || attempt.completedAt > latest ? attempt.completedAt : latest
-  }, null)
-}
 
 // Cap on visible pass ticks per worker so a heavily-reworked task never breaks
 // a row; overflow collapses to a `+N` counter.
@@ -1048,94 +862,6 @@ function TaskCallout({
   )
 }
 
-function TaskQualityGates({
-  task,
-  runtimeAgents,
-  onOpenAgentTerminal,
-}: {
-  task: SprintEngineTask
-  runtimeAgents: RuntimeAgentView[]
-  onOpenAgentTerminal: (agentId: string) => void
-}) {
-  const gates = getSprintEngineTaskQualityGates(task)
-  if (gates.length === 0) return null
-
-  const phases: SprintEngineQualityGatePhase[] = ['review', 'testing', 'product']
-  const ordered = phases.flatMap((phase) => gates.filter((gate) => gate.phase === phase))
-
-  return (
-    <div>
-      <div className="mb-2 text-[11px] font-semibold text-[color:var(--text-muted)]">
-        Quality gates
-      </div>
-      <ul className="divide-y divide-[color:var(--border-subtle)] border-y border-[color:var(--border-subtle)]">
-        {ordered.map((gate) => {
-          const agent = findGateAgent(gate, task, runtimeAgents)
-          const reviewedAt = latestGateCompletedAt(gate)
-          const relativeTime = reviewedAt ? formatRelativeTime(reviewedAt) : null
-          const gateIdentity = (
-            <span className="inline-flex min-w-0 items-center gap-1.5">
-              <RoleAvatar role={gate.role} size="sm" ariaLabel="" />
-              <TruncatedText as="span" text={agent?.label ?? getSprintEngineRoleLabel(gate.role)} />
-            </span>
-          )
-          return (
-            <li key={`${gate.phase}:${gate.id}`} className="py-2">
-              {/* No leading dot and no status word: the reviewer leads with their
-                  avatar, and the gate state reads by glyph — the verdict trail
-                  (check / chevron / slash), a live Spinner while reviewing, or a
-                  pending ring before it starts. */}
-              <div className="min-w-0">
-                <div className="flex items-baseline gap-2">
-                  {agent ? (
-                    <button
-                      type="button"
-                      onClick={() => onOpenAgentTerminal(agent.agentId)}
-                      aria-label={`Open ${agent.label} terminal`}
-                      className={
-                        'interactive -mx-1 inline-flex min-w-0 items-center rounded px-1 py-0.5 ' +
-                        'text-[12.5px] text-[color:var(--text-strong)] transition-colors ' +
-                        'hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)] ' +
-                        FOCUS_RING_CLASS
-                      }
-                    >
-                      {gateIdentity}
-                    </button>
-                  ) : (
-                    <span className="inline-flex min-w-0 items-center text-[12.5px] text-[color:var(--text-strong)]">
-                      {gateIdentity}
-                    </span>
-                  )}
-                  {gate.attempts.length > 0 ? (
-                    <GateAttemptTrail attempts={gate.attempts} />
-                  ) : (
-                    <GateStatusGlyph status={gate.status} />
-                  )}
-                  {relativeTime ? (
-                    <span className="tabular-nums text-[11px] text-[color:var(--text-disabled)]">
-                      {relativeTime}
-                    </span>
-                  ) : null}
-                  {!gate.required ? (
-                    <span className="text-[11px] text-[color:var(--text-disabled)]">optional</span>
-                  ) : null}
-                </div>
-                {gate.attempts.length === 0 && gate.focus ? (
-                  <TruncatedText
-                    as="div"
-                    text={gate.focus}
-                    className="mt-0.5 text-[11px] text-[color:var(--text-muted)]"
-                  />
-                ) : null}
-              </div>
-            </li>
-          )
-        })}
-      </ul>
-    </div>
-  )
-}
-
 function TaskScoresLine({ task }: { task: SprintEngineTask }) {
   const feedback = task.feedback
   if (!feedback) return null
@@ -1203,72 +929,13 @@ function formatNeedsInputValue(value: string | undefined): string | null {
 }
 
 function resolveNeedsInputReporterRole(
-  task: SprintEngineTask,
   reporter: string,
   runtimeAgents: RuntimeAgentView[],
 ) {
-  // Prefer the gate that this reporter actually attempted on, since that's
-  // the role the work is blocked behind (e.g. a tester escalating from the
-  // test gate, even after they've been released from runtime).
-  for (const gate of task.qualityGates ?? []) {
-    if (gate.attempts.some((attempt) => attempt.actor === reporter || attempt.claimedBy === reporter)) {
-      return gate.role
-    }
-  }
+  // The reporter is the task's own owner (MC-1542 single-owner tasks), so its
+  // live roster entry is the only source of the role the work is blocked behind.
   const runtime = runtimeAgents.find((entry) => entry.agentId === reporter)
   return runtime?.role ?? null
-}
-
-function findNextRequiredGate(task: SprintEngineTask): SprintEngineQualityGate | null {
-  // First required gate that hasn't approved yet, walked in lifecycle order.
-  // The status decides whether it's calm ("awaiting / in review"), genuinely
-  // blocked, or back on the worker ('changes_requested' — handled by the
-  // owner line + quality gates list, not here).
-  const gates = task.qualityGates ?? []
-  if (gates.length === 0) return null
-  const phases: SprintEngineQualityGatePhase[] = ['review', 'testing', 'product']
-  for (const phase of phases) {
-    const next = gates.find(
-      (gate) =>
-        gate.phase === phase
-          && gate.required
-          && (gate.status === 'pending'
-            || gate.status === 'in_progress'
-            || gate.status === 'blocked'),
-    )
-    if (next) return next
-  }
-  return null
-}
-
-function TaskGateBlockedCallout({
-  task,
-  runtimeAgents,
-}: {
-  task: SprintEngineTask
-  runtimeAgents: RuntimeAgentView[]
-}) {
-  if (task.status === 'needs_input') return null
-  const gate = findNextRequiredGate(task)
-  if (!gate || gate.status !== 'blocked') return null
-  const agent = findGateAgent(gate, task, runtimeAgents)
-  const roleLabel = getSprintEngineRoleLabel(gate.role)
-  const agentLabel = agent?.label ?? null
-  return (
-    <TaskCallout tone="warn" label={`Gate blocked: ${roleLabel}`}>
-      <div className="space-y-2">
-        <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-[12.5px] text-[color:var(--text-strong)]">
-          <RoleAvatar role={gate.role} size="sm" ariaLabel="" />
-          <span className="font-mono">{agentLabel ?? 'No reviewer claimed'}</span>
-        </div>
-        {gate.focus ? (
-          <div className="text-[11.5px] text-[color:var(--text-muted)] [overflow-wrap:anywhere]">
-            {gate.focus}
-          </div>
-        ) : null}
-      </div>
-    </TaskCallout>
-  )
 }
 
 // A needs_input task whose whole job is "review artifact X" gets the review
@@ -1535,7 +1202,7 @@ function TaskNeedsInputCallout({
   const reasonLabel = formatNeedsInputValue(needsInput?.reason)
   const question = needsInput?.question?.trim() || null
   const fallback = fallbackNote?.trim() || 'Worker is waiting for input.'
-  const reporterRole = reportedBy ? resolveNeedsInputReporterRole(task, reportedBy, runtimeAgents) : null
+  const reporterRole = reportedBy ? resolveNeedsInputReporterRole(reportedBy, runtimeAgents) : null
   const reportedAtLabel = reportedAt ? formatTimestamp(reportedAt) : null
 
   return (
@@ -2243,22 +1910,22 @@ function TaskOpenFeedbackComments({ comments }: { comments: SprintEngineTaskComm
 }
 
 // "Send back for rework" only makes sense once a task has moved past active
-// implementation — when it's under/through review or already done. For todo /
-// ready / in_progress it's either not started or already being worked; for
-// needs_input the resolve composer owns the resume path; changes_requested is
-// already there. Re-routing those would be a no-op or fight the gate model.
+// implementation — when its owner is reviewing it, or it is already done. For
+// todo / ready / in_progress it's either not started or already being worked; for
+// needs_input the resolve composer owns the resume path. Sending back returns the
+// task to `in_progress` under its original owner (the human Inbox loop).
 function taskCanBeSentBackForRework(status: SprintEngineTask['status']): boolean {
-  return status === 'review' || status === 'testing' || status === 'product' || status === 'done'
+  return status === 'review' || status === 'done'
 }
 
 // Add-a-comment surface for the task inspector. A plain composer (not a warn
 // callout — it carries no attention state), available on every task. The
 // comment is recorded on the task for the working agent to read. When the task
-// has moved past active implementation (`canSendBack`), a secondary action
-// posts the comment and sends the task back for rework — set to
-// `changes_requested`, which lands it in a claimable column so the auto-runner
-// re-dispatches the owner role. "Resume"-style re-routing for a *blocked* task
-// lives in TaskInputResponsePrompt instead; this surface is everyday annotation.
+// has moved past active implementation (`canSendBack`), a secondary action posts
+// the comment and sends the task back for rework — set to `in_progress` under its
+// original owner, whom the supervisor re-engages. "Resume"-style re-routing for a
+// *blocked* task lives in TaskInputResponsePrompt instead; this surface is everyday
+// annotation.
 function TaskCommentComposer({
   taskId,
   canSendBack,
@@ -2361,100 +2028,6 @@ function AgentWorkedOnTasksList({
               </div>
               <TruncatedText as="div" text={task.title} className="mt-0.5 text-sm text-[color:var(--text-strong)]" />
             </button>
-          </li>
-        )
-      })}
-    </ul>
-  )
-}
-
-function AgentReviewedTasksList({
-  reviewed,
-  onSelectTask,
-}: {
-  reviewed: SprintEngineAgentReviewedTask[]
-  onSelectTask: (taskId: string) => void
-}) {
-  const [expanded, setExpanded] = useState<Set<string>>(() => new Set())
-  if (reviewed.length === 0) {
-    return <div className="text-[color:var(--text-subtle)]">No reviews completed.</div>
-  }
-  return (
-    <ul className="divide-y divide-[color:var(--border-default)] border-y border-[color:var(--border-default)]">
-      {reviewed.map(({ task, attempts, latestAttemptAt }) => {
-        const latestAttempt = [...attempts].sort(
-          (a, b) => (b.completedAt ?? b.startedAt ?? '').localeCompare(a.completedAt ?? a.startedAt ?? ''),
-        )[0]
-        const phaseLabel = latestAttempt
-          ? sprintEngineQualityGatePhaseLabels[latestAttempt.phase] ?? latestAttempt.phase
-          : null
-        const verdictLabel = latestAttempt?.verdict ?? null
-        const gateStatusLabel = latestAttempt
-          ? sprintEngineQualityGateStatusLabels[latestAttempt.gateStatus] ?? latestAttempt.gateStatus
-          : null
-        const summary = latestAttempt?.summary ?? null
-        const relative = latestAttemptAt ? formatRelativeTime(latestAttemptAt) : null
-        const isExpanded = expanded.has(task.id)
-        return (
-          <li key={task.id} className="px-1 py-2.5">
-            <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5 text-[11px] text-[color:var(--text-muted)]">
-              <button
-                type="button"
-                onClick={() => onSelectTask(task.id)}
-                aria-label={`Open ${task.id}`}
-                className={
-                  'interactive -mx-1 inline-flex items-baseline rounded px-1 py-0.5 '
-                  + 'font-mono text-[color:var(--tone-warn)] transition-colors '
-                  + 'hover:text-[color:var(--text-strong)] '
-                  + FOCUS_RING_CLASS
-                }
-              >
-                {task.id}
-              </button>
-              {phaseLabel ? <span>{phaseLabel} gate</span> : null}
-              {gateStatusLabel ? (
-                <>
-                  <span>·</span>
-                  <span>{gateStatusLabel.toLowerCase()}</span>
-                </>
-              ) : null}
-              {verdictLabel ? (
-                <>
-                  <span>·</span>
-                  <span className="text-[color:var(--text-default)]">{verdictLabel}</span>
-                </>
-              ) : null}
-              {relative ? (
-                <span className="ml-auto tabular-nums font-mono text-[10.5px] text-[color:var(--text-disabled)]">
-                  {relative}
-                </span>
-              ) : null}
-            </div>
-            <button
-              type="button"
-              onClick={() => onSelectTask(task.id)}
-              className={
-                'interactive -mx-1 mt-0.5 block w-[calc(100%+0.5rem)] rounded px-1 py-0.5 '
-                + 'truncate text-left text-sm text-[color:var(--text-strong)] transition-colors '
-                + 'hover:bg-[color:var(--bg-surface-raised)] '
-                + FOCUS_RING_CLASS
-              }
-            >
-              {task.title}
-            </button>
-            {summary ? (
-              <CollapsibleMessage
-                message={summary}
-                expanded={isExpanded}
-                onToggle={() => setExpanded((prev) => {
-                  const next = new Set(prev)
-                  if (next.has(task.id)) next.delete(task.id)
-                  else next.add(task.id)
-                  return next
-                })}
-                className="mt-1 text-[12px] leading-5 text-[color:var(--text-muted)] [overflow-wrap:anywhere]"
-              />
-            ) : null}
           </li>
         )
       })}
@@ -2592,13 +2165,7 @@ const taskDiffStatusLabels: Record<SprintEngineTaskDiff['status'], string> = {
 
 // Diff capture runs on `task publish` and `task status --status done`, so the
 // section is only meaningful once a task has reached a post-publish state.
-const diffCaptureStatuses: ReadonlyArray<SprintEngineTask['status']> = [
-  'review',
-  'testing',
-  'product',
-  'done',
-  'changes_requested',
-]
+const diffCaptureStatuses: ReadonlyArray<SprintEngineTask['status']> = ['review', 'done']
 
 function diffLineToneClass(line: SprintEngineTaskDiffLine): string {
   if (line.type === 'added') return 'bg-[color:var(--tone-good-soft)] text-[color:var(--diff-added)]'
@@ -2906,7 +2473,6 @@ export function SprintEngineInspectorPanel({
       ? sprintEngineState.tasks.find((task) => task.id === runtime.currentTaskId) ?? null
       : null
     const workedOnTasks = getSprintEngineTasksWorkedOnByAgent(agent.id, sprintEngineState.tasks)
-    const reviewedTasks = getSprintEngineTasksReviewedByAgent(agent.id, sprintEngineState.tasks)
     const agentActivity = getSprintEngineAgentActivityDescending(agent.id, sprintEngineState.tasks)
     return (
       <div className="flex h-full min-h-0 flex-col">
@@ -2983,13 +2549,6 @@ export function SprintEngineInspectorPanel({
             <AgentWorkedOnTasksList worked={workedOnTasks} onSelectTask={onSelectTask} />
           </div>
 
-          <div>
-            <div className="mb-2 text-[10px] font-bold text-[color:var(--text-disabled)]">
-              Tasks reviewed ({reviewedTasks.length})
-            </div>
-            <AgentReviewedTasksList reviewed={reviewedTasks} onSelectTask={onSelectTask} />
-          </div>
-
           <AgentActivityFeed
             entries={agentActivity}
             emptyLabel="No activity recorded yet."
@@ -3005,7 +2564,11 @@ export function SprintEngineInspectorPanel({
   // One status vocabulary across the app: the shape-coded LifecycleGlyph (also
   // on Kanban cards and Backlog), not the 6px StatusDot. `live` is reserved for
   // states that are genuinely moving — a running worker or an unanswered ask.
-  const lifecycle = taskBoardColumnToLifecycle(selectedTaskBoardColumn ?? selectedTask.status)
+  // `canceled` is a task status with no board column, so it falls back to `todo`
+  // rather than widening the column vocabulary for a state the board never shows.
+  const lifecycle = taskBoardColumnToLifecycle(
+    selectedTaskBoardColumn ?? (selectedTask.status === 'canceled' ? 'todo' : selectedTask.status)
+  )
   const lifecycleLive = lifecycle === 'in_progress' || lifecycle === 'needs_input'
 
   return (
@@ -3144,8 +2707,6 @@ function SprintEngineTaskBody({
         onOpenAgentTerminal={onOpenAgentTerminal}
       />
 
-      <TaskGateBlockedCallout task={selectedTask} runtimeAgents={runtimeAgents} />
-
       <TaskNeedsInputCallout
         task={selectedTask}
         fallbackNote={selectedTaskNeedsInputNote}
@@ -3162,12 +2723,6 @@ function SprintEngineTaskBody({
       {selectedTaskArtifactBlockers.length > 0 ? (
         <ArtifactBlockerList blockers={selectedTaskArtifactBlockers} />
       ) : null}
-
-      <TaskQualityGates
-        task={selectedTask}
-        runtimeAgents={runtimeAgents}
-        onOpenAgentTerminal={onOpenAgentTerminal}
-      />
 
       {/* MC-1469: artifacts are the task's outputs, not reference metadata —
           they render first-class after the review surfaces rather than inside

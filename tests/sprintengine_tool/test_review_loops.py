@@ -1,3 +1,18 @@
+"""The review loops that survive MC-1542: artifacts, and phase-advance telemetry.
+
+Quality gates are gone, and with them the reviewer round-trip through
+`changes_requested`. Two review loops remain and are pinned here:
+
+- The ARTIFACT loop. A task that produced artifacts completes only when every
+  non-superseded artifact is approved, and `artifact request-changes` reopens
+  exactly the linked producer task (a planner/operator action, not a rework
+  channel an agent can pull on itself).
+- The PHASE loop. The task's own owner closes each phase with `task advance`.
+  The verdict telemetry the old gate carried (scores, categorical findings) rides
+  the advance instead, and stays best-effort: a malformed optional sub-field is
+  dropped with a warning, never allowed to block the operational transition.
+"""
+
 from __future__ import annotations
 
 import json
@@ -46,45 +61,23 @@ def add_ready_artifact(fixture, artifact_id: str, task_id: str, kind: str, path:
     )
 
 
-def gated_review_task() -> dict:
-    record = task("T1", "Implementation under review", "developer", "review", owner="developer-fixture")
-    record["qualityGates"] = [
-        {
-            "id": "code-review",
-            "phase": "review",
-            "role": "code_reviewer",
-            "status": "pending",
-            "required": True,
-            "allowSelfReview": False,
-            "focus": "Code quality",
-            "attempts": [],
-        },
-        {
-            "id": "spec-review",
-            "phase": "review",
-            "role": "spec_reviewer",
-            "status": "pending",
-            "required": True,
-            "allowSelfReview": False,
-            "focus": "Spec conformance",
-            "attempts": [],
-        },
-        {
-            "id": "test",
-            "phase": "testing",
-            "role": "tester",
-            "status": "pending",
-            "required": True,
-            "allowSelfReview": False,
-            "focus": "Validation",
-            "attempts": [],
-        },
-    ]
+def reviewing_task() -> dict:
+    """A task its owner has already published: `review`, still owned, mid-walk."""
+    record = task("T1", "Implementation under review", "developer", "review", owner="developer-1")
+    record["startedAt"] = "2026-07-08T00:00:00Z"
     return record
 
 
-def claim_gate(fixture, role: str, agent_id: str) -> dict:
-    return fixture.cli.run("task", "gate", "next", "--role", role, "--id", agent_id)
+def reviewing_team(tmp_path, name: str):
+    fixture = create_team(tmp_path, name, [reviewing_task()])
+    state = read_state(fixture.state_path)
+    state["sprintengine"]["rosterConfigured"] = True
+    state["agents"] = {"developer-1": {"role": "developer", "status": "idle"}}
+    write_state(fixture.state_path, state)
+    return fixture
+
+
+# --- the artifact loop --------------------------------------------------------
 
 
 def test_task_completes_only_after_all_non_superseded_artifacts_are_approved(tmp_path) -> None:
@@ -168,7 +161,7 @@ def test_review_artifacts_preserve_recommended_task_metadata(tmp_path) -> None:
     fixture = create_team(
         tmp_path,
         "review-artifact-metadata",
-        [task("T1", "Review implementation", "code_reviewer", "in_progress", owner="code-reviewer")],
+        [task("T1", "Review implementation", "security", "in_progress", owner="code-reviewer")],
     )
     write_team_file(fixture, "reviews/code-review.md", "# Code Review\n")
 
@@ -208,136 +201,74 @@ def test_review_artifacts_preserve_recommended_task_metadata(tmp_path) -> None:
     assert get_artifact(state, "A1")["recommendedTasks"] == ["Fix missing validation", "Add regression coverage"]
 
 
-def test_gate_approved_verdict_waits_for_parallel_phase_gates_then_advances(tmp_path) -> None:
-    fixture = create_team(tmp_path, "gate-approval-routing", [gated_review_task()])
-    claim_gate(fixture, "code_reviewer", "code-reviewer")
-    claim_gate(fixture, "spec_reviewer", "spec-reviewer")
+# --- the phase loop -----------------------------------------------------------
 
-    first = fixture.cli.run(
-        "task",
-        "gate",
-        "verdict",
-        "--task-id",
-        "T1",
-        "--gate-id",
-        "code-review",
-        "--role",
-        "code_reviewer",
-        "--id",
-        "code-reviewer",
-        "--verdict",
-        "approved",
-        "--summary",
-        "Code review passed.",
-    )
-    state = read_state(fixture.state_path)
-    state["sprintengine"]["status"] = "planned"
-    write_state(fixture.state_path, state)
-    second = fixture.cli.run(
-        "task",
-        "gate",
-        "verdict",
-        "--task-id",
-        "T1",
-        "--gate-id",
-        "spec-review",
-        "--role",
-        "spec_reviewer",
-        "--id",
-        "spec-reviewer",
-        "--verdict",
-        "approved",
-        "--summary",
-        "Spec review passed.",
+
+def test_advance_pass_closes_the_only_phase_and_completes_the_task(tmp_path) -> None:
+    fixture = reviewing_team(tmp_path, "advance-pass")
+
+    advanced = fixture.cli.run(
+        "task", "advance",
+        "--task-id", "T1", "--id", "developer-1",
+        "--phase", "review", "--outcome", "pass",
+        "--summary", "Self-reviewed the diff; nothing to fix.",
     )
 
-    assert first["nextStatus"] == "review"
-    assert second["nextStatus"] == "testing"
+    assert advanced["phase"] == "review"
+    assert advanced["outcome"] == "pass"
+    assert advanced["nextStatus"] == "done"
+    assert "nextPhase" not in advanced
+    assert "nextDirective" not in advanced  # nothing left to brief the owner on
     state = read_state(fixture.state_path)
-    assert state["sprintengine"]["status"] == "executing"
-    task_record = get_task(state, "T1")
-    assert task_record["status"] == "testing"
-    assert [gate["status"] for gate in task_record["qualityGates"][:2]] == ["approved", "approved"]
-
-
-def test_gate_failed_verdict_creates_open_feedback_and_routes_to_changes_requested(tmp_path) -> None:
-    fixture = create_team(tmp_path, "gate-failed-feedback", [gated_review_task()])
-    fixture.cli.run("runner", "set", "--mode", "auto")
-    claim_gate(fixture, "code_reviewer", "code-reviewer")
-    state = read_state(fixture.state_path)
-    state["sprintengine"]["status"] = "planned"
-    write_state(fixture.state_path, state)
-
-    verdict = fixture.cli.run(
-        "task",
-        "gate",
-        "verdict",
-        "--task-id",
-        "T1",
-        "--gate-id",
-        "code-review",
-        "--role",
-        "code_reviewer",
-        "--id",
-        "code-reviewer",
-        "--verdict",
-        "failed",
-        "--summary",
-        "Validation branch is missing.",
-        "--required-action",
-        "Add validation before publish.",
-    )
-
-    assert verdict["nextStatus"] == "changes_requested"
-    assert verdict["nextCommand"] == "sprintengine join --role code_reviewer --id code-reviewer --watch"
-    assert "Auto Mode is on" in verdict["nextAction"]
-    assert verdict["comment"]["type"] == "review_feedback"
-    assert verdict["comment"]["data"]["status"] == "open"
-    assert verdict["comment"]["data"]["requiredActions"] == ["Add validation before publish."]
-    state = read_state(fixture.state_path)
-    assert state["sprintengine"]["status"] == "executing"
-    assert_task_status(state, "T1", "changes_requested")
+    assert_task_status(state, "T1", "done")
     assert get_task(state, "T1")["ownerAgentId"] is None
-    assert get_task(state, "T1")["qualityGates"][0]["status"] == "changes_requested"
 
 
-def test_gate_verdict_best_effort_drops_invalid_telemetry_without_blocking(tmp_path) -> None:
-    # Decision 4: a malformed optional telemetry sub-field must not block the
-    # operational verdict; it is dropped with a warning instead of rejecting.
-    fixture = create_team(tmp_path, "gate-verdict-best-effort", [gated_review_task()])
-    claim_gate(fixture, "code_reviewer", "code-reviewer")
+def test_advance_records_self_review_feedback_telemetry(tmp_path) -> None:
+    """The gate verdict's telemetry moved onto the advance. The owner reports on
+    its OWN work, so the record's source says so."""
+    fixture = reviewing_team(tmp_path, "advance-telemetry")
 
-    verdict = fixture.cli.run(
-        "task",
-        "gate",
-        "verdict",
-        "--task-id",
-        "T1",
-        "--gate-id",
-        "code-review",
-        "--role",
-        "code_reviewer",
-        "--id",
-        "code-reviewer",
-        "--verdict",
-        "changes_requested",
-        "--summary",
-        "Missing validation.",
-        "--required-action",
-        "Add validation before publish.",
-        "--correctness-pct",
-        "80",
-        "--confidence-pct",
-        "101",
-        "--finding-json",
-        json.dumps({"kind": "not-a-kind", "severity": "high", "area": "backend"}),
+    fixture.cli.run(
+        "task", "advance",
+        "--task-id", "T1", "--id", "developer-1",
+        "--phase", "review", "--outcome", "pass_with_fixes",
+        "--summary", "Found and fixed a missing null check.",
+        "--correctness-pct", "80",
     )
 
-    # Operational verdict still commits.
-    assert verdict["nextStatus"] == "changes_requested"
-    assert verdict["comment"]["data"]["requiredActions"] == ["Add validation before publish."]
+    records = read_feedback_records(fixture.team_dir)
+    assert len(records) == 1
+    record = records[0]
+    assert record["source"] == "phase_advance_self_review"
+    assert record["phase"] == "review"
+    assert record["phase_outcome"] == "pass_with_fixes"
+    assert record["scores"]["correctness_pct"] == 80
+    # The gate-shaped record keys are gone with the gates.
+    for retired in ("gate_phase", "gate_id", "gate_attempt_id", "gate_verdict"):
+        assert retired not in record
+
+
+def test_advance_best_effort_drops_invalid_telemetry_without_blocking(tmp_path) -> None:
+    # Decision 4: a malformed optional telemetry sub-field must not block the
+    # operational transition; it is dropped with a warning instead of rejecting.
+    fixture = reviewing_team(tmp_path, "advance-best-effort")
+
+    advanced = fixture.cli.run(
+        "task", "advance",
+        "--task-id", "T1", "--id", "developer-1",
+        "--phase", "review", "--outcome", "pass_with_fixes",
+        "--summary", "Fixed the missing validation I found.",
+        "--correctness-pct", "80",
+        "--confidence-pct", "101",
+        "--finding-json", json.dumps({"kind": "not-a-kind", "severity": "high", "area": "backend"}),
+    )
+
+    # The operational transition still commits.
+    assert advanced["nextStatus"] == "done"
+    assert read_state(fixture.state_path)["tasks"][0]["status"] == "done"
     # Invalid fields surface as warnings, not failures.
-    warnings = verdict.get("feedbackWarnings") or []
+    warnings = advanced.get("feedbackWarnings") or []
     assert any("confidence-pct" in warning for warning in warnings)
     assert any("finding.kind" in warning for warning in warnings)
 
@@ -350,31 +281,16 @@ def test_gate_verdict_best_effort_drops_invalid_telemetry_without_blocking(tmp_p
     assert "findings" not in record
 
 
-def test_gate_verdict_accepts_categorical_only_finding(tmp_path) -> None:
+def test_advance_accepts_categorical_only_finding(tmp_path) -> None:
     # Decision 3: findingJson is categorical-only (kind/area/severity); no prose.
-    fixture = create_team(tmp_path, "gate-verdict-categorical-finding", [gated_review_task()])
-    claim_gate(fixture, "code_reviewer", "code-reviewer")
+    fixture = reviewing_team(tmp_path, "advance-categorical-finding")
 
     fixture.cli.run(
-        "task",
-        "gate",
-        "verdict",
-        "--task-id",
-        "T1",
-        "--gate-id",
-        "code-review",
-        "--role",
-        "code_reviewer",
-        "--id",
-        "code-reviewer",
-        "--verdict",
-        "changes_requested",
-        "--summary",
-        "1 a11y finding.",
-        "--required-action",
-        "OnboardingFlow.tsx — focus escapes dialog — recover focus into the dialog.",
-        "--finding-json",
-        json.dumps({"kind": "accessibility_issue", "severity": "high", "area": "frontend"}),
+        "task", "advance",
+        "--task-id", "T1", "--id", "developer-1",
+        "--phase", "review", "--outcome", "pass_with_fixes",
+        "--summary", "1 a11y finding, fixed.",
+        "--finding-json", json.dumps({"kind": "accessibility_issue", "severity": "high", "area": "frontend"}),
     )
 
     records = read_feedback_records(fixture.team_dir)
@@ -389,200 +305,49 @@ def test_gate_verdict_accepts_categorical_only_finding(tmp_path) -> None:
     assert findings[0].get("recommendation") is None
 
 
-def test_gate_verdict_without_active_attempt_points_to_task_request_changes(tmp_path) -> None:
-    fixture = create_team(tmp_path, "gate-verdict-no-active-attempt-help", [gated_review_task()])
-
-    result = fixture.cli.run_failure(
-        "task",
-        "gate",
-        "verdict",
-        "--task-id",
-        "T1",
-        "--gate-id",
-        "code-review",
-        "--role",
-        "code_reviewer",
-        "--id",
-        "code-reviewer",
-        "--verdict",
-        "changes_requested",
-        "--summary",
-        "Compile failed after the prior blocked gate.",
-    )
-
-    assert "No active gate attempt is claimed by this agent" in result.stderr
-    assert "sprintengine.task.request_changes" in result.stderr
-    assert "sprintengine.task.status only for explicit repair/admin transitions" in result.stderr
-
-
-def test_late_parallel_gate_approval_does_not_escape_changes_requested(tmp_path) -> None:
-    fixture = create_team(tmp_path, "parallel-approval-after-changes", [gated_review_task()])
-    claim_gate(fixture, "code_reviewer", "code-reviewer")
-    claim_gate(fixture, "spec_reviewer", "spec-reviewer")
-
-    fixture.cli.run(
-        "task",
-        "gate",
-        "verdict",
-        "--task-id",
-        "T1",
-        "--gate-id",
-        "code-review",
-        "--role",
-        "code_reviewer",
-        "--id",
-        "code-reviewer",
-        "--verdict",
-        "changes_requested",
-        "--summary",
-        "Implementation misses the changes requested route.",
-        "--required-action",
-        "Keep the task in changes_requested until implementation republishes.",
-    )
-    approved = fixture.cli.run(
-        "task",
-        "gate",
-        "verdict",
-        "--task-id",
-        "T1",
-        "--gate-id",
-        "spec-review",
-        "--role",
-        "spec_reviewer",
-        "--id",
-        "spec-reviewer",
-        "--verdict",
-        "approved",
-        "--summary",
-        "Spec review passed independently.",
-    )
-
-    assert approved["nextStatus"] == "changes_requested"
-    state = read_state(fixture.state_path)
-    assert_task_status(state, "T1", "changes_requested")
-    task_record = get_task(state, "T1")
-    assert [gate["status"] for gate in task_record["qualityGates"][:2]] == ["changes_requested", "approved"]
-
-
-def test_gate_blocked_verdict_requires_and_records_needs_input(tmp_path) -> None:
-    fixture = create_team(tmp_path, "gate-blocked-needs-input", [gated_review_task()])
-    claim_gate(fixture, "spec_reviewer", "spec-reviewer")
+def test_advance_escalate_requires_and_records_needs_input(tmp_path) -> None:
+    """The gate `blocked` verdict became `--outcome escalate`: same demand for a
+    question, same needs_input landing — but the owner keeps the task."""
+    fixture = reviewing_team(tmp_path, "advance-escalate")
 
     missing = fixture.cli.run_failure(
-        "task",
-        "gate",
-        "verdict",
-        "--task-id",
-        "T1",
-        "--gate-id",
-        "spec-review",
-        "--role",
-        "spec_reviewer",
-        "--id",
-        "spec-reviewer",
-        "--verdict",
-        "blocked",
-        "--summary",
-        "Cannot verify requirement source.",
+        "task", "advance",
+        "--task-id", "T1", "--id", "developer-1",
+        "--phase", "review", "--outcome", "escalate",
+        "--summary", "Cannot verify the requirement source.",
     )
-    assert "Blocked gate verdicts require --needs-input-question" in missing.stderr
+    assert "requires a needs-input question" in missing.stderr
 
-    blocked = fixture.cli.run(
-        "task",
-        "gate",
-        "verdict",
-        "--task-id",
-        "T1",
-        "--gate-id",
-        "spec-review",
-        "--role",
-        "spec_reviewer",
-        "--id",
-        "spec-reviewer",
-        "--verdict",
-        "blocked",
-        "--summary",
-        "Cannot verify requirement source.",
-        "--needs-input-kind",
-        "architect",
-        "--needs-input-reason",
-        "verification",
-        "--needs-input-question",
-        "Which requirements artifact should this gate validate?",
+    escalated = fixture.cli.run(
+        "task", "advance",
+        "--task-id", "T1", "--id", "developer-1",
+        "--phase", "review", "--outcome", "escalate",
+        "--summary", "Cannot verify the requirement source.",
+        "--needs-input-kind", "architect",
+        "--needs-input-reason", "verification",
+        "--needs-input-question", "Which requirements artifact should this validate?",
     )
 
-    assert blocked["nextStatus"] == "needs_input"
+    assert escalated["nextStatus"] == "needs_input"
+    assert escalated["comment"]["type"] == "needs_input"
     state = read_state(fixture.state_path)
     task_record = get_task(state, "T1")
     assert task_record["status"] == "needs_input"
     assert task_record["needsInput"]["reason"] == "verification"
-    assert task_record["qualityGates"][1]["status"] == "blocked"
-    assert blocked["comment"]["type"] == "needs_input"
+    # Resolution returns the task to the phase it escalated from, not in_progress.
+    assert task_record["needsInput"]["originatingStatus"] == "review"
+    # The owner stays bound to its blocked task.
+    assert task_record["ownerAgentId"] == "developer-1"
 
 
-def test_gate_skip_rationale_and_recorded_artifact_do_not_block(tmp_path) -> None:
-    fixture = create_team(tmp_path, "gate-skip-recorded-artifact", [gated_review_task()])
-    write_team_file(fixture, "reviews/spec.md", "# Spec Review\n")
-    claim_gate(fixture, "code_reviewer", "code-reviewer")
-    claim_gate(fixture, "spec_reviewer", "spec-reviewer")
+def test_advance_is_rejected_for_a_non_owner(tmp_path) -> None:
+    fixture = reviewing_team(tmp_path, "advance-not-owner")
 
-    fixture.cli.run(
-        "task",
-        "gate",
-        "verdict",
-        "--task-id",
-        "T1",
-        "--gate-id",
-        "code-review",
-        "--role",
-        "code_reviewer",
-        "--id",
-        "code-reviewer",
-        "--verdict",
-        "approved",
-        "--summary",
-        "Code review passed.",
+    denied = fixture.cli.run_failure(
+        "task", "advance",
+        "--task-id", "T1", "--id", "developer-2",
+        "--phase", "review", "--outcome", "pass",
+        "--summary", "Reviewing someone else's task.",
     )
-    skipped = fixture.cli.run(
-        "task",
-        "gate",
-        "verdict",
-        "--task-id",
-        "T1",
-        "--gate-id",
-        "spec-review",
-        "--role",
-        "spec_reviewer",
-        "--id",
-        "spec-reviewer",
-        "--verdict",
-        "skipped",
-        "--summary",
-        "Spec reviewer is redundant for this documented follow-up.",
-        "--artifact-path",
-        "reviews/spec.md",
-        "--artifact-title",
-        "Spec review notes",
-        "--artifact-kind",
-        "spec_review",
-    )
-
-    assert skipped["nextStatus"] == "testing"
-    assert skipped["artifact"]["status"] == "recorded"
-    state = read_state(fixture.state_path)
-    artifact = get_artifact(state, skipped["artifact"]["id"])
-    assert artifact["status"] == "recorded"
-    assert get_task(state, "T1")["qualityGates"][1]["skipRationale"] == "Spec reviewer is redundant for this documented follow-up."
-    assert_task_status(state, "T1", "testing")
-
-
-def test_join_routes_review_roles_to_gate_next_when_only_gate_is_ready(tmp_path) -> None:
-    fixture = create_team(tmp_path, "join-gate-directive", [gated_review_task()])
-
-    payload = fixture.cli.run("join", "--role", "code_reviewer", "--id", "code-reviewer")
-
-    assert payload["action"] == "gate_work"
-    assert payload["readyGateCount"] == 1
-    assert payload["gate"]["id"] == "code-review"
-    assert "sprintengine task gate next --role code_reviewer --id code-reviewer" in payload["prompt"]
-    assert payload["prompt"].rfind("sprintengine task gate next --role code_reviewer --id code-reviewer") > payload["prompt"].rfind("sprintengine task next --role code_reviewer")
+    assert "not_task_owner" in denied.stderr
+    assert read_state(fixture.state_path)["tasks"][0]["status"] == "review"

@@ -17,6 +17,7 @@ import type {
   SprintEngineRosterTeam,
 } from '../../../types/workspace'
 import { sprintEngineAutomationModeOptions } from '../../../utils/sprintengineAutomation'
+import { countSprintEngineStaffedWorkRoles } from '../../../utils/sprintengineRoleOptions'
 import { Field, RoleAvatar, Select } from '../../ui'
 import { SprintEngineRosterTable, type SprintEngineCliOption } from './SprintEngineRosterTable'
 import { sprintEngineTeamNameTaken } from './savedTeams'
@@ -128,36 +129,50 @@ export function PathRadio({
   )
 }
 
-// Two-way choice at the top of the roster step: compose the roster by hand, or
-// let the architect pick the team from the per-sprint model selection. The
-// architect option is disabled (with a cause-specific hint) when no catalog model
-// is available, so the mode is never silently defaulted on.
+// Two-way choice at the top of the roster step: compose the setup by hand, or
+// let the architect pick from the per-sprint model selection. The architect
+// option is disabled (with a cause-specific hint) when no catalog model is
+// available, so the mode is never silently defaulted on. `workTypes` swaps the
+// copy to the MC-1542 "Work types & models" framing (which kinds of work the
+// run has, and which agent/model handles each) without touching the semantics.
 export function RosterModeChoice({
   value,
   onChange,
   architectAvailable,
   architectDisabledHint,
+  workTypes,
 }: {
   value: SprintEngineRosterSource
   onChange: (source: SprintEngineRosterSource) => void
   architectAvailable: boolean
   architectDisabledHint?: string
+  workTypes?: boolean
 }) {
   return (
-    <div role="radiogroup" aria-label="How the team is chosen" className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+    <div
+      role="radiogroup"
+      aria-label={workTypes ? 'How the work is set up' : 'How the team is chosen'}
+      className="grid grid-cols-1 gap-3 sm:grid-cols-2"
+    >
       <PathRadio
         checked={value === 'user'}
-        label="Pick the team yourself"
-        hint="Choose the roles and a CLI + model for each one. Saved teams apply here."
+        label={workTypes ? 'Pick the work yourself' : 'Pick the team yourself'}
+        hint={
+          workTypes
+            ? 'Turn on the kinds of work this run includes and choose which agent and model handles each. Saved teams apply here.'
+            : 'Choose the roles and a CLI + model for each one. Saved teams apply here.'
+        }
         onSelect={() => onChange('user')}
       />
       <PathRadio
         checked={value === 'architect'}
         disabled={!architectAvailable}
-        label="Architect picks the team"
+        label={workTypes ? 'Architect picks' : 'Architect picks the team'}
         hint={
           architectAvailable
-            ? 'The architect surveys the work, chooses the roles and models from your selection below, and records the team in the plan for your approval.'
+            ? workTypes
+              ? 'The architect surveys the work, decides which kinds of work it needs, and picks models from your selection below — recorded in the plan for your approval.'
+              : 'The architect surveys the work, chooses the roles and models from your selection below, and records the team in the plan for your approval.'
             : architectDisabledHint ?? 'Add at least one model to your catalog in Settings to turn this on.'
         }
         onSelect={() => {
@@ -209,6 +224,8 @@ export function RosterAndRunSettings({
   architectModeAvailable,
   architectModeDisabledHint,
   architectCard,
+  workTypes,
+  workflowSection,
 }: {
   roleCounts: SprintEngineRoleCounts
   roleCliDefaults: Required<SprintEngineRoleCliDefaults>
@@ -263,16 +280,33 @@ export function RosterAndRunSettings({
   architectModeAvailable?: boolean
   architectModeDisabledHint?: string
   architectCard?: React.ReactNode
+  // MC-1542 "Work types & models" framing for the Sprint Engine wizard: the
+  // role table reads as which kinds of work the run has (sweep roles move to
+  // the "Final sweeps" panel) and which agent/model handles each. Off keeps
+  // the classic team presentation (Guided Brief handoff, existing teams).
+  workTypes?: boolean
+  // Optional panels rendered between the role table and the run-settings block
+  // (the wizard's "Workflow steps" + "Final sweeps" panels), so the step reads
+  // work → workflow → run settings in the plan's order.
+  workflowSection?: React.ReactNode
 }) {
   // The saved-teams rail (two-column layout) is available only where team
   // management is wired up — the Sprint Engine wizard. The Guided Brief handoff
   // omits the team props, so it keeps the single-column roster automatically.
   const showTeamRail = Boolean(onSelectTeam && onSaveTeam) && !countDisabled
+  // In work-types mode the count reflects the rows the table actually shows
+  // (staffed non-sweep roles); saved teams may still carry sweep-role counts
+  // that only the "Final sweeps" panel surfaces now.
+  const workTypeCount = workTypes ? countSprintEngineStaffedWorkRoles(roleCounts, registry) : 0
   const rosterCount = (
     <span className="text-[11px] tabular-nums text-[color:var(--text-muted)]">
-      {rosterCountLabel ?? `${totalAgents} specialist${totalAgents === 1 ? '' : 's'}`}
+      {rosterCountLabel
+        ?? (workTypes
+          ? `${workTypeCount} kind${workTypeCount === 1 ? '' : 's'} of work`
+          : `${totalAgents} specialist${totalAgents === 1 ? '' : 's'}`)}
     </span>
   )
+  const rosterLabel = workTypes ? 'Work types & models' : 'Roster'
   const rosterTable = (
     <SprintEngineRosterTable
       roleCounts={roleCounts}
@@ -286,6 +320,7 @@ export function RosterAndRunSettings({
       onSetCli={onSetCli}
       roleModelOverrides={roleModelOverrides}
       onSetModel={onSetModel}
+      workTypes={workTypes}
       footer={
         // In rail mode the save/update/rename/delete affordances live in the
         // rail footer; only the single-column layout hangs them off the table.
@@ -321,10 +356,11 @@ export function RosterAndRunSettings({
         onUpdateTeam={onUpdateTeam}
         onRenameTeam={onRenameTeam}
         onDeleteTeam={onDeleteTeam}
+        workTypes={workTypes}
       />
       <div className="flex min-w-0 flex-col gap-2">
         <div className="flex items-baseline justify-between">
-          <Field.Label>Roster</Field.Label>
+          <Field.Label>{rosterLabel}</Field.Label>
           {rosterCount}
         </div>
         {rosterTable}
@@ -333,7 +369,7 @@ export function RosterAndRunSettings({
   ) : (
     <>
       <div className="flex items-baseline justify-between">
-        <Field.Label>Roster</Field.Label>
+        <Field.Label>{rosterLabel}</Field.Label>
         {rosterCount}
       </div>
       {onSelectTeam && !countDisabled && (teams?.length ?? 0) > 0 ? (
@@ -342,6 +378,7 @@ export function RosterAndRunSettings({
           selectedTeamId={selectedTeamId ?? null}
           selectedTeamDirty={selectedTeamDirty ?? false}
           onSelectTeam={onSelectTeam}
+          workTypes={workTypes}
         />
       ) : null}
       {rosterTable}
@@ -356,10 +393,13 @@ export function RosterAndRunSettings({
             onChange={onChangeRosterSource}
             architectAvailable={architectModeAvailable ?? false}
             architectDisabledHint={architectModeDisabledHint}
+            workTypes={workTypes}
           />
         ) : null}
         {rosterBody}
       </div>
+
+      {workflowSection}
 
       <div className="flex flex-col gap-2">
         <Field.Label>Run settings</Field.Label>
@@ -466,6 +506,7 @@ function RosterTeamsRail({
   onUpdateTeam,
   onRenameTeam,
   onDeleteTeam,
+  workTypes,
 }: {
   roleCounts: SprintEngineRoleCounts
   registry?: SprintEngineRoleRegistry | null
@@ -477,6 +518,7 @@ function RosterTeamsRail({
   onUpdateTeam?: (id: string, name: string) => void
   onRenameTeam?: (id: string, name: string) => void
   onDeleteTeam?: (id: string) => void
+  workTypes?: boolean
 }) {
   return (
     <aside className="flex flex-col overflow-hidden rounded-md border border-[color:var(--border-default)] bg-[color:var(--bg-surface)]">
@@ -486,7 +528,7 @@ function RosterTeamsRail({
       </div>
       <div className="flex flex-col gap-0.5 px-1.5 pb-1.5">
         <RailTeamCard
-          name="Custom roster"
+          name={workTypes ? 'Custom setup' : 'Custom roster'}
           roleCounts={roleCounts}
           registry={registry}
           active={!selectedTeamId}
@@ -579,21 +621,23 @@ function RosterTeamPicker({
   selectedTeamId,
   selectedTeamDirty,
   onSelectTeam,
+  workTypes,
 }: {
   teams: SprintEngineRosterTeam[]
   selectedTeamId: string | null
   selectedTeamDirty: boolean
   onSelectTeam: (id: string | null) => void
+  workTypes?: boolean
 }) {
   const items = [
-    { value: CUSTOM_TEAM_VALUE, label: 'Custom roster' },
+    { value: CUSTOM_TEAM_VALUE, label: workTypes ? 'Custom setup' : 'Custom roster' },
     ...teams.map((team) => ({ value: team.id, label: team.name })),
   ]
   return (
     <div className="flex items-center gap-2">
       <span className="shrink-0 text-[11px] text-[color:var(--text-muted)]">Team</span>
       <Select
-        ariaLabel="Roster team"
+        ariaLabel={workTypes ? 'Saved team' : 'Roster team'}
         items={items}
         value={selectedTeamId ?? CUSTOM_TEAM_VALUE}
         onChange={(value) => onSelectTeam(value === CUSTOM_TEAM_VALUE ? null : value)}

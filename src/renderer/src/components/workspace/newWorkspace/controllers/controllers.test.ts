@@ -25,7 +25,9 @@ import {
   runSprintEnginePlanSourcedCreation,
 } from './index'
 import { getRendererHost } from '../../../../modules'
+import { buildSprintEngineWorkflowInitKeys } from '../sprintengineWorkflowConfig'
 import type { GuidedBriefScaffoldPorts, GuidedBriefStartBuildPorts } from './types'
+import type { SprintEngineStateInitializeInput } from '../../../../../../shared/electron-api'
 
 function createMemoryFilesystem(): GuidedBriefScaffoldPorts['filesystem'] & { files: Map<string, string>; dirs: Set<string> } {
   const files = new Map<string, string>()
@@ -136,7 +138,7 @@ function fakeExistingTeam(): {
     state: {
       name: 'Interface Team',
       goal: 'Ship the interface',
-      roleCounts: { architect: 1, product: 1, frontend: 0, developer: 0, code_reviewer: 0, spec_reviewer: 0, performance: 0, cross_platform: 0, tester: 0, security: 0 },
+      roleCounts: { architect: 1, product: 1, frontend: 0, developer: 0, performance: 0, cross_platform: 0, tester: 0, security: 0 },
       sprintEngineAgents: {},
     } as unknown as SprintEngineState,
   }
@@ -214,7 +216,7 @@ function testBuildSprintEngineExistingTeamCreation(): void {
   const args = buildSprintEngineExistingTeamCreation({
     folderPath: '/project',
     existingTeam: team,
-    roleCliDefaults: { architect: 'claude-code', product: 'claude-code', frontend: 'claude-code', developer: 'claude-code', code_reviewer: 'claude-code', spec_reviewer: 'claude-code', performance: 'claude-code', cross_platform: 'claude-code', tester: 'claude-code', security: 'claude-code' },
+    roleCliDefaults: { architect: 'claude-code', product: 'claude-code', frontend: 'claude-code', developer: 'claude-code', performance: 'claude-code', cross_platform: 'claude-code', tester: 'claude-code', security: 'claude-code' },
     agentCliOverrides: {},
     startRunner: true,
     autoApproveArtifacts: false,
@@ -238,10 +240,10 @@ function testBuildSprintEngineNewTeamCreation(): void {
     folderPath: '/p',
     teamName: 'Ship Squad',
     goal: 'Ship the things',
-    roleCounts: { architect: 1, product: 1, frontend: 0, developer: 0, code_reviewer: 0, spec_reviewer: 0, performance: 0, cross_platform: 0, tester: 0, security: 0 },
-    visibleRoleCounts: { architect: 1, product: 1, frontend: 0, developer: 0, code_reviewer: 0, spec_reviewer: 0, performance: 0, cross_platform: 0, tester: 0, security: 0 },
+    roleCounts: { architect: 1, product: 1, frontend: 0, developer: 0, performance: 0, cross_platform: 0, tester: 0, security: 0 },
+    visibleRoleCounts: { architect: 1, product: 1, frontend: 0, developer: 0, performance: 0, cross_platform: 0, tester: 0, security: 0 },
     maxParallelAgents: 2,
-    roleCliDefaults: { architect: 'claude-code', product: 'claude-code', frontend: 'claude-code', developer: 'claude-code', code_reviewer: 'claude-code', spec_reviewer: 'claude-code', performance: 'claude-code', cross_platform: 'claude-code', tester: 'claude-code', security: 'claude-code' },
+    roleCliDefaults: { architect: 'claude-code', product: 'claude-code', frontend: 'claude-code', developer: 'claude-code', performance: 'claude-code', cross_platform: 'claude-code', tester: 'claude-code', security: 'claude-code' },
     startRunner: false,
     autoApproveArtifacts: false,
     cliPermissionPreset: 'default',
@@ -259,10 +261,10 @@ function testBuildSprintEngineNewTeamCreation(): void {
     folderPath: '/p',
     teamName: 'Launch Squad',
     goal: 'Ship the things',
-    roleCounts: { architect: 1, product: 1, frontend: 1, developer: 0, code_reviewer: 0, spec_reviewer: 0, performance: 0, cross_platform: 0, tester: 0, security: 0 },
-    visibleRoleCounts: { architect: 1, product: 1, frontend: 1, developer: 0, code_reviewer: 0, spec_reviewer: 0, performance: 0, cross_platform: 0, tester: 0, security: 0 },
+    roleCounts: { architect: 1, product: 1, frontend: 1, developer: 0, performance: 0, cross_platform: 0, tester: 0, security: 0 },
+    visibleRoleCounts: { architect: 1, product: 1, frontend: 1, developer: 0, performance: 0, cross_platform: 0, tester: 0, security: 0 },
     maxParallelAgents: 3,
-    roleCliDefaults: { architect: 'claude-code', product: 'claude-code', frontend: 'codex', developer: 'claude-code', code_reviewer: 'claude-code', spec_reviewer: 'claude-code', performance: 'claude-code', cross_platform: 'claude-code', tester: 'claude-code', security: 'claude-code' },
+    roleCliDefaults: { architect: 'claude-code', product: 'claude-code', frontend: 'codex', developer: 'claude-code', performance: 'claude-code', cross_platform: 'claude-code', tester: 'claude-code', security: 'claude-code' },
     roleModelOverrides: { frontend: 'model-a', product: null },
     initialSpawnRoles: ['frontend'],
     startRunner: false,
@@ -276,10 +278,10 @@ function testBuildSprintEngineNewTeamCreation(): void {
     folderPath: null,
     teamName: 'Drift',
     goal: 'Ship',
-    roleCounts: { architect: 1, product: 1, frontend: 0, developer: 0, code_reviewer: 0, spec_reviewer: 0, performance: 0, cross_platform: 0, tester: 0, security: 0 },
-    visibleRoleCounts: { architect: 1, product: 1, frontend: 0, developer: 0, code_reviewer: 0, spec_reviewer: 0, performance: 0, cross_platform: 0, tester: 0, security: 0 },
+    roleCounts: { architect: 1, product: 1, frontend: 0, developer: 0, performance: 0, cross_platform: 0, tester: 0, security: 0 },
+    visibleRoleCounts: { architect: 1, product: 1, frontend: 0, developer: 0, performance: 0, cross_platform: 0, tester: 0, security: 0 },
     maxParallelAgents: 2,
-    roleCliDefaults: { architect: 'claude-code', product: 'claude-code', frontend: 'claude-code', developer: 'claude-code', code_reviewer: 'claude-code', spec_reviewer: 'claude-code', performance: 'claude-code', cross_platform: 'claude-code', tester: 'claude-code', security: 'claude-code' },
+    roleCliDefaults: { architect: 'claude-code', product: 'claude-code', frontend: 'claude-code', developer: 'claude-code', performance: 'claude-code', cross_platform: 'claude-code', tester: 'claude-code', security: 'claude-code' },
     startRunner: false,
     autoApproveArtifacts: false,
     cliPermissionPreset: 'default',
@@ -294,10 +296,10 @@ async function testSprintEngineNewTeamInitializesRunState(): Promise<void> {
       folderPath: '/p',
       teamName: 'Ship Squad',
       goal: 'Ship the things',
-      roleCounts: { architect: 1, product: 1, frontend: 0, developer: 0, code_reviewer: 0, spec_reviewer: 0, performance: 0, cross_platform: 0, tester: 0, security: 0 },
-      visibleRoleCounts: { architect: 1, product: 1, frontend: 0, developer: 0, code_reviewer: 0, spec_reviewer: 0, performance: 0, cross_platform: 0, tester: 0, security: 0 },
+      roleCounts: { architect: 1, product: 1, frontend: 0, developer: 0, performance: 0, cross_platform: 0, tester: 0, security: 0 },
+      visibleRoleCounts: { architect: 1, product: 1, frontend: 0, developer: 0, performance: 0, cross_platform: 0, tester: 0, security: 0 },
       maxParallelAgents: 2,
-      roleCliDefaults: { architect: 'claude-code', product: 'claude-code', frontend: 'claude-code', developer: 'claude-code', code_reviewer: 'claude-code', spec_reviewer: 'claude-code', performance: 'claude-code', cross_platform: 'claude-code', tester: 'claude-code', security: 'claude-code' },
+      roleCliDefaults: { architect: 'claude-code', product: 'claude-code', frontend: 'claude-code', developer: 'claude-code', performance: 'claude-code', cross_platform: 'claude-code', tester: 'claude-code', security: 'claude-code' },
       initialSpawnRoles: ['architect'],
       startRunner: true,
       autoApproveArtifacts: false,
@@ -355,10 +357,10 @@ async function testSprintEngineNewTeamUserModeInitArgsUnchanged(): Promise<void>
       folderPath: '/p',
       teamName: 'Ship Squad',
       goal: 'Ship the things',
-      roleCounts: { architect: 1, developer: 1, frontend: 0, code_reviewer: 0, spec_reviewer: 0, performance: 0, cross_platform: 0, tester: 0, security: 0, product: 0 },
-      visibleRoleCounts: { architect: 1, developer: 1, frontend: 0, code_reviewer: 0, spec_reviewer: 0, performance: 0, cross_platform: 0, tester: 0, security: 0, product: 0 },
+      roleCounts: { architect: 1, developer: 1, frontend: 0, performance: 0, cross_platform: 0, tester: 0, security: 0, product: 0 },
+      visibleRoleCounts: { architect: 1, developer: 1, frontend: 0, performance: 0, cross_platform: 0, tester: 0, security: 0, product: 0 },
       maxParallelAgents: 2,
-      roleCliDefaults: { architect: 'claude-code', developer: 'codex', frontend: 'claude-code', code_reviewer: 'claude-code', spec_reviewer: 'claude-code', performance: 'claude-code', cross_platform: 'claude-code', tester: 'claude-code', security: 'claude-code', product: 'claude-code' },
+      roleCliDefaults: { architect: 'claude-code', developer: 'codex', frontend: 'claude-code', performance: 'claude-code', cross_platform: 'claude-code', tester: 'claude-code', security: 'claude-code', product: 'claude-code' },
       roleModelOverrides: { developer: 'gpt-5.5-codex' },
       startRunner: false,
       autoApproveArtifacts: false,
@@ -372,6 +374,9 @@ async function testSprintEngineNewTeamUserModeInitArgsUnchanged(): Promise<void>
           enabledRoles: input.enabledRoles,
           rosterSource: input.rosterSource,
           allowedRuntimes: input.allowedRuntimes,
+          defaultPhases: input.defaultPhases,
+          requiredSweeps: input.requiredSweeps,
+          phaseRuntimes: input.phaseRuntimes,
         })
         return { ok: true, data: { projectionContent: JSON.stringify(sprintEngineProjectionFixture({ name: 'Ship Squad', goal: 'Ship the things' })) } }
       },
@@ -381,6 +386,11 @@ async function testSprintEngineNewTeamUserModeInitArgsUnchanged(): Promise<void>
   const init = captured[0]
   assert.equal(init.rosterSource, undefined, 'user mode sends no roster-source flag')
   assert.equal(init.allowedRuntimes, undefined, 'user mode sends no allowed-runtimes flag')
+  // Workflow-panel keys are absent when the wizard passes no workflow input, so a
+  // plain run stays byte-identical to a pre-panel run (MC-1542 / MC-1543).
+  assert.equal(init.defaultPhases, undefined, 'no defaultPhases when self-review stays on')
+  assert.equal(init.requiredSweeps, undefined, 'no requiredSweeps when none are mandated')
+  assert.equal(init.phaseRuntimes, undefined, 'no phaseRuntimes when the same agent reviews')
   assert.deepEqual(init.enabledRoles, ['architect', 'developer'], 'enabled roles derive from the roster')
   // roleRuntimes is built from the full role-cli-defaults map (unchanged
   // behavior): every role's cli/model, not just the enabled ones.
@@ -400,11 +410,11 @@ async function testSprintEngineArchitectRosterInitArgs(): Promise<void> {
       teamName: 'Ship Squad',
       goal: 'Ship the things',
       // Architect mode: the wizard collapses the roster to the architect seat.
-      roleCounts: { architect: 1, developer: 0, frontend: 0, code_reviewer: 0, spec_reviewer: 0, performance: 0, cross_platform: 0, tester: 0, security: 0, product: 0 },
-      visibleRoleCounts: { architect: 1, developer: 0, frontend: 0, code_reviewer: 0, spec_reviewer: 0, performance: 0, cross_platform: 0, tester: 0, security: 0, product: 0 },
+      roleCounts: { architect: 1, developer: 0, frontend: 0, performance: 0, cross_platform: 0, tester: 0, security: 0, product: 0 },
+      visibleRoleCounts: { architect: 1, developer: 0, frontend: 0, performance: 0, cross_platform: 0, tester: 0, security: 0, product: 0 },
       maxParallelAgents: 2,
       // Full defaults are still passed but must be ignored in architect mode.
-      roleCliDefaults: { architect: 'claude-code', developer: 'codex', frontend: 'claude-code', code_reviewer: 'claude-code', spec_reviewer: 'claude-code', performance: 'claude-code', cross_platform: 'claude-code', tester: 'claude-code', security: 'claude-code', product: 'claude-code' },
+      roleCliDefaults: { architect: 'claude-code', developer: 'codex', frontend: 'claude-code', performance: 'claude-code', cross_platform: 'claude-code', tester: 'claude-code', security: 'claude-code', product: 'claude-code' },
       roleModelOverrides: { developer: 'gpt-5.5-codex' },
       initialSpawnRoles: ['architect'],
       startRunner: true,
@@ -451,15 +461,185 @@ async function testSprintEngineArchitectRosterInitArgs(): Promise<void> {
   assert.equal(args.sprintEngineAutoState?.architectGuidance, 'Quality matters')
 }
 
+// The "Workflow steps" + "Final sweeps" panels map to the three run-level init
+// keys. Default state (self-review on, same-agent reviewer, no mandated sweeps)
+// omits all three; each divergence populates exactly its key.
+function testSprintEngineWorkflowInitKeys(): void {
+  assert.deepEqual(
+    buildSprintEngineWorkflowInitKeys({
+      selfReviewEnabled: true,
+      reviewRuntime: null,
+      requiredSweepRoleIds: [],
+    }),
+    {},
+    'defaults omit all three keys (byte-identical plain run)',
+  )
+
+  assert.deepEqual(
+    buildSprintEngineWorkflowInitKeys({
+      selfReviewEnabled: false,
+      reviewRuntime: null,
+      requiredSweepRoleIds: [],
+    }),
+    { defaultPhases: [] },
+    'self-review off records the empty phase set',
+  )
+
+  assert.deepEqual(
+    buildSprintEngineWorkflowInitKeys({
+      selfReviewEnabled: true,
+      reviewRuntime: { cli: 'claude-code', model: 'claude-fable-5' },
+      requiredSweepRoleIds: [],
+    }),
+    { phaseRuntimes: { review: { cli: 'claude-code', model: 'claude-fable-5' } } },
+    'a stronger reviewer binds phaseRuntimes.review',
+  )
+
+  assert.deepEqual(
+    buildSprintEngineWorkflowInitKeys({
+      selfReviewEnabled: false,
+      reviewRuntime: { cli: 'claude-code', model: 'claude-fable-5' },
+      requiredSweepRoleIds: [],
+    }),
+    { defaultPhases: [] },
+    'a reviewer binding is ignored when self-review is off (no review phase runs)',
+  )
+
+  assert.deepEqual(
+    buildSprintEngineWorkflowInitKeys({
+      selfReviewEnabled: true,
+      reviewRuntime: null,
+      requiredSweepRoleIds: ['tester', 'security', 'tester', '  '],
+    }),
+    { requiredSweeps: ['tester', 'security'] },
+    'mandated sweeps de-duplicate and drop blanks, display order preserved',
+  )
+
+  assert.deepEqual(
+    buildSprintEngineWorkflowInitKeys({
+      selfReviewEnabled: false,
+      reviewRuntime: { cli: 'zai', model: null },
+      requiredSweepRoleIds: ['ui_ux_reviewer'],
+    }),
+    { defaultPhases: [], requiredSweeps: ['ui_ux_reviewer'] },
+    'divergent keys compose; reviewer binding still gated by self-review',
+  )
+}
+
+// The controller forwards the pre-computed workflow keys verbatim into the run
+// init, and forwards nothing when the wizard sets none.
+async function testSprintEngineWorkflowKeysFlowToInit(): Promise<void> {
+  const baseInput = {
+    folderPath: '/p',
+    teamName: 'Ship Squad',
+    goal: 'Ship the things',
+    roleCounts: { architect: 1, developer: 1, frontend: 0, performance: 0, cross_platform: 0, tester: 0, security: 0, product: 0 },
+    visibleRoleCounts: { architect: 1, developer: 1, frontend: 0, performance: 0, cross_platform: 0, tester: 0, security: 0, product: 0 },
+    maxParallelAgents: 2,
+    roleCliDefaults: { architect: 'claude-code' as const, developer: 'claude-code' as const, frontend: 'claude-code' as const, performance: 'claude-code' as const, cross_platform: 'claude-code' as const, tester: 'claude-code' as const, security: 'claude-code' as const, product: 'claude-code' as const },
+    startRunner: false,
+    autoApproveArtifacts: false,
+    cliPermissionPreset: 'default' as const,
+  }
+  const captureInit = (bucket: Array<Record<string, unknown>>) => async (input: SprintEngineStateInitializeInput) => {
+    bucket.push({
+      defaultPhases: input.defaultPhases,
+      requiredSweeps: input.requiredSweeps,
+      phaseRuntimes: input.phaseRuntimes,
+    })
+    return { ok: true as const, data: { projectionContent: JSON.stringify(sprintEngineProjectionFixture({ name: 'Ship Squad', goal: 'Ship the things' })) } }
+  }
+
+  const populated: Array<Record<string, unknown>> = []
+  await runSprintEngineNewTeamCreation(
+    {
+      ...baseInput,
+      defaultPhases: [],
+      requiredSweeps: ['tester'],
+      phaseRuntimes: { review: { cli: 'claude-code', model: 'claude-fable-5' } },
+    },
+    { pathExists: async () => false, initializeSprintEngineState: captureInit(populated) },
+  )
+  assert.equal(populated.length, 1)
+  assert.deepEqual(populated[0].defaultPhases, [], 'defaultPhases forwarded')
+  assert.deepEqual(populated[0].requiredSweeps, ['tester'], 'requiredSweeps forwarded')
+  assert.deepEqual(populated[0].phaseRuntimes, { review: { cli: 'claude-code', model: 'claude-fable-5' } }, 'phaseRuntimes forwarded')
+
+  const omitted: Array<Record<string, unknown>> = []
+  await runSprintEngineNewTeamCreation(
+    baseInput,
+    { pathExists: async () => false, initializeSprintEngineState: captureInit(omitted) },
+  )
+  assert.equal(omitted.length, 1)
+  assert.equal(omitted[0].defaultPhases, undefined, 'no defaultPhases key when the wizard sets none')
+  assert.equal(omitted[0].requiredSweeps, undefined, 'no requiredSweeps key when the wizard sets none')
+  assert.equal(omitted[0].phaseRuntimes, undefined, 'no phaseRuntimes key when the wizard sets none')
+}
+
+// MC-1542 "Work types & models" panel: sweep roles are no longer offered as
+// seats, so the wizard forwards them via additionalEnabledRoles and they merge
+// (de-duplicated) into enabledRoles -> configuredRoles. Architect mode still
+// collapses to ['architect'] — the architect grows roles via roster.configure.
+async function testSprintEngineAdditionalEnabledRolesMergeIntoInit(): Promise<void> {
+  const baseInput = {
+    folderPath: '/p',
+    teamName: 'Ship Squad',
+    goal: 'Ship the things',
+    roleCounts: { architect: 1, developer: 1, frontend: 0, performance: 0, cross_platform: 0, tester: 0, security: 0, product: 0 },
+    visibleRoleCounts: { architect: 1, developer: 1, frontend: 0, performance: 0, cross_platform: 0, tester: 0, security: 0, product: 0 },
+    maxParallelAgents: 2,
+    roleCliDefaults: { architect: 'claude-code' as const, developer: 'claude-code' as const, frontend: 'claude-code' as const, performance: 'claude-code' as const, cross_platform: 'claude-code' as const, tester: 'claude-code' as const, security: 'claude-code' as const, product: 'claude-code' as const },
+    startRunner: false,
+    autoApproveArtifacts: false,
+    cliPermissionPreset: 'default' as const,
+  }
+  const captureInit = (bucket: Array<Record<string, unknown>>) => async (input: SprintEngineStateInitializeInput) => {
+    bucket.push({ enabledRoles: input.enabledRoles })
+    return { ok: true as const, data: { projectionContent: JSON.stringify(sprintEngineProjectionFixture({ name: 'Ship Squad', goal: 'Ship the things' })) } }
+  }
+
+  const userMode: Array<Record<string, unknown>> = []
+  await runSprintEngineNewTeamCreation(
+    { ...baseInput, additionalEnabledRoles: ['tester', 'security', 'developer'] },
+    { pathExists: async () => false, initializeSprintEngineState: captureInit(userMode) },
+  )
+  assert.equal(userMode.length, 1)
+  assert.deepEqual(
+    userMode[0].enabledRoles,
+    ['architect', 'developer', 'tester', 'security'],
+    'sweep roles merge into enabledRoles without duplicating staffed roles',
+  )
+
+  const architectMode: Array<Record<string, unknown>> = []
+  await runSprintEngineNewTeamCreation(
+    {
+      ...baseInput,
+      roleCounts: { architect: 1, developer: 0, frontend: 0, performance: 0, cross_platform: 0, tester: 0, security: 0, product: 0 },
+      visibleRoleCounts: { architect: 1, developer: 0, frontend: 0, performance: 0, cross_platform: 0, tester: 0, security: 0, product: 0 },
+      additionalEnabledRoles: ['tester', 'security'],
+      rosterSource: 'architect' as const,
+      architectSeat: { cli: 'claude-code', model: 'claude-fable-5' },
+      allowedRuntimes: [{ cli: 'claude-code', model: 'claude-fable-5' }],
+    },
+    { pathExists: async () => false, initializeSprintEngineState: captureInit(architectMode) },
+  )
+  assert.equal(architectMode.length, 1)
+  assert.deepEqual(
+    architectMode[0].enabledRoles,
+    ['architect'],
+    'architect mode ignores additionalEnabledRoles — roles grow via roster.configure',
+  )
+}
+
 async function testSprintEngineNewTeamInitFailuresBlockWorkspaceArgs(): Promise<void> {
   const input = {
     folderPath: '/p',
     teamName: 'Ship Squad',
     goal: 'Ship the things',
-    roleCounts: { architect: 1, product: 1, frontend: 0, developer: 0, code_reviewer: 0, spec_reviewer: 0, performance: 0, cross_platform: 0, tester: 0, security: 0 },
-    visibleRoleCounts: { architect: 1, product: 1, frontend: 0, developer: 0, code_reviewer: 0, spec_reviewer: 0, performance: 0, cross_platform: 0, tester: 0, security: 0 },
+    roleCounts: { architect: 1, product: 1, frontend: 0, developer: 0, performance: 0, cross_platform: 0, tester: 0, security: 0 },
+    visibleRoleCounts: { architect: 1, product: 1, frontend: 0, developer: 0, performance: 0, cross_platform: 0, tester: 0, security: 0 },
     maxParallelAgents: 2,
-    roleCliDefaults: { architect: 'claude-code', product: 'claude-code', frontend: 'claude-code', developer: 'claude-code', code_reviewer: 'claude-code', spec_reviewer: 'claude-code', performance: 'claude-code', cross_platform: 'claude-code', tester: 'claude-code', security: 'claude-code' },
+    roleCliDefaults: { architect: 'claude-code', product: 'claude-code', frontend: 'claude-code', developer: 'claude-code', performance: 'claude-code', cross_platform: 'claude-code', tester: 'claude-code', security: 'claude-code' },
     startRunner: false,
     autoApproveArtifacts: false,
     cliPermissionPreset: 'default' as const,
@@ -498,7 +678,7 @@ async function testSprintEngineNewTeamInitFailuresBlockWorkspaceArgs(): Promise<
 }
 
 function testSprintEngineEffectiveSpawnAtStartRoles(): void {
-  const visibleRoleCounts = { architect: 1, product: 1, frontend: 1, developer: 0, code_reviewer: 0, spec_reviewer: 0, performance: 0, cross_platform: 0, tester: 1, security: 0 }
+  const visibleRoleCounts = { architect: 1, product: 1, frontend: 1, developer: 0, performance: 0, cross_platform: 0, tester: 1, security: 0 }
   // Lazy roster: only the architect ever carries a start-at-launch intent — the
   // per-role "Start now" toggle is retired, so no other role is materialized.
   assert.deepEqual(
@@ -549,9 +729,9 @@ async function testSprintEnginePlanSourcedValidation(): Promise<void> {
     sourcePlanContent: 'content',
     sourcePlanKind: 'unknown' as const,
     sourceBundle: null,
-    visibleRoleCounts: { architect: 1, product: 1, frontend: 0, developer: 0, code_reviewer: 0, spec_reviewer: 0, performance: 0, cross_platform: 0, tester: 0, security: 0 },
+    visibleRoleCounts: { architect: 1, product: 1, frontend: 0, developer: 0, performance: 0, cross_platform: 0, tester: 0, security: 0 },
     maxParallelAgents: 2,
-    roleCliDefaults: { architect: 'claude-code', product: 'claude-code', frontend: 'claude-code', developer: 'claude-code', code_reviewer: 'claude-code', spec_reviewer: 'claude-code', performance: 'claude-code', cross_platform: 'claude-code', tester: 'claude-code', security: 'claude-code' } as const,
+    roleCliDefaults: { architect: 'claude-code', product: 'claude-code', frontend: 'claude-code', developer: 'claude-code', performance: 'claude-code', cross_platform: 'claude-code', tester: 'claude-code', security: 'claude-code' } as const,
     startRunner: false,
     autoApproveArtifacts: false,
     cliPermissionPreset: 'default' as const,
@@ -625,9 +805,9 @@ async function testSprintEnginePlanSourcedInitializesAndLinksBacklog(): Promise<
       sourcePlanContent: '# Plan',
       sourcePlanKind: 'architect_plan',
       sourceBundle: null,
-      visibleRoleCounts: { architect: 1, product: 1, frontend: 0, developer: 0, code_reviewer: 0, spec_reviewer: 0, performance: 0, cross_platform: 0, tester: 0, security: 0 },
+      visibleRoleCounts: { architect: 1, product: 1, frontend: 0, developer: 0, performance: 0, cross_platform: 0, tester: 0, security: 0 },
       maxParallelAgents: 2,
-      roleCliDefaults: { architect: 'claude-code', product: 'claude-code', frontend: 'claude-code', developer: 'claude-code', code_reviewer: 'claude-code', spec_reviewer: 'claude-code', performance: 'claude-code', cross_platform: 'claude-code', tester: 'claude-code', security: 'claude-code' },
+      roleCliDefaults: { architect: 'claude-code', product: 'claude-code', frontend: 'claude-code', developer: 'claude-code', performance: 'claude-code', cross_platform: 'claude-code', tester: 'claude-code', security: 'claude-code' },
       roleModelOverrides: { architect: 'claude-opus-4-8', product: null },
       initialSpawnRoles: ['architect'],
       startRunner: false,
@@ -694,9 +874,9 @@ async function testSprintEnginePlanSourcedWorktreeModeFlowsThroughStateAndPrompt
       sourcePlanContent: '# Plan',
       sourcePlanKind: 'architect_plan',
       sourceBundle: null,
-      visibleRoleCounts: { architect: 1, product: 1, frontend: 0, developer: 0, code_reviewer: 0, spec_reviewer: 0, performance: 0, cross_platform: 0, tester: 0, security: 0 },
+      visibleRoleCounts: { architect: 1, product: 1, frontend: 0, developer: 0, performance: 0, cross_platform: 0, tester: 0, security: 0 },
       maxParallelAgents: 2,
-      roleCliDefaults: { architect: 'claude-code', product: 'claude-code', frontend: 'claude-code', developer: 'claude-code', code_reviewer: 'claude-code', spec_reviewer: 'claude-code', performance: 'claude-code', cross_platform: 'claude-code', tester: 'claude-code', security: 'claude-code' },
+      roleCliDefaults: { architect: 'claude-code', product: 'claude-code', frontend: 'claude-code', developer: 'claude-code', performance: 'claude-code', cross_platform: 'claude-code', tester: 'claude-code', security: 'claude-code' },
       startRunner: false,
       autoApproveArtifacts: false,
       useWorktrees: true,
@@ -740,9 +920,9 @@ async function testSprintEnginePlanSourcedSkipsNonBacklogLink(): Promise<void> {
       sourcePlanContent: '# Plan',
       sourcePlanKind: 'architect_plan',
       sourceBundle: null,
-      visibleRoleCounts: { architect: 1, product: 1, frontend: 0, developer: 0, code_reviewer: 0, spec_reviewer: 0, performance: 0, cross_platform: 0, tester: 0, security: 0 },
+      visibleRoleCounts: { architect: 1, product: 1, frontend: 0, developer: 0, performance: 0, cross_platform: 0, tester: 0, security: 0 },
       maxParallelAgents: 2,
-      roleCliDefaults: { architect: 'claude-code', product: 'claude-code', frontend: 'claude-code', developer: 'claude-code', code_reviewer: 'claude-code', spec_reviewer: 'claude-code', performance: 'claude-code', cross_platform: 'claude-code', tester: 'claude-code', security: 'claude-code' },
+      roleCliDefaults: { architect: 'claude-code', product: 'claude-code', frontend: 'claude-code', developer: 'claude-code', performance: 'claude-code', cross_platform: 'claude-code', tester: 'claude-code', security: 'claude-code' },
       startRunner: false,
       autoApproveArtifacts: false,
       cliPermissionPreset: 'default',
@@ -786,9 +966,9 @@ async function testSprintEngineEpicSourcedLinksEpicAndFlagsChildren(): Promise<v
       ],
       epicChildRelativePaths: ['backlog/login-form.md', 'backlog/session-store.md'],
       sourceReference: true,
-      visibleRoleCounts: { architect: 1, product: 1, frontend: 0, developer: 0, code_reviewer: 0, spec_reviewer: 0, performance: 0, cross_platform: 0, tester: 0, security: 0 },
+      visibleRoleCounts: { architect: 1, product: 1, frontend: 0, developer: 0, performance: 0, cross_platform: 0, tester: 0, security: 0 },
       maxParallelAgents: 2,
-      roleCliDefaults: { architect: 'claude-code', product: 'claude-code', frontend: 'claude-code', developer: 'claude-code', code_reviewer: 'claude-code', spec_reviewer: 'claude-code', performance: 'claude-code', cross_platform: 'claude-code', tester: 'claude-code', security: 'claude-code' },
+      roleCliDefaults: { architect: 'claude-code', product: 'claude-code', frontend: 'claude-code', developer: 'claude-code', performance: 'claude-code', cross_platform: 'claude-code', tester: 'claude-code', security: 'claude-code' },
       startRunner: false,
       autoApproveArtifacts: false,
       cliPermissionPreset: 'default',
@@ -817,7 +997,7 @@ async function testGuidedBriefScaffoldValidation(): Promise<void> {
 
   await assert.rejects(
     () => runGuidedBriefScaffold(
-      { folderPath: null, workspaceName: '', idea: 'idea', hasUi: 'no', wantsProduct: true, wantsArchitecture: false, wantsFrontend: false, guidedRoleCliDefaults: { product: 'claude-code', architect: 'claude-code', frontend: 'claude-code' }, buildRoleCounts: { architect: 1, product: 1, frontend: 0, developer: 0, code_reviewer: 0, spec_reviewer: 0, performance: 0, cross_platform: 0, tester: 0, security: 0 }, buildRoleCliDefaults: { architect: 'claude-code', product: 'claude-code', frontend: 'claude-code', developer: 'claude-code', code_reviewer: 'claude-code', spec_reviewer: 'claude-code', performance: 'claude-code', cross_platform: 'claude-code', tester: 'claude-code', security: 'claude-code' }, buildCliPermissionPreset: 'default', buildStartRunner: false, buildAutoApproveArtifacts: false },
+      { folderPath: null, workspaceName: '', idea: 'idea', hasUi: 'no', wantsProduct: true, wantsArchitecture: false, wantsFrontend: false, guidedRoleCliDefaults: { product: 'claude-code', architect: 'claude-code', frontend: 'claude-code' }, buildRoleCounts: { architect: 1, product: 1, frontend: 0, developer: 0, performance: 0, cross_platform: 0, tester: 0, security: 0 }, buildRoleCliDefaults: { architect: 'claude-code', product: 'claude-code', frontend: 'claude-code', developer: 'claude-code', performance: 'claude-code', cross_platform: 'claude-code', tester: 'claude-code', security: 'claude-code' }, buildCliPermissionPreset: 'default', buildStartRunner: false, buildAutoApproveArtifacts: false },
       ports,
     ),
     (error) => error instanceof GuidedBriefScaffoldError && error.code === 'missing-folder',
@@ -826,7 +1006,7 @@ async function testGuidedBriefScaffoldValidation(): Promise<void> {
 
   await assert.rejects(
     () => runGuidedBriefScaffold(
-      { folderPath: '/p', workspaceName: '', idea: '', hasUi: 'no', wantsProduct: true, wantsArchitecture: false, wantsFrontend: false, guidedRoleCliDefaults: { product: 'claude-code', architect: 'claude-code', frontend: 'claude-code' }, buildRoleCounts: { architect: 1, product: 1, frontend: 0, developer: 0, code_reviewer: 0, spec_reviewer: 0, performance: 0, cross_platform: 0, tester: 0, security: 0 }, buildRoleCliDefaults: { architect: 'claude-code', product: 'claude-code', frontend: 'claude-code', developer: 'claude-code', code_reviewer: 'claude-code', spec_reviewer: 'claude-code', performance: 'claude-code', cross_platform: 'claude-code', tester: 'claude-code', security: 'claude-code' }, buildCliPermissionPreset: 'default', buildStartRunner: false, buildAutoApproveArtifacts: false },
+      { folderPath: '/p', workspaceName: '', idea: '', hasUi: 'no', wantsProduct: true, wantsArchitecture: false, wantsFrontend: false, guidedRoleCliDefaults: { product: 'claude-code', architect: 'claude-code', frontend: 'claude-code' }, buildRoleCounts: { architect: 1, product: 1, frontend: 0, developer: 0, performance: 0, cross_platform: 0, tester: 0, security: 0 }, buildRoleCliDefaults: { architect: 'claude-code', product: 'claude-code', frontend: 'claude-code', developer: 'claude-code', performance: 'claude-code', cross_platform: 'claude-code', tester: 'claude-code', security: 'claude-code' }, buildCliPermissionPreset: 'default', buildStartRunner: false, buildAutoApproveArtifacts: false },
       ports,
     ),
     (error) => error instanceof GuidedBriefScaffoldError && error.code === 'missing-idea',
@@ -835,7 +1015,7 @@ async function testGuidedBriefScaffoldValidation(): Promise<void> {
 
   await assert.rejects(
     () => runGuidedBriefScaffold(
-      { folderPath: '/p', workspaceName: '', idea: 'idea', hasUi: null, wantsProduct: true, wantsArchitecture: false, wantsFrontend: false, guidedRoleCliDefaults: { product: 'claude-code', architect: 'claude-code', frontend: 'claude-code' }, buildRoleCounts: { architect: 1, product: 1, frontend: 0, developer: 0, code_reviewer: 0, spec_reviewer: 0, performance: 0, cross_platform: 0, tester: 0, security: 0 }, buildRoleCliDefaults: { architect: 'claude-code', product: 'claude-code', frontend: 'claude-code', developer: 'claude-code', code_reviewer: 'claude-code', spec_reviewer: 'claude-code', performance: 'claude-code', cross_platform: 'claude-code', tester: 'claude-code', security: 'claude-code' }, buildCliPermissionPreset: 'default', buildStartRunner: false, buildAutoApproveArtifacts: false },
+      { folderPath: '/p', workspaceName: '', idea: 'idea', hasUi: null, wantsProduct: true, wantsArchitecture: false, wantsFrontend: false, guidedRoleCliDefaults: { product: 'claude-code', architect: 'claude-code', frontend: 'claude-code' }, buildRoleCounts: { architect: 1, product: 1, frontend: 0, developer: 0, performance: 0, cross_platform: 0, tester: 0, security: 0 }, buildRoleCliDefaults: { architect: 'claude-code', product: 'claude-code', frontend: 'claude-code', developer: 'claude-code', performance: 'claude-code', cross_platform: 'claude-code', tester: 'claude-code', security: 'claude-code' }, buildCliPermissionPreset: 'default', buildStartRunner: false, buildAutoApproveArtifacts: false },
       ports,
     ),
     (error) => error instanceof GuidedBriefScaffoldError && error.code === 'missing-has-ui',
@@ -861,8 +1041,8 @@ async function testGuidedBriefScaffoldHappyPath(): Promise<void> {
       wantsArchitecture: false,
       wantsFrontend: false,
       guidedRoleCliDefaults: { product: 'claude-code', architect: 'claude-code', frontend: 'claude-code' },
-      buildRoleCounts: { architect: 1, product: 1, frontend: 0, developer: 0, code_reviewer: 0, spec_reviewer: 0, performance: 0, cross_platform: 0, tester: 0, security: 0 },
-      buildRoleCliDefaults: { architect: 'claude-code', product: 'claude-code', frontend: 'claude-code', developer: 'claude-code', code_reviewer: 'claude-code', spec_reviewer: 'claude-code', performance: 'claude-code', cross_platform: 'claude-code', tester: 'claude-code', security: 'claude-code' },
+      buildRoleCounts: { architect: 1, product: 1, frontend: 0, developer: 0, performance: 0, cross_platform: 0, tester: 0, security: 0 },
+      buildRoleCliDefaults: { architect: 'claude-code', product: 'claude-code', frontend: 'claude-code', developer: 'claude-code', performance: 'claude-code', cross_platform: 'claude-code', tester: 'claude-code', security: 'claude-code' },
       buildCliPermissionPreset: 'default',
       buildStartRunner: false,
       buildAutoApproveArtifacts: false,
@@ -900,8 +1080,8 @@ async function testGuidedBriefDesignPresetScaffold(): Promise<void> {
       wantsArchitecture: true,
       wantsFrontend: false,
       guidedRoleCliDefaults: { product: 'claude-code', architect: 'claude-code', frontend: 'claude-code' },
-      buildRoleCounts: { architect: 1, product: 1, frontend: 1, developer: 1, code_reviewer: 1, spec_reviewer: 1, performance: 0, cross_platform: 0, tester: 1, security: 0 },
-      buildRoleCliDefaults: { architect: 'claude-code', product: 'claude-code', frontend: 'claude-code', developer: 'claude-code', code_reviewer: 'claude-code', spec_reviewer: 'claude-code', performance: 'claude-code', cross_platform: 'claude-code', tester: 'claude-code', security: 'claude-code' },
+      buildRoleCounts: { architect: 1, product: 1, frontend: 1, developer: 1, performance: 0, cross_platform: 0, tester: 1, security: 0 },
+      buildRoleCliDefaults: { architect: 'claude-code', product: 'claude-code', frontend: 'claude-code', developer: 'claude-code', performance: 'claude-code', cross_platform: 'claude-code', tester: 'claude-code', security: 'claude-code' },
       buildCliPermissionPreset: 'default',
       buildStartRunner: false,
       buildAutoApproveArtifacts: false,
@@ -925,8 +1105,8 @@ async function testDesignSystemScaffoldValidationAndFailure(): Promise<void> {
     workspaceName: 'Brand System',
     idea: 'A warm editorial design system.',
     guidedRoleCliDefaults: { product: 'claude-code', architect: 'claude-code', frontend: 'claude-code' },
-    buildRoleCounts: { architect: 1, product: 1, frontend: 1, developer: 1, code_reviewer: 1, spec_reviewer: 1, performance: 0, cross_platform: 0, tester: 1, security: 0 },
-    buildRoleCliDefaults: { architect: 'claude-code', product: 'claude-code', frontend: 'claude-code', developer: 'claude-code', code_reviewer: 'claude-code', spec_reviewer: 'claude-code', performance: 'claude-code', cross_platform: 'claude-code', tester: 'claude-code', security: 'claude-code' },
+    buildRoleCounts: { architect: 1, product: 1, frontend: 1, developer: 1, performance: 0, cross_platform: 0, tester: 1, security: 0 },
+    buildRoleCliDefaults: { architect: 'claude-code', product: 'claude-code', frontend: 'claude-code', developer: 'claude-code', performance: 'claude-code', cross_platform: 'claude-code', tester: 'claude-code', security: 'claude-code' },
     buildCliPermissionPreset: 'default' as const,
     buildStartRunner: false,
     buildAutoApproveArtifacts: false,
@@ -984,8 +1164,8 @@ async function testDesignSystemScaffoldHappyPath(): Promise<void> {
       workspaceName: 'Fallback Name',
       idea: 'A warm editorial design system.',
       guidedRoleCliDefaults: { product: 'claude-code', architect: 'claude-code', frontend: 'codex' },
-      buildRoleCounts: { architect: 1, product: 1, frontend: 1, developer: 1, code_reviewer: 1, spec_reviewer: 1, performance: 0, cross_platform: 0, tester: 1, security: 0 },
-      buildRoleCliDefaults: { architect: 'claude-code', product: 'claude-code', frontend: 'claude-code', developer: 'claude-code', code_reviewer: 'claude-code', spec_reviewer: 'claude-code', performance: 'claude-code', cross_platform: 'claude-code', tester: 'claude-code', security: 'claude-code' },
+      buildRoleCounts: { architect: 1, product: 1, frontend: 1, developer: 1, performance: 0, cross_platform: 0, tester: 1, security: 0 },
+      buildRoleCliDefaults: { architect: 'claude-code', product: 'claude-code', frontend: 'claude-code', developer: 'claude-code', performance: 'claude-code', cross_platform: 'claude-code', tester: 'claude-code', security: 'claude-code' },
       buildCliPermissionPreset: 'default',
       buildStartRunner: false,
       buildAutoApproveArtifacts: false,
@@ -1048,8 +1228,8 @@ async function testDesignSystemScaffoldSeeded(): Promise<void> {
       idea: 'Distill the Multicode brand into a portable system.',
       seedSource,
       guidedRoleCliDefaults: { product: 'claude-code', architect: 'claude-code', frontend: 'claude-code' },
-      buildRoleCounts: { architect: 1, product: 1, frontend: 1, developer: 1, code_reviewer: 1, spec_reviewer: 1, performance: 0, cross_platform: 0, tester: 1, security: 0 },
-      buildRoleCliDefaults: { architect: 'claude-code', product: 'claude-code', frontend: 'claude-code', developer: 'claude-code', code_reviewer: 'claude-code', spec_reviewer: 'claude-code', performance: 'claude-code', cross_platform: 'claude-code', tester: 'claude-code', security: 'claude-code' },
+      buildRoleCounts: { architect: 1, product: 1, frontend: 1, developer: 1, performance: 0, cross_platform: 0, tester: 1, security: 0 },
+      buildRoleCliDefaults: { architect: 'claude-code', product: 'claude-code', frontend: 'claude-code', developer: 'claude-code', performance: 'claude-code', cross_platform: 'claude-code', tester: 'claude-code', security: 'claude-code' },
       buildCliPermissionPreset: 'default',
       buildStartRunner: false,
       buildAutoApproveArtifacts: false,
@@ -1081,8 +1261,8 @@ async function testGuidedBriefStartBuildValidation(): Promise<void> {
     wantsArchitectureDiscussion: true,
     wantsFrontendDiscussion: true,
     guidedRoleCliDefaults: { product: 'claude-code', architect: 'claude-code', frontend: 'claude-code' },
-    buildRoleCounts: { architect: 1, product: 1, frontend: 1, developer: 1, code_reviewer: 1, spec_reviewer: 1, performance: 0, cross_platform: 0, tester: 1, security: 0 },
-    buildRoleCliDefaults: { architect: 'claude-code', product: 'claude-code', frontend: 'claude-code', developer: 'claude-code', code_reviewer: 'claude-code', spec_reviewer: 'claude-code', performance: 'claude-code', cross_platform: 'claude-code', tester: 'claude-code', security: 'claude-code' },
+    buildRoleCounts: { architect: 1, product: 1, frontend: 1, developer: 1, performance: 0, cross_platform: 0, tester: 1, security: 0 },
+    buildRoleCliDefaults: { architect: 'claude-code', product: 'claude-code', frontend: 'claude-code', developer: 'claude-code', performance: 'claude-code', cross_platform: 'claude-code', tester: 'claude-code', security: 'claude-code' },
     buildCliPermissionPreset: 'default',
     buildStartRunner: false,
     buildAutoApproveArtifacts: false,
@@ -1229,8 +1409,8 @@ async function testGuidedBriefStartBuildHandoffPath(): Promise<void> {
     wantsArchitectureDiscussion: true,
     wantsFrontendDiscussion: true,
     guidedRoleCliDefaults: { product: 'claude-code', architect: 'claude-code', frontend: 'claude-code' },
-    buildRoleCounts: { architect: 1, product: 1, frontend: 1, developer: 1, code_reviewer: 1, spec_reviewer: 1, performance: 0, cross_platform: 0, tester: 1, security: 0 },
-    buildRoleCliDefaults: { architect: 'claude-code', product: 'claude-code', frontend: 'claude-code', developer: 'claude-code', code_reviewer: 'claude-code', spec_reviewer: 'claude-code', performance: 'claude-code', cross_platform: 'claude-code', tester: 'claude-code', security: 'claude-code' },
+    buildRoleCounts: { architect: 1, product: 1, frontend: 1, developer: 1, performance: 0, cross_platform: 0, tester: 1, security: 0 },
+    buildRoleCliDefaults: { architect: 'claude-code', product: 'claude-code', frontend: 'claude-code', developer: 'claude-code', performance: 'claude-code', cross_platform: 'claude-code', tester: 'claude-code', security: 'claude-code' },
     buildCliPermissionPreset: 'default',
     buildStartRunner: false,
     buildAutoApproveArtifacts: false,
@@ -1295,8 +1475,8 @@ async function testGuidedBriefStartBuildDesignPresetHandoff(): Promise<void> {
     wantsArchitectureDiscussion: false,
     wantsFrontendDiscussion: true,
     guidedRoleCliDefaults: { product: 'claude-code', architect: 'claude-code', frontend: 'claude-code' },
-    buildRoleCounts: { architect: 1, product: 1, frontend: 1, developer: 1, code_reviewer: 1, spec_reviewer: 1, performance: 0, cross_platform: 0, tester: 1, security: 0 },
-    buildRoleCliDefaults: { architect: 'claude-code', product: 'claude-code', frontend: 'claude-code', developer: 'claude-code', code_reviewer: 'claude-code', spec_reviewer: 'claude-code', performance: 'claude-code', cross_platform: 'claude-code', tester: 'claude-code', security: 'claude-code' },
+    buildRoleCounts: { architect: 1, product: 1, frontend: 1, developer: 1, performance: 0, cross_platform: 0, tester: 1, security: 0 },
+    buildRoleCliDefaults: { architect: 'claude-code', product: 'claude-code', frontend: 'claude-code', developer: 'claude-code', performance: 'claude-code', cross_platform: 'claude-code', tester: 'claude-code', security: 'claude-code' },
     buildCliPermissionPreset: 'default',
     buildStartRunner: false,
     buildAutoApproveArtifacts: false,
@@ -1389,8 +1569,8 @@ async function testGuidedBriefStartBuildAdvancedSetupFailsClosed(): Promise<void
     wantsArchitectureDiscussion: true,
     wantsFrontendDiscussion: true,
     guidedRoleCliDefaults: { product: 'claude-code', architect: 'claude-code', frontend: 'claude-code' },
-    buildRoleCounts: { architect: 1, product: 1, frontend: 1, developer: 1, code_reviewer: 1, spec_reviewer: 1, performance: 0, cross_platform: 0, tester: 1, security: 0 },
-    buildRoleCliDefaults: { architect: 'claude-code', product: 'claude-code', frontend: 'claude-code', developer: 'claude-code', code_reviewer: 'claude-code', spec_reviewer: 'claude-code', performance: 'claude-code', cross_platform: 'claude-code', tester: 'claude-code', security: 'claude-code' },
+    buildRoleCounts: { architect: 1, product: 1, frontend: 1, developer: 1, performance: 0, cross_platform: 0, tester: 1, security: 0 },
+    buildRoleCliDefaults: { architect: 'claude-code', product: 'claude-code', frontend: 'claude-code', developer: 'claude-code', performance: 'claude-code', cross_platform: 'claude-code', tester: 'claude-code', security: 'claude-code' },
     buildCliPermissionPreset: 'default',
     buildStartRunner: false,
     buildAutoApproveArtifacts: false,
@@ -1463,6 +1643,9 @@ async function main(): Promise<void> {
   await testSprintEngineNewTeamInitializesRunState()
   await testSprintEngineNewTeamUserModeInitArgsUnchanged()
   await testSprintEngineArchitectRosterInitArgs()
+  testSprintEngineWorkflowInitKeys()
+  await testSprintEngineWorkflowKeysFlowToInit()
+  await testSprintEngineAdditionalEnabledRolesMergeIntoInit()
   await testSprintEngineNewTeamInitFailuresBlockWorkspaceArgs()
   testSprintEngineEffectiveSpawnAtStartRoles()
   await testSprintEnginePlanSourcedValidation()

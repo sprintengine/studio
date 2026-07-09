@@ -2,22 +2,19 @@
 
 Tool-level harness driving the real MCP server (`SprintEngineMcpServer`) end to
 end for a `general` roster: join → plan-approval gate self-approval → claim →
-publish → self-review/testing gates → done, plus the structural roster fence.
+publish → self-review phase → done, plus the structural roster fence.
 
 Scope boundary (kept honest):
-- The managed-runtime *dispatch ordering* (an idle General taking its own pending
-  gate ahead of new ready work) is a renderer concern proven by
+- The managed-runtime *dispatch ordering* (an idle General resuming its own task
+  in review ahead of new ready work) is a renderer concern proven by
   `sprintengineAutoRunGeneralOrdering.test.ts` (task T4). Here we prove the
-  tool-level facts that ordering relies on: a General's own self-review gate is
-  claimable, a published task's gate is claimable by another General while a
-  second task is still being implemented (review/implement interleave), and work
-  is shared purely by claiming with no coordinator.
-- A General-only roster derives *no* default quality gates (see
-  `test_general_quality_gates.py`); the General authors its own `role: general`
-  review/testing gates per the orchestration skill. No dedicated MCP tool exists
-  to attach those gates, so the harness seeds them onto the General-authored task
-  exactly as `store.normalize_quality_gate` produces them, then exercises the
-  real claim/publish/verdict lifecycle over them.
+  tool-level facts that ordering relies on: a published General task enters its
+  review phase still owned by its author, a second General keeps implementing a
+  different task while the first reviews its own (review/implement interleave),
+  and work is shared purely by claiming with no coordinator.
+- Post-MC-1542 there is no quality-gate configuration to seed: publish routes on
+  change detection into the run's `phases`, and the task's own owner walks them
+  with `task.advance`. No General ever reviews another General's task.
 """
 
 from __future__ import annotations
@@ -25,7 +22,6 @@ from __future__ import annotations
 from pathlib import Path
 
 from helpers import create_team, get_task, read_state, task, write_state
-from sprintengine_core import store
 from sprintengine_core.tool.plans import ensure_plan_approval_gate, find_architect_plan_gate
 from sprintengine_mcp import SprintEngineMcpServer
 
@@ -34,26 +30,11 @@ def actor(agent_id: str, role: str) -> dict[str, object]:
     return {"id": agent_id, "role": role, "mcpAuthorized": True}
 
 
-def general_gate(gate_id: str, phase: str) -> dict[str, object]:
-    """A General-authored, self-reviewable quality gate (role `general`)."""
-    gate = store.normalize_quality_gate(
-        {"id": gate_id, "phase": phase, "role": "general", "status": "pending"},
-        gate_id,
-    )
-    assert gate is not None
-    assert gate["allowSelfReview"] is True  # default: the General can self-approve
-    return gate
-
-
 def general_impl_task(task_id: str, plan_gate_task_id: str) -> dict[str, object]:
     """An implementation task as a General plans it: role `general`, rooted on the
-    plan gate, carrying its own self-review + testing gates."""
+    plan gate. It carries no gate configuration — the review phase is the run's."""
     record = task(task_id, f"Implement {task_id}", "general", depends_on=[plan_gate_task_id])
     record["producesImplementation"] = True
-    record["qualityGates"] = [
-        general_gate("general_review", "review"),
-        general_gate("general_testing", "testing"),
-    ]
     return record
 
 
@@ -107,7 +88,9 @@ def test_one_general_run_bootstraps_plans_self_reviews_then_publishes_without_ro
     joined = call(server, fixture.state_path, "sprintengine.agent.join", "general-1", "general",
                   role="general", agentId="general-1")
     assert joined["ok"] is True, joined.get("error")
-    assert joined["result"]["roleManifest"]["soul"] == []
+    # `general` composes its brief from SPRINTENGINE_GENERAL_SKILLS, not a manifest.
+    assert joined["result"]["roleManifest"]["directives"] == {}
+    assert joined["result"]["roleManifest"]["sweep"] is None
 
     # Plan-approval gate: the General self-approves its own plan (no architect).
     approved = call(server, fixture.state_path, "sprintengine.artifact.approve", "general-1", "general",
@@ -127,22 +110,23 @@ def test_one_general_run_bootstraps_plans_self_reviews_then_publishes_without_ro
     published = call(server, fixture.state_path, "sprintengine.task.publish", "general-1", "general",
                      taskId="T-impl", id="general-1", summary="Ready for self-review.")
     assert published["ok"] is True, published.get("error")
-    assert get_task(read_state(fixture.state_path), "T-impl")["status"] == "review"
+    assert published["result"]["nextStatus"] == "review"
+    # The review directive rides back inline; there is no second claim.
+    assert published["result"]["nextDirective"]
+    published_task = get_task(read_state(fixture.state_path), "T-impl")
+    assert published_task["status"] == "review"
+    assert published_task["ownerAgentId"] == "general-1"
 
-    # Self-review BEFORE any new work: the General claims and approves its own
-    # review gate, then its testing gate, driving the task to done.
-    for gate_id in ("general_review", "general_testing"):
-        gate_claim = call(server, fixture.state_path, "sprintengine.gate.next", "general-1", "general",
-                          role="general", id="general-1")
-        assert gate_claim["ok"] is True and gate_claim["result"]["claimed"] is True, gate_id
-        assert gate_claim["result"]["gate"]["id"] == gate_id
-        verdict = call(server, fixture.state_path, "sprintengine.gate.verdict", "general-1", "general",
-                       taskId="T-impl", gateId=gate_id, role="general", id="general-1",
-                       verdict="approved", summary=f"{gate_id} self-approved.")
-        assert verdict["ok"] is True, verdict.get("error")
+    # Self-review: the General reviews the work it just made and closes the phase.
+    advanced = call(server, fixture.state_path, "sprintengine.task.advance", "general-1", "general",
+                    taskId="T-impl", id="general-1", phase="review", outcome="pass_with_fixes",
+                    summary="Self-reviewed and fixed a null guard.")
+    assert advanced["ok"] is True, advanced.get("error")
+    assert advanced["result"]["nextStatus"] == "done"
 
     final = read_state(fixture.state_path)
     assert get_task(final, "T-impl")["status"] == "done"
+    assert get_task(final, "T-impl")["ownerAgentId"] is None
     # No architect/specialist ever joined and the roster never grew.
     assert roster_role_ids(final) == roster_before == {"general-1"}
     assert all(agent["role"] == "general" for agent in final["agents"].values())
@@ -171,30 +155,36 @@ def test_three_general_run_shares_work_and_interleaves_review_with_implementatio
     assert claimed_ids == {"T-a", "T-b"}, "two Generals split the two ready tasks"
     assert claim_none["result"]["claimed"] is False, "no third claim — work is not double-assigned"
 
-    # general-1 publishes T-a; general-3 reviews it while general-2 is still
+    # general-1 publishes T-a and reviews it itself while general-2 is still
     # implementing T-b — review and implementation interleave with no barrier.
     call(server, fixture.state_path, "sprintengine.task.log", "general-1", "general",
          taskId="T-a", id="general-1", summary="Impl done.", result=["green"])
     call(server, fixture.state_path, "sprintengine.task.publish", "general-1", "general",
          taskId="T-a", id="general-1", summary="Ready for review.")
 
-    review_claim = call(server, fixture.state_path, "sprintengine.gate.next", "general-3", "general",
-                        role="general", id="general-3")
-    assert review_claim["ok"] is True and review_claim["result"]["claimed"] is True
-    assert review_claim["result"]["task"]["id"] == "T-a"
-    assert review_claim["result"]["gate"]["id"] == "general_review"
-
     mid = read_state(fixture.state_path)
-    assert get_task(mid, "T-a")["status"] == "review"       # being reviewed by general-3
+    assert get_task(mid, "T-a")["status"] == "review"       # self-reviewed by general-1
+    assert get_task(mid, "T-a")["ownerAgentId"] == "general-1"
     assert get_task(mid, "T-b")["status"] == "in_progress"  # still implemented by general-2
 
-    verdict = call(server, fixture.state_path, "sprintengine.gate.verdict", "general-3", "general",
-                   taskId="T-a", gateId="general_review", role="general", id="general-3",
-                   verdict="approved", summary="Peer review by another General.")
-    assert verdict["ok"] is True, verdict.get("error")
-    # T-a advanced past review to its testing gate; the team never grew.
-    assert get_task(read_state(fixture.state_path), "T-a")["status"] == "testing"
-    assert roster_role_ids(read_state(fixture.state_path)) == roster_before
+    # A published task in review is NOT spare capacity: an idle General cannot pick
+    # it up, and cannot advance a phase it does not own.
+    idle_claim = call(server, fixture.state_path, "sprintengine.task.next", "general-3", "general",
+                      role="general", id="general-3")
+    assert idle_claim["result"]["claimed"] is False
+    stolen = call(server, fixture.state_path, "sprintengine.task.advance", "general-3", "general",
+                  taskId="T-a", id="general-3", phase="review", outcome="pass", summary="Peer review.")
+    assert stolen["ok"] is False
+    assert "not_task_owner" in stolen["error"]["message"]
+
+    advanced = call(server, fixture.state_path, "sprintengine.task.advance", "general-1", "general",
+                    taskId="T-a", id="general-1", phase="review", outcome="pass",
+                    summary="Self-reviewed; nothing to fix.")
+    assert advanced["ok"] is True, advanced.get("error")
+    after = read_state(fixture.state_path)
+    assert get_task(after, "T-a")["status"] == "done"
+    assert get_task(after, "T-b")["status"] == "in_progress"
+    assert roster_role_ids(after) == roster_before
 
 
 def test_general_tool_surface_excludes_roster_growth(tmp_path) -> None:

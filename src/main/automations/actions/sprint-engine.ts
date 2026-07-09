@@ -18,8 +18,6 @@ const SPRINT_ENGINE_AUTOMATION_ROLES: SprintEngineTaskMutationRole[] = [
   'frontend',
   'tester',
   'security',
-  'code_reviewer',
-  'spec_reviewer',
   'performance',
   'production_readiness_reviewer',
   'cross_platform',

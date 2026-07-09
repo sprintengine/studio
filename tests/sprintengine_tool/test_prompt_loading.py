@@ -11,7 +11,8 @@ from fixtures import SwarmCli, assert_prompt_includes, create_team, read_state, 
 from helpers import write_state
 
 
-def gated_review_task() -> dict:
+def reviewing_task() -> dict:
+    """A published task in its review phase, still owned by its implementer."""
     record = task(
         "T1",
         "Implement reviewed feature",
@@ -22,7 +23,7 @@ def gated_review_task() -> dict:
     )
     record["description"] = "Wire the reviewed feature into the real CLI path."
     record["acceptanceCriteria"] = ["CLI exposes the feature.", "Tests cover the review path."]
-    record["implementationNotes"] = ["Reviewer prompts must treat summaries as claims."]
+    record["implementationNotes"] = ["Review prompts must treat summaries as claims."]
     record["evidence"] = {
         "summary": "Implemented the CLI feature.",
         "touchedFiles": ["sprintengine_core/tool.py"],
@@ -44,70 +45,14 @@ def gated_review_task() -> dict:
         {
             "id": "C2",
             "type": "review_feedback",
-            "actor": "reviewer-old",
-            "authorAgentId": "reviewer-old",
-            "authorRole": "code_reviewer",
-            "source": "agent",
+            "actor": "user",
+            "authorAgentId": "user",
+            "authorRole": "user",
+            "source": "user",
             "body": "Older feedback should be below newer feedback.",
             "createdAt": "2026-05-17T00:01:00Z",
-            "data": {"status": "open", "gateId": "code_reviewer", "verdict": "changes_requested"},
+            "data": {"status": "open"},
         },
-    ]
-    record["qualityGates"] = [
-        {
-            "id": "code_reviewer",
-            "phase": "review",
-            "role": "code_reviewer",
-            "status": "pending",
-            "required": True,
-            "allowSelfReview": False,
-            "focus": "correctness, maintainability, and evidence quality",
-            "attempts": [
-                {
-                    "id": "GA-001",
-                    "status": "changes_requested",
-                    "role": "code_reviewer",
-                    "claimedBy": "reviewer-old",
-                    "summary": "Missing one assertion.",
-                }
-            ],
-        }
-    ]
-    return record
-
-
-def make_tester_gate_task() -> dict:
-    record = task(
-        "T1",
-        "Validate renderer workflow",
-        "frontend",
-        "testing",
-        owner="frontend-fixture",
-        owned_paths=["src/renderer/src/components/workspace/SprintEngineAutoRunSupervisor.tsx"],
-    )
-    record["description"] = "Validate the completed renderer workflow through real UI or focused local alternatives."
-    record["acceptanceCriteria"] = [
-        "User-visible workflow renders without layout regressions.",
-        "Focused tests cover the changed behavior.",
-    ]
-    record["evidence"] = {
-        "summary": "Implemented the renderer workflow.",
-        "touchedFiles": ["src/renderer/src/components/workspace/SprintEngineAutoRunSupervisor.tsx"],
-        "commandsRan": ["npm run test:renderer:sprintengine-auto-run"],
-        "results": ["Passed."],
-        "scopeExpansions": [],
-    }
-    record["qualityGates"] = [
-        {
-            "id": "tester",
-            "phase": "testing",
-            "role": "tester",
-            "status": "pending",
-            "required": True,
-            "allowSelfReview": True,
-            "focus": "real-path validation, regression coverage, and reproducible verification",
-            "attempts": [],
-        }
     ]
     return record
 
@@ -256,188 +201,119 @@ def test_join_returns_worker_prompt_and_resume_directive(tmp_path) -> None:
     )
 
 
-def test_code_reviewer_join_prompt_allows_review_and_fix_tasks(tmp_path) -> None:
-    fixture = create_team(
-        tmp_path,
-        "code-reviewer-fix-prompt",
-        [task("T1", "Review and fix implementation quality", "code_reviewer")],
-    )
+# code_reviewer / spec_reviewer join-prompt tests removed in MC-1542: those
+# standalone reviewer roles/souls are retired (task owners self-review via a
+# `review` phase), so there is no reviewer soul or role prompt to assert on.
 
-    payload = fixture.cli.run("join", "--role", "code_reviewer", "--id", "reviewer-fixture")
+
+def test_publish_returns_the_contextual_phase_directive_inline(tmp_path) -> None:
+    """MC-1542: the review context the gate-claim prompt used to carry is now composed
+    into `nextDirective` and handed to the owner inside the publish call. It omits the
+    task card and diff on purpose — the live owner already has them in context."""
+    record = reviewing_task()
+    record["status"] = "in_progress"
+    fixture = create_team(tmp_path, "phase-directive-prompt", [record])
+
+    payload = fixture.cli.run(
+        "task", "publish", "--task-id", "T1", "--id", "developer-fixture", "--summary", "Ready for review."
+    )
 
     assert payload["ok"] is True
-    assert payload["action"] == "work"
+    assert payload["nextStatus"] == "review"
     assert_prompt_includes(
-        payload["prompt"],
+        payload["nextDirective"],
         [
-            "produce the requested code quality review evidence or artifact",
-            "Work read-only: do not edit application or test code.",
-            "Move the task to `needs_input` only when the review output requires approval or the task is blocked from meeting acceptance",
-            "Do not mutate the task graph; the architect decides whether to add follow-up work.",
-            "Treat task-owned paths as the primary edit surface and collision boundary.",
-            "scope expansion with the path, reason, and risk.",
+            "Your task has entered review — you are now reviewing your own work.",
+            "No other agent will review it.",
+            "Task: `T1` - Implement reviewed feature",
+            "Phase: `review`",
+            "Acceptance Criteria",
+            "CLI exposes the feature.",
+            "Open Feedback (address before you advance)",
+            "Older feedback should be below newer feedback.",
+            'Close this phase with `sprintengine.task.advance` `{ taskId: "T1", phase: "review", outcome, summary }`.',
         ],
     )
+    # No gate vocabulary survives into the directive the owner reads.
+    directive = payload["nextDirective"]
+    assert "Gate:" not in directive
+    assert "Prior Gate Attempts" not in directive
+    assert "sprintengine.gate." not in directive
 
 
-def test_spec_reviewer_join_prompt_uses_spec_soul_and_skill_standards(tmp_path) -> None:
-    fixture = create_team(
-        tmp_path,
-        "spec-reviewer-prompt",
-        [task("T1", "Review spec conformance", "spec_reviewer")],
-    )
+def test_phase_respawn_brief_rebuilds_the_context_a_cold_owner_lost(tmp_path) -> None:
+    """Flow 6: a revived owner has nothing in context, so the brief prepends the task
+    card and the published evidence before the same directive body."""
+    from sprintengine_core.tool.phase_prompts import build_phase_respawn_brief
 
-    payload = fixture.cli.run("join", "--role", "spec_reviewer", "--id", "spec-reviewer-fixture")
-
-    assert payload["ok"] is True
-    assert payload["action"] == "work"
-    assert_prompt_includes(
-        payload["prompt"],
-        [
-            "You are a principal-level specification reviewer.",
-            "sprintengine task next --role spec_reviewer --id spec-reviewer-fixture",
-            "Build a requirement checklist from the task, plan, requirements artifact, comments, and acceptance criteria",
-            "Use `workspace-knowledge` or `knowledge-grill`",
-            "Use `behavior-first-testing` criteria",
-            "Use `debug` principles",
-            "Use the `prototype` boundary",
-            "Apply the bundled workflow skills as review standards when relevant",
-            "produce the requested specification conformance review evidence or artifact",
-            "Work read-only: do not edit application or test code.",
-            "Do not mutate the task graph; the architect decides whether to add follow-up work.",
-        ],
-    )
-
-
-def test_gate_claim_returns_contextual_reviewer_prompt(tmp_path) -> None:
-    fixture = create_team(
-        tmp_path,
-        "gate-context-prompt",
-        [gated_review_task()],
-    )
-    report_path = fixture.team_dir / "reviews" / "prior.md"
-    report_path.parent.mkdir(parents=True, exist_ok=True)
-    report_path.write_text("# Prior Review\n", encoding="utf-8")
+    fixture = create_team(tmp_path, "phase-respawn-brief", [reviewing_task()])
     state = read_state(fixture.state_path)
-    state["artifacts"] = [
-        {
-            "id": "A1",
-            "kind": "code_review",
-            "title": "Prior Review",
-            "path": "reviews/prior.md",
-            "status": "recorded",
-            "createdBy": "reviewer-old",
-            "taskId": "T1",
-            "gateId": "code_reviewer",
-            "reviewHistory": [],
-            "recommendedTasks": [],
-            "createdAt": "2026-05-17T00:02:00Z",
-            "updatedAt": "2026-05-17T00:02:00Z",
-        }
-    ]
-    write_state(fixture.state_path, state)
+    record = next(item for item in state["tasks"] if item["id"] == "T1")
 
-    payload = fixture.cli.run("task", "gate", "next", "--role", "code_reviewer", "--id", "reviewer-fixture")
+    brief = build_phase_respawn_brief(state, fixture.state_path, record, "review")
 
-    assert payload["ok"] is True
-    assert payload["claimed"] is True
     assert_prompt_includes(
-        payload["prompt"],
+        brief,
         [
-            "# Sprint Engine Gate Review Context",
-            "Plan path: `.multi-code/sprintengine/gate-context-prompt/plan.md`",
-            "Reviewed task: `T1` - Implement reviewed feature",
-            "Gate: `code_reviewer` phase=`review` role=`code_reviewer` attempt=`GA-002`",
-            "Gate focus: correctness, maintainability, and evidence quality",
+            "# Sprint Engine Phase Handover",
+            "You previously owned `T1` and are resuming it mid-phase.",
+            "Plan path: `.multi-code/sprintengine/phase-respawn-brief/plan.md`",
+            "Task role: `developer`",
             "Description: Wire the reviewed feature into the real CLI path.",
-            "Acceptance: CLI exposes the feature.",
+            "Owned Paths",
+            "`sprintengine_core/tool.py`",
+            "Summary: Implemented the CLI feature.",
             "Touched file: `sprintengine_core/tool.py`",
             "Command: `.venv/bin/python -m pytest tests/sprintengine_tool/test_prompt_loading.py -q`",
-            "A1 `code_review` status=`recorded`",
-            "Latest Implementation Summary Or Response",
-            "The feature is ready for review.",
-            "Open Feedback From This Gate (newest first)",
-            "Older feedback should be below newer feedback.",
-            "Prior Gate Attempts",
-            "GA-001 status=`changes_requested`",
-            "Audit implementation comments as claims, not proof.",
+            # ...and then the very same directive the live owner receives inline.
+            "Your task has entered review — you are now reviewing your own work.",
+            'Close this phase with `sprintengine.task.advance`',
         ],
     )
 
 
-def test_tester_gate_claim_prompt_requires_qa_validation_and_browser_checks(tmp_path) -> None:
-    fixture = create_team(
-        tmp_path,
-        "tester-gate-context-prompt",
-        [make_tester_gate_task()],
+def test_phase_directive_is_composed_from_the_shared_review_base_pack(tmp_path) -> None:
+    """The base pack is resolved through the role registry, so a workspace can
+    shadow `sprintengine_phase_review` and change the review lens run-wide."""
+    from sprintengine_core.tool.phase_prompts import phase_base_pack_skill_id
+
+    assert phase_base_pack_skill_id("review") == "sprintengine_phase_review"
+
+    record = reviewing_task()
+    record["status"] = "in_progress"
+    fixture = create_team(tmp_path, "phase-base-pack", [record])
+    payload = fixture.cli.run(
+        "task", "publish", "--task-id", "T1", "--id", "developer-fixture", "--summary", "Ready."
     )
 
-    payload = fixture.cli.run("task", "gate", "next", "--role", "tester", "--id", "tester-fixture")
-
-    assert payload["ok"] is True
-    assert payload["claimed"] is True
-    assert_prompt_includes(
-        payload["prompt"],
-        [
-            "Gate: `tester` phase=`testing` role=`tester`",
-            "## Tester Gate Expectations",
-            "Act as QA for the completed implementation, not as a second code reviewer.",
-            "Build a short validation plan from the task acceptance criteria",
-            "Run independent, reproducible verification commands where practical",
-            "For UI, renderer, browser-visible, or end-to-end behavior, use Playwright/browser MCP or equivalent browser automation when available and proportionate.",
-            "If browser MCP is unavailable or not applicable, say why and run the strongest local alternative",
-            "lack of browser-level validation is residual risk and should fail or block the gate when visual or interaction correctness is part of acceptance.",
-            "Add narrow regression tests, fixtures, or test harness wiring when that is the smallest safe way to validate the task.",
-            "write the validation report under the active Sprint Engine team folder",
-            ".multi-code/sprintengine/tester-gate-context-prompt/docs/validation/t1-tester-validation.md",
-            "Do not write tester reports under repo-root `docs/validation/`.",
-            "Submit the verdict with `--artifact-path <team-folder-report-path>`, `--artifact-title`, and `--artifact-kind validation_report`",
-            "If no new test is needed, say why",
-            "A passing tester verdict should report scope reviewed, commands run, tests evaluated or added, release confidence, and residual risk — as terse bullets, one line each.",
-            "Keep the validation report bullet-first and under ~120 lines",
-        ],
+    base_pack = (
+        swarm_helpers.REPO_ROOT / "resources" / "sprintengine" / "skills" / "sprintengine_phase_review" / "SKILL.md"
+    ).read_text(encoding="utf-8")
+    # A distinctive body line from the bundled pack must reach the owner verbatim.
+    body_line = next(
+        line.strip()
+        for line in base_pack.splitlines()
+        if line.strip().startswith("- ") and len(line.strip()) > 40
     )
-
-
-def test_tester_join_gate_directive_allows_narrow_test_work_and_browser_mcp(tmp_path) -> None:
-    fixture = create_team(
-        tmp_path,
-        "tester-gate-join-directive",
-        [make_tester_gate_task()],
-    )
-
-    payload = fixture.cli.run("join", "--role", "tester", "--id", "tester-fixture")
-
-    assert payload["ok"] is True
-    assert payload["action"] == "gate_work"
-    assert_prompt_includes(
-        payload["prompt"],
-        [
-            "quality-gate QA tester",
-            "sprintengine task gate next --role tester --id tester-fixture",
-            "Run independent verification",
-            "use Playwright/browser MCP or equivalent browser automation when available and proportionate",
-            "You may add narrow regression tests, fixtures, or test harness wiring",
-            "document any companion test edits in the verdict summary or a validation_report artifact",
-            "If broader implementation changes are needed, request changes or block the gate instead of taking over the implementer's work.",
-        ],
-    )
+    assert body_line in payload["nextDirective"]
 
 
 def test_task_next_rework_prompt_orders_open_feedback_newest_first(tmp_path) -> None:
-    record = gated_review_task()
-    record["status"] = "changes_requested"
+    """Feedback is a flat, newest-first queue: with no gates there is nothing to
+    group by, and the only open feedback left is the human Inbox loop."""
+    record = reviewing_task()
+    record["status"] = "todo"
     record["ownerAgentId"] = None
     record["comments"].append({
         "id": "C3",
         "type": "review_feedback",
-        "actor": "reviewer-new",
-        "authorAgentId": "reviewer-new",
-        "authorRole": "code_reviewer",
-        "source": "agent",
+        "actor": "user",
+        "authorAgentId": "user",
+        "authorRole": "user",
+        "source": "user",
         "body": "Newest feedback should be handled first.",
         "createdAt": "2026-05-17T00:03:00Z",
-        "data": {"status": "open", "gateId": "code_reviewer", "verdict": "changes_requested"},
+        "data": {"status": "open"},
     })
     fixture = create_team(tmp_path, "rework-prompt-order", [record])
 
@@ -445,15 +321,16 @@ def test_task_next_rework_prompt_orders_open_feedback_newest_first(tmp_path) -> 
 
     assert payload["ok"] is True
     prompt = payload["prompt"]
-    assert "Open Feedback (grouped by gate, newest first)" in prompt
-    assert "### Gate `code_reviewer`" in prompt
+    assert "Open Feedback (newest first)" in prompt
+    assert "grouped by gate" not in prompt
+    assert "### Gate `" not in prompt
     assert prompt.index("Newest feedback should be handled first.") < prompt.index("Older feedback should be below newer feedback.")
-    assert "publish an `implementation_response`" in prompt
+    assert "publish with `sprintengine.task.publish`" in prompt
 
 
-def test_projection_includes_gate_comments_feedback_and_recorded_artifacts(tmp_path) -> None:
-    record = gated_review_task()
-    fixture = create_team(tmp_path, "projection-gate-context", [record])
+def test_projection_includes_comments_feedback_and_recorded_artifacts(tmp_path) -> None:
+    record = reviewing_task()
+    fixture = create_team(tmp_path, "projection-review-context", [record])
     state = read_state(fixture.state_path)
     state["artifacts"] = [
         {
@@ -462,9 +339,8 @@ def test_projection_includes_gate_comments_feedback_and_recorded_artifacts(tmp_p
             "title": "Recorded Review",
             "path": "reviews/recorded.md",
             "status": "recorded",
-            "createdBy": "reviewer-fixture",
+            "createdBy": "developer-fixture",
             "taskId": "T1",
-            "gateId": "code_reviewer",
             "reviewHistory": [],
             "recommendedTasks": [],
             "createdAt": "2026-05-17T00:02:00Z",
@@ -476,8 +352,9 @@ def test_projection_includes_gate_comments_feedback_and_recorded_artifacts(tmp_p
     payload = fixture.cli.run("projection")
     projected = next(task for task in payload["tasks"] if task["id"] == "T1")
 
-    assert projected["qualityGates"][0]["id"] == "code_reviewer"
-    assert projected["qualityGateSummary"]["openRequired"] == 1
+    assert projected["status"] == "review"
+    assert "qualityGates" not in projected
+    assert "qualityGateSummary" not in projected
     assert projected["latestComments"][0]["id"] == "C2"
     assert projected["latestOpenFeedback"][0]["body"] == "Older feedback should be below newer feedback."
     assert projected["recordedArtifacts"] == [
@@ -486,8 +363,7 @@ def test_projection_includes_gate_comments_feedback_and_recorded_artifacts(tmp_p
             "kind": "code_review",
             "title": "Recorded Review",
             "path": "reviews/recorded.md",
-            "gateId": "code_reviewer",
-            "createdBy": "reviewer-fixture",
+            "createdBy": "developer-fixture",
             "createdAt": "2026-05-17T00:02:00Z",
         }
     ]
@@ -537,7 +413,7 @@ def test_join_stops_when_only_other_role_tasks_are_ready(tmp_path) -> None:
     assert payload["action"] == "idle"
     assert payload["role"] == "architect"
     assert payload["agentId"] == "Riley"
-    assert "No tasks or gates are currently ready for the 'architect' role" in payload["message"]
+    assert "No tasks are currently ready for the 'architect' role" in payload["message"]
     assert "prompt" not in payload
 
     state = read_state(fixture.state_path)

@@ -1,4 +1,4 @@
-export const mobileControlProtocolVersion = 1 as const;
+export const mobileControlProtocolVersion = 2 as const;
 export const mobileControlWorkspaceSnapshotVersion = 2 as const;
 
 export type MobileControlProtocolVersion = typeof mobileControlProtocolVersion;
@@ -277,8 +277,6 @@ export interface MobileControlTaskRelease {
   reason?: string;
 }
 
-export type MobileControlQualityGatePhase = "review" | "testing" | "product";
-export type MobileControlQualityGateStatus = "pending" | "in_progress" | "approved" | "changes_requested" | "blocked" | "skipped";
 export type MobileControlTaskCommentType =
   | "implementation_summary"
   | "implementation_response"
@@ -289,30 +287,6 @@ export type MobileControlTaskCommentType =
   | "needs_input"
   | "user_note"
   | "system_note";
-
-export interface MobileControlSprintEngineQualityPolicy {
-  enabled: boolean;
-  rosterDriven: boolean;
-  lifecyclePhases: MobileControlQualityGatePhase[];
-}
-
-export interface MobileControlSprintEngineQualityGateSummary {
-  total: number;
-  required: number;
-  openRequired: number;
-  byPhase: Partial<Record<MobileControlQualityGatePhase, number>>;
-  byStatus: Partial<Record<MobileControlQualityGateStatus, number>>;
-}
-
-export interface MobileControlSprintEngineQualityGate {
-  id: string;
-  phase: MobileControlQualityGatePhase;
-  role: string;
-  status: MobileControlQualityGateStatus;
-  required: boolean;
-  attemptCount: number;
-  latestVerdict?: string;
-}
 
 export interface MobileControlTaskCommentSummary {
   id: string;
@@ -328,7 +302,6 @@ export interface MobileControlRecordedArtifactSummary {
   kind?: string;
   title?: string;
   path?: string;
-  gateId?: string;
   createdAt?: string;
 }
 
@@ -336,7 +309,7 @@ export interface MobileControlTaskSnapshot {
   taskId: string;
   title: string;
   role: string;
-  status: "todo" | "ready" | "in_progress" | "review" | "testing" | "product" | "changes_requested" | "needs_input" | "blocked" | "done";
+  status: "todo" | "ready" | "in_progress" | "review" | "needs_input" | "done" | "canceled";
   ownerAgentId?: string;
   dependsOn: string[];
   needsInput?: MobileControlTaskNeedsInput;
@@ -344,8 +317,6 @@ export interface MobileControlTaskSnapshot {
   feedback?: MobileControlTaskFeedback;
   reviewSignals?: MobileControlTaskReviewSignals;
   release?: MobileControlTaskRelease;
-  qualityGateSummary?: MobileControlSprintEngineQualityGateSummary;
-  qualityGates?: MobileControlSprintEngineQualityGate[];
   latestComments?: MobileControlTaskCommentSummary[];
   latestOpenFeedback?: MobileControlTaskCommentSummary[];
   recordedArtifacts?: MobileControlRecordedArtifactSummary[];
@@ -400,7 +371,6 @@ export interface MobileControlSprintEngineActivitySummary {
 export interface MobileControlSprintEngineCounts {
   ready?: number;
   needsInput?: number;
-  changesRequested?: number;
 }
 
 export interface MobileControlSprintEngineSnapshot {
@@ -415,15 +385,10 @@ export interface MobileControlSprintEngineSnapshot {
     todo: number;
     ready: number;
     inProgress: number;
-    changesRequested: number;
     review: number;
-    testing: number;
-    product: number;
     needsInput: number;
-    blocked: number;
     done: number;
   };
-  qualityPolicy?: MobileControlSprintEngineQualityPolicy;
   tasks: MobileControlTaskSnapshot[];
   artifacts: MobileControlArtifactSnapshot[];
   roster?: Record<string, MobileControlRosterEntry>;
@@ -450,7 +415,6 @@ export interface MobileControlSprintEngineWorkspaceDetail {
   roster?: Record<string, MobileControlRosterEntry>;
   runSummary?: Record<string, string | number | boolean | null>;
   planReview?: Record<string, string | number | boolean | null>;
-  qualityPolicy?: MobileControlSprintEngineQualityPolicy;
 }
 
 export interface MobileControlSwitchboardSourceSummary {
@@ -773,10 +737,8 @@ const errorCodes = [
 
 const artifactPreviewModes = ["text", "markdown", "restrictedHtml"] as const satisfies readonly ArtifactPreviewMode[];
 const devicePlatforms = ["ios", "android", "web"] as const satisfies readonly MobileControlDevicePlatform[];
-const taskStatuses = ["todo", "ready", "in_progress", "review", "testing", "product", "changes_requested", "needs_input", "blocked", "done"] as const;
+const taskStatuses = ["todo", "ready", "in_progress", "review", "needs_input", "done", "canceled"] as const;
 const artifactStatuses = ["draft", "ready_for_review", "approved", "changes_requested"] as const;
-const qualityGatePhases = ["review", "testing", "product"] as const satisfies readonly MobileControlQualityGatePhase[];
-const qualityGateStatuses = ["pending", "in_progress", "approved", "changes_requested", "blocked", "skipped"] as const satisfies readonly MobileControlQualityGateStatus[];
 const taskCommentTypes = [
   "implementation_summary",
   "implementation_response",
@@ -1227,12 +1189,8 @@ function validateSprintEngineSnapshot(input: unknown): string | null {
     requireNonNegativeInteger(board.value, "todo") ??
     requireNonNegativeInteger(board.value, "ready") ??
     requireNonNegativeInteger(board.value, "inProgress") ??
-    requireNonNegativeInteger(board.value, "changesRequested") ??
     requireNonNegativeInteger(board.value, "review") ??
-    requireNonNegativeInteger(board.value, "testing") ??
-    requireNonNegativeInteger(board.value, "product") ??
     requireNonNegativeInteger(board.value, "needsInput") ??
-    requireNonNegativeInteger(board.value, "blocked") ??
     requireNonNegativeInteger(board.value, "done");
   if (boardError) {
     return boardError;
@@ -1256,7 +1214,6 @@ function validateSprintEngineSnapshot(input: unknown): string | null {
     validateOptionalRoster(sprintEngine.value.roster, "snapshot.sprintEngine.roster") ??
     validateOptionalRecordSummary(sprintEngine.value.runSummary, "snapshot.sprintEngine.runSummary") ??
     validateOptionalRecordSummary(sprintEngine.value.planReview, "snapshot.sprintEngine.planReview") ??
-    validateOptionalQualityPolicy(sprintEngine.value.qualityPolicy, "snapshot.sprintEngine.qualityPolicy") ??
     validateOptionalLockState(sprintEngine.value.locks, "snapshot.sprintEngine.locks") ??
     validateOptionalActivitySummary(sprintEngine.value.activity, "snapshot.sprintEngine.activity") ??
     validateOptionalProjectionCounts(sprintEngine.value.counts, "snapshot.sprintEngine.counts")
@@ -1333,8 +1290,6 @@ function validateOptionalProjectionCounts(input: unknown, fieldName: string): st
   if (readyError) return `${fieldName}.${readyError}`;
   const needsInputError = counts.value.needsInput === undefined ? null : requireNonNegativeInteger(counts.value, "needsInput");
   if (needsInputError) return `${fieldName}.${needsInputError}`;
-  const changesRequestedError = counts.value.changesRequested === undefined ? null : requireNonNegativeInteger(counts.value, "changesRequested");
-  if (changesRequestedError) return `${fieldName}.${changesRequestedError}`;
   return null;
 }
 
@@ -1397,8 +1352,6 @@ function validateTaskSnapshot(input: unknown): string | null {
     validateOptionalTaskFeedback(task.value.feedback) ??
     validateOptionalReviewSignals(task.value.reviewSignals) ??
     validateOptionalTaskRelease(task.value.release) ??
-    validateOptionalQualityGateSummary(task.value.qualityGateSummary) ??
-    validateOptionalArray(task.value.qualityGates, "task.qualityGates", validateQualityGate) ??
     validateOptionalArray(task.value.latestComments, "task.latestComments", validateTaskCommentSummary) ??
     validateOptionalArray(task.value.latestOpenFeedback, "task.latestOpenFeedback", validateTaskCommentSummary) ??
     validateOptionalArray(task.value.recordedArtifacts, "task.recordedArtifacts", validateRecordedArtifactSummary)
@@ -1478,55 +1431,6 @@ function validateOptionalTaskRelease(input: unknown): string | null {
   return optionalString(release.value, "requestedBy") ?? optionalString(release.value, "reason");
 }
 
-function validateOptionalQualityPolicy(input: unknown, fieldName: string): string | null {
-  if (input === undefined) {
-    return null;
-  }
-  const policy = validateObject(input, fieldName);
-  if (policy.ok === false) {
-    return policy.error;
-  }
-  return (
-    requireBoolean(policy.value, "enabled") ??
-    requireBoolean(policy.value, "rosterDriven") ??
-    requireArray(policy.value, "lifecyclePhases") ??
-    validateStringLiteralArray(policy.value.lifecyclePhases, qualityGatePhases, `${fieldName}.lifecyclePhases`)
-  );
-}
-
-function validateOptionalQualityGateSummary(input: unknown): string | null {
-  if (input === undefined) {
-    return null;
-  }
-  const summary = validateObject(input, "task.qualityGateSummary");
-  if (summary.ok === false) {
-    return summary.error;
-  }
-  return (
-    requireNonNegativeInteger(summary.value, "total") ??
-    requireNonNegativeInteger(summary.value, "required") ??
-    requireNonNegativeInteger(summary.value, "openRequired") ??
-    validateOptionalNumberRecord(summary.value.byPhase, "task.qualityGateSummary.byPhase", qualityGatePhases) ??
-    validateOptionalNumberRecord(summary.value.byStatus, "task.qualityGateSummary.byStatus", qualityGateStatuses)
-  );
-}
-
-function validateQualityGate(input: unknown, fieldName: string): string | null {
-  const gate = validateObject(input, fieldName);
-  if (gate.ok === false) {
-    return gate.error;
-  }
-  return (
-    requireString(gate.value, "id") ??
-    requireLiteral(gate.value, "phase", qualityGatePhases) ??
-    requireString(gate.value, "role") ??
-    requireLiteral(gate.value, "status", qualityGateStatuses) ??
-    requireBoolean(gate.value, "required") ??
-    requireNonNegativeInteger(gate.value, "attemptCount") ??
-    optionalString(gate.value, "latestVerdict")
-  );
-}
-
 function validateTaskCommentSummary(input: unknown, fieldName: string): string | null {
   const comment = validateObject(input, fieldName);
   if (comment.ok === false) {
@@ -1552,7 +1456,6 @@ function validateRecordedArtifactSummary(input: unknown, fieldName: string): str
     optionalString(artifact.value, "kind") ??
     optionalString(artifact.value, "title") ??
     optionalString(artifact.value, "path") ??
-    optionalString(artifact.value, "gateId") ??
     optionalIsoDate(artifact.value, "createdAt")
   );
 }
@@ -1673,8 +1576,7 @@ function validateWorkspaceDetail(kind: MobileControlWorkspaceKind, input: unknow
         validateBoardCounts(board.value, "workspace.detail.data.board") ??
         validateOptionalRoster(data.value.roster, "workspace.detail.data.roster") ??
         validateOptionalRecordSummary(data.value.runSummary, "workspace.detail.data.runSummary") ??
-        validateOptionalRecordSummary(data.value.planReview, "workspace.detail.data.planReview") ??
-        validateOptionalQualityPolicy(data.value.qualityPolicy, "workspace.detail.data.qualityPolicy")
+        validateOptionalRecordSummary(data.value.planReview, "workspace.detail.data.planReview")
       );
     }
     case "switchboard":
@@ -1971,32 +1873,6 @@ function optionalNumberRecord(record: Record<string, unknown>, field: string): s
   return null;
 }
 
-function validateOptionalNumberRecord<const Keys extends readonly string[]>(
-  input: unknown,
-  fieldName: string,
-  allowedKeys: Keys,
-): string | null {
-  if (input === undefined) {
-    return null;
-  }
-
-  const object = validateObject(input, fieldName);
-  if (object.ok === false) {
-    return object.error;
-  }
-
-  for (const [key, value] of Object.entries(object.value)) {
-    if (!isOneOf(key, allowedKeys)) {
-      return `${fieldName}.${key} is not supported`;
-    }
-    if (typeof value !== "number" || !Number.isInteger(value) || value < 0) {
-      return `${fieldName}.${key} must be a non-negative integer`;
-    }
-  }
-
-  return null;
-}
-
 function requireIsoDate(record: Record<string, unknown>, field: string): string | null {
   const value = record[field];
   if (typeof value !== "string" || Number.isNaN(Date.parse(value))) {
@@ -2074,9 +1950,8 @@ function validateBoardCounts(board: Record<string, unknown>, fieldName: string):
     requireNonNegativeInteger(board, "todo") ??
     requireNonNegativeInteger(board, "ready") ??
     requireNonNegativeInteger(board, "inProgress") ??
-    requireNonNegativeInteger(board, "changesRequested") ??
+    requireNonNegativeInteger(board, "review") ??
     requireNonNegativeInteger(board, "needsInput") ??
-    requireNonNegativeInteger(board, "blocked") ??
     requireNonNegativeInteger(board, "done")
   )?.replace(/^/, `${fieldName}.`) ?? null;
 }

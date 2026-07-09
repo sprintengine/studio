@@ -106,6 +106,7 @@ def test_mutation_tools_never_echo_the_task(tmp_path) -> None:
 
 def test_slim_card_excludes_bulk_evidence_and_activity(tmp_path) -> None:
     record = seeded_in_progress_task()
+    record["phases"] = ["review"]
     fixture = create_team(tmp_path, "shape-slim-card", [record])
     server = make_server(tmp_path)
 
@@ -126,6 +127,10 @@ def test_slim_card_excludes_bulk_evidence_and_activity(tmp_path) -> None:
     assert "commandsRan" not in card["evidence"]
     assert "results" not in card["evidence"]
     assert len(card["openFeedback"]) == 10
+    # MC-1542: the card advertises the phase walk the owner will drive, not a
+    # gate configuration a reviewer would have claimed.
+    assert card["phases"] == ["review"]
+    assert "qualityGates" not in card
     # The rework prompt beside the card is server-composed and untouched.
     assert resumed["result"]["prompt"]
 
@@ -222,65 +227,58 @@ def test_directive_returns_stubs_not_cards(tmp_path) -> None:
         assert set(stub) <= {"id", "title", "status", "role"}
 
 
-def test_gate_review_keeps_prompt_but_slims_payloads(tmp_path) -> None:
-    record = seeded_in_progress_task()
-    record["status"] = "review"
-    record["ownerAgentId"] = None
-    record["qualityGates"] = [
-        {
-            "id": "code_reviewer",
-            "role": "code_reviewer",
-            "phase": "review",
-            "status": "pending",
-            "required": True,
-            "allowSelfReview": False,
-            "focus": "Review the change.",
-            "attempts": [],
-        }
-    ]
-    fixture = create_team(tmp_path, "shape-gate-review", [record])
+def test_publish_returns_the_review_directive_inline_without_echoing_the_task(tmp_path) -> None:
+    """MC-1542: the review contract rides `nextDirective` on the publish ack, so
+    the owner never needs a second round-trip to learn what to review. The ack is
+    still an ack — no task echo, no bulk evidence."""
+    fixture = create_team(tmp_path, "shape-phase-directive", [seeded_in_progress_task()])
     server = make_server(tmp_path)
 
-    claimed = server.call_tool(
-        "sprintengine.gate.next",
-        {"statePath": str(fixture.state_path), "role": "code_reviewer", "id": "reviewer-a"},
-        actor("reviewer-a", "code_reviewer"),
+    published = server.call_tool(
+        "sprintengine.task.publish",
+        {"statePath": str(fixture.state_path), "taskId": "T1", "id": "developer-a", "summary": "Done."},
+        actor("developer-a", "developer"),
     )
 
-    assert claimed["ok"] is True
-    assert claimed["result"]["claimed"] is True
-    # The reviewer contract lives in the server-composed prompt, which still
-    # carries the implementation evidence.
-    assert "Working summary" in claimed["result"]["prompt"]
-    card = claimed["result"]["task"]
-    assert "activity" not in card
-    assert "diffs" not in card["evidence"]
-    gate_payload = claimed["result"]["gate"]
-    assert "attempts" not in gate_payload
+    assert published["ok"] is True
+    assert "task" not in published["result"]
+    assert published["result"]["taskId"] == "T1"
+    assert published["result"]["nextStatus"] == "review"
+    assert published["result"]["producedChanges"] is True
+    assert published["result"]["phases"] == ["review"]
+    # The server-composed directive is the review contract; it is prose, not state.
+    assert published["result"]["nextDirective"]
 
-    verdict = server.call_tool(
-        "sprintengine.gate.verdict",
+
+def test_advance_is_a_mutation_ack_not_a_state_echo(tmp_path) -> None:
+    record = seeded_in_progress_task()
+    record["status"] = "review"
+    fixture = create_team(tmp_path, "shape-advance-ack", [record])
+    server = make_server(tmp_path)
+
+    advanced = server.call_tool(
+        "sprintengine.task.advance",
         {
             "statePath": str(fixture.state_path),
             "taskId": "T1",
-            "gateId": "code_reviewer",
-            "id": "reviewer-a",
-            "role": "code_reviewer",
-            "verdict": "approved",
+            "id": "developer-a",
+            "phase": "review",
+            "outcome": "pass",
             "summary": "Looks correct.",
         },
-        actor("reviewer-a", "code_reviewer"),
+        actor("developer-a", "developer"),
     )
 
-    assert verdict["ok"] is True
-    assert "task" not in verdict["result"]
-    assert verdict["result"]["taskId"] == "T1"
-    gate_ack = verdict["result"].get("gate")
-    if gate_ack is not None:
-        assert "attempts" not in gate_ack
-    persisted_gate = get_task(read_state(fixture.state_path), "T1")["qualityGates"][0]
-    assert persisted_gate["status"] == "approved"
-    assert persisted_gate["attempts"]
+    assert advanced["ok"] is True
+    assert "task" not in advanced["result"]
+    assert advanced["result"]["taskId"] == "T1"
+    assert advanced["result"]["nextStatus"] == "done"
+    # The comment the advance wrote comes back as a delta, never a full echo.
+    assert "activity" not in advanced["result"]
+    # The mutation persisted even though the response is an ack.
+    persisted = get_task(read_state(fixture.state_path), "T1")
+    assert persisted["status"] == "done"
+    assert persisted["ownerAgentId"] is None
 
 
 def test_run_subscribe_without_cursor_is_capped(tmp_path) -> None:
@@ -591,7 +589,7 @@ def test_over_limit_prose_flags_ack_and_truncates_on_cards(tmp_path) -> None:
             "commentType": "review_feedback",
             "source": "agent",
         },
-        actor("reviewer-1", "code_reviewer"),
+        actor("reviewer-1", "security"),
     )
     assert posted["ok"] is True
     # The comment ack carries the over-limit signal as bodyTruncated on the

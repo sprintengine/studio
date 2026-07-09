@@ -21,9 +21,6 @@ export const BUNDLED_SPRINT_ENGINE_ADDABLE_ROLES: readonly SprintEngineRole[] = 
   'frontend',
   'ui_ux_reviewer',
   'developer',
-  'code_reviewer',
-  'nuclear_reviewer',
-  'spec_reviewer',
   'performance',
   'production_readiness_reviewer',
   'cross_platform',
@@ -36,14 +33,11 @@ export const BUNDLED_SPRINT_ENGINE_ADDABLE_ROLES: readonly SprintEngineRole[] = 
 // `BUNDLED_SPRINT_ENGINE_WIZARD_ROLE_SUMMARIES` below) because that surface
 // is about staffing intent rather than describing the live actor.
 export const BUNDLED_SPRINT_ENGINE_BOARD_ROLE_SUMMARIES: Record<SprintEngineRole, string> = {
-  architect: 'Plans the run and gates readiness.',
+  architect: 'Plans the run and signs off on finished work.',
   product: 'Shapes scope, positioning, audience fit, and priority tradeoffs.',
   developer: 'Builds implementation and integration work.',
   frontend: 'Owns interaction design, visual quality, and UI implementation.',
   ui_ux_reviewer: 'Reviews frontend UX, UI consistency, brand alignment, responsive behavior, and visual polish.',
-  code_reviewer: 'Reviews implementation quality, regressions, and evidence.',
-  nuclear_reviewer: 'Runs a stricter maintainability review for structure, abstraction, large-file, and spaghetti-growth risks.',
-  spec_reviewer: 'Checks implementation against requirements, acceptance criteria, and tests.',
   performance: 'Reviews latency, CPU, memory, runtime cost, and measurement gaps.',
   production_readiness_reviewer: 'Reviews release readiness across deployment, data, config, observability, rollback, and user setup.',
   cross_platform: 'Reviews OS, browser, device, filesystem, shell, packaging, and runtime compatibility.',
@@ -55,14 +49,11 @@ export const BUNDLED_SPRINT_ENGINE_BOARD_ROLE_SUMMARIES: Record<SprintEngineRole
 // from the live-board copy so each surface can speak in the right tense
 // without forcing the other to change.
 export const BUNDLED_SPRINT_ENGINE_WIZARD_ROLE_SUMMARIES: Record<SprintEngineRole, string> = {
-  architect: 'Plans the work, owns dependencies, gates reviews.',
+  architect: 'Plans the work, owns dependencies, signs off at the end.',
   product: 'Clarifies scope, tradeoffs, and acceptance criteria.',
   frontend: 'Implements UI, interaction states, and polish.',
   ui_ux_reviewer: 'Reviews screens, panels, brand alignment, responsiveness, and visual artifacts.',
   developer: 'Builds core logic, integrations, and refactors.',
-  code_reviewer: 'Reviews implementation quality before validation.',
-  nuclear_reviewer: 'Applies a strict maintainability gate before validation.',
-  spec_reviewer: 'Checks implementation against requirements and acceptance criteria.',
   performance: 'Reviews latency, runtime cost, and measurement gaps.',
   production_readiness_reviewer: 'Checks whether the product is safe to release to production.',
   cross_platform: 'Checks compatibility across platforms, browsers, devices, and packaging targets.',
@@ -195,6 +186,76 @@ export function listSprintEngineWizardRoles(
   const architectIndex = roles.indexOf('architect')
   const insertAt = architectIndex >= 0 ? architectIndex + 1 : roles.length
   return [...roles.slice(0, insertAt), SPRINT_ENGINE_GENERAL_ROLE_ID, ...roles.slice(insertAt)]
+}
+
+// The bundled roles whose manifest declares a `sweep` block (they audit the
+// finished work as a late task instead of building). Last-resort fallback used
+// only when no `SprintEngineRoleRegistry` is available — the registry's per-role
+// `isSweep` flag is the runtime authority, mirroring the addable-role fallback
+// policy above. Keep in sync with the `"sweep"` blocks in
+// `resources/sprintengine/roles/*.json`.
+export const BUNDLED_SPRINT_ENGINE_SWEEP_ROLE_IDS: readonly SprintEngineRoleId[] = [
+  'product',
+  'ui_ux_reviewer',
+  'performance',
+  'production_readiness_reviewer',
+  'tester',
+  'security',
+]
+
+const BUNDLED_SPRINT_ENGINE_SWEEP_ROLE_ID_SET: ReadonlySet<SprintEngineRoleId> = new Set(
+  BUNDLED_SPRINT_ENGINE_SWEEP_ROLE_IDS,
+)
+
+// True when a role is a sweep (audits finished work): the registry's `isSweep`
+// flag when the registry knows the role, else the bundled fallback set. Custom
+// workspace-layer sweep roles are recognised via the registry flag.
+export function isSprintEngineSweepRole(
+  roleId: SprintEngineRoleId,
+  registry?: SprintEngineRoleRegistry | null,
+): boolean {
+  const metadata = registry?.roles?.[roleId]
+  if (metadata && typeof metadata.isSweep === 'boolean') return metadata.isSweep
+  return BUNDLED_SPRINT_ENGINE_SWEEP_ROLE_ID_SET.has(roleId)
+}
+
+// Registry-visible sweep roles for the new-workspace wizard's "Final sweeps"
+// panel: the ordered addable roles filtered to sweeps (bundled AND custom
+// workspace-layer). The soulless `general` planner is never a sweep, so it is
+// excluded implicitly. Falls back to the bundled sweep order when no registry
+// is available.
+export function listSprintEngineWizardSweepRoles(
+  registry?: SprintEngineRoleRegistry | null,
+  disabledRoleIds?: ReadonlySet<SprintEngineRoleId> | null,
+): SprintEngineRoleId[] {
+  return listSprintEngineAddableRoles(registry, disabledRoleIds).filter((role) =>
+    isSprintEngineSweepRole(role, registry),
+  )
+}
+
+// The "Work types & models" panel rows (MC-1542 wizard reframe): the wizard
+// roles minus the sweep roles. Sweeps audit finished work and are offered in
+// the "Final sweeps" panel, so listing them here would offer the same role in
+// two places with two different meanings.
+export function listSprintEngineWizardWorkRoles(
+  registry?: SprintEngineRoleRegistry | null,
+  disabledRoleIds?: ReadonlySet<SprintEngineRoleId> | null,
+): SprintEngineRoleId[] {
+  return listSprintEngineWizardRoles(registry, disabledRoleIds).filter(
+    (role) => !isSprintEngineSweepRole(role, registry),
+  )
+}
+
+// Staffed rows of the "Work types & models" panel: roles turned on in the
+// wizard, excluding sweeps (which have their own "Final sweeps" toggles). Feeds
+// the panel's "N kinds of work" count so it matches the rows actually shown.
+export function countSprintEngineStaffedWorkRoles(
+  roleCounts: Partial<Record<SprintEngineRoleId, number>>,
+  registry?: SprintEngineRoleRegistry | null,
+): number {
+  return Object.entries(roleCounts).filter(
+    ([role, count]) => (count ?? 0) > 0 && !isSprintEngineSweepRole(role, registry),
+  ).length
 }
 
 export function buildSprintEngineAddMemberOptions(

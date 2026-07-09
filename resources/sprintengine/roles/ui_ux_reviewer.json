@@ -1,6 +1,6 @@
 {
   "id": "ui_ux_reviewer",
-  "label": "UI/UX Reviewer",
+  "label": "UI/UX specialist",
   "aliases": [
     "ui-ux-review",
     "frontend-ui-review",
@@ -8,22 +8,15 @@
     "brand-ui-review"
   ],
   "summary": "Reviews frontend UX, UI consistency, brand alignment, responsive behavior, and visual polish.",
-  "capabilities": [
-    {
-      "kind": "review",
-      "phase": "review",
-      "reviews": [
-        "ui_quality",
-        "ux",
-        "brand",
-        "responsive_behavior"
-      ],
-      "defaultFocus": "frontend UX, UI consistency, brand alignment, responsive behavior, and visual polish"
-    }
-  ],
-  "soul": [
-    {
-      "skill": "ui_ux_reviewer"
-    }
-  ]
+  "directives": {
+    "implement": [
+      {
+        "skill": "ui_ux_reviewer"
+      }
+    ]
+  },
+  "sweep": {
+    "focus": "UX flow, UI consistency, brand alignment, responsive behavior, accessibility, and visual polish",
+    "when": "the run changes a user-visible screen, component, or interaction"
+  }
 }

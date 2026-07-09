@@ -80,7 +80,7 @@ const sprintAuto = normalizeSprintEngineAutoState({
   runtimeState: 'running',
   cliPermissionPreset: 'invalid' as never,
   maxConcurrentAgents: 99,
-  pending: { taskId: 'T1', gateId: '', agentId: 'frontend', startedAt: 123 },
+  pending: { taskId: 'T1', agentId: 'frontend', startedAt: 123 },
   deliveredAgentNotificationEventIds: [' EVT-1 ', '', 'EVT-2'],
 })
 assert.equal(sprintAuto.desiredMode, 'run_agents_and_approve_artifacts')

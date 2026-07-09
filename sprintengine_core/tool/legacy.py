@@ -28,13 +28,12 @@ from sprintengine_core.tool.paths import *  # noqa: F403,F401
 from sprintengine_core.tool.prompts import *  # noqa: F403,F401
 from sprintengine_core.tool.state import *  # noqa: F403,F401
 from sprintengine_core.tool.common import *  # noqa: F403,F401
-from sprintengine_core.tool.gates import *  # noqa: F403,F401
 from sprintengine_core.tool.comments import *  # noqa: F403,F401
 from sprintengine_core.tool.tasks import *  # noqa: F403,F401
 from sprintengine_core.tool.feedback import *  # noqa: F403,F401
 from sprintengine_core.tool.artifacts import *  # noqa: F403,F401
 from sprintengine_core.tool.plans import *  # noqa: F403,F401
-from sprintengine_core.tool.review_prompts import *  # noqa: F403,F401
+from sprintengine_core.tool.phase_prompts import *  # noqa: F403,F401
 
 
 
@@ -222,8 +221,6 @@ Task commands:
 
 Plan commands (architect only):
   sprintengine plan add-task --title "..." --role developer --description "Concrete worker brief..." --path src/foo --acceptance "..." --note "Implementation detail..."
-  sprintengine plan add-task --title "Review implementation quality" --role code_reviewer --depends-on T3 --path src/foo --path .multi-code/sprintengine/team/reviews/code-review.md --description "Review-only the completed implementation for correctness, modularity, maintainability, and verification gaps. Produce direct review evidence or a code_review artifact with concrete findings and recommended follow-up work; do not edit application or test code." --acceptance "Reviewer logs review evidence and verification commands inspected or run" --acceptance "Findings include severity, impact, recommended fix, owner role, and verification steps"
-  sprintengine plan add-task --title "Spec review implementation" --role spec_reviewer --depends-on T3 --path .multi-code/sprintengine/team/reviews/spec-review.md --description "Review-only the completed implementation against approved requirements, acceptance criteria, implementation evidence, and tests." --acceptance "Spec review records requirement coverage, behavioral gaps, test gaps, and verdict"
   sprintengine plan add-task --title "Review performance" --role performance --depends-on T4 --path src/foo --acceptance "Performance review artifact documents measured evidence, findings, or approval"
   sprintengine plan update-task --task-id T1 --title "..." --description "Concrete worker brief..." --path src/foo --acceptance "..." --note "Implementation detail..."
   sprintengine plan add-dependency --task-id T2 --depends-on T1
@@ -366,16 +363,6 @@ def add_implementer_difficulty_arguments(parser: argparse.ArgumentParser) -> Non
     parser.add_argument("--actual-difficulty-pct", dest="actual_difficulty_pct", type=int, help="Optional implementer actual difficulty percentage from 0 to 100.")
     parser.add_argument("--actual-difficulty-reason", default="", help="Optional short reason for the implementer actual difficulty.")
 
-def add_reviewer_difficulty_arguments(parser: argparse.ArgumentParser) -> None:
-    parser.add_argument("--reviewed-difficulty-pct", dest="reviewed_difficulty_pct", type=int, help="Optional reviewed task difficulty percentage from 0 to 100.")
-    parser.add_argument(
-        "--reviewed-difficulty-dimension",
-        default="",
-        choices=sorted(VALID_DIFFICULTY_REVIEWER_DIMENSIONS),
-        help="Difficulty dimension assessed by the reviewer.",
-    )
-    parser.add_argument("--reviewed-difficulty-reason", default="", help="Optional short reason for the reviewed difficulty assessment.")
-
 def add_architect_difficulty_arguments(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--difficulty-pct", dest="difficulty_pct", type=int, help="Optional architect estimated task difficulty percentage from 0 to 100.")
     parser.add_argument("--difficulty-reason", default="", help="Optional short reason for the architect difficulty estimate.")
@@ -428,7 +415,7 @@ def build_parser() -> argparse.ArgumentParser:
     add_handover_parser(sub, "handover", "Create a Sprint Engine team bootstrap and canonical handover.md.")
 
     # init
-    p = sub.add_parser("init", help="Bootstrap Sprint Engine run store and initial gates.")
+    p = sub.add_parser("init", help="Bootstrap the Sprint Engine run store.")
     p.add_argument("--name", help="Display name for the run; defaults to the team folder slug.")
     p.add_argument("--goal", help="Goal for the run.")
     p.add_argument("--agent", action="append", default=[], help="Selected roster member as role:id. Repeat for each specialist.")
@@ -440,7 +427,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument(
         "--configured-roles-json",
         dest="configured_roles_json",
-        help="JSON array of the roster's enabled role ids. Quality-gate derivation selects gate roles from this set, so a lazy (architect-only) roster still derives its required reviewer/tester gates. Distinct from the seated agents and from --role-runtimes-json (which includes CLI-default roles).",
+        help="JSON array of the roster's enabled role ids: the roles a task may be tagged with. Enforced by plan.add_task, so a lazy (architect-only) roster still admits its planned tasks. Distinct from the seated agents and from --role-runtimes-json (which includes CLI-default roles).",
     )
     p.add_argument(
         "--roster-source",
@@ -451,6 +438,21 @@ def build_parser() -> argparse.ArgumentParser:
         "--allowed-runtimes-json",
         dest="allowed_runtimes_json",
         help='JSON array of the sprint\'s allowed {"cli", "model"} runtimes (model null = the CLI default). The ticked per-sprint model selection; roster.configure hard-rejects any role assignment outside it. CLI-init-only; not MCP-mutable.',
+    )
+    p.add_argument(
+        "--phase-runtimes-json",
+        dest="phase_runtimes_json",
+        help='JSON object of phase -> {"cli", "model"} (model null = the CLI default), e.g. {"review": {"cli": "claude-code", "model": "fable"}}. Premium mode: a stronger model reviews each task\'s diff as a fresh, diff-seeded session. Validated against --allowed-runtimes-json. Absent = the phase runs in-session on the owner\'s runtime and no extra sessions are created. CLI-init-only; not MCP-mutable.',
+    )
+    p.add_argument(
+        "--required-sweeps-json",
+        dest="required_sweeps_json",
+        help='JSON array of sweep role ids the operator mandates for this run, e.g. ["tester", "security"]. The architect must plan one task per required role, and the run cannot complete until it has. Every id must name a registry sweep role. CLI-init-only; not MCP-mutable.',
+    )
+    p.add_argument(
+        "--default-phases-json",
+        dest="default_phases_json",
+        help='JSON array of the post-implementation phases every task inherits, e.g. ["review"]. Default AND ceiling: a task may trim its phases with `plan add-task --phases`, never add one outside this set. `[]` means no review step (every publish with changes routes straight to done). Absent = ["review"]. CLI-init-only; not MCP-mutable.',
     )
     p.add_argument(
         "--use-worktrees",
@@ -642,45 +644,6 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--cli", help="CLI the recorded model belongs to. Overrides MULTICODE_AGENT_CLI.")
     p.set_defaults(handler=task_commands.claim)
 
-    gate_p = task_sub.add_parser("gate", help="Gate operations for review, testing, and product phases.")
-    gate_sub = gate_p.add_subparsers(dest="gate_action", required=True)
-
-    p = gate_sub.add_parser("list", help="List task quality gates.")
-    p.add_argument("--role")
-    p.add_argument("--task-id")
-    p.set_defaults(handler=task_commands.gate_list)
-
-    p = gate_sub.add_parser("next", help="Claim the next pending gate for your role.")
-    p.add_argument("--role", required=True)
-    p.add_argument("--id", required=True, help="Agent id.")
-    p.set_defaults(handler=task_commands.gate_next)
-
-    p = gate_sub.add_parser("claim", help="Claim a specific task gate.")
-    p.add_argument("--task-id", required=True)
-    p.add_argument("--gate-id", required=True)
-    p.add_argument("--role", required=True)
-    p.add_argument("--id", required=True, help="Agent id.")
-    p.set_defaults(handler=task_commands.gate_claim)
-
-    p = gate_sub.add_parser("verdict", help="Submit a verdict for an active task gate.")
-    p.add_argument("--task-id", required=True)
-    p.add_argument("--gate-id", required=True)
-    p.add_argument("--role", required=True)
-    p.add_argument("--id", required=True, help="Agent id.")
-    p.add_argument("--verdict", required=True, choices=sorted(VALID_GATE_VERDICTS))
-    p.add_argument("--summary", required=True, help="Verdict summary, feedback, skip rationale, or blocked reason.")
-    p.add_argument("--required-action", action="append", default=[], help="Required action for failed or changes_requested verdicts.")
-    p.add_argument("--artifact-path", help="Project-root-relative recorded artifact path for durable gate evidence.")
-    p.add_argument("--artifact-title", help="Title for recorded gate artifact evidence.")
-    p.add_argument("--artifact-kind", choices=sorted(VALID_ARTIFACT_KINDS), help="Kind for recorded gate artifact evidence.")
-    p.add_argument("--needs-input-kind", choices=sorted(VALID_NEEDS_INPUT_KINDS), help="Blocked verdict routing actor.")
-    p.add_argument("--needs-input-reason", choices=sorted(VALID_NEEDS_INPUT_REASONS), help="Blocked verdict reason.")
-    p.add_argument("--needs-input-question", help="Blocked verdict question.")
-    p.add_argument("--needs-input-suggested-resolution", help="Optional proposed unblock path.")
-    add_reviewer_difficulty_arguments(p)
-    add_feedback_arguments(p)
-    p.set_defaults(handler=task_commands.gate_verdict)
-
     p = task_sub.add_parser("status", help="Update task status.")
     p.add_argument("--task-id", required=True)
     p.add_argument("--status", required=True, choices=sorted(VALID_TASK_STATUSES))
@@ -725,7 +688,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     p.set_defaults(handler=task_commands.log)
 
-    p = task_sub.add_parser("publish", help="Publish implementation handoff and route task to the next quality phase.")
+    p = task_sub.add_parser("publish", help="Publish the implementation summary; the engine routes the task into its phase walk (or straight to done when it produced no changes).")
     p.add_argument("--task-id", required=True)
     p.add_argument("--id", required=True, help="Agent id.")
     p.add_argument("--summary", required=True, help="Implementation summary or rework response body.")
@@ -733,6 +696,19 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--summary-data-json", help="Structured implementation summary JSON object.")
     add_implementer_difficulty_arguments(p)
     p.set_defaults(handler=task_commands.publish)
+
+    p = task_sub.add_parser("advance", help="Close the task's current phase and step forward. Owner-only.")
+    p.add_argument("--task-id", required=True)
+    p.add_argument("--id", required=True, help="Agent id. Must be the task owner.")
+    p.add_argument("--phase", required=True, choices=sorted(VALID_TASK_PHASES), help="The phase you are closing. Must equal the task's current status.")
+    p.add_argument("--outcome", required=True, choices=sorted(VALID_PHASE_OUTCOMES), help="pass = nothing to fix; pass_with_fixes = you found and fixed issues; escalate = a plan/scope/product decision blocks you.")
+    p.add_argument("--summary", required=True, help="Short rationale for agent readers (~280 chars).")
+    p.add_argument("--needs-input-kind", choices=sorted(VALID_NEEDS_INPUT_KINDS), help="Escalation routing actor.")
+    p.add_argument("--needs-input-reason", choices=sorted(VALID_NEEDS_INPUT_REASONS), help="Escalation reason.")
+    p.add_argument("--needs-input-question", help="Escalation question. Required with --outcome escalate.")
+    p.add_argument("--needs-input-suggested-resolution", help="Optional proposed unblock path.")
+    add_feedback_arguments(p)
+    p.set_defaults(handler=task_commands.advance)
 
     p = task_sub.add_parser("note", help="Add a freeform note to a task.")
     p.add_argument("--task-id", required=True)
@@ -771,15 +747,10 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--note", action="append", default=[], help="Repeatable implementation detail from the plan.")
     p.add_argument("--task-note", action="append", default=[], help="Repeatable task note.")
     p.add_argument("--produces-implementation", action="store_true", help="Mark this task as implementation-producing even when its role is not developer/frontend.")
-    p.add_argument("--no-quality-gates", action="store_true", help="Disable quality gates for this task.")
-    p.add_argument("--no-review", action="store_true", help="Remove review-phase gates for this task.")
-    p.add_argument("--no-testing", action="store_true", help="Remove testing-phase gates for this task.")
     p.add_argument("--product-facing", action="store_true", help="Mark this task as requiring product acceptance when product is rostered.")
     p.add_argument("--not-product-facing", action="store_true", help="Persist that this task should not receive product acceptance by default.")
-    p.add_argument("--no-product-acceptance", action="store_true", help="Remove product acceptance gates for this task.")
-    p.add_argument("--require-gate", action="append", default=[], help="Require a named quality gate for this task.")
-    p.add_argument("--skip-gate", action="append", default=[], help="Remove a named quality gate for this task.")
     p.add_argument("--needs-triage", action="store_true", help="Create the task as an architect-triage candidate that is not claimable until cleared.")
+    p.add_argument("--phases", help="Comma-separated post-implementation phases for this task (e.g. \"review\"). Must be a subset of the run\'s defaultPhases. Pass \"\" for none (publish routes straight to done). Omit to inherit the run default.")
     add_architect_difficulty_arguments(p)
     p.set_defaults(handler=plan_commands.add_task)
 
@@ -799,16 +770,11 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--task-note", action="append", help="Replace task notes with this repeatable list.")
     p.add_argument("--clear-task-notes", action="store_true")
     p.add_argument("--produces-implementation", action="store_true", help="Mark this task as implementation-producing even when its role is not developer/frontend.")
-    p.add_argument("--no-quality-gates", action="store_true", help="Disable quality gates for this task.")
-    p.add_argument("--no-review", action="store_true", help="Remove review-phase gates for this task.")
-    p.add_argument("--no-testing", action="store_true", help="Remove testing-phase gates for this task.")
     p.add_argument("--product-facing", action="store_true", help="Mark this task as requiring product acceptance when product is rostered.")
     p.add_argument("--not-product-facing", action="store_true", help="Persist that this task should not receive product acceptance by default.")
-    p.add_argument("--no-product-acceptance", action="store_true", help="Remove product acceptance gates for this task.")
-    p.add_argument("--require-gate", action="append", default=[], help="Require a named quality gate for this task.")
-    p.add_argument("--skip-gate", action="append", default=[], help="Remove a named quality gate for this task.")
     p.add_argument("--needs-triage", action="store_true", help="Mark the task as an architect-triage candidate that is not claimable until cleared.")
     p.add_argument("--clear-needs-triage", action="store_true", help="Clear the task's architect-triage candidate flag.")
+    p.add_argument("--phases", help="Comma-separated post-implementation phases for this task (e.g. \"review\"). Must be a subset of the run\'s defaultPhases. Pass \"\" for none (publish routes straight to done). Omit to inherit the run default.")
     add_architect_difficulty_arguments(p)
     p.add_argument("--force", action="store_true", help="Allow editing an active or completed task.")
     p.set_defaults(handler=plan_commands.update_task)

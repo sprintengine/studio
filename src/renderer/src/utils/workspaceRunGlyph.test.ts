@@ -196,13 +196,8 @@ assert.deepEqual(deriveWorkspaceRunGlyph(manualInFlight), {
   label: 'In progress',
 })
 
-// A changes-requested task surfaces the changes_requested glyph, above a plain
-// in-progress task (review churn must not hide behind the spinner).
-const reworkRun = sprintWorkspace({
-  sprintEngineState: sprintState([task({ id: 'T1', status: 'changes_requested' }), task({ id: 'T2', status: 'in_progress' })]),
-  sprintEngineAutoState: manualAutoState(),
-})
-assert.equal(deriveWorkspaceRunGlyph(reworkRun)?.state, 'changes_requested')
+// Removed: the changes_requested run-glyph case tested deleted gate machinery
+// (MC-1542 single-owner tasks — `changes_requested` is no longer a task status).
 
 // A started run (some done) with nothing running reads paused.
 const pausedRun = sprintWorkspace({

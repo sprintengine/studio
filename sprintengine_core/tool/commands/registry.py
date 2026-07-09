@@ -14,6 +14,7 @@ from sprintengine_core.role_registry import (
     SoulRenderError,
     discover_role_registry,
     normalize_role_id,
+    role_manifest_payload,
 )
 
 
@@ -100,24 +101,7 @@ def _role_payload(entry: RegistryEntry, *, include_shadowed: bool = False) -> di
     return payload
 
 
-def _role_manifest_payload(role: RoleManifest) -> dict[str, Any]:
-    return {
-        "id": role.id,
-        "label": role.label,
-        "aliases": list(role.aliases),
-        "summary": role.summary,
-        "icon": role.icon,
-        "soul": [{"skill": entry.skill} for entry in role.soul],
-        "capabilities": [
-            {
-                "kind": capability.kind,
-                **({"phase": capability.phase} if capability.phase else {}),
-                **({"reviews": list(capability.reviews)} if capability.reviews else {}),
-                **({"defaultFocus": capability.default_focus} if capability.default_focus else {}),
-            }
-            for capability in role.capabilities
-        ],
-    }
+_role_manifest_payload = role_manifest_payload
 
 
 def _skill_payload(entry: RegistryEntry, *, include_body: bool) -> dict[str, Any]:

@@ -24,9 +24,6 @@ Each team folder contains these store files and directories:
     ready/
     in_progress/
     review/
-    testing/
-    product/
-    changes_requested/
     needs_input/
     done/
     canceled/
@@ -54,21 +51,35 @@ commands.
 
 `run.yaml` stores compact run metadata and graph mirrors:
 
-- `schemaVersion`: folder-store schema version.
+- `schemaVersion`: folder-store schema version, currently `2`
+  (`store.RUN_SCHEMA_VERSION`). See "Store Version Rejection" below.
 - `name`: team display name.
 - `goal`: run goal.
 - `status`: run status such as `planning` or `executing`.
 - `rosterConfigured`: whether the run has an explicit role roster.
 - `graphPolicy`: graph/readiness policy metadata.
-- `qualityPolicy`: roster-driven quality gate defaults and lifecycle policy.
+- `rosterPolicy`: durable worker-assignment policy
+  (`{"workerAssignment": "per_task"}`; an absent policy reads as `per_task`).
+- `defaultPhases`: the ordered post-implementation phases every task inherits,
+  and the ceiling a per-task `phases` list must be a subset of. Written once at
+  init from `--default-phases-json`; absent means the engine default
+  (`["review"]`). `[]` is valid and recorded.
+- `requiredSweeps`: sweep role ids the operator mandated for this run. Written
+  once at init from `--required-sweeps-json`; every id is validated against the
+  registry's sweep roles, and the key is omitted entirely when none are
+  mandated (`RUN_SWEEP_KEYS`, `store.run_required_sweeps`).
 - `tasks`: compact task graph entries with `id`, `status`, `role`, and
   `dependsOn`. Each graph entry also carries `needsTriage`, defaulting to
   `false` when absent.
 - `artifacts`: compact artifact entries with `id`, `status`, `kind`, and
   `taskId`.
-- `runner`: durable runner policy (`auto` or `off`) plus polling
-  and completion settings.
+- `runner`: durable runner policy (`cliWatchPolling: enabled | disabled`) plus
+  polling and completion settings. Legacy `mode: auto | off` is still read.
 - `agents`: durable agent lifecycle records keyed by stable agent id.
+- `roles`, `roleRuntimes`: the run's role metadata and per-role `{model, cli}`
+  execution runtime map.
+- `configuredRoles`: the run's enabled role set — the roles a task may be tagged
+  with, enforced by `plan.add_task`. Absent when the run recorded none.
 - `creation`: run creation metadata such as source and timestamp.
 - `source`: the root seed document recorded at run creation (`kind`, `origin`,
   `path`, optional `planKind`/`originalPath`/`capturedAt`). Present only when the
@@ -100,14 +111,32 @@ is additionally surfaced on the `sprintengine.agent.join`/`sprintengine.run.get`
 `run` metadata so a joined architect can self-check whether it must compose the
 team via `sprintengine.roster.configure`.
 
+`defaultPhases` (`RUN_PHASE_KEYS`) and `requiredSweeps` (`RUN_SWEEP_KEYS`)
+round-trip through `run.yaml` and re-emit on `projection.run` the same way,
+omitted when absent.
+
+### Store Version Rejection
+
+`RUN_SCHEMA_VERSION` is `2`. A run store written before MC-1542 (single-owner
+tasks) is **rejected, never migrated**: its status enum, its per-task quality
+requirements, and its role manifests are all incompatible.
+
+`assert_store_is_current` (`sprintengine_core/store.py`) is the one function both
+`state_from_folder_store` and `build_projection` call; it raises
+`RunStoreVersionError` naming the team directory to delete. The projection also
+carries `run.schemaVersion`, so the app can reject a stale `projection.json`
+without invoking Python — `describeUnsupportedSprintEngineStore`
+(`src/main/sprintengine-artifacts.ts`) guards every surface that reads one. The
+remedy is deleting `.multi-code/sprintengine/<team>/` and re-running the sprint.
+
 ## Role Registry Boundary
 
-Sprint Engine roles are registry-backed. Tasks and gates store role ids as
-strings, and active CLI/MCP validation resolves those ids through
+Sprint Engine roles are registry-backed. Tasks store role ids as strings, and
+active CLI/MCP validation resolves those ids through
 `sprintengine_core.role_registry` and the role helper layer in
 `sprintengine_core/tool/roles.py`. The registry discovers role manifests and
-Soul skills from workspace, plugin, user, and bundled sources. Aliases resolve
-to canonical ids before task, gate, roster, join, and plan operations mutate
+skill documents from workspace, plugin, user, and bundled sources. Aliases
+resolve to canonical ids before task, roster, join, and plan operations mutate
 state.
 
 The bundled-role compatibility set and renderer label/accent defaults are not
@@ -116,26 +145,54 @@ defaults, and graceful display fallbacks. Registry metadata in projection and
 MCP discovery is the path for custom role labels, summaries, icons, aliases,
 source layers, and warnings.
 
-Role manifest `soul` arrays contain ordered skill entries only:
-`{ "skill": "<id>" }`. Inline text entries such as `{ "text": "..." }` are
-not part of the current schema and are rejected by registry validation.
+A role is routing plus directive packs. The manifest schema is:
 
-Role manifests may include optional declarative `capabilities`. Capabilities
-describe what a role can do; they do not make any review globally required.
-Current production support recognizes `kind: "review"` with optional `phase`
-(`review`, `testing`, or `product`), `reviews` tags, and `defaultFocus`.
-Architect planning remains the authority for whether a capability becomes a
-task quality gate. For example, `sprintengine plan add-task --require-gate
-creative_director` can create a task-specific gate for a custom role whose
-manifest declares a review capability, while a custom role without that
-capability is not silently treated as a gate.
+```json
+{
+  "id": "frontend",
+  "label": "Frontend engineer",
+  "aliases": ["front-end", "ui"],
+  "summary": "Owns UI implementation tasks end to end.",
+  "directives": {
+    "implement": [{ "skill": "frontend" }],
+    "review": [{ "skill": "frontend_review" }]
+  },
+  "sweep": null
+}
+```
+
+- `directives` is required. `directives.implement` is a required, non-empty
+  ordered list of `{ "skill": "<id>" }` entries composed into the role's startup
+  brief. Entries carry a `skill` key and nothing else; inline text entries are
+  rejected.
+- Any other `directives` key must name a shipped phase. The shipped phase
+  vocabulary is `review` only (`DIRECTIVE_PHASES`); an unknown key rejects the
+  manifest, so a typo never silently drops a directive pack.
+  `directives.review` entries are appended after the shared base review pack.
+- `sweep` is `null` or an object with exactly `{"focus", "when"}` non-empty
+  strings. A sweep role is a full implementer that audits work and fixes what it
+  finds; it has the same tool surface as any worker.
+  `RegistryDiscovery.sweep_roles()` enumerates every registry-visible sweep role,
+  bundled or custom, id-sorted.
+- `summary` and `icon` are optional strings.
+- The removed keys `soul` and `capabilities` are rejected **by name**
+  (`REMOVED_MANIFEST_KEYS`). A manifest carrying either is skipped with a
+  `v1_role_manifest` registry warning naming its replacement. There is no
+  compatibility shim and no runtime migration.
 
 Prompt composition is layered:
 
-1. Registry-rendered Soul from a role manifest and its ordered skill entries.
+1. The startup brief: `directives.implement` skills, plus host-supplied layer
+   skills (`render_soul`, `extra_skills`).
 2. Sprint Engine coordination rules selected by the dispatch kind.
-3. Runtime directive from `join --watch`, MCP lifecycle tools, or the active
-   task/gate payload.
+3. Runtime directive from `join --watch`, MCP lifecycle tools, or the active task
+   payload.
+
+Phase directives are **not** composed at startup. They are composed on demand by
+`build_phase_directive` (`sprintengine_core/tool/phase_prompts.py`) and delivered
+inline in the owner's `task.publish` / `task.advance` tool response — or, for an
+owner revived mid-phase, in the `build_phase_respawn_brief` startup brief. Those
+are the only two channels.
 
 ### Agent Records
 
@@ -143,15 +200,16 @@ Prompt composition is layered:
 compatibility, projection, and Multicode terminal wake/resume orchestration. It
 is keyed by stable Sprint Engine agent id, such as `developer-1`. The map is
 owned by Sprint Engine commands and the local MCP server; manual edits can leave
-task ownership, gate attempts, projection, and dispatch ledger state
-inconsistent.
+task ownership, projection, and dispatch ledger state inconsistent.
 
 Each agent record normalizes to:
 
 - `role`: canonical role id assigned to the agent.
-- `status`: `idle`, `running`, `needs_input`, `left`, `dead`, or `retired`.
-  Active dispatch is represented by `currentDispatch` and
-  `sprintengine.dispatch.next` state, not by a persisted agent status value.
+- `status`: one of `KNOWN_AGENT_STATUSES` — `idle`, `running`, `needs_input`,
+  `retired`, `done`. Any other on-disk value coerces to `idle` on load
+  (`normalize_legacy_agent_statuses`). Active dispatch is represented by
+  `currentDispatch` and `sprintengine.dispatch.next` state, not by a persisted
+  agent status value.
 - `heartbeatAt`: UTC timestamp of the latest heartbeat observed through
   `sprintengine.agent.heartbeat` or a compatibility join refresh.
 - `joinedAt`: UTC timestamp when the agent first joined this run.
@@ -161,25 +219,23 @@ Each agent record normalizes to:
   or `mcp_notifications`), `subscribedAt`, optional `lastDispatchId`, and ack
   mirrors such as `lastDispatchAckAt` and `lastDispatchOutcome`.
 - `currentDispatch`: current durable dispatch target, when assigned.
-- `currentTaskId`: compatibility mirror for an active normal task.
-- `currentGate`: compatibility mirror for an active gate claim, normally with
-  `taskId`, `gateId`, and attempt id.
-- `currentGateId`: compatibility mirror for the active gate id, when present.
+- `currentTaskId`: compatibility mirror for the agent's active task.
+- `ownedTaskIds`: the durable set of every task this id has owned. Bare
+  (never-owned) ids omit the key.
+- `lastOwnedTaskId`: the most recent owned task id, when present.
 - `lastDirectiveAt`: UTC timestamp for the latest directive returned to or
   recorded for the agent.
 
 `currentDispatch` records:
 
 - `dispatchId`: stable idempotency key from `dispatch.jsonl`.
-- `targetKind`: currently `task` or `gate` for active assignments; future
-  server-created targets may use values such as `architect_judgment` or `run`.
-- `taskId`: present for task and gate targets.
-- `gateId`: present for gate targets.
+- `targetKind`: `task` for active assignments; future server-created targets may
+  use values such as `architect_judgment` or `run`.
+- `taskId`: the assigned task.
 - `role`: target role used for routing.
-- `reason`: dispatch reason such as `task_claimed`, `gate_claimed`,
-  `needs_triage`, or `final_review`. Normal unclaimed ready tasks, including
-  ownerless `changes_requested` rework, are wake candidates and must not be
-  represented as `currentDispatch` assignments.
+- `reason`: dispatch reason such as `task_claimed` or `agent_expired_release`.
+  Unclaimed ready tasks are wake candidates and must not be represented as
+  `currentDispatch` assignments.
 - `assignedAt`: UTC timestamp of assignment.
 
 Agents and app code must not edit this map directly. Use the lifecycle tools or
@@ -194,13 +250,12 @@ state is mirrored on the agent record and in normal events; consumers should use
 Sprint Engine tools or projection fields instead of parsing or editing the file
 directly.
 
-Durable dispatch assignments are created for claimed tasks, claimed quality
-gates, rework directed back to the task owner, and explicit
-`currentDispatch` targets. Renderer prompts for unclaimed ready tasks or
-unclaimed gates are wake candidates only: they may wake an available live agent
-to call the direct claim tool, but they do not write `currentDispatch`, append
-`dispatch.jsonl`, or mutate canonical task or gate state before the claim tool
-claims.
+Durable dispatch assignments are created for claimed tasks, re-engagement
+directed back to the task owner, and explicit `currentDispatch` targets.
+Renderer prompts for unclaimed ready tasks are wake candidates only: they may
+wake an available live agent to call the direct claim tool, but they do not write
+`currentDispatch`, append `dispatch.jsonl`, or mutate canonical task state before
+the claim tool claims.
 
 Each line is a JSON object with:
 
@@ -210,11 +265,9 @@ Each line is a JSON object with:
 - `timestamp`: UTC timestamp for the ledger entry.
 - `agentId`: target agent id.
 - `role`: canonical role requested by the target.
-- `target`: object with `kind`, optional `taskId`, optional `gateId`, and
-  optional attempt id.
+- `target`: object with `kind` (`task`) and `taskId`.
 - `reason`: why the scheduler selected the target.
-- `state`: snapshot fields needed for idempotency, currently including
-  `taskStatus` and `gateStatus` where relevant.
+- `state`: snapshot fields needed for idempotency, currently `taskStatus`.
 - `outcome`: currently `dispatched` for assignment records; future terminal
   records may use values such as `acknowledged`, `canceled`, `released`, or
   `superseded`.
@@ -231,7 +284,7 @@ the delta since its own ack. A cursor that matches no ledger row (mistyped
 ack, pruned `dispatch.jsonl`) falls back to the full capped history instead
 of an empty reply, so a poisoned cursor self-heals. Over MCP the replayed
 rows are slim stubs in the `currentDispatch` field dialect (`dispatchId`,
-`targetKind`, `taskId`/`gateId`/`attemptId`, `reason`, `assignedAt`), capped
+`targetKind`, `taskId`, `reason`, `assignedAt`), capped
 at the newest `DISPATCH_REPLAY_LIMIT` (20) with `truncated`/`totalCount` when
 older rows are dropped; the on-disk ledger keeps the full record shape.
 `sprintengine.dispatch.ack` records acknowledgement metadata on
@@ -253,10 +306,11 @@ agent records and dispatch ids.
 ## MCP Tool Contract
 
 The final MCP v1 surface is schema-first in `sprintengine_mcp/schemas.py`.
-Lifecycle, discovery, dispatch, task, gate, artifact, plan, run, and support
+Lifecycle, discovery, dispatch, task, artifact, plan, run, and support
 operations all use structured JSON schemas. Final contract schemas are exposed
 separately from the active `TOOL_SCHEMAS` registry so `list_tools` advertises
-only operations with server handlers. Future names move into active
+only operations with server handlers (`ACTIVE_TOOL_NAMES`,
+`sprintengine_mcp/tool_contracts.py`). Future names move into active
 `TOOL_SCHEMAS` when their handlers land.
 
 Final lifecycle and dispatch names:
@@ -284,15 +338,11 @@ Active operation names:
   `sprintengine.task.release`,
   `sprintengine.task.log`, `sprintengine.task.note`,
   `sprintengine.task.comment`, `sprintengine.task.comment.list`,
-  `sprintengine.task.publish`, `sprintengine.task.request_changes`.
-  `sprintengine.task.request_changes` records ordinary rework feedback and
-  routes the task to `changes_requested`; routed blockers use
-  `sprintengine.task.status` with `status: needs_input`.
-- Gates: `sprintengine.gate.list`, `sprintengine.gate.next`,
-  `sprintengine.gate.claim`, `sprintengine.gate.verdict`. The former
-  `gate.publish` and `gate.skip` aliases were removed; a skip is
-  `gate.verdict` with `verdict: "skipped"`, which records the summary as the
-  skip rationale.
+  `sprintengine.task.publish`, `sprintengine.task.advance`.
+  `sprintengine.task.publish` is the only tool that enters a task's phase walk;
+  `sprintengine.task.advance` is the only tool that walks it. Routed blockers use
+  `sprintengine.task.status` with `status: needs_input`, or `task.advance` with
+  `outcome: "escalate"` mid-phase.
 - Artifacts: `sprintengine.artifact.add`, `sprintengine.artifact.ready`,
   `sprintengine.artifact.approve`, `sprintengine.artifact.request_changes`,
   `sprintengine.artifact.list`.
@@ -348,22 +398,65 @@ tool and none of validations (1)–(3)/(5) apply — the role must only resolve 
 the registry and be in `configuredRoles` when that set exists
 (`role_not_enabled_for_run`).
 
+### `sprintengine.task.advance`
+
+```json
+{
+  "taskId": "T3",
+  "id": "developer-1",
+  "phase": "review",
+  "outcome": "pass_with_fixes",
+  "summary": "Fixed a silent parse fallback and added the missing regression test.",
+  "findingJson": [{ "kind": "code_bug", "severity": "high", "area": "cli", "title": "Silent parse fallback" }]
+}
+```
+
+Required: `taskId`, `id`, `phase`, `outcome`, `summary`. The tool is **owner-only**
+(`not_task_owner`) and `phase` must equal the task's current status
+(`phase_mismatch`). `phase` is enum-checked against `VALID_TASK_PHASES`
+(`["review"]`) and `outcome` against `VALID_PHASE_OUTCOMES`
+(`pass`, `pass_with_fixes`, `escalate`).
+
+`escalate` additionally requires `needsInputQuestion`; it accepts
+`needsInputKind`, `needsInputReason`, and `needsInputSuggestedResolution`, moves
+the task to `needs_input`, and records `needsInput.originatingStatus` so
+resolution returns the task to that phase.
+
+`pass`/`pass_with_fixes` step to the next phase, or to `done` when none remains.
+When a next phase exists, its composed directive rides the response as
+`nextDirective` (as it does on `task.publish`).
+
+`findingJson` and the other feedback properties are optional categorical
+telemetry, validated best-effort: an invalid optional sub-field is dropped with a
+`feedbackWarnings` entry rather than rejecting the transition.
+
+### Task `phases`
+
+`sprintengine.plan.add_task` and `sprintengine.plan.update_task` accept
+`phases: string[]` (`PHASES_PROPERTY`), each item enum-checked against
+`VALID_TASK_PHASES`. Omit it to inherit the run's `defaultPhases`; pass `[]` for
+none (publish routes straight to `done`). It must be a subset of the run's list —
+a phase outside it is rejected with `phase_not_configured_for_run`. Over the CLI
+the same flag is a comma-separated string, where `--phases ""` is the explicit
+empty list.
+
 MCP response contract (`sprintengine_mcp/response_shapes.py`): MCP responses
 carry deltas and references, not state echoes — the run store stays the source
 of truth and the UI keeps reading it from disk. Mutation tools (`task.log`,
-`task.publish`, `task.status`, `gate.verdict`, `plan.add_task`, artifact
+`task.publish`, `task.advance`, `task.status`, `plan.add_task`, artifact
 review, and the rest of `MUTATION_ACK_TOOLS`) return acks with `taskId`,
 `taskStatus`, the event, and any progression/continuation fields instead of
-the full task. Acks include an `openFeedback` delta (newest open feedback and
-user notes, newest first) so a working agent still notices comments posted
-mid-task. Read tools (`task.next`, `task.claim`, `gate.next`, `gate.claim`,
+the full task. `nextDirective` rides the `publish`/`advance` ack unchanged — the
+phase directive must reach the live owner. Acks include an `openFeedback` delta
+(newest open feedback and user notes, newest first) so a working agent still
+notices comments posted mid-task. Read tools (`task.next`, `task.claim`,
 `task.get`) return a slim task card without `activity`, full `comments`,
 full `notes`, full `needsInput.resolution`,
 `evidence.commandsRan`/`results`, or `evidence.diffs`; default cards include
 only bounded newest notes and bounded needs-input prose. `task.get` accepts
 `include: ["activity", "comments", "evidence_log", "diffs", "notes",
 "needs_input"]` for deep reads.
-Directives carry `{id, title, status, role}` stubs. Server-composed review and
+Directives carry `{id, title, status, role}` stubs. Server-composed phase and
 rework prompts are built from full store state and are unaffected. The
 human/debug CLI keeps full command output shapes. Response-shape regression
 tests live in `tests/sprintengine_tool/test_response_shapes.py`.
@@ -374,18 +467,28 @@ advertised schemas by the session's role, and every call is checked against
 the same table, failing with `tool_not_permitted_for_role` (naming the role
 and, where known, the permitted alternative) when a hidden tool is called by
 name. Classification derives from the role registry, not hardcoded ids, so
-plugin roles participate: `architect` (registry-normalized id) gets the
-planning surface, any role whose manifest declares a `review` capability gets
-the rework-request privileges (`task.request_changes`,
-`artifact.request_changes` — this is why
-`resources/sprintengine/roles/product.json` declares
-`{"kind": "review", "phase": "product"}`), every other resolvable or unknown
-role gets the worker surface, and the operator (`role: "user"`, the app's IPC
-actor, the human/debug CLI, and stdio sessions) keeps the full surface. Gate
-tools (`gate.list/next/claim/verdict`) are in the common agent surface, not
-reviewer-only: quality gates carry their own role (a `frontend_review` gate
-is claimed by the frontend worker), and `gate_is_claimable_for_role` is the
-authority for who may claim a gate. The session role comes from agent-scoped HTTP run registrations: the
+plugin roles participate. There are four classifications:
+
+- `operator` — `role: "user"` or no role: the app's IPC actor, the human/debug
+  CLI, and stdio sessions. Full surface.
+- `architect` — the registry-normalized `architect` id: `AGENT_COMMON_TOOLS` plus
+  the planning surface (`PLANNING_TOOLS`).
+- `general` — the manifest-less `general` identity, recognised by id: the same
+  surface minus `ROSTER_GROWTH_TOOLS` (`roster.add`, `roster.configure`,
+  `roster.replenish`), so a General can never expand the team. It keeps
+  `roster.list`.
+- `owner` — every other resolvable role, and the conservative fallback for a role
+  the registry cannot resolve. `AGENT_COMMON_TOOLS` only.
+
+A sweep role is an `owner` like any other worker: same tools, same lifecycle. It
+claims its own task, fixes what it finds, and closes its phases with
+`task.advance`. `task.publish` and `task.advance` are the whole lifecycle surface
+in `AGENT_COMMON_TOOLS`; there is no separate reviewer tool set.
+`artifact.request_changes` is a planner/operator tool (`PLANNING_TOOLS`): the
+human Inbox loop and the architect adjudicate artifacts, and it is not a rework
+channel back onto a task.
+
+The session role comes from agent-scoped HTTP run registrations: the
 app registers each agent terminal with `agentId` + `role`
 (`src/main/sprintengine-mcp-hub.ts` → `POST /runs`), and the returned token
 binds that terminal's MCP session to the role. Registrations without
@@ -403,10 +506,9 @@ Compatibility names:
   the direct claim tool named in the runtime prompt; `agent.next_directive`
   survives for standalone/headless compatibility only.
 - CLI wrapper flows still use `sprintengine.task.next`,
-  `sprintengine.task.claim`,
-  `sprintengine.task.note`, `sprintengine.task.resolve_input`,
-  `sprintengine.task.release`, `sprintengine.gate.next`,
-  `sprintengine.gate.claim`, and `sprintengine.gate.verdict` while preserving
+  `sprintengine.task.claim`, `sprintengine.task.note`,
+  `sprintengine.task.resolve_input`, `sprintengine.task.release`,
+  `sprintengine.task.publish`, and `sprintengine.task.advance` while preserving
   the same core mutation path.
 
 Transition tests must prove that `sprintengine.join` does not duplicate
@@ -419,18 +521,14 @@ without mutation when Auto Mode is off and no target is available.
 
 Task JSON files live under `tasks/<folder-status>/`. Folder location is the
 materialized board column; the embedded `status` field mirrors that folder for
-display and validation. Folder/status columns, claimability, and quality
-requirements are related but distinct:
+display and validation. Columns and claimability are distinct:
 
 - Folder/status columns show where the task sits on the board.
-- Claimability is computed from dependencies, ownership, dispatch, and status.
-- Quality requirements live in `qualityGates`; a task in `review`, `testing`,
-  or `product` can have several independent gates open at once.
+- Claimability is computed from dependencies, ownership, `needsTriage`, and
+  status. Only a `todo` task is claimable.
 
 A task in `tasks/ready/` can include `stateStatus` to show the semantic status,
-usually `todo`. A task whose semantic status is `changes_requested` stays in
-`tasks/changes_requested/`; it remains claimable but is not flattened into
-normal ready work.
+which is always `todo`.
 
 Supported task folders are:
 
@@ -438,12 +536,15 @@ Supported task folders are:
 - `ready`
 - `in_progress`
 - `review`
-- `testing`
-- `product`
-- `changes_requested`
 - `needs_input`
 - `done`
 - `canceled`
+
+`ready` is the materialized queue, not a semantic status. The semantic task
+statuses (`VALID_TASK_STATUSES`, `sprintengine_core/tool/constants.py`) are
+`todo`, `in_progress`, `review`, `needs_input`, `done`, and `canceled`. A task in
+`review` is still owned by the agent that implemented it
+(`ACTIVE_TASK_STATUSES = {in_progress, review, needs_input}`).
 
 Task records preserve the existing task card fields:
 
@@ -456,23 +557,35 @@ Task records preserve the existing task card fields:
 - `evidence`
 - `notes`
 - `comments`
-- `qualityGates`
-- `dispatch`
+- `phases`
 - `needsTriage`
 - `needsInput`
 - `feedback`
 - `difficulty`
+- `model`, `cli`: the CLI/model that worked the task, stamped at claim and
+  retained through handoff.
+- `lastImplementedByAgentId`, `lastPublishedAt`
+- `productFacing`, `producesImplementation` (optional booleans)
 - `startedAt`, `completedAt`
 - `activity`
+
+`phases` is the task's ordered list of post-implementation phases. It is optional:
+absent means "inherit the run's `defaultPhases`" (which is how a task written
+before the field existed reads), and `[]` is an explicit "no phases" — publish
+routes it straight to `done`. Each entry must be in `VALID_TASK_PHASES`, and the
+list must be a subset of the run's `defaultPhases`
+(`phase_not_configured_for_run`). `resolve_task_phases`
+(`sprintengine_core/tool/tasks.py`) is the resolver both `publish_task` and
+`advance_task` read.
 
 `difficulty` is optional so old task records do not require migration. Task-local
 state uses existing camelCase conventions:
 
 - `architectEstimatePct`, `architectEstimateReason`
 - `implementerActualPct`, `implementerActualReason`
-- `reviewerAssessments`: append-only reviewer entries with `pct`, `dimension`,
-  `reason`, `reviewerAgentId`, `reviewerRole`, `gateId`, `gateAttemptId`, and
-  `capturedAt`
+- `reviewerAssessments`: append-only entries with `pct`, `dimension`, `reason`,
+  `reviewerAgentId`, `reviewerRole`, `phase`, and `capturedAt`. Preserved on read
+  and in the feedback difficulty snapshot; no current command writes them.
 
 Difficulty percentages must be integer values from `0` to `100`; booleans are
 invalid. Reviewer assessment `dimension` must be one of `implementation`,
@@ -485,17 +598,17 @@ paths into task records or evidence.
 
 ## Role Registry And Routing
 
-Task roles, roster roles, plan-review roles, and quality-gate roles are
-configured data. CLI role arguments are parsed as strings and then canonicalized
-through the role registry, including aliases and hyphen/underscore variants
-supported by the registry. Unknown roles are rejected at command boundaries once
-the registry can prove they are unknown.
+Task roles, roster roles, and plan-review roles are configured data. CLI role
+arguments are parsed as strings and then canonicalized through the role registry,
+including aliases and hyphen/underscore variants supported by the registry.
+Unknown roles are rejected at command boundaries once the registry can prove they
+are unknown.
 
-When `rosterConfigured` is true, task and gate targets must also be present in
-the active roster. Normal task dispatch routes by exact canonical `task.role`.
-Quality-gate dispatch routes by exact canonical `qualityGates[].role`. The core
-does not infer routing from role capabilities such as implementer, reviewer, or
-tester flags.
+Task dispatch routes by exact canonical `task.role`. When the run records a
+`configuredRoles` set, `plan.add_task` requires the task's role to be in it. The
+core does not infer routing from role metadata: a `sweep` block describes what a
+role audits and when a run needs it (read by the architect's planning directive),
+never who may claim what.
 
 Plan reviews use registry-backed non-architect role ids from the active roster
 instead of a static reviewer-role list. Built-in roles can still have
@@ -535,58 +648,68 @@ Task `evidence` contains:
 `scopeExpansions` records project-relative paths outside the task's owned paths,
 with `path`, `reason`, and optional `risk`.
 
-## Quality Policy And Gates
+## The Phase Walk
 
-`run.yaml` stores `qualityPolicy` for roster-driven quality behavior:
+One agent owns a task from claim to `done`. It implements, publishes, then
+reviews its own diff in the same session. There is no separate reviewer, no
+claimable review queue, and no route backward through the board.
 
-- `enabled`: whether default gate derivation is active.
-- `rosterDriven`: whether missing roster roles should be skipped instead of
-  creating dead queues.
-- `lifecyclePhases`: normally `review`, `testing`, and `product`.
-- `gates`: default gate definitions keyed by gate id. Each definition includes
-  `phase`, `role`, `required`, and `focus`. Bundled defaults include
-  `code_reviewer`, `nuclear_reviewer`, `spec_reviewer`, `tester`, and
-  product/architect gates; custom configured gate ids are preserved when they
-  name a valid phase and role.
+**Enter the walk — `publish_task`** (`sprintengine_core/tool/tasks.py`). Publish
+records an `implementation_summary` comment (or an `implementation_response` when
+the task carries open feedback), then routes in two steps:
 
-Task `qualityGates` entries normalize to:
+1. **Change detection** (`task_produced_changes`). In worktree mode, a task with
+   any task-scoped commit produced a diff. Outside worktree mode, the working tree
+   is inspected, scoped to the task's owned and declared paths. If the answer
+   cannot be determined at all (no git repository), the answer is `True` — routing
+   to review is the failure-safe direction. This is the task's cumulative output,
+   not "since the last publish".
+2. **Routing.** No changes → every phase is skipped and the task lands on `done`,
+   `completedAt` stamped, owner cleared. Changes → the task advances to
+   `phases[0]` (or `done` when the task has no phases) and **keeps its owner**.
 
-- `id`: stable gate id such as `code_reviewer`, `nuclear_reviewer`,
-  `spec_reviewer`, `tester`, `architect_review`, or a custom registry-backed
-  gate id.
-- `phase`: `review`, `testing`, or `product`.
-- `role`: reviewer/tester/product role that can claim the gate.
-- `status`: `pending`, `in_progress`, `approved`, `changes_requested`,
-  `blocked`, or `skipped`.
-- `required`: whether the phase must wait for this gate to become `approved` or
-  `skipped`.
-- `allowSelfReview`: whether the task owner may claim the gate.
-- `focus`: gate-specific review guidance.
-- `attempts`: gate claim/verdict history.
-- `skipRationale`: present when a gate is skipped.
+The publish response carries `nextStatus`, `previousStatus`, `producedChanges`,
+`phases`, and — when the task entered a phase — the composed `nextDirective`.
 
-Gate attempts record durable reviewer activity:
+**Walk it — `advance_task`.** `sprintengine.task.advance` is the only mutation
+that moves a task between phases; no comment, log, artifact, or status call may
+move it forward. It is owner-only, and its `phase` argument must equal the task's
+current status.
 
-- `id`: `GA-001`, `GA-002`, and so on within the gate.
-- `status`: current or final verdict status.
-- `role`, `claimedBy`
-- `startedAt`, `completedAt`
-- `summary`
-- `artifactId`: optional recorded artifact linked to the verdict.
+- `pass` / `pass_with_fixes` step to the phase after this one in the task's list,
+  or to `done` when none remains. A `nextDirective` rides the response when a next
+  phase exists.
+- `escalate` moves the task to `needs_input` and records
+  `needsInput.originatingStatus`. `task resolve-input` returns the task to that
+  phase, not to `in_progress` (`resolve_task_input`,
+  `sprintengine_core/tool/artifacts.py`).
 
-Gate claiming is separate from task claiming and uses
-`runner/gate.queue.lock`. The task remains in its lifecycle folder while gate
-attempts are claimed and completed.
+Invariants:
 
-Gate lifecycle is phase-driven. A gate's `phase` (`review`, `testing`, or
-`product`) determines which lifecycle step it blocks and where the task advances
-after approval; `role` only determines which configured roster role can claim
-the gate.
+- The walk is strictly forward. A phase is visited at most once per walk; fixes
+  made during a phase are smoke-checked in place, never re-reviewed by re-entering
+  it.
+- A re-publish restarts the walk from `phases[0]`, re-running change detection.
+- A task in `review` stays owned. `release_agent_targets`
+  (`sprintengine_core/tool/state.py`) releases only `in_progress` tasks back to
+  `todo`; `review` and `needs_input` tasks keep their `ownerAgentId` across a
+  leave or an expiry sweep, and the owner is revived under the same id with a
+  phase brief (`build_phase_respawn_brief`).
 
-Approved and skipped verdicts advance a phase only after all remaining required
-gates in that phase are `approved` or `skipped`. `changes_requested` and
-`failed` verdicts route the task to `changes_requested` with open feedback.
-`blocked` verdicts route the task to `needs_input`.
+Phase directives are composed by `build_phase_directive`
+(`sprintengine_core/tool/phase_prompts.py`) from the phase header, the shared base
+pack (`resources/sprintengine/skills/sprintengine_phase_review/SKILL.md`, resolved
+through the registry so a workspace layer can shadow it), the role's
+`directives.<phase>` additions, the task's acceptance criteria, and any open
+feedback comments.
+
+Rework arrives from the human Inbox, not from another agent. `artifact
+request-changes` records the feedback as a typed comment and reopens the linked
+task (`reopen_task_for_artifact_changes`): to `in_progress` when the owner is
+still active on it, otherwise to unowned `todo`. Moving an unowned task back to
+`in_progress` re-binds it to `lastImplementedByAgentId`; a task with no
+implementer on record returns to `todo` rather than becoming unclaimable
+(`cmd_task_status`).
 
 ## Task Comments
 
@@ -604,23 +727,38 @@ Task comments are the human-readable handoff stream. Typed comments include:
 
 New structured comments include `id`, `type`, `actor`, `authorAgentId`,
 `authorRole`, `source`, `body`, `createdAt`, optional `paths`, and optional
-structured `data`. Publish commands create implementation summary/response
-comments. Gate verdicts create feedback or needs-input comments. Open feedback
-comments use `data.status = "open"` and should be surfaced newest first for
-rework.
+structured `data`. `task publish` creates implementation summary/response
+comments. `task advance` creates an `implementation_summary` comment carrying
+`data.phase` and `data.outcome`, or a `needs_input` comment on `escalate`.
+Artifact request-changes creates feedback comments. Open feedback comments use
+`data.status = "open"` and should be surfaced newest first for rework.
 
 Agent feedback is attached to task records and also exported to
 `metrics/agent-feedback.jsonl`. Metrics records use JSON Lines so each feedback
 payload is append-friendly and durable across syncs.
+
+`build_feedback_payload` (`sprintengine_core/tool/feedback.py`) classifies each
+record by `source`:
+
+- `phase_advance_self_review` — written when `task advance` supplies feedback
+  fields. A phase advance is the owner reporting on its own work, so it is a
+  self-report; the record carries `phase` and `phase_outcome`, and the task-local
+  payload carries a `phase: {phase, outcome}` object.
+- `reviewer_assessment` — an agent assessing a different task (the
+  `--review-target-*` trio), as a sweep does.
+- `agent_self_report` — everything else.
+
+Findings and issues on the phase-advance path are validated best-effort
+(`best_effort=True`): an invalid optional sub-field is dropped with a
+`feedbackWarnings` entry rather than rejecting the operational transition.
 
 When a task has difficulty metadata and feedback is recorded, feedback metrics
 include a `difficulty` snapshot using snake_case analytics keys:
 
 - `architect_estimate_pct`, `architect_estimate_reason`
 - `implementer_actual_pct`, `implementer_actual_reason`
-- `reviewer_assessments`: reviewer assessment entries with `pct`, `dimension`,
-  `reason`, `reviewer_agent_id`, `reviewer_role`, `gate_id`,
-  `gate_attempt_id`, and `captured_at`
+- `reviewer_assessments`: assessment entries with `pct`, `dimension`, `reason`,
+  `reviewer_agent_id`, `reviewer_role`, `phase`, and `captured_at`
 
 ### Feedback Analysis (`sprintengine.feedback.summarize`)
 
@@ -634,9 +772,9 @@ the per-role aggregates (`aggregateScoresByRole`, `aggregateCountsByRole`,
 - `selfReported`: `{ sampleCount, scores }` — averages of the agent's own
   `agent_self_report` score dimensions.
 - `measured`: `{ reviewSampleCount, scores, counts, hallucinationRatePct?,
-  findingsAgainst?, taskCounts? }` — derived from `reviewer_assessment` /
-  `gate_verdict_assessment` records and attributed to the implementer via
-  `review_target_agent_id` (never the reviewer). `counts` uses camelCase keys
+  findingsAgainst?, taskCounts? }` — derived from records carrying a
+  `review_target_agent_id` (a sweep or other cross-task assessment) and attributed
+  to the implementer, never the assessor. `counts` uses camelCase keys
   (`regressionCount`, `missedRequirements`, …); `hallucinationRatePct` is
   emitted only when `claimsChecked > 0`; `findingsAgainst` only when defects
   exist (so the consumer can show `0` when a review happened with no defects vs
@@ -654,14 +792,20 @@ task counts; agents with no records simply have no `aggregateByAgent` row.
 
 `needsInput` routes blocked work:
 
-- `kind`: actor or external condition that must act, normally `architect`,
-  `user`, `owner`, or `external_validation`.
-- `reason`: short category or issue text. Common categories are `task_scope`,
-  `artifact_review`, `tooling`, `verification`, `product_decision`, and
-  `blocked_other`.
-- `question`: concrete unblock question.
+- `kind`: the actor who must act — `architect` or `user`
+  (`VALID_NEEDS_INPUT_KINDS`). Legacy `owner` and `external_validation` values
+  remap on read to `architect`/`blocked_other` and `user`/`verification`
+  (`LEGACY_NEEDS_INPUT_KIND_MAP`).
+- `reason`: one of `task_scope`, `artifact_review`, `tooling`, `verification`,
+  `product_decision`, `blocked_other`. Defaults per kind
+  (`NEEDS_INPUT_KIND_DEFAULT_REASONS`).
+- `question`: concrete unblock question. A `user`-kind question is shown verbatim
+  to a person and must be written for that reader.
 - `suggestedResolution`: optional proposed next step.
 - `artifactId`: optional artifact related to an artifact review blocker.
+- `originatingStatus`: set when a mid-phase `task advance --outcome escalate`
+  parked the task. `task resolve-input` returns the task to that phase rather than
+  to `in_progress`.
 - `reportedBy`, `reportedAt`: provenance metadata.
 
 Use `needs_input` through the CLI; do not move files between status folders by
@@ -701,7 +845,6 @@ Artifact records include:
   `policy` (the run auto-approval policy approved it). Set by `sprintengine
   artifact approve --approval-mode` / the `approvalMode` payload field. Additive
   and back-compatible: an approval that omits it stays a plain approved artifact.
-- `gateId`: optional gate id for recorded gate evidence.
 
 Register artifacts through `sprintengine artifact add`, `sprintengine artifact
 ready`, `sprintengine artifact approve`, or `sprintengine artifact
@@ -723,10 +866,11 @@ projection content after a successful review mutation, falling back to
 mutation response lacks usable projection data. A failed mutation must not apply
 stale projection content as success.
 
-`recorded` artifacts are durable gate evidence. They are visible in task
-projection data but do not enter human approval queues and do not block task
-completion by themselves. Use `ready_for_review` only for artifacts that require
-human approval.
+`recorded` is a durable evidence status: such artifacts are visible in task
+projection data (`recordedArtifacts`) but do not enter human approval queues and
+do not block task completion by themselves. No current command writes it —
+`artifact add` creates a `draft`, and `--ready` moves it to `ready_for_review`.
+Use `ready_for_review` only for artifacts that require human approval.
 
 ## Events
 
@@ -740,9 +884,10 @@ with:
 - `message`
 - optional task or artifact metadata
 
-Examples include `task_claimed`, `task_evidence_appended`,
-`task_status_changed`, `artifact_added`, `artifact_ready_for_review`,
-`artifact_approved`, and `runner_policy_updated`.
+Examples include `task_claimed`, `task_evidence_appended`, `task_published`,
+`task_phase_advanced`, `task_status_changed`, `task_input_resolved`,
+`artifact_added`, `artifact_ready_for_review`, `artifact_approved`,
+`roster_configured`, and `runner_policy_updated`.
 
 ## Locks
 
@@ -754,8 +899,8 @@ The store uses lock files to serialize high-risk operations:
 - `runner/run.queue.lock`: run-level mutation lock for folder-store writes.
 - `runner/ready.queue.lock`: ready queue materialization lock.
 - `runner/claim.queue.lock`: narrow queue lock for task claim selection.
-- `runner/gate.queue.lock`: narrow queue lock for gate claim and verdict
-  selection.
+- `runner/git.commit.lock`: serializes the shared run worktree's git index across
+  concurrent agents (worktree mode only).
 - `runner/run.lock.json`: run-level status marker.
 - `runner/ready.lock.json`: ready runner status marker.
 
@@ -764,26 +909,25 @@ reports lock state and stale-lock warnings in the normalized projection.
 
 ## DAG Readiness
 
-`tasks/ready/` is a materialized deterministic queue for normal `todo` work. A
-`changes_requested` task uses the same dependency and active-claim readiness
-rules but stays in `tasks/changes_requested/` so reviewers, testers, and
-product flows can count rework separately. Rework is claimable by any matching
-role roster agent when it has no `ownerAgentId`; previous implementer
-attribution lives in comments, evidence, and optional attribution fields. A
-normal implementation task is claimable when:
+`tasks/ready/` is a materialized deterministic queue for `todo` work. A task is
+claimable when:
 
-- its semantic status is `todo` or `changes_requested`;
+- its semantic status is `todo`;
 - it has no `ownerAgentId`;
 - `needsTriage` is absent or `false`;
-- its dispatch mode allows dependency readiness;
 - every dependency in the run graph is `done`.
 
 An entry in `tasks/ready/` is claimability state, not a durable assignment to a
 specific agent. Auto-run renderers may surface it as a wake candidate for a live
 agent only when the current projection shows that agent has no active task,
-gate, dispatch, or `needs_input` ownership. `task next`, `task claim`, or
+dispatch, or `needs_input` ownership. `task next`, `task claim`, or
 `join --watch` must perform the actual claim before any task owner,
 `currentDispatch`, or dispatch ledger row is created.
+
+A worker roster id owns at most one task for its whole lifetime
+(`rosterPolicy.workerAssignment: per_task`). A claim by an id that already owns a
+different task is refused with `worker_task_capacity_reached`; a re-claim of the
+id's own task is allowed.
 
 `needsTriage` is a task-card readiness flag, not a replacement for
 `needsInput`. Missing `needsTriage` normalizes to `false`. When `true`, the task
@@ -806,21 +950,17 @@ sprintengine join --role <role> --id <agent-id> --watch
 
 Multicode-launched autonomous agents instead register with
 `sprintengine.agent.join`, then call the direct claim tool named by the
-renderer prompt (`sprintengine.task.next`, `sprintengine.gate.next`, or
-`sprintengine.triage.needs_input`) exactly once. The managed server resolves
-`statePath` and `workspaceRoot` from run context, so autonomous prompt payloads
-omit those fields.
+renderer prompt (`sprintengine.task.next` or `sprintengine.triage.needs_input`)
+exactly once. The managed server resolves `statePath` and `workspaceRoot` from run
+context, so autonomous prompt payloads omit those fields.
 
-When CLI join directs normal implementation work,
+When CLI join directs implementation work,
 `sprintengine task next --role <role> --id <agent-id>` claims under the
-folder-store run lock plus the claim queue lock, prioritizing
-`changes_requested` rework before normal ready work without changing its status
-until the claim moves it to `in_progress`.
+folder-store run lock plus the claim queue lock, moving the task to
+`in_progress`.
 
-Lifecycle phase tasks are not claimed with `task next` by reviewers or testers.
-Use `sprintengine task gate next --role <role> --id <agent-id>` or
-`sprintengine task gate claim` to claim a gate attempt while the task remains in
-`review`, `testing`, or `product`.
+`tasks/review/` is never claimed. The task's owner is already in it, and no other
+agent may take it: `task advance` is owner-only.
 
 ## Projection Boundary
 
@@ -853,15 +993,20 @@ Projection fields include:
 renderer or mobile code to inspect status folders. `locks.warnings` exposes
 stale-lock warnings without requiring direct lock-file reads.
 
-Each projected task includes gate and comment context for UI/mobile consumers:
+`projection.run` carries `schemaVersion`, `roleRuntimes`, `configuredRoles`, `vcs`,
+`rosterPolicy`, `runner`, and — when present — `source`/`sourceBundle`
+(`RUN_SOURCE_KEYS`), `rosterSource`/`allowedRuntimes` (`RUN_ROSTER_SOURCE_KEYS`),
+`defaultPhases` (`RUN_PHASE_KEYS`), and `requiredSweeps` (`RUN_SWEEP_KEYS`).
 
-- `qualityGates`: normalized gate records.
-- `qualityGateSummary`: counts by phase/status plus required/open-required
-  totals.
+Each projected task includes comment context for UI/mobile consumers:
+
+- `boardColumn`, `stateStatus`: the materialized column and the semantic status.
 - `comments`: full task comment list.
 - `latestComments`: newest comments, bounded for inspector display.
-- `latestOpenFeedback`: newest open review/test/product/architect feedback.
-- `recordedArtifacts`: recorded artifact references linked to the task.
+- `latestOpenFeedback`: newest open review/test/product/architect feedback
+  comments.
+- `recordedArtifacts`: `recorded` artifact references linked to the task.
+- `artifacts`: every artifact linked to the task.
 
 Projection consumers should use these fields instead of parsing task folders,
 artifact folders, metrics files, or comments from folder internals.
@@ -869,19 +1014,19 @@ artifact folders, metrics files, or comments from folder internals.
 ## Runner Policy
 
 Runner policy is stored in `run.yaml` and projected under `run.runner`.
-For standalone/headless CLI sessions, `off` means `join --watch` returns idle
-immediately when no work is ready, and `auto` means `join --watch` sleeps and
-polls until work appears, Auto Mode is turned off, the run completes, or a
-diagnostic max-wait limit is reached. In Multicode, the runtime owns terminal
-dispatch/continuation and restarts missing same-role capacity instead of asking
-agents to poll.
+For standalone/headless CLI sessions, `cliWatchPolling: disabled` means
+`join --watch` returns idle immediately when no work is ready, and `enabled` means
+`join --watch` sleeps and polls until work appears, polling is turned off, the run
+completes, or a diagnostic max-wait limit is reached. In Multicode, the runtime
+owns terminal dispatch/continuation and restarts missing capacity instead of
+asking agents to poll; the supervisor ignores this field.
 
 ## Verification Commands
 
 Use focused backend and app checks when changing this contract:
 
 ```bash
-python3 -m py_compile sprintengine_core/tool.py sprintengine_core/store.py scripts/sprintengine_tool.py
+python3 -m py_compile sprintengine_core/store.py sprintengine_core/tool/tasks.py sprintengine_core/tool/phase_prompts.py scripts/sprintengine_tool.py
 uv run --with pytest --with PyYAML python -m pytest tests/sprintengine_tool -q
 npx esbuild src/main/mobile/sprintengine/snapshot.test.ts --bundle --platform=node --format=cjs --packages=external --outfile=node_modules/.cache/multicode/mobile-sprintengine-snapshot.test.cjs && node node_modules/.cache/multicode/mobile-sprintengine-snapshot.test.cjs
 npx esbuild src/main/index.ts --bundle --platform=node --format=cjs --packages=external --outfile=node_modules/.cache/multicode/main-index.check.cjs

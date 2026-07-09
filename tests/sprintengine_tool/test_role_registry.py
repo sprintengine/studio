@@ -14,19 +14,27 @@ def write_role(
     *,
     label: str | None = None,
     aliases: list[str] | None = None,
-    soul: list[dict] | None = None,
-    capabilities: list[dict] | None = None,
+    implement: list[dict] | None = None,
+    review: list[dict] | None = None,
+    sweep: dict | None = None,
+    raw: dict | None = None,
 ) -> None:
+    """Write a v2 role manifest. `raw` overrides the whole payload for reject tests."""
     roles_dir = root / "roles"
     roles_dir.mkdir(parents=True, exist_ok=True)
+    directives: dict = {"implement": implement if implement is not None else [{"skill": role_id}]}
+    if review is not None:
+        directives["review"] = review
     payload = {
         "id": role_id,
         "label": role_id.replace("_", " ").title() if label is None else label,
         "aliases": aliases or [],
-        "soul": soul or [{"skill": role_id}],
+        "directives": directives,
     }
-    if capabilities is not None:
-        payload["capabilities"] = capabilities
+    if sweep is not None:
+        payload["sweep"] = sweep
+    if raw is not None:
+        payload = {**payload, **raw}
     (roles_dir / f"{role_id}.json").write_text(json.dumps(payload), encoding="utf-8")
 
 
@@ -118,8 +126,8 @@ def test_broken_entries_are_skipped_with_structured_warnings(tmp_path: Path) -> 
     (root / "roles").mkdir(parents=True)
     (root / "roles" / "not-json.json").write_text("{", encoding="utf-8")
     write_role(root, "missing_label", label="")
-    write_role(root, "bad_soul", soul=[{"text": "not supported yet"}])
-    write_role(root, "valid", soul=[{"skill": "broken"}, {"skill": "missing"}])
+    write_role(root, "bad_directive", implement=[{"text": "not supported yet"}])
+    write_role(root, "valid", implement=[{"skill": "broken"}, {"skill": "missing"}])
     (root / "skills" / "broken").mkdir(parents=True)
     (root / "skills" / "broken" / "SKILL.md").write_text("---\nname: broken\n", encoding="utf-8")
 
@@ -133,9 +141,9 @@ def test_broken_entries_are_skipped_with_structured_warnings(tmp_path: Path) -> 
     assert discovery.skills == {}
     warning_codes = [warning.code for warning in discovery.warnings]
     assert "malformed_role_manifest" in warning_codes
-    assert warning_codes.count("invalid_role_manifest") == 1
-    assert "invalid_soul_entry" in warning_codes
-    assert any("must contain only a non-empty skill string" in warning.message for warning in discovery.warnings)
+    # missing_label + bad_directive both reject as invalid_role_manifest.
+    assert warning_codes.count("invalid_role_manifest") == 2
+    assert any("non-empty 'implement' list" in warning.message for warning in discovery.warnings)
     assert "broken_skill_document" in warning_codes
     assert warning_codes.count("missing_referenced_skill") == 2
 
@@ -164,7 +172,7 @@ def test_temporary_marketer_role_loads_from_workspace_without_user_home_mutation
     workspace = tmp_path / "workspace"
     user = tmp_path / "isolated-user-home"
     root = workspace / ".sprintengine"
-    write_role(root, "marketer", aliases=["growth-marketer"], soul=[{"skill": "campaign_strategy"}])
+    write_role(root, "marketer", aliases=["growth-marketer"], implement=[{"skill": "campaign_strategy"}])
     write_skill(root, "campaign_strategy", "---\nname: campaign_strategy\n---\n\n# Campaign Strategy\n\nPlan launches.")
 
     discovery = RoleSkillRegistry(
@@ -179,74 +187,147 @@ def test_temporary_marketer_role_loads_from_workspace_without_user_home_mutation
     assert not user.exists()
 
 
-def test_role_capabilities_are_optional_and_exposed(tmp_path: Path) -> None:
+def _discover(tmp_path: Path, workspace: Path):
+    return RoleSkillRegistry(
+        workspace_root=workspace,
+        user_root=tmp_path / "user",
+        bundled_root=tmp_path / "bundled",
+    ).discover()
+
+
+def test_sweep_metadata_is_optional_and_exposed(tmp_path: Path) -> None:
     workspace = tmp_path / "workspace"
     root = workspace / ".sprintengine"
     write_role(
         root,
         "creative_director",
-        capabilities=[
-            {
-                "kind": "review",
-                "phase": "review",
-                "reviews": ["brand", "marketing_material"],
-                "defaultFocus": "brand consistency and campaign readiness",
-            }
-        ],
+        sweep={"focus": "brand consistency and campaign readiness", "when": "the run touches marketing surfaces"},
     )
     write_skill(root, "creative_director")
+    write_role(root, "plain_worker")
+    write_skill(root, "plain_worker")
 
-    discovery = RoleSkillRegistry(
-        workspace_root=workspace,
-        user_root=tmp_path / "user",
-        bundled_root=tmp_path / "bundled",
-    ).discover()
+    discovery = _discover(tmp_path, workspace)
     role = discovery.get_role("creative_director")
 
-    assert len(role.capabilities) == 1
-    capability = role.capabilities[0]
-    assert capability.kind == "review"
-    assert capability.phase == "review"
-    assert capability.reviews == ("brand", "marketing_material")
-    assert capability.default_focus == "brand consistency and campaign readiness"
+    assert role.is_sweep
+    assert role.sweep is not None
+    assert role.sweep.focus == "brand consistency and campaign readiness"
+    assert role.sweep.when == "the run touches marketing surfaces"
+    assert not discovery.get_role("plain_worker").is_sweep
+    # sweep_roles() is what the wizard's sweeps panel and the architect's planning
+    # directive enumerate, so a custom workspace-layer sweep appears with no engine change.
+    assert [role.id for role in discovery.sweep_roles()] == ["creative_director"]
 
 
-def test_invalid_role_capabilities_reject_manifest(tmp_path: Path) -> None:
+def test_null_sweep_is_a_worker_role(tmp_path: Path) -> None:
     workspace = tmp_path / "workspace"
     root = workspace / ".sprintengine"
-    write_role(root, "bad_capability", capabilities=[{"kind": "implement", "required": True}])
-    write_skill(root, "bad_capability")
+    write_role(root, "builder", raw={"sweep": None})
+    write_skill(root, "builder")
 
-    discovery = RoleSkillRegistry(
-        workspace_root=workspace,
-        user_root=tmp_path / "user",
-        bundled_root=tmp_path / "bundled",
-    ).discover()
+    discovery = _discover(tmp_path, workspace)
 
-    assert "bad_capability" not in discovery.roles
+    assert discovery.get_role("builder").sweep is None
+    assert discovery.sweep_roles() == ()
+
+
+def test_v1_soul_key_is_rejected_by_name(tmp_path: Path) -> None:
+    """Decision 8: no v1 shim. A stale pack fails loudly, naming its v2 replacement."""
+    workspace = tmp_path / "workspace"
+    root = workspace / ".sprintengine"
+    (root / "roles").mkdir(parents=True, exist_ok=True)
+    (root / "roles" / "legacy.json").write_text(
+        json.dumps({"id": "legacy", "label": "Legacy", "soul": [{"skill": "legacy"}]}), encoding="utf-8"
+    )
+    write_skill(root, "legacy")
+
+    discovery = _discover(tmp_path, workspace)
+
+    assert "legacy" not in discovery.roles
+    rejections = [warning for warning in discovery.warnings if warning.code == "v1_role_manifest"]
+    assert len(rejections) == 1
+    assert "'soul' was removed" in rejections[0].message
+    assert '"directives"' in rejections[0].message
+
+
+def test_v1_capabilities_key_is_rejected_by_name(tmp_path: Path) -> None:
+    workspace = tmp_path / "workspace"
+    root = workspace / ".sprintengine"
+    write_role(root, "legacy_reviewer", raw={"capabilities": [{"kind": "review"}]})
+    write_skill(root, "legacy_reviewer")
+
+    discovery = _discover(tmp_path, workspace)
+
+    assert "legacy_reviewer" not in discovery.roles
+    rejections = [warning for warning in discovery.warnings if warning.code == "v1_role_manifest"]
+    assert len(rejections) == 1
+    assert "'capabilities' was removed" in rejections[0].message
+    assert '"sweep"' in rejections[0].message
+
+
+def test_unknown_directive_phase_rejects_manifest(tmp_path: Path) -> None:
+    """A typo'd phase key is a hard reject, never a silently dropped directive pack."""
+    workspace = tmp_path / "workspace"
+    root = workspace / ".sprintengine"
+    write_role(root, "typo_role", raw={"directives": {"implement": [{"skill": "typo_role"}], "testing": [{"skill": "x"}]}})
+    write_skill(root, "typo_role")
+
+    discovery = _discover(tmp_path, workspace)
+
+    assert "typo_role" not in discovery.roles
     assert any(warning.code == "invalid_role_manifest" for warning in discovery.warnings)
 
 
-def test_role_capability_reviews_match_schema_id_pattern(tmp_path: Path) -> None:
+def test_directives_without_implement_reject_manifest(tmp_path: Path) -> None:
     workspace = tmp_path / "workspace"
     root = workspace / ".sprintengine"
-    write_role(root, "bad_review_tag", capabilities=[{"kind": "review", "reviews": ["Bad Tag"]}])
-    write_skill(root, "bad_review_tag")
+    write_role(root, "review_only", raw={"directives": {"review": [{"skill": "review_only"}]}})
+    write_skill(root, "review_only")
 
-    discovery = RoleSkillRegistry(
-        workspace_root=workspace,
-        user_root=tmp_path / "user",
-        bundled_root=tmp_path / "bundled",
-    ).discover()
+    discovery = _discover(tmp_path, workspace)
 
-    assert "bad_review_tag" not in discovery.roles
+    assert "review_only" not in discovery.roles
     assert any(warning.code == "invalid_role_manifest" for warning in discovery.warnings)
+
+
+def test_malformed_sweep_rejects_manifest(tmp_path: Path) -> None:
+    workspace = tmp_path / "workspace"
+    root = workspace / ".sprintengine"
+    write_role(root, "half_sweep", sweep={"focus": "things"})
+    write_skill(root, "half_sweep")
+
+    discovery = _discover(tmp_path, workspace)
+
+    assert "half_sweep" not in discovery.roles
+    assert any("focus" in warning.message and "when" in warning.message for warning in discovery.warnings)
+
+
+def test_review_directives_are_exposed_per_phase_and_not_in_the_startup_brief(tmp_path: Path) -> None:
+    """`directives.review` rides the phase directive, never the startup brief."""
+    workspace = tmp_path / "workspace"
+    root = workspace / ".sprintengine"
+    write_role(root, "frontend", implement=[{"skill": "frontend"}], review=[{"skill": "frontend_review"}])
+    write_skill(root, "frontend", "Implement body.")
+    write_skill(root, "frontend_review", "Review body.")
+
+    discovery = _discover(tmp_path, workspace)
+    role = discovery.get_role("frontend")
+
+    assert [entry.skill for entry in role.implement_directives] == ["frontend"]
+    assert [entry.skill for entry in role.directives_for_phase("review")] == ["frontend_review"]
+    assert role.directives_for_phase("nonexistent") == ()
+    # referenced_skills (the startup brief) sees only the implement pack.
+    assert [skill.id for skill in discovery.referenced_skills("frontend")] == ["frontend"]
+    rendered = discovery.render_soul("frontend", workspace_root=workspace)
+    assert "Implement body." in rendered.content
+    assert "Review body." not in rendered.content
 
 
 def test_rendered_soul_strips_frontmatter_and_preserves_ordered_skill_bodies(tmp_path: Path) -> None:
     workspace = tmp_path / "workspace"
     root = workspace / ".sprintengine"
-    write_role(root, "developer", soul=[{"skill": "first"}, {"skill": "second"}])
+    write_role(root, "developer", implement=[{"skill": "first"}, {"skill": "second"}])
     write_skill(root, "first", "---\nname: first\n---\n\nFirst body for {{role}}.")
     write_skill(root, "second", "---\nname: second\n---\n\nSecond body for {{role_label}} in {{run_id}}.")
 
@@ -268,7 +349,7 @@ def test_rendered_soul_strips_frontmatter_and_preserves_ordered_skill_bodies(tmp
 def test_rendered_soul_substitutes_allow_list_only_and_warns_for_unsupported_variables(tmp_path: Path) -> None:
     workspace = tmp_path / "workspace"
     root = workspace / ".sprintengine"
-    write_role(root, "marketer", label="Growth Marketer", soul=[{"skill": "strategy"}])
+    write_role(root, "marketer", label="Growth Marketer", implement=[{"skill": "strategy"}])
     write_skill(
         root,
         "strategy",
@@ -294,7 +375,7 @@ def test_rendered_soul_substitutes_allow_list_only_and_warns_for_unsupported_var
 def test_rendering_missing_or_malformed_skill_fails_direct_render_without_breaking_discovery(tmp_path: Path) -> None:
     workspace = tmp_path / "workspace"
     root = workspace / ".sprintengine"
-    write_role(root, "developer", soul=[{"skill": "broken"}, {"skill": "missing"}])
+    write_role(root, "developer", implement=[{"skill": "broken"}, {"skill": "missing"}])
     (root / "skills" / "broken").mkdir(parents=True)
     (root / "skills" / "broken" / "SKILL.md").write_text("---\nname: broken\n", encoding="utf-8")
 
@@ -313,13 +394,13 @@ def test_rendering_missing_or_malformed_skill_fails_direct_render_without_breaki
 
 
 def test_every_bundled_role_manifest_has_expected_shared_skill_boundary() -> None:
-    """Regression: bundled role manifests carry only the portable soul identity.
+    """Regression: bundled role manifests carry only the portable role identity.
 
-    Souls are pluggable: a pack ships the agent identity and nothing else. The
-    Multicode product layer (Backlog, Knowledge Graph) and the Sprint Engine
-    layer (quality norms + coordination skills) are composed on top at spawn
+    Roles are pluggable: a pack ships the role's own directive packs and nothing
+    else. The Multicode product layer (Backlog, Knowledge Graph) and the Sprint
+    Engine layer (quality norms + coordination skills) are composed on top at spawn
     time via render_soul(extra_skills=...), never referenced by the manifest. A
-    manifest that bakes in a layer skill re-couples the soul to Multicode or
+    manifest that bakes in a layer skill re-couples the role to Multicode or
     Sprint Engine, which this test exists to prevent.
     """
     from sprintengine_core.skill_layers import SPRINTENGINE_SOUL_EXTRA_SKILLS
@@ -331,21 +412,37 @@ def test_every_bundled_role_manifest_has_expected_shared_skill_boundary() -> Non
     layer_skills = set(SPRINTENGINE_SOUL_EXTRA_SKILLS)
     not_identity_only: list[str] = []
     coupled: list[str] = []
+    v1_keys: list[str] = []
     for path in manifests:
         data = json.loads(path.read_text(encoding="utf-8"))
-        soul = data.get("soul") or []
-        skills = [entry.get("skill") for entry in soul if isinstance(entry, dict)]
-        if skills != [data.get("id")]:
+        if "soul" in data or "capabilities" in data:
+            v1_keys.append(path.name)
+            continue
+        directives = data.get("directives") or {}
+        implement = [entry.get("skill") for entry in directives.get("implement") or [] if isinstance(entry, dict)]
+        if implement != [data.get("id")]:
             not_identity_only.append(path.name)
-        if layer_skills.intersection(skills) or any(
-            str(skill_id).startswith("sprintengine_") for skill_id in skills
+        all_skills = [
+            entry.get("skill")
+            for entries in directives.values()
+            for entry in entries or []
+            if isinstance(entry, dict)
+        ]
+        # `sprintengine_phase_*` base packs are resolved by the engine, never named
+        # by a manifest; a role that references one has re-coupled itself.
+        if layer_skills.intersection(all_skills) or any(
+            str(skill_id).startswith("sprintengine_") for skill_id in all_skills
         ):
             coupled.append(path.name)
 
+    assert not v1_keys, (
+        f"These bundled role manifests still carry removed v1 keys: {v1_keys}. "
+        "Migrate them to `directives` + `sweep` (MC-1542)."
+    )
     assert not not_identity_only, (
-        "These role manifests do not carry an identity-only soul: "
-        f"{not_identity_only}. A bundled manifest's soul must be exactly "
-        "[{'skill': <role id>}] so the soul stays portable; host and Sprint "
+        "These role manifests do not carry an identity-only implement pack: "
+        f"{not_identity_only}. A bundled manifest's `directives.implement` must be "
+        "exactly [{'skill': <role id>}] so the role stays portable; host and Sprint "
         "Engine layers are composed on at spawn time."
     )
     assert not coupled, (
@@ -353,3 +450,25 @@ def test_every_bundled_role_manifest_has_expected_shared_skill_boundary() -> Non
         f"{coupled}. Backlog, Knowledge Graph, quality norms, and Sprint Engine "
         "coordination skills are layered by the host, not the manifest."
     )
+
+
+def test_bundled_sweep_roles_match_the_shipped_disposition() -> None:
+    """MC-1542 shipped disposition: exactly these roles are fix-forward sweeps.
+
+    Pins the routing decision the wizard's sweeps panel and the architect's
+    planning directive both read, so converting or retiring a role is a deliberate
+    edit here rather than a silent manifest drift.
+    """
+    discovery = discover_role_registry(workspace_root=Path("/unused/workspace"), user_root=Path("/unused/user"))
+
+    assert [role.id for role in discovery.sweep_roles()] == [
+        # code_reviewer / nuclear_reviewer / spec_reviewer retired in Stage 4 (MC-1542).
+        "performance",
+        "product",
+        "production_readiness_reviewer",
+        "security",
+        "tester",
+        "ui_ux_reviewer",
+    ]
+    for worker in ("architect", "developer", "frontend", "devops", "cross_platform", "coordinator"):
+        assert not discovery.get_role(worker).is_sweep, f"{worker} must stay a worker role"

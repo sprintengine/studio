@@ -11,9 +11,14 @@ from sprintengine_core.tool.artifacts import (
     supersede_stale_gate_placeholder_on_completion,
 )
 from sprintengine_core.tool.common import parse_json_object_arg
-from sprintengine_core.tool.constants import ACTIVE_TASK_STATUSES, ARCHITECT_ROUTED_NEEDS_INPUT_KINDS, NEEDS_INPUT_KIND_DEFAULT_REASONS, VALID_NEEDS_INPUT_KINDS
+from sprintengine_core.tool.constants import (
+    ACTIVE_TASK_STATUSES,
+    ARCHITECT_ROUTED_NEEDS_INPUT_KINDS,
+    NEEDS_INPUT_KIND_DEFAULT_REASONS,
+    VALID_NEEDS_INPUT_KINDS,
+    VALID_TASK_PHASES,
+)
 from sprintengine_core.tool.feedback import (
-    append_reviewer_difficulty_assessment,
     append_feedback_record,
     attach_feedback_payload,
     build_feedback_payload,
@@ -21,16 +26,12 @@ from sprintengine_core.tool.feedback import (
     parse_scope_expansion_args,
     set_implementer_actual_difficulty,
 )
-from sprintengine_core.tool.gates import (
-    apply_gate_verdict,
-    claim_gate_for_agent,
-    find_active_gate_claim,
-    gate_is_claimable_for_role,
-    open_required_quality_gates,
-    task_status_done_requires_closed_gates,
-)
 from sprintengine_core.tool.paths import now_iso
-from sprintengine_core.tool.review_prompts import build_gate_review_prompt, build_rework_prompt
+from sprintengine_core.tool.phase_prompts import (
+    build_phase_directive,
+    build_phase_respawn_brief,
+    build_rework_prompt,
+)
 from sprintengine_core.tool.roles import require_configured_role
 from sprintengine_core.tool.shell import commit_task_changes_if_needed
 from sprintengine_core.tool.state import (
@@ -41,24 +42,22 @@ from sprintengine_core.tool.state import (
     clear_non_active_task_owner_claims,
     clear_task_refs,
     create_task_comment,
-    ensure_gate_dispatch,
     ensure_agent,
     ensure_agent_in_roster,
-    lazily_register_reviewer_id,
     find_task,
-    gate_attempts,
     dispatch_target_key,
     reconcile_agent,
     release_expired_agent_targets,
     select_round_robin_target,
     set_agent_idle,
     task_claim_exceeds_worker_capacity,
-    task_quality_gates,
     with_locked_state,
 )
 from sprintengine_core.tool.tasks import (
     add_unique_scope_expansions,
     add_unique_values,
+    advance_task,
+    claim_phase_session,
     ensure_evidence,
     publish_task,
     read_ready_task_ids,
@@ -66,6 +65,7 @@ from sprintengine_core.tool.tasks import (
     refresh_materialized_ready_queue,
     refresh_task_diff_evidence,
     reject_absolute_path_values,
+    task_awaiting_phase_session,
     task_is_ready,
 )
 from sprintengine_core.tool.commands.run import auto_mode_continuation
@@ -91,215 +91,6 @@ def cmd_task_list(args: argparse.Namespace) -> Dict[str, Any]:
             ready.append({"id": t.get("id"), "title": t.get("title"), "role": t.get("role"), "status": t.get("status"), "dependsOn": t.get("dependsOn", [])})
         return {"ok": True, "readyTasks": ready, "write": False}
     return with_locked_state(args.state, run)
-
-def cmd_task_gate_list(args: argparse.Namespace) -> Dict[str, Any]:
-    if getattr(args, "role", None):
-        args.role = require_configured_role(args.role, context="Gate list")
-
-    def run(state: Dict[str, Any]) -> Dict[str, Any]:
-        gates = []
-        for task in state.get("tasks", []) or []:
-            if not isinstance(task, dict):
-                continue
-            if getattr(args, "task_id", None) and task.get("id") != args.task_id:
-                continue
-            for gate in task_quality_gates(task):
-                if getattr(args, "role", None) and gate.get("role") != args.role:
-                    continue
-                gates.append({
-                    "taskId": task.get("id"),
-                    "taskTitle": task.get("title"),
-                    "taskStatus": task.get("status"),
-                    "id": gate.get("id"),
-                    "phase": gate.get("phase"),
-                    "role": gate.get("role"),
-                    "status": gate.get("status"),
-                    "required": gate.get("required"),
-                    "allowSelfReview": gate.get("allowSelfReview"),
-                    "focus": gate.get("focus"),
-                    "attempts": gate_attempts(gate),
-                })
-        return {"ok": True, "gates": gates, "write": False}
-
-    return with_locked_state(args.state, run)
-
-def cmd_task_gate_next(args: argparse.Namespace) -> Dict[str, Any]:
-    args.role = require_configured_role(args.role, context="Gate")
-
-    def run(state: Dict[str, Any]) -> Dict[str, Any]:
-        with folder_store.FolderLock(args.state.parent / folder_store.GATE_QUEUE_LOCK_FILE):
-            roster_dirty = lazily_register_reviewer_id(state, args.id, args.role)
-            expired = release_expired_agent_targets(state, actor="sprintengine", excluding_agent_id=args.id)
-            active = find_active_gate_claim(state, args.id, args.role)
-            if active:
-                agent = ensure_agent(state, args.id, args.role)
-                agent["status"] = "running"
-                agent["currentTaskId"] = active["task"].get("id")
-                agent["currentGateId"] = active["gate"].get("id")
-                agent["currentGate"] = {
-                    "taskId": active["task"].get("id"),
-                    "gateId": active["gate"].get("id"),
-                    "attemptId": active["attempt"].get("id"),
-                }
-                dispatch_dirty = ensure_gate_dispatch(
-                    state,
-                    agent,
-                    active["task"],
-                    active["gate"],
-                    active["attempt"],
-                    args.id,
-                    args.role,
-                )
-                prompt = build_gate_review_prompt(state, args.state, active["task"], active["gate"], active["attempt"], args.id)
-                return {"ok": True, "claimed": True, "resumed": True, "task": active["task"], "gate": active["gate"], "attempt": active["attempt"], "agent": agent, "prompt": prompt, "releasedExpired": expired["released"], "write": dispatch_dirty or expired["dirty"] or roster_dirty}
-
-            candidates = []
-            for task in state.get("tasks", []) or []:
-                if not isinstance(task, dict):
-                    continue
-                for gate in task_quality_gates(task):
-                    if not gate_is_claimable_for_role(task, gate, args.role, args.id):
-                        continue
-                    candidates.append({"task": task, "gate": gate})
-            selected = select_round_robin_target(
-                state,
-                role=args.role,
-                target_kind="gate",
-                candidates=candidates,
-                key_fn=lambda item: dispatch_target_key("gate", item["task"].get("id"), item["gate"].get("id")),
-            )
-            if selected:
-                task = selected["task"]
-                gate = selected["gate"]
-                result = claim_gate_for_agent(state, task, gate, args.role, args.id)
-                recompute_phase(state)
-                event = append_event(state, "task_gate_claimed", args.id, f"{args.id} claimed gate {gate.get('id')} on {task.get('id')}.")
-                prompt = build_gate_review_prompt(state, args.state, task, gate, result["attempt"], args.id)
-                return {"ok": True, "claimed": True, "resumed": False, **result, "prompt": prompt, "event": event, "releasedExpired": expired["released"]}
-
-            phase_dirty = recompute_phase(state)
-            return {"ok": True, "claimed": False, "reason": "no_ready_gate", "message": f"No ready {args.role} gates. Stop.", "releasedExpired": expired["released"], "write": phase_dirty or expired["dirty"] or roster_dirty}
-
-    return with_locked_state(args.state, run)
-
-def cmd_task_gate_claim(args: argparse.Namespace) -> Dict[str, Any]:
-    args.role = require_configured_role(args.role, context="Gate")
-
-    def run(state: Dict[str, Any]) -> Dict[str, Any]:
-        with folder_store.FolderLock(args.state.parent / folder_store.GATE_QUEUE_LOCK_FILE):
-            roster_dirty = lazily_register_reviewer_id(state, args.id, args.role)
-            task = find_task(state, args.task_id)
-            gate = next((candidate for candidate in task_quality_gates(task) if candidate.get("id") == args.gate_id), None)
-            if gate is None:
-                return {"ok": False, "error": "Gate not found.", "write": roster_dirty}
-            if not gate_is_claimable_for_role(task, gate, args.role, args.id):
-                return {"ok": False, "error": "Gate is not claimable.", "task": {"id": task.get("id"), "status": task.get("status")}, "gate": {"id": gate.get("id"), "status": gate.get("status"), "role": gate.get("role"), "phase": gate.get("phase")}, "write": roster_dirty}
-            result = claim_gate_for_agent(state, task, gate, args.role, args.id)
-            recompute_phase(state)
-            event = append_event(state, "task_gate_claimed", args.id, f"{args.id} claimed gate {gate.get('id')} on {task.get('id')}.")
-            prompt = build_gate_review_prompt(state, args.state, task, gate, result["attempt"], args.id)
-            return {"ok": True, **result, "prompt": prompt, "event": event}
-
-    return with_locked_state(args.state, run)
-
-def cmd_task_gate_verdict(args: argparse.Namespace) -> Dict[str, Any]:
-    args.role = require_configured_role(args.role, context="Gate")
-
-    def run(state: Dict[str, Any]) -> Dict[str, Any]:
-        with folder_store.FolderLock(args.state.parent / folder_store.GATE_QUEUE_LOCK_FILE):
-            ensure_agent_in_roster(state, args.id, args.role)
-            task = find_task(state, args.task_id)
-            gate = next((candidate for candidate in task_quality_gates(task) if candidate.get("id") == args.gate_id), None)
-            if gate is None:
-                return {"ok": False, "error": "Gate not found.", "write": False}
-            if gate.get("role") != args.role:
-                return {"ok": False, "error": "Gate role does not match caller role.", "write": False}
-            needs_input = None
-            if args.verdict == "blocked":
-                kind = args.needs_input_kind or "architect"
-                if kind not in VALID_NEEDS_INPUT_KINDS:
-                    raise SystemExit(
-                        f"--needs-input-kind must be one of: {', '.join(sorted(VALID_NEEDS_INPUT_KINDS))}."
-                    )
-                needs_input = {
-                    "kind": kind,
-                    "reason": args.needs_input_reason or "blocked_other",
-                    "question": (args.needs_input_question or "").strip(),
-                    "suggestedResolution": (args.needs_input_suggested_resolution or "").strip(),
-                }
-            result = apply_gate_verdict(
-                state,
-                args.state,
-                task,
-                gate,
-                args.id,
-                args.verdict,
-                args.summary,
-                required_actions=args.required_action or [],
-                needs_input=needs_input,
-                artifact_path=args.artifact_path,
-                artifact_title=args.artifact_title,
-                artifact_kind=args.artifact_kind,
-            )
-            feedback_warnings: List[str] = []
-            # Reviewed difficulty is optional telemetry: a bad pct/dimension must
-            # not block the operational verdict (Decision 4 — best-effort telemetry).
-            try:
-                append_reviewer_difficulty_assessment(
-                    task,
-                    pct=getattr(args, "reviewed_difficulty_pct", None),
-                    dimension=getattr(args, "reviewed_difficulty_dimension", "") or "",
-                    reason=getattr(args, "reviewed_difficulty_reason", "") or "",
-                    reviewer_agent_id=args.id,
-                    reviewer_role=args.role,
-                    gate_id=str(gate.get("id") or ""),
-                    gate_attempt_id=str(result["attempt"].get("id") or ""),
-                )
-            except SystemExit as exc:
-                feedback_warnings.append(
-                    str(exc.code) if exc.code not in (None, 0) else "reviewed difficulty dropped"
-                )
-            feedback_payload = build_feedback_payload(
-                args,
-                state,
-                args.state,
-                task,
-                args.id,
-                gate_context={
-                    "phase": gate.get("phase"),
-                    "gateId": gate.get("id"),
-                    "attemptId": result["attempt"].get("id"),
-                    "verdict": args.verdict,
-                    "role": args.role,
-                },
-                best_effort=True,
-            )
-            if feedback_payload:
-                feedback_warnings.extend(feedback_payload.get("warnings") or [])
-                attach_feedback_payload(state, feedback_payload, args.id)
-            recompute_phase(state)
-            event = append_event(state, "task_gate_verdict", args.id, f"{args.id} submitted {args.verdict} for gate {args.gate_id} on {args.task_id}.")
-            continuation = auto_mode_continuation(state, args.role, args.id)
-            return {
-                "ok": True,
-                "task": task,
-                "gate": gate,
-                "attempt": result["attempt"],
-                "comment": result["comment"],
-                "artifact": result["artifact"],
-                "nextStatus": result["nextStatus"],
-                "event": event,
-                **(continuation or {}),
-                **({"feedbackWarnings": feedback_warnings} if feedback_warnings else {}),
-                "_feedbackRecord": feedback_payload["record"] if feedback_payload else None,
-            }
-
-    result = with_locked_state(args.state, run)
-    feedback_record = result.pop("_feedbackRecord", None)
-    if feedback_record:
-        result["feedbackRecorded"] = True
-        result["feedbackMetricsPath"] = append_feedback_record(args.state, feedback_record)
-    return result
 
 def _resolve_execution_identity(args: argparse.Namespace) -> Tuple[Optional[str], Optional[str]]:
     """Explicit CLI model/CLI override to stamp onto a claimed task.
@@ -351,8 +142,35 @@ def cmd_task_next(args: argparse.Namespace) -> Dict[str, Any]:
                         "releasedExpired": expired["released"],
                         "write": runtime["dirty"] or expired["dirty"] or stale_owner_dirty,
                     }
-                return {"ok": True, "claimed": False, "reason": "agent_already_has_active_task", "task": active, "agent": agent, "prompt": build_rework_prompt(args.state, active), "releasedExpired": expired["released"], "write": runtime["dirty"] or expired["dirty"] or stale_owner_dirty}
+                # Flow 6 — an owner revived mid-phase (its terminal died, or the
+                # supervisor respawned it) reconnects here. It has no diff in
+                # context, so it gets the phase respawn brief (task card + published
+                # diff + the phase directive), not the implementation rework prompt.
+                # This is the SECOND and last directive delivery channel; the first
+                # is inline in the owner's own publish/advance response.
+                active_status = str(active.get("status") or "")
+                resume_prompt = (
+                    build_phase_respawn_brief(state, args.state, active, active_status)
+                    if active_status in VALID_TASK_PHASES
+                    else build_rework_prompt(args.state, active)
+                )
+                return {
+                    "ok": True,
+                    "claimed": False,
+                    "reason": "agent_already_has_active_task",
+                    "task": active,
+                    "agent": agent,
+                    "prompt": resume_prompt,
+                    **({"phase": active_status} if active_status in VALID_TASK_PHASES else {}),
+                    "releasedExpired": expired["released"],
+                    "write": runtime["dirty"] or expired["dirty"] or stale_owner_dirty,
+                }
 
+            # MC-1543 phase sessions are claimed by task id via `task.claim` (pinned
+            # to the exact bound-runtime session the supervisor spawned), NOT
+            # auto-grabbed here: matching on role alone let a concurrent CHEAP
+            # same-role session win the review and silently downgrade the paid-for
+            # runtime. `task.next` therefore only serves ready work now.
             ready_ids = read_ready_task_ids(state)
             tasks_by_id = {
                 str(t.get("id")): t
@@ -403,6 +221,35 @@ def cmd_task_claim(args: argparse.Namespace) -> Dict[str, Any]:
     def run(state: Dict[str, Any]) -> Dict[str, Any]:
         with folder_store.FolderLock(args.state.parent / folder_store.CLAIM_QUEUE_LOCK_FILE):
             task = find_task(state, args.task_id)
+            # MC-1543: an awaiting phase session is claimed here, pinned to THIS task
+            # id, by the fresh session the supervisor spawned on the phase's bound
+            # runtime. claim_phase_session re-stamps the bound runtime and returns the
+            # diff-seeded brief WITHOUT rewinding the phase status. A fresh id need not
+            # be pre-rostered (ensure_agent seats it), mirroring the old task.next path.
+            if task_awaiting_phase_session(task):
+                agent = ensure_agent(state, args.id, task.get("role"))
+                if task_claim_exceeds_worker_capacity(state, agent, task.get("id")):
+                    return {
+                        "ok": False,
+                        "error": "Worker already owns a task; a fresh roster id must run this phase.",
+                        "reason": "worker_task_capacity_reached",
+                        "task": {"id": task.get("id"), "status": task.get("status")},
+                        "write": False,
+                    }
+                claimed_phase = claim_phase_session(state, task, args.id)
+                recompute_phase(state)
+                event = append_event(
+                    state, "task_phase_session_claimed", args.id,
+                    f"{args.id} claimed the {claimed_phase['phase']} phase of {task.get('id')}.",
+                )
+                return {
+                    "ok": True,
+                    "task": task,
+                    "agent": claimed_phase["agent"],
+                    "phase": claimed_phase["phase"],
+                    "prompt": build_phase_respawn_brief(state, args.state, task, claimed_phase["phase"]),
+                    "event": event,
+                }
             ensure_agent_in_roster(state, args.id, str(task.get("role") or ""))
             agent = ensure_agent(state, args.id, task.get("role"))
             clear_non_active_task_owner_claims(state)
@@ -430,6 +277,14 @@ def cmd_task_status(args: argparse.Namespace) -> Dict[str, Any]:
         actor = args.id or task.get("ownerAgentId") or task.get("role") or "agent"
         previous_status = task.get("status")
         previous_owner_id = task.get("ownerAgentId")
+        if args.status in VALID_TASK_PHASES:
+            # A phase status is entered only by `task.publish` (which composes the
+            # phase directive and runs change detection) and stepped by `task.advance`
+            # — never hand-set here, which would skip the whole diff-driven walk.
+            raise SystemExit(
+                f"{args.status!r} is a review phase entered via publish/advance, "
+                "not a status you set directly."
+            )
         if feedback_args_present(args) and args.status != "done":
             raise SystemExit("Feedback flags on `sprintengine task status` are only supported with --status done.")
         if args.status != "needs_input" and (
@@ -447,18 +302,6 @@ def cmd_task_status(args: argparse.Namespace) -> Dict[str, Any]:
         )
         if args.status == "needs_input" and wants_needs_input_routing and not (args.needs_input_question or "").strip():
             raise SystemExit("--needs-input-question is required when writing routed needs_input metadata.")
-        if args.status == "done" and task_status_done_requires_closed_gates(state, task):
-            open_gates = open_required_quality_gates(task)
-            if open_gates:
-                gate_summary = ", ".join(
-                    f"{gate.get('id')}:{gate.get('status') or 'pending'}"
-                    for gate in open_gates
-                )
-                raise SystemExit(
-                    "Cannot mark task done while required quality gates remain open. "
-                    "Use `sprintengine task publish` and `sprintengine task gate verdict` to close required gates first. "
-                    f"Open gates: {gate_summary}."
-                )
         task["status"] = args.status
         if args.status == "needs_input" and wants_needs_input_routing:
             kind = args.needs_input_kind or "architect"
@@ -481,8 +324,32 @@ def cmd_task_status(args: argparse.Namespace) -> Dict[str, Any]:
             task.pop("needsInput", None)
         elif "needsInput" in task:
             task.pop("needsInput", None)
-        if args.status == "in_progress" and not task.get("startedAt"):
-            task["startedAt"] = now_iso()
+        if args.status == "in_progress":
+            # Reopening a published or completed task (Flow 5, the human Inbox loop).
+            # The old `changes_requested` column was claimable; `in_progress` is not
+            # (`task_is_ready` queues only `todo`), so an unowned reopen would strand
+            # the task. Re-bind it to the agent that implemented it — the supervisor
+            # re-engages that owner (live paste, or `--resume` respawn). If the owner
+            # is truly gone, the expiry sweep releases the task to `todo` and a fresh
+            # id claims it. With no implementer on record (a never-claimed task),
+            # return it to the queue rather than leave it unclaimable.
+            task["completedAt"] = None
+            if not task.get("startedAt"):
+                task["startedAt"] = now_iso()
+            if not task.get("ownerAgentId"):
+                previous_implementer = str(task.get("lastImplementedByAgentId") or "").strip()
+                if previous_implementer:
+                    task["ownerAgentId"] = previous_implementer
+                    append_task_activity(
+                        task,
+                        "status_change",
+                        str(actor),
+                        f"{actor} reopened {args.task_id} for rework; {previous_implementer} owns it again.",
+                        {"status": "in_progress", "ownerAgentId": previous_implementer, "reason": "human_feedback"},
+                    )
+                else:
+                    task["status"] = "todo"
+                    task["startedAt"] = None
         if args.status == "todo":
             if previous_owner_id:
                 set_agent_idle(ensure_agent(state, previous_owner_id, task.get("role")))
@@ -491,7 +358,7 @@ def cmd_task_status(args: argparse.Namespace) -> Dict[str, Any]:
             task["completedAt"] = None
         if args.status == "done":
             task["completedAt"] = now_iso()
-            if previous_status in {"in_progress", "changes_requested", "needs_input"}:
+            if previous_status in {"in_progress", "review", "needs_input"}:
                 task["lastImplementedByAgentId"] = str(actor)
                 task["lastPublishedAt"] = task["completedAt"]
             set_implementer_actual_difficulty(
@@ -508,7 +375,7 @@ def cmd_task_status(args: argparse.Namespace) -> Dict[str, Any]:
             commit_sha = commit_task_changes_if_needed(state, args.state, task, str(actor))
         if task.get("ownerAgentId"):
             agent = ensure_agent(state, task["ownerAgentId"], task.get("role"))
-            if args.status == "in_progress":
+            if args.status in {"in_progress", "review"}:
                 agent["status"] = "running"
                 agent["currentTaskId"] = args.task_id
             elif args.status == "needs_input":
@@ -523,19 +390,27 @@ def cmd_task_status(args: argparse.Namespace) -> Dict[str, Any]:
         feedback_payload = build_feedback_payload(args, state, args.state, task, actor)
         if feedback_payload:
             attach_feedback_payload(state, feedback_payload, actor)
+        # The requested status is not always the status that landed: reopening a
+        # never-claimed task returns it to `todo` because an unowned `in_progress`
+        # task is unclaimable. Report, log, and event the status the store actually
+        # holds — a response that says `in_progress` over a `todo` row is a lie the
+        # board and the caller both act on.
+        final_status = str(task.get("status") or args.status)
         append_task_activity(
             task,
-            "status_change" if args.status != "needs_input" else "needs_input",
+            "status_change" if final_status != "needs_input" else "needs_input",
             str(actor),
-            f"{actor} moved {args.task_id} to {args.status}.",
-            {"status": args.status},
+            f"{actor} moved {args.task_id} to {final_status}.",
+            {"status": final_status, **({"requestedStatus": args.status} if final_status != args.status else {})},
         )
         recompute_phase(state)
-        event = append_event(state, "task_status_changed", actor, f"{actor} moved {args.task_id} to {args.status}.")
-        continuation = auto_mode_continuation(state, str(task.get("role") or ""), str(actor)) if args.status == "done" else None
+        event = append_event(state, "task_status_changed", actor, f"{actor} moved {args.task_id} to {final_status}.")
+        continuation = auto_mode_continuation(state, str(task.get("role") or ""), str(actor)) if final_status == "done" else None
         return {
             "ok": True,
             "task": task,
+            "status": final_status,
+            **({"requestedStatus": args.status} if final_status != args.status else {}),
             "event": event,
             "clearedAgents": cleared,
             "commitSha": commit_sha,
@@ -582,10 +457,15 @@ def cmd_task_resolve_input(args: argparse.Namespace) -> Dict[str, Any]:
                 else f"Input was resolved for {args.task_id} by {args.id}; resume through the claim tool."
             ),
         )
+        # A mid-phase escalation resumes IN that phase, so the owner needs the phase
+        # directive plus the ruling — not the implementation prompt it already ran.
+        resume_phase = result.get("resumePhase")
+        next_directive = build_phase_directive(state, args.state, task, resume_phase) if resume_phase else None
         return {
             "ok": True,
             "task": task,
             "transition": result,
+            **({"nextDirective": next_directive} if next_directive else {}),
             "event": event,
             "notification": notification,
         }
@@ -717,17 +597,32 @@ def cmd_task_publish(args: argparse.Namespace) -> Dict[str, Any]:
             getattr(args, "actual_difficulty_pct", None),
             getattr(args, "actual_difficulty_reason", "") or "",
         )
-        result = publish_task(state, task, str(actor), args.summary, paths=args.path or [], data=summary_data)
+        result = publish_task(state, args.state, task, str(actor), args.summary, paths=args.path or [], data=summary_data)
         recompute_phase(state)
         event = append_event(state, "task_published", str(actor), f"{actor} published {args.task_id} to {result['nextStatus']}.")
         continuation = auto_mode_continuation(state, str(task.get("role") or ""), str(actor))
+        # The owner is in-session and mid-tool-call: hand it the phase directive here
+        # rather than pasting into its terminal. There is no third delivery channel
+        # (see phase_prompts) — the only other one is the respawn brief for a dead owner.
+        # MC-1543: when the phase is bound to a different runtime the directive is NOT
+        # returned inline; it rides the diff-seeded brief of the session the supervisor
+        # spawns on that runtime.
+        awaiting = result.get("awaitingPhaseSession")
+        next_directive = (
+            build_phase_directive(state, args.state, task, result["nextStatus"])
+            if result["nextStatus"] != "done" and not awaiting
+            else None
+        )
         return {
             "ok": True,
             "task": task,
             "comment": result["comment"],
             "nextStatus": result["nextStatus"],
             "previousStatus": result["previousStatus"],
-            "clearedAgents": result["clearedAgents"],
+            "producedChanges": result["producedChanges"],
+            "phases": result["phases"],
+            **({"awaitingPhaseSession": awaiting} if awaiting else {}),
+            **({"nextDirective": next_directive} if next_directive else {}),
             "committed": bool(commit_sha),
             "commitSha": commit_sha,
             "event": event,
@@ -735,6 +630,80 @@ def cmd_task_publish(args: argparse.Namespace) -> Dict[str, Any]:
         }
 
     return with_locked_state(args.state, run)
+
+
+def cmd_task_advance(args: argparse.Namespace) -> Dict[str, Any]:
+    """Close the task's current phase and step forward. Owner-only."""
+
+    def run(state: Dict[str, Any]) -> Dict[str, Any]:
+        task = find_task(state, args.task_id)
+        actor = str(args.id or task.get("ownerAgentId") or "agent")
+        needs_input = None
+        if args.outcome == "escalate":
+            kind = getattr(args, "needs_input_kind", None) or "architect"
+            if kind not in VALID_NEEDS_INPUT_KINDS:
+                raise SystemExit(f"--needs-input-kind must be one of: {', '.join(sorted(VALID_NEEDS_INPUT_KINDS))}.")
+            needs_input = {
+                "kind": kind,
+                "reason": getattr(args, "needs_input_reason", None) or NEEDS_INPUT_KIND_DEFAULT_REASONS.get(kind, "blocked_other"),
+                "question": (getattr(args, "needs_input_question", None) or "").strip(),
+                "suggestedResolution": (getattr(args, "needs_input_suggested_resolution", None) or "").strip(),
+            }
+        result = advance_task(state, task, actor, args.phase, args.outcome, args.summary, needs_input=needs_input)
+
+        feedback_warnings: List[str] = []
+        # Findings are best-effort telemetry: a bad enum must never block the
+        # operational transition (the same rule gate verdicts carried).
+        feedback_payload = build_feedback_payload(
+            args,
+            state,
+            args.state,
+            task,
+            actor,
+            phase_context={"phase": result["phase"], "outcome": args.outcome},
+            best_effort=True,
+        )
+        if feedback_payload:
+            feedback_warnings.extend(feedback_payload.get("warnings") or [])
+            attach_feedback_payload(state, feedback_payload, actor)
+
+        recompute_phase(state)
+        event = append_event(
+            state,
+            "task_phase_advanced",
+            actor,
+            f"{actor} advanced {args.task_id} out of {result['phase']} with {args.outcome}.",
+            {"taskId": args.task_id, "phase": result["phase"], "outcome": args.outcome, "status": result["nextStatus"]},
+        )
+        continuation = auto_mode_continuation(state, str(task.get("role") or ""), actor)
+        awaiting = result.get("awaitingPhaseSession")
+        next_directive = (
+            build_phase_directive(state, args.state, task, result["nextPhase"])
+            if result["nextPhase"] and not awaiting
+            else None
+        )
+        return {
+            "ok": True,
+            "task": task,
+            "comment": result["comment"],
+            "phase": result["phase"],
+            "outcome": args.outcome,
+            "nextStatus": result["nextStatus"],
+            **({"nextPhase": result["nextPhase"]} if result["nextPhase"] else {}),
+            **({"awaitingPhaseSession": awaiting} if awaiting else {}),
+            **({"nextDirective": next_directive} if next_directive else {}),
+            "event": event,
+            **(continuation or {}),
+            **({"feedbackWarnings": feedback_warnings} if feedback_warnings else {}),
+            "_feedbackRecord": feedback_payload["record"] if feedback_payload else None,
+        }
+
+    result = with_locked_state(args.state, run)
+    feedback_record = result.pop("_feedbackRecord", None)
+    if feedback_record:
+        result["feedbackRecorded"] = True
+        result["feedbackMetricsPath"] = append_feedback_record(args.state, feedback_record)
+    return result
 
 def cmd_task_note(args: argparse.Namespace) -> Dict[str, Any]:
     # Runtime notes flow through task.comments so the body, author, and timestamp
@@ -784,10 +753,6 @@ def cmd_task_comment_list(args: argparse.Namespace) -> Dict[str, Any]:
     return with_locked_state(args.state, run)
 
 list_tasks = cmd_task_list
-gate_list = cmd_task_gate_list
-gate_next = cmd_task_gate_next
-gate_claim = cmd_task_gate_claim
-gate_verdict = cmd_task_gate_verdict
 next_task = cmd_task_next
 claim = cmd_task_claim
 status = cmd_task_status
@@ -796,6 +761,7 @@ release = cmd_task_release
 refresh_ready = cmd_task_refresh_ready
 log = cmd_task_log
 publish = cmd_task_publish
+advance = cmd_task_advance
 note = cmd_task_note
 
 def comment(args: argparse.Namespace) -> Dict[str, Any]:

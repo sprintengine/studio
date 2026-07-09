@@ -33,9 +33,6 @@ const planSourcedSprintEngineRoleCounts: SprintEngineRoleCounts = {
   product: 1,
   developer: 0,
   frontend: 0,
-  code_reviewer: 0,
-  nuclear_reviewer: 0,
-  spec_reviewer: 0,
   performance: 0,
   production_readiness_reviewer: 0,
   tester: 0,
@@ -54,6 +51,10 @@ export type PlanSourcedSprintEngineWorkspaceArgs = {
   roleCliDefaults?: SprintEngineRoleCliDefaults
   roleModelOverrides?: SprintEngineRoleModelOverrides | null
   initialSpawnRoles?: SprintEngineRoleId[] | null
+  // Extra roles merged into enabledRoles -> configuredRoles at init (MC-1542:
+  // the registry's sweep roles, so the architect can plan the audits the
+  // wizard's "Final sweeps" panel promises even when none are mandated).
+  additionalEnabledRoles?: SprintEngineRoleId[]
   sprintEngineAutoState?: Partial<SprintEngineAutoState> | null
   workspaceWindowId?: WorkspaceWindowId | null
   useWorktrees?: boolean
@@ -168,6 +169,7 @@ export async function createPlanSourcedSprintEngineWorkspace({
   roleCliDefaults,
   roleModelOverrides,
   initialSpawnRoles,
+  additionalEnabledRoles,
   sprintEngineAutoState,
   workspaceWindowId,
   useWorktrees,
@@ -223,7 +225,7 @@ export async function createPlanSourcedSprintEngineWorkspace({
       artifacts: sprintEngineState.artifacts,
       useWorktrees: useWorktrees === true,
       roleRuntimes: buildSprintEngineRoleRuntimes(roleModelOverrides, roleCliDefaults),
-      enabledRoles: sprintEngineEnabledRoles(sprintEngineState.roleCounts),
+      enabledRoles: sprintEngineEnabledRoles(sprintEngineState.roleCounts, additionalEnabledRoles),
       ...(initSourceSeed
         ? { source: initSourceSeed.source, sourceBundle: initSourceSeed.sourceBundle }
         : {}),

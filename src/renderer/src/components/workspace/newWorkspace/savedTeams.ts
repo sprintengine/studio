@@ -26,8 +26,6 @@ export const DEFAULT_SPRINT_ENGINE_ROLE_COUNTS: SprintEngineRoleCounts = {
   frontend: 0,
   ui_ux_reviewer: 0,
   developer: 1,
-  code_reviewer: 1,
-  spec_reviewer: 0,
   performance: 0,
   production_readiness_reviewer: 0,
   cross_platform: 0,
@@ -35,10 +33,9 @@ export const DEFAULT_SPRINT_ENGINE_ROLE_COUNTS: SprintEngineRoleCounts = {
   security: 0,
 }
 
-// Every known role (the counts map's keys plus the count-less nuclear
-// reviewer) mapped to the stock CLI — the wizard's Required<> seed map.
+// Every known role mapped to the stock CLI — the wizard's Required<> seed map.
 export const DEFAULT_SPRINT_ENGINE_ROLE_CLI_DEFAULTS: Required<SprintEngineRoleCliDefaults> = Object.fromEntries(
-  [...Object.keys(DEFAULT_SPRINT_ENGINE_ROLE_COUNTS), 'nuclear_reviewer'].map((role) => [role, DEFAULT_CLI])
+  Object.keys(DEFAULT_SPRINT_ENGINE_ROLE_COUNTS).map((role) => [role, DEFAULT_CLI])
 ) as Required<SprintEngineRoleCliDefaults>
 
 export type ResolvedInitialSprintEngineRoster = {

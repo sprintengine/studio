@@ -54,7 +54,6 @@ export const MULTILOOP_ROLES: MultiloopRoleDescriptor[] = [
   { role: 'frontend', label: 'Frontend', shortLabel: 'Frontend', icon: 'design' },
   { role: 'tester', label: 'Tester', shortLabel: 'Tester', icon: 'test' },
   { role: 'security', label: 'Security', shortLabel: 'Security', icon: 'shield' },
-  { role: 'code_reviewer', label: 'Code Reviewer', shortLabel: 'Code Reviewer', icon: 'review' },
   { role: 'performance', label: 'Performance', shortLabel: 'Performance', icon: 'performance' },
   { role: 'cross_platform', label: 'Cross-platform', shortLabel: 'Compatibility', icon: 'cross_platform' },
 ]
@@ -155,30 +154,6 @@ export const SPECIALIST_ACTIONS: SpecialistAction[] = [
     description: 'Inspect vulnerabilities, trust boundaries, secrets, permissions, and risky defaults.',
     icon: 'shield',
     soulRole: 'security',
-  },
-  {
-    id: 'code-review',
-    label: 'Slop Cop',
-    shortLabel: 'Slop Cop',
-    description: 'Review implementation quality, generic AI-code patterns, fake affordances, design decay, and shallow abstractions.',
-    icon: 'spaghetti',
-    soulRole: 'code_reviewer',
-  },
-  {
-    id: 'nuclear-review',
-    label: 'Nuclear Reviewer',
-    shortLabel: 'Nuclear Reviewer',
-    description: 'Run a strict maintainability review using the Nuclear Review skill for structure, abstraction, large-file, and spaghetti-growth risks.',
-    icon: 'nuclear',
-    soulRole: 'nuclear_reviewer',
-  },
-  {
-    id: 'spec-review',
-    label: 'Spec Reviewer',
-    shortLabel: 'Spec Reviewer',
-    description: 'Review completed work against requirements, acceptance criteria, behavior, tests, and implementation evidence.',
-    icon: 'review',
-    soulRole: 'spec_reviewer',
   },
 ]
 

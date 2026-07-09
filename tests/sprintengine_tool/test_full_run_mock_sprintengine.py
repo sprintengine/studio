@@ -52,35 +52,7 @@ def add_ready_artifact(
     )
 
 
-def publish_and_approve_standard_gates(cli: SwarmCli, task_id: str, actor: str, summary: str) -> None:
-    cli.run("task", "publish", "--task-id", task_id, "--id", actor, "--summary", summary)
-    for gate_id, role in (
-        ("code_reviewer", "code_reviewer"),
-        ("spec_reviewer", "spec_reviewer"),
-        ("tester", "tester"),
-    ):
-        reviewer_id = f"{task_id.lower()}-{gate_id}"
-        cli.run("task", "gate", "claim", "--task-id", task_id, "--gate-id", gate_id, "--role", role, "--id", reviewer_id)
-        cli.run(
-            "task",
-            "gate",
-            "verdict",
-            "--task-id",
-            task_id,
-            "--gate-id",
-            gate_id,
-            "--role",
-            role,
-            "--id",
-            reviewer_id,
-            "--verdict",
-            "approved",
-            "--summary",
-            f"{gate_id} passed.",
-        )
-
-
-def test_full_run_mock_swarm_covers_gates_review_scheduling_auto_approval_and_final_follow_up(tmp_path) -> None:
+def test_full_run_mock_swarm_covers_phase_walk_review_scheduling_auto_approval_and_final_follow_up(tmp_path) -> None:
     state_path = tmp_path / ".multi-code" / "sprintengine" / "full-run-mock" / "run.yaml"
     cli = SwarmCli(state_path)
 
@@ -99,15 +71,9 @@ def test_full_run_mock_swarm_covers_gates_review_scheduling_auto_approval_and_fi
         "--agent",
         "developer:developer-full-run",
         "--agent",
-        "code_reviewer:reviewer-full-run",
-        "--agent",
-        "code_reviewer:code-reviewer-gate",
-        "--agent",
-        "spec_reviewer:spec-reviewer-gate",
+        "security:reviewer-full-run",
         "--agent",
         "tester:tester-full-run",
-        "--agent",
-        "tester:tester-gate",
         "--agent",
         "product:product-final",
     )
@@ -146,7 +112,7 @@ def test_full_run_mock_swarm_covers_gates_review_scheduling_auto_approval_and_fi
         "--title",
         "Review implementation",
         "--role",
-        "code_reviewer",
+        "security",
         "--depends-on",
         "T3",
         "--acceptance",
@@ -208,7 +174,7 @@ def test_full_run_mock_swarm_covers_gates_review_scheduling_auto_approval_and_fi
         "--result",
         "Fixture implementation step reached review.",
     )
-    cli.run(
+    published = cli.run(
         "task",
         "publish",
         "--task-id",
@@ -216,68 +182,40 @@ def test_full_run_mock_swarm_covers_gates_review_scheduling_auto_approval_and_fi
         "--id",
         "developer-full-run",
         "--summary",
-        "Implementation ready for quality gates.",
+        "Implementation ready for review.",
     )
-    cli.run("task", "gate", "claim", "--task-id", "T3", "--gate-id", "code_reviewer", "--role", "code_reviewer", "--id", "code-reviewer-gate")
-    cli.run(
+    # Publish detects the diff and routes T3 into its review phase, owner intact.
+    assert published["nextStatus"] == "review"
+    assert published["producedChanges"] is True
+    assert published["nextDirective"]
+    state_in_review = read_state(state_path)
+    assert_task_status(state_in_review, "T3", "review")
+    assert get_task(state_in_review, "T3")["ownerAgentId"] == "developer-full-run"
+    # A task in review is still owned, so it is not offered to the next claimer.
+    assert_ready_tasks(cli, "security", [])
+
+    advanced = cli.run(
         "task",
-        "gate",
-        "verdict",
+        "advance",
         "--task-id",
         "T3",
-        "--gate-id",
-        "code_reviewer",
-        "--role",
-        "code_reviewer",
         "--id",
-        "code-reviewer-gate",
-        "--verdict",
-        "approved",
+        "developer-full-run",
+        "--phase",
+        "review",
+        "--outcome",
+        "pass_with_fixes",
         "--summary",
-        "Code review gate passed.",
+        "Self-reviewed; tightened one assertion.",
         "--confidence-pct",
         "88",
         "--hallucination-risk-pct",
         "5",
     )
-    cli.run("task", "gate", "claim", "--task-id", "T3", "--gate-id", "spec_reviewer", "--role", "spec_reviewer", "--id", "spec-reviewer-gate")
-    cli.run(
-        "task",
-        "gate",
-        "verdict",
-        "--task-id",
-        "T3",
-        "--gate-id",
-        "spec_reviewer",
-        "--role",
-        "spec_reviewer",
-        "--id",
-        "spec-reviewer-gate",
-        "--verdict",
-        "approved",
-        "--summary",
-        "Spec review gate passed.",
-    )
-    cli.run("task", "gate", "claim", "--task-id", "T3", "--gate-id", "tester", "--role", "tester", "--id", "tester-gate")
-    cli.run(
-        "task",
-        "gate",
-        "verdict",
-        "--task-id",
-        "T3",
-        "--gate-id",
-        "tester",
-        "--role",
-        "tester",
-        "--id",
-        "tester-gate",
-        "--verdict",
-        "approved",
-        "--summary",
-        "Validation gate passed.",
-    )
+    assert advanced["nextStatus"] == "done"
+    assert advanced["feedbackRecorded"] is True
 
-    cli.run("task", "next", "--role", "code_reviewer", "--id", "reviewer-full-run")
+    cli.run("task", "next", "--role", "security", "--id", "reviewer-full-run")
     add_ready_artifact(
         cli,
         state_path,

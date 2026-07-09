@@ -37,7 +37,18 @@ export type ExistingTeam = {
 
 export type SprintEnginePath = 'new' | 'existing' | 'plan'
 
+/**
+ * A team folder the wizard found but cannot open — today, a pre-MC-1542 run store.
+ * Surfaced rather than silently skipped: a sprint that vanishes from the picker
+ * with no explanation is indistinguishable from a bug.
+ */
+export type UnreadableTeam = {
+  slug: string
+  message: string
+}
+
 export type FolderScanResult = {
   teams: ExistingTeam[]
+  unreadableTeams: UnreadableTeam[]
   plans: MarkdownPlanOption[]
 }

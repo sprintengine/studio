@@ -5,11 +5,13 @@ import json
 import os
 from pathlib import Path
 
-from sprintengine_core.role_registry import RegistryDiscovery, SoulRenderError, discover_role_registry
+from sprintengine_core.role_registry import (
+    BUNDLED_REGISTRY_ROOT,
+    RegistryDiscovery,
+    SoulRenderError,
+    discover_role_registry,
+)
 
-
-SOULS_ROOT = Path(__file__).resolve().parent
-PROMPTS_DIR = SOULS_ROOT / "prompts"
 
 # Canonical Multicode user-level registry root. MUST stay in sync with
 # defaultUserRoleRegistryRoot() in src/main/sprintengine-role-registry.ts
@@ -68,29 +70,13 @@ class Soul:
     aliases: tuple[str, ...] = ()
     path: Path | None = None
 
-    @property
-    def file_name(self) -> str:
-        return self.path.name if self.path is not None else f"{self.role}.md"
 
-
-LEGACY_SOULS: tuple[Soul, ...] = (
-    Soul("coordinator", "Coordinator", ("multiloop-coordinator",), PROMPTS_DIR / "coordinator.md"),
-    Soul("architect", "Architect", path=PROMPTS_DIR / "architect.md"),
-    Soul("product", "Product", ("product-strategist",), PROMPTS_DIR / "product.md"),
-    Soul("developer", "Developer", path=PROMPTS_DIR / "developer.md"),
-    Soul("devops", "DevOps", ("devops-infra",), PROMPTS_DIR / "devops.md"),
-    Soul("frontend", "Frontend", ("frontend-design-review",), PROMPTS_DIR / "frontend.md"),
-    Soul("ui_ux_reviewer", "UI/UX Reviewer", ("ui-ux-review", "frontend-ui-review", "frontend-ux-review", "brand-ui-review"), PROMPTS_DIR / "ui_ux_reviewer.md"),
-    Soul("blog_writer", "Blog Writer", ("blog-writer", "content-writer", "blogger"), PROMPTS_DIR / "blog_writer.md"),
-    Soul("tester", "Tester", ("qa-test",), PROMPTS_DIR / "tester.md"),
-    Soul("security", "Security", ("security-review",), PROMPTS_DIR / "security.md"),
-    Soul("code_reviewer", "Code Reviewer", ("code-review", "code-reviewer"), PROMPTS_DIR / "code_reviewer.md"),
-    Soul("spec_reviewer", "Spec Reviewer", ("spec-review", "spec-reviewer"), PROMPTS_DIR / "spec_reviewer.md"),
-    Soul("performance", "Performance", ("performance-engineer",), PROMPTS_DIR / "performance.md"),
-    Soul("presentation", "Presentation", ("presenter", "deck-writer", "slide-author", "slides"), PROMPTS_DIR / "presentation.md"),
-)
-SOULS = LEGACY_SOULS
-MIGRATED_BUNDLED_SOULS = LEGACY_SOULS
+def _bundled_role_ids() -> list[str]:
+    # The canonical bundled role set ships in resources/sprintengine/roles/.
+    # validate_souls() asserts each of these resolves through discovery, so a
+    # dropped or renamed bundled manifest surfaces as a validation error.
+    roles_dir = BUNDLED_REGISTRY_ROOT / "roles"
+    return sorted(path.stem for path in roles_dir.glob("*.json"))
 
 
 def _default_discovery() -> RegistryDiscovery:
@@ -126,10 +112,12 @@ def list_souls() -> list[Soul]:
 
 
 def soul_path(role: str) -> Path:
-    soul = get_soul(role)
-    if soul.path is None:
-        return PROMPTS_DIR / soul.file_name
-    return soul.path
+    # Discovery always resolves a manifest path onto the Soul, so this simply
+    # exposes it.
+    path = get_soul(role).path
+    if path is None:  # pragma: no cover - discovery always sets the path
+        raise KeyError(f"Soul '{role}' has no resolved registry path.")
+    return path
 
 
 def render_soul(role: str, *, extra_skills: tuple[str, ...] = ()) -> str:
@@ -154,9 +142,9 @@ def validate_souls() -> list[str]:
     for warning in discovery.warnings:
         source = f" at {warning.path}" if warning.path is not None else ""
         errors.append(f"{warning.code}{source}: {warning.message}")
-    for soul in MIGRATED_BUNDLED_SOULS:
-        if soul.role not in discovery.roles:
-            errors.append(f"{soul.role}: missing migrated bundled Soul registry role")
+    for role_id in _bundled_role_ids():
+        if role_id not in discovery.roles:
+            errors.append(f"{role_id}: missing migrated bundled Soul registry role")
     for role_id in sorted(discovery.roles):
         try:
             discovery.render_soul(role_id, workspace_root=Path.cwd(), run_id=os.environ.get("SPRINTENGINE_RUN_ID", ""))

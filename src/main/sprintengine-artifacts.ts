@@ -92,8 +92,6 @@ const validTaskRoles = new Set<SprintEngineTaskMutationRole>([
   'frontend',
   'tester',
   'security',
-  'code_reviewer',
-  'spec_reviewer',
   'performance',
   'production_readiness_reviewer',
 ])
@@ -116,6 +114,10 @@ type SerializableSprintEngineStatePayload = {
   enabledRoles: string[]
   rosterSource: 'user' | 'architect' | null
   allowedRuntimes: Array<{ cli: string; model: string | null }>
+  // `null` = absent (engine default applies); `[]` = an explicit no-review run.
+  defaultPhases: string[] | null
+  requiredSweeps: string[]
+  phaseRuntimes: Record<string, { cli: string; model: string | null }> | null
   source: SprintEngineStateInitializeSource | null
   sourceBundle: SprintEngineStateInitializeSourceBundleItem[]
 }
@@ -390,9 +392,52 @@ function resolveInitialSprintEngineStatePayload(payload: SprintEngineStateInitia
     enabledRoles: resolveEnabledRoles(payload?.enabledRoles),
     rosterSource: resolveRosterSource(payload?.rosterSource),
     allowedRuntimes: resolveAllowedRuntimes(payload?.allowedRuntimes),
+    defaultPhases: resolveDefaultPhases(payload?.defaultPhases),
+    requiredSweeps: resolveRequiredSweeps(payload?.requiredSweeps),
+    phaseRuntimes: resolvePhaseRuntimes(payload?.phaseRuntimes),
     source: resolveInitSource(payload?.source),
     sourceBundle: resolveInitSourceBundle(payload?.sourceBundle),
   }
+}
+
+// The run's phase list. `undefined` stays `null` (absent -> engine default);
+// an array — INCLUDING the empty one — is forwarded verbatim, because `[]` is the
+// operator saying "no review step on this run". Non-string entries are dropped;
+// the engine rejects any unknown phase name by contract.
+function resolveDefaultPhases(input: SprintEngineStateInitializeInput['defaultPhases']): string[] | null {
+  if (!Array.isArray(input)) return null
+  return input.filter((phase): phase is string => typeof phase === 'string' && phase.trim().length > 0)
+}
+
+// Mandated sweep roles. Unlike `defaultPhases`, an empty list is the same as absent
+// (no mandate), so this collapses to a plain array and the flag is only forwarded
+// when non-empty. The engine rejects any id that is not a registry sweep role.
+function resolveRequiredSweeps(input: SprintEngineStateInitializeInput['requiredSweeps']): string[] {
+  if (!Array.isArray(input)) return []
+  const seen = new Set<string>()
+  for (const role of input) {
+    if (typeof role === 'string' && role.trim()) seen.add(role.trim())
+  }
+  return [...seen]
+}
+
+// Per-phase runtime bindings (MC-1543). An entry with no `cli` cannot spawn a
+// session, so it is dropped here rather than forwarded — the engine would reject it
+// anyway, and a half-honoured premium mode is worse than none. Returns `null` when
+// nothing survives, so the flag is omitted and zero extra sessions are created.
+function resolvePhaseRuntimes(
+  input: SprintEngineStateInitializeInput['phaseRuntimes'],
+): Record<string, { cli: string; model: string | null }> | null {
+  if (!input || typeof input !== 'object' || Array.isArray(input)) return null
+  const resolved: Record<string, { cli: string; model: string | null }> = {}
+  for (const [phase, binding] of Object.entries(input)) {
+    if (!phase.trim() || !binding || typeof binding !== 'object') continue
+    const cli = typeof binding.cli === 'string' ? binding.cli.trim() : ''
+    if (!cli) continue
+    const model = typeof binding.model === 'string' && binding.model.trim() ? binding.model.trim() : null
+    resolved[phase.trim()] = { cli, model }
+  }
+  return Object.keys(resolved).length > 0 ? resolved : null
 }
 
 // Keep only source entries with the non-empty string fields Python persists.
@@ -432,8 +477,8 @@ function resolveInitSourceBundle(
 
 // The enabled role ids (architect always included) forwarded to Python init as
 // `configuredRoles`. Trim, drop empties, and dedupe while preserving order so
-// the run.yaml list is stable; an empty result sends no flag (legacy behavior:
-// gates derive from the seated roster).
+// the run.yaml list is stable; an empty result sends no flag (the architect
+// then seats the team itself under the lazy roster).
 function resolveEnabledRoles(input: SprintEngineStateInitializeInput['enabledRoles']): string[] {
   if (!Array.isArray(input)) return []
   const seen = new Set<string>()
@@ -519,6 +564,42 @@ function validateWorkspaceRoot(input: unknown): string {
   return workspaceRoot
 }
 
+// The run-store schema version this build understands. MIRRORS `RUN_SCHEMA_VERSION`
+// in sprintengine_core/store.py. Bumped to 2 by MC-1542 (single-owner tasks), which
+// deleted quality gates and the `changes_requested`/`testing`/`product` statuses.
+export const SPRINT_ENGINE_RUN_SCHEMA_VERSION = 2
+
+/**
+ * Reject a pre-MC-1542 run store, returning a readable message (or null when the
+ * store is current).
+ *
+ * Decision 8 is a pre-release clean break: old stores are local runtime state and
+ * are never migrated. The one requirement is that the rejection is LOUD at every
+ * surface that reads a store. The renderer reads `projection.json` straight off
+ * disk without going through Python, so this guard — not the Python loader — is
+ * what stops the board, wizard, backlog links, and module mount from silently
+ * rendering gate-era data.
+ *
+ * A projection carrying a `run` object with no `schemaVersion` predates the field
+ * and is therefore version 1. A payload with no `run` object at all is not a
+ * projection; that is malformed input, judged downstream by
+ * `normalizeSprintEngineProjection`, and this guard stays silent rather than
+ * blaming it on an old Multicode.
+ */
+export function describeUnsupportedSprintEngineStore(projection: unknown, teamDirectory: string): string | null {
+  if (!projection || typeof projection !== 'object') return null
+  const run = (projection as { run?: unknown }).run
+  if (!run || typeof run !== 'object' || Array.isArray(run)) return null
+  const rawVersion = (run as { schemaVersion?: unknown }).schemaVersion
+  const version = typeof rawVersion === 'number' && Number.isFinite(rawVersion) ? rawVersion : 1
+  if (version >= SPRINT_ENGINE_RUN_SCHEMA_VERSION) return null
+  return (
+    `This sprint was created by an older version of Multicode (run store v${version}, ` +
+    `this build reads v${SPRINT_ENGINE_RUN_SCHEMA_VERSION}). Single-owner tasks replaced quality gates, ` +
+    `so the run cannot be opened. Delete "${teamDirectory}" and start the sprint again.`
+  )
+}
+
 function sprintEngineInitArgs(state: ValidSprintEngineStatePath, payload: SerializableSprintEngineStatePayload): string[] {
   const args = ['--state', state.statePath, 'init', '--name', payload.name, '--goal', payload.goal || payload.name]
   if (payload.useWorktrees) {
@@ -542,6 +623,18 @@ function sprintEngineInitArgs(state: ValidSprintEngineStatePath, payload: Serial
   }
   if (payload.allowedRuntimes.length > 0) {
     args.push('--allowed-runtimes-json', JSON.stringify(payload.allowedRuntimes))
+  }
+  // `[]` must reach the engine (an explicit no-review run), so this branches on
+  // presence, not truthiness, unlike every other array flag above.
+  if (payload.defaultPhases !== null) {
+    args.push('--default-phases-json', JSON.stringify(payload.defaultPhases))
+  }
+  if (payload.requiredSweeps.length > 0) {
+    args.push('--required-sweeps-json', JSON.stringify(payload.requiredSweeps))
+  }
+  // Must follow --allowed-runtimes-json: the engine validates bindings against the palette.
+  if (payload.phaseRuntimes) {
+    args.push('--phase-runtimes-json', JSON.stringify(payload.phaseRuntimes))
   }
   if (payload.source) {
     args.push('--source-json', JSON.stringify(payload.source))
@@ -1434,7 +1527,10 @@ export function createSprintEngineArtifactHandlers(deps: SprintEngineArtifactDep
           return { ok: true, data: null, token, unchanged: true }
         }
         const projectionContent = await readFile(projectionPath, 'utf8')
-        return { ok: true, data: JSON.parse(projectionContent), token }
+        const projection = JSON.parse(projectionContent)
+        const rejection = describeUnsupportedSprintEngineStore(projection, state.teamDirectory)
+        if (rejection) return { ok: false, message: rejection }
+        return { ok: true, data: projection, token }
       } catch (error) {
         return { ok: false, message: error instanceof Error ? error.message : String(error) }
       }

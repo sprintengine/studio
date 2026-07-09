@@ -21,14 +21,16 @@ except ImportError as exc:
     ) from exc
 
 
+# Board columns: todo -> ready -> in_progress -> review -> done, with needs_input as
+# the blocked surface. `ready` is the materialized queue, not a semantic status.
+# MC-1542 deleted `changes_requested`, `testing`, and `product`. MIRRORED in
+# sprintengine_core/tool/constants.py (VALID_TASK_STATUSES, minus `ready`) and in
+# src/renderer/src/types/workspace.ts — a contract test pins all three.
 TASK_STATUSES = (
     "todo",
     "ready",
     "in_progress",
     "review",
-    "testing",
-    "product",
-    "changes_requested",
     "needs_input",
     "done",
     "canceled",
@@ -51,7 +53,6 @@ LOCK_STATE_FILES = ("runner/run.lock.json", "runner/ready.lock.json")
 RUN_LOCK_FILE = "runner/run.queue.lock"
 READY_QUEUE_LOCK_FILE = "runner/ready.queue.lock"
 CLAIM_QUEUE_LOCK_FILE = "runner/claim.queue.lock"
-GATE_QUEUE_LOCK_FILE = "runner/gate.queue.lock"
 # Serializes the shared run-worktree git index across concurrent agents in
 # worktree mode: only one agent stages and commits at a time.
 GIT_COMMIT_LOCK_FILE = "runner/git.commit.lock"
@@ -62,49 +63,53 @@ RUN_SOURCE_KEYS = ("source", "sourceBundle")
 # runs, so they round-trip through run.yaml and the projection only when present,
 # exactly like RUN_SOURCE_KEYS.
 RUN_ROSTER_SOURCE_KEYS = ("rosterSource", "allowedRuntimes")
-DEFAULT_QUALITY_POLICY = {
-    "enabled": True,
-    "rosterDriven": True,
-    "lifecyclePhases": ["review", "testing", "product"],
-    "gates": {
-        "architect": {
-            "phase": "review",
-            "role": "architect",
-            "required": True,
-            "focus": "architecture, state model, projection, CLI, and cross-cutting coordination risk",
-        },
-        "code_reviewer": {
-            "phase": "review",
-            "role": "code_reviewer",
-            "required": True,
-            "focus": "correctness, integration risk, maintainability, regressions, and evidence quality",
-        },
-        "nuclear_reviewer": {
-            "phase": "review",
-            "role": "nuclear_reviewer",
-            "required": True,
-            "focus": "structural maintainability, abstraction quality, large-file risk, special-case sprawl, and codebase design decay",
-        },
-        "spec_reviewer": {
-            "phase": "review",
-            "role": "spec_reviewer",
-            "required": True,
-            "focus": "requirements coverage, acceptance criteria, behavior gaps, and missing tests",
-        },
-        "tester": {
-            "phase": "testing",
-            "role": "tester",
-            "required": True,
-            "focus": "real-path validation, regression coverage, and reproducible verification",
-        },
-        "product": {
-            "phase": "product",
-            "role": "product",
-            "required": True,
-            "focus": "product acceptance and user-facing behavior",
-        },
-    },
-}
+
+# Run-store schema version. Bumped to 2 by MC-1542 (single-owner tasks): the task
+# status enum lost `changes_requested`/`testing`/`product`, `qualityGates` was
+# replaced by `phases`, and roles became routing + directive packs. Pre-release
+# clean break — a version-1 store is REJECTED, never migrated (`assert_store_is_current`).
+RUN_SCHEMA_VERSION = 2
+
+# Post-implementation phase vocabulary. `review` is the only shipped phase; the
+# list shape is kept so a future phase slots in without a schema change.
+# MIRRORED in sprintengine_core/tool/constants.py (VALID_TASK_PHASES) and
+# src/renderer/src/utils/sprintengine.ts — a contract test pins all three.
+VALID_TASK_PHASES = ("review",)
+# The phase list a task inherits when the run records no `defaultPhases`.
+DEFAULT_RUN_PHASES = ("review",)
+# The run's phase ceiling, written once at init. Optional: absent means the engine
+# default. Round-trips through run.yaml + projection like RUN_SOURCE_KEYS.
+RUN_PHASE_KEYS = ("defaultPhases",)
+
+# Sweep roles the OPERATOR mandated for this run ("UI/UX specialist reviews all
+# frontend work at the end"). Sweep inclusion is normally the architect's
+# risk-tiered call; this is the override. Written once at init via
+# `--required-sweeps-json`; omitted entirely when none are mandated. The run cannot
+# complete while a required sweep role has no planned task.
+RUN_SWEEP_KEYS = ("requiredSweeps",)
+
+# MC-1543 premium mode: per-phase runtime bindings, e.g.
+# `{"review": {"cli": "claude-code", "model": "fable"}}` — a stronger model reviews
+# each task's diff as a FRESH, diff-seeded session while cheap models do the
+# building. Absent key/phase => the phase runs in-session on the owner's runtime
+# (the MC-1542 default), and ZERO extra sessions are created.
+RUN_PHASE_RUNTIME_KEYS = ("phaseRuntimes",)
+
+
+def phase_runtime(state: dict[str, Any], phase: str) -> dict[str, Any]:
+    """The `{cli, model}` bound to `phase`, or `{}` when it runs in-session."""
+    runtimes = state.get("phaseRuntimes")
+    if not isinstance(runtimes, dict):
+        return {}
+    entry = runtimes.get(str(phase or "").strip())
+    return entry if isinstance(entry, dict) else {}
+
+
+def run_required_sweeps(state: dict[str, Any]) -> list[str]:
+    raw = state.get("requiredSweeps")
+    if not isinstance(raw, list):
+        return []
+    return [str(role).strip() for role in raw if str(role or "").strip()]
 # Task-scoped roster identity (no slot recycling): a worker roster id owns at
 # most one task for its whole lifetime. `per_task` is the only policy today; the
 # field is durable and versioned so a future multi-task policy can relax the
@@ -124,8 +129,6 @@ DEFAULT_RUNNER_POLICY = {
     "maxBackoffSeconds": 120,
     "stopWhenComplete": True,
 }
-GATE_PHASES = {"review", "testing", "product"}
-GATE_STATUSES = {"pending", "in_progress", "approved", "changes_requested", "blocked", "skipped", "released", "superseded"}
 
 
 def now_iso() -> str:
@@ -166,6 +169,66 @@ def validate_project_relative_path(value: str, *, field: str = "path") -> str:
     return path.as_posix()
 
 
+def normalize_phase_list(raw: Any, *, field: str) -> list[str]:
+    """Validate an ordered, de-duplicated phase list.
+
+    An empty list is meaningful (`[]` = no post-implementation phase), so callers
+    distinguish "absent" (inherit) from "explicitly empty" before calling here.
+    """
+    if not isinstance(raw, list):
+        raise ValueError(f"{field} must be an array of phase names.")
+    phases: list[str] = []
+    for entry in raw:
+        phase = str(entry or "").strip()
+        if not phase:
+            continue
+        if phase not in VALID_TASK_PHASES:
+            raise ValueError(
+                f"{field} contains unknown phase {phase!r}; expected one of: {', '.join(VALID_TASK_PHASES)}."
+            )
+        if phase not in phases:
+            phases.append(phase)
+    return phases
+
+
+def run_default_phases(state: dict[str, Any]) -> list[str]:
+    """The run's phase list: default for tasks that pass none, and their ceiling.
+
+    An absent key reads as the engine default. An explicitly empty list is
+    honoured: every publish with changes then routes straight to `done`.
+    """
+    raw = state.get("defaultPhases")
+    if not isinstance(raw, list):
+        return list(DEFAULT_RUN_PHASES)
+    return normalize_phase_list(raw, field="defaultPhases")
+
+
+class RunStoreVersionError(ValueError):
+    """A run store written before the current schema version."""
+
+
+def assert_store_is_current(run: dict[str, Any], team_dir: Path) -> None:
+    """Reject a pre-MC-1542 run store loudly, at every surface that reads one.
+
+    Decision 8 (pre-release clean break): old stores are local runtime state and
+    are never migrated. The remedy is deleting the team folder. Raising here — in
+    the one function both `state_from_folder_store` and `build_projection` call —
+    means the board, wizard, backlog links, and CLI all get the same readable
+    message instead of a silent crash or a blank board.
+    """
+    try:
+        version = int(run.get("schemaVersion") or 1)
+    except (TypeError, ValueError):
+        version = 1
+    if version >= RUN_SCHEMA_VERSION:
+        return
+    raise RunStoreVersionError(
+        f"Pre-MC-1542 Sprint Engine run store (schemaVersion {version}, expected {RUN_SCHEMA_VERSION}). "
+        "Single-owner tasks replaced quality gates, so this run cannot be read. "
+        f"Delete `{team_dir}` and re-run the sprint."
+    )
+
+
 def _bool_value(value: Any, default: bool) -> bool:
     if isinstance(value, bool):
         return value
@@ -178,44 +241,6 @@ def _bool_value(value: Any, default: bool) -> bool:
         if normalized in {"0", "false", "no", "off"}:
             return False
     return default
-
-
-def normalize_quality_policy(raw: Any) -> dict[str, Any]:
-    policy = raw if isinstance(raw, dict) else {}
-    normalized = {
-        "enabled": _bool_value(policy.get("enabled"), True),
-        "rosterDriven": _bool_value(policy.get("rosterDriven"), True),
-        "lifecyclePhases": ["review", "testing", "product"],
-        "gates": {},
-    }
-    raw_gates = policy.get("gates") if isinstance(policy.get("gates"), dict) else {}
-    for key, defaults in DEFAULT_QUALITY_POLICY["gates"].items():
-        override = raw_gates.get(key) if isinstance(raw_gates.get(key), dict) else {}
-        phase = str(override.get("phase") or defaults["phase"]).strip()
-        role = str(override.get("role") or defaults["role"]).strip()
-        if phase not in GATE_PHASES:
-            phase = defaults["phase"]
-        normalized["gates"][key] = {
-            "phase": phase,
-            "role": role,
-            "required": _bool_value(override.get("required"), bool(defaults["required"])),
-            "focus": str(override.get("focus") or defaults["focus"]).strip(),
-        }
-    for key, override in raw_gates.items():
-        gate_id = str(key or "").strip().replace("-", "_")
-        if not gate_id or gate_id in normalized["gates"] or not isinstance(override, dict):
-            continue
-        phase = str(override.get("phase") or "").strip()
-        role = str(override.get("role") or gate_id).strip()
-        if phase not in GATE_PHASES or not role:
-            continue
-        normalized["gates"][gate_id] = {
-            "phase": phase,
-            "role": role,
-            "required": _bool_value(override.get("required"), True),
-            "focus": str(override.get("focus") or "").strip(),
-        }
-    return normalized
 
 
 def _positive_int(value: Any, fallback: int, *, minimum: int = 1, maximum: int = 3600) -> int:
@@ -281,205 +306,9 @@ def roster_roles_from_state(state: dict[str, Any]) -> set[str]:
     }
 
 
-def configured_gate_roles(state: dict[str, Any]) -> set[str] | None:
-    """The run's explicit enabled-role set, or None for legacy runs.
-
-    `configuredRoles` is written once at init from the roster's enabled roles
-    (see apply_configured_roles). Quality-gate derivation reads it so a lazy
-    (e.g. architect-only) roster still derives its required reviewer/tester
-    gates: the gate role need not be *seated*, only *enabled*. Returns None when
-    the key is absent so legacy runs fall back to the seated-roster roles and
-    derive gates exactly as before. Deliberately not sourced from `roleRuntimes`,
-    whose keys include CLI-default roles and so are not the enabled set.
-    """
-    raw = state.get("configuredRoles")
-    if not isinstance(raw, list):
-        return None
-    return {str(role).strip() for role in raw if str(role or "").strip()}
-
-
-def resolved_gate_roles(state: dict[str, Any]) -> set[str]:
-    """The role set that quality-gate derivation selects gate roles from.
-
-    The run's enabled `configuredRoles` when present, else the seated-roster
-    roles for legacy runs. Every gate-derivation path (init derivation and the
-    later `productFacing` sync) resolves gate-role availability through here so
-    they stay consistent for lazy rosters.
-    """
-    configured = configured_gate_roles(state)
-    return configured if configured is not None else roster_roles_from_state(state)
-
-
 def roster_is_configured_in_state(state: dict[str, Any]) -> bool:
     sprintengine = state.get("sprintengine") if isinstance(state.get("sprintengine"), dict) else {}
     return bool(sprintengine.get("rosterConfigured"))
-
-
-def task_requires_architect_gate(task: dict[str, Any]) -> bool:
-    paths = [str(path) for path in task.get("ownedPaths", []) or []]
-    cross_cutting_prefixes = (
-        "sprintengine_core/",
-        "scripts/sprintengine",
-        "src/renderer/src/utils/sprintengine",
-        "src/renderer/src/components/panels",
-        "src/main/mobile/sprintengine",
-        ".agents/skills/sprintengine",
-    )
-    return any(path.startswith(cross_cutting_prefixes) for path in paths)
-
-
-def task_requires_product_gate(task: dict[str, Any]) -> bool:
-    return _bool_value(task.get("productFacing"), False)
-
-
-def _normalize_gate_attempts(raw: Any) -> list[dict[str, Any]]:
-    if not isinstance(raw, list):
-        return []
-    attempts: list[dict[str, Any]] = []
-    for entry in raw:
-        if not isinstance(entry, dict):
-            continue
-        attempt = dict(entry)
-        status = str(attempt.get("status") or "").strip()
-        if status and status not in GATE_STATUSES:
-            attempt["status"] = "blocked"
-        attempts.append(attempt)
-    return attempts
-
-
-def normalize_quality_gate(raw: Any, fallback_id: str) -> dict[str, Any] | None:
-    if not isinstance(raw, dict):
-        return None
-    gate_id = str(raw.get("id") or fallback_id).strip()
-    phase = str(raw.get("phase") or "").strip()
-    role = str(raw.get("role") or "").strip()
-    status = str(raw.get("status") or "pending").strip()
-    if not gate_id or phase not in GATE_PHASES or not role:
-        return None
-    if status not in GATE_STATUSES:
-        status = "pending"
-    gate = {
-        "id": gate_id,
-        "phase": phase,
-        "role": role,
-        "status": status,
-        "required": _bool_value(raw.get("required"), True),
-        "allowSelfReview": _bool_value(raw.get("allowSelfReview"), True),
-        "focus": str(raw.get("focus") or "").strip(),
-        "attempts": _normalize_gate_attempts(raw.get("attempts")),
-    }
-    skip_rationale = str(raw.get("skipRationale") or "").strip()
-    if skip_rationale:
-        gate["skipRationale"] = skip_rationale
-    return gate
-
-
-def derive_default_quality_gates(task: dict[str, Any], state: dict[str, Any], policy: dict[str, Any]) -> list[dict[str, Any]]:
-    if not policy.get("enabled", True):
-        return []
-    roster_configured = roster_is_configured_in_state(state)
-    if not roster_configured:
-        return []
-    if task.get("role") not in {"developer", "frontend"} and not _bool_value(task.get("producesImplementation"), False):
-        return []
-    # Gate roles come from the run's explicit enabled-role set (`configuredRoles`)
-    # so a lazy, architect-only roster still derives its required reviewer/tester
-    # gates — derivation keys on configuration, not on who is currently seated.
-    # Legacy runs with no `configuredRoles` fall back to the seated-roster roles
-    # and derive gates exactly as before.
-    gate_roles = resolved_gate_roles(state)
-    # A gate whose role is not in `gate_roles` is skipped (below), so a missing
-    # reviewer never becomes an unclaimable queue. A soulless-General roster has
-    # none of the specialist reviewer roles, so no default gates are derived for
-    # it; the General instead authors its own `role: general` review/testing
-    # gates (self-approved via the `allowSelfReview` default) per the general
-    # orchestration skill. There is intentionally no default `general` gate in
-    # DEFAULT_QUALITY_POLICY.
-    gate_specs = policy.get("gates") if isinstance(policy.get("gates"), dict) else {}
-    selected: list[dict[str, Any]] = []
-
-    frontend_paths = (
-        "src/renderer/",
-        "src/main/mobile/",
-        "src/shared/mobile-control/",
-    )
-    if any(str(path).startswith(frontend_paths) for path in task.get("ownedPaths", []) or []) and "frontend" in gate_roles:
-        selected.append({
-            "id": "frontend_review",
-            "phase": "review",
-            "role": "frontend",
-            "status": "pending",
-            "required": True,
-            "allowSelfReview": True,
-            "focus": "UI behavior, accessibility, responsive behavior, status labels, and interaction correctness",
-            "attempts": [],
-        })
-
-    for gate_id, spec in gate_specs.items():
-        if gate_id == "architect":
-            continue
-        spec = gate_specs.get(gate_id)
-        if not isinstance(spec, dict):
-            continue
-        role = str(spec.get("role") or gate_id)
-        if gate_id == "product" and not task_requires_product_gate(task):
-            continue
-        if role not in gate_roles:
-            continue
-        selected.append({
-            "id": gate_id,
-            "phase": spec["phase"],
-            "role": role,
-            "status": "pending",
-            "required": bool(spec.get("required", True)),
-            "allowSelfReview": True,
-            "focus": str(spec.get("focus") or ""),
-            "attempts": [],
-        })
-
-    architect_spec = gate_specs.get("architect")
-    if isinstance(architect_spec, dict):
-        role = str(architect_spec.get("role") or "architect")
-        if role in gate_roles and task_requires_architect_gate(task):
-            selected.insert(0, {
-                "id": "architect_review",
-                "phase": architect_spec["phase"],
-                "role": role,
-                "status": "pending",
-                "required": bool(architect_spec.get("required", True)),
-                "allowSelfReview": True,
-                "focus": str(architect_spec.get("focus") or ""),
-                "attempts": [],
-            })
-    return selected
-
-
-def normalize_task_quality_gates(task: dict[str, Any], state: dict[str, Any], policy: dict[str, Any]) -> list[dict[str, Any]]:
-    raw_gates = task.get("qualityGates")
-    if isinstance(raw_gates, list):
-        normalized = [
-            gate
-            for index, raw_gate in enumerate(raw_gates)
-            if (gate := normalize_quality_gate(raw_gate, f"gate-{index + 1}")) is not None
-        ]
-    else:
-        normalized = derive_default_quality_gates(task, state, policy)
-    return normalized
-
-
-def normalize_quality_fields(state: dict[str, Any], run: dict[str, Any] | None = None) -> dict[str, Any]:
-    sprintengine = state.get("sprintengine") if isinstance(state.get("sprintengine"), dict) else {}
-    source_policy = sprintengine.get("qualityPolicy") if isinstance(sprintengine.get("qualityPolicy"), dict) else None
-    if not isinstance(source_policy, dict) and isinstance(run, dict):
-        source_policy = run.get("qualityPolicy")
-    if not isinstance(source_policy, dict):
-        source_policy = {}
-    policy = normalize_quality_policy(source_policy)
-    state.setdefault("sprintengine", {})["qualityPolicy"] = policy
-    for task in state.get("tasks", []) or []:
-        if isinstance(task, dict):
-            task["qualityGates"] = normalize_task_quality_gates(task, state, policy)
-    return policy
 
 
 def atomic_write_text(path: Path, text: str) -> None:
@@ -553,7 +382,7 @@ def normalize_current_dispatch(raw: Any) -> dict[str, Any] | None:
         "role": role,
         "reason": reason,
     }
-    for key in ("taskId", "gateId", "attemptId", "assignedAt"):
+    for key in ("taskId", "assignedAt"):
         value = str(raw.get(key) or "").strip()
         if value:
             dispatch[key] = value
@@ -575,7 +404,7 @@ def normalize_agent_record(agent_id: str, raw: Any) -> dict[str, Any]:
         "joinedAt": joined_at,
         "currentTaskId": source.get("currentTaskId") or None,
     }
-    for key in ("currentGateId", "lastDirectiveAt", "lastOwnedTaskId", "leftAt", "leaveReason", "deadAt", "replacedByAgentId"):
+    for key in ("lastDirectiveAt", "lastOwnedTaskId", "leftAt", "leaveReason", "deadAt", "replacedByAgentId"):
         value = source.get(key)
         if value not in (None, ""):
             agent[key] = value
@@ -593,12 +422,6 @@ def normalize_agent_record(agent_id: str, raw: Any) -> dict[str, Any]:
             if task_id not in deduped:
                 deduped.append(task_id)
         agent["ownedTaskIds"] = deduped
-    if isinstance(source.get("currentGate"), dict):
-        agent["currentGate"] = {
-            key: value
-            for key, value in source["currentGate"].items()
-            if key in {"taskId", "gateId", "attemptId"} and value not in (None, "")
-        }
     if not agent["role"]:
         agent["role"] = str(agent_id).split("-", 1)[0] or "developer"
     return agent
@@ -619,12 +442,7 @@ def dispatch_id_for_record(record: dict[str, Any]) -> str:
     material = {
         "agentId": record.get("agentId"),
         "role": record.get("role"),
-        "target": {
-            "kind": target.get("kind"),
-            "taskId": target.get("taskId"),
-            "gateId": target.get("gateId"),
-            "attemptId": target.get("attemptId"),
-        },
+        "target": {"kind": target.get("kind"), "taskId": target.get("taskId")},
         "reason": record.get("reason"),
     }
     digest = hashlib.sha256(json.dumps(material, sort_keys=True).encode("utf-8")).hexdigest()[:16]
@@ -675,7 +493,7 @@ def initialize_run_store(
         atomic_write_yaml(
             run_path,
             {
-                "schemaVersion": 1,
+                "schemaVersion": RUN_SCHEMA_VERSION,
                 "name": name,
                 "goal": goal,
                 "status": status,
@@ -812,7 +630,7 @@ def validate_acyclic_task_graph(tasks: Iterable[dict[str, Any]]) -> list[str]:
 
 
 def task_is_ready_for_queue(tasks_by_id: dict[str, dict[str, Any]], task: dict[str, Any], graph: dict[str, list[str]]) -> bool:
-    if task.get("status") not in {"todo", "changes_requested"} or task.get("ownerAgentId"):
+    if task.get("status") != "todo" or task.get("ownerAgentId"):
         return False
     if _bool_value(task.get("needsTriage"), False):
         return False
@@ -838,9 +656,8 @@ def sync_run_yaml_from_state(team_dir: Path, state: dict[str, Any]) -> None:
         else (run.get("roleRuntimes") if isinstance(run.get("roleRuntimes"), dict) else {})
     )
     # The run's explicit enabled-role set (written at init); preserve any existing
-    # run.yaml value when in-memory state has not (re)loaded it. Absent on legacy
-    # runs — kept out of run.yaml entirely so gate derivation falls back to the
-    # seated roster (see derive_default_quality_gates).
+    # run.yaml value when in-memory state has not (re)loaded it. It is the set of
+    # roles a task may be tagged with (`plan.add_task` enforces membership).
     configured_roles = (
         state.get("configuredRoles")
         if isinstance(state.get("configuredRoles"), list)
@@ -853,10 +670,9 @@ def sync_run_yaml_from_state(team_dir: Path, state: dict[str, Any]) -> None:
         state.get("rosterPolicy") if isinstance(state.get("rosterPolicy"), dict) else run.get("rosterPolicy")
     )
     runner_policy = normalize_runner_policy(state.get("runner") if isinstance(state.get("runner"), dict) else run.get("runner"))
-    quality_policy = normalize_quality_fields(state, run)
     run.update(
         {
-            "schemaVersion": run.get("schemaVersion") or 1,
+            "schemaVersion": RUN_SCHEMA_VERSION,
             "name": sprintengine.get("name") or team_dir.name,
             "goal": sprintengine.get("goal") or "",
             "status": sprintengine.get("status") or "planning",
@@ -864,7 +680,6 @@ def sync_run_yaml_from_state(team_dir: Path, state: dict[str, Any]) -> None:
             "graphPolicy": run.get("graphPolicy") or {"readiness": "dependency"},
             "rosterPolicy": roster_policy,
             "runner": runner_policy,
-            "qualityPolicy": quality_policy,
             "agents": agents,
             "roles": roles,
             "roleRuntimes": role_runtimes,
@@ -893,7 +708,7 @@ def sync_run_yaml_from_state(team_dir: Path, state: dict[str, Any]) -> None:
             "updatedAt": now_iso(),
         }
     )
-    for key in RUN_SOURCE_KEYS + RUN_ROSTER_SOURCE_KEYS:
+    for key in RUN_SOURCE_KEYS + RUN_ROSTER_SOURCE_KEYS + RUN_PHASE_KEYS + RUN_SWEEP_KEYS + RUN_PHASE_RUNTIME_KEYS:
         if key in state:
             run[key] = state[key]
     if configured_roles is not None:
@@ -921,14 +736,27 @@ def clear_artifact_status_folders(team_dir: Path) -> None:
 
 
 def status_folder_for_task(task: dict[str, Any], ready_ids: set[str]) -> str:
+    """The folder a task materializes into.
+
+    An UNKNOWN status is a hard error, not a silent coercion to `todo` (decision 8:
+    no read-side tolerance for the retired `changes_requested`/`testing`/`product`).
+    A v1 store never gets here — `assert_store_is_current` rejects it first — but a
+    hand-edited or programmatically-built v2 state would otherwise surface a bogus
+    rework task as ordinary ready work while `run.yaml` kept the bogus status.
+    `ready` is the materialized queue folder, never a semantic status, so a task
+    carrying it reads as `todo`.
+    """
     task_id = str(task.get("id") or "")
     status = str(task.get("status") or "todo")
-    if status == "changes_requested":
-        return "changes_requested"
+    if status == "ready":
+        status = "todo"
+    if status not in TASK_STATUSES:
+        raise ValueError(
+            f"Task {task_id or '(unknown)'} has invalid status {status!r}; "
+            f"expected one of: {', '.join(sorted(set(TASK_STATUSES) - {'ready'}))}."
+        )
     if task_id in ready_ids:
         return "ready"
-    if status not in TASK_STATUSES or status == "ready":
-        status = "todo"
     return status
 
 
@@ -1007,7 +835,6 @@ def sync_state_to_store(team_dir: Path, state: dict[str, Any], *, state_path: Pa
     )
     validate_acyclic_task_graph([task for task in state.get("tasks", []) or [] if isinstance(task, dict)])
     with FolderLock(team_dir / READY_QUEUE_LOCK_FILE):
-        normalize_quality_fields(state, load_run_yaml(team_dir))
         pending_dispatch_records = [
             record for record in state.pop("_dispatchRecords", []) if isinstance(record, dict)
         ]
@@ -1080,6 +907,7 @@ def state_from_folder_store(team_dir: Path) -> dict[str, Any]:
     run = load_run_yaml(team_dir)
     if not run:
         raise FileNotFoundError(team_dir / RUN_FILE)
+    assert_store_is_current(run, team_dir)
 
     sprintengine = run.get("sprintengine") if isinstance(run.get("sprintengine"), dict) else {}
     reconstructed_sprintengine = dict(sprintengine)
@@ -1112,14 +940,13 @@ def state_from_folder_store(team_dir: Path) -> dict[str, Any]:
         "roles": roles,
         "roleRuntimes": role_runtimes,
     }
-    # Only reconstruct `configuredRoles` when present so legacy runs stay absent
-    # and gate derivation falls back to the seated roster.
+    # Only reconstruct `configuredRoles` when present so a run that never recorded
+    # one stays absent (its roster boundary then no-ops).
     if isinstance(run.get("configuredRoles"), list):
         state["configuredRoles"] = run["configuredRoles"]
-    for key in RUN_SOURCE_KEYS + RUN_ROSTER_SOURCE_KEYS:
+    for key in RUN_SOURCE_KEYS + RUN_ROSTER_SOURCE_KEYS + RUN_PHASE_KEYS + RUN_SWEEP_KEYS + RUN_PHASE_RUNTIME_KEYS:
         if key in run:
             state[key] = run[key]
-    normalize_quality_fields(state, run)
     return state
 
 
@@ -1164,31 +991,6 @@ def _projection_open_feedback(task: dict[str, Any], limit: int = 10) -> list[dic
     return sorted(open_comments, key=_projection_comment_time, reverse=True)[:limit]
 
 
-def _projection_quality_gate_summary(task: dict[str, Any]) -> dict[str, Any]:
-    gates = task.get("qualityGates") if isinstance(task.get("qualityGates"), list) else []
-    summary: dict[str, Any] = {
-        "total": 0,
-        "required": 0,
-        "openRequired": 0,
-        "byPhase": {},
-        "byStatus": {},
-    }
-    for gate in gates:
-        if not isinstance(gate, dict):
-            continue
-        status = str(gate.get("status") or "pending")
-        phase = str(gate.get("phase") or "unknown")
-        required = gate.get("required") is not False
-        summary["total"] += 1
-        if required:
-            summary["required"] += 1
-        if required and status not in {"approved", "skipped"}:
-            summary["openRequired"] += 1
-        summary["byPhase"][phase] = summary["byPhase"].get(phase, 0) + 1
-        summary["byStatus"][status] = summary["byStatus"].get(status, 0) + 1
-    return summary
-
-
 def _projection_recorded_artifacts(artifacts: list[dict[str, Any]]) -> list[dict[str, Any]]:
     recorded = []
     for artifact in artifacts:
@@ -1199,7 +1001,6 @@ def _projection_recorded_artifacts(artifacts: list[dict[str, Any]]) -> list[dict
             "kind": artifact.get("kind"),
             "title": artifact.get("title"),
             "path": artifact.get("path"),
-            "gateId": artifact.get("gateId"),
             "createdBy": artifact.get("createdBy"),
             "createdAt": artifact.get("createdAt"),
         })
@@ -1219,7 +1020,6 @@ def _build_board(tasks: list[dict[str, Any]]) -> dict[str, Any]:
         "columns": columns,
         "counts": {status: data["count"] for status, data in columns.items()},
         "readyTaskIds": list(columns["ready"]["taskIds"]),
-        "changesRequestedTaskIds": list(columns["changes_requested"]["taskIds"]),
     }
 
 
@@ -1248,7 +1048,6 @@ def _build_projection_run_summary(
             "completed": len(completed),
             "remaining": max(0, len(tasks) - len(completed)),
             "ready": board["counts"].get("ready", 0),
-            "changesRequested": board["counts"].get("changes_requested", 0),
             "needsInput": board["counts"].get("needs_input", 0),
         },
         "artifacts": {
@@ -1276,7 +1075,6 @@ def _projection_locks(team_dir: Path, state_path: Path | None) -> dict[str, Any]
         "run": team_dir / RUN_LOCK_FILE,
         "readyQueue": team_dir / READY_QUEUE_LOCK_FILE,
         "claimQueue": team_dir / CLAIM_QUEUE_LOCK_FILE,
-        "gateQueue": team_dir / GATE_QUEUE_LOCK_FILE,
         "gitCommit": team_dir / GIT_COMMIT_LOCK_FILE,
     }
     lock_reports = []
@@ -1314,6 +1112,7 @@ def build_projection(
     if folder_store_ready:
         source = "folder_store"
         run = load_run_yaml(team_dir)
+        assert_store_is_current(run, team_dir)
         raw_tasks = _tasks_from_folder_store(team_dir)
         tasks = [_normalize_projection_task(task, board_column=str(task.get("folderStatus") or task.get("status") or "todo")) for task in raw_tasks]
         artifacts = _artifacts_from_folder_store(team_dir)
@@ -1321,7 +1120,6 @@ def build_projection(
         dispatches = read_jsonl_file(team_dir / DISPATCH_FILE)
         feedback = read_jsonl_file(team_dir / FEEDBACK_FILE)
         roster = normalize_agents(run.get("agents"))
-        quality_policy = normalize_quality_policy(run.get("qualityPolicy") if isinstance(run.get("qualityPolicy"), dict) else {})
         runner_policy = normalize_runner_policy(run.get("runner"))
     else:
         raise ValueError(f"Sprint Engine folder store is not initialized at {team_dir}.")
@@ -1335,7 +1133,6 @@ def build_projection(
         task_id = str(task.get("id") or "")
         linked_artifacts = artifacts_by_task.get(task_id, [])
         task["artifacts"] = linked_artifacts
-        task["qualityGateSummary"] = _projection_quality_gate_summary(task)
         task["latestComments"] = _projection_latest_comments(task)
         task["latestOpenFeedback"] = _projection_open_feedback(task)
         task["recordedArtifacts"] = _projection_recorded_artifacts(linked_artifacts)
@@ -1353,13 +1150,18 @@ def build_projection(
         "updatedAt": updated_at,
         "run": {
             "id": team_dir.name,
+            # The store's schema version, carried into the projection so the app can
+            # reject a pre-MC-1542 run WITHOUT calling Python: the renderer reads
+            # projection.json straight off disk (src/main/sprintengine-artifacts.ts
+            # readProjection), so a version guard that only lives in the Python
+            # loader would let a stale board render gate-era columns silently.
+            "schemaVersion": RUN_SCHEMA_VERSION,
             "name": run.get("name") or team_dir.name,
             "goal": run.get("goal") or "",
             "status": run.get("status") or "planning",
             "rosterConfigured": bool(run.get("rosterConfigured")),
             "updatedAt": updated_at,
             "creation": run.get("creation") if isinstance(run.get("creation"), dict) else {},
-            "qualityPolicy": quality_policy,
             "rosterPolicy": normalize_roster_policy(run.get("rosterPolicy")),
             "runner": runner_policy,
             "vcs": vcs,
@@ -1374,9 +1176,9 @@ def build_projection(
             # architect is seated at start, so the renderer cannot infer the
             # enabled roles from who is present — it must carry the config. The
             # roster view groups by these roles so a configured reviewer that has
-            # not spawned yet still shows as an (empty) role group, and gate
-            # derivation stays consistent. Absent (null) for legacy runs, which
-            # keeps the renderer on its seated-roster fallback.
+            # not spawned yet still shows as an (empty) role group. Absent (null)
+            # when the run recorded none, which keeps the renderer on its
+            # seated-roster fallback.
             "configuredRoles": (
                 run.get("configuredRoles") if isinstance(run.get("configuredRoles"), list) else None
             ),
@@ -1391,6 +1193,16 @@ def build_projection(
             # sprint palette. Written once at init; re-emitted only when present
             # so user-mode/legacy runs stay unaffected.
             **{key: run[key] for key in RUN_ROSTER_SOURCE_KEYS if key in run},
+            # The run's phase list (default AND ceiling for every task). The
+            # wizard's "Agents review their own work" toggle writes it; the board
+            # and architect prompt read it. Absent = the engine default.
+            **{key: run[key] for key in RUN_PHASE_KEYS if key in run},
+            # Operator-mandated sweep roles. The wizard's "Final sweeps" panel writes
+            # them; the architect's planning directive treats them as mandatory.
+            **{key: run[key] for key in RUN_SWEEP_KEYS if key in run},
+            # MC-1543: per-phase runtime bindings. The supervisor spawns the bound
+            # session, so the projection must carry them.
+            **{key: run[key] for key in RUN_PHASE_RUNTIME_KEYS if key in run},
         },
         "roster": roster if isinstance(roster, dict) else {},
         "tasks": tasks,
@@ -1403,7 +1215,6 @@ def build_projection(
         "counts": {
             "tasks": board["counts"],
             "ready": board["counts"].get("ready", 0),
-            "changesRequested": board["counts"].get("changes_requested", 0),
             "needsInput": board["counts"].get("needs_input", 0),
             "artifacts": _artifact_counts(artifacts),
         },

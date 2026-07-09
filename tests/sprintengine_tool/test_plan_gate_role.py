@@ -1,11 +1,21 @@
 """Plan-approval gate is owned by the run's planning role.
 
-The architect owns the plan gate on every architect/specialist run (those stay
+The plan-approval "gate" survives MC-1542: it is an ARTIFACT-approval task (the
+user approves `plan.md`), not a quality gate, so deleting quality gates left it
+untouched. The architect owns it on every architect/specialist run (those stay
 byte-for-byte identical); a roster of soulless Generals with no architect plans
-the run itself, so the gate is a `general` plan gate the General self-approves.
+the run itself, so it is a `general` plan gate the General self-approves.
+
+Also pinned here: no artifact may stay `draft` while its task is `done`. The gate
+placeholder is seeded as `draft` at run creation, and a gate task can reach `done`
+by four routes that never touch artifact approval — `task status`, `task publish`
+(no diff), `task advance` (the phase walk's terminal `pass`), and artifact
+approval itself. Each must resolve the placeholder.
 """
 
 from __future__ import annotations
+
+import subprocess
 
 from helpers import create_team, get_artifact, get_task, read_state, task, write_state
 from sprintengine_core.tool.plans import (
@@ -38,6 +48,15 @@ def seed_plan_gate(fixture, *roles: str) -> dict:
     ensure_plan_approval_gate(state, fixture.state_path, "sprintengine", start_active=False)
     write_state(fixture.state_path, state)
     return read_state(fixture.state_path)
+
+
+def start_plan_task(fixture, state: dict, owner: str) -> dict:
+    """Hand the seeded plan task to `owner` in `in_progress` and persist."""
+    plan_task = find_architect_plan_gate(state, fixture.state_path)["task"]
+    plan_task["status"] = "in_progress"
+    plan_task["ownerAgentId"] = owner
+    write_state(fixture.state_path, state)
+    return plan_task
 
 
 def test_resolve_planning_role_matrix(tmp_path) -> None:
@@ -139,7 +158,10 @@ def test_general_self_approves_its_plan_gate(tmp_path) -> None:
     assert get_artifact(final_state, "A1")["approvedBy"] == "general-1"
 
 
-def test_gate_task_completion_supersedes_stuck_draft_placeholder(tmp_path) -> None:
+# --- no artifact stays `draft` while its task is `done` -----------------------
+
+
+def test_task_status_completion_supersedes_stuck_draft_placeholder(tmp_path) -> None:
     """Regression: a plan approval-gate placeholder seeded as `draft` must not
     survive as a live draft once its gate task is marked done directly. That is
     the task-completes-later path (the placeholder was never published or
@@ -153,9 +175,7 @@ def test_gate_task_completion_supersedes_stuck_draft_placeholder(tmp_path) -> No
 
     # The gate task is completed directly rather than via artifact approval,
     # leaving the placeholder unpublished.
-    plan_task["status"] = "in_progress"
-    plan_task["ownerAgentId"] = "architect-1"
-    write_state(fixture.state_path, state)
+    start_plan_task(fixture, state, "architect-1")
 
     done = fixture.cli.run(
         "task", "status", "--task-id", "T0", "--status", "done", "--id", "architect-1"
@@ -170,18 +190,22 @@ def test_gate_task_completion_supersedes_stuck_draft_placeholder(tmp_path) -> No
     assert any(entry.get("action") == "superseded" for entry in resolved["reviewHistory"])
 
 
-def test_publishing_gate_task_supersedes_stuck_draft_placeholder(tmp_path) -> None:
-    """A plan/product gate task has no quality gates, so `task publish` routes it
-    straight to done. That publish-driven completion must also resolve the draft
-    placeholder so the done-while-draft invariant holds on every done path."""
+def test_publishing_the_plan_approval_task_supersedes_stuck_draft_placeholder(tmp_path) -> None:
+    """`task publish` on the plan-approval task lands it on `done`; that
+    publish-driven completion must resolve the draft placeholder too.
+
+    The plan-approval task carries `phases: []` — it is an approval surface, not
+    implementation work, so its author never self-reviews a plan document. Without
+    that it would inherit the run's `defaultPhases` and enter a review phase the
+    moment it produced (or was assumed to have produced) a diff.
+    """
+    subprocess.run(["git", "init", "-q"], cwd=tmp_path, check=True)
     fixture = create_team(tmp_path, "gate-publish-draft", [])
     state = seed_plan_gate(fixture, "architect", "developer")
-    plan_task = find_architect_plan_gate(state, fixture.state_path)["task"]
+    plan_task = start_plan_task(fixture, state, "architect-1")
     assert plan_task["id"] == "T0"
+    assert plan_task["phases"] == []
     assert get_artifact(state, "A1")["status"] == "draft"
-    plan_task["status"] = "in_progress"
-    plan_task["ownerAgentId"] = "architect-1"
-    write_state(fixture.state_path, state)
 
     published = fixture.cli.run(
         "task", "publish", "--task-id", "T0", "--id", "architect-1", "--summary", "Plan approved."
@@ -193,20 +217,16 @@ def test_publishing_gate_task_supersedes_stuck_draft_placeholder(tmp_path) -> No
     assert get_artifact(final_state, "A1")["status"] == "superseded"
 
 
-def test_gate_verdict_completion_supersedes_stuck_draft_placeholder(tmp_path) -> None:
-    """A gate verdict that routes a task to done (gates.py apply_gate_verdict) must
-    also resolve a draft plan/product placeholder the task still owns; the done
-    routing ignores artifact status, so without the hook the placeholder stays
-    draft while the task is done."""
-    gated = task("T1", "Gated plan work", "developer", "review", owner="developer-1")
-    gated["qualityGates"] = [{
-        "id": "G1", "phase": "review", "role": "code_reviewer", "status": "pending",
-        "required": True, "allowSelfReview": False, "focus": "Review.", "attempts": [],
-    }]
-    fixture = create_team(tmp_path, "gate-verdict-draft", [gated])
+def test_advancing_a_gate_task_to_done_supersedes_stuck_draft_placeholder(tmp_path) -> None:
+    """`task advance` is the done-writer that replaced `gate verdict`. A terminal
+    `pass` routes the task to `done` ignoring artifact status, so without the hook
+    the placeholder stays `draft` while the task is `done`."""
+    gated = task("T1", "Plan work under review", "developer", "review", owner="developer-1")
+    gated["startedAt"] = "2026-07-08T00:00:00Z"
+    fixture = create_team(tmp_path, "gate-advance-draft", [gated])
     state = read_state(fixture.state_path)
     state.setdefault("sprintengine", {})["rosterConfigured"] = True
-    state["configuredRoles"] = ["developer", "code_reviewer", "tester"]
+    state["configuredRoles"] = ["developer"]
     state["agents"] = {"developer-1": {"role": "developer", "status": "idle"}}
     state.setdefault("artifacts", []).append({
         "id": "A1",
@@ -221,14 +241,12 @@ def test_gate_verdict_completion_supersedes_stuck_draft_placeholder(tmp_path) ->
     })
     write_state(fixture.state_path, state)
 
-    claim = fixture.cli.run("task", "gate", "next", "--role", "code_reviewer", "--id", "code_reviewer")
-    assert claim["claimed"] is True
-    fixture.cli.run(
-        "task", "gate", "verdict",
-        "--task-id", "T1", "--gate-id", "G1",
-        "--role", "code_reviewer", "--id", "code_reviewer",
-        "--verdict", "approved", "--summary", "Approved.",
+    advanced = fixture.cli.run(
+        "task", "advance",
+        "--task-id", "T1", "--id", "developer-1",
+        "--phase", "review", "--outcome", "pass", "--summary", "Reviewed my own change.",
     )
+    assert advanced["nextStatus"] == "done"
 
     final_state = read_state(fixture.state_path)
     assert get_task(final_state, "T1")["status"] == "done"

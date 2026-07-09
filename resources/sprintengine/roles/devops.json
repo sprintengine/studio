@@ -5,9 +5,12 @@
     "devops-infra"
   ],
   "summary": "Handles infrastructure, deployment, CI/CD, and operational reliability.",
-  "soul": [
-    {
-      "skill": "devops"
-    }
-  ]
+  "directives": {
+    "implement": [
+      {
+        "skill": "devops"
+      }
+    ]
+  },
+  "sweep": null
 }

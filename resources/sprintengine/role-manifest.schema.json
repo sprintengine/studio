@@ -2,9 +2,9 @@
   "$schema": "http://json-schema.org/draft-07/schema#",
   "$id": "https://multicode.dev/schemas/sprintengine-role-manifest.json",
   "title": "Sprint Engine role manifest",
-  "description": "A declarative Sprint Engine role. Pure data: the runtime composes the agent prompt from the referenced skill ids. No code is executed, so third-party roles are safe to install (Tier 1). Mirror of src/shared/sprintengine/role-manifest.ts.",
+  "description": "A declarative Sprint Engine role (v2). Pure data: the runtime composes the agent prompt from the referenced skill ids. No code is executed, so third-party roles are safe to install (Tier 1). A role is routing + directive packs — `directives.implement` composes the owner's startup brief, `directives.<phase>` adds role-scoped content to that phase's shared base pack, and `sweep` marks a fix-forward sweep role. Mirror of src/shared/sprintengine/role-manifest.ts and sprintengine_core/role_registry.py.",
   "type": "object",
-  "required": ["id", "label", "soul"],
+  "required": ["id", "label", "directives"],
   "additionalProperties": false,
   "properties": {
     "id": {
@@ -21,6 +21,10 @@
       "type": "string",
       "description": "One-line description of what the role does."
     },
+    "icon": {
+      "type": "string",
+      "description": "Optional icon id for role lists."
+    },
     "aliases": {
       "type": "array",
       "description": "Alternate ids that resolve to this role.",
@@ -29,41 +33,44 @@
         "pattern": "^[a-z][a-z0-9_-]{0,62}$"
       }
     },
-    "capabilities": {
-      "type": "array",
-      "description": "Declarative role capabilities. Capabilities describe what the role can do; they do not make gates globally required.",
-      "items": {
-        "type": "object",
-        "required": ["kind"],
-        "additionalProperties": false,
-        "properties": {
-          "kind": {
-            "type": "string",
-            "enum": ["review"]
-          },
-          "phase": {
-            "type": "string",
-            "enum": ["review", "testing", "product"],
-            "description": "Quality-gate phase this role can serve when the architect requires it. Defaults to review."
-          },
-          "reviews": {
-            "type": "array",
-            "description": "Optional capability tags this role is suited to review.",
-            "items": {
-              "type": "string",
-              "pattern": "^[a-z][a-z0-9_]{0,62}$"
-            }
-          },
-          "defaultFocus": {
-            "type": "string",
-            "description": "Default gate focus text used when the architect requires this role as a gate."
-          }
-        }
+    "directives": {
+      "type": "object",
+      "description": "Directive packs keyed by lifecycle step. `implement` is required; each post-implementation phase key adds role-scoped content to that phase's shared base pack.",
+      "required": ["implement"],
+      "additionalProperties": false,
+      "properties": {
+        "implement": { "$ref": "#/definitions/directiveList" },
+        "review": { "$ref": "#/definitions/directiveList" }
       }
     },
-    "soul": {
+    "sweep": {
+      "description": "Present only on sweep roles. A sweep is an ordinary fix-forward task planned late in the graph: the role reviews the combined branch diff (or exercises the finished work) and directly fixes what it finds. Null or absent for a worker role.",
+      "oneOf": [
+        { "type": "null" },
+        {
+          "type": "object",
+          "required": ["focus", "when"],
+          "additionalProperties": false,
+          "properties": {
+            "focus": {
+              "type": "string",
+              "minLength": 1,
+              "description": "What this sweep audits, e.g. \"authn/authz, input handling, secrets\"."
+            },
+            "when": {
+              "type": "string",
+              "minLength": 1,
+              "description": "The risk trigger the architect reads at plan time, e.g. \"run touches auth, network boundary, or user input\"."
+            }
+          }
+        }
+      ]
+    }
+  },
+  "definitions": {
+    "directiveList": {
       "type": "array",
-      "description": "Ordered skill references composing the role's prompt.",
+      "description": "Ordered skill references composing this directive pack.",
       "minItems": 1,
       "items": {
         "type": "object",

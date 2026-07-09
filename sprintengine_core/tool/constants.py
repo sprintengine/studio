@@ -2,9 +2,23 @@
 
 from __future__ import annotations
 
-VALID_TASK_STATUSES = {"todo", "in_progress", "review", "testing", "product", "changes_requested", "needs_input", "done", "canceled"}
-ACTIVE_TASK_STATUSES = {"in_progress", "needs_input"}
-RUN_EXECUTING_TASK_STATUSES = ACTIVE_TASK_STATUSES | {"review", "testing", "product", "changes_requested"}
+# Single-owner lifecycle (MC-1542). `review` means "the owner is reviewing the work
+# it just made, in the same session". `changes_requested`, `testing`, and `product`
+# were deleted outright — there is no read-side tolerance for them (decision 8).
+VALID_TASK_STATUSES = {"todo", "in_progress", "review", "needs_input", "done", "canceled"}
+# Statuses in which a task is OWNED by a live agent. `review` belongs here: the
+# owner stays bound to its task from claim through `done`, so a task in review is
+# not free for another agent to claim, and its owner's session is not spare capacity.
+ACTIVE_TASK_STATUSES = {"in_progress", "review", "needs_input"}
+RUN_EXECUTING_TASK_STATUSES = set(ACTIVE_TASK_STATUSES)
+# Post-implementation phase vocabulary (MC-1542). MIRRORS
+# sprintengine_core.store.VALID_TASK_PHASES / DEFAULT_RUN_PHASES; the two cannot be
+# a single import (store <-> tool import cycle), so
+# tests/sprintengine_tool/test_task_lifecycle.py pins them equal. The renderer's
+# copy in src/renderer/src/utils/sprintengine.ts is pinned by the same class of test.
+VALID_TASK_PHASES = ("review",)
+DEFAULT_RUN_PHASES = ("review",)
+VALID_PHASE_OUTCOMES = {"pass", "pass_with_fixes", "escalate"}
 TERMINAL_AGENT_STATUSES = {"retired"}
 VALID_TASK_COMMENT_TYPES = {
     "implementation_summary",
@@ -58,7 +72,6 @@ VALID_ARTIFACT_STATUSES = {"draft", "recorded", "ready_for_review", "approved", 
 # artifact approved before this field existed simply omits it and reads as plain
 # approved.
 VALID_APPROVAL_MODES = {"manual", "policy"}
-VALID_GATE_VERDICTS = {"approved", "changes_requested", "failed", "blocked", "skipped"}
 # `epic` is a root plan kind only (a backlog epic launched as a reference-based
 # sprint). Children of the epic are recorded as bundle items with their own leaf
 # kinds, never `epic`, so `epic` is deliberately excluded from the bundle kinds.

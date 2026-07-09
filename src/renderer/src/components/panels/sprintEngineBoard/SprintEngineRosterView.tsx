@@ -29,7 +29,6 @@ import {
   type SprintEngineAgentRosterItem,
 } from '../../../utils/sprintengine'
 import {
-  isSprintEnginePlanningRole,
   type SprintEngineAddMemberOption,
 } from '../../../utils/sprintengineRoleOptions'
 import { runtimeStatusLabel, type RuntimeAgentView } from '../sprintEngineInspector'
@@ -66,22 +65,6 @@ function rosterLifecycle(
   }
 }
 
-// A persistent reviewer holds its role's bare id (`<role>`), reserved by the
-// id allocator (getNextSprintEngineAgentId) and registered on the role's first
-// gate. Task workers are always task-scoped (`<role>-N`) and carry a
-// `lastOwnedTaskId`, so a bare id that was never assigned an implementation task
-// uniquely marks the gate-claiming identity that persists across tasks.
-// Planners (architect / general) hold a bare id but are the run's planner, not
-// a reviewer, so they carry no tag. The `lastOwnedTaskId` guard keeps a legacy
-// bare implementer id reading as a worker, not a reviewer.
-function isPersistentReviewerEntry(
-  agentId: string,
-  role: SprintEngineRoleId,
-  lastOwnedTaskId: string | null | undefined,
-): boolean {
-  return agentId === role && !isSprintEnginePlanningRole(role) && !lastOwnedTaskId
-}
-
 // `picker` is the right-click fast path — it surfaces the shared CLI/model
 // listbox directly as this one agent's runtime escape hatch. `actions` is the
 // row's ⋮ button: lifecycle controls (open/spawn/restart/kill) plus the same
@@ -101,7 +84,6 @@ type RosterEntryDescriptor = {
   statusKey: string
   statusLabel: string
   displayName: string
-  isReviewer: boolean
   // Single activity line: the current/last owned task, else the status label.
   activity: string
   // The launched-vs-configured runtime divergence label ("on <model>"), shown
@@ -229,7 +211,6 @@ export function SprintEngineRosterView({
       statusKey,
       statusLabel,
       displayName,
-      isReviewer: isPersistentReviewerEntry(agent.id, agent.role, lastOwnedTaskId),
       activity,
       divergedFrom,
       // Never interrupt work: the restart offer is actionable only while the
@@ -241,7 +222,7 @@ export function SprintEngineRosterView({
 
   // Group roster entries by role, newest first: the roster arrives ascending,
   // reversing each group puts the most recently minted session on top with the
-  // persistent reviewer id settling to the stable bottom.
+  // persistent bare `<role>` id settling to the stable bottom.
   const entriesByRole = new Map<SprintEngineRoleId, SprintEngineAgentRosterItem[]>()
   for (const agent of roster) {
     const list = entriesByRole.get(agent.role)
@@ -483,7 +464,6 @@ export function SprintEngineRosterView({
       statusKey,
       statusLabel,
       displayName,
-      isReviewer,
       activity,
       divergedFrom,
       offerRestart,
@@ -517,9 +497,6 @@ export function SprintEngineRosterView({
           </span>
           <span className="w-[148px] shrink-0 truncate text-[12.5px] font-medium text-[color:var(--text-default)]">
             {displayName}
-            {isReviewer ? (
-              <span className="ml-1.5 text-[10px] font-normal text-[color:var(--text-muted)]">Review seat</span>
-            ) : null}
           </span>
           <span className="sr-only">{statusLabel}</span>
           <TruncatedText

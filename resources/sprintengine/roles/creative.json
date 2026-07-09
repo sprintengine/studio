@@ -11,9 +11,12 @@
     "brand"
   ],
   "summary": "Creates programmatic video, premium motion, and expressive marketing surfaces.",
-  "soul": [
-    {
-      "skill": "creative"
-    }
-  ]
+  "directives": {
+    "implement": [
+      {
+        "skill": "creative"
+      }
+    ]
+  },
+  "sweep": null
 }

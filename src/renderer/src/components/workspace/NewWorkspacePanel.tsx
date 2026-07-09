@@ -79,7 +79,16 @@ import AgentComposer, {
 } from './agentComposer/AgentComposer'
 import { RecentFolderRow, isSameFolder } from './newWorkspace/RecentFolderRow'
 import { type SprintEngineCliOption } from './newWorkspace/SprintEngineRosterTable'
-import { sprintEngineRosterHasPlanningRole, sprintEngineRosterRoleFloor } from '../../utils/sprintengineRoleOptions'
+import { SprintEngineWorkflowPanels } from './newWorkspace/SprintEngineWorkflowPanels'
+import {
+  buildSprintEngineWorkflowInitKeys,
+  type SprintEngineReviewRuntime,
+} from './newWorkspace/sprintengineWorkflowConfig'
+import {
+  listSprintEngineWizardSweepRoles,
+  sprintEngineRosterHasPlanningRole,
+  sprintEngineRosterRoleFloor,
+} from '../../utils/sprintengineRoleOptions'
 import { useFolderHints, useFolderScan } from './newWorkspace/useNewWorkspaceFolder'
 import { useBacklogScan } from './newWorkspace/useBacklogScan'
 import { BacklogRowContent } from '../backlog/BacklogRow'
@@ -89,7 +98,7 @@ import { compareBacklogItems } from '../../utils/backlogTriage'
 import { childrenOfEpic, epicSlug } from '../../utils/backlogEpics'
 import { slugifySprintEngineName } from '../../utils/sprintengineStateFile'
 import { basename, folderKey, planBasename, markdownTitle, toTitleName, inferSourcePlanKind, workspaceRelativePath } from './newWorkspace/helpers'
-import type { CreationMode, ExistingTeam, GuidedBriefHasUi, SprintEnginePath } from './newWorkspace/types'
+import type { CreationMode, ExistingTeam, GuidedBriefHasUi, SprintEnginePath, UnreadableTeam } from './newWorkspace/types'
 import { stepsForMode, type StepId } from './newWorkspace/creationStepFlows'
 import { KnowledgeStep } from './newWorkspace/KnowledgeStep'
 import { shouldShowKnowledgeStep } from './newWorkspace/knowledgeFolders'
@@ -249,8 +258,6 @@ const guidedBriefSprintEngineRoleCounts: SprintEngineRoleCounts = {
   frontend: 1,
   ui_ux_reviewer: 0,
   developer: 1,
-  code_reviewer: 1,
-  spec_reviewer: 1,
   performance: 0,
   production_readiness_reviewer: 0,
   cross_platform: 0,
@@ -542,6 +549,23 @@ export default function NewWorkspacePanel({
   const [seArchitectSeat, setSeArchitectSeat] = useState<SprintEngineAllowedRuntime | null>(null)
   const [seSprintModelSelection, setSeSprintModelSelection] = useState<ReadonlySet<string> | null>(null)
   const [seArchitectGuidance, setSeArchitectGuidance] = useState('')
+  // "Workflow steps" + "Final sweeps" panels (MC-1542 / MC-1543). Defaults
+  // match the engine defaults, so an untouched run omits all three init keys:
+  // self-review ON (defaultPhases absent), reviewer = same agent (no
+  // phaseRuntimes), no mandated sweeps (requiredSweeps absent).
+  const [seSelfReviewEnabled, setSeSelfReviewEnabled] = useState(true)
+  const [seReviewRuntime, setSeReviewRuntime] = useState<SprintEngineReviewRuntime | null>(null)
+  const [seRequiredSweeps, setSeRequiredSweeps] = useState<ReadonlySet<SprintEngineRoleId>>(
+    () => new Set<SprintEngineRoleId>(),
+  )
+  const toggleSprintEngineRequiredSweep = (role: SprintEngineRoleId, next: boolean) => {
+    setSeRequiredSweeps((prev) => {
+      const updated = new Set(prev)
+      if (next) updated.add(role)
+      else updated.delete(role)
+      return updated
+    })
+  }
 
   const [mlName, setMlName] = useState('')
   const [mlGoal, setMlGoal] = useState('')
@@ -715,6 +739,15 @@ export default function NewWorkspacePanel({
       ? applyUserDisabledSprintEngineRoleCounts(seRoleCounts, effectiveSprintEngineDisabledRoleIds)
       : seRoleCounts),
     [seRoleCounts, effectiveSprintEngineDisabledRoleIds],
+  )
+  // MC-1542 wizard reframe: the "Work types & models" panel no longer offers
+  // sweep roles as seats, so every registry-visible sweep role rides into
+  // enabledRoles -> configuredRoles at create. The architect can then plan the
+  // audits the "Final sweeps" panel promises ("leave all off to let the
+  // architect decide"), and a mandated requiredSweeps role is always plannable.
+  const sprintEngineSweepEnabledRoles = useMemo<SprintEngineRoleId[]>(
+    () => listSprintEngineWizardSweepRoles(seRoleRegistry, effectiveSprintEngineDisabledRoleIds),
+    [seRoleRegistry, effectiveSprintEngineDisabledRoleIds],
   )
 
   const mcpSettings = useWorkspaceStore((s) => s.appSettings.mcp)
@@ -2002,6 +2035,10 @@ export default function NewWorkspacePanel({
               roleCliDefaults: seRoleCliDefaults,
               roleModelOverrides: seRoleModelOverrides,
               initialSpawnRoles: seInitialSpawnRoles,
+              // Sweep roles are configured via the "Final sweeps" panel, not
+              // the work-types table; enable them all so the architect can
+              // plan whichever audits the work needs.
+              additionalEnabledRoles: sprintEngineSweepEnabledRoles,
               startRunner: seStartRunner,
               autoApproveArtifacts: seAutoApproveArtifacts,
               useWorktrees: seUseWorktrees,
@@ -2087,11 +2124,22 @@ export default function NewWorkspacePanel({
             roleCliDefaults: seRoleCliDefaults,
             roleModelOverrides: seRoleModelOverrides,
             initialSpawnRoles: architectMode ? ['architect'] : seInitialSpawnRoles,
+            // Sweep roles are configured via the "Final sweeps" panel, not the
+            // work-types table; enable them all so the architect can plan
+            // whichever audits the work needs (ignored in architect mode).
+            additionalEnabledRoles: sprintEngineSweepEnabledRoles,
             startRunner: seStartRunner,
             autoApproveArtifacts: seAutoApproveArtifacts,
             useWorktrees: seUseWorktrees,
             cliPermissionPreset,
             rosterSource: seRosterSource,
+            // "Workflow steps" + "Final sweeps" panels. Each key is present only
+            // when it diverges from the engine default, so a plain run sends none.
+            ...buildSprintEngineWorkflowInitKeys({
+              selfReviewEnabled: seSelfReviewEnabled,
+              reviewRuntime: seReviewRuntime,
+              requiredSweepRoleIds: [...seRequiredSweeps],
+            }),
             ...(architectMode
               ? {
                 architectSeat: effectiveArchitectSeat,
@@ -2454,6 +2502,7 @@ export default function NewWorkspacePanel({
               folderPath={folderPath}
               isScanning={folderScan.isScanning}
               existingTeams={folderScan.result.teams}
+              unreadableTeams={folderScan.result.unreadableTeams}
               backlogScan={backlogScan.result}
               backlogScanning={backlogScan.isScanning}
               sourceFromFile={seSourceFromFile}
@@ -2600,6 +2649,12 @@ export default function NewWorkspacePanel({
               onChangeRosterSource={seExistingTeam != null ? undefined : setSeRosterSource}
               architectModeAvailable={architectModeAvailable}
               architectModeDisabledHint={architectModeDisabledHint}
+              selfReviewEnabled={seSelfReviewEnabled}
+              onChangeSelfReviewEnabled={setSeSelfReviewEnabled}
+              reviewRuntime={seReviewRuntime}
+              onChangeReviewRuntime={setSeReviewRuntime}
+              requiredSweeps={seRequiredSweeps}
+              onToggleRequiredSweep={toggleSprintEngineRequiredSweep}
               architectCard={
                 <ArchitectTeamCard
                   seat={effectiveArchitectSeat}
@@ -3920,6 +3975,7 @@ function SprintEngineTeamStep(props: {
   folderPath: string | null
   isScanning: boolean
   existingTeams: ExistingTeam[]
+  unreadableTeams: UnreadableTeam[]
   backlogScan: BacklogScanResult
   backlogScanning: boolean
   sourceFromFile: boolean
@@ -3948,6 +4004,7 @@ function SprintEngineTeamStep(props: {
     folderPath,
     isScanning,
     existingTeams,
+    unreadableTeams,
     backlogScan,
     backlogScanning,
     sourceFromFile,
@@ -4030,6 +4087,20 @@ function SprintEngineTeamStep(props: {
           onSelect={() => onChangePath('plan')}
         />
       </div>
+
+      {/* A sprint the app found but refuses to open (today: a run store from an
+          older Multicode). Dropping it from the picker with no message reads as a
+          lost sprint, so it is named here with its remedy. */}
+      {unreadableTeams.length > 0 ? (
+        <div className="flex flex-col gap-1 rounded-[var(--radius-md)] border border-[color:var(--tone-warn)] px-3 py-2">
+          {unreadableTeams.map((team) => (
+            <p key={team.slug} className="text-[11px] leading-4 text-[color:var(--text-muted)]">
+              <span className="font-medium text-[color:var(--text-strong)]">{team.slug}</span> can’t be opened.{' '}
+              {team.message}
+            </p>
+          ))}
+        </div>
+      ) : null}
 
       {path === 'existing' ? (
         <div className="flex flex-col gap-2">
@@ -4266,6 +4337,14 @@ function SprintEngineRosterStep(props: {
   onChangeRosterSource?: (source: SprintEngineRosterSource) => void
   architectModeAvailable: boolean
   architectModeDisabledHint: string
+  // "Workflow steps" + "Final sweeps" panels (MC-1542 / MC-1543). Omitted for an
+  // existing team (its run is already initialized).
+  selfReviewEnabled: boolean
+  onChangeSelfReviewEnabled: (value: boolean) => void
+  reviewRuntime: SprintEngineReviewRuntime | null
+  onChangeReviewRuntime: (runtime: SprintEngineReviewRuntime | null) => void
+  requiredSweeps: ReadonlySet<SprintEngineRoleId>
+  onToggleRequiredSweep: (role: SprintEngineRoleId, next: boolean) => void
   architectCard: React.ReactNode
 }) {
   const {
@@ -4307,6 +4386,12 @@ function SprintEngineRosterStep(props: {
     onChangeRosterSource,
     architectModeAvailable,
     architectModeDisabledHint,
+    selfReviewEnabled,
+    onChangeSelfReviewEnabled,
+    reviewRuntime,
+    onChangeReviewRuntime,
+    requiredSweeps,
+    onToggleRequiredSweep,
     architectCard,
   } = props
 
@@ -4364,6 +4449,29 @@ function SprintEngineRosterStep(props: {
         architectModeAvailable={architectModeAvailable}
         architectModeDisabledHint={architectModeDisabledHint}
         architectCard={architectCard}
+        // MC-1542 wizard reframe: a fresh run's role table is the "Work types &
+        // models" panel (sweep roles live in the "Final sweeps" panel below).
+        // An existing team's roster is fixed and keeps the classic presentation.
+        workTypes={!hasExistingTeam}
+        workflowSection={
+          !hasExistingTeam ? (
+            <SprintEngineWorkflowPanels
+              cliOptions={cliOptions}
+              registry={registry}
+              disabledRoleIds={disabledRoleIds}
+              selfReviewEnabled={selfReviewEnabled}
+              onChangeSelfReviewEnabled={onChangeSelfReviewEnabled}
+              reviewRuntime={reviewRuntime}
+              onChangeReviewRuntime={onChangeReviewRuntime}
+              requiredSweepRoleIds={requiredSweeps}
+              onToggleRequiredSweep={onToggleRequiredSweep}
+              roleCliDefaults={roleCliDefaults}
+              roleModelOverrides={roleModelOverrides}
+              onSetRoleCli={onSetRoleCli}
+              onSetRoleModel={onSetRoleModel}
+            />
+          ) : null
+        }
       />
     </div>
   )
@@ -4567,7 +4675,7 @@ function getStepBlockingMessage(args: {
         if (!architectModeReady) return 'Tick at least one model for this sprint.'
         return 'Ready to create.'
       }
-      if (totalAgents === 0) return 'Add at least one specialist.'
+      if (totalAgents === 0) return 'Turn on at least one kind of work.'
       return 'Ready to create.'
     case 'guided-idea':
       if (!guidedIdea.trim()) return 'Describe the idea in a sentence or two.'

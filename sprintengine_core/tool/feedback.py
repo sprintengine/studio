@@ -258,45 +258,6 @@ def set_implementer_actual_difficulty(task: Dict[str, Any], pct: Optional[int], 
     if reason_text:
         difficulty["implementerActualReason"] = validate_feedback_text(reason_text, "--actual-difficulty-reason")
 
-def append_reviewer_difficulty_assessment(
-    task: Dict[str, Any],
-    *,
-    pct: Optional[int],
-    dimension: str,
-    reason: str,
-    reviewer_agent_id: str,
-    reviewer_role: str,
-    gate_id: str,
-    gate_attempt_id: str,
-) -> Optional[Dict[str, Any]]:
-    if pct is None and not str(dimension or "").strip() and not str(reason or "").strip():
-        return None
-    if pct is None:
-        raise SystemExit("--reviewed-difficulty-pct is required when recording reviewer difficulty.")
-    dimension_text = str(dimension or "").strip()
-    if dimension_text not in VALID_DIFFICULTY_REVIEWER_DIMENSIONS:
-        raise SystemExit(
-            "--reviewed-difficulty-dimension must be one of: "
-            f"{', '.join(sorted(VALID_DIFFICULTY_REVIEWER_DIMENSIONS))}."
-        )
-    assessment = {
-        "pct": validate_difficulty_percent(pct, "--reviewed-difficulty-pct"),
-        "dimension": dimension_text,
-        "reason": validate_feedback_text(str(reason or ""), "--reviewed-difficulty-reason"),
-        "reviewerAgentId": reviewer_agent_id,
-        "reviewerRole": reviewer_role,
-        "gateId": gate_id,
-        "gateAttemptId": gate_attempt_id,
-        "capturedAt": now_iso(),
-    }
-    difficulty = task.setdefault("difficulty", {})
-    assessments = difficulty.get("reviewerAssessments")
-    if not isinstance(assessments, list):
-        assessments = []
-    assessments.append(assessment)
-    difficulty["reviewerAssessments"] = assessments
-    return assessment
-
 def difficulty_snapshot(task: Dict[str, Any]) -> Dict[str, Any]:
     raw = task.get("difficulty")
     if not isinstance(raw, dict):
@@ -321,8 +282,7 @@ def difficulty_snapshot(task: Dict[str, Any]) -> Dict[str, Any]:
                 "reason": assessment.get("reason"),
                 "reviewer_agent_id": assessment.get("reviewerAgentId"),
                 "reviewer_role": assessment.get("reviewerRole"),
-                "gate_id": assessment.get("gateId"),
-                "gate_attempt_id": assessment.get("gateAttemptId"),
+                "phase": assessment.get("phase"),
                 "captured_at": assessment.get("capturedAt"),
             }
             for assessment in assessments
@@ -356,10 +316,10 @@ def observed_task_metrics(task: Dict[str, Any]) -> Dict[str, Any]:
     return observed
 
 def feedback_review_target(args: argparse.Namespace, state: Dict[str, Any], default_task: Dict[str, Any]) -> Dict[str, Any]:
-    # This runs only on the self-report path (task.status/artifact). The
-    # gate-verdict path builds its review target inline from gate_context, so
-    # best-effort telemetry never reaches here — partial review-target metadata
-    # is a hard error, matching the strict self-report contract.
+    # This runs on every feedback path. A sweep that assesses ANOTHER task passes
+    # the --review-target-* trio and becomes a reviewer assessment; partial
+    # review-target metadata is a hard error. A phase advance passes none of them,
+    # so the owner's self-review reports against its own task.
     target_task_id = str(getattr(args, "review_target_task_id", "") or "").strip()
     target_agent_id = str(getattr(args, "review_target_agent_id", "") or "").strip()
     target_execution_id = str(getattr(args, "review_target_execution_id", "") or "").strip()
@@ -387,48 +347,38 @@ def build_feedback_payload(
     state_path: Path,
     task: Dict[str, Any],
     actor: str,
-    gate_context: Optional[Dict[str, Any]] = None,
+    phase_context: Optional[Dict[str, Any]] = None,
     best_effort: bool = False,
 ) -> Optional[Dict[str, Any]]:
     if not feedback_args_present(args):
         return None
 
     # Best-effort telemetry (Decision 4) drops invalid optional fields with a
-    # warning instead of rejecting; used on the gate-verdict path so a bad
-    # telemetry sub-field never blocks the operational verdict. Self-report and
+    # warning instead of rejecting; used on the phase-advance path so a bad
+    # telemetry sub-field never blocks the operational transition. Self-report and
     # artifact paths stay strict (`warnings is None` re-raises).
     warnings: Optional[List[str]] = [] if best_effort else None
     parsed = parse_feedback_args(args, warnings)
     now = now_iso()
-    if gate_context:
-        # Attribute the verdict to the agent who actually implemented the task.
-        # `ownerAgentId` is cleared once a task leaves the worker's hands (done,
-        # review, testing), so falling back to it alone attributed every measured
-        # signal to the bare role name (e.g. "developer" instead of
-        # "developer-1"). `lastImplementedByAgentId` is retained after handoff
-        # precisely so the implementer stays identifiable for review attribution.
-        review_target = {
-            "task": task,
-            "taskId": str(task.get("id") or ""),
-            "agentId": str(
-                task.get("lastImplementedByAgentId")
-                or task.get("ownerAgentId")
-                or task.get("role")
-                or ""
-            ),
-            "executionId": str(gate_context.get("attemptId") or ""),
-            "isReviewerAssessment": True,
-        }
-    else:
-        review_target = feedback_review_target(args, state, task)
+    # A phase advance is the OWNER reporting on its own work (MC-1542 decision 1),
+    # so it is a self-report, not a reviewer assessment — there is no separate
+    # reviewer to attribute it to. A sweep assessing another task still passes the
+    # --review-target-* trio and lands on the reviewer-assessment branch below.
+    review_target = feedback_review_target(args, state, task)
     target_task = review_target["task"]
     role = str(target_task.get("role") or "")
-    reviewer_role = str(gate_context.get("role") if gate_context else task.get("role") or "")
+    reviewer_role = str(task.get("role") or "")
     task_id = str(review_target["taskId"])
     team_slug = str(state.get("sprintengine", {}).get("name") or state_path.parent.name)
     issues = parse_feedback_issue_args(args, task_id, warnings)
     findings = parse_feedback_finding_args(args, task_id, warnings)
-    source = "gate_verdict_assessment" if gate_context else "reviewer_assessment" if review_target["isReviewerAssessment"] else "agent_self_report"
+    source = (
+        "phase_advance_self_review"
+        if phase_context
+        else "reviewer_assessment"
+        if review_target["isReviewerAssessment"]
+        else "agent_self_report"
+    )
     state_feedback = {
         "schemaVersion": FEEDBACK_SCHEMA_VERSION,
         "capturedAt": now,
@@ -450,12 +400,10 @@ def build_feedback_payload(
             "agentId": actor,
             "role": reviewer_role,
         }
-    if gate_context:
-        state_feedback["gate"] = {
-            "phase": gate_context.get("phase"),
-            "gateId": gate_context.get("gateId"),
-            "attemptId": gate_context.get("attemptId"),
-            "verdict": gate_context.get("verdict"),
+    if phase_context:
+        state_feedback["phase"] = {
+            "phase": phase_context.get("phase"),
+            "outcome": phase_context.get("outcome"),
         }
     state_feedback.update(parsed["textFields"])
 
@@ -484,11 +432,9 @@ def build_feedback_payload(
         record["reviewer_task_id"] = str(task.get("id") or "")
         record["reviewer_agent_id"] = actor
         record["reviewer_role"] = reviewer_role
-    if gate_context:
-        record["gate_phase"] = gate_context.get("phase")
-        record["gate_id"] = gate_context.get("gateId")
-        record["gate_attempt_id"] = gate_context.get("attemptId")
-        record["gate_verdict"] = gate_context.get("verdict")
+    if phase_context:
+        record["phase"] = phase_context.get("phase")
+        record["phase_outcome"] = phase_context.get("outcome")
     if issues:
         state_feedback["issues"] = issues
         record["issues"] = [

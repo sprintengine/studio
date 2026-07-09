@@ -6,98 +6,342 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from sprintengine_core import store as folder_store
-from sprintengine_core.role_registry import RoleManifest, discover_role_registry
 from sprintengine_core.diff_evidence import capture_task_diff_evidence
 from sprintengine_core.tool.comments import *  # noqa: F403,F401
 from sprintengine_core.tool.common import unique_strings
 from sprintengine_core.tool.constants import *  # noqa: F403,F401
-from sprintengine_core.tool.gates import *  # noqa: F403,F401
 from sprintengine_core.tool.paths import now_iso, workspace_root_for_state_path
 from sprintengine_core.tool.roles import require_configured_role
 from sprintengine_core.tool.shell import worktree_for_vcs
 from sprintengine_core.tool.state import *  # noqa: F403,F401
 
+def task_produced_changes(state: Dict[str, Any], state_path: Path, task: Dict[str, Any]) -> bool:
+    """Did this task produce a diff? The one input to publish-time phase routing.
+
+    Worktree mode: task-scoped commits are the record of the task's changes, so a
+    task with any commit produced a diff. Non-worktree mode: the working tree,
+    scoped to owned + declared paths.
+
+    This is the task's CUMULATIVE output, not "since the last publish". A task
+    returned to `in_progress` by human feedback and re-published re-enters the walk
+    and reviews the whole diff again — reviewing work already reviewed is cheap and
+    safe; skipping review on a task that changed the codebase is not.
+
+    When the answer cannot be determined (no git repository at all), this returns
+    True: routing to review is the failure-safe direction.
+    """
+    from sprintengine_core.tool.shell import (
+        get_run_vcs,
+        task_scoped_dirty_paths,
+        workspace_is_git_repository,
+    )
+
+    if get_run_vcs(state):
+        commits = ensure_evidence(task).get("commits")
+        return bool(isinstance(commits, list) and commits)
+    if not workspace_is_git_repository(state_path):
+        return True
+    # Non-worktree change detection is scoped to the task's declared + owned paths.
+    # If the task declared NO scope at all, we cannot tell what it touched -> route
+    # to review, the same failure-safe direction as "no git repo" (E3 review finding).
+    declared = task_diff_declared_paths(task)
+    owned = [str(path) for path in task.get("ownedPaths", []) or []]
+    if not declared and not owned:
+        return True
+    return bool(task_scoped_dirty_paths(state, state_path, task))
+
+
 def publish_task(
     state: Dict[str, Any],
+    state_path: Path,
     task: Dict[str, Any],
     actor: str,
     body: str,
     paths: Optional[List[str]] = None,
     data: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
+    """Record the implementation summary and route the task into its phase walk.
+
+    Two steps, per decision 7. First change detection; then routing: no changes
+    skips every phase and lands on `done` (the clean-sweep / analysis-only exit);
+    changes enter `phases[0]`, or `done` when the task has no phases. Publish is the
+    ONLY tool that enters the walk.
+    """
     previous_status = str(task.get("status") or "")
-    if previous_status not in {"in_progress", "changes_requested"}:
-        raise SystemExit("Only in_progress or changes_requested tasks can be published.")
-    is_rework_publish = previous_status == "changes_requested" or task_has_prior_required_rework_verdict(task)
-    if is_rework_publish:
-        feedback_ids = [str(comment.get("id")) for comment in open_rework_comments(task) if comment.get("id")]
-        comment_type = "implementation_response"
+    if previous_status != "in_progress":
+        raise SystemExit("Only in_progress tasks can be published.")
+    # `implementation_response` marks a publish that answers open feedback (the
+    # human Inbox loop, Flow 5); a first publish is an `implementation_summary`.
+    open_feedback_ids = [str(comment.get("id")) for comment in open_rework_comments(task) if comment.get("id")]
+    if open_feedback_ids:
         comment = create_task_comment(
             state,
             task,
             actor=actor,
             body=body,
-            comment_type=comment_type,
+            comment_type="implementation_response",
             source="agent",
             paths=paths,
-            data={**(data or {}), "feedbackCommentIds": feedback_ids},
+            data={**(data or {}), "feedbackCommentIds": open_feedback_ids},
         )
-        reset_required_gates_for_rework(task)
     else:
-        comment_type = "implementation_summary"
         comment = create_task_comment(
             state,
             task,
             actor=actor,
             body=body,
-            comment_type=comment_type,
+            comment_type="implementation_summary",
             source="agent",
             paths=paths,
             data=data,
         )
 
-    next_status = next_publish_status(task)
+    produced_changes = task_produced_changes(state, state_path, task)
+    phases = resolve_task_phases(state, task) if produced_changes else []
+    next_status = phases[0] if phases else "done"
     published_at = now_iso()
     task["lastImplementedByAgentId"] = actor
     task["lastPublishedAt"] = published_at
     task["status"] = next_status
-    task["ownerAgentId"] = None
     task.pop("needsInput", None)
     if next_status == "done":
         task["completedAt"] = published_at
-        # A plan/product gate task has no quality gates, so publishing it drives
-        # it straight to done; resolve its draft placeholder like the other
-        # task-done transitions. Imported lazily to avoid an artifacts<->tasks
-        # import cycle.
+        task["ownerAgentId"] = None
+        clear_task_refs(state, str(task.get("id")))
+        # A plan/product approval task carries `phases: []`, so publishing it drives
+        # it straight to done; resolve its draft placeholder like the other task-done
+        # transitions. Imported lazily to avoid an artifacts<->tasks import cycle.
         from sprintengine_core.tool.artifacts import supersede_stale_gate_placeholder_on_completion
         supersede_stale_gate_placeholder_on_completion(state, task, actor)
     else:
         task["completedAt"] = None
-    cleared = clear_task_refs(state, str(task.get("id")))
+        enter_phase(state, task, next_status, actor)
+
     append_task_activity(
         task,
         "status_change",
         actor,
         f"{actor} published {task.get('id')} to {next_status}.",
-        {"status": next_status, "fromStatus": previous_status, "commentId": comment["id"]},
+        {
+            "status": next_status,
+            "fromStatus": previous_status,
+            "commentId": comment["id"],
+            "producedChanges": produced_changes,
+        },
     )
-    return {"comment": comment, "nextStatus": next_status, "previousStatus": previous_status, "clearedAgents": cleared}
+    return {
+        "comment": comment,
+        "nextStatus": next_status,
+        "previousStatus": previous_status,
+        "producedChanges": produced_changes,
+        "phases": phases,
+        "awaitingPhaseSession": task.get("awaitingPhaseSession"),
+    }
 
-def state_has_active_gate(tasks: List[Dict[str, Any]]) -> bool:
-    for task in tasks:
-        if not isinstance(task, dict):
-            continue
-        for gate in task_quality_gates(task):
-            if gate.get("status") == "in_progress":
-                return True
-    return False
+
+def enter_phase(state: Dict[str, Any], task: Dict[str, Any], phase: str, actor: str) -> None:
+    """Bind the task to whoever will run `phase`.
+
+    Default (MC-1542): the owner stays bound through every phase — it is already
+    in-session and mid-tool-call, and the phase directive is returned to it inline.
+
+    Premium (MC-1543): when the run binds this phase to a DIFFERENT `{cli, model}`,
+    the phase runs as a fresh, diff-seeded session on that runtime. The task is
+    released from its implementer and marked `awaitingPhaseSession`; the supervisor
+    spawns the bound session, which claims the task and becomes its owner.
+    `lastImplementedByAgentId` is retained either way, so attribution survives.
+    """
+    if phase_needs_own_session(state, task, phase):
+        task["ownerAgentId"] = None
+        task["awaitingPhaseSession"] = {"phase": phase, "runtime": dict(phase_runtime(state, phase))}
+        clear_task_refs(state, str(task.get("id")))
+        append_task_activity(
+            task,
+            "status_change",
+            actor,
+            f"{task.get('id')} awaits a {phase} session on its bound runtime.",
+            {"status": phase, "awaitingPhaseSession": phase},
+        )
+        return
+    task.pop("awaitingPhaseSession", None)
+    task["ownerAgentId"] = actor
+    agent = ensure_agent(state, actor, task.get("role"))
+    set_agent_active(agent, task)
+
+
+def task_awaiting_phase_session(task: Dict[str, Any]) -> Optional[str]:
+    """The phase a task is waiting for a bound session to run, or None."""
+    awaiting = task.get("awaitingPhaseSession")
+    if not isinstance(awaiting, dict) or task.get("ownerAgentId"):
+        return None
+    phase = str(awaiting.get("phase") or "").strip()
+    return phase if phase == str(task.get("status") or "") else None
+
+
+def claim_phase_session(state: Dict[str, Any], task: Dict[str, Any], agent_id: str) -> Dict[str, Any]:
+    """A bound phase session takes over ownership WITHOUT resetting the task.
+
+    Unlike `assign_task` this never rewinds the status to `in_progress`: the diff is
+    published and the task is mid-walk. It re-stamps the execution identity to the
+    phase's runtime (that is what the operator is paying for) while leaving
+    `lastImplementedByAgentId` alone, so the implementer stays identifiable.
+    """
+    phase = task_awaiting_phase_session(task)
+    if not phase:
+        raise SystemExit(f"Task {task.get('id')} is not awaiting a phase session.")
+    runtime = task["awaitingPhaseSession"].get("runtime") or {}
+    task.pop("awaitingPhaseSession", None)
+    task["ownerAgentId"] = agent_id
+    stamp_task_execution_identity(state, task, model=runtime.get("model"), cli=runtime.get("cli"))
+    agent = ensure_agent(state, agent_id, task.get("role"))
+    set_agent_active(agent, task)
+    append_task_activity(
+        task,
+        "claim",
+        agent_id,
+        f"{agent_id} claimed the {phase} phase of {task.get('id')} on its bound runtime.",
+        {"status": phase, "phase": phase},
+    )
+    return {"agent": agent, "phase": phase}
+
+
+def advance_task(
+    state: Dict[str, Any],
+    task: Dict[str, Any],
+    actor: str,
+    phase: str,
+    outcome: str,
+    summary: str,
+    *,
+    needs_input: Optional[Dict[str, str]] = None,
+) -> Dict[str, Any]:
+    """Move a task forward out of `phase`. The ONLY mutation that walks phases.
+
+    Owner-only, and guarded on the phase matching the task's current status so a
+    stale call from a resumed session cannot skip a phase. `pass`/`pass_with_fixes`
+    step to the next phase (or `done`); `escalate` parks the task in `needs_input`
+    while RECORDING the originating phase, so resolving the input returns it to that
+    phase rather than to `in_progress`.
+    """
+    current_status = str(task.get("status") or "")
+    clean_phase = str(phase or "").strip()
+    if clean_phase not in VALID_TASK_PHASES:
+        raise SystemExit(
+            f"Invalid phase {clean_phase!r}; expected one of: {', '.join(VALID_TASK_PHASES)}."
+        )
+    if current_status != clean_phase:
+        raise SystemExit(
+            f"phase_mismatch: task {task.get('id')} is in {current_status!r}, not {clean_phase!r}. "
+            "Re-read the task before advancing."
+        )
+    if outcome not in VALID_PHASE_OUTCOMES:
+        raise SystemExit(f"Invalid outcome {outcome!r}; expected one of: {', '.join(sorted(VALID_PHASE_OUTCOMES))}.")
+    owner = str(task.get("ownerAgentId") or "")
+    if task_awaiting_phase_session(task):
+        # MC-1543: the phase was released to a bound runtime and no session has
+        # claimed it yet. A stale implementer (or any non-owner) must not advance
+        # past the paid-for review — the bound session claims via `task.claim` first.
+        raise SystemExit(
+            f"awaiting_phase_session: {task.get('id')} is waiting for its bound "
+            f"{task.get('status')} session to claim it; advance is not permitted until then."
+        )
+    if not owner:
+        raise SystemExit(
+            f"not_task_owner: {actor} cannot advance unowned task {task.get('id')}. "
+            "Only a task's owner advances its phases."
+        )
+    if owner != actor:
+        raise SystemExit(
+            f"not_task_owner: {actor} does not own {task.get('id')} ({owner} does). "
+            "Only a task's owner advances its phases."
+        )
+    clean_summary = str(summary or "").strip()
+    if not clean_summary:
+        raise SystemExit("--summary is required when advancing a phase.")
+
+    now = now_iso()
+    if outcome == "escalate":
+        if not needs_input or not str(needs_input.get("question") or "").strip():
+            raise SystemExit("An `escalate` outcome requires a needs-input question.")
+        task["status"] = "needs_input"
+        task["completedAt"] = None
+        task["needsInput"] = {
+            "kind": needs_input.get("kind") or "architect",
+            "reason": needs_input.get("reason") or "blocked_other",
+            "question": str(needs_input["question"]).strip(),
+            "reportedBy": actor,
+            "reportedAt": now,
+            # Input resolution returns the task to the phase it escalated FROM, not
+            # to in_progress. Only Flow-5 human feedback re-opens implementation.
+            "originatingStatus": clean_phase,
+        }
+        if needs_input.get("suggestedResolution"):
+            task["needsInput"]["suggestedResolution"] = str(needs_input["suggestedResolution"]).strip()
+        comment = create_task_comment(
+            state,
+            task,
+            actor=actor,
+            body=clean_summary,
+            comment_type="needs_input",
+            source="agent",
+            data={"phase": clean_phase, "outcome": outcome},
+        )
+        task.pop("awaitingPhaseSession", None)
+        agent = ensure_agent(state, actor, task.get("role"))
+        agent["status"] = "needs_input"
+        agent["currentTaskId"] = task.get("id")
+        next_status = "needs_input"
+        next_phase = None
+    else:
+        # Strictly forward, and a phase is visited at most once per walk: the next
+        # phase is always the one AFTER this phase in the task's list.
+        phases = resolve_task_phases(state, task)
+        remaining = phases[phases.index(clean_phase) + 1:] if clean_phase in phases else []
+        next_phase = remaining[0] if remaining else None
+        next_status = next_phase or "done"
+        task["status"] = next_status
+        task.pop("needsInput", None)
+        comment = create_task_comment(
+            state,
+            task,
+            actor=actor,
+            body=clean_summary,
+            comment_type="implementation_summary",
+            source="agent",
+            data={"phase": clean_phase, "outcome": outcome},
+        )
+        if next_status == "done":
+            task["completedAt"] = now
+            task["ownerAgentId"] = None
+            task.pop("awaitingPhaseSession", None)
+            clear_task_refs(state, str(task.get("id")))
+            from sprintengine_core.tool.artifacts import supersede_stale_gate_placeholder_on_completion
+            supersede_stale_gate_placeholder_on_completion(state, task, actor)
+        else:
+            task["completedAt"] = None
+            enter_phase(state, task, next_status, actor)
+
+    append_task_activity(
+        task,
+        "status_change",
+        actor,
+        f"{actor} advanced {task.get('id')} out of {clean_phase} with {outcome}.",
+        {"status": next_status, "fromStatus": clean_phase, "outcome": outcome, "commentId": comment["id"]},
+    )
+    return {
+        "comment": comment,
+        "nextStatus": next_status,
+        "nextPhase": next_phase,
+        "phase": clean_phase,
+        "awaitingPhaseSession": task.get("awaitingPhaseSession"),
+    }
 
 def recompute_phase(state: Dict[str, Any]) -> bool:
     sprintengine = state.setdefault("sprintengine", {})
     tasks = state.get("tasks", [])
     if tasks and all(t.get("status") in {"done", "canceled"} for t in tasks):
         return set_if_changed(sprintengine, "status", "completed")
-    if any(t.get("status") in RUN_EXECUTING_TASK_STATUSES for t in tasks) or state_has_active_gate(tasks):
+    if any(t.get("status") in RUN_EXECUTING_TASK_STATUSES for t in tasks):
         return set_if_changed(sprintengine, "status", "executing")
     return set_if_changed(sprintengine, "status", "planned" if tasks else "planning")
 
@@ -156,7 +400,7 @@ def refresh_task_diff_evidence(
     return diffs
 
 def task_is_ready(state: Dict[str, Any], task: Dict[str, Any]) -> bool:
-    if task.get("status") not in {"todo", "changes_requested"} or task.get("ownerAgentId"):
+    if task.get("status") != "todo" or task.get("ownerAgentId"):
         return False
     if task.get("needsTriage") is True:
         return False
@@ -179,16 +423,11 @@ def read_ready_task_ids(state: Dict[str, Any]) -> List[str]:
     except ValueError as exc:
         raise SystemExit(str(exc)) from exc
     tasks_by_id = {str(task.get("id")): task for task in tasks if task.get("id")}
-    ready_ids: List[str] = []
-    changes_requested_ids: List[str] = []
-    for task_id in ordered_ids:
-        task = tasks_by_id.get(task_id)
-        if task and task_is_ready(state, task):
-            if task.get("status") == "changes_requested":
-                changes_requested_ids.append(task_id)
-            else:
-                ready_ids.append(task_id)
-    return [*changes_requested_ids, *ready_ids]
+    return [
+        task_id
+        for task_id in ordered_ids
+        if (task := tasks_by_id.get(task_id)) and task_is_ready(state, task)
+    ]
 
 def optional_non_empty_string(record: Dict[str, Any], key: str) -> Optional[str]:
     value = record.get(key)
@@ -309,7 +548,7 @@ def normalize_task_difficulty(raw: Any, task_id: str) -> Optional[Dict[str, Any]
                 ),
                 "dimension": dimension,
             }
-            for key in ("reason", "reviewerAgentId", "reviewerRole", "gateId", "gateAttemptId", "capturedAt"):
+            for key in ("reason", "reviewerAgentId", "reviewerRole", "phase", "capturedAt"):
                 value = optional_non_empty_string(raw_assessment, key)
                 if value is not None:
                     assessment[key] = value
@@ -436,13 +675,74 @@ def normalize_task(raw: Dict[str, Any]) -> Dict[str, Any]:
         task["difficulty"] = difficulty
     if isinstance(raw.get("triage"), dict):
         task["triage"] = raw["triage"]
-    if isinstance(raw.get("qualityGates"), list):
-        task["qualityGates"] = [
-            gate
-            for index, raw_gate in enumerate(raw["qualityGates"])
-            if (gate := folder_store.normalize_quality_gate(raw_gate, f"gate-{index + 1}")) is not None
-        ]
+    phases = normalize_task_phases(raw.get("phases"), task_id)
+    if phases is not None:
+        task["phases"] = phases
+    awaiting = raw.get("awaitingPhaseSession")
+    if isinstance(awaiting, dict) and str(awaiting.get("phase") or "").strip():
+        task["awaitingPhaseSession"] = awaiting
     return task
+
+def parse_phases_arg(raw: Any) -> Optional[List[str]]:
+    """Read a `--phases` / `phases` argument into an ordered list, or None.
+
+    `None` (flag absent) inherits the run's `defaultPhases`. MCP passes a native
+    array — including `[]` for "no phases". The CLI passes a comma-separated
+    string, where `--phases ""` is the same explicit empty list. A bare string is
+    NOT spread char-by-char (the house array-field scar tissue).
+    """
+    if raw is None:
+        return None
+    if isinstance(raw, list):
+        candidates = [str(entry).strip() for entry in raw]
+    elif isinstance(raw, str):
+        candidates = [part.strip() for part in raw.split(",")]
+    else:
+        raise SystemExit("--phases must be a comma-separated string or an array of phase names.")
+    values = [value for value in candidates if value]
+    try:
+        return folder_store.normalize_phase_list(values, field="--phases")
+    except ValueError as exc:
+        raise SystemExit(str(exc)) from exc
+
+
+def normalize_task_phases(raw: Any, task_id: str) -> Optional[List[str]]:
+    """The task's ordered post-implementation phases, or None when unset.
+
+    None means "inherit the run's `defaultPhases`" and is what a task written
+    before the field existed reads as. `[]` is an explicit "no phases": publish
+    routes straight to `done`.
+    """
+    if raw is None:
+        return None
+    try:
+        return folder_store.normalize_phase_list(raw, field=f"Task {task_id} phases")
+    except ValueError as exc:
+        raise SystemExit(str(exc)) from exc
+
+
+def resolve_task_phases(state: Dict[str, Any], task: Dict[str, Any]) -> List[str]:
+    """The phases this task actually walks: its own list, else the run's default."""
+    phases = task.get("phases")
+    if isinstance(phases, list):
+        return [str(phase) for phase in phases]
+    return run_default_phases(state)
+
+
+def assert_phases_within_run_ceiling(state: Dict[str, Any], phases: List[str], task_id: str) -> None:
+    """`defaultPhases` is default AND ceiling: a task may trim, never add.
+
+    Rejecting here (rather than silently intersecting) is what makes "this run has
+    no review step" an operator guarantee the architect cannot override.
+    """
+    allowed = run_default_phases(state)
+    outside = [phase for phase in phases if phase not in allowed]
+    if outside:
+        raise SystemExit(
+            f"phase_not_configured_for_run: task {task_id} requests phase(s) {', '.join(outside)}, "
+            f"but this run's phases are {', '.join(allowed) or '(none)'}. A task may trim phases, never add them."
+        )
+
 
 def reject_absolute_path_values(values: Optional[List[str]], field: str) -> None:
     if not values:
@@ -460,143 +760,10 @@ def next_task_id(tasks: List[Dict[str, Any]]) -> str:
         index += 1
     return f"T{index}"
 
-def canonical_quality_gate_id(value: str) -> str:
-    normalized = str(value or "").strip().replace("-", "_")
-    aliases = {
-        "architect": "architect_review",
-        "architect_review": "architect_review",
-        "frontend": "frontend_review",
-        "frontend_review": "frontend_review",
-        "code_review": "code_reviewer",
-        "code_reviewer": "code_reviewer",
-        "nuclear_review": "nuclear_reviewer",
-        "nuclear_reviewer": "nuclear_reviewer",
-        "spec_review": "spec_reviewer",
-        "spec_reviewer": "spec_reviewer",
-        "validation": "tester",
-        "test": "tester",
-        "tester": "tester",
-        "product_acceptance": "product",
-        "product": "product",
-        "security_review": "security",
-        "security": "security",
-        "performance_review": "performance",
-        "performance": "performance",
-        "production_readiness_review": "production_readiness_reviewer",
-        "production_readiness": "production_readiness_reviewer",
-        "production_readiness_reviewer": "production_readiness_reviewer",
-        "cross_platform_review": "cross_platform",
-        "cross_platform": "cross_platform",
-    }
-    return aliases.get(normalized, normalized)
-
-def quality_gate_spec_for_id(
-    gate_id: str,
-    policy: Dict[str, Any],
-    *,
-    workspace_root: Optional[Path] = None,
-) -> Optional[Dict[str, Any]]:
-    canonical = canonical_quality_gate_id(gate_id)
-    gate_specs = policy.get("gates") if isinstance(policy.get("gates"), dict) else {}
-    if canonical == "architect_review":
-        spec = gate_specs.get("architect")
-        return {"id": "architect_review", **spec} if isinstance(spec, dict) else None
-    if canonical == "frontend_review":
-        return {
-            "id": "frontend_review",
-            "phase": "review",
-            "role": "frontend",
-            "required": True,
-            "focus": "UI behavior, accessibility, responsive behavior, status labels, and interaction correctness",
-        }
-    spec = gate_specs.get(canonical)
-    if isinstance(spec, dict):
-        return {"id": canonical, **spec}
-    registry = discover_role_registry(workspace_root=workspace_root)
-    try:
-        role_entry = registry.role_entry(canonical)
-    except KeyError:
-        return None
-    role = role_entry.value
-    if not isinstance(role, RoleManifest):
-        return None
-    review_capability = next((capability for capability in role.capabilities if capability.kind == "review"), None)
-    if review_capability is None:
-        return None
-    return {
-        "id": canonical,
-        "phase": review_capability.phase or "review",
-        "role": role.normalized_id,
-        "required": True,
-        "focus": review_capability.default_focus or role.summary or f"{role.label} review",
-    }
-
-def build_quality_gate_from_spec(
-    gate_id: str,
-    spec: Dict[str, Any],
-    state: Dict[str, Any],
-    *,
-    workspace_root: Optional[Path] = None,
-) -> Dict[str, Any]:
-    role = str(spec.get("role") or "").strip()
-    if not role:
-        raise SystemExit(f"Quality gate {gate_id!r} has no role.")
-    registry = discover_role_registry(workspace_root=workspace_root)
-    role = require_configured_role(role, context=f"Quality gate {gate_id!r}", discovery=registry)
-    if roster_is_configured(state) and role not in roster_roles(state):
-        raise SystemExit(f"Quality gate {gate_id!r} requires role {role!r}, which is not in this Sprint Engine roster.")
-    phase = str(spec.get("phase") or "").strip()
-    if phase not in {"review", "testing", "product"}:
-        raise SystemExit(f"Quality gate {gate_id!r} has invalid phase {phase!r}.")
-    return {
-        "id": canonical_quality_gate_id(str(spec.get("id") or gate_id)),
-        "phase": phase,
-        "role": role,
-        "status": "pending",
-        "required": bool(spec.get("required", True)),
-        "allowSelfReview": True,
-        "focus": str(spec.get("focus") or ""),
-        "attempts": [],
-    }
-
-def apply_quality_gate_cli_overrides(task: Dict[str, Any], state: Dict[str, Any], policy: Dict[str, Any], args: argparse.Namespace) -> None:
-    if getattr(args, "no_quality_gates", False):
-        task["qualityGates"] = []
-        return
-
-    gates = list(task.get("qualityGates", []) if isinstance(task.get("qualityGates"), list) else [])
-    if getattr(args, "no_review", False):
-        gates = [gate for gate in gates if gate.get("phase") != "review"]
-    if getattr(args, "no_testing", False):
-        gates = [gate for gate in gates if gate.get("phase") != "testing"]
-    if getattr(args, "no_product_acceptance", False):
-        gates = [gate for gate in gates if gate.get("phase") != "product" and canonical_quality_gate_id(str(gate.get("id") or "")) != "product"]
-
-    skip_ids = {canonical_quality_gate_id(value) for value in (getattr(args, "skip_gate", None) or [])}
-    if skip_ids:
-        gates = [gate for gate in gates if canonical_quality_gate_id(str(gate.get("id") or "")) not in skip_ids]
-
-    existing_ids = {canonical_quality_gate_id(str(gate.get("id") or "")) for gate in gates}
-    workspace_root = workspace_root_for_state_path(args.state) if getattr(args, "state", None) else None
-    for required_id in getattr(args, "require_gate", None) or []:
-        canonical = canonical_quality_gate_id(required_id)
-        if canonical in existing_ids:
-            continue
-        spec = quality_gate_spec_for_id(canonical, policy, workspace_root=workspace_root)
-        if spec is None:
-            raise SystemExit(f"Unknown quality gate {required_id!r}.")
-        gates.append(build_quality_gate_from_spec(canonical, spec, state, workspace_root=workspace_root))
-        existing_ids.add(canonical)
-
-    task["qualityGates"] = gates
-
 def build_task_from_args(args: argparse.Namespace, state: Dict[str, Any]) -> Dict[str, Any]:
     task_id = getattr(args, "task_id", None) or next_task_id(state.get("tasks", []))
-    if (
-        folder_store.normalize_quality_policy(state.get("sprintengine", {}).get("qualityPolicy") if isinstance(state.get("sprintengine"), dict) else {}).get("enabled", True)
-        and not roster_is_configured(state)
-    ):
-        raise SystemExit("Cannot add quality-gated Sprint Engine tasks before configuring a roster.")
+    if not roster_is_configured(state):
+        raise SystemExit("Cannot add Sprint Engine tasks before configuring a roster.")
     reject_absolute_path_values(getattr(args, "path", None), "--path")
     raw = {
         "id": task_id,
@@ -624,6 +791,10 @@ def build_task_from_args(args: argparse.Namespace, state: Dict[str, Any]) -> Dic
         raw["producesImplementation"] = True
     if getattr(args, "needs_triage", False):
         raw["needsTriage"] = True
+    phases = parse_phases_arg(getattr(args, "phases", None))
+    if phases is not None:
+        assert_phases_within_run_ceiling(state, phases, task_id)
+        raw["phases"] = phases
     if getattr(args, "difficulty_pct", None) is not None or str(getattr(args, "difficulty_reason", "") or "").strip():
         raw["difficulty"] = {}
         if getattr(args, "difficulty_pct", None) is not None:
@@ -631,9 +802,6 @@ def build_task_from_args(args: argparse.Namespace, state: Dict[str, Any]) -> Dic
         if str(getattr(args, "difficulty_reason", "") or "").strip():
             raw["difficulty"]["architectEstimateReason"] = getattr(args, "difficulty_reason")
     task = normalize_task(raw)
-    policy = folder_store.normalize_quality_fields(state)
-    task["qualityGates"] = folder_store.normalize_task_quality_gates(task, state, policy)
-    apply_quality_gate_cli_overrides(task, state, policy, args)
     existing_ids = {str(t.get("id")) for t in state.get("tasks", []) if isinstance(t, dict)}
     if task["id"] in existing_ids:
         raise SystemExit(f"Task id already exists: {task['id']}")

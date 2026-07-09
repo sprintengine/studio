@@ -22,7 +22,7 @@ const MOBILE_CONTROL_CAPABILITIES: MobileControlCapability[] = [
 export function isMobileControlDevice(input: unknown): input is MobileControlDevice {
   if (!input || typeof input !== 'object' || Array.isArray(input)) return false
   const device = input as Partial<MobileControlDevice>
-  return device.protocolVersion === 1
+  return device.protocolVersion === 2
     && typeof device.deviceId === 'string'
     && typeof device.displayName === 'string'
     && (device.platform === 'ios' || device.platform === 'android' || device.platform === 'web')
@@ -42,7 +42,7 @@ export function isMobileControlCapability(input: unknown): input is MobileContro
 export function isMobilePushRegistration(input: unknown): input is MobilePushRegistration {
   if (!input || typeof input !== 'object' || Array.isArray(input)) return false
   const registration = input as Partial<MobilePushRegistration>
-  return registration.protocolVersion === 1
+  return registration.protocolVersion === 2
     && typeof registration.registrationId === 'string'
     && typeof registration.deviceId === 'string'
     && isMobilePushProvider(registration.provider)

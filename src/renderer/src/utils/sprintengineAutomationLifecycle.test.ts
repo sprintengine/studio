@@ -148,8 +148,6 @@ const liveWorkState = {
     'developer-1': { role: 'developer', status: 'running' as const, currentTaskId: 'T1' },
     'developer-2': { role: 'developer', status: 'idle' as const, currentTaskId: null },
     'tester-1': { role: 'tester', status: 'idle' as const, currentTaskId: null },
-    // Reviewers hold a gate claim with no task claim.
-    'code_reviewer': { role: 'code_reviewer', status: 'running' as const, currentTaskId: null, currentGateId: 'G1' },
     // A dispatched agent may not have claimed yet.
     'frontend': {
       role: 'frontend',
@@ -188,11 +186,9 @@ assert.equal(
   true,
   'a pending spawn counts as live work — projection lag must not misclassify an early close'
 )
-assert.equal(
-  sprintEngineAgentHasLiveRunWork(liveWorkState, baseAutoState(), 'code_reviewer'),
-  true,
-  'an active gate claim (reviewer) is live work even with no task claim'
-)
+// Removed: the gate-claim ("reviewer holds a gate with no task claim") live-work
+// case tested deleted gate machinery (MC-1542 single-owner tasks — currentGateId
+// no longer exists; a task in its review phase is held via currentTaskId).
 assert.equal(
   sprintEngineAgentHasLiveRunWork(liveWorkState, baseAutoState(), 'frontend'),
   true,

@@ -16,7 +16,6 @@
 
 import type {
   SprintEngineArtifact,
-  SprintEngineQualityGateAttempt,
   SprintEngineRoleId,
   SprintEngineTask,
 } from '../../types/workspace'
@@ -55,30 +54,6 @@ export type SprintEngineInspectorSelection =
   | { kind: 'agent'; agent: SprintEngineAgentRosterItem }
   | { kind: 'artifact'; artifact: SprintEngineArtifact }
   | { kind: 'artifact-preview'; artifact: SprintEnginePreviewedArtifact }
-
-export type SprintEngineGateAttemptVisualState =
-  | 'approved'
-  | 'changes_requested'
-  | 'failed'
-  | 'blocked'
-  | 'released'
-  | 'superseded'
-  | 'in_flight'
-  | 'unknown'
-
-export function sprintEngineGateAttemptVisualState(
-  attempt: SprintEngineQualityGateAttempt,
-): SprintEngineGateAttemptVisualState {
-  const status = attempt.verdict ?? attempt.status
-  if (status === 'approved') return 'approved'
-  if (status === 'changes_requested') return 'changes_requested'
-  if (status === 'failed') return 'failed'
-  if (status === 'blocked') return 'blocked'
-  if (status === 'released') return 'released'
-  if (status === 'superseded') return 'superseded'
-  if (Boolean(attempt.startedAt) && !attempt.completedAt) return 'in_flight'
-  return 'unknown'
-}
 
 export type ArtifactActionKind = 'open' | 'approve' | 'requestChanges'
 
@@ -238,7 +213,7 @@ export function getSprintEngineInboxArtifacts(artifacts: SprintEngineArtifact[])
   //   - `draft` — work-in-progress (e.g. the seed plan placeholder written
   //     before the architect fills it in), reachable via the board's Read-plan
   //     action, not a review item;
-  //   - `recorded` — filed gate/evidence records, which surface in the separate
+  //   - `recorded` — filed evidence records, which surface in the separate
   //     read-only Evidence grouping instead (getSprintEngineEvidenceArtifacts).
   // The source handoff is always kept, whatever its status.
   return sortInboxArtifacts(

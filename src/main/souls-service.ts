@@ -16,9 +16,6 @@ const specialistSoulRoles: Record<SpecialistActionId, string> = {
   'ui-ux-review': 'ui_ux_reviewer',
   'qa-test': 'tester',
   'security-review': 'security',
-  'code-review': 'code_reviewer',
-  'nuclear-review': 'nuclear_reviewer',
-  'spec-review': 'spec_reviewer',
   'production-readiness-review': 'production_readiness_reviewer',
 }
 

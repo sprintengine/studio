@@ -37,14 +37,14 @@ def test_apply_role_runtimes_parses_and_drops_default_only_roles() -> None:
         json.dumps(
             {
                 "developer": {"model": "claude-fable-5", "cli": "claude-code"},
-                "code_reviewer": {"model": "opus[1m]", "cli": "claude-code"},
+                "security": {"model": "opus[1m]", "cli": "claude-code"},
                 "tester": {"model": "", "cli": ""},  # CLI default -> recorded as nothing
             }
         ),
     )
     assert st["roleRuntimes"] == {
         "developer": {"model": "claude-fable-5", "cli": "claude-code"},
-        "code_reviewer": {"model": "opus[1m]", "cli": "claude-code"},
+        "security": {"model": "opus[1m]", "cli": "claude-code"},
     }
 
 
@@ -129,14 +129,14 @@ def test_projection_role_runtimes_empty_for_legacy_run(tmp_path) -> None:
 def test_projection_emits_configured_roles(tmp_path) -> None:
     fixture = create_team(tmp_path, "projection-configured-roles", [task("T1", "Build", "developer")])
     state = read_state(fixture.state_path)
-    state["configuredRoles"] = ["architect", "developer", "nuclear_reviewer", "tester"]
+    state["configuredRoles"] = ["architect", "developer", "security", "tester"]
     write_state(fixture.state_path, state)
 
     projection = store_module.build_projection(fixture.state_path.parent, state_path=fixture.state_path)
     assert projection["run"]["configuredRoles"] == [
         "architect",
         "developer",
-        "nuclear_reviewer",
+        "security",
         "tester",
     ]
 
@@ -217,8 +217,8 @@ def test_claim_model_flag_overrides_role_runtime_map(tmp_path) -> None:
 
 
 def test_model_survives_handoff_after_owner_cleared(tmp_path) -> None:
-    # ownerAgentId is cleared when a task leaves the worker's hands; the model
-    # must remain — that is the whole point of stamping it on the task record.
+    # ownerAgentId is cleared when a task reaches `done`; the model must remain —
+    # that is the whole point of stamping it on the task record.
     fixture = create_team(tmp_path, "model-after-handoff", [task("T1", "Build", "developer")])
     state = read_state(fixture.state_path)
     state["roleRuntimes"] = {"developer": {"model": "claude-fable-5", "cli": "claude-code"}}
@@ -229,7 +229,20 @@ def test_model_survives_handoff_after_owner_cleared(tmp_path) -> None:
         "task", "publish", "--task-id", "T1", "--id", "developer-1", "--summary", "done",
     )
 
+    # Publish routes the task into review and it STAYS owned (MC-1542 decision 1).
+    reviewing = get_task(read_state(fixture.state_path), "T1")
+    assert reviewing["status"] == "review"
+    assert reviewing["ownerAgentId"] == "developer-1"
+    assert reviewing["model"] == "claude-fable-5"
+
+    fixture.cli.run(
+        "task", "advance",
+        "--task-id", "T1", "--id", "developer-1",
+        "--phase", "review", "--outcome", "pass", "--summary", "self-reviewed",
+    )
+
     published = get_task(read_state(fixture.state_path), "T1")
+    assert published["status"] == "done"
     assert published.get("ownerAgentId") in (None, "")
     assert published["model"] == "claude-fable-5"
     assert published["cli"] == "claude-code"
