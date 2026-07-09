@@ -63,7 +63,14 @@ function useFileContents(requests: Array<{ key: string; absolutePath: string }>)
     ).then((pairs) => {
       if (cancelled) return
       setContents((previous) => {
-        const next = new Map(previous)
+        // Rebuild from the CURRENT request set (+ the fresh reads) so keys
+        // orphaned by an mtime bump or a deleted file are evicted — otherwise a
+        // long editing session accumulates every superseded file body forever.
+        const next = new Map<string, string>()
+        for (const request of requests) {
+          const existing = previous.get(request.key)
+          if (existing !== undefined) next.set(request.key, existing)
+        }
         for (const [key, value] of pairs) next.set(key, value)
         return next
       })

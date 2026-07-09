@@ -356,13 +356,34 @@ export function useDesignerSession({
           .then((content) => parseScaffoldBaseline(content))
           .catch(() => null)
 
+    // The poll fires every 2.5s and every watch event fires refresh again, so
+    // two guards keep the hot loop cheap: (1) single-flight — a refresh that
+    // arrives while one is walking coalesces into ONE trailing re-walk instead
+    // of a walk per event (an agent writing a component fires several fs events
+    // back-to-back), which also keeps index publishes ordered; (2) an identity
+    // bailout — an index whose entries (path + mtime) are unchanged is dropped
+    // instead of published, so the studio subtree does not re-render every tick.
+    let refreshInFlight = false
+    let refreshQueued = false
+    let publishedSignature: string | null = null
+    const indexSignature = (index: DesignArtifactIndex): string =>
+      index.entries
+        .map((entry) => `${entry.relativePath}::${entry.modifiedAtMs ?? 0}`)
+        .join('|')
+
     const refresh = async () => {
+      if (refreshInFlight) {
+        refreshQueued = true
+        return
+      }
+      refreshInFlight = true
       try {
         const rootExists = await window.api.pathExists(workspaceRoot)
         if (cancelled) return
         if (!rootExists) {
+          publishedSignature = null
           setDesignArtifacts(EMPTY_DESIGN_ARTIFACT_INDEX)
-          setMockups([])
+          setMockups((previous) => (previous.length === 0 ? previous : []))
           setDesignArtifactsStatus('unavailable')
           return
         }
@@ -377,15 +398,26 @@ export function useDesignerSession({
           { roots, baseline },
         )
         if (cancelled) return
-        setDesignArtifacts(index)
-        const pages = index.groups.find((group) => group.id === 'pages')?.entries ?? []
-        setMockups(pages.map(toDesignerMockupFile))
+        const signature = indexSignature(index)
+        if (signature !== publishedSignature) {
+          publishedSignature = signature
+          setDesignArtifacts(index)
+          const pages = index.groups.find((group) => group.id === 'pages')?.entries ?? []
+          setMockups(pages.map(toDesignerMockupFile))
+        }
         setDesignArtifactsStatus('ready')
       } catch {
         if (!cancelled) {
+          publishedSignature = null
           setDesignArtifacts(EMPTY_DESIGN_ARTIFACT_INDEX)
-          setMockups([])
+          setMockups((previous) => (previous.length === 0 ? previous : []))
           setDesignArtifactsStatus('unavailable')
+        }
+      } finally {
+        refreshInFlight = false
+        if (refreshQueued && !cancelled) {
+          refreshQueued = false
+          void refresh()
         }
       }
     }

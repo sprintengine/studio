@@ -251,7 +251,7 @@ export function HtmlArtifactFrame({
         const exists = await window.api.pathExists(absolutePath)
         if (cancelled) return
         if (!exists) {
-          setFrameState({ kind: 'deleted' })
+          setFrameState((prev) => (prev.kind === 'deleted' ? prev : { kind: 'deleted' }))
           return
         }
         const content = await window.api.readfile(absolutePath)
@@ -259,10 +259,15 @@ export function HtmlArtifactFrame({
         if (!content.trim()) {
           // Exists but empty — the agent is still writing it. A designed
           // generating state, never a black void.
-          setFrameState({ kind: 'generating' })
+          setFrameState((prev) => (prev.kind === 'generating' ? prev : { kind: 'generating' }))
           return
         }
-        setFrameState({ kind: 'ready', content })
+        // The watch covers the whole directory, so sibling-file events re-read
+        // this file; keep the previous state object when the content is
+        // unchanged so those events don't re-render the pane.
+        setFrameState((prev) =>
+          prev.kind === 'ready' && prev.content === content ? prev : { kind: 'ready', content },
+        )
       } catch (error) {
         if (cancelled) return
         setFrameState({

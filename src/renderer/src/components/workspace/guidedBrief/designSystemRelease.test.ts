@@ -127,7 +127,7 @@ assert.equal(isReleaseInFlight(idle), false)
   const report = [
     '',
     'components/task-card/component.css',
-    '  12:5  no-raw-hex  #30d058',
+    '  12:5  no-raw-hex  #30d058', // design-tokens-allow: fixture lint-report row, not a rendered color
     '  40:3  contrast  3.8:1',
     '',
     'foundations/tokens.tokens.json',
@@ -145,7 +145,7 @@ assert.equal(isReleaseInFlight(idle), false)
   assert.deepEqual(
     parsed.issues,
     [
-      { file: 'components/task-card/component.css', detail: '12:5  no-raw-hex  #30d058' },
+      { file: 'components/task-card/component.css', detail: '12:5  no-raw-hex  #30d058' }, // design-tokens-allow: fixture lint-report row, not a rendered color
       { file: 'components/task-card/component.css', detail: '40:3  contrast  3.8:1' },
       { file: 'foundations/tokens.tokens.json', detail: 'sem.color.accent  missing-token-semantics  sem token needs role and use' },
     ],

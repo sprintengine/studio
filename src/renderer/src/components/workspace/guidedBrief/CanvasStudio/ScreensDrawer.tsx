@@ -62,6 +62,8 @@ export function ScreensDrawer({ screens, activeId, onSelect, onClose }: Props) {
   }
 
   return (
+    // primitive-duplication-allow: full-height canvas-edge drawer panel, not a
+    // popover — the CanvasStudio shell owns Escape/outside-click and focus return.
     <div
       role="dialog"
       aria-label="Screens"

@@ -113,7 +113,7 @@ export function releaseButtonLabel(phase: DesignSystemReleasePhase): string {
 export type DesignSystemLintIssue = {
   /** Bundle-relative file the finding block was reported under. */
   file: string
-  /** The report's own row text, e.g. "12:5  no-raw-hex  #30d058". */
+  /** The report's own row text, e.g. "12:5  no-raw-hex  #30d058". */ // design-tokens-allow: doc example of a bundle lint-report row, not a rendered color
   detail: string
 }
 

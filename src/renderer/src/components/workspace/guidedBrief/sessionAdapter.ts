@@ -225,7 +225,7 @@ export function createGuidedBriefSessionId(): string {
 
 // Built-in skill id for the curated design-craft guidance. The wizard installs
 // it into .claude/skills/ before a Claude designer session starts and names it
-// in the startup prompt (see guidedBriefUsesDesignSkill).
+// in the startup prompt; see guidedBriefUsesDesignSkill.
 export const GUIDED_BRIEF_DESIGN_SKILL_ID = 'frontend-design'
 
 // Claude Code's CLI id. Conversation transport is Claude-only by construction;

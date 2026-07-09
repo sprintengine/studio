@@ -88,9 +88,17 @@ function installAnnotatePicker(config: PickerConfig): void {
 
   const isOwnChrome = (el: Element | null): boolean => el === highlight || el === chip
 
+  // mousemove fires continuously (~60+/s) while the pointer travels within ONE
+  // element; the selector chain, textContent read, and postMessage only need to
+  // happen when the hovered element actually changes. Scroll/resize reset the
+  // guard because they move the element under the fixed-position highlight.
+  let hoveredElement: Element | null = null
+
   const onMove = (event: MouseEvent): void => {
     const el = event.target
     if (!(el instanceof Element) || isOwnChrome(el)) return
+    if (el === hoveredElement) return
+    hoveredElement = el
     const node = elementToSelectorNode(el)
     const rect = el.getBoundingClientRect()
     highlight.style.display = 'block'
@@ -113,6 +121,7 @@ function installAnnotatePicker(config: PickerConfig): void {
   }
 
   const clearHover = (): void => {
+    hoveredElement = null
     highlight.style.display = 'none'
     chip.style.display = 'none'
     post({ type: 'hover-end' })
@@ -166,6 +175,7 @@ function installAnnotatePicker(config: PickerConfig): void {
     if (scrollFrame) return
     scrollFrame = window.requestAnimationFrame(() => {
       scrollFrame = 0
+      hoveredElement = null // scrolled content moved under the fixed highlight
       post({ type: 'scroll', scrollOffset: { x: window.scrollX, y: window.scrollY } })
       if (locatedSelectors.length > 0) postAnchors()
     })
@@ -176,6 +186,7 @@ function installAnnotatePicker(config: PickerConfig): void {
     if (resizeFrame) return
     resizeFrame = window.requestAnimationFrame(() => {
       resizeFrame = 0
+      hoveredElement = null // reflow moved elements; re-report on next move
       if (locatedSelectors.length > 0) postAnchors()
     })
   }
