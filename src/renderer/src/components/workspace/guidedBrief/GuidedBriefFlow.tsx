@@ -21,6 +21,8 @@ import { RosterAndRunSettings } from '../newWorkspace/WizardControls'
 import { ConversationPane } from './ConversationPane'
 import { useWorkspaceStore } from '../../../store/workspaceStore'
 import { HtmlArtifactFrame, MockupPreviewPane, humanizeFileTitle, pageTitleFromHtml } from './MockupPreviewPane'
+import { designerAnnotationMessage } from './annotate/serialize'
+import type { MockupAnnotation } from './annotate/types'
 import { DesignArtifactPreviewPane } from './DesignArtifactPreviewPane'
 import { ComponentGalleryPane } from './ComponentGalleryPane'
 import { RenderedBriefPane } from './RenderedBriefPane'
@@ -1940,6 +1942,32 @@ function DesignStudioBody({
   // selecting any card or bundle file switches to the single-file (File) view.
   // frontend-design has no gallery — its canvas is always the selected screen.
   const [designSystemView, setDesignSystemView] = useState<DesignSystemViewMode>('gallery')
+
+  // Annotate sink (MC-1468 T11, Sink B): a pin batch submitted from the HTML
+  // preview becomes ONE composed chat message to the designer session, sent
+  // over the session's own transport (the same split lintFixRequestMessage
+  // uses). Offered only while the session is live — with no designer there is
+  // nowhere for the notes to go, so the frame's Comment mode stays off. A
+  // rejected send keeps the batch in the frame's tray for retry.
+  const submitAnnotationsToDesigner =
+    session && selectedEntry
+      ? async (annotations: MockupAnnotation[]) => {
+          const message = designerAnnotationMessage(
+            selectedEntry.relativePath,
+            annotations,
+            session.transport,
+          )
+          if (session.transport === 'conversation') {
+            const result = await window.api.conversationSessionSendTurn({
+              sessionId: session.sessionId,
+              message,
+            })
+            if (!result.ok) throw new Error(result.message)
+          } else {
+            window.api.terminalWriteFast(session.sessionId, `${message}\r`)
+          }
+        }
+      : undefined
   // Canvas-first means a design fills the surface as soon as one exists: when
   // nothing is selected yet, default to the first indexed artifact (pages sort
   // first, so frontend-design lands on a screen) instead of an empty canvas.
@@ -2023,7 +2051,10 @@ function DesignStudioBody({
       {designSystem && designSystemView === 'gallery' ? (
         <ComponentGalleryPane designArtifacts={designArtifacts} onOpenFile={openBundleFile} />
       ) : (
-        <DesignArtifactPreviewPane entry={selectedEntry} />
+        <DesignArtifactPreviewPane
+          entry={selectedEntry}
+          onSubmitAnnotations={submitAnnotationsToDesigner}
+        />
       )}
       {releaseCard}
     </CanvasStudio>

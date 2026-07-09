@@ -89,9 +89,16 @@ export type SprintEngineBoardArtifactActions = {
   openArtifact: (artifact: SprintEngineArtifact) => Promise<void>
   popOutPreviewedArtifact: () => void
   approveArtifact: (artifact: SprintEngineArtifact) => Promise<void>
-  requestArtifactChanges: (artifact: SprintEngineArtifact) => void
+  /**
+   * Open the request-changes dialog for an artifact. `prefillFeedback` seeds
+   * the feedback textarea (the annotate sink pre-fills serialized pin blocks;
+   * the reviewer can still edit and add framing before submitting). Returns
+   * false when the dialog could not open (missing team context).
+   */
+  requestArtifactChanges: (artifact: SprintEngineArtifact, prefillFeedback?: string) => boolean
   cancelRequestArtifactChangesDialog: () => void
-  submitRequestArtifactChanges: () => Promise<void>
+  /** Resolves true only when the change request landed (the dialog closed). */
+  submitRequestArtifactChanges: () => Promise<boolean>
   /**
    * Resolve a task's `needs_input` blocker from the inspector composer. The
    * human supervisor's actor identity is attached in main (the MCP `id`); the
@@ -323,9 +330,15 @@ export function useSprintEngineBoardArtifactActions(
   )
 
   const requestArtifactChanges = useCallback(
-    (artifact: SprintEngineArtifact) => {
-      if (!requireArtifactStatePath()) return
-      setRequestChangesDialog({ artifact, feedback: '', submitting: false, error: null })
+    (artifact: SprintEngineArtifact, prefillFeedback?: string): boolean => {
+      if (!requireArtifactStatePath()) return false
+      setRequestChangesDialog({
+        artifact,
+        feedback: prefillFeedback ?? '',
+        submitting: false,
+        error: null,
+      })
+      return true
     },
     [requireArtifactStatePath, setRequestChangesDialog],
   )
@@ -334,15 +347,15 @@ export function useSprintEngineBoardArtifactActions(
     setRequestChangesDialog((current) => (current?.submitting ? current : null))
   }, [setRequestChangesDialog])
 
-  const submitRequestArtifactChanges = useCallback(async () => {
+  const submitRequestArtifactChanges = useCallback(async (): Promise<boolean> => {
     const dialogState = requestChangesDialog
-    if (!dialogState || dialogState.submitting) return
+    if (!dialogState || dialogState.submitting) return false
     const feedback = dialogState.feedback.trim()
     if (!feedback) {
       setRequestChangesDialog((current) =>
         current ? { ...current, error: 'Feedback is required to request changes.' } : current,
       )
-      return
+      return false
     }
     const ensuredStatePath = requireArtifactStatePath()
     if (!ensuredStatePath) {
@@ -351,7 +364,7 @@ export function useSprintEngineBoardArtifactActions(
           ? { ...current, error: 'This sprint workspace is missing its selected team context.' }
           : current,
       )
-      return
+      return false
     }
 
     const { artifact } = dialogState
@@ -373,7 +386,7 @@ export function useSprintEngineBoardArtifactActions(
           status: 'error',
           message,
         })
-        return
+        return false
       }
       await applyMutationResultProjection(result)
       setArtifactAction(artifact.id, {
@@ -382,6 +395,7 @@ export function useSprintEngineBoardArtifactActions(
         message: 'Changes requested through the sprint.',
       })
       setRequestChangesDialog(null)
+      return true
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Failed to request changes.'
       setRequestChangesDialog((current) =>
@@ -392,6 +406,7 @@ export function useSprintEngineBoardArtifactActions(
         status: 'error',
         message,
       })
+      return false
     }
   }, [
     requestChangesDialog,
