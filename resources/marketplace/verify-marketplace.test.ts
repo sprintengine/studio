@@ -50,7 +50,53 @@ function testSampleRegistryPasses(): void {
   const root = copySeedRegistry('valid-registry')
   const result = runVerifier(root)
   assert.equal(result.status, 0, result.stderr)
-  assert.match(result.stdout, /marketplace registry verified \(4 plugins\)/)
+  // The seed is generated from the HotStack catalogue snapshot: the 4 signed
+  // Multicode Labs bundles plus the unsigned plugin/inline-MCP population.
+  const seed = JSON.parse(readFileSync(join(seedRoot, 'marketplace.json'), 'utf8')) as { plugins: unknown[] }
+  assert.ok(seed.plugins.length >= 4, 'seed registry must carry at least the signed bundles')
+  assert.match(result.stdout, new RegExp(`marketplace registry verified \\(${seed.plugins.length} plugins\\)`))
+}
+
+function testUnsignedEntriesNeedNoLocalManifest(): void {
+  // Unsigned source-bearing entries (the generated claude-plugins-official
+  // population) verify without a plugins/<id>/ manifest dir and with a
+  // data-URI icon; a signed entry with a missing manifest still fails.
+  const root = copySeedRegistry('unsigned-registry')
+  const path = join(root, 'marketplace.json')
+  const marketplace = JSON.parse(readFileSync(path, 'utf8')) as {
+    plugins: Array<Record<string, unknown>>
+  }
+  const unsigned = marketplace.plugins.filter((plugin) => plugin.signature === undefined)
+  assert.ok(unsigned.length > 0, 'generated seed must carry unsigned entries')
+  for (const plugin of unsigned) {
+    assert.ok(plugin.mcp !== undefined || typeof plugin.source === 'string')
+  }
+  const signed = marketplace.plugins.find((plugin) => plugin.signature !== undefined)
+  assert.ok(signed, 'generated seed must carry a signed entry')
+  rmSync(join(root, 'plugins', signed.id as string), { recursive: true, force: true })
+  const result = runVerifier(root)
+  assert.equal(result.status, 1)
+  assert.match(result.stderr, new RegExp(`plugins/${signed.id as string}/plugin.json`))
+}
+
+function testStrippedSignatureCannotOrphanAPayload(): void {
+  // Deleting the signature field from a signed entry must NOT let its
+  // committed plugins/<id>/ payload skip CLI verification: the orphan sweep
+  // fails the registry instead.
+  const root = copySeedRegistry('stripped-signature-registry')
+  const path = join(root, 'marketplace.json')
+  const marketplace = JSON.parse(readFileSync(path, 'utf8')) as {
+    plugins: Array<Record<string, unknown>>
+  }
+  const signed = marketplace.plugins.find((plugin) => plugin.signature !== undefined)
+  assert.ok(signed, 'generated seed must carry a signed entry')
+  delete signed.signature
+  writeFileSync(path, `${JSON.stringify(marketplace, null, 2)}\n`, 'utf8')
+
+  const result = runVerifier(root)
+  assert.equal(result.status, 1)
+  assert.match(result.stderr, new RegExp(`plugins/${signed.id as string}`))
+  assert.match(result.stderr, /no SIGNED marketplace\.json entry/)
 }
 
 function testSchemaInvalidRegistryFailsClearly(): void {
@@ -97,8 +143,10 @@ function testTamperedComponentFailsThroughCliVerify(): void {
 function testEntrySourceOnNonAllowlistedHostFails(): void {
   const root = copySeedRegistry('evil-source-registry')
   const path = join(root, 'marketplace.json')
-  const marketplace = JSON.parse(readFileSync(path, 'utf8')) as { plugins: Array<{ source?: string }> }
-  marketplace.plugins[0].source = 'https://evil.example.com/plugins/browser-automation-mcp'
+  const marketplace = JSON.parse(readFileSync(path, 'utf8')) as { plugins: Array<{ id: string; source?: string }> }
+  const target = marketplace.plugins.find((plugin) => plugin.id === 'browser-automation-mcp')
+  assert.ok(target, 'seed registry must carry the browser-automation-mcp bundle')
+  target.source = 'https://evil.example.com/plugins/browser-automation-mcp'
   writeFileSync(path, `${JSON.stringify(marketplace, null, 2)}\n`, 'utf8')
 
   const result = runVerifier(root)
@@ -111,7 +159,8 @@ function testEntrySourceOnAllowlistedNonCanonicalOwnerPasses(): void {
   const root = copySeedRegistry('non-canonical-owner-registry')
   const path = join(root, 'marketplace.json')
   const marketplace = JSON.parse(readFileSync(path, 'utf8')) as { plugins: Array<{ id: string; source?: string }> }
-  const first = marketplace.plugins[0]
+  const first = marketplace.plugins.find((plugin) => plugin.id === 'browser-automation-mcp')
+  assert.ok(first, 'seed registry must carry the browser-automation-mcp bundle')
   first.source = `https://github.com/another-org/registry/tree/main/plugins/${first.id}`
   writeFileSync(path, `${JSON.stringify(marketplace, null, 2)}\n`, 'utf8')
 
@@ -138,6 +187,8 @@ function testPublishScriptsTargetRegistryRoot(): void {
 
 try {
   testSampleRegistryPasses()
+  testUnsignedEntriesNeedNoLocalManifest()
+  testStrippedSignatureCannotOrphanAPayload()
   testSchemaInvalidRegistryFailsClearly()
   testTamperedPluginFailsThroughCliVerify()
   testTamperedComponentFailsThroughCliVerify()

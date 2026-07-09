@@ -155,5 +155,6 @@ const HARNESS_LABEL: Record<SkillPackHarness, string> = {
   cursor: 'Cursor',
   gemini: 'Gemini',
   opencode: 'OpenCode',
+  grok: 'Grok',
   agents: 'AGENTS',
 }

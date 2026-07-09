@@ -67,6 +67,12 @@ export function PluginDetailPanel({
   const trust = pluginTrust(plugin)
   const components = componentKindLabels(plugin.provides)
   const inlineServers = plugin.mcp?.servers ?? []
+  // Claude Code plugins (catalogue-generated, machine-tagged): their content
+  // lives in Claude's plugin format, which the download-install pipeline
+  // cannot consume yet — offering Install would end in a misleading hard
+  // block. Offer the honest affordances instead.
+  const claudePlugin = plugin.tags?.includes('claude-plugin') ?? false
+  const displayTags = plugin.tags?.filter((tag) => tag !== 'claude-plugin') ?? []
   // Fail closed: only render an external "View source" link for an http(s)
   // source. A non-http(s) value (file://, smb://, protocol-handler URL) would
   // reach shell.openExternal via the window-open handler, so it gets no link.
@@ -172,8 +178,8 @@ export function PluginDetailPanel({
 
       <p className="mt-3 text-[12px] leading-5 text-[color:var(--text-muted)]">{plugin.summary}</p>
 
-      {plugin.tags?.length ? (
-        <p className="mt-2 text-[11px] leading-4 text-[color:var(--text-subtle)]">{plugin.tags.join(' · ')}</p>
+      {displayTags.length ? (
+        <p className="mt-2 text-[11px] leading-4 text-[color:var(--text-subtle)]">{displayTags.join(' · ')}</p>
       ) : null}
 
       <div className="mt-3">
@@ -255,7 +261,15 @@ export function PluginDetailPanel({
           </div>
         ) : null}
 
-        {installView.action ? (
+        {claudePlugin ? (
+          <p className="text-[11px] leading-4 text-[color:var(--text-subtle)]">
+            This is a Claude Code plugin from Anthropic's official directory. Install it
+            with <code className="font-mono">/plugin</code> inside a Claude Code session —
+            one-click install in Multicode is coming.
+          </p>
+        ) : null}
+
+        {installView.action && !claudePlugin ? (
           <div className={installView.trustPrompt ? 'flex gap-2' : ''}>
             <PrimaryButton
               size="md"
@@ -364,7 +378,14 @@ function pluginTrust(plugin: MarketplacePluginEntry): PluginTrust {
 }
 
 export function resolveIconUrl(registryUrl: string | null, icon: string): string | null {
-  if (!registryUrl || !icon) return null
+  if (!icon) return null
+  // Absolute icons (https URLs, data: URIs from the generated catalogue) need
+  // no registry base and must survive a missing registryUrl; only relative
+  // registry paths resolve against the registry URL. Keep the two forks
+  // explicit — collapsing them into one new URL(icon, base) call throws for
+  // absolute icons whenever the base is missing or invalid.
+  if (URL.canParse(icon)) return new URL(icon).toString()
+  if (!registryUrl) return null
   try {
     return new URL(icon, registryUrl).toString()
   } catch {

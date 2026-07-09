@@ -213,6 +213,45 @@ function validateEntrySource(entryId: string, source: string, issues: Verificati
   }
 }
 
+/**
+ * Generated/unsigned entries carry self-contained icons (data: URI or an
+ * https URL); only registry-relative icon paths must resolve to a committed
+ * file. A remote icon is display-only, never fetched at verify time.
+ */
+function validateEntryIcon(root: string, index: number, icon: string, issues: VerificationIssue[]): void {
+  if (icon.startsWith('data:image/')) return
+  if (URL.canParse(icon) && new URL(icon).protocol === 'https:') return
+  const iconPath = join(root, icon)
+  if (!isInsideOrEqual(root, iconPath) || !existsSync(iconPath)) {
+    issues.push(issue(`marketplace.json.plugins[${index}].icon`, `icon path "${icon}" must exist inside the registry.`))
+  }
+}
+
+/**
+ * Every committed plugins/<id>/ payload must belong to a SIGNED index entry.
+ * Without this sweep, stripping the signature field from an entry would
+ * reclassify it as unsigned, skip the CLI verification entirely, and let a
+ * tampered committed payload ship — the payload dir is what gets staged by
+ * the packaged-seed install path, so its presence always demands a signature.
+ */
+function assertNoOrphanPluginPayloads(
+  root: string,
+  signedIds: Set<string>,
+  issues: VerificationIssue[]
+): void {
+  const pluginsRoot = join(root, 'plugins')
+  if (!existsSync(pluginsRoot)) return
+  for (const entry of readdirSync(pluginsRoot, { withFileTypes: true })) {
+    if (!entry.isDirectory()) continue
+    if (!signedIds.has(entry.name)) {
+      issues.push(issue(
+        `plugins/${entry.name}`,
+        'committed plugin payload has no SIGNED marketplace.json entry; payload dirs require a signed entry.'
+      ))
+    }
+  }
+}
+
 function validateMarketplace(root: string, cliBundle: string): VerificationIssue[] {
   const issues: VerificationIssue[] = []
   const marketplacePath = join(root, 'marketplace.json')
@@ -230,15 +269,25 @@ function validateMarketplace(root: string, cliBundle: string): VerificationIssue
 
   const { marketplace } = marketplaceResult
   const ids = new Set<string>()
+  const signedIds = new Set<string>()
   for (const [index, entry] of marketplace.plugins.entries()) {
     if (ids.has(entry.id)) issues.push(issue(`marketplace.json.plugins[${index}].id`, 'plugin ids must be unique.'))
     ids.add(entry.id)
+    if (entry.signature !== undefined) signedIds.add(entry.id)
 
-    validateEntrySource(entry.id, entry.source, issues)
+    if (entry.source !== undefined) validateEntrySource(entry.id, entry.source, issues)
+    validateEntryIcon(root, index, entry.icon, issues)
 
-    const iconPath = join(root, entry.icon)
-    if (!isInsideOrEqual(root, iconPath) || !existsSync(iconPath)) {
-      issues.push(issue(`marketplace.json.plugins[${index}].icon`, `icon path "${entry.icon}" must exist inside the registry.`))
+    // Unsigned entries (source-bearing plugin references and inline-MCP
+    // configs) are legal post-MC-1434: they reference external content, so
+    // there is no local plugins/<id>/ manifest to signature-verify. The app
+    // routes them through the community trust prompt; the schema/source-host/
+    // icon checks above are the whole publish contract for them.
+    if (entry.signature === undefined) {
+      if (entry.mcp !== undefined && entry.provides.join(',') !== 'mcp') {
+        issues.push(issue(`marketplace.json.plugins[${index}].provides`, "inline-MCP entries must set provides to ['mcp']."))
+      }
+      continue
     }
 
     const pluginRoot = join(root, 'plugins', entry.id)
@@ -297,6 +346,7 @@ function validateMarketplace(root: string, cliBundle: string): VerificationIssue
     if (mcpPath) validateMcpComponent(root, pluginRoot, entry.id, mcpPath, issues)
   }
 
+  assertNoOrphanPluginPayloads(root, signedIds, issues)
   assertNoKeyMaterial(root, root, issues)
   return issues
 }

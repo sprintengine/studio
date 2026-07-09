@@ -222,7 +222,8 @@ function InstalledView({
 // One inventory row on the shared ConnectorRow: icon chip · name · human summary
 // · neutral metadata chips · plain-language status · actions revealed on
 // hover/focus. Actions exist only where a real handler does: launch/automation
-// for skill-linked catalog MCP entries, remove for MCP servers and skill packs.
+// for any enabled MCP server (the connector chat attaches it with or without a
+// driving skill), remove for MCP servers and skill packs.
 function InstalledRow({
   item,
   actions,
@@ -234,7 +235,7 @@ function InstalledRow({
 }) {
   const catalogEntry =
     item.kind === 'mcp' ? actions.catalogServers?.find((server) => server.id === item.id) : undefined
-  const launchable = Boolean(catalogEntry?.skill) && item.enabled === true
+  const launchable = item.kind === 'mcp' && item.enabled === true
 
   const rowActions: ReactNode[] = []
   if (item.kind === 'mcp') {

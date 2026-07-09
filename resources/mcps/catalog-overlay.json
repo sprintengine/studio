@@ -1,0 +1,144 @@
+{
+  "schemaVersion": 1,
+  "comment": "Hand-maintained Multicode launch metadata layered onto HotStack catalogue entries by scripts/generate-connector-catalogue.mjs. Keyed by the two-segment HotStack id. The `id` alias is load-bearing: user settings and installedServerIds reference these legacy ids — never change one once shipped.",
+  "entries": {
+    "microsoft/playwright-mcp": {
+      "id": "playwright",
+      "category": "Testing",
+      "clients": ["codex", "claude"],
+      "defaultClients": ["codex", "claude"],
+      "recommendedScope": "workspace",
+      "riskLevel": "local-command",
+      "auth": "None",
+      "capabilities": ["Browser automation", "UI inspection", "E2E debugging"]
+    },
+    "github/github-mcp": {
+      "id": "github",
+      "category": "Code Hosting",
+      "clients": ["codex", "claude"],
+      "defaultClients": ["codex", "claude"],
+      "recommendedScope": "workspace",
+      "riskLevel": "secrets",
+      "capabilities": ["Repositories", "Issues", "Pull requests", "Actions"]
+    },
+    "upstash/context7-mcp": {
+      "id": "context7",
+      "category": "Documentation",
+      "clients": ["codex", "claude"],
+      "defaultClients": ["codex", "claude"],
+      "recommendedScope": "workspace",
+      "riskLevel": "network",
+      "capabilities": ["Current docs", "Library examples", "API references"]
+    },
+    "openai/openai-docs-mcp": {
+      "id": "openai-docs",
+      "category": "Documentation",
+      "clients": ["codex", "claude"],
+      "defaultClients": ["codex", "claude"],
+      "recommendedScope": "workspace",
+      "riskLevel": "network",
+      "auth": "None",
+      "capabilities": ["OpenAI API docs", "Codex docs", "Examples"]
+    },
+    "vercel/vercel-mcp": {
+      "id": "vercel",
+      "category": "Deployments",
+      "clients": ["codex", "claude"],
+      "defaultClients": ["codex", "claude"],
+      "recommendedScope": "workspace",
+      "riskLevel": "secrets",
+      "capabilities": ["Deployments", "Logs", "Projects", "Docs"]
+    },
+    "railway/railway-mcp": {
+      "id": "railway",
+      "category": "Deployments",
+      "clients": ["codex", "claude"],
+      "defaultClients": ["codex", "claude"],
+      "recommendedScope": "workspace",
+      "riskLevel": "secrets",
+      "skill": "use-railway",
+      "capabilities": ["Deployments", "Services", "Variables", "Domains"]
+    },
+    "supabase/supabase-mcp": {
+      "id": "supabase",
+      "category": "Database",
+      "clients": ["codex", "claude"],
+      "defaultClients": ["codex", "claude"],
+      "recommendedScope": "workspace",
+      "riskLevel": "secrets",
+      "capabilities": ["Database", "Auth", "Functions", "Docs"]
+    },
+    "sentry/sentry-mcp": {
+      "id": "sentry",
+      "category": "Observability",
+      "clients": ["codex", "claude"],
+      "defaultClients": ["codex", "claude"],
+      "recommendedScope": "workspace",
+      "riskLevel": "secrets",
+      "capabilities": ["Issues", "Events", "Traces", "Releases"]
+    },
+    "grafana/grafana-mcp": {
+      "id": "grafana",
+      "category": "Observability",
+      "clients": ["codex", "claude"],
+      "defaultClients": ["codex", "claude"],
+      "recommendedScope": "workspace",
+      "riskLevel": "secrets",
+      "capabilities": ["Dashboards", "Metrics", "Logs", "Alerts"]
+    },
+    "linear/linear-mcp": {
+      "id": "linear",
+      "category": "Planning",
+      "clients": ["codex", "claude"],
+      "defaultClients": ["codex", "claude"],
+      "recommendedScope": "workspace",
+      "riskLevel": "secrets",
+      "capabilities": ["Issues", "Projects", "Comments", "Teams"]
+    },
+    "atlassian/atlassian-mcp": {
+      "id": "atlassian",
+      "category": "Planning",
+      "clients": ["codex", "claude"],
+      "defaultClients": ["codex", "claude"],
+      "recommendedScope": "workspace",
+      "riskLevel": "secrets",
+      "capabilities": ["Jira", "Confluence", "Compass", "Pages"]
+    },
+    "figma/figma-mcp": {
+      "id": "figma",
+      "category": "Design",
+      "clients": ["codex", "claude"],
+      "defaultClients": ["codex", "claude"],
+      "recommendedScope": "workspace",
+      "riskLevel": "secrets",
+      "capabilities": ["Design context", "Variables", "Components", "Code Connect"]
+    },
+    "notion/notion-mcp": {
+      "id": "notion",
+      "category": "Knowledge",
+      "clients": ["codex", "claude"],
+      "defaultClients": ["codex", "claude"],
+      "recommendedScope": "workspace",
+      "riskLevel": "secrets",
+      "capabilities": ["Pages", "Databases", "Comments", "Knowledge base"]
+    },
+    "stripe/stripe-mcp": {
+      "id": "stripe",
+      "category": "Payments",
+      "clients": ["codex", "claude"],
+      "defaultClients": ["codex", "claude"],
+      "recommendedScope": "workspace",
+      "riskLevel": "secrets",
+      "capabilities": ["Payments", "Billing", "Customers", "Docs"]
+    },
+    "brave/brave-search-mcp": {
+      "id": "brave-search",
+      "category": "Search",
+      "clients": ["codex", "claude"],
+      "defaultClients": ["codex", "claude"],
+      "recommendedScope": "workspace",
+      "riskLevel": "secrets",
+      "capabilities": ["Web search", "News", "Images", "LLM context"]
+    }
+  }
+}

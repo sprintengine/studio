@@ -6,6 +6,7 @@ export const SKILL_PACK_HARNESSES: readonly SkillPackHarness[] = [
   'cursor',
   'gemini',
   'opencode',
+  'grok',
   'agents',
 ]
 
@@ -15,5 +16,6 @@ export const SKILL_HARNESS_DIR: Record<SkillPackHarness, string> = {
   cursor: '.cursor',
   gemini: '.gemini',
   opencode: '.opencode',
+  grok: '.grok',
   agents: '.agents',
 }

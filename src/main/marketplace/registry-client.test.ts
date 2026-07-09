@@ -31,6 +31,9 @@ async function main(): Promise<void> {
   await testLiveSuccessPrecedesPackagedSeed()
   await testHttp404WithCacheServesStaleCacheBeforeSeed()
   await testHttp404WithoutCacheFallsBackToPackagedSeed()
+  await testBundledDefaultServesPackagedSeedWithoutFetching()
+  await testBundledDefaultFallsThroughWhenSeedUnreadable()
+  await testBundledDefaultTracksEnvOverrideDetection()
   await testEnvOverrideConfiguresRegistryUrl()
   await testConfiguredUrlOverrideReadsIndexWithEtagRoundTrip()
   await testCatalogueAndGithubRawYieldEquivalentEntries()
@@ -389,6 +392,74 @@ async function testHttp404WithoutCacheFallsBackToPackagedSeed(): Promise<void> {
     assert.match(result.message, /packaged marketplace registry seed/i)
     await assert.rejects(readFile(cachePath, 'utf8'), /ENOENT/)
   })
+}
+
+async function testBundledDefaultServesPackagedSeedWithoutFetching(): Promise<void> {
+  await withTempDir(async (dir) => {
+    const seedPath = join(dir, 'seed', 'marketplace.json')
+    await writeMarketplace(seedPath, validMarketplace([validPlugin({ id: 'bundled-a' }), validPlugin({ id: 'bundled-b' })]))
+    const client = new MarketplaceRegistryClient({
+      cachePath: join(dir, 'cache.json'),
+      packagedSeedPath: seedPath,
+      preferBundledSeed: true,
+      fetcher: async () => {
+        throw new Error('bundled-first read must not touch the network')
+      },
+      now: () => new Date('2026-07-09T00:00:00.000Z'),
+    })
+
+    const result = await client.read()
+
+    assert.equal(result.ok, true)
+    if (!result.ok) return
+    // The bundled seed is the healthy default, never an offline notice.
+    assert.equal(result.state, 'ok')
+    assert.equal(result.source, 'bundled')
+    assert.equal(result.stale, false)
+    // fetchedAt is the seed file's mtime — the honest "data as of" moment —
+    // never now(): a refresh must not report build-frozen data as fresh.
+    const { stat } = await import('node:fs/promises')
+    const seedStat = await stat(seedPath)
+    assert.equal(result.fetchedAt, new Date(seedStat.mtimeMs).toISOString())
+    assert.equal(result.marketplace.plugins.length, 2)
+    assert.equal('message' in result, false)
+
+    // The parse is cached: a second read serves the same object without
+    // re-reading the file.
+    const again = await client.read()
+    assert.equal(again.ok && again.marketplace === result.marketplace, true)
+  })
+}
+
+async function testBundledDefaultFallsThroughWhenSeedUnreadable(): Promise<void> {
+  await withTempDir(async (dir) => {
+    const marketplace = validMarketplace()
+    const client = new MarketplaceRegistryClient({
+      cachePath: join(dir, 'cache.json'),
+      packagedSeedPath: join(dir, 'missing-seed.json'),
+      preferBundledSeed: true,
+      fetcher: async () => jsonResponse(marketplace, { headers: { etag: '"v1"' } }),
+      now: () => new Date('2026-07-09T00:00:00.000Z'),
+    })
+
+    const result = await client.read()
+
+    assert.equal(result.ok, true)
+    if (!result.ok) return
+    // Missing/corrupt seed: degrade to the normal remote flow, not a failure.
+    assert.equal(result.source, 'network')
+    assert.equal(result.state, 'ok')
+  })
+}
+
+async function testBundledDefaultTracksEnvOverrideDetection(): Promise<void> {
+  const { isMarketplaceRegistryOverrideConfigured } = await import('./registry-client')
+  assert.equal(isMarketplaceRegistryOverrideConfigured({}), false)
+  assert.equal(isMarketplaceRegistryOverrideConfigured({ MULTICODE_MARKETPLACE_REGISTRY_URL: '  ' }), false)
+  assert.equal(
+    isMarketplaceRegistryOverrideConfigured({ MULTICODE_MARKETPLACE_REGISTRY_URL: 'https://catalogue.example.com/v1/registry' }),
+    true
+  )
 }
 
 async function testEnvOverrideConfiguresRegistryUrl(): Promise<void> {

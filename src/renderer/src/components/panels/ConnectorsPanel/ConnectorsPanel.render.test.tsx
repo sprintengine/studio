@@ -4,6 +4,7 @@ import { renderToStaticMarkup } from 'react-dom/server'
 
 import type { McpCatalogServer } from '../../../../../shared/electron-api'
 import type { MarketplacePluginEntry } from '../../../../../shared/marketplace/manifest'
+import { PluginIcon, resolveIconUrl } from '../../settings/BrowseStorefront'
 import { ConnectorsBody, FacetTabs, ReadyConnectorsRail } from './ConnectorsPanel'
 import { deriveConnectorsView, type ConnectorFacet, type SourceLoad } from './connectorsFacets'
 
@@ -153,5 +154,21 @@ assert.equal(
   renderToStaticMarkup(<ReadyConnectorsRail connectors={[]} onLaunchConnector={noop} onUseInAutomation={noop} />),
   '',
 )
+
+// --- data-URI icons from the generated catalogue render through PluginIcon --
+
+{
+  const dataUri = 'data:image/svg+xml;base64,PHN2Zy8+'
+  // Absolute icons survive with and without a registry base URL.
+  assert.equal(resolveIconUrl('https://registry.example.com/marketplace.json', dataUri), dataUri)
+  assert.equal(resolveIconUrl(null, dataUri), dataUri)
+  // Relative registry paths still resolve against the registry URL.
+  assert.equal(
+    resolveIconUrl('https://registry.example.com/marketplace.json', 'icons/stripe.svg'),
+    'https://registry.example.com/icons/stripe.svg',
+  )
+  const markup = renderToStaticMarkup(<PluginIcon iconUrl={dataUri} name="Stripe" size={32} />)
+  assert.match(markup, /src="data:image\/svg\+xml;base64,PHN2Zy8\+"/)
+}
 
 console.log('connectors-panel render guard passed')

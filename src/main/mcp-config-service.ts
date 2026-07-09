@@ -83,11 +83,22 @@ type SyncContext = {
   runtimeRoot: () => string | null
 }
 
+// The bundled catalog is ~100KB of generated JSON (data-URI icons included)
+// and immutable for the process lifetime in packaged builds; four renderer
+// surfaces re-request it (Connectors open, new-workspace panel, automation
+// editor, connector launch), so the sync read+parse+normalize is cached by
+// file mtime — dev regenerations still bust it.
+let catalogCache: { path: string; mtimeMs: number; result: McpCatalogResult } | null = null
+
 function listCatalog(): McpCatalogResult {
   try {
     const catalogPath = findCatalogPath()
     if (!catalogPath) {
       return { ok: false, message: 'Bundled MCP catalog was not found.' }
+    }
+    const mtimeMs = statSync(catalogPath).mtimeMs
+    if (catalogCache && catalogCache.path === catalogPath && catalogCache.mtimeMs === mtimeMs) {
+      return catalogCache.result
     }
     const raw = JSON.parse(readFileSync(catalogPath, 'utf8')) as { servers?: unknown }
     if (!Array.isArray(raw.servers)) {
@@ -96,7 +107,9 @@ function listCatalog(): McpCatalogResult {
     const servers = raw.servers
       .map(normalizeCatalogServer)
       .filter((server): server is McpCatalogServer => Boolean(server))
-    return { ok: true, servers }
+    const result: McpCatalogResult = { ok: true, servers }
+    catalogCache = { path: catalogPath, mtimeMs, result }
+    return result
   } catch (error) {
     return {
       ok: false,
@@ -337,7 +350,7 @@ function normalizeSettings(settings: McpSettings | undefined, managedServer?: Mc
   }
 }
 
-function normalizeCatalogServer(value: unknown): McpCatalogServer | null {
+export function normalizeCatalogServer(value: unknown): McpCatalogServer | null {
   const server = normalizeServer({
     ...(value as McpServerConfig),
     enabled: false,
