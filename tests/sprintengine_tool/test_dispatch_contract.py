@@ -47,6 +47,30 @@ def test_renderer_prompt_tool_names_exist_in_mcp_schemas() -> None:
         )
 
 
+def test_role_coordination_prompts_are_claim_first_and_name_real_tools() -> None:
+    # The `.agents/skills/sprintengine/prompts/*.md` coordination prompts ride
+    # every managed `agent.join`. They are MCP-only and claim-first: the
+    # directive protocol (headless CLI) and CLI join invocations must never
+    # reach a managed agent through this layer, and every tool they name must
+    # exist so a rename fails the build instead of stalling a live run.
+    prompts_dir = REPO_ROOT / ".agents" / "skills" / "sprintengine" / "prompts"
+    prompt_paths = sorted(prompts_dir.glob("*.md"))
+    assert prompt_paths, "role coordination prompts missing"
+    for path in prompt_paths:
+        text = path.read_text(encoding="utf-8")
+        names = sorted(set(TOOL_NAME_PATTERN.findall(text)))
+        unknown = [name for name in names if name not in TOOL_SCHEMAS]
+        assert not unknown, f"{path.name} references MCP tools missing from TOOL_SCHEMAS: {unknown}"
+        forbidden = [name for name in names if name in FORBIDDEN_TOOL_REFERENCES]
+        assert not forbidden, (
+            f"{path.name} references {forbidden}: managed-mode prompts are claim-first; "
+            "the directive protocol is headless-CLI only"
+        )
+        assert "sprintengine join --role" not in text, (
+            f"{path.name} embeds a `sprintengine join` CLI invocation; these prompts are MCP-only"
+        )
+
+
 def test_generated_tool_names_module_matches_schemas() -> None:
     # The TS module is generated from TOOL_SCHEMAS so a tool rename is a
     # build/test failure, never a stalled live run. Regenerate with

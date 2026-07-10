@@ -1,5 +1,6 @@
 import { AUTOMATIONS_HOST_WORKSPACE_MODE, type Workspace } from '../../types/workspace'
-import { normalizeAgentState } from './agentsSlice'
+import { isPlaceholderAgentName } from '../../utils/agentNames'
+import { normalizeAgentState, pickWorkspaceAgentName } from './agentsSlice'
 import { normalizeGuidedBriefState } from './guidedBriefSlice'
 import { normalizeWorkspaceMemoryConfig } from './memorySlice'
 import {
@@ -138,6 +139,30 @@ export function dedupeAutomationsHostWorkspaces(workspaces: Workspace[]): Worksp
     result.push(workspace.name === 'Automations' ? workspace : { ...workspace, name: 'Automations' })
   }
   return result
+}
+
+// Every agent carries a real name like the specialists do, but workspaces
+// created before that rule (and layout-template seeds that adopted the tab's
+// generic label) persisted agents literally named "Agent" / "Agent 2" / "A1".
+// Heal them at hydration (merge() runs on every load regardless of the store
+// version, like the Automations dedupe above): each placeholder-named agent
+// gets a picked name, unique within its workspace, and the layout tab renames
+// itself to agent.name on render. Idempotent — a healed name is no longer a
+// placeholder — and returns the input array unchanged when nothing needs it.
+export function nameGenericWorkspaceAgents(workspaces: Workspace[]): Workspace[] {
+  let changed = false
+  const next = workspaces.map((workspace) => {
+    const entries = Object.entries(workspace.agents ?? {})
+    if (!entries.some(([, agent]) => isPlaceholderAgentName(agent.name))) return workspace
+    changed = true
+    const agents: Workspace['agents'] = { ...workspace.agents }
+    for (const [id, agent] of entries) {
+      if (!isPlaceholderAgentName(agent.name)) continue
+      agents[id] = { ...agent, name: pickWorkspaceAgentName(agents) }
+    }
+    return { ...workspace, agents }
+  })
+  return changed ? next : workspaces
 }
 
 export function preserveNewerSprintEngineAutomationState(

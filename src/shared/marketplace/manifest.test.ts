@@ -207,6 +207,83 @@ function testBundleEntryWithoutSignatureValidates(): void {
   if (result.ok) assert.equal(result.marketplace.plugins[0].signature, undefined)
 }
 
+function testGeneratedClaudePluginShapedEntryValidates(): void {
+  // The shape scripts/generate-connector-catalogue.mjs emits for a
+  // claude-plugins-official entry: unsigned, source-bearing, skills-providing,
+  // data-URI icon, categories + tags arrays, latest pinned to 1.
+  const generated = {
+    id: 'anthropic-github',
+    name: 'github',
+    publisher: { name: 'Anthropic', verified: false },
+    summary: 'GitHub workflows for Claude Code.',
+    category: 'development',
+    categories: ['development'],
+    tags: ['git', 'automation'],
+    icon: 'data:image/svg+xml;base64,PHN2Zy8+',
+    latest: 1,
+    provides: ['skills'],
+    source: 'https://github.com/anthropics/claude-plugins-official',
+  }
+  const result = validateMarketplaceIndex({ ...VALID_MARKETPLACE, plugins: [generated] })
+  assert.equal(result.ok, true)
+  if (result.ok) {
+    const entry = result.marketplace.plugins[0]
+    assert.equal(entry.signature, undefined)
+    assert.deepEqual(entry.provides, ['skills'])
+    assert.equal(entry.category, 'development')
+    assert.equal(entry.icon.startsWith('data:image/svg+xml;base64,'), true)
+  }
+}
+
+function testBundledSkillsValidateAndSurvive(): void {
+  // Enumerated per-plugin skills (MC-1564) must ride through the field-by-field
+  // entry rebuild — a dropped array would silently blank every "Skills N"
+  // detail. Path is optional; empty arrays are normalized away.
+  const generated = {
+    id: 'anthropic-huggingface-skills',
+    name: 'huggingface-skills',
+    publisher: { name: 'Anthropic', verified: false },
+    summary: 'Build, train, evaluate, and use open source AI models.',
+    category: 'development',
+    icon: 'data:image/svg+xml;base64,PHN2Zy8+',
+    latest: 1,
+    provides: ['skills'],
+    source: 'https://github.com/huggingface/skills.git',
+    skills: [
+      { name: 'hf-cli', description: 'Hugging Face Hub CLI.', path: 'skills/hf-cli' },
+      { name: 'huggingface-datasets', description: 'Dataset Viewer API workflows.' },
+    ],
+  }
+  const result = validateMarketplaceIndex({ ...VALID_MARKETPLACE, plugins: [generated] })
+  assert.equal(result.ok, true)
+  if (result.ok) {
+    assert.deepEqual(result.marketplace.plugins[0].skills, [
+      { name: 'hf-cli', description: 'Hugging Face Hub CLI.', path: 'skills/hf-cli' },
+      { name: 'huggingface-datasets', description: 'Dataset Viewer API workflows.' },
+    ])
+  }
+  // An empty skills array normalizes to an absent field.
+  const empty = validateMarketplaceIndex({ ...VALID_MARKETPLACE, plugins: [{ ...generated, skills: [] }] })
+  assert.equal(empty.ok, true)
+  if (empty.ok) assert.equal(empty.marketplace.plugins[0].skills, undefined)
+  // Malformed shapes are rejected at their path, never silently dropped.
+  assertRejectsAt(
+    { ...VALID_MARKETPLACE, plugins: [{ ...generated, skills: 'not-an-array' }] },
+    'plugins[0].skills',
+    validateMarketplaceIndex
+  )
+  assertRejectsAt(
+    { ...VALID_MARKETPLACE, plugins: [{ ...generated, skills: [{ description: 'nameless' }] }] },
+    'plugins[0].skills[0]',
+    validateMarketplaceIndex
+  )
+  assertRejectsAt(
+    { ...VALID_MARKETPLACE, plugins: [{ ...generated, skills: [{ name: 'x', description: 'y', path: '' }] }] },
+    'plugins[0].skills[0].path',
+    validateMarketplaceIndex
+  )
+}
+
 function testEntryRejectsSourceAndMcpTogether(): void {
   const hybrid = { ...VALID_MARKETPLACE.plugins[0], mcp: VALID_INLINE_MCP_ENTRY.mcp }
   assertRejectsAt({ ...VALID_MARKETPLACE, plugins: [hybrid] }, 'plugins[0]', validateMarketplaceIndex)
@@ -306,6 +383,8 @@ testParsePluginInvalidJson()
 testValidMarketplaceIndex()
 testInlineMcpEntryValidates()
 testBundleEntryWithoutSignatureValidates()
+testGeneratedClaudePluginShapedEntryValidates()
+testBundledSkillsValidateAndSurvive()
 testEntryRejectsSourceAndMcpTogether()
 testEntryRejectsNeitherSourceNorMcp()
 testInlineMcpRejectsNonMcpProvides()

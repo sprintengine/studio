@@ -26,6 +26,7 @@ async function main(): Promise<void> {
   await testResumeCapabilitiesProjectedAndConsistent()
   await testClaudeBundledRenderMatchesExpected()
   await testCodexBundledRenderMatchesExpected()
+  await testGrokBundledRenderMatchesExpected()
   await testFixtureManifestsValidate()
   await testUserPluginOverridesBundled()
   await testInvalidManifestRejectedWithIssues()
@@ -65,9 +66,13 @@ async function testBundledManifestsLoad(): Promise<void> {
   )
 
   const ids = registry.list().map((p) => p.id).sort()
-  assert.deepEqual(ids, ['claude-code', 'codex', 'generic-shell', 'opencode', 'zai'])
+  assert.deepEqual(ids, ['claude-code', 'codex', 'generic-shell', 'grok', 'opencode', 'zai'])
   assert.equal(
     registry.listConversationProviders().some((provider) => provider.id === 'openrouter'),
+    true
+  )
+  assert.equal(
+    registry.listConversationProviders().some((provider) => provider.id === 'xai'),
     true
   )
   // CLI `auth` surfaces only its label to the renderer (gates the key-entry row);
@@ -113,6 +118,10 @@ async function testResumeCapabilitiesProjectedAndConsistent(): Promise<void> {
     zai: { resumeSession: true, sessionIdFromCaller: true },
     codex: { resumeSession: true, sessionIdFromCaller: false },
     opencode: { resumeSession: false, sessionIdFromCaller: false },
+    // Grok Build's claude-style resume argv is wired but unverified end-to-end,
+    // so resume stays off (the MC-1464/MC-1465 discipline) until confirmed
+    // against a real install; launch does pass our minted --session-id.
+    grok: { resumeSession: false, sessionIdFromCaller: true },
     'generic-shell': { resumeSession: false, sessionIdFromCaller: false },
   }
 
@@ -194,6 +203,45 @@ async function testCodexBundledRenderMatchesExpected(): Promise<void> {
     'workspace-write',
     'fix the parser',
   ])
+}
+
+async function testGrokBundledRenderMatchesExpected(): Promise<void> {
+  const registry = createPluginRegistry({
+    bundledRoot: BUNDLED_ROOT,
+    userRoot: join(await mkdtemp(join(tmpdir(), 'multicode-no-user-plugins-')), 'plugins'),
+  })
+  await registry.load()
+  const plugin = registry.get('grok')
+  assert.ok(plugin)
+
+  // --trust rides the bypass preset ONLY: it trusts every project-level .grok
+  // config (including hooks committed in the repo itself), so the safe default
+  // preset must not carry it — a freshly cloned repo would get arbitrary
+  // command execution. The prompt must NOT appear in argv — grok's interactive
+  // TUI documents no positional prompt, so the manifest uses send-after-ready
+  // injection instead.
+  const launched = renderPluginLaunch(plugin!.manifest, {
+    sessionId: 'sid_demo',
+    prompt: 'do the thing',
+    permissionPreset: 'bypass_all',
+    model: 'grok-4.5',
+  })
+  assert.deepEqual(launched.argv, [
+    'grok',
+    '--always-approve',
+    '--trust',
+    '--model',
+    'grok-4.5',
+    '--session-id',
+    'sid_demo',
+  ])
+  const launchedDefault = renderPluginLaunch(plugin!.manifest, { sessionId: 'sid_demo' })
+  assert.deepEqual(
+    launchedDefault.argv,
+    ['grok', '--session-id', 'sid_demo'],
+    'default preset must not grant --trust'
+  )
+  assert.equal(plugin!.manifest.promptInjection.mode, 'send-after-ready')
 }
 
 async function testFixtureManifestsValidate(): Promise<void> {

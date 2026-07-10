@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 
-import type { MarketplacePluginEntry } from '../../../../shared/marketplace/manifest'
+import { isClaudeCodePluginEntry, type MarketplacePluginEntry } from '../../../../shared/marketplace/manifest'
 import type { CapabilityPermission } from '../../../../shared/modules/permissions'
 import type { McpServerConfig, McpSettings } from '../../types/workspace'
 import { CloseIconButton, GhostButton, InlineNotice, PrimaryButton, Spinner, StatusDot, TruncatedText } from '../ui'
@@ -67,6 +67,12 @@ export function PluginDetailPanel({
   const trust = pluginTrust(plugin)
   const components = componentKindLabels(plugin.provides)
   const inlineServers = plugin.mcp?.servers ?? []
+  // Claude Code plugins (catalogue-generated, machine-tagged) install through
+  // the claude-plugin adapter: their bundled skills copy into the workspace's
+  // Claude skill dirs behind the unsigned trust prompt, which discloses the
+  // real skill listing. The machine tag stays off the visible tag row.
+  const claudePlugin = isClaudeCodePluginEntry(plugin)
+  const displayTags = plugin.tags?.filter((tag) => tag !== 'claude-plugin') ?? []
   // Fail closed: only render an external "View source" link for an http(s)
   // source. A non-http(s) value (file://, smb://, protocol-handler URL) would
   // reach shell.openExternal via the window-open handler, so it gets no link.
@@ -79,7 +85,7 @@ export function PluginDetailPanel({
   const workspaceBlocked = needsWorkspace && !workspaceRoot
 
   const runInstall = useCallback(
-    async (trustGranted: boolean) => {
+    async (trustGranted: boolean, claudePluginRef?: string) => {
       setFlow({ status: 'installing' })
       try {
         const result = await window.api.installMarketplacePluginFromRegistry({
@@ -87,6 +93,9 @@ export function PluginDetailPanel({
           trustGranted,
           workspaceRoot: workspaceRoot ?? undefined,
           mcpSettings,
+          // Claude plugins: install exactly the commit the trust prompt
+          // disclosed, never whatever the source ref moved to since.
+          ...(claudePluginRef ? { claudePluginRef } : {}),
         })
         if (result.ok) {
           // Reflect installed MCP servers in the store so the Installed tab's
@@ -134,7 +143,12 @@ export function PluginDetailPanel({
       return
     }
     if (outcome.kind === 'needs-trust') {
-      setFlow({ status: 'needs-trust', permissions: outcome.permissions })
+      setFlow({
+        status: 'needs-trust',
+        permissions: outcome.permissions,
+        ...(outcome.files ? { files: outcome.files } : {}),
+        ...(outcome.pinnedRef ? { pinnedRef: outcome.pinnedRef } : {}),
+      })
       return
     }
     // Verified: install directly, no trust prompt.
@@ -172,16 +186,16 @@ export function PluginDetailPanel({
 
       <p className="mt-3 text-[12px] leading-5 text-[color:var(--text-muted)]">{plugin.summary}</p>
 
-      {plugin.tags?.length ? (
-        <p className="mt-2 text-[11px] leading-4 text-[color:var(--text-subtle)]">{plugin.tags.join(' · ')}</p>
+      {displayTags.length ? (
+        <p className="mt-2 text-[11px] leading-4 text-[color:var(--text-subtle)]">{displayTags.join(' · ')}</p>
       ) : null}
 
       <div className="mt-3">
         <div className="text-[11px] font-semibold text-[color:var(--text-muted)]">Provides</div>
         <ul className="mt-1 space-y-1 text-[12px] text-[color:var(--text-muted)]">
-          {/* Inline-MCP entries name the actual servers the trust grant adds; the
-              registry index carries no per-skill metadata pre-install, so bundle
-              entries list their component kinds. */}
+          {/* Inline-MCP entries name the actual servers the trust grant adds;
+              bundle entries list their component kinds (their bundled skills,
+              when the catalogue enumerated them, get the section below). */}
           {inlineServers.length > 0
             ? inlineServers.map((server) => (
                 <li key={server.id} className="flex min-w-0 items-center gap-1.5">
@@ -200,6 +214,8 @@ export function PluginDetailPanel({
         </ul>
       </div>
 
+      {plugin.skills?.length ? <PluginSkillsList skills={plugin.skills} /> : null}
+
       {sourceHref ? (
         <a
           href={sourceHref}
@@ -217,7 +233,12 @@ export function PluginDetailPanel({
           no purchase/Buy affordance anywhere (D4). */}
       <div className="mt-4 space-y-2">
         {installView.trustPrompt ? (
-          <TrustPrompt tier={trust.tier} permissions={installView.permissions ?? []} inlineServers={inlineServers} />
+          <TrustPrompt
+            tier={trust.tier}
+            permissions={installView.permissions ?? []}
+            inlineServers={inlineServers}
+            files={installView.files}
+          />
         ) : null}
 
         {installView.notice ? (
@@ -255,6 +276,13 @@ export function PluginDetailPanel({
           </div>
         ) : null}
 
+        {claudePlugin && installView.action?.kind === 'install' ? (
+          <p className="text-[11px] leading-4 text-[color:var(--text-subtle)]">
+            Installing adds this plugin’s skills to the workspace for Claude Code
+            sessions. Its slash commands stay Claude-native.
+          </p>
+        ) : null}
+
         {installView.action ? (
           <div className={installView.trustPrompt ? 'flex gap-2' : ''}>
             <PrimaryButton
@@ -262,7 +290,9 @@ export function PluginDetailPanel({
               className="h-9 w-full"
               disabled={workspaceBlocked}
               onClick={() =>
-                void (installView.action?.kind === 'trust-install' ? runInstall(true) : startInstall())
+                void (installView.action?.kind === 'trust-install'
+                  ? runInstall(true, installView.pinnedRef ?? undefined)
+                  : startInstall())
               }
             >
               {installView.action.label}
@@ -279,6 +309,52 @@ export function PluginDetailPanel({
   )
 }
 
+// How many skills the detail panel shows before its "Show N more" toggle —
+// the same collapse idiom as the browse sections; some vendor plugins bundle
+// dozens (Hugging Face ships 25).
+const SKILLS_COLLAPSE_LIMIT = 6
+
+// The bundled skills a plugin carries: names + one-line descriptions
+// enumerated from the plugin's source repo at catalogue-snapshot build time
+// (display metadata, not install state — installing them is the plugin
+// install's job). Rendered only when the entry actually carries skills; a
+// plugin with none simply has no section, never a placeholder.
+function PluginSkillsList({ skills }: { skills: NonNullable<MarketplacePluginEntry['skills']> }) {
+  const [showAll, setShowAll] = useState(false)
+  const visible = showAll ? skills : skills.slice(0, SKILLS_COLLAPSE_LIMIT)
+  const hiddenCount = skills.length - visible.length
+  return (
+    <div className="mt-3">
+      <div className="text-[11px] font-semibold text-[color:var(--text-muted)]">Skills · {skills.length}</div>
+      <ul className="mt-1 space-y-1.5">
+        {/* The validator does not guarantee name/path uniqueness, so the index
+            rides the key; the list is display-only and never reorders. */}
+        {visible.map((skill, index) => (
+          <li key={`${skill.path ?? skill.name}-${index}`} className="min-w-0">
+            <TruncatedText
+              as="div"
+              text={skill.name}
+              className="text-[12px] font-medium leading-4 text-[color:var(--text-default)]"
+            />
+            {skill.description ? (
+              <TruncatedText
+                as="div"
+                text={skill.description}
+                className="mt-0.5 text-[11px] leading-4 text-[color:var(--text-subtle)]"
+              />
+            ) : null}
+          </li>
+        ))}
+      </ul>
+      {skills.length > SKILLS_COLLAPSE_LIMIT ? (
+        <GhostButton size="sm" className="mt-1.5" onClick={() => setShowAll((value) => !value)}>
+          {showAll ? 'Show fewer' : `Show ${hiddenCount} more`}
+        </GhostButton>
+      ) : null}
+    </div>
+  )
+}
+
 // The pre-trust disclosure shown inside the trust prompt. Community/unsigned
 // bundles disclose their real capability permissions (never fabricated); an
 // inline-MCP entry has no capability permissions, so it discloses the executable
@@ -288,10 +364,14 @@ function TrustPrompt({
   tier,
   permissions,
   inlineServers,
+  files,
 }: {
   tier: PluginTrustTier
   permissions: CapabilityPermission[]
   inlineServers: McpServerConfig[]
+  // Real content listing for file-payload entries (Claude Code plugin skills):
+  // shown in place of permission chips, never alongside fabricated ones.
+  files?: string[] | null
 }) {
   const copy =
     tier === 'inline'
@@ -299,15 +379,20 @@ function TrustPrompt({
           heading: 'Inline MCP server — review it before trusting',
           body: 'This entry runs a local command or connects to a remote endpoint as an MCP server. Trusting it adds and starts the server below — review it before you continue.',
         }
-      : tier === 'unsigned'
+      : files?.length
         ? {
-            heading: 'Unsigned extension — review before trusting',
-            body: "This extension isn’t signed, so its publisher and contents can’t be verified. Trusting it installs it with the app’s access — install-time disclosure, not a runtime sandbox.",
+            heading: 'Unsigned plugin skills — review before trusting',
+            body: 'Skills are instruction files your agents read and follow. This plugin isn’t signed, so its contents can’t be verified — trusting it copies the skills below into this workspace for Claude Code sessions.',
           }
-        : {
-            heading: 'Community extension — review the access it requests',
-            body: 'This publisher isn’t verified. Trusting it lets its code run in Multicode with the app’s access — requested access is install-time disclosure, not a runtime sandbox.',
-          }
+        : tier === 'unsigned'
+          ? {
+              heading: 'Unsigned extension — review before trusting',
+              body: "This extension isn’t signed, so its publisher and contents can’t be verified. Trusting it installs it with the app’s access — install-time disclosure, not a runtime sandbox.",
+            }
+          : {
+              heading: 'Community extension — review the access it requests',
+              body: 'This publisher isn’t verified. Trusting it lets its code run in Multicode with the app’s access — requested access is install-time disclosure, not a runtime sandbox.',
+            }
   return (
     <div className="rounded-md border border-[color:var(--border-subtle)] bg-[color:var(--bg-surface-raised)] p-3">
       <div className="text-[11px] font-semibold text-[color:var(--text-default)]">{copy.heading}</div>
@@ -329,10 +414,41 @@ function TrustPrompt({
               </li>
             ))}
           </ul>
+        ) : files?.length ? (
+          <TrustFileListing files={files} />
         ) : (
           <PermissionChips permissions={permissions} />
         )}
       </div>
+    </div>
+  )
+}
+
+// How many trust-prompt file rows show before the remainder collapses into a
+// "+N more" line — the disclosure stays real without swallowing the panel.
+const TRUST_FILES_LIMIT = 8
+
+// The real file listing a trust grant installs (Claude Code plugin skill
+// folders), fetched by the pre-trust verify — the file-payload counterpart of
+// the permission chips.
+function TrustFileListing({ files }: { files: string[] }) {
+  const visible = files.slice(0, TRUST_FILES_LIMIT)
+  const hiddenCount = files.length - visible.length
+  return (
+    <div>
+      <div className="text-[10px] font-semibold uppercase tracking-wide text-[color:var(--text-subtle)]">
+        Adds {files.length} skill{files.length === 1 ? '' : 's'} to the workspace
+      </div>
+      <ul className="mt-1 space-y-0.5">
+        {visible.map((file) => (
+          <li key={file} className="min-w-0">
+            <TruncatedText as="div" text={file} className="font-mono text-[10px] leading-4 text-[color:var(--text-muted)]" />
+          </li>
+        ))}
+      </ul>
+      {hiddenCount > 0 ? (
+        <div className="mt-0.5 text-[10px] leading-4 text-[color:var(--text-subtle)]">+{hiddenCount} more</div>
+      ) : null}
     </div>
   )
 }
@@ -364,7 +480,14 @@ function pluginTrust(plugin: MarketplacePluginEntry): PluginTrust {
 }
 
 export function resolveIconUrl(registryUrl: string | null, icon: string): string | null {
-  if (!registryUrl || !icon) return null
+  if (!icon) return null
+  // Absolute icons (https URLs, data: URIs from the generated catalogue) need
+  // no registry base and must survive a missing registryUrl; only relative
+  // registry paths resolve against the registry URL. Keep the two forks
+  // explicit — collapsing them into one new URL(icon, base) call throws for
+  // absolute icons whenever the base is missing or invalid.
+  if (URL.canParse(icon)) return new URL(icon).toString()
+  if (!registryUrl) return null
   try {
     return new URL(icon, registryUrl).toString()
   } catch {

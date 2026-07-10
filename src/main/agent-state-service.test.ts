@@ -122,12 +122,26 @@ async function run(): Promise<void> {
   await installSvc.installForWorkspace(workspaceRoot, 'codex')
   assert.equal(resolveCalls, 2)
 
+  // Grok in the SAME workspace shares the claude/codex stdin reporter but
+  // writes a standalone JSON config into .grok/hooks/, not the claude JSON or
+  // codex TOML targets.
+  await installSvc.installForWorkspace(workspaceRoot, 'grok')
+  assert.equal(resolveCalls, 3)
+  const grokHooksConfig = JSON.parse(
+    await readFile(join(workspaceRoot, '.grok', 'hooks', 'multicode-agent-state.json'), 'utf8')
+  ) as { hooks?: Record<string, unknown> }
+  assert.ok(grokHooksConfig.hooks?.SessionStart, 'grok reporter hook not installed')
+  assert.ok(!grokHooksConfig.hooks?.PreToolUse, 'PreToolUse must not be installed for grok (trimmed)')
+  // …and is itself install-once.
+  await installSvc.installForWorkspace(workspaceRoot, 'grok')
+  assert.equal(resolveCalls, 3)
+
   // OpenCode in the SAME workspace uses the separate opencode reporter resolver
   // and writes an in-process plugin (.js) with the live socket baked in — not the
   // claude/codex stdin reporter.
   await installSvc.installForWorkspace(workspaceRoot, 'opencode')
   assert.equal(opencodeResolveCalls, 1)
-  assert.equal(resolveCalls, 2, 'opencode must not consume the claude/codex reporter resolver')
+  assert.equal(resolveCalls, 3, 'opencode must not consume the claude/codex/grok reporter resolver')
   const opencodePlugin = await readFile(join(workspaceRoot, '.opencode', 'plugin', 'multicode-agent-state.js'), 'utf8')
   assert.ok(opencodePlugin.includes(JSON.stringify(installSvc.getSocketPath())), 'opencode plugin missing baked socket path')
   assert.ok(!opencodePlugin.includes("'__MULTICODE_AGENT_STATE_SOCKET__'"), 'opencode socket token left unsubstituted')
@@ -168,7 +182,11 @@ async function run(): Promise<void> {
       return server
     }
 
-    const runReporter = (envSocket: string | undefined, argSocket: string): Promise<void> =>
+    const runReporter = (
+      envSocket: string | undefined,
+      argSocket: string,
+      payload: Record<string, unknown> = { hook_event_name: 'Stop', session_id: 'prec-session' }
+    ): Promise<void> =>
       new Promise((resolve, reject) => {
         const child = spawn(process.execPath, [reporterScript, '--socket', argSocket], {
           env: {
@@ -185,7 +203,7 @@ async function run(): Promise<void> {
         })
         child.on('error', reject)
         child.on('exit', () => resolve())
-        child.stdin.end(JSON.stringify({ hook_event_name: 'Stop', session_id: 'prec-session' }))
+        child.stdin.end(JSON.stringify(payload))
       })
 
     const envSockPath = join(sockDir, 'env-instance.sock')
@@ -229,6 +247,25 @@ async function run(): Promise<void> {
     const deadStart = Date.now()
     await runReporter(join(sockDir, 'gone-a.sock'), join(sockDir, 'gone-b.sock'))
     assert.ok(Date.now() - deadStart < 3000, 'dead-socket reporter run must stay inside the retry deadline')
+
+    // --- reporter camelCase payload (Grok Build) ---------------------------
+    // Grok Build ships the same hook contract as Claude Code but names the
+    // stdin fields camelCase (hookEventName / sessionId). The one shared
+    // reporter must map those to the same frame.
+    const grokSockPath = join(sockDir, 'grok-instance.sock')
+    const grokFrames: string[] = []
+    const grokServer = await listenLines(grokSockPath, grokFrames)
+    await runReporter(grokSockPath, join(sockDir, 'unused.sock'), {
+      hookEventName: 'UserPromptSubmit',
+      sessionId: 'grok-session',
+      cwd: '/tmp',
+    })
+    await waitFor(() => grokFrames.length >= 1)
+    const grokFrame = JSON.parse(grokFrames[0]) as { phase?: string; sessionId?: string; event?: string }
+    assert.equal(grokFrame.phase, 'thinking', 'camelCase hookEventName maps to the same phase')
+    assert.equal(grokFrame.sessionId, 'grok-session', 'camelCase sessionId carried into the frame')
+    assert.equal(grokFrame.event, 'UserPromptSubmit')
+    grokServer.close()
   }
 
   console.log('agent-state-service.test.ts: all assertions passed')

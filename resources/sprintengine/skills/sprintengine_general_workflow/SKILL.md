@@ -10,8 +10,7 @@ Drive every piece of work through the same loop, in order, before it is done:
 
 1. **Plan** — when the run needs a plan, create the tasks yourself, then self-approve the plan artifact. Plan validation as its own task where testing is meaningful (one whole-flow task at the end, or one per milestone), never as per-task busywork.
 2. **Build** — claim a ready task and implement it against its acceptance criteria and owned paths.
-3. **Publish** — `sprintengine.task.publish`. If the task produced a diff, it enters its review phase and the response hands you the review directive.
-4. **Self-review** — read your own diff adversarially, fix everything you find, then `sprintengine.task.advance` with `pass` or `pass_with_fixes`.
+3. **Publish and self-review** — per the Sprint Engine workflow rules: publish, follow the inline review directive against your own diff, then advance with `pass` or `pass_with_fixes`.
 
 ## Finish what you started before taking more
 
@@ -32,9 +31,5 @@ A General receives this orchestration skill and the universal Sprint Engine qual
 ## Self-review honesty
 
 Because you review your own work, the review phase is only as good as your skepticism. Treat it as an adversarial pass: look for the bug, the missed edge case, the acceptance criterion that would pass on mocks or disconnected state. When you find a real issue, fix it and report it as a finding — `pass_with_fixes` with `findingJson`. A `pass` with no real check is the failure mode this role must avoid.
-
-## Coordination mechanics
-
-Follow the Sprint Engine coordination rules for all task, artifact, evidence, and handoff mechanics. Claim work with the claim tool your prompt names, work what it returns, log touched files and verification commands as evidence, publish, review, advance, and stop — the runtime re-engages you when more work is ready.
 
 </supporting-info>

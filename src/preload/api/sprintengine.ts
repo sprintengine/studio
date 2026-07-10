@@ -18,6 +18,7 @@ import type {
   SprintEngineTaskStatusSetInput,
   SprintEngineTaskUpdateInput,
 } from '../../shared/electron-api'
+import type { SprintEngineTokenUsageReport } from '../../shared/sprintengine-token-usage'
 import type {
   UserRoleDeleteResult,
   UserRoleGetResult,
@@ -116,6 +117,10 @@ export const sprintEngineApi = {
     statePath: string
   ): Promise<SprintEngineMcpReadResult> =>
     ipcRenderer.invoke('sprintengine:feedback:summarize', { statePath }),
+  readSprintEngineTokenUsage: (
+    statePath: string
+  ): Promise<SprintEngineTokenUsageReport> =>
+    ipcRenderer.invoke('sprintengine:token-usage:read', { statePath }),
   installUserSprintEngineRoleFolder: (srcDir: string) =>
     ipcRenderer.invoke('sprintengine:user-roles:install-folder', srcDir),
   listUserSprintEngineRoles: () => ipcRenderer.invoke('sprintengine:user-roles:list'),
@@ -148,6 +153,7 @@ export const sprintEngineApi = {
   | 'readSprintEngineRegistryRole'
   | 'readSprintEngineDispatch'
   | 'summarizeSprintEngineFeedback'
+  | 'readSprintEngineTokenUsage'
   | 'installUserSprintEngineRoleFolder'
   | 'listUserSprintEngineRoles'
   | 'saveUserSprintEngineRole'

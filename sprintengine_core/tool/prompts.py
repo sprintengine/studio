@@ -14,8 +14,10 @@ from sprintengine_core.role_registry import (
     normalize_role_id,
 )
 from sprintengine_core.skill_layers import (
-    SPRINTENGINE_GENERAL_SKILLS,
-    SPRINTENGINE_SOUL_EXTRA_SKILLS,
+    SPRINTENGINE_GENERAL_WORKFLOW_SKILL,
+    SPRINTENGINE_NORM_SKILLS,
+    knowledge_root_is_configured,
+    multicode_layer_skills_for_run,
     sprintengine_extra_skills_for_role,
 )
 
@@ -24,46 +26,83 @@ SPRINTENGINE_SKILLS_DIR = REPO_ROOT / "resources" / "sprintengine" / "skills"
 SPRINTENGINE_IMPLEMENTATION_ROLES = {"blog_writer", "coordinator", "creative", "developer", "devops", "frontend", "presentation", "product"}
 
 
-def load_soul_prompt(role: str) -> Optional[str]:
+def load_soul_prompt(
+    role: str,
+    *,
+    backlog_sourced: bool = True,
+    knowledge_root_configured: Optional[bool] = None,
+) -> Optional[str]:
     # Role manifests carry only the portable role identity. A Sprint Engine dispatch
-    # layers the Multicode product skills, the Sprint Engine quality norms, and (for
-    # a sweep role) the fix-forward mandate on top, so the rendered brief carries the
-    # full quality bar without any of it being baked into the manifest.
+    # layers the Multicode product skills (gated per run), the Sprint Engine quality
+    # norms, and (for a sweep role) the fix-forward mandate on top, so the rendered
+    # brief carries the full quality bar without any of it being baked into the
+    # manifest. `knowledge_root_configured=None` resolves from this process's env —
+    # correct for CLI/stdio composition, overridden by the HTTP run context.
+    if knowledge_root_configured is None:
+        knowledge_root_configured = knowledge_root_is_configured()
     if normalize_role_id(role) == "general":
         # `general` has no role manifest; render its soulless layer (norms +
         # orchestration) so this shared chokepoint never drops the norms for a
         # General on the CLI-join or plan-review composition paths.
-        return load_general_soul_prompt()
+        return load_general_soul_prompt(
+            backlog_sourced=backlog_sourced,
+            knowledge_root_configured=knowledge_root_configured,
+        )
     try:
         discovery = discover_role_registry()
         return (
             discovery
-            .render_soul(role, workspace_root=REPO_ROOT, extra_skills=sprintengine_extra_skills_for_role(discovery, role))
+            .render_soul(
+                role,
+                workspace_root=REPO_ROOT,
+                extra_skills=sprintengine_extra_skills_for_role(
+                    discovery,
+                    role,
+                    backlog_sourced=backlog_sourced,
+                    knowledge_root_configured=knowledge_root_configured,
+                ),
+            )
             .content
         )
     except (KeyError, SoulRenderError):
         return None
 
 
-def load_general_soul_prompt(registry: Optional[RegistryDiscovery] = None) -> Optional[str]:
+def load_general_soul_prompt(
+    registry: Optional[RegistryDiscovery] = None,
+    *,
+    backlog_sourced: bool = True,
+    knowledge_root_configured: Optional[bool] = None,
+) -> Optional[str]:
     """Render the soulless General's quality + orchestration layer.
 
     A General carries no role-personality Soul. It still receives the full Sprint
     Engine quality bar — the same universal norm + Multicode product skills every
-    dispatched agent gets — plus the full-loop orchestration skill that drives one
-    agent through plan -> build -> self-review -> test -> publish. The General role
-    has no manifest, so this composes the layer skills directly (in the same
-    ``<skill>`` envelope a soul render uses) instead of rendering a soul. Composing
-    it deliberately is what stops the universal norms from being dropped the way a
-    manifest-less role otherwise would fall through to the no-soul fallback.
+    dispatched agent gets (product skills gated per run, like a specialist render) —
+    plus the full-loop orchestration skill that drives one agent through plan ->
+    build -> self-review -> test -> publish. The General role has no manifest, so
+    this composes the layer skills directly (in the same ``<skill>`` envelope a
+    soul render uses) instead of rendering a soul. Composing it deliberately is
+    what stops the universal norms from being dropped the way a manifest-less role
+    otherwise would fall through to the no-soul fallback.
 
     ``registry`` lets a workspace-scoped caller (the MCP join) reuse its already
     discovered registry so workspace skill overrides apply, exactly as they do for
     a specialist soul render; callers without one get the default discovery.
     """
     registry = registry if registry is not None else discover_role_registry()
+    if knowledge_root_configured is None:
+        knowledge_root_configured = knowledge_root_is_configured()
+    general_skills = (
+        SPRINTENGINE_GENERAL_WORKFLOW_SKILL,
+        *multicode_layer_skills_for_run(
+            backlog_sourced=backlog_sourced,
+            knowledge_root_configured=knowledge_root_configured,
+        ),
+        *SPRINTENGINE_NORM_SKILLS,
+    )
     parts: list[str] = []
-    for raw_skill in SPRINTENGINE_GENERAL_SKILLS:
+    for raw_skill in general_skills:
         skill_id = normalize_role_id(raw_skill)
         entry = registry.skills.get(skill_id)
         if entry is None or not isinstance(entry.value, SkillDocument):
@@ -93,37 +132,22 @@ def sprintengine_runtime_skill_ids(role: str) -> list[str]:
 
 
 def generic_role_swarm_prompt(role: str) -> str:
+    # Role identity + the claim payload shape only. Claim/publish/advance,
+    # owned-path, evidence, and quality mechanics are owned by the
+    # `sprintengine_workflow` runtime skill and the shared norm skills — never
+    # restate them here (prompt-layer policy: one behavior, one layer).
     return "\n\n".join([
         f"# {role.replace('_', ' ').title()}",
         "",
-        "You are a configured Sprint Engine specialist. Follow your rendered Soul guidance for domain judgment, and follow the Sprint Engine coordination rules for all task, artifact, evidence, and handoff mechanics.",
-        "",
-        "## Responsibilities",
-        "",
-        f"- Claim tasks assigned exactly to the `{role}` role, and own each one from claim to `done`.",
-        "- Read the task description, acceptance criteria, implementation notes, owned paths, evidence, and latest feedback before acting.",
-        "- Keep edits scoped to owned paths unless a directly required companion edit is logged as a scope expansion.",
-        "- Verify the real product path before publishing or completing work.",
-        "- Log touched files, commands, and results before handoff.",
-        "",
-        "## Work Sequence",
-        "",
-        "Coordinate through the Sprint Engine MCP tools. Do not run `sprintengine` shell commands for autonomous work — the CLI is reserved for human and debug operators.",
-        "",
-        f"1. Claim work with `sprintengine.task.next` using `{{ role: \"{role}\", id: \"<your-id>\" }}`.",
-        "2. Work what the claim returns; it resumes your active task or claims the next ready one.",
-        "3. Log evidence via `sprintengine.task.log` with `{ taskId, id, summary, file, command, result }`.",
-        "4. Publish implementation evidence via `sprintengine.task.publish` with `{ taskId, id, summary, path, data }`.",
-        "5. If the publish response carries a `nextDirective`, your task entered its review phase: follow the directive, fix what you find, then close the phase with `sprintengine.task.advance` with `{ taskId, id, phase, outcome, summary }`.",
-        "6. Once the task is `done`, stop — Multicode re-engages this terminal when more work is ready.",
-        "",
-        "## Quality Standards",
-        "",
-        "- Do not edit Sprint Engine run-store files directly.",
-        "- Do not claim work assigned to another role.",
-        "- Do not mark work complete when the main behavior depends on sample data, fake responses, mocked transports, stubbed commands, placeholder persistence, or disconnected local state.",
-        "- If real verification is blocked, route the task to `needs_input` via `sprintengine.task.status` with the appropriate actor, reason, and question.",
-        "- If `MULTICODE_KNOWLEDGE_ROOT` is set and your change affects a behavior, contract, file layout, or convention documented in the Knowledge Graph, update the relevant note in the same publish. Log the note path as `sprintengine.task.log` `file` evidence. See the `workspace_knowledge` skill for the full read/update workflow and the env-var gate.",
+        (
+            "You are a configured Sprint Engine specialist. Follow your rendered Soul guidance for "
+            "domain judgment and the Sprint Engine coordination rules for all task, artifact, "
+            "evidence, and handoff mechanics. Claim work with `sprintengine.task.next` using "
+            f"`{{ role: \"{role}\", id: \"<your-id>\" }}`; it resumes your active task or claims the "
+            "next ready one, and you work only tasks assigned exactly to your role. Do not run "
+            "`sprintengine` shell commands for autonomous work — the CLI is reserved for human and "
+            "debug operators."
+        ),
     ])
 
 
@@ -253,11 +277,20 @@ def compose_prompt(
     ])
 
 
-def load_prompt(role: str) -> str:
+def load_prompt(
+    role: str,
+    *,
+    backlog_sourced: bool = True,
+    knowledge_root_configured: Optional[bool] = None,
+) -> str:
     return compose_prompt(
         "# SprintEngine Coordination Rules",
         load_sprintengine_coordination_prompt(role),
-        load_soul_prompt(role),
+        load_soul_prompt(
+            role,
+            backlog_sourced=backlog_sourced,
+            knowledge_root_configured=knowledge_root_configured,
+        ),
         (
             "Use the Soul prompt above for role personality, judgment, and quality bar. "
             "The Sprint Engine coordination rules below override it for tool mechanics: coordinate through "

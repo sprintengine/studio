@@ -19,6 +19,7 @@ import {
   type SelectItem,
 } from '../ui'
 import { useShallow } from 'zustand/react/shallow'
+import type { AgentState } from '../../types/workspace'
 import { useWorkspaceStore } from '../../store/workspaceStore'
 import { selectBacklogProjectView, useBacklogViewStore } from '../../store/backlogViewStore'
 import { useRelativeNow } from '../../hooks/useRelativeNow'
@@ -72,6 +73,7 @@ import {
   childrenOfEpic,
   epicGroupKey,
   epicMetaBySlug,
+  epicProgressBySlug,
   epicSlug,
   groupItemsByEpic,
   groupedBacklogRows,
@@ -79,10 +81,12 @@ import {
   planEpicArchive,
   type BacklogEpicGroup,
   type BacklogEpicMeta,
+  type BacklogEpicProgress,
   type BacklogGroupedRow,
 } from '../../utils/backlogEpics'
 import { deriveBacklogDependencies, type BacklogDependencyNode } from '../../utils/backlogDependencies'
 import {
+  AgentTargetMenuItems,
   BacklogItemContextMenu,
   CRITICALITY_EDIT_ITEMS,
   DIFFICULTY_EDIT_ITEMS,
@@ -97,6 +101,7 @@ import { BacklogCreateDialog, type BacklogDraft } from './BacklogCreateDialog'
 import {
   BacklogEpicHeaderContent,
   BacklogRowContent,
+  BacklogRowHoverCard,
   BACKLOG_STATUS_LABEL,
   backlogStatusToLifecycle,
   CriticalityIndicator,
@@ -375,8 +380,12 @@ export default function BacklogPanel({ workspaceId, onStartFuturePlan }: Workspa
   )
   const groupedRows = useMemo<BacklogGroupedRow[] | null>(() => {
     if (group !== 'by_epic') return null
+    // The Epics lens filters to the containers themselves, so by-epic grouping
+    // would render every epic as a childless header — an arrow that expands to
+    // nothing. Render them as flat epic rows (status + completion) instead.
+    if (view === 'epics') return null
     return groupedBacklogRows(groupItemsByEpic(filtered), isGroupCollapsed)
-  }, [group, filtered, isGroupCollapsed])
+  }, [group, view, filtered, isGroupCollapsed])
 
   // The flattened selection order drives j/k navigation and aria-activedescendant
   // for both modes: grouped uses the header+child row order, flat is the filtered
@@ -419,6 +428,10 @@ export default function BacklogPanel({ workspaceId, onStartFuturePlan }: Workspa
   // and the detail pane can render the colour picker, children roll-up, and the
   // child's parent-epic crumb — all from one derived map (never persisted).
   const epicMeta = useMemo(() => epicMetaBySlug(items), [items])
+  // slug -> true completion (completed/total children over the FULL scan), so
+  // epic rows and group headers report real progress no matter which lens is
+  // hiding the children. Like epicMeta, derived once per scan and never stored.
+  const epicProgress = useMemo(() => epicProgressBySlug(items), [items])
   // Candidate prerequisites for the "Depends on…" affordances: every non-epic
   // item by id + slug (filename stem, the `dependsOn` target) + title. Drawn from
   // the full scan so a prerequisite can be set regardless of the active lens; the
@@ -1395,6 +1408,7 @@ export default function BacklogPanel({ workspaceId, onStartFuturePlan }: Workspa
       now={now}
       runGlyphById={runGlyphById}
       epicMetaBySlug={epicMeta}
+      epicProgressBySlug={epicProgress}
       waitingById={waitingById}
     />
   )
@@ -1421,6 +1435,10 @@ export default function BacklogPanel({ workspaceId, onStartFuturePlan }: Workspa
       dependencyNode={selected ? dependencyGraph.byItemId.get(selected.id) ?? null : null}
       dependencyChoices={dependencyChoices}
       onNavigate={navigateToBacklogItem}
+      agentTargets={agentTargets}
+      agentSessions={agentSessions}
+      onAgentFlyoutOpen={refreshAgentSessions}
+      onSendToAgent={(item, sessionId) => void sendItemToAgent(item, sessionId)}
     />
   )
 
@@ -1619,6 +1637,7 @@ function BacklogList({
   now,
   runGlyphById,
   epicMetaBySlug,
+  epicProgressBySlug,
   waitingById,
 }: {
   items: BacklogItem[]
@@ -1638,6 +1657,8 @@ function BacklogList({
   runGlyphById?: ReadonlyMap<string, BacklogRunGlyph>
   // slug -> epic identity, for the row tint + the flat-view member chip.
   epicMetaBySlug: ReadonlyMap<string, BacklogEpicMeta>
+  // slug -> true full-scan completion, for epic rows and group headers.
+  epicProgressBySlug: ReadonlyMap<string, BacklogEpicProgress>
   // Derived "waiting" rows (active + ≥1 unresolved prerequisite). Absent entry =
   // not waiting; the source picker passes none.
   waitingById?: ReadonlyMap<string, true>
@@ -1691,6 +1712,7 @@ function BacklogList({
                 onToggleCollapse={onToggleCollapse}
                 onItemDragStart={onItemDragStart}
                 onItemContextMenu={onItemContextMenu}
+                progress={row.group.slug ? epicProgressBySlug.get(row.group.slug) : undefined}
               />
             ) : (
               <BacklogOptionRow
@@ -1720,7 +1742,17 @@ function BacklogList({
               onItemContextMenu={onItemContextMenu}
               now={now}
               runGlyph={runGlyphById?.get(item.id)}
-              epicMeta={item.epic ? epicMetaBySlug.get(item.epic) : undefined}
+              // A member row resolves its PARENT epic's identity; an epic row
+              // resolves its OWN, so the banner treatment (tinted glyph, meter
+              // colour, full-row wash) rides the same prop.
+              epicMeta={
+                item.epic
+                  ? epicMetaBySlug.get(item.epic)
+                  : item.isEpic
+                    ? epicMetaBySlug.get(epicSlug(item))
+                    : undefined
+              }
+              epicProgress={item.isEpic ? epicProgressBySlug.get(epicSlug(item)) : undefined}
               isWaiting={waitingById?.get(item.id)}
             />
           ))}
@@ -1747,6 +1779,7 @@ function BacklogOptionRow({
   now,
   runGlyph,
   epicMeta,
+  epicProgress,
   isWaiting,
 }: {
   item: BacklogItem
@@ -1758,9 +1791,12 @@ function BacklogOptionRow({
   onItemContextMenu?: (event: React.MouseEvent, item: BacklogItem) => void
   now: number
   runGlyph?: BacklogRunGlyph
-  // The row's epic identity, when it belongs to a real epic. Drives the option-C
-  // full-row tint and, in the flat (ungrouped) list, the member's epic chip.
+  // The row's epic identity: a member's parent epic, or an epic row's own.
+  // Drives the option-C full-row tint and, in the flat (ungrouped) list, the
+  // member's epic chip / the epic's banner treatment.
   epicMeta?: BacklogEpicMeta
+  // An epic row's true completion rollup (full scan), for the progress meter.
+  epicProgress?: BacklogEpicProgress
   isWaiting?: boolean
 }): JSX.Element {
   const archived = item.status === 'archived'
@@ -1777,20 +1813,36 @@ function BacklogOptionRow({
       onDragStart={onItemDragStart ? (event) => onItemDragStart(event, item) : undefined}
       onContextMenu={onItemContextMenu ? (event) => onItemContextMenu(event, item) : undefined}
       onClick={() => onSelect(item.id)}
-      title={item.relativePath}
       className={`cursor-pointer border-l-[3px] ${indented ? 'pl-6 pr-3' : 'px-3'} py-1.5 transition-colors ${
         selected
           ? `${swatch ? swatch.border : 'border-l-[color:var(--accent-primary)]'} ${litFill && swatch ? swatch.bg : 'bg-[color:var(--accent-primary-soft)]'} ${indented ? 'pl-[21px]' : 'pl-[9px]'}`
           : `${swatch ? `${swatch.border}${litFill ? ` ${swatch.dimBg}` : ''}` : 'border-l-transparent'} hover:bg-[color:var(--bg-hover)]`
       } ${archived ? 'opacity-70' : ''}`}
     >
-      <BacklogRowContent
-        item={item}
-        now={now}
-        runGlyph={runGlyph}
-        isWaiting={isWaiting}
-        epicMeta={indented ? undefined : epicMeta}
-      />
+      {/* The whole row carries one styled hover card (full title, status, id,
+          path) in place of the old native `title` path tooltip. A calm 600ms
+          delay so it never flickers while scanning the list; `plainTitle`
+          keeps the clipped-title tooltip from stacking a second popover. The
+          wrapper is presentational so the listbox's option semantics hold. */}
+      <Tooltip
+        content={<BacklogRowHoverCard item={item} runGlyph={runGlyph} epicProgress={epicProgress} />}
+        placement="top"
+        openDelayMs={600}
+        wrapperClassName="block"
+        wrapperRole="presentation"
+      >
+        <div>
+          <BacklogRowContent
+            item={item}
+            now={now}
+            runGlyph={runGlyph}
+            isWaiting={isWaiting}
+            epicMeta={indented ? undefined : epicMeta}
+            epicProgress={epicProgress}
+            plainTitle
+          />
+        </div>
+      </Tooltip>
     </li>
   )
 }
@@ -1809,6 +1861,7 @@ function BacklogGroupHeaderRow({
   onToggleCollapse,
   onItemDragStart,
   onItemContextMenu,
+  progress,
 }: {
   row: Extract<BacklogGroupedRow, { kind: 'header' }>
   optionIndex: number
@@ -1817,6 +1870,9 @@ function BacklogGroupHeaderRow({
   onToggleCollapse: (group: BacklogEpicGroup) => void
   onItemDragStart?: (event: React.DragEvent<HTMLLIElement>, item: BacklogItem) => void
   onItemContextMenu?: (event: React.MouseEvent, item: BacklogItem) => void
+  // True full-scan completion for this group's slug (epic and dangling-slug
+  // groups); the no-epic bucket has no slug and keeps the group's own rollup.
+  progress?: BacklogEpicProgress
 }): JSX.Element {
   const { group } = row
   const epic = group.kind === 'epic' ? group.epic : null
@@ -1843,6 +1899,7 @@ function BacklogGroupHeaderRow({
         group={group}
         collapsed={row.collapsed}
         onToggleCollapse={() => onToggleCollapse(group)}
+        progress={progress}
       />
     </li>
   )
@@ -1871,6 +1928,10 @@ function BacklogDetail({
   dependencyNode,
   dependencyChoices,
   onNavigate,
+  agentTargets,
+  agentSessions,
+  onAgentFlyoutOpen,
+  onSendToAgent,
 }: {
   scan: BacklogScanResult | null
   loading: boolean
@@ -1901,6 +1962,13 @@ function BacklogDetail({
   // prerequisite/blocked links): the target may sit outside the active
   // lens/search, so this must be the widening navigate, never a plain select.
   onNavigate: (itemId: string) => void
+  // Send-to-agent, mirrored from the row context menu: the same targets,
+  // liveness snapshot, refresh-on-open, and send path, so working from inside
+  // an item never requires going back to the list to hand it off.
+  agentTargets: Array<AgentState & { cliSessionId: string }>
+  agentSessions: TerminalSessionSnapshot[] | null
+  onAgentFlyoutOpen: () => void
+  onSendToAgent: (item: BacklogItem, sessionId: string) => void
 }): JSX.Element {
   if (!folderPath) {
     return (
@@ -2015,7 +2083,9 @@ function BacklogDetail({
           >
             <LifecycleGlyph
               state={selectedRunGlyph?.state ?? backlogStatusToLifecycle(selected.status)}
-              live={selectedRunGlyph?.live ?? true}
+              // Spin only for a genuinely live run — a bare in_progress status
+              // has no agent working it, so the arc stays static.
+              live={selectedRunGlyph?.live ?? false}
             />
           </Tooltip>
           {selected.displayId ? (
@@ -2092,6 +2162,29 @@ function BacklogDetail({
               // here they free the row down to the primary action + this menu.
               { id: 'open-in-editor', label: 'Open in editor', onSelect: () => actions.openInEditor(selected) },
               { id: 'reveal-in-files', label: 'Reveal in Files', onSelect: () => actions.revealInFiles(selected) },
+              // Same Send-to-agent flyout as the row's right-click menu (shared
+              // choice list, liveness refresh on open, shared send path), so an
+              // item can be handed off from inside its detail too.
+              {
+                kind: 'flyout' as const,
+                id: 'send-to-agent',
+                label: 'Send to agent',
+                ariaLabel: 'Send to agent',
+                surfaceClassName: 'min-w-[200px]',
+                onOpenChange: (open: boolean) => {
+                  if (open) onAgentFlyoutOpen()
+                },
+                render: (close: () => void) => (
+                  <AgentTargetMenuItems
+                    agentTargets={agentTargets}
+                    agentSessions={agentSessions}
+                    onPick={(sessionId) => {
+                      onSendToAgent(selected, sessionId)
+                      close()
+                    }}
+                  />
+                ),
+              },
               { kind: 'separator' as const, id: 'sep-files' },
               // Triage editors, moved out of the detail body into flyout submenus
               // so the pane opens straight to content. Same choice lists, checks,
@@ -2409,9 +2502,17 @@ function BacklogEpicChildren({
                   <Tooltip content={glyph?.label ?? BACKLOG_STATUS_LABEL[child.status]} placement="top">
                     <LifecycleGlyph
                       state={glyph?.state ?? backlogStatusToLifecycle(child.status)}
-                      live={glyph?.live ?? child.status === 'in_progress'}
+                      // The spinner means "an agent is working on this right
+                      // now": only a live run glyph earns it; a bare
+                      // in_progress status renders the static quarter arc.
+                      live={glyph?.live ?? false}
                     />
                   </Tooltip>
+                  {child.displayId ? (
+                    <span className="shrink-0 font-mono text-[11px] tabular-nums text-[color:var(--text-subtle)]">
+                      {child.displayId}
+                    </span>
+                  ) : null}
                   <TruncatedText
                     as="span"
                     text={child.title}

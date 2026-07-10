@@ -31,6 +31,7 @@ export async function syncManagedSprintEngineMcpConfig(
       workspaceId: input.managedSprintEngine.workspaceId,
       agentId: input.managedSprintEngine.agentId,
       role: input.managedSprintEngine.role,
+      knowledgeRoot: input.managedSprintEngine.knowledgeRoot ?? '',
     })
     registeredRunId = run.runId
     registeredRunWasCreated = !run.reused

@@ -43,6 +43,7 @@ import { ConnectorEntryRow, ConnectorSectionHeading } from './ConnectorRow'
 import {
   CONNECTOR_FACETS,
   deriveConnectorsView,
+  launchableConnectors,
   sectionConnectors,
   type ConnectorEntry,
   type ConnectorFacet,
@@ -274,20 +275,23 @@ function ConnectorsBrowser({
   const browseView = deriveConnectorsView(catalogLoad, registryLoad, installedServerIds, query, facet)
 
   // The launchable connectors (a search-filtered "ready to launch" rail), derived
-  // from the same source merge but independent of the browse facet: they are your
-  // runnable connectors, not a browse bucket.
+  // independently of the browse facet: they are your runnable connectors, not a
+  // browse bucket. launchableConnectors owns the population (skill-paired
+  // catalog entries ∪ installed servers); a failed catalog load degrades to the
+  // installed servers alone, which launch without the catalog — only the
+  // initial load renders the rail empty.
   const readyConnectors = useMemo(() => {
-    if (catalogLoad.status !== 'ready') return []
+    if (catalogLoad.status === 'loading') return []
+    const catalog = catalogLoad.status === 'ready' ? catalogLoad.data : []
     const needle = query.trim().toLowerCase()
-    return catalogLoad.data
-      .filter((server) => Boolean(server.skill))
-      .filter((server) =>
+    return launchableConnectors(catalog, mcpSettings.servers).filter(
+      (server) =>
         !needle ||
         [server.name, server.category ?? '', server.description ?? '', ...(server.capabilities ?? [])].some((field) =>
           field.toLowerCase().includes(needle),
         ),
-      )
-  }, [catalogLoad, query])
+    )
+  }, [catalogLoad, query, mcpSettings.servers])
 
   const toggleCatalogServer = useCallback(
     (server: McpCatalogServer) => {

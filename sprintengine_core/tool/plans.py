@@ -705,6 +705,8 @@ def build_plan_review_prompt(
     review_path: Path,
     fingerprint: str,
     existing_review: bool,
+    *,
+    backlog_sourced: bool = True,
 ) -> str:
     action = "Replace your existing review" if existing_review else "Write your review"
     plan_display_path = project_relative_display_path(state_path, plan_path)
@@ -742,7 +744,7 @@ def build_plan_review_prompt(
     return compose_prompt(
         "# Sprint Engine Plan Review Rules",
         review_prompt,
-        load_soul_prompt(role),
+        load_soul_prompt(role, backlog_sourced=backlog_sourced),
         (
             "Use the Soul prompt above for review perspective and quality bar. The plan review "
             "rules below override it for sprintengine mechanics: do not claim tasks, do not implement, do not "

@@ -57,6 +57,7 @@ import { SprintEngineRoleIcon } from '../AppIcons'
 import CliIcon from '../CliIcon'
 import { selectAgentCliCatalog } from '../workspace/newWorkspace/cliRuntimeOptions'
 import type { PluginModelCatalog } from '../../../../shared/plugin-manifest'
+import { useSprintEngineTokenUsage } from '../../hooks/useSprintEngineTokenUsage'
 import {
  bracketedTerminalPaste,
  buildSprintEngineRoleRegistry,
@@ -938,6 +939,20 @@ function SprintEngineBoardPanelContent({
 
  const selectedTask = sprintEngineState?.tasks.find((task) => task.id === selectedTaskId) ?? null
 
+ // Per-task token usage for the inspector's details list, computed main-side
+ // from the run's durable token ledger + projection. Fetched only while a task
+ // is actually inspected (the shared hook clears across run switches and the
+ // main process caches, so projection ticks stay cheap); a failed read renders
+ // no figure.
+ const tokenUsageReport = useSprintEngineTokenUsage(
+   sprintEngineContext?.statePath ?? null,
+   sprintEngineState?.updatedAt ?? null,
+   Boolean(selectedTaskId),
+ )
+ const selectedTaskTokenUsage = selectedTask
+   ? tokenUsageReport?.perTask[selectedTask.id] ?? null
+   : null
+
  const doneCount = sprintEngineState.tasks.filter((task) => task.status === 'done').length
  const runPhase = getSprintEngineBoardRunPhase(sprintEngineState, runtimeAgents)
  const allTasksDone = sprintEngineState.tasks.length > 0 && doneCount === sprintEngineState.tasks.length
@@ -1239,6 +1254,7 @@ function SprintEngineBoardPanelContent({
  selectedTaskBoardColumn={selectedTaskBoardColumn}
  selectedTaskOwnerLabel={selectedTaskOwnerLabel}
  selectedTaskNeedsInputNote={selectedTaskNeedsInputNote}
+ selectedTaskTokenUsage={selectedTaskTokenUsage}
  selectedTaskArtifacts={selectedTaskArtifacts}
  selectedTaskArtifactBlockers={selectedTaskArtifactBlockers}
  artifactActions={artifactActions}

@@ -30,6 +30,7 @@ async function main(): Promise<void> {
   await assertMigratedProjectionSnapshotIsPreferred()
   await assertReviewProjectionSnapshotExposesReviewContext()
   await assertProjectionSnapshotPassesProtocolValidation()
+  await assertProjectionSnapshotExposesProvenanceAndVcs()
   await assertSnapshotIncludesDesktopWorkspaceEntries()
   await assertSnapshotIncludesWorkspaceBacklog()
   await assertSnapshotSurfacesCreatedSpikeBacklogItem()
@@ -39,6 +40,71 @@ async function main(): Promise<void> {
   await assertSnapshotOmitsNonMobileStatePayloads()
   await assertSnapshotSkipsMalformedStateFiles()
   await assertPublishingIsThrottled()
+}
+
+async function assertProjectionSnapshotExposesProvenanceAndVcs(): Promise<void> {
+  // MC-1498: a worktree run launched from a backlog epic exposes its provenance
+  // ("Started from") and its PR/branch state on the mobile snapshot.
+  const statePath = await writeStateText('not-real-state\n')
+  const teamDirectory = dirname(statePath)
+  await writeFile(
+    join(teamDirectory, 'projection.json'),
+    JSON.stringify({
+      ok: true,
+      projectionVersion: 1,
+      updatedAt: generatedAt,
+      run: {
+        id: 'vcs-team',
+        name: 'VCS Team',
+        status: 'complete',
+        updatedAt: generatedAt,
+        source: {
+          kind: 'markdown',
+          origin: 'reference',
+          path: 'backlog/epics/checkout.md',
+          capturedAt: generatedAt,
+        },
+        vcs: {
+          mode: 'run_worktree',
+          worktreePath: '.worktrees/checkout',
+          branchName: 'sprintengine/checkout',
+          pullRequestUrl: 'https://github.com/acme/repo/pull/9',
+          pullRequestState: 'open',
+        },
+      },
+      tasks: [{ id: 'T1', title: 'Done', role: 'developer', status: 'done', stateStatus: 'done', dependsOn: [] }],
+      artifacts: [],
+    }),
+    'utf8',
+  )
+
+  const snapshot = await readSprintEngineSnapshot(statePath)
+  assert.equal(snapshot.startedFrom?.epic, true, 'an epic-launched run reads as an epic provenance')
+  assert.equal(snapshot.startedFrom?.rows[0]?.path, 'backlog/epics/checkout.md')
+  assert.equal(snapshot.startedFrom?.rows[0]?.isPrimary, true)
+  assert.equal(snapshot.startedFrom?.rows[0]?.capturedAt, generatedAt)
+  assert.equal(snapshot.vcs?.worktree, true)
+  assert.equal(snapshot.vcs?.branch, 'sprintengine/checkout')
+  assert.equal(snapshot.vcs?.pullRequestUrl, 'https://github.com/acme/repo/pull/9')
+  assert.equal(snapshot.vcs?.pullRequestStatus, 'open')
+
+  // A hand-started run with no source and no worktree exposes neither.
+  const bareStatePath = await writeStateText('bare\n')
+  await writeFile(
+    join(dirname(bareStatePath), 'projection.json'),
+    JSON.stringify({
+      ok: true,
+      projectionVersion: 1,
+      updatedAt: generatedAt,
+      run: { id: 'bare', name: 'Bare', status: 'executing', updatedAt: generatedAt },
+      tasks: [],
+      artifacts: [],
+    }),
+    'utf8',
+  )
+  const bare = await readSprintEngineSnapshot(bareStatePath)
+  assert.equal(bare.startedFrom, undefined, 'a hand-started run shows no provenance')
+  assert.equal(bare.vcs, undefined, 'a non-worktree run shows no vcs block')
 }
 
 async function assertProjectionSnapshotPassesProtocolValidation(): Promise<void> {

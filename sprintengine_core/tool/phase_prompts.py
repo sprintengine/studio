@@ -123,13 +123,20 @@ def prompt_list(title: str, values: List[str], empty: str = "None.") -> List[str
 def build_rework_prompt(state_path: Path, task: Dict[str, Any]) -> str:
     """The implementation-phase task brief, returned by every `task.next` claim.
 
-    Feedback is no longer grouped by gate (there are no gates, and no reviewer
-    files findings against another agent's task). What remains is the human Inbox
-    loop and architect notes: a flat, newest-first queue.
+    Feedback bodies are NOT re-listed here: the same response's task card already
+    carries them (`openFeedback`, newest first, plus the raw comments on the CLI
+    payload). The prompt names the queue and how to work it — serializing the
+    bodies twice per claim was pure token cost (backlog item 1566).
     """
     plan_path = plan_prompt_path(state_path)
-    open_feedback = newest_comments(open_feedback_comments(task), limit=10)
-    latest_comments = newest_comments(task_comments(task), limit=5)
+    open_feedback_count = len(open_feedback_comments(task))
+    feedback_line = (
+        f"This task has {open_feedback_count} open feedback comment(s) on its task card "
+        "(`openFeedback`, newest first). Use them as the rework queue: address newer "
+        "feedback first when comments conflict, then publish with `sprintengine.task.publish`."
+        if open_feedback_count
+        else "No open feedback. Implement against the task card, then publish with `sprintengine.task.publish`."
+    )
     return "\n".join([
         "# Sprint Engine Task Context",
         "",
@@ -137,14 +144,7 @@ def build_rework_prompt(state_path: Path, task: Dict[str, Any]) -> str:
         f"Task: `{task.get('id')}` - {task.get('title')}",
         f"Status: `{task.get('status')}`",
         "",
-        *prompt_list(
-            "Open Feedback (newest first)",
-            [comment_prompt_line(comment) for comment in open_feedback],
-        ),
-        "",
-        *prompt_list("Latest Comments (newest first)", [comment_prompt_line(comment) for comment in latest_comments]),
-        "",
-        "Use the open feedback as the rework queue. Address newer feedback first when comments conflict, then publish with `sprintengine.task.publish`.",
+        feedback_line,
     ])
 
 # ---------------------------------------------------------------------------
@@ -210,16 +210,18 @@ def build_phase_directive(
 ) -> str:
     """Compose the directive an owner receives on entering `phase`.
 
-    Phase header, the shared base pack, the role's `directives.<phase>` additions,
-    the task's acceptance criteria, and any open feedback comments. Returned inline
-    in the `publish`/`advance` response, so it deliberately omits the diff and the
-    task description the owner already has in context; the respawn brief
-    (`build_phase_respawn_brief`) adds them back for an owner starting cold.
+    Phase header, the shared base pack, and the role's `directives.<phase>`
+    additions. Returned inline in the `publish`/`advance` response, so it
+    deliberately omits the diff, the task description, and the acceptance
+    criteria the owner already holds on its card, and references — never
+    re-lists — open feedback (the same response's `openFeedback` delta carries
+    the bodies). The respawn brief (`build_phase_respawn_brief`) rebuilds the
+    dropped context for an owner starting cold.
     """
     registry = discover_role_registry(workspace_root=workspace_root_for_state_path(state_path))
     role = str(task.get("role") or "")
     base_pack = _registry_skill_body(registry, phase_base_pack_skill_id(phase))
-    open_feedback = newest_comments(open_feedback_comments(task), limit=10)
+    open_feedback_count = len(open_feedback_comments(task))
 
     sections: List[str] = [
         f"# {phase_header(phase)}",
@@ -232,27 +234,44 @@ def build_phase_directive(
         sections.extend([base_pack, ""])
     for body in _role_phase_directive_bodies(registry, role, phase):
         sections.extend([f"## {role} additions for this phase", "", body, ""])
-    sections.extend(
-        prompt_list(
-            "Acceptance Criteria",
-            [f"- {item}" for item in task.get("acceptanceCriteria", []) or []],
-            empty="None recorded — review against the task description and plan.",
+    sections.append("Review against your task card's acceptance criteria and the plan.")
+    if open_feedback_count:
+        sections.append(
+            f"Address the {open_feedback_count} open feedback comment(s) on this response "
+            "(`openFeedback`, newest first) before you advance."
         )
-    )
-    if open_feedback:
-        sections.extend([
-            "",
-            *prompt_list(
-                "Open Feedback (address before you advance)",
-                [comment_prompt_line(comment) for comment in open_feedback],
-            ),
-        ])
     sections.extend([
         "",
         f"Close this phase with `sprintengine.task.advance` "
         f"`{{ taskId: \"{task.get('id')}\", phase: \"{phase}\", outcome, summary }}`.",
     ])
     return "\n".join(sections)
+
+
+# Cold-start respawn brief caps: enough to resume the work, never an unbounded
+# dump — the full evidence stays on the task (`task.get include=[...]`).
+RESPAWN_TEXT_LIMIT = 700
+RESPAWN_LIST_LIMIT = 10
+RESPAWN_DIFF_LINE_LIMIT = 100
+
+
+def _respawn_text(value: Any) -> str:
+    text = str(value or "").strip()
+    if len(text) <= RESPAWN_TEXT_LIMIT:
+        return text
+    return f"{text[:RESPAWN_TEXT_LIMIT - 3].rstrip()}..."
+
+
+def _respawn_tail(values: List[Any], label: str, *, code: bool = False) -> List[str]:
+    """Newest-last tail of a list, with an elision marker naming what was cut."""
+    items = [value for value in values if str(value or "").strip()]
+    lines = [
+        f"- {label}: `{_respawn_text(value)}`" if code else f"- {label}: {_respawn_text(value)}"
+        for value in items[-RESPAWN_LIST_LIMIT:]
+    ]
+    if len(items) > RESPAWN_LIST_LIMIT:
+        lines.insert(0, f"- ({len(items) - RESPAWN_LIST_LIMIT} earlier {label.lower()} entries elided — `sprintengine.task.get` with `include=[\"evidence_log\"]` has the full log)")
+    return lines
 
 
 def build_phase_respawn_brief(
@@ -263,12 +282,19 @@ def build_phase_respawn_brief(
 ) -> str:
     """The startup brief for an owner revived mid-phase (Flow 6).
 
-    The live-owner directive assumes the diff is already in context. A revived
-    owner has nothing, so this prepends the task card and the published diff
-    evidence before the same directive body.
+    The live-owner directive assumes the card and diff are already in context. A
+    revived owner has nothing, so this prepends the task card (including the
+    acceptance criteria the inline directive no longer re-lists) and the published
+    evidence before the same directive body. Every unbounded surface is capped
+    with an explicit elision marker (backlog item 1566).
     """
     evidence = ensure_evidence(task)
     plan_path = plan_prompt_path(state_path)
+    diff_lines = diff_prompt_lines(evidence)
+    if len(diff_lines) > RESPAWN_DIFF_LINE_LIMIT:
+        elided = len(diff_lines) - RESPAWN_DIFF_LINE_LIMIT
+        diff_lines = diff_lines[:RESPAWN_DIFF_LINE_LIMIT]
+        diff_lines.append(f"- ({elided} more changed files elided — read the task's committed diff with git)")
     return "\n".join([
         "# Sprint Engine Phase Handover",
         "",
@@ -279,20 +305,21 @@ def build_phase_respawn_brief(
         f"Task role: `{task.get('role')}`",
         "",
         *prompt_list("Task Card", [
-            f"- Description: {task.get('description') or ''}",
-            *[f"- Implementation note: {item}" for item in task.get("implementationNotes", []) or []],
+            f"- Description: {_respawn_text(task.get('description'))}",
+            *[f"- Acceptance: {_respawn_text(item)}" for item in task.get("acceptanceCriteria", []) or []],
+            *[f"- Implementation note: {_respawn_text(item)}" for item in task.get("implementationNotes", []) or []],
         ]),
         "",
         *prompt_list("Owned Paths", [f"- `{path}`" for path in task.get("ownedPaths", []) or []]),
         "",
         *prompt_list("Implementation Evidence", [
-            f"- Summary: {evidence.get('summary') or ''}",
-            *[f"- Touched file: `{path}`" for path in evidence.get("touchedFiles", []) or []],
-            *[f"- Command: `{cmd}`" for cmd in evidence.get("commandsRan", []) or []],
-            *[f"- Result: {result}" for result in evidence.get("results", []) or []],
+            f"- Summary: {_respawn_text(evidence.get('summary'))}",
+            *_respawn_tail(list(evidence.get("touchedFiles", []) or []), "Touched file", code=True),
+            *_respawn_tail(list(evidence.get("commandsRan", []) or []), "Command", code=True),
+            *_respawn_tail(list(evidence.get("results", []) or []), "Result"),
         ]),
         "",
-        *prompt_list("Diff Evidence", diff_prompt_lines(evidence)),
+        *prompt_list("Diff Evidence", diff_lines),
         "",
         "---",
         "",

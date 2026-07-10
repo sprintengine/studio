@@ -1,4 +1,4 @@
-import { cp, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
+import { cp, mkdir, mkdtemp, readdir, readFile, rm, writeFile } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
 import { tmpdir } from 'node:os'
 
@@ -97,6 +97,25 @@ type GithubContentsEntry = {
 type DownloadState = {
   files: number
   bytes: number
+  /** Contents-API directory requests issued this walk (bounds empty-dir trees). */
+  dirRequests: number
+}
+
+// A hostile repo can be a tree of thousands of EMPTY directories — maxFiles
+// never triggers, but every directory costs one contents-API request. Cap the
+// walk itself (requests + depth) so a pre-trust preview can never be driven
+// into unbounded API amplification.
+const MAX_GITHUB_DIR_REQUESTS = 200
+const MAX_GITHUB_DIR_DEPTH = 12
+const COMMIT_SHA_REF_PATTERN = /^[a-f0-9]{40}$/
+
+async function fetchTextForClaude(
+  url: string,
+  fetcher: MarketplacePluginDownloadFetch,
+  timeoutMs: number | undefined,
+  maxBytes: number
+): Promise<string> {
+  return fetchText(url, fetcher, timeoutMs, { accept: 'application/vnd.github+json' }, maxBytes)
 }
 
 export function defaultMarketplacePluginStagingRoot(userDataDir?: string): string {
@@ -359,7 +378,7 @@ async function downloadGithubTree(
   timeoutMs: number | undefined,
   limits: DownloadLimits
 ): Promise<void> {
-  const state: DownloadState = { files: 0, bytes: 0 }
+  const state: DownloadState = { files: 0, bytes: 0, dirRequests: 0 }
   const rootUrl = githubContentsUrl(source)
   await downloadGithubContentsDirectory(rootUrl, source.path, source.path, stage, fetcher, timeoutMs, limits, state)
 }
@@ -372,15 +391,23 @@ async function downloadGithubContentsDirectory(
   fetcher: MarketplacePluginDownloadFetch,
   timeoutMs: number | undefined,
   limits: DownloadLimits,
-  state: DownloadState
+  state: DownloadState,
+  depth = 0
 ): Promise<void> {
+  if (depth > MAX_GITHUB_DIR_DEPTH) {
+    throw new Error(`Plugin source directory tree is nested deeper than ${MAX_GITHUB_DIR_DEPTH} levels.`)
+  }
+  if (state.dirRequests >= MAX_GITHUB_DIR_REQUESTS) {
+    throw new Error(`Plugin source directory tree needs more than ${MAX_GITHUB_DIR_REQUESTS} listing requests.`)
+  }
+  state.dirRequests += 1
   const body = await fetchText(apiUrl, fetcher, timeoutMs, { accept: 'application/vnd.github+json' }, limits.maxFileBytes)
   const parsed = JSON.parse(body) as GithubContentsEntry | GithubContentsEntry[]
   const entries = Array.isArray(parsed) ? parsed : [parsed]
   for (const entry of entries) {
     if (entry.type === 'dir') {
       if (!entry.url) throw new Error(`GitHub directory ${entry.path ?? currentPath} is missing a contents URL.`)
-      await downloadGithubContentsDirectory(entry.url, basePath, entry.path ?? currentPath, stage, fetcher, timeoutMs, limits, state)
+      await downloadGithubContentsDirectory(entry.url, basePath, entry.path ?? currentPath, stage, fetcher, timeoutMs, limits, state, depth + 1)
       continue
     }
     if (entry.type !== 'file') {
@@ -394,6 +421,216 @@ async function downloadGithubContentsDirectory(
   }
 }
 
+// ---------------------------------------------------------------------------
+// Claude Code plugin sources (MC-1561)
+// ---------------------------------------------------------------------------
+
+export type ClaudeCodePluginDownloadOptions = {
+  entry: MarketplacePluginEntry
+  stagingRoot?: string
+  fetcher?: MarketplacePluginDownloadFetch
+  timeoutMs?: number
+  maxFiles?: number
+  maxFileBytes?: number
+  maxTotalBytes?: number
+  /**
+   * Fetch exactly this commit instead of the source's own ref. The install
+   * passes the ref the pre-trust verify resolved and disclosed, so the user
+   * can never trust listing A and install content B (a mutable default-branch
+   * source repushed between the prompt and the install).
+   */
+  refOverride?: string
+}
+
+export type ClaudeCodePluginDownloadResult =
+  | {
+    ok: true
+    sourceUrl: string
+    /** Staged copy of the plugin subtree (`.claude-plugin/` + `skills/`). */
+    stagedPath: string
+    /** Skill folder names under the plugin's skills/ dir (each has a SKILL.md). */
+    skillDirs: string[]
+    /** The plugin's own name from .claude-plugin/plugin.json. */
+    claudeName: string
+    /** The commit actually fetched (mutable refs resolve to a sha up front). */
+    resolvedRef: string
+  }
+  | { ok: false; sourceUrl: string; message: string; statusCode?: number }
+
+/**
+ * Download a Claude Code plugin's installable content: `.claude-plugin/`
+ * (the manifest) and `skills/` (the skill folders). Claude plugins are not
+ * Multicode bundles — no plugin.json contract, no signature, no digests — so
+ * this stages only what the skills install consumes, under the same host
+ * allowlist and file/byte limits as bundle downloads. Commands/agents/hooks
+ * in the plugin are NOT downloaded or installed; skills are the one component
+ * Multicode can honestly deliver today.
+ */
+export async function downloadClaudeCodePluginSource(
+  options: ClaudeCodePluginDownloadOptions
+): Promise<ClaudeCodePluginDownloadResult> {
+  const sourceUrl = options.entry.source?.trim() ?? ''
+  if (!sourceUrl) {
+    return { ok: false, sourceUrl: '', message: 'Claude Code plugin entry has no source to download.' }
+  }
+  const parsedSource = parseHttpsUrl(sourceUrl)
+  if (!parsedSource.ok) return { ok: false, sourceUrl, message: parsedSource.message }
+  const parsedGithub = parseClaudePluginGithubSource(parsedSource.url)
+  if (!parsedGithub) {
+    return { ok: false, sourceUrl, message: 'Claude Code plugins install from a GitHub repo or pinned subtree source.' }
+  }
+
+  const stagingRoot = options.stagingRoot ?? defaultMarketplacePluginStagingRoot()
+  const fetcher = options.fetcher ?? defaultFetch
+
+  // Resolve mutable refs (bare-repo sources ride the default branch) to a
+  // commit sha BEFORE walking, so one download can never read a torn tree —
+  // and so the verify-time listing and the install fetch the SAME commit
+  // (refOverride carries the verify's pin into the install).
+  let github = parsedGithub
+  const requestedRef = options.refOverride ?? parsedGithub.ref
+  if (COMMIT_SHA_REF_PATTERN.test(requestedRef)) {
+    github = { ...parsedGithub, ref: requestedRef }
+  } else {
+    try {
+      const commitBody = await fetchTextForClaude(
+        `https://api.github.com/repos/${parsedGithub.owner}/${parsedGithub.repo}/commits/${encodeURIComponent(requestedRef)}`,
+        fetcher,
+        options.timeoutMs,
+        options.maxFileBytes ?? DEFAULT_MARKETPLACE_PLUGIN_MAX_FILE_BYTES
+      )
+      const sha = (JSON.parse(commitBody) as { sha?: unknown }).sha
+      if (typeof sha !== 'string' || !COMMIT_SHA_REF_PATTERN.test(sha)) {
+        return { ok: false, sourceUrl, message: 'Could not resolve the plugin source branch to a commit.' }
+      }
+      github = { ...parsedGithub, ref: sha }
+    } catch (error) {
+      return {
+        ok: false,
+        sourceUrl,
+        message: error instanceof DownloadHttpError ? error.message : formatError(error),
+        ...(error instanceof DownloadHttpError ? { statusCode: error.statusCode } : {}),
+      }
+    }
+  }
+  const limits: DownloadLimits = {
+    maxFiles: options.maxFiles ?? DEFAULT_MARKETPLACE_PLUGIN_MAX_FILES,
+    maxFileBytes: options.maxFileBytes ?? DEFAULT_MARKETPLACE_PLUGIN_MAX_FILE_BYTES,
+    maxTotalBytes: options.maxTotalBytes ?? DEFAULT_MARKETPLACE_PLUGIN_MAX_TOTAL_BYTES,
+  }
+
+  let stage: string | null = null
+  try {
+    await mkdir(stagingRoot, { recursive: true })
+    stage = await mkdtemp(join(stagingRoot, `${options.entry.id}-claude-`))
+    const state: DownloadState = { files: 0, bytes: 0, dirRequests: 0 }
+
+    // The Claude manifest first: a source without one is not a Claude plugin,
+    // and failing before the skills fetch keeps the error specific.
+    try {
+      await downloadGithubContentsDirectory(
+        githubSubtreeContentsUrl(github, '.claude-plugin'),
+        github.path,
+        github.path,
+        stage,
+        fetcher,
+        options.timeoutMs,
+        limits,
+        state
+      )
+    } catch (error) {
+      if (error instanceof DownloadHttpError && error.statusCode === 404) {
+        return { ok: false, sourceUrl, message: 'This source has no .claude-plugin/plugin.json, so it is not a Claude Code plugin.', statusCode: 404 }
+      }
+      throw error
+    }
+    const claudeName = await readClaudePluginName(join(stage, '.claude-plugin', 'plugin.json'))
+    if (claudeName === null) {
+      return { ok: false, sourceUrl, message: 'The plugin’s .claude-plugin/plugin.json is invalid (a name is required).' }
+    }
+
+    try {
+      await downloadGithubContentsDirectory(
+        githubSubtreeContentsUrl(github, 'skills'),
+        github.path,
+        github.path,
+        stage,
+        fetcher,
+        options.timeoutMs,
+        limits,
+        state
+      )
+    } catch (error) {
+      if (error instanceof DownloadHttpError && error.statusCode === 404) {
+        return { ok: false, sourceUrl, message: 'This Claude Code plugin bundles no skills. Multicode installs plugin skills only; its commands run inside Claude Code sessions.', statusCode: 404 }
+      }
+      throw error
+    }
+
+    const skillDirs = await stagedSkillDirs(join(stage, 'skills'))
+    if (skillDirs.length === 0) {
+      return { ok: false, sourceUrl, message: 'This Claude Code plugin bundles no skills. Multicode installs plugin skills only; its commands run inside Claude Code sessions.' }
+    }
+
+    const result: ClaudeCodePluginDownloadResult = {
+      ok: true,
+      sourceUrl,
+      stagedPath: stage,
+      skillDirs,
+      claudeName,
+      resolvedRef: github.ref,
+    }
+    stage = null // ownership transfers to the caller, which removes it
+    return result
+  } catch (error) {
+    return {
+      ok: false,
+      sourceUrl,
+      message: error instanceof DownloadHttpError ? error.message : formatError(error),
+      ...(error instanceof DownloadHttpError ? { statusCode: error.statusCode } : {}),
+    }
+  } finally {
+    if (stage) await rm(stage, { recursive: true, force: true }).catch(() => undefined)
+  }
+}
+
+function githubSubtreeContentsUrl(source: GithubTreeSource, subPath: string): string {
+  const fullPath = source.path === '' ? subPath : `${source.path}/${subPath}`
+  return githubContentsUrl({ ...source, path: fullPath })
+}
+
+async function readClaudePluginName(manifestPath: string): Promise<string | null> {
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(await readFile(manifestPath, 'utf8'))
+  } catch {
+    return null
+  }
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return null
+  const name = (parsed as Record<string, unknown>).name
+  return typeof name === 'string' && name.trim().length > 0 ? name.trim() : null
+}
+
+async function stagedSkillDirs(skillsRoot: string): Promise<string[]> {
+  let dirents
+  try {
+    dirents = await readdir(skillsRoot, { withFileTypes: true })
+  } catch {
+    return []
+  }
+  const dirs: string[] = []
+  for (const dirent of dirents) {
+    if (!dirent.isDirectory()) continue
+    try {
+      await readFile(join(skillsRoot, dirent.name, 'SKILL.md'), 'utf8')
+      dirs.push(dirent.name)
+    } catch {
+      // a folder without SKILL.md is not a skill
+    }
+  }
+  return dirs.sort()
+}
+
 async function downloadGenericPluginSource(
   source: URL,
   stage: string,
@@ -401,7 +638,7 @@ async function downloadGenericPluginSource(
   timeoutMs: number | undefined,
   limits: DownloadLimits
 ): Promise<void> {
-  const state: DownloadState = { files: 0, bytes: 0 }
+  const state: DownloadState = { files: 0, bytes: 0, dirRequests: 0 }
   const pluginUrl = source.pathname.endsWith('/plugin.json') ? source : new URL(`${ensureTrailingSlash(source.toString())}plugin.json`)
   await downloadFile(pluginUrl.toString(), join(stage, 'plugin.json'), fetcher, timeoutMs, limits, state)
   // Parse without requiring a signature so an unsigned (mcp/skills-only) bundle
@@ -499,15 +736,36 @@ function parseGithubTreeSource(url: URL): GithubTreeSource | null {
   }
 }
 
+// Claude Code plugin sources come in two shapes from the generated catalogue:
+// a pinned monorepo subtree (`/tree/<sha>/<path>`, same as bundle sources) or
+// a bare repo root (`https://github.com/<owner>/<repo>`), where the plugin is
+// unpinned and installs from the default branch (`ref=HEAD` on the contents
+// API).
+function parseClaudePluginGithubSource(url: URL): GithubTreeSource | null {
+  const tree = parseGithubTreeSource(url)
+  if (tree) return tree
+  if (url.hostname !== 'github.com') return null
+  const segments = url.pathname.replace(/\.git$/, '').split('/').filter(Boolean)
+  if (segments.length !== 2) return null
+  return { owner: segments[0], repo: segments[1], ref: 'HEAD', path: '' }
+}
+
 function githubContentsUrl(source: GithubTreeSource): string {
   return `https://api.github.com/repos/${source.owner}/${source.repo}/contents/${source.path}?ref=${encodeURIComponent(source.ref)}`
 }
 
 function relativeGithubPath(basePath: string, path: string | undefined): string {
-  if (!path?.startsWith(`${basePath}/`) && path !== basePath) {
-    throw new Error(`GitHub file path ${path ?? '(missing)'} is outside the plugin source path.`)
-  }
-  const relPath = path === basePath ? '' : path.slice(basePath.length + 1)
+  // A repo-root source (claude plugins) has basePath '' — every repo path is
+  // already bundle-relative; the safety check below still applies.
+  const relPath =
+    basePath === ''
+      ? path ?? ''
+      : (() => {
+          if (!path?.startsWith(`${basePath}/`) && path !== basePath) {
+            throw new Error(`GitHub file path ${path ?? '(missing)'} is outside the plugin source path.`)
+          }
+          return path === basePath ? '' : path.slice(basePath.length + 1)
+        })()
   if (!isSafeManifestRelativePath(relPath)) {
     throw new Error(`GitHub file path ${path} does not resolve to a safe bundle-relative path.`)
   }

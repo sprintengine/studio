@@ -2,10 +2,22 @@ import { basename, isAbsolute, join, resolve } from 'path'
 import { readdir, readFile } from 'fs/promises'
 
 import { ensureBacklogObjectRecords, readBacklogFrontmatterFields, readBacklogObjectStore } from '../../backlog-service'
-import { backlogTitleFromPath, extractBacklogTitle, stripBacklogFrontmatter } from '../../../shared/backlog/frontmatter'
+import {
+  backlogTitleFromPath,
+  extractBacklogTitle,
+  parseBacklogFrontmatter,
+  stripBacklogFrontmatter,
+} from '../../../shared/backlog/frontmatter'
+import {
+  deriveDefaultBacklogKey,
+  formatBacklogDisplayId,
+  isValidBacklogKey,
+  parseBacklogNumericId,
+} from '../../../shared/backlog/item-id'
 import type { BacklogFrontmatterFields } from '../../backlog-service'
 import type { BacklogObjectRecordPayload } from '../../../shared/electron-api'
 import type {
+  MobileControlBacklogEpicSnapshot,
   MobileControlBacklogItemSnapshot,
   MobileControlBacklogWorkspaceSnapshot,
 } from '../../../shared/mobile-control/protocol'
@@ -31,13 +43,84 @@ export async function readMobileBacklogWorkspaceSnapshot(
   if (!present) return null
   if (items.length === 0) return emptyBacklogWorkspaceSnapshot(root, generatedAt)
 
+  const epics = await buildBacklogEpics(root, items)
+
   return {
     workspaceId: `backlog:${root}`,
     workspacePath: root,
     workspaceName: basename(root) || root,
     updatedAt: latestTimestamp(items) ?? generatedAt,
     items: items.slice(0, maxBacklogItemsPerWorkspace),
+    ...(epics.length > 0 ? { epics } : {}),
   }
+}
+
+const EPICS_FOLDER = join('backlog', 'epics')
+
+// Read the workspace's backlog display key (`.multi-code/backlog/config.json`),
+// read-only — unlike the desktop resolver, this never persists a derived default,
+// because a snapshot read must not write to the workspace.
+async function readBacklogWorkspaceKey(root: string): Promise<string> {
+  try {
+    const raw = await readFile(join(root, '.multi-code', 'backlog', 'config.json'), 'utf-8')
+    const parsed = JSON.parse(raw) as { key?: unknown }
+    if (isValidBacklogKey(parsed.key)) return parsed.key
+  } catch {
+    // Missing/unreadable config: fall back to the same default the desktop derives.
+  }
+  return deriveDefaultBacklogKey(basename(root) || root)
+}
+
+// MC-1498 epic metadata: for each `backlog/epics/*.md` file, its display id
+// (`<KEY>-<id>`), title, and color from frontmatter, plus a done/total rollup over
+// the workspace's items that point at it. Lets the phone render desktop-parity
+// epic chips/color bands without denormalizing color onto every item.
+async function buildBacklogEpics(
+  root: string,
+  items: MobileControlBacklogItemSnapshot[],
+): Promise<MobileControlBacklogEpicSnapshot[]> {
+  let epicFiles: string[]
+  try {
+    epicFiles = (await readdir(join(root, EPICS_FOLDER))).filter((name) => /\.mdx?$/i.test(name))
+  } catch {
+    return []
+  }
+  if (epicFiles.length === 0) return []
+
+  const rollups = new Map<string, { done: number; total: number }>()
+  for (const item of items) {
+    if (!item.epic) continue
+    const rollup = rollups.get(item.epic) ?? { done: 0, total: 0 }
+    rollup.total += 1
+    if (item.status === 'completed') rollup.done += 1
+    rollups.set(item.epic, rollup)
+  }
+
+  const epics: MobileControlBacklogEpicSnapshot[] = []
+  const key = await readBacklogWorkspaceKey(root)
+  for (const file of epicFiles.sort()) {
+    const slug = file.replace(/\.mdx?$/i, '')
+    let raw: string | null = null
+    try {
+      raw = await readFile(join(root, EPICS_FOLDER, file), 'utf-8')
+    } catch {
+      raw = null
+    }
+    const fields = raw ? parseBacklogFrontmatter(raw).fields : {}
+    const numericId = parseBacklogNumericId(fields.id)
+    const color = typeof fields.color === 'string' && fields.color.trim() ? fields.color.trim() : undefined
+    const title = raw ? extractBacklogTitle(stripBacklogFrontmatter(raw), file) : slug
+    const rollup = rollups.get(slug) ?? { done: 0, total: 0 }
+    epics.push({
+      slug,
+      ...(numericId !== undefined ? { displayId: formatBacklogDisplayId({ key, numericId }) } : {}),
+      ...(title ? { title } : {}),
+      ...(color ? { color } : {}),
+      doneCount: rollup.done,
+      totalCount: rollup.total,
+    })
+  }
+  return epics
 }
 
 // childrenOfEpic for non-panel consumers (Sprint Engine / mobile): the derived

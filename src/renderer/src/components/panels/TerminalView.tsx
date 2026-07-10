@@ -973,6 +973,7 @@ export default function TerminalView({ workspaceId, agentId, sessionId: attached
           // worktree .mcp.json and installs the skill — never the global
           // appSettings.mcp. Ordinary agents fall through to the workspace's MCP.
           mcpSettings: finalAgent.connectorMcpSettings ?? finalContext.mcpSettings,
+          connectorLaunch: finalAgent.connectorMcpSettings != null,
           connectorSkillId: finalAgent.connectorSkillId,
           spawnSkillId: finalAgent.spawnSkillId,
           visible: true,
@@ -1041,6 +1042,7 @@ export default function TerminalView({ workspaceId, agentId, sessionId: attached
           // worktree .mcp.json and installs the skill — never the global
           // appSettings.mcp. Ordinary agents fall through to the workspace's MCP.
           mcpSettings: finalAgent.connectorMcpSettings ?? finalContext.mcpSettings,
+          connectorLaunch: finalAgent.connectorMcpSettings != null,
           connectorSkillId: finalAgent.connectorSkillId,
           spawnSkillId: finalAgent.spawnSkillId,
           visible: true,

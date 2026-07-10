@@ -89,6 +89,19 @@ Recorded at the time of the 2026-06 dedup pass (see
 | `no-fake-success` | reviewer rubrics in `code_reviewer`, `production_readiness_reviewer`, `spec_reviewer`, `security`, `performance`, `creative`, `architect`, `presentation` | **Kept** — deliberate producer/reviewer duality; rubrics cite the canonical vocabulary |
 | `kg-opt-in-gate` | "Respect the user's choice when it is unset" (`workspace_knowledge`) | **Deleted** — restated the directive above it |
 
+Recorded at the 2026-07-09 token-diet pass (backlog item 1566) — the
+`.agents/skills/sprintengine/prompts/*.md` role coordination prompts were
+rewritten for the single-owner protocol; their shared mechanics moved to one
+canonical layer each:
+
+| Rule | Old occurrences | New canonical home |
+|---|---|---|
+| scope-expansion logging (`scopeExpansionJson`) | 4 role prompts | `sprintengine_workflow` "Owned Paths" |
+| self-feedback percentages (`hallucinationRiskPct` inversion) | 9 role prompts ("Completion Feedback") | `sprintengine_workflow` "Write For Agent Readers" |
+| MCP-server-unreachable stop rule | 9 role prompts | `sprintengine_workflow` intro |
+| review-artifact verdict-first ~120-line format | 6 role prompts | `sprintengine_sweep_workflow` "Review artifacts" (+ kept in `cross_platform.md`, a non-sweep review role) |
+| `next_directive` polling Work Sequences, artifact-gate blocking, `spec_reviewer`/`code_reviewer`/`nuclear_reviewer` references | all role prompts | **Deleted** — pre-MC-1542 protocol; claim-first is pinned by `test_role_coordination_prompts_are_claim_first_and_name_real_tools` |
+
 ## Role identity anchors
 
 Each role skill carries one identity anchor so the contract tests catch a

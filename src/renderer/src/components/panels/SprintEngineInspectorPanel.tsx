@@ -57,6 +57,8 @@ import {
   type SprintEngineTaskImplementerEntry,
 } from '../../utils/sprintengine'
 import { formatRelativeTime } from '../../utils/switchboardBoard'
+import { formatTokenCount } from '../../utils/sprintengineTokenUsage'
+import type { SprintEngineTaskTokenUsage } from '../../../../shared/sprintengine-token-usage'
 import {
   CloseIconButton,
   DefinitionList,
@@ -2364,6 +2366,7 @@ export function SprintEngineInspectorPanel({
   selectedTaskBoardColumn,
   selectedTaskOwnerLabel,
   selectedTaskNeedsInputNote,
+  selectedTaskTokenUsage,
   selectedTaskArtifacts,
   selectedTaskArtifactBlockers,
   artifactActions,
@@ -2393,6 +2396,9 @@ export function SprintEngineInspectorPanel({
   selectedTaskBoardColumn: SprintEngineTaskBoardColumn | null
   selectedTaskOwnerLabel: string
   selectedTaskNeedsInputNote: string | null
+  /** Owner-session token usage for the selected task (single-owner engine),
+   * from the run's token ledger. Absent/unmeasured renders no figure. */
+  selectedTaskTokenUsage?: SprintEngineTaskTokenUsage | null
   selectedTaskArtifacts: SprintEngineArtifact[]
   selectedTaskArtifactBlockers: ReturnType<typeof getSprintEngineArtifactDependencyBlockers>
   artifactActions: Record<string, ArtifactActionState>
@@ -2612,6 +2618,7 @@ export function SprintEngineInspectorPanel({
         selectedTask={selectedTask}
         selectedTaskOwnerLabel={selectedTaskOwnerLabel}
         selectedTaskNeedsInputNote={selectedTaskNeedsInputNote}
+        selectedTaskTokenUsage={selectedTaskTokenUsage}
         selectedTaskArtifacts={selectedTaskArtifacts}
         selectedTaskArtifactBlockers={selectedTaskArtifactBlockers}
         artifactActions={artifactActions}
@@ -2635,6 +2642,7 @@ function SprintEngineTaskBody({
   selectedTask,
   selectedTaskOwnerLabel,
   selectedTaskNeedsInputNote,
+  selectedTaskTokenUsage,
   selectedTaskArtifacts,
   selectedTaskArtifactBlockers,
   artifactActions,
@@ -2653,6 +2661,7 @@ function SprintEngineTaskBody({
   selectedTask: SprintEngineTask
   selectedTaskOwnerLabel: string
   selectedTaskNeedsInputNote: string | null
+  selectedTaskTokenUsage?: SprintEngineTaskTokenUsage | null
   selectedTaskArtifacts: SprintEngineArtifact[]
   selectedTaskArtifactBlockers: ReturnType<typeof getSprintEngineArtifactDependencyBlockers>
   artifactActions: Record<string, ArtifactActionState>
@@ -2826,6 +2835,20 @@ function SprintEngineTaskBody({
           items={[
             { term: 'Source', description: formatTaskSourceLabel(selectedTask) },
             { term: 'Owner', description: selectedTaskOwnerLabel },
+            // Owner-session token usage (single-owner engine: one agent takes
+            // the task start → finish, so its session total IS the task's
+            // cost). Shown only when a real figure exists — an unmeasured CLI
+            // or a pre-ledger run renders no row, never a fabricated zero.
+            ...(selectedTaskTokenUsage?.measured
+              ? [
+                  {
+                    term: 'Tokens',
+                    description: `${formatTokenCount(selectedTaskTokenUsage.total.total)} (owner session total)`,
+                  },
+                ]
+              : selectedTaskTokenUsage?.ownerOwnsMultipleTasks
+                ? [{ term: 'Tokens', description: 'Not attributable — owner worked multiple tasks' }]
+                : []),
             {
               term: 'Depends on',
               description: selectedTask.dependsOn.length > 0 ? selectedTask.dependsOn.join(', ') : 'None',

@@ -18,6 +18,8 @@ const SIDE_EFFECTING_COMMANDS = new Set<MobileControlCommandType>([
   'backlog.update',
   'backlog.startSprintEngine',
   'backlog.create',
+  'sprintengine.openPullRequest',
+  'sprintengine.setAutomationMode',
 ])
 
 const CAPABILITY_BY_COMMAND: Record<MobileControlCommandType, MobileControlCapability> = {
@@ -32,6 +34,8 @@ const CAPABILITY_BY_COMMAND: Record<MobileControlCommandType, MobileControlCapab
   'backlog.update': 'backlog.update',
   'backlog.startSprintEngine': 'backlog.start',
   'backlog.create': 'backlog.create',
+  'sprintengine.openPullRequest': 'sprintengines.pr',
+  'sprintengine.setAutomationMode': 'sprintengines.automation',
 }
 
 export type MobileBridgeRelayAuthorizationError = {

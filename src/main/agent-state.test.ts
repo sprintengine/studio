@@ -11,8 +11,10 @@ import {
   buildAgentStateReporterCommand,
   deriveActivityFromPhase,
   evaluateAgentStall,
+  GROK_HOOKS_CONFIG_REL,
   installAgentStateHook,
   installCodexAgentStateHook,
+  installGrokAgentStateHook,
   installOpencodeAgentStateHook,
   isAtRestAgentPhase,
   isAuthoritativeWorkingPhase,
@@ -24,10 +26,12 @@ import {
   opencodeSessionIdFromEvent,
   parseAgentStateFrame,
   renderCodexAgentStateHooksBlock,
+  renderGrokAgentStateHooksConfig,
   renderOpencodeAgentStatePlugin,
   selectAgentStateTarget,
   uninstallAgentStateHook,
   uninstallCodexAgentStateHook,
+  uninstallGrokAgentStateHook,
   uninstallOpencodeAgentStateHook,
 } from './agent-state'
 
@@ -448,6 +452,66 @@ async function run(): Promise<void> {
     socketPath: ocSocket,
   })
   assert.equal(ocMissing.ok, false)
+
+  // --- Grok Build: whole-file JSON hook config ----------------------------
+  // Grok registers the same event set as Claude (shared reporter, camelCase
+  // payload read by the same script), rendered as a standalone config file it
+  // discovers from .grok/hooks/*.json — so the render is a full JSON document,
+  // not a merge.
+  const grokCommand = 'node "/abs/agent-state.mjs" --socket "/abs/agent-state.sock"'
+  const grokConfig = JSON.parse(renderGrokAgentStateHooksConfig(grokCommand)) as Settings
+  assert.equal(Object.keys(grokConfig.hooks ?? {}).length, AGENT_STATE_HOOK_EVENTS.length)
+  for (const { event, matcher } of AGENT_STATE_HOOK_EVENTS) {
+    const blocks = grokConfig.hooks?.[event]
+    assert.equal(blocks?.length, 1, `grok config missing event ${event}`)
+    assert.equal(blocks?.[0]?.matcher, matcher, `grok ${event} matcher`)
+    assert.deepEqual(blocks?.[0]?.hooks, [{ type: 'command', command: grokCommand }])
+  }
+  assert.equal(grokConfig.hooks?.PreToolUse, undefined, 'PreToolUse must not be registered for grok')
+  assert.ok(grokConfig.hooks?.Notification, 'Notification must be registered for grok')
+
+  // --- Grok Build: install round-trip on disk -----------------------------
+  // Writes .grok/hooks/multicode-agent-state.json, copies the shared reporter,
+  // references it by absolute path, and uninstall removes only our config file
+  // (the reporter script is shared with the Claude/Codex installs).
+  const grokRoot = await mkdtemp(join(tmpdir(), 'multicode-agent-state-grok-'))
+  const grokReporter = join(grokRoot, 'reporter-src.mjs')
+  await writeFile(grokReporter, '// reporter\n', 'utf8')
+  const grokSocket = join(grokRoot, 'agent-state.sock')
+
+  const grokInstalled = await installGrokAgentStateHook(grokRoot, {
+    sourceScriptPath: grokReporter,
+    socketPath: grokSocket,
+  })
+  assert.equal(grokInstalled.ok, true)
+  const grokConfigPath = join(grokRoot, GROK_HOOKS_CONFIG_REL)
+  const grokOnDisk = JSON.parse(await readFile(grokConfigPath, 'utf8')) as Settings
+  const grokEntry = grokOnDisk.hooks?.SessionStart?.[0]?.hooks?.[0]
+  const grokScript = join(grokRoot, '.multicode', 'hooks', 'agent-state.mjs')
+  assert.ok(existsSync(grokScript), 'grok install must copy the shared reporter')
+  assert.ok(grokEntry?.command.includes(`node "${grokScript.split('\\').join('/')}"`), grokEntry?.command)
+  assert.ok(!grokEntry?.command.includes('node ".multicode'), 'must not embed a relative script path')
+
+  // Re-install is idempotent (whole-file overwrite, no accumulation).
+  const grokReinstall = await installGrokAgentStateHook(grokRoot, {
+    sourceScriptPath: grokReporter,
+    socketPath: grokSocket,
+  })
+  assert.equal(grokReinstall.ok, true)
+  const grokTwice = JSON.parse(await readFile(grokConfigPath, 'utf8')) as Settings
+  assert.equal(grokTwice.hooks?.SessionStart?.length, 1, 'grok config duplicated on re-install')
+
+  const grokRemoved = await uninstallGrokAgentStateHook(grokRoot)
+  assert.equal(grokRemoved.ok, true)
+  assert.equal(existsSync(grokConfigPath), false, 'uninstall left the grok hook config')
+  assert.ok(existsSync(grokScript), 'grok uninstall must leave the shared reporter script')
+
+  // Missing source script is a safe, reported failure (never throws).
+  const grokMissing = await installGrokAgentStateHook(grokRoot, {
+    sourceScriptPath: join(grokRoot, 'nope.mjs'),
+    socketPath: grokSocket,
+  })
+  assert.equal(grokMissing.ok, false)
 
   console.log('agent-state.test.ts: all assertions passed')
 }

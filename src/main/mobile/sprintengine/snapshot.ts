@@ -28,6 +28,9 @@ import type {
   MobileControlCommandType,
   MobileControlSnapshot,
   MobileControlSprintEngineSnapshot as MobileSprintEngineSnapshot,
+  MobileControlAutomationMode,
+  MobileControlSprintEngineVcsState,
+  MobileControlSprintEngineStartedFrom,
   MobileControlTaskSnapshot as MobileSprintEngineTaskSnapshot,
   MobileControlArtifactSnapshot as MobileSprintEngineArtifactSnapshot,
   MobileControlWorkspaceSnapshot as MobileWorkspaceSnapshot,
@@ -78,6 +81,8 @@ const mobileSnapshotCommandTypes = [
   'backlog.update',
   'backlog.startSprintEngine',
   'backlog.create',
+  'sprintengine.openPullRequest',
+  'sprintengine.setAutomationMode',
 ] as const satisfies readonly MobileControlCommandType[]
 
 export const defaultMobileSnapshotCommands: readonly MobileControlCommandType[] = mobileSnapshotCommandTypes
@@ -417,11 +422,16 @@ async function readSprintEngineProjectionSnapshot(
   const counts = recordObject(projection.counts)
   const snapshotVersion = buildSnapshotVersion({
     updatedAt,
-    source: projection.source,
+    source: run.source ?? projection.source,
+    vcs: run.vcs,
     tasks: taskSnapshots,
     artifacts,
     locks,
   })
+
+  const startedFrom = buildStartedFrom(run.source ?? projection.source)
+  const vcs = buildVcsState(run.vcs)
+  const automationMode = buildAutomationMode(run.automation ?? projection.automation, run.runner)
 
   return {
     sprintEngineId,
@@ -436,9 +446,114 @@ async function readSprintEngineProjectionSnapshot(
     artifacts,
     ...(normalizeRoster(projection.roster) ? { roster: normalizeRoster(projection.roster) } : {}),
     ...(recordSummary(projection.runSummary) ? { runSummary: recordSummary(projection.runSummary) } : {}),
+    ...(automationMode ? { automationMode } : {}),
+    ...(startedFrom ? { startedFrom } : {}),
+    ...(vcs ? { vcs } : {}),
     ...(locks ? { locks: { warnings: Array.isArray(locks.warnings) ? locks.warnings : [], locks: Array.isArray(locks.locks) ? locks.locks : [] } } : {}),
     ...(activity.length > 0 ? { activity: { count: activity.length, latest: activity.at(-1) } } : {}),
     ...(counts ? { counts: { ready: numberOrUndefined(counts.ready), needsInput: numberOrUndefined(counts.needsInput) } } : {}),
+  }
+}
+
+// --- MC-1498 provenance + vcs builders (projection run.source / run.vcs) -------
+
+const BACKLOG_PATH = /^backlog[\\/]/i
+const BACKLOG_EPICS_PATH = /^backlog[\\/]epics[\\/]/i
+
+const STARTED_FROM_KIND_LABELS: Record<string, string> = {
+  epic: 'Epic',
+  product_plan: 'Product plan',
+  markdown: 'Markdown',
+  html: 'HTML',
+  text: 'Text',
+  backlog_item: 'Backlog item',
+}
+
+/**
+ * The run's launch provenance from `run.source` (the projected launch seed). The
+ * desktop Inbox additionally nests `sourceBundle` supporting files, but the mobile
+ * projection carries only the primary seed today — so this ships the primary row,
+ * which is what the phone's provenance chip needs. Additive: absent when the run
+ * records no source.
+ */
+function buildStartedFrom(sourceValue: unknown): MobileControlSprintEngineStartedFrom | undefined {
+  const source = recordObject(sourceValue)
+  const path = source ? stringOrNull(source.path) : null
+  if (!source || !path) {
+    return undefined
+  }
+
+  const isEpic = BACKLOG_EPICS_PATH.test(path)
+  const isBacklog = BACKLOG_PATH.test(path)
+  const fileName = path.split(/[\\/]/).filter(Boolean).at(-1) ?? path
+  const kind = stringOrNull(source.kind)
+  const kindLabel = (kind && STARTED_FROM_KIND_LABELS[kind]) ?? (isEpic ? 'Epic' : isBacklog ? 'Backlog item' : 'Seed document')
+  const capturedAt = isoStringOrNull(source.capturedAt)
+
+  return {
+    epic: isEpic,
+    subtitle: isEpic ? 'epic' : isBacklog ? 'backlog item' : 'seed document',
+    rows: [
+      {
+        path,
+        fileName,
+        kindLabel,
+        role: 'primary',
+        isPrimary: true,
+        ...(capturedAt ? { capturedAt } : {}),
+        ...(isBacklog ? { backlogPath: path } : {}),
+      },
+    ],
+  }
+}
+
+const automationModes = new Set<MobileControlAutomationMode>(['manual', 'run_agents', 'run_agents_and_approve_artifacts'])
+
+/**
+ * The run's automation mode (MC-1497). Prefers an explicit `desiredMode` if the
+ * projection carries the authoritative renderer state; otherwise derives a
+ * best-effort value from the runner's `cliWatchPolling` (disabled → manual,
+ * enabled → run_agents). The `run_agents_and_approve_artifacts` variant cannot be
+ * distinguished from `cliWatchPolling` alone — that distinction requires the
+ * renderer store (gap noted on the implementation log). Absent when nothing is
+ * known.
+ */
+function buildAutomationMode(automationValue: unknown, runnerValue: unknown): MobileControlAutomationMode | undefined {
+  const automation = recordObject(automationValue)
+  const desired = automation ? stringOrNull(automation.desiredMode) ?? stringOrNull(automation.mode) : null
+  if (desired && automationModes.has(desired as MobileControlAutomationMode)) {
+    return desired as MobileControlAutomationMode
+  }
+
+  const runner = recordObject(runnerValue)
+  const cliWatchPolling = runner ? stringOrNull(runner.cliWatchPolling) : null
+  if (cliWatchPolling === 'disabled') return 'manual'
+  if (cliWatchPolling === 'enabled') return 'run_agents'
+  return undefined
+}
+
+/**
+ * Worktree / PR state from the projected `run.vcs` block (mirrors
+ * `SprintEngineVcs`). Absent for non-worktree runs (`run.vcs` null). Read
+ * defensively so a shape change never breaks the snapshot.
+ */
+function buildVcsState(vcsValue: unknown): MobileControlSprintEngineVcsState | undefined {
+  const vcs = recordObject(vcsValue)
+  if (!vcs) {
+    return undefined
+  }
+
+  const branch = stringOrNull(vcs.branchName) ?? stringOrNull(vcs.branch)
+  const pullRequestUrl = stringOrNull(vcs.pullRequestUrl)
+  const pullRequestStatus = stringOrNull(vcs.pullRequestState) ?? stringOrNull(vcs.status)
+  const pullRequestError = stringOrNull(vcs.pullRequestError)
+
+  return {
+    worktree: vcs.mode === 'run_worktree' || Boolean(stringOrNull(vcs.worktreePath)),
+    ...(branch ? { branch } : {}),
+    ...(pullRequestUrl ? { pullRequestUrl } : {}),
+    ...(pullRequestStatus ? { pullRequestStatus } : {}),
+    ...(pullRequestError ? { pullRequestError } : {}),
   }
 }
 

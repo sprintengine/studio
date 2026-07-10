@@ -34,6 +34,10 @@ export type SprintEngineMcpRunRegistrationInput = {
   // registration stays run-scoped (operator surface).
   agentId?: string
   role?: string
+  // The workspace's configured Knowledge Graph root ('' when unset). Sent so
+  // the server can gate the workspace_knowledge prompt layer at compose time
+  // instead of paying its tokens on every join.
+  knowledgeRoot?: string
 }
 
 export type SprintEngineMcpRunRegistration = {
@@ -131,6 +135,7 @@ export function createSprintEngineMcpHubService(options: SprintEngineMcpHubOptio
         workspaceId: input.workspaceId,
         agentId: input.agentId,
         role: input.role,
+        knowledgeRoot: input.knowledgeRoot ?? '',
       })
     } catch (error) {
       lastError = error instanceof Error ? error.message : String(error)

@@ -2,22 +2,27 @@ import assert from 'node:assert/strict'
 
 import type { McpCatalogServer } from '../../../../../shared/electron-api'
 import type { MarketplacePluginEntry } from '../../../../../shared/marketplace/manifest'
+import type { McpServerConfig } from '../../../../../shared/electron-api'
 import {
   buildConnectorEntries,
+  connectorCanLaunch,
   connectorFacet,
   deriveConnectorsView,
   facetCounts,
   filterByFacet,
+  installedServerAsCatalogEntry,
+  launchableConnectors,
   searchConnectors,
   sectionConnectors,
   type SourceLoad,
 } from './connectorsFacets'
 
 // The Connectors surface must merge two real sources into one faceted grid, mark
-// only skill-linked catalog entries as launchable, and never collapse a failed
-// source into a silent empty grid: a single-source failure degrades to a notice,
-// a total failure is an explicit error, and "empty" means both sources truly list
-// nothing (distinct from a search that matched nothing).
+// catalog entries launchable when they carry a driving skill OR are installed in
+// MCP settings, and never collapse a failed source into a silent empty grid: a
+// single-source failure degrades to a notice, a total failure is an explicit
+// error, and "empty" means both sources truly list nothing (distinct from a
+// search that matched nothing).
 
 function server(overrides: Partial<McpCatalogServer> = {}): McpCatalogServer {
   return {
@@ -79,12 +84,13 @@ assert.equal(connectorFacet(''), 'Other')
   )
   assert.equal(entries.length, 3)
   const railway = entries.find((e) => e.id === 'railway')!
-  // Only the skill-linked catalog entry is launchable.
+  // Skill-linked catalog entries are launchable even when not installed.
   assert.equal(railway.canLaunch, true)
   assert.deepEqual(railway.componentLabels, ['MCP server', 'Skill pack'])
   assert.equal(railway.key, 'catalog:railway')
   const github = entries.find((e) => e.id === 'github')!
-  assert.equal(github.canLaunch, false)
+  // An installed skill-less entry is launchable too (plain connector chat).
+  assert.equal(github.canLaunch, true)
   assert.deepEqual(github.componentLabels, ['MCP server'])
   // Installed reflects the active workspace's MCP settings for catalog entries.
   assert.equal(github.installed, true)
@@ -92,6 +98,16 @@ assert.equal(connectorFacet(''), 'Other')
   const stripe = entries.find((e) => e.source === 'registry')!
   assert.equal(stripe.canLaunch, false)
   assert.equal(stripe.facet, 'Payments')
+}
+
+// Neither skill-linked nor installed → not launchable.
+{
+  const entries = buildConnectorEntries(
+    [server({ id: 'vercel', name: 'Vercel', skill: undefined })],
+    [],
+    new Set(),
+  )
+  assert.equal(entries[0].canLaunch, false)
 }
 
 // Registry plugins that provide neither mcp nor skills are not connectors and are
@@ -105,7 +121,7 @@ assert.equal(connectorFacet(''), 'Other')
   assert.equal(entries.length, 0)
 }
 
-// --- with the skill link Railway is the sole launchable entry --------------
+// --- with nothing installed, the skill link is the only launch route --------
 
 {
   const railwaySkilled = server({ skill: 'use-railway' })
@@ -116,6 +132,79 @@ assert.equal(connectorFacet(''), 'Other')
   const entries = buildConnectorEntries([railwaySkilled, ...others], [], new Set())
   const launchable = entries.filter((e) => e.canLaunch)
   assert.deepEqual(launchable.map((e) => e.id), ['railway'])
+  // Installing one of the skill-less entries promotes it (and Featured follows).
+  const withInstall = buildConnectorEntries([railwaySkilled, ...others], [], new Set(['vercel']))
+  assert.deepEqual(
+    filterByFacet(withInstall, 'Featured').map((e) => e.id),
+    ['railway', 'vercel'],
+  )
+}
+
+// --- installed settings servers present catalog-shaped for the launch rail --
+
+{
+  const installed: McpServerConfig = {
+    id: 'my-custom',
+    name: 'My custom MCP',
+    description: 'A hand-added server',
+    transport: 'stdio',
+    command: 'custom-mcp',
+    enabled: true,
+    clients: [],
+    scope: 'workspace',
+    source: 'custom',
+    riskLevel: 'network',
+  } as McpServerConfig
+  const entry = installedServerAsCatalogEntry(installed)
+  assert.equal(entry.id, 'my-custom')
+  assert.equal(entry.name, 'My custom MCP')
+  assert.equal(entry.transport, 'stdio')
+  // Settings-owned fields are dropped from the catalog shape.
+  assert.ok(!('enabled' in entry))
+  assert.ok(!('scope' in entry))
+  assert.ok(!('source' in entry))
+}
+
+// --- the one launchable rule + the merged launch population -----------------
+
+assert.equal(connectorCanLaunch('use-railway', false), true)
+assert.equal(connectorCanLaunch(undefined, true), true)
+assert.equal(connectorCanLaunch(undefined, false), false)
+
+{
+  const config = (overrides: Partial<McpServerConfig>): McpServerConfig =>
+    ({
+      id: 'x',
+      name: 'X',
+      transport: 'http',
+      enabled: true,
+      clients: [],
+      scope: 'workspace',
+      source: 'custom',
+      riskLevel: 'network',
+      ...overrides,
+    }) as McpServerConfig
+  const catalog = [
+    server({ skill: 'use-railway' }),
+    server({ id: 'github', name: 'GitHub', category: 'Code Hosting', skill: undefined }),
+  ]
+  const installed: Record<string, McpServerConfig> = {
+    github: config({ id: 'github', name: 'GitHub' }),
+    linear: config({ id: 'linear', name: 'Linear', enabled: false }),
+    'my-custom': config({ id: 'my-custom', name: 'My custom MCP' }),
+  }
+  const ready = launchableConnectors(catalog, installed)
+  // Skill-paired catalog entries lead; installed entries follow deduped by id;
+  // a disabled installed server never surfaces.
+  assert.deepEqual(ready.map((entry) => entry.id), ['railway', 'github', 'my-custom'])
+  // The catalog row (icon/summary/category) is preferred for installed ids the
+  // catalog knows; custom servers are presented catalog-shaped.
+  assert.equal(ready.find((entry) => entry.id === 'github')!.category, 'Code Hosting')
+  assert.equal(ready.find((entry) => entry.id === 'my-custom')!.name, 'My custom MCP')
+  // A failed catalog load (empty catalog) still surfaces the installed servers.
+  assert.deepEqual(launchableConnectors([], installed).map((entry) => entry.id), ['github', 'my-custom'])
+  // No installed servers → just the skill-paired catalog entries.
+  assert.deepEqual(launchableConnectors(catalog, undefined).map((entry) => entry.id), ['railway'])
 }
 
 // --- search across both sources -------------------------------------------

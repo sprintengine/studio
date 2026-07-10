@@ -6,6 +6,8 @@ import {
   type MobileSprintEngineFollowUpRequest,
   type MobileSprintEngineFollowUpResult,
   type MobileSprintEngineSessionOrchestrator,
+  type MobileSprintEngineSetAutomationModeRequest,
+  type MobileSprintEngineSetAutomationModeResult,
   type MobileSprintEngineTaskStartRequest,
   type MobileSprintEngineTaskStartResult,
 } from './command'
@@ -36,10 +38,24 @@ type SpawnMobileAgentTerminalResult =
   | { ok: true; sessionId: string }
   | { ok: false; message: string }
 
+export type SetSprintEngineAutomationModeInput = {
+  sprintEngineId: string
+  statePath: string
+  workspaceRoot: string
+  mode: MobileSprintEngineSetAutomationModeRequest['mode']
+}
+
+export type SetSprintEngineAutomationModeResult =
+  | { ok: true }
+  | { ok: false; retryable: boolean; message: string }
+
 export type DesktopMobileSprintEngineSessionAdapters = {
   listTerminals(): Promise<TerminalSessionSnapshot[]>
   spawnAgentTerminal(input: SpawnMobileAgentTerminalInput): Promise<SpawnMobileAgentTerminalResult>
   writeTerminal(sessionId: string, data: string): Promise<void> | void
+  // MC-1497: apply a mode change to the renderer-owned automation store. Optional
+  // so a desktop build without the renderer wire falls back to a clean rejection.
+  setSprintEngineAutomationMode?(input: SetSprintEngineAutomationModeInput): Promise<SetSprintEngineAutomationModeResult>
 }
 
 type DesktopMobileSprintEngineSessionOptions = {
@@ -175,6 +191,33 @@ export class DesktopMobileSprintEngineSessionOrchestrator implements MobileSprin
       agentId: request.agentId,
       acceptedAt: this.now().toISOString(),
     }
+  }
+
+  async setAutomationMode(
+    request: MobileSprintEngineSetAutomationModeRequest,
+  ): Promise<MobileSprintEngineSetAutomationModeResult> {
+    const apply = this.options.adapters.setSprintEngineAutomationMode
+    if (!apply) {
+      // No renderer wire (headless): the authoritative mode lives in the desktop
+      // store, so refuse rather than write a value the supervisor won't read.
+      throw new MobileSprintEngineCommandError(
+        'command_not_supported',
+        'Setting the automation mode requires the desktop app to be open.',
+        false,
+      )
+    }
+
+    const result = await apply({
+      sprintEngineId: request.sprintEngineId,
+      statePath: request.statePath,
+      workspaceRoot: request.workspaceRoot,
+      mode: request.mode,
+    })
+    if (!result.ok) {
+      throw new MobileSprintEngineCommandError('internal_error', result.message, result.retryable)
+    }
+
+    return { mode: request.mode, appliedAt: this.now().toISOString() }
   }
 }
 

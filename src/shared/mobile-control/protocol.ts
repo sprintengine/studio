@@ -15,7 +15,9 @@ export type MobileControlCommandType =
   | "device.revoke"
   | "backlog.update"
   | "backlog.startSprintEngine"
-  | "backlog.create";
+  | "backlog.create"
+  | "sprintengine.openPullRequest"
+  | "sprintengine.setAutomationMode";
 
 export type MobileControlEventType =
   | "snapshot.updated"
@@ -35,7 +37,9 @@ export type MobileControlCapability =
   | "devices.revoke"
   | "backlog.update"
   | "backlog.start"
-  | "backlog.create";
+  | "backlog.create"
+  | "sprintengines.pr"
+  | "sprintengines.automation";
 
 export type MobileControlErrorCode =
   | "unsupported_protocol_version"
@@ -145,12 +149,30 @@ export type ArtifactReadCommand = MobileControlCommandBase<
   }
 >;
 
+/**
+ * Sprint configuration a phone may attach to either create command. Scope is
+ * exactly what the desktop's CLI bootstrap path (`handover`) genuinely honors:
+ * the team name and an explicit roster. Presence of `roleCounts` means the
+ * user composed the roster; absence means the architect picks the team
+ * (`rosterConfigured: false` engine-side). Automation mode, permission
+ * presets, max-parallel, worktrees, and workflow phases are desktop-app runner
+ * state the main-process command path cannot reach — they stay on the
+ * mobile-control-parity epic (MC-1497 et al.) and must not be added here
+ * until a desktop honor path exists.
+ */
+export interface SprintEngineCreateConfig {
+  /** Engine-slugified; creating an existing team is rejected with a clear error. */
+  teamName?: string;
+  /** Role id → seat count (1–10). Role ids are validated by the engine's registry. */
+  roleCounts?: Record<string, number>;
+}
+
 export type SprintEngineCreateCommand = MobileControlCommandBase<
   "sprintengine.create",
   {
     workspacePath: string;
     productPrompt: string;
-    requestedRole?: string;
+    config?: SprintEngineCreateConfig;
   }
 >;
 
@@ -160,6 +182,12 @@ export type TaskStartCommand = MobileControlCommandBase<
     sprintEngineId: string;
     taskId: string;
     role: string;
+    /**
+     * Deprecated and ignored: the desktop session orchestrator spawns every
+     * mobile-started task in the current workspace and has no worktree
+     * plumbing on this path. Clients send "preferred" for wire compatibility;
+     * no UI offers the choice. Revisit when the desktop honors it.
+     */
     worktreeIsolation: "required" | "preferred" | "disabled";
   }
 >;
@@ -216,6 +244,7 @@ export type BacklogStartSprintEngineCommand = MobileControlCommandBase<
   {
     workspacePath: string;
     relativePath: string;
+    config?: SprintEngineCreateConfig;
   }
 >;
 
@@ -231,6 +260,25 @@ export type BacklogCreateCommand = MobileControlCommandBase<
   }
 >;
 
+// Open (or return the existing) pull request for a completed worktree run
+// (MC-1496). Idempotent: a second call returns the same URL without a second PR.
+export type SprintEngineOpenPullRequestCommand = MobileControlCommandBase<
+  "sprintengine.openPullRequest",
+  {
+    sprintEngineId: string;
+  }
+>;
+
+// Set the run's three-state automation mode (MC-1497). The mode is the authority
+// the desktop supervisor reads; the executor routes to the desktop session.
+export type SprintEngineSetAutomationModeCommand = MobileControlCommandBase<
+  "sprintengine.setAutomationMode",
+  {
+    sprintEngineId: string;
+    mode: MobileControlAutomationMode;
+  }
+>;
+
 export type MobileControlCommand =
   | SnapshotRequestCommand
   | ArtifactReadCommand
@@ -242,7 +290,9 @@ export type MobileControlCommand =
   | DeviceRevokeCommand
   | BacklogUpdateCommand
   | BacklogStartSprintEngineCommand
-  | BacklogCreateCommand;
+  | BacklogCreateCommand
+  | SprintEngineOpenPullRequestCommand
+  | SprintEngineSetAutomationModeCommand;
 
 export type MobileControlNeedsInputKind = "architect" | "user" | "owner" | "external_validation";
 
@@ -373,6 +423,55 @@ export interface MobileControlSprintEngineCounts {
   needsInput?: number;
 }
 
+// The three-state Sprint Engine automation mode, mirroring the renderer's
+// `SprintEngineAutomationMode` (renderer/src/types/workspace.ts). Carried on the
+// snapshot so the phone control renders the truth; set by
+// `sprintengine.setAutomationMode` (MC-1497).
+export type MobileControlAutomationMode = "manual" | "run_agents" | "run_agents_and_approve_artifacts";
+
+// Worktree / pull-request state for a run, mirroring the desktop `SprintEngineVcs`
+// (renderer/src/types/workspace.ts). Present only for worktree runs; the phone
+// uses it to decide "Open pull request" vs "View pull request" (MC-1496/MC-1498).
+export interface MobileControlSprintEngineVcsState {
+  /** True when the run executes on its own git worktree/branch. */
+  worktree: boolean;
+  /** The run branch, when a worktree has been initialized. */
+  branch?: string;
+  pullRequestUrl?: string;
+  /** Merge/lifecycle state of the PR: open · merged · closed (from `pullRequestState`/`status`). */
+  pullRequestStatus?: string;
+  /** Reason the last PR-open attempt failed, surfaced with a Retry affordance. */
+  pullRequestError?: string;
+}
+
+// One "Started from" provenance row — a real on-disk seed document the run was
+// launched from. Mirrors the desktop `SprintEngineSeedRow`
+// (renderer .../sprintEngineStartedFrom.ts), trimmed to what the phone renders.
+export interface MobileControlSprintEngineStartedFromRow {
+  /** Project-relative on-disk path (read/previewed via `artifact.read`). */
+  path: string;
+  fileName: string;
+  kindLabel: string;
+  role: "primary" | "epic-child" | "supporting";
+  isPrimary: boolean;
+  /** ISO capture time, surfaced only for reference-mode rows. */
+  capturedAt?: string;
+  /** Project-relative `backlog/…` path when the row is a backlog item/epic child. */
+  backlogPath?: string;
+}
+
+// The run's launch provenance (the desktop Inbox "Started from" section). Rows are
+// capped at the desktop's "4 + show more" convention; bodies are fetched on
+// demand, never shipped inline.
+export interface MobileControlSprintEngineStartedFrom {
+  /** True when the launch seed is a backlog epic (children nest under it). */
+  epic: boolean;
+  subtitle: string;
+  rows: MobileControlSprintEngineStartedFromRow[];
+  /** Rows omitted past the cap, for a "show N more on desktop" hint. */
+  omitted?: number;
+}
+
 export interface MobileControlSprintEngineSnapshot {
   sprintEngineId: string;
   name: string;
@@ -394,6 +493,12 @@ export interface MobileControlSprintEngineSnapshot {
   roster?: Record<string, MobileControlRosterEntry>;
   runSummary?: Record<string, string | number | boolean | null>;
   planReview?: Record<string, string | number | boolean | null>;
+  /** Current automation mode (MC-1497), so the phone control renders the truth. */
+  automationMode?: MobileControlAutomationMode;
+  /** Worktree/PR state for the run (MC-1496/MC-1498); absent for non-worktree runs. */
+  vcs?: MobileControlSprintEngineVcsState;
+  /** Launch provenance — the "Started from" seed docs (MC-1498). */
+  startedFrom?: MobileControlSprintEngineStartedFrom;
   /** Folder-store lock reports and stale-lock warnings. */
   locks?: MobileControlSprintEngineLockState;
   /** Latest projection activity entry plus total event count. */
@@ -565,12 +670,31 @@ export interface MobileControlBacklogItemSnapshot {
   updatedAt?: string;
 }
 
+// Per-workspace epic metadata (MC-1498). Items carry only the `epic` up-slug; the
+// phone renders desktop-parity epic chips and color bands, which need the epic's
+// display id and color. Kept as a per-workspace block rather than denormalized
+// onto every item.
+export interface MobileControlBacklogEpicSnapshot {
+  /** The epic slug (matches an item's `epic` up-slug). */
+  slug: string;
+  /** The epic's display id, e.g. `MC-1493`, when the epic file carries an `id`. */
+  displayId?: string;
+  title?: string;
+  /** One of the desktop seven-color highlight set, when the epic sets `color`. */
+  color?: string;
+  /** Rollup over the epic's member items. */
+  doneCount: number;
+  totalCount: number;
+}
+
 export interface MobileControlBacklogWorkspaceSnapshot {
   workspaceId: string;
   workspacePath: string;
   workspaceName: string;
   updatedAt: string;
   items: MobileControlBacklogItemSnapshot[];
+  /** Epic metadata for the workspace's epics (MC-1498). */
+  epics?: MobileControlBacklogEpicSnapshot[];
 }
 
 export interface MobileControlSnapshot {
@@ -578,7 +702,12 @@ export interface MobileControlSnapshot {
   generatedAt: string;
   desktopSessionId: string;
   snapshotVersion?: string;
-  commands?: MobileControlCommandType[];
+  // Deliberately `string[]`, not MobileControlCommandType[]: the desktop may
+  // advertise commands newer than this client (dark-launched controls gate on
+  // them by raw string — see snapshotAdvertisesCapability). Rejecting unknown
+  // entries here would turn every desktop command addition into a client that
+  // can no longer read snapshots at all.
+  commands?: string[];
   sprintEngines: MobileControlSprintEngineSnapshot[];
   workspaces?: MobileControlWorkspaceSnapshot[];
   backlog?: MobileControlBacklogWorkspaceSnapshot[];
@@ -693,6 +822,8 @@ const commandTypes = [
   "backlog.update",
   "backlog.startSprintEngine",
   "backlog.create",
+  "sprintengine.openPullRequest",
+  "sprintengine.setAutomationMode",
 ] as const satisfies readonly MobileControlCommandType[];
 
 const eventTypes = [
@@ -712,7 +843,25 @@ const capabilities = [
   "artifacts.review",
   "agents.followUp",
   "devices.revoke",
+  "backlog.update",
+  "backlog.start",
+  "backlog.create",
+  "sprintengines.pr",
+  "sprintengines.automation",
 ] as const satisfies readonly MobileControlCapability[];
+
+// `satisfies` only proves the entries are valid, not that the list is
+// complete — the backlog trio above was once missing here (MC-1499), so
+// validateCapabilityArray rejected device payloads carrying scopes that
+// pairing actually grants. This alias turns a missing member into a compile
+// error.
+type _AssertCapabilityListComplete = [
+  Exclude<MobileControlCapability, (typeof capabilities)[number]>,
+] extends [never]
+  ? true
+  : ["capabilities const is missing", Exclude<MobileControlCapability, (typeof capabilities)[number]>];
+const _capabilityListComplete: _AssertCapabilityListComplete = true;
+void _capabilityListComplete;
 
 const errorCodes = [
   "unsupported_protocol_version",
@@ -885,7 +1034,10 @@ export function validateMobileControlSnapshot(input: unknown): ValidationResult<
   }
 
   if (snapshot.value.commands !== undefined) {
-    const commandError = validateStringLiteralArray(snapshot.value.commands, commandTypes, "snapshot.commands");
+    // Strings only, membership unchecked — unknown commands must flow through
+    // so dark-launched capability gates can see them (see the field comment on
+    // MobileControlSnapshot.commands).
+    const commandError = validateStringArray(snapshot.value.commands, "snapshot.commands");
     if (commandError) {
       return invalidPayload(commandError);
     }
@@ -1034,6 +1186,56 @@ function validateProtocolVersion(record: Record<string, unknown>): ValidationRes
   return null;
 }
 
+export const sprintEngineTeamNameMaxChars = 64;
+export const sprintEngineRoleCountMax = 10;
+export const sprintEngineRosterMaxRoles = 12;
+
+// Shared by sprintengine.create and backlog.startSprintEngine: both bootstrap
+// a team through the same desktop CLI path, so they carry the same config.
+function validateSprintEngineCreateConfig(payload: Record<string, unknown>): string | null {
+  const config = payload.config;
+  if (config === undefined) {
+    return null;
+  }
+  if (typeof config !== "object" || config === null || Array.isArray(config)) {
+    return "config must be an object";
+  }
+
+  const record = config as Record<string, unknown>;
+
+  if (record.teamName !== undefined) {
+    if (typeof record.teamName !== "string" || record.teamName.trim().length === 0) {
+      return "config.teamName must be a non-empty string";
+    }
+    if (record.teamName.trim().length > sprintEngineTeamNameMaxChars) {
+      return `config.teamName must be ${sprintEngineTeamNameMaxChars} characters or less`;
+    }
+  }
+
+  if (record.roleCounts !== undefined) {
+    if (typeof record.roleCounts !== "object" || record.roleCounts === null || Array.isArray(record.roleCounts)) {
+      return "config.roleCounts must be an object of role id to seat count";
+    }
+    const entries = Object.entries(record.roleCounts as Record<string, unknown>);
+    if (entries.length === 0) {
+      return "config.roleCounts must name at least one role when present";
+    }
+    if (entries.length > sprintEngineRosterMaxRoles) {
+      return `config.roleCounts must name ${sprintEngineRosterMaxRoles} roles or fewer`;
+    }
+    for (const [role, count] of entries) {
+      if (role.trim().length === 0) {
+        return "config.roleCounts role ids must be non-empty";
+      }
+      if (typeof count !== "number" || !Number.isInteger(count) || count < 1 || count > sprintEngineRoleCountMax) {
+        return `config.roleCounts values must be integers from 1 to ${sprintEngineRoleCountMax}`;
+      }
+    }
+  }
+
+  return null;
+}
+
 function validateCommandPayload(type: MobileControlCommandType, payload: Record<string, unknown>): string | null {
   switch (type) {
     case "snapshot.request":
@@ -1048,7 +1250,9 @@ function validateCommandPayload(type: MobileControlCommandType, payload: Record<
       return (
         requireString(payload, "workspacePath") ??
         requireString(payload, "productPrompt") ??
-        optionalString(payload, "requestedRole")
+        // Tolerated for older clients; the desktop never read it.
+        optionalString(payload, "requestedRole") ??
+        validateSprintEngineCreateConfig(payload)
       );
     case "task.start":
       return (
@@ -1075,7 +1279,11 @@ function validateCommandPayload(type: MobileControlCommandType, payload: Record<
         optionalString(payload, "criticality")
       );
     case "backlog.startSprintEngine":
-      return requireString(payload, "workspacePath") ?? requireString(payload, "relativePath");
+      return (
+        requireString(payload, "workspacePath") ??
+        requireString(payload, "relativePath") ??
+        validateSprintEngineCreateConfig(payload)
+      );
     case "backlog.create":
       return (
         requireString(payload, "workspacePath") ??
@@ -1085,8 +1293,14 @@ function validateCommandPayload(type: MobileControlCommandType, payload: Record<
         optionalString(payload, "difficulty") ??
         optionalString(payload, "criticality")
       );
+    case "sprintengine.openPullRequest":
+      return requireString(payload, "sprintEngineId");
+    case "sprintengine.setAutomationMode":
+      return requireString(payload, "sprintEngineId") ?? requireLiteral(payload, "mode", automationModeValues);
   }
 }
+
+const automationModeValues = ["manual", "run_agents", "run_agents_and_approve_artifacts"] as const;
 
 function validateEventPayload(type: MobileControlEventType, payload: Record<string, unknown>): string | null {
   switch (type) {

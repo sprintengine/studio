@@ -7,8 +7,10 @@ task: its owner. Nothing writes `gateId` or `requiredActions` onto a comment any
 more, so no prompt can carry per-gate sections or shared findings.
 
 What survives is Flow 5: human feedback reopens a task, the owner claims it back
-via `task.next`, and `build_rework_prompt` hands it the open feedback as its
-rework queue. These tests pin that prompt's shape.
+via `task.next`, and `build_rework_prompt` names the open feedback queue. Since
+item 1566 the prompt REFERENCES the queue (count + `openFeedback` pointer)
+instead of re-listing bodies the same response already carries on the task
+card/raw task. These tests pin that prompt's shape.
 """
 
 from __future__ import annotations
@@ -16,7 +18,6 @@ from __future__ import annotations
 from pathlib import Path
 
 from helpers import task
-from sprintengine_core.tool.comments import comment_prompt_line
 from sprintengine_core.tool.phase_prompts import build_rework_prompt
 
 
@@ -81,9 +82,12 @@ def test_rework_prompt_hands_the_owner_its_open_feedback_newest_first(tmp_path) 
 
     assert "Task: `T1` - Implement reviewed feature" in prompt
     assert "Status: `in_progress`" in prompt
-    # Newest first, and both feedback kinds reach the queue.
-    assert prompt.index("Scope question raised on the task.") < prompt.index("needs a loading state.")
-    assert "Use the open feedback as the rework queue." in prompt
+    # Both feedback kinds are counted into the queue; bodies live on the card.
+    assert "2 open feedback comment(s)" in prompt
+    assert "openFeedback" in prompt and "newest first" in prompt
+    assert "Scope question raised on the task." not in prompt
+    assert "needs a loading state." not in prompt
+    assert "Use them as the rework queue" in prompt
 
 
 def test_rework_prompt_has_no_per_gate_sections_and_no_shared_findings(tmp_path) -> None:
@@ -106,34 +110,24 @@ def test_rework_prompt_has_no_per_gate_sections_and_no_shared_findings(tmp_path)
 
     prompt = build_rework_prompt(state_path(tmp_path), record)
 
-    # Flat, newest-first. No gate grouping, no shared-finding dedup, no
-    # requiredActions — none of those concepts survive a single-owner run.
-    assert "## Open Feedback (newest first)" in prompt
+    # Flat, newest-first queue by reference. No gate grouping, no shared-finding
+    # dedup, no requiredActions — none of those concepts survive a single-owner
+    # run — and no body re-listing since item 1566.
+    assert "2 open feedback comment(s)" in prompt
     assert "### Gate `" not in prompt
     assert "### Other Feedback" not in prompt
     assert "## Shared Findings" not in prompt
     assert "Required actions:" not in prompt
-    assert "Null deref on empty config." in prompt
-    assert "Crash is reachable from unauthenticated input." in prompt
+    assert "Null deref on empty config." not in prompt
+    assert "Crash is reachable from unauthenticated input." not in prompt
 
 
 def test_rework_prompt_survives_a_task_with_no_open_feedback(tmp_path) -> None:
     """`task.next` builds this prompt for every claim, not just a reopened one."""
     prompt = build_rework_prompt(state_path(tmp_path), reopened_task([]))
 
-    assert "## Open Feedback" in prompt
-    assert "None." in prompt
+    assert "No open feedback." in prompt
+    assert "publish with `sprintengine.task.publish`" in prompt
     assert "### Other Feedback" not in prompt
 
 
-def test_comment_prompt_line_leads_with_comment_id(tmp_path) -> None:
-    """The id leads every line: it is how a comment is referenced back."""
-    line = comment_prompt_line(
-        feedback_comment(
-            "C7",
-            "security-a",
-            "Finding body.",
-            created_at="2026-05-17T00:01:00Z",
-        )
-    )
-    assert line.startswith("- [C7 | 2026-05-17T00:01:00Z | review_feedback | security-a")

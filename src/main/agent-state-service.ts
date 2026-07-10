@@ -7,6 +7,7 @@ import type { AgentStateFrame } from './agent-state'
 import {
   installAgentStateHook,
   installCodexAgentStateHook,
+  installGrokAgentStateHook,
   installOpencodeAgentStateHook,
   parseAgentStateFrame,
 } from './agent-state'
@@ -33,6 +34,16 @@ const MAX_POSIX_SOCKET_PATH = 90
 // A reporter frame is tiny; a client that streams an unbounded line without a
 // newline is dropped rather than buffered without limit.
 const MAX_LINE_BYTES = 64 * 1024
+
+// Per-CLI hook installer dispatch. Keep in lock-step with terminal-runtime's
+// agentStateSupportsCli launch gate: a CLI the gate admits but this map (or the
+// Claude fallback) mishandles gets hooks written into a config its CLI never
+// reads — silent no-op reporting.
+const CLI_INSTALLERS: Record<string, typeof installAgentStateHook> = {
+  codex: installCodexAgentStateHook,
+  grok: installGrokAgentStateHook,
+  opencode: installOpencodeAgentStateHook,
+}
 
 export type AgentStateServiceOptions = {
   resolveUserDataDir: () => string
@@ -172,10 +183,11 @@ export function createAgentStateService(options: AgentStateServiceOptions) {
 
   // Install the reporter into a workspace before an agent launches, dispatching
   // by CLI: Claude Code writes JSON into .claude/settings.local.json, Codex
-  // writes a TOML managed block into .codex/config.toml, OpenCode writes an
-  // in-process plugin into .opencode/plugin/. Serialized + run once per (cli,
-  // workspace) per app run, and strictly best-effort: a failure is logged and
-  // swallowed so it can never block or break the launch that awaits it.
+  // writes a TOML managed block into .codex/config.toml, Grok Build writes a
+  // standalone JSON config into .grok/hooks/, OpenCode writes an in-process
+  // plugin into .opencode/plugin/. Serialized + run once per (cli, workspace)
+  // per app run, and strictly best-effort: a failure is logged and swallowed so
+  // it can never block or break the launch that awaits it.
   async function installForWorkspace(workspaceRoot: string, cli: string): Promise<void> {
     const root = workspaceRoot.trim()
     if (!root) return
@@ -193,11 +205,11 @@ export function createAgentStateService(options: AgentStateServiceOptions) {
         warn('Agent-state reporter missing', 'Reporter script not found in this build; agent state falls back to inference.')
         return
       }
-      const install = isOpencode
-        ? installOpencodeAgentStateHook
-        : cli === 'codex'
-          ? installCodexAgentStateHook
-          : installAgentStateHook
+      // Unlisted CLIs fall back to the Claude installer deliberately: anything
+      // else on the Claude harness (e.g. zai — the claude binary against a
+      // redirected endpoint) uses the same settings-hook reporter.
+      const install =
+        CLI_INSTALLERS[cli] ?? installAgentStateHook
       const result = await install(workspaceRoot, {
         sourceScriptPath,
         socketPath: getSocketPath(),

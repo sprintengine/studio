@@ -6,6 +6,7 @@ import {
   childrenOfEpic,
   epicGroupKey,
   epicMetaBySlug,
+  epicProgressBySlug,
   epicSlug,
   groupItemsByEpic,
   groupedBacklogRows,
@@ -112,6 +113,25 @@ run('a dangling epic slug becomes an Unknown epic group and never drops the item
   assert.equal(groups[0].slug, 'ghost')
   assert.equal(groups[0].title, 'Unknown epic')
   assert.deepEqual(groups[0].children, [orphan])
+})
+
+run('epicProgressBySlug rolls up the FULL scan: completed/total per slug, 0/0 for childless epics, dangling slugs included', () => {
+  const progress = epicProgressBySlug([
+    mk('backlog/epics/auth.md', { type: 'epic', title: 'Auth' }),
+    mk('backlog/epics/empty.md', { type: 'epic', title: 'Empty' }),
+    mk('backlog/c1.md', { epic: 'auth', status: 'completed' }),
+    mk('backlog/c2.md', { epic: 'auth', status: 'in_progress' }),
+    mk('backlog/c3.md', { epic: 'auth', status: 'completed' }),
+    mk('backlog/d1.md', { epic: 'ghost', status: 'completed' }),
+    mk('backlog/loose.md', { status: 'idea' }),
+  ])
+  assert.deepEqual(progress.get('auth'), { done: 2, total: 3 })
+  // A childless epic still resolves — an accurate 0/0, never a missing entry.
+  assert.deepEqual(progress.get('empty'), { done: 0, total: 0 })
+  // A dangling slug (Unknown-epic group) rolls up too.
+  assert.deepEqual(progress.get('ghost'), { done: 1, total: 1 })
+  // No-epic items belong to no slug.
+  assert.equal(progress.size, 3)
 })
 
 run('progress counts completed children and aggregateSize rolls up difficulty', () => {

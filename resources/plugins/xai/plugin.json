@@ -1,0 +1,31 @@
+{
+  "kind": "provider",
+  "id": "xai",
+  "displayName": "xAI",
+  "publisher": "multicode",
+  "version": 1,
+  "providerType": "model-provider",
+  "models": [
+    {
+      "id": "grok-4.5",
+      "displayName": "Grok 4.5"
+    },
+    {
+      "id": "grok-4.1-fast",
+      "displayName": "Grok 4.1 Fast"
+    }
+  ],
+  "auth": {
+    "type": "api-key",
+    "label": "xAI API key",
+    "env": "XAI_API_KEY"
+  },
+  "adapter": {
+    "kind": "declarative"
+  },
+  "openaiCompatible": {
+    "baseUrl": "https://api.x.ai",
+    "chatCompletionsPath": "/v1/chat/completions",
+    "modelsPath": "/v1/models"
+  }
+}

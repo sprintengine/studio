@@ -86,6 +86,7 @@ import {
 } from './newWorkspace/sprintengineWorkflowConfig'
 import {
   listSprintEngineWizardSweepRoles,
+  listSprintEngineWizardWorkRoles,
   sprintEngineRosterHasPlanningRole,
   sprintEngineRosterRoleFloor,
 } from '../../utils/sprintengineRoleOptions'
@@ -740,15 +741,41 @@ export default function NewWorkspacePanel({
       : seRoleCounts),
     [seRoleCounts, effectiveSprintEngineDisabledRoleIds],
   )
-  // MC-1542 wizard reframe: the "Work types & models" panel no longer offers
-  // sweep roles as seats, so every registry-visible sweep role rides into
-  // enabledRoles -> configuredRoles at create. The architect can then plan the
-  // audits the "Final sweeps" panel promises ("leave all off to let the
-  // architect decide"), and a mandated requiredSweeps role is always plannable.
+  // The "Final sweeps" toggles ARE the roster contract for sweep roles: only
+  // the sweeps the user turns ON ride into enabledRoles -> configuredRoles at
+  // create (and into requiredSweeps as the completion mandate), so the roster
+  // and the architect's plan reflect exactly what the user configured. MC-1545
+  // originally force-enabled every registry sweep role here so "the architect
+  // can decide" — which seated the full audit catalog (security, performance,
+  // production-readiness…) on runs whose operator selected none of them, and
+  // the architect then dutifully planned one sweep task per seated role (the
+  // design-wizard-premium regression). If the work needs an unconfigured role,
+  // the architect raises needs_input instead of adding it (agentPrompt.ts).
   const sprintEngineSweepEnabledRoles = useMemo<SprintEngineRoleId[]>(
-    () => listSprintEngineWizardSweepRoles(seRoleRegistry, effectiveSprintEngineDisabledRoleIds),
-    [seRoleRegistry, effectiveSprintEngineDisabledRoleIds],
+    () =>
+      listSprintEngineWizardSweepRoles(seRoleRegistry, effectiveSprintEngineDisabledRoleIds).filter(
+        (role) => seRequiredSweeps.has(role),
+      ),
+    [seRoleRegistry, effectiveSprintEngineDisabledRoleIds, seRequiredSweeps],
   )
+  // Role counts handed to CREATION (not the panel view): only roles the wizard
+  // actually offers as "Work types & models" rows. seRoleCounts can carry stale
+  // extras from a saved team — sweep roles (seats pre-MC-1542, toggles now) and
+  // role ids the current registry doesn't know (e.g. the v1-era spec_reviewer)
+  // — which would silently ride into configuredRoles as phantom, unseatable
+  // roster rows the user never chose. Existing teams never re-create, so their
+  // canonical counts pass through untouched.
+  const sprintEngineCreateRoleCounts = useMemo<SprintEngineRoleCounts>(() => {
+    if (seExistingTeam) return visibleSprintEngineRoleCounts
+    const offered = new Set<SprintEngineRoleId>(
+      listSprintEngineWizardWorkRoles(seRoleRegistry, effectiveSprintEngineDisabledRoleIds),
+    )
+    const filtered: SprintEngineRoleCounts = {}
+    for (const [role, count] of Object.entries(visibleSprintEngineRoleCounts)) {
+      if (offered.has(role as SprintEngineRoleId)) filtered[role as SprintEngineRoleId] = count
+    }
+    return filtered
+  }, [seExistingTeam, visibleSprintEngineRoleCounts, seRoleRegistry, effectiveSprintEngineDisabledRoleIds])
 
   const mcpSettings = useWorkspaceStore((s) => s.appSettings.mcp)
   const upsertMcpServer = useWorkspaceStore((s) => s.upsertMcpServer)
@@ -2035,15 +2062,23 @@ export default function NewWorkspacePanel({
               sourcePlanContent: sePlanContent,
               sourcePlanKind: seSourcePlanKind,
               sourceBundle: seSourceBundle ?? null,
-              visibleRoleCounts: visibleSprintEngineRoleCounts,
+              visibleRoleCounts: sprintEngineCreateRoleCounts,
               maxParallelAgents: seMaxParallelAgents,
               roleCliDefaults: seRoleCliDefaults,
               roleModelOverrides: seRoleModelOverrides,
               initialSpawnRoles: seInitialSpawnRoles,
-              // Sweep roles are configured via the "Final sweeps" panel, not
-              // the work-types table; enable them all so the architect can
-              // plan whichever audits the work needs.
+              // Only the sweeps the user turned ON in the "Final sweeps" panel
+              // join configuredRoles — the roster is the user's configuration.
               additionalEnabledRoles: sprintEngineSweepEnabledRoles,
+              // "Workflow steps" + "Final sweeps" init keys — same contract as
+              // the new-team path (each key present only when set), so a
+              // mandated sweep actually reaches run.yaml `requiredSweeps` on
+              // plan-sourced launches too.
+              ...buildSprintEngineWorkflowInitKeys({
+                selfReviewEnabled: seSelfReviewEnabled,
+                reviewRuntime: seReviewRuntime,
+                requiredSweepRoleIds: [...seRequiredSweeps],
+              }),
               startRunner: seStartRunner,
               autoApproveArtifacts: seAutoApproveArtifacts,
               useWorktrees: seUseWorktrees,
@@ -2117,7 +2152,7 @@ export default function NewWorkspacePanel({
         const architectMode = seRosterSource === 'architect'
         const createRoleCounts: SprintEngineRoleCounts = architectMode
           ? { architect: 1 }
-          : visibleSprintEngineRoleCounts
+          : sprintEngineCreateRoleCounts
         const args = await runSprintEngineNewTeamCreation(
           {
             folderPath,
@@ -2129,9 +2164,9 @@ export default function NewWorkspacePanel({
             roleCliDefaults: seRoleCliDefaults,
             roleModelOverrides: seRoleModelOverrides,
             initialSpawnRoles: architectMode ? ['architect'] : seInitialSpawnRoles,
-            // Sweep roles are configured via the "Final sweeps" panel, not the
-            // work-types table; enable them all so the architect can plan
-            // whichever audits the work needs (ignored in architect mode).
+            // Only the sweeps the user turned ON in the "Final sweeps" panel
+            // join configuredRoles (ignored in architect mode) — the roster is
+            // the user's configuration.
             additionalEnabledRoles: sprintEngineSweepEnabledRoles,
             startRunner: seStartRunner,
             autoApproveArtifacts: seAutoApproveArtifacts,

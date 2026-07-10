@@ -35,7 +35,11 @@ from sprintengine_core.tool import (
 )
 from sprintengine_core.tool.constants import VALID_ARTIFACT_KINDS
 from sprintengine_core.tool.plans import plan_path_for_state
-from sprintengine_core.skill_layers import sprintengine_extra_skills_for_role
+from sprintengine_core.skill_layers import (
+    knowledge_root_is_configured,
+    run_is_backlog_sourced,
+    sprintengine_extra_skills_for_role,
+)
 from sprintengine_core.tool.prompts import (
     compose_prompt,
     load_general_soul_prompt,
@@ -83,6 +87,9 @@ class McpRequestContext:
     agent_id: str = ""
     role: str = ""
     cli: str = ""
+    # Whether the launching workspace has a Knowledge Graph root configured.
+    # None = registration did not say (older caller / stdio): resolve from env.
+    knowledge_root_configured: bool | None = None
 
 
 _REQUEST_CONTEXT: ContextVar[McpRequestContext | None] = ContextVar("sprintengine_mcp_request_context", default=None)
@@ -379,12 +386,22 @@ class SprintEngineMcpServer:
                     configured_roles=state.get("configuredRoles"),
                     roster_source=state.get("rosterSource"),
                 ),
+                # Compose-time gate for the multicode_backlog layer skill: only a
+                # backlog-sourced run pays its prompt cost.
+                "backlogSourced": run_is_backlog_sourced(state),
                 "write": True,
             }
 
         lifecycle = with_locked_state(state_path, mutate)
         role_payload = _general_role_manifest_payload() if role_entry is None else _role_payload(role_entry)
-        prompt = _compose_registry_prompt(registry, role, workspace_root, str(lifecycle["run"].get("name") or ""))
+        prompt = _compose_registry_prompt(
+            registry,
+            role,
+            workspace_root,
+            str(lifecycle["run"].get("name") or ""),
+            backlog_sourced=bool(lifecycle.get("backlogSourced")),
+            knowledge_root_configured=_knowledge_root_configured_for_request(),
+        )
         # `legacyJoin` (the cmd_join prose containing CLI-laden directives) is intentionally
         # omitted from the MCP response. Agents are MCP-native: managed agents read `prompt`
         # and then call the claim tool their startup/wake prompt names; headless CLI agents
@@ -1202,21 +1219,50 @@ def _run_metadata(
     return metadata
 
 
-def _compose_registry_prompt(registry: RegistryDiscovery, role: str, workspace_root: Path, run_id: str) -> str:
+def _knowledge_root_configured_for_request() -> bool:
+    """Resolve the workspace_knowledge compose-time gate for the current request.
+
+    The HTTP run registration states it explicitly (per workspace); a stdio/debug
+    server inherits the operator's env, so the env check is the right fallback.
+    """
+    context = _REQUEST_CONTEXT.get()
+    if context is not None and context.knowledge_root_configured is not None:
+        return context.knowledge_root_configured
+    return knowledge_root_is_configured()
+
+
+def _compose_registry_prompt(
+    registry: RegistryDiscovery,
+    role: str,
+    workspace_root: Path,
+    run_id: str,
+    *,
+    backlog_sourced: bool = True,
+    knowledge_root_configured: bool = True,
+) -> str:
     if normalize_role_id(role) == "general":
         # The soulless General has no role manifest, so it would otherwise fall
         # through the render_soul fallback below and silently lose the universal
         # norms. Compose its layer deliberately: no role-personality Soul, but the
         # full norm + Multicode product layer plus the orchestration skill. Reuse
         # the workspace-scoped registry so skill overrides apply as for a soul.
-        soul_prompt = load_general_soul_prompt(registry)
+        soul_prompt = load_general_soul_prompt(
+            registry,
+            backlog_sourced=backlog_sourced,
+            knowledge_root_configured=knowledge_root_configured,
+        )
     else:
         try:
             soul_prompt = registry.render_soul(
                 role,
                 workspace_root=workspace_root,
                 run_id=run_id,
-                extra_skills=sprintengine_extra_skills_for_role(registry, role),
+                extra_skills=sprintengine_extra_skills_for_role(
+                    registry,
+                    role,
+                    backlog_sourced=backlog_sourced,
+                    knowledge_root_configured=knowledge_root_configured,
+                ),
             ).content
         except (KeyError, SoulRenderError):
             soul_prompt = None

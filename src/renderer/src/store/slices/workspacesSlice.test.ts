@@ -102,7 +102,13 @@ assert.deepEqual(state.appSettings.recentWorkspaceFolders, [
   '/Users/example/project',
 ])
 assert.equal(state.workspaces.find((workspace) => workspace.id === soloDevId)?.agents['agent-1']?.cli, 'claude-code')
-assert.equal(state.workspaces.find((workspace) => workspace.id === soloDevId)?.agents['agent-1']?.name, 'Agent')
+// A generic template tab label ("Agent") is a slot placeholder, never an
+// identity: the seeded general agent gets a real picked name, like a
+// specialist. The layout tab renames itself to agent.name on render.
+const soloDevAgentName =
+  state.workspaces.find((workspace) => workspace.id === soloDevId)?.agents['agent-1']?.name ?? ''
+assert.notEqual(soloDevAgentName, 'Agent')
+assert.match(soloDevAgentName, /^[A-Z][a-z]+ [A-Z][a-z]+( \d+)?$/)
 
 state.reorderWorkspaces([secondId, 'missing', firstId, soloDevId])
 assert.deepEqual(

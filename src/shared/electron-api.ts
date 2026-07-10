@@ -67,6 +67,7 @@ export type {
   UserRoleSaveInput,
   UserRoleSaveResult,
 } from './sprintengine/role-manifest'
+import type { SprintEngineTokenUsageReport } from './sprintengine-token-usage'
 import type { LayoutTemplateInstallResult, UserLayoutTemplateListResult } from './layouts/template-manifest'
 import type { DesignSystemBrandDemoResolveResult } from './design-system/brand-demo'
 import type { DesignSystemBundleLintRunResult } from './design-system/bundle-lint-run'
@@ -382,6 +383,9 @@ export type MarketplacePluginInstallInput = {
 export type MarketplacePluginRegistryInstallInput = Omit<MarketplacePluginInstallInput, 'localFolder'> & {
   entry: MarketplacePluginEntry
   trustGranted?: boolean
+  // Claude Code plugins: the commit the pre-trust verify disclosed; the
+  // install downloads this exact ref (TOCTOU guard for unpinned sources).
+  claudePluginRef?: string
 }
 
 export type MarketplacePluginUninstallInput = {
@@ -400,6 +404,15 @@ export type MarketplacePluginVerifyResult = {
   sourceUrl: string
   issues?: MarketplaceManifestIssue[]
   message?: string
+  // Real content listing disclosed at the trust prompt for entries whose
+  // payload is files rather than capability permissions (Claude Code plugins:
+  // the skill folders the trust grant installs). Never fabricated.
+  files?: string[]
+  // The commit the listing was read from (Claude Code plugins). Passing it
+  // back as MarketplacePluginRegistryInstallInput.claudePluginRef makes the
+  // install fetch exactly the disclosed content — a mutable default-branch
+  // source cannot swap bytes between the trust prompt and the install.
+  pinnedRef?: string
 }
 
 export type MarketplacePluginInstalledComponent = {
@@ -470,7 +483,7 @@ export type MarketplaceRegistryReadResult =
       ok: true
       state: 'ok' | 'empty'
       registryUrl: string
-      source: 'network' | 'cache'
+      source: 'network' | 'cache' | 'bundled'
       stale: false
       fetchedAt: string
       etag?: string
@@ -697,6 +710,9 @@ export type McpSyncInput = {
     agentId?: string
     role?: string
     cli?: McpClientTarget
+    // Workspace Knowledge Graph root ('' when unset); lets the MCP server gate
+    // the workspace_knowledge prompt layer at compose time.
+    knowledgeRoot?: string
     http?: {
       url: string
       authTokenEnvVar?: string
@@ -780,7 +796,7 @@ export type AgentConfigAdoptResult =
       warnings?: string[]
     }
 
-export type SkillPackHarness = 'claude' | 'codex' | 'cursor' | 'gemini' | 'opencode' | 'agents'
+export type SkillPackHarness = 'claude' | 'codex' | 'cursor' | 'gemini' | 'opencode' | 'grok' | 'agents'
 export type SkillPackSource = 'bundled' | 'custom'
 
 export type SkillPackEntry = {
@@ -912,10 +928,16 @@ export type TerminalSpawnMetadata = {
   agentSession?: AgentSessionMetadata
   visible?: boolean
   mcpSettings?: McpSettings
-  // Connector launches (e.g. Railway) name a builtin skill to install into the
-  // worktree at spawn, so the seeded skill invocation resolves to a present
-  // skill. Generalizes the debug-skill install; best-effort at the launch
-  // boundary. Undefined for ordinary spawns. See TerminalSpawnPayload.
+  // True when `mcpSettings` is a connector launch's isolated single-server
+  // config: the spawn prunes any other MCP server from the worktree config and
+  // git-excludes it, whether or not the connector carries a driving skill.
+  // Undefined/false for ordinary spawns (workspace MCP merges as usual).
+  connectorLaunch?: boolean
+  // Connector launches with a driving skill (e.g. Railway) name the builtin
+  // skill to install into the worktree at spawn, so the seeded skill invocation
+  // resolves to a present skill. Generalizes the debug-skill install;
+  // best-effort at the launch boundary. Undefined for skill-less connector
+  // launches and ordinary spawns. See TerminalSpawnPayload.
   connectorSkillId?: string
   // Skill-at-spawn for ordinary agents (the composer's "+ Skill" attachment):
   // ensure-installs the named builtin like connectorSkillId, but WITHOUT the
@@ -1872,6 +1894,8 @@ export type MobileControlCommandType =
   | 'backlog.update'
   | 'backlog.startSprintEngine'
   | 'backlog.create'
+  | 'sprintengine.openPullRequest'
+  | 'sprintengine.setAutomationMode'
 
 export type MobileControlCapability =
   | 'snapshots.read'
@@ -1884,6 +1908,8 @@ export type MobileControlCapability =
   | 'backlog.update'
   | 'backlog.start'
   | 'backlog.create'
+  | 'sprintengines.pr'
+  | 'sprintengines.automation'
 
 export type MobileControlDevice = {
   protocolVersion: 2
@@ -2484,6 +2510,9 @@ export type ElectronApi = {
   readSprintEngineDispatch: (input: SprintEngineDispatchReadInput) => Promise<SprintEngineMcpReadResult>
   /** Sanitized per-run + per-agent feedback analysis for the run summary (read-only). */
   summarizeSprintEngineFeedback: (statePath: string) => Promise<SprintEngineMcpReadResult>
+  /** Per-task / per-agent / run token usage computed from the run's durable
+   * token ledger + projection (read-only; coverage-truthful, counts only). */
+  readSprintEngineTokenUsage: (statePath: string) => Promise<SprintEngineTokenUsageReport>
   initializeSwitchboard: (workspaceRoot: string) => Promise<SwitchboardInitApiResult>
   readSwitchboardTasks: (workspaceRoot: string) => Promise<SwitchboardReadResult>
   createSwitchboardTask: (input: SwitchboardCreateTaskInput) => Promise<SwitchboardMutationResult>

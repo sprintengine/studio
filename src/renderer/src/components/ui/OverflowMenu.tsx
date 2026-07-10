@@ -46,6 +46,9 @@ export type OverflowMenuItem =
       icon?: React.ReactNode
       disabled?: boolean
       surfaceClassName?: string
+      /** Open-state notifications, e.g. to lazily refresh flyout content
+       *  (mirrors MenuFlyoutItem's own prop). */
+      onOpenChange?: (open: boolean) => void
       render: (close: () => void) => React.ReactNode
     }
 
@@ -126,7 +129,11 @@ export function OverflowMenu({ ariaLabel, items, trigger, triggerTooltip, align 
       ariaLabel={ariaLabel}
       popupRole="menu"
       placement={align === 'end' ? 'bottom-end' : 'bottom-start'}
-      surfaceClassName="min-w-[200px] py-1"
+      // text-[12px] matches the flat items' own explicit size, so nested
+      // primitives without one (MenuFlyoutItem triggers, MenuSwatchRow) inherit
+      // it instead of the app default — inside a ContextMenu they inherit from
+      // MENU_SURFACE_CLASS, but this Popover surface must set its own.
+      surfaceClassName="min-w-[200px] py-1 text-[12px]"
       onOpenAutoFocus={focusFirstItem}
       renderTrigger={({ ref, openPopover, open: opened, togglePopover, triggerProps }) => {
         const button = (
@@ -190,8 +197,12 @@ export function OverflowMenu({ ariaLabel, items, trigger, triggerTooltip, align 
                   ariaLabel={item.ariaLabel}
                   icon={item.icon}
                   disabled={item.disabled}
-                  surfaceClassName={item.surfaceClassName}
+                  // The nested surface's own base class is the 13px right-click
+                  // idiom; pin it to this menu's 12px so the choices match their
+                  // trigger.
+                  surfaceClassName={`text-[12px] ${item.surfaceClassName ?? ''}`}
                   onItemKeyDown={onItemKey}
+                  onOpenChange={item.onOpenChange}
                 >
                   {item.render(() => setOpen(false))}
                 </MenuFlyoutItem>

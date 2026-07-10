@@ -5,6 +5,7 @@ import {
   MarketplaceRegistryClient,
   configuredMarketplaceRegistryUrl,
   defaultMarketplaceRegistryCachePath,
+  isMarketplaceRegistryOverrideConfigured,
 } from '../marketplace/registry-client'
 
 export type MarketplaceRegistryReader = {
@@ -58,6 +59,9 @@ function createDefaultMarketplaceRegistryClient(): MarketplaceRegistryClient {
   return new MarketplaceRegistryClient({
     registryUrl: configuredMarketplaceRegistryUrl(),
     cachePath: defaultMarketplaceRegistryCachePath(app.getPath('userData')),
+    // No override -> the committed snapshot-generated seed is the registry;
+    // the env override keeps the full remote fetch/ETag/cache path.
+    preferBundledSeed: !isMarketplaceRegistryOverrideConfigured(),
   })
 }
 

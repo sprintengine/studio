@@ -951,6 +951,167 @@ async function testReceiptStoreValidationRejectsMalformedAndUnsafeState(): Promi
   })
 }
 
+
+// --- Claude Code plugin installs (MC-1561) ----------------------------------
+
+const CLAUDE_LIFECYCLE_ENTRY: MarketplacePluginEntry = {
+  id: 'acme-skills',
+  name: 'skills',
+  publisher: { name: 'Acme', verified: false },
+  summary: 'Acme skills plugin.',
+  category: 'Development',
+  icon: 'data:image/svg+xml;base64,PHN2Zy8+',
+  latest: 1,
+  provides: ['skills'],
+  tags: ['claude-plugin'],
+  source: 'https://github.com/acme/skills',
+}
+
+// The GitHub contents shape of a Claude plugin repo (manifest + two skills).
+function createClaudeLifecycleFetcher(): MarketplacePluginDownloadFetch {
+  const sha = 'f'.repeat(40)
+  const api = (path: string) => `https://api.github.com/repos/acme/skills/contents/${path}?ref=${sha}`
+  const raw = (path: string) => `https://raw.githubusercontent.com/acme/skills/${sha}/${path}`
+  const skillBodies: Record<string, string> = {
+    'skills/alpha/SKILL.md': '---\nname: alpha\ndescription: First.\n---\n',
+    'skills/beta/SKILL.md': '---\nname: beta\ndescription: Second.\n---\n',
+  }
+  return async (url) => {
+    if (url === 'https://api.github.com/repos/acme/skills/commits/HEAD') {
+      return new Response(JSON.stringify({ sha }))
+    }
+    if (url === api('.claude-plugin')) {
+      return new Response(JSON.stringify([
+        { type: 'file', path: '.claude-plugin/plugin.json', download_url: raw('.claude-plugin/plugin.json') },
+      ]))
+    }
+    if (url === api('skills')) {
+      return new Response(JSON.stringify([
+        { type: 'dir', path: 'skills/alpha', url: api('skills/alpha') },
+        { type: 'dir', path: 'skills/beta', url: api('skills/beta') },
+      ]))
+    }
+    if (url === api('skills/alpha')) {
+      return new Response(JSON.stringify([{ type: 'file', path: 'skills/alpha/SKILL.md', download_url: raw('skills/alpha/SKILL.md') }]))
+    }
+    if (url === api('skills/beta')) {
+      return new Response(JSON.stringify([{ type: 'file', path: 'skills/beta/SKILL.md', download_url: raw('skills/beta/SKILL.md') }]))
+    }
+    if (url === raw('.claude-plugin/plugin.json')) {
+      return new Response(JSON.stringify({ name: 'acme-skills', description: 'Skills for Acme.' }))
+    }
+    const rawMatch = url.match(new RegExp(`^https://raw\\.githubusercontent\\.com/acme/skills/${sha}/(.+)$`))
+    if (rawMatch && skillBodies[rawMatch[1]!] !== undefined) return new Response(skillBodies[rawMatch[1]!]!)
+    return new Response('not found', { status: 404 })
+  }
+}
+
+async function testClaudePluginRequiresTrustGrant(): Promise<void> {
+  await withTempDir(async (temp) => {
+    const { services, workspaceRoot } = await createServices(temp, createClaudeLifecycleFetcher(), { trustedModules: new Map() })
+    const lifecycle = createMarketplacePluginLifecycleService(services)
+    const result = await lifecycle.installFromRegistry({ entry: CLAUDE_LIFECYCLE_ENTRY, workspaceRoot })
+    assert.equal(result.ok, false)
+    if (!result.ok) {
+      assert.equal(result.classification, 'unsigned')
+      assert.match(result.message, /trust approval/)
+    }
+    assert.equal(existsSync(join(workspaceRoot, '.claude', 'skills', 'alpha')), false)
+  })
+}
+
+async function testClaudePluginInstallsSkillsIntoClaudeHarnessAndUninstalls(): Promise<void> {
+  await withTempDir(async (temp) => {
+    const { services, workspaceRoot, receiptStorePath } = await createServices(
+      temp,
+      createClaudeLifecycleFetcher(),
+      { trustedModules: new Map() }
+    )
+    const lifecycle = createMarketplacePluginLifecycleService(services)
+    const result = await lifecycle.installFromRegistry({
+      entry: CLAUDE_LIFECYCLE_ENTRY,
+      workspaceRoot,
+      trustGranted: true,
+    })
+    assert.equal(result.ok, true, JSON.stringify(result))
+    if (!result.ok) return
+    assert.equal(result.classification, 'unsigned')
+    // Skills land in the Claude harness dir by default (Claude-format content
+    // targets Claude Code sessions), not .agents.
+    assert.equal(
+      await readFile(join(workspaceRoot, '.claude', 'skills', 'alpha', 'SKILL.md'), 'utf8'),
+      '---\nname: alpha\ndescription: First.\n---\n'
+    )
+    assert.equal(existsSync(join(workspaceRoot, '.claude', 'skills', 'beta', 'SKILL.md')), true)
+    assert.equal(existsSync(join(workspaceRoot, '.agents', 'skills', 'alpha')), false)
+
+    const store = JSON.parse(await readFile(receiptStorePath, 'utf8')) as {
+      plugins: Record<string, { components: Array<{ kind: string; installedDirName?: string; harnesses?: string[] }> }>
+    }
+    const receipt = store.plugins['acme-skills']
+    assert.ok(receipt, 'receipt written')
+    assert.deepEqual(
+      receipt.components.map((component) => `${component.kind}:${component.installedDirName}`),
+      ['skills:alpha', 'skills:beta']
+    )
+    assert.deepEqual(receipt.components[0]!.harnesses, ['claude'])
+
+    const removed = await lifecycle.uninstall({ pluginId: 'acme-skills', workspaceRoot })
+    assert.equal(removed.ok, true, JSON.stringify(removed))
+    assert.equal(existsSync(join(workspaceRoot, '.claude', 'skills', 'alpha')), false)
+    assert.equal(existsSync(join(workspaceRoot, '.claude', 'skills', 'beta')), false)
+  })
+}
+
+
+async function testClaudePluginHarnessChangeRemovesOrphanedCopies(): Promise<void> {
+  await withTempDir(async (temp) => {
+    const { services, workspaceRoot } = await createServices(temp, createClaudeLifecycleFetcher(), { trustedModules: new Map() })
+    const lifecycle = createMarketplacePluginLifecycleService(services)
+    // First install targets claude + agents.
+    const first = await lifecycle.installFromRegistry({
+      entry: CLAUDE_LIFECYCLE_ENTRY,
+      workspaceRoot,
+      trustGranted: true,
+      skillHarnesses: ['claude', 'agents'],
+    })
+    assert.equal(first.ok, true, JSON.stringify(first))
+    assert.equal(existsSync(join(workspaceRoot, '.agents', 'skills', 'alpha')), true)
+    // Update narrows to claude only: the .agents copies must be removed, not
+    // stranded untracked (componentsOverlap keys skills on dir name alone).
+    const second = await lifecycle.installFromRegistry({
+      entry: CLAUDE_LIFECYCLE_ENTRY,
+      workspaceRoot,
+      trustGranted: true,
+      skillHarnesses: ['claude'],
+    })
+    assert.equal(second.ok, true, JSON.stringify(second))
+    assert.equal(existsSync(join(workspaceRoot, '.claude', 'skills', 'alpha')), true)
+    assert.equal(existsSync(join(workspaceRoot, '.agents', 'skills', 'alpha')), false)
+    assert.equal(existsSync(join(workspaceRoot, '.agents', 'skills', 'beta')), false)
+  })
+}
+
+async function testClaudePluginRefusesForeignSkillDirCollision(): Promise<void> {
+  await withTempDir(async (temp) => {
+    const { services, workspaceRoot } = await createServices(temp, createClaudeLifecycleFetcher(), { trustedModules: new Map() })
+    // A hand-dropped skill dir this plugin does not own.
+    await mkdir(join(workspaceRoot, '.claude', 'skills', 'alpha'), { recursive: true })
+    await writeFile(join(workspaceRoot, '.claude', 'skills', 'alpha', 'SKILL.md'), 'mine, not yours', 'utf8')
+    const lifecycle = createMarketplacePluginLifecycleService(services)
+    const result = await lifecycle.installFromRegistry({
+      entry: CLAUDE_LIFECYCLE_ENTRY,
+      workspaceRoot,
+      trustGranted: true,
+    })
+    assert.equal(result.ok, false)
+    if (!result.ok) assert.match(result.message, /already exists/)
+    // The pre-flight refusal copies nothing and never clobbers the existing dir.
+    assert.equal(await readFile(join(workspaceRoot, '.claude', 'skills', 'alpha', 'SKILL.md'), 'utf8'), 'mine, not yours')
+    assert.equal(existsSync(join(workspaceRoot, '.claude', 'skills', 'beta')), false)
+  })
+}
+
 async function main(): Promise<void> {
   await testVerifiedRegistryInstallFansOutAndRecordsReceipt()
   await testCommunityBundleRequiresTrustGrant()
@@ -964,6 +1125,10 @@ async function main(): Promise<void> {
   await testUpdateAndUninstallRemoveOldComponents()
   await testFailedUpdateRollsBackReplacementAndKeepsReceipt()
   await testReceiptStoreValidationRejectsMalformedAndUnsafeState()
+  await testClaudePluginRequiresTrustGrant()
+  await testClaudePluginInstallsSkillsIntoClaudeHarnessAndUninstalls()
+  await testClaudePluginRefusesForeignSkillDirCollision()
+  await testClaudePluginHarnessChangeRemovesOrphanedCopies()
   console.log('marketplace plugin lifecycle tests passed')
 }
 

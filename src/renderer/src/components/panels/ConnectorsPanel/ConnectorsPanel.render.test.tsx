@@ -4,6 +4,7 @@ import { renderToStaticMarkup } from 'react-dom/server'
 
 import type { McpCatalogServer } from '../../../../../shared/electron-api'
 import type { MarketplacePluginEntry } from '../../../../../shared/marketplace/manifest'
+import { PluginIcon, resolveIconUrl } from '../../settings/BrowseStorefront'
 import { ConnectorsBody, FacetTabs, ReadyConnectorsRail } from './ConnectorsPanel'
 import { deriveConnectorsView, type ConnectorFacet, type SourceLoad } from './connectorsFacets'
 
@@ -125,6 +126,38 @@ assert.match(
   assert.match(markup, /Use in automation/)
 }
 
+// --- plugin detail: bundled skills section (MC-1565) ------------------------
+
+{
+  const skillNames = ['hf-cli', 'hf-datasets', 'hf-gradio', 'hf-papers', 'hf-spaces', 'hf-trainer', 'hf-eval', 'hf-mem']
+  const skilled: MarketplacePluginEntry = {
+    ...stripePlugin,
+    id: 'anthropic-huggingface-skills',
+    name: 'huggingface-skills',
+    tags: ['claude-plugin'],
+    source: 'https://github.com/huggingface/skills.git',
+    skills: skillNames.map((name) => ({
+      name,
+      description: `${name} does a thing on the Hub.`,
+      path: `skills/${name}`,
+    })),
+  }
+  const markup = body(
+    deriveConnectorsView(ready([]), ready([skilled]), new Set(), '', 'All'),
+    'registry:anthropic-huggingface-skills',
+  )
+  // Section heading carries the full count; the list collapses past six.
+  assert.match(markup, /Skills · 8/)
+  assert.match(markup, /hf-cli/)
+  assert.match(markup, /hf-cli does a thing on the Hub\./)
+  assert.match(markup, /Show 2 more/)
+  assert.doesNotMatch(markup, /hf-mem does a thing/)
+
+  // A plugin with no skills renders no Skills section — no placeholder copy.
+  const bare = body(deriveConnectorsView(ready([]), ready([stripePlugin]), new Set(), '', 'All'), 'registry:stripe-mcp')
+  assert.doesNotMatch(bare, /Skills ·/)
+}
+
 // --- facet tabs render all six, marking the active one ---------------------
 
 {
@@ -153,5 +186,21 @@ assert.equal(
   renderToStaticMarkup(<ReadyConnectorsRail connectors={[]} onLaunchConnector={noop} onUseInAutomation={noop} />),
   '',
 )
+
+// --- data-URI icons from the generated catalogue render through PluginIcon --
+
+{
+  const dataUri = 'data:image/svg+xml;base64,PHN2Zy8+'
+  // Absolute icons survive with and without a registry base URL.
+  assert.equal(resolveIconUrl('https://registry.example.com/marketplace.json', dataUri), dataUri)
+  assert.equal(resolveIconUrl(null, dataUri), dataUri)
+  // Relative registry paths still resolve against the registry URL.
+  assert.equal(
+    resolveIconUrl('https://registry.example.com/marketplace.json', 'icons/stripe.svg'),
+    'https://registry.example.com/icons/stripe.svg',
+  )
+  const markup = renderToStaticMarkup(<PluginIcon iconUrl={dataUri} name="Stripe" size={32} />)
+  assert.match(markup, /src="data:image\/svg\+xml;base64,PHN2Zy8\+"/)
+}
 
 console.log('connectors-panel render guard passed')

@@ -1,12 +1,13 @@
 import type { AgentCli } from '../types/workspace'
 
-export type CliIconKind = 'claude-code' | 'codex' | 'opencode' | 'zai' | 'terminal'
+export type CliIconKind = 'claude-code' | 'codex' | 'opencode' | 'zai' | 'grok' | 'terminal'
 
 export function resolveCliIconKind(cli: AgentCli): CliIconKind {
   if (cli === 'claude-code') return 'claude-code'
   if (cli === 'codex') return 'codex'
   if (cli === 'opencode') return 'opencode'
   if (cli === 'zai') return 'zai'
+  if (cli === 'grok') return 'grok'
   return 'terminal'
 }
 
@@ -64,6 +65,30 @@ export default function CliIcon({ cli, className }: { cli: AgentCli; className?:
         <rect x="3.5" y="3.5" width="17" height="17" rx="5" stroke="currentColor" strokeWidth="1.7" />
         <path
           d="M8.25 8.5H15.75L8.25 15.5H15.75"
+          stroke="currentColor"
+          strokeWidth="1.9"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        />
+      </svg>
+    )
+  }
+
+  if (iconKind === 'grok') {
+    // A simple, original slash tile mark (theme-adaptive via currentColor) that
+    // reads as the Grok Build runtime. Swap this branch's contents for xAI's
+    // official brand SVG if/when one is bundled.
+    return (
+      <svg
+        className={className}
+        viewBox="0 0 24 24"
+        fill="none"
+        aria-hidden="true"
+        xmlns="http://www.w3.org/2000/svg"
+      >
+        <rect x="3.5" y="3.5" width="17" height="17" rx="5" stroke="currentColor" strokeWidth="1.7" />
+        <path
+          d="M14.75 7.75L9.25 16.25M9.25 7.75L12 12"
           stroke="currentColor"
           strokeWidth="1.9"
           strokeLinecap="round"

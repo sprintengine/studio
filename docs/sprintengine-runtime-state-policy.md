@@ -22,7 +22,12 @@ live `run.yaml`, task folders, artifact folders, `events.jsonl`,
 fixtures unless a test or documentation path explicitly owns that snapshot.
 
 Runtime mutation still belongs behind Sprint Engine tooling and the managed MCP
-server. Agents must not hand-edit run-store files. Manual cleanup is different:
+server. Agents must not hand-edit run-store files. One recorded exception:
+`metrics/token-usage.jsonl` is appended by the Electron main process
+(`src/main/sprintengine-token-sampling.ts`) — token usage is observable only
+from the terminal runtime, never by the engine; the file is app-owned
+telemetry the engine neither reads nor validates, and agents remain barred
+from writing it. Manual cleanup is different:
 the app's generic file-manager delete action may remove
 `.multi-code/sprintengine/<team>/` folders when an operator wants to clear local
 runtime state.

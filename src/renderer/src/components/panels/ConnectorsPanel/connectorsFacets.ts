@@ -6,13 +6,15 @@
 //
 // Two real sources feed one grid:
 //   1. MCP catalog (`window.api.mcpListCatalog`) — the launchable connectors. A
-//      connector is a catalog entry carrying a `skill` link (matches T1's
-//      launchConnectorChat rule); today only Railway qualifies.
+//      catalog entry is launchable when it carries a `skill` link (Railway's
+//      driving-skill model) OR is installed in the workspace's MCP settings —
+//      an installed server launches as a plain connector chat (isolated MCP,
+//      no seeded skill), matching launchConnectorChat.
 //   2. Marketplace registry (`window.api.readMarketplaceRegistry`) — installable
 //      plugins that `provides` mcp/skills. Browsable/installable here; launching
-//      still requires the catalog+skill entry.
+//      still requires a catalog or installed-settings entry.
 
-import type { McpCatalogServer } from '../../../../../shared/electron-api'
+import type { McpCatalogServer, McpServerConfig } from '../../../../../shared/electron-api'
 import type {
   MarketplaceComponentKind,
   MarketplacePluginEntry,
@@ -55,8 +57,9 @@ export type ConnectorEntry = {
   // via storefrontView's shared COMPONENT_KIND_LABEL map.
   componentLabels: string[]
   facet: NamedFacet
-  // A launchable connector (catalog entry with a skill). Only these get New chat
-  // and only these populate the Featured rail.
+  // A launchable connector: a catalog entry with a driving skill, or one the
+  // user has installed (enabled in MCP settings). Only these get New chat and
+  // only these populate the Featured rail.
   canLaunch: boolean
   // Catalog entry present in the active workspace's MCP settings. Registry
   // install-state detection is out of this task's scope, so registry entries
@@ -71,18 +74,66 @@ export type ConnectorEntry = {
 // Ordered category → facet rules; first match wins. Keyed to the real
 // `resources/mcps/catalog.json` categories (Deployments, Code Hosting, Testing,
 // Observability, Database, Search, Documentation, Knowledge, Planning, Design,
-// Payments) plus common marketplace category words so registry plugins bucket
-// sensibly too. Payments is tested first so a "payments data" style label reads
-// as Payments rather than Data.
+// Payments), the HotStack controlled vocabulary the generated catalogue
+// carries (code, communication, data, design, development, productivity,
+// sales-marketing), plus common marketplace category words so registry plugins
+// bucket sensibly too. Payments is tested first so a "payments data" style
+// label reads as Payments rather than Data.
 const FACET_RULES: ReadonlyArray<{ facet: NamedFacet; test: RegExp }> = [
   { facet: 'Payments', test: /pay|billing|invoic|commerce|checkout|stripe/i },
   {
     facet: 'Infrastructure',
-    test: /deploy|infra|host|server|cloud|devops|ci\/?cd|container|docker|kubernet|observab|monitor|logging|testing/i,
+    test: /deploy|infra|host|server|cloud|devops|ci\/?cd|container|docker|kubernet|observab|monitor|logging|testing|develop|\bcode\b|security/i,
   },
-  { facet: 'Data', test: /data|\bdb\b|sql|warehouse|analytic|search|vector|storage/i },
-  { facet: 'Productivity', test: /plan|project|issue|task|ticket|knowledge|doc|design|calendar|email|chat|note|productiv|crm/i },
+  { facet: 'Data', test: /data|\bdb\b|sql|warehouse|analytic|search|vector|storage|\bmaps?\b|geospatial|\bai\b|\bmodels?\b/i },
+  {
+    facet: 'Productivity',
+    test: /plan|project|issue|task|ticket|knowledge|doc|design|calendar|email|chat|note|productiv|crm|communicat|market/i,
+  },
 ]
+
+// THE launchable-connector rule, in one place: a connector launches when the
+// catalog pairs a driving skill with it (Railway's model — launchable even
+// before install, the launch synthesizes its config from the catalog), or when
+// the user has it installed and enabled in MCP settings (plain connector chat:
+// isolated MCP, no seeded skill). Every surface that offers or performs a
+// launch — canLaunch below, the Ready-to-launch rail, the automation connector
+// picker, and resolveConnectorLaunch — expresses it through this predicate so
+// they cannot drift.
+export function connectorCanLaunch(skill: string | undefined, installed: boolean): boolean {
+  return Boolean(skill) || installed
+}
+
+// Present an installed (settings) MCP server as a catalog-shaped entry so the
+// Ready-to-launch rail renders one shape for both populations — catalog entries
+// and installed custom servers that have no catalog row at all. The settings
+// config is a superset of the catalog shape; only its settings-owned fields
+// (enabled/scope/source) are dropped.
+export function installedServerAsCatalogEntry(server: McpServerConfig): McpCatalogServer {
+  const { enabled: _enabled, scope: _scope, source: _source, ...catalogShaped } = server
+  return catalogShaped
+}
+
+// The merged launchable population behind the Ready-to-launch rail and the
+// automation connector picker: skill-paired catalog entries first, then every
+// installed+enabled server — the matching catalog entry when one exists
+// (icon/summary), else the installed config presented catalog-shaped. Takes the
+// catalog as a plain array so a failed catalog load (pass []) still surfaces
+// the installed servers, which launch without the catalog.
+export function launchableConnectors(
+  catalog: McpCatalogServer[],
+  installedServers: Record<string, McpServerConfig> | undefined,
+): McpCatalogServer[] {
+  const result = catalog.filter((server) => connectorCanLaunch(server.skill, false))
+  const seen = new Set(result.map((server) => server.id))
+  const catalogById = new Map(catalog.map((server) => [server.id, server]))
+  for (const config of Object.values(installedServers ?? {})) {
+    if (!config.enabled || seen.has(config.id)) continue
+    seen.add(config.id)
+    result.push(catalogById.get(config.id) ?? installedServerAsCatalogEntry(config))
+  }
+  return result
+}
 
 export function connectorFacet(category: string): NamedFacet {
   const value = category.trim()
@@ -105,6 +156,7 @@ export function buildConnectorEntries(
 ): ConnectorEntry[] {
   const catalogEntries: ConnectorEntry[] = catalog.map((server) => {
     const category = server.category?.trim() || 'Other'
+    const installed = installedServerIds.has(server.id)
     return {
       key: `catalog:${server.id}`,
       id: server.id,
@@ -115,8 +167,8 @@ export function buildConnectorEntries(
       tags: server.capabilities ?? [],
       componentLabels: componentKindLabels(catalogProvides(server)),
       facet: connectorFacet(category),
-      canLaunch: Boolean(server.skill),
-      installed: installedServerIds.has(server.id),
+      canLaunch: connectorCanLaunch(server.skill, installed),
+      installed,
       catalogServer: server,
     }
   })

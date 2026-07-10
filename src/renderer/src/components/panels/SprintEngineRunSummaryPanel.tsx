@@ -39,6 +39,16 @@ import {
   type SprintEngineTypeStat,
 } from '../../utils/sprintengineRunSummary'
 import { AgentActivityTimeline, IssueBars, ProgressRing, RunBurnupChart } from './runSummaryCharts'
+import {
+  describeTokenCoverage,
+  formatTokenCount,
+  tokenReportHasAgents,
+} from '../../utils/sprintengineTokenUsage'
+import { useSprintEngineTokenUsage } from '../../hooks/useSprintEngineTokenUsage'
+import type {
+  SprintEngineModelTokenUsage,
+  SprintEngineTokenUsageReport,
+} from '../../../../shared/sprintengine-token-usage'
 import { deriveSprintEngineRunGlyph, formatSprintEngineLockAge, getSprintEngineRoleLabel } from '../../utils/sprintengine'
 import CliIcon from '../CliIcon'
 import type {
@@ -199,6 +209,11 @@ export default function SprintEngineRunSummaryPanel({
     }
   }, [statePath, stateUpdatedAt])
 
+  // Token usage is computed main-side from the run's durable token ledger +
+  // projection, fetched on demand like the feedback analysis. A failed read
+  // renders no token section — never a fabricated zero.
+  const tokenUsage = useSprintEngineTokenUsage(statePath, stateUpdatedAt)
+
   const report = useMemo<SprintEngineRunReport | null>(
     () => (sprintEngineState ? buildRunReport(sprintEngineState, analysisState.analysis) : null),
     [sprintEngineState, analysisState.analysis]
@@ -315,6 +330,7 @@ export default function SprintEngineRunSummaryPanel({
             </SectionDivider>
           ) : null}
           <RunMetricsSection report={report} />
+          <TokenUsageSection report={tokenUsage} />
           {agentTypeSummary ? <AgentTypeSummarySection summary={agentTypeSummary} /> : null}
           <IssuesCaughtSection issueTotals={issueTotals} />
           <AgentBreakdownSection
@@ -1362,6 +1378,75 @@ function RunMetricsSection({ report }: { report: SprintEngineRunReport }) {
         <StatStrip cells={cells} columns="md:grid-cols-3" />
       </Section>
     </SectionDivider>
+  )
+}
+
+// Sprint token usage: one headline total with truthful coverage, plus the
+// per-model breakdown. Token counts only (dollar cost was rejected — prices
+// churn too fast to store honestly). An agent whose CLI has no readable token
+// source is called out as unmeasured rather than silently zeroed, and rows
+// from total-only CLIs (Grok) show no input/output split rather than a
+// fabricated one.
+function TokenUsageSection({ report }: { report: SprintEngineTokenUsageReport | null }) {
+  if (!report || !tokenReportHasAgents(report)) return null
+  const { run } = report
+  const coverageNote = describeTokenCoverage(run.coverage)
+
+  if (run.coverage.measuredAgents === 0) {
+    return (
+      <SectionDivider>
+        <Section title="Token usage" level={3}>
+          <div className="border-l-2 border-[color:var(--border-strong)] pl-3 text-[13px] leading-6 text-[color:var(--text-muted)]">
+            {coverageNote}
+          </div>
+        </Section>
+      </SectionDivider>
+    )
+  }
+
+  const cells: StatCell[] = [
+    { label: 'Total tokens', value: formatTokenCount(run.total.total) },
+    // When any contributing CLI is total-only the component fields undercount,
+    // so only the honest headline total is shown.
+    ...(run.total.split
+      ? [
+          { label: 'Input', value: formatTokenCount(run.total.input) },
+          { label: 'Output', value: formatTokenCount(run.total.output) },
+          { label: 'Cache read', value: formatTokenCount(run.total.cacheRead) },
+        ]
+      : []),
+  ]
+
+  return (
+    <SectionDivider>
+      <Section title="Token usage" level={3}>
+        {coverageNote ? (
+          <div className="mb-3 text-[12px] leading-5 text-[color:var(--text-muted)]">{coverageNote}</div>
+        ) : null}
+        <StatStrip cells={cells} columns="md:grid-cols-4" />
+        {run.perModel.length > 0 ? (
+          <div className="mt-3 space-y-1">
+            {run.perModel.map((row) => (
+              <ModelTokenRow key={row.model} row={row} />
+            ))}
+          </div>
+        ) : null}
+      </Section>
+    </SectionDivider>
+  )
+}
+
+function ModelTokenRow({ row }: { row: SprintEngineModelTokenUsage }) {
+  return (
+    <div className="flex flex-wrap items-baseline gap-x-3 gap-y-0.5 text-[12px] leading-5">
+      <span className="min-w-[10rem] font-medium text-[color:var(--text-default)]">{row.model}</span>
+      <span className="tabular-nums text-[color:var(--text-strong)]">{formatTokenCount(row.total)}</span>
+      <span className="tabular-nums text-[color:var(--text-muted)]">
+        {row.split
+          ? `${formatTokenCount(row.input)} in · ${formatTokenCount(row.output)} out · ${formatTokenCount(row.cacheRead)} cache read · ${formatTokenCount(row.cacheCreation)} cache write`
+          : 'no input/output breakdown from this CLI'}
+      </span>
+    </div>
   )
 }
 

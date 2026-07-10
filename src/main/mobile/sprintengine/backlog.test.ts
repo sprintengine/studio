@@ -142,6 +142,29 @@ run('readBacklogEpicChildren returns the active children pointing at a slug', as
   }
 })
 
+run('MC-1498: the epics block carries display id, color, title, and a done/total rollup', async () => {
+  const root = await setupWorkspace({
+    '.multi-code/backlog/config.json': JSON.stringify({ schemaVersion: 1, key: 'MC' }),
+    'backlog/epics/checkout.md': '---\ntype: epic\nid: 1493\ncolor: green\n---\n# Checkout epic\n',
+    'backlog/cart.md': '---\nstatus: completed\nepic: checkout\n---\n# Cart\n',
+    'backlog/pay.md': '---\nstatus: ready\nepic: checkout\n---\n# Pay\n',
+    'backlog/loose.md': '---\nstatus: ready\n---\n# Loose\n',
+  })
+  try {
+    const snapshot = await readMobileBacklogWorkspaceSnapshot(root, generatedAt)
+    assert.ok(snapshot)
+    const checkout = snapshot.epics?.find((epic) => epic.slug === 'checkout')
+    assert.ok(checkout, 'the epics block includes the checkout epic')
+    assert.equal(checkout.displayId, 'MC-1493')
+    assert.equal(checkout.color, 'green')
+    assert.equal(checkout.title, 'Checkout epic')
+    assert.equal(checkout.totalCount, 2)
+    assert.equal(checkout.doneCount, 1)
+  } finally {
+    await rm(root, { force: true, recursive: true })
+  }
+})
+
 async function main(): Promise<void> {
   for (const test of tests) {
     try {

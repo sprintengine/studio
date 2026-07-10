@@ -1,4 +1,4 @@
-import { mkdir, readFile, writeFile } from 'node:fs/promises'
+import { mkdir, readFile, stat, writeFile } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
 
 import type {
@@ -10,6 +10,7 @@ import {
   parseMarketplaceIndex,
   validateMarketplaceIndex,
   type MarketplaceIndex,
+  type MarketplaceManifestIssue,
 } from '../../shared/marketplace'
 import { findMarketplaceResourcePath } from './resources'
 
@@ -30,6 +31,16 @@ export function configuredMarketplaceRegistryUrl(env: NodeJS.ProcessEnv = proces
   return DEFAULT_MARKETPLACE_REGISTRY_URL
 }
 
+/**
+ * With no override configured the registry is served bundled-first: the
+ * packaged marketplace.json is generated from the HotStack catalogue snapshot
+ * (scripts/generate-connector-catalogue.mjs) and committed, so the normal
+ * case needs no network and must not render as a degraded/offline notice.
+ */
+export function isMarketplaceRegistryOverrideConfigured(env: NodeJS.ProcessEnv = process.env): boolean {
+  return Boolean(env.MULTICODE_MARKETPLACE_REGISTRY_URL?.trim())
+}
+
 export type MarketplaceRegistryFetch = (url: string, init: RequestInit) => Promise<Response>
 
 export type MarketplaceRegistryClientOptions = {
@@ -40,6 +51,13 @@ export type MarketplaceRegistryClientOptions = {
   now?: () => Date
   packagedSeedPath?: string | null
   usePackagedSeedFallback?: boolean
+  /**
+   * Serve the packaged seed directly (source 'bundled', state 'ok') instead
+   * of fetching — the default when no MULTICODE_MARKETPLACE_REGISTRY_URL
+   * override is configured. Falls through to the remote path only if the
+   * packaged seed is missing or unreadable.
+   */
+  preferBundledSeed?: boolean
 }
 
 type RegistryCacheFile = {
@@ -62,6 +80,17 @@ export class MarketplaceRegistryClient {
   private readonly now: () => Date
   private readonly packagedSeedPath: string | null | undefined
   private readonly usePackagedSeedFallback: boolean
+  private readonly preferBundledSeed: boolean
+  private seedCache:
+    | {
+        path: string
+        mtimeMs: number
+        result:
+          | { ok: true; marketplace: MarketplaceIndex; dataAt: string }
+          | { ok: false; issues: MarketplaceManifestIssue[] }
+          | null
+      }
+    | undefined
 
   constructor(options: MarketplaceRegistryClientOptions) {
     this.registryUrl = options.registryUrl ?? DEFAULT_MARKETPLACE_REGISTRY_URL
@@ -71,9 +100,16 @@ export class MarketplaceRegistryClient {
     this.now = options.now ?? (() => new Date())
     this.packagedSeedPath = options.packagedSeedPath
     this.usePackagedSeedFallback = options.usePackagedSeedFallback ?? true
+    this.preferBundledSeed = options.preferBundledSeed ?? false
   }
 
   async read(input: MarketplaceRegistryReadInput = {}): Promise<MarketplaceRegistryReadResult> {
+    if (this.preferBundledSeed) {
+      const bundled = await this.readBundledSeed()
+      if (bundled) return bundled
+      // A packaged build always carries the seed; if it is unreadable,
+      // degrade to the remote flow rather than failing outright.
+    }
     const registryUrl = this.registryUrl.trim()
     const parsedUrl = parseHttpsUrl(registryUrl)
     if (!parsedUrl.ok) {
@@ -236,25 +272,78 @@ export class MarketplaceRegistryClient {
     }
   }
 
-  private async readPackagedSeed(registryUrl: string, failureMessage: string): Promise<MarketplaceRegistryReadResult | null> {
+  /**
+   * Read + validate the packaged seed, cached by file mtime: the seed is
+   * immutable in packaged builds (and rarely regenerated in dev), while the
+   * bundled-first default makes this a per-panel-open path — re-reading and
+   * re-validating 258 icon-laden entries every call is pure waste. The mtime
+   * doubles as the honest "data as of" timestamp for bundled reads.
+   */
+  private async loadPackagedSeed(): Promise<
+    | { ok: true; marketplace: MarketplaceIndex; dataAt: string }
+    | { ok: false; issues: MarketplaceManifestIssue[] }
+    | null
+  > {
     const seedPath = this.resolvePackagedSeedPath()
     if (!seedPath) return null
 
-    let source: string
+    let mtimeMs: number
     try {
-      source = await readFile(seedPath, 'utf8')
+      mtimeMs = (await stat(seedPath)).mtimeMs
     } catch {
       return null
     }
+    if (this.seedCache && this.seedCache.path === seedPath && this.seedCache.mtimeMs === mtimeMs) {
+      return this.seedCache.result
+    }
 
-    const parsed = parseMarketplaceIndex(source)
-    if (!parsed.ok) {
+    let result: Awaited<ReturnType<MarketplaceRegistryClient['loadPackagedSeed']>>
+    try {
+      const source = await readFile(seedPath, 'utf8')
+      const parsed = parseMarketplaceIndex(source)
+      result = parsed.ok
+        ? { ok: true, marketplace: parsed.marketplace, dataAt: new Date(mtimeMs).toISOString() }
+        : { ok: false, issues: parsed.issues }
+    } catch {
+      result = null
+    }
+    this.seedCache = { path: seedPath, mtimeMs, result }
+    return result
+  }
+
+  /**
+   * The bundled-default read: the packaged seed IS the registry, served as a
+   * healthy result — never as an offline/degraded notice. `fetchedAt` is the
+   * seed file's mtime, not now(): the data is as old as the build, and a
+   * user-initiated refresh must not report frozen data as freshly fetched.
+   * Returns null when the seed is missing or unparseable so read() can fall
+   * through to the remote flow.
+   */
+  private async readBundledSeed(): Promise<MarketplaceRegistryReadResult | null> {
+    const seed = await this.loadPackagedSeed()
+    if (!seed || !seed.ok) return null
+
+    return {
+      ok: true,
+      state: seed.marketplace.plugins.length > 0 ? 'ok' : 'empty',
+      registryUrl: this.registryUrl.trim(),
+      source: 'bundled',
+      stale: false,
+      fetchedAt: seed.dataAt,
+      marketplace: seed.marketplace,
+    }
+  }
+
+  private async readPackagedSeed(registryUrl: string, failureMessage: string): Promise<MarketplaceRegistryReadResult | null> {
+    const seed = await this.loadPackagedSeed()
+    if (!seed) return null
+    if (!seed.ok) {
       return {
         ok: false,
         state: 'invalid-schema',
         registryUrl,
         stale: false,
-        issues: parsed.issues,
+        issues: seed.issues,
         message: 'Packaged marketplace registry seed is invalid.',
       }
     }
@@ -266,7 +355,7 @@ export class MarketplaceRegistryClient {
       source: 'seed',
       stale: false,
       fetchedAt: this.now().toISOString(),
-      marketplace: parsed.marketplace,
+      marketplace: seed.marketplace,
       message: `${failureMessage} Showing packaged marketplace registry seed.`,
     }
   }

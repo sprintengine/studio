@@ -227,15 +227,22 @@ def test_publish_returns_the_contextual_phase_directive_inline(tmp_path) -> None
             "No other agent will review it.",
             "Task: `T1` - Implement reviewed feature",
             "Phase: `review`",
-            "Acceptance Criteria",
-            "CLI exposes the feature.",
-            "Open Feedback (address before you advance)",
-            "Older feedback should be below newer feedback.",
+            # Item 1566: the directive references the card and the response's
+            # openFeedback delta instead of re-serializing their bodies.
+            "Review against your task card's acceptance criteria and the plan.",
+            "open feedback comment(s) on this response",
             'Close this phase with `sprintengine.task.advance` `{ taskId: "T1", phase: "review", outcome, summary }`.',
         ],
     )
-    # No gate vocabulary survives into the directive the owner reads.
     directive = payload["nextDirective"]
+    # Bodies the owner already holds are not re-listed in the directive...
+    assert "CLI exposes the feature." not in directive
+    assert "Older feedback should be below newer feedback." not in directive
+    # ...but the full task (with its comments) still rides the publish payload,
+    # so no channel loses the feedback bodies.
+    bodies = [comment.get("body") for comment in payload["task"]["comments"]]
+    assert "Older feedback should be below newer feedback." in bodies
+    # No gate vocabulary survives into the directive the owner reads.
     assert "Gate:" not in directive
     assert "Prior Gate Attempts" not in directive
     assert "sprintengine.gate." not in directive
@@ -272,6 +279,35 @@ def test_phase_respawn_brief_rebuilds_the_context_a_cold_owner_lost(tmp_path) ->
     )
 
 
+def test_phase_respawn_brief_caps_evidence_and_diff_lists(tmp_path) -> None:
+    """Item 1566: the cold-start brief is bounded — long evidence logs and huge
+    diffs elide with explicit markers instead of dumping unbounded text."""
+    from sprintengine_core.tool.phase_prompts import build_phase_respawn_brief
+
+    record = reviewing_task()
+    record["description"] = "D" * 2_000
+    record["evidence"]["results"] = [f"result {index}" for index in range(25)]
+    record["evidence"]["diffs"] = [
+        {"path": f"src/file_{index}.py", "status": "modified", "additions": 1, "deletions": 0}
+        for index in range(120)
+    ]
+    fixture = create_team(tmp_path, "phase-respawn-caps", [record])
+    state = read_state(fixture.state_path)
+    task_record = next(item for item in state["tasks"] if item["id"] == "T1")
+
+    brief = build_phase_respawn_brief(state, fixture.state_path, task_record, "review")
+
+    assert "15 earlier result entries elided" in brief
+    assert "result 24" in brief and "result 5" not in brief
+    assert "20 more changed files elided" in brief
+    assert "src/file_99.py" in brief and "src/file_100.py" not in brief
+    # Long prose truncates at the respawn text limit rather than riding whole.
+    assert "D" * 2_000 not in brief
+    # Acceptance criteria now ride the brief (the inline directive references
+    # the card instead of re-listing them, and a cold owner has no card yet).
+    assert "Acceptance: CLI exposes the feature." in brief
+
+
 def test_phase_directive_is_composed_from_the_shared_review_base_pack(tmp_path) -> None:
     """The base pack is resolved through the role registry, so a workspace can
     shadow `sprintengine_phase_review` and change the review lens run-wide."""
@@ -298,9 +334,10 @@ def test_phase_directive_is_composed_from_the_shared_review_base_pack(tmp_path) 
     assert body_line in payload["nextDirective"]
 
 
-def test_task_next_rework_prompt_orders_open_feedback_newest_first(tmp_path) -> None:
-    """Feedback is a flat, newest-first queue: with no gates there is nothing to
-    group by, and the only open feedback left is the human Inbox loop."""
+def test_task_next_rework_prompt_references_feedback_without_relisting(tmp_path) -> None:
+    """Item 1566: the claim response serializes feedback bodies ONCE — on the task
+    card — and the rework prompt names the queue instead of re-listing it. The
+    card/raw-task channel keeps the newest-first bodies."""
     record = reviewing_task()
     record["status"] = "todo"
     record["ownerAgentId"] = None
@@ -321,10 +358,15 @@ def test_task_next_rework_prompt_orders_open_feedback_newest_first(tmp_path) -> 
 
     assert payload["ok"] is True
     prompt = payload["prompt"]
-    assert "Open Feedback (newest first)" in prompt
+    assert "openFeedback" in prompt and "newest first" in prompt
     assert "grouped by gate" not in prompt
     assert "### Gate `" not in prompt
-    assert prompt.index("Newest feedback should be handled first.") < prompt.index("Older feedback should be below newer feedback.")
+    # Bodies are not duplicated into the prompt...
+    assert "Newest feedback should be handled first." not in prompt
+    assert "Older feedback should be below newer feedback." not in prompt
+    # ...they stay on the task payload the same response carries.
+    bodies = [comment.get("body") for comment in payload["task"]["comments"]]
+    assert "Newest feedback should be handled first." in bodies
     assert "publish with `sprintengine.task.publish`" in prompt
 
 

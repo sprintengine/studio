@@ -1,4 +1,7 @@
 import { registerSprintEngineIpc } from '../ipc/sprintengine-ipc'
+import { computeSprintEngineTokenUsageReport, tokenLedgerVersion } from '../sprintengine-token-usage'
+import { sprintTokenUsageDeps } from '../sprintengine-token-sampling'
+import type { SprintEngineTokenUsageReport } from '../../shared/sprintengine-token-usage'
 import { SprintEngineArtifactsToken, SprintEngineAutomationFrontDoorsToken, SprintEngineMcpHubToken } from '../module-host/service-tokens'
 import type { CapabilityModule } from '../module-host/load-modules'
 import type { SidecarRunState } from '../module-host/main-host'
@@ -79,8 +82,40 @@ export const sprintEngineModule: CapabilityModule = {
       readRegistryRole: artifacts.readRegistryRole,
       readDispatch: artifacts.readDispatch,
       summarizeFeedback: artifacts.summarizeFeedback,
+      readTokenUsage: ({ statePath }) => readTokenUsageCached(statePath),
     })
   },
+}
+
+// The token report re-reads CLI session files (bounded by the adapters' own
+// mtime-keyed parse memos, but still per-session stat calls), and both the run
+// summary panel and the task inspector request it on every projection tick, so
+// a short TTL cache absorbs render storms. A cache entry is additionally keyed
+// on the run's ledger write-counter: a teardown/session-end sample landing
+// right after run completion invalidates the cached report immediately instead
+// of pinning pre-completion numbers for the panel's final refetch. The compute
+// itself never throws (missing ledger/projection degrade to an empty,
+// unmeasured report).
+const TOKEN_USAGE_CACHE_TTL_MS = 15_000
+const tokenUsageCache = new Map<
+  string,
+  { at: number; ledgerVersion: number; report: Promise<SprintEngineTokenUsageReport> }
+>()
+
+function readTokenUsageCached(statePath: string): Promise<SprintEngineTokenUsageReport> {
+  const now = Date.now()
+  const ledgerVersion = tokenLedgerVersion(statePath)
+  const cached = tokenUsageCache.get(statePath)
+  if (cached && now - cached.at < TOKEN_USAGE_CACHE_TTL_MS && cached.ledgerVersion === ledgerVersion) {
+    return cached.report
+  }
+  const report = computeSprintEngineTokenUsageReport(statePath, sprintTokenUsageDeps())
+  tokenUsageCache.set(statePath, { at: now, ledgerVersion, report })
+  // Drop stale entries so long sessions do not accumulate one per run forever.
+  for (const [key, entry] of tokenUsageCache) {
+    if (now - entry.at >= TOKEN_USAGE_CACHE_TTL_MS && key !== statePath) tokenUsageCache.delete(key)
+  }
+  return report
 }
 
 const HUB_STATE_TO_SIDECAR_STATE: Record<SprintEngineMcpHubStatus['state'], SidecarRunState> = {

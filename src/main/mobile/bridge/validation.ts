@@ -17,6 +17,8 @@ const MOBILE_CONTROL_CAPABILITIES: MobileControlCapability[] = [
   'backlog.update',
   'backlog.start',
   'backlog.create',
+  'sprintengines.pr',
+  'sprintengines.automation',
 ]
 
 export function isMobileControlDevice(input: unknown): input is MobileControlDevice {

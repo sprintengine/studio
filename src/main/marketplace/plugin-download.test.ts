@@ -17,6 +17,7 @@ import {
   signManifest,
 } from '../../../packages/module-sdk/src/signing'
 import {
+  downloadClaudeCodePluginSource,
   downloadMarketplacePluginBundle,
   type MarketplacePluginDownloadFetch,
 } from './plugin-download'
@@ -638,6 +639,212 @@ function testCliAndAppRejectSameTamperedModuleBytes(): void {
   }
 }
 
+
+// --- Claude Code plugin sources (MC-1561) -----------------------------------
+
+const CLAUDE_ENTRY: MarketplacePluginEntry = {
+  id: 'acme-skills',
+  name: 'skills',
+  publisher: { name: 'Acme', verified: false },
+  summary: 'Acme skills plugin.',
+  category: 'Development',
+  icon: 'data:image/svg+xml;base64,PHN2Zy8+',
+  latest: 1,
+  provides: ['skills'],
+  tags: ['claude-plugin'],
+  source: 'https://github.com/acme/skills',
+}
+
+const CLAUDE_MANIFEST = JSON.stringify({ name: 'acme-skills', description: 'Skills for Acme.', version: '1.0.0' })
+
+// Serves a Claude plugin repo shape over the GitHub contents API: a
+// `.claude-plugin/plugin.json` and a `skills/` dir of skill folders, rooted at
+// `pathPrefix` ('' = repo root, 'plugins/foo' = pinned monorepo subtree).
+function createClaudeGithubFetcher(options: {
+  repo?: string
+  ref?: string
+  resolvedSha?: string
+  pathPrefix?: string
+  manifestBody?: string | null
+  skillFolders?: Record<string, Record<string, string>> | null
+}): MarketplacePluginDownloadFetch {
+  const repo = options.repo ?? 'acme/skills'
+  // Mutable refs resolve to a commit before the walk, so the fake serves the
+  // commits endpoint and keys every contents URL on the RESOLVED sha.
+  const requestedRef = options.ref ?? 'HEAD'
+  const resolvedSha = options.resolvedSha ?? 'f'.repeat(40)
+  const ref = /^[a-f0-9]{40}$/.test(requestedRef) ? requestedRef : resolvedSha
+  const prefix = options.pathPrefix ? `${options.pathPrefix}/` : ''
+  const manifestBody = options.manifestBody === undefined ? CLAUDE_MANIFEST : options.manifestBody
+  const skillFolders = options.skillFolders === undefined
+    ? { alpha: { 'SKILL.md': '---\nname: alpha\n---\n' }, beta: { 'SKILL.md': '---\nname: beta\n---\n' } }
+    : options.skillFolders
+  const api = (path: string) => `https://api.github.com/repos/${repo}/contents/${path}?ref=${ref}`
+  const raw = (path: string) => `https://raw.githubusercontent.com/${repo}/${ref}/${path}`
+  const rawBodies = new Map<string, string>()
+  if (manifestBody !== null) rawBodies.set(raw(`${prefix}.claude-plugin/plugin.json`), manifestBody)
+  for (const [folder, files] of Object.entries(skillFolders ?? {})) {
+    for (const [file, body] of Object.entries(files)) {
+      rawBodies.set(raw(`${prefix}skills/${folder}/${file}`), body)
+    }
+  }
+  return async (url) => {
+    if (url === `https://api.github.com/repos/${repo}/commits/${encodeURIComponent(requestedRef)}`) {
+      return jsonResponse({ sha: resolvedSha })
+    }
+    if (url === api(`${prefix}.claude-plugin`)) {
+      if (manifestBody === null) return new Response('not found', { status: 404 })
+      return jsonResponse([
+        { type: 'file', path: `${prefix}.claude-plugin/plugin.json`, download_url: raw(`${prefix}.claude-plugin/plugin.json`) },
+      ])
+    }
+    if (url === api(`${prefix}skills`)) {
+      if (skillFolders === null) return new Response('not found', { status: 404 })
+      return jsonResponse(
+        Object.keys(skillFolders).map((folder) => ({
+          type: 'dir',
+          path: `${prefix}skills/${folder}`,
+          url: api(`${prefix}skills/${folder}`),
+        }))
+      )
+    }
+    for (const [folder, files] of Object.entries(skillFolders ?? {})) {
+      if (url !== api(`${prefix}skills/${folder}`)) continue
+      return jsonResponse(
+        Object.keys(files).map((file) => ({
+          type: 'file',
+          path: `${prefix}skills/${folder}/${file}`,
+          download_url: raw(`${prefix}skills/${folder}/${file}`),
+        }))
+      )
+    }
+    const body = rawBodies.get(url)
+    if (body !== undefined) return new Response(body)
+    return new Response('not found', { status: 404 })
+  }
+}
+
+async function testClaudePluginRepoRootSourceStagesSkills(): Promise<void> {
+  await withTempDir(async (stagingRoot) => {
+    const download = await downloadClaudeCodePluginSource({
+      entry: CLAUDE_ENTRY,
+      stagingRoot,
+      fetcher: createClaudeGithubFetcher({}),
+    })
+    assert.equal(download.ok, true, JSON.stringify(download))
+    if (!download.ok) return
+    try {
+      assert.deepEqual(download.skillDirs, ['alpha', 'beta'])
+      assert.equal(download.claudeName, 'acme-skills')
+      assert.equal(await readFile(join(download.stagedPath, 'skills', 'alpha', 'SKILL.md'), 'utf8'), '---\nname: alpha\n---\n')
+    } finally {
+      await rm(download.stagedPath, { recursive: true, force: true })
+    }
+  })
+}
+
+async function testClaudePluginPinnedSubtreeSourceStagesSkills(): Promise<void> {
+  await withTempDir(async (stagingRoot) => {
+    const sha = 'a'.repeat(40)
+    const download = await downloadClaudeCodePluginSource({
+      entry: { ...CLAUDE_ENTRY, source: `https://github.com/acme/mono/tree/${sha}/plugins/foo` },
+      stagingRoot,
+      fetcher: createClaudeGithubFetcher({ repo: 'acme/mono', ref: sha, pathPrefix: 'plugins/foo' }),
+    })
+    assert.equal(download.ok, true, JSON.stringify(download))
+    if (!download.ok) return
+    try {
+      assert.deepEqual(download.skillDirs, ['alpha', 'beta'])
+      // Subtree paths stage bundle-relative (prefix stripped).
+      assert.equal(existsSync(join(download.stagedPath, 'skills', 'beta', 'SKILL.md')), true)
+    } finally {
+      await rm(download.stagedPath, { recursive: true, force: true })
+    }
+  })
+}
+
+
+async function testClaudePluginMutableRefResolvesToCommit(): Promise<void> {
+  await withTempDir(async (stagingRoot) => {
+    const sha = 'f'.repeat(40)
+    const download = await downloadClaudeCodePluginSource({
+      entry: CLAUDE_ENTRY,
+      stagingRoot,
+      fetcher: createClaudeGithubFetcher({ resolvedSha: sha }),
+    })
+    assert.equal(download.ok, true, JSON.stringify(download))
+    if (!download.ok) return
+    try {
+      // The walk fetched the resolved commit, and the result reports it so the
+      // trust prompt's listing and the later install can share one pin.
+      assert.equal(download.resolvedRef, sha)
+    } finally {
+      await rm(download.stagedPath, { recursive: true, force: true })
+    }
+  })
+}
+
+async function testClaudePluginRefOverridePinsInstallToDisclosedCommit(): Promise<void> {
+  await withTempDir(async (stagingRoot) => {
+    const pinned = 'e'.repeat(40)
+    // The fake serves ONLY the pinned sha; if the download re-resolved HEAD it
+    // would fetch a different ref and 404.
+    const download = await downloadClaudeCodePluginSource({
+      entry: CLAUDE_ENTRY,
+      stagingRoot,
+      refOverride: pinned,
+      fetcher: createClaudeGithubFetcher({ ref: pinned }),
+    })
+    assert.equal(download.ok, true, JSON.stringify(download))
+    if (!download.ok) return
+    try {
+      assert.equal(download.resolvedRef, pinned)
+    } finally {
+      await rm(download.stagedPath, { recursive: true, force: true })
+    }
+  })
+}
+
+async function testClaudePluginWithoutManifestRefused(): Promise<void> {
+  await withTempDir(async (stagingRoot) => {
+    const download = await downloadClaudeCodePluginSource({
+      entry: CLAUDE_ENTRY,
+      stagingRoot,
+      fetcher: createClaudeGithubFetcher({ manifestBody: null }),
+    })
+    assert.equal(download.ok, false)
+    if (!download.ok) assert.match(download.message, /not a Claude Code plugin/)
+    // Nothing staged is left behind on refusal.
+    assert.deepEqual(await readdir(stagingRoot), [])
+  })
+}
+
+async function testClaudePluginWithoutSkillsRefused(): Promise<void> {
+  await withTempDir(async (stagingRoot) => {
+    const download = await downloadClaudeCodePluginSource({
+      entry: CLAUDE_ENTRY,
+      stagingRoot,
+      fetcher: createClaudeGithubFetcher({ skillFolders: null }),
+    })
+    assert.equal(download.ok, false)
+    if (!download.ok) assert.match(download.message, /bundles no skills/)
+    assert.deepEqual(await readdir(stagingRoot), [])
+  })
+}
+
+async function testClaudePluginInvalidManifestRefused(): Promise<void> {
+  await withTempDir(async (stagingRoot) => {
+    const download = await downloadClaudeCodePluginSource({
+      entry: CLAUDE_ENTRY,
+      stagingRoot,
+      fetcher: createClaudeGithubFetcher({ manifestBody: '{"description":"nameless"}' }),
+    })
+    assert.equal(download.ok, false)
+    if (!download.ok) assert.match(download.message, /plugin\.json is invalid/)
+    assert.deepEqual(await readdir(stagingRoot), [])
+  })
+}
+
 async function main(): Promise<void> {
   await testVerifiedFirstPartyDownloadStagesBundle()
   await testUnavailableGithubSourceFallsBackToPackagedSeedBundle()
@@ -655,6 +862,13 @@ async function main(): Promise<void> {
   await testForeignPerFileDownloadUrlRejectedMidDownload()
   await testNonCanonicalOwnerGithubSourceDownloads()
   testCliAndAppRejectSameTamperedModuleBytes()
+  await testClaudePluginRepoRootSourceStagesSkills()
+  await testClaudePluginPinnedSubtreeSourceStagesSkills()
+  await testClaudePluginMutableRefResolvesToCommit()
+  await testClaudePluginRefOverridePinsInstallToDisclosedCommit()
+  await testClaudePluginWithoutManifestRefused()
+  await testClaudePluginWithoutSkillsRefused()
+  await testClaudePluginInvalidManifestRefused()
   console.log('marketplace plugin download tests passed')
 }
 

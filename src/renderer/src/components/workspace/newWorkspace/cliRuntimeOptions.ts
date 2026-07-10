@@ -76,6 +76,10 @@ const BUNDLED_AGENT_MODEL_CATALOGS: Record<AgentCli, PluginModelCatalog> = {
     options: [],
     allowCustomId: true,
   },
+  grok: {
+    options: [],
+    allowCustomId: true,
+  },
 }
 
 export function labelForCliRuntime(cli: AgentCli): string {
