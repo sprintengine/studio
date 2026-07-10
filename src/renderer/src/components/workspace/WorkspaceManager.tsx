@@ -841,12 +841,25 @@ export default function WorkspaceManager() {
   // kickoff prompt naming the attached server instead. Exactly one worktree per
   // connector chat — a new id (and so a new worktree) is minted on every
   // invocation. This is the single connector runtime: Railway's Command Palette
-  // entry, the Connectors surface, and connector automations all funnel through it.
-  const launchConnectorChat = useCallback(async (serverId: string) => {
+  // entry, the Connectors surface, connector automations, and the New-chat
+  // composer's "+ Connector" attachment all funnel through it.
+  const launchConnectorChat = useCallback(async (
+    serverId: string,
+    // Composer overrides (the "+ Connector" attachment): the panel's chosen
+    // project as the worktree base, the picked engine, an optional specialist
+    // identity, and a "+ Skill" attachment. Absent (palette, Connectors
+    // surface, automations) the launch is the plain General connector chat.
+    composed?: {
+      folderPath?: string | null
+      cli?: AgentCli
+      specialistId?: SpecialistActionId
+      skill?: WorkspaceSkill
+    },
+  ) => {
     const connectorError = (title: string, message: string) =>
       publishDiagnosticSync({ level: 'error', source: 'workspace', title, message })
 
-    const baseFolderPath = activeWorkspace?.folderPath
+    const baseFolderPath = composed?.folderPath ?? activeWorkspace?.folderPath
     if (!baseFolderPath) {
       connectorError('Connector needs a project', 'Open a project folder before launching a connector chat.')
       return
@@ -885,15 +898,18 @@ export default function WorkspaceManager() {
     }
 
     // Same CLI/model resolution as a plain New chat, so the connector rides the
-    // General engine default. The skill invocation is CLI-native (e.g.
-    // `/use-railway` vs `Use $use-railway.`); when the CLI declares no native
-    // skill support connectorStartupPrompt falls back to the plain instruction.
+    // spawning agent's engine default (General, or the composed specialist's).
+    // The skill invocation is CLI-native (e.g. `/use-railway` vs
+    // `Use $use-railway.`); when the CLI declares no native skill support
+    // connectorStartupPrompt falls back to the plain instruction.
+    const specialist = composed?.specialistId ? getSpecialistAction(composed.specialistId) : null
+    const engineKey = specialist ? specialist.id : GENERAL_AGENT_ENGINE_KEY
     const cli = resolveTemplateAgentCli(
-      specialistCliDefaults[GENERAL_AGENT_ENGINE_KEY],
+      composed?.cli ?? specialistCliDefaults[engineKey],
       lastSelectedCli,
       agentCliCatalog,
     )
-    const cliModel = resolveSurfaceModel(cli, specialistModelDefaults[GENERAL_AGENT_ENGINE_KEY])
+    const cliModel = resolveSurfaceModel(cli, specialistModelDefaults[engineKey])
     const invocation = skillId
       ? resolveSkillInvocation(
           pluginCatalogEntries.find((entry) => entry.id === cli)?.skillIntegration,
@@ -901,13 +917,19 @@ export default function WorkspaceManager() {
         )
       : undefined
     // With a driving skill the seeded turn runs its playbook; a plain MCP chat
-    // has none, so the kickoff just states which server is attached.
-    const startupPrompt = connectorStartupPrompt(
+    // has none, so the kickoff just states which server is attached. A composed
+    // specialist keeps its role prompt as the seeded turn instead — the
+    // connector still arrives via the isolated MCP config and skill install.
+    const connectorPrompt = connectorStartupPrompt(
       invocation,
       skillId
         ? `Show me my ${server.name} setup and flag anything that needs attention.`
         : `The ${server.name} MCP server is attached to this chat. Confirm you can reach it, then show me what it can do.`,
     )
+    const tabName = specialist ? pickRandomAgentName([]) : null
+    const startupPrompt = specialist && tabName
+      ? prependAgentIdentifier(buildSpecialistSoulStartupPrompt(specialist), tabName, specialist.shortLabel)
+      : connectorPrompt
 
     createSoloChatWorkspace({
       folderPath: worktreeResult.data.path,
@@ -915,20 +937,48 @@ export default function WorkspaceManager() {
       name: `${server.name} · ${uid}`,
       templateAgentCli: cli,
       seedAgent: {
+        ...(tabName ? { tabName } : {}),
         agentPatch: {
+          ...(specialist && tabName
+            ? {
+                name: tabName,
+                cli,
+                kind: 'specialist' as const,
+                specialistId: specialist.id,
+                cliOnboardingPromptSent: false,
+                cliHasLaunched: false,
+                cliResumeAvailable: false,
+              }
+            : {}),
           ...(cliModel ? { cliModel } : {}),
+          // The composer surfaces the permission preset + debug controls, so a
+          // composed launch honors them like every other new-chat spawn; the
+          // preset-less legacy entry points keep their behavior.
+          ...(composed
+            ? { cliPermissionPreset: agentSpawnPermissionPreset, debugMode: agentSpawnDebugMode }
+            : {}),
           connectorMcpSettings: mcpSettings,
           ...(skillId ? { connectorSkillId: skillId } : {}),
           cliStartupPrompt: startupPrompt,
+          ...(composed?.skill
+            ? skillSpawnAgentPatch(
+                composed.skill,
+                pluginCatalogEntries.find((entry) => entry.id === cli)?.skillIntegration,
+              )
+            : {}),
         },
       },
     })
+    if (composed && agentSpawnDebugMode) setAgentSpawnDebugMode(false)
   }, [
     activeWorkspace?.folderPath,
     agentCliCatalog,
+    agentSpawnDebugMode,
+    agentSpawnPermissionPreset,
     createSoloChatWorkspace,
     lastSelectedCli,
     pluginCatalogEntries,
+    setAgentSpawnDebugMode,
     specialistCliDefaults,
     specialistModelDefaults,
   ])
@@ -2042,10 +2092,32 @@ export default function WorkspaceManager() {
         pickNewChatTerminal(folderPath)
         break
       case 'specialist':
-        pickNewChatSpecialist(confirm.specialistId, confirm.cli, folderPath, confirm.skill)
+        // A "+ Connector" attachment routes through the connector-chat runtime
+        // (isolated worktree, single-server MCP) with the composed identity;
+        // the agent memory still records the picked agent, not the connector.
+        if (confirm.connector) {
+          setLastNewChatAgent({ kind: 'specialist', specialistId: confirm.specialistId })
+          void launchConnectorChat(confirm.connector.id, {
+            folderPath,
+            cli: confirm.cli,
+            specialistId: confirm.specialistId,
+            skill: confirm.skill,
+          })
+        } else {
+          pickNewChatSpecialist(confirm.specialistId, confirm.cli, folderPath, confirm.skill)
+        }
         break
       case 'general':
-        pickNewChatGeneral(confirm.cli, folderPath, confirm.skill)
+        if (confirm.connector) {
+          setLastNewChatAgent({ kind: 'general' })
+          void launchConnectorChat(confirm.connector.id, {
+            folderPath,
+            cli: confirm.cli,
+            skill: confirm.skill,
+          })
+        } else {
+          pickNewChatGeneral(confirm.cli, folderPath, confirm.skill)
+        }
         break
       default:
         // The New Chat panel is specialist-mode with no conversation/multiloop
