@@ -226,15 +226,13 @@ for (const [id, expectedTemplate] of Object.entries(expectedTemplates)) {
   assert.deepEqual(host.getWorkspaceType(id)?.createTemplate(), expectedTemplate, `${id} template stays unchanged`)
 }
 
-assert.deepEqual(
-  host.getWorkspaceType('sprintengine')?.supervisors?.map((supervisor) => ({
-    scope: supervisor.scope,
-    hasComponent: Boolean(supervisor.Component),
-  })),
-  [
-    { scope: 'global', hasComponent: true },
-  ],
-  'Sprint Engine owns its global auto-run supervisor contribution',
+// The Sprint Engine auto-run supervisor is retired (sprint-runtime-ownership
+// Phase 3): scheduling and session reconcile run in the main-process scheduler
+// (src/main/sprint-runtime.ts); the renderer contributes NO supervisor.
+assert.equal(
+  host.getWorkspaceType('sprintengine')?.supervisors,
+  undefined,
+  'Sprint Engine contributes no renderer supervisor (main-process scheduler owns auto-run)',
 )
 assert.deepEqual(
   host.getWorkspaceType('multiloop')?.supervisors?.map((supervisor) => ({
@@ -248,7 +246,7 @@ assert.deepEqual(
 )
 assert.deepEqual(
   collectWorkspaceTypeSupervisors(host.getWorkspaceTypes(), true).map((supervisor) => supervisor.key),
-  ['sprintengine:global:0', 'multiloop:global:0'],
+  ['multiloop:global:0'],
   'primary workspace window mounts global supervisor contributions in registry order (automations mounts its observer directly)',
 )
 assert.deepEqual(

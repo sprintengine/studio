@@ -51,6 +51,7 @@ import {
 import type { SprintEngineAutomationIntentRecord } from '../shared/sprintengine/automation-intent'
 import {
   buildSprintEngineAgentRosterForState,
+  isCompletedSprintEngineRun,
   normalizeSprintEngineProjection,
   resolveSprintEngineAgentRuntime,
 } from '../shared/sprintengine/state'
@@ -411,6 +412,21 @@ export function createSprintRuntime(deps: SprintRuntimeDeps) {
         if (!normalized) return { status: 'error', message: 'Projection could not be normalized.' }
         target.view.sprintEngineState = normalized
         reconcileViewAgents(target.view, normalized)
+        // Scope expansion re-arms completion teardown (Phase 3): when a
+        // completed run gains new open tasks, clear the one-shot marker so the
+        // next completion tears down again — the renderer reconcile has done
+        // this per-window; main owns it now.
+        const autoState = currentAutoState(target)
+        if (
+          autoState.completionTeardownAt !== undefined
+          && !isCompletedSprintEngineRun(normalized)
+        ) {
+          target.view.sprintEngineAutoState = {
+            ...autoState,
+            completionTeardownAt: undefined,
+          }
+          deps.broadcastOp({ kind: 'completion_teardown_at', statePath: target.statePath, at: undefined })
+        }
         return { status: 'changed', state: normalized }
       },
 
@@ -428,11 +444,26 @@ export function createSprintRuntime(deps: SprintRuntimeDeps) {
           ...currentAutoState(target),
           completionTeardownAt: at,
         }
-        // The renderer's projection-driven dormancy owns the actual panel
-        // teardown (record resumable sessions, dispose PTYs, remove tabs) while
-        // a window exists — Phase 3 moves that here for headless runs. The
-        // broadcasts keep every window's lifecycle state in step immediately
-        // instead of waiting for its next projection poll.
+        // Main owns the completion teardown (Phase 3): record every live
+        // agent's resumable session and dispose its PTY, so a headless
+        // completion parks the run exactly like a windowed one. A window that
+        // exists applies the retirement ops (tab removal) and its own
+        // projection-driven dormancy remains an idempotent no-op after this.
+        const sessions = deps.terminal.list()
+        const liveAgentIds = new Set<string>()
+        for (const session of sessions) {
+          if (
+            session.processAlive
+            && session.kind === 'agent'
+            && session.sprintEngineStatePath === target.statePath
+            && session.agentId
+          ) {
+            liveAgentIds.add(session.agentId)
+          }
+        }
+        for (const agentId of liveAgentIds) {
+          retireWorkerSession(target, agentId, sessions)
+        }
         deps.broadcastOp({
           kind: 'stop_reason',
           statePath: target.statePath,
@@ -450,64 +481,75 @@ export function createSprintRuntime(deps: SprintRuntimeDeps) {
         const target = entryForWorkspaceId(workspaceId)
         if (!target) return { recorded: false, removedAgent: false, removedTab: false, closedSessionId: null }
         const sessions = preloadedSessions ?? deps.terminal.list()
-        const agent = target.view.agents[agentId]
-        const liveSession = sessions.find((session) =>
-          session.processAlive
-          && session.kind === 'agent'
-          && session.sprintEngineStatePath === target.statePath
-          && (session.agentId === agentId || (agent?.cliSessionId && session.sessionId === agent.cliSessionId))
-        )
-
-        // Record the resumable session before killing anything so a later
-        // manual reopen lands in a warm conversation (MC-1444 semantics).
-        let recorded = false
-        const role = target.view.sprintEngineState?.sprintEngineAgents?.[agentId]?.role
-        const cliSessionId = agent?.cliSessionId ?? liveSession?.cliSessionId ?? liveSession?.sessionId
-        const cli = agent?.cli ?? liveSession?.cli ?? undefined
-        if (role && cli && cliSessionId) {
-          const session: SprintEngineRosterSession = {
-            role,
-            cli,
-            cliSessionId,
-            ...(agent?.harnessSessionId ? { harnessSessionId: agent.harnessSessionId } : {}),
-            ...(agent?.cliModel ? { cliModel: agent.cliModel } : {}),
-            ...(agent?.name ? { name: agent.name } : {}),
-            recordedAt: now(),
-          }
-          target.rosterSessions[agentId] = session
-          deps.broadcastOp({ kind: 'roster_session_recorded', statePath: target.statePath, agentId, session })
-          recorded = true
-        }
-
-        const closedSessionId = liveSession?.sessionId ?? null
-        if (closedSessionId) {
-          try {
-            deps.terminal.kill(closedSessionId)
-          } catch {
-            // Already gone — retirement is idempotent.
-          }
-        }
-
-        // Clear the launch flags in main's view; the renderer removes the tab
-        // and its own agent record when it applies the retirement op.
-        if (agent) {
-          target.view.agents = {
-            ...target.view.agents,
-            [agentId]: {
-              ...agent,
-              cliStartRequested: false,
-              cliHasLaunched: false,
-              cliOnboardingPromptSent: false,
-              cliSessionId: undefined,
-            },
-          }
-        }
-        deps.broadcastOp({ kind: 'worker_retired', statePath: target.statePath, agentId, closedSessionId })
-        return { recorded, removedAgent: false, removedTab: false, closedSessionId }
+        return retireWorkerSession(target, agentId, sessions)
       },
 
       randomUUID: () => randomUUID(),
     }
+  }
+
+  /**
+   * Retire one agent's live session: record the resumable session before
+   * killing anything (a later manual reopen lands in a warm conversation —
+   * MC-1444 semantics), dispose the PTY, clear main's launch flags, and
+   * broadcast so windows record the session, remove the tab, and drop the
+   * agent record. Idempotent for already-dead sessions.
+   */
+  function retireWorkerSession(
+    target: RunEntry,
+    agentId: string,
+    sessions: TerminalSessionSnapshot[],
+  ): SprintEngineAutoRunDepartedWorkerTeardown {
+    const agent = target.view.agents[agentId]
+    const liveSession = sessions.find((session) =>
+      session.processAlive
+      && session.kind === 'agent'
+      && session.sprintEngineStatePath === target.statePath
+      && (session.agentId === agentId || (agent?.cliSessionId && session.sessionId === agent.cliSessionId))
+    )
+
+    let recorded = false
+    const role = target.view.sprintEngineState?.sprintEngineAgents?.[agentId]?.role
+    const cliSessionId = agent?.cliSessionId ?? liveSession?.cliSessionId ?? liveSession?.sessionId
+    const cli = agent?.cli ?? liveSession?.cli ?? undefined
+    if (role && cli && cliSessionId) {
+      const session: SprintEngineRosterSession = {
+        role,
+        cli,
+        cliSessionId,
+        ...(agent?.harnessSessionId ? { harnessSessionId: agent.harnessSessionId } : {}),
+        ...(agent?.cliModel ? { cliModel: agent.cliModel } : {}),
+        ...(agent?.name ? { name: agent.name } : {}),
+        recordedAt: now(),
+      }
+      target.rosterSessions[agentId] = session
+      deps.broadcastOp({ kind: 'roster_session_recorded', statePath: target.statePath, agentId, session })
+      recorded = true
+    }
+
+    const closedSessionId = liveSession?.sessionId ?? null
+    if (closedSessionId) {
+      try {
+        deps.terminal.kill(closedSessionId)
+      } catch {
+        // Already gone — retirement is idempotent.
+      }
+    }
+
+    if (agent) {
+      target.view.agents = {
+        ...target.view.agents,
+        [agentId]: {
+          ...agent,
+          cliStartRequested: false,
+          cliHasLaunched: false,
+          cliOnboardingPromptSent: false,
+          cliSessionId: undefined,
+        },
+      }
+    }
+    deps.broadcastOp({ kind: 'worker_retired', statePath: target.statePath, agentId, closedSessionId })
+    return { recorded, removedAgent: false, removedTab: false, closedSessionId }
   }
 
   async function tick(): Promise<void> {

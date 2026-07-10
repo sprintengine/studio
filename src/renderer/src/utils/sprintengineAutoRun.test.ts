@@ -492,11 +492,11 @@ function makeTerminalListMock(impl: () => Promise<unknown[]>): TerminalListMock 
   return mock
 }
 
-async function loadSupervisor(): Promise<typeof import('../components/workspace/SprintEngineAutoRunSupervisor')> {
+async function loadSupervisor(): Promise<typeof import('./sprintengineAutoRunRendererHost')> {
   // The supervisor module reads window.api and uses crypto.randomUUID at evaluation paths
   // that the supervisor's React effect would normally drive. Tests install a stub window
   // and dynamically import the module so the store/notification singletons resolve.
-  return await import('../components/workspace/SprintEngineAutoRunSupervisor')
+  return await import('./sprintengineAutoRunRendererHost')
 }
 
 async function testListTerminalSessionsThrowsTerminalListIpcErrorOnReject(): Promise<void> {

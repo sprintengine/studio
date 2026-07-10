@@ -566,3 +566,14 @@ function createNoopWebContents(): WebContents {
     send: () => undefined,
   } as unknown as WebContents
 }
+
+/**
+ * Event sink for sessions spawned with no window (sprint-runtime-ownership
+ * Phase 3: headless scheduler spawns). Every outbound send is guarded on
+ * `isDestroyed()`, so a headless session simply emits nothing until a window
+ * attaches — the reattach path (`spawnTerminalFromIpc` existing-session
+ * branch) then adopts the real WebContents and replays scrollback.
+ */
+export function createHeadlessTerminalSender(): WebContents {
+  return createNoopWebContents()
+}

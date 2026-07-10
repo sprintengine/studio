@@ -43,6 +43,7 @@ import { cliResumeCapabilities, createTerminalRuntime } from './terminal-runtime
 import { ConversationRuntime } from './conversation-runtime'
 import { getSharedCredentialStore } from './secret-store'
 import { createTerminalSnapshotSidecarStore } from './terminal-snapshot-sidecar'
+import { createHeadlessTerminalSender } from './terminal-session'
 import { MulticodeUpdateService } from './update-service'
 import { GitHubTokenStore } from './github-token-store'
 import { createWorkspaceBackupService } from './workspace-backup'
@@ -231,17 +232,14 @@ export function createAppServices(diagnosticsEnabled: boolean) {
         return { processAlive: status.processAlive }
       },
       spawn: async (args) => {
+        // Prefer a live window as the event sink so output streams to the UI
+        // immediately; with every window closed (Phase 3 headless auto-run)
+        // spawn against the headless sender — the PTY runs and buffers, and a
+        // reopened window's TerminalView reattaches with scrollback.
         const sender = BrowserWindow.getAllWindows()
           .find((window) => !window.isDestroyed() && !window.webContents.isDestroyed())
           ?.webContents
-        if (!sender) {
-          return {
-            ok: false,
-            sessionId: args.sessionId,
-            message: 'No desktop window is available to host the agent terminal (headless spawns arrive with session ownership, Phase 3).',
-            exitCode: 1,
-          }
-        }
+          ?? createHeadlessTerminalSender()
         return terminalRuntime.ipcHandlers.spawnTerminal(sender, args)
       },
     },

@@ -1,40 +1,43 @@
 /**
- * Renderer host of the Sprint Engine auto-run RECONCILE phase — view-only.
+ * Renderer bindings for the shared Sprint Engine auto-run cycle.
  *
- * Scheduling (superviseWorkspace: dispatch planning, spawning, retirement,
- * dormancy) is owned by the main-process scheduler in
- * `src/main/sprint-runtime.ts` (sprint-runtime-ownership Phase 2), which
- * drives the shared cycle in `src/shared/sprintengine/auto-run-cycle.ts` and
- * mirrors its store mutations back through `sprintengineRuntimeBridge.ts`.
- * The component below only reconciles this window's agent launch flags
- * against live terminal sessions (`reconcileWorkspaceSessions`) so the UI
- * never shows a launched agent whose PTY is gone.
+ * The auto-run supervisor is retired (sprint-runtime-ownership Phase 3): the
+ * renderer runs NO scheduling and no reconcile loop — the main-process
+ * scheduler (`src/main/sprint-runtime.ts`) drives the shared cycle
+ * (`src/shared/sprintengine/auto-run-cycle.ts`), including per-tick session
+ * reconcile, and mirrors every store mutation back through
+ * `sprintengineRuntimeBridge.ts`. The renderer keeps board/roster/terminal
+ * views and manual controls only.
  *
- * This file also keeps the renderer-bound pieces of the shared cycle:
+ * What remains here are the renderer-environment bindings:
  *
  * - `rendererCyclePorts`: the cycle's port surface bound to `window.api`
  *   (via the executor default ports), the Zustand store, the
  *   `workspaceSyncClient` session-identity mirror, `modelRegistry`,
  *   `crypto.randomUUID`, and the renderer projection-refresh / dormancy /
- *   teardown helpers.
- * - `cycleState`: the cross-tick in-memory ledgers, created at module level to
- *   preserve the previous module-level lifetime.
- * - The poll loop (`createAutoRunPollerController`) and the React component
- *   that drives reconcile ticks.
+ *   teardown helpers — used by the bound re-exports below and by manual
+ *   renderer paths (e.g. board-driven dormancy).
+ * - `cycleState`: cross-call in-memory ledgers, module-level to preserve the
+ *   historical lifetime.
+ * - `createAutoRunPollerController`: the (no longer production-mounted)
+ *   demand-gated poller, kept for its test surface.
  * - Bound re-exports of every cycle function the existing tests and callers
- *   import from this module, with their historical signatures.
+ *   historically imported from the supervisor, with unchanged signatures.
  */
 
-import { useEffect, useRef, type MutableRefObject } from 'react'
-import { useWorkspaceStore } from '../../store/workspaceStore'
-import { workspaceSyncClient } from '../../store/workspaceSyncClient'
+import { useWorkspaceStore } from '../store/workspaceStore'
+import { workspaceSyncClient } from '../store/workspaceSyncClient'
+
+// Structural mirror of React's MutableRefObject — callers pass React refs,
+// which remain assignable; this module itself has no React dependency.
+type MutableRefObject<T> = { current: T }
 import type {
   AgentCli,
   CliRuntimeSettings,
   McpSettings,
   SprintEngineState,
   Workspace,
-} from '../../types/workspace'
+} from '../types/workspace'
 import {
   AUTO_RUN_IDLE_RETIREMENT_MS as PLANNER_IDLE_RETIREMENT_MS,
   AUTO_RUN_RETIREMENT_COOLDOWN_MS,
@@ -43,27 +46,24 @@ import {
   type AutoRunCandidate,
   type SprintEngineDispatchAttempt,
   type SprintEngineDispatchPlan,
-} from '../../utils/sprintengineAutoRun'
+} from './sprintengineAutoRun'
 import {
   createDefaultSprintEngineAutoRunExecutorPorts,
   listTerminalSessionsForAutoRun as executorListTerminalSessionsForAutoRun,
   type SprintEngineAutoRunExecutorPorts,
-} from '../../utils/sprintengineAutoRunExecutor'
+} from './sprintengineAutoRunExecutor'
 import {
   createSprintEngineAutoRunCycleState,
   deliverAgentNotificationEvents as cycleDeliverAgentNotificationEvents,
   enterDormancyIfRunComplete as cycleEnterDormancyIfRunComplete,
   escalateStalledLiveIdleAgents as cycleEscalateStalledLiveIdleAgents,
   executeSprintEngineDispatchPlan as cycleExecuteSprintEngineDispatchPlan,
-  getSprintEngineAutoState,
-  isSprintEngineRunnerActive,
   reconcileWorkspaceSessions as cycleReconcileWorkspaceSessions,
   respawnDeadSprintEngineClaimants as cycleRespawnDeadSprintEngineClaimants,
   sendApprovalToNextEligibleArtifactProducer as cycleSendApprovalToNextEligibleArtifactProducer,
   sendContinuationPromptsToIdleAgents as cycleSendContinuationPromptsToIdleAgents,
   sendDispatchPromptsToRunningAgents as cycleSendDispatchPromptsToRunningAgents,
   spawnAutoRunCandidate as cycleSpawnAutoRunCandidate,
-  sprintEngineArtifactApprovalDesired,
   superviseRunnerActiveCycle as cycleSuperviseRunnerActiveCycle,
   type RunningContinuationCapacity,
   type SprintEngineAutoRunCyclePorts,
@@ -72,28 +72,30 @@ import {
   type SprintEngineDispatchLedgers,
   type SprintEngineDispatchSpawnContext,
   type SprintEngineRunnerActiveCycleInput,
-} from '../../../../shared/sprintengine/auto-run-cycle'
-import { logPerfEvent } from '../../utils/perfDiagnostics'
-import { MULTICODE_DISABLE_SPRINTENGINE_AUTORUN } from '../../utils/runtimeFlags'
-import { isAgentTabVisible, type AgentTerminalRevealPolicy } from '../../utils/modelRegistry'
+} from '../../../shared/sprintengine/auto-run-cycle'
+import { isAgentTabVisible, type AgentTerminalRevealPolicy } from './modelRegistry'
 import {
   enterSprintEngineDormancy,
   refreshSprintEngineWorkspaceProjection,
   type SprintEngineDormancyPorts,
-} from '../../utils/sprintengineProjectionRefresh'
+} from './sprintengineProjectionRefresh'
 import {
   tearDownCompletedSprintRunAgents,
   tearDownDepartedTaskScopedWorker,
-} from '../../utils/sprintengineRunTeardown'
-import { registerTimer, type TimerHandle } from '../../utils/diagnostics/timerRegistry'
-import { deriveSprintEngineAutomationMode } from '../../utils/sprintengineAutomation'
+} from './sprintengineRunTeardown'
+import { registerTimer, type TimerHandle } from './diagnostics/timerRegistry'
 
-export { TerminalListIpcError } from '../../utils/sprintengineAutoRunExecutor'
+export { TerminalListIpcError } from './sprintengineAutoRunExecutor'
+export {
+  getSprintEngineAutoState,
+  isSprintEngineRunnerActive,
+  sprintEngineArtifactApprovalDesired,
+} from '../../../shared/sprintengine/auto-run-cycle'
 export type {
   SprintEngineDispatchExecution,
   SprintEngineDispatchLedgers,
   SprintEngineDispatchSpawnContext,
-} from '../../../../shared/sprintengine/auto-run-cycle'
+} from '../../../shared/sprintengine/auto-run-cycle'
 
 const defaultExecutorPorts: SprintEngineAutoRunExecutorPorts =
   createDefaultSprintEngineAutoRunExecutorPorts()
@@ -115,7 +117,6 @@ export function listTerminalSessionsForAutoRun(
 // clicks. A 4s cadence halves that per-second cost (and the projection read it
 // pairs with) for no user-visible loss in a long-running run.
 const AUTO_RUN_POLL_MS = 4000
-const INACTIVE_AUTO_RUN_POLL_MS = 15000
 export const AUTO_RUN_MAX_PROMPT_RETRIES = PLANNER_MAX_PROMPT_RETRIES
 export const AUTO_RUN_IDLE_RETIREMENT_MS = PLANNER_IDLE_RETIREMENT_MS
 export { AUTO_RUN_RETIREMENT_COOLDOWN_MS }
@@ -412,105 +413,11 @@ export async function superviseRunnerActiveCycle(
   return cycleSuperviseRunnerActiveCycle(rendererCyclePorts, cycleState, input)
 }
 
-function reconcileWorkspaceSessions(workspace: Workspace): Promise<void> {
+/**
+ * Renderer-bound session reconcile. No production loop calls this since the
+ * main scheduler owns per-tick reconcile (Phase 3); kept for the historical
+ * test surface and any manual renderer path that needs a one-shot reconcile.
+ */
+export function reconcileWorkspaceSessions(workspace: Workspace): Promise<void> {
   return cycleReconcileWorkspaceSessions(rendererCyclePorts, cycleState, workspace)
-}
-
-export default function SprintEngineAutoRunSupervisor() {
-  const lastInactiveTickByWorkspace = useRef(new Map<string, number>())
-  const tickInProgress = useRef(false)
-
-  useEffect(() => {
-    if (MULTICODE_DISABLE_SPRINTENGINE_AUTORUN) {
-      console.info('[SprintEngineAutoRun] disabled by runtime flag')
-      return
-    }
-
-    let disposed = false
-
-    const tick = async () => {
-      if (tickInProgress.current) return
-      tickInProgress.current = true
-
-      try {
-        const tickStartedAt = performance.now()
-        const { workspaces, activeWorkspaceId } = useWorkspaceStore.getState()
-        const now = Date.now()
-        const autoWorkspaces = workspaces.filter((workspace) =>
-          isSprintEngineRunnerActive(workspace)
-        ).filter((workspace) => {
-          if (workspace.id === activeWorkspaceId) return true
-
-          const lastTick = lastInactiveTickByWorkspace.current.get(workspace.id) ?? 0
-          if (now - lastTick < INACTIVE_AUTO_RUN_POLL_MS) return false
-          lastInactiveTickByWorkspace.current.set(workspace.id, now)
-          return true
-        })
-
-        lastInactiveTickByWorkspace.current.forEach((_, workspaceId) => {
-          if (!workspaces.some((workspace) => workspace.id === workspaceId)) {
-            lastInactiveTickByWorkspace.current.delete(workspaceId)
-          }
-        })
-        logPerfEvent('SprintEngineAutoRun', 'tick-start', {
-          activeWorkspaceId,
-          autoWorkspaceCount: autoWorkspaces.length,
-          autoWorkspaces: autoWorkspaces.map((workspace) => ({
-            id: workspace.id,
-            name: workspace.name,
-            enabled: isSprintEngineRunnerActive(workspace),
-            automationMode: deriveSprintEngineAutomationMode(getSprintEngineAutoState(workspace), workspace.sprintEngineState?.runner),
-            runnerCliWatchPolling: workspace.sprintEngineState?.runner?.cliWatchPolling ?? null,
-            runtimeState: getSprintEngineAutoState(workspace).runtimeState ?? null,
-            artifactApprovalDesired: sprintEngineArtifactApprovalDesired(getSprintEngineAutoState(workspace)),
-          })),
-        })
-
-        // Reconcile only: the supervise (scheduling) phase moved to the
-        // main-process scheduler (src/main/sprint-runtime.ts), which drives
-        // the same shared cycle and mirrors its store mutations back through
-        // the runtime bridge.
-        const eligibleWorkspaceIds = new Set(autoWorkspaces.map((workspace) => workspace.id))
-        const refreshedState = useWorkspaceStore.getState()
-        for (const workspace of refreshedState.workspaces.filter((candidate) => eligibleWorkspaceIds.has(candidate.id))) {
-          if (disposed) return
-          await reconcileWorkspaceSessions(workspace)
-        }
-
-        logPerfEvent('SprintEngineAutoRun', 'tick-end', {
-          elapsedMs: Math.round(performance.now() - tickStartedAt),
-          autoWorkspaceCount: autoWorkspaces.length,
-        })
-      } finally {
-        tickInProgress.current = false
-      }
-    }
-
-    // The poll interval + timer exist only while at least one workspace is
-    // running a non-manual automation. A store change (e.g. a run finishing into
-    // dormancy, or a user re-selecting a running mode) re-evaluates demand and
-    // starts/stops the loop, so a fully manual/finished set of workspaces holds
-    // no live interval and no registered timer.
-    const controller = createAutoRunPollerController({
-      isPollerNeeded: () =>
-        useWorkspaceStore.getState().workspaces.some((workspace) => isSprintEngineRunnerActive(workspace)),
-      tick,
-    })
-    controller.sync()
-    const unsubscribe = useWorkspaceStore.subscribe(() => controller.sync())
-
-    return () => {
-      disposed = true
-      unsubscribe()
-      controller.dispose()
-    }
-  }, [])
-
-  // The 10-minute background PR merge sweep was removed: it was a forever
-  // `gh`-subprocess + forced-projection-read loop that kept running even for
-  // finished, dormant runs. The open run summary still polls the active
-  // workspace, and on-demand PR refresh for a workspace is delivered by T4, so no
-  // renderer timer needs to poll merge state for non-open workspaces.
-
-  return null
 }
