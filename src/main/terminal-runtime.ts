@@ -63,6 +63,7 @@ import type { TerminalSnapshotSidecarStore } from './terminal-snapshot-sidecar'
 import { createTerminalDiagnostics } from './terminal-diagnostics'
 import { createTerminalOutputBuffer } from './terminal-output-buffer'
 import { createTerminalMobileCommandService } from './terminal-mobile-command-service'
+import type { DesktopMobileSprintEngineSessionAdapters } from './mobile/sprintengine/session'
 import {
   explainSessionReapDecision,
   selectReapableSessions,
@@ -153,6 +154,10 @@ type TerminalRuntimeOptions = {
     agentId?: string
     sessionId?: string
   }): void
+  // MC-1497: the phone's `sprintengine.setAutomationMode` writes the main-owned
+  // automation intent (`sprintengine-automation-service.ts`) through this seam,
+  // so it works headless. Absent in tests: the mobile command rejects cleanly.
+  setSprintEngineAutomationMode?: DesktopMobileSprintEngineSessionAdapters['setSprintEngineAutomationMode']
 }
 
 type TerminalIpcHandlers = {
@@ -211,6 +216,7 @@ let excludeWorktreeMcpConfig: TerminalRuntimeOptions['excludeWorktreeMcpConfig']
 let prepareAgentStateHook: TerminalRuntimeOptions['prepareAgentStateHook']
 let snapshotSidecars: TerminalRuntimeOptions['snapshotSidecars']
 let logReapDiagnostic: TerminalRuntimeOptions['logDiagnostic']
+let setSprintEngineAutomationModeAdapter: TerminalRuntimeOptions['setSprintEngineAutomationMode']
 
 // CLIs the agent-state reporter can install into. Claude Code, Codex, and Grok
 // Build share a stdin-filter reporter (the same hook payload contract —
@@ -357,6 +363,7 @@ export function createTerminalRuntime(options: TerminalRuntimeOptions): Terminal
   prepareAgentStateHook = options.prepareAgentStateHook
   snapshotSidecars = options.snapshotSidecars
   logReapDiagnostic = options.logDiagnostic
+  setSprintEngineAutomationModeAdapter = options.setSprintEngineAutomationMode
   reapSkipLogState.clear()
   sprintEngineMcpRunRefCounts.clear()
   sprintEngineMcpWorkspaceRefCounts.clear()
@@ -2229,6 +2236,7 @@ function createMobileCommandService(): MobileSprintEngineCommandService {
       return [...terminals.values()].map(getTerminalSnapshot)
     },
     spawnAgentTerminal: spawnMobileAgentTerminal,
+    setSprintEngineAutomationMode: setSprintEngineAutomationModeAdapter,
     writeTerminal: (sessionId, data) => {
       const session = terminals.get(sessionId)
       if (!session || !isTerminalProcessAlive(session)) {

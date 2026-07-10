@@ -3,15 +3,12 @@ import type { WorkspaceId } from '../types/workspace'
 import { deriveSprintEngineAutomationMode } from './sprintengineAutomation'
 import { sprintEngineAgentHasLiveRunWork } from './sprintengineAutomationLifecycle'
 import { logPerfEvent } from './perfDiagnostics'
+// Canonical union lives with the shared executor ports (the main process
+// drives the same auto-run cycle); re-exported here so existing import sites
+// and the store-bound stop path below can never drift from the port type.
+import type { SprintEngineAutoRunDisableReason } from '../../../shared/sprintengine/auto-run-executor'
 
-export type SprintEngineAutoRunDisableReason =
-  | 'user_manual_toggle'
-  | 'folder_missing'
-  | 'blocked_on_external_input'
-  | 'all_tasks_done'
-  | 'workspace_removed'
-  | 'agent_terminal_closed'
-  | 'agent_spawn_failed'
+export type { SprintEngineAutoRunDisableReason } from '../../../shared/sprintengine/auto-run-executor'
 
 const REASON_MESSAGES: Record<SprintEngineAutoRunDisableReason, string> = {
   user_manual_toggle: 'Switched to manual mode by the user.',
@@ -23,17 +20,41 @@ const REASON_MESSAGES: Record<SprintEngineAutoRunDisableReason, string> = {
   agent_spawn_failed: 'An agent terminal could not be started.',
 }
 
+// Fire-and-forget mirror of a renderer-originated stop into the main-process
+// sprint scheduler (sprint-runtime-ownership Phase 2), so it pauses in step
+// with the UI. Never called for main-originated stops (origin 'main': the
+// scheduler already applied it — echoing would re-apply) nor for
+// 'user_manual_toggle' (that intent reaches main through the Phase 1
+// automation-mode push).
+function pushStopReasonToSprintRuntime(
+  statePath: string | undefined,
+  reason: Exclude<SprintEngineAutoRunDisableReason, 'user_manual_toggle'>,
+  context: { taskId?: string; agentId?: string; message?: string; details?: string },
+): void {
+  if (!statePath) return
+  const api = typeof window !== 'undefined' ? window.api : undefined
+  if (!api?.pushSprintRuntimeStopReason) return
+  void api.pushSprintRuntimeStopReason({ statePath, reason, context }).catch(() => undefined)
+}
+
 // Compatibility mapper for older call sites that still report an auto-run stop
 // reason. Runtime stops become lifecycle states; only the user Manual toggle
-// changes the selected desired mode to Manual.
+// changes the selected desired mode to Manual. Renderer-originated stops
+// (the default origin) are also pushed to the main-process scheduler.
 export function applySprintEngineAutomationStopReason(
   workspaceId: WorkspaceId,
   reason: SprintEngineAutoRunDisableReason,
   context: { taskId?: string; agentId?: string; message?: string; details?: string } = {},
+  options: { origin?: 'renderer' | 'main' } = {},
 ): void {
   const store = useWorkspaceStore.getState()
   const workspace = store.workspaces.find((ws) => ws.id === workspaceId)
   const mode = deriveSprintEngineAutomationMode(workspace?.sprintEngineAutoState)
+  const origin = options.origin ?? 'renderer'
+  const notifyMainScheduler = (): void => {
+    if (origin !== 'renderer' || reason === 'user_manual_toggle') return
+    pushStopReasonToSprintRuntime(workspace?.sprintEngineContext?.statePath, reason, context)
+  }
 
   if (reason === 'user_manual_toggle') {
     store.setSprintEngineAutomationMode(workspaceId, 'manual', {
@@ -52,11 +73,13 @@ export function applySprintEngineAutomationStopReason(
       ...(context.taskId ? { taskId: context.taskId } : {}),
       ...(context.agentId ? { agentId: context.agentId } : {}),
     })
+    notifyMainScheduler()
   } else if (reason === 'all_tasks_done') {
     store.applySprintEngineAutomationEvent(workspaceId, {
       type: 'runner_complete',
       message: context.message ?? REASON_MESSAGES[reason],
     })
+    notifyMainScheduler()
   } else if (reason === 'agent_terminal_closed' || reason === 'workspace_removed') {
     // MC-1450 (Phase 1b): under MC-1444's one-session-per-task model, agent
     // terminals and tabs are torn down routinely — and programmatic roster-tab
@@ -82,6 +105,7 @@ export function applySprintEngineAutomationStopReason(
       ...(context.taskId ? { taskId: context.taskId } : {}),
       ...(context.agentId ? { agentId: context.agentId } : {}),
     })
+    notifyMainScheduler()
   } else {
     store.applySprintEngineAutomationEvent(workspaceId, {
       type: 'runner_failed',
@@ -90,5 +114,6 @@ export function applySprintEngineAutomationStopReason(
       ...(context.taskId ? { taskId: context.taskId } : {}),
       ...(context.agentId ? { agentId: context.agentId } : {}),
     })
+    notifyMainScheduler()
   }
 }

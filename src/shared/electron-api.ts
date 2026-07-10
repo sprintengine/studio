@@ -1,4 +1,12 @@
 import type { TranscriptionRequestSettings, VoiceTranscribeResponse } from './voiceTranscription'
+import type { SprintEngineAutomationIntentRecord } from './sprintengine/automation-intent'
+import type { SprintEngineAutomationMode as SprintEngineAutomationIntentMode } from './sprintengine/automation-types'
+import type { SprintEngineLaunchSettings } from './sprintengine/launch-settings'
+import type {
+  SprintRuntimeOp,
+  SprintRuntimeRunRegistration,
+  SprintRuntimeStopReasonPush,
+} from './sprintengine/runtime-bridge'
 import type {
   AutomationRendererRequest,
   AutomationRendererResponse,
@@ -1744,6 +1752,53 @@ export type SprintEngineRunnerSetInput = {
   cliWatchPolling: SprintEngineCliWatchPolling
 }
 
+// ── Sprint Engine automation intent (MC-1567: main-owned mode ownership) ────
+// The authoritative three-state automation mode lives in a main-owned sidecar
+// (`automation.json` beside `run.yaml`); the renderer subscribes and pushes
+// writes through `sprintengine:automation:set-mode`. Record shape and revision
+// semantics: src/shared/sprintengine/automation-intent.ts.
+
+export type SprintEngineAutomationReadInput = {
+  statePath: string
+}
+
+export type SprintEngineAutomationSetModeInput = {
+  statePath: string
+  mode: SprintEngineAutomationIntentMode
+  // Per-window token echoed back on the broadcast so the pushing window can
+  // recognize (and drop) its own echo — the broadcast is delivered before the
+  // push's IPC response resolves, so a revision guard alone cannot.
+  clientToken?: string
+  reason?: string
+  details?: string
+  suppressManualAudit?: boolean
+  workspaceId?: string
+  workspaceName?: string
+  taskId?: string
+  agentId?: string
+}
+
+export type SprintEngineAutomationHydrateInput = {
+  statePath: string
+  mode: SprintEngineAutomationIntentMode
+}
+
+export type SprintEngineAutomationReadResult =
+  | { ok: true; record: SprintEngineAutomationIntentRecord | null }
+  | { ok: false; message: string }
+
+export type SprintEngineAutomationWriteResult =
+  | { ok: true; record: SprintEngineAutomationIntentRecord; changed: boolean }
+  | { ok: false; message: string }
+
+export type SprintEngineAutomationChangedEvent = {
+  statePath: string
+  record: SprintEngineAutomationIntentRecord
+  // The clientToken of the write that produced this event, when the writer
+  // supplied one (renderer pushes). Absent for mobile/system writers.
+  sourceClientToken?: string
+}
+
 export type SprintEngineRosterReplenishInput = {
   statePath: string
   role?: SprintEngineTaskMutationRole
@@ -2492,7 +2547,26 @@ export type ElectronApi = {
   commentSprintEngineTask: (input: SprintEngineTaskCommentInput) => Promise<SprintEngineArtifactCommandResult>
   resolveSprintEngineTaskInput: (input: SprintEngineTaskResolveInput) => Promise<SprintEngineArtifactCommandResult>
   setSprintEngineTaskStatus: (input: SprintEngineTaskStatusSetInput) => Promise<SprintEngineArtifactCommandResult>
-  setSprintEngineRunnerMode: (input: SprintEngineRunnerSetInput) => Promise<SprintEngineArtifactCommandResult>
+  /** Read the main-owned automation mode intent for a run (null until first write/hydration). */
+  readSprintEngineAutomationMode: (input: SprintEngineAutomationReadInput) => Promise<SprintEngineAutomationReadResult>
+  /** Write the automation mode through the one authoritative main-process path. */
+  setSprintEngineAutomationMode: (input: SprintEngineAutomationSetModeInput) => Promise<SprintEngineAutomationWriteResult>
+  /** One-time seed of the main-owned intent from the legacy renderer value; no-op when a record exists. */
+  hydrateSprintEngineAutomationMode: (input: SprintEngineAutomationHydrateInput) => Promise<SprintEngineAutomationWriteResult>
+  /** Authoritative automation-intent changes pushed from main (any writer: UI, phone, system). */
+  onSprintEngineAutomationChanged: (cb: (event: SprintEngineAutomationChangedEvent) => void) => () => void
+  /** Mirror the renderer's agent-launch settings to main for scheduler spawns (Phase 2). */
+  syncSprintEngineLaunchSettings: (input: SprintEngineLaunchSettings) => Promise<{ ok: boolean }>
+  /** Announce/refresh a sprint run's context to the main scheduler (Phase 2). */
+  registerSprintRuntimeRun: (input: SprintRuntimeRunRegistration) => Promise<{ ok: boolean }>
+  /** Stop tracking a run in the main scheduler (workspace removed). */
+  unregisterSprintRuntimeRun: (input: { statePath: string }) => Promise<{ ok: boolean }>
+  /** Push a renderer-originated automation stop (terminal closed, removed…) to the scheduler. */
+  pushSprintRuntimeStopReason: (input: SprintRuntimeStopReasonPush) => Promise<{ ok: boolean }>
+  /** Resume a paused/blocked/failed run in the scheduler (same-mode recovery). */
+  resumeSprintRuntimeRun: (input: { statePath: string }) => Promise<{ ok: boolean }>
+  /** Scheduler-performed store mutations, mirrored to every window (Phase 2). */
+  onSprintRuntimeOp: (cb: (op: SprintRuntimeOp) => void) => () => void
   createSprintEnginePullRequest: (statePath: string) => Promise<SprintEngineArtifactCommandResult>
   refreshSprintEnginePullRequestStatus: (statePath: string) => Promise<SprintEngineArtifactCommandResult>
   replenishSprintEngineRoster: (input: SprintEngineRosterReplenishInput) => Promise<SprintEngineArtifactCommandResult>

@@ -43,6 +43,8 @@ export type SetSprintEngineAutomationModeInput = {
   statePath: string
   workspaceRoot: string
   mode: MobileSprintEngineSetAutomationModeRequest['mode']
+  // Provenance for the audit trail: which paired device issued the write.
+  deviceId?: string
 }
 
 export type SetSprintEngineAutomationModeResult =
@@ -53,8 +55,9 @@ export type DesktopMobileSprintEngineSessionAdapters = {
   listTerminals(): Promise<TerminalSessionSnapshot[]>
   spawnAgentTerminal(input: SpawnMobileAgentTerminalInput): Promise<SpawnMobileAgentTerminalResult>
   writeTerminal(sessionId: string, data: string): Promise<void> | void
-  // MC-1497: apply a mode change to the renderer-owned automation store. Optional
-  // so a desktop build without the renderer wire falls back to a clean rejection.
+  // MC-1497: apply a mode change through the main-owned automation intent store
+  // (`sprintengine-automation-service.ts`). Optional only for test harnesses
+  // built without the adapter, which reject cleanly.
   setSprintEngineAutomationMode?(input: SetSprintEngineAutomationModeInput): Promise<SetSprintEngineAutomationModeResult>
 }
 
@@ -198,11 +201,12 @@ export class DesktopMobileSprintEngineSessionOrchestrator implements MobileSprin
   ): Promise<MobileSprintEngineSetAutomationModeResult> {
     const apply = this.options.adapters.setSprintEngineAutomationMode
     if (!apply) {
-      // No renderer wire (headless): the authoritative mode lives in the desktop
-      // store, so refuse rather than write a value the supervisor won't read.
+      // Only reachable when the orchestrator was built without the adapter
+      // (test harnesses). Production wiring always provides the main-owned
+      // automation write path, so this never rejects for a real device.
       throw new MobileSprintEngineCommandError(
         'command_not_supported',
-        'Setting the automation mode requires the desktop app to be open.',
+        'Setting the automation mode is not supported by this desktop build.',
         false,
       )
     }
@@ -212,6 +216,7 @@ export class DesktopMobileSprintEngineSessionOrchestrator implements MobileSprin
       statePath: request.statePath,
       workspaceRoot: request.workspaceRoot,
       mode: request.mode,
+      deviceId: request.deviceId,
     })
     if (!result.ok) {
       throw new MobileSprintEngineCommandError('internal_error', result.message, result.retryable)

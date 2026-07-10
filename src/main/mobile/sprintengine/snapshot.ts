@@ -1,6 +1,10 @@
 import { createHash } from 'crypto'
 import { basename, dirname, join, resolve } from 'path'
 import { readdir, readFile, stat } from 'fs/promises'
+import {
+  SPRINT_ENGINE_AUTOMATION_INTENT_FILE,
+  parseSprintEngineAutomationIntentRecord,
+} from '../../../shared/sprintengine/automation-intent'
 import { selectTaskStatusSources } from './task-normalizer'
 import type {
   SwitchboardReadResult,
@@ -359,6 +363,7 @@ export async function readSprintEngineSnapshot(statePathInput: string): Promise<
   const teamDirectory = dirname(statePath)
   const projectionSnapshot = await readSprintEngineProjectionSnapshot(statePath, teamDirectory)
   if (projectionSnapshot) return projectionSnapshot
+  const intentMode = await readAutomationIntentMode(teamDirectory)
 
   const [content, stateStats] = await Promise.all([
     readFile(statePath, 'utf8'),
@@ -378,6 +383,10 @@ export async function readSprintEngineSnapshot(statePathInput: string): Promise<
     updatedAt,
     tasks: taskSnapshots,
     artifacts,
+    // MC-1567: a mode-only change must produce a new snapshotVersion so
+    // phone-side dedup can't miss the flip and the stale-snapshot guard can
+    // detect a competing mode change.
+    automationMode: intentMode ?? null,
   })
 
   return {
@@ -394,6 +403,7 @@ export async function readSprintEngineSnapshot(statePathInput: string): Promise<
     ...(normalizeRoster(parsed.sprintEngineAgents) ? { roster: normalizeRoster(parsed.sprintEngineAgents) } : {}),
     ...(recordSummary(parsed.runSummary ?? parsed.summary) ? { runSummary: recordSummary(parsed.runSummary ?? parsed.summary) } : {}),
     ...(recordSummary(parsed.planReview ?? parsed.planReviewState) ? { planReview: recordSummary(parsed.planReview ?? parsed.planReviewState) } : {}),
+    ...(intentMode ? { automationMode: intentMode } : {}),
   }
 }
 
@@ -420,6 +430,9 @@ async function readSprintEngineProjectionSnapshot(
   const locks = recordObject(projection.locks)
   const activity = Array.isArray(projection.activity) ? projection.activity : []
   const counts = recordObject(projection.counts)
+  const intentMode = await readAutomationIntentMode(teamDirectory)
+  const automationMode = intentMode
+    ?? buildAutomationMode(run.automation ?? projection.automation, run.runner)
   const snapshotVersion = buildSnapshotVersion({
     updatedAt,
     source: run.source ?? projection.source,
@@ -427,11 +440,14 @@ async function readSprintEngineProjectionSnapshot(
     tasks: taskSnapshots,
     artifacts,
     locks,
+    // MC-1567: a mode-only change must produce a new snapshotVersion so
+    // phone-side dedup can't miss the flip and the stale-snapshot guard can
+    // detect a competing mode change.
+    automationMode: automationMode ?? null,
   })
 
   const startedFrom = buildStartedFrom(run.source ?? projection.source)
   const vcs = buildVcsState(run.vcs)
-  const automationMode = buildAutomationMode(run.automation ?? projection.automation, run.runner)
 
   return {
     sprintEngineId,
@@ -510,13 +526,35 @@ function buildStartedFrom(sourceValue: unknown): MobileControlSprintEngineStarte
 const automationModes = new Set<MobileControlAutomationMode>(['manual', 'run_agents', 'run_agents_and_approve_artifacts'])
 
 /**
- * The run's automation mode (MC-1497). Prefers an explicit `desiredMode` if the
- * projection carries the authoritative renderer state; otherwise derives a
- * best-effort value from the runner's `cliWatchPolling` (disabled → manual,
- * enabled → run_agents). The `run_agents_and_approve_artifacts` variant cannot be
- * distinguished from `cliWatchPolling` alone — that distinction requires the
- * renderer store (gap noted on the implementation log). Absent when nothing is
- * known.
+ * The authoritative automation mode intent (MC-1567): the main-owned
+ * `automation.json` sidecar beside run.yaml, written by every mode writer
+ * through `sprintengine-automation-service.ts`. Exact — including the
+ * `run_agents_and_approve_artifacts` variant the cliWatchPolling heuristic
+ * cannot express. Absent (undefined) until the run's first write/hydration, in
+ * which case the legacy best-effort fallbacks below still apply.
+ */
+async function readAutomationIntentMode(teamDirectory: string): Promise<MobileControlAutomationMode | undefined> {
+  let raw: string
+  try {
+    raw = await readFile(join(teamDirectory, SPRINT_ENGINE_AUTOMATION_INTENT_FILE), 'utf8')
+  } catch {
+    return undefined
+  }
+  try {
+    const record = parseSprintEngineAutomationIntentRecord(JSON.parse(raw))
+    return record?.desiredMode
+  } catch {
+    return undefined
+  }
+}
+
+/**
+ * Legacy best-effort automation mode (MC-1497, pre-MC-1567 runs with no
+ * `automation.json` yet). Prefers an explicit `desiredMode` if the projection
+ * carries one; otherwise derives from the runner's `cliWatchPolling`
+ * (disabled → manual, enabled → run_agents). The
+ * `run_agents_and_approve_artifacts` variant cannot be distinguished from
+ * `cliWatchPolling` alone. Absent when nothing is known.
  */
 function buildAutomationMode(automationValue: unknown, runnerValue: unknown): MobileControlAutomationMode | undefined {
   const automation = recordObject(automationValue)

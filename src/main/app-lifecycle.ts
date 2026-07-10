@@ -29,6 +29,12 @@ type RegisterAppLifecycleOptions = {
   workspaceSyncService?: {
     flushRoutingSnapshot(): Promise<void>
   }
+  // The main-process sprint scheduler (sprint-runtime-ownership Phase 2):
+  // stopped before the terminal runtime tears down so no tick spawns into a
+  // dying process table; its shutdown also releases the power-save blocker.
+  sprintRuntime?: {
+    shutdown(): void
+  }
   // Capability-module kernel: runs module startup hooks on ready and shutdown
   // hooks on quit. Module-owned lifecycle runs here — the early begin phase
   // (runShutdownBegin, registration order) stops self-scheduled loops before
@@ -52,6 +58,7 @@ export function registerAppLifecycle({
   automationService,
   agentStateService,
   workspaceSyncService,
+  sprintRuntime,
   moduleKernel,
   updateService,
   handleAuthCallback,
@@ -127,6 +134,7 @@ export function registerAppLifecycle({
       // self-scheduled loops and flip shutting-down flags so no new work is
       // dispatched while shared infrastructure tears down.
       await moduleKernel?.runShutdownBegin()
+      sprintRuntime?.shutdown()
       await automationService?.shutdown()
       await agentStateService?.shutdown()
       await terminalRuntime.shutdown()

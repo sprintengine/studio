@@ -65,6 +65,15 @@ export function createMainWindow({
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
       sandbox: false,
+      // Sprint Engine auto-run (sprint-runtime-ownership Phase 2): the run
+      // scheduler lives in main and is immune to occlusion throttling, but
+      // workspace windows still host terminal views, projection polling, and
+      // session reconcile passes. A locked screen occludes the window and
+      // Chromium background-throttles its timers to ~1/min, which stalled
+      // those views mid-run. The window's periodic work already quiesces
+      // when idle (registered pollers unregister), so disabling throttling
+      // does not burn CPU on dormant workspaces.
+      backgroundThrottling: false,
     },
   })
 
@@ -250,6 +259,15 @@ export function openAuxWindow({
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
       sandbox: false,
+      // Sprint Engine auto-run (sprint-runtime-ownership Phase 2): the run
+      // scheduler lives in main and is immune to occlusion throttling, but
+      // workspace windows still host terminal views, projection polling, and
+      // session reconcile passes. A locked screen occludes the window and
+      // Chromium background-throttles its timers to ~1/min, which stalled
+      // those views mid-run. The window's periodic work already quiesces
+      // when idle (registered pollers unregister), so disabling throttling
+      // does not burn CPU on dormant workspaces.
+      backgroundThrottling: false,
     },
   })
   auxWindows.set(registryKey, win)

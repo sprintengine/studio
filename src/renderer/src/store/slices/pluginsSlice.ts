@@ -1,27 +1,13 @@
 import type {
-  AgentCli,
   PluginCatalogEntry,
   PluginCatalogStatus,
 } from '../../types/workspace'
-import type { ResumeCapabilities } from '../../../../shared/agent-cli-resume'
 
-// Resolve a CLI's conversation-resume capabilities from the projected plugin
-// catalog. cli id == plugin id (pluginIdForCli is identity), so a direct id
-// match is the lookup. Returns undefined when the CLI is absent from the catalog
-// (unknown or not yet loaded); the resume predicates then read false. This is
-// the renderer half of the manifest-driven resume path — reducers/components
-// pass the resolved caps to agentCliSupportsConversationResume /
-// agentCliUsesStableSessionIdForResume instead of a hardcoded cli-id allowlist.
-export function resumeCapabilitiesForCli(
-  cli: AgentCli | undefined,
-  catalog: readonly PluginCatalogEntry[],
-): ResumeCapabilities | undefined {
-  if (!cli) return undefined
-  const entry = catalog.find((candidate) => candidate.id === cli)
-  return entry
-    ? { resumeSession: entry.resumeSession, sessionIdFromCaller: entry.sessionIdFromCaller }
-    : undefined
-}
+// `resumeCapabilitiesForCli` moved to the shared resume-capability module
+// (sprint-runtime-ownership Phase 2: main-process consumers resolve caps from
+// the same catalog shape); this re-export keeps every existing import site
+// working unchanged.
+export { resumeCapabilitiesForCli } from '../../../../shared/agent-cli-resume'
 
 export interface PluginsSliceState {
   pluginCatalogEntries: PluginCatalogEntry[]

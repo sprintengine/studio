@@ -5,13 +5,18 @@ import type {
   WorkspaceId,
 } from '../types/workspace'
 import { publishDiagnosticSync } from './diagnostics'
-import { sprintEngineAutomationModeOptions } from './sprintengineAutomation'
 
-export const SPRINT_ENGINE_AUTOMATION_NOTIFICATION_TITLE = 'Auto-run mode changed'
-
-export function sprintEngineAutomationModeLabel(mode: SprintEngineAutomationMode): string {
-  return sprintEngineAutomationModeOptions.find((option) => option.value === mode)?.label ?? mode
-}
+// Title + mode labels live in the shared automation vocabulary (MC-1567) so
+// the main-process audit writer emits byte-identical records; re-exported here
+// to keep existing renderer import sites working.
+export {
+  SPRINT_ENGINE_AUTOMATION_NOTIFICATION_TITLE,
+  sprintEngineAutomationModeLabel,
+} from '../../../shared/sprintengine/automation-types'
+import {
+  SPRINT_ENGINE_AUTOMATION_NOTIFICATION_TITLE,
+  sprintEngineAutomationModeLabel,
+} from '../../../shared/sprintengine/automation-types'
 
 export function isSprintEngineAutomationNotification(notification: AppNotification): boolean {
   return notification.source === 'sprintengine'

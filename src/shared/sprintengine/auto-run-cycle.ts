@@ -1,18 +1,57 @@
-import { useEffect, useRef, type MutableRefObject } from 'react'
-import { useWorkspaceStore } from '../../store/workspaceStore'
-import { workspaceSyncClient } from '../../store/workspaceSyncClient'
+/**
+ * Sprint Engine auto-run DECISION CYCLE.
+ *
+ * Relocated from the (now retired) renderer supervisor component
+ * (sprint-runtime-ownership Phases 2–3). The ONLY production driver is the
+ * main-process scheduler (`src/main/sprint-runtime.ts`), which builds
+ * `SprintEngineAutoRunCyclePorts` over the terminal runtime, disk
+ * projections, the automation intent service, and the runtime-op broadcast
+ * bridge, and drives ticks through `superviseWorkspace` /
+ * `reconcileWorkspaceSessions`. The renderer keeps port bindings + bound
+ * re-exports for its historical test surface and manual one-shot paths in
+ * `src/renderer/src/utils/sprintengineAutoRunRendererHost.ts` — it mounts no
+ * loop.
+ *
+ * Environment-agnostic by construction: every side effect goes through the
+ * ports object (the executor ports plus the cycle-specific ports below); the
+ * only ambient dependencies are `Date`, `performance`, and timers. No
+ * `window`, React, or store import may be added here. Perf events flow through
+ * the shared auto-run perf seam (`sprintEngineAutoRunPerfLog`), wired by each
+ * host (main: main perf diagnostics; renderer shim: `logPerfEvent`).
+ *
+ * Cross-tick module-level state (the terminal-list notice cooldown, the
+ * task-scoped retirement ledger, the bootstrap stall-notice set, and the
+ * no-op replenish fingerprint) lives in `SprintEngineAutoRunCycleState`,
+ * created once per host via `createSprintEngineAutoRunCycleState()` (main:
+ * one per registered run; renderer host module: one at module level).
+ */
+
 import type {
   AgentCli,
   CliRuntimeSettings,
   McpSettings,
+  MemoryRootStatus,
+  TerminalSessionSnapshot,
+  TerminalSpawnMetadata,
+} from '../electron-api'
+import type { PluginRegistryListEntry } from '../plugin-manifest'
+import type {
   SprintEngineArtifact,
-  SprintEngineAutoPendingSpawn,
-  SprintEngineAutoState,
+  SprintEngineModelCatalogEntry,
   SprintEngineRoleId,
   SprintEngineState,
-  Workspace,
-} from '../../types/workspace'
-import { buildSprintEngineStartupPrompt, getSprintEngineStartupCommandMode, prependAgentIdentifier } from '../../utils/agentPrompt'
+  SprintEngineWorkspaceView,
+} from './run-types'
+import type {
+  SprintEngineAutoPendingSpawn,
+  SprintEngineAutoState,
+  SprintEngineAutomationEvent,
+} from './automation-types'
+import {
+  buildSprintEngineStartupPrompt,
+  getSprintEngineStartupCommandMode,
+  prependAgentIdentifier,
+} from './agent-prompt'
 import {
   buildSprintEngineAgentRosterForState,
   buildSprintEngineRosterCommandArgs,
@@ -20,14 +59,13 @@ import {
   isCompletedSprintEngineRun,
   isSprintEngineTaskLaunchable,
   normalizeSprintEngineProjection,
-} from '../../utils/sprintengine'
+  resolveSprintEngineAgentRuntime,
+} from './state'
 import {
   AUTO_RUN_ROLE_CONTINUATION_RETRY_MS,
-  AUTO_RUN_IDLE_RETIREMENT_MS as PLANNER_IDLE_RETIREMENT_MS,
   AUTO_RUN_RETIREMENT_COOLDOWN_MS,
   sprintEngineIdleClockKey,
-  AUTO_RUN_MAX_PROMPT_RETRIES as PLANNER_MAX_PROMPT_RETRIES,
-  AUTO_RUN_MAX_WAKE_CANDIDATE_PROMPT_RETRIES as PLANNER_MAX_WAKE_RETRIES,
+  AUTO_RUN_MAX_PROMPT_RETRIES,
   architectTriageMessageKey,
   artifactApprovalMessageKey,
   buildArchitectNeedsInputTriagePrompt,
@@ -49,69 +87,249 @@ import {
   isSprintEngineRunBlockedOnExternalInput,
   pickNextAutoRuns,
   pickSprintEngineBootstrapCandidate,
+  sprintEngineAutoRunPerfLog as logPerfEvent,
   type AutoRunCandidate,
   type RoleContinuationGrace,
-} from '../../utils/sprintengineAutoRun'
+} from './auto-run'
 import {
   TerminalListIpcError,
-  createDefaultSprintEngineAutoRunExecutorPorts,
-  listTerminalSessionsForAutoRun as executorListTerminalSessionsForAutoRun,
+  listTerminalSessionsForAutoRun,
   publishTerminalListIpcFailureNotice as executorPublishTerminalListIpcFailureNotice,
   recordSpawnFailure,
   safeTerminalKill,
   safeTerminalStatus,
   spawnTerminalSession,
   writeBracketedPrompt,
+  type AgentTerminalRevealPolicy,
   type SprintEngineAutoRunExecutorPorts,
   type TerminalListNoticeCooldown,
-} from '../../utils/sprintengineAutoRunExecutor'
-import { isSprintEnginePlanningRole } from '../../utils/sprintengineInitialSpawns'
-import { resolveSprintEngineAgentRuntime } from '../../store/slices/runStateSlice'
-import { logPerfEvent } from '../../utils/perfDiagnostics'
-import { pathJoin } from '../../utils/paths'
-import { MULTICODE_DISABLE_SPRINTENGINE_AUTORUN } from '../../utils/runtimeFlags'
-import { resolveProjectKnowledgeConfig } from '../../utils/projectKnowledge'
-import { isAgentTabVisible, type AgentTerminalRevealPolicy } from '../../utils/modelRegistry'
-import {
-  enterSprintEngineDormancy,
-  refreshSprintEngineWorkspaceProjection,
-  type SprintEngineDormancyPorts,
-} from '../../utils/sprintengineProjectionRefresh'
-import {
-  tearDownCompletedSprintRunAgents,
-  tearDownDepartedTaskScopedWorker,
-} from '../../utils/sprintengineRunTeardown'
-import { registerTimer, type TimerHandle } from '../../utils/diagnostics/timerRegistry'
-import { deriveSprintEngineAutomationMode } from '../../utils/sprintengineAutomation'
+} from './auto-run-executor'
+import { isSprintEnginePlanningRole } from './initial-spawns'
 import {
   deriveSprintEngineAutomationDesiredMode,
   normalizeSprintEngineAutomationRuntimeState,
   sprintEngineAutomationShouldRun,
-} from '../../utils/sprintengineAutomationLifecycle'
+} from './automation-lifecycle'
 import {
   agentCliSupportsConversationResume,
   agentCliUsesStableSessionIdForResume,
-} from '../../utils/agentCliResume'
-import { resumeCapabilitiesForCli } from '../../store/slices/pluginsSlice'
+  resumeCapabilitiesForCli,
+} from '../agent-cli-resume'
+import { pathJoin } from '../paths'
+import { resolveProjectKnowledgeConfig } from '../project-knowledge'
 
-export { TerminalListIpcError } from '../../utils/sprintengineAutoRunExecutor'
+type Workspace = SprintEngineWorkspaceView
 
-const defaultExecutorPorts: SprintEngineAutoRunExecutorPorts =
-  createDefaultSprintEngineAutoRunExecutorPorts()
-const terminalListIpcLastNoticeAt: TerminalListNoticeCooldown = new Map()
+/** Structural stand-in for React's MutableRefObject (this module cannot import React). */
+type MutableRef<T> = { current: T }
 
-function sprintEngineArtifactApprovalDesired(autoState: Partial<SprintEngineAutoState> | null | undefined): boolean {
+// ---------------------------------------------------------------------------
+// Ports
+// ---------------------------------------------------------------------------
+
+/** The subset of app settings the spawn path reads live from the host's settings store. */
+export type SprintEngineAutoRunSpawnSettings = {
+  projectKnowledgeRoots?: Record<string, string | null> | null
+  sprintEngineModelCatalog?: SprintEngineModelCatalogEntry[]
+}
+
+/** Mirror of the renderer sync client's terminal launch-state payload (minus ids). */
+export type SprintEngineAutoRunTerminalLaunchStateUpdate = {
+  cliSessionId?: string | null
+  cliStartRequested?: boolean
+  cliHasLaunched?: boolean
+  cliOnboardingPromptSent?: boolean
+  cliResumeAvailable?: boolean
+}
+
+/**
+ * Structural mirror of the renderer `SprintEngineDormancyPorts`
+ * (`sprintengineProjectionRefresh.ts`): the completion event applier, the
+ * one-shot teardown, its marker setter, and the clock.
+ */
+export type SprintEngineAutoRunDormancyPorts = {
+  applySprintEngineAutomationEvent?(workspaceId: string, event: SprintEngineAutomationEvent): void
+  tearDownCompletedRunAgents?(workspaceId: string): Promise<unknown> | unknown
+  setCompletionTeardownAt?(workspaceId: string, at: number | undefined): void
+  now?(): number
+}
+
+/** Mirror of the renderer projection-refresh result the cycle consumes. */
+export type SprintEngineAutoRunProjectionRefreshResult =
+  | { status: 'changed'; state: SprintEngineState }
+  | { status: 'unchanged'; state: SprintEngineState | null }
+  | { status: 'skipped'; reason: 'missing-context' }
+  | { status: 'error'; message: string }
+
+/** Mirror of the renderer departed task-scoped worker teardown result. */
+export type SprintEngineAutoRunDepartedWorkerTeardown = {
+  recorded: boolean
+  removedAgent: boolean
+  removedTab: boolean
+  closedSessionId: string | null
+}
+
+/**
+ * Everything the decision cycle touches beyond the executor ports. The
+ * renderer binds these to `workspaceSyncClient` / `modelRegistry` /
+ * `refreshSprintEngineWorkspaceProjection` / `enterSprintEngineDormancy` /
+ * `tearDownDepartedTaskScopedWorker` / the store / `crypto`; a main-process
+ * host later provides its own implementations (e.g. `isAgentTabVisible: () =>
+ * false`, no-op session-identity mirroring).
+ */
+export type SprintEngineAutoRunCyclePorts = SprintEngineAutoRunExecutorPorts & {
+  // Store touchpoints that bypass the executor ports -----------------------
+  /** Plugin catalog snapshot for resume-capability stamping (`resumeCapabilitiesForCli`). */
+  getPluginCatalogEntries(): readonly PluginRegistryListEntry[]
+  /** Live app-settings inputs the spawn path reads at spawn time (not per tick). */
+  getSpawnSettings(): SprintEngineAutoRunSpawnSettings
+
+  // Session-identity mirroring (renderer: workspaceSyncClient; main later: no-op or own impl)
+  dispatchAssignTerminalSession(
+    workspaceId: string,
+    agentId: string,
+    sessionId: string,
+    cli: AgentCli
+  ): Promise<void> | void
+  dispatchUpdateTerminalLaunchState(
+    workspaceId: string,
+    agentId: string,
+    update: SprintEngineAutoRunTerminalLaunchStateUpdate
+  ): Promise<void> | void
+
+  // Projection refresh + dormancy + teardown --------------------------------
+  /**
+   * Wraps `refreshSprintEngineWorkspaceProjection`. The renderer impl passes
+   * only the read/set sub-ports (no diagnostics/backlog/teardown), matching
+   * the supervisor's historical auto-run refresh exactly.
+   */
+  refreshWorkspaceProjection(input: {
+    workspace: SprintEngineWorkspaceView
+    tokens: Map<string, string>
+    cause: 'auto-run'
+    force?: boolean
+  }): Promise<SprintEngineAutoRunProjectionRefreshResult>
+  /**
+   * Wraps `enterSprintEngineDormancy`. When `dormancyPorts` is omitted the
+   * host supplies its default completion-transition ports (the renderer's
+   * store-bound `supervisorDormancyPorts`).
+   */
+  enterDormancy(
+    workspace: Pick<SprintEngineWorkspaceView, 'id' | 'sprintEngineAutoState'>,
+    dormancyPorts?: SprintEngineAutoRunDormancyPorts
+  ): void
+  /** Departed task-scoped worker teardown (renderer: record + remove panel; main later: sessions-only). */
+  tearDownDepartedTaskScopedWorker(
+    workspaceId: string,
+    agentId: string,
+    preloadedSessions?: TerminalSessionSnapshot[]
+  ): Promise<SprintEngineAutoRunDepartedWorkerTeardown>
+
+  // Host environment ---------------------------------------------------------
+  /** Whether the agent's terminal tab is the visible one (main later: () => false). */
+  isAgentTabVisible(workspaceId: string, agentId: string): boolean
+  randomUUID(): string
+}
+
+// ---------------------------------------------------------------------------
+// Cross-cycle mutable state
+// ---------------------------------------------------------------------------
+
+export type SprintEngineAutoRunCycleState = {
+  /** Per-workspace cooldown for the terminal-list IPC failure notice. */
+  terminalListIpcLastNoticeAt: TerminalListNoticeCooldown
+  /**
+   * Task id of each agent's last task-scoped retirement, keyed by the
+   * idle-clock key. The planner reads this to bound the retire→respawn loop: a
+   * repeat task-scoped retirement for the SAME done task falls back to the slow
+   * idle-window cadence (see planSprintEngineDispatch.taskScopedRetirementTaskIds).
+   * Cross-cycle, in-memory, bounded by roster size.
+   */
+  taskScopedRetirementTaskByClockKey: Map<string, string>
+  /**
+   * One stall notice per run store, so a bootstrap stall (no architect, or the
+   * architect terminal exited before planning) surfaces once instead of every
+   * supervision tick. Cleared when a bootstrap spawn later succeeds.
+   */
+  bootstrapStallNoticeKeys: Set<string>
+  /**
+   * Fingerprint of the last queue-depth replenish attempt that minted nothing,
+   * per workspace. The TS trigger is a heuristic; when it persistently disagrees
+   * with Python's authoritative calc (status-enum drift, needsTriage, retired
+   * owners), re-calling every supervise tick would spawn a no-op CLI subprocess
+   * (and take the run.yaml lock) every few seconds forever. A no-op result
+   * parks the trigger until the projection actually changes.
+   */
+  lastNoopQueueDepthReplenishFingerprint: Map<string, string>
+}
+
+export function createSprintEngineAutoRunCycleState(): SprintEngineAutoRunCycleState {
+  return {
+    terminalListIpcLastNoticeAt: new Map(),
+    taskScopedRetirementTaskByClockKey: new Map(),
+    bootstrapStallNoticeKeys: new Set(),
+    lastNoopQueueDepthReplenishFingerprint: new Map(),
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Constants + small pure helpers
+// ---------------------------------------------------------------------------
+
+export const AUTO_RUN_PENDING_SPAWN_GRACE_MS = 60000
+const ARTIFACT_AUTO_APPROVAL_RETRY_MS = 60000
+const AUTO_APPROVAL_DIAGNOSTIC_COOLDOWN_MS = 30000
+export const BACKGROUND_TERMINAL_COLS = 100
+export const BACKGROUND_TERMINAL_ROWS = 30
+
+export type RunningContinuationCapacity = {
+  capacityByRole: Map<SprintEngineRoleId, number>
+  agentIds: Set<string>
+}
+
+type RoleContinuationMessage = SprintEngineDispatchAttempt
+
+export type ArchitectTriageMessage = {
+  sentAt: number
+  attempts?: number
+}
+
+export const DEFAULT_AUTO_STATE: SprintEngineAutoState = {
+  desiredMode: 'manual',
+  runtimeState: 'idle',
+  cliPermissionPreset: 'default',
+  maxConcurrentAgents: 3,
+  pendingSpawns: [],
+  deliveredAgentNotificationEventKeys: [],
+}
+
+export function sprintEngineArtifactApprovalDesired(
+  autoState: Partial<SprintEngineAutoState> | null | undefined
+): boolean {
   return deriveSprintEngineAutomationDesiredMode(autoState) === 'run_agents_and_approve_artifacts'
 }
 
-export function listTerminalSessionsForAutoRun(
-  workspace: Workspace,
-  cause: string
-): Promise<TerminalSessionSnapshot[]> {
-  return executorListTerminalSessionsForAutoRun(defaultExecutorPorts, workspace, cause)
+export function getSprintEngineAutoState(workspace: Workspace | null | undefined): SprintEngineAutoState {
+  return workspace?.sprintEngineAutoState ?? DEFAULT_AUTO_STATE
 }
 
-function publishTerminalListIpcFailureNotice(
+export function isSprintEngineRunnerActive(workspace: Workspace | null | undefined): boolean {
+  return sprintEngineAutomationShouldRun(getSprintEngineAutoState(workspace))
+}
+
+// The renderer wrapper `deriveSprintEngineAutomationMode(autoState, runnerPolicy?)`
+// deliberately ignores its runnerPolicy argument (see sprintengineAutomation.ts);
+// the desired-mode derivation is the whole implementation, so the cycle calls
+// the shared lifecycle function directly.
+function deriveAutomationMode(
+  autoState: Partial<SprintEngineAutoState> | null | undefined
+): ReturnType<typeof deriveSprintEngineAutomationDesiredMode> {
+  return deriveSprintEngineAutomationDesiredMode(autoState)
+}
+
+export function publishTerminalListIpcFailureNotice(
+  ports: SprintEngineAutoRunCyclePorts,
+  cycleState: SprintEngineAutoRunCycleState,
   workspace: Workspace,
   error: TerminalListIpcError,
   phase: 'reconcile' | 'supervise'
@@ -124,71 +342,12 @@ function publishTerminalListIpcFailureNotice(
     message: error.cause instanceof Error ? error.cause.message : String(error.cause),
   })
   return executorPublishTerminalListIpcFailureNotice(
-    defaultExecutorPorts,
+    ports,
     workspace,
     error,
     phase,
-    terminalListIpcLastNoticeAt,
+    cycleState.terminalListIpcLastNoticeAt,
   )
-}
-
-// SprintEngine is a background runner: agents do not need re-engagement within
-// a couple of seconds, and every active tick does O(terminals) IPC plus planning
-// on the renderer's main thread — the same thread that handles keystrokes and
-// clicks. A 4s cadence halves that per-second cost (and the projection read it
-// pairs with) for no user-visible loss in a long-running run.
-const AUTO_RUN_POLL_MS = 4000
-const INACTIVE_AUTO_RUN_POLL_MS = 15000
-const AUTO_RUN_STARTUP_SPAWN_DELAY_MS = 10000
-const AUTO_RUN_PENDING_SPAWN_GRACE_MS = 60000
-export const AUTO_RUN_MAX_PROMPT_RETRIES = PLANNER_MAX_PROMPT_RETRIES
-export const AUTO_RUN_IDLE_RETIREMENT_MS = PLANNER_IDLE_RETIREMENT_MS
-export { AUTO_RUN_RETIREMENT_COOLDOWN_MS }
-export const AUTO_RUN_MAX_WAKE_CANDIDATE_PROMPT_RETRIES = PLANNER_MAX_WAKE_RETRIES
-const ARTIFACT_AUTO_APPROVAL_RETRY_MS = 60000
-const AUTO_APPROVAL_DIAGNOSTIC_COOLDOWN_MS = 30000
-const BACKGROUND_TERMINAL_COLS = 100
-const BACKGROUND_TERMINAL_ROWS = 30
-
-type RunningContinuationCapacity = {
-  capacityByRole: Map<SprintEngineRoleId, number>
-  agentIds: Set<string>
-}
-
-type RoleContinuationMessage = SprintEngineDispatchAttempt
-
-type ArchitectTriageMessage = {
-  sentAt: number
-  attempts?: number
-}
-
-const DEFAULT_AUTO_STATE: SprintEngineAutoState = {
-  desiredMode: 'manual',
-  runtimeState: 'idle',
-  cliPermissionPreset: 'default',
-  maxConcurrentAgents: 3,
-  pendingSpawns: [],
-  deliveredAgentNotificationEventKeys: [],
-}
-
-function getSprintEngineAutoState(workspace: Workspace | null | undefined): SprintEngineAutoState {
-  return workspace?.sprintEngineAutoState ?? DEFAULT_AUTO_STATE
-}
-
-function isSprintEngineRunnerActive(workspace: Workspace | null | undefined): boolean {
-  return sprintEngineAutomationShouldRun(getSprintEngineAutoState(workspace))
-}
-
-// Ports for entering dormancy from the supervisor's hard-completion gate: the
-// same completion transition the projection reconcile (T1) uses. Routing the gate
-// through it binds teardown to the completion this 4s poll may detect first —
-// rather than to a follow-up poll that dormancy is about to stop.
-const supervisorDormancyPorts: SprintEngineDormancyPorts = {
-  applySprintEngineAutomationEvent: (workspaceId, event) =>
-    useWorkspaceStore.getState().applySprintEngineAutomationEvent(workspaceId, event),
-  tearDownCompletedRunAgents: (workspaceId) => tearDownCompletedSprintRunAgents(workspaceId),
-  setCompletionTeardownAt: (workspaceId, at) =>
-    useWorkspaceStore.getState().setSprintEngineCompletionTeardownAt(workspaceId, at),
 }
 
 // Hard-completion gate. A finished run (every task done) enters dormancy through
@@ -200,78 +359,17 @@ const supervisorDormancyPorts: SprintEngineDormancyPorts = {
 // of the supervise cycle. Idempotent: repeat entries no-op via the reducer's
 // terminal-state gate and the persisted teardown marker.
 export function enterDormancyIfRunComplete(
+  ports: Pick<SprintEngineAutoRunCyclePorts, 'enterDormancy'>,
   workspace: Pick<Workspace, 'id' | 'sprintEngineAutoState'>,
   sprintEngineState: Pick<SprintEngineState, 'tasks'>,
-  ports: SprintEngineDormancyPorts = supervisorDormancyPorts,
+  dormancyPorts?: SprintEngineAutoRunDormancyPorts,
 ): boolean {
   if (!isCompletedSprintEngineRun(sprintEngineState)) return false
-  enterSprintEngineDormancy(workspace, ports)
+  ports.enterDormancy(workspace, dormancyPorts)
   return true
 }
 
-export type AutoRunPollerController = {
-  /** Start or stop the poll interval + timer to match current demand. Idempotent. */
-  sync: () => void
-  /** Effect-cleanup: clear the interval and unregister the timer if live. */
-  dispose: () => void
-}
-
-// Owns the auto-run poll interval and its registered timer, keeping BOTH alive
-// only while `isPollerNeeded` holds (at least one workspace is running a
-// non-manual automation). When nothing needs it — every run manual, finished, or
-// dormant — there is no live interval and no 'SprintEngine auto-run poll' timer,
-// so the renderer does no per-4s O(workspaces) scan or perf emission. `sync()` is
-// re-invoked from a store subscription, so a `user_set_mode` back to a running
-// mode re-arms the poller. Timer/interval ports are injectable for tests.
-export function createAutoRunPollerController(ports: {
-  isPollerNeeded: () => boolean
-  tick: () => Promise<void> | void
-  registerTimer?: (label: string, cadenceMs: number) => TimerHandle
-  setInterval?: (handler: () => void, ms: number) => number
-  clearInterval?: (id: number) => void
-}): AutoRunPollerController {
-  const registerTimerFn = ports.registerTimer ?? registerTimer
-  const setIntervalFn = ports.setInterval ?? ((handler, ms) => window.setInterval(handler, ms))
-  const clearIntervalFn = ports.clearInterval ?? ((id: number) => window.clearInterval(id))
-
-  let timer: TimerHandle | null = null
-  let interval: number | null = null
-  let disposed = false
-
-  const runTick = (): void => {
-    const startedAt = performance.now()
-    void Promise.resolve(ports.tick()).finally(() => timer?.recordTick(performance.now() - startedAt))
-  }
-
-  const sync = (): void => {
-    if (disposed) return
-    const needed = ports.isPollerNeeded()
-    if (needed && interval === null) {
-      timer = registerTimerFn('SprintEngine auto-run poll', AUTO_RUN_POLL_MS)
-      runTick()
-      interval = setIntervalFn(runTick, AUTO_RUN_POLL_MS)
-    } else if (!needed && interval !== null) {
-      clearIntervalFn(interval)
-      interval = null
-      timer?.unregister()
-      timer = null
-    }
-  }
-
-  const dispose = (): void => {
-    disposed = true
-    if (interval !== null) {
-      clearIntervalFn(interval)
-      interval = null
-    }
-    timer?.unregister()
-    timer = null
-  }
-
-  return { sync, dispose }
-}
-
-function isMatchingWorkspaceAgentSession(
+export function isMatchingWorkspaceAgentSession(
   session: TerminalSessionSnapshot,
   workspace: Workspace,
   agentId: string
@@ -302,20 +400,17 @@ function isMatchingWorkspaceAgentSession(
   return sessionExecution.executionMode !== 'worktree'
 }
 
-async function refreshAutoWorkspaceState(
+export async function refreshAutoWorkspaceState(
+  ports: SprintEngineAutoRunCyclePorts,
   workspace: Workspace,
-  projectionTokensByWorkspace: MutableRefObject<Map<string, string>>,
+  projectionTokensByWorkspace: MutableRef<Map<string, string>>,
   options: { force?: boolean } = {}
 ): Promise<SprintEngineState | null> {
-  const result = await refreshSprintEngineWorkspaceProjection({
+  const result = await ports.refreshWorkspaceProjection({
     workspace,
     tokens: projectionTokensByWorkspace.current,
     cause: 'auto-run',
     force: options.force,
-    ports: {
-      readSprintEngineProjection: defaultExecutorPorts.readSprintEngineProjection,
-      setSprintEngineState: defaultExecutorPorts.setSprintEngineState,
-    },
   })
   if (result.status === 'changed') return result.state
   if (result.status === 'unchanged') return result.state
@@ -336,6 +431,7 @@ function normalizeComparablePath(path: string): string {
 }
 
 async function publishArtifactApprovalWarning(
+  ports: SprintEngineAutoRunCyclePorts,
   workspace: Workspace,
   artifact: SprintEngineArtifact,
   message: string,
@@ -343,7 +439,7 @@ async function publishArtifactApprovalWarning(
 ): Promise<void> {
   const task = workspace.sprintEngineState?.tasks.find((candidate) => candidate.id === artifact.taskId)
 
-  await defaultExecutorPorts.publishDiagnostic({
+  await ports.publishDiagnostic({
     level: 'warning',
     source: 'sprintengine',
     title: 'Artifact auto-approval skipped',
@@ -368,8 +464,9 @@ async function publishArtifactApprovalWarning(
 }
 
 async function publishAutoApprovalDiagnostic(
+  ports: SprintEngineAutoRunCyclePorts,
   workspace: Workspace,
-  diagnostics: MutableRefObject<Map<string, number>>,
+  diagnostics: MutableRef<Map<string, number>>,
   key: string,
   input: {
     level: 'info' | 'warning' | 'error'
@@ -386,7 +483,7 @@ async function publishAutoApprovalDiagnostic(
   if (now - previousAt < AUTO_APPROVAL_DIAGNOSTIC_COOLDOWN_MS) return
 
   diagnostics.current.set(key, now)
-  await defaultExecutorPorts.publishDiagnostic({
+  await ports.publishDiagnostic({
     level: input.level,
     source: 'sprintengine',
     title: input.title,
@@ -406,14 +503,15 @@ async function publishAutoApprovalDiagnostic(
   })
 }
 
-async function findRunningAgentSession(
+export async function findRunningAgentSession(
+  ports: SprintEngineAutoRunCyclePorts,
   workspace: Workspace,
   agentId: string,
   prefetchedSessions?: TerminalSessionSnapshot[]
 ): Promise<TerminalSessionSnapshot | null> {
   const agent = workspace.agents[agentId]
   const sessions = prefetchedSessions
-    ?? await listTerminalSessionsForAutoRun(workspace, `find-running:${agentId}`)
+    ?? await listTerminalSessionsForAutoRun(ports, workspace, `find-running:${agentId}`)
   if (agent?.cliStartRequested && agent.cliHasLaunched && agent.cliSessionId) {
     const storedSession = sessions.find((session) => session.sessionId === agent.cliSessionId)
     if (storedSession && isMatchingWorkspaceAgentSession(storedSession, workspace, agentId)) return storedSession
@@ -427,7 +525,7 @@ async function findRunningAgentSession(
 
   const effectiveCli = runningSession.cli ?? agent?.cli
   if (!effectiveCli) {
-    await defaultExecutorPorts.publishDiagnostic({
+    await ports.publishDiagnostic({
       level: 'error',
       source: 'terminal',
       title: 'Roster runner could not attach terminal',
@@ -439,7 +537,7 @@ async function findRunningAgentSession(
     return null
   }
 
-  useWorkspaceStore.getState().updateAgent(workspace.id, agentId, {
+  ports.updateAgent(workspace.id, agentId, {
     cliSessionId: runningSession.sessionId,
     cliStartRequested: true,
     cliHasLaunched: true,
@@ -447,18 +545,19 @@ async function findRunningAgentSession(
     cli: effectiveCli,
     kind: 'sprintengine',
   })
-  void workspaceSyncClient.dispatchAssignTerminalSession(workspace.id, agentId, runningSession.sessionId, effectiveCli)
-  void workspaceSyncClient.dispatchUpdateTerminalLaunchState(workspace.id, agentId, {
+  void ports.dispatchAssignTerminalSession(workspace.id, agentId, runningSession.sessionId, effectiveCli)
+  void ports.dispatchUpdateTerminalLaunchState(workspace.id, agentId, {
     cliResumeAvailable: false,
   })
   return runningSession
 }
 
 function applyAutoApprovalProjectionContent(
+  ports: SprintEngineAutoRunCyclePorts,
   workspace: Workspace,
   projectionContent: unknown,
   projectionToken: unknown,
-  projectionTokensByWorkspace: MutableRefObject<Map<string, string>>
+  projectionTokensByWorkspace: MutableRef<Map<string, string>>
 ): SprintEngineState | null {
   if (typeof projectionContent !== 'string') return null
   if (!workspace.sprintEngineContext) return null
@@ -466,7 +565,7 @@ function applyAutoApprovalProjectionContent(
     const projection = JSON.parse(projectionContent) as unknown
     const parsedState = normalizeSprintEngineProjection(projection, workspace.sprintEngineContext.teamSlug)
     if (!parsedState) return null
-    useWorkspaceStore.getState().setSprintEngineState(workspace.id, parsedState)
+    ports.setSprintEngineState(workspace.id, parsedState)
     // We applied this projection out-of-band from the mutation result, so keep
     // the projection watcher aligned when the bridge provides the same mtime:size
     // token as readSprintEngineProjection. Older/malformed mutation payloads fall
@@ -483,11 +582,12 @@ function applyAutoApprovalProjectionContent(
 }
 
 export async function sendApprovalToNextEligibleArtifactProducer(
+  ports: SprintEngineAutoRunCyclePorts,
   workspace: Workspace,
   sprintEngineState: SprintEngineState,
-  sentArtifactApprovalMessages: MutableRefObject<Map<string, number>>,
-  autoApprovalDiagnostics: MutableRefObject<Map<string, number>>,
-  projectionTokensByWorkspace: MutableRefObject<Map<string, string>>
+  sentArtifactApprovalMessages: MutableRef<Map<string, number>>,
+  autoApprovalDiagnostics: MutableRef<Map<string, number>>,
+  projectionTokensByWorkspace: MutableRef<Map<string, string>>
 ): Promise<'sent' | 'failed' | 'none'> {
   const autoState = getSprintEngineAutoState(workspace)
   if (!sprintEngineArtifactApprovalDesired(autoState) || !workspace.sprintEngineContext) {
@@ -518,6 +618,7 @@ export async function sendApprovalToNextEligibleArtifactProducer(
         )
       )
       void publishAutoApprovalDiagnostic(
+        ports,
         workspace,
         autoApprovalDiagnostics,
         `${workspace.id}:auto-approval-retry-wait`,
@@ -548,9 +649,10 @@ export async function sendApprovalToNextEligibleArtifactProducer(
   // approval mid-flight.
   sentArtifactApprovalMessages.current.set(approvalKey, Date.now())
   try {
-    const result = await defaultExecutorPorts.autoApproveSprintEngineArtifact(statePath, artifact.id)
+    const result = await ports.autoApproveSprintEngineArtifact(statePath, artifact.id)
     if (!result.ok) {
       await publishArtifactApprovalWarning(
+        ports,
         workspace,
         artifact,
         result.message || 'The sprint rejected the auto-approval.'
@@ -560,11 +662,12 @@ export async function sendApprovalToNextEligibleArtifactProducer(
 
     const projectionContent = (result.data as { projectionContent?: unknown } | undefined)?.projectionContent
     const projectionToken = (result.data as { projectionToken?: unknown } | undefined)?.projectionToken
-    const appliedState = applyAutoApprovalProjectionContent(workspace, projectionContent, projectionToken, projectionTokensByWorkspace)
+    const appliedState = applyAutoApprovalProjectionContent(ports, workspace, projectionContent, projectionToken, projectionTokensByWorkspace)
     if (!appliedState) {
-      const refreshedState = await refreshAutoWorkspaceState(workspace, projectionTokensByWorkspace, { force: true })
+      const refreshedState = await refreshAutoWorkspaceState(ports, workspace, projectionTokensByWorkspace, { force: true })
       if (!refreshedState) {
         await publishArtifactApprovalWarning(
+          ports,
           workspace,
           artifact,
           'Could not refresh sprint state after auto-approving the artifact.'
@@ -574,6 +677,7 @@ export async function sendApprovalToNextEligibleArtifactProducer(
     }
 
     await publishAutoApprovalDiagnostic(
+      ports,
       workspace,
       autoApprovalDiagnostics,
       `${approvalKey}:approved`,
@@ -600,6 +704,7 @@ export async function sendApprovalToNextEligibleArtifactProducer(
       message: error instanceof Error ? error.message : String(error),
     })
     await publishArtifactApprovalWarning(
+      ports,
       workspace,
       artifact,
       error instanceof Error ? error.message : 'Approval failed. Review manually or retry.'
@@ -621,11 +726,16 @@ function sessionBelongsToWorkspaceSprintEngine(
   )
 }
 
-async function agentHasRunningProcess(workspace: Workspace, agentId: string): Promise<boolean> {
-  return Boolean(await findRunningAgentSession(workspace, agentId))
+async function agentHasRunningProcess(
+  ports: SprintEngineAutoRunCyclePorts,
+  workspace: Workspace,
+  agentId: string
+): Promise<boolean> {
+  return Boolean(await findRunningAgentSession(ports, workspace, agentId))
 }
 
-async function getRunningAutoRunAgentIds(
+export async function getRunningAutoRunAgentIds(
+  ports: SprintEngineAutoRunCyclePorts,
   workspace: Workspace,
   sprintEngineState: SprintEngineState,
   sessionsSnapshot?: TerminalSessionSnapshot[]
@@ -635,7 +745,7 @@ async function getRunningAutoRunAgentIds(
   // `running` excludes — completion notifications still paste into those.
   const liveAgentIds = new Set<string>()
   const sessions = sessionsSnapshot
-    ?? await listTerminalSessionsForAutoRun(workspace, 'running-agent-ids')
+    ?? await listTerminalSessionsForAutoRun(ports, workspace, 'running-agent-ids')
 
   for (const session of sessions) {
     if (!session.agentId || !sessionBelongsToWorkspaceSprintEngine(session, workspace)) continue
@@ -647,8 +757,8 @@ async function getRunningAutoRunAgentIds(
     if (!agent?.cliStartRequested || agent.cliSessionId !== session.sessionId) {
       const effectiveCli = session.cli ?? agent?.cli
       if (!effectiveCli) continue
-      const resumeCaps = resumeCapabilitiesForCli(effectiveCli, useWorkspaceStore.getState().pluginCatalogEntries)
-      useWorkspaceStore.getState().updateAgent(workspace.id, session.agentId, {
+      const resumeCaps = resumeCapabilitiesForCli(effectiveCli, ports.getPluginCatalogEntries())
+      ports.updateAgent(workspace.id, session.agentId, {
         cliSessionId: session.sessionId,
         cliStartRequested: true,
         cliHasLaunched: true,
@@ -657,14 +767,15 @@ async function getRunningAutoRunAgentIds(
         cli: effectiveCli,
         kind: 'sprintengine',
       })
-      void workspaceSyncClient.dispatchAssignTerminalSession(workspace.id, session.agentId, session.sessionId, effectiveCli)
+      void ports.dispatchAssignTerminalSession(workspace.id, session.agentId, session.sessionId, effectiveCli)
     }
   }
 
   return { running: runningAgentIds, live: liveAgentIds }
 }
 
-async function getRunningContinuationCapacityByRole(
+export async function getRunningContinuationCapacityByRole(
+  ports: SprintEngineAutoRunCyclePorts,
   workspace: Workspace,
   sprintEngineState: SprintEngineState,
   sessionsSnapshot?: TerminalSessionSnapshot[]
@@ -672,7 +783,7 @@ async function getRunningContinuationCapacityByRole(
   const capacityByRole = new Map<SprintEngineRoleId, number>()
   const countedAgentIds = new Set<string>()
   const sessions = sessionsSnapshot
-    ?? await listTerminalSessionsForAutoRun(workspace, 'role-continuation-capacity')
+    ?? await listTerminalSessionsForAutoRun(ports, workspace, 'role-continuation-capacity')
 
   // Index tasks once. The per-session loop previously ran two full
   // sprintEngineState.tasks.find() scans per session — O(sessions × tasks) — to
@@ -722,15 +833,17 @@ async function getRunningContinuationCapacityByRole(
  * so completion notifications reach done agents' terminals.
  */
 export async function deliverAgentNotificationEvents(
+  ports: SprintEngineAutoRunCyclePorts,
+  cycleState: SprintEngineAutoRunCycleState,
   workspace: Workspace,
   sprintEngineState: SprintEngineState,
   runningAgentIds: Set<string>,
   cliRuntimes: Record<AgentCli, CliRuntimeSettings>,
   mcpSettings: McpSettings,
-  inFlightSpawns: MutableRefObject<Set<string>>,
-  sentAgentNotificationEvents: MutableRefObject<Set<string>>
+  inFlightSpawns: MutableRef<Set<string>>,
+  sentAgentNotificationEvents: MutableRef<Set<string>>
 ): Promise<'started' | 'failed' | 'none'> {
-  const result = await runSprintEngineDispatchPaths({
+  const result = await runSprintEngineDispatchPaths(ports, cycleState, {
     workspace,
     sprintEngineState,
     paths: ['notification'],
@@ -757,8 +870,8 @@ export async function deliverAgentNotificationEvents(
 }
 
 export type SprintEngineDispatchLedgers = {
-  continuation: MutableRefObject<Map<string, RoleContinuationMessage>> | null
-  dispatch: MutableRefObject<Map<string, RoleContinuationMessage>> | null
+  continuation: MutableRef<Map<string, RoleContinuationMessage>> | null
+  dispatch: MutableRef<Map<string, RoleContinuationMessage>> | null
 }
 
 /**
@@ -770,9 +883,9 @@ export type SprintEngineDispatchSpawnContext = {
   sprintEngineState: SprintEngineState
   cliRuntimes: Record<AgentCli, CliRuntimeSettings>
   mcpSettings: McpSettings
-  inFlightSpawns: MutableRefObject<Set<string>>
+  inFlightSpawns: MutableRef<Set<string>>
   /** Session-scoped delivered-notification cache; required to execute notification actions. */
-  sentNotificationKeys?: MutableRefObject<Set<string>>
+  sentNotificationKeys?: MutableRef<Set<string>>
   /** Lets the caller fold freshly spawned agents into its running-agent view for the rest of the tick. */
   onAgentSpawned?: (agentId: string) => void
 }
@@ -792,15 +905,9 @@ function dispatchPlanLedger(
   return (ledger === 'dispatch' ? ledgers.dispatch : ledgers.continuation)?.current ?? null
 }
 
-// Task id of each agent's last task-scoped retirement, keyed by the idle-clock
-// key. The planner reads this to bound the retire→respawn loop: a repeat
-// task-scoped retirement for the SAME done task falls back to the slow
-// idle-window cadence (see planSprintEngineDispatch.taskScopedRetirementTaskIds).
-// Module-level like the bootstrap stall-notice ledger: cross-cycle, in-memory,
-// bounded by roster size.
-const taskScopedRetirementTaskByClockKey = new Map<string, string>()
-
 export async function executeSprintEngineDispatchPlan(
+  ports: SprintEngineAutoRunCyclePorts,
+  cycleState: SprintEngineAutoRunCycleState,
   workspace: Workspace,
   plan: SprintEngineDispatchPlan,
   ledgers: SprintEngineDispatchLedgers,
@@ -830,7 +937,7 @@ export async function executeSprintEngineDispatchPlan(
         exhaustedAt,
       })
     }
-    await defaultExecutorPorts.publishDiagnostic({
+    await ports.publishDiagnostic({
       level: diagnostic.diagnostic.level,
       source: 'sprintengine',
       title: diagnostic.diagnostic.title,
@@ -848,7 +955,7 @@ export async function executeSprintEngineDispatchPlan(
   }
   const markNotificationDelivered = (deliveryKey: string): void => {
     spawnContext?.sentNotificationKeys?.current.add(deliveryKey)
-    defaultExecutorPorts.markSprintEngineAgentNotificationDelivered(workspace.id, deliveryKey)
+    ports.markSprintEngineAgentNotificationDelivered(workspace.id, deliveryKey)
   }
   for (const resolution of plan.notificationResolutions) {
     markNotificationDelivered(resolution.deliveryKey)
@@ -864,20 +971,20 @@ export async function executeSprintEngineDispatchPlan(
     || plan.notificationDeliveries.some((delivery) => delivery.kind === 'paste')
   const sessionsSnapshot = sharedSessionsSnapshot
     ?? (needsSessions
-      ? await listTerminalSessionsForAutoRun(workspace, 'execute-dispatch-plan')
+      ? await listTerminalSessionsForAutoRun(ports, workspace, 'execute-dispatch-plan')
       : undefined)
   let notificationSpawned = false
   let notificationSpawnFailed = false
   for (const delivery of plan.notificationDeliveries) {
     if (delivery.kind === 'paste') {
-      const session = await findRunningAgentSession(workspace, delivery.agentId, sessionsSnapshot)
+      const session = await findRunningAgentSession(ports, workspace, delivery.agentId, sessionsSnapshot)
       if (!session) {
         logPerfEvent('SprintEngineAutoRun', 'agent-notification-pending-no-session', { ...base, ...delivery.data })
         continue
       }
-      await writeBracketedPrompt(defaultExecutorPorts, session.sessionId, delivery.prompt)
+      await writeBracketedPrompt(ports, session.sessionId, delivery.prompt)
       if (!delivery.completion) {
-        defaultExecutorPorts.applyTerminalRevealPolicy(
+        ports.applyTerminalRevealPolicy(
           workspace.id,
           delivery.agentId,
           delivery.label,
@@ -894,6 +1001,7 @@ export async function executeSprintEngineDispatchPlan(
       continue
     }
     const result = await spawnAutoRunCandidate(
+      ports,
       workspace,
       spawnContext.sprintEngineState,
       {
@@ -935,23 +1043,23 @@ export async function executeSprintEngineDispatchPlan(
     return { restarted: false, notificationSpawned, notificationSpawnFailed, engagedAgentIds }
   }
   for (const paste of plan.pastes) {
-    const session = await findRunningAgentSession(workspace, paste.agentId, sessionsSnapshot)
+    const session = await findRunningAgentSession(ports, workspace, paste.agentId, sessionsSnapshot)
     if (!session) continue
-    await writeBracketedPrompt(defaultExecutorPorts, session.sessionId, paste.prompt)
+    await writeBracketedPrompt(ports, session.sessionId, paste.prompt)
     const pasteLedger = dispatchPlanLedger(paste.ledger, ledgers)
     if (pasteLedger) recordPromptRetry(pasteLedger, paste.key, Date.now())
     logPerfEvent('SprintEngineAutoRun', paste.event, { ...base, ...paste.data, sessionId: session.sessionId })
   }
   let restarted = false
   for (const restart of plan.restarts) {
-    const session = await findRunningAgentSession(workspace, restart.agentId, sessionsSnapshot)
+    const session = await findRunningAgentSession(ports, workspace, restart.agentId, sessionsSnapshot)
     if (!session) continue
-    await safeTerminalKill(defaultExecutorPorts, session.sessionId)
+    await safeTerminalKill(ports, session.sessionId)
     // Reset the wake budget so the replacement terminal is never kill-looped
     // before it has a chance to claim.
     ledgers.continuation?.current.delete(restart.key)
     restarted = true
-    await defaultExecutorPorts.publishDiagnostic({
+    await ports.publishDiagnostic({
       level: 'warning',
       source: 'sprintengine',
       title: restart.diagnostic.title,
@@ -990,6 +1098,7 @@ export async function executeSprintEngineDispatchPlan(
         ? { cli: respawnStampedCli as AgentCli, model: respawnStampedModel }
         : undefined
     const result = await spawnAutoRunCandidate(
+      ports,
       workspace,
       spawnContext.sprintEngineState,
       {
@@ -1017,7 +1126,7 @@ export async function executeSprintEngineDispatchPlan(
       logPerfEvent('SprintEngineAutoRun', 'dead-claimant-respawn-failed', { ...base, ...respawn.data })
       continue
     }
-    await defaultExecutorPorts.publishDiagnostic({
+    await ports.publishDiagnostic({
       level: 'warning',
       source: 'sprintengine',
       title: respawn.diagnostic.title,
@@ -1033,11 +1142,10 @@ export async function executeSprintEngineDispatchPlan(
   for (const retirement of plan.retirements) {
     // Never close the terminal the operator is currently looking at; the
     // clock keeps running and the retirement retries once the tab is no
-    // longer the visible one.
-    if (
-      useWorkspaceStore.getState().activeWorkspaceId === workspace.id
-      && isAgentTabVisible(workspace.id, retirement.agentId)
-    ) {
+    // longer the visible one. Visibility alone is the guard: the main-process
+    // host has no notion of an "active workspace" across windows, and a
+    // visible live session/tab already means an open, watched terminal.
+    if (ports.isAgentTabVisible(workspace.id, retirement.agentId)) {
       logPerfEvent('SprintEngineAutoRun', 'idle-retirement-skipped-visible-tab', { ...base, ...retirement.data })
       continue
     }
@@ -1047,16 +1155,15 @@ export async function executeSprintEngineDispatchPlan(
       // The recorded session lets a re-open from the role group resume. No
       // `dispatchUpdateTerminalLaunchState` mirror: removal is the flag reset,
       // and a post-removal reset would re-materialize the removed agent.
-      const teardown = await tearDownDepartedTaskScopedWorker(
+      const teardown = await ports.tearDownDepartedTaskScopedWorker(
         workspace.id,
         retirement.agentId,
-        undefined,
         sessionsSnapshot,
       )
       // Only toast when the user could see the panel close; a recreated,
       // already-torn-down roster record closes nothing visible.
       if (teardown.closedSessionId || teardown.removedTab) {
-        await defaultExecutorPorts.publishDiagnostic({
+        await ports.publishDiagnostic({
           level: 'info',
           source: 'sprintengine',
           title: retirement.diagnostic.title,
@@ -1073,7 +1180,7 @@ export async function executeSprintEngineDispatchPlan(
       // marks the id `left` must not re-tear-down until the short cooldown
       // elapses. Mirrors the kill-only path's cooldown bookkeeping.
       if (typeof retirement.data.taskId === 'string') {
-        taskScopedRetirementTaskByClockKey.set(
+        cycleState.taskScopedRetirementTaskByClockKey.set(
           sprintEngineIdleClockKey(workspace, retirement.agentId),
           retirement.data.taskId
         )
@@ -1087,9 +1194,9 @@ export async function executeSprintEngineDispatchPlan(
       }
       continue
     }
-    const session = await findRunningAgentSession(workspace, retirement.agentId, sessionsSnapshot)
+    const session = await findRunningAgentSession(ports, workspace, retirement.agentId, sessionsSnapshot)
     if (!session) continue
-    await safeTerminalKill(defaultExecutorPorts, session.sessionId)
+    await safeTerminalKill(ports, session.sessionId)
     // Clear the agent's launch flags after the kill. The kill alone is not
     // enough: a mounted-but-unfocused AgentPanel keeps
     // `hasStarted` true off `cliStartRequested`, so its TerminalView respawns
@@ -1113,21 +1220,21 @@ export async function executeSprintEngineDispatchPlan(
         ?? (retiringAgent?.cliUsesStableSessionId ? session.sessionId : undefined))
       : undefined
     const retainedResume = Boolean(resumeToken && retiringAgent?.cliResumeAvailable)
-    defaultExecutorPorts.updateAgent(workspace.id, retirement.agentId, {
+    ports.updateAgent(workspace.id, retirement.agentId, {
       cliSessionId: retainedResume ? resumeToken : undefined,
       cliStartRequested: false,
       cliHasLaunched: false,
       cliOnboardingPromptSent: false,
       cliResumeAvailable: retainedResume,
     })
-    void workspaceSyncClient.dispatchUpdateTerminalLaunchState(workspace.id, retirement.agentId, {
+    void ports.dispatchUpdateTerminalLaunchState(workspace.id, retirement.agentId, {
       cliSessionId: retainedResume ? (resumeToken as string) : null,
       cliStartRequested: false,
       cliHasLaunched: false,
       cliOnboardingPromptSent: false,
       cliResumeAvailable: retainedResume,
     })
-    await defaultExecutorPorts.publishDiagnostic({
+    await ports.publishDiagnostic({
       level: 'info',
       source: 'sprintengine',
       title: retirement.diagnostic.title,
@@ -1140,7 +1247,7 @@ export async function executeSprintEngineDispatchPlan(
     })
     logPerfEvent('SprintEngineAutoRun', 'idle-terminal-retired', { ...base, ...retirement.data, sessionId: session.sessionId })
     if (retirement.data.reason === 'task_scoped_terminal_state' && typeof retirement.data.taskId === 'string') {
-      taskScopedRetirementTaskByClockKey.set(
+      cycleState.taskScopedRetirementTaskByClockKey.set(
         sprintEngineIdleClockKey(workspace, retirement.agentId),
         retirement.data.taskId
       )
@@ -1158,20 +1265,24 @@ export async function executeSprintEngineDispatchPlan(
   return { restarted, notificationSpawned, notificationSpawnFailed, engagedAgentIds }
 }
 
-async function runSprintEngineDispatchPaths(input: {
-  workspace: Workspace
-  sprintEngineState: SprintEngineState
-  paths: SprintEngineDispatchPath[]
-  runningAgentIds: ReadonlySet<string>
-  idleAgentIds: ReadonlySet<string>
-  ledgers: SprintEngineDispatchLedgers
-  spawnContext?: SprintEngineDispatchSpawnContext
-  notifications?: SprintEngineDispatchNotificationInput
-  idleClock?: ReadonlyMap<string, number>
-  retirementCooldown?: MutableRefObject<Map<string, number>>
-  /** Shared per-cycle terminal snapshot; reused for the executor's session lookups so the cycle issues one terminalList instead of several. */
-  sessionsSnapshot?: TerminalSessionSnapshot[]
-}): Promise<SprintEngineDispatchExecution> {
+async function runSprintEngineDispatchPaths(
+  ports: SprintEngineAutoRunCyclePorts,
+  cycleState: SprintEngineAutoRunCycleState,
+  input: {
+    workspace: Workspace
+    sprintEngineState: SprintEngineState
+    paths: SprintEngineDispatchPath[]
+    runningAgentIds: ReadonlySet<string>
+    idleAgentIds: ReadonlySet<string>
+    ledgers: SprintEngineDispatchLedgers
+    spawnContext?: SprintEngineDispatchSpawnContext
+    notifications?: SprintEngineDispatchNotificationInput
+    idleClock?: ReadonlyMap<string, number>
+    retirementCooldown?: MutableRef<Map<string, number>>
+    /** Shared per-cycle terminal snapshot; reused for the executor's session lookups so the cycle issues one terminalList instead of several. */
+    sessionsSnapshot?: TerminalSessionSnapshot[]
+  }
+): Promise<SprintEngineDispatchExecution> {
   const plan = planSprintEngineDispatch({
     workspace: input.workspace,
     sprintEngineState: input.sprintEngineState,
@@ -1184,9 +1295,11 @@ async function runSprintEngineDispatchPaths(input: {
     notifications: input.notifications,
     idleClock: input.idleClock,
     retirementCooldown: input.retirementCooldown?.current,
-    taskScopedRetirementTaskIds: taskScopedRetirementTaskByClockKey,
+    taskScopedRetirementTaskIds: cycleState.taskScopedRetirementTaskByClockKey,
   })
   return executeSprintEngineDispatchPlan(
+    ports,
+    cycleState,
     input.workspace,
     plan,
     input.ledgers,
@@ -1202,18 +1315,20 @@ async function runSprintEngineDispatchPaths(input: {
 // path each, with the same planner and executor underneath.
 
 export async function respawnDeadSprintEngineClaimants(
+  ports: SprintEngineAutoRunCyclePorts,
+  cycleState: SprintEngineAutoRunCycleState,
   workspace: Workspace,
   sprintEngineState: SprintEngineState,
   runningAgentIds: ReadonlySet<string>,
   continuationCapacity: RunningContinuationCapacity,
-  sentContinuationMessages: MutableRefObject<Map<string, RoleContinuationMessage>>,
+  sentContinuationMessages: MutableRef<Map<string, RoleContinuationMessage>>,
   spawnDeps: {
     cliRuntimes: Record<AgentCli, CliRuntimeSettings>
     mcpSettings: McpSettings
-    inFlightSpawns: MutableRefObject<Set<string>>
+    inFlightSpawns: MutableRef<Set<string>>
   }
 ): Promise<void> {
-  await runSprintEngineDispatchPaths({
+  await runSprintEngineDispatchPaths(ports, cycleState, {
     workspace,
     sprintEngineState,
     paths: ['respawn'],
@@ -1225,12 +1340,14 @@ export async function respawnDeadSprintEngineClaimants(
 }
 
 export async function sendContinuationPromptsToIdleAgents(
+  ports: SprintEngineAutoRunCyclePorts,
+  cycleState: SprintEngineAutoRunCycleState,
   workspace: Workspace,
   sprintEngineState: SprintEngineState,
   continuationCapacity: RunningContinuationCapacity,
-  sentContinuationMessages: MutableRefObject<Map<string, RoleContinuationMessage>>
+  sentContinuationMessages: MutableRef<Map<string, RoleContinuationMessage>>
 ): Promise<void> {
-  await runSprintEngineDispatchPaths({
+  await runSprintEngineDispatchPaths(ports, cycleState, {
     workspace,
     sprintEngineState,
     paths: ['task_wake'],
@@ -1241,12 +1358,14 @@ export async function sendContinuationPromptsToIdleAgents(
 }
 
 export async function escalateStalledLiveIdleAgents(
+  ports: SprintEngineAutoRunCyclePorts,
+  cycleState: SprintEngineAutoRunCycleState,
   workspace: Workspace,
   sprintEngineState: SprintEngineState,
   continuationCapacity: RunningContinuationCapacity,
-  sentContinuationMessages: MutableRefObject<Map<string, RoleContinuationMessage>>
+  sentContinuationMessages: MutableRef<Map<string, RoleContinuationMessage>>
 ): Promise<'restarted' | 'none'> {
-  const result = await runSprintEngineDispatchPaths({
+  const result = await runSprintEngineDispatchPaths(ports, cycleState, {
     workspace,
     sprintEngineState,
     paths: ['restart'],
@@ -1258,12 +1377,14 @@ export async function escalateStalledLiveIdleAgents(
 }
 
 export async function sendDispatchPromptsToRunningAgents(
+  ports: SprintEngineAutoRunCyclePorts,
+  cycleState: SprintEngineAutoRunCycleState,
   workspace: Workspace,
   sprintEngineState: SprintEngineState,
   runningAgentIds: Set<string>,
-  sentDispatchMessages: MutableRefObject<Map<string, RoleContinuationMessage>>
+  sentDispatchMessages: MutableRef<Map<string, RoleContinuationMessage>>
 ): Promise<void> {
-  await runSprintEngineDispatchPaths({
+  await runSprintEngineDispatchPaths(ports, cycleState, {
     workspace,
     sprintEngineState,
     paths: ['dispatch'],
@@ -1273,8 +1394,11 @@ export async function sendDispatchPromptsToRunningAgents(
   })
 }
 
-async function reconcileDuplicateAgentSessions(workspace: Workspace): Promise<TerminalSessionSnapshot[]> {
-  const sessions = await listTerminalSessionsForAutoRun(workspace, 'reconcile-duplicates')
+async function reconcileDuplicateAgentSessions(
+  ports: SprintEngineAutoRunCyclePorts,
+  workspace: Workspace
+): Promise<TerminalSessionSnapshot[]> {
+  const sessions = await listTerminalSessionsForAutoRun(ports, workspace, 'reconcile-duplicates')
   const sessionsByAgentId = new Map<string, TerminalSessionSnapshot[]>()
 
   sessions.forEach((session) => {
@@ -1296,15 +1420,15 @@ async function reconcileDuplicateAgentSessions(workspace: Workspace): Promise<Te
     await Promise.all(
       agentSessions
         .filter((session) => session.sessionId !== preferredSession.sessionId)
-        .map((session) => safeTerminalKill(defaultExecutorPorts, session.sessionId))
+        .map((session) => safeTerminalKill(ports, session.sessionId))
     )
 
     const agent = workspace.agents[agentId]
     if (agent?.cliSessionId !== preferredSession.sessionId || !agent?.cliStartRequested) {
       const effectiveCli = preferredSession.cli ?? agent?.cli
       if (!effectiveCli) continue
-      const resumeCaps = resumeCapabilitiesForCli(effectiveCli, useWorkspaceStore.getState().pluginCatalogEntries)
-      useWorkspaceStore.getState().updateAgent(workspace.id, agentId, {
+      const resumeCaps = resumeCapabilitiesForCli(effectiveCli, ports.getPluginCatalogEntries())
+      ports.updateAgent(workspace.id, agentId, {
         cliSessionId: preferredSession.sessionId,
         cliStartRequested: true,
         cliHasLaunched: true,
@@ -1313,22 +1437,29 @@ async function reconcileDuplicateAgentSessions(workspace: Workspace): Promise<Te
         cli: effectiveCli,
         kind: 'sprintengine',
       })
-      void workspaceSyncClient.dispatchAssignTerminalSession(workspace.id, agentId, preferredSession.sessionId, effectiveCli)
+      void ports.dispatchAssignTerminalSession(workspace.id, agentId, preferredSession.sessionId, effectiveCli)
     }
   }
 
   return sessions
 }
 
-function setAutoRunPendingSpawns(workspaceId: string, pendingSpawns: SprintEngineAutoPendingSpawn[]): void {
-  useWorkspaceStore.getState().setSprintEngineAutoPendingSpawns(workspaceId, pendingSpawns)
+function setAutoRunPendingSpawns(
+  ports: SprintEngineAutoRunCyclePorts,
+  workspaceId: string,
+  pendingSpawns: SprintEngineAutoPendingSpawn[]
+): void {
+  ports.setSprintEngineAutoPendingSpawns(workspaceId, pendingSpawns)
 }
 
-function addAutoRunPendingSpawn(workspaceId: string, pending: SprintEngineAutoPendingSpawn): void {
-  const state = useWorkspaceStore.getState()
-  const workspace = state.workspaces.find((candidate) => candidate.id === workspaceId)
+function addAutoRunPendingSpawn(
+  ports: SprintEngineAutoRunCyclePorts,
+  workspaceId: string,
+  pending: SprintEngineAutoPendingSpawn
+): void {
+  const workspace = ports.getWorkspace(workspaceId)
   const current = getSprintEngineAutoState(workspace).pendingSpawns
-  state.setSprintEngineAutoPendingSpawns(workspaceId, [
+  ports.setSprintEngineAutoPendingSpawns(workspaceId, [
     ...current.filter((candidate) =>
       candidate.taskId !== pending.taskId && candidate.agentId !== pending.agentId
     ),
@@ -1337,6 +1468,7 @@ function addAutoRunPendingSpawn(workspaceId: string, pending: SprintEngineAutoPe
 }
 
 async function reconcileAutoRunPendingSpawns(
+  ports: SprintEngineAutoRunCyclePorts,
   workspace: Workspace,
   sprintEngineState: SprintEngineState
 ): Promise<SprintEngineAutoPendingSpawn[]> {
@@ -1352,7 +1484,7 @@ async function reconcileAutoRunPendingSpawns(
       ? isSprintEngineTaskLaunchable(pendingTask, sprintEngineState)
       : false
     const pendingAgent = workspace.agents[pending.agentId]
-    const pendingAgentHasProcess = await agentHasRunningProcess(workspace, pending.agentId)
+    const pendingAgentHasProcess = await agentHasRunningProcess(ports, workspace, pending.agentId)
     const pendingStartedAt = pending.startedAt ?? 0
     const pendingStillInGrace = Date.now() - pendingStartedAt < AUTO_RUN_PENDING_SPAWN_GRACE_MS
 
@@ -1363,14 +1495,14 @@ async function reconcileAutoRunPendingSpawns(
 
     changed = true
     if (pendingAgent && pendingAgent.cliStartRequested && !pendingAgentHasProcess) {
-      useWorkspaceStore.getState().updateAgent(workspace.id, pending.agentId, {
+      ports.updateAgent(workspace.id, pending.agentId, {
         cliSessionId: undefined,
         cliStartRequested: false,
         cliHasLaunched: false,
         cliOnboardingPromptSent: false,
         cliResumeAvailable: false,
       })
-      void workspaceSyncClient.dispatchUpdateTerminalLaunchState(workspace.id, pending.agentId, {
+      void ports.dispatchUpdateTerminalLaunchState(workspace.id, pending.agentId, {
         cliSessionId: null,
         cliStartRequested: false,
         cliHasLaunched: false,
@@ -1380,21 +1512,24 @@ async function reconcileAutoRunPendingSpawns(
     }
   }
 
-  if (changed) setAutoRunPendingSpawns(workspace.id, activePendingSpawns)
+  if (changed) setAutoRunPendingSpawns(ports, workspace.id, activePendingSpawns)
   return activePendingSpawns
 }
 
 export async function spawnAutoRunCandidate(
+  ports: SprintEngineAutoRunCyclePorts,
   workspace: Workspace,
   sprintEngineState: SprintEngineState,
   nextRun: AutoRunCandidate,
   cliRuntimes: Record<AgentCli, CliRuntimeSettings>,
   mcpSettings: McpSettings,
-  inFlightSpawns: MutableRefObject<Set<string>>,
+  inFlightSpawns: MutableRef<Set<string>>,
   options: { trackPendingSpawn?: boolean; revealPolicy?: AgentTerminalRevealPolicy } = {}
 ): Promise<'started' | 'failed' | 'skipped'> {
-  const currentState = useWorkspaceStore.getState()
-  const currentWorkspace = currentState.workspaces.find((candidate) => candidate.id === workspace.id)
+  const currentWorkspace = ports.getWorkspace(workspace.id)
+  // Settings snapshot taken where the supervisor captured the store state at
+  // spawn entry (the model catalog reads from this snapshot below).
+  const entrySpawnSettings = ports.getSpawnSettings()
   const currentAgent = currentWorkspace?.agents[nextRun.agentId]
   // Defensive belt over the reconcile-stamped record (MC-1450): re-resolve
   // the full runtime hierarchy (per-agent override > role `roleRuntimes`
@@ -1411,13 +1546,13 @@ export async function spawnAutoRunCandidate(
   // is unchanged and no run without `phaseRuntimes` ever takes this branch.
   const selectedCli = nextRun.runtimeOverride?.cli ?? resolvedRuntime.cli
   const selectedCliModel = nextRun.runtimeOverride ? nextRun.runtimeOverride.model : resolvedRuntime.cliModel
-  const sessionId = crypto.randomUUID()
+  const sessionId = ports.randomUUID()
   const spawnKey = `${workspace.id}:${nextRun.agentId}`
   if (inFlightSpawns.current.has(spawnKey)) return 'skipped'
 
   if (!workspace.folderPath || !workspace.sprintEngineContext) return 'skipped'
   if (!selectedCli) {
-    await defaultExecutorPorts.publishDiagnostic({
+    await ports.publishDiagnostic({
       level: 'error',
       source: 'terminal',
       title: 'Roster runner skipped agent',
@@ -1471,15 +1606,15 @@ export async function spawnAutoRunCandidate(
       sessionId,
       resumedConversation: Boolean(resumeToken),
     })
-    const folderExists = await defaultExecutorPorts.pathExists(workspaceFolderPath)
+    const folderExists = await ports.pathExists(workspaceFolderPath)
     if (!folderExists) {
-      currentState.setFolderMissing(workspace.id, true)
-      setAutoRunPendingSpawns(workspace.id, [])
-      defaultExecutorPorts.applyAutomationStopReason(workspace.id, 'folder_missing', {
+      ports.setFolderMissing(workspace.id, true)
+      setAutoRunPendingSpawns(ports, workspace.id, [])
+      ports.applyAutomationStopReason(workspace.id, 'folder_missing', {
         agentId: nextRun.agentId,
         taskId: nextRun.taskId,
       })
-      await defaultExecutorPorts.publishDiagnostic({
+      await ports.publishDiagnostic({
         level: 'error',
         source: 'filesystem',
         title: 'Roster runner stopped',
@@ -1497,21 +1632,18 @@ export async function spawnAutoRunCandidate(
       return 'failed'
     }
 
-    const latestStateBeforeSpawn = useWorkspaceStore.getState()
-    const latestAgent = latestStateBeforeSpawn
-      .workspaces.find((candidate) => candidate.id === workspace.id)
-      ?.agents[nextRun.agentId]
+    const latestAgent = ports.getWorkspace(workspace.id)?.agents[nextRun.agentId]
     if (latestAgent?.cliSessionId) {
-      const status = await safeTerminalStatus(defaultExecutorPorts, latestAgent.cliSessionId)
+      const status = await safeTerminalStatus(ports, latestAgent.cliSessionId)
       if (status.processAlive) return 'skipped'
-      latestStateBeforeSpawn.updateAgent(workspace.id, nextRun.agentId, {
+      ports.updateAgent(workspace.id, nextRun.agentId, {
         cliSessionId: undefined,
         cliStartRequested: false,
         cliHasLaunched: false,
         cliOnboardingPromptSent: false,
         cliResumeAvailable: false,
       })
-      void workspaceSyncClient.dispatchUpdateTerminalLaunchState(workspace.id, nextRun.agentId, {
+      void ports.dispatchUpdateTerminalLaunchState(workspace.id, nextRun.agentId, {
         cliSessionId: null,
         cliStartRequested: false,
         cliHasLaunched: false,
@@ -1519,13 +1651,13 @@ export async function spawnAutoRunCandidate(
         cliResumeAvailable: false,
       })
     } else if (latestAgent?.cliStartRequested) {
-      latestStateBeforeSpawn.updateAgent(workspace.id, nextRun.agentId, {
+      ports.updateAgent(workspace.id, nextRun.agentId, {
         cliStartRequested: false,
         cliHasLaunched: false,
         cliOnboardingPromptSent: false,
         cliResumeAvailable: false,
       })
-      void workspaceSyncClient.dispatchUpdateTerminalLaunchState(workspace.id, nextRun.agentId, {
+      void ports.dispatchUpdateTerminalLaunchState(workspace.id, nextRun.agentId, {
         cliStartRequested: false,
         cliHasLaunched: false,
         cliOnboardingPromptSent: false,
@@ -1546,12 +1678,12 @@ export async function spawnAutoRunCandidate(
 
     const memoryConfig = resolveProjectKnowledgeConfig(
       workspaceFolderPath,
-      useWorkspaceStore.getState().appSettings.projectKnowledgeRoots,
-      workspace.memory.relativeRoot
+      ports.getSpawnSettings().projectKnowledgeRoots,
+      workspace.memory?.relativeRoot
     )
     const memoryRelativeRoot = memoryConfig?.relativeRoot ?? null
     const memoryStatus = memoryRelativeRoot
-      ? await defaultExecutorPorts.memoryResolveRoot({
+      ? await ports.memoryResolveRoot({
         workspaceRoot: memoryConfig?.projectRoot ?? workspaceFolderPath,
         relativeRoot: memoryRelativeRoot,
       }).catch((): MemoryRootStatus => ({
@@ -1583,7 +1715,7 @@ export async function spawnAutoRunCandidate(
         // projection; scores from the global catalog, guidance from auto state.
         rosterSource: sprintEngineState.rosterSource,
         allowedRuntimes: sprintEngineState.allowedRuntimes,
-        modelCatalog: currentState.appSettings.sprintEngineModelCatalog,
+        modelCatalog: entrySpawnSettings.sprintEngineModelCatalog,
         architectGuidance: autoState.architectGuidance,
         commandMode: getSprintEngineStartupCommandMode(nextRun.role, nextRun.agentId, sprintEngineState),
         autonomousPlanningOverride: nextRun.role === 'architect' && sprintEngineArtifactApprovalDesired(autoState),
@@ -1597,8 +1729,8 @@ export async function spawnAutoRunCandidate(
       memoryPrompt,
     ].filter(Boolean).join('\n\n')
 
-    if (options.trackPendingSpawn !== false) addAutoRunPendingSpawn(workspace.id, pendingSpawn)
-    currentState.updateAgent(workspace.id, nextRun.agentId, {
+    if (options.trackPendingSpawn !== false) addAutoRunPendingSpawn(ports, workspace.id, pendingSpawn)
+    ports.updateAgent(workspace.id, nextRun.agentId, {
       name: nextRun.label,
       execution: {
         mode: executionMode,
@@ -1647,7 +1779,7 @@ export async function spawnAutoRunCandidate(
       worktreePath?: string
     }
 
-    const spawnResult = await spawnTerminalSession(defaultExecutorPorts, {
+    const spawnResult = await spawnTerminalSession(ports, {
       sessionId,
       cols: BACKGROUND_TERMINAL_COLS,
       rows: BACKGROUND_TERMINAL_ROWS,
@@ -1672,9 +1804,9 @@ export async function spawnAutoRunCandidate(
       message: spawnResult.ok ? null : spawnResult.message,
     })
     if (!spawnResult.ok) {
-      await recordSpawnFailure(defaultExecutorPorts, {
+      await recordSpawnFailure(ports, {
         workspaceId: workspace.id,
-        workspaceName: workspace.name,
+        workspaceName: workspace.name ?? '',
         agentId: nextRun.agentId,
         agentLabel: nextRun.label,
         selectedCli,
@@ -1685,7 +1817,7 @@ export async function spawnAutoRunCandidate(
         sprintEngineStatePath,
         spawnMessage: spawnResult.message,
       })
-      void workspaceSyncClient.dispatchUpdateTerminalLaunchState(workspace.id, nextRun.agentId, {
+      void ports.dispatchUpdateTerminalLaunchState(workspace.id, nextRun.agentId, {
         cliSessionId: null,
         cliStartRequested: false,
         cliHasLaunched: false,
@@ -1695,15 +1827,15 @@ export async function spawnAutoRunCandidate(
       return 'failed'
     }
 
-    currentState.updateAgent(workspace.id, nextRun.agentId, {
+    ports.updateAgent(workspace.id, nextRun.agentId, {
       cliStartupPrompt: undefined,
     })
-    void workspaceSyncClient.dispatchAssignTerminalSession(workspace.id, nextRun.agentId, sessionId, selectedCli)
-    void workspaceSyncClient.dispatchUpdateTerminalLaunchState(workspace.id, nextRun.agentId, {
+    void ports.dispatchAssignTerminalSession(workspace.id, nextRun.agentId, sessionId, selectedCli)
+    void ports.dispatchUpdateTerminalLaunchState(workspace.id, nextRun.agentId, {
       cliOnboardingPromptSent: true,
       cliResumeAvailable: false,
     })
-    defaultExecutorPorts.applyTerminalRevealPolicy(
+    ports.applyTerminalRevealPolicy(
       workspace.id,
       nextRun.agentId,
       nextRun.label,
@@ -1716,11 +1848,6 @@ export async function spawnAutoRunCandidate(
   }
 }
 
-// One stall notice per run store, so a bootstrap stall (no architect, or the
-// architect terminal exited before planning) surfaces once instead of every
-// supervision tick. Cleared when a bootstrap spawn later succeeds.
-const bootstrapStallNoticeKeys = new Set<string>()
-
 /**
  * Run-start bootstrap. The decision of *whether* anything needs a bootstrap
  * spawn is pure planner logic in `pickSprintEngineBootstrapCandidate`; this
@@ -1731,12 +1858,14 @@ const bootstrapStallNoticeKeys = new Set<string>()
  * through `signalArchitectForNeedsInputTriage`.
  */
 async function ensureSprintEngineBootstrapAgent(
+  ports: SprintEngineAutoRunCyclePorts,
+  cycleState: SprintEngineAutoRunCycleState,
   workspace: Workspace,
   sprintEngineState: SprintEngineState,
   runningAgentIds: Set<string>,
   cliRuntimes: Record<AgentCli, CliRuntimeSettings>,
   mcpSettings: McpSettings,
-  inFlightSpawns: MutableRefObject<Set<string>>
+  inFlightSpawns: MutableRef<Set<string>>
 ): Promise<'started' | 'failed' | 'none'> {
   if (!isSprintEngineRunnerActive(workspace) || !workspace.sprintEngineContext) return 'none'
 
@@ -1752,9 +1881,9 @@ async function ensureSprintEngineBootstrapAgent(
       workspaceName: workspace.name,
       reason: decision.reason,
     })
-    if (!bootstrapStallNoticeKeys.has(stallNoticeKey)) {
-      bootstrapStallNoticeKeys.add(stallNoticeKey)
-      await defaultExecutorPorts.publishDiagnostic({
+    if (!cycleState.bootstrapStallNoticeKeys.has(stallNoticeKey)) {
+      cycleState.bootstrapStallNoticeKeys.add(stallNoticeKey)
+      await ports.publishDiagnostic({
         level: 'warning',
         source: 'sprintengine',
         title: decision.reason === 'no_planner'
@@ -1779,7 +1908,7 @@ async function ensureSprintEngineBootstrapAgent(
 
   const currentAgent = workspace.agents[decision.candidate.agentId]
   if (currentAgent?.cliSessionId) {
-    const status = await safeTerminalStatus(defaultExecutorPorts, currentAgent.cliSessionId)
+    const status = await safeTerminalStatus(ports, currentAgent.cliSessionId)
     if (status.processAlive) return 'none'
   }
 
@@ -1791,6 +1920,7 @@ async function ensureSprintEngineBootstrapAgent(
     taskCount: sprintEngineState.tasks.length,
   })
   const result = await spawnAutoRunCandidate(
+    ports,
     workspace,
     sprintEngineState,
     decision.candidate,
@@ -1801,22 +1931,16 @@ async function ensureSprintEngineBootstrapAgent(
   )
   if (result === 'failed') return 'failed'
   if (result === 'started') {
-    bootstrapStallNoticeKeys.delete(stallNoticeKey)
+    cycleState.bootstrapStallNoticeKeys.delete(stallNoticeKey)
     runningAgentIds.add(decision.candidate.agentId)
     return 'started'
   }
   return 'none'
 }
 
-// Fingerprint of the last queue-depth replenish attempt that minted nothing,
-// per workspace. The TS trigger is a heuristic; when it persistently disagrees
-// with Python's authoritative calc (status-enum drift, needsTriage, retired
-// owners), re-calling every supervise tick would spawn a no-op CLI subprocess
-// (and take the run.yaml lock) every few seconds forever. A no-op result
-// parks the trigger until the projection actually changes.
-const lastNoopQueueDepthReplenishFingerprint = new Map<string, string>()
-
 async function replenishRetiredRosterCapacity(
+  ports: SprintEngineAutoRunCyclePorts,
+  cycleState: SprintEngineAutoRunCycleState,
   workspace: Workspace,
   sprintEngineState: SprintEngineState,
   liveAgentIds: ReadonlySet<string>
@@ -1828,7 +1952,7 @@ async function replenishRetiredRosterCapacity(
   // automation state, not the headless CLI watch-polling flag in run.yaml.
   if (!workspace.sprintEngineContext) return { status: 'none' }
   const autoState = getSprintEngineAutoState(workspace)
-  if (deriveSprintEngineAutomationMode(autoState) === 'manual') return { status: 'none' }
+  if (deriveAutomationMode(autoState) === 'manual') return { status: 'none' }
   const hasRetiredAgent = Object.values(sprintEngineState.sprintEngineAgents)
     .some((agent) => agent.status === 'retired')
   // B1/B2 execution-only supervisor: with one agent session per task, every
@@ -1840,7 +1964,7 @@ async function replenishRetiredRosterCapacity(
   const fingerprint = `${sprintEngineState.updatedAt ?? ''}|${wantsQueueDepthReplenish ? 'ready' : ''}`
   if (
     wantsQueueDepthReplenish
-    && lastNoopQueueDepthReplenishFingerprint.get(workspace.id) === fingerprint
+    && cycleState.lastNoopQueueDepthReplenishFingerprint.get(workspace.id) === fingerprint
   ) {
     wantsQueueDepthReplenish = false
   }
@@ -1852,7 +1976,7 @@ async function replenishRetiredRosterCapacity(
   const busyAgentIds = [...liveAgentIds].filter((agentId) =>
     Boolean(sprintEngineState.sprintEngineAgents[agentId]?.lastOwnedTaskId)
   )
-  const result = await defaultExecutorPorts.replenishSprintEngineRoster({
+  const result = await ports.replenishSprintEngineRoster({
     statePath: workspace.sprintEngineContext.statePath,
     ...(wantsQueueDepthReplenish
       ? {
@@ -1863,7 +1987,7 @@ async function replenishRetiredRosterCapacity(
       : {}),
   })
   if (!result.ok) {
-    await defaultExecutorPorts.publishDiagnostic({
+    await ports.publishDiagnostic({
       level: 'warning',
       source: 'sprintengine',
       title: 'Roster replenishment failed',
@@ -1879,16 +2003,16 @@ async function replenishRetiredRosterCapacity(
   // Park the queue-depth trigger on a no-mint outcome until the projection
   // changes; a mint clears the park so convergence keeps flowing.
   if (wantsQueueDepthReplenish) {
-    if (created <= 0) lastNoopQueueDepthReplenishFingerprint.set(workspace.id, fingerprint)
-    else lastNoopQueueDepthReplenishFingerprint.delete(workspace.id)
+    if (created <= 0) cycleState.lastNoopQueueDepthReplenishFingerprint.set(workspace.id, fingerprint)
+    else cycleState.lastNoopQueueDepthReplenishFingerprint.delete(workspace.id)
   }
   const projectionContent = (result.data as { projectionContent?: unknown } | undefined)?.projectionContent
   if (typeof projectionContent !== 'string') return { status: 'none' }
   const projection = JSON.parse(projectionContent) as unknown
   const parsedState = normalizeSprintEngineProjection(projection, workspace.sprintEngineContext.teamSlug)
   if (!parsedState) return { status: 'none' }
-  useWorkspaceStore.getState().setSprintEngineState(workspace.id, parsedState)
-  const updatedWorkspace = useWorkspaceStore.getState().workspaces.find((candidate) => candidate.id === workspace.id)
+  ports.setSprintEngineState(workspace.id, parsedState)
+  const updatedWorkspace = ports.getWorkspace(workspace.id)
   logPerfEvent('SprintEngineAutoRun', 'roster-replenish', {
     workspaceId: workspace.id,
     workspaceName: workspace.name,
@@ -1909,6 +2033,7 @@ async function replenishRetiredRosterCapacity(
  * clear it so every later spawn is fresh.
  */
 function clearStaleRetainedResumeState(
+  ports: SprintEngineAutoRunCyclePorts,
   workspace: Workspace,
   sprintEngineState: SprintEngineState,
   liveAgentIds: ReadonlySet<string>
@@ -1921,11 +2046,11 @@ function clearStaleRetainedResumeState(
     if (!lastOwnedTaskId) continue
     const lastOwned = sprintEngineState.tasks.find((candidate) => candidate.id === lastOwnedTaskId)
     if (!lastOwned || lastOwned.status !== 'done') continue
-    defaultExecutorPorts.updateAgent(workspace.id, agentId, {
+    ports.updateAgent(workspace.id, agentId, {
       cliSessionId: undefined,
       cliResumeAvailable: false,
     })
-    void workspaceSyncClient.dispatchUpdateTerminalLaunchState(workspace.id, agentId, {
+    void ports.dispatchUpdateTerminalLaunchState(workspace.id, agentId, {
       cliSessionId: null,
       cliStartRequested: false,
       cliHasLaunched: false,
@@ -1942,14 +2067,15 @@ function clearStaleRetainedResumeState(
 }
 
 async function signalArchitectForNeedsInputTriage(
+  ports: SprintEngineAutoRunCyclePorts,
   workspace: Workspace,
   sprintEngineState: SprintEngineState,
   pendingSpawns: SprintEngineAutoPendingSpawn[],
   runningAgentIds: Set<string>,
   cliRuntimes: Record<AgentCli, CliRuntimeSettings>,
   mcpSettings: McpSettings,
-  inFlightSpawns: MutableRefObject<Set<string>>,
-  sentArchitectTriageMessages: MutableRefObject<Map<string, ArchitectTriageMessage>>,
+  inFlightSpawns: MutableRef<Set<string>>,
+  sentArchitectTriageMessages: MutableRef<Map<string, ArchitectTriageMessage>>,
   engagedThisPass: ReadonlySet<string>
 ): Promise<'started' | 'sent' | 'failed' | 'none'> {
   if (!workspace.folderPath || !workspace.sprintEngineContext) return 'none'
@@ -1989,7 +2115,7 @@ async function signalArchitectForNeedsInputTriage(
   const retryLimitReached = promptRetryLimitReached(previous)
 
   if (runningAgentIds.has(architect.id)) {
-    defaultExecutorPorts.applyTerminalRevealPolicy(
+    ports.applyTerminalRevealPolicy(
       workspace.id,
       architect.id,
       workspace.agents[architect.id]?.name ?? architect.label,
@@ -2008,10 +2134,10 @@ async function signalArchitectForNeedsInputTriage(
     }
     if (retryPending) return 'none'
 
-    const session = await findRunningAgentSession(workspace, architect.id)
+    const session = await findRunningAgentSession(ports, workspace, architect.id)
     if (!session) return 'none'
 
-    await writeBracketedPrompt(defaultExecutorPorts, session.sessionId, triagePrompt)
+    await writeBracketedPrompt(ports, session.sessionId, triagePrompt)
     recordPromptRetry(sentArchitectTriageMessages.current, messageKey, Date.now())
     logPerfEvent('SprintEngineAutoRun', 'architect-triage-prompt-sent', {
       workspaceId: workspace.id,
@@ -2026,6 +2152,7 @@ async function signalArchitectForNeedsInputTriage(
   if (architectPending || inFlightSpawns.current.has(spawnKey)) return 'none'
 
   const result = await spawnAutoRunCandidate(
+    ports,
     workspace,
     sprintEngineState,
     {
@@ -2048,26 +2175,28 @@ async function signalArchitectForNeedsInputTriage(
   return 'none'
 }
 
-async function superviseWorkspace(
+export async function superviseWorkspace(
+  ports: SprintEngineAutoRunCyclePorts,
+  cycleState: SprintEngineAutoRunCycleState,
   workspace: Workspace,
   cliRuntimes: Record<AgentCli, CliRuntimeSettings>,
   mcpSettings: McpSettings,
-  inFlightSpawns: MutableRefObject<Set<string>>,
-  sentArtifactApprovalMessages: MutableRefObject<Map<string, number>>,
-  autoApprovalDiagnostics: MutableRefObject<Map<string, number>>,
-  sentContinuationMessages: MutableRefObject<Map<string, RoleContinuationMessage>>,
-  sentDispatchMessages: MutableRefObject<Map<string, RoleContinuationMessage>>,
-  sentArchitectTriageMessages: MutableRefObject<Map<string, ArchitectTriageMessage>>,
-  sentAgentNotificationEvents: MutableRefObject<Set<string>>,
-  continuationGraceByTask: MutableRefObject<Map<string, RoleContinuationGrace>>,
-  projectionTokensByWorkspace: MutableRefObject<Map<string, string>>,
-  idleClockByAgent: MutableRefObject<Map<string, number>>,
-  retirementCooldownByAgent: MutableRefObject<Map<string, number>>
+  inFlightSpawns: MutableRef<Set<string>>,
+  sentArtifactApprovalMessages: MutableRef<Map<string, number>>,
+  autoApprovalDiagnostics: MutableRef<Map<string, number>>,
+  sentContinuationMessages: MutableRef<Map<string, RoleContinuationMessage>>,
+  sentDispatchMessages: MutableRef<Map<string, RoleContinuationMessage>>,
+  sentArchitectTriageMessages: MutableRef<Map<string, ArchitectTriageMessage>>,
+  sentAgentNotificationEvents: MutableRef<Set<string>>,
+  continuationGraceByTask: MutableRef<Map<string, RoleContinuationGrace>>,
+  projectionTokensByWorkspace: MutableRef<Map<string, string>>,
+  idleClockByAgent: MutableRef<Map<string, number>>,
+  retirementCooldownByAgent: MutableRef<Map<string, number>>
 ): Promise<void> {
   const superviseStartedAt = performance.now()
   let sprintEngineState = workspace.sprintEngineState
   const autoState = getSprintEngineAutoState(workspace)
-  const automationMode = deriveSprintEngineAutomationMode(autoState, sprintEngineState?.runner)
+  const automationMode = deriveAutomationMode(autoState)
   const runtimeState = normalizeSprintEngineAutomationRuntimeState(autoState.runtimeState, automationMode)
   const runnerActive = automationMode !== 'manual' && runtimeState === 'running'
   const approvalActive = automationMode === 'run_agents_and_approve_artifacts' && runtimeState === 'running'
@@ -2086,7 +2215,7 @@ async function superviseWorkspace(
   // because completion also stops the poller. Manual, user-initiated spawns go
   // through a separate path and are unaffected. We only reach here with
   // runtimeState === 'running' (the early return above guarantees it).
-  if (enterDormancyIfRunComplete(workspace, sprintEngineState)) {
+  if (enterDormancyIfRunComplete(ports, workspace, sprintEngineState)) {
     logPerfEvent('SprintEngineAutoRun', 'supervise-stop', {
       workspaceId: workspace.id,
       workspaceName: workspace.name,
@@ -2112,6 +2241,7 @@ async function superviseWorkspace(
 
   if (approvalActive) {
     const approvalResult = await sendApprovalToNextEligibleArtifactProducer(
+      ports,
       workspace,
       sprintEngineState,
       sentArtifactApprovalMessages,
@@ -2123,7 +2253,7 @@ async function superviseWorkspace(
       // sendApprovalToNextEligibleArtifactProducer applied the mutation projection
       // (or refreshed from disk when projection content was missing/malformed) and
       // updated the workspace store before returning. Pick up the fresh state.
-      const refreshedWorkspace = useWorkspaceStore.getState().workspaces.find((candidate) => candidate.id === workspace.id)
+      const refreshedWorkspace = ports.getWorkspace(workspace.id)
       if (!refreshedWorkspace || !refreshedWorkspace.sprintEngineState) return
       workspace = refreshedWorkspace
       sprintEngineState = refreshedWorkspace.sprintEngineState
@@ -2139,7 +2269,7 @@ async function superviseWorkspace(
 
   if (isSprintEngineRunBlockedOnExternalInput(sprintEngineState)) {
     const blockReason = describeSprintEngineExternalInputAutoRunBlock(sprintEngineState)
-    defaultExecutorPorts.applyAutomationStopReason(workspace.id, 'blocked_on_external_input', blockReason)
+    ports.applyAutomationStopReason(workspace.id, 'blocked_on_external_input', blockReason)
     logPerfEvent('SprintEngineAutoRun', 'supervise-stop', {
       workspaceId: workspace.id,
       workspaceName: workspace.name,
@@ -2163,7 +2293,7 @@ async function superviseWorkspace(
   }
 
   try {
-    await superviseRunnerActiveCycle({
+    await superviseRunnerActiveCycle(ports, cycleState, {
       workspace,
       sprintEngineState,
       autoState,
@@ -2181,37 +2311,41 @@ async function superviseWorkspace(
     })
   } catch (error) {
     if (error instanceof TerminalListIpcError) {
-      await publishTerminalListIpcFailureNotice(workspace, error, 'supervise')
+      await publishTerminalListIpcFailureNotice(ports, cycleState, workspace, error, 'supervise')
       return
     }
     throw error
   }
 }
 
-type RunnerActiveCycleInput = {
+export type SprintEngineRunnerActiveCycleInput = {
   workspace: Workspace
   sprintEngineState: SprintEngineState
   autoState: SprintEngineAutoState
   superviseStartedAt: number
   cliRuntimes: Record<AgentCli, CliRuntimeSettings>
   mcpSettings: McpSettings
-  inFlightSpawns: MutableRefObject<Set<string>>
-  sentContinuationMessages: MutableRefObject<Map<string, RoleContinuationMessage>>
-  sentDispatchMessages: MutableRefObject<Map<string, RoleContinuationMessage>>
-  sentArchitectTriageMessages: MutableRefObject<Map<string, ArchitectTriageMessage>>
-  sentAgentNotificationEvents: MutableRefObject<Set<string>>
-  continuationGraceByTask: MutableRefObject<Map<string, RoleContinuationGrace>>
+  inFlightSpawns: MutableRef<Set<string>>
+  sentContinuationMessages: MutableRef<Map<string, RoleContinuationMessage>>
+  sentDispatchMessages: MutableRef<Map<string, RoleContinuationMessage>>
+  sentArchitectTriageMessages: MutableRef<Map<string, ArchitectTriageMessage>>
+  sentAgentNotificationEvents: MutableRef<Set<string>>
+  continuationGraceByTask: MutableRef<Map<string, RoleContinuationGrace>>
   /** Cross-tick idle observations for the idle_retire path; must persist across ticks or retirement never reaches its window. */
-  idleClockByAgent: MutableRefObject<Map<string, number>>
+  idleClockByAgent: MutableRef<Map<string, number>>
   /**
    * Cross-tick record of recent retirements; must persist across ticks to
    * suppress the kill/respawn storm. Optional so single-path test shims can omit
    * it (no cooldown then); the production tick always threads the ref.
    */
-  retirementCooldownByAgent?: MutableRefObject<Map<string, number>>
+  retirementCooldownByAgent?: MutableRef<Map<string, number>>
 }
 
-export async function superviseRunnerActiveCycle(input: RunnerActiveCycleInput): Promise<void> {
+export async function superviseRunnerActiveCycle(
+  ports: SprintEngineAutoRunCyclePorts,
+  cycleState: SprintEngineAutoRunCycleState,
+  input: SprintEngineRunnerActiveCycleInput
+): Promise<void> {
   let {
     workspace,
     sprintEngineState,
@@ -2232,7 +2366,7 @@ export async function superviseRunnerActiveCycle(input: RunnerActiveCycleInput):
     workspaceName: workspace.name,
     pendingSpawnCount: autoState.pendingSpawns.length,
   })
-  const pendingSpawns = await reconcileAutoRunPendingSpawns(workspace, sprintEngineState)
+  const pendingSpawns = await reconcileAutoRunPendingSpawns(ports, workspace, sprintEngineState)
   logPerfEvent('SprintEngineAutoRun', 'reconcile-pending-end', {
     workspaceId: workspace.id,
     workspaceName: workspace.name,
@@ -2250,10 +2384,10 @@ export async function superviseRunnerActiveCycle(input: RunnerActiveCycleInput):
   // executor spawns or kills a terminal, so it cannot go stale for an agent the
   // cycle acts on (the executor's own spawns take their session from the spawn
   // result, not this snapshot).
-  const cycleSessions = await listTerminalSessionsForAutoRun(workspace, 'supervise-cycle')
-  const agentSessions = await getRunningAutoRunAgentIds(workspace, sprintEngineState, cycleSessions)
+  const cycleSessions = await listTerminalSessionsForAutoRun(ports, workspace, 'supervise-cycle')
+  const agentSessions = await getRunningAutoRunAgentIds(ports, workspace, sprintEngineState, cycleSessions)
   const runningAgentIds = agentSessions.running
-  const continuationCapacity = await getRunningContinuationCapacityByRole(workspace, sprintEngineState, cycleSessions)
+  const continuationCapacity = await getRunningContinuationCapacityByRole(ports, workspace, sprintEngineState, cycleSessions)
   logPerfEvent('SprintEngineAutoRun', 'running-agents-end', {
     workspaceId: workspace.id,
     workspaceName: workspace.name,
@@ -2279,7 +2413,7 @@ export async function superviseRunnerActiveCycle(input: RunnerActiveCycleInput):
   // before any path that can early-return the cycle, and before slot
   // accounting — dead in-progress owners consume the very slots spawn-side
   // recovery would need.
-  const dispatchResult = await runSprintEngineDispatchPaths({
+  const dispatchResult = await runSprintEngineDispatchPaths(ports, cycleState, {
     workspace,
     sprintEngineState,
     paths: ['notification', 'dispatch', 'task_wake', 'active_assignment', 'restart', 'respawn', 'idle_retire'],
@@ -2307,6 +2441,7 @@ export async function superviseRunnerActiveCycle(input: RunnerActiveCycleInput):
   if (dispatchResult.notificationSpawnFailed) return
 
   const architectTriageSignal = await signalArchitectForNeedsInputTriage(
+    ports,
     workspace,
     sprintEngineState,
     pendingSpawns,
@@ -2331,9 +2466,9 @@ export async function superviseRunnerActiveCycle(input: RunnerActiveCycleInput):
     return
   }
 
-  clearStaleRetainedResumeState(workspace, sprintEngineState, agentSessions.live)
+  clearStaleRetainedResumeState(ports, workspace, sprintEngineState, agentSessions.live)
 
-  const replenishResult = await replenishRetiredRosterCapacity(workspace, sprintEngineState, agentSessions.live)
+  const replenishResult = await replenishRetiredRosterCapacity(ports, cycleState, workspace, sprintEngineState, agentSessions.live)
   if (replenishResult.status === 'failed') return
   if (replenishResult.status === 'changed') {
     workspace = replenishResult.workspace
@@ -2347,6 +2482,8 @@ export async function superviseRunnerActiveCycle(input: RunnerActiveCycleInput):
   }
 
   const bootstrapResult = await ensureSprintEngineBootstrapAgent(
+    ports,
+    cycleState,
     workspace,
     sprintEngineState,
     runningAgentIds,
@@ -2402,7 +2539,7 @@ export async function superviseRunnerActiveCycle(input: RunnerActiveCycleInput):
     // run's agent panels) is owned by the projection-refresh reconcile, which
     // fires for every automation mode and on reopen. Here we only stop the
     // runner so this workspace is skipped on subsequent ticks.
-    defaultExecutorPorts.applyAutomationStopReason(workspace.id, 'all_tasks_done')
+    ports.applyAutomationStopReason(workspace.id, 'all_tasks_done')
     logPerfEvent('SprintEngineAutoRun', 'supervise-stop', {
       workspaceId: workspace.id,
       workspaceName: workspace.name,
@@ -2455,7 +2592,7 @@ export async function superviseRunnerActiveCycle(input: RunnerActiveCycleInput):
       workspaceName: workspace.name,
       message: error instanceof Error ? error.message : String(error),
     })
-    await defaultExecutorPorts.publishDiagnostic({
+    await ports.publishDiagnostic({
       level: 'warning',
       source: 'sprintengine',
       title: 'Roster runner skipped this tick',
@@ -2494,12 +2631,13 @@ export async function superviseRunnerActiveCycle(input: RunnerActiveCycleInput):
   }
 
   for (const nextRun of nextRuns) {
-    const latestWorkspace = useWorkspaceStore.getState().workspaces.find((candidate) => candidate.id === workspace.id)
+    const latestWorkspace = ports.getWorkspace(workspace.id)
     if (
       !latestWorkspace
       || !sprintEngineAutomationShouldRun(getSprintEngineAutoState(latestWorkspace))
     ) return
     const spawnResult = await spawnAutoRunCandidate(
+      ports,
       latestWorkspace,
       sprintEngineState,
       nextRun,
@@ -2511,7 +2649,11 @@ export async function superviseRunnerActiveCycle(input: RunnerActiveCycleInput):
   }
 }
 
-async function reconcileWorkspaceSessions(workspace: Workspace): Promise<void> {
+export async function reconcileWorkspaceSessions(
+  ports: SprintEngineAutoRunCyclePorts,
+  cycleState: SprintEngineAutoRunCycleState,
+  workspace: Workspace
+): Promise<void> {
   let sessions: TerminalSessionSnapshot[]
   try {
     // The duplicate-session reconcile already lists every live terminal once.
@@ -2520,10 +2662,10 @@ async function reconcileWorkspaceSessions(workspace: Workspace): Promise<void> {
     // tick at scale). A session absent from the snapshot — or present with
     // processAlive false — is dead, matching terminalStatus for a missing/exited
     // session.
-    sessions = await reconcileDuplicateAgentSessions(workspace)
+    sessions = await reconcileDuplicateAgentSessions(ports, workspace)
   } catch (error) {
     if (error instanceof TerminalListIpcError) {
-      await publishTerminalListIpcFailureNotice(workspace, error, 'reconcile')
+      await publishTerminalListIpcFailureNotice(ports, cycleState, workspace, error, 'reconcile')
       return
     }
     throw error
@@ -2536,13 +2678,13 @@ async function reconcileWorkspaceSessions(workspace: Workspace): Promise<void> {
 
     if (!agent.cliSessionId) {
       if (agent.kind !== 'sprintengine') continue
-      useWorkspaceStore.getState().updateAgent(workspace.id, agent.id, {
+      ports.updateAgent(workspace.id, agent.id, {
         cliStartRequested: false,
         cliHasLaunched: false,
         cliOnboardingPromptSent: false,
         cliResumeAvailable: false,
       })
-      void workspaceSyncClient.dispatchUpdateTerminalLaunchState(workspace.id, agent.id, {
+      void ports.dispatchUpdateTerminalLaunchState(workspace.id, agent.id, {
         cliStartRequested: false,
         cliHasLaunched: false,
         cliOnboardingPromptSent: false,
@@ -2553,7 +2695,7 @@ async function reconcileWorkspaceSessions(workspace: Workspace): Promise<void> {
 
     if (processAliveBySessionId.get(agent.cliSessionId)) continue
 
-    useWorkspaceStore.getState().updateAgent(workspace.id, agent.id, {
+    ports.updateAgent(workspace.id, agent.id, {
       cliSessionId: undefined,
       cliStartRequested: false,
       cliHasLaunched: false,
@@ -2562,7 +2704,7 @@ async function reconcileWorkspaceSessions(workspace: Workspace): Promise<void> {
       cliLastExitedAt: Date.now(),
       cliResumeAvailable: false,
     })
-    void workspaceSyncClient.dispatchUpdateTerminalLaunchState(workspace.id, agent.id, {
+    void ports.dispatchUpdateTerminalLaunchState(workspace.id, agent.id, {
       cliSessionId: null,
       cliStartRequested: false,
       cliHasLaunched: false,
@@ -2570,133 +2712,4 @@ async function reconcileWorkspaceSessions(workspace: Workspace): Promise<void> {
       cliResumeAvailable: false,
     })
   }
-}
-
-export default function SprintEngineAutoRunSupervisor() {
-  const inFlightSpawns = useRef(new Set<string>())
-  const sentArtifactApprovalMessages = useRef(new Map<string, number>())
-  const autoApprovalDiagnostics = useRef(new Map<string, number>())
-  const sentContinuationMessages = useRef(new Map<string, RoleContinuationMessage>())
-  const sentDispatchMessages = useRef(new Map<string, RoleContinuationMessage>())
-  const sentArchitectTriageMessages = useRef(new Map<string, ArchitectTriageMessage>())
-  const sentAgentNotificationEvents = useRef(new Set<string>())
-  const continuationGraceByTask = useRef(new Map<string, RoleContinuationGrace>())
-  const idleClockByAgent = useRef(new Map<string, number>())
-  const retirementCooldownByAgent = useRef(new Map<string, number>())
-  const projectionTokensByWorkspace = useRef(new Map<string, string>())
-  const lastInactiveTickByWorkspace = useRef(new Map<string, number>())
-  const startedAt = useRef(Date.now())
-  const tickInProgress = useRef(false)
-
-  useEffect(() => {
-    if (MULTICODE_DISABLE_SPRINTENGINE_AUTORUN) {
-      console.info('[SprintEngineAutoRun] disabled by runtime flag')
-      return
-    }
-
-    let disposed = false
-
-    const tick = async () => {
-      if (tickInProgress.current) return
-      tickInProgress.current = true
-
-      try {
-        const tickStartedAt = performance.now()
-        const { workspaces, appSettings, activeWorkspaceId } = useWorkspaceStore.getState()
-        const now = Date.now()
-        const autoWorkspaces = workspaces.filter((workspace) =>
-          isSprintEngineRunnerActive(workspace)
-        ).filter((workspace) => {
-          if (workspace.id === activeWorkspaceId) return true
-
-          const lastTick = lastInactiveTickByWorkspace.current.get(workspace.id) ?? 0
-          if (now - lastTick < INACTIVE_AUTO_RUN_POLL_MS) return false
-          lastInactiveTickByWorkspace.current.set(workspace.id, now)
-          return true
-        })
-
-        lastInactiveTickByWorkspace.current.forEach((_, workspaceId) => {
-          if (!workspaces.some((workspace) => workspace.id === workspaceId)) {
-            lastInactiveTickByWorkspace.current.delete(workspaceId)
-          }
-        })
-        logPerfEvent('SprintEngineAutoRun', 'tick-start', {
-          activeWorkspaceId,
-          autoWorkspaceCount: autoWorkspaces.length,
-          autoWorkspaces: autoWorkspaces.map((workspace) => ({
-            id: workspace.id,
-            name: workspace.name,
-            enabled: isSprintEngineRunnerActive(workspace),
-            automationMode: deriveSprintEngineAutomationMode(getSprintEngineAutoState(workspace), workspace.sprintEngineState?.runner),
-            runnerCliWatchPolling: workspace.sprintEngineState?.runner?.cliWatchPolling ?? null,
-            runtimeState: getSprintEngineAutoState(workspace).runtimeState ?? null,
-            artifactApprovalDesired: sprintEngineArtifactApprovalDesired(getSprintEngineAutoState(workspace)),
-          })),
-        })
-
-        const eligibleWorkspaceIds = new Set(autoWorkspaces.map((workspace) => workspace.id))
-        const refreshedState = useWorkspaceStore.getState()
-        for (const workspace of refreshedState.workspaces.filter((candidate) => eligibleWorkspaceIds.has(candidate.id))) {
-          if (disposed) return
-          await reconcileWorkspaceSessions(workspace)
-        }
-
-        const cleanedState = useWorkspaceStore.getState()
-        const startupSpawnDelayElapsed = Date.now() - startedAt.current >= AUTO_RUN_STARTUP_SPAWN_DELAY_MS
-        for (const workspace of cleanedState.workspaces.filter((candidate) => eligibleWorkspaceIds.has(candidate.id))) {
-          if (disposed) return
-          if (!startupSpawnDelayElapsed) continue
-          await superviseWorkspace(
-            workspace,
-            appSettings.cliRuntimes,
-            appSettings.mcp,
-            inFlightSpawns,
-            sentArtifactApprovalMessages,
-            autoApprovalDiagnostics,
-            sentContinuationMessages,
-            sentDispatchMessages,
-            sentArchitectTriageMessages,
-            sentAgentNotificationEvents,
-            continuationGraceByTask,
-            projectionTokensByWorkspace,
-            idleClockByAgent,
-            retirementCooldownByAgent
-          )
-        }
-        logPerfEvent('SprintEngineAutoRun', 'tick-end', {
-          elapsedMs: Math.round(performance.now() - tickStartedAt),
-          autoWorkspaceCount: autoWorkspaces.length,
-        })
-      } finally {
-        tickInProgress.current = false
-      }
-    }
-
-    // The poll interval + timer exist only while at least one workspace is
-    // running a non-manual automation. A store change (e.g. a run finishing into
-    // dormancy, or a user re-selecting a running mode) re-evaluates demand and
-    // starts/stops the loop, so a fully manual/finished set of workspaces holds
-    // no live interval and no registered timer.
-    const controller = createAutoRunPollerController({
-      isPollerNeeded: () =>
-        useWorkspaceStore.getState().workspaces.some((workspace) => isSprintEngineRunnerActive(workspace)),
-      tick,
-    })
-    controller.sync()
-    const unsubscribe = useWorkspaceStore.subscribe(() => controller.sync())
-
-    return () => {
-      disposed = true
-      unsubscribe()
-      controller.dispose()
-    }
-  }, [])
-
-  // The 10-minute background PR merge sweep was removed: it was a forever
-  // `gh`-subprocess + forced-projection-read loop that kept running even for
-  // finished, dormant runs. The open run summary still polls the active
-  // workspace, and on-demand PR refresh for a workspace is delivered by T4, so no
-  // renderer timer needs to poll merge state for non-open workspaces.
-
-  return null
 }

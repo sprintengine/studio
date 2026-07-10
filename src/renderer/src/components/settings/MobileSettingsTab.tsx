@@ -601,6 +601,8 @@ function commandLabel(commandType: MobileControlCommandType): string {
       return 'Backlog item created'
     case 'sprintengine.openPullRequest':
       return 'Pull request opened'
+    case 'sprintengine.setAutomationMode':
+      return 'Automation mode changed'
   }
 }
 

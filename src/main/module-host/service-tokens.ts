@@ -21,6 +21,15 @@ export const GitHubTokenStoreToken = createServiceToken<AppServices['githubToken
 export const SprintEngineArtifactsToken = createServiceToken<AppServices['sprintEngineArtifacts']>(
   'core.sprintengine-artifacts'
 )
+export const SprintEngineAutomationServiceToken = createServiceToken<AppServices['sprintEngineAutomation']>(
+  'core.sprintengine-automation'
+)
+export const SprintEngineLaunchSettingsToken = createServiceToken<AppServices['sprintEngineLaunchSettings']>(
+  'core.sprintengine-launch-settings'
+)
+export const SprintRuntimeToken = createServiceToken<AppServices['sprintRuntime']>(
+  'core.sprint-runtime'
+)
 export const MulticodeAuthToken = createServiceToken<AppServices['multicodeAuth']>(
   'core.multicode-auth'
 )

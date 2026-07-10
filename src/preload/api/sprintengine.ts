@@ -1,7 +1,14 @@
 import { ipcRenderer } from 'electron'
+import type { IpcRendererEvent } from 'electron'
 import type {
   ElectronApi,
   SprintEngineArtifactCommandResult,
+  SprintEngineAutomationChangedEvent,
+  SprintEngineAutomationHydrateInput,
+  SprintEngineAutomationReadInput,
+  SprintEngineAutomationReadResult,
+  SprintEngineAutomationSetModeInput,
+  SprintEngineAutomationWriteResult,
   SprintEngineDispatchReadInput,
   SprintEngineMcpReadResult,
   SprintEngineProjectionReadResult,
@@ -11,7 +18,6 @@ import type {
   SprintEngineRosterReplenishInput,
   SprintEngineRosterRuntimeInput,
   SprintEngineStateInitializeInput,
-  SprintEngineRunnerSetInput,
   SprintEngineTaskCommentInput,
   SprintEngineTaskCreateInput,
   SprintEngineTaskResolveInput,
@@ -19,6 +25,13 @@ import type {
   SprintEngineTaskUpdateInput,
 } from '../../shared/electron-api'
 import type { SprintEngineTokenUsageReport } from '../../shared/sprintengine-token-usage'
+import type { SprintEngineLaunchSettings } from '../../shared/sprintengine/launch-settings'
+import {
+  SPRINT_RUNTIME_OP_CHANNEL,
+  type SprintRuntimeOp,
+  type SprintRuntimeRunRegistration,
+  type SprintRuntimeStopReasonPush,
+} from '../../shared/sprintengine/runtime-bridge'
 import type {
   UserRoleDeleteResult,
   UserRoleGetResult,
@@ -72,10 +85,6 @@ export const sprintEngineApi = {
     input: SprintEngineTaskStatusSetInput
   ): Promise<SprintEngineArtifactCommandResult> =>
     ipcRenderer.invoke('sprintengine:task:set-status', input),
-  setSprintEngineRunnerMode: (
-    input: SprintEngineRunnerSetInput
-  ): Promise<SprintEngineArtifactCommandResult> =>
-    ipcRenderer.invoke('sprintengine:runner:set-mode', input),
   createSprintEnginePullRequest: (
     statePath: string
   ): Promise<SprintEngineArtifactCommandResult> =>
@@ -130,6 +139,52 @@ export const sprintEngineApi = {
     ipcRenderer.invoke('sprintengine:user-roles:delete', id),
   getUserSprintEngineRole: (id: string): Promise<UserRoleGetResult> =>
     ipcRenderer.invoke('sprintengine:user-roles:get', id),
+  readSprintEngineAutomationMode: (
+    input: SprintEngineAutomationReadInput
+  ): Promise<SprintEngineAutomationReadResult> =>
+    ipcRenderer.invoke('sprintengine:automation:read', input),
+  setSprintEngineAutomationMode: (
+    input: SprintEngineAutomationSetModeInput
+  ): Promise<SprintEngineAutomationWriteResult> =>
+    ipcRenderer.invoke('sprintengine:automation:set-mode', input),
+  hydrateSprintEngineAutomationMode: (
+    input: SprintEngineAutomationHydrateInput
+  ): Promise<SprintEngineAutomationWriteResult> =>
+    ipcRenderer.invoke('sprintengine:automation:hydrate', input),
+  onSprintEngineAutomationChanged: (
+    cb: (event: SprintEngineAutomationChangedEvent) => void
+  ): (() => void) => {
+    const ch = 'sprintengine:automation-changed'
+    const handler = (_: IpcRendererEvent, event: SprintEngineAutomationChangedEvent) => cb(event)
+    ipcRenderer.on(ch, handler)
+    return () => ipcRenderer.removeListener(ch, handler)
+  },
+  syncSprintEngineLaunchSettings: (
+    input: SprintEngineLaunchSettings
+  ): Promise<{ ok: boolean }> =>
+    ipcRenderer.invoke('sprintengine:launch-settings:sync', input),
+  registerSprintRuntimeRun: (
+    input: SprintRuntimeRunRegistration
+  ): Promise<{ ok: boolean }> =>
+    ipcRenderer.invoke('sprintengine:runtime:register-run', input),
+  unregisterSprintRuntimeRun: (
+    input: { statePath: string }
+  ): Promise<{ ok: boolean }> =>
+    ipcRenderer.invoke('sprintengine:runtime:unregister-run', input),
+  pushSprintRuntimeStopReason: (
+    input: SprintRuntimeStopReasonPush
+  ): Promise<{ ok: boolean }> =>
+    ipcRenderer.invoke('sprintengine:runtime:stop-reason', input),
+  resumeSprintRuntimeRun: (
+    input: { statePath: string }
+  ): Promise<{ ok: boolean }> =>
+    ipcRenderer.invoke('sprintengine:runtime:resume', input),
+  onSprintRuntimeOp: (cb: (op: SprintRuntimeOp) => void): (() => void) => {
+    const ch = SPRINT_RUNTIME_OP_CHANNEL
+    const handler = (_: IpcRendererEvent, op: SprintRuntimeOp) => cb(op)
+    ipcRenderer.on(ch, handler)
+    return () => ipcRenderer.removeListener(ch, handler)
+  },
 } satisfies Pick<
   ElectronApi,
   | 'openSprintEngineArtifact'
@@ -142,7 +197,16 @@ export const sprintEngineApi = {
   | 'commentSprintEngineTask'
   | 'resolveSprintEngineTaskInput'
   | 'setSprintEngineTaskStatus'
-  | 'setSprintEngineRunnerMode'
+  | 'readSprintEngineAutomationMode'
+  | 'setSprintEngineAutomationMode'
+  | 'hydrateSprintEngineAutomationMode'
+  | 'onSprintEngineAutomationChanged'
+  | 'syncSprintEngineLaunchSettings'
+  | 'registerSprintRuntimeRun'
+  | 'unregisterSprintRuntimeRun'
+  | 'pushSprintRuntimeStopReason'
+  | 'resumeSprintRuntimeRun'
+  | 'onSprintRuntimeOp'
   | 'createSprintEnginePullRequest'
   | 'refreshSprintEnginePullRequestStatus'
   | 'replenishSprintEngineRoster'

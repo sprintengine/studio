@@ -20,7 +20,7 @@ import {
 import {
   createAutoRunPollerController,
   enterDormancyIfRunComplete,
-} from '../components/workspace/SprintEngineAutoRunSupervisor'
+} from './sprintengineAutoRunRendererHost'
 import {
   createProjectionPollLoop,
   sprintEngineWorkspacesNeedProjectionPolling,

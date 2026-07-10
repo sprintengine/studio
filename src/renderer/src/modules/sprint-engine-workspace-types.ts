@@ -1,15 +1,9 @@
-import React from 'react'
-
 import type { RendererHost } from './renderer-host'
 import type { LayoutTemplate, PreviewSlot, SprintEngineMockConfig } from '../types/workspace'
 import { GuidedBriefWorkspaceTypeIcon, SprintEngineWorkspaceTypeIcon } from '../components/AppIcons'
 import { deriveSprintEngineRunGlyph } from '../utils/sprintengine'
 import { isSprintEngineWorkspace } from '../utils/sprintEnginesNav'
 import type { WorkspaceRunGlyph, WorkspaceRunGlyphProviderInput } from '../utils/workspaceRunGlyph'
-
-const SprintEngineAutoRunSupervisor = React.lazy(
-  () => import('../components/workspace/SprintEngineAutoRunSupervisor')
-)
 
 const agent = (label: string, x: number, y: number, w: number, h: number): PreviewSlot => ({ x, y, w, h, type: 'agent', label })
 const editor = (label: string, x: number, y: number, w: number, h: number): PreviewSlot => ({ x, y, w, h, type: 'editor', label })
@@ -112,9 +106,10 @@ export function registerSprintEngineWorkspaceTypes(host: RendererHost): void {
     createTemplate: () => createSprintEngineTemplate(defaultSprintEngineTemplateConfig),
     isRunGlyphProviderForWorkspace: isSprintEngineWorkspace,
     deriveRunGlyph: deriveSprintEngineWorkspaceRunGlyph,
-    supervisors: [
-      { Component: SprintEngineAutoRunSupervisor, scope: 'global' },
-    ],
+    // The auto-run supervisor component is retired (sprint-runtime-ownership
+    // Phase 3): scheduling AND session reconcile run in the main-process
+    // scheduler (src/main/sprint-runtime.ts); the runtime bridge mirrors its
+    // store mutations into every window. No renderer supervisor remains.
     creationStepsId: 'sprintengine',
     pickerOrder: 20,
   })

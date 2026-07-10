@@ -10,10 +10,8 @@ import {
   normalizeSprintEngineAutomationStopReason,
   transitionSprintEngineAutomation,
 } from '../../utils/sprintengineAutomationLifecycle'
-import {
-  auditSprintEngineLifecycleTransition,
-  auditSprintEngineManualModeTransition,
-} from '../../utils/sprintengineAutomationAudit'
+import { auditSprintEngineLifecycleTransition } from '../../utils/sprintengineAutomationAudit'
+import { pushSprintEngineAutomationModeIntent } from '../../utils/sprintengineAutomationIntentClient'
 import {
   getSprintEngineDirectoryPath,
   getSprintEngineStateFilePath,
@@ -55,7 +53,6 @@ import type {
   SprintEngineCliPermissionPreset,
   SprintEngineRoleId,
   SprintEngineRoleCliDefaults,
-  SprintEngineRoleRuntimes,
   SprintEngineRosterSession,
   SprintEngineRunSettings,
   SprintEngineState,
@@ -132,54 +129,16 @@ function resolveSprintEngineRoleCli(
   return roleCliDefaults.architect?.trim() || 'claude-code'
 }
 
-/**
- * Resolve a roster role's CLI + model from the run's `roleRuntimes` map
- * (run.yaml via the projection — the single source of truth for what every
- * spawn of that role must launch with, MC-1450). Returns null when the role
- * is not in the map (legacy runs mid-flight, pre-first-projection window):
- * callers must then preserve what they already have — never substitute.
- * An entry without a model resolves `cliModel: undefined` = no `--model`
- * flag (the CLI's own default, deliberately).
- */
-export function resolveSprintEngineRoleRuntime(
-  roleRuntimes: SprintEngineRoleRuntimes | undefined,
-  role: SprintEngineRoleId
-): { cli?: AgentCli; cliModel?: string } | null {
-  const runtime = roleRuntimes?.[role]
-  if (!runtime) return null
-  return {
-    cli: typeof runtime.cli === 'string' && runtime.cli.trim() ? runtime.cli.trim() : undefined,
-    cliModel: typeof runtime.model === 'string' && runtime.model.trim() ? runtime.model.trim() : undefined,
-  }
-}
+// `resolveSprintEngineRoleRuntime` / `resolveSprintEngineAgentRuntime` moved
+// to the shared Sprint Engine state module (sprint-runtime-ownership Phase 2:
+// the main-process auto-run planner resolves runtimes too); these re-exports
+// keep every existing import site working unchanged.
+import {
+  resolveSprintEngineAgentRuntime,
+  resolveSprintEngineRoleRuntime,
+} from '../../../../shared/sprintengine/state'
 
-/**
- * Effective launch runtime for one roster agent, layering the full MC-1450
- * hierarchy: explicit per-agent override (`cliRuntimeOverride` — the board's
- * mid-run picker / creation-time per-agent CLI override) > per-role
- * `roleRuntimes` config > the existing record's values (legacy runs whose
- * projection predates `roleRuntimes`). An override `model: null` pins the
- * CLI's own default even when the role configures a model; a role config with
- * no model resolves `cliModel: undefined` = no `--model` flag.
- */
-export function resolveSprintEngineAgentRuntime(
-  roleRuntimes: SprintEngineRoleRuntimes | undefined,
-  role: SprintEngineRoleId,
-  current: Pick<AgentState, 'cli' | 'cliModel' | 'cliRuntimeOverride'> | undefined,
-): { cli?: AgentCli; cliModel?: string } {
-  const config = resolveSprintEngineRoleRuntime(roleRuntimes, role)
-  const override = current?.cliRuntimeOverride
-  const overrideCli = typeof override?.cli === 'string' && override.cli.trim() ? override.cli.trim() : undefined
-  const cli = overrideCli ?? config?.cli ?? current?.cli
-  const cliModel = override !== undefined && override.model !== undefined
-    // `model: null` = explicitly the CLI default; tolerate junk in persisted
-    // records by treating any non-string as the CLI default too.
-    ? (typeof override.model === 'string' && override.model.trim() ? override.model.trim() : undefined)
-    : config
-      ? config.cliModel
-      : current?.cliModel
-  return { cli, cliModel }
-}
+export { resolveSprintEngineAgentRuntime, resolveSprintEngineRoleRuntime }
 
 function normalizeSprintEngineAutoPendingSpawn(
   input: Partial<SprintEngineAutoPendingSpawn> | null | undefined
@@ -525,7 +484,15 @@ export interface RunStateSliceActions {
   setSprintEngineAutomationMode: (
     workspaceId: WorkspaceId,
     mode: SprintEngineAutomationMode,
-    options?: { suppressManualAudit?: boolean; reason?: string; details?: string }
+    options?: {
+      suppressManualAudit?: boolean
+      reason?: string
+      details?: string
+      // Set by the automation-mode sync subscriber when adopting an
+      // authoritative main broadcast: applies the local transition without
+      // pushing the value back to main (the no-echo rule).
+      suppressMainSync?: boolean
+    }
   ) => void
   applySprintEngineAutomationEvent: (
     workspaceId: WorkspaceId,
@@ -740,23 +707,34 @@ export function createRunStateSlice(set: RunStateSliceSet): RunStateSlice {
           : defaultMultiloopAutoState()
       }),
 
-    setSprintEngineAutomationMode: (workspaceId, mode, options) =>
+    // The local transition stays synchronous (optimistic UI); the authoritative
+    // write — persistence, the manual-transition audit, the cliWatchPolling
+    // bridge, and the cross-window/phone broadcast — happens in main (MC-1567).
+    // The audit that used to be emitted here now has exactly one writer: main.
+    setSprintEngineAutomationMode: (workspaceId, mode, options) => {
+      const push: { current: { statePath: string; workspaceName?: string } | null } = { current: null }
       set((state) => {
         const ws = state.workspaces.find((w) => w.id === workspaceId)
         if (!ws) return
         const current = normalizeSprintEngineAutoState(ws.sprintEngineAutoState)
-        const previousMode = deriveSprintEngineAutomationMode(current)
         ws.sprintEngineAutoState = transitionSprintEngineAutomation(current, { type: 'user_set_mode', mode })
-        if (mode === 'manual' && !options?.suppressManualAudit) {
-          auditSprintEngineManualModeTransition({
-            workspaceId,
-            workspaceName: ws.name,
-            previousMode,
-            reason: options?.reason ?? 'Sprint automation mode was set to Manual.',
-            ...(options?.details ? { details: options.details } : {}),
-          })
+        const statePath = ws.sprintEngineContext?.statePath
+        if (statePath && !options?.suppressMainSync) {
+          push.current = { statePath, workspaceName: ws.name }
         }
-      }),
+      })
+      if (push.current) {
+        pushSprintEngineAutomationModeIntent({
+          statePath: push.current.statePath,
+          mode,
+          workspaceId,
+          ...(push.current.workspaceName ? { workspaceName: push.current.workspaceName } : {}),
+          ...(options?.reason ? { reason: options.reason } : {}),
+          ...(options?.details ? { details: options.details } : {}),
+          ...(options?.suppressManualAudit ? { suppressManualAudit: true } : {}),
+        })
+      }
+    },
 
     applySprintEngineAutomationEvent: (workspaceId, event) =>
       set((state) => {

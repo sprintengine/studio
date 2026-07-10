@@ -126,9 +126,9 @@ export type MobileSprintEngineSetAutomationModeResult = {
 export type MobileSprintEngineSessionOrchestrator = {
   startTask(request: MobileSprintEngineTaskStartRequest): Promise<MobileSprintEngineTaskStartResult>
   sendFollowUp(request: MobileSprintEngineFollowUpRequest): Promise<MobileSprintEngineFollowUpResult>
-  // Renderer-owned automation state (MC-1497). Optional so a service built without
-  // a desktop session (headless/tests) rejects the command instead of forking the
-  // authoritative state machine that lives in the renderer store.
+  // Main-owned automation intent (MC-1497 via MC-1567). Optional so a service
+  // built without the adapter (test harnesses) rejects the command instead of
+  // pretending to write the authoritative store.
   setAutomationMode?(request: MobileSprintEngineSetAutomationModeRequest): Promise<MobileSprintEngineSetAutomationModeResult>
 }
 
@@ -458,12 +458,12 @@ export class MobileSprintEngineCommandService {
     return this.invokeTool(command, args, state.workspaceRoot, state)
   }
 
-  // MC-1497: set the run's three-state automation mode. The authoritative state
-  // machine lives in the renderer store (`sprintEngineAutoState.desiredMode`),
-  // which the supervisor reads — the CLI runner flag only hints headless agents.
-  // So this routes to the desktop session (Option A); with no live desktop the
-  // command is rejected honestly rather than writing a state the supervisor won't
-  // read.
+  // MC-1497: set the run's three-state automation mode. The authoritative mode
+  // intent is main-owned and folder-store-persisted (MC-1567 Option B:
+  // `sprintengine-automation-service.ts` writes `automation.json` beside
+  // run.yaml); the orchestrator adapter writes it directly, so this works
+  // headless with no renderer round-trip. The guard below only fires for a
+  // service built without the adapter (test harnesses).
   private async executeSetAutomationModeCommand(
     command: Extract<MobileControlCommand, { type: 'sprintengine.setAutomationMode' }>,
     scope: MobileSprintEngineCommandScope
@@ -472,7 +472,7 @@ export class MobileSprintEngineCommandService {
       return this.resultRecorder.reject(
         command,
         'command_not_supported',
-        'Setting the automation mode requires the desktop app to be open (the mode lives in the desktop store).',
+        'Setting the automation mode is not supported by this desktop build.',
         false
       )
     }

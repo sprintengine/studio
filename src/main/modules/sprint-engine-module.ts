@@ -1,8 +1,10 @@
 import { registerSprintEngineIpc } from '../ipc/sprintengine-ipc'
+import { registerSprintEngineAutomationIpc } from '../ipc/sprintengine-automation-ipc'
+import { registerSprintRuntimeIpc } from '../ipc/sprint-runtime-ipc'
 import { computeSprintEngineTokenUsageReport, tokenLedgerVersion } from '../sprintengine-token-usage'
 import { sprintTokenUsageDeps } from '../sprintengine-token-sampling'
 import type { SprintEngineTokenUsageReport } from '../../shared/sprintengine-token-usage'
-import { SprintEngineArtifactsToken, SprintEngineAutomationFrontDoorsToken, SprintEngineMcpHubToken } from '../module-host/service-tokens'
+import { SprintEngineArtifactsToken, SprintEngineAutomationFrontDoorsToken, SprintEngineAutomationServiceToken, SprintEngineLaunchSettingsToken, SprintEngineMcpHubToken, SprintRuntimeToken } from '../module-host/service-tokens'
 import type { CapabilityModule } from '../module-host/load-modules'
 import type { SidecarRunState } from '../module-host/main-host'
 import type { SprintEngineMcpHubStatus } from '../sprintengine-mcp-hub'
@@ -32,6 +34,7 @@ export const sprintEngineModule: CapabilityModule = {
   },
   registerMain(host) {
     const artifacts = host.requireService(SprintEngineArtifactsToken)
+    const automation = host.requireService(SprintEngineAutomationServiceToken)
     const mcpHub = host.requireService(SprintEngineMcpHubToken)
 
     host.provideService(SprintEngineAutomationFrontDoorsToken, () => ({
@@ -83,6 +86,21 @@ export const sprintEngineModule: CapabilityModule = {
       readDispatch: artifacts.readDispatch,
       summarizeFeedback: artifacts.summarizeFeedback,
       readTokenUsage: ({ statePath }) => readTokenUsageCached(statePath),
+    })
+
+    // MC-1567: the main-owned automation mode intent (read / set / one-time
+    // hydrate) + the Phase 2 launch-settings mirror. Broadcasts ride
+    // `sprintengine:automation-changed`.
+    registerSprintEngineAutomationIpc(host.ipcMain, {
+      automation,
+      launchSettings: host.requireService(SprintEngineLaunchSettingsToken),
+    })
+
+    // Phase 2: the renderer registers run contexts with (and pushes lifecycle
+    // stops to) the main scheduler; scheduler store-ops broadcast back on
+    // `sprintengine:runtime-op`.
+    registerSprintRuntimeIpc(host.ipcMain, {
+      sprintRuntime: host.requireService(SprintRuntimeToken),
     })
   },
 }

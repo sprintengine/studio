@@ -140,6 +140,7 @@ async function main(): Promise<void> {
     await assertAgentSessionExitListenerFiresSystemTaggedForAnySystem(runtimeModule)
     await assertResolveAgentExecutionIdMatchesLiveSession(runtimeModule)
     await assertLaunchRegistryRootsIncludeUserRolesWhenPresent(runtimeModule)
+    await assertHeadlessSpawnAttachesToLaterWindow(runtimeModule)
     await assertGuardedSweepHoldsSessionsWithLiveSubtreeWork(runtimeModule)
     await assertPendingWakeupFrameHoldsIdleReaper(runtimeModule)
   } finally {
@@ -247,6 +248,75 @@ async function assertPendingWakeupFrameHoldsIdleReaper(runtimeModule: RuntimeMod
     )
   } finally {
     runtime.ipcHandlers.killTerminal('session-wakeup')
+  }
+}
+
+// Headless spawn + window attach (sprint-runtime-ownership Phase 3): the main
+// scheduler spawns sprint agents with no window using the headless sender —
+// the PTY runs and retains scrollback while every outbound send no-ops — and
+// a window that opens later reattaches through the spawnTerminal
+// existing-session branch, adopting the real WebContents and replaying the
+// buffered output.
+async function assertHeadlessSpawnAttachesToLaterWindow(runtimeModule: RuntimeModule): Promise<void> {
+  const workspaceRoot = await mkdtemp(join(tmpdir(), 'multicode-terminal-runtime-headless-'))
+  mockPty.spawnCalls = []
+  mockSender.sent = []
+
+  const runtime = runtimeModule.createTerminalRuntime({
+    diagnosticsEnabled: false,
+    requireAuthenticatedUser: () => undefined,
+    logMainPerfEvent: () => undefined,
+  })
+
+  const { createHeadlessTerminalSender } = require('./terminal-session') as
+    typeof import('./terminal-session')
+
+  const headless = await runtime.ipcHandlers.spawnTerminal(createHeadlessTerminalSender(), {
+    sessionId: 'session-headless',
+    cols: 100,
+    rows: 30,
+    cwd: workspaceRoot,
+    cli: 'codex',
+    kind: 'agent',
+    shellOnly: false,
+    workspaceId: 'ws-headless',
+    agentId: 'session-headless',
+    visible: false,
+    mcpSettings: { syncEnabled: false, servers: {} } satisfies McpSettings,
+  })
+  assert.equal(headless.ok, true, JSON.stringify(headless))
+  assert.equal(mockPty.spawnCalls.length, 1, 'headless spawn still creates the PTY')
+
+  try {
+    // Output emitted with no window buffers into retained scrollback without
+    // throwing (the headless sender reports destroyed, so nothing sends).
+    mockPty.spawnCalls[0]!.process.emitData('headless output before any window\r\n')
+
+    // A window opens later: the same-sessionId spawn adopts the real sender
+    // and replays the buffered scrollback instead of respawning.
+    const reattach = await runtime.ipcHandlers.spawnTerminal(mockSender as unknown as WebContents, {
+      sessionId: 'session-headless',
+      cols: 100,
+      rows: 30,
+      cwd: workspaceRoot,
+      cli: 'codex',
+      kind: 'agent',
+      shellOnly: false,
+      workspaceId: 'ws-headless',
+      agentId: 'session-headless',
+      visible: true,
+      mcpSettings: { syncEnabled: false, servers: {} } satisfies McpSettings,
+    })
+    assert.equal(reattach.ok, true, JSON.stringify(reattach))
+    assert.equal(mockPty.spawnCalls.length, 1, 'reattach adopts the live session; no second PTY')
+    const replay = mockSender.sent.find((event) => event.channel === 'terminal:replay:session-headless')
+    assert.ok(replay, 'reattach replays scrollback to the newly attached window')
+    assert.ok(
+      String(replay?.payload ?? '').includes('headless output before any window'),
+      'replay carries output produced while headless'
+    )
+  } finally {
+    runtime.ipcHandlers.killTerminal('session-headless')
   }
 }
 

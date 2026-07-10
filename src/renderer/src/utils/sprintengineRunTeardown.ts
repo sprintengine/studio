@@ -76,6 +76,16 @@ export type SprintEngineRunTeardownPorts = {
   now(): number
 }
 
+/**
+ * Ports for applying a MAIN-scheduler retirement op (`worker_retired`): the
+ * scheduler already recorded (and broadcast) the roster session, so the
+ * renderer applier must not re-record — exactly one writer owns the record.
+ * Everything else (tab/agent removal, idempotent kill) applies normally.
+ */
+export function departedWorkerTeardownPortsWithoutRecord(): SprintEngineRunTeardownPorts {
+  return { ...defaultPorts(), upsertRosterSession: () => undefined }
+}
+
 function defaultPorts(): SprintEngineRunTeardownPorts {
   return {
     terminalList: () => window.api.terminalList(),

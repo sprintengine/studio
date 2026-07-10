@@ -5,7 +5,10 @@ import {
   GitHubTokenStoreToken,
   MulticodeAuthToken,
   SprintEngineArtifactsToken,
+  SprintEngineAutomationServiceToken,
+  SprintEngineLaunchSettingsToken,
   SprintEngineMcpHubToken,
+  SprintRuntimeToken,
   TerminalRuntimeToken,
   WorkspaceServiceToken,
   WorkspaceSyncServiceToken,
@@ -48,6 +51,9 @@ export function createAgentRuntimeModule(services: AppServices): CapabilityModul
       host.provideService(TerminalRuntimeToken, () => services.terminalRuntime)
       host.provideService(GitHubTokenStoreToken, () => services.githubTokenStore)
       host.provideService(SprintEngineArtifactsToken, () => services.sprintEngineArtifacts)
+      host.provideService(SprintEngineAutomationServiceToken, () => services.sprintEngineAutomation)
+      host.provideService(SprintEngineLaunchSettingsToken, () => services.sprintEngineLaunchSettings)
+      host.provideService(SprintRuntimeToken, () => services.sprintRuntime)
       host.provideService(MulticodeAuthToken, () => services.multicodeAuth)
       host.provideService(SprintEngineMcpHubToken, () => services.sprintEngineMcpHub)
       host.provideService(AutomationDelegateToken, () => services.automationDelegate)
