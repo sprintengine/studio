@@ -48,7 +48,10 @@ import {
   sprintEngineAutomationShouldRun,
   transitionSprintEngineAutomation,
 } from '../shared/sprintengine/automation-lifecycle'
-import type { SprintEngineAutomationIntentRecord } from '../shared/sprintengine/automation-intent'
+import type {
+  SprintEngineAutomationIntentRecord,
+  SprintEngineAutomationRuntimeResidue,
+} from '../shared/sprintengine/automation-intent'
 import {
   buildSprintEngineAgentRosterForState,
   isCompletedSprintEngineRun,
@@ -67,6 +70,11 @@ import {
 } from '../shared/sprintengine/auto-run-cycle'
 import type { RoleContinuationGrace, SprintEngineDispatchAttempt } from '../shared/sprintengine/auto-run'
 import type { TerminalSpawnArgs } from '../shared/sprintengine/auto-run-executor'
+import {
+  agentCliSupportsConversationResume,
+  agentCliUsesStableSessionIdForResume,
+  resumeCapabilitiesForCli,
+} from '../shared/agent-cli-resume'
 import type { SprintEngineLaunchSettings } from '../shared/sprintengine/launch-settings'
 import type {
   SprintRuntimeOp,
@@ -80,6 +88,9 @@ import type { SprintPowerManager } from './sprint-power-manager'
 // app relaunch never races projection hydration into duplicate spawns.
 const SPRINT_RUNTIME_TICK_MS = 4000
 const SPRINT_RUNTIME_STARTUP_SPAWN_DELAY_MS = 10_000
+// Generous — engine CLI operations (replenish, approval) legitimately take
+// seconds; the watchdog exists for hung subprocesses, not slow ones.
+const SPRINT_RUNTIME_TICK_WATCHDOG_MS = 120_000
 
 type MutableRef<T> = { current: T }
 
@@ -123,6 +134,14 @@ export type SprintRuntimeDeps = {
   getPluginCatalogEntries(): readonly PluginRegistryListEntry[]
   getLaunchSettings(): SprintEngineLaunchSettings
   readAutomationMode(statePath: string): Promise<SprintEngineAutomationIntentRecord | null>
+  /**
+   * Durable scheduler bookkeeping (Phase 3): persists pending spawns,
+   * delivered notification keys, the completion-teardown marker, and roster
+   * resume records into the automation sidecar so headless retirements and
+   * completions survive with zero windows and an app restart re-adopts main's
+   * own record rather than a stale renderer mirror. Fire-and-forget.
+   */
+  persistRuntimeResidue(statePath: string, runtime: SprintEngineAutomationRuntimeResidue): void
   powerManager: Pick<SprintPowerManager, 'markRunActive' | 'markRunInactive' | 'shutdown'>
   broadcastOp(op: SprintRuntimeOp): void
   logDiagnostic(input: DiagnosticLogInput): Promise<DiagnosticLogEntry | void> | void
@@ -220,6 +239,18 @@ export function createSprintRuntime(deps: SprintRuntimeDeps) {
     }
   }
 
+  function persistResidue(entry: RunEntry): void {
+    const autoState = currentAutoState(entry)
+    deps.persistRuntimeResidue(entry.statePath, {
+      pendingSpawns: autoState.pendingSpawns,
+      deliveredAgentNotificationEventKeys: autoState.deliveredAgentNotificationEventKeys,
+      ...(autoState.completionTeardownAt !== undefined
+        ? { completionTeardownAt: autoState.completionTeardownAt }
+        : {}),
+      rosterSessions: entry.rosterSessions,
+    })
+  }
+
   // The renderer supervisor's stop-reason vocabulary, applied to main's view.
   // Mirrors `applySprintEngineAutomationStopReason` (the renderer util) minus
   // the store: the same reducer, the same reasons, no audit here (the renderer
@@ -300,9 +331,24 @@ export function createSprintRuntime(deps: SprintRuntimeDeps) {
         await deps.logDiagnostic(input)
       },
 
-      // UI affordances that have no meaning off-window ---------------------
+      // UI affordances -------------------------------------------------------
       applyTerminalRevealPolicy: () => undefined,
-      isAgentTabVisible: () => false,
+      // "Never close the terminal the operator is looking at": main has no
+      // flexlayout model, but the terminal runtime tracks per-session view
+      // visibility (`setTerminalVisible` from mounted views), which is the
+      // same signal one hop earlier — a visible live session means an open,
+      // watched tab.
+      isAgentTabVisible: (workspaceId, agentId) => {
+        const target = entryForWorkspaceId(workspaceId)
+        if (!target) return false
+        return deps.terminal.list().some((session) =>
+          session.kind === 'agent'
+          && session.sprintEngineStatePath === target.statePath
+          && session.agentId === agentId
+          && session.processAlive
+          && session.visible === true
+        )
+      },
       getActiveWorkspaceId: () => null,
 
       getPluginCatalogEntries: () => deps.getPluginCatalogEntries(),
@@ -332,6 +378,7 @@ export function createSprintRuntime(deps: SprintRuntimeDeps) {
           pendingSpawns,
         }
         deps.broadcastOp({ kind: 'pending_spawns', statePath: target.statePath, pendingSpawns })
+        persistResidue(target)
       },
       setSprintEngineAutomationMode: () => {
         // The cycle never sets the mode directly (mode intent belongs to the
@@ -365,6 +412,7 @@ export function createSprintRuntime(deps: SprintRuntimeDeps) {
           }
         }
         deps.broadcastOp({ kind: 'notification_delivered', statePath: target.statePath, eventKey })
+        persistResidue(target)
       },
       applyAutomationStopReason: (workspaceId, reason, context) => {
         const target = entryForWorkspaceId(workspaceId)
@@ -383,6 +431,25 @@ export function createSprintRuntime(deps: SprintRuntimeDeps) {
       dispatchAssignTerminalSession: (workspaceId, agentId, sessionId, cli) => {
         const target = entryForWorkspaceId(workspaceId)
         if (!target) return
+        // Stamp resume capabilities on MAIN's record too — the renderer
+        // learns them from the bridge op below, but the next respawn decision
+        // (retained-resume, MC-1444) runs against main's view, which would
+        // otherwise keep the spawn-time `cliResumeAvailable: false` forever
+        // and cold-spawn every follow-up.
+        const caps = resumeCapabilitiesForCli(cli, deps.getPluginCatalogEntries())
+        const agent = target.view.agents[agentId]
+        if (agent) {
+          target.view.agents = {
+            ...target.view.agents,
+            [agentId]: {
+              ...agent,
+              cliSessionId: sessionId,
+              cli,
+              cliResumeAvailable: agentCliSupportsConversationResume(caps),
+              cliUsesStableSessionId: agentCliUsesStableSessionIdForResume(caps),
+            },
+          }
+        }
         deps.broadcastOp({ kind: 'assign_session', statePath: target.statePath, agentId, sessionId, cli })
       },
       dispatchUpdateTerminalLaunchState: (workspaceId, agentId, update) => {
@@ -426,6 +493,7 @@ export function createSprintRuntime(deps: SprintRuntimeDeps) {
             completionTeardownAt: undefined,
           }
           deps.broadcastOp({ kind: 'completion_teardown_at', statePath: target.statePath, at: undefined })
+          persistResidue(target)
         }
         return { status: 'changed', state: normalized }
       },
@@ -444,24 +512,30 @@ export function createSprintRuntime(deps: SprintRuntimeDeps) {
           ...currentAutoState(target),
           completionTeardownAt: at,
         }
-        // Main owns the completion teardown (Phase 3): record every live
-        // agent's resumable session and dispose its PTY, so a headless
-        // completion parks the run exactly like a windowed one. A window that
-        // exists applies the retirement ops (tab removal) and its own
-        // projection-driven dormancy remains an idempotent no-op after this.
+        // Main owns the completion teardown (Phase 3): record every agent's
+        // resumable session and dispose its PTY — LIVE and SUSPENDED sessions
+        // alike (idle-reaped agents are exactly the population a completed
+        // run carries), plus agents whose terminals already exited but whose
+        // records still hold a resumable identity. A headless completion
+        // parks the run exactly like a windowed one; windows apply the
+        // retirement ops (record + tab removal) and their projection-driven
+        // dormancy remains an idempotent no-op after this.
         const sessions = deps.terminal.list()
-        const liveAgentIds = new Set<string>()
+        const agentIdsToRetire = new Set<string>()
         for (const session of sessions) {
           if (
-            session.processAlive
+            (session.processAlive || session.suspended)
             && session.kind === 'agent'
             && session.sprintEngineStatePath === target.statePath
             && session.agentId
           ) {
-            liveAgentIds.add(session.agentId)
+            agentIdsToRetire.add(session.agentId)
           }
         }
-        for (const agentId of liveAgentIds) {
+        for (const [agentId, agent] of Object.entries(target.view.agents)) {
+          if (agent.cli && agent.cliSessionId) agentIdsToRetire.add(agentId)
+        }
+        for (const agentId of agentIdsToRetire) {
           retireWorkerSession(target, agentId, sessions)
         }
         deps.broadcastOp({
@@ -470,6 +544,7 @@ export function createSprintRuntime(deps: SprintRuntimeDeps) {
           reason: 'all_tasks_done',
         })
         deps.broadcastOp({ kind: 'completion_teardown_at', statePath: target.statePath, at })
+        persistResidue(target)
       },
 
       // Departed task-scoped worker teardown ---------------------------------
@@ -489,6 +564,74 @@ export function createSprintRuntime(deps: SprintRuntimeDeps) {
   }
 
   /**
+   * Merge renderer-owned per-agent configuration (mid-run runtime override,
+   * rename, queued custom startup prompt) into main's view — these are user
+   * edits the next spawn must honour; launch flags stay main-owned. Cleared
+   * config keys clear main's copy (e.g. a consumed startup prompt).
+   */
+  function mergeAgentConfigs(
+    entry: RunEntry,
+    agentConfigsInput: SprintRuntimeRunRegistration['agentConfigs'] | undefined,
+  ): void {
+    // IPC payloads are defensive-read: an older window build may not send the
+    // field at all.
+    const agentConfigs = agentConfigsInput ?? {}
+    const next = { ...entry.view.agents }
+    let changed = false
+    for (const [agentId, agent] of Object.entries(next)) {
+      const config = agentConfigs[agentId] ?? {}
+      const merged = {
+        ...agent,
+        cliRuntimeOverride: config.cliRuntimeOverride,
+        name: config.name ?? agent.name,
+        cliStartupPrompt: config.cliStartupPrompt,
+      }
+      if (
+        merged.cliRuntimeOverride !== agent.cliRuntimeOverride
+        || merged.name !== agent.name
+        || merged.cliStartupPrompt !== agent.cliStartupPrompt
+      ) {
+        next[agentId] = merged
+        changed = true
+      }
+    }
+    for (const [agentId, config] of Object.entries(agentConfigs)) {
+      if (next[agentId]) continue
+      next[agentId] = {
+        ...synthesizeAgent(agentId, config.name ?? agentId),
+        ...(config.cliRuntimeOverride ? { cliRuntimeOverride: config.cliRuntimeOverride } : {}),
+        ...(config.cliStartupPrompt ? { cliStartupPrompt: config.cliStartupPrompt } : {}),
+      }
+      changed = true
+    }
+    if (changed) entry.view.agents = next
+  }
+
+  /**
+   * Mirror each live session's harness resume id into main's agent record.
+   * The agent-state hook captures the CLI's own session id onto the terminal
+   * session (`session.cliSessionId`); the respawn/retirement paths read it
+   * from the agent record, which main must therefore keep synced (the
+   * renderer learns the same value through its own session snapshot store).
+   */
+  function syncAgentSessionIdentity(entry: RunEntry): void {
+    for (const session of deps.terminal.list()) {
+      if (session.kind !== 'agent' || session.sprintEngineStatePath !== entry.statePath) continue
+      const agentId = session.agentId
+      if (!agentId) continue
+      const agent = entry.view.agents[agentId]
+      if (!agent || agent.cliSessionId !== session.sessionId) continue
+      const harnessSessionId = session.cliSessionId ?? undefined
+      if (harnessSessionId && agent.harnessSessionId !== harnessSessionId) {
+        entry.view.agents = {
+          ...entry.view.agents,
+          [agentId]: { ...agent, harnessSessionId },
+        }
+      }
+    }
+  }
+
+  /**
    * Retire one agent's live session: record the resumable session before
    * killing anything (a later manual reopen lands in a warm conversation —
    * MC-1444 semantics), dispose the PTY, clear main's launch flags, and
@@ -501,8 +644,10 @@ export function createSprintRuntime(deps: SprintRuntimeDeps) {
     sessions: TerminalSessionSnapshot[],
   ): SprintEngineAutoRunDepartedWorkerTeardown {
     const agent = target.view.agents[agentId]
+    // Suspended sessions count: an idle-reaped agent still owns a disposable
+    // placeholder + snapshot sidecar and a recordable resume identity.
     const liveSession = sessions.find((session) =>
-      session.processAlive
+      (session.processAlive || session.suspended)
       && session.kind === 'agent'
       && session.sprintEngineStatePath === target.statePath
       && (session.agentId === agentId || (agent?.cliSessionId && session.sessionId === agent.cliSessionId))
@@ -512,18 +657,23 @@ export function createSprintRuntime(deps: SprintRuntimeDeps) {
     const role = target.view.sprintEngineState?.sprintEngineAgents?.[agentId]?.role
     const cliSessionId = agent?.cliSessionId ?? liveSession?.cliSessionId ?? liveSession?.sessionId
     const cli = agent?.cli ?? liveSession?.cli ?? undefined
+    // Parity with the renderer teardown: the harness resume token prefers the
+    // agent record but falls back to the live session's captured id — CLIs
+    // that mint their own resume id (codex-style) surface it only there.
+    const harnessSessionId = agent?.harnessSessionId ?? liveSession?.cliSessionId ?? undefined
     if (role && cli && cliSessionId) {
       const session: SprintEngineRosterSession = {
         role,
         cli,
         cliSessionId,
-        ...(agent?.harnessSessionId ? { harnessSessionId: agent.harnessSessionId } : {}),
+        ...(harnessSessionId ? { harnessSessionId } : {}),
         ...(agent?.cliModel ? { cliModel: agent.cliModel } : {}),
         ...(agent?.name ? { name: agent.name } : {}),
         recordedAt: now(),
       }
       target.rosterSessions[agentId] = session
       deps.broadcastOp({ kind: 'roster_session_recorded', statePath: target.statePath, agentId, session })
+      persistResidue(target)
       recorded = true
     }
 
@@ -561,7 +711,7 @@ export function createSprintRuntime(deps: SprintRuntimeDeps) {
         reconcilePower(entry)
         if (!sprintEngineAutomationShouldRun(entry.view.sprintEngineAutoState)) continue
         const ports = buildPorts()
-        try {
+        const entryWork = async (): Promise<void> => {
           // Keep the view's projection fresh before deciding anything — main
           // has no renderer projection supervisor feeding it.
           await ports.refreshWorkspaceProjection({
@@ -570,7 +720,8 @@ export function createSprintRuntime(deps: SprintRuntimeDeps) {
             cause: 'auto-run',
           })
           await reconcileWorkspaceSessions(ports, entry.cycleState, entry.view)
-          if (!spawnDelayElapsed) continue
+          syncAgentSessionIdentity(entry)
+          if (!spawnDelayElapsed) return
           await superviseWorkspace(
             ports,
             entry.cycleState,
@@ -589,6 +740,21 @@ export function createSprintRuntime(deps: SprintRuntimeDeps) {
             entry.refs.idleClockByAgent,
             entry.refs.retirementCooldownByAgent,
           )
+        }
+        try {
+          // Watchdog: a hung engine subprocess (projection read, replenish,
+          // auto-approve) must not wedge the app-lifetime loop for every run.
+          // On timeout the loop moves on; the abandoned work settles against
+          // the same view harmlessly and the next tick retries.
+          await Promise.race([
+            entryWork(),
+            new Promise<never>((_, reject) => {
+              setTimeout(
+                () => reject(new Error(`Scheduler tick exceeded ${SPRINT_RUNTIME_TICK_WATCHDOG_MS}ms`)),
+                SPRINT_RUNTIME_TICK_WATCHDOG_MS,
+              ).unref?.()
+            }),
+          ])
         } catch (error) {
           void deps.logDiagnostic({
             level: 'warning',
@@ -639,6 +805,7 @@ export function createSprintRuntime(deps: SprintRuntimeDeps) {
             ? { architectGuidance: registration.architectGuidance }
             : {}),
         }
+        mergeAgentConfigs(existing, registration.agentConfigs)
         reconcilePower(existing)
         return
       }
@@ -696,11 +863,30 @@ export function createSprintRuntime(deps: SprintRuntimeDeps) {
 
       // Adopt the authoritative mode intent (Phase 1 sidecar). Until the read
       // lands the run stays manual — a scheduler must never spawn on a guess.
+      // Same-mode reads are skipped (mirroring notifyAutomationChanged): a
+      // concurrent write's notify may have already applied a transition, and a
+      // stale same-mode re-apply would restart a just-paused run.
       void deps.readAutomationMode(registration.statePath)
         .then((record) => {
           if (!record || disposed) return
           const target = runsByStatePath.get(registration.statePath)
           if (!target) return
+          // The sidecar's runtime residue is MAIN's own durable bookkeeping
+          // and supersedes the renderer-mirrored residue the registration
+          // seeded (which can be stale after a headless completion or a
+          // window that missed broadcasts).
+          if (record.runtime) {
+            target.view.sprintEngineAutoState = {
+              ...currentAutoState(target),
+              pendingSpawns: record.runtime.pendingSpawns,
+              deliveredAgentNotificationEventKeys: record.runtime.deliveredAgentNotificationEventKeys,
+              ...(record.runtime.completionTeardownAt !== undefined
+                ? { completionTeardownAt: record.runtime.completionTeardownAt }
+                : {}),
+            }
+            target.rosterSessions = { ...target.rosterSessions, ...record.runtime.rosterSessions }
+          }
+          if (currentAutoState(target).desiredMode === record.desiredMode) return
           applyAutomationEventToView(target, { type: 'user_set_mode', mode: record.desiredMode })
           void tick()
         })
@@ -714,6 +900,20 @@ export function createSprintRuntime(deps: SprintRuntimeDeps) {
       runsByStatePath.delete(statePath)
       runsByWorkspaceId.delete(entry.view.id)
       deps.powerManager.markRunInactive(statePath)
+    },
+
+    /**
+     * Renderer-originated resume (the board's Resume control, a future mobile
+     * resume): a paused/blocked/failed run re-enters `running` without a mode
+     * change — `runner_started` is the designed same-mode recovery gesture and
+     * has no other path into main (same-mode intent writes are structural
+     * no-ops by design). Wakes the tick loop immediately.
+     */
+    applyResume(statePath: string): void {
+      const entry = runsByStatePath.get(statePath)
+      if (!entry) return
+      applyAutomationEventToView(entry, { type: 'runner_started' })
+      if (sprintEngineAutomationShouldRun(entry.view.sprintEngineAutoState)) void tick()
     },
 
     /** Renderer-originated lifecycle stop (terminal closed, blocked, removed…). */

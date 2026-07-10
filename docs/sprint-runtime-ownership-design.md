@@ -212,9 +212,12 @@ Core moves:
   - Registry keyed by statePath; a run is *active* when the Phase 1 intent
     says non-manual and the run is not complete.
   - `setInterval` cadence in main (immune to occlusion throttling), with
-    immediate wake on automation-mode writes and relay commands; idle
-    workspaces tick at the slower cadence exactly as the renderer poller does
-    today (4s active / 15s inactive equivalents).
+    immediate wake on automation-mode writes, resume pushes, and run
+    registration. Flat 4s cadence for every active run (main has no
+    active-window concept; inactive runs are skipped entirely by the
+    shouldRun gate, so there is no renderer-style 15s inactive tier). A 120s
+    per-run watchdog keeps one hung engine subprocess from wedging the loop
+    for other runs.
   - Each tick: read projection main-side (token-gated stat fingerprint, same
     as `readProjection`) → normalize (shared) → plan (shared planner) →
     execute via main-side ports: in-process terminal runtime for
@@ -270,6 +273,16 @@ Moves:
   resumable on relaunch) — quit ends the run's *live* agents but not the run;
   window close no longer affects the run at all. Recorded as the lifecycle
   decision the backlog item asks for.
+- Scheduler bookkeeping is durable: pending spawns, delivered notification
+  keys, the completion-teardown marker, and roster resume records persist in
+  the automation sidecar's `runtime` block (written by main only, never
+  audited/broadcast/revisioned), so headless retirements and completions
+  survive with zero windows and a restart re-adopts main's own record rather
+  than a stale renderer mirror.
+- **Honest scope limit**: after a full app RESTART, scheduling resumes when a
+  window opens and registers the run (the epic's "headless" acceptance is
+  window-closed-app-alive; boot-time run discovery with no window ever opened
+  is a follow-on, not in scope).
 
 ## Verification bar
 

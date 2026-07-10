@@ -112,9 +112,10 @@ export function registerSprintEngineIpc(ipcMain: IpcMain, deps: SprintEngineIpcD
     return deps.setTaskStatus(payload)
   })
 
-  ipcMain.handle('sprintengine:runner:set-mode', async (_, payload: SprintEngineRunnerSetInput): Promise<SprintEngineArtifactCommandResult> => {
-    return deps.setRunnerMode(payload)
-  })
+  // `sprintengine:runner:set-mode` was removed (MC-1567): the renderer no
+  // longer writes the cliWatchPolling hint — the main automation service's
+  // set-mode path bridges it in-process (`deps.setRunnerMode` is still the
+  // in-process seam it and the automations front door use).
 
   ipcMain.handle('sprintengine:vcs:pr', async (_, payload: SprintEngineVcsPayload): Promise<SprintEngineArtifactCommandResult> => {
     return deps.createPullRequest(payload)

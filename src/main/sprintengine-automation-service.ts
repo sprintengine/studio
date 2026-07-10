@@ -40,6 +40,7 @@ import {
   serializeSprintEngineAutomationIntentRecord,
   type SprintEngineAutomationIntentActor,
   type SprintEngineAutomationIntentRecord,
+  type SprintEngineAutomationRuntimeResidue,
 } from '../shared/sprintengine/automation-intent'
 
 export type { SprintEngineAutomationChangedEvent }
@@ -259,6 +260,31 @@ export function createSprintEngineAutomationService(deps: SprintEngineAutomation
           ...(input.clientToken ? { sourceClientToken: input.clientToken } : {}),
         })
         return { ok: true as const, record, changed: true }
+      })
+    },
+
+    /**
+     * Scheduler bookkeeping persistence (Phase 3): merge the runtime residue
+     * into the record WITHOUT bumping the revision, auditing, bridging, or
+     * broadcasting — it is durable bookkeeping beside the intent, not a
+     * transition. No-ops when no intent record exists yet (the residue is
+     * meaningless before the run's mode has ever been written/hydrated).
+     */
+    async updateRuntimeResidue(input: {
+      statePath: string
+      runtime: SprintEngineAutomationRuntimeResidue
+    }): Promise<void> {
+      const paths = automationIntentPathForState(input.statePath)
+      if (!paths) return
+      await enqueue(paths.queueKey, async () => {
+        const current = await readRecord(paths.intentPath)
+        if (!current) return
+        try {
+          await writeRecordAtomically(paths.intentPath, { ...current, runtime: input.runtime })
+        } catch {
+          // Best-effort: in-memory scheduler state still applies; the next
+          // residue change retries.
+        }
       })
     },
 

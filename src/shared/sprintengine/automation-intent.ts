@@ -10,7 +10,8 @@
  * Pure data logic: parsing, normalization, and successor-record math. All fs
  * and clock access lives in `src/main/sprintengine-automation-service.ts`.
  */
-import type { SprintEngineAutomationMode } from './automation-types'
+import type { SprintEngineAutoPendingSpawn, SprintEngineAutomationMode } from './automation-types'
+import type { SprintEngineRosterSession } from './run-types'
 import { isSprintEngineAutomationMode } from './automation-lifecycle'
 
 export const SPRINT_ENGINE_AUTOMATION_INTENT_FILE = 'automation.json'
@@ -24,6 +25,21 @@ export type SprintEngineAutomationIntentWrite = {
   at: string
 }
 
+/**
+ * Scheduler-owned durable runtime residue (sprint-runtime-ownership Phase 3):
+ * the main scheduler persists its cross-restart bookkeeping here so a
+ * headless completion/retirement survives even when zero windows exist to
+ * mirror it, and a later registration adopts main's own record instead of a
+ * stale renderer mirror. Never audited, never broadcast, never bumps the
+ * revision — it is bookkeeping beside the intent, not the intent.
+ */
+export type SprintEngineAutomationRuntimeResidue = {
+  pendingSpawns: SprintEngineAutoPendingSpawn[]
+  deliveredAgentNotificationEventKeys: string[]
+  completionTeardownAt?: number
+  rosterSessions: Record<string, SprintEngineRosterSession>
+}
+
 export type SprintEngineAutomationIntentRecord = {
   schemaVersion: typeof SPRINT_ENGINE_AUTOMATION_INTENT_SCHEMA_VERSION
   // Monotonic per-run write counter. Broadcasts carry it; subscribers ignore
@@ -33,6 +49,7 @@ export type SprintEngineAutomationIntentRecord = {
   desiredMode: SprintEngineAutomationMode
   changedAt: number
   lastWrite: SprintEngineAutomationIntentWrite
+  runtime?: SprintEngineAutomationRuntimeResidue
 }
 
 const intentActors = new Set<SprintEngineAutomationIntentActor>(['ui', 'mobile', 'system'])
@@ -74,6 +91,29 @@ export function parseSprintEngineAutomationIntentRecord(
     desiredMode: record.desiredMode,
     changedAt,
     lastWrite,
+    ...(record.runtime !== undefined ? { runtime: normalizeRuntimeResidue(record.runtime) } : {}),
+  }
+}
+
+export function normalizeRuntimeResidue(raw: unknown): SprintEngineAutomationRuntimeResidue {
+  const record = raw && typeof raw === 'object' && !Array.isArray(raw)
+    ? raw as Record<string, unknown>
+    : {}
+  return {
+    pendingSpawns: Array.isArray(record.pendingSpawns)
+      ? record.pendingSpawns as SprintEngineAutoPendingSpawn[]
+      : [],
+    deliveredAgentNotificationEventKeys: Array.isArray(record.deliveredAgentNotificationEventKeys)
+      ? (record.deliveredAgentNotificationEventKeys as unknown[])
+        .filter((key): key is string => typeof key === 'string')
+      : [],
+    ...(typeof record.completionTeardownAt === 'number'
+      ? { completionTeardownAt: record.completionTeardownAt }
+      : {}),
+    rosterSessions:
+      record.rosterSessions && typeof record.rosterSessions === 'object' && !Array.isArray(record.rosterSessions)
+        ? record.rosterSessions as Record<string, SprintEngineRosterSession>
+        : {},
   }
 }
 
@@ -94,6 +134,8 @@ export function nextSprintEngineAutomationIntentRecord(input: {
       deviceId: input.deviceId ?? null,
       at: new Date(input.now).toISOString(),
     },
+    // Mode writes never disturb the scheduler's durable bookkeeping.
+    ...(input.current?.runtime !== undefined ? { runtime: input.current.runtime } : {}),
   }
 }
 

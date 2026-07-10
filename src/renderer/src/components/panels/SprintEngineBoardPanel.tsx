@@ -1338,6 +1338,13 @@ function SprintEngineBoardPanelContent({
   || automationRuntimeState === 'failed'
   ? () => {
   applySprintEngineAutomationEvent(workspaceId, { type: 'runner_started' })
+  // Same-mode recovery must also reach the main scheduler — `runner_started`
+  // is runtime state, not a mode change, so neither the intent service nor
+  // the stop-reason push carries it. Without this the scheduler stays
+  // paused/blocked forever while the UI shows "running".
+  if (sprintEngineContext?.statePath) {
+  void window.api.resumeSprintRuntimeRun?.({ statePath: sprintEngineContext.statePath })
+  }
   }
   : null
 

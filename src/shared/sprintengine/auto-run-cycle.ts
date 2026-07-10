@@ -1,30 +1,29 @@
 /**
- * Sprint Engine auto-run DECISION CYCLE, shared by the renderer and the main
- * process.
+ * Sprint Engine auto-run DECISION CYCLE.
  *
- * Relocated from
- * `src/renderer/src/components/workspace/SprintEngineAutoRunSupervisor.tsx`
- * (sprint-runtime-ownership Phase 2: the main process drives the identical
- * cycle). The React supervisor remains in the renderer as a shim: it builds
- * `SprintEngineAutoRunCyclePorts` bound to `window.api`, the Zustand store,
- * `workspaceSyncClient`, `modelRegistry`, and the renderer projection-refresh/
- * dormancy/teardown helpers, then drives ticks through `superviseWorkspace` /
- * `reconcileWorkspaceSessions`. Every existing supervisor export keeps working
- * through renderer re-exports that bind those ports.
+ * Relocated from the (now retired) renderer supervisor component
+ * (sprint-runtime-ownership Phases 2–3). The ONLY production driver is the
+ * main-process scheduler (`src/main/sprint-runtime.ts`), which builds
+ * `SprintEngineAutoRunCyclePorts` over the terminal runtime, disk
+ * projections, the automation intent service, and the runtime-op broadcast
+ * bridge, and drives ticks through `superviseWorkspace` /
+ * `reconcileWorkspaceSessions`. The renderer keeps port bindings + bound
+ * re-exports for its historical test surface and manual one-shot paths in
+ * `src/renderer/src/utils/sprintengineAutoRunRendererHost.ts` — it mounts no
+ * loop.
  *
  * Environment-agnostic by construction: every side effect goes through the
  * ports object (the executor ports plus the cycle-specific ports below); the
  * only ambient dependencies are `Date`, `performance`, and timers. No
  * `window`, React, or store import may be added here. Perf events flow through
- * the shared auto-run perf seam (`sprintEngineAutoRunPerfLog`), which the
- * renderer shim wires to `logPerfEvent`.
+ * the shared auto-run perf seam (`sprintEngineAutoRunPerfLog`), wired by each
+ * host (main: main perf diagnostics; renderer shim: `logPerfEvent`).
  *
  * Cross-tick module-level state (the terminal-list notice cooldown, the
  * task-scoped retirement ledger, the bootstrap stall-notice set, and the
  * no-op replenish fingerprint) lives in `SprintEngineAutoRunCycleState`,
- * created once per host via `createSprintEngineAutoRunCycleState()` — the
- * renderer supervisor creates one at module level, preserving the previous
- * module-level lifetime.
+ * created once per host via `createSprintEngineAutoRunCycleState()` (main:
+ * one per registered run; renderer host module: one at module level).
  */
 
 import type {

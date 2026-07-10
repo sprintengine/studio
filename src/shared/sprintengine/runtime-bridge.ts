@@ -54,6 +54,19 @@ export type SprintRuntimeRunRegistration = {
   rosterSessions: Record<string, SprintEngineRosterSession>
   /** Current agent records so main's view starts from what the UI shows. */
   agents: Record<string, AgentState>
+  /**
+   * User-editable per-agent configuration (mid-run runtime override, rename,
+   * queued custom startup prompt). Unlike the residue above, these are
+   * RENDERER-owned and re-pushed on change — main merges them into its view
+   * on every registration so the next spawn honours them.
+   */
+  agentConfigs: Record<string, SprintRuntimeAgentConfig>
+}
+
+export type SprintRuntimeAgentConfig = {
+  cliRuntimeOverride?: { cli?: string; model?: string | null }
+  name?: string
+  cliStartupPrompt?: string
 }
 
 export type SprintRuntimeStopReasonPush = {

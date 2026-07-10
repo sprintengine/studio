@@ -2512,6 +2512,8 @@ export type ElectronApi = {
   unregisterSprintRuntimeRun: (input: { statePath: string }) => Promise<{ ok: boolean }>
   /** Push a renderer-originated automation stop (terminal closed, removed…) to the scheduler. */
   pushSprintRuntimeStopReason: (input: SprintRuntimeStopReasonPush) => Promise<{ ok: boolean }>
+  /** Resume a paused/blocked/failed run in the scheduler (same-mode recovery). */
+  resumeSprintRuntimeRun: (input: { statePath: string }) => Promise<{ ok: boolean }>
   /** Scheduler-performed store mutations, mirrored to every window (Phase 2). */
   onSprintRuntimeOp: (cb: (op: SprintRuntimeOp) => void) => () => void
   createSprintEnginePullRequest: (statePath: string) => Promise<SprintEngineArtifactCommandResult>

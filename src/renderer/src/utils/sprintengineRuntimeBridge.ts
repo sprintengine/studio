@@ -25,7 +25,11 @@
  *
  * 3. **Dispose**: the returned function unsubscribes everything.
  */
-import type { SprintRuntimeOp, SprintRuntimeRunRegistration } from '../../../shared/sprintengine/runtime-bridge'
+import type {
+  SprintRuntimeAgentConfig,
+  SprintRuntimeOp,
+  SprintRuntimeRunRegistration,
+} from '../../../shared/sprintengine/runtime-bridge'
 import {
   agentCliSupportsConversationResume,
   agentCliUsesStableSessionIdForResume,
@@ -35,7 +39,10 @@ import { useWorkspaceStore } from '../store/workspaceStore'
 import { normalizeSprintEngineAutoState } from '../store/slices/runStateSlice'
 import type { Workspace } from '../types/workspace'
 import { applySprintEngineAutomationStopReason } from './sprintengineSupervisorNotifications'
-import { tearDownDepartedTaskScopedWorker } from './sprintengineRunTeardown'
+import {
+  departedWorkerTeardownPortsWithoutRecord,
+  tearDownDepartedTaskScopedWorker,
+} from './sprintengineRunTeardown'
 
 function findWorkspaceByStatePath(statePath: string): Workspace | undefined {
   return useWorkspaceStore.getState().workspaces
@@ -71,13 +78,34 @@ function buildRegistration(workspace: Workspace, statePath: string): SprintRunti
       : {}),
     rosterSessions: workspace.sprintEngineRosterSessions ?? {},
     agents: workspace.agents,
+    agentConfigs: buildAgentConfigs(workspace),
   }
+}
+
+/**
+ * User-editable per-agent configuration main must honour on spawns: mid-run
+ * runtime overrides (the board's per-agent CLI/model picker), renames, and
+ * queued custom startup prompts. Renderer-owned, re-pushed on change.
+ */
+function buildAgentConfigs(workspace: Workspace): Record<string, SprintRuntimeAgentConfig> {
+  const configs: Record<string, SprintRuntimeAgentConfig> = {}
+  for (const [agentId, agent] of Object.entries(workspace.agents)) {
+    if (agent.kind !== 'sprintengine') continue
+    const config: SprintRuntimeAgentConfig = {
+      ...(agent.cliRuntimeOverride ? { cliRuntimeOverride: agent.cliRuntimeOverride } : {}),
+      ...(agent.name ? { name: agent.name } : {}),
+      ...(agent.cliStartupPrompt ? { cliStartupPrompt: agent.cliStartupPrompt } : {}),
+    }
+    if (Object.keys(config).length > 0) configs[agentId] = config
+  }
+  return configs
 }
 
 /**
  * Identity + run configuration only. Runtime residue (agents, pendingSpawns,
  * delivered keys, rosterSessions, completionTeardownAt) is adopted by main on
  * first registration and main-owned afterwards — it must NOT re-register.
+ * `agentConfigs` IS in the signature: user edits must reach main's spawns.
  */
 function registrationSignature(registration: SprintRuntimeRunRegistration): string {
   return JSON.stringify([
@@ -89,6 +117,7 @@ function registrationSignature(registration: SprintRuntimeRunRegistration): stri
     registration.cliPermissionPreset,
     registration.maxConcurrentAgents,
     registration.architectGuidance ?? null,
+    registration.agentConfigs,
   ])
 }
 
@@ -139,11 +168,16 @@ function applyRuntimeOp(op: SprintRuntimeOp, workspaceId: string): void {
       store.upsertSprintEngineRosterSession(workspaceId, op.agentId, op.session)
       return
     case 'worker_retired':
-      // Renderer-side completion of a main-side retirement: record the
-      // resumable session and remove the tab/agent record. Main already killed
-      // the PTY; the teardown's kill/list calls swallow failures, so it is
-      // safe against the already-dead session.
-      void tearDownDepartedTaskScopedWorker(workspaceId, op.agentId).catch(() => undefined)
+      // Renderer-side completion of a main-side retirement: remove the
+      // tab/agent record. Main already killed the PTY and RECORDED the roster
+      // session (delivered as the preceding `roster_session_recorded` op), so
+      // this applier must not re-record; the teardown's kill/list calls
+      // swallow failures, so it is safe against the already-dead session.
+      void tearDownDepartedTaskScopedWorker(
+        workspaceId,
+        op.agentId,
+        departedWorkerTeardownPortsWithoutRecord(),
+      ).catch(() => undefined)
       return
     case 'completion_teardown_at':
       store.setSprintEngineCompletionTeardownAt(workspaceId, op.at)

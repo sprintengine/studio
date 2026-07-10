@@ -4,7 +4,12 @@ import type {
   TerminalSessionSnapshot,
   TerminalSpawnResult,
 } from '../shared/electron-api'
-import type { SprintEngineAutomationIntentRecord } from '../shared/sprintengine/automation-intent'
+import type { PluginRegistryListEntry } from '../shared/plugin-manifest'
+import type { AgentState } from '../shared/sprintengine/agent-state'
+import type {
+  SprintEngineAutomationIntentRecord,
+  SprintEngineAutomationRuntimeResidue,
+} from '../shared/sprintengine/automation-intent'
 import type { SprintEngineAutomationMode } from '../shared/sprintengine/automation-types'
 import type { TerminalSpawnArgs } from '../shared/sprintengine/auto-run-executor'
 import type { SprintEngineLaunchSettings } from '../shared/sprintengine/launch-settings'
@@ -99,6 +104,7 @@ function registration(overrides: Partial<SprintRuntimeRunRegistration> = {}): Sp
     deliveredAgentNotificationEventKeys: [],
     rosterSessions: {},
     agents: {},
+    agentConfigs: {},
     ...overrides,
   }
 }
@@ -135,6 +141,7 @@ type Harness = {
   powerInactive: string[]
   projectionReads: string[]
   diagnostics: DiagnosticLogInput[]
+  persistedResidue: Array<{ statePath: string; runtime: SprintEngineAutomationRuntimeResidue }>
   liveSessions: TerminalSessionSnapshot[]
   /** Per-statePath projection payload + mode-intent record served to the runtime. */
   projections: Map<string, unknown>
@@ -145,6 +152,7 @@ function createHarness(options: {
   projection?: unknown
   mode?: SprintEngineAutomationMode | null
   spawnFails?: boolean
+  pluginCatalog?: PluginRegistryListEntry[]
 } = {}): Harness {
   const clock = { now: 1_000_000 }
   const spawnCalls: TerminalSpawnArgs[] = []
@@ -154,6 +162,7 @@ function createHarness(options: {
   const powerInactive: string[] = []
   const projectionReads: string[] = []
   const diagnostics: DiagnosticLogInput[] = []
+  const persistedResidue: Array<{ statePath: string; runtime: SprintEngineAutomationRuntimeResidue }> = []
   const liveSessions: TerminalSessionSnapshot[] = []
   const projections = new Map<string, unknown>([[STATE_PATH, options.projection ?? bootstrapProjection()]])
   const modes = new Map<string, SprintEngineAutomationIntentRecord | null>([
@@ -207,9 +216,12 @@ function createHarness(options: {
       relativeRoot,
       message: 'not used by the fixture',
     }),
-    getPluginCatalogEntries: () => [],
+    getPluginCatalogEntries: () => options.pluginCatalog ?? [],
     getLaunchSettings: () => LAUNCH_SETTINGS,
     readAutomationMode: async (statePath) => modes.get(statePath) ?? null,
+    persistRuntimeResidue: (statePath, runtime) => {
+      persistedResidue.push({ statePath, runtime })
+    },
     powerManager: {
       markRunActive: (statePath) => powerActive.push(statePath),
       markRunInactive: (statePath) => powerInactive.push(statePath),
@@ -237,6 +249,7 @@ function createHarness(options: {
     powerInactive,
     projectionReads,
     diagnostics,
+    persistedResidue,
     liveSessions,
     projections,
     modes,
@@ -448,6 +461,277 @@ async function testReRegistrationKeepsMainOwnedResidue(): Promise<void> {
   harness.runtime.shutdown()
 }
 
+// (8) applyResume reaches the scheduler: a renderer-originated pause
+// (terminal closed) re-enters `running` through the runner_started recovery
+// gesture, re-acquiring the power assertion. Unknown runs are a no-op.
+async function testApplyResumeReachesScheduler(): Promise<void> {
+  const harness = createHarness()
+  harness.runtime.registerRun(registration())
+  await settle()
+  harness.clock.now += STARTUP_SPAWN_DELAY_MS + 1
+  await harness.runtime.tickNow()
+  assert.equal(harness.spawnCalls.length, 1, 'precondition: the bootstrap spawn happened')
+
+  harness.runtime.applyStopReason({ statePath: STATE_PATH, reason: 'agent_terminal_closed', context: {} })
+  const paused = harness.runtime.inspectRun(STATE_PATH)
+  assert.equal(paused?.view.sprintEngineAutoState?.runtimeState, 'paused', 'terminal close pauses the run')
+  assert.ok(harness.powerInactive.includes(STATE_PATH), 'pausing releases the power assertion')
+
+  const powerActiveBefore = harness.powerActive.length
+  harness.runtime.applyResume(STATE_PATH)
+  const resumed = harness.runtime.inspectRun(STATE_PATH)
+  assert.equal(resumed?.view.sprintEngineAutoState?.runtimeState, 'running', 'resume re-enters running')
+  assert.equal(resumed?.view.sprintEngineAutoState?.desiredMode, 'run_agents', 'resume is a same-mode recovery')
+  assert.ok(harness.powerActive.length > powerActiveBefore, 'resume re-acquires the power assertion')
+  assert.equal(harness.powerActive[harness.powerActive.length - 1], STATE_PATH)
+
+  // Unknown statePath: silent no-op, never a throw.
+  harness.runtime.applyResume('/nowhere/run.yaml')
+  await settle()
+
+  harness.runtime.shutdown()
+}
+
+const CLAUDE_CATALOG_ENTRY: PluginRegistryListEntry = {
+  id: 'claude',
+  displayName: 'Claude Code',
+  source: 'bundled',
+  version: 1,
+  binary: 'claude',
+  resumeSession: true,
+  sessionIdFromCaller: true,
+}
+
+// (9) Resume-capability stamping: dispatchAssignTerminalSession stamps the
+// plugin catalog's resume capabilities onto MAIN's own agent record (not just
+// the bridge op), and syncAgentSessionIdentity mirrors the harness resume id
+// captured on the live session into the record on the next tick.
+async function testResumeCapabilityStampingOnMainView(): Promise<void> {
+  const harness = createHarness({ pluginCatalog: [CLAUDE_CATALOG_ENTRY] })
+  harness.runtime.registerRun(registration())
+  await settle()
+  harness.clock.now += STARTUP_SPAWN_DELAY_MS + 1
+  await harness.runtime.tickNow()
+  assert.equal(harness.spawnCalls.length, 1, 'precondition: the bootstrap spawn happened')
+  const sessionId = harness.spawnCalls[0].sessionId
+
+  const agent = harness.runtime.inspectRun(STATE_PATH)?.view.agents['architect-1']
+  assert.equal(agent?.cliSessionId, sessionId, 'main view carries the assigned session id')
+  assert.equal(agent?.cliResumeAvailable, true, 'resumeSession capability stamped on main view at assign')
+  assert.equal(agent?.cliUsesStableSessionId, true, 'sessionIdFromCaller capability stamped on main view at assign')
+
+  // The agent-state hook later captures the CLI's own resume id onto the live
+  // session snapshot; the next tick's syncAgentSessionIdentity mirrors it.
+  const liveSession = harness.liveSessions.find((session) => session.sessionId === sessionId)
+  assert.ok(liveSession, 'the spawned session is live')
+  ;(liveSession as { cliSessionId?: string }).cliSessionId = 'harness-123'
+  await harness.runtime.tickNow()
+  assert.equal(
+    harness.runtime.inspectRun(STATE_PATH)?.view.agents['architect-1']?.harnessSessionId,
+    'harness-123',
+    'the harness resume id was mirrored into main\'s agent record',
+  )
+
+  harness.runtime.shutdown()
+}
+
+/** Completed projection with a developer + tester roster (no live architect):
+ *  the population a completed run carries — exited and idle-reaped agents. */
+function twoAgentCompletedProjection(): unknown {
+  return {
+    run: {
+      name: 'Fixture Run',
+      goal: 'Ship the fixture',
+      rosterConfigured: true,
+      roleRuntimes: { developer: { cli: 'claude' }, tester: { cli: 'claude' } },
+    },
+    roster: {
+      'dev-1': { role: 'developer', status: 'idle', currentTaskId: null },
+      'qa-1': { role: 'tester', status: 'idle', currentTaskId: null },
+    },
+    tasks: [
+      {
+        id: 'T1',
+        title: 'Only task',
+        description: '',
+        role: 'developer',
+        status: 'done',
+        ownerAgentId: null,
+        dependsOn: [],
+        ownedPaths: [],
+        acceptanceCriteria: [],
+        implementationNotes: [],
+        evidence: { summary: '', touchedFiles: [], commandsRan: [], results: [] },
+        notes: [],
+        comments: [],
+        startedAt: null,
+        completedAt: null,
+        boardColumn: 'done',
+      },
+    ],
+    artifacts: [],
+    activity: [],
+  }
+}
+
+// (10) Completion teardown covers suspended AND already-exited agents: the
+// dormancy sweep records a resumable roster session for an idle-reaped
+// (suspended) agent and for an agent whose terminal already exited but whose
+// record still holds a resume identity, kills only the disposable session,
+// and persists the whole residue.
+async function testCompletionTeardownCoversSuspendedAndExitedAgents(): Promise<void> {
+  const harness = createHarness({ projection: twoAgentCompletedProjection() })
+  // Agent B was idle-reaped: its PTY is suspended (processAlive false) but the
+  // placeholder still owns a recordable resume identity.
+  harness.liveSessions.push({
+    sessionId: 'sess-b',
+    processAlive: false,
+    suspended: true,
+    kind: 'agent',
+    workspaceId: WORKSPACE_ID,
+    agentId: 'qa-1',
+    sprintEngineStatePath: STATE_PATH,
+    cli: 'claude',
+    cliSessionId: 'harness-b',
+  } as unknown as TerminalSessionSnapshot)
+  // Agent A's terminal already exited — no live session at all — but its
+  // record still carries the resumable identity.
+  const exitedAgent: AgentState = {
+    id: 'dev-1',
+    name: 'Dev',
+    status: 'idle',
+    execution: { mode: 'current_workspace', worktreeId: null, cwd: null },
+    messages: [],
+    streamBuffer: '',
+    kind: 'sprintengine',
+    cli: 'claude',
+    cliSessionId: 'sess-a',
+  }
+  harness.runtime.registerRun(registration({ agents: { 'dev-1': exitedAgent } }))
+  await settle()
+  harness.clock.now += STARTUP_SPAWN_DELAY_MS + 1
+  await harness.runtime.tickNow()
+
+  const recordedAgentIds = harness.ops
+    .map((op) => (op.kind === 'roster_session_recorded' ? op.agentId : null))
+    .filter((agentId): agentId is string => agentId !== null)
+  assert.ok(recordedAgentIds.includes('dev-1'), 'the exited agent\'s session was recorded')
+  assert.ok(recordedAgentIds.includes('qa-1'), 'the suspended agent\'s session was recorded')
+  const devRecorded = harness.ops.find(
+    (op) => op.kind === 'roster_session_recorded' && op.agentId === 'dev-1',
+  )
+  assert.ok(devRecorded && devRecorded.kind === 'roster_session_recorded')
+  assert.equal(devRecorded.session.role, 'developer')
+  assert.equal(devRecorded.session.cliSessionId, 'sess-a', 'resume token from the exited agent\'s record')
+  const qaRecorded = harness.ops.find(
+    (op) => op.kind === 'roster_session_recorded' && op.agentId === 'qa-1',
+  )
+  assert.ok(qaRecorded && qaRecorded.kind === 'roster_session_recorded')
+  assert.equal(qaRecorded.session.role, 'tester')
+  assert.equal(qaRecorded.session.cliSessionId, 'harness-b', 'resume token from the suspended session snapshot')
+
+  const retiredAgentIds = harness.ops
+    .map((op) => (op.kind === 'worker_retired' ? op.agentId : null))
+    .filter((agentId): agentId is string => agentId !== null)
+  assert.ok(retiredAgentIds.includes('dev-1'), 'the exited agent was retired')
+  assert.ok(retiredAgentIds.includes('qa-1'), 'the suspended agent was retired')
+  assert.ok(harness.killedSessionIds.includes('sess-b'), 'the suspended session was disposed')
+  assert.ok(
+    harness.ops.some((op) => op.kind === 'completion_teardown_at' && op.at !== undefined),
+    'the completion teardown marker was broadcast',
+  )
+  assert.ok(harness.powerInactive.includes(STATE_PATH), 'completion releases the power assertion')
+
+  const lastResidue = harness.persistedResidue[harness.persistedResidue.length - 1]
+  assert.ok(lastResidue, 'the teardown persisted runtime residue')
+  assert.equal(lastResidue.statePath, STATE_PATH)
+  assert.ok(lastResidue.runtime.rosterSessions['dev-1'], 'the exited agent\'s roster session persisted')
+  assert.ok(lastResidue.runtime.rosterSessions['qa-1'], 'the suspended agent\'s roster session persisted')
+  assert.equal(lastResidue.runtime.completionTeardownAt, harness.clock.now, 'the teardown marker persisted')
+
+  harness.runtime.shutdown()
+}
+
+// (11) Agent-config merge on re-registration: renderer-owned per-agent config
+// (runtime override, rename, queued startup prompt) is adopted without
+// disturbing main-owned launch flags; a later registration with the config
+// cleared clears the override + prompt while the rename sticks.
+async function testAgentConfigMergeOnReRegistration(): Promise<void> {
+  const harness = createHarness()
+  harness.runtime.registerRun(registration())
+  await settle()
+  harness.clock.now += STARTUP_SPAWN_DELAY_MS + 1
+  await harness.runtime.tickNow()
+  const launched = harness.runtime.inspectRun(STATE_PATH)?.view.agents['architect-1']
+  assert.ok(launched?.cliSessionId, 'precondition: main holds live launch state')
+
+  harness.runtime.registerRun(registration({
+    agentConfigs: {
+      'architect-1': {
+        cliRuntimeOverride: { cli: 'codex', model: null },
+        name: 'Custom Name',
+        cliStartupPrompt: 'do the thing',
+      },
+    },
+  }))
+  const configured = harness.runtime.inspectRun(STATE_PATH)?.view.agents['architect-1']
+  assert.deepEqual(configured?.cliRuntimeOverride, { cli: 'codex', model: null }, 'runtime override adopted')
+  assert.equal(configured?.name, 'Custom Name', 'rename adopted')
+  assert.equal(configured?.cliStartupPrompt, 'do the thing', 'queued startup prompt adopted')
+  assert.equal(configured?.cliSessionId, launched?.cliSessionId, 'launch flags untouched by the config merge')
+
+  // The renderer consumed the prompt and cleared the override: cleared config
+  // keys clear main's copy, while the rename (still absent) is retained.
+  harness.runtime.registerRun(registration({ agentConfigs: {} }))
+  const cleared = harness.runtime.inspectRun(STATE_PATH)?.view.agents['architect-1']
+  assert.equal(cleared?.cliRuntimeOverride, undefined, 'cleared config clears the runtime override')
+  assert.equal(cleared?.cliStartupPrompt, undefined, 'cleared config clears the consumed startup prompt')
+  assert.equal(cleared?.name, 'Custom Name', 'the rename is retained')
+  assert.equal(cleared?.cliSessionId, launched?.cliSessionId, 'launch flags still untouched')
+
+  harness.runtime.shutdown()
+}
+
+// (12) Sidecar residue adoption on first registration: the automation
+// sidecar's runtime block is MAIN's own durable bookkeeping and supersedes the
+// renderer-mirrored residue the registration seeded.
+async function testSidecarResidueAdoptionOnFirstRegistration(): Promise<void> {
+  const harness = createHarness({ projection: completedProjection() })
+  const residue: SprintEngineAutomationRuntimeResidue = {
+    pendingSpawns: [{ taskId: 'T9', agentId: 'ghost', startedAt: 1 }],
+    deliveredAgentNotificationEventKeys: ['EVT-9'],
+    completionTeardownAt: 123,
+    rosterSessions: {
+      dev: { role: 'developer', cli: 'claude-code', cliSessionId: 'old', recordedAt: 1 },
+    },
+  }
+  harness.modes.set(STATE_PATH, { ...automationRecord('run_agents'), runtime: residue })
+
+  harness.runtime.registerRun(registration())
+  await settle()
+
+  const run = harness.runtime.inspectRun(STATE_PATH)
+  assert.deepEqual(
+    run?.view.sprintEngineAutoState?.pendingSpawns,
+    residue.pendingSpawns,
+    'sidecar pendingSpawns adopted over the registration\'s empty residue',
+  )
+  assert.deepEqual(
+    run?.view.sprintEngineAutoState?.deliveredAgentNotificationEventKeys,
+    ['EVT-9'],
+    'sidecar delivered keys adopted',
+  )
+  assert.equal(
+    run?.view.sprintEngineAutoState?.completionTeardownAt,
+    123,
+    'sidecar completion-teardown marker adopted',
+  )
+  assert.ok(run?.rosterSessions['dev'], 'sidecar roster session adopted')
+  assert.equal(run?.rosterSessions['dev']?.cliSessionId, 'old')
+
+  harness.runtime.shutdown()
+}
+
 async function main(): Promise<void> {
   await testRegistrationActivatesRun()
   await testStartupDelayThenBootstrapSpawn()
@@ -456,6 +740,11 @@ async function main(): Promise<void> {
   await testCompletionEntersDormancy()
   await testUnregisterReleasesPower()
   await testReRegistrationKeepsMainOwnedResidue()
+  await testApplyResumeReachesScheduler()
+  await testResumeCapabilityStampingOnMainView()
+  await testCompletionTeardownCoversSuspendedAndExitedAgents()
+  await testAgentConfigMergeOnReRegistration()
+  await testSidecarResidueAdoptionOnFirstRegistration()
   console.log('sprint-runtime tests passed')
 }
 

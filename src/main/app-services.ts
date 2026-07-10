@@ -1,5 +1,6 @@
 import { app, BrowserWindow, powerSaveBlocker, shell } from 'electron'
 import { existsSync } from 'fs'
+import { access } from 'fs/promises'
 import { join } from 'path'
 import { createAgentConfigImportService } from './agent-config-import'
 import { createAgentStateService } from './agent-state-service'
@@ -32,6 +33,7 @@ import { createSprintEngineAutomationService } from './sprintengine-automation-s
 import { createSprintEngineLaunchSettingsMirror } from './sprintengine-launch-settings-mirror'
 import { createSprintPowerManager } from './sprint-power-manager'
 import { createSprintRuntime, type SprintRuntime } from './sprint-runtime'
+import { setSprintEngineAutoRunPerfLogger } from '../shared/sprintengine/auto-run'
 import { resolveMemoryRoot } from './memory-graph'
 import { listPluginRegistryEntries } from './plugin-registry-instance'
 import { SPRINT_ENGINE_AUTOMATION_CHANGED_CHANNEL } from './ipc/sprintengine-automation-ipc'
@@ -249,13 +251,23 @@ export function createAppServices(diagnosticsEnabled: boolean) {
         sprintEngineArtifacts.reviewArtifact({ statePath, artifactId }, 'approve', 'auto-run'),
       replenishRoster: (input) => sprintEngineArtifacts.replenishRoster(input),
     },
-    pathExists: async (path) => existsSync(path),
+    pathExists: async (path) => {
+      try {
+        await access(path)
+        return true
+      } catch {
+        return false
+      }
+    },
     resolveMemoryRoot: (workspaceRoot, relativeRoot) => resolveMemoryRoot(workspaceRoot, relativeRoot),
     getPluginCatalogEntries: () => listPluginRegistryEntries(),
     getLaunchSettings: () => sprintEngineLaunchSettings.get(),
     readAutomationMode: async (statePath) => {
       const result = await sprintEngineAutomation.readAutomationMode({ statePath })
       return result.ok ? result.record : null
+    },
+    persistRuntimeResidue: (statePath, runtime) => {
+      void sprintEngineAutomation.updateRuntimeResidue({ statePath, runtime })
     },
     powerManager: sprintPowerManager,
     broadcastOp: (op) => {
@@ -267,6 +279,13 @@ export function createAppServices(diagnosticsEnabled: boolean) {
     logDiagnostic: (diagnostic) => writeDiagnosticLog(diagnostic),
   })
   sprintRuntimeRef = sprintRuntime
+  // The shared auto-run corpus logs through an injected perf seam. The
+  // renderer used to inject its own logger; with scheduling in main, wire the
+  // seam to main perf diagnostics so supervise/spawn/retire events — the
+  // primary debugging surface for this subsystem — stay observable.
+  setSprintEngineAutoRunPerfLogger((scope, event, payload) => {
+    logMainPerfEvent(scope, event, payload ?? {})
+  })
 
   const updateService = new MulticodeUpdateService({ writeDiagnosticLog })
   const agentConfigImportService = createAgentConfigImportService({
