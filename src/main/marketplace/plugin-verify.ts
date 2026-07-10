@@ -1,12 +1,13 @@
 import { rm } from 'node:fs/promises'
 
 import type { MarketplaceManifestIssue, MarketplacePluginEntry } from '../../shared/marketplace'
-import { validateMarketplaceIndex } from '../../shared/marketplace'
+import { isClaudeCodePluginEntry, validateMarketplaceIndex } from '../../shared/marketplace'
 import type { MarketplacePluginVerifyResult } from '../../shared/electron-api'
 import type { CapabilityPermission } from '../../shared/modules/permissions'
 import type { ModuleTrustContext } from '../modules/module-signature'
 import {
   defaultMarketplacePluginStagingRoot,
+  downloadClaudeCodePluginSource,
   downloadMarketplacePluginBundle,
   type MarketplacePluginDownloadFetch,
 } from './plugin-download'
@@ -36,6 +37,39 @@ export async function verifyMarketplacePlugin(
       sourceUrl: sourceUrlFromEntry(entry),
       issues: registryEntry.issues,
       message: registryEntry.message,
+    }
+  }
+
+  // Claude Code plugins are unsigned by nature (no Multicode manifest to
+  // verify); the pre-trust download exists to disclose the REAL skill file
+  // listing at the trust prompt — never a fabricated one.
+  if (isClaudeCodePluginEntry(registryEntry.entry)) {
+    const claude = await downloadClaudeCodePluginSource({
+      entry: registryEntry.entry,
+      stagingRoot: services.stagingRoot ?? defaultMarketplacePluginStagingRoot(),
+      fetcher: services.fetcher,
+    })
+    if (!claude.ok) {
+      return {
+        classification: 'invalid',
+        permissions: [],
+        sourceUrl: claude.sourceUrl,
+        issues: [{ path: 'source', message: claude.message }],
+        message: claude.message,
+      }
+    }
+    try {
+      return {
+        classification: 'unsigned',
+        permissions: [],
+        sourceUrl: claude.sourceUrl,
+        files: claude.skillDirs.map((dir) => `skills/${dir}`),
+        // The commit this listing came from; the install fetches exactly this
+        // ref so a mutable source cannot swap content after the trust grant.
+        pinnedRef: claude.resolvedRef,
+      }
+    } finally {
+      await rm(claude.stagedPath, { recursive: true, force: true })
     }
   }
 

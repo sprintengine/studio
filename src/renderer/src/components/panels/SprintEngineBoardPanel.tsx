@@ -120,6 +120,8 @@ import {
   type SprintEnginePreviewedArtifact,
 } from './sprintEngineBoard/useSprintEngineBoardArtifactActions'
 import { useSprintEngineBoardTerminalActions } from './sprintEngineBoard/useSprintEngineBoardTerminalActions'
+import { sprintAnnotationFeedback } from '../workspace/guidedBrief/annotate/serialize'
+import type { MockupAnnotation } from '../workspace/guidedBrief/annotate/types'
 import {
   clampInspectorPaneWidth,
   loadInspectorPaneWidth,
@@ -1086,6 +1088,50 @@ function SprintEngineBoardPanelContent({
  api: window.api,
  })
 
+ // Artifact-preview annotate sink (MC-1468 T11, Sink A): a pin batch submitted
+ // from the preview frame pre-fills the request-changes dialog with structured
+ // blocks — never bypassing it, so the reviewer can still add overall framing —
+ // and the feedback lands on the sprint record through the existing flow. The
+ // batch counts as "sent" only when the dialog actually lands the change
+ // request: cancelling settles the pending send as a failure, which hands the
+ // notes back to the preview tray instead of dropping them.
+ const previewAnnotationSendRef = useRef<{ resolve: () => void; reject: (error: Error) => void } | null>(null)
+ const settlePreviewAnnotationSend = (outcome: 'sent' | Error) => {
+ const pending = previewAnnotationSendRef.current
+ previewAnnotationSendRef.current = null
+ if (!pending) return
+ if (outcome === 'sent') pending.resolve()
+ else pending.reject(outcome)
+ }
+ const cancelRequestChangesDialog = () => {
+ if (requestChangesDialog?.submitting) return
+ cancelRequestArtifactChangesDialog()
+ settlePreviewAnnotationSend(new Error('The change request was cancelled.'))
+ }
+ const submitRequestChangesDialog = async () => {
+ if (await submitRequestArtifactChanges()) settlePreviewAnnotationSend('sent')
+ }
+ const previewedReviewArtifact = previewedArtifact
+ ? reviewArtifacts.find((artifact) => artifact.id === previewedArtifact.id) ?? null
+ : null
+ // Annotate is offered only while a change request can actually be filed —
+ // the batch's one destination is the request-changes channel on the record.
+ const submitPreviewAnnotations =
+ previewedArtifact && previewedReviewArtifact?.status === 'ready_for_review'
+ ? (annotations: MockupAnnotation[]) =>
+ new Promise<void>((resolve, reject) => {
+ const opened = requestArtifactChanges(
+ previewedReviewArtifact,
+ sprintAnnotationFeedback(previewedArtifact.relativePath, annotations),
+ )
+ if (!opened) {
+ reject(new Error('This sprint workspace is missing its selected team context.'))
+ return
+ }
+ previewAnnotationSendRef.current = { resolve, reject }
+ })
+ : undefined
+
  // Only the actionable "folder missing" state earns a banner. The transient
  // on-disk check that precedes it stays silent — the board area below renders
  // its normal idle state during the brief verification rather than flashing a
@@ -1217,6 +1263,7 @@ function SprintEngineBoardPanelContent({
  onOpenArtifact={openArtifact}
  onApproveArtifact={approveArtifact}
  onRequestArtifactChanges={requestArtifactChanges}
+ onSubmitPreviewAnnotations={submitPreviewAnnotations}
  onResolveTaskInput={resolveTaskInput}
  onPostTaskComment={postTaskComment}
  onBackFromArtifact={() => setPreviewedArtifact(null)}
@@ -1338,9 +1385,9 @@ function SprintEngineBoardPanelContent({
   || automationRuntimeState === 'failed'
   ? () => {
   applySprintEngineAutomationEvent(workspaceId, { type: 'runner_started' })
-  // Same-mode recovery must also reach the main scheduler — `runner_started`
-  // is runtime state, not a mode change, so neither the intent service nor
-  // the stop-reason push carries it. Without this the scheduler stays
+  // Same-mode recovery must also reach the main scheduler — a runtime-state
+  // resume is not a mode change, so neither the intent service nor the
+  // stop-reason push carries it. Without this the scheduler stays
   // paused/blocked forever while the UI shows "running".
   if (sprintEngineContext?.statePath) {
   void window.api.resumeSprintRuntimeRun?.({ statePath: sprintEngineContext.statePath })
@@ -2466,7 +2513,7 @@ function SprintEngineBoardPanelContent({
  contained
  width={520}
  labelledBy="request-changes-dialog-title"
- onClose={cancelRequestArtifactChangesDialog}
+ onClose={cancelRequestChangesDialog}
  >
  <div className="flex items-start justify-between gap-4 border-b border-[color:var(--border-default)] px-5 py-4">
  <div className="min-w-0">
@@ -2486,7 +2533,7 @@ function SprintEngineBoardPanelContent({
  <CloseIconButton
  size="md"
  aria-label="Close"
- onClick={cancelRequestArtifactChangesDialog}
+ onClick={cancelRequestChangesDialog}
  />
  </div>
 
@@ -2518,14 +2565,14 @@ function SprintEngineBoardPanelContent({
 
  <ModalFooter>
  <ModalButton
- onClick={cancelRequestArtifactChangesDialog}
+ onClick={cancelRequestChangesDialog}
  disabled={requestChangesDialog.submitting}
  >
  Cancel
  </ModalButton>
  <ModalButton
  variant="primary"
- onClick={() => void submitRequestArtifactChanges()}
+ onClick={() => void submitRequestChangesDialog()}
  disabled={requestChangesDialog.submitting || requestChangesDialog.feedback.trim().length === 0}
  >
  {requestChangesDialog.submitting ? 'Requesting changes…' : 'Request changes'}

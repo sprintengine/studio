@@ -391,6 +391,9 @@ export type MarketplacePluginInstallInput = {
 export type MarketplacePluginRegistryInstallInput = Omit<MarketplacePluginInstallInput, 'localFolder'> & {
   entry: MarketplacePluginEntry
   trustGranted?: boolean
+  // Claude Code plugins: the commit the pre-trust verify disclosed; the
+  // install downloads this exact ref (TOCTOU guard for unpinned sources).
+  claudePluginRef?: string
 }
 
 export type MarketplacePluginUninstallInput = {
@@ -409,6 +412,15 @@ export type MarketplacePluginVerifyResult = {
   sourceUrl: string
   issues?: MarketplaceManifestIssue[]
   message?: string
+  // Real content listing disclosed at the trust prompt for entries whose
+  // payload is files rather than capability permissions (Claude Code plugins:
+  // the skill folders the trust grant installs). Never fabricated.
+  files?: string[]
+  // The commit the listing was read from (Claude Code plugins). Passing it
+  // back as MarketplacePluginRegistryInstallInput.claudePluginRef makes the
+  // install fetch exactly the disclosed content — a mutable default-branch
+  // source cannot swap bytes between the trust prompt and the install.
+  pinnedRef?: string
 }
 
 export type MarketplacePluginInstalledComponent = {
@@ -982,6 +994,10 @@ export type TerminalSessionSnapshot = {
   pathStyle?: TerminalPathStyle
   workspaceId?: string
   agentId?: string
+  // Display name from spawn metadata. The session-manager label for agent
+  // sessions whose agentId has no workspace.agents record (e.g. the Design
+  // Wizard's guided-brief-* specialists).
+  agentName?: string
   terminalId?: string
   // The agent's session id within its own CLI/harness (the id used to resume the
   // conversation), captured from lifecycle hooks. Distinct from `sessionId`,

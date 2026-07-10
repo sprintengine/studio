@@ -1,7 +1,9 @@
 import { useEffect, useRef, useState } from 'react'
-import { StatusDot, TruncatedText } from '../../ui'
+import { TruncatedText } from '../../ui'
 import { GuidedBriefRawTerminal } from './GuidedBriefRawTerminal'
 import { InterviewQuestionCard, ResolvedDecisionsList } from './InterviewPane'
+import { StageStatusChip, stageChipState } from './StageStatusChip'
+import type { StageLiveStatus } from './stageReadiness'
 import type { GuidedInterviewState } from './interviewProtocol'
 import type { GuidedBriefSpecialistSession } from './sessionAdapter'
 
@@ -12,6 +14,11 @@ type Props = {
   specialistName: string
   specialistSubline: string
   working: boolean
+  /** Live specialist status from the transport's own session signal (MC-1503):
+   * drives the header status chip and the "needs your input" attention ring. */
+  liveStatus?: StageLiveStatus
+  /** Whether the stage's validated artifacts are ready (chip shows the check). */
+  ready?: boolean
   /** Structured interview from the session stream; omit to render terminal-only. */
   interview?: GuidedInterviewState
   /** Answers the current question (PTY stdin or conversation respond). A
@@ -20,6 +27,10 @@ type Props = {
   onAnswer?: (answerText: string) => void | boolean | Promise<boolean>
   /** Conversation transport only: recent streamed assistant text. */
   transcriptTail?: string
+  /** When hosted in the floating agent bubble (MC-1510), renders a minimize
+   * control in the header that collapses the card back to the bubble. Omit for
+   * the inline placements that have no bubble to collapse to. */
+  onCollapse?: () => void
 }
 
 // The terminal is the transport and the fallback, never hidden — only
@@ -35,13 +46,17 @@ export function ConversationPane({
   specialistName,
   specialistSubline,
   working,
+  liveStatus,
+  ready = false,
   interview,
   onAnswer,
   transcriptTail,
+  onCollapse,
 }: Props) {
   const [terminalPreference, setTerminalPreference] = useState<TerminalPreference>('auto')
   const [answeredQuestionId, setAnsweredQuestionId] = useState<string | null>(null)
   const conversationTransport = session?.transport === 'conversation'
+  const needsAttention = liveStatus === 'needs-input'
 
   const question = working ? interview?.currentQuestion ?? null : null
   const interviewActive = Boolean(question && onAnswer && session)
@@ -96,10 +111,30 @@ export function ConversationPane({
             className="text-[12px] text-[color:var(--text-muted)]"
           />
         </div>
-        {working && session && !errorMessage ? <StatusDot tone="good" pulse label="Working" /> : null}
+        {liveStatus && !errorMessage ? (
+          <StageStatusChip state={stageChipState(liveStatus, ready)} />
+        ) : null}
+        {onCollapse ? (
+          <button
+            type="button"
+            onClick={onCollapse}
+            aria-label="Minimize the conversation"
+            className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-[color:var(--text-muted)] transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-default)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--border-focus)]"
+          >
+            <svg viewBox="0 0 12 12" className="icon-xs" aria-hidden="true">
+              <path d="M2.5 6h7" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+            </svg>
+          </button>
+        ) : null}
       </div>
 
-      <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-md border border-[color:var(--border-default)] bg-[color:var(--bg-app)]">
+      <div
+        className={`flex min-h-0 flex-1 flex-col overflow-hidden rounded-md border bg-[color:var(--bg-app)] ${
+          needsAttention
+            ? 'border-[color:var(--tone-warn)] ring-1 ring-[color:var(--tone-warn)]'
+            : 'border-[color:var(--border-default)]'
+        }`}
+      >
         {session ? (
           <>
             {interviewActive && question ? (

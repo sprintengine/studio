@@ -31,6 +31,7 @@ type FailedTerminalSessionInput = {
   pathStyle?: TerminalPathStyle
   workspaceId?: string
   agentId?: string
+  agentName?: string
   terminalId?: string
   cli?: AgentCli
   cwd?: string
@@ -98,6 +99,9 @@ export type TerminalSession = {
   pathStyle?: TerminalPathStyle
   workspaceId?: string
   agentId?: string
+  // Display name from spawn metadata, surfaced on the snapshot so the session
+  // manager can label agents that have no workspace.agents record.
+  agentName?: string
   terminalId?: string
   // The agent's own session id within its CLI/harness, captured from lifecycle
   // hooks. Distinct from `sessionId` (our terminal-tracking id): this is the id
@@ -310,6 +314,7 @@ export function createFailedTerminalSession(input: FailedTerminalSessionInput): 
     pathStyle: input.pathStyle,
     workspaceId: input.workspaceId,
     agentId: input.agentId,
+    agentName: input.agentName,
     terminalId: input.terminalId,
     cli: input.cli,
     cwd: input.cwd,
@@ -457,6 +462,7 @@ export function getTerminalSnapshot(session: TerminalSession): TerminalSessionSn
     pathStyle: session.pathStyle,
     workspaceId: session.workspaceId,
     agentId: session.agentId,
+    agentName: session.agentName,
     terminalId: session.terminalId,
     cliSessionId: session.cliSessionId,
     cli: session.cli,

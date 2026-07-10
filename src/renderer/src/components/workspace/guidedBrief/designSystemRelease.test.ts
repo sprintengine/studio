@@ -3,10 +3,15 @@ import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import {
   canRelease,
+  displayLibraryPath,
   initialReleaseVersion,
   isReleaseInFlight,
   isValidReleaseVersion,
+  lintFixRequestMessage,
+  lintIssueCountLabel,
+  parseLintFindings,
   releaseButtonLabel,
+  releaseDestinationDisplay,
   releasePhaseAfterLint,
   releasePhaseAfterRelease,
   releaseStatusLine,
@@ -113,12 +118,97 @@ assert.equal(releaseButtonLabel({ kind: 'idle' }), 'Save as design system')
 assert.equal(isReleaseInFlight({ kind: 'validating' }), true)
 assert.equal(isReleaseInFlight(idle), false)
 
+// --- Release card presentation helpers (MC-1505 §4, T8) ---------------------
+
+// parseLintFindings reads the bundle's own scripts/lint.mjs report shape:
+// indented finding rows grouped under file-path lines, then a summary block
+// (dropped) whose "Total violations" line carries the count.
+{
+  const report = [
+    '',
+    'components/task-card/component.css',
+    '  12:5  no-raw-hex  #30d058', // design-tokens-allow: fixture lint-report row, not a rendered color
+    '  40:3  contrast  3.8:1',
+    '',
+    'foundations/tokens.tokens.json',
+    '  sem.color.accent  missing-token-semantics  sem token needs role and use',
+    '',
+    'Design-system lint summary',
+    '  bundle: /ws/design-system',
+    '  scanned: 12 component/pattern files, 80 tokens',
+    'Total violations: 3',
+    '',
+    'Fix by reading colors from the --sem-* custom properties…',
+  ].join('\n')
+  const parsed = parseLintFindings(report)
+  assert.equal(parsed.totalViolations, 3, 'the count comes from the report summary line')
+  assert.deepEqual(
+    parsed.issues,
+    [
+      { file: 'components/task-card/component.css', detail: '12:5  no-raw-hex  #30d058' }, // design-tokens-allow: fixture lint-report row, not a rendered color
+      { file: 'components/task-card/component.css', detail: '40:3  contrast  3.8:1' },
+      { file: 'foundations/tokens.tokens.json', detail: 'sem.color.accent  missing-token-semantics  sem token needs role and use' },
+    ],
+    'rows keep the report text grouped under their file; the summary block is dropped',
+  )
+  assert.equal(lintIssueCountLabel(parsed), '3 lint issues')
+  assert.equal(
+    lintIssueCountLabel({ totalViolations: 1, issues: parsed.issues.slice(0, 1) }),
+    '1 lint issue',
+  )
+  assert.equal(
+    lintIssueCountLabel(parseLintFindings('some unrecognized shape')),
+    'Lint failed',
+    'an unparsable report never invents a count',
+  )
+  assert.deepEqual(
+    parseLintFindings('unexpected prose only'),
+    { totalViolations: null, issues: [] },
+    'no indented rows → zero issues (the card falls back to the raw report)',
+  )
+}
+
+// The blocked card's message to the designer: the conversation transport gets
+// the full report; terminal (PTY) stdin submits on newline, so that transport
+// gets a single-line instruction instead — never a garbled multi-line paste.
+{
+  const conversation = lintFixRequestMessage('a\nb', 'conversation')
+  assert.ok(conversation.includes('Lint report:\na\nb'), 'conversation message carries the report')
+  const terminal = lintFixRequestMessage('a\nb', 'terminal')
+  assert.equal(terminal.includes('\n'), false, 'terminal message is a single line')
+  assert.ok(terminal.includes('scripts/lint.mjs'), 'terminal message routes the designer to the real lint')
+}
+
+// Destination display: the canonical library layout with the real manifest
+// name; unknown name yields null (the card omits the line, never invents one).
+assert.equal(
+  releaseDestinationDisplay('brand', '1.2.0'),
+  '~/.multicode/design-systems/brand/1.2.0',
+)
+assert.equal(
+  releaseDestinationDisplay('brand', 'not-semver'),
+  '~/.multicode/design-systems/brand/<version>',
+  'an invalid version shows an explicit placeholder segment',
+)
+assert.equal(releaseDestinationDisplay(null, '1.0.0'), null)
+assert.equal(
+  displayLibraryPath('/home/u/.multicode/design-systems/brand/1.1.0'),
+  '~/.multicode/design-systems/brand/1.1.0',
+  'released absolute paths abbreviate to the ~ display form',
+)
+assert.equal(
+  displayLibraryPath('/elsewhere/brand/1.1.0'),
+  '/elsewhere/brand/1.1.0',
+  'a path outside the library passes through unabbreviated',
+)
+
 // Reachable disabled reason (T15, ux-review finding 6): a disabled button is
-// unfocusable, so the hover tooltip alone strands keyboard/SR users. Source
-// contract on GuidedBriefFlow.tsx renderDesignSystemReleaseAction: the reason
-// rides an always-present aria-label on the button (visible label included,
-// per label-in-name), and the version input carries aria-invalid plus an
-// aria-describedby format hint that exists in the DOM.
+// unfocusable, so a hover tooltip alone strands keyboard/SR users. Source
+// contract on GuidedBriefFlow.tsx DesignSystemReleaseCard: the reason rides an
+// always-present aria-label on the save button (visible label included, per
+// label-in-name), and the version input carries aria-invalid plus an
+// aria-describedby format hint that is always in the DOM — visible inline
+// error text while the version is invalid, sr-only otherwise.
 {
   const flowSource = readFileSync(
     join(process.cwd(), 'src/renderer/src/components/workspace/guidedBrief/GuidedBriefFlow.tsx'),
@@ -126,8 +216,8 @@ assert.equal(isReleaseInFlight(idle), false)
   )
   assert.match(
     flowSource,
-    /aria-label=\{disabledReason \? `\$\{buttonLabel\} — \$\{disabledReason\}` : undefined\}/,
-    'release button carries the disabled reason as an always-present aria-label',
+    /aria-label=\{saveDisabledReason \? `\$\{buttonLabel\} — \$\{saveDisabledReason\}` : undefined\}/,
+    'save button carries the disabled reason as an always-present aria-label',
   )
   assert.match(
     flowSource,
@@ -136,8 +226,13 @@ assert.equal(isReleaseInFlight(idle), false)
   )
   assert.match(
     flowSource,
-    /<span id=\{RELEASE_VERSION_HINT_ID\} className="sr-only">\s*Version must be semver, like 1\.0\.0\./,
-    'the format hint exists in the DOM for aria-describedby to resolve',
+    /id=\{RELEASE_VERSION_HINT_ID\}\s*className=\{versionValid \? 'sr-only' : '[^']*--tone-error[^']*'\}/,
+    'the format hint is always in the DOM and becomes a visible inline error while invalid',
+  )
+  assert.match(
+    flowSource,
+    /lintFixRequestMessage\(releasePhase\.findings, session\.transport\)/,
+    'the blocked card sends the real findings over the real session transport',
   )
 }
 

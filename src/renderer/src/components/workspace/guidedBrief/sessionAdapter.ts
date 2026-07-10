@@ -79,6 +79,10 @@ export type GuidedBriefTerminalApi = {
 export type GuidedBriefStrategistSessionInput = {
   kind: 'strategist'
   workspaceRoot: string
+  // Owning workspace, threaded into the PTY spawn metadata so the session
+  // manager inventories the session (getSessionItems drops terminal sessions
+  // without a workspaceId).
+  workspaceId?: string
   sessionId?: string
   cli?: AgentCli
   cliModel?: string
@@ -91,6 +95,8 @@ export type GuidedBriefStrategistSessionInput = {
 export type GuidedBriefDesignerSessionInput = {
   kind: 'designer'
   workspaceRoot: string
+  // See GuidedBriefStrategistSessionInput.workspaceId.
+  workspaceId?: string
   acceptedBriefSnapshotPath?: string
   acceptedArchitecturePlanPath?: string | null
   sessionId?: string
@@ -120,6 +126,8 @@ export type GuidedBriefDesignerSessionInput = {
 export type GuidedBriefArchitectSessionInput = {
   kind: 'architect'
   workspaceRoot: string
+  // See GuidedBriefStrategistSessionInput.workspaceId.
+  workspaceId?: string
   acceptedBriefSnapshotPath?: string | null
   sessionId?: string
   cli?: AgentCli
@@ -148,6 +156,13 @@ export type StartGuidedBriefSpecialistSessionOptions = {
    * chunk whose parse changed the current question or decisions.
    */
   onInterview?: (state: GuidedInterviewState) => void
+  /**
+   * Install the curated frontend-design skill into the workspace's Claude skill
+   * dir before the session starts. Called only when guidedBriefUsesDesignSkill
+   * holds (Claude designer sessions); best-effort — a failure degrades craft
+   * quality but never blocks the session.
+   */
+  ensureDesignSkillInstalled?: () => Promise<void>
 }
 
 export type GuidedBriefSpecialistSession = {
@@ -208,10 +223,33 @@ export function createGuidedBriefSessionId(): string {
   return createSessionId()
 }
 
+// Built-in skill id for the curated design-craft guidance. The wizard installs
+// it into .claude/skills/ before a Claude designer session starts and names it
+// in the startup prompt; see guidedBriefUsesDesignSkill.
+export const GUIDED_BRIEF_DESIGN_SKILL_ID = 'frontend-design'
+
+// Claude Code's CLI id. Conversation transport is Claude-only by construction;
+// the PTY transport runs whatever CLI the user picked, so the design skill is
+// gated on this id there.
+const CLAUDE_CODE_CLI = 'claude-code'
+
+// The frontend-design skill ships to the designer specialists (mockup +
+// design-system authoring) running on Claude Code only. Conversation sessions
+// are always Claude; PTY sessions must match the Claude CLI id. Other roles and
+// other CLIs get no install and no activation line.
+export function guidedBriefUsesDesignSkill(
+  input: StartGuidedBriefSpecialistSessionInput,
+  transport: 'terminal' | 'conversation',
+): boolean {
+  if (input.kind !== 'designer') return false
+  return transport === 'conversation' || input.cli === CLAUDE_CODE_CLI
+}
+
 export function promptForInput(
   input: StartGuidedBriefSpecialistSessionInput,
   marker: string,
   interviewProtocol: GuidedBriefInterviewProtocol = 'terminal-markers',
+  designSkillActivation = false,
 ): string {
   if (input.kind === 'strategist') {
     return buildGuidedBriefSpecialistStartupPrompt({
@@ -241,11 +279,32 @@ export function promptForInput(
     inspirationDirectoryPath: input.inspirationDirectoryPath,
     uiDirectionPath: input.uiDirectionPath,
     mockupPath: input.mockupPath,
+    designSkillActivation,
     designSystemAttached: input.designSystemAttached,
     designSystem: input.designSystem,
     marker,
     interviewProtocol,
   })
+}
+
+// Stable per-specialist agent id, shared by BOTH transports: the conversation
+// transcript's resume cursor and the PTY spawn metadata key off the same id,
+// so the session manager never shows the same specialist under two identities.
+export function guidedBriefSpecialistAgentId(
+  input: Pick<GuidedBriefDesignerSessionInput, 'kind' | 'designSystem'> | { kind: Exclude<GuidedBriefSpecialistKind, 'designer'> },
+): string {
+  if (input.kind === 'designer' && input.designSystem) return 'guided-brief-design-system'
+  return `guided-brief-${input.kind}`
+}
+
+// Human session-manager labels for wizard specialists, keyed by the agent id
+// above. Wizard agents are never registered in workspace.agents, so both
+// transports label their session rows from this one map.
+export const GUIDED_BRIEF_AGENT_LABELS: Record<string, string> = {
+  'guided-brief-strategist': 'Product Strategist',
+  'guided-brief-architect': 'Architect',
+  'guided-brief-designer': 'Frontend Designer',
+  'guided-brief-design-system': 'Design System Designer',
 }
 
 export function markerForInput(input: StartGuidedBriefSpecialistSessionInput): string {
@@ -320,8 +379,11 @@ export async function startGuidedBriefSpecialistSession(
 ): Promise<StartGuidedBriefSpecialistSessionResult> {
   const sessionId = input.sessionId ?? createSessionId()
   const marker = markerForInput(input)
-  const prompt = promptForInput(input, marker)
+  const usesDesignSkill = guidedBriefUsesDesignSkill(input, 'terminal')
+  const prompt = promptForInput(input, marker, 'terminal-markers', usesDesignSkill)
   const markerDetection = markerDetectionForInput(input, marker)
+  const agentId = guidedBriefSpecialistAgentId(input)
+  const agentName = GUIDED_BRIEF_AGENT_LABELS[agentId]
   const disposers: Array<() => void> = []
   let outputBuffer = ''
   let markerEmitted = false
@@ -372,6 +434,14 @@ export async function startGuidedBriefSpecialistSession(
   }
 
   options.onLifecycle?.('starting')
+  // Install the design skill before spawn so Claude Code discovers it in
+  // .claude/skills/ at startup. Best-effort: the activation line is already in
+  // the prompt, and a missing skill degrades craft, it never breaks the run.
+  if (usesDesignSkill && options.ensureDesignSkillInstalled) {
+    await options.ensureDesignSkillInstalled().catch((error) => {
+      console.warn('[guided-brief] frontend-design skill install failed', error)
+    })
+  }
   const spawnResult = await options.terminalApi.terminalSpawn(
     sessionId,
     input.cols ?? 100,
@@ -385,7 +455,12 @@ export async function startGuidedBriefSpecialistSession(
     false,
     {
       kind: 'agent',
-      agentId: `guided-brief-${input.kind}`,
+      agentId,
+      // Inventory identity: the session manager only lists terminal sessions
+      // whose snapshot carries a workspaceId, and labels agent rows without a
+      // workspace.agents record from agentName.
+      ...(input.workspaceId ? { workspaceId: input.workspaceId } : {}),
+      ...(agentName ? { agentName } : {}),
       // All guided-brief specialists run unattended in a workspace the user is
       // actively watching — they read project files, search the web, and write a
       // couple of artifacts. Without bypass they stall on per-tool permission

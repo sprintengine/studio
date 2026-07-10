@@ -1,0 +1,145 @@
+import { useEffect, useState } from 'react'
+import { TruncatedText } from './TruncatedText'
+
+// Shared card primitive: a small live render of one HTML file on disk + title +
+// mono path meta + click-through. The live render reuses the same scripts-off
+// sandbox policy as the full HtmlArtifactFrame — the helper is defined here, in
+// the shared component home, and re-exported from the Design Wizard preview so
+// the sandbox behaviour is defined once and never forked. First consumer is the
+// design-system component gallery (MC-1509); it is built reviewer-neutral so the
+// backlog mockup-attachments surface (MC-1485) can reuse the same card.
+//
+// The card reads its file once on mount (no fs watch of its own). Callers force
+// a fresh render when the file changes by giving the card a React `key` that
+// includes the file's mtime, so only cards whose file actually changed remount.
+
+/**
+ * The iframe sandbox token for a generated-HTML preview. Scripts are off by
+ * default; the interactive opt-in only ever adds `allow-scripts` and never
+ * `allow-same-origin`, so generated HTML never receives same-origin privileges.
+ */
+export function htmlArtifactFrameSandbox(allowScripts: boolean): string {
+  return allowScripts ? 'allow-scripts' : ''
+}
+
+type CardState =
+  | { kind: 'loading' }
+  | { kind: 'ready'; content: string }
+  | { kind: 'error' }
+
+type Props = {
+  /** Absolute on-disk path read for the live render. */
+  absolutePath: string
+  /** Workspace-root-relative path shown as mono meta. */
+  relativePath: string
+  /** Human title (the card's accessible name). */
+  title: string
+  /** Opens the file — e.g. switches the preview to its single-file view. */
+  onOpen: () => void
+  /** Roving-focus tab index; omit for a normal tab stop. */
+  tabIndex?: number
+  onFocus?: () => void
+  buttonRef?: (element: HTMLButtonElement | null) => void
+}
+
+export function HtmlPreviewCard({
+  absolutePath,
+  relativePath,
+  title,
+  onOpen,
+  tabIndex,
+  onFocus,
+  buttonRef,
+}: Props) {
+  const [state, setState] = useState<CardState>({ kind: 'loading' })
+  const [frameLoaded, setFrameLoaded] = useState(false)
+
+  useEffect(() => {
+    let cancelled = false
+    setFrameLoaded(false)
+    setState({ kind: 'loading' })
+    void (async () => {
+      try {
+        const content = await window.api.readfile(absolutePath)
+        if (cancelled) return
+        // An empty or unreadable file is the render-error state: the card stays
+        // clickable so opening it shows the raw file, never a blank tile.
+        setState(content.trim() ? { kind: 'ready', content } : { kind: 'error' })
+      } catch {
+        if (!cancelled) setState({ kind: 'error' })
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [absolutePath])
+
+  return (
+    <button
+      type="button"
+      ref={buttonRef}
+      tabIndex={tabIndex}
+      onFocus={onFocus}
+      onClick={onOpen}
+      aria-label={
+        state.kind === 'error'
+          ? `${title} — the demo will not render; open to see the file`
+          : title
+      }
+      className="
+        flex w-full flex-col overflow-hidden rounded-md border border-[color:var(--border-subtle)] bg-[color:var(--bg-surface-raised)] text-left
+        transition-colors hover:border-[color:var(--border-default)] hover:bg-[color:var(--bg-hover)]
+        focus:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--accent-primary)]
+      "
+    >
+      <span
+        aria-hidden="true"
+        className="relative block h-[108px] overflow-hidden border-b border-[color:var(--border-subtle)] bg-[color:var(--bg-surface)]"
+      >
+        {state.kind === 'ready' ? (
+          <iframe
+            title=""
+            tabIndex={-1}
+            srcDoc={state.content}
+            sandbox={htmlArtifactFrameSandbox(false)}
+            onLoad={() => setFrameLoaded(true)}
+            // Zoomed-out thumbnail: render at 2× logical size anchored top-left
+            // and scale to half, so the card shows the component's top-left
+            // region filling the box. The frame is inert (pointer-events off) so
+            // clicks reach the card.
+            className={`pointer-events-none absolute left-0 top-0 border-0 bg-white transition-opacity duration-150 ${
+              frameLoaded ? 'opacity-100' : 'opacity-0'
+            }`}
+            style={{
+              width: '200%',
+              height: '200%',
+              transform: 'scale(0.5)',
+              transformOrigin: 'top left',
+            }}
+          />
+        ) : (
+          <span className="absolute inset-0 flex flex-col items-center justify-center gap-1 px-3 text-center">
+            {state.kind === 'loading' ? (
+              <span className="text-[10.5px] text-[color:var(--text-subtle)]">Loading…</span>
+            ) : (
+              <>
+                <span className="text-[13px] text-[color:var(--tone-error)]">△</span>
+                <span className="text-[10.5px] leading-4 text-[color:var(--text-muted)]">
+                  Demo won’t render — open to see the file
+                </span>
+              </>
+            )}
+          </span>
+        )}
+      </span>
+      <span className="flex flex-col gap-0.5 px-3 py-2">
+        <span className="text-[12px] font-semibold text-[color:var(--text-strong)]">{title}</span>
+        <TruncatedText
+          as="span"
+          text={relativePath}
+          className="font-mono text-[9.5px] text-[color:var(--text-subtle)]"
+        />
+      </span>
+    </button>
+  )
+}

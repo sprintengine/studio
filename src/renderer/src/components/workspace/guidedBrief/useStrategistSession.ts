@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import type { AgentCli, CliRuntimeSettings } from '../../../../../shared/electron-api'
 import {
   createGuidedBriefSessionId,
+  guidedBriefSpecialistAgentId,
   startGuidedBriefSpecialistSession,
   type GuidedBriefSessionLifecycle,
   type GuidedBriefSpecialistSession,
@@ -12,6 +13,8 @@ import {
   type GuidedInterviewState,
 } from './interviewProtocol'
 import { joinWorkspacePath } from './paths'
+import { useStageLiveStatus } from './useStageLiveStatus'
+import { isAgentQuiet, isStageReady, type StageLiveStatus } from './stageReadiness'
 
 export type StrategistSessionReadiness = {
   markerReceived: boolean
@@ -48,6 +51,8 @@ export type UseStrategistSessionResult = {
   status: StrategistSessionStatus
   error: string | null
   readiness: StrategistSessionReadiness
+  /** Live specialist status from the transport's own session signal (MC-1503). */
+  liveStatus: StageLiveStatus
   session: GuidedBriefSpecialistSession | null
   requirementsPath: string
   /** Optional agent-produced HTML overview of the brief (`product/overview.html`). */
@@ -91,6 +96,16 @@ export function useStrategistSession({
   const overviewAbsolutePath = joinWorkspacePath(workspaceRoot, OVERVIEW_RELATIVE_PATH)
   const productDirectoryPath = joinWorkspacePath(workspaceRoot, 'product')
 
+  // Liveness from the transport's live session status (not "is output
+  // streaming"): quiet gates readiness so a mid-write agent never flips the stage.
+  const liveStatus = useStageLiveStatus({
+    workspaceId,
+    agentId: guidedBriefSpecialistAgentId({ kind: 'strategist' }),
+    transport,
+    enabled,
+  })
+  const agentQuiet = isAgentQuiet(liveStatus)
+
   const startedRef = useRef(false)
   const assignSessionIdRef = useRef(onAssignSessionId)
   assignSessionIdRef.current = onAssignSessionId
@@ -120,6 +135,9 @@ export function useStrategistSession({
     const sessionInput = {
       kind: 'strategist' as const,
       workspaceRoot,
+      // Also threaded into the PTY spawn metadata so the session manager
+      // inventories the fallback-transport session.
+      ...(workspaceId ? { workspaceId } : {}),
       sessionId: resolvedSessionId,
       cli,
       cliModel,
@@ -247,14 +265,20 @@ export function useStrategistSession({
       cancelled = true
       if (stopWatch) void stopWatch()
     }
-  }, [enabled, productDirectoryPath, requirementsAbsolutePath, overviewAbsolutePath])
+    // `markerReceived` re-runs the file check the moment the marker lands
+    // (marker demoted to an extra validation trigger), never a readiness signal
+    // on its own.
+  }, [enabled, productDirectoryPath, requirementsAbsolutePath, overviewAbsolutePath, markerReceived])
 
-  const isReady = markerReceived || fileReady
+  // Readiness = validated artifact (non-empty brief) AND a quiet agent. The
+  // marker is only a re-validation trigger above.
+  const isReady = isStageReady({ artifactsValid: fileReady, agentQuiet })
 
   return {
     status,
     error,
     readiness: { markerReceived, fileReady, isReady },
+    liveStatus,
     session,
     requirementsPath: requirementsAbsolutePath,
     overviewPath: overviewAbsolutePath,

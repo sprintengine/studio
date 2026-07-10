@@ -7,7 +7,9 @@ import { useWorkspaceStore } from '../../../store/workspaceStore'
 import type { WorkspaceSkill } from '../../../../../shared/electron-api'
 import type { AgentCli, SprintEngineCliPermissionPreset } from '../../../types/workspace'
 import { selectAgentCliCatalog } from '../newWorkspace/cliRuntimeOptions'
+import { McpBrandIcon, mcpIconSlug } from '../../settings/McpCatalog'
 import { PermissionPresetChips, SpawnDebugToggle, TerminalSessionIcon } from './agentSpawnShared'
+import { ConnectorPickerPopover } from './ConnectorPickerPopover'
 import {
   useAgentComposer,
   rowMatchesSelection,
@@ -86,6 +88,7 @@ export default function AgentComposer({
   // "+ Skill" attachment: the picker lists the folder the chat will land in
   // (a null folderPath inherits the active workspace's folder at spawn time).
   const [skillPickerOpen, setSkillPickerOpen] = React.useState(false)
+  const [connectorPickerOpen, setConnectorPickerOpen] = React.useState(false)
   const activeWorkspaceRoot = useWorkspaceStore(
     (s) => s.workspaces.find((w) => w.id === s.activeWorkspaceId)?.folderPath ?? null,
   )
@@ -243,9 +246,9 @@ export default function AgentComposer({
             onChangeDebugMode={onChangeDebugMode}
           />
 
-          {selection.kind !== 'terminal' && skillWorkspaceRoot ? (
+          {selection.kind !== 'terminal' ? (
             <div className="mt-4 flex flex-wrap items-center gap-1.5">
-              {composer.skillAttachment ? (
+              {!skillWorkspaceRoot ? null : composer.skillAttachment ? (
                 <span className="inline-flex items-center gap-1.5 rounded-md bg-[color:var(--accent-primary-soft)] px-2 py-0.5 text-[11.5px] font-medium text-[color:var(--text-strong)]">
                   <StarGlyph filled className="icon-xs text-[color:var(--accent-primary)]" />
                   {composer.skillAttachment.name}
@@ -274,6 +277,45 @@ export default function AgentComposer({
                       {...triggerProps}
                     >
                       + Skill
+                    </button>
+                  )}
+                />
+              )}
+              {composer.connectorAttachment ? (
+                <span className="inline-flex items-center gap-1.5 rounded-md bg-[color:var(--accent-primary-soft)] px-2 py-0.5 text-[11.5px] font-medium text-[color:var(--text-strong)]">
+                  <McpBrandIcon
+                    slug={mcpIconSlug(composer.connectorAttachment.id)}
+                    name={composer.connectorAttachment.name}
+                    icon={composer.connectorAttachment.icon}
+                    size={16}
+                  />
+                  {composer.connectorAttachment.name}
+                  <button
+                    type="button"
+                    onClick={() => composer.setConnectorAttachment(null)}
+                    aria-label={`Remove connector ${composer.connectorAttachment.name}`}
+                    className="text-[color:var(--text-subtle)] transition-colors hover:text-[color:var(--text-default)]"
+                  >
+                    ×
+                  </button>
+                </span>
+              ) : (
+                <ConnectorPickerPopover
+                  open={connectorPickerOpen}
+                  onOpenChange={setConnectorPickerOpen}
+                  onPick={(server) =>
+                    composer.setConnectorAttachment({ id: server.id, name: server.name, icon: server.icon })
+                  }
+                  placement="top-start"
+                  renderTrigger={({ ref, triggerProps, togglePopover }) => (
+                    <button
+                      ref={ref}
+                      type="button"
+                      onClick={togglePopover}
+                      className="inline-flex items-center gap-1 rounded-md border border-dashed border-[color:var(--border-strong)] px-2 py-0.5 text-[11.5px] text-[color:var(--text-muted)] transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-default)]"
+                      {...triggerProps}
+                    >
+                      + Connector
                     </button>
                   )}
                 />

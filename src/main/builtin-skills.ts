@@ -104,6 +104,17 @@ export const BUILTIN_SKILLS: BuiltinSkill[] = [
     // only — .agents plus Claude Code's native skill dir.
     harnesses: ['agents', 'claude'],
   },
+  {
+    id: 'frontend-design',
+    name: 'Frontend Design',
+    version: '1.0.0',
+    description:
+      'Craft guidance for authoring calm, deliberate HTML mockups and design-system bundles instead of generic AI-generated UI.',
+    // Claude-only: the Design Wizard installs this into .claude/skills before a
+    // Claude Code designer session starts (both transports) and names it in the
+    // startup prompt. No .agents fan-out — non-Claude CLIs never see it.
+    harnesses: ['claude'],
+  },
 ]
 
 type BuiltinSkillManagerOptions = {

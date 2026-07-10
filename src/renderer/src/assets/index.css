@@ -132,6 +132,13 @@
   --git-count-badge-bg: #fcc030;
   --git-count-badge-ink: #1c1408;
 
+  /* Annotate-mode pin badge (numbered pending-note pins over a mockup preview,
+     MC-1468). Same self-contained fixed fill+ink approach as the git count
+     badge: --tone-warn flips between light amber (dark themes) and dark amber
+     (light theme), so no single borrowed ink stays legible on it. */
+  --annotate-pin-bg: #fcc030;
+  --annotate-pin-ink: #1c1408;
+
   /* Diff palette — file-status badges in Git surfaces and (future) diff-hunk
      line backgrounds. Aliased to the canonical tone tokens so chrome stays
      visually aligned with the rest of the design system. */

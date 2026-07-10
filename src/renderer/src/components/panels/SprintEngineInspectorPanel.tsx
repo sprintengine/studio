@@ -98,6 +98,7 @@ import {
   type SprintEngineInspectorSelection,
 } from './sprintEngineInspector'
 import { HtmlArtifactFrame } from '../workspace/guidedBrief/MockupPreviewPane'
+import type { MockupAnnotation } from '../workspace/guidedBrief/annotate/types'
 import { sprintEngineSeedPreviewKind } from './sprintEngineBoard/sprintEngineStartedFrom'
 import { parentPath } from '../../utils/paths'
 
@@ -2376,6 +2377,7 @@ export function SprintEngineInspectorPanel({
   onOpenArtifact,
   onApproveArtifact,
   onRequestArtifactChanges,
+  onSubmitPreviewAnnotations,
   onResolveTaskInput,
   onPostTaskComment,
   onBackFromArtifact,
@@ -2407,6 +2409,13 @@ export function SprintEngineInspectorPanel({
   onOpenArtifact: (artifact: SprintEngineArtifact) => void | Promise<void>
   onApproveArtifact: (artifact: SprintEngineArtifact) => void | Promise<void>
   onRequestArtifactChanges: (artifact: SprintEngineArtifact) => void
+  /**
+   * Annotate sink for the artifact preview (MC-1468): the board passes this
+   * only while the previewed artifact is an HTML mockup that can still receive
+   * a change request; the callback pre-fills the request-changes dialog with
+   * the serialized pin batch. Absent = the frame's Comment mode stays off.
+   */
+  onSubmitPreviewAnnotations?: (annotations: MockupAnnotation[]) => Promise<void>
   onResolveTaskInput: (taskId: string, resolution: string, complete: boolean) => Promise<boolean>
   onPostTaskComment: (taskId: string, body: string, options: { reopenForRework: boolean }) => Promise<boolean>
   onBackFromArtifact: () => void
@@ -2443,6 +2452,7 @@ export function SprintEngineInspectorPanel({
               relativePath={selection.artifact.relativePath}
               watchDirectoryPath={parentPath(selection.artifact.path)}
               enableSourceView
+              onSubmitAnnotations={onSubmitPreviewAnnotations}
             />
           ) : undefined
         }

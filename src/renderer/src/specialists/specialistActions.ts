@@ -299,6 +299,13 @@ export type GuidedBriefSpecialistKind = 'strategist' | 'architect' | 'designer'
 // sessions intercept and render as native question cards.
 export type GuidedBriefInterviewProtocol = 'terminal-markers' | 'ask-user-question'
 
+// Activation line for the curated frontend-design skill. Claude Code
+// auto-discovers .claude/skills/ but names-in-prompt is the most reliable
+// trigger, so the designer prompts name it explicitly. Emitted only when the
+// skill was installed for this session (Claude Code, designer specialists).
+export const GUIDED_BRIEF_DESIGN_SKILL_ACTIVATION_LINE =
+  'Use the `frontend-design` skill and hold to its craft guidance while authoring — restraint, one accent, hairline structure, real content, responsive and accessible floors, and the non-happy states.'
+
 export type GuidedBriefSpecialistPromptInput =
   | {
       kind: 'strategist'
@@ -324,6 +331,11 @@ export type GuidedBriefSpecialistPromptInput =
       mockupPath?: string
       marker?: string
       interviewProtocol?: GuidedBriefInterviewProtocol
+      // True when the curated frontend-design skill was installed for this
+      // session (Claude Code only): the designer prompt names it so Claude
+      // Code activates it. Both designer variants (mockup + design-system)
+      // honor it.
+      designSkillActivation?: boolean
       // True when `design-system/` exists in the workspace (an attached
       // bundle): the mockup designer must conform to it instead of inventing
       // styles. Never set for the design-system authoring studio, which owns
@@ -476,6 +488,7 @@ export function buildGuidedBriefSpecialistStartupPrompt(input: GuidedBriefSpecia
       '',
       `Read the design goal at \`${ideaSeedPath}\` before asking follow-up questions.`,
       `Read \`${bundle}/USAGE.md\` before authoring anything — it is the bundle's consume-and-contribute contract, and every contribution you make must follow it: the naming grammar in \`${bundle}/design-system.json\`, full semantic metadata on tokens, the per-component template, and the lint gate.`,
+      ...(input.designSkillActivation ? [GUIDED_BRIEF_DESIGN_SKILL_ACTIVATION_LINE] : []),
       `If the user has dropped inspiration files into \`${inspirationDirectoryPath}\`, read them through the existing CLI image-input path before drafting.`,
       ...seedSourceLines,
       ...guidedBriefInterviewInstructions('design-system designer', input.interviewProtocol),
@@ -512,6 +525,7 @@ export function buildGuidedBriefSpecialistStartupPrompt(input: GuidedBriefSpecia
       : input.acceptedBriefSnapshotPath
         ? `Read the accepted product brief snapshot at \`${input.acceptedBriefSnapshotPath}\` before designing.`
         : 'No accepted product brief or architecture plan is available; read `product/idea-seed.md` and make uncertainty explicit.',
+    ...(input.designSkillActivation ? [GUIDED_BRIEF_DESIGN_SKILL_ACTIVATION_LINE] : []),
     ...(input.designSystemAttached ? [DESIGN_SYSTEM_ATTACHED_PROMPT_LINE] : []),
     `If the user has dropped inspiration files into \`${inspirationDirectoryPath}\`, read them through the existing CLI image-input path before drafting.`,
     ...guidedBriefInterviewInstructions('frontend designer', input.interviewProtocol),

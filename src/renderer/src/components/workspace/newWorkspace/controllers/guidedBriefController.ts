@@ -14,6 +14,11 @@ import {
   rethrowGuidedScaffoldFailure,
 } from './guidedBriefScaffolding'
 import {
+  buildScaffoldBaseline,
+  writeScaffoldBaseline,
+  type ScaffoldBaseline,
+} from '../../guidedBrief/designArtifacts'
+import {
   PlanSourcedSprintEngineWorkspaceError,
   createPlanSourcedSprintEngineWorkspace,
 } from '../../../../utils/sprintengineWorkspaceCreation'
@@ -73,6 +78,22 @@ export async function runGuidedBriefScaffold(
   const wantsProduct = isDesignPreset ? false : input.wantsProduct
   const wantsArchitecture = isDesignPreset ? false : input.wantsArchitecture
 
+  // Baseline first (MC-1502): record what already exists under the shared
+  // roots before anything is written, so run-scoped discovery can hide the
+  // seed repo's own files. (Scaffold writes never land under those roots —
+  // idea-seed.md is not indexed and .versions/ is dotfile-skipped — but
+  // "before any write" is the honest reading of 'pre-existing'.)
+  // Capture and persist are best-effort by contract: readers treat a missing
+  // or unreadable baseline as "no filtering" (parseScaffoldBaseline), so a
+  // baseline failure must never abort the scaffold — a seeded repo where only
+  // `.guided-brief/` is unwritable would otherwise fail the whole wizard.
+  let baseline: ScaffoldBaseline | null = null
+  try {
+    baseline = await buildScaffoldBaseline(folderPath, ports.discovery)
+  } catch (error) {
+    console.warn('[guided-brief] scaffold baseline capture failed; seed-repo filtering disabled for this run', error)
+  }
+
   try {
     await scaffoldGuidedBriefWorkspace({
       workspaceRoot: folderPath,
@@ -86,6 +107,14 @@ export async function runGuidedBriefScaffold(
       if (message) wrapped.message = message
       return wrapped
     })
+  }
+
+  if (baseline) {
+    try {
+      await writeScaffoldBaseline(folderPath, baseline, ports.filesystem)
+    } catch (error) {
+      console.warn('[guided-brief] scaffold baseline write failed; seed-repo filtering disabled for this run', error)
+    }
   }
 
   const wantsFrontendDiscussion = isDesignPreset

@@ -3,11 +3,23 @@ import type { AgentCli, CliRuntimeSettings } from '../../../../../shared/electro
 import type { DesignSystemSeedSource, GuidedBriefRuntimeState } from '../../../types/workspace'
 import {
   createGuidedBriefSessionId,
+  guidedBriefSpecialistAgentId,
   startGuidedBriefSpecialistSession,
+  GUIDED_BRIEF_DESIGN_SKILL_ID,
   type GuidedBriefSessionLifecycle,
   type GuidedBriefSpecialistSession,
 } from './sessionAdapter'
 import { startGuidedBriefConversationSession } from './conversationSessionAdapter'
+import { DESIGN_SYSTEM_MANIFEST_FILENAME } from '../../../../../shared/design-system/manifest'
+import { useStageLiveStatus } from './useStageLiveStatus'
+import {
+  classifyDesignSystemBundle,
+  frontendDesignArtifactsValid,
+  isAgentQuiet,
+  isStageReady,
+  type DesignSystemValidationState,
+  type StageLiveStatus,
+} from './stageReadiness'
 import {
   EMPTY_GUIDED_INTERVIEW_STATE,
   type GuidedInterviewState,
@@ -18,11 +30,15 @@ import {
   EMPTY_DESIGN_ARTIFACT_INDEX,
   INSPIRATION_DIRECTORY_NAME,
   MOCKUPS_DIRECTORY_NAME,
+  SCAFFOLD_BASELINE_RELATIVE_PATH,
   UI_DIRECTION_RELATIVE_PATH,
   collectDesignArtifacts,
+  designArtifactRootsForPreset,
+  parseScaffoldBaseline,
   type DesignArtifactEntry,
   type DesignArtifactIndex,
   type DesignArtifactsStatus,
+  type ScaffoldBaseline,
 } from './designArtifacts'
 import { DESIGN_SYSTEM_IDEA_SEED_RELATIVE_PATH } from '../../../utils/guidedBriefWorkspace'
 
@@ -58,6 +74,13 @@ export type DesignerSessionReadiness = {
   mockupsAvailable: boolean
   uiDirectionReady: boolean
   isReady: boolean
+  /**
+   * design-system preset only: why the bundle contract passed or failed on the
+   * last quiet-edge validation, so the studio can say WHY the stage is
+   * un-ready (lint findings vs broken manifest vs nothing authored yet).
+   * Always 'pending' for the other presets.
+   */
+  designSystemValidation: DesignSystemValidationState
 }
 
 export type DesignerSessionStatus =
@@ -97,6 +120,8 @@ export type UseDesignerSessionResult = {
   status: DesignerSessionStatus
   error: string | null
   readiness: DesignerSessionReadiness
+  /** Live specialist status from the transport's own session signal (MC-1503). */
+  liveStatus: StageLiveStatus
   session: GuidedBriefSpecialistSession | null
   uiDirectionPath: string
   mockupsDirectoryPath: string
@@ -153,9 +178,34 @@ export function useDesignerSession({
   const [session, setSession] = useState<GuidedBriefSpecialistSession | null>(null)
   const [interview, setInterview] = useState<GuidedInterviewState>(EMPTY_GUIDED_INTERVIEW_STATE)
   const [transcriptTail, setTranscriptTail] = useState('')
+  // design-system preset only: the bundle manifest parses AND the bundle lint
+  // reports no findings, evaluated on quiet edges (see the validation effect).
+  // The classified state keeps WHY it failed so the footer can surface it.
+  const [designSystemValidation, setDesignSystemValidation] =
+    useState<DesignSystemValidationState>('pending')
 
   const uiDirectionAbsolutePath = joinWorkspacePath(workspaceRoot, UI_DIRECTION_RELATIVE_PATH)
   const mockupsDirectoryPath = joinWorkspacePath(workspaceRoot, MOCKUPS_DIRECTORY_NAME)
+
+  // Liveness from the transport's live session status (not "is output
+  // streaming"): quiet gates readiness so a mid-write agent never flips the stage.
+  const liveStatus = useStageLiveStatus({
+    workspaceId,
+    agentId: guidedBriefSpecialistAgentId(
+      designSystem
+        ? {
+            kind: 'designer',
+            designSystem: {
+              bundleDirectoryPath: DESIGN_SYSTEM_BUNDLE_DIRECTORY_NAME,
+              ideaSeedPath: DESIGN_SYSTEM_IDEA_SEED_RELATIVE_PATH,
+            },
+          }
+        : { kind: 'designer' },
+    ),
+    transport,
+    enabled,
+  })
+  const agentQuiet = isAgentQuiet(liveStatus)
 
   const startedRef = useRef(false)
   const assignSessionIdRef = useRef(onAssignSessionId)
@@ -194,6 +244,9 @@ export function useDesignerSession({
       const sessionInput = {
         kind: 'designer' as const,
         workspaceRoot,
+        // Also threaded into the PTY spawn metadata so the session manager
+        // inventories the fallback-transport session.
+        ...(workspaceId ? { workspaceId } : {}),
         acceptedBriefSnapshotPath,
         acceptedArchitecturePlanPath,
         sessionId: resolvedSessionId,
@@ -215,6 +268,14 @@ export function useDesignerSession({
       }
       const sessionCallbacks = {
         cliRuntimes,
+        // Install the curated design skill into .claude/skills/ before the
+        // session spawns. The adapter only invokes this for Claude designer
+        // sessions (guidedBriefUsesDesignSkill); here it just performs the
+        // install and swallows its result — the adapter handles failure.
+        ensureDesignSkillInstalled: () =>
+          window.api
+            .builtinSkillInstall({ workspaceRoot, skillId: GUIDED_BRIEF_DESIGN_SKILL_ID })
+            .then(() => undefined),
         onLifecycle: (next: GuidedBriefSessionLifecycle) => {
           if (cancelled) return
           if (next === 'ready') setMarkerReceived(true)
@@ -286,25 +347,57 @@ export function useDesignerSession({
   // Build the real design-artifact index from disk and keep it fresh. The HTML
   // pages drive the existing designer readiness (mockupsAvailable); the broader
   // index (stylesheets, scripts, assets, notes, inspiration) is for studio
-  // browsing and selection. Watch all three source roots — the mockups tree,
-  // product/ (for ui-direction.md), and the inspiration tree — plus a poll
-  // fallback because macOS fs.watch can miss create events on a directory that
-  // was empty when the watcher started.
+  // browsing and selection. Discovery is run-scoped (MC-1502): roots are
+  // preset-scoped, and the shared-root presets filter pre-existing seed-repo
+  // files via the scaffold baseline (loaded once — it is written exactly once,
+  // at scaffold time; missing = legacy run, no filtering). Watch each indexed
+  // root, plus a poll fallback because macOS fs.watch can miss create events
+  // on a directory that was empty when the watcher started.
   useEffect(() => {
     if (!enabled) return
     let cancelled = false
     const stopWatchers: Array<() => Promise<void>> = []
 
+    const roots = designArtifactRootsForPreset(designSystem ? 'design-system' : 'frontend-design')
+    const baselinePromise: Promise<ScaffoldBaseline | null> = designSystem
+      ? Promise.resolve(null)
+      : window.api
+          .readfile(joinWorkspacePath(workspaceRoot, SCAFFOLD_BASELINE_RELATIVE_PATH))
+          .then((content) => parseScaffoldBaseline(content))
+          .catch(() => null)
+
+    // The poll fires every 2.5s and every watch event fires refresh again, so
+    // two guards keep the hot loop cheap: (1) single-flight — a refresh that
+    // arrives while one is walking coalesces into ONE trailing re-walk instead
+    // of a walk per event (an agent writing a component fires several fs events
+    // back-to-back), which also keeps index publishes ordered; (2) an identity
+    // bailout — an index whose entries (path + mtime) are unchanged is dropped
+    // instead of published, so the studio subtree does not re-render every tick.
+    let refreshInFlight = false
+    let refreshQueued = false
+    let publishedSignature: string | null = null
+    const indexSignature = (index: DesignArtifactIndex): string =>
+      index.entries
+        .map((entry) => `${entry.relativePath}::${entry.modifiedAtMs ?? 0}`)
+        .join('|')
+
     const refresh = async () => {
+      if (refreshInFlight) {
+        refreshQueued = true
+        return
+      }
+      refreshInFlight = true
       try {
         const rootExists = await window.api.pathExists(workspaceRoot)
         if (cancelled) return
         if (!rootExists) {
+          publishedSignature = null
           setDesignArtifacts(EMPTY_DESIGN_ARTIFACT_INDEX)
-          setMockups([])
+          setMockups((previous) => (previous.length === 0 ? previous : []))
           setDesignArtifactsStatus('unavailable')
           return
         }
+        const baseline = await baselinePromise
         const index = await collectDesignArtifacts(
           workspaceRoot,
           {
@@ -312,27 +405,38 @@ export function useDesignerSession({
             pathExists: window.api.pathExists,
             statPath: window.api.statPath,
           },
-          { includeDesignSystemBundle: designSystem },
+          { roots, baseline },
         )
         if (cancelled) return
-        setDesignArtifacts(index)
-        const pages = index.groups.find((group) => group.id === 'pages')?.entries ?? []
-        setMockups(pages.map(toDesignerMockupFile))
+        const signature = indexSignature(index)
+        if (signature !== publishedSignature) {
+          publishedSignature = signature
+          setDesignArtifacts(index)
+          const pages = index.groups.find((group) => group.id === 'pages')?.entries ?? []
+          setMockups(pages.map(toDesignerMockupFile))
+        }
         setDesignArtifactsStatus('ready')
       } catch {
         if (!cancelled) {
+          publishedSignature = null
           setDesignArtifacts(EMPTY_DESIGN_ARTIFACT_INDEX)
-          setMockups([])
+          setMockups((previous) => (previous.length === 0 ? previous : []))
           setDesignArtifactsStatus('unavailable')
+        }
+      } finally {
+        refreshInFlight = false
+        if (refreshQueued && !cancelled) {
+          refreshQueued = false
+          void refresh()
         }
       }
     }
 
     const watchDirectories = [
-      mockupsDirectoryPath,
-      joinWorkspacePath(workspaceRoot, 'product'),
-      joinWorkspacePath(workspaceRoot, INSPIRATION_DIRECTORY_NAME),
-      ...(designSystem
+      ...(roots.mockups ? [mockupsDirectoryPath] : []),
+      ...(roots.uiDirection ? [joinWorkspacePath(workspaceRoot, 'product')] : []),
+      ...(roots.inspiration ? [joinWorkspacePath(workspaceRoot, INSPIRATION_DIRECTORY_NAME)] : []),
+      ...(roots.designSystemBundle
         ? [joinWorkspacePath(workspaceRoot, DESIGN_SYSTEM_BUNDLE_DIRECTORY_NAME)]
         : []),
     ]
@@ -364,7 +468,9 @@ export function useDesignerSession({
       clearInterval(pollHandle)
       for (const stop of stopWatchers) void stop()
     }
-  }, [enabled, workspaceRoot, mockupsDirectoryPath, designSystem])
+    // `markerReceived` re-runs discovery the moment the marker lands (marker
+    // demoted to an extra validation trigger).
+  }, [enabled, workspaceRoot, mockupsDirectoryPath, designSystem, markerReceived])
 
   // Watch product/ui-direction.md for non-empty content. Design-system
   // studios have no UI-direction artifact — readiness there is the marker or
@@ -416,14 +522,80 @@ export function useDesignerSession({
       clearInterval(pollHandle)
       if (stopWatch) void stopWatch()
     }
-  }, [enabled, uiDirectionAbsolutePath, workspaceRoot, designSystem])
+    // `markerReceived` re-checks ui-direction the moment the marker lands.
+  }, [enabled, uiDirectionAbsolutePath, workspaceRoot, designSystem, markerReceived])
+
+  // Identity of the on-disk bundle as the artifact index last saw it. Feeding
+  // this into the validation effect re-validates when bundle files change
+  // WHILE the agent is quiet (a user deleting design-system.json in Finder,
+  // hand-edits) — without it the stage keeps a stale 'valid' until the next
+  // quiet/marker edge. Agent writes happen while it is working (not quiet), so
+  // this preserves the quiet-edges-only lint-fork bound: the index poll
+  // coalesces changes and the signature is unchanged on no-op ticks.
+  const designSystemBundleSignature = designSystem
+    ? designArtifacts.entries
+        .map((entry) => `${entry.relativePath}::${entry.modifiedAtMs ?? 0}`)
+        .join('|')
+    : ''
+
+  // design-system readiness contract (MC-1503): the bundle manifest parses AND
+  // the real bundle lint returns no findings. Evaluated only on quiet edges —
+  // when the agent goes quiet, when the marker lands, and when the on-disk
+  // bundle changes while quiet — never on every agent write (the lint forks a
+  // process). A mid-write agent, a malformed manifest, or a deleted
+  // design-system.json all leave this un-valid, and the classified state keeps
+  // the reason for the footer hint.
+  useEffect(() => {
+    if (!enabled || !designSystem || !agentQuiet) {
+      setDesignSystemValidation('pending')
+      return
+    }
+    let cancelled = false
+    const bundleDir = joinWorkspacePath(workspaceRoot, DESIGN_SYSTEM_BUNDLE_DIRECTORY_NAME)
+    const manifestPath = joinWorkspacePath(
+      workspaceRoot,
+      `${DESIGN_SYSTEM_BUNDLE_DIRECTORY_NAME}/${DESIGN_SYSTEM_MANIFEST_FILENAME}`,
+    )
+    const validate = async (): Promise<DesignSystemValidationState> => {
+      const content = await window.api.readfile(manifestPath).catch(() => null)
+      let manifestParses = false
+      if (content !== null) {
+        try {
+          JSON.parse(content)
+          manifestParses = true
+        } catch {
+          manifestParses = false
+        }
+      }
+      // Skip the fork when the manifest is missing/broken — nothing to lint.
+      const lintResult = manifestParses
+        ? await window.api.lintDesignSystemBundle(bundleDir).catch(() => null)
+        : null
+      return classifyDesignSystemBundle({ manifestContent: content, lintResult })
+    }
+    void validate().then((state) => {
+      if (!cancelled) setDesignSystemValidation(state)
+    })
+    return () => {
+      cancelled = true
+    }
+    // `markerReceived` re-runs the validation the moment the marker lands.
+  }, [enabled, designSystem, agentQuiet, workspaceRoot, markerReceived, designSystemBundleSignature])
 
   const mockupsAvailable = mockups.length > 0
-  // Spec: marker OR real mockup file readiness. We treat "real readiness" as
-  // the presence of at least one .html mockup file on disk; the marker is the
-  // agent's own ready signal. Either flips the UI to ready state. Accept
-  // remains gated on real files only — see GuidedBriefFlow.acceptDesigner.
-  const isReady = markerReceived || mockupsAvailable
+  // Readiness = validated artifact set AND a quiet agent (MC-1503). The marker
+  // is only a re-validation trigger, never a readiness signal, so a marker over
+  // a broken/absent artifact set can't flip the stage. frontend-design needs a
+  // real page AND a non-empty UI direction — a page alone no longer counts
+  // (intended change from the old `mockupsAvailable`-alone rule). Accept remains
+  // gated on real files only — see GuidedBriefFlow.acceptDesigner.
+  const artifactsValid = designSystem
+    ? designSystemValidation === 'valid'
+    : frontendDesignArtifactsValid({
+        pageCount: mockups.length,
+        uiDirectionNonEmpty: uiDirectionReady,
+      })
+  const isReady = isStageReady({ artifactsValid, agentQuiet })
 
   // Designer-turn completion edge: regenerate design-system derived files
   // (tokens.css, catalog) for any bundle in the workspace by running the
@@ -449,7 +621,8 @@ export function useDesignerSession({
   return {
     status,
     error,
-    readiness: { markerReceived, mockupsAvailable, uiDirectionReady, isReady },
+    readiness: { markerReceived, mockupsAvailable, uiDirectionReady, isReady, designSystemValidation },
+    liveStatus,
     session,
     uiDirectionPath: uiDirectionAbsolutePath,
     mockupsDirectoryPath,

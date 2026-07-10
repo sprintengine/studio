@@ -97,6 +97,16 @@ export type MarketplaceIndex = {
   plugins: MarketplacePluginEntry[]
 }
 
+// Machine tag the generated catalogue stamps on Claude Code plugin entries
+// (content in Claude's plugin format — `.claude-plugin/plugin.json` + skills
+// dirs — not a Multicode bundle). Both the storefront affordance and the
+// install pipeline branch on it, so the check lives here, once.
+export const CLAUDE_PLUGIN_TAG = 'claude-plugin'
+
+export function isClaudeCodePluginEntry(entry: Pick<MarketplacePluginEntry, 'tags'>): boolean {
+  return entry.tags?.includes(CLAUDE_PLUGIN_TAG) ?? false
+}
+
 export type MarketplaceIndexResult =
   | { ok: true; marketplace: MarketplaceIndex }
   | { ok: false; issues: MarketplaceManifestIssue[] }

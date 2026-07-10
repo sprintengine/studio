@@ -57,7 +57,16 @@ export type AgentComposerConfirm = (
   // creates a git worktree off the workspace repo and executes the agent in it.
   // An empty name means "derive from the agent's name at spawn".
   worktree?: { name: string }
+  // Optional "+ Connector" attachment (general/specialist only): the spawn
+  // routes through the connector-chat runtime — an isolated connector worktree
+  // whose MCP config carries only this server (plus its driving skill when the
+  // catalog pairs one). Resolution happens at spawn; the confirm only names it.
+  connector?: AgentComposerConnector
 }
+
+// The picked connector, as the confirm carries it: identity for the spawn's
+// resolveConnectorLaunch plus the display bits the attachment chip shows.
+export type AgentComposerConnector = { id: string; name: string; icon?: string }
 
 // One roster row. Quick rows (terminal/general/conversation) precede the
 // specialist or multiloop roster; arrow keys rove this flat list so navigation
@@ -199,6 +208,8 @@ export function useAgentComposer({
   // Optional "+ Worktree" attachment: null = off; a string (possibly empty =
   // auto-name) means the spawn should create a worktree and run the agent there.
   const [worktreeName, setWorktreeName] = React.useState<string | null>(null)
+  // Optional "+ Connector" attachment, carried onto the confirm like the skill.
+  const [connectorAttachment, setConnectorAttachment] = React.useState<AgentComposerConnector | null>(null)
 
   const trimmedQuery = query.trim().toLowerCase()
   const visibleRows = React.useMemo(() => {
@@ -269,17 +280,20 @@ export function useAgentComposer({
       // workspace: terminal/conversation have no agent execution; multiloop
       // roles belong to the loop's shared checkout.
       const worktree = worktreeName !== null ? { worktree: { name: worktreeName } } : {}
+      // Connectors ride the CLI spawn's isolated-worktree runtime, so only
+      // general/specialist confirms carry the attachment.
+      const connector = connectorAttachment ? { connector: connectorAttachment } : {}
       if (target.kind === 'terminal') return { kind: 'terminal' }
       if (target.kind === 'conversation') return { kind: 'conversation', ...skill }
       if (target.kind === 'specialist') {
-        return { kind: 'specialist', specialistId: target.specialistId, cli: cliForSelection(target), ...skill, ...worktree }
+        return { kind: 'specialist', specialistId: target.specialistId, cli: cliForSelection(target), ...skill, ...worktree, ...connector }
       }
       if (target.kind === 'multiloop') {
         return { kind: 'multiloop', role: target.role, cli: cliForSelection(target) }
       }
-      return { kind: 'general', cli: cliForSelection(target), ...skill, ...worktree }
+      return { kind: 'general', cli: cliForSelection(target), ...skill, ...worktree, ...connector }
     },
-    [cliForSelection, skillAttachment, worktreeName],
+    [cliForSelection, skillAttachment, worktreeName, connectorAttachment],
   )
 
   const moveSelection = React.useCallback(
@@ -326,6 +340,8 @@ export function useAgentComposer({
     setSkillAttachment,
     worktreeName,
     setWorktreeName,
+    connectorAttachment,
+    setConnectorAttachment,
     visibleRows,
     hasResults: visibleRows.length > 0,
     selection,

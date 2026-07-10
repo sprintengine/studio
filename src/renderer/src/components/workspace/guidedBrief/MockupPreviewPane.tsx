@@ -1,6 +1,32 @@
-import { useEffect, useMemo, useState } from 'react'
-import { Tabs, Tooltip, TruncatedText, type TabItem } from '../../ui'
+import { useEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode, type RefObject } from 'react'
+import { htmlArtifactFrameSandbox, Skeleton, Tabs, Tooltip, TruncatedText, type TabItem } from '../../ui'
+import {
+  anchorFromSelect,
+  addAnnotation,
+  annotateAvailability,
+  annotateFrameSandbox,
+  removeAnnotation,
+  submitFailureMessage,
+  updateAnnotationMessage,
+  type AnnotateComposerState,
+  type AnnotateSubmitState,
+} from './annotate/annotateModel'
+import { AnnotateOverlay } from './annotate/AnnotateOverlay'
+import { AnnotateTray } from './annotate/AnnotateTray'
+import { composeAnnotateSrcDoc } from './annotate/annotateSrcDoc'
+import {
+  buildAnnotateLocateRequest,
+  readTrustedAnnotateMessage,
+  type ScrollOffset,
+} from './annotate/bridge'
+import type { AnnotationRect, MockupAnnotation } from './annotate/types'
+import { basename } from './paths'
 import type { DesignerMockupFile } from './useDesignerSession'
+
+// The scripts-off sandbox policy is defined once in the shared HtmlPreviewCard
+// home (ui/) and reused here — re-exported so existing importers of the helper
+// (and the sandbox unit tests) keep resolving it from this module.
+export { htmlArtifactFrameSandbox }
 
 type Props = {
   mockups: DesignerMockupFile[]
@@ -8,21 +34,26 @@ type Props = {
   // Opt-in Preview/Source toggle for the "Started from" seed preview. Default
   // off keeps the Design Wizard usage unchanged.
   enableSourceView?: boolean
+  // Opt-in annotate mode, forwarded to the frame (see HtmlArtifactFrame).
+  onSubmitAnnotations?: (annotations: MockupAnnotation[]) => Promise<void>
 }
 
+// The preview never shows an undesigned void: every non-rendered situation maps
+// to one of four designed states derived from a real file signal (MC-1505).
+// `generating` = the file exists but is still empty (the agent is mid-write);
+// `deleted` = the selected file is gone from disk; `error` = it could not be
+// read. `loading` is the brief first read before any of these resolve.
 type FrameState =
   | { kind: 'loading' }
   | { kind: 'ready'; content: string }
-  | { kind: 'unavailable'; reason: string }
+  | { kind: 'generating' }
+  | { kind: 'deleted' }
+  | { kind: 'error'; reason: string }
 
 type BrowserOpenState =
   | { kind: 'idle' }
   | { kind: 'opening' }
   | { kind: 'failed'; reason: string }
-
-export function htmlArtifactFrameSandbox(allowScripts: boolean): string {
-  return allowScripts ? 'allow-scripts' : ''
-}
 
 // Reviewing a responsive mockup needs real device widths, not whatever width
 // the pane happens to be. Fixed widths render the iframe on a centered,
@@ -39,6 +70,9 @@ const PREVIEW_VIEWPORTS: ReadonlyArray<{ id: HtmlPreviewViewport; label: string 
 
 const PREVIEW_ZOOMS = [1, 0.75, 0.5] as const
 export type HtmlPreviewZoom = (typeof PREVIEW_ZOOMS)[number]
+
+// Stable empty batch so files without notes never churn effect dependencies.
+const EMPTY_ANNOTATION_BATCH: MockupAnnotation[] = []
 
 export function nextHtmlPreviewZoom(zoom: HtmlPreviewZoom): HtmlPreviewZoom {
   const index = PREVIEW_ZOOMS.indexOf(zoom)
@@ -94,13 +128,39 @@ export function browserOpenFailureMessage(
     : `Could not open ${relativePath} in your browser. Check your default browser and try again.`
 }
 
-function titleFromFilename(name: string): string {
-  return name
-    .replace(/\.html?$/i, '')
+/**
+ * A human display title for a file, used as the fallback when no HTML `<title>`
+ * is present: drop the extension, strip a leading ISO date prefix
+ * (`2026-07-06-panel-header.html` → `Panel header`) so a raw date-prefixed
+ * filename never reads as a primary label (MC-1505), then sentence-case.
+ */
+export function humanizeFileTitle(name: string): string {
+  const base = basename(name)
+    .replace(/\.[a-z0-9]+$/i, '')
+    .replace(/^\d{4}-\d{2}-\d{2}[-_]?/, '')
     .replace(/[-_]+/g, ' ')
     .replace(/\s+/g, ' ')
     .trim()
-    .replace(/\b\w/g, (char) => char.toUpperCase())
+  if (!base) return basename(name)
+  return base.charAt(0).toUpperCase() + base.slice(1)
+}
+
+/** The `<title>` text of an HTML document, whitespace-collapsed; null when absent or empty. */
+export function pageTitleFromHtml(html: string): string | null {
+  const match = /<title[^>]*>([\s\S]*?)<\/title>/i.exec(html)
+  if (!match) return null
+  const text = match[1].replace(/\s+/g, ' ').trim()
+  return text || null
+}
+
+/**
+ * The preview title bar's primary label for an HTML file: its `<title>` when the
+ * content is loaded and has one, otherwise the humanized filename. The path is
+ * shown demoted beneath it, never as the primary label.
+ */
+export function htmlPreviewTitle(relativePath: string, content: string | null): string {
+  const fromDocument = content ? pageTitleFromHtml(content) : null
+  return fromDocument ?? humanizeFileTitle(relativePath)
 }
 
 /**
@@ -116,11 +176,25 @@ export function HtmlArtifactFrame({
   relativePath,
   watchDirectoryPath,
   enableSourceView = false,
+  onSubmitAnnotations,
+  annotateSubmitLabel,
 }: {
   absolutePath: string
   relativePath: string
   watchDirectoryPath: string
   enableSourceView?: boolean
+  /**
+   * Opt-in annotate mode (MC-1468), the same opt-in-prop pattern as
+   * `enableSourceView`: passing the callback is the opt-in, so the mode can
+   * never be enabled without a real batch destination. The frame collects
+   * element-anchored notes and submits them as ONE batch through this seam; it
+   * contains no feedback-routing logic — where a batch goes is entirely the
+   * host's decision (sprint request-changes, wizard chat, …).
+   */
+  onSubmitAnnotations?: (annotations: MockupAnnotation[]) => Promise<void>
+  /** Host-named tray send action ("Send to designer" in the wizard); the
+   * routing-agnostic frame cannot name the destination itself. */
+  annotateSubmitLabel?: string
 }) {
   const [allowScripts, setAllowScripts] = useState(false)
   const [viewMode, setViewMode] = useState<HtmlArtifactViewMode>('preview')
@@ -136,17 +210,41 @@ export function HtmlArtifactFrame({
   // canvas never flashes over the dark stage before a dark mockup paints.
   const [frameLoaded, setFrameLoaded] = useState(false)
 
+  // --- Annotate mode (MC-1468 part 2) ---------------------------------------
+  // Pending batches are keyed per file and live HERE, in the parent of the
+  // iframe — so a batch survives entering Source view, a file reload, and the
+  // annotate iframe remount itself. The capture mode stays on across screen
+  // switches (a review sweep spans screens); each screen keeps its own batch.
+  const annotateEnabled = typeof onSubmitAnnotations === 'function'
+  const [annotateOn, setAnnotateOn] = useState(false)
+  const [annotationBatches, setAnnotationBatches] = useState<Record<string, MockupAnnotation[]>>({})
+  const [composer, setComposer] = useState<AnnotateComposerState>({ kind: 'closed' })
+  const [submitState, setSubmitState] = useState<AnnotateSubmitState>({ kind: 'idle' })
+  const [trayListOpen, setTrayListOpen] = useState(false)
+  // Live frame geometry from the validated bridge: current scroll offset and
+  // the freshest located rect per selector (null = unanchored).
+  const [frameScroll, setFrameScroll] = useState<ScrollOffset>({ x: 0, y: 0 })
+  const [anchorRects, setAnchorRects] = useState<Record<string, AnnotationRect | null>>({})
+  const iframeRef = useRef<HTMLIFrameElement | null>(null)
+  const commentToggleRef = useRef<HTMLButtonElement>(null)
+
   // Reset scripts to off whenever the previewed file changes — the safe default
-  // must not carry over from a previously trusted file.
+  // must not carry over from a previously trusted file. Per-frame annotate
+  // geometry and the composer reset with it; the pending batches do not.
   useEffect(() => {
     setAllowScripts(false)
     setBrowserOpenState({ kind: 'idle' })
     setCopiedPath(false)
+    setComposer({ kind: 'closed' })
+    setSubmitState({ kind: 'idle' })
+    setTrayListOpen(false)
+    setFrameScroll({ x: 0, y: 0 })
+    setAnchorRects({})
   }, [absolutePath])
 
   useEffect(() => {
     setFrameLoaded(false)
-  }, [absolutePath, allowScripts, reloadNonce])
+  }, [absolutePath, allowScripts, reloadNonce, annotateOn])
 
   useEffect(() => {
     let cancelled = false
@@ -157,20 +255,27 @@ export function HtmlArtifactFrame({
         const exists = await window.api.pathExists(absolutePath)
         if (cancelled) return
         if (!exists) {
-          setFrameState({ kind: 'unavailable', reason: `${relativePath} is missing on disk.` })
+          setFrameState((prev) => (prev.kind === 'deleted' ? prev : { kind: 'deleted' }))
           return
         }
         const content = await window.api.readfile(absolutePath)
         if (cancelled) return
         if (!content.trim()) {
-          setFrameState({ kind: 'unavailable', reason: `${relativePath} is empty.` })
+          // Exists but empty — the agent is still writing it. A designed
+          // generating state, never a black void.
+          setFrameState((prev) => (prev.kind === 'generating' ? prev : { kind: 'generating' }))
           return
         }
-        setFrameState({ kind: 'ready', content })
+        // The watch covers the whole directory, so sibling-file events re-read
+        // this file; keep the previous state object when the content is
+        // unchanged so those events don't re-render the pane.
+        setFrameState((prev) =>
+          prev.kind === 'ready' && prev.content === content ? prev : { kind: 'ready', content },
+        )
       } catch (error) {
         if (cancelled) return
         setFrameState({
-          kind: 'unavailable',
+          kind: 'error',
           reason:
             error instanceof Error
               ? `Could not read ${relativePath}: ${error.message}`
@@ -231,16 +336,186 @@ export function HtmlArtifactFrame({
   }
 
   const view = resolveHtmlArtifactView(enableSourceView, viewMode)
+  // The page title (from the document's own <title>) leads; the path is demoted
+  // beneath it. Falls back to the humanized filename before the content loads.
+  const pageTitle = htmlPreviewTitle(relativePath, frameState.kind === 'ready' ? frameState.content : null)
+
+  const availability = annotateAvailability(frameState.kind)
+  // Capture is live only while a document is rendered; the toggle state itself
+  // survives an unavailable interlude (e.g. the file is being rewritten).
+  const annotateActive = annotateEnabled && annotateOn && availability.available && view.showsRenderedFrame
+  const batch = annotationBatches[absolutePath] ?? EMPTY_ANNOTATION_BATCH
+  const submitting = submitState.kind === 'submitting'
+
+  const setBatch = (next: MockupAnnotation[]) => {
+    setAnnotationBatches((batches) => {
+      if (next.length === 0) {
+        const { [absolutePath]: _removed, ...rest } = batches
+        return rest
+      }
+      return { ...batches, [absolutePath]: next }
+    })
+  }
+
+  // Everything the overlay anchors to: the batch plus an open draft's anchor,
+  // so a draft composer re-anchors under reflow/scroll exactly like a pin.
+  const draftSelector = composer.kind === 'new' ? composer.anchor.selector : null
+  const anchoredSelectors = () => {
+    const selectors = batch.map((annotation) => annotation.selector)
+    if (draftSelector && !selectors.includes(draftSelector)) selectors.push(draftSelector)
+    return selectors
+  }
+
+  const postLocate = (selectors: readonly string[]) => {
+    iframeRef.current?.contentWindow?.postMessage(buildAnnotateLocateRequest(selectors), '*')
+  }
+
+  // Bridge listener: only messages from our own iframe's contentWindow are
+  // trusted (source identity — the sandboxed frame is an opaque origin).
+  useEffect(() => {
+    if (!annotateActive) return
+    const onMessage = (event: MessageEvent) => {
+      const message = readTrustedAnnotateMessage(event, iframeRef.current?.contentWindow ?? null)
+      if (!message) return
+      switch (message.type) {
+        case 'ready':
+          // A (re)loaded document starts unscrolled; re-anchor the batch in it.
+          setFrameScroll({ x: 0, y: 0 })
+          postLocate(anchoredSelectors())
+          break
+        case 'scroll':
+          setFrameScroll(message.scrollOffset)
+          break
+        case 'anchors': {
+          const next: Record<string, AnnotationRect | null> = {}
+          for (const anchor of message.anchors) next[anchor.selector] = anchor.rect
+          setAnchorRects(next)
+          setFrameScroll(message.scrollOffset)
+          break
+        }
+        case 'select':
+          if (submitting) break
+          setComposer((prev) => {
+            // An explicit edit session is never discarded by a stray click; a
+            // new draft re-anchors to the latest selection, keeping its text.
+            if (prev.kind === 'edit') return prev
+            return {
+              kind: 'new',
+              anchor: anchorFromSelect(message),
+              message: prev.kind === 'new' ? prev.message : '',
+            }
+          })
+          break
+        case 'hover':
+        case 'hover-end':
+          // The identity chip renders inside the frame (picker runtime).
+          break
+      }
+    }
+    window.addEventListener('message', onMessage)
+    return () => window.removeEventListener('message', onMessage)
+  }, [annotateActive, batch, draftSelector, submitting])
+
+  // Re-anchor whenever the anchored set or the projection inputs change; the
+  // picker itself re-reports after in-frame reflows and scrolls.
+  useEffect(() => {
+    if (!annotateActive) return
+    postLocate(anchoredSelectors())
+  }, [annotateActive, batch, draftSelector, zoom, viewport])
+
+  const onToggleAnnotate = () => {
+    setComposer({ kind: 'closed' })
+    setTrayListOpen(false)
+    setAnnotateOn((value) => !value)
+  }
+
+  // Escape exits Comment mode and returns focus to its toggle. The composer
+  // and the tray list handle their own Escape first (and stop propagation);
+  // this handler stops propagation too, so one press never also collapses the
+  // shell's expanded bubble or drawer — Escape peels exactly one layer.
+  const onFrameKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
+    if (event.key !== 'Escape' || !annotateActive) return
+    event.stopPropagation()
+    setAnnotateOn(false)
+    commentToggleRef.current?.focus()
+  }
+
+  const onComposerCommit = () => {
+    if (composer.kind === 'closed') return
+    const message = composer.message.trim()
+    if (!message) return
+    if (composer.kind === 'new') {
+      setBatch(addAnnotation(batch, { ...composer.anchor, message }))
+    } else {
+      setBatch(updateAnnotationMessage(batch, composer.index, message))
+    }
+    setComposer({ kind: 'closed' })
+  }
+
+  const onComposerRemove = () => {
+    if (composer.kind !== 'edit') return
+    setBatch(removeAnnotation(batch, composer.index))
+    setComposer({ kind: 'closed' })
+  }
+
+  const onEditAnnotation = (index: number) => {
+    if (submitting || !availability.available) return
+    const annotation = batch[index]
+    if (!annotation) return
+    // Editing from the tray while capture is off re-enters Comment mode so the
+    // composer has a surface to anchor to.
+    setAnnotateOn(true)
+    setComposer({ kind: 'edit', index, message: annotation.message })
+  }
+
+  const onSendBatch = async () => {
+    if (!onSubmitAnnotations || batch.length === 0 || submitting) return
+    const pathAtSubmit = absolutePath
+    setComposer({ kind: 'closed' })
+    setSubmitState({ kind: 'submitting' })
+    try {
+      await onSubmitAnnotations(batch)
+      setAnnotationBatches((batches) => {
+        const { [pathAtSubmit]: _sent, ...rest } = batches
+        return rest
+      })
+      setTrayListOpen(false)
+      setSubmitState({ kind: 'idle' })
+    } catch (error) {
+      // The batch is deliberately untouched — a failed send keeps every note.
+      setSubmitState({ kind: 'failed', reason: submitFailureMessage(error) })
+    }
+  }
+
+  // Annotate mode swaps the srcDoc for the composed one (author scripts
+  // neutralized, picker injected); the normal preview path is untouched.
+  const annotateSrcDoc = useMemo(
+    () => (annotateActive && frameState.kind === 'ready' ? composeAnnotateSrcDoc(frameState.content) : null),
+    [annotateActive, frameState],
+  )
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-md border border-[color:var(--border-default)] bg-[color:var(--bg-surface)]">
-      <div className="flex shrink-0 items-center gap-2 border-b border-[color:var(--border-subtle)] px-3 py-2">
-        <TruncatedText
-          as="span"
-          text={relativePath}
-          className="min-w-0 font-mono text-[11px] text-[color:var(--text-muted)]"
-        />
-        <span className="ml-auto flex shrink-0 items-center gap-1">
+    <div
+      onKeyDown={onFrameKeyDown}
+      className="relative flex min-h-0 flex-1 flex-col overflow-hidden rounded-md border border-[color:var(--border-default)] bg-[color:var(--bg-surface)]"
+    >
+      {/* flex-wrap: narrow hosts (e.g. the sprint inspector pane) fit fewer
+          controls than the full cluster — wrapping to a second row keeps every
+          control reachable instead of clipping under overflow-hidden. */}
+      <div className="flex shrink-0 flex-wrap items-center gap-3 gap-y-1 border-b border-[color:var(--border-subtle)] px-3 py-2">
+        <span className="flex min-w-0 flex-col leading-tight">
+          <TruncatedText
+            as="span"
+            text={pageTitle}
+            className="min-w-0 text-[12px] font-semibold text-[color:var(--text-strong)]"
+          />
+          <TruncatedText
+            as="span"
+            text={relativePath}
+            className="min-w-0 font-mono text-[10px] text-[color:var(--text-subtle)]"
+          />
+        </span>
+        <span className="ml-auto flex min-w-0 flex-wrap items-center justify-end gap-1">
           {view.showToggle ? (
             <span role="group" aria-label="View mode" className="flex items-center gap-0.5">
               {HTML_ARTIFACT_VIEW_MODES.map((option) => (
@@ -295,6 +570,8 @@ export function HtmlArtifactFrame({
               >
                 {Math.round(zoom * 100)}%
               </button>
+              {/* Hairline between the viewport+zoom cluster and the actions cluster. */}
+              <span aria-hidden="true" className="mx-0.5 h-4 w-px bg-[color:var(--border-subtle)]" />
             </>
           ) : null}
           <Tooltip content="Reload">
@@ -331,7 +608,18 @@ export function HtmlArtifactFrame({
               </svg>
             </button>
           </Tooltip>
-          {view.showsPreviewControls ? (
+          {annotateEnabled && view.showsPreviewControls ? (
+            // aria-disabled (not disabled) keeps the unavailable toggle
+            // hoverable and focusable, so the reason tooltip actually reaches
+            // the user instead of a dead control.
+            <CommentToggle
+              buttonRef={commentToggleRef}
+              active={annotateActive}
+              unavailableReason={availability.available ? null : availability.reason}
+              onToggle={onToggleAnnotate}
+            />
+          ) : null}
+          {view.showsPreviewControls && !annotateActive ? (
             <button
               type="button"
               onClick={() => setAllowScripts((value) => !value)}
@@ -393,14 +681,15 @@ export function HtmlArtifactFrame({
             className={viewport === 'fit' ? 'h-full w-full' : 'flex min-h-full justify-center px-4 py-4'}
           >
             <div
-              className={viewport === 'fit' ? 'h-full w-full overflow-hidden' : 'h-full shrink-0 overflow-hidden rounded-md border border-[color:var(--border-strong)]'}
+              className={viewport === 'fit' ? 'relative h-full w-full overflow-hidden' : 'relative h-full shrink-0 overflow-hidden rounded-md border border-[color:var(--border-strong)]'}
               style={viewport === 'fit' ? undefined : { width: viewport * zoom }}
             >
               <iframe
-                key={`${absolutePath}::${allowScripts ? 'scripts' : 'no-scripts'}::${reloadNonce}`}
-                title={`Preview · ${relativePath}`}
-                srcDoc={frameState.content}
-                sandbox={htmlArtifactFrameSandbox(allowScripts)}
+                ref={iframeRef}
+                key={`${absolutePath}::${annotateActive ? 'annotate' : allowScripts ? 'scripts' : 'no-scripts'}::${reloadNonce}`}
+                title={`Preview · ${pageTitle}`}
+                srcDoc={annotateSrcDoc ?? frameState.content}
+                sandbox={annotateFrameSandbox(annotateActive, allowScripts)}
                 onLoad={() => setFrameLoaded(true)}
                 className={`border-0 bg-white transition-opacity duration-150 ${frameLoaded ? 'opacity-100' : 'opacity-0'}`}
                 style={{
@@ -410,28 +699,232 @@ export function HtmlArtifactFrame({
                   transformOrigin: 'top left',
                 }}
               />
+              {annotateActive ? (
+                <AnnotateOverlay
+                  annotations={batch}
+                  anchors={anchorRects}
+                  transform={{ zoom, scroll: frameScroll, offsetX: 0, offsetY: 0 }}
+                  composer={composer}
+                  busy={submitting}
+                  onOpenEdit={onEditAnnotation}
+                  onComposerMessageChange={(message) =>
+                    setComposer((prev) => (prev.kind === 'closed' ? prev : { ...prev, message }))
+                  }
+                  onComposerCancel={() => setComposer({ kind: 'closed' })}
+                  onComposerCommit={onComposerCommit}
+                  onComposerRemove={onComposerRemove}
+                />
+              ) : null}
             </div>
           </div>
-        ) : frameState.kind === 'loading' ? (
-          <div className="flex h-full items-center justify-center text-[12px] text-[color:var(--text-muted)]">
-            Loading preview…
-          </div>
+        ) : frameState.kind === 'generating' ? (
+          <PreviewState
+            title="Building this page…"
+            body="The preview refreshes automatically as the file is written."
+            skeleton
+          />
+        ) : frameState.kind === 'deleted' ? (
+          <PreviewState
+            glyph="deleted"
+            title="This file isn’t on disk"
+            path={relativePath}
+            body="It may have been removed since you selected it, or not written yet. Pick another file, or reload."
+          />
+        ) : frameState.kind === 'error' ? (
+          <PreviewState glyph="error" tone="warn" title="This file can’t be previewed" body={frameState.reason} />
         ) : (
-          <div className="flex h-full flex-col items-center justify-center gap-2 px-6 text-center">
-            <span className="text-[12px] font-semibold text-[color:var(--tone-warn)]">
-              Preview unavailable
-            </span>
-            <span className="text-[12px] leading-5 text-[color:var(--text-muted)]">
-              {frameState.reason}
-            </span>
-          </div>
+          <PreviewState title="Loading preview…" skeleton />
         )}
+        {/* Paint gap: hold a shimmer over the dark stage until the iframe's own
+            document paints, so a dark mockup never flashes an undesigned void. */}
+        {frameState.kind === 'ready' && !view.showsSource && !frameLoaded ? (
+          <div className="pointer-events-none absolute inset-0 bg-[color:var(--bg-surface)]">
+            <PreviewSkeletonLines />
+          </div>
+        ) : null}
       </div>
+      {/* The batch tray floats over the stage (a sibling of the scroll container,
+          so it never scrolls away) whenever this file has pending notes — even
+          with capture toggled off, pending feedback is never invisible. */}
+      {annotateEnabled && view.showsRenderedFrame && batch.length > 0 ? (
+        <AnnotateTray
+          annotations={batch}
+          anchors={anchorRects}
+          submitState={submitState}
+          listOpen={trayListOpen}
+          submitLabel={annotateSubmitLabel}
+          onToggleList={() => setTrayListOpen((value) => !value)}
+          onEdit={onEditAnnotation}
+          onRemove={(index) => setBatch(removeAnnotation(batch, index))}
+          onClear={() => {
+            setBatch([])
+            setTrayListOpen(false)
+            setComposer({ kind: 'closed' })
+          }}
+          onSend={() => void onSendBatch()}
+        />
+      ) : annotateActive && composer.kind === 'closed' ? (
+        <span
+          role="status"
+          className="pointer-events-none absolute bottom-3 left-1/2 z-20 -translate-x-1/2 whitespace-nowrap rounded-full border border-[color:var(--border-default)] bg-[color:var(--bg-surface-raised)] px-3 py-1 text-[11px] text-[color:var(--text-muted)] shadow-[var(--shadow-drawer)]"
+        >
+          Click any element in the preview to pin a note
+        </span>
+      ) : null}
     </div>
   )
 }
 
-export function MockupPreviewPane({ mockups, watchDirectoryPath, enableSourceView = false }: Props) {
+/**
+ * The annotate/Comment mode toggle in the frame header. Unavailable states
+ * (file missing, still generating, unreadable, loading) keep the control
+ * focusable via aria-disabled so the Tooltip can explain why; activation is
+ * simply a no-op until the file renders again.
+ */
+function CommentToggle({
+  buttonRef,
+  active,
+  unavailableReason,
+  onToggle,
+}: {
+  buttonRef: RefObject<HTMLButtonElement>
+  active: boolean
+  unavailableReason: string | null
+  onToggle: () => void
+}) {
+  const unavailable = unavailableReason !== null
+  const button = (
+    <button
+      ref={buttonRef}
+      type="button"
+      onClick={unavailable ? undefined : onToggle}
+      aria-pressed={active}
+      aria-disabled={unavailable || undefined}
+      className={`
+        inline-flex h-6 items-center gap-1 rounded-sm px-1.5 text-[11px]
+        transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--accent-primary)]
+        ${unavailable ? 'cursor-not-allowed text-[color:var(--text-muted)] opacity-50' : ''}
+        ${!unavailable && active ? 'bg-[color:var(--accent-primary)] text-[color:var(--text-on-accent)]' : ''}
+        ${!unavailable && !active ? 'text-[color:var(--text-muted)] hover:bg-[color:var(--bg-surface-raised)] hover:text-[color:var(--text-default)]' : ''}
+      `}
+    >
+      <svg viewBox="0 0 14 14" className="icon-xs" aria-hidden="true">
+        <path
+          d="M9.5 2.5 11.5 4.5 5 11l-2.5.5L3 9z"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="1.3"
+          strokeLinejoin="round"
+        />
+      </svg>
+      {active ? 'Commenting' : 'Comment'}
+    </button>
+  )
+  return unavailable ? <Tooltip content={unavailableReason}>{button}</Tooltip> : button
+}
+
+type PreviewStateGlyph = 'deleted' | 'error'
+
+/**
+ * A designed non-render state shared by the HTML preview frame and the artifact
+ * preview pane (MC-1505): a shape glyph, a title, an optional demoted path, and
+ * body copy — neutral by default, warn-toned for a genuine failure. The glyph
+ * shape (not color) carries the meaning, so it survives grayscale. `skeleton`
+ * swaps the glyph for a shimmer stack for the generating/loading states.
+ */
+export function PreviewState({
+  glyph,
+  tone = 'neutral',
+  title,
+  path,
+  body,
+  skeleton = false,
+}: {
+  glyph?: PreviewStateGlyph
+  tone?: 'neutral' | 'warn'
+  title: string
+  path?: string
+  body?: ReactNode
+  skeleton?: boolean
+}) {
+  if (skeleton) {
+    return (
+      <div className="flex h-full flex-col items-center justify-center gap-4 px-6 text-center">
+        <span className="flex flex-col items-center gap-1">
+          <span className="text-[12px] font-semibold text-[color:var(--text-strong)]">{title}</span>
+          {body ? (
+            <span className="max-w-[360px] text-[12px] leading-5 text-[color:var(--text-muted)]">{body}</span>
+          ) : null}
+        </span>
+        <span className="flex w-full max-w-[280px] flex-col gap-2.5">
+          <Skeleton className="h-3 w-3/5 rounded bg-[color:var(--bg-surface-raised)]" />
+          <Skeleton className="h-3 w-4/5 rounded bg-[color:var(--bg-surface-raised)]" />
+          <Skeleton className="h-24 w-full rounded bg-[color:var(--bg-surface-raised)]" />
+          <Skeleton className="h-3 w-2/5 rounded bg-[color:var(--bg-surface-raised)]" />
+        </span>
+      </div>
+    )
+  }
+  return (
+    <div className="flex h-full flex-col items-center justify-center gap-2 px-6 text-center">
+      {glyph ? <PreviewGlyph glyph={glyph} tone={tone} /> : null}
+      <span
+        className={`text-[12px] font-semibold ${
+          tone === 'warn' ? 'text-[color:var(--tone-warn)]' : 'text-[color:var(--text-strong)]'
+        }`}
+      >
+        {title}
+      </span>
+      {path ? (
+        <span className="max-w-full truncate font-mono text-[11px] text-[color:var(--text-subtle)]">{path}</span>
+      ) : null}
+      {body ? (
+        <span className="max-w-[360px] text-[12px] leading-5 text-[color:var(--text-muted)]">{body}</span>
+      ) : null}
+    </div>
+  )
+}
+
+function PreviewGlyph({ glyph, tone }: { glyph: PreviewStateGlyph; tone: 'neutral' | 'warn' }) {
+  const color = tone === 'warn' ? 'var(--tone-warn)' : 'var(--text-subtle)'
+  if (glyph === 'error') {
+    return (
+      <svg viewBox="0 0 16 16" className="h-5 w-5" aria-hidden="true" style={{ color }}>
+        <path d="M8 2 15 14H1z" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinejoin="round" />
+        <path d="M8 6.5v3.4" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
+      </svg>
+    )
+  }
+  // deleted — a hollow circle with a diagonal slash (removed from the set).
+  return (
+    <svg viewBox="0 0 16 16" className="h-5 w-5" aria-hidden="true" style={{ color }}>
+      <circle cx="8" cy="8" r="6" fill="none" stroke="currentColor" strokeWidth="1.4" />
+      <path d="M4.2 11.8 11.8 4.2" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
+    </svg>
+  )
+}
+
+// Centered shimmer stack, filling its container — the paint-gap overlay behind
+// a not-yet-painted iframe. The shared Skeleton honors prefers-reduced-motion.
+function PreviewSkeletonLines() {
+  return (
+    <div className="flex h-full flex-col items-center justify-center gap-2.5 px-6">
+      <span className="flex w-full max-w-[280px] flex-col gap-2.5">
+        <Skeleton className="h-3 w-3/5 rounded bg-[color:var(--bg-surface-raised)]" />
+        <Skeleton className="h-3 w-4/5 rounded bg-[color:var(--bg-surface-raised)]" />
+        <Skeleton className="h-24 w-full rounded bg-[color:var(--bg-surface-raised)]" />
+        <Skeleton className="h-3 w-2/5 rounded bg-[color:var(--bg-surface-raised)]" />
+      </span>
+    </div>
+  )
+}
+
+export function MockupPreviewPane({
+  mockups,
+  watchDirectoryPath,
+  enableSourceView = false,
+  onSubmitAnnotations,
+}: Props) {
   const [activeRelativePath, setActiveRelativePath] = useState<string | null>(null)
 
   const activeMockup = useMemo(
@@ -461,7 +954,7 @@ export function MockupPreviewPane({ mockups, watchDirectoryPath, enableSourceVie
           ariaLabel="Mockup screens"
           items={mockups.map((mockup, index): TabItem<string> => ({
             id: mockup.relativePath,
-            label: `${String(index + 1).padStart(2, '0')} · ${titleFromFilename(mockup.name)}`,
+            label: `${String(index + 1).padStart(2, '0')} · ${humanizeFileTitle(mockup.name)}`,
           }))}
           value={activeMockup?.relativePath ?? mockups[0]?.relativePath ?? ''}
           onChange={(id) => setActiveRelativePath(id)}
@@ -474,6 +967,7 @@ export function MockupPreviewPane({ mockups, watchDirectoryPath, enableSourceVie
           relativePath={activeMockup.relativePath}
           watchDirectoryPath={watchDirectoryPath}
           enableSourceView={enableSourceView}
+          onSubmitAnnotations={onSubmitAnnotations}
         />
       ) : (
         <div className="flex min-h-0 flex-1 flex-col items-center justify-center gap-2 rounded-md border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] px-6 text-center">

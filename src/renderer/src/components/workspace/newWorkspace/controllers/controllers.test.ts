@@ -51,6 +51,24 @@ function createMemoryFilesystem(): GuidedBriefScaffoldPorts['filesystem'] & { fi
   }
 }
 
+// Scaffold-baseline discovery fake (MC-1502): `entries` maps a directory path
+// to its listing; `stats` maps a file path to its mtime/size. An empty
+// discovery models a fresh empty folder.
+function createDiscovery(
+  entries: Record<string, { name: string; isDir: boolean }[]> = {},
+  stats: Record<string, { modifiedAtMs: number; sizeBytes: number }> = {},
+): GuidedBriefScaffoldPorts['discovery'] {
+  return {
+    readdir: async (path) => entries[path] ?? [],
+    pathExists: async (path) => path in stats,
+    statPath: async (path) => {
+      const stat = stats[path]
+      if (!stat) throw new Error(`Missing stat: ${path}`)
+      return { modifiedAt: new Date(stat.modifiedAtMs).toISOString(), ...stat }
+    },
+  }
+}
+
 function sprintEngineProjectionFixture(input: {
   name: string
   goal: string
@@ -1057,6 +1075,7 @@ async function testSprintEngineEpicSourcedLinksEpicAndFlagsChildren(): Promise<v
 async function testGuidedBriefScaffoldValidation(): Promise<void> {
   const ports: GuidedBriefScaffoldPorts = {
     filesystem: createMemoryFilesystem(),
+    discovery: createDiscovery(),
   }
 
   await assert.rejects(
@@ -1091,6 +1110,7 @@ async function testGuidedBriefScaffoldHappyPath(): Promise<void> {
   const fs = createMemoryFilesystem()
   const ports: GuidedBriefScaffoldPorts = {
     filesystem: fs,
+    discovery: createDiscovery(),
   }
 
   // Skip all discussions → initial stage is 'handoff', which causes
@@ -1121,12 +1141,85 @@ async function testGuidedBriefScaffoldHappyPath(): Promise<void> {
   assert.equal(runtimeState.activeDesignArtifactPath, null)
   assert.ok(fs.files.has('/workspace/product/idea-seed.md'), 'idea seed is written by scaffold')
   assert.ok(fs.files.has('/workspace/product/build-handoff.md'), 'build handoff is written for the skipped path')
+  assert.deepEqual(
+    JSON.parse(fs.files.get('/workspace/.guided-brief/scaffold-baseline.json') ?? 'null'),
+    { version: 1, files: {} },
+    'a fresh empty folder scaffolds an empty baseline manifest',
+  )
+}
+
+// The scaffold baseline is best-effort by contract (a missing baseline just
+// disables seed-repo filtering — parseScaffoldBaseline treats it as absent),
+// so neither a failed capture nor a failed write may abort the scaffold. This
+// is the seeded-repo case where only `.guided-brief/` is unwritable.
+async function testGuidedBriefScaffoldSurvivesBaselineFailure(): Promise<void> {
+  const scaffoldInput = {
+    folderPath: '/workspace',
+    workspaceName: 'My Brief',
+    idea: 'A simple cli that summarizes invoices.',
+    hasUi: 'no' as const,
+    wantsProduct: false,
+    wantsArchitecture: false,
+    wantsFrontend: false,
+    guidedRoleCliDefaults: { product: 'claude-code', architect: 'claude-code', frontend: 'claude-code' },
+    buildRoleCounts: { architect: 1, product: 1, frontend: 0, developer: 0, performance: 0, cross_platform: 0, tester: 0, security: 0 },
+    buildRoleCliDefaults: { architect: 'claude-code', product: 'claude-code', frontend: 'claude-code', developer: 'claude-code', performance: 'claude-code', cross_platform: 'claude-code', tester: 'claude-code', security: 'claude-code' },
+    buildCliPermissionPreset: 'default' as const,
+    buildStartRunner: false,
+    buildAutoApproveArtifacts: false,
+  }
+
+  // Baseline WRITE fails (read-only .guided-brief): scaffold still completes.
+  const writeFailFs = createMemoryFilesystem()
+  const innerWrite = writeFailFs.writeFile.bind(writeFailFs)
+  writeFailFs.writeFile = async (path: string, content: string) => {
+    if (path.includes('.guided-brief/scaffold-baseline.json')) throw new Error('EACCES: read-only')
+    await innerWrite(path, content)
+  }
+  const writeFailResult = await runGuidedBriefScaffold(scaffoldInput, {
+    filesystem: writeFailFs,
+    discovery: createDiscovery(),
+  })
+  assert.equal(writeFailResult.runtimeState.stage, 'handoff', 'baseline write failure never aborts the scaffold')
+  assert.ok(writeFailFs.files.has('/workspace/product/idea-seed.md'), 'real scaffold artifacts still land')
+  assert.equal(writeFailFs.files.has('/workspace/.guided-brief/scaffold-baseline.json'), false)
+
+  // Baseline CAPTURE over unreadable discovery: buildScaffoldBaseline swallows
+  // per-path errors by design (degrades to an empty manifest = no filtering),
+  // and the scaffold still completes either way.
+  const captureFailFs = createMemoryFilesystem()
+  const captureFailResult = await runGuidedBriefScaffold(scaffoldInput, {
+    filesystem: captureFailFs,
+    discovery: {
+      readdir: async () => {
+        throw new Error('EACCES: unreadable')
+      },
+      pathExists: async () => false,
+      statPath: async () => {
+        throw new Error('EACCES: unreadable')
+      },
+    },
+  })
+  assert.equal(captureFailResult.runtimeState.stage, 'handoff', 'unreadable discovery never aborts the scaffold')
+  const degradedBaseline = captureFailFs.files.get('/workspace/.guided-brief/scaffold-baseline.json')
+  if (degradedBaseline !== undefined) {
+    assert.deepEqual(JSON.parse(degradedBaseline), { version: 1, files: {} }, 'unreadable discovery degrades to the empty manifest')
+  }
 }
 
 async function testGuidedBriefDesignPresetScaffold(): Promise<void> {
   const fs = createMemoryFilesystem()
+  // Seeded repo: a pre-existing mockup and ui-direction.md must land in the
+  // baseline manifest so run-scoped discovery hides them from the studio.
   const ports: GuidedBriefScaffoldPorts = {
     filesystem: fs,
+    discovery: createDiscovery(
+      { '/design/mockups': [{ name: 'legacy.html', isDir: false }] },
+      {
+        '/design/mockups/legacy.html': { modifiedAtMs: 1000, sizeBytes: 42 },
+        '/design/product/ui-direction.md': { modifiedAtMs: 2000, sizeBytes: 7 },
+      },
+    ),
   }
 
   // The frontend-design preset forces the design-only path: UI is implied even
@@ -1162,6 +1255,17 @@ async function testGuidedBriefDesignPresetScaffold(): Promise<void> {
   assert.equal(runtimeState.activeDesignArtifactPath, null)
   assert.ok(fs.files.has('/design/product/idea-seed.md'), 'idea seed is written by scaffold')
   assert.ok(!fs.files.has('/design/product/build-handoff.md'), 'design preset does not write a premature handoff')
+  assert.deepEqual(
+    JSON.parse(fs.files.get('/design/.guided-brief/scaffold-baseline.json') ?? 'null'),
+    {
+      version: 1,
+      files: {
+        'mockups/legacy.html': { mtimeMs: 1000, size: 42 },
+        'product/ui-direction.md': { mtimeMs: 2000, size: 7 },
+      },
+    },
+    'pre-existing files under the shared roots are recorded in the scaffold baseline',
+  )
 }
 
 async function testDesignSystemScaffoldValidationAndFailure(): Promise<void> {
@@ -1720,6 +1824,7 @@ async function main(): Promise<void> {
   await testSprintEngineEpicSourcedLinksEpicAndFlagsChildren()
   await testGuidedBriefScaffoldValidation()
   await testGuidedBriefScaffoldHappyPath()
+  await testGuidedBriefScaffoldSurvivesBaselineFailure()
   await testGuidedBriefDesignPresetScaffold()
   await testDesignSystemScaffoldValidationAndFailure()
   await testDesignSystemScaffoldHappyPath()

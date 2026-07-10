@@ -177,6 +177,7 @@ async function main(): Promise<void> {
       'backlog',
       'use-railway',
       'use-codex',
+      'frontend-design',
     ]
   )
 
@@ -342,6 +343,33 @@ async function main(): Promise<void> {
     readFile(join(workspaceRoot, '.pi', 'skills', 'use-codex', 'SKILL.md'), 'utf-8'),
     /ENOENT/,
     'use-codex must not fan out to other native CLI harnesses'
+  )
+
+  // frontend-design (MC-1511) is Claude-only: harnesses: ['claude'] resolves a
+  // single native target and installs into .claude alone. This is the install
+  // half of the wizard's "non-Claude sessions get no design skill" guarantee —
+  // a non-Claude CLI never receives the skill files.
+  const designSkillMissing = await manager.getStatus(workspaceRoot, 'frontend-design')
+  assert.equal(designSkillMissing.ok, true)
+  assert.equal(designSkillMissing.ok && designSkillMissing.status, 'missing')
+  assert.deepEqual(
+    designSkillMissing.ok && designSkillMissing.targets.map((target) => target.harness),
+    ['claude'],
+    'frontend-design targets exactly the Claude harness'
+  )
+
+  const designSkillInstalled = await manager.install(workspaceRoot, 'frontend-design')
+  assert.equal(designSkillInstalled.ok, true)
+  assert.equal(designSkillInstalled.ok && designSkillInstalled.status, 'installed')
+  assert.equal(
+    await readFile(join(workspaceRoot, '.claude', 'skills', 'frontend-design', 'SKILL.md'), 'utf-8'),
+    'version three\n',
+    'frontend-design installs into the Claude skill dir'
+  )
+  await assert.rejects(
+    readFile(join(workspaceRoot, '.agents', 'skills', 'frontend-design', 'SKILL.md'), 'utf-8'),
+    /ENOENT/,
+    'frontend-design must not fan out to .agents or any non-Claude harness'
   )
 }
 
