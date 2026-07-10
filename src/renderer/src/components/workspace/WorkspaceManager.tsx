@@ -76,7 +76,7 @@ import { initSprintEngineAutomationModeSync } from '../../utils/sprintengineAuto
 import { initSprintEngineLaunchSettingsSync } from '../../utils/sprintengineLaunchSettingsSync'
 import { initSprintEngineRuntimeBridge } from '../../utils/sprintengineRuntimeBridge'
 import { addAgentTabTiled, addTerminalTab, focusOrAddAgentTab, focusOrAddFileTab, focusOrAddTerminalTab, getModel, jsonModelHasComponent, revealNavRailComponent, togglePanelRailComponent } from '../../utils/modelRegistry'
-import { MULTICODE_DISABLE_SPRINTENGINE_SYNC } from '../../utils/runtimeFlags'
+import { MULTICODE_DISABLE_SPRINTENGINE_AUTORUN, MULTICODE_DISABLE_SPRINTENGINE_SYNC } from '../../utils/runtimeFlags'
 import { agentCliSupportsConversationResume, agentCliUsesStableSessionIdForResume } from '../../utils/agentCliResume'
 import { useConfirmDialog } from '../ui/ConfirmDialog'
 import { type NewWorkspacePanelInitialState } from './NewWorkspacePanel'
@@ -271,7 +271,13 @@ export default function WorkspaceManager() {
   // the agent-launch settings to main, register sprint runs with the
   // scheduler, and apply its runtime-op broadcasts into this window's store.
   useEffect(() => initSprintEngineLaunchSettingsSync(), [])
-  useEffect(() => initSprintEngineRuntimeBridge(), [])
+  // Safe-mode kill switch: not registering runs is what stops the main
+  // scheduler from spawning (it only schedules registered runs) — the same
+  // recovery lever the retired renderer supervisor honoured.
+  useEffect(
+    () => (MULTICODE_DISABLE_SPRINTENGINE_AUTORUN ? undefined : initSprintEngineRuntimeBridge()),
+    [],
+  )
   const workspaces = useWorkspaceStore(useShallow((s) => selectWorkspaceManagerWorkspaces(s.workspaces)))
   const workspaceWindows = useWorkspaceStore((s) => s.workspaceWindows)
   const primaryWorkspaceWindowId = useWorkspaceStore((s) => s.primaryWorkspaceWindowId)

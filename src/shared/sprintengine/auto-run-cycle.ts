@@ -179,8 +179,6 @@ export type SprintEngineAutoRunDepartedWorkerTeardown = {
  */
 export type SprintEngineAutoRunCyclePorts = SprintEngineAutoRunExecutorPorts & {
   // Store touchpoints that bypass the executor ports -----------------------
-  /** Visible-tab retirement guard: never close the terminal the operator is looking at. */
-  getActiveWorkspaceId(): string | null
   /** Plugin catalog snapshot for resume-capability stamping (`resumeCapabilitiesForCli`). */
   getPluginCatalogEntries(): readonly PluginRegistryListEntry[]
   /** Live app-settings inputs the spawn path reads at spawn time (not per tick). */
@@ -1144,11 +1142,10 @@ export async function executeSprintEngineDispatchPlan(
   for (const retirement of plan.retirements) {
     // Never close the terminal the operator is currently looking at; the
     // clock keeps running and the retirement retries once the tab is no
-    // longer the visible one.
-    if (
-      ports.getActiveWorkspaceId() === workspace.id
-      && ports.isAgentTabVisible(workspace.id, retirement.agentId)
-    ) {
+    // longer the visible one. Visibility alone is the guard: the main-process
+    // host has no notion of an "active workspace" across windows, and a
+    // visible live session/tab already means an open, watched terminal.
+    if (ports.isAgentTabVisible(workspace.id, retirement.agentId)) {
       logPerfEvent('SprintEngineAutoRun', 'idle-retirement-skipped-visible-tab', { ...base, ...retirement.data })
       continue
     }

@@ -36,7 +36,9 @@ import {
   resumeCapabilitiesForCli,
 } from '../../../shared/agent-cli-resume'
 import { useWorkspaceStore } from '../store/workspaceStore'
+import { useNotificationStore } from '../store/notificationStore'
 import { normalizeSprintEngineAutoState } from '../store/slices/runStateSlice'
+import { applyAgentTerminalRevealPolicy } from './modelRegistry'
 import type { Workspace } from '../types/workspace'
 import { applySprintEngineAutomationStopReason } from './sprintengineSupervisorNotifications'
 import {
@@ -76,6 +78,14 @@ function buildRegistration(workspace: Workspace, statePath: string): SprintRunti
     ...(autoState.completionTeardownAt !== undefined
       ? { completionTeardownAt: autoState.completionTeardownAt }
       : {}),
+    // Persisted lifecycle, adopted once with the residue: main preserves a
+    // paused/blocked/failed/complete run through sidecar-mode adoption
+    // instead of forcing it back to 'running' on relaunch.
+    runtimeState: autoState.runtimeState,
+    ...(autoState.reason !== undefined ? { reason: autoState.reason } : {}),
+    ...(autoState.reasonMessage !== undefined ? { reasonMessage: autoState.reasonMessage } : {}),
+    ...(autoState.reasonTaskId !== undefined ? { reasonTaskId: autoState.reasonTaskId } : {}),
+    ...(autoState.reasonAgentId !== undefined ? { reasonAgentId: autoState.reasonAgentId } : {}),
     rosterSessions: workspace.sprintEngineRosterSessions ?? {},
     agents: workspace.agents,
     agentConfigs: buildAgentConfigs(workspace),
@@ -86,17 +96,21 @@ function buildRegistration(workspace: Workspace, statePath: string): SprintRunti
  * User-editable per-agent configuration main must honour on spawns: mid-run
  * runtime overrides (the board's per-agent CLI/model picker), renames, and
  * queued custom startup prompts. Renderer-owned, re-pushed on change.
+ * `null` fields are explicit tombstones ("cleared"), and `configEditedAt`
+ * carries the record's last-edit stamp so main's merge is last-write-wins —
+ * a window whose store lags another window's edit re-registers with an older
+ * stamp and is ignored rather than clobbering the edit.
  */
 function buildAgentConfigs(workspace: Workspace): Record<string, SprintRuntimeAgentConfig> {
   const configs: Record<string, SprintRuntimeAgentConfig> = {}
   for (const [agentId, agent] of Object.entries(workspace.agents)) {
     if (agent.kind !== 'sprintengine') continue
-    const config: SprintRuntimeAgentConfig = {
-      ...(agent.cliRuntimeOverride ? { cliRuntimeOverride: agent.cliRuntimeOverride } : {}),
+    configs[agentId] = {
+      cliRuntimeOverride: agent.cliRuntimeOverride ?? null,
       ...(agent.name ? { name: agent.name } : {}),
-      ...(agent.cliStartupPrompt ? { cliStartupPrompt: agent.cliStartupPrompt } : {}),
+      cliStartupPrompt: agent.cliStartupPrompt ?? null,
+      ...(agent.configEditedAt !== undefined ? { configEditedAt: agent.configEditedAt } : {}),
     }
-    if (Object.keys(config).length > 0) configs[agentId] = config
   }
   return configs
 }
@@ -181,6 +195,24 @@ function applyRuntimeOp(op: SprintRuntimeOp, workspaceId: string): void {
       return
     case 'completion_teardown_at':
       store.setSprintEngineCompletionTeardownAt(workspaceId, op.at)
+      return
+    case 'diagnostic':
+      // Main already wrote the JSONL — this window only surfaces the entry,
+      // the notification half of the retired supervisor's publishDiagnostic.
+      useNotificationStore.getState().addNotification(op.entry)
+      return
+    case 'reveal_policy':
+      // Tab maintenance after a scheduler spawn/notification paste: rename an
+      // OPEN tab to the current task label and re-stamp its config sessionId
+      // (a stale one keeps the panel keyed to the killed previous session).
+      // No-op when this window has no tab for the agent.
+      applyAgentTerminalRevealPolicy(
+        workspaceId,
+        op.agentId,
+        op.name,
+        op.revealPolicy,
+        op.sessionId ? { sessionId: op.sessionId } : undefined,
+      )
       return
   }
 }

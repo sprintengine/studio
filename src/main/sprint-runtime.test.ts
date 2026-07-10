@@ -665,12 +665,17 @@ async function testAgentConfigMergeOnReRegistration(): Promise<void> {
   const launched = harness.runtime.inspectRun(STATE_PATH)?.view.agents['architect-1']
   assert.ok(launched?.cliSessionId, 'precondition: main holds live launch state')
 
+  // A user edit carries a fresh configEditedAt stamp (newer than the spawn's
+  // own startup-prompt-consumption stamp).
+  harness.clock.now += 1
+  const editStamp = harness.clock.now
   harness.runtime.registerRun(registration({
     agentConfigs: {
       'architect-1': {
         cliRuntimeOverride: { cli: 'codex', model: null },
         name: 'Custom Name',
         cliStartupPrompt: 'do the thing',
+        configEditedAt: editStamp,
       },
     },
   }))
@@ -680,12 +685,36 @@ async function testAgentConfigMergeOnReRegistration(): Promise<void> {
   assert.equal(configured?.cliStartupPrompt, 'do the thing', 'queued startup prompt adopted')
   assert.equal(configured?.cliSessionId, launched?.cliSessionId, 'launch flags untouched by the config merge')
 
-  // The renderer consumed the prompt and cleared the override: cleared config
-  // keys clear main's copy, while the rename (still absent) is retained.
+  // A lagging window's mirror — older stamp, tombstoned fields — must never
+  // clobber the newer edit; neither may an unstamped registration.
+  harness.runtime.registerRun(registration({
+    agentConfigs: {
+      'architect-1': { cliRuntimeOverride: null, cliStartupPrompt: null, configEditedAt: editStamp - 10 },
+    },
+  }))
+  harness.runtime.registerRun(registration({
+    agentConfigs: { 'architect-1': { cliRuntimeOverride: null, cliStartupPrompt: null } },
+  }))
+  const protectedConfig = harness.runtime.inspectRun(STATE_PATH)?.view.agents['architect-1']
+  assert.deepEqual(protectedConfig?.cliRuntimeOverride, { cli: 'codex', model: null }, 'stale mirror cannot clobber the override')
+  assert.equal(protectedConfig?.cliStartupPrompt, 'do the thing', 'stale mirror cannot clobber the queued prompt')
+
+  // An agent absent from the payload is untouched (no opinion, not a clear).
   harness.runtime.registerRun(registration({ agentConfigs: {} }))
+  const untouched = harness.runtime.inspectRun(STATE_PATH)?.view.agents['architect-1']
+  assert.deepEqual(untouched?.cliRuntimeOverride, { cli: 'codex', model: null }, 'absent config leaves the override alone')
+
+  // The user explicitly cleared the override and prompt (tombstones, newer
+  // stamp); the rename (absent field) is retained.
+  harness.clock.now += 1
+  harness.runtime.registerRun(registration({
+    agentConfigs: {
+      'architect-1': { cliRuntimeOverride: null, cliStartupPrompt: null, configEditedAt: harness.clock.now },
+    },
+  }))
   const cleared = harness.runtime.inspectRun(STATE_PATH)?.view.agents['architect-1']
-  assert.equal(cleared?.cliRuntimeOverride, undefined, 'cleared config clears the runtime override')
-  assert.equal(cleared?.cliStartupPrompt, undefined, 'cleared config clears the consumed startup prompt')
+  assert.equal(cleared?.cliRuntimeOverride, undefined, 'explicit tombstone clears the runtime override')
+  assert.equal(cleared?.cliStartupPrompt, undefined, 'explicit tombstone clears the startup prompt')
   assert.equal(cleared?.name, 'Custom Name', 'the rename is retained')
   assert.equal(cleared?.cliSessionId, launched?.cliSessionId, 'launch flags still untouched')
 
@@ -732,6 +761,186 @@ async function testSidecarResidueAdoptionOnFirstRegistration(): Promise<void> {
   harness.runtime.shutdown()
 }
 
+// (13) Sidecar-mode adoption preserves the renderer-persisted lifecycle: a run
+// the user saw paused must not auto-resume on app relaunch. Resume is an
+// explicit gesture (applyResume).
+async function testAdoptionPreservesPausedLifecycle(): Promise<void> {
+  const harness = createHarness()
+  harness.runtime.registerRun(registration({
+    runtimeState: 'paused',
+    reason: 'terminal_closed',
+    reasonMessage: 'An agent terminal was closed.',
+  }))
+  await settle()
+
+  const run = harness.runtime.inspectRun(STATE_PATH)
+  assert.equal(run?.view.sprintEngineAutoState?.desiredMode, 'run_agents', 'sidecar mode adopted')
+  assert.equal(run?.view.sprintEngineAutoState?.runtimeState, 'paused', 'persisted pause preserved through adoption')
+  assert.equal(run?.view.sprintEngineAutoState?.reason, 'terminal_closed', 'pause reason preserved')
+  assert.ok(!harness.powerActive.includes(STATE_PATH), 'a paused run never asserts power')
+
+  harness.clock.now += STARTUP_SPAWN_DELAY_MS + 1
+  await harness.runtime.tickNow()
+  assert.equal(harness.spawnCalls.length, 0, 'a paused run never spawns after relaunch')
+
+  harness.runtime.applyResume(STATE_PATH)
+  await settle()
+  await harness.runtime.tickNow()
+  assert.equal(harness.spawnCalls.length, 1, 'the explicit Resume gesture restarts scheduling')
+
+  harness.runtime.shutdown()
+}
+
+// (14) A completed run stays complete through adoption: no power assertion, no
+// scheduling, no projection churn.
+async function testAdoptionPreservesCompletedLifecycle(): Promise<void> {
+  const harness = createHarness({ projection: completedProjection() })
+  harness.runtime.registerRun(registration({
+    runtimeState: 'complete',
+    reason: 'all_tasks_done',
+    completionTeardownAt: 123,
+  }))
+  await settle()
+
+  const run = harness.runtime.inspectRun(STATE_PATH)
+  assert.equal(run?.view.sprintEngineAutoState?.desiredMode, 'run_agents')
+  assert.equal(run?.view.sprintEngineAutoState?.runtimeState, 'complete', 'completed run stays complete')
+  assert.ok(!harness.powerActive.includes(STATE_PATH), 'a completed run never asserts power (no held sleep blocker)')
+
+  harness.clock.now += STARTUP_SPAWN_DELAY_MS + 1
+  await harness.runtime.tickNow()
+  assert.equal(harness.projectionReads.length, 0, 'a completed run is not ticked')
+  assert.equal(harness.spawnCalls.length, 0)
+
+  harness.runtime.shutdown()
+}
+
+// (15) Dormancy re-applies the completion transition even when the one-shot
+// teardown marker is already set (a stale-mirror adoption can leave the run
+// 'running' with the marker set; without the transition it would tick and
+// hold the power blocker forever).
+async function testDormancyRecompletesWithMarkerSet(): Promise<void> {
+  const harness = createHarness({ projection: completedProjection() })
+  harness.runtime.registerRun(registration({
+    runtimeState: 'running',
+    completionTeardownAt: 123,
+  }))
+  await settle()
+  assert.equal(
+    harness.runtime.inspectRun(STATE_PATH)?.view.sprintEngineAutoState?.runtimeState,
+    'running',
+    'precondition: stale mirror adopted the run as running with the marker set',
+  )
+
+  harness.clock.now += STARTUP_SPAWN_DELAY_MS + 1
+  await harness.runtime.tickNow()
+  const run = harness.runtime.inspectRun(STATE_PATH)
+  assert.equal(run?.view.sprintEngineAutoState?.runtimeState, 'complete', 'the completion transition still lands')
+  const stopOp = harness.ops.find((op) => op.kind === 'stop_reason')
+  assert.ok(stopOp && stopOp.kind === 'stop_reason' && stopOp.reason === 'all_tasks_done', 'completion mirrored to windows')
+  assert.ok(
+    !harness.ops.some((op) => op.kind === 'completion_teardown_at'),
+    'the teardown side effects stay one-shot (marker already set)',
+  )
+  assert.ok(harness.powerInactive.includes(STATE_PATH), 'power released')
+
+  harness.runtime.shutdown()
+}
+
+// (16) Unregistering an old run must not orphan a newer run that reused the
+// same workspace (new team dir = new statePath, same workspaceId).
+async function testUnregisterOldRunKeepsNewRunMapping(): Promise<void> {
+  const NEW_STATE_PATH = '/repo/fixture/.multi-code/sprintengine/team-2/run.yaml'
+  const harness = createHarness()
+  harness.projections.set(NEW_STATE_PATH, bootstrapProjection())
+  harness.modes.set(NEW_STATE_PATH, automationRecord('run_agents'))
+
+  harness.runtime.registerRun(registration())
+  await settle()
+  harness.runtime.registerRun(registration({ statePath: NEW_STATE_PATH }))
+  await settle()
+  harness.runtime.unregisterRun(STATE_PATH)
+
+  harness.clock.now += STARTUP_SPAWN_DELAY_MS + 1
+  await harness.runtime.tickNow()
+  assert.ok(harness.projectionReads.includes(NEW_STATE_PATH), 'the new run still resolves its workspace mapping')
+  assert.equal(harness.spawnCalls.length, 1, 'the new run progresses to its bootstrap spawn')
+  assert.equal(harness.spawnCalls[0]?.sprintEngineStatePath, NEW_STATE_PATH, 'the spawn belongs to the new run')
+
+  harness.runtime.shutdown()
+}
+
+// (17) adoptAutomationRecord (the hydration seam): a fresh run registers
+// before its sidecar exists; the service's hydration write must reach the
+// scheduler or the run sits at 'manual' forever.
+async function testHydrationAdoptionActivatesFreshRun(): Promise<void> {
+  const harness = createHarness({ mode: null })
+  harness.runtime.registerRun(registration({ runtimeState: 'running' }))
+  await settle()
+  assert.equal(
+    harness.runtime.inspectRun(STATE_PATH)?.view.sprintEngineAutoState?.desiredMode,
+    'manual',
+    'precondition: no sidecar yet, the scheduler stays manual',
+  )
+
+  harness.runtime.adoptAutomationRecord(STATE_PATH, automationRecord('run_agents'))
+  await settle()
+  const run = harness.runtime.inspectRun(STATE_PATH)
+  assert.equal(run?.view.sprintEngineAutoState?.desiredMode, 'run_agents', 'hydration adoption activates the run')
+  assert.equal(run?.view.sprintEngineAutoState?.runtimeState, 'running')
+  assert.ok(harness.powerActive.includes(STATE_PATH))
+
+  harness.clock.now += STARTUP_SPAWN_DELAY_MS + 1
+  await harness.runtime.tickNow()
+  assert.equal(harness.spawnCalls.length, 1, 'the adopted run schedules')
+
+  harness.runtime.shutdown()
+}
+
+// (18) Cycle diagnostics reach the windows: a failed spawn's user-facing
+// diagnostic is broadcast (notification-store parity with the retired
+// renderer supervisor), not just written to the JSONL.
+async function testSpawnFailureDiagnosticBroadcast(): Promise<void> {
+  const harness = createHarness({ spawnFails: true })
+  harness.runtime.registerRun(registration())
+  await settle()
+  harness.clock.now += STARTUP_SPAWN_DELAY_MS + 1
+  await harness.runtime.tickNow()
+
+  assert.ok(harness.spawnCalls.length >= 1, 'precondition: a spawn was attempted')
+  const diagnosticOp = harness.ops.find((op) => op.kind === 'diagnostic')
+  assert.ok(diagnosticOp && diagnosticOp.kind === 'diagnostic', 'the diagnostic is broadcast to windows')
+  assert.equal(diagnosticOp.statePath, STATE_PATH)
+  assert.ok(diagnosticOp.entry.title.includes('was not started'), 'the entry carries the user-facing title')
+  assert.ok(typeof diagnosticOp.entry.id === 'string' && diagnosticOp.entry.id.length > 0, 'the entry is notification-store ready')
+  assert.ok(
+    harness.diagnostics.some((input) => input.title === diagnosticOp.entry.title),
+    'the JSONL write still happens',
+  )
+
+  harness.runtime.shutdown()
+}
+
+// (19) Tab maintenance reaches the windows: a successful auto-run spawn
+// broadcasts the reveal policy (tab rename + config sessionId re-stamp).
+async function testRevealPolicyBroadcastOnSpawn(): Promise<void> {
+  const harness = createHarness()
+  harness.runtime.registerRun(registration())
+  await settle()
+  harness.clock.now += STARTUP_SPAWN_DELAY_MS + 1
+  await harness.runtime.tickNow()
+
+  assert.equal(harness.spawnCalls.length, 1, 'precondition: the bootstrap spawn happened')
+  const revealOp = harness.ops.find((op) => op.kind === 'reveal_policy')
+  assert.ok(revealOp && revealOp.kind === 'reveal_policy', 'the reveal policy is broadcast to windows')
+  assert.equal(revealOp.statePath, STATE_PATH)
+  assert.equal(revealOp.agentId, 'architect-1')
+  assert.equal(revealOp.revealPolicy, 'background', 'auto-run never steals focus')
+  assert.equal(revealOp.sessionId, harness.spawnCalls[0]?.sessionId, 'windows re-stamp the tab onto the new session')
+
+  harness.runtime.shutdown()
+}
+
 async function main(): Promise<void> {
   await testRegistrationActivatesRun()
   await testStartupDelayThenBootstrapSpawn()
@@ -745,6 +954,13 @@ async function main(): Promise<void> {
   await testCompletionTeardownCoversSuspendedAndExitedAgents()
   await testAgentConfigMergeOnReRegistration()
   await testSidecarResidueAdoptionOnFirstRegistration()
+  await testAdoptionPreservesPausedLifecycle()
+  await testAdoptionPreservesCompletedLifecycle()
+  await testDormancyRecompletesWithMarkerSet()
+  await testUnregisterOldRunKeepsNewRunMapping()
+  await testHydrationAdoptionActivatesFreshRun()
+  await testSpawnFailureDiagnosticBroadcast()
+  await testRevealPolicyBroadcastOnSpawn()
   console.log('sprint-runtime tests passed')
 }
 

@@ -174,6 +174,12 @@ export type AgentState = {
   // each spawn, but recorded on the agent so the launch path can read it.
   debugMode?: boolean
   cliStartupPrompt?: string
+  // Last user edit to renderer-owned per-agent config (cliRuntimeOverride,
+  // name, cliStartupPrompt), stamped by the store's updateAgent. The main
+  // scheduler's config merge is last-write-wins on this stamp, so a window
+  // whose store lags the newest edit can never clobber it when it
+  // re-registers its run.
+  configEditedAt?: number
   // Connector chat (Railway, etc.): a worktree-isolated solo chat scoped to one
   // MCP connector plus its driving skill. `connectorMcpSettings` is the
   // connector-only MCP config the spawn forwards *instead of* the global

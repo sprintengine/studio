@@ -149,6 +149,12 @@ export function createAppServices(diagnosticsEnabled: boolean) {
         window.webContents.send(SPRINT_ENGINE_AUTOMATION_CHANGED_CHANNEL, event)
       }
     },
+    // Hydration seeds the sidecar for fresh/legacy runs without a window
+    // broadcast; the scheduler still adopts the mode (lifecycle-preserving)
+    // or the run would never leave 'manual' in main.
+    notifyHydrated: (statePath, record) => {
+      sprintRuntimeRef?.adoptAutomationRecord(statePath, record)
+    },
   })
 
   // Renderer-pushed agent-launch settings (cliRuntimes/mcp/knowledge/model

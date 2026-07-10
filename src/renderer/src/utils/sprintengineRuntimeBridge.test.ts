@@ -51,6 +51,7 @@ const fakeApi = installFakeApi()
 
 // Imported AFTER the fake window is installed.
 import { useWorkspaceStore } from '../store/workspaceStore'
+import { useNotificationStore } from '../store/notificationStore'
 import { initSprintEngineRuntimeBridge } from './sprintengineRuntimeBridge'
 
 const template: LayoutTemplate = {
@@ -126,6 +127,7 @@ async function main(): Promise<void> {
   assert.deepEqual(registered.deliveredAgentNotificationEventKeys, [])
   assert.deepEqual(registered.rosterSessions, {})
   assert.deepEqual(registered.agents, workspace()?.agents ?? {})
+  assert.equal(registered.runtimeState, 'idle', 'the persisted lifecycle rides the registration')
 
   // ── Agents-only churn must NOT re-register (runtime residue is main-owned
   // after the first registration).
@@ -211,6 +213,71 @@ async function main(): Promise<void> {
   // Runtime-residue ops never re-registered the run.
   await settle()
   assert.equal(fakeApi.registerCalls.length, 2, 'op application does not re-register')
+
+  // ── Lifecycle rides re-registrations: the blocked state above is visible to
+  // the scheduler the next time identity/config re-registers.
+  useWorkspaceStore.getState().setSprintEngineMaxConcurrentAgents(workspaceId, 4)
+  await settle()
+  assert.equal(fakeApi.registerCalls.length, 3, 'config change re-registers')
+  assert.equal(fakeApi.registerCalls[2].runtimeState, 'blocked', 'persisted lifecycle rides the registration')
+  assert.equal(fakeApi.registerCalls[2].reasonTaskId, 'T1')
+
+  // ── Agent configs: explicit tombstones + last-write-wins stamp. A
+  // sprintengine agent registers with null tombstones for unset fields…
+  useWorkspaceStore.getState().updateAgent(workspaceId, 'architect-1', { kind: 'sprintengine' })
+  await settle()
+  assert.equal(fakeApi.registerCalls.length, 4, 'a materialized sprintengine agent re-registers configs')
+  const seededConfig = fakeApi.registerCalls[3].agentConfigs['architect-1']
+  assert.ok(seededConfig, 'sprintengine agents always carry a config entry')
+  assert.equal(seededConfig.cliRuntimeOverride, null, 'unset override is an explicit tombstone')
+  assert.equal(seededConfig.cliStartupPrompt, null, 'unset startup prompt is an explicit tombstone')
+  assert.equal(seededConfig.name, 'Ada')
+
+  // …and a user config edit is stamped so main's merge is last-write-wins.
+  useWorkspaceStore.getState().updateAgent(workspaceId, 'architect-1', {
+    cliRuntimeOverride: { cli: 'codex', model: null },
+  })
+  await settle()
+  assert.equal(fakeApi.registerCalls.length, 5, 'a config edit re-registers')
+  const editedConfig = fakeApi.registerCalls[4].agentConfigs['architect-1']
+  assert.deepEqual(editedConfig?.cliRuntimeOverride, { cli: 'codex', model: null })
+  assert.ok(typeof editedConfig?.configEditedAt === 'number', 'the edit is stamped for last-write-wins')
+  assert.equal(
+    workspace()?.agents['architect-1']?.configEditedAt,
+    editedConfig.configEditedAt,
+    'the stamp lives on the agent record',
+  )
+
+  // ── diagnostic op: the entry lands in the notification store (main already
+  // wrote the JSONL).
+  fakeApi.broadcastOp({
+    kind: 'diagnostic',
+    statePath,
+    entry: {
+      id: 'diag-1',
+      timestamp: new Date(0).toISOString(),
+      level: 'warning',
+      source: 'sprintengine',
+      title: 'Artifact auto-approval skipped',
+      message: 'Review manually or retry.',
+    },
+  })
+  const notifications = useNotificationStore.getState().notifications
+  assert.ok(
+    notifications.some((notification) => notification.title === 'Artifact auto-approval skipped'),
+    'the diagnostic entry surfaces as an in-app notification',
+  )
+
+  // ── reveal_policy op: tab maintenance is a no-op without a layout model for
+  // the workspace (node fixture), but the op must apply cleanly.
+  fakeApi.broadcastOp({
+    kind: 'reveal_policy',
+    statePath,
+    agentId: 'architect-1',
+    name: 'T2: Ship the fixture',
+    revealPolicy: 'background',
+    sessionId: 'sess-2',
+  })
 
   // ── Stashed op: delivered before the workspace materializes, applied when
   // it does. The store derives a deterministic statePath from the run name.

@@ -178,6 +178,17 @@ export function createAgentsSlice(set: AgentsSliceSet): AgentsSlice {
         if (!ws) return
         if (!ws.agents[agentId]) ws.agents[agentId] = defaultAgent(agentId)
         Object.assign(ws.agents[agentId], update)
+        // Stamp user edits to the scheduler-honoured config fields so the
+        // sprint-runtime config merge is last-write-wins across windows. An
+        // update that already carries a stamp is a mirrored main-process
+        // mutation (e.g. startup-prompt consumption at spawn) — keep it.
+        if (
+          ('cliRuntimeOverride' in update || 'name' in update || 'cliStartupPrompt' in update)
+          && update.configEditedAt === undefined
+          && ws.agents[agentId].kind === 'sprintengine'
+        ) {
+          ws.agents[agentId].configEditedAt = Date.now()
+        }
         ws.agents[agentId].execution = normalizeAgentExecution(ws.agents[agentId].execution)
       }),
 

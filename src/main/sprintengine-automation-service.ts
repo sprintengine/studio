@@ -81,6 +81,14 @@ export type SprintEngineAutomationServiceDeps = {
   }) => Promise<{ ok: boolean; message?: string }>
   logDiagnostic: (input: DiagnosticLogInput) => void
   broadcast: (event: SprintEngineAutomationChangedEvent) => void
+  /**
+   * Called when `hydrateAutomationMode` seeds a sidecar (first write). The
+   * hydration deliberately does not `broadcast` to windows (the seeding
+   * renderer already holds the value), but the main scheduler still has to
+   * adopt the now-authoritative mode — without this a freshly created run
+   * would sit at `manual` in the scheduler until an explicit mode toggle.
+   */
+  notifyHydrated?: (statePath: string, record: SprintEngineAutomationIntentRecord) => void
   now?: () => number
 }
 
@@ -323,6 +331,7 @@ export function createSprintEngineAutomationService(deps: SprintEngineAutomation
             message: `Automation mode could not be persisted: ${error instanceof Error ? error.message : String(error)}`,
           }
         }
+        deps.notifyHydrated?.(input.statePath, record)
         return { ok: true as const, record, changed: true }
       })
     },

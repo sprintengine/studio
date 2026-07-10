@@ -143,7 +143,6 @@ const supervisorDormancyPorts: SprintEngineDormancyPorts = {
 // the departed-worker teardown, tab visibility, and UUID minting.
 const rendererCyclePorts: SprintEngineAutoRunCyclePorts = {
   ...defaultExecutorPorts,
-  getActiveWorkspaceId: () => useWorkspaceStore.getState().activeWorkspaceId,
   getPluginCatalogEntries: () => useWorkspaceStore.getState().pluginCatalogEntries,
   getSpawnSettings: () => {
     const { appSettings } = useWorkspaceStore.getState()

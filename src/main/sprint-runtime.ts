@@ -77,6 +77,7 @@ import {
 } from '../shared/agent-cli-resume'
 import type { SprintEngineLaunchSettings } from '../shared/sprintengine/launch-settings'
 import type {
+  SprintRuntimeAgentConfig,
   SprintRuntimeOp,
   SprintRuntimeRunRegistration,
   SprintRuntimeStopReasonPush,
@@ -100,6 +101,10 @@ type RunEntry = {
   view: SprintEngineWorkspaceView & { name: string; folderPath: string }
   rosterSessions: Record<string, SprintEngineRosterSession>
   cycleState: SprintEngineAutoRunCycleState
+  // A cycle pass is still running (or was watchdog-abandoned and has not yet
+  // settled). Two concurrent passes over the same ledgers double-send prompts
+  // and double-spawn, so ticks skip the entry until the work resolves.
+  tickInFlight: boolean
   refs: {
     inFlightSpawns: MutableRef<Set<string>>
     sentArtifactApprovalMessages: MutableRef<Map<string, number>>
@@ -239,6 +244,42 @@ export function createSprintRuntime(deps: SprintRuntimeDeps) {
     }
   }
 
+  /**
+   * Adopt an authoritative desired mode (the sidecar read at registration, or
+   * the automation service's hydration seeding) into main's view. Unlike a
+   * live `user_set_mode` intent this is a re-attach, not a gesture: the
+   * lifecycle the renderer registered (paused/blocked/failed/complete) is
+   * preserved, so an app relaunch never auto-resumes a run the user saw
+   * stopped and never re-activates a completed one. `idle` carries no
+   * enabling-mode lifecycle and maps to `running`, exactly like the legacy
+   * renderer normalizer.
+   */
+  function adoptDesiredMode(target: RunEntry, record: SprintEngineAutomationIntentRecord): void {
+    const current = currentAutoState(target)
+    if (current.desiredMode === record.desiredMode) return
+    if (record.desiredMode === 'manual') {
+      applyAutomationEventToView(target, { type: 'user_set_mode', mode: 'manual' })
+      return
+    }
+    const runtimeState = current.runtimeState === 'idle' ? 'running' : current.runtimeState
+    target.view.sprintEngineAutoState = {
+      ...current,
+      desiredMode: record.desiredMode,
+      runtimeState,
+      ...(runtimeState === 'running'
+        ? {
+          reason: undefined,
+          reasonMessage: undefined,
+          reasonTaskId: undefined,
+          reasonAgentId: undefined,
+        }
+        : {}),
+      changedAt: now(),
+    }
+    reconcilePower(target)
+    if (sprintEngineAutomationShouldRun(target.view.sprintEngineAutoState)) void tick()
+  }
+
   function persistResidue(entry: RunEntry): void {
     const autoState = currentAutoState(entry)
     deps.persistRuntimeResidue(entry.statePath, {
@@ -328,11 +369,40 @@ export function createSprintRuntime(deps: SprintRuntimeDeps) {
         deps.resolveMemoryRoot(workspaceRoot, relativeRoot),
 
       publishDiagnostic: async (input) => {
-        await deps.logDiagnostic(input)
+        const entry = await deps.logDiagnostic(input)
+        // Cycle diagnostics are user-facing (auto-approval skipped, roster
+        // replenishment failed, bootstrap stall…): mirror them into every
+        // window's notification store, matching the retired renderer
+        // supervisor's publishDiagnostic. Routed by workspaceId; a diagnostic
+        // without one is log-only.
+        const target = input.workspaceId ? entryForWorkspaceId(input.workspaceId) : undefined
+        if (!target) return
+        deps.broadcastOp({
+          kind: 'diagnostic',
+          statePath: target.statePath,
+          entry: entry ?? { ...input, id: randomUUID(), timestamp: new Date(now()).toISOString() },
+        })
       },
 
       // UI affordances -------------------------------------------------------
-      applyTerminalRevealPolicy: () => undefined,
+      // Tab maintenance is a window concern: broadcast so each window with an
+      // open tab for the agent renames it to the current task label and
+      // re-stamps its config's sessionId (a stale sessionId keeps the panel on
+      // the killed previous session). Auto-run never opens new tabs, so the
+      // 'background' policy semantics are preserved by the renderer applier.
+      applyTerminalRevealPolicy: (workspaceId, agentId, name, revealPolicy, config) => {
+        const target = entryForWorkspaceId(workspaceId)
+        if (!target) return
+        const sessionId = typeof config?.sessionId === 'string' ? config.sessionId : undefined
+        deps.broadcastOp({
+          kind: 'reveal_policy',
+          statePath: target.statePath,
+          agentId,
+          name,
+          revealPolicy,
+          ...(sessionId ? { sessionId } : {}),
+        })
+      },
       // "Never close the terminal the operator is looking at": main has no
       // flexlayout model, but the terminal runtime tracks per-session view
       // visibility (`setTerminalVisible` from mounted views), which is the
@@ -349,7 +419,6 @@ export function createSprintRuntime(deps: SprintRuntimeDeps) {
           && session.visible === true
         )
       },
-      getActiveWorkspaceId: () => null,
 
       getPluginCatalogEntries: () => deps.getPluginCatalogEntries(),
       getSpawnSettings: () => {
@@ -395,8 +464,16 @@ export function createSprintRuntime(deps: SprintRuntimeDeps) {
         const target = entryForWorkspaceId(workspaceId)
         if (!target) return
         const current = target.view.agents[agentId] ?? synthesizeAgent(agentId, agentId)
-        target.view.agents = { ...target.view.agents, [agentId]: { ...current, ...update } }
-        deps.broadcastOp({ kind: 'agent_updated', statePath: target.statePath, agentId, update })
+        // Config-field mutations from the cycle (e.g. consuming a startup
+        // prompt at spawn) stamp configEditedAt so a stale window
+        // registration cannot resurrect the consumed value.
+        const touchesConfig =
+          'cliRuntimeOverride' in update || 'name' in update || 'cliStartupPrompt' in update
+        const stamped = touchesConfig && update.configEditedAt === undefined
+          ? { ...update, configEditedAt: now() }
+          : update
+        target.view.agents = { ...target.view.agents, [agentId]: { ...current, ...stamped } }
+        deps.broadcastOp({ kind: 'agent_updated', statePath: target.statePath, agentId, update: stamped })
       },
       markSprintEngineAgentNotificationDelivered: (workspaceId, eventKey) => {
         const target = entryForWorkspaceId(workspaceId)
@@ -503,10 +580,20 @@ export function createSprintRuntime(deps: SprintRuntimeDeps) {
         const target = entryForWorkspaceId(workspace.id)
         if (!target) return
         const autoState = currentAutoState(target)
-        // One-shot: bound to the completion transition, exactly like the
-        // renderer marker semantics.
+        // The completion transition must always land — a run re-adopted into
+        // `running` while the one-shot teardown marker is still set would
+        // otherwise stay active forever, holding the power-save blocker and
+        // burning a projection read every tick. Only the teardown side
+        // effects below are one-shot (renderer marker semantics).
+        if (autoState.runtimeState !== 'complete') {
+          applyAutomationEventToView(target, { type: 'runner_complete' })
+          deps.broadcastOp({
+            kind: 'stop_reason',
+            statePath: target.statePath,
+            reason: 'all_tasks_done',
+          })
+        }
         if (autoState.completionTeardownAt !== undefined) return
-        applyAutomationEventToView(target, { type: 'runner_complete' })
         const at = now()
         target.view.sprintEngineAutoState = {
           ...currentAutoState(target),
@@ -538,11 +625,6 @@ export function createSprintRuntime(deps: SprintRuntimeDeps) {
         for (const agentId of agentIdsToRetire) {
           retireWorkerSession(target, agentId, sessions)
         }
-        deps.broadcastOp({
-          kind: 'stop_reason',
-          statePath: target.statePath,
-          reason: 'all_tasks_done',
-        })
         deps.broadcastOp({ kind: 'completion_teardown_at', statePath: target.statePath, at })
         persistResidue(target)
       },
@@ -566,8 +648,12 @@ export function createSprintRuntime(deps: SprintRuntimeDeps) {
   /**
    * Merge renderer-owned per-agent configuration (mid-run runtime override,
    * rename, queued custom startup prompt) into main's view — these are user
-   * edits the next spawn must honour; launch flags stay main-owned. Cleared
-   * config keys clear main's copy (e.g. a consumed startup prompt).
+   * edits the next spawn must honour; launch flags stay main-owned.
+   * Last-write-wins on `configEditedAt`: a registration stamped older than
+   * the edit main already holds is a lagging window's mirror and is ignored,
+   * so it can never clobber a newer edit from another window. Explicit `null`
+   * fields are tombstones (the user cleared the value); absent fields leave
+   * main's copy alone.
    */
   function mergeAgentConfigs(
     entry: RunEntry,
@@ -578,31 +664,43 @@ export function createSprintRuntime(deps: SprintRuntimeDeps) {
     const agentConfigs = agentConfigsInput ?? {}
     const next = { ...entry.view.agents }
     let changed = false
-    for (const [agentId, agent] of Object.entries(next)) {
-      const config = agentConfigs[agentId] ?? {}
-      const merged = {
-        ...agent,
-        cliRuntimeOverride: config.cliRuntimeOverride,
-        name: config.name ?? agent.name,
-        cliStartupPrompt: config.cliStartupPrompt,
-      }
-      if (
-        merged.cliRuntimeOverride !== agent.cliRuntimeOverride
-        || merged.name !== agent.name
-        || merged.cliStartupPrompt !== agent.cliStartupPrompt
-      ) {
-        next[agentId] = merged
+    const applyConfig = (agent: AgentState, config: SprintRuntimeAgentConfig): AgentState => ({
+      ...agent,
+      ...(config.cliRuntimeOverride !== undefined
+        ? { cliRuntimeOverride: config.cliRuntimeOverride ?? undefined }
+        : {}),
+      ...(config.name !== undefined ? { name: config.name } : {}),
+      ...(config.cliStartupPrompt !== undefined
+        ? { cliStartupPrompt: config.cliStartupPrompt ?? undefined }
+        : {}),
+      ...(config.configEditedAt !== undefined ? { configEditedAt: config.configEditedAt } : {}),
+    })
+    for (const [agentId, config] of Object.entries(agentConfigs)) {
+      const agent = next[agentId]
+      if (agent) {
+        // An unstamped config never displaces a stamped record, and an older
+        // stamp never displaces a newer edit.
+        const currentStamp = agent.configEditedAt
+        if (
+          currentStamp !== undefined
+          && (config.configEditedAt === undefined || config.configEditedAt < currentStamp)
+        ) {
+          continue
+        }
+        const merged = applyConfig(agent, config)
+        if (
+          merged.cliRuntimeOverride !== agent.cliRuntimeOverride
+          || merged.name !== agent.name
+          || merged.cliStartupPrompt !== agent.cliStartupPrompt
+          || merged.configEditedAt !== agent.configEditedAt
+        ) {
+          next[agentId] = merged
+          changed = true
+        }
+      } else {
+        next[agentId] = applyConfig(synthesizeAgent(agentId, config.name ?? agentId), config)
         changed = true
       }
-    }
-    for (const [agentId, config] of Object.entries(agentConfigs)) {
-      if (next[agentId]) continue
-      next[agentId] = {
-        ...synthesizeAgent(agentId, config.name ?? agentId),
-        ...(config.cliRuntimeOverride ? { cliRuntimeOverride: config.cliRuntimeOverride } : {}),
-        ...(config.cliStartupPrompt ? { cliStartupPrompt: config.cliStartupPrompt } : {}),
-      }
-      changed = true
     }
     if (changed) entry.view.agents = next
   }
@@ -710,6 +808,9 @@ export function createSprintRuntime(deps: SprintRuntimeDeps) {
       for (const entry of [...runsByStatePath.values()]) {
         reconcilePower(entry)
         if (!sprintEngineAutomationShouldRun(entry.view.sprintEngineAutoState)) continue
+        // A watchdog-abandoned pass may still be settling; never run a second
+        // cycle over the same entry's ledgers concurrently.
+        if (entry.tickInFlight) continue
         const ports = buildPorts()
         const entryWork = async (): Promise<void> => {
           // Keep the view's projection fresh before deciding anything — main
@@ -741,13 +842,21 @@ export function createSprintRuntime(deps: SprintRuntimeDeps) {
             entry.refs.retirementCooldownByAgent,
           )
         }
+        entry.tickInFlight = true
+        const work = entryWork()
+        // Release the per-entry lock only when the work actually settles —
+        // the watchdog below abandons WAITING on it, never cancels it, so
+        // until then ticks skip this entry (see the tickInFlight guard).
+        void work.catch(() => undefined).finally(() => {
+          entry.tickInFlight = false
+        })
         try {
           // Watchdog: a hung engine subprocess (projection read, replenish,
           // auto-approve) must not wedge the app-lifetime loop for every run.
-          // On timeout the loop moves on; the abandoned work settles against
-          // the same view harmlessly and the next tick retries.
+          // On timeout the loop moves on to the other runs; this run resumes
+          // once the stalled work settles.
           await Promise.race([
-            entryWork(),
+            work,
             new Promise<never>((_, reject) => {
               setTimeout(
                 () => reject(new Error(`Scheduler tick exceeded ${SPRINT_RUNTIME_TICK_WATCHDOG_MS}ms`)),
@@ -760,7 +869,7 @@ export function createSprintRuntime(deps: SprintRuntimeDeps) {
             level: 'warning',
             source: 'sprintengine',
             title: 'Sprint scheduler tick failed',
-            message: `The main-process auto-run tick failed for ${entry.workspaceName}; it retries on the next tick.`,
+            message: `The main-process auto-run tick failed for ${entry.workspaceName}; it retries once the current attempt settles.`,
             details: error instanceof Error ? error.stack ?? error.message : String(error),
           })
         }
@@ -789,10 +898,14 @@ export function createSprintRuntime(deps: SprintRuntimeDeps) {
         // scheduler-owned runtime residue (pendingSpawns, delivered keys,
         // runtimeState) stays main-owned once adopted.
         if (existing.view.id !== registration.workspaceId) {
-          runsByWorkspaceId.delete(existing.view.id)
+          if (runsByWorkspaceId.get(existing.view.id) === existing) {
+            runsByWorkspaceId.delete(existing.view.id)
+          }
           existing.view.id = registration.workspaceId
-          runsByWorkspaceId.set(registration.workspaceId, existing)
         }
+        // Unconditional re-insert (newest registration wins) heals a mapping
+        // lost to a same-workspace old-run unregister.
+        runsByWorkspaceId.set(registration.workspaceId, existing)
         existing.workspaceName = registration.workspaceName
         existing.view.name = registration.workspaceName
         existing.view.folderPath = registration.folderPath
@@ -820,8 +933,23 @@ export function createSprintRuntime(deps: SprintRuntimeDeps) {
           agents: { ...registration.agents },
           sprintEngineState: null,
           sprintEngineAutoState: {
+            // Desired mode stays 'manual' until the authoritative sidecar
+            // read/hydration lands (a scheduler must never spawn on a guess);
+            // the renderer-persisted lifecycle seeds now so that adoption can
+            // preserve a paused/blocked/failed/complete run instead of
+            // forcing it back to 'running'.
             desiredMode: 'manual',
-            runtimeState: 'idle',
+            runtimeState: registration.runtimeState ?? 'idle',
+            ...(registration.reason !== undefined ? { reason: registration.reason } : {}),
+            ...(registration.reasonMessage !== undefined
+              ? { reasonMessage: registration.reasonMessage }
+              : {}),
+            ...(registration.reasonTaskId !== undefined
+              ? { reasonTaskId: registration.reasonTaskId }
+              : {}),
+            ...(registration.reasonAgentId !== undefined
+              ? { reasonAgentId: registration.reasonAgentId }
+              : {}),
             cliPermissionPreset: registration.cliPermissionPreset,
             maxConcurrentAgents: registration.maxConcurrentAgents,
             pendingSpawns: registration.pendingSpawns,
@@ -843,6 +971,7 @@ export function createSprintRuntime(deps: SprintRuntimeDeps) {
         },
         rosterSessions: { ...registration.rosterSessions },
         cycleState: createSprintEngineAutoRunCycleState(),
+        tickInFlight: false,
         refs: {
           inFlightSpawns: { current: new Set() },
           sentArtifactApprovalMessages: { current: new Map() },
@@ -886,11 +1015,22 @@ export function createSprintRuntime(deps: SprintRuntimeDeps) {
             }
             target.rosterSessions = { ...target.rosterSessions, ...record.runtime.rosterSessions }
           }
-          if (currentAutoState(target).desiredMode === record.desiredMode) return
-          applyAutomationEventToView(target, { type: 'user_set_mode', mode: record.desiredMode })
-          void tick()
+          adoptDesiredMode(target, record)
         })
         .catch(() => undefined)
+    },
+
+    /**
+     * The Phase 1 service hydrated a legacy run's sidecar (first write, no
+     * broadcast): adopt the now-authoritative mode here — without this a
+     * freshly created or legacy run whose registration raced the hydration
+     * would sit at `manual` in the scheduler forever while the board showed
+     * an automation mode. Lifecycle-preserving (see `adoptDesiredMode`).
+     */
+    adoptAutomationRecord(statePath: string, record: SprintEngineAutomationIntentRecord): void {
+      const entry = runsByStatePath.get(statePath)
+      if (!entry) return
+      adoptDesiredMode(entry, record)
     },
 
     /** Renderer stops tracking a run (workspace removed). */
@@ -898,7 +1038,12 @@ export function createSprintRuntime(deps: SprintRuntimeDeps) {
       const entry = runsByStatePath.get(statePath)
       if (!entry) return
       runsByStatePath.delete(statePath)
-      runsByWorkspaceId.delete(entry.view.id)
+      // Only drop the workspace mapping when this entry still owns it — a
+      // newer run in the same workspace (new team dir) may have taken it
+      // over, and deleting blindly would orphan that run's port lookups.
+      if (runsByWorkspaceId.get(entry.view.id) === entry) {
+        runsByWorkspaceId.delete(entry.view.id)
+      }
       deps.powerManager.markRunInactive(statePath)
     },
 

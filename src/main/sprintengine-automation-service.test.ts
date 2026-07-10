@@ -3,6 +3,7 @@ import { mkdtemp, mkdir, readFile, rm, writeFile } from 'fs/promises'
 import { tmpdir } from 'os'
 import { dirname, join } from 'path'
 import type { DiagnosticLogInput } from '../shared/electron-api'
+import type { SprintEngineAutomationIntentRecord } from '../shared/sprintengine/automation-intent'
 import {
   createSprintEngineAutomationService,
   type SprintEngineAutomationChangedEvent,
@@ -14,6 +15,7 @@ type Harness = {
   broadcasts: SprintEngineAutomationChangedEvent[]
   diagnostics: DiagnosticLogInput[]
   runnerWrites: Array<{ statePath: string; cliWatchPolling: 'enabled' | 'disabled' }>
+  hydrations: Array<{ statePath: string; record: SprintEngineAutomationIntentRecord }>
   service: ReturnType<typeof createSprintEngineAutomationService>
 }
 
@@ -29,6 +31,7 @@ async function createHarness(root: string, options?: {
   const broadcasts: SprintEngineAutomationChangedEvent[] = []
   const diagnostics: DiagnosticLogInput[] = []
   const runnerWrites: Array<{ statePath: string; cliWatchPolling: 'enabled' | 'disabled' }> = []
+  const hydrations: Array<{ statePath: string; record: SprintEngineAutomationIntentRecord }> = []
 
   const service = createSprintEngineAutomationService({
     setRunnerCliWatchPolling: async (input) => {
@@ -37,6 +40,7 @@ async function createHarness(root: string, options?: {
     },
     logDiagnostic: (input) => diagnostics.push(input),
     broadcast: (event) => broadcasts.push(event),
+    notifyHydrated: (statePath, record) => hydrations.push({ statePath, record }),
     ...(options?.now ? { now: options.now } : {}),
   })
 
@@ -46,6 +50,7 @@ async function createHarness(root: string, options?: {
     broadcasts,
     diagnostics,
     runnerWrites,
+    hydrations,
     service,
   }
 }
@@ -254,6 +259,11 @@ async function main(): Promise<void> {
     await flushMicrotasks()
     assert.equal(harness.runnerWrites.length, 0)
     assert.equal(harness.diagnostics.length, 0)
+    // The scheduler still learns the seeded mode (no window broadcast, but the
+    // run must not sit at 'manual' in main forever).
+    assert.equal(harness.hydrations.length, 1)
+    assert.equal(harness.hydrations[0]?.statePath, harness.statePath)
+    assert.equal(harness.hydrations[0]?.record.desiredMode, 'run_agents_and_approve_artifacts')
 
     const again = await harness.service.hydrateAutomationMode({
       statePath: harness.statePath,
@@ -263,6 +273,7 @@ async function main(): Promise<void> {
     assert.equal(again.changed, false)
     assert.equal(again.record.desiredMode, 'run_agents_and_approve_artifacts',
       'a second hydration never overwrites the first')
+    assert.equal(harness.hydrations.length, 1, 'an unchanged hydration never re-notifies the scheduler')
   })
 
   // read: null before any write; the record after

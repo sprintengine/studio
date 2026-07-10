@@ -22,10 +22,13 @@
  */
 import type {
   SprintEngineAutoPendingSpawn,
+  SprintEngineAutomationRuntimeState,
+  SprintEngineAutomationStopReason,
   SprintEngineCliPermissionPreset,
 } from './automation-types'
 import type { SprintEngineRosterSession } from './run-types'
 import type { AgentState } from './agent-state'
+import type { DiagnosticLogEntry } from '../electron-api'
 
 export const SPRINT_RUNTIME_OP_CHANNEL = 'sprintengine:runtime-op'
 
@@ -50,6 +53,19 @@ export type SprintRuntimeRunRegistration = {
   pendingSpawns: SprintEngineAutoPendingSpawn[]
   deliveredAgentNotificationEventKeys: string[]
   completionTeardownAt?: number
+  /**
+   * Renderer-persisted automation lifecycle, adopted (like the residue above)
+   * on first registration only. When main later adopts the sidecar's desired
+   * mode it preserves this runtime state instead of forcing `running`, so an
+   * app relaunch never auto-resumes a run the user saw paused/blocked/failed
+   * and never re-activates a completed one. Absent (older window build or no
+   * meaningful lifecycle) falls back to `running` for enabling modes.
+   */
+  runtimeState?: SprintEngineAutomationRuntimeState
+  reason?: SprintEngineAutomationStopReason
+  reasonMessage?: string
+  reasonTaskId?: string
+  reasonAgentId?: string
   /** Resume tokens for roster agents (renderer store `sprintEngineRosterSessions`). */
   rosterSessions: Record<string, SprintEngineRosterSession>
   /** Current agent records so main's view starts from what the UI shows. */
@@ -63,10 +79,19 @@ export type SprintRuntimeRunRegistration = {
   agentConfigs: Record<string, SprintRuntimeAgentConfig>
 }
 
+/**
+ * Per-agent renderer-owned config. `null` is an explicit tombstone ("the user
+ * cleared this") — distinct from an absent field, which means "this window has
+ * no opinion" and never clears main's copy. `configEditedAt` mirrors the agent
+ * record's stamp; main applies a config only when it is not older than the
+ * last one applied, so a lagging window's re-registration cannot clobber a
+ * newer edit from another window.
+ */
 export type SprintRuntimeAgentConfig = {
-  cliRuntimeOverride?: { cli?: string; model?: string | null }
+  cliRuntimeOverride?: { cli?: string; model?: string | null } | null
   name?: string
-  cliStartupPrompt?: string
+  cliStartupPrompt?: string | null
+  configEditedAt?: number
 }
 
 export type SprintRuntimeStopReasonPush = {
@@ -115,3 +140,25 @@ export type SprintRuntimeOp =
     closedSessionId: string | null
   }
   | { kind: 'completion_teardown_at'; statePath: string; at: number | undefined }
+  /**
+   * A user-facing cycle diagnostic (auto-approval skipped, roster
+   * replenishment failed, bootstrap stall…). Main already wrote the JSONL —
+   * windows only surface the entry in the in-app notification store, matching
+   * the retired renderer supervisor's `publishDiagnostic` behavior.
+   */
+  | { kind: 'diagnostic'; statePath: string; entry: DiagnosticLogEntry }
+  /**
+   * Tab maintenance after a scheduler spawn/notification paste: windows with
+   * an open tab for the agent rename it to the current task label and
+   * re-stamp its config (sessionId), exactly like the retired supervisor's
+   * `applyAgentTerminalRevealPolicy(..., 'background')` call. Never opens a
+   * new tab.
+   */
+  | {
+    kind: 'reveal_policy'
+    statePath: string
+    agentId: string
+    name: string
+    revealPolicy: 'background' | 'focus-if-open' | 'reveal'
+    sessionId?: string
+  }
