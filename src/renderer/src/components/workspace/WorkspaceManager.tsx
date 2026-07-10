@@ -73,6 +73,8 @@ import { publishDiagnosticSync } from '../../utils/diagnostics'
 import { logPerfEvent } from '../../utils/perfDiagnostics'
 import { applySprintEngineAutomationStopReason } from '../../utils/sprintengineSupervisorNotifications'
 import { initSprintEngineAutomationModeSync } from '../../utils/sprintengineAutomationModeSync'
+import { initSprintEngineLaunchSettingsSync } from '../../utils/sprintengineLaunchSettingsSync'
+import { initSprintEngineRuntimeBridge } from '../../utils/sprintengineRuntimeBridge'
 import { addAgentTabTiled, addTerminalTab, focusOrAddAgentTab, focusOrAddFileTab, focusOrAddTerminalTab, getModel, jsonModelHasComponent, revealNavRailComponent, togglePanelRailComponent } from '../../utils/modelRegistry'
 import { MULTICODE_DISABLE_SPRINTENGINE_SYNC } from '../../utils/runtimeFlags'
 import { agentCliSupportsConversationResume, agentCliUsesStableSessionIdForResume } from '../../utils/agentCliResume'
@@ -265,6 +267,11 @@ export default function WorkspaceManager() {
   // broadcasts and run the one-time per-run hydration sweep. Idempotent across
   // windows (main accepts the first hydration only).
   useEffect(() => initSprintEngineAutomationModeSync(), [])
+  // Main-owned sprint scheduling (sprint-runtime-ownership Phase 2): mirror
+  // the agent-launch settings to main, register sprint runs with the
+  // scheduler, and apply its runtime-op broadcasts into this window's store.
+  useEffect(() => initSprintEngineLaunchSettingsSync(), [])
+  useEffect(() => initSprintEngineRuntimeBridge(), [])
   const workspaces = useWorkspaceStore(useShallow((s) => selectWorkspaceManagerWorkspaces(s.workspaces)))
   const workspaceWindows = useWorkspaceStore((s) => s.workspaceWindows)
   const primaryWorkspaceWindowId = useWorkspaceStore((s) => s.primaryWorkspaceWindowId)

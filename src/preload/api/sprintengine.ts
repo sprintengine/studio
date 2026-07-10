@@ -25,6 +25,13 @@ import type {
   SprintEngineTaskUpdateInput,
 } from '../../shared/electron-api'
 import type { SprintEngineTokenUsageReport } from '../../shared/sprintengine-token-usage'
+import type { SprintEngineLaunchSettings } from '../../shared/sprintengine/launch-settings'
+import {
+  SPRINT_RUNTIME_OP_CHANNEL,
+  type SprintRuntimeOp,
+  type SprintRuntimeRunRegistration,
+  type SprintRuntimeStopReasonPush,
+} from '../../shared/sprintengine/runtime-bridge'
 import type {
   UserRoleDeleteResult,
   UserRoleGetResult,
@@ -152,6 +159,28 @@ export const sprintEngineApi = {
     ipcRenderer.on(ch, handler)
     return () => ipcRenderer.removeListener(ch, handler)
   },
+  syncSprintEngineLaunchSettings: (
+    input: SprintEngineLaunchSettings
+  ): Promise<{ ok: boolean }> =>
+    ipcRenderer.invoke('sprintengine:launch-settings:sync', input),
+  registerSprintRuntimeRun: (
+    input: SprintRuntimeRunRegistration
+  ): Promise<{ ok: boolean }> =>
+    ipcRenderer.invoke('sprintengine:runtime:register-run', input),
+  unregisterSprintRuntimeRun: (
+    input: { statePath: string }
+  ): Promise<{ ok: boolean }> =>
+    ipcRenderer.invoke('sprintengine:runtime:unregister-run', input),
+  pushSprintRuntimeStopReason: (
+    input: SprintRuntimeStopReasonPush
+  ): Promise<{ ok: boolean }> =>
+    ipcRenderer.invoke('sprintengine:runtime:stop-reason', input),
+  onSprintRuntimeOp: (cb: (op: SprintRuntimeOp) => void): (() => void) => {
+    const ch = SPRINT_RUNTIME_OP_CHANNEL
+    const handler = (_: IpcRendererEvent, op: SprintRuntimeOp) => cb(op)
+    ipcRenderer.on(ch, handler)
+    return () => ipcRenderer.removeListener(ch, handler)
+  },
 } satisfies Pick<
   ElectronApi,
   | 'openSprintEngineArtifact'
@@ -168,6 +197,11 @@ export const sprintEngineApi = {
   | 'setSprintEngineAutomationMode'
   | 'hydrateSprintEngineAutomationMode'
   | 'onSprintEngineAutomationChanged'
+  | 'syncSprintEngineLaunchSettings'
+  | 'registerSprintRuntimeRun'
+  | 'unregisterSprintRuntimeRun'
+  | 'pushSprintRuntimeStopReason'
+  | 'onSprintRuntimeOp'
   | 'createSprintEnginePullRequest'
   | 'refreshSprintEnginePullRequestStatus'
   | 'replenishSprintEngineRoster'

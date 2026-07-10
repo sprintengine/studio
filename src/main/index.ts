@@ -176,6 +176,7 @@ registerAppLifecycle({
   automationService: services.automationService,
   agentStateService: services.agentStateService,
   workspaceSyncService: services.workspaceSyncService,
+  sprintRuntime: services.sprintRuntime,
   moduleKernel: moduleLoad.kernel,
   updateService: services.updateService,
   handleAuthCallback: (argv) => {

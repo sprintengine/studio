@@ -1,4 +1,4 @@
-import { app, BrowserWindow, shell } from 'electron'
+import { app, BrowserWindow, powerSaveBlocker, shell } from 'electron'
 import { existsSync } from 'fs'
 import { join } from 'path'
 import { createAgentConfigImportService } from './agent-config-import'
@@ -29,7 +29,13 @@ import { createSkillPackService } from './skill-pack-service'
 import { createWorkspaceSkillsService } from './workspace-skills-service'
 import { createSprintEngineArtifactHandlers } from './sprintengine-artifacts'
 import { createSprintEngineAutomationService } from './sprintengine-automation-service'
+import { createSprintEngineLaunchSettingsMirror } from './sprintengine-launch-settings-mirror'
+import { createSprintPowerManager } from './sprint-power-manager'
+import { createSprintRuntime, type SprintRuntime } from './sprint-runtime'
+import { resolveMemoryRoot } from './memory-graph'
+import { listPluginRegistryEntries } from './plugin-registry-instance'
 import { SPRINT_ENGINE_AUTOMATION_CHANGED_CHANNEL } from './ipc/sprintengine-automation-ipc'
+import { SPRINT_RUNTIME_OP_CHANNEL } from '../shared/sprintengine/runtime-bridge'
 import { createGatedSprintEngineMcpHub, createSprintEngineMcpHubService } from './sprintengine-mcp-hub'
 import { syncManagedSprintEngineMcpConfig } from './sprintengine-managed-mcp-sync'
 import { excludeMcpConfigFromWorktree } from './git'
@@ -119,6 +125,10 @@ export function createAppServices(diagnosticsEnabled: boolean) {
   // path for every mode writer: desktop UI (IPC), phone (mobile command), and
   // any future scheduler/CLI. Persists `automation.json` beside run.yaml,
   // audits manual transitions, bridges cliWatchPolling, and broadcasts.
+  // The sprint scheduler is created below (it needs the terminal runtime);
+  // the automation broadcast wakes it through this late-bound reference.
+  let sprintRuntimeRef: SprintRuntime | null = null
+
   const sprintEngineAutomation = createSprintEngineAutomationService({
     setRunnerCliWatchPolling: async ({ statePath, cliWatchPolling }) => {
       const result = await sprintEngineArtifacts.setRunnerMode({ statePath, cliWatchPolling })
@@ -128,10 +138,22 @@ export function createAppServices(diagnosticsEnabled: boolean) {
       void writeDiagnosticLog(diagnostic)
     },
     broadcast: (event) => {
+      // The scheduler adopts the new mode before any window does, so an
+      // enabling write starts progressing even if every window is busy.
+      sprintRuntimeRef?.notifyAutomationChanged(event.statePath, event.record)
       for (const window of BrowserWindow.getAllWindows()) {
         if (window.isDestroyed() || window.webContents.isDestroyed()) continue
         window.webContents.send(SPRINT_ENGINE_AUTOMATION_CHANGED_CHANNEL, event)
       }
+    },
+  })
+
+  // Renderer-pushed agent-launch settings (cliRuntimes/mcp/knowledge/model
+  // catalog) for main-side sprint agent spawns; persisted under userData.
+  const sprintEngineLaunchSettings = createSprintEngineLaunchSettingsMirror({
+    resolveUserDataDir: () => app.getPath('userData'),
+    logDiagnostic: (diagnostic) => {
+      void writeDiagnosticLog({ ...diagnostic, source: 'sprintengine' })
     },
   })
 
@@ -189,6 +211,65 @@ export function createAppServices(diagnosticsEnabled: boolean) {
       return { ok: false, retryable: false, message: result.message }
     },
   })
+  // The main-process sprint scheduler (sprint-runtime-ownership Phase 2):
+  // drives the shared auto-run cycle against the terminal runtime in-process,
+  // immune to renderer occlusion throttling. Spawns still need a window as the
+  // terminal event sink (Phase 3 removes that).
+  const sprintPowerManager = createSprintPowerManager({
+    powerSaveBlocker,
+    logDiagnostic: (diagnostic) => {
+      void writeDiagnosticLog({ ...diagnostic, source: 'sprintengine' })
+    },
+  })
+  const sprintRuntime = createSprintRuntime({
+    terminal: {
+      list: () => terminalRuntime.ipcHandlers.listTerminals(),
+      write: (sessionId, data) => terminalRuntime.ipcHandlers.writeTerminal(sessionId, data),
+      kill: (sessionId) => terminalRuntime.ipcHandlers.killTerminal(sessionId),
+      status: async (sessionId) => {
+        const status = await terminalRuntime.ipcHandlers.getTerminalStatus(sessionId)
+        return { processAlive: status.processAlive }
+      },
+      spawn: async (args) => {
+        const sender = BrowserWindow.getAllWindows()
+          .find((window) => !window.isDestroyed() && !window.webContents.isDestroyed())
+          ?.webContents
+        if (!sender) {
+          return {
+            ok: false,
+            sessionId: args.sessionId,
+            message: 'No desktop window is available to host the agent terminal (headless spawns arrive with session ownership, Phase 3).',
+            exitCode: 1,
+          }
+        }
+        return terminalRuntime.ipcHandlers.spawnTerminal(sender, args)
+      },
+    },
+    artifacts: {
+      readProjection: (input) => sprintEngineArtifacts.readProjection(input),
+      autoApproveArtifact: ({ statePath, artifactId }) =>
+        sprintEngineArtifacts.reviewArtifact({ statePath, artifactId }, 'approve', 'auto-run'),
+      replenishRoster: (input) => sprintEngineArtifacts.replenishRoster(input),
+    },
+    pathExists: async (path) => existsSync(path),
+    resolveMemoryRoot: (workspaceRoot, relativeRoot) => resolveMemoryRoot(workspaceRoot, relativeRoot),
+    getPluginCatalogEntries: () => listPluginRegistryEntries(),
+    getLaunchSettings: () => sprintEngineLaunchSettings.get(),
+    readAutomationMode: async (statePath) => {
+      const result = await sprintEngineAutomation.readAutomationMode({ statePath })
+      return result.ok ? result.record : null
+    },
+    powerManager: sprintPowerManager,
+    broadcastOp: (op) => {
+      for (const window of BrowserWindow.getAllWindows()) {
+        if (window.isDestroyed() || window.webContents.isDestroyed()) continue
+        window.webContents.send(SPRINT_RUNTIME_OP_CHANNEL, op)
+      }
+    },
+    logDiagnostic: (diagnostic) => writeDiagnosticLog(diagnostic),
+  })
+  sprintRuntimeRef = sprintRuntime
+
   const updateService = new MulticodeUpdateService({ writeDiagnosticLog })
   const agentConfigImportService = createAgentConfigImportService({
     mcpConfigService,
@@ -290,7 +371,10 @@ export function createAppServices(diagnosticsEnabled: boolean) {
     skillPackService,
     sprintEngineArtifacts,
     sprintEngineAutomation,
+    sprintEngineLaunchSettings,
     sprintEngineMcpHub,
+    sprintPowerManager,
+    sprintRuntime,
     terminalRuntime,
     updateService,
     withIpcDiagnostics,

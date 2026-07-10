@@ -55,6 +55,19 @@ export function setSprintEngineAutoRunPerfLogger(
   autoRunPerfLogger = logger
 }
 
+/**
+ * Emit through the injected perf seam. Exported so the sibling shared modules
+ * (`auto-run-cycle.ts`) log through the SAME seam the renderer shim wires to
+ * `logPerfEvent` — one injection point covers the whole shared auto-run corpus.
+ */
+export function sprintEngineAutoRunPerfLog(
+  scope: string,
+  event: string,
+  payload?: Record<string, unknown>
+): void {
+  autoRunPerfLogger(scope, event, payload)
+}
+
 export const AUTO_RUN_ROLE_CONTINUATION_GRACE_MS = 30000
 
 export const NEEDS_INPUT_AUTO_APPROVAL_STATUSES = new Set<SprintEngineArtifact['status']>([

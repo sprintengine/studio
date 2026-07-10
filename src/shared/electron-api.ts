@@ -1,6 +1,12 @@
 import type { TranscriptionRequestSettings, VoiceTranscribeResponse } from './voiceTranscription'
 import type { SprintEngineAutomationIntentRecord } from './sprintengine/automation-intent'
 import type { SprintEngineAutomationMode as SprintEngineAutomationIntentMode } from './sprintengine/automation-types'
+import type { SprintEngineLaunchSettings } from './sprintengine/launch-settings'
+import type {
+  SprintRuntimeOp,
+  SprintRuntimeRunRegistration,
+  SprintRuntimeStopReasonPush,
+} from './sprintengine/runtime-bridge'
 import type {
   AutomationRendererRequest,
   AutomationRendererResponse,
@@ -2498,6 +2504,16 @@ export type ElectronApi = {
   hydrateSprintEngineAutomationMode: (input: SprintEngineAutomationHydrateInput) => Promise<SprintEngineAutomationWriteResult>
   /** Authoritative automation-intent changes pushed from main (any writer: UI, phone, system). */
   onSprintEngineAutomationChanged: (cb: (event: SprintEngineAutomationChangedEvent) => void) => () => void
+  /** Mirror the renderer's agent-launch settings to main for scheduler spawns (Phase 2). */
+  syncSprintEngineLaunchSettings: (input: SprintEngineLaunchSettings) => Promise<{ ok: boolean }>
+  /** Announce/refresh a sprint run's context to the main scheduler (Phase 2). */
+  registerSprintRuntimeRun: (input: SprintRuntimeRunRegistration) => Promise<{ ok: boolean }>
+  /** Stop tracking a run in the main scheduler (workspace removed). */
+  unregisterSprintRuntimeRun: (input: { statePath: string }) => Promise<{ ok: boolean }>
+  /** Push a renderer-originated automation stop (terminal closed, removed…) to the scheduler. */
+  pushSprintRuntimeStopReason: (input: SprintRuntimeStopReasonPush) => Promise<{ ok: boolean }>
+  /** Scheduler-performed store mutations, mirrored to every window (Phase 2). */
+  onSprintRuntimeOp: (cb: (op: SprintRuntimeOp) => void) => () => void
   createSprintEnginePullRequest: (statePath: string) => Promise<SprintEngineArtifactCommandResult>
   refreshSprintEnginePullRequestStatus: (statePath: string) => Promise<SprintEngineArtifactCommandResult>
   replenishSprintEngineRoster: (input: SprintEngineRosterReplenishInput) => Promise<SprintEngineArtifactCommandResult>

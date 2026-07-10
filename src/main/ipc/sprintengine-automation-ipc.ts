@@ -5,6 +5,7 @@ import type {
   SprintEngineAutomationSetModeInput,
 } from '../../shared/electron-api'
 import type { SprintEngineAutomationService } from '../sprintengine-automation-service'
+import type { SprintEngineLaunchSettingsMirror } from '../sprintengine-launch-settings-mirror'
 
 export const SPRINT_ENGINE_AUTOMATION_CHANGED_CHANNEL = 'sprintengine:automation-changed'
 
@@ -13,6 +14,7 @@ type SprintEngineAutomationIpcDependencies = {
     SprintEngineAutomationService,
     'readAutomationMode' | 'setAutomationMode' | 'hydrateAutomationMode'
   >
+  launchSettings: Pick<SprintEngineLaunchSettingsMirror, 'set'>
 }
 
 export function registerSprintEngineAutomationIpc(
@@ -32,5 +34,13 @@ export function registerSprintEngineAutomationIpc(
 
   ipcMain.handle('sprintengine:automation:hydrate', (_event, payload: SprintEngineAutomationHydrateInput) => {
     return deps.automation.hydrateAutomationMode(payload)
+  })
+
+  // Phase 2: the renderer mirrors its agent-launch settings (cliRuntimes, mcp,
+  // knowledge roots, model catalog) so the main scheduler spawns with the same
+  // inputs the renderer supervisor used. Payload is normalized fail-soft.
+  ipcMain.handle('sprintengine:launch-settings:sync', (_event, payload: unknown) => {
+    deps.launchSettings.set(payload)
+    return { ok: true as const }
   })
 }

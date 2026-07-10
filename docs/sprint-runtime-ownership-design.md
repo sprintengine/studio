@@ -53,11 +53,14 @@ against the code as of `main@22991255`.
 4. **Single writer path.** Desktop UI, phone, and any future CLI all converge
    on the main-process `setAutomationMode` service call; audit is emitted in
    main so parity is structural, not disciplinary.
-5. **Feature-flagged migration.** Each phase's main-side owner ships behind a
-   runtime flag with the renderer path as fallback; flip-then-delete once
-   proven. (Policy note: flags here are *migration* staging inside the epic's
-   own branch, deleted at the end of the phase that proves them — not
-   long-lived dual paths.)
+5. **No runtime behavior flags** (project policy, overriding the epic's
+   rollout sketch): the Sprint Engine lands policy changes directly in small
+   revertible commits — safety comes from pre-release validation, never
+   dual-path toggles. Phase 2 therefore moves scheduling to main outright in
+   its own commit (the renderer supervisor keeps only its reconcile/view role
+   until Phase 3 deletes it); there is no shadow mode, no `schedulerOwner`
+   toggle, and the end state is a single owner. Each phase commit is
+   independently revertible.
 
 ## Persistence: `automation.json` (Phase 1, extended in later phases)
 
@@ -225,14 +228,18 @@ Core moves:
   actively auto-running; released when the last run goes idle/complete/manual
   and on shutdown (release path tested). `backgroundThrottling: false` on the
   workspace windows so the renderer view stays live when occluded.
-- Single-owner guard + migration flag: the automation sidecar records
-  `schedulerOwner: 'main' | 'renderer'`. A main-side runtime setting
-  (userData JSON, module-enablement pattern) selects the owner; the renderer
-  supervisor reads the owner from the synced automation state each tick and
-  stands down from *spawning/dispatching* when main owns the run (it keeps
-  pure-view reconciliation until Phase 3 deletes it). Default stays
-  `renderer` until parity is proven; flipping is one setting write away, and
-  the renderer path is deleted in Phase 3.
+- Single owner, no flag (see cross-phase principle 5): Phase 2's commit moves
+  scheduling to main outright. The renderer supervisor keeps only its
+  session-reconcile phase; there is exactly one scheduler per run at all
+  times.
+- The main↔renderer bridge (`src/shared/sprintengine/runtime-bridge.ts`):
+  the renderer registers run contexts (identity + run config; runtime residue
+  adopted on first registration only) and pushes renderer-originated stops;
+  main broadcasts every cycle store-op on `sprintengine:runtime-op`, applied
+  by `sprintengineRuntimeBridge.ts` with the same no-echo discipline as the
+  Phase 1 mode sync. Launch settings mirror through
+  `sprintengine:launch-settings:sync` into a userData-persisted store so main
+  spawns with the renderer's configured runtimes headlessly.
 
 ## Phase 3 — Session model → main; renderer pure view
 
