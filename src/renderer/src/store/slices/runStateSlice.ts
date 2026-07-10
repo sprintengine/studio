@@ -53,7 +53,6 @@ import type {
   SprintEngineCliPermissionPreset,
   SprintEngineRoleId,
   SprintEngineRoleCliDefaults,
-  SprintEngineRoleRuntimes,
   SprintEngineRosterSession,
   SprintEngineRunSettings,
   SprintEngineState,
@@ -130,54 +129,16 @@ function resolveSprintEngineRoleCli(
   return roleCliDefaults.architect?.trim() || 'claude-code'
 }
 
-/**
- * Resolve a roster role's CLI + model from the run's `roleRuntimes` map
- * (run.yaml via the projection — the single source of truth for what every
- * spawn of that role must launch with, MC-1450). Returns null when the role
- * is not in the map (legacy runs mid-flight, pre-first-projection window):
- * callers must then preserve what they already have — never substitute.
- * An entry without a model resolves `cliModel: undefined` = no `--model`
- * flag (the CLI's own default, deliberately).
- */
-export function resolveSprintEngineRoleRuntime(
-  roleRuntimes: SprintEngineRoleRuntimes | undefined,
-  role: SprintEngineRoleId
-): { cli?: AgentCli; cliModel?: string } | null {
-  const runtime = roleRuntimes?.[role]
-  if (!runtime) return null
-  return {
-    cli: typeof runtime.cli === 'string' && runtime.cli.trim() ? runtime.cli.trim() : undefined,
-    cliModel: typeof runtime.model === 'string' && runtime.model.trim() ? runtime.model.trim() : undefined,
-  }
-}
+// `resolveSprintEngineRoleRuntime` / `resolveSprintEngineAgentRuntime` moved
+// to the shared Sprint Engine state module (sprint-runtime-ownership Phase 2:
+// the main-process auto-run planner resolves runtimes too); these re-exports
+// keep every existing import site working unchanged.
+import {
+  resolveSprintEngineAgentRuntime,
+  resolveSprintEngineRoleRuntime,
+} from '../../../../shared/sprintengine/state'
 
-/**
- * Effective launch runtime for one roster agent, layering the full MC-1450
- * hierarchy: explicit per-agent override (`cliRuntimeOverride` — the board's
- * mid-run picker / creation-time per-agent CLI override) > per-role
- * `roleRuntimes` config > the existing record's values (legacy runs whose
- * projection predates `roleRuntimes`). An override `model: null` pins the
- * CLI's own default even when the role configures a model; a role config with
- * no model resolves `cliModel: undefined` = no `--model` flag.
- */
-export function resolveSprintEngineAgentRuntime(
-  roleRuntimes: SprintEngineRoleRuntimes | undefined,
-  role: SprintEngineRoleId,
-  current: Pick<AgentState, 'cli' | 'cliModel' | 'cliRuntimeOverride'> | undefined,
-): { cli?: AgentCli; cliModel?: string } {
-  const config = resolveSprintEngineRoleRuntime(roleRuntimes, role)
-  const override = current?.cliRuntimeOverride
-  const overrideCli = typeof override?.cli === 'string' && override.cli.trim() ? override.cli.trim() : undefined
-  const cli = overrideCli ?? config?.cli ?? current?.cli
-  const cliModel = override !== undefined && override.model !== undefined
-    // `model: null` = explicitly the CLI default; tolerate junk in persisted
-    // records by treating any non-string as the CLI default too.
-    ? (typeof override.model === 'string' && override.model.trim() ? override.model.trim() : undefined)
-    : config
-      ? config.cliModel
-      : current?.cliModel
-  return { cli, cliModel }
-}
+export { resolveSprintEngineAgentRuntime, resolveSprintEngineRoleRuntime }
 
 function normalizeSprintEngineAutoPendingSpawn(
   input: Partial<SprintEngineAutoPendingSpawn> | null | undefined

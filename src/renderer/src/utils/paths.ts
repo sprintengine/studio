@@ -1,57 +1,10 @@
 /**
- * Canonical path helpers. Renderer-only, no Node `path` dependency — all functions
- * work on user-visible workspace and file paths that mix `/` and `\` separators.
+ * Renderer shim over the shared canonical path helpers.
+ *
+ * The implementations relocated to `src/shared/paths.ts`
+ * (sprint-runtime-ownership Phase 2: the main process shares the pure Sprint
+ * Engine corpus, which reads these helpers), following the established shim
+ * pattern (`sprintengineAutomationLifecycle.ts`). Existing renderer import
+ * sites and tests keep working unchanged.
  */
-
-export function trimPath(pathValue: string): string {
-  return pathValue.replace(/[\\/]+$/, '')
-}
-
-export function basename(pathValue: string): string {
-  const parts = trimPath(pathValue).split(/[\\/]+/).filter(Boolean)
-  return parts.at(-1) ?? pathValue
-}
-
-export function parentPath(pathValue: string): string {
-  const trimmed = trimPath(pathValue)
-  const index = Math.max(trimmed.lastIndexOf('/'), trimmed.lastIndexOf('\\'))
-  if (index <= 0) return trimmed
-  return trimmed.slice(0, index)
-}
-
-export function samePath(a: string | null | undefined, b: string | null | undefined): boolean {
-  if (!a || !b) return false
-  return trimPath(a).toLowerCase() === trimPath(b).toLowerCase()
-}
-
-export function pathSeparatorFor(pathValue: string): '/' | '\\' {
-  return pathValue.includes('\\') && !pathValue.includes('/') ? '\\' : '/'
-}
-
-export function pathJoin(basePath: string, ...segments: string[]): string {
-  const separator = pathSeparatorFor(basePath)
-  return [trimPath(basePath), ...segments.map((segment) => segment.replace(/^[\\/]+|[\\/]+$/g, ''))]
-    .filter(Boolean)
-    .join(separator)
-}
-
-export function joinFilePath(basePath: string, childPath: string): string {
-  const separator = pathSeparatorFor(basePath)
-  return `${trimPath(basePath)}${separator}${childPath.replace(/^[\\/]+/, '')}`
-}
-
-export function isAbsoluteFilePath(pathValue: string): boolean {
-  return pathValue.startsWith('/') || pathValue.startsWith('\\') || /^[A-Za-z]:[\\/]/.test(pathValue)
-}
-
-/**
- * Lowercase alphanumeric slug with `-` separators and stripped boundary hyphens.
- * Returns an empty string if the value yields no slug content; callers add a fallback.
- */
-export function slugify(value: string | null | undefined): string {
-  return (value ?? '')
-    .trim()
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, '-')
-    .replace(/^-+|-+$/g, '')
-}
+export * from '../../../shared/paths'

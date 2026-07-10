@@ -1,41 +1,16 @@
 import type { TooltipChildProps } from './Tooltip'
+import type { LifecycleState } from '../../../../shared/sprintengine/run-types'
 
 // One shape-coded lifecycle vocabulary shared by Backlog readiness and Sprint
 // Engine task state. State reads by shape (ring / dashed / spinner / inner-dot /
 // "!" / check / slash / "×"), never by color alone — color only reinforces. The
 // 6 px StatusDot stays the app's "live right now" idiom; this glyph carries the
 // richer lifecycle that a worklist needs, replacing per-row status dots there.
-// Domain-agnostic: callers map their own status enum to a LifecycleState.
-export type LifecycleState =
-  | 'todo'
-  | 'idea'
-  | 'ready'
-  | 'in_progress'
-  | 'paused'
-  | 'review'
-  | 'testing'
-  | 'product'
-  | 'changes_requested'
-  | 'needs_input'
-  // A filed evidence/gate record — a document mark with a tick. Read-only,
-  // never a pending decision and never a spinner. Neutral ink (Sprint Engine
-  // recorded artifacts map here).
-  | 'recorded'
-  | 'done'
-  // Approved by automated policy rather than a human hand — the same green tick
-  // as `done` but drawn as an outline ring, so "approved on your behalf" reads a
-  // shade lighter than a manual approval's filled disc.
-  | 'approved_auto'
-  // Complete but not yet merged — a green git-branch fork, signalling "work is
-  // sitting on a branch / PR" (GitHub's iconography), distinct by shape from the
-  // filled `done` disc used for on-main completions.
-  | 'done_unmerged'
-  // Complete AND merged — the same git-branch fork in merged-purple
-  // (--tone-merged), distinct by color from the green `done_unmerged` branch.
-  // Used by Sprint Engine worktree runs once their pull request merges.
-  | 'done_merged'
-  | 'archived'
-  | 'failed'
+// Domain-agnostic: callers map their own status enum to a LifecycleState. The
+// union's declaration moved to `src/shared/sprintengine/run-types.ts` (the
+// shared Sprint Engine state module maps board columns to it); this re-export
+// keeps every existing import site working unchanged.
+export type { LifecycleState } from '../../../../shared/sprintengine/run-types'
 
 export const LIFECYCLE_LABEL: Record<LifecycleState, string> = {
   todo: 'To do',
