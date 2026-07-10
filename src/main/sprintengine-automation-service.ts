@@ -9,11 +9,21 @@
  * `setAutomationMode` here, so persistence, the manual-transition audit, the
  * headless `cliWatchPolling` bridge, and the renderer broadcast are structural
  * rather than per-caller discipline.
+ *
+ * Concurrency model: writes for one run serialize through a per-path promise
+ * queue inside this process. Cross-process writers are not expected — the app
+ * holds a single-instance lock (`app-lifecycle.ts`), so a second desktop
+ * instance (which could fork revisions) never runs against the same runs.
  */
 import { readFile, rename, unlink, writeFile } from 'fs/promises'
 import { existsSync } from 'fs'
-import { basename, dirname, join } from 'path'
-import type { DiagnosticLogInput } from '../shared/electron-api'
+import { basename, dirname, join, resolve } from 'path'
+import type {
+  DiagnosticLogInput,
+  SprintEngineAutomationChangedEvent,
+  SprintEngineAutomationReadResult,
+  SprintEngineAutomationWriteResult,
+} from '../shared/electron-api'
 import type { SprintEngineAutomationMode } from '../shared/sprintengine/automation-types'
 import {
   SPRINT_ENGINE_AUTOMATION_NOTIFICATION_TITLE,
@@ -32,40 +42,38 @@ import {
   type SprintEngineAutomationIntentRecord,
 } from '../shared/sprintengine/automation-intent'
 
-export type SprintEngineAutomationChangedEvent = {
-  statePath: string
-  record: SprintEngineAutomationIntentRecord
-}
-
-export type SprintEngineAutomationReadResult =
-  | { ok: true; record: SprintEngineAutomationIntentRecord | null }
-  | { ok: false; message: string }
-
-export type SprintEngineAutomationWriteResult =
-  | { ok: true; record: SprintEngineAutomationIntentRecord; changed: boolean }
-  | { ok: false; message: string }
+export type { SprintEngineAutomationChangedEvent }
 
 export type SetSprintEngineAutomationModeInput = {
   statePath: string
   mode: SprintEngineAutomationMode
   actor: SprintEngineAutomationIntentActor
   deviceId?: string | null
+  // Echoed back on the broadcast so the pushing window can drop its own echo
+  // (the broadcast reaches a window before the push's IPC response resolves).
+  clientToken?: string
   // Audit context. `reason` mirrors the renderer store action's option; the
   // manual-transition audit is emitted only on a non-manual -> manual change
   // and only when not suppressed, exactly matching the renderer semantics this
-  // path replaces.
+  // path replaces. `taskId`/`agentId` keep the old audit record's deep-link
+  // capability (navigationTarget) available to future callers.
   reason?: string
   details?: string
   suppressManualAudit?: boolean
   workspaceId?: string
   workspaceName?: string
+  taskId?: string
+  agentId?: string
 }
 
 export type SprintEngineAutomationServiceDeps = {
   // Bridges the persisted intent to the headless-CLI polling hint in run.yaml
   // (via the Python CLI). Best-effort: a failure is logged as a warning and
   // never fails the mode write — identical to the board panel's previous
-  // direct-call semantics.
+  // direct-call semantics. Same-mode writes still reconcile the bridge when a
+  // previous attempt failed (the old UI retried on re-toggle; see MC-1567
+  // review finding: without this, a bridge failure was unrecoverable short of
+  // flipping the mode twice).
   setRunnerCliWatchPolling: (input: {
     statePath: string
     cliWatchPolling: 'enabled' | 'disabled'
@@ -77,12 +85,15 @@ export type SprintEngineAutomationServiceDeps = {
 
 export type SprintEngineAutomationService = ReturnType<typeof createSprintEngineAutomationService>
 
-function automationIntentPathForState(statePath: string): string | null {
+function automationIntentPathForState(statePath: string): { intentPath: string; queueKey: string } | null {
   const normalized = statePath?.trim()
   if (!normalized || basename(normalized) !== 'run.yaml') return null
-  const teamDirectory = dirname(normalized)
+  // Resolve so path aliases of the same run.yaml share one write queue and
+  // one sidecar file (symlinks aside).
+  const resolved = resolve(normalized)
+  const teamDirectory = dirname(resolved)
   if (!existsSync(teamDirectory)) return null
-  return join(teamDirectory, SPRINT_ENGINE_AUTOMATION_INTENT_FILE)
+  return { intentPath: join(teamDirectory, SPRINT_ENGINE_AUTOMATION_INTENT_FILE), queueKey: resolved }
 }
 
 export function createSprintEngineAutomationService(deps: SprintEngineAutomationServiceDeps) {
@@ -91,11 +102,21 @@ export function createSprintEngineAutomationService(deps: SprintEngineAutomation
   // write concurrently), so every mutation for a statePath queues behind the
   // previous one. Reads go through the same queue to observe settled state.
   const writeQueues = new Map<string, Promise<unknown>>()
+  // The cliWatchPolling value last successfully written to run.yaml, per queue
+  // key. Absent = never bridged (or last attempt failed) -> reconcile on the
+  // next write, even a same-mode one.
+  const bridgedCliWatchPolling = new Map<string, 'enabled' | 'disabled'>()
 
-  function enqueue<T>(statePath: string, task: () => Promise<T>): Promise<T> {
-    const tail = writeQueues.get(statePath) ?? Promise.resolve()
+  function enqueue<T>(queueKey: string, task: () => Promise<T>): Promise<T> {
+    const tail = writeQueues.get(queueKey) ?? Promise.resolve()
     const next = tail.then(task, task)
-    writeQueues.set(statePath, next.catch(() => undefined))
+    const settled = next.catch(() => undefined)
+    writeQueues.set(queueKey, settled)
+    // Evict once this chain fully settles and nothing newer replaced it, so
+    // long sessions don't accumulate one entry per run forever.
+    void settled.then(() => {
+      if (writeQueues.get(queueKey) === settled) writeQueues.delete(queueKey)
+    })
     return next
   }
 
@@ -131,6 +152,10 @@ export function createSprintEngineAutomationService(deps: SprintEngineAutomation
     input: SetSprintEngineAutomationModeInput,
     previousMode: SprintEngineAutomationMode,
   ): void {
+    // A pre-hydration sidecar (no record yet) defaults the previous mode to
+    // manual, which suppresses this audit — an accepted first-write blind spot:
+    // the sidecar is the authority, and before it exists there is no
+    // authoritative previous mode to attribute.
     if (input.mode !== 'manual' || previousMode === 'manual') return
     if (input.suppressManualAudit) return
     const writerLine = input.actor === 'ui'
@@ -148,40 +173,49 @@ export function createSprintEngineAutomationService(deps: SprintEngineAutomation
       ].filter((line): line is string => Boolean(line)).join('\n'),
       ...(input.workspaceId ? { workspaceId: input.workspaceId } : {}),
       ...(input.workspaceName ? { workspaceName: input.workspaceName } : {}),
+      ...(input.taskId ? { taskId: input.taskId } : {}),
+      ...(input.taskId ? { navigationTarget: { kind: 'task' as const, ref: input.taskId } } : {}),
+      ...(input.agentId ? { agentId: input.agentId } : {}),
     })
   }
 
-  function bridgeCliWatchPolling(statePath: string, mode: SprintEngineAutomationMode): void {
-    const cliWatchPolling = sprintEngineCliWatchPollingForAutomationMode(mode)
-    void deps.setRunnerCliWatchPolling({ statePath, cliWatchPolling })
+  function reconcileCliWatchPollingBridge(
+    input: Pick<SetSprintEngineAutomationModeInput, 'statePath' | 'mode' | 'workspaceId' | 'workspaceName'>,
+    queueKey: string,
+  ): void {
+    const cliWatchPolling = sprintEngineCliWatchPollingForAutomationMode(input.mode)
+    if (bridgedCliWatchPolling.get(queueKey) === cliWatchPolling) return
+    const reportFailure = (details: string): void => {
+      deps.logDiagnostic({
+        level: 'warning',
+        source: 'sprintengine',
+        title: 'Runner polling flag not updated',
+        message: `The automation mode changed but run.yaml's cliWatchPolling hint could not be written (${cliWatchPolling}). Re-selecting the mode retries.`,
+        details,
+        ...(input.workspaceId ? { workspaceId: input.workspaceId } : {}),
+        ...(input.workspaceName ? { workspaceName: input.workspaceName } : {}),
+      })
+    }
+    void deps.setRunnerCliWatchPolling({ statePath: input.statePath, cliWatchPolling })
       .then((result) => {
-        if (result.ok) return
-        deps.logDiagnostic({
-          level: 'warning',
-          source: 'sprintengine',
-          title: 'Runner polling flag not updated',
-          message: `The automation mode changed but run.yaml's cliWatchPolling hint could not be written (${cliWatchPolling}).`,
-          ...(result.message ? { details: result.message } : {}),
-        })
+        if (result.ok) {
+          bridgedCliWatchPolling.set(queueKey, cliWatchPolling)
+          return
+        }
+        reportFailure(result.message ?? 'Unknown error.')
       })
       .catch((error) => {
-        deps.logDiagnostic({
-          level: 'warning',
-          source: 'sprintengine',
-          title: 'Runner polling flag not updated',
-          message: `The automation mode changed but run.yaml's cliWatchPolling hint could not be written (${cliWatchPolling}).`,
-          details: error instanceof Error ? error.message : String(error),
-        })
+        reportFailure(error instanceof Error ? error.message : String(error))
       })
   }
 
   return {
     async readAutomationMode(input: { statePath: string }): Promise<SprintEngineAutomationReadResult> {
-      const intentPath = automationIntentPathForState(input.statePath)
-      if (!intentPath) return { ok: false, message: 'Sprint run state path is not a readable run.yaml location.' }
-      return enqueue(input.statePath, async () => ({
+      const paths = automationIntentPathForState(input.statePath)
+      if (!paths) return { ok: false, message: 'Sprint run state path is not a readable run.yaml location.' }
+      return enqueue(paths.queueKey, async () => ({
         ok: true as const,
-        record: await readRecord(intentPath),
+        record: await readRecord(paths.intentPath),
       }))
     },
 
@@ -189,14 +223,17 @@ export function createSprintEngineAutomationService(deps: SprintEngineAutomation
       if (!isSprintEngineAutomationMode(input.mode)) {
         return { ok: false, message: `Unknown automation mode: ${String(input.mode)}` }
       }
-      const intentPath = automationIntentPathForState(input.statePath)
-      if (!intentPath) return { ok: false, message: 'Sprint run state path is not a writable run.yaml location.' }
+      const paths = automationIntentPathForState(input.statePath)
+      if (!paths) return { ok: false, message: 'Sprint run state path is not a writable run.yaml location.' }
 
-      return enqueue(input.statePath, async () => {
-        const current = await readRecord(intentPath)
+      return enqueue(paths.queueKey, async () => {
+        const current = await readRecord(paths.intentPath)
         if (current && current.desiredMode === input.mode) {
           // Idempotent no-op: no revision bump, no audit, no broadcast — a
           // same-mode click or an echo must not look like a new transition.
+          // The bridge still reconciles (a previously failed run.yaml write
+          // must be retryable by re-selecting the mode).
+          reconcileCliWatchPollingBridge(input, paths.queueKey)
           return { ok: true as const, record: current, changed: false }
         }
         const record = nextSprintEngineAutomationIntentRecord({
@@ -207,7 +244,7 @@ export function createSprintEngineAutomationService(deps: SprintEngineAutomation
           now: now(),
         })
         try {
-          await writeRecordAtomically(intentPath, record)
+          await writeRecordAtomically(paths.intentPath, record)
         } catch (error) {
           return {
             ok: false as const,
@@ -215,8 +252,12 @@ export function createSprintEngineAutomationService(deps: SprintEngineAutomation
           }
         }
         auditManualTransition(input, current?.desiredMode ?? 'manual')
-        bridgeCliWatchPolling(input.statePath, input.mode)
-        deps.broadcast({ statePath: input.statePath, record })
+        reconcileCliWatchPollingBridge(input, paths.queueKey)
+        deps.broadcast({
+          statePath: input.statePath,
+          record,
+          ...(input.clientToken ? { sourceClientToken: input.clientToken } : {}),
+        })
         return { ok: true as const, record, changed: true }
       })
     },
@@ -235,11 +276,11 @@ export function createSprintEngineAutomationService(deps: SprintEngineAutomation
       if (!isSprintEngineAutomationMode(input.mode)) {
         return { ok: false, message: `Unknown automation mode: ${String(input.mode)}` }
       }
-      const intentPath = automationIntentPathForState(input.statePath)
-      if (!intentPath) return { ok: false, message: 'Sprint run state path is not a writable run.yaml location.' }
+      const paths = automationIntentPathForState(input.statePath)
+      if (!paths) return { ok: false, message: 'Sprint run state path is not a writable run.yaml location.' }
 
-      return enqueue(input.statePath, async () => {
-        const current = await readRecord(intentPath)
+      return enqueue(paths.queueKey, async () => {
+        const current = await readRecord(paths.intentPath)
         if (current) return { ok: true as const, record: current, changed: false }
         const record = nextSprintEngineAutomationIntentRecord({
           current: null,
@@ -249,7 +290,7 @@ export function createSprintEngineAutomationService(deps: SprintEngineAutomation
           now: now(),
         })
         try {
-          await writeRecordAtomically(intentPath, record)
+          await writeRecordAtomically(paths.intentPath, record)
         } catch (error) {
           return {
             ok: false as const,

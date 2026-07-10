@@ -18,7 +18,6 @@ import type {
   SprintEngineRosterReplenishInput,
   SprintEngineRosterRuntimeInput,
   SprintEngineStateInitializeInput,
-  SprintEngineRunnerSetInput,
   SprintEngineTaskCommentInput,
   SprintEngineTaskCreateInput,
   SprintEngineTaskResolveInput,
@@ -79,10 +78,6 @@ export const sprintEngineApi = {
     input: SprintEngineTaskStatusSetInput
   ): Promise<SprintEngineArtifactCommandResult> =>
     ipcRenderer.invoke('sprintengine:task:set-status', input),
-  setSprintEngineRunnerMode: (
-    input: SprintEngineRunnerSetInput
-  ): Promise<SprintEngineArtifactCommandResult> =>
-    ipcRenderer.invoke('sprintengine:runner:set-mode', input),
   createSprintEnginePullRequest: (
     statePath: string
   ): Promise<SprintEngineArtifactCommandResult> =>
@@ -169,7 +164,6 @@ export const sprintEngineApi = {
   | 'commentSprintEngineTask'
   | 'resolveSprintEngineTaskInput'
   | 'setSprintEngineTaskStatus'
-  | 'setSprintEngineRunnerMode'
   | 'readSprintEngineAutomationMode'
   | 'setSprintEngineAutomationMode'
   | 'hydrateSprintEngineAutomationMode'

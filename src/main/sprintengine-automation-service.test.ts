@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { mkdtemp, mkdir, readFile, rm, writeFile } from 'fs/promises'
 import { tmpdir } from 'os'
-import { join } from 'path'
+import { dirname, join } from 'path'
 import type { DiagnosticLogInput } from '../shared/electron-api'
 import {
   createSprintEngineAutomationService,
@@ -161,19 +161,83 @@ async function main(): Promise<void> {
     assert.equal(harness.diagnostics.filter((d) => d.title === 'Auto-run mode changed').length, 1)
   })
 
-  // cliWatchPolling bridge failure: warn-only, mode write still succeeds
+  // cliWatchPolling bridge failure: warn-only (workspace-scoped), mode write
+  // still succeeds — and a same-mode re-select RETRIES the bridge (the old UI
+  // could retry by re-toggling; a failure must not be unrecoverable).
   await withTempRoot(async (root) => {
     const harness = await createHarness(root, { failRunnerWrite: true })
     const result = await harness.service.setAutomationMode({
       statePath: harness.statePath,
       mode: 'run_agents',
       actor: 'ui',
+      workspaceId: 'ws-bridge',
+      workspaceName: 'Bridge Test',
     })
     assert.ok(result.ok)
     await flushMicrotasks()
     const warnings = harness.diagnostics.filter((d) => d.title === 'Runner polling flag not updated')
     assert.equal(warnings.length, 1)
     assert.equal(warnings[0].level, 'warning')
+    assert.equal(warnings[0].workspaceId, 'ws-bridge')
+    assert.equal(warnings[0].workspaceName, 'Bridge Test')
+
+    const repeat = await harness.service.setAutomationMode({
+      statePath: harness.statePath,
+      mode: 'run_agents',
+      actor: 'ui',
+    })
+    assert.ok(repeat.ok)
+    assert.equal(repeat.changed, false)
+    await flushMicrotasks()
+    assert.equal(harness.runnerWrites.length, 2, 'same-mode write retries a failed bridge')
+  })
+
+  // Bridge success is remembered: a same-mode write does not re-run it.
+  await withTempRoot(async (root) => {
+    const harness = await createHarness(root)
+    await harness.service.setAutomationMode({ statePath: harness.statePath, mode: 'run_agents', actor: 'ui' })
+    await flushMicrotasks()
+    await harness.service.setAutomationMode({ statePath: harness.statePath, mode: 'run_agents', actor: 'ui' })
+    await flushMicrotasks()
+    assert.equal(harness.runnerWrites.length, 1, 'bridged value is cached after success')
+  })
+
+  // clientToken rides the broadcast so the pushing window can drop its echo;
+  // absent for writers that don't supply one.
+  await withTempRoot(async (root) => {
+    const harness = await createHarness(root)
+    await harness.service.setAutomationMode({
+      statePath: harness.statePath,
+      mode: 'run_agents',
+      actor: 'ui',
+      clientToken: 'window-42',
+    })
+    await harness.service.setAutomationMode({
+      statePath: harness.statePath,
+      mode: 'manual',
+      actor: 'mobile',
+    })
+    assert.equal(harness.broadcasts[0].sourceClientToken, 'window-42')
+    assert.equal(harness.broadcasts[1].sourceClientToken, undefined)
+  })
+
+  // taskId/agentId audit parity: a manual transition carrying task context
+  // gets the deep-linkable navigationTarget the old renderer audit offered.
+  await withTempRoot(async (root) => {
+    const harness = await createHarness(root)
+    await harness.service.setAutomationMode({ statePath: harness.statePath, mode: 'run_agents', actor: 'ui' })
+    await harness.service.setAutomationMode({
+      statePath: harness.statePath,
+      mode: 'manual',
+      actor: 'ui',
+      taskId: 'T7',
+      agentId: 'developer-1',
+    })
+    const audit = harness.diagnostics.find((d) => d.title === 'Auto-run mode changed')
+    assert.ok(audit)
+    assert.equal(audit.taskId, 'T7')
+    assert.equal(audit.agentId, 'developer-1')
+    assert.deepEqual(audit.navigationTarget, { kind: 'task', ref: 'T7' })
   })
 
   // hydrate: seeds only when absent; no audit, no runner bridge, no broadcast
@@ -271,6 +335,46 @@ async function main(): Promise<void> {
     assert.ok(final.ok && final.record)
     assert.equal(final.record.revision, 3)
     assert.equal(final.record.desiredMode, 'run_agents_and_approve_artifacts')
+  })
+
+  // queue error path: a failed write does not wedge the per-run queue — the
+  // next write proceeds and lands cleanly.
+  await withTempRoot(async (root) => {
+    const harness = await createHarness(root)
+    await rm(dirname(harness.intentPath), { recursive: true, force: true })
+    // Recreate as a FILE so the sidecar write (into a non-directory) fails
+    // while the path-validation existsSync check still passes.
+    await writeFile(dirname(harness.intentPath), 'not a directory', 'utf8')
+    const failed = await harness.service.setAutomationMode({
+      statePath: harness.statePath,
+      mode: 'run_agents',
+      actor: 'ui',
+    })
+    assert.equal(failed.ok, false)
+    await rm(dirname(harness.intentPath), { force: true })
+    await mkdir(dirname(harness.intentPath), { recursive: true })
+    const recovered = await harness.service.setAutomationMode({
+      statePath: harness.statePath,
+      mode: 'run_agents',
+      actor: 'ui',
+    })
+    assert.ok(recovered.ok && recovered.changed)
+    assert.equal(recovered.record.revision, 1)
+  })
+
+  // concurrent hydrate + set through the queue: the set's write wins the final
+  // state; hydrate never overwrites and never audits.
+  await withTempRoot(async (root) => {
+    const harness = await createHarness(root)
+    const [hydrated, set] = await Promise.all([
+      harness.service.hydrateAutomationMode({ statePath: harness.statePath, mode: 'run_agents' }),
+      harness.service.setAutomationMode({ statePath: harness.statePath, mode: 'manual', actor: 'mobile' }),
+    ])
+    assert.ok(hydrated.ok && set.ok)
+    const final = await harness.service.readAutomationMode({ statePath: harness.statePath })
+    assert.ok(final.ok && final.record)
+    assert.equal(final.record.desiredMode, 'manual')
+    assert.equal(final.record.revision, 2)
   })
 
   console.log('sprintengine-automation-service tests passed')

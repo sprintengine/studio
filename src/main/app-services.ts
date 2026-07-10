@@ -183,6 +183,7 @@ export function createAppServices(diagnosticsEnabled: boolean) {
         statePath: input.statePath,
         mode: input.mode,
         actor: 'mobile',
+        deviceId: input.deviceId ?? null,
       })
       if (result.ok) return { ok: true }
       return { ok: false, retryable: false, message: result.message }

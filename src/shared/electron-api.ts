@@ -1720,11 +1720,17 @@ export type SprintEngineAutomationReadInput = {
 export type SprintEngineAutomationSetModeInput = {
   statePath: string
   mode: SprintEngineAutomationIntentMode
+  // Per-window token echoed back on the broadcast so the pushing window can
+  // recognize (and drop) its own echo — the broadcast is delivered before the
+  // push's IPC response resolves, so a revision guard alone cannot.
+  clientToken?: string
   reason?: string
   details?: string
   suppressManualAudit?: boolean
   workspaceId?: string
   workspaceName?: string
+  taskId?: string
+  agentId?: string
 }
 
 export type SprintEngineAutomationHydrateInput = {
@@ -1743,6 +1749,9 @@ export type SprintEngineAutomationWriteResult =
 export type SprintEngineAutomationChangedEvent = {
   statePath: string
   record: SprintEngineAutomationIntentRecord
+  // The clientToken of the write that produced this event, when the writer
+  // supplied one (renderer pushes). Absent for mobile/system writers.
+  sourceClientToken?: string
 }
 
 export type SprintEngineRosterReplenishInput = {
@@ -2481,7 +2490,6 @@ export type ElectronApi = {
   commentSprintEngineTask: (input: SprintEngineTaskCommentInput) => Promise<SprintEngineArtifactCommandResult>
   resolveSprintEngineTaskInput: (input: SprintEngineTaskResolveInput) => Promise<SprintEngineArtifactCommandResult>
   setSprintEngineTaskStatus: (input: SprintEngineTaskStatusSetInput) => Promise<SprintEngineArtifactCommandResult>
-  setSprintEngineRunnerMode: (input: SprintEngineRunnerSetInput) => Promise<SprintEngineArtifactCommandResult>
   /** Read the main-owned automation mode intent for a run (null until first write/hydration). */
   readSprintEngineAutomationMode: (input: SprintEngineAutomationReadInput) => Promise<SprintEngineAutomationReadResult>
   /** Write the automation mode through the one authoritative main-process path. */

@@ -383,6 +383,10 @@ export async function readSprintEngineSnapshot(statePathInput: string): Promise<
     updatedAt,
     tasks: taskSnapshots,
     artifacts,
+    // MC-1567: a mode-only change must produce a new snapshotVersion so
+    // phone-side dedup can't miss the flip and the stale-snapshot guard can
+    // detect a competing mode change.
+    automationMode: intentMode ?? null,
   })
 
   return {
@@ -426,6 +430,9 @@ async function readSprintEngineProjectionSnapshot(
   const locks = recordObject(projection.locks)
   const activity = Array.isArray(projection.activity) ? projection.activity : []
   const counts = recordObject(projection.counts)
+  const intentMode = await readAutomationIntentMode(teamDirectory)
+  const automationMode = intentMode
+    ?? buildAutomationMode(run.automation ?? projection.automation, run.runner)
   const snapshotVersion = buildSnapshotVersion({
     updatedAt,
     source: run.source ?? projection.source,
@@ -433,13 +440,14 @@ async function readSprintEngineProjectionSnapshot(
     tasks: taskSnapshots,
     artifacts,
     locks,
+    // MC-1567: a mode-only change must produce a new snapshotVersion so
+    // phone-side dedup can't miss the flip and the stale-snapshot guard can
+    // detect a competing mode change.
+    automationMode: automationMode ?? null,
   })
 
   const startedFrom = buildStartedFrom(run.source ?? projection.source)
   const vcs = buildVcsState(run.vcs)
-  const intentMode = await readAutomationIntentMode(teamDirectory)
-  const automationMode = intentMode
-    ?? buildAutomationMode(run.automation ?? projection.automation, run.runner)
 
   return {
     sprintEngineId,

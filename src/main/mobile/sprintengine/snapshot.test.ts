@@ -77,6 +77,20 @@ async function assertAutomationIntentSidecarWinsOverRunnerHeuristic(): Promise<v
   const snapshot = await readSprintEngineSnapshot(statePath)
   assert.equal(snapshot.automationMode, 'run_agents_and_approve_artifacts')
 
+  // A mode-only change must perturb snapshotVersion (phone-side dedup and the
+  // stale-snapshot guard key on it).
+  await writeFile(join(teamDirectory, 'automation.json'), JSON.stringify({
+    schemaVersion: 1,
+    revision: 5,
+    desiredMode: 'manual',
+    changedAt: 1789000001000,
+    lastWrite: { actor: 'ui', deviceId: null, at: generatedAt },
+  }), 'utf8')
+  const afterModeChange = await readSprintEngineSnapshot(statePath)
+  assert.equal(afterModeChange.automationMode, 'manual')
+  assert.notEqual(afterModeChange.snapshotVersion, snapshot.snapshotVersion,
+    'a mode-only change produces a new snapshotVersion')
+
   // A corrupt sidecar falls back to the legacy heuristic rather than failing.
   await writeFile(join(teamDirectory, 'automation.json'), '{corrupt', 'utf8')
   const fallback = await readSprintEngineSnapshot(statePath)
