@@ -1214,9 +1214,32 @@ export type GitStatusEntry = {
   unstaged: boolean
 }
 
+/** A multi-step operation parked in the repo, awaiting continue or abort. */
+export type GitRepoOperation = 'merge' | 'rebase' | 'cherry-pick' | 'revert'
+
+export type GitResetMode = 'soft' | 'mixed' | 'hard'
+
 export type GitStatusSnapshot = {
   repoRoot: string
   files: Record<string, GitStatusEntry>
+  operation: GitRepoOperation | null
+  updatedAt: number
+}
+
+export type GitStashEntry = {
+  /** Git's selector for the entry, e.g. `stash@{0}`. */
+  ref: string
+  /** The stash commit hash — the entry's stable identity; selectors renumber. */
+  hash: string
+  index: number
+  branch: string | null
+  message: string
+  createdAt: number
+}
+
+export type GitStashListSnapshot = {
+  repoRoot: string
+  stashes: GitStashEntry[]
   updatedAt: number
 }
 
@@ -2414,6 +2437,18 @@ export type ElectronApi = {
   pullGitBranchWithStash: (repoRoot: string) => Promise<GitCommandResult>
   switchGitBranch: (repoRoot: string, branchName: string) => Promise<GitCommandResult>
   mergeGitRef: (repoRoot: string, ref: string) => Promise<GitCommandResult>
+  rebaseGitBranch: (repoRoot: string, ontoRef: string) => Promise<GitCommandResult>
+  cherryPickGitCommit: (repoRoot: string, commitHash: string) => Promise<GitCommandResult>
+  revertGitCommit: (repoRoot: string, commitHash: string) => Promise<GitCommandResult>
+  resetGitBranchToCommit: (repoRoot: string, commitHash: string, mode: GitResetMode) => Promise<GitCommandResult>
+  deleteGitBranch: (repoRoot: string, branchName: string, force?: boolean) => Promise<GitCommandResult>
+  renameGitBranch: (repoRoot: string, branchName: string, newName: string) => Promise<GitCommandResult>
+  continueGitOperation: (repoRoot: string, operation: GitRepoOperation) => Promise<GitCommandResult>
+  abortGitOperation: (repoRoot: string, operation: GitRepoOperation) => Promise<GitCommandResult>
+  listGitStashes: (repoRoot: string) => Promise<GitStashListSnapshot>
+  pushGitStash: (repoRoot: string, message: string, includeUntracked?: boolean) => Promise<GitCommandResult>
+  applyGitStash: (repoRoot: string, index: number, expectedHash: string, pop?: boolean) => Promise<GitCommandResult>
+  dropGitStash: (repoRoot: string, index: number, expectedHash: string) => Promise<GitCommandResult>
   checkoutGitCommit: (repoRoot: string, commitHash: string) => Promise<GitCommandResult>
   createGitBranchFromCommit: (repoRoot: string, branchName: string, commitHash: string) => Promise<GitCommandResult>
   checkoutGitCommitAsBranch: (repoRoot: string, branchName: string, commitHash: string) => Promise<GitCommandResult>

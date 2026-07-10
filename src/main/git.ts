@@ -22,8 +22,9 @@ import {
 import { getGitStatus } from './git-status'
 
 export { listGitWorktrees, parseGitWorktreePorcelain } from './git-worktree-list'
-export { getGitStatus } from './git-status'
+export { getGitOperationInProgress, getGitStatus } from './git-status'
 export { getGitBranches, getGitHistory, getGitCommitGraph } from './git-read-models'
+export { applyGitStash, dropGitStash, listGitStashes, pushGitStash } from './git-stash'
 export {
   discardUnstagedGitChanges,
   revertGitPaths,
@@ -31,15 +32,23 @@ export {
   unstageGitPaths,
 } from './git-file-actions'
 export {
+  abortGitOperation,
   checkoutGitCommit,
   checkoutGitCommitAsBranch,
+  cherryPickGitCommit,
   commitGitChanges,
+  continueGitOperation,
   createGitBranchFromCommit,
   createGitTagFromCommit,
+  deleteGitBranch,
   fetchGitRemotes,
   mergeGitRef,
   pullGitBranchWithStash,
   pushGitBranch,
+  rebaseGitBranch,
+  renameGitBranch,
+  resetGitBranchToCommit,
+  revertGitCommit,
   switchGitBranch,
 } from './git-branch-actions'
 
@@ -53,9 +62,32 @@ export type GitStatusEntry = {
   unstaged: boolean
 }
 
+/** A multi-step operation parked in the repo, awaiting continue or abort. */
+export type GitRepoOperation = 'merge' | 'rebase' | 'cherry-pick' | 'revert'
+
+export type GitResetMode = 'soft' | 'mixed' | 'hard'
+
 export type GitStatusSnapshot = {
   repoRoot: string
   files: Record<string, GitStatusEntry>
+  operation: GitRepoOperation | null
+  updatedAt: number
+}
+
+export type GitStashEntry = {
+  /** Git's selector for the entry, e.g. `stash@{0}`. */
+  ref: string
+  /** The stash commit hash — the entry's stable identity; selectors renumber. */
+  hash: string
+  index: number
+  branch: string | null
+  message: string
+  createdAt: number
+}
+
+export type GitStashListSnapshot = {
+  repoRoot: string
+  stashes: GitStashEntry[]
   updatedAt: number
 }
 

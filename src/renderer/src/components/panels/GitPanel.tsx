@@ -10,7 +10,7 @@ import { basename, samePath, trimPath } from '../../utils/paths'
 import { findHealthyWorktreeScope, resolveWorkspaceWorktree } from '../../utils/workspaceWorktree'
 import WorktreeManager from '../worktree/WorktreeManager'
 import PlainTerminalPanel from './PlainTerminalPanel'
-import { IconButton, InboxRow, PanelHeader, Select, Skeleton, Tooltip, type LifecycleState } from '../ui'
+import { GhostButton, IconButton, InboxRow, InlineNotice, PanelHeader, Select, Skeleton, Tooltip, type LifecycleState } from '../ui'
 import { useConfirmDialog } from '../ui/ConfirmDialog'
 import { GitGraphView, type GitCommitActions, type GitGraphState, type GitMergeTarget } from './GitGraphView'
 import type { GitPanelView } from '../../types/workspace'
@@ -86,6 +86,13 @@ type GitScopeOption = {
 type ReviewDiffTarget = {
   baseRef: string
   reason: string
+}
+
+const OPERATION_LABELS: Record<GitRepoOperation, string> = {
+  merge: 'Merge',
+  rebase: 'Rebase',
+  'cherry-pick': 'Cherry-pick',
+  revert: 'Revert',
 }
 
 const MAX_RENDERED_GIT_CHANGES_PER_GROUP = 500
@@ -314,6 +321,7 @@ export default function GitPanel({ workspaceId }: { workspaceId: string }) {
   const userSelectedScopeRef = useRef(Boolean(initialGitPanelState?.activeScopeId))
   const { repoRoot, status, repoState, refresh } = useGitStatus(activeRootPath)
   const [branches, setBranches] = useState<GitBranchSnapshot | null>(null)
+  const [stashes, setStashes] = useState<GitStashEntry[]>([])
   const [graph, setGraph] = useState<GitGraphState>({ status: 'loading' })
   const [loadingMoreGraph, setLoadingMoreGraph] = useState(false)
   const [message, setMessage] = useState<GitPanelMessage | null>(null)
@@ -504,6 +512,20 @@ export default function GitPanel({ workspaceId }: { workspaceId: string }) {
     }
   }, [repoRoot])
 
+  const refreshStashes = useCallback(async () => {
+    if (!repoRoot || typeof window.api.listGitStashes !== 'function') {
+      setStashes([])
+      return
+    }
+
+    try {
+      const snapshot = await window.api.listGitStashes(repoRoot)
+      setStashes(snapshot.stashes)
+    } catch {
+      setStashes([])
+    }
+  }, [repoRoot])
+
   const refreshGraph = useCallback(async (showLoading = true) => {
     if (!repoRoot || typeof window.api.getGitCommitGraph !== 'function') {
       setGraph({
@@ -551,7 +573,7 @@ export default function GitPanel({ workspaceId }: { workspaceId: string }) {
       let shouldShowHistoryLoading = showHistoryLoading
       while (true) {
         refreshAllQueuedHistoryLoadingRef.current = null
-        await Promise.all([refresh(), refreshBranches(), refreshGraph(shouldShowHistoryLoading), refreshWorktreeScopes()])
+        await Promise.all([refresh(), refreshBranches(), refreshStashes(), refreshGraph(shouldShowHistoryLoading), refreshWorktreeScopes()])
 
         const queuedShowHistoryLoading = refreshAllQueuedHistoryLoadingRef.current
         if (queuedShowHistoryLoading === null) break
@@ -560,7 +582,7 @@ export default function GitPanel({ workspaceId }: { workspaceId: string }) {
     } finally {
       refreshAllInFlightRef.current = false
     }
-  }, [refresh, refreshBranches, refreshGraph, refreshWorktreeScopes])
+  }, [refresh, refreshBranches, refreshStashes, refreshGraph, refreshWorktreeScopes])
 
   useEffect(() => {
     // Reset graph pagination whenever the scope/repo changes.
@@ -578,8 +600,9 @@ export default function GitPanel({ workspaceId }: { workspaceId: string }) {
       }
     }
     void refreshBranches()
+    void refreshStashes()
     void refreshGraph(!cachedGraph)
-  }, [repoRoot, refreshBranches, refreshGraph])
+  }, [repoRoot, refreshBranches, refreshStashes, refreshGraph])
 
   useEffect(() => {
     if (!repoRoot) return
@@ -646,9 +669,9 @@ export default function GitPanel({ workspaceId }: { workspaceId: string }) {
     try {
       const result = await action()
       setMessage(resultMessage(result, success))
-      if (result.ok) {
-        await refreshAll()
-      }
+      // Refresh on failure too: an operation that stopped on conflicts (merge,
+      // rebase, cherry-pick, stash pop…) has still changed the working tree.
+      await refreshAll()
       return result
     } catch (error) {
       setMessage({ tone: 'error', text: error instanceof Error ? error.message : String(error) })
@@ -741,6 +764,11 @@ export default function GitPanel({ workspaceId }: { workspaceId: string }) {
           action: () => runAction('Staging all', () => window.api.stageGitPaths(repoRoot!, []), 'Staged all changes.'),
         },
         {
+          label: 'Stash',
+          title: 'Stash all changes (staged, unstaged, and untracked)',
+          action: () => handleStashPush(),
+        },
+        {
           label: 'Discard',
           title: 'Roll back all unstaged changes',
           danger: true,
@@ -790,14 +818,11 @@ export default function GitPanel({ workspaceId }: { workspaceId: string }) {
       setMessage({ tone: 'error', text: 'Restart the app to enable Git pull.' })
       return
     }
-    const result = await runAction(
+    await runAction(
       'Pulling',
       () => window.api.pullGitBranchWithStash(repoRoot),
       'Pulled branch and reapplied local changes.'
     )
-    if (result && !result.ok) {
-      await refreshAll()
-    }
   }
 
   // CommandPalette / keyboard dispatcher → panel-command bridge. The command
@@ -897,16 +922,273 @@ export default function GitPanel({ workspaceId }: { workspaceId: string }) {
     })
     if (!confirmed) return
 
-    const result = await runAction(
+    await runAction(
       'Merging',
       () => window.api.mergeGitRef(repoRoot, target.ref),
       target.kind === 'commit'
         ? `Merged ${target.commit.shortHash} into ${currentBranch}.`
         : `Merged ${target.label} into ${currentBranch}.`
     )
-    if (result && !result.ok) {
-      await refreshAll()
+  }
+
+  // Operations added after an app update need a preload restart; surface that
+  // instead of a dead menu item (same idiom as merge/pull above).
+  const requireApi = (api: unknown, label: string): boolean => {
+    if (typeof api === 'function') return true
+    setMessage({ tone: 'error', text: `Restart the app to enable ${label}.` })
+    return false
+  }
+
+  const handleRebaseTarget = async (target: GitMergeTarget) => {
+    if (!repoRoot || !requireApi(window.api.rebaseGitBranch, 'Git rebase')) return
+    const currentBranch = branches?.current
+    if (!currentBranch) {
+      setMessage({ tone: 'error', text: 'Check out a branch before rebasing.' })
+      return
     }
+
+    const subjectLabel = target.kind === 'commit' ? `commit ${target.commit.shortHash}` : target.label
+    const confirmed = await dialog.confirm({
+      title: `Rebase ${currentBranch} onto ${subjectLabel}?`,
+      body: (
+        <>
+          This replays the commits of <span className="font-mono">{currentBranch}</span> on top of{' '}
+          <span className="font-mono">{subjectLabel}</span> in {activeScopeLabel}, rewriting their hashes. If Git
+          reports conflicts, Multicode will pause the rebase for you to resolve and continue.
+          <div className="mt-2 font-mono text-[12px] text-[color:var(--text-muted)]">Scope path: {activeScopePath}</div>
+        </>
+      ),
+      confirmLabel: 'Rebase',
+    })
+    if (!confirmed) return
+
+    await runAction(
+      'Rebasing',
+      () => window.api.rebaseGitBranch(repoRoot, target.ref),
+      `Rebased ${currentBranch} onto ${subjectLabel}.`
+    )
+  }
+
+  const handleCherryPick = async (commit: GitGraphCommit) => {
+    if (!repoRoot || !requireApi(window.api.cherryPickGitCommit, 'Git cherry-pick')) return
+    const currentBranch = branches?.current
+    if (!currentBranch) {
+      setMessage({ tone: 'error', text: 'Check out a branch before cherry-picking.' })
+      return
+    }
+
+    const confirmed = await dialog.confirm({
+      title: `Cherry-pick ${commit.shortHash} into ${currentBranch}?`,
+      body: (
+        <>
+          This applies “{commit.subject}” onto <span className="font-mono">{currentBranch}</span> as a new commit. If
+          Git reports conflicts, Multicode will pause the cherry-pick for you to resolve and continue.
+        </>
+      ),
+      confirmLabel: 'Cherry-pick',
+    })
+    if (!confirmed) return
+
+    await runAction(
+      'Cherry-picking',
+      () => window.api.cherryPickGitCommit(repoRoot, commit.hash),
+      `Cherry-picked ${commit.shortHash} into ${currentBranch}.`
+    )
+  }
+
+  const handleRevertCommit = async (commit: GitGraphCommit) => {
+    if (!repoRoot || !requireApi(window.api.revertGitCommit, 'Git revert')) return
+    const confirmed = await dialog.confirm({
+      title: `Revert ${commit.shortHash}?`,
+      body: (
+        <>
+          This creates a new commit that undoes “{commit.subject}”. History is kept; nothing is rewritten.
+        </>
+      ),
+      confirmLabel: 'Revert commit',
+    })
+    if (!confirmed) return
+
+    await runAction(
+      'Reverting commit',
+      () => window.api.revertGitCommit(repoRoot, commit.hash),
+      `Reverted ${commit.shortHash}.`
+    )
+  }
+
+  const handleResetToCommit = async (commit: GitGraphCommit, mode: GitResetMode) => {
+    if (!repoRoot || !requireApi(window.api.resetGitBranchToCommit, 'Git reset')) return
+    const currentBranch = branches?.current
+    if (!currentBranch) {
+      setMessage({ tone: 'error', text: 'Check out a branch before resetting.' })
+      return
+    }
+
+    const consequence =
+      mode === 'hard'
+        ? 'Commits after it are dropped from this branch and every uncommitted change is discarded. The action cannot be undone from Multicode.'
+        : mode === 'soft'
+          ? 'Commits after it stay in the working tree as staged changes.'
+          : 'Commits after it stay in the working tree as unstaged changes.'
+    const confirmed = await dialog.confirm({
+      title: `Reset ${currentBranch} to ${commit.shortHash}?`,
+      body: (
+        <>
+          This moves <span className="font-mono">{currentBranch}</span> back to “{commit.subject}” ({mode} reset).{' '}
+          {consequence}
+          <div className="mt-2 font-mono text-[12px] text-[color:var(--text-muted)]">Scope path: {activeScopePath}</div>
+        </>
+      ),
+      confirmLabel: mode === 'hard' ? 'Hard reset' : 'Reset',
+      tone: mode === 'hard' ? 'danger' : 'default',
+    })
+    if (!confirmed) return
+
+    await runAction(
+      'Resetting branch',
+      () => window.api.resetGitBranchToCommit(repoRoot, commit.hash, mode),
+      `Reset ${currentBranch} to ${commit.shortHash} (${mode}).`
+    )
+  }
+
+  const handleDeleteBranch = async (branchName: string) => {
+    if (!repoRoot || !requireApi(window.api.deleteGitBranch, 'Git branch deletion')) return
+    const confirmed = await dialog.confirm({
+      title: `Delete branch ${branchName}?`,
+      body: (
+        <>
+          This deletes the local branch <span className="font-mono">{branchName}</span>. Its commits stay reachable
+          from other refs; a branch with unmerged commits is refused unless you force-delete it.
+        </>
+      ),
+      confirmLabel: 'Delete branch',
+      tone: 'danger',
+    })
+    if (!confirmed) return
+
+    const result = await runAction(
+      'Deleting branch',
+      () => window.api.deleteGitBranch(repoRoot, branchName),
+      `Deleted ${branchName}.`
+    )
+    if (!result || result.ok) return
+
+    // Git refuses branches that aren't fully merged; escalate explicitly rather
+    // than defaulting to -D (matches the usual editor delete-branch flow). Matching
+    // git's English text is safe: the main process pins LC_ALL=C on every git
+    // invocation (git-utils.ts).
+    if (!/not fully merged/i.test(`${result.message ?? ''}\n${result.stderr}`)) return
+    const forceConfirmed = await dialog.confirm({
+      title: `${branchName} is not fully merged`,
+      body: (
+        <>
+          Branch <span className="font-mono">{branchName}</span> has commits that are not merged anywhere else.
+          Force-deleting it makes those commits unreachable.
+        </>
+      ),
+      confirmLabel: 'Force delete',
+      tone: 'danger',
+    })
+    if (!forceConfirmed) return
+
+    await runAction(
+      'Force-deleting branch',
+      () => window.api.deleteGitBranch(repoRoot, branchName, true),
+      `Deleted ${branchName}.`
+    )
+  }
+
+  const handleRenameBranch = async (branchName: string) => {
+    if (!repoRoot || !requireApi(window.api.renameGitBranch, 'Git branch renaming')) return
+    const newName = await dialog.prompt({
+      title: `Rename ${branchName}`,
+      inputLabel: 'New branch name',
+      initialValue: branchName,
+      required: true,
+      confirmLabel: 'Rename',
+    })
+    if (!newName || newName.trim() === branchName) return
+
+    await runAction(
+      'Renaming branch',
+      () => window.api.renameGitBranch(repoRoot, branchName, newName),
+      `Renamed ${branchName} to ${newName.trim()}.`
+    )
+  }
+
+  const operationInProgress = status?.operation ?? null
+
+  const handleContinueOperation = async () => {
+    if (!repoRoot || !operationInProgress || !requireApi(window.api.continueGitOperation, 'Git continue')) return
+    await runAction(
+      'Continuing',
+      () => window.api.continueGitOperation(repoRoot, operationInProgress),
+      `Continued the ${operationInProgress.replace('-', ' ')}.`
+    )
+  }
+
+  const handleAbortOperation = async () => {
+    if (!repoRoot || !operationInProgress || !requireApi(window.api.abortGitOperation, 'Git abort')) return
+    const label = operationInProgress.replace('-', ' ')
+    const confirmed = await dialog.confirm({
+      title: `Abort the ${label}?`,
+      body: <>This rolls the working tree back to the state before the {label} started.</>,
+      confirmLabel: 'Abort',
+      tone: 'danger',
+    })
+    if (!confirmed) return
+    await runAction(
+      'Aborting',
+      () => window.api.abortGitOperation(repoRoot, operationInProgress),
+      `Aborted the ${label}.`
+    )
+  }
+
+  const handleStashPush = async () => {
+    if (!repoRoot || !requireApi(window.api.pushGitStash, 'Git stash')) return
+    const stashMessage = await dialog.prompt({
+      title: 'Stash changes',
+      body: <>Sets every local change aside (staged, unstaged, and untracked files) and cleans the working tree.</>,
+      inputLabel: 'Message (optional)',
+      placeholder: 'What is in this stash?',
+      confirmLabel: 'Stash',
+    })
+    if (stashMessage === null) return
+
+    await runAction(
+      'Stashing changes',
+      () => window.api.pushGitStash(repoRoot, stashMessage, true),
+      'Stashed changes.'
+    )
+  }
+
+  const handleStashApply = async (entry: GitStashEntry, pop: boolean) => {
+    if (!repoRoot || !requireApi(window.api.applyGitStash, 'Git stash apply')) return
+    await runAction(
+      pop ? 'Popping stash' : 'Applying stash',
+      () => window.api.applyGitStash(repoRoot, entry.index, entry.hash, pop),
+      pop ? `Popped ${entry.ref}.` : `Applied ${entry.ref}.`
+    )
+  }
+
+  const handleStashDrop = async (entry: GitStashEntry) => {
+    if (!repoRoot || !requireApi(window.api.dropGitStash, 'Git stash drop')) return
+    const confirmed = await dialog.confirm({
+      title: `Drop ${entry.ref}?`,
+      body: (
+        <>
+          This deletes the stash entry “{entry.message}”. The action cannot be undone from Multicode.
+        </>
+      ),
+      confirmLabel: 'Drop stash',
+      tone: 'danger',
+    })
+    if (!confirmed) return
+    await runAction(
+      'Dropping stash',
+      () => window.api.dropGitStash(repoRoot, entry.index, entry.hash),
+      `Dropped ${entry.ref}.`
+    )
   }
 
   const handleCheckoutCommit = async (commit: GitGraphCommit) => {
@@ -976,6 +1258,12 @@ export default function GitPanel({ workspaceId }: { workspaceId: string }) {
 
   const commitActions: GitCommitActions = {
     merge: (target) => void handleMergeTarget(target),
+    rebaseOnto: (target) => void handleRebaseTarget(target),
+    cherryPick: (commit) => void handleCherryPick(commit),
+    revertCommit: (commit) => void handleRevertCommit(commit),
+    resetToCommit: (commit, mode) => void handleResetToCommit(commit, mode),
+    deleteBranch: (branchName) => void handleDeleteBranch(branchName),
+    renameBranch: (branchName) => void handleRenameBranch(branchName),
     checkout: (commit) => void handleCheckoutCommit(commit),
     createBranch: (commit) => void handleCreateBranchFromCommit(commit),
     createTag: (commit) => void handleCreateTagFromCommit(commit),
@@ -1211,6 +1499,28 @@ export default function GitPanel({ workspaceId }: { workspaceId: string }) {
           ) : null}
         </div>
 
+      {operationInProgress ? (
+        <div className="shrink-0 border-b border-[color:var(--border-subtle)] px-3 py-2">
+          <InlineNotice
+            tone="warn"
+            action={
+              <span className="flex shrink-0 items-center gap-1">
+                <GhostButton onClick={() => void handleContinueOperation()} disabled={Boolean(busy)}>
+                  Continue
+                </GhostButton>
+                <GhostButton onClick={() => void handleAbortOperation()} disabled={Boolean(busy)}>
+                  Abort
+                </GhostButton>
+              </span>
+            }
+          >
+            <span className="font-medium">{OPERATION_LABELS[operationInProgress]} in progress</span>
+            {' — '}
+            <span>resolve any conflicts, then continue. Abort rolls the working tree back.</span>
+          </InlineNotice>
+        </div>
+      ) : null}
+
       <div className="flex min-h-0 flex-1 flex-col">
         <div className="flex h-9 shrink-0 items-center gap-1 border-b border-[color:var(--border-subtle)] bg-[color:var(--bg-surface)] px-3" role="tablist" aria-label="Git panel views">
           <GitPanelTab
@@ -1262,12 +1572,17 @@ export default function GitPanel({ workspaceId }: { workspaceId: string }) {
                   ))}
                 </>
               )}
+              <StashGroup
+                stashes={stashes}
+                busy={busy}
+                onApply={(entry, pop) => void handleStashApply(entry, pop)}
+                onDrop={(entry) => void handleStashDrop(entry)}
+              />
             </div>
 
             <CommitComposer
               busy={busy}
               commitMessage={commitMessage}
-              message={message}
               readyToCommit={readyToCommit}
               stagedCount={stagedEntries.length}
               onCommit={handleCommit}
@@ -1309,6 +1624,29 @@ export default function GitPanel({ workspaceId }: { workspaceId: string }) {
           />
         )}
       </div>
+
+      {/*
+       * Panel-level action feedback, mounted on every tab. It used to live
+       * inside CommitComposer, so a merge/rebase refused from the Log view
+       * failed silently — the operation ran, the message went to state nobody
+       * rendered ("my merge did nothing").
+       */}
+      {message ? (
+        <div className="shrink-0 px-3 pb-3 pt-2">
+          <div
+            role={message.tone === 'error' ? 'alert' : 'status'}
+            className={`max-h-24 overflow-y-auto rounded-md px-2.5 py-2 text-[11px] [overflow-wrap:anywhere] ${
+              message.tone === 'error'
+                ? 'border border-[color:var(--tone-error)] bg-[color:var(--tone-error-soft)] text-[color:var(--tone-error)]'
+                : message.tone === 'success'
+                  ? 'bg-transparent px-0 py-0 text-[color:var(--text-muted)]'
+                  : 'bg-[color:var(--bg-hover)] text-[color:var(--text-muted)]'
+            }`}
+          >
+            {message.text}
+          </div>
+        </div>
+      ) : null}
     </div>
   )
 }
@@ -1464,6 +1802,86 @@ function ConflictGroup({
   )
 }
 
+// Parked work lives here, not in a hidden `git stash list`: apply/pop/drop are
+// one click, which is also the remedy the dirty-tree merge/rebase guards point
+// at. Only rendered when entries exist — a clean repo shows no empty section.
+function StashGroup({
+  stashes,
+  busy,
+  onApply,
+  onDrop,
+}: {
+  stashes: GitStashEntry[]
+  busy: string | null
+  onApply: (entry: GitStashEntry, pop: boolean) => void
+  onDrop: (entry: GitStashEntry) => void
+}) {
+  if (stashes.length === 0) return null
+
+  return (
+    <section className="mb-4">
+      <div className="mb-1 flex h-6 items-center gap-2">
+        <div className="text-[12px] font-semibold text-[color:var(--text-strong)]">Stashes ({stashes.length})</div>
+      </div>
+      <div className="space-y-1">
+        {stashes.map((entry) => (
+          <div key={entry.ref} className="group/row flex items-center gap-1">
+            <div className="flex min-w-0 flex-1 flex-col py-1">
+              <span className="min-w-0 truncate text-[12px] text-[color:var(--text-default)]" title={entry.message}>
+                {entry.message || 'Stashed changes'}
+              </span>
+              <span className="mt-0.5 flex min-w-0 items-center gap-1.5 text-[10px] text-[color:var(--text-disabled)]">
+                <span className="shrink-0 font-mono text-[color:var(--text-muted)]">{entry.ref}</span>
+                {entry.branch ? (
+                  <>
+                    <span aria-hidden="true" className="shrink-0">·</span>
+                    <span className="min-w-0 truncate">on {entry.branch}</span>
+                  </>
+                ) : null}
+              </span>
+            </div>
+            <div className="flex shrink-0 items-center gap-1 opacity-70 group-hover/row:opacity-100">
+              <Tooltip content={`Reapply ${entry.ref} and drop it`}>
+                <button
+                  type="button"
+                  onClick={() => onApply(entry, true)}
+                  disabled={Boolean(busy)}
+                  className="h-6 rounded-md px-2 text-[11px] font-semibold text-[color:var(--text-muted)] transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)] disabled:opacity-30"
+                  aria-label={`Pop ${entry.ref}`}
+                >
+                  Pop
+                </button>
+              </Tooltip>
+              <Tooltip content={`Reapply ${entry.ref} and keep it`}>
+                <button
+                  type="button"
+                  onClick={() => onApply(entry, false)}
+                  disabled={Boolean(busy)}
+                  className="h-6 rounded-md px-2 text-[11px] font-semibold text-[color:var(--text-muted)] transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)] disabled:opacity-30"
+                  aria-label={`Apply ${entry.ref}`}
+                >
+                  Apply
+                </button>
+              </Tooltip>
+              <Tooltip content={`Delete ${entry.ref}`}>
+                <button
+                  type="button"
+                  onClick={() => onDrop(entry)}
+                  disabled={Boolean(busy)}
+                  className="h-6 rounded-md px-2 text-[11px] font-semibold text-[color:var(--tone-error)] transition-colors hover:bg-[color:var(--tone-error-soft)] disabled:opacity-30"
+                  aria-label={`Drop ${entry.ref}`}
+                >
+                  Drop
+                </button>
+              </Tooltip>
+            </div>
+          </div>
+        ))}
+      </div>
+    </section>
+  )
+}
+
 async function showChangeRowContextMenu(
   event: React.MouseEvent,
   entry: GitStatusEntry,
@@ -1608,7 +2026,6 @@ function ChangeGroup({
 function CommitComposer({
   busy,
   commitMessage,
-  message,
   readyToCommit,
   stagedCount,
   onCommit,
@@ -1621,7 +2038,6 @@ function CommitComposer({
 }: {
   busy: string | null
   commitMessage: string
-  message: GitPanelMessage | null
   readyToCommit: boolean
   stagedCount: number
   onCommit: () => Promise<void>
@@ -1684,20 +2100,6 @@ function CommitComposer({
           </button>
         </div>
       </div>
-      {message ? (
-        <div
-          role={message.tone === 'error' ? 'alert' : 'status'}
-          className={`mt-2 max-h-20 overflow-y-auto rounded-md px-2.5 py-2 text-[11px] [overflow-wrap:anywhere] ${
-            message.tone === 'error'
-              ? 'border border-[color:var(--tone-error)] bg-[color:var(--tone-error-soft)] text-[color:var(--tone-error)]'
-              : message.tone === 'success'
-                ? 'bg-transparent px-0 py-0 text-[color:var(--text-muted)]'
-                : 'bg-[color:var(--bg-hover)] text-[color:var(--text-muted)]'
-          }`}
-        >
-          {message.text}
-        </div>
-      ) : null}
     </section>
   )
 }

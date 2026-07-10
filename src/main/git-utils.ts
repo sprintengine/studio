@@ -14,22 +14,35 @@ function removeLineEndingWarnings(output: string): string {
     .trim()
 }
 
+// LC_ALL=C pins git's messages to English: callers branch on stderr text
+// (e.g. "not fully merged" → force-delete escalation), which localized git
+// would silently break. Paths are bytes to git, so content is unaffected.
+function gitEnv(overrides?: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
+  return { ...process.env, LC_ALL: 'C', ...overrides }
+}
+
 export async function runGit(cwd: string, args: string[]): Promise<string> {
   const { stdout } = await execFileAsync('git', ['-C', cwd, ...args], {
     encoding: 'utf8',
     maxBuffer: 20 * 1024 * 1024,
     windowsHide: true,
+    env: gitEnv(),
   })
 
   return stdout
 }
 
-export async function runGitCommand(cwd: string, args: string[]): Promise<GitCommandResult> {
+export async function runGitCommand(
+  cwd: string,
+  args: string[],
+  envOverrides?: NodeJS.ProcessEnv
+): Promise<GitCommandResult> {
   try {
     const { stdout, stderr } = await execFileAsync('git', ['-C', cwd, ...args], {
       encoding: 'utf8',
       maxBuffer: 20 * 1024 * 1024,
       windowsHide: true,
+      env: gitEnv(envOverrides),
     })
 
     return { ok: true, stdout, stderr: removeLineEndingWarnings(stderr), message: null }

@@ -12,6 +12,9 @@ import type {
   GitGraphOptions,
   GitGraphSnapshot,
   GitHistorySnapshot,
+  GitRepoOperation,
+  GitResetMode,
+  GitStashListSnapshot,
   GitStatusSnapshot,
   GitWorktreeCopyIncludedInput,
   GitWorktreeCopyIncludedResult,
@@ -64,6 +67,30 @@ export const gitApi = {
     ipcRenderer.invoke('git:switch-branch', repoRoot, branchName),
   mergeGitRef: (repoRoot: string, ref: string): Promise<GitCommandResult> =>
     ipcRenderer.invoke('git:merge-ref', repoRoot, ref),
+  rebaseGitBranch: (repoRoot: string, ontoRef: string): Promise<GitCommandResult> =>
+    ipcRenderer.invoke('git:rebase-branch', repoRoot, ontoRef),
+  cherryPickGitCommit: (repoRoot: string, commitHash: string): Promise<GitCommandResult> =>
+    ipcRenderer.invoke('git:cherry-pick', repoRoot, commitHash),
+  revertGitCommit: (repoRoot: string, commitHash: string): Promise<GitCommandResult> =>
+    ipcRenderer.invoke('git:revert-commit', repoRoot, commitHash),
+  resetGitBranchToCommit: (repoRoot: string, commitHash: string, mode: GitResetMode): Promise<GitCommandResult> =>
+    ipcRenderer.invoke('git:reset-to-commit', repoRoot, commitHash, mode),
+  deleteGitBranch: (repoRoot: string, branchName: string, force?: boolean): Promise<GitCommandResult> =>
+    ipcRenderer.invoke('git:delete-branch', repoRoot, branchName, force),
+  renameGitBranch: (repoRoot: string, branchName: string, newName: string): Promise<GitCommandResult> =>
+    ipcRenderer.invoke('git:rename-branch', repoRoot, branchName, newName),
+  continueGitOperation: (repoRoot: string, operation: GitRepoOperation): Promise<GitCommandResult> =>
+    ipcRenderer.invoke('git:operation-continue', repoRoot, operation),
+  abortGitOperation: (repoRoot: string, operation: GitRepoOperation): Promise<GitCommandResult> =>
+    ipcRenderer.invoke('git:operation-abort', repoRoot, operation),
+  listGitStashes: (repoRoot: string): Promise<GitStashListSnapshot> =>
+    ipcRenderer.invoke('git:stash-list', repoRoot),
+  pushGitStash: (repoRoot: string, message: string, includeUntracked?: boolean): Promise<GitCommandResult> =>
+    ipcRenderer.invoke('git:stash-push', repoRoot, message, includeUntracked),
+  applyGitStash: (repoRoot: string, index: number, expectedHash: string, pop?: boolean): Promise<GitCommandResult> =>
+    ipcRenderer.invoke('git:stash-apply', repoRoot, index, expectedHash, pop),
+  dropGitStash: (repoRoot: string, index: number, expectedHash: string): Promise<GitCommandResult> =>
+    ipcRenderer.invoke('git:stash-drop', repoRoot, index, expectedHash),
   checkoutGitCommit: (repoRoot: string, commitHash: string): Promise<GitCommandResult> =>
     ipcRenderer.invoke('git:checkout-commit', repoRoot, commitHash),
   createGitBranchFromCommit: (repoRoot: string, branchName: string, commitHash: string): Promise<GitCommandResult> =>
@@ -114,6 +141,18 @@ export const gitApi = {
   | 'pullGitBranchWithStash'
   | 'switchGitBranch'
   | 'mergeGitRef'
+  | 'rebaseGitBranch'
+  | 'cherryPickGitCommit'
+  | 'revertGitCommit'
+  | 'resetGitBranchToCommit'
+  | 'deleteGitBranch'
+  | 'renameGitBranch'
+  | 'continueGitOperation'
+  | 'abortGitOperation'
+  | 'listGitStashes'
+  | 'pushGitStash'
+  | 'applyGitStash'
+  | 'dropGitStash'
   | 'checkoutGitCommit'
   | 'createGitBranchFromCommit'
   | 'checkoutGitCommitAsBranch'

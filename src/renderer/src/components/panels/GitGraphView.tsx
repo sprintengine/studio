@@ -1,7 +1,7 @@
 import React, { useMemo, useRef, useState } from 'react'
-import type { GitGraphCommit, GitGraphSnapshot } from '../../../../shared/electron-api'
+import type { GitGraphCommit, GitGraphSnapshot, GitResetMode } from '../../../../shared/electron-api'
 import { computeGitGraphLayout, type GitGraphLine } from '../../utils/gitGraphLayout'
-import { GhostButton, InlineNotice, OverflowMenu, Tooltip, TruncatedText, type OverflowMenuItem } from '../ui'
+import { GhostButton, InlineNotice, MenuItem, OverflowMenu, Tooltip, TruncatedText, type OverflowMenuItem } from '../ui'
 import { setCommitDropData } from '../../utils/terminalDrop'
 
 export type GitGraphState =
@@ -18,6 +18,12 @@ export type GitMergeTarget = {
 
 export interface GitCommitActions {
   merge: (target: GitMergeTarget) => void
+  rebaseOnto: (target: GitMergeTarget) => void
+  cherryPick: (commit: GitGraphCommit) => void
+  revertCommit: (commit: GitGraphCommit) => void
+  resetToCommit: (commit: GitGraphCommit, mode: GitResetMode) => void
+  deleteBranch: (branchName: string) => void
+  renameBranch: (branchName: string) => void
   checkout: (commit: GitGraphCommit) => void
   createBranch: (commit: GitGraphCommit) => void
   createTag: (commit: GitGraphCommit) => void
@@ -219,33 +225,117 @@ const KEBAB_GLYPH = (
   </svg>
 )
 
+const RESET_MODES: { mode: GitResetMode; label: string; hint: string }[] = [
+  { mode: 'soft', label: 'Soft', hint: 'keep changes staged' },
+  { mode: 'mixed', label: 'Mixed', hint: 'keep changes unstaged' },
+  { mode: 'hard', label: 'Hard', hint: 'discard changes' },
+]
+
 function buildCommitMenuItems(
   commit: GitGraphCommit,
   actions: GitCommitActions,
   mergeTargets: GitMergeTarget[],
-  currentBranch: string | null
+  localBranches: string[],
+  currentBranch: string | null,
+  isHead: boolean,
+  isOnCurrentBranch: boolean
 ): OverflowMenuItem[] {
-  const items: OverflowMenuItem[] = [
+  const items: OverflowMenuItem[] = []
+
+  if (currentBranch && mergeTargets.length > 0) {
+    for (const target of mergeTargets) {
+      items.push({
+        id: `merge-${target.ref}`,
+        label: target.kind === 'commit'
+          ? `Merge commit into ${currentBranch}`
+          : `Merge ${target.label} into ${currentBranch}`,
+        onSelect: () => actions.merge(target),
+      })
+    }
+    for (const target of mergeTargets) {
+      items.push({
+        id: `rebase-${target.ref}`,
+        label: target.kind === 'commit'
+          ? `Rebase ${currentBranch} onto this commit`
+          : `Rebase ${currentBranch} onto ${target.label}`,
+        onSelect: () => actions.rebaseOnto(target),
+      })
+    }
+    items.push({ kind: 'separator', id: 'integrate-sep' })
+  }
+
+  // Cherry-picking a commit already reachable from HEAD yields an empty pick
+  // that parks CHERRY_PICK_HEAD — don't offer a dead end; conversely, reverting
+  // only makes sense for commits that ARE in the current history.
+  if (currentBranch && !isHead && !isOnCurrentBranch) {
+    items.push({
+      id: 'cherry-pick',
+      label: `Cherry-pick into ${currentBranch}`,
+      onSelect: () => actions.cherryPick(commit),
+    })
+  }
+  if (currentBranch && isOnCurrentBranch) {
+    items.push({ id: 'revert', label: 'Revert this commit…', onSelect: () => actions.revertCommit(commit) })
+  }
+  if (currentBranch && !isHead) {
+    items.push({
+      kind: 'flyout',
+      id: 'reset',
+      label: `Reset ${currentBranch} to here`,
+      ariaLabel: `Reset ${currentBranch} to ${commit.shortHash}`,
+      render: (close) => (
+        <>
+          {RESET_MODES.map(({ mode, label, hint }) => (
+            <MenuItem
+              key={mode}
+              variant={mode === 'hard' ? 'danger' : undefined}
+              onClick={() => {
+                actions.resetToCommit(commit, mode)
+                close()
+              }}
+            >
+              {label} — {hint}
+            </MenuItem>
+          ))}
+        </>
+      ),
+    })
+  }
+  if (items.length > 0 && items[items.length - 1].kind !== 'separator') {
+    items.push({ kind: 'separator', id: 'history-sep' })
+  }
+
+  items.push(
     { id: 'checkout', label: 'Checkout this commit', onSelect: () => actions.checkout(commit) },
     { id: 'branch', label: 'New branch from here…', onSelect: () => actions.createBranch(commit) },
     { id: 'tag', label: 'New tag from here…', onSelect: () => actions.createTag(commit) },
     { kind: 'separator', id: 'sep' },
     { id: 'copy-hash', label: 'Copy hash', onSelect: () => actions.copyHash(commit) },
     { id: 'copy-subject', label: 'Copy subject', onSelect: () => actions.copySubject(commit) },
-  ]
+  )
   if (commit.commitWebUrl) {
     items.push({ id: 'github', label: 'Open on GitHub', onSelect: () => actions.openOnGitHub(commit) })
   }
-  if (currentBranch && mergeTargets.length > 0) {
-    const mergeItems = mergeTargets.map((target) => ({
-      id: `merge-${target.ref}`,
-      label: target.kind === 'commit'
-        ? `Merge commit into ${currentBranch}`
-        : `Merge ${target.label} into ${currentBranch}`,
-      onSelect: () => actions.merge(target),
-    }))
-    return [...mergeItems, { kind: 'separator', id: 'merge-sep' }, ...items]
+
+  if (localBranches.length > 0) {
+    items.push({ kind: 'separator', id: 'branch-sep' })
+    for (const branch of localBranches) {
+      items.push({
+        id: `rename-${branch}`,
+        label: `Rename ${branch}…`,
+        onSelect: () => actions.renameBranch(branch),
+      })
+      if (branch !== currentBranch) {
+        items.push({
+          id: `delete-${branch}`,
+          label: `Delete ${branch}…`,
+          destructive: true,
+          onSelect: () => actions.deleteBranch(branch),
+        })
+      }
+    }
   }
+
   return items
 }
 
@@ -258,6 +348,8 @@ function GitGraphCommitRow({
   isHead,
   currentBranch,
   mergeTargets,
+  localBranches,
+  isOnCurrentBranch,
   highlight,
   active,
   actions,
@@ -272,6 +364,8 @@ function GitGraphCommitRow({
   isHead: boolean
   currentBranch: string | null
   mergeTargets: GitMergeTarget[]
+  localBranches: string[]
+  isOnCurrentBranch: boolean
   highlight: Set<string>
   active: boolean
   actions: GitCommitActions
@@ -349,7 +443,7 @@ function GitGraphCommitRow({
       <span className="flex shrink-0 items-center pr-1.5 opacity-0 transition-opacity focus-within:opacity-100 group-hover:opacity-100">
         <OverflowMenu
           ariaLabel={`Commit ${commit.shortHash} actions`}
-          items={buildCommitMenuItems(commit, actions, mergeTargets, currentBranch)}
+          items={buildCommitMenuItems(commit, actions, mergeTargets, localBranches, currentBranch, isHead, isOnCurrentBranch)}
           align="end"
           trigger={(open) => {
             openMenuRef.current = open
@@ -433,6 +527,13 @@ export function GitGraphView({
     () => collectAncestry(commitsByHash, activeHash),
     [commitsByHash, activeHash]
   )
+  // HEAD's ancestry within the loaded window gates cherry-pick (pointless on
+  // reachable commits) and revert (only meaningful on reachable commits).
+  // Commits deeper than the loaded page can't be classified and stay ungated.
+  const headAncestry = useMemo(
+    () => collectAncestry(commitsByHash, snapshot?.headHash ?? null),
+    [commitsByHash, snapshot?.headHash]
+  )
 
   if (state.status === 'loading') {
     return (
@@ -506,6 +607,11 @@ export function GitGraphView({
                 currentBranch,
                 headHash: snapshot.headHash,
               })}
+              localBranches={(refsByHash.get(commit.hash) ?? [])
+                .filter((ref) => ref.type === 'head' && ref.name !== 'HEAD')
+                .map((ref) => ref.name)
+                .slice(0, 4)}
+              isOnCurrentBranch={headAncestry.has(row.hash)}
               highlight={highlight}
               active={selectedHash === row.hash}
               actions={actions}

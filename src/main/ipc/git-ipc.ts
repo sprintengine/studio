@@ -1,9 +1,21 @@
 import type { IpcMain } from 'electron'
-import type { GitFileStage } from '../git'
+import type { GitFileStage, GitRepoOperation, GitResetMode } from '../git'
 import {
+  abortGitOperation,
+  applyGitStash,
   checkoutGitCommit,
   checkoutGitCommitAsBranch,
+  cherryPickGitCommit,
   commitGitChanges,
+  continueGitOperation,
+  deleteGitBranch,
+  dropGitStash,
+  listGitStashes,
+  pushGitStash,
+  rebaseGitBranch,
+  renameGitBranch,
+  resetGitBranchToCommit,
+  revertGitCommit,
   copyGitWorktreeIncludedFiles,
   createGitBranchFromCommit,
   createGitTagFromCommit,
@@ -138,6 +150,70 @@ export function registerGitIpc(ipcMain: IpcMain, diagnostics: IpcDiagnostics): v
 
   ipcMain.handle('git:merge-ref', async (_, repoRoot: string, ref: string) => {
     return diagnostics.withIpcDiagnostics('GitIPC', 'merge-ref', { repoRoot, ref }, () => mergeGitRef(repoRoot, ref))
+  })
+
+  ipcMain.handle('git:rebase-branch', async (_, repoRoot: string, ontoRef: string) => {
+    return diagnostics.withIpcDiagnostics('GitIPC', 'rebase-branch', { repoRoot, ontoRef }, () => rebaseGitBranch(repoRoot, ontoRef))
+  })
+
+  ipcMain.handle('git:cherry-pick', async (_, repoRoot: string, commitHash: string) => {
+    return diagnostics.withIpcDiagnostics('GitIPC', 'cherry-pick', { repoRoot, commitHash }, () => cherryPickGitCommit(repoRoot, commitHash))
+  })
+
+  ipcMain.handle('git:revert-commit', async (_, repoRoot: string, commitHash: string) => {
+    return diagnostics.withIpcDiagnostics('GitIPC', 'revert-commit', { repoRoot, commitHash }, () => revertGitCommit(repoRoot, commitHash))
+  })
+
+  ipcMain.handle('git:reset-to-commit', async (_, repoRoot: string, commitHash: string, mode: GitResetMode) => {
+    return diagnostics.withIpcDiagnostics('GitIPC', 'reset-to-commit', { repoRoot, commitHash, mode }, () =>
+      resetGitBranchToCommit(repoRoot, commitHash, mode)
+    )
+  })
+
+  ipcMain.handle('git:delete-branch', async (_, repoRoot: string, branchName: string, force?: boolean) => {
+    return diagnostics.withIpcDiagnostics('GitIPC', 'delete-branch', { repoRoot, branchName, force }, () =>
+      deleteGitBranch(repoRoot, branchName, force)
+    )
+  })
+
+  ipcMain.handle('git:rename-branch', async (_, repoRoot: string, branchName: string, newName: string) => {
+    return diagnostics.withIpcDiagnostics('GitIPC', 'rename-branch', { repoRoot, branchName, newName }, () =>
+      renameGitBranch(repoRoot, branchName, newName)
+    )
+  })
+
+  ipcMain.handle('git:operation-continue', async (_, repoRoot: string, operation: GitRepoOperation) => {
+    return diagnostics.withIpcDiagnostics('GitIPC', 'operation-continue', { repoRoot, operation }, () =>
+      continueGitOperation(repoRoot, operation)
+    )
+  })
+
+  ipcMain.handle('git:operation-abort', async (_, repoRoot: string, operation: GitRepoOperation) => {
+    return diagnostics.withIpcDiagnostics('GitIPC', 'operation-abort', { repoRoot, operation }, () =>
+      abortGitOperation(repoRoot, operation)
+    )
+  })
+
+  ipcMain.handle('git:stash-list', async (_, repoRoot: string) => {
+    return diagnostics.withIpcDiagnostics('GitIPC', 'stash-list', { repoRoot }, () => listGitStashes(repoRoot))
+  })
+
+  ipcMain.handle('git:stash-push', async (_, repoRoot: string, message: string, includeUntracked?: boolean) => {
+    return diagnostics.withIpcDiagnostics('GitIPC', 'stash-push', { repoRoot, includeUntracked }, () =>
+      pushGitStash(repoRoot, message, includeUntracked)
+    )
+  })
+
+  ipcMain.handle('git:stash-apply', async (_, repoRoot: string, index: number, expectedHash: string, pop?: boolean) => {
+    return diagnostics.withIpcDiagnostics('GitIPC', 'stash-apply', { repoRoot, index, pop }, () =>
+      applyGitStash(repoRoot, index, expectedHash, pop)
+    )
+  })
+
+  ipcMain.handle('git:stash-drop', async (_, repoRoot: string, index: number, expectedHash: string) => {
+    return diagnostics.withIpcDiagnostics('GitIPC', 'stash-drop', { repoRoot, index }, () =>
+      dropGitStash(repoRoot, index, expectedHash)
+    )
   })
 
   ipcMain.handle('git:checkout-commit', async (_, repoRoot: string, commitHash: string) => {

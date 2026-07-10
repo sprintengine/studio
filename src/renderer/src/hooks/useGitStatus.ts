@@ -120,10 +120,14 @@ function buildDirectoryStatusMap(snapshot: GitStatusSnapshot | null): Record<str
 
 function getStatusSignature(snapshot: GitStatusSnapshot | null): string {
   if (!snapshot) return ''
-  return Object.values(snapshot.files)
+  // The signature must cover every render-relevant snapshot field. `operation`
+  // can flip with an unchanged file list (e.g. a cherry-pick that stops with a
+  // clean tree), and the Continue/Abort notice hangs off it.
+  const fileSignature = Object.values(snapshot.files)
     .map((entry) => `${entry.relativePath}:${entry.status}:${entry.staged ? '1' : '0'}:${entry.unstaged ? '1' : '0'}`)
     .sort()
     .join('|')
+  return `${snapshot.operation ?? 'none'}#${fileSignature}`
 }
 
 function notifyGitStatusSubscribers(subscription: GitStatusSubscription): void {

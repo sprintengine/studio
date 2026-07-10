@@ -12,7 +12,7 @@ testFocusFallsBackToPath()
 console.log('diffFileList.test.ts: ok')
 
 function snapshot(entries: GitStatusSnapshot['files']): GitStatusSnapshot {
-  return { repoRoot: '/repo', files: entries, updatedAt: 0 }
+  return { repoRoot: '/repo', files: entries, operation: null, updatedAt: 0 }
 }
 
 function testOrdersStagedThenUnstaged(): void {

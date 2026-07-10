@@ -45,6 +45,10 @@ import type {
   GitGraphSnapshot as SharedGitGraphSnapshot,
   GitHistorySnapshot as SharedGitHistorySnapshot,
   GitRef as SharedGitRef,
+  GitRepoOperation as SharedGitRepoOperation,
+  GitResetMode as SharedGitResetMode,
+  GitStashEntry as SharedGitStashEntry,
+  GitStashListSnapshot as SharedGitStashListSnapshot,
   GitStatusEntry as SharedGitStatusEntry,
   GitStatusSnapshot as SharedGitStatusSnapshot,
   GitWorktreeCopyIncludedInput as SharedGitWorktreeCopyIncludedInput,
@@ -163,6 +167,10 @@ declare global {
   type SoulPromptResult = SharedSoulPromptResult
   type MultiloopRole = SharedMultiloopRole
   type GitFileStatus = SharedGitFileStatus
+  type GitRepoOperation = SharedGitRepoOperation
+  type GitResetMode = SharedGitResetMode
+  type GitStashEntry = SharedGitStashEntry
+  type GitStashListSnapshot = SharedGitStashListSnapshot
   type GitStatusEntry = SharedGitStatusEntry
   type GitStatusSnapshot = SharedGitStatusSnapshot
   type GitFileBaseResult = SharedGitFileBaseResult

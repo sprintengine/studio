@@ -1,6 +1,52 @@
-import type { GitCommandResult } from './git'
+import type { GitCommandResult, GitRepoOperation, GitResetMode } from './git'
 import { getGitBranches } from './git-read-models'
 import { runGitCommand } from './git-utils'
+
+// Continue/finish steps invoke git's commit-message editor by default; a hung
+// hidden editor reads as "nothing happened", so every such command runs with
+// the editor disabled and git's prepared message kept as-is. This must be the
+// GIT_EDITOR env var — it outranks an inherited GIT_EDITOR from the launching
+// shell, which a `-c core.editor` flag does not.
+const NO_EDITOR_ENV = { GIT_EDITOR: 'true' }
+
+function fail(message: string): GitCommandResult {
+  return { ok: false, stdout: '', stderr: '', message }
+}
+
+type CurrentBranchGuard = { branch: string; error: null } | { branch: null; error: GitCommandResult }
+
+/**
+ * Shared precondition for history-mutating operations: a named branch checked
+ * out (`verb` fills the refusal, e.g. "merge") and — unless `allowDirty` — no
+ * uncommitted tracked changes (`dirtyPhrase` fills that refusal, e.g.
+ * "before merging").
+ */
+async function requireCleanCurrentBranch(
+  repoRoot: string,
+  verb: string,
+  dirtyPhrase: string | null
+): Promise<CurrentBranchGuard> {
+  const branch = await getCurrentBranchName(repoRoot)
+  if (!branch) {
+    return { branch: null, error: fail(`Cannot ${verb} while HEAD is detached. Check out a branch first.`) }
+  }
+  if (dirtyPhrase && (await hasUncommittedTrackedChanges(repoRoot))) {
+    return { branch: null, error: fail(`Commit, stash, or discard your tracked changes ${dirtyPhrase}.`) }
+  }
+  return { branch, error: null }
+}
+
+/** Resolves a user-chosen ref/hash to a commit, or a "cannot find" refusal. */
+async function resolveTargetCommit(repoRoot: string, target: string): Promise<GitCommandResult | null> {
+  const resolved = await runGitCommand(repoRoot, ['rev-parse', '--verify', '--quiet', `${target}^{commit}`])
+  if (resolved.ok) return null
+  return {
+    ok: false,
+    stdout: resolved.stdout,
+    stderr: resolved.stderr,
+    message: `Cannot find branch or commit "${target}".`,
+  }
+}
 
 export async function commitGitChanges(repoRoot: string, message: string): Promise<GitCommandResult> {
   const trimmedMessage = message.trim()
@@ -161,45 +207,137 @@ export async function mergeGitRef(repoRoot: string, ref: string): Promise<GitCom
   const invalid = validateMergeTarget(target)
   if (invalid) return invalid
 
-  const currentBranch = await getCurrentBranchName(repoRoot)
-  if (!currentBranch) {
-    return {
-      ok: false,
-      stdout: '',
-      stderr: '',
-      message: 'Cannot merge while HEAD is detached. Check out a branch first.',
-    }
+  const guard = await requireCleanCurrentBranch(repoRoot, 'merge', 'before merging')
+  if (guard.error) return guard.error
+
+  if (target === guard.branch || target === `refs/heads/${guard.branch}`) {
+    return fail('Choose a different branch or commit to merge.')
   }
 
-  if (target === currentBranch || target === `refs/heads/${currentBranch}`) {
-    return {
-      ok: false,
-      stdout: '',
-      stderr: '',
-      message: 'Choose a different branch or commit to merge.',
-    }
-  }
-
-  if (await hasUncommittedTrackedChanges(repoRoot)) {
-    return {
-      ok: false,
-      stdout: '',
-      stderr: '',
-      message: 'Commit, stash, or discard your tracked changes before merging.',
-    }
-  }
-
-  const resolved = await runGitCommand(repoRoot, ['rev-parse', '--verify', '--quiet', `${target}^{commit}`])
-  if (!resolved.ok) {
-    return {
-      ok: false,
-      stdout: resolved.stdout,
-      stderr: resolved.stderr,
-      message: `Cannot find branch or commit "${target}".`,
-    }
-  }
+  const unresolved = await resolveTargetCommit(repoRoot, target)
+  if (unresolved) return unresolved
 
   return runGitCommand(repoRoot, ['merge', '--no-edit', target])
+}
+
+export async function rebaseGitBranch(repoRoot: string, ontoRef: string): Promise<GitCommandResult> {
+  const target = ontoRef.trim()
+  const invalid = validateMergeTarget(target)
+  if (invalid) return invalid
+
+  const guard = await requireCleanCurrentBranch(repoRoot, 'rebase', 'before rebasing')
+  if (guard.error) return guard.error
+
+  if (target === guard.branch || target === `refs/heads/${guard.branch}`) {
+    return fail('Choose a different branch or commit to rebase onto.')
+  }
+
+  const unresolved = await resolveTargetCommit(repoRoot, target)
+  if (unresolved) return unresolved
+
+  return runGitCommand(repoRoot, ['rebase', target], NO_EDITOR_ENV)
+}
+
+async function isMergeCommit(repoRoot: string, hash: string): Promise<boolean> {
+  const secondParent = await runGitCommand(repoRoot, ['rev-parse', '--verify', '--quiet', `${hash}^2`])
+  return secondParent.ok
+}
+
+export async function cherryPickGitCommit(repoRoot: string, commitHash: string): Promise<GitCommandResult> {
+  const hash = commitHash.trim()
+  if (!COMMIT_HASH_PATTERN.test(hash)) return invalidCommit()
+
+  const guard = await requireCleanCurrentBranch(repoRoot, 'cherry-pick', 'before cherry-picking')
+  if (guard.error) return guard.error
+
+  if (await isMergeCommit(repoRoot, hash)) {
+    return fail('This is a merge commit; cherry-picking it needs a mainline parent (git cherry-pick -m). Use the Git terminal.')
+  }
+
+  return runGitCommand(repoRoot, ['cherry-pick', hash], NO_EDITOR_ENV)
+}
+
+export async function revertGitCommit(repoRoot: string, commitHash: string): Promise<GitCommandResult> {
+  const hash = commitHash.trim()
+  if (!COMMIT_HASH_PATTERN.test(hash)) return invalidCommit()
+
+  const guard = await requireCleanCurrentBranch(repoRoot, 'revert', 'before reverting a commit')
+  if (guard.error) return guard.error
+
+  if (await isMergeCommit(repoRoot, hash)) {
+    return fail('This is a merge commit; reverting it needs a mainline parent (git revert -m). Use the Git terminal.')
+  }
+
+  return runGitCommand(repoRoot, ['revert', '--no-edit', hash], NO_EDITOR_ENV)
+}
+
+const GIT_RESET_MODES: GitResetMode[] = ['soft', 'mixed', 'hard']
+
+export async function resetGitBranchToCommit(
+  repoRoot: string,
+  commitHash: string,
+  mode: GitResetMode
+): Promise<GitCommandResult> {
+  const hash = commitHash.trim()
+  if (!COMMIT_HASH_PATTERN.test(hash)) return invalidCommit()
+  if (!GIT_RESET_MODES.includes(mode)) {
+    return fail('Choose a reset mode: soft, mixed, or hard.')
+  }
+
+  // Moving uncommitted changes around is the point of soft/mixed, so only the
+  // branch guard applies here — no clean-tree requirement.
+  const guard = await requireCleanCurrentBranch(repoRoot, 'reset', null)
+  if (guard.error) return guard.error
+
+  return runGitCommand(repoRoot, ['reset', `--${mode}`, hash])
+}
+
+export async function deleteGitBranch(
+  repoRoot: string,
+  branchName: string,
+  force = false
+): Promise<GitCommandResult> {
+  const invalid = validateRefName(branchName, 'branch')
+  if (invalid) return invalid
+
+  const name = branchName.trim()
+  const currentBranch = await getCurrentBranchName(repoRoot)
+  if (currentBranch && name === currentBranch) {
+    return fail('Cannot delete the branch you are on. Switch to another branch first.')
+  }
+
+  return runGitCommand(repoRoot, ['branch', force ? '-D' : '-d', name])
+}
+
+export async function renameGitBranch(
+  repoRoot: string,
+  branchName: string,
+  newName: string
+): Promise<GitCommandResult> {
+  const invalidOld = validateRefName(branchName, 'branch')
+  if (invalidOld) return invalidOld
+  const invalidNew = validateRefName(newName, 'branch')
+  if (invalidNew) return invalidNew
+
+  return runGitCommand(repoRoot, ['branch', '-m', branchName.trim(), newName.trim()])
+}
+
+// The operation name doubles as the git subcommand, but IPC input is
+// untrusted, so validate against the closed set before shelling out.
+const GIT_OPERATIONS: readonly GitRepoOperation[] = ['merge', 'rebase', 'cherry-pick', 'revert']
+
+export async function continueGitOperation(repoRoot: string, operation: GitRepoOperation): Promise<GitCommandResult> {
+  if (!GIT_OPERATIONS.includes(operation)) {
+    return fail('No continuable Git operation in progress.')
+  }
+  return runGitCommand(repoRoot, [operation, '--continue'], NO_EDITOR_ENV)
+}
+
+export async function abortGitOperation(repoRoot: string, operation: GitRepoOperation): Promise<GitCommandResult> {
+  if (!GIT_OPERATIONS.includes(operation)) {
+    return fail('No abortable Git operation in progress.')
+  }
+  return runGitCommand(repoRoot, [operation, '--abort'])
 }
 
 export async function checkoutGitCommit(repoRoot: string, commitHash: string): Promise<GitCommandResult> {
