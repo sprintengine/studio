@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict'
+import type { BrowserWindow } from 'electron'
 import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process'
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { connect } from 'node:net'
@@ -8,6 +9,7 @@ import { join } from 'node:path'
 import { readAutomationSettings, writeAutomationSettings } from './automation-settings'
 import { createMcpSocketServer, type McpToolRegistration } from './mcp-socket-server'
 import { createAutomationTools, type AutomationBackends } from './automation-tools'
+import { createRendererAutomationDelegate } from './renderer-delegate'
 import type { WorkspaceSyncSnapshot } from '../../shared/workspace-sync'
 import type { TerminalSessionSnapshot } from '../../shared/electron-api'
 import type { AutomationRendererRequest, AutomationRendererResponse } from '../../shared/automation'
@@ -286,6 +288,33 @@ async function testDelegateFailurePassesThrough(): Promise<void> {
   const created = await tool(tools, 'workspace.create').handler({})
   assert.equal(created.isError, true)
   assert.match(JSON.stringify(created.structuredContent), /no_primary_window/)
+}
+
+async function testDelegatePreservesWorkspaceModeOnSuccess(): Promise<void> {
+  // The delegate's response normalizer must pass workspaceMode through: it is
+  // the renderer registry's authoritative mode, and without it the mode
+  // assertion after workspace.create falls back to the sync snapshot's
+  // restart-restored 'standard' placeholder, failing every automation run
+  // that reuses a pre-existing Automations host.
+  const sentRequestIds: string[] = []
+  const findPrimaryWindow = () => ({
+    webContents: {
+      send: (_channel: string, requestId: string) => {
+        sentRequestIds.push(requestId)
+      },
+    },
+  }) as unknown as Pick<BrowserWindow, 'webContents'>
+  const delegate = createRendererAutomationDelegate(findPrimaryWindow)
+
+  const pending = delegate.request({ kind: 'workspace.create', folderPath: '/repo/a', mode: 'automations-host' })
+  assert.equal(sentRequestIds.length, 1, 'the delegate sends the request to the primary window')
+  delegate.handleResponse(sentRequestIds[0], { ok: true, workspaceId: 'ws-host', workspaceMode: 'automations-host' })
+  assert.deepEqual(await pending, { ok: true, workspaceId: 'ws-host', workspaceMode: 'automations-host' })
+
+  // A malformed workspaceMode is dropped, never forwarded.
+  const malformed = delegate.request({ kind: 'workspace.create', folderPath: '/repo/a' })
+  delegate.handleResponse(sentRequestIds[1], { ok: true, workspaceId: 'ws-host', workspaceMode: 42 })
+  assert.deepEqual(await malformed, { ok: true, workspaceId: 'ws-host' })
 }
 
 async function testSocketServerSpeaksMcpAndOnlyWhenStarted(): Promise<void> {
@@ -974,6 +1003,7 @@ const tests = [
   testCreateDelegatesAndConfirmsOnTheBus,
   testCreateNeverFakesSuccessWithoutBusConfirmation,
   testDelegateFailurePassesThrough,
+  testDelegatePreservesWorkspaceModeOnSuccess,
   testSocketServerSpeaksMcpAndOnlyWhenStarted,
   testStaleSocketFileIsReplacedOnStart,
   testBridgePipesStdioToSocketAndExitsOnServerStop,

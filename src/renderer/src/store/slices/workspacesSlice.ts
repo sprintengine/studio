@@ -1017,10 +1017,11 @@ export function createWorkspacesSlice(
           targetWindow.activeWorkspaceId = existingAutomationsHost.id
           normalizeWindowAssignments(state)
           // Offer the reused host to main as a workspace.created command. When
-          // main already tracks it this is rejected (workspace_already_exists —
-          // a logged no-op); when main's routing snapshot was lost or predates
-          // mode persistence, the accept heals main's membership AND mode so
-          // the automation executor's host-by-folder lookup works next run.
+          // main holds only a restart-restored routing placeholder for the id
+          // (mode unknown, reads 'standard'), the accept replaces it, healing
+          // membership AND mode so the automation executor's host-by-folder
+          // lookup works next run. A real same-session record still rejects
+          // as workspace_already_exists — a logged no-op.
           // `current()` detaches the payload from the immer draft, which is
           // revoked once set() returns.
           createdEventPayload = {

@@ -25,7 +25,18 @@ export type SprintEngineProjectionRefreshResult =
   | { status: 'changed'; state: SprintEngineState }
   | { status: 'unchanged'; state: SprintEngineState | null }
   | { status: 'skipped'; reason: 'missing-context' }
-  | { status: 'error'; message: string }
+  // `permanent` mirrors the reader's verdict (run directory gone, or a store
+  // this build cannot read): no retry heals it, so pollers stop re-polling the
+  // workspace instead of re-failing — and re-notifying — every tick.
+  | { status: 'error'; message: string; permanent: boolean }
+
+// Carries the reader's `permanent` verdict through the refresh's single
+// error-handling path so the catch can distinguish it from transient failures.
+class SprintEngineProjectionReadError extends Error {
+  constructor(message: string, readonly permanent: boolean) {
+    super(message)
+  }
+}
 
 export type SprintEngineProjectionRefreshPorts = {
   readSprintEngineProjection(statePath: string, knownToken?: string): Promise<SprintEngineProjectionReadResult>
@@ -100,7 +111,9 @@ export async function refreshSprintEngineWorkspaceProjection(input: {
       workspace.sprintEngineContext.statePath,
       knownToken,
     )
-    if (!projectionResult.ok) throw new Error(projectionResult.message)
+    if (!projectionResult.ok) {
+      throw new SprintEngineProjectionReadError(projectionResult.message, projectionResult.permanent === true)
+    }
 
     if (projectionResult.unchanged) {
       // The projection bytes are unchanged, but the automation lifecycle may
@@ -163,22 +176,32 @@ export async function refreshSprintEngineWorkspaceProjection(input: {
     return { status: 'changed', state: parsedState }
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error)
-    await ports.publishDiagnostic?.({
-      level: 'warning',
-      source: 'sprintengine',
-      title: 'Sprint projection refresh failed',
-      message,
-      workspaceId: workspace.id,
-      workspaceName: workspace.name,
-    })
+    const permanent = error instanceof SprintEngineProjectionReadError && error.permanent
+    // A permanent failure on a background cause stays out of the notification
+    // feed: the pollers give up on the workspace after this result, but dozens
+    // of stale workspaces (runs archived out of the repo, pre-v2 stores) would
+    // each notify once per launch. Interactive causes still notify — the user
+    // acted on this workspace and needs to see why nothing loaded.
+    const background = cause === 'supervisor' || cause === 'auto-run'
+    if (!(permanent && background)) {
+      await ports.publishDiagnostic?.({
+        level: 'warning',
+        source: 'sprintengine',
+        title: 'Sprint projection refresh failed',
+        message,
+        workspaceId: workspace.id,
+        workspaceName: workspace.name,
+      })
+    }
     logPerfEvent('SprintEngineProjection', 'refresh-error', {
       workspaceId: workspace.id,
       workspaceName: workspace.name,
       cause,
       message,
+      permanent,
       elapsedMs: Math.round((ports.now?.() ?? performance.now()) - startedAt),
     })
-    return { status: 'error', message }
+    return { status: 'error', message, permanent }
   }
 }
 

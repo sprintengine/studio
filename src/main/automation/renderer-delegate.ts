@@ -73,10 +73,15 @@ function normalizeResponse(value: unknown): AutomationRendererResponse {
     const candidate = value as Partial<AutomationRendererResponse> & { ok?: unknown }
     if (candidate.ok === true && typeof (candidate as { workspaceId?: unknown }).workspaceId === 'string') {
       const agentId = (candidate as { agentId?: unknown }).agentId
+      const workspaceMode = (candidate as { workspaceMode?: unknown }).workspaceMode
       return {
         ok: true,
         workspaceId: (candidate as { workspaceId: string }).workspaceId,
         ...(typeof agentId === 'string' ? { agentId } : {}),
+        // workspaceMode is the renderer registry's authoritative mode; dropping
+        // it here would force mode assertions back onto the sync snapshot's
+        // restart-restored 'standard' placeholder (see workspace-create.ts).
+        ...(typeof workspaceMode === 'string' && workspaceMode.trim() ? { workspaceMode } : {}),
       }
     }
     if (candidate.ok === false) {

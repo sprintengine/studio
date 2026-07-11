@@ -552,6 +552,76 @@ async function main(): Promise<void> {
     'persisted routing snapshot carries non-standard modes by id; standard stays implicit',
   )
 
+  // A same-id workspace.created against a restart-restored routing placeholder
+  // is accepted as a heal (the renderer's Automations-host reuse path re-offers
+  // its real record): the applier replaces the mode-less placeholder, so the
+  // automation executor's mode-gated host-by-folder lookup works on the next
+  // run. Once the record is real, a duplicate create rejects as before.
+  const healRoutingSnapshot: WorkspaceSyncRoutingSnapshot = {
+    sequence: 60,
+    primaryWorkspaceWindowId: 'primary',
+    workspaceWindows: [
+      {
+        id: 'primary',
+        kind: 'primary',
+        workspaceIds: ['ws-legacy-host'],
+        activeWorkspaceId: 'ws-legacy-host',
+        bounds: null,
+        isMaximized: false,
+        displayId: null,
+        createdAt: 1,
+        lastFocusedAt: 1,
+      },
+    ],
+    workspaceFolderPaths: { 'ws-legacy-host': '/Users/example/project' },
+    // No workspaceModes entry: the host predates mode persistence, so it
+    // restores as a 'standard' placeholder.
+  }
+  const healPersisted: WorkspaceSyncRoutingSnapshot[] = []
+  const healService = createWorkspaceSyncService({
+    initialRoutingSnapshot: healRoutingSnapshot,
+    persistDebounceMs: 60_000,
+    persistRoutingSnapshot: (persisted) => {
+      healPersisted.push(persisted)
+    },
+    now: () => 6000,
+  })
+  assert.equal(
+    healService.getSnapshot().state.workspaces.find((ws) => ws.id === 'ws-legacy-host')?.mode,
+    'standard',
+    'a mode-less routing snapshot restores the host as a standard placeholder',
+  )
+
+  const healCommand: WorkspaceSyncCommand = {
+    type: 'workspace.created',
+    payload: {
+      workspace: {
+        ...workspace('ws-legacy-host', '/Users/example/project'),
+        mode: 'automations-host',
+        templateId: 'automations',
+      },
+      windowId: 'primary',
+      insert: { kind: 'folder_head', folderPath: '/Users/example/project' },
+    },
+  }
+  const heal = healService.dispatch({ sourceWindowId: 'primary', command: healCommand })
+  assert.equal(heal.ok, true, 'same-id create against a routing placeholder is accepted as a heal')
+  assert.equal(
+    healService.getSnapshot().state.workspaces.find((ws) => ws.id === 'ws-legacy-host')?.mode,
+    'automations-host',
+    'the heal replaces the placeholder with the renderer-offered record',
+  )
+  await healService.flushRoutingSnapshot()
+  assert.deepEqual(
+    healPersisted.at(-1)?.workspaceModes,
+    { 'ws-legacy-host': 'automations-host' },
+    'the healed mode persists into the routing snapshot for the next restart',
+  )
+
+  const duplicateAfterHeal = healService.dispatch({ sourceWindowId: 'primary', command: healCommand })
+  assert.equal(duplicateAfterHeal.ok, false, 'a duplicate create against a real record still rejects')
+  assert.equal(duplicateAfterHeal.ok === false ? duplicateAfterHeal.reason : '', 'workspace_already_exists')
+
   console.log('workspace-sync-service.test.ts: ok')
 }
 

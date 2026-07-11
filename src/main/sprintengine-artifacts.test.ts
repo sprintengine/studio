@@ -18,6 +18,7 @@ type IpcHandler = (_event: unknown, payload: unknown) => Promise<unknown>
 async function main(): Promise<void> {
   await testReadProjectionUsesProjectionFile()
   await testReadProjectionSurfacesUnavailableAndInvalidProjection()
+  await testReadProjectionMarksMissingRunDirectoryPermanent()
   await testReadProjectionRejectsPreMc1542Store()
   testDescribeUnsupportedStoreOnlyJudgesRealProjections()
   await testMutationResponsesIncludeProjectionAndEventMetadata()
@@ -95,12 +96,35 @@ async function testReadProjectionSurfacesUnavailableAndInvalidProjection(): Prom
   await rm(join(teamDir, 'projection.json'))
   const missingProjection = await handlers.readProjection({ statePath })
   assert.equal(missingProjection.ok, false)
-  if (!missingProjection.ok) assert.match(missingProjection.message, /projection\.json|ENOENT/u)
+  if (!missingProjection.ok) {
+    assert.match(missingProjection.message, /projection\.json|ENOENT/u)
+    // The run directory still exists — a just-created run has not written its
+    // projection yet, so this must stay transient (pollers keep retrying).
+    assert.notEqual(missingProjection.permanent, true)
+  }
 
   await writeFile(join(teamDir, 'projection.json'), '{not-json', 'utf-8')
   const invalidProjection = await handlers.readProjection({ statePath })
   assert.equal(invalidProjection.ok, false)
   if (!invalidProjection.ok) assert.match(invalidProjection.message, /JSON|Unexpected|property name/u)
+}
+
+// A run directory that no longer exists (archived or deleted out from under the
+// workspace) is a permanent failure: no retry heals it, so the result carries
+// `permanent: true` and pollers stop instead of re-failing every tick.
+async function testReadProjectionMarksMissingRunDirectoryPermanent(): Promise<void> {
+  const { statePath, teamDir } = await createStateFixture()
+  const handlers = createHandlers(async () => {
+    throw new Error('projection reads must not call MCP')
+  })
+
+  await rm(teamDir, { recursive: true })
+  const result = await handlers.readProjection({ statePath })
+  assert.equal(result.ok, false)
+  if (!result.ok) {
+    assert.equal(result.permanent, true)
+    assert.ok(result.message.includes(teamDir), 'the message must name the missing folder')
+  }
 }
 
 // Decision 8: a pre-MC-1542 store is rejected LOUDLY at every surface that reads
@@ -124,6 +148,8 @@ async function testReadProjectionRejectsPreMc1542Store(): Promise<void> {
     assert.match(stale.message, /older version of Multicode/u)
     assert.match(stale.message, /Delete/u)
     assert.ok(stale.message.includes(teamDir), 'the message must name the folder to delete')
+    // An old store never becomes readable: permanent, so pollers stop retrying.
+    assert.equal(stale.permanent, true)
   }
 
   // A run block with no schemaVersion predates the field: also version 1.

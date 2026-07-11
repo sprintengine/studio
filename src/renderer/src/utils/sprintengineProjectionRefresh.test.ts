@@ -90,6 +90,7 @@ function portsFor(input: {
   data?: unknown
   ok?: boolean
   message?: string
+  permanent?: boolean
   token?: string
   applied: SprintEngineState[]
   backlogStore?: BacklogObjectStorePayload
@@ -109,7 +110,13 @@ function portsFor(input: {
 }): SprintEngineProjectionRefreshPorts {
   return {
     readSprintEngineProjection: async (_statePath, knownToken) => {
-      if (input.ok === false) return { ok: false, message: input.message ?? 'projection read failed' }
+      if (input.ok === false) {
+        return {
+          ok: false,
+          message: input.message ?? 'projection read failed',
+          ...(input.permanent !== undefined ? { permanent: input.permanent } : {}),
+        }
+      }
       const token = input.token ?? 'tok-1'
       if (knownToken && knownToken === token) return { ok: true, data: null, token, unchanged: true }
       return { ok: true, data: input.data ?? projection('in_progress'), token }
@@ -315,9 +322,39 @@ async function testReadError(): Promise<void> {
     ports: portsFor({ ok: false, message: 'boom', applied, diagnostics }),
   })
 
-  assert.deepEqual(result, { status: 'error', message: 'boom' })
+  assert.deepEqual(result, { status: 'error', message: 'boom', permanent: false })
   assert.equal(applied.length, 0)
   assert.deepEqual(diagnostics, ['boom'])
+}
+
+async function testPermanentReadErrorSkipsBackgroundDiagnostic(): Promise<void> {
+  // A permanent failure (run directory gone, unreadable store) on a background
+  // cause must not notify: the poller gives up on the workspace, and dozens of
+  // stale workspaces would otherwise each warn on every launch.
+  const diagnostics: string[] = []
+  const result = await refreshSprintEngineWorkspaceProjection({
+    workspace: workspace(),
+    tokens: new Map(),
+    cause: 'supervisor',
+    ports: portsFor({ ok: false, message: 'run data is missing', permanent: true, applied: [], diagnostics }),
+  })
+
+  assert.deepEqual(result, { status: 'error', message: 'run data is missing', permanent: true })
+  assert.deepEqual(diagnostics, [])
+}
+
+async function testPermanentReadErrorStillNotifiesManualRefresh(): Promise<void> {
+  // The user asked for this workspace's data: surface why nothing loaded.
+  const diagnostics: string[] = []
+  const result = await refreshSprintEngineWorkspaceProjection({
+    workspace: workspace(),
+    tokens: new Map(),
+    cause: 'manual',
+    ports: portsFor({ ok: false, message: 'run data is missing', permanent: true, applied: [], diagnostics }),
+  })
+
+  assert.deepEqual(result, { status: 'error', message: 'run data is missing', permanent: true })
+  assert.deepEqual(diagnostics, ['run data is missing'])
 }
 
 async function testMissingContextSkip(): Promise<void> {
@@ -794,6 +831,8 @@ await testUnchangedDedupe()
 await testForcedRefreshUpdatesToken()
 await testChangedRefreshRecordsToken()
 await testReadError()
+await testPermanentReadErrorSkipsBackgroundDiagnostic()
+await testPermanentReadErrorStillNotifiesManualRefresh()
 await testMissingContextSkip()
 await testCompletedProjectionRefreshesMatchingBacklogLink()
 await testNonterminalProjectionDoesNotCompleteBacklogLink()

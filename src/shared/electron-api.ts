@@ -1586,7 +1586,10 @@ export type SprintEngineProjectionReadResult =
   // back as `knownToken` to skip re-reading an unchanged projection. When the
   // token matches, `unchanged` is true and `data` is null (no read/parse done).
   | { ok: true; data: unknown; token?: string; unchanged?: boolean }
-  | { ok: false; message: string }
+  // `permanent` marks a failure no retry can heal — the run directory is gone
+  // (archived or deleted) or the store predates the schema this build reads —
+  // so pollers stop retrying instead of re-failing every tick.
+  | { ok: false; message: string; permanent?: boolean }
 
 export type SprintEngineRegistryRolesReadInput = {
   workspaceRoot: string

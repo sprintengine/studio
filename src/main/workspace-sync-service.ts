@@ -12,6 +12,11 @@ import type { Workspace, WorkspaceId, WorkspaceWindowState } from '../renderer/s
 
 const DEFAULT_PRIMARY_WINDOW_ID = 'primary'
 const MAX_REPLAY_EVENTS = 500
+// Sentinel templateId for restart-restored routing placeholders (see
+// createRoutingPlaceholderWorkspace). Real workspaces always carry a renderer
+// layout-template id, so this marks records whose domain fields (mode, agents,
+// layout) are unknown to main until the renderer re-offers them.
+const ROUTING_PLACEHOLDER_TEMPLATE_ID = 'workspace-sync-routing-placeholder'
 
 type DispatchInput = {
   command: unknown
@@ -286,7 +291,7 @@ function createRoutingPlaceholderWorkspace(
     name: name?.trim() ? name : id,
     mode: mode ?? 'standard',
     folderPath: folderPath?.trim() ? folderPath : null,
-    templateId: 'workspace-sync-routing-placeholder',
+    templateId: ROUTING_PLACEHOLDER_TEMPLATE_ID,
     layoutModel: { global: {}, borders: [], layout: { type: 'row', children: [] } },
     agents: {},
     worktreeState: { containerPath: null, entries: {}, updatedAt: null },
@@ -478,7 +483,14 @@ function validateWorkspaceCreated(
   if (!state.workspaceWindows.some((candidate) => candidate.id === windowId)) {
     return reject('unknown_window', `Window "${windowId}" is not known to workspace sync.`)
   }
-  if (state.workspaces.some((workspace) => workspace.id === workspaceId)) {
+  // A same-id create is normally a duplicate and is rejected — with one
+  // exception: when main tracks the workspace only as a restart-restored
+  // routing placeholder, the renderer is re-offering its real record (the
+  // Automations-host reuse path). Accepting lets the applier replace the
+  // placeholder, healing the mode/name/folder main lost across the restart —
+  // the automation executor's mode-gated host-by-folder lookup depends on it.
+  const tracked = state.workspaces.find((workspace) => workspace.id === workspaceId)
+  if (tracked && tracked.templateId !== ROUTING_PLACEHOLDER_TEMPLATE_ID) {
     return reject('workspace_already_exists', `Workspace "${workspaceId}" already exists.`)
   }
   if (!isRecord(payload.workspace.agents)) {

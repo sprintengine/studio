@@ -93,6 +93,11 @@ export function createProjectionPollLoop(deps: {
 export default function SprintEngineProjectionSupervisor({ activeWorkspaceId, workspaceIds }: Props) {
   const tokensByWorkspace = useRef(new Map<string, string>())
   const lastInactiveRefreshByWorkspace = useRef(new Map<string, number>())
+  // Workspaces whose refresh failed permanently (run directory gone, or a store
+  // this build cannot read), keyed by workspace id to the statePath that failed.
+  // Re-polling cannot heal these, so the tick skips them for as long as the
+  // statePath is unchanged; a repointed context — or an app restart — retries.
+  const permanentFailureStatePaths = useRef(new Map<string, string>())
   const tickInProgress = useRef(false)
   const workspaceKey = workspaceIds.join('\n')
 
@@ -110,6 +115,9 @@ export default function SprintEngineProjectionSupervisor({ activeWorkspaceId, wo
         })
         lastInactiveRefreshByWorkspace.current.forEach((_, workspaceId) => {
           if (!refreshWorkspaceIds.has(workspaceId)) lastInactiveRefreshByWorkspace.current.delete(workspaceId)
+        })
+        permanentFailureStatePaths.current.forEach((_, workspaceId) => {
+          if (!refreshWorkspaceIds.has(workspaceId)) permanentFailureStatePaths.current.delete(workspaceId)
         })
 
         const now = Date.now()
@@ -129,17 +137,28 @@ export default function SprintEngineProjectionSupervisor({ activeWorkspaceId, wo
             lastInactiveRefreshByWorkspace.current.delete(workspace.id)
             continue
           }
+          // A permanently failed workspace (run directory gone, unreadable
+          // store) never recovers by re-polling: skip it while its statePath is
+          // unchanged. Without this, every stale workspace re-fails on every
+          // tick forever.
+          const statePath = workspace.sprintEngineContext?.statePath ?? null
+          if (statePath && permanentFailureStatePaths.current.get(workspace.id) === statePath) continue
           if (workspace.id !== activeWorkspaceId) {
             const lastRefresh = lastInactiveRefreshByWorkspace.current.get(workspace.id) ?? 0
             if (now - lastRefresh < SPRINT_ENGINE_PROJECTION_INACTIVE_POLL_MS) continue
             lastInactiveRefreshByWorkspace.current.set(workspace.id, now)
           }
 
-          await refreshSprintEngineWorkspaceProjection({
+          const result = await refreshSprintEngineWorkspaceProjection({
             workspace,
             tokens: tokensByWorkspace.current,
             cause: 'supervisor',
           })
+          if (result.status === 'error' && result.permanent && statePath) {
+            permanentFailureStatePaths.current.set(workspace.id, statePath)
+          } else if (result.status !== 'error') {
+            permanentFailureStatePaths.current.delete(workspace.id)
+          }
         }
       } finally {
         tickInProgress.current = false

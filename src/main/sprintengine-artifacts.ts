@@ -1521,7 +1521,27 @@ export function createSprintEngineArtifactHandlers(deps: SprintEngineArtifactDep
         // Cheap change-detection: stat the file and fingerprint it as mtime:size.
         // If the caller's last-seen token matches, the projection has not changed
         // since they read it, so we skip the read + parse + IPC payload entirely.
-        const stats = await stat(projectionPath)
+        let stats: Awaited<ReturnType<typeof stat>>
+        try {
+          stats = await stat(projectionPath)
+        } catch (error) {
+          // Missing projection.json splits on whether the run directory itself is
+          // gone. Gone = the run was archived or deleted out from under the
+          // workspace, which no retry heals — `permanent` lets pollers stop.
+          // Directory present but projection not yet written (a just-created run)
+          // stays transient so the next poll picks it up.
+          const code = (error as NodeJS.ErrnoException | null)?.code
+          if (code === 'ENOENT' && !existsSync(state.teamDirectory)) {
+            return {
+              ok: false,
+              permanent: true,
+              message:
+                `Sprint run data is missing: "${state.teamDirectory}" no longer exists `
+                + '(moved or deleted). Restore the folder or remove this workspace.',
+            }
+          }
+          throw error
+        }
         const token = `${stats.mtimeMs}:${stats.size}`
         if (payload?.knownToken && payload.knownToken === token) {
           return { ok: true, data: null, token, unchanged: true }
@@ -1529,7 +1549,7 @@ export function createSprintEngineArtifactHandlers(deps: SprintEngineArtifactDep
         const projectionContent = await readFile(projectionPath, 'utf8')
         const projection = JSON.parse(projectionContent)
         const rejection = describeUnsupportedSprintEngineStore(projection, state.teamDirectory)
-        if (rejection) return { ok: false, message: rejection }
+        if (rejection) return { ok: false, message: rejection, permanent: true }
         return { ok: true, data: projection, token }
       } catch (error) {
         return { ok: false, message: error instanceof Error ? error.message : String(error) }
