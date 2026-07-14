@@ -6,7 +6,6 @@ import type {
   AutomationDefinition,
   AutomationRun,
 } from '../../../shared/automations/contracts'
-import { RUN_SIGNAL_FILENAME } from '../run-signal'
 
 const PERMISSION_PRESETS: readonly AutomationCliPermissionPreset[] = ['default', 'auto_workspace', 'bypass_all']
 
@@ -175,15 +174,15 @@ export function composeSpawnAgentPrompt(input: {
         'Automation execution mode: review_only.',
         'Do not edit files, create files, delete files, stage changes, commit, push, install packages, or run commands that mutate the workspace.',
         'Inspect and report findings only. If a fix is needed, describe it instead of applying it.',
-        `Exception: writing the single run-status file ${RUN_SIGNAL_FILENAME} described below is allowed and required; it is the only file you may create under this mode.`,
       ]
 
-  const signalInstruction = [
-    'When you finish, declare your terminal outcome as your final action:',
-    `write the file ${RUN_SIGNAL_FILENAME} in your current working directory with exactly this JSON shape:`,
-    '{ "status": "completed" | "failed", "summary"?: string, "reports"?: string[] }',
-    'Use "completed" when you finished the task, or "failed" if you could not complete it. Include a short summary of what you did or why it failed.',
-    'If you wrote any report files, list each one in "reports" as a project-relative path under reports/ (for example "reports/2026-06-28-review.md"); omit "reports" when you wrote none.',
+  // The run finalizes when this agent ends its turn, so a turn ended to ask a
+  // question reads as "the work is finished" and finalizes a half-done run. There
+  // is no human at this terminal to answer, so ending the turn is the only way to
+  // report a blocker — say why, and stop.
+  const nonInteractive = [
+    'You are running unattended: no one will read a question or answer a prompt.',
+    'Do not ask questions, request confirmation, or wait for input. If you cannot proceed, state why in your final message and stop.',
   ]
 
   return [
@@ -193,7 +192,7 @@ export function composeSpawnAgentPrompt(input: {
     '',
     input.userPrompt.trim(),
     '',
-    ...signalInstruction,
+    ...nonInteractive,
   ].join('\n')
 }
 

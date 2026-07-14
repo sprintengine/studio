@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { mkdir, mkdtemp, writeFile } from 'node:fs/promises'
+import { mkdtemp, writeFile } from 'node:fs/promises'
 import { createServer, type Server } from 'node:http'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -11,10 +11,10 @@ import type {
   AutomationsRunEvent,
   ScheduleTriggerConfig,
 } from '../../shared/automations/contracts'
+import type { AgentPhaseEvent } from '../../shared/agent-runtime'
 import type { WorkspaceSyncSnapshot } from '../../shared/workspace-sync'
 import { AutomationsEngine, projectFoldersFromWorkspaceSyncSnapshot } from './engine'
 import { openAutomationRunPullRequest, type CommandResult, type PullRequestDeps } from './pull-request'
-import { runSignalPath } from './run-signal'
 import { AutomationsStore, type AutomationStoreState } from './store'
 import { computeNextRun, validateScheduleTriggerConfig } from './schedule'
 import { executableTriggerProviders } from './provider-registry'
@@ -55,25 +55,32 @@ async function main(): Promise<void> {
   await assertWebhookReceiverRefreshSerializesAndFailsClosed()
   await assertStartupOverdueIsSkippedWithoutCatchup()
   await assertTickWaitsForStartupOverdueSkip()
-  await assertSignalScanFinalizesCompletedRunSilently()
-  await assertSignalScanFinalizesFailedRunAndEmitsEvent()
-  await assertMalformedOrMissingSignalLeavesRunPending()
-  await assertSignalScanIsIdempotentOnRescan()
+  await assertTurnEndFinalizesRunWithTranscriptSummary()
+  await assertTurnEndWithoutTranscriptUsesGenericSummary()
+  await assertSubagentStopNeverFinalizes()
+  await assertTurnEndBeforeAnyWorkingPhaseIsIgnored()
+  await assertPendingWakeupDefersFinalize()
+  await assertWorkingFrameCancelsArmedSettleTimer()
+  await assertTurnFailureFinalizesRunAsFailed()
+  await assertRunWithoutWorktreeIsTrackedAndFinalizes()
+  await assertPhaseFramesForOtherAgentsAreInert()
+  await assertMaxDurationSweepFailsOverlongRun()
   await assertStartupRebuildsRegistryFromStore()
   await assertManualFinalizeRemovesRunFromRegistry()
-  await assertEmptySummarySignalAutoFinalizes()
-  await assertSignalScanRecordsContainedReportPaths()
-  await assertOutOfReportsPathsDropWithoutFailingFinalize()
-  await assertConcurrentManualAndScanFinalizeOnce()
+  await assertConcurrentManualAndAutoFinalizeOnce()
   await assertFinalizeDisposesSpawnedAgentAndToleratesDisposeFailure()
-  await assertAgentExitFinalizesFromSignalWhenPresent()
-  await assertAgentExitWithoutSignalFinalizesFailedWithExitCode()
-  await assertAgentExitForUnknownExecutionIdIsNoOp()
+  await assertAgentExitBeforeAnyTurnEndFinalizesFailed()
+  await assertAgentExitDuringSettleWindowUsesArmedOutcome()
+  await assertAgentExitDuringTranscriptReadUsesArmedOutcome()
+  await assertWorkingFrameDuringTranscriptReadAbortsFinalize()
+  await assertExitAfterAbortedArmedFinalizeStillFails()
+  await assertStopDuringTranscriptReadAbortsFinalize()
+  await assertAgentExitCorrelatesOnWorkspaceAndAgentId()
+  await assertAgentExitForUnknownAgentIsNoOp()
   await assertStartupReconcileForceFailsOrphanedAgentRun()
   await assertStartupReconcileLeavesStillLiveRunPending()
   await assertStartupReconcileNeverForceFailsExecutionlessRun()
-  await assertConcurrentAgentExitAndScanFinalizeOnce()
-  await assertOversizeSignalStaysPending()
+  await assertStopClearsArmedSettleTimers()
   await assertReviewOnlyFinalizeWithholdsUnexpectedChanges()
   await assertAllowChangesFinalizeStillPushesWorkingDiff()
 }
@@ -611,7 +618,7 @@ async function assertAgentBackedRunStaysRunningUntilFinalize(): Promise<void> {
   assert.equal(events.length, 1)
 }
 
-// --- Agent-declared run-status signal-file auto-finalize (T4) ---
+// --- Hook-driven finalize: agent-state phase frames, guards, settle window (T4) ---
 
 type AgentEngineHarness = {
   engine: AutomationsEngine
@@ -650,6 +657,9 @@ function agentEngine(
     getProjectFolders: () => [{ workspaceId: 'ws-automations', folderPath: workspaceRoot }],
     now: () => now,
     createRunId: () => 'run-agent',
+    // Short enough that a test waits it out for real without sleeping 15s, long
+    // enough that a cancelling frame lands inside it deterministically.
+    turnSettleMs: TEST_SETTLE_MS,
     onRunEvent: (event) => events.push(event),
     runAutomation: async () => ({
       status: 'running',
@@ -674,8 +684,10 @@ function agentEngine(
   return { engine, events, removedWorktrees, disposedAgents, counters, worktreePath }
 }
 
+const TEST_SETTLE_MS = 30
+
 // Like setupAgentRun, but the launched run carries an executionId so the
-// agent-lifecycle exit trigger and the startup reconcile can correlate to it.
+// startup reconcile (which correlates on it) can see the run.
 async function setupAgentRunWithExecutionId(
   now: number,
   executionId: string,
@@ -703,9 +715,30 @@ async function setupAgentRunWithExecutionId(
   return { workspaceRoot, store, ...harness }
 }
 
-async function writeRunSignal(worktreePath: string, body: string): Promise<void> {
-  await mkdir(worktreePath, { recursive: true })
-  await writeFile(runSignalPath(worktreePath), body, 'utf8')
+function phaseFrame(overrides: Partial<AgentPhaseEvent> = {}): AgentPhaseEvent {
+  return {
+    workspaceId: 'ws-automations',
+    agentId: 'agent-1',
+    executionId: null,
+    phase: 'thinking',
+    previousPhase: null,
+    event: 'PreToolUse',
+    ts: 0,
+    pendingWakeupAt: null,
+    ...overrides,
+  }
+}
+
+// The agent is working: what every guarded turn-end must have seen first.
+function workingFrame(overrides: Partial<AgentPhaseEvent> = {}): AgentPhaseEvent {
+  return phaseFrame({ phase: 'thinking', event: 'PreToolUse', ...overrides })
+}
+
+// A Claude turn end. `SubagentStop` and `session.error` map to the same idle
+// phase, so only the raw event tells them apart — which is the whole point of
+// carrying it this far.
+function turnEndFrame(overrides: Partial<AgentPhaseEvent> = {}): AgentPhaseEvent {
+  return phaseFrame({ phase: 'idle', previousPhase: 'thinking', event: 'Stop', ...overrides })
 }
 
 async function readRunStatus(
@@ -717,107 +750,302 @@ async function readRunStatus(
   return result.ok ? result.value.status : undefined
 }
 
-async function assertSignalScanFinalizesCompletedRunSilently(): Promise<void> {
+async function sleep(ms: number): Promise<void> {
+  await new Promise((resolve) => setTimeout(resolve, ms))
+}
+
+// Wait out an armed settle window plus slack, then let the finalize it kicked
+// off (PR open, worktree teardown, store write) run to completion.
+async function settle(): Promise<void> {
+  await sleep(TEST_SETTLE_MS * 3)
+  await flushMicrotasks(50)
+}
+
+// A minimal Claude transcript: the last assistant message is the run summary.
+async function writeTranscript(workspaceRoot: string, text: string): Promise<string> {
+  const transcriptPath = join(workspaceRoot, 'transcript.jsonl')
+  await writeFile(transcriptPath, [
+    JSON.stringify({ type: 'user', message: { content: 'do the thing' } }),
+    JSON.stringify({ type: 'assistant', message: { id: 'msg-1', content: [{ type: 'text', text: 'first pass' }] } }),
+    JSON.stringify({ type: 'assistant', message: { id: 'msg-2', content: [{ type: 'text', text }] } }),
+  ].join('\n'), 'utf8')
+  return transcriptPath
+}
+
+async function assertTurnEndFinalizesRunWithTranscriptSummary(): Promise<void> {
   const now = Date.parse('2026-06-17T10:00:00.000Z')
-  const { engine, workspaceRoot, store, events, removedWorktrees, counters, worktreePath } = await setupAgentRun(now)
+  const { engine, workspaceRoot, store, events, removedWorktrees, disposedAgents, counters } = await setupAgentRun(now)
+  assert.equal((await engine.runNow({ workspaceRoot, automationId: 'nightly-review', workspaceId: 'ws-automations' })).ok, true)
+  const transcriptPath = await writeTranscript(workspaceRoot, 'Reviewed the repo and filed the report.')
 
-  const dispatched = await engine.runNow({ workspaceRoot, automationId: 'nightly-review', workspaceId: 'ws-automations' })
-  assert.equal(dispatched.ok, true)
-  assert.equal(dispatched.ok && dispatched.run.status, 'running')
-  assert.equal(events.length, 0)
+  await engine.noteAgentPhase(workingFrame())
+  await engine.noteAgentPhase(turnEndFrame({ transcriptPath }))
 
-  await writeRunSignal(worktreePath, JSON.stringify({ status: 'completed', summary: 'Opened PR.' }))
-  await engine.tick()
+  // The turn-end only ARMS the finalize: nothing is destroyed until the settle
+  // window has passed with no further work.
+  assert.equal(await readRunStatus(store, 'nightly-review', 'run-agent'), 'running', 'no finalize inside the settle window')
+  assert.equal(counters.prCalls, 0, 'no PR opened inside the settle window')
+
+  await settle()
 
   const finalized = await store.getRun('nightly-review', 'run-agent')
   assert.equal(finalized.ok && finalized.value.status, 'completed')
-  assert.equal(finalized.ok && finalized.value.pullRequestUrl, 'https://github.com/acme/repo/pull/9')
+  assert.equal(
+    finalized.ok && finalized.value.summary,
+    'Reviewed the repo and filed the report. Opened pull request https://github.com/acme/repo/pull/9.',
+    'summary comes from the agent\'s last assistant message',
+  )
   assert.equal(counters.prCalls, 1, 'PR opened once')
   assert.equal(removedWorktrees.length, 1, 'worktree torn down')
-  // A timer-driven completed finalize stays silent (no terminal run-event).
+  assert.deepEqual(disposedAgents, [{ workspaceId: 'ws-automations', agentId: 'agent-1' }], 'one-shot agent disposed')
+  // A frame-driven completed finalize stays silent (no terminal run-event).
   assert.equal(events.length, 0, 'completed auto-finalize emits no run-event')
 
-  // Re-scan after the run is terminal does nothing (registry already cleared).
-  await engine.tick()
-  assert.equal(counters.prCalls, 1, 'no second PR on re-tick')
+  // The run left the registry: a later frame for the same agent is inert.
+  await engine.noteAgentPhase(turnEndFrame({ transcriptPath }))
+  await settle()
+  assert.equal(counters.prCalls, 1, 'no second PR from a post-finalize frame')
 }
 
-async function assertSignalScanFinalizesFailedRunAndEmitsEvent(): Promise<void> {
+async function assertTurnEndWithoutTranscriptUsesGenericSummary(): Promise<void> {
   const now = Date.parse('2026-06-17T10:00:00.000Z')
-  const { engine, workspaceRoot, store, events, removedWorktrees, counters, worktreePath } = await setupAgentRun(now)
-
+  const { engine, workspaceRoot, store, counters } = await setupAgentRun(now)
   assert.equal((await engine.runNow({ workspaceRoot, automationId: 'nightly-review', workspaceId: 'ws-automations' })).ok, true)
-  await writeRunSignal(worktreePath, JSON.stringify({ status: 'failed', summary: 'Could not finish.' }))
-  await engine.tick()
+
+  // No transcript path on the frame (an OpenCode/codex turn end): the summary
+  // degrades to a generic one and the finalize proceeds regardless.
+  await engine.noteAgentPhase(workingFrame())
+  await engine.noteAgentPhase(turnEndFrame({ event: 'session.idle' }))
+  await settle()
 
   const finalized = await store.getRun('nightly-review', 'run-agent')
-  assert.equal(finalized.ok && finalized.value.status, 'failed')
-  assert.equal(counters.prCalls, 0, 'failed run opens no PR')
+  assert.equal(finalized.ok && finalized.value.status, 'completed', 'session.idle is a turn end too')
+  assert.equal(
+    finalized.ok && finalized.value.summary,
+    'The agent finished, but left no summary of what it did. Opened pull request https://github.com/acme/repo/pull/9.',
+  )
+  assert.equal(counters.prCalls, 1)
+
+  // An unreadable transcript path is equally non-fatal (it is untrusted input).
+  const { engine: engine2, workspaceRoot: root2, store: store2 } = await setupAgentRun(now)
+  assert.equal((await engine2.runNow({ workspaceRoot: root2, automationId: 'nightly-review', workspaceId: 'ws-automations' })).ok, true)
+  await engine2.noteAgentPhase(workingFrame())
+  await engine2.noteAgentPhase(turnEndFrame({ transcriptPath: join(root2, 'missing.jsonl') }))
+  await settle()
+  const finalized2 = await store2.getRun('nightly-review', 'run-agent')
+  assert.equal(finalized2.ok && finalized2.value.status, 'completed', 'a missing transcript never blocks finalize')
+  assert.equal(finalized2.ok && finalized2.value.summary?.startsWith('The agent finished, but left no summary of what it did.'), true)
+}
+
+async function assertSubagentStopNeverFinalizes(): Promise<void> {
+  const now = Date.parse('2026-06-17T10:00:00.000Z')
+  const { engine, workspaceRoot, store, counters } = await setupAgentRun(now)
+  assert.equal((await engine.runNow({ workspaceRoot, automationId: 'nightly-review', workspaceId: 'ws-automations' })).ok, true)
+
+  // A Task subagent finishing maps to the SAME idle phase as the session's own
+  // turn end. Finalizing here would open a PR from work still in progress.
+  await engine.noteAgentPhase(workingFrame())
+  await engine.noteAgentPhase(turnEndFrame({ event: 'SubagentStop' }))
+  await settle()
+
+  assert.equal(await readRunStatus(store, 'nightly-review', 'run-agent'), 'running', 'SubagentStop does not end the run')
+  assert.equal(counters.prCalls, 0)
+
+  // The parent's own Stop still finalizes it, proving the run stayed tracked.
+  await engine.noteAgentPhase(turnEndFrame())
+  await settle()
+  assert.equal(await readRunStatus(store, 'nightly-review', 'run-agent'), 'completed')
+}
+
+async function assertTurnEndBeforeAnyWorkingPhaseIsIgnored(): Promise<void> {
+  const now = Date.parse('2026-06-17T10:00:00.000Z')
+  const { engine, workspaceRoot, store, counters, disposedAgents } = await setupAgentRun(now)
+  assert.equal((await engine.runNow({ workspaceRoot, automationId: 'nightly-review', workspaceId: 'ws-automations' })).ok, true)
+
+  // An idle frame that arrives before the prompt lands (the agent is up but has
+  // not started) must not instantly finalize and kill the agent.
+  await engine.noteAgentPhase(turnEndFrame({ previousPhase: null }))
+  await settle()
+
+  assert.equal(await readRunStatus(store, 'nightly-review', 'run-agent'), 'running', 'run with no observed work stays running')
+  assert.equal(counters.prCalls, 0)
+  assert.deepEqual(disposedAgents, [], 'the live agent is not disposed')
+
+  // Once it has actually worked, its next turn end finalizes.
+  await engine.noteAgentPhase(workingFrame())
+  await engine.noteAgentPhase(turnEndFrame())
+  await settle()
+  assert.equal(await readRunStatus(store, 'nightly-review', 'run-agent'), 'completed')
+}
+
+async function assertPendingWakeupDefersFinalize(): Promise<void> {
+  const now = Date.parse('2026-06-17T10:00:00.000Z')
+  const { engine, workspaceRoot, store, counters } = await setupAgentRun(now)
+  assert.equal((await engine.runNow({ workspaceRoot, automationId: 'nightly-review', workspaceId: 'ws-automations' })).ok, true)
+
+  // A self-paced (/loop) agent ends its turn intending to resume. pendingWakeupAt
+  // is resolved from the SESSION — the reporter never puts a wakeup on a turn-end
+  // frame — so a future wakeup means "not done", and disposing it here would kill
+  // a loop mid-flight.
+  await engine.noteAgentPhase(workingFrame())
+  await engine.noteAgentPhase(turnEndFrame({ pendingWakeupAt: now + 60_000 }))
+  await settle()
+  assert.equal(await readRunStatus(store, 'nightly-review', 'run-agent'), 'running', 'armed wakeup defers finalize')
+  assert.equal(counters.prCalls, 0)
+
+  // A wakeup already in the past does not defer anything.
+  await engine.noteAgentPhase(turnEndFrame({ pendingWakeupAt: now - 1 }))
+  await settle()
+  assert.equal(await readRunStatus(store, 'nightly-review', 'run-agent'), 'completed', 'an elapsed wakeup does not block')
+}
+
+async function assertWorkingFrameCancelsArmedSettleTimer(): Promise<void> {
+  const now = Date.parse('2026-06-17T10:00:00.000Z')
+  const { engine, workspaceRoot, store, counters } = await setupAgentRun(now)
+  assert.equal((await engine.runNow({ workspaceRoot, automationId: 'nightly-review', workspaceId: 'ws-automations' })).ok, true)
+
+  // The settle window is what covers everything an event-name check cannot: a
+  // Stop-hook continuation, an agent pausing to ask, plan mode, ESC. Work
+  // resuming inside the window disarms the finalize entirely.
+  await engine.noteAgentPhase(workingFrame())
+  await engine.noteAgentPhase(turnEndFrame())
+  await engine.noteAgentPhase(workingFrame({ phase: 'tool_use', event: 'PostToolUse' }))
+  await settle()
+
+  assert.equal(await readRunStatus(store, 'nightly-review', 'run-agent'), 'running', 'resumed work cancels the armed finalize')
+  assert.equal(counters.prCalls, 0, 'no PR from a cancelled turn end')
+
+  // The next real turn end still finalizes.
+  await engine.noteAgentPhase(turnEndFrame())
+  await settle()
+  assert.equal(await readRunStatus(store, 'nightly-review', 'run-agent'), 'completed')
+  assert.equal(counters.prCalls, 1)
+}
+
+async function assertTurnFailureFinalizesRunAsFailed(): Promise<void> {
+  const now = Date.parse('2026-06-17T10:00:00.000Z')
+  const { engine, workspaceRoot, store, events, removedWorktrees, counters } = await setupAgentRun(now)
+  assert.equal((await engine.runNow({ workspaceRoot, automationId: 'nightly-review', workspaceId: 'ws-automations' })).ok, true)
+
+  // OpenCode maps session.error to the idle phase, exactly like session.idle — so
+  // a phase-only signal would finalize a CRASHED session as completed and open a
+  // PR from it. The raw event is what keeps that from happening.
+  await engine.noteAgentPhase(workingFrame())
+  await engine.noteAgentPhase(turnEndFrame({ event: 'session.error' }))
+  await settle()
+
+  const finalized = await store.getRun('nightly-review', 'run-agent')
+  assert.equal(finalized.ok && finalized.value.status, 'failed', 'a crashed session is failed, not completed')
+  assert.equal(finalized.ok && finalized.value.summary, 'The agent hit an error and stopped before it finished.')
+  assert.equal(counters.prCalls, 0, 'a failed run opens no PR')
   assert.equal(removedWorktrees.length, 1, 'worktree torn down on failure')
-  // A timer-driven failed finalize surfaces a failed run-event.
-  assert.equal(events.length, 1)
+  assert.equal(events.length, 1, 'a failed auto-finalize surfaces a run-event')
   assert.equal(events[0]?.status, 'failed')
   assert.equal(events[0]?.trigger, 'timer')
 }
 
-async function assertMalformedOrMissingSignalLeavesRunPending(): Promise<void> {
+async function assertRunWithoutWorktreeIsTrackedAndFinalizes(): Promise<void> {
   const now = Date.parse('2026-06-17T10:00:00.000Z')
-  const { engine, workspaceRoot, store, counters, worktreePath } = await setupAgentRun(now)
+  // REGRESSION (bug 1): trackPendingAgentRun used to early-return unless the run
+  // had a worktree, so every runInWorktree:false run was never registered and had
+  // no finalize path at all — the runs that hung forever. This must fail against
+  // the pre-change engine.
+  const { engine, workspaceRoot, store, events, removedWorktrees, disposedAgents, counters } = await setupAgentRun(now, {
+    runAutomation: async () => ({
+      status: 'running',
+      workspaceId: 'ws-automations',
+      agentId: 'agent-1',
+      summary: 'Launched; working…',
+    }),
+  })
   assert.equal((await engine.runNow({ workspaceRoot, automationId: 'nightly-review', workspaceId: 'ws-automations' })).ok, true)
 
-  // Missing signal file: run stays pending.
-  await engine.tick()
-  assert.equal((await readRunStatus(store, 'nightly-review', 'run-agent')), 'running')
-  assert.equal(counters.prCalls, 0)
+  await engine.noteAgentPhase(workingFrame())
+  await engine.noteAgentPhase(turnEndFrame())
+  await settle()
 
-  // Malformed / unrecognized signal: still pending, never coerced.
-  await writeRunSignal(worktreePath, '{ not json')
-  await engine.tick()
-  assert.equal((await readRunStatus(store, 'nightly-review', 'run-agent')), 'running')
-  await writeRunSignal(worktreePath, JSON.stringify({ status: 'queued' }))
-  await engine.tick()
-  assert.equal((await readRunStatus(store, 'nightly-review', 'run-agent')), 'running')
-  assert.equal(counters.prCalls, 0, 'no finalize on invalid signal')
-
-  // A valid signal later finalizes it, proving the run was still tracked.
-  await writeRunSignal(worktreePath, JSON.stringify({ status: 'completed' }))
-  await engine.tick()
-  assert.equal((await readRunStatus(store, 'nightly-review', 'run-agent')), 'completed')
-  assert.equal(counters.prCalls, 1)
+  const finalized = await store.getRun('nightly-review', 'run-agent')
+  assert.equal(finalized.ok && finalized.value.status, 'completed', 'a worktree-less run finalizes from its turn end')
+  assert.equal(finalized.ok && finalized.value.summary, 'The agent finished, but left no summary of what it did.')
+  assert.equal(counters.prCalls, 0, 'no worktree and no branch → nothing to open a PR from')
+  assert.deepEqual(removedWorktrees, [], 'no worktree to tear down')
+  assert.deepEqual(disposedAgents, [{ workspaceId: 'ws-automations', agentId: 'agent-1' }], 'its agent is still disposed')
+  assert.equal(events.length, 0)
 }
 
-async function assertSignalScanIsIdempotentOnRescan(): Promise<void> {
+async function assertPhaseFramesForOtherAgentsAreInert(): Promise<void> {
   const now = Date.parse('2026-06-17T10:00:00.000Z')
-  const { engine, workspaceRoot, store, counters, worktreePath } = await setupAgentRun(now)
+  const { engine, workspaceRoot, store, counters } = await setupAgentRun(now)
   assert.equal((await engine.runNow({ workspaceRoot, automationId: 'nightly-review', workspaceId: 'ws-automations' })).ok, true)
-  await writeRunSignal(worktreePath, JSON.stringify({ status: 'completed' }))
 
+  // Every ordinary agent in the app emits these frames. Only the (workspaceId,
+  // agentId) pair of a pending run may finalize one; a partial key matches nothing.
+  await engine.noteAgentPhase(workingFrame({ agentId: 'agent-2' }))
+  await engine.noteAgentPhase(turnEndFrame({ agentId: 'agent-2' }))
+  await engine.noteAgentPhase(workingFrame({ workspaceId: 'ws-other' }))
+  await engine.noteAgentPhase(turnEndFrame({ workspaceId: 'ws-other' }))
+  await engine.noteAgentPhase(workingFrame({ workspaceId: null }))
+  await engine.noteAgentPhase(turnEndFrame({ workspaceId: null }))
+  await settle()
+
+  assert.equal(await readRunStatus(store, 'nightly-review', 'run-agent'), 'running', 'another agent going idle finalizes nothing')
+  assert.equal(counters.prCalls, 0)
+}
+
+async function assertMaxDurationSweepFailsOverlongRun(): Promise<void> {
+  const startedAt = Date.parse('2026-06-17T10:00:00.000Z')
+  let clock = startedAt
+  const { engine, workspaceRoot, store, events, removedWorktrees, counters } = await setupAgentRun(startedAt, {
+    now: () => clock,
+    maxAgentRunMs: 6 * 60 * 60 * 1000,
+  })
+  assert.equal((await engine.runNow({ workspaceRoot, automationId: 'nightly-review', workspaceId: 'ws-automations' })).ok, true)
+
+  // A run still inside the cap is left alone for its frames.
+  clock = startedAt + 5 * 60 * 60 * 1000
   await engine.tick()
+  assert.equal(await readRunStatus(store, 'nightly-review', 'run-agent'), 'running', 'a younger run is untouched by the sweep')
+
+  // Past the cap it is failed rather than left Running forever — the backstop for
+  // an agent whose CLI reports no frames at all, or whose turn end was lost.
+  clock = startedAt + 6 * 60 * 60 * 1000 + 1
   await engine.tick()
-  await engine.tick()
-  assert.equal((await readRunStatus(store, 'nightly-review', 'run-agent')), 'completed')
-  assert.equal(counters.prCalls, 1, 'finalize/PR happens exactly once across repeated scans')
+
+  const swept = await store.getRun('nightly-review', 'run-agent')
+  assert.equal(swept.ok && swept.value.status, 'failed')
+  assert.equal(
+    swept.ok && swept.value.summary,
+    'The agent was still running after 6 hours, so Multicode stopped waiting and ended the run.',
+  )
+  assert.equal(counters.prCalls, 0, 'a swept run opens no PR')
+  assert.equal(removedWorktrees.length, 1)
+  assert.equal(events.length, 1)
+  assert.equal(events[0]?.status, 'failed')
 }
 
 async function assertStartupRebuildsRegistryFromStore(): Promise<void> {
   const now = Date.parse('2026-06-17T10:00:00.000Z')
   // Engine A dispatches the run and records it as `running` in the store.
-  const { engine: engineA, workspaceRoot, store, worktreePath } = await setupAgentRun(now)
+  const { engine: engineA, workspaceRoot, store } = await setupAgentRun(now)
   assert.equal((await engineA.runNow({ workspaceRoot, automationId: 'nightly-review', workspaceId: 'ws-automations' })).ok, true)
-  assert.equal((await readRunStatus(store, 'nightly-review', 'run-agent')), 'running')
+  assert.equal(await readRunStatus(store, 'nightly-review', 'run-agent'), 'running')
 
   // Engine B is a fresh instance (empty in-memory registry) simulating a restart.
+  // The seed rebuilds the registry from the persisted runs — which is what makes
+  // (workspaceId, agentId) correlation survive a restart at all.
   const { engine: engineB, counters: countersB } = agentEngine(workspaceRoot, now)
-  await writeRunSignal(worktreePath, JSON.stringify({ status: 'completed' }))
-  // Startup seeds the registry from disk, then the scan finalizes the run.
   await engineB.handleStartup()
-  assert.equal((await readRunStatus(store, 'nightly-review', 'run-agent')), 'completed')
-  assert.equal(countersB.prCalls, 1, 'restart-recovered run finalized via startup seed')
+  await engineB.noteAgentPhase(workingFrame())
+  await engineB.noteAgentPhase(turnEndFrame())
+  await settle()
+
+  assert.equal(await readRunStatus(store, 'nightly-review', 'run-agent'), 'completed', 'restart-recovered run finalizes from its frames')
+  assert.equal(countersB.prCalls, 1)
 }
 
 async function assertManualFinalizeRemovesRunFromRegistry(): Promise<void> {
   const now = Date.parse('2026-06-17T10:00:00.000Z')
-  const { engine, workspaceRoot, store, events, counters, worktreePath } = await setupAgentRun(now)
+  const { engine, workspaceRoot, store, events, counters } = await setupAgentRun(now)
   assert.equal((await engine.runNow({ workspaceRoot, automationId: 'nightly-review', workspaceId: 'ws-automations' })).ok, true)
 
   // Manual finalize (IPC button) — emits even on completed, and clears the registry.
@@ -832,79 +1060,16 @@ async function assertManualFinalizeRemovesRunFromRegistry(): Promise<void> {
   assert.equal(events.length, 1, 'manual completed finalize emits a run-event')
   assert.equal(events[0]?.trigger, 'manual')
 
-  // A subsequent signal scan must not re-finalize: the run left the registry.
-  await writeRunSignal(worktreePath, JSON.stringify({ status: 'failed' }))
-  await engine.tick()
-  assert.equal((await readRunStatus(store, 'nightly-review', 'run-agent')), 'completed')
-  assert.equal(counters.prCalls, 1, 'scan does not touch a manually finalized run')
-  assert.equal(events.length, 1, 'no extra event from the scan')
+  // A later frame for that agent must not re-finalize: the run left the registry.
+  await engine.noteAgentPhase(workingFrame())
+  await engine.noteAgentPhase(turnEndFrame())
+  await settle()
+  assert.equal(await readRunStatus(store, 'nightly-review', 'run-agent'), 'completed')
+  assert.equal(counters.prCalls, 1, 'a frame does not touch a manually finalized run')
+  assert.equal(events.length, 1, 'no extra event from the frame')
 }
 
-async function assertEmptySummarySignalAutoFinalizes(): Promise<void> {
-  const now = Date.parse('2026-06-17T10:00:00.000Z')
-  const { engine, workspaceRoot, store, counters, worktreePath } = await setupAgentRun(now)
-  assert.equal((await engine.runNow({ workspaceRoot, automationId: 'nightly-review', workspaceId: 'ws-automations' })).ok, true)
-
-  // A valid completed declaration with an empty summary must still finalize
-  // (regression guard for the stranded-run bug, F1) — not stay 'running' forever.
-  await writeRunSignal(worktreePath, JSON.stringify({ status: 'completed', summary: '' }))
-  await engine.tick()
-
-  const finalized = await store.getRun('nightly-review', 'run-agent')
-  assert.equal(finalized.ok && finalized.value.status, 'completed', 'empty-summary completed signal finalizes')
-  assert.equal(counters.prCalls, 1, 'PR opened for empty-summary completed run')
-}
-
-async function assertSignalScanRecordsContainedReportPaths(): Promise<void> {
-  const now = Date.parse('2026-06-17T10:00:00.000Z')
-  const { engine, workspaceRoot, store, worktreePath } = await setupAgentRun(now)
-  assert.equal((await engine.runNow({ workspaceRoot, automationId: 'nightly-review', workspaceId: 'ws-automations' })).ok, true)
-
-  // The signal threads its reports into finalize. A mix of a valid path, an
-  // exact duplicate, a traversal escape, and an out-of-reports path collapses to
-  // the contained, de-duped survivors recorded on the run.
-  await writeRunSignal(worktreePath, JSON.stringify({
-    status: 'completed',
-    summary: 'Wrote the review.',
-    reports: [
-      'reports/2026-06-17-review.md',
-      'reports/2026-06-17-review.md',
-      '../secret.md',
-      'notes/leak.md',
-      'reports/sub/extra.html',
-    ],
-  }))
-  await engine.tick()
-
-  const finalized = await store.getRun('nightly-review', 'run-agent')
-  assert.equal(finalized.ok && finalized.value.status, 'completed')
-  assert.deepEqual(
-    finalized.ok ? finalized.value.reportPaths : undefined,
-    ['reports/2026-06-17-review.md', 'reports/sub/extra.html'],
-    'only contained, de-duped report paths recorded',
-  )
-}
-
-async function assertOutOfReportsPathsDropWithoutFailingFinalize(): Promise<void> {
-  const now = Date.parse('2026-06-17T10:00:00.000Z')
-  const { engine, workspaceRoot, store, counters, worktreePath } = await setupAgentRun(now)
-  assert.equal((await engine.runNow({ workspaceRoot, automationId: 'nightly-review', workspaceId: 'ws-automations' })).ok, true)
-
-  // Every declared path escapes reports/ — they all drop, but the completed
-  // outcome still finalizes (and opens its PR); reportPaths stays absent.
-  await writeRunSignal(worktreePath, JSON.stringify({
-    status: 'completed',
-    reports: ['../secret.md', 'notes/leak.md', '/etc/passwd'],
-  }))
-  await engine.tick()
-
-  const finalized = await store.getRun('nightly-review', 'run-agent')
-  assert.equal(finalized.ok && finalized.value.status, 'completed', 'finalize still completes')
-  assert.equal(finalized.ok && finalized.value.reportPaths, undefined, 'no contained paths → reportPaths absent')
-  assert.equal(counters.prCalls, 1)
-}
-
-async function assertConcurrentManualAndScanFinalizeOnce(): Promise<void> {
+async function assertConcurrentManualAndAutoFinalizeOnce(): Promise<void> {
   const now = Date.parse('2026-06-17T10:00:00.000Z')
   const workspaceRoot = await createWorkspace()
   const store = new AutomationsStore(workspaceRoot)
@@ -954,8 +1119,8 @@ async function assertConcurrentManualAndScanFinalizeOnce(): Promise<void> {
   })
   await prStarted
 
-  // Second caller mirrors the per-tick scan's internal finalize for the same run
-  // (eventTrigger 'timer'). It must hit the per-run lock, not re-open a PR.
+  // A second finalize for the same run (what an auto-finalize would do) must hit
+  // the per-run lock, not re-open a PR.
   const concurrent = await engine.finalizeRun({
     workspaceRoot,
     automationId: 'nightly-review',
@@ -972,59 +1137,207 @@ async function assertConcurrentManualAndScanFinalizeOnce(): Promise<void> {
   assert.equal(removedWorktrees, 1, 'worktree torn down once')
   const terminalEvents = events.filter((event) => event.runId === 'run-agent')
   assert.equal(terminalEvents.length, 1, 'exactly one terminal run-event')
-  assert.equal((await readRunStatus(store, 'nightly-review', 'run-agent')), 'completed')
+  assert.equal(await readRunStatus(store, 'nightly-review', 'run-agent'), 'completed')
 }
 
-// --- Agent-lifecycle exit-driven finalize + startup reconcile (T2) ---
+// --- Agent-lifecycle exit-driven finalize + startup reconcile ---
 
-async function assertAgentExitFinalizesFromSignalWhenPresent(): Promise<void> {
+async function assertAgentExitBeforeAnyTurnEndFinalizesFailed(): Promise<void> {
   const now = Date.parse('2026-06-17T10:00:00.000Z')
-  const { engine, workspaceRoot, store, events, counters, worktreePath } =
-    await setupAgentRunWithExecutionId(now, 'exec-1')
+  const { engine, workspaceRoot, store, events, counters } = await setupAgentRunWithExecutionId(now, 'exec-1')
   assert.equal((await engine.runNow({ workspaceRoot, automationId: 'nightly-review', workspaceId: 'ws-automations' })).ok, true)
 
-  // A valid signal is present at exit → finalize from its outcome, not failed.
-  await writeRunSignal(worktreePath, JSON.stringify({ status: 'completed', summary: 'Wrote the report.' }))
-  await engine.finalizeRunOnAgentExit({ executionId: 'exec-1', exitCode: 0 })
-
-  const finalized = await store.getRun('nightly-review', 'run-agent')
-  assert.equal(finalized.ok && finalized.value.status, 'completed', 'signal outcome wins over exit-code default')
-  assert.equal(finalized.ok && finalized.value.summary, 'Wrote the report. Opened pull request https://github.com/acme/repo/pull/9.')
-  assert.equal(counters.prCalls, 1)
-  // Completed via the timer-routed exit path stays silent (no run-event).
-  assert.equal(events.length, 0)
-}
-
-async function assertAgentExitWithoutSignalFinalizesFailedWithExitCode(): Promise<void> {
-  const now = Date.parse('2026-06-17T10:00:00.000Z')
-  const { engine, workspaceRoot, store, events, counters } =
-    await setupAgentRunWithExecutionId(now, 'exec-1')
-  assert.equal((await engine.runNow({ workspaceRoot, automationId: 'nightly-review', workspaceId: 'ws-automations' })).ok, true)
-
-  // No signal file → the agent ended without declaring an outcome.
-  await engine.finalizeRunOnAgentExit({ executionId: 'exec-1', exitCode: 3 })
+  // The pty died with no turn end behind it: the agent never finished.
+  await engine.noteAgentPhase(workingFrame())
+  await engine.finalizeRunOnAgentExit({ executionId: 'exec-1', workspaceId: 'ws-automations', agentId: 'agent-1', exitCode: 3 })
 
   const finalized = await store.getRun('nightly-review', 'run-agent')
   assert.equal(finalized.ok && finalized.value.status, 'failed')
-  assert.equal(finalized.ok && finalized.value.summary, 'Agent ended without declaring an outcome (exit code 3).')
+  assert.equal(finalized.ok && finalized.value.summary, 'The agent stopped before it finished (exit code 3).')
   assert.equal(counters.prCalls, 0, 'failed run opens no PR')
-  // Failed via timer routing still surfaces a failed run-event.
   assert.equal(events.length, 1)
   assert.equal(events[0]?.status, 'failed')
   assert.equal(events[0]?.trigger, 'timer')
 }
 
-async function assertAgentExitForUnknownExecutionIdIsNoOp(): Promise<void> {
+async function assertAgentExitDuringSettleWindowUsesArmedOutcome(): Promise<void> {
   const now = Date.parse('2026-06-17T10:00:00.000Z')
-  const { engine, workspaceRoot, store, events, counters } =
-    await setupAgentRunWithExecutionId(now, 'exec-1')
+  // A long settle window so the exit lands while the turn-end is still armed.
+  const { engine, workspaceRoot, store, counters, events } = await setupAgentRunWithExecutionId(now, 'exec-1', {
+    turnSettleMs: 60_000,
+  })
+  assert.equal((await engine.runNow({ workspaceRoot, automationId: 'nightly-review', workspaceId: 'ws-automations' })).ok, true)
+  const transcriptPath = await writeTranscript(workspaceRoot, 'All done.')
+
+  // The agent finished its turn, then its pty exited inside the settle window.
+  // Recording that as failed would throw away a successful run — and its PR.
+  await engine.noteAgentPhase(workingFrame())
+  await engine.noteAgentPhase(turnEndFrame({ transcriptPath }))
+  await engine.finalizeRunOnAgentExit({ executionId: 'exec-1', exitCode: 0 })
+
+  const finalized = await store.getRun('nightly-review', 'run-agent')
+  assert.equal(finalized.ok && finalized.value.status, 'completed', 'the armed turn-end outcome wins over the exit')
+  assert.equal(
+    finalized.ok && finalized.value.summary,
+    'All done. Opened pull request https://github.com/acme/repo/pull/9.',
+  )
+  assert.equal(counters.prCalls, 1)
+  assert.equal(events.length, 0, 'completed finalize stays silent')
+
+  // The settle timer was disarmed by the exit, so nothing fires behind it.
+  await settle()
+  assert.equal(counters.prCalls, 1, 'no second finalize from the disarmed timer')
+}
+
+// A transcript reader the test can hold open, to land events inside the armed
+// finalize's only await — which is where the settle-window races live.
+function heldTranscriptRead(): {
+  readRunTranscriptSummary: (transcriptPath: string) => Promise<string | undefined>
+  readStarted: Promise<void>
+  release: (summary: string | undefined) => void
+} {
+  let release!: (summary: string | undefined) => void
+  let started!: () => void
+  const readStarted = new Promise<void>((resolve) => { started = resolve })
+  const result = new Promise<string | undefined>((resolve) => { release = resolve })
+  return {
+    readRunTranscriptSummary: () => {
+      started()
+      return result
+    },
+    readStarted,
+    release,
+  }
+}
+
+async function assertAgentExitDuringTranscriptReadUsesArmedOutcome(): Promise<void> {
+  const now = Date.parse('2026-06-17T10:00:00.000Z')
+  const read = heldTranscriptRead()
+  const { engine, workspaceRoot, store, counters, events } = await setupAgentRunWithExecutionId(now, 'exec-1', {
+    turnSettleMs: 0,
+    readRunTranscriptSummary: read.readRunTranscriptSummary,
+  })
   assert.equal((await engine.runNow({ workspaceRoot, automationId: 'nightly-review', workspaceId: 'ws-automations' })).ok, true)
 
-  // An exit for an executionId with no pending run is a no-op: no finalize, no error.
-  await engine.finalizeRunOnAgentExit({ executionId: 'exec-other', exitCode: 1 })
-  await engine.finalizeRunOnAgentExit({ executionId: '   ', exitCode: 1 })
+  await engine.noteAgentPhase(workingFrame())
+  await engine.noteAgentPhase(turnEndFrame({ transcriptPath: join(workspaceRoot, 'transcript.jsonl') }))
+  // The settle timer has fired and the finalize is holding inside the
+  // transcript read when the pty exit lands. The exit must join that finalize,
+  // not record `failed` over a run whose turn-end already stands.
+  await read.readStarted
+  const exit = engine.finalizeRunOnAgentExit({ executionId: 'exec-1', exitCode: 0 })
+  read.release('All done.')
+  await exit
+  await flushMicrotasks(50)
 
-  assert.equal((await readRunStatus(store, 'nightly-review', 'run-agent')), 'running', 'unmatched exit leaves the run pending')
+  const finalized = await store.getRun('nightly-review', 'run-agent')
+  assert.equal(finalized.ok && finalized.value.status, 'completed', 'the armed outcome wins over an exit racing the transcript read')
+  assert.equal(finalized.ok && finalized.value.summary, 'All done. Opened pull request https://github.com/acme/repo/pull/9.')
+  assert.equal(counters.prCalls, 1, 'exactly one finalize, one PR')
+  assert.equal(events.length, 0, 'no failed event recorded behind the completed run')
+}
+
+async function assertWorkingFrameDuringTranscriptReadAbortsFinalize(): Promise<void> {
+  const now = Date.parse('2026-06-17T10:00:00.000Z')
+  const read = heldTranscriptRead()
+  const { engine, workspaceRoot, store, counters } = await setupAgentRun(now, {
+    turnSettleMs: 0,
+    readRunTranscriptSummary: read.readRunTranscriptSummary,
+  })
+  assert.equal((await engine.runNow({ workspaceRoot, automationId: 'nightly-review', workspaceId: 'ws-automations' })).ok, true)
+
+  await engine.noteAgentPhase(workingFrame())
+  await engine.noteAgentPhase(turnEndFrame({ transcriptPath: join(workspaceRoot, 'transcript.jsonl') }))
+  // The agent resumed working (a Stop-hook continuation) while the finalize was
+  // inside the transcript read. The in-flight finalize must stand down — it
+  // would otherwise dispose an agent that is working again.
+  await read.readStarted
+  await engine.noteAgentPhase(workingFrame())
+  read.release('never recorded')
+  await flushMicrotasks(50)
+
+  assert.equal(await readRunStatus(store, 'nightly-review', 'run-agent'), 'running', 'a resumed agent is not finalized')
+  assert.equal(counters.prCalls, 0)
+
+  // The abort is not sticky: the agent's next real turn-end still finalizes.
+  await engine.noteAgentPhase(turnEndFrame())
+  await settle()
+  assert.equal(await readRunStatus(store, 'nightly-review', 'run-agent'), 'completed', 'the next turn-end finalizes normally')
+  assert.equal(counters.prCalls, 1)
+}
+
+async function assertExitAfterAbortedArmedFinalizeStillFails(): Promise<void> {
+  const now = Date.parse('2026-06-17T10:00:00.000Z')
+  const read = heldTranscriptRead()
+  const { engine, workspaceRoot, store, counters } = await setupAgentRunWithExecutionId(now, 'exec-1', {
+    turnSettleMs: 0,
+    readRunTranscriptSummary: read.readRunTranscriptSummary,
+  })
+  assert.equal((await engine.runNow({ workspaceRoot, automationId: 'nightly-review', workspaceId: 'ws-automations' })).ok, true)
+
+  await engine.noteAgentPhase(workingFrame())
+  await engine.noteAgentPhase(turnEndFrame({ transcriptPath: join(workspaceRoot, 'transcript.jsonl') }))
+  await read.readStarted
+  // The exit joins the in-flight armed finalize; then a straggler working frame
+  // disarms it mid-read. The aborted finalize leaves the run pending — the exit
+  // must pick it back up as failed rather than drop it until the 6h sweep.
+  const exit = engine.finalizeRunOnAgentExit({ executionId: 'exec-1', exitCode: 7 })
+  await flushMicrotasks(10)
+  await engine.noteAgentPhase(workingFrame())
+  read.release('never recorded')
+  await exit
+  await flushMicrotasks(50)
+
+  const finalized = await store.getRun('nightly-review', 'run-agent')
+  assert.equal(finalized.ok && finalized.value.status, 'failed', 'the exit outcome lands once the armed finalize aborts')
+  assert.equal(finalized.ok && finalized.value.summary, 'The agent stopped before it finished (exit code 7).')
+  assert.equal(counters.prCalls, 0)
+}
+
+async function assertStopDuringTranscriptReadAbortsFinalize(): Promise<void> {
+  const now = Date.parse('2026-06-17T10:00:00.000Z')
+  const read = heldTranscriptRead()
+  const { engine, workspaceRoot, store, counters } = await setupAgentRun(now, {
+    turnSettleMs: 0,
+    readRunTranscriptSummary: read.readRunTranscriptSummary,
+  })
+  assert.equal((await engine.runNow({ workspaceRoot, automationId: 'nightly-review', workspaceId: 'ws-automations' })).ok, true)
+
+  await engine.noteAgentPhase(workingFrame())
+  await engine.noteAgentPhase(turnEndFrame({ transcriptPath: join(workspaceRoot, 'transcript.jsonl') }))
+  // stop() lands while the armed finalize is inside the transcript read: the
+  // torn-down engine must not go on to open a PR and dispose the agent.
+  await read.readStarted
+  engine.stop()
+  read.release('never recorded')
+  await flushMicrotasks(50)
+
+  assert.equal(await readRunStatus(store, 'nightly-review', 'run-agent'), 'running', 'a stopped engine finalizes nothing')
+  assert.equal(counters.prCalls, 0)
+}
+
+async function assertAgentExitCorrelatesOnWorkspaceAndAgentId(): Promise<void> {
+  const now = Date.parse('2026-06-17T10:00:00.000Z')
+  // The run carries NO executionId — the launch probe missed it. The exit event's
+  // (workspaceId, agentId) still finds the pending run.
+  const { engine, workspaceRoot, store } = await setupAgentRun(now)
+  assert.equal((await engine.runNow({ workspaceRoot, automationId: 'nightly-review', workspaceId: 'ws-automations' })).ok, true)
+
+  await engine.finalizeRunOnAgentExit({ workspaceId: 'ws-automations', agentId: 'agent-1', exitCode: 1 })
+  assert.equal(await readRunStatus(store, 'nightly-review', 'run-agent'), 'failed', 'exit correlates without an executionId')
+}
+
+async function assertAgentExitForUnknownAgentIsNoOp(): Promise<void> {
+  const now = Date.parse('2026-06-17T10:00:00.000Z')
+  const { engine, workspaceRoot, store, events, counters } = await setupAgentRunWithExecutionId(now, 'exec-1')
+  assert.equal((await engine.runNow({ workspaceRoot, automationId: 'nightly-review', workspaceId: 'ws-automations' })).ok, true)
+
+  // Every non-automation agent's exit arrives here. None of them may finalize.
+  await engine.finalizeRunOnAgentExit({ executionId: 'exec-other', workspaceId: 'ws-automations', agentId: 'agent-2', exitCode: 1 })
+  await engine.finalizeRunOnAgentExit({ executionId: '   ', exitCode: 1 })
+  await engine.finalizeRunOnAgentExit({ exitCode: 1 })
+
+  assert.equal(await readRunStatus(store, 'nightly-review', 'run-agent'), 'running', 'unmatched exit leaves the run pending')
   assert.equal(counters.prCalls, 0)
   assert.equal(events.length, 0)
 }
@@ -1045,7 +1358,7 @@ async function assertFinalizeDisposesSpawnedAgentAndToleratesDisposeFailure(): P
       [{ workspaceId: 'ws-automations', agentId: 'agent-1' }],
       'finalize disposes the spawned agent exactly once with its workspace/agent ids',
     )
-    assert.equal((await readRunStatus(store, 'nightly-review', 'run-agent')), 'completed')
+    assert.equal(await readRunStatus(store, 'nightly-review', 'run-agent'), 'completed')
   }
 
   // The dispose is best-effort: a throwing disposer (e.g. the renderer is gone)
@@ -1067,9 +1380,9 @@ async function assertStartupReconcileForceFailsOrphanedAgentRun(): Promise<void>
   // Engine A dispatches a run that records `running` with executionId 'exec-orphan'.
   const { engine: engineA, workspaceRoot, store } = await setupAgentRunWithExecutionId(now, 'exec-orphan')
   assert.equal((await engineA.runNow({ workspaceRoot, automationId: 'nightly-review', workspaceId: 'ws-automations' })).ok, true)
-  assert.equal((await readRunStatus(store, 'nightly-review', 'run-agent')), 'running')
+  assert.equal(await readRunStatus(store, 'nightly-review', 'run-agent'), 'running')
 
-  // Engine B restart: the agent is no longer live and wrote no signal.
+  // Engine B restart: the agent is no longer live.
   const { engine: engineB, events, counters, disposedAgents } = agentEngine(workspaceRoot, now, {
     getLiveAgentExecutionIds: () => [],
   })
@@ -1077,7 +1390,7 @@ async function assertStartupReconcileForceFailsOrphanedAgentRun(): Promise<void>
 
   const finalized = await store.getRun('nightly-review', 'run-agent')
   assert.equal(finalized.ok && finalized.value.status, 'failed', 'orphaned run is force-failed')
-  assert.equal(finalized.ok && finalized.value.summary, 'Agent ended while Multicode was not running.')
+  assert.equal(finalized.ok && finalized.value.summary, 'The agent stopped while Multicode was closed, so this run never finished.')
   assert.deepEqual(
     disposedAgents,
     [{ workspaceId: 'ws-automations', agentId: 'agent-1' }],
@@ -1100,7 +1413,7 @@ async function assertStartupReconcileLeavesStillLiveRunPending(): Promise<void> 
   })
   await engineB.handleStartup()
 
-  assert.equal((await readRunStatus(store, 'nightly-review', 'run-agent')), 'running', 'a still-live run is left pending')
+  assert.equal(await readRunStatus(store, 'nightly-review', 'run-agent'), 'running', 'a still-live run is left pending')
   assert.equal(counters.prCalls, 0)
 }
 
@@ -1110,104 +1423,34 @@ async function assertStartupReconcileNeverForceFailsExecutionlessRun(): Promise<
   const { engine: engineA, workspaceRoot, store } = await setupAgentRun(now)
   assert.equal((await engineA.runNow({ workspaceRoot, automationId: 'nightly-review', workspaceId: 'ws-automations' })).ok, true)
 
-  // Engine B restart with an empty live inventory: a run lacking a recorded
-  // executionId must never be force-failed (the signal scan still covers it).
+  // Engine B restart with an empty live inventory: nothing proves this run's agent
+  // is gone, so it must not be force-failed — its frames (or the max-duration
+  // sweep) still cover it.
   const { engine: engineB, counters } = agentEngine(workspaceRoot, now, {
     getLiveAgentExecutionIds: () => [],
   })
   await engineB.handleStartup()
 
-  assert.equal((await readRunStatus(store, 'nightly-review', 'run-agent')), 'running', 'executionless run is untouched')
+  assert.equal(await readRunStatus(store, 'nightly-review', 'run-agent'), 'running', 'executionless run is untouched')
   assert.equal(counters.prCalls, 0)
 }
 
-async function assertConcurrentAgentExitAndScanFinalizeOnce(): Promise<void> {
+async function assertStopClearsArmedSettleTimers(): Promise<void> {
   const now = Date.parse('2026-06-17T10:00:00.000Z')
-  const workspaceRoot = await createWorkspace()
-  const store = new AutomationsStore(workspaceRoot)
-  assert.equal((await store.createDefinition(definition({
-    trigger: { kind: 'schedule', config: intervalConfig(10) },
-    nextRunAt: new Date(now).toISOString(),
-  }))).ok, true)
-
-  const events: AutomationsRunEvent[] = []
-  let prCalls = 0
-  let removedWorktrees = 0
-  let markPrStarted: () => void = () => undefined
-  const prStarted = new Promise<void>((resolve) => { markPrStarted = resolve })
-  let releasePr: () => void = () => undefined
-  const prGate = new Promise<void>((resolve) => { releasePr = resolve })
-  const worktreePath = `${workspaceRoot}/.multi-code/automations/worktrees/run-agent`
-  const engine = new AutomationsEngine({
-    getProjectFolders: () => [{ workspaceId: 'ws-automations', folderPath: workspaceRoot }],
-    now: () => now,
-    createRunId: () => 'run-agent',
-    onRunEvent: (event) => events.push(event),
-    runAutomation: async () => ({
-      status: 'running',
-      workspaceId: 'ws-automations',
-      agentId: 'agent-1',
-      executionId: 'exec-1',
-      worktreePath,
-      branch: 'automations/run-agent',
-      summary: 'Launched; working…',
-    }),
-    openRunPullRequest: async () => {
-      prCalls += 1
-      markPrStarted()
-      await prGate
-      return { ok: true, url: 'https://github.com/acme/repo/pull/9', created: true }
-    },
-    removeRunWorktree: async () => { removedWorktrees += 1 },
-  })
-
-  assert.equal((await engine.runNow({ workspaceRoot, automationId: 'nightly-review', workspaceId: 'ws-automations' })).ok, true)
-  await writeRunSignal(worktreePath, JSON.stringify({ status: 'completed' }))
-
-  // The agent-exit trigger wins the per-run lock and blocks inside the PR open.
-  const exit = engine.finalizeRunOnAgentExit({ executionId: 'exec-1', exitCode: 0 })
-  await prStarted
-
-  // A concurrent scan-style finalize for the same run must hit the lock, not
-  // re-open a PR (mirrors the per-tick scan's internal finalize call).
-  const concurrent = await engine.finalizeRun({
-    workspaceRoot,
-    automationId: 'nightly-review',
-    runId: 'run-agent',
-    outcome: 'completed',
-    eventTrigger: 'timer',
-  })
-  assert.equal(concurrent.ok && concurrent.run.status, 'running', 'concurrent caller gets the in-progress run')
-
-  releasePr()
-  await exit
-
-  assert.equal(prCalls, 1, 'exactly one PR-open across interleaved exit + scan')
-  assert.equal(removedWorktrees, 1, 'worktree torn down once')
-  assert.equal(events.filter((event) => event.runId === 'run-agent').length, 0, 'completed timer finalize stays silent')
-  assert.equal((await readRunStatus(store, 'nightly-review', 'run-agent')), 'completed')
-}
-
-async function assertOversizeSignalStaysPending(): Promise<void> {
-  const now = Date.parse('2026-06-17T10:00:00.000Z')
-  const { engine, workspaceRoot, store, counters, worktreePath } = await setupAgentRun(now)
+  const { engine, workspaceRoot, store, counters } = await setupAgentRun(now)
   assert.equal((await engine.runNow({ workspaceRoot, automationId: 'nightly-review', workspaceId: 'ws-automations' })).ok, true)
 
-  // An oversize signal (> 64 KB) is treated as malformed: never loaded, run stays
-  // pending (F5/L1) — and importantly not dropped from the registry.
-  const oversize = JSON.stringify({ status: 'completed', summary: 'x'.repeat(70 * 1024) })
-  assert.equal(oversize.length > 64 * 1024, true)
-  await writeRunSignal(worktreePath, oversize)
-  await engine.tick()
-  assert.equal((await readRunStatus(store, 'nightly-review', 'run-agent')), 'running', 'oversize signal ignored; run pending')
-  assert.equal(counters.prCalls, 0, 'oversize signal opens no PR')
+  await engine.noteAgentPhase(workingFrame())
+  await engine.noteAgentPhase(turnEndFrame())
+  // A settle timer that outlives the engine would open a PR and dispose an agent
+  // for an app that has already torn the engine down.
+  engine.stop()
+  await settle()
 
-  // A later in-bound signal still finalizes — proving the run was never dropped.
-  await writeRunSignal(worktreePath, JSON.stringify({ status: 'completed' }))
-  await engine.tick()
-  assert.equal((await readRunStatus(store, 'nightly-review', 'run-agent')), 'completed')
-  assert.equal(counters.prCalls, 1)
+  assert.equal(await readRunStatus(store, 'nightly-review', 'run-agent'), 'running', 'a stopped engine finalizes nothing')
+  assert.equal(counters.prCalls, 0)
 }
+
 
 function recordingGitDeps(statusStdout: string): { deps: PullRequestDeps; calls: string[][] } {
   const calls: string[][] = []
@@ -1238,6 +1481,7 @@ function realOpenerEngine(input: {
     getProjectFolders: () => [{ workspaceId: 'ws-automations', folderPath: input.workspaceRoot }],
     now: () => input.now,
     createRunId: () => 'run-agent',
+    turnSettleMs: TEST_SETTLE_MS,
     onRunEvent: (event) => input.events.push(event),
     runAutomation: async () => ({
       status: 'running',
@@ -1268,8 +1512,7 @@ async function assertReviewOnlyFinalizeWithholdsUnexpectedChanges(): Promise<voi
     autonomyDefault: 'review_only',
   }))).ok, true)
 
-  // The agent left an extra uncommitted file (the signal file is git-excluded, so
-  // it never appears in `git status --porcelain`).
+  // The agent left an extra uncommitted file behind.
   const { deps, calls } = recordingGitDeps(' M src/stray.ts\n')
   const events: AutomationsRunEvent[] = []
   const removed = { count: 0 }
@@ -1277,8 +1520,9 @@ async function assertReviewOnlyFinalizeWithholdsUnexpectedChanges(): Promise<voi
   const engine = realOpenerEngine({ workspaceRoot, worktreePath, now, deps, events, removed })
 
   assert.equal((await engine.runNow({ workspaceRoot, automationId: 'nightly-review', workspaceId: 'ws-automations' })).ok, true)
-  await writeRunSignal(worktreePath, JSON.stringify({ status: 'completed', summary: 'Reviewed; suggested a fix.' }))
-  await engine.tick()
+  await engine.noteAgentPhase(workingFrame())
+  await engine.noteAgentPhase(turnEndFrame())
+  await settle()
 
   // The stray file is never staged, committed, or pushed, and no PR is opened.
   const mutating = calls.filter((args) => args[0] === 'add' || args[0] === 'commit' || args[0] === 'push')
@@ -1312,8 +1556,9 @@ async function assertAllowChangesFinalizeStillPushesWorkingDiff(): Promise<void>
   const engine = realOpenerEngine({ workspaceRoot, worktreePath, now, deps, events, removed })
 
   assert.equal((await engine.runNow({ workspaceRoot, automationId: 'nightly-review', workspaceId: 'ws-automations' })).ok, true)
-  await writeRunSignal(worktreePath, JSON.stringify({ status: 'completed', summary: 'Implemented the change.' }))
-  await engine.tick()
+  await engine.noteAgentPhase(workingFrame())
+  await engine.noteAgentPhase(turnEndFrame())
+  await settle()
 
   // The diff is staged, committed, and pushed; a PR is opened.
   assert.deepEqual(calls.filter((args) => args[0] === 'add')[0], ['add', '-A'], 'allow_changes still stages the diff')

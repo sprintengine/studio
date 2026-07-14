@@ -14,6 +14,10 @@ import {
   isValidBacklogKey,
   parseBacklogNumericId,
 } from '../../../shared/backlog/item-id'
+import {
+  sprintEnginePullRequestLinkOf,
+  sprintEngineRunLinkOf,
+} from '../../../shared/backlog/sprintengine-links'
 import type { BacklogFrontmatterFields } from '../../backlog-service'
 import type { BacklogObjectRecordPayload } from '../../../shared/electron-api'
 import type {
@@ -27,7 +31,6 @@ const BACKLOG_FOLDER = 'backlog'
 const ARCHIVED_PREFIX = 'backlog/archived/'
 const maxBacklogItemsPerWorkspace = 50
 const maxExcerptCharacters = 280
-const maxStartPromptCharacters = 20_000
 
 // Reads one workspace root's backlog for the mobile snapshot: the object store
 // (items.json) merged with a scan of backlog/*.md so unregistered captures are
@@ -130,10 +133,31 @@ async function buildBacklogEpics(
 // the result is the active (non-archived) children, ordered like the snapshot.
 export async function readBacklogEpicChildren(
   workspaceRoot: string,
-  slug: string,
+  slug: string | readonly string[],
 ): Promise<MobileControlBacklogItemSnapshot[]> {
+  const slugs = new Set(typeof slug === 'string' ? [slug] : slug)
   const { items } = await readActiveBacklogItems(resolve(workspaceRoot))
-  return items.filter((item) => item.epic === slug)
+  // Leaves only, mirroring the renderer's childrenOfEpic: an epic container may
+  // carry its own slug in `epic:`, so without the type guard it would come back
+  // as a child of itself.
+  return items.filter((item) => item.type !== 'epic' && item.epic !== undefined && slugs.has(item.epic))
+}
+
+// Every slug a child could legitimately be pointing at to mean "this epic".
+//
+// Two conventions are live in real backlogs and they disagree. The desktop's
+// canonical slug is the epic file's FILENAME STEM (`epicSlug` ->
+// `backlogItemSlugFromPath`), which is how `backlog/epics/<slug>.md` containers
+// work. But an epic container written as an ordinary item commonly names the
+// epic in its own `epic:` frontmatter instead, and its children point at THAT.
+// Matching only one convention silently resolves zero children for the other —
+// and an epic launch that quietly drops its children is worse than a loud
+// failure. So accept either.
+function epicSlugsForContainer(relativePath: string, epicField: string | undefined): string[] {
+  const stem = (relativePath.split('/').pop() ?? relativePath).replace(/\.md$/iu, '')
+  const slugs = [stem]
+  if (epicField && epicField !== stem) slugs.push(epicField)
+  return slugs
 }
 
 // Shared read pass for the snapshot and childrenOfEpic: merges scanned backlog
@@ -170,18 +194,45 @@ async function readActiveBacklogItems(
   return { items, present }
 }
 
-// Resolves a backlog item into the product prompt used for a Sprint Engine
-// handover start: the markdown body with frontmatter stripped, capped at the
-// command service's product-prompt budget.
-export async function resolveBacklogStartPrompt(
+export interface BacklogStartChild {
+  relativePath: string
+  absolutePath: string
+  status: MobileControlBacklogItemSnapshot['status']
+}
+
+export interface BacklogStartContext {
+  title: string
+  /** Absolute path of the item, handed to `handover --handover` as the run's root source. */
+  absolutePath: string
+  relativePath: string
+  /** True when the item is an epic container, so a start means "work the whole epic". */
+  isEpic: boolean
+  /** Active leaf children of the epic; empty for a leaf item or a childless epic. */
+  children: BacklogStartChild[]
+}
+
+// Resolves a backlog item into everything a Sprint Engine handover start needs.
+//
+// The item is handed to the engine as a *file reference*, not as inlined text:
+// `handover --handover <path> --reference-sources` records the run's source as
+// `backlog/<file>.md`, and that path is the whole basis on which the engine
+// decides a run is backlog-sourced (skill_layers.run_is_backlog_sourced) and so
+// grants the `multicode_backlog` lifecycle skill that keeps the item's status
+// truthful. An inlined `--handover-text` body carries no path and silently loses
+// that skill — which is why the phone's runs never updated their item.
+//
+// Referencing also means the architect reads the whole item in place instead of a
+// truncated copy, so there is no prompt budget to cap here.
+export async function resolveBacklogStartContext(
   workspaceRoot: string,
   relativePath: string,
-): Promise<{ title: string; prompt: string }> {
+): Promise<BacklogStartContext> {
   const normalized = assertBacklogRelativePath(relativePath)
   const root = resolve(workspaceRoot)
+  const absolutePath = join(root, normalized)
   let raw: string
   try {
-    raw = await readFile(join(root, normalized), 'utf-8')
+    raw = await readFile(absolutePath, 'utf-8')
   } catch {
     throw new MobileSprintEngineCommandError(
       'invalid_payload',
@@ -199,9 +250,20 @@ export async function resolveBacklogStartPrompt(
     )
   }
 
+  const fields = readBacklogFrontmatterFields(raw)
+  const isEpic = fields.type === 'epic'
+  const children = isEpic ? await readBacklogEpicChildren(root, epicSlugsForContainer(normalized, fields.epic)) : []
+
   return {
     title: extractBacklogTitle(body, normalized),
-    prompt: body.slice(0, maxStartPromptCharacters),
+    absolutePath,
+    relativePath: normalized,
+    isEpic,
+    children: children.map((child) => ({
+      relativePath: child.relativePath,
+      absolutePath: join(root, child.relativePath),
+      status: child.status,
+    })),
   }
 }
 
@@ -257,6 +319,14 @@ async function toBacklogItemSnapshot(
   const difficulty = fields.difficulty ?? record.difficulty
   const criticality = fields.criticality ?? record.criticality
 
+  // The run working this item, and the pull request it produced, both read off the
+  // item's links (written by src/main/sprintengine-backlog-links.ts). The run link's
+  // target id is the team slug, which is exactly the `sprintEngineId` the run
+  // snapshots are keyed by — so the phone can join an item to its live run.
+  const links = record.links ?? []
+  const sprintEngineId = sprintEngineRunLinkOf(links)?.target.id
+  const pullRequestUrl = sprintEnginePullRequestLinkOf(links)?.target.url
+
   return {
     itemId: record.id,
     relativePath: record.source.relativePath,
@@ -267,6 +337,8 @@ async function toBacklogItemSnapshot(
     ...(difficulty ? { difficulty } : {}),
     ...(criticality ? { criticality } : {}),
     ...(fields.epic ? { epic: fields.epic } : {}),
+    ...(sprintEngineId ? { sprintEngineId } : {}),
+    ...(pullRequestUrl ? { pullRequestUrl } : {}),
     ...(record.updatedAt ? { updatedAt: record.updatedAt } : {}),
   }
 }

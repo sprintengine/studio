@@ -239,7 +239,7 @@ export function createAppServices(diagnosticsEnabled: boolean) {
         const status = await terminalRuntime.ipcHandlers.getTerminalStatus(sessionId)
         return { processAlive: status.processAlive }
       },
-      spawn: async (args) => {
+      spawn: async ({ metadata, ...args }) => {
         // Prefer a live window as the event sink so output streams to the UI
         // immediately; with every window closed (Phase 3 headless auto-run)
         // spawn against the headless sender — the PTY runs and buffers, and a
@@ -248,7 +248,11 @@ export function createAppServices(diagnosticsEnabled: boolean) {
           .find((window) => !window.isDestroyed() && !window.webContents.isDestroyed())
           ?.webContents
           ?? createHeadlessTerminalSender()
-        return terminalRuntime.ipcHandlers.spawnTerminal(sender, args)
+        // The spawn payload is flat; `metadata` is the renderer-side bag that
+        // preload spreads into it (`...metadata`). An in-process spawn must
+        // flatten it the same way or every field in it — permission preset,
+        // model, agent binding, MCP settings, reveal policy — is dropped.
+        return terminalRuntime.ipcHandlers.spawnTerminal(sender, { ...args, ...metadata })
       },
     },
     artifacts: {

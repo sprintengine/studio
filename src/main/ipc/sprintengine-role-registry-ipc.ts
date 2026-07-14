@@ -1,5 +1,6 @@
 import type { IpcMain } from 'electron'
 
+import { clearRoleCatalogCache } from '../mobile/sprintengine/role-catalog'
 import {
   defaultUserRoleRegistryRoot,
   deleteUserRole,
@@ -25,6 +26,16 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 // its MCP runtime — the user can curate global roles regardless of which modules
 // are enabled. Discovery of installed roles flows through the existing
 // sprintengine registry MCP read.
+// Authoring a role changes what the phone may staff, and the mobile snapshot caches
+// the resolved registry (it costs a process to read). Every write here invalidates
+// that cache, so a role the user just authored is offerable from the phone on the
+// next snapshot rather than up to a TTL later.
+async function withRoleCatalogInvalidation<T>(write: Promise<T>): Promise<T> {
+  const result = await write
+  clearRoleCatalogCache()
+  return result
+}
+
 export function registerSprintEngineRoleRegistryIpc(ipcMain: IpcMain): void {
   ipcMain.handle(
     'sprintengine:user-roles:install-folder',
@@ -38,7 +49,7 @@ export function registerSprintEngineRoleRegistryIpc(ipcMain: IpcMain): void {
           message: 'No folder selected.',
         })
       }
-      return installRoleFolder(srcDir, defaultUserRoleRegistryRoot())
+      return withRoleCatalogInvalidation(installRoleFolder(srcDir, defaultUserRoleRegistryRoot()))
     }
   )
 
@@ -60,13 +71,13 @@ export function registerSprintEngineRoleRegistryIpc(ipcMain: IpcMain): void {
           issues: [{ path: '', message: 'Save payload must include id, label, and body.' }],
         })
       }
-      return saveUserRole(input as unknown as UserRoleSaveInput, defaultUserRoleRegistryRoot())
+      return withRoleCatalogInvalidation(saveUserRole(input as unknown as UserRoleSaveInput, defaultUserRoleRegistryRoot()))
     }
   )
 
   ipcMain.handle('sprintengine:user-roles:delete', (_event, id: unknown): Promise<UserRoleDeleteResult> => {
     if (typeof id !== 'string') return Promise.resolve({ ok: false })
-    return deleteUserRole(id, defaultUserRoleRegistryRoot())
+    return withRoleCatalogInvalidation(deleteUserRole(id, defaultUserRoleRegistryRoot()))
   })
 
   ipcMain.handle('sprintengine:user-roles:get', (_event, id: unknown): Promise<UserRoleGetResult> => {

@@ -155,10 +155,15 @@ export type ArtifactReadCommand = MobileControlCommandBase<
  * the team name and an explicit roster. Presence of `roleCounts` means the
  * user composed the roster; absence means the architect picks the team
  * (`rosterConfigured: false` engine-side). Automation mode, permission
- * presets, max-parallel, worktrees, and workflow phases are desktop-app runner
- * state the main-process command path cannot reach — they stay on the
+ * presets, max-parallel, and workflow phases are desktop-app runner state the
+ * main-process command path cannot reach — they stay on the
  * mobile-control-parity epic (MC-1497 et al.) and must not be added here
  * until a desktop honor path exists.
+ *
+ * Worktree mode is deliberately NOT here: only the backlog-start path
+ * establishes it (see `BacklogStartSprintEngineCommand.useWorktrees`), so a
+ * field on the shared config would be a knob that silently does nothing on
+ * `sprintengine.create`.
  */
 export interface SprintEngineCreateConfig {
   /** Engine-slugified; creating an existing team is rejected with a clear error. */
@@ -239,12 +244,37 @@ export type BacklogUpdateCommand = MobileControlCommandBase<
   }
 >;
 
+/**
+ * Hand a backlog item to an agent team (MC-1493). Payload-only growth on purpose:
+ * a NEW command type would need a new relay scope, and scopes are frozen at pair
+ * time — the owner's phone would have to be re-paired. Extending this payload
+ * needs none of that.
+ */
 export type BacklogStartSprintEngineCommand = MobileControlCommandBase<
   "backlog.startSprintEngine",
   {
     workspacePath: string;
     relativePath: string;
     config?: SprintEngineCreateConfig;
+    /**
+     * Work the item's whole epic: the desktop resolves every active leaf child
+     * pointing up at this epic and seeds them as the run's source bundle, so the
+     * architect plans across the epic rather than the container alone. Ignored
+     * when the item is not an epic. Absent means the desktop decides — and it
+     * launches an epic as an epic, which is what tapping an epic means.
+     */
+    epic?: boolean;
+    /**
+     * Run the team in one shared git worktree + branch. A non-worktree run has no
+     * branch, so the engine refuses `vcs pr` on it outright — worktree mode is the
+     * precondition for this command ever producing a pull request.
+     *
+     * Absent means the desktop decides: on wherever it is possible, off in a
+     * workspace with no git repository at its root (there is nothing to branch
+     * from, and failing the start there would be a pointless regression). An
+     * explicit value always wins and is allowed to fail loudly.
+     */
+    useWorktrees?: boolean;
   }
 >;
 
@@ -476,6 +506,17 @@ export interface MobileControlSprintEngineSnapshot {
   sprintEngineId: string;
   name: string;
   workspacePath: string;
+  /**
+   * The repo this record belongs to, as a relay-safe token (MC-1583).
+   *
+   * The one identifier the phone can join `workspaces`, `sprintEngines` and
+   * `backlog` on. It exists because `workspacePath` cannot serve as that key:
+   * `sanitizeMobileSnapshotForRelay` must strip absolute paths before they cross
+   * the relay, and it necessarily encodes each collection's copy differently
+   * (dropped / basename / token). Joining on it split one repo into two projects.
+   * Absent from a desktop older than MC-1583 — callers fall back to the path.
+   */
+  projectKey?: string;
   statePath: string;
   planPath?: string;
   snapshotVersion: string;
@@ -642,6 +683,8 @@ export interface MobileControlWorkspaceSnapshot {
   kind: MobileControlWorkspaceKind;
   name: string;
   workspacePath?: string;
+  /** The repo this workspace belongs to. See MobileControlSprintEngineSnapshot.projectKey. */
+  projectKey?: string;
   statePath?: string;
   updatedAt: string;
   capabilities: MobileControlWorkspaceCapability[];
@@ -667,6 +710,23 @@ export interface MobileControlBacklogItemSnapshot {
   // The up-pointing epic slug (frontmatter `epic:`) when this item belongs to an
   // epic; absent otherwise. The epic -> children direction stays a derived query.
   epic?: string;
+  /**
+   * The Sprint Engine run working this item, from its `execution` link. Keyed the
+   * same as `MobileControlSprintEngineSnapshot.sprintEngineId`, so the phone can
+   * join an item to its live run — and reach that run's board.
+   */
+  sprintEngineId?: string;
+  /**
+   * The pull request the item's run opened, from its `sprintengine.pullRequest`
+   * link. A URL only: the relay's result-summary filter is fine with one, and no
+   * diff content may ever ride this wire.
+   *
+   * PR *status* is deliberately not denormalized here — it lives on the run
+   * (`MobileControlSprintEngineSnapshot.pullRequestStatus`), which is where it is
+   * kept fresh. The phone joins on `sprintEngineId` rather than reading a copy
+   * that would go stale the moment the PR merged.
+   */
+  pullRequestUrl?: string;
   updatedAt?: string;
 }
 
@@ -687,14 +747,52 @@ export interface MobileControlBacklogEpicSnapshot {
   totalCount: number;
 }
 
+// Registry layer a role was resolved from, in the desktop's precedence order
+// (workspace -> plugin -> user -> bundled). Deliberately widened with `string`:
+// the desktop names a plugin layer `plugin:<id>`, and a client that hard-rejects
+// an unrecognised layer would break the moment a new one is added. The phone
+// groups on it at most; it never gates behaviour on it.
+export type MobileControlRoleSource = "bundled" | "user" | "workspace" | "plugin" | (string & {});
+
+// One role the desktop's Sprint Engine role registry resolved for a workspace
+// (MC-1543). Roles are JSON manifests discovered at runtime across four layers,
+// so the phone cannot know them ahead of a release — it has to be told. This is
+// the picker's whole vocabulary: what to show, how to label it, and whether it
+// is a fix-forward sweep. Directives, skills, and prompts are deliberately NOT
+// here: the phone stages a roster, it does not compose an agent.
+export interface MobileControlRoleDescriptor {
+  /** Registry-resolved id — an open string, the key `roleCounts` is keyed by. */
+  roleId: string;
+  /** Manifest `label`. Always present; the producer humanizes a missing one. */
+  label: string;
+  /** Manifest `summary`, truncated to `sprintEngineRoleSummaryMaxChars`. */
+  summary?: string;
+  /** True when the manifest declares a `sweep` block (audits the finished work). */
+  sweep?: boolean;
+  /** Registry layer, for grouping and for showing "custom" provenance. */
+  source?: MobileControlRoleSource;
+}
+
 export interface MobileControlBacklogWorkspaceSnapshot {
   workspaceId: string;
   workspacePath: string;
+  /** The repo this backlog group belongs to. See MobileControlSprintEngineSnapshot.projectKey. */
+  projectKey?: string;
   workspaceName: string;
   updatedAt: string;
   items: MobileControlBacklogItemSnapshot[];
   /** Epic metadata for the workspace's epics (MC-1498). */
   epics?: MobileControlBacklogEpicSnapshot[];
+  // The workspace's resolved role registry (MC-1543), so the phone's sprint-launch
+  // picker offers exactly the roles that workspace has — including user-, plugin-,
+  // and workspace-authored ones it can't know at build time.
+  //
+  // It rides the *backlog* workspace because that is the record both launch
+  // surfaces already key off: `sprintengine.create` and `backlog.startSprintEngine`
+  // both carry a `workspacePath`, and both pick it from this list. Absent when the
+  // registry could not be read (or on a desktop that predates this field) — the
+  // phone then falls back to its bundled list.
+  roles?: MobileControlRoleDescriptor[];
 }
 
 export interface MobileControlSnapshot {
@@ -1190,6 +1288,14 @@ export const sprintEngineTeamNameMaxChars = 64;
 export const sprintEngineRoleCountMax = 10;
 export const sprintEngineRosterMaxRoles = 12;
 
+// Bounds on the published role catalog (MC-1543). The snapshot's only size-shedding
+// pass drops whole sprint engines (src/main/mobile/bridge/snapshot-request.ts), so a
+// catalog it cannot shed must stay small by construction or it eats the relay's
+// result-summary budget. 15 bundled roles ship today; 48 leaves room for a
+// well-stocked user/workspace registry, and a summary is a picker subtitle, not prose.
+export const sprintEngineRoleCatalogMaxRoles = 48;
+export const sprintEngineRoleSummaryMaxChars = 160;
+
 // Shared by sprintengine.create and backlog.startSprintEngine: both bootstrap
 // a team through the same desktop CLI path, so they carry the same config.
 function validateSprintEngineCreateConfig(payload: Record<string, unknown>): string | null {
@@ -1282,6 +1388,8 @@ function validateCommandPayload(type: MobileControlCommandType, payload: Record<
       return (
         requireString(payload, "workspacePath") ??
         requireString(payload, "relativePath") ??
+        optionalBoolean(payload, "epic") ??
+        optionalBoolean(payload, "useWorktrees") ??
         validateSprintEngineCreateConfig(payload)
       );
     case "backlog.create":
@@ -2044,6 +2152,12 @@ function optionalString(record: Record<string, unknown>, field: string): string 
 
 function requireBoolean(record: Record<string, unknown>, field: string): string | null {
   return typeof record[field] === "boolean" ? null : `${field} must be a boolean`;
+}
+
+function optionalBoolean(record: Record<string, unknown>, field: string): string | null {
+  return record[field] === undefined || typeof record[field] === "boolean"
+    ? null
+    : `${field} must be a boolean when provided`;
 }
 
 function requireArray(record: Record<string, unknown>, field: string): string | null {

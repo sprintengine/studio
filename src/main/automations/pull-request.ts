@@ -36,8 +36,8 @@ export type OpenAutomationRunPullRequestInput = {
   /**
    * Run autonomy mode. `review_only` runs must never publish unexpected writes:
    * a non-empty working diff is refused (not staged/committed/pushed) instead of
-   * being backstop-committed. The git-excluded run-status signal file never
-   * appears in the working diff, so a clean review_only run still finalizes.
+   * being backstop-committed. A review_only agent writes nothing at all, so a
+   * clean review_only run has an empty working diff and still finalizes.
    */
   autonomy: AutomationDefinition['autonomyDefault']
   /** Backstop commit message used when the agent left uncommitted work. */
@@ -56,8 +56,7 @@ export async function openAutomationRunPullRequest(
   const hasWorkingDiff = status.stdout.trim().length > 0
 
   // review_only safeguard: a review_only run is not expected to change code, so a
-  // non-empty working diff (the run-status signal file is git-excluded and never
-  // appears here) is an anomaly. Refuse to stage/commit/push it and surface it,
+  // non-empty working diff is an anomaly. Refuse to stage/commit/push it and surface it,
   // independent of the CLI permission preset — the guard holds even if the preset
   // is misconfigured to permit writes.
   if (input.autonomy === 'review_only' && hasWorkingDiff) {

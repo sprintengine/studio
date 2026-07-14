@@ -18,10 +18,8 @@ import {
   createBuiltInAutomationActionProviders,
   createLocalAutomationExecutor,
   defaultCreateRunWorktree,
-  excludeRunSignalFromWorktree,
   type LocalAutomationExecutorOptions,
 } from './executor-local'
-import { RUN_SIGNAL_FILENAME } from './run-signal'
 import { MCP_CONFIG_WORKTREE_EXCLUDE_ENTRIES, excludeMcpConfigFromWorktree } from '../git'
 import { runGitCommand } from '../git-utils'
 import {
@@ -137,6 +135,7 @@ function executorHarness(
     isIntegrationAvailable?: LocalAutomationExecutorOptions['isIntegrationAvailable']
     createRunWorktree?: LocalAutomationExecutorOptions['createRunWorktree']
     resolveAgentExecutionId?: LocalAutomationExecutorOptions['resolveAgentExecutionId']
+    executionIdTimeoutMs?: LocalAutomationExecutorOptions['executionIdTimeoutMs']
   } = {}
 ) {
   const workspaces = [...initialWorkspaces]
@@ -197,6 +196,7 @@ function executorHarness(
       ...(options.actionProviders ? { actionProviders: options.actionProviders } : {}),
       ...(options.isIntegrationAvailable ? { isIntegrationAvailable: options.isIntegrationAvailable } : {}),
       ...(options.resolveAgentExecutionId ? { resolveAgentExecutionId: options.resolveAgentExecutionId } : {}),
+      ...(options.executionIdTimeoutMs ? { executionIdTimeoutMs: options.executionIdTimeoutMs } : {}),
     }),
   }
 }
@@ -435,9 +435,35 @@ async function assertExecutionIdRecordedWhenResolvable(): Promise<void> {
   assert.deepEqual(calls, [{ workspaceId: 'ws-host', agentId: 'agent-1' }])
 }
 
+async function assertExecutionIdResolvesAfterPtySpawnRace(): Promise<void> {
+  // The pty is spawned after the workspace-sync bus confirms the agent, so the
+  // terminal session (and its executionId) can register only after launch-confirm.
+  // The executor polls until it appears rather than probing once and missing.
+  const host = workspace('ws-host', '/repo/a', { mode: 'automations-host' })
+  let probes = 0
+  const harness = executorHarness([host], {
+    executionIdTimeoutMs: 600_000,
+    resolveAgentExecutionId: () => {
+      probes += 1
+      return probes < 3 ? undefined : 'exec-late'
+    },
+  })
+  const result = await harness.executor({
+    workspaceRoot: '/repo/a',
+    definition: definition(),
+    run: run(),
+    triggerPayload: { kind: 'schedule' },
+  })
+
+  assert.equal(result.status, 'running')
+  assert.equal(result.executionId, 'exec-late', 'executionId resolved by the bounded poll')
+  assert.equal(probes, 3, 'polled until the terminal session registered')
+}
+
 async function assertExecutionIdMissDoesNotFailLaunch(): Promise<void> {
-  // A resolution miss (agent not yet on the runtime, or no resolver) leaves
-  // executionId undefined and must NOT fail the launch — the poll-scan covers it.
+  // A permanent resolution miss (the CLI never registers a session) leaves
+  // executionId undefined and must NOT fail the launch — the run still correlates
+  // on (workspaceId, agentId).
   const host = workspace('ws-host', '/repo/a', { mode: 'automations-host' })
   const harness = executorHarness([host], {
     resolveAgentExecutionId: () => undefined,
@@ -1022,10 +1048,10 @@ function assertBuiltInProviderRegistryUsesNamespacedIdsAndRejectsDuplicates(): v
   )
 }
 
-async function initSignalTestRepo(): Promise<string> {
+async function initWorktreeTestRepo(): Promise<string> {
   // realpath resolves the macOS /var -> /private/var symlink so the path matches
   // git's reported worktree path (createGitWorktree compares them).
-  const repoRoot = await realpath(await mkdtemp(join(tmpdir(), 'automations-signal-')))
+  const repoRoot = await realpath(await mkdtemp(join(tmpdir(), 'automations-worktree-')))
   for (const args of [
     ['init', '-q'],
     ['config', 'user.email', 'test@example.com'],
@@ -1041,61 +1067,11 @@ async function initSignalTestRepo(): Promise<string> {
   return repoRoot
 }
 
-async function countSignalExcludeEntries(worktreePath: string): Promise<number> {
-  const resolved = await runGitCommand(worktreePath, ['rev-parse', '--git-path', 'info/exclude'])
-  assert.ok(resolved.ok, 'rev-parse exclude path')
-  const content = await readFile(resolved.stdout.trim(), 'utf8')
-  return content.split('\n').filter((line) => line.trim() === RUN_SIGNAL_FILENAME).length
-}
-
-async function assertSignalFileExcludedInRealWorktree(): Promise<void> {
-  // Real git integration: the signal file in the run's worktree must be invisible
-  // to both `git status` and `git add -A` so it never lands in the run's PR.
-  const repoRoot = await initSignalTestRepo()
-  try {
-    const created = await defaultCreateRunWorktree({ workspaceRoot: repoRoot, runId: 'run-excl' })
-    assert.ok(created, 'worktree created')
-    await writeFile(join(created!.worktreePath, RUN_SIGNAL_FILENAME), '{"status":"completed"}\n', 'utf8')
-
-    const status = await runGitCommand(created!.worktreePath, ['status', '--porcelain'])
-    assert.ok(status.ok)
-    assert.ok(
-      !status.stdout.includes(RUN_SIGNAL_FILENAME),
-      `signal file must not appear in git status, got: ${status.stdout}`
-    )
-
-    const addDryRun = await runGitCommand(created!.worktreePath, ['add', '-A', '-n'])
-    assert.ok(addDryRun.ok)
-    assert.ok(
-      !addDryRun.stdout.includes(RUN_SIGNAL_FILENAME),
-      `signal file must not be staged by git add -A, got: ${addDryRun.stdout}`
-    )
-    assert.equal(await countSignalExcludeEntries(created!.worktreePath), 1, 'exclude written once on creation')
-  } finally {
-    await rm(repoRoot, { recursive: true, force: true })
-  }
-}
-
-async function assertSignalExcludeIsIdempotent(): Promise<void> {
-  const repoRoot = await initSignalTestRepo()
-  try {
-    const created = await defaultCreateRunWorktree({ workspaceRoot: repoRoot, runId: 'run-idem' })
-    assert.ok(created, 'worktree created')
-    assert.equal(await countSignalExcludeEntries(created!.worktreePath), 1, 'one entry after creation')
-    // Re-running the exclude step must not duplicate the entry.
-    await excludeRunSignalFromWorktree(created!.worktreePath)
-    await excludeRunSignalFromWorktree(created!.worktreePath)
-    assert.equal(await countSignalExcludeEntries(created!.worktreePath), 1, 'still one entry after repeats')
-  } finally {
-    await rm(repoRoot, { recursive: true, force: true })
-  }
-}
-
 async function assertMcpConfigExcludedInRealWorktree(): Promise<void> {
   // Connector-worktree exclusion: the generated managed MCP config
   // (`.mcp.json` + `.codex/config.toml`) must be invisible to git so it never
   // shows up in the connector chat's `git status` or commits. Real git worktree.
-  const repoRoot = await initSignalTestRepo()
+  const repoRoot = await initWorktreeTestRepo()
   try {
     const created = await defaultCreateRunWorktree({ workspaceRoot: repoRoot, runId: 'run-mcp' })
     assert.ok(created, 'worktree created')
@@ -1135,24 +1111,6 @@ async function assertMcpConfigExcludedInRealWorktree(): Promise<void> {
   }
 }
 
-async function assertWorktreeReturnedWhenExcludeWriteFails(): Promise<void> {
-  // A failed exclude write is best-effort: the run still gets its worktree.
-  const repoRoot = await initSignalTestRepo()
-  try {
-    const created = await defaultCreateRunWorktree(
-      { workspaceRoot: repoRoot, runId: 'run-fail' },
-      async () => {
-        throw new Error('simulated exclude write failure')
-      }
-    )
-    assert.ok(created, 'worktree still returned despite exclude failure')
-    assert.equal(created!.branch, 'automations/run-fail')
-    assert.ok(created!.worktreePath.includes('run-fail'))
-  } finally {
-    await rm(repoRoot, { recursive: true, force: true })
-  }
-}
-
 void main().catch((error) => {
   console.error(error)
   process.exit(1)
@@ -1170,6 +1128,7 @@ async function main(): Promise<void> {
   await assertConnectorRunWithoutWorktreeFailsClosed()
   await assertNonConnectorRunHonorsRunInWorktreeOptOut()
   await assertExecutionIdRecordedWhenResolvable()
+  await assertExecutionIdResolvesAfterPtySpawnRace()
   await assertExecutionIdMissDoesNotFailLaunch()
   await assertExecutionIdAbsentWithoutResolver()
   await assertDirtyWorkspaceNoLongerBlocksLaunch()
@@ -1183,8 +1142,5 @@ async function main(): Promise<void> {
   await assertFirstPartyActionsInvokeFrontDoors()
   await assertWatchtowerSchemaOnlyAcceptsLaunchablePresets()
   await assertFirstPartyMissingIntegrationBlocksBeforeFrontDoor()
-  await assertSignalFileExcludedInRealWorktree()
-  await assertSignalExcludeIsIdempotent()
-  await assertWorktreeReturnedWhenExcludeWriteFails()
   await assertMcpConfigExcludedInRealWorktree()
 }

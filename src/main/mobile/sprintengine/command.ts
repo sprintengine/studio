@@ -1,4 +1,5 @@
-import { resolve } from 'path'
+import { access, realpath, rm } from 'fs/promises'
+import { dirname, join, resolve } from 'path'
 import {
   idempotencyKeyForCommand,
   rememberedCommandResult,
@@ -38,7 +39,12 @@ import {
   resolveStateForSprintEngine,
   validateMobileWorkspacePath,
 } from './workspace'
-import { assertBacklogRelativePath, resolveBacklogStartPrompt } from './backlog'
+import { assertBacklogRelativePath, resolveBacklogStartContext } from './backlog'
+import {
+  attachSprintEnginePullRequestLink,
+  recordSprintEngineExecutionLink,
+} from '../../sprintengine-backlog-links'
+import { teamSlugFromStatePath } from '../../../shared/backlog/sprintengine-links'
 import { workspaceRootFromStatePath } from './workspace-id'
 import {
   createBacklogItem,
@@ -228,6 +234,68 @@ export type MobileSprintEngineCommandResult =
       error: MobileControlError
       audit: MobileSprintEngineCommandAuditEntry
     }
+
+// A run worktree is branched from the workspace root (the engine records
+// `repoRoot: "."`), so worktree mode is only possible where that root is a git
+// repository. `.git` is a directory in a normal clone and a file inside a
+// worktree — either answers the question.
+async function isGitRepositoryRoot(workspaceRoot: string): Promise<boolean> {
+  try {
+    await access(join(workspaceRoot, '.git'))
+    return true
+  } catch {
+    return false
+  }
+}
+
+// Roll back a run store this command just bootstrapped, after a later step failed.
+//
+// Deliberately narrow: it removes the team directory only when the path really is
+// `<workspaceRoot>/.multi-code/sprintengine/<team>/run.yaml` — the layout the
+// engine just wrote — so a malformed or out-of-tree state path can never turn this
+// into an arbitrary recursive delete. Best-effort: a failure to clean up must not
+// mask the original error the caller is about to report.
+//
+// A run that got as far as registering a git worktree before failing may leave the
+// worktree registration behind; `git worktree prune` clears it. In practice init
+// fails before that point (the common cause — no repository to branch from — is
+// already screened off before `handover` runs).
+async function discardBootstrappedRunStore(workspaceRoot: string, statePath: string): Promise<void> {
+  const teamSlug = teamSlugFromStatePath(statePath)
+  if (!teamSlug) return
+  // Resolve symlinks on both sides before comparing: the engine hands back a
+  // fully-resolved state path, while the workspace root arrives merely
+  // normalized. Comparing them raw would fail on macOS (/var -> /private/var) and
+  // the guard would quietly never fire.
+  const [realRoot, realState] = await Promise.all([
+    realpath(resolve(workspaceRoot)).catch(() => resolve(workspaceRoot)),
+    realpath(resolve(statePath)).catch(() => resolve(statePath)),
+  ])
+  const expected = join(realRoot, '.multi-code', 'sprintengine', teamSlug, 'run.yaml')
+  if (realState !== expected) return
+  try {
+    await rm(dirname(expected), { force: true, recursive: true })
+  } catch {
+    // Leave the orphan rather than lose the real error.
+  }
+}
+
+// `handover` answers with the absolute run.yaml it just bootstrapped. Read it from
+// the tool's own output rather than re-deriving it: the engine re-slugifies the
+// team name with its own rules, so a locally-derived path is a guess.
+function statePathFromHandover(data: unknown): string | null {
+  if (typeof data !== 'object' || data === null) return null
+  const statePath = (data as { statePath?: unknown }).statePath
+  return typeof statePath === 'string' && statePath.trim().length > 0 ? statePath : null
+}
+
+// `vcs pr` answers with the pull request it opened (or the one already open — it
+// is idempotent).
+function pullRequestUrlFromVcsPr(data: unknown): string | null {
+  if (typeof data !== 'object' || data === null) return null
+  const url = (data as { pullRequestUrl?: unknown }).pullRequestUrl
+  return typeof url === 'string' && url.trim().length > 0 ? url.trim() : null
+}
 
 export class MobileSprintEngineCommandService {
   private readonly workspaceRoot: string
@@ -455,7 +523,30 @@ export class MobileSprintEngineCommandService {
     })
 
     const args = ['--state', state.statePath, 'vcs', 'pr', '--id', mobileActorId(command.deviceId)]
-    return this.invokeTool(command, args, state.workspaceRoot, state)
+    const result = await this.invokeTool(command, args, state.workspaceRoot, state)
+    if (!result.ok) {
+      return result
+    }
+
+    // Attach the PR to the backlog item that started this run. The renderer does
+    // this on a projection tick, but that tick only runs with the desktop UI
+    // mounted on the workspace — and a phone-driven run has nobody at the desktop.
+    // Best-effort: the PR is already open, so a store hiccup must not fail the
+    // command (and `vcs pr` is idempotent, so a retry re-attaches).
+    const pullRequestUrl = pullRequestUrlFromVcsPr(result.data)
+    if (pullRequestUrl) {
+      const linked = await attachSprintEnginePullRequestLink({
+        workspaceRoot: state.workspaceRoot,
+        statePath: state.statePath,
+        pullRequestUrl,
+        now: this.now,
+      })
+      if (!linked.ok) {
+        console.warn(`[mobile] Opened pull request ${pullRequestUrl} but could not link it to its backlog item: ${linked.message}`)
+      }
+    }
+
+    return result
   }
 
   // MC-1497: set the run's three-state automation mode. The authoritative mode
@@ -621,20 +712,43 @@ export class MobileSprintEngineCommandService {
       workspaceRootCandidates: this.workspaceRootCandidates(scope),
     })
     const relativePath = assertBacklogRelativePath(command.payload.relativePath)
-    const { title, prompt } = await resolveBacklogStartPrompt(workspacePath, relativePath)
+    const start = await resolveBacklogStartContext(workspacePath, relativePath)
 
     const { teamName, extraArgs } = this.sprintEngineConfigArgs(
       command.payload.config,
       `backlog-${safeSlug(command.commandId)}`
     )
+
+    // Worktree mode defaults ON for a backlog start wherever it is possible. A
+    // non-worktree run has no branch, so the engine refuses `vcs pr` on it
+    // outright ("no branch to open a pull request from") — and a backlog start
+    // exists to reach a pull request. It defaults OFF in a workspace with no git
+    // repository at its root, because there is nothing there to branch from and
+    // failing the start would be a pointless regression for those workspaces. An
+    // explicit `useWorktrees` always wins, and is allowed to fail loudly.
+    const useWorktrees = command.payload.useWorktrees ?? (await isGitRepositoryRoot(workspacePath))
+
+    // Launch an epic as an epic unless the phone says otherwise. Children are the
+    // source bundle; the epic itself stays the root source.
+    const asEpic = (command.payload.epic ?? start.isEpic) && start.isEpic
+    const children = asEpic ? start.children : []
+
     const args = [
       'handover',
       '--name',
       teamName,
       '--goal',
-      title,
-      '--handover-text',
-      prompt,
+      start.title,
+      // Reference the item in place rather than inlining its body. `--handover-text`
+      // records the source with no path, and the engine grants the multicode_backlog
+      // lifecycle skill only to runs whose source path sits under backlog/ — so an
+      // inlined start produced an agent that never knew it came from a backlog item
+      // and never kept that item's status truthful.
+      '--handover',
+      start.absolutePath,
+      '--reference-sources',
+      ...(asEpic ? ['--source-plan-kind', 'epic'] : []),
+      ...children.flatMap((child) => ['--source', `generic_context:${child.absolutePath}`]),
       '--actor',
       mobileActorId(command.deviceId),
       ...extraArgs,
@@ -645,9 +759,58 @@ export class MobileSprintEngineCommandService {
       return result
     }
 
-    // Best-effort lifecycle bookkeeping after the run started: the start
-    // already succeeded, so a store hiccup must not fail the command.
-    await updateBacklogStatus({ workspaceRoot: workspacePath, relativePath, status: 'in_progress' })
+    const statePath = statePathFromHandover(result.data)
+
+    // `handover` bootstraps the run store but does NOT establish worktree mode:
+    // its parser accepts --use-worktrees and its handler ignores it — only `init`
+    // calls ensure_run_worktree. So the run only gets a branch (and therefore can
+    // only ever open a pull request) if we init it here, exactly as the desktop's
+    // creation flow does. The architect's own `init` later is idempotent: it
+    // re-reads the prompt and leaves the existing vcs block and tasks alone.
+    if (statePath) {
+      const init = await this.invokeTool(
+        command,
+        ['--state', statePath, 'init', '--use-worktrees', useWorktrees ? 'true' : 'false'],
+        workspacePath,
+        undefined,
+        undefined,
+        workspacePath
+      )
+      if (!init.ok) {
+        // The run store now exists but has no plan gate and no branch, and
+        // `handover` refuses to write over existing bootstrap files without
+        // --force. Left behind, that half-built team would wedge every retry that
+        // reuses its name (an explicitly named team can never be started again)
+        // and would surface on the phone as a phantom run with no tasks. Roll it
+        // back so a retry is clean, then surface the engine's real reason rather
+        // than reporting a start that cannot produce the pull request it was
+        // asked for.
+        await discardBootstrappedRunStore(workspacePath, statePath)
+        return init
+      }
+    }
+
+    // Best-effort lifecycle bookkeeping after the run started: the start already
+    // succeeded, so a store hiccup must not fail the command.
+    if (statePath) {
+      // The execution link is load-bearing, not bookkeeping: it is the only
+      // backlog -> run correspondence there is, and the PR write later finds this
+      // item by scanning for it. It also moves the item to in_progress.
+      const linked = await recordSprintEngineExecutionLink({
+        workspaceRoot: workspacePath,
+        relativePath,
+        statePath,
+        childRelativePaths: children,
+      })
+      if (!linked.ok) {
+        console.warn(`[mobile] Sprint Engine start could not link ${relativePath} to its run: ${linked.message}`)
+      }
+    } else {
+      // No state path came back from the tool, so no link can be written. Still
+      // move the item, so the phone at least reflects that work started.
+      await updateBacklogStatus({ workspaceRoot: workspacePath, relativePath, status: 'in_progress' })
+    }
+
     await updateBacklogModuleMetadata({
       workspaceRoot: workspacePath,
       relativePath,
@@ -657,6 +820,9 @@ export class MobileSprintEngineCommandService {
         commandId: command.commandId,
         deviceId: command.deviceId,
         teamName,
+        useWorktrees,
+        epic: asEpic,
+        ...(statePath ? { statePath } : {}),
       },
     })
 

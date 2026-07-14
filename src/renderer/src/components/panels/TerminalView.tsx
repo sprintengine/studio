@@ -41,6 +41,12 @@ import { agentCliSupportsConversationResume, agentCliUsesStableSessionIdForResum
 import { resumeCapabilitiesForCli } from '../../store/slices/pluginsSlice'
 import { deriveSprintEngineAutomationDesiredMode } from '../../utils/sprintengineAutomationLifecycle'
 import { resolveWorkspaceTerminalCwd, resolveWorkspaceWorktree, resolveWorktreeSpawnFallback } from '../../utils/workspaceWorktree'
+import {
+  hasLiveAgentLaunchIntent,
+  markAgentSessionMinted,
+  resolveAgentColdLoadDecision,
+  wasAgentSessionMintedThisAppSession,
+} from '../../utils/terminalColdLoad'
 import type { McpSettings } from '../../types/workspace'
 import { CursorErrorPopover } from '../ui/CursorErrorPopover'
 import { workspaceSyncClient } from '../../store/workspaceSyncClient'
@@ -189,6 +195,10 @@ export default function TerminalView({ workspaceId, agentId, sessionId: attached
   const resumeThunkRef = useRef<(() => Promise<TerminalSpawnResult>) | null>(null)
   const pendingResumeInputRef = useRef<string[]>([])
   const resumingRef = useRef(false)
+  // Cold-loaded with nothing to paint and nobody asking for it (decision 'inert',
+  // utils/terminalColdLoad.ts). The tab is deliberately dead: no pty, no replay.
+  // A click or keystroke is the user asking for it, which is what starts it.
+  const inertRef = useRef(false)
   // Set by the launch effect (which owns the xterm instance) so this
   // store-driven sync can freeze/unfreeze the cursor: a blinking cursor is a
   // liveness signal, and a suspended snapshot is not live.
@@ -390,8 +400,15 @@ export default function TerminalView({ workspaceId, agentId, sessionId: attached
         cli: initialContext.cli,
         reason: 'missing-cli-session-id',
       })
+      // Remember that WE minted this id. A workspace's template agents are seeded
+      // with no session id and no launch flags and rely on this branch to give
+      // them one — which makes them look exactly like a cold-loaded record by the
+      // time the launch decision runs. The mint registry is what tells them apart,
+      // so a brand-new workspace's agent still spawns instead of sitting inert.
+      const mintedSessionId = crypto.randomUUID()
+      markAgentSessionMinted(mintedSessionId)
       initialContext.updateAgent(workspaceId, agentId, {
-        cliSessionId: crypto.randomUUID(),
+        cliSessionId: mintedSessionId,
         cliHasLaunched: false,
       })
       return
@@ -660,6 +677,24 @@ export default function TerminalView({ workspaceId, agentId, sessionId: attached
       resumingRef.current = false
     }
 
+    // An inert tab starts on a deliberate click or keystroke — the same gesture
+    // that resumes a paused one, and the only way out of 'inert'. Recording the
+    // intent is enough: `cliRestartNonce` is a dependency of this effect, so the
+    // bump re-runs the launch, `hasLiveAgentLaunchIntent` now reads true, and the
+    // decision comes back 'spawn'. Keeps `cliSessionId` (identity is durable) and
+    // leaves `cliHasLaunched` false, so this is a FRESH start, never an
+    // unattended `--resume`.
+    const startInertAgent = () => {
+      if (!inertRef.current) return
+      inertRef.current = false
+      const startContext = currentContext()
+      startContext.updateAgent(workspaceId, agentId, {
+        cliStartRequested: true,
+        cliHasLaunched: false,
+        cliRestartNonce: (startContext.agent?.cliRestartNonce ?? 0) + 1,
+      })
+    }
+
     const onDataDisposable = term.onData((data) => {
       // Focus-report escapes (DECSET 1004: `ESC[I`/`ESC[O`) are not user intent.
       // During the suspend/resume window the PTY can echo them back as a visible
@@ -673,6 +708,13 @@ export default function TerminalView({ workspaceId, agentId, sessionId: attached
         return
       }
       terminalDiagnostics.recordInput(data)
+      // Inert: there is no pty and no conversation to resume — the keystroke is
+      // the user starting the agent. Don't buffer it; it would be typed into a
+      // CLI that has not booted yet.
+      if (inertRef.current) {
+        startInertAgent()
+        return
+      }
       // Suspended: buffer the keystroke and kick a resume instead of writing to a
       // dead pty (main drops writes to a suspended session anyway).
       if (suspendedRef.current) {
@@ -691,6 +733,10 @@ export default function TerminalView({ workspaceId, agentId, sessionId: attached
     // which must NOT auto-resume a just-revealed workspace. No-op unless suspended;
     // `resumeFromSuspend` is idempotent via `resumingRef`.
     const onPaneClick = () => {
+      if (inertRef.current) {
+        startInertAgent()
+        return
+      }
       if (suspendedRef.current) void resumeFromSuspend()
     }
     container.addEventListener('click', onPaneClick)
@@ -774,14 +820,46 @@ export default function TerminalView({ workspaceId, agentId, sessionId: attached
         ?? agentCliUsesStableSessionIdForResume(postStatusResumeCaps)
       const shouldResumeClaudeConversation = usesStableSessionId && shouldResume
       const shouldResumeCli = resumeExistingPty || shouldResumeClaudeConversation || shouldResumeCodexConversation
-      // Reopening a suspended agent must NOT silently respawn it: the reaper
-      // suspended it to reclaim memory, the painted scrollback is still on the
-      // record, and the user opened the workspace just to read it. Replay the
+      // What this tab should do, decided in one place (utils/terminalColdLoad.ts).
+      //
+      // 'paused' — reopening a suspended agent must NOT silently respawn it: the
+      // reaper suspended it to reclaim memory, the painted scrollback is still on
+      // the record, and the user opened the workspace just to read it. Replay the
       // history below and leave it suspended — the quiet paused footer (AgentPanel,
       // keyed off the same `suspended` flag), a click on the pane, and
-      // type-to-resume are the controls. A live pty (background run) reports suspended=false and
-      // reattaches normally.
-      const pauseInsteadOfLaunch = !attachedSessionId && terminalStatus.suspended
+      // type-to-resume are the controls. A live pty (background run) reports
+      // suspended=false and reattaches normally.
+      //
+      // 'inert' — a cold-loaded persisted agent with no pty, no painted screen,
+      // and no live launch intent. It has nothing to show and nobody asked for it,
+      // so it must sit idle. This is the branch whose absence turned every cold
+      // load of an automations-host / sprintengine agent into a fresh CLI launch.
+      const coldLoadDecision = resolveAgentColdLoadDecision({
+        attachedSessionId,
+        processAlive: terminalStatus.processAlive,
+        suspended: terminalStatus.suspended,
+        hasLaunchIntent: hasLiveAgentLaunchIntent(postStatusAgent),
+        sessionMintedThisAppSession: wasAgentSessionMintedThisAppSession(sessionId),
+      })
+      const pauseInsteadOfLaunch = coldLoadDecision === 'paused'
+      inertRef.current = coldLoadDecision === 'inert'
+      if (coldLoadDecision === 'inert') {
+        // Return BEFORE the worktree resolution below. A finished automation
+        // agent's run worktree is routinely finalized away, and
+        // `resolveWorktreeSpawnFallback` would silently redirect the spawn into
+        // the main checkout — the dead-cwd relaunch loop. Inert outranks that
+        // fallback: there is nothing to spawn, so there is nothing to redirect.
+        setCursorFrozen(true)
+        term.write('\r\n\x1b[2m[agent is not running — click or type to start it]\x1b[0m\r\n')
+        logPerfEvent('TerminalView', 'terminal-inert-on-open', {
+          sessionId,
+          workspaceId,
+          agentId,
+          kind: 'agent',
+          cli: postStatusCli,
+        })
+        return
+      }
       logPerfEvent('TerminalView', shouldResumeCli ? 'terminal-reattach-existing-session' : 'terminal-spawn-fresh', {
         sessionId,
         workspaceId,

@@ -2606,8 +2606,14 @@ function testReconcileLaunchFlagsPreservesRetainedResumeShape(): void {
   const agents = useWorkspaceStore.getState().workspaces[0].agents
   assert.equal(agents['developer-1'].cliSessionId, 'retained-token', 'the retained resume token survives the reconcile')
   assert.equal(agents['developer-1'].cliResumeAvailable, true)
-  assert.equal(agents['developer-2'].cliSessionId, undefined, 'a genuinely stale launch state is still cleared')
+  // A genuinely stale launch state still has its GATE cleared — which is what
+  // stops an auto-resume — but keeps its session identity. `cliSessionId` is the
+  // key to the agent's painted screen on disk; wiping it here made the mounting
+  // terminal mint a fresh uuid, miss the snapshot, and spawn a fresh CLI.
   assert.equal(agents['developer-2'].cliStartRequested, false)
+  assert.equal(agents['developer-2'].cliHasLaunched, false)
+  assert.equal(agents['developer-2'].cliResumeAvailable, false)
+  assert.equal(agents['developer-2'].cliSessionId, 'dead-session', 'identity survives; the resume gate does not')
 }
 
 function testHasUnownedReadyTaskTrigger(): void {

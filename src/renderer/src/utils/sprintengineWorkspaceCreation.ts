@@ -28,17 +28,6 @@ import { buildPlanFileSprintEngineHandoffPrompt } from './sprintengineHandoff'
 import { buildRunWorkspaceContext } from './runWorkspaceCreation'
 import { deriveSprintEngineAutomationDesiredMode } from './sprintengineAutomationLifecycle'
 
-const planSourcedSprintEngineRoleCounts: SprintEngineRoleCounts = {
-  architect: 1,
-  product: 1,
-  developer: 0,
-  frontend: 0,
-  performance: 0,
-  production_readiness_reviewer: 0,
-  tester: 0,
-  security: 0,
-}
-
 export type PlanSourcedSprintEngineWorkspaceArgs = {
   rootPath: string
   teamName: string
@@ -47,7 +36,9 @@ export type PlanSourcedSprintEngineWorkspaceArgs = {
   sourceContent: string
   sourcePlanKind?: SprintEngineSourcePlanKind
   sourceBundle?: SprintEngineSourceBundleItem[]
-  roleCounts?: SprintEngineRoleCounts
+  // Required: the caller's configured roster IS the run's roster. There is no
+  // default here — a fallback team would staff roles the user never picked.
+  roleCounts: SprintEngineRoleCounts
   roleCliDefaults?: SprintEngineRoleCliDefaults
   roleModelOverrides?: SprintEngineRoleModelOverrides | null
   initialSpawnRoles?: SprintEngineRoleId[] | null
@@ -173,7 +164,7 @@ export async function createPlanSourcedSprintEngineWorkspace({
   sourceContent,
   sourcePlanKind = 'unknown',
   sourceBundle,
-  roleCounts = planSourcedSprintEngineRoleCounts,
+  roleCounts,
   roleCliDefaults,
   roleModelOverrides,
   initialSpawnRoles,

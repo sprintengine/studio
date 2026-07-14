@@ -6,7 +6,12 @@ import { join } from 'node:path'
 import type { IpcMain } from 'electron'
 
 import type { AutomationRendererRequest, AutomationRendererResponse } from '../../shared/automation'
-import type { AgentSessionExitEvent, AgentSessionExitListener } from '../../shared/agent-runtime'
+import type {
+  AgentPhaseEvent,
+  AgentPhaseListener,
+  AgentSessionExitEvent,
+  AgentSessionExitListener,
+} from '../../shared/agent-runtime'
 import type {
   AutomationActionProvider,
   AutomationDefinition,
@@ -65,27 +70,40 @@ function createFakeIpcMain(): {
 type FakeTerminalRuntime = {
   runtime: unknown
   listenerCount: () => number
+  phaseListenerCount: () => number
   emitExit: (event: AgentSessionExitEvent) => Promise<void>
+  emitPhase: (event: AgentPhaseEvent) => Promise<void>
   setLiveExecutionIds: (ids: string[]) => void
 }
 
 // Minimal TerminalRuntime stand-in exposing only the seams the automations
-// module uses: the live-execution inventory and the agent-session exit listener.
+// module uses: the live-execution inventory, the executionId resolver, and the
+// agent-session exit / agent-phase listeners.
 function createFakeTerminalRuntime(options: { liveExecutionIds?: string[] } = {}): FakeTerminalRuntime {
   let liveIds = options.liveExecutionIds ?? []
   const listeners = new Set<AgentSessionExitListener>()
+  const phaseListeners = new Set<AgentPhaseListener>()
   const runtime = {
     getLiveAgentExecutionIds: () => liveIds.map((executionId) => ({ system: 'manual', executionId })),
+    resolveAgentExecutionId: () => undefined,
     registerAgentSessionExitListener: (listener: AgentSessionExitListener) => {
       listeners.add(listener)
       return () => listeners.delete(listener)
+    },
+    registerAgentPhaseListener: (listener: AgentPhaseListener) => {
+      phaseListeners.add(listener)
+      return () => phaseListeners.delete(listener)
     },
   }
   return {
     runtime,
     listenerCount: () => listeners.size,
+    phaseListenerCount: () => phaseListeners.size,
     emitExit: async (event) => {
       for (const listener of listeners) await listener(event)
+    },
+    emitPhase: async (event) => {
+      for (const listener of phaseListeners) await listener(event)
     },
     setLiveExecutionIds: (ids) => {
       liveIds = ids
@@ -349,10 +367,12 @@ type FakeAutomationsEngine = Pick<
   | 'deliverTriggerEvent'
   | 'finalizeRun'
   | 'finalizeRunOnAgentExit'
+  | 'noteAgentPhase'
 > & {
   startCount: number
   stopCount: number
-  agentExitCalls: Array<{ executionId: string; exitCode: number }>
+  agentExitCalls: Array<Parameters<AutomationsEngine['finalizeRunOnAgentExit']>[0]>
+  agentPhaseCalls: Array<Parameters<AutomationsEngine['noteAgentPhase']>[0]>
 }
 
 const emptyEvaluation = (): AutomationsEngineEvaluationResult => ({
@@ -369,8 +389,12 @@ function createFakeAutomationsEngine(): FakeAutomationsEngine {
     startCount: 0,
     stopCount: 0,
     agentExitCalls: [],
+    agentPhaseCalls: [],
     async finalizeRunOnAgentExit(input) {
       this.agentExitCalls.push(input)
+    },
+    async noteAgentPhase(event) {
+      this.agentPhaseCalls.push(event)
     },
     start() {
       running = true
@@ -574,8 +598,9 @@ async function testLiveEnablementToggleStopsUnregistersAndRestarts(): Promise<vo
 
 async function testAgentExitListenerRoutesExitsAndWiresLiveExecutions(): Promise<void> {
   const terminal = createFakeTerminalRuntime({ liveExecutionIds: ['exec-live-1', 'exec-live-2'] })
-  let capturedOptions: AutomationsEngineOptions | null = null
-  let fakeEngine: FakeAutomationsEngine | null = null
+  // Held in a record, not a `let`: TS does not track assignments made inside the
+  // createEngine callback, so a nullable local narrows to `null` at every use.
+  const captured: { options?: AutomationsEngineOptions; engine?: FakeAutomationsEngine } = {}
 
   const moduleLoad = loadMainModules({
     ipcMain: createFakeIpcMain().ipcMain,
@@ -583,33 +608,59 @@ async function testAgentExitListenerRoutesExitsAndWiresLiveExecutions(): Promise
       fakeAgentRuntimeModule({ terminalRuntime: terminal.runtime }),
       createAutomationsModule({
         createEngine: (options) => {
-          capturedOptions = options
-          fakeEngine = createFakeAutomationsEngine()
-          return fakeEngine as unknown as AutomationsEngine
+          captured.options = options
+          captured.engine = createFakeAutomationsEngine()
+          return captured.engine as unknown as AutomationsEngine
         },
       }),
     ],
   })
 
   assert.ok(moduleLoad.report.loaded.includes('automations'))
-  // Exactly one agent-session exit listener is registered by the module.
+  // Exactly one exit listener and one phase listener are registered by the module.
   assert.equal(terminal.listenerCount(), 1)
+  assert.equal(terminal.phaseListenerCount(), 1)
   // The engine is wired with a live-execution projection that flattens the
   // runtime inventory to executionId strings (used by the startup reconcile).
-  assert.deepEqual(capturedOptions?.getLiveAgentExecutionIds?.(), ['exec-live-1', 'exec-live-2'])
+  assert.deepEqual(captured.options?.getLiveAgentExecutionIds?.(), ['exec-live-1', 'exec-live-2'])
 
-  // Every real agent-session pty exit is routed to the engine verbatim; the
-  // engine owns the match-vs-ignore decision (covered in engine.test.ts).
-  await terminal.emitExit({ system: 'manual', workspaceRoot: '/repo', executionId: 'exec-live-1', exitCode: 0 })
+  // Every real agent-session pty exit is routed to the engine verbatim, with the
+  // (workspaceId, agentId) correlation key alongside the executionId; the engine
+  // owns the match-vs-ignore decision (covered in engine.test.ts).
+  await terminal.emitExit({
+    system: 'manual',
+    workspaceRoot: '/repo',
+    workspaceId: 'ws-1',
+    agentId: 'agent-1',
+    executionId: 'exec-live-1',
+    exitCode: 0,
+  })
   await terminal.emitExit({ system: 'sprintengine', workspaceRoot: '/repo', executionId: 'exec-x', exitCode: 7 })
-  assert.deepEqual(fakeEngine!.agentExitCalls, [
-    { executionId: 'exec-live-1', exitCode: 0 },
-    { executionId: 'exec-x', exitCode: 7 },
+  assert.deepEqual(captured.engine?.agentExitCalls, [
+    { executionId: 'exec-live-1', workspaceId: 'ws-1', agentId: 'agent-1', exitCode: 0 },
+    { executionId: 'exec-x', workspaceId: undefined, agentId: undefined, exitCode: 7 },
   ])
 
-  // Teardown unregisters the listener so a disable→enable cycle never leaks one.
+  // Phase transitions are the primary finalize channel: routed verbatim, the
+  // engine decides whether the frame ends a pending run's turn.
+  const phaseEvent: AgentPhaseEvent = {
+    workspaceId: 'ws-1',
+    agentId: 'agent-1',
+    executionId: 'exec-live-1',
+    phase: 'idle',
+    previousPhase: 'thinking',
+    event: 'Stop',
+    ts: 1_700_000_000_000,
+    pendingWakeupAt: null,
+  }
+  await terminal.emitPhase(phaseEvent)
+  assert.deepEqual(captured.engine?.agentPhaseCalls, [phaseEvent])
+
+  // Teardown unregisters both so a disable→enable cycle never leaks a listener
+  // pointed at a stopped engine.
   await moduleLoad.kernel.runShutdown()
   assert.equal(terminal.listenerCount(), 0)
+  assert.equal(terminal.phaseListenerCount(), 0)
 }
 
 async function testModuleExecutorDoesNotGateOnDirtyTreeBeforeLaunch(): Promise<void> {

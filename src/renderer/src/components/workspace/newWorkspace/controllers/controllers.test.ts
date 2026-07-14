@@ -365,6 +365,56 @@ async function testSprintEngineNewTeamInitializesRunState(): Promise<void> {
   assert.equal(args.sprintEngineAutoState?.desiredMode, 'run_agents')
 }
 
+// A role the wizard OMITS from the counts must stay off. The wizard's sweep
+// filter (`sprintEngineCreateRoleCounts`) does not zero a sweep role — it
+// DELETES the key, because sweeps are chosen in "Final sweeps", not staffed as
+// work rows. `normalizeSprintEngineRoleCounts` used to seed its result from a
+// built-in starter team (architect + product + developer) and only overwrite the
+// keys the input mentioned, so a deleted key silently came back staffed at the
+// starter value: `product` landed in configuredRoles on runs whose operator
+// never chose it, and the architect planned a Product sweep task for it.
+//
+// Every other test here passes `product: 0` EXPLICITLY, which is exactly why
+// none of them caught it. Absent must mean off.
+async function testSprintEngineOmittedRoleStaysUnstaffed(): Promise<void> {
+  const captured: Array<Record<string, unknown>> = []
+  await runSprintEngineNewTeamCreation(
+    {
+      folderPath: '/p',
+      teamName: 'Ship Squad',
+      goal: 'Ship the things',
+      // Exactly what the wizard emits: the user ticked developer + frontend, and
+      // `product` (a sweep role) is absent, not zeroed. No sweeps were toggled on.
+      roleCounts: { architect: 1, developer: 1, frontend: 1 },
+      visibleRoleCounts: { architect: 1, developer: 1, frontend: 1 },
+      maxParallelAgents: 2,
+      roleCliDefaults: { architect: 'claude-code', developer: 'claude-code', frontend: 'claude-code', performance: 'claude-code', cross_platform: 'claude-code', tester: 'claude-code', security: 'claude-code', product: 'claude-code' },
+      roleModelOverrides: {},
+      additionalEnabledRoles: [],
+      startRunner: false,
+      autoApproveArtifacts: false,
+      cliPermissionPreset: 'default',
+    },
+    {
+      pathExists: async () => false,
+      initializeSprintEngineState: async (input) => {
+        captured.push({ enabledRoles: input.enabledRoles })
+        return { ok: true, data: { projectionContent: JSON.stringify(sprintEngineProjectionFixture({ name: 'Ship Squad', goal: 'Ship the things' })) } }
+      },
+    },
+  )
+  const enabledRoles = captured[0].enabledRoles as string[]
+  assert.ok(
+    !enabledRoles.includes('product'),
+    'a role the wizard omitted must not be re-staffed from a built-in default',
+  )
+  assert.deepEqual(
+    enabledRoles,
+    ['architect', 'developer', 'frontend'],
+    'configuredRoles is exactly the user configuration',
+  )
+}
+
 // The full-roster (user-mode) init must be untouched by the new fields: no
 // rosterSource/allowedRuntimes flags, and roleRuntimes still built from every
 // role's cli/model. Regression guard for "rosterSource: 'user' is byte-identical".
@@ -1809,6 +1859,7 @@ async function main(): Promise<void> {
   testBuildSprintEngineExistingTeamCreation()
   testBuildSprintEngineNewTeamCreation()
   await testSprintEngineNewTeamInitializesRunState()
+  await testSprintEngineOmittedRoleStaysUnstaffed()
   await testSprintEngineNewTeamUserModeInitArgsUnchanged()
   await testSprintEngineArchitectRosterInitArgs()
   testSprintEngineWorkflowInitKeys()

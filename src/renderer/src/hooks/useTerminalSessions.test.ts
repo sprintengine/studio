@@ -560,7 +560,11 @@ async function assertStaleLaunchFlagsClearWithoutLosingRecency(): Promise<void> 
   assert.equal(workspace.lastTerminalActivityAt, 1_000)
   assert.equal(workspace.agents['developer-1'].cliStartRequested, false)
   assert.equal(workspace.agents['developer-1'].cliHasLaunched, false)
-  assert.equal(workspace.agents['developer-1'].cliSessionId, undefined)
+  // The stale agent loses its launch/resume GATE but keeps its session identity:
+  // `cliSessionId` resolves the painted screen on disk, and dropping it here sent
+  // the mounting terminal back to minting a fresh uuid and spawning a fresh CLI.
+  // Nothing auto-resumes off the id alone — the flags above are the resume gate.
+  assert.equal(workspace.agents['developer-1'].cliSessionId, 'session_stale')
   assert.equal(workspace.agents['developer-2'].cliStartRequested, true)
   assert.equal(workspace.agents['developer-2'].cliHasLaunched, true)
   assert.equal(workspace.agents['developer-2'].cliSessionId, 'session_live')

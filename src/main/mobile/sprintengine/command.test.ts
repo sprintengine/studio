@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { createRequire } from 'node:module'
-import { access, mkdir, mkdtemp, readFile, rm, symlink, writeFile } from 'fs/promises'
+import { access, mkdir, mkdtemp, readFile, realpath, rm, symlink, writeFile } from 'fs/promises'
 import { platform, tmpdir } from 'os'
 import { dirname, join } from 'path'
 import {
@@ -11,7 +11,9 @@ import {
   type MobileSprintEngineSessionOrchestrator,
 } from './command'
 import { readSprintEngineSnapshot } from './snapshot'
+import { addOrUpdateBacklogLink } from '../../backlog-service'
 import { parseBacklogFrontmatter } from '../../../shared/backlog/frontmatter'
+import { buildSprintEngineRunLink } from '../../../shared/backlog/sprintengine-links'
 
 const now = new Date('2026-04-28T19:45:00.000Z')
 
@@ -41,6 +43,12 @@ async function main(): Promise<void> {
   await assertUnsupportedCommandIsRejected()
   await assertBacklogUpdateWritesFrontmatter()
   await assertBacklogStartSprintEngineUsesHandoverAndMarksItem()
+  await assertBacklogStartLaunchesAnEpicWithItsChildren()
+  await assertBacklogStartHonoursExplicitWorktreeOptOut()
+  await assertBacklogStartSkipsWorktreesInANonGitWorkspace()
+  await assertBacklogStartLinksTheRunThroughASymlinkedWorkspaceRoot()
+  await assertBacklogStartRollsBackTheRunStoreWhenInitFails()
+  await assertOpenPullRequestLinksThePrToItsBacklogItem()
   await assertBacklogStartRejectsPathOutsideBacklogFolder()
   await assertBacklogCreateWritesFileAndRecord()
   await assertBacklogCreateRejectsEmptyTitle()
@@ -130,6 +138,53 @@ async function assertOpenPullRequestInvokesVcsPr(): Promise<void> {
   assert.deepEqual(invocations[0].args, ['--state', fixture.statePath, 'vcs', 'pr', '--id', 'mobile:device_1'])
   assert.equal(invocations[0].cwd, fixture.workspaceRoot)
   assert.equal(service.getAuditLog()[0].status, 'accepted')
+}
+
+async function assertOpenPullRequestLinksThePrToItsBacklogItem(): Promise<void> {
+  // The payoff of the epic: with the desktop closed, opening the PR must reach
+  // back to the item that started the run. The renderer's projection tick does
+  // this today, but it only runs with a window mounted on the workspace.
+  const fixture = await writeSprintEngineFixture('pr-link-team', '.multi-code/sprintengine/pr-link-team/documents/requirements.md')
+  await mkdir(join(fixture.workspaceRoot, 'backlog'), { recursive: true })
+  await writeFile(
+    join(fixture.workspaceRoot, 'backlog', 'feature.md'),
+    '---\ntype: feature\nstatus: in_progress\n---\n\n# Ship it\n\nBody.\n',
+    'utf8'
+  )
+  // The execution link the start path wrote — the only backlog -> run correspondence.
+  await addOrUpdateBacklogLink({
+    workspaceRoot: fixture.workspaceRoot,
+    relativePath: 'backlog/feature.md',
+    link: buildSprintEngineRunLink({
+      teamSlug: 'pr-link-team',
+      runRelativePath: '.multi-code/sprintengine/pr-link-team/run.yaml',
+    }),
+  })
+
+  const service = new MobileSprintEngineCommandService({
+    workspaceRoot: fixture.workspaceRoot,
+    statePaths: [fixture.statePath],
+    now: () => now,
+    // The real `vcs pr` answers with pullRequestUrl at the top level.
+    execute: async () => ({
+      exitCode: 0,
+      stdout: JSON.stringify({ ok: true, action: 'vcs_pr', branch: 'se/pr-link-team', pullRequestUrl: 'https://github.com/acme/repo/pull/9' }),
+      stderr: '',
+    }),
+  })
+
+  const result = await service.dispatch(command('sprintengine.openPullRequest', { sprintEngineId: 'pr-link-team' }))
+  assert.equal(result.ok, true)
+
+  const items = await readBacklogStoreItems(fixture.workspaceRoot)
+  const record = items.find((item) => item.source.relativePath === 'backlog/feature.md')
+  const prLink = record?.links?.find((link) => link.id === 'sprint-engine:pull-request')
+  assert.equal(prLink?.target.kind, 'sprintengine.pullRequest')
+  assert.equal(prLink?.target.url, 'https://github.com/acme/repo/pull/9')
+  // `external` is lifecycle-neutral: attaching a PR never moves the item.
+  assert.equal(prLink?.type, 'external')
+  const frontmatter = parseBacklogFrontmatter(await readFile(join(fixture.workspaceRoot, 'backlog', 'feature.md'), 'utf8'))
+  assert.equal(frontmatter.fields.status, 'in_progress')
 }
 
 async function assertArtifactApproveInvokesSprintEngineTool(): Promise<void> {
@@ -928,21 +983,43 @@ async function assertBacklogUpdateWritesFrontmatter(): Promise<void> {
   assert.equal(invalid.ok === false ? invalid.error.code : '', 'invalid_payload')
 }
 
+type BacklogStoreItem = {
+  source: { relativePath: string }
+  status?: string
+  metadata?: Record<string, unknown>
+  links?: Array<{ id: string; type: string; target: { kind: string; id: string; path?: string; url?: string } }>
+}
+
+async function readBacklogStoreItems(workspaceRoot: string): Promise<BacklogStoreItem[]> {
+  const store = JSON.parse(
+    await readFile(join(workspaceRoot, '.multi-code', 'backlog', 'items.json'), 'utf8')
+  ) as { items: BacklogStoreItem[] }
+  return store.items
+}
+
+function argValue(args: string[], flag: string): string | undefined {
+  const index = args.indexOf(flag)
+  return index === -1 ? undefined : args[index + 1]
+}
+
 async function assertBacklogStartSprintEngineUsesHandoverAndMarksItem(): Promise<void> {
   const workspaceRoot = await mkdtemp(join(tmpdir(), 'multicode-mobile-backlog-start-'))
   await mkdir(join(workspaceRoot, 'backlog'), { recursive: true })
+  // Git-backed, so worktree mode is possible and therefore the default.
+  await mkdir(join(workspaceRoot, '.git'), { recursive: true })
   await writeFile(
     join(workspaceRoot, 'backlog', 'feature.md'),
     '---\ntype: feature\n---\n\n# Ship the widget\n\nUsers need the widget.\n',
     'utf8'
   )
+  const statePath = join(workspaceRoot, '.multi-code', 'sprintengine', 'backlog-cmd_backlog_start', 'run.yaml')
   const invocations: Array<{ args: string[]; cwd: string }> = []
   const service = new MobileSprintEngineCommandService({
     workspaceRoot,
     now: () => now,
     execute: async (invocation) => {
       invocations.push(invocation)
-      return { exitCode: 0, stdout: '{"ok":true,"action":"handover"}', stderr: '' }
+      return { exitCode: 0, stdout: JSON.stringify({ ok: true, action: 'handover', statePath }), stderr: '' }
     },
   })
 
@@ -955,25 +1032,268 @@ async function assertBacklogStartSprintEngineUsesHandoverAndMarksItem(): Promise
   }))
 
   assert.equal(result.ok, true)
-  assert.equal(invocations.length, 1)
+  // Two steps: `handover` bootstraps the run store, `init` establishes worktree
+  // mode. `handover` accepts --use-worktrees but its handler ignores it — only
+  // `init` calls ensure_run_worktree — so a one-step start could never branch,
+  // and so could never open a pull request.
+  assert.equal(invocations.length, 2)
   assert.equal(invocations[0].cwd, workspaceRoot)
-  assert.deepEqual(invocations[0].args.slice(0, 3), ['handover', '--name', 'backlog-cmd_backlog_start'])
-  const goalIndex = invocations[0].args.indexOf('--goal')
-  assert.equal(invocations[0].args[goalIndex + 1], 'Ship the widget')
-  const handoverIndex = invocations[0].args.indexOf('--handover-text')
-  assert.equal(invocations[0].args[handoverIndex + 1].includes('Users need the widget.'), true)
-  assert.equal(invocations[0].args[handoverIndex + 1].includes('type: feature'), false)
+  const args = invocations[0].args
+  assert.deepEqual(args.slice(0, 3), ['handover', '--name', 'backlog-cmd_backlog_start'])
+  assert.equal(argValue(args, '--goal'), 'Ship the widget')
+
+  // The item is referenced in place, never inlined: only a source path under
+  // backlog/ makes the run backlog-sourced, which is what grants the agent the
+  // lifecycle skill that keeps this item's status truthful.
+  assert.equal(argValue(args, '--handover'), join(workspaceRoot, 'backlog', 'feature.md'))
+  assert.equal(args.includes('--reference-sources'), true)
+  assert.equal(args.includes('--handover-text'), false)
+
+  assert.deepEqual(invocations[1].args, ['--state', statePath, 'init', '--use-worktrees', 'true'])
+
+  // A leaf item is not an epic launch.
+  assert.equal(args.includes('--source-plan-kind'), false)
+  assert.equal(args.includes('--source'), false)
 
   // Status moves to the item's frontmatter (v2), while module metadata stays
   // app-owned churn in the sidecar.
   const marked = parseBacklogFrontmatter(await readFile(join(workspaceRoot, 'backlog', 'feature.md'), 'utf8'))
   assert.equal(marked.fields.status, 'in_progress')
-  const store = JSON.parse(await readFile(join(workspaceRoot, '.multi-code', 'backlog', 'items.json'), 'utf8')) as {
-    items: Array<{ source: { relativePath: string }; status?: string; metadata?: Record<string, unknown> }>
-  }
-  const record = store.items.find((item) => item.source.relativePath === 'backlog/feature.md')
+  const items = await readBacklogStoreItems(workspaceRoot)
+  const record = items.find((item) => item.source.relativePath === 'backlog/feature.md')
   const moduleMetadata = record?.metadata?.['mobile-companion'] as Record<string, unknown> | undefined
   assert.equal(moduleMetadata?.['teamName'], 'backlog-cmd_backlog_start')
+
+  // The execution link is the only backlog -> run correspondence there is; the PR
+  // write later finds this item by scanning for it.
+  const runLink = record?.links?.find((link) => link.type === 'execution')
+  assert.equal(runLink?.target.kind, 'sprintengine.run')
+  assert.equal(runLink?.target.id, 'backlog-cmd_backlog_start')
+  assert.equal(runLink?.target.path, '.multi-code/sprintengine/backlog-cmd_backlog_start/run.yaml')
+}
+
+async function assertBacklogStartLaunchesAnEpicWithItsChildren(): Promise<void> {
+  const workspaceRoot = await mkdtemp(join(tmpdir(), 'multicode-mobile-backlog-epic-'))
+  await mkdir(join(workspaceRoot, 'backlog'), { recursive: true })
+  // The epic container points at its own slug, exactly as its children do.
+  await writeFile(
+    join(workspaceRoot, 'backlog', 'goal-runs.md'),
+    '---\ntype: epic\nepic: goal-runs\n---\n\n# Work it with an agent\n\nThe whole epic.\n',
+    'utf8'
+  )
+  await writeFile(
+    join(workspaceRoot, 'backlog', 'child-a.md'),
+    '---\ntype: feature\nstatus: ready\nepic: goal-runs\n---\n\n# Child A\n\nFirst.\n',
+    'utf8'
+  )
+  await writeFile(
+    join(workspaceRoot, 'backlog', 'child-done.md'),
+    '---\ntype: feature\nstatus: completed\nepic: goal-runs\n---\n\n# Child Done\n\nAlready finished.\n',
+    'utf8'
+  )
+  await writeFile(
+    join(workspaceRoot, 'backlog', 'unrelated.md'),
+    '---\ntype: feature\nstatus: ready\n---\n\n# Unrelated\n\nOther work.\n',
+    'utf8'
+  )
+
+  const statePath = join(workspaceRoot, '.multi-code', 'sprintengine', 'backlog-cmd_epic', 'run.yaml')
+  const invocations: Array<{ args: string[]; cwd: string }> = []
+  const service = new MobileSprintEngineCommandService({
+    workspaceRoot,
+    now: () => now,
+    execute: async (invocation) => {
+      invocations.push(invocation)
+      return { exitCode: 0, stdout: JSON.stringify({ ok: true, action: 'handover', statePath }), stderr: '' }
+    },
+  })
+
+  const result = await service.dispatch(command('backlog.startSprintEngine', {
+    workspacePath: workspaceRoot,
+    relativePath: 'backlog/goal-runs.md',
+  }, {
+    commandId: 'cmd_epic',
+    idempotencyKey: 'mobile:device_1:backlog-epic',
+  }))
+
+  assert.equal(result.ok, true)
+  const args = invocations[0].args
+  // The epic is the root source; its children ride as the source bundle.
+  assert.equal(argValue(args, '--handover'), join(workspaceRoot, 'backlog', 'goal-runs.md'))
+  assert.equal(argValue(args, '--source-plan-kind'), 'epic')
+
+  const sources = args.filter((arg, index) => args[index - 1] === '--source').sort()
+  assert.deepEqual(sources, [
+    `generic_context:${join(workspaceRoot, 'backlog', 'child-a.md')}`,
+    `generic_context:${join(workspaceRoot, 'backlog', 'child-done.md')}`,
+  ])
+  // The epic container is never a child of itself.
+  assert.equal(sources.some((source) => source.includes('goal-runs.md')), false)
+  assert.equal(sources.some((source) => source.includes('unrelated.md')), false)
+
+  // Every child that is not already underway moves with the epic; a finished one
+  // is never dragged backwards.
+  const childA = parseBacklogFrontmatter(await readFile(join(workspaceRoot, 'backlog', 'child-a.md'), 'utf8'))
+  assert.equal(childA.fields.status, 'in_progress')
+  const childDone = parseBacklogFrontmatter(await readFile(join(workspaceRoot, 'backlog', 'child-done.md'), 'utf8'))
+  assert.equal(childDone.fields.status, 'completed')
+  const unrelated = parseBacklogFrontmatter(await readFile(join(workspaceRoot, 'backlog', 'unrelated.md'), 'utf8'))
+  assert.equal(unrelated.fields.status, 'ready')
+}
+
+async function assertBacklogStartHonoursExplicitWorktreeOptOut(): Promise<void> {
+  const workspaceRoot = await mkdtemp(join(tmpdir(), 'multicode-mobile-backlog-noworktree-'))
+  await mkdir(join(workspaceRoot, 'backlog'), { recursive: true })
+  await mkdir(join(workspaceRoot, '.git'), { recursive: true })
+  await writeFile(join(workspaceRoot, 'backlog', 'feature.md'), '---\ntype: feature\n---\n\n# Thing\n\nBody.\n', 'utf8')
+  const statePath = join(workspaceRoot, '.multi-code', 'sprintengine', 'backlog-cmd_no_worktree', 'run.yaml')
+  const invocations: Array<{ args: string[]; cwd: string }> = []
+  const service = new MobileSprintEngineCommandService({
+    workspaceRoot,
+    now: () => now,
+    execute: async (invocation) => {
+      invocations.push(invocation)
+      return { exitCode: 0, stdout: JSON.stringify({ ok: true, action: 'handover', statePath }), stderr: '' }
+    },
+  })
+
+  const result = await service.dispatch(command('backlog.startSprintEngine', {
+    workspacePath: workspaceRoot,
+    relativePath: 'backlog/feature.md',
+    useWorktrees: false,
+  }, {
+    commandId: 'cmd_no_worktree',
+    idempotencyKey: 'mobile:device_1:backlog-no-worktree',
+  }))
+
+  assert.equal(result.ok, true)
+  // Explicit opt-out beats the git-backed default.
+  assert.equal(argValue(invocations[1].args, '--use-worktrees'), 'false')
+}
+
+async function assertBacklogStartLinksTheRunThroughASymlinkedWorkspaceRoot(): Promise<void> {
+  // The engine resolves symlinks on its way out (`state_path.resolve()`), while
+  // the workspace root arrives from the payload merely normalized. On macOS that
+  // alone splits them (/var -> /private/var). If the containment test is done on
+  // the raw strings it fails, no execution link is written, and the item silently
+  // loses its status, its run reference and — later — its pull request.
+  const realRoot = await mkdtemp(join(tmpdir(), 'multicode-mobile-backlog-real-'))
+  await mkdir(join(realRoot, 'backlog'), { recursive: true })
+  await mkdir(join(realRoot, '.git'), { recursive: true })
+  await writeFile(join(realRoot, 'backlog', 'feature.md'), '---\ntype: feature\n---\n\n# Thing\n\nBody.\n', 'utf8')
+
+  // A symlinked alias for the same workspace; the phone starts through the alias.
+  const linkRoot = join(await mkdtemp(join(tmpdir(), 'multicode-mobile-backlog-link-')), 'workspace')
+  await symlink(realRoot, linkRoot, 'dir')
+
+  // The tool answers with the RESOLVED state path, as the real engine does.
+  const resolvedStatePath = join(await realpath(realRoot), '.multi-code', 'sprintengine', 'backlog-cmd_symlink', 'run.yaml')
+  const service = new MobileSprintEngineCommandService({
+    workspaceRoot: linkRoot,
+    now: () => now,
+    execute: async () => ({
+      exitCode: 0,
+      stdout: JSON.stringify({ ok: true, action: 'handover', statePath: resolvedStatePath }),
+      stderr: '',
+    }),
+  })
+
+  const result = await service.dispatch(command('backlog.startSprintEngine', {
+    workspacePath: linkRoot,
+    relativePath: 'backlog/feature.md',
+  }, {
+    commandId: 'cmd_symlink',
+    idempotencyKey: 'mobile:device_1:backlog-symlink',
+  }))
+
+  assert.equal(result.ok, true)
+  const items = await readBacklogStoreItems(linkRoot)
+  const record = items.find((item) => item.source.relativePath === 'backlog/feature.md')
+  const runLink = record?.links?.find((link) => link.type === 'execution')
+  assert.equal(runLink?.target.path, '.multi-code/sprintengine/backlog-cmd_symlink/run.yaml')
+  assert.equal(runLink?.target.id, 'backlog-cmd_symlink')
+  const frontmatter = parseBacklogFrontmatter(await readFile(join(realRoot, 'backlog', 'feature.md'), 'utf8'))
+  assert.equal(frontmatter.fields.status, 'in_progress')
+}
+
+async function assertBacklogStartRollsBackTheRunStoreWhenInitFails(): Promise<void> {
+  // `handover` refuses to write over existing bootstrap files without --force, so
+  // a half-built team left on disk would wedge every retry that reuses its name.
+  // The failed start must leave nothing behind.
+  const workspaceRoot = await mkdtemp(join(tmpdir(), 'multicode-mobile-backlog-initfail-'))
+  await mkdir(join(workspaceRoot, 'backlog'), { recursive: true })
+  await mkdir(join(workspaceRoot, '.git'), { recursive: true })
+  await writeFile(join(workspaceRoot, 'backlog', 'feature.md'), '---\ntype: feature\n---\n\n# Thing\n\nBody.\n', 'utf8')
+
+  const teamDirectory = join(workspaceRoot, '.multi-code', 'sprintengine', 'backlog-cmd_initfail')
+  const statePath = join(teamDirectory, 'run.yaml')
+
+  const service = new MobileSprintEngineCommandService({
+    workspaceRoot,
+    now: () => now,
+    execute: async (invocation) => {
+      if (invocation.args[0] === 'handover') {
+        // Bootstrap the run store on disk, exactly as the engine would.
+        await mkdir(teamDirectory, { recursive: true })
+        await writeFile(statePath, 'sprintengine: {}\n', 'utf8')
+        return { exitCode: 0, stdout: JSON.stringify({ ok: true, action: 'handover', statePath }), stderr: '' }
+      }
+      return {
+        exitCode: 1,
+        stdout: JSON.stringify({ ok: false, error: 'fatal: not a valid object name: main' }),
+        stderr: '',
+      }
+    },
+  })
+
+  const result = await service.dispatch(command('backlog.startSprintEngine', {
+    workspacePath: workspaceRoot,
+    relativePath: 'backlog/feature.md',
+  }, {
+    commandId: 'cmd_initfail',
+    idempotencyKey: 'mobile:device_1:backlog-initfail',
+  }))
+
+  // The engine's real reason reaches the phone, not a false success.
+  assert.equal(result.ok, false)
+  assert.equal(result.ok === false ? result.error.code : '', 'python_tool_failed')
+
+  // And the orphan is gone, so a retry is clean.
+  await assert.rejects(access(teamDirectory), 'the half-built run store must be rolled back')
+
+  // The item was never told about a run that does not exist.
+  const frontmatter = parseBacklogFrontmatter(await readFile(join(workspaceRoot, 'backlog', 'feature.md'), 'utf8'))
+  assert.notEqual(frontmatter.fields.status, 'in_progress')
+}
+
+async function assertBacklogStartSkipsWorktreesInANonGitWorkspace(): Promise<void> {
+  // A run worktree branches from the workspace root, so worktree mode is simply
+  // not possible without a repository there. Defaulting it on would turn a start
+  // that used to work into a hard failure for those workspaces.
+  const workspaceRoot = await mkdtemp(join(tmpdir(), 'multicode-mobile-backlog-nogit-'))
+  await mkdir(join(workspaceRoot, 'backlog'), { recursive: true })
+  await writeFile(join(workspaceRoot, 'backlog', 'feature.md'), '---\ntype: feature\n---\n\n# Thing\n\nBody.\n', 'utf8')
+  const statePath = join(workspaceRoot, '.multi-code', 'sprintengine', 'backlog-cmd_nogit', 'run.yaml')
+  const invocations: Array<{ args: string[]; cwd: string }> = []
+  const service = new MobileSprintEngineCommandService({
+    workspaceRoot,
+    now: () => now,
+    execute: async (invocation) => {
+      invocations.push(invocation)
+      return { exitCode: 0, stdout: JSON.stringify({ ok: true, action: 'handover', statePath }), stderr: '' }
+    },
+  })
+
+  const result = await service.dispatch(command('backlog.startSprintEngine', {
+    workspacePath: workspaceRoot,
+    relativePath: 'backlog/feature.md',
+  }, {
+    commandId: 'cmd_nogit',
+    idempotencyKey: 'mobile:device_1:backlog-nogit',
+  }))
+
+  assert.equal(result.ok, true)
+  assert.equal(argValue(invocations[1].args, '--use-worktrees'), 'false')
 }
 
 async function assertBacklogStartRejectsPathOutsideBacklogFolder(): Promise<void> {

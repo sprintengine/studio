@@ -39,9 +39,35 @@ for (const [flowId, steps] of Object.entries(STEPS_BY_MODE)) {
   assert.ok(!(steps as string[]).includes('mode'), `${flowId} flow carries no retired mode pivot`)
 }
 
-// The novice critical paths stay short.
-assert.deepEqual(STEPS_BY_MODE.sprintengine, ['workspace', 'sprintengine-team', 'sprintengine-roster'])
+// The novice critical paths stay short. The sprint's roster and run settings are
+// separate pages: both are fully defaulted, so paging them apart is what keeps
+// either one from becoming a scroll, and both sit behind "Skip the rest and
+// create" once the team page's objective is answered.
+assert.deepEqual(STEPS_BY_MODE.sprintengine, [
+  'workspace',
+  'sprintengine-team',
+  'sprintengine-roster',
+  'sprintengine-run',
+])
 assert.deepEqual(STEPS_BY_MODE['guided-brief'], ['workspace', 'guided-idea'])
+
+// The footer's "Skip the rest and create" is only honest if every step AFTER a
+// flow's required-intent step is defaulted — skipping must never silently accept
+// a blank the user was actually meant to fill in. The intent steps are the only
+// ones that carry something the hub cannot default. Pin that: nothing may sit
+// after an intent step unless it is a known-defaulted refinement step.
+const INTENT_STEPS = ['multiloop-goal', 'guided-idea', 'sprintengine-team'] as const
+const DEFAULTED_REFINEMENT_STEPS = ['standard-layout', 'sprintengine-roster', 'sprintengine-run'] as const
+for (const [flowId, steps] of Object.entries(STEPS_BY_MODE)) {
+  const intentIndex = steps.findIndex((step) => (INTENT_STEPS as readonly string[]).includes(step))
+  if (intentIndex < 0) continue
+  for (const step of steps.slice(intentIndex + 1)) {
+    assert.ok(
+      (DEFAULTED_REFINEMENT_STEPS as readonly string[]).includes(step),
+      `${flowId}: '${step}' follows an intent step, so it must be defaulted or "Skip the rest and create" would skip a required field`,
+    )
+  }
+}
 
 // Zero-config quick flows are exactly the shared fields — the hub shows no
 // Advanced setup disclosure for them (it renders only when a flow has real

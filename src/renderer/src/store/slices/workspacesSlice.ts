@@ -3,7 +3,7 @@ import { current } from 'immer'
 import { nanoid } from 'nanoid'
 import {
   buildSprintEngineAgentRosterForState,
-  createDefaultSprintEngineRoleCounts,
+  createEmptySprintEngineRoleCounts,
   createInitialSprintEngineState,
   normalizeSprintEngineState,
 } from '../../utils/sprintengine'
@@ -1036,7 +1036,7 @@ export function createWorkspacesSlice(
             ?? createInitialSprintEngineState({
               goal: options?.sprintEngineState?.goal ?? 'Launch Sprint Engine mode',
               name: options?.sprintEngineState?.name ?? options?.name ?? 'Sprint Roster',
-              roleCounts: options?.sprintEngineState?.roleCounts ?? createDefaultSprintEngineRoleCounts(),
+              roleCounts: options?.sprintEngineState?.roleCounts ?? createEmptySprintEngineRoleCounts(),
             })
           : null
         const multiloopState = isMultiloop ? options?.multiloopState ?? null : null

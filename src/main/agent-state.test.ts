@@ -1,6 +1,8 @@
 import assert from 'node:assert/strict'
+import { spawn } from 'node:child_process'
 import { existsSync } from 'node:fs'
 import { mkdtemp, mkdir, readFile, writeFile } from 'node:fs/promises'
+import { createServer } from 'node:net'
 import { tmpdir } from 'node:os'
 import { join, sep } from 'node:path'
 
@@ -16,10 +18,13 @@ import {
   installCodexAgentStateHook,
   installGrokAgentStateHook,
   installOpencodeAgentStateHook,
+  isAgentTurnEndEvent,
+  isAgentTurnFailureEvent,
   isAtRestAgentPhase,
   isAuthoritativeWorkingPhase,
   mapHookEventToPhase,
   mapOpencodeEventToPhase,
+  MAX_TRANSCRIPT_PATH_LENGTH,
   MAX_WAKEUP_DELAY_SECONDS,
   mergeCodexAgentStateHooks,
   mergeAgentStateHooks,
@@ -53,6 +58,48 @@ function countOurEntries(settings: Settings): number {
     }
   }
   return n
+}
+
+// Run the bundled reporter for real: pipe a CLI hook payload into it over stdin
+// and capture the frame it writes to the agent-state socket. Resolves to null if
+// the reporter dropped the event (no frame).
+async function runReporter(event: string): Promise<Record<string, unknown> | null> {
+  // The reporter always exits 0 and stays silent on failure, so a wrong path
+  // would read as "no frame" — i.e. as the SubagentStop assertion passing for
+  // the wrong reason. Fail loudly instead.
+  const reporterPath = join(process.cwd(), 'resources', 'hooks', 'multicode-agent-state.mjs')
+  assert.ok(existsSync(reporterPath), `reporter script not found at ${reporterPath}`)
+  const dir = await mkdtemp(join(tmpdir(), 'agent-state-reporter-'))
+  const socketPath = join(dir, 'sock')
+  const received: string[] = []
+  const server = createServer((socket) => {
+    socket.on('data', (chunk) => received.push(chunk.toString('utf8')))
+  })
+  await new Promise<void>((res) => server.listen(socketPath, res))
+  try {
+    const child = spawn(process.execPath, [reporterPath, '--socket', socketPath], {
+      // MULTICODE_AGENT_STATE_SOCKET is pinned, not just --socket: the reporter
+      // reads env FIRST, so when this suite runs inside a Multicode agent
+      // terminal the inherited value would send the frame to the live app.
+      env: {
+        ...process.env,
+        MULTICODE_AGENT_STATE_SOCKET: socketPath,
+        MULTICODE_AGENT_ID: 'agent-1',
+        MULTICODE_WORKSPACE_ID: 'ws-1',
+      },
+      stdio: ['pipe', 'ignore', 'ignore'],
+    })
+    // Every real payload for these events carries a transcript_path; forwarding
+    // it is what the reporter must gate on the event, not on the field.
+    child.stdin.end(
+      JSON.stringify({ hook_event_name: event, session_id: 's1', transcript_path: '/tmp/session.jsonl' })
+    )
+    await new Promise<void>((res) => child.on('close', () => res()))
+    const line = received.join('').trim()
+    return line ? (JSON.parse(line) as Record<string, unknown>) : null
+  } finally {
+    await new Promise<void>((res) => server.close(() => res()))
+  }
 }
 
 async function run(): Promise<void> {
@@ -138,6 +185,58 @@ async function run(): Promise<void> {
     const frame = parseAgentStateFrame({ ...base, wakeup: bad }, 999)
     assert.ok(frame, `frame must survive malformed wakeup: ${JSON.stringify(bad)}`)
     assert.equal(frame?.wakeup, undefined, `malformed wakeup must drop: ${JSON.stringify(bad)}`)
+  }
+
+  // --- transcript path (untrusted, optional, field-level drop) ------------
+  // A valid path rides the frame…
+  assert.equal(
+    parseAgentStateFrame({ ...base, event: 'Stop', phase: 'idle', transcriptPath: '/tmp/t.jsonl' }, 999)?.transcriptPath,
+    '/tmp/t.jsonl'
+  )
+  // …and every invalid value drops ONLY the field: losing a summary is a
+  // degradation, losing the frame would lose the turn end itself.
+  for (const bad of [undefined, null, '', 42, {}, ['/tmp/t.jsonl'], 'x'.repeat(MAX_TRANSCRIPT_PATH_LENGTH + 1)]) {
+    const frame = parseAgentStateFrame({ ...base, event: 'Stop', phase: 'idle', transcriptPath: bad }, 999)
+    assert.ok(frame, `frame must survive bad transcriptPath: ${JSON.stringify(bad)}`)
+    assert.equal(frame?.transcriptPath, undefined, `bad transcriptPath must drop: ${JSON.stringify(bad)}`)
+  }
+
+  // --- turn-end / turn-failure predicates ---------------------------------
+  // Shared vocabulary for "the agent's turn ended". Both reporters' raw event
+  // names, and nothing else: SubagentStop maps to the same `idle` phase as Stop
+  // but is a subagent finishing, and session.error also maps to `idle` but is a
+  // crash — either one read as a turn end finalizes work that isn't done.
+  assert.equal(isAgentTurnEndEvent('Stop'), true)
+  assert.equal(isAgentTurnEndEvent('session.idle'), true)
+  assert.equal(isAgentTurnEndEvent('SubagentStop'), false)
+  assert.equal(isAgentTurnEndEvent('session.error'), false)
+  for (const other of ['PostToolUse', 'SessionEnd', 'stop', '', 'Unknown', null, undefined]) {
+    assert.equal(isAgentTurnEndEvent(other), false, `not a turn end: ${String(other)}`)
+  }
+  assert.equal(isAgentTurnFailureEvent('session.error'), true)
+  for (const other of ['Stop', 'session.idle', 'SubagentStop', '', null, undefined]) {
+    assert.equal(isAgentTurnFailureEvent(other), false, `not a turn failure: ${String(other)}`)
+  }
+  // The predicates speak for the phases the mappers actually produce: both
+  // reporters land a turn end on `idle`, which is why the phase alone is not it.
+  assert.equal(mapHookEventToPhase('SubagentStop'), mapHookEventToPhase('Stop'))
+  assert.equal(mapOpencodeEventToPhase('session.error'), mapOpencodeEventToPhase('session.idle'))
+
+  // --- reporter forwards transcript_path on Stop ONLY ---------------------
+  // Driven as a real subprocess against a real socket: the reporter is the only
+  // producer of transcriptPath, and SubagentStop carries a transcript_path of
+  // its own that must never be forwarded.
+  {
+    const stopFrame = await runReporter('Stop')
+    assert.equal(stopFrame?.phase, 'idle')
+    assert.equal(stopFrame?.transcriptPath, '/tmp/session.jsonl', 'Stop must forward transcript_path')
+
+    const subagentFrame = await runReporter('SubagentStop')
+    assert.equal(subagentFrame?.phase, 'idle', 'SubagentStop still reports its phase')
+    assert.equal(subagentFrame?.transcriptPath, undefined, 'SubagentStop must NOT forward transcript_path')
+
+    const toolFrame = await runReporter('PostToolUse')
+    assert.equal(toolFrame?.transcriptPath, undefined, 'only a turn end forwards transcript_path')
   }
 
   // --- future-dated ts is clamped to server arrival (phase-freeze bug) ----

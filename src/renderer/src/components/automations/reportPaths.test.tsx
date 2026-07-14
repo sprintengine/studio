@@ -72,6 +72,55 @@ function testDeduplicatesAndBounds(): void {
   assert.deepEqual(bounded, many.slice(0, 20))
 }
 
+// The summary is now the ONLY carrier of a report path (the signal file that
+// populated `reportPaths` is gone), and it is the agent's last assistant message
+// — i.e. markdown prose. These pin the shapes a real final message takes.
+function testScansTranscriptProseShapes(): void {
+  const cases: Array<[string, string]> = [
+    ['backticked', 'Done. I audited 14 dependencies and wrote the findings to `reports/2026-07-14-audit.md`.'],
+    ['markdown link', 'Report: [the audit](reports/2026-07-14-audit.md) — 3 highs.'],
+    ['bold', '**Report:** **reports/2026-07-14-audit.md** is ready.'],
+    ['bullet list', 'Run summary:\n\n- Scanned 212 files\n- Wrote `reports/2026-07-14-audit.md`'],
+    ['absolute path', 'Wrote /Users/me/workspace/proj/reports/2026-07-14-audit.md with the results.'],
+  ]
+  for (const [label, summary] of cases) {
+    assert.deepEqual(
+      extractReportPaths(run({ summary })),
+      ['reports/2026-07-14-audit.md'],
+      `the summary scan survives a ${label} report path`,
+    )
+  }
+}
+
+function testSummaryScanDecodesMarkdownEscapes(): void {
+  // A markdown-escaped underscore must decode, not become a directory separator:
+  // `normalizeReportPath` reads `\` as a separator, so leaving it would fabricate
+  // `reports/weekly/_audit.md` — a live affordance pointing at a nonexistent file.
+  assert.deepEqual(
+    extractReportPaths(run({ summary: 'Wrote reports/weekly\\_audit.md with the results.' })),
+    ['reports/weekly_audit.md'],
+  )
+}
+
+function testEscapeDecodingCannotDefeatContainment(): void {
+  // Escapes are decoded BEFORE the containment guard runs, so an escaped traversal
+  // must not sneak past it: the guard is the last word on every candidate.
+  assert.deepEqual(extractReportPaths(run({ summary: 'Wrote reports/\\.\\./secret.md.' })), [])
+  assert.deepEqual(extractReportPaths(run({ summary: 'Wrote reports/ok.md and reports/\\.\\./etc/passwd.md.' })), ['reports/ok.md'])
+}
+
+function testSummaryScanDropsCandidatesWithStrayBackslashes(): void {
+  // A backslash we cannot read as an escape is not guessed at: dropping it costs
+  // one report link; keeping it invents a path and renders a dead affordance.
+  assert.deepEqual(extractReportPaths(run({ summary: 'Wrote reports/weekly\\nightly.md.' })), [])
+}
+
+function testTruncatedSummaryDegradesToNoAffordance(): void {
+  // The transcript summary is capped, so a late mention can be cut mid-path. That
+  // must yield no affordance, never a partial/dead one.
+  assert.deepEqual(extractReportPaths(run({ summary: 'Wrote reports/very-long-name-au…' })), [])
+}
+
 function testReturnsEmptyForNeitherField(): void {
   assert.deepEqual(extractReportPaths(run({})), [])
   assert.deepEqual(extractReportPaths(run({ summary: 'No report here.' })), [])
@@ -84,6 +133,11 @@ testEmptyReportPathsFallsBackToSummary()
 testExtractsMarkdownAndHtmlFromSummary()
 testSummaryScanRejectsTraversalAndOutOfReports()
 testSummaryScanIgnoresMidWordExtensions()
+testScansTranscriptProseShapes()
+testSummaryScanDecodesMarkdownEscapes()
+testEscapeDecodingCannotDefeatContainment()
+testSummaryScanDropsCandidatesWithStrayBackslashes()
+testTruncatedSummaryDegradesToNoAffordance()
 testDeduplicatesAndBounds()
 testReturnsEmptyForNeitherField()
 console.log('automations report-paths tests passed')

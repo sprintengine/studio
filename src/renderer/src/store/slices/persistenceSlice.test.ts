@@ -317,7 +317,11 @@ assert.ok(migratedSprintEngineLaunch.workspaces[0].sprintEngineState.sprintEngin
 assert.equal(migratedArchitect.kind, 'sprintengine')
 assert.equal(migratedArchitect.cliStartRequested, false)
 assert.equal(migratedArchitect.cliHasLaunched, false)
-assert.equal(migratedArchitect.cliSessionId, undefined)
+// The v57 migration clears the launch/resume gate so a restart never auto-resumes
+// a sprint agent — but it keeps the session identity, which resolves the agent's
+// painted screen on disk. Erasing it made cold load mint a fresh uuid and spawn a
+// fresh CLI instead of painting paused.
+assert.equal(migratedArchitect.cliSessionId, 'stale-architect-session')
 assert.equal(migratedArchitect.cliOnboardingPromptSent, false)
 assert.equal(migratedArchitect.cliResumeAvailable, false)
 assert.equal(migratedArchitect.cliStartupPrompt, undefined)

@@ -1,5 +1,4 @@
 import { randomUUID } from 'node:crypto'
-import { readFile, stat } from 'node:fs/promises'
 
 import type {
   AutomationDefinition,
@@ -13,13 +12,14 @@ import type {
   AutomationsRunEvent,
   ScheduleTriggerConfig,
 } from '../../shared/automations/contracts'
-import { normalizeReportPath } from '../../shared/automations/contracts'
+import type { AgentPhaseEvent } from '../../shared/agent-runtime'
 import type { WorkspaceSyncSnapshot } from '../../shared/workspace-sync'
+import { deriveActivityFromPhase, isAgentTurnEndEvent, isAgentTurnFailureEvent } from '../agent-state'
 import { AutomationsStore, type AutomationStoreProblem, type AutomationStoreState } from './store'
 import type { AutomationPullRequestResult } from './pull-request'
 import { computeNextRun, scheduleCadenceCanExhaust, validateScheduleTriggerConfig } from './schedule'
 import { evaluatePollingTriggerDefinition } from './polling-trigger-runner'
-import { parseRunSignal, runSignalPath, type RunSignal } from './run-signal'
+import { readTranscriptSummary } from './transcript-summary'
 import { enqueueTriggerEventRun, type TriggerEventRunResult } from './trigger-event-runner'
 
 export type AutomationsProjectFolder = {
@@ -127,31 +127,75 @@ export type AutomationsEngineOptions = {
   // orphaned pending run (agent gone while Multicode was down) from one whose
   // agent is still live. Absent in tests that do not exercise reconcile.
   getLiveAgentExecutionIds?: () => string[]
+  // How long a turn-end must stand before it finalizes the run (see
+  // DEFAULT_TURN_SETTLE_MS). Injectable so tests do not wait it out.
+  turnSettleMs?: number
+  // Reads the run summary from an agent transcript (defaults to
+  // transcript-summary's reader). Injectable so tests can hold the read open
+  // and pin the finalize races that live inside its await.
+  readRunTranscriptSummary?: (transcriptPath: string) => Promise<string | undefined>
+  // Backstop cap on a pending agent run's wall-clock life (see
+  // DEFAULT_MAX_AGENT_RUN_MS).
+  maxAgentRunMs?: number
 }
 
 type EvaluationMode = 'startup' | 'timer'
 
-// An agent-backed run that was dispatched as `running` and is awaiting the
-// agent's terminal outcome, declared via the run-status signal file in its
-// worktree. The per-tick scan reads that file and finalizes the run.
+// A turn-end that has been observed and is waiting out the settle window. A
+// working-phase frame for the same agent cancels it; the timer firing (or the
+// agent's pty exiting first) finalizes the run with this outcome.
+type ArmedTurnEnd = {
+  outcome: 'completed' | 'failed'
+  // Untrusted reporter path; read best-effort at fire time (transcript-summary
+  // is the containment boundary), so a cancelled turn-end costs no file read.
+  transcriptPath?: string
+  timer: ReturnType<typeof setTimeout>
+  // Single-flight finalize. Set when the settle timer (or a racing pty exit)
+  // fires the turn-end; the armed record stays on the run until finalizeRun
+  // takes over, so an exit landing during the transcript read joins this
+  // promise instead of recording `failed` over a successful run.
+  finalizing?: Promise<void>
+}
+
+// An agent-backed run that was dispatched as `running` and is awaiting its
+// agent's terminal outcome. Correlated to agent-state phase frames by
+// (workspaceId, agentId) — the pair every frame carries and every launched run
+// records — so finalization never depends on an executionId the launch probe
+// may have missed.
 type PendingAgentRun = {
   workspaceRoot: string
   automationId: string
   runId: string
-  worktreePath: string
+  // Absent on a runInWorktree:false run, which finalizes like any other.
+  worktreePath?: string
   workspaceId?: string
+  agentId?: string
   // Terminal-session executionId of the run's spawned agent, when it was
-  // resolvable at launch. Lets an agent-lifecycle exit correlate to this pending
-  // run; absent on historical runs and resolution misses (poll-scan covers those).
+  // resolvable. Only the pty-exit path and the startup reconcile use it; the
+  // phase path does not need it.
   executionId?: string
+  // Wall-clock start, for the max-duration sweep.
+  startedAtMs: number
+  // A turn-end can only finalize a run that was seen working first, so an idle
+  // frame arriving before the prompt lands cannot dispose a live agent.
+  observedWorkingPhase: boolean
+  armedTurnEnd?: ArmedTurnEnd
 }
 
 const DEFAULT_POLL_INTERVAL_MS = 60_000
 
-// The run-status signal is a tiny JSON object ({status, summary}). Cap the
-// per-tick read so a stray/oversize file (a buggy or compromised agent) is
-// treated as malformed and never loaded into memory; the run stays pending.
-const MAX_RUN_SIGNAL_BYTES = 64 * 1024
+// A turn end is not the same as being done: a Stop hook in the user's own repo
+// settings can continue the turn, an agent can end its turn to ask a question,
+// plan mode ends a turn, and ESC ends a turn. Finalizing is destructive (opens a
+// PR, removes the worktree, kills the agent), so an armed turn-end waits this
+// long and any working-phase frame in the window disarms it.
+const DEFAULT_TURN_SETTLE_MS = 15_000
+
+// Bounded backstop for runs whose agent never reports a turn end: a CLI outside
+// the reporter set (see agentStateSupportsCli) emits no frame at all, and a
+// frame can be lost. Past this age a pending run is failed rather than left
+// Running forever — the bug this whole path exists to fix.
+const DEFAULT_MAX_AGENT_RUN_MS = 6 * 60 * 60 * 1000
 
 export class AutomationsEngine {
   private readonly getProjectFolders?: () => AutomationsProjectFolder[] | Promise<AutomationsProjectFolder[]>
@@ -169,6 +213,9 @@ export class AutomationsEngine {
   private readonly removeRunWorktree?: AutomationRunWorktreeRemover
   private readonly disposeRunAgent?: AutomationRunAgentDisposer
   private readonly getLiveAgentExecutionIds?: () => string[]
+  private readonly turnSettleMs: number
+  private readonly maxAgentRunMs: number
+  private readonly readRunTranscriptSummary: (transcriptPath: string) => Promise<string | undefined>
   private readonly inFlight = new Set<string>()
   private readonly pendingAgentRuns = new Map<string, PendingAgentRun>()
   // Per-run finalize lock (pendingRunKey shape). Closes the manual-IPC vs
@@ -197,6 +244,9 @@ export class AutomationsEngine {
     this.removeRunWorktree = options.removeRunWorktree
     this.disposeRunAgent = options.disposeRunAgent
     this.getLiveAgentExecutionIds = options.getLiveAgentExecutionIds
+    this.turnSettleMs = Math.max(0, Math.floor(options.turnSettleMs ?? DEFAULT_TURN_SETTLE_MS))
+    this.maxAgentRunMs = Math.max(1_000, Math.floor(options.maxAgentRunMs ?? DEFAULT_MAX_AGENT_RUN_MS))
+    this.readRunTranscriptSummary = options.readRunTranscriptSummary ?? readTranscriptSummary
   }
 
   start(): void {
@@ -215,6 +265,12 @@ export class AutomationsEngine {
   }
 
   stop(): void {
+    // Armed turn-ends are cleared unconditionally: a settle timer that survives
+    // stop() would finalize a run — opening a PR and disposing an agent — for an
+    // engine the app has already torn down. Disarming also aborts an in-flight
+    // armed finalize at its post-transcript-read check; only a finalize that has
+    // already entered finalizeRun still runs to completion.
+    for (const pending of this.pendingAgentRuns.values()) this.disarmTurnEnd(pending)
     if (!this.started && !this.timer) return
     this.started = false
     if (this.timer) {
@@ -509,18 +565,18 @@ export class AutomationsEngine {
     runId: string
     outcome: 'completed' | 'failed'
     summary?: string
-    // Report files the agent declared. Each is containment-guarded (under
-    // reports/) before it lands on AutomationRun.reportPaths; bad paths drop.
-    reports?: string[]
     workspaceId?: string
     // Routes the terminal run-event. 'manual' (default, IPC button) always emits;
-    // 'timer' (signal-scan auto-finalize) emits only on failure so the completed
-    // happy path stays silent during background ticks.
+    // 'timer' (auto-finalize) emits only on failure so the completed happy path
+    // stays silent during background ticks.
     eventTrigger?: AutomationRunEventTrigger
   }): Promise<AutomationsEngineFinalizeResult> {
     const runKey = this.pendingRunKey(input.workspaceRoot, input.automationId, input.runId)
-    // Drop from the pending registry on any finalize (manual or scan-driven) so a
-    // later tick never re-scans a run that is already being finalized.
+    // Drop from the pending registry on any finalize (manual or auto) so a later
+    // frame or tick never re-finalizes a run that is already being finalized —
+    // and cancel any settle timer still armed for it.
+    const pending = this.pendingAgentRuns.get(runKey)
+    if (pending) this.disarmTurnEnd(pending)
     this.pendingAgentRuns.delete(runKey)
 
     const store = this.createStore(input.workspaceRoot)
@@ -543,36 +599,153 @@ export class AutomationsEngine {
     }
   }
 
+  // The finalize trigger for the happy path: an accepted agent-state phase
+  // transition for one of this app's agent terminals. Frames for agents that own
+  // no pending run (every non-automation agent) fall straight through.
+  //
+  // A working phase marks the run as having done work and disarms any settle
+  // timer. A turn end (or an OpenCode session error) arms one, but only past the
+  // guards — each of which stands between a live agent and a destructive
+  // finalize that opens a PR from half-finished work, removes the agent's cwd,
+  // and kills it:
+  //   - the event is a real turn end, not a Task subagent's (the predicates own
+  //     this: SubagentStop maps to the same phase as Stop, so only the raw event
+  //     can tell them apart);
+  //   - the run has been seen working, so a stray idle frame before the prompt
+  //     lands cannot finalize instantly;
+  //   - the agent has no wakeup armed — a self-paced (/loop) agent intends to
+  //     resume, and pendingWakeupAt is resolved from the SESSION because the
+  //     reporter never attaches a wakeup to a turn-end frame;
+  //   - the settle window elapses with no further work (see DEFAULT_TURN_SETTLE_MS).
+  async noteAgentPhase(event: AgentPhaseEvent): Promise<void> {
+    const pending = this.findPendingRunByAgent(event.workspaceId, event.agentId)
+    if (!pending) return
+    // Backfill an executionId the launch probe missed, so the pty-exit path can
+    // still correlate on it for a run whose agentId is somehow absent.
+    if (event.executionId && !pending.executionId) pending.executionId = event.executionId
+
+    // "Working" is read through the shared phase vocabulary rather than a local
+    // phase list, so a new working phase cannot silently stop cancelling a
+    // settle timer here.
+    if (deriveActivityFromPhase(event.phase, event.ts)?.kind === 'working') {
+      pending.observedWorkingPhase = true
+      this.disarmTurnEnd(pending)
+      return
+    }
+
+    const failed = isAgentTurnFailureEvent(event.event)
+    if (!failed && !isAgentTurnEndEvent(event.event)) return
+    if (!pending.observedWorkingPhase) return
+    if (event.pendingWakeupAt !== null && event.pendingWakeupAt > this.now()) return
+    if (pending.armedTurnEnd) return
+
+    pending.armedTurnEnd = {
+      outcome: failed ? 'failed' : 'completed',
+      transcriptPath: event.transcriptPath,
+      timer: setTimeout(() => {
+        void this.finalizeArmedTurnEnd(pending)
+      }, this.turnSettleMs),
+    }
+    pending.armedTurnEnd.timer.unref?.()
+  }
+
   // Agent-lifecycle finalize trigger: the owning module routes a real agent-
-  // session pty exit here. Only an executionId that matches a pending agent run
-  // finalizes; any other exit (a non-automation agent, or a run already
-  // finalized by the scan) is ignored. Re-reads the run's signal file first so a
-  // just-written terminal outcome wins; otherwise the agent ended without
-  // declaring one, so the run is failed with an exit-code summary. Routed
-  // 'timer' so a failed auto-finalize still emits a run-event while a completed
-  // one stays silent, matching the signal-scan path. Shares finalizeRun's lock
-  // and idempotency, so a concurrent scan/manual finalize yields one record.
-  async finalizeRunOnAgentExit(input: { executionId: string; exitCode: number }): Promise<void> {
-    const executionId = input.executionId.trim()
-    if (!executionId) return
-    const pending = this.findPendingRunByExecutionId(executionId)
+  // session pty exit here. Correlates on the executionId or on
+  // (workspaceId, agentId); an exit matching no pending run (a non-automation
+  // agent, or an already-finalized run) is ignored.
+  //
+  // An armed turn-end WINS over the exit: an agent that finished its turn and
+  // then exited inside the settle window succeeded, and recording it as failed
+  // would throw away its PR. Only an exit with no turn-end behind it is a
+  // failure. Routed 'timer' so a failed auto-finalize still emits a run-event
+  // while a completed one stays silent. Shares finalizeRun's lock and
+  // idempotency, so a concurrent tick/manual finalize still yields one record.
+  async finalizeRunOnAgentExit(input: {
+    executionId?: string
+    workspaceId?: string
+    agentId?: string
+    exitCode: number
+  }): Promise<void> {
+    const executionId = input.executionId?.trim()
+    const pending =
+      (executionId ? this.findPendingRunByExecutionId(executionId) : undefined)
+      ?? this.findPendingRunByAgent(input.workspaceId ?? null, input.agentId ?? '')
     if (!pending) return
 
-    const signal = await this.readPendingRunSignal(pending.worktreePath)
-    const outcome = signal
-      ? { outcome: signal.outcome, summary: signal.summary, reports: signal.reports }
-      : {
-          outcome: 'failed' as const,
-          summary: `Agent ended without declaring an outcome (exit code ${input.exitCode}).`,
-        }
+    if (pending.armedTurnEnd) {
+      await this.finalizeArmedTurnEnd(pending)
+      // The armed finalize can abort if a straggler working frame disarmed it
+      // mid-transcript-read. The pty is gone either way, so a run the abort
+      // left pending falls through to the exit outcome below instead of
+      // hanging until the max-duration sweep.
+      if (!this.pendingAgentRuns.has(this.pendingRunKey(pending.workspaceRoot, pending.automationId, pending.runId))) {
+        return
+      }
+    }
     await this.finalizeRun({
       workspaceRoot: pending.workspaceRoot,
       automationId: pending.automationId,
       runId: pending.runId,
-      ...outcome,
+      outcome: 'failed',
+      summary: `The agent stopped before it finished (exit code ${input.exitCode}).`,
       workspaceId: pending.workspaceId,
       eventTrigger: 'timer',
     })
+  }
+
+  // Fire an armed turn-end. Single-flight: the settle timer and a racing pty
+  // exit share one in-flight finalize, so the armed outcome always wins over
+  // the exit's `failed`. The armed record stays on the run while the transcript
+  // is read; anything that disarms it during that read — a working-phase frame
+  // (the agent resumed), a manual finalize, stop() — aborts the finalize
+  // instead of racing it.
+  private finalizeArmedTurnEnd(pending: PendingAgentRun): Promise<void> {
+    const armed = pending.armedTurnEnd
+    if (!armed) return Promise.resolve()
+    if (!armed.finalizing) {
+      clearTimeout(armed.timer)
+      armed.finalizing = this.finalizeTurnEnd(pending, armed)
+    }
+    return armed.finalizing
+  }
+
+  // The body of an armed turn-end finalize: derive the summary, then finalize.
+  // Best-effort by design — no transcript, or an unreadable one, degrades to a
+  // generic summary and never blocks the finalize.
+  private async finalizeTurnEnd(pending: PendingAgentRun, armed: ArmedTurnEnd): Promise<void> {
+    const transcriptSummary = armed.transcriptPath
+      ? await this.readRunTranscriptSummary(armed.transcriptPath)
+      : undefined
+    // Disarmed during the transcript read: the turn-end no longer stands, so
+    // finalizing now would dispose an agent that is working again (or drive an
+    // engine that has been stopped). finalizeRun below re-disarms and drops the
+    // pending entry synchronously, so this check cannot miss its own finalize.
+    if (pending.armedTurnEnd !== armed) return
+    // Every summary here is read verbatim by a person in the run row, so it names
+    // the cause in plain language and never in the runtime's vocabulary: a "turn"
+    // is an agent-runtime concept, and a user reading their automation history has
+    // no model for it. The completed fallback in particular must not overclaim —
+    // with no transcript, all that is actually known is that the agent stopped
+    // talking, so it says exactly that rather than "finished its turn".
+    const summary =
+      armed.outcome === 'failed'
+        ? 'The agent hit an error and stopped before it finished.'
+        : transcriptSummary ?? 'The agent finished, but left no summary of what it did.'
+    await this.finalizeRun({
+      workspaceRoot: pending.workspaceRoot,
+      automationId: pending.automationId,
+      runId: pending.runId,
+      outcome: armed.outcome,
+      summary,
+      workspaceId: pending.workspaceId,
+      eventTrigger: 'timer',
+    })
+  }
+
+  private disarmTurnEnd(pending: PendingAgentRun): void {
+    if (!pending.armedTurnEnd) return
+    clearTimeout(pending.armedTurnEnd.timer)
+    pending.armedTurnEnd = undefined
   }
 
   private async finalizeRunLocked(
@@ -582,7 +755,6 @@ export class AutomationsEngine {
       runId: string
       outcome: 'completed' | 'failed'
       summary?: string
-      reports?: string[]
       workspaceId?: string
       eventTrigger?: AutomationRunEventTrigger
     },
@@ -653,10 +825,6 @@ export class AutomationsEngine {
       }
     }
 
-    // Map declared reports onto the run only for paths that pass the shared
-    // containment guard; escaping/out-of-reports paths are dropped without
-    // failing finalize. Keep any existing reportPaths when none survive.
-    const reportPaths = containReportPaths(input.reports)
     const finalRun: AutomationRun = {
       ...run,
       status: input.outcome,
@@ -664,7 +832,6 @@ export class AutomationsEngine {
       pullRequestUrl,
       blockedReason: withheldChangesReason ?? run.blockedReason,
       summary: summaryParts.length > 0 ? summaryParts.join(' ') : run.summary,
-      reportPaths: reportPaths.length > 0 ? reportPaths : run.reportPaths,
     }
     const recorded = await store.recordRun(finalRun)
     if (!recorded.ok) {
@@ -717,21 +884,24 @@ export class AutomationsEngine {
     return result
   }
 
-  // Auto-finalize: read each pending agent run's signal file; a valid signal
-  // finalizes the run (timer-routed) and drops it from the registry, while a
-  // missing or invalid signal leaves the run pending for a later tick.
+  // Max-duration sweep — the per-tick backstop, and the only thing the tick does
+  // for pending runs now that finalization is frame-driven. A run whose agent
+  // reports no frames at all (a CLI outside the reporter set) or whose turn-end
+  // frame was lost would otherwise sit Running forever; past the cap it is
+  // failed. A younger run is left alone for its frames.
   private async scanPendingAgentRuns(): Promise<void> {
     if (this.pendingAgentRuns.size === 0) return
+    const now = this.now()
     for (const pending of [...this.pendingAgentRuns.values()]) {
-      const signal = await this.readPendingRunSignal(pending.worktreePath)
-      if (!signal) continue // missing/malformed/oversize — never coerce; stay pending.
+      if (now - pending.startedAtMs < this.maxAgentRunMs) continue
       await this.finalizeRun({
         workspaceRoot: pending.workspaceRoot,
         automationId: pending.automationId,
         runId: pending.runId,
-        outcome: signal.outcome,
-        summary: signal.summary,
-        reports: signal.reports,
+        outcome: 'failed',
+        // Names the limit it actually hit: "past its maximum duration" leaves the
+        // user with no way to tell a hung agent from one that simply needed longer.
+        summary: `The agent was still running after ${formatRunLimit(this.maxAgentRunMs)}, so Multicode stopped waiting and ended the run.`,
         workspaceId: pending.workspaceId,
         eventTrigger: 'timer',
       })
@@ -739,53 +909,42 @@ export class AutomationsEngine {
   }
 
   // Startup reconciliation: an agent-backed run recorded `running` whose
-  // executionId is NOT among the live agent executions, and which carries no
-  // valid signal, had its agent end while Multicode was down — force-fail it. A
-  // run whose executionId is still live stays pending for its exit/scan; a run
-  // with no recorded executionId is never force-failed (the signal scan, which
-  // runs later in this same evaluate pass, finalizes a valid signal and
-  // otherwise leaves it pending — matching pre-executionId behavior). Runs
-  // carrying a valid signal here are likewise left for that scan.
+  // executionId is NOT among the live agent executions had its agent end while
+  // Multicode was down — force-fail it. A run whose executionId is still live
+  // stays pending for its frames; a run with no recorded executionId is never
+  // force-failed here (nothing proves its agent is gone) and is covered by the
+  // max-duration sweep instead.
   private async reconcileOrphanedAgentRuns(): Promise<void> {
     if (!this.getLiveAgentExecutionIds || this.pendingAgentRuns.size === 0) return
     const liveExecutionIds = new Set(this.getLiveAgentExecutionIds())
     for (const pending of [...this.pendingAgentRuns.values()]) {
       if (!pending.executionId || liveExecutionIds.has(pending.executionId)) continue
-      if (await this.readPendingRunSignal(pending.worktreePath)) continue
       await this.finalizeRun({
         workspaceRoot: pending.workspaceRoot,
         automationId: pending.automationId,
         runId: pending.runId,
         outcome: 'failed',
-        summary: 'Agent ended while Multicode was not running.',
+        summary: 'The agent stopped while Multicode was closed, so this run never finished.',
         workspaceId: pending.workspaceId,
         eventTrigger: 'timer',
       })
     }
   }
 
-  // Read + parse a pending run's signal file, size-capped so a stray/oversize
-  // file (a buggy or compromised agent) is treated as malformed and never
-  // loaded into memory. Returns the validated signal, or null when the file is
-  // missing, unreadable, oversize, or malformed. Shared by the per-tick scan,
-  // the agent-exit trigger, and the startup reconcile so all three apply the
-  // same containment and never-coerce rules.
-  private async readPendingRunSignal(worktreePath: string): Promise<RunSignal | null> {
-    const signalPath = runSignalPath(worktreePath)
-    let raw: string
-    try {
-      const stats = await stat(signalPath)
-      if (stats.size > MAX_RUN_SIGNAL_BYTES) return null
-      raw = await readFile(signalPath, 'utf8')
-    } catch {
-      return null
-    }
-    return parseRunSignal(raw)
-  }
-
   private findPendingRunByExecutionId(executionId: string): PendingAgentRun | undefined {
     for (const pending of this.pendingAgentRuns.values()) {
       if (pending.executionId === executionId) return pending
+    }
+    return undefined
+  }
+
+  // (workspaceId, agentId) is the correlation key on the frame path: both are
+  // stamped on every agent-backed run at launch-confirm, and both ride every
+  // agent-state frame. A partial key matches nothing.
+  private findPendingRunByAgent(workspaceId: string | null, agentId: string): PendingAgentRun | undefined {
+    if (!workspaceId || !agentId) return undefined
+    for (const pending of this.pendingAgentRuns.values()) {
+      if (pending.workspaceId === workspaceId && pending.agentId === agentId) return pending
     }
     return undefined
   }
@@ -805,15 +964,33 @@ export class AutomationsEngine {
     }
   }
 
+  // Register a dispatched agent-backed run for finalization. A run WITHOUT a
+  // worktree (runInWorktree: false) is registered too — it used to be dropped
+  // here, which is why those runs had no finalize path at all and sat Running
+  // forever. Called on dispatch and again on the startup seed, so an existing
+  // entry keeps its live phase state and only refreshes its correlation fields.
   private trackPendingAgentRun(workspaceRoot: string, run: AutomationRun, workspaceId?: string): void {
-    if (run.status !== 'running' || !run.worktreePath) return
-    this.pendingAgentRuns.set(this.pendingRunKey(workspaceRoot, run.automationId, run.id), {
+    if (run.status !== 'running') return
+    const key = this.pendingRunKey(workspaceRoot, run.automationId, run.id)
+    const existing = this.pendingAgentRuns.get(key)
+    if (existing) {
+      existing.worktreePath = run.worktreePath ?? existing.worktreePath
+      existing.workspaceId = workspaceId ?? run.workspaceId ?? existing.workspaceId
+      existing.agentId = run.agentId ?? existing.agentId
+      existing.executionId = run.executionId ?? existing.executionId
+      return
+    }
+    const startedAt = Date.parse(run.startedAt ?? '')
+    this.pendingAgentRuns.set(key, {
       workspaceRoot,
       automationId: run.automationId,
       runId: run.id,
       worktreePath: run.worktreePath,
       workspaceId: workspaceId ?? run.workspaceId,
+      agentId: run.agentId,
       executionId: run.executionId,
+      startedAtMs: Number.isFinite(startedAt) ? startedAt : this.now(),
+      observedWorkingPhase: false,
     })
   }
 
@@ -1253,20 +1430,17 @@ function completeRun(run: AutomationRun, patch: Partial<AutomationRun>, complete
   }
 }
 
-// Normalize and contain declared report paths, dropping any that fail the
-// shared guard (absolute, '..' traversal, or outside reports/) and de-duping
-// the survivors. A failing path never fails finalize — it is simply omitted.
-function containReportPaths(reports: string[] | undefined): string[] {
-  if (!reports) return []
-  const seen = new Set<string>()
-  const contained: string[] = []
-  for (const raw of reports) {
-    const normalized = normalizeReportPath(raw)
-    if (!normalized || seen.has(normalized)) continue
-    seen.add(normalized)
-    contained.push(normalized)
+// The max-run limit as a person would say it, for the sweep's run summary. Read
+// from the configured cap rather than hardcoded, so the number a user is told is
+// always the number that was actually applied.
+function formatRunLimit(ms: number): string {
+  const hours = ms / 3_600_000
+  if (hours >= 1) {
+    const rounded = Math.round(hours * 10) / 10
+    return `${rounded} ${rounded === 1 ? 'hour' : 'hours'}`
   }
-  return contained
+  const minutes = Math.max(1, Math.round(ms / 60_000))
+  return `${minutes} ${minutes === 1 ? 'minute' : 'minutes'}`
 }
 
 function isTerminalRunStatus(status: AutomationRunStatus): boolean {

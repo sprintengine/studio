@@ -133,9 +133,13 @@ run('the not-found state shows the merge message and the Pull request link when 
   assert.match(markup, /Pull request/, 'the link is labelled')
 })
 
-run('the not-found state without a PR renders no dead link', () => {
+run('the not-found state without a PR names the real cause, not an imaginary merge', () => {
+  // No PR means nothing to merge: the path came from the agent's prose summary,
+  // so the file simply is not here. Claiming "not merged yet" would send the user
+  // looking for a pull request that does not exist.
   const markup = body({ kind: 'not-found' })
-  assert.match(markup, /hasn’t been merged yet/, 'the message still shows')
+  assert.match(markup, /isn’t in your workspace/, 'the copy names the actual state')
+  assert.ok(!markup.includes('merged'), 'no merge claim without a pull request')
   assert.ok(!markup.includes('<a '), 'no anchor without a pullRequestUrl')
 })
 

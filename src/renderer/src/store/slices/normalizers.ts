@@ -23,6 +23,12 @@ export function mapMigrationWorkspaces<T extends { workspaces: Workspace[] }>(
   state.workspaces = state.workspaces.map(migrate)
 }
 
+// Sprint Engine roster membership is durable, app-owned PTYs are not: clear the
+// launch/resume gate so reopening a run never spawns or resumes an agent on its
+// own. Keeps `cliSessionId`/`harnessSessionId` for the same reason the
+// automations-host clear does (see the comment there) — identity resolves the
+// painted screen; the gate flags are what auto-resume actually reads. The two
+// functions stay in step.
 export function clearSprintEngineAgentLaunchState(workspace: Workspace): Workspace {
   if (workspace.mode !== 'sprintengine' && !workspace.sprintEngineState) return workspace
 
@@ -44,8 +50,6 @@ export function clearSprintEngineAgentLaunchState(workspace: Workspace): Workspa
             kind: 'sprintengine',
             status: 'idle',
             streamBuffer: '',
-            cliSessionId: undefined,
-            harnessSessionId: undefined,
             cliStartRequested: false,
             cliRestartNonce: 0,
             cliHasLaunched: false,
@@ -62,8 +66,18 @@ export function clearSprintEngineAgentLaunchState(workspace: Workspace): Workspa
 
 // The automations-host shell persists and is reused, but its agents are
 // finalized automation runs — a full restart must not auto-resume them. Mirror
-// `clearSprintEngineAgentLaunchState`: strip transient + durable cli
-// launch/session identity from every agent so cold-load is idle, never resuming.
+// `clearSprintEngineAgentLaunchState`: clear the launch/resume GATE
+// (`cliHasLaunched`/`cliResumeAvailable`/`cliResumeRequested`/`cliStartRequested`
+// + the startup prompt), which is what `shouldResume` reads at mount, so cold
+// load never resumes or re-sends the automation directive.
+//
+// Deliberately KEEP `cliSessionId`/`harnessSessionId`. They are durable
+// identity, not launch intent: `cliSessionId` is the key to the painted screen
+// on disk (`<userData>/terminal-snapshots/<cliSessionId>.json`), so erasing it
+// orphaned the snapshot and left TerminalView minting a fresh uuid — which
+// resolved no sidecar, made the paused branch unreachable, and SPAWNED a fresh
+// CLI on every cold load. The id is only the resume *token*; nothing auto-resumes
+// while the gate flags above stay false.
 export function clearAutomationsHostAgentLaunchState(workspace: Workspace): Workspace {
   if (workspace.mode !== AUTOMATIONS_HOST_WORKSPACE_MODE) return workspace
 
@@ -76,7 +90,6 @@ export function clearAutomationsHostAgentLaunchState(workspace: Workspace): Work
           ...agent,
           status: 'idle',
           streamBuffer: '',
-          cliSessionId: undefined,
           cliStartRequested: false,
           cliRestartNonce: 0,
           cliHasLaunched: false,

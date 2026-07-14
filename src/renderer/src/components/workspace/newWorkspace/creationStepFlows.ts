@@ -1,10 +1,24 @@
 import { getRendererHost } from '../../../modules'
 import type { CreationMode } from './types'
 
-// Config-step ids for the creation hub. The hub renders a mode's whole flow as
-// one pane — the shared name/folder fields ('workspace') plus the flow's config
-// steps stacked in order — so a flow is simply that ordered list. The historic
-// 'mode' pivot step is gone: the hub's rail IS the type choice.
+// Config-step ids for the creation hub. A flow is an ordered list of PAGES: the
+// hub shows one step at a time — the shared name/folder fields ('workspace')
+// first, then the flow's config steps — with a Continue footer between them, so
+// the order here is the order the user walks.
+//
+// Every flow is shaped: 'workspace' (always required — you must pick a folder),
+// then AT MOST ONE required-intent step, then only defaulted refinement steps.
+// The intent steps are 'multiloop-goal', 'guided-idea', and 'sprintengine-team':
+// they carry something only the user knows, so they are never defaulted (a sprint
+// with an auto-generated objective is worse than one that asks). Everything after
+// them is seeded with a working default, which is what lets the footer offer
+// "Skip the rest and create" the moment the intent step is answered. Adding a new
+// step that cannot be defaulted breaks that promise — put it before the
+// refinement steps, and expect the skip affordance to disappear until it is
+// answered.
+//
+// The historic 'mode' pivot step is gone: the hub's rail IS the type choice, and
+// picking a type is never a step.
 export type StepId =
   | 'workspace'
   | 'mcp-servers'
@@ -14,6 +28,7 @@ export type StepId =
   | 'multiloop-goal'
   | 'sprintengine-team'
   | 'sprintengine-roster'
+  | 'sprintengine-run'
   | 'guided-idea'
 
 // The hub's flows are keyed by a closed set of flow ids. A registered workspace
@@ -40,7 +55,12 @@ export const STEPS_BY_MODE: Record<CreationStepsId, StepId[]> = {
   // no layout-picker step.
   automations: ['workspace'],
   multiloop: ['workspace', 'multiloop-goal'],
-  sprintengine: ['workspace', 'sprintengine-team', 'sprintengine-roster'],
+  // The sprint's team page carries the only required intent (an objective, or a
+  // backlog item / plan file / existing team). Roster and run settings are both
+  // fully defaulted — a balanced team is seeded before the user touches
+  // anything — so they page separately and both sit behind "Skip the rest and
+  // create". Keeping them on one page is what made the roster step scroll.
+  sprintengine: ['workspace', 'sprintengine-team', 'sprintengine-roster', 'sprintengine-run'],
   // All three Design Wizard presets (full-brief, frontend-design,
   // design-system) share this flow: the preset is chosen inside the
   // 'guided-idea' step, not by a separate flow id, because presets live inside

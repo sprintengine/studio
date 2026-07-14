@@ -248,14 +248,21 @@ export function ReportViewBody({
     )
   }
 
+  // Not-found has two distinct causes and only one of them is "not merged yet".
+  // With a PR, the file is on the run's branch and lands here on merge. WITHOUT a
+  // PR there is nothing to merge: the report path came from the agent's own prose
+  // summary, so the honest reading is that the file simply is not here — most
+  // often because the agent described a report it never wrote. Naming the wrong
+  // cause sends the user looking for a pull request that does not exist.
   return (
     <div className="flex flex-col items-start gap-2 py-6">
       <p className="text-[14px] font-semibold text-[color:var(--text-strong)]">
-        This report hasn’t been merged yet
+        {pullRequestUrl ? 'This report hasn’t been merged yet' : 'This report isn’t in your workspace'}
       </p>
       <p className="max-w-md text-[12px] leading-5 text-[color:var(--text-muted)]">
-        Its file lands under reports/ once the run’s pull request merges. Until then, open the pull
-        request to review it.
+        {pullRequestUrl
+          ? 'Its file lands under reports/ once the run’s pull request merges. Until then, open the pull request to review it.'
+          : 'The run’s summary named this file, but there’s no matching file under reports/ here. The agent may have described a report it didn’t write.'}
       </p>
       {pullRequestUrl ? (
         <a

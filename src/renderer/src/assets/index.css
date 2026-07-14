@@ -2037,6 +2037,46 @@ samp,
   animation-delay: 300ms;
 }
 
+/* Creation-hub page turn: the incoming page slides in from the direction of
+ * travel, so Continue and Back read as movement through the flow rather than a
+ * swap. Applied by NewWorkspacePanel from its `direction` state. */
+@keyframes wizard-step-in-forward {
+  from {
+    opacity: 0;
+    transform: translateX(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+@keyframes wizard-step-in-backward {
+  from {
+    opacity: 0;
+    transform: translateX(-10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+.wizard-step-in-forward {
+  animation: wizard-step-in-forward 220ms cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+.wizard-step-in-backward {
+  animation: wizard-step-in-backward 220ms cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .wizard-step-in-forward,
+  .wizard-step-in-backward {
+    animation: none;
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   .agent-working-dots .agent-working-dot {
     animation: none;

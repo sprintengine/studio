@@ -3,6 +3,7 @@ import * as pty from 'node-pty'
 import type {
   AgentCli,
   AgentExecutionMode,
+  AgentPhase,
   AgentSessionIdentity,
   AgentSessionMetadata,
   McpSettings,
@@ -11,6 +12,8 @@ import type {
   TerminalSpawnResult,
 } from '../shared/electron-api'
 import type {
+  AgentPhaseEvent,
+  AgentPhaseListener,
   AgentSessionExitListener,
   AgentSpawnDescriptor,
   LiveAgentExecution,
@@ -186,6 +189,9 @@ type TerminalRuntime = {
   getLiveAgentExecutionIds(): LiveAgentExecution[]
   resolveAgentExecutionId(input: { workspaceId: string; agentId: string }): string | undefined
   registerAgentSessionExitListener(listener: AgentSessionExitListener): () => void
+  // Fires on every accepted agent-state phase transition (see ingestAgentStateFrame):
+  // frames for a dead pty and stale frames never reach a listener.
+  registerAgentPhaseListener(listener: AgentPhaseListener): () => void
   killAgentSession(input: {
     workspaceRoot: string
     executionId: string
@@ -208,6 +214,7 @@ let terminalDiagnostics = createTerminalDiagnostics({
 })
 let logMainPerfEvent: TerminalRuntimeOptions['logMainPerfEvent'] = () => {}
 const agentSessionExitListeners = new Set<AgentSessionExitListener>()
+const agentPhaseListeners = new Set<AgentPhaseListener>()
 let syncMcpConfig: TerminalRuntimeOptions['syncMcpConfig']
 let releaseManagedSprintEngineRun: TerminalRuntimeOptions['releaseManagedSprintEngineRun']
 let callManagedSprintEngineTool: TerminalRuntimeOptions['callManagedSprintEngineTool']
@@ -355,6 +362,7 @@ function sprintEngineRoleForLaunch(role: string | undefined, agentId: string | u
 export function createTerminalRuntime(options: TerminalRuntimeOptions): TerminalRuntime {
   requireAuthenticatedUser = options.requireAuthenticatedUser
   agentSessionExitListeners.clear()
+  agentPhaseListeners.clear()
   syncMcpConfig = options.syncMcpConfig
   releaseManagedSprintEngineRun = options.releaseManagedSprintEngineRun
   callManagedSprintEngineTool = options.callManagedSprintEngineTool
@@ -383,6 +391,7 @@ export function createTerminalRuntime(options: TerminalRuntimeOptions): Terminal
     getLiveAgentExecutionIds,
     resolveAgentExecutionId,
     registerAgentSessionExitListener,
+    registerAgentPhaseListener,
     killAgentSession: killAgentSessionByExecutionId,
     spawnAgentSession: spawnAgentSessionFromDescriptor,
     ingestAgentStateFrame,
@@ -419,7 +428,19 @@ export function createTerminalRuntime(options: TerminalRuntimeOptions): Terminal
 // ── Claude Code CLI Terminal IPC ──────────────────────────────────────────────
 
 const terminals = new Map<string, TerminalSession>()
-const pendingAgentSessionExitRecords = new Set<Promise<void>>()
+
+// In-flight listener work from both agent-session seams (exit + phase). Shutdown
+// drains this set, so a consumer whose reaction to an event is asynchronous —
+// finalizing a run, opening a PR, removing a worktree — is not abandoned
+// half-done when the app tears the runtime down.
+const pendingAgentListenerRecords = new Set<Promise<void>>()
+
+function trackAgentListenerRecord(record: Promise<void>): void {
+  pendingAgentListenerRecords.add(record)
+  void record.finally(() => {
+    pendingAgentListenerRecords.delete(record)
+  })
+}
 
 function descriptorPromptInput(prompt: string | undefined): string | undefined {
   if (!prompt) return undefined
@@ -1404,7 +1425,7 @@ async function disposeAllTerminals(): Promise<void> {
     }
   })
   await Promise.all(sessions.map((session) => waitForTerminalExit(session, 500)))
-  await Promise.allSettled([...pendingAgentSessionExitRecords])
+  await Promise.allSettled([...pendingAgentListenerRecords])
   await Promise.allSettled(teardownPromises)
   await Promise.allSettled([...pendingSprintEngineTerminalTeardowns.values()].map((entry) => entry.promise))
   await Promise.allSettled([...pendingSprintEngineMcpRunReleases])
@@ -1451,6 +1472,13 @@ function registerAgentSessionExitListener(listener: AgentSessionExitListener): (
   agentSessionExitListeners.add(listener)
   return () => {
     agentSessionExitListeners.delete(listener)
+  }
+}
+
+function registerAgentPhaseListener(listener: AgentPhaseListener): () => void {
+  agentPhaseListeners.add(listener)
+  return () => {
+    agentPhaseListeners.delete(listener)
   }
 }
 
@@ -1672,6 +1700,54 @@ function ingestAgentStateFrame(frame: AgentStateFrame): void {
     && terminals.get(session.sessionId) === session
   ) {
     broadcastTerminalSessionsChanged()
+  }
+
+  notifyAgentPhaseListeners(session, frame, previousPhase ?? null)
+}
+
+// Publish an ACCEPTED phase transition. Called last in ingestAgentStateFrame: past
+// the liveness guard (a late frame for a dead pty must never drive a consumer's
+// finalization) and the stale-frame guard, past the pendingWakeupAt bookkeeping,
+// and past the activity bridge — so a listener that calls back into the runtime
+// reads settled session state.
+//
+// `pendingWakeupAt` is resolved from the SESSION, never passed through from the
+// frame: the reporter attaches `wakeup` to the ScheduleWakeup PostToolUse frame
+// only, never to the turn end a consumer acts on, so `frame.wakeup` would read
+// "none" for every self-paced agent at exactly the moment it matters.
+function notifyAgentPhaseListeners(
+  session: TerminalSession,
+  frame: AgentStateFrame,
+  previousPhase: AgentPhase | null
+): void {
+  if (agentPhaseListeners.size === 0) return
+
+  const phaseEvent: AgentPhaseEvent = {
+    workspaceId: session.workspaceId ?? null,
+    // A session carrying no agentId of its own was matched on the id the frame
+    // carries, so that id is still its correlation handle.
+    agentId: session.agentId ?? frame.agentId,
+    executionId: session.agentSession?.executionId ?? null,
+    phase: frame.phase,
+    previousPhase,
+    event: frame.event,
+    ts: frame.ts,
+    pendingWakeupAt: session.pendingWakeupAt ?? null,
+    ...(frame.transcriptPath === undefined ? {} : { transcriptPath: frame.transcriptPath }),
+  }
+
+  const reportListenerFailure = (error: unknown): void => {
+    console.error(`Agent phase listener failed for ${phaseEvent.agentId}: ${String(error)}`)
+  }
+  for (const listener of agentPhaseListeners) {
+    // One faulting listener must take down neither the others nor the caller's
+    // transition — and must not fail silently: a listener that throws here is a
+    // consumer (run finalization) that did not run.
+    try {
+      trackAgentListenerRecord(Promise.resolve(listener(phaseEvent)).catch(reportListenerFailure))
+    } catch (error) {
+      reportListenerFailure(error)
+    }
   }
 }
 
@@ -1978,6 +2054,31 @@ function attachTerminalSession(
     void queueSprintEngineTerminalTeardown(terminalSession, `terminal exited with code ${event.exitCode}`)
     cleanupTerminalStartupScript(terminalSession.startupScriptPath)
     terminalOutput.flush(sessionId, 'exit')
+    // Durable freeze-the-view, self-exit path: an agent whose pty ends on its own
+    // (an automation run finishing, a CLI crashing) was never suspended and never
+    // saw app quit, so before this it wrote NO sidecar at all — the common case,
+    // not an edge one. With no painted screen on disk the tab has nothing to show
+    // on cold load, and the only outcomes used to be pause (unreachable without a
+    // sidecar) or spawn. Persist the painted content here so the terminal reopens
+    // painted-and-paused like a suspended one, instead of inert or relaunched.
+    //
+    // Cheap raw byte dump, no headless render (same choice as the quit path):
+    // rehydration renders it lazily on first status.
+    //
+    // Guarded on dispose: `disposeTerminal` deletes the sidecar and THEN kills the
+    // pty, so this handler runs afterwards — writing unconditionally would
+    // resurrect the very sidecar dispose just removed, and a deliberate dispose
+    // (resume, fresh spawn, agent deletion, sprint idle-dispose) means gone, never
+    // repainted. Only a pty that died on its own gets a snapshot: still in the map,
+    // not disposed.
+    if (terminals.get(sessionId) === terminalSession && !terminalSession.isDisposed) {
+      writeTerminalSnapshotSidecar(terminalSession, {
+        snapshot: terminalSession.replaySnapshot,
+        rawReplay: terminalSession.replaySnapshot ? undefined : materializeTerminalReplay(terminalSession),
+        cols: terminalSession.appliedCols ?? 80,
+        rows: terminalSession.appliedRows ?? 24,
+      })
+    }
     terminalDiagnostics.clear(sessionId)
     // Clear the hook phase so a stale `awaiting_input` (or any working phase) does
     // not outlive the process — the snapshot then infers `exited` from activity.
@@ -1991,15 +2092,12 @@ function attachTerminalSession(
         system: agentSession.system,
         workspaceRoot: agentSession.workspaceRoot,
         workspaceId: agentSession.workspaceId,
+        agentId: terminalSession.agentId,
         executionId: agentSession.executionId,
         exitCode: event.exitCode,
       }
       for (const listener of agentSessionExitListeners) {
-        const exitRecord = Promise.resolve(listener(exitEvent)).catch(() => {})
-        pendingAgentSessionExitRecords.add(exitRecord)
-        void exitRecord.finally(() => {
-          pendingAgentSessionExitRecords.delete(exitRecord)
-        })
+        trackAgentListenerRecord(Promise.resolve(listener(exitEvent)).catch(() => {}))
       }
     }
     if (terminals.get(sessionId) === terminalSession) {

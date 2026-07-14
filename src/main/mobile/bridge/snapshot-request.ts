@@ -46,14 +46,34 @@ function relaySizedSnapshot(
     return snapshot
   }
 
-  for (let includedCount = snapshot.sprintEngines.length - 1; includedCount >= 0; includedCount -= 1) {
-    const candidate = limitSprintEngines(snapshot, includedCount)
+  // Shed the role catalogs first (MC-1543). They are duplicated per backlog
+  // workspace and are an enhancement — losing them costs the phone a
+  // registry-accurate launch picker (it falls back to its bundled list), whereas
+  // losing a sprint engine costs it a run it can no longer see or drive. Cheapest
+  // thing in the payload, so it goes before anything load-bearing.
+  const shed = withoutRoleCatalogs(snapshot)
+  if (snapshotFitsRelayResult(command, shed)) {
+    return shed
+  }
+
+  for (let includedCount = shed.sprintEngines.length - 1; includedCount >= 0; includedCount -= 1) {
+    const candidate = limitSprintEngines(shed, includedCount)
     if (snapshotFitsRelayResult(command, candidate)) {
       return candidate
     }
   }
 
-  return snapshot
+  return shed
+}
+
+function withoutRoleCatalogs(snapshot: MobileControlSnapshot): MobileControlSnapshot {
+  if (!snapshot.backlog?.some((workspace) => workspace.roles !== undefined)) {
+    return snapshot
+  }
+  return {
+    ...snapshot,
+    backlog: snapshot.backlog.map(({ roles: _roles, ...workspace }) => workspace),
+  }
 }
 
 function snapshotFitsRelayResult(command: MobileControlCommand, snapshot: MobileControlSnapshot): boolean {

@@ -127,6 +127,7 @@ export function createAutomationsModule(options: AutomationsModuleOptions = {}):
       const runAutomation = createLocalAutomationExecutor({
         delegateToRenderer: (request) => automationDelegate.request(request),
         getWorkspaceSyncSnapshot: () => workspaceSyncService.getSnapshot(),
+        resolveAgentExecutionId: (input) => terminalRuntime.resolveAgentExecutionId(input),
         isIntegrationAvailable,
         getActionProviderRegistrations,
         checkProviderPermission,
@@ -165,16 +166,30 @@ export function createAutomationsModule(options: AutomationsModuleOptions = {}):
         })
       )
 
-      // Agent-lifecycle finalize trigger: route every real agent-session pty exit
-      // to the engine, which finalizes only the pending automation run (if any)
-      // whose executionId matches and ignores all other exits. The signal-file
-      // poll-scan remains the backstop for runs whose executionId never resolved.
-      // Unregister on module teardown so a live disable→enable cycle never leaks
-      // a listener pointed at a stopped engine.
-      const unregisterAgentExitListener = terminalRuntime.registerAgentSessionExitListener((event) =>
-        engine.finalizeRunOnAgentExit({ executionId: event.executionId, exitCode: event.exitCode })
+      // Agent-lifecycle finalize triggers. The engine owns the match-vs-ignore
+      // decision for both; the module only routes.
+      //
+      // Phase transitions are the primary channel: an agent-backed run finalizes
+      // when its agent ends its turn (settle window, guards, and correlation all
+      // live in the engine). The pty exit is the secondary channel: an agent that
+      // dies without a turn end failed. Both unregister on module teardown so a
+      // live disable→enable cycle never leaks a listener pointed at a stopped
+      // engine.
+      const unregisterAgentPhaseListener = terminalRuntime.registerAgentPhaseListener((event) =>
+        engine.noteAgentPhase(event)
       )
-      host.onShutdown(() => unregisterAgentExitListener())
+      const unregisterAgentExitListener = terminalRuntime.registerAgentSessionExitListener((event) =>
+        engine.finalizeRunOnAgentExit({
+          executionId: event.executionId,
+          workspaceId: event.workspaceId,
+          agentId: event.agentId,
+          exitCode: event.exitCode,
+        })
+      )
+      host.onShutdown(() => {
+        unregisterAgentPhaseListener()
+        unregisterAgentExitListener()
+      })
       const webhookReceiver = createAutomationWebhookReceiver({
         getProjectFolders: () => projectFoldersFromWorkspaceSyncSnapshot(workspaceSyncService.getSnapshot()),
         deliverTriggerEvent: (input) => engine.deliverTriggerEvent(input),

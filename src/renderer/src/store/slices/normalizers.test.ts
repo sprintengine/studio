@@ -262,41 +262,86 @@ const noViewState = normalizeWorkspaceForPartialize(baseWorkspace())
 assert.equal(noViewState.backlogState, undefined, 'absent backlog state stays undefined')
 assert.equal(noViewState.gitPanelState, undefined, 'absent git panel state stays undefined')
 
-// An automations-host workspace persists and is reused, but its finalized
-// automation agents must not auto-resume after a full restart: partialize strips
-// both transient and durable cli launch/session identity from every agent.
+// An automations-host workspace persists and is reused, and its finalized
+// automation agents must not auto-resume after a full restart. Partialize clears
+// the launch/resume GATE — which is what `shouldResume` reads at mount — and
+// deliberately KEEPS the session identity: `cliSessionId` is the key to the
+// painted screen on disk (terminal-snapshots/<cliSessionId>.json). Clearing it
+// orphaned that snapshot, so the tab minted a fresh uuid, matched no sidecar,
+// could not reach the paused branch, and spawned a fresh CLI on every cold load.
+const persistedHostAgentFields = {
+  id: 'agent-1',
+  name: 'Automation',
+  kind: 'general',
+  status: 'streaming',
+  streamBuffer: 'partial chunk',
+  cliSessionId: 'sess-123',
+  harnessSessionId: 'harness-123',
+  cliStartRequested: true,
+  cliRestartNonce: 3,
+  cliHasLaunched: true,
+  cliResumeAvailable: true,
+  cliResumeRequested: true,
+  cliOnboardingPromptSent: true,
+  cliStartupPrompt: 'Run automation MM-37',
+}
 const automationsHostPersisted = normalizeWorkspaceForPartialize(baseWorkspace({
   mode: 'automations-host',
-  agents: {
-    'agent-1': {
-      id: 'agent-1',
-      name: 'Automation',
-      kind: 'general',
-      status: 'streaming',
-      streamBuffer: 'partial chunk',
-      cliSessionId: 'sess-123',
-      cliStartRequested: true,
-      cliHasLaunched: true,
-      cliResumeAvailable: true,
-      cliOnboardingPromptSent: true,
-    },
-  } as unknown as Workspace['agents'],
+  agents: { 'agent-1': persistedHostAgentFields } as unknown as Workspace['agents'],
 }))
-const automationsHostAgent = (automationsHostPersisted.agents as Record<string, {
+type PersistedLaunchAgent = {
   status: string
   streamBuffer: string
   cliSessionId?: string
+  harnessSessionId?: string
   cliStartRequested?: boolean
+  cliRestartNonce?: number
   cliHasLaunched?: boolean
   cliResumeAvailable?: boolean
-}>)['agent-1']
+  cliResumeRequested?: boolean
+  cliOnboardingPromptSent?: boolean
+  cliStartupPrompt?: string
+}
+const automationsHostAgent = (automationsHostPersisted.agents as Record<string, PersistedLaunchAgent>)['agent-1']
 assert.equal(automationsHostPersisted.mode, 'automations-host', 'mode is preserved')
 assert.equal(automationsHostAgent.status, 'idle')
 assert.equal(automationsHostAgent.streamBuffer, '')
-assert.equal(automationsHostAgent.cliSessionId, undefined, 'session identity is cleared')
+assert.equal(automationsHostAgent.cliSessionId, 'sess-123', 'session identity survives cold load (resolves the painted snapshot)')
+assert.equal(automationsHostAgent.harnessSessionId, 'harness-123', 'harness resume token survives too — the two normalizers stay in step')
+// The auto-resume regression guard. These flags ARE the mount-time resume gate
+// (shouldResume, TerminalView): if any of them survived, a cold-loaded agent
+// would launch an unattended `--resume` — worse than the fresh spawn this fixes.
 assert.equal(automationsHostAgent.cliStartRequested, false)
 assert.equal(automationsHostAgent.cliHasLaunched, false)
 assert.equal(automationsHostAgent.cliResumeAvailable, false)
+assert.equal(automationsHostAgent.cliResumeRequested, false)
+assert.equal(automationsHostAgent.cliOnboardingPromptSent, false)
+assert.equal(automationsHostAgent.cliRestartNonce, 0)
+// Clearing the startup prompt is what keeps a start from re-running the
+// automation directive. Keep it cleared.
+assert.equal(automationsHostAgent.cliStartupPrompt, undefined, 'the automation directive is never re-sent')
+
+// The sprintengine normalizer must be identical in every respect — 374 sprint
+// agents ride on the same defect, and the comment ties the two functions
+// together. Same fixture, same assertions.
+const sprintPersisted = normalizeWorkspaceForPartialize(baseWorkspace({
+  mode: 'sprintengine',
+  agents: {
+    'agent-1': { ...persistedHostAgentFields, kind: 'sprintengine' },
+  } as unknown as Workspace['agents'],
+}))
+const sprintAgent = (sprintPersisted.agents as Record<string, PersistedLaunchAgent>)['agent-1']
+assert.equal(sprintAgent.cliSessionId, 'sess-123', 'sprint agents keep session identity too')
+assert.equal(sprintAgent.harnessSessionId, 'harness-123', 'sprint agents keep the harness resume token')
+assert.equal(sprintAgent.cliStartRequested, false)
+assert.equal(sprintAgent.cliHasLaunched, false)
+assert.equal(sprintAgent.cliResumeAvailable, false)
+assert.equal(sprintAgent.cliResumeRequested, false)
+assert.equal(sprintAgent.cliOnboardingPromptSent, false)
+assert.equal(sprintAgent.cliRestartNonce, 0)
+assert.equal(sprintAgent.cliStartupPrompt, undefined)
+assert.equal(sprintAgent.status, 'idle')
+assert.equal(sprintAgent.streamBuffer, '')
 
 // A standard workspace's agent keeps its durable resume identity (regression
 // guard that the automations-host clear does not leak into other modes).

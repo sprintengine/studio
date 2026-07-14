@@ -1,15 +1,27 @@
 import type { BacklogItem, BacklogItemLink, BacklogResolvedLink } from './backlog'
 import { isCompletedSprintEngineRun, normalizeSprintEngineProjection } from './sprintengine'
+import {
+  SPRINT_ENGINE_RUN_TARGET_KIND,
+  safeProjectRelativeRunPath,
+  sprintEngineRunLinkOf,
+  teamSlugFromStatePath,
+} from '../../../shared/backlog/sprintengine-links'
 import type { BacklogLinkProviderInput } from '../modules/renderer-host'
 import type { Workspace } from '../types/workspace'
 
-export const SPRINT_ENGINE_MODULE_ID = 'sprint-engine'
-export const SPRINT_ENGINE_RUN_TARGET_KIND = 'sprintengine.run'
-export const SPRINT_ENGINE_PR_TARGET_KIND = 'sprintengine.pullRequest'
-// Fixed id so the PR link is idempotent per item: re-running a sprint replaces
-// the link rather than accumulating stale ones (mirrors the agent-runtime
-// `agent-runtime:working-agent` most-recent-wins convention).
-export const SPRINT_ENGINE_PR_LINK_ID = 'sprint-engine:pull-request'
+// The link shapes, ids and builders live in src/shared/backlog/sprintengine-links.ts
+// so the main process can write the same links for a phone-driven run, where no
+// renderer is mounted to run the projection tick. Re-exported here because every
+// existing renderer caller imports them from this module.
+export {
+  SPRINT_ENGINE_MODULE_ID,
+  SPRINT_ENGINE_PR_LINK_ID,
+  SPRINT_ENGINE_PR_TARGET_KIND,
+  SPRINT_ENGINE_RUN_TARGET_KIND,
+  buildSprintEnginePullRequestLink,
+  buildSprintEngineRunLink,
+  sprintEngineRunLinkId,
+} from '../../../shared/backlog/sprintengine-links'
 
 export type SprintEngineProjectionRead = {
   ok: boolean
@@ -42,31 +54,13 @@ function pathKey(path: string): string {
   return path.replace(/\\/g, '/').replace(/\/+$/u, '').toLowerCase()
 }
 
-function safeProjectRelativeRunPath(path: string): string | null {
-  const normalized = path.trim().replace(/\\/g, '/').replace(/^\/+/u, '')
-  if (
-    !normalized
-    || path.startsWith('/')
-    || path.startsWith('\\\\')
-    || /^[A-Za-z]:[\\/]/u.test(path)
-    || normalized.split('/').includes('..')
-  ) {
-    return null
-  }
-  return /^\.multi-code\/sprintengine\/[^/]+\/run\.yaml$/u.test(normalized) ? normalized : null
-}
-
 function joinProjectPath(workspaceRoot: string, relativePath: string): string {
   const separator = workspaceRoot.includes('\\') && !workspaceRoot.includes('/') ? '\\' : '/'
   return `${workspaceRoot.replace(/[\\/]+$/u, '')}${separator}${relativePath.replace(/^[\\/]+/u, '')}`
 }
 
 export function sprintEngineRunLinkForItem(item: Pick<BacklogItem, 'links'>): BacklogItemLink | null {
-  return item.links.find((link) =>
-    link.moduleId === SPRINT_ENGINE_MODULE_ID
-    && link.type === 'execution'
-    && link.target.kind === SPRINT_ENGINE_RUN_TARGET_KIND
-  ) ?? null
+  return sprintEngineRunLinkOf(item.links)
 }
 
 export function hasSprintEngineRunLink(item: Pick<BacklogItem, 'links'>): boolean {
@@ -112,12 +106,6 @@ function unavailableLink(link: BacklogItemLink, reason: string): BacklogResolved
     unavailableReason: reason,
     canOpen: false,
   }
-}
-
-function teamSlugFromStatePath(statePath: string): string | undefined {
-  const normalized = statePath.replace(/\\/g, '/')
-  const match = normalized.match(/(?:^|\/)\.multi-code\/sprintengine\/([^/]+)\/run\.yaml$/u)
-  return match?.[1]
 }
 
 export async function resolveSprintEngineBacklogLink(
@@ -214,28 +202,6 @@ export async function openSprintEngineBacklogLink(
   input.ports.setActiveWorkspace(workspace.id)
   input.ports.openRunSummaryOverlay(workspace.id)
   return true
-}
-
-// Build the idempotent PR link for a completed sprint. `external` is
-// lifecycle-neutral, so attaching it never moves the item's status. The fixed
-// id makes re-runs replace the link instead of stacking duplicates.
-export function buildSprintEnginePullRequestLink(input: {
-  pullRequestUrl: string
-  updatedAt: string
-}): BacklogItemLink {
-  return {
-    id: SPRINT_ENGINE_PR_LINK_ID,
-    moduleId: SPRINT_ENGINE_MODULE_ID,
-    type: 'external',
-    label: 'Pull request',
-    target: {
-      kind: SPRINT_ENGINE_PR_TARGET_KIND,
-      id: input.pullRequestUrl,
-      url: input.pullRequestUrl,
-    },
-    status: 'active',
-    updatedAt: input.updatedAt,
-  }
 }
 
 // Resolve the PR link: openable whenever it carries a URL. The PR is an opened

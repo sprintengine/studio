@@ -6,6 +6,7 @@ import {
   MobileSprintEngineSnapshotService,
   readSprintEngineSnapshot,
 } from './snapshot'
+import { normalizeRoleCatalog } from './role-catalog'
 import { createBacklogItem } from '../../backlog-service'
 import {
   mobileControlProtocolVersion,
@@ -33,6 +34,7 @@ async function main(): Promise<void> {
   await assertProjectionSnapshotExposesProvenanceAndVcs()
   await assertSnapshotIncludesDesktopWorkspaceEntries()
   await assertSnapshotIncludesWorkspaceBacklog()
+  await assertRoleCatalogReducesRegistryPayload()
   await assertSnapshotSurfacesCreatedSpikeBacklogItem()
   await assertSnapshotOmitsBacklogWhenWorkspaceHasNone()
   await assertSnapshotOmitsUnavailableWorkspaceKinds()
@@ -628,6 +630,12 @@ async function assertSnapshotIncludesWorkspaceBacklog(): Promise<void> {
       getSwitchboardRunnerState: async () => ({ ok: false, message: 'Runner unavailable.' }),
       listWatchtowerRuns: async () => ({ ok: true, runs: [] }),
       readMultiloopStates: async () => [],
+      // The real reader spawns the Sprint Engine MCP; stub it so this stays a unit test.
+      readRoleCatalog: async () => [
+        { roleId: 'architect', label: 'Architect', summary: 'Plans the run.', source: 'bundled' },
+        { roleId: 'tester', label: 'QA', sweep: true, source: 'bundled' },
+        { roleId: 'prompt_smith', label: 'Prompt Smith', summary: 'Tunes prompts.', source: 'user' },
+      ],
     },
   })
 
@@ -652,7 +660,92 @@ async function assertSnapshotIncludesWorkspaceBacklog(): Promise<void> {
   assert.equal(item?.criticality, 'high')
   assert.equal(item?.excerpt?.includes('Users need the widget'), true)
   assert.equal(item?.excerpt?.includes('type: feature'), false)
+
+  // MC-1543: the workspace's role registry rides its backlog workspace, so the
+  // phone's launch picker can offer roles it was never compiled to know about.
+  assert.deepEqual(backlogWorkspace?.roles?.map((role) => role.roleId), ['architect', 'tester', 'prompt_smith'])
+  assert.equal(backlogWorkspace?.roles?.find((role) => role.roleId === 'tester')?.sweep, true)
+  const custom = backlogWorkspace?.roles?.find((role) => role.roleId === 'prompt_smith')
+  assert.equal(custom?.label, 'Prompt Smith')
+  assert.equal(custom?.source, 'user')
+  // And the snapshot carrying it is still a valid snapshot.
+  assert.equal(validateMobileControlSnapshot(snapshot).ok, true)
   service.shutdown()
+}
+
+// The `sprintengine.roles.list` payload -> wire descriptors. Driven with the shape
+// the real tool emits (verified against `sprintengine_tool.py roles list`).
+async function assertRoleCatalogReducesRegistryPayload(): Promise<void> {
+  const catalog = normalizeRoleCatalog({
+    ok: true,
+    roles: [
+      {
+        id: 'architect',
+        label: 'Architect',
+        aliases: [],
+        summary: 'Plans production software work and task decomposition.',
+        icon: null,
+        directives: { implement: [{ skill: 'architect' }] },
+        sweep: null,
+        source: { layer: 'bundled' },
+      },
+      {
+        id: 'tester',
+        label: 'QA',
+        aliases: [],
+        summary: 'Validates real product paths.',
+        directives: { implement: [{ skill: 'tester' }] },
+        // A sweep is a {focus, when} block — the phone gets the boolean, never the prose.
+        sweep: { focus: 'the combined branch diff', when: 'behaviour changed' },
+        source: { layer: 'bundled' },
+      },
+      {
+        id: 'prompt_smith',
+        label: 'Prompt Smith',
+        summary: 'Tunes prompts.',
+        sweep: null,
+        // User-global roles mount as a plugin root; the phone should be told "user".
+        source: { layer: 'plugin:user-roles' },
+      },
+      { id: 'house_style', label: 'House Style', sweep: null, source: { layer: 'workspace' } },
+      { id: 'vendor_role', label: 'Vendor Role', sweep: null, source: { layer: 'plugin:acme' } },
+    ],
+  })
+
+  assert.deepEqual(catalog?.map((role) => role.roleId), [
+    'architect',
+    'tester',
+    'prompt_smith',
+    'house_style',
+    'vendor_role',
+  ])
+  // Directives and skill routing are not the phone's business and must not ride.
+  assert.deepEqual(Object.keys(catalog?.[0] ?? {}).sort(), ['label', 'roleId', 'source', 'summary'])
+  assert.equal(catalog?.[1]?.sweep, true, 'a sweep block reduces to the flag')
+  assert.equal(catalog?.[0]?.sweep, undefined, 'a null sweep is not a sweep')
+  assert.equal(catalog?.[2]?.source, 'user', 'plugin:user-roles is what a user authored')
+  assert.equal(catalog?.[3]?.source, 'workspace')
+  assert.equal(catalog?.[4]?.source, 'plugin', 'other plugin layers collapse to plugin')
+
+  // Junk in: no catalog rather than a broken one.
+  assert.equal(normalizeRoleCatalog(undefined), undefined)
+  assert.equal(normalizeRoleCatalog({ ok: false }), undefined)
+  assert.deepEqual(normalizeRoleCatalog({ roles: [null, 3, { label: 'no id' }] }), [])
+
+  // Bounded: the snapshot's size-shedding pass can only drop whole sprint engines,
+  // so a catalog it cannot shed has to be small by construction.
+  const flooded = normalizeRoleCatalog({
+    roles: Array.from({ length: 200 }, (_, index) => ({ id: `role_${index}`, label: `R${index}` })),
+  })
+  assert.equal(flooded?.length, 48)
+
+  const [truncated] = normalizeRoleCatalog({ roles: [{ id: 'x', label: 'X', summary: 's'.repeat(400) }] }) ?? []
+  assert.equal(truncated?.summary?.length, 160)
+  assert.equal(truncated?.summary?.endsWith('…'), true)
+
+  // A manifest with no label still has a name to show.
+  const [humanized] = normalizeRoleCatalog({ roles: [{ id: 'data_platform_engineer' }] }) ?? []
+  assert.equal(humanized?.label, 'Data Platform Engineer')
 }
 
 async function assertSnapshotSurfacesCreatedSpikeBacklogItem(): Promise<void> {
@@ -678,6 +771,9 @@ async function assertSnapshotSurfacesCreatedSpikeBacklogItem(): Promise<void> {
       getSwitchboardRunnerState: async () => ({ ok: false, message: 'Runner unavailable.' }),
       listWatchtowerRuns: async () => ({ ok: true, runs: [] }),
       readMultiloopStates: async () => [],
+      // A registry that cannot be read publishes no catalog — the backlog is
+      // unaffected, and the phone falls back to its bundled list (MC-1543).
+      readRoleCatalog: async () => undefined,
     },
   })
 
@@ -695,6 +791,7 @@ async function assertSnapshotSurfacesCreatedSpikeBacklogItem(): Promise<void> {
   assert.equal(item?.status, 'idea')
   assert.equal(item?.type, 'spike')
   assert.equal(item?.excerpt?.includes('30s stall'), true)
+  assert.equal('roles' in (backlogWorkspace ?? {}), false, 'an unreadable registry omits roles rather than sending an empty catalog')
   service.shutdown()
 }
 

@@ -144,6 +144,42 @@ export function isAtRestAgentPhase(phase: AgentPhase | null | undefined): boolea
   return phase === 'idle' || phase === 'stalled'
 }
 
+// =============================================================================
+// Turn-end vocabulary (raw reporter event, not phase)
+//
+// The single source of truth for "this agent's turn ended", shared by every
+// reporter. It reads the RAW `frame.event`, and neither of the obvious
+// alternatives is correct:
+//
+//   - `event === 'Stop'` silently breaks OpenCode, whose plugin emits its own
+//     names (`session.idle`).
+//   - `phase === 'idle'` is worse: mapOpencodeEventToPhase maps `session.error`
+//     to `idle` too, so a CRASHED session would read as a clean turn end.
+//
+// `SubagentStop` is deliberately excluded: a Task subagent finishing is not the
+// session's turn end, yet it maps to `idle` exactly like `Stop` — which is
+// precisely why the event name has to survive as far as the consumer.
+//
+// CLIs outside the reporter set (see `agentStateSupportsCli`) emit no frame at
+// all, so a consumer must carry its own bounded backstop; these predicates only
+// speak for agents that report.
+// =============================================================================
+
+const TURN_END_EVENTS: ReadonlySet<string> = new Set(['Stop', 'session.idle'])
+
+export function isAgentTurnEndEvent(event: string | null | undefined): boolean {
+  return typeof event === 'string' && TURN_END_EVENTS.has(event)
+}
+
+// OpenCode's crash event. It maps to phase `idle` (above), so this is the only
+// way to tell a failed session from a finished one. Note the plugin drops
+// consecutive identical phases, so a `session.error` arriving after a
+// `session.idle` is suppressed — this is reachable only when the error is the
+// first at-rest frame.
+export function isAgentTurnFailureEvent(event: string | null | undefined): boolean {
+  return event === 'session.error'
+}
+
 export function deriveActivityFromPhase(phase: AgentPhase, since: number): SessionActivity | null {
   switch (phase) {
     case 'starting':
@@ -219,6 +255,10 @@ export type AgentStateFrameWakeup = { stop: true } | { delaySeconds: number }
 // park a session on a far-future hold.
 export const MAX_WAKEUP_DELAY_SECONDS = 2 * 3600
 
+// Absurd lengths are a reporter/payload anomaly, not a path. Cap so an unbounded
+// untrusted string cannot ride the frame into a consumer.
+export const MAX_TRANSCRIPT_PATH_LENGTH = 4096
+
 export type AgentStateFrame = {
   type: 'agent_state'
   agentId: string
@@ -228,6 +268,11 @@ export type AgentStateFrame = {
   event: string | null
   ts: number
   wakeup?: AgentStateFrameWakeup
+  // The CLI's session transcript, forwarded by the reporter on a turn end only.
+  // Untrusted: this is a file path chosen by the reporter, so whoever READS it
+  // owns containment (absolute + `.jsonl` + size cap). Validation here is shape
+  // only, and a bad value drops the field, never the frame.
+  transcriptPath?: string
 }
 
 const VALID_PHASES: ReadonlySet<AgentPhase> = new Set<AgentPhase>([
@@ -273,6 +318,8 @@ export function parseAgentStateFrame(raw: unknown, now: number): AgentStateFrame
   }
   const wakeup = parseFrameWakeup(raw.wakeup)
   if (wakeup) frame.wakeup = wakeup
+  const transcriptPath = optionalString(raw.transcriptPath)
+  if (transcriptPath && transcriptPath.length <= MAX_TRANSCRIPT_PATH_LENGTH) frame.transcriptPath = transcriptPath
   return frame
 }
 

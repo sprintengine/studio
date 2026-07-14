@@ -3,7 +3,7 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 
-import { readBacklogEpicChildren, readMobileBacklogWorkspaceSnapshot } from './backlog'
+import { readBacklogEpicChildren, readMobileBacklogWorkspaceSnapshot, resolveBacklogStartContext } from './backlog'
 import type { MobileControlBacklogItemSnapshot } from '../../../shared/mobile-control/protocol'
 
 const generatedAt = '2026-06-27T00:00:00.000Z'
@@ -160,6 +160,55 @@ run('MC-1498: the epics block carries display id, color, title, and a done/total
     assert.equal(checkout.title, 'Checkout epic')
     assert.equal(checkout.totalCount, 2)
     assert.equal(checkout.doneCount, 1)
+  } finally {
+    await rm(root, { force: true, recursive: true })
+  }
+})
+
+run('an epic launch resolves children under BOTH slug conventions', async () => {
+  // The desktop's canonical epic slug is the file's stem, but an epic container
+  // written as an ordinary item commonly names the epic in its own `epic:` field
+  // and its children point at THAT. Matching only one convention resolves zero
+  // children for the other — an epic launch that silently drops its children.
+  const byStem = await setupWorkspace({
+    'backlog/platform.md': '---\ntype: epic\n---\n# Platform\n\nThe epic.\n',
+    'backlog/leaf.md': '---\ntype: feature\nstatus: ready\nepic: platform\n---\n# Leaf\n\nWork.\n',
+  })
+  try {
+    const context = await resolveBacklogStartContext(byStem, 'backlog/platform.md')
+    assert.equal(context.isEpic, true)
+    assert.deepEqual(context.children.map((child) => child.relativePath), ['backlog/leaf.md'])
+  } finally {
+    await rm(byStem, { force: true, recursive: true })
+  }
+
+  const byField = await setupWorkspace({
+    'backlog/2026-07-13-goal-runs.md': '---\ntype: epic\nepic: goal-runs\n---\n# Goal runs\n\nThe epic.\n',
+    'backlog/child.md': '---\ntype: feature\nstatus: ready\nepic: goal-runs\n---\n# Child\n\nWork.\n',
+    'backlog/other.md': '---\ntype: feature\nstatus: ready\nepic: elsewhere\n---\n# Other\n\nWork.\n',
+  })
+  try {
+    const context = await resolveBacklogStartContext(byField, 'backlog/2026-07-13-goal-runs.md')
+    assert.deepEqual(context.children.map((child) => child.relativePath), ['backlog/child.md'])
+    // The epic container is never a child of itself, and a foreign epic's leaves
+    // are never swept in.
+    assert.equal(context.children.some((child) => child.relativePath.includes('goal-runs')), false)
+    assert.equal(context.children.some((child) => child.relativePath === 'backlog/other.md'), false)
+  } finally {
+    await rm(byField, { force: true, recursive: true })
+  }
+})
+
+run('a leaf item start is not an epic launch', async () => {
+  const root = await setupWorkspace({
+    'backlog/leaf.md': '---\ntype: feature\nstatus: ready\nepic: platform\n---\n# Leaf\n\nWork.\n',
+  })
+  try {
+    const context = await resolveBacklogStartContext(root, 'backlog/leaf.md')
+    assert.equal(context.isEpic, false)
+    assert.deepEqual(context.children, [])
+    assert.equal(context.title, 'Leaf')
+    assert.equal(context.absolutePath, join(root, 'backlog/leaf.md'))
   } finally {
     await rm(root, { force: true, recursive: true })
   }

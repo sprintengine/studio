@@ -56,6 +56,11 @@ export type TerminalSpawnPayload = {
   // Skill-at-spawn for ordinary agents (the composer's "+ Skill" attachment):
   // same ensure-install, none of the connector MCP coupling.
   spawnSkillId?: string
+  // The payload is flat. Renderer callers hand `metadata` to preload, which
+  // spreads it in; in-process callers (the sprint runtime) must flatten it
+  // themselves. Typed `never` so handing over a still-nested TerminalSpawnArgs
+  // fails to compile instead of silently dropping every field in the bag.
+  metadata?: never
 }
 
 type TerminalIpcDependencies = {

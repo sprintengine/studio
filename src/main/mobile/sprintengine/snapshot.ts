@@ -57,6 +57,7 @@ import type {
   MobileControlMultiloopBlockerSummary as MobileMultiloopBlockerSummary,
 } from '../../../shared/mobile-control/protocol'
 import { readMobileBacklogWorkspaceSnapshot } from './backlog'
+import { readWorkspaceRoleCatalog, type RoleCatalogReader } from './role-catalog'
 import { deriveWorkspaceId } from './workspace-id'
 import { containsLocalPath, deepRedactLocalPaths } from './relay-path-safety'
 
@@ -126,8 +127,13 @@ function relaySafeWorkspaceId(workspaceId: string, token: string): string {
 // Applied only to the copy emitted to the phone — readSnapshot() keeps the real
 // paths for server-side resolution (e.g. artifact.read).
 export function sanitizeMobileSnapshotForRelay(snapshot: MobileControlSnapshot): MobileControlSnapshot {
+  // The phone's join key across all three collections (MC-1583). Each collection
+  // encodes `workspacePath` differently below — dropped, basename, token — because
+  // each has a different round-trip need, so none of them can be the join key.
+  // This is the same token for the same repo root in every collection.
   const sprintEngines = snapshot.sprintEngines.map((sprintEngine) => ({
     ...sprintEngine,
+    projectKey: deriveWorkspaceId(sprintEngine.workspacePath),
     // Display-only on the phone: the board derives the name via lastPathSegment.
     workspacePath: basename(sprintEngine.workspacePath),
     // statePath is resolved server-side from sprintEngineId and never round-tripped
@@ -143,6 +149,7 @@ export function sanitizeMobileSnapshotForRelay(snapshot: MobileControlSnapshot):
     return {
       ...workspace,
       workspaceId: token ? relaySafeWorkspaceId(workspace.workspaceId, token) : workspace.workspaceId,
+      projectKey: token,
       // Optional on the wire and display-only (the card already shows `name`).
       workspacePath: undefined,
       statePath: undefined,
@@ -158,6 +165,7 @@ export function sanitizeMobileSnapshotForRelay(snapshot: MobileControlSnapshot):
       // workspaceName, not this field.
       workspaceId: `backlog:${token}`,
       workspacePath: token,
+      projectKey: token,
     }
   })
 
@@ -209,6 +217,7 @@ type DesktopWorkspaceStateReaders = {
   getSwitchboardRunnerState(input: string): Promise<SwitchboardRunnerResult>
   listWatchtowerRuns(workspaceRoot: string): Promise<WatchtowerRunListResult>
   readMultiloopStates(workspaceRoot: string): Promise<MobileWorkspaceSnapshot[]>
+  readRoleCatalog: RoleCatalogReader
 }
 
 const defaultStateReaders: DesktopWorkspaceStateReaders = {
@@ -216,6 +225,7 @@ const defaultStateReaders: DesktopWorkspaceStateReaders = {
   getSwitchboardRunnerState,
   listWatchtowerRuns,
   readMultiloopStates: readMultiloopWorkspaceSnapshots,
+  readRoleCatalog: readWorkspaceRoleCatalog,
 }
 
 export class MobileSprintEngineSnapshotService {
@@ -255,7 +265,7 @@ export class MobileSprintEngineSnapshotService {
       ...sprintEngines.map(toSprintEngineWorkspaceSnapshot),
       ...desktopWorkspaces,
     ]
-    const backlog = await readBacklogWorkspaceSnapshots(workspaceRoots, generatedAt)
+    const backlog = await readBacklogWorkspaceSnapshots(workspaceRoots, generatedAt, this.stateReaders.readRoleCatalog)
 
     return {
       protocolVersion: mobileControlProtocolVersion,
@@ -342,12 +352,22 @@ export class MobileSprintEngineSnapshotService {
   }
 }
 
+// The role catalog rides the backlog workspace because that is the record the
+// phone's two launch surfaces pick a `workspacePath` from (MC-1543). It is read
+// per workspace and never blocks the backlog: a registry that cannot be read
+// yields no `roles`, and the phone falls back to its bundled list.
 async function readBacklogWorkspaceSnapshots(
   workspaceRoots: string[],
-  generatedAt: string
+  generatedAt: string,
+  readRoleCatalog: RoleCatalogReader
 ): Promise<MobileControlBacklogWorkspaceSnapshot[]> {
   const settled = await Promise.allSettled(
-    workspaceRoots.map((workspaceRoot) => readMobileBacklogWorkspaceSnapshot(workspaceRoot, generatedAt))
+    workspaceRoots.map(async (workspaceRoot) => {
+      const workspace = await readMobileBacklogWorkspaceSnapshot(workspaceRoot, generatedAt)
+      if (!workspace) return null
+      const roles = await readRoleCatalog(workspaceRoot).catch(() => undefined)
+      return roles && roles.length > 0 ? { ...workspace, roles } : workspace
+    })
   )
   return settled
     .flatMap((result) => (result.status === 'fulfilled' && result.value ? [result.value] : []))

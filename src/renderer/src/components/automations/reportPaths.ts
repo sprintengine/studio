@@ -3,14 +3,22 @@ import { normalizeReportPath } from '../../../../shared/automations/contracts'
 
 /**
  * Pure resolver for the report files an automation run produced. No IPC, React,
- * or filesystem access — it reads only the {@link AutomationRun} object so
- * historical runs (which predate the structured field) light up with no
- * migration.
+ * or filesystem access — it reads only the {@link AutomationRun} object.
  *
  * Precedence:
- *  1. `run.reportPaths` — the structured, engine-validated field (Layer B). When
- *     present and non-empty it is authoritative; the prose summary is not scanned.
+ *  1. `run.reportPaths` — the structured field. Honored when present, but NO
+ *     producer writes it any more: it was populated by the run-status signal
+ *     file, which is gone (finalization is now driven from the agent-state
+ *     hooks). It survives only on runs recorded before that, so this branch is
+ *     effectively a historical-run path.
  *  2. otherwise a bounded regex scan of `run.summary` for `reports/…(.md|.html)`.
+ *
+ * Branch 2 is therefore the live carrier: the summary is derived from the
+ * agent's last assistant message (`main/automations/transcript-summary.ts`), so
+ * a report link exists only when the agent's own prose names the file. Prose it
+ * is — the scan must survive markdown (backticks, links, bold, escapes) and
+ * degrade to NO affordance rather than a dead one, which is why an ambiguous
+ * candidate is dropped instead of guessed at.
  *
  * Every candidate is run through the same containment guard the engine uses
  * (`normalizeReportPath`: project-relative, reject `..`, must resolve under
@@ -48,8 +56,22 @@ const MAX_SUMMARY_SCAN_CHARS = 64 * 1024
 // enforces.
 const SUMMARY_REPORT_PATH = /reports\/[^\s"'`)\]]{1,256}?\.(?:md|html)\b/g
 
+// A markdown escape: a backslash before punctuation (`reports/weekly\_audit.md`).
+// The summary is agent-written markdown, so escapes reach us verbatim.
+const MARKDOWN_ESCAPE = /\\([^A-Za-z0-9])/g
+
 function scanSummaryForReportPaths(summary: string | undefined): string[] {
   if (!summary) return []
   const scanned = summary.length > MAX_SUMMARY_SCAN_CHARS ? summary.slice(0, MAX_SUMMARY_SCAN_CHARS) : summary
-  return scanned.match(SUMMARY_REPORT_PATH) ?? []
+  const matches = scanned.match(SUMMARY_REPORT_PATH) ?? []
+  // In prose a backslash is a markdown escape, never a path separator — but
+  // `normalizeReportPath` reads `\` as a separator (correct for the structured
+  // field, which could carry a Windows path). Left alone, `reports/weekly\_audit.md`
+  // would normalize to `reports/weekly/_audit.md`: a fabricated directory, and a
+  // live "View report" pointing at a file that does not exist. So decode the
+  // escapes, and drop any candidate still carrying a backslash rather than invent
+  // a path from it.
+  return matches
+    .map((match) => match.replace(MARKDOWN_ESCAPE, '$1'))
+    .filter((candidate) => !candidate.includes('\\'))
 }

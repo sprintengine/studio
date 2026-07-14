@@ -64,7 +64,7 @@ import {
 } from '../../utils/sprintengine'
 import MulticodeMark from '../brand/MulticodeMark'
 import { CreationBackdrop } from '../backdrops/CreationBackdrop'
-import { CliModelPickerButton, CloseIconButton, Field, GhostButton, Select, TruncatedText } from '../ui'
+import { CliModelPickerButton, CloseIconButton, Field, GhostButton, Select, TruncatedText, WizardProgress } from '../ui'
 import {
   analyzeWorkspaceTargetPath,
   defaultWorkspaceFolderPath,
@@ -174,6 +174,10 @@ const STEP_HEADING: Record<StepId, { title: string; subtitle: string }> = {
   'sprintengine-roster': {
     title: 'Your AI team',
     subtitle: 'A balanced team is ready to go. Adjust it below if you like.',
+  },
+  'sprintengine-run': {
+    title: 'How the sprint should run',
+    subtitle: 'These are set sensibly already. Change them only if you want to.',
   },
   'guided-idea': {
     title: 'Tell us about your idea',
@@ -1011,6 +1015,12 @@ export default function NewWorkspacePanel({
   // reading in one closure would hand every mode branch a stale null folder.
   const [pendingCreate, setPendingCreate] = useState(false)
 
+  // The pane pages through its flow one step at a time. A dropped plan opens on
+  // the sprint's team step: its folder arrives with the drop, so the name+folder
+  // page has nothing left to ask.
+  const [step, setStep] = useState<StepId>(initialFuturePlan ? 'sprintengine-team' : 'workspace')
+  const [direction, setDirection] = useState<'forward' | 'backward'>('forward')
+
   useEffect(() => {
     let cancelled = false
     void window.api.authGetState()
@@ -1035,16 +1045,19 @@ export default function NewWorkspacePanel({
     const base = stepsForMode(mode)
     return knowledgeStepEligible ? base : base.filter((id) => id !== 'knowledge')
   }, [mode, knowledgeStepEligible])
-  // The hub renders a mode's whole flow as one pane: the name+folder fields
-  // ('workspace') first, then every config step stacked in flow order.
+  // The hub pages a mode's flow: the name+folder fields ('workspace') first,
+  // then each config step on its own page, in flow order.
   const configSteps = useMemo(
     () => steps.filter((id) => id !== 'workspace'),
     [steps],
   )
-  // The optional Advanced setup disclosure renders for any flow with real
-  // config steps; the zero-config quick flows (chat, switchboard, automations)
-  // defer that configuration to Settings, exactly as before.
-  const showAdvancedSetup = configSteps.length > 0
+  const stepIndex = Math.max(0, steps.indexOf(step))
+  const isLastStep = stepIndex >= steps.length - 1
+  const stepLabels = useMemo(() => steps.map((id) => STEP_HEADING[id].title), [steps])
+  // The optional Advanced setup disclosure rides the flow's final page, for any
+  // flow with real config steps; the zero-config quick flows (chat, switchboard,
+  // automations) defer that configuration to Settings, exactly as before.
+  const showAdvancedSetup = configSteps.length > 0 && isLastStep
 
   // The rail's type list — shell-owned Chat + Workspace, then the enabled
   // registry-contributed types (see modeModels.ts for the ordering contract).
@@ -1212,11 +1225,19 @@ export default function NewWorkspacePanel({
     // rather than bouncing the user back to 'new'.
   }, [isSprintEngine, sePath, folderScan.result, folderScan.isScanning, sePlanPath])
 
-  // Move focus to the pane heading and reset the pane scroll on type change.
+  // Keep the current step inside the flow when the step list changes under it —
+  // the knowledge step dropping out for an already-configured folder, or a rail
+  // switch racing the mode-scoped reset in handleSelectMode.
+  useEffect(() => {
+    if (!steps.includes(step)) setStep(steps[0])
+  }, [steps, step])
+
+  // Move focus to the page heading and reset the pane scroll on every page turn
+  // (and on a type change, which resets the flow to its first page).
   useEffect(() => {
     if (stepBodyRef.current) stepBodyRef.current.scrollTop = 0
     headingRef.current?.focus({ preventScroll: true })
-  }, [mode])
+  }, [mode, step])
 
   // Auto-focus the name input on every non-chat pane (the chat pane's focus
   // belongs to the embedded composer) — unless focus is inside the rail: a
@@ -1295,9 +1316,17 @@ export default function NewWorkspacePanel({
     ? null
     : requiredStepIds.find((id) => !isStepReady(id, stepReadiness)) ?? null
   const createReady = !isChat && firstBlockedStepId == null
+  // Continue is gated on the page you are on; create is gated on the whole flow.
+  const currentStepReady = !isChat && isStepReady(step, stepReadiness)
 
+  // The hint speaks for the page you are on — never for one the user has not
+  // reached. The exception is an EARLIER page that went unready underneath them
+  // (the aborted-create folder reset below): then it names what the now-disabled
+  // primary is actually waiting on, instead of claiming this page is fine.
+  const hintStep =
+    firstBlockedStepId && steps.indexOf(firstBlockedStepId) < stepIndex ? firstBlockedStepId : step
   const blockingMessage = getStepBlockingMessage({
-    step: firstBlockedStepId ?? configSteps[configSteps.length - 1] ?? 'workspace',
+    step: hintStep,
     workspaceFolderReady: folderTargetUsable,
     name,
     mlGoal,
@@ -1323,6 +1352,11 @@ export default function NewWorkspacePanel({
     // handleCreate a different mode than the one the user confirmed.
     if (isCreating || pendingCreate) return
     setMode(next)
+    // Every flow starts at 'workspace' (see creationStepFlows): a rail switch
+    // restarts the new type's flow rather than stranding the user on page 3 of
+    // the old one.
+    setStep('workspace')
+    setDirection('forward')
     if (next === 'standard' && !nameTouched) setName(basename(folderPath ?? '') || 'workspace')
     if (next === 'switchboard' && !nameTouched)
       setName(toTitleName(basename(folderPath ?? '')) || 'Switchboard')
@@ -2275,6 +2309,31 @@ export default function NewWorkspacePanel({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pendingCreate])
 
+  // Page turns are pure navigation: no IPC, nothing to await, nothing to fail.
+  // The folder is materialized by handlePrimaryAction (see above), which is why
+  // Continue is instant and why "Skip the rest and create" — which IS the
+  // primary action — inherits materialization for free.
+  const goNext = () => {
+    if (isLastStep || isCreating || pendingCreate || !currentStepReady) return
+    setDirection('forward')
+    setStep(steps[stepIndex + 1])
+  }
+
+  const goBack = () => {
+    if (stepIndex === 0 || isCreating || pendingCreate) return
+    setDirection('backward')
+    setStep(steps[stepIndex - 1])
+  }
+
+  // Back-jump from the progress bar: only to an already-completed (earlier) page,
+  // and never mid-create. The step-change effect handles focus + scroll reset.
+  const jumpToStep = (index: number) => {
+    if (isCreating || pendingCreate) return
+    if (index < 0 || index >= stepIndex) return
+    setDirection('backward')
+    setStep(steps[index])
+  }
+
   const handleSectionKeyDown = (event: React.KeyboardEvent<HTMLElement>) => {
     if (event.key !== 'Enter' || event.isDefaultPrevented()) return
     const target = event.target as HTMLElement
@@ -2283,10 +2342,11 @@ export default function NewWorkspacePanel({
     if (tag === 'BUTTON') return
     // Selects use Enter to open/close the dropdown.
     if (tag === 'SELECT') return
-    // Textareas insert newlines on Enter; Cmd/Ctrl+Enter creates.
+    // Textareas insert newlines on Enter; Cmd/Ctrl+Enter advances.
     if (tag === 'TEXTAREA' && !(event.metaKey || event.ctrlKey)) return
     event.preventDefault()
-    handlePrimaryAction()
+    if (isLastStep) handlePrimaryAction()
+    else goNext()
   }
 
   const startLogin = async () => {
@@ -2363,7 +2423,20 @@ export default function NewWorkspacePanel({
     onClose()
   }
 
-  const primaryLabel = createLabelFor(mode, isCreating || pendingCreate, seExistingTeam != null)
+  const primaryLabel = isLastStep
+    ? createLabelFor(mode, isCreating || pendingCreate, seExistingTeam != null)
+    : 'Continue'
+  // One skip control, not two: the flow's remaining pages are all defaulted the
+  // moment createReady turns true, so from there the user can leave at any time.
+  // A per-page Skip button as well would make people stop and read the footer.
+  const showSkipToCreate = createReady && !isLastStep
+  const stepHeading = STEP_HEADING[step]
+  const stepAnimationClass =
+    direction === 'forward' ? 'wizard-step-in-forward' : 'wizard-step-in-backward'
+  // The sprint's config pages are the wide ones (backlog picker, roster tables,
+  // run settings); every other page — including the sprint's own name+folder
+  // page — keeps the 560px measure the shared fields read at.
+  const wideStep = isSprintEngine && step !== 'workspace'
 
   const guidedFlowVisible = guidedRuntimeState != null && !viewingIdeaAfterCommit
 
@@ -2399,8 +2472,8 @@ export default function NewWorkspacePanel({
       ) : null}
       {/* The hub modal floats on the creation backdrop: the wallpaper stays
           visible around a fixed-size surface (the Settings-overlay shell
-          contract), and each type's whole config lives in one pane with a
-          pinned primary action — no step chain. */}
+          contract). The rail is the type choice — never a step — and the pane
+          beside it pages through that type's flow with a pinned primary action. */}
       <div className="flex min-h-0 flex-1 items-center justify-center p-4 sm:p-6">
         <div className="flex h-full max-h-[min(680px,100%)] w-full max-w-[1040px] flex-col overflow-hidden rounded-[8px] border border-[color:var(--border-subtle)] bg-[color:var(--bg-surface)] shadow-[var(--shadow-drawer)]">
           <header className="flex shrink-0 items-center justify-between gap-3 border-b border-[color:var(--border-subtle)] px-5 py-3">
@@ -2413,6 +2486,17 @@ export default function NewWorkspacePanel({
                 New
               </h2>
             </div>
+            {/* Chat has no steps (its composer owns the whole config), and a
+                one-page flow has nothing to indicate. */}
+            {!isChat && steps.length > 1 ? (
+              <WizardProgress
+                total={steps.length}
+                active={stepIndex}
+                currentStepLabel={stepHeading.title}
+                stepLabels={stepLabels}
+                onStepSelect={jumpToStep}
+              />
+            ) : null}
             {allowClose ? (
               <CloseIconButton
                 size="md"
@@ -2468,31 +2552,55 @@ export default function NewWorkspacePanel({
                 </div>
               ) : (
                 <>
+                  {/* Only the active page renders. The pane keeps overflow-y-auto
+                      as a short-window safety net, not the normal path: a page
+                      is meant to fit, with its primary action pinned below. */}
                   <main ref={stepBodyRef} className="relative min-h-0 flex-1 overflow-y-auto">
                     <div
-                      key={mode}
-                      className={`flex w-full ${isSprintEngine ? '' : 'max-w-[560px]'} flex-col gap-7 px-6 py-5`}
+                      key={step}
+                      className={`flex w-full ${wideStep ? '' : 'max-w-[560px]'} flex-col gap-7 px-6 py-5 ${stepAnimationClass}`}
                     >
-                      {/* The Sprint pane is the one full-width pane (its team
-                          picker and roster tables need the room), but its
-                          heading and form fields keep the same 560px measure
-                          as every other pane so the shared fields read
-                          identically across the rail. */}
-                      <div className={`flex w-full flex-col gap-7 ${isSprintEngine ? 'max-w-[560px]' : ''}`}>
-                        <header className="flex flex-col gap-1.5">
-                          <h3
-                            ref={headingRef}
-                            tabIndex={-1}
-                            className="text-[17px] font-semibold leading-6 tracking-tight text-[color:var(--text-strong)] outline-none"
-                          >
-                            {currentModeModel.label}
-                          </h3>
-                          <p className="text-[12.5px] leading-5 text-[color:var(--text-muted)]">
-                            {currentModeModel.description}
-                          </p>
-                        </header>
+                      {stepIndex > 0 ? (
+                        <button
+                          type="button"
+                          onClick={goBack}
+                          className="
+                            -ml-1.5 inline-flex h-7 w-fit items-center gap-1 rounded-md px-1.5 text-[12px] font-medium text-[color:var(--text-subtle)]
+                            transition-colors hover:bg-[color:var(--bg-surface-raised)] hover:text-[color:var(--text-strong)]
+                            focus:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--accent-primary)]
+                          "
+                        >
+                          <svg className="icon-sm" viewBox="0 0 12 12" fill="none" aria-hidden="true">
+                            <path
+                              d="M7.5 3L4.5 6L7.5 9"
+                              stroke="currentColor"
+                              strokeWidth="1.6"
+                              strokeLinecap="round"
+                              strokeLinejoin="round"
+                            />
+                          </svg>
+                          Back
+                        </button>
+                      ) : null}
 
-                        <WorkspaceStep
+                      {/* The first page introduces the type the rail selected, then
+                          asks for the two things every type needs. */}
+                      {step === 'workspace' ? (
+                        <>
+                          <header className="flex flex-col gap-1.5">
+                            <h3
+                              ref={headingRef}
+                              tabIndex={-1}
+                              className="text-[17px] font-semibold leading-6 tracking-tight text-[color:var(--text-strong)] outline-none"
+                            >
+                              {currentModeModel.label}
+                            </h3>
+                            <p className="text-[12.5px] leading-5 text-[color:var(--text-muted)]">
+                              {currentModeModel.description}
+                            </p>
+                          </header>
+
+                          <WorkspaceStep
               name={name}
               onChangeName={handleChangeName}
               folderDraftPath={folderDraftPath}
@@ -2506,10 +2614,11 @@ export default function NewWorkspacePanel({
               folderHints={folderHints}
               inputRef={nameInputRef}
             />
-                      </div>
+                        </>
+                      ) : null}
 
-          {configSteps.includes('standard-layout') ? (
-            <ConfigStepSection stepId="standard-layout">
+          {step === 'standard-layout' ? (
+            <ConfigStepSection stepId="standard-layout" headingRef={headingRef}>
             <StandardLayoutStep
               layoutId={layoutId}
               onChange={setLayoutId}
@@ -2519,8 +2628,8 @@ export default function NewWorkspacePanel({
             </ConfigStepSection>
           ) : null}
 
-          {configSteps.includes('multiloop-goal') ? (
-            <ConfigStepSection stepId="multiloop-goal">
+          {step === 'multiloop-goal' ? (
+            <ConfigStepSection stepId="multiloop-goal" headingRef={headingRef}>
             <MultiloopGoalStep
               goal={mlGoal}
               onChangeGoal={(value) => {
@@ -2534,8 +2643,8 @@ export default function NewWorkspacePanel({
             </ConfigStepSection>
           ) : null}
 
-          {configSteps.includes('sprintengine-team') ? (
-            <ConfigStepSection stepId="sprintengine-team">
+          {step === 'sprintengine-team' ? (
+            <ConfigStepSection stepId="sprintengine-team" headingRef={headingRef}>
             <SprintEngineTeamStep
               access={sprintEngineAccess}
               onSignIn={() => void startLogin()}
@@ -2604,8 +2713,8 @@ export default function NewWorkspacePanel({
             </ConfigStepSection>
           ) : null}
 
-          {configSteps.includes('guided-idea') ? (
-            <ConfigStepSection stepId="guided-idea">
+          {step === 'guided-idea' ? (
+            <ConfigStepSection stepId="guided-idea" headingRef={headingRef}>
             <GuidedIdeaStep
               idea={guidedIdea}
               preset={guidedPreset}
@@ -2646,9 +2755,13 @@ export default function NewWorkspacePanel({
             </ConfigStepSection>
           ) : null}
 
-          {configSteps.includes('sprintengine-roster') ? (
-            <ConfigStepSection stepId="sprintengine-roster">
+          {/* The sprint's team settings and run settings are two pages of the
+              same component — RosterAndRunSettings renders either half through
+              its `sections` prop, so neither page is a fork of the other. */}
+          {step === 'sprintengine-roster' || step === 'sprintengine-run' ? (
+            <ConfigStepSection stepId={step} headingRef={headingRef}>
             <SprintEngineRosterStep
+              sections={step === 'sprintengine-roster' ? 'roster' : 'run'}
               access={sprintEngineAccess}
               onSignIn={() => void startLogin()}
               roleCounts={visibleSprintEngineRoleCounts}
@@ -2745,26 +2858,47 @@ export default function NewWorkspacePanel({
                     </div>
                   </main>
 
-                  {/* Pinned footer: the pane body scrolls above it, so the
-                      primary action never leaves the viewport on tall panes
+                  {/* Pinned footer: the page body scrolls above it, so the
+                      primary action never leaves the viewport on a tall page
                       (the sprint roster, the guided idea, the loop goal). */}
                   <footer className="flex shrink-0 items-center justify-between gap-3 border-t border-[color:var(--border-subtle)] px-6 py-3">
                     <p className="min-w-0 flex-1 truncate text-[12px] leading-5 text-[color:var(--text-subtle)]">
                       {blockingMessage}
                     </p>
-                    <button
-                      type="button"
-                      onClick={handlePrimaryAction}
-                      disabled={!createReady || isCreating || pendingCreate}
-                      className="
-                        inline-flex h-9 shrink-0 items-center gap-1.5 rounded-md bg-[color:var(--accent-primary)] px-4 text-[13px] font-semibold text-[color:var(--bg-app)]
-                        transition-colors hover:bg-[color:var(--accent-primary-hover)]
-                        disabled:cursor-not-allowed disabled:bg-[color:var(--bg-surface-raised)] disabled:text-[color:var(--text-disabled)]
-                        focus:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--accent-primary)]
-                      "
-                    >
-                      {primaryLabel}
-                    </button>
+                    <div className="flex shrink-0 items-center gap-3">
+                      {/* Everything left in the flow is already defaulted, so the
+                          user can leave now and change the rest later. */}
+                      {showSkipToCreate ? (
+                        <button
+                          type="button"
+                          onClick={handlePrimaryAction}
+                          disabled={isCreating || pendingCreate}
+                          className="
+                            inline-flex h-9 items-center rounded-md px-2 text-[12.5px] font-medium text-[color:var(--text-subtle)]
+                            transition-colors hover:bg-[color:var(--bg-surface-raised)] hover:text-[color:var(--text-strong)]
+                            disabled:cursor-not-allowed disabled:text-[color:var(--text-disabled)] disabled:hover:bg-transparent
+                            focus:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--accent-primary)]
+                          "
+                        >
+                          Skip the rest and create
+                        </button>
+                      ) : null}
+                      <button
+                        type="button"
+                        onClick={isLastStep ? handlePrimaryAction : goNext}
+                        disabled={
+                          (isLastStep ? !createReady : !currentStepReady) || isCreating || pendingCreate
+                        }
+                        className="
+                          inline-flex h-9 shrink-0 items-center gap-1.5 rounded-md bg-[color:var(--accent-primary)] px-4 text-[13px] font-semibold text-[color:var(--bg-app)]
+                          transition-colors hover:bg-[color:var(--accent-primary-hover)]
+                          disabled:cursor-not-allowed disabled:bg-[color:var(--bg-surface-raised)] disabled:text-[color:var(--text-disabled)]
+                          focus:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--accent-primary)]
+                        "
+                      >
+                        {primaryLabel}
+                      </button>
+                    </div>
                   </footer>
                 </>
               )}
@@ -2921,17 +3055,30 @@ function WorkspaceStep({
   )
 }
 
-// One config step's section inside a hub pane: the step heading scaled to a
-// section header, over the same step body the step wizard rendered full-page.
-function ConfigStepSection({ stepId, children }: { stepId: StepId; children: ReactNode }) {
+// One config step's page inside a hub pane. Its STEP_HEADING is the page's
+// heading, at the same scale as the type heading on the first page, and it takes
+// focus on the page turn (see the step-change effect).
+function ConfigStepSection({
+  stepId,
+  headingRef,
+  children,
+}: {
+  stepId: StepId
+  headingRef?: React.Ref<HTMLHeadingElement>
+  children: ReactNode
+}) {
   const heading = STEP_HEADING[stepId]
   return (
     <section className="flex flex-col gap-4">
-      <header className="flex flex-col gap-1">
-        <h4 className="text-[14px] font-semibold leading-5 text-[color:var(--text-strong)]">
+      <header className="flex flex-col gap-1.5">
+        <h3
+          ref={headingRef}
+          tabIndex={-1}
+          className="text-[17px] font-semibold leading-6 tracking-tight text-[color:var(--text-strong)] outline-none"
+        >
           {heading.title}
-        </h4>
-        <p className="text-[12px] leading-5 text-[color:var(--text-muted)]">{heading.subtitle}</p>
+        </h3>
+        <p className="text-[12.5px] leading-5 text-[color:var(--text-muted)]">{heading.subtitle}</p>
       </header>
       {children}
     </section>
@@ -4338,6 +4485,9 @@ function SprintEngineTeamStep(props: {
 }
 
 function SprintEngineRosterStep(props: {
+  // Which half of RosterAndRunSettings this page shows: the sprint's team page
+  // ('roster') and its run page ('run') are the same component, split.
+  sections: 'roster' | 'run'
   access: PremiumFeatureAccessState
   onSignIn: () => void
   roleCounts: SprintEngineRoleCounts
@@ -4388,6 +4538,7 @@ function SprintEngineRosterStep(props: {
   architectCard: React.ReactNode
 }) {
   const {
+    sections,
     access,
     onSignIn,
     roleCounts,
@@ -4441,7 +4592,9 @@ function SprintEngineRosterStep(props: {
 
   return (
     <div className="flex flex-col gap-5">
-      {hasExistingTeam ? (
+      {/* The read-only-roster notice belongs to the team page it explains; the
+          run page's settings stay editable for a loaded team. */}
+      {hasExistingTeam && sections === 'roster' ? (
         <p className="rounded-md border border-[color:var(--tone-warn-soft)] bg-[color:var(--tone-warn-soft)] px-3 py-2 text-[12px] leading-5 text-[color:var(--tone-warn)]">
           Loading <span className="font-semibold">{existingTeamName}</span> — team size is read-only; the agent for each role can still be changed before launch.
         </p>
@@ -4454,6 +4607,7 @@ function SprintEngineRosterStep(props: {
       ) : null}
 
       <RosterAndRunSettings
+        sections={sections}
         roleCounts={roleCounts}
         roleCliDefaults={roleCliDefaults}
         cliOptions={cliOptions}
@@ -4632,6 +4786,11 @@ function isStepReady(
       return readiness.sprintEngineTeamReady
     case 'sprintengine-roster':
       return readiness.sprintEngineRosterReady
+    // Every control on the run page is already defaulted (automation, max
+    // parallel agents, worktrees, permissions, self-review, required sweeps), so
+    // it can never block create — it is a refinement page, not an intent one.
+    case 'sprintengine-run':
+      return true
     case 'guided-idea':
       return readiness.guidedIdeaReady
   }
@@ -4716,6 +4875,13 @@ function getStepBlockingMessage(args: {
         return 'Ready to create.'
       }
       if (totalAgents === 0) return 'Turn on at least one kind of work.'
+      return 'Ready to create.'
+    // The run page is the sprint's last step, so its hint is the one the footer
+    // shows once every step is ready — it has to carry the same terminal copy
+    // the roster step used to, back when the roster WAS the last step.
+    case 'sprintengine-run':
+      if (!sprintEngineAccess.allowed) return 'Sign in to run sprints.'
+      if (seExistingTeam) return 'Ready to load team.'
       return 'Ready to create.'
     case 'guided-idea':
       if (!guidedIdea.trim()) return 'Describe the idea in a sentence or two.'

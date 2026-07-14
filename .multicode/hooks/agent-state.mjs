@@ -192,6 +192,17 @@ async function main() {
     ts: Date.now(),
   }
 
+  // The session transcript, forwarded on a turn end so the app can derive a
+  // summary from the agent's closing message (an automation run's completion
+  // summary). ONLY on `Stop`: `SubagentStop` carries a transcript_path too, but
+  // it is a subagent's, and a subagent finishing is not this session's turn end.
+  // The path is passed through untouched: it is untrusted input, and the reader
+  // owns containment (see transcriptPath in src/main/agent-state.ts).
+  if (event === 'Stop') {
+    const transcriptPath = str(payload?.transcript_path) ?? str(payload?.transcriptPath)
+    if (transcriptPath) frame.transcriptPath = transcriptPath
+  }
+
   // Self-scheduled wakeup: the ScheduleWakeup tool arms a timer INSIDE the CLI
   // process (self-paced loops — "wake me in 20 minutes"). Between the schedule
   // and the firing the agent's phase is idle, which is exactly what the idle

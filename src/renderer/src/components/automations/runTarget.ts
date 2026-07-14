@@ -51,11 +51,18 @@ export function scheduledRunNotification(
 ): DiagnosticLogInput | null {
   if (event.trigger !== 'timer') return null
   if (event.status !== 'failed' && event.status !== 'blocked') return null
+  // Copy is interpolation-free per status: templating the status into the
+  // sentence produced "The scheduled run ended failed." The run's own summary
+  // names the cause (it cannot be shown here — the run event carries no summary
+  // field), so both lines send the reader to the run rather than guessing for them.
+  const failed = event.status === 'failed'
   return {
-    level: event.status === 'failed' ? 'error' : 'warning',
+    level: failed ? 'error' : 'warning',
     source: 'automations',
-    title: `Automation ${event.status}: ${event.definitionName}`,
-    message: `The scheduled run ended ${event.status}. Open to see its run history.`,
+    title: `${failed ? 'Automation failed' : 'Automation blocked'}: ${event.definitionName}`,
+    message: failed
+      ? 'This scheduled run did not finish. Open it to see what stopped it.'
+      : 'This scheduled run is blocked and cannot continue. Open it to see why.',
     workspaceId: event.workspaceId,
     navigationTarget: { kind: RUN_TARGET_KIND, ref: encodeRunRef(event.automationId, event.runId, resolveFolderPath()) },
   }

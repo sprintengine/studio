@@ -4,8 +4,7 @@ import type { WorkspaceSyncSnapshot } from '../../shared/workspace-sync'
 import { join } from 'node:path'
 
 import type { Workspace, WorkspaceMode } from '../../renderer/src/types/workspace'
-import { appendWorktreeGitExcludes, createGitWorktree, removeGitWorktree } from '../git'
-import { RUN_SIGNAL_FILENAME } from './run-signal'
+import { createGitWorktree, removeGitWorktree } from '../git'
 import { createWorkspaceConfirmed } from '../workspace-create'
 import type { AutomationRunExecutionInput, AutomationRunExecutor } from './engine'
 import { runSkillLoopAction } from './actions/run-skill-loop'
@@ -26,13 +25,15 @@ export type LocalAutomationExecutorOptions = {
   // Resolves the spawned agent's terminal-session executionId at launch-confirm
   // time so the run can correlate an agent-lifecycle exit back to itself. A miss
   // (or an absent resolver) leaves executionId undefined and never fails the
-  // launch — the run falls back to the poll-scan. Wired by automations-module.
+  // launch — the run is still correlated by (workspaceId, agentId). Wired by
+  // automations-module.
   resolveAgentExecutionId?: (input: { workspaceId: string; agentId: string }) => string | undefined
   isIntegrationAvailable?: (id: string) => boolean | undefined
   now?: () => number
   sleep?: (ms: number) => Promise<void>
   launchConfirmTimeoutMs?: number
   launchConfirmPollIntervalMs?: number
+  executionIdTimeoutMs?: number
   actionProviders?: AutomationActionProvider[]
   getActionProviders?: () => AutomationActionProvider[]
   actionProviderRegistrations?: RegisteredAutomationProvider<AutomationActionProvider>[]
@@ -59,6 +60,9 @@ export class AutomationActionBlockedError extends Error {
 
 const DEFAULT_LAUNCH_CONFIRM_TIMEOUT_MS = 20_000
 const DEFAULT_LAUNCH_CONFIRM_POLL_INTERVAL_MS = 150
+// The workspace-sync bus confirms the agent before its pty is spawned, so the
+// terminal session (and its executionId) can appear a moment after launch-confirm.
+const DEFAULT_EXECUTION_ID_TIMEOUT_MS = 10_000
 
 export function createLocalAutomationExecutor(options: LocalAutomationExecutorOptions): AutomationRunExecutor {
   const builtInRegistry = options.actionProviders
@@ -257,10 +261,19 @@ async function spawnAgent(
     )
   }
 
-  // Correlation key for agent-lifecycle finalization. Best-effort: a miss leaves
-  // executionId undefined and must not fail the launch — the run is then covered
-  // by the per-tick signal poll-scan instead of the exit trigger.
-  const executionId = options.resolveAgentExecutionId?.({ workspaceId, agentId: confirmed })
+  // Secondary correlation key for agent-lifecycle finalization: the terminal
+  // session is spawned after the workspace-sync bus confirms the agent, so a
+  // single probe here races the pty and reliably misses. Poll until the session
+  // registers. Best-effort — a permanent miss leaves executionId undefined and
+  // must not fail the launch; the run still correlates on (workspaceId, agentId).
+  const executionId = options.resolveAgentExecutionId
+    ? await waitFor(
+        options.executionIdTimeoutMs ?? DEFAULT_EXECUTION_ID_TIMEOUT_MS,
+        options.launchConfirmPollIntervalMs ?? DEFAULT_LAUNCH_CONFIRM_POLL_INTERVAL_MS,
+        options,
+        () => options.resolveAgentExecutionId?.({ workspaceId, agentId: confirmed }) ?? null
+      ) ?? undefined
+    : undefined
 
   return { workspaceId, agentId: confirmed, executionId }
 }
@@ -280,8 +293,7 @@ async function ensureRunWorktree(
 }
 
 export async function defaultCreateRunWorktree(
-  input: { workspaceRoot: string; runId: string },
-  excludeSignalFile: (worktreePath: string) => Promise<void> = excludeRunSignalFromWorktree
+  input: { workspaceRoot: string; runId: string }
 ): Promise<RunWorktree | null> {
   const branchName = `automations/${input.runId}`
   const created = await createGitWorktree({
@@ -292,28 +304,7 @@ export async function defaultCreateRunWorktree(
     baseRef: 'HEAD',
   })
   if (!created.ok) return null
-  // Best-effort: keep the agent's run-status signal file out of git so neither the
-  // agent's `git add -A` nor the finalize backstop-commit stages it into the run's
-  // PR. A failure here must not fail the run or change the returned worktree.
-  try {
-    await excludeSignalFile(created.data.path)
-  } catch (error) {
-    console.warn(
-      `[automations] could not exclude run-status signal file in worktree ${created.data.path}:`,
-      error
-    )
-  }
   return { worktreePath: created.data.path, branch: created.data.branch ?? branchName }
-}
-
-/**
- * Append {@link RUN_SIGNAL_FILENAME} to the worktree's git exclude file so the
- * signal file is never staged into the run's PR. Delegates to the shared
- * {@link appendWorktreeGitExcludes} helper (git-path resolved, idempotent).
- * Throws if git or the write fails.
- */
-export async function excludeRunSignalFromWorktree(worktreePath: string): Promise<void> {
-  await appendWorktreeGitExcludes(worktreePath, [RUN_SIGNAL_FILENAME])
 }
 
 export async function defaultRemoveRunWorktree(

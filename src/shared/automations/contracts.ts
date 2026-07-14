@@ -211,10 +211,10 @@ export type AutomationRun = {
   workspaceId?: string
   agentId?: string
   /**
-   * Terminal-session executionId of the spawned agent, resolved at launch-confirm
-   * time. Correlates an agent-lifecycle exit back to this run so finalization can
-   * be driven from the agent terminating, not only the run-status signal file.
-   * Optional: historical runs and resolution misses degrade to the poll-scan.
+   * Terminal-session executionId of the spawned agent, resolved by a bounded poll
+   * after launch-confirm. Secondary correlation key for the agent-lifecycle exit
+   * and for the startup reconcile. Optional: historical runs and permanent
+   * resolution misses correlate on (workspaceId, agentId) instead.
    */
   executionId?: string
   promptFingerprint?: string

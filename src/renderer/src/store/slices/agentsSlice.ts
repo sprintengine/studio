@@ -309,6 +309,15 @@ export function createAgentsSlice(set: AgentsSliceSet): AgentsSlice {
               && !agent.cliHasLaunched
               && !agent.cliSessionId
             ) continue
+            // No live session: clear the launch/resume GATE, never the session
+            // identity. `cliSessionId`/`harnessSessionId` key the painted screen
+            // on disk (`<userData>/terminal-snapshots/<cliSessionId>.json`);
+            // dropping them here is what re-orphaned the snapshot after the
+            // persist normalizers stopped doing it, sending a cold-loaded tab
+            // back down the mint-a-fresh-uuid → spawn path. Nothing auto-resumes
+            // off the id alone — `shouldResume` (TerminalView) reads the flags
+            // cleared below. This is the same contract as
+            // `clearSprintEngineAgentLaunchState`/`clearAutomationsHostAgentLaunchState`.
             if (agent.kind === 'sprintengine') {
               // MC-1444 window-disposal retention: the auto-run executor
               // deliberately parks a resume token (cliSessionId +
@@ -318,8 +327,10 @@ export function createAgentsSlice(set: AgentsSliceSet): AgentsSlice {
               // session BY DESIGN — wiping it here (mount-time reconcile,
               // second sync window) silently forfeits the rework context.
               // Leave it: the supervisor clears it once the task completes
-              // (clearStaleRetainedResumeState), and cold app starts still
-              // reset it via the persist partialize.
+              // (clearStaleRetainedResumeState). (Cold app starts no longer
+              // reset it via the persist partialize — that clear now keeps the
+              // id and drops only cliResumeAvailable, so a cold-loaded worker
+              // lands on the branch below and keeps its identity anyway.)
               if (
                 agent.cliResumeAvailable
                 && agent.cliSessionId
@@ -328,8 +339,6 @@ export function createAgentsSlice(set: AgentsSliceSet): AgentsSlice {
               ) continue
               agent.cliStartRequested = false
               agent.cliHasLaunched = false
-              agent.cliSessionId = undefined
-              agent.harnessSessionId = undefined
               agent.cliOnboardingPromptSent = false
               agent.cliResumeAvailable = false
               continue
@@ -342,8 +351,6 @@ export function createAgentsSlice(set: AgentsSliceSet): AgentsSlice {
             }
             agent.cliStartRequested = false
             agent.cliHasLaunched = false
-            agent.cliSessionId = undefined
-            agent.harnessSessionId = undefined
           }
         }
       }),

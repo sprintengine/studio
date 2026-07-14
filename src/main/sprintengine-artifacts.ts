@@ -55,6 +55,12 @@ type SprintEngineMcpToolResponse =
 type SprintEngineMcpRunnerContext = {
   workspaceRoot: string
   allowedRoots?: string[]
+  // Kill the MCP child and fail the read if it has not answered in this long.
+  // Unset means wait indefinitely, which is only safe for a read a human is
+  // sitting in front of. A read on an automated hot path (the mobile snapshot
+  // publisher) must set this: a workspace root on a stalled network mount would
+  // otherwise hang the process forever and take the whole snapshot with it.
+  timeoutMs?: number
 }
 
 type SprintEngineMcpToolRunner = (
@@ -706,8 +712,33 @@ function runSprintEngineMcpToolProcess(
     child.stderr.on('data', (chunk) => {
       stderr += chunk
     })
+    // A child that never closes would leave this promise pending forever, and
+    // every awaiting caller with it. Settle once, kill the child, and let the
+    // caller treat it as a failed read.
+    let settled = false
+    const timer = context.timeoutMs !== undefined
+      ? setTimeout(() => {
+          if (settled) return
+          settled = true
+          child.kill('SIGKILL')
+          resolvePromise({
+            exitCode: 1,
+            stdout,
+            stderr: stderr || `The sprintengine MCP tool did not respond within ${context.timeoutMs}ms.`,
+            response: null,
+          })
+        }, context.timeoutMs)
+      : null
+
+    const settle = (result: Awaited<ReturnType<SprintEngineMcpToolRunner>>): void => {
+      if (settled) return
+      settled = true
+      if (timer) clearTimeout(timer)
+      resolvePromise(result)
+    }
+
     child.on('error', (error) => {
-      resolvePromise({ exitCode: 1, stdout, stderr: stderr || error.message, response: null })
+      settle({ exitCode: 1, stdout, stderr: stderr || error.message, response: null })
     })
     child.on('close', (exitCode) => {
       let response: SprintEngineMcpToolResponse | null = null
@@ -719,7 +750,7 @@ function runSprintEngineMcpToolProcess(
           response = null
         }
       }
-      resolvePromise({ exitCode, stdout, stderr, response })
+      settle({ exitCode, stdout, stderr, response })
     })
     child.stdin.end(`${JSON.stringify({ tool, payload, actor })}\n`)
   })
@@ -768,6 +799,52 @@ async function runReadOnlyMcpTool(
     }
   }
   return { ok: true, data: toolResult.response.result }
+}
+
+// The one role-registry read. `sprintengine.roles.list` resolves the layered
+// registry (workspace -> plugin -> user -> bundled), and `pluginRegistryRoots` is
+// what carries the plugin *and* user-global layers — user roles are mounted as a
+// registry root (see sprintEngineRegistryRootsForRead), not through the MCP's own
+// user_root. Omit them and the read silently degrades to bundled-only, which is
+// precisely the role set a caller asking for the registry does not want.
+//
+// Shared by the renderer IPC (settings, wizard) and the mobile snapshot producer
+// (src/main/mobile/sprintengine/role-catalog.ts) so the phone's launch picker and
+// the desktop's wizard can never disagree about which roles exist.
+async function readSprintEngineRegistryRolesWith(
+  runMcpTool: SprintEngineMcpToolRunner,
+  payload: SprintEngineRegistryRolesReadInput | undefined,
+  timeoutMs?: number
+): Promise<SprintEngineMcpReadResult> {
+  try {
+    const workspaceRoot = validateWorkspaceRoot(payload?.workspaceRoot)
+    const pluginRegistryRoots = sprintEngineRegistryRootsForRead()
+    return await runReadOnlyMcpTool(
+      runMcpTool,
+      {
+        workspaceRoot,
+        allowedRoots: pluginRegistryRoots.map((root) => root.root),
+        ...(timeoutMs !== undefined ? { timeoutMs } : {}),
+      },
+      'sprintengine.roles.list',
+      { workspaceRoot, includeShadowed: payload?.includeShadowed === true, pluginRegistryRoots }
+    )
+  } catch (error) {
+    return { ok: false, message: error instanceof Error ? error.message : String(error) }
+  }
+}
+
+/**
+ * Registry roles for a workspace, outside the IPC handler bag (mobile snapshot).
+ *
+ * Bounded, unlike the renderer's read: this one runs on the snapshot publish path,
+ * where a hung Python child would stall every snapshot the phone ever gets.
+ */
+export function readSprintEngineRegistryRoles(
+  payload: SprintEngineRegistryRolesReadInput,
+  timeoutMs?: number
+): Promise<SprintEngineMcpReadResult> {
+  return readSprintEngineRegistryRolesWith(runSprintEngineMcpToolProcess, payload, timeoutMs)
 }
 
 async function requireSprintEngineMcpAuthority(
@@ -1557,18 +1634,7 @@ export function createSprintEngineArtifactHandlers(deps: SprintEngineArtifactDep
     },
 
     async readRegistryRoles(payload) {
-      try {
-        const workspaceRoot = validateWorkspaceRoot(payload?.workspaceRoot)
-        const pluginRegistryRoots = sprintEngineRegistryRootsForRead()
-        return runReadOnlyMcpTool(
-          runMcpTool,
-          { workspaceRoot, allowedRoots: pluginRegistryRoots.map((root) => root.root) },
-          'sprintengine.roles.list',
-          { workspaceRoot, includeShadowed: payload?.includeShadowed === true, pluginRegistryRoots }
-        )
-      } catch (error) {
-        return { ok: false, message: error instanceof Error ? error.message : String(error) }
-      }
+      return readSprintEngineRegistryRolesWith(runMcpTool, payload)
     },
 
     async readRegistryRole(payload) {

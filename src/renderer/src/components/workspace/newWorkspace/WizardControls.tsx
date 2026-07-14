@@ -226,6 +226,7 @@ export function RosterAndRunSettings({
   architectCard,
   workTypes,
   workflowSection,
+  sections = 'all',
 }: {
   roleCounts: SprintEngineRoleCounts
   roleCliDefaults: Required<SprintEngineRoleCliDefaults>
@@ -289,6 +290,13 @@ export function RosterAndRunSettings({
   // (the wizard's "Workflow steps" + "Final sweeps" panels), so the step reads
   // work → workflow → run settings in the plan's order.
   workflowSection?: React.ReactNode
+  // Which half of this surface to render, so the creation hub can page the team
+  // and the run apart without forking the component. 'roster' is the team shape
+  // (mode choice + roster body); 'run' is how the run behaves — `workflowSection`
+  // (self-review, reviewer runtime, required sweeps) plus the run-settings card.
+  // Default 'all' renders every block in today's order and is a behavioural
+  // no-op: the Guided Brief handoff passes no `sections` and is unchanged.
+  sections?: 'all' | 'roster' | 'run'
 }) {
   // The saved-teams rail (two-column layout) is available only where team
   // management is wired up — the Sprint Engine wizard. The Guided Brief handoff
@@ -384,102 +392,108 @@ export function RosterAndRunSettings({
       {rosterTable}
     </>
   )
+  const showRoster = sections !== 'run'
+  const showRun = sections !== 'roster'
   return (
     <>
-      <div className="flex flex-col gap-3">
-        {onChangeRosterSource ? (
-          <RosterModeChoice
-            value={rosterSource ?? 'user'}
-            onChange={onChangeRosterSource}
-            architectAvailable={architectModeAvailable ?? false}
-            architectDisabledHint={architectModeDisabledHint}
-            workTypes={workTypes}
-          />
-        ) : null}
-        {rosterBody}
-      </div>
+      {showRoster ? (
+        <div className="flex flex-col gap-3">
+          {onChangeRosterSource ? (
+            <RosterModeChoice
+              value={rosterSource ?? 'user'}
+              onChange={onChangeRosterSource}
+              architectAvailable={architectModeAvailable ?? false}
+              architectDisabledHint={architectModeDisabledHint}
+              workTypes={workTypes}
+            />
+          ) : null}
+          {rosterBody}
+        </div>
+      ) : null}
 
-      {workflowSection}
+      {showRun ? workflowSection : null}
 
-      <div className="flex flex-col gap-2">
-        <Field.Label>Run settings</Field.Label>
-        <div className="overflow-hidden rounded-md border border-[color:var(--border-default)] bg-[color:var(--bg-surface)]">
-          <CliPermissionPresetRow
-            preset={cliPermissionPreset}
-            onChange={onChangeCliPermissionPreset}
-          />
-          <div className="flex flex-col gap-2 border-t border-[color:var(--border-default)] px-3.5 py-3">
-            <div>
-              <span className="block text-[13px] font-semibold text-[color:var(--text-strong)]">Automation</span>
-              <span className="mt-0.5 block text-[11px] leading-4 text-[color:var(--text-muted)]">
-                How the sprint should continue after this workspace opens.
-              </span>
-            </div>
-            <div className="grid gap-2" role="radiogroup" aria-label="Sprint automation mode">
-              {sprintEngineAutomationModeOptions.map((option) => (
-                <PathRadio
-                  key={option.value}
-                  checked={automationMode === option.value}
-                  label={option.label}
-                  hint={option.hint}
-                  onSelect={() => onChangeAutomationMode(option.value)}
-                />
-              ))}
-            </div>
-          </div>
-          {onChangeMaxParallelAgents ? (
-            <div className="flex items-start justify-between gap-3 border-t border-[color:var(--border-default)] px-3.5 py-3">
-              <label htmlFor="sprintengine-max-parallel-agents" className="min-w-0">
-                <span className="block text-[13px] font-semibold text-[color:var(--text-strong)]">Max parallel agents</span>
+      {showRun ? (
+        <div className="flex flex-col gap-2">
+          <Field.Label>Run settings</Field.Label>
+          <div className="overflow-hidden rounded-md border border-[color:var(--border-default)] bg-[color:var(--bg-surface)]">
+            <CliPermissionPresetRow
+              preset={cliPermissionPreset}
+              onChange={onChangeCliPermissionPreset}
+            />
+            <div className="flex flex-col gap-2 border-t border-[color:var(--border-default)] px-3.5 py-3">
+              <div>
+                <span className="block text-[13px] font-semibold text-[color:var(--text-strong)]">Automation</span>
                 <span className="mt-0.5 block text-[11px] leading-4 text-[color:var(--text-muted)]">
-                  Cap on agent sessions running at once, across all roles. Extra ready tasks queue until a slot frees up.
+                  How the sprint should continue after this workspace opens.
+                </span>
+              </div>
+              <div className="grid gap-2" role="radiogroup" aria-label="Sprint automation mode">
+                {sprintEngineAutomationModeOptions.map((option) => (
+                  <PathRadio
+                    key={option.value}
+                    checked={automationMode === option.value}
+                    label={option.label}
+                    hint={option.hint}
+                    onSelect={() => onChangeAutomationMode(option.value)}
+                  />
+                ))}
+              </div>
+            </div>
+            {onChangeMaxParallelAgents ? (
+              <div className="flex items-start justify-between gap-3 border-t border-[color:var(--border-default)] px-3.5 py-3">
+                <label htmlFor="sprintengine-max-parallel-agents" className="min-w-0">
+                  <span className="block text-[13px] font-semibold text-[color:var(--text-strong)]">Max parallel agents</span>
+                  <span className="mt-0.5 block text-[11px] leading-4 text-[color:var(--text-muted)]">
+                    Cap on agent sessions running at once, across all roles. Extra ready tasks queue until a slot frees up.
+                  </span>
+                </label>
+                <input
+                  id="sprintengine-max-parallel-agents"
+                  type="number"
+                  inputMode="numeric"
+                  min={1}
+                  max={10}
+                  step={1}
+                  value={maxParallelAgents ?? 3}
+                  onChange={(event) => {
+                    const parsed = Math.floor(Number(event.target.value))
+                    if (Number.isFinite(parsed)) {
+                      onChangeMaxParallelAgents(Math.max(1, Math.min(10, parsed)))
+                    }
+                  }}
+                  className="
+                    h-7 w-16 shrink-0 rounded-md border border-[color:var(--color-5)] bg-[color:var(--bg-surface-raised)]
+                    px-2 text-right text-[12px] tabular-nums text-[color:var(--text-strong)]
+                    focus:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--accent-primary)]
+                  "
+                />
+              </div>
+            ) : null}
+            {onChangeUseWorktrees ? (
+              <label
+                className={`flex items-start gap-2.5 border-t border-[color:var(--border-default)] px-3.5 py-3 text-[12px] text-[color:var(--text-default)] transition-colors ${worktreesDisabled ? 'cursor-not-allowed opacity-60' : 'cursor-pointer hover:bg-[color:var(--bg-hover)]'}`}
+              >
+                <input
+                  type="checkbox"
+                  checked={useWorktrees ?? false}
+                  disabled={worktreesDisabled}
+                  onChange={(event) => onChangeUseWorktrees(event.target.checked)}
+                  className="mt-0.5 h-3.5 w-3.5 shrink-0 accent-[color:var(--accent-primary)]"
+                />
+                <span>
+                  <span className="block text-[13px] font-semibold text-[color:var(--text-strong)]">Run in an isolated git worktree</span>
+                  <span className="mt-0.5 block text-[11px] leading-4 text-[color:var(--text-muted)]">
+                    {worktreesDisabled
+                      ? 'Worktree mode is fixed for an existing team and cannot be changed here.'
+                      : 'All agents work in one shared worktree on a dedicated branch and commit per task; a pull request opens when the run completes.'}
+                  </span>
                 </span>
               </label>
-              <input
-                id="sprintengine-max-parallel-agents"
-                type="number"
-                inputMode="numeric"
-                min={1}
-                max={10}
-                step={1}
-                value={maxParallelAgents ?? 3}
-                onChange={(event) => {
-                  const parsed = Math.floor(Number(event.target.value))
-                  if (Number.isFinite(parsed)) {
-                    onChangeMaxParallelAgents(Math.max(1, Math.min(10, parsed)))
-                  }
-                }}
-                className="
-                  h-7 w-16 shrink-0 rounded-md border border-[color:var(--color-5)] bg-[color:var(--bg-surface-raised)]
-                  px-2 text-right text-[12px] tabular-nums text-[color:var(--text-strong)]
-                  focus:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--accent-primary)]
-                "
-              />
-            </div>
-          ) : null}
-          {onChangeUseWorktrees ? (
-            <label
-              className={`flex items-start gap-2.5 border-t border-[color:var(--border-default)] px-3.5 py-3 text-[12px] text-[color:var(--text-default)] transition-colors ${worktreesDisabled ? 'cursor-not-allowed opacity-60' : 'cursor-pointer hover:bg-[color:var(--bg-hover)]'}`}
-            >
-              <input
-                type="checkbox"
-                checked={useWorktrees ?? false}
-                disabled={worktreesDisabled}
-                onChange={(event) => onChangeUseWorktrees(event.target.checked)}
-                className="mt-0.5 h-3.5 w-3.5 shrink-0 accent-[color:var(--accent-primary)]"
-              />
-              <span>
-                <span className="block text-[13px] font-semibold text-[color:var(--text-strong)]">Run in an isolated git worktree</span>
-                <span className="mt-0.5 block text-[11px] leading-4 text-[color:var(--text-muted)]">
-                  {worktreesDisabled
-                    ? 'Worktree mode is fixed for an existing team and cannot be changed here.'
-                    : 'All agents work in one shared worktree on a dedicated branch and commit per task; a pull request opens when the run completes.'}
-                </span>
-              </span>
-            </label>
-          ) : null}
+            ) : null}
+          </div>
         </div>
-      </div>
+      ) : null}
     </>
   )
 }

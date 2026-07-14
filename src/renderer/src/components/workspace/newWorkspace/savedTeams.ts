@@ -14,15 +14,19 @@ import type {
 // so divergence comparison resolves an absent default the same way the rows do.
 const DEFAULT_CLI: AgentCli = 'claude-code'
 
-// Default first-run team for a from-scratch Sprint Engine: a runnable
-// plan -> build -> review loop, not just planners. A novice who lands on the
-// roster step can press Continue and get a team that actually implements and
-// reviews work. Saved teams override this; it only seeds when none exists.
-// Shared with the automation server's sprint.create so an externally created
-// run gets the same roster a wizard Continue would.
+// What the wizard's roster step OPENS on when the user has no saved team: a
+// runnable plan -> build pair, so Continue yields a team that can actually do
+// work. Saved teams override it; it only seeds when none exists.
+//
+// Every role here MUST be one the wizard renders as an editable "Work types &
+// models" row, so the user can see it and switch it off. `product` used to be
+// seeded here and is a SWEEP role — the wizard never draws a row for it (sweeps
+// are opt-in via "Final sweeps"), so it was invisible config the user could not
+// uncheck, and it rode into `configuredRoles` on every run. Sweeps are chosen in
+// "Final sweeps", never staffed here.
 export const DEFAULT_SPRINT_ENGINE_ROLE_COUNTS: SprintEngineRoleCounts = {
   architect: 1,
-  product: 1,
+  product: 0,
   frontend: 0,
   ui_ux_reviewer: 0,
   developer: 1,

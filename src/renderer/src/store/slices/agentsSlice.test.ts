@@ -220,10 +220,51 @@ assert.equal(carrier.workspaces[0].agents['claude-agent'].cliSessionId, 'stable-
 assert.equal(carrier.workspaces[0].agents['claude-code-agent'].cliStartRequested, true)
 assert.equal(carrier.workspaces[0].agents['claude-code-agent'].cliResumeAvailable, true)
 assert.equal(carrier.workspaces[0].agents['claude-code-agent'].cliSessionId, 'stable-claude-code')
+// No live session: the launch/resume GATE is cleared (nothing auto-resumes)...
 assert.equal(carrier.workspaces[0].agents['sprintengine-agent'].cliStartRequested, false)
 assert.equal(carrier.workspaces[0].agents['sprintengine-agent'].cliHasLaunched, false)
-assert.equal(carrier.workspaces[0].agents['sprintengine-agent'].cliSessionId, undefined)
 assert.equal(carrier.workspaces[0].agents['sprintengine-agent'].cliResumeAvailable, false)
+// ...but the session IDENTITY survives. This reconcile runs at hydration
+// (WorkspaceManager) and used to wipe cliSessionId here, which re-orphaned the
+// painted snapshot the persist normalizers now preserve — a second, independent
+// route back to the mint-fresh-uuid → spawn bug.
+assert.equal(
+  carrier.workspaces[0].agents['sprintengine-agent'].cliSessionId,
+  'stale-sprintengine',
+  'reconcile clears the resume gate but never the session identity',
+)
+
+// A cold-loaded automations-host agent (kind 'general', identity kept by
+// partialize, every gate flag already false) survives the same reconcile with its
+// id intact — this is the shape that reaches TerminalView on cold load, and it is
+// what lets it resolve a sidecar and pause instead of spawning.
+carrier.workspaces[0].agents['cold-host-agent'] = {
+  ...defaultAgent('cold-host-agent'),
+  cli: 'claude-code',
+  cliStartRequested: false,
+  cliHasLaunched: false,
+  cliResumeAvailable: false,
+  cliSessionId: 'cold-host-session',
+  harnessSessionId: 'cold-host-harness',
+}
+directSlice.reconcileWorkspaceAgentLaunchFlags([])
+assert.equal(
+  carrier.workspaces[0].agents['cold-host-agent'].cliSessionId,
+  'cold-host-session',
+  'cold-loaded host agent keeps its session identity through hydration reconcile',
+)
+assert.equal(
+  carrier.workspaces[0].agents['cold-host-agent'].harnessSessionId,
+  'cold-host-harness',
+  'and keeps the harness resume token',
+)
+assert.equal(carrier.workspaces[0].agents['cold-host-agent'].cliStartRequested, false)
+assert.equal(carrier.workspaces[0].agents['cold-host-agent'].cliHasLaunched, false)
+assert.equal(
+  carrier.workspaces[0].agents['cold-host-agent'].cliResumeAvailable,
+  false,
+  'still no resume gate — identity alone must never auto-resume',
+)
 
 // The session event carries resume capabilities stamped main-side; the applier
 // stores them verbatim (codex: resume yes, stable-session no) rather than

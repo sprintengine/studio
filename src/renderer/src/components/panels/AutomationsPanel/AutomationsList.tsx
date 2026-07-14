@@ -174,9 +174,12 @@ function DefinitionRow({
 
       {/* Trailing actions: revealed on hover/focus/selection so a resting row stays calm.
           Run now is the one resting affordance; Pause/Enable, Edit and Delete live in the
-          overflow menu so a row never shows more than two trailing controls at rest. */}
+          overflow menu so a row never shows more than two trailing controls at rest.
+
+          Only the controls themselves stop propagation, never this container: it spans the
+          row's full width, and an opacity-0 container still takes hits — swallowing clicks
+          here would leave a dead strip beside the buttons that never selects the row. */}
       <div
-        onClick={(e) => e.stopPropagation()}
         className={[
           'mt-1.5 flex items-center gap-1 pl-6 transition-opacity',
           selected ? 'opacity-100' : 'opacity-0 group-hover:opacity-100 group-focus-within:opacity-100',
@@ -189,7 +192,9 @@ function DefinitionRow({
         >
           Run now
         </GhostButton>
-        <OverflowMenu ariaLabel={`More actions for ${def.name}`} items={overflowItems} />
+        <span onClick={(e) => e.stopPropagation()} className="flex items-center">
+          <OverflowMenu ariaLabel={`More actions for ${def.name}`} items={overflowItems} />
+        </span>
       </div>
     </li>
   )

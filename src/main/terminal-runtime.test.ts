@@ -21,6 +21,8 @@ type TerminalRuntime = ReturnType<RuntimeModule['createTerminalRuntime']>
 type AgentSpawnInput = Parameters<TerminalRuntime['spawnAgentSession']>[0]
 type AgentSpawnDescriptor = AgentSpawnInput['descriptor']
 type AgentSessionExitEvent = Parameters<Parameters<TerminalRuntime['registerAgentSessionExitListener']>[0]>[0]
+type AgentPhaseEvent = Parameters<Parameters<TerminalRuntime['registerAgentPhaseListener']>[0]>[0]
+type AgentStateFrame = Parameters<TerminalRuntime['ingestAgentStateFrame']>[0]
 
 type SentEvent = {
   channel: string
@@ -134,6 +136,7 @@ async function main(): Promise<void> {
     await assertStaleSweepReapsOnlyUnseenHiddenTerminals(runtimeModule)
     await assertIdleSweepSuspendsRatherThanDisposes(runtimeModule)
     await assertSuspendSnapshotSidecarsSurviveRestart(runtimeModule)
+    await assertSelfExitedAgentWritesSidecarButDisposeDoesNot(runtimeModule)
     await assertIdleSweepDisposesIdleSprintEngineAgent(runtimeModule)
     await assertDebugModeEnsureInstallsDebugSkill(runtimeModule)
     await assertConnectorSpawnInstallsSkillAndExcludesMcpConfig(runtimeModule)
@@ -143,6 +146,7 @@ async function main(): Promise<void> {
     await assertHeadlessSpawnAttachesToLaterWindow(runtimeModule)
     await assertGuardedSweepHoldsSessionsWithLiveSubtreeWork(runtimeModule)
     await assertPendingWakeupFrameHoldsIdleReaper(runtimeModule)
+    await assertAgentPhaseListenerFiresOnlyForAcceptedFrames(runtimeModule)
   } finally {
     moduleWithLoad._load = originalLoad
   }
@@ -248,6 +252,206 @@ async function assertPendingWakeupFrameHoldsIdleReaper(runtimeModule: RuntimeMod
     )
   } finally {
     runtime.ipcHandlers.killTerminal('session-wakeup')
+  }
+}
+
+// The generic phase-listener seam. Two properties carry the weight, because a
+// consumer finalizes real work (opens a PR, deletes a worktree) off these events:
+// only frames the runtime ACCEPTED may be published (never a stale frame, never a
+// frame for a dead pty), and the wakeup a listener sees must be the one armed on
+// the SESSION — the turn-end frame that a consumer acts on never carries one, so
+// a passthrough of frame.wakeup would read "no wakeup" for every self-paced agent.
+async function assertAgentPhaseListenerFiresOnlyForAcceptedFrames(
+  runtimeModule: RuntimeModule
+): Promise<void> {
+  const workspaceRoot = await mkdtemp(join(tmpdir(), 'multicode-terminal-runtime-phase-'))
+  mockPty.spawnCalls = []
+  mockSender.sent = []
+
+  const runtime = runtimeModule.createTerminalRuntime({
+    diagnosticsEnabled: false,
+    requireAuthenticatedUser: () => undefined,
+    logMainPerfEvent: () => undefined,
+  })
+
+  const events: AgentPhaseEvent[] = []
+  // Registered FIRST and throwing synchronously: a faulting listener must take
+  // down neither the listeners behind it nor the frame ingest itself.
+  const unregisterThrowing = runtime.registerAgentPhaseListener(() => {
+    throw new Error('listener boom')
+  })
+  const unregister = runtime.registerAgentPhaseListener((event) => {
+    events.push(event)
+  })
+
+  const spawnAgentTerminal = async (sessionId: string, agentId: string): Promise<MockPtyProcess> => {
+    const result = await runtime.ipcHandlers.spawnTerminal(mockSender as unknown as WebContents, {
+      sessionId,
+      cols: 120,
+      rows: 30,
+      cwd: workspaceRoot,
+      cli: 'claude-code',
+      kind: 'agent',
+      shellOnly: false,
+      workspaceId: 'ws-phase',
+      agentId,
+      visible: false,
+      mcpSettings: { syncEnabled: false, servers: {} } satisfies McpSettings,
+    })
+    assert.equal(result.ok, true, JSON.stringify(result))
+    const spawned = mockPty.spawnCalls[mockPty.spawnCalls.length - 1]?.process
+    assert.ok(spawned, `expected a pty for ${sessionId}`)
+    return spawned
+  }
+
+  const frame = (overrides: Partial<AgentStateFrame> & Pick<AgentStateFrame, 'phase' | 'event' | 'ts'>): AgentStateFrame => ({
+    type: 'agent_state',
+    agentId: 'agent-phase',
+    workspaceId: 'ws-phase',
+    sessionId: null,
+    ...overrides,
+  })
+
+  const listenerFailures: unknown[] = []
+  const originalConsoleError = console.error
+  console.error = (...args: unknown[]): void => {
+    listenerFailures.push(args[0])
+  }
+
+  try {
+    const pty = await spawnAgentTerminal('session-phase', 'agent-phase')
+    const scheduledAt = Date.now()
+    const wakeupAt = scheduledAt + 20 * 60 * 1000
+
+    // Mid-turn: the ScheduleWakeup PostToolUse frame is the ONLY frame the
+    // reporter ever attaches a wakeup to.
+    runtime.ingestAgentStateFrame(frame({
+      phase: 'thinking',
+      event: 'PostToolUse',
+      ts: scheduledAt,
+      wakeup: { delaySeconds: 20 * 60 },
+    }))
+    // Turn end: carries no wakeup of its own, but must still report the armed one.
+    runtime.ingestAgentStateFrame(frame({
+      phase: 'idle',
+      event: 'Stop',
+      ts: scheduledAt + 1_000,
+      transcriptPath: '/tmp/transcript.jsonl',
+    }))
+    await delay(20)
+
+    assert.deepEqual(
+      events.map((event) => event.event),
+      ['PostToolUse', 'Stop'],
+      'the raw reporter event name must ride the event unmodified, and a throwing listener ahead of this one must not have suppressed delivery'
+    )
+    assert.equal(
+      listenerFailures.length,
+      2,
+      'each faulting listener call must be reported, not swallowed'
+    )
+    assert.deepEqual(
+      events[1],
+      {
+        workspaceId: 'ws-phase',
+        agentId: 'agent-phase',
+        executionId: null,
+        phase: 'idle',
+        previousPhase: 'thinking',
+        event: 'Stop',
+        ts: scheduledAt + 1_000,
+        pendingWakeupAt: wakeupAt,
+        transcriptPath: '/tmp/transcript.jsonl',
+      },
+      'a turn end must report the session-resolved pending wakeup, not the frame’s (absent) one'
+    )
+    assert.ok(
+      (events[1]?.pendingWakeupAt ?? 0) > Date.now(),
+      'the armed wakeup must still be in the future on the turn-end event'
+    )
+
+    // A stale frame (older than the recorded phase) is rejected upstream of the
+    // listener, so no consumer can act on a phase the runtime itself ignored.
+    const before = events.length
+    runtime.ingestAgentStateFrame(frame({ phase: 'thinking', event: 'PreToolUse', ts: scheduledAt - 1 }))
+    await delay(20)
+    assert.equal(events.length, before, 'a stale frame must not reach a phase listener')
+
+    // A late frame for a dead pty must not reach a listener either: it would let
+    // a consumer finalize a run whose agent is already gone.
+    pty.emitExit({ exitCode: 0 })
+    await delay(20)
+    const beforeDeadFrame = events.length
+    runtime.ingestAgentStateFrame(frame({ phase: 'idle', event: 'Stop', ts: Date.now() + 5_000 }))
+    await delay(20)
+    assert.equal(events.length, beforeDeadFrame, 'a frame for a dead pty must not reach a phase listener')
+
+    // Unregister stops delivery — the registration seam is a real subscription.
+    unregister()
+    unregisterThrowing()
+    const pty2 = await spawnAgentTerminal('session-phase-2', 'agent-phase-2')
+    runtime.ingestAgentStateFrame(frame({
+      agentId: 'agent-phase-2',
+      phase: 'idle',
+      event: 'Stop',
+      ts: Date.now(),
+    }))
+    await delay(20)
+    assert.equal(
+      events.some((event) => event.agentId === 'agent-phase-2'),
+      false,
+      'an unregistered listener must not receive further phase events'
+    )
+
+    // A consumer's reaction to a phase event is asynchronous — summarize the
+    // transcript, open a PR, remove the worktree — so shutdown must WAIT on it
+    // rather than tear the runtime down on top of half-finished finalization.
+    // Gated rather than timed: the listener hangs until we release it, so
+    // shutdown can only settle early by failing to track the work at all.
+    let releaseFinalization = (): void => {}
+    const finalization = new Promise<void>((resolve) => {
+      releaseFinalization = resolve
+    })
+    let finalizationCompleted = false
+    const unregisterSlow = runtime.registerAgentPhaseListener(async () => {
+      await finalization
+      finalizationCompleted = true
+    })
+    runtime.ingestAgentStateFrame(frame({
+      agentId: 'agent-phase-2',
+      phase: 'idle',
+      event: 'Stop',
+      ts: Date.now(),
+    }))
+
+    let shutdownSettled = false
+    const shutdownComplete = runtime.shutdown().then(() => {
+      shutdownSettled = true
+    })
+    // Let the pty report its exit, so shutdown's terminal wait is satisfied and
+    // the ONLY thing it can still be blocked on is the listener's finalization.
+    await delay(20)
+    pty2.emitExit({ exitCode: 0 })
+    await delay(100)
+    assert.equal(
+      shutdownSettled,
+      false,
+      'shutdown must not settle while a phase listener is still finalizing'
+    )
+
+    releaseFinalization()
+    await shutdownComplete
+    unregisterSlow()
+    assert.equal(
+      finalizationCompleted,
+      true,
+      'shutdown must drain in-flight phase-listener work'
+    )
+  } finally {
+    console.error = originalConsoleError
+    unregister()
+    unregisterThrowing()
+    await runtime.shutdown()
   }
 }
 
@@ -772,6 +976,9 @@ async function assertAgentSessionExitListenerFiresSystemTaggedForAnySystem(
         system: 'switchboard',
         workspaceRoot,
         workspaceId: 'ws-switchboard',
+        // Descriptor spawns key the terminal's agentId off the executionId; the
+        // pair is what an automation correlates on once the execution is gone.
+        agentId: 'exec-switchboard',
         executionId: 'exec-switchboard',
         exitCode: 7,
       },
@@ -783,6 +990,7 @@ async function assertAgentSessionExitListenerFiresSystemTaggedForAnySystem(
         system: 'sprintengine',
         workspaceRoot,
         workspaceId: 'ws-sprintengine',
+        agentId: 'exec-sprintengine',
         executionId: 'exec-sprintengine',
         exitCode: 0,
       },
@@ -1094,6 +1302,92 @@ async function assertSuspendSnapshotSidecarsSurviveRestart(runtimeModule: Runtim
     )
   } finally {
     await runtime2.shutdown()
+  }
+}
+
+// An agent pty that ends on its own — an automation run finishing, a CLI
+// crashing — was never suspended and never saw app quit, so it used to write NO
+// sidecar. That is the COMMON case for a finished automation agent, and with no
+// painted screen on disk its tab had nothing to show on cold load. Self-exit is
+// the third write site. A deliberate dispose still means gone: dispose deletes
+// the sidecar and then kills the pty, so the exit handler must not resurrect it.
+async function assertSelfExitedAgentWritesSidecarButDisposeDoesNot(runtimeModule: RuntimeModule): Promise<void> {
+  const workspaceRoot = await mkdtemp(join(tmpdir(), 'multicode-terminal-runtime-selfexit-ws-'))
+  const userDataDir = await mkdtemp(join(tmpdir(), 'multicode-terminal-runtime-selfexit-data-'))
+  const sidecarStore = createTerminalSnapshotSidecarStore({
+    resolveUserDataDir: () => userDataDir,
+  })
+  mockPty.spawnCalls = []
+  mockSender.sent = []
+
+  const runtime = runtimeModule.createTerminalRuntime({
+    diagnosticsEnabled: false,
+    requireAuthenticatedUser: () => undefined,
+    logMainPerfEvent: () => undefined,
+    snapshotSidecars: sidecarStore,
+  })
+
+  const spawnAgent = async (sessionId: string, kind: 'agent' | 'terminal'): Promise<MockPtyProcess> => {
+    const result = await runtime.ipcHandlers.spawnTerminal(mockSender as unknown as WebContents, {
+      sessionId,
+      cols: 120,
+      rows: 30,
+      cwd: workspaceRoot,
+      cli: 'codex',
+      kind,
+      shellOnly: kind === 'terminal',
+      workspaceId: 'ws-selfexit',
+      agentId: sessionId,
+      visible: false,
+      mcpSettings: { syncEnabled: false, servers: {} } satisfies McpSettings,
+    })
+    assert.equal(result.ok, true, JSON.stringify(result))
+    const spawned = mockPty.spawnCalls[mockPty.spawnCalls.length - 1]?.process
+    assert.ok(spawned, `expected a pty for ${sessionId}`)
+    return spawned
+  }
+
+  try {
+    // The automation case: the run finished and the CLI exited by itself.
+    const finished = await spawnAgent('session-selfexit', 'agent')
+    finished.emitData('automation run MM-37 complete\r\n')
+    await delay(20)
+    finished.emitExit({ exitCode: 0 })
+    await delay(20)
+
+    const sidecar = sidecarStore.read('session-selfexit')
+    assert.ok(
+      sidecar?.rawReplay?.includes('automation run MM-37 complete'),
+      'an agent pty that exits on its own must persist its painted content, so the tab reopens paused instead of relaunching'
+    )
+
+    // A deliberate dispose deletes the sidecar and then kills the pty. The exit
+    // that follows must NOT write one back — gone means gone.
+    const disposed = await spawnAgent('session-disposed', 'agent')
+    disposed.emitData('disposed painted output\r\n')
+    await delay(20)
+    runtime.ipcHandlers.killTerminal('session-disposed')
+    disposed.emitExit({ exitCode: 0 })
+    await delay(20)
+    assert.equal(
+      sidecarStore.read('session-disposed'),
+      null,
+      'a disposed terminal must not resurrect a sidecar on the exit that dispose itself triggered'
+    )
+
+    // Plain shells respawn fresh on reopen; painted-pause is an agent promise.
+    const shell = await spawnAgent('session-shell', 'terminal')
+    shell.emitData('$ echo hi\r\n')
+    await delay(20)
+    shell.emitExit({ exitCode: 0 })
+    await delay(20)
+    assert.equal(
+      sidecarStore.read('session-shell'),
+      null,
+      'a plain shell writes no sidecar on exit'
+    )
+  } finally {
+    await runtime.shutdown()
   }
 }
 

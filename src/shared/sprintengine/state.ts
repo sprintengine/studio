@@ -1577,11 +1577,17 @@ function normalizeSprintEngineArtifacts(value: unknown): SprintEngineArtifact[] 
   })
 }
 
-export function createDefaultSprintEngineRoleCounts(): SprintEngineRoleCounts {
+// The zero roster: nobody staffed but the architect, which every run needs to
+// plan at all. There is deliberately NO "starter team" here. A staffed role is
+// a user decision (the wizard's "Work types & models" rows and "Final sweeps"
+// toggles); anything this module seeds on its own is a role the user never
+// chose, and the architect will plan work for it. See the regression note on
+// `normalizeSprintEngineRoleCounts`.
+export function createEmptySprintEngineRoleCounts(): SprintEngineRoleCounts {
   return {
     architect: 1,
-    product: 1,
-    developer: 1,
+    product: 0,
+    developer: 0,
     frontend: 0,
     ui_ux_reviewer: 0,
     tester: 0,
@@ -1617,16 +1623,23 @@ export function countSprintEngineAgents(roleCounts: SprintEngineRoleCounts): num
 // mint-on-demand plus the workspace-level max-parallel-agents knob, never
 // from a configured headcount. The count-shaped encoding is kept so old and
 // new presets stay mutually readable.
+// The caller's map is the whole truth: a role it does not mention is OFF, not
+// "unspecified, fall back to a default". This used to seed the result from a
+// built-in starter team (architect + product + developer) and only overwrite the
+// keys the input mentioned — so a role the wizard deliberately REMOVED (it
+// deletes sweep roles like `product` from the counts, since sweeps are opt-in via
+// "Final sweeps") was indistinguishable from a role nobody had an opinion about,
+// and silently came back staffed at the starter-team value. It then rode into
+// `configuredRoles` and the architect planned a sweep task for a role the user
+// never configured. Absent means off.
 export function normalizeSprintEngineRoleCounts(
   roleCounts?: Partial<SprintEngineRoleCounts> | null
 ): SprintEngineRoleCounts {
-  const defaults = createDefaultSprintEngineRoleCounts()
-  const result: SprintEngineRoleCounts = { ...defaults }
+  const result = createEmptySprintEngineRoleCounts()
   if (!roleCounts || typeof roleCounts !== 'object') return result
   for (const [role, rawCount] of Object.entries(roleCounts)) {
     if (!normalizeSprintEngineRoleId(role)) continue
-    const fallback = defaults[role] ?? (role === 'architect' ? 1 : 0)
-    const enabled = Math.floor(Number(rawCount ?? fallback) || 0) > 0 ? 1 : 0
+    const enabled = Math.floor(Number(rawCount ?? 0) || 0) > 0 ? 1 : 0
     result[role] = Math.max(role === 'architect' ? 1 : 0, enabled)
   }
   return result
@@ -1757,7 +1770,7 @@ export function buildSprintEngineAgentRosterForState(
   if (sprintEngineState?.sprintEngineAgents && Object.keys(sprintEngineState.sprintEngineAgents).length > 0) {
     return buildSprintEngineAgentRosterFromRuntimeAgents(sprintEngineState.sprintEngineAgents)
   }
-  return buildSprintEngineAgentRoster(sprintEngineState?.roleCounts ?? createDefaultSprintEngineRoleCounts())
+  return buildSprintEngineAgentRoster(sprintEngineState?.roleCounts ?? createEmptySprintEngineRoleCounts())
 }
 
 // Bundled worker roles that surface their own role-task launch button on
@@ -2565,14 +2578,17 @@ export function normalizeSprintEngineProjection(
     }]
   })
 
-  const fallbackRoleCounts = createDefaultSprintEngineRoleCounts()
+  // Counts are derived from the run's ACTUAL seated roster. An empty roster
+  // yields the zero roster, never a starter team — a run with nobody on it must
+  // not read back as "product + developer are staffed".
+  const fallbackRoleCounts = createEmptySprintEngineRoleCounts()
   for (const role of Object.keys(fallbackRoleCounts) as SprintEngineRole[]) fallbackRoleCounts[role] = 0
   for (const agent of Object.values(roster)) {
     const role = normalizeSprintEngineRoleId(agent.role)
     if (role) fallbackRoleCounts[role] = (fallbackRoleCounts[role] ?? 0) + 1
   }
   const hasRosterCounts = Object.values(fallbackRoleCounts).some((count) => count > 0)
-  const roleCounts = hasRosterCounts ? fallbackRoleCounts : createDefaultSprintEngineRoleCounts()
+  const roleCounts = hasRosterCounts ? fallbackRoleCounts : createEmptySprintEngineRoleCounts()
 
   const candidate: SprintEngineState = {
     name: optionalTrimmedString(runRecord.name) ?? fallbackName ?? 'Sprint Roster',
