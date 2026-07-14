@@ -1977,6 +1977,7 @@ export type MobileControlCommandType =
   | 'backlog.create'
   | 'sprintengine.openPullRequest'
   | 'sprintengine.setAutomationMode'
+  | 'automations.control'
 
 export type MobileControlCapability =
   | 'snapshots.read'
@@ -1991,6 +1992,7 @@ export type MobileControlCapability =
   | 'backlog.create'
   | 'sprintengines.pr'
   | 'sprintengines.automation'
+  | 'automations.control'
 
 export type MobileControlDevice = {
   protocolVersion: 2

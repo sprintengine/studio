@@ -145,11 +145,12 @@ export function registerAutomationsIpc(host: AutomationsIpcHost, deps: Automatio
     return engineRunNowResult(result)
   }
 
-  host.registerIpc(AUTOMATIONS_CREATE_CHANNEL, async (_event, input: unknown): Promise<AutomationsDefinitionResult> => {
-    return createDefinition(input)
-  })
-
-  host.registerIpc(AUTOMATIONS_UPDATE_CHANNEL, async (_event, input: unknown): Promise<AutomationsDefinitionResult> => {
+  // Shared by the update channel and the app-level front door, exactly as
+  // createDefinition is: the mobile `automations.control` command enables and
+  // pauses through this, so the phone's write gets the identical patch parse,
+  // provider validation, next-run recompute and post-write refresh the desktop
+  // UI's own toggle gets — rather than a second write path onto the same store.
+  const updateDefinition = async (input: unknown): Promise<AutomationsDefinitionResult> => {
     const parsed = parseUpdateInput(input, deps.getWorkspaceSyncSnapshot)
     if (!parsed.ok) return parsed
 
@@ -160,6 +161,14 @@ export function registerAutomationsIpc(host: AutomationsIpcHost, deps: Automatio
     ))
     if (!written.ok) return written
     return ok(definitionForRenderer(written.value))
+  }
+
+  host.registerIpc(AUTOMATIONS_CREATE_CHANNEL, async (_event, input: unknown): Promise<AutomationsDefinitionResult> => {
+    return createDefinition(input)
+  })
+
+  host.registerIpc(AUTOMATIONS_UPDATE_CHANNEL, async (_event, input: unknown): Promise<AutomationsDefinitionResult> => {
+    return updateDefinition(input)
   })
 
   host.registerIpc(AUTOMATIONS_DELETE_CHANNEL, async (_event, input: unknown): Promise<AutomationsDeleteResult> => {
@@ -207,15 +216,17 @@ export function registerAutomationsIpc(host: AutomationsIpcHost, deps: Automatio
     return ok({ state: status.state, ...(status.error ? { error: status.error } : {}) })
   })
 
-  return { createDefinition, runNow }
+  return { createDefinition, updateDefinition, runNow }
 }
 
 // App-level front door over the exact IPC pipeline (parse, workspace-root
 // trust, write core, engine). The automations module provides it as a kernel
-// service so the automation server's tools mutate through the same path the
-// UI does; inputs stay `unknown` because the pipeline owns validation.
+// service so the automation server's tools — and the phone's
+// `automations.control` command — mutate through the same path the UI does;
+// inputs stay `unknown` because the pipeline owns validation.
 export type AutomationsAppFrontDoor = {
   createDefinition(input: unknown): Promise<AutomationsDefinitionResult>
+  updateDefinition(input: unknown): Promise<AutomationsDefinitionResult>
   runNow(input: unknown): Promise<AutomationsRunNowIpcResult>
 }
 

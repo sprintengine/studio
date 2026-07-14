@@ -5,12 +5,21 @@ import { tmpdir } from 'os'
 import {
   MobileSprintEngineSnapshotService,
   readSprintEngineSnapshot,
+  sanitizeMobileSnapshotForRelay,
 } from './snapshot'
 import { normalizeRoleCatalog } from './role-catalog'
+import { containsLocalPath } from './relay-path-safety'
+import { relayResultSummaryMaxBytes, relaySummaryByteLength, summarizeCommandResult } from '../bridge/command-results'
+import { dispatchSnapshotRequest } from '../bridge/snapshot-request'
+import { AutomationsStore } from '../../automations/store'
 import { createBacklogItem } from '../../backlog-service'
 import {
+  automationRecentRunsMax,
+  automationRunTextMaxChars,
+  automationsPerProjectMax,
   mobileControlProtocolVersion,
   validateMobileControlSnapshot,
+  type MobileControlAutomationSnapshot,
   type MobileControlSnapshot,
 } from '../../../shared/mobile-control/protocol'
 import type { SwitchboardFolderStatus, SwitchboardTaskRecord, SwitchboardTaskStatus } from '../../../shared/switchboard'
@@ -34,6 +43,9 @@ async function main(): Promise<void> {
   await assertProjectionSnapshotExposesProvenanceAndVcs()
   await assertSnapshotIncludesDesktopWorkspaceEntries()
   await assertSnapshotIncludesWorkspaceBacklog()
+  await assertAutomationsJoinTheirSprintEngineOnProjectKey()
+  await assertCappedAutomationsFitTheRelayResultBudget()
+  await assertShedDropsRecentRunsBeforeAnySprintEngine()
   await assertRoleCatalogReducesRegistryPayload()
   await assertSnapshotSurfacesCreatedSpikeBacklogItem()
   await assertSnapshotOmitsBacklogWhenWorkspaceHasNone()
@@ -671,6 +683,259 @@ async function assertSnapshotIncludesWorkspaceBacklog(): Promise<void> {
   // And the snapshot carrying it is still a valid snapshot.
   assert.equal(validateMobileControlSnapshot(snapshot).ok, true)
   service.shutdown()
+}
+
+// The automations projection (item 47) is only useful if its `projectKey` is the
+// SAME key the phone joins the other collections on — a key that grouped nothing
+// would still typecheck, still validate, and still be wrong. The sprint engine's
+// key is stamped during the relay sanitize pass and the automation's is stamped by
+// the producer, so nothing but a test holds the two together.
+//
+// The same pass is the only thing standing between an agent's run summary (which
+// routinely quotes absolute paths) and a relay that rejects any summary containing
+// one — so this asserts the payload is relay-safe, not merely well-formed.
+async function assertAutomationsJoinTheirSprintEngineOnProjectKey(): Promise<void> {
+  const statePath = await writeStateFixture({
+    sprintengine: { name: 'Automations Sprint Engine', updatedAt: generatedAt },
+    tasks: [task('T1', 'done', [])],
+    artifacts: [],
+  })
+  const workspaceRoot = workspaceRootForStatePath(statePath)
+  const store = new AutomationsStore(workspaceRoot)
+  await store.createDefinition({
+    id: 'nightly',
+    name: 'Nightly sweep',
+    status: 'enabled',
+    trigger: { kind: 'schedule', config: { kind: 'schedule', cadence: { type: 'interval', everyMinutes: 90 }, timezone: 'UTC' } },
+    action: { kind: 'agent-run', config: { prompt: 'sweep' } },
+    autonomyDefault: 'review_only',
+    nextRunAt: null,
+    lastRunAt: generatedAt,
+    lastRunId: 'run-1',
+    createdAt: generatedAt,
+    updatedAt: generatedAt,
+  })
+  await store.recordRun({
+    id: 'run-1',
+    automationId: 'nightly',
+    status: 'completed',
+    dueAt: generatedAt,
+    startedAt: generatedAt,
+    completedAt: generatedAt,
+    summary: `Rewrote ${join(workspaceRoot, 'src/app.ts')} and left the tests green.`,
+  })
+
+  const service = new MobileSprintEngineSnapshotService({
+    stateReaders: {
+      readSwitchboardTasks: async () => ({ ok: false, message: 'Switchboard is not initialized.' }),
+      getSwitchboardRunnerState: async () => ({ ok: false, message: 'Runner unavailable.' }),
+      listWatchtowerRuns: async () => ({ ok: true, runs: [] }),
+      readMultiloopStates: async () => [],
+      readRoleCatalog: async () => [],
+    },
+  })
+
+  const snapshot = sanitizeMobileSnapshotForRelay(
+    await service.readSnapshot({ desktopSessionId: 'desktop_1', statePaths: [statePath], generatedAt })
+  )
+
+  const automation = snapshot.automations?.[0]
+  assert.equal(automation?.automationId, 'nightly')
+  assert.equal(automation?.cadence, 'Every 90 min')
+  // The join: same repo, same key, across two collections stamped in two places —
+  // the sprint engine's during the sanitize pass, the automation's by the producer.
+  assert.ok(automation?.projectKey)
+  assert.equal(automation?.projectKey, snapshot.sprintEngines[0]?.projectKey)
+
+  // The run summary quoted an absolute path; the relay would reject the whole
+  // command result for it, so the sanitize pass has to reach inside recentRuns.
+  const wireSummary = automation?.recentRuns?.[0]?.summary ?? ''
+  assert.equal(wireSummary.includes('[redacted-path]'), true)
+  assert.equal(containsLocalPath(JSON.stringify(snapshot.automations)), false)
+
+  assert.equal(validateMobileControlSnapshot(snapshot).ok, true)
+  service.shutdown()
+}
+
+// One project's automations, seeded PAST every cap, must still ride the on-demand
+// snapshot.request path inside the relay's 256 KB result-summary budget — and must
+// still be there at the far end, unshed. This drives the real producer through the
+// real bridge path, so it is the caps and the size budget measured together rather
+// than either one asserted in isolation.
+async function assertCappedAutomationsFitTheRelayResultBudget(): Promise<void> {
+  const statePath = await writeStateFixture({
+    sprintengine: { name: 'Capped Automations', updatedAt: generatedAt },
+    tasks: [task('T1', 'done', [])],
+    artifacts: [],
+  })
+  const store = new AutomationsStore(workspaceRootForStatePath(statePath))
+  // Every automation is seeded at worst case: past both caps, and with run text
+  // well past the truncation limit, so the wire payload is the largest one project
+  // can produce.
+  const seededAutomations = automationsPerProjectMax + 2
+  const seededRuns = automationRecentRunsMax + 2
+  for (let index = 0; index < seededAutomations; index += 1) {
+    const automationId = `automation-${String(index).padStart(2, '0')}`
+    await store.createDefinition({
+      id: automationId,
+      name: `Automation ${index}`,
+      status: 'enabled',
+      trigger: { kind: 'schedule', config: { kind: 'schedule', cadence: { type: 'interval', everyMinutes: 30 }, timezone: 'UTC' } },
+      action: { kind: 'agent-run', config: { prompt: 'sweep' } },
+      autonomyDefault: 'review_only',
+      nextRunAt: null,
+      lastRunAt: generatedAt,
+      lastRunId: `${automationId}-run-0`,
+      createdAt: generatedAt,
+      updatedAt: `2026-06-${String(index + 1).padStart(2, '0')}T00:00:00.000Z`,
+    })
+    for (let runIndex = 0; runIndex < seededRuns; runIndex += 1) {
+      const minute = String(runIndex).padStart(2, '0')
+      await store.recordRun({
+        id: `${automationId}-run-${runIndex}`,
+        automationId,
+        status: 'blocked',
+        dueAt: `2026-07-13T10:${minute}:00.000Z`,
+        startedAt: `2026-07-13T10:${minute}:01.000Z`,
+        completedAt: `2026-07-13T10:${minute}:30.000Z`,
+        blockedReason: 'b'.repeat(automationRunTextMaxChars * 3),
+        summary: 's'.repeat(automationRunTextMaxChars * 3),
+      })
+    }
+  }
+
+  const service = new MobileSprintEngineSnapshotService({
+    stateReaders: {
+      readSwitchboardTasks: async () => ({ ok: false, message: 'Switchboard is not initialized.' }),
+      getSwitchboardRunnerState: async () => ({ ok: false, message: 'Runner unavailable.' }),
+      listWatchtowerRuns: async () => ({ ok: true, runs: [] }),
+      readMultiloopStates: async () => [],
+      readRoleCatalog: async () => [],
+    },
+  })
+  const result = await dispatchSnapshotRequest({
+    command: { type: 'snapshot.request', commandId: 'c1', deviceId: 'd1', payload: {} } as never,
+    snapshotService: service,
+    desktopSessionId: 'desktop_1',
+    statePathsProvider: async () => [statePath],
+  })
+  assert.equal(result.ok, true)
+  const snapshot = (result.ok ? result.data : null) as MobileControlSnapshot
+
+  const automations = snapshot.automations ?? []
+  assert.equal(automations.length, automationsPerProjectMax)
+  for (const automation of automations) {
+    assert.equal(automation.recentRuns?.length, automationRecentRunsMax)
+    const [latest] = automation.recentRuns ?? []
+    assert.equal(latest.summary?.length, automationRunTextMaxChars)
+    assert.equal(latest.summary?.endsWith('…'), true)
+    assert.equal(latest.blockedReason?.length, automationRunTextMaxChars)
+  }
+
+  // The whole point of the caps: a project at full cap fits, so the ladder never
+  // has to shed anything for one project's automations.
+  assert.equal(snapshot.sprintEngines.length, 1)
+  assert.equal(
+    relaySummaryByteLength(summarizeCommandResult(result)) <= relayResultSummaryMaxBytes,
+    true,
+    'a project at full automations cap must fit the relay result-summary budget'
+  )
+  assert.equal(validateMobileControlSnapshot(snapshot).ok, true)
+  service.shutdown()
+}
+
+// The ladder's ORDER is the contract: run history is monitor detail on an automation
+// the phone can still see, whereas a dropped sprint engine is a run it can no longer
+// see or drive. So a snapshot that cannot fit must lose `recentRuns` first and keep
+// every sprint engine.
+//
+// Four workspace roots at full automations cap exceed the budget on automations alone
+// (~110% of 256 KB, measured), which is exactly the case the per-project caps cannot
+// prevent — so this drives the ladder with the snapshot the real producer would emit
+// for four such roots.
+async function assertShedDropsRecentRunsBeforeAnySprintEngine(): Promise<void> {
+  const statePath = await writeStateFixture({
+    sprintengine: { name: 'Crowded Sprint Engine', updatedAt: generatedAt },
+    tasks: [task('T1', 'done', [])],
+    artifacts: [],
+  })
+  const service = new MobileSprintEngineSnapshotService({
+    stateReaders: {
+      readSwitchboardTasks: async () => ({ ok: false, message: 'Switchboard is not initialized.' }),
+      getSwitchboardRunnerState: async () => ({ ok: false, message: 'Runner unavailable.' }),
+      listWatchtowerRuns: async () => ({ ok: true, runs: [] }),
+      readMultiloopStates: async () => [],
+      readRoleCatalog: async () => [],
+    },
+  })
+  const base = sanitizeMobileSnapshotForRelay(
+    await service.readSnapshot({ desktopSessionId: 'desktop_1', statePaths: [statePath], generatedAt })
+  )
+  const oversized: MobileControlSnapshot = {
+    ...base,
+    automations: ['ws_alpha', 'ws_beta', 'ws_gamma', 'ws_delta'].flatMap(automationsAtFullCap),
+  }
+  assert.equal(
+    relaySummaryByteLength(oversized) > relayResultSummaryMaxBytes,
+    true,
+    'fixture must actually exceed the budget, or the ladder is never exercised'
+  )
+
+  const result = await dispatchSnapshotRequest({
+    command: { type: 'snapshot.request', commandId: 'c2', deviceId: 'd1', payload: {} } as never,
+    snapshotService: { readSnapshot: async () => oversized } as never,
+    desktopSessionId: 'desktop_1',
+    statePathsProvider: async () => [statePath],
+  })
+  assert.equal(result.ok, true)
+  const shed = (result.ok ? result.data : null) as MobileControlSnapshot
+
+  // The sprint engine survives the shed that removed the run history.
+  assert.deepEqual(
+    shed.sprintEngines.map((sprintEngine) => sprintEngine.sprintEngineId),
+    base.sprintEngines.map((sprintEngine) => sprintEngine.sprintEngineId)
+  )
+  assert.equal(shed.snapshotLimits?.sprintEngines, undefined)
+
+  // Every automation is still on the wire — only its run history went.
+  assert.equal(shed.automations?.length, oversized.automations?.length)
+  assert.equal(shed.automations?.some((automation) => automation.recentRuns !== undefined), false)
+  // Shedding is omission, not an empty array: the wire field is optional and the
+  // validator would reject a nulled one.
+  assert.equal(shed.automations?.every((automation) => !('recentRuns' in automation)), true)
+  assert.equal(shed.automations?.[0]?.name, oversized.automations?.[0]?.name)
+
+  assert.equal(
+    relaySummaryByteLength(summarizeCommandResult(result)) <= relayResultSummaryMaxBytes,
+    true,
+    'dropping recentRuns must be enough to bring four capped projects back inside the budget'
+  )
+  assert.equal(validateMobileControlSnapshot(shed).ok, true)
+  service.shutdown()
+}
+
+// One project's automations exactly as the producer emits them at full cap: capped
+// count, capped runs, run text at the truncation limit.
+function automationsAtFullCap(projectKey: string): MobileControlAutomationSnapshot[] {
+  return Array.from({ length: automationsPerProjectMax }, (_automation, index) => ({
+    automationId: `${projectKey}-automation-${index}`,
+    projectKey,
+    name: `Automation ${index}`,
+    status: 'enabled' as const,
+    triggerKind: 'schedule',
+    cadence: 'Every 30 min',
+    nextRunAt: generatedAt,
+    lastRunAt: generatedAt,
+    lastRunStatus: 'blocked' as const,
+    recentRuns: Array.from({ length: automationRecentRunsMax }, (_run, runIndex) => ({
+      runId: `${projectKey}-automation-${index}-run-${runIndex}`,
+      status: 'blocked' as const,
+      startedAt: generatedAt,
+      completedAt: generatedAt,
+      blockedReason: 'b'.repeat(automationRunTextMaxChars),
+      summary: 's'.repeat(automationRunTextMaxChars),
+    })),
+  }))
 }
 
 // The `sprintengine.roles.list` payload -> wire descriptors. Driven with the shape

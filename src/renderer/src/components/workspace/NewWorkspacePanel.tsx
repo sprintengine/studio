@@ -101,6 +101,15 @@ import { slugifySprintEngineName } from '../../utils/sprintengineStateFile'
 import { basename, folderKey, planBasename, markdownTitle, toTitleName, inferSourcePlanKind, workspaceRelativePath } from './newWorkspace/helpers'
 import type { CreationMode, ExistingTeam, GuidedBriefHasUi, SprintEnginePath, UnreadableTeam } from './newWorkspace/types'
 import { stepsForMode, type StepId } from './newWorkspace/creationStepFlows'
+import {
+  isLastStepIn,
+  jumpTargetFor,
+  nextStepFrom,
+  previousStepFrom,
+  shouldShowSkipToCreate,
+  stepIndexIn,
+  stepWithinFlow,
+} from './newWorkspace/stepNavigation'
 import { KnowledgeStep } from './newWorkspace/KnowledgeStep'
 import { shouldShowKnowledgeStep } from './newWorkspace/knowledgeFolders'
 import { normalizeProjectRootKey } from '../../utils/projectKnowledge'
@@ -1051,8 +1060,8 @@ export default function NewWorkspacePanel({
     () => steps.filter((id) => id !== 'workspace'),
     [steps],
   )
-  const stepIndex = Math.max(0, steps.indexOf(step))
-  const isLastStep = stepIndex >= steps.length - 1
+  const stepIndex = stepIndexIn(steps, step)
+  const isLastStep = isLastStepIn(steps, step)
   const stepLabels = useMemo(() => steps.map((id) => STEP_HEADING[id].title), [steps])
   // The optional Advanced setup disclosure rides the flow's final page, for any
   // flow with real config steps; the zero-config quick flows (chat, switchboard,
@@ -1229,8 +1238,8 @@ export default function NewWorkspacePanel({
   // the knowledge step dropping out for an already-configured folder, or a rail
   // switch racing the mode-scoped reset in handleSelectMode.
   useEffect(() => {
-    if (!steps.includes(step)) setStep(steps[0])
-  }, [steps, step])
+    setStep((current) => stepWithinFlow(steps, current))
+  }, [steps])
 
   // Move focus to the page heading and reset the pane scroll on every page turn
   // (and on a type change, which resets the flow to its first page).
@@ -1319,12 +1328,16 @@ export default function NewWorkspacePanel({
   // Continue is gated on the page you are on; create is gated on the whole flow.
   const currentStepReady = !isChat && isStepReady(step, stepReadiness)
 
-  // The hint speaks for the page you are on — never for one the user has not
-  // reached. The exception is an EARLIER page that went unready underneath them
-  // (the aborted-create folder reset below): then it names what the now-disabled
-  // primary is actually waiting on, instead of claiming this page is fine.
-  const hintStep =
-    firstBlockedStepId && steps.indexOf(firstBlockedStepId) < stepIndex ? firstBlockedStepId : step
+  // The hint explains whichever action the footer is actually offering. If this
+  // page is incomplete it speaks for this page (why Continue is disabled).
+  // Otherwise it names the first step that still blocks create — the reason the
+  // skip affordance is absent — which may be a page ahead of the user or, after
+  // an aborted create reset the folder, one behind. Only when nothing blocks
+  // create does it fall back to this page, whose terminal copy ("Ready to
+  // create.") is then true: skip-to-create is on screen. Without that fallback
+  // order, a ready name+folder page would claim "Ready to create." on a flow
+  // whose intent step is still unanswered.
+  const hintStep = !currentStepReady ? step : firstBlockedStepId ?? step
   const blockingMessage = getStepBlockingMessage({
     step: hintStep,
     workspaceFolderReady: folderTargetUsable,
@@ -2313,25 +2326,29 @@ export default function NewWorkspacePanel({
   // The folder is materialized by handlePrimaryAction (see above), which is why
   // Continue is instant and why "Skip the rest and create" — which IS the
   // primary action — inherits materialization for free.
+  const stepFlow = { steps, step, busy: isCreating || pendingCreate }
+
   const goNext = () => {
-    if (isLastStep || isCreating || pendingCreate || !currentStepReady) return
+    const target = nextStepFrom({ ...stepFlow, currentStepReady })
+    if (!target) return
     setDirection('forward')
-    setStep(steps[stepIndex + 1])
+    setStep(target)
   }
 
   const goBack = () => {
-    if (stepIndex === 0 || isCreating || pendingCreate) return
+    const target = previousStepFrom(stepFlow)
+    if (!target) return
     setDirection('backward')
-    setStep(steps[stepIndex - 1])
+    setStep(target)
   }
 
   // Back-jump from the progress bar: only to an already-completed (earlier) page,
   // and never mid-create. The step-change effect handles focus + scroll reset.
   const jumpToStep = (index: number) => {
-    if (isCreating || pendingCreate) return
-    if (index < 0 || index >= stepIndex) return
+    const target = jumpTargetFor(stepFlow, index)
+    if (!target) return
     setDirection('backward')
-    setStep(steps[index])
+    setStep(target)
   }
 
   const handleSectionKeyDown = (event: React.KeyboardEvent<HTMLElement>) => {
@@ -2429,7 +2446,7 @@ export default function NewWorkspacePanel({
   // One skip control, not two: the flow's remaining pages are all defaulted the
   // moment createReady turns true, so from there the user can leave at any time.
   // A per-page Skip button as well would make people stop and read the footer.
-  const showSkipToCreate = createReady && !isLastStep
+  const showSkipToCreate = shouldShowSkipToCreate({ createReady, isLastStep })
   const stepHeading = STEP_HEADING[step]
   const stepAnimationClass =
     direction === 'forward' ? 'wizard-step-in-forward' : 'wizard-step-in-backward'

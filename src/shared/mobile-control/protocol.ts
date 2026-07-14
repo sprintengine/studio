@@ -17,7 +17,8 @@ export type MobileControlCommandType =
   | "backlog.startSprintEngine"
   | "backlog.create"
   | "sprintengine.openPullRequest"
-  | "sprintengine.setAutomationMode";
+  | "sprintengine.setAutomationMode"
+  | "automations.control";
 
 export type MobileControlEventType =
   | "snapshot.updated"
@@ -39,7 +40,15 @@ export type MobileControlCapability =
   | "backlog.start"
   | "backlog.create"
   | "sprintengines.pr"
-  | "sprintengines.automation";
+  | "sprintengines.automation"
+  // Control the desktop's automations (src/main/automations). A SEPARATE
+  // capability from `sprintengines.automation`, which is a false friend: that
+  // one is a Sprint Engine RUN's automation mode — a different subsystem, a
+  // different store. Reusing it would have handed every already-paired device
+  // the power to fire agent runs on the desktop, a privilege nobody consented
+  // to at pair time. Scopes are frozen at pairing, so this one is paid for with
+  // a deliberate re-pair (relay scope `relay:automations:control`).
+  | "automations.control";
 
 export type MobileControlErrorCode =
   | "unsupported_protocol_version"
@@ -309,6 +318,42 @@ export type SprintEngineSetAutomationModeCommand = MobileControlCommandBase<
   }
 >;
 
+/**
+ * What the phone may do to one automation. Deliberately not a boolean toggle:
+ * `AutomationStatus` has three states and `blocked` is engine-owned, so there is
+ * no action that sets it — the phone can only enable, pause, or fire a run.
+ *
+ * `runNow` is accepted by the engine ONLY for a `schedule` trigger with no run in
+ * flight (`engine.runNow` rejects anything else with `unsupported_trigger` /
+ * `in_flight`). The desktop enforces that; the phone gates the affordance on the
+ * same facts so it never draws a button guaranteed to fail.
+ *
+ * There is no cancel: no cancel primitive exists in the engine, and the nearest
+ * thing (finalizing a run as failed) destroys the worktree and disposes the agent.
+ * That is destruction, not cancellation, and it does not belong on a phone.
+ */
+export type MobileControlAutomationAction = "enable" | "pause" | "runNow";
+
+/**
+ * Control one desktop automation (item 47). One batched command covers enable,
+ * pause and run-now because they share the re-pair cost of the new capability —
+ * splitting them would buy two re-pairs for one benefit.
+ *
+ * `workspacePath` carries the workspace token (`ws_…`) the phone reads off the
+ * automation's `projectKey`, exactly as the backlog commands do: absolute paths
+ * are stripped before they cross the relay, so the desktop resolves the token
+ * back to a root it already knows (`resolveWorkspaceIdToRoot`) and fails closed
+ * with `path_not_allowed` when nothing matches.
+ */
+export type AutomationsControlCommand = MobileControlCommandBase<
+  "automations.control",
+  {
+    workspacePath: string;
+    automationId: string;
+    action: MobileControlAutomationAction;
+  }
+>;
+
 export type MobileControlCommand =
   | SnapshotRequestCommand
   | ArtifactReadCommand
@@ -322,7 +367,8 @@ export type MobileControlCommand =
   | BacklogStartSprintEngineCommand
   | BacklogCreateCommand
   | SprintEngineOpenPullRequestCommand
-  | SprintEngineSetAutomationModeCommand;
+  | SprintEngineSetAutomationModeCommand
+  | AutomationsControlCommand;
 
 export type MobileControlNeedsInputKind = "architect" | "user" | "owner" | "external_validation";
 
@@ -795,6 +841,89 @@ export interface MobileControlBacklogWorkspaceSnapshot {
   roles?: MobileControlRoleDescriptor[];
 }
 
+// Terminal and in-flight states of one automation run (`AutomationRunStatus`,
+// multicode/src/shared/automations/contracts.ts). Closed on purpose: unlike a
+// trigger kind, run status is engine-owned and cannot be extended by a provider.
+export type MobileControlAutomationRunStatus =
+  | "queued"
+  | "running"
+  | "completed"
+  | "failed"
+  | "blocked"
+  | "skipped";
+
+// One past run of an automation. Bounded and lossy by design: the phone monitors
+// runs, it does not inspect them, so touched files, commands, prompts and worktree
+// paths stay off the wire. `summary` and `blockedReason` are truncated by the
+// producer to `automationRunTextMaxChars`.
+export interface MobileControlAutomationRunSummary {
+  runId: string;
+  status: MobileControlAutomationRunStatus;
+  /**
+   * Present once the run leaves `queued`. The phone needs it to age-qualify a
+   * `running` run: a permission-blocked run has no finalize channel and sits
+   * `running` for hours until a sweep fails it, so elapsed time is the only
+   * signal that separates healthy progress from a stuck run.
+   */
+  startedAt?: string;
+  completedAt?: string;
+  blockedReason?: string;
+  summary?: string;
+}
+
+// One automation, projected for a read-only monitor (item 47). Nothing about the
+// action, condition, prompt, worktree or connector rides this wire — the phone
+// watches automations; the desktop authors them.
+export interface MobileControlAutomationSnapshot {
+  automationId: string;
+  /** The repo this automation belongs to. See MobileControlSprintEngineSnapshot.projectKey. */
+  projectKey?: string;
+  name: string;
+  /**
+   * `AutomationStatus` (contracts.ts). Three states, not a boolean: `blocked` is
+   * a real state the engine puts an automation into, and it must render as itself
+   * rather than collapsing into "off".
+   */
+  status: "enabled" | "paused" | "blocked";
+  /**
+   * `AutomationDefinition.trigger.kind`. An OPEN string, mirroring `TriggerKind`
+   * (contracts.ts) — trigger kinds are provider-registered, so a closed union here
+   * would make any third-party trigger unreadable to the phone. Known kinds today:
+   * `schedule`, `repo-event`, `webhook`. Anything else renders generically.
+   */
+  triggerKind: string;
+  /**
+   * Human-readable cadence ("Every 30 min", "Daily 09:00 IST"), PRE-RENDERED by the
+   * desktop. The raw `ScheduleTriggerConfig.cadence` is a four-way discriminated
+   * union plus a timezone, and trigger `config` is typed `unknown` because providers
+   * own their schemas — the phone must never parse provider-owned config.
+   */
+  cadence?: string;
+  nextRunAt?: string;
+  lastRunAt?: string;
+  lastRunStatus?: MobileControlAutomationRunStatus;
+  /**
+   * True while a run of this automation is `queued` or `running`.
+   *
+   * The phone gates the run-now affordance on `triggerKind === "schedule"` AND
+   * this being falsy, because `engine.runNow` rejects a second run with
+   * `in_flight`. It is a FIELD OF ITS OWN, and not something the phone infers
+   * from `recentRuns`, for two reasons: `recentRuns` is the first automations
+   * field the shedding ladder drops (bridge/snapshot-request.ts), and its
+   * absence is ambiguous anyway — the producer also omits it for an automation
+   * that has never run, which is precisely the case where run-now IS allowed.
+   * Inferring in-flight from it would therefore hide the button exactly when a
+   * big snapshot shed the history.
+   *
+   * `lastRunStatus` cannot answer this either: `lastRunId` is only stamped once
+   * a run finishes (engine.ts updateDefinitionAfterRun), so it never names the
+   * run that is in flight right now.
+   */
+  runInFlight?: boolean;
+  /** Newest first, capped at `automationRecentRunsMax` by the producer. */
+  recentRuns?: MobileControlAutomationRunSummary[];
+}
+
 export interface MobileControlSnapshot {
   protocolVersion: MobileControlProtocolVersion;
   generatedAt: string;
@@ -809,6 +938,10 @@ export interface MobileControlSnapshot {
   sprintEngines: MobileControlSprintEngineSnapshot[];
   workspaces?: MobileControlWorkspaceSnapshot[];
   backlog?: MobileControlBacklogWorkspaceSnapshot[];
+  // Flat across the desktop's automations store, grouped by each entry's
+  // `projectKey` the way `backlog` groups by repo. Capped by construction —
+  // see `automationsPerProjectMax`.
+  automations?: MobileControlAutomationSnapshot[];
   snapshotLimits?: {
     sprintEngines?: {
       included: number;
@@ -922,6 +1055,7 @@ const commandTypes = [
   "backlog.create",
   "sprintengine.openPullRequest",
   "sprintengine.setAutomationMode",
+  "automations.control",
 ] as const satisfies readonly MobileControlCommandType[];
 
 const eventTypes = [
@@ -946,6 +1080,7 @@ const capabilities = [
   "backlog.create",
   "sprintengines.pr",
   "sprintengines.automation",
+  "automations.control",
 ] as const satisfies readonly MobileControlCapability[];
 
 // `satisfies` only proves the entries are valid, not that the list is
@@ -1022,6 +1157,15 @@ const notificationCategories = [
 ] as const satisfies readonly MobileNotificationCategory[];
 const notificationTargetKinds = ["artifact", "task", "sprintEngine", "command", "desktop"] as const;
 const needsInputKinds = ["architect", "user", "owner", "external_validation"] as const satisfies readonly MobileControlNeedsInputKind[];
+const automationStatuses = ["enabled", "paused", "blocked"] as const satisfies readonly MobileControlAutomationSnapshot["status"][];
+const automationRunStatuses = [
+  "queued",
+  "running",
+  "completed",
+  "failed",
+  "blocked",
+  "skipped",
+] as const satisfies readonly MobileControlAutomationRunStatus[];
 
 export function validateMobileControlCommand(input: unknown): ValidationResult<MobileControlCommand> {
   const base = validateObject(input, "command");
@@ -1153,6 +1297,15 @@ export function validateMobileControlSnapshot(input: unknown): ValidationResult<
         return invalidPayload(error);
       }
     }
+  }
+
+  const automationsError = validateOptionalArray(
+    snapshot.value.automations,
+    "snapshot.automations",
+    validateAutomationSnapshot,
+  );
+  if (automationsError) {
+    return invalidPayload(automationsError);
   }
 
   return { ok: true, value: input as MobileControlSnapshot };
@@ -1296,6 +1449,16 @@ export const sprintEngineRosterMaxRoles = 12;
 export const sprintEngineRoleCatalogMaxRoles = 48;
 export const sprintEngineRoleSummaryMaxChars = 160;
 
+// Bounds on the automations projection (item 47), for the same reason as the role
+// catalog above: the shedding pass in src/main/mobile/bridge/snapshot-request.ts
+// drops role catalogs and then whole sprint engines, and knows nothing about
+// automations — so an unbounded automations collection cannot be shed and would
+// eat the relay's result-summary budget out from under the runs it cannot drop.
+// The producer enforces these; the wire types cannot.
+export const automationsPerProjectMax = 24;
+export const automationRecentRunsMax = 5;
+export const automationRunTextMaxChars = 160;
+
 // Shared by sprintengine.create and backlog.startSprintEngine: both bootstrap
 // a team through the same desktop CLI path, so they carry the same config.
 function validateSprintEngineCreateConfig(payload: Record<string, unknown>): string | null {
@@ -1405,10 +1568,18 @@ function validateCommandPayload(type: MobileControlCommandType, payload: Record<
       return requireString(payload, "sprintEngineId");
     case "sprintengine.setAutomationMode":
       return requireString(payload, "sprintEngineId") ?? requireLiteral(payload, "mode", automationModeValues);
+    case "automations.control":
+      return (
+        requireString(payload, "workspacePath") ??
+        requireString(payload, "automationId") ??
+        requireLiteral(payload, "action", automationActionValues)
+      );
   }
 }
 
 const automationModeValues = ["manual", "run_agents", "run_agents_and_approve_artifacts"] as const;
+
+const automationActionValues = ["enable", "pause", "runNow"] as const satisfies readonly MobileControlAutomationAction[];
 
 function validateEventPayload(type: MobileControlEventType, payload: Record<string, unknown>): string | null {
   switch (type) {
@@ -2073,6 +2244,52 @@ function validateMultiloopBlockerSummary(input: unknown, fieldName: string): str
     requireString(blocker.value, "title") ??
     optionalString(blocker.value, "status") ??
     optionalIsoDate(blocker.value, "updatedAt")
+  );
+}
+
+function validateAutomationSnapshot(input: unknown, fieldName: string): string | null {
+  const automation = validateObject(input, fieldName);
+  if (automation.ok === false) {
+    return automation.error;
+  }
+
+  const baseError =
+    requireString(automation.value, "automationId") ??
+    optionalString(automation.value, "projectKey") ??
+    requireString(automation.value, "name") ??
+    requireLiteral(automation.value, "status", automationStatuses) ??
+    // Membership deliberately unchecked beyond "non-empty string": trigger kinds
+    // are provider-registered (see MobileControlAutomationSnapshot.triggerKind).
+    requireString(automation.value, "triggerKind") ??
+    optionalString(automation.value, "cadence") ??
+    optionalIsoDate(automation.value, "nextRunAt") ??
+    optionalIsoDate(automation.value, "lastRunAt") ??
+    optionalLiteral(automation.value, "lastRunStatus", automationRunStatuses, `${fieldName}.lastRunStatus`) ??
+    optionalBoolean(automation.value, "runInFlight");
+  if (baseError) {
+    return baseError;
+  }
+
+  return validateOptionalArray(
+    automation.value.recentRuns,
+    `${fieldName}.recentRuns`,
+    validateAutomationRunSummary,
+  );
+}
+
+function validateAutomationRunSummary(input: unknown, fieldName: string): string | null {
+  const run = validateObject(input, fieldName);
+  if (run.ok === false) {
+    return run.error;
+  }
+
+  return (
+    requireString(run.value, "runId") ??
+    requireLiteral(run.value, "status", automationRunStatuses) ??
+    optionalIsoDate(run.value, "startedAt") ??
+    optionalIsoDate(run.value, "completedAt") ??
+    optionalString(run.value, "blockedReason") ??
+    optionalString(run.value, "summary")
   );
 }
 

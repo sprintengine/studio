@@ -33,6 +33,7 @@ import { basename, dirname } from 'node:path'
 import { getSharedCredentialStore } from './secret-store'
 import { getErrorMessage } from './error-message'
 import { getTerminalErrorMessage } from './terminal-error'
+import type { AutomationsAppFrontDoor } from './ipc/automations-ipc'
 import { MobileSprintEngineCommandService } from './mobile/sprintengine/command'
 import { getPluginById, getPluginRegistryUserRoot, getPluginSprintEngineRegistryRoots } from './plugin-registry-instance'
 import { cliCredentialLaunchBlock, pluginIdForCli } from './agent-launch-render'
@@ -161,6 +162,11 @@ type TerminalRuntimeOptions = {
   // automation intent (`sprintengine-automation-service.ts`) through this seam,
   // so it works headless. Absent in tests: the mobile command rejects cleanly.
   setSprintEngineAutomationMode?: DesktopMobileSprintEngineSessionAdapters['setSprintEngineAutomationMode']
+  // Item 47: the phone's `automations.control` command enables, pauses and fires
+  // automations through the Automations module's app front door — the same write
+  // path as the desktop UI. Resolved lazily (the module registers it on the kernel
+  // after app services are built). Absent in tests: the command rejects cleanly.
+  resolveAutomationsFrontDoor?: () => AutomationsAppFrontDoor | null
 }
 
 type TerminalIpcHandlers = {
@@ -224,6 +230,7 @@ let prepareAgentStateHook: TerminalRuntimeOptions['prepareAgentStateHook']
 let snapshotSidecars: TerminalRuntimeOptions['snapshotSidecars']
 let logReapDiagnostic: TerminalRuntimeOptions['logDiagnostic']
 let setSprintEngineAutomationModeAdapter: TerminalRuntimeOptions['setSprintEngineAutomationMode']
+let resolveAutomationsFrontDoorAdapter: TerminalRuntimeOptions['resolveAutomationsFrontDoor']
 
 // CLIs the agent-state reporter can install into. Claude Code, Codex, and Grok
 // Build share a stdin-filter reporter (the same hook payload contract —
@@ -372,6 +379,7 @@ export function createTerminalRuntime(options: TerminalRuntimeOptions): Terminal
   snapshotSidecars = options.snapshotSidecars
   logReapDiagnostic = options.logDiagnostic
   setSprintEngineAutomationModeAdapter = options.setSprintEngineAutomationMode
+  resolveAutomationsFrontDoorAdapter = options.resolveAutomationsFrontDoor
   reapSkipLogState.clear()
   sprintEngineMcpRunRefCounts.clear()
   sprintEngineMcpWorkspaceRefCounts.clear()
@@ -2335,6 +2343,9 @@ function createMobileCommandService(): MobileSprintEngineCommandService {
     },
     spawnAgentTerminal: spawnMobileAgentTerminal,
     setSprintEngineAutomationMode: setSprintEngineAutomationModeAdapter,
+    // Re-read on every command: the adapter is registered once the Automations
+    // module is up, which is after the runtime (and this service) exist.
+    resolveAutomationsFrontDoor: () => resolveAutomationsFrontDoorAdapter?.() ?? null,
     writeTerminal: (sessionId, data) => {
       const session = terminals.get(sessionId)
       if (!session || !isTerminalProcessAlive(session)) {

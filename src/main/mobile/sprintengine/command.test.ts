@@ -10,7 +10,20 @@ import {
   type MobileControlCommand,
   type MobileSprintEngineSessionOrchestrator,
 } from './command'
-import { readSprintEngineSnapshot } from './snapshot'
+import { createMobileAutomationsController } from './automations-controller'
+import { defaultMobileSnapshotCommands, readSprintEngineSnapshot } from './snapshot'
+import { deriveWorkspaceId } from './workspace-id'
+import type {
+  AutomationDefinition,
+  AutomationDefinitionDraft,
+} from '../../../shared/automations/contracts'
+import type { WorkspaceSyncSnapshot } from '../../../shared/workspace-sync'
+import { createAutomationsEngine } from '../../automations/engine'
+import { createBuiltInAutomationProviderRegistry } from '../../automations/provider-registry'
+import { AutomationsStore } from '../../automations/store'
+import { WEBHOOK_TRIGGER_KIND } from '../../automations/triggers/webhook'
+import { registerAutomationsIpc } from '../../ipc/automations-ipc'
+import type { IpcInvokeHandler } from '../../module-host/main-host'
 import { addOrUpdateBacklogLink } from '../../backlog-service'
 import { parseBacklogFrontmatter } from '../../../shared/backlog/frontmatter'
 import { buildSprintEngineRunLink } from '../../../shared/backlog/sprintengine-links'
@@ -57,6 +70,448 @@ async function main(): Promise<void> {
   await assertOpenPullRequestInvokesVcsPr()
   await assertSetAutomationModeRoutesToDesktopSession()
   await assertSetAutomationModeRejectsWhenHeadless()
+  await assertAutomationsControlPausesAndEnablesThroughTheEngineFrontDoor()
+  await assertAutomationsControlRunsAScheduleAutomationNow()
+  await assertAutomationsControlSurfacesUnsupportedTriggerFromTheEngine()
+  await assertAutomationsControlSurfacesInFlightFromTheEngine()
+  await assertAutomationsControlRejectsAnUnknownWorkspaceToken()
+  await assertAutomationsControlRejectsMalformedPayloads()
+  await assertAutomationsControlSurfacesABlockedProviderHonestly()
+  await assertAutomationsControlRejectsAnAutomationTheDesktopNoLongerHas()
+  await assertAutomationsControlRetryDoesNotFireASecondRun()
+  await assertAutomationsControlRejectsWhenTheModuleIsAbsent()
+  await assertAutomationsControlIsAdvertisedOnlyWithItsHandler()
+}
+
+// ---------------------------------------------------------------------------
+// automations.control (item 47)
+//
+// The whole point of these is that they run against the REAL automations stack:
+// a real AutomationsStore on disk, a real AutomationsEngine, and the real IPC
+// front door — wired to the command service through the same production adapter
+// (createMobileAutomationsController) that terminal-mobile-command-service uses.
+// A stubbed controller would prove the mapping and nothing about the two engine
+// limits the phone actually has to respect, which is what this task is about.
+// ---------------------------------------------------------------------------
+
+async function assertAutomationsControlPausesAndEnablesThroughTheEngineFrontDoor(): Promise<void> {
+  const fixture = await automationsFixture()
+  await fixture.createAutomation()
+
+  const paused = await fixture.service.dispatch(command('automations.control', {
+    workspacePath: deriveWorkspaceId(fixture.workspaceRoot),
+    automationId: 'nightly-review',
+    action: 'pause',
+  }))
+
+  assert.equal(paused.ok, true)
+  assert.deepEqual(paused.ok === true ? paused.data : null, {
+    automationId: 'nightly-review',
+    status: 'paused',
+  })
+  // The authoritative store — not just the reply — must carry it, and pausing must
+  // clear the scheduled next run, which is what the shared write core does.
+  const afterPause = await fixture.readDefinition()
+  assert.equal(afterPause.status, 'paused')
+  assert.equal(afterPause.nextRunAt, null)
+
+  const enabled = await fixture.service.dispatch(command('automations.control', {
+    workspacePath: deriveWorkspaceId(fixture.workspaceRoot),
+    automationId: 'nightly-review',
+    action: 'enable',
+  }, { commandId: 'cmd_2', idempotencyKey: 'mobile:device_1:cmd_2' }))
+
+  assert.equal(enabled.ok, true)
+  const afterEnable = await fixture.readDefinition()
+  assert.equal(afterEnable.status, 'enabled')
+  // Re-enabling reschedules: a paused automation that came back with no next run
+  // would never fire again, and the phone would show a live automation that is dead.
+  assert.equal(afterEnable.nextRunAt, '2026-06-18T00:10:00.000Z')
+}
+
+async function assertAutomationsControlRunsAScheduleAutomationNow(): Promise<void> {
+  const fixture = await automationsFixture()
+  await fixture.createAutomation()
+
+  const result = await fixture.service.dispatch(command('automations.control', {
+    workspacePath: deriveWorkspaceId(fixture.workspaceRoot),
+    automationId: 'nightly-review',
+    action: 'runNow',
+  }))
+
+  assert.equal(result.ok, true)
+  assert.equal(fixture.runs.length, 1, 'run-now must actually fire the automation, not just report success')
+  const data = result.ok === true ? result.data as { runId?: string; runStatus?: string; status?: string } : null
+  assert.equal(data?.runStatus, 'completed')
+  assert.equal(data?.status, 'enabled')
+  assert.ok(data?.runId, 'the phone gets the run id it just started')
+
+  // The result rides the relay, which rejects any summary containing a local path.
+  // The engine's own result carries the full definition (provider-owned trigger and
+  // action config, which can hold paths and webhook secrets); only the narrow view
+  // may cross the wire.
+  const serialized = JSON.stringify(result.ok === true ? result.data : {})
+  assert.ok(!serialized.includes(fixture.workspaceRoot), 'command result must not carry the local workspace path')
+  assert.ok(!serialized.includes('Review this workspace.'), 'command result must not carry the automation prompt')
+}
+
+async function assertAutomationsControlSurfacesUnsupportedTriggerFromTheEngine(): Promise<void> {
+  // ENGINE LIMIT 1a: run-now is schedule-triggers-only (engine.ts runNow). The
+  // engine hard-rejects anything else, so the desktop must surface that rejection
+  // rather than swallow it — and the phone must not draw the button at all, which
+  // is what `triggerKind` on the projection is for.
+  const fixture = await automationsFixture()
+  await fixture.createAutomation({
+    id: 'on-webhook',
+    name: 'On Webhook',
+    trigger: { kind: WEBHOOK_TRIGGER_KIND, config: { kind: WEBHOOK_TRIGGER_KIND, enabled: false } },
+  })
+
+  const result = await fixture.service.dispatch(command('automations.control', {
+    workspacePath: deriveWorkspaceId(fixture.workspaceRoot),
+    automationId: 'on-webhook',
+    action: 'runNow',
+  }))
+
+  assert.equal(result.ok, false)
+  assert.equal(result.ok === false ? result.error.code : '', 'command_not_supported')
+  assert.equal(result.ok === false ? result.error.retryable : true, false)
+  // The engine's own words reach the phone: a rejection the user cannot read is a
+  // rejection that gets retried forever.
+  assert.match(result.ok === false ? result.error.message : '', /not supported/i)
+  assert.equal(fixture.runs.length, 0)
+
+  // Enable/pause is NOT schedule-only — the limit is run-now's alone. A webhook
+  // automation must still be pausable from the phone. This is the negative control
+  // for the rejection above: it proves the command reaches the engine for this
+  // automation, so `unsupported_trigger` came from the trigger kind and not from a
+  // fixture that simply could not be controlled at all.
+  const paused = await fixture.service.dispatch(command('automations.control', {
+    workspacePath: deriveWorkspaceId(fixture.workspaceRoot),
+    automationId: 'on-webhook',
+    action: 'pause',
+  }, { commandId: 'cmd_2', idempotencyKey: 'mobile:device_1:cmd_2' }))
+  assert.equal(paused.ok, true)
+  assert.equal((await fixture.readDefinition('on-webhook')).status, 'paused')
+}
+
+async function assertAutomationsControlSurfacesInFlightFromTheEngine(): Promise<void> {
+  // ENGINE LIMIT 1b: a second run while one is in flight is rejected with
+  // `in_flight` (engine.ts runNow). Proven against the real engine by holding the
+  // first run open, so the rejection comes from the engine's own in-flight set
+  // rather than from a stub that was told to say so.
+  let releaseFirstRun = (): void => {}
+  const firstRunStarted = new Promise<void>((resolveStarted) => {
+    const fixtureRunGate = new Promise<void>((resolveGate) => {
+      releaseFirstRun = resolveGate
+    })
+    pendingRunGate = { started: resolveStarted, gate: fixtureRunGate }
+  })
+
+  const fixture = await automationsFixture()
+  await fixture.createAutomation()
+
+  const workspacePath = deriveWorkspaceId(fixture.workspaceRoot)
+  const firstRun = fixture.service.dispatch(command('automations.control', {
+    workspacePath,
+    automationId: 'nightly-review',
+    action: 'runNow',
+  }))
+  await firstRunStarted
+
+  const secondRun = await fixture.service.dispatch(command('automations.control', {
+    workspacePath,
+    automationId: 'nightly-review',
+    action: 'runNow',
+  }, { commandId: 'cmd_2', idempotencyKey: 'mobile:device_1:cmd_2' }))
+
+  assert.equal(secondRun.ok, false)
+  assert.equal(secondRun.ok === false ? secondRun.error.code : '', 'task_not_ready')
+  // Retryable, unlike unsupported_trigger: this exact command succeeds once the
+  // run in flight finishes.
+  assert.equal(secondRun.ok === false ? secondRun.error.retryable : false, true)
+  assert.match(secondRun.ok === false ? secondRun.error.message : '', /already running/i)
+
+  releaseFirstRun()
+  assert.equal((await firstRun).ok, true)
+  assert.equal(fixture.runs.length, 1, 'the in-flight rejection must not have started a second run')
+
+  // Negative control: once the run in flight has finished, the SAME command
+  // succeeds. Without this, a run-now that was simply broken would pass the
+  // rejection assertions above for the wrong reason.
+  const afterItFinished = await fixture.service.dispatch(command('automations.control', {
+    workspacePath,
+    automationId: 'nightly-review',
+    action: 'runNow',
+  }, { commandId: 'cmd_3', idempotencyKey: 'mobile:device_1:cmd_3' }))
+  assert.equal(afterItFinished.ok, true, 'run-now must be accepted once nothing is in flight')
+  assert.equal(fixture.runs.length, 2)
+}
+
+async function assertAutomationsControlRejectsAnUnknownWorkspaceToken(): Promise<void> {
+  // Fail closed: a workspace token this desktop cannot resolve never reaches the
+  // automations store.
+  const fixture = await automationsFixture()
+  await fixture.createAutomation()
+
+  const result = await fixture.service.dispatch(command('automations.control', {
+    workspacePath: deriveWorkspaceId(join(tmpdir(), 'multicode-not-this-workspace')),
+    automationId: 'nightly-review',
+    action: 'pause',
+  }))
+
+  assert.equal(result.ok, false)
+  assert.equal(result.ok === false ? result.error.code : '', 'path_not_allowed')
+  assert.equal((await fixture.readDefinition()).status, 'enabled', 'the automation must be untouched')
+}
+
+async function assertAutomationsControlRejectsMalformedPayloads(): Promise<void> {
+  const fixture = await automationsFixture()
+  await fixture.createAutomation()
+  const workspacePath = deriveWorkspaceId(fixture.workspaceRoot)
+
+  const malformed: Array<Record<string, unknown>> = [
+    { automationId: 'nightly-review', action: 'pause' },
+    { workspacePath, action: 'pause' },
+    { workspacePath, automationId: 'nightly-review' },
+    // `cancel` is the one the UI will be tempted by, and it must never validate:
+    // no cancel primitive exists in the engine.
+    { workspacePath, automationId: 'nightly-review', action: 'cancel' },
+    { workspacePath, automationId: 'nightly-review', action: 'enable', extra: 'ok-to-ignore', ...{} },
+  ]
+
+  for (const [index, payload] of malformed.entries()) {
+    const result = await fixture.service.dispatch(command(
+      'automations.control',
+      payload as MobileControlCommand['payload'],
+      { commandId: `cmd_bad_${index}`, idempotencyKey: `mobile:device_1:cmd_bad_${index}` }
+    ))
+    // The last payload is well-formed (an unknown extra key is tolerated), so it is
+    // the negative control: if validation were rejecting everything, it would fail here.
+    const expectAccepted = index === malformed.length - 1
+    assert.equal(result.ok, expectAccepted, `payload ${index} acceptance`)
+    if (!expectAccepted && result.ok === false) {
+      assert.equal(result.error.code, 'invalid_payload', `payload ${index} error code`)
+    }
+  }
+}
+
+async function assertAutomationsControlSurfacesABlockedProviderHonestly(): Promise<void> {
+  // The `blocked` status exists BECAUSE a provider is missing or refused, so enabling
+  // a blocked automation is the one the phone will actually hit. The write core
+  // refuses it (unknown_action / provider_blocked), and reporting that as an internal
+  // error would tell the user "something broke" when the truth is "this desktop has
+  // no such connector". Seeded through the store directly, which is how a definition
+  // whose provider this build does not register comes to exist on disk.
+  const fixture = await automationsFixture()
+  await new AutomationsStore(fixture.workspaceRoot).createDefinition({
+    id: 'needs-watchtower',
+    name: 'Needs a connector this build lacks',
+    status: 'blocked',
+    trigger: { kind: 'schedule', config: { kind: 'schedule', cadence: { type: 'interval', everyMinutes: 30 }, timezone: 'UTC' } },
+    action: { kind: 'acme.unregistered-action', config: {} },
+    autonomyDefault: 'review_only',
+    nextRunAt: null,
+    lastRunAt: null,
+    lastRunId: null,
+    createdAt: '2026-06-18T00:00:00.000Z',
+    updatedAt: '2026-06-18T00:00:00.000Z',
+  })
+
+  const result = await fixture.service.dispatch(command('automations.control', {
+    workspacePath: deriveWorkspaceId(fixture.workspaceRoot),
+    automationId: 'needs-watchtower',
+    action: 'enable',
+  }))
+
+  assert.equal(result.ok, false)
+  assert.equal(result.ok === false ? result.error.code : '', 'command_not_supported')
+  // The provider's own reason reaches the phone, not a generic failure.
+  assert.match(result.ok === false ? result.error.message : '', /acme\.unregistered-action/)
+  // And it stays blocked: a refused enable must not half-apply.
+  assert.equal((await fixture.readDefinition('needs-watchtower')).status, 'blocked')
+}
+
+async function assertAutomationsControlRejectsAnAutomationTheDesktopNoLongerHas(): Promise<void> {
+  // The phone acted on a snapshot listing an automation that has since been deleted.
+  // That is a stale view, not an internal fault, and not a malformed payload.
+  const fixture = await automationsFixture()
+  await fixture.createAutomation()
+
+  const result = await fixture.service.dispatch(command('automations.control', {
+    workspacePath: deriveWorkspaceId(fixture.workspaceRoot),
+    automationId: 'deleted-yesterday',
+    action: 'pause',
+  }))
+
+  assert.equal(result.ok, false)
+  assert.equal(result.ok === false ? result.error.code : '', 'stale_snapshot')
+}
+
+async function assertAutomationsControlRetryDoesNotFireASecondRun(): Promise<void> {
+  // Run-now spawns an agent. A phone that retries on a lost response (the exact case
+  // idempotencyKey exists for) must NOT fire a second agent run: that costs real money
+  // and can collide with the run already going.
+  const fixture = await automationsFixture()
+  await fixture.createAutomation()
+
+  const runNow = () => fixture.service.dispatch(command('automations.control', {
+    workspacePath: deriveWorkspaceId(fixture.workspaceRoot),
+    automationId: 'nightly-review',
+    action: 'runNow',
+  }))
+
+  const first = await runNow()
+  const replayed = await runNow()
+
+  assert.equal(first.ok, true)
+  assert.equal(replayed.ok, true)
+  assert.equal(fixture.runs.length, 1, 'a retried run-now must replay the cached result, not spawn a second agent run')
+  assert.deepEqual(
+    replayed.ok === true ? replayed.data : null,
+    first.ok === true ? first.data : undefined,
+    'the retry must return the original run, not a new one'
+  )
+}
+
+async function assertAutomationsControlRejectsWhenTheModuleIsAbsent(): Promise<void> {
+  // A desktop build with no Automations module must reject honestly rather than
+  // report a success nobody applied.
+  const workspaceRoot = await mkdtemp(join(tmpdir(), 'multicode-mobile-automations-absent-'))
+  const service = new MobileSprintEngineCommandService({
+    workspaceRoot,
+    now: () => now,
+    execute: async () => {
+      throw new Error('the Sprint Engine tool must not run for automation control')
+    },
+    automationsController: createMobileAutomationsController(() => null),
+  })
+
+  const result = await service.dispatch(command('automations.control', {
+    workspacePath: deriveWorkspaceId(workspaceRoot),
+    automationId: 'nightly-review',
+    action: 'enable',
+  }))
+
+  assert.equal(result.ok, false)
+  assert.equal(result.ok === false ? result.error.code : '', 'command_not_supported')
+}
+
+async function assertAutomationsControlIsAdvertisedOnlyWithItsHandler(): Promise<void> {
+  // snapshot.commands is what the phone reads to know it may send the command. It
+  // is `string[]` on the wire so it CAN grow without a client release — which is
+  // exactly why advertising a command the desktop cannot execute would be a lie the
+  // protocol has no way to catch.
+  assert.ok(
+    defaultMobileSnapshotCommands.includes('automations.control'),
+    'automations.control must be advertised now that the desktop can execute it'
+  )
+}
+
+// A real automations stack over a temp workspace: real store on disk, real engine,
+// real IPC front door, and the production controller adapter.
+let pendingRunGate: { started: () => void; gate: Promise<void> } | null = null
+
+async function automationsFixture(): Promise<{
+  workspaceRoot: string
+  service: MobileSprintEngineCommandService
+  runs: string[]
+  createAutomation(overrides?: Partial<AutomationDefinitionDraft>): Promise<void>
+  readDefinition(automationId?: string): Promise<AutomationDefinition>
+}> {
+  const workspaceRoot = await realpath(await mkdtemp(join(tmpdir(), 'multicode-mobile-automations-')))
+  const runs: string[] = []
+  const runGate = pendingRunGate
+  pendingRunGate = null
+
+  const providerRegistry = createBuiltInAutomationProviderRegistry()
+  const engine = createAutomationsEngine({
+    createStore: (root) => new AutomationsStore(root),
+    getProjectFolders: () => [{ workspaceId: 'ws-1', folderPath: workspaceRoot }],
+    runAutomation: async (input) => {
+      runs.push(input.definition.id)
+      // Held open only by the in-flight test, which needs a run that is genuinely
+      // still running when the second command arrives.
+      if (runGate) {
+        runGate.started()
+        await runGate.gate
+      }
+      return { status: 'completed', summary: 'Manual run completed.' }
+    },
+    now: () => automationsNow,
+    createRunId: ({ automationId, dueAt }) => `${automationId}-${Date.parse(dueAt)}`,
+  })
+
+  const handlers = new Map<string, IpcInvokeHandler>()
+  const frontDoor = registerAutomationsIpc(
+    { registerIpc: (channel, handler) => handlers.set(channel, handler) },
+    {
+      engine,
+      createStore: (root) => new AutomationsStore(root),
+      triggerProviders: providerRegistry.listTriggerProviders(),
+      actionProviders: providerRegistry.listActionProviders(),
+      getWorkspaceSyncSnapshot: () => automationsWorkspaceSnapshot(workspaceRoot),
+      now: () => automationsNow,
+    }
+  )
+
+  const service = new MobileSprintEngineCommandService({
+    workspaceRoot,
+    now: () => now,
+    execute: async () => {
+      throw new Error('the Sprint Engine tool must not run for automation control')
+    },
+    automationsController: createMobileAutomationsController(() => frontDoor),
+  })
+
+  return {
+    workspaceRoot,
+    service,
+    runs,
+    async createAutomation(overrides: Partial<AutomationDefinitionDraft> = {}): Promise<void> {
+      const created = await frontDoor.createDefinition({
+        workspaceRoot,
+        definition: {
+          id: 'nightly-review',
+          name: 'Nightly Review',
+          status: 'enabled',
+          trigger: {
+            kind: 'schedule',
+            config: { kind: 'schedule', timezone: 'UTC', cadence: { type: 'interval', everyMinutes: 10 } },
+          },
+          action: { kind: 'spawn-agent', config: { prompt: 'Review this workspace.' } },
+          autonomyDefault: 'review_only',
+          ...overrides,
+        },
+      })
+      assert.equal(created.ok, true, `automation fixture must be created: ${created.ok === false ? created.message : ''}`)
+    },
+    async readDefinition(automationId = 'nightly-review'): Promise<AutomationDefinition> {
+      const definition = await new AutomationsStore(workspaceRoot).getDefinition(automationId)
+      assert.equal(definition.ok, true)
+      if (!definition.ok) throw new Error('unreachable')
+      return definition.value
+    },
+  }
+}
+
+const automationsNow = Date.parse('2026-06-18T00:00:00.000Z')
+
+function automationsWorkspaceSnapshot(workspaceRoot: string): WorkspaceSyncSnapshot {
+  return {
+    sequence: 1,
+    state: {
+      activeWorkspaceId: 'ws-1',
+      primaryWorkspaceWindowId: 'primary',
+      workspaceWindows: [],
+      workspaces: [{
+        id: 'ws-1',
+        name: 'Automations',
+        folderPath: workspaceRoot,
+        windowId: 'primary',
+      }],
+    },
+  } as WorkspaceSyncSnapshot
 }
 
 async function assertSetAutomationModeRoutesToDesktopSession(): Promise<void> {

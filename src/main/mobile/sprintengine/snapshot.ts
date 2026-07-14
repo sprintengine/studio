@@ -56,6 +56,7 @@ import type {
   MobileControlMultiloopMilestoneSummary as MobileMultiloopMilestoneSummary,
   MobileControlMultiloopBlockerSummary as MobileMultiloopBlockerSummary,
 } from '../../../shared/mobile-control/protocol'
+import { readMobileAutomationSnapshots } from './automations'
 import { readMobileBacklogWorkspaceSnapshot } from './backlog'
 import { readWorkspaceRoleCatalog, type RoleCatalogReader } from './role-catalog'
 import { deriveWorkspaceId } from './workspace-id'
@@ -88,7 +89,17 @@ const mobileSnapshotCommandTypes = [
   'backlog.create',
   'sprintengine.openPullRequest',
   'sprintengine.setAutomationMode',
+  // Item 47. Advertised now that the desktop can actually execute it (the
+  // automations-control handler in command.ts). `snapshot.commands` is `string[]`
+  // on the wire by design, so a phone that predates this command simply does not
+  // see it — the read side needs no client release.
+  'automations.control',
 ] as const satisfies readonly MobileControlCommandType[]
+
+// The advertised set is a SUBSET of the command union — a command the desktop cannot
+// execute yet must not be advertised — so membership is tested against the wide union
+// rather than the narrow tuple's own element type.
+const mobileSnapshotCommandSet = new Set<MobileControlCommandType>(mobileSnapshotCommandTypes)
 
 export const defaultMobileSnapshotCommands: readonly MobileControlCommandType[] = mobileSnapshotCommandTypes
 
@@ -266,6 +277,12 @@ export class MobileSprintEngineSnapshotService {
       ...desktopWorkspaces,
     ]
     const backlog = await readBacklogWorkspaceSnapshots(workspaceRoots, generatedAt, this.stateReaders.readRoleCatalog)
+    // Item 47: the automations monitor. One projection per workspace root, joined to
+    // the other collections on `projectKey` (stamped by the producer, from the same
+    // deriveWorkspaceId the sanitize pass stamps sprint engines with).
+    const automations = (
+      await Promise.all(workspaceRoots.map((workspaceRoot) => readMobileAutomationSnapshots(workspaceRoot, generatedAt)))
+    ).flat()
 
     return {
       protocolVersion: mobileControlProtocolVersion,
@@ -281,6 +298,7 @@ export class MobileSprintEngineSnapshotService {
       sprintEngines,
       workspaces,
       ...(backlog.length > 0 ? { backlog } : {}),
+      ...(automations.length > 0 ? { automations } : {}),
     }
   }
 
@@ -800,7 +818,7 @@ function countBoard(tasks: MobileSprintEngineTaskSnapshot[]): MobileSprintEngine
 function normalizeMobileControlCommands(commands: readonly MobileControlCommandType[]): MobileControlCommandType[] {
   const supported = new Set<MobileControlCommandType>()
   for (const command of commands) {
-    if (mobileSnapshotCommandTypes.includes(command)) {
+    if (mobileSnapshotCommandSet.has(command)) {
       supported.add(command)
     }
   }

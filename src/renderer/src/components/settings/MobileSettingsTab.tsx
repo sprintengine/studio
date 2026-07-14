@@ -16,6 +16,7 @@ type MobileControlCommandType =
   | 'backlog.create'
   | 'sprintengine.openPullRequest'
   | 'sprintengine.setAutomationMode'
+  | 'automations.control'
 
 type MobileControlCapability =
   | 'snapshots.read'
@@ -30,6 +31,7 @@ type MobileControlCapability =
   | 'backlog.create'
   | 'sprintengines.pr'
   | 'sprintengines.automation'
+  | 'automations.control'
 
 type MobileControlDevice = {
   protocolVersion: 2
@@ -181,6 +183,10 @@ export default function MobileSettingsTab() {
     [state?.pairedDevices]
   )
   const enabled = state?.enabled ?? false
+  // Exactly the capabilities the bridge asks the relay for at pairing — read from the
+  // live bridge state rather than restated here, so the consent list cannot drift away
+  // from what a scan of the code actually grants.
+  const grantedCapabilities = state?.capabilities.capabilities ?? []
   const busy = action.status === 'loading' || action.status === 'busy'
   const recentCommands = state?.recentCommands ?? []
   const visibleDiagnostics = state?.diagnostics.slice(0, showDiagnostics ? 6 : 1) ?? []
@@ -362,6 +368,24 @@ export default function MobileSettingsTab() {
         <p className="text-[12px] leading-5 text-[color:var(--text-muted)]">
           Single-use; enter it in the Multicode mobile app.
         </p>
+        {grantedCapabilities.length > 0 ? (
+          <div className="mt-2">
+            <div className="text-[12px] font-medium leading-5 text-[color:var(--text-strong)]">
+              A paired phone may
+            </div>
+            <ul className="mt-1 space-y-0.5">
+              {grantedCapabilities.map((capability) => (
+                <li key={capability} className="text-[12px] leading-5 text-[color:var(--text-muted)]">
+                  {capabilityLabel(capability)}
+                </li>
+              ))}
+            </ul>
+            <p className="mt-1.5 text-[11px] leading-4 text-[color:var(--text-muted)]">
+              These are fixed when a phone pairs. A phone paired earlier keeps the list it was
+              granted then — re-pair it to grant anything added since.
+            </p>
+          </div>
+        ) : null}
         {pairingChallenge ? (
           <div className="mt-3 rounded-md border border-[color:var(--border-default)] bg-[color:var(--bg-surface-raised)] px-4 py-3">
             <button
@@ -603,6 +627,44 @@ function commandLabel(commandType: MobileControlCommandType): string {
       return 'Pull request opened'
     case 'sprintengine.setAutomationMode':
       return 'Automation mode changed'
+    case 'automations.control':
+      return 'Automation controlled'
+  }
+}
+
+// What pairing actually grants, in the user's words. The list rendered from this is
+// the only place the owner sees what a phone may do before they scan the code, so it
+// must read honestly: each entry describes the real power the capability confers.
+// The exhaustive switch makes a new capability a compile error here — a capability
+// the desktop requests but never names to the user is consent taken, not given.
+function capabilityLabel(capability: MobileControlCapability): string {
+  switch (capability) {
+    case 'snapshots.read':
+      return 'Read your sprints, workspaces and backlog'
+    case 'artifacts.read':
+      return 'Open artifacts'
+    case 'artifacts.review':
+      return 'Approve artifacts and request changes'
+    case 'sprintengines.create':
+      return 'Start new sprints'
+    case 'tasks.start':
+      return 'Start tasks'
+    case 'agents.followUp':
+      return 'Send follow-ups to agents'
+    case 'devices.revoke':
+      return 'Unpair phones'
+    case 'backlog.update':
+      return 'Edit backlog items'
+    case 'backlog.start':
+      return 'Start a sprint from a backlog item'
+    case 'backlog.create':
+      return 'Create backlog items'
+    case 'sprintengines.pr':
+      return 'Open pull requests'
+    case 'sprintengines.automation':
+      return "Change a sprint's automation mode"
+    case 'automations.control':
+      return 'Enable, pause and run your automations'
   }
 }
 

@@ -6,7 +6,7 @@ import type {
   MobilePushRegistration,
 } from './index'
 
-const MOBILE_CONTROL_CAPABILITIES: MobileControlCapability[] = [
+const MOBILE_CONTROL_CAPABILITIES = [
   'snapshots.read',
   'artifacts.read',
   'sprintengines.create',
@@ -19,7 +19,21 @@ const MOBILE_CONTROL_CAPABILITIES: MobileControlCapability[] = [
   'backlog.create',
   'sprintengines.pr',
   'sprintengines.automation',
-]
+  'automations.control',
+] as const satisfies readonly MobileControlCapability[]
+
+// A missing member here is silent and destructive, so it is a compile error — the
+// same guard protocol.ts carries, for the same reason (MC-1499). `isMobileControlDevice`
+// requires EVERY capability on a device to appear in this list, and readMobileBridgeStore
+// DROPS a device that fails it: a capability granted at pairing but absent here would
+// unpair the owner's phone on the next desktop restart, with nothing in the log to say why.
+type _AssertCapabilityListComplete = [
+  Exclude<MobileControlCapability, (typeof MOBILE_CONTROL_CAPABILITIES)[number]>,
+] extends [never]
+  ? true
+  : ['MOBILE_CONTROL_CAPABILITIES is missing', Exclude<MobileControlCapability, (typeof MOBILE_CONTROL_CAPABILITIES)[number]>]
+const _capabilityListComplete: _AssertCapabilityListComplete = true
+void _capabilityListComplete
 
 export function isMobileControlDevice(input: unknown): input is MobileControlDevice {
   if (!input || typeof input !== 'object' || Array.isArray(input)) return false

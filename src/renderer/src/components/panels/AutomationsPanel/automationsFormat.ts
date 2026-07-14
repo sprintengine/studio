@@ -19,11 +19,13 @@ import {
   type TriggerKind,
   type WebhookTriggerConfig,
 } from '../../../../../shared/automations/contracts'
+import { WEEKDAY_SHORT, formatAtDatetime, scheduleCadenceSummary } from '../../../../../shared/automations/cadence'
 
 // Re-exported so the editor (AutomationEditor.tsx, TriggerFields.tsx) keeps
-// importing the canonical trigger-kind constants from this module; the
-// definitions themselves live in contracts.ts.
+// importing the canonical trigger-kind constants and cadence copy from this
+// module; the definitions themselves live in contracts.ts and cadence.ts.
 export { REPO_EVENT_TRIGGER_KIND, SCHEDULE_TRIGGER_KIND, WEBHOOK_TRIGGER_KIND }
+export { WEEKDAY_SHORT, formatAtDatetime }
 
 // Shared async + editor state used across the control-center modules.
 export type AsyncState = 'idle' | 'loading' | 'ready' | 'error'
@@ -98,8 +100,6 @@ export function absoluteTime(at: number): string {
   })
 }
 
-export const WEEKDAY_SHORT = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
-
 export function isScheduleConfig(config: unknown): config is ScheduleTriggerConfig {
   return Boolean(config) && typeof config === 'object' && (config as { kind?: unknown }).kind === SCHEDULE_TRIGGER_KIND
 }
@@ -142,37 +142,18 @@ export const TRIGGER_FAMILY_LABEL: Record<string, string> = {
   webhook: 'Webhook',
 }
 
-// The one rendering rule for an `at` datetime ("2026-07-09 09:30") — shared by
-// the cadence summary and the editor read-back so they can never drift.
-export function formatAtDatetime(datetime: string): string {
-  return datetime.replace('T', ' ')
-}
-
 export function triggerFamilyLabel(trigger: AutomationDefinition['trigger']): string {
   return TRIGGER_FAMILY_LABEL[trigger.kind] ?? trigger.kind
 }
 
+// Schedule cadences render through the shared rule (shared/automations/cadence.ts),
+// which the mobile snapshot projection renders through too. Only the non-schedule
+// fallback is panel copy.
 export function cadenceSummary(trigger: AutomationDefinition['trigger']): string {
   if (trigger.kind !== SCHEDULE_TRIGGER_KIND || !isScheduleConfig(trigger.config)) {
     return TRIGGER_SUMMARY[trigger.kind] ?? trigger.kind
   }
-  const cadence = trigger.config.cadence
-  switch (cadence.type) {
-    case 'interval': {
-      const m = cadence.everyMinutes
-      return m % 60 === 0 ? `Every ${m / 60}h` : `Every ${m} min`
-    }
-    case 'daily':
-      return `Daily at ${cadence.timeLocal}`
-    case 'weekly': {
-      const days = [...cadence.daysOfWeek].sort((a, b) => a - b).map((d) => WEEKDAY_SHORT[d] ?? d).join(', ')
-      return `Weekly · ${days} at ${cadence.timeLocal}`
-    }
-    case 'at':
-      return `Once at ${formatAtDatetime(cadence.datetime)}`
-    case 'cron':
-      return `Cron · ${cadence.expression}`
-  }
+  return scheduleCadenceSummary(trigger.config)
 }
 
 // Config-specific repo-event detail for the list's supporting line ('GitHub

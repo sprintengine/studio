@@ -166,10 +166,21 @@ export function createAppServices(diagnosticsEnabled: boolean) {
     },
   })
 
+  // The Automations module (and its app front door) registers on the module
+  // kernel AFTER app services are constructed; index.ts injects the resolver once
+  // the kernel is up. Declared here because both the automation tools and the
+  // terminal runtime's mobile command service (the phone's `automations.control`)
+  // resolve it lazily, at call time. Until the module is up, both report the
+  // module as unavailable rather than buffering.
+  let resolveAutomationsAppFrontDoor: () => AutomationsAppFrontDoor | null = () => null
+
   const terminalRuntime = createTerminalRuntime({
     diagnosticsEnabled,
     requireAuthenticatedUser: requireAuthenticatedMulticodeUser,
     logMainPerfEvent,
+    // Item 47: the phone enables, pauses and fires automations through the same
+    // front door the desktop UI writes through.
+    resolveAutomationsFrontDoor: () => resolveAutomationsAppFrontDoor(),
     // Durable freeze-the-view: suspended agent terminals persist their painted
     // screen to disk and reopen painted-and-paused after an app restart.
     snapshotSidecars: createTerminalSnapshotSidecarStore({
@@ -339,11 +350,6 @@ export function createAppServices(diagnosticsEnabled: boolean) {
   // they run the same store actions as the UI. Off by default; the persisted
   // setting gates startServer in automationService.initialize().
   const automationDelegate = createRendererAutomationDelegate()
-  // The Automations module (and its app front door) registers on the module
-  // kernel AFTER app services are constructed; index.ts injects the resolver
-  // once the kernel is up. Until then the automation tools report the module
-  // as unavailable rather than buffering.
-  let resolveAutomationsAppFrontDoor: () => AutomationsAppFrontDoor | null = () => null
   const automationService = createAutomationService({
     resolveUserDataDir: () => app.getPath('userData'),
     appVersion: app.getVersion(),

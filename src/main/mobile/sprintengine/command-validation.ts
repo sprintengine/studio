@@ -24,8 +24,10 @@ const commandTypes = new Set<MobileControlCommandType>([
   'backlog.create',
   'sprintengine.openPullRequest',
   'sprintengine.setAutomationMode',
+  'automations.control',
 ])
 const worktreeIsolationValues = new Set(['required', 'preferred', 'disabled'])
+const automationActionValues = new Set(['enable', 'pause', 'runNow'])
 
 export function validateMobileControlCommand(input: unknown): ValidationResult<MobileControlCommand> {
   if (!input || typeof input !== 'object' || Array.isArray(input)) {
@@ -182,6 +184,12 @@ function validateCommandPayload(type: MobileControlCommandType, payload: Record<
       return requireString(payload, 'sprintEngineId')
     case 'sprintengine.setAutomationMode':
       return requireString(payload, 'sprintEngineId') ?? requireOneOf(payload, 'mode', automationModeValues)
+    case 'automations.control':
+      return (
+        requireString(payload, 'workspacePath') ??
+        requireString(payload, 'automationId') ??
+        requireOneOf(payload, 'action', automationActionValues)
+      )
   }
 }
 

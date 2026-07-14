@@ -56,14 +56,28 @@ function relaySizedSnapshot(
     return shed
   }
 
-  for (let includedCount = shed.sprintEngines.length - 1; includedCount >= 0; includedCount -= 1) {
-    const candidate = limitSprintEngines(shed, includedCount)
+  // Then the automations' recent-run history (item 47). The producer caps it (24
+  // automations per project, 5 runs each, 160-char run text) but the caps bound a
+  // PROJECT, not a snapshot: at full cap a single project measures ~27% of the
+  // budget, so four workspace roots crowd the snapshot out on automations alone.
+  // Run text is ~90% of those bytes, so dropping it is what buys the room back.
+  // It goes above the sprint engines for the same reason the role catalogs do:
+  // losing run history costs the phone some monitor detail on automations it can
+  // still see, whereas losing a sprint engine costs it a run it can no longer see
+  // or drive. `recentRuns` is optional on the wire, so shedding it is omitting it.
+  const withoutRuns = withoutAutomationRecentRuns(shed)
+  if (snapshotFitsRelayResult(command, withoutRuns)) {
+    return withoutRuns
+  }
+
+  for (let includedCount = withoutRuns.sprintEngines.length - 1; includedCount >= 0; includedCount -= 1) {
+    const candidate = limitSprintEngines(withoutRuns, includedCount)
     if (snapshotFitsRelayResult(command, candidate)) {
       return candidate
     }
   }
 
-  return shed
+  return withoutRuns
 }
 
 function withoutRoleCatalogs(snapshot: MobileControlSnapshot): MobileControlSnapshot {
@@ -73,6 +87,16 @@ function withoutRoleCatalogs(snapshot: MobileControlSnapshot): MobileControlSnap
   return {
     ...snapshot,
     backlog: snapshot.backlog.map(({ roles: _roles, ...workspace }) => workspace),
+  }
+}
+
+function withoutAutomationRecentRuns(snapshot: MobileControlSnapshot): MobileControlSnapshot {
+  if (!snapshot.automations?.some((automation) => automation.recentRuns !== undefined)) {
+    return snapshot
+  }
+  return {
+    ...snapshot,
+    automations: snapshot.automations.map(({ recentRuns: _recentRuns, ...automation }) => automation),
   }
 }
 

@@ -59,6 +59,7 @@ export type MobileControlCommandType =
   | 'backlog.create'
   | 'sprintengine.openPullRequest'
   | 'sprintengine.setAutomationMode'
+  | 'automations.control'
 
 export type MobileControlCapability =
   | 'snapshots.read'
@@ -73,6 +74,11 @@ export type MobileControlCapability =
   | 'backlog.create'
   | 'sprintengines.pr'
   | 'sprintengines.automation'
+  // Controls the desktop's automations (src/main/automations). NOT the same thing
+  // as `sprintengines.automation`, which is a Sprint Engine run's automation mode —
+  // a different subsystem, and reusing its scope would have silently granted every
+  // already-paired device the power to fire agent runs here.
+  | 'automations.control'
 
 export type MobileControlErrorCode =
   | 'unsupported_protocol_version'
@@ -147,6 +153,7 @@ export type MobileRelayScope =
   | 'relay:backlog:create'
   | 'relay:sprintengine:pr'
   | 'relay:sprintengine:automation'
+  | 'relay:automations:control'
 
 export type RelayCommandType =
   | 'snapshot.request'
@@ -162,6 +169,7 @@ export type RelayCommandType =
   | 'backlog.create'
   | 'sprintengine.openPullRequest'
   | 'sprintengine.setAutomationMode'
+  | 'automations.control'
 
 export type RelayCommandEnvelope = {
   desktopRelaySessionId: string
@@ -361,6 +369,7 @@ const REQUESTED_SCOPES: MobileControlCapability[] = [
   'backlog.create',
   'sprintengines.pr',
   'sprintengines.automation',
+  'automations.control',
 ]
 const REQUESTED_RELAY_SCOPES: MobileRelayScope[] = [
   'relay:snapshot:read',
@@ -375,6 +384,7 @@ const REQUESTED_RELAY_SCOPES: MobileRelayScope[] = [
   'relay:backlog:create',
   'relay:sprintengine:pr',
   'relay:sprintengine:automation',
+  'relay:automations:control',
 ]
 const SUPPORTED_COMMANDS: MobileControlCommandType[] = [
   'snapshot.request',
@@ -390,6 +400,7 @@ const SUPPORTED_COMMANDS: MobileControlCommandType[] = [
   'backlog.create',
   'sprintengine.openPullRequest',
   'sprintengine.setAutomationMode',
+  'automations.control',
 ]
 function normalizeRelayUrlUpdate(value: string | null | undefined): string | null {
   if (value === undefined || value === null) return null
@@ -1016,7 +1027,8 @@ export class MobileBridge {
       case 'backlog.update':
       case 'backlog.startSprintEngine':
       case 'backlog.create':
-        return this.dispatchBacklogMutation(command)
+      case 'automations.control':
+        return this.dispatchWorkspaceMutation(command)
     }
   }
 
@@ -1029,10 +1041,12 @@ export class MobileBridge {
     })
   }
 
-  // Backlog commands target workspace roots directly (no Sprint Engine run is
-  // required yet), so the allowed roots include the snapshot workspace roots
-  // alongside any roots derived from configured run state paths.
-  private async dispatchBacklogMutation(command: MobileControlCommand): Promise<MobileSprintEngineCommandResult> {
+  // Backlog and automations commands target workspace roots directly (no Sprint
+  // Engine run is involved), so the allowed roots include the snapshot workspace
+  // roots alongside any roots derived from configured run state paths. The phone
+  // sends a workspace token, never a path; the handler resolves it against these
+  // roots and fails closed when it matches none.
+  private async dispatchWorkspaceMutation(command: MobileControlCommand): Promise<MobileSprintEngineCommandResult> {
     const [statePaths, workspaceRoots] = await Promise.all([
       this.statePathsProvider(),
       this.workspaceRootsProvider(),
