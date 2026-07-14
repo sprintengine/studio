@@ -366,14 +366,6 @@ def apply_init_source(
         state["sourceBundle"] = [item for item in bundle if isinstance(item, dict)]
 
 
-def roster_roles(state: Dict[str, Any]) -> set[str]:
-    return {
-        str(agent.get("role")).strip()
-        for agent in state.get("agents", {}).values()
-        if isinstance(agent, dict) and str(agent.get("role") or "").strip()
-    }
-
-
 def roster_is_configured(state: Dict[str, Any]) -> bool:
     return bool(state.get("sprintengine", {}).get("rosterConfigured"))
 
@@ -411,35 +403,22 @@ def configured_role_set(state: Dict[str, Any]) -> Optional[set[str]]:
 
 
 def ensure_role_in_roster(state: Dict[str, Any], role: str) -> None:
+    """Validate `role` against the run's configuredRoles (its legal role set).
+
+    Post-lease authority: run membership is `configuredRoles`, not a seated
+    roster. A run with zero live workers of a role still admits its planned
+    tasks, so a lazy (architect-only) roster plans work for every enabled role.
+    No-ops when configuredRoles is absent/blank (legacy/headless runs)."""
     role = require_configured_role(role, context="Role")
     configured = configured_role_set(state)
     if configured is not None and role not in configured:
         raise SystemExit(
             f"Role {role!r} is not enabled for this run; ask the user to add it to the roster."
         )
-    roles = roster_roles(state)
-    if roster_is_configured(state) and role not in roles:
-        raise SystemExit(
-            f"Role {role!r} is not in this Sprint Engine roster. "
-            "Add a roster member for that role before creating tasks for it."
-        )
 
 
 def agent_is_retired(agent: Optional[Dict[str, Any]]) -> bool:
     return isinstance(agent, dict) and agent.get("status") in TERMINAL_AGENT_STATUSES
-
-
-def ensure_agent_in_roster(state: Dict[str, Any], agent_id: str, role: str, *, allow_retired: bool = False) -> None:
-    role = require_configured_role(role, context="Agent role")
-    existing_agent = state.get("agents", {}).get(agent_id)
-    if agent_is_retired(existing_agent) and not allow_retired:
-        raise SystemExit(f"Agent {agent_id!r} is retired and cannot claim more Sprint Engine work.")
-    if not roster_is_configured(state):
-        return
-    if not isinstance(existing_agent, dict):
-        raise SystemExit(f"Agent {agent_id!r} is not in this Sprint Engine roster.")
-    if existing_agent.get("role") != role:
-        raise SystemExit(f"Agent {agent_id!r} is rostered as {existing_agent.get('role')!r}, not {role!r}.")
 
 
 def planning_seat_taken(agents: Dict[str, Any], role: str) -> bool:
@@ -457,74 +436,6 @@ def planning_seat_taken(agents: Dict[str, Any], role: str) -> bool:
     )
 
 
-def add_roster_agent(state: Dict[str, Any], role: str, agent_id: str, actor: str) -> Dict[str, Any]:
-    role = require_configured_role(role, context="Roster")
-    clean_id = agent_id.strip()
-    if not clean_id:
-        raise SystemExit("--id cannot be empty.")
-
-    agents = state.setdefault("agents", {})
-    existing = agents.get(clean_id)
-    if isinstance(existing, dict):
-        if existing.get("role") != role:
-            raise SystemExit(f"Agent {clean_id!r} already exists with role {existing.get('role')!r}.")
-        state.setdefault("sprintengine", {})["rosterConfigured"] = True
-        return existing
-
-    # Enforce the run's configured roster boundary on genuinely new seats only:
-    # a role the user did not enable cannot be seated, and a singleton-seat role
-    # (the architect) takes one live member. No-ops when configuredRoles is
-    # absent/blank (legacy runs).
-    configured = configured_role_set(state)
-    if configured is not None:
-        if role not in configured:
-            raise SystemExit(
-                f"Role {role!r} is not enabled for this run; ask the user to add it to the roster."
-            )
-        if role in SINGLETON_SEAT_ROLE_IDS and planning_seat_taken(agents, role):
-            raise SystemExit(
-                f"This run already has a seated {role}; the {role} seat is a singleton "
-                "and cannot take a second member."
-            )
-
-    timestamp = now_iso()
-    agent = {
-        "role": role,
-        "status": "idle",
-        "heartbeatAt": timestamp,
-        "subscription": {"mode": "none"},
-        "currentDispatch": None,
-        "joinedAt": timestamp,
-        "currentTaskId": None,
-    }
-    agents[clean_id] = agent
-    state.setdefault("sprintengine", {})["rosterConfigured"] = True
-    append_event(state, "roster_member_added", actor, f"{actor} added {clean_id} to the Sprint Engine roster as {role}.")
-    return agent
-
-
-def next_replacement_agent_id(state: Dict[str, Any], role: str) -> str:
-    agents = state.get("agents", {})
-    used = {str(agent_id) for agent_id in agents.keys()}
-    pattern = re.compile(rf"^{re.escape(role)}(?:-(\d+))?$")
-    highest = 0
-    for agent_id in used:
-        match = pattern.match(agent_id)
-        if not match:
-            continue
-        highest = max(highest, int(match.group(1) or "1"))
-    # D-Naming: the first minted worker of a role is `<role>-1`. MC-1542 removed the
-    # reviewer carve-out (a reserved bare `<role>` id), but a bare id from an older
-    # run still counts as index 1 so a mint never collides with it. Mirrors the
-    # renderer allocator (getNextSprintEngineAgentId) — TS/Python drift here has bitten before.
-    candidate_index = highest + 1
-    while True:
-        candidate = f"{role}-{candidate_index}"
-        if candidate not in used:
-            return candidate
-        candidate_index += 1
-
-
 def role_has_open_work(state: Dict[str, Any], role: str) -> bool:
     for task in state.get("tasks", []) or []:
         if not isinstance(task, dict):
@@ -532,14 +443,6 @@ def role_has_open_work(state: Dict[str, Any], role: str) -> bool:
         if task.get("role") == role and task.get("status") not in {"done", "canceled"}:
             return True
     return False
-
-
-def retired_agent_has_live_replacement(state: Dict[str, Any], retired_agent: Dict[str, Any]) -> bool:
-    replacement_id = str(retired_agent.get("replacedByAgentId") or "").strip()
-    if not replacement_id:
-        return False
-    replacement = state.get("agents", {}).get(replacement_id)
-    return isinstance(replacement, dict) and not agent_is_retired(replacement)
 
 
 def set_if_changed(record: Dict[str, Any], key: str, value: Any) -> bool:
@@ -584,31 +487,8 @@ def _write_legacy_state_projection(path: Path, state: Dict[str, Any]) -> None:
     folder_store.atomic_write_json(path, state)
 
 
-# Agent statuses Main (or a headless claim) legitimately writes. Liveness is
-# derived by Main — never stored here — so any other status on disk, including
-# the retired `left`/`dead` liveness stamps, normalizes to idle on load.
-KNOWN_AGENT_STATUSES = {"idle", "running", "needs_input", "retired", "done"}
-
-
-def normalize_legacy_agent_statuses(state: Dict[str, Any]) -> None:
-    """Coerce any unknown on-disk agent status (legacy `left`/`dead`) to idle.
-
-    Departed agents now end as idle-no-target, so a stored terminal-liveness
-    status is stale by definition. Provenance fields (leftAt/deadAt/...) ride
-    along untouched as inert display metadata; only the status is normalized.
-    """
-    agents = state.get("agents")
-    if not isinstance(agents, dict):
-        return
-    for agent in agents.values():
-        if isinstance(agent, dict) and str(agent.get("status") or "") not in KNOWN_AGENT_STATUSES:
-            agent["status"] = "idle"
-
-
 def load_mutation_state(path: Path, *, initial_state: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
-    state = _resolve_mutation_state(path, initial_state=initial_state)
-    normalize_legacy_agent_statuses(state)
-    return state
+    return _resolve_mutation_state(path, initial_state=initial_state)
 
 
 def _resolve_mutation_state(path: Path, *, initial_state: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
@@ -800,74 +680,30 @@ def set_agent_idle(agent: Dict[str, Any]) -> bool:
     return changed
 
 
-def append_owned_task_id(agent: Dict[str, Any], task_id: Any) -> bool:
-    """Record `task_id` in the agent's durable ownedTaskIds set (append-once).
-
-    Task-scoped roster ids own a task for their whole lifetime; ownedTaskIds is
-    the authoritative per-id ownership record the claim guard reads. Re-claiming
-    an already-owned task (rework respawn) is a no-op, so the set never grows on
-    rework and a per_task id keeps exactly one entry.
-    """
-    clean_id = str(task_id or "").strip()
-    if not clean_id:
-        return False
-    owned = agent.get("ownedTaskIds")
-    if not isinstance(owned, list):
-        owned = []
-        agent["ownedTaskIds"] = owned
-    if clean_id in owned:
-        return False
-    owned.append(clean_id)
-    return True
-
-
 def agent_owned_task_ids(agent: Dict[str, Any]) -> set[str]:
-    """Every task this id owns, unioning ownedTaskIds with lastOwnedTaskId.
+    """Every task this id has owned, from its `lastOwnedTaskId` attribution field.
 
-    lastOwnedTaskId is included so a roster entry written before ownedTaskIds
-    existed (mid-run upgrade) still reports its owned task to the claim guard.
+    Vestigial roster helper kept for `commands/roster.py` (deleted with the
+    roster surface in T2); no claim/seat/capacity decision reads it any more —
+    the task lease is the sole authority (see `worker_has_active_lease`).
     """
-    owned = {
-        str(task_id).strip()
-        for task_id in (agent.get("ownedTaskIds") or [])
-        if str(task_id).strip()
-    }
+    owned: set[str] = set()
     last_owned = str(agent.get("lastOwnedTaskId") or "").strip()
     if last_owned:
         owned.add(last_owned)
     return owned
 
 
-def task_claim_exceeds_worker_capacity(state: Dict[str, Any], agent: Dict[str, Any], task_id: Any) -> bool:
-    """True when claiming `task_id` would push this id past its task-ownership cap.
-
-    Under the per_task policy an id owns at most one task for life. Re-claiming a
-    task the id already owns (rework respawn) is always allowed; only a claim on
-    a DIFFERENT task by an id already at its cap is refused. A non-per_task policy
-    (none exist yet) imposes no cap.
-    """
-    policy = folder_store.worker_assignment_policy(state)
-    if policy != folder_store.WORKER_ASSIGNMENT_PER_TASK:
-        return False
-    owned = agent_owned_task_ids(agent)
-    if str(task_id or "").strip() in owned:
-        return False
-    return len(owned) >= 1
-
-
 def set_agent_active(agent: Dict[str, Any], task: Dict[str, Any], *, refresh_heartbeat: bool = True) -> bool:
+    """Sync the non-authoritative agents-map mirror to an owned task.
+
+    Assignment authority lives on the task lease (see `mint_lease`); this only
+    updates the display mirror the projection still reads until T4 deletes it.
+    `lastOwnedTaskId` is retained as the denormalized last-owner attribution field.
+    """
     changed = set_if_changed(agent, "status", "needs_input" if task.get("status") == "needs_input" else "running")
     changed = set_if_changed(agent, "currentTaskId", task.get("id")) or changed
-    # Durable task-ownership record for task-scoped worker lifecycle (MC-1444):
-    # unlike currentTaskId, this survives set_agent_idle/reconcile so the
-    # dispatch planner can tell "finished a task" from "never had one".
-    # Invariant: every flow that establishes task ownership must pass through
-    # here (assign_task/reconcile do; the direct currentTaskId reactivation
-    # writes in artifacts.py/task.py only re-activate owners already stamped).
-    # A missing stamp is failure-safe — the planner treats the agent as
-    # never-owned and falls back to the reuse-preferring lifecycle.
     changed = set_if_changed(agent, "lastOwnedTaskId", task.get("id")) or changed
-    changed = append_owned_task_id(agent, task.get("id")) or changed
     changed = clear_terminal_state_metadata(agent) or changed
     if refresh_heartbeat:
         changed = set_if_changed(agent, "heartbeatAt", now_iso()) or changed
@@ -900,8 +736,19 @@ def record_agent_join(
 
 
 def record_agent_heartbeat(state: Dict[str, Any], agent_id: str, role: Optional[str] = None) -> Dict[str, Any]:
+    """Renew liveness for `agent_id`: every active lease it holds, plus its mirror.
+
+    The lease heartbeat is what the expiry sweep measures, so renewing it here is
+    what keeps a live worker's task from being reclaimed. The agents-map mirror
+    heartbeat is refreshed alongside for the display projection.
+    """
     agent = ensure_agent(state, agent_id, role or None)
-    agent["heartbeatAt"] = now_iso()
+    timestamp = now_iso()
+    agent["heartbeatAt"] = timestamp
+    for task in worker_active_lease_tasks(state, agent_id):
+        lease = task_lease(task)
+        if lease is not None:
+            lease["heartbeatAt"] = timestamp
     return agent
 
 
@@ -933,25 +780,144 @@ def agent_liveness_timeout_seconds(state: Dict[str, Any]) -> int:
     return 300
 
 
-def agent_is_expired(state: Dict[str, Any], agent: Dict[str, Any], *, now: Optional[datetime] = None) -> bool:
-    status = str(agent.get("status") or "")
-    if status in TERMINAL_AGENT_STATUSES:
-        return False
-    heartbeat = parse_utc_timestamp(agent.get("heartbeatAt"))
+# ---------------------------------------------------------------------------
+# Task leases — the assignment authority (MC-1591)
+#
+# A lease is minted on the task record at claim (`mint_lease`), lives while the
+# task is in_progress/review/needs_input, and ends at done/canceled. It is the
+# sole authority for claim, seat, and capacity decisions; `ownerAgentId` is its
+# denormalized owner field, kept in lockstep for every consumer that already
+# reads it. The persistent `agents` map is a non-authoritative display mirror
+# only (physical removal + the lease-derived projection land in T4).
+# ---------------------------------------------------------------------------
+
+def task_lease(task: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    lease = task.get("lease")
+    return lease if isinstance(lease, dict) else None
+
+
+def lease_is_active(task: Dict[str, Any]) -> bool:
+    """True while the task's lease binds a worker (in_progress/review/needs_input)."""
+    return task.get("status") in ACTIVE_TASK_STATUSES and active_lease_worker(task) is not None
+
+
+def active_lease_worker(task: Dict[str, Any]) -> Optional[str]:
+    """The worker id holding this task's ACTIVE lease, or None.
+
+    Active means the task status is in ACTIVE_TASK_STATUSES. Falls back to the
+    denormalized `ownerAgentId` when the record predates the lease field, so a
+    task claimed before this change is still attributed to its owner.
+    """
+    if task.get("status") not in ACTIVE_TASK_STATUSES:
+        return None
+    lease = task_lease(task)
+    worker = str((lease or {}).get("workerId") or "").strip()
+    if worker:
+        return worker
+    owner = str(task.get("ownerAgentId") or "").strip()
+    return owner or None
+
+
+def mint_lease(task: Dict[str, Any], worker_id: str, role: Optional[str] = None) -> Dict[str, Any]:
+    """Mint or refresh the task's assignment lease for `worker_id`.
+
+    Called wherever a worker takes ownership of an active task (claim, phase
+    re-bind). `since` is preserved while the same worker holds the lease across a
+    phase walk and reset when a different worker takes over. `heartbeatAt` is
+    refreshed so the expiry sweep measures from the latest ownership event.
+    """
+    clean_id = str(worker_id or "").strip()
+    existing = task_lease(task) or {}
+    same_worker = str(existing.get("workerId") or "").strip() == clean_id and clean_id != ""
+    lease: Dict[str, Any] = {
+        "workerId": clean_id,
+        "role": str(role or existing.get("role") or task.get("role") or "").strip(),
+        "heartbeatAt": now_iso(),
+        "since": existing.get("since") if same_worker else now_iso(),
+    }
+    session_id = str(existing.get("sessionId") or "").strip()
+    if session_id:
+        lease["sessionId"] = session_id
+    task["lease"] = lease
+    return lease
+
+
+def end_lease(task: Dict[str, Any]) -> None:
+    """End the task's lease (at done/canceled or on release to the queue)."""
+    task.pop("lease", None)
+
+
+def worker_active_lease_tasks(state: Dict[str, Any], worker_id: str) -> List[Dict[str, Any]]:
+    """Every task on which `worker_id` currently holds an active lease."""
+    clean_id = str(worker_id or "").strip()
+    if not clean_id:
+        return []
+    return [
+        task for task in state.get("tasks", []) or []
+        if isinstance(task, dict) and active_lease_worker(task) == clean_id
+    ]
+
+
+def worker_has_active_lease(state: Dict[str, Any], worker_id: str, *, excluding_task_id: Any = None) -> bool:
+    """True when `worker_id` holds an active lease on any task except `excluding_task_id`.
+
+    The lease-authority replacement for `task_claim_exceeds_worker_capacity`:
+    a worker with an active lease is refused a second claim; a worker whose task
+    is done (no active lease) may claim again. Re-claiming the excluded task
+    itself (rework respawn) is always allowed.
+    """
+    excluded = str(excluding_task_id or "").strip()
+    return any(
+        str(task.get("id") or "").strip() != excluded
+        for task in worker_active_lease_tasks(state, worker_id)
+    )
+
+
+def worker_active_lease_role(state: Dict[str, Any], worker_id: str) -> str:
+    """The role recorded on any active lease `worker_id` holds, or ''."""
+    for task in worker_active_lease_tasks(state, worker_id):
+        role = str((task_lease(task) or {}).get("role") or task.get("role") or "").strip()
+        if role:
+            return role
+    return ""
+
+
+def worker_role(state: Dict[str, Any], worker_id: str) -> str:
+    """Best-effort role for a worker id, for display typing — never authority.
+
+    The agents-map role is gone as an authority, so this derives the role from the
+    run's own records: an active lease first, then any task the worker owns or last
+    implemented, then the minted-id convention (`<role>` / `<role>-<n>`, how the
+    spawner names workers) validated against the run's configured roles. Returns ''
+    when the role cannot be established.
+    """
+    clean = str(worker_id or "").strip()
+    if not clean:
+        return ""
+    role = worker_active_lease_role(state, clean)
+    if role:
+        return role
+    for task in state.get("tasks", []) or []:
+        if not isinstance(task, dict):
+            continue
+        if task.get("ownerAgentId") == clean or str(task.get("lastImplementedByAgentId") or "").strip() == clean:
+            role = str(task.get("role") or "").strip()
+            if role:
+                return role
+    prefix = clean.split("-", 1)[0]
+    configured = configured_role_set(state)
+    if prefix and (configured is None or prefix in configured):
+        return prefix
+    return ""
+
+
+def lease_is_expired(state: Dict[str, Any], task: Dict[str, Any], *, now: Optional[datetime] = None) -> bool:
+    """True when the task's lease heartbeat has aged past the liveness timeout."""
+    heartbeat = parse_utc_timestamp((task_lease(task) or {}).get("heartbeatAt"))
     if heartbeat is None:
         return False
     current = now or datetime.now(timezone.utc)
     return (current - heartbeat).total_seconds() > agent_liveness_timeout_seconds(state)
-
-
-def agent_has_target_mirror(agent: Dict[str, Any]) -> bool:
-    """True while an agent record still points at a task to release.
-
-    A departed agent reset to idle-no-target has no mirror, so the expiry sweep
-    skips it on later passes — the derived-liveness idempotency guard.
-    """
-    dispatch = agent.get("currentDispatch") if isinstance(agent.get("currentDispatch"), dict) else {}
-    return bool(agent.get("currentTaskId") or dispatch.get("targetKind"))
 
 
 def release_agent_targets(
@@ -961,37 +927,36 @@ def release_agent_targets(
     reason: str,
     actor: str,
 ) -> List[Dict[str, Any]]:
-    """Free every target a departing agent holds and reset it to idle.
+    """Free every in_progress lease `agent_id` holds and reset its display mirror.
 
-    The single authority for releasing an agent's owned work, shared by the MCP
-    agent.leave path and the headless expiry sweep. Frees the owned `in_progress`
-    task (-> todo, ownerAgentId cleared, startedAt/completedAt reset), then resets
-    the agent to idle WITHOUT stamping any terminal status: liveness is derived by
-    Main, never stored here.
+    The single authority for releasing a worker's owned work, shared by the MCP
+    agent.leave path and the headless expiry sweep. Keyed on the task lease (via
+    its denormalized `ownerAgentId`): an `in_progress` task returns to the queue
+    (-> todo, lease ended, ownerAgentId/startedAt/completedAt reset).
 
-    A task in `review` STAYS OWNED (MC-1542 Flow 6). Its diff is published and its
-    phase is half-walked; releasing it to `todo` would hand a stranger a task whose
-    work is already done and whose ready-queue entry claims otherwise. The owner is
-    instead revived under the same id with a phase brief. `needs_input` stays owned
-    for the same reason it always did — the blocker is on the human.
+    A task in `review` STAYS bound to its lease (MC-1542 Flow 6). Its diff is
+    published and its phase is half-walked; releasing it to `todo` would hand a
+    stranger a task whose work is already done and whose ready-queue entry claims
+    otherwise. The owner is instead revived under the same id with a phase brief.
+    `needs_input` stays bound for the same reason — the blocker is on the human.
 
-    ownedTaskIds/lastOwnedTaskId are left intact so a departed worker stays
-    task-capped and replenish still mints a replacement. Returns one canonical
-    descriptor per released target (empty when the agent held none); callers
-    shape their own release payloads from it.
+    The agents-map mirror record is reset to idle for display only; liveness is
+    never stored here. Returns one canonical descriptor per released target
+    (empty when the worker held none); callers shape their own payloads from it.
     """
     agents = state.get("agents")
     agent = agents.get(agent_id) if isinstance(agents, dict) else None
     released: List[Dict[str, Any]] = []
 
     for task in state.get("tasks", []) or []:
-        if not isinstance(task, dict) or task.get("ownerAgentId") != agent_id:
+        if not isinstance(task, dict) or active_lease_worker(task) != agent_id:
             continue
         status = str(task.get("status") or "")
         # Only un-started implementation work returns to the queue. `review` and
-        # `needs_input` stay owned (see the docstring).
+        # `needs_input` leases stay bound (see the docstring).
         if status != "in_progress":
             continue
+        end_lease(task)
         task["ownerAgentId"] = None
         task["status"] = "todo"
         task["startedAt"] = None
@@ -1022,43 +987,45 @@ def release_expired_agent_targets(
     actor: str = "sprintengine",
     excluding_agent_id: Optional[str] = None,
 ) -> Dict[str, Any]:
-    """Headless fallback for the derived-liveness model.
+    """Headless fallback for the derived-liveness model, keyed on task leases.
 
-    Main is the authority on agent liveness; when it is not driving (headless
-    CLI runs), any agent whose heartbeat has aged past the timeout while it still
-    mirrors a target is swept through release_agent_targets — the same release
-    the MCP agent.leave path performs — and re-dispatched. An agent already reset
-    to idle-no-target has no mirror, so repeat sweeps are a no-op.
+    Main is the authority on worker liveness; when it is not driving (headless
+    CLI runs), any `in_progress` lease whose heartbeat has aged past the timeout
+    is swept through release_agent_targets — the same release the MCP agent.leave
+    path performs — and re-dispatched. Only `in_progress` leases are swept:
+    `review`/`needs_input` leases stay bound to their worker id. Once a lease is
+    released to `todo` it is no longer active, so repeat sweeps are a no-op.
     """
     released: List[Dict[str, Any]] = []
-    dirty = False
     current = datetime.now(timezone.utc)
-    for agent_id, agent in list(state.get("agents", {}).items()):
-        if excluding_agent_id and agent_id == excluding_agent_id:
+    # Group expired in_progress leases by worker so one release frees all of a
+    # departed worker's un-started tasks in a single pass.
+    expired_workers: Dict[str, str] = {}
+    for task in state.get("tasks", []) or []:
+        if not isinstance(task, dict) or task.get("status") != "in_progress":
             continue
-        if not isinstance(agent, dict):
+        worker_id = active_lease_worker(task)
+        if not worker_id or worker_id == excluding_agent_id:
             continue
-        if not agent_has_target_mirror(agent):
+        if not lease_is_expired(state, task, now=current):
             continue
-        if not agent_is_expired(state, agent, now=current):
-            continue
-        role = str(agent.get("role") or "")
-        # An expired agent that still mirrors a target is always reset to idle
-        # (its mirror cleared), so the sweep is dirty even if the mirror was
-        # stale and freed no live target.
-        dirty = True
-        for entry in release_agent_targets(state, str(agent_id), reason="agent expired", actor=actor):
+        lease = task_lease(task) or {}
+        expired_workers.setdefault(worker_id, str(lease.get("role") or task.get("role") or ""))
+
+    dirty = bool(expired_workers)
+    for worker_id, role in expired_workers.items():
+        for entry in release_agent_targets(state, worker_id, reason="agent expired", actor=actor):
             kind = str(entry.get("kind") or "")
             queue_dispatch_record(
                 state,
-                agent_id=str(agent_id),
+                agent_id=worker_id,
                 role=role,
                 target_kind=kind or "agent",
                 task_id=str(entry.get("taskId") or ""),
                 reason="agent_expired_release",
             )
             released.append({
-                "agentId": str(agent_id),
+                "agentId": worker_id,
                 "role": role,
                 "targetKind": kind,
                 "taskId": entry.get("taskId"),
@@ -1088,41 +1055,6 @@ def clear_task_refs(state: Dict[str, Any], task_id: str) -> List[str]:
                 set_agent_idle(agent)
             cleared.append(str(agent_id))
     return cleared
-
-
-def ensure_agent_for_reconcile(state: Dict[str, Any], agent_id: str, role: str) -> tuple[Dict[str, Any], bool]:
-    agents = state.setdefault("agents", {})
-    agent = agents.get(agent_id)
-    timestamp = now_iso()
-    if not isinstance(agent, dict):
-        agent = {
-            "role": role,
-            "status": "idle",
-            "heartbeatAt": timestamp,
-            "subscription": {"mode": "none"},
-            "currentDispatch": None,
-            "joinedAt": timestamp,
-            "currentTaskId": None,
-        }
-        agents[agent_id] = agent
-        return agent, True
-
-    changed = False
-    if not agent.get("role"):
-        changed = set_if_changed(agent, "role", role) or changed
-    if "status" not in agent:
-        changed = set_if_changed(agent, "status", "idle") or changed
-    if "heartbeatAt" not in agent:
-        changed = set_if_changed(agent, "heartbeatAt", timestamp) or changed
-    if "subscription" not in agent:
-        changed = set_if_changed(agent, "subscription", {"mode": "none"}) or changed
-    if "currentDispatch" not in agent:
-        changed = set_if_changed(agent, "currentDispatch", None) or changed
-    if "joinedAt" not in agent:
-        changed = set_if_changed(agent, "joinedAt", timestamp) or changed
-    if "currentTaskId" not in agent:
-        changed = set_if_changed(agent, "currentTaskId", None) or changed
-    return agent, changed
 
 
 def current_dispatch_payload(
@@ -1217,75 +1149,37 @@ def current_dispatch_matches_task(agent: Dict[str, Any], task: Dict[str, Any], r
     )
 
 
-def reconcile_agent(state: Dict[str, Any], agent_id: str, role: str) -> Dict[str, Any]:
-    agent, dirty = ensure_agent_for_reconcile(state, agent_id, role)
-    dirty = set_if_changed(agent, "role", role) or dirty
-    repairs = []
+def reconcile_worker(state: Dict[str, Any], worker_id: str, role: str) -> Dict[str, Any]:
+    """Reconnect a joining/claiming worker to its active-lease task, or idle it.
 
-    current_task_id = agent.get("currentTaskId")
-    if current_task_id:
-        current_task = find_task_by_id(state, current_task_id)
-        if not current_task or current_task.get("status") not in ACTIVE_TASK_STATUSES:
-            dirty = set_agent_idle(agent) or dirty
-            repairs.append(f"cleared stale task ref {current_task_id}")
-        elif current_task.get("ownerAgentId") in (None, "", agent_id):
-            dirty = set_if_changed(current_task, "ownerAgentId", agent_id) or dirty
-            dirty = set_agent_active(agent, current_task, refresh_heartbeat=False) or dirty
-            return {"agent": agent, "activeTask": current_task, "repairs": repairs, "dirty": dirty}
-        else:
-            dirty = set_agent_idle(agent) or dirty
-            repairs.append(f"cleared task {current_task_id} owned by {current_task.get('ownerAgentId')}")
-
-    active_task = next(
-        (t for t in state.get("tasks", [])
-         if isinstance(t, dict) and t.get("ownerAgentId") == agent_id and t.get("status") in ACTIVE_TASK_STATUSES),
+    The lease-based replacement for the agents-map reconcile: a worker's active
+    task is the one whose active lease it holds (found via the denormalized
+    `ownerAgentId`), not a mirror pointer. The agents-map record is synced for
+    display only. Returns the same {agent, activeTask, dirty} shape its callers
+    (task.next, join) already consume.
+    """
+    # A first-seen worker must persist its fresh mirror record so the projection
+    # shows it even before it claims (the old ensure_agent_for_reconcile signalled
+    # this via a creation flag). Detecting it here is mirror bookkeeping, not
+    # authority — the lease governs assignment.
+    agents = state.get("agents")
+    existed = isinstance(agents, dict) and isinstance(agents.get(worker_id), dict)
+    agent = ensure_agent(state, worker_id, role)
+    dirty = (not existed) or set_if_changed(agent, "role", role)
+    active = next(
+        (t for t in state.get("tasks", []) or []
+         if isinstance(t, dict) and active_lease_worker(t) == worker_id),
         None,
     )
-    if active_task:
-        dirty = set_agent_active(agent, active_task, refresh_heartbeat=False) or dirty
-        return {"agent": agent, "activeTask": active_task, "repairs": repairs, "dirty": dirty}
-
+    if active is not None:
+        dirty = set_if_changed(active, "ownerAgentId", worker_id) or dirty
+        dirty = set_agent_active(agent, active, refresh_heartbeat=False) or dirty
+        return {"agent": agent, "activeTask": active, "repairs": [], "dirty": dirty}
     if agent_is_retired(agent):
         dirty = set_if_changed(agent, "currentTaskId", None) or dirty
-        return {"agent": agent, "activeTask": None, "repairs": repairs, "dirty": dirty}
-
-    if agent.get("status") == "done":
-        dirty = set_if_changed(agent, "currentTaskId", None) or dirty
-        return {"agent": agent, "activeTask": None, "repairs": repairs, "dirty": dirty}
-
-    dirty = set_agent_idle(agent) or dirty
-    return {"agent": agent, "activeTask": None, "repairs": repairs, "dirty": dirty}
-
-
-def clear_non_active_task_owner_claims(state: Dict[str, Any]) -> bool:
-    """Repair pass: a terminal task must not hold an owner.
-
-    Under the single-owner lifecycle `review` is an OWNED status, so only `done`
-    (and `canceled`) can carry a stale claim — publish/advance clear the owner as
-    they land it.
-    """
-    dirty = False
-    non_active_owned_statuses = {"done", "canceled"}
-    for task in state.get("tasks", []) or []:
-        if not isinstance(task, dict):
-            continue
-        task_id = str(task.get("id") or "")
-        if task.get("status") not in non_active_owned_statuses or not task.get("ownerAgentId"):
-            continue
-        previous_owner_id = task.get("ownerAgentId")
-        task["ownerAgentId"] = None
-        dirty = True
-        if task_id:
-            cleared_refs = clear_task_refs(state, task_id)
-            dirty = bool(cleared_refs) or dirty
-        append_task_activity(
-            task,
-            "status_change",
-            "sprintengine",
-            f"Sprint Engine cleared stale active owner claim from {task_id}.",
-            {"status": task.get("status"), "previousOwnerAgentId": previous_owner_id, "reason": "non_active_status"},
-        )
-    return dirty
+    else:
+        dirty = set_agent_idle(agent) or dirty
+    return {"agent": agent, "activeTask": None, "repairs": [], "dirty": dirty}
 
 
 def role_runtime(state: Dict[str, Any], role: Optional[str]) -> Dict[str, Any]:
@@ -1343,8 +1237,10 @@ def assign_task(
     task["ownerAgentId"] = agent_id
     task["status"] = "in_progress"
     task["startedAt"] = task.get("startedAt") or now_iso()
-    # One agent/model owns a task start-to-finish (MC-1444), so a single
-    # model/cli field per task is faithful — no per-attempt history.
+    # The lease on the task record is the assignment authority; ownerAgentId is
+    # its denormalized owner. One worker/model owns a task start-to-finish
+    # (MC-1444), so a single model/cli field per task is faithful.
+    mint_lease(task, agent_id, task.get("role"))
     stamp_task_execution_identity(state, task, model=model, cli=cli)
     agent = ensure_agent(state, agent_id, task.get("role"))
     set_agent_active(agent, task)
@@ -1408,7 +1304,10 @@ def create_task_comment(
     if comment_type not in VALID_TASK_COMMENT_TYPES:
         raise SystemExit(f"Invalid task comment type {comment_type!r}.")
     clean_paths = [folder_store.validate_project_relative_path(path, field="--path") for path in (paths or []) if str(path).strip()]
-    author_role = str(state.get("agents", {}).get(actor, {}).get("role") or task.get("role") or "").strip()
+    # The author's role is derived from the run's records (lease / owned tasks /
+    # minted-id convention), never the agents map, falling back to the task's role
+    # when the author cannot be attributed to one (e.g. the human operator).
+    author_role = worker_role(state, actor) or str(task.get("role") or "").strip()
     comment = {
         "id": next_comment_id(task),
         "type": comment_type,

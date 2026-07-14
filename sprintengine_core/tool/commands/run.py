@@ -54,16 +54,14 @@ from sprintengine_core.tool.state import (
     apply_required_sweeps,
     apply_roster_source,
     run_required_sweeps,
-    clear_non_active_task_owner_claims,
     configured_role_set,
-    ensure_agent_in_roster,
+    ensure_role_in_roster,
     find_task,
     load_mutation_state,
     parse_agent_specs,
-    reconcile_agent,
+    reconcile_worker,
     release_expired_agent_targets,
     roster_is_configured,
-    roster_roles,
     with_locked_state,
 )
 from sprintengine_core.tool.tasks import (
@@ -369,18 +367,18 @@ def cmd_init(args: argparse.Namespace) -> Dict[str, Any]:
             recompute_phase(state)
             return {"ok": True, "planGate": plan_gate}
 
-        roles = roster_roles(state)
-        # The run's ENABLED roles decide this, not the seats filled so far: init
-        # commonly runs before any agent is seated, and a product gate opened for a
-        # run whose configuredRoles has no `product` is a task no agent may ever
-        # claim (add_roster_agent rejects the off-roster role) — and the plan gate
-        # dependsOn it, so the whole run is dead on arrival. Seat-based fallback
-        # only for legacy runs that carry no configuredRoles.
+        # The run's ENABLED roles (configuredRoles) decide this, not any seated
+        # worker: init runs before any worker has claimed, and a product gate opened
+        # for a run whose configuredRoles has no `product` is a task no worker may
+        # ever claim — and the plan gate dependsOn it, so the whole run is dead on
+        # arrival. A legacy run with no configuredRoles falls back to the
+        # rosterConfigured flag (never the agents map): an unconfigured run opens the
+        # gate, a configured legacy run without a product reviewer does not.
         configured = configured_role_set(state)
         has_product_reviewer = (
-            "product" in configured
+            ("product" in configured)
             if configured is not None
-            else (not roster_is_configured(state) or "product" in roles)
+            else not roster_is_configured(state)
         )
         # An epic source only opens a product intake gate when a child is itself a
         # product plan; otherwise the architect plans directly from the epic's
@@ -780,10 +778,9 @@ def cmd_join(args: argparse.Namespace) -> Dict[str, Any]:
         return bool(tasks) and all(task.get("status") == "done" for task in tasks)
 
     def run(state: Dict[str, Any]) -> Dict[str, Any]:
-        ensure_agent_in_roster(state, args.id, args.role, allow_retired=True)
+        ensure_role_in_roster(state, args.role)
         expired = release_expired_agent_targets(state, actor="sprintengine", excluding_agent_id=args.id)
-        stale_owner_dirty = clear_non_active_task_owner_claims(state)
-        runtime = reconcile_agent(state, args.id, args.role)
+        runtime = reconcile_worker(state, args.id, args.role)
         agent = runtime["agent"]
         if agent_is_retired(agent):
             return {
@@ -794,7 +791,7 @@ def cmd_join(args: argparse.Namespace) -> Dict[str, Any]:
                 "runner": runner_policy(state),
                 "message": "This Sprint Engine agent is retired and must not claim more work. Stop now.",
                 "releasedExpired": expired["released"],
-                "write": runtime["dirty"] or expired["dirty"] or stale_owner_dirty,
+                "write": runtime["dirty"] or expired["dirty"],
             }
         active = runtime["activeTask"]
         ready = [t for t in state.get("tasks", []) if t.get("role") == args.role and task_is_ready(state, t)]
@@ -830,7 +827,7 @@ def cmd_join(args: argparse.Namespace) -> Dict[str, Any]:
                         "question": question,
                     },
                     "releasedExpired": expired["released"],
-                    "write": runtime["dirty"] or expired["dirty"] or stale_owner_dirty,
+                    "write": runtime["dirty"] or expired["dirty"],
                 }
             in_phase = str(active.get("status") or "") in VALID_TASK_PHASES
             resume_note = (
@@ -858,7 +855,7 @@ def cmd_join(args: argparse.Namespace) -> Dict[str, Any]:
                 "**IMPORTANT: Do not edit Sprint Engine run-store files directly. "
                 "All updates must go through the Sprint Engine tool.**"
             )
-            return {"ok": True, "role": args.role, "agentId": args.id, "action": "resume", "task": active, "runner": policy, "prompt": prompt + directive, "releasedExpired": expired["released"], "write": runtime["dirty"] or expired["dirty"] or stale_owner_dirty}
+            return {"ok": True, "role": args.role, "agentId": args.id, "action": "resume", "task": active, "runner": policy, "prompt": prompt + directive, "releasedExpired": expired["released"], "write": runtime["dirty"] or expired["dirty"]}
 
         # Planner-routed, not architect-routed: in a general-only run the general IS
         # the planner, and gating this on the literal role meant it never received the
@@ -875,7 +872,7 @@ def cmd_join(args: argparse.Namespace) -> Dict[str, Any]:
                 "**IMPORTANT: Do not edit Sprint Engine run-store files directly. "
                 "All updates must go through the Sprint Engine tool.**"
             )
-            return {"ok": True, "role": args.role, "agentId": args.id, "action": "needs_input_triage", "runner": policy, "prompt": prompt + directive, "releasedExpired": expired["released"], "write": runtime["dirty"] or expired["dirty"] or stale_owner_dirty}
+            return {"ok": True, "role": args.role, "agentId": args.id, "action": "needs_input_triage", "runner": policy, "prompt": prompt + directive, "releasedExpired": expired["released"], "write": runtime["dirty"] or expired["dirty"]}
 
         if not active and not ready:
             if policy.get("stopWhenComplete") and all_tasks_done(state):
@@ -894,7 +891,7 @@ def cmd_join(args: argparse.Namespace) -> Dict[str, Any]:
                     if key in finalize:
                         completion[key] = finalize[key]
                 return completion
-            return {"ok": True, "role": args.role, "agentId": args.id, "action": "idle", "runner": policy, "message": f"No tasks are currently ready for the '{args.role}' role.", "releasedExpired": expired["released"], "write": runtime["dirty"] or expired["dirty"] or stale_owner_dirty}
+            return {"ok": True, "role": args.role, "agentId": args.id, "action": "idle", "runner": policy, "message": f"No tasks are currently ready for the '{args.role}' role.", "releasedExpired": expired["released"], "write": runtime["dirty"] or expired["dirty"]}
 
         directive = (
             f"\n\n---\n"
@@ -914,7 +911,7 @@ def cmd_join(args: argparse.Namespace) -> Dict[str, Any]:
             "**IMPORTANT: Do not edit Sprint Engine run-store files directly. "
             "All updates must go through the Sprint Engine tool.**"
         )
-        return {"ok": True, "role": args.role, "agentId": args.id, "action": "work", "readyTaskCount": len(ready), "runner": policy, "prompt": prompt + directive, "releasedExpired": expired["released"], "write": runtime["dirty"] or expired["dirty"] or stale_owner_dirty}
+        return {"ok": True, "role": args.role, "agentId": args.id, "action": "work", "readyTaskCount": len(ready), "runner": policy, "prompt": prompt + directive, "releasedExpired": expired["released"], "write": runtime["dirty"] or expired["dirty"]}
 
     if not getattr(args, "watch", False):
         return with_locked_state(args.state, run)
@@ -1278,11 +1275,11 @@ def cmd_triage_needs_input(args: argparse.Namespace) -> Dict[str, Any]:
         from sprintengine_core.tool.commands.task import normalized_needs_input_for_routing, planner_actionable_needs_input_tasks
 
         # Triage belongs to whoever PLANS this run. Hardcoding "architect" forced an
-        # architect seat into a general-only roster on the first triage call, which
-        # `add_roster_agent` then rejected as off-roster — the blocked task could
-        # never be triaged by anyone.
+        # architect role onto a general-only run on the first triage call, which the
+        # roster boundary then rejected as off-roster — the blocked task could never
+        # be triaged by anyone. Validate against configuredRoles instead.
         planning_role = resolve_planning_role(state)
-        ensure_agent_in_roster(state, args.id, planning_role)
+        ensure_role_in_roster(state, planning_role)
         tasks = planner_actionable_needs_input_tasks(state)
         prompt_lines = [
             f"You are the Sprint Engine {planning_role} triaging planner-actionable needs_input tasks.",

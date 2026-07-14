@@ -252,25 +252,20 @@ def apply_source_context_to_task(task: Dict[str, Any], state: Dict[str, Any], st
     add_unique_values(task, "implementationNotes", notes)
 
 def resolve_planning_role(state: Dict[str, Any]) -> str:
-    """The role that owns the plan-approval gate.
+    """The role that owns the plan-approval gate, from the run's configuredRoles.
 
-    The architect owns planning whenever one is rostered; a pool of plain Generals
-    with no architect plans the run itself, so the planner is `general`. Preferring
-    the architect whenever one is rostered keeps every existing architect/specialist
-    run on the architect path byte-for-byte.
-
-    A general-default run reaches here BEFORE any seat exists (init resolves the
-    planner to root the plan-approval gate), so an empty roster falls back to the
-    run's configured roles rather than silently answering "architect" — which used
-    to hand a general-only run a plan gate no rostered role could ever claim.
+    The architect owns planning whenever it is a configured role; a pool of plain
+    Generals with no architect plans the run itself, so the planner is `general`.
+    Preferring the architect whenever it is enabled keeps every existing
+    architect/specialist run on the architect path byte-for-byte. Authority is
+    `configuredRoles` (the run's legal role set), not a seated roster — so this
+    answers correctly at init, before any worker has claimed anything. A legacy
+    run with no configuredRoles defaults to `architect`.
     """
-    roles = roster_roles(state)
-    if "architect" in roles:
-        return "architect"
-    if "general" in roles:
-        return "general"
     configured = configured_role_set(state) or set()
-    if "architect" not in configured and "general" in configured:
+    if "architect" in configured:
+        return "architect"
+    if "general" in configured:
         return "general"
     return "architect"
 
@@ -396,6 +391,7 @@ def ensure_product_intake_gate(state: Dict[str, Any], state_path: Path, actor: s
         apply_source_context_to_task(product_task, state, state_path)
 
     if product_task.get("status") in ACTIVE_TASK_STATUSES:
+        mint_lease(product_task, actor, "product")
         set_agent_active(ensure_agent(state, actor, "product"), product_task)
         stamp_task_execution_identity(state, product_task)
 
@@ -505,6 +501,7 @@ def ensure_plan_approval_gate(
         apply_source_context_to_task(plan_task, state, state_path)
 
     if plan_task.get("status") in ACTIVE_TASK_STATUSES:
+        mint_lease(plan_task, actor, role)
         set_agent_active(ensure_agent(state, actor, role), plan_task)
         stamp_task_execution_identity(state, plan_task)
 
@@ -606,18 +603,17 @@ def plan_fingerprint(plan_path: Path) -> str:
     return hashlib.sha256(plan_path.read_bytes()).hexdigest()
 
 def expected_plan_reviewers(state: Dict[str, Any]) -> List[Dict[str, str]]:
-    reviewers = []
-    # Exclude the role that wrote the plan — the run's planner, which is the general
-    # in a general-only run, not always the architect.
+    """The roles expected to review the plan: configuredRoles minus the planner.
+
+    Post-lease the run is a pool with no per-agent seats, so plan review is
+    per-ROLE: one expected reviewer per enabled role except the one that wrote
+    the plan. `id` mirrors `role` (the reviewer's identity under a pool). A
+    legacy run with no configuredRoles yields no expected reviewers.
+    """
     review_roles = plan_review_role_ids(planning_role=resolve_planning_role(state))
-    for agent_id, agent in state.get("agents", {}).items():
-        if not isinstance(agent, dict):
-            continue
-        role = str(agent.get("role", "")).strip()
-        if role not in review_roles:
-            continue
-        reviewers.append({"id": str(agent_id), "role": role})
-    return sorted(reviewers, key=lambda item: (item["role"], item["id"]))
+    configured = configured_role_set(state) or set()
+    roles = sorted(role for role in configured if role in review_roles)
+    return [{"id": role, "role": role} for role in roles]
 
 def parse_review_metadata(path: Path) -> Dict[str, Any]:
     try:
@@ -643,7 +639,7 @@ def build_plan_review_status(state: Dict[str, Any], state_path: Path) -> Dict[st
     reviews_dir = plan_reviews_dir_for_state(state_path)
     current_fingerprint = plan_fingerprint(plan_path)
     expected = expected_plan_reviewers(state)
-    expected_by_id = {reviewer["id"]: reviewer for reviewer in expected}
+    expected_roles = {reviewer["role"] for reviewer in expected}
     files = sorted(reviews_dir.glob("*.md")) if reviews_dir.exists() else []
     reviews = []
 
@@ -651,12 +647,14 @@ def build_plan_review_status(state: Dict[str, Any], state_path: Path) -> Dict[st
         metadata = parse_review_metadata(path)
         metadata["path"] = project_relative_display_path(state_path, path)
         metadata["stale"] = metadata.get("planFingerprint") != current_fingerprint
-        metadata["expected"] = metadata.get("agentId") in expected_by_id
+        # Plan review is per-role under the pool model: a review counts when its
+        # role is an expected reviewer role, regardless of which worker id wrote it.
+        metadata["expected"] = metadata.get("role") in expected_roles
         metadata.pop("content", None)
         reviews.append(metadata)
 
-    review_ids = {review.get("agentId") for review in reviews}
-    missing = [reviewer for reviewer in expected if reviewer["id"] not in review_ids]
+    reviewed_roles = {review.get("role") for review in reviews}
+    missing = [reviewer for reviewer in expected if reviewer["role"] not in reviewed_roles]
     stale = [review for review in reviews if review.get("stale")]
     unexpected = [review for review in reviews if not review.get("expected")]
     completed = [

@@ -107,6 +107,7 @@ def publish_task(
     if next_status == "done":
         task["completedAt"] = published_at
         task["ownerAgentId"] = None
+        end_lease(task)
         clear_task_refs(state, str(task.get("id")))
         # A plan/product approval task carries `phases: []`, so publishing it drives
         # it straight to done; resolve its draft placeholder like the other task-done
@@ -153,6 +154,7 @@ def enter_phase(state: Dict[str, Any], task: Dict[str, Any], phase: str, actor: 
     """
     if phase_needs_own_session(state, task, phase):
         task["ownerAgentId"] = None
+        end_lease(task)
         task["awaitingPhaseSession"] = {"phase": phase, "runtime": dict(phase_runtime(state, phase))}
         clear_task_refs(state, str(task.get("id")))
         append_task_activity(
@@ -165,6 +167,9 @@ def enter_phase(state: Dict[str, Any], task: Dict[str, Any], phase: str, actor: 
         return
     task.pop("awaitingPhaseSession", None)
     task["ownerAgentId"] = actor
+    # The owner stays bound across the phase walk; refresh its lease so review /
+    # needs_input stay bound to it and the expiry sweep measures from re-entry.
+    mint_lease(task, actor, task.get("role"))
     agent = ensure_agent(state, actor, task.get("role"))
     set_agent_active(agent, task)
 
@@ -192,6 +197,7 @@ def claim_phase_session(state: Dict[str, Any], task: Dict[str, Any], agent_id: s
     runtime = task["awaitingPhaseSession"].get("runtime") or {}
     task.pop("awaitingPhaseSession", None)
     task["ownerAgentId"] = agent_id
+    mint_lease(task, agent_id, task.get("role"))
     stamp_task_execution_identity(state, task, model=runtime.get("model"), cli=runtime.get("cli"))
     agent = ensure_agent(state, agent_id, task.get("role"))
     set_agent_active(agent, task)
@@ -313,6 +319,7 @@ def advance_task(
         if next_status == "done":
             task["completedAt"] = now
             task["ownerAgentId"] = None
+            end_lease(task)
             task.pop("awaitingPhaseSession", None)
             clear_task_refs(state, str(task.get("id")))
             from sprintengine_core.tool.artifacts import supersede_stale_gate_placeholder_on_completion
@@ -775,8 +782,9 @@ def next_task_id(tasks: List[Dict[str, Any]]) -> str:
 
 def build_task_from_args(args: argparse.Namespace, state: Dict[str, Any]) -> Dict[str, Any]:
     task_id = getattr(args, "task_id", None) or next_task_id(state.get("tasks", []))
-    if not roster_is_configured(state):
-        raise SystemExit("Cannot add Sprint Engine tasks before configuring a roster.")
+    # Role legality is enforced against configuredRoles by ensure_role_in_roster in
+    # the plan.add_task handler; a run with zero seated workers still admits tasks
+    # for any enabled role, so there is no seated-roster precondition here.
     reject_absolute_path_values(getattr(args, "path", None), "--path")
     raw = {
         "id": task_id,

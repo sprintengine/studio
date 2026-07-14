@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 from typing import Any, Dict, List, Optional
 
 from sprintengine_core import store as folder_store
@@ -12,22 +13,100 @@ from sprintengine_core.tool.plans import find_architect_plan_gate, resolve_plann
 from sprintengine_core.tool.roles import configured_role_ids, require_configured_role
 from sprintengine_core.tool.state import (
     SINGLETON_SEAT_ROLE_IDS,
-    add_roster_agent,
     agent_is_retired,
     agent_owned_task_ids,
     append_event,
     apply_configured_roles,
     apply_role_runtimes,
     configured_role_set,
-    next_replacement_agent_id,
     planning_seat_taken,
-    retired_agent_has_live_replacement,
     role_has_open_work,
     roster_is_configured,
     runtime_matches_allowed,
     with_locked_state,
 )
 from sprintengine_core.tool.tasks import task_is_ready
+
+# Seat machinery, relocated verbatim from state.py by MC-1591 T1. The lease is now
+# the assignment authority, so nothing on the claim/seat/capacity/role path uses
+# these; the ONLY remaining callers are this roster surface, which T2 deletes
+# wholesale. Kept here (not in the state model) so state.py holds no agents-map
+# seat logic while the roster commands keep working until T2 removes them.
+
+
+def add_roster_agent(state: Dict[str, Any], role: str, agent_id: str, actor: str) -> Dict[str, Any]:
+    role = require_configured_role(role, context="Roster")
+    clean_id = agent_id.strip()
+    if not clean_id:
+        raise SystemExit("--id cannot be empty.")
+
+    agents = state.setdefault("agents", {})
+    existing = agents.get(clean_id)
+    if isinstance(existing, dict):
+        if existing.get("role") != role:
+            raise SystemExit(f"Agent {clean_id!r} already exists with role {existing.get('role')!r}.")
+        state.setdefault("sprintengine", {})["rosterConfigured"] = True
+        return existing
+
+    # Enforce the run's configured roster boundary on genuinely new seats only:
+    # a role the user did not enable cannot be seated, and a singleton-seat role
+    # (the architect) takes one live member. No-ops when configuredRoles is
+    # absent/blank (legacy runs).
+    configured = configured_role_set(state)
+    if configured is not None:
+        if role not in configured:
+            raise SystemExit(
+                f"Role {role!r} is not enabled for this run; ask the user to add it to the roster."
+            )
+        if role in SINGLETON_SEAT_ROLE_IDS and planning_seat_taken(agents, role):
+            raise SystemExit(
+                f"This run already has a seated {role}; the {role} seat is a singleton "
+                "and cannot take a second member."
+            )
+
+    timestamp = now_iso()
+    agent = {
+        "role": role,
+        "status": "idle",
+        "heartbeatAt": timestamp,
+        "subscription": {"mode": "none"},
+        "currentDispatch": None,
+        "joinedAt": timestamp,
+        "currentTaskId": None,
+    }
+    agents[clean_id] = agent
+    state.setdefault("sprintengine", {})["rosterConfigured"] = True
+    append_event(state, "roster_member_added", actor, f"{actor} added {clean_id} to the Sprint Engine roster as {role}.")
+    return agent
+
+
+def next_replacement_agent_id(state: Dict[str, Any], role: str) -> str:
+    agents = state.get("agents", {})
+    used = {str(agent_id) for agent_id in agents.keys()}
+    pattern = re.compile(rf"^{re.escape(role)}(?:-(\d+))?$")
+    highest = 0
+    for agent_id in used:
+        match = pattern.match(agent_id)
+        if not match:
+            continue
+        highest = max(highest, int(match.group(1) or "1"))
+    # D-Naming: the first minted worker of a role is `<role>-1`. A bare id from an
+    # older run still counts as index 1 so a mint never collides with it. Mirrors
+    # the renderer allocator (getNextSprintEngineAgentId) — TS/Python drift bites.
+    candidate_index = highest + 1
+    while True:
+        candidate = f"{role}-{candidate_index}"
+        if candidate not in used:
+            return candidate
+        candidate_index += 1
+
+
+def retired_agent_has_live_replacement(state: Dict[str, Any], retired_agent: Dict[str, Any]) -> bool:
+    replacement_id = str(retired_agent.get("replacedByAgentId") or "").strip()
+    if not replacement_id:
+        return False
+    replacement = state.get("agents", {}).get(replacement_id)
+    return isinstance(replacement, dict) and not agent_is_retired(replacement)
 
 # One agent session per task (MC-1444) never applies to a singleton-seat role: an
 # architect orchestrates the run, so queue-depth replenishment must not mint a

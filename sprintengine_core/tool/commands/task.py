@@ -40,18 +40,20 @@ from sprintengine_core.tool.state import (
     append_event,
     append_task_activity,
     assign_task,
-    clear_non_active_task_owner_claims,
     clear_task_refs,
     create_task_comment,
+    end_lease,
     ensure_agent,
-    ensure_agent_in_roster,
+    ensure_role_in_roster,
     find_task,
     dispatch_target_key,
-    reconcile_agent,
+    mint_lease,
+    reconcile_worker,
     release_expired_agent_targets,
     select_round_robin_target,
     set_agent_idle,
-    task_claim_exceeds_worker_capacity,
+    worker_has_active_lease,
+    worker_role,
     with_locked_state,
 )
 from sprintengine_core.tool.tasks import (
@@ -119,10 +121,9 @@ def cmd_task_next(args: argparse.Namespace) -> Dict[str, Any]:
 
     def run(state: Dict[str, Any]) -> Dict[str, Any]:
         with folder_store.FolderLock(args.state.parent / folder_store.CLAIM_QUEUE_LOCK_FILE):
-            ensure_agent_in_roster(state, args.id, args.role)
+            ensure_role_in_roster(state, args.role)
             expired = release_expired_agent_targets(state, actor="sprintengine", excluding_agent_id=args.id)
-            stale_owner_dirty = clear_non_active_task_owner_claims(state)
-            runtime = reconcile_agent(state, args.id, args.role)
+            runtime = reconcile_worker(state, args.id, args.role)
             agent = runtime["agent"]
             active = runtime["activeTask"]
             if active:
@@ -142,7 +143,7 @@ def cmd_task_next(args: argparse.Namespace) -> Dict[str, Any]:
                             "question": question,
                         },
                         "releasedExpired": expired["released"],
-                        "write": runtime["dirty"] or expired["dirty"] or stale_owner_dirty,
+                        "write": runtime["dirty"] or expired["dirty"],
                     }
                 # Flow 6 — an owner revived mid-phase (its terminal died, or the
                 # supervisor respawned it) reconnects here. It has no diff in
@@ -165,7 +166,7 @@ def cmd_task_next(args: argparse.Namespace) -> Dict[str, Any]:
                     "prompt": resume_prompt,
                     **({"phase": active_status} if active_status in VALID_TASK_PHASES else {}),
                     "releasedExpired": expired["released"],
-                    "write": runtime["dirty"] or expired["dirty"] or stale_owner_dirty,
+                    "write": runtime["dirty"] or expired["dirty"],
                 }
 
             # MC-1543 phase sessions are claimed by task id via `task.claim` (pinned
@@ -192,20 +193,20 @@ def cmd_task_next(args: argparse.Namespace) -> Dict[str, Any]:
                 candidates=candidates,
                 key_fn=lambda item: dispatch_target_key("task", item.get("id")),
             )
-            if selected and task_claim_exceeds_worker_capacity(state, agent, selected.get("id")):
-                # Task-scoped roster ids: a spent id (already owns another task)
-                # must not recycle onto a new task. Leave it ready for a fresh
-                # id and stop this one.
+            if selected and worker_has_active_lease(state, args.id, excluding_task_id=selected.get("id")):
+                # Lease uniqueness: a worker already holding an active lease cannot
+                # claim a second task. Leave it ready for a fresh id and stop this
+                # one; a worker whose task is done holds no active lease and may claim.
                 phase_dirty = recompute_phase(state)
                 return {
                     "ok": True,
                     "claimed": False,
                     "reason": "worker_task_capacity_reached",
-                    "message": f"{args.id} already owns a task; a fresh roster id must claim {selected.get('id')}.",
+                    "message": f"{args.id} already holds an active lease; another worker must claim {selected.get('id')}.",
                     "task": {"id": selected.get("id"), "status": selected.get("status")},
                     "agent": agent,
                     "releasedExpired": expired["released"],
-                    "write": runtime["dirty"] or phase_dirty or expired["dirty"] or stale_owner_dirty,
+                    "write": runtime["dirty"] or phase_dirty or expired["dirty"],
                 }
             if selected:
                 model, cli = _resolve_execution_identity(args)
@@ -215,7 +216,7 @@ def cmd_task_next(args: argparse.Namespace) -> Dict[str, Any]:
                 return {"ok": True, "claimed": True, "task": selected, "agent": result["agent"], "prompt": build_rework_prompt(args.state, selected), "event": event, "releasedExpired": expired["released"]}
 
             phase_dirty = recompute_phase(state)
-            return {"ok": True, "claimed": False, "reason": "no_ready_task", "message": f"No ready {args.role} tasks. Stop.", "releasedExpired": expired["released"], "write": runtime["dirty"] or phase_dirty or expired["dirty"] or stale_owner_dirty}
+            return {"ok": True, "claimed": False, "reason": "no_ready_task", "message": f"No ready {args.role} tasks. Stop.", "releasedExpired": expired["released"], "write": runtime["dirty"] or phase_dirty or expired["dirty"]}
 
     return with_locked_state(args.state, run)
 
@@ -226,14 +227,13 @@ def cmd_task_claim(args: argparse.Namespace) -> Dict[str, Any]:
             # MC-1543: an awaiting phase session is claimed here, pinned to THIS task
             # id, by the fresh session the supervisor spawned on the phase's bound
             # runtime. claim_phase_session re-stamps the bound runtime and returns the
-            # diff-seeded brief WITHOUT rewinding the phase status. A fresh id need not
-            # be pre-rostered (ensure_agent seats it), mirroring the old task.next path.
+            # diff-seeded brief WITHOUT rewinding the phase status. A fresh id needs no
+            # membership check — the lease it mints is the authority.
             if task_awaiting_phase_session(task):
-                agent = ensure_agent(state, args.id, task.get("role"))
-                if task_claim_exceeds_worker_capacity(state, agent, task.get("id")):
+                if worker_has_active_lease(state, args.id, excluding_task_id=task.get("id")):
                     return {
                         "ok": False,
-                        "error": "Worker already owns a task; a fresh roster id must run this phase.",
+                        "error": "Worker already holds an active lease; another worker must run this phase.",
                         "reason": "worker_task_capacity_reached",
                         "task": {"id": task.get("id"), "status": task.get("status")},
                         "write": False,
@@ -252,16 +252,14 @@ def cmd_task_claim(args: argparse.Namespace) -> Dict[str, Any]:
                     "prompt": build_phase_respawn_brief(state, args.state, task, claimed_phase["phase"]),
                     "event": event,
                 }
-            ensure_agent_in_roster(state, args.id, str(task.get("role") or ""))
-            agent = ensure_agent(state, args.id, task.get("role"))
-            clear_non_active_task_owner_claims(state)
+            ensure_role_in_roster(state, str(task.get("role") or ""))
             ready_ids = set(read_ready_task_ids(state))
             if args.task_id not in ready_ids or not task_is_ready(state, task):
                 return {"ok": False, "error": "Task is not ready.", "task": {"id": task.get("id"), "status": task.get("status")}, "write": False}
-            if task_claim_exceeds_worker_capacity(state, agent, task.get("id")):
+            if worker_has_active_lease(state, args.id, excluding_task_id=task.get("id")):
                 return {
                     "ok": False,
-                    "error": "Worker already owns a task; a fresh roster id must claim this task.",
+                    "error": "Worker already holds an active lease; another worker must claim this task.",
                     "reason": "worker_task_capacity_reached",
                     "task": {"id": task.get("id"), "status": task.get("status")},
                     "write": False,
@@ -375,7 +373,10 @@ def cmd_task_status(args: argparse.Namespace) -> Dict[str, Any]:
             supersede_stale_gate_placeholder_on_completion(state, task, str(actor))
             refresh_task_diff_evidence(state, args.state, task, str(actor))
             commit_sha = commit_task_changes_if_needed(state, args.state, task, str(actor))
-        if task.get("ownerAgentId"):
+        if task.get("ownerAgentId") and args.status in ACTIVE_TASK_STATUSES:
+            # The owner holds the task's lease while it is active (a Flow-5 reopen
+            # re-binds it to its implementer). Sync the display mirror alongside.
+            mint_lease(task, task["ownerAgentId"], task.get("role"))
             agent = ensure_agent(state, task["ownerAgentId"], task.get("role"))
             if args.status in {"in_progress", "review"}:
                 agent["status"] = "running"
@@ -385,6 +386,7 @@ def cmd_task_status(args: argparse.Namespace) -> Dict[str, Any]:
                 agent["currentTaskId"] = args.task_id
         cleared = []
         if args.status not in ACTIVE_TASK_STATUSES:
+            end_lease(task)
             cleared = clear_task_refs(state, args.task_id)
             if previous_owner_id:
                 set_agent_idle(ensure_agent(state, previous_owner_id, task.get("role")))
@@ -720,11 +722,13 @@ def cmd_task_note(args: argparse.Namespace) -> Dict[str, Any]:
     def run(state: Dict[str, Any]) -> Dict[str, Any]:
         task = find_task(state, args.task_id)
         actor = args.id or "user"
-        role = str(state.get("agents", {}).get(actor, {}).get("role") or "").strip().lower()
-        # Planner feedback is typed by the run's planning role, not the literal
-        # "architect": a general planning its own run was writing `user_note`, so its
-        # direction to a worker read as if a human had typed it.
-        comment_type = "architect_feedback" if role == resolve_planning_role(state) else "user_note"
+        # The author's role is derived from the run's own records (lease / owned
+        # tasks / minted-id convention) — never the agents map. Planner feedback is
+        # typed by the run's planning role, not the literal "architect": a general
+        # planning its own run was writing `user_note`, so its direction to a worker
+        # read as human-typed.
+        role = worker_role(state, actor).strip().lower()
+        comment_type = "architect_feedback" if role and role == resolve_planning_role(state) else "user_note"
         comment = create_task_comment(
             state,
             task,
