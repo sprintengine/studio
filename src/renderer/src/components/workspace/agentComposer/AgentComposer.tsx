@@ -229,8 +229,12 @@ export default function AgentComposer({
           </div>
         </div>
 
-        {/* Config column — the selected agent and its engine. */}
+        {/* Config column — the selected agent and its engine. The config is
+            the column's one scroll region; the attachment chips and the CTA
+            row keep their own reserved height below it so overflowing config
+            (e.g. a long model list) can never paint underneath them. */}
         <div className="flex min-h-0 flex-col p-5">
+          <div className="min-h-0 flex-1 overflow-y-auto">
           <ComposerConfig
             selection={selection}
             activeSpecialist={activeSpecialist}
@@ -245,6 +249,7 @@ export default function AgentComposer({
             debugMode={debugMode}
             onChangeDebugMode={onChangeDebugMode}
           />
+          </div>
 
           {selection.kind !== 'terminal' ? (
             <div className="mt-4 flex flex-wrap items-center gap-1.5">
@@ -539,7 +544,7 @@ function ComposerConfig({
   )
 
   return (
-    <div className="min-h-0">
+    <div>
       <div className="flex items-center gap-2.5">
         {icon}
         <span className="text-[15px] font-semibold text-[color:var(--text-strong)]">{name}</span>
@@ -558,7 +563,9 @@ function ComposerConfig({
           effectiveModelFor={modelFor}
           onSelectCli={onSelectCli}
           onSelectModel={onSelectModel}
-          className="max-h-[44vh]"
+          // The config column owns the scrolling (one scrollbar per column);
+          // an inner cap here would nest a second scrollbar inside it.
+          className="max-h-none"
         />
       </div>
 

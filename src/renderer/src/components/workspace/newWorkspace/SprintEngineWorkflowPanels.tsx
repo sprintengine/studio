@@ -135,12 +135,16 @@ export function SprintEngineWorkflowPanels({
       </div>
 
       {sweepRoles.length > 0 ? (
-        <div className="flex flex-col gap-2">
+        <div className="flex min-h-0 flex-1 flex-col gap-2">
           <Field.Label>Final sweeps</Field.Label>
           <p className="text-[11px] leading-4 text-[color:var(--text-muted)]">
             Specialist reviews of the finished work at the end of the run. Only the sweeps you turn on join the team and get scheduled — anything left off stays out of the run.
           </p>
-          <div className="divide-y divide-[color:var(--border-default)] rounded-md border border-[color:var(--border-default)]">
+          {/* Designated scroll region: on the hub's fixed-height run page this
+              list absorbs the column's leftover space and scrolls internally
+              (the floor keeps two rows visible); in auto-height contexts (the
+              Guided Brief handoff) flex-1 is a no-op and it renders in full. */}
+          <div className="min-h-[104px] flex-1 divide-y divide-[color:var(--border-default)] overflow-y-auto rounded-md border border-[color:var(--border-default)]">
             {sweepRoles.map((role) => {
               const isOn = requiredSweepRoleIds.has(role)
               const label = getSprintEngineRoleLabel(role, registry)

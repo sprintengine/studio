@@ -87,12 +87,16 @@ export function PathRadio({
   hint,
   disabled,
   onSelect,
+  dense,
 }: {
   checked: boolean
   label: string
   hint: string
   disabled?: boolean
   onSelect: () => void
+  // Tighter paddings for radios inside an already-carded settings block (the
+  // run page's Automation group), where the full card treatment is too tall.
+  dense?: boolean
 }) {
   return (
     <button
@@ -102,7 +106,8 @@ export function PathRadio({
       disabled={disabled}
       onClick={onSelect}
       className={`
-        grid w-full grid-cols-[18px_minmax(0,1fr)] items-start gap-3 rounded-md border px-3.5 py-3 text-left
+        grid w-full grid-cols-[18px_minmax(0,1fr)] items-start gap-3 rounded-md border text-left
+        ${dense ? 'px-2.5 py-2' : 'px-3.5 py-3'}
         transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--accent-primary)]
         disabled:cursor-not-allowed disabled:opacity-55
         ${checked
@@ -301,7 +306,11 @@ export function RosterAndRunSettings({
   // The saved-teams rail (two-column layout) is available only where team
   // management is wired up — the Sprint Engine wizard. The Guided Brief handoff
   // omits the team props, so it keeps the single-column roster automatically.
-  const showTeamRail = Boolean(onSelectTeam && onSaveTeam) && !countDisabled
+  // With no saved teams the rail would be a mostly-empty 236px column, so the
+  // single-column layout (with "Save as new team…" on the table footer) is
+  // used until a team exists.
+  const showTeamRail =
+    Boolean(onSelectTeam && onSaveTeam) && !countDisabled && (teams?.length ?? 0) > 0
   // In work-types mode the count reflects the rows the table actually shows
   // (staffed non-sweep roles); saved teams may still carry sweep-role counts
   // that only the "Final sweeps" panel surfaces now.
@@ -316,6 +325,12 @@ export function RosterAndRunSettings({
   )
   const rosterLabel = workTypes ? 'Work types & models' : 'Roster'
   const rosterTable = (
+    // Designated scroll region on the hub's paged roster: long role registries
+    // scroll inside the table instead of scrolling the page. The cap tracks the
+    // window so it only engages when the page would otherwise overflow; the
+    // Guided Brief handoff (sections='all') keeps the full-length table inside
+    // its own scrolling panel.
+    <div className={sections === 'all' ? undefined : 'min-h-0 overflow-y-auto [max-height:max(240px,calc(100vh_-_500px))]'}>
     <SprintEngineRosterTable
       roleCounts={roleCounts}
       roleCliDefaults={roleCliDefaults}
@@ -345,6 +360,7 @@ export function RosterAndRunSettings({
         ) : undefined
       }
     />
+    </div>
   )
   // Architect-roster mode replaces the whole roster body (rail, picker, table)
   // with the architect card; saved teams and per-role pickers do not apply.
@@ -394,26 +410,7 @@ export function RosterAndRunSettings({
   )
   const showRoster = sections !== 'run'
   const showRun = sections !== 'roster'
-  return (
-    <>
-      {showRoster ? (
-        <div className="flex flex-col gap-3">
-          {onChangeRosterSource ? (
-            <RosterModeChoice
-              value={rosterSource ?? 'user'}
-              onChange={onChangeRosterSource}
-              architectAvailable={architectModeAvailable ?? false}
-              architectDisabledHint={architectModeDisabledHint}
-              workTypes={workTypes}
-            />
-          ) : null}
-          {rosterBody}
-        </div>
-      ) : null}
-
-      {showRun ? workflowSection : null}
-
-      {showRun ? (
+  const runSettings = showRun ? (
         <div className="flex flex-col gap-2">
           <Field.Label>Run settings</Field.Label>
           <div className="overflow-hidden rounded-md border border-[color:var(--border-default)] bg-[color:var(--bg-surface)]">
@@ -428,7 +425,7 @@ export function RosterAndRunSettings({
                   How the sprint should continue after this workspace opens.
                 </span>
               </div>
-              <div className="grid gap-2" role="radiogroup" aria-label="Sprint automation mode">
+              <div className="grid gap-1.5" role="radiogroup" aria-label="Sprint automation mode">
                 {sprintEngineAutomationModeOptions.map((option) => (
                   <PathRadio
                     key={option.value}
@@ -436,6 +433,7 @@ export function RosterAndRunSettings({
                     label={option.label}
                     hint={option.hint}
                     onSelect={() => onChangeAutomationMode(option.value)}
+                    dense
                   />
                 ))}
               </div>
@@ -493,6 +491,42 @@ export function RosterAndRunSettings({
             ) : null}
           </div>
         </div>
+  ) : null
+  return (
+    <>
+      {showRoster ? (
+        <div className="flex flex-col gap-3">
+          {onChangeRosterSource ? (
+            <RosterModeChoice
+              value={rosterSource ?? 'user'}
+              onChange={onChangeRosterSource}
+              architectAvailable={architectModeAvailable ?? false}
+              architectDisabledHint={architectModeDisabledHint}
+              workTypes={workTypes}
+            />
+          ) : null}
+          {rosterBody}
+        </div>
+      ) : null}
+
+      {/* The hub's dedicated run page uses the pane's full width — workflow
+          panels left, run settings right — so the Automation control is
+          visible without scrolling. The page never scrolls: the sweeps list
+          flexes inside the left column and the right column scrolls itself on
+          short windows. 'all' keeps the classic single column (the Guided
+          Brief handoff renders inside a narrower card). */}
+      {showRun ? (
+        sections === 'run' ? (
+          <div className="grid min-h-0 flex-1 grid-cols-1 gap-5 overflow-y-auto lg:grid-cols-2">
+            <div className="flex min-h-0 min-w-0 flex-col gap-5">{workflowSection}</div>
+            <div className="min-h-0 min-w-0 overflow-y-auto">{runSettings}</div>
+          </div>
+        ) : (
+          <>
+            {workflowSection}
+            {runSettings}
+          </>
+        )
       ) : null}
     </>
   )

@@ -73,8 +73,11 @@ const UNTOUCHED: SprintWizardState = {
   roleCounts: initialRoster.roleCounts,
   roleCliDefaults: initialRoster.roleCliDefaults,
   roleModelOverrides: initialRoster.roleModelOverrides,
-  startRunner: false,
-  autoApproveArtifacts: false,
+  // Automation defaults ON (run agents + approve eligible artifacts): a
+  // skipped run continues on its own, matching the product default. Loading an
+  // existing team is the exception (derived to manual; asserted below).
+  startRunner: true,
+  autoApproveArtifacts: true,
   useWorktrees: false,
   maxParallelAgents: 3,
   // The panel seeds this from the stored spawn-permission preference, which is
@@ -93,8 +96,10 @@ assert.ok(UNTOUCHED.roleCounts.architect >= 1 && UNTOUCHED.roleCounts.developer 
 // Source contracts: each default is established at mount, in the panel body.
 for (const [what, pattern] of [
   ['the roster is seeded from the resolved initial roster', /useState<SprintEngineRoleCounts>\(\s*\(\) => cloneSprintEngineRoleCounts\(initialSprintEngineRoster\.roleCounts\)/],
-  ['agents-at-start is off', /const \[seStartRunner, setSeStartRunner\] = useState\(false\)/],
-  ['artifact auto-approval is off', /const \[seAutoApproveArtifacts, setSeAutoApproveArtifacts\] = useState\(false\)/],
+  ['agents-at-start is on', /const \[seStartRunner, setSeStartRunner\] = useState\(true\)/],
+  ['artifact auto-approval is on', /const \[seAutoApproveArtifacts, setSeAutoApproveArtifacts\] = useState\(true\)/],
+  ['automation starts untouched', /const \[seAutomationTouched, setSeAutomationTouched\] = useState\(false\)/],
+  ['untouched automation follows the create path: manual only for an existing team', /: seExistingTeam\n\s*\? 'manual'\n\s*: 'run_agents_and_approve_artifacts'/],
   ['worktrees are off', /const \[seUseWorktrees, setSeUseWorktrees\] = useState\(false\)/],
   ['max parallel agents is 3', /const \[seMaxParallelAgents, setSeMaxParallelAgents\] = useState\(3\)/],
   ['self-review is on', /const \[seSelfReviewEnabled, setSeSelfReviewEnabled\] = useState\(true\)/],
@@ -141,7 +146,7 @@ function renderPage(sections: 'roster' | 'run'): string {
       onSetCli={spy('onSetCli')}
       onSetModel={spy('onSetModel')}
       totalAgents={2}
-      automationMode={'manual' as never}
+      automationMode={'run_agents_and_approve_artifacts' as never}
       onChangeAutomationMode={spy('onChangeAutomationMode')}
       cliPermissionPreset={UNTOUCHED.cliPermissionPreset as never}
       onChangeCliPermissionPreset={spy('onChangeCliPermissionPreset')}
@@ -244,12 +249,28 @@ assert.deepEqual(
 )
 
 // And the run those defaults produce is the one the footer promises: the balanced
-// default team, the default agent cap, no worktrees, no automation, and none of
-// the workflow init keys (an untouched run sends none — self-review on, reviewer
-// = same agent, no mandated sweeps are all engine defaults).
+// default team, the default agent cap, no worktrees, automation on (run agents
+// + approve eligible artifacts), and none of the workflow init keys (an
+// untouched run sends none — self-review on, reviewer = same agent, no mandated
+// sweeps are all engine defaults).
 assert.deepEqual(skippedCreate.sprintEngineState?.roleCounts, DEFAULT_SPRINT_ENGINE_ROLE_COUNTS, 'the skipped run starts on the default roster')
 assert.equal(skippedCreate.sprintEngineState?.useWorktrees, undefined, 'the skipped run does not turn worktrees on')
 assert.equal(skippedCreate.sprintEngineAutoState?.maxConcurrentAgents, 3, 'the skipped run keeps the default agent cap')
+assert.equal(
+  skippedCreate.sprintEngineAutoState?.desiredMode,
+  'run_agents_and_approve_artifacts',
+  'the skipped run starts with automation on: run agents + approve artifacts',
+)
+assert.equal(skippedCreate.sprintEngineAutoState?.runtimeState, 'running', 'and the runner starts running')
+// Every sprint create path (existing team, plan-sourced, new team) reads the
+// derived seAutomationMode — never the raw booleans — so the existing-team
+// manual default cannot be bypassed. Guided-brief sites intentionally use the
+// raw state (a guided build never resumes an existing team).
+assert.equal(
+  (panelSource.match(/startRunner: seAutomationMode !== 'manual'/g) ?? []).length,
+  3,
+  'the three sprint create paths derive automation from seAutomationMode',
+)
 assert.deepEqual(
   buildSprintEngineWorkflowInitKeys({
     selfReviewEnabled: UNTOUCHED.selfReviewEnabled,

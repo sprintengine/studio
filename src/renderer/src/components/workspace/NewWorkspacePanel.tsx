@@ -534,7 +534,10 @@ export default function NewWorkspacePanel({
   )
   const [seRoleRegistry, setSeRoleRegistry] = useState<SprintEngineRoleRegistry | null>(null)
   const [seRoleRegistryStatus, setSeRoleRegistryStatus] = useState<'idle' | 'loading' | 'ready' | 'unavailable'>('idle')
-  const [seStartRunner, setSeStartRunner] = useState(false)
+  // Automation defaults to the product default (run agents + approve eligible
+  // artifacts), so an untouched or skipped run continues on its own. Manual
+  // stays one click away on the run page.
+  const [seStartRunner, setSeStartRunner] = useState(true)
   const [seUseWorktrees, setSeUseWorktrees] = useState(false)
   // Workspace-level concurrent-session cap (MC-1450: replaces the roster-size
   // ceiling). Clamped 1-10 at the input and again by the controller.
@@ -543,13 +546,24 @@ export default function NewWorkspacePanel({
   const [cliPermissionPreset, setCliPermissionPreset] = useState<SprintEngineCliPermissionPreset>(
     lastSpawnPermissionPreset,
   )
-  const [seAutoApproveArtifacts, setSeAutoApproveArtifacts] = useState(false)
-  const seAutomationMode: SprintEngineAutomationMode = seAutoApproveArtifacts
-    ? 'run_agents_and_approve_artifacts'
-    : seStartRunner
-      ? 'run_agents'
-      : 'manual'
+  const [seAutoApproveArtifacts, setSeAutoApproveArtifacts] = useState(true)
+  const [seAutomationTouched, setSeAutomationTouched] = useState(false)
+  // Untouched, the mode follows the create path: new and plan-sourced runs get
+  // the product default (run agents + approve eligible artifacts), while
+  // loading an existing team defaults to manual so a paused sprint never
+  // auto-resumes just by being reopened. An explicit choice on the run page
+  // wins over both, and every create path reads this derived mode.
+  const seAutomationMode: SprintEngineAutomationMode = seAutomationTouched
+    ? seAutoApproveArtifacts
+      ? 'run_agents_and_approve_artifacts'
+      : seStartRunner
+        ? 'run_agents'
+        : 'manual'
+    : seExistingTeam
+      ? 'manual'
+      : 'run_agents_and_approve_artifacts'
   const setSeAutomationMode = (mode: SprintEngineAutomationMode) => {
+    setSeAutomationTouched(true)
     setSeStartRunner(mode !== 'manual')
     setSeAutoApproveArtifacts(mode === 'run_agents_and_approve_artifacts')
   }
@@ -1918,6 +1932,9 @@ export default function NewWorkspacePanel({
                 buildRoleCounts,
                 buildRoleCliDefaults: seRoleCliDefaults,
                 buildCliPermissionPreset: cliPermissionPreset,
+                // Raw state, not the path-aware seAutomationMode: a guided
+                // build never resumes an existing team, so a stale sprint-tab
+                // team selection must not flip this to manual.
                 buildStartRunner: seStartRunner,
                 buildAutoApproveArtifacts: seAutoApproveArtifacts,
               },
@@ -1941,6 +1958,9 @@ export default function NewWorkspacePanel({
                 buildRoleCounts,
                 buildRoleCliDefaults: seRoleCliDefaults,
                 buildCliPermissionPreset: cliPermissionPreset,
+                // Raw state, not the path-aware seAutomationMode: a guided
+                // build never resumes an existing team, so a stale sprint-tab
+                // team selection must not flip this to manual.
                 buildStartRunner: seStartRunner,
                 buildAutoApproveArtifacts: seAutoApproveArtifacts,
               },
@@ -2055,8 +2075,8 @@ export default function NewWorkspacePanel({
           agentCliOverrides: seAgentCliOverrides,
           roleModelOverrides: seRoleModelOverrides,
           initialSpawnRoles: seInitialSpawnRoles,
-          startRunner: seStartRunner,
-          autoApproveArtifacts: seAutoApproveArtifacts,
+          startRunner: seAutomationMode !== 'manual',
+          autoApproveArtifacts: seAutomationMode === 'run_agents_and_approve_artifacts',
           cliPermissionPreset,
         })
         setIsCreating(true)
@@ -2126,8 +2146,8 @@ export default function NewWorkspacePanel({
                 reviewRuntime: seReviewRuntime,
                 requiredSweepRoleIds: [...seRequiredSweeps],
               }),
-              startRunner: seStartRunner,
-              autoApproveArtifacts: seAutoApproveArtifacts,
+              startRunner: seAutomationMode !== 'manual',
+              autoApproveArtifacts: seAutomationMode === 'run_agents_and_approve_artifacts',
               useWorktrees: seUseWorktrees,
               // Backlog/file sources are referenced in place, never copied.
               sourceReference: true,
@@ -2215,8 +2235,8 @@ export default function NewWorkspacePanel({
             // join configuredRoles (ignored in architect mode) — the roster is
             // the user's configuration.
             additionalEnabledRoles: sprintEngineSweepEnabledRoles,
-            startRunner: seStartRunner,
-            autoApproveArtifacts: seAutoApproveArtifacts,
+            startRunner: seAutomationMode !== 'manual',
+            autoApproveArtifacts: seAutomationMode === 'run_agents_and_approve_artifacts',
             useWorktrees: seUseWorktrees,
             cliPermissionPreset,
             rosterSource: seRosterSource,
@@ -2384,6 +2404,8 @@ export default function NewWorkspacePanel({
       roleCliDefaults: Required<SprintEngineRoleCliDefaults>
       cliPermissionPreset: SprintEngineCliPermissionPreset
     } = {
+      // Raw state (see the guided scaffold sites): guided builds never
+      // involve an existing team.
       startRunner: seStartRunner,
       autoApproveArtifacts: seAutoApproveArtifacts,
       roleCounts: runtimeState.buildRoleCounts,
@@ -2492,7 +2514,7 @@ export default function NewWorkspacePanel({
           contract). The rail is the type choice — never a step — and the pane
           beside it pages through that type's flow with a pinned primary action. */}
       <div className="flex min-h-0 flex-1 items-center justify-center p-4 sm:p-6">
-        <div className="flex h-full max-h-[min(680px,100%)] w-full max-w-[1040px] flex-col overflow-hidden rounded-[8px] border border-[color:var(--border-subtle)] bg-[color:var(--bg-surface)] shadow-[var(--shadow-drawer)]">
+        <div className="flex h-full max-h-[min(820px,100%)] w-full max-w-[1040px] flex-col overflow-hidden rounded-[8px] border border-[color:var(--border-subtle)] bg-[color:var(--bg-surface)] shadow-[var(--shadow-drawer)]">
           <header className="flex shrink-0 items-center justify-between gap-3 border-b border-[color:var(--border-subtle)] px-5 py-3">
             <div className="flex min-w-0 items-center gap-2">
               <MulticodeMark className="h-[18px] w-[18px]" variant="mono" />
@@ -2573,9 +2595,13 @@ export default function NewWorkspacePanel({
                       as a short-window safety net, not the normal path: a page
                       is meant to fit, with its primary action pinned below. */}
                   <main ref={stepBodyRef} className="relative min-h-0 flex-1 overflow-y-auto">
+                    {/* Pages with a flexing region (the workspace page's Recent
+                        list, the run page's columns) take the pane's exact
+                        height so those regions absorb the leftover space and
+                        the page itself never scrolls. */}
                     <div
                       key={step}
-                      className={`flex w-full ${wideStep ? '' : 'max-w-[560px]'} flex-col gap-7 px-6 py-5 ${stepAnimationClass}`}
+                      className={`flex w-full ${wideStep ? '' : 'max-w-[560px]'} ${step === 'workspace' || step === 'sprintengine-run' ? 'h-full' : ''} flex-col gap-7 px-6 py-5 ${stepAnimationClass}`}
                     >
                       {stepIndex > 0 ? (
                         <button
@@ -2993,7 +3019,7 @@ function WorkspaceStep({
             : null
 
   return (
-    <div className="flex flex-col gap-6">
+    <div className="flex min-h-0 flex-1 flex-col gap-6">
       <label className="flex flex-col gap-2">
         <FieldLabel>Workspace name</FieldLabel>
         <input
@@ -3045,11 +3071,15 @@ function WorkspaceStep({
       </div>
 
       {recentFolders.length > 0 ? (
-        <div className="flex flex-col gap-2">
+        // The list takes exactly the space the page has left and scrolls
+        // internally — the page itself never scrolls for recents. The floor
+        // keeps a couple of rows usable on very short windows (where the
+        // pane's own scroll is the safety net).
+        <div className="flex min-h-0 flex-1 flex-col gap-2">
           <div className="px-1 text-[11px] font-medium text-[color:var(--text-muted)]">
             Recent
           </div>
-          <div className="flex max-h-[260px] flex-col gap-0.5 overflow-y-auto pr-1">
+          <div className="flex min-h-[88px] flex-1 flex-col gap-0.5 overflow-y-auto pr-1">
             {recentFolders.map((recent) => {
               const hint = folderHints.get(recent)
               const hints: Array<'sprintengine' | 'multiloop'> = []
@@ -3086,7 +3116,9 @@ function ConfigStepSection({
 }) {
   const heading = STEP_HEADING[stepId]
   return (
-    <section className="flex flex-col gap-4">
+    // flex-1/min-h-0 only bite when the page runs at h-full (see the page
+    // container); on auto-height pages they are no-ops.
+    <section className="flex min-h-0 flex-1 flex-col gap-4">
       <header className="flex flex-col gap-1.5">
         <h3
           ref={headingRef}
@@ -3513,13 +3545,16 @@ function StandardLayoutStep({
 
   return (
     <div className="flex flex-col gap-1.5">
-      <div role="radiogroup" aria-label="IDE layout" className="flex flex-col gap-1.5">
+      {/* Two-up grid: six built-ins land in three ~76px rows (~240px), so the
+          page fits the pane without scrolling instead of stacking ~650px of
+          full-width cards. */}
+      <div role="radiogroup" aria-label="IDE layout" className="grid grid-cols-1 gap-1.5 sm:grid-cols-2">
         {LAYOUT_TEMPLATES.map((template) => (
           <LayoutTemplateRadio key={template.id} template={template} active={template.id === layoutId} onChange={onChange} />
         ))}
         {userTemplates.length > 0 ? (
           <>
-            <div className="mt-2 text-[11px] font-medium text-[color:var(--text-subtle)]">Installed templates</div>
+            <div className="mt-2 text-[11px] font-medium text-[color:var(--text-subtle)] sm:col-span-2">Installed templates</div>
             {userTemplates.map((template) => (
               <LayoutTemplateRadio key={template.id} template={template} active={template.id === layoutId} onChange={onChange} />
             ))}
@@ -4249,10 +4284,12 @@ function SprintEngineTeamStep(props: {
 
   return (
     <div className="flex flex-col gap-5">
+      {/* One row, not a ~270px stack: the source choice must leave the team
+          name and objective — the flow's only required input — above the fold. */}
       <div
         role="radiogroup"
         aria-label="Sprint starting point"
-        className="flex flex-col gap-1.5"
+        className="grid grid-cols-1 gap-1.5 sm:grid-cols-3"
       >
         <PathRadio
           checked={path === 'new'}
@@ -4608,7 +4645,7 @@ function SprintEngineRosterStep(props: {
   }
 
   return (
-    <div className="flex flex-col gap-5">
+    <div className="flex min-h-0 flex-1 flex-col gap-5">
       {/* The read-only-roster notice belongs to the team page it explains; the
           run page's settings stay editable for a loaded team. */}
       {hasExistingTeam && sections === 'roster' ? (
