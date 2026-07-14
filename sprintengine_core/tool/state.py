@@ -11,7 +11,7 @@ from typing import Any, Dict, List, Optional
 from sprintengine_core import store as folder_store
 from sprintengine_core.tool.constants import *  # noqa: F403,F401
 from sprintengine_core.tool.paths import now_iso
-from sprintengine_core.tool.roles import require_configured_role
+from sprintengine_core.tool.roles import configured_role_ids, require_configured_role
 
 def parse_agent_specs(values: Optional[List[str]]) -> Dict[str, Dict[str, Any]]:
     agents: Dict[str, Dict[str, Any]] = {}
@@ -796,11 +796,6 @@ def task_lease(task: Dict[str, Any]) -> Optional[Dict[str, Any]]:
     return lease if isinstance(lease, dict) else None
 
 
-def lease_is_active(task: Dict[str, Any]) -> bool:
-    """True while the task's lease binds a worker (in_progress/review/needs_input)."""
-    return task.get("status") in ACTIVE_TASK_STATUSES and active_lease_worker(task) is not None
-
-
 def active_lease_worker(task: Dict[str, Any]) -> Optional[str]:
     """The worker id holding this task's ACTIVE lease, or None.
 
@@ -904,10 +899,13 @@ def worker_role(state: Dict[str, Any], worker_id: str) -> str:
             role = str(task.get("role") or "").strip()
             if role:
                 return role
-    prefix = clean.split("-", 1)[0]
-    configured = configured_role_set(state)
-    if prefix and (configured is None or prefix in configured):
-        return prefix
+    # Minted-id convention: `<role>` or `<role>-<suffix>`. Match against the run's
+    # configured roles (or the registry when unconfigured), longest first, so a
+    # hyphenated role id (`cross-platform-1`) resolves whole rather than truncated.
+    known = configured_role_set(state) or set(configured_role_ids())
+    for role in sorted(known, key=len, reverse=True):
+        if clean == role or clean.startswith(f"{role}-"):
+            return role
     return ""
 
 
