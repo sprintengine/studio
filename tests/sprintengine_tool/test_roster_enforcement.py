@@ -3,7 +3,8 @@
 `configuredRoles` (written once at init from the roster's enabled roles) is the
 enforced enabled-role set. When it is present and non-empty:
   - add_roster_agent refuses to seat a role that is not enabled, and refuses a
-    second seat for a planning role (architect/general singleton), and
+    second seat for a singleton-seat role (the architect; MC-1585 made generals a
+    pool, so they seat freely like any worker role), and
   - ensure_role_in_roster (plan.add_task's guard) refuses an off-roster task role.
 Every guard no-ops when configuredRoles is absent or empty, so legacy/headless
 runs seat and plan exactly as before.
@@ -61,12 +62,17 @@ def test_add_roster_agent_rejects_second_architect_seat() -> None:
     assert "architect-2" not in state["agents"]
 
 
-def test_add_roster_agent_rejects_second_general_seat() -> None:
-    state = configured_state(["general", "developer"], seated={"general-1": "general"})
-    with pytest.raises(SystemExit) as exc:
-        add_roster_agent(state, "general", "general-2", "architect")
-    assert "singleton" in str(exc.value)
-    assert "general-2" not in state["agents"]
+def test_generals_are_a_pool_not_a_singleton_seat() -> None:
+    # Inverted from the old "second general seat is rejected" contract (MC-1585):
+    # the default product is a POOL of plain agents sharing one task graph by
+    # claiming, which the startup prompt and sprintengine_general_workflow have
+    # always promised. A general seats like a developer; only the architect is
+    # capped at one live seat. Planning stays serialized by task ownership.
+    state = configured_state(["general"], seated={"general": "general"})
+    agent = add_roster_agent(state, "general", "general-1", "general")
+    assert agent["role"] == "general"
+    assert add_roster_agent(state, "general", "general-2", "general")["role"] == "general"
+    assert set(state["agents"]) == {"general", "general-1", "general-2"}
 
 
 def test_add_roster_agent_allows_replacing_a_retired_planner() -> None:

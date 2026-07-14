@@ -13,7 +13,7 @@ from sprintengine_core.tool.artifacts import (
 from sprintengine_core.tool.common import parse_json_object_arg
 from sprintengine_core.tool.constants import (
     ACTIVE_TASK_STATUSES,
-    ARCHITECT_ROUTED_NEEDS_INPUT_KINDS,
+    PLANNER_ROUTED_NEEDS_INPUT_KINDS,
     NEEDS_INPUT_KIND_DEFAULT_REASONS,
     VALID_NEEDS_INPUT_KINDS,
     VALID_TASK_PHASES,
@@ -32,6 +32,7 @@ from sprintengine_core.tool.phase_prompts import (
     build_phase_respawn_brief,
     build_rework_prompt,
 )
+from sprintengine_core.tool.plans import resolve_planning_role
 from sprintengine_core.tool.roles import require_configured_role
 from sprintengine_core.tool.shell import commit_task_changes_if_needed
 from sprintengine_core.tool.state import (
@@ -59,6 +60,7 @@ from sprintengine_core.tool.tasks import (
     advance_task,
     claim_phase_session,
     ensure_evidence,
+    normalize_needs_input_kind,
     publish_task,
     read_ready_task_ids,
     recompute_phase,
@@ -304,7 +306,7 @@ def cmd_task_status(args: argparse.Namespace) -> Dict[str, Any]:
             raise SystemExit("--needs-input-question is required when writing routed needs_input metadata.")
         task["status"] = args.status
         if args.status == "needs_input" and wants_needs_input_routing:
-            kind = args.needs_input_kind or "architect"
+            kind = normalize_needs_input_kind(args.needs_input_kind or "architect")
             if kind not in VALID_NEEDS_INPUT_KINDS:
                 raise SystemExit(
                     f"--needs-input-kind must be one of: {', '.join(sorted(VALID_NEEDS_INPUT_KINDS))}."
@@ -511,7 +513,8 @@ def cmd_task_release(args: argparse.Namespace) -> Dict[str, Any]:
     return with_locked_state(args.state, run)
 
 
-def architect_actionable_needs_input_tasks(state: Dict[str, Any]) -> List[Dict[str, Any]]:
+def planner_actionable_needs_input_tasks(state: Dict[str, Any]) -> List[Dict[str, Any]]:
+    """needs_input tasks the run's PLANNER must triage — architect or general."""
     tasks = []
     for task in state.get("tasks", []):
         if task.get("status") != "needs_input":
@@ -519,9 +522,14 @@ def architect_actionable_needs_input_tasks(state: Dict[str, Any]) -> List[Dict[s
         needs_input = task.get("needsInput")
         if not isinstance(needs_input, dict):
             continue
-        if needs_input.get("kind") in ARCHITECT_ROUTED_NEEDS_INPUT_KINDS:
+        if needs_input.get("kind") in PLANNER_ROUTED_NEEDS_INPUT_KINDS:
             tasks.append(task)
     return tasks
+
+
+# Legacy alias: the old name asserted the triager is an architect, which is what
+# left general-only runs unable to triage anything.
+architect_actionable_needs_input_tasks = planner_actionable_needs_input_tasks
 
 
 def normalized_needs_input_for_routing(needs_input: Any) -> Dict[str, Any]:
@@ -640,7 +648,7 @@ def cmd_task_advance(args: argparse.Namespace) -> Dict[str, Any]:
         actor = str(args.id or task.get("ownerAgentId") or "agent")
         needs_input = None
         if args.outcome == "escalate":
-            kind = getattr(args, "needs_input_kind", None) or "architect"
+            kind = normalize_needs_input_kind(getattr(args, "needs_input_kind", None) or "architect")
             if kind not in VALID_NEEDS_INPUT_KINDS:
                 raise SystemExit(f"--needs-input-kind must be one of: {', '.join(sorted(VALID_NEEDS_INPUT_KINDS))}.")
             needs_input = {
@@ -713,7 +721,10 @@ def cmd_task_note(args: argparse.Namespace) -> Dict[str, Any]:
         task = find_task(state, args.task_id)
         actor = args.id or "user"
         role = str(state.get("agents", {}).get(actor, {}).get("role") or "").strip().lower()
-        comment_type = "architect_feedback" if role == "architect" else "user_note"
+        # Planner feedback is typed by the run's planning role, not the literal
+        # "architect": a general planning its own run was writing `user_note`, so its
+        # direction to a worker read as if a human had typed it.
+        comment_type = "architect_feedback" if role == resolve_planning_role(state) else "user_note"
         comment = create_task_comment(
             state,
             task,

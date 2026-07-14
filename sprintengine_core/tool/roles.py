@@ -92,8 +92,17 @@ def require_configured_role(role: str, *, context: str = "role", discovery: Regi
         raise SystemExit(f"{context} has unknown role {role!r}.{detail}") from exc
 
 
-def plan_review_role_ids(discovery: RegistryDiscovery | None = None) -> frozenset[str]:
-    return configured_role_ids(discovery) - {"architect"}
+def plan_review_role_ids(
+    discovery: RegistryDiscovery | None = None,
+    planning_role: str = "architect",
+) -> frozenset[str]:
+    """Roles that may review the plan: everyone except the role that WROTE it.
+
+    `planning_role` is the run's planner (`plans.resolve_planning_role`); it
+    defaults to `architect` for the registry-wide snapshot and for callers with no
+    run state. A general planning its own run is excluded the same way.
+    """
+    return configured_role_ids(discovery) - {planning_role}
 
 
 DEFAULT_ROLE_REGISTRY = RoleRegistry()

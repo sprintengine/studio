@@ -11,7 +11,7 @@ from sprintengine_core.tool.paths import now_iso
 from sprintengine_core.tool.plans import find_architect_plan_gate, resolve_planning_role
 from sprintengine_core.tool.roles import configured_role_ids, require_configured_role
 from sprintengine_core.tool.state import (
-    PLANNING_ROLE_IDS,
+    SINGLETON_SEAT_ROLE_IDS,
     add_roster_agent,
     agent_is_retired,
     agent_owned_task_ids,
@@ -28,11 +28,12 @@ from sprintengine_core.tool.state import (
 )
 from sprintengine_core.tool.tasks import task_is_ready
 
-# One agent session per task (MC-1444) never applies to planning roles: an
-# architect orchestrates the run and a General owns a whole sprint solo, so
-# queue-depth replenishment must not mint parallel planning agents. The set lives
-# in state.py (PLANNING_ROLE_IDS) so the roster seat cap and this mint-exclusion
-# share one source.
+# One agent session per task (MC-1444) never applies to a singleton-seat role: an
+# architect orchestrates the run, so queue-depth replenishment must not mint a
+# second one. Generals ARE minted — the default product is a pool of plain agents
+# sharing one task graph, so `general-N` workers replenish exactly like developers.
+# The set lives in state.py (SINGLETON_SEAT_ROLE_IDS) so the roster seat cap and
+# this mint-exclusion share one source.
 
 
 def _agent_is_new_task_capacity(state: Dict[str, Any], agent: Any) -> bool:
@@ -296,7 +297,18 @@ def cmd_roster_retire(args: argparse.Namespace) -> Dict[str, Any]:
 def cmd_roster_replenish(args: argparse.Namespace) -> Dict[str, Any]:
     def run(state: Dict[str, Any]) -> Dict[str, Any]:
         actor = (args.actor or "runner").strip() or "runner"
-        roles = [require_configured_role(args.role, context="Roster")] if getattr(args, "role", None) else sorted(configured_role_ids())
+        # The role universe is the run's OWN configuredRoles, not the registry's
+        # manifest ids: `general` is a built-in identity with no manifest (roles.py
+        # recognises it by id), so a registry-sourced list silently excluded it and
+        # a general-only run could never replenish anything. Seating is bounded by
+        # configuredRoles regardless (add_roster_agent rejects off-roster roles), so
+        # this only removes roles that could never have been minted. Legacy runs with
+        # no configuredRoles keep the registry universe.
+        roles = (
+            [require_configured_role(args.role, context="Roster")]
+            if getattr(args, "role", None)
+            else sorted(configured_role_set(state) or set(configured_role_ids()))
+        )
         created = []
         for role in roles:
             retired_for_role = [
@@ -352,7 +364,7 @@ def cmd_roster_replenish(args: argparse.Namespace) -> Dict[str, Any]:
             for role in roles:
                 if remaining <= 0:
                     break
-                if role in PLANNING_ROLE_IDS:
+                if role in SINGLETON_SEAT_ROLE_IDS:
                     continue
                 ready_tasks = [task for task in tasks if task.get("role") == role and task_is_ready(state, task)]
                 if not ready_tasks:

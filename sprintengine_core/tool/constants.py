@@ -33,10 +33,20 @@ VALID_TASK_COMMENT_TYPES = {
 }
 VALID_TASK_SOURCE_TYPES = {"local", "github", "jira", "linear"}
 VALID_TASK_SOURCE_SYNC_STATUSES = {"clean", "local_changed", "remote_changed", "conflict"}
+# Two lanes, not three (MC-1585): `architect` is the PLANNER-ROUTED lane — it means
+# "the role that plans this run", which `plans.resolve_planning_role` answers
+# (architect if rostered, else general). A general-only run therefore needs no
+# `general` lane of its own; widening what the existing kind MEANS beats adding a
+# parallel enum value that every consumer would have to learn.
+# The wire value stays `architect` deliberately: it is read by the renderer, the
+# agent prompts, and every run.yaml already on disk, none of which this change
+# owns. `planner` is accepted as an input alias and normalized to it, so agents in
+# a general-only run can escalate in the vocabulary their prompt gives them.
 VALID_NEEDS_INPUT_KINDS = {"architect", "user"}
 LEGACY_NEEDS_INPUT_KIND_MAP = {
     "owner": ("architect", "blocked_other"),
     "external_validation": ("user", "verification"),
+    "planner": ("architect", "task_scope"),
 }
 VALID_NEEDS_INPUT_REASONS = {
     "task_scope",
@@ -50,7 +60,20 @@ NEEDS_INPUT_KIND_DEFAULT_REASONS = {
     "architect": "task_scope",
     "user": "product_decision",
 }
-ARCHITECT_ROUTED_NEEDS_INPUT_KINDS = {"architect"}
+# What a CALLER may pass (CLI `--needs-input-kind`, MCP `needsInputKind`), as opposed
+# to what is STORED (`VALID_NEEDS_INPUT_KINDS`). `planner` is the only advertised
+# alias — an agent on a general-only run reasonably reaches for it, and
+# `normalize_needs_input_kind` folds it to the canonical `architect`. The other
+# entries in the legacy map are read-side compatibility for old stores and stay
+# unadvertised.
+NEEDS_INPUT_KIND_INPUT_CHOICES = sorted(VALID_NEEDS_INPUT_KINDS | {"planner"})
+# The needs_input kinds that route to the run's PLANNER (not literally to an
+# architect — see the lane note above). Resolve the actor with
+# `plans.resolve_planning_role`, never by comparing a role to "architect".
+PLANNER_ROUTED_NEEDS_INPUT_KINDS = {"architect"}
+# Legacy alias: the old name said "architect" when it meant "planner", which is the
+# assumption that dead-ended general-only runs. Kept so out-of-tree importers work.
+ARCHITECT_ROUTED_NEEDS_INPUT_KINDS = PLANNER_ROUTED_NEEDS_INPUT_KINDS
 VALID_ARTIFACT_KINDS = {
     "architect_plan",
     "product_strategy",

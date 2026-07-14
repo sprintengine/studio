@@ -282,6 +282,9 @@ class SprintEngineMcpServer:
         topic = str(payload.get("topic") or "agent_workflow").strip() or "agent_workflow"
         if topic not in {"agent_workflow", "tools", "needs_input", "artifacts", "phases"}:
             raise McpToolError("invalid_payload", "topic must be one of agent_workflow, tools, needs_input, artifacts, or phases.")
+        help_tools = allowed_tools_for_classification(
+            classify_role(role, workspace_root=None), TOOL_SCHEMAS
+        )
 
         sections = {
             "agent_workflow": [
@@ -294,14 +297,17 @@ class SprintEngineMcpServer:
                 "Headless CLI agents outside the managed runtime use sprintengine.agent.next_directive for routing instead.",
                 "If Auto Mode is off, you are blocked, need user input, or are near context limit, stop after recording the appropriate note or status.",
             ],
-            # The triage line names an architect-only tool, so it is filtered
-            # out for every other role: help must never direct a role at a
-            # tool outside its capability surface.
+            # The triage line is filtered by the CAPABILITY TABLE, not by a role
+            # name: help must never direct a role at a tool outside its surface,
+            # and must never hide one inside it. Triage belongs to whoever plans
+            # the run — the architect, or the general on a general-only run, which
+            # a literal `role == "architect"` check silently locked out of the
+            # blockers it was the only agent able to clear.
             "tools": [
                 f"Claim next ready role work: sprintengine.task.next with {{role: \"{role}\", id: \"{agent_id}\"}}.",
                 *(
-                    [f"Architect-actionable triage: sprintengine.triage.needs_input with {{id: \"{agent_id}\"}}."]
-                    if normalize_role_id(role) == "architect"
+                    [f"Planner-actionable triage: sprintengine.triage.needs_input with {{id: \"{agent_id}\"}}."]
+                    if "sprintengine.triage.needs_input" in help_tools
                     else []
                 ),
                 "Read a task card: sprintengine.task.get with {taskId}. The card is slim by default; pass include: [\"activity\", \"comments\", \"evidence_log\", \"diffs\"] for deep history.",
@@ -313,7 +319,7 @@ class SprintEngineMcpServer:
             ],
             "needs_input": [
                 "Move a task to needs_input with sprintengine.task.status and {taskId, id, status: \"needs_input\", needsInputKind, needsInputReason, needsInputQuestion, needsInputArtifactId?, needsInputSuggestedResolution?}.",
-                "needsInputKind: architect when Sprint Engine should route automatic architect triage; user when the human operator must answer before the owner resumes.",
+                "needsInputKind: architect (alias: planner) when Sprint Engine should route automatic triage to the role that plans this run — the architect, or the general on a run with no architect; user when the human operator must answer before the owner resumes.",
                 "needsInputReason: task_scope, artifact_review, tooling, verification, product_decision, or blocked_other.",
                 "needsInputQuestion is shown verbatim to a person. When needsInputKind is user, write it for the human operator, not for another agent: plain language, and no tool names, command flags, code symbols, file paths, or acceptance-criteria shorthand unless it is essential and you explain it.",
                 "Structure a user question so it is scannable: open with one line naming the decision or action you need, then short '- ' bullet lines covering what is blocked, why you cannot resolve it yourself, and the concrete options or steps the user can take (recommended option first). End with the single thing you need back. Use line breaks and bullets, never one dense paragraph.",

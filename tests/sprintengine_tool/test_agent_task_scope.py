@@ -349,3 +349,59 @@ def test_assignment_op_mints_only_for_ready_tasks_not_for_in_flight_review(tmp_p
     # The review owner is spent: it may re-enter T1 but never claim T2.
     assert task_claim_exceeds_worker_capacity(state, state["agents"]["developer-1"], "T1") is False
     assert task_claim_exceeds_worker_capacity(state, state["agents"]["developer-1"], "T2") is True
+
+
+def _configure_roles(fixture, roles: list[str]) -> None:
+    """Pin the run's enabled-role set, the way init's --configured-roles-json does."""
+    from fixtures import write_state
+
+    state = read_state(fixture.state_path)
+    state["configuredRoles"] = roles
+    write_state(fixture.state_path, state)
+
+
+def test_assignment_op_mints_general_workers_for_the_raw_agent_pool(tmp_path) -> None:
+    # MC-1585: the default product is a pool of plain agents sharing one task graph
+    # by claiming, so `general` replenishes exactly like `developer`. Before this,
+    # general sat in PLANNING_ROLE_IDS and was skipped here, which capped a
+    # general-only run at ONE agent for the life of the run — no second seat could
+    # be added and no worker could ever be minted.
+    fixture = create_team(
+        tmp_path,
+        "assignment-general-pool",
+        [task("G1", "Plan and build one", "general"), task("G2", "Build two", "general")],
+    )
+    # The seated planner (bare `general`) is never-owned capacity, so it absorbs the
+    # head of the ready queue; only the uncovered task mints a task-scoped worker.
+    _seed_roster(fixture, {"general": {"role": "general", "status": "idle", "currentTaskId": None}})
+    # A real general-only run: `general` is enabled but has no registry manifest, so
+    # the run's own configuredRoles is the only place replenish can learn about it.
+    _configure_roles(fixture, ["general"])
+
+    replenished = fixture.cli.run("roster", "replenish", "--actor", "runner", "--queue-depth", "--max-new", "5")
+
+    assert [a["taskId"] for a in replenished["assignments"]] == ["G2"]
+    assert [a["role"] for a in replenished["assignments"]] == ["general"]
+    # D-Naming: the seated bare `general` counts as index 1, so the first minted
+    # worker is general-2 — it must not collide with the planner. The renderer
+    # allocator (getNextSprintEngineAgentId) applies the same rule; TS/Python drift
+    # here has bitten before.
+    assert [a["agentId"] for a in replenished["assignments"]] == ["general-2"]
+    assert set(read_state(fixture.state_path)["agents"]) == {"general", "general-2"}
+
+
+def test_assignment_op_never_mints_a_second_architect(tmp_path) -> None:
+    # The architect is the one singleton-seat role: it orchestrates the whole run,
+    # so queue depth never mints a parallel one. (Unchanged by MC-1585 — pinned here
+    # because the mint-exclusion set narrowed from every planning role to this one.)
+    fixture = create_team(
+        tmp_path,
+        "assignment-architect-singleton",
+        [task("A1", "Plan", "architect"), task("A2", "Sign off", "architect")],
+    )
+    _seed_roster(fixture, {"architect": {"role": "architect", "status": "idle", "currentTaskId": None}})
+
+    replenished = fixture.cli.run("roster", "replenish", "--actor", "runner", "--queue-depth", "--max-new", "5")
+
+    assert replenished["assignments"] == []
+    assert set(read_state(fixture.state_path)["agents"]) == {"architect"}

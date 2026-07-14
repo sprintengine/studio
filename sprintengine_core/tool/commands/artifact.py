@@ -21,6 +21,7 @@ from sprintengine_core.tool.artifacts import (
 from sprintengine_core.tool.constants import VALID_APPROVAL_MODES
 from sprintengine_core.tool.feedback import append_feedback_record, attach_feedback_payload, build_feedback_payload
 from sprintengine_core.tool.paths import now_iso
+from sprintengine_core.tool.plans import resolve_planning_role
 from sprintengine_core.tool.state import (
     append_agent_notification_event,
     append_event,
@@ -237,7 +238,10 @@ def cmd_artifact_request_changes(args: argparse.Namespace) -> Dict[str, Any]:
         # open_rework comment queues. The artifact-state activity entry above
         # carries the verb; this comment carries the human prose.
         actor_role = str(state.get("agents", {}).get(args.id, {}).get("role") or "").strip().lower()
-        if actor_role == "architect":
+        # Planner feedback follows the run's planning role (a general plans its own
+        # run), not the literal architect — otherwise it fell through to the generic
+        # review_feedback bucket.
+        if actor_role == resolve_planning_role(state):
             comment_type = "architect_feedback"
         elif actor_role == "tester":
             comment_type = "test_feedback"

@@ -466,6 +466,19 @@ def normalize_task_source(raw: Any, task_id: str) -> Optional[Dict[str, Any]]:
 
     return source
 
+def normalize_needs_input_kind(kind: Optional[str]) -> Optional[str]:
+    """Resolve a needs_input kind alias to its canonical wire value.
+
+    `planner` is the vocabulary a general-only run's agents are given (the lane is
+    named for the architect but MEANS the run's planner), so accept it on input and
+    store the canonical kind. One place applies the alias map; the CLI arg paths and
+    the state normalizer both come through here.
+    """
+    if kind in LEGACY_NEEDS_INPUT_KIND_MAP:
+        return LEGACY_NEEDS_INPUT_KIND_MAP[kind][0]
+    return kind
+
+
 def normalize_task_needs_input(raw: Any, task_id: str) -> Optional[Dict[str, Any]]:
     if raw is None:
         return None

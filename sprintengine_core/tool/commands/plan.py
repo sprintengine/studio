@@ -21,6 +21,7 @@ from sprintengine_core.tool.plans import (
     plan_fingerprint,
     plan_path_for_state,
     plan_reviews_dir_for_state,
+    resolve_planning_role,
     safe_review_filename,
 )
 from sprintengine_core.tool.roles import require_configured_role
@@ -243,9 +244,15 @@ def cmd_plan_list(args: argparse.Namespace) -> Dict[str, Any]:
 
 def cmd_plan_start_review(args: argparse.Namespace) -> Dict[str, Any]:
     args.role = require_configured_role(args.role, context="Plan review")
-    if args.role == "architect":
-        raise SystemExit("Architect does not review its own Sprint Engine plan through plan start-review.")
     state = load_mutation_state(args.state)
+    # No planner reviews its own plan. The guard follows the run's planning role, so
+    # a general that planned its own run cannot sign off on that plan just because it
+    # is not literally an architect.
+    planning_role = resolve_planning_role(state)
+    if args.role == planning_role:
+        raise SystemExit(
+            f"{planning_role.capitalize()} does not review its own Sprint Engine plan through plan start-review."
+        )
     ensure_role_in_roster(state, args.role)
     plan_path = plan_path_for_state(args.state)
     reviews_dir = plan_reviews_dir_for_state(args.state)

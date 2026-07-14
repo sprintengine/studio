@@ -254,14 +254,23 @@ def apply_source_context_to_task(task: Dict[str, Any], state: Dict[str, Any], st
 def resolve_planning_role(state: Dict[str, Any]) -> str:
     """The role that owns the plan-approval gate.
 
-    The architect owns planning whenever one is rostered; a roster of soulless
-    Generals with no architect plans the run itself, so the planner is `general`.
-    Resolving to `general` only when a general is rostered and no architect is
-    keeps every existing architect/specialist run on the architect path
-    byte-for-byte.
+    The architect owns planning whenever one is rostered; a pool of plain Generals
+    with no architect plans the run itself, so the planner is `general`. Preferring
+    the architect whenever one is rostered keeps every existing architect/specialist
+    run on the architect path byte-for-byte.
+
+    A general-default run reaches here BEFORE any seat exists (init resolves the
+    planner to root the plan-approval gate), so an empty roster falls back to the
+    run's configured roles rather than silently answering "architect" — which used
+    to hand a general-only run a plan gate no rostered role could ever claim.
     """
     roles = roster_roles(state)
-    if "architect" not in roles and "general" in roles:
+    if "architect" in roles:
+        return "architect"
+    if "general" in roles:
+        return "general"
+    configured = configured_role_set(state) or set()
+    if "architect" not in configured and "general" in configured:
         return "general"
     return "architect"
 
@@ -598,11 +607,14 @@ def plan_fingerprint(plan_path: Path) -> str:
 
 def expected_plan_reviewers(state: Dict[str, Any]) -> List[Dict[str, str]]:
     reviewers = []
+    # Exclude the role that wrote the plan — the run's planner, which is the general
+    # in a general-only run, not always the architect.
+    review_roles = plan_review_role_ids(planning_role=resolve_planning_role(state))
     for agent_id, agent in state.get("agents", {}).items():
         if not isinstance(agent, dict):
             continue
         role = str(agent.get("role", "")).strip()
-        if role not in plan_review_role_ids():
+        if role not in review_roles:
             continue
         reviewers.append({"id": str(agent_id), "role": role})
     return sorted(reviewers, key=lambda item: (item["role"], item["id"]))

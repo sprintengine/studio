@@ -378,11 +378,21 @@ def roster_is_configured(state: Dict[str, Any]) -> bool:
     return bool(state.get("sprintengine", {}).get("rosterConfigured"))
 
 
-# Planning roles are singletons: an architect orchestrates the whole run and a
-# soulless General owns a sprint solo, so neither scales past one live seat. This
-# is the single source of the set — roster.py's queue-depth replenishment imports
-# it — so the seat cap here and the mint-exclusion there cannot drift apart.
-PLANNING_ROLE_IDS = {"architect", "general"}
+# Who PLANS is not a set here: `plans.resolve_planning_role` is the single source
+# (architect if rostered, else general). There is deliberately no PLANNING_ROLE_IDS
+# constant — it used to double as the seat cap, which is what capped a general-only
+# run at one agent (MC-1585). Keep the two questions apart.
+
+# Roles capped at one live seat. Only the architect: it orchestrates the whole run,
+# and two architects would each try to own it. A General does NOT belong here — the
+# default product is a POOL of plain agents that share one task graph by claiming
+# (the startup prompt and sprintengine_general_workflow have always promised this),
+# so generals seat and replenish as `general-N` workers exactly like developers.
+# Planning stays serialized by task ownership, not by a seat cap: the plan-approval
+# task has exactly one claimer. This is the single source of the set — roster.py's
+# queue-depth replenishment imports it — so the seat cap here and the mint-exclusion
+# there cannot drift apart.
+SINGLETON_SEAT_ROLE_IDS = {"architect"}
 
 
 def configured_role_set(state: Dict[str, Any]) -> Optional[set[str]]:
@@ -433,10 +443,11 @@ def ensure_agent_in_roster(state: Dict[str, Any], agent_id: str, role: str, *, a
 
 
 def planning_seat_taken(agents: Dict[str, Any], role: str) -> bool:
-    """True when a non-retired agent already holds `role`'s planning seat.
+    """True when a non-retired agent already holds `role`'s singleton seat.
 
-    A retired planner has vacated its seat, so it never blocks seating a
-    replacement of the same planning role.
+    Applies to SINGLETON_SEAT_ROLE_IDS (the architect), not to every planning
+    role: generals are a pool and seat freely. A retired holder has vacated its
+    seat, so it never blocks seating a replacement of the same role.
     """
     return any(
         isinstance(other, dict)
@@ -461,17 +472,18 @@ def add_roster_agent(state: Dict[str, Any], role: str, agent_id: str, actor: str
         return existing
 
     # Enforce the run's configured roster boundary on genuinely new seats only:
-    # a role the user did not enable cannot be seated, and a planning role is a
-    # single live seat. No-ops when configuredRoles is absent/blank (legacy runs).
+    # a role the user did not enable cannot be seated, and a singleton-seat role
+    # (the architect) takes one live member. No-ops when configuredRoles is
+    # absent/blank (legacy runs).
     configured = configured_role_set(state)
     if configured is not None:
         if role not in configured:
             raise SystemExit(
                 f"Role {role!r} is not enabled for this run; ask the user to add it to the roster."
             )
-        if role in PLANNING_ROLE_IDS and planning_seat_taken(agents, role):
+        if role in SINGLETON_SEAT_ROLE_IDS and planning_seat_taken(agents, role):
             raise SystemExit(
-                f"This run already has a seated {role}; the {role} planning seat is a singleton "
+                f"This run already has a seated {role}; the {role} seat is a singleton "
                 "and cannot take a second member."
             )
 

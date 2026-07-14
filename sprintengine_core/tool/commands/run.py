@@ -22,6 +22,7 @@ from sprintengine_core.tool.plans import (
     handover_path_for_state,
     import_source_to_team_file,
     parse_source_bundle_arg,
+    resolve_planning_role,
     plan_path_artifact_value,
     plan_path_for_state,
     product_intake_path_artifact_value,
@@ -54,6 +55,7 @@ from sprintengine_core.tool.state import (
     apply_roster_source,
     run_required_sweeps,
     clear_non_active_task_owner_claims,
+    configured_role_set,
     ensure_agent_in_roster,
     find_task,
     load_mutation_state,
@@ -368,7 +370,18 @@ def cmd_init(args: argparse.Namespace) -> Dict[str, Any]:
             return {"ok": True, "planGate": plan_gate}
 
         roles = roster_roles(state)
-        has_product_reviewer = not roster_is_configured(state) or "product" in roles
+        # The run's ENABLED roles decide this, not the seats filled so far: init
+        # commonly runs before any agent is seated, and a product gate opened for a
+        # run whose configuredRoles has no `product` is a task no agent may ever
+        # claim (add_roster_agent rejects the off-roster role) — and the plan gate
+        # dependsOn it, so the whole run is dead on arrival. Seat-based fallback
+        # only for legacy runs that carry no configuredRoles.
+        configured = configured_role_set(state)
+        has_product_reviewer = (
+            "product" in configured
+            if configured is not None
+            else (not roster_is_configured(state) or "product" in roles)
+        )
         # An epic source only opens a product intake gate when a child is itself a
         # product plan; otherwise the architect plans directly from the epic's
         # design docs. Non-epic behavior is unchanged.
@@ -614,7 +627,7 @@ def agent_next_directive_from_join(
         return {
             **base,
             "directiveType": "needs_input_triage",
-            "message": "Triage architect-actionable needs_input blockers through the MCP triage tool.",
+            "message": "Triage planner-actionable needs_input blockers through the MCP triage tool.",
             "nextMcpToolName": "sprintengine.triage.needs_input",
             "nextMcpArguments": next_args,
             "nextTool": _directive_next_tool("sprintengine.triage.needs_input", next_args),
@@ -722,7 +735,7 @@ def auto_mode_continuation(state: Dict[str, Any], role: str, agent_id: str) -> O
 
 def cmd_join(args: argparse.Namespace) -> Dict[str, Any]:
     import sys
-    from sprintengine_core.tool.commands.task import architect_actionable_needs_input_tasks
+    from sprintengine_core.tool.commands.task import planner_actionable_needs_input_tasks
 
     args.role = require_configured_role(args.role, context="Join")
     print(f"[sprintengine] reading state from: {args.state}", file=sys.stderr)
@@ -847,7 +860,10 @@ def cmd_join(args: argparse.Namespace) -> Dict[str, Any]:
             )
             return {"ok": True, "role": args.role, "agentId": args.id, "action": "resume", "task": active, "runner": policy, "prompt": prompt + directive, "releasedExpired": expired["released"], "write": runtime["dirty"] or expired["dirty"] or stale_owner_dirty}
 
-        if args.role == "architect" and architect_actionable_needs_input_tasks(state):
+        # Planner-routed, not architect-routed: in a general-only run the general IS
+        # the planner, and gating this on the literal role meant it never received the
+        # triage directive — architect-kind needs_input work queued forever.
+        if args.role == resolve_planning_role(state) and planner_actionable_needs_input_tasks(state):
             directive = (
                 f"\n\n---\n"
                 f"## Your First Action\n"
@@ -1259,12 +1275,17 @@ def cmd_runner_set(args: argparse.Namespace) -> Dict[str, Any]:
 
 def cmd_triage_needs_input(args: argparse.Namespace) -> Dict[str, Any]:
     def run(state: Dict[str, Any]) -> Dict[str, Any]:
-        from sprintengine_core.tool.commands.task import architect_actionable_needs_input_tasks, normalized_needs_input_for_routing
+        from sprintengine_core.tool.commands.task import normalized_needs_input_for_routing, planner_actionable_needs_input_tasks
 
-        ensure_agent_in_roster(state, args.id, "architect")
-        tasks = architect_actionable_needs_input_tasks(state)
+        # Triage belongs to whoever PLANS this run. Hardcoding "architect" forced an
+        # architect seat into a general-only roster on the first triage call, which
+        # `add_roster_agent` then rejected as off-roster — the blocked task could
+        # never be triaged by anyone.
+        planning_role = resolve_planning_role(state)
+        ensure_agent_in_roster(state, args.id, planning_role)
+        tasks = planner_actionable_needs_input_tasks(state)
         prompt_lines = [
-            "You are the Sprint Engine architect triaging architect-actionable needs_input tasks.",
+            f"You are the Sprint Engine {planning_role} triaging planner-actionable needs_input tasks.",
             "",
             "Goal:",
             str(state.get("sprintengine", {}).get("goal") or state.get("goal") or ""),
@@ -1276,16 +1297,16 @@ def cmd_triage_needs_input(args: argparse.Namespace) -> Dict[str, Any]:
             "- For reason=artifact_review, read the referenced artifact, adjudicate recommended follow-up tasks, wire blockers before validation when needed, then approve/request changes or resolve the blocked task.",
             "- Use `sprintengine plan update-task --force` for active task-card corrections.",
             "- Use `sprintengine plan add-task`, `sprintengine plan add-dependency`, or `sprintengine plan remove-dependency` only when the task graph really needs repair.",
-            "- When the original owner should continue, use `sprintengine task resolve-input --task-id <id> --id architect --resolution \"...\"` instead of plain `task status --status in_progress` so the owner receives a resume notification.",
-            "- When architect adjudication completes a review-only blocked task, use `sprintengine task resolve-input --task-id <id> --id architect --resolution \"...\" --complete`.",
-            "- If the original owner is inactive or should not continue, use `sprintengine task release --task-id <id> --id architect --reason \"...\"`.",
+            f"- When the original owner should continue, use `sprintengine task resolve-input --task-id <id> --id {args.id} --resolution \"...\"` instead of plain `task status --status in_progress` so the owner receives a resume notification.",
+            f"- When planner adjudication completes a review-only blocked task, use `sprintengine task resolve-input --task-id <id> --id {args.id} --resolution \"...\" --complete`.",
+            f"- If the original owner is inactive or should not continue, use `sprintengine task release --task-id <id> --id {args.id} --reason \"...\"`.",
             "- Leave human-owned decisions as `needs_input` with kind=user; do not guess product intent.",
             "- When the worker can continue, say so clearly in the note. The original worker still owns implementation and completion evidence.",
             "",
         ]
         if not tasks:
             prompt_lines.extend([
-                "No architect-actionable needs_input tasks are currently queued.",
+                "No planner-actionable needs_input tasks are currently queued.",
                 "Stop now.",
             ])
             return {"ok": True, "tasks": [], "prompt": "\n".join(prompt_lines), "write": False}
