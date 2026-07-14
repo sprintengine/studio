@@ -1542,6 +1542,11 @@ export default function WorkspaceSidebar({
         />
       </div>
 
+      <div
+        aria-hidden="true"
+        className={`my-2 h-px bg-[color:var(--border-subtle)] ${sidebarCollapsed ? 'mx-1.5' : 'mx-2'}`}
+      />
+
       {/* Tree: Starred first, then folder groups directly — no "Projects"
           umbrella header; the folder headers are the top level (Cursor-parity).
           Sprint workspaces list under their project like any other workspace;
@@ -1553,7 +1558,7 @@ export default function WorkspaceSidebar({
           labels (pl-4 + 14px icon slot + gap-1.5), workspace-row content
           (mx-1.5 + 4px rail + pl-[26px]) and the fold row's chevron
           (mx-1.5 + pl-[30px]). Keep these in step when touching any one. */}
-      <nav className="mt-1 flex-1 overflow-y-auto pb-2" role="tree">
+      <nav className="flex-1 overflow-y-auto pb-2" role="tree">
         {starredWorkspaces.length > 0 && sidebarCollapsed ? (
           <section className="relative" aria-label="Starred workspaces">
             {starredWorkspaces.map((workspace) =>
