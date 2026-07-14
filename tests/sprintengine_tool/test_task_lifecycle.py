@@ -2041,6 +2041,70 @@ def test_roster_replenish_adds_replacement_for_retired_capacity_with_open_work(t
     assert_event_type(state, "roster_replacement_added")
 
 
+def test_roster_replenish_skips_singleton_role_while_seat_is_occupied(tmp_path) -> None:
+    # 2026-07-14 starvation regression: retired planners never carry
+    # replacedByAgentId when their successor was seated manually, so the
+    # retired-replacement pass tried to mint architect-4 into an occupied
+    # singleton seat, SystemExit'd the whole command every supervisor tick, and
+    # the tick abort starved dispatch for every role. The occupied seat IS the
+    # replacement; replenish must succeed as a no-op for that role.
+    fixture = create_team(
+        tmp_path,
+        "occupied-singleton-replenish",
+        [
+            task("T0", "Plan approval", "architect", "done"),
+            task("T1", "Follow-up planning", "architect"),
+        ],
+    )
+    state = read_state(fixture.state_path)
+    state["agents"] = {
+        "architect": {"role": "architect", "status": "retired", "currentTaskId": None, "lastOwnedTaskId": "T0"},
+        "architect-2": {"role": "architect", "status": "retired", "currentTaskId": None},
+        "architect-3": {"role": "architect", "status": "idle", "currentTaskId": None},
+    }
+    state["sprintengine"]["rosterConfigured"] = True
+    state["configuredRoles"] = ["architect", "developer"]
+    write_state(fixture.state_path, state)
+
+    replenished = fixture.cli.run("roster", "replenish", "--actor", "runner")
+    assert replenished["action"] == "none"
+    state = read_state(fixture.state_path)
+    assert set(agent_id for agent_id in state["agents"]) == {"architect", "architect-2", "architect-3"}
+
+
+def test_roster_replenish_mints_one_replacement_for_a_vacated_singleton_seat(tmp_path) -> None:
+    # Two unreplaced retirees + a vacated seat: exactly one replacement seats
+    # (filling the singleton seat); a second mint would trip the seat cap
+    # mid-loop and fail the command.
+    fixture = create_team(
+        tmp_path,
+        "vacated-singleton-replenish",
+        [
+            task("T0", "Plan approval", "architect", "done"),
+            task("T1", "Follow-up planning", "architect"),
+        ],
+    )
+    state = read_state(fixture.state_path)
+    state["agents"] = {
+        "architect": {"role": "architect", "status": "retired", "currentTaskId": None},
+        "architect-2": {"role": "architect", "status": "retired", "currentTaskId": None},
+    }
+    state["sprintengine"]["rosterConfigured"] = True
+    state["configuredRoles"] = ["architect", "developer"]
+    write_state(fixture.state_path, state)
+
+    replenished = fixture.cli.run("roster", "replenish", "--actor", "runner")
+    assert replenished["action"] == "replenished"
+    assert [entry["role"] for entry in replenished["created"]] == ["architect"]
+    state = read_state(fixture.state_path)
+    architects_alive = [
+        agent_id
+        for agent_id, agent in state["agents"].items()
+        if agent.get("role") == "architect" and agent.get("status") != "retired"
+    ]
+    assert len(architects_alive) == 1
+
+
 def test_roster_replenish_queue_depth_tops_up_task_scoped_capacity(tmp_path) -> None:
     # MC-1444 Phase 3: with one agent session per task, a role's parallel
     # throughput is bounded by spawnable roster ids. Three ready developer

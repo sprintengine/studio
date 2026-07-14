@@ -2469,7 +2469,18 @@ export async function superviseRunnerActiveCycle(
   clearStaleRetainedResumeState(ports, workspace, sprintEngineState, agentSessions.live)
 
   const replenishResult = await replenishRetiredRosterCapacity(ports, cycleState, workspace, sprintEngineState, agentSessions.live)
-  if (replenishResult.status === 'failed') return
+  if (replenishResult.status === 'failed') {
+    // Replenishment failing must not starve dispatch: bootstrap, wake, and
+    // candidate picking below only need the roster that already exists, and a
+    // persistently failing replenish (2026-07-14: retired planners against an
+    // occupied singleton seat) otherwise aborts every tick before any spawn.
+    // The diagnostic is already published inside replenishRetiredRosterCapacity.
+    logPerfEvent('SprintEngineAutoRun', 'roster-replenish-failed-continuing', {
+      workspaceId: workspace.id,
+      workspaceName: workspace.name,
+      elapsedMs: Math.round(performance.now() - superviseStartedAt),
+    })
+  }
   if (replenishResult.status === 'changed') {
     workspace = replenishResult.workspace
     sprintEngineState = replenishResult.sprintEngineState

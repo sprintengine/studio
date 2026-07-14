@@ -20,6 +20,7 @@ from sprintengine_core.tool.state import (
     apply_role_runtimes,
     configured_role_set,
     next_replacement_agent_id,
+    planning_seat_taken,
     retired_agent_has_live_replacement,
     role_has_open_work,
     roster_is_configured,
@@ -311,6 +312,13 @@ def cmd_roster_replenish(args: argparse.Namespace) -> Dict[str, Any]:
         )
         created = []
         for role in roles:
+            # A singleton seat can hold only one live member, so while one is
+            # seated the occupied seat IS every retiree's replacement — minting
+            # here would exceed the seat cap and fail the whole command,
+            # starving the queue-depth pass below (2026-07-14 incident; the
+            # roster model this guards is deleted by MC-1591).
+            if role in SINGLETON_SEAT_ROLE_IDS and planning_seat_taken(state.get("agents", {}), role):
+                continue
             retired_for_role = [
                 agent_id
                 for agent_id, agent in state.get("agents", {}).items()
@@ -325,6 +333,11 @@ def cmd_roster_replenish(args: argparse.Namespace) -> Dict[str, Any]:
                 continue
             if not role_has_open_work(state, role):
                 continue
+            # One mint fills a vacated singleton seat; every further retiree is
+            # then replaced by that occupied seat, and a second mint would trip
+            # the seat cap mid-loop.
+            if role in SINGLETON_SEAT_ROLE_IDS:
+                retired_for_role = retired_for_role[:1]
             for retired_id in retired_for_role:
                 replacement_id = next_replacement_agent_id(state, role)
                 replacement = add_roster_agent(state, role, replacement_id, actor)
