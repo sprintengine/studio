@@ -115,7 +115,7 @@ import { shouldShowKnowledgeStep } from './newWorkspace/knowledgeFolders'
 import { normalizeProjectRootKey } from '../../utils/projectKnowledge'
 import { CliPermissionPresetRow, PathRadio, RosterAndRunSettings } from './newWorkspace/WizardControls'
 import { ArchitectTeamCard } from './newWorkspace/ArchitectTeamCard'
-import { DEFAULT_SPRINT_ENGINE_ROLE_CLI_DEFAULTS, DEFAULT_SPRINT_ENGINE_ROLE_COUNTS, pruneSprintEngineRoleCliDefaults, pruneSprintEngineRoleModelOverrides, resolveInitialSprintEngineRoster, sprintEngineRosterMatchesTeam } from './newWorkspace/savedTeams'
+import { DEFAULT_SPRINT_ENGINE_ROLE_CLI_DEFAULTS, DEFAULT_SPRINT_ENGINE_ROLE_COUNTS, pruneSprintEngineRoleCliDefaults, pruneSprintEngineRoleModelOverrides, resolveInitialSprintEngineRoster, sprintEngineRosterMatchesTeam, sprintEngineRosterStaffsSpecialists } from './newWorkspace/savedTeams'
 import {
   resolveAvailableAgentCli,
   selectAgentCliCatalog,
@@ -228,6 +228,11 @@ const SOURCE_BUNDLE_KIND_OPTIONS: Array<{ value: SprintEngineSourceBundleKind; l
 // keep the wizard's local vocabulary.
 const initialSprintEngineRoleCounts = DEFAULT_SPRINT_ENGINE_ROLE_COUNTS
 const initialSprintEngineRoleCliDefaults = DEFAULT_SPRINT_ENGINE_ROLE_CLI_DEFAULTS
+
+// The plain-agents create/spawn roster (MC-1585): a single `general` planner
+// seat. Module-level so its reference is stable across renders — the effective
+// roster derivations below hand it to memoized consumers (seInitialSpawnRoles).
+const PLAIN_AGENT_ROLE_COUNTS: SprintEngineRoleCounts = { general: 1 }
 
 function cloneSprintEngineRoleCounts(roleCounts: SprintEngineRoleCounts): SprintEngineRoleCounts {
   return { ...roleCounts }
@@ -429,6 +434,14 @@ export default function NewWorkspacePanel({
     defaultRoleCounts: initialSprintEngineRoleCounts,
     defaultRoleCliDefaults: initialSprintEngineRoleCliDefaults,
   })
+  // MC-1585: the roster step opens on plain agents. It opens pre-expanded on the
+  // specialist affordances only when a SAVED source (a selected team or the
+  // legacy roster) staffs specialists — a fresh install (the built-in default
+  // team) and a plain general-only saved team both open collapsed. Computed once
+  // for the initial state; the toggle owns it afterwards.
+  const initialUseSpecialistRoles =
+    (Boolean(initialSprintEngineRoster.selectedTeamId) || Boolean(savedSprintEngineRoster))
+    && sprintEngineRosterStaffsSpecialists(initialSprintEngineRoster.roleCounts)
 
   const initialFuturePlan = initialState?.futurePlanSource ?? null
   const initialMode: CreationMode =
@@ -540,8 +553,10 @@ export default function NewWorkspacePanel({
   const [seStartRunner, setSeStartRunner] = useState(true)
   const [seUseWorktrees, setSeUseWorktrees] = useState(false)
   // Workspace-level concurrent-session cap (MC-1450: replaces the roster-size
-  // ceiling). Clamped 1-10 at the input and again by the controller.
-  const [seMaxParallelAgents, setSeMaxParallelAgents] = useState(3)
+  // ceiling). Clamped 1-10 at the input and again by the controller. Plain-agents
+  // runs default to 2 ("two agents claiming from one task graph", MC-1585);
+  // specialist runs keep the established default of 3.
+  const [seMaxParallelAgents, setSeMaxParallelAgents] = useState(() => (initialUseSpecialistRoles ? 3 : 2))
   const [sePlanError, setSePlanError] = useState<string | null>(null)
   const [cliPermissionPreset, setCliPermissionPreset] = useState<SprintEngineCliPermissionPreset>(
     lastSpawnPermissionPreset,
@@ -574,6 +589,10 @@ export default function NewWorkspacePanel({
   // with no reseed race when the catalog/CLI availability loads. Guidance is
   // prompt-only (never persisted by the engine).
   const [seRosterSource, setSeRosterSource] = useState<SprintEngineRosterSource>('user')
+  // "Use specialist roles" disclosure (MC-1585). Off = plain agents (a pool of
+  // general agents sized by the concurrency cap). On = the specialist roster
+  // table, architect-picks-the-team mode, and Final sweeps.
+  const [seUseSpecialistRoles, setSeUseSpecialistRoles] = useState(initialUseSpecialistRoles)
   const [seArchitectSeat, setSeArchitectSeat] = useState<SprintEngineAllowedRuntime | null>(null)
   const [seSprintModelSelection, setSeSprintModelSelection] = useState<ReadonlySet<string> | null>(null)
   const [seArchitectGuidance, setSeArchitectGuidance] = useState('')
@@ -803,6 +822,27 @@ export default function NewWorkspacePanel({
     }
     return filtered
   }, [seExistingTeam, visibleSprintEngineRoleCounts, seRoleRegistry, effectiveSprintEngineDisabledRoleIds])
+
+  // MC-1585: the plain-agents default is a general-only run. seRoleCounts still
+  // holds the specialist roster behind the collapsed disclosure (so toggling it
+  // on restores those rows), so creation must NOT read it in plain mode — it
+  // stages exactly one `general` planner seat, and the pool grows by
+  // mint-on-demand up to the concurrency cap. Never applies to an existing team
+  // (its canonical roster is fixed and the disclosure is not offered).
+  const sprintEnginePlainAgents = !seExistingTeam && !seUseSpecialistRoles
+  const sprintEngineEffectiveCreateRoleCounts = sprintEnginePlainAgents
+    ? PLAIN_AGENT_ROLE_COUNTS
+    : sprintEngineCreateRoleCounts
+  // Spawn-at-start follows the planner (general here, architect in specialist
+  // mode), so the launch bootstrap reads the effective counts, not the hidden
+  // specialist roster. Final sweeps are a specialist affordance: plain runs mandate none.
+  const sprintEngineEffectiveVisibleRoleCounts = sprintEnginePlainAgents
+    ? PLAIN_AGENT_ROLE_COUNTS
+    : visibleSprintEngineRoleCounts
+  const sprintEngineEffectiveSweepEnabledRoles = sprintEnginePlainAgents ? [] : sprintEngineSweepEnabledRoles
+  const sprintEngineEffectiveRequiredSweeps = sprintEnginePlainAgents
+    ? []
+    : ([...seRequiredSweeps] as SprintEngineRoleId[])
 
   const mcpSettings = useWorkspaceStore((s) => s.appSettings.mcp)
   const upsertMcpServer = useWorkspaceStore((s) => s.upsertMcpServer)
@@ -1768,11 +1808,11 @@ export default function NewWorkspacePanel({
     () => (Object.entries(buildSprintEngineEffectiveSpawnAtStartRoles({
       automationMode: seAutomationMode,
       existingTeam: seExistingTeam != null,
-      visibleRoleCounts: visibleSprintEngineRoleCounts,
+      visibleRoleCounts: sprintEngineEffectiveVisibleRoleCounts,
     })) as Array<[SprintEngineRoleId, boolean | undefined]>)
       .filter(([, spawn]) => spawn)
       .map(([role]) => role),
-    [seAutomationMode, seExistingTeam, visibleSprintEngineRoleCounts],
+    [seAutomationMode, seExistingTeam, sprintEngineEffectiveVisibleRoleCounts],
   )
 
   const handleChooseGuidedSeedFolder = async () => {
@@ -2129,14 +2169,15 @@ export default function NewWorkspacePanel({
               sourcePlanContent: sePlanContent,
               sourcePlanKind: seSourcePlanKind,
               sourceBundle: seSourceBundle ?? null,
-              visibleRoleCounts: sprintEngineCreateRoleCounts,
+              visibleRoleCounts: sprintEngineEffectiveCreateRoleCounts,
               maxParallelAgents: seMaxParallelAgents,
               roleCliDefaults: seRoleCliDefaults,
               roleModelOverrides: seRoleModelOverrides,
               initialSpawnRoles: seInitialSpawnRoles,
               // Only the sweeps the user turned ON in the "Final sweeps" panel
               // join configuredRoles — the roster is the user's configuration.
-              additionalEnabledRoles: sprintEngineSweepEnabledRoles,
+              // Plain-agents runs never mandate a sweep (the panel is hidden).
+              additionalEnabledRoles: sprintEngineEffectiveSweepEnabledRoles,
               // "Workflow steps" + "Final sweeps" init keys — same contract as
               // the new-team path (each key present only when set), so a
               // mandated sweep actually reaches run.yaml `requiredSweeps` on
@@ -2144,7 +2185,7 @@ export default function NewWorkspacePanel({
               ...buildSprintEngineWorkflowInitKeys({
                 selfReviewEnabled: seSelfReviewEnabled,
                 reviewRuntime: seReviewRuntime,
-                requiredSweepRoleIds: [...seRequiredSweeps],
+                requiredSweepRoleIds: sprintEngineEffectiveRequiredSweeps,
               }),
               startRunner: seAutomationMode !== 'manual',
               autoApproveArtifacts: seAutomationMode === 'run_agents_and_approve_artifacts',
@@ -2216,10 +2257,13 @@ export default function NewWorkspacePanel({
         // runtime from the seat picker and forwards the ticked palette. The user
         // roster (roleCounts/model overrides) is bypassed — the architect grows
         // the team via roster.configure after the user approves the plan.
-        const architectMode = seRosterSource === 'architect'
+        // Architect-picks mode is a specialist affordance, so it only applies
+        // when specialist roles are in use; a plain-agents run always stages the
+        // `general` planner seat from the effective counts.
+        const architectMode = seUseSpecialistRoles && seRosterSource === 'architect'
         const createRoleCounts: SprintEngineRoleCounts = architectMode
           ? { architect: 1 }
-          : sprintEngineCreateRoleCounts
+          : sprintEngineEffectiveCreateRoleCounts
         const args = await runSprintEngineNewTeamCreation(
           {
             folderPath,
@@ -2233,19 +2277,19 @@ export default function NewWorkspacePanel({
             initialSpawnRoles: architectMode ? ['architect'] : seInitialSpawnRoles,
             // Only the sweeps the user turned ON in the "Final sweeps" panel
             // join configuredRoles (ignored in architect mode) — the roster is
-            // the user's configuration.
-            additionalEnabledRoles: sprintEngineSweepEnabledRoles,
+            // the user's configuration. Plain-agents runs mandate none.
+            additionalEnabledRoles: sprintEngineEffectiveSweepEnabledRoles,
             startRunner: seAutomationMode !== 'manual',
             autoApproveArtifacts: seAutomationMode === 'run_agents_and_approve_artifacts',
             useWorktrees: seUseWorktrees,
             cliPermissionPreset,
-            rosterSource: seRosterSource,
+            rosterSource: architectMode ? 'architect' : 'user',
             // "Workflow steps" + "Final sweeps" panels. Each key is present only
             // when it diverges from the engine default, so a plain run sends none.
             ...buildSprintEngineWorkflowInitKeys({
               selfReviewEnabled: seSelfReviewEnabled,
               reviewRuntime: seReviewRuntime,
-              requiredSweepRoleIds: [...seRequiredSweeps],
+              requiredSweepRoleIds: sprintEngineEffectiveRequiredSweeps,
             }),
             ...(architectMode
               ? {
@@ -2843,6 +2887,10 @@ export default function NewWorkspacePanel({
               // new team (an existing team's roster is fixed).
               rosterSource={seExistingTeam != null ? undefined : seRosterSource}
               onChangeRosterSource={seExistingTeam != null ? undefined : setSeRosterSource}
+              // "Use specialist roles" disclosure — fresh new team only; an
+              // existing team keeps its canonical roster presentation.
+              useSpecialistRoles={seExistingTeam != null ? undefined : seUseSpecialistRoles}
+              onChangeUseSpecialistRoles={seExistingTeam != null ? undefined : setSeUseSpecialistRoles}
               architectModeAvailable={architectModeAvailable}
               architectModeDisabledHint={architectModeDisabledHint}
               selfReviewEnabled={seSelfReviewEnabled}
@@ -4579,6 +4627,8 @@ function SprintEngineRosterStep(props: {
   onDeleteTeam: (id: string) => void
   rosterSource?: SprintEngineRosterSource
   onChangeRosterSource?: (source: SprintEngineRosterSource) => void
+  useSpecialistRoles?: boolean
+  onChangeUseSpecialistRoles?: (value: boolean) => void
   architectModeAvailable: boolean
   architectModeDisabledHint: string
   // "Workflow steps" + "Final sweeps" panels (MC-1542 / MC-1543). Omitted for an
@@ -4629,6 +4679,8 @@ function SprintEngineRosterStep(props: {
     onDeleteTeam,
     rosterSource,
     onChangeRosterSource,
+    useSpecialistRoles,
+    onChangeUseSpecialistRoles,
     architectModeAvailable,
     architectModeDisabledHint,
     selfReviewEnabled,
@@ -4694,6 +4746,8 @@ function SprintEngineRosterStep(props: {
         onChangeMaxParallelAgents={onChangeMaxParallelAgents}
         rosterSource={rosterSource}
         onChangeRosterSource={onChangeRosterSource}
+        useSpecialistRoles={useSpecialistRoles}
+        onChangeUseSpecialistRoles={onChangeUseSpecialistRoles}
         architectModeAvailable={architectModeAvailable}
         architectModeDisabledHint={architectModeDisabledHint}
         architectCard={architectCard}
@@ -4717,6 +4771,9 @@ function SprintEngineRosterStep(props: {
               roleModelOverrides={roleModelOverrides}
               onSetRoleCli={onSetRoleCli}
               onSetRoleModel={onSetRoleModel}
+              // Final sweeps are a specialist affordance (MC-1585): hidden while
+              // the run is a pool of plain agents.
+              showFinalSweeps={useSpecialistRoles !== false}
             />
           ) : null
         }

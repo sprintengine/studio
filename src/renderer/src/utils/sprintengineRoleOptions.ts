@@ -77,10 +77,11 @@ export const SPRINT_ENGINE_PLANNING_ROLE_IDS: readonly SprintEngineRoleId[] = [
 ]
 
 // Wizard summary for the General row. States the solo self-review trade-off
-// plainly (per the source backlog risks section): one agent reviewing its own
-// work is lighter assurance than a separate reviewer.
+// plainly (per the source backlog risks section): an agent reviewing its own
+// work is lighter assurance than a separate reviewer. User-facing copy says
+// plain "agent" — "soulless" is internal vocabulary.
 const SPRINT_ENGINE_GENERAL_WIZARD_SUMMARY =
-  'One soulless agent plans, builds, reviews, and tests the whole sprint itself — solo self-review is lighter assurance than a separate reviewer.'
+  'Plain agents that share one task graph — each plans, builds, reviews, and tests its own work. Self-review is lighter assurance than a separate reviewer.'
 
 export function isSprintEnginePlanningRole(role: SprintEngineRoleId): boolean {
   return SPRINT_ENGINE_PLANNING_ROLE_IDS.includes(role)
@@ -163,29 +164,39 @@ function countByRole<T extends { role: SprintEngineRoleId }>(items: Iterable<T>)
   return counts
 }
 
-// Registry-aware list of roles that can be added to the Sprint Engine
-// roster. Falls back to the bundled order when no registry is provided so
-// callers without registry access still render a stable list.
-export function listSprintEngineAddableRoles(
-  registry?: SprintEngineRoleRegistry | null,
-  disabledRoleIds?: ReadonlySet<SprintEngineRoleId> | null,
-): SprintEngineRoleId[] {
-  return orderSprintEngineRosterRoles(registry ?? null, disabledRoleIds ?? null)
-}
-
-// New-workspace wizard roster choices: the registry/bundled addable roles plus
-// the soulless `general` planner, surfaced right after `architect` so the two
-// planning options sit together. General is wizard-only here; the live board's
-// add-member list stays registry-derived via `listSprintEngineAddableRoles`.
-export function listSprintEngineWizardRoles(
-  registry?: SprintEngineRoleRegistry | null,
-  disabledRoleIds?: ReadonlySet<SprintEngineRoleId> | null,
-): SprintEngineRoleId[] {
-  const roles = listSprintEngineAddableRoles(registry, disabledRoleIds)
+// Insert the special-cased `general` planner right after `architect` (so the
+// two planning options sit together), unless the source list already carries
+// it. `general` composes with no manifest, so it never comes from the registry
+// or the bundled order — every surface that offers it splices it in here.
+function withSprintEngineGeneralRole(roles: SprintEngineRoleId[]): SprintEngineRoleId[] {
   if (roles.includes(SPRINT_ENGINE_GENERAL_ROLE_ID)) return roles
   const architectIndex = roles.indexOf('architect')
   const insertAt = architectIndex >= 0 ? architectIndex + 1 : roles.length
   return [...roles.slice(0, insertAt), SPRINT_ENGINE_GENERAL_ROLE_ID, ...roles.slice(insertAt)]
+}
+
+// Registry-aware list of roles that can be added to the Sprint Engine roster,
+// including the plain `general` agent. Falls back to the bundled order when no
+// registry is provided so callers without registry access still render a stable
+// list. `general` is addable everywhere new agents are configured — the wizard
+// AND the live board — because in a general-default run "add another agent"
+// mid-run is the most likely add (MC-1585). The user grows the roster; agents
+// still never do.
+export function listSprintEngineAddableRoles(
+  registry?: SprintEngineRoleRegistry | null,
+  disabledRoleIds?: ReadonlySet<SprintEngineRoleId> | null,
+): SprintEngineRoleId[] {
+  return withSprintEngineGeneralRole(orderSprintEngineRosterRoles(registry ?? null, disabledRoleIds ?? null))
+}
+
+// New-workspace wizard roster choices. Identical to the addable-role list now
+// that `general` is spliced in there; kept as a named seam so the roster
+// table's intent stays legible and future wizard-only ordering has one place.
+export function listSprintEngineWizardRoles(
+  registry?: SprintEngineRoleRegistry | null,
+  disabledRoleIds?: ReadonlySet<SprintEngineRoleId> | null,
+): SprintEngineRoleId[] {
+  return listSprintEngineAddableRoles(registry, disabledRoleIds)
 }
 
 // The bundled roles whose manifest declares a `sweep` block (they audit the

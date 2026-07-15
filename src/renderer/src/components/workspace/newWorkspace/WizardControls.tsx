@@ -17,9 +17,12 @@ import type {
   SprintEngineRosterTeam,
 } from '../../../types/workspace'
 import { sprintEngineAutomationModeOptions } from '../../../utils/sprintengineAutomation'
-import { countSprintEngineStaffedWorkRoles } from '../../../utils/sprintengineRoleOptions'
-import { Field, RoleAvatar, Select } from '../../ui'
-import { SprintEngineRosterTable, type SprintEngineCliOption } from './SprintEngineRosterTable'
+import {
+  countSprintEngineStaffedWorkRoles,
+  SPRINT_ENGINE_GENERAL_ROLE_ID,
+} from '../../../utils/sprintengineRoleOptions'
+import { CliModelPickerButton, Field, RoleAvatar, Select } from '../../ui'
+import { AgentCliPicker, SprintEngineRosterTable, type SprintEngineCliOption } from './SprintEngineRosterTable'
 import { sprintEngineTeamNameTaken } from './savedTeams'
 
 export const cliPermissionOptions: Array<{
@@ -188,6 +191,165 @@ export function RosterModeChoice({
   )
 }
 
+// Effective launch model for the plain `general` agent: an explicit override
+// (string) or the CLI default (undefined -> no model flag). Mirrors the roster
+// table's per-role `effectiveRoleModel`.
+function effectiveGeneralModel(
+  roleModelOverrides?: SprintEngineRoleModelOverrides,
+): string | undefined {
+  const override = roleModelOverrides?.[SPRINT_ENGINE_GENERAL_ROLE_ID]
+  if (typeof override === 'string' && override) return override
+  return undefined
+}
+
+// The "Use specialist roles" disclosure switch (MC-1585). Off is the default: a
+// run is a pool of plain agents. On reveals the specialist roster table, the
+// architect-picks-the-team mode, and the Final sweeps panel. Reuses the wizard's
+// run-settings checkbox pattern so it cannot drift from the other toggles.
+function UseSpecialistRolesToggle({
+  checked,
+  onChange,
+}: {
+  checked: boolean
+  onChange: (value: boolean) => void
+}) {
+  return (
+    <label className="flex cursor-pointer items-start gap-2.5 rounded-md border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] px-3.5 py-3 text-[12px] text-[color:var(--text-default)] transition-colors hover:bg-[color:var(--bg-hover)]">
+      <input
+        type="checkbox"
+        checked={checked}
+        onChange={(event) => onChange(event.target.checked)}
+        className="mt-0.5 h-3.5 w-3.5 shrink-0 accent-[color:var(--accent-primary)]"
+      />
+      <span>
+        <span className="block text-[13px] font-semibold text-[color:var(--text-strong)]">Use specialist roles</span>
+        <span className="mt-0.5 block text-[11px] leading-4 text-[color:var(--text-muted)]">
+          Add an architect to plan the run, role-specific agents, and end-of-run reviews. Leave this off to run a pool of plain agents that share the work.
+        </span>
+      </span>
+    </label>
+  )
+}
+
+// The plain-agents default view: how many agents share the run (bound to the
+// concurrency cap, not a roster count) and which agent + model they all run.
+// A stepper rather than a raw number input so the primary size control reads as
+// deliberate; the picker reuses the shared runtime picker so it matches the
+// specialist rows exactly.
+function PlainAgentsPanel({
+  agentCount,
+  onChangeAgentCount,
+  cli,
+  cliOptions,
+  effectiveModel,
+  onSetCli,
+  onSetModel,
+}: {
+  agentCount: number
+  onChangeAgentCount?: (value: number) => void
+  cli: AgentCli
+  cliOptions: SprintEngineCliOption[]
+  effectiveModel: string | undefined
+  onSetCli: (cli: AgentCli) => void
+  onSetModel?: (model: string | null) => void
+}) {
+  const clamp = (value: number) => Math.max(1, Math.min(10, Math.floor(value)))
+  const setCount = (value: number) => {
+    if (onChangeAgentCount) onChangeAgentCount(clamp(value))
+  }
+  return (
+    <div className="flex flex-col gap-2">
+      <Field.Label>Agents</Field.Label>
+      <div className="overflow-hidden rounded-md border border-[color:var(--border-default)] bg-[color:var(--bg-surface)]">
+        <div className="flex items-start justify-between gap-3 px-3.5 py-3">
+          <span className="min-w-0">
+            <span className="block text-[13px] font-semibold text-[color:var(--text-strong)]">How many agents</span>
+            <span className="mt-0.5 block text-[11px] leading-4 text-[color:var(--text-muted)]">
+              They share one task graph — each plans, builds, reviews, and tests its own work. More agents run at once and finish faster.
+            </span>
+          </span>
+          <div className="flex shrink-0 items-center gap-1">
+            <AgentCountStepButton
+              label="Fewer agents"
+              glyph="−"
+              disabled={!onChangeAgentCount || agentCount <= 1}
+              onClick={() => setCount(agentCount - 1)}
+            />
+            <span className="w-7 text-center text-[13px] font-semibold tabular-nums text-[color:var(--text-strong)]">
+              {agentCount}
+            </span>
+            <AgentCountStepButton
+              label="More agents"
+              glyph="+"
+              disabled={!onChangeAgentCount || agentCount >= 10}
+              onClick={() => setCount(agentCount + 1)}
+            />
+          </div>
+        </div>
+        <div className="flex items-start justify-between gap-3 border-t border-[color:var(--border-default)] px-3.5 py-3">
+          <span className="min-w-0">
+            <span className="block text-[13px] font-semibold text-[color:var(--text-strong)]">Agent</span>
+            <span className="mt-0.5 block text-[11px] leading-4 text-[color:var(--text-muted)]">
+              The CLI and model every agent runs.
+            </span>
+          </span>
+          {onSetModel ? (
+            <CliModelPickerButton
+              ariaLabel="Agent runtime"
+              options={cliOptions}
+              cli={cli}
+              effectiveModelFor={(candidateCli) => (candidateCli === cli ? effectiveModel : undefined)}
+              onSelectCli={onSetCli}
+              onSelectModel={(nextCli, nextModel) => {
+                if (nextCli !== cli) onSetCli(nextCli)
+                onSetModel(nextModel)
+              }}
+            />
+          ) : (
+            <AgentCliPicker
+              ariaLabel="Agent CLI"
+              value={cli}
+              disabled={false}
+              cliOptions={cliOptions}
+              onChange={onSetCli}
+            />
+          )}
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function AgentCountStepButton({
+  label,
+  glyph,
+  disabled,
+  onClick,
+}: {
+  label: string
+  glyph: string
+  disabled: boolean
+  onClick: () => void
+}) {
+  return (
+    <button
+      type="button"
+      aria-label={label}
+      disabled={disabled}
+      onClick={onClick}
+      className="
+        inline-flex h-7 w-7 items-center justify-center rounded-md border border-[color:var(--color-5)]
+        bg-[color:var(--bg-surface-raised)] text-[14px] leading-none text-[color:var(--text-default)] transition-colors
+        hover:border-[color:var(--border-strong)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]
+        focus:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--accent-primary)]
+        disabled:cursor-not-allowed disabled:opacity-45
+      "
+    >
+      <span aria-hidden="true">{glyph}</span>
+    </button>
+  )
+}
+
 // The roster + run-settings surface shared by the Sprint Engine wizard step and
 // the Guided Brief build handoff. Both let the user size the specialist roster,
 // pick each role's default CLI, and set how the run continues after the
@@ -232,6 +394,8 @@ export function RosterAndRunSettings({
   workTypes,
   workflowSection,
   sections = 'all',
+  useSpecialistRoles,
+  onChangeUseSpecialistRoles,
 }: {
   roleCounts: SprintEngineRoleCounts
   roleCliDefaults: Required<SprintEngineRoleCliDefaults>
@@ -302,6 +466,15 @@ export function RosterAndRunSettings({
   // Default 'all' renders every block in today's order and is a behavioural
   // no-op: the Guided Brief handoff passes no `sections` and is unchanged.
   sections?: 'all' | 'roster' | 'run'
+  // "Use specialist roles" disclosure (MC-1585). When `onChangeUseSpecialistRoles`
+  // is provided (the Sprint Engine wizard, fresh team only) the roster step opens
+  // on plain agents — a count stepper (bound to `maxParallelAgents`) plus one
+  // CLI/model picker for the `general` agent — and this toggle reveals the
+  // existing specialist affordances (roster table, architect-picks mode, Final
+  // sweeps). Omitted by the Guided Brief handoff and existing teams, which keep
+  // the classic roster presentation.
+  useSpecialistRoles?: boolean
+  onChangeUseSpecialistRoles?: (value: boolean) => void
 }) {
   // The saved-teams rail (two-column layout) is available only where team
   // management is wired up — the Sprint Engine wizard. The Guided Brief handoff
@@ -408,6 +581,12 @@ export function RosterAndRunSettings({
       {rosterTable}
     </>
   )
+  // Plain-agents mode: the disclosure is wired up and turned off. The roster
+  // section shows the plain stepper + agent picker; the run section drops its
+  // "Max parallel agents" row because the plain stepper already owns that value
+  // (showing it twice would let the same number read as two controls).
+  const specialistDisclosure = Boolean(onChangeUseSpecialistRoles)
+  const plainMode = specialistDisclosure && !useSpecialistRoles
   const showRoster = sections !== 'run'
   const showRun = sections !== 'roster'
   const runSettings = showRun ? (
@@ -438,7 +617,7 @@ export function RosterAndRunSettings({
                 ))}
               </div>
             </div>
-            {onChangeMaxParallelAgents ? (
+            {onChangeMaxParallelAgents && !plainMode ? (
               <div className="flex items-start justify-between gap-3 border-t border-[color:var(--border-default)] px-3.5 py-3">
                 <label htmlFor="sprintengine-max-parallel-agents" className="min-w-0">
                   <span className="block text-[13px] font-semibold text-[color:var(--text-strong)]">Max parallel agents</span>
@@ -496,16 +675,36 @@ export function RosterAndRunSettings({
     <>
       {showRoster ? (
         <div className="flex flex-col gap-3">
-          {onChangeRosterSource ? (
-            <RosterModeChoice
-              value={rosterSource ?? 'user'}
-              onChange={onChangeRosterSource}
-              architectAvailable={architectModeAvailable ?? false}
-              architectDisabledHint={architectModeDisabledHint}
-              workTypes={workTypes}
+          {specialistDisclosure ? (
+            <UseSpecialistRolesToggle
+              checked={Boolean(useSpecialistRoles)}
+              onChange={onChangeUseSpecialistRoles!}
             />
           ) : null}
-          {rosterBody}
+          {plainMode ? (
+            <PlainAgentsPanel
+              agentCount={maxParallelAgents ?? 2}
+              onChangeAgentCount={onChangeMaxParallelAgents}
+              cli={roleCliDefaults[SPRINT_ENGINE_GENERAL_ROLE_ID] ?? cliOptions[0]?.value ?? 'claude-code'}
+              cliOptions={cliOptions}
+              effectiveModel={effectiveGeneralModel(roleModelOverrides)}
+              onSetCli={(cli) => onSetCli(SPRINT_ENGINE_GENERAL_ROLE_ID, cli)}
+              onSetModel={onSetModel ? (model) => onSetModel(SPRINT_ENGINE_GENERAL_ROLE_ID, model) : undefined}
+            />
+          ) : (
+            <>
+              {onChangeRosterSource ? (
+                <RosterModeChoice
+                  value={rosterSource ?? 'user'}
+                  onChange={onChangeRosterSource}
+                  architectAvailable={architectModeAvailable ?? false}
+                  architectDisabledHint={architectModeDisabledHint}
+                  workTypes={workTypes}
+                />
+              ) : null}
+              {rosterBody}
+            </>
+          )}
         </div>
       ) : null}
 

@@ -56,6 +56,11 @@ type SprintWizardState = {
   roleCounts: typeof initialRoster.roleCounts
   roleCliDefaults: typeof initialRoster.roleCliDefaults
   roleModelOverrides: typeof initialRoster.roleModelOverrides
+  useSpecialistRoles: boolean
+  // What create actually stages for the run. In the plain-agents default this is
+  // a single `general` planner seat, NOT the specialist roster held (collapsed)
+  // in `roleCounts` — the pool grows by mint-on-demand up to the concurrency cap.
+  effectiveCreateRoleCounts: typeof initialRoster.roleCounts
   startRunner: boolean
   autoApproveArtifacts: boolean
   useWorktrees: boolean
@@ -73,13 +78,18 @@ const UNTOUCHED: SprintWizardState = {
   roleCounts: initialRoster.roleCounts,
   roleCliDefaults: initialRoster.roleCliDefaults,
   roleModelOverrides: initialRoster.roleModelOverrides,
+  // MC-1585: a fresh install opens on plain agents — the "Use specialist roles"
+  // disclosure is collapsed, and create stages exactly one `general` planner.
+  useSpecialistRoles: false,
+  effectiveCreateRoleCounts: { general: 1 },
   // Automation defaults ON (run agents + approve eligible artifacts): a
   // skipped run continues on its own, matching the product default. Loading an
   // existing team is the exception (derived to manual; asserted below).
   startRunner: true,
   autoApproveArtifacts: true,
   useWorktrees: false,
-  maxParallelAgents: 3,
+  // The plain-agents default is 2 ("two agents claiming from one task graph").
+  maxParallelAgents: 2,
   // The panel seeds this from the stored spawn-permission preference, which is
   // workspace-scoped state read at mount — not something a page render produces.
   cliPermissionPreset: 'default',
@@ -88,20 +98,27 @@ const UNTOUCHED: SprintWizardState = {
   requiredSweepRoleIds: [],
 }
 
-// The defaults are the balanced starting team the hub promises: a runnable
-// implement-and-review roster, seeded before the user touches anything.
-assert.deepEqual(UNTOUCHED.roleCounts, DEFAULT_SPRINT_ENGINE_ROLE_COUNTS, 'a fresh install skips onto the default roster')
-assert.ok(UNTOUCHED.roleCounts.architect >= 1 && UNTOUCHED.roleCounts.developer >= 1, 'the default roster can plan and implement')
+// MC-1585: the resolved initial roster still holds the balanced specialist team
+// behind the collapsed disclosure (so turning "Use specialist roles" on restores
+// it), but a fresh install opens on plain agents and creates a `general` run.
+assert.deepEqual(UNTOUCHED.roleCounts, DEFAULT_SPRINT_ENGINE_ROLE_COUNTS, 'the specialist roster held behind the disclosure is the default team')
+assert.ok(UNTOUCHED.roleCounts.architect >= 1 && UNTOUCHED.roleCounts.developer >= 1, 'that specialist roster can plan and implement once revealed')
+assert.equal(UNTOUCHED.useSpecialistRoles, false, 'a fresh install opens on plain agents, disclosure collapsed')
+assert.deepEqual(UNTOUCHED.effectiveCreateRoleCounts, { general: 1 }, 'and stages exactly one general planner seat')
 
 // Source contracts: each default is established at mount, in the panel body.
 for (const [what, pattern] of [
   ['the roster is seeded from the resolved initial roster', /useState<SprintEngineRoleCounts>\(\s*\(\) => cloneSprintEngineRoleCounts\(initialSprintEngineRoster\.roleCounts\)/],
+  ['the specialist-roles disclosure opens collapsed for a fresh install', /const \[seUseSpecialistRoles, setSeUseSpecialistRoles\] = useState\(initialUseSpecialistRoles\)/],
+  ['a fresh install computes the disclosure closed unless a saved source staffs specialists', /const initialUseSpecialistRoles =\n\s*\(Boolean\(initialSprintEngineRoster\.selectedTeamId\) \|\| Boolean\(savedSprintEngineRoster\)\)/],
+  ['plain-agents create stages a lone general planner', /const PLAIN_AGENT_ROLE_COUNTS: SprintEngineRoleCounts = \{ general: 1 \}/],
+  ['plain-agents create swaps in that lone seat', /sprintEnginePlainAgents\n\s*\? PLAIN_AGENT_ROLE_COUNTS\n\s*: sprintEngineCreateRoleCounts/],
   ['agents-at-start is on', /const \[seStartRunner, setSeStartRunner\] = useState\(true\)/],
   ['artifact auto-approval is on', /const \[seAutoApproveArtifacts, setSeAutoApproveArtifacts\] = useState\(true\)/],
   ['automation starts untouched', /const \[seAutomationTouched, setSeAutomationTouched\] = useState\(false\)/],
   ['untouched automation follows the create path: manual only for an existing team', /: seExistingTeam\n\s*\? 'manual'\n\s*: 'run_agents_and_approve_artifacts'/],
   ['worktrees are off', /const \[seUseWorktrees, setSeUseWorktrees\] = useState\(false\)/],
-  ['max parallel agents is 3', /const \[seMaxParallelAgents, setSeMaxParallelAgents\] = useState\(3\)/],
+  ['plain-agents runs default to 2 agents, specialist runs to 3', /const \[seMaxParallelAgents, setSeMaxParallelAgents\] = useState\(\(\) => \(initialUseSpecialistRoles \? 3 : 2\)\)/],
   ['self-review is on', /const \[seSelfReviewEnabled, setSeSelfReviewEnabled\] = useState\(true\)/],
   ['the reviewer is the same agent', /const \[seReviewRuntime, setSeReviewRuntime\] = useState<SprintEngineReviewRuntime \| null>\(null\)/],
   ['no sweeps are mandated', /const \[seRequiredSweeps, setSeRequiredSweeps\] = useState<ReadonlySet<SprintEngineRoleId>>\(\s*\(\) => new Set<SprintEngineRoleId>\(\)/],
@@ -155,6 +172,11 @@ function renderPage(sections: 'roster' | 'run'): string {
       useWorktrees={UNTOUCHED.useWorktrees}
       onChangeUseWorktrees={spy('onChangeUseWorktrees')}
       sections={sections}
+      // The fresh-install experience: plain agents, disclosure collapsed. The
+      // roster page shows the agent stepper; the run page drops its own cap row
+      // (the stepper owns that value).
+      useSpecialistRoles={UNTOUCHED.useSpecialistRoles}
+      onChangeUseSpecialistRoles={spy('onChangeUseSpecialistRoles')}
       workflowSection={
         <SprintEngineWorkflowPanels
           cliOptions={cliOptions}
@@ -169,6 +191,7 @@ function renderPage(sections: 'roster' | 'run'): string {
           roleModelOverrides={UNTOUCHED.roleModelOverrides}
           onSetRoleCli={spy('onSetRoleCli')}
           onSetRoleModel={spy('onSetRoleModel')}
+          showFinalSweeps={UNTOUCHED.useSpecialistRoles}
         />
       }
     />,
@@ -182,13 +205,20 @@ assert.deepEqual(mutations, [], 'rendering the skipped pages changes no wizard s
 // The pages render the defaults they were handed, so a user who DOES walk them
 // sees — and leaves — the same values a skip would have sent.
 assert.ok(runPage.includes('Run settings'), 'the run page renders the run settings')
-assert.ok(rosterPage.includes('Roster'), 'the roster page renders the roster')
-// The agent cap the run page displays IS the default create sends: the control is
-// controlled, so a page that showed something else would be showing a value the
-// skipped create never had.
-const capInput = /<input[^>]*id="sprintengine-max-parallel-agents"[^>]*>/.exec(runPage)?.[0]
-assert.ok(capInput, 'the run page renders the max-parallel-agents input')
-assert.match(capInput, new RegExp(`value="${UNTOUCHED.maxParallelAgents}"`), 'and shows the default agent cap')
+// The plain-agents roster page is the stepper + one agent picker, not the
+// specialist roster table.
+assert.ok(rosterPage.includes('How many agents'), 'the roster page opens on the plain agents stepper')
+assert.ok(rosterPage.includes('Use specialist roles'), 'and offers the specialist-roles disclosure')
+// The agent count the stepper shows IS the default create sends (the plain
+// stepper drives the concurrency cap), so a page showing something else would be
+// showing a value the skipped create never had.
+assert.ok(
+  rosterPage.includes(`>${UNTOUCHED.maxParallelAgents}<`),
+  'the stepper shows the default agent count',
+)
+// In plain mode the run page drops its own cap row — the stepper owns that value,
+// so it must not appear twice.
+assert.doesNotMatch(runPage, /id="sprintengine-max-parallel-agents"/, 'the run page shows no duplicate agent-cap input in plain mode')
 // The worktrees checkbox reflects the same default (off), unchecked in markup.
 assert.doesNotMatch(runPage, /type="checkbox"[^>]*checked=""[^>]*>[^<]*<span[^>]*>Run in an isolated git worktree/, 'worktrees start off')
 
@@ -221,8 +251,10 @@ function creationArgsFor(state: SprintWizardState) {
     folderPath: '/repo',
     teamName: 'Sprint Roster',
     goal: 'Ship the thing',
-    roleCounts: state.roleCounts,
-    visibleRoleCounts: state.roleCounts,
+    // Plain-agents default: create stages the effective general seat, not the
+    // specialist roster the disclosure holds collapsed.
+    roleCounts: state.effectiveCreateRoleCounts,
+    visibleRoleCounts: state.effectiveCreateRoleCounts,
     maxParallelAgents: state.maxParallelAgents,
     roleCliDefaults: state.roleCliDefaults,
     roleModelOverrides: state.roleModelOverrides,
@@ -248,14 +280,15 @@ assert.deepEqual(
   'skipping from the team page creates the same roster and run settings as walking every page and changing nothing',
 )
 
-// And the run those defaults produce is the one the footer promises: the balanced
-// default team, the default agent cap, no worktrees, automation on (run agents
+// And the run those defaults produce is the one the footer promises: a plain
+// general run, the default agent cap, no worktrees, automation on (run agents
 // + approve eligible artifacts), and none of the workflow init keys (an
 // untouched run sends none — self-review on, reviewer = same agent, no mandated
 // sweeps are all engine defaults).
-assert.deepEqual(skippedCreate.sprintEngineState?.roleCounts, DEFAULT_SPRINT_ENGINE_ROLE_COUNTS, 'the skipped run starts on the default roster')
+assert.equal(skippedCreate.sprintEngineState?.roleCounts.general, 1, 'the skipped run stages the general planner seat')
+assert.equal(skippedCreate.sprintEngineState?.roleCounts.architect ?? 0, 0, 'and seats no specialist architect')
 assert.equal(skippedCreate.sprintEngineState?.useWorktrees, undefined, 'the skipped run does not turn worktrees on')
-assert.equal(skippedCreate.sprintEngineAutoState?.maxConcurrentAgents, 3, 'the skipped run keeps the default agent cap')
+assert.equal(skippedCreate.sprintEngineAutoState?.maxConcurrentAgents, 2, 'the skipped run keeps the plain-agents default cap of 2')
 assert.equal(
   skippedCreate.sprintEngineAutoState?.desiredMode,
   'run_agents_and_approve_artifacts',

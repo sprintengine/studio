@@ -34,7 +34,9 @@ import {
   isSprintEngineRoleId,
   isSprintEngineTaskLaunchable,
   normalizeSprintEngineProjection,
+  normalizeSprintEngineRoleCounts,
   normalizeSprintEngineState,
+  sprintEnginePlannerRole,
   orderSprintEngineBoardColumnTasks,
   orderSprintEngineRosterRoles,
   resolveSprintEngineArtifactEditorPath,
@@ -218,28 +220,66 @@ assert.equal(modelState!.tasks[0]?.cli, 'claude-code')
 assert.equal(modelState!.tasks[1]?.model, undefined)
 assert.equal(modelState!.tasks[1]?.cli, undefined)
 
-// Lazy roster: creation seeds ONLY the architect regardless of enabled counts.
-// Workers are minted task-scoped by the Python assignment op and reviewer ids
-// register on their first gate, so no worker/reviewer record exists at creation.
+// Lazy roster: creation seeds ONLY the single planning seat regardless of
+// enabled worker counts. Workers are minted task-scoped by the Python assignment
+// op and reviewer ids register on their first gate, so no worker/reviewer record
+// exists at creation. Which planner is seated follows the staffed selection.
 const lazyRoster = buildSprintEngineAgentRoster({ architect: 1, developer: 3, tester: 1 })
 assert.deepEqual(
   lazyRoster.map((agent) => agent.id),
   ['architect'],
-  'lazy roster seeds only the architect'
+  'a specialist selection seeds only the architect planner'
 )
+const generalRoster = buildSprintEngineAgentRoster({ general: 1 })
+assert.deepEqual(
+  generalRoster.map((agent) => ({ id: agent.id, role: agent.role })),
+  [{ id: 'general', role: 'general' }],
+  'a general-default selection seeds the bare general planning seat, not an architect'
+)
+assert.equal(sprintEnginePlannerRole({ general: 1, developer: 1 }), 'general', 'general is the planner when staffed')
+assert.equal(sprintEnginePlannerRole({ architect: 1, general: 1 }), 'architect', 'architect wins the planner tie-break')
+assert.equal(sprintEnginePlannerRole({ developer: 1 }), 'architect', 'architect is the planner floor when nothing else can plan')
 
-// enabledRoles still encodes the participating set (architect always on) even
-// though seats are not materialized — this is what feeds Python `configuredRoles`.
+// enabledRoles encodes exactly the staffed selection — this feeds Python
+// `configuredRoles`. Architect is no longer unconditional.
 assert.deepEqual(
   sprintEngineEnabledRoles({ architect: 1, developer: 1, tester: 1 }).sort(),
   ['architect', 'developer', 'tester'],
-  'enabledRoles = architect + every role with count > 0'
+  'a specialist selection = architect + every role with count > 0'
 )
 assert.deepEqual(
   sprintEngineEnabledRoles({ architect: 1, developer: 0 }),
   ['architect'],
-  'a disabled role (count 0) is not enabled; architect is always present'
+  'a disabled role (count 0) is not enabled'
 )
+assert.deepEqual(
+  sprintEngineEnabledRoles({ general: 1 }),
+  ['general'],
+  'a general-only selection is exactly [general] — no phantom architect'
+)
+assert.deepEqual(
+  sprintEngineEnabledRoles({ general: 1, developer: 1 }).sort(),
+  ['developer', 'general'],
+  'general + worker selection carries no architect'
+)
+// Sweep toggles ride in via additionalRoles; an unselected sweep never appears.
+assert.deepEqual(
+  sprintEngineEnabledRoles({ general: 1 }, ['security']).sort(),
+  ['general', 'security'],
+  'a toggled-on sweep appends; an unselected sweep is absent'
+)
+assert.deepEqual(
+  sprintEngineEnabledRoles({ developer: 1 }),
+  ['developer', 'architect'],
+  'a plannerless selection gets the architect floor',
+)
+
+// normalizeSprintEngineRoleCounts stops force-seating the architect once a
+// general is staffed, so a general-only selection survives round-tripping.
+assert.equal(normalizeSprintEngineRoleCounts({ general: 1 }).architect, 0, 'general-only normalizes with architect off')
+assert.equal(normalizeSprintEngineRoleCounts({ general: 1 }).general, 1, 'general-only keeps the general seat')
+assert.equal(normalizeSprintEngineRoleCounts({ developer: 1 }).architect, 1, 'a plannerless selection still floors to architect')
+assert.equal(normalizeSprintEngineRoleCounts({ architect: 1, general: 1 }).architect, 1, 'an explicit architect is preserved')
 
 // Allocator (D-Naming): the first minted worker of a role is `<role>-1` — no
 // bare-id short-circuit — matching the Python allocator (max matching index + 1,
@@ -1360,11 +1400,15 @@ type FakeTask = { role: string; status: SprintEngineTask['status'] }
     { role: 'frontend', status: 'todo' },
   ]
   const options = buildSprintEngineAddMemberOptions({ roster, tasks })
-  // No registry, no disabled set → bundled order.
+  // No registry, no disabled set → bundled order, with the plain `general` agent
+  // spliced in right after `architect` (MC-1585: addable on the board).
+  const optionRoles = options.map((option) => option.role)
+  assert.equal(optionRoles.includes('general'), true, 'general is an add-member option on the board')
+  assert.equal(optionRoles.indexOf('general'), optionRoles.indexOf('architect') + 1, 'general sits right after architect')
   assert.deepEqual(
-    options.map((option) => option.role),
+    optionRoles.filter((role) => role !== 'general'),
     [...BUNDLED_SPRINT_ENGINE_ADDABLE_ROLES],
-    'options preserve bundled role order',
+    'the rest of the options preserve bundled role order',
   )
   const developer = options.find((option) => option.role === 'developer')
   assert.ok(developer)
@@ -1518,10 +1562,18 @@ type FakeTask = { role: string; status: SprintEngineTask['status'] }
 }
 
 // `listSprintEngineAddableRoles` is the registry-aware list helper used by
-// callers that just need the ordered role ids.
+// callers that just need the ordered role ids. MC-1585: the plain `general`
+// agent is spliced in right after `architect` — it is addable everywhere new
+// agents are configured, the wizard AND the live board.
 {
   const ids = listSprintEngineAddableRoles()
-  assert.deepEqual(ids, [...BUNDLED_SPRINT_ENGINE_ADDABLE_ROLES], 'no-registry list matches bundled order')
+  assert.equal(ids.includes('general'), true, 'general is addable (board + wizard)')
+  assert.equal(ids.indexOf('general'), ids.indexOf('architect') + 1, 'general sits right after architect')
+  assert.deepEqual(
+    ids.filter((role) => role !== 'general'),
+    [...BUNDLED_SPRINT_ENGINE_ADDABLE_ROLES],
+    'the rest of the list keeps the bundled order',
+  )
 }
 
 // AC2: new-workspace roster wizard consumes the shared utility. It calls
@@ -1576,9 +1628,8 @@ type FakeTask = { role: string; status: SprintEngineTask['status'] }
   )
 }
 
-// Soulless General is offered as a wizard roster choice (T6 / backlog 131 §7).
-// It is surfaced right after `architect` and only in the wizard list, never the
-// registry-derived board list.
+// The plain General is offered as a wizard roster choice (T6 / backlog 131 §7)
+// and — since MC-1585 — on the live board too, surfaced right after `architect`.
 {
   const wizardRoles = listSprintEngineWizardRoles()
   assert.equal(wizardRoles.includes('general'), true, 'general appears as a wizard roster choice')
@@ -1589,8 +1640,8 @@ type FakeTask = { role: string; status: SprintEngineTask['status'] }
   )
   assert.equal(
     listSprintEngineAddableRoles().includes('general'),
-    false,
-    'general stays out of the registry-derived board addable list',
+    true,
+    'general is addable on the live board too (MC-1585)',
   )
   // General is not duplicated when a registry already provides it.
   const registryWithGeneral: SprintEngineRoleRegistry = buildSprintEngineRoleRegistry({
@@ -1602,10 +1653,12 @@ type FakeTask = { role: string; status: SprintEngineTask['status'] }
     'general is never duplicated when the registry already lists it',
   )
 
-  // Wizard copy states the solo self-review trade-off plainly.
+  // Wizard copy states the solo self-review trade-off plainly, in plain
+  // user-facing language — "soul"/"soulless" is internal vocabulary and must
+  // never reach this surface.
   const generalSummary = getSprintEngineWizardRoleSummary('general')
   assert.match(generalSummary, /self-review/iu, 'general summary names the self-review trade-off')
-  assert.match(generalSummary, /soulless/iu, 'general summary names the soulless single-agent nature')
+  assert.doesNotMatch(generalSummary, /soul/iu, 'general summary avoids internal soul/soulless vocabulary')
 }
 
 // Planning-role floor: a roster must keep at least one planning-capable agent

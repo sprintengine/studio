@@ -123,10 +123,10 @@ export function buildSprintEngineStartupPrompt(
   } = {}
 ): string {
   const commandMode = options.commandMode ?? (role === 'architect' ? 'init' : 'join')
-  // A General is the soul-less single-agent variant: it joins (never inits) and
-  // owns the whole sprint — plan, build, self-review, test, publish. The launch
-  // wiring (managed MCP + state path) is identical to a specialist; only the
-  // role and the soul-less join result differ.
+  // A General is the plain, role-less variant: it joins (never inits) and works a
+  // shared task graph as a pool — plan, build, self-review, test, publish, owning
+  // each task from claim to done. The launch wiring (managed MCP + state path) is
+  // identical to a specialist; only the role and the role-less join result differ.
   const isGeneral = role === 'general' && commandMode !== 'init'
   // One claim tool. MC-1542 deleted `gate.next`: an agent owns its task from claim
   // to done, so there is no second queue to fall back to.
@@ -198,7 +198,7 @@ export function buildSprintEngineStartupPrompt(
   const generalLoopBlock = isGeneral
     ? [
       '## General Orchestration',
-      'You are a General: one soul-less agent that owns this whole sprint. With no architect and no specialists, you plan the work, implement it, review it, test it, and publish it yourself. When several Generals run, you share the work by claiming tasks — no central coordinator assigns anything.',
+      'You are a General: a plain agent in a pool that shares one task graph. With no architect and no specialists, the pool plans the work, implements it, reviews it, tests it, and publishes it. You take work by claiming tasks — no central coordinator assigns anything, and when several Generals run the same loop runs in parallel over the shared graph.',
       'Drive every piece of work through the same loop, in order: plan → build → publish → self-review → advance. You own a task from claim to done: carry each one through to done before claiming new ready work.',
       'When the run has no task graph yet, you are the planner: author the tasks, plan validation where testing is actually meaningful (one whole-flow task at the end, or one per milestone), self-approve the plan artifact, then implement. Multicode owns run initialization — you never initialize the run yourself.',
       'Keep the team exactly the size the user set: never add roster members or specialists. Read your full role rules from the `sprintengine.agent.join` response.',
