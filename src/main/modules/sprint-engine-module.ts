@@ -83,7 +83,6 @@ export const sprintEngineModule: CapabilityModule = {
       readProjection: artifacts.readProjection,
       readRegistryRoles: artifacts.readRegistryRoles,
       readRegistryRole: artifacts.readRegistryRole,
-      readDispatch: artifacts.readDispatch,
       summarizeFeedback: artifacts.summarizeFeedback,
       readTokenUsage: ({ statePath }) => readTokenUsageCached(statePath),
     })

@@ -50,7 +50,6 @@ from sprintengine_core.tool.state import (
     append_task_activity,
     clear_task_refs,
     create_task_comment,
-    ensure_agent,
     find_task,
     record_agent_heartbeat,
     record_agent_join,
@@ -227,15 +226,6 @@ class SprintEngineMcpServer:
         if tool_name == "sprintengine.agent.leave":
             assert state_path is not None
             return self._agent_leave(state_path, payload)
-        if tool_name == "sprintengine.dispatch.next":
-            assert state_path is not None
-            return self._dispatch_next(state_path, payload)
-        if tool_name == "sprintengine.dispatch.ack":
-            assert state_path is not None
-            return self._dispatch_ack(state_path, payload)
-        if tool_name == "sprintengine.subscribe":
-            assert state_path is not None
-            return self._subscribe(state_path, payload)
         if tool_name == "sprintengine.run.get":
             assert state_path is not None
             return self._run_get(state_path)
@@ -376,12 +366,9 @@ class SprintEngineMcpServer:
         agent_id = str(payload["agentId"]).strip()
         if not agent_id:
             raise McpToolError("invalid_payload", "agentId cannot be empty.")
-        subscription_mode = str(payload.get("subscriptionMode") or ("mcp_notifications" if payload.get("subscribe") else "none"))
-        if subscription_mode not in {"none", "poll", "mcp_notifications"}:
-            raise McpToolError("invalid_payload", "subscriptionMode must be one of none, poll, or mcp_notifications.")
 
         def mutate(state: dict[str, Any]) -> dict[str, Any]:
-            agent = record_agent_join(state, agent_id, role, subscription_mode=subscription_mode)
+            agent = record_agent_join(state, agent_id, role)
             run = state.get("sprintengine", {})
             return {
                 "ok": True,
@@ -454,7 +441,6 @@ class SprintEngineMcpServer:
                 "previous": {
                     "status": before.get("status"),
                     "currentTaskId": before.get("currentTaskId"),
-                    "currentDispatch": before.get("currentDispatch"),
                 },
                 "write": True,
             }
@@ -465,11 +451,9 @@ class SprintEngineMcpServer:
             "ok": True,
             "known": result.get("known", True),
             "agent": agent,
-            "currentDispatch": agent.get("currentDispatch") if agent else None,
             "assignmentUnchanged": {
                 "status": bool(agent) and agent.get("status") == result["previous"].get("status"),
                 "currentTaskId": bool(agent) and agent.get("currentTaskId") == result["previous"].get("currentTaskId"),
-                "currentDispatch": bool(agent) and agent.get("currentDispatch") == result["previous"].get("currentDispatch"),
             },
         }
 
@@ -520,95 +504,6 @@ class SprintEngineMcpServer:
             "releasedTargets": result["releasedTargets"],
             "event": result["event"],
         }
-
-    def _dispatch_next(self, state_path: Path, payload: dict[str, Any]) -> dict[str, Any]:
-        agent_id = str(payload["agentId"]).strip()
-        last_dispatch_id = str(payload.get("lastDispatchId") or "").strip()
-        if not agent_id:
-            raise McpToolError("invalid_payload", "agentId cannot be empty.")
-
-        def run(state: dict[str, Any]) -> dict[str, Any]:
-            agent = state.get("agents", {}).get(agent_id)
-            current = agent.get("currentDispatch") if isinstance(agent, dict) else None
-            # Default the replay cursor to the agent's last acked dispatch so
-            # a caller that omits lastDispatchId gets the delta since its own
-            # ack instead of the run's full ledger history.
-            cursor = last_dispatch_id
-            if not cursor and isinstance(agent, dict):
-                subscription = agent.get("subscription")
-                if isinstance(subscription, dict):
-                    cursor = str(subscription.get("lastDispatchId") or "").strip()
-            dispatches = [
-                record for record in folder_store.read_jsonl_file(state_path.parent / folder_store.DISPATCH_FILE)
-                if record.get("agentId") == agent_id
-            ]
-            if cursor:
-                seen = False
-                filtered = []
-                for record in dispatches:
-                    if seen:
-                        filtered.append(record)
-                    elif record.get("id") == cursor:
-                        seen = True
-                # A cursor absent from the agent's ledger rows (mistyped ack,
-                # pruned/recreated dispatch.jsonl) must not blank the replay
-                # forever: fall back to the full (shaper-capped) history so
-                # delivery self-heals instead of trusting a poisoned cursor.
-                if seen:
-                    dispatches = filtered
-            return {
-                "ok": True,
-                "agentId": agent_id,
-                "currentDispatch": current,
-                "dispatches": dispatches,
-                "state": "dispatched" if current else "idle",
-                "write": False,
-            }
-
-        return with_locked_state(state_path, run)
-
-    def _dispatch_ack(self, state_path: Path, payload: dict[str, Any]) -> dict[str, Any]:
-        agent_id = str(payload["agentId"]).strip()
-        dispatch_id = str(payload["dispatchId"]).strip()
-        outcome = str(payload.get("outcome") or "acknowledged").strip() or "acknowledged"
-        if not agent_id or not dispatch_id:
-            raise McpToolError("invalid_payload", "agentId and dispatchId cannot be empty.")
-
-        def mutate(state: dict[str, Any]) -> dict[str, Any]:
-            agent = ensure_agent(state, agent_id, None)
-            subscription = agent.setdefault("subscription", {})
-            subscription["lastDispatchId"] = dispatch_id
-            subscription["lastDispatchAckAt"] = folder_store.now_iso()
-            subscription["lastDispatchOutcome"] = outcome
-            event = append_event(
-                state,
-                "dispatch_acknowledged",
-                agent_id,
-                f"{agent_id} acknowledged dispatch {dispatch_id}.",
-                {"dispatchId": dispatch_id, "outcome": outcome},
-            )
-            return {"ok": True, "agent": agent, "currentDispatch": agent.get("currentDispatch"), "event": event, "write": True}
-
-        return with_locked_state(state_path, mutate)
-
-    def _subscribe(self, state_path: Path, payload: dict[str, Any]) -> dict[str, Any]:
-        agent_id = str(payload["agentId"]).strip()
-        transport = str(payload.get("transport") or "poll")
-        if transport not in {"poll", "mcp_notifications"}:
-            raise McpToolError("invalid_payload", "transport must be one of poll or mcp_notifications.")
-        if not agent_id:
-            raise McpToolError("invalid_payload", "agentId cannot be empty.")
-
-        def mutate(state: dict[str, Any]) -> dict[str, Any]:
-            agent = ensure_agent(state, agent_id, None)
-            subscription = agent.setdefault("subscription", {})
-            subscription["mode"] = transport
-            if payload.get("lastDispatchId"):
-                subscription["lastDispatchId"] = str(payload["lastDispatchId"])
-            subscription.setdefault("subscribedAt", folder_store.now_iso())
-            return {"ok": True, "agent": agent, "subscription": subscription, "currentDispatch": agent.get("currentDispatch"), "write": True}
-
-        return with_locked_state(state_path, mutate)
 
     def _run_get(self, state_path: Path) -> dict[str, Any]:
         def run(state: dict[str, Any]) -> dict[str, Any]:

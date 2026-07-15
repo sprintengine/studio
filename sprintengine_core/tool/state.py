@@ -714,8 +714,6 @@ def record_agent_join(
     state: Dict[str, Any],
     agent_id: str,
     role: str,
-    *,
-    subscription_mode: str = "none",
 ) -> Dict[str, Any]:
     agent = ensure_agent(state, agent_id, role)
     timestamp = now_iso()
@@ -728,10 +726,6 @@ def record_agent_join(
     agent["heartbeatAt"] = timestamp
     clear_terminal_state_metadata(agent)
     agent.setdefault("joinedAt", timestamp)
-    mode = subscription_mode if subscription_mode in {"none", "poll", "mcp_notifications"} else "none"
-    agent["subscription"] = {"mode": mode}
-    if mode != "none":
-        agent["subscription"]["subscribedAt"] = timestamp
     return agent
 
 
@@ -1064,6 +1058,15 @@ def current_dispatch_payload(
     task_id: Optional[str] = None,
     assigned_at: Optional[str] = None,
 ) -> Dict[str, Any]:
+    """The denormalized `currentDispatch` pointer on the agent-map mirror.
+
+    MC-1591 deleted the per-agent dispatch DELIVERY surface (dispatch.next/ack,
+    the subscription cursor, dispatchCursors round-robin). This field survives
+    as part of the non-authoritative agents-map mirror that the projection
+    `roster` view still reads; T4 removes it atomically when it re-derives the
+    roster's `currentDispatch` from leases (plan D5), so the four TS roster
+    readers never see it vanish between tasks.
+    """
     payload = {
         "dispatchId": dispatch_id,
         "targetKind": target_kind,
@@ -1103,48 +1106,6 @@ def queue_dispatch_record(
     record["id"] = folder_store.dispatch_id_for_record(record)
     state.setdefault("_dispatchRecords", []).append(record)
     return record
-
-
-def dispatch_target_key(target_kind: str, task_id: Any = None) -> str:
-    del target_kind
-    return f"task:{task_id}"
-
-
-def select_round_robin_target(
-    state: Dict[str, Any],
-    *,
-    role: str,
-    target_kind: str,
-    candidates: List[Any],
-    key_fn,
-) -> Any:
-    if not candidates:
-        return None
-    keys = [key_fn(candidate) for candidate in candidates]
-    cursor_key = f"{role}:{target_kind}"
-    cursors = state.setdefault("sprintengine", {}).setdefault("dispatchCursors", {})
-    last_key = cursors.get(cursor_key) if isinstance(cursors, dict) else None
-    if last_key in keys:
-        return candidates[(keys.index(last_key) + 1) % len(candidates)]
-    return candidates[0]
-
-
-def record_dispatch_cursor(state: Dict[str, Any], *, role: str, target_kind: str, target_key: str) -> None:
-    cursors = state.setdefault("sprintengine", {}).setdefault("dispatchCursors", {})
-    if isinstance(cursors, dict):
-        cursors[f"{role}:{target_kind}"] = target_key
-
-
-def current_dispatch_matches_task(agent: Dict[str, Any], task: Dict[str, Any], reason: str) -> bool:
-    dispatch = agent.get("currentDispatch")
-    if not isinstance(dispatch, dict):
-        return False
-    return (
-        dispatch.get("targetKind") == "task"
-        and dispatch.get("taskId") == task.get("id")
-        and dispatch.get("reason") == reason
-        and bool(dispatch.get("dispatchId"))
-    )
 
 
 def reconcile_worker(state: Dict[str, Any], worker_id: str, role: str) -> Dict[str, Any]:
@@ -1251,6 +1212,9 @@ def assign_task(
         task_status=str(task.get("status") or ""),
         reason="task_claimed",
     )
+    # Denormalized mirror pointer for the projection roster (see
+    # current_dispatch_payload); the dispatchCursors round-robin was deleted
+    # with the dispatch delivery surface (MC-1591), so nothing rotates on it.
     agent["currentDispatch"] = current_dispatch_payload(
         dispatch_id=dispatch["id"],
         target_kind="task",
@@ -1260,12 +1224,6 @@ def assign_task(
         assigned_at=dispatch["timestamp"],
     )
     agent["lastDirectiveAt"] = dispatch["timestamp"]
-    record_dispatch_cursor(
-        state,
-        role=str(task.get("role") or agent.get("role") or ""),
-        target_kind="task",
-        target_key=dispatch_target_key("task", task.get("id")),
-    )
     append_task_activity(task, "claim", agent_id, f"{agent_id} claimed {task.get('id')}.")
     return {"agent": agent}
 

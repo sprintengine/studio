@@ -46,11 +46,9 @@ from sprintengine_core.tool.state import (
     ensure_agent,
     ensure_role_in_roster,
     find_task,
-    dispatch_target_key,
     mint_lease,
     reconcile_worker,
     release_expired_agent_targets,
-    select_round_robin_target,
     set_agent_idle,
     worker_has_active_lease,
     worker_role,
@@ -186,13 +184,11 @@ def cmd_task_next(args: argparse.Namespace) -> Dict[str, Any]:
                 if not t or t.get("role") != args.role or not task_is_ready(state, t):
                     continue
                 candidates.append(t)
-            selected = select_round_robin_target(
-                state,
-                role=args.role,
-                target_kind="task",
-                candidates=candidates,
-                key_fn=lambda item: dispatch_target_key("task", item.get("id")),
-            )
+            # Ready ids are already priority-ordered by the materialized ready
+            # queue; a worker takes the first ready task for its role. The old
+            # round-robin cursor (dispatchCursors) was deleted with the dispatch
+            # mechanism (MC-1591): leases, not a cursor, prevent double-claims.
+            selected = candidates[0] if candidates else None
             if selected and worker_has_active_lease(state, args.id, excluding_task_id=selected.get("id")):
                 # Lease uniqueness: a worker already holding an active lease cannot
                 # claim a second task. Leave it ready for a fresh id and stop this
