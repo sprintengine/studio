@@ -32,7 +32,7 @@ import {
 } from '../../hooks/useTerminalSessions'
 import { useRelativeNow } from '../../hooks/useRelativeNow'
 import { formatRelativeMs, formatRelativeMsAgo } from '../../utils/relativeTime'
-import type { AgentCli, FuturePlanWorkspaceSource, HighlightColor, SprintEngineRole, SprintEngineRuntimeAgentStatus, Workspace } from '../../types/workspace'
+import type { AgentCli, FuturePlanWorkspaceSource, HighlightColor, SprintEngineRuntimeAgentStatus, Workspace } from '../../types/workspace'
 import { captureNavRailWidthFraction, consumePendingAgentFlash, deleteTabPreservingNavRail, registerModel, restoreNavRailWidthFraction, unregisterModel } from '../../utils/modelRegistry'
 import { TAB_DRAG_MIME, serializeTabDragPayload } from '../../utils/tabDragPayload'
 import { logPerfEvent } from '../../utils/perfDiagnostics'
@@ -115,20 +115,13 @@ const DISABLED_SURFACE = (
 )
 const AGENT_TAB_NEEDS_INPUT_CLASS = 'agent-tab-needs-input'
 const loadedPanelComponents = new Set<string>()
-const SPRINTENGINE_ROLES: SprintEngineRole[] = [
-  'architect',
-  'product',
-  'developer',
-  'frontend',
-  'ui_ux_reviewer',
-  'tester',
-  'security',
-  'performance',
-  'production_readiness_reviewer',
-  'cross_platform',
-]
 const EMPTY_WORKSPACE_AGENTS: Workspace['agents'] = {}
 const EMPTY_SPRINTENGINE_AGENTS: NonNullable<Workspace['sprintEngineState']>['sprintEngineAgents'] = {}
+// Sprint agent tab role comes from the projection's worker record
+// (`sprintEngineAgents[agentId].role`), never inferred from the id's string
+// shape (MC-1593a). A manually-minted agent has no record until it claims a
+// task, at which point the projection carries its role — the pooling model's
+// "canonical on claim" contract.
 const EMPTY_OPEN_FILES: Workspace['editorState']['openFiles'] = []
 
 type AgentTabActivityDot = {
@@ -190,9 +183,6 @@ function sprintEngineTabLifecycle(
   }
 }
 
-function inferSprintEngineRoleFromAgentId(agentId: string): SprintEngineRole | null {
-  return SPRINTENGINE_ROLES.find((role) => agentId === role || agentId.startsWith(`${role}-`)) ?? null
-}
 
 function PanelLoadingFallback() {
   return (
@@ -1148,7 +1138,7 @@ function WorkspaceLayout({ workspaceId, onStartFuturePlan, agentClis, onSpawnAge
         ? getSpecialistAction(agent.specialistId)
         : null
       const sprintEngineRole = agent?.kind === 'sprintengine'
-        ? runtimeAgent?.role ?? inferSprintEngineRoleFromAgentId(agentId)
+        ? runtimeAgent?.role ?? null
         : null
       const multiloopRole = agent?.kind === 'multiloop' ? agent.multiloopRole : null
 

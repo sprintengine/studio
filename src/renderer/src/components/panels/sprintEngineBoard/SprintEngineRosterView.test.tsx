@@ -6,18 +6,21 @@ import type { AgentCli, AgentState, SprintEngineState } from '../../../types/wor
 import type { SprintEngineAgentRosterItem } from '../../../utils/sprintengine'
 import type { RuntimeAgentView } from '../sprintEngineInspector'
 
-// Static accessibility/affordance contracts for the team-table roster
-// (MC-1516): a slim header carries the roster census and the single Add member
-// control (the add-role chip tray is gone); each role renders as a band naming
-// the role, its seat census, and its editable model control (the shared quiet
-// CliModelPickerButton — one per role, labeled "<Role> model"); seat rows are
-// single-line entries listed newest-first under aria-label="<Role> agents";
-// the persistent reviewer stays tagged; the primary action splits Open (live,
-// hover-revealed) / Resume (departed resumable) / Spawn (never-run, visible
-// without hover); a live session whose launch stamp diverges from its
-// reconciled runtime shows a muted "on <old model>" label, plus a Restart
-// offer only while it is not working; and the row StatusDot stays decorative
-// (status announced once via visually-hidden text).
+// Static accessibility/affordance contracts for the pool-sourced Agents table
+// (MC-1593a): a slim header carries the census ("N working · M configured
+// roles" — derived from the workers view + configuredRoles, never a seat
+// headcount) and the two run-config controls, "Add a role" (roles the run does
+// not yet configure) and "Add an agent" (raise the count for a configured
+// role); each role renders as a band naming the role, its live/total count, and
+// its editable model control (the shared quiet CliModelPickerButton — one per
+// role, labeled "<Role> model"); agent rows are single-line entries listed
+// newest-first under aria-label="<Role> agents"; the primary action splits Open
+// (live, hover-revealed) / Resume (departed resumable) / Spawn (never-run,
+// visible without hover); a live session whose launch stamp diverges from its
+// reconciled runtime shows a muted "on <old model>" label, plus a Restart offer
+// only while it is not working; and the row StatusDot stays decorative (status
+// announced once via visually-hidden text). No rendered string says seat, lease,
+// worker, or roster.
 
 const sprintEngineState = {
   roleCounts: { architect: 1, developer: 1, tester: 1, security: 1 },
@@ -99,7 +102,8 @@ const html = renderToStaticMarkup(
     roster={roster}
     agents={agents}
     runtimeAgents={runtimeAgents}
-    onAddRole={() => {}}
+    onEnableRole={() => {}}
+    onAddAgent={() => {}}
     addMemberOptions={[
       { role: 'architect', label: 'Architect', summary: 'Plans.', activeForRole: 1, openTasksForRole: 0 },
       { role: 'developer', label: 'Developer', summary: 'Builds.', activeForRole: 3, openTasksForRole: 1 },
@@ -129,9 +133,17 @@ const html = renderToStaticMarkup(
   />,
 )
 
-// Header: roster census + the single Add member control.
-assert.ok(/5 members · 1 working/.test(html), 'header shows the roster census')
-assert.ok(html.includes('Add member'), 'header exposes the Add member control')
+// Header: the pool census (workers view + configuredRoles) and the two
+// run-config controls. Four roles are enabled (architect, developer, tester,
+// security from roleCounts); one developer is running.
+assert.ok(/1 working · 4 configured roles/.test(html), 'header shows the pool census')
+assert.ok(html.includes('Add a role'), 'header exposes the enable-a-role control')
+assert.ok(html.includes('Add an agent'), 'header exposes the raise-the-count control')
+// The old seat-grammar copy is gone.
+assert.ok(!/\d+ members/.test(html), 'no seat headcount census')
+assert.ok(!/Add member/.test(html), 'no "Add member" control')
+// No rendered string uses the retired seat/lease/worker/roster vocabulary.
+assert.ok(!/\b(seat|lease|worker|roster)/i.test(html), 'no seat/lease/worker/roster copy renders')
 
 // Role bands: role label + seat census + the in-place model control, one per
 // role, labeled for the role. The picker trigger surfaces the configured model.
@@ -183,10 +195,10 @@ assert.ok(html.includes('aria-label="Developer 2 actions"'), 'rows expose a labe
 // visually-hidden text, never re-emitted as a dot aria-label.
 assert.ok(!html.includes('aria-label="Running"'), 'the row StatusDot sets no status aria-label')
 
-// Enabled-but-unseated role renders as a band with an honest empty state; the
+// Enabled-but-unstaffed role renders as a band with an honest empty state; the
 // old add-chip tray is gone entirely.
-assert.ok(html.includes('Security Specialist'), 'an enabled role with no seats still renders as a band')
-assert.ok(html.includes('No seats yet'), 'an unseated band explains itself')
+assert.ok(html.includes('Security Specialist'), 'an enabled role with no agents still renders as a band')
+assert.ok(html.includes('No agents yet'), 'an unstaffed band explains itself')
 assert.ok(!html.includes('aria-label="Add a role to the roster"'), 'the add-role chip tray is gone')
 assert.ok(!html.includes('aria-label="Add Product"'), 'no per-role add chips render')
 
@@ -204,7 +216,8 @@ const configuredHtml = renderToStaticMarkup(
     roster={[{ id: 'architect', label: 'Architect', role: 'architect' }]}
     agents={{}}
     runtimeAgents={[]}
-    onAddRole={() => {}}
+    onEnableRole={() => {}}
+    onAddAgent={() => {}}
     addMemberOptions={[
       { role: 'architect', label: 'Architect', summary: 'Plans.', activeForRole: 1, openTasksForRole: 0 },
       { role: 'developer', label: 'Developer', summary: 'Builds.', activeForRole: 0, openTasksForRole: 0 },
@@ -227,10 +240,16 @@ const configuredHtml = renderToStaticMarkup(
     onKillAgent={() => {}}
   />,
 )
-assert.ok(configuredHtml.includes('Performance Engineer'), 'a configured unseated role renders as a band')
+assert.ok(configuredHtml.includes('Performance Engineer'), 'a configured unstaffed role renders as a band')
 assert.ok(
   configuredHtml.includes('aria-label="Performance Engineer model: codex"'),
-  'a configured unseated role still gets an editable model control',
+  'a configured unstaffed role still gets an editable model control',
 )
+// Census derives from configuredRoles (3), not roster length; no addable roles
+// leaves only the "Add an agent" control.
+assert.ok(/0 working · 3 configured roles/.test(configuredHtml), 'census counts configured roles')
+assert.ok(!configuredHtml.includes('Add a role'), 'no enable-a-role control when every role is configured')
+assert.ok(configuredHtml.includes('Add an agent'), 'the raise-the-count control still renders')
+assert.ok(!/\b(seat|lease|worker|roster)/i.test(configuredHtml), 'no seat/lease/worker/roster copy renders')
 
 console.log('SprintEngineRosterView.test.tsx: ok')
