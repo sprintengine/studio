@@ -383,30 +383,6 @@ export function sprintEngineWakeRestrictionTaskId(
   return runtimeAgent.lastOwnedTaskId
 }
 
-/**
- * Cheap trigger for the task-scoped assignment op (B1/B2): true when at least
- * one ready implementation task for a non-planning role exists. It decides only
- * WHETHER to call `roster replenish --queue-depth`; the Python command owns the
- * mint/capacity decision authoritatively under the run lock, so the renderer
- * keeps no per-role capacity math. Wake candidates are ownerless by
- * construction (single-owner tasks never leave their owner), so only
- * triage-pending tasks need excluding — they add nothing to mint.
- */
-export function sprintEngineHasUnownedReadyTask(
-  sprintEngineState: SprintEngineState
-): boolean {
-  for (const task of getSprintEngineWakeCandidateTasks(sprintEngineState)) {
-    if (isSprintEnginePlanningRole(task.role)) continue
-    // Python's task_is_ready excludes triage-pending tasks; the TS task type
-    // does not model needsTriage, but the projection always carries it —
-    // counting those tasks would report a deficit Python refuses to fill,
-    // one no-op CLI call per tick until the architect triages.
-    if ((task as SprintEngineTask & { needsTriage?: boolean }).needsTriage === true) continue
-    return true
-  }
-  return false
-}
-
 export function findSprintEngineWakeCandidateTaskForAgent(
   wakeTasks: SprintEngineTask[],
   role: SprintEngineRoleId,
@@ -1923,18 +1899,36 @@ export function pickNextAutoRuns(
       && !hasInFlightSpawn(candidateId)
   }
 
-  // New-claim task binding (B1/B2, task-scoped roster ids): a fresh ready task
-  // may only be handed to a NEVER-OWNED idle roster id — the engine assignment
-  // op (`roster replenish --queue-depth`) mints exactly one such id per
-  // uncovered ready task and never recycles a spent id. A used id (one that has
-  // ever owned a task) is never eligible for a new claim; its only reuse is the
-  // owner-keyed respawn below.
-  const findFreshTaskAgent = (role: SprintEngineRoleId): AutoRunCandidate['agentId'] | null => {
-    const fresh = roster.find((candidate) =>
+  // New-claim capacity for a task-scoped (non-planning) role. A fresh ready task
+  // may only be handed to a NEVER-OWNED idle roster id — a spawned-but-unclaimed
+  // or seeded worker — which we reuse when one exists (restart-in-place, no id
+  // churn). MC-1591 leases: the engine no longer pre-mints that capacity, so
+  // when none is reusable the spawner MINTS the task-scoped id itself and the
+  // engine binds it at claim. A used id (one that has ever owned a task) is
+  // never eligible for a new claim; its only reuse is the owner-keyed respawn.
+  const pickOrMintTaskAgent = (role: SprintEngineRoleId): AutoRunCandidate['agentId'] => {
+    const reusable = roster.find((candidate) =>
       isEligibleRoleAgent(candidate.id, candidate.role, role)
       && !sprintEngineState.sprintEngineAgents[candidate.id]?.lastOwnedTaskId
     )
-    return fresh?.id ?? null
+    if (reusable) return reusable.id
+    // Mint. Mirror the phase-session birth below: seed the allocator with every
+    // id a concurrent spawn already holds (projection roster, pending, selected,
+    // running, in-flight) so a minted `<role>-N` never collides with live
+    // capacity or another mint this pass. Placeholders only need to occupy the
+    // id in the allocator's used-id set; a role matching no real role keeps them
+    // out of its per-role index scan so they never distort a `<role>-N` value.
+    const reserved: Record<AgentId, SprintEngineRuntimeAgent> = { ...sprintEngineState.sprintEngineAgents }
+    const reserve = (id: string) => {
+      if (!reserved[id]) reserved[id] = { role: '' as SprintEngineRoleId } as SprintEngineRuntimeAgent
+    }
+    for (const id of pendingAgentIds) reserve(id)
+    for (const id of selectedAgentIds) reserve(id)
+    for (const id of options.runningAgentIds) reserve(id)
+    for (const spawnKey of options.inFlightSpawns) {
+      if (spawnKey.startsWith(`${workspace.id}:`)) reserve(spawnKey.slice(workspace.id.length + 1))
+    }
+    return getNextSprintEngineAgentId(role, reserved)
   }
 
   // Owner-keyed respawn (MC-1444 Phase 2) is NOT a picker responsibility:
@@ -1948,12 +1942,10 @@ export function pickNextAutoRuns(
   // conversation, so owner affinity is preserved.
 
   // Persistent planning identity (MC-1454): planning roles (architect/general)
-  // are NOT task-scoped — one architect drives the whole sprint, so its id is
-  // reused across sequential planning tasks instead of minting architect-N.
-  // findFreshTaskAgent would exclude the seated architect the moment it owns its
-  // first task (lastOwnedTaskId set), and the queue-depth replenish trigger
-  // (`sprintEngineHasUnownedReadyTask`) skips planning roles, so without this a
-  // second architect task stalls forever. Reuse an eligible seated planning id
+  // are NOT task-scoped — one planner drives the whole sprint, so its id is
+  // reused across sequential planning tasks instead of minting `<planner>-N`.
+  // The task-scoped mint above would hand each planning task a fresh id, so
+  // planning roles route here instead. Reuse an eligible seated planning id
   // regardless of its retained lastOwnedTaskId, else target the deterministic
   // bare `<role>` persistent planning id (the id creation seeds for the
   // architect) so the supervisor spawns it. If an agent of the role already
@@ -2149,21 +2141,24 @@ export function pickNextAutoRuns(
       continue
     }
 
-    // New claims come only from engine-minted never-owned capacity — EXCEPT
-    // planning roles, which are persistent: reuse the seated planning id (or the
-    // bare `<role>`) so sequential architect tasks share one identity and no
-    // architect-N is ever minted.
-    const reusableAgentId = isSprintEnginePlanningRole(task.role)
-      ? findPlanningRoleAgent(task.role)
-      : findFreshTaskAgent(task.role)
-    if (!reusableAgentId) {
-      autoRunPerfLogger('SprintEngineAutoRun', 'candidate-pick-ready-task-waiting-for-roster-agent', {
-        workspaceId: workspace.id,
-        workspaceName: workspace.name,
-        taskId: task.id,
-        role: task.role,
-      })
-      continue
+    // Planning roles keep a persistent identity — reuse the seated planner or
+    // the bare `<role>` seed so sequential planning tasks share one id and no
+    // `<planner>-N` is ever minted. Non-planning work is task-scoped: its worker
+    // id is minted here and the engine binds it to the task at claim.
+    let reusableAgentId: AutoRunCandidate['agentId'] | null
+    if (isSprintEnginePlanningRole(task.role)) {
+      reusableAgentId = findPlanningRoleAgent(task.role)
+      if (!reusableAgentId) {
+        autoRunPerfLogger('SprintEngineAutoRun', 'candidate-pick-ready-task-waiting-for-planning-agent', {
+          workspaceId: workspace.id,
+          workspaceName: workspace.name,
+          taskId: task.id,
+          role: task.role,
+        })
+        continue
+      }
+    } else {
+      reusableAgentId = pickOrMintTaskAgent(task.role)
     }
 
     const agent = rosterById[reusableAgentId] ?? { id: reusableAgentId, label: reusableAgentId, role: task.role }

@@ -248,10 +248,6 @@ function firstPartyActionProviders(calls: string[] = []): AutomationActionProvid
         calls.push(`sprint-mode:${input.statePath}:${input.cliWatchPolling}`)
         return { ok: true, data: {} }
       },
-      replenishRoster: async (input) => {
-        calls.push(`sprint-roster:${input.statePath}:${input.role ?? ''}`)
-        return { ok: true, data: {} }
-      },
     },
   })
 }
@@ -909,7 +905,6 @@ async function assertFirstPartyActionsInvokeFrontDoors(): Promise<void> {
     'switchboard:/repo/a',
     'watchtower:/repo/a:lean_code_review',
     'sprint-mode:/repo/a/.multi-code/sprintengine/ship-squad/run.yaml:enabled',
-    'sprint-roster:/repo/a/.multi-code/sprintengine/ship-squad/run.yaml:developer',
   ])
 }
 
@@ -1001,9 +996,6 @@ function assertBuiltInProviderRegistryUsesNamespacedIdsAndRejectsDuplicates(): v
     },
     sprintEngine: {
       setRunnerMode: async () => {
-        throw new Error('not used')
-      },
-      replenishRoster: async () => {
         throw new Error('not used')
       },
     },

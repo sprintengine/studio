@@ -270,7 +270,6 @@ export function createAppServices(diagnosticsEnabled: boolean) {
       readProjection: (input) => sprintEngineArtifacts.readProjection(input),
       autoApproveArtifact: ({ statePath, artifactId }) =>
         sprintEngineArtifacts.reviewArtifact({ statePath, artifactId }, 'approve', 'auto-run'),
-      replenishRoster: (input) => sprintEngineArtifacts.replenishRoster(input),
     },
     pathExists: async (path) => {
       try {

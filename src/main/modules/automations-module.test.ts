@@ -211,7 +211,6 @@ function fakeSprintEngineAutomationFrontDoorModule(): CapabilityModule {
     registerMain(host) {
       host.provideService(SprintEngineAutomationFrontDoorsToken, () => ({
         setRunnerMode: async () => ({ ok: true, data: {} }),
-        replenishRoster: async () => ({ ok: true, data: {} }),
       }))
     },
   }

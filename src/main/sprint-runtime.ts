@@ -132,7 +132,6 @@ export type SprintRuntimeDeps = {
   artifacts: {
     readProjection(input: { statePath: string; knownToken?: string }): Promise<SprintEngineProjectionReadResult>
     autoApproveArtifact(input: { statePath: string; artifactId: string }): Promise<SprintEngineArtifactCommandResult>
-    replenishRoster(input: { statePath: string }): Promise<SprintEngineArtifactCommandResult>
   }
   pathExists(path: string): Promise<boolean>
   resolveMemoryRoot(workspaceRoot: string | null, relativeRoot: string | null): Promise<MemoryRootStatus>
@@ -364,7 +363,6 @@ export function createSprintRuntime(deps: SprintRuntimeDeps) {
       readSprintEngineProjection: (statePath) => deps.artifacts.readProjection({ statePath }),
       autoApproveSprintEngineArtifact: (statePath, artifactId) =>
         deps.artifacts.autoApproveArtifact({ statePath, artifactId }),
-      replenishSprintEngineRoster: (input) => deps.artifacts.replenishRoster(input),
       memoryResolveRoot: ({ workspaceRoot, relativeRoot }) =>
         deps.resolveMemoryRoot(workspaceRoot, relativeRoot),
 

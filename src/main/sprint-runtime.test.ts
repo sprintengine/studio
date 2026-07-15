@@ -207,7 +207,6 @@ function createHarness(options: {
         return { ok: true, data: projections.get(statePath) ?? null, token: 'token-1' }
       },
       autoApproveArtifact: async () => ({ ok: true as const, data: {} }),
-      replenishRoster: async () => ({ ok: true as const, data: {} }),
     },
     pathExists: async () => true,
     resolveMemoryRoot: async (_workspaceRoot, relativeRoot) => ({

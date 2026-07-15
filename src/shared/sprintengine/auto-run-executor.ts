@@ -98,9 +98,6 @@ export interface SprintEngineAutoRunExecutorPorts {
     statePath: string,
     artifactId: string
   ): Promise<SprintEngineArtifactCommandResult>
-  replenishSprintEngineRoster(input: {
-    statePath: string
-  }): Promise<SprintEngineArtifactCommandResult>
   memoryResolveRoot(input: {
     workspaceRoot: string | null
     relativeRoot: string | null

@@ -20,8 +20,8 @@
  * host (main: main perf diagnostics; renderer shim: `logPerfEvent`).
  *
  * Cross-tick module-level state (the terminal-list notice cooldown, the
- * task-scoped retirement ledger, the bootstrap stall-notice set, and the
- * no-op replenish fingerprint) lives in `SprintEngineAutoRunCycleState`,
+ * task-scoped retirement ledger, and the bootstrap stall-notice set) lives in
+ * `SprintEngineAutoRunCycleState`,
  * created once per host via `createSprintEngineAutoRunCycleState()` (main:
  * one per registered run; renderer host module: one at module level).
  */
@@ -75,7 +75,6 @@ import {
   type SprintEngineDispatchAttempt,
   type SprintEngineDispatchNotificationInput,
   getSprintEngineDispatchPlanEngagedAgentIds,
-  sprintEngineHasUnownedReadyTask,
   updateSprintEngineIdleClock,
   type SprintEngineDispatchPlan,
   type SprintEngineDispatchPath,
@@ -252,15 +251,6 @@ export type SprintEngineAutoRunCycleState = {
    * supervision tick. Cleared when a bootstrap spawn later succeeds.
    */
   bootstrapStallNoticeKeys: Set<string>
-  /**
-   * Fingerprint of the last queue-depth replenish attempt that minted nothing,
-   * per workspace. The TS trigger is a heuristic; when it persistently disagrees
-   * with Python's authoritative calc (status-enum drift, needsTriage, retired
-   * owners), re-calling every supervise tick would spawn a no-op CLI subprocess
-   * (and take the run.yaml lock) every few seconds forever. A no-op result
-   * parks the trigger until the projection actually changes.
-   */
-  lastNoopQueueDepthReplenishFingerprint: Map<string, string>
 }
 
 export function createSprintEngineAutoRunCycleState(): SprintEngineAutoRunCycleState {
@@ -268,7 +258,6 @@ export function createSprintEngineAutoRunCycleState(): SprintEngineAutoRunCycleS
     terminalListIpcLastNoticeAt: new Map(),
     taskScopedRetirementTaskByClockKey: new Map(),
     bootstrapStallNoticeKeys: new Set(),
-    lastNoopQueueDepthReplenishFingerprint: new Map(),
   }
 }
 
@@ -1938,90 +1927,6 @@ async function ensureSprintEngineBootstrapAgent(
   return 'none'
 }
 
-async function replenishRetiredRosterCapacity(
-  ports: SprintEngineAutoRunCyclePorts,
-  cycleState: SprintEngineAutoRunCycleState,
-  workspace: Workspace,
-  sprintEngineState: SprintEngineState,
-  liveAgentIds: ReadonlySet<string>
-): Promise<
-  | { status: 'changed'; workspace: Workspace; sprintEngineState: SprintEngineState }
-  | { status: 'failed' | 'none' }
-> {
-  // Roster replenishment is supervisor work — it should run based on local
-  // automation state, not the headless CLI watch-polling flag in run.yaml.
-  if (!workspace.sprintEngineContext) return { status: 'none' }
-  const autoState = getSprintEngineAutoState(workspace)
-  if (deriveAutomationMode(autoState) === 'manual') return { status: 'none' }
-  const hasRetiredAgent = Object.values(sprintEngineState.sprintEngineAgents)
-    .some((agent) => agent.status === 'retired')
-  // B1/B2 execution-only supervisor: with one agent session per task, every
-  // unowned ready task needs a fresh never-reused id. The renderer only decides
-  // WHETHER to call the assignment op; the Python command owns the mint/capacity
-  // decision authoritatively under the run lock. maxNew carries the local
-  // concurrency ceiling.
-  let wantsQueueDepthReplenish = sprintEngineHasUnownedReadyTask(sprintEngineState)
-  const fingerprint = `${sprintEngineState.updatedAt ?? ''}|${wantsQueueDepthReplenish ? 'ready' : ''}`
-  if (
-    wantsQueueDepthReplenish
-    && cycleState.lastNoopQueueDepthReplenishFingerprint.get(workspace.id) === fingerprint
-  ) {
-    wantsQueueDepthReplenish = false
-  }
-  if (!hasRetiredAgent && !wantsQueueDepthReplenish) return { status: 'none' }
-
-  // Live used terminals are neither wakeable for new tasks nor spawnable, so
-  // Python must not count them as capacity either — the renderer owns
-  // liveness, Python owns everything else.
-  const busyAgentIds = [...liveAgentIds].filter((agentId) =>
-    Boolean(sprintEngineState.sprintEngineAgents[agentId]?.lastOwnedTaskId)
-  )
-  const result = await ports.replenishSprintEngineRoster({
-    statePath: workspace.sprintEngineContext.statePath,
-    ...(wantsQueueDepthReplenish
-      ? {
-        queueDepth: true,
-        maxNew: Math.max(1, Math.min(10, autoState.maxConcurrentAgents ?? 3)),
-        ...(busyAgentIds.length > 0 ? { busyAgentIds } : {}),
-      }
-      : {}),
-  })
-  if (!result.ok) {
-    await ports.publishDiagnostic({
-      level: 'warning',
-      source: 'sprintengine',
-      title: 'Roster replenishment failed',
-      message: result.message,
-      details: result.stderr || result.stdout,
-      workspaceId: workspace.id,
-      workspaceName: workspace.name,
-    })
-    return { status: 'failed' }
-  }
-
-  const created = ((result.data as { tool?: { created?: unknown[] } } | undefined)?.tool?.created ?? []).length
-  // Park the queue-depth trigger on a no-mint outcome until the projection
-  // changes; a mint clears the park so convergence keeps flowing.
-  if (wantsQueueDepthReplenish) {
-    if (created <= 0) cycleState.lastNoopQueueDepthReplenishFingerprint.set(workspace.id, fingerprint)
-    else cycleState.lastNoopQueueDepthReplenishFingerprint.delete(workspace.id)
-  }
-  const projectionContent = (result.data as { projectionContent?: unknown } | undefined)?.projectionContent
-  if (typeof projectionContent !== 'string') return { status: 'none' }
-  const projection = JSON.parse(projectionContent) as unknown
-  const parsedState = normalizeSprintEngineProjection(projection, workspace.sprintEngineContext.teamSlug)
-  if (!parsedState) return { status: 'none' }
-  ports.setSprintEngineState(workspace.id, parsedState)
-  const updatedWorkspace = ports.getWorkspace(workspace.id)
-  logPerfEvent('SprintEngineAutoRun', 'roster-replenish', {
-    workspaceId: workspace.id,
-    workspaceName: workspace.name,
-    created,
-  })
-  if (created <= 0 || !updatedWorkspace?.sprintEngineState) return { status: 'none' }
-  return { status: 'changed', workspace: updatedWorkspace, sprintEngineState: updatedWorkspace.sprintEngineState }
-}
-
 /**
  * Clear stale retained-resume state (MC-1444 review finding): a window
  * disposal keeps a resume token on the agent record while the owner still holds
@@ -2468,30 +2373,10 @@ export async function superviseRunnerActiveCycle(
 
   clearStaleRetainedResumeState(ports, workspace, sprintEngineState, agentSessions.live)
 
-  const replenishResult = await replenishRetiredRosterCapacity(ports, cycleState, workspace, sprintEngineState, agentSessions.live)
-  if (replenishResult.status === 'failed') {
-    // Replenishment failing must not starve dispatch: bootstrap, wake, and
-    // candidate picking below only need the roster that already exists, and a
-    // persistently failing replenish (2026-07-14: retired planners against an
-    // occupied singleton seat) otherwise aborts every tick before any spawn.
-    // The diagnostic is already published inside replenishRetiredRosterCapacity.
-    logPerfEvent('SprintEngineAutoRun', 'roster-replenish-failed-continuing', {
-      workspaceId: workspace.id,
-      workspaceName: workspace.name,
-      elapsedMs: Math.round(performance.now() - superviseStartedAt),
-    })
-  }
-  if (replenishResult.status === 'changed') {
-    workspace = replenishResult.workspace
-    sprintEngineState = replenishResult.sprintEngineState
-    logPerfEvent('SprintEngineAutoRun', 'roster-replenished-continuing', {
-      workspaceId: workspace.id,
-      workspaceName: workspace.name,
-      agentCount: Object.keys(sprintEngineState.sprintEngineAgents).length,
-      elapsedMs: Math.round(performance.now() - superviseStartedAt),
-    })
-  }
-
+  // Task-scoped worker capacity is no longer pre-minted by the engine (MC-1591
+  // leases): the candidate picker below mints a fresh worker id for each
+  // uncovered ready task and the engine binds it at claim, so there is no
+  // roster-replenish round-trip to run before bootstrap and candidate picking.
   const bootstrapResult = await ensureSprintEngineBootstrapAgent(
     ports,
     cycleState,

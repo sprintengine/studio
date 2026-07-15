@@ -1796,38 +1796,6 @@ export type SprintEngineAutomationChangedEvent = {
   sourceClientToken?: string
 }
 
-export type SprintEngineRosterReplenishInput = {
-  statePath: string
-  role?: SprintEngineTaskMutationRole
-  /**
-   * MC-1444 Phase 3: also top non-planning roles up to their ready-queue
-   * depth so task-scoped (one-session-per-task) workers can run in parallel.
-   * `maxNew` bounds additions per invocation — callers pass their concurrency
-   * headroom; spawning stays capped by availableSlots regardless.
-   */
-  queueDepth?: boolean
-  maxNew?: number
-  /**
-   * Roster ids with a live terminal bound to a task (lastOwnedTaskId set):
-   * neither wakeable for new tasks nor spawnable, so the Python capacity
-   * calc must not count them. The renderer owns liveness.
-   */
-  busyAgentIds?: string[]
-}
-
-export type SprintEngineRosterAddInput = {
-  statePath: string
-  /** Expected agent id, e.g. `frontend-2`; the CLI add is idempotent on it. */
-  agentId: string
-  /**
-   * Registry role id. A plain string (not SprintEngineTaskMutationRole)
-   * because roster membership accepts any configured registry role, including
-   * custom and plugin-installed roles; the Sprint Engine CLI canonicalizes
-   * the id and rejects unknown roles.
-   */
-  role: string
-}
-
 export type SprintEngineRosterRuntimeInput = {
   statePath: string
   /** Registry role id; the CLI canonicalizes it and rejects unknown/off-roster roles. */
@@ -2568,8 +2536,6 @@ export type ElectronApi = {
   onSprintRuntimeOp: (cb: (op: SprintRuntimeOp) => void) => () => void
   createSprintEnginePullRequest: (statePath: string) => Promise<SprintEngineArtifactCommandResult>
   refreshSprintEnginePullRequestStatus: (statePath: string) => Promise<SprintEngineArtifactCommandResult>
-  replenishSprintEngineRoster: (input: SprintEngineRosterReplenishInput) => Promise<SprintEngineArtifactCommandResult>
-  addSprintEngineRosterMember: (input: SprintEngineRosterAddInput) => Promise<SprintEngineArtifactCommandResult>
   /** Operator edit of one role's cli/model mid-run; merges into the run's canonical roleRuntimes. */
   setSprintEngineRoleRuntime: (input: SprintEngineRosterRuntimeInput) => Promise<SprintEngineArtifactCommandResult>
   readSprintEngineProjection: (statePath: string, knownToken?: string) => Promise<SprintEngineProjectionReadResult>

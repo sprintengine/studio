@@ -205,7 +205,7 @@ assert.equal(stableRenamedDefaultAgents.frontend, renamedDefaultAgents.frontend)
 
 // MC-1450: every reconcile — seeded, minted, recycled — resolves cli/cliModel
 // from the run's per-role `roleRuntimes` (run.yaml via the projection), so a
-// replenishment-minted agent can never launch on the CLI's default model.
+// freshly minted agent can never launch on the CLI's default model.
 const runtimeSprintState = {
   ...sprintState,
   roleRuntimes: {
