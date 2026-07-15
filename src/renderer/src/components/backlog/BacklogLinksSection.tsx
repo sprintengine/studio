@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 
 import { InlineNotice, Section, Tooltip } from '../ui'
-import type { BacklogItem, BacklogItemLink, BacklogResolvedLink } from '../../utils/backlog'
+import type { BacklogItem, BacklogItemLink, BacklogItemStatus, BacklogResolvedLink } from '../../utils/backlog'
 import {
   backlogLinkControlModel,
   openBacklogLink,
@@ -26,15 +26,25 @@ function useResolvedBacklogItemLinks(input: {
   workspaceId: string
   workspaceRoot: string
   providers: ReadonlyArray<BacklogLinkProvider>
+  epicChildStatuses?: ReadonlyArray<BacklogItemStatus>
 }): {
   resolvedLinks: BacklogResolvedLink[] | null
   linkError: string | null
   openLink: (link: BacklogResolvedLink) => Promise<void>
 } {
-  const { item, workspaceId, workspaceRoot, providers } = input
+  const { item, workspaceId, workspaceRoot, providers, epicChildStatuses } = input
   const [resolvedLinks, setResolvedLinks] = useState<BacklogResolvedLink[] | null>(null)
   const [linkError, setLinkError] = useState<string | null>(null)
   const tokenRef = useRef(0)
+
+  // The child statuses reach the sync tick through a ref keyed by a stable
+  // signature: the panel rebuilds the children array every render, so depending on
+  // it directly would re-resolve every render. The signature only changes when a
+  // child's status actually changes (which also rescans and gives `item` a new
+  // identity), so an epic's status re-derives when — and only when — it should.
+  const childStatusesRef = useRef(epicChildStatuses)
+  childStatusesRef.current = epicChildStatuses
+  const childStatusKey = epicChildStatuses ? epicChildStatuses.join('|') : ''
 
   useEffect(() => {
     const token = ++tokenRef.current
@@ -52,6 +62,7 @@ function useResolvedBacklogItemLinks(input: {
           workspaceId,
           workspaceRoot,
           item,
+          epicChildStatuses: childStatusesRef.current,
           providers,
           persistLink: (args) => window.api.addOrUpdateBacklogLink(args),
         })
@@ -64,7 +75,7 @@ function useResolvedBacklogItemLinks(input: {
         setLinkError(error instanceof Error ? error.message : String(error))
       }
     })()
-  }, [item, workspaceId, workspaceRoot, providers])
+  }, [item, workspaceId, workspaceRoot, providers, childStatusKey])
 
   const openLink = useCallback(
     async (link: BacklogResolvedLink) => {
@@ -89,6 +100,7 @@ export function BacklogLinksSection({
   workspaceId,
   workspaceRoot,
   providers,
+  epicChildStatuses,
   excludeLinkId,
   onRemoveLink,
 }: {
@@ -96,6 +108,10 @@ export function BacklogLinksSection({
   workspaceId: string
   workspaceRoot: string
   providers: ReadonlyArray<BacklogLinkProvider>
+  // For an epic, the current status of each of its children, so the sync tick
+  // derives the epic's status up from the children rather than from its own run
+  // link (see nextBacklogItemStatusFromLinks). Omit for leaf items.
+  epicChildStatuses?: ReadonlyArray<BacklogItemStatus>
   // A link the caller has already promoted to a primary action (e.g. the
   // primary Open Sprint Engine run), so it is not duplicated as a secondary
   // control here. Null keeps every link visible.
@@ -107,6 +123,7 @@ export function BacklogLinksSection({
     workspaceId,
     workspaceRoot,
     providers,
+    epicChildStatuses,
   })
 
   const secondaryLinks = (

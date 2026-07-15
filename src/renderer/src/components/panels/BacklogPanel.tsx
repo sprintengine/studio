@@ -51,7 +51,7 @@ import {
   type BacklogScanResult,
 } from '../../utils/backlog'
 import { getHighlightSwatch } from '../../utils/highlight'
-import { providerForBacklogLink } from '../../utils/backlogLinks'
+import { nextBacklogItemStatusFromLinks, providerForBacklogLink } from '../../utils/backlogLinks'
 import {
   matchWorkspaceForBacklogRunLink,
   sprintEngineRunLinkForItem,
@@ -992,7 +992,22 @@ export default function BacklogPanel({ workspaceId, onStartFuturePlan }: Workspa
       runAction(async () => {
         if (!folderPath || item.status === status) return
         const executionLinks = item.links.filter((link) => link.type === 'execution')
-        if (executionLinks.length > 0) {
+        // An epic's status is derived UP from its children, not from its own run
+        // link (see nextBacklogItemStatusFromLinks); a leaf's is derived from its
+        // execution links. Severing the link only makes a manual status stick when
+        // the status is LINK-driven, so it is offered only for a leaf (or a
+        // childless epic behaving like one) — never for a child-driven epic.
+        const epicChildStatuses = item.isEpic
+          ? childrenOfEpic(items, epicSlug(item)).map((child) => child.status)
+          : undefined
+        const childDriven = (epicChildStatuses?.length ?? 0) > 0
+        const derivedStatus = nextBacklogItemStatusFromLinks(item.status, item.links, epicChildStatuses)
+        // Setting the status the derivation would produce anyway is a no-op, not an
+        // override: keep the link and just write the status. The sever warning is
+        // reserved for a genuinely contradictory manual set on a link-driven item —
+        // otherwise the next sync tick would revert the manual status back.
+        const needsUnlink = executionLinks.length > 0 && !childDriven && status !== derivedStatus
+        if (needsUnlink) {
           const confirmed = await dialog.confirm({
             title: 'Override linked status?',
             body: `Setting “${BACKLOG_STATUS_LABEL[status]}” will unlink ${executionLinks.length === 1 ? 'the linked sprint' : `${executionLinks.length} linked executions`}. The run itself will not be deleted.`,
@@ -1016,7 +1031,7 @@ export default function BacklogPanel({ workspaceId, onStartFuturePlan }: Workspa
         assertBacklogMutation(updated)
         await runScan()
       }),
-    [dialog, folderPath, runAction, runScan],
+    [dialog, folderPath, items, runAction, runScan],
   )
 
   const removeItemLink = useCallback(
@@ -2341,6 +2356,7 @@ function BacklogDetail({
           workspaceId={workspaceId}
           workspaceRoot={folderPath}
           providers={linkProviders}
+          epicChildStatuses={isEpic ? epicChildren.map((child) => child.status) : undefined}
           excludeLinkId={primaryRunLinkId}
           onRemoveLink={(link) => actions.removeLink(selected, link)}
         />

@@ -52,12 +52,53 @@ export async function openBacklogLink(
   return (await provider.openLink(input)) !== false
 }
 
+// A Backlog status is "active" while it is neither completed nor archived — the
+// idea/ready/in_progress/needs_input working states. Epics roll up from their
+// children through this predicate, so any status that is not a terminal one keeps
+// the epic open rather than being silently counted as done.
+export function isActiveBacklogStatus(status: BacklogItemStatus): boolean {
+  return status !== 'completed' && status !== 'archived'
+}
+
+// The only shape the derivation reads off a link: its lifecycle type and (when
+// known) its live status. Both a stored BacklogItemLink and a resolved link
+// satisfy it, so a caller can derive from stored links without a resolve round
+// trip (the override-dialog guard) or from freshly resolved ones (the sync tick).
+type StatusDrivingLink = Pick<BacklogItemLink, 'type' | 'status'>
+
+// The status an item should carry given its execution links and — for an epic —
+// its children. Two derivation modes:
+//
+//  - Leaf items (and a childless epic used as a plain item): status follows the
+//    execution links — any active link → in_progress, all completed → completed.
+//  - Epics WITH children: completion flows UP from the children, never from the
+//    epic's own run link. An epic launched as a sprint carries that run's
+//    execution link itself, so the type-blind link rule below auto-completed the
+//    whole epic the moment its run finished, even with children still open (live
+//    incident 2026-07-15, backlog/2026-07-15-backlog-epic-status-derives-from-
+//    children.md). So a child still active — OR the epic's own run still active —
+//    keeps the epic in_progress; only when every child is completed/archived does
+//    the epic auto-complete. This is the symmetric partner of the run START,
+//    which fans in_progress DOWN to the children (recordSprintEngineExecutionLink).
+//
+// `archived` is never demoted, and an unknown link status never drives a change.
 export function nextBacklogItemStatusFromLinks(
   currentStatus: BacklogItemStatus,
-  links: ReadonlyArray<BacklogResolvedLink>,
+  links: ReadonlyArray<StatusDrivingLink>,
+  epicChildStatuses?: ReadonlyArray<BacklogItemStatus>,
 ): BacklogItemStatus {
   if (currentStatus === 'archived') return currentStatus
   const executionLinks = links.filter((link) => link.type === 'execution')
+
+  // Epic with children: derive from the children, using the epic's own run link
+  // only as an additional "still active" signal — never as a completion trigger.
+  if (epicChildStatuses && epicChildStatuses.length > 0) {
+    const anyChildActive = epicChildStatuses.some(isActiveBacklogStatus)
+    const anyOwnRunActive = executionLinks.some((link) => link.status === 'active')
+    if (anyChildActive || anyOwnRunActive) return 'in_progress'
+    return 'completed'
+  }
+
   if (executionLinks.length === 0) return currentStatus
   if (executionLinks.some((link) => link.status === 'active')) return 'in_progress'
   if (executionLinks.every((link) => link.status === 'completed')) return 'completed'
@@ -128,6 +169,12 @@ export async function syncBacklogItemLinks(input: {
   workspaceId: string
   workspaceRoot: string
   item: BacklogItem
+  // For an epic, the current status of every child (frontmatter `epic:` members),
+  // so completion derives UP from the children rather than from the epic's own run
+  // link. Omit (or pass empty) for leaf items and childless epics. The derived
+  // status still rides the epic's own execution link when it persists, so a plain
+  // grouping epic with no execution link is not auto-completed by this tick.
+  epicChildStatuses?: ReadonlyArray<BacklogItemStatus>
   providers: ReadonlyArray<BacklogLinkProvider>
   persistLink(args: {
     workspaceRoot: string
@@ -142,7 +189,7 @@ export async function syncBacklogItemLinks(input: {
     item: input.item,
     providers: input.providers,
   })
-  const itemStatus = nextBacklogItemStatusFromLinks(input.item.status, links)
+  const itemStatus = nextBacklogItemStatusFromLinks(input.item.status, links, input.epicChildStatuses)
   const statusChanged = itemStatus !== input.item.status
 
   let persistError: string | null = null

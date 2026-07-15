@@ -161,6 +161,21 @@ export function epicSlug(epic: BacklogItem): string {
   return backlogEpicSlugFromPath(epic.relativePath)
 }
 
+// The canonical directory every epic concept file lives in.
+const EPIC_DIRECTORY_PREFIX = 'backlog/epics/'
+
+// True when a path is an active epic concept file. Frontmatter `type: epic` is the
+// real definition of an epic (BacklogItem.isEpic), and scan-model consumers must
+// use that. This path predicate exists for the ONE consumer that has no scan
+// model: the backlog object store persists neither `type:` nor `epic:` (both live
+// in frontmatter and win on every scan), so the store-only Sprint Engine run-link
+// reconcile identifies an epic by its location. Every epic authored through the
+// app lives at `backlog/epics/<slug>.md`; an archived epic (`backlog/archived/`)
+// is deliberately excluded so a store tick never reopens a retired epic.
+export function isBacklogEpicPath(relativePath: string): boolean {
+  return relativePath.replace(/\\/g, '/').toLowerCase().startsWith(EPIC_DIRECTORY_PREFIX)
+}
+
 // One planned file move in an archive-epic rollup.
 export type EpicArchiveMove = {
   item: BacklogItem
