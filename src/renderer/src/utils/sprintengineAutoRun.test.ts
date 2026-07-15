@@ -36,7 +36,6 @@ import {
   sprintEngineActiveAssignmentLedgerKey,
   sprintEngineIdleClockKey,
   sprintEngineRespawnLedgerKey,
-  sprintEngineReviveLedgerKey,
   AUTO_RUN_MAX_WAKE_CANDIDATE_PROMPT_RETRIES,
   type AutoRunCandidate,
   type RoleContinuationGrace,
@@ -2274,10 +2273,10 @@ function testPickNextAutoRunsDoesNotRespawnDepartedOwnerWhileRevivalThrottles():
   const candidates = pickNextAutoRuns(workspace, state, pickInput())
   assert.equal(candidates.length, 0, 'a departed owner gets no picker candidate — respawn stays the revival pass\'s throttled job')
 
-  // And the revival pass itself honours its cap: once the revive: key is maxed,
-  // no respawn is planned this pass.
+  // And the revival pass itself honours its cap: once the shared respawn: key is
+  // maxed, no respawn is planned this pass.
   const now = Date.parse('2026-07-04T22:00:00Z')
-  const cappedKey = sprintEngineReviveLedgerKey(workspace, { taskId: 'T-rework' }, 'developer-1')
+  const cappedKey = sprintEngineRespawnLedgerKey(workspace, { taskId: 'T-rework' }, 'developer-1')
   const cappedPlan = planSprintEngineDispatch({
     workspace,
     sprintEngineState: state,
@@ -3338,11 +3337,11 @@ function testRevivesDepartedWorkerForOwnTask(): void {
   })
   assert.equal(planWithLiveAgent.respawns.length, 0, 'no revival when a live agent of the role exists')
 
-  // Storm guard: once the `revive:` ledger key has hit the retry cap, revival
-  // stops (no endless respawn of a broken CLI). The key uses its own `revive:`
-  // namespace so the `respawn:` sweep can't wipe it and reset the counter; and
-  // while the revival is still an active target its key must NOT be swept.
-  const reviveKey = sprintEngineReviveLedgerKey(workspace, { taskId: 'T-rework' }, 'developer-1')
+  // Storm guard: once the shared `respawn:` recovery ledger key has hit the retry
+  // cap, revival stops (no endless respawn of a broken CLI). MC-1592 unified
+  // claimed-work respawns and departed-owner revivals onto this one namespace;
+  // while the revival is still an active recovery target its key must NOT be swept.
+  const reviveKey = sprintEngineRespawnLedgerKey(workspace, { taskId: 'T-rework' }, 'developer-1')
   const cappedPlan = planSprintEngineDispatch({
     workspace,
     sprintEngineState: sprintEngineStateFixture({ tasks: [reworkTask], sprintEngineAgents: departedOwner }),
@@ -3379,10 +3378,10 @@ function testRevivesDepartedWorkerForOwnTask(): void {
   })
   assert.equal(unmanagedPlan.respawns.length, 0, 'an unmanaged departed owner is not revived (no terminal to spawn)')
 
-  // Sweep: a `revive:` ledger entry for work that is NO LONGER an active revival
-  // target (here, a task that no longer exists) is deleted, so a maxed-out retry
-  // budget resets and can't permanently block a future legitimate revival.
-  const staleReviveKey = sprintEngineReviveLedgerKey(workspace, { taskId: 'T-gone' }, 'developer-1')
+  // Sweep: a `respawn:` recovery ledger entry for work that is NO LONGER an active
+  // recovery target (here, a task that no longer exists) is deleted, so a
+  // maxed-out retry budget resets and can't permanently block a future recovery.
+  const staleReviveKey = sprintEngineRespawnLedgerKey(workspace, { taskId: 'T-gone' }, 'developer-1')
   const sweepPlan = planSprintEngineDispatch({
     workspace,
     sprintEngineState: sprintEngineStateFixture({ tasks: [reworkTask], sprintEngineAgents: departedOwner }),
@@ -3397,7 +3396,7 @@ function testRevivesDepartedWorkerForOwnTask(): void {
   })
   assert.ok(
     sweepPlan.ledgerDeletes.some((del) => del.key === staleReviveKey),
-    'a stale revive: ledger entry (no active target) is swept so its retry budget resets',
+    'a stale respawn: ledger entry (no active target) is swept so its retry budget resets',
   )
 }
 
