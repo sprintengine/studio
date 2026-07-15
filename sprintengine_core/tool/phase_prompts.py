@@ -46,19 +46,32 @@ def architect_worktree_preference_block(use_worktrees: bool) -> str:
 def architect_worktree_preference_block_for_state(state: Dict[str, Any]) -> str:
     return architect_worktree_preference_block(get_run_vcs(state) is not None)
 
-def worker_plan_worktree_block() -> str:
+# Worker execution-workspace discipline is emitted from ONE template site so the
+# shared plan-reading and owned-paths rules are written once (MC-1615 seam). The
+# no-worktree and shared-worktree prompts differ only in `location_lines` (where
+# the agent works) and `trailing_lines` (commit flow vs. do-not-push); everything
+# else — the header and the four owned-paths rules — comes from here verbatim.
+def _execution_workspace_discipline_block(location_lines: List[str], trailing_lines: List[str]) -> str:
     return "\n".join([
         "## Execution Workspace Discipline",
         "- Read only the active team's approved `architect_plan` artifact from the Sprint Engine run store before claiming work.",
         "- The canonical plan is normally `.multi-code/sprintengine/<team>/plan.md`; do not use any other `plan.md` found by search.",
-        "- Work in the current workspace directory used to launch this agent.",
-        "- Do not create Sprint Engine worktrees.",
+        *location_lines,
         "- Treat task-owned paths as the primary edit surface and collision boundary.",
         "- Prefer owned paths, but you may make small directly required companion edits for correctness, integration, type safety, tests, or cleaner structure.",
         "- Log every touched file. For files outside owned paths, also log a scope expansion with the path, reason, and risk.",
         "- Move to `needs_input` with kind `architect` before broad expansion, product scope changes, major ownership boundary changes, or likely overlap with another active task.",
-        "- Do not merge or push.",
+        *trailing_lines,
     ])
+
+def worker_plan_worktree_block() -> str:
+    return _execution_workspace_discipline_block(
+        location_lines=[
+            "- Work in the current workspace directory used to launch this agent.",
+            "- Do not create Sprint Engine worktrees.",
+        ],
+        trailing_lines=["- Do not merge or push."],
+    )
 
 def worker_execution_workspace_block(state: Dict[str, Any], state_path: Path) -> str:
     vcs = get_run_vcs(state)
@@ -66,26 +79,24 @@ def worker_execution_workspace_block(state: Dict[str, Any], state_path: Path) ->
         return worker_plan_worktree_block()
     worktree_path = str(vcs.get("worktreePath") or "")
     branch = str(vcs.get("branchName") or "")
-    return "\n".join([
-        "## Execution Workspace Discipline",
-        "- Read only the active team's approved `architect_plan` artifact from the Sprint Engine run store before claiming work.",
-        "- The canonical plan is normally `.multi-code/sprintengine/<team>/plan.md`; do not use any other `plan.md` found by search.",
-        f"- This run shares ONE git worktree `{worktree_path}` on branch `{branch}`. You are already working inside it; do not `cd` elsewhere and do not create another worktree.",
-        f"- Shared Sprint Engine run file is `{project_relative_path(workspace_root_for_state_path(state_path), state_path)}`; mutate the run store only through the Sprint Engine tool.",
-        "- Treat task-owned paths as the primary edit surface and collision boundary.",
-        "- Prefer owned paths, but you may make small directly required companion edits for correctness, integration, type safety, tests, or cleaner structure.",
-        "- Log every touched file. For files outside owned paths, also log a scope expansion with the path, reason, and risk.",
-        "- Move to `needs_input` with kind `architect` before broad expansion, product scope changes, major ownership boundary changes, or likely overlap with another active task.",
-        "## Committing Your Work",
-        "- After you finish a task's code changes, commit them to the shared branch with `sprintengine vcs commit --task-id <id> --id <your-agent-id>` (add `--path <file>` for any file outside your owned paths).",
-        "- That command takes the run's commit lock so only one agent stages the git index at a time, then stages and commits ONLY your task's files. It is safe to run while other agents work.",
-        "- NEW files and directories are only committed if they fall inside your task's ownedPaths. If you create a file outside them — for example splitting a panel into a new sibling directory — add that path to your task's ownedPaths (`sprintengine plan update-task`) or pass it with `--path <file>`, or it will be silently left out of the commit and a clean checkout will fail to build.",
-        "- `vcs commit` warns when changed paths fall outside every task's owned paths, and `task publish` refuses to publish while such orphaned changes are uncommitted. Do not ignore that warning — a green local build does not mean the committed tree builds.",
-        "- Marking the task done also commits any still-uncommitted task-scoped changes as a backstop, so nothing is lost if you forget.",
-        "- Other agents commit their own whole files independently; their commits on the shared branch are expected. Do not revert, amend, or worry about commits you did not make.",
-        "- If git reports a conflict on a file you own, resolve it: stage the specific hunks you changed when that is clearly simple, otherwise commit the whole file. Then continue.",
-        "- Do not push or open a pull request yourself; the architect opens the pull request when the run is complete.",
-    ])
+    run_file = project_relative_path(workspace_root_for_state_path(state_path), state_path)
+    return _execution_workspace_discipline_block(
+        location_lines=[
+            f"- This run shares ONE git worktree `{worktree_path}` on branch `{branch}`. You are already working inside it; do not `cd` elsewhere and do not create another worktree.",
+            f"- Shared Sprint Engine run file is `{run_file}`; mutate the run store only through the Sprint Engine tool.",
+        ],
+        trailing_lines=[
+            "## Committing Your Work",
+            "- After you finish a task's code changes, commit them to the shared branch with `sprintengine vcs commit --task-id <id> --id <your-agent-id>` (add `--path <file>` for any file outside your owned paths).",
+            "- That command takes the run's commit lock so only one agent stages the git index at a time, then stages and commits ONLY your task's files. It is safe to run while other agents work.",
+            "- NEW files and directories are only committed if they fall inside your task's ownedPaths. If you create a file outside them — for example splitting a panel into a new sibling directory — add that path to your task's ownedPaths (`sprintengine plan update-task`) or pass it with `--path <file>`, or it will be silently left out of the commit and a clean checkout will fail to build.",
+            "- `vcs commit` warns when changed paths fall outside every task's owned paths, and `task publish` refuses to publish while such orphaned changes are uncommitted. Do not ignore that warning — a green local build does not mean the committed tree builds.",
+            "- Marking the task done also commits any still-uncommitted task-scoped changes as a backstop, so nothing is lost if you forget.",
+            "- Other agents commit their own whole files independently; their commits on the shared branch are expected. Do not revert, amend, or worry about commits you did not make.",
+            "- If git reports a conflict on a file you own, resolve it: stage the specific hunks you changed when that is clearly simple, otherwise commit the whole file. Then continue.",
+            "- Do not push or open a pull request yourself; the architect opens the pull request when the run is complete.",
+        ],
+    )
 
 def build_merge_start_prompt(state: Dict[str, Any], state_path: Path, actor_id: str, target: str) -> str:
     sprintengine = state.get("sprintengine", {})
