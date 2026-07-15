@@ -417,13 +417,11 @@ def release_task_from_owner(state: Dict[str, Any], task: Dict[str, Any], actor: 
 def reopen_task_for_artifact_changes(state: Dict[str, Any], task: Dict[str, Any]) -> str:
     task["completedAt"] = None
     owner_id = task.get("ownerAgentId")
-    owner = state.get("agents", {}).get(owner_id) if owner_id else None
-    owner_still_active = (
-        bool(owner_id)
-        and isinstance(owner, dict)
-        and owner.get("currentTaskId") == task.get("id")
-        and owner.get("status") in {"running", "needs_input"}
-    )
+    # Lease authority (MC-1591): the owner is still bound when the task holds an
+    # active lease it owns — an active status still owned by owner_id — rather than
+    # the deleted agents-map mirror pointer. ownerAgentId is the lease's
+    # denormalized owner, cleared when the task leaves an active status.
+    owner_still_active = bool(owner_id) and str(task.get("status") or "") in ACTIVE_TASK_STATUSES
 
     if owner_still_active:
         task["status"] = "in_progress"

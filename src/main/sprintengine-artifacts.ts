@@ -4,7 +4,6 @@ import { spawn } from 'child_process'
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'path'
 import type {
   SprintEngineArtifactCommandResult,
-  SprintEngineDispatchReadInput,
   SprintEngineMcpReadResult,
   SprintEngineProjectionReadResult,
   SprintEngineRegistryRoleReadInput,
@@ -571,12 +570,13 @@ function validateWorkspaceRoot(input: unknown): string {
 }
 
 // The run-store schema version this build understands. MIRRORS `RUN_SCHEMA_VERSION`
-// in sprintengine_core/store.py. Bumped to 2 by MC-1542 (single-owner tasks), which
-// deleted quality gates and the `changes_requested`/`testing`/`product` statuses.
-export const SPRINT_ENGINE_RUN_SCHEMA_VERSION = 2
+// in sprintengine_core/store.py. v2 (MC-1542, single-owner tasks) deleted quality
+// gates and the `changes_requested`/`testing`/`product` statuses; v3 (MC-1591,
+// leases replace the roster) removed the persistent `agents` map from run.yaml.
+export const SPRINT_ENGINE_RUN_SCHEMA_VERSION = 3
 
 /**
- * Reject a pre-MC-1542 run store, returning a readable message (or null when the
+ * Reject an out-of-date run store, returning a readable message (or null when the
  * store is current).
  *
  * Decision 8 is a pre-release clean break: old stores are local runtime state and
@@ -601,8 +601,9 @@ export function describeUnsupportedSprintEngineStore(projection: unknown, teamDi
   if (version >= SPRINT_ENGINE_RUN_SCHEMA_VERSION) return null
   return (
     `This sprint was created by an older version of Multicode (run store v${version}, ` +
-    `this build reads v${SPRINT_ENGINE_RUN_SCHEMA_VERSION}). Single-owner tasks replaced quality gates, ` +
-    `so the run cannot be opened. Delete "${teamDirectory}" and start the sprint again.`
+    `this build reads v${SPRINT_ENGINE_RUN_SCHEMA_VERSION}). Leases replaced the roster ` +
+    `(and single-owner tasks replaced quality gates before that), so the run cannot be ` +
+    `opened. Delete "${teamDirectory}" and start the sprint again.`
   )
 }
 
@@ -1006,7 +1007,6 @@ export function createSprintEngineArtifactHandlers(deps: SprintEngineArtifactDep
   readProjection(payload: SprintEngineProjectionReadPayload): Promise<SprintEngineProjectionReadResult>
   readRegistryRoles(payload: SprintEngineRegistryRolesReadInput): Promise<SprintEngineMcpReadResult>
   readRegistryRole(payload: SprintEngineRegistryRoleReadInput): Promise<SprintEngineMcpReadResult>
-  readDispatch(payload: SprintEngineDispatchReadInput): Promise<SprintEngineMcpReadResult>
   summarizeFeedback(payload: SprintEngineProjectionReadPayload): Promise<SprintEngineMcpReadResult>
 } {
   const runMcpTool = deps.runMcpTool ?? runSprintEngineMcpToolProcess
@@ -1647,26 +1647,6 @@ export function createSprintEngineArtifactHandlers(deps: SprintEngineArtifactDep
           { workspaceRoot, allowedRoots: pluginRegistryRoots.map((root) => root.root) },
           'sprintengine.roles.get',
           { workspaceRoot, roleId, pluginRegistryRoots }
-        )
-      } catch (error) {
-        return { ok: false, message: error instanceof Error ? error.message : String(error) }
-      }
-    },
-
-    async readDispatch(payload) {
-      try {
-        const state = validateSprintEngineStatePath(payload?.statePath)
-        const agentId = resolveRequiredString(payload?.agentId, 'Agent id')
-        const lastDispatchId = resolveOptionalString(payload?.lastDispatchId, 'Last dispatch id')
-        return runReadOnlyMcpTool(
-          runMcpTool,
-          { workspaceRoot: state.workspaceRoot },
-          'sprintengine.dispatch.next',
-          {
-            statePath: state.statePath,
-            agentId,
-            ...(lastDispatchId ? { lastDispatchId } : {}),
-          }
         )
       } catch (error) {
         return { ok: false, message: error instanceof Error ? error.message : String(error) }

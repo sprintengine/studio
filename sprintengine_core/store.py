@@ -64,11 +64,14 @@ RUN_SOURCE_KEYS = ("source", "sourceBundle")
 # exactly like RUN_SOURCE_KEYS.
 RUN_ROSTER_SOURCE_KEYS = ("rosterSource", "allowedRuntimes")
 
-# Run-store schema version. Bumped to 2 by MC-1542 (single-owner tasks): the task
-# status enum lost `changes_requested`/`testing`/`product`, `qualityGates` was
-# replaced by `phases`, and roles became routing + directive packs. Pre-release
-# clean break — a version-1 store is REJECTED, never migrated (`assert_store_is_current`).
-RUN_SCHEMA_VERSION = 2
+# Run-store schema version. v2 (MC-1542, single-owner tasks): the task status enum
+# lost `changes_requested`/`testing`/`product`, `qualityGates` became `phases`, and
+# roles became routing + directive packs. v3 (MC-1591, leases replace the roster):
+# the persistent `agents` map is gone from run.yaml — assignment is a lease minted
+# on the task record and the projection derives its workers/roster view from tasks.
+# Pre-release clean break — an older store is REJECTED, never migrated
+# (`assert_store_is_current`); the remedy is deleting the team dir.
+RUN_SCHEMA_VERSION = 3
 
 # Post-implementation phase vocabulary. `review` is the only shipped phase; the
 # list shape is kept so a future phase slots in without a schema change.
@@ -208,13 +211,14 @@ class RunStoreVersionError(ValueError):
 
 
 def assert_store_is_current(run: dict[str, Any], team_dir: Path) -> None:
-    """Reject a pre-MC-1542 run store loudly, at every surface that reads one.
+    """Reject an out-of-date run store loudly, at every surface that reads one.
 
     Decision 8 (pre-release clean break): old stores are local runtime state and
     are never migrated. The remedy is deleting the team folder. Raising here — in
     the one function both `state_from_folder_store` and `build_projection` call —
     means the board, wizard, backlog links, and CLI all get the same readable
-    message instead of a silent crash or a blank board.
+    message instead of a silent crash or a blank board. v3 (MC-1591) is the
+    current break: leases replaced the `agents` map, so a v2 store cannot be read.
     """
     try:
         version = int(run.get("schemaVersion") or 1)
@@ -223,8 +227,9 @@ def assert_store_is_current(run: dict[str, Any], team_dir: Path) -> None:
     if version >= RUN_SCHEMA_VERSION:
         return
     raise RunStoreVersionError(
-        f"Pre-MC-1542 Sprint Engine run store (schemaVersion {version}, expected {RUN_SCHEMA_VERSION}). "
-        "Single-owner tasks replaced quality gates, so this run cannot be read. "
+        f"Unsupported Sprint Engine run store (schemaVersion {version}, expected {RUN_SCHEMA_VERSION}). "
+        "This pre-release store predates a breaking change (single-owner tasks, then "
+        "leases replacing the roster) and is never migrated. "
         f"Delete `{team_dir}` and re-run the sprint."
     )
 
@@ -643,8 +648,6 @@ def task_is_ready_for_queue(tasks_by_id: dict[str, dict[str, Any]], task: dict[s
 
 def sync_run_yaml_from_state(team_dir: Path, state: dict[str, Any]) -> None:
     sprintengine = state.get("sprintengine") if isinstance(state.get("sprintengine"), dict) else {}
-    agents = normalize_agents(state.get("agents"))
-    state["agents"] = agents
     roles = state.get("roles") if isinstance(state.get("roles"), dict) else {}
     run = load_run_yaml(team_dir)
     # Per-role execution runtime map (model/cli), written once at init from the
@@ -680,7 +683,6 @@ def sync_run_yaml_from_state(team_dir: Path, state: dict[str, Any]) -> None:
             "graphPolicy": run.get("graphPolicy") or {"readiness": "dependency"},
             "rosterPolicy": roster_policy,
             "runner": runner_policy,
-            "agents": agents,
             "roles": roles,
             "roleRuntimes": role_runtimes,
             "sprintengine": sprintengine,
@@ -715,6 +717,10 @@ def sync_run_yaml_from_state(team_dir: Path, state: dict[str, Any]) -> None:
         run["configuredRoles"] = configured_roles
     else:
         run.pop("configuredRoles", None)
+    # v3 (MC-1591): the persistent `agents` map is gone — assignment is a lease on
+    # the task record and the projection derives its workers/roster view from tasks.
+    # Drop any `agents` key an older run.yaml still carries so it never round-trips.
+    run.pop("agents", None)
     run["creation"] = creation or {"source": "folder_store", "createdAt": now_iso()}
     atomic_write_yaml(team_dir / RUN_FILE, run)
 
@@ -1103,6 +1109,153 @@ def _projection_locks(team_dir: Path, state_path: Path | None) -> dict[str, Any]
     return {"locks": lock_reports, "states": state_files, "warnings": warnings}
 
 
+# Semantic task statuses that keep a task's assignment lease active. Mirrors
+# ACTIVE_TASK_STATUSES in sprintengine_core/tool/constants.py: a task in one of
+# these binds the worker holding its lease; done/canceled/todo do not.
+ACTIVE_LEASE_STATUSES = ("in_progress", "review", "needs_input")
+
+# A leased task's semantic status maps to the worker runtime status the four TS
+# roster readers coerce (idle | running | needs_input | done | retired).
+_LEASE_STATUS_TO_WORKER_STATUS = {
+    "in_progress": "running",
+    "review": "running",
+    "needs_input": "needs_input",
+}
+
+
+def _latest_dispatch_by_agent_task(dispatches: Iterable[dict[str, Any]]) -> dict[tuple[str, str], dict[str, Any]]:
+    """Index the append-only dispatch ledger by (agentId, taskId), last write wins.
+
+    Reconstructs a worker's `currentDispatch` for the derived roster without the
+    deleted per-agent cursor state — the ledger is ordered, so the last record for
+    a pair is the current one.
+    """
+    latest: dict[tuple[str, str], dict[str, Any]] = {}
+    for record in dispatches or []:
+        if not isinstance(record, dict):
+            continue
+        agent_id = str(record.get("agentId") or "").strip()
+        target = record.get("target") if isinstance(record.get("target"), dict) else {}
+        task_id = str(target.get("taskId") or "").strip()
+        if agent_id and task_id:
+            latest[(agent_id, task_id)] = record
+    return latest
+
+
+def _current_dispatch_from_ledger(record: dict[str, Any] | None) -> dict[str, Any] | None:
+    """Shape a dispatch ledger record into the `currentDispatch` the readers parse."""
+    if not isinstance(record, dict):
+        return None
+    target = record.get("target") if isinstance(record.get("target"), dict) else {}
+    return normalize_current_dispatch({
+        "dispatchId": record.get("id"),
+        "targetKind": target.get("kind"),
+        "role": record.get("role"),
+        "reason": record.get("reason"),
+        "taskId": target.get("taskId"),
+        "assignedAt": record.get("timestamp"),
+    })
+
+
+def derive_worker_views(
+    tasks: list[dict[str, Any]],
+    dispatches: Iterable[dict[str, Any]],
+) -> dict[str, dict[str, Any]]:
+    """Reconstruct "who is doing what" from task records, no `agents` map (MC-1591).
+
+    Assignment is a lease minted on the task record; `ownerAgentId` is the lease's
+    denormalized owner and the reliable key (a task predating the lease field, or
+    persisted with only the owner, still resolves). A worker holds an ACTIVE lease
+    on the task it owns while that task is in_progress/review/needs_input, and is a
+    recent worker of every task it last implemented. A done plan gate with no
+    implementer stamp yields no worker — correct under the lazy roster: no
+    lease/implementer means not assigned, and the role stays in `configuredRoles`.
+
+    Returns a dict keyed by worker id carrying the union of fields the canonical
+    `workers` view and the `roster` bridge need; `build_projection` shapes both
+    from this one derivation so they cannot drift (plan decision D5).
+    """
+    latest_dispatch = _latest_dispatch_by_agent_task(dispatches)
+    workers: dict[str, dict[str, Any]] = {}
+    last_seen: dict[str, str] = {}
+
+    def touch(worker_id: str, role: str, task_id: str, ordering: str) -> dict[str, Any]:
+        entry = workers.get(worker_id)
+        if entry is None:
+            entry = {
+                "role": role or "",
+                "status": "idle",
+                "currentTaskId": None,
+                "lastOwnedTaskId": None,
+                "ownedTaskIds": [],
+                "currentDispatch": None,
+            }
+            workers[worker_id] = entry
+        if role and not entry["role"]:
+            entry["role"] = role
+        if task_id and task_id not in entry["ownedTaskIds"]:
+            entry["ownedTaskIds"].append(task_id)
+        # lastOwnedTaskId tracks the most recently touched task by completion/start
+        # timestamp; ISO strings sort chronologically, so a plain max is correct.
+        if task_id and ordering >= last_seen.get(worker_id, ""):
+            last_seen[worker_id] = ordering
+            entry["lastOwnedTaskId"] = task_id
+        return entry
+
+    for task in tasks:
+        if not isinstance(task, dict):
+            continue
+        task_id = str(task.get("id") or "").strip()
+        if not task_id:
+            continue
+        semantic_status = str(task.get("stateStatus") or task.get("status") or "").strip()
+        lease = task.get("lease") if isinstance(task.get("lease"), dict) else {}
+        owner_id = str(task.get("ownerAgentId") or "").strip()
+        task_role = str(task.get("role") or "").strip()
+        ordering = str(task.get("completedAt") or task.get("startedAt") or "")
+
+        lease_worker = str(lease.get("workerId") or "").strip() or owner_id
+        if semantic_status in ACTIVE_LEASE_STATUSES and lease_worker:
+            role = str(lease.get("role") or task_role).strip()
+            entry = touch(lease_worker, role, task_id, ordering)
+            entry["status"] = _LEASE_STATUS_TO_WORKER_STATUS.get(semantic_status, "running")
+            entry["currentTaskId"] = task_id
+            entry["currentDispatch"] = _current_dispatch_from_ledger(
+                latest_dispatch.get((lease_worker, task_id))
+            )
+            session_id = str(lease.get("sessionId") or "").strip()
+            if session_id:
+                entry["sessionId"] = session_id
+            for key in ("since", "heartbeatAt"):
+                value = str(lease.get(key) or "").strip()
+                if value:
+                    entry[key] = value
+
+        implementer = str(task.get("lastImplementedByAgentId") or "").strip()
+        if implementer:
+            touch(implementer, task_role, task_id, ordering)
+
+    return workers
+
+
+def _roster_entry_from_worker(worker: dict[str, Any]) -> dict[str, Any]:
+    """Project a worker view onto the D5 `roster` bridge shape (the four TS readers
+    parse role, status, currentTaskId, lastOwnedTaskId?, currentDispatch, ownedTaskIds)."""
+    entry: dict[str, Any] = {
+        "role": worker.get("role") or "",
+        "status": worker.get("status") or "idle",
+        "currentTaskId": worker.get("currentTaskId"),
+        "currentDispatch": worker.get("currentDispatch"),
+    }
+    last_owned = str(worker.get("lastOwnedTaskId") or "").strip()
+    if last_owned:
+        entry["lastOwnedTaskId"] = last_owned
+    owned = [str(task_id) for task_id in worker.get("ownedTaskIds") or [] if str(task_id).strip()]
+    if owned:
+        entry["ownedTaskIds"] = owned
+    return entry
+
+
 def build_projection(
     team_dir: Path,
     *,
@@ -1119,7 +1272,6 @@ def build_projection(
         events = read_jsonl_file(team_dir / EVENTS_FILE)
         dispatches = read_jsonl_file(team_dir / DISPATCH_FILE)
         feedback = read_jsonl_file(team_dir / FEEDBACK_FILE)
-        roster = normalize_agents(run.get("agents"))
         runner_policy = normalize_runner_policy(run.get("runner"))
     else:
         raise ValueError(f"Sprint Engine folder store is not initialized at {team_dir}.")
@@ -1142,6 +1294,14 @@ def build_projection(
     updated_at = run.get("updatedAt") or now_iso()
     run_sprintengine = run.get("sprintengine") if isinstance(run.get("sprintengine"), dict) else {}
     vcs = run_sprintengine.get("vcs") if isinstance(run_sprintengine.get("vcs"), dict) else None
+    # Lease-derived "who is doing what" (MC-1591): the deleted `agents` map is
+    # replaced by a view built from task leases. `workers` is canonical; `roster`
+    # is the D5 bridge the four existing TS readers still parse, derived from the
+    # SAME worker views so the two shapes cannot drift. An empty worker set yields
+    # an empty roster (no phantom agents); the renderer's lazy-roster fallback owns
+    # the pre-seat placeholder.
+    worker_views = derive_worker_views(tasks, dispatches)
+    roster = {worker_id: _roster_entry_from_worker(worker) for worker_id, worker in worker_views.items()}
     projection = {
         "ok": True,
         "projectionVersion": 1,
@@ -1204,7 +1364,8 @@ def build_projection(
             # session, so the projection must carry them.
             **{key: run[key] for key in RUN_PHASE_RUNTIME_KEYS if key in run},
         },
-        "roster": roster if isinstance(roster, dict) else {},
+        "roster": roster,
+        "workers": worker_views,
         "tasks": tasks,
         "board": board,
         "artifacts": artifacts,
