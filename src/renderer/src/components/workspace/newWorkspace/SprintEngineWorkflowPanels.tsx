@@ -54,6 +54,7 @@ export function SprintEngineWorkflowPanels({
   roleModelOverrides,
   onSetRoleCli,
   onSetRoleModel,
+  showFinalSweeps = true,
 }: {
   cliOptions: SprintEngineCliOption[]
   registry?: SprintEngineRoleRegistry | null
@@ -73,8 +74,12 @@ export function SprintEngineWorkflowPanels({
   roleModelOverrides: SprintEngineRoleModelOverrides
   onSetRoleCli: (role: SprintEngineRoleId, cli: AgentCli) => void
   onSetRoleModel: (role: SprintEngineRoleId, model: string | null) => void
+  // Final sweeps are a specialist affordance (MC-1585): the plain-agents wizard
+  // default hides them behind the "Use specialist roles" disclosure. Self-review
+  // stays, since a plain agent still reviews its own work.
+  showFinalSweeps?: boolean
 }) {
-  const sweepRoles = listSprintEngineWizardSweepRoles(registry, disabledRoleIds)
+  const sweepRoles = showFinalSweeps ? listSprintEngineWizardSweepRoles(registry, disabledRoleIds) : []
   const fallbackCli = cliOptions[0]?.value ?? 'claude-code'
 
   return (

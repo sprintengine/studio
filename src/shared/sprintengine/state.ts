@@ -1639,9 +1639,15 @@ export function normalizeSprintEngineRoleCounts(
   if (!roleCounts || typeof roleCounts !== 'object') return result
   for (const [role, rawCount] of Object.entries(roleCounts)) {
     if (!normalizeSprintEngineRoleId(role)) continue
-    const enabled = Math.floor(Number(rawCount ?? 0) || 0) > 0 ? 1 : 0
-    result[role] = Math.max(role === 'architect' ? 1 : 0, enabled)
+    result[role] = Math.floor(Number(rawCount ?? 0) || 0) > 0 ? 1 : 0
   }
+  // Architect is no longer force-seated. A general-default run plans with its
+  // `general` seat, so honor the selection: architect stays enabled only when
+  // the user picked it, or as the planner floor when nothing else can plan. A
+  // run that staffs neither still normalizes to a lone architect, matching the
+  // pre-general contract for every existing preset (none of which carry general).
+  const architectSelected = Math.floor(Number(roleCounts.architect ?? 0) || 0) > 0
+  result.architect = architectSelected || !(result.general > 0) ? 1 : 0
   return result
 }
 
@@ -1686,37 +1692,61 @@ export function getNextSprintEngineAgentId(
   return candidate
 }
 
-export function buildSprintEngineAgentRoster(
-  _roleCounts: SprintEngineRoleCounts,
-  registry?: SprintEngineRoleRegistry | null,
-): SprintEngineAgentRosterItem[] {
-  // Lazy roster: creation seeds ONLY the architect. Worker ids are minted
-  // task-scoped on demand by the Python assignment op, so no worker record
-  // exists at creation. enabledRoles/roleCounts still gate which roles
-  // participate (forwarded to Python init as `configuredRoles`) but no longer
-  // materialize seats here.
-  return [{ id: 'architect', label: getSprintEngineRoleLabel('architect', registry), role: 'architect' }]
+// The single planning seat a fresh run seeds, and the run's guaranteed planner.
+// Planner-ness is a property of the seat, not one fixed role: a general-default
+// run plans with a bare `general` seat; a specialist run plans with the
+// `architect`. Architect wins when a selection somehow staffs both (the two
+// wizard modes are mutually exclusive, so this only matters as a tie-break), and
+// it is the floor when the selection named no planner at all — every run needs one.
+export function sprintEnginePlannerRole(roleCounts: SprintEngineRoleCounts): SprintEngineRoleId {
+  if ((roleCounts.architect ?? 0) > 0) return 'architect'
+  if ((roleCounts.general ?? 0) > 0) return 'general'
+  return 'architect'
 }
 
-// The enabled role set encoded by the roster counts (architect always on).
-// Forwarded to Python init as `configuredRoles` — the run's legal role set,
-// which `plan.add_task` and seat creation enforce — even though the lazy
-// roster seeds only the architect. `additionalRoles` admits roles the wizard
-// enables outside the role table: the sweep roles the operator turned ON in
-// the "Final sweeps" panel. The roster is the user's configuration — an
+export function buildSprintEngineAgentRoster(
+  roleCounts: SprintEngineRoleCounts,
+  registry?: SprintEngineRoleRegistry | null,
+): SprintEngineAgentRosterItem[] {
+  // Lazy roster: creation seeds ONLY the single planning seat. Worker ids are
+  // minted task-scoped on demand by the Python assignment op, so no worker
+  // record exists at creation. Which planner is seated follows the staffed
+  // selection: a general-default run seeds a bare `general` seat, a specialist
+  // run seeds the `architect`. enabledRoles/roleCounts still gate which roles
+  // participate (forwarded to Python init as `configuredRoles`) but only the
+  // planner materializes a seat here.
+  const planner = sprintEnginePlannerRole(roleCounts)
+  return [{ id: planner, label: getSprintEngineRoleLabel(planner, registry), role: planner }]
+}
+
+// The enabled role set the roster staffs — exactly the user's selection.
+// Forwarded to Python init as `configuredRoles` (the run's legal role set that
+// `plan.add_task` and seat creation enforce), even though the lazy roster seeds
+// only the planner. Architect is NOT unconditional: it enters only when the
+// selection staffs it, or as the planner floor below. A general-default run's
+// configuredRoles is `['general']`; claiming an architect the run never staffed
+// would be a lie about its legal role set. `additionalRoles` admits roles the
+// wizard enables outside the role table: the sweep roles the operator turned ON
+// in the "Final sweeps" panel. The roster is the user's configuration — an
 // unselected sweep must not become plannable, or the architect will schedule
 // audits nobody asked for (the design-wizard-premium regression).
 export function sprintEngineEnabledRoles(
   roleCounts: SprintEngineRoleCounts,
   additionalRoles?: readonly SprintEngineRoleId[],
 ): SprintEngineRoleId[] {
-  const roles = new Set<SprintEngineRoleId>(['architect'])
+  const roles = new Set<SprintEngineRoleId>()
   for (const [role, count] of Object.entries(roleCounts)) {
     if ((count ?? 0) > 0 && normalizeSprintEngineRoleId(role)) roles.add(role as SprintEngineRoleId)
   }
   for (const role of additionalRoles ?? []) {
     const normalized = normalizeSprintEngineRoleId(role)
     if (normalized) roles.add(normalized)
+  }
+  // Enforce >= 1 planner: a run with neither architect nor general has nobody
+  // who can plan. The wizard's roster floor already guarantees a planner at the
+  // UI layer, so this only ever fires on a malformed selection.
+  if (!roles.has('architect') && !roles.has('general')) {
+    roles.add(sprintEnginePlannerRole(roleCounts))
   }
   return [...roles]
 }

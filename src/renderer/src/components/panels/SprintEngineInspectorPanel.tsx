@@ -596,7 +596,7 @@ export function SprintEngineArtifactList({
       )}
 
       {artifacts.length > 0 ? (
-        <ol className="divide-y divide-[color:var(--border-default)]">
+        <ol className="@container divide-y divide-[color:var(--border-default)]">
           {artifacts.map((artifact) => {
             const task = tasksById[artifact.taskId]
             const action = actions[artifact.id]
@@ -612,7 +612,7 @@ export function SprintEngineArtifactList({
             const relativeTimestamp = timestamp ? formatRelativeTime(timestamp) : 'No timestamp'
 
             return (
-              <li key={artifact.id} className="grid gap-3 px-3 py-2.5 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-center">
+              <li key={artifact.id} className="grid gap-3 px-3 py-2.5 @[520px]:grid-cols-[minmax(0,1fr)_auto] @[520px]:items-center">
                 <div className="min-w-0 space-y-0.5">
                   <div className="flex min-w-0 items-baseline gap-2">
                     <span className="shrink-0 font-mono tabular-nums text-[11px] text-[color:var(--text-muted)]">{artifact.id}</span>
@@ -620,7 +620,7 @@ export function SprintEngineArtifactList({
                     {confidencePct !== null ? (
                       <ConfidenceDial value={confidencePct} label="Agent confidence" />
                     ) : null}
-                    <span className={`rounded px-1.5 py-0.5 text-[10px] font-bold ${artifactStatusTone(artifact.status)}`}>
+                    <span className={`shrink-0 whitespace-nowrap rounded px-1.5 py-0.5 text-[10px] font-bold ${artifactStatusTone(artifact.status)}`}>
                       {isSourceHandoff ? 'Source' : sprintEngineArtifactStatusLabels[artifact.status]}
                     </span>
                   </div>

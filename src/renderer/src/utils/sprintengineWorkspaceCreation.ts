@@ -23,6 +23,7 @@ import {
   buildSprintEngineRosterCommandArgs,
   createInitialSprintEngineState,
   sprintEngineEnabledRoles,
+  sprintEnginePlannerRole,
 } from './sprintengine'
 import { buildPlanFileSprintEngineHandoffPrompt } from './sprintengineHandoff'
 import { buildRunWorkspaceContext } from './runWorkspaceCreation'
@@ -70,7 +71,9 @@ export type PlanSourcedSprintEngineWorkspaceArgs = {
 export type PlanSourcedSprintEngineWorkspaceResult = {
   workspaceId: WorkspaceId
   sprintEngineContext: SprintEngineWorkspaceContext
-  architectAgentId: string
+  // The run's planner seat: the general in a general-default run, the architect
+  // when the selection staffs one. Carries the startup handoff prompt.
+  plannerAgentId: string
 }
 
 export class PlanSourcedSprintEngineWorkspaceError extends Error {
@@ -80,7 +83,7 @@ export class PlanSourcedSprintEngineWorkspaceError extends Error {
       | 'missing-team'
       | 'missing-source'
       | 'team-exists'
-      | 'missing-architect'
+      | 'missing-planner'
   ) {
     super(code)
     this.name = 'PlanSourcedSprintEngineWorkspaceError'
@@ -204,8 +207,12 @@ export async function createPlanSourcedSprintEngineWorkspace({
   if (useWorktrees === true) {
     sprintEngineState.useWorktrees = true
   }
-  const architect = buildSprintEngineAgentRosterForState(sprintEngineState).find((agent) => agent.role === 'architect')
-  if (!architect) throw new PlanSourcedSprintEngineWorkspaceError('missing-architect')
+  // The lazy roster seeds exactly one seat: the run's planner (general in a
+  // general-default run, the architect when staffed). Grab it by the same rule
+  // the roster used to seat it — a general-only run no longer has an architect.
+  const plannerRole = sprintEnginePlannerRole(sprintEngineState.roleCounts)
+  const planner = buildSprintEngineAgentRosterForState(sprintEngineState).find((agent) => agent.role === plannerRole)
+  if (!planner) throw new PlanSourcedSprintEngineWorkspaceError('missing-planner')
 
   // Reference-mode (backlog/plan-sourced) launches seed the source into run.yaml
   // at init, so the run carries its "Started from" seed at t=0 and the architect
@@ -275,7 +282,7 @@ export async function createPlanSourcedSprintEngineWorkspace({
     seedAlreadyPersisted: seedSourceAtInit,
   })
 
-  useWorkspaceStore.getState().updateAgent(workspaceId, architect.id, {
+  useWorkspaceStore.getState().updateAgent(workspaceId, planner.id, {
     cliStartupPrompt: startupPrompt,
     cliOnboardingPromptSent: false,
   })
@@ -283,7 +290,7 @@ export async function createPlanSourcedSprintEngineWorkspace({
   return {
     workspaceId,
     sprintEngineContext,
-    architectAgentId: architect.id,
+    plannerAgentId: planner.id,
   }
 }
 

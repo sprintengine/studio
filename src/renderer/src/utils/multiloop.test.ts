@@ -1284,9 +1284,34 @@ async function testSprintEngineWorkspaceCreationRegressionKeepsSprintEngineModeA
   assert.equal(createdWorkspace.sprintEngineContext?.teamSlug, 'regression-sprintengine')
   assert.equal(createdWorkspace.multiloopContext, null)
   assert.equal(createdWorkspace.sprintEngineState?.name, 'Regression SprintEngine')
-  assert.equal(createdWorkspace.agents[result.architectAgentId].cliStartupPrompt?.includes('sprintengine.handover'), true)
-  assert.equal(createdWorkspace.agents[result.architectAgentId].cliStartupPrompt?.includes('"sourcePlanKind": "architect_plan"'), true)
-  assert.equal(createdWorkspace.agents[result.architectAgentId].cliStartupPrompt?.includes('multiloop'), false)
+  assert.equal(createdWorkspace.agents[result.plannerAgentId].cliStartupPrompt?.includes('sprintengine.handover'), true)
+  assert.equal(createdWorkspace.agents[result.plannerAgentId].cliStartupPrompt?.includes('"sourcePlanKind": "architect_plan"'), true)
+  assert.equal(createdWorkspace.agents[result.plannerAgentId].cliStartupPrompt?.includes('multiloop'), false)
+}
+
+// A general-only roster has no architect seat: creation must seat the general
+// planner, thread its id as plannerAgentId, and hand it the startup prompt —
+// never throw missing-planner (T4).
+async function testSprintEngineWorkspaceCreationGeneralOnlySeatsThePlanner() {
+  const beforeIds = new Set(useWorkspaceStore.getState().workspaces.map((workspace) => workspace.id))
+  const result = await createPlanSourcedSprintEngineWorkspace({
+    rootPath: 'C:\\repo',
+    teamName: 'General SprintEngine',
+    goal: 'General-only creation stays alive.',
+    sourcePath: 'backlog/general.md',
+    sourceContent: '# General Plan',
+    sourcePlanKind: 'unknown',
+    roleCounts: { general: 1 },
+    pathExists: async () => false,
+  })
+  const createdWorkspace = useWorkspaceStore.getState().workspaces.find((workspace) => !beforeIds.has(workspace.id))
+
+  assert.ok(createdWorkspace)
+  // The lazy roster seats exactly the planner; its id is the role string, so a
+  // general-only run threads 'general' — never an architect the roster never staffed.
+  assert.equal(result.plannerAgentId, 'general')
+  assert.equal(createdWorkspace.agents['architect'], undefined)
+  assert.equal(createdWorkspace.agents[result.plannerAgentId].cliStartupPrompt?.includes('sprintengine.handover'), true)
 }
 
 async function testSprintEngineWorkspaceCreationSupportsHtmlOnlySourceBundle() {
@@ -1312,7 +1337,7 @@ async function testSprintEngineWorkspaceCreationSupportsHtmlOnlySourceBundle() {
     },
   })
   const createdWorkspace = useWorkspaceStore.getState().workspaces.find((workspace) => !beforeIds.has(workspace.id))
-  const prompt = createdWorkspace?.agents[result.architectAgentId].cliStartupPrompt ?? ''
+  const prompt = createdWorkspace?.agents[result.plannerAgentId].cliStartupPrompt ?? ''
 
   assert.ok(createdWorkspace)
   assert.equal(prompt.includes('"handoverPath": "future-plans/mockup.html"'), true)
@@ -1342,7 +1367,7 @@ async function testSprintEngineWorkspaceCreationAutoRunPromptContinuesToJoin() {
     },
   })
   const createdWorkspace = useWorkspaceStore.getState().workspaces.find((workspace) => !beforeIds.has(workspace.id))
-  const prompt = createdWorkspace?.agents[result.architectAgentId].cliStartupPrompt ?? ''
+  const prompt = createdWorkspace?.agents[result.plannerAgentId].cliStartupPrompt ?? ''
 
   assert.ok(createdWorkspace)
   assert.equal(prompt.includes('Multicode app owns runner policy'), true)
@@ -1379,7 +1404,7 @@ async function testSprintEngineWorkspaceCreationGuidesSingleContextBundle() {
     },
   })
   const createdWorkspace = useWorkspaceStore.getState().workspaces.find((workspace) => !beforeIds.has(workspace.id))
-  const prompt = createdWorkspace?.agents[result.architectAgentId].cliStartupPrompt ?? ''
+  const prompt = createdWorkspace?.agents[result.plannerAgentId].cliStartupPrompt ?? ''
 
   assert.ok(createdWorkspace)
   assert.equal(prompt.includes('"handoverPath": "future-plans/context.html"'), true)
@@ -1419,7 +1444,7 @@ async function testSprintEngineWorkspaceCreationGuidesMixedContextBundle() {
     },
   })
   const createdWorkspace = useWorkspaceStore.getState().workspaces.find((workspace) => !beforeIds.has(workspace.id))
-  const prompt = createdWorkspace?.agents[result.architectAgentId].cliStartupPrompt ?? ''
+  const prompt = createdWorkspace?.agents[result.plannerAgentId].cliStartupPrompt ?? ''
 
   assert.ok(createdWorkspace)
   assert.equal(prompt.includes('Source bundle type: mixed context sources.'), true)
@@ -1637,6 +1662,7 @@ void (async () => {
   await testMultiloopSynchronizerIoErrorEventUsesMissingTitle()
   await testMultiloopSupervisorCycleSpawnsReadyTaskThroughStore()
   await testSprintEngineWorkspaceCreationRegressionKeepsSprintEngineModeAndPrompt()
+  await testSprintEngineWorkspaceCreationGeneralOnlySeatsThePlanner()
   await testSprintEngineWorkspaceCreationSupportsHtmlOnlySourceBundle()
   await testSprintEngineWorkspaceCreationAutoRunPromptContinuesToJoin()
   await testSprintEngineWorkspaceCreationGuidesSingleContextBundle()

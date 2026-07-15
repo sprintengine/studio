@@ -9,6 +9,7 @@ import type {
   SprintEngineRosterTeam,
   SprintEngineSavedRoster,
 } from '../../../types/workspace'
+import { SPRINT_ENGINE_GENERAL_ROLE_ID } from '../../../utils/sprintengineRoleOptions'
 
 // Mirrors the wizard's CLI fallback (SprintEngineRosterTable / setRoleCount),
 // so divergence comparison resolves an absent default the same way the rows do.
@@ -35,6 +36,13 @@ export const DEFAULT_SPRINT_ENGINE_ROLE_COUNTS: SprintEngineRoleCounts = {
   cross_platform: 0,
   tester: 0,
   security: 0,
+  // `general` is NOT staffed by default (count 0): a fresh run opens on plain
+  // agents whose count is `maxConcurrentAgents`, not a roster headcount, so
+  // seeding `{ general: 2 }` here would only write config the roster layer
+  // discards. It joins the key set purely so the Required<> CLI seed map below
+  // derives a stock CLI for it — otherwise the plain-agents picker (and the
+  // specialist table's General row) would have no CLI default. See MC-1585.
+  general: 0,
 }
 
 // Every known role mapped to the stock CLI — the wizard's Required<> seed map.
@@ -101,6 +109,15 @@ export function resolveInitialSprintEngineRoster(input: {
 
 export function activeSprintEngineRoleIds(counts: SprintEngineRoleCounts): SprintEngineRoleId[] {
   return (Object.keys(counts) as SprintEngineRoleId[]).filter((role) => (counts[role] ?? 0) > 0)
+}
+
+// True when a roster staffs any role other than the plain `general` agent — an
+// architect, a developer, a reviewer, any specialist. The wizard opens its
+// "Use specialist roles" disclosure pre-expanded for a saved team that staffs
+// specialists (so it round-trips visibly), and keeps it collapsed for a plain
+// general-only team or a fresh install. A general-only roster is NOT specialist.
+export function sprintEngineRosterStaffsSpecialists(counts: SprintEngineRoleCounts): boolean {
+  return activeSprintEngineRoleIds(counts).some((role) => role !== SPRINT_ENGINE_GENERAL_ROLE_ID)
 }
 
 // Keep only CLI defaults for roles actually in the roster (count > 0). The

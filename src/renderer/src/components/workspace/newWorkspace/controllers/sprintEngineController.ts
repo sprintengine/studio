@@ -3,6 +3,7 @@ import {
   createInitialSprintEngineState,
   normalizeSprintEngineProjection,
   sprintEngineEnabledRoles,
+  sprintEnginePlannerRole,
 } from '../../../../utils/sprintengine'
 import {
   sprintEngineAutomationInitialStateForMode,
@@ -79,16 +80,13 @@ export function buildSprintEngineEffectiveSpawnAtStartRoles(input: {
   existingTeam: boolean
   visibleRoleCounts: SprintEngineRoleCounts
 }): Partial<Record<SprintEngineRoleId, boolean>> {
-  // Lazy roster: only the architect can carry a start-at-launch intent. Worker
+  // Lazy roster: only the planner carries a start-at-launch intent — the general
+  // in a general-default run, the architect when the selection staffs one. Worker
   // ids are minted task-scoped and reviewer ids register on first gate, so there
-  // is no per-role "Start now" toggle — the architect just bootstraps a
-  // non-manual new-team run.
-  if (
-    input.automationMode !== 'manual'
-    && !input.existingTeam
-    && (input.visibleRoleCounts.architect ?? 0) > 0
-  ) {
-    return { architect: true }
+  // is no per-role "Start now" toggle — the planner just bootstraps a non-manual
+  // new-team run so an agent is awake to plan it.
+  if (input.automationMode !== 'manual' && !input.existingTeam) {
+    return { [sprintEnginePlannerRole(input.visibleRoleCounts)]: true }
   }
   return {}
 }

@@ -747,8 +747,9 @@ async function testSprintEngineNewTeamInitFailuresBlockWorkspaceArgs(): Promise<
 
 function testSprintEngineEffectiveSpawnAtStartRoles(): void {
   const visibleRoleCounts = { architect: 1, product: 1, frontend: 1, developer: 0, performance: 0, cross_platform: 0, tester: 1, security: 0 }
-  // Lazy roster: only the architect ever carries a start-at-launch intent — the
-  // per-role "Start now" toggle is retired, so no other role is materialized.
+  // Lazy roster: only the planner carries a start-at-launch intent — the general
+  // in a general-default run, the architect when staffed. The per-role "Start
+  // now" toggle is retired, so no other role is materialized.
   assert.deepEqual(
     buildSprintEngineEffectiveSpawnAtStartRoles({
       automationMode: 'run_agents_and_approve_artifacts',
@@ -756,7 +757,16 @@ function testSprintEngineEffectiveSpawnAtStartRoles(): void {
       visibleRoleCounts,
     }),
     { architect: true },
-    'a non-manual new-team run bootstraps the architect only',
+    'a non-manual staffed run bootstraps the architect planner only',
+  )
+  assert.deepEqual(
+    buildSprintEngineEffectiveSpawnAtStartRoles({
+      automationMode: 'run_agents',
+      existingTeam: false,
+      visibleRoleCounts: { general: 1 },
+    }),
+    { general: true },
+    'a general-only run bootstraps its general planner — an agent is awake to plan',
   )
   assert.deepEqual(
     buildSprintEngineEffectiveSpawnAtStartRoles({
@@ -1731,7 +1741,7 @@ async function testGuidedBriefStartBuildDesignPresetHandoff(): Promise<void> {
           teamDirectoryPath: '/design/.multi-code/sprintengine/studio-build',
           statePath: '/design/.multi-code/sprintengine/studio-build/run.yaml',
         },
-        architectAgentId: 'architect-1',
+        plannerAgentId: 'architect-1',
       }
     },
   }
@@ -1822,7 +1832,7 @@ async function testGuidedBriefStartBuildAdvancedSetupFailsClosed(): Promise<void
           teamDirectoryPath: '/workspace/.multi-code/sprintengine/brief-build',
           statePath: '/workspace/.multi-code/sprintengine/brief-build/run.yaml',
         },
-        architectAgentId: 'architect-1',
+        plannerAgentId: 'architect-1',
       }
     },
   }
