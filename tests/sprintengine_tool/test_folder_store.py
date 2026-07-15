@@ -119,7 +119,7 @@ def test_agent_leave_releases_task_and_resets_to_idle(tmp_path) -> None:
     fixture = create_team(tmp_path, "agent-leave-idle", [task("T1", "Implement", "developer")])
     state = read_state(fixture.state_path)
 
-    joined = record_agent_join(state, "developer-1", "developer", subscription_mode="poll")
+    joined = record_agent_join(state, "developer-1", "developer")
     first_heartbeat = joined["heartbeatAt"]
     set_agent_active(state["agents"]["developer-1"], state["tasks"][0])
     state["tasks"][0]["ownerAgentId"] = "developer-1"
@@ -136,7 +136,9 @@ def test_agent_leave_releases_task_and_resets_to_idle(tmp_path) -> None:
     assert persisted["status"] == "idle"
     assert persisted["joinedAt"]
     assert persisted["heartbeatAt"] >= first_heartbeat
-    assert persisted["subscription"]["mode"] == "poll"
+    # MC-1591 deleted the subscription mechanism; the field survives as an inert
+    # {mode: none} mirror until T4 removes the agents map.
+    assert persisted["subscription"]["mode"] == "none"
     assert persisted["currentDispatch"] is None
     assert persisted["currentTaskId"] is None
     assert persisted["lastOwnedTaskId"] == "T1"
