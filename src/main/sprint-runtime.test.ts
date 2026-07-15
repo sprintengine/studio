@@ -56,6 +56,42 @@ function bootstrapProjection(): unknown {
   }
 }
 
+/** Projection of a user-canceled run: stored run flag + a canceled task. */
+function canceledProjection(): unknown {
+  return {
+    run: {
+      name: 'Fixture Run',
+      goal: 'Ship the fixture',
+      status: 'canceled',
+      rosterConfigured: true,
+      roleRuntimes: { architect: { cli: 'claude' } },
+    },
+    roster: { 'architect-1': { role: 'architect', status: 'idle', currentTaskId: null } },
+    tasks: [
+      {
+        id: 'T1',
+        title: 'Only task',
+        description: '',
+        role: 'developer',
+        status: 'canceled',
+        ownerAgentId: null,
+        dependsOn: [],
+        ownedPaths: [],
+        acceptanceCriteria: [],
+        implementationNotes: [],
+        evidence: { summary: '', touchedFiles: [], commandsRan: [], results: [] },
+        notes: [],
+        comments: [],
+        startedAt: null,
+        completedAt: null,
+        boardColumn: 'canceled',
+      },
+    ],
+    artifacts: [],
+    activity: [],
+  }
+}
+
 /** Projection whose single task is done — the run is complete. */
 function completedProjection(): unknown {
   return {
@@ -410,6 +446,53 @@ async function testCompletionEntersDormancy(): Promise<void> {
   await harness.runtime.tickNow()
   assert.equal(harness.ops.length, opsBefore, 'the second tick does nothing (one-shot dormancy)')
   assert.equal(harness.spawnCalls.length, 0)
+
+  harness.runtime.shutdown()
+}
+
+// (5b) cancelRun (MC-1604): user cancellation parks the run in the terminal
+// `canceled` state with the SAME one-shot teardown as completion (marker + power
+// release), but NO `all_tasks_done` stop_reason — the Canceled glyph is derived
+// from the stored run flag. A second cancel is a one-shot no-op.
+async function testCancelRunEntersDormancy(): Promise<void> {
+  const harness = createHarness()
+  harness.runtime.registerRun(registration())
+  await settle()
+
+  harness.runtime.cancelRun(STATE_PATH)
+
+  const run = harness.runtime.inspectRun(STATE_PATH)
+  assert.equal(run?.view.sprintEngineAutoState?.runtimeState, 'canceled', 'cancel parks the run in the terminal canceled state')
+  assert.equal(run?.view.sprintEngineAutoState?.completionTeardownAt, harness.clock.now, 'cancel runs the shared one-shot teardown')
+  assert.ok(harness.powerInactive.includes(STATE_PATH), 'cancel releases the power assertion')
+  const teardownOp = harness.ops.find((op) => op.kind === 'completion_teardown_at')
+  assert.ok(teardownOp && teardownOp.kind === 'completion_teardown_at', 'cancel broadcasts the shared teardown marker')
+  assert.ok(!harness.ops.some((op) => op.kind === 'stop_reason'), 'cancel does not broadcast an all_tasks_done stop_reason')
+
+  const opsBefore = harness.ops.length
+  harness.runtime.cancelRun(STATE_PATH)
+  assert.equal(harness.ops.length, opsBefore, 'a second cancel is a one-shot no-op')
+
+  harness.runtime.shutdown()
+}
+
+// (5c) The supervisor hard gate also catches a canceled run: a tick over a
+// projection carrying the stored cancel flag enters dormancy through the shared
+// helper, which derives `runner_canceled` from the flag (not `runner_complete`),
+// so a canceled run left in `running` stops polling on the next tick.
+async function testCanceledProjectionEntersDormancyViaGate(): Promise<void> {
+  const harness = createHarness({ projection: canceledProjection() })
+  harness.runtime.registerRun(registration())
+  await settle()
+  harness.clock.now += STARTUP_SPAWN_DELAY_MS + 1
+  await harness.runtime.tickNow()
+
+  const run = harness.runtime.inspectRun(STATE_PATH)
+  assert.equal(run?.view.sprintEngineAutoState?.runtimeState, 'canceled', 'the gate parks a canceled projection in the canceled state')
+  assert.equal(run?.view.sprintEngineAutoState?.completionTeardownAt, harness.clock.now, 'the shared teardown marker is stamped')
+  assert.ok(harness.powerInactive.includes(STATE_PATH), 'a canceled run releases the power assertion')
+  assert.ok(!harness.ops.some((op) => op.kind === 'stop_reason'), 'the canceled gate path fires no all_tasks_done stop_reason')
+  assert.equal(harness.spawnCalls.length, 0, 'a canceled run never spawns')
 
   harness.runtime.shutdown()
 }
@@ -946,6 +1029,8 @@ async function main(): Promise<void> {
   await testStopReasonPausesRun()
   await testAutomationChangedPauseAndResume()
   await testCompletionEntersDormancy()
+  await testCancelRunEntersDormancy()
+  await testCanceledProjectionEntersDormancyViaGate()
   await testUnregisterReleasesPower()
   await testReRegistrationKeepsMainOwnedResidue()
   await testApplyResumeReachesScheduler()
