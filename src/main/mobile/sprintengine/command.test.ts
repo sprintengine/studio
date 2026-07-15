@@ -1003,13 +1003,19 @@ async function assertSprintEngineCreateUsesControlledHandover(): Promise<void> {
 
 async function assertSprintEngineCreateHonorsSprintConfig(): Promise<void> {
   const workspaceRoot = await mkdtemp(join(tmpdir(), 'multicode-mobile-command-create-config-'))
+  const statePath = join(workspaceRoot, '.multi-code', 'sprintengine', 'checkout-flow', 'run.yaml')
   const invocations: Array<{ args: string[]; cwd: string }> = []
   const service = new MobileSprintEngineCommandService({
     workspaceRoot,
     now: () => now,
     execute: async (invocation) => {
       invocations.push(invocation)
-      return { exitCode: 0, stdout: '{"ok":true,"action":"handover","team":"checkout-flow"}', stderr: '' }
+      // `handover` hands back the run.yaml it bootstrapped so the follow-up
+      // `init` can apply the configured roles; `init` just acknowledges.
+      const stdout = invocation.args[0] === 'handover'
+        ? JSON.stringify({ ok: true, action: 'handover', team: 'checkout-flow', statePath })
+        : '{"ok":true,"action":"init"}'
+      return { exitCode: 0, stdout, stderr: '' }
     },
   })
 
@@ -1026,16 +1032,25 @@ async function assertSprintEngineCreateHonorsSprintConfig(): Promise<void> {
   }))
 
   assert.equal(result.ok, true)
-  assert.equal(invocations.length, 1)
-  const args = invocations[0].args
+  // handover bootstraps the store; init persists the roster as configuredRoles.
+  assert.equal(invocations.length, 2)
+  const handoverArgs = invocations[0].args
   // The requested name is slugified the same way the engine will slugify it.
-  assert.deepEqual(args.slice(0, 3), ['handover', '--name', 'checkout-flow'])
-  // Each role seat becomes a wizard-convention role:role-N spec.
+  assert.deepEqual(handoverArgs.slice(0, 3), ['handover', '--name', 'checkout-flow'])
+  // Leases mint no seats: handover carries no `--agent role:role-N` seat specs.
+  assert.equal(handoverArgs.includes('--agent'), false)
+
+  // The roster maps to configuredRoles (distinct roles; seat counts dropped) plus
+  // one rosterConfigured marker — never per-seat agents.
+  const initArgs = invocations[1].args
+  assert.deepEqual(initArgs.slice(0, 3), ['--state', statePath, 'init'])
+  const configuredRolesJson = initArgs[initArgs.indexOf('--configured-roles-json') + 1]
+  assert.deepEqual(JSON.parse(configuredRolesJson), ['developer', 'tester'])
   const agentSpecs: string[] = []
-  for (let index = 0; index < args.length; index += 1) {
-    if (args[index] === '--agent') agentSpecs.push(args[index + 1])
+  for (let index = 0; index < initArgs.length; index += 1) {
+    if (initArgs[index] === '--agent') agentSpecs.push(initArgs[index + 1])
   }
-  assert.deepEqual(agentSpecs, ['developer:developer-1', 'developer:developer-2', 'tester:tester-1'])
+  assert.deepEqual(agentSpecs, ['developer:developer'])
 
   // Out-of-bounds config is rejected before any tool invocation.
   const rejected = await service.dispatch(command('sprintengine.create', {
@@ -1048,7 +1063,29 @@ async function assertSprintEngineCreateHonorsSprintConfig(): Promise<void> {
   }))
   assert.equal(rejected.ok, false)
   assert.equal(rejected.ok === false ? rejected.error.code : '', 'invalid_payload')
-  assert.equal(invocations.length, 1)
+  assert.equal(invocations.length, 2)
+
+  // A create with no roster config stays a single handover call (the architect
+  // then picks the team).
+  const bareInvocations: Array<{ args: string[]; cwd: string }> = []
+  const bareService = new MobileSprintEngineCommandService({
+    workspaceRoot,
+    now: () => now,
+    execute: async (invocation) => {
+      bareInvocations.push(invocation)
+      return { exitCode: 0, stdout: JSON.stringify({ ok: true, action: 'handover', team: 'plain', statePath }), stderr: '' }
+    },
+  })
+  const bare = await bareService.dispatch(command('sprintengine.create', {
+    workspacePath: workspaceRoot,
+    productPrompt: 'Ship it.',
+  }, {
+    commandId: 'cmd_create_plain',
+    idempotencyKey: 'mobile:device_1:create-plain',
+  }))
+  assert.equal(bare.ok, true)
+  assert.equal(bareInvocations.length, 1)
+  assert.equal(bareInvocations[0].args[0], 'handover')
 }
 
 async function assertTaskStartUsesDesktopSessionOrchestration(): Promise<void> {

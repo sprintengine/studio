@@ -27,8 +27,9 @@ type RawSprintEngineState = {
 /**
  * Read the normalized Sprint Engine state used by mobile command readiness
  * checks. The folder-store projection (`projection.json`) is the source of
- * truth. The projection's `roster` is translated to `sprintEngineAgents` so
- * downstream readers see one shape.
+ * truth. The projection's canonical `workers` view (active leases + live
+ * sessions, MC-1591) is read as `sprintEngineAgents` so downstream readers see
+ * one shape; the pre-lease `projection.roster` bridge is no longer consulted.
  */
 export async function readRawSprintEngineState(state: ValidSprintEngineStatePath): Promise<RawSprintEngineState> {
   const projectionPath = join(dirname(state.statePath), 'projection.json')
@@ -38,8 +39,8 @@ export async function readRawSprintEngineState(state: ValidSprintEngineStatePath
     return {
       tasks: Array.isArray(projection.tasks) ? projection.tasks : [],
       artifacts: Array.isArray(projection.artifacts) ? projection.artifacts : [],
-      sprintEngineAgents: projection.roster && typeof projection.roster === 'object' && !Array.isArray(projection.roster)
-        ? projection.roster as Record<string, SprintEngineRuntimeAgentRecord>
+      sprintEngineAgents: projection.workers && typeof projection.workers === 'object' && !Array.isArray(projection.workers)
+        ? projection.workers as Record<string, SprintEngineRuntimeAgentRecord>
         : {},
     }
   } catch (error) {

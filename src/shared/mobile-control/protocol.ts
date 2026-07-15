@@ -560,6 +560,13 @@ export interface MobileControlSprintEngineVcsState {
   pullRequestStatus?: string;
   /** Reason the last PR-open attempt failed, surfaced with a Retry affordance. */
   pullRequestError?: string;
+  /**
+   * Multi-repo seam (MC-1615): the run's per-repo vcs blocks, passed through
+   * verbatim from the projection's `run.vcs.repos`. Optional and unread by any
+   * phone surface today — present only so a multi-repo (schema-v4) store round-
+   * trips through the snapshot without field loss. Single-repo runs omit it.
+   */
+  repos?: unknown[];
 }
 
 // One "Started from" provenance row — a real on-disk seed document the run was

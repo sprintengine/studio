@@ -229,8 +229,8 @@ async function assertProjectionSnapshotPassesProtocolValidation(): Promise<void>
     artifacts: [
       { id: 'A1', title: 'Review', kind: 'code_review', status: 'ready_for_review', taskId: 'T2', path: 'reviews/x.md' },
     ],
-    roster: {
-      'developer-1': { role: 'developer', status: 'running', currentTaskId: 'T1' },
+    workers: {
+      'developer-1': { role: 'developer', status: 'running', currentTaskId: 'T1', sessionId: 'sess-1', ownedTaskIds: ['T1'] },
     },
     locks: {
       locks: [{ name: 'readyQueue', exists: true, stale: true, ageSeconds: 720 }],
@@ -247,6 +247,9 @@ async function assertProjectionSnapshotPassesProtocolValidation(): Promise<void>
   assert.equal(sprintEngineSnapshot.locks?.warnings?.length, 1)
   assert.equal(sprintEngineSnapshot.activity?.count, 1)
   assert.equal(sprintEngineSnapshot.counts?.ready, 1)
+  // The roster map is derived from the projection's workers view (MC-1594),
+  // keeping only the three fields the v2 wire renders.
+  assert.deepEqual(sprintEngineSnapshot.roster?.['developer-1'], { role: 'developer', status: 'running', currentTaskId: 'T1' })
 
   const snapshot: MobileControlSnapshot = {
     protocolVersion: mobileControlProtocolVersion,
@@ -309,7 +312,7 @@ async function assertMigratedProjectionSnapshotIsPreferred(): Promise<void> {
       status: 'executing',
       updatedAt: generatedAt,
     },
-    roster: {
+    workers: {
       'developer-1': { role: 'developer', status: 'running', currentTaskId: 'T2' },
     },
     board: {
@@ -344,6 +347,7 @@ async function assertMigratedProjectionSnapshotIsPreferred(): Promise<void> {
   const snapshot = await readSprintEngineSnapshot(statePath)
 
   assert.equal(snapshot.name, 'Migrated Projection')
+  assert.equal(snapshot.roster?.['developer-1']?.currentTaskId, 'T2', 'roster derives from projection.workers')
   assert.deepEqual(snapshot.board, {
     todo: 0,
     ready: 1,
@@ -428,7 +432,7 @@ async function assertReviewProjectionSnapshotExposesReviewContext(): Promise<voi
       },
     ],
     artifacts: [],
-    roster: {},
+    workers: {},
     activity: [],
   }), 'utf8')
 
@@ -450,9 +454,6 @@ async function assertSnapshotIncludesDesktopWorkspaceEntries(): Promise<void> {
     sprintengine: {
       name: 'Rich Sprint Engine',
       updatedAt: generatedAt,
-    },
-    sprintEngineAgents: {
-      'developer-1': { role: 'developer', status: 'running', currentTaskId: 'T1' },
     },
     runSummary: { active: true, completedTasks: 1 },
     planReview: { status: 'approved' },

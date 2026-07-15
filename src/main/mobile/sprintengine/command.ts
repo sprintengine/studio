@@ -748,25 +748,44 @@ export class MobileSprintEngineCommandService {
     )
   }
 
-  // Expands the optional sprint config into `handover` CLI args. teamName is
-  // slugified here (safeSlug) so bookkeeping (module metadata, audit args)
-  // records the same name the engine derives; roleCounts become the wizard's
-  // `role:role-N` seat specs — presence means the user composed the roster,
-  // absence leaves rosterConfigured false so the architect picks the team.
-  // Automation mode / permission presets / max-parallel / worktrees are
-  // desktop-app runner state this CLI path cannot honor (MC-1497 et al.) and
-  // are deliberately not on the wire.
-  private sprintEngineConfigArgs(config: { teamName?: string; roleCounts?: Record<string, number> } | undefined, fallbackTeamName: string): { teamName: string; extraArgs: string[] } {
+  // Resolves the optional sprint config. teamName is slugified here (safeSlug) so
+  // bookkeeping (module metadata, audit args) records the same name the engine
+  // derives. Under leases (MC-1591) roleCounts no longer mint seats: the desired-
+  // pool supervisor spawns workers on demand, so the phone's roster is expressed
+  // as the run's `configuredRoles` — its legal role set, enforced by
+  // plan.add_task — and applied at init (see configuredRolesInitArgs). Seat COUNTS
+  // ("concurrency") have no CLI honor path (the supervisor's concurrency cap is
+  // desktop runner state, per SprintEngineCreateConfig), so they are dropped
+  // rather than turned into `--agent role:role-N` seat specs. Automation mode /
+  // permission presets / worktrees are likewise not on this wire (MC-1497 et al.).
+  private sprintEngineConfigArgs(
+    config: { teamName?: string; roleCounts?: Record<string, number> } | undefined,
+    fallbackTeamName: string
+  ): { teamName: string; configuredRoles: string[] } {
     const requestedName = config?.teamName?.trim()
     const teamName = requestedName ? safeSlug(requestedName) : fallbackTeamName
-    const extraArgs: string[] = []
-    for (const [role, count] of Object.entries(config?.roleCounts ?? {})) {
-      const roleSlug = safeSlug(role)
-      for (let seat = 1; seat <= count; seat += 1) {
-        extraArgs.push('--agent', `${roleSlug}:${roleSlug}-${seat}`)
-      }
+    // Distinct role ids in request order; seat counts are intentionally ignored.
+    const configuredRoles: string[] = []
+    for (const role of Object.keys(config?.roleCounts ?? {})) {
+      const roleId = role.trim()
+      if (roleId && !configuredRoles.includes(roleId)) configuredRoles.push(roleId)
     }
-    return { teamName, extraArgs }
+    return { teamName, configuredRoles }
+  }
+
+  // The `init` args that persist a phone-composed roster: the run's
+  // `configuredRoles` (its legal role set) plus a single rosterConfigured marker.
+  // init flips `rosterConfigured` on any `--agent` presence, and leases mint no
+  // seats, so this is ONE marker (role:role, never a numbered role:role-N seat).
+  // Empty when the phone named no roles — the architect then picks the team.
+  private configuredRolesInitArgs(configuredRoles: string[]): string[] {
+    if (configuredRoles.length === 0) return []
+    return [
+      '--configured-roles-json',
+      JSON.stringify(configuredRoles),
+      '--agent',
+      `${configuredRoles[0]}:${configuredRoles[0]}`,
+    ]
   }
 
   private async executeSprintEngineCreateCommand(
@@ -786,7 +805,7 @@ export class MobileSprintEngineCommandService {
       return this.resultRecorder.reject(command, 'invalid_payload', `Product prompt must be ${maxProductPromptCharacters} characters or less.`, false, undefined, undefined, workspacePath)
     }
 
-    const { teamName, extraArgs } = this.sprintEngineConfigArgs(
+    const { teamName, configuredRoles } = this.sprintEngineConfigArgs(
       command.payload.config,
       `mobile-${safeSlug(command.commandId)}`
     )
@@ -800,10 +819,39 @@ export class MobileSprintEngineCommandService {
       productPrompt,
       '--actor',
       mobileActorId(command.deviceId),
-      ...extraArgs,
     ]
 
-    return this.invokeTool(command, args, workspacePath, undefined, undefined, workspacePath)
+    const result = await this.invokeTool(command, args, workspacePath, undefined, undefined, workspacePath)
+    if (!result.ok) {
+      return result
+    }
+
+    // Persist a phone-composed roster as the run's configuredRoles. `handover`
+    // only bootstraps the store (it records rosterConfigured, not which roles),
+    // so the role set is applied by a follow-up `init` — exactly as the backlog-
+    // start path and the desktop creation flow do. The architect's own later
+    // init is idempotent and leaves configuredRoles intact. With no roles named
+    // there is nothing to apply, so create stays a single handover call.
+    const roleArgs = this.configuredRolesInitArgs(configuredRoles)
+    const statePath = statePathFromHandover(result.data)
+    if (statePath && roleArgs.length > 0) {
+      const init = await this.invokeTool(
+        command,
+        ['--state', statePath, 'init', ...roleArgs],
+        workspacePath,
+        undefined,
+        undefined,
+        workspacePath
+      )
+      if (!init.ok) {
+        // Roll back the store this command just bootstrapped so a retry is clean
+        // (handover refuses to overwrite bootstrap files without --force).
+        await discardBootstrappedRunStore(workspacePath, statePath)
+        return init
+      }
+    }
+
+    return result
   }
 
   private async executeBacklogUpdateCommand(
@@ -870,7 +918,7 @@ export class MobileSprintEngineCommandService {
     const relativePath = assertBacklogRelativePath(command.payload.relativePath)
     const start = await resolveBacklogStartContext(workspacePath, relativePath)
 
-    const { teamName, extraArgs } = this.sprintEngineConfigArgs(
+    const { teamName, configuredRoles } = this.sprintEngineConfigArgs(
       command.payload.config,
       `backlog-${safeSlug(command.commandId)}`
     )
@@ -907,7 +955,6 @@ export class MobileSprintEngineCommandService {
       ...children.flatMap((child) => ['--source', `generic_context:${child.absolutePath}`]),
       '--actor',
       mobileActorId(command.deviceId),
-      ...extraArgs,
     ]
 
     const result = await this.invokeTool(command, args, workspacePath, undefined, undefined, workspacePath)
@@ -922,11 +969,12 @@ export class MobileSprintEngineCommandService {
     // calls ensure_run_worktree. So the run only gets a branch (and therefore can
     // only ever open a pull request) if we init it here, exactly as the desktop's
     // creation flow does. The architect's own `init` later is idempotent: it
-    // re-reads the prompt and leaves the existing vcs block and tasks alone.
+    // re-reads the prompt and leaves the existing vcs block and tasks alone. Any
+    // phone-composed roster (configuredRoles) is applied on this same init.
     if (statePath) {
       const init = await this.invokeTool(
         command,
-        ['--state', statePath, 'init', '--use-worktrees', useWorktrees ? 'true' : 'false'],
+        ['--state', statePath, 'init', '--use-worktrees', useWorktrees ? 'true' : 'false', ...this.configuredRolesInitArgs(configuredRoles)],
         workspacePath,
         undefined,
         undefined,
