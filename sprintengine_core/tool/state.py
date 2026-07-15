@@ -662,8 +662,10 @@ def mint_lease(task: Dict[str, Any], worker_id: str, role: Optional[str] = None)
     """Mint or refresh the task's assignment lease for `worker_id`.
 
     Called wherever a worker takes ownership of an active task (claim, phase
-    re-bind). `since` is preserved while the same worker holds the lease across a
-    phase walk and reset when a different worker takes over. `heartbeatAt` is
+    re-bind). `since` and the recorded `sessionId` are preserved while the SAME
+    worker holds the lease across a phase walk and reset when a different worker
+    takes over — a successor must not inherit the prior owner's session, or its
+    token usage would be attributed to the wrong worker. `heartbeatAt` is
     refreshed so the expiry sweep measures from the latest ownership event.
     """
     clean_id = str(worker_id or "").strip()
@@ -676,7 +678,7 @@ def mint_lease(task: Dict[str, Any], worker_id: str, role: Optional[str] = None)
         "since": existing.get("since") if same_worker else now_iso(),
     }
     session_id = str(existing.get("sessionId") or "").strip()
-    if session_id:
+    if same_worker and session_id:
         lease["sessionId"] = session_id
     task["lease"] = lease
     return lease

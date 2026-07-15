@@ -370,15 +370,22 @@ def cmd_init(args: argparse.Namespace) -> Dict[str, Any]:
         # worker: init runs before any worker has claimed, and a product gate opened
         # for a run whose configuredRoles has no `product` is a task no worker may
         # ever claim — and the plan gate dependsOn it, so the whole run is dead on
-        # arrival. A legacy run with no configuredRoles falls back to the
-        # rosterConfigured flag (never the agents map): an unconfigured run opens the
-        # gate, a configured legacy run without a product reviewer does not.
+        # arrival. A run with no configuredRoles falls back to its `--agent` specs:
+        # a headless `--agent product:id` still stipulates a product reviewer, and
+        # leases dropped the agents map, so the roles are read straight off the CLI
+        # specs (never a seated record). With no specs at all, an unconfigured run
+        # opens the gate; a configured legacy run without a product reviewer does not.
         configured = configured_role_set(state)
-        has_product_reviewer = (
-            ("product" in configured)
-            if configured is not None
-            else not roster_is_configured(state)
-        )
+        if configured is not None:
+            has_product_reviewer = "product" in configured
+        else:
+            seeded_roles = {
+                str(spec).split(":", 1)[0].strip()
+                for spec in (getattr(args, "agent", None) or [])
+            }
+            has_product_reviewer = (
+                "product" in seeded_roles if seeded_roles else not roster_is_configured(state)
+            )
         # An epic source only opens a product intake gate when a child is itself a
         # product plan; otherwise the architect plans directly from the epic's
         # design docs. Non-epic behavior is unchanged.

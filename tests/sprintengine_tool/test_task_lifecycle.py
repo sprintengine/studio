@@ -67,6 +67,17 @@ def run_without_state_rewrite(fixture, *args: str) -> dict:
     return payload
 
 
+def worker_view(fixture, worker_id: str) -> dict:
+    """The worker's lease-derived projection view (MC-1591: no agents map).
+
+    An absent worker holds no active lease and no implementer stamp, which is the
+    lease model's equivalent of the old idle/unclaimed agent record — default to
+    that shape so callers can assert status/currentTaskId uniformly.
+    """
+    projection = store.build_projection(fixture.team_dir, state_path=fixture.state_path)
+    return projection["workers"].get(worker_id) or {"status": "idle", "currentTaskId": None}
+
+
 def test_ready_column_is_derived_from_todo_tasks_with_satisfied_dependencies(tmp_path) -> None:
     fixture = create_team(
         tmp_path,
@@ -266,12 +277,6 @@ def test_task_note_routes_architect_actor_to_architect_feedback_comment(tmp_path
         "task-note-architect",
         [task("T1", "Implement feature", "developer", "in_progress", owner="developer-fixture")],
     )
-    state = read_state(fixture.state_path)
-    state["agents"] = {
-        "architect-fixture": {"role": "architect", "status": "idle", "currentTaskId": None},
-        "developer-fixture": {"role": "developer", "status": "running", "currentTaskId": "T1"},
-    }
-    write_state(fixture.state_path, state)
 
     payload = fixture.cli.run(
         "task",
@@ -311,11 +316,6 @@ def test_task_note_from_non_architect_actor_uses_user_note_type(tmp_path) -> Non
         "task-note-developer",
         [task("T1", "Implement feature", "developer", "in_progress", owner="developer-fixture")],
     )
-    state = read_state(fixture.state_path)
-    state["agents"] = {
-        "developer-fixture": {"role": "developer", "status": "running", "currentTaskId": "T1"},
-    }
-    write_state(fixture.state_path, state)
 
     payload = fixture.cli.run(
         "task",
@@ -398,7 +398,7 @@ def test_task_publish_records_implementation_summary_and_enters_the_review_phase
     assert task_record["lastPublishedAt"]
     assert task_record["completedAt"] is None
     assert task_record["comments"][0]["body"] == "Implemented the backend path."
-    assert state["agents"]["developer-fixture"]["currentTaskId"] == "T1"
+    assert worker_view(fixture, "developer-fixture")["currentTaskId"] == "T1"
 
 
 def test_task_advance_out_of_review_completes_the_task(tmp_path) -> None:
@@ -430,7 +430,7 @@ def test_task_advance_out_of_review_completes_the_task(tmp_path) -> None:
     assert task_record["status"] == "done"
     assert task_record["completedAt"]
     assert task_record["ownerAgentId"] is None
-    assert state["agents"]["developer-fixture"]["status"] == "idle"
+    assert worker_view(fixture, "developer-fixture")["status"] == "idle"
     assert_event_type(state, "task_phase_advanced")
 
 
@@ -597,7 +597,6 @@ def test_plan_add_and_update_task_persist_architect_difficulty_estimate(tmp_path
     fixture = create_team(tmp_path, "plan-difficulty", [])
     state = read_state(fixture.state_path)
     state["sprintengine"]["rosterConfigured"] = True
-    state["agents"] = {"developer-a": {"role": "developer", "status": "idle", "currentTaskId": None}}
     write_state(fixture.state_path, state)
 
     added = fixture.cli.run(
@@ -846,7 +845,6 @@ def test_temporary_marketer_role_owns_a_task_through_its_review_phase(tmp_path) 
     fixture = create_workspace_team(tmp_path, "custom-role-workspace", "custom-role-phases", [marketer_task])
     state = read_state(fixture.state_path)
     state["sprintengine"]["rosterConfigured"] = True
-    state["agents"] = {"marketer-1": {"role": "marketer", "status": "idle", "currentTaskId": None}}
     write_state(fixture.state_path, state)
 
     claimed = fixture.cli.run("task", "next", "--role", "growth-marketer", "--id", "marketer-1")
@@ -1034,7 +1032,7 @@ def test_active_task_statuses_keep_the_run_executing_and_keep_the_owner(tmp_path
         assert state["sprintengine"]["status"] == "executing"
         assert_task_status(state, "T1", status)
         assert get_task(state, "T1")["ownerAgentId"] == "developer-fixture"
-        assert state["agents"]["developer-fixture"]["currentTaskId"] == "T1"
+        assert worker_view(fixture, "developer-fixture")["currentTaskId"] == "T1"
 
 
 def test_task_publish_to_review_keeps_run_executing(tmp_path) -> None:
@@ -1136,8 +1134,10 @@ def test_task_status_todo_releases_owner_and_makes_task_claimable(tmp_path) -> N
     assert task_record["ownerAgentId"] is None
     assert task_record["startedAt"] is None
     assert task_record["completedAt"] is None
-    assert state["agents"]["frontend-1"]["status"] == "idle"
-    assert state["agents"]["frontend-1"]["currentTaskId"] is None
+    # Released to the queue, frontend-1 holds no active lease: its worker view is
+    # the idle default (no current task).
+    assert worker_view(fixture, "frontend-1")["status"] == "idle"
+    assert worker_view(fixture, "frontend-1")["currentTaskId"] is None
     assert_ready_tasks(fixture.cli, "frontend", ["T1"])
 
     claimed = fixture.cli.run("task", "next", "--role", "frontend", "--id", "frontend-2")
@@ -1178,8 +1178,8 @@ def test_task_resolve_input_resumes_original_owner_with_notification(tmp_path) -
     assert task_record["needsInput"]["resolvedBy"] == "architect"
     assert task_record["needsInput"]["resolution"] == "Scope narrowed; continue."
     assert task_record["needsInput"]["resumeRequestedAt"]
-    assert state["agents"]["frontend-1"]["status"] == "running"
-    assert state["agents"]["frontend-1"]["currentTaskId"] == "T1"
+    assert worker_view(fixture, "frontend-1")["status"] == "running"
+    assert worker_view(fixture, "frontend-1")["currentTaskId"] == "T1"
     notification = state["events"][-1]
     assert notification["type"] == "agent_notification_requested"
     assert notification["targetAgentId"] == "frontend-1"
@@ -1216,7 +1216,9 @@ def test_task_resolve_input_complete_marks_done_and_notifies_owner(tmp_path) -> 
     task_record = get_task(state, "T1")
     assert task_record["status"] == "done"
     assert task_record["completedAt"]
-    assert state["agents"]["developer-1"]["status"] == "idle"
+    # Done -> the lease ended, so developer-1 runs nothing (idle worker view).
+    assert worker_view(fixture, "developer-1")["currentTaskId"] is None
+    assert worker_view(fixture, "developer-1")["status"] == "idle"
     notification = state["events"][-1]
     assert notification["type"] == "agent_notification_requested"
     assert notification["notificationKind"] == "task_completed_after_input_resolution"
@@ -1269,7 +1271,7 @@ def test_task_release_clears_active_owner_and_notifies_previous_owner(tmp_path) 
     task_record = get_task(state, "T1")
     assert task_record["status"] == "todo"
     assert task_record["ownerAgentId"] is None
-    assert state["agents"]["frontend-1"]["status"] == "idle"
+    assert worker_view(fixture, "frontend-1")["status"] == "idle"
     assert_ready_tasks(fixture.cli, "frontend", ["T1"])
     notification = state["events"][-1]
     assert notification["type"] == "agent_notification_requested"
@@ -1402,11 +1404,16 @@ def test_init_respects_selected_roster_without_a_product_intake_task(tmp_path) -
     assert payload["planTask"]["dependsOn"] == []
 
     state = read_state(state_path)
-    assert set(state["agents"]) == {"architect", "developer-1"}
+    # `--agent` marks the run roster-configured; leases dropped the agents map, so
+    # there is no seated set to assert. The plan gate is the architect's.
+    assert state["sprintengine"]["rosterConfigured"] is True
     assert_ready_tasks(cli, "architect", [payload["planTask"]["id"]])
 
 
 def test_architect_cannot_add_tasks_for_roles_absent_from_roster(tmp_path) -> None:
+    # The role boundary is `configuredRoles` now (leases dropped the seated
+    # roster): a task role outside the enabled set is refused, an enabled one
+    # accepted — with zero live workers of that role (the lazy roster).
     state_path = tmp_path / ".multi-code" / "sprintengine" / "rostered-plan" / "run.yaml"
     cli = SwarmCli(state_path)
     cli.run(
@@ -1415,8 +1422,8 @@ def test_architect_cannot_add_tasks_for_roles_absent_from_roster(tmp_path) -> No
         "Constrain role planning",
         "--agent",
         "architect:architect",
-        "--agent",
-        "developer:developer-1",
+        "--configured-roles-json",
+        '["architect", "developer"]',
     )
 
     rejected = cli.run_failure(
@@ -1430,7 +1437,7 @@ def test_architect_cannot_add_tasks_for_roles_absent_from_roster(tmp_path) -> No
         "Review the implementation.",
     )
 
-    assert "Role 'performance' is not in this Sprint Engine roster" in rejected.stderr
+    assert "Role 'performance' is not enabled for this run" in rejected.stderr
 
     accepted = cli.run(
         "plan",
@@ -1443,53 +1450,6 @@ def test_architect_cannot_add_tasks_for_roles_absent_from_roster(tmp_path) -> No
         "Build the selected change.",
     )
     assert accepted["task"]["role"] == "developer"
-
-
-def test_roster_add_allows_later_specialist_tasks(tmp_path) -> None:
-    state_path = tmp_path / ".multi-code" / "sprintengine" / "roster-expand" / "run.yaml"
-    cli = SwarmCli(state_path)
-    cli.run(
-        "init",
-        "--goal",
-        "Expand a selected roster",
-        "--agent",
-        "architect:architect",
-        "--agent",
-        "developer:developer-1",
-    )
-
-    before = cli.run_failure(
-        "plan",
-        "add-task",
-        "--title",
-        "Review security",
-        "--role",
-        "security",
-        "--description",
-        "Review the implementation for security risk.",
-    )
-    assert "Role 'security' is not in this Sprint Engine roster" in before.stderr
-
-    added = cli.run("roster", "add", "--role", "security", "--id", "security", "--actor", "architect")
-    assert added["ok"] is True
-    assert added["role"] == "security"
-
-    after = cli.run(
-        "plan",
-        "add-task",
-        "--title",
-        "Review security",
-        "--role",
-        "security",
-        "--description",
-        "Review the implementation for security risk.",
-    )
-    assert after["task"]["role"] == "security"
-
-    state = read_state(state_path)
-    assert state["sprintengine"]["rosterConfigured"] is True
-    assert state["agents"]["security"]["role"] == "security"
-    assert_event_type(state, "roster_member_added")
 
 
 def test_temporary_marketer_role_flows_through_core_cli(tmp_path) -> None:
@@ -1507,9 +1467,8 @@ def test_temporary_marketer_role_flows_through_core_cli(tmp_path) -> None:
         "growth-marketer:marketer-1",
     )
 
-    roster = cli.run("roster", "list")
-    assert {agent["id"]: agent["role"] for agent in roster["agents"]}["marketer-1"] == "marketer"
-
+    # The `growth-marketer` alias resolves to the `marketer` role (leases dropped
+    # `roster list`; the resolution is proven by the planned task's role below).
     accepted = cli.run(
         "plan",
         "add-task",
@@ -1548,12 +1507,17 @@ def test_temporary_marketer_role_flows_through_core_cli(tmp_path) -> None:
     assert claimed["task"]["id"] == accepted["task"]["id"]
 
 
-def test_unknown_configured_role_is_rejected_after_argparse(tmp_path) -> None:
+def test_unknown_role_is_rejected_by_the_registry_not_argparse(tmp_path) -> None:
+    # The CLI accepts any --role string and validates it against the role registry
+    # itself (require_configured_role), so an unknown role is a clean registry
+    # error, never an argparse "invalid choice".
     state_path = tmp_path / ".multi-code" / "sprintengine" / "unknown-role" / "run.yaml"
     cli = SwarmCli(state_path)
     cli.run("init", "--goal", "Reject unknown roles", "--agent", "architect:architect")
 
-    rejected = cli.run_failure("roster", "add", "--role", "not-a-real-role", "--id", "unknown")
+    rejected = cli.run_failure(
+        "plan", "add-task", "--title", "X", "--role", "not-a-real-role", "--description", "d",
+    )
 
     assert "unknown role 'not-a-real-role'" in rejected.stderr
     assert "invalid choice" not in rejected.stderr
@@ -1564,17 +1528,17 @@ def test_plan_review_start_accepts_configured_non_architect_role(tmp_path) -> No
     write_workspace_role(fixture.team_dir.parents[2], "release_editor", aliases=["release-editor"])
     state = read_state(fixture.state_path)
     state["sprintengine"]["rosterConfigured"] = True
-    state["agents"] = {
-        "architect": {"role": "architect", "status": "idle", "currentTaskId": None},
-        "editor-1": {"role": "release_editor", "status": "idle", "currentTaskId": None},
-    }
+    # Membership is configuredRoles now (no agents map): the enabled reviewer roles
+    # ARE the expected reviewers, one per role, with `id` mirroring `role` under a
+    # pool.
+    state["configuredRoles"] = ["architect", "release_editor"]
     write_state(fixture.state_path, state)
     (fixture.team_dir / "plan.md").write_text("# Plan\n", encoding="utf-8")
 
     payload = fixture.cli.run("plan", "start-review", "--role", "release-editor", "--id", "editor-1")
 
     assert payload["role"] == "release_editor"
-    assert payload["knownReviewers"] == [{"id": "editor-1", "role": "release_editor"}]
+    assert payload["knownReviewers"] == [{"id": "release_editor", "role": "release_editor"}]
     assert "Review focus: specialist risks, gaps, and execution quality." in payload["prompt"]
     assert (fixture.team_dir / "plan-reviews" / "editor-1.md").is_file()
 
@@ -1680,53 +1644,6 @@ def test_join_leaves_an_owned_review_task_with_its_owner(tmp_path) -> None:
     assert next_payload["reason"] == "no_ready_task"
 
 
-def test_stale_owner_cleanup_preserves_retired_and_idles_legacy_dead(tmp_path) -> None:
-    # Clearing a stale owner claim off a terminal task preserves the one terminal
-    # agent status (retired) while a legacy 'dead' id normalizes to idle on load and
-    # then has its stale refs cleared like any other non-retired agent.
-    stale_task = task("T1", "Already completed", "frontend", "done")
-    stale_task["ownerAgentId"] = "frontend-1"
-    fixture = create_team(
-        tmp_path,
-        "stale-owner-terminal-statuses",
-        [stale_task, task("T2", "Still to do", "frontend")],
-    )
-    state = read_state(fixture.state_path)
-    state["agents"]["frontend-1"] = {
-        "role": "frontend",
-        "status": "retired",
-        "currentTaskId": "T1",
-        "currentDispatch": {"dispatchId": "D1", "targetKind": "task", "role": "frontend", "reason": "task_claimed", "taskId": "T1"},
-    }
-    state["agents"]["frontend-dead"] = {
-        "role": "frontend",
-        "status": "dead",
-        "currentTaskId": "T1",
-        "currentDispatch": {"dispatchId": "D2", "targetKind": "task", "role": "frontend", "reason": "task_claimed", "taskId": "T1"},
-    }
-    write_state(fixture.state_path, state)
-
-    fixture.cli.run(
-        "join",
-        "--role",
-        "frontend",
-        "--id",
-        "frontend-2",
-        "--watch",
-        "--max-wait-seconds",
-        "0",
-    )
-
-    state = read_state(fixture.state_path)
-    assert get_task(state, "T1")["ownerAgentId"] is None
-    assert state["agents"]["frontend-1"]["status"] == "retired"
-    assert state["agents"]["frontend-1"]["currentTaskId"] is None
-    assert state["agents"]["frontend-1"]["currentDispatch"] is None
-    assert state["agents"]["frontend-dead"]["status"] == "idle"
-    assert state["agents"]["frontend-dead"]["currentTaskId"] is None
-    assert state["agents"]["frontend-dead"]["currentDispatch"] is None
-
-
 def test_join_ready_task_wake_candidate_does_not_create_dispatch(tmp_path) -> None:
     fixture = create_team(tmp_path, "ready-task-wake-candidate", [task("T1", "Implementation", "developer")])
 
@@ -1744,7 +1661,9 @@ def test_join_ready_task_wake_candidate_does_not_create_dispatch(tmp_path) -> No
     assert joined["action"] == "work"
     state = read_state(fixture.state_path)
     assert get_task(state, "T1").get("ownerAgentId") in (None, "")
-    assert state["agents"]["developer-fixture"]["currentDispatch"] is None
+    # The wake candidate did not claim, so it holds no lease and appears in no
+    # worker view, and no dispatch record was appended.
+    assert "developer-fixture" not in store.build_projection(fixture.team_dir, state_path=fixture.state_path)["workers"]
     assert store.read_jsonl_file(fixture.team_dir / "dispatch.jsonl") == []
 
 
@@ -1779,11 +1698,10 @@ def test_a_published_task_records_no_second_dispatch(tmp_path) -> None:
     published = fixture.cli.run("task", "publish", "--task-id", "T1", "--id", "developer-fixture", "--summary", "Ready for my own review.")
     assert published["nextStatus"] == "review"
 
-    run = store.load_run_yaml(fixture.team_dir)
     dispatches = store.read_jsonl_file(fixture.team_dir / "dispatch.jsonl")
     assert [record["reason"] for record in dispatches] == ["task_claimed"]
     assert dispatches[0]["target"]["taskId"] == "T1"
-    assert run["agents"]["developer-fixture"]["currentTaskId"] == "T1"
+    assert worker_view(fixture, "developer-fixture")["currentTaskId"] == "T1"
 
     # The advance that completes the task queues no dispatch either.
     fixture.cli.run(
@@ -1823,7 +1741,9 @@ def test_expired_agent_releases_task_and_redispatches_with_ledger_evidence(tmp_p
 
     state = read_state(fixture.state_path)
     state["sprintengine"]["agentTimeoutSeconds"] = 1
-    state["agents"]["developer-1"]["heartbeatAt"] = "2000-01-01T00:00:00Z"
+    # Liveness lives on the task lease now (MC-1591): stale its heartbeat so the
+    # expiry sweep measures the owner as gone.
+    get_task(state, "T1")["lease"]["heartbeatAt"] = "2000-01-01T00:00:00Z"
     write_state(fixture.state_path, state)
 
     claimed = fixture.cli.run("task", "next", "--role", "developer", "--id", "developer-2")
@@ -1831,10 +1751,10 @@ def test_expired_agent_releases_task_and_redispatches_with_ledger_evidence(tmp_p
     assert claimed["releasedExpired"][0]["agentId"] == "developer-1"
 
     state = read_state(fixture.state_path)
-    # Derived liveness: the expired agent is released to idle-no-target, not
-    # stamped with a stored terminal status.
-    assert state["agents"]["developer-1"]["status"] == "idle"
-    assert state["agents"]["developer-2"]["currentTaskId"] == "T1"
+    # Derived liveness: the expired owner is released to the queue, so it drops out
+    # of the lease-derived worker view; the successor now owns the task.
+    assert worker_view(fixture, "developer-1")["status"] == "idle"
+    assert worker_view(fixture, "developer-2")["currentTaskId"] == "T1"
     dispatches = store.read_jsonl_file(fixture.team_dir / "dispatch.jsonl")
     assert any(record["reason"] == "agent_expired_release" for record in dispatches)
     assert any(event["type"] == "agent_targets_released" for event in state["events"])
@@ -1849,7 +1769,9 @@ def test_expired_agent_released_to_idle_reflects_in_projection(tmp_path) -> None
 
     state = read_state(fixture.state_path)
     state["sprintengine"]["agentTimeoutSeconds"] = 1
-    state["agents"]["developer-1"]["heartbeatAt"] = "2000-01-01T00:00:00Z"
+    # Liveness lives on the task lease now (MC-1591): stale its heartbeat so the
+    # expiry sweep measures the owner as gone.
+    get_task(state, "T1")["lease"]["heartbeatAt"] = "2000-01-01T00:00:00Z"
     write_state(fixture.state_path, state)
 
     claimed = fixture.cli.run("task", "next", "--role", "developer", "--id", "developer-2")
@@ -1857,20 +1779,15 @@ def test_expired_agent_released_to_idle_reflects_in_projection(tmp_path) -> None
     assert claimed["releasedExpired"][0]["agentId"] == "developer-1"
 
     state = read_state(fixture.state_path)
-    departed = state["agents"]["developer-1"]
-    assert departed["status"] == "idle"
-    assert departed["currentTaskId"] is None
-    assert departed["currentDispatch"] is None
-    assert state["agents"]["developer-2"]["currentTaskId"] == "T1"
     dispatches = store.read_jsonl_file(fixture.team_dir / "dispatch.jsonl")
     assert any(record["reason"] == "agent_expired_release" and record["agentId"] == "developer-1" for record in dispatches)
-    # Gate claims are gone: an agent record never carries a gate mirror.
-    assert "currentGateId" not in departed
-    assert "currentGate" not in departed
+    # Released to the queue, developer-1 holds no active lease and no implementer
+    # stamp (the task went back to todo), so it drops out of the derived roster
+    # entirely — the lease-model form of the idle-no-target reset. The successor
+    # owns the task.
     projection = fixture.cli.run("projection")
-    assert projection["roster"]["developer-1"]["status"] == "idle"
-    assert projection["roster"]["developer-1"]["currentTaskId"] is None
-    assert projection["roster"]["developer-1"]["currentDispatch"] is None
+    assert "developer-1" not in projection["roster"]
+    assert projection["roster"]["developer-2"]["currentTaskId"] == "T1"
 
 
 def test_expired_owner_of_a_review_task_keeps_the_task(tmp_path) -> None:
@@ -1884,7 +1801,9 @@ def test_expired_owner_of_a_review_task_keeps_the_task(tmp_path) -> None:
     state = read_state(fixture.state_path)
     assert get_task(state, "T1")["status"] == "review"
     state["sprintengine"]["agentTimeoutSeconds"] = 1
-    state["agents"]["developer-1"]["heartbeatAt"] = "2000-01-01T00:00:00Z"
+    # Liveness lives on the task lease now (MC-1591): stale its heartbeat so the
+    # expiry sweep measures the owner as gone.
+    get_task(state, "T1")["lease"]["heartbeatAt"] = "2000-01-01T00:00:00Z"
     write_state(fixture.state_path, state)
 
     refused = fixture.cli.run("task", "next", "--role", "developer", "--id", "developer-2")
@@ -1898,13 +1817,13 @@ def test_expired_owner_of_a_review_task_keeps_the_task(tmp_path) -> None:
     assert task_record["ownerAgentId"] == "developer-1"
 
 
-def test_completed_agent_ids_cannot_recycle_onto_a_second_task(tmp_path) -> None:
-    # Task-scoped roster ids never recycle: once developer-fixture owns T1 it is
-    # spent, and the per_task claim guard refuses its claim on a different ready
-    # task (T2). A fresh id must take T2.
+def test_a_completed_worker_id_may_claim_again(tmp_path) -> None:
+    # D2 (MC-1591) dropped the per-task-for-life cap: once developer-fixture's T1 is
+    # done it holds no active lease, so the SAME id may claim the next ready task.
+    # This is what ended the retire/re-add churn — a spent id is reusable.
     fixture = create_team(
         tmp_path,
-        "completed-agent-no-reuse",
+        "completed-agent-may-reclaim",
         [
             task("T1", "First implementation", "developer"),
             task("T2", "Second implementation", "developer"),
@@ -1916,435 +1835,17 @@ def test_completed_agent_ids_cannot_recycle_onto_a_second_task(tmp_path) -> None
     write_state(fixture.state_path, state)
 
     fixture.cli.run("task", "next", "--role", "developer", "--id", "developer-fixture")
-    fixture.cli.run(
-        "task",
-        "log",
-        "--task-id",
-        "T1",
-        "--id",
-        "developer-fixture",
-        "--summary",
-        "Completed the first task.",
-        "--file",
-        "tests/sprintengine_tool/test_task_lifecycle.py",
-        "--command",
-        "pytest tests/sprintengine_tool/test_task_lifecycle.py",
-        "--result",
-        "Passed",
-    )
     published = fixture.cli.run("task", "publish", "--task-id", "T1", "--id", "developer-fixture", "--summary", "Shipped T1.")
     assert published["nextStatus"] == "done"
+    assert_task_status(read_state(fixture.state_path), "T1", "done")
 
-    refused = fixture.cli.run("task", "next", "--role", "developer", "--id", "developer-fixture")
-    assert refused["claimed"] is False
-    assert refused["reason"] == "worker_task_capacity_reached"
-
-    state = read_state(fixture.state_path)
-    assert_task_status(state, "T1", "done")
-    assert_task_status(state, "T2", "todo")
-
-    # A fresh task-scoped id claims T2.
-    fresh = fixture.cli.run("task", "next", "--role", "developer", "--id", "developer-2")
-    assert fresh["claimed"] is True
-    assert fresh["task"]["id"] == "T2"
+    # The same id, now holding no active lease, claims T2.
+    reclaim = fixture.cli.run("task", "next", "--role", "developer", "--id", "developer-fixture")
+    assert reclaim["claimed"] is True
+    assert reclaim["task"]["id"] == "T2"
     state = read_state(fixture.state_path)
     assert_task_status(state, "T2", "in_progress")
-
-
-def test_retired_agent_ids_cannot_claim_more_work(tmp_path) -> None:
-    fixture = create_team(
-        tmp_path,
-        "retired-agent-no-reuse",
-        [
-            task("T1", "First implementation", "developer"),
-            task("T2", "Second implementation", "developer"),
-        ],
-    )
-    state = read_state(fixture.state_path)
-    state["defaultPhases"] = []
-    write_state(fixture.state_path, state)
-
-    fixture.cli.run("task", "next", "--role", "developer", "--id", "developer-fixture")
-    fixture.cli.run(
-        "task",
-        "log",
-        "--task-id",
-        "T1",
-        "--id",
-        "developer-fixture",
-        "--summary",
-        "Completed the first task.",
-        "--file",
-        "tests/sprintengine_tool/test_task_lifecycle.py",
-        "--command",
-        "pytest tests/sprintengine_tool/test_task_lifecycle.py",
-        "--result",
-        "Passed",
-    )
-    fixture.cli.run("task", "publish", "--task-id", "T1", "--id", "developer-fixture", "--summary", "Shipped T1.")
-
-    retired = fixture.cli.run(
-        "roster",
-        "retire",
-        "--id",
-        "developer-fixture",
-        "--reason",
-        "context capacity near limit",
-    )
-    assert retired["action"] == "retired"
-    assert retired["agent"]["status"] == "retired"
-
-    join_payload = fixture.cli.run("join", "--role", "developer", "--id", "developer-fixture")
-    assert join_payload["action"] == "retired"
-
-    rejected = fixture.cli.run_failure("task", "next", "--role", "developer", "--id", "developer-fixture")
-    assert "is retired and cannot claim more Sprint Engine work" in rejected.stderr
-
-    state = read_state(fixture.state_path)
-    assert state["agents"]["developer-fixture"]["status"] == "retired"
-    assert_task_status(state, "T2", "todo")
-    assert_event_type(state, "roster_member_retired")
-
-
-def test_roster_replenish_adds_replacement_for_retired_capacity_with_open_work(tmp_path) -> None:
-    fixture = create_team(
-        tmp_path,
-        "retired-agent-replenish",
-        [
-            task("T1", "Completed implementation", "developer", "done"),
-            task("T2", "Remaining implementation", "developer"),
-        ],
-    )
-    state = read_state(fixture.state_path)
-    state["agents"] = {
-        "developer-1": {
-            "role": "developer",
-            "status": "retired",
-            "currentTaskId": None,
-            "retiredAt": "2026-05-19T00:00:00Z",
-            "retiredReason": "context capacity near limit",
-        }
-    }
-    state["sprintengine"]["rosterConfigured"] = True
-    write_state(fixture.state_path, state)
-
-    replenished = fixture.cli.run("roster", "replenish", "--role", "developer", "--actor", "runner")
-    assert replenished["action"] == "replenished"
-    assert replenished["created"][0]["id"] == "developer-2"
-
-    next_payload = fixture.cli.run("task", "next", "--role", "developer", "--id", "developer-2")
-    assert next_payload["claimed"] is True
-    assert next_payload["task"]["id"] == "T2"
-
-    state = read_state(fixture.state_path)
-    assert state["agents"]["developer-1"]["replacedByAgentId"] == "developer-2"
-    assert state["agents"]["developer-2"]["status"] == "running"
-    assert_event_type(state, "roster_replacement_added")
-
-
-def test_roster_replenish_skips_singleton_role_while_seat_is_occupied(tmp_path) -> None:
-    # 2026-07-14 starvation regression: retired planners never carry
-    # replacedByAgentId when their successor was seated manually, so the
-    # retired-replacement pass tried to mint architect-4 into an occupied
-    # singleton seat, SystemExit'd the whole command every supervisor tick, and
-    # the tick abort starved dispatch for every role. The occupied seat IS the
-    # replacement; replenish must succeed as a no-op for that role.
-    fixture = create_team(
-        tmp_path,
-        "occupied-singleton-replenish",
-        [
-            task("T0", "Plan approval", "architect", "done"),
-            task("T1", "Follow-up planning", "architect"),
-        ],
-    )
-    state = read_state(fixture.state_path)
-    state["agents"] = {
-        "architect": {"role": "architect", "status": "retired", "currentTaskId": None, "lastOwnedTaskId": "T0"},
-        "architect-2": {"role": "architect", "status": "retired", "currentTaskId": None},
-        "architect-3": {"role": "architect", "status": "idle", "currentTaskId": None},
-    }
-    state["sprintengine"]["rosterConfigured"] = True
-    state["configuredRoles"] = ["architect", "developer"]
-    write_state(fixture.state_path, state)
-
-    replenished = fixture.cli.run("roster", "replenish", "--actor", "runner")
-    assert replenished["action"] == "none"
-    state = read_state(fixture.state_path)
-    assert set(agent_id for agent_id in state["agents"]) == {"architect", "architect-2", "architect-3"}
-
-
-def test_roster_replenish_mints_one_replacement_for_a_vacated_singleton_seat(tmp_path) -> None:
-    # Two unreplaced retirees + a vacated seat: exactly one replacement seats
-    # (filling the singleton seat); a second mint would trip the seat cap
-    # mid-loop and fail the command.
-    fixture = create_team(
-        tmp_path,
-        "vacated-singleton-replenish",
-        [
-            task("T0", "Plan approval", "architect", "done"),
-            task("T1", "Follow-up planning", "architect"),
-        ],
-    )
-    state = read_state(fixture.state_path)
-    state["agents"] = {
-        "architect": {"role": "architect", "status": "retired", "currentTaskId": None},
-        "architect-2": {"role": "architect", "status": "retired", "currentTaskId": None},
-    }
-    state["sprintengine"]["rosterConfigured"] = True
-    state["configuredRoles"] = ["architect", "developer"]
-    write_state(fixture.state_path, state)
-
-    replenished = fixture.cli.run("roster", "replenish", "--actor", "runner")
-    assert replenished["action"] == "replenished"
-    assert [entry["role"] for entry in replenished["created"]] == ["architect"]
-    state = read_state(fixture.state_path)
-    architects_alive = [
-        agent_id
-        for agent_id, agent in state["agents"].items()
-        if agent.get("role") == "architect" and agent.get("status") != "retired"
-    ]
-    assert len(architects_alive) == 1
-
-
-def test_roster_replenish_queue_depth_tops_up_task_scoped_capacity(tmp_path) -> None:
-    # MC-1444 Phase 3: with one agent session per task, a role's parallel
-    # throughput is bounded by spawnable roster ids. Three ready developer
-    # tasks against zero capacity (the only id is bound to its in-window task)
-    # mints up to --max-new ids; repeat runs converge instead of growing.
-    fixture = create_team(
-        tmp_path,
-        "queue-depth-replenish",
-        [
-            task("T0", "Published implementation", "developer", "review"),
-            task("T1", "Ready one", "developer"),
-            task("T2", "Ready two", "developer"),
-            task("T3", "Ready three", "developer"),
-        ],
-    )
-    state = read_state(fixture.state_path)
-    state["agents"] = {
-        # Bound to its publish→verdict task: not capacity for new work.
-        "developer-1": {"role": "developer", "status": "idle", "currentTaskId": None, "lastOwnedTaskId": "T0"},
-    }
-    state["sprintengine"]["rosterConfigured"] = True
-    write_state(fixture.state_path, state)
-
-    replenished = fixture.cli.run("roster", "replenish", "--actor", "runner", "--queue-depth", "--max-new", "2")
-    assert replenished["action"] == "replenished"
-    assert [entry["id"] for entry in replenished["created"]] == ["developer-2", "developer-3"]
-    assert all(entry.get("reason") == "queue_depth" for entry in replenished["created"])
-    state = read_state(fixture.state_path)
-    assert_event_type(state, "roster_capacity_added")
-
-    # The minted ids now count as capacity: only the remaining deficit mints.
-    replenished_again = fixture.cli.run("roster", "replenish", "--actor", "runner", "--queue-depth", "--max-new", "5")
-    assert [entry["id"] for entry in replenished_again["created"]] == ["developer-4"]
-
-    # Fully covered: converges to none.
-    assert fixture.cli.run("roster", "replenish", "--actor", "runner", "--queue-depth", "--max-new", "5")["action"] == "none"
-
-    # Without --queue-depth the legacy retired-replacement behavior is
-    # untouched (no retired agents here, so nothing mints).
-    assert fixture.cli.run("roster", "replenish", "--actor", "runner")["action"] == "none"
-
-
-def test_roster_replenish_queue_depth_capacity_excludes_spent_busy_and_done(tmp_path) -> None:
-    # Task-scoped capacity: an id that has EVER owned a task is spent — not
-    # capacity for new work, even after that task is done and even when 'left'
-    # (no recycling). Only a never-owned idle id counts. Busy (renderer-reported)
-    # and run-complete 'done' ids never count. The op returns task-paired
-    # assignments for each fresh mint.
-    fixture = create_team(
-        tmp_path,
-        "queue-depth-capacity",
-        [
-            task("T0", "Finished work", "developer", "done"),
-            task("T1", "Ready one", "developer"),
-            task("T2", "Ready two", "developer"),
-        ],
-    )
-    state = read_state(fixture.state_path)
-    state["agents"] = {
-        # spent left id (owned T0): no longer capacity — a fresh id takes new work.
-        "developer-1": {"role": "developer", "status": "left", "currentTaskId": None, "lastOwnedTaskId": "T0"},
-        # never-owned idle id: the one real unit of capacity — absorbs T1.
-        "developer-2": {"role": "developer", "status": "idle", "currentTaskId": None},
-        # busy live terminal (renderer-reported): must NOT count.
-        "developer-3": {"role": "developer", "status": "idle", "currentTaskId": None},
-        # run-complete marker status: must NOT count.
-        "developer-4": {"role": "developer", "status": "done", "currentTaskId": None},
-    }
-    state["sprintengine"]["rosterConfigured"] = True
-    write_state(fixture.state_path, state)
-
-    replenished = fixture.cli.run(
-        "roster", "replenish", "--actor", "runner",
-        "--queue-depth", "--max-new", "5",
-        "--busy-agent", "developer-3",
-    )
-    # Depth 2 (T1,T2) vs capacity 1 (developer-2 only) -> mint exactly one for T2.
-    assert [entry["id"] for entry in replenished["created"]] == ["developer-5"]
-    assert replenished["assignments"] == [{"agentId": "developer-5", "role": "developer", "taskId": "T2"}]
-
-
-def test_roster_replenish_combined_retired_and_queue_depth_passes_do_not_double_mint(tmp_path) -> None:
-    # The queue-depth pass runs AFTER the retired-replacement pass so freshly
-    # minted replacements count as capacity (explicit invariant in roster.py).
-    fixture = create_team(
-        tmp_path,
-        "queue-depth-combined",
-        [
-            task("T1", "Ready one", "developer"),
-            task("T2", "Ready two", "developer"),
-        ],
-    )
-    state = read_state(fixture.state_path)
-    state["agents"] = {
-        "developer-1": {
-            "role": "developer",
-            "status": "retired",
-            "currentTaskId": None,
-            "retiredAt": "2026-07-02T00:00:00Z",
-            "retiredReason": "context capacity near limit",
-        },
-    }
-    state["sprintengine"]["rosterConfigured"] = True
-    write_state(fixture.state_path, state)
-
-    replenished = fixture.cli.run("roster", "replenish", "--actor", "runner", "--queue-depth", "--max-new", "5")
-    created = replenished["created"]
-    # Retired pass mints developer-2 (replacement); queue-depth then sees
-    # depth 2 vs capacity 1 and mints exactly one more — not two.
-    assert [entry["id"] for entry in created] == ["developer-2", "developer-3"]
-    assert created[0].get("replaces") == ["developer-1"]
-    assert created[1].get("reason") == "queue_depth"
-
-
-def test_roster_replenish_queue_depth_skips_in_flight_work_and_planning_roles(tmp_path) -> None:
-    # A task in `review` is owned by its implementer for the rest of its walk, so
-    # it is neither ready work nor a deficit — no surplus id is minted for it.
-    # Planning roles never mint parallel capacity either.
-    fixture = create_team(
-        tmp_path,
-        "queue-depth-covered",
-        [
-            task("T1", "Published, mid review", "developer", "review", owner="developer-1"),
-            task("G1", "General-owned work", "general"),
-        ],
-    )
-    state = read_state(fixture.state_path)
-    state["agents"] = {
-        # No general agent at all: the ready G1 task would show a deficit, but
-        # planning roles are skipped — a General owns a whole sprint solo.
-        "developer-1": {"role": "developer", "status": "running", "currentTaskId": "T1", "lastOwnedTaskId": "T1"},
-    }
-    state["sprintengine"]["rosterConfigured"] = True
-    write_state(fixture.state_path, state)
-
-    assert fixture.cli.run("roster", "replenish", "--actor", "runner", "--queue-depth", "--max-new", "5")["action"] == "none"
-
-
-def test_auto_mode_retire_immediately_adds_replacement_for_open_work(tmp_path) -> None:
-    fixture = create_team(
-        tmp_path,
-        "retired-agent-auto-replenish",
-        [
-            task("T1", "Completed implementation", "developer", "done"),
-            task("T2", "Remaining implementation", "developer"),
-        ],
-    )
-    state = read_state(fixture.state_path)
-    state["runner"] = {"cliWatchPolling": "enabled"}
-    state["agents"] = {
-        "developer-1": {
-            "role": "developer",
-            "status": "idle",
-            "currentTaskId": None,
-        }
-    }
-    state["sprintengine"]["rosterConfigured"] = True
-    write_state(fixture.state_path, state)
-
-    retired = fixture.cli.run(
-        "roster",
-        "retire",
-        "--id",
-        "developer-1",
-        "--reason",
-        "context capacity near limit",
-    )
-    assert retired["action"] == "retired"
-    assert retired["replacement"]["id"] == "developer-2"
-
-    next_payload = fixture.cli.run("task", "next", "--role", "developer", "--id", "developer-2")
-    assert next_payload["claimed"] is True
-    assert next_payload["task"]["id"] == "T2"
-
-    state = read_state(fixture.state_path)
-    assert state["agents"]["developer-1"]["status"] == "retired"
-    assert state["agents"]["developer-1"]["replacedByAgentId"] == "developer-2"
-    assert state["agents"]["developer-2"]["status"] == "running"
-    assert_event_type(state, "roster_member_retired")
-    assert_event_type(state, "roster_replacement_added")
-
-    second = fixture.cli.run("roster", "replenish", "--role", "developer", "--actor", "runner")
-    assert second["action"] == "none"
-
-
-def test_roster_replenish_preserves_multi_agent_role_capacity(tmp_path) -> None:
-    fixture = create_team(
-        tmp_path,
-        "retired-agent-replenish-capacity",
-        [task("T1", "Remaining implementation", "developer")],
-    )
-    state = read_state(fixture.state_path)
-    state["agents"] = {
-        "developer-1": {
-            "role": "developer",
-            "status": "retired",
-            "currentTaskId": None,
-            "retiredAt": "2026-05-19T00:00:00Z",
-            "retiredReason": "context capacity near limit",
-        },
-        "developer-2": {
-            "role": "developer",
-            "status": "idle",
-            "currentTaskId": None,
-        },
-    }
-    state["sprintengine"]["rosterConfigured"] = True
-    write_state(fixture.state_path, state)
-
-    replenished = fixture.cli.run("roster", "replenish", "--role", "developer", "--actor", "runner")
-    assert replenished["action"] == "replenished"
-    assert replenished["created"][0]["id"] == "developer-3"
-
-    second = fixture.cli.run("roster", "replenish", "--role", "developer", "--actor", "runner")
-    assert second["action"] == "none"
-
-    state = read_state(fixture.state_path)
-    assert state["agents"]["developer-1"]["replacedByAgentId"] == "developer-3"
-    assert state["agents"]["developer-2"]["status"] == "idle"
-    assert state["agents"]["developer-3"]["status"] == "idle"
-
-
-def test_roster_retire_rejects_active_task_owner(tmp_path) -> None:
-    fixture = create_team(
-        tmp_path,
-        "retire-active-task-rejected",
-        [task("T1", "Active implementation", "developer")],
-    )
-
-    fixture.cli.run("task", "next", "--role", "developer", "--id", "developer-fixture")
-    rejected = fixture.cli.run_failure(
-        "roster",
-        "retire",
-        "--id",
-        "developer-fixture",
-        "--reason",
-        "context capacity near limit",
-    )
-    assert "still owns active task" in rejected.stderr
+    assert get_task(state, "T2")["lease"]["workerId"] == "developer-fixture"
 
 
 def test_task_claiming_is_restricted_to_the_requested_role(tmp_path) -> None:

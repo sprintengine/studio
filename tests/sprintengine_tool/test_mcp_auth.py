@@ -67,7 +67,6 @@ def test_mcp_call_requires_authenticated_mcp_authorized_actor(tmp_path) -> None:
     ("tool_name", "payload"),
     [
         ("sprintengine.summary", {}),
-        ("sprintengine.roster.list", {}),
         ("sprintengine.task.list", {"role": "developer"}),
         ("sprintengine.artifact.list", {}),
         ("sprintengine.plan.list", {}),

@@ -28,7 +28,6 @@ from sprintengine_mcp.auth import ActorContext
 from sprintengine_mcp.capabilities import (
     AGENT_COMMON_TOOLS,
     PLANNING_TOOLS,
-    ROSTER_GROWTH_TOOLS,
     allowed_tools_for_classification,
     classify_role,
     clear_role_classification_cache,
@@ -37,9 +36,12 @@ from sprintengine_mcp.http_server import SESSION_HEADER, SprintEngineHttpMcpServ
 from sprintengine_mcp.schemas import TOOL_SCHEMAS
 from sprintengine_mcp.tool_contracts import MCP_TOOL_CONTRACTS
 
-# Every tool name MC-1542 deleted. They must be gone from the contracts, the
-# schemas, and every classification's surface — hiding them is not enough,
-# because a hidden-but-live tool is a live tool for an operator session.
+# Every tool name MC-1542 and MC-1591 deleted. They must be gone from the
+# contracts, the schemas, and every classification's surface — hiding them is not
+# enough, because a hidden-but-live tool is a live tool for an operator session.
+# MC-1591 (leases replace the roster) retired the roster-growth and dispatch-cursor
+# surfaces: membership is `configuredRoles`, assignment is a claim-minted lease, so
+# there is nothing to add/retire/replenish/list and no cursor to subscribe/ack.
 RETIRED_TOOL_NAMES = (
     "sprintengine.gate.list",
     "sprintengine.gate.next",
@@ -48,6 +50,13 @@ RETIRED_TOOL_NAMES = (
     "sprintengine.gate.publish",
     "sprintengine.gate.skip",
     "sprintengine.task.request_changes",
+    "sprintengine.roster.add",
+    "sprintengine.roster.retire",
+    "sprintengine.roster.replenish",
+    "sprintengine.roster.list",
+    "sprintengine.dispatch.next",
+    "sprintengine.dispatch.ack",
+    "sprintengine.subscribe",
 )
 
 
@@ -80,7 +89,6 @@ def test_capability_table_stays_within_active_contracts() -> None:
     all_tools = set(MCP_TOOL_CONTRACTS)
     assert AGENT_COMMON_TOOLS <= all_tools
     assert PLANNING_TOOLS <= all_tools
-    assert ROSTER_GROWTH_TOOLS <= PLANNING_TOOLS
     # Every active tool is reachable by some classification (operator gets all).
     assert allowed_tools_for_classification("operator", all_tools) == all_tools
 
@@ -134,7 +142,7 @@ def test_listing_matches_capability_table_per_role(tmp_path) -> None:
         "sprintengine.artifact.request_changes",
     ):
         assert hidden not in owner
-    for granted in ("sprintengine.task.next", "sprintengine.task.publish", "sprintengine.task.advance", "sprintengine.roster.retire"):
+    for granted in ("sprintengine.task.next", "sprintengine.task.publish", "sprintengine.task.advance", "sprintengine.agent.leave"):
         assert granted in owner
 
     # A reviewer role gets no extra privilege over any other owner.
@@ -153,11 +161,12 @@ def test_listing_matches_capability_table_per_role(tmp_path) -> None:
     assert listed_names(server, None) == set(TOOL_SCHEMAS)
 
 
-def test_general_gets_planning_surface_without_roster_growth(tmp_path) -> None:
-    """A soulless General plans, builds, and reviews a run by itself, so it gets
-    the planning surface — but never `roster.add` / `roster.replenish`, the
-    structural fence that stops it growing the team. It needs no registry
-    manifest, and architect classification is unchanged."""
+def test_general_and_architect_share_one_planning_surface(tmp_path) -> None:
+    """A soulless General plans, builds, and reviews a run by itself. MC-1591
+    deleted the roster-growth tools that were the sole difference between the
+    General and the architect surface, so the two now converge exactly: leases
+    replaced the roster, so there is no team to grow and no fence to enforce. The
+    General needs no registry manifest, and architect classification is unchanged."""
     clear_role_classification_cache()
     fixture = create_team(tmp_path, "cap-general", [task("T1", "Work", "developer")])
     server = SprintEngineMcpServer(allowed_roots=[tmp_path])
@@ -166,45 +175,43 @@ def test_general_gets_planning_surface_without_roster_growth(tmp_path) -> None:
     # No manifest exists for `general`; recognition is by id alone.
     assert classify_role("architect", workspace_root=tmp_path) == "architect"
 
-    expected = AGENT_COMMON_TOOLS | (PLANNING_TOOLS - ROSTER_GROWTH_TOOLS)
-    listed = listed_names(server, make_context(fixture, tmp_path, role="general"))
-    assert listed == allowed_tools_for_classification("general", TOOL_SCHEMAS)
-    assert listed == expected
+    expected = AGENT_COMMON_TOOLS | PLANNING_TOOLS
+    general = listed_names(server, make_context(fixture, tmp_path, role="general"))
+    architect = listed_names(server, make_context(fixture, tmp_path, role="architect"))
+    assert general == allowed_tools_for_classification("general", TOOL_SCHEMAS)
+    assert general == expected
+    # The convergence: identical surfaces, no roster-growth tools on either.
+    assert general == architect
 
     # Planning + lifecycle + artifact adjudication surface is present.
     for granted in (
         "sprintengine.plan.add_task",
         "sprintengine.task.advance",
         "sprintengine.artifact.request_changes",
-        "sprintengine.roster.list",
+        "sprintengine.roster.configure",
     ):
-        assert granted in listed, granted
-    # The team-growth fence: withheld for a General, kept for the architect.
-    for withheld in ROSTER_GROWTH_TOOLS:
-        assert withheld not in listed, withheld
-        assert withheld in listed_names(server, make_context(fixture, tmp_path, role="architect")), withheld
+        assert granted in general, granted
+    # The deleted roster-growth tools are gone from every surface, not merely hidden.
+    for retired in ("sprintengine.roster.add", "sprintengine.roster.replenish", "sprintengine.roster.list"):
+        assert retired not in general, retired
+        assert retired not in architect, retired
+        assert retired not in TOOL_SCHEMAS, retired
 
 
-def test_general_cannot_grow_roster_but_can_plan(tmp_path) -> None:
+def test_general_can_plan_and_a_deleted_roster_tool_is_unknown(tmp_path) -> None:
     clear_role_classification_cache()
     fixture = create_team(tmp_path, "cap-general-calls", [task("T1", "Work", "developer")])
-    state = read_state(fixture.state_path)
-    state["sprintengine"]["rosterConfigured"] = True
-    state["agents"] = {
-        "general-a": {"role": "general", "status": "idle", "currentTaskId": None},
-        "developer-a": {"role": "developer", "status": "idle", "currentTaskId": None},
-    }
-    write_state(fixture.state_path, state)
     server = SprintEngineMcpServer(allowed_roots=[tmp_path])
 
-    denied = server.call_tool(
+    # The roster-growth tools are deleted, not merely withheld: a call to one is an
+    # unknown tool for anyone, general included (leases replaced the roster).
+    unknown = server.call_tool(
         "sprintengine.roster.add",
         {"statePath": str(fixture.state_path), "role": "developer"},
         actor("general-a", "general"),
     )
-    assert denied["ok"] is False
-    assert denied["error"]["code"] == "tool_not_permitted_for_role"
-    assert denied["error"]["details"]["role"] == "general"
+    assert unknown["ok"] is False
+    assert unknown["error"]["code"] == "unknown_tool"
 
     # The planning surface is reachable for a General: plan.add_task passes the
     # capability gate and creates the task (recognising `general` as a *task*
@@ -420,9 +427,10 @@ def test_worker_tool_listing_stays_under_byte_budget(tmp_path) -> None:
     serialized = len(json.dumps(worker_listing))
     # The token-efficiency plan targeted ~6k tokens (~24k chars) for workers.
     # Replacing the four gate tools with the single `task.advance` bought some of
-    # that back (measured ~27.7k), so the ceiling ratchets from 30k to 28k. It
-    # guards against regression toward the old ~62k-char full listing.
-    assert serialized < 28_000, f"worker tools/list serialized to {serialized} chars"
+    # that back; MC-1591 deleting the roster-growth/dispatch tools bought more
+    # (measured ~25.5k), so the ceiling ratchets from 28k to 26k. It guards against
+    # regression toward the old ~62k-char full listing.
+    assert serialized < 26_000, f"worker tools/list serialized to {serialized} chars"
     full_listing = len(json.dumps(server.list_tools(None)))
     assert serialized < full_listing
 

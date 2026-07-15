@@ -1,20 +1,22 @@
-"""The run's configuredRoles is an enforced roster boundary.
+"""The run's role boundary is `configuredRoles`; assignment uniqueness is a lease.
 
-`configuredRoles` (written once at init from the roster's enabled roles) is the
-enforced enabled-role set. When it is present and non-empty:
-  - add_roster_agent refuses to seat a role that is not enabled, and refuses a
-    second seat for a singleton-seat role (the architect; MC-1585 made generals a
-    pool, so they seat freely like any worker role), and
-  - ensure_role_in_roster (plan.add_task's guard) refuses an off-roster task role.
-Every guard no-ops when configuredRoles is absent or empty, so legacy/headless
-runs seat and plan exactly as before.
+MC-1591 deleted the seated roster (the `agents` map, `add_roster_agent`, the
+singleton-seat cap, `ownedTaskIds`). Two enforcement questions survive, each with
+a new authority:
 
-MC-1542 removed the lazy reviewer-id registration path: there are no reviewer
-seats to mint on a gate claim, because there are no gates. `configuredRoles` now
-has exactly one job — bounding who may be seated and what roles may be planned —
-and the only way onto the roster is `add_roster_agent`. These are pure in-process
-state builders (the same dict-state shape the folder store materializes), plus a
-CLI init round-trip that pins where the key comes from.
+  - *May this role be planned/claimed here?* — `ensure_role_in_roster` validates
+    against `configuredRoles`, the run's enabled-role set written once at init. A
+    run with **zero live workers** of an enabled role still admits its tasks (the
+    lazy roster), and every guard no-ops when `configuredRoles` is absent or empty
+    so legacy/headless runs are unconstrained.
+  - *May this worker take another task?* — `worker_has_active_lease` refuses a
+    worker that already holds an active lease, and permits one whose task is done.
+    This replaced the singleton seat and the per-life `ownedTaskIds` cap: the cap
+    is now ≤1 *active* lease, not ≤1 task for life.
+
+These are pure in-process state builders (the same dict-state the folder store
+materializes) plus a CLI init round-trip that pins where `configuredRoles` comes
+from.
 """
 
 from __future__ import annotations
@@ -23,136 +25,97 @@ import json
 
 import pytest
 
-from sprintengine_core import store
 from sprintengine_core.tool.state import (
-    add_roster_agent,
+    configured_role_set,
     ensure_role_in_roster,
-    planning_seat_taken,
+    end_lease,
+    mint_lease,
+    worker_has_active_lease,
 )
 
+from helpers import task as make_task
 
-def configured_state(configured, seated=None):
-    """A configured run: rosterConfigured, optional seated agents, configuredRoles.
 
-    `configured` is None to omit the key entirely (legacy run), or a list to set
-    it (including [] for the explicit-empty case). `seated` maps agent id -> role.
-    """
-    agents = {agent_id: {"role": role, "status": "idle"} for agent_id, role in (seated or {}).items()}
-    state = {"sprintengine": {"rosterConfigured": True}, "agents": agents, "events": []}
+def configured_state(configured):
+    """A run with `configuredRoles` set to `configured` (None omits the key)."""
+    state = {"sprintengine": {"rosterConfigured": True}, "events": []}
     if configured is not None:
         state["configuredRoles"] = configured
     return state
 
 
-def test_add_roster_agent_rejects_off_roster_role() -> None:
+# --- configuredRoles: the role boundary --------------------------------------
+
+
+def test_ensure_role_in_roster_rejects_off_roster_role() -> None:
     state = configured_state(["architect", "developer", "performance", "tester"])
     with pytest.raises(SystemExit) as exc:
-        add_roster_agent(state, "security", "security", "architect")
+        ensure_role_in_roster(state, "security")
     message = str(exc.value)
     assert "not enabled for this run" in message
     assert "ask the user to add it to the roster" in message
-    assert "security" not in state["agents"]
 
 
-def test_add_roster_agent_rejects_second_architect_seat() -> None:
-    state = configured_state(["architect", "developer"], seated={"architect-1": "architect"})
-    with pytest.raises(SystemExit) as exc:
-        add_roster_agent(state, "architect", "architect-2", "architect")
-    assert "singleton" in str(exc.value)
-    assert "architect-2" not in state["agents"]
+def test_ensure_role_in_roster_admits_an_enabled_role_with_zero_live_workers() -> None:
+    # The lazy-roster change: membership is `configuredRoles`, not a seated worker.
+    # A run whose only live worker is the architect still plans/claims `developer`
+    # work — the old "enabled but unseated -> reject" gate is gone.
+    state = configured_state(["architect", "developer"])
+    ensure_role_in_roster(state, "developer")  # enabled -> no raise, even unseated
 
 
-def test_generals_are_a_pool_not_a_singleton_seat() -> None:
-    # Inverted from the old "second general seat is rejected" contract (MC-1585):
-    # the default product is a POOL of plain agents sharing one task graph by
-    # claiming, which the startup prompt and sprintengine_general_workflow have
-    # always promised. A general seats like a developer; only the architect is
-    # capped at one live seat. Planning stays serialized by task ownership.
-    state = configured_state(["general"], seated={"general": "general"})
-    agent = add_roster_agent(state, "general", "general-1", "general")
-    assert agent["role"] == "general"
-    assert add_roster_agent(state, "general", "general-2", "general")["role"] == "general"
-    assert set(state["agents"]) == {"general", "general-1", "general-2"}
-
-
-def test_add_roster_agent_allows_replacing_a_retired_planner() -> None:
-    # A retired architect has vacated its planning seat, so a replacement seats.
-    state = configured_state(["architect"], seated={"architect-1": "architect"})
-    state["agents"]["architect-1"]["status"] = "retired"
-    assert planning_seat_taken(state["agents"], "architect") is False
-    agent = add_roster_agent(state, "architect", "architect-2", "architect")
-    assert agent["role"] == "architect"
-    assert state["agents"]["architect-2"]["role"] == "architect"
-
-
-def test_add_roster_agent_reseat_of_same_id_is_idempotent() -> None:
-    # Re-adding the exact seated planner id is a no-op, never a seat-cap rejection.
-    state = configured_state(["architect"], seated={"architect-1": "architect"})
-    agent = add_roster_agent(state, "architect", "architect-1", "architect")
-    assert agent is state["agents"]["architect-1"]
-
-
-def test_enabled_non_planning_roles_seat_freely() -> None:
-    # An enabled, non-planning role seats on demand and is not a singleton: two
-    # developer ids co-exist because each owns exactly one task.
-    state = configured_state(
-        ["architect", "developer", "security"],
-        seated={"architect-1": "architect"},
-    )
-    add_roster_agent(state, "security", "security-1", "architect")
-    add_roster_agent(state, "developer", "developer-1", "architect")
-    add_roster_agent(state, "developer", "developer-2", "architect")
-    assert state["agents"]["security-1"]["role"] == "security"
-    assert {"developer-1", "developer-2"} <= set(state["agents"])
-
-
-def test_guards_noop_when_configured_roles_absent() -> None:
-    # Legacy run: rosterConfigured but no configuredRoles key -> nothing enforced.
-    state = configured_state(None, seated={"architect-1": "architect"})
-    add_roster_agent(state, "security", "security-1", "architect")
-    add_roster_agent(state, "architect", "architect-2", "architect")
-    assert state["agents"]["security-1"]["role"] == "security"
-    assert state["agents"]["architect-2"]["role"] == "architect"
-
-
-def test_guards_noop_when_configured_roles_empty() -> None:
-    # An explicit empty enabled set is treated as "unenforced" for the roster
-    # boundary: an empty roster cannot be the whole allowed set.
-    state = configured_state([], seated={"architect-1": "architect"})
-    add_roster_agent(state, "security", "security-1", "architect")
-    add_roster_agent(state, "architect", "architect-2", "architect")
-    assert "security-1" in state["agents"]
-    assert "architect-2" in state["agents"]
-
-
-def test_ensure_role_in_roster_rejects_off_roster_plan_role() -> None:
-    state = configured_state(["architect", "developer"], seated={"architect-1": "architect"})
-    with pytest.raises(SystemExit) as exc:
-        ensure_role_in_roster(state, "security")
-    assert "not enabled for this run" in str(exc.value)
-
-
-def test_ensure_role_in_roster_allows_enabled_seated_role() -> None:
-    state = configured_state(
-        ["architect", "developer"],
-        seated={"architect-1": "architect", "developer-1": "developer"},
-    )
-    ensure_role_in_roster(state, "developer")  # enabled and seated -> no raise
-
-
-def test_ensure_role_in_roster_rejects_an_enabled_but_unseated_role() -> None:
-    # Two gates, both enforced: `developer` is enabled, but nothing is seated for
-    # it, so plan.add_task still refuses. (`sprintengine.roster.add` first.)
-    state = configured_state(["architect", "developer"], seated={"architect-1": "architect"})
-    with pytest.raises(SystemExit) as exc:
-        ensure_role_in_roster(state, "developer")
-    assert "not in this Sprint Engine roster" in str(exc.value)
-
-
-def test_ensure_role_in_roster_noop_without_configured_roles() -> None:
-    # No configuredRoles and no seated roster constraint -> unconfigured, no raise.
-    state = {"sprintengine": {}, "agents": {}, "events": []}
+def test_ensure_role_in_roster_noop_when_configured_roles_absent() -> None:
+    # Legacy/headless run: no configuredRoles key -> nothing enforced.
+    state = configured_state(None)
     ensure_role_in_roster(state, "security")
+
+
+def test_ensure_role_in_roster_noop_when_configured_roles_empty() -> None:
+    # An explicit empty enabled set cannot be the whole allowed set, so it is
+    # treated as unenforced rather than "admit nothing".
+    state = configured_state([])
+    ensure_role_in_roster(state, "security")
+    assert configured_role_set(state) is None
+
+
+# --- leases: the assignment-uniqueness cap that replaced the seat -------------
+
+
+def leased(task_id: str, role: str, worker: str, status: str = "in_progress") -> dict:
+    record = make_task(task_id, task_id, role, status=status, owner=worker)
+    mint_lease(record, worker, role)
+    return record
+
+
+def test_worker_holding_an_active_lease_is_refused_a_second_claim() -> None:
+    # Replaces the singleton seat / ownedTaskIds cap: the boundary is ≤1 ACTIVE
+    # lease. A worker mid-task cannot claim T2.
+    state = {"tasks": [leased("T1", "developer", "developer-1"), make_task("T2", "b", "developer")]}
+    assert worker_has_active_lease(state, "developer-1", excluding_task_id="T2") is True
+
+
+def test_worker_may_claim_again_once_its_task_is_done() -> None:
+    # The deliberate D2 change: a worker id whose task is done holds no active
+    # lease and may claim its next task — no more retire/re-add churn for a spent
+    # architect id.
+    done = make_task("T1", "a", "architect", status="done", owner="architect-1")
+    end_lease(done)
+    state = {"tasks": [done, make_task("T2", "plan-2", "architect")]}
+    assert worker_has_active_lease(state, "architect-1") is False
+
+
+def test_reclaiming_the_same_task_is_always_allowed() -> None:
+    # A rework respawn re-claims its own task; excluding it makes the check pass.
+    state = {"tasks": [leased("T1", "developer", "developer-1")]}
+    assert worker_has_active_lease(state, "developer-1", excluding_task_id="T1") is False
+
+
+def test_no_singleton_seat_survives_two_ids_of_a_role_each_hold_a_lease() -> None:
+    # The old singleton architect seat is gone: leases cap per worker id, not per
+    # role, so two architect ids can each own an active task at once.
+    state = {"tasks": [leased("T1", "architect", "architect-1"), leased("T2", "architect", "architect-2")]}
+    assert worker_has_active_lease(state, "architect-1") is True
+    assert worker_has_active_lease(state, "architect-2") is True
 
 
 # --- where configuredRoles comes from ----------------------------------------
@@ -160,8 +123,8 @@ def test_ensure_role_in_roster_noop_without_configured_roles() -> None:
 
 def test_init_persists_configured_roles(tmp_path) -> None:
     # A real CLI init round-trip: --configured-roles-json lands in run.yaml as
-    # `configuredRoles`, distinct from the seated agent roles and the
-    # roleRuntimes key set (which includes CLI-default roles).
+    # `configuredRoles`, distinct from the roleRuntimes key set (which includes
+    # CLI-default roles). `--agent` no longer seeds a roster (leases replaced it).
     from helpers import SwarmCli, read_state
 
     state_path = tmp_path / ".multi-code" / "sprintengine" / "init-configured-roles" / "run.yaml"
@@ -176,13 +139,17 @@ def test_init_persists_configured_roles(tmp_path) -> None:
     state = read_state(state_path)
     assert state["configuredRoles"] == ["developer", "security", "tester"]
     assert state["configuredRoles"] != list(state.get("roleRuntimes", {}).keys())
-    assert set(state["configuredRoles"]) != store.roster_roles_from_state(state)
 
 
 def test_init_without_configured_roles_omits_key(tmp_path) -> None:
+    # `--agent` marks the run roster-configured but never populates configuredRoles
+    # (that is the separate --configured-roles-json contract), so the key stays
+    # absent and the role boundary no-ops.
     from helpers import SwarmCli, read_state
 
     state_path = tmp_path / ".multi-code" / "sprintengine" / "init-no-configured-roles" / "run.yaml"
     cli = SwarmCli(state_path)
     cli.run("init", "--name", "init-no-configured-roles", "--agent", "developer:developer-1")
-    assert "configuredRoles" not in read_state(state_path)
+    state = read_state(state_path)
+    assert "configuredRoles" not in state
+    assert configured_role_set(state) is None
