@@ -40,18 +40,16 @@ from sprintengine_core.tool.state import (
     append_event,
     append_task_activity,
     assign_task,
-    clear_task_refs,
     create_task_comment,
     end_lease,
-    ensure_agent,
     ensure_role_in_roster,
     find_task,
     mint_lease,
     reconcile_worker,
     release_expired_agent_targets,
-    set_agent_idle,
     worker_has_active_lease,
     worker_role,
+    worker_view,
     with_locked_state,
 )
 from sprintengine_core.tool.tasks import (
@@ -122,8 +120,8 @@ def cmd_task_next(args: argparse.Namespace) -> Dict[str, Any]:
             ensure_role_in_roster(state, args.role)
             expired = release_expired_agent_targets(state, actor="sprintengine", excluding_agent_id=args.id)
             runtime = reconcile_worker(state, args.id, args.role)
-            agent = runtime["agent"]
             active = runtime["activeTask"]
+            agent = worker_view(state, args.id)
             if active:
                 if active.get("status") == "needs_input":
                     needs_input = active.get("needsInput") if isinstance(active.get("needsInput"), dict) else {}
@@ -272,7 +270,6 @@ def cmd_task_status(args: argparse.Namespace) -> Dict[str, Any]:
         task = find_task(state, args.task_id)
         actor = args.id or task.get("ownerAgentId") or task.get("role") or "agent"
         previous_status = task.get("status")
-        previous_owner_id = task.get("ownerAgentId")
         if args.status in VALID_TASK_PHASES:
             # A phase status is entered only by `task.publish` (which composes the
             # phase directive and runs change detection) and stepped by `task.advance`
@@ -347,8 +344,6 @@ def cmd_task_status(args: argparse.Namespace) -> Dict[str, Any]:
                     task["status"] = "todo"
                     task["startedAt"] = None
         if args.status == "todo":
-            if previous_owner_id:
-                set_agent_idle(ensure_agent(state, previous_owner_id, task.get("role")))
             task["ownerAgentId"] = None
             task["startedAt"] = None
             task["completedAt"] = None
@@ -371,21 +366,10 @@ def cmd_task_status(args: argparse.Namespace) -> Dict[str, Any]:
             commit_sha = commit_task_changes_if_needed(state, args.state, task, str(actor))
         if task.get("ownerAgentId") and args.status in ACTIVE_TASK_STATUSES:
             # The owner holds the task's lease while it is active (a Flow-5 reopen
-            # re-binds it to its implementer). Sync the display mirror alongside.
+            # re-binds it to its implementer).
             mint_lease(task, task["ownerAgentId"], task.get("role"))
-            agent = ensure_agent(state, task["ownerAgentId"], task.get("role"))
-            if args.status in {"in_progress", "review"}:
-                agent["status"] = "running"
-                agent["currentTaskId"] = args.task_id
-            elif args.status == "needs_input":
-                agent["status"] = "needs_input"
-                agent["currentTaskId"] = args.task_id
-        cleared = []
         if args.status not in ACTIVE_TASK_STATUSES:
             end_lease(task)
-            cleared = clear_task_refs(state, args.task_id)
-            if previous_owner_id:
-                set_agent_idle(ensure_agent(state, previous_owner_id, task.get("role")))
             task["ownerAgentId"] = None
         feedback_payload = build_feedback_payload(args, state, args.state, task, actor)
         if feedback_payload:
@@ -412,7 +396,6 @@ def cmd_task_status(args: argparse.Namespace) -> Dict[str, Any]:
             "status": final_status,
             **({"requestedStatus": args.status} if final_status != args.status else {}),
             "event": event,
-            "clearedAgents": cleared,
             "commitSha": commit_sha,
             **(continuation or {}),
             "_feedbackRecord": feedback_payload["record"] if feedback_payload else None,

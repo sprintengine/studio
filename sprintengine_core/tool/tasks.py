@@ -108,7 +108,6 @@ def publish_task(
         task["completedAt"] = published_at
         task["ownerAgentId"] = None
         end_lease(task)
-        clear_task_refs(state, str(task.get("id")))
         # A plan/product approval task carries `phases: []`, so publishing it drives
         # it straight to done; resolve its draft placeholder like the other task-done
         # transitions. Imported lazily to avoid an artifacts<->tasks import cycle.
@@ -156,7 +155,6 @@ def enter_phase(state: Dict[str, Any], task: Dict[str, Any], phase: str, actor: 
         task["ownerAgentId"] = None
         end_lease(task)
         task["awaitingPhaseSession"] = {"phase": phase, "runtime": dict(phase_runtime(state, phase))}
-        clear_task_refs(state, str(task.get("id")))
         append_task_activity(
             task,
             "status_change",
@@ -170,8 +168,6 @@ def enter_phase(state: Dict[str, Any], task: Dict[str, Any], phase: str, actor: 
     # The owner stays bound across the phase walk; refresh its lease so review /
     # needs_input stay bound to it and the expiry sweep measures from re-entry.
     mint_lease(task, actor, task.get("role"))
-    agent = ensure_agent(state, actor, task.get("role"))
-    set_agent_active(agent, task)
 
 
 def task_awaiting_phase_session(task: Dict[str, Any]) -> Optional[str]:
@@ -199,8 +195,6 @@ def claim_phase_session(state: Dict[str, Any], task: Dict[str, Any], agent_id: s
     task["ownerAgentId"] = agent_id
     mint_lease(task, agent_id, task.get("role"))
     stamp_task_execution_identity(state, task, model=runtime.get("model"), cli=runtime.get("cli"))
-    agent = ensure_agent(state, agent_id, task.get("role"))
-    set_agent_active(agent, task)
     append_task_activity(
         task,
         "claim",
@@ -208,7 +202,7 @@ def claim_phase_session(state: Dict[str, Any], task: Dict[str, Any], agent_id: s
         f"{agent_id} claimed the {phase} phase of {task.get('id')} on its bound runtime.",
         {"status": phase, "phase": phase},
     )
-    return {"agent": agent, "phase": phase}
+    return {"agent": worker_view(state, agent_id), "phase": phase}
 
 
 def advance_task(
@@ -293,9 +287,6 @@ def advance_task(
             data={"phase": clean_phase, "outcome": outcome},
         )
         task.pop("awaitingPhaseSession", None)
-        agent = ensure_agent(state, actor, task.get("role"))
-        agent["status"] = "needs_input"
-        agent["currentTaskId"] = task.get("id")
         next_status = "needs_input"
         next_phase = None
     else:
@@ -321,7 +312,6 @@ def advance_task(
             task["ownerAgentId"] = None
             end_lease(task)
             task.pop("awaitingPhaseSession", None)
-            clear_task_refs(state, str(task.get("id")))
             from sprintengine_core.tool.artifacts import supersede_stale_gate_placeholder_on_completion
             supersede_stale_gate_placeholder_on_completion(state, task, actor)
         else:

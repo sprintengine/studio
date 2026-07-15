@@ -392,7 +392,6 @@ def ensure_product_intake_gate(state: Dict[str, Any], state_path: Path, actor: s
 
     if product_task.get("status") in ACTIVE_TASK_STATUSES:
         mint_lease(product_task, actor, "product")
-        set_agent_active(ensure_agent(state, actor, "product"), product_task)
         stamp_task_execution_identity(state, product_task)
 
     if product_artifact is None:
@@ -502,7 +501,6 @@ def ensure_plan_approval_gate(
 
     if plan_task.get("status") in ACTIVE_TASK_STATUSES:
         mint_lease(plan_task, actor, role)
-        set_agent_active(ensure_agent(state, actor, role), plan_task)
         stamp_task_execution_identity(state, plan_task)
 
     if plan_artifact is None:

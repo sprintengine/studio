@@ -292,10 +292,11 @@ def _directive_response(result: dict[str, Any]) -> dict[str, Any]:
 
 
 def _heartbeat_response(result: dict[str, Any]) -> dict[str, Any]:
-    """Heartbeat is pure liveness: the server compares the roster record
-    before/after within one mutation that only refreshes `heartbeatAt`, so a
-    heartbeat can never observe a reassignment — assignment state travels
-    through the `task.next` claim/resume, never through this ack."""
+    """Heartbeat is pure liveness: the mutation only renews the lease `heartbeatAt`
+    of the tasks the worker owns (MC-1591 deleted the agents-map mirror), so a
+    heartbeat can never observe a reassignment — assignment state travels through
+    the `task.next` claim/resume, never through this ack. `known` reports whether
+    the worker held any active lease to renew."""
     return {"ok": True, "known": result.get("known") is not False}
 
 

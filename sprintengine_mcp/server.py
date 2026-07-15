@@ -48,14 +48,13 @@ from sprintengine_core.tool.prompts import (
 from sprintengine_core.tool.state import (
     append_event,
     append_task_activity,
-    clear_task_refs,
     create_task_comment,
     find_task,
     record_agent_heartbeat,
-    record_agent_join,
     release_agent_targets,
-    set_agent_idle,
     with_locked_state,
+    worker_active_lease_tasks,
+    worker_view,
 )
 from sprintengine_core.tool.tasks import ensure_evidence, recompute_phase
 
@@ -368,11 +367,15 @@ class SprintEngineMcpServer:
             raise McpToolError("invalid_payload", "agentId cannot be empty.")
 
         def mutate(state: dict[str, Any]) -> dict[str, Any]:
-            agent = record_agent_join(state, agent_id, role)
+            # Join no longer records any per-agent state: assignment is a lease on
+            # the task record (MC-1591), so a fresh joiner that holds no lease
+            # simply has no worker view — the projection's lazy roster owns the
+            # pre-seat placeholder. A worker rejoining mid-task resolves back to
+            # its active lease, so its worker view carries the resume dispatch.
             run = state.get("sprintengine", {})
             return {
                 "ok": True,
-                "agent": agent,
+                "agent": worker_view(state, agent_id),
                 "run": _run_metadata(
                     run,
                     state_path,
@@ -382,7 +385,7 @@ class SprintEngineMcpServer:
                 # Compose-time gate for the multicode_backlog layer skill: only a
                 # backlog-sourced run pays its prompt cost.
                 "backlogSourced": run_is_backlog_sourced(state),
-                "write": True,
+                "write": False,
             }
 
         lifecycle = with_locked_state(state_path, mutate)
@@ -404,7 +407,7 @@ class SprintEngineMcpServer:
             "agentId": agent_id,
             "role": role,
             "agent": lifecycle["agent"],
-            "currentDispatch": lifecycle["agent"].get("currentDispatch"),
+            "currentDispatch": (lifecycle["agent"] or {}).get("currentDispatch"),
             "run": lifecycle["run"],
             "roleManifest": role_payload,
             "prompt": prompt,
@@ -421,40 +424,24 @@ class SprintEngineMcpServer:
             raise McpToolError("invalid_payload", "agentId cannot be empty.")
 
         def mutate(state: dict[str, Any]) -> dict[str, Any]:
-            agents = state.get("agents") if isinstance(state.get("agents"), dict) else {}
-            existing = agents.get(agent_id) if isinstance(agents, dict) else None
-            if not isinstance(existing, dict):
-                return {
-                    "ok": True,
-                    "known": False,
-                    "agent": None,
-                    "previous": {},
-                    "write": False,
-                }
-            before = dict(existing)
-            role = payload.get("role") or before.get("role")
-            agent = record_agent_heartbeat(state, agent_id, str(role) if role else None)
+            # Heartbeat is pure liveness: renew the lease heartbeat on every active
+            # lease the worker holds. Liveness lives only on the task lease now
+            # (MC-1591 deleted the agents-map mirror), so `known` reports whether
+            # there was any active lease to renew; a reassignment can never be
+            # observed here — assignment travels through the task.next claim/resume.
+            renewed = record_agent_heartbeat(state, agent_id)
             return {
                 "ok": True,
-                "known": True,
-                "agent": agent,
-                "previous": {
-                    "status": before.get("status"),
-                    "currentTaskId": before.get("currentTaskId"),
-                },
-                "write": True,
+                "known": renewed,
+                "agent": worker_view(state, agent_id),
+                "write": renewed,
             }
 
         result = with_locked_state(state_path, mutate)
-        agent = result.get("agent") if isinstance(result.get("agent"), dict) else None
         return {
             "ok": True,
-            "known": result.get("known", True),
-            "agent": agent,
-            "assignmentUnchanged": {
-                "status": bool(agent) and agent.get("status") == result["previous"].get("status"),
-                "currentTaskId": bool(agent) and agent.get("currentTaskId") == result["previous"].get("currentTaskId"),
-            },
+            "known": bool(result.get("known")),
+            "agent": result.get("agent"),
         }
 
     def _agent_leave(self, state_path: Path, payload: dict[str, Any]) -> dict[str, Any]:
@@ -464,37 +451,37 @@ class SprintEngineMcpServer:
         reason = str(payload.get("reason") or "agent left")
 
         def mutate(state: dict[str, Any]) -> dict[str, Any]:
-            agents = state.get("agents") if isinstance(state.get("agents"), dict) else {}
-            agent = agents.get(agent_id)
-            known = isinstance(agent, dict)
-            # Single release authority: frees the departing agent's owned
-            # `in_progress` task and resets it to idle. Tasks in `review` and
-            # `needs_input` stay owned — the owner is revived under the same id.
-            # Runs for unknown agents too, as defensive cleanup of stale ownership;
-            # it never mints a roster entry.
+            # A worker is "known" to the run when it holds a lease we can act on.
+            # With no agents map (MC-1591), that is derived from the task leases,
+            # not a roster record.
+            known = bool(worker_active_lease_tasks(state, agent_id))
+            # Single release authority: frees the departing worker's owned
+            # `in_progress` task and returns it to the queue. Tasks in `review`
+            # and `needs_input` stay owned — the owner is revived under the same
+            # id. Runs for unknown workers too, as defensive cleanup of stale
+            # ownership; it never mints a roster entry.
             released = [
                 _leave_released_payload(entry)
                 for entry in release_agent_targets(state, agent_id, reason=reason, actor=agent_id)
             ]
-            if not known:
-                if not released:
-                    return {"ok": True, "known": False, "agent": None, "releasedTargets": [], "event": None, "write": False}
-                event = append_event(
-                    state,
-                    "agent_left",
-                    agent_id,
-                    f"Unknown agent {agent_id} left Sprint Engine. Released targets: {len(released)}.",
-                    {"releasedTargets": released, "reason": reason},
-                )
-                return {"ok": True, "known": False, "agent": None, "releasedTargets": released, "event": event, "write": True}
+            if not known and not released:
+                return {"ok": True, "known": False, "agent": None, "releasedTargets": [], "event": None, "write": False}
+            actor_note = agent_id if known else f"Unknown agent {agent_id}"
             event = append_event(
                 state,
                 "agent_left",
                 agent_id,
-                f"{agent_id} left Sprint Engine. Released targets: {len(released)}.",
+                f"{actor_note} left Sprint Engine. Released targets: {len(released)}.",
                 {"releasedTargets": released, "reason": reason},
             )
-            return {"ok": True, "known": True, "agent": agent, "releasedTargets": released, "event": event, "write": True}
+            return {
+                "ok": True,
+                "known": known,
+                "agent": worker_view(state, agent_id),
+                "releasedTargets": released,
+                "event": event,
+                "write": True,
+            }
 
         result = with_locked_state(state_path, mutate)
         return {
