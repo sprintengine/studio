@@ -1748,7 +1748,10 @@ def test_join_ready_task_wake_candidate_does_not_create_dispatch(tmp_path) -> No
     assert store.read_jsonl_file(fixture.team_dir / "dispatch.jsonl") == []
 
 
-def test_claimed_task_current_dispatch_is_idempotent(tmp_path) -> None:
+def test_claimed_task_records_single_dispatch_and_is_idempotent(tmp_path) -> None:
+    # MC-1591: the per-agent dispatch cursor is gone; the lease on the task record
+    # is the claim authority. A re-claim resumes the active task (idempotent) and
+    # appends no second `task_claimed` ledger record.
     fixture = create_team(tmp_path, "claimed-task-dispatch-idempotent", [task("T1", "Implementation", "developer")])
 
     claimed = fixture.cli.run("task", "next", "--role", "developer", "--id", "developer-fixture")
@@ -1757,15 +1760,14 @@ def test_claimed_task_current_dispatch_is_idempotent(tmp_path) -> None:
     assert claimed["claimed"] is True
     assert resumed["claimed"] is False
     assert resumed["reason"] == "agent_already_has_active_task"
-    run = store.load_run_yaml(fixture.team_dir)
     dispatches = [
         record
         for record in store.read_jsonl_file(fixture.team_dir / "dispatch.jsonl")
         if record["reason"] == "task_claimed"
     ]
     assert len(dispatches) == 1
-    assert run["agents"]["developer-fixture"]["currentDispatch"]["dispatchId"] == dispatches[0]["id"]
-    assert run["agents"]["developer-fixture"]["currentDispatch"]["taskId"] == "T1"
+    assert dispatches[0]["agentId"] == "developer-fixture"
+    assert dispatches[0]["target"]["taskId"] == "T1"
 
 
 def test_a_published_task_records_no_second_dispatch(tmp_path) -> None:
@@ -1780,12 +1782,9 @@ def test_a_published_task_records_no_second_dispatch(tmp_path) -> None:
     run = store.load_run_yaml(fixture.team_dir)
     dispatches = store.read_jsonl_file(fixture.team_dir / "dispatch.jsonl")
     assert [record["reason"] for record in dispatches] == ["task_claimed"]
-    assert run["agents"]["developer-fixture"]["currentDispatch"]["reason"] == "task_claimed"
-    assert run["agents"]["developer-fixture"]["currentDispatch"]["targetKind"] == "task"
+    assert dispatches[0]["target"]["taskId"] == "T1"
     assert run["agents"]["developer-fixture"]["currentTaskId"] == "T1"
 
-    projection = fixture.cli.run("projection")
-    assert projection["roster"]["developer-fixture"]["currentDispatch"]["reason"] == "task_claimed"
     # The advance that completes the task queues no dispatch either.
     fixture.cli.run(
         "task", "advance", "--task-id", "T1", "--id", "developer-fixture",
@@ -1794,10 +1793,14 @@ def test_a_published_task_records_no_second_dispatch(tmp_path) -> None:
     assert len(store.read_jsonl_file(fixture.team_dir / "dispatch.jsonl")) == 1
 
 
-def test_ready_task_dispatch_rotates_after_released_target(tmp_path) -> None:
+def test_distinct_workers_claim_distinct_ready_tasks(tmp_path) -> None:
+    # MC-1591 replaced round-robin dispatch cursors with leases. Two ready tasks
+    # go to two distinct workers: the first holds T1's lease, so the second worker
+    # takes the next ready task rather than a re-hand of T1, and no cursor state
+    # is persisted.
     fixture = create_team(
         tmp_path,
-        "round-robin-task-dispatch",
+        "distinct-worker-claims",
         [
             task("T1", "First implementation", "developer"),
             task("T2", "Second implementation", "developer"),
@@ -1807,13 +1810,11 @@ def test_ready_task_dispatch_rotates_after_released_target(tmp_path) -> None:
     first = fixture.cli.run("task", "next", "--role", "developer", "--id", "developer-1")
     assert first["task"]["id"] == "T1"
 
-    fixture.cli.run("task", "status", "--task-id", "T1", "--status", "todo", "--id", "developer-1")
-
     second = fixture.cli.run("task", "next", "--role", "developer", "--id", "developer-2")
     assert second["task"]["id"] == "T2"
 
     state = read_state(fixture.state_path)
-    assert state["sprintengine"]["dispatchCursors"]["developer:task"] == "task:T2"
+    assert "dispatchCursors" not in state.get("sprintengine", {})
 
 
 def test_expired_agent_releases_task_and_redispatches_with_ledger_evidence(tmp_path) -> None:

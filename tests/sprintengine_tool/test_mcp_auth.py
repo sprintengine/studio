@@ -92,8 +92,6 @@ def test_every_mcp_read_and_health_tool_requires_authenticated_user(tmp_path, to
 @pytest.mark.parametrize(
     ("tool_name", "payload"),
     [
-        ("sprintengine.subscribe", {"agentId": "developer-a"}),
-        ("sprintengine.dispatch.ack", {"agentId": "developer-a", "dispatchId": "DISP-001"}),
         ("sprintengine.task.publish", {"taskId": "T1", "id": "developer-a", "summary": "Done"}),
         ("sprintengine.handover", {"name": "mcp-handover-auth", "handoverText": "Build it."}),
         (

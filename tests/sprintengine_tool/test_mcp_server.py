@@ -314,7 +314,7 @@ def test_mcp_help_returns_versioned_agent_workflow_without_state_path() -> None:
     assert "request_changes" not in result["markdown"]
 
 
-def test_mcp_v1_contract_schemas_include_planned_lifecycle_and_dispatch_tools() -> None:
+def test_mcp_v1_contract_schemas_include_planned_lifecycle_tools() -> None:
     planned = {
         "sprintengine.help",
         "sprintengine.handover",
@@ -322,9 +322,6 @@ def test_mcp_v1_contract_schemas_include_planned_lifecycle_and_dispatch_tools() 
         "sprintengine.agent.next_directive",
         "sprintengine.agent.heartbeat",
         "sprintengine.agent.leave",
-        "sprintengine.subscribe",
-        "sprintengine.dispatch.next",
-        "sprintengine.dispatch.ack",
         "sprintengine.triage.needs_input",
         "sprintengine.roles.list",
         "sprintengine.roles.get",
@@ -443,24 +440,16 @@ def test_mcp_valid_task_lifecycle_call_uses_core_and_emits_audit(tmp_path) -> No
     assert len(rows[0]["state_digest"]) == 64
 
 
-def test_mcp_run_and_dispatch_tools_return_role_agnostic_progression_context(tmp_path) -> None:
+def test_mcp_run_tools_return_role_agnostic_progression_context(tmp_path) -> None:
+    # MC-1591 deleted the dispatch.next/ack delivery tools. The run-level tools
+    # stay role-agnostic; the claim response still carries the denormalized
+    # currentDispatch mirror (removed in T4 when the roster is lease-derived).
     fixture = create_team(tmp_path, "mcp-run-dispatch", [task("T1", "Dispatch", "developer")])
     server = SprintEngineMcpServer(allowed_roots=[tmp_path])
 
     claimed = server.call_tool(
         "sprintengine.task.next",
         {"statePath": str(fixture.state_path), "role": "developer", "id": "developer-a"},
-        actor("workspace-user", "user"),
-    )
-    dispatch_id = claimed["result"]["currentDispatch"]["dispatchId"]
-    dispatch = server.call_tool(
-        "sprintengine.dispatch.next",
-        {"statePath": str(fixture.state_path), "agentId": "developer-a"},
-        actor("workspace-user", "user"),
-    )
-    ack = server.call_tool(
-        "sprintengine.dispatch.ack",
-        {"statePath": str(fixture.state_path), "agentId": "developer-a", "dispatchId": dispatch_id},
         actor("workspace-user", "user"),
     )
     run = server.call_tool("sprintengine.run.get", {"statePath": str(fixture.state_path)}, actor("workspace-user", "user"))
@@ -470,19 +459,8 @@ def test_mcp_run_and_dispatch_tools_return_role_agnostic_progression_context(tmp
     projection = server.call_tool("sprintengine.run.projection", {"statePath": str(fixture.state_path)}, actor("workspace-user", "user"))
     events = server.call_tool("sprintengine.run.subscribe", {"statePath": str(fixture.state_path)}, actor("workspace-user", "user"))
 
-    assert dispatch["ok"] is True
-    assert dispatch["result"]["state"] == "dispatched"
-    assert dispatch["result"]["currentDispatch"]["dispatchId"] == dispatch_id
-    # Replay stubs share currentDispatch's field dialect (dispatchId, not id).
-    assert any(row["dispatchId"] == dispatch_id for row in dispatch["result"]["dispatches"])
-    # Ack is a minimal acknowledgment — no agent/subscription/event echo; the
-    # subscription cursor persists in the store, not in the response.
-    assert ack["ok"] is True
-    assert ack["result"] == {"ok": True, "dispatchId": dispatch_id, "outcome": "acknowledged"}
-    persisted_subscription = read_state(fixture.state_path)["agents"]["developer-a"]["subscription"]
-    assert persisted_subscription["lastDispatchId"] == dispatch_id
-    assert persisted_subscription["lastDispatchAckAt"]
-    assert persisted_subscription["lastDispatchOutcome"] == "acknowledged"
+    assert claimed["result"]["currentDispatch"]["taskId"] == "T1"
+    assert claimed["result"]["state"] == "dispatched"
     assert run["result"]["run"]["name"] == "mcp-run-dispatch"
     assert "cliWatchPolling" in policy["result"]["runner"]
     assert projection["ok"] is False
@@ -491,52 +469,7 @@ def test_mcp_run_and_dispatch_tools_return_role_agnostic_progression_context(tmp
     assert events["result"]["state"] == "events_available"
     assert [row["operation_name"] for row in audit_rows(fixture.team_dir)] == [
         "sprintengine.task.next",
-        "sprintengine.dispatch.ack",
     ]
-
-
-def test_mcp_dispatch_next_returns_only_requested_agent_rows(tmp_path) -> None:
-    fixture = create_team(
-        tmp_path,
-        "mcp-dispatch-agent-scope",
-        [
-            task("T1", "First dispatch", "developer"),
-            task("T2", "Second dispatch", "developer"),
-        ],
-    )
-    server = SprintEngineMcpServer(allowed_roots=[tmp_path])
-    first = server.call_tool(
-        "sprintengine.task.claim",
-        {"statePath": str(fixture.state_path), "taskId": "T1", "id": "dev-1"},
-        actor("workspace-user", "user"),
-    )
-    second = server.call_tool(
-        "sprintengine.task.claim",
-        {"statePath": str(fixture.state_path), "taskId": "T2", "id": "dev-2"},
-        actor("workspace-user", "user"),
-    )
-    first_dispatch_id = first["result"]["currentDispatch"]["dispatchId"]
-    assert second["result"]["currentDispatch"]["dispatchId"] != first_dispatch_id
-
-    current = server.call_tool(
-        "sprintengine.dispatch.next",
-        {"statePath": str(fixture.state_path), "agentId": "dev-1"},
-        actor("workspace-user", "user"),
-    )
-    after_seen = server.call_tool(
-        "sprintengine.dispatch.next",
-        {"statePath": str(fixture.state_path), "agentId": "dev-1", "lastDispatchId": first_dispatch_id},
-        actor("workspace-user", "user"),
-    )
-
-    assert current["ok"] is True
-    # Replayed records are delta stubs scoped to the requested agent: dev-2's
-    # dispatch is absent, and the caller's own agentId is not echoed back.
-    assert [record["taskId"] for record in current["result"]["dispatches"]] == ["T1"]
-    assert all("agentId" not in record for record in current["result"]["dispatches"])
-    assert current["result"]["currentDispatch"]["dispatchId"] == first_dispatch_id
-    assert after_seen["ok"] is True
-    assert after_seen["result"]["dispatches"] == []
 
 
 def reviewing_task() -> dict:
@@ -784,7 +717,6 @@ def test_mcp_agent_join_returns_prompt_registry_run_and_dispatch_context(tmp_pat
             "workspaceRoot": str(REPO_ROOT),
             "role": "developer",
             "agentId": "developer-a",
-            "subscriptionMode": "poll",
         },
         actor("workspace-user", "user"),
     )
@@ -792,7 +724,10 @@ def test_mcp_agent_join_returns_prompt_registry_run_and_dispatch_context(tmp_pat
     assert response["ok"] is True
     result = response["result"]
     assert result["role"] == "developer"
-    assert result["agent"]["subscription"]["mode"] == "poll"
+    # MC-1591 deleted the subscription mechanism; the field is an inert
+    # {mode: none} mirror. currentDispatch is still echoed from the agent-map
+    # mirror (removed in T4 when the roster is lease-derived).
+    assert result["agent"]["subscription"]["mode"] == "none"
     assert result["currentDispatch"]["taskId"] == "T1"
     assert result["run"]["name"] == "mcp-agent-join-context"
     assert result["roleManifest"]["id"] == "developer"

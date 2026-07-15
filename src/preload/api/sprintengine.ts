@@ -9,7 +9,6 @@ import type {
   SprintEngineAutomationReadResult,
   SprintEngineAutomationSetModeInput,
   SprintEngineAutomationWriteResult,
-  SprintEngineDispatchReadInput,
   SprintEngineMcpReadResult,
   SprintEngineProjectionReadResult,
   SprintEngineRegistryRoleReadInput,
@@ -118,10 +117,6 @@ export const sprintEngineApi = {
     input: SprintEngineRegistryRoleReadInput
   ): Promise<SprintEngineMcpReadResult> =>
     ipcRenderer.invoke('sprintengine:registry:role:read', input),
-  readSprintEngineDispatch: (
-    input: SprintEngineDispatchReadInput
-  ): Promise<SprintEngineMcpReadResult> =>
-    ipcRenderer.invoke('sprintengine:dispatch:read', input),
   summarizeSprintEngineFeedback: (
     statePath: string
   ): Promise<SprintEngineMcpReadResult> =>
@@ -215,7 +210,6 @@ export const sprintEngineApi = {
   | 'readSprintEngineProjection'
   | 'readSprintEngineRegistryRoles'
   | 'readSprintEngineRegistryRole'
-  | 'readSprintEngineDispatch'
   | 'summarizeSprintEngineFeedback'
   | 'readSprintEngineTokenUsage'
   | 'installUserSprintEngineRoleFolder'

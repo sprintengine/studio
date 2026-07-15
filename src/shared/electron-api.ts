@@ -1601,12 +1601,6 @@ export type SprintEngineRegistryRoleReadInput = {
   roleId: string
 }
 
-export type SprintEngineDispatchReadInput = {
-  statePath: string
-  agentId: string
-  lastDispatchId?: string
-}
-
 export type SprintEngineMcpReadResult =
   | { ok: true; data: unknown }
   | { ok: false; message: string; stdout?: string; stderr?: string; exitCode?: number | string }
@@ -2621,7 +2615,6 @@ export type ElectronApi = {
   listThirdPartyRendererEntries: () => Promise<ThirdPartyRendererEntriesResult>
   /** Renderer→module-main bridge: invoke a channel a third-party module registered via registerIpc. Refusals are structured, not rejections. */
   moduleBridgeInvoke: (channel: string, payload?: unknown) => Promise<ModuleBridgeInvokeResult>
-  readSprintEngineDispatch: (input: SprintEngineDispatchReadInput) => Promise<SprintEngineMcpReadResult>
   /** Sanitized per-run + per-agent feedback analysis for the run summary (read-only). */
   summarizeSprintEngineFeedback: (statePath: string) => Promise<SprintEngineMcpReadResult>
   /** Per-task / per-agent / run token usage computed from the run's durable
