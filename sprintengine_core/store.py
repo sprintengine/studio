@@ -302,15 +302,6 @@ def worker_assignment_policy(state: dict[str, Any]) -> str:
     return normalize_roster_policy(state.get("rosterPolicy"))["workerAssignment"]
 
 
-def roster_roles_from_state(state: dict[str, Any]) -> set[str]:
-    agents = state.get("agents") if isinstance(state.get("agents"), dict) else {}
-    return {
-        str(agent.get("role"))
-        for agent in agents.values()
-        if isinstance(agent, dict) and str(agent.get("role") or "").strip()
-    }
-
-
 def roster_is_configured_in_state(state: dict[str, Any]) -> bool:
     sprintengine = state.get("sprintengine") if isinstance(state.get("sprintengine"), dict) else {}
     return bool(sprintengine.get("rosterConfigured"))
@@ -359,19 +350,6 @@ def append_event(team_dir: Path, event: dict[str, Any]) -> Path:
     return team_dir / EVENTS_FILE
 
 
-def normalize_agent_subscription(raw: Any) -> dict[str, Any]:
-    source = raw if isinstance(raw, dict) else {}
-    mode = str(source.get("mode") or "none").strip()
-    if mode not in {"none", "poll", "mcp_notifications"}:
-        mode = "none"
-    subscription: dict[str, Any] = {"mode": mode}
-    for key in ("subscribedAt", "lastDispatchId", "lastDispatchAckAt", "lastDispatchOutcome"):
-        value = str(source.get(key) or "").strip()
-        if value:
-            subscription[key] = value
-    return subscription
-
-
 def normalize_current_dispatch(raw: Any) -> dict[str, Any] | None:
     if not isinstance(raw, dict):
         return None
@@ -392,54 +370,6 @@ def normalize_current_dispatch(raw: Any) -> dict[str, Any] | None:
         if value:
             dispatch[key] = value
     return dispatch
-
-
-def normalize_agent_record(agent_id: str, raw: Any) -> dict[str, Any]:
-    source = raw if isinstance(raw, dict) else {}
-    role = str(source.get("role") or "").strip()
-    status = str(source.get("status") or "idle").strip() or "idle"
-    joined_at = str(source.get("joinedAt") or "").strip() or now_iso()
-    heartbeat_at = str(source.get("heartbeatAt") or "").strip() or joined_at
-    agent = {
-        "role": role,
-        "status": status,
-        "heartbeatAt": heartbeat_at,
-        "subscription": normalize_agent_subscription(source.get("subscription")),
-        "currentDispatch": normalize_current_dispatch(source.get("currentDispatch")),
-        "joinedAt": joined_at,
-        "currentTaskId": source.get("currentTaskId") or None,
-    }
-    for key in ("lastDirectiveAt", "lastOwnedTaskId", "leftAt", "leaveReason", "deadAt", "replacedByAgentId"):
-        value = source.get(key)
-        if value not in (None, ""):
-            agent[key] = value
-    # Durable set of every task this id has owned (MC task-scoped roster ids).
-    # Carried through the projection so the renderer and the claim guard read
-    # the same ownership record. Bare (never-owned) ids omit the key.
-    owned_task_ids = [
-        str(task_id).strip()
-        for task_id in (source.get("ownedTaskIds") or [])
-        if str(task_id).strip()
-    ]
-    if owned_task_ids:
-        deduped: list[str] = []
-        for task_id in owned_task_ids:
-            if task_id not in deduped:
-                deduped.append(task_id)
-        agent["ownedTaskIds"] = deduped
-    if not agent["role"]:
-        agent["role"] = str(agent_id).split("-", 1)[0] or "developer"
-    return agent
-
-
-def normalize_agents(raw: Any) -> dict[str, dict[str, Any]]:
-    agents = raw if isinstance(raw, dict) else {}
-    normalized: dict[str, dict[str, Any]] = {}
-    for agent_id, agent in agents.items():
-        clean_id = str(agent_id).strip()
-        if clean_id:
-            normalized[clean_id] = normalize_agent_record(clean_id, agent)
-    return normalized
 
 
 def dispatch_id_for_record(record: dict[str, Any]) -> str:
@@ -505,7 +435,6 @@ def initialize_run_store(
                 "rosterConfigured": roster_configured,
                 "graphPolicy": {"readiness": "dependency"},
                 "runner": dict(DEFAULT_RUNNER_POLICY),
-                "agents": {},
                 "roles": {},
                 "sprintengine": {
                     "name": name,
@@ -924,7 +853,6 @@ def state_from_folder_store(team_dir: Path) -> dict[str, Any]:
     if isinstance(run.get("creation"), dict):
         reconstructed_sprintengine.setdefault("creation", run["creation"])
 
-    agents = normalize_agents(run.get("agents"))
     roles = run.get("roles") if isinstance(run.get("roles"), dict) else {}
     role_runtimes = run.get("roleRuntimes") if isinstance(run.get("roleRuntimes"), dict) else {}
     task_order = {
@@ -934,6 +862,8 @@ def state_from_folder_store(team_dir: Path) -> dict[str, Any]:
     }
     tasks = [_semantic_task_from_folder_record(task) for task in _tasks_from_folder_store(team_dir)]
     tasks.sort(key=lambda task: task_order.get(str(task.get("id") or ""), len(task_order)))
+    # No `agents` key (MC-1591): assignment is a lease on each task record and the
+    # projection derives its workers/roster view from those leases.
     state = {
         "sprintengine": reconstructed_sprintengine,
         "rosterPolicy": normalize_roster_policy(run.get("rosterPolicy")),
@@ -942,7 +872,6 @@ def state_from_folder_store(team_dir: Path) -> dict[str, Any]:
         "artifacts": [_semantic_artifact_from_folder_record(artifact) for artifact in _artifacts_from_folder_store(team_dir)],
         "events": read_jsonl_file(team_dir / EVENTS_FILE),
         "dispatches": read_jsonl_file(team_dir / DISPATCH_FILE),
-        "agents": agents,
         "roles": roles,
         "roleRuntimes": role_runtimes,
     }

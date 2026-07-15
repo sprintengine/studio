@@ -25,7 +25,7 @@ from sprintengine_core.tool.plans import (
     safe_review_filename,
 )
 from sprintengine_core.tool.roles import require_configured_role
-from sprintengine_core.tool.state import append_event, clear_task_refs, ensure_role_in_roster, find_task, load_mutation_state, with_locked_state
+from sprintengine_core.tool.state import append_event, ensure_role_in_roster, find_task, load_mutation_state, with_locked_state
 from sprintengine_core.tool.tasks import (
     add_unique_values,
     assert_phases_within_run_ceiling,
@@ -147,7 +147,6 @@ def cmd_plan_delete_task(args: argparse.Namespace) -> Dict[str, Any]:
             folder_store.validate_acyclic_task_graph(remaining)
         except ValueError as exc:
             raise SystemExit(str(exc)) from exc
-        clear_task_refs(state, args.task_id)
         state["tasks"] = remaining
         recompute_phase(state)
         event = append_event(state, "task_deleted", args.actor, f"{args.actor} deleted {args.task_id}.")

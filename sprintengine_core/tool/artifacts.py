@@ -183,11 +183,6 @@ def mark_task_needs_input_for_artifact(state: Dict[str, Any], task: Dict[str, An
         "reportedBy": str((artifact or {}).get("createdBy") or task.get("ownerAgentId") or task.get("role") or "agent"),
         "reportedAt": now_iso(),
     }
-    owner_id = task.get("ownerAgentId")
-    if owner_id:
-        agent = ensure_agent(state, owner_id, task.get("role"))
-        agent["status"] = "needs_input"
-        agent["currentTaskId"] = task.get("id")
     append_task_activity(
         task,
         "needs_input",
@@ -205,13 +200,6 @@ def mark_task_done_if_artifacts_approved(state: Dict[str, Any], task: Dict[str, 
     task.pop("needsInput", None)
     task["completedAt"] = now_iso()
     append_task_activity(task, "status_change", str(task.get("ownerAgentId") or task.get("role") or "agent"), f"Task {task.get('id')} completed after artifact approval.", {"status": "done"})
-    cleared = clear_task_refs(state, str(task.get("id")))
-    owner_id = task.get("ownerAgentId")
-    if owner_id:
-        set_agent_idle(ensure_agent(state, owner_id, task.get("role")))
-    for agent_id in cleared:
-        if agent_id != owner_id:
-            set_agent_idle(ensure_agent(state, agent_id))
     # A done task holds no owner. One of five independent task->done writers; each
     # must clear it, because there is no single choke point to hook.
     task["ownerAgentId"] = None
@@ -369,9 +357,6 @@ def resolve_task_input(
         task["status"] = "done"
         task["completedAt"] = now
         supersede_stale_gate_placeholder_on_completion(state, task, actor)
-        if owner_id:
-            set_agent_idle(ensure_agent(state, owner_id, task.get("role")))
-        clear_task_refs(state, str(task.get("id")))
         # A done task holds no owner (see mark_task_done_if_artifacts_approved).
         task["ownerAgentId"] = None
         return {"status": "done", "ownerAgentId": owner_id or None, "resumePhase": None}
@@ -380,10 +365,6 @@ def resolve_task_input(
     task["completedAt"] = None
     if not task.get("startedAt"):
         task["startedAt"] = now
-    if owner_id:
-        agent = ensure_agent(state, owner_id, task.get("role"))
-        agent["status"] = "running"
-        agent["currentTaskId"] = task.get("id")
     return {
         "status": resume_status,
         "ownerAgentId": owner_id or None,
@@ -402,9 +383,6 @@ def release_task_from_owner(state: Dict[str, Any], task: Dict[str, Any], actor: 
             f"Only owned tasks ({', '.join(sorted(ACTIVE_TASK_STATUSES))}) can be released."
         )
     previous_owner_id = str(task.get("ownerAgentId") or "").strip()
-    if previous_owner_id:
-        set_agent_idle(ensure_agent(state, previous_owner_id, task.get("role")))
-    clear_task_refs(state, str(task.get("id")))
     task["ownerAgentId"] = None
     task["status"] = "todo"
     task["startedAt"] = None
@@ -426,13 +404,9 @@ def reopen_task_for_artifact_changes(state: Dict[str, Any], task: Dict[str, Any]
     if owner_still_active:
         task["status"] = "in_progress"
         task.pop("needsInput", None)
-        agent = ensure_agent(state, str(owner_id), task.get("role"))
-        agent["status"] = "running"
-        agent["currentTaskId"] = task.get("id")
         append_task_activity(task, "status_change", str(owner_id), "Task reopened for artifact changes.", {"status": "in_progress"})
         return "in_progress"
 
-    clear_task_refs(state, str(task.get("id")))
     task["ownerAgentId"] = None
     task["status"] = "todo"
     task.pop("needsInput", None)

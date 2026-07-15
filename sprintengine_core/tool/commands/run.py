@@ -42,9 +42,7 @@ from sprintengine_core.tool.roles import require_configured_role
 from sprintengine_core.tool.phase_prompts import build_merge_start_prompt, worker_execution_workspace_block
 from sprintengine_core.tool.shell import ensure_run_worktree, get_run_vcs
 from sprintengine_core.tool.state import (
-    agent_is_retired,
     append_event,
-    apply_agent_specs,
     apply_allowed_runtimes,
     apply_configured_roles,
     apply_init_source,
@@ -58,7 +56,6 @@ from sprintengine_core.tool.state import (
     ensure_role_in_roster,
     find_task,
     load_mutation_state,
-    parse_agent_specs,
     reconcile_worker,
     release_expired_agent_targets,
     roster_is_configured,
@@ -206,7 +203,6 @@ def cmd_handover(args: argparse.Namespace) -> Dict[str, Any]:
             "rosterConfigured": bool(getattr(args, "agent", None)),
         },
         "tasks": [],
-        "agents": parse_agent_specs(getattr(args, "agent", None)),
         "events": [
             {
                 "id": "EVT-001",
@@ -305,14 +301,17 @@ def cmd_init(args: argparse.Namespace) -> Dict[str, Any]:
                 "rosterConfigured": bool(getattr(args, "agent", None)),
             },
             "tasks": [],
-            "agents": parse_agent_specs(getattr(args, "agent", None)),
             "events": [],
             "artifacts": [],
             "roles": {},
         }
 
     def run(state: Dict[str, Any]) -> Dict[str, Any]:
-        apply_agent_specs(state, getattr(args, "agent", None))
+        # `--agent role:id` no longer seeds an agents map (MC-1591: leases replace
+        # the roster); it only marks the run as roster-configured. Role authority
+        # is `configuredRoles`, applied below.
+        if getattr(args, "agent", None):
+            state.setdefault("sprintengine", {})["rosterConfigured"] = True
         apply_role_runtimes(state, getattr(args, "role_runtimes_json", None))
         apply_configured_roles(state, getattr(args, "configured_roles_json", None))
         # "Architect picks the team": the wizard forwards the roster-source mode
@@ -665,17 +664,6 @@ def agent_next_directive_from_join(
             "blocker": result.get("blocker") or {"reason": "needs_input"},
         }
 
-    if action == "retired":
-        return {
-            **base,
-            "directiveType": "blocked",
-            "message": result.get("message") or "This Sprint Engine agent is retired and must not continue.",
-            "nextMcpToolName": None,
-            "nextMcpArguments": None,
-            "nextTool": None,
-            "blocker": {"reason": "agent_retired"},
-        }
-
     return {
         **base,
         "directiveType": "error",
@@ -781,18 +769,6 @@ def cmd_join(args: argparse.Namespace) -> Dict[str, Any]:
         ensure_role_in_roster(state, args.role)
         expired = release_expired_agent_targets(state, actor="sprintengine", excluding_agent_id=args.id)
         runtime = reconcile_worker(state, args.id, args.role)
-        agent = runtime["agent"]
-        if agent_is_retired(agent):
-            return {
-                "ok": True,
-                "role": args.role,
-                "agentId": args.id,
-                "action": "retired",
-                "runner": runner_policy(state),
-                "message": "This Sprint Engine agent is retired and must not claim more work. Stop now.",
-                "releasedExpired": expired["released"],
-                "write": runtime["dirty"] or expired["dirty"],
-            }
         active = runtime["activeTask"]
         ready = [t for t in state.get("tasks", []) if t.get("role") == args.role and task_is_ready(state, t)]
 
