@@ -436,6 +436,62 @@ async function testCompletedProjectionRefreshesMatchingBacklogLink(): Promise<vo
   assert.equal(backlogMutations[0].link.status, 'completed')
 }
 
+// An epic launched as a sprint carries the run's execution link, but its status
+// derives up from its children — a finished run must complete the epic's link chip
+// without driving the epic to completed while children are still open. The leaf in
+// the same store still completes, so only the epic is spared.
+async function testCompletedProjectionSparesEpicStatus(): Promise<void> {
+  const applied: SprintEngineState[] = []
+  const backlogMutations: Array<{
+    workspaceRoot: string
+    relativePath: string
+    link: BacklogItemLinkPayload
+    status?: 'completed'
+  }> = []
+  const runLink = (id: string): BacklogItemLinkPayload => ({
+    id: `sprint-engine:${id}`,
+    moduleId: 'sprint-engine',
+    type: 'execution',
+    label: 'Sprint Engine run',
+    target: { kind: 'sprintengine.run', id: 'unified-refresh', path: '.multi-code/sprintengine/unified-refresh/run.yaml' },
+    status: 'active',
+  })
+  await refreshSprintEngineWorkspaceProjection({
+    workspace: workspace(),
+    tokens: new Map(),
+    cause: 'supervisor',
+    ports: portsFor({
+      data: projection('done', '2026-06-07T15:00:00Z', 'complete'),
+      applied,
+      backlogMutations,
+      backlogStore: {
+        schemaVersion: 1,
+        items: [
+          {
+            id: 'epic_relay',
+            source: { type: 'file', relativePath: 'backlog/epics/relay.md' },
+            metadata: {},
+            links: [runLink('epic')],
+          },
+          {
+            id: 'leaf_child',
+            source: { type: 'file', relativePath: 'backlog/relay-child.md' },
+            metadata: {},
+            links: [runLink('child')],
+          },
+        ],
+      },
+    }),
+  })
+
+  const epicWrite = backlogMutations.find((mutation) => mutation.relativePath === 'backlog/epics/relay.md')
+  const leafWrite = backlogMutations.find((mutation) => mutation.relativePath === 'backlog/relay-child.md')
+  assert.ok(epicWrite, 'the epic run link is still reconciled to completed')
+  assert.equal(epicWrite?.link.status, 'completed', 'the epic link chip reflects the finished run')
+  assert.equal(epicWrite?.status, undefined, 'the finished run never drives the epic status to completed')
+  assert.equal(leafWrite?.status, 'completed', 'a leaf item launched as a sprint still completes on the run finishing')
+}
+
 async function testNonterminalProjectionDoesNotCompleteBacklogLink(): Promise<void> {
   const applied: SprintEngineState[] = []
   const backlogMutations: Array<{
@@ -835,6 +891,7 @@ await testPermanentReadErrorSkipsBackgroundDiagnostic()
 await testPermanentReadErrorStillNotifiesManualRefresh()
 await testMissingContextSkip()
 await testCompletedProjectionRefreshesMatchingBacklogLink()
+await testCompletedProjectionSparesEpicStatus()
 await testNonterminalProjectionDoesNotCompleteBacklogLink()
 await testBacklogRefreshFailureWarnsAndLeavesItemUnchanged()
 await testFinishedPausedRunTransitionsAndTearsDown()

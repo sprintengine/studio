@@ -427,7 +427,7 @@ export function useSprintEngineBoardArtifactActions(
       if (!trimmed) {
         setTaskInputAction(taskId, {
           status: 'error',
-          message: 'A response is required to resume the worker.',
+          message: 'A response is required to resume the agent.',
         })
         return false
       }

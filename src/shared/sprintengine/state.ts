@@ -75,6 +75,7 @@ import type {
   SprintEngineTaskStatus,
   SprintEngineTaskTriage,
   SprintEngineVcs,
+  SprintEngineWorker,
 } from './run-types'
 import type { AgentState } from './agent-state'
 import type {
@@ -1222,6 +1223,10 @@ function normalizeSprintEngineVcs(input: unknown): SprintEngineVcs | undefined {
         ? record.pullRequestState
         : null,
     lastCommitSha: typeof record.lastCommitSha === 'string' ? record.lastCommitSha : null,
+    // MC-1615 multi-repo seam: recognize `vcs.repos` as an optional pass-through
+    // so a schema-v4 store round-trips through parse without field loss. No TS
+    // consumer reads it yet; the array is preserved verbatim.
+    ...(Array.isArray(record.repos) ? { repos: record.repos } : {}),
   }
 }
 
@@ -1795,8 +1800,16 @@ export function buildSprintEngineAgentRosterFromRuntimeAgents(
 }
 
 export function buildSprintEngineAgentRosterForState(
-  sprintEngineState: Pick<SprintEngineState, 'roleCounts' | 'sprintEngineAgents'> | null | undefined
+  sprintEngineState: Pick<SprintEngineState, 'roleCounts' | 'sprintEngineAgents' | 'workers'> | null | undefined
 ): SprintEngineAgentRosterItem[] {
+  // Canonical source: the lease-derived workers view (MC-1591). A worker is a
+  // superset of a runtime agent, so the same row builder applies.
+  const workers = sprintEngineState?.workers
+  if (workers && Object.keys(workers).length > 0) {
+    return buildSprintEngineAgentRosterFromRuntimeAgents(workers)
+  }
+  // Fallback for states built outside the projection normalizer (no workers
+  // view) and the pre-seat lazy placeholder that only populates sprintEngineAgents.
   if (sprintEngineState?.sprintEngineAgents && Object.keys(sprintEngineState.sprintEngineAgents).length > 0) {
     return buildSprintEngineAgentRosterFromRuntimeAgents(sprintEngineState.sprintEngineAgents)
   }
@@ -2372,6 +2385,14 @@ export function normalizeSprintEngineState(input: SprintEngineState | null | und
     ...(input.runner ? { runner: input.runner } : {}),
     ...(input.useWorktrees ? { useWorktrees: true } : {}),
     ...(input.vcs ? { vcs: input.vcs } : {}),
+    ...((): Partial<Pick<SprintEngineState, 'workers'>> => {
+      // Re-normalize the workers view so persisted renderer state carrying a
+      // legacy status coerces clean, mirroring sprintEngineAgents above. Empty
+      // is omitted; consumers fall back to sprintEngineAgents / roleCounts.
+      if (!input.workers) return {}
+      const workers = normalizeProjectionWorkers(input.workers)
+      return Object.keys(workers).length > 0 ? { workers } : {}
+    })(),
     ...((): Partial<Pick<SprintEngineState, 'roleRuntimes'>> => {
       const roleRuntimes = normalizeSprintEngineRoleRuntimes(input.roleRuntimes)
       return roleRuntimes ? { roleRuntimes } : {}
@@ -2546,26 +2567,55 @@ function coerceSprintEngineRuntimeAgentStatus(value: unknown): SprintEngineRunti
     : 'idle'
 }
 
+// Shared base for the roster bridge and the canonical workers view: both carry
+// the runtime-agent fields the board reads. Accepts any registry-keyed role id
+// (bundled or custom); an entry with a fully missing/empty role is dropped.
+function normalizeRuntimeAgentRecord(record: Record<string, unknown>): SprintEngineRuntimeAgent | null {
+  const roleId = normalizeSprintEngineRoleId(record.role)
+  if (!roleId) return null
+  return {
+    role: roleId,
+    status: coerceSprintEngineRuntimeAgentStatus(record.status),
+    currentTaskId: typeof record.currentTaskId === 'string' ? record.currentTaskId : null,
+    ...(typeof record.lastOwnedTaskId === 'string' && record.lastOwnedTaskId
+      ? { lastOwnedTaskId: record.lastOwnedTaskId }
+      : {}),
+    currentDispatch: normalizeCurrentDispatch(record.currentDispatch),
+  }
+}
+
 function normalizeProjectionRoster(value: unknown): Record<string, SprintEngineRuntimeAgent> {
   if (!value || typeof value !== 'object') return {}
   const result: Record<string, SprintEngineRuntimeAgent> = {}
   for (const [agentId, agent] of Object.entries(value as Record<string, unknown>)) {
     if (!agent || typeof agent !== 'object') continue
-    const record = agent as Record<string, unknown>
-    // Accept any registry-keyed role id (bundled or custom). Roster entries
-    // are required to carry a role; only fully missing/empty roles are
-    // dropped.
-    const roleId = normalizeSprintEngineRoleId(record.role)
-    if (!roleId) continue
-    const status = coerceSprintEngineRuntimeAgentStatus(record.status)
-    result[agentId] = {
-      role: roleId,
-      status,
-      currentTaskId: typeof record.currentTaskId === 'string' ? record.currentTaskId : null,
-      ...(typeof record.lastOwnedTaskId === 'string' && record.lastOwnedTaskId
-        ? { lastOwnedTaskId: record.lastOwnedTaskId }
-        : {}),
-      currentDispatch: normalizeCurrentDispatch(record.currentDispatch),
+    const base = normalizeRuntimeAgentRecord(agent as Record<string, unknown>)
+    if (base) result[agentId] = base
+  }
+  return result
+}
+
+// Canonical v3 worker view (`projection.workers`, MC-1591). A superset of the
+// roster bridge: same runtime-agent fields plus the recorded lease session and
+// the tasks the worker has owned. The roster bridge (`projection.roster`) shares
+// the runtime-agent fields, so this same parser accepts either shape — the
+// fallback path feeds it the roster when a projection predates `workers`.
+function normalizeProjectionWorkers(value: unknown): Record<string, SprintEngineWorker> {
+  if (!value || typeof value !== 'object') return {}
+  const result: Record<string, SprintEngineWorker> = {}
+  for (const [workerId, worker] of Object.entries(value as Record<string, unknown>)) {
+    if (!worker || typeof worker !== 'object') continue
+    const record = worker as Record<string, unknown>
+    const base = normalizeRuntimeAgentRecord(record)
+    if (!base) continue
+    const sessionId = optionalTrimmedString(record.sessionId)
+    const ownedTaskIds = Array.isArray(record.ownedTaskIds)
+      ? record.ownedTaskIds.filter((id): id is string => typeof id === 'string' && id.trim().length > 0)
+      : []
+    result[workerId] = {
+      ...base,
+      ...(sessionId ? { sessionId } : {}),
+      ...(ownedTaskIds.length > 0 ? { ownedTaskIds } : {}),
     }
   }
   return result
@@ -2585,6 +2635,12 @@ export function normalizeSprintEngineProjection(
   const runRecord = record.run && typeof record.run === 'object' ? record.run as Record<string, unknown> : {}
 
   const roster = normalizeProjectionRoster(record.roster)
+  // Canonical lease-derived workers view (MC-1591): read `projection.workers`
+  // when the field is present, and fall back to the `projection.roster` bridge
+  // only when it is absent (pre-v3 projections carry no `workers`).
+  const workers = normalizeProjectionWorkers(
+    record.workers !== undefined ? record.workers : record.roster,
+  )
   const rawTasks = Array.isArray(record.tasks) ? record.tasks : []
   const rawArtifacts = Array.isArray(record.artifacts) ? record.artifacts : []
   const rawActivity = Array.isArray(record.activity) ? record.activity : []
@@ -2629,6 +2685,7 @@ export function normalizeSprintEngineProjection(
     sprintEngineAgents: Object.keys(roster).length > 0
       ? roster
       : Object.fromEntries(buildSprintEngineAgentRoster(roleCounts).map((a) => [a.id, { role: a.role, status: 'idle' as const, currentTaskId: null }])),
+    workers,
     events,
     tasks: rawTasks as SprintEngineState['tasks'],
     artifacts: rawArtifacts as SprintEngineState['artifacts'],

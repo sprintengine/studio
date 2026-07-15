@@ -95,23 +95,28 @@ type RosterEntryDescriptor = {
   offerRestart: boolean
 }
 
-// Roster tab, re-architected as a full-width team table (MC-1516): a slim
-// header (census + Add member) over flat role sections — a role band carrying
-// the role-level facts (seat census + the role's model, editable in place via
-// the shared quiet CliModelPickerButton) above single-line seat rows on the
-// same left edge. No tree indentation, no side pane, no inspector split:
-// opening a member jumps to its terminal tab. Editing a role's model mutates
-// the run's canonical roleRuntimes (role edit wins — the host clears per-agent
-// overrides); live agents are never interrupted — an idle diverged seat gets a
-// visible Restart offer, a working one shows a muted "on <old model>" label and
-// switches at its next natural launch.
+// Agents tab, re-sourced from the projection's derived workers view
+// (MC-1593a): a slim header (census + the two run-config controls) over flat
+// role sections — a role band carrying the role-level facts (its live/total
+// count + the role's model, editable in place via the shared quiet
+// CliModelPickerButton) above single-line agent rows on the same left edge. No
+// tree indentation, no side pane, no inspector split: opening an agent jumps to
+// its terminal tab. Editing a role's model mutates the run's canonical
+// roleRuntimes (role edit wins — the host clears per-agent overrides); live
+// agents are never interrupted — an idle diverged agent gets a visible Restart
+// offer, a working one shows a muted "on <old model>" label and switches at its
+// next natural launch. The census counts who is working and how many roles the
+// run configures; the header controls "Add a role" (enables another role in the
+// run config) and "Add an agent" (raises the concurrent-agent count and spawns
+// one now) replace the old single seat-grammar "Add member" menu.
 export function SprintEngineRosterView({
   sprintEngineState,
   roster,
   agents,
   runtimeAgents,
   addMemberOptions,
-  onAddRole,
+  onEnableRole,
+  onAddAgent,
   isAgentTerminalLive,
   willResumeAgent,
   cliOptions,
@@ -133,7 +138,12 @@ export function SprintEngineRosterView({
   agents: Record<string, AgentState>
   runtimeAgents: RuntimeAgentView[]
   addMemberOptions: SprintEngineAddMemberOption[]
-  onAddRole: (role: SprintEngineRole) => void
+  // Enable a role the run does not yet configure (writes configuredRoles /
+  // roleRuntimes via the host). Its band appears immediately.
+  onEnableRole: (role: SprintEngineRole) => void
+  // Raise the run's concurrent-agent count and mint + spawn one agent of the
+  // chosen configured role now (writes maxConcurrentAgents via the host).
+  onAddAgent: (role: SprintEngineRole) => void
   isAgentTerminalLive: (agentId: string) => boolean
   willResumeAgent: (agentId: string) => boolean
   cliOptions: CliModelListboxOption[]
@@ -154,7 +164,8 @@ export function SprintEngineRosterView({
   onKillAgent: (agentId: string) => void
 }) {
   const [menu, setMenu] = useState<RosterMenuTarget | null>(null)
-  const [addOpen, setAddOpen] = useState(false)
+  const [addRoleOpen, setAddRoleOpen] = useState(false)
+  const [addAgentOpen, setAddAgentOpen] = useState(false)
 
   const menuAgent = menu ? roster.find((agent) => agent.id === menu.agentId) ?? null : null
 
@@ -253,85 +264,111 @@ export function SprintEngineRosterView({
   const roleLabelFor = (role: SprintEngineRoleId): string =>
     optionByRole.get(role)?.label ?? getSprintEngineRoleLabel(role)
 
-  // Header census: members on the roster, and how many are actually working.
+  // Header census: how many agents are actually working, and how many roles the
+  // run configures. Both derive from the workers view + configuredRoles — never
+  // a headcount of durable seats.
   const allDescriptors = roster.map(describeEntry)
   const workingCount = allDescriptors.filter(
     (entry) => entry.statusKey === 'running' || entry.statusKey === 'planning',
   ).length
+  const configuredRoleCount = enabledRoles.size
 
-  // One searchless add menu: roles new to the run first, then reinforcements
-  // for roles already on the team ("Another <Role>"). Same downstream rules as
-  // ever — a genuinely new role routes through the architect plan-revision
-  // flow, reinforcement does not prompt the architect.
-  const newRoleOptions = addMemberOptions.filter(
-    (option) => option.activeForRole === 0 && !enabledRoles.has(option.role),
-  )
-  const reinforceOptions = addMemberOptions.filter((option) => enabledRoles.has(option.role))
+  // "Add a role" lists the roles the run does not yet configure; picking one
+  // routes through the host's enable-role path (a genuinely new role prompts
+  // the architect to revise the plan). "Add an agent" lists the configured
+  // roles; picking one raises the concurrent-agent count and spawns a puller
+  // for that role now.
+  const addableRoleOptions = addMemberOptions.filter((option) => !enabledRoles.has(option.role))
+  const configuredRoleOptions = addMemberOptions.filter((option) => enabledRoles.has(option.role))
 
   return (
     <div className="flex min-h-0 min-w-0 flex-1 flex-col bg-[color:var(--bg-surface)]">
       <div className="flex h-11 shrink-0 items-center gap-2 border-b border-[color:var(--border-subtle)] px-4">
-        <h3 className="text-[12.5px] font-semibold text-[color:var(--text-strong)]">Roster</h3>
+        <h3 className="text-[12.5px] font-semibold text-[color:var(--text-strong)]">Agents</h3>
         <span className="text-[11px] tabular-nums text-[color:var(--text-subtle)]">
-          {roster.length} {roster.length === 1 ? 'member' : 'members'} · {workingCount} working
+          {workingCount} working · {configuredRoleCount} configured{' '}
+          {configuredRoleCount === 1 ? 'role' : 'roles'}
         </span>
         <span className="flex-1" />
-        <Popover
-          open={addOpen}
-          onOpenChange={setAddOpen}
-          ariaLabel="Add member"
-          popupRole="menu"
-          placement="bottom-end"
-          surfaceClassName="w-[240px] p-1"
-          renderTrigger={({ ref, triggerProps, togglePopover }) => (
-            <button
-              ref={ref}
-              type="button"
-              onClick={togglePopover}
-              className="interactive inline-flex h-[26px] items-center gap-1.5 rounded border border-[color:var(--border-default)] px-2.5 text-[11px] font-medium text-[color:var(--text-muted)] transition-colors hover:border-[color:var(--border-strong)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-default)] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[color:var(--accent-primary-soft)]"
-              {...triggerProps}
-            >
-              <span aria-hidden="true">＋</span> Add member
-            </button>
-          )}
-        >
-          <div role="none">
-            {newRoleOptions.map((option) => (
-              <MenuItem
-                key={option.role}
-                onClick={() => {
-                  onAddRole(option.role as SprintEngineRole)
-                  setAddOpen(false)
-                }}
+        {addableRoleOptions.length > 0 ? (
+          <Popover
+            open={addRoleOpen}
+            onOpenChange={setAddRoleOpen}
+            ariaLabel="Add a role"
+            popupRole="menu"
+            placement="bottom-end"
+            surfaceClassName="w-[240px] p-1"
+            renderTrigger={({ ref, triggerProps, togglePopover }) => (
+              <button
+                ref={ref}
+                type="button"
+                onClick={togglePopover}
+                className="interactive inline-flex h-[26px] items-center gap-1.5 rounded border border-[color:var(--border-default)] px-2.5 text-[11px] font-medium text-[color:var(--text-muted)] transition-colors hover:border-[color:var(--border-strong)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-default)] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[color:var(--accent-primary-soft)]"
+                {...triggerProps}
               >
-                {option.label}
-              </MenuItem>
-            ))}
-            {newRoleOptions.length > 0 && reinforceOptions.length > 0 ? <MenuDivider /> : null}
-            {reinforceOptions.length > 0 ? (
-              <p className="px-2 pb-0.5 pt-1.5 text-[10px] font-semibold text-[color:var(--text-subtle)]">
-                On the team
+                <span aria-hidden="true">＋</span> Add a role
+              </button>
+            )}
+          >
+            <div role="none">
+              {addableRoleOptions.map((option) => (
+                <MenuItem
+                  key={option.role}
+                  onClick={() => {
+                    onEnableRole(option.role as SprintEngineRole)
+                    setAddRoleOpen(false)
+                  }}
+                >
+                  {option.label}
+                </MenuItem>
+              ))}
+            </div>
+          </Popover>
+        ) : null}
+        {configuredRoleOptions.length > 0 ? (
+          <Popover
+            open={addAgentOpen}
+            onOpenChange={setAddAgentOpen}
+            ariaLabel="Add an agent"
+            popupRole="menu"
+            placement="bottom-end"
+            surfaceClassName="w-[240px] p-1"
+            renderTrigger={({ ref, triggerProps, togglePopover }) => (
+              <button
+                ref={ref}
+                type="button"
+                onClick={togglePopover}
+                className="interactive inline-flex h-[26px] items-center gap-1.5 rounded border border-[color:var(--border-default)] px-2.5 text-[11px] font-medium text-[color:var(--text-muted)] transition-colors hover:border-[color:var(--border-strong)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-default)] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[color:var(--accent-primary-soft)]"
+                {...triggerProps}
+              >
+                <span aria-hidden="true">＋</span> Add an agent
+              </button>
+            )}
+          >
+            <div role="none">
+              <p className="px-2 pb-0.5 pt-1 text-[10px] font-semibold text-[color:var(--text-subtle)]">
+                Start another agent for
               </p>
-            ) : null}
-            {reinforceOptions.map((option) => (
-              <MenuItem
-                key={option.role}
-                onClick={() => {
-                  onAddRole(option.role as SprintEngineRole)
-                  setAddOpen(false)
-                }}
-              >
-                {`Another ${option.label}`}
-              </MenuItem>
-            ))}
-          </div>
-        </Popover>
+              {configuredRoleOptions.map((option) => (
+                <MenuItem
+                  key={option.role}
+                  onClick={() => {
+                    onAddAgent(option.role as SprintEngineRole)
+                    setAddAgentOpen(false)
+                  }}
+                >
+                  {option.label}
+                </MenuItem>
+              ))}
+            </div>
+          </Popover>
+        ) : null}
       </div>
 
       <div className="min-h-0 flex-1 overflow-auto">
         {roleOrder.length === 0 ? (
           <div className="px-4 py-6 text-[12px] leading-5 text-[color:var(--text-subtle)]">
-            No roles on this run yet. Add a member to put the first role on the roster.
+            No roles configured yet. Add a role to staff this run.
           </div>
         ) : (
           roleOrder.map((role) => {
@@ -340,7 +377,7 @@ export function SprintEngineRosterView({
             const liveCount = descriptors.filter((entry) => entry.hasLiveTerminal).length
             const roleLabel = roleLabelFor(role)
             const census =
-              entries.length === 0 ? 'No seats yet' : `${liveCount} of ${entries.length} active`
+              entries.length === 0 ? 'None running' : `${liveCount} of ${entries.length} active`
             const bandCli = roleRuntimeCli(role)
             return (
               <section key={role} aria-label={roleLabel}>
@@ -365,7 +402,7 @@ export function SprintEngineRosterView({
 
                 {entries.length === 0 ? (
                   <p className="px-4 py-2 text-[11px] text-[color:var(--text-subtle)]">
-                    No seats yet — a member spawns when this role has work.
+                    No agents yet — one starts when this role has work.
                   </p>
                 ) : (
                   <ol aria-label={`${roleLabel} agents`}>

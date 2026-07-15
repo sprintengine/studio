@@ -11,6 +11,7 @@ import type { SprintEngineAutomationEvent } from '../types/workspace'
 import { publishDiagnostic } from './diagnostics'
 import { logPerfEvent } from './perfDiagnostics'
 import { isSprintEngineWorkspaceDormant } from './sprintengineAutomationLifecycle'
+import { isBacklogEpicPath } from './backlogEpics'
 import { isCompletedSprintEngineRun, normalizeSprintEngineProjection } from './sprintengine'
 import {
   buildSprintEnginePullRequestLink,
@@ -360,19 +361,29 @@ async function refreshBacklogSprintEngineRunLinks(input: {
   const targetStatePathKey = normalizedPathKey(workspace.sprintEngineContext.statePath)
   const pullRequestUrl = state.vcs?.pullRequestUrl?.trim() || null
   for (const record of storeResult.store.items) {
+    // An epic carries the run's execution link too, but its lifecycle derives UP
+    // from its children (see nextBacklogItemStatusFromLinks) — a finished run must
+    // not complete the epic while children are still open (live incident
+    // 2026-07-15). This store-only tick cannot see epic membership (frontmatter
+    // `epic:`/`type:` are not persisted here), so it refreshes an epic's link chip
+    // to Completed but never drives the epic's status; the epic-aware sync tick
+    // owns epic completion.
+    const isEpic = isBacklogEpicPath(record.source.relativePath)
     let matchedThisRun = false
     for (const link of record.links ?? []) {
       if (link.type !== 'execution') continue
       const linkStatePath = sprintEngineStatePathForBacklogLink(workspace.folderPath, link)
       if (!linkStatePath || normalizedPathKey(linkStatePath) !== targetStatePathKey) continue
       matchedThisRun = true
-      if (link.status === 'completed' && record.status === 'completed') continue
+      // For an epic the link is the only thing we touch, so once it is completed
+      // there is nothing left to reconcile.
+      if (link.status === 'completed' && (isEpic || record.status === 'completed')) continue
 
       const result = await ports.addOrUpdateBacklogLink({
         workspaceRoot: workspace.folderPath,
         relativePath: record.source.relativePath,
         link: { ...link, status: 'completed' },
-        status: record.status === 'archived' ? undefined : 'completed',
+        status: isEpic || record.status === 'archived' ? undefined : 'completed',
       })
       if (!result.ok) {
         await ports.publishDiagnostic?.({

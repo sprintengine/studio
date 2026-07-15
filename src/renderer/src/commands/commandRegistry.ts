@@ -387,7 +387,7 @@ export const COMMAND_REGISTRY = [
   }),
   command({
     id: 'sprintengine.goto.roster',
-    title: 'Sprint: Roster',
+    title: 'Sprint: Agents',
     category: 'sprintengine',
     scopes: ['panel:sprintengine'],
     defaultKeybindings: ['G then R'],
