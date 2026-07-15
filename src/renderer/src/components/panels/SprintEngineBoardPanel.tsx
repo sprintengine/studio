@@ -329,6 +329,7 @@ const sprintEngineAutomationRuntimeLabels: Record<SprintEngineAutomationRuntimeS
  blocked: 'Blocked',
  failed: 'Failed',
  complete: 'Complete',
+ canceled: 'Canceled',
 }
 
 // Automation status reads by shape, not a colored dot: only the exceptional

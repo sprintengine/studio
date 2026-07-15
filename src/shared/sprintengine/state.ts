@@ -142,6 +142,9 @@ const AUTOMATION_RUN_GLYPH: Partial<Record<SprintEngineAutomationRuntimeState, S
   blocked: { state: 'needs_input', live: false, label: 'Blocked — needs input' },
   failed: { state: 'failed', live: false, label: 'Failed' },
   complete: { state: 'done', live: false, label: 'Completed' },
+  // Canceled reads as a plain, decided terminal — the `archived` lifecycle mark
+  // (a filed-away record), distinct from the green `done` completion tick.
+  canceled: { state: 'archived', live: false, label: 'Canceled' },
 }
 
 // Board columns that mean work is genuinely in flight. `review` counts — under
@@ -164,6 +167,18 @@ const SPRINT_ENGINE_ACTIVE_TASK_STATUSES: ReadonlySet<SprintEngineTaskStatus> = 
 // projectionRefresh↔backlogLinks import cycle. Accepts any task-bearing shape.
 export function isCompletedSprintEngineRun(state: Pick<SprintEngineState, 'tasks'>): boolean {
   return state.tasks.length > 0 && state.tasks.every((task) => task.status === 'done')
+}
+
+// Canonical "this run was canceled" signal, the sibling to
+// `isCompletedSprintEngineRun`. Reads the stored run-level flag (run.yaml
+// `sprintengine.canceled`, surfaced by the projection normalizer from
+// `run.status === 'canceled'`) rather than deriving cancellation from task
+// statuses: a canceled run's non-done tasks are all `canceled`, so a
+// completeness rollup would misread it as done. Every consumer that needs a
+// "decided, no more effort" read (run glyph, backlog link, inbox suppression)
+// shares this one predicate so cancellation is judged identically everywhere.
+export function isCanceledSprintEngineRun(state: Pick<SprintEngineState, 'canceled'>): boolean {
+  return state.canceled === true
 }
 
 /**
@@ -250,7 +265,7 @@ export function willResumeRecordedRosterSession(input: {
 //   7. null — not started / no observable run; the surface keeps its own
 //      resting rendering (recency text, or the Backlog item's own status).
 export function deriveSprintEngineRunGlyph(input: {
-  sprintEngineState: Pick<SprintEngineState, 'tasks' | 'vcs'> | null | undefined
+  sprintEngineState: Pick<SprintEngineState, 'tasks' | 'vcs' | 'canceled'> | null | undefined
   autoState: Partial<SprintEngineAutoState> | null | undefined
 }): SprintEngineRunGlyph | null {
   const tasks = input.sprintEngineState?.tasks ?? []
@@ -260,6 +275,15 @@ export function deriveSprintEngineRunGlyph(input: {
         deriveSprintEngineAutomationDesiredMode(input.autoState),
       )
     : null
+
+  // Cancellation is a decided terminal: it outranks needs_input, in-progress,
+  // and completion. The stored run flag is authoritative; the terminal
+  // `canceled` runtime state covers the window before the projection carries
+  // the flag (e.g. a cold reopen reading persisted lifecycle only).
+  if (input.sprintEngineState && isCanceledSprintEngineRun(input.sprintEngineState)) {
+    return AUTOMATION_RUN_GLYPH.canceled ?? null
+  }
+  if (runtimeState === 'canceled') return AUTOMATION_RUN_GLYPH.canceled ?? null
 
   if (input.sprintEngineState && sprintEngineRunAwaitsHumanInput(input.sprintEngineState)) {
     return { state: 'needs_input', live: false, label: 'Needs input' }
@@ -2362,6 +2386,9 @@ export function normalizeSprintEngineState(input: SprintEngineState | null | und
     name: input.name?.trim() || 'Sprint Roster',
     goal: input.goal ?? '',
     rosterConfigured: Boolean(input.rosterConfigured),
+    // Preserve the stored cancel flag through both the projection normalizer and
+    // the renderer persist/HMR round-trip, so a canceled run reloads canceled.
+    ...(input.canceled ? { canceled: true as const } : {}),
     ...(input.source ? { source: input.source } : {}),
     ...(input.sourceBundle ? { sourceBundle: input.sourceBundle } : {}),
     updatedAt: input.updatedAt ?? null,
@@ -2680,6 +2707,11 @@ export function normalizeSprintEngineProjection(
     name: optionalTrimmedString(runRecord.name) ?? fallbackName ?? 'Sprint Roster',
     goal: typeof runRecord.goal === 'string' ? runRecord.goal : '',
     rosterConfigured: Boolean(runRecord.rosterConfigured),
+    // Stored run-level cancel flag, surfaced from the projection's run status
+    // (`sprintengine.canceled` drives `run.status === 'canceled'`). Only set when
+    // true so a normal run's state object stays unchanged. Read via
+    // `isCanceledSprintEngineRun`, never derived from task-completeness.
+    ...(runRecord.status === 'canceled' ? { canceled: true as const } : {}),
     updatedAt: optionalTrimmedString(runRecord.updatedAt) ?? optionalTrimmedString(record.updatedAt) ?? null,
     roleCounts,
     sprintEngineAgents: Object.keys(roster).length > 0

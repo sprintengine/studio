@@ -816,6 +816,14 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--feedback", required=True, help="Feedback to append to the linked task.")
     p.set_defaults(handler=artifact_commands.request_changes)
 
+    # cancel
+    p = sub.add_parser(
+        "cancel",
+        help="Cancel the run: status canceled, non-done tasks canceled, owners/leases released, one run_canceled event. Done tasks and any run worktree/branch are left in place.",
+    )
+    p.add_argument("--id", default="user", help="Actor id performing the cancel.")
+    p.set_defaults(handler=run_commands.cancel)
+
     # summary
     p = sub.add_parser("summary", help="Print final run summary.")
     p.set_defaults(handler=run_commands.summary)

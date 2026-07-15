@@ -17,6 +17,10 @@ export type SprintEngineAutomationRuntimeState =
   | 'blocked'
   | 'failed'
   | 'complete'
+  // Terminal like `complete`, but a user decision to stop the run rather than a
+  // finished task graph (MC-1604). Nothing auto-resumes it; only explicit user
+  // intent (re-selecting a mode) leaves it.
+  | 'canceled'
 
 export type SprintEngineAutomationStopReason =
   | 'user_selected_manual'
@@ -24,6 +28,9 @@ export type SprintEngineAutomationStopReason =
   | 'spawn_failed'
   | 'blocked_on_input'
   | 'all_tasks_done'
+  // The run was canceled by the user (MC-1604): the terminal reason paired with
+  // the `canceled` runtime state, mirroring `all_tasks_done` for `complete`.
+  | 'run_canceled'
   | 'terminal_closed'
   | 'workspace_removed'
   | 'startup'
@@ -53,6 +60,7 @@ export type SprintEngineAutomationEvent =
     agentId?: string
   }
   | { type: 'runner_complete'; message?: string }
+  | { type: 'runner_canceled'; message?: string }
   | { type: 'pending_spawns_changed'; pendingSpawns: SprintEngineAutoPendingSpawn[] }
 
 export type SprintEngineAutoState = {

@@ -361,6 +361,18 @@ def ensure_role_in_roster(state: Dict[str, Any], role: str) -> None:
         )
 
 
+def run_is_canceled(state: Dict[str, Any]) -> bool:
+    """True when the run carries the stored cancel flag.
+
+    Cancel is a lifecycle fact recorded on the run record, never derived from
+    task-completeness: a canceled run whose non-done tasks are all `canceled`
+    must not read back as `completed`. `recompute_phase` and the run-glyph
+    consumers read this flag rather than inferring cancellation from statuses.
+    """
+    sprintengine = state.get("sprintengine")
+    return bool(isinstance(sprintengine, dict) and sprintengine.get("canceled"))
+
+
 def role_has_open_work(state: Dict[str, Any], role: str) -> bool:
     for task in state.get("tasks", []) or []:
         if not isinstance(task, dict):

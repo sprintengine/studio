@@ -32,6 +32,7 @@ const runtimeStates = new Set<SprintEngineAutomationRuntimeState>([
   'blocked',
   'failed',
   'complete',
+  'canceled',
 ])
 
 const stopReasons = new Set<SprintEngineAutomationStopReason>([
@@ -40,9 +41,19 @@ const stopReasons = new Set<SprintEngineAutomationStopReason>([
   'spawn_failed',
   'blocked_on_input',
   'all_tasks_done',
+  'run_canceled',
   'terminal_closed',
   'workspace_removed',
   'startup',
+])
+
+// The terminal runtime states: once reached, only explicit user intent
+// (re-selecting a mode) or lifecycle-neutral pending-spawn bookkeeping may leave
+// them. `canceled` joins `complete` here so the async terminal-close events from
+// its own teardown cannot demote it back to `paused` (see the guard below).
+const terminalRuntimeStates = new Set<SprintEngineAutomationRuntimeState>([
+  'complete',
+  'canceled',
 ])
 
 export function isSprintEngineAutomationMode(input: unknown): input is SprintEngineAutomationMode {
@@ -137,16 +148,16 @@ export function transitionSprintEngineAutomation(
     runtimeState,
   }
 
-  // `complete` is a terminal runtime state. When every task is done the run's
-  // agent panels are torn down (see `tearDownCompletedSprintRunAgents`),
-  // and those terminal-close events arrive asynchronously — after the
-  // completion transition — as `runner_paused{ reason: terminal_closed }`.
-  // Without this guard they would demote a finished run back to `paused` (the
-  // "An agent terminal was closed" pill seen on a 26/26 run). Only explicit
-  // user intent (re-selecting an automation mode) leaves `complete`;
-  // lifecycle-neutral pending-spawn bookkeeping still passes through.
+  // `complete` and `canceled` are terminal runtime states. Reaching either tears
+  // the run's agent panels down (see `tearDownCompletedSprintRunAgents` / the
+  // cancel teardown), and those terminal-close events arrive asynchronously —
+  // after the terminal transition — as `runner_paused{ reason: terminal_closed }`.
+  // Without this guard they would demote a finished/canceled run back to `paused`
+  // (the "An agent terminal was closed" pill). Only explicit user intent
+  // (re-selecting an automation mode) leaves a terminal state; lifecycle-neutral
+  // pending-spawn bookkeeping still passes through.
   if (
-    runtimeState === 'complete' &&
+    terminalRuntimeStates.has(runtimeState) &&
     event.type !== 'user_set_mode' &&
     event.type !== 'pending_spawns_changed'
   ) {
@@ -226,6 +237,18 @@ export function transitionSprintEngineAutomation(
         runtimeState: 'complete',
         reason: 'all_tasks_done',
         reasonMessage: event.message ?? 'All tasks are complete.',
+        reasonTaskId: undefined,
+        reasonAgentId: undefined,
+        changedAt: now,
+        pendingSpawns: [],
+      }
+
+    case 'runner_canceled':
+      return {
+        ...base,
+        runtimeState: 'canceled',
+        reason: 'run_canceled',
+        reasonMessage: event.message ?? 'The run was canceled.',
         reasonTaskId: undefined,
         reasonAgentId: undefined,
         changedAt: now,

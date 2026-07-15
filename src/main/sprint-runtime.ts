@@ -736,9 +736,12 @@ export function createSprintRuntime(deps: SprintRuntimeDeps) {
    * cancel glyph is derived from the projection's stored flag instead, so no
    * new bridge stop-reason is introduced here.
    */
-  function enterTerminalDormancy(target: RunEntry): void {
+  function enterTerminalDormancy(target: RunEntry, opts?: { canceled?: boolean }): void {
     const runState = target.view.sprintEngineState
-    const canceled = runState ? isCanceledSprintEngineRun(runState) : false
+    // The direct cancel path knows its intent; the auto-run gate derives it from
+    // the run's stored flag. `opts.canceled` lets cancelRun park a run before its
+    // projection view has refreshed to carry the flag.
+    const canceled = opts?.canceled ?? (runState ? isCanceledSprintEngineRun(runState) : false)
     const targetRuntimeState: SprintEngineAutomationRuntimeState = canceled ? 'canceled' : 'complete'
     if (currentAutoState(target).runtimeState !== targetRuntimeState) {
       applyAutomationEventToView(
@@ -770,7 +773,7 @@ export function createSprintRuntime(deps: SprintRuntimeDeps) {
   function cancelRun(statePath: string): void {
     const entry = runsByStatePath.get(statePath)
     if (!entry) return
-    enterTerminalDormancy(entry)
+    enterTerminalDormancy(entry, { canceled: true })
   }
 
   /**

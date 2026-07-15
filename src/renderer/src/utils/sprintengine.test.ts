@@ -13,6 +13,7 @@ import {
   getOpenSprintEngineFeedbackComments,
   getOpenSprintEngineFeedbackFindings,
   getOpenSprintEngineFeedbackIssues,
+  isCanceledSprintEngineRun,
   getSprintEngineBoardRunPhase,
   getSprintEngineKanbanEmptyMessage,
   getSprintEngineRoleAccent,
@@ -559,6 +560,37 @@ assert.equal(
 assert.equal(
   deriveSprintEngineRunGlyph({ sprintEngineState: { tasks: [boardTask('done'), boardTask('done')] }, autoState: manualIdle })?.state,
   'done',
+)
+
+// isCanceledSprintEngineRun reads the stored run flag, never task-completeness.
+assert.equal(isCanceledSprintEngineRun({ canceled: true }), true)
+assert.equal(isCanceledSprintEngineRun({ canceled: false }), false)
+assert.equal(isCanceledSprintEngineRun({}), false)
+
+// Cancellation is a decided terminal: the stored flag outranks needs_input,
+// in-flight tasks, and completion, and reads as the plain `archived` mark
+// (distinct from the green `done` completion tick).
+assert.deepEqual(
+  deriveSprintEngineRunGlyph({
+    sprintEngineState: { canceled: true, tasks: [boardTask('canceled'), boardTask('done'), boardTask('in_progress')] },
+    autoState: runningAutoState,
+  }),
+  { state: 'archived', live: false, label: 'Canceled' },
+)
+// A canceled run whose one task happens to await user input still reads Canceled,
+// not Needs input — cancellation wins.
+assert.equal(
+  deriveSprintEngineRunGlyph({
+    sprintEngineState: { canceled: true, tasks: [{ status: 'needs_input', needsInput: { kind: 'user' } } as SprintEngineTask] },
+    autoState: manualIdle,
+  })?.label,
+  'Canceled',
+)
+// The terminal `canceled` runtime state also yields the Canceled glyph before the
+// projection carries the flag (cold reopen reading persisted lifecycle only).
+assert.deepEqual(
+  deriveSprintEngineRunGlyph({ sprintEngineState: null, autoState: { desiredMode: 'run_agents', runtimeState: 'canceled' } }),
+  { state: 'archived', live: false, label: 'Canceled' },
 )
 // Completed worktree run: merged → purple `done_merged` ("Merged"); not-yet-
 // merged → outline `done_unmerged` ("Ready for review"); no worktree stays

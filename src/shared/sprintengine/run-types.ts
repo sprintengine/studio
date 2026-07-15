@@ -743,6 +743,15 @@ export type SprintEngineState = {
   name: string
   goal: string
   rosterConfigured?: boolean
+  /**
+   * Whether the run was canceled by the user (MC-1604). A stored run-level
+   * lifecycle flag from run.yaml `sprintengine.canceled`, surfaced via the
+   * projection's `run.status === 'canceled'`; the projection normalizer sets it.
+   * Read through {@link isCanceledSprintEngineRun}, never derived from task
+   * statuses — a canceled run's non-done tasks are all `canceled`, which would
+   * otherwise read as completion. Absent/false for every other run.
+   */
+  canceled?: boolean
   source?: SprintEngineSource
   sourceBundle?: SprintEngineSourceBundleStateItem[]
   updatedAt?: string | null
