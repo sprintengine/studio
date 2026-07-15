@@ -168,6 +168,9 @@ async function assertProjectionSnapshotExposesProvenanceAndVcs(): Promise<void> 
           branchName: 'sprintengine/checkout',
           pullRequestUrl: 'https://github.com/acme/repo/pull/9',
           pullRequestState: 'open',
+          // MC-1615 multi-repo seam: an unknown per-repo array must ride through
+          // buildVcsState verbatim rather than being stripped.
+          repos: [{ repoRoot: 'packages/api', branchName: 'sprintengine/checkout-api' }],
         },
       },
       tasks: [{ id: 'T1', title: 'Done', role: 'developer', status: 'done', stateStatus: 'done', dependsOn: [] }],
@@ -185,6 +188,8 @@ async function assertProjectionSnapshotExposesProvenanceAndVcs(): Promise<void> 
   assert.equal(snapshot.vcs?.branch, 'sprintengine/checkout')
   assert.equal(snapshot.vcs?.pullRequestUrl, 'https://github.com/acme/repo/pull/9')
   assert.equal(snapshot.vcs?.pullRequestStatus, 'open')
+  // MC-1615: the multi-repo array is preserved verbatim (single-repo runs omit it).
+  assert.deepEqual(snapshot.vcs?.repos, [{ repoRoot: 'packages/api', branchName: 'sprintengine/checkout-api' }])
 
   // A hand-started run with no source and no worktree exposes neither.
   const bareStatePath = await writeStateText('bare\n')
