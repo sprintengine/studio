@@ -724,10 +724,11 @@ def test_mcp_agent_join_returns_prompt_registry_run_and_dispatch_context(tmp_pat
     assert response["ok"] is True
     result = response["result"]
     assert result["role"] == "developer"
-    # MC-1591 deleted the subscription mechanism; the field is an inert
-    # {mode: none} mirror. currentDispatch is still echoed from the agent-map
-    # mirror (removed in T4 when the roster is lease-derived).
-    assert result["agent"]["subscription"]["mode"] == "none"
+    # MC-1591: no agents map. The join echoes the joining worker's lease-derived
+    # view — developer-a claimed T1 above, so it resolves back to that active
+    # lease — and currentDispatch is rebuilt from the dispatch ledger.
+    assert result["agent"]["currentTaskId"] == "T1"
+    assert result["agent"]["status"] == "running"
     assert result["currentDispatch"]["taskId"] == "T1"
     assert result["run"]["name"] == "mcp-agent-join-context"
     assert result["roleManifest"]["id"] == "developer"
@@ -920,10 +921,6 @@ def test_mcp_next_directive_matches_join_for_needs_input_idle_complete_blocked_a
     }
     write_state(idle_fixture.state_path, idle_state)
     complete_fixture = create_team(tmp_path, "mcp-next-directive-complete", [task("T1", "Done work", "developer", "done")])
-    retired_fixture = create_team(tmp_path, "mcp-next-directive-retired", [task("T1", "Ready work", "developer")])
-    retired_state = read_state(retired_fixture.state_path)
-    retired_state["agents"] = {"developer-a": {"role": "developer", "status": "retired"}}
-    write_state(retired_fixture.state_path, retired_state)
     server = SprintEngineMcpServer(allowed_roots=[tmp_path])
 
     needs_join = needs_fixture.cli.run("join", "--role", "architect", "--id", "architect-a")
@@ -939,8 +936,6 @@ def test_mcp_next_directive_matches_join_for_needs_input_idle_complete_blocked_a
     idle = next_directive(server, idle_fixture, "developer", "developer-a", attempts=2)
     complete_join = complete_fixture.cli.run("join", "--role", "developer", "--id", "developer-a")
     complete = next_directive(server, complete_fixture, "developer", "developer-a")
-    retired_join = retired_fixture.cli.run("join", "--role", "developer", "--id", "developer-a")
-    retired = next_directive(server, retired_fixture, "developer", "developer-a")
     error = next_directive(server, idle_fixture, "not_a_role", "developer-a")
 
     assert needs_join["action"] == "needs_input_triage"
@@ -958,8 +953,6 @@ def test_mcp_next_directive_matches_join_for_needs_input_idle_complete_blocked_a
     assert idle["retryAfterMs"] == 30000
     assert complete_join["action"] == "complete"
     assert complete["directiveType"] == "complete"
-    assert retired_join["action"] == "retired"
-    assert retired["directiveType"] == "blocked"
     assert error["directiveType"] == "error"
     assert error["nextMcpToolName"] is None
 
@@ -1110,7 +1103,10 @@ def test_mcp_agent_join_resolves_workspace_only_custom_role(tmp_path) -> None:
     assert joined["result"]["roleManifest"]["id"] == "writer"
     assert "Drafting Soul for writer in mcp-custom-role-join." in joined["result"]["prompt"]
     assert "legacyJoin" not in joined["result"], "agent.join must not return CLI-laden legacyJoin payload"
-    assert read_state(fixture.state_path)["agents"]["writer-1"]["role"] == "writer"
+    # No agents map (MC-1591): a join records nothing, so the store carries no
+    # `agents` key and writer-1 (which claimed nothing) has no worker view.
+    assert "agents" not in read_state(fixture.state_path)
+    assert joined["result"]["agent"] is None
 
 
 def test_mcp_agent_join_response_contains_no_cli_command_strings(tmp_path) -> None:
@@ -1250,7 +1246,8 @@ def test_mcp_agent_heartbeat_preserves_assignment_state(tmp_path) -> None:
         {"statePath": str(fixture.state_path), "role": "developer", "id": "developer-a"},
         actor("workspace-user", "user"),
     )
-    before = read_state(fixture.state_path)["agents"]["developer-a"]
+    before_task = get_task(read_state(fixture.state_path), "T1")
+    before_heartbeat = before_task["lease"]["heartbeatAt"]
 
     response = server.call_tool(
         "sprintengine.agent.heartbeat",
@@ -1259,13 +1256,15 @@ def test_mcp_agent_heartbeat_preserves_assignment_state(tmp_path) -> None:
     )
 
     assert response["ok"] is True
-    # Heartbeat is pure liveness: a two-field ack, no roster-record echo and
-    # no assignment payload — assignment state travels via dispatch.next
-    # (currentDispatch) and task.next resume. The store keeps the assignment.
+    # Heartbeat is pure liveness: a two-field ack, no roster-record echo and no
+    # assignment payload. With no agents map (MC-1591) it renews the lease
+    # heartbeat of the worker's owned task; assignment travels via task.next.
     assert response["result"] == {"ok": True, "known": True}
-    persisted = read_state(fixture.state_path)["agents"]["developer-a"]
-    assert persisted["currentTaskId"] == before["currentTaskId"]
-    assert persisted["currentDispatch"] == before["currentDispatch"]
+    after_task = get_task(read_state(fixture.state_path), "T1")
+    assert after_task["ownerAgentId"] == "developer-a"
+    assert after_task["status"] == "in_progress"
+    assert after_task["lease"]["workerId"] == "developer-a"
+    assert after_task["lease"]["heartbeatAt"] >= before_heartbeat
 
 
 def test_mcp_agent_heartbeat_unknown_agent_does_not_create_roster_entry(tmp_path) -> None:
@@ -1291,9 +1290,6 @@ def test_mcp_agent_leave_preserves_needs_input_ownership(tmp_path) -> None:
     record["needsInput"] = {"kind": "user", "reason": "product_decision", "question": "Which auth provider?"}
     fixture = create_team(tmp_path, "mcp-agent-leave-needs-input", [record])
     server = SprintEngineMcpServer(allowed_roots=[tmp_path])
-    state = read_state(fixture.state_path)
-    state["agents"]["developer-a"] = {"role": "developer", "status": "needs_input", "currentTaskId": "T1", "heartbeatAt": "2026-01-01T00:00:00Z"}
-    write_state(fixture.state_path, state)
 
     response = server.call_tool(
         "sprintengine.agent.leave",
@@ -1302,8 +1298,11 @@ def test_mcp_agent_leave_preserves_needs_input_ownership(tmp_path) -> None:
     )
 
     assert response["ok"] is True
-    assert response["result"]["agent"]["status"] == "idle"
+    # The needs_input lease stays bound to its owner, so the worker view still
+    # resolves to T1 (a lease-derived view, no agents map).
     assert response["result"]["releasedTargets"] == []
+    assert response["result"]["agent"]["currentTaskId"] == "T1"
+    assert response["result"]["agent"]["status"] == "needs_input"
     persisted = get_task(read_state(fixture.state_path), "T1")
     assert persisted["status"] == "needs_input"
     assert persisted["needsInput"]["question"] == "Which auth provider?"
@@ -1343,7 +1342,9 @@ def test_mcp_agent_leave_releases_active_task_for_dispatch(tmp_path) -> None:
     )
 
     assert response["ok"] is True
-    assert response["result"]["agent"]["status"] == "idle"
+    # The in_progress lease is released, so the departing worker holds no lease
+    # and has no worker view.
+    assert response["result"]["agent"] is None
     assert response["result"]["releasedTargets"] == [
         {"kind": "task", "taskId": "T1", "previousOwnerAgentId": "developer-a", "status": "todo"}
     ]
@@ -1361,14 +1362,6 @@ def test_mcp_agent_leave_releases_active_task_for_dispatch(tmp_path) -> None:
 
 def test_mcp_agent_leave_releases_owned_active_task_when_agent_ref_is_stale(tmp_path) -> None:
     fixture = create_team(tmp_path, "mcp-agent-leave-release-stale-ref", [task("T1", "Leave task", "developer", "in_progress", owner="developer-a")])
-    state = read_state(fixture.state_path)
-    state["agents"]["developer-a"] = {
-        "role": "developer",
-        "status": "running",
-        "currentTaskId": "missing-task",
-        "heartbeatAt": "2026-01-01T00:00:00Z",
-    }
-    write_state(fixture.state_path, state)
     server = SprintEngineMcpServer(allowed_roots=[tmp_path])
 
     response = server.call_tool(

@@ -17,13 +17,6 @@ import pytest
 from helpers import SwarmCli, create_team, get_task, read_state, task
 from sprintengine_core import store
 from sprintengine_core.tool import append_task_activity
-from sprintengine_core.tool.state import (
-    load_mutation_state,
-    record_agent_join,
-    release_agent_targets,
-    release_expired_agent_targets,
-    set_agent_active,
-)
 
 
 RETIRED_TASK_FOLDERS = ("testing", "product", "changes_requested")
@@ -78,27 +71,35 @@ def test_handover_creates_folder_store_layout(tmp_path) -> None:
     assert (state_path.parent / "dispatch.jsonl").is_file()
 
 
-def test_task_claim_normalizes_agent_lifecycle_and_dispatch_ledger(tmp_path) -> None:
+def test_task_claim_mints_lease_and_records_dispatch_ledger(tmp_path) -> None:
+    # No agents map (MC-1591): the claim mints a lease on the task record and the
+    # worker view echoed on the claim + the lease-derived projection roster are
+    # both reconstructed from it and the append-only dispatch ledger.
     fixture = create_team(tmp_path, "agent-lifecycle-task-dispatch", [task("T1", "Implement core", "developer")])
 
     claimed = fixture.cli.run("task", "next", "--role", "developer", "--id", "developer-1")
-    run = store.load_run_yaml(fixture.team_dir)
-    agent = run["agents"]["developer-1"]
     dispatches = store.read_jsonl_file(fixture.team_dir / "dispatch.jsonl")
     projection = fixture.cli.run("projection")
 
     assert claimed["claimed"] is True
-    assert agent["role"] == "developer"
-    assert agent["status"] == "running"
-    assert agent["currentTaskId"] == "T1"
-    assert agent["joinedAt"]
-    assert agent["heartbeatAt"]
-    assert agent["subscription"] == {"mode": "none"}
-    assert agent["currentDispatch"]["targetKind"] == "task"
-    assert agent["currentDispatch"]["taskId"] == "T1"
-    assert agent["currentDispatch"]["reason"] == "task_claimed"
+    claim_agent = claimed["agent"]
+    assert claim_agent["role"] == "developer"
+    assert claim_agent["status"] == "running"
+    assert claim_agent["currentTaskId"] == "T1"
+    assert claim_agent["currentDispatch"]["targetKind"] == "task"
+    assert claim_agent["currentDispatch"]["taskId"] == "T1"
+    assert claim_agent["currentDispatch"]["reason"] == "task_claimed"
+
+    # The lease on the task record is the sole ownership authority; no agents map.
+    assert "agents" not in read_state(fixture.state_path)
+    assert "agents" not in store.load_run_yaml(fixture.team_dir)
+    t1 = get_task(read_state(fixture.state_path), "T1")
+    assert t1["status"] == "in_progress"
+    assert t1["ownerAgentId"] == "developer-1"
+    assert t1["lease"]["workerId"] == "developer-1"
+
     assert len(dispatches) == 1
-    assert dispatches[0]["id"] == agent["currentDispatch"]["dispatchId"]
+    assert dispatches[0]["id"] == claim_agent["currentDispatch"]["dispatchId"]
     assert dispatches[0]["agentId"] == "developer-1"
     assert dispatches[0]["role"] == "developer"
     assert dispatches[0]["target"] == {"kind": "task", "taskId": "T1"}
@@ -110,100 +111,6 @@ def test_task_claim_normalizes_agent_lifecycle_and_dispatch_ledger(tmp_path) -> 
     resumed = fixture.cli.run("task", "next", "--role", "developer", "--id", "developer-1")
     assert resumed["reason"] == "agent_already_has_active_task"
     assert len(store.read_jsonl_file(fixture.team_dir / "dispatch.jsonl")) == 1
-
-
-def test_agent_leave_releases_task_and_resets_to_idle(tmp_path) -> None:
-    # Derived-liveness model: leaving frees the owned in_progress task and resets
-    # the agent to idle-no-target — no stored left/dead status — while the durable
-    # ownership record survives so the id stays task-capped.
-    fixture = create_team(tmp_path, "agent-leave-idle", [task("T1", "Implement", "developer")])
-    state = read_state(fixture.state_path)
-
-    joined = record_agent_join(state, "developer-1", "developer")
-    first_heartbeat = joined["heartbeatAt"]
-    set_agent_active(state["agents"]["developer-1"], state["tasks"][0])
-    state["tasks"][0]["ownerAgentId"] = "developer-1"
-    state["tasks"][0]["status"] = "in_progress"
-
-    released = release_agent_targets(state, "developer-1", reason="terminal closed", actor="developer-1")
-    assert released == [
-        {"kind": "task", "taskId": "T1", "previousOwnerAgentId": "developer-1", "fromStatus": "in_progress", "status": "todo"}
-    ]
-    store.sync_state_to_store(fixture.team_dir, state, state_path=fixture.state_path)
-
-    persisted = store.load_run_yaml(fixture.team_dir)["agents"]["developer-1"]
-    assert persisted["role"] == "developer"
-    assert persisted["status"] == "idle"
-    assert persisted["joinedAt"]
-    assert persisted["heartbeatAt"] >= first_heartbeat
-    # MC-1591 deleted the subscription mechanism; the field survives as an inert
-    # {mode: none} mirror until T4 removes the agents map.
-    assert persisted["subscription"]["mode"] == "none"
-    assert persisted["currentDispatch"] is None
-    assert persisted["currentTaskId"] is None
-    assert persisted["lastOwnedTaskId"] == "T1"
-    assert store.load_run_yaml(fixture.team_dir)["tasks"] is not None
-    assert get_task(read_state(fixture.state_path), "T1")["status"] == "todo"
-
-
-def test_legacy_left_dead_agent_status_normalizes_to_idle_on_load(tmp_path) -> None:
-    # On-disk left/dead is stale liveness; the unknown-status->idle load rule
-    # coerces it. Provenance fields ride along untouched as inert metadata.
-    fixture = create_team(tmp_path, "legacy-status-load", [])
-    state = read_state(fixture.state_path)
-    state["agents"] = {
-        "developer-1": {"role": "developer", "status": "left", "leftAt": "2000-01-01T00:00:00Z", "lastOwnedTaskId": "T0", "ownedTaskIds": ["T0"]},
-        "reviewer-1": {"role": "security", "status": "dead", "deadAt": "2000-01-01T00:00:00Z"},
-        "developer-2": {"role": "developer", "status": "running"},
-        "architect": {"role": "architect", "status": "retired"},
-    }
-    store.sync_state_to_store(fixture.team_dir, state, state_path=fixture.state_path)
-
-    loaded = load_mutation_state(fixture.state_path)
-    assert loaded["agents"]["developer-1"]["status"] == "idle"
-    assert loaded["agents"]["developer-1"]["leftAt"] == "2000-01-01T00:00:00Z"
-    assert loaded["agents"]["developer-1"]["ownedTaskIds"] == ["T0"]
-    assert loaded["agents"]["reviewer-1"]["status"] == "idle"
-    # Known statuses are preserved.
-    assert loaded["agents"]["developer-2"]["status"] == "running"
-    assert loaded["agents"]["architect"]["status"] == "retired"
-
-
-def test_expiry_sweep_is_noop_on_idle_agent_without_target(tmp_path) -> None:
-    fixture = create_team(tmp_path, "expiry-noop-idle", [])
-    state = read_state(fixture.state_path)
-    # Idle, no target, stale heartbeat: the mirror gate skips it — no release.
-    state["agents"] = {
-        "developer-1": {"role": "developer", "status": "idle", "currentTaskId": None, "heartbeatAt": "2000-01-01T00:00:00Z"},
-    }
-    result = release_expired_agent_targets(state, actor="sprintengine")
-    assert result == {"released": [], "dirty": False}
-    assert state["agents"]["developer-1"]["status"] == "idle"
-
-
-def test_agent_reactivation_clears_terminal_state_metadata(tmp_path) -> None:
-    fixture = create_team(tmp_path, "agent-reactivation-clears-terminal-metadata", [task("T1", "Implement", "developer")])
-    state = read_state(fixture.state_path)
-
-    agent = record_agent_join(state, "developer-1", "developer")
-    # Legacy provenance metadata lingering on a departed id (status already
-    # normalized to idle on load); claiming reactivates and clears it.
-    agent["deadAt"] = "2000-01-01T00:00:00Z"
-    agent["deathReason"] = "heartbeat_expired"
-    store.sync_state_to_store(fixture.team_dir, state, state_path=fixture.state_path)
-
-    claimed = fixture.cli.run("task", "next", "--role", "developer", "--id", "developer-1")
-    persisted = store.load_run_yaml(fixture.team_dir)["agents"]["developer-1"]
-
-    assert claimed["claimed"] is True
-    assert persisted["status"] == "running"
-    assert persisted["currentTaskId"] == "T1"
-    assert "deadAt" not in persisted
-    assert "deathReason" not in persisted
-    assert "deadAt" not in persisted
-    assert "deathReason" not in persisted
-    assert "leftAt" not in persisted
-    assert "leaveReason" not in persisted
 
 
 def test_review_status_materializes_and_projects_without_ready_claimability(tmp_path) -> None:
@@ -232,12 +139,14 @@ def test_review_status_materializes_and_projects_without_ready_claimability(tmp_
             store.validate_task_status(retired)
 
 
-def test_plan_add_task_requires_a_configured_roster(tmp_path) -> None:
-    fixture = create_team(
-        tmp_path,
-        "plan-add-unconfigured-roster",
-        [],
-    )
+def test_plan_add_task_rejects_a_role_absent_from_configured_roles(tmp_path) -> None:
+    # Post-lease authority (MC-1591): run membership is `configuredRoles`, not a
+    # seated roster. A configured run rejects a task for a role it did not enable.
+    fixture = create_team(tmp_path, "plan-add-unconfigured-roster", [])
+    state = read_state(fixture.state_path)
+    state["sprintengine"]["rosterConfigured"] = True
+    state["configuredRoles"] = ["architect"]
+    store.sync_state_to_store(fixture.team_dir, state, state_path=fixture.state_path)
 
     rejected = fixture.cli.run_failure(
         "plan",
@@ -250,7 +159,7 @@ def test_plan_add_task_requires_a_configured_roster(tmp_path) -> None:
         "sprintengine_core/tool.py",
     )
 
-    assert "Cannot add Sprint Engine tasks before configuring a roster" in rejected.stderr
+    assert "is not enabled for this run" in rejected.stderr
 
 
 def test_plan_add_task_roots_new_tasks_on_the_plan_gate(tmp_path) -> None:
@@ -262,10 +171,6 @@ def test_plan_add_task_roots_new_tasks_on_the_plan_gate(tmp_path) -> None:
     fixture = create_team(tmp_path, "plan-gate-rooting", [])
     state = read_state(fixture.state_path)
     state["sprintengine"]["rosterConfigured"] = True
-    state["agents"] = {
-        "architect": {"role": "architect", "status": "idle", "currentTaskId": None},
-        "developer-fixture": {"role": "developer", "status": "idle", "currentTaskId": None},
-    }
     state["tasks"] = [
         {
             "id": "T0",
@@ -312,9 +217,6 @@ def test_plan_add_task_keeps_empty_dependencies_without_a_plan_gate(tmp_path) ->
     fixture = create_team(tmp_path, "plan-gate-absent", [])
     state = read_state(fixture.state_path)
     state["sprintengine"]["rosterConfigured"] = True
-    state["agents"] = {
-        "developer-fixture": {"role": "developer", "status": "idle", "currentTaskId": None},
-    }
     store.sync_state_to_store(fixture.team_dir, state, state_path=fixture.state_path)
 
     added = fixture.cli.run(
@@ -328,10 +230,12 @@ def test_plan_add_task_keeps_empty_dependencies_without_a_plan_gate(tmp_path) ->
     assert added["task"]["dependsOn"] == []
 
 
-def _rostered(fixture, agents: dict) -> None:
+def _rostered(fixture) -> None:
+    # Under the lease model the run's "roster" is `configuredRoles`, not an agents
+    # map. These tests only need the run marked roster-configured; role validation
+    # no-ops without a configured set (legacy/headless boundary).
     state = read_state(fixture.state_path)
     state["sprintengine"]["rosterConfigured"] = True
-    state["agents"] = agents
     store.sync_state_to_store(fixture.team_dir, state, state_path=fixture.state_path)
 
 
@@ -339,14 +243,7 @@ def test_planned_tasks_carry_no_quality_gate_state(tmp_path) -> None:
     # Gate derivation is gone: a task's post-implementation work is its `phases`
     # list, never a per-path/per-role gate set derived at plan time.
     fixture = create_team(tmp_path, "plan-no-gates", [])
-    _rostered(
-        fixture,
-        {
-            "developer-fixture": {"role": "developer", "status": "idle", "currentTaskId": None},
-            "architect": {"role": "architect", "status": "idle", "currentTaskId": None},
-            "frontend": {"role": "frontend", "status": "idle", "currentTaskId": None},
-        },
-    )
+    _rostered(fixture)
 
     added = fixture.cli.run(
         "plan",
@@ -373,13 +270,7 @@ def test_plan_add_and_update_persist_product_facing_and_produces_implementation(
     # Both flags survive as plain persisted task metadata. They no longer derive
     # gates; nothing in the engine reads them today.
     fixture = create_team(tmp_path, "plan-task-flags", [])
-    _rostered(
-        fixture,
-        {
-            "developer-fixture": {"role": "developer", "status": "idle", "currentTaskId": None},
-            "architect": {"role": "architect", "status": "idle", "currentTaskId": None},
-        },
-    )
+    _rostered(fixture)
 
     internal = fixture.cli.run(
         "plan", "add-task", "--title", "Refine internal CLI lifecycle",
